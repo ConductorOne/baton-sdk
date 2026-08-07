@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -19,6 +18,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -33,6 +33,10 @@ type OutstandingAction struct {
 	Err       error
 	StartedAt time.Time
 	sync.Mutex
+
+	// cancelled marks a FAILED status that came from request cancellation
+	// rather than from the handler; the handler's late outcome replaces it.
+	cancelled bool
 }
 
 func NewOutstandingAction(id, name string) *OutstandingAction {
@@ -95,18 +99,31 @@ func (oa *OutstandingAction) setErrorLocked(err error) {
 
 // SetError records the error and marks the action failed in one critical
 // section, so no snapshot can observe the error with a non-terminal status.
-// A FAILED action may refresh its error payload — a late handler error is a
-// richer account than an earlier cancellation — but a COMPLETE action stays
-// complete.
+// A FAILED action may refresh its error payload, but a COMPLETE action stays
+// complete. This is a real handler failure, so it clears any provisional
+// cancellation mark.
 func (oa *OutstandingAction) SetError(ctx context.Context, err error) {
 	oa.Lock()
 	defer oa.Unlock()
 	if oa.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
 		oa.setErrorLocked(err)
+		oa.cancelled = false
 		return
 	}
 	if oa.setStatusLocked(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED) {
 		oa.setErrorLocked(err)
+	}
+}
+
+// setCancelled records a cancellation as a provisional failure: unlike other
+// terminal states, the handler's own late outcome replaces it, since the
+// action's side effects can still complete after the request goes away.
+func (oa *OutstandingAction) setCancelled(ctx context.Context, err error) {
+	oa.Lock()
+	defer oa.Unlock()
+	if oa.setStatusLocked(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED) {
+		oa.setErrorLocked(err)
+		oa.cancelled = true
 	}
 }
 
@@ -127,14 +144,22 @@ func (oa *OutstandingAction) result() (string, v2.BatonActionStatus, *structpb.S
 // setOutcome publishes the handler's result and terminal status in one
 // critical section, so no snapshot observes one without the other. The
 // values are cloned at this publication seam: the handler owns what it
-// returned and may keep mutating it. Terminal statuses are final — a late
-// completion after a cancellation is dropped, except that a FAILED action
-// takes a late handler failure as a replacement account.
+// returned and may keep mutating it. Terminal statuses are final, with one
+// exception: a cancellation-FAILED status is provisional, and the handler's
+// own outcome — success or failure — replaces it.
 func (oa *OutstandingAction) setOutcome(ctx context.Context, rv *structpb.Struct, annos annotations.Annotations, err error) {
 	if rv != nil {
 		rv = proto.Clone(rv).(*structpb.Struct)
 	}
-	annos = slices.Clone(annos)
+	if annos != nil {
+		annosCopy := make(annotations.Annotations, len(annos))
+		for i, a := range annos {
+			if a != nil {
+				annosCopy[i] = proto.Clone(a).(*anypb.Any)
+			}
+		}
+		annos = annosCopy
+	}
 
 	oa.Lock()
 	defer oa.Unlock()
@@ -144,7 +169,19 @@ func (oa *OutstandingAction) setOutcome(ctx context.Context, rv *structpb.Struct
 			oa.Rv = rv
 			oa.Annos = annos
 			oa.setErrorLocked(err)
+			oa.cancelled = false
 		}
+		return
+	}
+
+	if oa.cancelled {
+		// Deliberate cross-terminal replacement: the cancellation was a
+		// transport event, not the action's outcome.
+		oa.cancelled = false
+		oa.Status = v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE
+		oa.Rv = rv
+		oa.Annos = annos
+		oa.Err = nil
 		return
 	}
 
@@ -550,8 +587,13 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 			return id, st, rv, annos, nil
 		default:
 		}
-		oa.SetError(ctx, ctx.Err())
+		oa.setCancelled(ctx, ctx.Err())
 		id, st, rv, annos := oa.result()
+		if st == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE {
+			// The handler won the race to the lock; its completed result is
+			// the authoritative pairing, not the cancellation.
+			return id, st, rv, annos, nil
+		}
 		return id, st, rv, annos, ctx.Err()
 	}
 }
@@ -647,8 +689,13 @@ func (a *ActionManager) invokeResourceAction(
 			return id, st, rv, annos, nil
 		default:
 		}
-		oa.SetError(ctx, ctx.Err())
+		oa.setCancelled(ctx, ctx.Err())
 		id, st, rv, annos := oa.result()
+		if st == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE {
+			// The handler won the race to the lock; its completed result is
+			// the authoritative pairing, not the cancellation.
+			return id, st, rv, annos, nil
+		}
 		return id, st, rv, annos, ctx.Err()
 	}
 }

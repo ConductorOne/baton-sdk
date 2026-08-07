@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -643,33 +644,52 @@ func TestOutstandingActionLifecycleTransitions(t *testing.T) {
 	}
 }
 
-func TestLateCompletionAfterCancelStaysFailed(t *testing.T) {
+func TestLateSuccessAfterCancelReplacesIt(t *testing.T) {
 	ctx := t.Context()
 	oa := NewOutstandingAction("id", "cancelled")
 	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
-	oa.SetError(ctx, context.Canceled)
+	oa.setCancelled(ctx, context.Canceled)
 
 	rv, err := structpb.NewStruct(map[string]any{"success": true})
 	require.NoError(t, err)
 	oa.setOutcome(ctx, rv, nil, nil)
 
+	// The cancellation was a transport event; the handler's success is the
+	// action's real outcome.
 	_, actionStatus, gotRv, _ := oa.Result()
-	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
-	require.Equal(t, context.Canceled.Error(), gotRv.Fields["error"].GetStringValue())
-	require.Nil(t, gotRv.Fields["success"])
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, actionStatus)
+	require.True(t, gotRv.Fields["success"].GetBoolValue())
+	require.Nil(t, gotRv.Fields["error"])
 }
 
 func TestLateFailureAfterCancelReplacesError(t *testing.T) {
 	ctx := t.Context()
 	oa := NewOutstandingAction("id", "cancelled")
 	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
-	oa.SetError(ctx, context.Canceled)
+	oa.setCancelled(ctx, context.Canceled)
 
 	oa.setOutcome(ctx, nil, nil, fmt.Errorf("upstream rejected the request"))
 
 	_, actionStatus, gotRv, _ := oa.Result()
 	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
 	require.Equal(t, "upstream rejected the request", gotRv.Fields["error"].GetStringValue())
+}
+
+func TestLateSuccessAfterRealFailureIsDropped(t *testing.T) {
+	ctx := t.Context()
+	oa := NewOutstandingAction("id", "panicked")
+	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+	oa.SetError(ctx, fmt.Errorf("panic in action handler"))
+
+	rv, err := structpb.NewStruct(map[string]any{"success": true})
+	require.NoError(t, err)
+	oa.setOutcome(ctx, rv, nil, nil)
+
+	// A real handler failure is final; only cancellation is provisional.
+	_, actionStatus, gotRv, _ := oa.Result()
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+	require.Equal(t, "panic in action handler", gotRv.Fields["error"].GetStringValue())
+	require.Nil(t, gotRv.Fields["success"])
 }
 
 func TestPublishedOutcomeIsIsolatedFromHandler(t *testing.T) {
@@ -679,16 +699,22 @@ func TestPublishedOutcomeIsIsolatedFromHandler(t *testing.T) {
 
 	rv, err := structpb.NewStruct(map[string]any{"k": "v"})
 	require.NoError(t, err)
-	oa.setOutcome(ctx, rv, annotations.Annotations{}, nil)
+	anno, err := anypb.New(structpb.NewStringValue("original"))
+	require.NoError(t, err)
+	oa.setOutcome(ctx, rv, annotations.Annotations{anno}, nil)
 
 	// The handler owns what it returned and may keep mutating it; the
-	// published outcome must not change.
+	// published outcome must not change. Annotations are deep-copied, so
+	// element mutation is isolated too.
 	rv.Fields["mutated"] = structpb.NewBoolValue(true)
+	anno.TypeUrl = "mutated"
 
-	_, actionStatus, gotRv, _ := oa.Result()
+	_, actionStatus, gotRv, gotAnnos := oa.Result()
 	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, actionStatus)
 	require.Nil(t, gotRv.Fields["mutated"])
 	require.Equal(t, "v", gotRv.Fields["k"].GetStringValue())
+	require.Len(t, gotAnnos, 1)
+	require.NotEqual(t, "mutated", gotAnnos[0].TypeUrl)
 
 	// Under -race: concurrent handler mutation against reader marshals.
 	stop := make(chan struct{})
