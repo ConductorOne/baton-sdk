@@ -82,7 +82,9 @@ interrupt-check: checkpoint-cut-check crash-check ## Run in-process cut and real
 
 .PHONY: race-check
 race-check: ## Run the complete Go suite with the race detector.
-	go test -race -tags=baton_lambda_support -count=1 -timeout=30m ./...
+	# 45m, not 30m: instrumented pkg/dotc1z alone runs ~30m, so the old
+	# bound was close enough to trip on a slower runner.
+	go test -race -tags=baton_lambda_support -count=1 -timeout=45m ./...
 
 .PHONY: fuzz-smoke
 fuzz-smoke: ## Run each native Go fuzzer for FUZZ_TIME (default 30s).
