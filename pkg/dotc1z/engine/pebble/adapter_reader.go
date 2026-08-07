@@ -248,10 +248,10 @@ func (e *Engine) ListGrantsForEntitlement(
 		var records []*v3.GrantRecord
 		var next string
 		if principalID != nil {
-			records, next, err = e.PaginateGrantsByEntitlementPrincipal(ctx,
+			records, next, err = e.paginateGrantsByEntitlementPrincipal(ctx,
 				entIdentity, principalID.GetResourceType(), principalID.GetResource(), cursor, fetchLimit)
 		} else {
-			records, next, err = e.PaginateGrantsByEntitlement(ctx,
+			records, next, err = e.paginateGrantsByEntitlement(ctx,
 				entIdentity, cursor, fetchLimit)
 		}
 		if err != nil {
@@ -323,7 +323,7 @@ func (e *Engine) ListGrantPrincipalKeysForEntitlement(
 		}
 		return nil, "", err
 	}
-	keys, next, err := e.PaginateGrantPrincipalKeysByEntitlement(ctx, entIdentity, pageToken, clampPageSize(pageSize))
+	keys, next, err := e.paginateGrantPrincipalKeysByEntitlement(ctx, entIdentity, pageToken, clampPageSize(pageSize))
 	if err != nil {
 		return nil, "", c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -382,13 +382,13 @@ func (e *Engine) ListGrantsForPrincipal(
 			}
 			return nil, err
 		}
-		records, next, err = e.PaginateGrantsByEntitlementPrincipal(ctx,
+		records, next, err = e.paginateGrantsByEntitlementPrincipal(ctx,
 			entIdentity, principal.GetResourceType(), principal.GetResource(), cursor, limit)
 		if err != nil {
 			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 		}
 	} else {
-		records, next, err = e.PaginateGrantsByPrincipal(ctx,
+		records, next, err = e.paginateGrantsByPrincipal(ctx,
 			principal.GetResourceType(), principal.GetResource(), cursor, limit)
 		if err != nil {
 			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
@@ -426,7 +426,7 @@ func (e *Engine) ListGrantsForResourceType(
 	}
 	limit := clampPageSize(req.GetPageSize())
 	cursor := req.GetPageToken()
-	records, next, err := e.PaginateGrantsByPrincipalResourceType(ctx, rtFilter, cursor, limit)
+	records, next, err := e.paginateGrantsByPrincipalResourceType(ctx, rtFilter, cursor, limit)
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -634,7 +634,7 @@ func (e *Engine) resolveActiveSyncForReader(ctx context.Context, annos []*anypb.
 	if annoSyncID != "" {
 		return annoSyncID, nil
 	}
-	if id := e.CurrentSyncID(); id != "" {
+	if id := e.currentSyncID(); id != "" {
 		return id, nil
 	}
 	id, err := e.LatestFinishedSyncID(ctx, connectorstore.SyncTypeAny)
@@ -707,7 +707,7 @@ func (e *Engine) GetEntitlementGrantDigest(ctx context.Context, ent *v2.Entitlem
 	if err != nil || !ok {
 		return connectorstore.GrantDigest{}, false, err
 	}
-	root, ok, err := e.GetEntitlementDigestRoot(ctx, id)
+	root, ok, err := e.getEntitlementDigestRoot(ctx, id)
 	if err != nil || !ok {
 		return connectorstore.GrantDigest{}, false, err
 	}
@@ -737,7 +737,7 @@ func (e *Engine) GetEntitlementGrantDigestNodes(ctx context.Context, ent *v2.Ent
 	if err != nil || !ok {
 		return nil, false, err
 	}
-	root, ok, err := e.GetEntitlementDigestRoot(ctx, id)
+	root, ok, err := e.getEntitlementDigestRoot(ctx, id)
 	if err != nil || !ok {
 		return nil, false, err
 	}
@@ -794,7 +794,7 @@ func (e *Engine) ScanEntitlementGrantBucket(ctx context.Context, ent *v2.Entitle
 		return err
 	}
 	bits := min(bucket.Level, digestMaxWidthBits)
-	return e.IterateGrantsByEntitlementBucket(ctx, id, DigestBucket{Index: bucket.Index, Bits: bits}, func(r *v3.GrantRecord) bool {
+	return e.iterateGrantsByEntitlementBucket(ctx, id, DigestBucket{Index: bucket.Index, Bits: bits}, func(r *v3.GrantRecord) bool {
 		return yield(V3GrantToV2(r))
 	})
 }

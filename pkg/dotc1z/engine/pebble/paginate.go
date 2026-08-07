@@ -225,7 +225,7 @@ func getGrantByIdentity(ctx context.Context, db *rawdb.DB, id grantIdentity) (*v
 // collapsing 2N nested allocs into 2 slice allocs per page. The
 // arena lifetime ends with this function — callers receive pointers
 // into the arena's backing arrays, so retention is intentional.
-func (e *Engine) PaginateGrants(
+func (e *Engine) paginateGrants(
 	ctx context.Context, cursor string, limit int,
 ) ([]*v3.GrantRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
@@ -252,11 +252,11 @@ func (e *Engine) PaginateGrants(
 	return records, next, nil
 }
 
-// PaginateGrantsByEntitlement scans the primary grant keyspace under the
+// paginateGrantsByEntitlement scans the primary grant keyspace under the
 // entitlement identity prefix. Cursor is the primary key. Callers resolve
 // the identity from structured refs (or the bare-id lookup) — the engine
 // never parses id strings here.
-func (e *Engine) PaginateGrantsByEntitlement(
+func (e *Engine) paginateGrantsByEntitlement(
 	ctx context.Context, entID entitlementIdentity, cursor string, limit int,
 ) ([]*v3.GrantRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
@@ -266,11 +266,11 @@ func (e *Engine) PaginateGrantsByEntitlement(
 	return iterateGrantPrimaryPage(ctx, e.db, encodeGrantPrimaryEntitlementPrefix(entID), cursorBytes, limit)
 }
 
-// PaginateGrantPrincipalKeysByEntitlement scans the primary grant keyspace under
+// paginateGrantPrincipalKeysByEntitlement scans the primary grant keyspace under
 // the entitlement identity prefix and returns only principal identity keys for
 // each matching grant. The key format is principal_resource_type + "\x00" +
 // principal_resource_id, matching pkg/sync/expand's descendantGrantKey.
-func (e *Engine) PaginateGrantPrincipalKeysByEntitlement(
+func (e *Engine) paginateGrantPrincipalKeysByEntitlement(
 	ctx context.Context, entID entitlementIdentity, cursor string, limit int,
 ) ([]string, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
@@ -321,11 +321,11 @@ func (e *Engine) PaginateGrantPrincipalKeysByEntitlement(
 	return out, nextCursor, nil
 }
 
-// PaginateGrantsByEntitlementPrincipal uses the structured primary key for a
+// paginateGrantsByEntitlementPrincipal uses the structured primary key for a
 // point lookup by entitlement + principal. This is the hot path for grant
 // expansion, where callers repeatedly ask whether a single principal already
 // has a grant on a descendant entitlement.
-func (e *Engine) PaginateGrantsByEntitlementPrincipal(
+func (e *Engine) paginateGrantsByEntitlementPrincipal(
 	ctx context.Context, entID entitlementIdentity, principalRT, principalID, cursor string, limit int,
 ) ([]*v3.GrantRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
@@ -350,9 +350,9 @@ func (e *Engine) PaginateGrantsByEntitlementPrincipal(
 	return []*v3.GrantRecord{r}, "", nil
 }
 
-// PaginateGrantsByPrincipal uses the by_principal index. Same shape
+// paginateGrantsByPrincipal uses the by_principal index. Same shape
 // as PaginateGrantsByEntitlement.
-func (e *Engine) PaginateGrantsByPrincipal(
+func (e *Engine) paginateGrantsByPrincipal(
 	ctx context.Context, principalRT, principalID, cursor string, limit int,
 ) ([]*v3.GrantRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
@@ -420,7 +420,7 @@ func (e *Engine) PaginateGrantsByPrincipal(
 	return out, nextCursor, nil
 }
 
-// PaginateGrantsByEntitlementResource walks the primary grant keyspace for all
+// paginateGrantsByEntitlementResource walks the primary grant keyspace for all
 // grants whose entitlement's resource is (entRT, entRID). Cursor is the primary
 // key.
 //
@@ -429,7 +429,7 @@ func (e *Engine) PaginateGrantsByPrincipal(
 // grants.resource_id / resource_type_id (the entitlement-side resource columns).
 // The pre-existing Pebble path used PaginateGrantsByPrincipal here, which
 // returned empty for the common "grants on this group" semantic.
-func (e *Engine) PaginateGrantsByEntitlementResource(
+func (e *Engine) paginateGrantsByEntitlementResource(
 	ctx context.Context, entRT, entRID, cursor string, limit int,
 ) ([]*v3.GrantRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
@@ -442,10 +442,10 @@ func (e *Engine) PaginateGrantsByEntitlementResource(
 	return iterateGrantPrimaryPage(ctx, e.db, encodeGrantPrimaryEntitlementResourcePrefix(entRT, entRID), cursorBytes, limit)
 }
 
-// PaginateGrantsByPrincipalResourceType walks the by-principal-RT
+// paginateGrantsByPrincipalResourceType walks the by-principal-RT
 // index. Cursor is the index key. Drives the new fast path for
 // the Adapter's ListGrantsForResourceType.
-func (e *Engine) PaginateGrantsByPrincipalResourceType(
+func (e *Engine) paginateGrantsByPrincipalResourceType(
 	ctx context.Context, principalRT, cursor string, limit int,
 ) ([]*v3.GrantRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
@@ -513,13 +513,13 @@ func (e *Engine) PaginateGrantsByPrincipalResourceType(
 	return out, nextCursor, nil
 }
 
-// PaginateGrantsByNeedsExpansion returns a page of grants whose
+// paginateGrantsByNeedsExpansion returns a page of grants whose
 // NeedsExpansion flag is set. Backs the GrantStore
 // PendingExpansionPage path; the SQLite equivalent is a query
 // guarded by the partial index `WHERE needs_expansion = 1`.
 //
 // Cursor is the needs_expansion index key.
-func (e *Engine) PaginateGrantsByNeedsExpansion(
+func (e *Engine) paginateGrantsByNeedsExpansion(
 	ctx context.Context, cursor string, limit int,
 ) ([]*v3.GrantRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
@@ -591,7 +591,7 @@ func (e *Engine) PaginateGrantsByNeedsExpansion(
 
 // PaginateResourcesBySync returns a page of resources in primary
 // key order.
-func (e *Engine) PaginateResources(
+func (e *Engine) paginateResources(
 	ctx context.Context, cursor string, limit int,
 ) ([]*v3.ResourceRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
@@ -604,8 +604,8 @@ func (e *Engine) PaginateResources(
 	})
 }
 
-// PaginateResourcesByParent uses the by_parent index.
-func (e *Engine) PaginateResourcesByParent(
+// paginateResourcesByParent uses the by_parent index.
+func (e *Engine) paginateResourcesByParent(
 	ctx context.Context, parentRT, parentID, cursor string, limit int,
 ) ([]*v3.ResourceRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
@@ -670,7 +670,7 @@ func (e *Engine) PaginateResourcesByParent(
 }
 
 // PaginateResourceTypesBySync returns a page of resource_types.
-func (e *Engine) PaginateResourceTypes(
+func (e *Engine) paginateResourceTypes(
 	ctx context.Context, cursor string, limit int,
 ) ([]*v3.ResourceTypeRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
@@ -685,7 +685,7 @@ func (e *Engine) PaginateResourceTypes(
 
 // PaginateEntitlementsBySync returns a page of entitlements in
 // primary key order.
-func (e *Engine) PaginateEntitlements(
+func (e *Engine) paginateEntitlements(
 	ctx context.Context, cursor string, limit int,
 ) ([]*v3.EntitlementRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
@@ -698,8 +698,8 @@ func (e *Engine) PaginateEntitlements(
 	})
 }
 
-// PaginateEntitlementsByResource uses the entitlement primary key prefix.
-func (e *Engine) PaginateEntitlementsByResource(
+// paginateEntitlementsByResource uses the entitlement primary key prefix.
+func (e *Engine) paginateEntitlementsByResource(
 	ctx context.Context, resourceTypeID, resourceID, cursor string, limit int,
 ) ([]*v3.EntitlementRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)

@@ -73,7 +73,7 @@ func isMutatingEngineMethod(name string) bool {
 // fails for a method nobody thought about.
 //
 // It exists because pebbleStore used to embed *pebble.Engine. Embedding
-// promoted all ~179 engine methods onto the store, so an engine mutator was
+// promoted every engine method onto the store, so an engine mutator was
 // callable as s.PutSyncRunRecord(...) with no admission, no dirty bit, and
 // nothing in the AST inventory able to see it. The embedding is now a named
 // field; this test is what keeps it from quietly coming back, whether by

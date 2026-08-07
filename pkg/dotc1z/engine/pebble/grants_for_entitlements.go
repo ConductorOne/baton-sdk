@@ -82,7 +82,7 @@ EntitlementLoop:
 				return nil, err
 			}
 			remaining := limit - len(out)
-			records, next, err := e.PaginateGrantsByEntitlement(ctx, entID, intraCursor, remaining)
+			records, next, err := e.paginateGrantsByEntitlement(ctx, entID, intraCursor, remaining)
 			if err != nil {
 				return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 			}

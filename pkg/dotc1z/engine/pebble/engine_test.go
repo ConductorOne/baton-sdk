@@ -322,7 +322,7 @@ func TestSaveDoesNotCloseOnError(t *testing.T) {
 	err := e.bindCurrentSync(syncID)
 	require.NoError(t, err)
 
-	err = e.Save(ctx, filepath.Join(dir, "out.c1z3"))
+	err = e.saveToC1z(ctx, filepath.Join(dir, "out.c1z3"))
 	require.Error(t, err, "expected Save error")
 
 	r := makeGrant(syncID, "after-save", "e1", "p1")

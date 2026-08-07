@@ -41,7 +41,7 @@ func TestGrantDigestGlobalRootMatchesFold(t *testing.T) {
 	var wantXor [hashLen]byte
 	var wantCount int64
 	for entID := range counts {
-		digest, count, err := e.ComputeEntitlementBucketDigest(ctx, testEntIdentity(entID), DigestBucket{})
+		digest, count, err := e.computeEntitlementBucketDigest(ctx, testEntIdentity(entID), DigestBucket{})
 		if err != nil {
 			t.Fatalf("ComputeEntitlementBucketDigest(%s): %v", entID, err)
 		}
@@ -177,7 +177,7 @@ func TestManifestGrantDigestRootAbsentWithoutDigests(t *testing.T) {
 	if err := e.PutGrantRecords(ctx, makeGrant("", "g1", "ent-A", "alice")); err != nil {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
-	if err := e.BuildDeferredGrantIndexes(ctx); err != nil {
+	if err := e.buildDeferredGrantIndexes(ctx); err != nil {
 		t.Fatalf("BuildDeferredGrantIndexes: %v", err)
 	}
 

@@ -44,7 +44,7 @@ func (e *Engine) EnsureGrantIndexes(ctx context.Context) error {
 	if !e.db.DeferredIdxPending() {
 		return nil
 	}
-	if err := e.BuildDeferredGrantIndexes(ctx); err != nil {
+	if err := e.buildDeferredGrantIndexes(ctx); err != nil {
 		return err
 	}
 	return e.clearDeferredIdxPending()
@@ -177,7 +177,7 @@ const maxHealedOrphanExamples = 25
 // NoSync — the seal's durability flush hardens them, matching every
 // other during-sync write path.
 func (e *Engine) invariantWriteOpts() *pebble.WriteOptions {
-	if e.IsFreshSync() {
+	if e.isFreshSync() {
 		return pebble.NoSync
 	}
 	return writeOpts(e.opts.durability)
