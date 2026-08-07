@@ -7,7 +7,7 @@ import {
   Route,
   Routes,
   Navigate,
-} from "react-router-dom";
+} from "react-router";
 import { ResourcesContextProvider } from "./context/resources";
 import { CssBaseline, createTheme } from "@mui/material";
 import { Dashboard } from "./pages/dashboard/dashboard";

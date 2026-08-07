@@ -1,7 +1,7 @@
 import MuiDrawer from "@mui/material/Drawer";
 import { styled } from "@mui/material/styles";
 import { ListItemButton } from "@mui/material";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { colors } from "../../style/colors";
 
 export const StyledDrawer = styled(MuiDrawer)(({ theme }) => ({

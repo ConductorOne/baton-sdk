@@ -6,31 +6,29 @@
   "dependencies": {
     "@emotion/react": "^11.11.1",
     "@emotion/styled": "^11.11.0",
-    "@mui/icons-material": "^5.14.8",
-    "@mui/material": "^5.14.8",
-    "@types/react-window": "^1.8.8",
-    "@types/react-window-infinite-loader": "^1.0.9",
+    "@mui/icons-material": "^9.3.1",
+    "@mui/material": "^9.3.1",
     "d3": "^7.8.5",
     "pluralize": "^8.0.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.16.0",
-    "react-window": "^1.8.11",
-    "react-window-infinite-loader": "^1.0.10",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router": "^8.3.0",
+    "react-window": "^2.3.0",
+    "react-window-infinite-loader": "^2.0.1",
     "reactflow": "^11.8.3",
-    "recharts": "^2.9.3"
+    "recharts": "^3.10.1"
   },
   "devDependencies": {
-    "@types/node": "^20.6.0",
-    "@types/react": "^18.2.21",
-    "@types/react-dom": "^18.2.7",
-    "@vitejs/plugin-react": "^4.3.4",
-    "typescript": "^5.7.3",
-    "vite": "^6.4.2"
+    "@types/node": "^26.1.2",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1"
   },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc && vite build",
     "preview": "vite preview"
   }
 }

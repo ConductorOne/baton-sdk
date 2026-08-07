@@ -1,5 +1,5 @@
 import { List, styled } from "@mui/material";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { colors } from "../../../../style/colors";
 
 export const StyledList = styled(List)(({ theme }) => ({

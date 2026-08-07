@@ -21,7 +21,7 @@ import {
 import { ResourcesSidebar } from "./components/resourcesSidebar";
 import { ResourceTable } from "./components/resourceTable";
 import { FilterBar, FilterState, createEmptyFilterState } from "./components/filterBar";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router";
 import { ExplorerLayout, TreeWrapper } from "./styles/styles";
 import { ResourceDetailsModal } from "../resourceDetails";
 import { extractPrincipalId, isObjectEmpty } from "../../common/helpers";

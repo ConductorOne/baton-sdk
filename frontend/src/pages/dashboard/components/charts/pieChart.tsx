@@ -1,5 +1,5 @@
 import React from "react";
-import { PieChart, Pie, Cell, Tooltip } from "recharts";
+import { PieChart, Pie, Sector, Tooltip, type PieSectorShapeProps } from "recharts";
 
 type PieChartProps = {
   data: any,
@@ -15,22 +15,24 @@ type PieChartProps = {
 
 export const PieTypeChart = (props: PieChartProps) => {
   const { data, width, height, textPositionX, textPositionY, textFillColor, textSize, colors } = props
-    return (
-      <PieChart width={width} height={height}>
-        <text x={textPositionX} y={textPositionY} textAnchor="middle" fill={textFillColor} fontSize={textSize}>
-          {props.text}
-        </text>
-        <Pie
-          data={data}
-          innerRadius={70}
-          outerRadius={80}
-          dataKey="value"
-        >
-          {data.map((entry, index) => (
-            <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
-          ))}
-        </Pie>
-        <Tooltip />
-      </PieChart>
-    );
+
+  const renderSector = (sectorProps: PieSectorShapeProps) => (
+    <Sector {...sectorProps} fill={colors[sectorProps.index % colors.length]} />
+  );
+
+  return (
+    <PieChart width={width} height={height}>
+      <text x={textPositionX} y={textPositionY} textAnchor="middle" fill={textFillColor} fontSize={textSize}>
+        {props.text}
+      </text>
+      <Pie
+        data={data}
+        innerRadius={70}
+        outerRadius={80}
+        dataKey="value"
+        shape={renderSector}
+      />
+      <Tooltip />
+    </PieChart>
+  );
 }

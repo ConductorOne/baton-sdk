@@ -23,8 +23,8 @@ import {
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
-import PeopleIcon from "@mui/icons-material/PeopleOutline";
-import { Link } from "react-router-dom";
+import PeopleIcon from "@mui/icons-material/PeopleOutlined";
+import { Link } from "react-router";
 import { normalizeString } from "../../../common/helpers";
 import { isObjectEmpty } from "../../../common/helpers";
 import pluralize from "pluralize";
@@ -174,7 +174,7 @@ export const Inventory = () => {
         {/* Resources table */}
         <Paper variant="outlined" sx={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", px: 2, py: 1.5 }}>
-            <Typography variant="subtitle1" fontWeight={600}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
               Roles & Groups
             </Typography>
             <TextField
@@ -183,20 +183,22 @@ export const Inventory = () => {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               sx={{ width: 220 }}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon sx={{ fontSize: 18 }} />
-                  </InputAdornment>
-                ),
-                endAdornment: search ? (
-                  <InputAdornment position="end">
-                    <ClearIcon
-                      sx={{ fontSize: 18, cursor: "pointer" }}
-                      onClick={() => setSearch("")}
-                    />
-                  </InputAdornment>
-                ) : null,
+              slotProps={{
+                input: {
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon sx={{ fontSize: 18 }} />
+                    </InputAdornment>
+                  ),
+                  endAdornment: search ? (
+                    <InputAdornment position="end">
+                      <ClearIcon
+                        sx={{ fontSize: 18, cursor: "pointer" }}
+                        onClick={() => setSearch("")}
+                      />
+                    </InputAdornment>
+                  ) : null,
+                },
               }}
             />
           </Box>
@@ -273,7 +275,7 @@ export const Inventory = () => {
                         <TableCell align="right">
                           <Box sx={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 0.5 }}>
                             <PeopleIcon sx={{ fontSize: 16, color: "text.secondary" }} />
-                            <Typography variant="body2" fontWeight={500}>
+                            <Typography variant="body2" sx={{ fontWeight: 500 }}>
                               {r.members.toLocaleString()}
                             </Typography>
                           </Box>
@@ -314,7 +316,7 @@ const StatChip = ({
     <Chip
       label={
         <Box sx={{ display: "flex", alignItems: "center", gap: 0.75 }}>
-          <Typography variant="body2" fontWeight={600}>
+          <Typography variant="body2" sx={{ fontWeight: 600 }}>
             {loading ? "..." : (count ?? 0).toLocaleString()}
           </Typography>
           <Typography variant="body2" color="text.secondary">

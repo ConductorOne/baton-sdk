@@ -1,7 +1,6 @@
 import React, { useCallback, useMemo, useState } from "react";
 import {
   Table,
-  TableBody,
   TableCell,
   TableContainer,
   TableHead,
@@ -12,8 +11,8 @@ import {
   Box,
   CircularProgress,
 } from "@mui/material";
-import { FixedSizeList } from "react-window";
-import InfiniteLoader from "react-window-infinite-loader";
+import { List, type RowComponentProps } from "react-window";
+import { useInfiniteLoader } from "react-window-infinite-loader";
 import { normalizeString } from "../../../common/helpers";
 
 type SortDirection = "asc" | "desc";
@@ -30,6 +29,104 @@ interface ResourceTableProps {
 }
 
 const ROW_HEIGHT = 44;
+
+type TableRowProps = {
+  sortedData: any[];
+  hasMore: boolean;
+  profileKeys: string[];
+  nameFlex: number;
+  typeFlex: number;
+  entFlex: number;
+  profileFlex: number;
+  onRowClick: (item: any) => void;
+};
+
+function getName(item: any): string {
+  return item.resource?.display_name || "";
+}
+
+function getType(item: any): string {
+  return item.resource_type?.id || "";
+}
+
+function getEntitlements(item: any): string[] {
+  const ents = item.entitlements || [];
+  return ents.map((e: any) => e.display_name || e.slug || "").filter(Boolean);
+}
+
+function ResourceTableRow({
+  index,
+  style,
+  sortedData,
+  hasMore,
+  profileKeys,
+  nameFlex,
+  typeFlex,
+  entFlex,
+  profileFlex,
+  onRowClick,
+}: RowComponentProps<TableRowProps>) {
+  if (hasMore && index >= sortedData.length) {
+    return (
+      <div style={{ ...style, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <CircularProgress color="success" size={20} />
+      </div>
+    );
+  }
+
+  const item = sortedData[index];
+  const entitlements = getEntitlements(item);
+
+  return (
+    <TableRow
+      component="div"
+      hover
+      onClick={() => onRowClick(item)}
+      style={{ ...style, display: "flex", cursor: "pointer", alignItems: "center" }}
+    >
+      <TableCell
+        component="div"
+        sx={{ flex: nameFlex, border: "none", py: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+      >
+        <Typography variant="body2" noWrap>
+          {getName(item)}
+        </Typography>
+      </TableCell>
+      <TableCell
+        component="div"
+        sx={{ flex: typeFlex, border: "none", py: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+      >
+        <Typography variant="body2" color="text.secondary" noWrap>
+          {normalizeString(getType(item), true)}
+        </Typography>
+      </TableCell>
+      {profileKeys.map((key) => (
+        <TableCell
+          key={key}
+          component="div"
+          sx={{ flex: profileFlex, border: "none", py: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+        >
+          <Typography variant="body2" color="text.secondary" noWrap>
+            {item.profile?.[key] || ""}
+          </Typography>
+        </TableCell>
+      ))}
+      <TableCell
+        component="div"
+        sx={{ flex: entFlex, border: "none", py: 0, overflow: "hidden" }}
+      >
+        <Box sx={{ display: "flex", gap: 0.5, flexWrap: "nowrap", overflow: "hidden" }}>
+          {entitlements.slice(0, 3).map((e, i) => (
+            <Chip key={i} label={e} size="small" sx={{ fontSize: "11px", height: 22 }} />
+          ))}
+          {entitlements.length > 3 && (
+            <Chip label={`+${entitlements.length - 3}`} size="small" variant="outlined" sx={{ fontSize: "11px", height: 22 }} />
+          )}
+        </Box>
+      </TableCell>
+    </TableRow>
+  );
+}
 
 export const ResourceTable: React.FC<ResourceTableProps> = ({
   data,
@@ -51,19 +148,6 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
       setSortField(field);
       setSortDirection("asc");
     }
-  };
-
-  const getName = (item: any): string => {
-    return item.resource?.display_name || "";
-  };
-
-  const getType = (item: any): string => {
-    return item.resource_type?.id || "";
-  };
-
-  const getEntitlements = (item: any): string[] => {
-    const ents = item.entitlements || [];
-    return ents.map((e: any) => e.display_name || e.slug || "").filter(Boolean);
   };
 
   // Show department and job_title profile columns when available
@@ -101,12 +185,22 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
     return sorted;
   }, [data, sortField, sortDirection]);
 
-  const itemCount = hasMore ? sortedData.length + 1 : sortedData.length;
-  const isItemLoaded = (index: number) => !hasMore || index < sortedData.length;
+  const rowCount = hasMore ? sortedData.length + 1 : sortedData.length;
+  const isRowLoaded = useCallback(
+    (index: number) => !hasMore || index < sortedData.length,
+    [hasMore, sortedData.length]
+  );
 
-  const loadMoreItems = useCallback(async () => {
+  const loadMoreRows = useCallback(async () => {
     await onLoadMore();
   }, [onLoadMore]);
+
+  const onRowsRendered = useInfiniteLoader({
+    isRowLoaded,
+    loadMoreRows,
+    rowCount,
+    threshold: 10,
+  });
 
   const showSummaryChips = !isUserTrait && countsByType && totalCount && totalCount > 100;
 
@@ -115,69 +209,6 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
   const typeFlex = 1;
   const entFlex = 2;
   const profileFlex = profileKeys.length > 0 ? 1 : 0;
-
-  const Row = ({ index, style }: { index: number; style: React.CSSProperties }) => {
-    if (!isItemLoaded(index)) {
-      return (
-        <div style={{ ...style, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <CircularProgress color="success" size={20} />
-        </div>
-      );
-    }
-
-    const item = sortedData[index];
-    const entitlements = getEntitlements(item);
-
-    return (
-      <TableRow
-        component="div"
-        hover
-        onClick={() => onRowClick(item)}
-        style={{ ...style, display: "flex", cursor: "pointer", alignItems: "center" }}
-      >
-        <TableCell
-          component="div"
-          sx={{ flex: nameFlex, border: "none", py: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-        >
-          <Typography variant="body2" noWrap>
-            {getName(item)}
-          </Typography>
-        </TableCell>
-        <TableCell
-          component="div"
-          sx={{ flex: typeFlex, border: "none", py: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-        >
-          <Typography variant="body2" color="text.secondary" noWrap>
-            {normalizeString(getType(item), true)}
-          </Typography>
-        </TableCell>
-        {profileKeys.map((key) => (
-          <TableCell
-            key={key}
-            component="div"
-            sx={{ flex: profileFlex, border: "none", py: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-          >
-            <Typography variant="body2" color="text.secondary" noWrap>
-              {item.profile?.[key] || ""}
-            </Typography>
-          </TableCell>
-        ))}
-        <TableCell
-          component="div"
-          sx={{ flex: entFlex, border: "none", py: 0, overflow: "hidden" }}
-        >
-          <Box sx={{ display: "flex", gap: 0.5, flexWrap: "nowrap", overflow: "hidden" }}>
-            {entitlements.slice(0, 3).map((e, i) => (
-              <Chip key={i} label={e} size="small" sx={{ fontSize: "11px", height: 22 }} />
-            ))}
-            {entitlements.length > 3 && (
-              <Chip label={`+${entitlements.length - 3}`} size="small" variant="outlined" sx={{ fontSize: "11px", height: 22 }} />
-            )}
-          </Box>
-        </TableCell>
-      </TableRow>
-    );
-  };
 
   if (loading && data.length === 0) {
     return (
@@ -254,25 +285,23 @@ export const ResourceTable: React.FC<ResourceTableProps> = ({
             </TableRow>
           </TableHead>
         </Table>
-        <InfiniteLoader
-          isItemLoaded={isItemLoaded}
-          itemCount={itemCount}
-          loadMoreItems={loadMoreItems}
-          threshold={10}
-        >
-          {({ onItemsRendered, ref }) => (
-            <FixedSizeList
-              height={Math.max(200, window.innerHeight - 300)}
-              width="100%"
-              itemCount={itemCount}
-              itemSize={ROW_HEIGHT}
-              onItemsRendered={onItemsRendered}
-              ref={ref}
-            >
-              {Row}
-            </FixedSizeList>
-          )}
-        </InfiniteLoader>
+        <List
+          style={{ height: Math.max(200, window.innerHeight - 300), width: "100%" }}
+          rowCount={rowCount}
+          rowHeight={ROW_HEIGHT}
+          rowComponent={ResourceTableRow}
+          rowProps={{
+            sortedData,
+            hasMore,
+            profileKeys,
+            nameFlex,
+            typeFlex,
+            entFlex,
+            profileFlex,
+            onRowClick,
+          }}
+          onRowsRendered={onRowsRendered}
+        />
       </TableContainer>
     </Box>
   );

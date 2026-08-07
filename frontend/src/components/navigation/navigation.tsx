@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import List from "@mui/material/List";
-import { Divider, Tooltip, useTheme } from "@mui/material";
+import { Divider, Tooltip } from "@mui/material";
 import pluralize from "pluralize";
 import {
   StyledDrawer,
@@ -13,11 +13,10 @@ import { ThemeSwitcher } from "./components/themeSwitcher";
 import { Logo } from "./components/logo";
 import { IconPerType } from "../icons/resourceTypeIcon";
 import { DashboardButton } from "./components/dashboardButton";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import { colors } from "../../style/colors";
 
 export const Navigation = ({ openResourceList, resourceState, closeResourceList }) => {
-  const theme = useTheme();
   const [data, setData] = useState([]);
   const location = useLocation();
   const isDashboard = location.pathname === "/dashboard";
@@ -53,7 +52,7 @@ export const Navigation = ({ openResourceList, resourceState, closeResourceList 
 
 
   return (
-    <StyledDrawer variant="permanent" theme={theme}>
+    <StyledDrawer variant="permanent">
       <NavWrapper>
         <Logo />
         <DashboardButton />

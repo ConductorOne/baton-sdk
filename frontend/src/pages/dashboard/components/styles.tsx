@@ -1,7 +1,7 @@
 import { Tabs, styled } from "@mui/material";
 import { colors } from "../../../style/colors";
 import { CardStyleProps } from "./cards/cards";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 
 export type CardSize = "s" | "m" | "l";
 

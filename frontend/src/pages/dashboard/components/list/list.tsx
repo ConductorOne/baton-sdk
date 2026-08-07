@@ -9,7 +9,7 @@ import {
   StyledListItem,
   Title,
 } from "./styles";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 import { normalizeString } from "../../../../common/helpers";
 
 type ResourceListProps = {
