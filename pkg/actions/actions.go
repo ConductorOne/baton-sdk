@@ -45,6 +45,11 @@ func NewOutstandingAction(id, name string) *OutstandingAction {
 func (oa *OutstandingAction) SetStatus(ctx context.Context, status v2.BatonActionStatus) {
 	oa.Lock()
 	defer oa.Unlock()
+	oa.setStatusLocked(ctx, status)
+}
+
+// setStatusLocked requires oa's mutex to be held.
+func (oa *OutstandingAction) setStatusLocked(ctx context.Context, status v2.BatonActionStatus) {
 	l := ctxzap.Extract(ctx).With(
 		zap.String("action_id", oa.Id),
 		zap.String("action_name", oa.Name),
@@ -60,9 +65,8 @@ func (oa *OutstandingAction) SetStatus(ctx context.Context, status v2.BatonActio
 	oa.Status = status
 }
 
-func (oa *OutstandingAction) setError(_ context.Context, err error) {
-	oa.Lock()
-	defer oa.Unlock()
+// setErrorLocked requires oa's mutex to be held.
+func (oa *OutstandingAction) setErrorLocked(err error) {
 	// Rebuild rather than mutate: a concurrent caller may hold the previously
 	// published struct from a result() snapshot and be marshaling it.
 	fields := make(map[string]*structpb.Value, len(oa.Rv.GetFields())+1)
@@ -78,9 +82,19 @@ func (oa *OutstandingAction) setError(_ context.Context, err error) {
 	oa.Err = err
 }
 
+// SetError records the error and marks the action failed in one critical
+// section, so no snapshot can observe the error with a non-terminal status.
 func (oa *OutstandingAction) SetError(ctx context.Context, err error) {
-	oa.setError(ctx, err)
-	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED)
+	oa.Lock()
+	defer oa.Unlock()
+	oa.setErrorLocked(err)
+	oa.setStatusLocked(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED)
+}
+
+// Result returns the action's identity and current outcome as a consistent
+// snapshot; the handler goroutine may still be mutating the action.
+func (oa *OutstandingAction) Result() (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations) {
+	return oa.result()
 }
 
 // result returns the action's identity and current outcome as a consistent

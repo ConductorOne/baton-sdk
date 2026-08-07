@@ -547,13 +547,18 @@ func TestActionHandlerGoroutineLeaks(t *testing.T) {
 	})
 }
 
+// This test asserts nothing; its failure mode is the race detector, and
+// `make race-check` is the gate that runs this package under -race.
 func TestCleanupOldActionsDuringConcurrentStatusWrites(t *testing.T) {
 	ctx := t.Context()
 	m := NewActionManager(ctx)
 
 	// The cleanup loop only visits the len(actions)-maxOldActions oldest
 	// entries, so the concurrent writer must target the first-created action.
+	// The sort is unstable and StartedAt values can tie, so push the target
+	// strictly earlier to make its position deterministic.
 	oldest := m.GetNewAction("churn")
+	oldest.StartedAt = time.Now().Add(-time.Hour)
 	for i := 0; i < maxOldActions; i++ {
 		m.GetNewAction("churn")
 	}
@@ -577,4 +582,9 @@ func TestCleanupOldActionsDuringConcurrentStatusWrites(t *testing.T) {
 
 	close(stop)
 	<-writerDone
+
+	// The exported snapshot accessor reads the same state race-free.
+	id, actionStatus, _, _ := oldest.Result()
+	require.Equal(t, oldest.Id, id)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, actionStatus)
 }
