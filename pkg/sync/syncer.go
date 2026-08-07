@@ -3417,13 +3417,6 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			return err
 		}
 
-		// This scan can cover every grant in the store. Without a cancellation
-		// check it keeps running after the sync deadline has passed, so an
-		// abandoned attempt competes with its own replacement.
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
-
 		grantsScanned++
 		if grantsScanned%externalMatchProgressLogInterval == 0 {
 			l.Debug("matching grants against external principals: progress",
@@ -3618,11 +3611,6 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	// stores keyed by structural identity cannot always resolve them.
 	refsDeleter, _ := s.store.(grantByRefsDeleter)
 	for _, grantToDelete := range grantsToDelete {
-		// One store round-trip per grant, so this loop is also long enough to
-		// outlive a cancelled sync.
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
 		if newGrantIDs.ContainsOne(grantToDelete.GetId()) {
 			continue
 		}
