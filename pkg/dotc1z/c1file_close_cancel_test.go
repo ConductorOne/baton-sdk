@@ -114,7 +114,7 @@ func TestC1FileCloseReadOnlyClosesRawDb(t *testing.T) {
 	cancelCtx, cancel := context.WithCancel(openCtx)
 	cancel()
 	require.NoError(t, f2.Close(cancelCtx))
-	require.Nil(t, f2.rawDb, "rawDb must be nil-ed out by the cheap-path close even on cancelled ctx")
+	require.True(t, f2.dbClosed.Load(), "rawDb must be closed by the cheap-path close even on cancelled ctx")
 	require.True(t, f2.closed, "c.closed must be set after a successful cheap-path close")
 }
 
@@ -142,6 +142,6 @@ func TestC1FileCloseReadOnlyButDirtyClosesRawDb(t *testing.T) {
 
 	err = f2.Close(openCtx)
 	require.ErrorIs(t, err, ErrReadOnly)
-	require.Nil(t, f2.rawDb, "rawDb must be closed before returning ErrReadOnly")
+	require.True(t, f2.dbClosed.Load(), "rawDb must be closed before returning ErrReadOnly")
 	require.True(t, f2.closed, "c.closed must be set after returning ErrReadOnly so a retry short-circuits")
 }

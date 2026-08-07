@@ -97,8 +97,8 @@ func (c *C1File) CopyIsolateSync(ctx context.Context, outPath string, syncID str
 	ctx, span := tracer.Start(ctx, "C1File.CopyIsolateSync")
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	if c.rawDb == nil {
-		return ErrDbNotOpen
+	if err = c.validateDb(ctx); err != nil {
+		return err
 	}
 	if c.dbFilePath == "" {
 		return fmt.Errorf("copy-isolate-sync: source working database path is not set")
