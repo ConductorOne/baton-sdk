@@ -23,8 +23,15 @@ import (
 type FoldBatch = rawdb.FoldBatch
 
 // engineAccessor is implemented by *Engine itself and by pkg/dotc1z's
-// Pebble store wrapper (which embeds *Engine and overrides the method
-// with a nil-safe version).
+// Pebble store wrapper, which holds an *Engine in a named field and
+// declares its own nil-safe version of this method.
+//
+// Note what this hands out: the raw engine, with no admission check and no
+// dirty tracking. That is deliberate for the merge paths, which need engine
+// internals the store does not expose, but it means AsEngine is a way around
+// the store's mutation gate. Today every caller uses it for reads only. Route
+// writes through WithEngineMutation / WithEngineFoldMutation below instead;
+// a bare AsEngine mutation is invisible to the store's admission state.
 type engineAccessor interface {
 	PebbleEngine() *Engine
 }
@@ -40,7 +47,7 @@ func (e *Engine) PebbleEngine() *Engine {
 
 // AsEngine recovers the underlying *Engine from a connectorstore.Writer
 // produced by dotc1z.NewStore for the Pebble engine. NewStore returns a
-// wrapper that embeds *Engine; a bare *Engine is also accepted for
+// wrapper holding an *Engine; a bare *Engine is also accepted for
 // callers that hold one directly. Returns (nil, false) for any
 // non-Pebble store, so a caller can branch on the engine without
 // importing internal types.
