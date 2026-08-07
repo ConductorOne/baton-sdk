@@ -63,23 +63,39 @@ func (oa *OutstandingAction) SetStatus(ctx context.Context, status v2.BatonActio
 func (oa *OutstandingAction) setError(_ context.Context, err error) {
 	oa.Lock()
 	defer oa.Unlock()
-	if oa.Rv == nil {
-		oa.Rv = &structpb.Struct{}
+	// Rebuild rather than mutate: a concurrent caller may hold the previously
+	// published struct from a result() snapshot and be marshaling it.
+	fields := make(map[string]*structpb.Value, len(oa.Rv.GetFields())+1)
+	for k, v := range oa.Rv.GetFields() {
+		fields[k] = v
 	}
-	if oa.Rv.Fields == nil {
-		oa.Rv.Fields = make(map[string]*structpb.Value)
-	}
-	oa.Rv.Fields["error"] = &structpb.Value{
+	fields["error"] = &structpb.Value{
 		Kind: &structpb.Value_StringValue{
 			StringValue: err.Error(),
 		},
 	}
+	oa.Rv = &structpb.Struct{Fields: fields}
 	oa.Err = err
 }
 
 func (oa *OutstandingAction) SetError(ctx context.Context, err error) {
 	oa.setError(ctx, err)
 	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED)
+}
+
+// result returns the action's identity and current outcome as a consistent
+// snapshot; the handler goroutine may still be mutating the action.
+func (oa *OutstandingAction) result() (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations) {
+	oa.Lock()
+	defer oa.Unlock()
+	return oa.Id, oa.Status, oa.Rv, oa.Annos
+}
+
+func (oa *OutstandingAction) setResult(rv *structpb.Struct, annos annotations.Annotations) {
+	oa.Lock()
+	defer oa.Unlock()
+	oa.Rv = rv
+	oa.Annos = annos
 }
 
 const maxOldActions = 1000
@@ -163,8 +179,8 @@ func (a *ActionManager) CleanupOldActions(ctx context.Context) {
 	count := 0
 	// Delete the oldest actions
 	for i := 0; i < len(actionList)-maxOldActions; i++ {
-		action := actionList[i]
-		if action.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || action.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
+		_, actionStatus, _, _ := actionList[i].result()
+		if actionStatus == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || actionStatus == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
 			count++
 			delete(a.actions, actionList[i].Id)
 		}
@@ -398,7 +414,8 @@ func (a *ActionManager) GetActionStatus(_ context.Context, actionId string) (v2.
 
 	// Don't return oa.Err here because error is for GetActionStatus, not the action itself.
 	// oa.Rv contains any error.
-	return oa.Status, oa.Name, oa.Rv, oa.Annos, nil
+	_, st, rv, annos := oa.result()
+	return st, oa.Name, rv, annos, nil
 }
 
 // InvokeAction invokes an action. If resourceTypeID is set, it invokes a resource-scoped action.
@@ -457,8 +474,8 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 		bgCtx := trace.ContextWithSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
 		handlerCtx, cancel := context.WithTimeoutCause(bgCtx, 1*time.Hour, errors.New("action handler timed out"))
 		defer cancel()
-		var oaErr error
-		oa.Rv, oa.Annos, oaErr = handler(handlerCtx, args)
+		rv, annos, oaErr := handler(handlerCtx, args)
+		oa.setResult(rv, annos)
 		if oaErr == nil {
 			oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE)
 		} else {
@@ -468,12 +485,15 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 
 	select {
 	case <-done:
-		return oa.Id, oa.Status, oa.Rv, oa.Annos, nil
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, nil
 	case <-time.After(1 * time.Second):
-		return oa.Id, oa.Status, oa.Rv, oa.Annos, nil
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, nil
 	case <-ctx.Done():
 		oa.SetError(ctx, ctx.Err())
-		return oa.Id, oa.Status, oa.Rv, oa.Annos, ctx.Err()
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, ctx.Err()
 	}
 }
 
@@ -547,8 +567,8 @@ func (a *ActionManager) invokeResourceAction(
 		bgCtx = ctxzap.ToContext(bgCtx, ctxzap.Extract(ctx))
 		handlerCtx, cancel := context.WithTimeoutCause(bgCtx, 1*time.Hour, errors.New("action handler timed out"))
 		defer cancel()
-		var oaErr error
-		oa.Rv, oa.Annos, oaErr = handler(handlerCtx, args)
+		rv, annos, oaErr := handler(handlerCtx, args)
+		oa.setResult(rv, annos)
 		if oaErr == nil {
 			oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE)
 		} else {
@@ -559,12 +579,15 @@ func (a *ActionManager) invokeResourceAction(
 	// Wait for completion or timeout
 	select {
 	case <-done:
-		return oa.Id, oa.Status, oa.Rv, oa.Annos, nil
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, nil
 	case <-time.After(1 * time.Second):
-		return oa.Id, oa.Status, oa.Rv, oa.Annos, nil
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, nil
 	case <-ctx.Done():
 		oa.SetError(ctx, ctx.Err())
-		return oa.Id, oa.Status, oa.Rv, oa.Annos, ctx.Err()
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, ctx.Err()
 	}
 }
 

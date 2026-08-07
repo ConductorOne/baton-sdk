@@ -546,3 +546,35 @@ func TestActionHandlerGoroutineLeaks(t *testing.T) {
 		require.LessOrEqual(t, finalCount, initialCount+1, "goroutine leak detected after context cancellation")
 	})
 }
+
+func TestCleanupOldActionsDuringConcurrentStatusWrites(t *testing.T) {
+	ctx := t.Context()
+	m := NewActionManager(ctx)
+
+	// The cleanup loop only visits the len(actions)-maxOldActions oldest
+	// entries, so the concurrent writer must target the first-created action.
+	oldest := m.GetNewAction("churn")
+	for i := 0; i < maxOldActions; i++ {
+		m.GetNewAction("churn")
+	}
+
+	stop := make(chan struct{})
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				oldest.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+			}
+		}
+	}()
+
+	// Fails under -race if cleanup reads action status without the lock.
+	m.CleanupOldActions(ctx)
+
+	close(stop)
+	<-writerDone
+}
