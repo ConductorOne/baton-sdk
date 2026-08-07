@@ -39,10 +39,21 @@ var guardedMutationWrappers = []string{
 // mutatingEnginePrefixes names the verbs the engine uses for methods that
 // write. A method matching one of these must never become reachable as a
 // pebbleStore method except through a withMutation wrapper.
+//
+// This is a heuristic and it is the weaker half of the guard. A mutator named
+// outside this list is not detected, so do not treat a pass as proof that the
+// store exposes no unguarded writes. The structural protection is that the
+// engine is a named field: the store's method set is closed to what
+// pebble_store.go and pebble_store_reads.go declare, and this list is the net
+// under anyone hand-writing a passthrough. Widen it when the engine gains a
+// mutating verb that is not already here.
 var mutatingEnginePrefixes = []string{
-	"Abort", "Add", "Begin", "Checkpoint", "Clear", "Delete", "Drop", "End",
-	"Ensure", "Finish", "Ingest", "Mark", "New", "Persist", "Put", "Replace",
-	"Reset", "Resume", "Set", "Stash", "Start", "Store", "Unsafe", "Wipe",
+	"Abort", "Add", "Apply", "Begin", "Build", "Checkpoint", "Clear", "Commit",
+	"Compact", "Delete", "Drop", "End", "Ensure", "Finish", "Flush", "Ingest",
+	"Init", "Invalidate", "Mark", "Merge", "Migrate", "New", "Persist", "Prune",
+	"Purge", "Put", "Repair", "Replace", "Reset", "Resume", "Rollback", "Save",
+	"Seal", "Set", "Stash", "Start", "Store", "Truncate", "Unsafe", "Upsert",
+	"Wipe", "Write",
 }
 
 func isMutatingEngineMethod(name string) bool {
