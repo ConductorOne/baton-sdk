@@ -79,7 +79,16 @@ func newExternalUserPrincipalIndex(principals []*v2.Resource, l *zap.Logger) *ex
 		if err != nil {
 			// Principals reach this slice because they carry a user-trait
 			// annotation, so this only fires on an unreadable annotation.
-			l.Error("error getting user trait", zap.Any("userPrincipal", p))
+			//
+			// Identifiers only: logging the resource serializes its whole
+			// profile, which is where a directory keeps email addresses,
+			// employee numbers and the like. The id is what identifies the
+			// principal to go and look at.
+			l.Error("error getting user trait",
+				zap.String("principal_resource_type_id", p.GetId().GetResourceType()),
+				zap.String("principal_resource_id", p.GetId().GetResource()),
+				zap.Error(err),
+			)
 			idx.skip[i] = true
 			continue
 		}
