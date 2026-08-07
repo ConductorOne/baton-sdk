@@ -150,8 +150,9 @@ func TestToPebbleRoundTrip(t *testing.T) {
 }
 
 // TestToPebbleErrors exercises ToPebble's guard clauses: output path must not
-// exist and the sync must exist. An unfinished source sync is NOT an error —
-// ToPebble converts it and writes an ended destination snapshot.
+// exist and the sync must exist. An unfinished source sync with an explicit
+// syncID is NOT an error — ToPebble converts it and writes an ended
+// destination snapshot (fixture seeding).
 func TestToPebbleErrors(t *testing.T) {
 	ctx := context.Background()
 
@@ -200,6 +201,164 @@ func TestToPebbleErrors(t *testing.T) {
 		require.NotNil(t, latest)
 		require.Equal(t, unfinished, latest.ID)
 	})
+}
+
+// TestToPebbleNoSyncsEmptySyncID converts a never-synced SQLite c1z when
+// syncID is "". The destination is a valid empty Pebble c1z with no syncs.
+func TestToPebbleNoSyncsEmptySyncID(t *testing.T) {
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	src, err := dotc1z.NewC1ZFile(ctx, filepath.Join(dir, "empty.c1z"), dotc1z.WithTmpDir(dir))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, src.Close(ctx)) }()
+
+	outPath := filepath.Join(dir, "out.c1z")
+	stats, err := src.ToPebble(ctx, outPath, "")
+	require.NoError(t, err)
+	require.Empty(t, stats.SourceSyncID)
+	require.Empty(t, stats.DestSyncID)
+	require.Zero(t, stats.ResourceTypes.Rows)
+	require.Zero(t, stats.Resources.Rows)
+	require.Zero(t, stats.Entitlements.Rows)
+	require.Zero(t, stats.Grants.Rows)
+	require.Zero(t, stats.Assets.Rows)
+
+	dst, err := dotc1z.NewStore(ctx, outPath, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(dir))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, dst.Close(ctx)) }()
+
+	latest, err := dst.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
+	require.NoError(t, err)
+	require.Nil(t, latest)
+	require.Equal(t, string(c1zstore.EnginePebble), dst.Metadata().Engine)
+}
+
+// TestToPebbleUnfinishedOnlyEmptySyncID converts an unfinished full sync when
+// syncID is "". The destination sync is written ended under the same id.
+func TestToPebbleUnfinishedOnlyEmptySyncID(t *testing.T) {
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	src, err := dotc1z.NewC1ZFile(ctx, filepath.Join(dir, "unfinished-only.c1z"), dotc1z.WithTmpDir(dir))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, src.Close(ctx)) }()
+
+	syncID, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, src.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "user"}.Build()))
+
+	outPath := filepath.Join(dir, "out.c1z")
+	stats, err := src.ToPebble(ctx, outPath, "")
+	require.NoError(t, err)
+	require.Equal(t, syncID, stats.SourceSyncID)
+
+	dst, err := dotc1z.NewStore(ctx, outPath, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(dir))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, dst.Close(ctx)) }()
+	latest, err := dst.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, latest)
+	require.Equal(t, syncID, latest.ID)
+}
+
+// TestToPebbleEmptySyncIDUsesFinishedFull pins that syncID "" keeps a finished
+// full sync even when a newer finished partial exists.
+func TestToPebbleEmptySyncIDUsesFinishedFull(t *testing.T) {
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	src, err := dotc1z.NewC1ZFile(ctx, filepath.Join(dir, "mixed.c1z"), dotc1z.WithTmpDir(dir))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, src.Close(ctx)) }()
+
+	fullID, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, src.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "user"}.Build()))
+	require.NoError(t, src.EndSync(ctx))
+
+	_, err = src.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
+	require.NoError(t, err)
+	require.NoError(t, src.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build()))
+	require.NoError(t, src.EndSync(ctx))
+
+	outPath := filepath.Join(dir, "out.c1z")
+	stats, err := src.ToPebble(ctx, outPath, "")
+	require.NoError(t, err)
+	require.Equal(t, fullID, stats.SourceSyncID)
+}
+
+// TestToPebblePartialOnlyEmptySyncID converts a finished-partial-only source
+// when syncID is "" (fallback after no finished full).
+func TestToPebblePartialOnlyEmptySyncID(t *testing.T) {
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	src, err := dotc1z.NewC1ZFile(ctx, filepath.Join(dir, "partial-only.c1z"), dotc1z.WithTmpDir(dir))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, src.Close(ctx)) }()
+
+	syncID, err := src.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
+	require.NoError(t, err)
+	require.NoError(t, src.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "user"}.Build()))
+	require.NoError(t, src.EndSync(ctx))
+
+	outPath := filepath.Join(dir, "out.c1z")
+	stats, err := src.ToPebble(ctx, outPath, "")
+	require.NoError(t, err)
+	require.Equal(t, syncID, stats.SourceSyncID)
+
+	dst, err := dotc1z.NewStore(ctx, outPath, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(dir))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, dst.Close(ctx)) }()
+	latest, err := dst.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, latest)
+	require.Equal(t, syncID, latest.ID)
+	require.Equal(t, connectorstore.SyncTypePartial, latest.Type)
+}
+
+// TestToPebbleResourcesOnlyEmptySyncID converts a finished-resources_only
+// source when syncID is "" (fallback after no finished full/partial).
+func TestToPebbleResourcesOnlyEmptySyncID(t *testing.T) {
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	src, err := dotc1z.NewC1ZFile(ctx, filepath.Join(dir, "resources-only.c1z"), dotc1z.WithTmpDir(dir))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, src.Close(ctx)) }()
+
+	syncID, err := src.StartNewSync(ctx, connectorstore.SyncTypeResourcesOnly, "")
+	require.NoError(t, err)
+	require.NoError(t, src.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "user"}.Build()))
+	require.NoError(t, src.EndSync(ctx))
+
+	outPath := filepath.Join(dir, "out.c1z")
+	stats, err := src.ToPebble(ctx, outPath, "")
+	require.NoError(t, err)
+	require.Equal(t, syncID, stats.SourceSyncID)
+}
+
+// TestToPebbleDiffOnlyEmptySyncID pins that finished diff syncs are not
+// auto-selected: syncID "" errors instead of writing an empty c1z.
+func TestToPebbleDiffOnlyEmptySyncID(t *testing.T) {
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	src, err := dotc1z.NewC1ZFile(ctx, filepath.Join(dir, "diff-only.c1z"), dotc1z.WithTmpDir(dir))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, src.Close(ctx)) }()
+
+	_, err = src.StartNewSync(ctx, connectorstore.SyncTypePartialUpserts, "")
+	require.NoError(t, err)
+	require.NoError(t, src.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "user"}.Build()))
+	require.NoError(t, src.EndSync(ctx))
+
+	outPath := filepath.Join(dir, "out.c1z")
+	_, err = src.ToPebble(ctx, outPath, "")
+	require.ErrorContains(t, err, "no convertible sync found")
+	_, statErr := os.Stat(outPath)
+	require.ErrorIs(t, statErr, os.ErrNotExist)
 }
 
 func countResources(ctx context.Context, t *testing.T, store connectorstore.Reader) int {

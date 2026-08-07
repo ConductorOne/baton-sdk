@@ -21,7 +21,7 @@ func toPebbleCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("out", "./sync.pebble.c1z", "The path to write the Pebble c1z file to")
-	cmd.Flags().String("sync-id", "", "The source sync ID to convert. Defaults to the latest finished full sync.")
+	cmd.Flags().String("sync-id", "", "Source sync ID to convert. Default: latest full/partial/resources_only (finished, else unfinished). Empty c1z if the source has no syncs.")
 	cmd.Flags().Int("batch-size", defaultToPebbleBatchSize, "The number of records to write per conversion batch")
 	cmd.Flags().String("tmp-dir", "", "The temporary directory to use while converting")
 
@@ -87,6 +87,9 @@ func runToPebble(cmd *cobra.Command, args []string) error {
 func printToPebbleStats(stats *dotc1z.ConvertStats, outPath string) {
 	_, _ = fmt.Fprintf(os.Stdout, "Converted C1Z to Pebble successfully.\n")
 	_, _ = fmt.Fprintf(os.Stdout, "Output: %s\n", outPath)
+	if stats.SourceSyncID == "" {
+		_, _ = fmt.Fprintf(os.Stdout, "Source had no sync runs; wrote an empty c1z.\n")
+	}
 	_, _ = fmt.Fprintf(os.Stdout, "Source sync ID: %s\n", stats.SourceSyncID)
 	_, _ = fmt.Fprintf(os.Stdout, "Destination sync ID: %s\n", stats.DestSyncID)
 	_, _ = fmt.Fprintf(os.Stdout, "Resource types: %d (%s)\n", stats.ResourceTypes.Rows, formatDuration(stats.ResourceTypes.Duration))
