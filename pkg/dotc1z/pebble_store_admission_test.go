@@ -319,18 +319,9 @@ func TestPebbleStoreMutationWrapperInventory(t *testing.T) {
 		parsed[name] = file
 	}
 
-	required := map[string]bool{
-		"GenerateSyncDiff": false, "MarkSyncSupportsDiff": false, "MarkIngestInvariantsVerified": false,
-		"ClearIngestInvariantVerification": false, "RecalculateStats": false, "NormalizeForFixtureSave": false,
-		"StartNewSync": false, "StartNewSyncWithID": false, "ResumeSync": false, "StartOrResumeSync": false,
-		"SetCurrentSync": false, "CheckpointSync": false, "EndSync": false, "PutAsset": false,
-		"SetSupportsDiff": false, "SetSyncLink": false, "PutGrants": false, "UnsafePutUniqueGrants": false,
-		"PutResourceTypes": false, "PutResources": false, "PutEntitlements": false, "DeleteGrant": false,
-		"DeleteGrantByRefs": false, "DeleteResourceRecord": false, "DeleteEntitlementByRefs": false,
-		"StoreExpandedGrants": false, "StoreNewExpandedGrants": false, "StoreNewExpandedGrantContributions": false,
-		"BeginExpandedGrantLayer": false, "AddExpandedGrantLayerContributions": false,
-		"FinishExpandedGrantLayer": false, "AbortExpandedGrantLayer": false,
-		"Set": false, "SetMany": false, "Delete": false, "Clear": false, "EnsureGrantIndexes": false,
+	required := make(map[string]bool, len(guardedMutationWrappers))
+	for _, name := range guardedMutationWrappers {
+		required[name] = false
 	}
 	for _, file := range parsed {
 		for _, decl := range file.Decls {

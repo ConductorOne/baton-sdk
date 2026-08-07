@@ -206,7 +206,12 @@ func payloadEncodingFromProto(enc c1zv3.PayloadEncoding) c1zstore.PayloadEncodin
 }
 
 type pebbleStore struct {
-	*pebble.Engine
+	// Deliberately a named field, not an embedded one. Embedding promoted
+	// every engine mutator onto the store, where it bypassed withMutation
+	// silently; see pebble_store_reads.go. Reads are forwarded explicitly
+	// there, mutators go through the wrappers below, and nothing else on
+	// the engine is reachable as a store method.
+	Engine          *pebble.Engine
 	outputFilePath  string
 	tmpDir          string
 	readOnly        bool
