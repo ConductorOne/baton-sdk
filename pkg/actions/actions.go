@@ -63,17 +63,18 @@ func (oa *OutstandingAction) SetStatus(ctx context.Context, status v2.BatonActio
 func (oa *OutstandingAction) setError(_ context.Context, err error) {
 	oa.Lock()
 	defer oa.Unlock()
-	if oa.Rv == nil {
-		oa.Rv = &structpb.Struct{}
+	// Rebuild rather than mutate: a concurrent caller may hold the previously
+	// published struct from a result() snapshot and be marshaling it.
+	fields := make(map[string]*structpb.Value, len(oa.Rv.GetFields())+1)
+	for k, v := range oa.Rv.GetFields() {
+		fields[k] = v
 	}
-	if oa.Rv.Fields == nil {
-		oa.Rv.Fields = make(map[string]*structpb.Value)
-	}
-	oa.Rv.Fields["error"] = &structpb.Value{
+	fields["error"] = &structpb.Value{
 		Kind: &structpb.Value_StringValue{
 			StringValue: err.Error(),
 		},
 	}
+	oa.Rv = &structpb.Struct{Fields: fields}
 	oa.Err = err
 }
 
@@ -82,7 +83,75 @@ func (oa *OutstandingAction) SetError(ctx context.Context, err error) {
 	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED)
 }
 
-const maxOldActions = 1000
+// result returns the action's identity and current outcome as a consistent
+// snapshot; the handler goroutine may still be mutating the action.
+func (oa *OutstandingAction) result() (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations) {
+	oa.Lock()
+	defer oa.Unlock()
+	return oa.Id, oa.Status, oa.Rv, oa.Annos
+}
+
+func (oa *OutstandingAction) setResult(rv *structpb.Struct, annos annotations.Annotations) {
+	oa.Lock()
+	defer oa.Unlock()
+	oa.Rv = rv
+	oa.Annos = annos
+}
+
+// WithInlineWait returns a context whose deadline makes a server on this SDK
+// version wait inline for wait before returning a still-running action's
+// status. Waits below a small floor are clamped up to it, so the context can
+// still carry the response. A parent deadline earlier than the derived one
+// keeps the shorter wait. A server on an older SDK always waits its fixed one
+// second and errors the action if the deadline fires before that, so waits
+// under one second are only safe against servers on this SDK version.
+func WithInlineWait(ctx context.Context, wait time.Duration) (context.Context, context.CancelFunc) {
+	if wait < minInlineWait {
+		wait = minInlineWait
+	}
+	timeout := wait + inlineWaitMargin
+	if wait < inlineWaitMargin {
+		// Below the margin the server reserves half the remaining budget
+		// instead, so double the wait to make the derived wait come out exact.
+		timeout = 2 * wait
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
+// inlineWait is how long InvokeAction may block waiting for the handler:
+// the caller's deadline minus inlineWaitMargin when one is set, else
+// defaultInlineWait. For deadlines shorter than twice the margin, half the
+// remaining budget is reserved instead, so fast handlers keep a completion
+// window and the response still returns before the deadline.
+func inlineWait(ctx context.Context) time.Duration {
+	d, ok := ctx.Deadline()
+	if !ok {
+		return defaultInlineWait
+	}
+	remaining := time.Until(d)
+	if remaining <= 0 {
+		return 0
+	}
+	margin := inlineWaitMargin
+	if half := remaining / 2; half < margin {
+		margin = half
+	}
+	return remaining - margin
+}
+
+const (
+	maxOldActions = 1000
+
+	// defaultInlineWait bounds the invoke-time wait for callers without a
+	// context deadline; inlineWaitMargin is held back from a caller's deadline
+	// so a still-running action returns its status before the deadline expires.
+	defaultInlineWait = 1 * time.Second
+	inlineWaitMargin  = 1 * time.Second
+
+	// minInlineWait keeps WithInlineWait from minting an already-expired
+	// context for zero or negative waits.
+	minInlineWait = 100 * time.Millisecond
+)
 
 // ActionRegistry provides methods for registering actions.
 // Used by both GlobalActionProvider (global actions) and ResourceActionProvider (resource-scoped actions).
@@ -163,8 +232,8 @@ func (a *ActionManager) CleanupOldActions(ctx context.Context) {
 	count := 0
 	// Delete the oldest actions
 	for i := 0; i < len(actionList)-maxOldActions; i++ {
-		action := actionList[i]
-		if action.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || action.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
+		_, actionStatus, _, _ := actionList[i].result()
+		if actionStatus == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || actionStatus == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
 			count++
 			delete(a.actions, actionList[i].Id)
 		}
@@ -398,7 +467,8 @@ func (a *ActionManager) GetActionStatus(_ context.Context, actionId string) (v2.
 
 	// Don't return oa.Err here because error is for GetActionStatus, not the action itself.
 	// oa.Rv contains any error.
-	return oa.Status, oa.Name, oa.Rv, oa.Annos, nil
+	_, st, rv, annos := oa.result()
+	return st, oa.Name, rv, annos, nil
 }
 
 // InvokeAction invokes an action. If resourceTypeID is set, it invokes a resource-scoped action.
@@ -437,11 +507,19 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 
 	oa := a.GetNewAction(name)
 
+	// A dead request must not run the action's side effects: reject an
+	// already-expired context before the handler is dispatched.
+	if err := ctx.Err(); err != nil {
+		oa.SetError(ctx, err)
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, err
+	}
+
 	done := make(chan struct{})
 
-	// If handler exits within a second, return result.
-	// If handler takes longer than 1 second, return status pending.
-	// If handler takes longer than an hour, return status failed.
+	// The handler runs detached. Return its final result if it finishes within
+	// the inline wait (the caller's deadline minus a margin, or one second when
+	// no deadline is set); otherwise return the in-flight status.
 	go func() { // #nosec G118 -- action handlers intentionally outlive the request context and keep only trace/log metadata.
 		defer close(done)
 		defer func() {
@@ -457,8 +535,8 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 		bgCtx := trace.ContextWithSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
 		handlerCtx, cancel := context.WithTimeoutCause(bgCtx, 1*time.Hour, errors.New("action handler timed out"))
 		defer cancel()
-		var oaErr error
-		oa.Rv, oa.Annos, oaErr = handler(handlerCtx, args)
+		rv, annos, oaErr := handler(handlerCtx, args)
+		oa.setResult(rv, annos)
 		if oaErr == nil {
 			oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE)
 		} else {
@@ -466,14 +544,20 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 		}
 	}()
 
+	wait := time.NewTimer(inlineWait(ctx))
+	defer wait.Stop()
+
 	select {
 	case <-done:
-		return oa.Id, oa.Status, oa.Rv, oa.Annos, nil
-	case <-time.After(1 * time.Second):
-		return oa.Id, oa.Status, oa.Rv, oa.Annos, nil
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, nil
+	case <-wait.C:
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, nil
 	case <-ctx.Done():
 		oa.SetError(ctx, ctx.Err())
-		return oa.Id, oa.Status, oa.Rv, oa.Annos, ctx.Err()
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, ctx.Err()
 	}
 }
 
@@ -527,6 +611,15 @@ func (a *ActionManager) invokeResourceAction(
 	}
 
 	oa := a.GetNewAction(actionName)
+
+	// A dead request must not run the action's side effects: reject an
+	// already-expired context before the handler is dispatched.
+	if err := ctx.Err(); err != nil {
+		oa.SetError(ctx, err)
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, err
+	}
+
 	done := make(chan struct{})
 
 	// Invoke handler in goroutine
@@ -547,8 +640,8 @@ func (a *ActionManager) invokeResourceAction(
 		bgCtx = ctxzap.ToContext(bgCtx, ctxzap.Extract(ctx))
 		handlerCtx, cancel := context.WithTimeoutCause(bgCtx, 1*time.Hour, errors.New("action handler timed out"))
 		defer cancel()
-		var oaErr error
-		oa.Rv, oa.Annos, oaErr = handler(handlerCtx, args)
+		rv, annos, oaErr := handler(handlerCtx, args)
+		oa.setResult(rv, annos)
 		if oaErr == nil {
 			oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE)
 		} else {
@@ -556,15 +649,21 @@ func (a *ActionManager) invokeResourceAction(
 		}
 	}()
 
-	// Wait for completion or timeout
+	// Wait for completion or the inline-wait bound
+	wait := time.NewTimer(inlineWait(ctx))
+	defer wait.Stop()
+
 	select {
 	case <-done:
-		return oa.Id, oa.Status, oa.Rv, oa.Annos, nil
-	case <-time.After(1 * time.Second):
-		return oa.Id, oa.Status, oa.Rv, oa.Annos, nil
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, nil
+	case <-wait.C:
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, nil
 	case <-ctx.Done():
 		oa.SetError(ctx, ctx.Err())
-		return oa.Id, oa.Status, oa.Rv, oa.Annos, ctx.Err()
+		id, st, rv, annos := oa.result()
+		return id, st, rv, annos, ctx.Err()
 	}
 }
 
