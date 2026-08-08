@@ -38,3 +38,4 @@ dist/
 # specific tenants and their data shapes, which must not enter this
 # public repository (see CLAUDE.md content guidelines).
 docs/tasks/
+.raceout/

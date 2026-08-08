@@ -93,7 +93,7 @@ func BenchmarkPebbleExpansion_StoreExpandedGrants(b *testing.B) {
 // entitlement across N finished syncs. Under the structural-identity
 // layout the grant primary key is entitlement-first (the retired
 // sync-prefixed idxGrantByEntitlement keyspace is gone), so each
-// PaginateGrantsByEntitlement call is a single primary-prefix scan.
+// paginateGrantsByEntitlement call is a single primary-prefix scan.
 //
 // Output metric `entries_returned` is the number of grants
 // surfaced for the target entitlement across all syncs — should

@@ -30,13 +30,14 @@ func stampSyncToken(t *testing.T, ctx context.Context, path, syncID, token strin
 	t.Helper()
 	w, err := dotc1z.NewStore(ctx, path, dotc1z.WithTmpDir(t.TempDir()))
 	require.NoError(t, err)
-	eng, ok := enginepkg.AsEngine(w)
-	require.True(t, ok, "store at %s is not a pebble engine", path)
-	rec, err := eng.GetSyncRunRecord(ctx, syncID)
-	require.NoError(t, err)
-	rec.SetSyncToken(token)
-	require.NoError(t, eng.PutSyncRunRecord(ctx, rec))
-	require.True(t, enginepkg.MarkStoreDirty(w))
+	require.NoError(t, enginepkg.WithEngineMutation(ctx, w, func(ctx context.Context, eng *enginepkg.Engine) error {
+		rec, err := eng.GetSyncRunRecord(ctx, syncID)
+		if err != nil {
+			return err
+		}
+		rec.SetSyncToken(token)
+		return eng.PutSyncRunRecord(ctx, rec)
+	}))
 	require.NoError(t, w.Close(ctx))
 }
 

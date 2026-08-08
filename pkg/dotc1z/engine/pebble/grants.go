@@ -80,7 +80,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		batch := e.db.NewRecordBatch()
 		defer batch.Close()
 
-		fresh := e.IsFreshSync()
+		fresh := e.isFreshSync()
 		// skipGet fires exactly once per fresh sync — only the first
 		// PutGrantRecords call sees the keyspace empty by construction.
 		// Subsequent calls in the same fresh sync still need
@@ -162,7 +162,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 	})
 }
 
-// PutExpandedGrantRecords is the grant-expander write path — the
+// putExpandedGrantRecords is the grant-expander write path — the
 // engine side of GrantStore.StoreExpandedGrants, and its only caller.
 //
 // Two properties distinguish it from PutGrantRecords:
@@ -187,7 +187,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 // records arrive as freshly translated v3 GrantRecords with NO
 // preservation or discovered_at stamping applied; this method performs
 // the merge so the read it already issues does double duty.
-func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.GrantRecord) error {
+func (e *Engine) putExpandedGrantRecords(ctx context.Context, records []*v3.GrantRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -299,12 +299,12 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 	})
 }
 
-// PutSynthesizedGrantRecords writes expander-synthesized grants that the caller
+// putSynthesizedGrantRecords writes expander-synthesized grants that the caller
 // guarantees are brand-new by structured grant identity. It skips the
 // read-before-write Get in PutExpandedGrantRecords because there is no prior
 // value whose Expansion/NeedsExpansion/DiscoveredAt or index entries must be
 // preserved/cleaned.
-func (e *Engine) PutSynthesizedGrantRecords(ctx context.Context, records []*v3.GrantRecord) error {
+func (e *Engine) putSynthesizedGrantRecords(ctx context.Context, records []*v3.GrantRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -361,12 +361,12 @@ type synthesizedGrantRecord struct {
 	sources     batonGrant.Sources
 }
 
-// PutSynthesizedGrantContributions batch-writes one destination's synthesized
+// putSynthesizedGrantContributions batch-writes one destination's synthesized
 // contributions. It is the fallback for stores/engines that cannot run a
 // layer-scoped layer session (see BeginSynthesizedGrantLayer); the layer path
 // is preferred because it publishes sorted SSTs instead of out-of-order batch
 // commits.
-func (e *Engine) PutSynthesizedGrantContributions(ctx context.Context, records []synthesizedGrantRecord) error {
+func (e *Engine) putSynthesizedGrantContributions(ctx context.Context, records []synthesizedGrantRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -476,12 +476,12 @@ func (s *synthGrantLayerSession) cutSegment() error {
 	return nil
 }
 
-// BeginSynthesizedGrantLayer opens a layer-scoped layer session. The ingested
+// beginSynthesizedGrantLayer opens a layer-scoped layer session. The ingested
 // SSTs carry primary rows only; the by_principal index is always rebuilt at
 // EndSync, so no inline index maintenance is skipped by taking this path.
 // The boolean is part of the store-level contract (non-Pebble stores report
 // false and callers fall back to StoreNewExpandedGrantContributions).
-func (e *Engine) BeginSynthesizedGrantLayer(ctx context.Context) (bool, error) {
+func (e *Engine) beginSynthesizedGrantLayer(ctx context.Context) (bool, error) {
 	if err := e.checkWritable(); err != nil {
 		return false, err
 	}
@@ -584,10 +584,10 @@ func (e *Engine) ingestSynthLayerSegment(ctx context.Context, dir string, seg sy
 	return nil
 }
 
-// AddSynthesizedGrantLayerContributions encodes records into the open layer
+// addSynthesizedGrantLayerContributions encodes records into the open layer
 // session. Rows become readable as their segment is ingested; callers must
 // not rely on visibility before FinishSynthesizedGrantLayer returns.
-func (e *Engine) AddSynthesizedGrantLayerContributions(ctx context.Context, records []synthesizedGrantRecord) error {
+func (e *Engine) addSynthesizedGrantLayerContributions(ctx context.Context, records []synthesizedGrantRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -651,10 +651,10 @@ func (e *Engine) AddSynthesizedGrantLayerContributions(ctx context.Context, reco
 	})
 }
 
-// FinishSynthesizedGrantLayer flushes the session's tail segment, waits for
+// finishSynthesizedGrantLayer flushes the session's tail segment, waits for
 // the background worker to merge and ingest every queued segment, and closes
 // the session. No-op if no session is open or the session saw no rows.
-func (e *Engine) FinishSynthesizedGrantLayer(ctx context.Context) error {
+func (e *Engine) finishSynthesizedGrantLayer(ctx context.Context) error {
 	return e.withWrite(func() error {
 		s := e.takeSynthLayer()
 		if s == nil {
@@ -682,7 +682,7 @@ func (e *Engine) FinishSynthesizedGrantLayer(ctx context.Context) error {
 	})
 }
 
-// AbortSynthesizedGrantLayer discards an in-flight layer session: already
+// abortSynthesizedGrantLayer discards an in-flight layer session: already
 // ingested segments remain in the DB (their rows are idempotent overwrites on
 // retry), staged chunks are dropped. Safe to call with no open session.
 //
@@ -690,7 +690,7 @@ func (e *Engine) FinishSynthesizedGrantLayer(ctx context.Context) error {
 // setting the closing flag (withWrite would refuse), and it must stay callable
 // as a cleanup path when a writer holding writeMu panicked. The synthLayerMu
 // take keeps the pointer handoff race-free against Begin/Add/Finish/Close.
-func (e *Engine) AbortSynthesizedGrantLayer(ctx context.Context) error {
+func (e *Engine) abortSynthesizedGrantLayer(ctx context.Context) error {
 	s := e.takeSynthLayer()
 	if s == nil {
 		return nil
@@ -757,7 +757,7 @@ func (e *Engine) putSynthesizedGrantContributionsBatch(ctx context.Context, reco
 	})
 }
 
-// UnsafePutUniqueGrantRecords is the trusted-import write path: it writes
+// unsafePutUniqueGrantRecords is the trusted-import write path: it writes
 // records unconditionally, with NO read-before-write and NO dedup pass. Do not
 // use it for live connector output. The engine must currently be in fresh-sync
 // mode, and the caller must guarantee each external_id appears at most once
@@ -771,12 +771,12 @@ func (e *Engine) putSynthesizedGrantContributionsBatch(ctx context.Context, reco
 // write only exists to clean up stale index entries when an external_id is
 // rewritten within a sync — impossible when the caller guarantees global
 // uniqueness for the imported sync.
-func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3.GrantRecord) error {
+func (e *Engine) unsafePutUniqueGrantRecords(ctx context.Context, records ...*v3.GrantRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
 	return e.withWrite(func() error {
-		if !e.IsFreshSync() {
+		if !e.isFreshSync() {
 			return errors.New("UnsafePutUniqueGrantRecords: sync is not fresh")
 		}
 		// Fail-loud defense (review suggestion): on the fresh syncs this
@@ -881,7 +881,7 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 		}
 
 		opts := writeOpts(e.opts.durability)
-		if e.IsFreshSync() {
+		if e.isFreshSync() {
 			opts = pebble.NoSync
 		}
 		// One atomic commit: rows and their obligations ride the same
@@ -927,10 +927,10 @@ func (e *Engine) DeleteGrantRecord(ctx context.Context, externalID string) error
 	})
 }
 
-// DeleteGrantByIdentityRefs removes a grant addressed by its structural
+// deleteGrantByIdentityRefs removes a grant addressed by its structural
 // refs — the exact delete path for callers that hold the full grant. No
 // lossy id string is involved. Deleting a non-existent grant is a no-op.
-func (e *Engine) DeleteGrantByIdentityRefs(ctx context.Context, r *v3.GrantRecord) error {
+func (e *Engine) deleteGrantByIdentityRefs(ctx context.Context, r *v3.GrantRecord) error {
 	id, err := grantIdentityFromRecord(r)
 	if err != nil {
 		return fmt.Errorf("DeleteGrantByIdentityRefs: %w", err)
@@ -1106,10 +1106,10 @@ func (e *Engine) IterateGrantsByPrincipal(ctx context.Context, principalRT, prin
 	return iter.Error()
 }
 
-// IterateGrantsByPrincipalResourceType iterates the by_principal index narrowed
+// iterateGrantsByPrincipalResourceType iterates the by_principal index narrowed
 // to a principal resource type. Yields each grant whose principal carries the
 // given resource_type. Stops when yield returns false.
-func (e *Engine) IterateGrantsByPrincipalResourceType(ctx context.Context, principalRT string, yield func(*v3.GrantRecord) bool) error {
+func (e *Engine) iterateGrantsByPrincipalResourceType(ctx context.Context, principalRT string, yield func(*v3.GrantRecord) bool) error {
 	indexPrefix := encodeGrantByPrincipalResourceTypeIdentityPrefix(principalRT)
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: indexPrefix,

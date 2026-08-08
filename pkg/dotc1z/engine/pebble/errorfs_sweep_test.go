@@ -447,7 +447,7 @@ func (w sweepWorkload) verifyDigests(ctx context.Context, t *testing.T, e *Engin
 		// Consistent absence: no entitlement root may survive a drop.
 		for _, entID := range w.expectedEntIDsPerPrincipal() {
 			id := entitlementIdentityFromParts("app", "github", entID)
-			_, ok, err := e.GetEntitlementDigestRoot(ctx, id)
+			_, ok, err := e.getEntitlementDigestRoot(ctx, id)
 			require.NoErrorf(t, err, "%s: GetEntitlementDigestRoot(%s)", label, entID)
 			require.Falsef(t, ok, "%s: global digest root absent but %s kept a root — partial digest state lies to the repair fast path", label, entID)
 		}
@@ -482,7 +482,7 @@ func (w sweepWorkload) verifyDigests(ctx context.Context, t *testing.T, e *Engin
 		id := entitlementIdentityFromParts("app", "github", entID)
 		part := digestPartitionForEntitlement(id)
 
-		root, ok, err := e.GetEntitlementDigestRoot(ctx, id)
+		root, ok, err := e.getEntitlementDigestRoot(ctx, id)
 		require.NoErrorf(t, err, "%s: GetEntitlementDigestRoot(%s)", label, entID)
 		require.Truef(t, ok, "%s: finished store must have a digest root for %s (present-means-exact)", label, entID)
 
@@ -491,7 +491,7 @@ func (w sweepWorkload) verifyDigests(ctx context.Context, t *testing.T, e *Engin
 		require.Equalf(t, pf.count, root.Count, "%s: stored root count vs primary fold for %s", label, entID)
 		require.Equalf(t, pf.xor[:], root.Hash, "%s: stored root hash vs primary fold for %s", label, entID)
 
-		idxHash, idxCount, err := e.ComputeEntitlementBucketDigest(ctx, id, DigestBucket{})
+		idxHash, idxCount, err := e.computeEntitlementBucketDigest(ctx, id, DigestBucket{})
 		require.NoErrorf(t, err, "%s: ComputeEntitlementBucketDigest(%s)", label, entID)
 		require.Equalf(t, root.Count, idxCount, "%s: hash-index fold count vs stored root for %s", label, entID)
 		require.Equalf(t, root.Hash, idxHash, "%s: hash-index fold hash vs stored root for %s", label, entID)

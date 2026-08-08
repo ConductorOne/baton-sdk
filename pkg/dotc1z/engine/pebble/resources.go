@@ -42,7 +42,7 @@ func (e *Engine) PutResourceRecords(ctx context.Context, records ...*v3.Resource
 		batch := e.db.NewRecordBatch()
 		defer batch.Close()
 
-		fresh := e.IsFreshSync()
+		fresh := e.isFreshSync()
 		skipGet := e.takeFreshResourcesEmpty()
 
 		type dedupKey struct {

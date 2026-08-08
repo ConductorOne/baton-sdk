@@ -47,7 +47,7 @@ func TestCompactionPauseLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, e.compactionScheduler)
 	require.False(t, e.compactionScheduler.paused.Load(), "fresh engine starts unpaused")
-	require.False(t, e.IsSealed(), "fresh engine starts unsealed")
+	require.False(t, e.isSealed(), "fresh engine starts unsealed")
 
 	a := NewAdapter(e)
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -61,13 +61,13 @@ func TestCompactionPauseLifecycle(t *testing.T) {
 	require.Error(t, a.EndSync(canceled), "EndSync with canceled ctx must fail in the deferred build")
 	require.False(t, e.compactionScheduler.paused.Load(),
 		"a failed EndSync must resume compactions: the sync stays bound and nothing else would ever resume")
-	require.False(t, e.IsSealed(), "a failed EndSync must not seal: the sync stays bound")
+	require.False(t, e.isSealed(), "a failed EndSync must not seal: the sync stays bound")
 
 	// Successful EndSync: sealed (paused + writes refused) for the
 	// save/close window.
 	require.NoError(t, a.EndSync(ctx))
 	require.True(t, e.compactionScheduler.paused.Load(), "successful EndSync leaves compactions paused for the save window")
-	require.True(t, e.IsSealed(), "successful EndSync seals the engine")
+	require.True(t, e.isSealed(), "successful EndSync seals the engine")
 
 	// Record writes are refused while sealed — loudly, not by silently
 	// running on a paused scheduler.
@@ -86,26 +86,26 @@ func TestCompactionPauseLifecycle(t *testing.T) {
 	// Rebinding unseals and resumes.
 	require.NoError(t, a.SetCurrentSync(ctx, syncID))
 	require.False(t, e.compactionScheduler.paused.Load(), "binding a sync must resume compactions")
-	require.False(t, e.IsSealed(), "binding a sync must unseal")
+	require.False(t, e.isSealed(), "binding a sync must unseal")
 
 	// Seal again via EndSync, then prove StartNewSync (which must wipe the
 	// sealed prior sync via ResetForNewSync) also unseals.
 	require.NoError(t, a.EndSync(ctx))
-	require.True(t, e.IsSealed())
+	require.True(t, e.isSealed())
 	_, err = a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err, "StartNewSync over a sealed finished sync must work (ResetForNewSync is seal-exempt)")
-	require.False(t, e.IsSealed(), "StartNewSync must unseal")
+	require.False(t, e.isSealed(), "StartNewSync must unseal")
 	require.False(t, e.compactionScheduler.paused.Load())
 
 	// Seal once more and prove a reopen starts unsealed.
 	require.NoError(t, a.EndSync(ctx))
 	require.True(t, e.compactionScheduler.paused.Load())
-	require.True(t, e.IsSealed())
+	require.True(t, e.isSealed())
 	require.NoError(t, e.Close())
 
 	e2, err := Open(ctx, dir)
 	require.NoError(t, err)
 	defer e2.Close()
 	require.False(t, e2.compactionScheduler.paused.Load(), "reopened engine must start unpaused")
-	require.False(t, e2.IsSealed(), "reopened engine must start unsealed")
+	require.False(t, e2.isSealed(), "reopened engine must start unsealed")
 }

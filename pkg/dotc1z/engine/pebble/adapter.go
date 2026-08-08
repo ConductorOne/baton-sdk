@@ -109,7 +109,7 @@ func (e *Engine) startNewSync(ctx context.Context, syncType connectorstore.SyncT
 	if existed, err := e.hasSyncRun(); err != nil {
 		return "", err
 	} else if existed {
-		if err := e.ResetForNewSync(ctx); err != nil {
+		if err := e.resetForNewSync(ctx); err != nil {
 			return "", err
 		}
 	}
@@ -219,7 +219,7 @@ func (e *Engine) SetCurrentSync(ctx context.Context, syncID string) error {
 func (e *Engine) CurrentSyncStep(ctx context.Context) (string, error) {
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
-	syncID := e.CurrentSyncID()
+	syncID := e.currentSyncID()
 	if syncID == "" {
 		return "", nil
 	}
@@ -237,7 +237,7 @@ func (e *Engine) CurrentSyncStep(ctx context.Context) (string, error) {
 func (e *Engine) CheckpointSync(ctx context.Context, syncToken string) error {
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
-	syncID := e.CurrentSyncID()
+	syncID := e.currentSyncID()
 	if syncID == "" {
 		return errors.New("CheckpointSync: no open sync")
 	}
@@ -260,7 +260,7 @@ func (e *Engine) CheckpointSync(ctx context.Context, syncToken string) error {
 func (e *Engine) EndSync(ctx context.Context) error {
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
-	syncID := e.CurrentSyncID()
+	syncID := e.currentSyncID()
 	if syncID == "" {
 		return errors.New("EndSync: no open sync")
 	}
@@ -308,7 +308,7 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	// stashDeferredGrantStats, letting PersistSyncStats skip a second
 	// O(grants) pass over the keyspace).
 	if e.db.DeferredIdxPending() {
-		if err := e.BuildDeferredGrantIndexes(ctx); err != nil {
+		if err := e.buildDeferredGrantIndexes(ctx); err != nil {
 			return fmt.Errorf("EndSync: build deferred grant indexes: %w", err)
 		}
 		if err := e.clearDeferredIdxPending(); err != nil {
@@ -401,7 +401,7 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 // disjoint range of the records slice and uses its own arena, so no
 // shared mutable state across workers.
 func (e *Engine) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
-	syncID := e.CurrentSyncID()
+	syncID := e.currentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
@@ -419,12 +419,12 @@ func (e *Engine) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 // most once across the whole sync (not just within this batch). Live connector
 // writes should use PutGrants.
 func (e *Engine) UnsafePutUniqueGrants(ctx context.Context, grants ...*v2.Grant) error {
-	syncID := e.CurrentSyncID()
+	syncID := e.currentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
 	records := translateGrants(syncID, grants)
-	if err := e.UnsafePutUniqueGrantRecords(ctx, records...); err != nil {
+	if err := e.unsafePutUniqueGrantRecords(ctx, records...); err != nil {
 		return fmt.Errorf("UnsafePutUniqueGrants: %w", err)
 	}
 	return nil
@@ -523,7 +523,7 @@ func translateGrantsSerial(syncID string, grants []*v2.Grant, discoveredAt []*ti
 // PutResourceTypes writes a batch of resource types in a single
 // Pebble batch.
 func (e *Engine) PutResourceTypes(ctx context.Context, rts ...*v2.ResourceType) error {
-	syncID := e.CurrentSyncID()
+	syncID := e.currentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
@@ -550,7 +550,7 @@ func (e *Engine) PutResourceTypes(ctx context.Context, rts ...*v2.ResourceType) 
 
 // PutResources writes a batch of resources in a single Pebble batch.
 func (e *Engine) PutResources(ctx context.Context, resources ...*v2.Resource) error {
-	syncID := e.CurrentSyncID()
+	syncID := e.currentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
@@ -577,7 +577,7 @@ func (e *Engine) PutResources(ctx context.Context, resources ...*v2.Resource) er
 
 // PutEntitlements writes a batch of entitlements in a single Pebble batch.
 func (e *Engine) PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error {
-	syncID := e.CurrentSyncID()
+	syncID := e.currentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
@@ -606,7 +606,7 @@ func (e *Engine) PutEntitlements(ctx context.Context, entitlements ...*v2.Entitl
 // bare-id lookup edge. Callers holding the full grant should prefer
 // DeleteGrantByRefs, which needs no id-string resolution.
 func (e *Engine) DeleteGrant(ctx context.Context, grantID string) error {
-	syncID := e.CurrentSyncID()
+	syncID := e.currentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
@@ -621,7 +621,7 @@ func (e *Engine) DeleteGrant(ctx context.Context, grantID string) error {
 // an identity could not have been stored in the first place, so there is
 // nothing a string could correctly address here.
 func (e *Engine) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
-	syncID := e.CurrentSyncID()
+	syncID := e.currentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
@@ -629,7 +629,7 @@ func (e *Engine) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
 	if _, err := grantIdentityFromRecord(rec); err != nil {
 		return fmt.Errorf("DeleteGrantByRefs: grant %q: %w", grant.GetId(), err)
 	}
-	return e.DeleteGrantByIdentityRefs(ctx, rec)
+	return e.deleteGrantByIdentityRefs(ctx, rec)
 }
 
 // PutAsset writes a single asset row. assetRef carries the
@@ -637,7 +637,7 @@ func (e *Engine) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
 // joined with a "/" separator since the engine's AssetRecord PK is
 // (sync_id, external_id).
 func (e *Engine) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error {
-	syncID := e.CurrentSyncID()
+	syncID := e.currentSyncID()
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
@@ -678,14 +678,14 @@ func (e *Engine) Cleanup(ctx context.Context) error { return nil }
 // asset. The returned reader is backed by a bytes.Reader over the
 // fully-materialized blob.
 func (e *Engine) GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequest) (string, io.Reader, error) {
-	syncID := e.CurrentSyncID()
+	syncID := e.currentSyncID()
 	if syncID == "" {
 		return "", nil, ErrNoCurrentSync
 	}
 	if req == nil || req.GetAsset() == nil {
 		return "", nil, errors.New("GetAsset: nil request")
 	}
-	rec, err := e.GetAssetRecord(ctx, req.GetAsset().GetId())
+	rec, err := e.getAssetRecord(ctx, req.GetAsset().GetId())
 	if err != nil {
 		return "", nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -722,10 +722,10 @@ func (e *Engine) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrants
 	var records []*v3.GrantRecord
 	var nextCursor string
 	if r := req.GetResource(); r != nil && r.GetId() != nil {
-		records, nextCursor, err = e.PaginateGrantsByEntitlementResource(ctx,
+		records, nextCursor, err = e.paginateGrantsByEntitlementResource(ctx,
 			r.GetId().GetResourceType(), r.GetId().GetResource(), cursor, limit)
 	} else {
-		records, nextCursor, err = e.PaginateGrants(ctx, cursor, limit)
+		records, nextCursor, err = e.paginateGrants(ctx, cursor, limit)
 	}
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
@@ -798,10 +798,10 @@ func (e *Engine) ListResources(ctx context.Context, req *v2.ResourcesServiceList
 		var records []*v3.ResourceRecord
 		var err error
 		if useParent {
-			records, nextCursor, err = e.PaginateResourcesByParent(ctx,
+			records, nextCursor, err = e.paginateResourcesByParent(ctx,
 				parent.GetResourceType(), parent.GetResource(), cursor, fetchLimit)
 		} else {
-			records, nextCursor, err = e.PaginateResources(ctx, cursor, fetchLimit)
+			records, nextCursor, err = e.paginateResources(ctx, cursor, fetchLimit)
 		}
 		if err != nil {
 			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
@@ -847,7 +847,7 @@ func (e *Engine) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesSer
 		return nil, ErrNoCurrentSync
 	}
 	limit := clampPageSize(req.GetPageSize())
-	records, nextCursor, err := e.PaginateResourceTypes(ctx, req.GetPageToken(), limit)
+	records, nextCursor, err := e.paginateResourceTypes(ctx, req.GetPageToken(), limit)
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -877,10 +877,10 @@ func (e *Engine) ListEntitlements(ctx context.Context, req *v2.EntitlementsServi
 	var records []*v3.EntitlementRecord
 	var nextCursor string
 	if r := req.GetResource(); r != nil && r.GetId() != nil {
-		records, nextCursor, err = e.PaginateEntitlementsByResource(ctx,
+		records, nextCursor, err = e.paginateEntitlementsByResource(ctx,
 			r.GetId().GetResourceType(), r.GetId().GetResource(), cursor, limit)
 	} else {
-		records, nextCursor, err = e.PaginateEntitlements(ctx, cursor, limit)
+		records, nextCursor, err = e.paginateEntitlements(ctx, cursor, limit)
 	}
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)

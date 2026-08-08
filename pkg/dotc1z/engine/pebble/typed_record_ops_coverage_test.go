@@ -65,7 +65,7 @@ func TestPutSynthesizedGrantRecordsObligations(t *testing.T) {
 	require.NoError(t, err)
 	e := a.PebbleEngine()
 
-	require.NoError(t, e.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{
+	require.NoError(t, e.putSynthesizedGrantRecords(ctx, []*v3.GrantRecord{
 		testGrantRecord("ent-A", "alice"),
 		testGrantRecord("ent-A", "bob"),
 	}))
@@ -111,7 +111,7 @@ func TestPutSynthesizedGrantContributionsBatchObligations(t *testing.T) {
 	}
 	// Through the exported dispatcher so its counter bookkeeping and the
 	// batch body are both exercised.
-	require.NoError(t, e.PutSynthesizedGrantContributions(ctx, records))
+	require.NoError(t, e.putSynthesizedGrantContributions(ctx, records))
 	require.True(t, e.db.DeferredIdxPending(), "contributions must arm the deferred rebuild marker")
 
 	require.NoError(t, a.EndSync(ctx))
@@ -137,7 +137,7 @@ func TestUnsafePutUniqueGrantRecordsObligations(t *testing.T) {
 	expandable := testGrantRecord("ent-A", "alice")
 	expandable.SetNeedsExpansion(true)
 	plain := testGrantRecord("ent-B", "bob")
-	require.NoError(t, e.UnsafePutUniqueGrantRecords(ctx, expandable, plain))
+	require.NoError(t, e.unsafePutUniqueGrantRecords(ctx, expandable, plain))
 
 	require.Equal(t, 2, countKeys(t, e, encodeGrantPrefix()), "both rows must land")
 	require.Equal(t, 1, countKeys(t, e, encodeGrantByNeedsExpansionPrefix()),
@@ -150,14 +150,14 @@ func TestUnsafePutUniqueGrantRecordsObligations(t *testing.T) {
 	// freshness contract itself broke — the guard must refuse rather
 	// than silently tombstone a trusted import's digest keyspace.
 	e.db.SetGrantDigestsPresent(true)
-	require.ErrorContains(t, e.UnsafePutUniqueGrantRecords(ctx, testGrantRecord("ent-C", "carol")),
+	require.ErrorContains(t, e.unsafePutUniqueGrantRecords(ctx, testGrantRecord("ent-C", "carol")),
 		"digest state present on a fresh sync")
 	e.db.SetGrantDigestsPresent(false)
 
 	// Non-fresh syncs are refused (SetCurrentSync clears freshness).
 	require.NoError(t, a.EndSync(ctx))
 	require.NoError(t, a.SetCurrentSync(ctx, syncID))
-	require.ErrorContains(t, e.UnsafePutUniqueGrantRecords(ctx, testGrantRecord("ent-C", "carol")),
+	require.ErrorContains(t, e.unsafePutUniqueGrantRecords(ctx, testGrantRecord("ent-C", "carol")),
 		"sync is not fresh")
 }
 
@@ -202,7 +202,7 @@ func TestGrantDeleteMalformedValueStillCleansObligations(t *testing.T) {
 	// value). Both index families and the digest root must be cleaned
 	// even though the value is garbage.
 	rec := testGrantRecord("ent-A", "alice")
-	require.NoError(t, e.DeleteGrantByIdentityRefs(ctx, rec))
+	require.NoError(t, e.deleteGrantByIdentityRefs(ctx, rec))
 
 	_, closer, err := e.db.Get(key)
 	require.ErrorIs(t, err, pebble.ErrNotFound, "primary must be gone")
@@ -266,7 +266,7 @@ func TestDeferredMarkerArmFailureRollsBackCAS(t *testing.T) {
 
 	// The deferred-regime write must FAIL when the marker can't arm —
 	// committing deferred rows without the durable marker is the lie.
-	err = e.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{testGrantRecord("ent-A", "alice")})
+	err = e.putSynthesizedGrantRecords(ctx, []*v3.GrantRecord{testGrantRecord("ent-A", "alice")})
 	require.ErrorIs(t, err, injected, "deferred write must surface the arm failure")
 
 	// THE CONTRACT: flag rolled back, durable key absent — in agreement.
@@ -283,7 +283,7 @@ func TestDeferredMarkerArmFailureRollsBackCAS(t *testing.T) {
 	// Retry converges: with the fault gone, the same write arms the
 	// marker durably and lands.
 	e.db.SetDeferredMarkerTestHooks(nil, nil)
-	require.NoError(t, e.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{testGrantRecord("ent-A", "alice")}))
+	require.NoError(t, e.putSynthesizedGrantRecords(ctx, []*v3.GrantRecord{testGrantRecord("ent-A", "alice")}))
 	require.True(t, e.db.DeferredIdxPending())
 	_, closer, getErr = e.db.Get(rawdb.DeferredIdxPendingKey())
 	require.NoError(t, getErr, "the retried arm must persist the durable marker")
@@ -319,7 +319,7 @@ func TestDeferredMarkerClearFailureKeepsAgreement(t *testing.T) {
 	e := a.PebbleEngine()
 
 	// Deferred-regime write arms the marker.
-	require.NoError(t, e.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{testGrantRecord("ent-A", "alice")}))
+	require.NoError(t, e.putSynthesizedGrantRecords(ctx, []*v3.GrantRecord{testGrantRecord("ent-A", "alice")}))
 	require.True(t, e.db.DeferredIdxPending())
 
 	injected := errors.New("injected deferred-marker clear failure")
@@ -375,18 +375,18 @@ func TestPutResourceRecordsIfNewerBranches(t *testing.T) {
 	byParentPrefix := []byte{versionV3, typeIndex, idxResourceByParent}
 
 	// Branch 1: no prior → written, indexed under parent-A.
-	require.NoError(t, e.PutResourceRecordsIfNewer(ctx, mk("parent-A", old)))
+	require.NoError(t, e.putResourceRecordsIfNewer(ctx, mk("parent-A", old)))
 	require.Equal(t, 1, countKeys(t, e, byParentPrefix))
 
 	// Branch 2: strictly newer → overwritten, index swapped to parent-B.
-	require.NoError(t, e.PutResourceRecordsIfNewer(ctx, mk("parent-B", newer)))
+	require.NoError(t, e.putResourceRecordsIfNewer(ctx, mk("parent-B", newer)))
 	require.Equal(t, 1, countKeys(t, e, byParentPrefix), "old parent edge must be cleaned, new one written")
 	got, err := e.GetResourceRecord(ctx, "group", "r1")
 	require.NoError(t, err)
 	require.Equal(t, "parent-B", got.GetParent().GetResourceId())
 
 	// Branch 3: not newer → skipped entirely (record and index untouched).
-	require.NoError(t, e.PutResourceRecordsIfNewer(ctx, mk("parent-C", old)))
+	require.NoError(t, e.putResourceRecordsIfNewer(ctx, mk("parent-C", old)))
 	got, err = e.GetResourceRecord(ctx, "group", "r1")
 	require.NoError(t, err)
 	require.Equal(t, "parent-B", got.GetParent().GetResourceId(), "stale write must not land")

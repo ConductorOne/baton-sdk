@@ -31,7 +31,7 @@ func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.Reso
 		}
 		batch := e.db.NewRecordBatch()
 		defer batch.Close()
-		fresh := e.IsFreshSync()
+		fresh := e.isFreshSync()
 		for _, r := range records {
 			if r == nil {
 				continue
@@ -65,20 +65,6 @@ func (e *Engine) GetResourceTypeRecord(ctx context.Context, externalID string) (
 		return nil, fmt.Errorf("GetResourceTypeRecord: unmarshal: %w", err)
 	}
 	return r, nil
-}
-
-func (e *Engine) DeleteResourceTypeRecord(ctx context.Context, externalID string) error {
-	return e.withWrite(func() error {
-		// Record family, not engine-meta: resource types are record
-		// rows. A one-op RecordBatch commit is durability-identical to
-		// the old single Delete (the commit carries the write options).
-		batch := e.db.NewRecordBatch()
-		defer batch.Close()
-		if err := batch.StageResourceTypeDelete(encodeResourceTypeKey(externalID)); err != nil {
-			return err
-		}
-		return batch.Commit(writeOpts(e.opts.durability))
-	})
 }
 
 func (e *Engine) IterateResourceTypes(ctx context.Context, yield func(*v3.ResourceTypeRecord) bool) error {

@@ -199,11 +199,12 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	}
 	stats.DestSyncID = destSyncID
 
-	destEng, ok := pebble.AsEngine(dest)
-	if !ok {
-		return nil, errors.New("to-pebble: destination store is not a pebble engine")
-	}
-	bi, err := destEng.StartBulkSyncImport(ctx, destSyncID, cfg.tmpDir)
+	var bi *pebble.BulkSyncImport
+	err = pebble.WithEngineMutation(ctx, dest, func(ctx context.Context, destEng *pebble.Engine) error {
+		var startErr error
+		bi, startErr = destEng.StartBulkSyncImport(ctx, destSyncID, cfg.tmpDir)
+		return startErr
+	})
 	if err != nil {
 		return nil, fmt.Errorf("to-pebble: start bulk import: %w", err)
 	}
@@ -226,7 +227,9 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	if err = c.convertGrants(ctx, bi, syncID, cfg, &stats.Grants); err != nil {
 		return nil, fmt.Errorf("to-pebble: grants: %w", err)
 	}
-	if err = bi.Finish(ctx); err != nil {
+	if err = pebble.WithEngineMutation(ctx, dest, func(ctx context.Context, _ *pebble.Engine) error {
+		return bi.Finish(ctx)
+	}); err != nil {
 		return nil, fmt.Errorf("to-pebble: ingest: %w", err)
 	}
 	imported = true
@@ -240,29 +243,39 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	// the freshly ingested keyspaces.
 	statsRec := bi.ComputedStats()
 	statsRec.SetAssets(stats.Assets.Rows)
-	destEng.StashComputedSyncStats(destSyncID, statsRec)
+	if err = pebble.WithEngineMutation(ctx, dest, func(_ context.Context, destEng *pebble.Engine) error {
+		destEng.StashComputedSyncStats(destSyncID, statsRec)
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("to-pebble: stash destination stats: %w", err)
+	}
 
 	endSyncStart := time.Now()
 	if err = dest.EndSync(ctx); err != nil {
 		return nil, fmt.Errorf("to-pebble: end destination sync: %w", err)
 	}
 	if sync.EndedAt != nil {
-		rec, err := destEng.GetSyncRunRecord(ctx, destSyncID)
-		if err != nil {
-			return nil, fmt.Errorf("to-pebble: load destination sync metadata: %w", err)
-		}
-		rec.SetEndedAt(timestamppb.New(*sync.EndedAt))
-		// Verification provenance only rides along with a FINISHED source:
-		// a marker on an unfinished source (impossible through the writer
-		// API, but representable in a hand-edited file) must not convert
-		// into a sealed, verified destination.
-		if sync.IsVerified() {
-			rec.SetIngestInvariantGeneration(sync.Generation)
-			rec.SetIngestInvariantCoverage(append([]string(nil), sync.Coverage...))
-			rec.SetIngestInvariantMode(string(sync.Mode))
-		}
-		if err := destEng.PutSyncRunRecord(ctx, rec); err != nil {
-			return nil, fmt.Errorf("to-pebble: preserve source sync metadata: %w", err)
+		if err = pebble.WithEngineMutation(ctx, dest, func(ctx context.Context, destEng *pebble.Engine) error {
+			rec, err := destEng.GetSyncRunRecord(ctx, destSyncID)
+			if err != nil {
+				return fmt.Errorf("load destination sync metadata: %w", err)
+			}
+			rec.SetEndedAt(timestamppb.New(*sync.EndedAt))
+			// Verification provenance only rides along with a FINISHED source:
+			// a marker on an unfinished source (impossible through the writer
+			// API, but representable in a hand-edited file) must not convert
+			// into a sealed, verified destination.
+			if sync.IsVerified() {
+				rec.SetIngestInvariantGeneration(sync.Generation)
+				rec.SetIngestInvariantCoverage(append([]string(nil), sync.Coverage...))
+				rec.SetIngestInvariantMode(string(sync.Mode))
+			}
+			if err := destEng.PutSyncRunRecord(ctx, rec); err != nil {
+				return fmt.Errorf("preserve source sync metadata: %w", err)
+			}
+			return nil
+		}); err != nil {
+			return nil, fmt.Errorf("to-pebble: %w", err)
 		}
 	}
 	endSyncDur := time.Since(endSyncStart)

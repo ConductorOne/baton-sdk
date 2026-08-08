@@ -53,8 +53,8 @@ func (e *Engine) Metrics() *pebble.Metrics {
 	return e.db.Metrics()
 }
 
-// EstimateDiskUsage estimates on-disk size of the key range.
-func (e *Engine) EstimateDiskUsage(start, end []byte) (uint64, error) {
+// estimateDiskUsage estimates on-disk size of the key range.
+func (e *Engine) estimateDiskUsage(start, end []byte) (uint64, error) {
 	if e.db == nil {
 		return 0, ErrEngineClosing
 	}

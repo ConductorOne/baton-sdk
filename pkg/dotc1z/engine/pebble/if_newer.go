@@ -27,10 +27,10 @@ import (
 // fresh-sync write path is disabled here — *IfNewer is by definition
 // not a fresh sync (we're filtering against existing data).
 
-// PutGrantRecordsIfNewer writes records that are strictly newer than
+// putGrantRecordsIfNewer writes records that are strictly newer than
 // the stored copy. Records without a discovered_at are treated as
 // "always write" (caller is asserting freshness explicitly).
-func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.GrantRecord) error {
+func (e *Engine) putGrantRecordsIfNewer(ctx context.Context, records ...*v3.GrantRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -96,9 +96,9 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 	})
 }
 
-// PutResourceRecordsIfNewer writes resources only when the incoming
+// putResourceRecordsIfNewer writes resources only when the incoming
 // discovered_at is strictly newer than the stored copy.
-func (e *Engine) PutResourceRecordsIfNewer(ctx context.Context, records ...*v3.ResourceRecord) error {
+func (e *Engine) putResourceRecordsIfNewer(ctx context.Context, records ...*v3.ResourceRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -159,8 +159,8 @@ func (e *Engine) PutResourceRecordsIfNewer(ctx context.Context, records ...*v3.R
 	})
 }
 
-// PutEntitlementRecordsIfNewer writes entitlements only when newer.
-func (e *Engine) PutEntitlementRecordsIfNewer(ctx context.Context, records ...*v3.EntitlementRecord) error {
+// putEntitlementRecordsIfNewer writes entitlements only when newer.
+func (e *Engine) putEntitlementRecordsIfNewer(ctx context.Context, records ...*v3.EntitlementRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -217,8 +217,8 @@ func (e *Engine) PutEntitlementRecordsIfNewer(ctx context.Context, records ...*v
 	})
 }
 
-// PutResourceTypeRecordsIfNewer writes resource_types only when newer.
-func (e *Engine) PutResourceTypeRecordsIfNewer(ctx context.Context, records ...*v3.ResourceTypeRecord) error {
+// putResourceTypeRecordsIfNewer writes resource_types only when newer.
+func (e *Engine) putResourceTypeRecordsIfNewer(ctx context.Context, records ...*v3.ResourceTypeRecord) error {
 	if len(records) == 0 {
 		return nil
 	}

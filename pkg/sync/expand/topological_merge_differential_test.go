@@ -479,9 +479,9 @@ func TestTopologicalMergeUntouchedBaseGrantNotRewritten(t *testing.T) {
 //	BATON_EXPAND_FUZZ_SEEDS        number of seeds to sweep (count)
 //	BATON_EXPAND_FUZZ_SEED_OFFSET  first seed (start), to resume/shard a sweep
 func fuzzSeedRange(shortCount, longCount int) (int64, int64) {
-	count := int64(longCount)
-	if testing.Short() {
-		count = int64(shortCount)
+	count := int64(shortCount)
+	if fullTestSuite() && !testing.Short() {
+		count = int64(longCount)
 	}
 	if v := os.Getenv("BATON_EXPAND_FUZZ_SEEDS"); v != "" {
 		if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {

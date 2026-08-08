@@ -122,7 +122,7 @@ func (e *Engine) InvalidateGrantDigestPartitions(ctx context.Context, partitions
 			return err
 		}
 		opts := writeOpts(e.opts.durability)
-		if e.IsFreshSync() {
+		if e.isFreshSync() {
 			opts = pebble.NoSync
 		}
 		return batch.Commit(opts)
@@ -422,7 +422,7 @@ func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partit
 	lower, upper := grantPrimaryEntitlementBoundsFromPartition(partition)
 
 	opts := writeOpts(e.opts.durability)
-	if e.IsFreshSync() {
+	if e.isFreshSync() {
 		opts = pebble.NoSync
 	}
 	flushBytes := digestNodeBatchFlushBytes
@@ -580,7 +580,7 @@ func (e *Engine) recomputeGrantDigestGlobalRootLocked(ctx context.Context) error
 		return err
 	}
 	opts := writeOpts(e.opts.durability)
-	if e.IsFreshSync() {
+	if e.isFreshSync() {
 		opts = pebble.NoSync
 	}
 	if err := e.db.DigestSet(rawdb.GlobalGrantDigestNodeKey(), packDigestLeaf(total, xor[:]), opts); err != nil {

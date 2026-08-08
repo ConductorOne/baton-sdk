@@ -206,7 +206,7 @@ type BulkSyncImport struct {
 // files are staged in a fresh directory under tmpDir ("" = system temp
 // dir) and removed by Finish/Abort.
 func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir string) (*BulkSyncImport, error) {
-	if !e.IsFreshSync() {
+	if !e.isFreshSync() {
 		return nil, errors.New("StartBulkSyncImport: sync is not fresh")
 	}
 	idBytes, err := codec.EncodeSyncID(syncID)

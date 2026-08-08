@@ -281,6 +281,39 @@ func TestIndexedSpliceHashFallback(t *testing.T) {
 	require.Equal(t, 0, stats.EncodedFrames, "encoded frames")
 }
 
+func TestIndexedSpliceMissingSourceFallsBackToEncoding(t *testing.T) {
+	content := randomBytes(t, 64<<10)
+	dir := writeTestPayloadDir(t, map[string][]byte{"000001.sst": content})
+	srcPath := writeIndexedEnvelope(t, dir)
+
+	f, err := os.Open(srcPath)
+	require.NoError(t, err)
+	extracted := t.TempDir()
+	_, reuse, err := ExtractEnvelopePayload(f, extracted)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+	require.NoError(t, os.Remove(srcPath))
+
+	dstPath := filepath.Join(t.TempDir(), "dst.c1z")
+	dst, err := os.Create(dstPath)
+	require.NoError(t, err)
+	stats, err := WriteEnvelopeWithReuse(dst, indexedManifest(), extracted, reuse)
+	require.NoError(t, err)
+	require.NoError(t, dst.Close())
+	require.Zero(t, stats.SplicedFrames)
+	require.Equal(t, 1, stats.EncodedFrames)
+
+	df, err := os.Open(dstPath)
+	require.NoError(t, err)
+	defer df.Close()
+	decoded := t.TempDir()
+	_, _, err = ExtractEnvelopePayload(df, decoded)
+	require.NoError(t, err)
+	got, err := os.ReadFile(filepath.Join(decoded, "000001.sst"))
+	require.NoError(t, err)
+	require.Equal(t, content, got)
+}
+
 // writerOnly hides every method except Write, modeling a non-seekable
 // network sink.
 type writerOnly struct{ io.Writer }

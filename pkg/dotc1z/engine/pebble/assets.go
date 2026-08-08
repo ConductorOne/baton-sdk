@@ -27,7 +27,7 @@ func (e *Engine) PutAssetRecord(ctx context.Context, r *v3.AssetRecord) error {
 	})
 }
 
-func (e *Engine) GetAssetRecord(ctx context.Context, externalID string) (*v3.AssetRecord, error) {
+func (e *Engine) getAssetRecord(ctx context.Context, externalID string) (*v3.AssetRecord, error) {
 	val, closer, err := e.db.Get(encodeAssetKey(externalID))
 	if err != nil {
 		return nil, err
@@ -38,12 +38,6 @@ func (e *Engine) GetAssetRecord(ctx context.Context, externalID string) (*v3.Ass
 		return nil, fmt.Errorf("GetAssetRecord: unmarshal: %w", err)
 	}
 	return r, nil
-}
-
-func (e *Engine) DeleteAssetRecord(ctx context.Context, externalID string) error {
-	return e.withWrite(func() error {
-		return e.db.MetaDelete(encodeAssetKey(externalID), writeOpts(e.opts.durability))
-	})
 }
 
 func (e *Engine) IterateAssets(ctx context.Context, yield func(*v3.AssetRecord) bool) error {

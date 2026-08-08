@@ -76,7 +76,7 @@ func TestV3ReadProvenanceClasses(t *testing.T) {
 			Principal:    v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: "alice"}.Build(),
 			DiscoveredAt: timestamppb.New(explicit),
 		}.Build()
-		require.NoError(t, e.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{rec}))
+		require.NoError(t, e.putSynthesizedGrantRecords(ctx, []*v3.GrantRecord{rec}))
 
 		got := readBack(t, r, "g-synth-explicit")
 		require.NotNil(t, got.GetDiscoveredAt())
@@ -97,7 +97,7 @@ func TestV3ReadProvenanceClasses(t *testing.T) {
 			Principal: v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: "bob"}.Build(),
 		}.Build()
 		require.Nil(t, rec.GetDiscoveredAt())
-		require.NoError(t, e.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{rec}))
+		require.NoError(t, e.putSynthesizedGrantRecords(ctx, []*v3.GrantRecord{rec}))
 		after := time.Now().Add(time.Second)
 
 		got := readBack(t, r, "g-synth-nil")

@@ -37,7 +37,7 @@ func TestGrantReadArenaReconcileAbsent(t *testing.T) {
 		principalID:     "alice",
 	}), val, pebble.NoSync), "raw set")
 
-	got, _, err := e.PaginateGrants(ctx, "", 0)
+	got, _, err := e.paginateGrants(ctx, "", 0)
 	require.NoError(t, err, "PaginateGrantsBySync")
 	require.Len(t, got, 1)
 	require.Nil(t, got[0].GetEntitlement(), "GetEntitlement()")
@@ -59,7 +59,7 @@ func TestGrantReadArenaPopulatedRoundtrip(t *testing.T) {
 		require.NoError(t, e.PutGrantRecord(ctx, makeGrant(syncID, "g-"+ksuid.New().String(), "ent-A", "alice-"+strconv.Itoa(i))), "PutGrantRecord")
 	}
 
-	got, _, err := e.PaginateGrants(ctx, "", n)
+	got, _, err := e.paginateGrants(ctx, "", n)
 	require.NoError(t, err, "PaginateGrantsBySync")
 	require.Len(t, got, n)
 	for _, g := range got {
