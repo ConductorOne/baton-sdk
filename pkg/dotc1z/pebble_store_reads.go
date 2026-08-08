@@ -217,6 +217,37 @@ func (s *pebbleStore) StreamEntitlements(ctx context.Context, syncID string) ite
 	return s.Engine.StreamEntitlements(ctx, syncID)
 }
 
+// The grant-digest reader capability. The engine pins itself to
+// connectorstore.EntitlementGrantDigestReader deliberately (adapter.go), and
+// before the un-embedding the store inherited it. No in-repo caller asserts
+// it on a store today, but this is a public SDK: an external consumer doing
+// store.(connectorstore.EntitlementGrantDigestReader) would have silently
+// lost constant-time digest reads and fallen back to full grant scans.
+
+func (s *pebbleStore) GetEntitlementGrantDigest(
+	ctx context.Context,
+	entitlement *v2.Entitlement,
+) (connectorstore.GrantDigest, bool, error) {
+	return s.Engine.GetEntitlementGrantDigest(ctx, entitlement)
+}
+
+func (s *pebbleStore) GetEntitlementGrantDigestNodes(
+	ctx context.Context,
+	entitlement *v2.Entitlement,
+	level int,
+) ([]connectorstore.GrantDigestNode, bool, error) {
+	return s.Engine.GetEntitlementGrantDigestNodes(ctx, entitlement, level)
+}
+
+func (s *pebbleStore) ScanEntitlementGrantBucket(
+	ctx context.Context,
+	entitlement *v2.Entitlement,
+	bucket connectorstore.GrantDigestBucket,
+	yield func(grant *v2.Grant) bool,
+) error {
+	return s.Engine.ScanEntitlementGrantBucket(ctx, entitlement, bucket, yield)
+}
+
 // GrantsForEntitlementPrincipalSorted reports that ListGrantsForEntitlement
 // pages come back principal-sorted, which is what lets the expander use the
 // topological-merge path. The syncer discovers it by inline type assertion

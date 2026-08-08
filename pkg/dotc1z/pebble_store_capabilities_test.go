@@ -23,11 +23,12 @@ import (
 // Anything asserted against a store anywhere in the tree belongs here, so the
 // compiler is what notices next time instead of a production slow path.
 var (
-	_ connectorstore.DBSizeProvider              = (*pebbleStore)(nil)
-	_ connectorstore.LatestFinishedSyncIDFetcher = (*pebbleStore)(nil)
-	_ connectorstore.StreamingReader             = (*pebbleStore)(nil)
-	_ connectorstore.V3GrantReaderProvider       = (*pebbleStore)(nil)
-	_ IngestInvariantStore                       = (*pebbleStore)(nil)
+	_ connectorstore.DBSizeProvider               = (*pebbleStore)(nil)
+	_ connectorstore.EntitlementGrantDigestReader = (*pebbleStore)(nil)
+	_ connectorstore.LatestFinishedSyncIDFetcher  = (*pebbleStore)(nil)
+	_ connectorstore.StreamingReader              = (*pebbleStore)(nil)
+	_ connectorstore.V3GrantReaderProvider        = (*pebbleStore)(nil)
+	_ IngestInvariantStore                        = (*pebbleStore)(nil)
 
 	// Asserted on store.SyncMeta(), not on the store itself.
 	_ c1zstore.IngestInvariantVerificationWriter = pebbleStoreSyncMeta{}
