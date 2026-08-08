@@ -319,19 +319,24 @@ func TestPebbleStoreMutationWrapperInventory(t *testing.T) {
 		parsed[name] = file
 	}
 
-	required := make(map[string]bool, len(guardedMutationWrappers))
+	tracked := make(map[string]bool, len(guardedMutationWrappers))
 	for _, name := range guardedMutationWrappers {
-		required[name] = false
+		tracked[name] = false
 	}
-	for _, file := range parsed {
+	// Every declaration bearing a guarded name must call withMutation — not
+	// just one of them. Keying on the name alone would let a same-named,
+	// unguarded method on another receiver hide behind the guarded one.
+	for fileName, file := range parsed {
 		for _, decl := range file.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
 			if !ok || fn.Body == nil {
 				continue
 			}
-			if _, tracked := required[fn.Name.Name]; !tracked {
+			if _, isTracked := tracked[fn.Name.Name]; !isTracked {
 				continue
 			}
+			tracked[fn.Name.Name] = true
+			guarded := false
 			ast.Inspect(fn.Body, func(node ast.Node) bool {
 				call, ok := node.(*ast.CallExpr)
 				if !ok {
@@ -339,14 +344,15 @@ func TestPebbleStoreMutationWrapperInventory(t *testing.T) {
 				}
 				sel, ok := call.Fun.(*ast.SelectorExpr)
 				if ok && sel.Sel.Name == "withMutation" {
-					required[fn.Name.Name] = true
+					guarded = true
 				}
 				return true
 			})
+			require.Truef(t, guarded, "mutating wrapper %s (%s) must call withMutation", fn.Name.Name, fileName)
 		}
 	}
-	for name, guarded := range required {
-		require.Truef(t, guarded, "mutating wrapper %s must call withMutation", name)
+	for name, seen := range tracked {
+		require.Truef(t, seen, "guarded wrapper %s not found in parsed files", name)
 	}
 
 	require.NoError(t, filepath.WalkDir("..", func(path string, entry os.DirEntry, walkErr error) error {

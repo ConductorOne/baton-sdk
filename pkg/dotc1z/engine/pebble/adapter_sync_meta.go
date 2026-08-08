@@ -195,8 +195,7 @@ func syncRunRecordToExported(r *v3.SyncRunRecord) *c1zstore.SyncRun {
 
 // sortedSyncRuns reads every sync_run record into the engine-neutral
 // c1zstore.SyncRun shape, sorted oldest-first (started_at, sync_id
-// tiebreaker). Shared by CleanupCandidates and ListSyncRuns so the
-// projection and ordering live in one place.
+// tiebreaker), for ListSyncRuns.
 //
 // We sort explicitly rather than trust IterateAllSyncRuns' order:
 // the iterator walks by sync_id (KSUID), and KSUIDs only encode the

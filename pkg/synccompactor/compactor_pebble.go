@@ -469,7 +469,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 		LatestFinishedSyncRecord(ctx context.Context, typeOK func(v3.SyncType) bool) (*v3.SyncRunRecord, error)
 	})
 	if !ok {
-		return "", errors.New("compactPebbleFold: compacted store is not a pebble engine")
+		return "", errors.New("compactPebbleFold: compacted store does not expose LatestFinishedSyncRecord")
 	}
 	baseRec, err := destReader.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
 	if err != nil {
