@@ -117,7 +117,11 @@ race-shard-list: ## Print the packages in race shard SHARD.
 
 .PHONY: race-check-shard
 race-check-shard: ## Race-check one nightly shard, for example SHARD=dotc1z.
-	go test -race -tags=baton_lambda_support -count=1 -timeout=45m \
+	# The full-tier env matches race-check. Sharding is a scheduling change, not
+	# a coverage one: without these the shards would quietly run the short
+	# variants of the very cases the nightly exists to exercise.
+	BATON_FULL_TESTS=1 BATON_CUT_SWEEP=full \
+		go test -race -tags=baton_lambda_support -count=1 -timeout=45m \
 		$$($(MAKE) --no-print-directory race-shard-list SHARD=$(SHARD))
 
 .PHONY: race-shard-audit

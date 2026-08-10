@@ -84,6 +84,13 @@ make race-check-shard SHARD=sync # instrument just that shard
 usually what you want locally when you are not trying to reproduce a specific
 package's failure.
 
+Both carry the same full-tier environment (`BATON_FULL_TESTS=1`,
+`BATON_CUT_SWEEP=full`), so sharding changes only how the work is scheduled,
+never what is covered. That environment is also why the nightly has no separate
+`make test-full` job: the shards already run those cases, under the race
+detector, so a second uninstrumented pass would double the compute to cover a
+strict subset.
+
 The `rest` shard is the complement of the named shards, so every package
 belongs to exactly one shard by construction and a newly added package joins
 `rest` automatically rather than silently escaping instrumentation.
