@@ -312,7 +312,11 @@ type InvokeActionRequest struct {
 	ResourceTypeId string `protobuf:"bytes,4,opt,name=resource_type_id,json=resourceTypeId,proto3" json:"resource_type_id,omitempty"`
 	// Optional: how long the server may block this call waiting for the action
 	// to finish before returning its in-flight status. Unset leaves the wait at
-	// the server's default.
+	// the server's default. The server does not shorten the wait to fit the
+	// call's deadline, so callers must set their RPC deadline above the
+	// requested wait; a deadline that fires first fails the call instead of
+	// returning an in-flight status with an action id, while the action itself
+	// keeps running and stays queryable through GetActionStatus.
 	InlineWait    *durationpb.Duration `protobuf:"bytes,5,opt,name=inline_wait,json=inlineWait,proto3" json:"inline_wait,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -430,7 +434,11 @@ type InvokeActionRequest_builder struct {
 	ResourceTypeId string
 	// Optional: how long the server may block this call waiting for the action
 	// to finish before returning its in-flight status. Unset leaves the wait at
-	// the server's default.
+	// the server's default. The server does not shorten the wait to fit the
+	// call's deadline, so callers must set their RPC deadline above the
+	// requested wait; a deadline that fires first fails the call instead of
+	// returning an in-flight status with an action id, while the action itself
+	// keeps running and stays queryable through GetActionStatus.
 	InlineWait *durationpb.Duration
 }
 

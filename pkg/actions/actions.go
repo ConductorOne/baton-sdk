@@ -220,7 +220,25 @@ const (
 	// defaultInlineWait bounds the invoke-time wait when the caller does not
 	// request one.
 	defaultInlineWait = 1 * time.Second
+
+	// maxInlineWait caps the requested wait at the handler context budget:
+	// holding the call open longer than a handler may run is never useful,
+	// and a saturated Duration must not pin the request forever on the
+	// deadline-less contexts service mode and the Lambda transport produce.
+	maxInlineWait = 1 * time.Hour
 )
+
+// clampInlineWait bounds a requested inline wait: non-positive values take
+// the server default and oversized values are capped at maxInlineWait.
+func clampInlineWait(inlineWait time.Duration) time.Duration {
+	if inlineWait <= 0 {
+		return defaultInlineWait
+	}
+	if inlineWait > maxInlineWait {
+		return maxInlineWait
+	}
+	return inlineWait
+}
 
 // ActionRegistry provides methods for registering actions.
 // Used by both GlobalActionProvider (global actions) and ResourceActionProvider (resource-scoped actions).
@@ -560,9 +578,7 @@ func (a *ActionManager) InvokeActionWithWait(
 	args *structpb.Struct,
 	inlineWait time.Duration,
 ) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
-	if inlineWait <= 0 {
-		inlineWait = defaultInlineWait
-	}
+	inlineWait = clampInlineWait(inlineWait)
 
 	if resourceTypeID != "" {
 		return a.invokeResourceAction(ctx, resourceTypeID, name, args, inlineWait)
@@ -572,7 +588,12 @@ func (a *ActionManager) InvokeActionWithWait(
 }
 
 // invokeGlobalAction invokes a global (non-resource-scoped) action.
-func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, args *structpb.Struct, inlineWait time.Duration) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
+func (a *ActionManager) invokeGlobalAction(
+	ctx context.Context,
+	name string,
+	args *structpb.Struct,
+	inlineWait time.Duration,
+) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
 	a.mu.RLock()
 	handler, ok := a.handlers[name]
 	schema, schemaOk := a.schemas[name]
@@ -615,11 +636,16 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 		oa.setOutcome(ctx, rv, annos, oaErr)
 	}()
 
+	// A stopped timer releases immediately; time.After would pin a runtime
+	// timer for the full wait after the handler already finished.
+	waitTimer := time.NewTimer(inlineWait)
+	defer waitTimer.Stop()
+
 	select {
 	case <-done:
 		id, st, rv, annos := oa.result()
 		return id, st, rv, annos, nil
-	case <-time.After(inlineWait):
+	case <-waitTimer.C:
 		id, st, rv, annos := oa.result()
 		return id, st, rv, annos, nil
 	case <-ctx.Done():
@@ -717,12 +743,16 @@ func (a *ActionManager) invokeResourceAction(
 		oa.setOutcome(ctx, rv, annos, oaErr)
 	}()
 
-	// Wait for completion or timeout
+	// A stopped timer releases immediately; time.After would pin a runtime
+	// timer for the full wait after the handler already finished.
+	waitTimer := time.NewTimer(inlineWait)
+	defer waitTimer.Stop()
+
 	select {
 	case <-done:
 		id, st, rv, annos := oa.result()
 		return id, st, rv, annos, nil
-	case <-time.After(inlineWait):
+	case <-waitTimer.C:
 		id, st, rv, annos := oa.result()
 		return id, st, rv, annos, nil
 	case <-ctx.Done():

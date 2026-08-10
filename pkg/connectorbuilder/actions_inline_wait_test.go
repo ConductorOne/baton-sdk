@@ -41,8 +41,8 @@ func (t *testBlockingGlobalActionProvider) GlobalActions(ctx context.Context, re
 }
 
 // The inline_wait request field must reach the action manager: a blocking
-// action invoked with a two-second wait returns RUNNING no earlier than that,
-// while an unset field keeps the default short wait.
+// action invoked with a three-second wait returns RUNNING no earlier than
+// that, while an unset field keeps the default short wait.
 func TestInvokeActionThreadsInlineWaitFromRequest(t *testing.T) {
 	ctx := t.Context()
 
