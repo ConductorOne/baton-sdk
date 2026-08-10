@@ -311,9 +311,11 @@ type InvokeActionRequest struct {
 	// Optional: if set, invokes a resource-scoped action
 	ResourceTypeId string `protobuf:"bytes,4,opt,name=resource_type_id,json=resourceTypeId,proto3" json:"resource_type_id,omitempty"`
 	// Optional: how long the server may block this call waiting for the action
-	// to finish before returning its in-flight status. Unset leaves the wait at
-	// the server's default, and the server may silently cap an oversized wait
-	// rather than reject it. The server does not shorten the wait to fit the
+	// to finish before returning its in-flight status. The wait is an upper
+	// bound on blocking, not a guarantee: the server may answer sooner, and it
+	// may silently cap an oversized wait rather than reject it. Unset or
+	// non-positive values take the server's default. The server does not
+	// shorten the wait to fit the
 	// call's deadline, so callers must set their RPC deadline above the
 	// requested wait; a deadline that fires first fails the call instead of
 	// returning an in-flight status with an action id, while the action itself
@@ -434,9 +436,11 @@ type InvokeActionRequest_builder struct {
 	// Optional: if set, invokes a resource-scoped action
 	ResourceTypeId string
 	// Optional: how long the server may block this call waiting for the action
-	// to finish before returning its in-flight status. Unset leaves the wait at
-	// the server's default, and the server may silently cap an oversized wait
-	// rather than reject it. The server does not shorten the wait to fit the
+	// to finish before returning its in-flight status. The wait is an upper
+	// bound on blocking, not a guarantee: the server may answer sooner, and it
+	// may silently cap an oversized wait rather than reject it. Unset or
+	// non-positive values take the server's default. The server does not
+	// shorten the wait to fit the
 	// call's deadline, so callers must set their RPC deadline above the
 	// requested wait; a deadline that fires first fails the call instead of
 	// returning an in-flight status with an action id, while the action itself

@@ -580,7 +580,7 @@ func (a *ActionManager) InvokeActionWithWait(
 ) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
 	clamped := clampInlineWait(inlineWait)
 	if clamped < inlineWait {
-		ctxzap.Extract(ctx).Debug("capping requested inline wait",
+		ctxzap.Extract(ctx).Warn("capping requested inline wait",
 			zap.Duration("requested", inlineWait),
 			zap.Duration("capped", clamped))
 	}
