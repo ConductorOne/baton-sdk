@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -545,4 +547,301 @@ func TestActionHandlerGoroutineLeaks(t *testing.T) {
 		finalCount := runtime.NumGoroutine()
 		require.LessOrEqual(t, finalCount, initialCount+1, "goroutine leak detected after context cancellation")
 	})
+}
+
+// The data race this test guards against is only detectable under -race,
+// which the plain CI go-test job does not enable for this package; `make
+// race-check` is the out-of-band gate that runs it. The assertions at the end
+// only cover the exported snapshot accessor.
+func TestCleanupOldActionsDuringConcurrentStatusWrites(t *testing.T) {
+	ctx := t.Context()
+	m := NewActionManager(ctx)
+
+	// The cleanup loop only visits the len(actions)-maxOldActions oldest
+	// entries, so the concurrent writer must target the first-created action.
+	// The sort is unstable and StartedAt values can tie, so push the target
+	// strictly earlier to make its position deterministic.
+	oldest := m.GetNewAction("churn")
+	oldest.StartedAt = time.Now().Add(-time.Hour)
+	for i := 0; i < maxOldActions; i++ {
+		m.GetNewAction("churn")
+	}
+
+	stop := make(chan struct{})
+	started := make(chan struct{})
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		first := true
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				// Write the status under the lock directly: lifecycle
+				// transitions are single-shot, so no public API writes the
+				// status repeatedly, and the instrument needs a sustained
+				// locked writer to race cleanup's read against.
+				oldest.Lock()
+				oldest.Status = v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING
+				oldest.Unlock()
+				if first {
+					close(started)
+					first = false
+				}
+			}
+		}
+	}()
+
+	// Wait for the writer's first write: otherwise it may only be scheduled
+	// after close(stop), never race cleanup, and leave the action PENDING.
+	<-started
+
+	// Fails under -race if cleanup reads action status without the lock.
+	m.CleanupOldActions(ctx)
+
+	close(stop)
+	<-writerDone
+
+	// The exported snapshot accessor reads the same state race-free.
+	id, actionStatus, _, _ := oldest.Result()
+	require.Equal(t, oldest.Id, id)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, actionStatus)
+}
+
+func TestOutstandingActionLifecycleTransitions(t *testing.T) {
+	const (
+		pending  = v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING
+		running  = v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING
+		complete = v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE
+		failed   = v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED
+	)
+	cases := []struct {
+		name string
+		from v2.BatonActionStatus
+		to   v2.BatonActionStatus
+		want v2.BatonActionStatus
+	}{
+		{"pending to running", pending, running, running},
+		{"pending to complete", pending, complete, complete},
+		{"pending to failed", pending, failed, failed},
+		{"running to complete", running, complete, complete},
+		{"running to failed", running, failed, failed},
+		{"running to running rejected", running, running, running},
+		{"complete rejects running", complete, running, complete},
+		{"complete rejects failed", complete, failed, complete},
+		{"failed rejects complete", failed, complete, failed},
+		{"failed rejects running", failed, running, failed},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			oa := NewOutstandingAction("id", "lifecycle")
+			oa.Status = tc.from
+			oa.SetStatus(t.Context(), tc.to)
+			_, actionStatus, _, _ := oa.Result()
+			require.Equal(t, tc.want, actionStatus)
+		})
+	}
+}
+
+func TestLateSuccessAfterCancelReplacesIt(t *testing.T) {
+	ctx := t.Context()
+	oa := NewOutstandingAction("id", "cancelled")
+	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+	oa.setCancelled(ctx, context.Canceled)
+
+	rv, err := structpb.NewStruct(map[string]any{"success": true})
+	require.NoError(t, err)
+	oa.setOutcome(ctx, rv, nil, nil)
+
+	// The cancellation was a transport event; the handler's success is the
+	// action's real outcome.
+	_, actionStatus, gotRv, _ := oa.Result()
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, actionStatus)
+	require.True(t, gotRv.Fields["success"].GetBoolValue())
+	require.Nil(t, gotRv.Fields["error"])
+}
+
+func TestLateFailureAfterCancelReplacesError(t *testing.T) {
+	ctx := t.Context()
+	oa := NewOutstandingAction("id", "cancelled")
+	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+	oa.setCancelled(ctx, context.Canceled)
+
+	oa.setOutcome(ctx, nil, nil, fmt.Errorf("upstream rejected the request"))
+
+	_, actionStatus, gotRv, _ := oa.Result()
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+	require.Equal(t, "upstream rejected the request", gotRv.Fields["error"].GetStringValue())
+}
+
+func TestLateSuccessAfterRealFailureIsDropped(t *testing.T) {
+	ctx := t.Context()
+	oa := NewOutstandingAction("id", "panicked")
+	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+	oa.SetError(ctx, fmt.Errorf("panic in action handler"))
+
+	rv, err := structpb.NewStruct(map[string]any{"success": true})
+	require.NoError(t, err)
+	oa.setOutcome(ctx, rv, nil, nil)
+
+	// A real handler failure is final; only cancellation is provisional.
+	_, actionStatus, gotRv, _ := oa.Result()
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+	require.Equal(t, "panic in action handler", gotRv.Fields["error"].GetStringValue())
+	require.Nil(t, gotRv.Fields["success"])
+}
+
+func TestPublishedOutcomeIsIsolatedFromHandler(t *testing.T) {
+	ctx := t.Context()
+	oa := NewOutstandingAction("id", "isolated")
+	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+
+	rv, err := structpb.NewStruct(map[string]any{"k": "v"})
+	require.NoError(t, err)
+	anno, err := anypb.New(structpb.NewStringValue("original"))
+	require.NoError(t, err)
+	oa.setOutcome(ctx, rv, annotations.Annotations{anno}, nil)
+
+	// The handler owns what it returned and may keep mutating it; the
+	// published outcome must not change. Annotations are deep-copied, so
+	// element mutation is isolated too.
+	rv.Fields["mutated"] = structpb.NewBoolValue(true)
+	anno.TypeUrl = "mutated"
+
+	_, actionStatus, gotRv, gotAnnos := oa.Result()
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, actionStatus)
+	require.Nil(t, gotRv.Fields["mutated"])
+	require.Equal(t, "v", gotRv.Fields["k"].GetStringValue())
+	require.Len(t, gotAnnos, 1)
+	require.NotEqual(t, "mutated", gotAnnos[0].TypeUrl)
+
+	// Under -race: concurrent handler mutation against reader marshals.
+	stop := make(chan struct{})
+	writerDone := make(chan struct{})
+	go func() {
+		defer close(writerDone)
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+				rv.Fields[fmt.Sprintf("m%d", i)] = structpb.NewBoolValue(true)
+			}
+		}
+	}()
+	for i := 0; i < 100; i++ {
+		_, _, snapshot, _ := oa.Result()
+		_, err := proto.Marshal(snapshot)
+		require.NoError(t, err)
+	}
+	close(stop)
+	<-writerDone
+}
+
+func TestCleanupRetainsProvisionallyCancelledActions(t *testing.T) {
+	ctx := t.Context()
+	m := NewActionManager(ctx)
+
+	// Two terminal actions old enough for cleanup to visit: one provisional
+	// cancellation whose handler may still publish, one real failure.
+	provisional := m.GetNewAction("cancelled")
+	provisional.StartedAt = time.Now().Add(-2 * time.Hour)
+	provisional.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+	provisional.setCancelled(ctx, context.Canceled)
+
+	failed := m.GetNewAction("failed")
+	failed.StartedAt = time.Now().Add(-time.Hour)
+	failed.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+	failed.SetError(ctx, fmt.Errorf("real failure"))
+
+	for i := 0; i < maxOldActions; i++ {
+		m.GetNewAction("churn")
+	}
+
+	m.CleanupOldActions(ctx)
+
+	// The real failure is evictable; the provisional record must survive so
+	// the handler's late outcome stays observable.
+	_, _, _, _, err := m.GetActionStatus(ctx, failed.Id)
+	require.Error(t, err)
+
+	actionStatus, _, _, _, err := m.GetActionStatus(ctx, provisional.Id)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+
+	rv, err := structpb.NewStruct(map[string]any{"success": true})
+	require.NoError(t, err)
+	provisional.setOutcome(ctx, rv, nil, nil)
+
+	actionStatus, _, gotRv, _, err := m.GetActionStatus(ctx, provisional.Id)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, actionStatus)
+	require.True(t, gotRv.Fields["success"].GetBoolValue())
+}
+
+func TestPanicAfterCancelIsFinal(t *testing.T) {
+	ctx := t.Context()
+	oa := NewOutstandingAction("id", "cancelled-then-panicked")
+	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+	oa.setCancelled(ctx, context.Canceled)
+
+	// The recovery path reports a panic through SetError: a real handler
+	// failure that replaces the provisional mark and becomes final.
+	oa.SetError(ctx, fmt.Errorf("panic in action handler: boom"))
+	require.False(t, oa.isProvisional())
+
+	rv, err := structpb.NewStruct(map[string]any{"success": true})
+	require.NoError(t, err)
+	oa.setOutcome(ctx, rv, nil, nil)
+
+	_, actionStatus, gotRv, _ := oa.Result()
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+	require.Equal(t, "panic in action handler: boom", gotRv.Fields["error"].GetStringValue())
+	require.Nil(t, gotRv.Fields["success"])
+}
+
+func TestCancelAfterCompletionIsRejected(t *testing.T) {
+	ctx := t.Context()
+	oa := NewOutstandingAction("id", "completed")
+	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+
+	rv, err := structpb.NewStruct(map[string]any{"success": true})
+	require.NoError(t, err)
+	oa.setOutcome(ctx, rv, nil, nil)
+
+	oa.setCancelled(ctx, context.Canceled)
+
+	// COMPLETE is truly terminal: the cancellation neither marks the action
+	// provisional nor touches the published outcome.
+	require.False(t, oa.isProvisional())
+	_, actionStatus, gotRv, _ := oa.Result()
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, actionStatus)
+	require.True(t, gotRv.Fields["success"].GetBoolValue())
+	require.Nil(t, gotRv.Fields["error"])
+}
+
+func TestCancelledInvokeStatusErrorPairing(t *testing.T) {
+	ctx := t.Context()
+	m := NewActionManager(ctx)
+	require.NoError(t, m.Register(ctx, testActionSchema, testActionHandler))
+
+	// The handler succeeds instantly while each request is cancelled
+	// concurrently, sampling the invoke select race from both sides. The
+	// orderings can't be forced individually, but every interleaving must
+	// satisfy the pairing contract: a cancellation error only ever
+	// accompanies FAILED, and an errorless return is never FAILED (RUNNING
+	// is tolerated only for a pathological scheduler stall past the inline
+	// wait).
+	for i := 0; i < 200; i++ {
+		invokeCtx, cancel := context.WithCancel(ctx)
+		go cancel()
+		_, actionStatus, _, _, err := m.InvokeAction(invokeCtx, "lock_account", "", testInput)
+		if err != nil {
+			require.ErrorIs(t, err, context.Canceled)
+			require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+		} else {
+			require.NotEqual(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+		}
+	}
 }
