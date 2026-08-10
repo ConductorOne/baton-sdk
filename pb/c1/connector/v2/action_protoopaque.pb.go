@@ -436,11 +436,10 @@ type InvokeActionRequest_builder struct {
 	// bound on blocking, not a guarantee: the server may answer sooner, and it
 	// may silently cap an oversized wait rather than reject it. Unset or
 	// non-positive values take the server's default. The server does not
-	// shorten the wait to fit the
-	// call's deadline, so callers must set their RPC deadline above the
-	// requested wait; a deadline that fires first fails the call instead of
-	// returning an in-flight status with an action id, while the action itself
-	// keeps running and stays queryable through GetActionStatus.
+	// shorten the wait to fit the call's deadline, so callers must set their
+	// RPC deadline above the requested wait: a deadline that fires first fails
+	// the call, and although the action keeps running server-side, its id is
+	// never delivered, so the outcome is unreachable to that caller.
 	InlineWait *durationpb.Duration
 }
 
