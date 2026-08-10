@@ -23,13 +23,18 @@ func TestEncoderPool(t *testing.T) {
 		// First call won't be from pool (pool is empty)
 		require.False(t, fromPool)
 
-		// Return to pool and get again
+		// Return to pool and get again. Retry: these pools are process-wide,
+		// so a concurrently running caller can take the encoder between the
+		// Put and the Get. Losing that race says nothing about whether Get
+		// reports a pooled encoder, which is what this asserts.
+		var fromPool2 bool
+		for attempt := 0; attempt < 100 && !fromPool2; attempt++ {
+			putEncoder(enc)
+			enc, fromPool2 = getEncoder()
+			require.NotNil(t, enc)
+		}
+		require.True(t, fromPool2, "getEncoder never reported an encoder from the pool")
 		putEncoder(enc)
-
-		enc2, fromPool2 := getEncoder()
-		require.NotNil(t, enc2)
-		require.True(t, fromPool2)
-		putEncoder(enc2)
 	})
 
 	t.Run("pooled encoder produces correct output", func(t *testing.T) {
@@ -117,12 +122,16 @@ func TestDecoderPool(t *testing.T) {
 		require.NotNil(t, dec)
 		require.False(t, fromPool) // First call, pool is empty
 
+		// Retry for the same reason as the encoder case: a concurrently
+		// running caller may take the decoder between the Put and the Get.
+		var fromPool2 bool
+		for attempt := 0; attempt < 100 && !fromPool2; attempt++ {
+			putDecoder(dec)
+			dec, fromPool2 = getDecoder()
+			require.NotNil(t, dec)
+		}
+		require.True(t, fromPool2, "getDecoder never reported a decoder from the pool")
 		putDecoder(dec)
-
-		dec2, fromPool2 := getDecoder()
-		require.NotNil(t, dec2)
-		require.True(t, fromPool2)
-		putDecoder(dec2)
 	})
 
 	t.Run("pooled decoder produces correct output", func(t *testing.T) {
@@ -282,13 +291,14 @@ func TestPoolGrowsFromSaveC1z(t *testing.T) {
 	require.NoError(t, err)
 
 	c1zFile := filepath.Join(tmpDir, "test.c1z")
+	putsBefore := encoderPuts.Load()
 	err = saveC1z(dbFile, c1zFile, pooledEncoderConcurrency)
 	require.NoError(t, err)
 
-	// Now the pool should have an encoder.
-	enc2, fromPool2 := getEncoder()
-	require.True(t, fromPool2, "saveC1z should have returned encoder to pool")
-	putEncoder(enc2)
+	// Assert on the Put, not on a later Get: the pools are process-wide, so a
+	// concurrently running test can take the encoder saveC1z returned, and a
+	// missed Get would then look like the bug this test is guarding.
+	require.Greater(t, encoderPuts.Load(), putsBefore, "saveC1z should have returned its encoder to the pool")
 }
 
 // TestPoolGrowsFromDecoder verifies that NewDecoder populates the decoder pool
@@ -312,14 +322,11 @@ func TestPoolGrowsFromDecoder(t *testing.T) {
 	err = saveC1z(dbFile, c1zFile, pooledEncoderConcurrency)
 	require.NoError(t, err)
 
-	// Drain encoder pool (saveC1z added one) so we're only asserting on the decoder pool below.
-	enc, _ := getEncoder()
-	_ = enc.Close()
-
 	// Now use NewDecoder which should populate the decoder pool.
 	f, err := os.Open(c1zFile)
 	require.NoError(t, err)
 
+	putsBefore := decoderPuts.Load()
 	decoder, err := NewDecoder(f)
 	require.NoError(t, err)
 
@@ -331,10 +338,10 @@ func TestPoolGrowsFromDecoder(t *testing.T) {
 	err = f.Close()
 	require.NoError(t, err)
 
-	// Now the decoder pool should have a decoder.
-	dec2, fromPool2 := getDecoder()
-	require.True(t, fromPool2, "NewDecoder.Close should have returned decoder to pool")
-	putDecoder(dec2)
+	// Assert on the Put, not on a later Get: the pools are process-wide, so a
+	// concurrently running test can take the decoder Close returned, and a
+	// missed Get would then look like the bug this test is guarding.
+	require.Greater(t, decoderPuts.Load(), putsBefore, "NewDecoder.Close should have returned its decoder to the pool")
 }
 
 func TestPooledRoundTrip(t *testing.T) {

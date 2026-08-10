@@ -3,8 +3,21 @@ package dotc1z
 import (
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/klauspost/compress/zstd"
+)
+
+// encoderPuts and decoderPuts count codecs handed back to the pools.
+//
+// They exist because sync.Pool cannot answer "did that code return its
+// codec?". A later Get is allowed to miss for reasons unrelated to the code
+// under test: a GC empties the pool, and these pools are process-wide, so any
+// concurrently running caller can take the item first. Counting the Put is
+// stable where observing the Get is not.
+var (
+	encoderPuts atomic.Int64
+	decoderPuts atomic.Int64
 )
 
 // poolDisabled is an operational kill-switch. Set BATON_ZSTD_POOL_DISABLE=1
@@ -63,6 +76,7 @@ func putEncoder(enc *zstd.Encoder) {
 	// Reset to nil writer to release reference to previous output.
 	// This is safe even if the encoder was already closed.
 	enc.Reset(nil)
+	encoderPuts.Add(1)
 	encoderPool.Put(enc)
 }
 
@@ -108,5 +122,6 @@ func putDecoder(dec *zstd.Decoder) {
 	if err := dec.Reset(nil); err != nil {
 		return
 	}
+	decoderPuts.Add(1)
 	decoderPool.Put(dec)
 }
