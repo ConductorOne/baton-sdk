@@ -98,6 +98,41 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
 	})
+
+	t.Run("mode narrows to Enforce", func(t *testing.T) {
+		t.Parallel()
+		// Only an explicit ENFORCE blocks. Absent (a server predating the field)
+		// and any unrecognized future posture both observe, so a runtime never
+		// has to guess at a value it does not understand.
+		for _, tt := range []struct {
+			name    string
+			mode    v1.EgressMode
+			enforce bool
+		}{
+			{"absent", v1.EgressMode_EGRESS_MODE_UNSPECIFIED, false},
+			{"report", v1.EgressMode_EGRESS_MODE_REPORT, false},
+			{"enforce", v1.EgressMode_EGRESS_MODE_ENFORCE, true},
+			{"unrecognized", v1.EgressMode(999), false},
+		} {
+			env := goodEnvelope("cv-1")
+			env.GetEgress().SetMode(tt.mode)
+			p := egressPolicyFromResponse(newResp("cv-1", env))
+			require.NotNil(t, p, tt.name)
+			require.Equal(t, tt.enforce, p.Enforce, tt.name)
+		}
+	})
+
+	t.Run("mode does not survive a failed binding check", func(t *testing.T) {
+		t.Parallel()
+		// A deny-all fallback must not also carry enforce=true from the rejected
+		// envelope: the whole section is discarded, not partially installed.
+		env := goodEnvelope("cv-2")
+		env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_ENFORCE)
+		p := egressPolicyFromResponse(newResp("cv-1", env))
+		require.NotNil(t, p)
+		require.Empty(t, p.AllowedHosts)
+		require.False(t, p.Enforce)
+	})
 }
 
 func TestLambdaConnectorConfigVersion(t *testing.T) {

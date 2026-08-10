@@ -202,6 +202,8 @@ func (m *EgressSection) validate(all bool) error {
 
 	// no validation rules for HttpsOnly
 
+	// no validation rules for Mode
+
 	if len(errors) > 0 {
 		return EgressSectionMultiError(errors)
 	}

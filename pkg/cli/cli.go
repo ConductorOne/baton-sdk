@@ -43,6 +43,11 @@ type EgressPolicy struct {
 	AllowedHosts []string
 	// HTTPSOnly reports whether the runtime must refuse non-https egress.
 	HTTPSOnly bool
+	// Enforce reports whether AllowedHosts is a deny-gate rather than an
+	// observed-and-reported allowlist. The wire carries an enum; narrowing it to
+	// a bool here keeps an unrecognized future posture from reaching a runtime
+	// that would have to guess at it — anything but an explicit enforce observes.
+	Enforce bool
 }
 
 // GetConnectorFunc is a function type that creates a connector instance.

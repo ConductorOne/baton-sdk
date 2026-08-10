@@ -48,12 +48,28 @@ message ServedPolicyEnvelope {
   EgressSection egress = 5;
 }
 
+// EgressMode is the enforcement posture the runtime applies to allowed_hosts.
+// It selects only whether the positive allowlist blocks or observes; it can
+// neither disable egress control nor widen the compiled denylist.
+enum EgressMode {
+  // Posture unstated. Consumers treat this as EGRESS_MODE_REPORT, so an
+  // envelope from a server predating this field leaves the runtime on its own
+  // default posture instead of silently blocking.
+  EGRESS_MODE_UNSPECIFIED = 0;
+
+  // Evaluate allowed_hosts and report denied destinations without blocking.
+  EGRESS_MODE_REPORT = 1;
+
+  // Block destinations absent from allowed_hosts.
+  EGRESS_MODE_ENFORCE = 2;
+}
+
 // EgressSection is the per-instance egress allowlist computed at serve from
 // the revision's sealed derivation rules and the instance's resolved config.
-// Deliberately not on the wire: the hard denylist (private ranges,
-// link-local, metadata endpoints, loopback, platform-internal hosts), which
-// is compiled into the runtime and overrides allowed_hosts, and any
-// mode/disable switch — the payload cannot weaken enforcement.
+// The hard denylist (private ranges, link-local, metadata endpoints,
+// loopback, platform-internal hosts) is deliberately not on the wire: it is
+// compiled into the runtime and overrides both allowed_hosts and mode, so no
+// payload can reach a destination the runtime denies outright.
 message EgressSection {
   // Section contract version. Unsupported => whole envelope invalid.
   uint32 schema_version = 1;
@@ -74,4 +90,9 @@ message EgressSection {
   // empty list is a valid deny-all egress policy. Runtimes check the
   // resolved hostname against this set after the compiled hard denylist.
   repeated string allowed_hosts = 4;
+
+  // Enforcement posture for allowed_hosts. Absent leaves the runtime on its
+  // own default, so adding this field does not change how an existing envelope
+  // is served.
+  EgressMode mode = 5;
 }

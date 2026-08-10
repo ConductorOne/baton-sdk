@@ -580,6 +580,7 @@ func egressPolicyFromResponse(config *v1.GetConnectorConfigResponse) *EgressPoli
 	}
 	policy.AllowedHosts = egress.GetAllowedHosts()
 	policy.HTTPSOnly = egress.GetHttpsOnly()
+	policy.Enforce = egress.GetMode() == v1.EgressMode_EGRESS_MODE_ENFORCE
 	return policy
 }
 
