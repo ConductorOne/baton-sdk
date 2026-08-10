@@ -297,8 +297,10 @@ func TestPoolGrowsFromSaveC1z(t *testing.T) {
 
 	// Assert on the Put, not on a later Get: the pools are process-wide, so a
 	// concurrently running test can take the encoder saveC1z returned, and a
-	// missed Get would then look like the bug this test is guarding.
-	require.Greater(t, encoderPuts.Load(), putsBefore, "saveC1z should have returned its encoder to the pool")
+	// missed Get would then look like the bug this test is guarding. The count
+	// is exact rather than a delta so the assertion is about this call and not
+	// about whatever else happens to be putting encoders back.
+	require.Equal(t, putsBefore+1, encoderPuts.Load(), "saveC1z should have returned exactly its own encoder to the pool")
 }
 
 // TestPoolGrowsFromDecoder verifies that NewDecoder populates the decoder pool
@@ -340,8 +342,10 @@ func TestPoolGrowsFromDecoder(t *testing.T) {
 
 	// Assert on the Put, not on a later Get: the pools are process-wide, so a
 	// concurrently running test can take the decoder Close returned, and a
-	// missed Get would then look like the bug this test is guarding.
-	require.Greater(t, decoderPuts.Load(), putsBefore, "NewDecoder.Close should have returned its decoder to the pool")
+	// missed Get would then look like the bug this test is guarding. The count
+	// is exact rather than a delta so the assertion is about this call and not
+	// about whatever else happens to be putting decoders back.
+	require.Equal(t, putsBefore+1, decoderPuts.Load(), "NewDecoder.Close should have returned exactly its own decoder to the pool")
 }
 
 func TestPooledRoundTrip(t *testing.T) {

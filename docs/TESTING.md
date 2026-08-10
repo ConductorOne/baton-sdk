@@ -84,18 +84,20 @@ make race-check-shard SHARD=sync # instrument just that shard
 usually what you want locally when you are not trying to reproduce a specific
 package's failure.
 
-Both carry the same full-tier environment (`BATON_FULL_TESTS=1`,
-`BATON_CUT_SWEEP=full`), so sharding changes only how the work is scheduled,
-never what is covered. That environment is also why the nightly has no separate
-`make test-full` job: the shards already run those cases, under the race
-detector, so a second uninstrumented pass would double the compute to cover a
-strict subset.
+A shard runs the same command as `race-check` with a narrower package list and
+no extra environment, so reproducing a shard failure locally needs no special
+setup. The exhaustive checkpoint-cut sweep is deliberately not part of it: the
+nightly `interrupt` job runs that sweep on its own budget, and repeating it
+under the race detector inside a shard would buy a second copy of the most
+expensive test in the repository.
 
 The `rest` shard is the complement of the named shards, so every package
 belongs to exactly one shard by construction and a newly added package joins
 `rest` automatically rather than silently escaping instrumentation.
 `make race-shard-audit` proves that by counting, and pull-request CI runs it —
-otherwise the gap would be invisible until someone went looking.
+otherwise the gap would be invisible until someone went looking. It also checks
+that the shard names in the Makefile and in `nightly.yaml` still agree, since a
+shard declared in only one of the two balances the count while running nowhere.
 
 ## Benchmarks
 

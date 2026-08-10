@@ -64,6 +64,9 @@ jobs:
       - name: Verify the race shards cover every package
         run: make race-shard-audit
 
+  # Every job timeout below sits above the Makefile's RACE_SHARD_TIMEOUT, so a
+  # hung shard is killed by Go — which dumps every goroutine's stack, the only
+  # useful artifact from a hang — rather than by the runner, which just stops.
   race:
     name: race (${{ matrix.shard }})
     runs-on: ubuntu-latest
@@ -85,16 +88,16 @@ jobs:
             timeout: 60
           # Grant expansion and strongly-connected-component condensation.
           - shard: expand
-            timeout: 45
+            timeout: 50
           # Compaction, fold, and the c1z sanitizer.
           - shard: compactor
             timeout: 60
           # CLI plus the crash and compat harnesses.
           - shard: cmd
-            timeout: 30
+            timeout: 50
           # Everything not named above, by construction.
           - shard: rest
-            timeout: 45
+            timeout: 50
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -148,9 +151,46 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
+        with:
+          # compat-check materializes a pinned old release with
+          # `git worktree add --detach <tmp> v0.20.2`, which needs the tag and
+          # its history. The default shallow checkout has neither, and the
+          # harness fails with "invalid reference".
+          fetch-depth: 0
       - name: Install Go
         uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
       - name: make ${{ matrix.target }}
         run: make ${{ matrix.target }}
+
+  # A nightly nobody reads fails the same way the un-run suites did. GitHub
+  # emails a scheduled workflow's failures only to whoever last edited the cron
+  # line, so a red run reaches one inbox and no place the team looks. File it
+  # instead — one open issue that later failures append to, rather than a fresh
+  # issue every night for as long as something stays broken.
+  report:
+    name: report failures
+    needs: [shard-audit, race, suite]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open or update the nightly failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="nightly suite is failing"
+          body="The nightly run on $(date -u +%Y-%m-%d) failed. Which tier broke is in the run: $RUN_URL"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 \
+            --json number,title --jq "[.[] | select(.title == \"$title\") | .number] | first // empty")
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi
