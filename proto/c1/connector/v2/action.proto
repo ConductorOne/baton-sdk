@@ -65,7 +65,8 @@ message InvokeActionRequest {
   string resource_type_id = 4;
   // Optional: how long the server may block this call waiting for the action
   // to finish before returning its in-flight status. Unset leaves the wait at
-  // the server's default. The server does not shorten the wait to fit the
+  // the server's default, and the server may silently cap an oversized wait
+  // rather than reject it. The server does not shorten the wait to fit the
   // call's deadline, so callers must set their RPC deadline above the
   // requested wait; a deadline that fires first fails the call instead of
   // returning an in-flight status with an action id, while the action itself

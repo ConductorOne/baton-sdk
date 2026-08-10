@@ -578,7 +578,13 @@ func (a *ActionManager) InvokeActionWithWait(
 	args *structpb.Struct,
 	inlineWait time.Duration,
 ) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
-	inlineWait = clampInlineWait(inlineWait)
+	clamped := clampInlineWait(inlineWait)
+	if clamped < inlineWait {
+		ctxzap.Extract(ctx).Debug("capping requested inline wait",
+			zap.Duration("requested", inlineWait),
+			zap.Duration("capped", clamped))
+	}
+	inlineWait = clamped
 
 	if resourceTypeID != "" {
 		return a.invokeResourceAction(ctx, resourceTypeID, name, args, inlineWait)
@@ -636,8 +642,8 @@ func (a *ActionManager) invokeGlobalAction(
 		oa.setOutcome(ctx, rv, annos, oaErr)
 	}()
 
-	// A stopped timer releases immediately; time.After would pin a runtime
-	// timer for the full wait after the handler already finished.
+	// Stop releases the timer deterministically when the handler wins the
+	// select; an abandoned time.After timer would only be GC-eligible.
 	waitTimer := time.NewTimer(inlineWait)
 	defer waitTimer.Stop()
 
@@ -743,8 +749,8 @@ func (a *ActionManager) invokeResourceAction(
 		oa.setOutcome(ctx, rv, annos, oaErr)
 	}()
 
-	// A stopped timer releases immediately; time.After would pin a runtime
-	// timer for the full wait after the handler already finished.
+	// Stop releases the timer deterministically when the handler wins the
+	// select; an abandoned time.After timer would only be GC-eligible.
 	waitTimer := time.NewTimer(inlineWait)
 	defer waitTimer.Stop()
 
