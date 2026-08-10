@@ -2,7 +2,9 @@ package connectorbuilder
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -54,7 +56,7 @@ func TestRegisterLegacyActionThirdPartyManagerKeepsHandlerContext(t *testing.T) 
 	}
 
 	m := actions.NewActionManager(ctx)
-	require.NoError(t, registerLegacyAction(ctx, m, legacy.schema, legacy))
+	require.NoError(t, registerLegacyAction(ctx, m, legacy.schema, legacy, shortPollIntervals))
 
 	_, _, _, _, err := m.InvokeAction(ctx, "legacy_action", "", &structpb.Struct{})
 	require.NoError(t, err)
@@ -73,7 +75,6 @@ func TestRegisterLegacyActionThirdPartyManagerKeepsHandlerContext(t *testing.T) 
 // finishes: the outer action must stay RUNNING at its own inline wait and
 // resolve later with the real response, never as an empty completion.
 func TestRegisterLegacyActionTracksInnerManagerToCompletion(t *testing.T) {
-	shortStatusPolls(t)
 	ctx := t.Context()
 
 	schema := v2.BatonActionSchema_builder{Name: "inner_action"}.Build()
@@ -87,7 +88,7 @@ func TestRegisterLegacyActionTracksInnerManagerToCompletion(t *testing.T) {
 	}))
 
 	outer := actions.NewActionManager(ctx)
-	require.NoError(t, registerLegacyAction(ctx, outer, schema, inner))
+	require.NoError(t, registerLegacyAction(ctx, outer, schema, inner, shortPollIntervals))
 
 	outerID, outerStatus, outerRv, _, err := outer.InvokeAction(ctx, "inner_action", "", &structpb.Struct{})
 	require.NoError(t, err)
@@ -137,7 +138,6 @@ func (f *fakeAsyncThirdPartyActionManager) GetActionStatus(_ context.Context, id
 // terminal one with the action id it returned, riding through a transient
 // status-check failure.
 func TestRegisterLegacyActionPollsAsyncThirdPartyManager(t *testing.T) {
-	shortStatusPolls(t)
 	ctx := t.Context()
 
 	rv, err := structpb.NewStruct(map[string]any{"done": true})
@@ -149,7 +149,7 @@ func TestRegisterLegacyActionPollsAsyncThirdPartyManager(t *testing.T) {
 	}
 
 	outer := actions.NewActionManager(ctx)
-	require.NoError(t, registerLegacyAction(ctx, outer, legacy.schema, legacy))
+	require.NoError(t, registerLegacyAction(ctx, outer, legacy.schema, legacy, shortPollIntervals))
 
 	outerID, _, _, _, err := outer.InvokeAction(ctx, "async_action", "", &structpb.Struct{})
 	require.NoError(t, err)
@@ -166,7 +166,6 @@ func TestRegisterLegacyActionPollsAsyncThirdPartyManager(t *testing.T) {
 // A legacy action that polls to FAILED must mark the outer action FAILED,
 // never resolve it as a success.
 func TestRegisterLegacyActionPolledFailureFailsOuterAction(t *testing.T) {
-	shortStatusPolls(t)
 	ctx := t.Context()
 
 	legacy := &fakeAsyncThirdPartyActionManager{
@@ -175,7 +174,7 @@ func TestRegisterLegacyActionPolledFailureFailsOuterAction(t *testing.T) {
 	}
 
 	outer := actions.NewActionManager(ctx)
-	require.NoError(t, registerLegacyAction(ctx, outer, legacy.schema, legacy))
+	require.NoError(t, registerLegacyAction(ctx, outer, legacy.schema, legacy, shortPollIntervals))
 
 	outerID, _, _, _, err := outer.InvokeAction(ctx, "failing_action", "", &structpb.Struct{})
 	require.NoError(t, err)
@@ -223,7 +222,7 @@ func TestRegisterLegacyActionSyncManagerWithoutStatusResolves(t *testing.T) {
 	}
 
 	outer := actions.NewActionManager(ctx)
-	require.NoError(t, registerLegacyAction(ctx, outer, legacy.schema, legacy))
+	require.NoError(t, registerLegacyAction(ctx, outer, legacy.schema, legacy, shortPollIntervals))
 
 	_, outerStatus, outerRv, _, err := outer.InvokeAction(ctx, "sync_action", "", &structpb.Struct{})
 	require.NoError(t, err)
@@ -232,16 +231,9 @@ func TestRegisterLegacyActionSyncManagerWithoutStatusResolves(t *testing.T) {
 	require.Equal(t, int32(0), legacy.statusCalls.Load())
 }
 
-// shortStatusPolls drives the poll loop in milliseconds so outcome tables
+// shortPollIntervals drives the poll loop in milliseconds so outcome tables
 // don't add real wall time to the suite.
-func shortStatusPolls(t *testing.T) {
-	t.Helper()
-	origInitial, origMax := initialStatusPollInterval, maxStatusPollInterval
-	initialStatusPollInterval, maxStatusPollInterval = time.Millisecond, 4*time.Millisecond
-	t.Cleanup(func() {
-		initialStatusPollInterval, maxStatusPollInterval = origInitial, origMax
-	})
-}
+var shortPollIntervals = legacyPollIntervals{initial: time.Millisecond, max: 4 * time.Millisecond}
 
 type scriptedPollResult struct {
 	status v2.BatonActionStatus
@@ -289,8 +281,6 @@ func (f *scriptedLegacyActionManager) GetActionStatus(_ context.Context, _ strin
 // poll loop tolerates transient lookup errors and indeterminate statuses up
 // to the shared threshold before failing closed.
 func TestRegisterLegacyActionSeamAndPollOutcomes(t *testing.T) {
-	shortStatusPolls(t)
-
 	const (
 		unspecified = v2.BatonActionStatus_BATON_ACTION_STATUS_UNSPECIFIED
 		unknown     = v2.BatonActionStatus_BATON_ACTION_STATUS_UNKNOWN
@@ -309,7 +299,9 @@ func TestRegisterLegacyActionSeamAndPollOutcomes(t *testing.T) {
 		wantErrIn    string
 	}{
 		{"in-band failure at the invoke seam fails", "id-1", failed, nil, failed, "failed"},
-		{"unexpected status at the invoke seam fails", "id-1", unknown, nil, failed, "unexpected status"},
+		{"indeterminate seam status polls to an outcome", "id-1", unknown,
+			[]scriptedPollResult{{status: complete}}, complete, ""},
+		{"indeterminate seam status without an id resolves as before", "", unknown, nil, complete, ""},
 		{"unspecified status resolves as before", "id-1", unspecified, nil, complete, ""},
 		{"in-flight without an id resolves as before", "", running, nil, complete, ""},
 		{"threshold consecutive lookup errors fail closed", "id-1", running,
@@ -334,7 +326,7 @@ func TestRegisterLegacyActionSeamAndPollOutcomes(t *testing.T) {
 				polls:        tc.polls,
 			}
 			outer := actions.NewActionManager(ctx)
-			require.NoError(t, registerLegacyAction(ctx, outer, legacy.schema, legacy))
+			require.NoError(t, registerLegacyAction(ctx, outer, legacy.schema, legacy, shortPollIntervals))
 
 			_, st, gotRv, _, err := outer.InvokeAction(ctx, "scripted_action", "", &structpb.Struct{})
 			require.NoError(t, err)
@@ -351,8 +343,6 @@ func TestRegisterLegacyActionSeamAndPollOutcomes(t *testing.T) {
 // The poll loop's warnings must reach the caller's logger: the detached
 // handler context carries it across the goroutine boundary.
 func TestLegacyPollWarningsReachCallerLogger(t *testing.T) {
-	shortStatusPolls(t)
-
 	core, observed := observer.New(zap.WarnLevel)
 	ctx := ctxzap.ToContext(t.Context(), zap.New(core))
 
@@ -369,7 +359,7 @@ func TestLegacyPollWarningsReachCallerLogger(t *testing.T) {
 		},
 	}
 	outer := actions.NewActionManager(ctx)
-	require.NoError(t, registerLegacyAction(ctx, outer, legacy.schema, legacy))
+	require.NoError(t, registerLegacyAction(ctx, outer, legacy.schema, legacy, shortPollIntervals))
 
 	_, st, _, _, err := outer.InvokeAction(ctx, "warned_action", "", &structpb.Struct{})
 	require.NoError(t, err)
@@ -377,4 +367,39 @@ func TestLegacyPollWarningsReachCallerLogger(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return observed.FilterMessage("legacy action status check failed, retrying").Len() == 1
 	}, time.Second, 10*time.Millisecond)
+}
+
+type capturingRegistry struct {
+	handler actions.ActionHandler
+}
+
+func (c *capturingRegistry) Register(_ context.Context, _ *v2.BatonActionSchema, handler actions.ActionHandler) error {
+	c.handler = handler
+	return nil
+}
+
+func (c *capturingRegistry) RegisterAction(_ context.Context, _ string, _ *v2.BatonActionSchema, handler actions.ActionHandler) error {
+	c.handler = handler
+	return nil
+}
+
+// The poll loop's context exit must surface the handler budget's cause, not
+// a bare context error.
+func TestLegacyPollSurfacesHandlerBudgetCause(t *testing.T) {
+	legacy := &scriptedLegacyActionManager{
+		schema:       v2.BatonActionSchema_builder{Name: "budgeted_action"}.Build(),
+		invokeID:     "id-1",
+		invokeStatus: v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING,
+		polls:        slices.Repeat([]scriptedPollResult{{status: v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING}}, 64),
+	}
+	reg := &capturingRegistry{}
+	require.NoError(t, registerLegacyAction(t.Context(), reg, legacy.schema, legacy, shortPollIntervals))
+
+	cause := errors.New("action handler timed out")
+	handlerCtx, cancel := context.WithTimeoutCause(t.Context(), 25*time.Millisecond, cause)
+	defer cancel()
+
+	_, _, err := reg.handler(handlerCtx, &structpb.Struct{})
+	require.ErrorIs(t, err, cause)
+	require.ErrorContains(t, err, "did not reach a terminal status")
 }

@@ -23,13 +23,20 @@ const (
 	maxConsecutiveStatusErrors = 3
 )
 
-// The legacy status poll starts fast and backs off to a cap so a slow
-// action doesn't drain a remote manager's rate-limit budget. Variables so
-// tests can drive the loop without real-time waits.
-var (
-	initialStatusPollInterval = time.Second
-	maxStatusPollInterval     = 30 * time.Second
-)
+// legacyPollIntervals paces the legacy status poll: it starts fast and backs
+// off to a cap so a slow action doesn't drain a remote manager's rate-limit
+// budget. Captured at registration, so tests can drive the loop without
+// real-time waits and the detached poll goroutine never reads shared
+// mutable state.
+type legacyPollIntervals struct {
+	initial time.Duration
+	max     time.Duration
+}
+
+var defaultLegacyPollIntervals = legacyPollIntervals{
+	initial: time.Second,
+	max:     30 * time.Second,
+}
 
 // ActionManager defines the interface for managing actions in the connector builder.
 // This is the internal interface used by the builder for dispatch.
@@ -228,7 +235,13 @@ func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStat
 }
 
 // registerLegacyAction wraps a legacy CustomActionManager action as an ActionHandler and registers it.
-func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, schema *v2.BatonActionSchema, legacyManager CustomActionManager) error {
+func registerLegacyAction(
+	ctx context.Context,
+	registry actions.ActionRegistry,
+	schema *v2.BatonActionSchema,
+	legacyManager CustomActionManager,
+	intervals legacyPollIntervals,
+) error {
 	handler := func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
 		// The inner call keeps the detached handler context; its one-hour
 		// deadline is the execution backstop for however long the legacy
@@ -245,18 +258,22 @@ func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, 
 			return resp, annos, nil
 		}
 
-		// A terminal status at the invoke seam resolves like a terminal
+		// A settled status at the invoke seam resolves like a terminal
 		// poll. The SDK's own manager reports handler failures in-band as
 		// FAILED with a nil error, so this must not resolve as success.
-		if !isInFlightActionStatus(actionStatus) {
+		if actionStatus == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || actionStatus == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
 			return resp, annos, legacyStatusErr(schema.GetName(), actionStatus)
 		}
 
-		// An in-flight claim without an id cannot be polled; resolve with
+		// An unresolved claim without an id cannot be polled; resolve with
 		// the response, matching the old fire-and-forget behavior.
 		if id == "" {
 			return resp, annos, nil
 		}
+
+		// In-flight and indeterminate statuses alike are polled: an
+		// indeterminate answer gets the same tolerance here as one arriving
+		// from a later poll.
 
 		// Poll to a terminal status so the outer result carries the action's
 		// real outcome. A few consecutive status-check failures are tolerated:
@@ -265,7 +282,7 @@ func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, 
 		// drain a remote manager's rate-limit budget.
 		l := ctxzap.Extract(ctx)
 		statusErrs := 0
-		interval := initialStatusPollInterval
+		interval := intervals.initial
 		timer := time.NewTimer(interval)
 		defer timer.Stop()
 		for {
@@ -274,7 +291,7 @@ func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, 
 				return resp, annos, fmt.Errorf("legacy action %q did not reach a terminal status: %w", schema.GetName(), context.Cause(ctx))
 			case <-timer.C:
 			}
-			interval = min(interval*2, maxStatusPollInterval)
+			interval = min(interval*2, intervals.max)
 			timer.Reset(interval)
 
 			st, _, pollResp, pollAnnos, err := legacyManager.GetActionStatus(ctx, id)
@@ -318,17 +335,13 @@ func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, 
 	return registry.Register(ctx, schema, handler)
 }
 
-// legacyStatusErr maps a settled legacy status to the outer handler error:
-// COMPLETE resolves clean, anything else fails the action.
+// legacyStatusErr maps a settled legacy status — COMPLETE or FAILED, the
+// only values both call sites pass — to the outer handler error.
 func legacyStatusErr(name string, st v2.BatonActionStatus) error {
-	switch st {
-	case v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE:
+	if st == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE {
 		return nil
-	case v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED:
-		return fmt.Errorf("legacy action %q failed", name)
-	default:
-		return fmt.Errorf("legacy action %q returned unexpected status %s", name, st.String())
 	}
+	return fmt.Errorf("legacy action %q failed", name)
 }
 
 func isInFlightActionStatus(s v2.BatonActionStatus) bool {
@@ -345,7 +358,7 @@ func (b *builder) addActionManager(ctx context.Context, in interface{}, registry
 			return fmt.Errorf("error listing schemas from custom action manager: %w", err)
 		}
 		for _, schema := range schemas {
-			if err := registerLegacyAction(ctx, registry, schema, customManager); err != nil {
+			if err := registerLegacyAction(ctx, registry, schema, customManager, defaultLegacyPollIntervals); err != nil {
 				return fmt.Errorf("error registering legacy action %s: %w", schema.GetName(), err)
 			}
 		}
@@ -366,7 +379,7 @@ func (b *builder) addActionManager(ctx context.Context, in interface{}, registry
 			return fmt.Errorf("error listing schemas from custom action manager: %w", err)
 		}
 		for _, schema := range schemas {
-			if err := registerLegacyAction(ctx, registry, schema, customManager); err != nil {
+			if err := registerLegacyAction(ctx, registry, schema, customManager, defaultLegacyPollIntervals); err != nil {
 				return fmt.Errorf("error registering legacy action %s: %w", schema.GetName(), err)
 			}
 		}
