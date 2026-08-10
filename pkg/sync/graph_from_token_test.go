@@ -18,7 +18,9 @@ func TestGraphFromToken(t *testing.T) {
 	g.AddEntitlementID("eng:member")
 	require.NoError(t, g.AddEdge(ctx, "eng:manager", "eng:member", false, nil))
 
-	st := newState()
+	// Opt in to the legacy inline-graph token shape. New checkpoints omit the
+	// graph by default, but readers must remain compatible with older tokens.
+	st := newState(withCheckpointEntitlementGraph(true))
 	st.entitlementGraph = g
 	token, err := st.Marshal()
 	require.NoError(t, err)
@@ -57,7 +59,9 @@ func TestPrepareExpansionReplayToken_ClearsPreservedGraph(t *testing.T) {
 	g.MarkEdgeExpanded("eng:manager", "eng:member")
 	g.Loaded = true
 
-	st := newState()
+	// Build the legacy inline-graph token shape so replay compatibility is
+	// exercised even though new checkpoints omit graphs by default.
+	st := newState(withCheckpointEntitlementGraph(true))
 	st.entitlementGraph = g
 	token, err := st.Marshal()
 	require.NoError(t, err)
