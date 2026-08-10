@@ -17,12 +17,16 @@ import (
 )
 
 const (
-	// maxConsecutiveStatusErrors bounds how many status-check failures in a
-	// row the legacy action poll loop tolerates before failing the action.
+	// maxConsecutiveStatusErrors bounds how many status-check failures or
+	// indeterminate statuses in a row the legacy action poll loop tolerates
+	// before failing the action.
 	maxConsecutiveStatusErrors = 3
+)
 
-	// The legacy status poll starts fast and backs off to a cap so a slow
-	// action doesn't drain a remote manager's rate-limit budget.
+// The legacy status poll starts fast and backs off to a cap so a slow
+// action doesn't drain a remote manager's rate-limit budget. Variables so
+// tests can drive the loop without real-time waits.
+var (
 	initialStatusPollInterval = time.Second
 	maxStatusPollInterval     = 30 * time.Second
 )
@@ -234,11 +238,23 @@ func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, 
 			return resp, annos, err
 		}
 
-		// Only an explicitly in-flight status with a usable id is worth
-		// polling. Legacy managers were never required to populate id or
-		// status — the wrapper used to discard both — so anything else
+		// Legacy managers were never required to populate id or status — the
+		// wrapper used to discard both — so the never-populated shape
 		// resolves the outer action with the response, as it always did.
-		if id == "" || !isInFlightActionStatus(actionStatus) {
+		if actionStatus == v2.BatonActionStatus_BATON_ACTION_STATUS_UNSPECIFIED {
+			return resp, annos, nil
+		}
+
+		// A terminal status at the invoke seam resolves like a terminal
+		// poll. The SDK's own manager reports handler failures in-band as
+		// FAILED with a nil error, so this must not resolve as success.
+		if !isInFlightActionStatus(actionStatus) {
+			return resp, annos, legacyStatusErr(schema.GetName(), actionStatus)
+		}
+
+		// An in-flight claim without an id cannot be polled; resolve with
+		// the response, matching the old fire-and-forget behavior.
+		if id == "" {
 			return resp, annos, nil
 		}
 
@@ -255,7 +271,7 @@ func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, 
 		for {
 			select {
 			case <-ctx.Done():
-				return resp, annos, ctx.Err()
+				return resp, annos, fmt.Errorf("legacy action %q did not reach a terminal status: %w", schema.GetName(), context.Cause(ctx))
 			case <-timer.C:
 			}
 			interval = min(interval*2, maxStatusPollInterval)
@@ -269,30 +285,50 @@ func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, 
 				}
 				l.Warn("legacy action status check failed, retrying",
 					zap.String("action", schema.GetName()),
-					zap.Int("consecutive_errors", statusErrs),
+					zap.Int("consecutive_anomalies", statusErrs),
 					zap.Error(err))
 				continue
 			}
-			statusErrs = 0
-
-			// An in-flight poll may carry no response; keep the last real one
-			// so the error exits above still return it.
-			if pollResp != nil {
+			// Keep the last meaningful response for the error exits above;
+			// an indeterminate poll's payload must not replace it.
+			if pollResp != nil && (isInFlightActionStatus(st) || st == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || st == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED) {
 				resp, annos = pollResp, pollAnnos
 			}
 
 			switch {
 			case isInFlightActionStatus(st):
-			case st == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE:
-				return resp, annos, nil
-			case st == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED:
-				return resp, annos, fmt.Errorf("legacy action %q failed", schema.GetName())
+				statusErrs = 0
+			case st == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || st == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED:
+				return resp, annos, legacyStatusErr(schema.GetName(), st)
 			default:
-				return resp, annos, fmt.Errorf("legacy action %q returned unexpected status %s", schema.GetName(), st.String())
+				// An indeterminate status gets the same tolerance as a
+				// lookup error: transient anomalies recover, persistent
+				// ones fail closed.
+				statusErrs++
+				if statusErrs >= maxConsecutiveStatusErrors {
+					return resp, annos, fmt.Errorf("legacy action %q returned unexpected status %s", schema.GetName(), st.String())
+				}
+				l.Warn("legacy action returned indeterminate status, retrying",
+					zap.String("action", schema.GetName()),
+					zap.String("status", st.String()),
+					zap.Int("consecutive_anomalies", statusErrs))
 			}
 		}
 	}
 	return registry.Register(ctx, schema, handler)
+}
+
+// legacyStatusErr maps a settled legacy status to the outer handler error:
+// COMPLETE resolves clean, anything else fails the action.
+func legacyStatusErr(name string, st v2.BatonActionStatus) error {
+	switch st {
+	case v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE:
+		return nil
+	case v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED:
+		return fmt.Errorf("legacy action %q failed", name)
+	default:
+		return fmt.Errorf("legacy action %q returned unexpected status %s", name, st.String())
+	}
 }
 
 func isInFlightActionStatus(s v2.BatonActionStatus) bool {
