@@ -517,6 +517,132 @@ func TestAdapterScanGrantBucket(t *testing.T) {
 	}
 }
 
+// TestPrincipalBucketHashMatchesServedBuckets pins the EXPORTED
+// PrincipalBucketHash against what the read APIs actually serve, over a
+// sealed file with a non-zero digest width.
+//
+// TestGrantDigestSpliceMatchesEncode already pins the internal hash
+// against the spliced key region, but that is an internal consistency
+// check: it cannot catch the exported symbol drifting away from the
+// buckets GetEntitlementGrantDigestNodes reports and
+// ScanEntitlementGrantBucket serves. That drift is exactly the failure
+// this export exists to prevent, and it is silent — a downstream caller
+// placing its own rows with this hash would scan buckets that quietly
+// miss records, with no error and no panic. So the assertions here run
+// through the public read APIs only.
+//
+// Both directions are checked at each level: every principal's predicted
+// index is a reported node with a matching count (no misses), and a
+// sampled bucket's scan yields exactly the principals whose hash prefix
+// is that index (no extras).
+func TestPrincipalBucketHashMatchesServedBuckets(t *testing.T) {
+	// The stored truncation width is what makes levels past it unusable
+	// to callers. If digestBucketHashLen ever changes, fail here — in the
+	// SDK that owns the ABI — rather than downstream.
+	if DigestBucketHashBits != 16 {
+		t.Fatalf("DigestBucketHashBits = %d, want 16; digestBucketHashLen changed — this is an ABI break for downstream callers", DigestBucketHashBits)
+	}
+
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	a := NewAdapter(e)
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatalf("StartNewSync: %v", err)
+	}
+	putEnt(t, e, ctx, "ent-A")
+
+	// 4000 grants → chooseDigestWidth = 3 (512 → 1024 → 2048 → 4096), so
+	// the file is sealed with a real leaf level, not a root-only digest.
+	const n = 4000
+	principals := make([]string, n)
+	grants := make([]*v3.GrantRecord, 0, n)
+	for i := range principals {
+		principals[i] = fmt.Sprintf("user-%04d", i)
+		grants = append(grants, makeGrant("", fmt.Sprintf("g-%04d", i), "ent-A", principals[i]))
+	}
+	if err := e.PutGrantRecords(ctx, grants...); err != nil {
+		t.Fatalf("PutGrantRecords: %v", err)
+	}
+	if err := a.EndSync(ctx); err != nil {
+		t.Fatalf("EndSync: %v", err)
+	}
+
+	ent := testV2Ent("ent-A")
+	d, found, err := a.GetEntitlementGrantDigest(ctx, ent)
+	if err != nil || !found {
+		t.Fatalf("digest: found=%v err=%v", found, err)
+	}
+	if d.Level == 0 {
+		t.Fatalf("native level = 0 for %d grants; test needs a non-zero digest width", n)
+	}
+
+	// Levels straddling the native width (3): 4 and 8 and 12 are served by
+	// the finer-than-native index-scan fallback, which must bucket
+	// identically to the stored leaves. All are <= DigestBucketHashBits,
+	// past which the engine clamps and the contract does not hold.
+	for _, level := range []int{4, 8, 12} {
+		t.Run(fmt.Sprintf("level-%d", level), func(t *testing.T) {
+			// The placement a downstream caller computes for itself, from
+			// the principal identity alone (type "user", per makeGrant).
+			want := make(map[uint32]map[string]bool)
+			for _, p := range principals {
+				idx := uint32(PrincipalBucketHash("user", p) >> (64 - level)) //nolint:gosec // level <= 16, so the shift leaves at most 16 bits
+				if want[idx] == nil {
+					want[idx] = make(map[string]bool)
+				}
+				want[idx][p] = true
+			}
+
+			nodes, found, err := a.GetEntitlementGrantDigestNodes(ctx, ent, level)
+			if err != nil || !found {
+				t.Fatalf("nodes(%d): found=%v err=%v", level, found, err)
+			}
+			// Nodes are sparse and non-empty, so the reported index set is
+			// exactly the set of predicted indexes: same size, and every
+			// reported node predicted with the same count. A principal
+			// hashing into an index the engine never reports (a "miss")
+			// fails the size check or the lookup below.
+			if len(nodes) != len(want) {
+				t.Fatalf("level %d: engine reports %d non-empty buckets, the hash predicts %d", level, len(nodes), len(want))
+			}
+			for _, nd := range nodes {
+				w, ok := want[nd.Index]
+				if !ok {
+					t.Fatalf("level %d: engine reports bucket %d, which no principal hashes into", level, nd.Index)
+				}
+				if nd.Count != int64(len(w)) {
+					t.Fatalf("level %d bucket %d: node count %d, the hash predicts %d principals there", level, nd.Index, nd.Count, len(w))
+				}
+			}
+
+			// Sampled buckets: the scan yields exactly the predicted
+			// principals — no extras and no misses.
+			step := max(1, len(nodes)/8)
+			for i := 0; i < len(nodes); i += step {
+				idx := nodes[i].Index
+				got := make(map[string]bool, len(want[idx]))
+				if err := a.ScanEntitlementGrantBucket(ctx, ent, connectorstore.GrantDigestBucket{Level: level, Index: idx}, func(g *v2.Grant) bool {
+					got[g.GetPrincipal().GetId().GetResource()] = true
+					return true
+				}); err != nil {
+					t.Fatalf("scan level %d bucket %d: %v", level, idx, err)
+				}
+				for p := range want[idx] {
+					if !got[p] {
+						t.Fatalf("level %d bucket %d: principal %q hashes here, but the bucket scan did not yield it", level, idx, p)
+					}
+				}
+				for p := range got {
+					if !want[idx][p] {
+						t.Fatalf("level %d bucket %d: scan yielded principal %q, which the hash places in bucket %d",
+							level, idx, p, uint32(PrincipalBucketHash("user", p)>>(64-level))) //nolint:gosec // level <= 16
+					}
+				}
+			}
+		})
+	}
+}
+
 // seedEntitlement writes the entitlement record + grants and runs the
 // seal-time build (hash index + digests), returning the syncID.
 func seedEntitlement(t testing.TB, e *Engine, entID string, grants []*v3.GrantRecord) string {
