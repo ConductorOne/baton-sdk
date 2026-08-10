@@ -102,16 +102,57 @@ func grantPrincipalBucketHash64(encodedPrincipalSegments []byte) uint64 {
 	return xxhash.Sum64(encodedPrincipalSegments)
 }
 
+// DigestBucketHashBits is how many of PrincipalBucketHash's leading bits
+// actually select a digest bucket: the stored bucket hash is truncated to
+// this width, so bucket levels beyond it cannot subdivide further and are
+// clamped (see GetEntitlementGrantDigestNodes / ScanEntitlementGrantBucket).
+//
+// ABI: the stored truncation width, pinned to GrantDigestABIVersion. It may
+// only grow, and only under an index-migration bump — which is why it is a
+// named constant rather than a literal in PrincipalBucketHash's signature:
+// widening the addressable bucket space must not change that signature.
+const DigestBucketHashBits = digestBucketHashLen * 8
+
+// PrincipalBucketHash is the public form of the grant digest's bucket
+// address for a principal: the full 64-bit xxHash64 of the principal's
+// ENCODED identity segments (see grantPrincipalBucketHash64). Identity
+// only — never the principal's attributes — so a principal keeps its
+// bucket across syncs.
+//
+// Use it to place records held outside a pebble file (e.g. rows in
+// another store) into the same buckets the engine digests, then compare
+// or scan bucket-by-bucket instead of reimplementing the ABI:
+//
+//	idx := uint32(PrincipalBucketHash(rt, id) >> (64 - level))  // level <= DigestBucketHashBits
+//	nodes, _, _ := r.GetEntitlementGrantDigestNodes(ctx, ent, level)
+//	_ = r.ScanEntitlementGrantBucket(ctx, ent, connectorstore.GrantDigestBucket{Level: level, Index: idx}, yield)
+//
+// Contract: the bucket at level L holds exactly the principals whose top
+// L bits of this hash equal the bucket index — the same index
+// GetEntitlementGrantDigestNodes(L) reports and ScanEntitlementGrantBucket
+// takes. Only the leading DigestBucketHashBits bits are stored, so a
+// caller must not read a level past that: the engine clamps such a level,
+// and the two sides would disagree. L == 0 is the whole entitlement
+// (index 0).
+//
+// ABI: pinned to GrantDigestABIVersion alongside GrantContentHash. Two
+// SDK builds must place the same principal in the same bucket, so the
+// input framing changes only under an index-migration bump.
+func PrincipalBucketHash(principalRT, principalID string) uint64 {
+	enc := codec.AppendTupleStrings(make([]byte, 0, 64), principalRT, principalID)
+	return grantPrincipalBucketHash64(enc)
+}
+
 // principalBucketHash is the from-identity form of the bucket hash:
 // the stored digestBucketHashLen key bytes for a principal given its
-// decoded identity. Encodes the segments exactly as the primary grant
-// key does, then hashes — so it MUST agree with hashing the spliced
-// key region (pinned by TestGrantDigestSpliceMatchesEncode). Returns a
+// decoded identity — the truncation of PrincipalBucketHash that index
+// keys carry. Encodes the segments exactly as the primary grant key
+// does, then hashes — so it MUST agree with hashing the spliced key
+// region (pinned by TestGrantDigestSpliceMatchesEncode). Returns a
 // fresh slice.
 func principalBucketHash(principalRT, principalID string) []byte {
-	enc := codec.AppendTupleStrings(make([]byte, 0, 64), principalRT, principalID)
 	var full [8]byte
-	binary.BigEndian.PutUint64(full[:], grantPrincipalBucketHash64(enc))
+	binary.BigEndian.PutUint64(full[:], PrincipalBucketHash(principalRT, principalID))
 	out := make([]byte, digestBucketHashLen)
 	copy(out, full[:])
 	return out

@@ -82,6 +82,7 @@ func TestGrantDigestSpliceMatchesEncode(t *testing.T) {
 			// over freshly encoded principal segments.
 			wantBH64 := xxhash.Sum64(codec.AppendTupleStrings(nil, tc.prt, tc.pid))
 			require.Equal(t, wantBH64, grantPrincipalBucketHash64(priKey[sep4+1:]), "bucket hash from key splice")
+			require.Equal(t, wantBH64, PrincipalBucketHash(tc.prt, tc.pid), "exported PrincipalBucketHash")
 			var full [8]byte
 			binary.BigEndian.PutUint64(full[:], wantBH64)
 			require.Equal(t, full[:digestBucketHashLen], principalBucketHash(tc.prt, tc.pid), "principalBucketHash top bytes")
