@@ -82,7 +82,59 @@ interrupt-check: checkpoint-cut-check crash-check ## Run in-process cut and real
 
 .PHONY: race-check
 race-check: ## Run the complete Go suite with the race detector.
-	go test -race -tags=baton_lambda_support -count=1 -timeout=30m ./...
+	go test -race -tags=baton_lambda_support -count=1 -timeout=45m ./...
+
+# Nightly race shards. A serial instrumented ./... sweep is hours of work, and
+# nearly all of it sits in a handful of packages, so the nightly workflow runs
+# these shards as concurrent jobs instead. That is what keeps a "nightly" suite
+# finishing overnight rather than bleeding into the next workday, and it names
+# the shard that broke instead of one red check covering everything.
+#
+# `rest` is the complement of the named shards, so every package belongs to
+# exactly one shard by construction: a newly added package joins `rest`
+# automatically rather than silently escaping the sweep. race-shard-audit
+# proves that property by counting.
+RACE_SHARD_NAMES := dotc1z engine sync expand compactor cmd rest
+
+RACE_PKG := github.com/conductorone/baton-sdk
+RACE_SHARD_dotc1z := ^$(RACE_PKG)/pkg/dotc1z$$
+RACE_SHARD_engine := ^$(RACE_PKG)/pkg/dotc1z/engine($$|/)
+RACE_SHARD_sync := ^$(RACE_PKG)/pkg/sync$$
+RACE_SHARD_expand := ^$(RACE_PKG)/pkg/sync/expand($$|/)
+RACE_SHARD_compactor := ^$(RACE_PKG)/(pkg/synccompactor($$|/)|pkg/c1zsanitize$$)
+RACE_SHARD_cmd := ^$(RACE_PKG)/cmd($$|/)
+RACE_SHARD_NAMED := $(RACE_SHARD_dotc1z)|$(RACE_SHARD_engine)|$(RACE_SHARD_sync)|$(RACE_SHARD_expand)|$(RACE_SHARD_compactor)|$(RACE_SHARD_cmd)
+
+.PHONY: race-shard-list
+race-shard-list: ## Print the packages in race shard SHARD.
+	@test -n "$(SHARD)" || { echo "race-shard-list: set SHARD to one of: $(RACE_SHARD_NAMES)" >&2; exit 2; }
+	@if [ "$(SHARD)" = "rest" ]; then \
+		go list ./... | grep -vE '$(RACE_SHARD_NAMED)'; \
+	else \
+		test -n '$(RACE_SHARD_$(SHARD))' || { echo "race-shard-list: unknown shard '$(SHARD)'" >&2; exit 2; }; \
+		go list ./... | grep -E '$(RACE_SHARD_$(SHARD))'; \
+	fi
+
+.PHONY: race-check-shard
+race-check-shard: ## Race-check one nightly shard, for example SHARD=dotc1z.
+	go test -race -tags=baton_lambda_support -count=1 -timeout=45m \
+		$$($(MAKE) --no-print-directory race-shard-list SHARD=$(SHARD))
+
+.PHONY: race-shard-audit
+race-shard-audit: ## Verify the race shards cover every package exactly once.
+	@total=$$(go list ./... | wc -l | tr -d ' '); sum=0; \
+	for s in $(RACE_SHARD_NAMES); do \
+		n=$$($(MAKE) --no-print-directory race-shard-list SHARD=$$s | wc -l | tr -d ' '); \
+		printf '  %-10s %3s packages\n' "$$s" "$$n"; \
+		sum=$$((sum + n)); \
+	done; \
+	printf '  %-10s %3s packages\n' "union" "$$sum"; \
+	printf '  %-10s %3s packages\n' "go list" "$$total"; \
+	if [ "$$sum" != "$$total" ]; then \
+		echo "race-shard-audit: union is $$sum but ./... is $$total — the shards overlap or leave a gap" >&2; \
+		exit 1; \
+	fi; \
+	echo "race-shard-audit: every package is covered exactly once"
 
 .PHONY: fuzz-smoke
 fuzz-smoke: ## Run each native Go fuzzer for FUZZ_TIME (default 30s).

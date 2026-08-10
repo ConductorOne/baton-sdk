@@ -1,0 +1,156 @@
+name: nightly
+
+# The opt-in confidence suites documented in docs/TESTING.md, run every night.
+# They cannot gate a pull request: the instrumented sweep alone is hours of
+# work, and the soaks and fuzzers are sized in wall-clock time rather than in
+# assertions. ci.yaml stays the fast gate; this is where the slow, randomized,
+# and process-killing checks actually get exercised.
+#
+# Everything runs as concurrent jobs rather than one serial `make test-nightly`,
+# so a nightly suite actually finishes overnight instead of bleeding into the
+# workday, and a failure names the tier or shard that broke instead of one red
+# check covering everything. The race sweep is sharded because nearly all of its
+# wall clock sits in a handful of packages; `make race-shard-audit` proves the
+# shards still cover every package exactly once.
+#
+# Scheduled workflows only run from the default branch, so changes here take
+# effect once merged to main, not from a pull request.
+
+on:
+  schedule:
+    # 08:00 UTC daily.
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+    inputs:
+      fuzz_time:
+        description: "Per-fuzzer duration (e.g. 15m)"
+        required: false
+      differential_time:
+        description: "Differential fuzz duration (e.g. 30m)"
+        required: false
+      soak_iterations:
+        description: "Randomized scheduler soak iterations"
+        required: false
+      chaos_iterations:
+        description: "Seeded chaos fan-out iterations"
+        required: false
+
+permissions:
+  contents: read
+
+# The Makefile declares these with `?=`, so environment values win. Scheduled
+# runs get the nightly sizing below; a manual run can widen any of them without
+# editing this file, which is what you want when re-running a suspicious tier.
+env:
+  FUZZ_TIME: ${{ inputs.fuzz_time || '5m' }}
+  DIFFERENTIAL_TIME: ${{ inputs.differential_time || '10m' }}
+  SOAK_ITERATIONS: ${{ inputs.soak_iterations || '25' }}
+  CHAOS_ITERATIONS: ${{ inputs.chaos_iterations || '25' }}
+
+jobs:
+  # Seconds, and it fails when a newly added package would have escaped the
+  # sharded sweep. ci.yaml runs this too, where it can actually block the gap.
+  shard-audit:
+    name: race shard audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+      - name: Verify the race shards cover every package
+        run: make race-shard-audit
+
+  race:
+    name: race (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      # Every shard reports independently: one shard failing must not hide a
+      # race detector finding in another.
+      fail-fast: false
+      matrix:
+        include:
+          # The store shell and its admission/close machinery.
+          - shard: dotc1z
+            timeout: 60
+          # Every storage engine, including the Pebble adapter and codecs.
+          - shard: engine
+            timeout: 60
+          # The sync engine: scheduler, chaos corpora, checkpoint cut sweep.
+          - shard: sync
+            timeout: 60
+          # Grant expansion and strongly-connected-component condensation.
+          - shard: expand
+            timeout: 45
+          # Compaction, fold, and the c1z sanitizer.
+          - shard: compactor
+            timeout: 60
+          # CLI plus the crash and compat harnesses.
+          - shard: cmd
+            timeout: 30
+          # Everything not named above, by construction.
+          - shard: rest
+            timeout: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+      - name: Race-check the ${{ matrix.shard }} shard
+        run: make race-check-shard SHARD=${{ matrix.shard }}
+
+  suite:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Exhaustive in-process checkpoint cuts plus the real-process
+          # crash/resume harness, which spawns and hard-kills connectors.
+          - name: interrupt
+            target: interrupt-check
+            timeout: 60
+          # Exchanges mid-flight checkpoints with a pinned older SDK build.
+          - name: compat
+            target: compat-check
+            timeout: 30
+          - name: fuzz
+            target: fuzz-smoke
+            timeout: 45
+          # Compares complete SQLite and Pebble artifacts over generated cases.
+          - name: differential
+            target: differential-check
+            timeout: 45
+          - name: scheduler-soak
+            target: scheduler-soak
+            timeout: 45
+          - name: chaos-soak
+            target: chaos-soak
+            timeout: 45
+          # Randomized whole-sync Pebble failure points against a crashable
+          # filesystem.
+          - name: errorfs-soak
+            target: errorfs-soak
+            timeout: 45
+          # Output is evidence rather than a pass/fail gate, but running the
+          # curves catches crashes and keeps the current cost visible.
+          - name: bench-smoke
+            target: bench-smoke
+            timeout: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+      - name: make ${{ matrix.target }}
+        run: make ${{ matrix.target }}
