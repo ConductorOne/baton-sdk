@@ -93,6 +93,21 @@ func TestIncrementalExpansionOutcomeLogging(t *testing.T) {
 			wantOutcome: "declined", wantReason: "cycle",
 		},
 		{
+			name: "invalid graph counters",
+			build: func(t *testing.T, ctx context.Context, dir string) []*CompactableSync {
+				entries := buildIncrementalFixtures(t, ctx, dir)
+				graph := baseGraphForFixtures(t, ctx)
+				graph.NextNodeID = 0
+				store, err := dotc1z.NewStore(ctx, entries[0].FilePath, dotc1z.WithTmpDir(t.TempDir()))
+				require.NoError(t, err)
+				persistFixtureGraph(t, ctx, store, entries[0].SyncID, graph)
+				require.NoError(t, store.Close(ctx))
+				return entries
+			},
+			options:     []Option{WithEngine(c1zstore.EnginePebble), WithIncrementalExpansion()},
+			wantOutcome: "fell_back", wantReason: "base_graph_error",
+		},
+		{
 			name: "unsupported engine", build: func(t *testing.T, ctx context.Context, dir string) []*CompactableSync {
 				return buildIncrementalFixturesEngine(t, ctx, dir, c1zstore.EngineSQLite)
 			},

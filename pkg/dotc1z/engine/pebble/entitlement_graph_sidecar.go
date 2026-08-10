@@ -37,7 +37,15 @@ func EntitlementGraphSidecarUpperBound() []byte {
 // PutEntitlementGraphSidecar stores the opaque graph blob. Same write
 // barrier as the stats sidecar: callers span EndSync's sealed window.
 func (e *Engine) PutEntitlementGraphSidecar(ctx context.Context, data []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return e.withWriteAllowSealed(func() error {
+		// Re-check after waiting for the engine's write lock. The context may
+		// have been canceled while another writer held the lock.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		return e.db.MetaSet(encodeEntitlementGraphKey(), data, pebble.Sync)
 	})
 }
@@ -45,6 +53,9 @@ func (e *Engine) PutEntitlementGraphSidecar(ctx context.Context, data []byte) er
 // GetEntitlementGraphSidecar returns the stored blob, or (nil, nil) if
 // none exists.
 func (e *Engine) GetEntitlementGraphSidecar(ctx context.Context) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	val, closer, err := e.db.Get(encodeEntitlementGraphKey())
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
@@ -55,12 +66,23 @@ func (e *Engine) GetEntitlementGraphSidecar(ctx context.Context) ([]byte, error)
 	defer closer.Close()
 	out := make([]byte, len(val))
 	copy(out, val)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
 // DeleteEntitlementGraphSidecar removes the blob (no-op when absent).
 func (e *Engine) DeleteEntitlementGraphSidecar(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	return e.withWriteAllowSealed(func() error {
+		// Re-check after waiting for the engine's write lock. The context may
+		// have been canceled while another writer held the lock.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		return e.db.MetaDelete(encodeEntitlementGraphKey(), pebble.Sync)
 	})
 }

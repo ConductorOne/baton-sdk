@@ -549,7 +549,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 		partialSyncIDs = append(partialSyncIDs, srcSyncID)
 		partialTokens = append(partialTokens, readSourceSyncToken(ctx, srcEng, srcSyncID))
 
-		mergeStats, mergeErr := mergepkg.MergeInto(ctx, destEng, []mergepkg.SourceSync{{Engine: srcEng, SyncID: srcSyncID}}, baseSyncID)
+		mergeStats, mergeErr := mergepkg.MergeInto(ctx, destEng, []mergepkg.SourceSync{{Engine: srcEng, SyncID: srcSyncID}}, baseSyncID, c.incrementalExpansion)
 		foldStats.Add(mergeStats)
 		if cerr := w.Close(ctx); cerr != nil {
 			l.Error("compactPebbleFold: error closing source store", zap.Error(cerr), zap.String("file", sourcePath))
@@ -559,11 +559,13 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 		}
 	}
 
-	// Hand the fold's changed-entitlement set to incremental expansion.
-	// Non-nil even when empty: nil means "no fold ran" (derive fallback).
-	c.foldChangedEntitlementIDs = foldStats.GrantEntitlementIDs
-	if c.foldChangedEntitlementIDs == nil {
-		c.foldChangedEntitlementIDs = map[string]struct{}{}
+	if c.incrementalExpansion {
+		// Hand the fold's changed-entitlement set to incremental expansion.
+		// Non-nil even when empty: nil means "no fold ran" (derive fallback).
+		c.foldChangedEntitlementIDs = foldStats.GrantEntitlementIDs
+		if c.foldChangedEntitlementIDs == nil {
+			c.foldChangedEntitlementIDs = map[string]struct{}{}
+		}
 	}
 
 	// Record the bytes this fold shadowed in the base keyspace. The

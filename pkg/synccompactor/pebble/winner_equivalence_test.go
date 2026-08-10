@@ -263,7 +263,7 @@ func TestPebbleStrategiesAgreeOnWinners(t *testing.T) {
 			for i, rs := range srcSets {
 				sources[i] = buildEngineSource(t, ctx, fmt.Sprintf("fold-src%d", i), rs)
 			}
-			_, err := MergeInto(ctx, dest, sources, destSyncID)
+			_, err := MergeInto(ctx, dest, sources, destSyncID, false)
 			return err
 		})
 		require.Equal(t, want, got)

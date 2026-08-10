@@ -161,7 +161,11 @@ func (g *EntitlementGraph) ValidateCompleted() error {
 	if !g.IsExpanded() {
 		return fmt.Errorf("graph has unexpanded edges")
 	}
+	maxNodeID := 0
 	for nodeID, node := range g.Nodes {
+		if nodeID > maxNodeID {
+			maxNodeID = nodeID
+		}
 		if node.Id != nodeID {
 			return fmt.Errorf("node map key %d does not match node id %d", nodeID, node.Id)
 		}
@@ -171,13 +175,20 @@ func (g *EntitlementGraph) ValidateCompleted() error {
 			}
 		}
 	}
+	if g.NextNodeID < maxNodeID {
+		return fmt.Errorf("next node id %d is below existing maximum %d", g.NextNodeID, maxNodeID)
+	}
 	for entitlementID, nodeID := range g.EntitlementsToNodes {
 		node, ok := g.Nodes[nodeID]
 		if !ok || !slices.Contains(node.EntitlementIDs, entitlementID) {
 			return fmt.Errorf("entitlement map entry %q points to inconsistent node %d", entitlementID, nodeID)
 		}
 	}
+	maxEdgeID := 0
 	for edgeID, edge := range g.Edges {
+		if edgeID > maxEdgeID {
+			maxEdgeID = edgeID
+		}
 		if edge.EdgeID != edgeID {
 			return fmt.Errorf("edge map key %d does not match edge id %d", edgeID, edge.EdgeID)
 		}
@@ -193,6 +204,9 @@ func (g *EntitlementGraph) ValidateCompleted() error {
 		if got := g.DestinationsToSources[edge.DestinationID][edge.SourceID]; got != edgeID {
 			return fmt.Errorf("edge %d missing from destination adjacency", edgeID)
 		}
+	}
+	if g.NextEdgeID < maxEdgeID {
+		return fmt.Errorf("next edge id %d is below existing maximum %d", g.NextEdgeID, maxEdgeID)
 	}
 	for sourceID, destinations := range g.SourcesToDestinations {
 		for destinationID, edgeID := range destinations {

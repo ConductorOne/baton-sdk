@@ -41,6 +41,32 @@ func TestValidateCompletedRejectsInconsistentAdjacency(t *testing.T) {
 	require.ErrorContains(t, g.ValidateCompleted(), "missing from source adjacency")
 }
 
+func TestValidateCompletedRejectsStaleIDCounters(t *testing.T) {
+	ctx := context.Background()
+	build := func(t *testing.T) *EntitlementGraph {
+		t.Helper()
+		g := NewEntitlementGraph(ctx)
+		g.AddEntitlementID("ent-a")
+		g.AddEntitlementID("ent-b")
+		require.NoError(t, g.AddEdge(ctx, "ent-a", "ent-b", false, nil))
+		g.Loaded = true
+		g.MarkExpansionComplete()
+		return g
+	}
+
+	t.Run("node counter", func(t *testing.T) {
+		g := build(t)
+		g.NextNodeID = 0
+		require.ErrorContains(t, g.ValidateCompleted(), "next node id")
+	})
+
+	t.Run("edge counter", func(t *testing.T) {
+		g := build(t)
+		g.NextEdgeID = 0
+		require.ErrorContains(t, g.ValidateCompleted(), "next edge id")
+	})
+}
+
 // TestGraphBlobRoundTrip: marshal/unmarshal preserves the graph; the sync-id
 // guard rejects a blob from a different sync.
 func TestGraphBlobRoundTrip(t *testing.T) {
@@ -78,13 +104,23 @@ func TestMarshalGraphBlob_StripsTransientState(t *testing.T) {
 	ctx := context.Background()
 	g := NewEntitlementGraph(ctx)
 	g.AddEntitlementID("ent-a")
-	g.Actions = []*EntitlementGraphAction{{}}
+	actions := []*EntitlementGraphAction{{}}
+	plan := &EntitlementGraphPlan{}
+	metrics := &EntitlementGraphMetrics{}
+	g.Actions = actions
+	g.ExpansionPlan = plan
+	g.ExpansionMetrics = metrics
 
 	data, err := MarshalGraphBlob("s", g)
 	require.NoError(t, err)
+	require.Equal(t, actions, g.Actions, "marshal must not change the caller's actions")
+	require.Same(t, plan, g.ExpansionPlan, "marshal must not change the caller's plan")
+	require.Same(t, metrics, g.ExpansionMetrics, "marshal must not change the caller's metrics")
 	got, err := UnmarshalGraphBlob(data, "s")
 	require.NoError(t, err)
 	require.Nil(t, got.Actions, "transient state must be stripped from the blob")
+	require.Nil(t, got.ExpansionPlan, "transient plan must be stripped from the blob")
+	require.Nil(t, got.ExpansionMetrics, "transient metrics must be stripped from the blob")
 }
 
 // TestGraphBlobSizeAtScale measures the sidecar blob for a nested-groups graph

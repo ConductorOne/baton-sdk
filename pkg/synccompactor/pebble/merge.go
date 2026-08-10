@@ -157,7 +157,7 @@ func (s *FoldStats) bumpReplaced(bucket string, n int64) {
 // (Engine.BuildGrantDigests rebuilds both keyspaces atomically from
 // scratch, so no separate drop is needed even then — see
 // compactPebbleFold).
-func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync, destSyncID string) (FoldStats, error) {
+func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync, destSyncID string, collectGrantEntitlementIDs bool) (FoldStats, error) {
 	var stats FoldStats
 	if dest == nil {
 		return stats, errors.New("synccompactor/pebble.MergeInto: dest engine is nil")
@@ -180,7 +180,7 @@ func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync
 		if s.Engine == nil || s.SyncID == "" {
 			continue
 		}
-		srcStats, err := mergeOneSource(ctx, dest, s, destSyncID)
+		srcStats, err := mergeOneSource(ctx, dest, s, destSyncID, collectGrantEntitlementIDs)
 		stats.Add(srcStats)
 		if err != nil {
 			return stats, fmt.Errorf("merge source %s: %w", s.SyncID, err)
@@ -211,10 +211,10 @@ const mergeRawFlushRecords = 32768
 //     incumbent, mirroring the engine's Put*RecordsIfNewer rule —
 //     missing discovered_at scans as 0, reproducing its nil-timestamp
 //     ordering ("never overwrite an incumbent, always fill a hole").
-func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, destSyncID string) (FoldStats, error) {
+func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, destSyncID string, collectGrantEntitlementIDs bool) (FoldStats, error) {
 	var stats FoldStats
 	for _, bucket := range allBuckets() {
-		bucketStats, err := mergeBucketRawIfNewer(ctx, dest, s.Engine, bucket)
+		bucketStats, err := mergeBucketRawIfNewer(ctx, dest, s.Engine, bucket, collectGrantEntitlementIDs)
 		stats.Add(bucketStats)
 		if err != nil {
 			return stats, fmt.Errorf("merge %s: %w", bucket.name, err)
@@ -223,7 +223,7 @@ func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, d
 	return stats, nil
 }
 
-func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *enginepkg.Engine, bucket bucketSpec) (FoldStats, error) {
+func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *enginepkg.Engine, bucket bucketSpec, collectGrantEntitlementIDs bool) (FoldStats, error) {
 	var stats FoldStats
 	lower, upper := bucket.syncRange()
 	iter, err := src.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
@@ -319,11 +319,13 @@ func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *eng
 				}
 				stats.TouchedGrantPartitions[partition] = struct{}{}
 			}
-			_, _, entID, _, _, _, scanErr := scanGrantIndexFieldsBytes(value)
-			if scanErr != nil {
-				return stats, scanErr
+			if collectGrantEntitlementIDs {
+				_, _, entID, _, _, _, scanErr := scanGrantIndexFieldsBytes(value)
+				if scanErr != nil {
+					return stats, scanErr
+				}
+				stats.noteGrantEntitlementID(entID)
 			}
-			stats.noteGrantEntitlementID(entID)
 		}
 		if err := forEachIndexKeyFromRaw(bucket, key, lower, value, &scratch, nil, setIndexKey); err != nil {
 			return stats, err

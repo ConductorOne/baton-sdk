@@ -41,8 +41,9 @@ func marshalGraphBlob(syncID string, g *EntitlementGraph, digest *c1zstore.Grant
 	if g == nil {
 		return nil, fmt.Errorf("marshal graph blob: nil graph")
 	}
-	g.ClearTransientState()
-	data, err := json.Marshal(graphBlobEnvelope{FormatVersion: graphBlobFormatVersion, SyncID: syncID, GrantDigest: digest, Graph: g})
+	graphCopy := *g
+	graphCopy.ClearTransientState()
+	data, err := json.Marshal(graphBlobEnvelope{FormatVersion: graphBlobFormatVersion, SyncID: syncID, GrantDigest: digest, Graph: &graphCopy})
 	if err != nil {
 		return nil, fmt.Errorf("marshal graph blob: %w", err)
 	}

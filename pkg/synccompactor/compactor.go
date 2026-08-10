@@ -1287,5 +1287,10 @@ func (c *Compactor) loadIncrementalBaseGraph(ctx context.Context) (*expand.Entit
 	if closeErr != nil {
 		return nil, fmt.Errorf("incremental expansion: close base graph store: %w", closeErr)
 	}
+	if graph != nil {
+		if err := graph.ValidateCompleted(); err != nil {
+			return nil, fmt.Errorf("incremental expansion: invalid base graph: %w", err)
+		}
+	}
 	return graph, nil
 }
