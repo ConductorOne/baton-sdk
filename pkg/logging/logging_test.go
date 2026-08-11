@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 
@@ -473,4 +474,59 @@ func TestInitWithRotationReportsUnusableFilePath(t *testing.T) {
 		WithOutputPaths([]string{filepath.Join(dir, "baton.log"), unusable}))
 	require.ErrorContains(t, err, "failed to create rotating log writer")
 	require.ErrorContains(t, err, unusable)
+}
+
+// TestInitWithRotationAppliesInitialFieldsToRotatedFile reproduces the F1
+// finding: zc.Build() applies InitialFields via zap's Fields option, so they
+// live inside the core Build returns, but rotateCore is constructed directly
+// from zc and teed on afterwards - without separately applying InitialFields
+// to it, enabling rotation would silently strip fields from a log file that
+// had them before.
+// Not parallel: asserts on the package-level activeRotators set by Init.
+func TestInitWithRotationAppliesInitialFieldsToRotatedFile(t *testing.T) {
+	path := filepath.Join(rotatorTestDir(t), "baton.log")
+
+	ctx, err := InitWithRotation(context.Background(), RotationConfig{MaxSizeMB: 1, MaxBackups: 2},
+		WithOutputPaths([]string{path}),
+		WithInitialFields(map[string]interface{}{"tenant_id": "acme"}))
+	require.NoError(t, err, "InitWithRotation")
+
+	ctxzap.Extract(ctx).Info("hello")
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Contains(t, string(data), `"tenant_id":"acme"`,
+		"the rotating core must carry InitialFields the same as the base core")
+}
+
+// TestInitWithRotationDoesNotDoubleTeeCollidingPaths reproduces the F2
+// finding: dedupeOutputPaths keys on canonicalOutputPath before the files
+// exist, where EvalSymlinks fails for both a symlink and its not-yet-existing
+// target, so they survive as distinct entries; adoptRotators' post-creation
+// registration then finds they resolve to the same rotator and must not tee
+// that rotator's core onto the logger twice.
+// Not parallel: asserts on the package-level activeRotators set by Init.
+func TestInitWithRotationDoesNotDoubleTeeCollidingPaths(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("creating symlinks on Windows needs elevation")
+	}
+	dir := rotatorTestDir(t)
+	target := filepath.Join(dir, "baton.log")
+	link := filepath.Join(dir, "current.log")
+	require.NoError(t, os.Symlink(target, link))
+
+	ctx, err := InitWithRotation(context.Background(), RotationConfig{MaxSizeMB: 1, MaxBackups: 2},
+		WithOutputPaths([]string{link, target}))
+	require.NoError(t, err, "InitWithRotation")
+
+	activeRotatorsMu.Lock()
+	require.Len(t, activeRotators, 1, "one underlying file must get exactly one rotator")
+	activeRotatorsMu.Unlock()
+
+	ctxzap.Extract(ctx).Info("hello")
+
+	data, err := os.ReadFile(target)
+	require.NoError(t, err)
+	require.Equal(t, 1, strings.Count(string(data), "hello"),
+		"a collision resolving to one rotator must still tee exactly one core onto it")
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -286,6 +287,26 @@ func encoderFromConfig(zc zap.Config) zapcore.Encoder {
 	return zapcore.NewJSONEncoder(zc.EncoderConfig)
 }
 
+// initialFieldsCore applies zc.InitialFields to core the same way zap's own
+// Config.Build does (vendor/go.uber.org/zap/config.go): sorted keys, zap.Any
+// per entry. rotateCore is built directly from zc rather than via zc.Build(),
+// so without this it silently drops every initial field the base core has.
+func initialFieldsCore(core zapcore.Core, fields map[string]interface{}) zapcore.Core {
+	if len(fields) == 0 {
+		return core
+	}
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	fs := make([]zap.Field, 0, len(fields))
+	for _, k := range keys {
+		fs = append(fs, zap.Any(k, fields[k]))
+	}
+	return core.With(fs)
+}
+
 // splitOutputPaths separates OutputPaths entries into the ones zap should keep
 // handling itself (its built-in stdout/stderr sinks) and real file paths that
 // the caller wants rotated instead. Duplicates are dropped so no path ever gets
@@ -371,6 +392,7 @@ func buildLogger(ctx context.Context, zc zap.Config, rotation RotationConfig) (c
 
 		for _, rw := range rotators {
 			rotateCore := zapcore.NewCore(encoderFromConfig(zc), zapcore.AddSync(rw), zc.Level)
+			rotateCore = initialFieldsCore(rotateCore, zc.InitialFields)
 			l = l.WithOptions(zap.WrapCore(func(core zapcore.Core) zapcore.Core {
 				return zapcore.NewTee(core, rotateCore)
 			}))
@@ -463,7 +485,26 @@ func adoptRotators(paths []string, rotation RotationConfig) ([]*rotatingWriter, 
 		rw.reconfigure(rotation.MaxSizeMB, rotation.MaxBackups, errSink)
 		activeRotators[key] = rw
 	}
-	return rotators, redundant, nil
+	// Two input paths can collide onto one rotator (the lookup hit above, or the
+	// adopt-the-survivor branch just above), leaving the same *rotatingWriter at
+	// two indices. buildLogger tees one core per slice entry, so an undeduped
+	// repeat would write every line to that file twice.
+	return dedupeRotators(rotators), redundant, nil
+}
+
+// dedupeRotators drops repeated entries by pointer identity, keeping the
+// first occurrence's position. See adoptRotators for why a repeat can occur.
+func dedupeRotators(rotators []*rotatingWriter) []*rotatingWriter {
+	seen := make(map[*rotatingWriter]struct{}, len(rotators))
+	deduped := rotators[:0]
+	for _, rw := range rotators {
+		if _, ok := seen[rw]; ok {
+			continue
+		}
+		seen[rw] = struct{}{}
+		deduped = append(deduped, rw)
+	}
+	return deduped
 }
 
 // unregisterUnusedRotators removes the rotators the new logger does not use from

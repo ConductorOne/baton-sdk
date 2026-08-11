@@ -548,7 +548,14 @@ func MakeGRPCServerCommand[T field.Configurable](
 		// The child process deliberately configures neither log-path nor
 		// rotation, even though it inherits those flags: only one process may own
 		// rotation for a file, or the two rename the active log out from under
-		// each other. The child logs to stdout/stderr, which the parent captures.
+		// each other. On a CLI run the child's stderr is the parent's, so nothing is
+		// lost - but on a Windows service the child is spawned with
+		// cmd.Stderr = os.Stderr (internal/connector/connector.go) and the SCM
+		// discards a service's stderr, so the child owning no sink means its
+		// entire diagnostic output (every grpc.service annotation included) is
+		// silently dropped today. That gap needs a design decision (its own
+		// file, copy-truncate rotation, or refusing rotation onto a redirected
+		// stderr) and is tracked separately, not fixed here.
 		runCtx, err := initLogger(
 			ctx,
 			name,

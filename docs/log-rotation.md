@@ -116,6 +116,15 @@ other's backups:
   only in case resolve to the same file on disk but produce two different
   registry keys - case-folding here is gated on `runtime.GOOS == "windows"`.
   Two rotators end up on one file exactly as above.
+- **On Windows, any other open handle on the file blocks rotation outright.**
+  Go's `os.OpenFile` does not request `FILE_SHARE_DELETE`, so while any other
+  process - or a handle it inherited, such as a child process's stderr wired
+  to the same path - has the log file open, `os.Rename` fails with a sharing
+  violation and rotation cannot succeed. This does not affect the ordinary
+  single-writer case: `rotate()` closes its own handle before renaming. When
+  rotation is persistently blocked this way, the writer degrades to the
+  documented oversize ceiling (bounded file, repeated diagnostics - see
+  [Diagnostics](#diagnostics)) rather than growing without bound.
 
 Spell the log path the same way everywhere, and keep it on a single volume
 owned by a single process.
