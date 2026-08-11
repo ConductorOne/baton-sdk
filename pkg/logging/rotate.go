@@ -122,7 +122,7 @@ var (
 
 // maxRotationMB is the largest log-max-size-mb that converts to bytes without
 // overflowing int64. Anything above it saturates; see rotationBytes.
-const maxRotationMB = math.MaxInt64 / (1024 * 1024)
+const maxRotationMB int64 = math.MaxInt64 / (1024 * 1024)
 
 // minRotationBytes is the smallest rotation threshold the writer will honor.
 // The config surface is in whole megabytes (log-max-size-mb), so the normal
@@ -137,7 +137,7 @@ func rotationBytes(maxSizeMB int) int64 {
 	// Saturate rather than wrap: at maxSizeMB >= 2^43 the product overflows
 	// negative, trips the clamp below, and a fat-fingered "effectively
 	// unlimited" value would rotate every 1 MiB - the opposite of the intent.
-	if maxSizeMB > maxRotationMB {
+	if int64(maxSizeMB) > maxRotationMB {
 		return math.MaxInt64
 	}
 	maxBytes := int64(maxSizeMB) * 1024 * 1024

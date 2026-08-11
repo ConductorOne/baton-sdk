@@ -308,10 +308,6 @@ func initialFieldsCore(core zapcore.Core, fields map[string]interface{}) zapcore
 	return core.With(fs)
 }
 
-// splitOutputPaths separates OutputPaths entries into the ones zap should keep
-// handling itself (its built-in stdout/stderr sinks) and real file paths that
-// the caller wants rotated instead. Duplicates are dropped so no path ever gets
-// two rotators.
 // hasSinkScheme reports whether p names a zap sink by URL rather than a plain
 // filesystem path (zap resolves "file://" and any scheme registered via
 // RegisterSink). Rotating those would MkdirAll the raw string and create a
@@ -322,6 +318,10 @@ func hasSinkScheme(p string) bool {
 	return err == nil && len(u.Scheme) > 1
 }
 
+// splitOutputPaths separates OutputPaths entries into the ones zap should keep
+// handling itself (its built-in stdout/stderr sinks) and real file paths that
+// the caller wants rotated instead. Duplicates are dropped so no path ever gets
+// two rotators.
 func splitOutputPaths(paths []string) ([]string, []string) {
 	var kept, files []string
 	for _, p := range dedupeOutputPaths(paths) {

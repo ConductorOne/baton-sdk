@@ -1202,7 +1202,7 @@ func TestRotatingWriter_CloseJoinsSyncAndCloseErrors(t *testing.T) {
 // the opposite of what an enormous value asks for.
 func TestRotationBytesSaturates(t *testing.T) {
 	require.Equal(t, int64(math.MaxInt64), rotationBytes(math.MaxInt), "an overflowing size must saturate, not wrap into the floor")
-	require.Equal(t, int64(math.MaxInt64), rotationBytes(maxRotationMB+1))
+	require.Equal(t, int64(math.MaxInt64), rotationBytes(int(maxRotationMB)+1), "the boundary saturates too")
 	require.Equal(t, minRotationBytes, rotationBytes(0), "zero still clamps up to the floor")
 	require.Equal(t, int64(100)*1024*1024, rotationBytes(100), "ordinary values are unaffected")
 }
