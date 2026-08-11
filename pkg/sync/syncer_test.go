@@ -1837,7 +1837,6 @@ func TestResumeSyncWithChildResources(t *testing.T) {
 	}
 }
 
-// failChildResourceMockConnector wraps a mockConnector and fails ListResources calls for child resources.
 // staticEntitlementsErrorMockConnector fails ListStaticEntitlements with a
 // caller-supplied error, standing in for a connector whose SDK predates the RPC.
 type staticEntitlementsErrorMockConnector struct {
@@ -1853,6 +1852,7 @@ func (mc *staticEntitlementsErrorMockConnector) ListStaticEntitlements(
 	return nil, mc.err
 }
 
+// failChildResourceMockConnector wraps a mockConnector and fails ListResources calls for child resources.
 type failChildResourceMockConnector struct {
 	*mockConnector
 	failOnChildResources bool

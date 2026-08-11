@@ -329,6 +329,34 @@ func TestClassifyLambdaFailure(t *testing.T) {
 			wantUtilization:  100,
 			wantErrorMessage: "malformed request",
 		},
+		{
+			// An absent RPC is a statement only the function can make, so the
+			// classification reads the payload's error type rather than the
+			// resolved one. A REPORT line carrying its own Error Type must not
+			// overwrite that and turn the capability gap back into a crash --
+			// the ErrorType field still reports the platform's verdict, because
+			// that is what the field means.
+			name:          "report error type does not mask an unresolved request type",
+			functionError: "Unhandled",
+			statusCode:    200,
+			payload: `{"errorMessage":"proto: (line 1:88): unable to resolve ` +
+				`\"type.googleapis.com/c1.connector.v2.ExampleServiceListExamplesRequest\": ` +
+				`\"not found\"","errorType":"prefixError"}`,
+			rawLog: "REPORT RequestId: def-456\tDuration: 12.00 ms\tBilled Duration: 12 ms\t" +
+				"Memory Size: 128 MB\tMax Memory Used: 64 MB\tStatus: error\t" +
+				"Error Type: Runtime.ExitError\n",
+
+			wantClass:      FailureClassUnsupportedRPC,
+			wantCode:       codes.Unimplemented,
+			wantRequestID:  "def-456",
+			wantErrorType:  "Runtime.ExitError",
+			wantMemorySize: 128,
+			wantMaxMemory:  64,
+			wantDurationMS: 12,
+			wantErrorMessage: `proto: (line 1:88): unable to resolve ` +
+				`"type.googleapis.com/c1.connector.v2.ExampleServiceListExamplesRequest": "not found"`,
+			wantUtilization: 50,
+		},
 	}
 
 	for _, c := range cases {

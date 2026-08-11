@@ -418,7 +418,15 @@ func classifyLambdaFailure(functionError string, statusCode int32, payload []byt
 	if haveReport && report.ErrorType != "" {
 		failure.ErrorType = report.ErrorType
 	}
-	failure.FailureClass = lambdaFailureClass(functionError, payload, signalLogs, report, failure.ErrorType, failure.ErrorMessage)
+	failure.FailureClass = lambdaFailureClass(
+		functionError,
+		payload,
+		signalLogs,
+		report,
+		failure.ErrorType,
+		errPayload.ErrorType,
+		failure.ErrorMessage,
+	)
 
 	return failure
 }
@@ -428,7 +436,21 @@ func classifyLambdaFailure(functionError string, statusCode int32, payload []byt
 // Timeout is checked first: a sandbox killed on its execution timeout can also
 // show peak memory at its ceiling, which would otherwise trip the OOM
 // memory-comparison fallback.
-func lambdaFailureClass(functionError string, payload []byte, signalLogs string, report lambdaReport, errorType string, errorMessage string) string {
+//
+// errorType is the resolved type, where a REPORT line's platform verdict wins
+// over the payload's. payloadErrorType is the function's own, always. The two
+// are separate because the OOM signals want the platform's verdict while an
+// absent RPC is a statement only the function can make: a REPORT line carrying
+// any Error Type would otherwise overwrite it and lose the capability gap.
+func lambdaFailureClass(
+	functionError string,
+	payload []byte,
+	signalLogs string,
+	report lambdaReport,
+	errorType string,
+	payloadErrorType string,
+	errorMessage string,
+) string {
 	// Existing signal, unchanged: the platform writes this into the error
 	// payload on a hard timeout kill.
 	if strings.Contains(string(payload), "Task timed out after") {
@@ -448,7 +470,7 @@ func lambdaFailureClass(functionError string, payload []byte, signalLogs string,
 	// message's type URL. Checked before the OOM signals because it is an exact
 	// match on the runtime's own verdict, where the memory fallback below is
 	// inferred.
-	if isUnresolvedTypeURL(errorType, errorMessage, signalLogs) {
+	if isUnresolvedTypeURL(payloadErrorType, errorMessage, signalLogs) {
 		return FailureClassUnsupportedRPC
 	}
 
