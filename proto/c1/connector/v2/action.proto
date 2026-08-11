@@ -6,6 +6,7 @@ import "c1/config/v1/config.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
+import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
@@ -67,12 +68,17 @@ message InvokeActionRequest {
   // to finish before returning its in-flight status. The wait is an upper
   // bound on blocking, not a guarantee: the server may answer sooner, and it
   // may silently cap an oversized wait rather than reject it. Unset or
-  // non-positive values take the server's default. The server does not
+  // zero values take the server's default. The server does not
   // shorten the wait to fit the call's deadline, so callers must set their
   // RPC deadline above the requested wait: a deadline that fires first fails
   // the call, and although the action keeps running server-side, its id is
-  // never delivered, so the outcome is unreachable to that caller.
-  google.protobuf.Duration inline_wait = 5;
+  // never delivered, so the outcome is unreachable to that caller. Negative
+  // waits and waits beyond the validated ceiling are rejected outright as
+  // caller bugs, while values within the bounds may still be capped.
+  google.protobuf.Duration inline_wait = 5 [(validate.rules).duration = {
+    gte: {},
+    lte: {seconds: 86400}
+  }];
 }
 
 message InvokeActionResponse {
