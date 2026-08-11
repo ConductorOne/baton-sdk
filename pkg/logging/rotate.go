@@ -290,16 +290,17 @@ func (w *rotatingWriter) writeLocked(p []byte) (int, error) {
 			w.nextRotateAttempt = time.Now().Add(w.rotateRetryAfter)
 		} else {
 			w.nextRotateAttempt = time.Time{}
+			// Lines dropped inside the retry window are only cleared by a
+			// queueDropReport that actually emits, so a rotation recovering
+			// first would strand the count and silently break the "never a
+			// silent drop" guarantee.
+			if w.droppedLines > 0 {
+				w.queueError(fmt.Errorf("%w: rotation recovered after dropping %d log line(s)",
+					errLogFileOversized, w.droppedLines))
+				w.droppedLines = 0
+				w.nextDropReport = time.Time{}
+			}
 		}
-	}
-
-	// w.size > 0 for the same reason rotation checks it: a line that cannot fit
-	// under the ceiling on its own is written rather than dropped forever, so the
-	// real bound is the ceiling plus at most one line.
-	if ceiling := w.oversizeCeiling(); ceiling > 0 && w.size > 0 && w.size+int64(len(p)) > ceiling {
-		w.droppedLines++
-		w.queueDropReport(ceiling)
-		return 0, fmt.Errorf("log file %q: %w", w.path, errLogFileOversized)
 	}
 
 	// A failed rotation can leave no active handle behind (see rotate).
@@ -307,6 +308,18 @@ func (w *rotatingWriter) writeLocked(p []byte) (int, error) {
 		if err := w.open(); err != nil {
 			return 0, errors.Join(rotateErr, err)
 		}
+	}
+
+	// Checked after the reopen above: a rotate that renamed but failed to
+	// reopen leaves w.size holding the pre-rotation size for a file that is no
+	// longer at w.path, and open() is what resyncs it.
+	// w.size > 0 for the same reason rotation checks it: a line that cannot fit
+	// under the ceiling on its own is written rather than dropped forever, so the
+	// real bound is the ceiling plus at most one line.
+	if ceiling := w.oversizeCeiling(); ceiling > 0 && w.size > 0 && w.size+int64(len(p)) > ceiling {
+		w.droppedLines++
+		w.queueDropReport(ceiling)
+		return 0, fmt.Errorf("log file %q: %w", w.path, errLogFileOversized)
 	}
 
 	n, err := w.f.Write(p)

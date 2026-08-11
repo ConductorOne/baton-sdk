@@ -1206,3 +1206,43 @@ func TestRotationBytesSaturates(t *testing.T) {
 	require.Equal(t, minRotationBytes, rotationBytes(0), "zero still clamps up to the floor")
 	require.Equal(t, int64(100)*1024*1024, rotationBytes(100), "ordinary values are unaffected")
 }
+
+// TestRotatingWriter_DroppedLinesReportedWhenRotationRecovers: queueDropReport
+// only clears droppedLines on a tick it actually emits, so drops that land
+// inside the retry window are stranded if rotation succeeds before the window
+// elapses. docs/log-rotation.md promises "never a silent drop", so the residual
+// has to be flushed on recovery. The other ceiling tests set the retry window
+// to zero, which is exactly why this gap wasn't exercised.
+func TestRotatingWriter_DroppedLinesReportedWhenRotationRecovers(t *testing.T) {
+	if !writePermsEnforced() {
+		t.Skip("chmod does not deny writes here")
+	}
+	dir := t.TempDir()
+	sink := &bytes.Buffer{}
+	w, err := newRotatingWriter(filepath.Join(dir, "baton.log"), 1, 1, sink)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+
+	// Past the ceiling with rotation blocked, and a retry window long enough
+	// that no drop diagnostic can fire on its own.
+	w.mu.Lock()
+	w.size = w.oversizeCeiling() + 1
+	w.rotateRetryAfter = time.Hour
+	w.nextRotateAttempt = time.Now().Add(time.Hour)
+	w.nextDropReport = time.Now().Add(time.Hour)
+	w.mu.Unlock()
+
+	_, err = w.Write([]byte("dropped\n"))
+	require.ErrorIs(t, err, errLogFileOversized, "the line must be dropped at the ceiling")
+	require.NotContains(t, sink.String(), "dropped", "throttled: nothing reported yet")
+
+	// Let rotation succeed on the next write.
+	w.mu.Lock()
+	w.nextRotateAttempt = time.Time{}
+	w.mu.Unlock()
+	_, err = w.Write([]byte("after recovery\n"))
+	require.NoError(t, err)
+
+	require.Contains(t, sink.String(), "rotation recovered after dropping 1 log line(s)",
+		"the stranded drop count must be reported once rotation works again")
+}

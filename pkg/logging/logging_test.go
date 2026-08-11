@@ -56,30 +56,33 @@ func TestDedupeOutputPathsCollapsesAliases(t *testing.T) {
 	require.Equal(t, []string{"baton.log"}, dedupeOutputPaths([]string{"baton.log", filepath.Join(cwd, "baton.log")}))
 }
 
-// clearRotators empties the package-level registry when the test ends, so one
-// test's rotators can't be reused - or retired - by the next one.
-// rotatorTestDir returns a temp dir for a test that creates rotators. Order
-// matters: t.TempDir registers its cleanup first so clearRotators' runs before
-// it. Reversed, Windows refuses to remove a log file a rotator still holds open.
-// zapSinkTestDir is rotatorTestDir for a test that makes zap open a file sink
-// itself (any path left unrotated). zap caches sinks in a package-global
-// registry and never closes them, so on Windows t.TempDir's cleanup cannot
-// remove the file and fails the test. Best-effort removal instead.
+// zapSinkTestDir is rotatorTestDir for a test whose path zap opens itself (any
+// path left unrotated). zap caches sinks in a package-global registry and never
+// closes them, so t.TempDir's cleanup cannot remove the file on Windows and
+// fails the test; removal here is best-effort instead. The dir cleanup is
+// registered first so that, t.Cleanup being LIFO, clearRotators still closes
+// any rotator the test did create before the directory is removed.
 func zapSinkTestDir(t *testing.T) string {
 	t.Helper()
 	dir, err := os.MkdirTemp("", "logging-zapsink-*")
 	require.NoError(t, err)
-	clearRotators(t)
 	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	clearRotators(t)
 	return dir
 }
 
+// rotatorTestDir returns a temp dir for a test that creates rotators. Order
+// matters: t.TempDir registers its cleanup first so clearRotators' runs before
+// it. Reversed, Windows refuses to remove a log file a rotator still holds open.
 func rotatorTestDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	clearRotators(t)
 	return dir
 }
+
+// clearRotators empties the package-level registry when the test ends, so one
+// test's rotators can't be reused - or retired - by the next one.
 
 func clearRotators(t *testing.T) {
 	t.Helper()
