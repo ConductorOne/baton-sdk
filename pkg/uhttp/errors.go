@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"syscall"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -24,9 +23,39 @@ func wrapTransientNetworkError(err error) error {
 	if errors.Is(err, io.ErrUnexpectedEOF) {
 		return WrapErrors(codes.Unavailable, "unexpected EOF", err)
 	}
-	if errors.Is(err, syscall.ECONNRESET) {
+	// A bare EOF reaching the caller means the peer closed the connection
+	// before any response headers arrived, usually a pooled connection it
+	// had already torn down.
+	if errors.Is(err, io.EOF) {
+		return WrapErrors(codes.Unavailable, "connection closed before response", err)
+	}
+	if isConnectionReset(err) {
 		return WrapErrors(codes.Unavailable, "connection reset", err)
 	}
+	if isConnectionRefused(err) {
+		return WrapErrors(codes.Unavailable, "connection refused", err)
+	}
+	if isBrokenPipe(err) {
+		return WrapErrors(codes.Unavailable, "broken pipe", err)
+	}
+	if isNetworkUnreachable(err) {
+		return WrapErrors(codes.Unavailable, "network unreachable", err)
+	}
+
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		switch {
+		case dnsErr.IsTimeout:
+			return WrapErrors(codes.DeadlineExceeded, "dns lookup timeout", err)
+		case dnsErr.IsTemporary:
+			return WrapErrors(codes.Unavailable, "temporary dns lookup failure", err)
+		case dnsErr.IsNotFound:
+			return WrapErrors(codes.InvalidArgument, "dns lookup failed: NXDOMAIN", err)
+		default:
+			return WrapErrors(codes.Unavailable, "dns lookup failed", err)
+		}
+	}
+
 	if isHTTP2ClientConnectionLost(err) {
 		return WrapErrors(codes.Unavailable, "http2 client connection lost", err)
 	}
@@ -45,6 +74,10 @@ func wrapTransientNetworkError(err error) error {
 	// (e.g. tls.handshakeTimeoutError at the RoundTrip level).
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
+		return WrapErrors(codes.DeadlineExceeded, fmt.Sprintf("network timeout: %v", err), err)
+	}
+	// Winsock timeouts do not satisfy the check above, so they need their own.
+	if isSocketTimeout(err) {
 		return WrapErrors(codes.DeadlineExceeded, fmt.Sprintf("network timeout: %v", err), err)
 	}
 
@@ -75,7 +108,9 @@ func requestNeverSent(err error) bool {
 // that died between requests: the reset/EOF classes a proxy or origin
 // produces when it tore the connection down while it sat in the pool.
 func isStaleConnectionError(err error) bool {
-	return errors.Is(err, syscall.ECONNRESET) ||
+	return isConnectionReset(err) ||
+		isBrokenPipe(err) ||
+		errors.Is(err, io.EOF) ||
 		errors.Is(err, io.ErrUnexpectedEOF) ||
 		isHTTP2ClientConnectionLost(err)
 }
