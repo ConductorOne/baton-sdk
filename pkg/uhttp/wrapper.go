@@ -264,9 +264,24 @@ func unmarshalXMLToMap(response *map[string]any, resp *WrapperResponse) error {
 	}
 	vMap, ok := xm.data.(map[string]any)
 	if !ok {
-		// A document whose root holds only text decodes to a string, which has no
-		// sensible map representation.
-		return status.Errorf(codes.Internal, "unsupported XML structure: %T", xm.data)
+		// The root's content has no map representation in two cases, and both used
+		// to fail outright with "unsupported XML structure":
+		//
+		//   - Its direct children repeat: <Users><User/><User/></Users> decodes to
+		//     a []map[string]any. A root-level list is a common API shape, so this
+		//     was a real gap rather than an edge case.
+		//   - It holds only text: <Code>OK</Code> decodes to a string.
+		//
+		// Key it by the root element name, which is otherwise discarded, so the
+		// document is reachable by a path instead of being an error.
+		//
+		// Note the arity seam this leaves: a root holding a *single* <User> decodes
+		// to a map and keeps the root stripped, so its path is "User" while the
+		// repeated case is "Users". One config cannot serve both. Closing that
+		// needs the decoder to group repeated children under their shared name,
+		// which would also make the slice case here unreachable.
+		*response = map[string]any{xm.root: xm.data}
+		return nil
 	}
 	*response = vMap
 	return nil

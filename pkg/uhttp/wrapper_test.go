@@ -301,15 +301,49 @@ func TestWrapper_WithAlwaysXMLResponse(t *testing.T) {
 		require.Equal(t, exampleResponse, responseBody)
 	})
 
-	t.Run("should error when a map target gets a document with only root text", func(t *testing.T) {
+	t.Run("should key a root-level list by the root element name", func(t *testing.T) {
+		// A root whose own children repeat decodes to a []map[string]any, which has
+		// no map representation and used to fail with "unsupported XML structure".
+		// Keying it by the root name makes this common shape reachable by a path.
+		resp := newResp(`<users><user><login>a</login></user>`+
+			`<user><login>b</login></user></users>`, "text/plain", http.StatusOK)
+		var respBody map[string]any
+
+		err := WithAlwaysXMLResponse(&respBody)(&resp)
+
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{
+			"users": []map[string]any{
+				{"user": map[string]any{"login": "a"}},
+				{"user": map[string]any{"login": "b"}},
+			},
+		}, respBody)
+	})
+
+	t.Run("should keep stripping the root when its content is a map", func(t *testing.T) {
+		// The same document at one item takes the map path, where the root name is
+		// discarded as it always has been — so the path is "user" here and "users"
+		// above. Pinning the seam: one config cannot serve both arities until the
+		// decoder groups repeated children under their shared name.
+		resp := newResp(`<users><user><login>a</login></user></users>`, "text/plain", http.StatusOK)
+		var respBody map[string]any
+
+		err := WithAlwaysXMLResponse(&respBody)(&resp)
+
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{
+			"user": map[string]any{"login": "a"},
+		}, respBody)
+	})
+
+	t.Run("should key a text-only root by the root element name", func(t *testing.T) {
 		resp := newResp(`<?xml version="1.0" encoding="UTF-8"?><root>bare text</root>`, "text/plain", http.StatusOK)
 		var respBody map[string]any
 
 		err := WithAlwaysXMLResponse(&respBody)(&resp)
 
-		require.Error(t, err)
-		require.Equal(t, codes.Internal, status.Code(err))
-		require.Contains(t, err.Error(), "unsupported XML structure: string")
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"root": "bare text"}, respBody)
 	})
 
 	t.Run("should not decode a map target on 204", func(t *testing.T) {

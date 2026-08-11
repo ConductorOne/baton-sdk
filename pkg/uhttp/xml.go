@@ -8,8 +8,12 @@ import (
 // xmlMap implements xml.Unmarshaler and can unmarshal arbitrary XML into a
 // map[string]any structure. Leaf elements become string values, and elements
 // with children become nested maps.
+// The root element's own name is recorded but not used as a key, so a document's
+// paths start at its root's children. Callers need it only when the root content
+// has no map representation and has to be keyed by something.
 type xmlMap struct {
 	data any
+	root string
 }
 
 func (x *xmlMap) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
@@ -18,6 +22,7 @@ func (x *xmlMap) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		return err
 	}
 	x.data = result
+	x.root = start.Name.Local
 	return nil
 }
 
