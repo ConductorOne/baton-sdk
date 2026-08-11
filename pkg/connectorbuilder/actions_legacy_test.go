@@ -439,3 +439,28 @@ func TestLegacyIndeterminatePollPayloadDoesNotDisplaceResponse(t *testing.T) {
 	require.Equal(t, "invoke", gotRv.Fields["from"].GetStringValue())
 	require.Contains(t, gotRv.Fields["error"].GetStringValue(), "unexpected status")
 }
+
+// Removing the interval fallback must fail this test: with a zero-valued
+// pacing struct the first poll must still wait the defaults' initial tick
+// rather than firing immediately (and then busy-looping on a zero cap).
+func TestZeroPollIntervalsFallBackToDefaults(t *testing.T) {
+	rv, err := structpb.NewStruct(map[string]any{"done": true})
+	require.NoError(t, err)
+	legacy := &scriptedLegacyActionManager{
+		schema:       v2.BatonActionSchema_builder{Name: "unpaced_action"}.Build(),
+		invokeID:     "id-1",
+		invokeStatus: v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING,
+		invokeRv:     rv,
+		polls:        []scriptedPollResult{{status: v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE}},
+	}
+	reg := &capturingRegistry{}
+	require.NoError(t, registerLegacyAction(t.Context(), reg, legacy.schema, legacy, legacyPollIntervals{}))
+
+	start := time.Now()
+	_, _, err = reg.handler(t.Context(), &structpb.Struct{})
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	require.EqualValues(t, 1, legacy.pollCalls.Load())
+	require.GreaterOrEqual(t, elapsed, 900*time.Millisecond)
+}

@@ -242,7 +242,8 @@ func registerLegacyAction(
 	legacyManager CustomActionManager,
 	intervals legacyPollIntervals,
 ) error {
-	// A zero or negative interval would busy-loop the status poll.
+	// A zero or negative interval would busy-loop the status poll. An
+	// inverted pair needs no guard: the cap applies from the second tick.
 	if intervals.initial <= 0 || intervals.max <= 0 {
 		intervals = defaultLegacyPollIntervals
 	}
