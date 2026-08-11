@@ -307,6 +307,78 @@ func TestCompactExplicitPebbleConvertsSQLitePartialWithEmptySyncID(t *testing.T)
 	require.Equal(t, string(connectorstore.SyncTypeFull), st, "union of full + partial = full")
 }
 
+// TestResolveSQLiteCompactionSyncIDReadsMetadataOnly pins that the explicit-id
+// guard reads sync_runs metadata and nothing else. GetSync would recompute the
+// absent stats blob — a full GROUP BY over the sync's records, for exactly the
+// unfinished syncs the guard rejects — so a nil Stats on the returned row is
+// the observable that no recompute happened.
+func TestResolveSQLiteCompactionSyncIDReadsMetadataOnly(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "unfinished.c1z")
+
+	store, err := dotc1z.NewC1ZFile(ctx, path)
+	require.NoError(t, err)
+	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	putSQLiteInputData(t, ctx, store, "g-unfinished")
+	// Deliberately no EndSync: stats are only cached when a sync ends.
+	require.NoError(t, store.Close(ctx))
+
+	reopened, err := dotc1z.NewC1ZFile(ctx, path, dotc1z.WithReadOnly(true))
+	require.NoError(t, err)
+	defer func() { _ = reopened.Close(ctx) }()
+
+	sr, err := sqliteSyncRunByID(ctx, reopened, syncID)
+	require.NoError(t, err)
+	require.NotNil(t, sr)
+	require.Nil(t, sr.EndedAt, "sync must still be unfinished")
+	require.Nil(t, sr.Stats, "metadata lookup must not recompute the stats blob")
+
+	_, err = resolveSQLiteCompactionSyncID(ctx, reopened, syncID)
+	require.ErrorContains(t, err, "is unfinished")
+
+	missing, err := sqliteSyncRunByID(ctx, reopened, "no-such-sync")
+	require.NoError(t, err)
+	require.Nil(t, missing)
+	_, err = resolveSQLiteCompactionSyncID(ctx, reopened, "no-such-sync")
+	require.ErrorContains(t, err, "not found")
+}
+
+// TestCompactExplicitPebbleRejectsUnfinishedSQLiteSyncID pins the guard on an
+// explicitly-named unfinished sqlite sync. ToPebble keeps such a sync
+// unfinished so it stays resumable, and the merge only selects finished syncs,
+// so the run has to fail — it should fail here, naming the input and the
+// reason, not later against a converted temp file.
+func TestCompactExplicitPebbleRejectsUnfinishedSQLiteSyncID(t *testing.T) {
+	ctx := context.Background()
+	inDir := t.TempDir()
+	outDir := t.TempDir()
+
+	basePath := filepath.Join(inDir, "base.c1z")
+	unfinishedPath := filepath.Join(inDir, "unfinished.c1z")
+	baseSyncID := buildSQLiteInput(t, ctx, basePath, connectorstore.SyncTypeFull, "g-base")
+
+	store, err := dotc1z.NewC1ZFile(ctx, unfinishedPath)
+	require.NoError(t, err)
+	unfinishedSyncID, err := store.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
+	require.NoError(t, err)
+	putSQLiteInputData(t, ctx, store, "g-unfinished")
+	// Deliberately no EndSync.
+	require.NoError(t, store.Close(ctx))
+
+	entries := []*CompactableSync{
+		{FilePath: basePath, SyncID: baseSyncID},
+		{FilePath: unfinishedPath, SyncID: unfinishedSyncID},
+	}
+	c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	defer func() { _ = cleanup() }()
+
+	_, err = c.Compact(ctx)
+	require.ErrorContains(t, err, "is unfinished")
+	require.ErrorContains(t, err, unfinishedPath)
+}
+
 func TestCompactExplicitPebbleConvertsSQLiteEmptySyncIDTiebreaksBySyncID(t *testing.T) {
 	ctx := context.Background()
 	inDir := t.TempDir()

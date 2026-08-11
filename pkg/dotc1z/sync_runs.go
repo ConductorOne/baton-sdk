@@ -234,6 +234,22 @@ func (c *C1File) invalidateCachedViewSyncRun() {
 	c.cachedViewSyncErr = nil
 }
 
+// unfinishedSyncMaxAge bounds how old an in-progress sync may be and still be
+// resumable: a sync that started but never reached EndSync more than a week ago
+// is abandoned, not live work. Mirrored by the Pebble engine's identically
+// named constant (pkg/dotc1z/engine/pebble/sync_runs.go); the two must agree or
+// the engines disagree about which syncs are resumable.
+const unfinishedSyncMaxAge = 7 * 24 * time.Hour
+
+// unfinishedSyncCutoff renders the oldest started_at an unfinished sync may
+// carry and still be resumable, in sqliteTimeFormat so it can be compared
+// against started_at directly. Shared by getLatestUnfinishedSync (which sync
+// is resumable) and resolveConvertSyncID (which sync is worth converting) so
+// the two cannot disagree about what "abandoned" means.
+func unfinishedSyncCutoff() string {
+	return time.Now().Add(-unfinishedSyncMaxAge).Format(sqliteTimeFormat)
+}
+
 func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connectorstore.SyncType) (*c1zstore.SyncRun, error) {
 	ctx, span := tracer.Start(ctx, "C1File.getLatestUnfinishedSync")
 	var err error
@@ -245,7 +261,7 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connector
 	}
 
 	// Don't resume syncs that started over a week ago
-	oneWeekAgo := time.Now().AddDate(0, 0, -7)
+	oneWeekAgo := unfinishedSyncCutoff()
 	ret := &c1zstore.SyncRun{}
 	q := c.db.From(syncRuns.Name())
 	q = q.Select(
@@ -780,7 +796,7 @@ func (c *C1File) insertSyncRunWithLink(ctx context.Context, syncID string, syncT
 	q := c.db.Insert(syncRuns.Name())
 	q = q.Rows(goqu.Record{
 		"sync_id":           syncID,
-		"started_at":        time.Now().Format("2006-01-02 15:04:05.999999999"),
+		"started_at":        time.Now().Format(sqliteTimeFormat),
 		"sync_token":        "",
 		"sync_type":         syncType,
 		"parent_sync_id":    parentSyncID,
@@ -838,7 +854,7 @@ func (c *C1File) EndSync(ctx context.Context) error {
 func (c *C1File) endSyncRun(ctx context.Context, syncID string) error {
 	q := c.db.Update(syncRuns.Name())
 	q = q.Set(goqu.Record{
-		"ended_at": time.Now().Format("2006-01-02 15:04:05.999999999"),
+		"ended_at": time.Now().Format(sqliteTimeFormat),
 	})
 	q = q.Where(goqu.C("sync_id").Eq(syncID))
 	q = q.Where(goqu.C("ended_at").IsNull())
