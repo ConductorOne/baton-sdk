@@ -180,7 +180,11 @@ race-shard-audit: ## Verify the race shards cover every package exactly once.
 	test "$$total" -gt 0 || { echo "race-shard-audit: go list returned no packages" >&2; exit 1; }; \
 	for s in $(RACE_SHARD_NAMES); do \
 		out=$$($(MAKE) --no-print-directory race-shard-list SHARD=$$s) || { \
-			echo "race-shard-audit: shard '$$s' listed no packages: RACE_SHARD_$$s is either undefined or no longer matches anything" >&2; \
+			if [ "$$s" = rest ]; then \
+				echo "race-shard-audit: the 'rest' complement is empty: the named shards now match every package" >&2; \
+			else \
+				echo "race-shard-audit: shard '$$s' listed no packages: RACE_SHARD_$$s is either undefined or no longer matches anything" >&2; \
+			fi; \
 			exit 1; \
 		}; \
 		n=$$(printf '%s' "$$out" | grep -c '^'); \

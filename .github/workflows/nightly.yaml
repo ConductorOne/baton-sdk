@@ -121,16 +121,22 @@ jobs:
       matrix:
         include:
           # Exhaustive in-process checkpoint cuts plus the real-process
-          # crash/resume harness, which spawns and hard-kills connectors.
+          # crash/resume harness, which spawns and hard-kills connectors. This is
+          # two targets, each with its own 30m go-test ceiling, so the budget has
+          # to clear 60m of ceilings plus the builds ahead of them — at 60m the
+          # runner could stop the job the same minute Go would have dumped stacks.
           - name: interrupt
             target: interrupt-check
-            timeout: 60
+            timeout: 90
           # Exchanges mid-flight checkpoints with a pinned older SDK build. The
           # budget clears compat-check's 45m go-test timeout, which in turn
           # clears the harness's own per-step deadlines; see the Makefile.
           - name: compat
             target: compat-check
             timeout: 60
+          # Two fuzz targets, each running for FUZZ_TIME. The budget covers the
+          # default; a dispatch that asks for a long fuzz_time has to be under
+          # half of it, since -timeout cannot bound a fuzzing session.
           - name: fuzz
             target: fuzz-smoke
             timeout: 45
