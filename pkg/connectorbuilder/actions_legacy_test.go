@@ -440,27 +440,40 @@ func TestLegacyIndeterminatePollPayloadDoesNotDisplaceResponse(t *testing.T) {
 	require.Contains(t, gotRv.Fields["error"].GetStringValue(), "unexpected status")
 }
 
-// Removing the interval fallback must fail this test: with a zero-valued
-// pacing struct the first poll must still wait the defaults' initial tick
-// rather than firing immediately (and then busy-looping on a zero cap).
-func TestZeroPollIntervalsFallBackToDefaults(t *testing.T) {
-	rv, err := structpb.NewStruct(map[string]any{"done": true})
-	require.NoError(t, err)
-	legacy := &scriptedLegacyActionManager{
-		schema:       v2.BatonActionSchema_builder{Name: "unpaced_action"}.Build(),
-		invokeID:     "id-1",
-		invokeStatus: v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING,
-		invokeRv:     rv,
-		polls:        []scriptedPollResult{{status: v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE}},
+// Weakening either half of the interval fallback must fail a case here: the
+// fallback replaces the whole pacing struct, so even a non-default initial
+// paired with a zero cap (which would busy-loop from the second tick) must
+// be re-paced to the defaults' initial tick, which is what the elapsed
+// lower bound proves.
+func TestNonPositivePollIntervalsFallBackToDefaults(t *testing.T) {
+	cases := []struct {
+		name      string
+		intervals legacyPollIntervals
+	}{
+		{"both zero", legacyPollIntervals{}},
+		{"zero cap with a live initial", legacyPollIntervals{initial: 50 * time.Millisecond}},
 	}
-	reg := &capturingRegistry{}
-	require.NoError(t, registerLegacyAction(t.Context(), reg, legacy.schema, legacy, legacyPollIntervals{}))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rv, err := structpb.NewStruct(map[string]any{"done": true})
+			require.NoError(t, err)
+			legacy := &scriptedLegacyActionManager{
+				schema:       v2.BatonActionSchema_builder{Name: "unpaced_action"}.Build(),
+				invokeID:     "id-1",
+				invokeStatus: v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING,
+				invokeRv:     rv,
+				polls:        []scriptedPollResult{{status: v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE}},
+			}
+			reg := &capturingRegistry{}
+			require.NoError(t, registerLegacyAction(t.Context(), reg, legacy.schema, legacy, tc.intervals))
 
-	start := time.Now()
-	_, _, err = reg.handler(t.Context(), &structpb.Struct{})
-	elapsed := time.Since(start)
+			start := time.Now()
+			_, _, err = reg.handler(t.Context(), &structpb.Struct{})
+			elapsed := time.Since(start)
 
-	require.NoError(t, err)
-	require.EqualValues(t, 1, legacy.pollCalls.Load())
-	require.GreaterOrEqual(t, elapsed, 900*time.Millisecond)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, legacy.pollCalls.Load())
+			require.GreaterOrEqual(t, elapsed, 900*time.Millisecond)
+		})
+	}
 }
