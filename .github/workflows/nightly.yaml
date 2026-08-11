@@ -64,9 +64,13 @@ jobs:
       - name: Verify the race shards cover every package
         run: make race-shard-audit
 
-  # Every job timeout below sits above the Makefile's RACE_SHARD_TIMEOUT, so a
-  # hung shard is killed by Go — which dumps every goroutine's stack, the only
-  # useful artifact from a hang — rather than by the runner, which just stops.
+  # Go's -timeout is per test binary (see RACE_SHARD_TIMEOUT), so it bounds one
+  # package's run rather than a shard's. For the single-package shards a budget
+  # above that timeout is therefore enough to guarantee Go kills a hang first and
+  # dumps every goroutine's stack, the only useful artifact from a hang. The
+  # multi-package shards get budgets far above it instead, because their honest
+  # total can exceed what any one binary is allowed while a runner-enforced stop
+  # would keep nothing; package counts below are from `make race-shard-audit`.
   race:
     name: race (${{ matrix.shard }})
     runs-on: ubuntu-latest
@@ -77,27 +81,27 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The store shell and its admission/close machinery.
+          # The store shell and its admission/close machinery (1 package).
           - shard: dotc1z
             timeout: 60
-          # Every storage engine, including the Pebble adapter and codecs.
+          # Every storage engine, including the Pebble adapter and codecs (5).
           - shard: engine
-            timeout: 60
-          # The sync engine: scheduler, chaos corpora, checkpoint cut sweep.
+            timeout: 90
+          # The sync engine: scheduler, chaos corpora, expansion (1 package).
           - shard: sync
             timeout: 60
-          # Grant expansion and strongly-connected-component condensation.
+          # Grant expansion and strongly-connected-component condensation (2).
           - shard: expand
-            timeout: 50
-          # Compaction, fold, and the c1z sanitizer.
+            timeout: 90
+          # Compaction, fold, and the c1z sanitizer (4 packages).
           - shard: compactor
-            timeout: 60
-          # CLI plus the crash and compat harnesses.
+            timeout: 90
+          # CLI plus the crash and compat harnesses (3 packages).
           - shard: cmd
-            timeout: 50
-          # Everything not named above, by construction.
+            timeout: 90
+          # Everything not named above, by construction (70 packages).
           - shard: rest
-            timeout: 50
+            timeout: 120
     steps:
       - name: Checkout code
         uses: actions/checkout@v6

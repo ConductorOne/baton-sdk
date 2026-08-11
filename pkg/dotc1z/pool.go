@@ -10,11 +10,12 @@ import (
 
 // encoderPuts and decoderPuts count codecs handed back to the pools.
 //
-// They exist because sync.Pool cannot answer "did that code return its
-// codec?". A later Get is allowed to miss for reasons unrelated to the code
-// under test: a GC empties the pool, and these pools are process-wide, so any
-// concurrently running caller can take the item first. Counting the Put is
-// stable where observing the Get is not.
+// They exist because sync.Pool cannot answer "did that code return its codec?".
+// A later Get is allowed to miss for reasons that have nothing to do with the
+// code under test: a GC empties the pool, and under the race detector Put
+// discards one item in four by design (sync/pool.go), so a test that concludes
+// "not pooled" from a missed Get is wrong a quarter of the time. These counters
+// increment before the Put reaches the pool, so they survive that drop.
 var (
 	encoderPuts atomic.Int64
 	decoderPuts atomic.Int64

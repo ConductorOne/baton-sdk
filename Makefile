@@ -58,9 +58,15 @@ test: ## Run the Go test suite used by CI.
 # HEAD and a pinned past release, and exchanges mid-flight checkpoints in
 # both directions. See cmd/baton-compat-harness. Override the old release
 # with BATON_COMPAT_OLD_REF=<tag>.
+#
+# The timeout is explicit because this test's own sub-budgets exceed Go's 10m
+# default several times over: two harness builds at 5m each, then eight
+# gen/resume runs at 3m. On a cold runner, compiling the pinned release's whole
+# dependency set can spend the default before the matrix starts, and the
+# failure reads as a test timeout rather than as slow builds.
 .PHONY: compat-check
 compat-check: ## Exchange checkpoints with a pinned older SDK.
-	BATON_COMPAT=1 go test -v -count=1 -run TestCheckpointCompatAcrossSDKVersions ./cmd/baton-compat-harness
+	BATON_COMPAT=1 go test -v -count=1 -timeout=25m -run TestCheckpointCompatAcrossSDKVersions ./cmd/baton-compat-harness
 
 # Real-binary interruption instrument: builds a deterministic connector from
 # this tree, runs budget-bounded sync sessions, SIGKILLs them at varied
@@ -111,9 +117,19 @@ RACE_SHARD_NAMED := $(RACE_SHARD_dotc1z)|$(RACE_SHARD_engine)|$(RACE_SHARD_sync)
 # full coverage — the exact gap it exists to catch.
 RACE_TAGS := baton_lambda_support
 
-# Go's own timeout has to fire before the CI job's, or a hung shard is killed
-# without the goroutine dump that says where it hung. nightly.yaml keeps every
-# shard's job timeout above this.
+# A hang is only diagnosable if Go is the one that kills it: the runner's
+# timeout stops the job and keeps nothing, while Go's dumps every goroutine's
+# stack. Go applies this timeout per test binary rather than per invocation, so
+# for a one-package shard a job budget above this value is enough, while a shard
+# spanning many packages can legitimately run far longer in total than any one
+# binary is allowed. nightly.yaml gives those shards budgets well clear of this
+# value instead of the small margin that would do if the clock were per shard.
+#
+# The value is generous on purpose: the one-package sync shard takes about 12
+# minutes on a developer machine, and CI runners are smaller, so a tighter
+# timeout would start killing slow-but-healthy packages. If a shard ever does
+# trip this, the dump says which test was still running, and that is the number
+# to raise.
 RACE_SHARD_TIMEOUT := 45m
 
 NIGHTLY_WORKFLOW := .github/workflows/nightly.yaml
@@ -137,12 +153,17 @@ race-check-shard: ## Race-check one nightly shard, for example SHARD=dotc1z.
 	test -n "$$pkgs" || { echo "race-check-shard: shard '$(SHARD)' matched no packages" >&2; exit 1; }; \
 	set -x; go test -race -tags=$(RACE_TAGS) -count=1 -timeout=$(RACE_SHARD_TIMEOUT) $$pkgs
 
+# Each shard's list is captured rather than piped straight into wc, for the same
+# reason as race-check-shard above: at the head of a pipe its exit status is
+# lost, so a broken go list counts as zero packages and the audit blames an
+# overlap or a gap for something that is neither.
 .PHONY: race-shard-audit
 race-shard-audit: ## Verify the race shards cover every package exactly once.
 	@total=$$(go list -tags=$(RACE_TAGS) ./... | wc -l | tr -d ' '); sum=0; \
 	test "$$total" -gt 0 || { echo "race-shard-audit: go list returned no packages" >&2; exit 1; }; \
 	for s in $(RACE_SHARD_NAMES); do \
-		n=$$($(MAKE) --no-print-directory race-shard-list SHARD=$$s | wc -l | tr -d ' '); \
+		out=$$($(MAKE) --no-print-directory race-shard-list SHARD=$$s) || exit 1; \
+		n=$$(printf '%s' "$$out" | grep -c '^' || true); \
 		printf '  %-10s %3s packages\n' "$$s" "$$n"; \
 		sum=$$((sum + n)); \
 	done; \
