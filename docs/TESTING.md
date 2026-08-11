@@ -99,6 +99,12 @@ otherwise the gap would be invisible until someone went looking. It also checks
 that the shard names in the Makefile and in `nightly.yaml` still agree, since a
 shard declared in only one of the two balances the count while running nowhere.
 
+Counting alone cannot catch a shard whose pattern has gone stale: a pattern that
+matches nothing removes nothing from `rest`, so `rest` quietly absorbs the
+packages and the union still equals `./...`. The audit therefore fails on the
+shard listing itself, and names the shard, rather than inferring a gap from the
+totals.
+
 ## Benchmarks
 
 Do not use `go test ./... -bench=.` as a general confidence command. The

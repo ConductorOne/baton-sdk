@@ -147,23 +147,35 @@ race-shard-list: ## Print the packages in race shard SHARD.
 # The package list is captured before the test runs so a bad SHARD fails as a
 # bad SHARD. Left inside the argument list, its exit status is swallowed by
 # command substitution and go test reports a confusing "no packages" instead.
+# An empty list cannot get past the capture — the list ends in grep, which exits
+# 1 when it matches nothing — so this reports it here rather than testing $$pkgs
+# afterwards, which would never run.
 .PHONY: race-check-shard
 race-check-shard: ## Race-check one nightly shard, for example SHARD=dotc1z.
-	@pkgs=$$($(MAKE) --no-print-directory race-shard-list SHARD=$(SHARD)) || exit 1; \
-	test -n "$$pkgs" || { echo "race-check-shard: shard '$(SHARD)' matched no packages" >&2; exit 1; }; \
+	@pkgs=$$($(MAKE) --no-print-directory race-shard-list SHARD=$(SHARD)) || { \
+		echo "race-check-shard: no packages for SHARD='$(SHARD)' (see above)" >&2; \
+		exit 1; \
+	}; \
 	set -x; go test -race -tags=$(RACE_TAGS) -count=1 -timeout=$(RACE_SHARD_TIMEOUT) $$pkgs
 
 # Each shard's list is captured rather than piped straight into wc, for the same
 # reason as race-check-shard above: at the head of a pipe its exit status is
-# lost, so a broken go list counts as zero packages and the audit blames an
-# overlap or a gap for something that is neither.
+# lost. That is worse than a confusing message. A named shard's list ends in
+# grep, which exits 1 when its pattern matches nothing, and a pattern that has
+# drifted from the package tree takes nothing out of `rest` — so `rest` absorbs
+# the orphaned packages, the union still equals ./..., and the count-based audit
+# passes while a whole nightly job runs an empty package set. Failing on the
+# list's status is what catches that, which is why it says which shard and why.
 .PHONY: race-shard-audit
 race-shard-audit: ## Verify the race shards cover every package exactly once.
 	@total=$$(go list -tags=$(RACE_TAGS) ./... | wc -l | tr -d ' '); sum=0; \
 	test "$$total" -gt 0 || { echo "race-shard-audit: go list returned no packages" >&2; exit 1; }; \
 	for s in $(RACE_SHARD_NAMES); do \
-		out=$$($(MAKE) --no-print-directory race-shard-list SHARD=$$s) || exit 1; \
-		n=$$(printf '%s' "$$out" | grep -c '^' || true); \
+		out=$$($(MAKE) --no-print-directory race-shard-list SHARD=$$s) || { \
+			echo "race-shard-audit: shard '$$s' listed no packages: RACE_SHARD_$$s is either undefined or no longer matches anything" >&2; \
+			exit 1; \
+		}; \
+		n=$$(printf '%s' "$$out" | grep -c '^'); \
 		printf '  %-10s %3s packages\n' "$$s" "$$n"; \
 		sum=$$((sum + n)); \
 	done; \
