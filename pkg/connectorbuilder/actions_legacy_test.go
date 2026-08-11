@@ -522,3 +522,29 @@ func TestLegacyFailureCarriesInnerError(t *testing.T) {
 		require.Contains(t, gotRv.Fields["error"].GetStringValue(), "boom from inner")
 	})
 }
+
+// A stale in-flight payload must not be reported as the failure cause when
+// the settling poll itself carries no payload.
+func TestLegacyStaleInFlightPayloadIsNotTheFailureCause(t *testing.T) {
+	ctx := t.Context()
+
+	staleRv, err := structpb.NewStruct(map[string]any{"error": "poll1-snapshot"})
+	require.NoError(t, err)
+	legacy := &scriptedLegacyActionManager{
+		schema:       v2.BatonActionSchema_builder{Name: "stale_error_action"}.Build(),
+		invokeID:     "id-1",
+		invokeStatus: v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING,
+		polls: []scriptedPollResult{
+			{status: v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, resp: staleRv},
+			{status: v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED},
+		},
+	}
+	outer := actions.NewActionManager(ctx)
+	require.NoError(t, registerLegacyAction(ctx, outer, legacy.schema, legacy, shortPollIntervals))
+
+	_, st, gotRv, _, err := outer.InvokeAction(ctx, "stale_error_action", "", &structpb.Struct{})
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, st)
+	require.NotContains(t, gotRv.Fields["error"].GetStringValue(), "poll1-snapshot")
+	require.Contains(t, gotRv.Fields["error"].GetStringValue(), "failed")
+}

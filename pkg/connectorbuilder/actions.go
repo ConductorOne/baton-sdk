@@ -321,7 +321,9 @@ func registerLegacyAction(
 			case isInFlightActionStatus(st):
 				statusErrs = 0
 			case isSettledActionStatus(st):
-				return resp, annos, legacyStatusErr(schema.GetName(), st, resp)
+				// The settling poll's own payload is the failure account;
+				// resp may hold an older in-flight snapshot.
+				return resp, annos, legacyStatusErr(schema.GetName(), st, pollResp)
 			default:
 				// An indeterminate status gets the same tolerance as a
 				// lookup error: transient anomalies recover, persistent
@@ -342,8 +344,8 @@ func registerLegacyAction(
 
 // legacyStatusErr maps a settled legacy status — COMPLETE or FAILED, the
 // only values both call sites pass — to the outer handler error, carrying
-// the inner manager's reported error message when the response has one,
-// since the outer error replaces the response's error field.
+// the error message the settling response reports, since the outer error
+// replaces the response's error field.
 func legacyStatusErr(name string, st v2.BatonActionStatus, resp *structpb.Struct) error {
 	if st == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE {
 		return nil
