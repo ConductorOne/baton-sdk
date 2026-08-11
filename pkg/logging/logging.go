@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -311,10 +312,20 @@ func initialFieldsCore(core zapcore.Core, fields map[string]interface{}) zapcore
 // handling itself (its built-in stdout/stderr sinks) and real file paths that
 // the caller wants rotated instead. Duplicates are dropped so no path ever gets
 // two rotators.
+// hasSinkScheme reports whether p names a zap sink by URL rather than a plain
+// filesystem path (zap resolves "file://" and any scheme registered via
+// RegisterSink). Rotating those would MkdirAll the raw string and create a
+// literal "file:" directory, so they are left to zap. A single-character
+// scheme is a Windows drive letter, not a URL.
+func hasSinkScheme(p string) bool {
+	u, err := url.Parse(p)
+	return err == nil && len(u.Scheme) > 1
+}
+
 func splitOutputPaths(paths []string) ([]string, []string) {
 	var kept, files []string
 	for _, p := range dedupeOutputPaths(paths) {
-		if p == "stdout" || p == "stderr" {
+		if p == "stdout" || p == "stderr" || hasSinkScheme(p) {
 			kept = append(kept, p)
 		} else {
 			files = append(files, p)

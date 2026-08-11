@@ -530,3 +530,17 @@ func TestInitWithRotationDoesNotDoubleTeeCollidingPaths(t *testing.T) {
 	require.Equal(t, 1, strings.Count(string(data), "hello"),
 		"a collision resolving to one rotator must still tee exactly one core onto it")
 }
+
+// TestSplitOutputPathsLeavesURLSinksToZap: zap resolves "file://" and any
+// scheme registered via RegisterSink. Handing those to the rotator would
+// MkdirAll the raw string and create a literal "file:" directory tree, so
+// enabling rotation must not change where such an entry logs.
+func TestSplitOutputPathsLeavesURLSinksToZap(t *testing.T) {
+	kept, files := splitOutputPaths([]string{
+		"stdout", "file:///var/log/baton.log", "/var/log/baton.log", `C:\logs\baton.log`,
+	})
+	require.Contains(t, kept, "file:///var/log/baton.log", "a URL sink belongs to zap, not the rotator")
+	require.NotContains(t, files, "file:///var/log/baton.log")
+	require.Contains(t, files, "/var/log/baton.log", "plain paths still rotate")
+	require.Contains(t, files, `C:\logs\baton.log`, "a drive letter is not a URL scheme")
+}

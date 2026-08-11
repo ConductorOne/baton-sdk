@@ -12,10 +12,15 @@ no other behavior change.
 
 - **Rotation is OFF by default.** `log-max-size-mb` defaults to `0`, which
   disables rotation entirely; `--log-path` entries are left to zap's own file
-  sink exactly as before. The one unconditional change is that repeated
-  `--log-path` entries naming the same file (`/var/log/baton.log` and
-  `/var/log/./baton.log`, or `C:\logs` and `C:\Logs`) now collapse to one
-  entry instead of double-logging every line.
+  sink exactly as before. Two changes do apply unconditionally:
+  - Repeated `--log-path` entries naming the same file (`/var/log/baton.log`
+    and `/var/log/./baton.log`, or `C:\logs` and `C:\Logs`) now collapse to
+    one entry instead of double-logging every line.
+  - **Windows service only:** the service used to re-initialize its logger on
+    start, pinning its own output to console format at `info` regardless of
+    configuration. That second initialization is gone, so `baton.log` and
+    `zap.L()` now honor `--log-format` and `--log-level` - which for a service
+    means JSON by default, where it was console before.
 - **Enabling rotation deletes old rotated files beyond the cap.** Once a log
   file exceeds `log-max-size-mb`, it is renamed aside with a UTC timestamp
   inserted before its extension (e.g. `baton.20260727T120501.123Z.log`) and a

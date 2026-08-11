@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -119,6 +120,10 @@ var (
 	_ io.Closer           = (*rotatingWriter)(nil)
 )
 
+// maxRotationMB is the largest log-max-size-mb that converts to bytes without
+// overflowing int64. Anything above it saturates; see rotationBytes.
+const maxRotationMB = math.MaxInt64 / (1024 * 1024)
+
 // minRotationBytes is the smallest rotation threshold the writer will honor.
 // The config surface is in whole megabytes (log-max-size-mb), so the normal
 // path is always >= 1 MiB; this floor just guarantees that a rotatingWriter
@@ -129,6 +134,12 @@ const minRotationBytes int64 = 1024 * 1024
 // rotationBytes converts a whole-MB config value to the byte threshold the
 // writer rotates at, clamped up to minRotationBytes.
 func rotationBytes(maxSizeMB int) int64 {
+	// Saturate rather than wrap: at maxSizeMB >= 2^43 the product overflows
+	// negative, trips the clamp below, and a fat-fingered "effectively
+	// unlimited" value would rotate every 1 MiB - the opposite of the intent.
+	if maxSizeMB > maxRotationMB {
+		return math.MaxInt64
+	}
 	maxBytes := int64(maxSizeMB) * 1024 * 1024
 	if maxBytes < minRotationBytes {
 		maxBytes = minRotationBytes
