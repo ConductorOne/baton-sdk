@@ -60,12 +60,6 @@ type eventLogEnabledKey struct{}
 // baton.log.
 type logRotationContextKey struct{}
 
-// logRotationSettings is the value stored under logRotationContextKey.
-type logRotationSettings struct {
-	maxSizeMB  int
-	maxBackups int
-}
-
 type ContrainstSetter func(*cobra.Command, field.Configuration) error
 
 // In one shot & service mode, the child process uses this client to connect to the session store server...
@@ -154,9 +148,9 @@ func MakeMainCommand[T field.Configurable](
 			loggerCtx = context.WithValue(loggerCtx, eventLogEnabledKey{}, true)
 		}
 		if rotateMaxSizeMB > 0 {
-			loggerCtx = context.WithValue(loggerCtx, logRotationContextKey{}, logRotationSettings{
-				maxSizeMB:  rotateMaxSizeMB,
-				maxBackups: rotateMaxBackups,
+			loggerCtx = context.WithValue(loggerCtx, logRotationContextKey{}, logging.RotationConfig{
+				MaxSizeMB:  rotateMaxSizeMB,
+				MaxBackups: rotateMaxBackups,
 			})
 		}
 		runCtx, err := initLogger(
@@ -551,6 +545,10 @@ func MakeGRPCServerCommand[T field.Configurable](
 			return err
 		}
 
+		// The child process deliberately configures neither log-path nor
+		// rotation, even though it inherits those flags: only one process may own
+		// rotation for a file, or the two rename the active log out from under
+		// each other. The child logs to stdout/stderr, which the parent captures.
 		runCtx, err := initLogger(
 			ctx,
 			name,
