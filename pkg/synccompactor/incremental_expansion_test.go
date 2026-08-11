@@ -631,6 +631,42 @@ func TestCompactor_IncrementalNarrowedEdgeDeclines(t *testing.T) {
 	require.Equal(t, fullGrants, incGrants, "declined incremental must equal full expansion")
 }
 
+func TestSplitEdgeSpecsAreMergedBeforeClassification(t *testing.T) {
+	base := &expand.Edge{
+		IsShallow:       false,
+		ResourceTypeIDs: []string{"group", "user"},
+	}
+	users := expand.NewEdge{
+		SourceEntitlementID: "ent-a",
+		DestEntitlementID:   "ent-b",
+		Shallow:             true,
+		ResourceTypeIDs:     []string{"user"},
+	}
+	groups := expand.NewEdge{
+		SourceEntitlementID: "ent-a",
+		DestEntitlementID:   "ent-b",
+		Shallow:             false,
+		ResourceTypeIDs:     []string{"group"},
+	}
+
+	// Comparing either fragment by itself produces the previous false
+	// revocation: each fragment is narrower than the effective base edge.
+	require.Equal(t, edgeSpecNarrowed, classifyEdgeSpecChange(base, users))
+	require.Equal(t, edgeSpecNarrowed, classifyEdgeSpecChange(base, groups))
+
+	// Production now merges both fragments first. Deep wins and the filters
+	// union, exactly matching the effective base edge.
+	current := mergeCurrentEdgeSpecs(users, groups)
+	require.False(t, current.Shallow)
+	require.ElementsMatch(t, []string{"group", "user"}, current.ResourceTypeIDs)
+	require.Equal(t, edgeSpecUnchanged, classifyEdgeSpecChange(base, current))
+
+	unfiltered := users
+	unfiltered.ResourceTypeIDs = nil
+	current = mergeCurrentEdgeSpecs(groups, unfiltered)
+	require.Nil(t, current.ResourceTypeIDs, "an unfiltered fragment makes the effective edge unfiltered")
+}
+
 // TestCompactor_IncrementalDoesNotMutateBaseGraph (U1): running incremental
 // expansion must not mutate the graph persisted in the caller's base artifact.
 func TestCompactor_IncrementalDoesNotMutateBaseGraph(t *testing.T) {

@@ -678,10 +678,11 @@ func (c *Compactor) expandGrantsIncremental(ctx context.Context, newSyncId strin
 	}
 
 	// Every rule grant currently in the compacted c1z (base + merged
-	// increments) yields one or more edges. New edges are those the base graph
-	// didn't already have expanded.
-	var newEdges []expand.NewEdge
-	currentBaseNodeEdges := make(map[[2]int]struct{})
+	// increments) contributes to one or more edges. Multiple grants may describe
+	// different pieces of the SAME edge, so merge their specs before comparing
+	// them with the base graph. Comparing each piece independently turns an
+	// unchanged split filter (for example users + groups) into false narrowing.
+	currentEdges := make(map[[2]string]expand.NewEdge)
 	for pe, err := range c.compactedC1z.Grants().PendingExpansion(walkCtx) {
 		if err != nil {
 			if endErr := c.restoreEndedSync(ctx); endErr != nil {
@@ -694,38 +695,62 @@ func (c *Compactor) expandGrantsIncremental(ctx context.Context, newSyncId strin
 			continue
 		}
 		for _, src := range anno.GetEntitlementIds() {
-			srcNode := base.GetNode(src)
-			dstNode := base.GetNode(pe.TargetEntitlementID)
-			if srcNode != nil && dstNode != nil && srcNode.Id != dstNode.Id {
-				currentBaseNodeEdges[[2]int{srcNode.Id, dstNode.Id}] = struct{}{}
-			}
-			baseEdge, inBase := baseGraphEdge(base, src, pe.TargetEntitlementID)
 			curEdge := expand.NewEdge{
 				SourceEntitlementID: src,
 				DestEntitlementID:   pe.TargetEntitlementID,
 				Shallow:             anno.GetShallow(),
 				ResourceTypeIDs:     anno.GetResourceTypeIds(),
 			}
-			if !inBase {
-				newEdges = append(newEdges, curEdge) // brand-new edge
-				continue
+			key := [2]string{src, pe.TargetEntitlementID}
+			if existing, ok := currentEdges[key]; ok {
+				currentEdges[key] = mergeCurrentEdgeSpecs(existing, curEdge)
+			} else {
+				curEdge.ResourceTypeIDs = append([]string(nil), curEdge.ResourceTypeIDs...)
+				currentEdges[key] = curEdge
 			}
-			// Existing edge: compare specs, not just endpoints (C3).
-			switch classifyEdgeSpecChange(baseEdge, curEdge) {
-			case edgeSpecNarrowed:
-				// Revocation-shaped (shallow-ified / filter tightened): can't
-				// remove grants incrementally — decline via the named hook (#6).
-				if endErr := c.restoreEndedSync(ctx); endErr != nil {
-					return false, endErr
-				}
-				return false, expand.ErrIncrementalRevocationDecline
-			case edgeSpecWidened:
-				// More members now qualify: re-expand (AddEdge folds the wider
-				// spec into the graph, deep-wins/unfiltered-wins).
-				newEdges = append(newEdges, curEdge)
-			case edgeSpecUnchanged:
-				// nothing to do
+		}
+	}
+
+	var newEdges []expand.NewEdge
+	currentBaseNodeEdges := make(map[[2]int]struct{})
+	currentEdgeKeys := make([][2]string, 0, len(currentEdges))
+	for key := range currentEdges {
+		currentEdgeKeys = append(currentEdgeKeys, key)
+	}
+	sort.Slice(currentEdgeKeys, func(i, j int) bool {
+		if currentEdgeKeys[i][0] != currentEdgeKeys[j][0] {
+			return currentEdgeKeys[i][0] < currentEdgeKeys[j][0]
+		}
+		return currentEdgeKeys[i][1] < currentEdgeKeys[j][1]
+	})
+	for _, key := range currentEdgeKeys {
+		curEdge := currentEdges[key]
+		srcNode := base.GetNode(curEdge.SourceEntitlementID)
+		dstNode := base.GetNode(curEdge.DestEntitlementID)
+		if srcNode != nil && dstNode != nil && srcNode.Id != dstNode.Id {
+			currentBaseNodeEdges[[2]int{srcNode.Id, dstNode.Id}] = struct{}{}
+		}
+		baseEdge, inBase := baseGraphEdge(base, curEdge.SourceEntitlementID, curEdge.DestEntitlementID)
+		if !inBase {
+			newEdges = append(newEdges, curEdge) // brand-new edge
+			continue
+		}
+		// Existing edge: compare its combined current spec with the combined
+		// spec persisted in the base graph.
+		switch classifyEdgeSpecChange(baseEdge, curEdge) {
+		case edgeSpecNarrowed:
+			// Revocation-shaped (shallow-ified / filter tightened): can't
+			// remove grants incrementally — decline via the named hook (#6).
+			if endErr := c.restoreEndedSync(ctx); endErr != nil {
+				return false, endErr
 			}
+			return false, expand.ErrIncrementalRevocationDecline
+		case edgeSpecWidened:
+			// More members now qualify: re-expand (AddEdge folds the wider
+			// spec into the graph, deep-wins/unfiltered-wins).
+			newEdges = append(newEdges, curEdge)
+		case edgeSpecUnchanged:
+			// nothing to do
 		}
 	}
 	// PendingExpansion describes the complete current edge set. Check the
@@ -1052,6 +1077,33 @@ func baseGraphEdge(g *expand.EntitlementGraph, src, dst string) (*expand.Edge, b
 		return nil, false
 	}
 	return &e, true
+}
+
+// mergeCurrentEdgeSpecs folds parallel connector rules for the same endpoints
+// into the one effective graph edge AddEdge would build: deep wins over
+// shallow, an unfiltered rule wins over filtered rules, and otherwise filters
+// are unioned.
+func mergeCurrentEdgeSpecs(left, right expand.NewEdge) expand.NewEdge {
+	out := left
+	out.Shallow = left.Shallow && right.Shallow
+	if len(left.ResourceTypeIDs) == 0 || len(right.ResourceTypeIDs) == 0 {
+		out.ResourceTypeIDs = nil
+		return out
+	}
+
+	resourceTypeIDs := make(map[string]struct{}, len(left.ResourceTypeIDs)+len(right.ResourceTypeIDs))
+	for _, id := range left.ResourceTypeIDs {
+		resourceTypeIDs[id] = struct{}{}
+	}
+	for _, id := range right.ResourceTypeIDs {
+		resourceTypeIDs[id] = struct{}{}
+	}
+	out.ResourceTypeIDs = make([]string, 0, len(resourceTypeIDs))
+	for id := range resourceTypeIDs {
+		out.ResourceTypeIDs = append(out.ResourceTypeIDs, id)
+	}
+	sort.Strings(out.ResourceTypeIDs)
+	return out
 }
 
 type edgeSpecChange int
