@@ -238,6 +238,7 @@ var shortPollIntervals = legacyPollIntervals{initial: time.Millisecond, max: 4 *
 type scriptedPollResult struct {
 	status v2.BatonActionStatus
 	err    error
+	resp   *structpb.Struct
 }
 
 type scriptedLegacyActionManager struct {
@@ -271,6 +272,9 @@ func (f *scriptedLegacyActionManager) GetActionStatus(_ context.Context, _ strin
 	p := f.polls[i]
 	if p.err != nil {
 		return v2.BatonActionStatus_BATON_ACTION_STATUS_UNKNOWN, "", nil, nil, p.err
+	}
+	if p.resp != nil {
+		return p.status, "scripted", p.resp, nil, nil
 	}
 	return p.status, "scripted", f.invokeRv, nil, nil
 }
@@ -402,4 +406,36 @@ func TestLegacyPollSurfacesHandlerBudgetCause(t *testing.T) {
 	_, _, err := reg.handler(handlerCtx, &structpb.Struct{})
 	require.ErrorIs(t, err, cause)
 	require.ErrorContains(t, err, "did not reach a terminal status")
+}
+
+// Removing the meaningful-payload guard in the poll loop must fail this
+// test: an indeterminate poll's payload must not displace the invoke
+// response that the fail-closed exit returns.
+func TestLegacyIndeterminatePollPayloadDoesNotDisplaceResponse(t *testing.T) {
+	ctx := t.Context()
+
+	invokePayload, err := structpb.NewStruct(map[string]any{"from": "invoke"})
+	require.NoError(t, err)
+	pollPayload, err := structpb.NewStruct(map[string]any{"from": "poll"})
+	require.NoError(t, err)
+
+	indeterminate := scriptedPollResult{
+		status: v2.BatonActionStatus_BATON_ACTION_STATUS_UNSPECIFIED,
+		resp:   pollPayload,
+	}
+	legacy := &scriptedLegacyActionManager{
+		schema:       v2.BatonActionSchema_builder{Name: "displacing_action"}.Build(),
+		invokeID:     "id-1",
+		invokeStatus: v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING,
+		invokeRv:     invokePayload,
+		polls:        []scriptedPollResult{indeterminate, indeterminate, indeterminate},
+	}
+	outer := actions.NewActionManager(ctx)
+	require.NoError(t, registerLegacyAction(ctx, outer, legacy.schema, legacy, shortPollIntervals))
+
+	_, st, gotRv, _, err := outer.InvokeAction(ctx, "displacing_action", "", &structpb.Struct{})
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, st)
+	require.Equal(t, "invoke", gotRv.Fields["from"].GetStringValue())
+	require.Contains(t, gotRv.Fields["error"].GetStringValue(), "unexpected status")
 }

@@ -242,6 +242,10 @@ func registerLegacyAction(
 	legacyManager CustomActionManager,
 	intervals legacyPollIntervals,
 ) error {
+	// A zero or negative interval would busy-loop the status poll.
+	if intervals.initial <= 0 || intervals.max <= 0 {
+		intervals = defaultLegacyPollIntervals
+	}
 	handler := func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
 		// The inner call keeps the detached handler context; its one-hour
 		// deadline is the execution backstop for however long the legacy
@@ -261,7 +265,7 @@ func registerLegacyAction(
 		// A settled status at the invoke seam resolves like a terminal
 		// poll. The SDK's own manager reports handler failures in-band as
 		// FAILED with a nil error, so this must not resolve as success.
-		if actionStatus == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || actionStatus == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
+		if isSettledActionStatus(actionStatus) {
 			return resp, annos, legacyStatusErr(schema.GetName(), actionStatus)
 		}
 
@@ -308,14 +312,14 @@ func registerLegacyAction(
 			}
 			// Keep the last meaningful response for the error exits above;
 			// an indeterminate poll's payload must not replace it.
-			if pollResp != nil && (isInFlightActionStatus(st) || st == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || st == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED) {
+			if pollResp != nil && (isInFlightActionStatus(st) || isSettledActionStatus(st)) {
 				resp, annos = pollResp, pollAnnos
 			}
 
 			switch {
 			case isInFlightActionStatus(st):
 				statusErrs = 0
-			case st == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || st == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED:
+			case isSettledActionStatus(st):
 				return resp, annos, legacyStatusErr(schema.GetName(), st)
 			default:
 				// An indeterminate status gets the same tolerance as a
@@ -346,6 +350,14 @@ func legacyStatusErr(name string, st v2.BatonActionStatus) error {
 
 func isInFlightActionStatus(s v2.BatonActionStatus) bool {
 	return s == v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING || s == v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING
+}
+
+// isSettledActionStatus is the single gate deciding which statuses resolve
+// immediately, at the invoke seam and from polls alike. A new terminal enum
+// value must be added here, or it takes the indeterminate path: polled to
+// the tolerance threshold, then failed closed.
+func isSettledActionStatus(s v2.BatonActionStatus) bool {
+	return s == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || s == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED
 }
 
 // addActionManager handles deprecated CustomActionManager and RegisterActionManagerLimited interfaces
