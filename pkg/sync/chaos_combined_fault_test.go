@@ -131,6 +131,7 @@ func (g *chaosFatalGate) err() error {
 }
 
 func TestChaosConnectorLostResponseThenFilesystemFailureResumes(t *testing.T) {
+	skipChaosInShort(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 

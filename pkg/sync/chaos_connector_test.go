@@ -22,6 +22,7 @@ import (
 )
 
 func TestChaosConnectorCleanSyncMatchesManifest(t *testing.T) {
+	skipChaosInShort(t)
 	for _, workers := range []int{1, 4} {
 		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
 			ctx := t.Context()
@@ -58,6 +59,7 @@ func TestChaosConnectorCleanSyncMatchesManifest(t *testing.T) {
 }
 
 func TestChaosConnectorGRPCSyncMatchesManifest(t *testing.T) {
+	skipChaosInShort(t)
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 	c1zPath := filepath.Join(tmpDir, "chaos-grpc.c1z")
@@ -76,6 +78,7 @@ func TestChaosConnectorGRPCSyncMatchesManifest(t *testing.T) {
 }
 
 func TestChaosConnectorUnknownResponseDataIsIgnored(t *testing.T) {
+	skipChaosInShort(t)
 	for _, mutation := range []string{
 		chaosconnector.MutationUnknownAnnotation,
 		chaosconnector.MutationUnknownProtoField,
@@ -110,6 +113,7 @@ func TestChaosConnectorUnknownResponseDataIsIgnored(t *testing.T) {
 }
 
 func TestChaosConnectorDuplicateResourceIsIdempotent(t *testing.T) {
+	skipChaosInShort(t)
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 	c1zPath := filepath.Join(tmpDir, "chaos-duplicate-resource.c1z")
@@ -140,6 +144,7 @@ func TestChaosConnectorDuplicateResourceIsIdempotent(t *testing.T) {
 }
 
 func TestChaosConnectorEmptyResourceIsSkipped(t *testing.T) {
+	skipChaosInShort(t)
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 	c1zPath := filepath.Join(tmpDir, "chaos-empty-resource.c1z")
@@ -181,6 +186,7 @@ func TestChaosConnectorEmptyResourceIsSkipped(t *testing.T) {
 }
 
 func TestChaosConnectorEmptyResourceTypeIsSkipped(t *testing.T) {
+	skipChaosInShort(t)
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 	c1zPath := filepath.Join(tmpDir, "chaos-empty-resource-type.c1z")
@@ -222,6 +228,7 @@ func TestChaosConnectorEmptyResourceTypeIsSkipped(t *testing.T) {
 }
 
 func TestChaosConnectorDuplicateEnqueueAnnotationFailsWithoutSealing(t *testing.T) {
+	skipChaosInShort(t)
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 	c1zPath := filepath.Join(tmpDir, "chaos-duplicate-enqueue.c1z")
@@ -266,6 +273,7 @@ func TestChaosConnectorDuplicateEnqueueAnnotationFailsWithoutSealing(t *testing.
 }
 
 func TestChaosConnectorCyclicPageTokensTerminateWithoutDuplicateRows(t *testing.T) {
+	skipChaosInShort(t)
 	t.Skip("pinned seen-set cycle termination, removed by RFC 0007 phase 1 " +
 		"(docs/rfcs/0007-scheduler-cursor-accounting.md): the queue keeps no identity history, " +
 		"so a period-2 continuation cycle spins until the run-duration budget — the " +
@@ -320,6 +328,7 @@ func TestChaosConnectorCyclicPageTokensTerminateWithoutDuplicateRows(t *testing.
 }
 
 func TestChaosConnectorFatalErrorDoesNotSeal(t *testing.T) {
+	skipChaosInShort(t)
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 	c1zPath := filepath.Join(tmpDir, "chaos-fatal.c1z")
@@ -363,6 +372,7 @@ func TestChaosConnectorFatalErrorDoesNotSeal(t *testing.T) {
 }
 
 func TestChaosConnectorMalformedEntitlementIsSkipped(t *testing.T) {
+	skipChaosInShort(t)
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 	c1zPath := filepath.Join(tmpDir, "chaos-malformed-entitlement.c1z")
@@ -399,6 +409,7 @@ func TestChaosConnectorMalformedEntitlementIsSkipped(t *testing.T) {
 }
 
 func TestChaosConnectorSeededFanoutWithRetries(t *testing.T) {
+	skipChaosInShort(t)
 	iterations := 1
 	if value := os.Getenv("BATON_CHAOS_ITERATIONS"); value != "" {
 		parsed, err := strconv.Atoi(value)

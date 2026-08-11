@@ -18,6 +18,7 @@ import (
 )
 
 func TestChaosConnectorDataPolicyLifecycleCorpus(t *testing.T) {
+	skipChaosInShort(t)
 	for _, transport := range []chaosTransport{chaosTransportDirect, chaosTransportGRPC} {
 		t.Run(transport.String(), func(t *testing.T) {
 			for _, corpusCase := range chaosconnector.LifecycleCorpus() {

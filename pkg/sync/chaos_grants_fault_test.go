@@ -30,6 +30,7 @@ type grantFaultCase struct {
 }
 
 func TestChaosConnectorListGrantsFaultMatrix(t *testing.T) {
+	skipChaosInShort(t)
 	cases := []grantFaultCase{
 		{
 			name:         "retryable",

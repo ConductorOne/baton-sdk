@@ -22,6 +22,7 @@ type collectionFaultTarget struct {
 }
 
 func TestChaosConnectorResourcesAndEntitlementsFaultMatrix(t *testing.T) {
+	skipChaosInShort(t)
 	targets := []collectionFaultTarget{
 		{
 			name:    "resources",
