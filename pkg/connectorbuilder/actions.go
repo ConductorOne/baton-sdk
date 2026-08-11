@@ -267,7 +267,7 @@ func registerLegacyAction(
 		// poll. The SDK's own manager reports handler failures in-band as
 		// FAILED with a nil error, so this must not resolve as success.
 		if isSettledActionStatus(actionStatus) {
-			return resp, annos, legacyStatusErr(schema.GetName(), actionStatus)
+			return resp, annos, legacyStatusErr(schema.GetName(), actionStatus, resp)
 		}
 
 		// An unresolved claim without an id cannot be polled; resolve with
@@ -303,7 +303,7 @@ func registerLegacyAction(
 			if err != nil {
 				statusErrs++
 				if statusErrs >= maxConsecutiveStatusErrors {
-					return resp, annos, err
+					return resp, annos, fmt.Errorf("legacy action %q status lookup failed: %w", schema.GetName(), err)
 				}
 				l.Warn("legacy action status check failed, retrying",
 					zap.String("action", schema.GetName()),
@@ -321,7 +321,7 @@ func registerLegacyAction(
 			case isInFlightActionStatus(st):
 				statusErrs = 0
 			case isSettledActionStatus(st):
-				return resp, annos, legacyStatusErr(schema.GetName(), st)
+				return resp, annos, legacyStatusErr(schema.GetName(), st, resp)
 			default:
 				// An indeterminate status gets the same tolerance as a
 				// lookup error: transient anomalies recover, persistent
@@ -341,10 +341,15 @@ func registerLegacyAction(
 }
 
 // legacyStatusErr maps a settled legacy status — COMPLETE or FAILED, the
-// only values both call sites pass — to the outer handler error.
-func legacyStatusErr(name string, st v2.BatonActionStatus) error {
+// only values both call sites pass — to the outer handler error, carrying
+// the inner manager's reported error message when the response has one,
+// since the outer error replaces the response's error field.
+func legacyStatusErr(name string, st v2.BatonActionStatus, resp *structpb.Struct) error {
 	if st == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE {
 		return nil
+	}
+	if inner := resp.GetFields()["error"].GetStringValue(); inner != "" {
+		return fmt.Errorf("legacy action %q failed: %s", name, inner)
 	}
 	return fmt.Errorf("legacy action %q failed", name)
 }

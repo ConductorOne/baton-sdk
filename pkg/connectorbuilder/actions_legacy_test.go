@@ -309,7 +309,7 @@ func TestRegisterLegacyActionSeamAndPollOutcomes(t *testing.T) {
 		{"unspecified status resolves as before", "id-1", unspecified, nil, complete, ""},
 		{"in-flight without an id resolves as before", "", running, nil, complete, ""},
 		{"threshold consecutive lookup errors fail closed", "id-1", running,
-			[]scriptedPollResult{lookupErr, lookupErr, lookupErr}, failed, "deadline"},
+			[]scriptedPollResult{lookupErr, lookupErr, lookupErr}, failed, "status lookup failed"},
 		{"lookup errors under the threshold recover", "id-1", running,
 			[]scriptedPollResult{lookupErr, lookupErr, {status: complete}}, complete, ""},
 		{"indeterminate polls under the threshold recover", "id-1", running,
@@ -476,4 +476,49 @@ func TestNonPositivePollIntervalsFallBackToDefaults(t *testing.T) {
 			require.GreaterOrEqual(t, elapsed, 900*time.Millisecond)
 		})
 	}
+}
+
+// The inner manager's reported error must survive into the outer error,
+// which replaces the response's error field: at the seam and from a poll
+// alike, the failed outcome carries the inner message, not just the
+// generic wrapper text.
+func TestLegacyFailureCarriesInnerError(t *testing.T) {
+	failedRv, err := structpb.NewStruct(map[string]any{"error": "boom from inner"})
+	require.NoError(t, err)
+
+	t.Run("at the invoke seam", func(t *testing.T) {
+		ctx := t.Context()
+		legacy := &scriptedLegacyActionManager{
+			schema:       v2.BatonActionSchema_builder{Name: "inner_error_action"}.Build(),
+			invokeID:     "id-1",
+			invokeStatus: v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED,
+			invokeRv:     failedRv,
+		}
+		outer := actions.NewActionManager(ctx)
+		require.NoError(t, registerLegacyAction(ctx, outer, legacy.schema, legacy, shortPollIntervals))
+
+		_, st, gotRv, _, err := outer.InvokeAction(ctx, "inner_error_action", "", &structpb.Struct{})
+		require.NoError(t, err)
+		require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, st)
+		require.Contains(t, gotRv.Fields["error"].GetStringValue(), "boom from inner")
+	})
+
+	t.Run("from a poll", func(t *testing.T) {
+		ctx := t.Context()
+		legacy := &scriptedLegacyActionManager{
+			schema:       v2.BatonActionSchema_builder{Name: "inner_error_action"}.Build(),
+			invokeID:     "id-1",
+			invokeStatus: v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING,
+			polls: []scriptedPollResult{
+				{status: v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, resp: failedRv},
+			},
+		}
+		outer := actions.NewActionManager(ctx)
+		require.NoError(t, registerLegacyAction(ctx, outer, legacy.schema, legacy, shortPollIntervals))
+
+		_, st, gotRv, _, err := outer.InvokeAction(ctx, "inner_error_action", "", &structpb.Struct{})
+		require.NoError(t, err)
+		require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, st)
+		require.Contains(t, gotRv.Fields["error"].GetStringValue(), "boom from inner")
+	})
 }
