@@ -18,6 +18,23 @@ type SourceSync struct {
 	SyncID string
 }
 
+type mergeOptions struct {
+	collectGrantEntitlementIDs bool
+}
+
+// MergeOption enables optional MergeInto behavior without breaking callers
+// that use the original four-argument API.
+type MergeOption func(*mergeOptions)
+
+// WithGrantEntitlementIDs records the entitlement IDs of grant records that
+// MergeInto actually writes. The incremental expander uses these IDs as its
+// changed-node seeds.
+func WithGrantEntitlementIDs() MergeOption {
+	return func(opts *mergeOptions) {
+		opts.collectGrantEntitlementIDs = true
+	}
+}
+
 // FoldStats reports what a MergeInto call overrode in the destination
 // keyspace. DeadBytes is the exact raw size (keys + values) of the
 // incumbent records — and their derived index keys — that the fold
@@ -157,8 +174,14 @@ func (s *FoldStats) bumpReplaced(bucket string, n int64) {
 // (Engine.BuildGrantDigests rebuilds both keyspaces atomically from
 // scratch, so no separate drop is needed even then — see
 // compactPebbleFold).
-func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync, destSyncID string, collectGrantEntitlementIDs bool) (FoldStats, error) {
+func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync, destSyncID string, options ...MergeOption) (FoldStats, error) {
 	var stats FoldStats
+	opts := mergeOptions{}
+	for _, option := range options {
+		if option != nil {
+			option(&opts)
+		}
+	}
 	if dest == nil {
 		return stats, errors.New("synccompactor/pebble.MergeInto: dest engine is nil")
 	}
@@ -180,7 +203,7 @@ func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync
 		if s.Engine == nil || s.SyncID == "" {
 			continue
 		}
-		srcStats, err := mergeOneSource(ctx, dest, s, destSyncID, collectGrantEntitlementIDs)
+		srcStats, err := mergeOneSource(ctx, dest, s, destSyncID, opts.collectGrantEntitlementIDs)
 		stats.Add(srcStats)
 		if err != nil {
 			return stats, fmt.Errorf("merge source %s: %w", s.SyncID, err)

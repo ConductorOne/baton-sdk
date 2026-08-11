@@ -192,7 +192,7 @@ func graphCompatInspect(ctx context.Context, path string) (compatResult, error) 
 		err = nil
 	}
 	result.GraphReusable = graph != nil
-	result.Resources, result.Ents, result.Grants, err = countList(ctx, store)
+	result.Resources, result.Ents, result.Grants, err = summarizeRows(ctx, store, &result)
 	if closeErr := store.Close(ctx); err == nil {
 		err = closeErr
 	}

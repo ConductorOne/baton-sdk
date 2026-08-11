@@ -122,6 +122,7 @@ type compatDriverResult struct {
 	IncrementalError   string `json:"incremental_error"`
 	ArtifactPath       string `json:"artifact_path"`
 	AllocatedBytes     uint64 `json:"allocated_bytes"`
+	LogicalDigest      string `json:"logical_digest"`
 }
 
 func TestDefaultPathPerformanceAgainstPinnedMain(t *testing.T) {
@@ -158,9 +159,10 @@ func TestDefaultPathPerformanceAgainstPinnedMain(t *testing.T) {
 	baseResult := runHarness(t, mainBin, "resume", base)
 	require.Empty(t, baseResult.SyncErr)
 
-	measure := func(t *testing.T, bin, label string) uint64 {
+	measure := func(t *testing.T, bin, label string) (uint64, string) {
 		t.Helper()
 		values := make([]uint64, 0, 5)
+		var logicalDigest string
 		for i := 0; i < 5; i++ {
 			input := filepath.Join(tmp, fmt.Sprintf("%s-input-%d.c1z", label, i))
 			copyCompatArtifact(t, base, input)
@@ -170,13 +172,26 @@ func TestDefaultPathPerformanceAgainstPinnedMain(t *testing.T) {
 			require.Equal(t, wantEnts, result.Ents)
 			require.Equal(t, wantGrants, result.Grants)
 			require.Positive(t, result.AllocatedBytes)
+			inspection := runHarness(t, candidateBin, "graph-inspect", out)
+			require.False(t, inspection.GraphPresent,
+				"default flag-off compaction must not write a graph sidecar (%s run %d)", label, i)
+			require.False(t, inspection.GraphReusable)
+			require.NotEmpty(t, inspection.LogicalDigest)
+			if logicalDigest == "" {
+				logicalDigest = inspection.LogicalDigest
+			} else {
+				require.Equal(t, logicalDigest, inspection.LogicalDigest,
+					"logical output changed across identical %s runs", label)
+			}
 			values = append(values, result.AllocatedBytes)
 		}
 		sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
-		return values[len(values)/2]
+		return values[len(values)/2], logicalDigest
 	}
-	mainAlloc := measure(t, mainBin, "main")
-	candidateAlloc := measure(t, candidateBin, "candidate")
+	mainAlloc, mainDigest := measure(t, mainBin, "main")
+	candidateAlloc, candidateDigest := measure(t, candidateBin, "candidate")
+	require.Equal(t, mainDigest, candidateDigest,
+		"flag-off compaction must preserve exact logical resources, entitlements, and grants")
 	require.LessOrEqual(t, candidateAlloc, mainAlloc*110/100,
 		"default compaction allocation regression: candidate=%d main=%d", candidateAlloc, mainAlloc)
 }

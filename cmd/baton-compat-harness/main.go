@@ -34,18 +34,21 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -328,6 +331,128 @@ func countList(ctx context.Context, store c1zstore.Store) (int, int, int, error)
 	return resources, ents, grants, nil
 }
 
+// logicalContentDigest hashes the complete logical rows returned by the public
+// reader surface. Stable sorting makes it independent of pagination and Pebble
+// iteration order; deterministic protobuf encoding includes nested refs,
+// sources, and annotations instead of comparing counts only.
+func logicalContentDigest(ctx context.Context, store c1zstore.Store) (string, error) {
+	rows := make([]string, 0)
+	appendRows := func(kind byte, messages []proto.Message) error {
+		for _, message := range messages {
+			data, err := (proto.MarshalOptions{Deterministic: true}).Marshal(message)
+			if err != nil {
+				return err
+			}
+			rows = append(rows, fmt.Sprintf("%c:%x", kind, data))
+		}
+		return nil
+	}
+
+	pageToken := ""
+	for {
+		resp, err := store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
+			PageToken: pageToken,
+		}.Build())
+		if err != nil {
+			return "", fmt.Errorf("digest resource types: %w", err)
+		}
+		messages := make([]proto.Message, 0, len(resp.GetList()))
+		for _, item := range resp.GetList() {
+			messages = append(messages, item)
+		}
+		if err := appendRows('T', messages); err != nil {
+			return "", fmt.Errorf("digest resource types: %w", err)
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+
+	pageToken = ""
+	for {
+		resp, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+			PageToken: pageToken,
+		}.Build())
+		if err != nil {
+			return "", fmt.Errorf("digest resources: %w", err)
+		}
+		messages := make([]proto.Message, 0, len(resp.GetList()))
+		for _, item := range resp.GetList() {
+			messages = append(messages, item)
+		}
+		if err := appendRows('R', messages); err != nil {
+			return "", fmt.Errorf("digest resources: %w", err)
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+
+	pageToken = ""
+	for {
+		resp, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+			PageToken: pageToken,
+		}.Build())
+		if err != nil {
+			return "", fmt.Errorf("digest entitlements: %w", err)
+		}
+		messages := make([]proto.Message, 0, len(resp.GetList()))
+		for _, item := range resp.GetList() {
+			messages = append(messages, item)
+		}
+		if err := appendRows('E', messages); err != nil {
+			return "", fmt.Errorf("digest entitlements: %w", err)
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+
+	pageToken = ""
+	for {
+		resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+			PageToken: pageToken,
+		}.Build())
+		if err != nil {
+			return "", fmt.Errorf("digest grants: %w", err)
+		}
+		messages := make([]proto.Message, 0, len(resp.GetList()))
+		for _, item := range resp.GetList() {
+			messages = append(messages, item)
+		}
+		if err := appendRows('G', messages); err != nil {
+			return "", fmt.Errorf("digest grants: %w", err)
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+
+	sort.Strings(rows)
+	hash := sha256.New()
+	for _, row := range rows {
+		_, _ = hash.Write([]byte(row))
+		_, _ = hash.Write([]byte{'\n'})
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
+func summarizeRows(ctx context.Context, store c1zstore.Store, result *compatResult) (int, int, int, error) {
+	resources, ents, grants, err := countList(ctx, store)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	result.LogicalDigest, err = logicalContentDigest(ctx, store)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	return resources, ents, grants, nil
+}
+
 // syncRunLister is the store surface the run inspection needs; asserted
 // dynamically because the harness compiles against two SDK versions.
 type syncRunLister interface {
@@ -370,7 +495,7 @@ func countRows(ctx context.Context, c1zPath, tmpDir string, result *compatResult
 	}
 	defer func() { _ = store.Close(ctx) }()
 	inspectRuns(ctx, store, result)
-	return countList(ctx, store)
+	return summarizeRows(ctx, store, result)
 }
 
 // compatResult is the machine-readable summary the driver parses from the
@@ -397,6 +522,7 @@ type compatResult struct {
 	IncrementalError   string `json:"incremental_error,omitempty"`
 	ArtifactPath       string `json:"artifact_path,omitempty"`
 	AllocatedBytes     uint64 `json:"allocated_bytes,omitempty"`
+	LogicalDigest      string `json:"logical_digest,omitempty"`
 }
 
 // graphCompatHandler is installed by graph_modes_new.go in the candidate

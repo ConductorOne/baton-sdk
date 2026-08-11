@@ -17,6 +17,39 @@ type incrementalBenchFixture struct {
 	changed []string
 }
 
+// BenchmarkTopologicalAffectedNodeOrderWideFanout exercises the shape that
+// made repeated frontier sorting quadratic: one root makes every child ready
+// during the same iteration.
+func BenchmarkTopologicalAffectedNodeOrderWideFanout(b *testing.B) {
+	ctx := context.Background()
+	g := NewEntitlementGraph(ctx)
+	g.AddEntitlementID("root")
+
+	const children = 10_000
+	affected := make(map[int]struct{}, children+1)
+	affected[g.GetNode("root").Id] = struct{}{}
+	for i := 0; i < children; i++ {
+		child := fmt.Sprintf("child:%05d", i)
+		g.AddEntitlementID(child)
+		if err := g.AddEdge(ctx, "root", child, false, nil); err != nil {
+			b.Fatal(err)
+		}
+		affected[g.GetNode(child).Id] = struct{}{}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		order, err := topologicalAffectedNodeOrder(g, affected)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(order) != children+1 {
+			b.Fatalf("unexpected order length: %d", len(order))
+		}
+	}
+}
+
 // TestIncrementalPerformanceGates is intentionally opt-in because its
 // 100k-entitlement/100k-principal fixtures allocate hundreds of megabytes.
 // It enforces allocation/work gates; wall time remains benchmark evidence.

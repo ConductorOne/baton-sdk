@@ -272,17 +272,15 @@ func topologicalAffectedNodeOrder(g *EntitlementGraph, affected map[int]struct{}
 			}
 		}
 	}
-	frontier := make([]int, 0, len(inDegree))
+	frontier := make(intMinHeap, 0, len(inDegree))
 	for nodeID, degree := range inDegree {
 		if degree == 0 {
-			frontier = append(frontier, nodeID)
+			frontier.push(nodeID)
 		}
 	}
-	sort.Ints(frontier)
 	order := make([]int, 0, len(inDegree))
 	for len(frontier) > 0 {
-		nodeID := frontier[0]
-		frontier = frontier[1:]
+		nodeID := frontier.pop()
 		order = append(order, nodeID)
 		for childID := range g.SourcesToDestinations[nodeID] {
 			if _, ok := inDegree[childID]; !ok {
@@ -290,8 +288,7 @@ func topologicalAffectedNodeOrder(g *EntitlementGraph, affected map[int]struct{}
 			}
 			inDegree[childID]--
 			if inDegree[childID] == 0 {
-				frontier = append(frontier, childID)
-				sort.Ints(frontier)
+				frontier.push(childID)
 			}
 		}
 	}
@@ -299,6 +296,48 @@ func topologicalAffectedNodeOrder(g *EntitlementGraph, affected map[int]struct{}
 		return nil, fmt.Errorf("incremental expansion: affected graph contains a cycle or dangling edge")
 	}
 	return order, nil
+}
+
+// intMinHeap keeps the smallest ready node at the front without re-sorting
+// every ready node after each insertion.
+type intMinHeap []int
+
+func (h *intMinHeap) push(nodeID int) {
+	*h = append(*h, nodeID)
+	for child := len(*h) - 1; child > 0; {
+		parent := (child - 1) / 2
+		if (*h)[parent] <= (*h)[child] {
+			break
+		}
+		(*h)[parent], (*h)[child] = (*h)[child], (*h)[parent]
+		child = parent
+	}
+}
+
+func (h *intMinHeap) pop() int {
+	root := (*h)[0]
+	last := len(*h) - 1
+	(*h)[0] = (*h)[last]
+	*h = (*h)[:last]
+
+	for parent := 0; ; {
+		left := 2*parent + 1
+		if left >= len(*h) {
+			break
+		}
+		child := left
+		right := left + 1
+		if right < len(*h) && (*h)[right] < (*h)[left] {
+			child = right
+		}
+		if (*h)[parent] <= (*h)[child] {
+			break
+		}
+		(*h)[parent], (*h)[child] = (*h)[child], (*h)[parent]
+		parent = child
+	}
+
+	return root
 }
 
 func (ie *IncrementalExpander) forwardReachable(seeds map[int]struct{}) map[int]struct{} {

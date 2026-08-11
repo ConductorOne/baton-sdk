@@ -55,7 +55,7 @@ func TestMergeIntoUnionNewerWins(t *testing.T) {
 	// No SetCurrentSync here: MergeInto must bind the dest engine to
 	// destSyncID itself (record values carry no sync_id, so a stale
 	// binding would silently write into the wrong sync's keyspace).
-	stats, err := MergeInto(ctx, dst, []SourceSync{{Engine: src1, SyncID: syncA}, {Engine: src2, SyncID: syncB}}, destSync, false)
+	stats, err := MergeInto(ctx, dst, []SourceSync{{Engine: src1, SyncID: syncA}, {Engine: src2, SyncID: syncB}}, destSync)
 	require.NoError(t, err, "MergeInto")
 	// src2's g-shared@newer overrode src1's incumbent — exactly one
 	// override, and its dead bytes must cover at least the incumbent's
@@ -107,7 +107,7 @@ func TestMergeIntoGrantWritesTracksActualChanges(t *testing.T) {
 	require.NoError(t, src.PutGrantRecords(ctx, grantAt(syncID, "g1", at)))
 
 	// First merge: a genuinely new grant is admitted.
-	stats, err := MergeInto(ctx, dst, []SourceSync{{Engine: src, SyncID: syncID}}, destSync, false)
+	stats, err := MergeInto(ctx, dst, []SourceSync{{Engine: src, SyncID: syncID}}, destSync)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, stats.GrantWrites, "first merge admits one new grant")
 
@@ -115,7 +115,7 @@ func TestMergeIntoGrantWritesTracksActualChanges(t *testing.T) {
 	// record is now byte-identical to the incumbent, which
 	// mergeBucketRawIfNewer treats as a true no-op — zero grant writes,
 	// even though a grant record was iterated and compared.
-	stats2, err := MergeInto(ctx, dst, []SourceSync{{Engine: src, SyncID: syncID}}, destSync, false)
+	stats2, err := MergeInto(ctx, dst, []SourceSync{{Engine: src, SyncID: syncID}}, destSync)
 	require.NoError(t, err)
 	require.Zero(t, stats2.GrantWrites, "resubmitting an identical grant must not count as a write")
 
@@ -123,7 +123,7 @@ func TestMergeIntoGrantWritesTracksActualChanges(t *testing.T) {
 	empty, _ := newEngine(t, "gw-empty-src")
 	emptySyncID := ksuid.New().String()
 	require.NoError(t, empty.SetCurrentSync(ctx, emptySyncID))
-	stats3, err := MergeInto(ctx, dst, []SourceSync{{Engine: empty, SyncID: emptySyncID}}, destSync, false)
+	stats3, err := MergeInto(ctx, dst, []SourceSync{{Engine: empty, SyncID: emptySyncID}}, destSync)
 	require.NoError(t, err)
 	require.Zero(t, stats3.GrantWrites, "a source with no grants contributes zero grant writes")
 
@@ -132,7 +132,7 @@ func TestMergeIntoGrantWritesTracksActualChanges(t *testing.T) {
 	src2, _ := newEngine(t, "gw-src2")
 	require.NoError(t, src2.SetCurrentSync(ctx, syncID))
 	require.NoError(t, src2.PutGrantRecords(ctx, grantAt(syncID, "g1", newer)))
-	stats4, err := MergeInto(ctx, dst, []SourceSync{{Engine: src2, SyncID: syncID}}, destSync, false)
+	stats4, err := MergeInto(ctx, dst, []SourceSync{{Engine: src2, SyncID: syncID}}, destSync)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, stats4.GrantWrites, "a strictly-newer override counts as a grant write")
 }
@@ -163,7 +163,7 @@ func TestMergeIntoTieKeepsIncumbent(t *testing.T) {
 	require.NoError(t, src2.PutGrantRecords(ctx, g2))
 	// src1 applied first → incumbent wins the tie. MergeInto binds the
 	// dest sync itself.
-	stats, err := MergeInto(ctx, dst, []SourceSync{{Engine: src1, SyncID: syncA}, {Engine: src2, SyncID: syncB}}, destSync, false)
+	stats, err := MergeInto(ctx, dst, []SourceSync{{Engine: src1, SyncID: syncA}, {Engine: src2, SyncID: syncB}}, destSync)
 	require.NoError(t, err)
 	// A tie keeps the incumbent — nothing is overridden, no dead bytes.
 	require.Zero(t, stats.OverriddenRecords, "FoldStats.OverriddenRecords (tie keeps incumbent)")
@@ -247,7 +247,7 @@ func TestMergeIntoBaseNewerKeepsBaseAllTypes(t *testing.T) {
 	dest, destSync := seedBase(t, ctx, "base-newer-dest", baseSet)
 	src := buildEngineSource(t, ctx, "older-src", olderSet)
 
-	stats, err := MergeInto(ctx, dest, []SourceSync{src}, destSync, false)
+	stats, err := MergeInto(ctx, dest, []SourceSync{src}, destSync)
 	require.NoError(t, err)
 
 	// Nothing regressed: the base (newer) version survives for every type.
@@ -273,7 +273,7 @@ func TestMergeIntoNewerPartialOverridesBaseAllTypes(t *testing.T) {
 	dest, destSync := seedBase(t, ctx, "base-older-dest", baseSet)
 	src := buildEngineSource(t, ctx, "newer-src", newerSet)
 
-	stats, err := MergeInto(ctx, dest, []SourceSync{src}, destSync, false)
+	stats, err := MergeInto(ctx, dest, []SourceSync{src}, destSync)
 	require.NoError(t, err)
 
 	// The newer partial wins for every type.
@@ -340,7 +340,7 @@ func TestMergeIntoDeadBytesExactCount(t *testing.T) {
 	}.Build()
 	src := buildEngineSource(t, ctx, "deadbytes-src", recordSet{gs: []*v3.GrantRecord{override}})
 
-	stats, err := MergeInto(ctx, dest, []SourceSync{src}, destSync, false)
+	stats, err := MergeInto(ctx, dest, []SourceSync{src}, destSync)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), stats.OverriddenRecords)
 	require.Equal(t, wantDead, stats.DeadBytes,
@@ -386,7 +386,7 @@ func TestMergeIntoCollectsGrantEntitlementIDs(t *testing.T) {
 		},
 	})
 
-	stats, err := MergeInto(ctx, dest, []SourceSync{src}, destSync, true)
+	stats, err := MergeInto(ctx, dest, []SourceSync{src}, destSync, WithGrantEntitlementIDs())
 	require.NoError(t, err)
 
 	got := make([]string, 0, len(stats.GrantEntitlementIDs))
@@ -405,7 +405,7 @@ func TestMergeIntoSkipsGrantEntitlementIDsWhenDisabled(t *testing.T) {
 		gs: []*v3.GrantRecord{grantEnt("g-new", "ent-added", "dave", now)},
 	})
 
-	stats, err := MergeInto(ctx, dest, []SourceSync{src}, destSync, false)
+	stats, err := MergeInto(ctx, dest, []SourceSync{src}, destSync)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), stats.GrantWrites)
 	require.Nil(t, stats.GrantEntitlementIDs,

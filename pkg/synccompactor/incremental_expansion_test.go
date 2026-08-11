@@ -695,15 +695,14 @@ func TestCompactor_IncrementalDoesNotMutateBaseGraph(t *testing.T) {
 	require.Nil(t, after.GetNode("ent-a"), "new edge's node must not leak into the base artifact")
 }
 
-// buildDanglingRefFixtures builds a base (ent-b -> ent-c, mandy) and a single
-// increment whose only change is a rule grant whose SOURCE entitlement
-// ("ent-ghost") is absent from the merged set — a dangling ref, which both
-// paths must skip.
-func buildDanglingRefFixtures(t *testing.T, ctx context.Context, dir string) []*CompactableSync {
+// buildEdgeValidationFixtures builds a valid base plus one new rule targeting
+// ent-d. sourceEntitlementID selects either a missing source ("ent-ghost") or
+// an existing source whose resource differs from the rule principal ("ent-b").
+func buildEdgeValidationFixtures(t *testing.T, ctx context.Context, dir, sourceEntitlementID string) []*CompactableSync {
 	t.Helper()
-	grpB, grpC := grp("grpB"), grp("grpC")
+	grpB, grpC, grpD := grp("grpB"), grp("grpC"), grp("grpD")
 	mandy := usr("mandy")
-	entB, entC := ent("ent-b", grpB), ent("ent-c", grpC)
+	entB, entC, entD := ent("ent-b", grpB), ent("ent-c", grpC), ent("ent-d", grpD)
 	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
 	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
 
@@ -713,15 +712,18 @@ func buildDanglingRefFixtures(t *testing.T, ctx context.Context, dir string) []*
 	baseSyncID, err := base.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NoError(t, base.PutResourceTypes(ctx, userRT, groupRT))
-	require.NoError(t, base.PutResources(ctx, grpB, grpC, mandy))
-	require.NoError(t, base.PutEntitlements(ctx, entB, entC))
+	require.NoError(t, base.PutResources(ctx, grpB, grpC, grpD, mandy))
+	require.NoError(t, base.PutEntitlements(ctx, entB, entC, entD))
 	require.NoError(t, base.PutGrants(ctx,
 		memberGrant(entB, mandy),
 		expandedGrant(entC, mandy, "ent-b"),
 		ruleGrant(entC, grpB, "ent-b"),
 	))
 	require.NoError(t, base.EndSync(ctx))
-	persistFixtureGraph(t, ctx, base, baseSyncID, baseGraphForFixtures(t, ctx))
+	baseGraph := baseGraphForFixtures(t, ctx)
+	baseGraph.AddEntitlementID("ent-d")
+	baseGraph.HasNoCycles = true
+	persistFixtureGraph(t, ctx, base, baseSyncID, baseGraph)
 	require.NoError(t, base.Close(ctx))
 
 	incPath := filepath.Join(dir, "inc.c1z")
@@ -730,10 +732,9 @@ func buildDanglingRefFixtures(t *testing.T, ctx context.Context, dir string) []*
 	incSyncID, err := inc.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
 	require.NoError(t, err)
 	require.NoError(t, inc.PutResourceTypes(ctx, userRT, groupRT))
-	require.NoError(t, inc.PutResources(ctx, grpB, grpC))
-	require.NoError(t, inc.PutEntitlements(ctx, entC))
-	// rule grant: members of ent-ghost (which does not exist) get ent-c.
-	require.NoError(t, inc.PutGrants(ctx, ruleGrant(entC, grpB, "ent-ghost")))
+	require.NoError(t, inc.PutResources(ctx, grpD))
+	require.NoError(t, inc.PutEntitlements(ctx, entD))
+	require.NoError(t, inc.PutGrants(ctx, ruleGrant(entD, grpD, sourceEntitlementID)))
 	require.NoError(t, inc.EndSync(ctx))
 	require.NoError(t, inc.Close(ctx))
 
@@ -743,14 +744,12 @@ func buildDanglingRefFixtures(t *testing.T, ctx context.Context, dir string) []*
 	}
 }
 
-// TestCompactor_IncrementalDanglingRefMatchesFull (#11a): an increment with a
-// grant referencing an entitlement absent from the merged set is skipped by
-// both paths. This fixture also replaces the base rule, dropping ent-b ->
-// ent-c, so the incremental path must safely decline and equal full expansion.
+// TestCompactor_IncrementalDanglingRefMatchesFull (#11a): a missing source is
+// skipped before it can create a phantom graph node or edge.
 func TestCompactor_IncrementalDanglingRefMatchesFull(t *testing.T) {
 	ctx := context.Background()
 
-	incEntries := buildDanglingRefFixtures(t, ctx, t.TempDir())
+	incEntries := buildEdgeValidationFixtures(t, ctx, t.TempDir(), "ent-ghost")
 	cInc, cleanupInc, err := NewCompactor(ctx, t.TempDir(), incEntries,
 		WithTmpDir(t.TempDir()),
 		WithEngine(c1zstore.EnginePebble),
@@ -760,9 +759,9 @@ func TestCompactor_IncrementalDanglingRefMatchesFull(t *testing.T) {
 	defer func() { _ = cleanupInc() }()
 	incOut, err := cInc.Compact(ctx)
 	require.NoError(t, err)
-	require.False(t, cInc.incrementalExpansionRan, "the dropped base edge must decline to full expansion")
+	require.True(t, cInc.incrementalExpansionRan, "a dangling new edge must be skipped without forcing fallback")
 
-	fullEntries := buildDanglingRefFixtures(t, ctx, t.TempDir())
+	fullEntries := buildEdgeValidationFixtures(t, ctx, t.TempDir(), "ent-ghost")
 	cFull, cleanupFull, err := NewCompactor(ctx, t.TempDir(), fullEntries,
 		WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
@@ -773,6 +772,29 @@ func TestCompactor_IncrementalDanglingRefMatchesFull(t *testing.T) {
 	incGrants := grantOutcome(t, ctx, incOut.FilePath, incOut.SyncID)
 	fullGrants := grantOutcome(t, ctx, fullOut.FilePath, fullOut.SyncID)
 	require.Equal(t, fullGrants, incGrants, "dangling-ref incremental must equal full")
+	graph := artifactGraph(t, ctx, incOut.FilePath, incOut.SyncID)
+	require.NotNil(t, graph)
+	require.Nil(t, graph.GetNode("ent-ghost"), "missing source must not persist as a phantom graph node")
+}
+
+func TestCompactor_IncrementalPrincipalMismatchMatchesFullError(t *testing.T) {
+	ctx := context.Background()
+
+	incEntries := buildEdgeValidationFixtures(t, ctx, t.TempDir(), "ent-b")
+	cInc, cleanupInc, err := NewCompactor(ctx, t.TempDir(), incEntries,
+		WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble), WithIncrementalExpansion())
+	require.NoError(t, err)
+	defer func() { _ = cleanupInc() }()
+	_, incErr := cInc.Compact(ctx)
+	require.ErrorContains(t, incErr, "source entitlement resource id did not match grant principal id")
+
+	fullEntries := buildEdgeValidationFixtures(t, ctx, t.TempDir(), "ent-b")
+	cFull, cleanupFull, err := NewCompactor(ctx, t.TempDir(), fullEntries,
+		WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	defer func() { _ = cleanupFull() }()
+	_, fullErr := cFull.Compact(ctx)
+	require.ErrorContains(t, fullErr, "source entitlement resource id did not match grant principal id")
 }
 
 // TestCompactor_IncrementalSealedArtifactLifecycle (#11b): after the

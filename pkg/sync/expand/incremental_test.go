@@ -141,6 +141,29 @@ func TestIncremental_BoundedWalk(t *testing.T) {
 	require.Contains(t, principalsOn(t, ctx, store, "new:leaf"), "u7")
 }
 
+func TestTopologicalAffectedNodeOrder_WideFanoutIsStable(t *testing.T) {
+	ctx := context.Background()
+	g := NewEntitlementGraph(ctx)
+	g.AddEntitlementID("root")
+
+	const children = 5000
+	affected := make(map[int]struct{}, children+1)
+	affected[g.GetNode("root").Id] = struct{}{}
+	for i := 0; i < children; i++ {
+		child := "child:" + itoa(i)
+		g.AddEntitlementID(child)
+		require.NoError(t, g.AddEdge(ctx, "root", child, false, nil))
+		affected[g.GetNode(child).Id] = struct{}{}
+	}
+
+	order, err := topologicalAffectedNodeOrder(g, affected)
+	require.NoError(t, err)
+	require.Len(t, order, children+1)
+	for i, nodeID := range order {
+		require.Equal(t, i+1, nodeID)
+	}
+}
+
 // TestIncremental_InsertBetween: a new node spliced between two existing
 // nodes (A -> newMid -> C added on top of an already-expanded A -> C). The
 // mid node is populated from A, and C gains only what the mid contributes

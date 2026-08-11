@@ -107,11 +107,12 @@ func PrepareExpansionReplayToken(stateStr string) (string, error) {
 	return st.Marshal()
 }
 
-// GraphFromToken parses a sync token and returns its persisted entitlement
-// graph, for running an incremental expansion against a prior sync's graph.
-// Returns nil if the token carried no graph (e.g. a sync without
-// WithPreserveEntitlementGraph). Legacy: preserve now writes the graph into
-// the c1z sidecar when the store supports it — prefer GraphFromStore.
+// GraphFromToken parses a legacy sync token and returns its entitlement graph
+// for compatibility tests. It returns nil if the token carried no graph.
+//
+// Token graphs have no grant-generation binding and must not drive incremental
+// reuse. Production readers must use GraphFromStore, which verifies that the
+// sidecar graph describes the store's exact sealed grant generation.
 func GraphFromToken(stateStr string) (*expand.EntitlementGraph, error) {
 	st := newState()
 	if err := st.Unmarshal(stateStr); err != nil {

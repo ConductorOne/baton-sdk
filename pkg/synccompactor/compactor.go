@@ -24,6 +24,8 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
@@ -132,7 +134,7 @@ func (c *Compactor) inferEngineFromInputs() (c1zstore.Engine, error) {
 		if entry == nil || entry.FilePath == "" {
 			continue
 		}
-		f, err := os.Open(entry.FilePath) // #nosec G304 - compaction inputs are caller-provided c1z paths.
+		f, err := os.Open(entry.FilePath) // #nosec G304,G703 -- compaction inputs are intentionally caller-provided c1z paths.
 		if err != nil {
 			return "", fmt.Errorf("infer compactor engine from %s: %w", entry.FilePath, err)
 		}
@@ -533,7 +535,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 }
 
 func cpFile(ctx context.Context, sourcePath string, destPath string) error {
-	err := os.Rename(sourcePath, destPath)
+	err := os.Rename(sourcePath, destPath) // #nosec G703 -- compaction source and destination paths are intentional API inputs.
 	if err == nil {
 		return nil
 	}
@@ -547,7 +549,7 @@ func cpFile(ctx context.Context, sourcePath string, destPath string) error {
 	}
 	defer source.Close()
 
-	destination, err := os.Create(destPath)
+	destination, err := os.Create(destPath) // #nosec G703 -- the caller intentionally selects the compacted artifact destination.
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
@@ -683,6 +685,8 @@ func (c *Compactor) expandGrantsIncremental(ctx context.Context, newSyncId strin
 	// them with the base graph. Comparing each piece independently turns an
 	// unchanged split filter (for example users + groups) into false narrowing.
 	currentEdges := make(map[[2]string]expand.NewEdge)
+	sourceEntitlements := make(map[string]*v2.Entitlement)
+	missingSourceEntitlements := make(map[string]struct{})
 	for pe, err := range c.compactedC1z.Grants().PendingExpansion(walkCtx) {
 		if err != nil {
 			if endErr := c.restoreEndedSync(ctx); endErr != nil {
@@ -695,6 +699,47 @@ func (c *Compactor) expandGrantsIncremental(ctx context.Context, newSyncId strin
 			continue
 		}
 		for _, src := range anno.GetEntitlementIds() {
+			if _, missing := missingSourceEntitlements[src]; missing {
+				continue
+			}
+			sourceEntitlement, cached := sourceEntitlements[src]
+			if !cached {
+				resp, getErr := c.compactedC1z.GetEntitlement(walkCtx,
+					reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+						EntitlementId: src,
+					}.Build())
+				if status.Code(getErr) == codes.NotFound {
+					missingSourceEntitlements[src] = struct{}{}
+					ctxzap.Extract(ctx).Debug("incremental expansion: source entitlement not found, skipping edge",
+						zap.String("src_entitlement_id", src),
+						zap.String("dst_entitlement_id", pe.TargetEntitlementID))
+					continue
+				}
+				if getErr != nil {
+					if endErr := c.restoreEndedSync(ctx); endErr != nil {
+						return false, endErr
+					}
+					return false, fmt.Errorf("incremental expansion: get source entitlement %s: %w", src, getErr)
+				}
+				sourceEntitlement = resp.GetEntitlement()
+				sourceEntitlements[src] = sourceEntitlement
+			}
+
+			sourceResourceID := sourceEntitlement.GetResource().GetId()
+			if sourceResourceID == nil {
+				if endErr := c.restoreEndedSync(ctx); endErr != nil {
+					return false, endErr
+				}
+				return false, fmt.Errorf("incremental expansion: source entitlement resource id was nil")
+			}
+			if pe.PrincipalResourceTypeID != sourceResourceID.GetResourceType() ||
+				pe.PrincipalResourceID != sourceResourceID.GetResource() {
+				if endErr := c.restoreEndedSync(ctx); endErr != nil {
+					return false, endErr
+				}
+				return false, fmt.Errorf("incremental expansion: source entitlement resource id did not match grant principal id")
+			}
+
 			curEdge := expand.NewEdge{
 				SourceEntitlementID: src,
 				DestEntitlementID:   pe.TargetEntitlementID,

@@ -21,8 +21,12 @@ type graphBlobEnvelope struct {
 
 const graphBlobFormatVersion uint32 = 2
 
-// MarshalGraphBlob serializes a graph for the c1z sidecar, stamped with the
-// sync it belongs to. Transient state is stripped first (a reload rebuilds it).
+// MarshalGraphBlob serializes a legacy, unbound graph blob for compatibility
+// tests. Transient state is stripped first (a reload rebuilds it).
+//
+// The blob has no grant-generation digest, so sync.GraphFromStore deliberately
+// rejects it for incremental reuse. Production persistence must use
+// MarshalGraphBlobWithGrantDigest.
 func MarshalGraphBlob(syncID string, g *EntitlementGraph) ([]byte, error) {
 	return marshalGraphBlob(syncID, g, nil)
 }
@@ -50,9 +54,13 @@ func marshalGraphBlob(syncID string, g *EntitlementGraph, digest *c1zstore.Grant
 	return data, nil
 }
 
-// UnmarshalGraphBlob parses a sidecar blob. Returns (nil, nil) when the blob
-// belongs to a different sync than wantSyncID (stale inherited sidecar);
-// pass "" to skip the guard.
+// UnmarshalGraphBlob parses a graph for compatibility tests while discarding
+// its grant-generation binding. Returns (nil, nil) when the blob belongs to a
+// different sync than wantSyncID (stale inherited sidecar); pass "" to skip
+// the guard.
+//
+// The returned graph must not drive incremental reuse. Production readers
+// must use UnmarshalGraphBlobWithGrantDigest and verify the returned digest.
 func UnmarshalGraphBlob(data []byte, wantSyncID string) (*EntitlementGraph, error) {
 	graph, _, err := UnmarshalGraphBlobWithGrantDigest(data, wantSyncID)
 	return graph, err
