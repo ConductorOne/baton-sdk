@@ -521,8 +521,7 @@ func TestRotatingWriter_PruneDeletesForeignFileMatchingBackupPattern(t *testing.
 // regex - it must first check whether that path is some other rotator's live
 // file. Not parallel: registers a rotator in the package-level activeRotators.
 func TestRotatingWriter_PruneNeverDeletesAnotherLiveRotatorsActiveFile(t *testing.T) {
-	clearRotators(t)
-	dir := t.TempDir()
+	dir := rotatorTestDir(t)
 
 	victimPath := filepath.Join(dir, "baton.20260727T120501.123Z.log")
 	_, err := InitWithRotation(context.Background(), RotationConfig{MaxSizeMB: 1, MaxBackups: 2},
@@ -741,9 +740,7 @@ func TestRotatingWriter_ConcurrentReportErrorDoesNotRaceOnSink(t *testing.T) {
 // Not parallel: asserts on the package-level activeRotators set by Init.
 func TestInitWithRotationConcurrentReportErrorAcrossSharedSink(t *testing.T) {
 	requireWritePermsEnforced(t)
-	clearRotators(t)
-
-	dir := t.TempDir()
+	dir := rotatorTestDir(t)
 	paths := []string{filepath.Join(dir, "a.log"), filepath.Join(dir, "b.log")}
 	var sink bytes.Buffer
 

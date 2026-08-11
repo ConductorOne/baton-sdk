@@ -57,6 +57,16 @@ func TestDedupeOutputPathsCollapsesAliases(t *testing.T) {
 
 // clearRotators empties the package-level registry when the test ends, so one
 // test's rotators can't be reused - or retired - by the next one.
+// rotatorTestDir returns a temp dir for a test that creates rotators. Order
+// matters: t.TempDir registers its cleanup first so clearRotators' runs before
+// it. Reversed, Windows refuses to remove a log file a rotator still holds open.
+func rotatorTestDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	clearRotators(t)
+	return dir
+}
+
 func clearRotators(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -72,8 +82,7 @@ func clearRotators(t *testing.T) {
 
 // Not parallel: asserts on the package-level activeRotators set by Init.
 func TestInitWithRotationDedupesFilePaths(t *testing.T) {
-	clearRotators(t)
-	dir := t.TempDir()
+	dir := rotatorTestDir(t)
 	path := filepath.Join(dir, "baton.log")
 	alias := filepath.Join(dir, ".", "..", filepath.Base(dir), "baton.log")
 
@@ -88,8 +97,7 @@ func TestInitWithRotationDedupesFilePaths(t *testing.T) {
 
 // Not parallel: asserts on the package-level activeRotators set by Init.
 func TestInitWithRotationReusesRotatorForSamePath(t *testing.T) {
-	clearRotators(t)
-	path := filepath.Join(t.TempDir(), "baton.log")
+	path := filepath.Join(rotatorTestDir(t), "baton.log")
 	rotation := RotationConfig{MaxSizeMB: 1, MaxBackups: 2}
 
 	_, err := InitWithRotation(context.Background(), rotation, WithOutputPaths([]string{path}))
@@ -122,8 +130,7 @@ func TestInitWithRotationReusesRotatorForSamePath(t *testing.T) {
 
 // Not parallel: asserts on the package-level activeRotators set by Init.
 func TestInitWithRotationIsAtomicUnderConcurrentInits(t *testing.T) {
-	clearRotators(t)
-	path := filepath.Join(t.TempDir(), "baton.log")
+	path := filepath.Join(rotatorTestDir(t), "baton.log")
 	rotation := RotationConfig{MaxSizeMB: 1, MaxBackups: 2}
 
 	var wg sync.WaitGroup
@@ -150,8 +157,7 @@ func TestInitWithRotationIsAtomicUnderConcurrentInits(t *testing.T) {
 
 // Not parallel: asserts on the package-level activeRotators set by Init.
 func TestInitWithRotationAdoptAndRetireAreAtomic(t *testing.T) {
-	clearRotators(t)
-	dir := t.TempDir()
+	dir := rotatorTestDir(t)
 	rotation := RotationConfig{MaxSizeMB: 1, MaxBackups: 2}
 	paths := []string{filepath.Join(dir, "a.log"), filepath.Join(dir, "b.log")}
 
@@ -194,8 +200,7 @@ func TestInitWithRotationAdoptAndRetireAreAtomic(t *testing.T) {
 
 // Not parallel: asserts on the package-level activeRotators set by Init.
 func TestInitWithoutRotationLeavesActiveRotatorsAlone(t *testing.T) {
-	clearRotators(t)
-	dir := t.TempDir()
+	dir := rotatorTestDir(t)
 	rotated := filepath.Join(dir, "rotated.log")
 
 	_, err := InitWithRotation(context.Background(), RotationConfig{MaxSizeMB: 1, MaxBackups: 2},
@@ -223,9 +228,7 @@ func TestInitWithRotationCollapsesSymlinkedPaths(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("creating symlinks on Windows needs elevation")
 	}
-	clearRotators(t)
-
-	dir := t.TempDir()
+	dir := rotatorTestDir(t)
 	target := filepath.Join(dir, "baton.log")
 	link := filepath.Join(dir, "current.log")
 
@@ -271,9 +274,7 @@ func TestInitWithRotationSurvivesKeyMissAfterExternalDeletion(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("creating symlinks on Windows needs elevation")
 	}
-	clearRotators(t)
-
-	base := t.TempDir()
+	base := rotatorTestDir(t)
 	realDir := filepath.Join(base, "real")
 	require.NoError(t, os.Mkdir(realDir, 0700))
 	linkDir := filepath.Join(base, "link")
@@ -321,8 +322,7 @@ func TestInitWithRotationSurvivesKeyMissAfterExternalDeletion(t *testing.T) {
 // context - then fails every write. Execute therefore reuses the logger already
 // on its context instead of re-initializing.
 func TestInitWithRotationRetiresRotatorTheOldLoggerStillHolds(t *testing.T) {
-	clearRotators(t)
-	dir := t.TempDir()
+	dir := rotatorTestDir(t)
 	operatorPath := filepath.Join(dir, "operator.log")
 
 	_, err := InitWithRotation(context.Background(), RotationConfig{MaxSizeMB: 1, MaxBackups: 2},
@@ -345,8 +345,7 @@ func TestInitWithRotationRetiresRotatorTheOldLoggerStillHolds(t *testing.T) {
 
 // Not parallel: asserts on the package-level activeRotators set by Init.
 func TestInitWithRotationClosesDroppedRotators(t *testing.T) {
-	clearRotators(t)
-	dir := t.TempDir()
+	dir := rotatorTestDir(t)
 	dropped := filepath.Join(dir, "old.log")
 	rotation := RotationConfig{MaxSizeMB: 1, MaxBackups: 2}
 
@@ -368,8 +367,7 @@ func TestInitWithRotationClosesDroppedRotators(t *testing.T) {
 
 // Not parallel: asserts on the package-level activeRotators set by Init.
 func TestInitWithoutRotationLeavesOutputPathsToZap(t *testing.T) {
-	clearRotators(t)
-	path := filepath.Join(t.TempDir(), "baton.log")
+	path := filepath.Join(rotatorTestDir(t), "baton.log")
 
 	ctx, err := InitWithRotation(context.Background(), RotationConfig{}, WithOutputPaths([]string{path}))
 	require.NoError(t, err, "InitWithRotation")
@@ -399,8 +397,7 @@ func TestInitWithoutRotationLeavesOutputPathsToZap(t *testing.T) {
 // publishing every intended path before any of their files are created.
 // Not parallel: asserts on the package-level activeRotators set by Init.
 func TestInitWithRotationProtectsNewFileFromConcurrentSiblingPrune(t *testing.T) {
-	clearRotators(t)
-	dir := t.TempDir()
+	dir := rotatorTestDir(t)
 
 	// The sibling: an already-registered, live rotator for baton.log. Its
 	// prune() claims any file in dir matching "baton.<ts>.log" purely by name
@@ -468,8 +465,7 @@ func TestInitWithRotationProtectsNewFileFromConcurrentSiblingPrune(t *testing.T)
 
 // Not parallel: replaces the global logger via Init.
 func TestInitWithRotationReportsUnusableFilePath(t *testing.T) {
-	clearRotators(t)
-	dir := t.TempDir()
+	dir := rotatorTestDir(t)
 	unusable := filepath.Join(dir, "not-a-file")
 	require.NoError(t, os.Mkdir(unusable, 0700))
 
