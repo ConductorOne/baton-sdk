@@ -15,6 +15,7 @@ import (
 )
 
 func TestChaosConnectorReferentialCorpus(t *testing.T) {
+	skipChaosInShort(t)
 	for _, corpusCase := range chaosconnector.ReferentialCorpus() {
 		t.Run(corpusCase.Name, func(t *testing.T) {
 			for _, transport := range []chaosTransport{chaosTransportDirect, chaosTransportGRPC} {

@@ -14,6 +14,7 @@ import (
 )
 
 func TestChaosConnectorReservedBatonIDOwnershipIsRejected(t *testing.T) {
+	skipChaosInShort(t)
 	for _, transport := range []chaosTransport{chaosTransportDirect, chaosTransportGRPC} {
 		t.Run(transport.String(), func(t *testing.T) {
 			ctx := t.Context()
@@ -47,6 +48,7 @@ func TestChaosConnectorReservedBatonIDOwnershipIsRejected(t *testing.T) {
 }
 
 func TestChaosConnectorMalformedKnownAnnotationFailsWithoutSealing(t *testing.T) {
+	skipChaosInShort(t)
 	for _, transport := range chaosFaultTransports() {
 		t.Run(transport.String(), func(t *testing.T) {
 			ctx := t.Context()
@@ -69,6 +71,7 @@ func TestChaosConnectorMalformedKnownAnnotationFailsWithoutSealing(t *testing.T)
 }
 
 func TestChaosConnectorClearedNextPageTokenSealsOnlyVisiblePrefix(t *testing.T) {
+	skipChaosInShort(t)
 	for _, transport := range chaosFaultTransports() {
 		t.Run(transport.String(), func(t *testing.T) {
 			ctx := t.Context()
@@ -106,6 +109,7 @@ func TestChaosConnectorClearedNextPageTokenSealsOnlyVisiblePrefix(t *testing.T) 
 }
 
 func TestChaosConnectorReversedResponseOrderPreservesLogicalContent(t *testing.T) {
+	skipChaosInShort(t)
 	for _, transport := range chaosFaultTransports() {
 		t.Run(transport.String(), func(t *testing.T) {
 			ctx := t.Context()

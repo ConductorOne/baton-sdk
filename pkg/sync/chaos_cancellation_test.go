@@ -14,6 +14,7 @@ import (
 )
 
 func TestChaosConnectorCancellationTerminatesAndColdResumes(t *testing.T) {
+	skipChaosInShort(t)
 	cases := []struct {
 		name    string
 		effect  chaosconnector.Effect

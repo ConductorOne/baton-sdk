@@ -72,6 +72,7 @@ func (s *chaosExternalPrincipalCutStore) DeleteEntitlementByRefs(
 }
 
 func TestChaosConnectorExternalPrincipalCorpus(t *testing.T) {
+	skipChaosInShort(t)
 	for _, corpusCase := range chaosconnector.ExternalPrincipalCorpus() {
 		for _, transport := range []chaosTransport{chaosTransportDirect, chaosTransportGRPC} {
 			t.Run(corpusCase.Name+"/"+transport.String(), func(t *testing.T) {
@@ -170,6 +171,7 @@ func TestChaosConnectorExternalPrincipalCorpus(t *testing.T) {
 }
 
 func TestChaosConnectorExternalPrincipalCorpusResumesAfterRewriteCut(t *testing.T) {
+	skipChaosInShort(t)
 	for _, corpusCase := range chaosconnector.ExternalPrincipalCorpus() {
 		t.Run(corpusCase.Name, func(t *testing.T) {
 			ctx := t.Context()
@@ -273,6 +275,7 @@ func TestChaosConnectorExternalPrincipalCorpusResumesAfterRewriteCut(t *testing.
 }
 
 func TestChaosConnectorExternalPrincipalResumeUsesCurrentExternalAnswer(t *testing.T) {
+	skipChaosInShort(t)
 	var corpusCase chaosconnector.ExternalPrincipalCase
 	for _, candidate := range chaosconnector.ExternalPrincipalCorpus() {
 		if candidate.Name == "external-principal/all-users" {
@@ -426,6 +429,7 @@ func TestChaosConnectorExternalPrincipalResumeUsesCurrentExternalAnswer(t *testi
 }
 
 func TestChaosConnectorSQLiteExternalPrincipalResumeDegradesWithoutFailure(t *testing.T) {
+	skipChaosInShort(t)
 	var corpusCase chaosconnector.ExternalPrincipalCase
 	for _, candidate := range chaosconnector.ExternalPrincipalCorpus() {
 		if candidate.Name == "external-principal/id-match" {

@@ -43,6 +43,15 @@ func chaosFaultTransports() []chaosTransport {
 	}
 }
 
+// skipChaosInShort skips the chaos connector suite under -short. Windows CI
+// runs with -short because its filesystem is too slow for the full suite.
+func skipChaosInShort(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("skipping chaos connector suite in short mode")
+	}
+}
+
 // chaosHarness owns one run's scenario-to-transport-to-syncer stack. Tests
 // customize sync behavior with options without repeating adapter wiring or
 // forgetting transport cleanup.
@@ -63,6 +72,7 @@ func newChaosHarness(
 	opts ...SyncOpt,
 ) *chaosHarness {
 	t.Helper()
+	skipChaosInShort(t)
 	builder, err := chaosconnector.NewBuilder(run)
 	require.NoError(t, err)
 	server, err := builder.Server(ctx)
