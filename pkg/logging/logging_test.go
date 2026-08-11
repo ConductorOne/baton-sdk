@@ -61,6 +61,19 @@ func TestDedupeOutputPathsCollapsesAliases(t *testing.T) {
 // rotatorTestDir returns a temp dir for a test that creates rotators. Order
 // matters: t.TempDir registers its cleanup first so clearRotators' runs before
 // it. Reversed, Windows refuses to remove a log file a rotator still holds open.
+// zapSinkTestDir is rotatorTestDir for a test that makes zap open a file sink
+// itself (any path left unrotated). zap caches sinks in a package-global
+// registry and never closes them, so on Windows t.TempDir's cleanup cannot
+// remove the file and fails the test. Best-effort removal instead.
+func zapSinkTestDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "logging-zapsink-*")
+	require.NoError(t, err)
+	clearRotators(t)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 func rotatorTestDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -201,7 +214,8 @@ func TestInitWithRotationAdoptAndRetireAreAtomic(t *testing.T) {
 
 // Not parallel: asserts on the package-level activeRotators set by Init.
 func TestInitWithoutRotationLeavesActiveRotatorsAlone(t *testing.T) {
-	dir := rotatorTestDir(t)
+	// The plain Init below hands its path to zap, which keeps the handle open.
+	dir := zapSinkTestDir(t)
 	rotated := filepath.Join(dir, "rotated.log")
 
 	_, err := InitWithRotation(context.Background(), RotationConfig{MaxSizeMB: 1, MaxBackups: 2},
@@ -368,7 +382,7 @@ func TestInitWithRotationClosesDroppedRotators(t *testing.T) {
 
 // Not parallel: asserts on the package-level activeRotators set by Init.
 func TestInitWithoutRotationLeavesOutputPathsToZap(t *testing.T) {
-	path := filepath.Join(rotatorTestDir(t), "baton.log")
+	path := filepath.Join(zapSinkTestDir(t), "baton.log")
 
 	ctx, err := InitWithRotation(context.Background(), RotationConfig{}, WithOutputPaths([]string{path}))
 	require.NoError(t, err, "InitWithRotation")
