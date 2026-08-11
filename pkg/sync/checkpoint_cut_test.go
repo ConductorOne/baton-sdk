@@ -487,6 +487,9 @@ func enumerateCutPoints(total, limit int) []int {
 }
 
 func TestCheckpointCutEnumeration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping checkpoint cut enumeration in short mode")
+	}
 	tmpDir := t.TempDir()
 	base, expectedEntIDs, userID := buildCutFixture(t)
 
