@@ -9,7 +9,8 @@ Run `make help` for the current target list.
 ## CI-equivalent tests
 
 `make test` runs the ordinary Go test suite with the same build tag used by
-CI. Pull-request CI also runs lint, protobuf checks, and the full build.
+CI. Pull-request CI also runs lint, protobuf checks, the full build, and
+`make race-shard-audit` (see [Race shards](#race-shards)).
 
 Tests in this tier should be deterministic, self-contained, and reasonably
 fast. A test that only skips on Windows with `testing.Short()` is still a CI
@@ -55,6 +56,54 @@ make test-nightly \
   NIGHTLY_DIFFERENTIAL_TIME=30m \
   SOAK_ITERATIONS=100
 ```
+
+### The nightly workflow
+
+`.github/workflows/nightly.yaml` runs these checks every night at 08:00 UTC,
+and on demand via `workflow_dispatch` with optional duration and iteration
+overrides. It does not invoke `make test-nightly` directly: that target runs
+the tiers serially, which is hours of wall clock. The workflow runs one job per
+tier instead, so the suite finishes overnight and a failure names the tier that
+broke rather than presenting one red check.
+
+Because scheduled workflows only run from the default branch, changes to the
+workflow take effect once merged, not from a pull request.
+
+### Race shards
+
+Nearly all of the instrumented sweep's wall clock sits in a handful of
+packages, so the nightly runs it as concurrent shards:
+
+```sh
+make race-shard-audit            # what the shards are, and that they are complete
+make race-shard-list SHARD=sync  # the packages in one shard
+make race-check-shard SHARD=sync # instrument just that shard
+```
+
+`make race-check` still runs the whole sweep in one serial pass, which is
+usually what you want locally when you are not trying to reproduce a specific
+package's failure.
+
+A shard runs the same command as `race-check` with a narrower package list and
+no extra environment, so reproducing a shard failure locally needs no special
+setup. The exhaustive checkpoint-cut sweep is deliberately not part of it: the
+nightly `interrupt` job runs that sweep on its own budget, and repeating it
+under the race detector inside a shard would buy a second copy of the most
+expensive test in the repository.
+
+The `rest` shard is the complement of the named shards, so every package
+belongs to exactly one shard by construction and a newly added package joins
+`rest` automatically rather than silently escaping instrumentation.
+`make race-shard-audit` proves that by counting, and pull-request CI runs it —
+otherwise the gap would be invisible until someone went looking. It also checks
+that the shard names in the Makefile and in `nightly.yaml` still agree, since a
+shard declared in only one of the two balances the count while running nowhere.
+
+Counting alone cannot catch a shard whose pattern has gone stale: a pattern that
+matches nothing removes nothing from `rest`, so `rest` quietly absorbs the
+packages and the union still equals `./...`. The audit therefore fails on the
+shard listing itself, and names the shard, rather than inferring a gap from the
+totals.
 
 ## Benchmarks
 

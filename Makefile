@@ -58,9 +58,23 @@ test: ## Run the Go test suite used by CI.
 # HEAD and a pinned past release, and exchanges mid-flight checkpoints in
 # both directions. See cmd/baton-compat-harness. Override the old release
 # with BATON_COMPAT_OLD_REF=<tag>.
+#
+# The timeout has to clear the sum of this test's own sub-budgets rather than
+# just its expected runtime: a worktree checkout at 5m, two harness builds at 5m
+# each, and eight gen/resume runs at 3m come to about 39m of ceilings. Below that
+# sum — and Go's 10m default is far below it — a slow-but-healthy run dies as
+# "test timed out" and says nothing about which step was slow, which is the whole
+# failure mode this value exists to avoid. A genuine hang is caught by the step's
+# own context within a few minutes, so a global ceiling this high costs nothing.
+# nightly.yaml keeps the job budget above it, so Go reports before the runner.
+#
+# For scale: the whole target takes about a minute on a warm developer machine,
+# where the four exchange cells are 2-3s each and the two builds are nearly all
+# of it. The ceiling is a backstop for a cold runner compiling two dependency
+# sets, not a number this is expected to approach.
 .PHONY: compat-check
 compat-check: ## Exchange checkpoints with a pinned older SDK.
-	BATON_COMPAT=1 go test -v -count=1 -run TestCheckpointCompatAcrossSDKVersions ./cmd/baton-compat-harness
+	BATON_COMPAT=1 go test -v -count=1 -timeout=45m -run TestCheckpointCompatAcrossSDKVersions ./cmd/baton-compat-harness
 
 # Real-binary interruption instrument: builds a deterministic connector from
 # this tree, runs budget-bounded sync sessions, SIGKILLs them at varied
@@ -82,7 +96,125 @@ interrupt-check: checkpoint-cut-check crash-check ## Run in-process cut and real
 
 .PHONY: race-check
 race-check: ## Run the complete Go suite with the race detector.
-	go test -race -tags=baton_lambda_support -count=1 -timeout=30m ./...
+	go test -race -tags=baton_lambda_support -count=1 -timeout=45m ./...
+
+# Nightly race shards. A serial instrumented ./... sweep is hours of work, and
+# nearly all of it sits in a handful of packages, so the nightly workflow runs
+# these shards as concurrent jobs instead. That is what keeps a "nightly" suite
+# finishing overnight rather than bleeding into the next workday, and it names
+# the shard that broke instead of one red check covering everything.
+#
+# `rest` is the complement of the named shards, so every package belongs to
+# exactly one shard by construction: a newly added package joins `rest`
+# automatically rather than silently escaping the sweep. race-shard-audit
+# proves that property by counting.
+RACE_SHARD_NAMES := dotc1z engine sync expand compactor cmd rest
+
+RACE_PKG := github.com/conductorone/baton-sdk
+RACE_SHARD_dotc1z := ^$(RACE_PKG)/pkg/dotc1z$$
+RACE_SHARD_engine := ^$(RACE_PKG)/pkg/dotc1z/engine($$|/)
+RACE_SHARD_sync := ^$(RACE_PKG)/pkg/sync$$
+RACE_SHARD_expand := ^$(RACE_PKG)/pkg/sync/expand($$|/)
+RACE_SHARD_compactor := ^$(RACE_PKG)/(pkg/synccompactor($$|/)|pkg/c1zsanitize$$)
+RACE_SHARD_cmd := ^$(RACE_PKG)/cmd($$|/)
+RACE_SHARD_NAMED := $(RACE_SHARD_dotc1z)|$(RACE_SHARD_engine)|$(RACE_SHARD_sync)|$(RACE_SHARD_expand)|$(RACE_SHARD_compactor)|$(RACE_SHARD_cmd)
+
+# The shards run under RACE_TAGS, so they are enumerated under it too. A
+# package whose files all sit behind that tag would otherwise be missing from
+# every shard and from the audit's total at once, and the audit would call that
+# full coverage — the exact gap it exists to catch.
+RACE_TAGS := baton_lambda_support
+
+# A hang is only diagnosable if Go is the one that kills it: the runner's
+# timeout stops the job and keeps nothing, while Go's dumps every goroutine's
+# stack. Go applies this timeout per test binary rather than per invocation, so
+# for a one-package shard a job budget above this value is enough, while a shard
+# spanning many packages can legitimately run far longer in total than any one
+# binary is allowed. nightly.yaml gives those shards budgets well clear of this
+# value instead of the small margin that would do if the clock were per shard.
+#
+# The value is generous on purpose: the one-package sync shard takes about 12
+# minutes on a developer machine, and CI runners are smaller, so a tighter
+# timeout would start killing slow-but-healthy packages. If a shard ever does
+# trip this, the dump says which test was still running, and that is the number
+# to raise.
+RACE_SHARD_TIMEOUT := 45m
+
+NIGHTLY_WORKFLOW := .github/workflows/nightly.yaml
+
+.PHONY: race-shard-list
+race-shard-list: ## Print the packages in race shard SHARD.
+	@test -n "$(SHARD)" || { echo "race-shard-list: set SHARD to one of: $(RACE_SHARD_NAMES)" >&2; exit 2; }
+	@if [ "$(SHARD)" = "rest" ]; then \
+		go list -tags=$(RACE_TAGS) ./... | grep -vE '$(RACE_SHARD_NAMED)'; \
+	else \
+		test -n '$(RACE_SHARD_$(SHARD))' || { echo "race-shard-list: unknown shard '$(SHARD)'" >&2; exit 2; }; \
+		go list -tags=$(RACE_TAGS) ./... | grep -E '$(RACE_SHARD_$(SHARD))'; \
+	fi
+
+# The package list is captured before the test runs so a bad SHARD fails as a
+# bad SHARD. Left inside the argument list, its exit status is swallowed by
+# command substitution and go test reports a confusing "no packages" instead.
+# An empty list cannot get past the capture — the list ends in grep, which exits
+# 1 when it matches nothing — so this reports it here rather than testing $$pkgs
+# afterwards, which would never run.
+.PHONY: race-check-shard
+race-check-shard: ## Race-check one nightly shard, for example SHARD=dotc1z.
+	@pkgs=$$($(MAKE) --no-print-directory race-shard-list SHARD=$(SHARD)) || { \
+		echo "race-check-shard: no packages for SHARD='$(SHARD)' (see above)" >&2; \
+		exit 1; \
+	}; \
+	set -x; go test -race -tags=$(RACE_TAGS) -count=1 -timeout=$(RACE_SHARD_TIMEOUT) $$pkgs
+
+# Each shard's list is captured rather than piped straight into wc, for the same
+# reason as race-check-shard above: at the head of a pipe its exit status is
+# lost. That is worse than a confusing message. A named shard's list ends in
+# grep, which exits 1 when its pattern matches nothing, and a pattern that has
+# drifted from the package tree takes nothing out of `rest` — so `rest` absorbs
+# the orphaned packages, the union still equals ./..., and the count-based audit
+# passes while a whole nightly job runs an empty package set. Failing on the
+# list's status is what catches that, which is why it says which shard and why.
+.PHONY: race-shard-audit
+race-shard-audit: ## Verify the race shards cover every package exactly once.
+	@total=$$(go list -tags=$(RACE_TAGS) ./... | wc -l | tr -d ' '); sum=0; \
+	test "$$total" -gt 0 || { echo "race-shard-audit: go list returned no packages" >&2; exit 1; }; \
+	for s in $(RACE_SHARD_NAMES); do \
+		out=$$($(MAKE) --no-print-directory race-shard-list SHARD=$$s) || { \
+			if [ "$$s" = rest ]; then \
+				echo "race-shard-audit: the 'rest' complement is empty: the named shards now match every package" >&2; \
+			else \
+				echo "race-shard-audit: shard '$$s' listed no packages: RACE_SHARD_$$s is either undefined or no longer matches anything" >&2; \
+			fi; \
+			exit 1; \
+		}; \
+		n=$$(printf '%s' "$$out" | grep -c '^'); \
+		printf '  %-10s %3s packages\n' "$$s" "$$n"; \
+		sum=$$((sum + n)); \
+	done; \
+	printf '  %-10s %3s packages\n' "union" "$$sum"; \
+	printf '  %-10s %3s packages\n' "go list" "$$total"; \
+	if [ "$$sum" != "$$total" ]; then \
+		echo "race-shard-audit: union is $$sum but ./... is $$total — the shards overlap or leave a gap" >&2; \
+		exit 1; \
+	fi; \
+	$(MAKE) --no-print-directory race-shard-matrix-audit; \
+	echo "race-shard-audit: every package is covered exactly once"
+
+# Counting packages proves the shards cover the repository, not that anything
+# runs them: nightly.yaml names the shards in its matrix. A shard added here
+# and not there would take its packages out of `rest` and into a job that does
+# not exist, and the count would still balance.
+.PHONY: race-shard-matrix-audit
+race-shard-matrix-audit: ## Verify nightly.yaml runs exactly the declared shards.
+	@declared=$$(printf '%s\n' $(RACE_SHARD_NAMES) | sort); \
+	matrix=$$(sed -n 's/^ *- shard: *\([a-z0-9_-]*\).*/\1/p' $(NIGHTLY_WORKFLOW) | sort); \
+	test -n "$$matrix" || { echo "race-shard-matrix-audit: no shards found in $(NIGHTLY_WORKFLOW)" >&2; exit 1; }; \
+	if [ "$$declared" != "$$matrix" ]; then \
+		echo "race-shard-matrix-audit: RACE_SHARD_NAMES and $(NIGHTLY_WORKFLOW) disagree" >&2; \
+		echo "  Makefile:  $$(echo $$declared | tr '\n' ' ')" >&2; \
+		echo "  workflow:  $$(echo $$matrix | tr '\n' ' ')" >&2; \
+		exit 1; \
+	fi
 
 .PHONY: fuzz-smoke
 fuzz-smoke: ## Run each native Go fuzzer for FUZZ_TIME (default 30s).

@@ -23,13 +23,21 @@ func TestEncoderPool(t *testing.T) {
 		// First call won't be from pool (pool is empty)
 		require.False(t, fromPool)
 
-		// Return to pool and get again
+		// Retry, and do not simplify this to a single put/get: under the race
+		// detector sync.Pool.Put drops one item in four on the floor on
+		// purpose (`runtime_randn(4) == 0` in sync/pool.go), so a lone
+		// assertion fails a quarter of the time in the nightly race shard.
+		// withIsolatedPools cannot help — a fresh pool, a disabled GC, and one
+		// P still leave the drop, which was measured at ~25% of puts. A real
+		// regression, where nothing is ever pooled, still fails every attempt.
+		var fromPool2 bool
+		for attempt := 0; attempt < 100 && !fromPool2; attempt++ {
+			putEncoder(enc)
+			enc, fromPool2 = getEncoder()
+			require.NotNil(t, enc)
+		}
+		require.True(t, fromPool2, "getEncoder never reported an encoder from the pool")
 		putEncoder(enc)
-
-		enc2, fromPool2 := getEncoder()
-		require.NotNil(t, enc2)
-		require.True(t, fromPool2)
-		putEncoder(enc2)
 	})
 
 	t.Run("pooled encoder produces correct output", func(t *testing.T) {
@@ -117,12 +125,16 @@ func TestDecoderPool(t *testing.T) {
 		require.NotNil(t, dec)
 		require.False(t, fromPool) // First call, pool is empty
 
+		// Retry for the same reason as the encoder case above: the race
+		// detector's build of sync.Pool discards one put in four.
+		var fromPool2 bool
+		for attempt := 0; attempt < 100 && !fromPool2; attempt++ {
+			putDecoder(dec)
+			dec, fromPool2 = getDecoder()
+			require.NotNil(t, dec)
+		}
+		require.True(t, fromPool2, "getDecoder never reported a decoder from the pool")
 		putDecoder(dec)
-
-		dec2, fromPool2 := getDecoder()
-		require.NotNil(t, dec2)
-		require.True(t, fromPool2)
-		putDecoder(dec2)
 	})
 
 	t.Run("pooled decoder produces correct output", func(t *testing.T) {
@@ -200,8 +212,13 @@ func TestDecoderPool(t *testing.T) {
 // between Put and Get (routine after blocking file syscalls — Sync, Close,
 // Rename — especially on slow Windows CI filesystems), the item is parked
 // where Get cannot see it and exact-membership assertions fail. One P means
-// one slot, making Put→Get deterministic; the stdlib's own sync.Pool tests
-// use the same trick.
+// one slot; the stdlib's own sync.Pool tests use the same trick.
+//
+// None of this makes Put→Get deterministic under the race detector, and no
+// helper can: that build of sync.Pool.Put throws one item in four away
+// deliberately. A test that needs to observe a pooled item has to retry the
+// Get; a test that only needs to know the code returned its codec should count
+// the Put instead (see encoderPuts and decoderPuts).
 func withIsolatedPools(t *testing.T) {
 	t.Helper()
 	origEnc := encoderPool
@@ -282,13 +299,16 @@ func TestPoolGrowsFromSaveC1z(t *testing.T) {
 	require.NoError(t, err)
 
 	c1zFile := filepath.Join(tmpDir, "test.c1z")
+	putsBefore := encoderPuts.Load()
 	err = saveC1z(dbFile, c1zFile, pooledEncoderConcurrency)
 	require.NoError(t, err)
 
-	// Now the pool should have an encoder.
-	enc2, fromPool2 := getEncoder()
-	require.True(t, fromPool2, "saveC1z should have returned encoder to pool")
-	putEncoder(enc2)
+	// What this test is about is whether saveC1z hands its encoder back, so
+	// count the put. Asserting on a later get instead would fail a quarter of
+	// the time under the race detector, which drops one put in four on purpose;
+	// the count is taken before the pool sees the item. It is exact rather than
+	// a delta so an unexpected second put fails here too.
+	require.Equal(t, putsBefore+1, encoderPuts.Load(), "saveC1z should have returned exactly its own encoder to the pool")
 }
 
 // TestPoolGrowsFromDecoder verifies that NewDecoder populates the decoder pool
@@ -312,14 +332,11 @@ func TestPoolGrowsFromDecoder(t *testing.T) {
 	err = saveC1z(dbFile, c1zFile, pooledEncoderConcurrency)
 	require.NoError(t, err)
 
-	// Drain encoder pool (saveC1z added one) so we're only asserting on the decoder pool below.
-	enc, _ := getEncoder()
-	_ = enc.Close()
-
 	// Now use NewDecoder which should populate the decoder pool.
 	f, err := os.Open(c1zFile)
 	require.NoError(t, err)
 
+	putsBefore := decoderPuts.Load()
 	decoder, err := NewDecoder(f)
 	require.NoError(t, err)
 
@@ -331,10 +348,11 @@ func TestPoolGrowsFromDecoder(t *testing.T) {
 	err = f.Close()
 	require.NoError(t, err)
 
-	// Now the decoder pool should have a decoder.
-	dec2, fromPool2 := getDecoder()
-	require.True(t, fromPool2, "NewDecoder.Close should have returned decoder to pool")
-	putDecoder(dec2)
+	// Count the put, for the same reason as the encoder case above. This is the
+	// assertion that was failing the nightly race shard when it read the pool
+	// through a get: the detector's one-in-four drop, not a decoder that went
+	// unpooled.
+	require.Equal(t, putsBefore+1, decoderPuts.Load(), "NewDecoder.Close should have returned exactly its own decoder to the pool")
 }
 
 func TestPooledRoundTrip(t *testing.T) {

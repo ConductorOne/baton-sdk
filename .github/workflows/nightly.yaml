@@ -1,0 +1,208 @@
+name: nightly
+
+# The opt-in confidence suites documented in docs/TESTING.md, run every night.
+# They cannot gate a pull request: the instrumented sweep alone is hours of
+# work, and the soaks and fuzzers are sized in wall-clock time rather than in
+# assertions. ci.yaml stays the fast gate; this is where the slow, randomized,
+# and process-killing checks actually get exercised.
+#
+# Everything runs as concurrent jobs rather than one serial `make test-nightly`,
+# so a nightly suite actually finishes overnight instead of bleeding into the
+# workday, and a failure names the tier or shard that broke instead of one red
+# check covering everything. The race sweep is sharded because nearly all of its
+# wall clock sits in a handful of packages; `make race-shard-audit` proves the
+# shards still cover every package exactly once.
+#
+# Scheduled workflows only run from the default branch, so changes here take
+# effect once merged to main, not from a pull request.
+
+on:
+  schedule:
+    # 08:00 UTC daily.
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+    inputs:
+      fuzz_time:
+        description: "Per-fuzzer duration (e.g. 15m)"
+        required: false
+      differential_time:
+        description: "Differential fuzz duration (e.g. 30m)"
+        required: false
+      soak_iterations:
+        description: "Randomized scheduler soak iterations"
+        required: false
+      chaos_iterations:
+        description: "Seeded chaos fan-out iterations"
+        required: false
+
+permissions:
+  contents: read
+
+# The Makefile declares these with `?=`, so environment values win. Scheduled
+# runs get the nightly sizing below; a manual run can widen any of them without
+# editing this file, which is what you want when re-running a suspicious tier.
+env:
+  FUZZ_TIME: ${{ inputs.fuzz_time || '5m' }}
+  DIFFERENTIAL_TIME: ${{ inputs.differential_time || '10m' }}
+  SOAK_ITERATIONS: ${{ inputs.soak_iterations || '25' }}
+  CHAOS_ITERATIONS: ${{ inputs.chaos_iterations || '25' }}
+
+jobs:
+  # Seconds, and it fails when a newly added package would have escaped the
+  # sharded sweep. ci.yaml runs this too, where it can actually block the gap.
+  shard-audit:
+    name: race shard audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+      - name: Verify the race shards cover every package
+        run: make race-shard-audit
+
+  # Go's -timeout is per test binary (see RACE_SHARD_TIMEOUT), so it bounds one
+  # package's run rather than a shard's. For the single-package shards a budget
+  # above that timeout is therefore enough to guarantee Go kills a hang first and
+  # dumps every goroutine's stack, the only useful artifact from a hang. The
+  # multi-package shards get budgets far above it instead, because their honest
+  # total can exceed what any one binary is allowed while a runner-enforced stop
+  # would keep nothing; package counts below are from `make race-shard-audit`.
+  race:
+    name: race (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      # Every shard reports independently: one shard failing must not hide a
+      # race detector finding in another.
+      fail-fast: false
+      matrix:
+        include:
+          # The store shell and its admission/close machinery (1 package).
+          - shard: dotc1z
+            timeout: 60
+          # Every storage engine, including the Pebble adapter and codecs (5).
+          - shard: engine
+            timeout: 90
+          # The sync engine: scheduler, chaos corpora, expansion (1 package).
+          - shard: sync
+            timeout: 60
+          # Grant expansion and strongly-connected-component condensation (2).
+          - shard: expand
+            timeout: 90
+          # Compaction, fold, and the c1z sanitizer (4 packages).
+          - shard: compactor
+            timeout: 90
+          # CLI plus the crash and compat harnesses (3 packages).
+          - shard: cmd
+            timeout: 90
+          # Everything not named above, by construction (70 packages).
+          - shard: rest
+            timeout: 120
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+      - name: Race-check the ${{ matrix.shard }} shard
+        run: make race-check-shard SHARD=${{ matrix.shard }}
+
+  suite:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Exhaustive in-process checkpoint cuts plus the real-process
+          # crash/resume harness, which spawns and hard-kills connectors. This is
+          # two targets, each with its own 30m go-test ceiling, so the budget has
+          # to clear 60m of ceilings plus the builds ahead of them — at 60m the
+          # runner could stop the job the same minute Go would have dumped stacks.
+          - name: interrupt
+            target: interrupt-check
+            timeout: 90
+          # Exchanges mid-flight checkpoints with a pinned older SDK build. The
+          # budget clears compat-check's 45m go-test timeout, which in turn
+          # clears the harness's own per-step deadlines; see the Makefile.
+          - name: compat
+            target: compat-check
+            timeout: 60
+          # Two fuzz targets, each running for FUZZ_TIME. The budget covers the
+          # default; a dispatch that asks for a long fuzz_time has to be under
+          # half of it, since -timeout cannot bound a fuzzing session.
+          - name: fuzz
+            target: fuzz-smoke
+            timeout: 45
+          # Compares complete SQLite and Pebble artifacts over generated cases.
+          - name: differential
+            target: differential-check
+            timeout: 45
+          - name: scheduler-soak
+            target: scheduler-soak
+            timeout: 45
+          - name: chaos-soak
+            target: chaos-soak
+            timeout: 45
+          # Randomized whole-sync Pebble failure points against a crashable
+          # filesystem.
+          - name: errorfs-soak
+            target: errorfs-soak
+            timeout: 45
+          # Output is evidence rather than a pass/fail gate, but running the
+          # curves catches crashes and keeps the current cost visible.
+          - name: bench-smoke
+            target: bench-smoke
+            timeout: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          # compat-check materializes a pinned old release with
+          # `git worktree add --detach <tmp> v0.20.2`, which needs the tag and
+          # its history. The default shallow checkout has neither, and the
+          # harness fails with "invalid reference".
+          fetch-depth: 0
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+      - name: make ${{ matrix.target }}
+        run: make ${{ matrix.target }}
+
+  # A nightly nobody reads fails the same way the un-run suites did. GitHub
+  # emails a scheduled workflow's failures only to whoever last edited the cron
+  # line, so a red run reaches one inbox and no place the team looks. File it
+  # instead — one open issue that later failures append to, rather than a fresh
+  # issue every night for as long as something stays broken.
+  report:
+    name: report failures
+    needs: [shard-audit, race, suite]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open or update the nightly failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="nightly suite is failing"
+          body="The nightly run on $(date -u +%Y-%m-%d) failed. Which tier broke is in the run: $RUN_URL"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 100 \
+            --json number,title --jq "[.[] | select(.title == \"$title\") | .number] | first // empty")
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi

@@ -61,6 +61,22 @@ jobs:
           go-version-file: "go.mod"
       - name: Run bounded chaos checks under race detection
         run: make chaos-check
+  race-shard-audit:
+    # The nightly race sweep is sharded by package (see the Makefile). This
+    # asserts the shards still cover every package exactly once, so a newly
+    # added package cannot quietly fall out of instrumented coverage. Seconds
+    # to run, and the gap it catches is otherwise invisible.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+      - name: Verify the nightly race shards cover every package
+        run: make race-shard-audit
   baton-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 15
