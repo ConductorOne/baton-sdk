@@ -59,14 +59,22 @@ test: ## Run the Go test suite used by CI.
 # both directions. See cmd/baton-compat-harness. Override the old release
 # with BATON_COMPAT_OLD_REF=<tag>.
 #
-# The timeout is explicit because this test's own sub-budgets exceed Go's 10m
-# default several times over: two harness builds at 5m each, then eight
-# gen/resume runs at 3m. On a cold runner, compiling the pinned release's whole
-# dependency set can spend the default before the matrix starts, and the
-# failure reads as a test timeout rather than as slow builds.
+# The timeout has to clear the sum of this test's own sub-budgets rather than
+# just its expected runtime: a worktree checkout at 5m, two harness builds at 5m
+# each, and eight gen/resume runs at 3m come to about 39m of ceilings. Below that
+# sum — and Go's 10m default is far below it — a slow-but-healthy run dies as
+# "test timed out" and says nothing about which step was slow, which is the whole
+# failure mode this value exists to avoid. A genuine hang is caught by the step's
+# own context within a few minutes, so a global ceiling this high costs nothing.
+# nightly.yaml keeps the job budget above it, so Go reports before the runner.
+#
+# For scale: the whole target takes about a minute on a warm developer machine,
+# where the four exchange cells are 2-3s each and the two builds are nearly all
+# of it. The ceiling is a backstop for a cold runner compiling two dependency
+# sets, not a number this is expected to approach.
 .PHONY: compat-check
 compat-check: ## Exchange checkpoints with a pinned older SDK.
-	BATON_COMPAT=1 go test -v -count=1 -timeout=25m -run TestCheckpointCompatAcrossSDKVersions ./cmd/baton-compat-harness
+	BATON_COMPAT=1 go test -v -count=1 -timeout=45m -run TestCheckpointCompatAcrossSDKVersions ./cmd/baton-compat-harness
 
 # Real-binary interruption instrument: builds a deterministic connector from
 # this tree, runs budget-bounded sync sessions, SIGKILLs them at varied
