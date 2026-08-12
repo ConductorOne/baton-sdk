@@ -229,7 +229,9 @@ const (
 )
 
 // clampInlineWait bounds a requested inline wait: non-positive values take
-// the server default and oversized values are capped at maxInlineWait.
+// the server default and oversized values are capped at maxInlineWait. Not
+// every transport enforces the wire validation rules, so this clamp is the
+// only universal bound.
 func clampInlineWait(inlineWait time.Duration) time.Duration {
 	if inlineWait <= 0 {
 		return defaultInlineWait

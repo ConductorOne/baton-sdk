@@ -320,8 +320,9 @@ type InvokeActionRequest struct {
 	// RPC deadline above the requested wait: a deadline that fires first fails
 	// the call, and although the action keeps running server-side, its id is
 	// never delivered, so the outcome is unreachable to that caller. Negative
-	// waits and waits beyond the validated ceiling are rejected outright as
-	// caller bugs, while values within the bounds may still be capped.
+	// waits and waits beyond the validated ceiling are rejected as caller
+	// bugs where the transport enforces validation rules; the server-side
+	// cap is the backstop everywhere.
 	InlineWait    *durationpb.Duration `protobuf:"bytes,5,opt,name=inline_wait,json=inlineWait,proto3" json:"inline_wait,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -446,8 +447,9 @@ type InvokeActionRequest_builder struct {
 	// RPC deadline above the requested wait: a deadline that fires first fails
 	// the call, and although the action keeps running server-side, its id is
 	// never delivered, so the outcome is unreachable to that caller. Negative
-	// waits and waits beyond the validated ceiling are rejected outright as
-	// caller bugs, while values within the bounds may still be capped.
+	// waits and waits beyond the validated ceiling are rejected as caller
+	// bugs where the transport enforces validation rules; the server-side
+	// cap is the backstop everywhere.
 	InlineWait *durationpb.Duration
 }
 
