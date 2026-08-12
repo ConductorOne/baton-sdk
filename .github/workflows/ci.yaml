@@ -39,8 +39,11 @@ jobs:
         run: go test -tags=baton_lambda_support -v -covermode=count -json ./... > test.json
       - name: go tests
         if: ${{ matrix.platform == 'windows-latest' }}
-        # Run tests with -short on Windows since its filesystem is very slow, causing CI to time out.
-        run: go test -timeout=30m -tags=baton_lambda_support -short -v -covermode=count -json ./... > test.json
+        # -short because the Windows filesystem is very slow and the job times
+        # out. No lambda tag for the same reason: lambda connectors only ship
+        # on Amazon Linux, so the tagged tests have no Windows deployment
+        # target and only spend the slowest runner's time budget.
+        run: go test -timeout=30m -short -v -covermode=count -json ./... > test.json
       - name: Print go test results
         if: always()
         run: cat test.json
