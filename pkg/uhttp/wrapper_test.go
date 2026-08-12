@@ -730,17 +730,36 @@ func TestWrapper_RedactSensitiveHeaders(t *testing.T) {
 	}, redactedHeaders)
 }
 
-// TestWrapper_Do_CachesAcrossTransportHeaderInjection guards against a
-// regression where the transport's userAgentTripper (transport.go) sets
-// User-Agent on the same Header map the request was built with. http.Client
-// forks the *http.Request struct on every call (uhttp.NewClient always sets
-// a non-zero Timeout, which makes the fork unconditional), but that fork is
-// shallow, so the Header map -- and therefore the mutation -- is still
-// visible on the request Do() passed in. If Do() round-trips on req itself,
-// CreateCacheKey(req) hashes a different header set for the cache.Set below
-// than it did for the cache.Get above, and no future identical request can
-// ever match the stored key: the cache becomes write-only.
-func TestWrapper_Do_CachesAcrossTransportHeaderInjection(t *testing.T) {
+// headerInjectingRoundTripper simulates a transport-level RoundTripper (like
+// userAgentTripper in transport.go) that sets a header directly on the
+// *http.Request it's handed, rather than on a private copy.
+type headerInjectingRoundTripper struct {
+	next  http.RoundTripper
+	key   string
+	value string
+}
+
+func (h *headerInjectingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header.Set(h.key, h.value)
+	return h.next.RoundTrip(req)
+}
+
+// TestWrapper_Do_CachesDespiteRoundTripHeaderInjection guards against a
+// regression where a header a connector opts into the cache key via
+// WithCacheKeyHeaders gets mutated by a RoundTripper further down the
+// transport chain (transport.go's userAgentTripper does exactly this for
+// User-Agent, which is why this used to bite by default before the cache
+// key was scoped down to an explicit allowlist).
+//
+// BaseHttpClient.Do computes the cache key from req before the round trip
+// (Get) and again from the same req after it (Set). http.Client.Do forks
+// the *http.Request struct on every call once Timeout > 0 (which
+// uhttp.NewClient always sets), but that fork is shallow, so Header stays
+// the same map the caller passed in -- any RoundTripper that mutates it
+// mutates the very request Do() is holding. If Do() round-tripped on req
+// itself rather than a clone, the Set key would differ from every future
+// Get key for that header and the cache would become write-only.
+func TestWrapper_Do_CachesDespiteRoundTripHeaderInjection(t *testing.T) {
 	var hits int32
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&hits, 1)
@@ -749,10 +768,14 @@ func TestWrapper_Do_CachesAcrossTransportHeaderInjection(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	// A real client built via NewClient, so the real userAgentTripper is in
-	// the round-trip chain -- not a fake transport standing in for it.
-	httpClient, err := NewClient(ctx)
-	require.NoError(t, err)
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second, // matches uhttp.NewClient's guarantee of Timeout > 0
+		Transport: &headerInjectingRoundTripper{
+			next:  http.DefaultTransport,
+			key:   "X-Injected-By-Transport",
+			value: "anything",
+		},
+	}
 
 	client, err := NewBaseHttpClientWithContext(ctx, httpClient)
 	require.NoError(t, err)
@@ -763,7 +786,8 @@ func TestWrapper_Do_CachesAcrossTransportHeaderInjection(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		req, err := client.NewRequest(ctx, http.MethodGet, u)
 		require.NoError(t, err)
-		require.Empty(t, req.Header.Get("User-Agent"), "request must not pre-set User-Agent for this test to reproduce the bug")
+		require.Empty(t, req.Header.Get("X-Injected-By-Transport"), "test setup: header must start unset for this to reproduce the bug")
+		req = WithCacheKeyHeaders(req, "X-Injected-By-Transport")
 
 		resp, err := client.Do(req)
 		require.NoError(t, err)
