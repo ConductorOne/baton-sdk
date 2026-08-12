@@ -873,7 +873,7 @@ func TestSkipSyncHonorsRunDuration(t *testing.T) {
 		WithC1ZPath(filepath.Join(tmpDir, "skip-run-duration.c1z")),
 		WithTmpDir(tmpDir),
 		WithSkipFullSync(),
-		WithRunDuration(5*time.Second),
+		WithRunDuration(8*time.Second),
 	)
 	require.NoError(t, err)
 
