@@ -111,6 +111,11 @@ type icache interface {
 }
 
 // CreateCacheKey generates a cache key based on the request URL, query parameters, and headers.
+//
+// Every header is folded into the key. Dropping a header here would let two
+// requests that differ only in that header collide on the same cache entry
+// -- e.g. requests carrying different Authorization or other per-request
+// auth headers would otherwise be served each other's cached response.
 func CreateCacheKey(req *http.Request) (string, error) {
 	if req == nil {
 		return "", fmt.Errorf("request is nil")
@@ -128,13 +133,11 @@ func CreateCacheKey(req *http.Request) (string, error) {
 
 	sort.Strings(sortedParams)
 	queryString := strings.Join(sortedParams, "&")
-	// Include relevant headers in the cache key
+	// Include every header in the cache key.
 	var headerParts []string
 	for key, values := range req.Header {
 		for _, value := range values {
-			if key == "Accept" || key == "Content-Type" || key == "Cookie" || key == "Range" {
-				headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
-			}
+			headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
 		}
 	}
 
