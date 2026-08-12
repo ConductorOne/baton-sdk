@@ -117,3 +117,17 @@ func TestCreateCacheKey_ExtraCacheKeyHeadersCanonicalizesNames(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, keyA, keyB)
 }
+
+// TestCreateCacheKey_DoesNotMutateCallersExtraCacheKeyHeadersSlice guards
+// against canonicalizing extraCacheKeyHeaders in place: a variadic spread
+// (headers...) shares the caller's backing array rather than copying it, so
+// writing into extraCacheKeyHeaders[i] would silently rewrite a slice the
+// caller still holds a reference to (e.g. one reused across many calls).
+func TestCreateCacheKey_DoesNotMutateCallersExtraCacheKeyHeadersSlice(t *testing.T) {
+	headers := []string{"x-tenant-id"}
+	req := newCacheKeyRequest(t, "X-Tenant-Id", "tenant-a")
+
+	_, err := CreateCacheKey(req, headers...)
+	require.NoError(t, err)
+	require.Equal(t, []string{"x-tenant-id"}, headers, "CreateCacheKey must not rewrite the caller's slice contents")
+}
