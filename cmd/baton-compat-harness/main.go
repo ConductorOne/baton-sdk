@@ -565,6 +565,9 @@ func graphCompatFullCompact(ctx context.Context, inputPath, outPath string) (com
 	if err != nil {
 		return compatResult{}, err
 	}
+	if run == nil {
+		return compatResult{}, fmt.Errorf("input artifact has no finished sync")
+	}
 	empty, err := graphCompatEmptyPartial(ctx, filepath.Dir(outPath))
 	if err != nil {
 		return compatResult{}, err
