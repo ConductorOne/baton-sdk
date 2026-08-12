@@ -88,7 +88,42 @@ type lambdaConnectorReloader struct {
 	build   func(context.Context, string) (*lambdaConnectorGeneration, error)
 }
 
+// Handler is a recovery wrapper around handle. Config reload and log level
+// application run before the request reaches the server, and the server's own
+// dispatch runs outside the chain as well, so the recovery interceptor cannot
+// see a panic from any of them — connector construction on a reload is the
+// widest surface. An escaping panic here would unwind into the lambda runtime,
+// which reports a crashed invocation with no status for the caller to classify.
 func (r *lambdaConnectorReloader) Handler(ctx context.Context, req *c1_lambda_grpc.Request) (*c1_lambda_grpc.Response, error) {
+	var resp *c1_lambda_grpc.Response
+	var err error
+	func() {
+		// Tracking completion rather than testing the recovered value, the way
+		// vendored grpc_recovery does: a nil panic value under GODEBUG=panicnil=1
+		// is recovered but indistinguishable from no panic, and returning a nil
+		// response with a nil error would reach the invoker as an empty success.
+		panicked := true
+		defer func() {
+			p := recover()
+			if !panicked {
+				return
+			}
+			// Internal, deliberately not the Unavailable that reload's error exits
+			// return: an error from reload is an anticipated failure (config fetch,
+			// decrypt, validation) that a retry can plausibly clear, while a panic
+			// is a defect that would recur on retry — classifying it as retryable
+			// would invite the caller to loop on a bug. Internal is also what the
+			// same panic produces everywhere else in the process, so the reload
+			// branch is not an exception to the panic contract.
+			resp, err = c1_lambda_grpc.ErrorResponse(ugrpc.RecoveredPanicError(ctx, p, ugrpc.RecoverySiteLambdaHandler)), nil
+		}()
+		resp, err = r.handle(ctx, req)
+		panicked = false
+	}()
+	return resp, err
+}
+
+func (r *lambdaConnectorReloader) handle(ctx context.Context, req *c1_lambda_grpc.Request) (*c1_lambda_grpc.Response, error) {
 	requestedVersion := ""
 	if values := req.Headers().Get(lambdaConnectorConfigVersionHeader); len(values) > 0 {
 		requestedVersion = values[0]
@@ -129,29 +164,31 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 	}
 
 	currentLog := r.current.logging
-	revertLogLevel := func() {
-		if err := applyLambdaLogLevel(currentLog, time.Now()); err != nil {
-			zap.L().Warn("failed to restore log level after connector build error", zap.Error(err))
+	// r.build applies next's log level before it can fail, so every exit that
+	// leaves the active generation in place owes that generation's level a
+	// restore. One deferred guard covers all of them, including a panic: the
+	// handler recovers those now, so the sandbox survives and a level left at
+	// next's setting would persist across later invocations.
+	active := r.current
+	defer func() {
+		if r.current != active {
+			return
 		}
-	}
+		if err := applyLambdaLogLevel(currentLog, time.Now()); err != nil {
+			zap.L().Warn("failed to restore log level after a reload left the active generation in place", zap.Error(err))
+		}
+	}()
 
 	next, err := r.build(ctx, requestedVersion)
 	if err != nil {
-		// r.build may have applied next's log level before failing; restore the
-		// still-active generation's level since next never activated.
-		revertLogLevel()
 		return err
 	}
 	previous := r.current
 	replaced, drained, err := r.server.ReplaceServiceImplementation(previous.connector, next.connector)
 	if err != nil {
-		// next's log level was applied during build but it never activated; restore previous.
-		revertLogLevel()
 		return err
 	}
 	if replaced == 0 {
-		// next's log level was applied during build but it never activated; restore previous.
-		revertLogLevel()
 		return fmt.Errorf("no registered services matched the current connector generation")
 	}
 
@@ -470,7 +507,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			TicketingEnabled:    true,
 		}
 
-		chain := ugrpc.ChainUnaryInterceptors(authOpt)
+		chain := lambdaUnaryInterceptorChain(authOpt)
 
 		s := c1_lambda_grpc.NewServer(chain)
 		connector.Register(runCtx, s, initialGeneration.connector, opts)
@@ -486,6 +523,16 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 	}
 
 	return nil
+}
+
+// lambdaUnaryInterceptorChain builds the interceptor chain the lambda transport
+// serves connector RPCs through. Recovery is first, and therefore outermost, so
+// a panic anywhere below it — auth, or the connector method itself — returns as
+// a status instead of escaping into the lambda runtime, which reports a crashed
+// invocation with no status for the caller to act on.
+func lambdaUnaryInterceptorChain(interceptors ...grpc.UnaryServerInterceptor) grpc.UnaryServerInterceptor {
+	withRecovery := append([]grpc.UnaryServerInterceptor{ugrpc.RecoveryUnaryInterceptor()}, interceptors...)
+	return ugrpc.ChainUnaryInterceptors(withRecovery...)
 }
 
 func lambdaConnectorConfigVersion(config *v1.GetConnectorConfigResponse) string {
