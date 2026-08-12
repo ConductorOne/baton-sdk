@@ -110,13 +110,6 @@ type icache interface {
 	Stats(ctx context.Context) CacheStats
 }
 
-var defaultCacheKeyHeaders = map[string]struct{}{
-	"Accept":       {},
-	"Content-Type": {},
-	"Cookie":       {},
-	"Range":        {},
-}
-
 // CreateCacheKey generates a cache key based on the request URL, query parameters, and headers.
 func CreateCacheKey(req *http.Request, extraCacheKeyHeaders ...string) (string, error) {
 	if req == nil {
@@ -139,18 +132,14 @@ func CreateCacheKey(req *http.Request, extraCacheKeyHeaders ...string) (string, 
 	// Include relevant headers in the cache key
 	var headerParts []string
 	for key, values := range req.Header {
-		if _, ok := defaultCacheKeyHeaders[key]; !ok {
-			continue
-		}
 		for _, value := range values {
-			headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
+			if key == "Accept" || key == "Content-Type" || key == "Cookie" || key == "Range" {
+				headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
+			}
 		}
 	}
 	for _, h := range extraCacheKeyHeaders {
 		key := http.CanonicalHeaderKey(h)
-		if _, ok := defaultCacheKeyHeaders[key]; ok {
-			continue
-		}
 		for _, value := range req.Header[key] {
 			headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
 		}
