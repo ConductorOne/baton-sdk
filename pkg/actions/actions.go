@@ -638,6 +638,7 @@ func (a *ActionManager) invokeGlobalAction(
 		}()
 		oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
 		bgCtx := trace.ContextWithSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
+		bgCtx = ctxzap.ToContext(bgCtx, ctxzap.Extract(ctx))
 		handlerCtx, cancel := context.WithTimeoutCause(bgCtx, 1*time.Hour, errors.New("action handler timed out"))
 		defer cancel()
 		rv, annos, oaErr := handler(handlerCtx, args)
