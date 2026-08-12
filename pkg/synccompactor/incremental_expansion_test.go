@@ -914,6 +914,31 @@ func TestCompactor_IncrementalDegradesGracefullyOnSQLite(t *testing.T) {
 	}
 }
 
+// TestCompactor_IncrementalBaseWithNoFinishedSyncDeclines: a base c1z whose
+// sync never ended (interrupted collection) makes LatestFinishedSyncOfAnyType
+// return (nil, nil) on both engines. The base-graph loader must return an
+// error — declining to full expansion — not panic on run.ID.
+func TestCompactor_IncrementalBaseWithNoFinishedSyncDeclines(t *testing.T) {
+	ctx := context.Background()
+
+	basePath := filepath.Join(t.TempDir(), "unfinished.c1z")
+	store, err := dotc1z.NewStore(ctx, basePath, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	// No EndSync: the artifact holds no finished sync run.
+	require.NoError(t, store.Close(ctx))
+
+	c := &Compactor{
+		entries: []*CompactableSync{{FilePath: basePath, SyncID: syncID}},
+		tmpDir:  t.TempDir(),
+	}
+	graph, err := c.loadIncrementalBaseGraph(ctx)
+	require.Error(t, err, "an unfinished base must decline, not panic")
+	require.ErrorContains(t, err, "no finished sync")
+	require.Nil(t, graph)
+}
+
 // TestCompactor_IncrementalNewMemberFoldCollectsChangedEnts: fold mode
 // collects the changed-entitlement set during the merge (no re-read) and
 // still matches full expansion.

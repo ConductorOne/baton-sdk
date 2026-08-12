@@ -457,7 +457,13 @@ func (ie *IncrementalExpander) recomputeDestination(ctx context.Context, nodeID 
 
 	// 2. Merge contributions into the destination's existing grants (union the
 	// sources map, upgrade direct-ness), streaming one page at a time. Only a
-	// grant that actually changed is rewritten; matched principals leave contrib.
+	// grant that actually changed is rewritten. A principal can hold several
+	// grant rows on one entitlement (connector-authored IDs are arbitrary), and
+	// the full expander merges the contribution into every row sharing the
+	// principal key — so record matches in a side set instead of consuming the
+	// contribution on the first row, and drop them from contrib only after the
+	// whole destination has streamed.
+	matched := make(map[string]struct{})
 	mergeErr := ie.forEachGrant(ctx, destEnt, nil, func(g *v2.Grant) error {
 		pid := g.GetPrincipal().GetId()
 		key := pid.GetResourceType() + "\x00" + pid.GetResource()
@@ -465,7 +471,7 @@ func (ie *IncrementalExpander) recomputeDestination(ctx context.Context, nodeID 
 		if pc == nil {
 			return nil
 		}
-		delete(contrib, key)
+		matched[key] = struct{}{}
 		updated := mergeContributionIntoExistingGrant(g, destEntitlementID, pc.sources)
 		if updated == nil {
 			return nil // already had these sources — no write
@@ -478,6 +484,9 @@ func (ie *IncrementalExpander) recomputeDestination(ctx context.Context, nodeID 
 	})
 	if mergeErr != nil {
 		return 0, mergeErr
+	}
+	for key := range matched {
+		delete(contrib, key)
 	}
 
 	// 3. Whatever is left in contrib are brand-new principals. Sort for

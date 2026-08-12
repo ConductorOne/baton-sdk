@@ -453,6 +453,50 @@ func TestIncremental_MalformedNilPrincipalGrantSkipped(t *testing.T) {
 		"incremental must match the full-expansion oracle in the presence of malformed grants")
 }
 
+// TestIncremental_DuplicatePrincipalRowsAllMerged: a destination entitlement
+// can hold several grant rows for the same principal (connector-authored grant
+// IDs are arbitrary). The full expander merges a contribution into every row
+// sharing the principal key (topological_merge_streaming.go); the incremental
+// merge must do the same, not consume the contribution on the first row and
+// leave later rows with stale sources.
+func TestIncremental_DuplicatePrincipalRowsAllMerged(t *testing.T) {
+	ctx := context.Background()
+
+	alice := makeResource("user", "alice")
+	seedStore := func() *MockExpanderStore {
+		store := NewMockExpanderStore()
+		store.AddEntitlement(makeEntitlement("eng:member", makeResource("group", "eng:member")))
+		store.AddEntitlement(makeEntitlement("github:access", makeResource("app", "github")))
+		store.AddGrant(directGrant("eng:member", alice))
+		// Two pre-existing rows for alice on the destination, distinct IDs.
+		destEnt := makeEntitlement("github:access", makeResource("app", "github"))
+		store.AddGrant(makeGrant("dup-row-1", destEnt, alice))
+		store.AddGrant(makeGrant("dup-row-2", destEnt, alice))
+		return store
+	}
+
+	// Full-expansion oracle over the final rule set.
+	fullStore := seedStore()
+	fullGraph := NewEntitlementGraph(ctx)
+	fullGraph.AddEntitlementID("eng:member")
+	fullGraph.AddEntitlementID("github:access")
+	require.NoError(t, fullGraph.AddEdge(ctx, "eng:member", "github:access", false, nil))
+	require.NoError(t, NewExpander(fullStore, fullGraph).Run(ctx))
+
+	// Incremental: expanded base without the edge, then the edge arrives.
+	incStore := seedStore()
+	incGraph := NewEntitlementGraph(ctx)
+	incGraph.AddEntitlementID("eng:member")
+	require.NoError(t, NewExpander(incStore, incGraph).Run(ctx))
+
+	_, err := NewIncrementalExpander(incStore, incGraph).
+		ExpandChanges(ctx, []NewEdge{{SourceEntitlementID: "eng:member", DestEntitlementID: "github:access"}}, nil)
+	require.NoError(t, err)
+
+	require.Equal(t, snapshotStoreGrants(fullStore), snapshotStoreGrants(incStore),
+		"every duplicate-principal row must carry the merged sources, matching full expansion")
+}
+
 func itoa(i int) string {
 	if i == 0 {
 		return "0"

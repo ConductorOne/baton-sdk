@@ -1372,6 +1372,12 @@ func (c *Compactor) loadIncrementalBaseGraph(ctx context.Context) (*expand.Entit
 		_ = store.Close(ctx)
 		return nil, fmt.Errorf("incremental expansion: load base verification: %w", runErr)
 	}
+	// Both engines return (nil, nil) when the artifact holds no finished sync
+	// (e.g. an interrupted collection): decline to full expansion, don't panic.
+	if run == nil {
+		_ = store.Close(ctx)
+		return nil, fmt.Errorf("incremental expansion: base has no finished sync")
+	}
 	if run.ID != c.entries[0].SyncID ||
 		!run.IsVerified() ||
 		run.Generation != sync.IngestInvariantGeneration {
