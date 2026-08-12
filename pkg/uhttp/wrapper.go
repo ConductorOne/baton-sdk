@@ -436,6 +436,21 @@ func (c *BaseHttpClient) recordCacheMiss(ctx context.Context) {
 }
 
 func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Response, error) {
+	return c.do(req, nil, options...)
+}
+
+// DoWithCacheKeyHeaders behaves exactly like Do, except the named headers
+// are additionally folded into the HTTP response cache key for this call,
+// on top of the default set (Accept, Content-Type, Cookie, Range). Use this
+// instead of Do when the request varies by a header the cache wouldn't
+// otherwise key on -- e.g. a per-call Authorization token or a
+// tenant/version header -- so requests that only differ in that header
+// don't collide in the cache. See CreateCacheKey.
+func (c *BaseHttpClient) DoWithCacheKeyHeaders(req *http.Request, cacheKeyHeaders []string, options ...DoOption) (*http.Response, error) {
+	return c.do(req, cacheKeyHeaders, options...)
+}
+
+func (c *BaseHttpClient) do(req *http.Request, cacheKeyHeaders []string, options ...DoOption) (*http.Response, error) {
 	var (
 		err  error
 		resp *http.Response
@@ -448,7 +463,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	if req.Method == http.MethodGet && req.Header.Get("Cache-Control") != "no-cache" {
-		resp, err = c.baseHttpCache.Get(req)
+		resp, err = c.baseHttpCache.Get(req, cacheKeyHeaders...)
 		if err != nil {
 			return nil, err
 		}
@@ -529,7 +544,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
-		cacheErr := c.baseHttpCache.Set(req, resp)
+		cacheErr := c.baseHttpCache.Set(req, resp, cacheKeyHeaders...)
 		if cacheErr != nil {
 			l.Warn("error setting cache", zap.String("url", req.URL.String()), zap.Error(cacheErr))
 		}
