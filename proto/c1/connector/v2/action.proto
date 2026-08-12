@@ -77,7 +77,7 @@ message InvokeActionRequest {
   // bugs where the transport enforces validation rules; the server-side
   // cap is the backstop everywhere.
   google.protobuf.Duration inline_wait = 5 [(validate.rules).duration = {
-    gte: {},
+    gte: {}
     lte: {seconds: 86400}
   }];
 }
