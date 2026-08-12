@@ -336,32 +336,34 @@ func (m *InvokeActionRequest) validate(all bool) error {
 
 	// no validation rules for ResourceTypeId
 
-	if all {
-		switch v := interface{}(m.GetInlineWait()).(type) {
-		case interface{ ValidateAll() error }:
-			if err := v.ValidateAll(); err != nil {
-				errors = append(errors, InvokeActionRequestValidationError{
-					field:  "InlineWait",
-					reason: "embedded message failed validation",
-					cause:  err,
-				})
-			}
-		case interface{ Validate() error }:
-			if err := v.Validate(); err != nil {
-				errors = append(errors, InvokeActionRequestValidationError{
-					field:  "InlineWait",
-					reason: "embedded message failed validation",
-					cause:  err,
-				})
-			}
-		}
-	} else if v, ok := interface{}(m.GetInlineWait()).(interface{ Validate() error }); ok {
-		if err := v.Validate(); err != nil {
-			return InvokeActionRequestValidationError{
+	if d := m.GetInlineWait(); d != nil {
+		dur, err := d.AsDuration(), d.CheckValid()
+		if err != nil {
+			err = InvokeActionRequestValidationError{
 				field:  "InlineWait",
-				reason: "embedded message failed validation",
+				reason: "value is not a valid duration",
 				cause:  err,
 			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		} else {
+
+			lte := time.Duration(86400*time.Second + 0*time.Nanosecond)
+			gte := time.Duration(0*time.Second + 0*time.Nanosecond)
+
+			if dur < gte || dur > lte {
+				err := InvokeActionRequestValidationError{
+					field:  "InlineWait",
+					reason: "value must be inside range [0s, 24h0m0s]",
+				}
+				if !all {
+					return err
+				}
+				errors = append(errors, err)
+			}
+
 		}
 	}
 

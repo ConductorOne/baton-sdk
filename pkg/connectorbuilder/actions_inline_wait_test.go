@@ -83,3 +83,35 @@ func TestInvokeActionThreadsInlineWaitFromRequest(t *testing.T) {
 	require.GreaterOrEqual(t, elapsed, time.Second)
 	require.Less(t, elapsed, 3*time.Second)
 }
+
+// The wire ceiling rejects waits that are almost certainly caller bugs;
+// values at or below it are the server-side clamp's business, and the
+// lenient non-positive contract survives validation.
+func TestInlineWaitValidationCeiling(t *testing.T) {
+	cases := []struct {
+		name    string
+		wait    *durationpb.Duration
+		wantErr bool
+	}{
+		{"unset passes", nil, false},
+		{"negative is rejected", durationpb.New(-time.Second), true},
+		{"zero passes", durationpb.New(0), false},
+		{"at the ceiling passes", durationpb.New(24 * time.Hour), false},
+		{"beyond the ceiling is rejected", durationpb.New(24*time.Hour + time.Second), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := v2.InvokeActionRequest_builder{
+				Name:       "bounded-action",
+				InlineWait: tc.wait,
+			}.Build()
+			err := req.Validate()
+			if tc.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "InlineWait")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

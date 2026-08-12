@@ -10,6 +10,7 @@ package v2
 
 import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/config/v1"
+	_ "github.com/envoyproxy/protoc-gen-validate/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -314,11 +315,14 @@ type InvokeActionRequest struct {
 	// to finish before returning its in-flight status. The wait is an upper
 	// bound on blocking, not a guarantee: the server may answer sooner, and it
 	// may silently cap an oversized wait rather than reject it. Unset or
-	// non-positive values take the server's default. The server does not
+	// zero values take the server's default. The server does not
 	// shorten the wait to fit the call's deadline, so callers must set their
 	// RPC deadline above the requested wait: a deadline that fires first fails
 	// the call, and although the action keeps running server-side, its id is
-	// never delivered, so the outcome is unreachable to that caller.
+	// never delivered, so the outcome is unreachable to that caller. Negative
+	// waits and waits beyond the validated ceiling are rejected as caller
+	// bugs where the transport enforces validation rules; the server-side
+	// cap is the backstop everywhere.
 	InlineWait    *durationpb.Duration `protobuf:"bytes,5,opt,name=inline_wait,json=inlineWait,proto3" json:"inline_wait,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -438,11 +442,14 @@ type InvokeActionRequest_builder struct {
 	// to finish before returning its in-flight status. The wait is an upper
 	// bound on blocking, not a guarantee: the server may answer sooner, and it
 	// may silently cap an oversized wait rather than reject it. Unset or
-	// non-positive values take the server's default. The server does not
+	// zero values take the server's default. The server does not
 	// shorten the wait to fit the call's deadline, so callers must set their
 	// RPC deadline above the requested wait: a deadline that fires first fails
 	// the call, and although the action keeps running server-side, its id is
-	// never delivered, so the outcome is unreachable to that caller.
+	// never delivered, so the outcome is unreachable to that caller. Negative
+	// waits and waits beyond the validated ceiling are rejected as caller
+	// bugs where the transport enforces validation rules; the server-side
+	// cap is the backstop everywhere.
 	InlineWait *durationpb.Duration
 }
 
@@ -1096,7 +1103,7 @@ var File_c1_connector_v2_action_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\n" +
-	"\x1cc1/connector/v2/action.proto\x12\x0fc1.connector.v2\x1a\x19c1/config/v1/config.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xfb\x02\n" +
+	"\x1cc1/connector/v2/action.proto\x12\x0fc1.connector.v2\x1a\x19c1/config/v1/config.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x17validate/validate.proto\"\xfb\x02\n" +
 	"\x11BatonActionSchema\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x121\n" +
 	"\targuments\x18\x02 \x03(\v2\x13.c1.config.v1.FieldR\targuments\x12:\n" +
@@ -1106,13 +1113,13 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\vdescription\x18\x06 \x01(\tR\vdescription\x12<\n" +
 	"\vaction_type\x18\a \x03(\x0e2\x1b.c1.connector.v2.ActionTypeR\n" +
 	"actionType\x12(\n" +
-	"\x10resource_type_id\x18\b \x01(\tR\x0eresourceTypeId\"\xf4\x01\n" +
+	"\x10resource_type_id\x18\b \x01(\tR\x0eresourceTypeId\"\x84\x02\n" +
 	"\x13InvokeActionRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12+\n" +
 	"\x04args\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x04args\x126\n" +
 	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12(\n" +
-	"\x10resource_type_id\x18\x04 \x01(\tR\x0eresourceTypeId\x12:\n" +
-	"\vinline_wait\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\n" +
+	"\x10resource_type_id\x18\x04 \x01(\tR\x0eresourceTypeId\x12J\n" +
+	"\vinline_wait\x18\x05 \x01(\v2\x19.google.protobuf.DurationB\x0e\xfaB\v\xaa\x01\b\"\x04\b\x80\xa3\x052\x00R\n" +
 	"inlineWait\"\xe3\x01\n" +
 	"\x14InvokeActionResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12:\n" +
