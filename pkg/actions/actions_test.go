@@ -963,8 +963,8 @@ func TestActionStatusPredicates(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.status.String(), func(t *testing.T) {
-			require.Equal(t, tc.inFlight, IsInFlightActionStatus(tc.status))
-			require.Equal(t, tc.settled, IsSettledActionStatus(tc.status))
+			require.Equal(t, tc.inFlight, IsInFlight(tc.status))
+			require.Equal(t, tc.settled, IsSettled(tc.status))
 		})
 	}
 }

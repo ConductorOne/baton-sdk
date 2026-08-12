@@ -266,7 +266,7 @@ func registerLegacyAction(
 		// A settled status at the invoke seam resolves like a terminal
 		// poll. The SDK's own manager reports handler failures in-band as
 		// FAILED with a nil error, so this must not resolve as success.
-		if actions.IsSettledActionStatus(actionStatus) {
+		if actions.IsSettled(actionStatus) {
 			return resp, annos, legacyStatusErr(schema.GetName(), actionStatus, resp)
 		}
 
@@ -313,14 +313,14 @@ func registerLegacyAction(
 			}
 			// Keep the last meaningful response for the error exits above;
 			// an indeterminate poll's payload must not replace it.
-			if pollResp != nil && (actions.IsInFlightActionStatus(st) || actions.IsSettledActionStatus(st)) {
+			if pollResp != nil && (actions.IsInFlight(st) || actions.IsSettled(st)) {
 				resp, annos = pollResp, pollAnnos
 			}
 
 			switch {
-			case actions.IsInFlightActionStatus(st):
+			case actions.IsInFlight(st):
 				statusErrs = 0
-			case actions.IsSettledActionStatus(st):
+			case actions.IsSettled(st):
 				// The settling poll's own payload is the failure account;
 				// resp may hold an older in-flight snapshot.
 				return resp, annos, legacyStatusErr(schema.GetName(), st, pollResp)

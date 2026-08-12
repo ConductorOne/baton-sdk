@@ -84,7 +84,7 @@ func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc type
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	for actions.IsInFlightActionStatus(status) {
+	for actions.IsInFlight(status) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
