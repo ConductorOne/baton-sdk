@@ -6,7 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"path/filepath"
+	"os"
 	"testing"
 	"time"
 
@@ -298,9 +298,13 @@ func TestLambdaConnectorReloaderLogLevelAtEveryExit(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// Discard the output: these cases assert on the logger's level, never
+			// on what it wrote, and zap keeps a sink open for the life of the
+			// process, so a file under t.TempDir() would block the directory's
+			// cleanup on Windows, where an open handle cannot be deleted.
 			ctx, err := logging.Init(context.Background(),
 				logging.WithLogLevel("debug"),
-				logging.WithOutputPaths([]string{filepath.Join(t.TempDir(), "test.log")}),
+				logging.WithOutputPaths([]string{os.DevNull}),
 			)
 			require.NoError(t, err, "logging.Init")
 			logger := ctxzap.Extract(ctx)
@@ -345,7 +349,7 @@ func TestLambdaConnectorReloaderRecoveredPanicRestoresLogLevel(t *testing.T) {
 	// Sets the process-wide log level, so this test cannot run in parallel.
 	ctx, err := logging.Init(context.Background(),
 		logging.WithLogLevel("debug"),
-		logging.WithOutputPaths([]string{filepath.Join(t.TempDir(), "test.log")}),
+		logging.WithOutputPaths([]string{os.DevNull}),
 	)
 	require.NoError(t, err, "logging.Init")
 	logger := ctxzap.Extract(ctx)
