@@ -110,12 +110,6 @@ type icache interface {
 	Stats(ctx context.Context) CacheStats
 }
 
-// defaultCacheKeyHeaders are always folded into the cache key returned by
-// CreateCacheKey. Headers outside this set are ignored unless a caller
-// names them via extraCacheKeyHeaders: folding in every header by default
-// would key the cache on values that have nothing to do with the response
-// -- transport-injected headers like User-Agent, tracing/correlation IDs,
-// etc. -- and would defeat caching for callers who never asked for that.
 var defaultCacheKeyHeaders = map[string]struct{}{
 	"Accept":       {},
 	"Content-Type": {},
@@ -123,29 +117,13 @@ var defaultCacheKeyHeaders = map[string]struct{}{
 	"Range":        {},
 }
 
-// CreateCacheKey generates a cache key based on the request URL, query
-// parameters, and headers. Only defaultCacheKeyHeaders -- plus any headers
-// named in extraCacheKeyHeaders -- are folded in; see defaultCacheKeyHeaders
-// for why the set isn't just "every header." Pass extraCacheKeyHeaders when
-// a request varies by a header outside the default set -- e.g. a per-call
-// Authorization token or a tenant/version header -- so requests that only
-// differ in that header don't collide in the cache.
 func CreateCacheKey(req *http.Request, extraCacheKeyHeaders ...string) (string, error) {
 	if req == nil {
 		return "", fmt.Errorf("request is nil")
 	}
-	allowedHeaders := make(map[string]struct{}, len(defaultCacheKeyHeaders)+len(extraCacheKeyHeaders))
-	for h := range defaultCacheKeyHeaders {
-		allowedHeaders[h] = struct{}{}
-	}
-	for _, h := range extraCacheKeyHeaders {
-		allowedHeaders[http.CanonicalHeaderKey(h)] = struct{}{}
-	}
 
 	var sortedParams []string
-	// Normalize the URL path
 	path := strings.ToLower(req.URL.Path)
-	// Combine the path with sorted query parameters
 	queryParams := req.URL.Query()
 	for k, v := range queryParams {
 		for _, value := range v {
@@ -155,10 +133,13 @@ func CreateCacheKey(req *http.Request, extraCacheKeyHeaders ...string) (string, 
 
 	sort.Strings(sortedParams)
 	queryString := strings.Join(sortedParams, "&")
-	// Include only the allowed headers in the cache key.
 	var headerParts []string
 	for key, values := range req.Header {
-		if _, ok := allowedHeaders[key]; !ok {
+		_, ok := defaultCacheKeyHeaders[key]
+		for i := 0; !ok && i < len(extraCacheKeyHeaders); i++ {
+			ok = http.CanonicalHeaderKey(extraCacheKeyHeaders[i]) == key
+		}
+		if !ok {
 			continue
 		}
 		for _, value := range values {
@@ -168,10 +149,8 @@ func CreateCacheKey(req *http.Request, extraCacheKeyHeaders ...string) (string, 
 
 	sort.Strings(headerParts)
 	headersString := strings.Join(headerParts, "&")
-	// Create a unique string for the cache key
 	cacheString := fmt.Sprintf("%s?%s&headers=%s", path, queryString, headersString)
 
-	// Hash the cache string to create a key
 	hash := sha256.New()
 	_, err := hash.Write([]byte(cacheString))
 	if err != nil {
