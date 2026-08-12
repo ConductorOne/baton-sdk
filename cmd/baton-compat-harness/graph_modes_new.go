@@ -130,6 +130,10 @@ func graphCompatSeed(ctx context.Context, path string) (compatResult, error) {
 		_ = store.Close(ctx)
 		return compatResult{}, err
 	}
+	if run == nil {
+		_ = store.Close(ctx)
+		return compatResult{}, fmt.Errorf("candidate artifact has no finished sync")
+	}
 	graph := expand.NewEntitlementGraph(ctx)
 	for _, entitlement := range connector.entsByRes {
 		graph.AddEntitlementID(entitlement.GetId())
@@ -178,6 +182,10 @@ func graphCompatInspect(ctx context.Context, path string) (compatResult, error) 
 		_ = store.Close(ctx)
 		return result, err
 	}
+	if run == nil {
+		_ = store.Close(ctx)
+		return result, fmt.Errorf("inspected artifact has no finished sync")
+	}
 	if graphStore, ok := store.(sdksync.EntitlementGraphStore); ok {
 		data, graphErr := graphStore.GetEntitlementGraphBlob(ctx)
 		if graphErr != nil {
@@ -214,6 +222,9 @@ func graphCompatCompact(ctx context.Context, inputPath, outPath string, incremen
 	}
 	if err != nil {
 		return compatResult{}, err
+	}
+	if run == nil {
+		return compatResult{}, fmt.Errorf("compaction input has no finished sync")
 	}
 
 	var logBytes bytes.Buffer
