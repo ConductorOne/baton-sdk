@@ -4,22 +4,20 @@ on:
     branches:
       - main
 jobs:
-  lint-and-breaking-change-detection:
+  buf-lint-and-breaking-change-detection:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
-      - name: Setup
-        uses: bufbuild/buf-setup-action@v1
-        with:
-          version: '1.50.0'
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Lint
-        uses: bufbuild/buf-lint-action@v1
+        uses: actions/checkout@v6
       - name: Breaking change detection against `main`
-        uses: bufbuild/buf-breaking-action@v1
+        uses: bufbuild/buf-action@v1
         with:
-          against: 'https://github.com/conductorone/baton-sdk.git#branch=main,ref=HEAD~1'
+          version: '1.72.0'
+          breaking: true
+          format: false
+          lint: true
+          pr_comment: false
+          push: false
   go-lint:
     runs-on: ubuntu-latest
     steps:
