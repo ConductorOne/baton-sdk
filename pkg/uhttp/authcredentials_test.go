@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
@@ -292,4 +295,132 @@ func TestHelpers_OAuth2_RefreshToken_GetClient(t *testing.T) {
 	require.Equal(t, "test-access-token", token.AccessToken)
 	require.Equal(t, "test-refresh-token", token.RefreshToken)
 	require.Equal(t, "Bearer", token.TokenType)
+}
+
+func TestOAuth2ClientCredentials_RetriesToken5xxButNotAPIPost(t *testing.T) {
+	var tokenHits, apiHits int
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenHits++
+		if tokenHits == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"access_token":"tok","token_type":"Bearer","expires_in":3600}`))
+	}))
+	t.Cleanup(tokenSrv.Close)
+
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiHits++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(apiSrv.Close)
+
+	tokenURL, err := url.Parse(tokenSrv.URL)
+	require.NoError(t, err)
+	cc := NewOAuth2ClientCredentials("id", "secret", tokenURL, nil)
+
+	ctx := context.Background()
+	client, err := cc.GetClient(ctx)
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiSrv.URL, strings.NewReader("grant"))
+	require.NoError(t, err)
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, 2, tokenHits, "token POST should retry a single 5xx")
+	require.Equal(t, 1, apiHits, "API POST must not inherit token-client retries")
+	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+}
+
+func TestOAuth2JWT_RetriesToken5xxButNotAPIPost(t *testing.T) {
+	var tokenHits, apiHits int
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenHits++
+		if tokenHits == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"access_token":"tok","token_type":"Bearer","expires_in":3600}`))
+	}))
+	t.Cleanup(tokenSrv.Close)
+
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiHits++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(apiSrv.Close)
+
+	oauthJWT := &OAuth2JWT{
+		Credentials: []byte("test-credentials"),
+		CreateJWTConfig: func(_ []byte, scopes ...string) (*jwt.Config, error) {
+			return &jwt.Config{
+				Email:      "test-email",
+				TokenURL:   tokenSrv.URL,
+				PrivateKey: getDummyPrivateKey(),
+				Scopes:     scopes,
+			}, nil
+		},
+	}
+
+	ctx := context.Background()
+	client, err := oauthJWT.GetClient(ctx)
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiSrv.URL, strings.NewReader("grant"))
+	require.NoError(t, err)
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, 2, tokenHits, "JWT token POST should retry a single 5xx")
+	require.Equal(t, 1, apiHits, "API POST must not inherit token-client retries")
+	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+}
+
+func TestOAuth2ClientCredentials_GetClientStripsTransientRetriesFromAPI(t *testing.T) {
+	var tokenHits, apiHits int
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenHits++
+		if tokenHits == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"access_token":"tok","token_type":"Bearer","expires_in":3600}`))
+	}))
+	t.Cleanup(tokenSrv.Close)
+
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiHits++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(apiSrv.Close)
+
+	tokenURL, err := url.Parse(tokenSrv.URL)
+	require.NoError(t, err)
+	cc := NewOAuth2ClientCredentials("id", "secret", tokenURL, nil)
+
+	ctx := context.Background()
+	client, err := cc.GetClient(ctx, WithTransientRetries(TransientRetryConfig{
+		InitialDelay: time.Millisecond,
+		MaxDelay:     time.Millisecond,
+	}))
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiSrv.URL, strings.NewReader("grant"))
+	require.NoError(t, err)
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, 2, tokenHits, "token POST should still retry a single 5xx")
+	require.Equal(t, 1, apiHits, "WithTransientRetries on GetClient must not retry API POSTs")
+	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 }

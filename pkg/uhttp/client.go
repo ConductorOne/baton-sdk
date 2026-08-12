@@ -79,6 +79,75 @@ func WithTimeout(timeout time.Duration) Option {
 	return timeoutOption{timeout: timeout}
 }
 
+const (
+	defaultTransientRetryAttempts = 3
+	defaultTransientRetryInitial  = 500 * time.Millisecond
+	defaultTransientRetryMaxDelay = 2 * time.Second
+	// A mid-flight timeout has already blocked for up to ResponseHeaderTimeout
+	// (60s). Retrying that N times would stall Token() for minutes; one extra
+	// attempt is enough to cover a hung origin that then recovers.
+	maxTransientTimeoutRetries = 1
+)
+
+// TransientRetryConfig configures WithTransientRetries. A zero value selects
+// the defaults: 3 attempts (1 try + 2 retries), 500ms initial delay, 2s max
+// delay. MaxAttempts <= 0, InitialDelay <= 0, and MaxDelay <= 0 each mean
+// "use the default"; 0 does not mean unlimited.
+type TransientRetryConfig struct {
+	MaxAttempts  int
+	InitialDelay time.Duration
+	MaxDelay     time.Duration
+}
+
+type transientRetrySettings struct {
+	maxAttempts  int
+	initialDelay time.Duration
+	maxDelay     time.Duration
+}
+
+func resolveTransientRetry(cfg TransientRetryConfig) transientRetrySettings {
+	s := transientRetrySettings{
+		maxAttempts:  cfg.MaxAttempts,
+		initialDelay: cfg.InitialDelay,
+		maxDelay:     cfg.MaxDelay,
+	}
+	if s.maxAttempts <= 0 {
+		s.maxAttempts = defaultTransientRetryAttempts
+	}
+	if s.initialDelay <= 0 {
+		s.initialDelay = defaultTransientRetryInitial
+	}
+	if s.maxDelay <= 0 {
+		s.maxDelay = defaultTransientRetryMaxDelay
+	}
+	return s
+}
+
+type transientRetriesOption struct {
+	cfg TransientRetryConfig
+}
+
+func (o transientRetriesOption) Apply(c *Transport) {
+	s := resolveTransientRetry(o.cfg)
+	c.transientRetry = &s
+}
+
+// WithTransientRetries retries 5xx responses and mid-flight timeouts on this
+// client, with exponential backoff. Use it only for OAuth token endpoints
+// (and similarly side-effect-free token fetches).
+//
+// Do not enable this on a client used for general API reads or for
+// provisioning (grants, revokes, tickets, SetIamPolicy). Those requests are
+// not safe to replay after they have been sent; a retried POST can double-apply.
+//
+// 429 / rate-limit responses are not retried here: they belong to pkg/retry
+// via RateLimitDescription. Dial-phase and stale-pooled-connection retries
+// stay on the existing one-shot path; this option also treats the client's
+// requests as replayable so token POSTs get that stale-connection retry.
+func WithTransientRetries(cfg TransientRetryConfig) Option {
+	return transientRetriesOption{cfg: cfg}
+}
+
 type Option interface {
 	Apply(*Transport)
 }

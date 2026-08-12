@@ -82,6 +82,9 @@ type Transport struct {
 	// nowFn overrides time.Now in tests.
 	nowFn func() time.Time
 	mtx   sync.RWMutex
+	// transientRetry, when non-nil, retries 5xx and mid-flight timeouts.
+	// Set only via WithTransientRetries; nil is the default (off).
+	transientRetry *transientRetrySettings
 }
 
 func newTransport() *Transport {
@@ -234,17 +237,22 @@ func (t *Transport) closeIdleConnections() {
 // and returns the request to retry with. Two cases qualify: errors raised
 // before any request bytes were written (safe for every method), and
 // stale-pooled-connection errors on requests that declare idempotence via
-// a safe method or an Idempotency-Key header. net/http covers the second
-// case itself for HTTP/1.1 but never for HTTP/2, where its retry gate
-// requires a reused persistConn and h2 connections are always wrapped in
-// fresh ones.
-func retryableRequest(req *http.Request, err error) (*http.Request, bool) {
-	retrySafe := requestNeverSent(err) || (declaredIdempotent(req) && isStaleConnectionError(err))
+// a safe method, an Idempotency-Key header, or a WithTransientRetries
+// client (replayable). net/http covers the second case itself for HTTP/1.1
+// but never for HTTP/2, where its retry gate requires a reused persistConn
+// and h2 connections are always wrapped in fresh ones.
+func retryableRequest(req *http.Request, err error, replayable bool) (*http.Request, bool) {
+	retrySafe := requestNeverSent(err) || ((declaredIdempotent(req) || replayable) && isStaleConnectionError(err))
 	if !retrySafe {
 		return nil, false
 	}
-	// The transport closes the original body on failure, so any request
-	// that carries one needs a fresh copy to be retried.
+	return rewindRequest(req)
+}
+
+// rewindRequest returns a request with a fresh body for retry. The transport
+// closes the original body on failure, so any request that carries one needs
+// GetBody. Requests with no body are returned as-is.
+func rewindRequest(req *http.Request) (*http.Request, bool) {
 	if req.Body == nil || req.Body == http.NoBody {
 		return req, true
 	}
@@ -288,8 +296,10 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	}()
 	resp, err := rt.RoundTrip(req)
-	if err != nil && req.Context().Err() == nil {
-		if retryReq, ok := retryableRequest(req, err); ok {
+	if t.transientRetry != nil {
+		resp, err = t.roundTripTransientRetries(ctx, rt, req, resp, err)
+	} else if err != nil && req.Context().Err() == nil {
+		if retryReq, ok := retryableRequest(req, err, false); ok {
 			// A mass connection death (e.g. a proxy instance replaced) can
 			// leave further corpses in the pool; drop them so the retry
 			// dials fresh instead of drawing the next one. Re-resolve the
