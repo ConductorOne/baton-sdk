@@ -266,7 +266,7 @@ func registerLegacyAction(
 		// A settled status at the invoke seam resolves like a terminal
 		// poll. The SDK's own manager reports handler failures in-band as
 		// FAILED with a nil error, so this must not resolve as success.
-		if isSettledActionStatus(actionStatus) {
+		if actions.IsSettled(actionStatus) {
 			return resp, annos, legacyStatusErr(schema.GetName(), actionStatus, resp)
 		}
 
@@ -313,14 +313,14 @@ func registerLegacyAction(
 			}
 			// Keep the last meaningful response for the error exits above;
 			// an indeterminate poll's payload must not replace it.
-			if pollResp != nil && (isInFlightActionStatus(st) || isSettledActionStatus(st)) {
+			if pollResp != nil && (actions.IsInFlight(st) || actions.IsSettled(st)) {
 				resp, annos = pollResp, pollAnnos
 			}
 
 			switch {
-			case isInFlightActionStatus(st):
+			case actions.IsInFlight(st):
 				statusErrs = 0
-			case isSettledActionStatus(st):
+			case actions.IsSettled(st):
 				// The settling poll's own payload is the failure account;
 				// resp may hold an older in-flight snapshot.
 				return resp, annos, legacyStatusErr(schema.GetName(), st, pollResp)
@@ -354,18 +354,6 @@ func legacyStatusErr(name string, st v2.BatonActionStatus, resp *structpb.Struct
 		return fmt.Errorf("legacy action %q failed: %s", name, inner)
 	}
 	return fmt.Errorf("legacy action %q failed", name)
-}
-
-func isInFlightActionStatus(s v2.BatonActionStatus) bool {
-	return s == v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING || s == v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING
-}
-
-// isSettledActionStatus is the single gate deciding which statuses resolve
-// immediately, at the invoke seam and from polls alike. A new terminal enum
-// value must be added here, or it takes the indeterminate path: polled to
-// the tolerance threshold, then failed closed.
-func isSettledActionStatus(s v2.BatonActionStatus) bool {
-	return s == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || s == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED
 }
 
 // addActionManager handles deprecated CustomActionManager and RegisterActionManagerLimited interfaces

@@ -947,3 +947,24 @@ func TestResourceActionInlineWaitThreads(t *testing.T) {
 	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, actionStatus)
 	require.GreaterOrEqual(t, elapsed, 2*time.Second)
 }
+
+func TestActionStatusPredicates(t *testing.T) {
+	cases := []struct {
+		status   v2.BatonActionStatus
+		inFlight bool
+		settled  bool
+	}{
+		{v2.BatonActionStatus_BATON_ACTION_STATUS_UNSPECIFIED, false, false},
+		{v2.BatonActionStatus_BATON_ACTION_STATUS_UNKNOWN, false, false},
+		{v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING, true, false},
+		{v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, true, false},
+		{v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, false, true},
+		{v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, false, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.status.String(), func(t *testing.T) {
+			require.Equal(t, tc.inFlight, IsInFlight(tc.status))
+			require.Equal(t, tc.settled, IsSettled(tc.status))
+		})
+	}
+}

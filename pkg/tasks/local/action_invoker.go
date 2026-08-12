@@ -12,6 +12,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
+	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
@@ -83,7 +84,7 @@ func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc type
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	for status == v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING || status == v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING {
+	for actions.IsInFlight(status) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

@@ -24,6 +24,19 @@ import (
 
 type ActionHandler func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error)
 
+// IsInFlight reports whether the status describes an action
+// still executing: PENDING or RUNNING.
+func IsInFlight(s v2.BatonActionStatus) bool {
+	return s == v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING || s == v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING
+}
+
+// IsSettled reports whether the status is terminal: COMPLETE or
+// FAILED. It is the single gate deciding which statuses are final; a new
+// terminal enum value must be added here to be treated as settled anywhere.
+func IsSettled(s v2.BatonActionStatus) bool {
+	return s == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || s == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED
+}
+
 type OutstandingAction struct {
 	Id        string
 	Name      string
@@ -60,7 +73,7 @@ func (oa *OutstandingAction) SetStatus(ctx context.Context, status v2.BatonActio
 // (a handler finishing after its request was cancelled), hence debug level.
 // It requires oa's mutex to be held.
 func (oa *OutstandingAction) setStatusLocked(ctx context.Context, status v2.BatonActionStatus) bool {
-	if oa.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || oa.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
+	if IsSettled(oa.Status) {
 		ctxzap.Extract(ctx).Debug("dropping status transition on terminal action",
 			zap.String("action_id", oa.Id),
 			zap.String("action_name", oa.Name),
@@ -144,7 +157,7 @@ func (oa *OutstandingAction) evictable() bool {
 	if oa.cancelled {
 		return false
 	}
-	return oa.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || oa.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED
+	return IsSettled(oa.Status)
 }
 
 // Result returns the action's identity and current outcome. The snapshot is
