@@ -117,13 +117,16 @@ var defaultCacheKeyHeaders = map[string]struct{}{
 	"Range":        {},
 }
 
+// CreateCacheKey generates a cache key based on the request URL, query parameters, and headers.
 func CreateCacheKey(req *http.Request, extraCacheKeyHeaders ...string) (string, error) {
 	if req == nil {
 		return "", fmt.Errorf("request is nil")
 	}
 
 	var sortedParams []string
+	// Normalize the URL path
 	path := strings.ToLower(req.URL.Path)
+	// Combine the path with sorted query parameters
 	queryParams := req.URL.Query()
 	for k, v := range queryParams {
 		for _, value := range v {
@@ -133,6 +136,7 @@ func CreateCacheKey(req *http.Request, extraCacheKeyHeaders ...string) (string, 
 
 	sort.Strings(sortedParams)
 	queryString := strings.Join(sortedParams, "&")
+	// Include relevant headers in the cache key
 	var headerParts []string
 	for key, values := range req.Header {
 		_, ok := defaultCacheKeyHeaders[key]
@@ -149,8 +153,10 @@ func CreateCacheKey(req *http.Request, extraCacheKeyHeaders ...string) (string, 
 
 	sort.Strings(headerParts)
 	headersString := strings.Join(headerParts, "&")
+	// Create a unique string for the cache key
 	cacheString := fmt.Sprintf("%s?%s&headers=%s", path, queryString, headersString)
 
+	// Hash the cache string to create a key
 	hash := sha256.New()
 	_, err := hash.Write([]byte(cacheString))
 	if err != nil {
