@@ -407,6 +407,52 @@ func TestIncremental_DenseAffectedGraphDeclinesBeforeWrites(t *testing.T) {
 	require.ErrorIs(t, err, ErrIncrementalDenseChangeDecline)
 }
 
+// TestIncremental_MalformedNilPrincipalGrantSkipped: a stored grant with no
+// principal, or a principal without a resource id, must be skipped by the
+// incremental walk exactly as grantContributesOverEdge skips it on the full
+// path — not collapse onto a shared "\x00" contribution key (which could merge
+// into an unrelated malformed destination grant) or abort the attempt in
+// newExpandedGrantWithSources.
+func TestIncremental_MalformedNilPrincipalGrantSkipped(t *testing.T) {
+	ctx := context.Background()
+
+	seedStore := func() *MockExpanderStore {
+		store := NewMockExpanderStore()
+		store.AddEntitlement(makeEntitlement("eng:member", makeResource("group", "eng:member")))
+		store.AddEntitlement(makeEntitlement("github:access", makeResource("app", "github")))
+		store.AddGrant(directGrant("eng:member", makeResource("user", "alice")))
+		// Malformed rows on the source entitlement: one grant with no
+		// principal at all, one whose principal has no resource id.
+		srcEnt := makeEntitlement("eng:member", makeResource("group", "eng:member"))
+		store.AddGrant(makeGrant("broken:nil-principal", srcEnt, nil))
+		store.AddGrant(makeGrant("broken:nil-principal-id", srcEnt, v2.Resource_builder{}.Build()))
+		return store
+	}
+
+	// Full-expansion oracle over the final rule set.
+	fullStore := seedStore()
+	fullGraph := NewEntitlementGraph(ctx)
+	fullGraph.AddEntitlementID("eng:member")
+	fullGraph.AddEntitlementID("github:access")
+	require.NoError(t, fullGraph.AddEdge(ctx, "eng:member", "github:access", false, nil))
+	require.NoError(t, NewExpander(fullStore, fullGraph).Run(ctx))
+
+	// Incremental: expanded base without the edge, then the edge arrives.
+	incStore := seedStore()
+	incGraph := NewEntitlementGraph(ctx)
+	incGraph.AddEntitlementID("eng:member")
+	require.NoError(t, NewExpander(incStore, incGraph).Run(ctx))
+
+	res, err := NewIncrementalExpander(incStore, incGraph).
+		ExpandChanges(ctx, []NewEdge{{SourceEntitlementID: "eng:member", DestEntitlementID: "github:access"}}, nil)
+	require.NoError(t, err, "malformed grants must be skipped, not abort the incremental attempt")
+	require.Equal(t, 1, res.GrantsWritten, "only alice contributes over the new edge")
+
+	require.Contains(t, principalsOn(t, ctx, incStore, "github:access"), "alice")
+	require.Equal(t, snapshotStoreGrants(fullStore), snapshotStoreGrants(incStore),
+		"incremental must match the full-expansion oracle in the presence of malformed grants")
+}
+
 func itoa(i int) string {
 	if i == 0 {
 		return "0"

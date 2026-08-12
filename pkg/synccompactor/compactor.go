@@ -1307,8 +1307,10 @@ func (c *Compactor) expandGrants(ctx context.Context, newSyncId string, compacti
 	// Keep the artifact's graph sidecar coherent with this full expansion:
 	// opted-in compactions preserve a fresh graph (so the incremental chain
 	// heals after a fallback); otherwise drop any sidecar inherited from a
-	// fold-copied base.
-	if c.incrementalExpansion {
+	// fold-copied base. Pebble-only: incremental expansion declines on other
+	// engines, and without a sidecar the preserved graph would only bloat
+	// the final sync token.
+	if c.incrementalExpansion && c.resolvedEngine() == c1zstore.EnginePebble {
 		syncOpts = append(syncOpts, sync.WithPreserveEntitlementGraph())
 	} else if gs, ok := c.compactedC1z.(sync.EntitlementGraphStore); ok {
 		if err := gs.DeleteEntitlementGraphBlob(ctx); err != nil {

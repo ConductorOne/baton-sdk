@@ -411,13 +411,16 @@ func (ie *IncrementalExpander) recomputeDestination(ctx context.Context, nodeID 
 				continue
 			}
 			perGrantErr := ie.forEachGrant(ctx, sourceEnt, edge.ResourceTypeIDs, func(sourceGrant *v2.Grant) error {
+				// Shared definition of "contributes" with the full expander:
+				// rejects nil-principal grants, off-type principals, and
+				// non-direct grants over shallow edges.
+				if !grantContributesOverEdge(sourceGrant, sourceEntitlementID, edge) {
+					return nil
+				}
 				// Directness is relative to the source entitlement (matches the
 				// full expander): a plain direct grant or one whose sources map
 				// records this entitlement counts as direct.
 				isSourceDirect := isGrantDirectOnEntitlement(sourceGrant, sourceEntitlementID)
-				if edge.IsShallow && !isSourceDirect {
-					return nil
-				}
 				principal := sourceGrant.GetPrincipal()
 				pid := principal.GetId()
 				key := pid.GetResourceType() + "\x00" + pid.GetResource()
