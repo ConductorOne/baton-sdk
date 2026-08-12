@@ -3,6 +3,7 @@ package actions
 import (
 	"context"
 	"fmt"
+	"math"
 	"runtime"
 	"testing"
 	"time"
@@ -844,4 +845,105 @@ func TestCancelledInvokeStatusErrorPairing(t *testing.T) {
 			require.NotEqual(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
 		}
 	}
+}
+
+// testBlockingActionHandler blocks until release is closed (or the handler
+// context ends), so tests control exactly when the action completes.
+func testBlockingActionHandler(release <-chan struct{}) ActionHandler {
+	return func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, nil, status.Error(codes.Canceled, "context canceled")
+		}
+		return &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"success": {Kind: &structpb.Value_BoolValue{BoolValue: true}},
+			},
+		}, nil, nil
+	}
+}
+
+func TestInvokeActionHonorsRequestedWait(t *testing.T) {
+	ctx := t.Context()
+	m := NewActionManager(ctx)
+
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	require.NoError(t, m.Register(ctx, testActionSchema, testBlockingActionHandler(release)))
+
+	start := time.Now()
+	actionId, actionStatus, _, _, err := m.InvokeActionWithWait(ctx, "lock_account", "", testInput, 2*time.Second)
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	require.NotEmpty(t, actionId)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, actionStatus)
+	require.GreaterOrEqual(t, elapsed, 2*time.Second)
+}
+
+func TestInvokeActionCompletesWithinRequestedWait(t *testing.T) {
+	ctx := t.Context()
+	m := NewActionManager(ctx)
+
+	release := make(chan struct{})
+	require.NoError(t, m.Register(ctx, testActionSchema, testBlockingActionHandler(release)))
+
+	// Complete the handler after the default one-second wait would have
+	// expired but well inside the requested window.
+	go func() {
+		time.Sleep(1500 * time.Millisecond)
+		close(release)
+	}()
+
+	_, actionStatus, rv, _, err := m.InvokeActionWithWait(ctx, "lock_account", "", testInput, 10*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, actionStatus)
+	require.NotNil(t, rv)
+	require.True(t, rv.Fields["success"].GetBoolValue())
+}
+
+func TestClampInlineWait(t *testing.T) {
+	cases := []struct {
+		name string
+		in   time.Duration
+		want time.Duration
+	}{
+		{"zero takes the default", 0, defaultInlineWait},
+		{"negative takes the default", -time.Second, defaultInlineWait},
+		{"in range passes through", 42 * time.Second, 42 * time.Second},
+		{"oversized is capped", 300 * time.Hour, maxInlineWait},
+		{"saturated duration is capped", time.Duration(math.MaxInt64), maxInlineWait},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, clampInlineWait(tc.in))
+		})
+	}
+}
+
+func TestResourceActionInlineWaitThreads(t *testing.T) {
+	ctx := t.Context()
+	m := NewActionManager(ctx)
+
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	handler := func(hctx context.Context, _ *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
+		select {
+		case <-release:
+		case <-hctx.Done():
+		}
+		return &structpb.Struct{}, nil, nil
+	}
+	require.NoError(t, m.RegisterResourceAction(ctx, "repository", testActionSchema, handler))
+
+	// The resource-scoped path duplicates the invoke select; the requested
+	// wait must thread through it just like the global path.
+	start := time.Now()
+	_, actionStatus, _, _, err := m.InvokeActionWithWait(ctx, "lock_account", "repository", testInput, 2*time.Second)
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, actionStatus)
+	require.GreaterOrEqual(t, elapsed, 2*time.Second)
 }

@@ -214,7 +214,31 @@ func (oa *OutstandingAction) setOutcome(ctx context.Context, rv *structpb.Struct
 	}
 }
 
-const maxOldActions = 1000
+const (
+	maxOldActions = 1000
+
+	// defaultInlineWait bounds the invoke-time wait when the caller does not
+	// request one.
+	defaultInlineWait = 1 * time.Second
+
+	// maxInlineWait caps the requested wait at the handler context budget:
+	// holding the call open longer than a handler may run is never useful,
+	// and a saturated Duration must not pin the request forever on the
+	// deadline-less contexts service mode and the Lambda transport produce.
+	maxInlineWait = 1 * time.Hour
+)
+
+// clampInlineWait bounds a requested inline wait: non-positive values take
+// the server default and oversized values are capped at maxInlineWait.
+func clampInlineWait(inlineWait time.Duration) time.Duration {
+	if inlineWait <= 0 {
+		return defaultInlineWait
+	}
+	if inlineWait > maxInlineWait {
+		return maxInlineWait
+	}
+	return inlineWait
+}
 
 // ActionRegistry provides methods for registering actions.
 // Used by both GlobalActionProvider (global actions) and ResourceActionProvider (resource-scoped actions).
@@ -541,15 +565,41 @@ func (a *ActionManager) InvokeAction(
 	resourceTypeID string,
 	args *structpb.Struct,
 ) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
+	return a.InvokeActionWithWait(ctx, name, resourceTypeID, args, 0)
+}
+
+// InvokeActionWithWait is InvokeAction with an explicit bound on how long the
+// call may block waiting for the handler before returning the action's
+// in-flight status; zero or negative keeps the default.
+func (a *ActionManager) InvokeActionWithWait(
+	ctx context.Context,
+	name string,
+	resourceTypeID string,
+	args *structpb.Struct,
+	inlineWait time.Duration,
+) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
+	clamped := clampInlineWait(inlineWait)
+	if clamped < inlineWait {
+		ctxzap.Extract(ctx).Warn("capping requested inline wait",
+			zap.Duration("requested", inlineWait),
+			zap.Duration("capped", clamped))
+	}
+	inlineWait = clamped
+
 	if resourceTypeID != "" {
-		return a.invokeResourceAction(ctx, resourceTypeID, name, args)
+		return a.invokeResourceAction(ctx, resourceTypeID, name, args, inlineWait)
 	}
 
-	return a.invokeGlobalAction(ctx, name, args)
+	return a.invokeGlobalAction(ctx, name, args, inlineWait)
 }
 
 // invokeGlobalAction invokes a global (non-resource-scoped) action.
-func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, args *structpb.Struct) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
+func (a *ActionManager) invokeGlobalAction(
+	ctx context.Context,
+	name string,
+	args *structpb.Struct,
+	inlineWait time.Duration,
+) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
 	a.mu.RLock()
 	handler, ok := a.handlers[name]
 	schema, schemaOk := a.schemas[name]
@@ -571,9 +621,8 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 
 	done := make(chan struct{})
 
-	// If handler exits within a second, return result.
-	// If handler takes longer than 1 second, return status pending.
-	// If handler takes longer than an hour, return status failed.
+	// The handler runs detached. Return its final result if it finishes
+	// within the inline wait; otherwise return the in-flight status.
 	go func() { // #nosec G118 -- action handlers intentionally outlive the request context and keep only trace/log metadata.
 		defer close(done)
 		defer func() {
@@ -593,11 +642,16 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 		oa.setOutcome(ctx, rv, annos, oaErr)
 	}()
 
+	// Stop releases the timer deterministically when the handler wins the
+	// select; an abandoned time.After timer would only be GC-eligible.
+	waitTimer := time.NewTimer(inlineWait)
+	defer waitTimer.Stop()
+
 	select {
 	case <-done:
 		id, st, rv, annos := oa.result()
 		return id, st, rv, annos, nil
-	case <-time.After(1 * time.Second):
+	case <-waitTimer.C:
 		id, st, rv, annos := oa.result()
 		return id, st, rv, annos, nil
 	case <-ctx.Done():
@@ -626,6 +680,7 @@ func (a *ActionManager) invokeResourceAction(
 	resourceTypeID string,
 	actionName string,
 	args *structpb.Struct,
+	inlineWait time.Duration,
 ) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
 	if resourceTypeID == "" {
 		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.InvalidArgument, "resource type ID is required")
@@ -694,12 +749,16 @@ func (a *ActionManager) invokeResourceAction(
 		oa.setOutcome(ctx, rv, annos, oaErr)
 	}()
 
-	// Wait for completion or timeout
+	// Stop releases the timer deterministically when the handler wins the
+	// select; an abandoned time.After timer would only be GC-eligible.
+	waitTimer := time.NewTimer(inlineWait)
+	defer waitTimer.Stop()
+
 	select {
 	case <-done:
 		id, st, rv, annos := oa.result()
 		return id, st, rv, annos, nil
-	case <-time.After(1 * time.Second):
+	case <-waitTimer.C:
 		id, st, rv, annos := oa.result()
 		return id, st, rv, annos, nil
 	case <-ctx.Done():
