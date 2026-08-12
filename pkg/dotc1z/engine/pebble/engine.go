@@ -332,7 +332,7 @@ func (e *Engine) Close() error {
 	// (which run under withWrite) can be touching the session concurrently
 	// — Abort itself takes no write barrier, only synthLayerMu for the
 	// pointer handoff, and is a no-op when no session is open.
-	_ = e.AbortSynthesizedGrantLayer(context.Background())
+	_ = e.abortSynthesizedGrantLayer(context.Background())
 	// Hold writeMu for the teardown: writeWG only covers withWrite users,
 	// while CheckpointTo takes writeMu directly (no WG participation). A
 	// CheckpointTo that passed its closing check but hasn't locked yet must
@@ -429,8 +429,8 @@ func (e *Engine) unseal() {
 	e.resumeCompactions()
 }
 
-// IsSealed reports whether the engine is in the post-EndSync sealed state.
-func (e *Engine) IsSealed() bool {
+// isSealed reports whether the engine is in the post-EndSync sealed state.
+func (e *Engine) isSealed() bool {
 	return e.sealed.Load()
 }
 
@@ -474,9 +474,9 @@ func (e *Engine) clearCurrentSync() {
 	e.currentSyncMu.Unlock()
 }
 
-// IsFreshSync reports whether the engine is in the fresh-sync write
+// isFreshSync reports whether the engine is in the fresh-sync write
 // path (set by MarkFreshSync).
-func (e *Engine) IsFreshSync() bool {
+func (e *Engine) isFreshSync() bool {
 	e.currentSyncMu.RLock()
 	defer e.currentSyncMu.RUnlock()
 	return e.freshSync
@@ -559,14 +559,14 @@ func (e *Engine) currentSyncBytes() []byte {
 	return out
 }
 
-// CurrentSyncID returns the bound sync's id string, or "" when no sync
+// currentSyncID returns the bound sync's id string, or "" when no sync
 // is bound. THE single source of truth for "which sync is open" — the
 // old Adapter-level syncRunState cache that shadowed it was deleted
 // (PR 2.6): lifecycle readers decode this binding, and everything else
 // about the open sync (step token, type, parent) is read from the
 // durable SyncRunRecord on demand, exactly like the SQLite engine's
 // row-backed reads.
-func (e *Engine) CurrentSyncID() string {
+func (e *Engine) currentSyncID() string {
 	e.currentSyncMu.RLock()
 	defer e.currentSyncMu.RUnlock()
 	return codec.DecodeSyncID(e.currentSync)
@@ -658,13 +658,11 @@ func (e *Engine) withWriteAllowSealed(fn func() error) error {
 	return fn()
 }
 
-func (e *Engine) Save(ctx context.Context, dest string) error {
-	return errors.New("pebble engine: Save requires the dotc1z.Save shim (envelope write); use CheckpointTo for direct directory access")
-}
-
-// DBDir returns the on-disk path the engine writes to. Exported so
-// the Adapter can implement OutputFilepath / CurrentDBSizeBytes.
-func (e *Engine) DBDir() string {
+// databaseDir returns the on-disk path the engine writes to. The engine
+// writes a directory, not an envelope; wrapping it into a .c1z is the
+// store's job (see pebbleStore.save), and CheckpointTo is the way to get
+// a consistent copy of this directory.
+func (e *Engine) databaseDir() string {
 	return e.dbDir
 }
 

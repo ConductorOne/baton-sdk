@@ -66,7 +66,7 @@ func (e *Engine) GetSyncRunRecord(ctx context.Context, syncID string) (*v3.SyncR
 	return r, nil
 }
 
-func (e *Engine) DeleteSyncRunRecord(ctx context.Context, syncID string) error {
+func (e *Engine) deleteSyncRunRecord(ctx context.Context, syncID string) error {
 	// AllowSealed: sync-run pruning is metadata maintenance on finished
 	// syncs, same class as PutSyncRunRecord above.
 	return e.withWriteAllowSealed(func() error {

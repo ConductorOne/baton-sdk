@@ -58,6 +58,15 @@ type C1File struct {
 	closed             bool
 	closedMu           sync.Mutex
 
+	// dbClosed publishes handle closed-ness to concurrent callers.
+	// rawDb and db are written once at construction and never
+	// reassigned on a live C1File, so readers on other goroutines can
+	// load them without synchronization; closeRawDB flips this instead
+	// of nil-ing the fields. closedMu cannot serve this purpose because
+	// Close holds it across finalize, which is tens of minutes on a
+	// whale-scale file, and every reader would block for the duration.
+	dbClosed atomic.Bool
+
 	// bulkLoad defers secondary-index creation on a freshly-created
 	// destination. When set, the per-table non-unique secondary indexes
 	// are dropped right after table creation (instant on the empty table)
@@ -640,7 +649,7 @@ func (c *C1File) Close(ctx context.Context) (retErr error) {
 	// then dirtying via an attached-db mutation still releases the
 	// SQLite handle and any FDs/goroutines it owns.
 	if !c.dbUpdated.Load() || c.readOnly {
-		if c.rawDb != nil {
+		if c.rawDBOpen() {
 			if err := c.closeRawDB(ctx); err != nil {
 				return cleanupDbDir(c.dbFilePath, err)
 			}
@@ -722,10 +731,14 @@ func (c *C1File) finalize(ctx context.Context) error {
 	l := ctxzap.Extract(finalizeCtx)
 
 	// Only WAL-checkpoint and close the raw DB if a handle is open.
-	// Some callers (notably TestC1ZDecoder) manually close c.rawDb to
+	// Some callers (notably TestC1ZDecoder) release c.rawDb themselves to
 	// force a checkpoint before calling Close — that path skips both
-	// operations here and proceeds directly to saveC1z.
-	if c.rawDb != nil {
+	// operations here and proceeds directly to saveC1z. Checkpointing a
+	// released handle would fail with sql.ErrConnDone and send us down the
+	// cleanupDbDir branch, deleting the working database instead of saving
+	// it, so this has to recognize a released handle however it was
+	// released.
+	if c.rawDBOpen() {
 		// CRITICAL: Force a full WAL checkpoint before closing the database.
 		// This ensures all WAL data is written back to the main database file
 		// and the writes are synced to disk. Without this, on filesystems with
@@ -801,22 +814,33 @@ func (c *C1File) finalize(ctx context.Context) error {
 	return nil
 }
 
-// closeRawDB wraps c.rawDb.Close with a span and drops the handle
-// references on the C1File so callers do not have to repeat the
-// nil-out. Returns the error from rawDb.Close so error paths can
-// still propagate or log it.
+// rawDBOpen reports whether the SQLite handle is still usable.
+//
+// Two idioms release the handle and both must read as closed here.
+// closeRawDB publishes closed-ness through dbClosed and leaves the
+// pointer in place, because concurrent readers race a nil-ing write
+// (that race is what dbClosed exists to fix). Some tests instead close
+// c.rawDb directly and nil it. A bare nil check would miss the first
+// idiom and let a caller issue queries against a closed *sql.DB.
+func (c *C1File) rawDBOpen() bool {
+	return c.rawDb != nil && !c.dbClosed.Load()
+}
+
+// closeRawDB wraps c.rawDb.Close with a span and marks the handles
+// closed so subsequent callers short-circuit. Returns the error from
+// rawDb.Close so error paths can still propagate or log it.
+//
+// The CAS makes the underlying Close happen at most once; the flag is
+// published before the Close so a racing caller fails closed rather
+// than entering a database/sql call that is about to be torn down.
 func (c *C1File) closeRawDB(ctx context.Context) error {
 	_, span := tracer.Start(ctx, "C1File.closeRawDB")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-	if c.rawDb == nil {
+	if c.rawDb == nil || !c.dbClosed.CompareAndSwap(false, true) {
 		return nil
 	}
-	// Copy the rawDb to a local variable to avoid race conditions.
-	rawDb := c.rawDb
-	c.rawDb = nil
-	err = rawDb.Close()
-	c.db = nil
+	err = c.rawDb.Close()
 	return err
 }
 
@@ -1465,9 +1489,9 @@ func (c *C1File) countBySyncAndResourceType(
 	return out, nil
 }
 
-// validateDb ensures that the database has been opened.
+// validateDb ensures that the database has been opened and not yet closed.
 func (c *C1File) validateDb(ctx context.Context) error {
-	if c.db == nil {
+	if c.db == nil || c.dbClosed.Load() {
 		return ErrDbNotOpen
 	}
 

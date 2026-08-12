@@ -32,8 +32,12 @@ func TestWALCheckpointRace(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 
-	// Number of iterations - increase for more thorough testing
-	iterations := 100
+	// Ordinary CI retains repeated attempts at the timing-sensitive race.
+	// The full suite keeps the original 100-attempt soak.
+	iterations := 20
+	if os.Getenv("BATON_FULL_TESTS") != "" {
+		iterations = 100
+	}
 
 	for i := range iterations {
 		t.Run(fmt.Sprintf("iteration_%d", i), func(t *testing.T) {

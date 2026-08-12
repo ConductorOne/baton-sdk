@@ -205,7 +205,7 @@ func TestAssetRoundtrip(t *testing.T) {
 		Data:        payload,
 	}.Build()
 	require.NoError(t, e.PutAssetRecord(ctx, r))
-	got, err := e.GetAssetRecord(ctx, "icon-1")
+	got, err := e.getAssetRecord(ctx, "icon-1")
 	require.NoErrorf(t, err, "GetAssetRecord")
 	require.Equal(t, "image/png", got.GetContentType(), "content_type")
 	require.Equal(t, string(payload), string(got.GetData()), "data roundtrip lost bytes")
@@ -246,7 +246,7 @@ func TestSyncRunRecord(t *testing.T) {
 	}))
 	require.Equal(t, 1, count, "sync_runs count")
 
-	require.NoError(t, e.DeleteSyncRunRecord(ctx, id2))
+	require.NoError(t, e.deleteSyncRunRecord(ctx, id2))
 	_, err = e.GetSyncRunRecord(ctx, id2)
 	require.ErrorIs(t, err, pebble.ErrNotFound, "expected ErrNotFound after delete")
 }

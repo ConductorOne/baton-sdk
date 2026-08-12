@@ -90,7 +90,7 @@ func benchmarkGrantWriteScale(b *testing.B, putUnique, grantIndex bool) {
 			}
 			recs := makeGrantRecordBatch(benchGrantSyncID, written, m)
 			if putUnique {
-				require.NoError(b, e.UnsafePutUniqueGrantRecords(ctx, recs...))
+				require.NoError(b, e.unsafePutUniqueGrantRecords(ctx, recs...))
 			} else {
 				require.NoError(b, e.PutGrantRecords(ctx, recs...))
 			}

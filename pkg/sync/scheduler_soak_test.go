@@ -155,8 +155,8 @@ func soakSeeds(t *testing.T) []int64 {
 }
 
 func TestSchedulerSoakRandomizedFanoutWithFailures(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping scheduler soak test in short mode")
+	if os.Getenv("BATON_FULL_TESTS") == "" {
+		t.Skip("scheduler soak runs in make scheduler-soak and make test-full")
 	}
 	for _, seed := range soakSeeds(t) {
 		t.Run(fmt.Sprintf("seed=%d", seed), func(t *testing.T) {

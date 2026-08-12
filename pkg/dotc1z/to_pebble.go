@@ -330,11 +330,20 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	}
 	stats.DestSyncID = destSyncID
 
-	destEng, ok := pebble.AsEngine(dest)
-	if !ok {
-		return nil, errors.New("to-pebble: destination store is not a pebble engine")
-	}
-	bi, err := destEng.StartBulkSyncImport(ctx, destSyncID, cfg.tmpDir)
+	// Only the import's start and finish take store admission; the convert
+	// calls below write SSTs through the bulk writer, not the engine, so they
+	// hold no admission and a concurrent Close is free to proceed mid-convert.
+	// That is intentional — an import can outlive a Close by design (see
+	// TestPebbleStoreAbandonedSessionsDoNotBlockClose) — and it is safe because
+	// nothing enters the engine keyspace until Finish, which either runs under
+	// admission or fails with ErrEngineClosing. The cost of losing that race is
+	// the conversion work already done, never a partially imported sync.
+	var bi *pebble.BulkSyncImport
+	err = pebble.WithEngineMutation(ctx, dest, func(ctx context.Context, destEng *pebble.Engine) error {
+		var startErr error
+		bi, startErr = destEng.StartBulkSyncImport(ctx, destSyncID, cfg.tmpDir)
+		return startErr
+	})
 	if err != nil {
 		return nil, fmt.Errorf("to-pebble: start bulk import: %w", err)
 	}
@@ -357,7 +366,9 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	if err = c.convertGrants(ctx, bi, syncID, cfg, &stats.Grants); err != nil {
 		return nil, fmt.Errorf("to-pebble: grants: %w", err)
 	}
-	if err = bi.Finish(ctx); err != nil {
+	if err = pebble.WithEngineMutation(ctx, dest, func(ctx context.Context, _ *pebble.Engine) error {
+		return bi.Finish(ctx)
+	}); err != nil {
 		return nil, fmt.Errorf("to-pebble: ingest: %w", err)
 	}
 	imported = true
@@ -373,7 +384,12 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	// so they do not ship in the saved c1z (pkg/connectorbuilder), and nothing
 	// can resume a sealed sync to read them back.
 	if sync.EndedAt == nil {
-		if err = c.copySessions(ctx, destEng, syncID, destSyncID, &stats.Sessions); err != nil {
+		// Unlike the convert loops above, which write SSTs through the bulk
+		// writer, this one puts keys straight into the engine's session
+		// keyspace, so it runs under the store's admission for the copy.
+		if err = pebble.WithEngineMutation(ctx, dest, func(ctx context.Context, destEng *pebble.Engine) error {
+			return c.copySessions(ctx, destEng, syncID, destSyncID, &stats.Sessions)
+		}); err != nil {
 			return nil, fmt.Errorf("to-pebble: sessions: %w", err)
 		}
 	}
@@ -383,7 +399,12 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	// the freshly ingested keyspaces.
 	statsRec := bi.ComputedStats()
 	statsRec.SetAssets(stats.Assets.Rows)
-	destEng.StashComputedSyncStats(destSyncID, statsRec)
+	if err = pebble.WithEngineMutation(ctx, dest, func(_ context.Context, destEng *pebble.Engine) error {
+		destEng.StashComputedSyncStats(destSyncID, statsRec)
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("to-pebble: stash destination stats: %w", err)
+	}
 
 	// EndSync always runs: bulk import still needs deferred indexes / grant
 	// digests / stats sidecar / durability flush. We then overlay source
@@ -395,35 +416,40 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	if err = dest.EndSync(ctx); err != nil {
 		return nil, fmt.Errorf("to-pebble: end destination sync: %w", err)
 	}
-	rec, err := destEng.GetSyncRunRecord(ctx, destSyncID)
-	if err != nil {
-		return nil, fmt.Errorf("to-pebble: load destination sync metadata: %w", err)
-	}
-	rec.SetLinkedSyncId(sync.LinkedSyncID)
-	rec.SetSupportsDiff(sync.SupportsDiff)
-	// Localized on the way in: these scanned wall clocks become absolute
-	// instants in the Pebble record, and Pebble's resume cutoff compares
-	// started_at against time.Now() (see localizeSQLiteTimestamp).
-	if sync.StartedAt != nil {
-		rec.SetStartedAt(timestamppb.New(localizeSQLiteTimestamp(*sync.StartedAt, time.Local)))
-	}
-	if sync.EndedAt != nil {
-		rec.SetEndedAt(timestamppb.New(localizeSQLiteTimestamp(*sync.EndedAt, time.Local)))
-		// Verification provenance only rides along with a FINISHED source:
-		// a marker on an unfinished source (impossible through the writer
-		// API, but representable in a hand-edited file) must not convert
-		// into a sealed, verified destination.
-		if sync.IsVerified() {
-			rec.SetIngestInvariantGeneration(sync.Generation)
-			rec.SetIngestInvariantCoverage(append([]string(nil), sync.Coverage...))
-			rec.SetIngestInvariantMode(string(sync.Mode))
+	if err = pebble.WithEngineMutation(ctx, dest, func(ctx context.Context, destEng *pebble.Engine) error {
+		rec, err := destEng.GetSyncRunRecord(ctx, destSyncID)
+		if err != nil {
+			return fmt.Errorf("load destination sync metadata: %w", err)
 		}
-	} else {
-		rec.ClearEndedAt()
-		rec.SetSyncToken(sync.SyncToken)
-	}
-	if err = destEng.PutSyncRunRecord(ctx, rec); err != nil {
-		return nil, fmt.Errorf("to-pebble: preserve source sync metadata: %w", err)
+		rec.SetLinkedSyncId(sync.LinkedSyncID)
+		rec.SetSupportsDiff(sync.SupportsDiff)
+		// Localized on the way in: these scanned wall clocks become absolute
+		// instants in the Pebble record, and Pebble's resume cutoff compares
+		// started_at against time.Now() (see localizeSQLiteTimestamp).
+		if sync.StartedAt != nil {
+			rec.SetStartedAt(timestamppb.New(localizeSQLiteTimestamp(*sync.StartedAt, time.Local)))
+		}
+		if sync.EndedAt != nil {
+			rec.SetEndedAt(timestamppb.New(localizeSQLiteTimestamp(*sync.EndedAt, time.Local)))
+			// Verification provenance only rides along with a FINISHED source:
+			// a marker on an unfinished source (impossible through the writer
+			// API, but representable in a hand-edited file) must not convert
+			// into a sealed, verified destination.
+			if sync.IsVerified() {
+				rec.SetIngestInvariantGeneration(sync.Generation)
+				rec.SetIngestInvariantCoverage(append([]string(nil), sync.Coverage...))
+				rec.SetIngestInvariantMode(string(sync.Mode))
+			}
+		} else {
+			rec.ClearEndedAt()
+			rec.SetSyncToken(sync.SyncToken)
+		}
+		if err := destEng.PutSyncRunRecord(ctx, rec); err != nil {
+			return fmt.Errorf("preserve source sync metadata: %w", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("to-pebble: %w", err)
 	}
 	endSyncDur := time.Since(endSyncStart)
 	closeStart := time.Now()
@@ -605,10 +631,14 @@ func (c *C1File) convertEmptyToPebble(ctx context.Context, outPath string, cfg *
 		}
 	}()
 
-	// A fresh store is not dirty until something writes. Force the envelope
-	// save so Close materializes an empty v3 c1z at outPath.
-	if !pebble.MarkStoreDirty(dest) {
-		return nil, errors.New("to-pebble: destination does not support dirty marking")
+	// A fresh store is not dirty until something writes. Take the mutation
+	// gate without writing anything: admission is what marks the store dirty,
+	// so Close still materializes an empty v3 c1z at outPath, and a store that
+	// is already closing says so rather than silently skipping the save.
+	if err = pebble.WithEngineMutation(ctx, dest, func(context.Context, *pebble.Engine) error {
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("to-pebble: mark destination dirty: %w", err)
 	}
 	if err = dest.Close(ctx); err != nil {
 		cleanupDest = false

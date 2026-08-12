@@ -315,21 +315,6 @@ func TestCheckpointTo(t *testing.T) {
 	require.NoError(t, err, "expected Put after CheckpointTo to succeed")
 }
 
-func TestSaveDoesNotCloseOnError(t *testing.T) {
-	ctx := context.Background()
-	e, dir := newTestEngine(t)
-	syncID := ksuid.New().String()
-	err := e.bindCurrentSync(syncID)
-	require.NoError(t, err)
-
-	err = e.Save(ctx, filepath.Join(dir, "out.c1z3"))
-	require.Error(t, err, "expected Save error")
-
-	r := makeGrant(syncID, "after-save", "e1", "p1")
-	err = e.PutGrantRecord(ctx, r)
-	require.NoError(t, err, "expected Put after failed Save to succeed")
-}
-
 func TestConcurrentGrantOverwriteIndexes(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)

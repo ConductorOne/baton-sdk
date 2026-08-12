@@ -41,7 +41,7 @@ import (
 const deferredIndexSpillChunkBytes = 128 << 20
 
 // deferredGrantStats carries the grant-keyspace stats accumulated during the
-// BuildDeferredGrantIndexes scan: the same numbers computeSyncStats derives
+// buildDeferredGrantIndexes scan: the same numbers computeSyncStats derives
 // from its own full grant scan. Fusing them into the index scan removes a
 // second O(grants) pass at EndSync.
 type deferredGrantStats struct {
@@ -239,7 +239,7 @@ func (t *grantRebuildTee) closeAndWait() {
 	}
 }
 
-// BuildDeferredGrantIndexes rebuilds the remaining scattered expansion index
+// buildDeferredGrantIndexes rebuilds the remaining scattered expansion index
 // family, by_principal, from entitlement-first primary grant keys. The expansion
 // write path can skip by_principal inline because expansion reads by entitlement
 // only; this method rewrites the whole by_principal range as one sorted SST at
@@ -270,7 +270,7 @@ func (t *grantRebuildTee) closeAndWait() {
 // convention into an enforced invariant (a straggler write blocks until the
 // build finishes instead of racing the excise), and writeWG participation
 // means Close waits the build out instead of tearing down e.db under it.
-func (e *Engine) BuildDeferredGrantIndexes(ctx context.Context) error {
+func (e *Engine) buildDeferredGrantIndexes(ctx context.Context) error {
 	// AllowSealed: EndSync seals BEFORE running this build so no straggler
 	// record writer can slip a row in behind the scan (see Adapter.EndSync);
 	// the build itself is one of the sealed window's own steps.

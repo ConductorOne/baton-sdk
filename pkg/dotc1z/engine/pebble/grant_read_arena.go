@@ -22,7 +22,7 @@ import (
 // into 3 slice allocations sized to the page limit.
 //
 // Lifetime. The arena lives for the duration of one
-// PaginateGrants call. The returned []*v3.GrantRecord
+// paginateGrants call. The returned []*v3.GrantRecord
 // elements all point into the arena's backing arrays; the caller
 // retains those pointers (the engine returns them up through the
 // adapter). Go's GC keeps the backing arrays alive as long as any

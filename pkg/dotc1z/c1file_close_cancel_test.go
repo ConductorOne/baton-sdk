@@ -94,7 +94,7 @@ func TestC1FileCloseSurvivesCanceledCtx(t *testing.T) {
 // that even a Close called with a cancelled context fully releases
 // the underlying sql.DB handle. The cheap path's only ctx-bearing op
 // (closeRawDB → c.rawDb.Close) ignores cancellation; this test pins
-// the structural promise that c.rawDb ends up nil regardless.
+// the structural promise that the handle ends up closed regardless.
 func TestC1FileCloseReadOnlyClosesRawDb(t *testing.T) {
 	openCtx := t.Context()
 	testFilePath := filepath.Join(c1zTests.workingDir, "close-readonly.c1z")
@@ -114,7 +114,7 @@ func TestC1FileCloseReadOnlyClosesRawDb(t *testing.T) {
 	cancelCtx, cancel := context.WithCancel(openCtx)
 	cancel()
 	require.NoError(t, f2.Close(cancelCtx))
-	require.Nil(t, f2.rawDb, "rawDb must be nil-ed out by the cheap-path close even on cancelled ctx")
+	require.True(t, f2.dbClosed.Load(), "rawDb must be closed by the cheap-path close even on cancelled ctx")
 	require.True(t, f2.closed, "c.closed must be set after a successful cheap-path close")
 }
 
@@ -142,6 +142,50 @@ func TestC1FileCloseReadOnlyButDirtyClosesRawDb(t *testing.T) {
 
 	err = f2.Close(openCtx)
 	require.ErrorIs(t, err, ErrReadOnly)
-	require.Nil(t, f2.rawDb, "rawDb must be closed before returning ErrReadOnly")
+	require.True(t, f2.dbClosed.Load(), "rawDb must be closed before returning ErrReadOnly")
 	require.True(t, f2.closed, "c.closed must be set after returning ErrReadOnly so a retry short-circuits")
+}
+
+// TestC1FileFinalizeSavesWhenHandleReleasedOutOfBand covers the
+// checkpoint-then-release idiom: a caller that WAL-checkpoints and
+// releases the sql.DB handle before calling Close must still get its
+// c1z written.
+//
+// finalize decides whether to checkpoint by asking whether the handle is
+// open. Once closed-ness moved to the dbClosed flag, a nil-pointer check
+// answered that question wrong: finalize would checkpoint a released
+// handle, get sql.ErrConnDone, and take the cleanupDbDir branch —
+// deleting the working database instead of saving it.
+func TestC1FileFinalizeSavesWhenHandleReleasedOutOfBand(t *testing.T) {
+	openCtx := t.Context()
+	testFilePath := filepath.Join(c1zTests.workingDir, "close-handle-released.c1z")
+
+	f, err := NewC1ZFile(openCtx, testFilePath)
+	require.NoError(t, err)
+	_, err = f.StartNewSync(openCtx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, f.PutResourceTypes(openCtx, v2.ResourceType_builder{Id: testResourceType}.Build()))
+	require.NoError(t, f.EndSync(openCtx))
+
+	// Checkpoint and release the handle out of band, exactly as a caller
+	// forcing a checkpoint before Close does.
+	_, _, _, err = f.truncateWAL(openCtx)
+	require.NoError(t, err)
+	require.NoError(t, f.closeRawDB(openCtx))
+	require.True(t, f.dbClosed.Load(), "fixture: the handle must read as closed")
+
+	require.NoError(t, f.Close(openCtx), "Close must skip the checkpoint and save the c1z")
+
+	info, err := os.Stat(testFilePath)
+	require.NoError(t, err)
+	require.Greater(t, info.Size(), int64(0))
+
+	f2, err := NewC1ZFile(openCtx, testFilePath)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, f2.Close(context.Background())) })
+	resp, err := f2.GetResourceType(openCtx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
+		ResourceTypeId: testResourceType,
+	}.Build())
+	require.NoError(t, err)
+	require.Equal(t, testResourceType, resp.GetResourceType().GetId())
 }

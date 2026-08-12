@@ -14,7 +14,7 @@ import (
 // keyspace. Engine-global metadata (keyspace-version stamp,
 // index-migration markers) is deliberately NOT included. Mirrors the
 // bucket plan in adapter_clone_sync.go; kept in lockstep so
-// ResetForNewSync leaves no orphan rows that CloneSync would
+// resetForNewSync leaves no orphan rows that CloneSync would
 // otherwise have copied.
 //
 // The returned ranges are NOT ordered for compaction efficiency.
@@ -44,7 +44,7 @@ func scopedRanges() [][2][]byte {
 	}
 }
 
-// ResetForNewSync wipes every sync-scoped keyspace (records, indexes,
+// resetForNewSync wipes every sync-scoped keyspace (records, indexes,
 // the sync-run record, and the stats sidecar) so a freshly started
 // sync begins on an empty keyspace.
 //
@@ -79,8 +79,8 @@ func scopedRanges() [][2][]byte {
 //
 // Refuses while a fresh sync is in progress (between MarkFreshSync and
 // EndFreshSync): wiping mid-sync would corrupt the in-flight sync.
-func (e *Engine) ResetForNewSync(ctx context.Context) error {
-	if e.IsFreshSync() {
+func (e *Engine) resetForNewSync(ctx context.Context) error {
+	if e.isFreshSync() {
 		return errors.New("ResetForNewSync: refusing to reset while a sync is in progress")
 	}
 	spans := []pebble.KeyRange{

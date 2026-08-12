@@ -113,10 +113,10 @@ func (r engineV3Grants) ListGrantsForEntitlement(
 		var records []*v3.GrantRecord
 		var next string
 		if principalID != nil {
-			records, next, err = e.PaginateGrantsByEntitlementPrincipal(ctx,
+			records, next, err = e.paginateGrantsByEntitlementPrincipal(ctx,
 				entIdentity, principalID.GetResourceType(), principalID.GetResource(), cursor, fetchLimit)
 		} else {
-			records, next, err = e.PaginateGrantsByEntitlement(ctx,
+			records, next, err = e.paginateGrantsByEntitlement(ctx,
 				entIdentity, cursor, fetchLimit)
 		}
 		if err != nil {
@@ -180,7 +180,7 @@ func (r engineV3Grants) ListGrantsForResourceType(
 	}
 	limit := clampPageSize(req.GetPageSize())
 	cursor := req.GetPageToken()
-	records, next, err := e.PaginateGrantsByPrincipalResourceType(ctx, rtFilter, cursor, limit)
+	records, next, err := e.paginateGrantsByPrincipalResourceType(ctx, rtFilter, cursor, limit)
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 	}
@@ -246,7 +246,7 @@ EntitlementLoop:
 				return nil, err
 			}
 			remaining := limit - len(out)
-			records, next, err := e.PaginateGrantsByEntitlement(ctx, entID, intraCursor, remaining)
+			records, next, err := e.paginateGrantsByEntitlement(ctx, entID, intraCursor, remaining)
 			if err != nil {
 				return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 			}
@@ -322,13 +322,13 @@ func (r engineV3Grants) ListGrantsForPrincipal(
 			}
 			return nil, err
 		}
-		records, next, err = e.PaginateGrantsByEntitlementPrincipal(ctx,
+		records, next, err = e.paginateGrantsByEntitlementPrincipal(ctx,
 			entIdentity, principal.GetResourceType(), principal.GetResource(), cursor, limit)
 		if err != nil {
 			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 		}
 	} else {
-		records, next, err = e.PaginateGrantsByPrincipal(ctx,
+		records, next, err = e.paginateGrantsByPrincipal(ctx,
 			principal.GetResourceType(), principal.GetResource(), cursor, limit)
 		if err != nil {
 			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)

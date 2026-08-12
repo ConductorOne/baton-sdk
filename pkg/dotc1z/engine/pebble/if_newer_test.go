@@ -92,7 +92,7 @@ func grantsByPrincipal(t *testing.T, ctx context.Context, e *Engine, principal s
 
 // TestPutGrantRecordsIfNewerSkipsStale is the end-to-end guard the
 // TestDiscoveredAtIsNewer predicate test points at: it drives the full
-// PutGrantRecordsIfNewer path (read incumbent, compare discovered_at,
+// putGrantRecordsIfNewer path (read incumbent, compare discovered_at,
 // conditionally write + swap derived index keys) rather than the bare
 // predicate. It pins that a stale (older or equal) replay never
 // regresses the stored grant OR its by_principal index, and that a
@@ -109,20 +109,20 @@ func TestPutGrantRecordsIfNewerSkipsStale(t *testing.T) {
 	newest := time.Unix(3000, 0).UTC()
 
 	// Seed the incumbent at `newer`.
-	require.NoError(t, e.PutGrantRecordsIfNewer(ctx, ifNewerGrant("winner", newer)))
+	require.NoError(t, e.putGrantRecordsIfNewer(ctx, ifNewerGrant("winner", newer)))
 	// Fixture external ids are connector-custom, so address rows by refs.
 	got, err := testGrantByIdentity(ctx, e, "ent-A", "user", "winner")
 	require.NoError(t, err)
 	require.Equal(t, "winner", got.GetPrincipal().GetResourceId())
 
 	// Older replay: dropped — value and index unchanged.
-	require.NoError(t, e.PutGrantRecordsIfNewer(ctx, ifNewerGrantExternal("g-stale-older", "winner", older)))
+	require.NoError(t, e.putGrantRecordsIfNewer(ctx, ifNewerGrantExternal("g-stale-older", "winner", older)))
 	got, err = testGrantByIdentity(ctx, e, "ent-A", "user", "winner")
 	require.NoError(t, err)
 	require.Equal(t, "winner", got.GetPrincipal().GetResourceId(), "older replay must not regress the grant")
 
 	// Equal replay: dropped — strict `>` keeps the incumbent.
-	require.NoError(t, e.PutGrantRecordsIfNewer(ctx, ifNewerGrantExternal("g-stale-tie", "winner", newer)))
+	require.NoError(t, e.putGrantRecordsIfNewer(ctx, ifNewerGrantExternal("g-stale-tie", "winner", newer)))
 	got, err = testGrantByIdentity(ctx, e, "ent-A", "user", "winner")
 	require.NoError(t, err)
 	require.Equal(t, "winner", got.GetPrincipal().GetResourceId(), "equal discovered_at must keep the incumbent")
@@ -131,7 +131,7 @@ func TestPutGrantRecordsIfNewerSkipsStale(t *testing.T) {
 	require.Equal(t, []string{"g-1"}, grantsByPrincipal(t, ctx, e, "winner"))
 
 	// Strictly newer for the same identity: replaces the retained value.
-	require.NoError(t, e.PutGrantRecordsIfNewer(ctx, ifNewerGrantExternal("g-newest", "winner", newest)))
+	require.NoError(t, e.putGrantRecordsIfNewer(ctx, ifNewerGrantExternal("g-newest", "winner", newest)))
 	got, err = testGrantByIdentity(ctx, e, "ent-A", "user", "winner")
 	require.NoError(t, err)
 	require.Equal(t, "g-newest", got.GetExternalId(), "strictly newer must replace")
@@ -157,8 +157,8 @@ func TestPutRecordsIfNewerRejectsOlderAllTypes(t *testing.T) {
 		newRec := func(dn string, at time.Time) *v3.ResourceTypeRecord {
 			return v3.ResourceTypeRecord_builder{ExternalId: "rt-1", DisplayName: dn, DiscoveredAt: timestamppb.New(at)}.Build()
 		}
-		require.NoError(t, e.PutResourceTypeRecordsIfNewer(ctx, newRec("kept", newer)))
-		require.NoError(t, e.PutResourceTypeRecordsIfNewer(ctx, newRec("stale", older)))
+		require.NoError(t, e.putResourceTypeRecordsIfNewer(ctx, newRec("kept", newer)))
+		require.NoError(t, e.putResourceTypeRecordsIfNewer(ctx, newRec("stale", older)))
 		got, err := e.GetResourceTypeRecord(ctx, "rt-1")
 		require.NoError(t, err)
 		require.Equal(t, "kept", got.GetDisplayName())
@@ -168,8 +168,8 @@ func TestPutRecordsIfNewerRejectsOlderAllTypes(t *testing.T) {
 		newRec := func(dn string, at time.Time) *v3.ResourceRecord {
 			return v3.ResourceRecord_builder{ResourceTypeId: "user", ResourceId: "u1", DisplayName: dn, DiscoveredAt: timestamppb.New(at)}.Build()
 		}
-		require.NoError(t, e.PutResourceRecordsIfNewer(ctx, newRec("kept", newer)))
-		require.NoError(t, e.PutResourceRecordsIfNewer(ctx, newRec("stale", older)))
+		require.NoError(t, e.putResourceRecordsIfNewer(ctx, newRec("kept", newer)))
+		require.NoError(t, e.putResourceRecordsIfNewer(ctx, newRec("stale", older)))
 		got, err := e.GetResourceRecord(ctx, "user", "u1")
 		require.NoError(t, err)
 		require.Equal(t, "kept", got.GetDisplayName())
@@ -184,16 +184,16 @@ func TestPutRecordsIfNewerRejectsOlderAllTypes(t *testing.T) {
 				DiscoveredAt: timestamppb.New(at),
 			}.Build()
 		}
-		require.NoError(t, e.PutEntitlementRecordsIfNewer(ctx, newRec("kept", newer)))
-		require.NoError(t, e.PutEntitlementRecordsIfNewer(ctx, newRec("stale", older)))
+		require.NoError(t, e.putEntitlementRecordsIfNewer(ctx, newRec("kept", newer)))
+		require.NoError(t, e.putEntitlementRecordsIfNewer(ctx, newRec("stale", older)))
 		got, err := e.GetEntitlementRecord(ctx, "e-1")
 		require.NoError(t, err)
 		require.Equal(t, "kept", got.GetDisplayName())
 	})
 
 	t.Run("grant", func(t *testing.T) {
-		require.NoError(t, e.PutGrantRecordsIfNewer(ctx, ifNewerGrant("kept", newer)))
-		require.NoError(t, e.PutGrantRecordsIfNewer(ctx, ifNewerGrant("stale", older)))
+		require.NoError(t, e.putGrantRecordsIfNewer(ctx, ifNewerGrant("kept", newer)))
+		require.NoError(t, e.putGrantRecordsIfNewer(ctx, ifNewerGrant("stale", older)))
 		got, err := testGrantByIdentity(ctx, e, "ent-A", "user", "kept")
 		require.NoError(t, err)
 		require.Equal(t, "kept", got.GetPrincipal().GetResourceId())

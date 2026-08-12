@@ -123,7 +123,7 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 		return nil, cleanupOnError(err)
 	}
 
-	return &pebbleStore{
+	store := &pebbleStore{
 		Engine:          e,
 		outputFilePath:  outputFilePath,
 		tmpDir:          tmpDir,
@@ -138,7 +138,9 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 		// never writes, or every subsequent open re-pays the O(rows)
 		// migration.
 		dirty: !opts.ReadOnly && e.MigratedOnOpen(),
-	}, nil
+	}
+	store.closeCond = sync.NewCond(&store.closeMu)
+	return store, nil
 }
 
 func unpackExistingPebbleC1Z(
@@ -204,7 +206,12 @@ func payloadEncodingFromProto(enc c1zv3.PayloadEncoding) c1zstore.PayloadEncodin
 }
 
 type pebbleStore struct {
-	*pebble.Engine
+	// Deliberately a named field, not an embedded one. Embedding promoted
+	// every engine mutator onto the store, where it bypassed withMutation
+	// silently; see pebble_store_reads.go. Reads are forwarded explicitly
+	// there, mutators go through the wrappers below, and nothing else on
+	// the engine is reachable as a store method.
+	Engine          *pebble.Engine
 	outputFilePath  string
 	tmpDir          string
 	readOnly        bool
@@ -213,7 +220,7 @@ type pebbleStore struct {
 	// foldDeadBytes is the cumulative fold-waste counter carried in
 	// the envelope manifest (C1ZManifestV3.fold_dead_bytes): seeded
 	// from the file this store was opened from, optionally bumped by
-	// AddFoldDeadBytes during a fold compaction, and written back at
+	// RunPebbleFoldMutation during a fold compaction, and written back at
 	// save. Guarded by closeMu (writes happen on the compactor's
 	// single merge goroutine; the lock just pairs it with save/Close).
 	foldDeadBytes int64
@@ -225,9 +232,206 @@ type pebbleStore struct {
 	syncLimit   int
 	skipCleanup bool
 
-	closeMu sync.Mutex
-	closed  bool
-	dirty   bool
+	closeMu   sync.Mutex
+	closeCond *sync.Cond
+	admission pebbleStoreAdmissionState
+	// activeWrites counts admitted mutations; a teardown drains them to zero
+	// before touching the engine. closeAttempt distinguishes successive
+	// teardown attempts so a waiter can tell "the attempt I was waiting on
+	// finished" from "a later one started".
+	activeWrites int
+	closeAttempt uint64
+	dirty        bool
+
+	// mutationAdmissionHook is test-only. It runs after admission and
+	// immediately before the underlying mutation, without closeMu held.
+	mutationAdmissionHook func()
+
+	// drainWarnInterval overrides how often a blocked teardown reports
+	// itself. Zero means pebbleStoreDrainWarnInterval; tests shorten it.
+	drainWarnInterval time.Duration
+}
+
+type pebbleStoreAdmissionState uint8
+
+const (
+	pebbleStoreOpen pebbleStoreAdmissionState = iota
+	pebbleStoreClosing
+	pebbleStoreClosed
+)
+
+func (s *pebbleStore) cond() *sync.Cond {
+	if s.closeCond == nil {
+		s.closeCond = sync.NewCond(&s.closeMu)
+	}
+	return s.closeCond
+}
+
+// beginClose takes ownership of a teardown, closing admission and draining
+// in-flight mutations before returning. It reports false when the store is
+// already closed and there is nothing left to do.
+//
+// A caller whose attempt fails must reopenAdmission so a waiter can take over.
+// Waiters then retry the teardown on their own behalf rather than adopting the
+// failed attempt's error: the two callers may be closing for unrelated reasons
+// (CloseEngineOnly's dirty refusal is not a reason for Close to skip its save),
+// and inheriting a foreign error let one caller's refusal silently cancel
+// another caller's save.
+//
+// The drain is deliberately not cancellable. Abandoning it would leave admitted
+// writes running against an engine the caller is about to close, which is the
+// failure mode admission control exists to prevent.
+func (s *pebbleStore) beginClose() bool {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+	for {
+		switch s.admission {
+		case pebbleStoreClosed:
+			return false
+		case pebbleStoreOpen:
+			s.admission = pebbleStoreClosing
+			s.closeAttempt++
+			for s.activeWrites > 0 {
+				s.cond().Wait()
+			}
+			return true
+		case pebbleStoreClosing:
+			attempt := s.closeAttempt
+			for s.admission == pebbleStoreClosing && s.closeAttempt == attempt {
+				s.cond().Wait()
+			}
+		}
+	}
+}
+
+// pebbleStoreDrainWarnInterval is how often a teardown blocked in beginClose
+// announces itself.
+const pebbleStoreDrainWarnInterval = 30 * time.Second
+
+// warnWhileBlocked reports a teardown that has been waiting long enough to be
+// suspicious, and returns a func that stops the reporting.
+//
+// beginClose's wait is deliberately uncancellable, and a single admission can
+// span an entire compaction (compactPebble and compactPebbleFold each hold one
+// for the whole merge). A wedged merge or a frozen Lambda therefore turns
+// Close into an unbounded block with no ctx.Err() to surface and nothing in
+// the logs — diagnosable today only from a stack dump. Naming activeWrites and
+// the elapsed time makes it visible in the places an operator actually looks.
+func (s *pebbleStore) warnWhileBlocked(ctx context.Context) func() {
+	interval := s.drainWarnInterval
+	if interval <= 0 {
+		interval = pebbleStoreDrainWarnInterval
+	}
+	l := ctxzap.Extract(ctx)
+	start := time.Now()
+	stop := make(chan struct{})
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				s.closeMu.Lock()
+				active := s.activeWrites
+				s.closeMu.Unlock()
+				waitingOn := "another teardown attempt"
+				if active > 0 {
+					waitingOn = "in-flight mutations"
+				}
+				l.Warn("pebble store close: still waiting to tear down",
+					zap.Duration("elapsed", time.Since(start)),
+					zap.Int("active_writes", active),
+					zap.String("waiting_on", waitingOn),
+				)
+			}
+		}
+	}()
+	return func() {
+		close(stop)
+		<-stopped
+	}
+}
+
+// isDirty reports whether the store has unsaved writes. Callers that own a
+// teardown can trust the answer to stay put: admission is already shut and
+// beginClose drained the in-flight mutations, so nothing can set it after this.
+func (s *pebbleStore) isDirty() bool {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+	return s.dirty
+}
+
+// reopenAdmission abandons a teardown attempt, readmitting mutations and waking
+// any caller waiting to take over.
+func (s *pebbleStore) reopenAdmission() {
+	s.closeMu.Lock()
+	s.admission = pebbleStoreOpen
+	s.cond().Broadcast()
+	s.closeMu.Unlock()
+}
+
+// finishClose publishes the terminal state and releases waiters.
+func (s *pebbleStore) finishClose() {
+	s.closeMu.Lock()
+	s.admission = pebbleStoreClosed
+	s.cond().Broadcast()
+	s.closeMu.Unlock()
+}
+
+// withMutation admits one synchronous mutation. Admission and release only
+// hold closeMu briefly; admitted mutations execute concurrently. Dirty is set
+// before invoking fn because an error may follow a partially committed write.
+func (s *pebbleStore) withMutation(fn func(*pebble.Engine) error) error {
+	return s.admitMutation(true, fn)
+}
+
+// admitMutation is the shared admission body. dirtyOnAdmission is true for
+// ordinary mutations, where a returned error can still follow a committed
+// write, so the envelope must be saved either way. The fold path passes false
+// and marks dirty itself once the fold has fully landed: a failed fold's
+// destination is a throwaway copy under the compactor's temp dir, and saving it
+// would spend a full envelope write on an artifact about to be discarded.
+func (s *pebbleStore) admitMutation(dirtyOnAdmission bool, fn func(*pebble.Engine) error) error {
+	if s == nil || s.Engine == nil {
+		return pebble.ErrEngineClosing
+	}
+	s.closeMu.Lock()
+	if s.admission != pebbleStoreOpen {
+		s.closeMu.Unlock()
+		return pebble.ErrEngineClosing
+	}
+	s.activeWrites++
+	if dirtyOnAdmission && !s.readOnly {
+		s.dirty = true
+	}
+	hook := s.mutationAdmissionHook
+	s.closeMu.Unlock()
+
+	defer func() {
+		s.closeMu.Lock()
+		s.activeWrites--
+		if s.activeWrites == 0 {
+			s.cond().Broadcast()
+		}
+		s.closeMu.Unlock()
+	}()
+	if hook != nil {
+		hook()
+	}
+	return fn(s.Engine)
+}
+
+// RunPebbleMutation implements pebble's guarded direct-engine mutation
+// callback. The engine is explicit so callers cannot accidentally mutate via
+// promoted pebbleStore methods outside admission.
+func (s *pebbleStore) RunPebbleMutation(ctx context.Context, fn func(context.Context, *pebble.Engine) error) error {
+	return s.withMutation(func(e *pebble.Engine) error {
+		return fn(ctx, e)
+	})
 }
 
 // Compile-time guard: a Pebble store satisfies the full C1ZStore
@@ -248,7 +452,8 @@ var _ c1zstore.Store = (*pebbleStore)(nil)
 //     save and the diff sync would exist only in the discarded temp
 //     directory.
 func (s *pebbleStore) FileOps() c1zstore.FileOps {
-	return pebbleStoreFileOps{inner: s.FileOpsWithEncoding(s.payloadEncoding), store: s}
+	engine := s.Engine
+	return pebbleStoreFileOps{inner: engine.FileOpsWithEncoding(s.payloadEncoding), store: s}
 }
 
 // pebbleStoreFileOps wraps the Adapter-level FileOps to route the one
@@ -269,11 +474,13 @@ func (f pebbleStoreFileOps) CopyIsolateSync(ctx context.Context, outPath string,
 }
 
 func (f pebbleStoreFileOps) GenerateSyncDiff(ctx context.Context, baseSyncID, appliedSyncID string) (string, error) {
-	diffSyncID, err := f.inner.GenerateSyncDiff(ctx, baseSyncID, appliedSyncID)
-	if err != nil {
-		return "", err
-	}
-	return diffSyncID, f.store.markDirty(nil)
+	var diffSyncID string
+	err := f.store.withMutation(func(_ *pebble.Engine) error {
+		var err error
+		diffSyncID, err = f.inner.GenerateSyncDiff(ctx, baseSyncID, appliedSyncID)
+		return err
+	})
+	return diffSyncID, err
 }
 
 // SyncMeta overrides the Adapter-level SyncMeta so the MUTATING
@@ -297,7 +504,9 @@ type pebbleStoreSyncMeta struct {
 var _ c1zstore.IngestInvariantVerificationWriter = pebbleStoreSyncMeta{}
 
 func (m pebbleStoreSyncMeta) MarkSyncSupportsDiff(ctx context.Context, syncID string) error {
-	return m.store.markDirty(m.inner.MarkSyncSupportsDiff(ctx, syncID))
+	return m.store.withMutation(func(_ *pebble.Engine) error {
+		return m.inner.MarkSyncSupportsDiff(ctx, syncID)
+	})
 }
 
 func (m pebbleStoreSyncMeta) MarkIngestInvariantsVerified(ctx context.Context, syncID string, verification c1zstore.IngestInvariantVerification) error {
@@ -305,7 +514,9 @@ func (m pebbleStoreSyncMeta) MarkIngestInvariantsVerified(ctx context.Context, s
 	if !ok {
 		return errors.New("pebble sync meta: engine SyncMeta does not implement IngestInvariantVerificationWriter")
 	}
-	return m.store.markDirty(w.MarkIngestInvariantsVerified(ctx, syncID, verification))
+	return m.store.withMutation(func(_ *pebble.Engine) error {
+		return w.MarkIngestInvariantsVerified(ctx, syncID, verification)
+	})
 }
 
 func (m pebbleStoreSyncMeta) ClearIngestInvariantVerification(ctx context.Context, syncID string) error {
@@ -313,11 +524,15 @@ func (m pebbleStoreSyncMeta) ClearIngestInvariantVerification(ctx context.Contex
 	if !ok {
 		return errors.New("pebble sync meta: engine SyncMeta does not implement IngestInvariantVerificationWriter")
 	}
-	return m.store.markDirty(w.ClearIngestInvariantVerification(ctx, syncID))
+	return m.store.withMutation(func(_ *pebble.Engine) error {
+		return w.ClearIngestInvariantVerification(ctx, syncID)
+	})
 }
 
 func (m pebbleStoreSyncMeta) RecalculateStats(ctx context.Context, syncID string) error {
-	return m.store.markDirty(m.inner.RecalculateStats(ctx, syncID))
+	return m.store.withMutation(func(_ *pebble.Engine) error {
+		return m.inner.RecalculateStats(ctx, syncID)
+	})
 }
 
 func (m pebbleStoreSyncMeta) LatestFullSync(ctx context.Context) (*c1zstore.SyncRun, error) {
@@ -373,18 +588,16 @@ func (s *pebbleStore) CloseEngineOnly() error {
 	if s == nil || s.Engine == nil {
 		return nil
 	}
-	s.closeMu.Lock()
-	if s.closed {
-		s.closeMu.Unlock()
+	if !s.beginClose() {
 		return nil
 	}
-	if !s.readOnly && s.dirty {
-		s.closeMu.Unlock()
+	if !s.readOnly && s.isDirty() {
+		s.reopenAdmission()
 		return errors.New("pebble CloseEngineOnly: refusing to discard dirty writable store")
 	}
-	s.closed = true
-	s.closeMu.Unlock()
-	return s.Engine.Close()
+	err := s.Engine.Close()
+	s.finishClose()
+	return err
 }
 
 // NormalizeForFixtureSave flushes and compacts the single sync, then
@@ -401,51 +614,39 @@ func (s *pebbleStore) NormalizeForFixtureSave(ctx context.Context, syncID string
 	if s.readOnly {
 		return errors.New("pebble NormalizeForFixtureSave: store is read-only")
 	}
-	if err := s.Flush(ctx); err != nil {
-		return err
-	}
-	if err := s.CompactAllRanges(ctx); err != nil {
-		return err
-	}
-	s.closeMu.Lock()
-	if !s.closed {
-		s.dirty = true
-	}
-	s.closeMu.Unlock()
-	return nil
+	return s.withMutation(func(e *pebble.Engine) error {
+		if err := e.Flush(ctx); err != nil {
+			return err
+		}
+		return e.CompactAllRanges(ctx)
+	})
 }
 
-func (s *pebbleStore) MarkDirty() {
-	if s == nil {
-		return
-	}
-	s.closeMu.Lock()
-	if !s.closed {
-		s.dirty = true
-	}
-	s.closeMu.Unlock()
-}
-
-// AddFoldDeadBytes bumps the cumulative fold-waste counter persisted
-// in the envelope manifest at save. Called by the fold compactor with
-// the raw bytes its merge shadowed in the base keyspace (see
-// pebble.AddFoldDeadBytes for the Writer-level accessor).
-func (s *pebbleStore) AddFoldDeadBytes(n int64) {
-	if s == nil || n <= 0 {
-		return
-	}
-	s.closeMu.Lock()
-	if !s.closed {
-		s.foldDeadBytes += n
-	}
-	s.closeMu.Unlock()
-}
-
-func (s *pebbleStore) markDirty(err error) error {
-	if err == nil {
-		s.MarkDirty()
-	}
-	return err
+// RunPebbleFoldMutation keeps fold-dead-byte manifest metadata in the same
+// admission as the direct engine mutations that produced it: activeWrites is
+// still held here, so a concurrent Close is parked in its drain and cannot
+// save an envelope whose counter is only half updated.
+//
+// Nothing is recorded on failure. A fold either lands whole or its output is
+// discarded, so a failed attempt must leave the store exactly as it found it:
+// dirty stays put (Close then skips the O(base) save of a doomed artifact) and
+// the waste counter keeps describing only folds that actually shadowed bytes.
+func (s *pebbleStore) RunPebbleFoldMutation(ctx context.Context, fn func(context.Context, *pebble.Engine) (int64, error)) error {
+	return s.admitMutation(false, func(e *pebble.Engine) error {
+		n, err := fn(ctx, e)
+		if err != nil {
+			return err
+		}
+		s.closeMu.Lock()
+		if !s.readOnly {
+			s.dirty = true
+		}
+		if n > 0 {
+			s.foldDeadBytes += n
+		}
+		s.closeMu.Unlock()
+		return nil
+	})
 }
 
 // StartNewSync begins a sync on the Pebble v3 store. INVARIANT: a v3 Pebble
@@ -456,31 +657,62 @@ func (s *pebbleStore) markDirty(err error) error {
 // StartNewSync after the first would discard the previous sync's records.
 // Future engine authors relying on this contract should preserve it here.
 func (s *pebbleStore) StartNewSync(ctx context.Context, syncType connectorstore.SyncType, parentSyncID string) (string, error) {
-	syncID, err := s.Engine.StartNewSync(ctx, syncType, parentSyncID)
-	if err == nil {
-		s.closeMu.Lock()
-		s.dirty = true
-		s.closeMu.Unlock()
-	}
+	var syncID string
+	err := s.withMutation(func(e *pebble.Engine) error {
+		var err error
+		syncID, err = e.StartNewSync(ctx, syncType, parentSyncID)
+		return err
+	})
 	return syncID, err
 }
 
+func (s *pebbleStore) StartNewSyncWithID(ctx context.Context, syncType connectorstore.SyncType, syncID, parentSyncID string) (string, error) {
+	var id string
+	err := s.withMutation(func(e *pebble.Engine) error {
+		var err error
+		id, err = e.StartNewSyncWithID(ctx, syncType, syncID, parentSyncID)
+		return err
+	})
+	return id, err
+}
+
+func (s *pebbleStore) ResumeSync(ctx context.Context, syncType connectorstore.SyncType, syncID string) (string, error) {
+	var id string
+	err := s.withMutation(func(e *pebble.Engine) error {
+		var err error
+		id, err = e.ResumeSync(ctx, syncType, syncID)
+		return err
+	})
+	return id, err
+}
+
 func (s *pebbleStore) StartOrResumeSync(ctx context.Context, syncType connectorstore.SyncType, syncID string) (string, bool, error) {
-	id, started, err := s.Engine.StartOrResumeSync(ctx, syncType, syncID)
-	if err == nil && started {
-		s.closeMu.Lock()
-		s.dirty = true
-		s.closeMu.Unlock()
-	}
+	var id string
+	var started bool
+	err := s.withMutation(func(e *pebble.Engine) error {
+		var err error
+		id, started, err = e.StartOrResumeSync(ctx, syncType, syncID)
+		return err
+	})
 	return id, started, err
 }
 
+func (s *pebbleStore) SetCurrentSync(ctx context.Context, syncID string) error {
+	return s.withMutation(func(e *pebble.Engine) error {
+		return e.SetCurrentSync(ctx, syncID)
+	})
+}
+
 func (s *pebbleStore) CheckpointSync(ctx context.Context, syncToken string) error {
-	return s.markDirty(s.Engine.CheckpointSync(ctx, syncToken))
+	return s.withMutation(func(e *pebble.Engine) error {
+		return e.CheckpointSync(ctx, syncToken)
+	})
 }
 
 func (s *pebbleStore) EndSync(ctx context.Context) error {
-	return s.markDirty(s.Engine.EndSync(ctx))
+	return s.withMutation(func(e *pebble.Engine) error {
+		return e.EndSync(ctx)
+	})
 }
 
 // Cleanup is a no-op for the Pebble v3 engine. A c1z holds exactly one
@@ -495,7 +727,9 @@ func (s *pebbleStore) Cleanup(ctx context.Context) error {
 }
 
 func (s *pebbleStore) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error {
-	return s.markDirty(s.Engine.PutAsset(ctx, assetRef, contentType, data))
+	return s.withMutation(func(e *pebble.Engine) error {
+		return e.PutAsset(ctx, assetRef, contentType, data)
+	})
 }
 
 // SetSupportsDiff marks the given sync as diff-capable, matching the
@@ -504,7 +738,9 @@ func (s *pebbleStore) PutAsset(ctx context.Context, assetRef *v2.AssetRef, conte
 // output remains usable wherever the source was. Delegates to the
 // SyncMeta sub-store's MarkSyncSupportsDiff.
 func (s *pebbleStore) SetSupportsDiff(ctx context.Context, syncID string) error {
-	return s.markDirty(s.SyncMeta().MarkSyncSupportsDiff(ctx, syncID))
+	return s.withMutation(func(e *pebble.Engine) error {
+		return e.SyncMeta().MarkSyncSupportsDiff(ctx, syncID)
+	})
 }
 
 // SetSyncLink records linkedSyncID as the diff partner of syncID on the
@@ -519,19 +755,23 @@ func (s *pebbleStore) SetSyncLink(ctx context.Context, syncID string, linkedSync
 	if syncID == "" {
 		return fmt.Errorf("SetSyncLink: empty syncID")
 	}
-	r, err := s.GetSyncRunRecord(ctx, syncID)
-	if err != nil {
-		return fmt.Errorf("SetSyncLink: get: %w", err)
-	}
-	r.SetLinkedSyncId(linkedSyncID)
-	if err := s.PutSyncRunRecord(ctx, r); err != nil {
-		return fmt.Errorf("SetSyncLink: put: %w", err)
-	}
-	return s.markDirty(nil)
+	return s.withMutation(func(e *pebble.Engine) error {
+		r, err := e.GetSyncRunRecord(ctx, syncID)
+		if err != nil {
+			return fmt.Errorf("SetSyncLink: get: %w", err)
+		}
+		r.SetLinkedSyncId(linkedSyncID)
+		if err := e.PutSyncRunRecord(ctx, r); err != nil {
+			return fmt.Errorf("SetSyncLink: put: %w", err)
+		}
+		return nil
+	})
 }
 
 func (s *pebbleStore) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
-	return s.markDirty(s.Engine.PutGrants(ctx, grants...))
+	return s.withMutation(func(e *pebble.Engine) error {
+		return e.PutGrants(ctx, grants...)
+	})
 }
 
 // UnsafePutUniqueGrants is the trusted-import write path (no
@@ -539,48 +779,64 @@ func (s *pebbleStore) PutGrants(ctx context.Context, grants ...*v2.Grant) error 
 // connector output. Caller must guarantee unique external_ids across the whole
 // destination sync. See pebble.Adapter.UnsafePutUniqueGrants.
 func (s *pebbleStore) UnsafePutUniqueGrants(ctx context.Context, grants ...*v2.Grant) error {
-	return s.markDirty(s.Engine.UnsafePutUniqueGrants(ctx, grants...))
+	return s.withMutation(func(e *pebble.Engine) error {
+		return e.UnsafePutUniqueGrants(ctx, grants...)
+	})
 }
 
 func (s *pebbleStore) PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error {
-	return s.markDirty(s.Engine.PutResourceTypes(ctx, resourceTypes...))
+	return s.withMutation(func(e *pebble.Engine) error {
+		return e.PutResourceTypes(ctx, resourceTypes...)
+	})
 }
 
 func (s *pebbleStore) PutResources(ctx context.Context, resources ...*v2.Resource) error {
-	return s.markDirty(s.Engine.PutResources(ctx, resources...))
+	return s.withMutation(func(e *pebble.Engine) error {
+		return e.PutResources(ctx, resources...)
+	})
 }
 
 func (s *pebbleStore) PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error {
-	return s.markDirty(s.Engine.PutEntitlements(ctx, entitlements...))
+	return s.withMutation(func(e *pebble.Engine) error {
+		return e.PutEntitlements(ctx, entitlements...)
+	})
 }
 
 func (s *pebbleStore) DeleteGrant(ctx context.Context, grantID string) error {
-	return s.markDirty(s.Engine.DeleteGrant(ctx, grantID))
+	return s.withMutation(func(e *pebble.Engine) error {
+		return e.DeleteGrant(ctx, grantID)
+	})
 }
 
 // DeleteGrantByRefs is the exact grant delete for callers holding the full
 // grant: identity derives from the structured refs, never the lossy id
 // string. The syncer prefers this when available.
 func (s *pebbleStore) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
-	return s.markDirty(s.Engine.DeleteGrantByRefs(ctx, grant))
+	return s.withMutation(func(e *pebble.Engine) error {
+		return e.DeleteGrantByRefs(ctx, grant)
+	})
 }
 
 // DeleteResourceRecord removes a resource and marks the envelope dirty so an
 // explicit reconciliation performed by the syncer is persisted on Close.
 func (s *pebbleStore) DeleteResourceRecord(ctx context.Context, resourceTypeID, resourceID string) error {
-	return s.markDirty(s.Engine.DeleteResourceRecord(ctx, resourceTypeID, resourceID))
+	return s.withMutation(func(e *pebble.Engine) error {
+		return e.DeleteResourceRecord(ctx, resourceTypeID, resourceID)
+	})
 }
 
 // DeleteEntitlementByRefs removes one exact entitlement identity and preserves
 // the mutation when the envelope is closed.
 func (s *pebbleStore) DeleteEntitlementByRefs(ctx context.Context, entitlement *v2.Entitlement) error {
 	resourceID := entitlement.GetResource().GetId()
-	return s.markDirty(s.DeleteEntitlementRecordByIdentity(
-		ctx,
-		resourceID.GetResourceType(),
-		resourceID.GetResource(),
-		entitlement.GetId(),
-	))
+	return s.withMutation(func(e *pebble.Engine) error {
+		return e.DeleteEntitlementRecordByIdentity(
+			ctx,
+			resourceID.GetResourceType(),
+			resourceID.GetResource(),
+			entitlement.GetId(),
+		)
+	})
 }
 
 // Grants overrides Adapter.Grants() so the returned GrantStore
@@ -608,23 +864,31 @@ var pebbleStoreExpandedGrantImmutableAnnotationAny = func() *anypb.Any {
 }()
 
 func (g pebbleStoreGrants) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
-	return g.store.markDirty(g.inner.StoreExpandedGrants(ctx, grants...))
+	return g.store.withMutation(func(_ *pebble.Engine) error {
+		return g.inner.StoreExpandedGrants(ctx, grants...)
+	})
 }
 
 func (g pebbleStoreGrants) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
 	if fast, ok := g.inner.(interface {
 		StoreNewExpandedGrants(context.Context, ...*v2.Grant) error
 	}); ok {
-		return g.store.markDirty(fast.StoreNewExpandedGrants(ctx, grants...))
+		return g.store.withMutation(func(_ *pebble.Engine) error {
+			return fast.StoreNewExpandedGrants(ctx, grants...)
+		})
 	}
-	return g.store.markDirty(g.inner.StoreExpandedGrants(ctx, grants...))
+	return g.store.withMutation(func(_ *pebble.Engine) error {
+		return g.inner.StoreExpandedGrants(ctx, grants...)
+	})
 }
 
 func (g pebbleStoreGrants) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
 	if fast, ok := g.inner.(interface {
 		StoreNewExpandedGrantContributions(context.Context, *v2.Entitlement, []*v3.PrincipalRef, []batonGrant.Sources) error
 	}); ok {
-		return g.store.markDirty(fast.StoreNewExpandedGrantContributions(ctx, dest, principals, sources))
+		return g.store.withMutation(func(_ *pebble.Engine) error {
+			return fast.StoreNewExpandedGrantContributions(ctx, dest, principals, sources)
+		})
 	}
 	grants := make([]*v2.Grant, 0, len(principals))
 	for i, principalRef := range principals {
@@ -635,7 +899,9 @@ func (g pebbleStoreGrants) StoreNewExpandedGrantContributions(ctx context.Contex
 		}
 		grants = append(grants, grant)
 	}
-	return g.store.markDirty(g.inner.StoreExpandedGrants(ctx, grants...))
+	return g.store.withMutation(func(_ *pebble.Engine) error {
+		return g.inner.StoreExpandedGrants(ctx, grants...)
+	})
 }
 
 // pebbleStoreGrantLayerStorer is the layer-scoped layer session surface the
@@ -650,7 +916,13 @@ type pebbleStoreGrantLayerStorer interface {
 
 func (g pebbleStoreGrants) BeginExpandedGrantLayer(ctx context.Context) (bool, error) {
 	if fast, ok := g.inner.(pebbleStoreGrantLayerStorer); ok {
-		return fast.BeginExpandedGrantLayer(ctx)
+		var started bool
+		err := g.store.withMutation(func(_ *pebble.Engine) error {
+			var err error
+			started, err = fast.BeginExpandedGrantLayer(ctx)
+			return err
+		})
+		return started, err
 	}
 	return false, nil
 }
@@ -660,7 +932,9 @@ func (g pebbleStoreGrants) AddExpandedGrantLayerContributions(ctx context.Contex
 	if !ok {
 		return fmt.Errorf("expanded grant layer: store does not support layer sessions")
 	}
-	return fast.AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
+	return g.store.withMutation(func(_ *pebble.Engine) error {
+		return fast.AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
+	})
 }
 
 func (g pebbleStoreGrants) FinishExpandedGrantLayer(ctx context.Context) error {
@@ -668,7 +942,9 @@ func (g pebbleStoreGrants) FinishExpandedGrantLayer(ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("expanded grant layer: store does not support layer sessions")
 	}
-	return g.store.markDirty(fast.FinishExpandedGrantLayer(ctx))
+	return g.store.withMutation(func(_ *pebble.Engine) error {
+		return fast.FinishExpandedGrantLayer(ctx)
+	})
 }
 
 func (g pebbleStoreGrants) AbortExpandedGrantLayer(ctx context.Context) error {
@@ -676,7 +952,9 @@ func (g pebbleStoreGrants) AbortExpandedGrantLayer(ctx context.Context) error {
 	if !ok {
 		return nil
 	}
-	return fast.AbortExpandedGrantLayer(ctx)
+	return g.store.withMutation(func(_ *pebble.Engine) error {
+		return fast.AbortExpandedGrantLayer(ctx)
+	})
 }
 
 func newPebbleStorePrincipalResource(ref *v3.PrincipalRef) *v2.Resource {
@@ -744,37 +1022,43 @@ func (g pebbleStoreGrants) ListWithAnnotations(ctx context.Context) iter.Seq2[c1
 	return g.inner.ListWithAnnotations(ctx)
 }
 
-func (s *pebbleStore) Close(ctx context.Context) (retErr error) {
-	s.closeMu.Lock()
-	defer s.closeMu.Unlock()
-	if s.closed {
+// Close saves the envelope when the store is dirty, then tears it down. It is
+// idempotent: once the store is closed, later calls report nil per io.Closer
+// convention, so a deferred Close following an explicit one does not re-report
+// a failure the caller already handled.
+func (s *pebbleStore) Close(ctx context.Context) error {
+	stopWarning := s.warnWhileBlocked(ctx)
+	owned := s.beginClose()
+	stopWarning()
+	if !owned {
 		return nil
 	}
 
-	if !s.readOnly && s.dirty {
+	if !s.readOnly && s.isDirty() {
 		if err := s.save(ctx); err != nil {
-			// Tear NOTHING down: the unpacked DB under tmpDir is the only
-			// copy of the synced data, and save failures are frequently
-			// transient (target-path permissions, disk space for the
-			// envelope). Leave the store open so the caller can fix the
-			// condition and Close again; if the process exits instead, the
-			// temp dir survives on disk for manual recovery rather than
-			// being deleted out from under a failed save.
+			// Tear NOTHING down: the unpacked DB under tmpDir is the only copy
+			// of the synced data, and save failures are frequently transient
+			// (target-path permissions, disk space for the envelope). Leave the
+			// store open so the caller can fix the condition and Close again;
+			// if the process exits instead, the temp dir survives on disk for
+			// manual recovery rather than being deleted out from under a failed
+			// save.
+			s.reopenAdmission()
 			return fmt.Errorf("pebble store close: save failed, store left open and unsaved data preserved under %s: %w", s.tmpDir, err)
 		}
+		s.closeMu.Lock()
 		s.dirty = false
+		s.closeMu.Unlock()
 	}
-	s.closed = true
 
-	defer func() {
-		if removeErr := os.RemoveAll(s.tmpDir); removeErr != nil {
-			retErr = errors.Join(retErr, removeErr)
-		}
-	}()
-
+	var retErr error
 	if err := s.Engine.Close(); err != nil {
 		retErr = errors.Join(retErr, err)
 	}
+	if removeErr := os.RemoveAll(s.tmpDir); removeErr != nil {
+		retErr = errors.Join(retErr, removeErr)
+	}
+	s.finishClose()
 	return retErr
 }
 
@@ -791,7 +1075,8 @@ func (s *pebbleStore) save(ctx context.Context) error {
 	if err := os.RemoveAll(checkpointDir); err != nil {
 		return fmt.Errorf("pebble save: clear stale checkpoint dir: %w", err)
 	}
-	if err := s.CheckpointTo(ctx, checkpointDir); err != nil {
+	engine := s.Engine
+	if err := engine.CheckpointTo(ctx, checkpointDir); err != nil {
 		return err
 	}
 	checkpointDur := time.Since(saveStart)
@@ -815,16 +1100,35 @@ func (s *pebbleStore) save(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if s.foldDeadBytes > 0 {
-		manifest.SetFoldDeadBytes(s.foldDeadBytes)
+	s.closeMu.Lock()
+	foldDeadBytes := s.foldDeadBytes
+	s.closeMu.Unlock()
+	if foldDeadBytes > 0 {
+		manifest.SetFoldDeadBytes(foldDeadBytes)
 	}
 	encodeStart := time.Now()
-	if _, err := formatv3.WriteEnvelopeWithReuse(out, manifest, checkpointDir, s.payloadReuse); err != nil {
+	spliceStats, err := formatv3.WriteEnvelopeWithReuse(out, manifest, checkpointDir, s.payloadReuse)
+	if err != nil {
 		return err
 	}
-	ctxzap.Extract(ctx).Debug("pebble save: envelope written",
+	l := ctxzap.Extract(ctx)
+	if spliceStats.ReuseMissingPath != "" {
+		// Frame splicing was configured but its source envelope was gone, so
+		// this save recompressed the entire payload instead of copying the
+		// unchanged frames. On a whale-scale file that is the difference
+		// between seconds and many minutes, and nothing else reports it.
+		l.Warn("pebble save: splice source missing, recompressed the whole payload",
+			zap.String("splice_source", spliceStats.ReuseMissingPath),
+			zap.Int("encoded_frames", spliceStats.EncodedFrames),
+		)
+	}
+	l.Debug("pebble save: envelope written",
 		zap.Duration("checkpoint", checkpointDur),
 		zap.Duration("envelope_encode", time.Since(encodeStart)),
+		zap.Int("spliced_frames", spliceStats.SplicedFrames),
+		zap.Int64("spliced_bytes", spliceStats.SplicedBytes),
+		zap.Int("encoded_frames", spliceStats.EncodedFrames),
+		zap.Int64("encoded_bytes", spliceStats.EncodedBytes),
 	)
 	if err := out.Sync(); err != nil {
 		return err

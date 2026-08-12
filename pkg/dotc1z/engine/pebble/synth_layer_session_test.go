@@ -63,15 +63,15 @@ func TestSynthLayerSessionMultiSegment(t *testing.T) {
 	ctx := context.Background()
 	e := synthLayerEngine(t, ctx)
 
-	ok, err := e.BeginSynthesizedGrantLayer(ctx)
+	ok, err := e.beginSynthesizedGrantLayer(ctx)
 	require.NoError(t, err)
 	require.True(t, ok, "Pebble must serve a layer session with a sync open")
 
 	const rows = 7 // 3 cut segments + a 1-row tail flushed at Finish
 	for i := 0; i < rows; i++ {
-		require.NoError(t, e.AddSynthesizedGrantLayerContributions(ctx, []synthesizedGrantRecord{synthLayerRow(i)}))
+		require.NoError(t, e.addSynthesizedGrantLayerContributions(ctx, []synthesizedGrantRecord{synthLayerRow(i)}))
 	}
-	require.NoError(t, e.FinishSynthesizedGrantLayer(ctx))
+	require.NoError(t, e.finishSynthesizedGrantLayer(ctx))
 
 	got := readSynthLayerPrincipals(t, ctx, e)
 	require.Len(t, got, rows, "row count after multi-segment finish")
@@ -80,10 +80,10 @@ func TestSynthLayerSessionMultiSegment(t *testing.T) {
 	}
 
 	// The session is closed: a new Begin must succeed (no leaked session).
-	ok, err = e.BeginSynthesizedGrantLayer(ctx)
+	ok, err = e.beginSynthesizedGrantLayer(ctx)
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.NoError(t, e.AbortSynthesizedGrantLayer(ctx))
+	require.NoError(t, e.abortSynthesizedGrantLayer(ctx))
 }
 
 // TestSynthLayerSessionAbortAfterIngestThenRetry pins the documented abort
@@ -97,15 +97,15 @@ func TestSynthLayerSessionAbortAfterIngestThenRetry(t *testing.T) {
 	e := synthLayerEngine(t, ctx)
 
 	const rows = 5
-	ok, err := e.BeginSynthesizedGrantLayer(ctx)
+	ok, err := e.beginSynthesizedGrantLayer(ctx)
 	require.NoError(t, err)
 	require.True(t, ok)
 	// Every Add cuts+queues a 1-row segment; some subset is ingested before
 	// the abort lands.
 	for i := 0; i < rows-1; i++ {
-		require.NoError(t, e.AddSynthesizedGrantLayerContributions(ctx, []synthesizedGrantRecord{synthLayerRow(i)}))
+		require.NoError(t, e.addSynthesizedGrantLayerContributions(ctx, []synthesizedGrantRecord{synthLayerRow(i)}))
 	}
-	require.NoError(t, e.AbortSynthesizedGrantLayer(ctx))
+	require.NoError(t, e.abortSynthesizedGrantLayer(ctx))
 
 	stranded := readSynthLayerPrincipals(t, ctx, e)
 	require.LessOrEqual(t, len(stranded), rows-1, "abort must not invent rows")
@@ -115,13 +115,13 @@ func TestSynthLayerSessionAbortAfterIngestThenRetry(t *testing.T) {
 
 	// Retry: a fresh session re-adds ALL rows (the stranded ones included)
 	// and finishes.
-	ok, err = e.BeginSynthesizedGrantLayer(ctx)
+	ok, err = e.beginSynthesizedGrantLayer(ctx)
 	require.NoError(t, err, "Begin after abort")
 	require.True(t, ok)
 	for i := 0; i < rows; i++ {
-		require.NoError(t, e.AddSynthesizedGrantLayerContributions(ctx, []synthesizedGrantRecord{synthLayerRow(i)}))
+		require.NoError(t, e.addSynthesizedGrantLayerContributions(ctx, []synthesizedGrantRecord{synthLayerRow(i)}))
 	}
-	require.NoError(t, e.FinishSynthesizedGrantLayer(ctx))
+	require.NoError(t, e.finishSynthesizedGrantLayer(ctx))
 
 	got := readSynthLayerPrincipals(t, ctx, e)
 	require.Len(t, got, rows, "retry must converge to exactly the full set")
@@ -142,47 +142,47 @@ func TestSynthLayerSessionWorkerErrorPropagates(t *testing.T) {
 
 	t.Run("surfaces at Add", func(t *testing.T) {
 		e := synthLayerEngine(t, ctx)
-		ok, err := e.BeginSynthesizedGrantLayer(ctx)
+		ok, err := e.beginSynthesizedGrantLayer(ctx)
 		require.NoError(t, err)
 		require.True(t, ok)
-		require.NoError(t, e.AddSynthesizedGrantLayerContributions(ctx, []synthesizedGrantRecord{synthLayerRow(0)}))
+		require.NoError(t, e.addSynthesizedGrantLayerContributions(ctx, []synthesizedGrantRecord{synthLayerRow(0)}))
 
 		injected := errors.New("test: synth layer worker ingest failed")
 		e.loadSynthLayer().setErr(injected)
 
-		err = e.AddSynthesizedGrantLayerContributions(ctx, []synthesizedGrantRecord{synthLayerRow(1)})
+		err = e.addSynthesizedGrantLayerContributions(ctx, []synthesizedGrantRecord{synthLayerRow(1)})
 		require.ErrorIs(t, err, injected, "worker error must surface at the next Add")
 		// The session is still attached after a failed Add; Abort must
 		// tear it down without hanging.
-		require.NoError(t, e.AbortSynthesizedGrantLayer(ctx))
+		require.NoError(t, e.abortSynthesizedGrantLayer(ctx))
 
 		// Engine remains fully usable for a fresh session.
-		ok, err = e.BeginSynthesizedGrantLayer(ctx)
+		ok, err = e.beginSynthesizedGrantLayer(ctx)
 		require.NoError(t, err, "Begin after worker failure")
 		require.True(t, ok)
-		require.NoError(t, e.AddSynthesizedGrantLayerContributions(ctx, []synthesizedGrantRecord{synthLayerRow(99)}))
-		require.NoError(t, e.FinishSynthesizedGrantLayer(ctx))
+		require.NoError(t, e.addSynthesizedGrantLayerContributions(ctx, []synthesizedGrantRecord{synthLayerRow(99)}))
+		require.NoError(t, e.finishSynthesizedGrantLayer(ctx))
 		got := readSynthLayerPrincipals(t, ctx, e)
 		require.Equal(t, 1, got["u99"], "post-recovery session must write normally")
 	})
 
 	t.Run("surfaces at Finish", func(t *testing.T) {
 		e := synthLayerEngine(t, ctx)
-		ok, err := e.BeginSynthesizedGrantLayer(ctx)
+		ok, err := e.beginSynthesizedGrantLayer(ctx)
 		require.NoError(t, err)
 		require.True(t, ok)
-		require.NoError(t, e.AddSynthesizedGrantLayerContributions(ctx, []synthesizedGrantRecord{synthLayerRow(0)}))
+		require.NoError(t, e.addSynthesizedGrantLayerContributions(ctx, []synthesizedGrantRecord{synthLayerRow(0)}))
 
 		injected := errors.New("test: synth layer worker ingest failed")
 		e.loadSynthLayer().setErr(injected)
 
 		// Finish waits the worker out and must report the stored error,
 		// not success.
-		require.ErrorIs(t, e.FinishSynthesizedGrantLayer(ctx), injected, "worker error must surface at Finish")
+		require.ErrorIs(t, e.finishSynthesizedGrantLayer(ctx), injected, "worker error must surface at Finish")
 
-		ok, err = e.BeginSynthesizedGrantLayer(ctx)
+		ok, err = e.beginSynthesizedGrantLayer(ctx)
 		require.NoError(t, err, "Begin after failed Finish")
 		require.True(t, ok)
-		require.NoError(t, e.AbortSynthesizedGrantLayer(ctx))
+		require.NoError(t, e.abortSynthesizedGrantLayer(ctx))
 	})
 }

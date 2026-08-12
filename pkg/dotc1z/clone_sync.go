@@ -233,13 +233,13 @@ func (c *C1File) SnapshotTo(ctx context.Context, outPath string, opts ...C1FOpti
 // connection. cloneCopy reads c.rawDb to take that one connection but never
 // mutates c.rawDb/c.db/c.currentSyncID/c.closed, so the live handle is left
 // exactly as it was found (plus the row-copy stall). Both entry points already
-// reject a closed handle; the nil-rawDb guard below is defensive against a
+// reject a closed handle; the validateDb guard below is defensive against a
 // future caller that does not.
 // errPrefix is the caller's error-message namespace ("clone-sync" /
 // "snapshot-to") so each entry point keeps its own observable error strings.
 func (c *C1File) cloneCopy(ctx context.Context, outPath string, syncID string, selectAll bool, errPrefix string, opts ...C1FOption) error {
-	if c.rawDb == nil {
-		return ErrDbNotOpen
+	if err := c.validateDb(ctx); err != nil {
+		return err
 	}
 
 	// Be sure that the output path is empty else return an error
@@ -277,11 +277,9 @@ func (c *C1File) cloneCopy(ctx context.Context, outPath string, syncID string, s
 	if err != nil {
 		return err
 	}
-	if err = initFile.rawDb.Close(); err != nil {
+	if err = initFile.closeRawDB(ctx); err != nil {
 		return err
 	}
-	initFile.rawDb = nil
-	initFile.db = nil
 
 	qCtx, canc := context.WithCancel(ctx)
 	defer canc()

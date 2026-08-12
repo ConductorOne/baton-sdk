@@ -68,7 +68,7 @@ func TestBareIDEntitlementLookupExactlyOne(t *testing.T) {
 	// Two matches → explicit ambiguity, for reads AND deletes.
 	_, err = e.GetEntitlementRecord(ctx, "shared-id")
 	require.ErrorIs(t, err, ErrAmbiguousExternalID)
-	err = e.DeleteEntitlementRecord(ctx, "shared-id")
+	err = e.deleteEntitlementRecord(ctx, "shared-id")
 	require.ErrorIs(t, err, ErrAmbiguousExternalID, "an ambiguous string must never guess a delete")
 
 	// Both ambiguous rows are intact.
@@ -121,7 +121,7 @@ func TestBareIDEntitlementLookupInvalidation(t *testing.T) {
 	require.NoError(t, err, "write must invalidate the cached map")
 	require.Equal(t, "second", got.GetExternalId())
 
-	require.NoError(t, e.DeleteEntitlementRecord(ctx, "first"))
+	require.NoError(t, e.deleteEntitlementRecord(ctx, "first"))
 	_, err = e.GetEntitlementRecord(ctx, "first")
 	require.ErrorIs(t, err, pebble.ErrNotFound, "delete must invalidate the cached map")
 }
@@ -218,7 +218,7 @@ func TestDeleteGrantByIdentityRefsIsExact(t *testing.T) {
 	require.NoError(t, e.PutGrantRecord(ctx, b))
 
 	// The string is ambiguous, but refs are not.
-	require.NoError(t, e.DeleteGrantByIdentityRefs(ctx, a))
+	require.NoError(t, e.deleteGrantByIdentityRefs(ctx, a))
 	var survivors []string
 	require.NoError(t, e.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
 		survivors = append(survivors, r.GetEntitlement().GetEntitlementId())
@@ -227,9 +227,9 @@ func TestDeleteGrantByIdentityRefsIsExact(t *testing.T) {
 	require.Equal(t, []string{"group:eng:member"}, survivors, "refs delete removes exactly its row")
 
 	// Delete of a non-existent identity is a no-op.
-	require.NoError(t, e.DeleteGrantByIdentityRefs(ctx, a))
+	require.NoError(t, e.deleteGrantByIdentityRefs(ctx, a))
 
 	// Incomplete refs are an error, never a bare-id fallback.
-	err := e.DeleteGrantByIdentityRefs(ctx, v3.GrantRecord_builder{ExternalId: shared}.Build())
+	err := e.deleteGrantByIdentityRefs(ctx, v3.GrantRecord_builder{ExternalId: shared}.Build())
 	require.Error(t, err)
 }

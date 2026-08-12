@@ -176,6 +176,14 @@ type SpliceStats struct {
 	SplicedBytes  int64 // compressed bytes copied verbatim
 	EncodedFrames int
 	EncodedBytes  int64 // raw bytes freshly compressed
+
+	// ReuseMissingPath names the splice source that was configured but had
+	// vanished by save time, so every frame was compressed afresh. It is the
+	// only outward difference between "nothing was reusable" and "reuse was
+	// impossible": both report zero spliced frames, but the second turns an
+	// O(changed frames) save into an O(payload) one. Non-empty means a caller
+	// should say so — a stale source path is a bug, not a normal outcome.
+	ReuseMissingPath string
 }
 
 // writeIndexedZstd writes the indexed payload for dir to w in a
@@ -208,11 +216,19 @@ func writeIndexedZstd(w io.Writer, payloadStart int64, manifestXXH64 uint64, dir
 	var srcFile *os.File
 	if reuse != nil && reuse.srcPath != "" {
 		f, err := os.Open(reuse.srcPath)
-		if err != nil {
+		switch {
+		case err == nil:
+			srcFile = f
+			defer srcFile.Close()
+		case errors.Is(err, os.ErrNotExist):
+			// Reuse is an optimization, not a durability dependency. The
+			// extracted payload is complete, so if its source envelope was
+			// removed while the store was open, encode every frame afresh —
+			// but report it, because the cost is a full re-encode.
+			stats.ReuseMissingPath = reuse.srcPath
+		default:
 			return stats, fmt.Errorf("c1z v3: open splice source: %w", err)
 		}
-		srcFile = f
-		defer srcFile.Close()
 	}
 
 	// WithZeroFrames is pinned (it is the library default today, but

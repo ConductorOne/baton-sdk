@@ -54,7 +54,7 @@ func (e *Engine) StreamGrants(
 		case opts.EntitlementID != "":
 			err = e.IterateGrantsByEntitlement(ctx, opts.EntitlementID, cb)
 		case opts.PrincipalResourceType != "" && opts.PrincipalResourceID == "":
-			err = e.IterateGrantsByPrincipalResourceType(ctx, opts.PrincipalResourceType, cb)
+			err = e.iterateGrantsByPrincipalResourceType(ctx, opts.PrincipalResourceType, cb)
 		default:
 			err = e.IterateGrants(ctx, cb)
 		}

@@ -9,12 +9,26 @@ Run `make help` for the current target list.
 ## CI-equivalent tests
 
 `make test` runs the ordinary Go test suite with the same build tag used by
-CI. Pull-request CI also runs lint, protobuf checks, the full build, and
-`make race-shard-audit` (see [Race shards](#race-shards)).
+Linux pull-request CI. Windows CI additionally uses `-short` because its
+filesystem is substantially slower. Pull-request CI also runs lint, protobuf
+checks, bounded chaos checks, the full build, and `make race-shard-audit` (see
+[Race shards](#race-shards)).
 
 Tests in this tier should be deterministic, self-contained, and reasonably
-fast. A test that only skips on Windows with `testing.Short()` is still a CI
-test on the other platforms.
+fast. A test that only skips with `testing.Short()` remains part of Linux CI;
+Windows uses the reduced mode because filesystem-heavy matrices are
+substantially slower there.
+
+## Full Go suite
+
+`make test-full` expands the topological resume/interrupt fixture matrices,
+differential seed sweeps, checkpoint-cut sweep, and WAL timing soak. Ordinary
+CI retains every algorithm and interruption mode over representative acyclic
+and cyclic graphs, evenly spaced checkpoint/response/expiry cuts, and 20
+WAL-race attempts. The full tier adds specialized graph fixtures and wider
+sampling. The six-seed randomized scheduler soak also runs here and in
+`make scheduler-soak`; ordinary CI retains the deterministic scheduler tests
+and the complete deterministic chaos corpora.
 
 ## Bounded checks omitted from CI
 

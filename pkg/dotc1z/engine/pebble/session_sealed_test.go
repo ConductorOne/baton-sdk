@@ -30,7 +30,7 @@ func TestSessionWritesAllowedWhileSealed(t *testing.T) {
 	require.NoError(t, e.SessionSet(ctx, "cache-key", []byte("cache-value"), sid))
 
 	require.NoError(t, a.EndSync(ctx))
-	require.True(t, e.IsSealed(), "EndSync must seal")
+	require.True(t, e.isSealed(), "EndSync must seal")
 
 	// The Cleanup-path clear must succeed on the sealed engine.
 	require.NoError(t, e.SessionClear(ctx, sid), "SessionClear after EndSync (connector Cleanup path)")

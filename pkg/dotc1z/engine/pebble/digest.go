@@ -454,7 +454,7 @@ func (e *Engine) buildPartitionDigestAtWidth(ctx context.Context, spec digestInd
 		}
 
 		opts := writeOpts(e.opts.durability)
-		if e.IsFreshSync() {
+		if e.isFreshSync() {
 			opts = pebble.NoSync
 		}
 		if err := batch.Commit(opts); err != nil {

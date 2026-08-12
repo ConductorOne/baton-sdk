@@ -509,17 +509,17 @@ func TestCheckpointCutEnumeration(t *testing.T) {
 		cause      error
 	}
 	var cuts []cut
-	for _, n := range enumerateCutPoints(baseline.checkpoints, 16) {
+	for _, n := range enumerateCutPoints(baseline.checkpoints, 8) {
 		cuts = append(cuts, cut{name: fmt.Sprintf("checkpoint-%02d", n), checkpoint: n, cause: errInjectedCut})
 	}
-	for _, m := range enumerateCutPoints(baseline.responses, 16) {
+	for _, m := range enumerateCutPoints(baseline.responses, 8) {
 		cuts = append(cuts, cut{name: fmt.Sprintf("response-%02d", m), response: m, cause: errInjectedCut})
 	}
 	// Expiry cuts take the run-duration deadline path, which force-writes
 	// a checkpoint of the MID-BATCH stack (spawned cursors in flight)
 	// before exiting — the token shape hard cuts never persist, and the
 	// one resume bugs have historically hidden in.
-	for _, m := range enumerateCutPoints(baseline.responses, 12) {
+	for _, m := range enumerateCutPoints(baseline.responses, 6) {
 		cuts = append(cuts, cut{name: fmt.Sprintf("expire-%02d", m), response: m, cause: errInjectedExpiry})
 	}
 

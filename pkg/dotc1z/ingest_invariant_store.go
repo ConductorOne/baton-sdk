@@ -2,6 +2,8 @@ package dotc1z
 
 import (
 	"context"
+
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
 // IngestInvariantStore is the optional store capability backing the
@@ -86,7 +88,9 @@ func (s *pebbleStore) ForEachDanglingGrantEntitlement(ctx context.Context, visit
 }
 
 func (s *pebbleStore) EnsureGrantIndexes(ctx context.Context) error {
-	return s.Engine.EnsureGrantIndexes(ctx)
+	return s.withMutation(func(e *pebble.Engine) error {
+		return e.EnsureGrantIndexes(ctx)
+	})
 }
 
 func (s *pebbleStore) ForEachDanglingGrantPrincipal(ctx context.Context, visit func(principalRT, principalID string, matchAnnotatedOnly bool, carrierGrants int64) error) error {

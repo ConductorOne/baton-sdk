@@ -340,7 +340,7 @@ func grantPrimaryKeyFromHashIndexKey(dst, idxKey []byte) ([]byte, bool) {
 
 // --- Engine API ---
 
-// GetEntitlementDigestRoot returns the stored grant-digest root for an
+// getEntitlementDigestRoot returns the stored grant-digest root for an
 // entitlement. ok is false when no digest has been built for it (or it
 // was invalidated) — which means the caller must re-read the
 // entitlement's grants (or treat the whole entitlement as dirty), NOT
@@ -349,7 +349,7 @@ func grantPrimaryKeyFromHashIndexKey(dst, idxKey []byte) ([]byte, bool) {
 // nodes, so with no root it is absent too and the fold would report
 // "zero grants" for an entitlement that may have millions — the
 // false-clean trap dirtyPartitionBuckets' doc comment describes.
-func (e *Engine) GetEntitlementDigestRoot(ctx context.Context, id entitlementIdentity) (DigestRoot, bool, error) {
+func (e *Engine) getEntitlementDigestRoot(ctx context.Context, id entitlementIdentity) (DigestRoot, bool, error) {
 	return e.getPartitionDigestRoot(grantDigestSpec, digestPartitionForEntitlement(id))
 }
 
@@ -386,7 +386,7 @@ func (e *Engine) GetGrantDigestGlobalRoot(ctx context.Context) (DigestRoot, bool
 	return DigestRoot{Hash: out, Count: count}, true, nil
 }
 
-// ComputeEntitlementBucketDigest folds the grant hash index over a
+// computeEntitlementBucketDigest folds the grant hash index over a
 // single bucket of an entitlement (the zero bucket = the whole
 // entitlement) — the authoritative on-demand counterpart of the stored
 // digest nodes, for verifying or subdividing a digest that EXISTS.
@@ -395,27 +395,27 @@ func (e *Engine) GetGrantDigestGlobalRoot(ctx context.Context) (DigestRoot, bool
 // against a never-built or invalidated entitlement this folds an
 // absent index range and returns {0, 0} — "zero grants", not "unknown".
 // Never use it as a fallback for a missing root; see
-// GetEntitlementDigestRoot and computeBucketDigest's precondition.
-func (e *Engine) ComputeEntitlementBucketDigest(ctx context.Context, id entitlementIdentity, bucket DigestBucket) ([]byte, int64, error) {
+// getEntitlementDigestRoot and computeBucketDigest's precondition.
+func (e *Engine) computeEntitlementBucketDigest(ctx context.Context, id entitlementIdentity, bucket DigestBucket) ([]byte, int64, error) {
 	return e.computeBucketDigest(ctx, grantDigestSpec, digestPartitionForEntitlement(id), bucket)
 }
 
-// DirtyEntitlementBuckets compares this engine's entitlement against
+// dirtyEntitlementBuckets compares this engine's entitlement against
 // other's and returns the buckets whose grants differ — see
 // dirtyPartitionBuckets for the comparison contract (zero bucket =
 // whole entitlement; nil = identical).
-func (e *Engine) DirtyEntitlementBuckets(ctx context.Context, other *Engine, id entitlementIdentity) ([]DigestBucket, error) {
+func (e *Engine) dirtyEntitlementBuckets(ctx context.Context, other *Engine, id entitlementIdentity) ([]DigestBucket, error) {
 	return e.dirtyPartitionBuckets(ctx, grantDigestSpec, other, digestPartitionForEntitlement(id))
 }
 
-// IterateGrantsByEntitlementBucket yields the grants in one
+// iterateGrantsByEntitlementBucket yields the grants in one
 // principal-hash bucket of an entitlement (the zero bucket = the whole
 // entitlement). This is the dirty-bucket loader: after a digest
 // comparison flags a bucket, the caller materializes only those grants.
 // The primary key is reconstructed from each index key by byte splice
 // (no decode); the point Get per entry is the cost of MATERIALIZING a
 // changed grant, not of finding it. Orphan index entries are skipped.
-func (e *Engine) IterateGrantsByEntitlementBucket(ctx context.Context, id entitlementIdentity, bucket DigestBucket, yield func(*v3.GrantRecord) bool) error {
+func (e *Engine) iterateGrantsByEntitlementBucket(ctx context.Context, id entitlementIdentity, bucket DigestBucket, yield func(*v3.GrantRecord) bool) error {
 	lower, upper := grantDigestSpec.bucketBounds(digestPartitionForEntitlement(id), bucket)
 	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
@@ -450,18 +450,6 @@ func (e *Engine) IterateGrantsByEntitlementBucket(ctx context.Context, id entitl
 		}
 	}
 	return iter.Error()
-}
-
-// DropAllGrantDigests removes every stored digest node. Called when a
-// seal-time build fails partway: a partially built digest that LOOKS
-// present would violate the present-means-exact contract, whereas
-// absent digests just make readers re-read the grants until the next
-// successful seal recalculates them.
-func (e *Engine) DropAllGrantDigests(ctx context.Context) error {
-	return e.withWrite(func() error {
-		e.db.SetGrantDigestsPresent(false)
-		return e.db.DropKeyRange(DigestLowerBound(), DigestUpperBound(), writeOpts(e.opts.durability))
-	})
 }
 
 // DropAllGrantDigestState removes every stored digest node AND the

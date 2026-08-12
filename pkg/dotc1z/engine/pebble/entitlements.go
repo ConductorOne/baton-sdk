@@ -34,7 +34,7 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 		priBatch := e.db.NewRecordBatch()
 		defer priBatch.Close()
 
-		fresh := e.IsFreshSync()
+		fresh := e.isFreshSync()
 
 		type dedupKey struct {
 			id entitlementIdentity
@@ -107,10 +107,10 @@ func (e *Engine) GetEntitlementRecord(ctx context.Context, externalID string) (*
 	return r, nil
 }
 
-// DeleteEntitlementRecord deletes by raw public id. A missing id is a
+// deleteEntitlementRecord deletes by raw public id. A missing id is a
 // no-op; an ambiguous id is an error (a lossy string must never guess a
 // delete).
-func (e *Engine) DeleteEntitlementRecord(ctx context.Context, externalID string) error {
+func (e *Engine) deleteEntitlementRecord(ctx context.Context, externalID string) error {
 	return e.withWrite(func() error {
 		id, err := e.resolveEntitlementIdentityByExternalID(ctx, externalID)
 		if err != nil {

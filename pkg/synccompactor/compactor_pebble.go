@@ -462,11 +462,16 @@ func selectSourceSyncFromManifest(path string) (manifestSourceSelection, bool) {
 func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	l := ctxzap.Extract(ctx)
 	foldStart := time.Now()
-	destEng, ok := enginepkg.AsEngine(c.compactedC1z)
+	// Read the base sync through the store's own surface rather than pulling
+	// a raw engine out of the shared destination; AsEngine on the dest is
+	// reserved for nothing — only single-owner source files use it.
+	destReader, ok := c.compactedC1z.(interface {
+		LatestFinishedSyncRecord(ctx context.Context, typeOK func(v3.SyncType) bool) (*v3.SyncRunRecord, error)
+	})
 	if !ok {
-		return "", errors.New("compactPebbleFold: compacted store is not a pebble engine")
+		return "", errors.New("compactPebbleFold: compacted store does not expose LatestFinishedSyncRecord")
 	}
-	baseRec, err := destEng.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
+	baseRec, err := destReader.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
 	if err != nil {
 		return "", fmt.Errorf("compactPebbleFold: select base sync: %w", err)
 	}
@@ -480,264 +485,257 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	)
 	unionType := baseRec.GetType()
 	maxEnded := baseRec.GetEndedAt().AsTime()
-
-	// Apply partials newest-first (reverse entry order, excluding the
-	// base at entries[0]); strictly-newer-wins makes earlier
-	// applications take precedence on ties.
 	var foldStats mergepkg.FoldStats
-	var partialSyncIDs []string
-	var partialTokens []string
-	// SQLite/v1 partials are converted to Pebble in the tmp dir before being
-	// folded in; their converted copies are removed when this run completes.
-	var convertedInputs []string
-	defer func() {
-		for _, path := range convertedInputs {
-			_ = os.Remove(path)
-		}
-	}()
-	for i := len(c.entries) - 1; i >= 1; i-- {
-		if err := ctx.Err(); err != nil {
-			return "", err
-		}
-		cs := c.entries[i]
-		sourcePath := cs.FilePath
-		format, err := readCompactionInputFormat(sourcePath)
-		if err != nil {
-			return "", err
-		}
-		if format == dotc1z.C1ZFormatV1 {
-			convertedPath, err := c.convertSQLiteInputToPebble(ctx, cs)
-			if err != nil {
-				return "", err
-			}
-			convertedInputs = append(convertedInputs, convertedPath)
-			sourcePath = convertedPath
-		}
-		srcSyncID := ""
-		if sel, ok := selectSourceSyncFromManifest(sourcePath); ok {
-			srcSyncID = sel.syncID
-			unionType = unionV3SyncType(unionType, sel.syncType)
-			if sel.endedAt.After(maxEnded) {
-				maxEnded = sel.endedAt
-			}
-		}
-		w, err := dotc1z.NewStore(ctx, sourcePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir), dotc1z.WithDecoderPool(c.decoderPool))
-		if err != nil {
-			return "", fmt.Errorf("compactPebbleFold: open input %s: %w", sourcePath, err)
-		}
-		srcEng, ok := enginepkg.AsEngine(w)
-		if !ok {
-			_ = w.Close(ctx)
-			return "", fmt.Errorf("compactPebbleFold: input %s is not a pebble c1z", sourcePath)
-		}
-		if srcSyncID == "" {
-			rec, err := srcEng.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
-			if err != nil {
-				_ = w.Close(ctx)
-				return "", fmt.Errorf("compactPebbleFold: input %s: select compactable sync: %w", sourcePath, err)
-			}
-			if rec == nil {
-				_ = w.Close(ctx)
-				return "", fmt.Errorf("compactPebbleFold: input %s has no finished compactable sync", sourcePath)
-			}
-			srcSyncID = rec.GetSyncId()
-			unionType = unionV3SyncType(unionType, rec.GetType())
-			if ts := rec.GetEndedAt(); ts != nil && ts.AsTime().After(maxEnded) {
-				maxEnded = ts.AsTime()
-			}
-		}
-		partialSyncIDs = append(partialSyncIDs, srcSyncID)
-		partialTokens = append(partialTokens, readSourceSyncToken(ctx, srcEng, srcSyncID))
+	var newSyncID string
+	err = enginepkg.WithEngineFoldMutation(ctx, c.compactedC1z, func(ctx context.Context, destEng *enginepkg.Engine) (int64, error) {
+		id, mutationErr := func() (string, error) {
+			// Apply partials newest-first (reverse entry order, excluding the
+			// base at entries[0]); strictly-newer-wins makes earlier
+			// applications take precedence on ties.
+			var partialSyncIDs []string
+			var partialTokens []string
+			// SQLite/v1 partials are converted to Pebble in the tmp dir before being
+			// folded in; their converted copies are removed when this run completes.
+			var convertedInputs []string
+			defer func() {
+				for _, path := range convertedInputs {
+					_ = os.Remove(path)
+				}
+			}()
+			for i := len(c.entries) - 1; i >= 1; i-- {
+				if err := ctx.Err(); err != nil {
+					return "", err
+				}
+				cs := c.entries[i]
+				sourcePath := cs.FilePath
+				format, err := readCompactionInputFormat(sourcePath)
+				if err != nil {
+					return "", err
+				}
+				if format == dotc1z.C1ZFormatV1 {
+					convertedPath, err := c.convertSQLiteInputToPebble(ctx, cs)
+					if err != nil {
+						return "", err
+					}
+					convertedInputs = append(convertedInputs, convertedPath)
+					sourcePath = convertedPath
+				}
+				srcSyncID := ""
+				if sel, ok := selectSourceSyncFromManifest(sourcePath); ok {
+					srcSyncID = sel.syncID
+					unionType = unionV3SyncType(unionType, sel.syncType)
+					if sel.endedAt.After(maxEnded) {
+						maxEnded = sel.endedAt
+					}
+				}
+				w, err := dotc1z.NewStore(ctx, sourcePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir), dotc1z.WithDecoderPool(c.decoderPool))
+				if err != nil {
+					return "", fmt.Errorf("compactPebbleFold: open input %s: %w", sourcePath, err)
+				}
+				srcEng, ok := enginepkg.AsEngine(w)
+				if !ok {
+					_ = w.Close(ctx)
+					return "", fmt.Errorf("compactPebbleFold: input %s is not a pebble c1z", sourcePath)
+				}
+				if srcSyncID == "" {
+					rec, err := srcEng.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
+					if err != nil {
+						_ = w.Close(ctx)
+						return "", fmt.Errorf("compactPebbleFold: input %s: select compactable sync: %w", sourcePath, err)
+					}
+					if rec == nil {
+						_ = w.Close(ctx)
+						return "", fmt.Errorf("compactPebbleFold: input %s has no finished compactable sync", sourcePath)
+					}
+					srcSyncID = rec.GetSyncId()
+					unionType = unionV3SyncType(unionType, rec.GetType())
+					if ts := rec.GetEndedAt(); ts != nil && ts.AsTime().After(maxEnded) {
+						maxEnded = ts.AsTime()
+					}
+				}
+				partialSyncIDs = append(partialSyncIDs, srcSyncID)
+				partialTokens = append(partialTokens, readSourceSyncToken(ctx, srcEng, srcSyncID))
 
-		mergeStats, mergeErr := mergepkg.MergeInto(ctx, destEng, []mergepkg.SourceSync{{Engine: srcEng, SyncID: srcSyncID}}, baseSyncID)
-		foldStats.Add(mergeStats)
-		if cerr := w.Close(ctx); cerr != nil {
-			l.Error("compactPebbleFold: error closing source store", zap.Error(cerr), zap.String("file", sourcePath))
-		}
-		if mergeErr != nil {
-			return "", fmt.Errorf("compactPebbleFold: merge %s: %w", sourcePath, mergeErr)
-		}
-	}
-
-	// Record the bytes this fold shadowed in the base keyspace. The
-	// store inherited the base manifest's running fold_dead_bytes at
-	// open (the dest is a byte copy of the base), so adding the delta
-	// keeps the manifest counter cumulative across consecutive folds;
-	// resolvePebbleMode's waste cutover reads it to force the eventual
-	// rebuild that reclaims the dead weight.
-	if foldStats.DeadBytes > 0 {
-		if !enginepkg.AddFoldDeadBytes(c.compactedC1z, foldStats.DeadBytes) {
-			return "", errors.New("compactPebbleFold: could not record fold dead bytes")
-		}
-	}
-
-	// Only touch grant digests for the entitlement partitions this fold
-	// actually wrote a grant into. The dest started as a byte copy of a
-	// sealed base, whose digest state is already exactly correct for
-	// every OTHER entitlement; invalidating (and later recalling
-	// RepairMissingGrantDigests to rebuild) the whole file on every
-	// fold — even one where a single entitlement out of thousands
-	// changed — would reintroduce the O(base) cost fold exists to
-	// avoid. InvalidateGrantDigestPartitions drops exactly the touched
-	// partitions (+ the now-stale whole-file root);
-	// RepairMissingGrantDigests then rebuilds exactly what's missing,
-	// each from a targeted scan of just that entitlement's own grants —
-	// never a full-file scan — and recomputes the whole-file root from
-	// the (small) digest keyspace itself. A fold whose partials add
-	// nothing new (a common steady-state case — re-running compaction
-	// with no new data, or partials that only touch
-	// resources/entitlements) touches nothing at all.
-	//
-	// This result is FINAL only when the caller (Compact) goes on to
-	// skip grant expansion (WithSkipGrantExpansion, or a partial-typed
-	// union) — nothing else touches c.compactedC1z before Close in that
-	// path (GetSync is a pure read; Cleanup is a hard no-op for the
-	// Pebble engine). When expansion runs instead, its own grant writes
-	// use dedicated write paths (PutExpandedGrantRecords /
-	// PutSynthesizedGrantRecords / the layer-session ingest, not
-	// PutGrantRecords) whose invalidation correctness doesn't matter
-	// here: expandGrants' syncer.Sync ALWAYS calls store.EndSync
-	// afterward — even for a no-op expansion — and Adapter.EndSync's
-	// finalize unconditionally runs a FULL digest rebuild
-	// (BuildDeferredGrantIndexes or BuildGrantDigests) whenever the
-	// digest index is enabled, with no branch that skips both. So
-	// whatever this targeted repair produces gets unconditionally
-	// superseded by a full, correct rebuild the moment expansion runs —
-	// safe, but this optimization's actual win is scoped to
-	// skip-expansion compactions; a fold whose base is a full sync
-	// (expansion NOT skipped) pays for both the targeted repair AND the
-	// subsequent full rebuild. See
-	// TestCompactPebbleFoldWithExpansionRebuildsFullyRegardless.
-	//
-	// When the dest engine has the digest index DISABLED, touched
-	// digests must be dropped instead of repaired: the byte copy
-	// carried the sealed base's digest state unconditionally, readers
-	// serve whatever is stored regardless of this writer's flag
-	// (grantDigestsPresent is probed from the keyspace at Open), and
-	// every rebuild path — this one, EndSync's finalize,
-	// RepairMissingGrantDigests itself — gates on the same flag, so
-	// stale digests would ship as present-but-wrong with nothing left
-	// to heal them. Absent is always safe (present-means-exact).
-	// Dropping only on a grant write, rather than skipping the digest
-	// bucket copy up front, keeps the no-grant-write fold preserving
-	// the base's still-exact digests for free even on a disabled-index
-	// engine. See TestCompactPebbleFoldDigestIndexDisabledDropsDigests.
-	if len(foldStats.TouchedGrantPartitions) > 0 {
-		if !destEng.GrantDigestIndexEnabled() {
-			if err := destEng.DropAllGrantDigestState(ctx); err != nil {
-				return "", fmt.Errorf("compactPebbleFold: drop grant digest state (digest index disabled): %w", err)
+				mergeStats, mergeErr := mergepkg.MergeInto(ctx, destEng, []mergepkg.SourceSync{{Engine: srcEng, SyncID: srcSyncID}}, baseSyncID)
+				foldStats.Add(mergeStats)
+				if cerr := w.Close(ctx); cerr != nil {
+					l.Error("compactPebbleFold: error closing source store", zap.Error(cerr), zap.String("file", sourcePath))
+				}
+				if mergeErr != nil {
+					return "", fmt.Errorf("compactPebbleFold: merge %s: %w", sourcePath, mergeErr)
+				}
 			}
-			l.Info("compactPebbleFold: grant writes with digest index disabled; dropped the base's copied digest state",
-				zap.Int("touched_partitions", len(foldStats.TouchedGrantPartitions)))
-		} else {
-			partitions := make([]string, 0, len(foldStats.TouchedGrantPartitions))
-			for p := range foldStats.TouchedGrantPartitions {
-				partitions = append(partitions, p)
-			}
-			if err := destEng.InvalidateGrantDigestPartitions(ctx, partitions); err != nil {
-				return "", fmt.Errorf("compactPebbleFold: invalidate grant digest partitions: %w", err)
-			}
-			if err := destEng.RepairMissingGrantDigests(ctx); err != nil {
-				return "", fmt.Errorf("compactPebbleFold: repair grant digests: %w", err)
-			}
-			l.Info("compactPebbleFold: repaired grant digests for touched entitlements",
-				zap.Int("touched_partitions", len(partitions)))
-		}
-	} else {
-		l.Info("compactPebbleFold: no grant writes; base grant digest state left untouched")
-	}
 
-	// Optionally compact the folded LSM before save. Off by default:
-	// a compaction rewrites the SSTs that overlap the partials' writes
-	// — for scattered overrides that is most of the base — which both
-	// costs O(base) on the critical path and makes those files no
-	// longer byte-identical to the source envelope's frames, so the
-	// splice-at-save degrades to a full re-encode. The payoff is an
-	// output with zero shadowed records (overrides otherwise leave
-	// dead bytes inside the spliced base frames). Experimental knob
-	// for measuring that trade-off; the long-term plan for reclaiming
-	// accumulated fold bloat is routing the occasional compaction to
-	// the rebuild path instead.
-	if os.Getenv("BATON_EXPERIMENTAL_FOLD_COMPACT") == "1" {
-		compactStart := time.Now()
-		if err := destEng.CompactAllRanges(ctx); err != nil {
-			return "", fmt.Errorf("compactPebbleFold: compact ranges: %w", err)
-		}
-		l.Info("compactPebbleFold: compacted LSM before save",
-			zap.Duration("elapsed", time.Since(compactStart)))
-	}
+			// Only touch grant digests for the entitlement partitions this fold
+			// actually wrote a grant into. The dest started as a byte copy of a
+			// sealed base, whose digest state is already exactly correct for
+			// every OTHER entitlement; invalidating (and later recalling
+			// RepairMissingGrantDigests to rebuild) the whole file on every
+			// fold — even one where a single entitlement out of thousands
+			// changed — would reintroduce the O(base) cost fold exists to
+			// avoid. InvalidateGrantDigestPartitions drops exactly the touched
+			// partitions (+ the now-stale whole-file root);
+			// RepairMissingGrantDigests then rebuilds exactly what's missing,
+			// each from a targeted scan of just that entitlement's own grants —
+			// never a full-file scan — and recomputes the whole-file root from
+			// the (small) digest keyspace itself. A fold whose partials add
+			// nothing new (a common steady-state case — re-running compaction
+			// with no new data, or partials that only touch
+			// resources/entitlements) touches nothing at all.
+			//
+			// This result is FINAL only when the caller (Compact) goes on to
+			// skip grant expansion (WithSkipGrantExpansion, or a partial-typed
+			// union) — nothing else touches c.compactedC1z before Close in that
+			// path (GetSync is a pure read; Cleanup is a hard no-op for the
+			// Pebble engine). When expansion runs instead, its own grant writes
+			// use dedicated write paths (PutExpandedGrantRecords /
+			// PutSynthesizedGrantRecords / the layer-session ingest, not
+			// PutGrantRecords) whose invalidation correctness doesn't matter
+			// here: expandGrants' syncer.Sync ALWAYS calls store.EndSync
+			// afterward — even for a no-op expansion — and Adapter.EndSync's
+			// finalize unconditionally runs a FULL digest rebuild
+			// (BuildDeferredGrantIndexes or BuildGrantDigests) whenever the
+			// digest index is enabled, with no branch that skips both. So
+			// whatever this targeted repair produces gets unconditionally
+			// superseded by a full, correct rebuild the moment expansion runs —
+			// safe, but this optimization's actual win is scoped to
+			// skip-expansion compactions; a fold whose base is a full sync
+			// (expansion NOT skipped) pays for both the targeted repair AND the
+			// subsequent full rebuild. See
+			// TestCompactPebbleFoldWithExpansionRebuildsFullyRegardless.
+			//
+			// When the dest engine has the digest index DISABLED, touched
+			// digests must be dropped instead of repaired: the byte copy
+			// carried the sealed base's digest state unconditionally, readers
+			// serve whatever is stored regardless of this writer's flag
+			// (grantDigestsPresent is probed from the keyspace at Open), and
+			// every rebuild path — this one, EndSync's finalize,
+			// RepairMissingGrantDigests itself — gates on the same flag, so
+			// stale digests would ship as present-but-wrong with nothing left
+			// to heal them. Absent is always safe (present-means-exact).
+			// Dropping only on a grant write, rather than skipping the digest
+			// bucket copy up front, keeps the no-grant-write fold preserving
+			// the base's still-exact digests for free even on a disabled-index
+			// engine. See TestCompactPebbleFoldDigestIndexDisabledDropsDigests.
+			if len(foldStats.TouchedGrantPartitions) > 0 {
+				if !destEng.GrantDigestIndexEnabled() {
+					if err := destEng.DropAllGrantDigestState(ctx); err != nil {
+						return "", fmt.Errorf("compactPebbleFold: drop grant digest state (digest index disabled): %w", err)
+					}
+					l.Info("compactPebbleFold: grant writes with digest index disabled; dropped the base's copied digest state",
+						zap.Int("touched_partitions", len(foldStats.TouchedGrantPartitions)))
+				} else {
+					partitions := make([]string, 0, len(foldStats.TouchedGrantPartitions))
+					for p := range foldStats.TouchedGrantPartitions {
+						partitions = append(partitions, p)
+					}
+					if err := destEng.InvalidateGrantDigestPartitions(ctx, partitions); err != nil {
+						return "", fmt.Errorf("compactPebbleFold: invalidate grant digest partitions: %w", err)
+					}
+					if err := destEng.RepairMissingGrantDigests(ctx); err != nil {
+						return "", fmt.Errorf("compactPebbleFold: repair grant digests: %w", err)
+					}
+					l.Info("compactPebbleFold: repaired grant digests for touched entitlements",
+						zap.Int("touched_partitions", len(partitions)))
+				}
+			} else {
+				l.Info("compactPebbleFold: no grant writes; base grant digest state left untouched")
+			}
 
-	// Mint a fresh sync id for the folded output. Renaming a v3 c1z's
-	// sync is a metadata-only write now that keys carry no sync_id (the
-	// records merged into the base keyspace are untouched by the
-	// rename), so the historical objection to auto-fold — that adopting
-	// the base id left C1's LatestCompactedSyncId unchanged and looked
-	// like "no new compaction" — no longer applies. ParentSyncId is
-	// cleared: the base sync's record is overwritten by this rename, so
-	// a lineage link would dangle, and the rebuild path's compacted
-	// output carries no parent either.
-	newSyncID := ksuid.New().String()
-	baseRec.SetSyncId(newSyncID)
-	baseRec.SetParentSyncId("")
-	baseRec.SetType(unionType)
-	// The fold mutated the inherited base keyspace. Never publish the base
-	// artifact's pre-fold verification as proof of the merged output; a later
-	// expansion/invariant pass will write a fresh marker when one runs.
-	baseRec.SetIngestInvariantGeneration("")
-	baseRec.SetIngestInvariantCoverage(nil)
-	baseRec.SetIngestInvariantMode("")
-	if !maxEnded.IsZero() {
-		baseRec.SetEndedAt(timestamppb.New(maxEnded))
-	}
-	// PutSyncRunRecord overwrites the single fixed sync-run key, so the
-	// file's one sync-run record now carries newSyncID. (The compactor
-	// GetSync's this id right after and asserts it matches — the
-	// engine's GetSyncRunRecord id-match guard enforces it.)
-	if err := destEng.PutSyncRunRecord(ctx, baseRec); err != nil {
-		return "", fmt.Errorf("compactPebbleFold: persist folded sync_run: %w", err)
-	}
-	// The fold rewrote the keyspace, so the cached stats sidecar is
-	// stale. Recompute under the NEW id so the sidecar's SyncId — and
-	// the envelope manifest's sync-run projection built from it at save
-	// — match the renamed sync. Key-range counts, not full unmarshals.
-	if err := destEng.PersistSyncStats(ctx, newSyncID); err != nil {
-		return "", fmt.Errorf("compactPebbleFold: persist stats: %w", err)
-	}
-	// Rewrite the token with compaction provenance: the base token's
-	// timing stats describe the base sync's collection run, so the
-	// section re-attributes them (stats_sync_id) and adds what this fold
-	// merged. Provenance is best-effort — it never fails the compaction.
-	outputStats, statsErr := enginepkg.ReadSyncStatsRecord(ctx, destEng, newSyncID)
-	if statsErr != nil {
-		l.Warn("compactPebbleFold: could not read output stats for provenance", zap.Error(statsErr))
-	}
-	compactedToken, tokenErr := sdksync.BuildCompactedToken(baseRec.GetSyncToken(), sdksync.CompactionTokenInput{
-		Mode:           string(PebbleCompactorModeFold),
-		BaseSyncID:     baseSyncID,
-		PartialSyncIDs: partialSyncIDs,
-		PartialTokens:  partialTokens,
-		RecordCounts:   compactionRecordCounts(outputStats, &foldStats),
+			// Optionally compact the folded LSM before save. Off by default:
+			// a compaction rewrites the SSTs that overlap the partials' writes
+			// — for scattered overrides that is most of the base — which both
+			// costs O(base) on the critical path and makes those files no
+			// longer byte-identical to the source envelope's frames, so the
+			// splice-at-save degrades to a full re-encode. The payoff is an
+			// output with zero shadowed records (overrides otherwise leave
+			// dead bytes inside the spliced base frames). Experimental knob
+			// for measuring that trade-off; the long-term plan for reclaiming
+			// accumulated fold bloat is routing the occasional compaction to
+			// the rebuild path instead.
+			if os.Getenv("BATON_EXPERIMENTAL_FOLD_COMPACT") == "1" {
+				compactStart := time.Now()
+				if err := destEng.CompactAllRanges(ctx); err != nil {
+					return "", fmt.Errorf("compactPebbleFold: compact ranges: %w", err)
+				}
+				l.Info("compactPebbleFold: compacted LSM before save",
+					zap.Duration("elapsed", time.Since(compactStart)))
+			}
+
+			// Mint a fresh sync id for the folded output. Renaming a v3 c1z's
+			// sync is a metadata-only write now that keys carry no sync_id (the
+			// records merged into the base keyspace are untouched by the
+			// rename), so the historical objection to auto-fold — that adopting
+			// the base id left C1's LatestCompactedSyncId unchanged and looked
+			// like "no new compaction" — no longer applies. ParentSyncId is
+			// cleared: the base sync's record is overwritten by this rename, so
+			// a lineage link would dangle, and the rebuild path's compacted
+			// output carries no parent either.
+			newSyncID := ksuid.New().String()
+			baseRec.SetSyncId(newSyncID)
+			baseRec.SetParentSyncId("")
+			baseRec.SetType(unionType)
+			// The fold mutated the inherited base keyspace. Never publish the base
+			// artifact's pre-fold verification as proof of the merged output; a later
+			// expansion/invariant pass will write a fresh marker when one runs.
+			baseRec.SetIngestInvariantGeneration("")
+			baseRec.SetIngestInvariantCoverage(nil)
+			baseRec.SetIngestInvariantMode("")
+			if !maxEnded.IsZero() {
+				baseRec.SetEndedAt(timestamppb.New(maxEnded))
+			}
+			// PutSyncRunRecord overwrites the single fixed sync-run key, so the
+			// file's one sync-run record now carries newSyncID. (The compactor
+			// GetSync's this id right after and asserts it matches — the
+			// engine's GetSyncRunRecord id-match guard enforces it.)
+			if err := destEng.PutSyncRunRecord(ctx, baseRec); err != nil {
+				return "", fmt.Errorf("compactPebbleFold: persist folded sync_run: %w", err)
+			}
+			// The fold rewrote the keyspace, so the cached stats sidecar is
+			// stale. Recompute under the NEW id so the sidecar's SyncId — and
+			// the envelope manifest's sync-run projection built from it at save
+			// — match the renamed sync. Key-range counts, not full unmarshals.
+			if err := destEng.PersistSyncStats(ctx, newSyncID); err != nil {
+				return "", fmt.Errorf("compactPebbleFold: persist stats: %w", err)
+			}
+			// Rewrite the token with compaction provenance: the base token's
+			// timing stats describe the base sync's collection run, so the
+			// section re-attributes them (stats_sync_id) and adds what this fold
+			// merged. Provenance is best-effort — it never fails the compaction.
+			outputStats, statsErr := enginepkg.ReadSyncStatsRecord(ctx, destEng, newSyncID)
+			if statsErr != nil {
+				l.Warn("compactPebbleFold: could not read output stats for provenance", zap.Error(statsErr))
+			}
+			compactedToken, tokenErr := sdksync.BuildCompactedToken(baseRec.GetSyncToken(), sdksync.CompactionTokenInput{
+				Mode:           string(PebbleCompactorModeFold),
+				BaseSyncID:     baseSyncID,
+				PartialSyncIDs: partialSyncIDs,
+				PartialTokens:  partialTokens,
+				RecordCounts:   compactionRecordCounts(outputStats, &foldStats),
+			})
+			if tokenErr != nil {
+				l.Warn("compactPebbleFold: could not build compaction provenance token", zap.Error(tokenErr))
+			} else {
+				baseRec.SetSyncToken(compactedToken)
+				if err := destEng.PutSyncRunRecord(ctx, baseRec); err != nil {
+					return "", fmt.Errorf("compactPebbleFold: persist provenance token: %w", err)
+				}
+			}
+			l.Info("compactPebbleFold: done",
+				zap.String("base_sync_id", baseSyncID),
+				zap.String("folded_sync_id", newSyncID),
+				zap.Int64("overridden_records", foldStats.OverriddenRecords),
+				zap.Int64("dead_bytes", foldStats.DeadBytes),
+				zap.Duration("elapsed", time.Since(foldStart)),
+			)
+			return newSyncID, nil
+		}()
+		newSyncID = id
+		return foldStats.DeadBytes, mutationErr
 	})
-	if tokenErr != nil {
-		l.Warn("compactPebbleFold: could not build compaction provenance token", zap.Error(tokenErr))
-	} else {
-		baseRec.SetSyncToken(compactedToken)
-		if err := destEng.PutSyncRunRecord(ctx, baseRec); err != nil {
-			return "", fmt.Errorf("compactPebbleFold: persist provenance token: %w", err)
-		}
+	if err != nil {
+		return "", err
 	}
-	// All writes above went through the engine directly; flip the
-	// store's dirty bit so Close saves the envelope.
-	if !enginepkg.MarkStoreDirty(c.compactedC1z) {
-		return "", errors.New("compactPebbleFold: could not mark store dirty")
-	}
-	l.Info("compactPebbleFold: done",
-		zap.String("base_sync_id", baseSyncID),
-		zap.String("folded_sync_id", newSyncID),
-		zap.Int64("overridden_records", foldStats.OverriddenRecords),
-		zap.Int64("dead_bytes", foldStats.DeadBytes),
-		zap.Duration("elapsed", time.Since(foldStart)),
-	)
 	return newSyncID, nil
 }
 
@@ -1046,242 +1044,242 @@ func (c *Compactor) convertSQLiteInputToPebble(ctx context.Context, cs *Compacta
 func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 	l := ctxzap.Extract(ctx)
 
-	destEng, ok := enginepkg.AsEngine(c.compactedC1z)
-	if !ok {
-		return errors.New("compactPebble: compacted store is not a pebble engine")
-	}
-
-	// runPebbleRebuild's StartNewSync→EndSync left the dest engine SEALED
-	// (writes refused, compactions paused). The merge below writes the whole
-	// compacted dataset — overlay mode through raw memtable batches — so
-	// bind the sync first: unseals the engine and resumes the compaction
-	// scheduler. Without this, L0 accumulates with no compactions granted
-	// until pebble stalls writes at L0StopWritesThreshold, permanently
-	// (nothing else resumes the scheduler mid-merge).
-	//
-	// Yes, "SetCurrentSync to restart compactions" is an odd spelling. It
-	// is deliberate: unseal/resume is not a public engine operation, because
-	// the sealed state exists precisely to guarantee "no record writes
-	// without a bound sync". Binding the sync we're about to write under is
-	// the one sanctioned way to declare that intent, and unseal+resume ride
-	// along as consequences (see Engine.SetCurrentSync / Engine.seal). An
-	// exported ResumeCompactions-style escape hatch would let callers write
-	// on a sealed engine again, recreating the very hang this fixes.
-	if err := destEng.SetCurrentSync(ctx, newSyncId); err != nil {
-		return fmt.Errorf("compactPebble: bind dest sync: %w", err)
-	}
-
-	pebbleCompactorMode := c.pebbleMode
-	if pebbleCompactorMode == PebbleCompactorModeAuto {
-		pebbleCompactorMode = c.resolvePebbleMode(ctx)
-	}
-	useOverlay := pebbleCompactorMode == PebbleCompactorModeOverlay
-	sources := make([]mergepkg.SourceFile, 0, len(c.entries))
-	unionType := v3.SyncType_SYNC_TYPE_PARTIAL
-	var maxEnded time.Time
-	rebuildBaseSyncID := ""
-	var rebuildPartialSyncIDs []string
-
-	manifestSelected := 0
-	// SQLite/v1 inputs are converted to Pebble in the tmp dir before being
-	// merged; their converted copies are removed when this run completes.
-	var convertedInputs []string
-	defer func() {
-		for _, path := range convertedInputs {
-			_ = os.Remove(path)
+	return enginepkg.WithEngineMutation(ctx, c.compactedC1z, func(ctx context.Context, destEng *enginepkg.Engine) error {
+		// runPebbleRebuild's StartNewSync→EndSync left the dest engine SEALED
+		// (writes refused, compactions paused). The merge below writes the whole
+		// compacted dataset — overlay mode through raw memtable batches — so
+		// bind the sync first: unseals the engine and resumes the compaction
+		// scheduler. Without this, L0 accumulates with no compactions granted
+		// until pebble stalls writes at L0StopWritesThreshold, permanently
+		// (nothing else resumes the scheduler mid-merge).
+		//
+		// Yes, "SetCurrentSync to restart compactions" is an odd spelling. It
+		// is deliberate: unseal/resume is not a public engine operation, because
+		// the sealed state exists precisely to guarantee "no record writes
+		// without a bound sync". Binding the sync we're about to write under is
+		// the one sanctioned way to declare that intent, and unseal+resume ride
+		// along as consequences (see Engine.SetCurrentSync / Engine.seal). An
+		// exported ResumeCompactions-style escape hatch would let callers write
+		// on a sealed engine again, recreating the very hang this fixes.
+		if err := destEng.SetCurrentSync(ctx, newSyncId); err != nil {
+			return fmt.Errorf("compactPebble: bind dest sync: %w", err)
 		}
-	}()
-	for i := len(c.entries) - 1; i >= 0; i-- {
-		if err := ctx.Err(); err != nil {
-			return err
+
+		pebbleCompactorMode := c.pebbleMode
+		if pebbleCompactorMode == PebbleCompactorModeAuto {
+			pebbleCompactorMode = c.resolvePebbleMode(ctx)
 		}
-		cs := c.entries[i]
-		sourcePath := cs.FilePath
-		format, err := readCompactionInputFormat(sourcePath)
-		if err != nil {
-			return err
-		}
-		if format == dotc1z.C1ZFormatV1 {
-			convertedPath, err := c.convertSQLiteInputToPebble(ctx, cs)
+		useOverlay := pebbleCompactorMode == PebbleCompactorModeOverlay
+		sources := make([]mergepkg.SourceFile, 0, len(c.entries))
+		unionType := v3.SyncType_SYNC_TYPE_PARTIAL
+		var maxEnded time.Time
+		rebuildBaseSyncID := ""
+		var rebuildPartialSyncIDs []string
+
+		manifestSelected := 0
+		// SQLite/v1 inputs are converted to Pebble in the tmp dir before being
+		// merged; their converted copies are removed when this run completes.
+		var convertedInputs []string
+		defer func() {
+			for _, path := range convertedInputs {
+				_ = os.Remove(path)
+			}
+		}()
+		for i := len(c.entries) - 1; i >= 0; i-- {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			cs := c.entries[i]
+			sourcePath := cs.FilePath
+			format, err := readCompactionInputFormat(sourcePath)
 			if err != nil {
 				return err
 			}
-			convertedInputs = append(convertedInputs, convertedPath)
-			sourcePath = convertedPath
-		}
-
-		// Fast path: read the latest finished compactable sync (and its
-		// cached stats) from the envelope manifest's sync-run projection
-		// — a header read, no payload unpack. Files written before the
-		// projection existed fall back to the unpack path below.
-		if sel, ok := selectSourceSyncFromManifest(sourcePath); ok {
-			manifestSelected++
-			sources = append(sources, mergepkg.SourceFile{Path: sourcePath, SyncID: sel.syncID, Stats: sel.stats, DecoderPool: c.decoderPool})
-			unionType = unionV3SyncType(unionType, sel.syncType)
-			if sel.endedAt.After(maxEnded) {
-				maxEnded = sel.endedAt
-			}
-			continue
-		}
-
-		source, syncType, endedAt, err := func() (mergepkg.SourceFile, v3.SyncType, time.Time, error) {
-			var zeroSource mergepkg.SourceFile
-			w, err := dotc1z.NewStore(ctx, sourcePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir), dotc1z.WithDecoderPool(c.decoderPool))
-			if err != nil {
-				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: open input %s: %w", sourcePath, err)
-			}
-			defer func() {
-				if cerr := w.Close(ctx); cerr != nil {
-					l.Error("compactPebble: error closing source store", zap.Error(cerr), zap.String("file", sourcePath))
-				}
-			}()
-
-			srcEng, ok := enginepkg.AsEngine(w)
-			if !ok {
-				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: input %s is not a pebble c1z", sourcePath)
-			}
-			rec, err := srcEng.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
-			if err != nil {
-				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: select source sync for %s: %w", sourcePath, err)
-			}
-			if rec == nil {
-				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: input %s has no finished compactable sync (diff syncs are not compactable)", sourcePath)
-			}
-
-			// Record only (Path, SyncID, Stats) and fully close the store,
-			// removing its unpacked directory. The merge re-unpacks each
-			// source when its chunk is processed and removes it when the
-			// chunk closes, so peak disk is O(fan-in) source directories,
-			// not O(len(entries)). The fallback unpacks one source at a
-			// time and pays one extra unpack per source (selection + merge).
-			source := mergepkg.SourceFile{Path: sourcePath, SyncID: rec.GetSyncId(), DecoderPool: c.decoderPool}
-			if useOverlay {
-				stats, ok, err := enginepkg.CachedSyncStats(ctx, srcEng, rec.GetSyncId())
+			if format == dotc1z.C1ZFormatV1 {
+				convertedPath, err := c.convertSQLiteInputToPebble(ctx, cs)
 				if err != nil {
-					return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: cached stats for %s: %w", sourcePath, err)
+					return err
 				}
-				if ok {
-					source.Stats = stats
+				convertedInputs = append(convertedInputs, convertedPath)
+				sourcePath = convertedPath
+			}
+
+			// Fast path: read the latest finished compactable sync (and its
+			// cached stats) from the envelope manifest's sync-run projection
+			// — a header read, no payload unpack. Files written before the
+			// projection existed fall back to the unpack path below.
+			if sel, ok := selectSourceSyncFromManifest(sourcePath); ok {
+				manifestSelected++
+				sources = append(sources, mergepkg.SourceFile{Path: sourcePath, SyncID: sel.syncID, Stats: sel.stats, DecoderPool: c.decoderPool})
+				unionType = unionV3SyncType(unionType, sel.syncType)
+				if sel.endedAt.After(maxEnded) {
+					maxEnded = sel.endedAt
 				}
+				continue
 			}
-			var endedAt time.Time
-			if ts := rec.GetEndedAt(); ts != nil {
-				endedAt = ts.AsTime()
+
+			source, syncType, endedAt, err := func() (mergepkg.SourceFile, v3.SyncType, time.Time, error) {
+				var zeroSource mergepkg.SourceFile
+				w, err := dotc1z.NewStore(ctx, sourcePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir), dotc1z.WithDecoderPool(c.decoderPool))
+				if err != nil {
+					return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: open input %s: %w", sourcePath, err)
+				}
+				defer func() {
+					if cerr := w.Close(ctx); cerr != nil {
+						l.Error("compactPebble: error closing source store", zap.Error(cerr), zap.String("file", sourcePath))
+					}
+				}()
+
+				srcEng, ok := enginepkg.AsEngine(w)
+				if !ok {
+					return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: input %s is not a pebble c1z", sourcePath)
+				}
+				rec, err := srcEng.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
+				if err != nil {
+					return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: select source sync for %s: %w", sourcePath, err)
+				}
+				if rec == nil {
+					return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf(
+						"compactPebble: input %s has no finished compactable sync (diff syncs are not compactable)",
+						sourcePath,
+					)
+				}
+
+				// Record only (Path, SyncID, Stats) and fully close the store,
+				// removing its unpacked directory. The merge re-unpacks each
+				// source when its chunk is processed and removes it when the
+				// chunk closes, so peak disk is O(fan-in) source directories,
+				// not O(len(entries)). The fallback unpacks one source at a
+				// time and pays one extra unpack per source (selection + merge).
+				source := mergepkg.SourceFile{Path: sourcePath, SyncID: rec.GetSyncId(), DecoderPool: c.decoderPool}
+				if useOverlay {
+					stats, ok, err := enginepkg.CachedSyncStats(ctx, srcEng, rec.GetSyncId())
+					if err != nil {
+						return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: cached stats for %s: %w", sourcePath, err)
+					}
+					if ok {
+						source.Stats = stats
+					}
+				}
+				var endedAt time.Time
+				if ts := rec.GetEndedAt(); ts != nil {
+					endedAt = ts.AsTime()
+				}
+				return source, rec.GetType(), endedAt, nil
+			}()
+			if err != nil {
+				return err
 			}
-			return source, rec.GetType(), endedAt, nil
-		}()
+
+			sources = append(sources, source)
+			unionType = unionV3SyncType(unionType, syncType)
+			if endedAt.After(maxEnded) {
+				maxEnded = endedAt
+			}
+		}
+		for i, source := range sources {
+			// The loop above appends in reverse entry order, so the base
+			// (entries[0]) is the last-appended source.
+			if i == len(sources)-1 {
+				rebuildBaseSyncID = source.SyncID
+				continue
+			}
+			rebuildPartialSyncIDs = append(rebuildPartialSyncIDs, source.SyncID)
+		}
+		// unpack_selected > 0 means inputs predate the manifest sync-run
+		// projection and pay a full unpack just to pick a sync — a fleet
+		// signal that those files should be regenerated by a current SDK.
+		l.Info("compactPebble: source selection",
+			zap.Int("sources", len(sources)),
+			zap.Int("manifest_selected", manifestSelected),
+			zap.Int("unpack_selected", len(sources)-manifestSelected),
+			zap.String("mode", string(pebbleCompactorMode)),
+		)
+
+		var statsRec *v3.SyncStatsRecord
+		var err error
+		switch pebbleCompactorMode {
+		case PebbleCompactorModeOverlay:
+			// Oversized buckets are routed to the K-way run-file path inside
+			// the overlay merge itself (overlayPlanBuckets), so there is no
+			// whole-merge fallback here.
+			var overlayOpts []mergepkg.OverlayOption
+			if c.overlaySeenKeyLimit > 0 {
+				overlayOpts = append(overlayOpts, mergepkg.WithOverlaySeenKeyLimit(c.overlaySeenKeyLimit))
+			}
+			if c.overlayRecordChunkSize > 0 {
+				overlayOpts = append(overlayOpts, mergepkg.WithOverlayRecordChunkSize(c.overlayRecordChunkSize))
+			}
+			if c.overlayBufferFactor > 0 {
+				overlayOpts = append(overlayOpts, mergepkg.WithOverlayBufferFactor(c.overlayBufferFactor))
+			}
+			if c.overlayGateFraction > 0 {
+				overlayOpts = append(overlayOpts, mergepkg.WithOverlayGateFraction(c.overlayGateFraction))
+			}
+			statsRec, err = mergepkg.MergeFilesIntoOverlay(ctx, destEng, sources, newSyncId, c.tmpDir, overlayOpts...)
+		default:
+			statsRec, err = mergepkg.MergeFilesInto(ctx, destEng, sources, newSyncId, c.tmpDir)
+		}
 		if err != nil {
-			return err
+			return fmt.Errorf("compactPebble: merge: %w", err)
 		}
 
-		sources = append(sources, source)
-		unionType = unionV3SyncType(unionType, syncType)
-		if endedAt.After(maxEnded) {
-			maxEnded = endedAt
+		if err := rebuildCompactedGrantDigests(ctx, destEng); err != nil {
+			return fmt.Errorf("compactPebble: %w", err)
 		}
-	}
-	for i, source := range sources {
-		// The loop above appends in reverse entry order, so the base
-		// (entries[0]) is the last-appended source.
-		if i == len(sources)-1 {
-			rebuildBaseSyncID = source.SyncID
-			continue
-		}
-		rebuildPartialSyncIDs = append(rebuildPartialSyncIDs, source.SyncID)
-	}
-	// unpack_selected > 0 means inputs predate the manifest sync-run
-	// projection and pay a full unpack just to pick a sync — a fleet
-	// signal that those files should be regenerated by a current SDK.
-	l.Info("compactPebble: source selection",
-		zap.Int("sources", len(sources)),
-		zap.Int("manifest_selected", manifestSelected),
-		zap.Int("unpack_selected", len(sources)-manifestSelected),
-		zap.String("mode", string(pebbleCompactorMode)),
-	)
 
-	var statsRec *v3.SyncStatsRecord
-	var err error
-	switch pebbleCompactorMode {
-	case PebbleCompactorModeOverlay:
-		// Oversized buckets are routed to the K-way run-file path inside
-		// the overlay merge itself (overlayPlanBuckets), so there is no
-		// whole-merge fallback here.
-		var overlayOpts []mergepkg.OverlayOption
-		if c.overlaySeenKeyLimit > 0 {
-			overlayOpts = append(overlayOpts, mergepkg.WithOverlaySeenKeyLimit(c.overlaySeenKeyLimit))
+		// Set the compacted sync_run's type + ended_at to the union / max
+		// across the inputs so downstream gating (e.g. grant expansion)
+		// behaves identically to the sqlite path, then recompute stats.
+		rec, err := destEng.GetSyncRunRecord(ctx, newSyncId)
+		if err != nil {
+			return fmt.Errorf("compactPebble: load dest sync_run: %w", err)
 		}
-		if c.overlayRecordChunkSize > 0 {
-			overlayOpts = append(overlayOpts, mergepkg.WithOverlayRecordChunkSize(c.overlayRecordChunkSize))
+		rec.SetType(unionType)
+		if !maxEnded.IsZero() {
+			rec.SetEndedAt(timestamppb.New(maxEnded))
 		}
-		if c.overlayBufferFactor > 0 {
-			overlayOpts = append(overlayOpts, mergepkg.WithOverlayBufferFactor(c.overlayBufferFactor))
-		}
-		if c.overlayGateFraction > 0 {
-			overlayOpts = append(overlayOpts, mergepkg.WithOverlayGateFraction(c.overlayGateFraction))
-		}
-		statsRec, err = mergepkg.MergeFilesIntoOverlay(ctx, destEng, sources, newSyncId, c.tmpDir, overlayOpts...)
-	default:
-		statsRec, err = mergepkg.MergeFilesInto(ctx, destEng, sources, newSyncId, c.tmpDir)
-	}
-	if err != nil {
-		return fmt.Errorf("compactPebble: merge: %w", err)
-	}
-
-	if err := rebuildCompactedGrantDigests(ctx, destEng); err != nil {
-		return fmt.Errorf("compactPebble: %w", err)
-	}
-
-	// Set the compacted sync_run's type + ended_at to the union / max
-	// across the inputs so downstream gating (e.g. grant expansion)
-	// behaves identically to the sqlite path, then recompute stats.
-	rec, err := destEng.GetSyncRunRecord(ctx, newSyncId)
-	if err != nil {
-		return fmt.Errorf("compactPebble: load dest sync_run: %w", err)
-	}
-	rec.SetType(unionType)
-	if !maxEnded.IsZero() {
-		rec.SetEndedAt(timestamppb.New(maxEnded))
-	}
-	// The merge accumulated the dest stats while writing winners, so
-	// persist those instead of re-scanning the freshly written output.
-	if statsRec != nil {
-		if err := destEng.PersistComputedSyncStats(ctx, newSyncId, statsRec); err != nil {
-			return fmt.Errorf("compactPebble: persist stats: %w", err)
-		}
-	} else {
-		if err := destEng.PersistSyncStats(ctx, newSyncId); err != nil {
-			return fmt.Errorf("compactPebble: persist stats: %w", err)
-		}
-		recomputed, statsErr := enginepkg.ReadSyncStatsRecord(ctx, destEng, newSyncId)
-		if statsErr != nil {
-			l.Warn("compactPebble: could not read output stats for provenance", zap.Error(statsErr))
+		// The merge accumulated the dest stats while writing winners, so
+		// persist those instead of re-scanning the freshly written output.
+		if statsRec != nil {
+			if err := destEng.PersistComputedSyncStats(ctx, newSyncId, statsRec); err != nil {
+				return fmt.Errorf("compactPebble: persist stats: %w", err)
+			}
 		} else {
-			statsRec = recomputed
+			if err := destEng.PersistSyncStats(ctx, newSyncId); err != nil {
+				return fmt.Errorf("compactPebble: persist stats: %w", err)
+			}
+			recomputed, statsErr := enginepkg.ReadSyncStatsRecord(ctx, destEng, newSyncId)
+			if statsErr != nil {
+				l.Warn("compactPebble: could not read output stats for provenance", zap.Error(statsErr))
+			} else {
+				statsRec = recomputed
+			}
 		}
-	}
-	// Stamp compaction provenance on the (otherwise empty) rebuild token.
-	// Rebuild merges lose per-source attribution in their run-file paths,
-	// so record counts carry output totals only, and the partials' timing
-	// aggregate is fold-only — collecting rebuild source tokens would pay
-	// a second envelope unpack per source. Best-effort: provenance never
-	// fails the compaction.
-	mode := PebbleCompactorModeKWay
-	if useOverlay {
-		mode = PebbleCompactorModeOverlay
-	}
-	compactedToken, tokenErr := sdksync.BuildCompactedToken(rec.GetSyncToken(), sdksync.CompactionTokenInput{
-		Mode:           string(mode),
-		BaseSyncID:     rebuildBaseSyncID,
-		PartialSyncIDs: rebuildPartialSyncIDs,
-		RecordCounts:   compactionRecordCounts(statsRec, nil),
+		// Stamp compaction provenance on the (otherwise empty) rebuild token.
+		// Rebuild merges lose per-source attribution in their run-file paths,
+		// so record counts carry output totals only, and the partials' timing
+		// aggregate is fold-only — collecting rebuild source tokens would pay
+		// a second envelope unpack per source. Best-effort: provenance never
+		// fails the compaction.
+		mode := PebbleCompactorModeKWay
+		if useOverlay {
+			mode = PebbleCompactorModeOverlay
+		}
+		compactedToken, tokenErr := sdksync.BuildCompactedToken(rec.GetSyncToken(), sdksync.CompactionTokenInput{
+			Mode:           string(mode),
+			BaseSyncID:     rebuildBaseSyncID,
+			PartialSyncIDs: rebuildPartialSyncIDs,
+			RecordCounts:   compactionRecordCounts(statsRec, nil),
+		})
+		if tokenErr != nil {
+			l.Warn("compactPebble: could not build compaction provenance token", zap.Error(tokenErr))
+		} else {
+			rec.SetSyncToken(compactedToken)
+		}
+		if err := destEng.PutSyncRunRecord(ctx, rec); err != nil {
+			return fmt.Errorf("compactPebble: persist dest sync_run: %w", err)
+		}
+		return nil
 	})
-	if tokenErr != nil {
-		l.Warn("compactPebble: could not build compaction provenance token", zap.Error(tokenErr))
-	} else {
-		rec.SetSyncToken(compactedToken)
-	}
-	if err := destEng.PutSyncRunRecord(ctx, rec); err != nil {
-		return fmt.Errorf("compactPebble: persist dest sync_run: %w", err)
-	}
-	return nil
 }

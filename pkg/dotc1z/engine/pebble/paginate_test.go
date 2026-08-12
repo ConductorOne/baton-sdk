@@ -277,12 +277,12 @@ func TestPaginationClampedPageSize(t *testing.T) {
 		_ = r
 	}
 	// Passing 0 should clamp to DefaultPageSize and return all 50.
-	recs, next, err := e.PaginateGrants(ctx, "", 0)
+	recs, next, err := e.paginateGrants(ctx, "", 0)
 	require.NoError(t, err)
 	require.Equal(t, total, len(recs), "clamp(0): got %d, want %d", len(recs), total)
 	require.Empty(t, next, "clamp(0): expected empty next cursor, got %q", next)
 	// Passing MaxPageSize+1 should clamp identically.
-	recs2, _, err := e.PaginateGrants(ctx, "", MaxPageSize+1)
+	recs2, _, err := e.paginateGrants(ctx, "", MaxPageSize+1)
 	require.NoError(t, err)
 	require.Equal(t, total, len(recs2), "clamp(max+1): got %d, want %d", len(recs2), total)
 }

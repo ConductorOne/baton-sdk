@@ -150,7 +150,7 @@ func (s pebbleSyncMeta) StatsV2(ctx context.Context, syncType connectorstore.Syn
 // sync is named.
 func (s pebbleSyncMeta) RecalculateStats(ctx context.Context, syncID string) error {
 	if syncID == "" {
-		syncID = s.e.CurrentSyncID()
+		syncID = s.e.currentSyncID()
 	}
 	if syncID == "" {
 		return errors.New("RecalculateStats: empty syncID and no current sync")
@@ -195,8 +195,7 @@ func syncRunRecordToExported(r *v3.SyncRunRecord) *c1zstore.SyncRun {
 
 // sortedSyncRuns reads every sync_run record into the engine-neutral
 // c1zstore.SyncRun shape, sorted oldest-first (started_at, sync_id
-// tiebreaker). Shared by CleanupCandidates and ListSyncRuns so the
-// projection and ordering live in one place.
+// tiebreaker), for ListSyncRuns.
 //
 // We sort explicitly rather than trust IterateAllSyncRuns' order:
 // the iterator walks by sync_id (KSUID), and KSUIDs only encode the
@@ -254,19 +253,6 @@ func (e *Engine) sortedSyncRuns(ctx context.Context) ([]c1zstore.SyncRun, error)
 			return ti.Before(*tj)
 		}
 	})
-	return out, nil
-}
-
-// CleanupCandidates walks every sync_run record and projects it into
-// the engine-neutral c1zstore.SyncRun shape, sorted oldest-first.
-// c1zstore.SelectSyncsToDelete depends on this ordering so "drop the
-// oldest overflow" trims the right end. Used by pkg/dotc1z's Pebble
-// store to drive the retention policy at Cleanup.
-func (e *Engine) CleanupCandidates(ctx context.Context) ([]c1zstore.SyncRun, error) {
-	out, err := e.sortedSyncRuns(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("pebble CleanupCandidates: IterateAllSyncRuns: %w", err)
-	}
 	return out, nil
 }
 

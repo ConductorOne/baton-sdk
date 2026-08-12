@@ -167,7 +167,7 @@ func errNoFinishedSync(syncType connectorstore.SyncType) error {
 	return status.Errorf(codes.NotFound, "no finished sync of type '%s' found", syncType)
 }
 
-// GrantStats returns just the grant count, partitioned by entitlement
+// grantStats returns just the grant count, partitioned by entitlement
 // resource_type_id. Used by progresslog to show per-RT progress. Like
 // Stats, this is an exact count via iteration.
 //
@@ -180,7 +180,7 @@ func errNoFinishedSync(syncType connectorstore.SyncType) error {
 // Empty syncID resolves to the latest finished sync of syncType
 // (matching Stats / SQLite grantStats), and returns NotFound when
 // none exists.
-func (e *Engine) GrantStats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error) {
+func (e *Engine) grantStats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error) {
 	if syncID == "" {
 		var err error
 		syncID, err = e.LatestFinishedSyncID(ctx, syncType)
@@ -226,5 +226,5 @@ func (e *Engine) GrantStats(ctx context.Context, syncType connectorstore.SyncTyp
 // have a single file, so this returns the engine's directory. Used
 // by tooling that wants to copy or inspect the storage.
 func (e *Engine) OutputFilepath() (string, error) {
-	return e.DBDir(), nil
+	return e.databaseDir(), nil
 }
