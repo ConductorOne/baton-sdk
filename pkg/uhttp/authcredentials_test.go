@@ -424,3 +424,76 @@ func TestOAuth2ClientCredentials_GetClientStripsTransientRetriesFromAPI(t *testi
 	require.Equal(t, 1, apiHits, "WithTransientRetries on GetClient must not retry API POSTs")
 	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 }
+
+func TestAuthCredentials_GetClientStripsTransientRetries(t *testing.T) {
+	ctx := context.Background()
+	opt := WithTransientRetries(TransientRetryConfig{
+		InitialDelay: time.Millisecond,
+		MaxDelay:     time.Millisecond,
+	})
+
+	t.Run("NoAuth", func(t *testing.T) {
+		client, err := (&NoAuth{}).GetClient(ctx, opt)
+		require.NoError(t, err)
+		require.Equal(t, 1, postCountOn5xx(t, client))
+	})
+	t.Run("BearerAuth", func(t *testing.T) {
+		client, err := NewBearerAuth("tok").GetClient(ctx, opt)
+		require.NoError(t, err)
+		require.Equal(t, 1, postCountOn5xx(t, client))
+	})
+	t.Run("BasicAuth", func(t *testing.T) {
+		client, err := NewBasicAuth("u", "p").GetClient(ctx, opt)
+		require.NoError(t, err)
+		require.Equal(t, 1, postCountOn5xx(t, client))
+	})
+}
+
+func TestOAuth2RefreshToken_GetClientStripsTransientRetriesFromAPI(t *testing.T) {
+	rt := &OAuth2RefreshToken{
+		cfg: &oauth2.Config{
+			ClientID:     "test-client-id",
+			ClientSecret: "test-client-secret",
+			// #nosec G101 -- static test endpoint, not a secret.
+			Endpoint: oauth2.Endpoint{
+				TokenURL: "https://test-token-url",
+			},
+		},
+		accessToken:  "test-access-token",
+		refreshToken: "test-refresh-token",
+	}
+	ctx := context.Background()
+	client, err := rt.GetClient(ctx, WithTransientRetries(TransientRetryConfig{
+		InitialDelay: time.Millisecond,
+		MaxDelay:     time.Millisecond,
+	}))
+	require.NoError(t, err)
+	require.Equal(t, 1, postCountOn5xx(t, client), "refresh-token API POST must not retry 5xx")
+}
+
+func TestRefreshTokenRetryConfigSkipsNetwork(t *testing.T) {
+	cfg := refreshTokenRetryConfig(nil)
+	require.True(t, cfg.SkipNetworkRetries)
+
+	cfg = refreshTokenRetryConfig([]Option{WithTransientRetries(TransientRetryConfig{MaxAttempts: 5})})
+	require.True(t, cfg.SkipNetworkRetries)
+	require.Equal(t, 5, cfg.MaxAttempts)
+}
+
+func postCountOn5xx(t *testing.T, client *http.Client) int {
+	t.Helper()
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL, strings.NewReader("grant"))
+	require.NoError(t, err)
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	return hits
+}

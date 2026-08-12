@@ -296,10 +296,15 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 	}()
 	resp, err := rt.RoundTrip(req)
-	if t.transientRetry != nil {
+	// MaxAttempts < 2 (after defaulting <=0 to 3) means no 5xx/timeout
+	// budget. Fall through to the one-shot never-sent/stale retry so
+	// WithTransientRetries({MaxAttempts: 1}) is not strictly less safe
+	// than omitting the option.
+	if t.transientRetry != nil && t.transientRetry.maxAttempts >= 2 {
 		resp, err = t.roundTripTransientRetries(ctx, rt, req, resp, err)
 	} else if err != nil && req.Context().Err() == nil {
-		if retryReq, ok := retryableRequest(req, err, false); ok {
+		replayable := t.transientRetry != nil && !t.transientRetry.skipNetworkRetries
+		if retryReq, ok := retryableRequest(req, err, replayable); ok {
 			// A mass connection death (e.g. a proxy instance replaced) can
 			// leave further corpses in the pool; drop them so the retry
 			// dials fresh instead of drawing the next one. Re-resolve the

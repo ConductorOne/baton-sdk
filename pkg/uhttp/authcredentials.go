@@ -22,7 +22,7 @@ type NoAuth struct{}
 var _ AuthCredentials = (*NoAuth)(nil)
 
 func (n *NoAuth) GetClient(ctx context.Context, options ...Option) (*http.Client, error) {
-	return getHttpClient(ctx, options...)
+	return getHttpClient(ctx, withoutTransientRetries(options)...)
 }
 
 type BearerAuth struct {
@@ -38,7 +38,7 @@ func NewBearerAuth(token string) *BearerAuth {
 }
 
 func (b *BearerAuth) GetClient(ctx context.Context, options ...Option) (*http.Client, error) {
-	httpClient, err := getHttpClient(ctx, options...)
+	httpClient, err := getHttpClient(ctx, withoutTransientRetries(options)...)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func NewBasicAuth(username, password string) *BasicAuth {
 }
 
 func (b *BasicAuth) GetClient(ctx context.Context, options ...Option) (*http.Client, error) {
-	httpClient, err := getHttpClient(ctx, options...)
+	httpClient, err := getHttpClient(ctx, withoutTransientRetries(options)...)
 	if err != nil {
 		return nil, err
 	}
@@ -203,6 +203,12 @@ func tokenRetryConfig(options []Option) TransientRetryConfig {
 	return cfg
 }
 
+func refreshTokenRetryConfig(options []Option) TransientRetryConfig {
+	cfg := tokenRetryConfig(options)
+	cfg.SkipNetworkRetries = true
+	return cfg
+}
+
 // newOAuthClients returns an API client (never WithTransientRetries) and a
 // token client (always WithTransientRetries). Caller-supplied
 // WithTransientRetries is honored on the token client only; it is stripped
@@ -246,6 +252,12 @@ func NewOAuth2RefreshToken(clientID, clientSecret, redirectURI, tokenURL, access
 }
 
 func (o *OAuth2RefreshToken) GetClient(ctx context.Context, options ...Option) (*http.Client, error) {
+	// Refresh POSTs retry 5xx only. A mid-flight timeout or connection
+	// reset can mean the rotation succeeded; replaying it can revoke the
+	// token family and force a manual re-auth, which is worse than a
+	// failed sync. Dial-phase failures (never sent) are still retried.
+	// API traffic stays on clients.api and is not retried.
+	options = append(options, WithTransientRetries(refreshTokenRetryConfig(options)))
 	clients, err := newOAuthClients(ctx, options...)
 	if err != nil {
 		return nil, err
@@ -256,10 +268,6 @@ func (o *OAuth2RefreshToken) GetClient(ctx context.Context, options ...Option) (
 		RefreshToken: o.refreshToken,
 		TokenType:    "Bearer",
 	}
-	// TokenSource uses clients.token so refresh POSTs retry 5xx/timeouts.
-	// Refresh-token rotation is rare; a lost response can still invalidate
-	// the old token, but failing the sync is worse. API traffic stays on
-	// clients.api and is not retried.
 	ts := o.cfg.TokenSource(clients.tokenContext(ctx), token)
 	return clients.apiClient(ts), nil
 }

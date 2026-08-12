@@ -93,23 +93,35 @@ const (
 // the defaults: 3 attempts (1 try + 2 retries), 500ms initial delay, 2s max
 // delay. MaxAttempts <= 0, InitialDelay <= 0, and MaxDelay <= 0 each mean
 // "use the default"; 0 does not mean unlimited.
+//
+// MaxAttempts is the total number of tries including the first. A value of 1
+// disables 5xx and timeout retries; the pre-existing one-shot never-sent /
+// stale-connection retry still runs.
 type TransientRetryConfig struct {
 	MaxAttempts  int
 	InitialDelay time.Duration
 	MaxDelay     time.Duration
+	// SkipNetworkRetries, if true, retries 5xx only. Mid-flight timeouts
+	// and stale-connection resets are not replayed. Dial-phase failures
+	// (the request was never sent) are still retried. Use for refresh-token
+	// grants: a timeout can mean the rotation succeeded, and replaying it
+	// can revoke the token family.
+	SkipNetworkRetries bool
 }
 
 type transientRetrySettings struct {
-	maxAttempts  int
-	initialDelay time.Duration
-	maxDelay     time.Duration
+	maxAttempts        int
+	initialDelay       time.Duration
+	maxDelay           time.Duration
+	skipNetworkRetries bool
 }
 
 func resolveTransientRetry(cfg TransientRetryConfig) transientRetrySettings {
 	s := transientRetrySettings{
-		maxAttempts:  cfg.MaxAttempts,
-		initialDelay: cfg.InitialDelay,
-		maxDelay:     cfg.MaxDelay,
+		maxAttempts:        cfg.MaxAttempts,
+		initialDelay:       cfg.InitialDelay,
+		maxDelay:           cfg.MaxDelay,
+		skipNetworkRetries: cfg.SkipNetworkRetries,
 	}
 	if s.maxAttempts <= 0 {
 		s.maxAttempts = defaultTransientRetryAttempts
@@ -139,6 +151,8 @@ func (o transientRetriesOption) Apply(c *Transport) {
 // Do not enable this on a client used for general API reads or for
 // provisioning (grants, revokes, tickets, SetIamPolicy). Those requests are
 // not safe to replay after they have been sent; a retried POST can double-apply.
+// AuthCredentials.GetClient always strips this option from the returned
+// client; OAuth helpers apply it to the token-endpoint client only.
 //
 // 429 / rate-limit responses are not retried here: they belong to pkg/retry
 // via RateLimitDescription. Dial-phase and stale-pooled-connection retries

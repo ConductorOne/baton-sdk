@@ -622,3 +622,129 @@ func TestParseRetryAfter(t *testing.T) {
 	require.Equal(t, time.Duration(0), parseRetryAfter("nope", now))
 	require.Equal(t, 5*time.Second, parseRetryAfter(now.Add(5*time.Second).Format(http.TimeFormat), now))
 }
+
+func TestTransportTransientMaxAttemptsOneDoesNotRetry5xx(t *testing.T) {
+	seq := &sequencedRoundTripper{statusCodes: []int{http.StatusInternalServerError, http.StatusOK}}
+	tp := newRetryTestTransport(seq)
+	s := resolveTransientRetry(TransientRetryConfig{
+		MaxAttempts:  1,
+		InitialDelay: time.Millisecond,
+		MaxDelay:     time.Millisecond,
+	})
+	tp.transientRetry = &s
+
+	resp, err := tp.RoundTrip(postWithBody(t, "payload"))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	require.Equal(t, 1, seq.callCount())
+}
+
+func TestTransportTransientMaxAttemptsOneKeepsStaleConnRetry(t *testing.T) {
+	seq := &sequencedRoundTripper{errs: []error{connResetError()}}
+	tp := newRetryTestTransport(seq)
+	s := resolveTransientRetry(TransientRetryConfig{
+		MaxAttempts:  1,
+		InitialDelay: time.Millisecond,
+		MaxDelay:     time.Millisecond,
+	})
+	tp.transientRetry = &s
+
+	resp, err := tp.RoundTrip(postWithBody(t, "payload"))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, 2, seq.callCount())
+}
+
+func TestTransportTransientSkipNetworkRetriesStillRetries5xx(t *testing.T) {
+	seq := &sequencedRoundTripper{statusCodes: []int{http.StatusInternalServerError, http.StatusOK}}
+	tp := newTransientRetryTestTransport(seq)
+	tp.transientRetry.skipNetworkRetries = true
+
+	resp, err := tp.RoundTrip(postWithBody(t, "payload"))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, 2, seq.callCount())
+}
+
+func TestTransportTransientSkipNetworkRetriesDoesNotRetryTimeout(t *testing.T) {
+	seq := &sequencedRoundTripper{errs: []error{timeoutURLError()}}
+	tp := newTransientRetryTestTransport(seq)
+	tp.transientRetry.skipNetworkRetries = true
+
+	resp, err := tp.RoundTrip(postWithBody(t, "payload"))
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	require.Error(t, err)
+	require.Equal(t, 1, seq.callCount())
+}
+
+func TestTransportTransientSkipNetworkRetriesDoesNotRetryStaleConn(t *testing.T) {
+	seq := &sequencedRoundTripper{errs: []error{connResetError()}}
+	tp := newTransientRetryTestTransport(seq)
+	tp.transientRetry.skipNetworkRetries = true
+
+	resp, err := tp.RoundTrip(postWithBody(t, "payload"))
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	require.Error(t, err)
+	require.Equal(t, 1, seq.callCount())
+}
+
+func TestTransportTransientSkipNetworkRetriesStillRetriesDial(t *testing.T) {
+	seq := &sequencedRoundTripper{errs: []error{proxyConnectError()}}
+	tp := newTransientRetryTestTransport(seq)
+	tp.transientRetry.skipNetworkRetries = true
+
+	resp, err := tp.RoundTrip(postWithBody(t, "payload"))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, 2, seq.callCount())
+}
+
+func TestDrainResponseCapsRead(t *testing.T) {
+	r := &countingReader{}
+	resp := &http.Response{Body: io.NopCloser(r)}
+	done := make(chan struct{})
+	go func() {
+		drainResponse(resp)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("drainResponse hung on unbounded body")
+	}
+	require.LessOrEqual(t, r.n, int64(maxTransientDrain))
+}
+
+func TestJitterWaitStaysWithinBounds(t *testing.T) {
+	wait := 400 * time.Millisecond
+	maxDelay := 2 * time.Second
+	for range 100 {
+		got := jitterWait(wait, maxDelay)
+		require.GreaterOrEqual(t, got, wait-wait/4)
+		require.LessOrEqual(t, got, wait+wait/4)
+		require.LessOrEqual(t, got, maxDelay)
+	}
+	require.Equal(t, time.Duration(0), jitterWait(0, maxDelay))
+}
+
+func TestResolveTransientRetryKeepsMaxAttemptsOne(t *testing.T) {
+	s := resolveTransientRetry(TransientRetryConfig{MaxAttempts: 1})
+	require.Equal(t, 1, s.maxAttempts)
+}
+
+type countingReader struct {
+	n int64
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	r.n += int64(len(p))
+	return len(p), nil
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/url"
@@ -12,6 +13,11 @@ import (
 
 	"go.uber.org/zap"
 )
+
+// maxTransientDrain is how much of a failed 5xx body we read before Close.
+// Connection reuse only needs a small drain; an unbounded Copy can stall
+// the retry until the client's Timeout (300s) fires.
+const maxTransientDrain = 8 << 10
 
 func (t *Transport) roundTripTransientRetries(
 	ctx context.Context,
@@ -67,6 +73,12 @@ func (t *Transport) nextTransientRetry(
 		return nil, 0, false, false
 	}
 	if err != nil {
+		if t.transientRetry.skipNetworkRetries {
+			// 5xx-only: still retry dial-phase (never sent). Do not
+			// replay timeouts or stale-connection resets.
+			retryReq, ok := retryableRequest(req, err, false)
+			return retryReq, 0, false, ok
+		}
 		if isRetryableTimeout(req, err) {
 			if timeoutRetries >= maxTransientTimeoutRetries {
 				return nil, 0, false, false
@@ -99,14 +111,32 @@ func (t *Transport) transientBackoffWait(retryIndex int, resp *http.Response) ti
 	if wait > t.transientRetry.maxDelay {
 		wait = t.transientRetry.maxDelay
 	}
-	if resp == nil {
+	if resp != nil {
+		if ra := parseRetryAfter(resp.Header.Get("Retry-After"), t.now()); ra > 0 {
+			wait = ra
+			if wait > t.transientRetry.maxDelay {
+				wait = t.transientRetry.maxDelay
+			}
+		}
+	}
+	return jitterWait(wait, t.transientRetry.maxDelay)
+}
+
+// jitterWait spreads retries by ±25% of wait, then clamps to [0, maxDelay].
+func jitterWait(wait, maxDelay time.Duration) time.Duration {
+	if wait <= 0 {
 		return wait
 	}
-	if ra := parseRetryAfter(resp.Header.Get("Retry-After"), t.now()); ra > 0 {
-		wait = ra
-		if wait > t.transientRetry.maxDelay {
-			wait = t.transientRetry.maxDelay
-		}
+	delta := wait / 4
+	if delta > 0 {
+		// #nosec G404 -- jitter for retry backoff, not a security value.
+		wait += time.Duration(rand.Int64N(int64(2*delta)+1) - int64(delta))
+	}
+	if wait > maxDelay {
+		wait = maxDelay
+	}
+	if wait < 0 {
+		return 0
 	}
 	return wait
 }
@@ -130,7 +160,7 @@ func drainResponse(resp *http.Response) {
 	if resp == nil || resp.Body == nil {
 		return
 	}
-	_, _ = io.Copy(io.Discard, resp.Body)
+	_, _ = io.CopyN(io.Discard, resp.Body, maxTransientDrain)
 	_ = resp.Body.Close()
 }
 
