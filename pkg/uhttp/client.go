@@ -139,14 +139,19 @@ func CreateCacheKey(req *http.Request, extraCacheKeyHeaders ...string) (string, 
 	// Include relevant headers in the cache key
 	var headerParts []string
 	for key, values := range req.Header {
-		_, ok := defaultCacheKeyHeaders[key]
-		for i := 0; !ok && i < len(extraCacheKeyHeaders); i++ {
-			ok = http.CanonicalHeaderKey(extraCacheKeyHeaders[i]) == key
-		}
-		if !ok {
+		if _, ok := defaultCacheKeyHeaders[key]; !ok {
 			continue
 		}
 		for _, value := range values {
+			headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
+		}
+	}
+	for _, h := range extraCacheKeyHeaders {
+		key := http.CanonicalHeaderKey(h)
+		if _, ok := defaultCacheKeyHeaders[key]; ok {
+			continue
+		}
+		for _, value := range req.Header[key] {
 			headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
 		}
 	}
