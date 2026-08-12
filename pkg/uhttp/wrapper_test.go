@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -726,4 +728,48 @@ func TestWrapper_RedactSensitiveHeaders(t *testing.T) {
 		"Proxy-Authorization": {"REDACTED"},
 		"Custom-Api-Key":      {"REDACTED"},
 	}, redactedHeaders)
+}
+
+// TestWrapper_Do_CachesAcrossTransportHeaderInjection guards against a
+// regression where the transport's userAgentTripper (transport.go) sets
+// User-Agent on the same Header map the request was built with. http.Client
+// forks the *http.Request struct on every call (uhttp.NewClient always sets
+// a non-zero Timeout, which makes the fork unconditional), but that fork is
+// shallow, so the Header map -- and therefore the mutation -- is still
+// visible on the request Do() passed in. If Do() round-trips on req itself,
+// CreateCacheKey(req) hashes a different header set for the cache.Set below
+// than it did for the cache.Get above, and no future identical request can
+// ever match the stored key: the cache becomes write-only.
+func TestWrapper_Do_CachesAcrossTransportHeaderInjection(t *testing.T) {
+	var hits int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer ts.Close()
+
+	// A real client built via NewClient, so the real userAgentTripper is in
+	// the round-trip chain -- not a fake transport standing in for it.
+	httpClient, err := NewClient(ctx)
+	require.NoError(t, err)
+
+	client, err := NewBaseHttpClientWithContext(ctx, httpClient)
+	require.NoError(t, err)
+
+	u, err := url.Parse(ts.URL)
+	require.NoError(t, err)
+
+	for i := 0; i < 2; i++ {
+		req, err := client.NewRequest(ctx, http.MethodGet, u)
+		require.NoError(t, err)
+		require.Empty(t, req.Header.Get("User-Agent"), "request must not pre-set User-Agent for this test to reproduce the bug")
+
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		resp.Body.Close()
+	}
+
+	require.EqualValues(t, 1, atomic.LoadInt32(&hits),
+		"second identical GET should be served from cache, not reach the server again")
 }

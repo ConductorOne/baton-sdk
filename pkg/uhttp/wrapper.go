@@ -460,7 +460,16 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	if resp == nil {
-		resp, err = c.HttpClient.Do(req) // #nosec G704 -- this HTTP wrapper intentionally supports arbitrary connector-defined endpoints.
+		// Round trip on a clone, not req itself. http.Client.Do forks the
+		// Request struct internally (any non-zero Timeout, which uhttp.NewClient
+		// always sets, triggers this) but that fork is shallow -- the Header map
+		// is still the same one req points to. Transport-level RoundTrippers
+		// (e.g. userAgentTripper) mutate that shared map, so without cloning
+		// here, req.Header gains headers (like User-Agent) between the
+		// Get above and the Set below, and CreateCacheKey(req) would hash a
+		// different header set for each -- a store that no future lookup can
+		// ever match.
+		resp, err = c.HttpClient.Do(req.Clone(req.Context())) // #nosec G704 -- this HTTP wrapper intentionally supports arbitrary connector-defined endpoints.
 		if err != nil {
 			l.Error("base-http-client: HTTP error response", zap.Error(err))
 			return resp, wrapTransientNetworkError(err)
