@@ -110,12 +110,54 @@ type icache interface {
 	Stats(ctx context.Context) CacheStats
 }
 
-// CreateCacheKey generates a cache key based on the request URL, query parameters, and headers.
-//
-// Every header is folded into the key. Dropping a header here would let two
-// requests that differ only in that header collide on the same cache entry
-// -- e.g. requests carrying different Authorization or other per-request
-// auth headers would otherwise be served each other's cached response.
+// defaultCacheKeyHeaders are always folded into the cache key returned by
+// CreateCacheKey. Headers outside this set are ignored unless a connector
+// opts in with WithCacheKeyHeaders: hashing every header by default would
+// key the cache on values that have nothing to do with the response --
+// transport-injected headers like User-Agent, tracing/correlation IDs, etc.
+// -- and would defeat caching for connectors that never asked for that.
+var defaultCacheKeyHeaders = map[string]struct{}{
+	"Accept":       {},
+	"Content-Type": {},
+	"Cookie":       {},
+	"Range":        {},
+}
+
+type cacheKeyHeadersCtxKey struct{}
+
+// WithCacheKeyHeaders returns a shallow copy of req whose HTTP response
+// cache key (CreateCacheKey) additionally hashes the named headers, on top
+// of the default set (Accept, Content-Type, Cookie, Range). Use this when a
+// connector varies otherwise-identical requests by a header the cache
+// doesn't key on by default -- e.g. a per-call Authorization token or a
+// tenant/version header -- so those requests don't collide in the cache.
+func WithCacheKeyHeaders(req *http.Request, headers ...string) *http.Request {
+	if len(headers) == 0 {
+		return req
+	}
+	canonical := make([]string, len(headers))
+	for i, h := range headers {
+		canonical[i] = http.CanonicalHeaderKey(h)
+	}
+	return req.WithContext(context.WithValue(req.Context(), cacheKeyHeadersCtxKey{}, canonical))
+}
+
+func cacheKeyHeaderAllowed(req *http.Request, key string) bool {
+	if _, ok := defaultCacheKeyHeaders[key]; ok {
+		return true
+	}
+	extra, _ := req.Context().Value(cacheKeyHeadersCtxKey{}).([]string)
+	for _, h := range extra {
+		if h == key {
+			return true
+		}
+	}
+	return false
+}
+
+// CreateCacheKey generates a cache key based on the request URL, query
+// parameters, and headers. Only defaultCacheKeyHeaders -- plus any headers
+// named via WithCacheKeyHeaders -- are folded in; see those for why.
 func CreateCacheKey(req *http.Request) (string, error) {
 	if req == nil {
 		return "", fmt.Errorf("request is nil")
@@ -133,9 +175,12 @@ func CreateCacheKey(req *http.Request) (string, error) {
 
 	sort.Strings(sortedParams)
 	queryString := strings.Join(sortedParams, "&")
-	// Include every header in the cache key.
+	// Include only the allowed headers in the cache key.
 	var headerParts []string
 	for key, values := range req.Header {
+		if !cacheKeyHeaderAllowed(req, key) {
+			continue
+		}
 		for _, value := range values {
 			headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
 		}
