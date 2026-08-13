@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/bid"
@@ -47,6 +49,49 @@ type connectorRunner struct {
 }
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
+
+// shutdownDrainTimeout bounds how long run() waits, on cancellation, for
+// in-flight task goroutines to finish before returning. Each task goroutine
+// is untracked (dispatched via a bare `go func`) and Close() — called
+// immediately after Run() returns by every caller of this runner — tears
+// down the connector client via c.cw.Close() with no synchronization against
+// those goroutines. Without a drain, a SIGTERM can still race the very
+// checkpoint this package exists to protect: Run() returns as soon as ctx is
+// Done, Close() runs, and the in-flight sync's forced checkpoint write (see
+// sync/parallel_syncer.go's handleOperationError, bounded to 15s) can be torn
+// out from under it.
+//
+// This budget intentionally only targets that checkpoint write, not a full
+// c1z finalize: syncer.Close() (called by the task handler on every path,
+// including sync failure) bounds its own detached finalize by
+// dotc1z.FinalizeTimeout, which defaults to 1 hour — no realistic
+// termination grace period can wait that out, and this drain does not try
+// to. It only aims to let the smaller, higher-priority checkpoint write
+// complete before the connector client is torn down.
+const shutdownDrainTimeout = 25 * time.Second
+
+// drainInFlightTasks waits for every currently-held semaphore slot to be
+// released — i.e. every dispatched task goroutine (see the `go func(t
+// *v1.Task)` dispatch below) to return — bounded by shutdownDrainTimeout.
+// Deferred once, right after sem is created, so it runs on every exit from
+// run() — including the cancellation-driven returns below, and the
+// stopForLoop exit further down, which falls out of the loop with no select
+// case involved at all. Covering every return this way, rather than one
+// call per return site, is deliberate: this loop has already had a return
+// path added without a matching drain call once (a task goroutine setting
+// stopForLoop bypassed it entirely), and a per-site call is exactly the
+// shape of bug that keeps recurring. Whichever return runs, the caller's
+// deferred Close() (which tears down the connector client) must not race
+// an in-flight sync that's still writing its forced checkpoint.
+func (c *connectorRunner) drainInFlightTasks(ctx context.Context, sem *semaphore.Weighted, l *zap.Logger) {
+	drainCtx, cancelDrain := context.WithTimeout(context.WithoutCancel(ctx), shutdownDrainTimeout)
+	defer cancelDrain()
+	if err := sem.Acquire(drainCtx, int64(c.taskConcurrency)); err != nil {
+		l.Warn("runner: shutdown drain timed out; in-flight tasks may not have finished checkpointing", zap.Error(err))
+		return
+	}
+	sem.Release(int64(c.taskConcurrency))
+}
 
 // setupPersistentLog ensures that a log file on disk is created,
 // when required by either the stored Manager or by a Task.
@@ -138,7 +183,7 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 	}
 
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		for range sigChan {
 			cancel(ErrSigTerm)
@@ -210,12 +255,20 @@ func (c *connectorRunner) run(ctx context.Context) error {
 	}
 
 	sem := semaphore.NewWeighted(int64(c.taskConcurrency))
+	// Drain unconditionally on every exit from this function, not just the
+	// two cancellation-driven returns below: a dispatched task goroutine can
+	// also end this loop by setting stopForLoop (see the "grpc: the client
+	// connection is closing" check further down), which falls through to the
+	// post-loop return with no select case involved at all. A per-return-site
+	// call is exactly the shape of bug this already was once -- a defer here
+	// covers every current and future exit path from run() by construction.
+	defer c.drainInFlightTasks(ctx, sem, l)
 
 	nextCheckAfter := time.Second * 0
 	errCount := 0
-	stopForLoop := false
+	var stopForLoop atomic.Bool
 	var err error
-	for !stopForLoop {
+	for !stopForLoop.Load() {
 		select {
 		case <-ctx.Done():
 			return c.handleContextCancel(ctx)
@@ -281,7 +334,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 				err := c.processTask(ctx, t)
 				if err != nil {
 					if strings.Contains(err.Error(), "grpc: the client connection is closing") {
-						stopForLoop = true
+						stopForLoop.Store(true)
 					}
 					l.Error("runner: error processing task", zap.Error(err), zap.String("task_id", t.GetId()), zap.String("task_type", tasks.GetType(t).String()))
 					return
@@ -293,7 +346,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 		}
 	}
 
-	if stopForLoop {
+	if stopForLoop.Load() {
 		return fmt.Errorf("unable to communicate with gRPC server")
 	}
 
