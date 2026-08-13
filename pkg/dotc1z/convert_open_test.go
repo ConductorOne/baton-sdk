@@ -111,7 +111,7 @@ func TestNewC1ZFileDoesNotConvertExistingSQLiteWhenEngineSQLite(t *testing.T) {
 	require.NoError(t, seedFinishedSQLiteSync(ctx, t, src))
 	require.NoError(t, src.Close(ctx))
 
-	f, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithTmpDir(dir))
+	f, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithTmpDir(dir), dotc1z.WithEngine(c1zstore.EngineSQLite))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, f.Close(ctx)) }()
 
