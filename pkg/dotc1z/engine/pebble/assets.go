@@ -47,8 +47,13 @@ func (e *Engine) DeleteAssetRecord(ctx context.Context, externalID string) error
 }
 
 func (e *Engine) IterateAssets(ctx context.Context, yield func(*v3.AssetRecord) bool) error {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	prefix := encodeAssetPrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})

@@ -1013,8 +1013,13 @@ func (e *Engine) clearDeferredIdxPending() error {
 // IterateGrants iterates all grants in primary-key order. yield returns
 // false to stop iteration.
 func (e *Engine) IterateGrants(ctx context.Context, yield func(*v3.GrantRecord) bool) error {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	prefix := encodeGrantPrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
@@ -1039,6 +1044,14 @@ func (e *Engine) IterateGrants(ctx context.Context, yield func(*v3.GrantRecord) 
 // The id resolves through the bare-id lookup; an id matching no entitlement
 // iterates nothing. yield returns false to stop.
 func (e *Engine) IterateGrantsByEntitlement(ctx context.Context, entitlementID string, yield func(*v3.GrantRecord) bool) error {
+	// Pinned before the identity resolve: that lookup reads the handle
+	// too, so leaving it outside would protect the scan and not the
+	// query that feeds it.
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	entID, err := e.resolveGrantScanEntitlementIdentity(ctx, entitlementID)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
@@ -1047,7 +1060,7 @@ func (e *Engine) IterateGrantsByEntitlement(ctx context.Context, entitlementID s
 		return err
 	}
 	indexPrefix := encodeGrantPrimaryEntitlementPrefix(entID)
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: indexPrefix,
 		UpperBound: upperBoundOf(indexPrefix),
 	})
@@ -1069,8 +1082,13 @@ func (e *Engine) IterateGrantsByEntitlement(ctx context.Context, entitlementID s
 
 // IterateGrantsByPrincipal iterates the by_principal index.
 func (e *Engine) IterateGrantsByPrincipal(ctx context.Context, principalRT, principalID string, yield func(*v3.GrantRecord) bool) error {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	indexPrefix := encodeGrantByPrincipalPrefix(principalRT, principalID)
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: indexPrefix,
 		UpperBound: upperBoundOf(indexPrefix),
 	})
@@ -1083,7 +1101,7 @@ func (e *Engine) IterateGrantsByPrincipal(ctx context.Context, principalRT, prin
 		if !ok {
 			continue
 		}
-		r, err := getGrantByIdentity(ctx, e.db, grantIdentity{
+		r, err := getGrantByIdentity(ctx, db, grantIdentity{
 			entitlement: entitlementIdentity{
 				resourceTypeID: components[0],
 				resourceID:     components[1],
@@ -1110,8 +1128,13 @@ func (e *Engine) IterateGrantsByPrincipal(ctx context.Context, principalRT, prin
 // to a principal resource type. Yields each grant whose principal carries the
 // given resource_type. Stops when yield returns false.
 func (e *Engine) IterateGrantsByPrincipalResourceType(ctx context.Context, principalRT string, yield func(*v3.GrantRecord) bool) error {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	indexPrefix := encodeGrantByPrincipalResourceTypeIdentityPrefix(principalRT)
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: indexPrefix,
 		UpperBound: upperBoundOf(indexPrefix),
 	})
@@ -1124,7 +1147,7 @@ func (e *Engine) IterateGrantsByPrincipalResourceType(ctx context.Context, princ
 		if !ok {
 			continue
 		}
-		r, err := getGrantByIdentity(ctx, e.db, grantIdentity{
+		r, err := getGrantByIdentity(ctx, db, grantIdentity{
 			entitlement: entitlementIdentity{
 				resourceTypeID: components[1],
 				resourceID:     components[2],
@@ -1155,8 +1178,13 @@ func (e *Engine) IterateGrantsByPrincipalResourceType(ctx context.Context, princ
 // `WHERE needs_expansion = 1`. Backs PendingExpansionPage on the
 // grant store.
 func (e *Engine) IterateGrantsByNeedsExpansion(ctx context.Context, yield func(*v3.GrantRecord) bool) error {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	indexPrefix := encodeGrantByNeedsExpansionPrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: indexPrefix,
 		UpperBound: upperBoundOf(indexPrefix),
 	})
@@ -1169,7 +1197,7 @@ func (e *Engine) IterateGrantsByNeedsExpansion(ctx context.Context, yield func(*
 		if !ok {
 			continue
 		}
-		r, err := getGrantByIdentity(ctx, e.db, grantIdentity{
+		r, err := getGrantByIdentity(ctx, db, grantIdentity{
 			entitlement: entitlementIdentity{
 				resourceTypeID: components[0],
 				resourceID:     components[1],

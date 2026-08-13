@@ -71,12 +71,14 @@ func (e *Engine) EnsureGrantIndexes(ctx context.Context) error {
 // the orphan index keys are deleted — instead of being vacuously
 // classified as match-annotated-only.
 func (e *Engine) ForEachDanglingGrantPrincipal(ctx context.Context, visit func(principalRT, principalID string, matchAnnotatedOnly bool, carrierGrants int64) error) error {
-	if e.db == nil {
-		return ErrEngineClosing
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
 	}
+	defer release()
 	prefix := []byte{versionV3, typeIndex, idxGrantByPrincipal}
 	prefix = codec.AppendTupleSeparator(prefix)
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})

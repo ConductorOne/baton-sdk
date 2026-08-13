@@ -107,6 +107,11 @@ type Engine struct {
 	// writeWG tracks in-flight writes. Incremented at the start of
 	// every Writer method, decremented in defer.
 	writeWG sync.WaitGroup
+	// readWG tracks in-flight reads. Reads take no barrier — they run
+	// concurrently with each other and with writes by design — but they
+	// do borrow the handle Close tears down, so Close waits for them
+	// the same way it waits for writes. See pinRead.
+	readWG  sync.WaitGroup
 	writeMu sync.Mutex
 	// writeBarrierOwner is the id of the goroutine holding writeMu, or 0
 	// when it is unheld. Recorded only under `go test`; see
@@ -333,7 +338,8 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 }
 
 // Close shuts down the engine. After Close, all methods return
-// ErrEngineClosing. Close blocks until all in-flight writes complete.
+// ErrEngineClosing. Close blocks until all in-flight writes and all
+// pinned reads (see pinRead) complete, so a slow page read delays it.
 func (e *Engine) Close() error {
 	e.closeMu.Lock()
 	defer e.closeMu.Unlock()
@@ -346,6 +352,10 @@ func (e *Engine) Close() error {
 	e.assertNotWaitingOnOwnWrite()
 	e.closing.Store(true)
 	e.writeWG.Wait()
+	// Reads borrow the handle without any barrier, so draining writes is
+	// not enough: a paginate holding e.db while the teardown below runs
+	// gets pebble's "pebble: closed" panic out of its next iterator call.
+	e.readWG.Wait()
 	// A leaked synthesized-grant layer session (possible only if a panic
 	// unwound past the expansion driver's Abort) has a background worker
 	// ingesting through e.db; drain it before tearing the DB down. This
@@ -688,6 +698,39 @@ func (e *Engine) withWriteAllowSealed(fn func() error) error {
 	release := e.lockWriteBarrier()
 	defer release()
 	return fn()
+}
+
+// pinRead pins the engine's handle open for one read and returns it.
+//
+// Reads take no barrier — concurrency between them and with writes is
+// the point — so this is not a lock. What it buys is the two things
+// Close needs: the handle cannot be torn down while a read is using it
+// (Close waits on readWG), and the read's view of e.db is ordered
+// against Close's teardown by the WaitGroup instead of being an
+// unsynchronized field access.
+//
+// Callers must defer the returned release, and must read through the
+// returned handle rather than e.db — re-reading the field inside the
+// body reintroduces exactly the unordered access this removes.
+// TestPaginateReadsArePinned holds the paginate surface to both.
+func (e *Engine) pinRead() (*rawdb.DB, func(), error) {
+	if e.closing.Load() {
+		return nil, nil, ErrEngineClosing
+	}
+	e.readWG.Add(1)
+	// Re-check after the Add, for the reason withWriteAllowSealed does:
+	// closing can flip between the first check and the Add, and by then
+	// Close's Wait may already have gone past a zero counter.
+	if e.closing.Load() {
+		e.readWG.Done()
+		return nil, nil, ErrEngineClosing
+	}
+	db := e.db
+	if db == nil {
+		e.readWG.Done()
+		return nil, nil, ErrEngineClosing
+	}
+	return db, e.readWG.Done, nil
 }
 
 func (e *Engine) Save(ctx context.Context, dest string) error {

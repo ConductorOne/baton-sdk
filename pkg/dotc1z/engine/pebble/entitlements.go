@@ -160,8 +160,13 @@ func (e *Engine) DeleteEntitlementRecordByIdentity(
 }
 
 func (e *Engine) IterateEntitlements(ctx context.Context, yield func(*v3.EntitlementRecord) bool) error {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	prefix := encodeEntitlementPrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
@@ -182,8 +187,13 @@ func (e *Engine) IterateEntitlements(ctx context.Context, yield func(*v3.Entitle
 }
 
 func (e *Engine) IterateEntitlementsByResource(ctx context.Context, resourceTypeID, resourceID string, yield func(*v3.EntitlementRecord) bool) error {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	indexPrefix := encodeEntitlementPrimaryResourcePrefix(resourceTypeID, resourceID)
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: indexPrefix,
 		UpperBound: upperBoundOf(indexPrefix),
 	})

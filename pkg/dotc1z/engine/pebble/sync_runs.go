@@ -114,8 +114,13 @@ func (e *Engine) hasSyncRun() (bool, error) {
 // IterateAllSyncRuns iterates every sync_run record in the engine.
 // Used by callers that want "what syncs do I have available?".
 func (e *Engine) IterateAllSyncRuns(ctx context.Context, yield func(*v3.SyncRunRecord) bool) error {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	prefix := encodeSyncRunFullPrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})

@@ -416,8 +416,13 @@ func (e *Engine) DirtyEntitlementBuckets(ctx context.Context, other *Engine, id 
 // (no decode); the point Get per entry is the cost of MATERIALIZING a
 // changed grant, not of finding it. Orphan index entries are skipped.
 func (e *Engine) IterateGrantsByEntitlementBucket(ctx context.Context, id entitlementIdentity, bucket DigestBucket, yield func(*v3.GrantRecord) bool) error {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	lower, upper := grantDigestSpec.bucketBounds(digestPartitionForEntitlement(id), bucket)
-	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
+	iter, err := db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
 		return err
 	}
@@ -432,7 +437,7 @@ func (e *Engine) IterateGrantsByEntitlementBucket(ctx context.Context, id entitl
 		if !ok {
 			continue
 		}
-		val, closer, getErr := e.db.Get(priKey)
+		val, closer, getErr := db.Get(priKey)
 		if getErr != nil {
 			if errors.Is(getErr, pebble.ErrNotFound) {
 				continue

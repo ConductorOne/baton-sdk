@@ -150,8 +150,13 @@ func (e *Engine) DeleteResourceRecord(ctx context.Context, resourceTypeID, resou
 }
 
 func (e *Engine) IterateResources(ctx context.Context, yield func(*v3.ResourceRecord) bool) error {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	prefix := encodeResourcePrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
@@ -172,8 +177,13 @@ func (e *Engine) IterateResources(ctx context.Context, yield func(*v3.ResourceRe
 }
 
 func (e *Engine) IterateResourcesByParent(ctx context.Context, parentRT, parentID string, yield func(*v3.ResourceRecord) bool) error {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	indexPrefix := encodeResourceByParentPrefix(parentRT, parentID)
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: indexPrefix,
 		UpperBound: upperBoundOf(indexPrefix),
 	})
@@ -187,7 +197,7 @@ func (e *Engine) IterateResourcesByParent(ctx context.Context, parentRT, parentI
 		if !ok {
 			continue
 		}
-		val, closer, err := e.db.Get(encodeResourceKey(childRT, childID))
+		val, closer, err := db.Get(encodeResourceKey(childRT, childID))
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
 				continue

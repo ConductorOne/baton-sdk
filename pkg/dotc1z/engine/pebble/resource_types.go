@@ -82,8 +82,13 @@ func (e *Engine) DeleteResourceTypeRecord(ctx context.Context, externalID string
 }
 
 func (e *Engine) IterateResourceTypes(ctx context.Context, yield func(*v3.ResourceTypeRecord) bool) error {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	prefix := encodeResourceTypePrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
