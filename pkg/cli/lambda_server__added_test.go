@@ -64,6 +64,7 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		require.NotNil(t, p)
 		require.True(t, p.HTTPSOnly)
 		require.Equal(t, []string{"api.example.com"}, p.AllowedHosts)
+		require.False(t, p.Enforce)
 	})
 
 	t.Run("binding mismatch is governed deny-all", func(t *testing.T) {
@@ -72,6 +73,7 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		p := egressPolicyFromResponse(newResp("cv-1", goodEnvelope("cv-2")))
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
+		require.True(t, p.Enforce)
 	})
 
 	t.Run("empty response config_version is governed deny-all", func(t *testing.T) {
@@ -79,6 +81,7 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		p := egressPolicyFromResponse(newResp("", goodEnvelope("")))
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
+		require.True(t, p.Enforce)
 	})
 
 	t.Run("unsupported envelope version is governed deny-all", func(t *testing.T) {
@@ -88,6 +91,7 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		p := egressPolicyFromResponse(newResp("cv-1", env))
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
+		require.True(t, p.Enforce)
 	})
 
 	t.Run("unsupported egress schema version is governed deny-all", func(t *testing.T) {
@@ -97,6 +101,16 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		p := egressPolicyFromResponse(newResp("cv-1", env))
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
+		require.True(t, p.Enforce)
+	})
+	t.Run("nil egress section is governed deny-all", func(t *testing.T) {
+		t.Parallel()
+		env := goodEnvelope("cv-1")
+		env.SetEgress(nil)
+		p := egressPolicyFromResponse(newResp("cv-1", env))
+		require.NotNil(t, p)
+		require.Empty(t, p.AllowedHosts)
+		require.True(t, p.Enforce)
 	})
 
 	t.Run("mode narrows to Enforce", func(t *testing.T) {
@@ -114,24 +128,26 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 			{"enforce", v1.EgressMode_EGRESS_MODE_ENFORCE, true},
 			{"unrecognized", v1.EgressMode(999), false},
 		} {
-			env := goodEnvelope("cv-1")
-			env.GetEgress().SetMode(tt.mode)
-			p := egressPolicyFromResponse(newResp("cv-1", env))
-			require.NotNil(t, p, tt.name)
-			require.Equal(t, tt.enforce, p.Enforce, tt.name)
+			t.Run(tt.name, func(t *testing.T) {
+				env := goodEnvelope("cv-1")
+				env.GetEgress().SetMode(tt.mode)
+				p := egressPolicyFromResponse(newResp("cv-1", env))
+				require.NotNil(t, p, tt.name)
+				require.Equal(t, tt.enforce, p.Enforce, tt.name)
+			})
 		}
 	})
 
 	t.Run("mode does not survive a failed binding check", func(t *testing.T) {
 		t.Parallel()
-		// A deny-all fallback must not also carry enforce=true from the rejected
-		// envelope: the whole section is discarded, not partially installed.
+		// The synthetic deny-all fallback enforces (Enforce=true) regardless of
+		// the rejected envelope's mode: empty AllowedHosts + Enforce=true = block all.
 		env := goodEnvelope("cv-2")
 		env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_ENFORCE)
 		p := egressPolicyFromResponse(newResp("cv-1", env))
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
-		require.False(t, p.Enforce)
+		require.True(t, p.Enforce)
 	})
 }
 

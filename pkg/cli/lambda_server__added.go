@@ -565,7 +565,9 @@ func egressPolicyFromResponse(config *v1.GetConnectorConfigResponse) *EgressPoli
 		return nil
 	}
 	env := config.GetServedPolicyEnvelope()
-	policy := &EgressPolicy{}
+	// The deny-all fallback enforces: empty AllowedHosts + Enforce=true = block
+	// all, so a mode-honoring connector fails closed rather than observing.
+	policy := &EgressPolicy{Enforce: true}
 
 	if env.GetEnvelopeVersion() != servedPolicyEnvelopeVersion {
 		return policy
@@ -580,6 +582,8 @@ func egressPolicyFromResponse(config *v1.GetConnectorConfigResponse) *EgressPoli
 	}
 	policy.AllowedHosts = egress.GetAllowedHosts()
 	policy.HTTPSOnly = egress.GetHttpsOnly()
+	// Intentionally lossy: only an explicit ENFORCE enforces; a future
+	// enforcing mode must be added to this comparison.
 	policy.Enforce = egress.GetMode() == v1.EgressMode_EGRESS_MODE_ENFORCE
 	return policy
 }
