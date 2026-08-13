@@ -10,6 +10,7 @@ import (
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1ztest"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/stretchr/testify/require"
@@ -29,7 +30,11 @@ func TestCleanupContextDeadlineExceeded(t *testing.T) {
 
 	testFilePath := filepath.Join(tmpDir, "test.c1z")
 
-	f, err := dotc1z.NewStore(ctx, testFilePath)
+	// Pinned to SQLite: the test relies on the 200ms run budget expiring
+	// during cleanup of ~98 old syncs, which is only reliably slow on the
+	// row-by-row SQLite delete path. Pebble drops syncs via cheap range
+	// deletes, the sync completes, and ErrSyncNotComplete never fires.
+	f, err := dotc1z.NewStore(ctx, testFilePath, dotc1z.WithEngine(c1zstore.EngineSQLite))
 	require.NoError(t, err)
 
 	// Create and end a bunch of syncs. We should delete all but 2 of them in Cleanup().

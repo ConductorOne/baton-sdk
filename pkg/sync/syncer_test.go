@@ -119,7 +119,7 @@ func TestExpandGrants(t *testing.T) {
 		require.NoError(t, err)
 
 		// Validate that grants got expanded
-		store, err := dotc1z.NewC1ZFile(ctx, c1zpath)
+		store, err := dotc1z.NewStore(ctx, c1zpath)
 		require.NoError(t, err)
 
 		// Yes it's wasteful to load all grants into memory, but this connector doesn't make a ton of grants.
@@ -317,7 +317,7 @@ func TestExpandGrantImmutable(t *testing.T) {
 		err = syncer.Close(ctx)
 		require.NoError(t, err)
 
-		store, err := dotc1z.NewC1ZFile(ctx, c1zpath)
+		store, err := dotc1z.NewStore(ctx, c1zpath)
 		require.NoError(t, err)
 
 		allGrantsReq := &v2.GrantsServiceListGrantsRequest{}
@@ -422,7 +422,7 @@ func TestExpandGrantImmutableCycle(t *testing.T) {
 		err = syncer.Close(ctx)
 		require.NoError(t, err)
 
-		store, err := dotc1z.NewC1ZFile(ctx, c1zpath)
+		store, err := dotc1z.NewStore(ctx, c1zpath)
 		require.NoError(t, err)
 
 		allGrantsReq := &v2.GrantsServiceListGrantsRequest{}
@@ -629,7 +629,7 @@ func TestExternalResourcePath(t *testing.T) {
 		err = internalSyncer.Close(ctx)
 		require.NoError(t, err)
 
-		store, err := dotc1z.NewC1ZFile(ctx, internalC1zpath)
+		store, err := dotc1z.NewStore(ctx, internalC1zpath)
 		require.NoError(t, err)
 
 		resources, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
@@ -712,7 +712,7 @@ func TestPartialSync(t *testing.T) {
 		err = partialSyncer.Close(ctx)
 		require.NoError(t, err)
 
-		store, err := dotc1z.NewC1ZFile(ctx, c1zPath)
+		store, err := dotc1z.NewStore(ctx, c1zPath)
 		require.NoError(t, err)
 
 		resourcesResp, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
@@ -778,7 +778,7 @@ func TestPartialSyncSkipEntitlementsAndGrants(t *testing.T) {
 		err = syncer.Close(ctx)
 		require.NoError(t, err)
 
-		store, err := dotc1z.NewC1ZFile(ctx, c1zPath)
+		store, err := dotc1z.NewStore(ctx, c1zPath)
 		require.NoError(t, err)
 
 		resources, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
@@ -843,10 +843,14 @@ func TestPartialSyncUnimplemented(t *testing.T) {
 		err = partialSyncer.Close(ctx)
 		require.NoError(t, err)
 
-		store, err := dotc1z.NewC1ZFile(ctx, c1zPath)
+		store, err := dotc1z.NewStore(ctx, c1zPath)
 		require.NoError(t, err)
 
-		syncs, _, err := store.ListSyncRuns(ctx, "", 100)
+		lister, ok := store.(interface {
+			ListSyncRuns(context.Context, string, uint32) ([]*c1zstore.SyncRun, string, error)
+		})
+		require.True(t, ok, "store must support ListSyncRuns")
+		syncs, _, err := lister.ListSyncRuns(ctx, "", 100)
 		require.NoError(t, err)
 		require.Equal(t, 1, len(syncs))
 		require.Equal(t, connectorstore.SyncTypePartial, syncs[0].Type)
@@ -931,7 +935,7 @@ func TestExternalResourceMatchAll(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify grants were created for all external users
-		store, err := dotc1z.NewC1ZFile(ctx, internalC1zpath)
+		store, err := dotc1z.NewStore(ctx, internalC1zpath)
 		require.NoError(t, err)
 
 		// Get grants for the internal group entitlement
@@ -1021,7 +1025,7 @@ func TestExternalResourceMatchID(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify grant was created for the matching external user
-		store, err := dotc1z.NewC1ZFile(ctx, internalC1zpath)
+		store, err := dotc1z.NewStore(ctx, internalC1zpath)
 		require.NoError(t, err)
 
 		allGrants, err := store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{})
@@ -1121,7 +1125,7 @@ func TestExternalResourceMatchIDWithExpandableRemapping(t *testing.T) {
 	// The remapping should produce an entitlement ID using the matched external
 	// group's resource, which is the same as the original in this case but was
 	// generated via entitlement.NewEntitlementID(matchedPrincipal, slug).
-	store, err := dotc1z.NewC1ZFile(ctx, internalC1zpath)
+	store, err := dotc1z.NewStore(ctx, internalC1zpath)
 	require.NoError(t, err)
 
 	allGrants, err := store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{})
@@ -1230,7 +1234,7 @@ func TestExternalResourceEmailMatch(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify grant was created for the matching external user
-		store, err := dotc1z.NewC1ZFile(ctx, internalC1zpath)
+		store, err := dotc1z.NewStore(ctx, internalC1zpath)
 		require.NoError(t, err)
 
 		// Get grants for the internal group entitlement
@@ -1322,7 +1326,7 @@ func TestExternalResourceGroupProfileMatch(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify grant was created for the matching external group
-		store, err := dotc1z.NewC1ZFile(ctx, internalC1zpath)
+		store, err := dotc1z.NewStore(ctx, internalC1zpath)
 		require.NoError(t, err)
 
 		// Verify the external group was synced with correct properties
@@ -1424,7 +1428,7 @@ func TestExternalResourceMatchAllAppTrait(t *testing.T) {
 		require.NoError(t, internalSyncer.Sync(ctx))
 		require.NoError(t, internalSyncer.Close(ctx))
 
-		store, err := dotc1z.NewC1ZFile(ctx, internalC1zpath)
+		store, err := dotc1z.NewStore(ctx, internalC1zpath)
 		require.NoError(t, err)
 
 		grants, err := store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
@@ -1496,7 +1500,7 @@ func TestExternalResourceAppTraitNotMatchedByDefault(t *testing.T) {
 		require.NoError(t, internalSyncer.Sync(ctx))
 		require.NoError(t, internalSyncer.Close(ctx))
 
-		store, err := dotc1z.NewC1ZFile(ctx, internalC1zpath)
+		store, err := dotc1z.NewStore(ctx, internalC1zpath)
 		require.NoError(t, err)
 
 		grants, err := store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
@@ -1564,7 +1568,7 @@ func TestExternalResourceWithGrantToEntitlement(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify external resources were synced via SyncExternalResourcesWithGrantToEntitlement
-		store, err := dotc1z.NewC1ZFile(ctx, internalC1zpath)
+		store, err := dotc1z.NewStore(ctx, internalC1zpath)
 		require.NoError(t, err)
 
 		// SyncExternalResourcesWithGrantToEntitlement syncs resources based on grants to a specific entitlement.
@@ -1620,11 +1624,11 @@ func TestExternalResourceWithGrantToEntitlement(t *testing.T) {
 		syncID := resp.GetSyncs()[0].GetId()
 		// Clone the finished sync to a new c1z
 		clonedC1zpath := filepath.Join(tempDir, "cloned.c1z")
-		err = store.CloneSync(ctx, clonedC1zpath, syncID)
+		err = store.FileOps().CloneSync(ctx, clonedC1zpath, syncID)
 		require.NoError(t, err)
 
 		// Load the cloned c1z
-		clonedStore, err := dotc1z.NewC1ZFile(ctx, clonedC1zpath)
+		clonedStore, err := dotc1z.NewStore(ctx, clonedC1zpath)
 		require.NoError(t, err)
 		clonedSyncs, err := clonedStore.ListSyncs(ctx, reader_v2.SyncsReaderServiceListSyncsRequest_builder{
 			PageSize: 2,
@@ -1719,7 +1723,7 @@ func TestResumeSyncWithChildResources(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify that parent_1 was synced before the failure.
-	store1, err := dotc1z.NewC1ZFile(ctx, c1zPath)
+	store1, err := dotc1z.NewStore(ctx, c1zPath)
 	require.NoError(t, err)
 
 	parentResources, err := store1.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
@@ -1752,7 +1756,7 @@ func TestResumeSyncWithChildResources(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify that child resources are now synced.
-	store2, err := dotc1z.NewC1ZFile(ctx, c1zPath)
+	store2, err := dotc1z.NewStore(ctx, c1zPath)
 	require.NoError(t, err)
 
 	childResourcesAfterResume, err := store2.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
@@ -2113,7 +2117,7 @@ func TestSyncGrants_PropagatesInsertResourceGrantsAnnotation(t *testing.T) {
 	require.NoError(t, syncer.Sync(ctx))
 	require.NoError(t, syncer.Close(ctx))
 
-	store, err := dotc1z.NewC1ZFile(ctx, c1zPath)
+	store, err := dotc1z.NewStore(ctx, c1zPath)
 	require.NoError(t, err)
 
 	resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
@@ -2154,7 +2158,7 @@ func TestSyncGrants_DoesNotPropagateAnnotationWhenAbsent(t *testing.T) {
 	require.NoError(t, syncer.Sync(ctx))
 	require.NoError(t, syncer.Close(ctx))
 
-	store, err := dotc1z.NewC1ZFile(ctx, c1zPath)
+	store, err := dotc1z.NewStore(ctx, c1zPath)
 	require.NoError(t, err)
 
 	resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
