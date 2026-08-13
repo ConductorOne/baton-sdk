@@ -736,8 +736,10 @@ func (c *C1File) finalize(ctx context.Context) error {
 	// operations here and proceeds directly to saveC1z. Checkpointing a
 	// released handle would fail with sql.ErrConnDone and send us down the
 	// cleanupDbDir branch, deleting the working database instead of saving
-	// it, so this has to recognize a released handle however it was
-	// released.
+	// it. rawDBOpen recognizes the releases that precede a Close (the
+	// dbClosed flip, or close-plus-nil as the decoder test does); a bare
+	// rawDb.Close() that leaves the field set still reads as open, so that
+	// idiom must never be followed by Close — see rawDBOpen's doc.
 	if c.rawDBOpen() {
 		// CRITICAL: Force a full WAL checkpoint before closing the database.
 		// This ensures all WAL data is written back to the main database file
@@ -816,12 +818,18 @@ func (c *C1File) finalize(ctx context.Context) error {
 
 // rawDBOpen reports whether the SQLite handle is still usable.
 //
-// Two idioms release the handle and both must read as closed here.
-// closeRawDB publishes closed-ness through dbClosed and leaves the
-// pointer in place, because concurrent readers race a nil-ing write
-// (that race is what dbClosed exists to fix). Some tests instead close
-// c.rawDb directly and nil it. A bare nil check would miss the first
-// idiom and let a caller issue queries against a closed *sql.DB.
+// It sees two release idioms. closeRawDB publishes closed-ness through
+// dbClosed and leaves the pointer in place, because concurrent readers
+// race a nil-ing write (that race is what dbClosed exists to fix). A
+// test that closes c.rawDb directly and then nils it (c1file_test.go's
+// decoder test, before calling Close) reads as closed through the nil
+// check. What this cannot see is a direct c.rawDb.Close() that leaves
+// the field set — several tests do that to force a checkpoint before
+// abandoning the handle — which still reads as OPEN here. That idiom is
+// only safe on a C1File that will never see another operation; in
+// particular, calling Close after it would checkpoint a closed handle
+// and take the cleanupDbDir branch. Flip dbClosed (or nil the field) if
+// the C1File lives on.
 func (c *C1File) rawDBOpen() bool {
 	return c.rawDb != nil && !c.dbClosed.Load()
 }
@@ -1496,6 +1504,32 @@ func (c *C1File) validateDb(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// dbNotOpenOnClosed maps database/sql's own closed-handle failures onto
+// ErrDbNotOpen when a concurrent closeRawDB has already flipped dbClosed.
+//
+// validateDb runs before a query and the connection is acquired inside it,
+// so a Close landing between the two hands the writer database/sql's
+// unexported "sql: database is closed" sentinel — an error callers cannot
+// errors.Is against, while TestC1ZConcurrentClose pins ErrDbNotOpen as the
+// close-vs-write contract for every interleaving. Both gates below matter:
+// the flag check keeps a live handle's real failures untouched, and the
+// error-class check keeps a failure that merely coincides with a close (a
+// constraint violation, say) reporting itself rather than the close.
+//
+// Applied where the contract is pinned — the chunked-insert funnel every
+// record Put goes through, and the sync-run stamp — rather than at all ~100
+// query sites; a path without it can still surface the driver's sentinel if
+// it loses this race.
+func (c *C1File) dbNotOpenOnClosed(err error) error {
+	if err == nil || !c.dbClosed.Load() {
+		return err
+	}
+	if errors.Is(err, sql.ErrConnDone) || strings.Contains(err.Error(), "sql: database is closed") {
+		return fmt.Errorf("%w (%w)", ErrDbNotOpen, err)
+	}
+	return err
 }
 
 // validateSyncDb ensures that there is a sync currently running, and that the database has been opened.

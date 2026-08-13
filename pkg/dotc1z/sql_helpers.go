@@ -527,7 +527,7 @@ func executeChunkedInsert(
 
 	tx, err := c.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return c.dbNotOpenOnClosed(err)
 	}
 
 	var txError error
@@ -564,13 +564,13 @@ func executeChunkedInsert(
 
 	if txError != nil {
 		if rollbackErr := tx.Rollback(); rollbackErr != nil {
-			return errors.Join(rollbackErr, txError)
+			return c.dbNotOpenOnClosed(errors.Join(rollbackErr, txError))
 		}
 
-		return fmt.Errorf("error executing chunked insert: %w", txError)
+		return c.dbNotOpenOnClosed(fmt.Errorf("error executing chunked insert: %w", txError))
 	}
 
-	return tx.Commit()
+	return c.dbNotOpenOnClosed(tx.Commit())
 }
 
 func bulkPutConnectorObject[T proto.Message](

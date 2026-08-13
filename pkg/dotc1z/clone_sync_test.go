@@ -179,8 +179,10 @@ func TestCloneSyncMigratedColumnOrder(t *testing.T) {
 }
 
 // TestSnapshotToAfterCloseReturnsErrDbNotOpen verifies that calling SnapshotTo
-// on a closed handle returns ErrDbNotOpen rather than panicking on the now-nil
-// rawDb, matching the guard every other C1File method applies.
+// on a closed handle returns ErrDbNotOpen, matching the guard every other
+// C1File method applies. Close releases the handle via closeRawDB, which
+// flips dbClosed and leaves the pointer set, so the guard must consult
+// rawDBOpen rather than a nil check.
 func TestSnapshotToAfterCloseReturnsErrDbNotOpen(t *testing.T) {
 	ctx := context.Background()
 

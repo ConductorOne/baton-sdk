@@ -233,12 +233,14 @@ func (c *C1File) SnapshotTo(ctx context.Context, outPath string, opts ...C1FOpti
 // connection. cloneCopy reads c.rawDb to take that one connection but never
 // mutates c.rawDb/c.db/c.currentSyncID/c.closed, so the live handle is left
 // exactly as it was found (plus the row-copy stall). Both entry points already
-// reject a closed handle; the nil-rawDb guard below is defensive against a
-// future caller that does not.
+// reject a closed handle; the rawDBOpen guard below repeats the check so a
+// future caller that does not still fails closed instead of taking a
+// connection from a handle mid-teardown (a bare nil check cannot see
+// closeRawDB's release, which flips dbClosed and leaves the pointer set).
 // errPrefix is the caller's error-message namespace ("clone-sync" /
 // "snapshot-to") so each entry point keeps its own observable error strings.
 func (c *C1File) cloneCopy(ctx context.Context, outPath string, syncID string, selectAll bool, errPrefix string, opts ...C1FOption) error {
-	if c.rawDb == nil {
+	if !c.rawDBOpen() {
 		return ErrDbNotOpen
 	}
 
@@ -272,16 +274,17 @@ func (c *C1File) cloneCopy(ctx context.Context, outPath string, syncID string, s
 	// Schema() re-run rebuilds the dropped indexes in one pass.
 	// We close only the rawDb to release the connection and file locks
 	// without triggering C1File.Close()'s cleanupDbDir which would
-	// remove the tmpDir we still need.
+	// remove the tmpDir we still need. closeRawDB rather than a direct
+	// rawDb.Close: it publishes closed-ness instead of leaving a handle
+	// that still reads as open, and it keeps "rawDb/db are never
+	// reassigned on a live C1File" literally true.
 	initFile, err := NewC1File(ctx, dbPath, opts...)
 	if err != nil {
 		return err
 	}
-	if err = initFile.rawDb.Close(); err != nil {
+	if err = initFile.closeRawDB(ctx); err != nil {
 		return err
 	}
-	initFile.rawDb = nil
-	initFile.db = nil
 
 	qCtx, canc := context.WithCancel(ctx)
 	defer canc()
