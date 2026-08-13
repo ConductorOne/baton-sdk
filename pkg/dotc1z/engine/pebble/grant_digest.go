@@ -9,6 +9,8 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/cockroachdb/pebble/v2"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -55,12 +57,101 @@ var grantDigestSpec = digestIndexSpec{
 // ABI bump (a change to either hash's input framing) makes stored
 // manifest roots computed under different versions incomparable by
 // construction, rather than silently comparing unrelated hash schemes.
-// Bump alongside any index-migration version bump that touches these
-// hashes (see index_migrations.go).
+//
+// Enforcement on the stored state itself is the durable ABI stamp
+// (rawdb.GrantDigestABIStampKey), written alongside every global-root
+// write and checked once per Open (verifyGrantDigestABI): digest state
+// whose stamp does not name this constant is dropped (writable open)
+// or reported "never built" (read-only open), so a bump here is
+// sufficient by itself to force every previously-sealed file's digest
+// state to be rebuilt in full at the new ABI on its next writable use.
+// A file with digest nodes but NO stamp was sealed by an SDK that
+// predates the stamp; those builds all hashed at version 1, so absence
+// reads as grantDigestABIVersionUnstamped and is current for as long
+// as this constant stays 1 — introducing the stamp costs no rebuild.
+// No index-migration entry is needed — see the note on digest-ABI
+// handling in index_migrations.go.
 //
 // Exported so consumers of GrantContentHash / GrantDigestAccumulator
 // can check a stored root's abi_version before comparing.
 const GrantDigestABIVersion uint32 = 1
+
+// grantDigestABIVersionUnstamped is the ABI version a file with digest
+// nodes but no stamp key is read as: every SDK build that predates the
+// stamp hashed at version 1. Fixed forever — it describes shipped
+// history, not the current ABI, and must not move when
+// GrantDigestABIVersion does.
+const grantDigestABIVersionUnstamped uint32 = 1
+
+// grantDigestABIStampValue is the ABI stamp's stored value: the
+// current GrantDigestABIVersion, uint32 BE (the index-migration
+// applied-version encoding).
+func grantDigestABIStampValue() []byte {
+	var buf [4]byte
+	binary.BigEndian.PutUint32(buf[:], GrantDigestABIVersion)
+	return buf[:]
+}
+
+// verifyGrantDigestABI is the Open-time half of the ABI stamp contract
+// (rawdb.GrantDigestABIStampKey; the write half is every global-root
+// write site). If the file holds digest nodes (per the just-probed
+// presence flag) whose stamped ABI version (readGrantDigestABIStamp)
+// is not the current GrantDigestABIVersion, that state was computed by
+// different hash code: a writable open restores the always-safe
+// "digests absent" state — the next EndSync's existing digests-absent
+// path (RepairMissingGrantDigests delegating to BuildGrantDigests)
+// then rebuilds everything, hash rows and nodes and manifest root
+// alike, at the current ABI. A read-only open cannot drop; it sets
+// grantDigestAbiStale, which makes the digest root getters report
+// "never built" (present-means-exact consumers recalculate — never a
+// wrong answer, mirroring grantDigestBuildPending).
+//
+// A stale or orphaned stamp over an EMPTY node keyspace is left alone:
+// with no nodes there is nothing to trust, and every build rewrites the
+// stamp on its completion side (the fold's opening DeleteRange erases
+// it first).
+func (e *Engine) verifyGrantDigestABI(ctx context.Context, readOnly bool) error {
+	if !e.db.GrantDigestsPresent() {
+		return nil
+	}
+	stamped, err := e.readGrantDigestABIStamp()
+	if err != nil {
+		return err
+	}
+	if stamped == GrantDigestABIVersion {
+		return nil
+	}
+	if readOnly {
+		e.grantDigestAbiStale.Store(true)
+		return nil
+	}
+	ctxzap.Extract(ctx).Warn("pebble: grant digest state was built under a different hash ABI; dropping it — the next EndSync rebuilds it from scratch",
+		zap.Uint32("stamped_abi", stamped),
+		zap.Uint32("current_abi", GrantDigestABIVersion))
+	return e.dropAllGrantDigestStateLocked()
+}
+
+// readGrantDigestABIStamp returns the ABI version the file's digest
+// state is stamped with. A missing stamp key reads as
+// grantDigestABIVersionUnstamped (the pre-stamp SDKs all hashed at
+// version 1); a malformed value reads as 0, which no real ABI version
+// is, so it can never pass as current. Only meaningful when digest
+// nodes are present — with none, there is no state for the stamp to
+// describe.
+func (e *Engine) readGrantDigestABIStamp() (uint32, error) {
+	val, closer, err := e.db.Get(rawdb.GrantDigestABIStampKey())
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return grantDigestABIVersionUnstamped, nil
+		}
+		return 0, err
+	}
+	defer closer.Close()
+	if len(val) != 4 {
+		return 0, nil
+	}
+	return binary.BigEndian.Uint32(val), nil
+}
 
 // The whole-file grant digest root's node-key level lives in
 // internal/keys (rawdb.DigestLevelGlobalRoot, consumed by
@@ -85,7 +176,8 @@ func digestPartitionForEntitlement(id entitlementIdentity) string {
 // ABI: the two hash definitions below are part of the stored format.
 // Two SDK builds must hash identical grants identically or the digest
 // comparison reads "everything differs"; changing either input framing
-// requires an index-migration bump (index_migrations.go).
+// requires a GrantDigestABIVersion bump (which the durable ABI stamp
+// then enforces at Open — no index migration is involved).
 
 // grantPrincipalBucketHash64 is the bucket address for a principal:
 // xxHash64 over the ENCODED principal segments
@@ -110,7 +202,7 @@ func grantPrincipalBucketHash64(encodedPrincipalSegments []byte) uint64 {
 // ScanEntitlementGrantBucket).
 //
 // ABI: the stored truncation width, pinned to GrantDigestABIVersion. It may
-// only grow, and only under an index-migration bump — which is why it is a
+// only grow, and only under a GrantDigestABIVersion bump — which is why it is a
 // named constant rather than a literal in PrincipalBucketHash's signature:
 // widening the addressable bucket space must not change that signature.
 const DigestBucketHashBits = digestBucketHashLen * 8
@@ -146,7 +238,7 @@ const DigestBucketHashBits = digestBucketHashLen * 8
 //
 // ABI: pinned to GrantDigestABIVersion alongside GrantContentHash. Two
 // SDK builds must place the same principal in the same bucket, so the
-// input framing changes only under an index-migration bump.
+// input framing changes only under a GrantDigestABIVersion bump.
 func PrincipalBucketHash(principalRT, principalID string) uint64 {
 	enc := codec.AppendTupleStrings(make([]byte, 0, 64), principalRT, principalID)
 	return grantPrincipalBucketHash64(enc)
@@ -437,10 +529,12 @@ func (e *Engine) GetEntitlementDigestRoot(ctx context.Context, id entitlementIde
 // invalidation paths that drop any per-entitlement root — see
 // stageGrantDigestInvalidation and the Drop* functions below.
 func (e *Engine) GetGrantDigestGlobalRoot(ctx context.Context) (DigestRoot, bool, error) {
-	if e.grantDigestBuildPending.Load() {
-		// Same guard as getPartitionDigestRoot: a global root committed
+	if e.grantDigestBuildPending.Load() || e.grantDigestAbiStale.Load() {
+		// Same guards as getPartitionDigestRoot: a global root committed
 		// by an interrupted build must read as absent, not certify a
-		// hash index that was never ingested.
+		// hash index that was never ingested — and one computed under a
+		// different hash ABI (read-only open of an old file) must read
+		// as absent rather than compare hashes from another scheme.
 		return DigestRoot{}, false, nil
 	}
 	val, closer, err := e.db.Get(rawdb.GlobalGrantDigestNodeKey())

@@ -133,6 +133,17 @@ type Engine struct {
 	// built" instead of trusting nodes a crashed build half-committed.
 	grantDigestBuildPending atomic.Bool
 
+	// grantDigestAbiStale is the read-only-open counterpart of the ABI
+	// check in verifyGrantDigestABI: true when the file holds digest
+	// nodes whose stamp (rawdb.GrantDigestABIStampKey) does not name
+	// the current GrantDigestABIVersion — state built by different hash
+	// code, e.g. a file sealed by an older SDK. A writable Open drops
+	// such state instead of setting this, so on a writable engine it is
+	// always false; on a read-only engine it makes the digest root
+	// getters report "never built" (the same fail-safe shape as
+	// grantDigestBuildPending above), and consumers recalculate.
+	grantDigestAbiStale atomic.Bool
+
 	// test holds every test-only injection seam, sequestered on one
 	// field so hooks don't accumulate on the production struct. All
 	// zero in production; see testSeams (test_seams.go).
@@ -304,6 +315,18 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 	// holds digest nodes (one bounded seek; rawdb owns the flag its
 	// record ops gate on).
 	if err := e.db.ProbeGrantDigestsPresent(); err != nil {
+		_ = e.Close()
+		return nil, err
+	}
+	// Enforce the digest ABI contract: digest nodes not certified by a
+	// stamp naming the CURRENT GrantDigestABIVersion were computed by
+	// different hash code and must never be trusted or extended — a
+	// writable open drops them wholesale (the next EndSync's existing
+	// digests-absent path rebuilds everything at the current ABI); a
+	// read-only open flags them so the root getters report "never
+	// built". Runs after the probe so it sees post-marker-recovery
+	// presence, and its own drop re-falses the flag.
+	if err := e.verifyGrantDigestABI(ctx, o.readOnly); err != nil {
 		_ = e.Close()
 		return nil, err
 	}
