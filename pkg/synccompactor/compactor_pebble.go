@@ -27,10 +27,11 @@ import (
 )
 
 // WithEngine selects the storage engine for the compacted output.
-// The default (unset) is sqlite, which is byte-identical to the
-// historical compactor. EnginePebble produces a v3 Pebble c1z via a
-// native record merge whose strategy (overlay / fold / kway) is
-// resolved per run by resolvePebbleMode.
+// The default (unset) follows the inputs — any Pebble input makes the
+// output Pebble; all-SQLite inputs keep SQLite output, byte-identical
+// to the historical compactor (see inferEngineFromInputs). EnginePebble
+// produces a v3 Pebble c1z via a native record merge whose strategy
+// (overlay / fold / kway) is resolved per run by resolvePebbleMode.
 //
 // This is the only supported way to choose the engine; an engine
 // passed through WithC1ZOptions does not select the compaction
