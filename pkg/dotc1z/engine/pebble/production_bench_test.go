@@ -13,7 +13,25 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
+
+// measureProductionWritePath takes the write barrier's ownership
+// bookkeeping back out of the measurement for the length of a benchmark.
+// The checks are gated on testing.Testing(), which is true in a benchmark
+// binary, so without this every barrier acquisition formats a runtime
+// stack — about 2µs and an allocation, against roughly 7µs for the grant
+// write these benchmarks exist to measure. Worse than the absolute
+// inflation is that it lands on one side only: the Pebble numbers here are
+// read against SQLite, which has no such check.
+//
+// Tests keep the checks: this restores the prior value when the benchmark
+// returns, and benchmarks run after all tests in a binary.
+func measureProductionWritePath(b *testing.B) {
+	b.Helper()
+	prev := pebble.SetWriteBarrierOwnerChecksForTest(false)
+	b.Cleanup(func() { pebble.SetWriteBarrierOwnerChecksForTest(prev) })
+}
 
 func benchmarkGrants(n int) []*v2.Grant {
 	grants := make([]*v2.Grant, 0, n)
@@ -53,6 +71,7 @@ func prepareRegisteredC1Z(b *testing.B, n int, engine c1zstore.Engine) (string, 
 }
 
 func benchmarkRegisteredWritePack(b *testing.B, engine c1zstore.Engine, n int, storeOpts ...dotc1z.C1ZOption) {
+	measureProductionWritePath(b)
 	ctx := context.Background()
 	root := b.TempDir()
 	grants := benchmarkGrants(n)
@@ -93,6 +112,7 @@ func benchmarkRegisteredWritePack(b *testing.B, engine c1zstore.Engine, n int, s
 }
 
 func benchmarkRegisteredUnpackReadGrants(b *testing.B, engine c1zstore.Engine, n int) {
+	measureProductionWritePath(b)
 	ctx := context.Background()
 	path, syncID := prepareRegisteredC1Z(b, n, engine)
 	b.ReportAllocs()
@@ -132,6 +152,7 @@ func benchmarkRegisteredUnpackReadGrants(b *testing.B, engine c1zstore.Engine, n
 }
 
 func BenchmarkPebbleAdapterWriteGrant(b *testing.B) {
+	measureProductionWritePath(b)
 	ctx := context.Background()
 	a := newAdapter(b)
 	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
@@ -161,6 +182,7 @@ func BenchmarkPebbleAdapterWriteGrant(b *testing.B) {
 }
 
 func benchmarkRegisteredWriteGrant(b *testing.B, engine c1zstore.Engine) {
+	measureProductionWritePath(b)
 	ctx := context.Background()
 	path := fmt.Sprintf("%s/%s-sync.c1z", b.TempDir(), engine)
 	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(engine))
@@ -271,6 +293,7 @@ func BenchmarkRegisteredSQLiteUnpackReadGrants(b *testing.B) {
 }
 
 func BenchmarkExternalC1ZOpenAndList(b *testing.B) {
+	measureProductionWritePath(b)
 	path := os.Getenv("BATONSDK_BENCH_C1Z")
 	if path == "" {
 		b.Skip("set BATONSDK_BENCH_C1Z to a baton-demo-generated sync.c1z to run this benchmark")

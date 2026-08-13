@@ -151,8 +151,8 @@ func (e *Engine) CompactAllRanges(ctx context.Context) error {
 	// own compaction is concurrency-safe with foreground writes,
 	// so we don't go through withWrite (which serializes against
 	// other Puts and DeleteRanges).
-	e.writeWG.Add(1)
-	defer e.writeWG.Done()
+	e.enterWriteWG()
+	defer e.exitWriteWG()
 	if e.closing.Load() {
 		return ErrEngineClosing
 	}
@@ -201,8 +201,8 @@ func (e *Engine) Flush(ctx context.Context) error {
 	// fsync finish — same close-race protection as CompactSyncRanges.
 	// pebble.DB.Flush and pebble.DB.LogData both panic on a closed
 	// DB rather than returning an error.
-	e.writeWG.Add(1)
-	defer e.writeWG.Done()
+	e.enterWriteWG()
+	defer e.exitWriteWG()
 	if e.closing.Load() {
 		return ErrEngineClosing
 	}

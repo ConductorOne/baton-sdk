@@ -105,7 +105,8 @@ type Engine struct {
 	freshResourcesEmpty bool
 
 	// writeWG tracks in-flight writes. Incremented at the start of
-	// every Writer method, decremented in defer.
+	// every Writer method, decremented in defer, always through
+	// enterWriteWG.
 	writeWG sync.WaitGroup
 	// readWG tracks in-flight reads. Reads take no barrier — they run
 	// concurrently with each other and with writes by design — but they
@@ -117,8 +118,17 @@ type Engine struct {
 	// when it is unheld. Recorded only under `go test`; see
 	// lockWriteBarrier for why the bookkeeping is gated.
 	writeBarrierOwner atomic.Uint64
-	closing           atomic.Bool // strict write-barrier flag, read on every Writer call
-	closeMu           sync.Mutex
+	// writeWGParticipants counts, per goroutine id, how many times that
+	// goroutine is currently counted in writeWG. Separate from
+	// writeBarrierOwner because the two answer different questions and
+	// the sets differ: CompactAllRanges and Flush join writeWG without
+	// ever taking writeMu, and it is a writeWG holder — not a barrier
+	// holder — that hangs Close. Recorded only under `go test`, on the
+	// same gate as writeBarrierOwner. Guarded by writeWGParticipantsMu.
+	writeWGParticipants   map[uint64]int
+	writeWGParticipantsMu sync.Mutex
+	closing               atomic.Bool // strict write-barrier flag, read on every Writer call
+	closeMu               sync.Mutex
 
 	// computedStats holds caller-computed stats records stashed via
 	// StashComputedSyncStats, keyed by sync_id. PersistSyncStats pops
@@ -688,15 +698,15 @@ func (e *Engine) withWriteAllowSealed(fn func() error) error {
 	if err := e.checkWritableAllowSealed(); err != nil {
 		return err
 	}
-	e.writeWG.Add(1)
-	defer e.writeWG.Done()
+	e.enterWriteWG()
+	defer e.exitWriteWG()
 	// Re-check after Add because closing could have flipped between
 	// our first check and our Add.
 	if e.closing.Load() {
 		return ErrEngineClosing
 	}
-	release := e.lockWriteBarrier()
-	defer release()
+	e.lockWriteBarrier()
+	defer e.unlockWriteBarrier()
 	return fn()
 }
 

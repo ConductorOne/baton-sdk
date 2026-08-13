@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/segmentio/ksuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -98,12 +99,14 @@ func TestCurrentSyncStepDoesNotDeadlockWithEndSync(t *testing.T) {
 	require.Empty(t, step)
 }
 
-// TestCurrentSyncStepRetriesAcrossRebind covers the consistency the
-// removed lock used to provide. The generation is sampled on both sides
-// of the record read, so a binding that moves in between is caught and
-// the read is retried against the new one — the returned token always
-// belongs to a sync that was actually bound.
-func TestCurrentSyncStepRetriesAcrossRebind(t *testing.T) {
+// TestCurrentSyncStepReadsRebindFromTheRecord covers the durable read:
+// after a rebind the step comes from that sync's record, with no
+// in-memory step cache to go stale, and the generation the retry loop
+// samples actually moves on a transition. It is deliberately sequential,
+// so every call sees an unchanged generation and returns on the first
+// pass — the retry branch is exercised by
+// TestCurrentSyncStepRetriesWhenBindingMovesMidRead below.
+func TestCurrentSyncStepReadsRebindFromTheRecord(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	first, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -125,6 +128,114 @@ func TestCurrentSyncStepRetriesAcrossRebind(t *testing.T) {
 	e.clearCurrentSync()
 	_, cleared := e.currentSyncBinding()
 	require.Greater(t, cleared, gen, "clearing the binding must bump the generation")
+}
+
+// TestCurrentSyncStepRetriesWhenBindingMovesMidRead executes the retry
+// branch. The window it protects is two statements wide — sample the
+// generation, read the record — so a transition has to land inside
+// another goroutine's read to reach it, which no amount of concurrent
+// hammering can be made to guarantee. The seam puts the transition
+// there.
+//
+// The oracle is the answer, not the retry count: a read that returned
+// after the first pass would report the step of the sync that was bound
+// when it started, which is the inconsistency dropping lifecycleMu had to
+// pay for somewhere.
+func TestCurrentSyncStepRetriesWhenBindingMovesMidRead(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	_, other := boundSyncAndSpareID(t, e)
+
+	// Rebind on the first pass only. The hook runs on every iteration, so
+	// a hook that rebinds every time is an infinite retry.
+	passes := 0
+	e.test.currentSyncStepPreReadHook = func() {
+		passes++
+		if passes > 1 {
+			return
+		}
+		require.NoError(t, e.SetCurrentSync(ctx, other))
+	}
+
+	step, err := e.CurrentSyncStep(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 2, passes, "the binding moved inside the read window, so the read must have been retried")
+	require.Empty(t, step,
+		`the retry must answer for the binding in force when it finished; "token-a" is the sync that was bound when it started`)
+}
+
+// boundSyncAndSpareID starts a sync with the step token "token-a" and
+// returns its id plus a second id that is bindable but has no record of
+// its own.
+//
+// The spare has no record because it cannot: a v3 Pebble c1z holds
+// exactly one sync and its record lives at a single fixed key, so a
+// second StartNewSync wipes the first (ResetForNewSync) and a second
+// PutSyncRunRecord overwrites it. SetCurrentSync deliberately allows a
+// binding whose record is absent — GetSyncRunRecord's miss is not an
+// error to it — and CurrentSyncStep answers "" for that state, which is
+// what makes the spare a usable second binding.
+func boundSyncAndSpareID(t *testing.T, e *Engine) (string, string) {
+	t.Helper()
+	ctx := context.Background()
+	bound, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, e.CheckpointSync(ctx, "token-a"))
+
+	step, err := e.CurrentSyncStep(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "token-a", step, "the bound sync must report its own token before anything moves")
+
+	// A KSUID, because that is what the key codec accepts.
+	return bound, ksuid.New().String()
+}
+
+// TestCurrentSyncStepUnderConcurrentTransitions is the -race soak on the
+// lock-free read. The seam test above pins the retry deterministically
+// but says nothing about the unsynchronized field access underneath it,
+// which is what the race detector is for. The oracle is weak on purpose:
+// with transitions landing at arbitrary points, the only invariant left
+// is that every answer belongs to a sync that was bound at some point
+// during the call — the bound sync's own token, or "" for a binding with
+// no record — never a torn or invented one.
+func TestCurrentSyncStepUnderConcurrentTransitions(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+
+	bound, spare := boundSyncAndSpareID(t, e)
+	ids := []string{bound, spare}
+
+	const transitions = 300
+	done := make(chan error, 1)
+	go func() {
+		for i := 0; i < transitions; i++ {
+			if err := e.SetCurrentSync(ctx, ids[i%len(ids)]); err != nil {
+				done <- err
+				return
+			}
+			if i%3 == 0 {
+				e.clearCurrentSync()
+			}
+		}
+		done <- nil
+	}()
+
+	// Read on this goroutine: require's FailNow is only legal here.
+	for {
+		select {
+		case err := <-done:
+			require.NoError(t, err)
+			return
+		default:
+		}
+		step, err := e.CurrentSyncStep(ctx)
+		require.NoError(t, err)
+		if step == "" {
+			continue // cleared, or bound to the spare
+		}
+		require.Equal(t, "token-a", step,
+			"CurrentSyncStep returned a token belonging to no bound sync")
+	}
 }
 
 // requireLifecycleMuHeld waits until some other goroutine owns

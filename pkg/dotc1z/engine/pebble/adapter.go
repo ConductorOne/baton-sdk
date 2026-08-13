@@ -146,6 +146,7 @@ func (e *Engine) ResumeSync(ctx context.Context, syncType connectorstore.SyncTyp
 	if _, err := e.GetSyncRunRecord(ctx, syncID); err != nil {
 		return "", c1zstore.AdaptNotFound(fmt.Errorf("ResumeSync: lookup: %w", err), pebble.ErrNotFound)
 	}
+	e.assertNotTakingLifecycleFromWrite()
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
 	if err := e.bindCurrentSync(syncID); err != nil {
@@ -196,6 +197,7 @@ func (e *Engine) StartOrResumeSync(ctx context.Context, syncType connectorstore.
 // whose step can't be read (SQLite's SetCurrentSync likewise returns
 // its getSync error).
 func (e *Engine) SetCurrentSync(ctx context.Context, syncID string) error {
+	e.assertNotTakingLifecycleFromWrite()
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
 	if _, err := e.GetSyncRunRecord(ctx, syncID); err != nil && !errors.Is(err, pebble.ErrNotFound) {
@@ -233,6 +235,9 @@ func (e *Engine) CurrentSyncStep(ctx context.Context) (string, error) {
 		syncID, gen := e.currentSyncBinding()
 		if syncID == "" {
 			return "", nil
+		}
+		if e.test.currentSyncStepPreReadHook != nil {
+			e.test.currentSyncStepPreReadHook()
 		}
 		rec, err := e.GetSyncRunRecord(ctx, syncID)
 		if err != nil {

@@ -2,6 +2,7 @@ package pebble
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -31,6 +32,38 @@ func (e *Engine) closeInsideWrite() error {
 	return e.withWrite(func() error {
 		return e.Close()
 	})
+}
+
+// setCurrentSyncInsideWrite is the third shape of the same mistake, and
+// the one that gets no help from the barrier: rebinding the current sync
+// from inside a write body takes lifecycleMu while holding writeMu, the
+// reverse of the order EndSync uses. Sequentially it works, which is what
+// makes it dangerous — it needs a concurrent EndSync to deadlock, so it
+// can pass review, pass tests, and hang in production.
+func (e *Engine) setCurrentSyncInsideWrite(ctx context.Context, syncID string) error {
+	return e.withWrite(func() error {
+		return e.SetCurrentSync(ctx, syncID)
+	})
+}
+
+// TestLifecycleTransitionFromInsideWritePanics pins the guard on the two
+// lifecycle transitions that never take the barrier. ResumeSync and
+// SetCurrentSync read a record and rebind, touching currentSyncMu and
+// sealMu but never writeMu, so neither the re-entrancy check nor the
+// writeWG drain sees them: without the explicit assertion this call
+// returns cleanly and leaves the lock-order violation in the tree.
+func TestLifecycleTransitionFromInsideWritePanics(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	require.PanicsWithValue(t, lifecycleFromWriteBarrierPanic, func() {
+		_ = e.setCurrentSyncInsideWrite(ctx, syncID)
+	})
+	// Called normally, from outside a write, the same transition is fine.
+	require.NoError(t, e.SetCurrentSync(ctx, syncID))
+	require.NoError(t, e.CheckpointSync(ctx, "after-panic"))
 }
 
 // TestWriteBarrierPanicsOnReentry pins the check that turns a
@@ -74,10 +107,17 @@ func TestCloseFromInsideWritePanics(t *testing.T) {
 
 // TestWriteBarrierAdmitsSequentialAndConcurrentWrites is the negative
 // control: the check must fire on one goroutine holding the barrier
-// twice, and never on the ordinary cases. Two writers contending for the
+// twice, and never on the ordinary cases. Writers contending for the
 // barrier hand ownership back and forth, which is exactly where a
 // bookkeeping bug (clearing after the unlock, say) would report the next
 // holder as a re-entrant one.
+//
+// The concurrent phase writes grants rather than checkpoints, and that is
+// the difference between contending and looking like it: CheckpointSync
+// holds lifecycleMu across its whole body and only reaches the barrier
+// inside PutSyncRunRecord, so concurrent checkpoints queue on the
+// lifecycle mutex and reach writeMu one at a time. PutGrants takes the
+// barrier with no lifecycle lock above it.
 func TestWriteBarrierAdmitsSequentialAndConcurrentWrites(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
@@ -91,9 +131,37 @@ func TestWriteBarrierAdmitsSequentialAndConcurrentWrites(t *testing.T) {
 	const writers = 8
 	errs := make(chan error, writers)
 	for i := 0; i < writers; i++ {
-		go func() { errs <- e.CheckpointSync(ctx, "concurrent") }()
+		go func(i int) {
+			errs <- e.PutGrants(ctx, mkV2Grant(
+				fmt.Sprintf("grant-%d", i),
+				fmt.Sprintf("entitlement-%d", i),
+				"user",
+				fmt.Sprintf("principal-%d", i),
+			))
+		}(i)
 	}
 	for i := 0; i < writers; i++ {
 		require.NoError(t, <-errs)
 	}
+}
+
+// TestCloseFromBarrierFreeWriteWGHolderPanics covers the writeWG holders
+// that never take the barrier. CompactAllRanges and Flush join the group
+// for the length of a compaction or flush deliberately without writeMu,
+// and cleanup.go documents that a Close during either one hangs on the
+// drain — so a check keyed on barrier ownership would see nothing wrong
+// with the very hang it is there to report. Neither has an injection
+// point mid-operation, so this joins the group the same way they do.
+func TestCloseFromBarrierFreeWriteWGHolderPanics(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	e.enterWriteWG()
+	defer e.exitWriteWG()
+	require.Zero(t, e.writeBarrierOwner.Load(), "a writeWG holder that skipped the barrier must not own it")
+	require.PanicsWithValue(t, writeBarrierWaitFromWritePanic, func() {
+		_ = e.Close()
+	})
 }
