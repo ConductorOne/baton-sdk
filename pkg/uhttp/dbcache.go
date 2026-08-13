@@ -190,12 +190,12 @@ func (d *DBCache) removeDB(ctx context.Context) error {
 }
 
 // Get returns cached response (if exists).
-func (d *DBCache) Get(req *http.Request, extraCacheKeyHeaders ...string) (*http.Response, error) {
+func (d *DBCache) Get(req *http.Request, extraCacheKeyHeaders map[string]string) (*http.Response, error) {
 	var (
 		isFound = false
 		resp    *http.Response
 	)
-	key, err := CreateCacheKey(req, extraCacheKeyHeaders...)
+	key, err := CreateCacheKey(req, extraCacheKeyHeaders)
 	if err != nil {
 		return nil, err
 	}
@@ -250,8 +250,8 @@ func (d *DBCache) pick(ctx context.Context, key string) ([]byte, error) {
 }
 
 // Set stores and save response in the db.
-func (d *DBCache) Set(req *http.Request, value *http.Response, extraCacheKeyHeaders ...string) error {
-	key, err := CreateCacheKey(req, extraCacheKeyHeaders...)
+func (d *DBCache) Set(req *http.Request, value *http.Response, extraCacheKeyHeaders map[string]string) error {
+	key, err := CreateCacheKey(req, extraCacheKeyHeaders)
 	if err != nil {
 		return err
 	}

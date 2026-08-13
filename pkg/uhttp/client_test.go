@@ -19,7 +19,7 @@ func newCacheKeyRequest(t *testing.T, headerKey, headerValue string) *http.Reque
 }
 
 func TestCreateCacheKey_NilRequest(t *testing.T) {
-	_, err := CreateCacheKey(nil)
+	_, err := CreateCacheKey(nil, nil)
 	require.Error(t, err)
 }
 
@@ -27,15 +27,15 @@ func TestCreateCacheKey_IdenticalRequestsMatch(t *testing.T) {
 	req1 := newCacheKeyRequest(t, "Accept", "application/json")
 	req2 := newCacheKeyRequest(t, "Accept", "application/json")
 
-	key1, err := CreateCacheKey(req1)
+	key1, err := CreateCacheKey(req1, nil)
 	require.NoError(t, err)
-	key2, err := CreateCacheKey(req2)
+	key2, err := CreateCacheKey(req2, nil)
 	require.NoError(t, err)
 	require.Equal(t, key1, key2)
 }
 
 // TestCreateCacheKey_HeadersOutsideDefaultSetAreIgnoredByDefault documents
-// current, intentional behavior: only defaultCacheKeyHeaders affect the key
+// current, intentional behavior: only the default set affects the key
 // unless a caller opts in via extraCacheKeyHeaders. Folding in every header
 // unconditionally would key the cache on values that have nothing to do
 // with the response (transport-injected headers, tracing IDs, etc.) and
@@ -47,9 +47,9 @@ func TestCreateCacheKey_HeadersOutsideDefaultSetAreIgnoredByDefault(t *testing.T
 			reqA := newCacheKeyRequest(t, header, "value-a")
 			reqB := newCacheKeyRequest(t, header, "value-b")
 
-			keyA, err := CreateCacheKey(reqA)
+			keyA, err := CreateCacheKey(reqA, nil)
 			require.NoError(t, err)
-			keyB, err := CreateCacheKey(reqB)
+			keyB, err := CreateCacheKey(reqB, nil)
 			require.NoError(t, err)
 			require.Equal(t, keyA, keyB, "%s is not in the default set and must not affect the key", header)
 		})
@@ -63,9 +63,9 @@ func TestCreateCacheKey_DefaultHeadersStillChangeKey(t *testing.T) {
 			reqA := newCacheKeyRequest(t, header, "value-a")
 			reqB := newCacheKeyRequest(t, header, "value-b")
 
-			keyA, err := CreateCacheKey(reqA)
+			keyA, err := CreateCacheKey(reqA, nil)
 			require.NoError(t, err)
-			keyB, err := CreateCacheKey(reqB)
+			keyB, err := CreateCacheKey(reqB, nil)
 			require.NoError(t, err)
 			require.NotEqual(t, keyA, keyB)
 		})
@@ -75,59 +75,43 @@ func TestCreateCacheKey_DefaultHeadersStillChangeKey(t *testing.T) {
 // TestCreateCacheKey_ExtraCacheKeyHeadersOptsInAdditionalHeaders is the
 // regression test for CE-1056: a caller that knows a header varies the
 // response (e.g. Authorization scoping the result set) can now opt that
-// header into the key instead of the two requests silently colliding.
+// header into the key instead of two requests silently colliding. The value
+// folded into the key comes directly from extraCacheKeyHeaders, not from
+// req.Header.
 func TestCreateCacheKey_ExtraCacheKeyHeadersOptsInAdditionalHeaders(t *testing.T) {
-	reqA := newCacheKeyRequest(t, "Authorization", "value-a")
-	reqB := newCacheKeyRequest(t, "Authorization", "value-b")
+	req := newCacheKeyRequest(t, "", "")
 
-	keyA, err := CreateCacheKey(reqA, "Authorization")
+	keyA, err := CreateCacheKey(req, map[string]string{"Authorization": "value-a"})
 	require.NoError(t, err)
-	keyB, err := CreateCacheKey(reqB, "Authorization")
+	keyB, err := CreateCacheKey(req, map[string]string{"Authorization": "value-b"})
 	require.NoError(t, err)
 	require.NotEqual(t, keyA, keyB)
 }
 
 // TestCreateCacheKey_ExtraCacheKeyHeadersOnlyAffectsNamedHeaders confirms
-// opting a header in doesn't widen the key to every header -- a header not
-// passed in extraCacheKeyHeaders still falls back to the default-set rule.
+// opting a header in doesn't widen the key to every header on the request --
+// a header present on req.Header but absent from extraCacheKeyHeaders still
+// falls back to the default-set rule.
 func TestCreateCacheKey_ExtraCacheKeyHeadersOnlyAffectsNamedHeaders(t *testing.T) {
 	reqA := newCacheKeyRequest(t, "X-Tenant-Id", "tenant-a")
-	reqA.Header.Set("Authorization", "same-token")
-
 	reqB := newCacheKeyRequest(t, "X-Tenant-Id", "tenant-b")
-	reqB.Header.Set("Authorization", "same-token")
 
-	keyA, err := CreateCacheKey(reqA, "Authorization")
+	extra := map[string]string{"Authorization": "same-token"}
+	keyA, err := CreateCacheKey(reqA, extra)
 	require.NoError(t, err)
-	keyB, err := CreateCacheKey(reqB, "Authorization")
+	keyB, err := CreateCacheKey(reqB, extra)
 	require.NoError(t, err)
 	require.Equal(t, keyA, keyB, "X-Tenant-Id was never opted in, so it must not affect the key")
 }
 
-// TestCreateCacheKey_ExtraCacheKeyHeadersCanonicalizesNames confirms header
-// names passed to extraCacheKeyHeaders match regardless of casing, since
-// req.Header stores them canonicalized.
+// TestCreateCacheKey_ExtraCacheKeyHeadersCanonicalizesNames confirms map keys
+// passed via extraCacheKeyHeaders are treated the same regardless of casing.
 func TestCreateCacheKey_ExtraCacheKeyHeadersCanonicalizesNames(t *testing.T) {
-	reqA := newCacheKeyRequest(t, "Authorization", "value-a")
-	reqB := newCacheKeyRequest(t, "Authorization", "value-b")
+	req := newCacheKeyRequest(t, "", "")
 
-	keyA, err := CreateCacheKey(reqA, "authorization")
+	keyA, err := CreateCacheKey(req, map[string]string{"authorization": "value-a"})
 	require.NoError(t, err)
-	keyB, err := CreateCacheKey(reqB, "authorization")
+	keyB, err := CreateCacheKey(req, map[string]string{"Authorization": "value-a"})
 	require.NoError(t, err)
-	require.NotEqual(t, keyA, keyB)
-}
-
-// TestCreateCacheKey_DoesNotMutateCallersExtraCacheKeyHeadersSlice guards
-// against canonicalizing extraCacheKeyHeaders in place: a variadic spread
-// (headers...) shares the caller's backing array rather than copying it, so
-// writing into extraCacheKeyHeaders[i] would silently rewrite a slice the
-// caller still holds a reference to (e.g. one reused across many calls).
-func TestCreateCacheKey_DoesNotMutateCallersExtraCacheKeyHeadersSlice(t *testing.T) {
-	headers := []string{"x-tenant-id"}
-	req := newCacheKeyRequest(t, "X-Tenant-Id", "tenant-a")
-
-	_, err := CreateCacheKey(req, headers...)
-	require.NoError(t, err)
-	require.Equal(t, []string{"x-tenant-id"}, headers, "CreateCacheKey must not rewrite the caller's slice contents")
+	require.Equal(t, keyA, keyB)
 }

@@ -104,14 +104,16 @@ func NewClient(ctx context.Context, options ...Option) (*http.Client, error) {
 }
 
 type icache interface {
-	Get(req *http.Request, extraCacheKeyHeaders ...string) (*http.Response, error)
-	Set(req *http.Request, value *http.Response, extraCacheKeyHeaders ...string) error
+	Get(req *http.Request, extraCacheKeyHeaders map[string]string) (*http.Response, error)
+	Set(req *http.Request, value *http.Response, extraCacheKeyHeaders map[string]string) error
 	Clear(ctx context.Context) error
 	Stats(ctx context.Context) CacheStats
 }
 
 // CreateCacheKey generates a cache key based on the request URL, query parameters, and headers.
-func CreateCacheKey(req *http.Request, extraCacheKeyHeaders ...string) (string, error) {
+// extraCacheKeyHeaders maps a header name to the value to fold into the key for it, on top of
+// the default set (Accept, Content-Type, Cookie, Range) read directly from req.Header.
+func CreateCacheKey(req *http.Request, extraCacheKeyHeaders map[string]string) (string, error) {
 	if req == nil {
 		return "", fmt.Errorf("request is nil")
 	}
@@ -138,11 +140,9 @@ func CreateCacheKey(req *http.Request, extraCacheKeyHeaders ...string) (string, 
 			}
 		}
 	}
-	for _, h := range extraCacheKeyHeaders {
+	for h, value := range extraCacheKeyHeaders {
 		key := http.CanonicalHeaderKey(h)
-		for _, value := range req.Header[key] {
-			headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
-		}
+		headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
 	}
 
 	sort.Strings(headerParts)

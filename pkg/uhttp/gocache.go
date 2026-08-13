@@ -58,13 +58,13 @@ func NewNoopCache(ctx context.Context) *NoopCache {
 	return &NoopCache{}
 }
 
-func (g *NoopCache) Get(req *http.Request, extraCacheKeyHeaders ...string) (*http.Response, error) {
+func (g *NoopCache) Get(req *http.Request, extraCacheKeyHeaders map[string]string) (*http.Response, error) {
 	// This isn't threadsafe but who cares? It's the noop cache.
 	g.counter++
 	return nil, nil
 }
 
-func (n *NoopCache) Set(req *http.Request, value *http.Response, extraCacheKeyHeaders ...string) error {
+func (n *NoopCache) Set(req *http.Request, value *http.Response, extraCacheKeyHeaders map[string]string) error {
 	return nil
 }
 
@@ -219,12 +219,12 @@ func (g *GoCache) Stats(ctx context.Context) CacheStats {
 	}
 }
 
-func (g *GoCache) Get(req *http.Request, extraCacheKeyHeaders ...string) (*http.Response, error) {
+func (g *GoCache) Get(req *http.Request, extraCacheKeyHeaders map[string]string) (*http.Response, error) {
 	if g.rootLibrary == nil {
 		return nil, nil
 	}
 
-	key, err := CreateCacheKey(req, extraCacheKeyHeaders...)
+	key, err := CreateCacheKey(req, extraCacheKeyHeaders)
 	if err != nil {
 		return nil, err
 	}
@@ -247,12 +247,12 @@ func (g *GoCache) Get(req *http.Request, extraCacheKeyHeaders ...string) (*http.
 	return resp, nil
 }
 
-func (g *GoCache) Set(req *http.Request, value *http.Response, extraCacheKeyHeaders ...string) error {
+func (g *GoCache) Set(req *http.Request, value *http.Response, extraCacheKeyHeaders map[string]string) error {
 	if g.rootLibrary == nil {
 		return nil
 	}
 
-	key, err := CreateCacheKey(req, extraCacheKeyHeaders...)
+	key, err := CreateCacheKey(req, extraCacheKeyHeaders)
 	if err != nil {
 		return err
 	}

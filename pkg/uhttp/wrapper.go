@@ -439,11 +439,11 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	return c.do(req, nil, options...)
 }
 
-func (c *BaseHttpClient) DoWithCacheKeyHeaders(req *http.Request, cacheKeyHeaders []string, options ...DoOption) (*http.Response, error) {
+func (c *BaseHttpClient) DoWithCacheKeyHeaders(req *http.Request, cacheKeyHeaders map[string]string, options ...DoOption) (*http.Response, error) {
 	return c.do(req, cacheKeyHeaders, options...)
 }
 
-func (c *BaseHttpClient) do(req *http.Request, cacheKeyHeaders []string, options ...DoOption) (*http.Response, error) {
+func (c *BaseHttpClient) do(req *http.Request, cacheKeyHeaders map[string]string, options ...DoOption) (*http.Response, error) {
 	var (
 		err  error
 		resp *http.Response
@@ -456,7 +456,7 @@ func (c *BaseHttpClient) do(req *http.Request, cacheKeyHeaders []string, options
 	}
 
 	if req.Method == http.MethodGet && req.Header.Get("Cache-Control") != "no-cache" {
-		resp, err = c.baseHttpCache.Get(req, cacheKeyHeaders...)
+		resp, err = c.baseHttpCache.Get(req, cacheKeyHeaders)
 		if err != nil {
 			return nil, err
 		}
@@ -468,7 +468,7 @@ func (c *BaseHttpClient) do(req *http.Request, cacheKeyHeaders []string, options
 	}
 
 	if resp == nil {
-		resp, err = c.HttpClient.Do(req.Clone(req.Context())) // #nosec G704 -- this HTTP wrapper intentionally supports arbitrary connector-defined endpoints.
+		resp, err = c.HttpClient.Do(req) // #nosec G704 -- this HTTP wrapper intentionally supports arbitrary connector-defined endpoints.
 		if err != nil {
 			l.Error("base-http-client: HTTP error response", zap.Error(err))
 			return resp, wrapTransientNetworkError(err)
@@ -528,7 +528,7 @@ func (c *BaseHttpClient) do(req *http.Request, cacheKeyHeaders []string, options
 	}
 
 	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
-		cacheErr := c.baseHttpCache.Set(req, resp, cacheKeyHeaders...)
+		cacheErr := c.baseHttpCache.Set(req, resp, cacheKeyHeaders)
 		if cacheErr != nil {
 			l.Warn("error setting cache", zap.String("url", req.URL.String()), zap.Error(cacheErr))
 		}
