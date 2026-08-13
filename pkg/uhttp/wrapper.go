@@ -83,6 +83,27 @@ func WithMetricsHandler(handler metrics.Handler) WrapperOption {
 	return metricsHandlerOption{handler: handler}
 }
 
+type cacheKeyHeadersWrapperOption struct {
+	headers []string
+}
+
+func (o cacheKeyHeadersWrapperOption) Apply(c *BaseHttpClient) {
+	c.cacheOptions = append(c.cacheOptions, cacheKeyHeadersOption(o.headers))
+}
+
+// WithCacheKeyHeaders returns a WrapperOption that additionally folds the
+// named headers into the HTTP response cache key for every request this
+// client makes, on top of the default set (Accept, Content-Type, Cookie,
+// Range). Use this when requests through this client vary by a header the
+// cache wouldn't otherwise key on -- e.g. a per-call Authorization token or
+// a tenant/version header -- so requests that only differ in that header
+// don't collide in the cache. The value folded in is always read from
+// req.Header at request time, so the key can never describe a value other
+// than the one actually sent.
+func WithCacheKeyHeaders(headers ...string) WrapperOption {
+	return cacheKeyHeadersWrapperOption{headers: headers}
+}
+
 type WrapperOption interface {
 	Apply(*BaseHttpClient)
 }
@@ -120,6 +141,7 @@ type (
 		rateLimiter    uRateLimit.Limiter
 		baseHttpCache  icache
 		metricsHandler metrics.Handler
+		cacheOptions   []CacheOption
 	}
 
 	DoOption      func(resp *WrapperResponse) error
@@ -448,7 +470,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	if req.Method == http.MethodGet && req.Header.Get("Cache-Control") != "no-cache" {
-		resp, err = c.baseHttpCache.Get(req)
+		resp, err = c.baseHttpCache.Get(req, c.cacheOptions...)
 		if err != nil {
 			return nil, err
 		}
@@ -460,7 +482,16 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	if resp == nil {
-		resp, err = c.HttpClient.Do(req) // #nosec G704 -- this HTTP wrapper intentionally supports arbitrary connector-defined endpoints.
+		// Round trip on a clone, not req itself. http.Client.Do forks the
+		// Request struct internally (any non-zero Timeout, which uhttp.NewClient
+		// always sets, triggers this) but that fork is shallow -- the Header map
+		// is still the same one req points to. Transport-level RoundTrippers
+		// (e.g. userAgentTripper) mutate that shared map, so without cloning
+		// here, req.Header could gain or change a header opted into the cache
+		// key (via WithCacheKeyHeaders) between the Get above and the Set
+		// below, and CreateCacheKey(req) would hash a different value for
+		// each -- a store that no future lookup can ever match.
+		resp, err = c.HttpClient.Do(req.Clone(req.Context())) // #nosec G704 -- this HTTP wrapper intentionally supports arbitrary connector-defined endpoints.
 		if err != nil {
 			l.Error("base-http-client: HTTP error response", zap.Error(err))
 			return resp, wrapTransientNetworkError(err)
@@ -520,7 +551,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
-		cacheErr := c.baseHttpCache.Set(req, resp)
+		cacheErr := c.baseHttpCache.Set(req, resp, c.cacheOptions...)
 		if cacheErr != nil {
 			l.Warn("error setting cache", zap.String("url", req.URL.String()), zap.Error(cacheErr))
 		}
