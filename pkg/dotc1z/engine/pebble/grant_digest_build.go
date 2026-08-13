@@ -49,7 +49,7 @@ import (
 type grantHashRowScratch struct {
 	keyBuf   []byte
 	tupleBuf []byte
-	srcKeys  [][]byte
+	srcKeys  []grantSourceFact
 }
 
 // appendGrantHashIndexRow derives one hash-index row from a raw
@@ -59,10 +59,11 @@ type grantHashRowScratch struct {
 //     (appendGrantHashIndexKeyFromPrimary — no decode);
 //   - the bucket hash is xxHash64 of the primary key's principal
 //     region (grantPrincipalBucketHash64 — a raw sub-slice);
-//   - the content hash covers the primary-key tail plus the grant's
-//     sorted source-entitlement ids, pulled from the value with a raw
-//     protobuf field scan (scanGrantSourceKeysRawBytes — no proto
-//     unmarshal anywhere on this path).
+//   - the content hash covers the primary-key tail, the grant's
+//     immutability, and its sorted (source-entitlement id, is_direct)
+//     pairs, pulled from the value with a raw protobuf field scan
+//     (scanGrantContentFactsRawBytes — no proto unmarshal anywhere on
+//     this path).
 //
 // key/value are only borrowed (the sorter copies before returning).
 func appendGrantHashIndexRow(sorter *spillSorter, primaryKey, value []byte, s *grantHashRowScratch) error {
@@ -72,15 +73,15 @@ func appendGrantHashIndexRow(sorter *spillSorter, primaryKey, value []byte, s *g
 		// splice; reaching here means the two splitters disagree.
 		return fmt.Errorf("grant hash index: primary key %x did not split as a 6-segment identity", primaryKey)
 	}
-	srcs, err := scanGrantSourceKeysRawBytes(value, s.srcKeys[:0])
+	isImmutable, srcs, err := scanGrantContentFactsRawBytes(value, s.srcKeys[:0])
 	if err != nil {
-		return fmt.Errorf("grant hash index: scan sources: %w", err)
+		return fmt.Errorf("grant hash index: scan content facts: %w", err)
 	}
 	s.srcKeys = srcs
 	if len(srcs) > 1 {
-		sortByteSlices(srcs)
+		sortGrantSourceFacts(srcs)
 	}
-	ch64, tuple := grantContentHash64(s.tupleBuf, primaryKey[grantPrimaryKeyPrefixLen:], srcs)
+	ch64, tuple := grantContentHash64(s.tupleBuf, primaryKey[grantPrimaryKeyPrefixLen:], isImmutable, srcs)
 	s.tupleBuf = tuple
 	bh64 := grantPrincipalBucketHash64(primaryKey[sep4+1:])
 	s.keyBuf = appendGrantHashIndexKeyFromPrimary(s.keyBuf[:0], primaryKey, sep4, bh64)
