@@ -583,6 +583,16 @@ func (e *Engine) recomputeGrantDigestGlobalRootLocked(ctx context.Context) error
 	if e.IsFreshSync() {
 		opts = pebble.NoSync
 	}
+	// Re-stamp the ABI with the root. Redundant when the stamp survived
+	// (only full-range deletes remove it, and those remove the roots
+	// this recompute folds too), but writing both here keeps the
+	// invariant locally checkable: every global-root write site
+	// certifies the ABI that produced the state under it. Stamp first —
+	// WAL prefix ordering then guarantees a durable root is never
+	// uncertified.
+	if err := e.db.DigestSet(rawdb.GrantDigestABIStampKey(), grantDigestABIStampValue(), opts); err != nil {
+		return err
+	}
 	if err := e.db.DigestSet(rawdb.GlobalGrantDigestNodeKey(), packDigestLeaf(total, xor[:]), opts); err != nil {
 		return err
 	}

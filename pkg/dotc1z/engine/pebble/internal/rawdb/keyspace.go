@@ -70,6 +70,14 @@ const GrantPrimaryKeyPrefixLen = 3
 // per-partition node regardless of partition bytes.
 const DigestLevelGlobalRoot byte = 2
 
+// DigestMetaIndexID is the reserved index-discriminator for
+// engine-owned metadata keys inside the digest keyspace (today only
+// GrantDigestABIStampKey). 0xFF sorts after every real digested
+// index, so [v3|TypeDigest, v3|TypeDigest|DigestMetaIndexID) bounds
+// exactly the digest NODES (see DigestNodeKeyspaceBounds). No
+// digestIndexSpec may ever claim this byte.
+const DigestMetaIndexID byte = 0xFF
+
 // === grant primary-key splices ===
 
 // SplitGrantPrimaryKey locates the partition/principal boundary of a
@@ -332,9 +340,31 @@ func DeferredIdxPendingKey() []byte {
 	return codec.AppendTupleStrings(buf, "deferred_grant_idx_pending")
 }
 
-// DigestKeyspaceBounds bounds the entire digest keyspace (all digested
-// indexes) — the presence-probe range for the digests-present flag.
-func DigestKeyspaceBounds() ([]byte, []byte) {
-	lo := []byte{VersionV3, TypeDigest}
-	return lo, UpperBound(lo)
+// GrantDigestABIStampKey is the durable record of which grant-digest
+// hash ABI (the engine's GrantDigestABIVersion) this file's digest
+// state — hash-index values and digest nodes — was computed under.
+// Value: uint32 BE. Written only alongside the whole-file global root
+// (the same present-means-exact certificate), read only at Open.
+//
+// It lives INSIDE the digest keyspace deliberately: every wholesale
+// destroyer of digest state — the drop paths' full-range deletes,
+// ResetForNewSync's excision, the fold build's opening DeleteRange —
+// erases it without knowing it exists, INCLUDING the copies of those
+// paths in already-shipped SDKs that predate the stamp. Absence with
+// digest nodes present therefore always means "built by code stamping
+// a different ABI (or none)" → the state must be dropped and rebuilt.
+// Under DigestMetaIndexID so no node scan or presence probe visits it.
+func GrantDigestABIStampKey() []byte {
+	buf := make([]byte, 0, 3+len("grant_digest_abi")+2)
+	buf = append(buf, VersionV3, TypeDigest, DigestMetaIndexID)
+	return codec.AppendTupleStrings(buf, "grant_digest_abi")
+}
+
+// DigestNodeKeyspaceBounds bounds the digest NODE keyspace: all
+// digested indexes, excluding the DigestMetaIndexID metadata sub-range
+// — the presence-probe range for the digests-present flag. The ABI
+// stamp must not arm that flag: presence gates mutation-path
+// invalidation and repair delegation, which are about nodes.
+func DigestNodeKeyspaceBounds() ([]byte, []byte) {
+	return []byte{VersionV3, TypeDigest}, []byte{VersionV3, TypeDigest, DigestMetaIndexID}
 }
