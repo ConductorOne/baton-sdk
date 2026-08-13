@@ -746,7 +746,7 @@ func (h *headerInjectingRoundTripper) RoundTrip(req *http.Request) (*http.Respon
 
 // TestWrapper_Do_CachesDespiteRoundTripHeaderInjection guards against a
 // regression where a header a connector opts into the cache key via
-// DoWithCacheKeyHeaders gets mutated by a RoundTripper further down the
+// WithCacheKeyHeaders gets mutated by a RoundTripper further down the
 // transport chain (transport.go's userAgentTripper does exactly this for
 // User-Agent, which is why this used to bite by default before the cache
 // key was scoped down to an explicit allowlist).
@@ -788,7 +788,7 @@ func TestWrapper_Do_CachesDespiteRoundTripHeaderInjection(t *testing.T) {
 		require.NoError(t, err)
 		require.Empty(t, req.Header.Get("X-Injected-By-Transport"), "test setup: header must start unset for this to reproduce the bug")
 
-		resp, err := client.DoWithCacheKeyHeaders(req, []string{"X-Injected-By-Transport"})
+		resp, err := client.Do(req, WithCacheKeyHeaders("X-Injected-By-Transport"))
 		require.NoError(t, err)
 		resp.Body.Close()
 	}

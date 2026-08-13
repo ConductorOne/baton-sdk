@@ -112,7 +112,7 @@ func ClearCaches(ctx context.Context) error {
 type (
 	HttpClient interface {
 		HttpClient() *http.Client
-		Do(req *http.Request, options ...DoOption) (*http.Response, error)
+		Do(req *http.Request, options ...CallOption) (*http.Response, error)
 		NewRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error)
 	}
 	BaseHttpClient struct {
@@ -125,6 +125,29 @@ type (
 	DoOption      func(resp *WrapperResponse) error
 	RequestOption func() (io.ReadWriter, map[string]string, error)
 )
+
+type doConfig struct {
+	respOptions     []DoOption
+	cacheKeyHeaders []string
+}
+
+type CallOption interface {
+	applyDo(*doConfig)
+}
+
+func (o DoOption) applyDo(c *doConfig) {
+	c.respOptions = append(c.respOptions, o)
+}
+
+type cacheKeyHeadersOption []string
+
+func (o cacheKeyHeadersOption) applyDo(c *doConfig) {
+	c.cacheKeyHeaders = append(c.cacheKeyHeaders, o...)
+}
+
+func WithCacheKeyHeaders(headers ...string) CallOption {
+	return cacheKeyHeadersOption(headers)
+}
 
 func NewBaseHttpClient(httpClient *http.Client, opts ...WrapperOption) *BaseHttpClient {
 	ctx := context.TODO()
@@ -435,12 +458,12 @@ func (c *BaseHttpClient) recordCacheMiss(ctx context.Context) {
 	counter.Add(ctx, 1, nil)
 }
 
-func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Response, error) {
-	return c.do(req, nil, options...)
-}
-
-func (c *BaseHttpClient) DoWithCacheKeyHeaders(req *http.Request, cacheKeyHeaders []string, options ...DoOption) (*http.Response, error) {
-	return c.do(req, cacheKeyHeaders, options...)
+func (c *BaseHttpClient) Do(req *http.Request, options ...CallOption) (*http.Response, error) {
+	var cfg doConfig
+	for _, o := range options {
+		o.applyDo(&cfg)
+	}
+	return c.do(req, cfg.cacheKeyHeaders, cfg.respOptions...)
 }
 
 func (c *BaseHttpClient) do(req *http.Request, cacheKeyHeaders []string, options ...DoOption) (*http.Response, error) {
