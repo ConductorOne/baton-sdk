@@ -166,6 +166,17 @@ func newTransientRetryTestTransport(rt http.RoundTripper) *Transport {
 	return tp
 }
 
+func newReplaySafeRetryTestTransport(rt http.RoundTripper) *Transport {
+	tp := newRetryTestTransport(rt)
+	s := resolveTransientRetry(TransientRetryConfig{
+		InitialDelay: time.Millisecond,
+		MaxDelay:     time.Millisecond,
+		ReplaySafe:   true,
+	})
+	tp.transientRetry = &s
+	return tp
+}
+
 func timeoutURLError() error {
 	return &url.Error{
 		Op:  "Post",
@@ -501,9 +512,9 @@ func TestTransportTransientRetriesPOST5xx(t *testing.T) {
 	require.Equal(t, []string{"payload", "payload"}, seq.bodies)
 }
 
-func TestTransportTransientRetriesTimeoutOnce(t *testing.T) {
+func TestTransportTransientReplaySafeRetriesTimeoutOnce(t *testing.T) {
 	seq := &sequencedRoundTripper{errs: []error{timeoutURLError()}}
-	tp := newTransientRetryTestTransport(seq)
+	tp := newReplaySafeRetryTestTransport(seq)
 
 	resp, err := tp.RoundTrip(postWithBody(t, "payload"))
 	require.NoError(t, err)
@@ -514,7 +525,7 @@ func TestTransportTransientRetriesTimeoutOnce(t *testing.T) {
 
 func TestTransportTransientDoesNotRetrySecondTimeout(t *testing.T) {
 	seq := &sequencedRoundTripper{errs: []error{timeoutURLError(), timeoutURLError(), timeoutURLError()}}
-	tp := newTransientRetryTestTransport(seq)
+	tp := newReplaySafeRetryTestTransport(seq)
 
 	resp, err := tp.RoundTrip(postWithBody(t, "payload"))
 	if resp != nil {
@@ -563,9 +574,9 @@ func TestTransportTransientDoesNotRetry429(t *testing.T) {
 	require.Equal(t, 1, seq.callCount())
 }
 
-func TestTransportTransientRetriesStaleConnForPOST(t *testing.T) {
+func TestTransportTransientReplaySafeRetriesStaleConnForPOST(t *testing.T) {
 	seq := &sequencedRoundTripper{errs: []error{connResetError()}}
-	tp := newTransientRetryTestTransport(seq)
+	tp := newReplaySafeRetryTestTransport(seq)
 
 	resp, err := tp.RoundTrip(postWithBody(t, "payload"))
 	require.NoError(t, err)
@@ -613,6 +624,7 @@ func TestResolveTransientRetryZeroMeansDefault(t *testing.T) {
 	require.Equal(t, defaultTransientRetryAttempts, s.maxAttempts)
 	require.Equal(t, defaultTransientRetryInitial, s.initialDelay)
 	require.Equal(t, defaultTransientRetryMaxDelay, s.maxDelay)
+	require.False(t, s.replaySafe, "replay must be an explicit opt-in")
 }
 
 func TestParseRetryAfter(t *testing.T) {
@@ -647,6 +659,7 @@ func TestTransportTransientMaxAttemptsOneKeepsStaleConnRetry(t *testing.T) {
 		MaxAttempts:  1,
 		InitialDelay: time.Millisecond,
 		MaxDelay:     time.Millisecond,
+		ReplaySafe:   true,
 	})
 	tp.transientRetry = &s
 
@@ -657,10 +670,33 @@ func TestTransportTransientMaxAttemptsOneKeepsStaleConnRetry(t *testing.T) {
 	require.Equal(t, 2, seq.callCount())
 }
 
-func TestTransportTransientSkipNetworkRetriesStillRetries5xx(t *testing.T) {
-	seq := &sequencedRoundTripper{statusCodes: []int{http.StatusInternalServerError, http.StatusOK}}
+func TestTransportTransientDefaultDoesNotRetryTimeout(t *testing.T) {
+	seq := &sequencedRoundTripper{errs: []error{timeoutURLError()}}
 	tp := newTransientRetryTestTransport(seq)
-	tp.transientRetry.skipNetworkRetries = true
+
+	resp, err := tp.RoundTrip(postWithBody(t, "payload"))
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	require.Error(t, err)
+	require.Equal(t, 1, seq.callCount())
+}
+
+func TestTransportTransientDefaultDoesNotRetryStaleConn(t *testing.T) {
+	seq := &sequencedRoundTripper{errs: []error{connResetError()}}
+	tp := newTransientRetryTestTransport(seq)
+
+	resp, err := tp.RoundTrip(postWithBody(t, "payload"))
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	require.Error(t, err)
+	require.Equal(t, 1, seq.callCount())
+}
+
+func TestTransportTransientDefaultStillRetriesDial(t *testing.T) {
+	seq := &sequencedRoundTripper{errs: []error{proxyConnectError()}}
+	tp := newTransientRetryTestTransport(seq)
 
 	resp, err := tp.RoundTrip(postWithBody(t, "payload"))
 	require.NoError(t, err)
@@ -669,36 +705,42 @@ func TestTransportTransientSkipNetworkRetriesStillRetries5xx(t *testing.T) {
 	require.Equal(t, 2, seq.callCount())
 }
 
-func TestTransportTransientSkipNetworkRetriesDoesNotRetryTimeout(t *testing.T) {
-	seq := &sequencedRoundTripper{errs: []error{timeoutURLError()}}
+func TestTransportTransientDefaultDoesNotRetry502(t *testing.T) {
+	seq := &sequencedRoundTripper{statusCodes: []int{http.StatusBadGateway, http.StatusOK}}
 	tp := newTransientRetryTestTransport(seq)
-	tp.transientRetry.skipNetworkRetries = true
 
 	resp, err := tp.RoundTrip(postWithBody(t, "payload"))
-	if resp != nil {
-		defer resp.Body.Close()
-	}
-	require.Error(t, err)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusBadGateway, resp.StatusCode)
 	require.Equal(t, 1, seq.callCount())
 }
 
-func TestTransportTransientSkipNetworkRetriesDoesNotRetryStaleConn(t *testing.T) {
-	seq := &sequencedRoundTripper{errs: []error{connResetError()}}
+func TestTransportTransientDefaultDoesNotRetry504(t *testing.T) {
+	seq := &sequencedRoundTripper{statusCodes: []int{http.StatusGatewayTimeout, http.StatusOK}}
 	tp := newTransientRetryTestTransport(seq)
-	tp.transientRetry.skipNetworkRetries = true
 
 	resp, err := tp.RoundTrip(postWithBody(t, "payload"))
-	if resp != nil {
-		defer resp.Body.Close()
-	}
-	require.Error(t, err)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusGatewayTimeout, resp.StatusCode)
 	require.Equal(t, 1, seq.callCount())
 }
 
-func TestTransportTransientSkipNetworkRetriesStillRetriesDial(t *testing.T) {
-	seq := &sequencedRoundTripper{errs: []error{proxyConnectError()}}
+func TestTransportTransientDefaultRetries503(t *testing.T) {
+	seq := &sequencedRoundTripper{statusCodes: []int{http.StatusServiceUnavailable, http.StatusOK}}
 	tp := newTransientRetryTestTransport(seq)
-	tp.transientRetry.skipNetworkRetries = true
+
+	resp, err := tp.RoundTrip(postWithBody(t, "payload"))
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, 2, seq.callCount())
+}
+
+func TestTransportTransientReplaySafeRetries502(t *testing.T) {
+	seq := &sequencedRoundTripper{statusCodes: []int{http.StatusBadGateway, http.StatusOK}}
+	tp := newReplaySafeRetryTestTransport(seq)
 
 	resp, err := tp.RoundTrip(postWithBody(t, "payload"))
 	require.NoError(t, err)

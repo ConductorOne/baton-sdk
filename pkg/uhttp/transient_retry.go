@@ -73,9 +73,10 @@ func (t *Transport) nextTransientRetry(
 		return nil, 0, false, false
 	}
 	if err != nil {
-		if t.transientRetry.skipNetworkRetries {
-			// 5xx-only: still retry dial-phase (never sent). Do not
-			// replay timeouts or stale-connection resets.
+		if !t.transientRetry.replaySafe {
+			// Default: retry only requests that provably never reached
+			// the origin (dial-phase). A timeout or stale-connection
+			// reset means the origin may have processed the request.
 			retryReq, ok := retryableRequest(req, err, false)
 			return retryReq, 0, false, ok
 		}
@@ -90,6 +91,12 @@ func (t *Transport) nextTransientRetry(
 		return retryReq, 0, false, ok
 	}
 	if resp != nil && resp.StatusCode >= 500 {
+		if !t.transientRetry.replaySafe && isGatewayStatus(resp.StatusCode) {
+			// 502/504 mean an intermediary lost the response; the origin
+			// may have processed the request. Same hazard as a timeout,
+			// observed one hop away.
+			return nil, 0, false, false
+		}
 		retryReq, ok := rewindRequest(req)
 		if !ok {
 			return nil, 0, false, false
@@ -97,6 +104,10 @@ func (t *Transport) nextTransientRetry(
 		return retryReq, t.transientBackoffWait(retryIndex, resp), false, true
 	}
 	return nil, 0, false, false
+}
+
+func isGatewayStatus(code int) bool {
+	return code == http.StatusBadGateway || code == http.StatusGatewayTimeout
 }
 
 func (t *Transport) transientBackoffWait(retryIndex int, resp *http.Response) time.Duration {

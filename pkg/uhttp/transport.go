@@ -237,8 +237,8 @@ func (t *Transport) closeIdleConnections() {
 // and returns the request to retry with. Two cases qualify: errors raised
 // before any request bytes were written (safe for every method), and
 // stale-pooled-connection errors on requests that declare idempotence via
-// a safe method, an Idempotency-Key header, or a WithTransientRetries
-// client (replayable). net/http covers the second case itself for HTTP/1.1
+// a safe method, an Idempotency-Key header, or a ReplaySafe
+// WithTransientRetries client. net/http covers the second case itself for HTTP/1.1
 // but never for HTTP/2, where its retry gate requires a reused persistConn
 // and h2 connections are always wrapped in fresh ones.
 func retryableRequest(req *http.Request, err error, replayable bool) (*http.Request, bool) {
@@ -303,7 +303,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if t.transientRetry != nil && t.transientRetry.maxAttempts >= 2 {
 		resp, err = t.roundTripTransientRetries(ctx, rt, req, resp, err)
 	} else if err != nil && req.Context().Err() == nil {
-		replayable := t.transientRetry != nil && !t.transientRetry.skipNetworkRetries
+		replayable := t.transientRetry != nil && t.transientRetry.replaySafe
 		if retryReq, ok := retryableRequest(req, err, replayable); ok {
 			// A mass connection death (e.g. a proxy instance replaced) can
 			// leave further corpses in the pool; drop them so the retry

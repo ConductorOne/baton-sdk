@@ -100,7 +100,9 @@ func NewOAuth2ClientCredentials(clientId, clientSecret string, tokenURL *url.URL
 }
 
 func (o *OAuth2ClientCredentials) GetClient(ctx context.Context, options ...Option) (*http.Client, error) {
-	clients, err := newOAuthClients(ctx, options...)
+	// Client-credentials grants are stateless; replaying one the origin
+	// already processed is harmless, so the token client is ReplaySafe.
+	clients, err := newOAuthClients(ctx, true, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +129,9 @@ func NewOAuth2JWT(credentials []byte, scopes []string, createfn CreateJWTConfig)
 }
 
 func (o *OAuth2JWT) GetClient(ctx context.Context, options ...Option) (*http.Client, error) {
-	clients, err := newOAuthClients(ctx, options...)
+	// JWT-bearer grants are stateless; replaying one the origin already
+	// processed is harmless, so the token client is ReplaySafe.
+	clients, err := newOAuthClients(ctx, true, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -203,23 +207,23 @@ func tokenRetryConfig(options []Option) TransientRetryConfig {
 	return cfg
 }
 
-func refreshTokenRetryConfig(options []Option) TransientRetryConfig {
-	cfg := tokenRetryConfig(options)
-	cfg.SkipNetworkRetries = true
-	return cfg
-}
-
 // newOAuthClients returns an API client (never WithTransientRetries) and a
 // token client (always WithTransientRetries). Caller-supplied
-// WithTransientRetries is honored on the token client only; it is stripped
-// from the API client so GetClient(ctx, WithTransientRetries(...)) cannot
-// replay grants, revokes, or tickets.
-func newOAuthClients(ctx context.Context, options ...Option) (oauthClients, error) {
+// WithTransientRetries tunes attempts and delays on the token client only;
+// it is stripped from the API client so GetClient(ctx,
+// WithTransientRetries(...)) cannot replay grants, revokes, or tickets.
+//
+// replaySafe is decided by the flow, not the caller: stateless grants
+// (client credentials, JWT) may replay maybe-processed requests, rotating
+// refresh grants must not.
+func newOAuthClients(ctx context.Context, replaySafe bool, options ...Option) (oauthClients, error) {
 	apiClient, err := getHttpClient(ctx, withoutTransientRetries(options)...)
 	if err != nil {
 		return oauthClients{}, err
 	}
-	tokenOpts := append(withoutTransientRetries(options), WithTransientRetries(tokenRetryConfig(options)))
+	cfg := tokenRetryConfig(options)
+	cfg.ReplaySafe = replaySafe
+	tokenOpts := append(withoutTransientRetries(options), WithTransientRetries(cfg))
 	tokenClient, err := getHttpClient(ctx, tokenOpts...)
 	if err != nil {
 		return oauthClients{}, err
@@ -252,13 +256,17 @@ func NewOAuth2RefreshToken(clientID, clientSecret, redirectURI, tokenURL, access
 }
 
 func (o *OAuth2RefreshToken) GetClient(ctx context.Context, options ...Option) (*http.Client, error) {
-	// Refresh POSTs retry 5xx only. A mid-flight timeout or connection
-	// reset can mean the rotation succeeded; replaying it can revoke the
-	// token family and force a manual re-auth, which is worse than a
-	// failed sync. Dial-phase failures (never sent) are still retried.
-	// API traffic stays on clients.api and is not retried.
-	options = append(options, WithTransientRetries(refreshTokenRetryConfig(options)))
-	clients, err := newOAuthClients(ctx, options...)
+	// Refresh grants rotate provider state, so the token client is not
+	// ReplaySafe: it retries 5xx the origin itself answered (never
+	// 502/504) and dial-phase failures, but never replays a grant the
+	// origin may have processed — that can trip refresh-token-reuse
+	// detection and revoke the token family, forcing a manual re-auth.
+	// Accepted residuals: a 500 sent after the origin committed a rotation
+	// is still replayed, and with Endpoint.AuthStyle unset x/oauth2 itself
+	// replays a failed token POST once to probe the other auth style until
+	// a success caches the style. API traffic stays on clients.api, never
+	// retried.
+	clients, err := newOAuthClients(ctx, false, options...)
 	if err != nil {
 		return nil, err
 	}

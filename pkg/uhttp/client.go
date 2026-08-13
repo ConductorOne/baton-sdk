@@ -101,27 +101,33 @@ type TransientRetryConfig struct {
 	MaxAttempts  int
 	InitialDelay time.Duration
 	MaxDelay     time.Duration
-	// SkipNetworkRetries, if true, retries 5xx only. Mid-flight timeouts
-	// and stale-connection resets are not replayed. Dial-phase failures
-	// (the request was never sent) are still retried. Use for refresh-token
-	// grants: a timeout can mean the rotation succeeded, and replaying it
-	// can revoke the token family.
-	SkipNetworkRetries bool
+	// ReplaySafe declares that this client's requests are side-effect-free
+	// and may be replayed even when the origin might already have processed
+	// them. It adds retries for mid-flight timeouts, stale-connection
+	// resets, and gateway 502/504 responses — all "response lost, request
+	// possibly processed" signals. Leave it false (the default) when a
+	// replay could double-apply state. Rotating refresh-token grants are
+	// the canonical example: replaying a grant the origin already processed
+	// sends the superseded token, which can trip reuse detection and revoke
+	// the token family. The zero value retries only failures the origin
+	// itself answered (5xx other than 502/504) or that provably never
+	// reached it (dial-phase errors).
+	ReplaySafe bool
 }
 
 type transientRetrySettings struct {
-	maxAttempts        int
-	initialDelay       time.Duration
-	maxDelay           time.Duration
-	skipNetworkRetries bool
+	maxAttempts  int
+	initialDelay time.Duration
+	maxDelay     time.Duration
+	replaySafe   bool
 }
 
 func resolveTransientRetry(cfg TransientRetryConfig) transientRetrySettings {
 	s := transientRetrySettings{
-		maxAttempts:        cfg.MaxAttempts,
-		initialDelay:       cfg.InitialDelay,
-		maxDelay:           cfg.MaxDelay,
-		skipNetworkRetries: cfg.SkipNetworkRetries,
+		maxAttempts:  cfg.MaxAttempts,
+		initialDelay: cfg.InitialDelay,
+		maxDelay:     cfg.MaxDelay,
+		replaySafe:   cfg.ReplaySafe,
 	}
 	if s.maxAttempts <= 0 {
 		s.maxAttempts = defaultTransientRetryAttempts
@@ -144,9 +150,16 @@ func (o transientRetriesOption) Apply(c *Transport) {
 	c.transientRetry = &s
 }
 
-// WithTransientRetries retries 5xx responses and mid-flight timeouts on this
-// client, with exponential backoff. Use it only for OAuth token endpoints
-// (and similarly side-effect-free token fetches).
+// WithTransientRetries retries transient failures on this client with
+// jittered exponential backoff. Use it only for OAuth token endpoints (and
+// similarly side-effect-free token fetches).
+//
+// By default only failures that cannot mean "the origin processed the
+// request" are retried: 5xx responses other than 502/504, and dial-phase
+// errors where the request was never sent. Set ReplaySafe to also retry
+// mid-flight timeouts, stale-connection resets, and 502/504 — the response
+// was lost, but the request may have been processed — which is only safe
+// for stateless requests such as client-credentials and JWT grants.
 //
 // Do not enable this on a client used for general API reads or for
 // provisioning (grants, revokes, tickets, SetIamPolicy). Those requests are
@@ -155,9 +168,7 @@ func (o transientRetriesOption) Apply(c *Transport) {
 // client; OAuth helpers apply it to the token-endpoint client only.
 //
 // 429 / rate-limit responses are not retried here: they belong to pkg/retry
-// via RateLimitDescription. Dial-phase and stale-pooled-connection retries
-// stay on the existing one-shot path; this option also treats the client's
-// requests as replayable so token POSTs get that stale-connection retry.
+// via RateLimitDescription.
 func WithTransientRetries(cfg TransientRetryConfig) Option {
 	return transientRetriesOption{cfg: cfg}
 }

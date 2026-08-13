@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"regexp"
 	"strings"
 	"testing"
@@ -317,9 +316,7 @@ func TestOAuth2ClientCredentials_RetriesToken5xxButNotAPIPost(t *testing.T) {
 	}))
 	t.Cleanup(apiSrv.Close)
 
-	tokenURL, err := url.Parse(tokenSrv.URL)
-	require.NoError(t, err)
-	cc := NewOAuth2ClientCredentials("id", "secret", tokenURL, nil)
+	cc := newClientCredentialsForTest(tokenSrv.URL)
 
 	ctx := context.Background()
 	client, err := cc.GetClient(ctx)
@@ -403,9 +400,7 @@ func TestOAuth2ClientCredentials_GetClientStripsTransientRetriesFromAPI(t *testi
 	}))
 	t.Cleanup(apiSrv.Close)
 
-	tokenURL, err := url.Parse(tokenSrv.URL)
-	require.NoError(t, err)
-	cc := NewOAuth2ClientCredentials("id", "secret", tokenURL, nil)
+	cc := newClientCredentialsForTest(tokenSrv.URL)
 
 	ctx := context.Background()
 	client, err := cc.GetClient(ctx, WithTransientRetries(TransientRetryConfig{
@@ -471,13 +466,116 @@ func TestOAuth2RefreshToken_GetClientStripsTransientRetriesFromAPI(t *testing.T)
 	require.Equal(t, 1, postCountOn5xx(t, client), "refresh-token API POST must not retry 5xx")
 }
 
-func TestRefreshTokenRetryConfigSkipsNetwork(t *testing.T) {
-	cfg := refreshTokenRetryConfig(nil)
-	require.True(t, cfg.SkipNetworkRetries)
+func TestOAuth2RefreshToken_DoesNotRetryGateway5xxOnRefresh(t *testing.T) {
+	var tokenHits int
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenHits++
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(tokenSrv.Close)
 
-	cfg = refreshTokenRetryConfig([]Option{WithTransientRetries(TransientRetryConfig{MaxAttempts: 5})})
-	require.True(t, cfg.SkipNetworkRetries)
-	require.Equal(t, 5, cfg.MaxAttempts)
+	// Empty access token forces a refresh POST on first Token() call.
+	// AuthStyle is pinned: with AuthStyleUnknown, x/oauth2 itself replays
+	// a failed token POST once to probe the other auth style, which would
+	// mask the transport behavior under test.
+	rt := newRefreshTokenForTest(tokenSrv.URL)
+	ctx := context.Background()
+	client, err := rt.GetClient(ctx)
+	require.NoError(t, err)
+
+	_, err = client.Transport.(*oauth2.Transport).Source.Token()
+	require.Error(t, err)
+	require.Equal(t, 1, tokenHits, "refresh grant must not replay a 502: the origin may have rotated the token")
+}
+
+func TestOAuth2RefreshToken_Retries500OnRefresh(t *testing.T) {
+	var tokenHits int
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenHits++
+		if tokenHits == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"access_token":"tok","token_type":"Bearer","expires_in":3600}`))
+	}))
+	t.Cleanup(tokenSrv.Close)
+
+	rt := newRefreshTokenForTest(tokenSrv.URL)
+	ctx := context.Background()
+	client, err := rt.GetClient(ctx)
+	require.NoError(t, err)
+
+	token, err := client.Transport.(*oauth2.Transport).Source.Token()
+	require.NoError(t, err)
+	require.Equal(t, "tok", token.AccessToken)
+	require.Equal(t, 2, tokenHits, "refresh grant should retry a 500 the origin itself answered")
+}
+
+// newRefreshTokenForTest builds an OAuth2RefreshToken with a pinned
+// AuthStyle and no access token, so Token() always POSTs the refresh grant
+// and x/oauth2's auth-style probe cannot replay a failed POST.
+func newRefreshTokenForTest(tokenURL string) *OAuth2RefreshToken {
+	return &OAuth2RefreshToken{
+		cfg: &oauth2.Config{
+			ClientID:     "id",
+			ClientSecret: "secret",
+			Endpoint: oauth2.Endpoint{
+				TokenURL:  tokenURL,
+				AuthStyle: oauth2.AuthStyleInHeader,
+			},
+		},
+		refreshToken: "refresh-token",
+	}
+}
+
+// newClientCredentialsForTest pins AuthStyle for the same reason.
+func newClientCredentialsForTest(tokenURL string) *OAuth2ClientCredentials {
+	return &OAuth2ClientCredentials{
+		cfg: &clientcredentials.Config{
+			ClientID:     "id",
+			ClientSecret: "secret",
+			TokenURL:     tokenURL,
+			AuthStyle:    oauth2.AuthStyleInHeader,
+		},
+	}
+}
+
+func TestOAuth2ClientCredentials_TokenClientRetries502(t *testing.T) {
+	var tokenHits, apiHits int
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokenHits++
+		if tokenHits == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"access_token":"tok","token_type":"Bearer","expires_in":3600}`))
+	}))
+	t.Cleanup(tokenSrv.Close)
+
+	apiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		apiHits++
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(apiSrv.Close)
+
+	cc := newClientCredentialsForTest(tokenSrv.URL)
+
+	ctx := context.Background()
+	client, err := cc.GetClient(ctx)
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiSrv.URL, nil)
+	require.NoError(t, err)
+	resp, err := client.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, 2, tokenHits, "stateless grant is ReplaySafe and should retry a 502")
+	require.Equal(t, 1, apiHits)
 }
 
 func postCountOn5xx(t *testing.T, client *http.Client) int {
