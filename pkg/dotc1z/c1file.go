@@ -433,8 +433,8 @@ func WithSyncLimit(limit int) C1ZOption {
 }
 
 // WithEngine selects the storage engine for newly created .c1z files.
-// Default is EngineSQLite (v1 format). EnginePebble enables the v3
-// engine.
+// Default is EnginePebble (v3 format). EngineSQLite selects the legacy
+// v1 engine.
 //
 // Reading existing files dispatches on the file's magic byte and is
 // independent of this option.

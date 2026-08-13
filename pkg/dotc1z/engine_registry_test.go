@@ -64,14 +64,15 @@ func TestRegisterEngineRejectsDuplicateEngine(t *testing.T) {
 	require.Error(t, err, "RegisterEngine duplicate returned nil error")
 }
 
-func TestNewStoreDefaultsToSQLiteDriver(t *testing.T) {
+func TestNewStoreDefaultsToPebbleDriver(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "default.c1z")
 	store, err := NewStore(ctx, path)
 	require.NoError(t, err)
 	defer func() { _ = store.Close(ctx) }()
 	_, ok := store.(*C1File)
-	require.True(t, ok, "NewStore default type = %T, want *C1File", store)
+	require.False(t, ok, "NewStore default type = %T, want the pebble store, not *C1File", store)
+	require.Equal(t, string(c1zstore.EnginePebble), store.Metadata().Engine)
 }
 
 func TestNewStoreRequiresRegisteredEngineForNewFile(t *testing.T) {

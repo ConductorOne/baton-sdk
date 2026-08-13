@@ -204,7 +204,7 @@ func storeOptionsFromC1ZOptions(options *c1zOptions) StoreOptions {
 		MaxDecoderMemoryBytes:   maxDecoderMemoryBytes,
 	}
 	if out.Engine == "" {
-		out.Engine = c1zstore.EngineSQLite
+		out.Engine = c1zstore.EnginePebble
 	}
 	out.Pragmas = make([]StorePragma, 0, len(options.pragmas))
 	for _, p := range options.pragmas {
@@ -218,7 +218,7 @@ func storeOptionsFromC1ZOptions(options *c1zOptions) StoreOptions {
 // Dispatch policy (in order):
 //
 //  1. If the file doesn't exist or is empty, honor the caller's
-//     `WithEngine(...)` choice (defaulting to EngineSQLite when
+//     `WithEngine(...)` choice (defaulting to EnginePebble when
 //     unset). The about-to-be-written file gets the requested format.
 //  2. If the file exists with content, dispatch by the on-disk magic
 //     byte — v1 → SQLite, v3 → whatever engine name the manifest
@@ -235,7 +235,7 @@ func selectStoreDriver(ctx context.Context, outputFilePath string, options *c1zO
 	l := ctxzap.Extract(ctx)
 	requested := options.engine
 	if requested == "" {
-		requested = c1zstore.EngineSQLite
+		requested = c1zstore.EnginePebble
 	}
 
 	stat, err := os.Stat(outputFilePath) // #nosec G703 -- c1z path is caller-controlled by API design.

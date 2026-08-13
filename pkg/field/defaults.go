@@ -355,7 +355,7 @@ var (
 		}))
 
 	// StorageEngineField selects the dotc1z storage engine for sync tasks.
-	// Empty uses the baton-sdk default (sqlite for new files).
+	// Empty uses the baton-sdk default (pebble for new files).
 	StorageEngineField = StringField("storage-engine",
 		WithDescription("The storage engine to use when opening the sync c1z file: sqlite or pebble. "+
 			"Leave unset to use the baton-sdk default."),
