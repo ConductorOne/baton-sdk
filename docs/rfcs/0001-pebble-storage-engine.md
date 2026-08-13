@@ -6,6 +6,14 @@
 - **Prior art:** `morgabra/pebble` branch (commit `ae4b9693`, Aug 2025), `.kiro/specs/pebble-storage-engine/`
 - **Related PRs on main:** #591 (parallel sync), #666 (expandable at SQL), #773 (zstd pool), #769/#768 (skip cleanup), #735 (size verification removal)
 
+> **Amendment (Aug 2026):** The default flipped. This RFC was written when
+> SQLite was the default engine and Pebble was opt-in; the SDK default is now
+> Pebble for NEWLY CREATED c1z files (`kans/pebble-default-engine`). Existing
+> files still dispatch on their on-disk magic byte, and only an explicit
+> `WithEngine(EnginePebble)` converts a v1 file in place. Statements below
+> that describe SQLite as the connector default (Summary, §5.3/§5.4) reflect
+> the original rollout posture and are retained for historical context.
+
 ## 1. Summary
 
 Introduce a storage-engine abstraction in `pkg/dotc1z/` so that the same sync, compaction, and read/write code paths can run against either the current SQLite-in-a-`.c1z` backend or a new Pebble-backed backend. Connectors continue to default to SQLite (unchanged binary footprint, no cgo regressions, full on-disk compatibility). Backend infra (where we own both read and write sides and want more throughput) can opt into the Pebble engine via explicit configuration.

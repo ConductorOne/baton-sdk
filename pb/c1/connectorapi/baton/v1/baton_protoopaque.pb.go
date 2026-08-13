@@ -3022,7 +3022,7 @@ type Task_SyncFullTask_builder struct {
 	SyncResourceTypeIds []string
 	// If true, skip syncing grants. Resources and entitlements will still be synced.
 	SkipGrants bool
-	// Storage engine to use for the sync. If empty, the default engine will be used (currently SQLite).
+	// Storage engine to use for the sync. If empty, the default engine will be used (currently Pebble for new c1z files; existing files keep their on-disk format).
 	StorageEngine string
 }
 
