@@ -1,9 +1,9 @@
 package pebble
 
 import (
+	"bytes"
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protowire"
@@ -301,6 +301,16 @@ func scanGrantContentFactsRawBytes(value []byte, out []grantSourceFact) (bool, [
 // scanAnyEntryIsTypeRaw reports whether one serialized google.protobuf.Any
 // entry names typeName, checked against the tail of its type_url (field
 // 1) without unmarshaling the payload (field 2).
+//
+// Stays on []byte throughout and keeps the final string(tail) conversion
+// INLINE in the comparison: the compiler rewrites string(b) == s in that
+// position to a non-allocating alias of b's backing array (OBYTES2STRTMP
+// — safe because a comparison cannot retain its operands). Hoisting the
+// conversion into a local would silently restore a copy, and
+// protowire.ConsumeString is exactly that copy — it heap-allocates for
+// anything over 32 bytes, which every real type URL is. The seal-time
+// digest build calls this once per annotation per grant, and that path
+// must not allocate per row (see grantHashRowScratch).
 func scanAnyEntryIsTypeRaw(entry []byte, typeName string) (bool, error) {
 	for len(entry) > 0 {
 		num, typ, n := protowire.ConsumeTag(entry)
@@ -319,15 +329,15 @@ func scanAnyEntryIsTypeRaw(entry []byte, typeName string) (bool, error) {
 		if typ != protowire.BytesType {
 			return false, fmt.Errorf("raw record: any type_url has wire type %v", typ)
 		}
-		url, un := protowire.ConsumeString(entry)
+		url, un := protowire.ConsumeBytes(entry)
 		if un < 0 {
 			return false, protowire.ParseError(un)
 		}
 		name := url
-		if i := strings.LastIndexByte(url, '/'); i >= 0 {
+		if i := bytes.LastIndexByte(url, '/'); i >= 0 {
 			name = url[i+1:]
 		}
-		return name == typeName, nil
+		return string(name) == typeName, nil
 	}
 	return false, nil
 }
