@@ -210,27 +210,48 @@ func (e *Engine) SetCurrentSync(ctx context.Context, syncID string) error {
 // step cache to go stale (the old Adapter cached it and grew
 // rehydration logic at every rebind to compensate).
 //
-// Holds lifecycleMu so the id read and the record read are one
-// snapshot with respect to the lifecycle transitions — without it, an
-// interleaved EndSync/SetCurrentSync between the two reads could
-// return a token for a sync the engine is no longer bound to (the old
-// Adapter's mutex gave the same guarantee over its cache; review
-// finding, final round).
+// The id read and the record read have to agree on which sync is
+// bound, or an interleaved EndSync/SetCurrentSync between them would
+// return a token for a sync the engine has already left. This gets that
+// agreement by re-reading the binding generation afterwards instead of
+// holding lifecycleMu, and the difference is not a micro-optimization:
+// EndSync holds lifecycleMu across a finalize whose steps take the
+// write barrier, so taking it here made the order lifecycleMu → writeMu
+// in one direction and writeMu → lifecycleMu in the other for any write
+// whose body read the current step. That deadlock is invisible at the
+// call site, because this reads like a plain getter. Dropping the lock
+// deletes the edge rather than documenting it.
+//
+// What that gives up: a caller racing an in-flight EndSync can observe
+// the token being finalized instead of blocking until the sync detaches.
+// The value still belongs to a sync that was bound at a real instant
+// during the call — the answer a caller a moment earlier would have
+// received — and every caller reads this while it owns the sync's
+// lifecycle, so none can tell the difference.
 func (e *Engine) CurrentSyncStep(ctx context.Context) (string, error) {
-	e.lifecycleMu.Lock()
-	defer e.lifecycleMu.Unlock()
-	syncID := e.CurrentSyncID()
-	if syncID == "" {
-		return "", nil
-	}
-	rec, err := e.GetSyncRunRecord(ctx, syncID)
-	if err != nil {
-		if errors.Is(err, pebble.ErrNotFound) {
+	for {
+		syncID, gen := e.currentSyncBinding()
+		if syncID == "" {
 			return "", nil
 		}
-		return "", err
+		rec, err := e.GetSyncRunRecord(ctx, syncID)
+		if err != nil {
+			if errors.Is(err, pebble.ErrNotFound) {
+				return "", nil
+			}
+			return "", err
+		}
+		if _, after := e.currentSyncBinding(); after == gen {
+			return rec.GetSyncToken(), nil
+		}
+		// A transition committed while we were reading; the record we
+		// have may belong to a sync that is no longer bound, so read
+		// again against the new binding. This terminates for the same
+		// reason the lock-holding version made progress: transitions are
+		// serialized by lifecycleMu and happen a handful of times per
+		// sync, so spinning here needs an unbounded stream of them —
+		// which would have starved the blocking version too.
 	}
-	return rec.GetSyncToken(), nil
 }
 
 // CheckpointSync persists a step token to the open sync's record.

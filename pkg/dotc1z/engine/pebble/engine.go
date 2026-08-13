@@ -60,6 +60,13 @@ type Engine struct {
 	// whose bodies are read-check-write sequences over the sync-run
 	// record + the currentSync binding. Formerly the Adapter layer's
 	// mutex; the record writes themselves ride the write barrier.
+	//
+	// Lock order: lifecycleMu, then writeMu. EndSync holds this across a
+	// finalize whose steps take the barrier, so anything already holding
+	// the barrier must not take this. CurrentSyncStep used to, which
+	// closed the cycle from a method that reads like a plain getter;
+	// TestLifecycleMuTakersAreTransitionsOnly keeps the taker set down to
+	// the five transitions so acquiring it stays a deliberate act.
 	lifecycleMu sync.Mutex
 	// resolvedFS is rawdb's Open-time FS resolution (WithVFS override
 	// or vfs.Default), snapshotted so fs() stays valid after Close
@@ -72,6 +79,12 @@ type Engine struct {
 	// they return ErrNoCurrentSync.
 	currentSyncMu sync.RWMutex
 	currentSync   []byte
+	// currentSyncGen counts binding transitions: every bind, fresh-sync
+	// bind, and clear bumps it. A reader that samples it on both sides of
+	// a record read can tell whether the binding moved underneath it,
+	// which is how CurrentSyncStep gets a consistent answer without
+	// taking lifecycleMu.
+	currentSyncGen uint64
 	// freshSync is true between MarkFreshSync (called by StartNewSync)
 	// and EndSync. Indicates the engine can take perf shortcuts that
 	// trade durability for throughput while the connector is the
@@ -95,8 +108,12 @@ type Engine struct {
 	// every Writer method, decremented in defer.
 	writeWG sync.WaitGroup
 	writeMu sync.Mutex
-	closing atomic.Bool // strict write-barrier flag, read on every Writer call
-	closeMu sync.Mutex
+	// writeBarrierOwner is the id of the goroutine holding writeMu, or 0
+	// when it is unheld. Recorded only under `go test`; see
+	// lockWriteBarrier for why the bookkeeping is gated.
+	writeBarrierOwner atomic.Uint64
+	closing           atomic.Bool // strict write-barrier flag, read on every Writer call
+	closeMu           sync.Mutex
 
 	// computedStats holds caller-computed stats records stashed via
 	// StashComputedSyncStats, keyed by sync_id. PersistSyncStats pops
@@ -323,6 +340,10 @@ func (e *Engine) Close() error {
 	if e.db == nil {
 		return nil
 	}
+	// Before the flag, not after: a caller that reached here from inside
+	// its own write body is going to panic on the wait below, and it
+	// should leave a usable engine behind rather than one marked closing.
+	e.assertNotWaitingOnOwnWrite()
 	e.closing.Store(true)
 	e.writeWG.Wait()
 	// A leaked synthesized-grant layer session (possible only if a panic
@@ -373,6 +394,7 @@ func (e *Engine) bindCurrentSync(syncID string) error {
 	}
 	e.currentSyncMu.Lock()
 	e.currentSync = idBytes
+	e.currentSyncGen++
 	e.freshSync = false
 	e.freshGrantsEmpty = false
 	e.freshResourcesEmpty = false
@@ -451,6 +473,7 @@ func (e *Engine) MarkFreshSync(syncID string) error {
 	}
 	e.currentSyncMu.Lock()
 	e.currentSync = idBytes
+	e.currentSyncGen++
 	e.freshSync = true
 	e.freshGrantsEmpty = true
 	e.freshResourcesEmpty = true
@@ -468,6 +491,7 @@ func (e *Engine) MarkFreshSync(syncID string) error {
 func (e *Engine) clearCurrentSync() {
 	e.currentSyncMu.Lock()
 	e.currentSync = nil
+	e.currentSyncGen++
 	e.freshSync = false
 	e.freshGrantsEmpty = false
 	e.freshResourcesEmpty = false
@@ -572,6 +596,14 @@ func (e *Engine) CurrentSyncID() string {
 	return codec.DecodeSyncID(e.currentSync)
 }
 
+// currentSyncBinding returns the bound sync's id together with the
+// generation of that binding, as one snapshot.
+func (e *Engine) currentSyncBinding() (string, uint64) {
+	e.currentSyncMu.RLock()
+	defer e.currentSyncMu.RUnlock()
+	return codec.DecodeSyncID(e.currentSync), e.currentSyncGen
+}
+
 // requireCurrentSync returns ErrNoCurrentSync unless a sync is bound
 // (StartNewSync/SetCurrentSync, cleared by EndSync). Record writes
 // gate on this so data never lands without a sync-run record — the
@@ -653,8 +685,8 @@ func (e *Engine) withWriteAllowSealed(fn func() error) error {
 	if e.closing.Load() {
 		return ErrEngineClosing
 	}
-	e.writeMu.Lock()
-	defer e.writeMu.Unlock()
+	release := e.lockWriteBarrier()
+	defer release()
 	return fn()
 }
 
@@ -819,6 +851,7 @@ func (e *Engine) removeStagingDir(dir string) {
 // would be a WAL-only record the truncate discards.
 func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
 	// Wait for all in-flight writes to complete.
+	e.assertNotWaitingOnOwnWrite()
 	e.writeWG.Wait()
 
 	if e.closing.Load() {
