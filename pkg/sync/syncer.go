@@ -3381,10 +3381,28 @@ const externalMatchProgressLogInterval = 100_000
 // PutGrants call.
 const externalGrantFlushBatchSize = 500
 
+// processGrantsWithExternalPrincipals is a thin tracing wrapper. The actual
+// work is in processGrantsWithExternalPrincipalsInner, which has its own
+// range-over-func loop (for ga, err := range ...) and several per-branch
+// "X, err := ..." declarations that each shadow the enclosing err -- a
+// defer here that closed over a var err error declared in the *inner*
+// function would have looked at the wrong err on every one of those
+// nested paths (assigning err = ... at that point resolves to the nearest
+// shadow, not this function's own), so a write failure deep in the scan
+// would still correctly fail the sync but silently close its span as
+// successful. Keeping the span, error, and defer entirely in this wrapper
+// -- which has exactly one err, assigned exactly once from the inner
+// call's return value -- sidesteps the shadowing instead of chasing it
+// through the whole function.
 func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, principals []*v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "processGrantsWithExternalPrincipals")
+	err := s.processGrantsWithExternalPrincipalsInner(ctx, principals)
+	uotel.EndSpanWithError(span, err)
+	return err
+}
+
+func (s *syncer) processGrantsWithExternalPrincipalsInner(ctx context.Context, principals []*v2.Resource) error {
 	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if !s.state.HasExternalResourcesGrants() {
 		return nil
