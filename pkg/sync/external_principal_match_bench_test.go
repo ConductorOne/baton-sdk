@@ -1,8 +1,10 @@
 package sync //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -11,14 +13,49 @@ import (
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
+// countingStore wraps a c1zstore.Store to tally every grant handed to
+// PutGrants across a benchmark's b.N iterations. This is a real measurement
+// of the work processGrantsWithExternalPrincipalsInner's scan/flush loop
+// does -- unlike principalCount (a loop constant known before the benchmark
+// even runs), it will move if the matching or flush logic starts writing
+// more or fewer grants than its own cost model predicts.
+type countingStore struct {
+	c1zstore.Store
+	grantsWritten *int64
+}
+
+func (c *countingStore) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
+	atomic.AddInt64(c.grantsWritten, int64(len(grants)))
+	return c.Store.PutGrants(ctx, grants...)
+}
+
+// DeleteGrantByRefs forwards like failAfterNPutGrants's (see its comment):
+// embedding the c1zstore.Store interface doesn't promote this optional
+// method, so without an explicit passthrough the syncer's delete loop would
+// always fall back to the id-based path even on Pebble.
+func (c *countingStore) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
+	deleter, ok := c.Store.(grantByRefsDeleter)
+	if !ok {
+		return c.DeleteGrant(ctx, grant.GetId())
+	}
+	return deleter.DeleteGrantByRefs(ctx, grant)
+}
+
 // BenchmarkProcessGrantsWithExternalPrincipals pins the cost curve of
 // processGrantsWithExternalPrincipals's ExternalResourceMatchAll fan-out --
 // the exact loop #1046 rewrote from O(grants x principals) to O(grants +
-// principals), and that this PR's mid-scan flushing makes read its own
-// writes back (G scanned becomes G+N processed, per the cost note on that
-// loop). Reports ms/sync and grants/op so a future regression in either the
-// matching cost or the re-read amplification shows up as a measurable
-// slowdown, on both storage engines.
+// principals). Each iteration syncs one internal group with a single
+// placeholder grant that matches all principalCount external users, so the
+// scan/flush loop's own cost model predicts exactly principalCount+1 grants
+// written (1 native placeholder + one resolved replacement per matched
+// principal) regardless of how those writes get batched across
+// externalGrantFlushBatchSize-sized flushes. countingStore measures the
+// actual total and the benchmark fails outright if it drifts from that
+// prediction -- a hard structural gate on the loop's own stated complexity,
+// not just a timing number that quietly gets slower over time. Standard
+// `go test -bench` output (ns/op, plus B/op and allocs/op via
+// b.ReportAllocs()) still carries the wall-clock/allocation side; this adds
+// grants-written/op for the write-volume side, on both storage engines.
 //
 //	go test -run='^$' -bench=BenchmarkProcessGrantsWithExternalPrincipals ./pkg/sync/
 func BenchmarkProcessGrantsWithExternalPrincipals(b *testing.B) {
@@ -59,6 +96,8 @@ func runExternalMatchAllBenchmark(b *testing.B, engine c1zstore.Engine, principa
 		b.Fatalf("Close(external): %v", err)
 	}
 
+	var grantsWritten int64
+
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -77,19 +116,12 @@ func runExternalMatchAllBenchmark(b *testing.B, engine c1zstore.Engine, principa
 			),
 		}
 		internalC1zpath := filepath.Join(tmpDir, fmt.Sprintf("internal-%d.c1z", i))
-		var opts []SyncOpt
-		switch engine {
-		case c1zstore.EngineSQLite:
-			opts = []SyncOpt{WithC1ZPath(internalC1zpath), WithTmpDir(tmpDir), WithExternalResourceC1ZPath(externalC1zpath)}
-		case c1zstore.EnginePebble:
-			store, err := dotc1z.NewStore(ctx, internalC1zpath, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(tmpDir))
-			if err != nil {
-				b.Fatalf("NewStore pebble: %v", err)
-			}
-			opts = []SyncOpt{WithConnectorStore(store), WithTmpDir(tmpDir), WithExternalResourceC1ZPath(externalC1zpath)}
-		default:
-			b.Fatalf("unknown engine %q", engine)
+		rawStore, err := dotc1z.NewStore(ctx, internalC1zpath, dotc1z.WithEngine(engine), dotc1z.WithTmpDir(tmpDir))
+		if err != nil {
+			b.Fatalf("NewStore %s: %v", engine, err)
 		}
+		countedStore := &countingStore{Store: rawStore, grantsWritten: &grantsWritten}
+		opts := []SyncOpt{WithConnectorStore(countedStore), WithTmpDir(tmpDir), WithExternalResourceC1ZPath(externalC1zpath)}
 		internalSyncer, err := NewSyncer(ctx, internalMc, opts...)
 		if err != nil {
 			b.Fatalf("NewSyncer(internal): %v", err)
@@ -103,5 +135,14 @@ func runExternalMatchAllBenchmark(b *testing.B, engine c1zstore.Engine, principa
 			b.Fatalf("Close(internal): %v", err)
 		}
 	}
-	b.ReportMetric(float64(principalCount), "grants/op")
+
+	wantGrantsWritten := int64(b.N) * int64(principalCount+1)
+	gotGrantsWritten := atomic.LoadInt64(&grantsWritten)
+	if gotGrantsWritten != wantGrantsWritten {
+		b.Fatalf("grants written = %d, want %d (principalCount+1 per iteration: 1 native placeholder "+
+			"grant + one resolved replacement per matched principal); a mismatch means the matching/flush "+
+			"loop did more or less work than its own cost model predicts, not just that it ran slower",
+			gotGrantsWritten, wantGrantsWritten)
+	}
+	b.ReportMetric(float64(gotGrantsWritten)/float64(b.N), "grants-written/op")
 }
