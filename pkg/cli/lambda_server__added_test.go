@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -27,30 +28,36 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// newResp builds a GetConnectorConfigResponse with the given config_version and
+// optional served-policy envelope. It is shared by the egress-policy tests and
+// the rejection-log tests.
+func newResp(cv string, env *v1.ServedPolicyEnvelope) *v1.GetConnectorConfigResponse {
+	r := &v1.GetConnectorConfigResponse{}
+	if cv != "" {
+		r.SetConfigVersion(cv)
+	}
+	if env != nil {
+		r.SetServedPolicyEnvelope(env)
+	}
+	return r
+}
+
+// goodEnvelope builds a valid served-policy envelope bound to the given
+// config_version, with a single allowed host and https_only set.
+func goodEnvelope(cv string) *v1.ServedPolicyEnvelope {
+	return v1.ServedPolicyEnvelope_builder{
+		EnvelopeVersion: servedPolicyEnvelopeVersion,
+		ConfigVersion:   cv,
+		Egress: v1.EgressSection_builder{
+			SchemaVersion: egressSectionSchemaVersion,
+			HttpsOnly:     true,
+			AllowedHosts:  []string{"api.example.com"},
+		}.Build(),
+	}.Build()
+}
+
 func TestEgressPolicyFromResponse(t *testing.T) {
 	t.Parallel()
-
-	newResp := func(cv string, env *v1.ServedPolicyEnvelope) *v1.GetConnectorConfigResponse {
-		r := &v1.GetConnectorConfigResponse{}
-		if cv != "" {
-			r.SetConfigVersion(cv)
-		}
-		if env != nil {
-			r.SetServedPolicyEnvelope(env)
-		}
-		return r
-	}
-	goodEnvelope := func(cv string) *v1.ServedPolicyEnvelope {
-		return v1.ServedPolicyEnvelope_builder{
-			EnvelopeVersion: servedPolicyEnvelopeVersion,
-			ConfigVersion:   cv,
-			Egress: v1.EgressSection_builder{
-				SchemaVersion: egressSectionSchemaVersion,
-				HttpsOnly:     true,
-				AllowedHosts:  []string{"api.example.com"},
-			}.Build(),
-		}.Build()
-	}
 
 	t.Run("no envelope is ungoverned", func(t *testing.T) {
 		t.Parallel()
@@ -74,6 +81,7 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
 		require.True(t, p.Enforce)
+		require.True(t, p.HTTPSOnly)
 	})
 
 	t.Run("empty response config_version is governed deny-all", func(t *testing.T) {
@@ -82,6 +90,7 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
 		require.True(t, p.Enforce)
+		require.True(t, p.HTTPSOnly)
 	})
 
 	t.Run("unsupported envelope version is governed deny-all", func(t *testing.T) {
@@ -92,6 +101,7 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
 		require.True(t, p.Enforce)
+		require.True(t, p.HTTPSOnly)
 	})
 
 	t.Run("unsupported egress schema version is governed deny-all", func(t *testing.T) {
@@ -102,6 +112,7 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
 		require.True(t, p.Enforce)
+		require.True(t, p.HTTPSOnly)
 	})
 	t.Run("nil egress section is governed deny-all", func(t *testing.T) {
 		t.Parallel()
@@ -111,6 +122,7 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
 		require.True(t, p.Enforce)
+		require.True(t, p.HTTPSOnly)
 	})
 
 	t.Run("mode narrows to Enforce", func(t *testing.T) {
@@ -134,6 +146,10 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 				p := egressPolicyFromResponse(context.Background(), newResp("cv-1", env))
 				require.NotNil(t, p, tt.name)
 				require.Equal(t, tt.enforce, p.Enforce, tt.name)
+				// The projection must not disturb the envelope's hosts or scheme
+				// gate: mode only narrows Enforce, everything else survives.
+				require.Equal(t, []string{"api.example.com"}, p.AllowedHosts, tt.name)
+				require.True(t, p.HTTPSOnly, tt.name)
 			})
 		}
 	})
@@ -148,7 +164,189 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
 		require.True(t, p.Enforce)
+		require.True(t, p.HTTPSOnly)
 	})
+}
+
+// TestEgressPolicyFromResponseRejectionLogs pins the kill-switch's only operator
+// signal: the three envelope-rejection Warns and the unrecognized-mode Warn.
+// ctxzap.Extract no-ops under a bare context.Background(), so these are asserted
+// through an observer core attached via ctxzap.ToContext.
+func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
+	cases := []struct {
+		name        string
+		buildResp   func() *v1.GetConnectorConfigResponse
+		wantMessage string
+		wantFields  map[string]any
+	}{
+		{
+			name: "envelope version mismatch",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.SetEnvelopeVersion(999)
+				return newResp("cv-1", env)
+			},
+			wantMessage: "connector_authoring: served-policy envelope rejected; egress deny-all",
+			wantFields: map[string]any{
+				"reason":                "envelope-version-mismatch",
+				"envelope_version":      uint32(999),
+				"want_envelope_version": uint32(servedPolicyEnvelopeVersion),
+			},
+		},
+		{
+			name: "config version binding mismatch",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				return newResp("cv-1", goodEnvelope("cv-2"))
+			},
+			wantMessage: "connector_authoring: served-policy envelope rejected; egress deny-all",
+			wantFields: map[string]any{
+				"reason":                  "config-version-binding-mismatch",
+				"envelope_config_version": "cv-2",
+				"response_config_version": "cv-1",
+			},
+		},
+		{
+			name: "egress section unsupported",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.GetEgress().SetSchemaVersion(999)
+				return newResp("cv-1", env)
+			},
+			wantMessage: "connector_authoring: served-policy envelope rejected; egress deny-all",
+			wantFields: map[string]any{
+				"reason":                     "egress-section-unsupported",
+				"egress_present":             true,
+				"egress_schema_version":      uint32(999),
+				"want_egress_schema_version": uint32(egressSectionSchemaVersion),
+			},
+		},
+		{
+			name: "unrecognized egress mode observes",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.GetEgress().SetMode(v1.EgressMode(999))
+				return newResp("cv-1", env)
+			},
+			wantMessage: "connector_authoring: unrecognized egress mode; observing",
+			wantFields: map[string]any{
+				"mode": int32(999),
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			core, observed := observer.New(zapcore.WarnLevel)
+			logger := zap.New(core)
+			ctx := ctxzap.ToContext(context.Background(), logger)
+
+			p := egressPolicyFromResponse(ctx, tc.buildResp())
+
+			entries := observed.All()
+			require.Len(t, entries, 1, "exactly one Warn expected")
+			require.Equal(t, tc.wantMessage, entries[0].Message)
+			ctxMap := entries[0].ContextMap()
+			for k, want := range tc.wantFields {
+				require.Equal(t, want, ctxMap[k], "field %q", k)
+			}
+
+			// The unrecognized-mode case is a valid envelope: the projection must
+			// still observe (Enforce=false) and keep the envelope's hosts.
+			if tc.name == "unrecognized egress mode observes" {
+				require.NotNil(t, p)
+				require.False(t, p.Enforce)
+				require.Equal(t, []string{"api.example.com"}, p.AllowedHosts)
+			}
+		})
+	}
+}
+
+// TestGenerationVersion pins the version choice and the mismatch Warn that
+// generationVersion owns: a generation is labeled with the served config_version
+// (falling back to the requested version), and a served/requested mismatch is
+// surfaced so the reload no-op guard re-fetches on the next invocation.
+func TestGenerationVersion(t *testing.T) {
+	t.Run("requested equals served returns served without warning", func(t *testing.T) {
+		core, observed := observer.New(zapcore.WarnLevel)
+		ctx := ctxzap.ToContext(context.Background(), zap.New(core))
+		require.Equal(t, "v1", generationVersion(ctx, "v1", newResp("v1", nil)))
+		require.Empty(t, observed.All())
+	})
+	t.Run("served differs from requested warns and serves the served version", func(t *testing.T) {
+		core, observed := observer.New(zapcore.WarnLevel)
+		ctx := ctxzap.ToContext(context.Background(), zap.New(core))
+		require.Equal(t, "v1", generationVersion(ctx, "v2", newResp("v1", nil)))
+		entries := observed.All()
+		require.Len(t, entries, 1)
+		require.Equal(t, "connector_authoring: served config_version differs from requested; will retry on next invocation", entries[0].Message)
+		cm := entries[0].ContextMap()
+		require.Equal(t, "v2", cm["requested_version"])
+		require.Equal(t, "v1", cm["served_version"])
+	})
+	t.Run("served empty falls back to requested without warning", func(t *testing.T) {
+		core, observed := observer.New(zapcore.WarnLevel)
+		ctx := ctxzap.ToContext(context.Background(), zap.New(core))
+		require.Equal(t, "v2", generationVersion(ctx, "v2", newResp("", nil)))
+		require.Empty(t, observed.All())
+	})
+	t.Run("both empty returns empty without warning", func(t *testing.T) {
+		core, observed := observer.New(zapcore.WarnLevel)
+		ctx := ctxzap.ToContext(context.Background(), zap.New(core))
+		require.Equal(t, "", generationVersion(ctx, "", newResp("", nil)))
+		require.Empty(t, observed.All())
+	})
+}
+
+// TestReloadRefetchesWhenServedVersionDiffersFromRequested pins the reload
+// no-op guard against pinning a stale posture: a generation labeled with the
+// served config_version (which differs from the requested header) fails the
+// guard on the next version-stamped invocation and is re-fetched, not pinned.
+func TestReloadRefetchesWhenServedVersionDiffersFromRequested(t *testing.T) {
+	// The reloader swaps the process-wide log level through the deferred guard,
+	// so this test cannot run in parallel.
+	activeConnector := &stubConnectorServer{}
+	server := c1_lambda_grpc.NewServer(lambdaUnaryInterceptorChain())
+	server.RegisterService(&grpc.ServiceDesc{
+		ServiceName: "test.Service",
+		HandlerType: (*types.ConnectorServer)(nil),
+		Methods: []grpc.MethodDesc{
+			{
+				MethodName: "Method",
+				Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+					return &v1.GetConnectorConfigResponse{}, nil
+				},
+			},
+		},
+	}, activeConnector)
+
+	buildCalls := 0
+	r := &lambdaConnectorReloader{
+		server:  server,
+		current: &lambdaConnectorGeneration{version: "cv-1", connector: activeConnector, logging: lambdaLogLevelConfig{level: "error"}},
+		build: func(ctx context.Context, version string) (*lambdaConnectorGeneration, error) {
+			buildCalls++
+			// A real build labels the generation with the served config_version
+			// (generationVersion), which here differs from the requested header.
+			return &lambdaConnectorGeneration{version: "cv-1", connector: &stubConnectorServer{}, logging: lambdaLogLevelConfig{level: "error"}}, nil
+		},
+	}
+
+	req, err := c1_lambda_grpc.NewRequest(
+		"/test.Service/Method",
+		&v1.GetConnectorConfigRequest{},
+		metadata.Pairs(lambdaConnectorConfigVersionHeader, "cv-2"),
+	)
+	require.NoError(t, err, "NewRequest")
+
+	for i := 0; i < 2; i++ {
+		resp, err := r.Handler(context.Background(), req)
+		require.NoError(t, err, "invocation %d", i)
+		require.NotNil(t, resp)
+	}
+
+	// A generation labeled with the served version (cv-1) fails the reload
+	// no-op guard on the next cv-2 invocation and is re-fetched, not pinned.
+	require.Equal(t, 2, buildCalls, "a served-version-labeled generation must be re-fetched on the next version-stamped invocation")
 }
 
 func TestLambdaConnectorConfigVersion(t *testing.T) {

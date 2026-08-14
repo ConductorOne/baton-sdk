@@ -49,8 +49,7 @@ message ServedPolicyEnvelope {
 }
 
 // EgressMode is the enforcement posture the runtime applies to allowed_hosts.
-// It selects only whether the positive allowlist blocks or observes; it can
-// neither disable egress control nor widen the compiled denylist.
+// It selects only whether the positive allowlist blocks or observes.
 enum EgressMode {
   // Posture unstated. Consumers treat this as EGRESS_MODE_REPORT, so an
   // envelope from a server predating this field leaves the runtime on its own

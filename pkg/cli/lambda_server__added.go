@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -462,10 +463,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				return nil, fmt.Errorf("failed to get connector: %w", err)
 			}
 
-			version := requestedVersion
-			if version == "" {
-				version = lambdaConnectorConfigVersion(config)
-			}
+			version := generationVersion(ctx, requestedVersion, config)
 			return &lambdaConnectorGeneration{
 				version:   version,
 				connector: c,
@@ -536,6 +534,24 @@ func lambdaUnaryInterceptorChain(interceptors ...grpc.UnaryServerInterceptor) gr
 	return ugrpc.ChainUnaryInterceptors(withRecovery...)
 }
 
+// generationVersion labels a built generation with the config_version the
+// server actually served, falling back to the requested version when the
+// response carries none. Labeling by the served version (not the requested
+// header) keeps the reload no-op guard honest: a stale reply is re-fetched
+// on the next version-stamped invocation instead of being pinned as current.
+func generationVersion(ctx context.Context, requestedVersion string, config *v1.GetConnectorConfigResponse) string {
+	version := lambdaConnectorConfigVersion(config)
+	if version == "" {
+		version = requestedVersion
+	}
+	if requestedVersion != "" && version != requestedVersion {
+		ctxzap.Extract(ctx).Warn("connector_authoring: served config_version differs from requested; will retry on next invocation",
+			zap.String("requested_version", requestedVersion),
+			zap.String("served_version", version))
+	}
+	return version
+}
+
 func lambdaConnectorConfigVersion(config *v1.GetConnectorConfigResponse) string {
 	if config == nil {
 		return ""
@@ -568,8 +584,9 @@ func egressPolicyFromResponse(ctx context.Context, config *v1.GetConnectorConfig
 	env := config.GetServedPolicyEnvelope()
 	// The deny-all fallback enforces: empty AllowedHosts + Enforce=true = block
 	// all, so a mode-honoring connector fails closed rather than observing.
-	// HTTPSOnly is also forced true so a scheme-gate-only consumer fails closed
-	// too; the valid path below overrides it from the envelope.
+	// HTTPSOnly is also forced true so a scheme-gate-only consumer fails
+	// stricter (plain-http egress refused) rather than observing; the valid
+	// path below overrides it from the envelope.
 	policy := &EgressPolicy{Enforce: true, HTTPSOnly: true}
 
 	if env.GetEnvelopeVersion() != servedPolicyEnvelopeVersion {
@@ -579,26 +596,37 @@ func egressPolicyFromResponse(ctx context.Context, config *v1.GetConnectorConfig
 		// mismatch takes egress offline for every connector at once. A future
 		// version handshake is the durable mitigation.
 		ctxzap.Extract(ctx).Warn("connector_authoring: served-policy envelope rejected; egress deny-all",
-			zap.String("reason", "envelope-version-mismatch"))
+			zap.String("reason", "envelope-version-mismatch"),
+			zap.Uint32("envelope_version", env.GetEnvelopeVersion()),
+			zap.Uint32("want_envelope_version", servedPolicyEnvelopeVersion))
 		return policy
 	}
 	cv := env.GetConfigVersion()
 	if cv == "" || cv != config.GetConfigVersion() {
 		ctxzap.Extract(ctx).Warn("connector_authoring: served-policy envelope rejected; egress deny-all",
-			zap.String("reason", "config-version-binding-mismatch"))
+			zap.String("reason", "config-version-binding-mismatch"),
+			zap.String("envelope_config_version", cv),
+			zap.String("response_config_version", config.GetConfigVersion()))
 		return policy
 	}
 	egress := env.GetEgress()
 	if egress == nil || egress.GetSchemaVersion() != egressSectionSchemaVersion {
 		ctxzap.Extract(ctx).Warn("connector_authoring: served-policy envelope rejected; egress deny-all",
-			zap.String("reason", "egress-section-unsupported"))
+			zap.String("reason", "egress-section-unsupported"),
+			zap.Bool("egress_present", egress != nil),
+			zap.Uint32("egress_schema_version", egress.GetSchemaVersion()),
+			zap.Uint32("want_egress_schema_version", egressSectionSchemaVersion))
 		return policy
 	}
-	policy.AllowedHosts = egress.GetAllowedHosts()
+	policy.AllowedHosts = slices.Clone(egress.GetAllowedHosts())
 	policy.HTTPSOnly = egress.GetHttpsOnly()
 	// Intentionally lossy: only an explicit ENFORCE enforces; a future
 	// enforcing mode must be added to this comparison.
 	policy.Enforce = egress.GetMode() == v1.EgressMode_EGRESS_MODE_ENFORCE
+	if _, known := v1.EgressMode_name[int32(egress.GetMode())]; !known {
+		ctxzap.Extract(ctx).Warn("connector_authoring: unrecognized egress mode; observing",
+			zap.Int32("mode", int32(egress.GetMode())))
+	}
 	return policy
 }
 

@@ -78,6 +78,12 @@ type ConnectorOpts struct {
 	// directly.
 	SyncResourceTypeIDs []string
 
+	// EgressPolicy carries the server-computed egress policy delivered on the
+	// connector-config response, when one is present. It is nil for connectors
+	// served without a policy envelope; the connector decides how (and whether)
+	// to enforce it.
+	EgressPolicy *EgressPolicy
+
 	syncResourceTypeSetOnce sync.Once
 	syncResourceTypeSetVal  map[string]struct{}
 }

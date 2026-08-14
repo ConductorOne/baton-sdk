@@ -23,8 +23,7 @@ const (
 )
 
 // EgressMode is the enforcement posture the runtime applies to allowed_hosts.
-// It selects only whether the positive allowlist blocks or observes; it can
-// neither disable egress control nor widen the compiled denylist.
+// It selects only whether the positive allowlist blocks or observes.
 type EgressMode int32
 
 const (
