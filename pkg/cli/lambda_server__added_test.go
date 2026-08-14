@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"sort"
 	"testing"
 	"time"
 
@@ -262,21 +261,18 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 	}
 }
 
-// TestEgressModeNameKeysPinned pins the set of EgressMode enum keys the egress
-// projection switch in egressPolicyFromResponse depends on. Adding a new enum
-// value fails this test until the switch is revisited, so a regenerated-but-
-// unupdated SDK cannot silently observe a new enforcing posture.
+// TestEgressModeNameKeysPinned pins the EgressMode enum's name->number mapping,
+// which the egress projection switch in egressPolicyFromResponse depends on.
+// Adding a new enum value or renumbering an existing one fails this test until
+// the switch is revisited, so a regenerated-but-unupdated SDK cannot silently
+// observe a new enforcing posture and a renumber cannot break wire
+// compatibility unnoticed.
 func TestEgressModeNameKeysPinned(t *testing.T) {
-	names := make([]string, 0, len(v1.EgressMode_name))
-	for _, n := range v1.EgressMode_name {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	require.Equal(t, []string{
-		"EGRESS_MODE_ENFORCE",
-		"EGRESS_MODE_REPORT",
-		"EGRESS_MODE_UNSPECIFIED",
-	}, names)
+	require.Equal(t, map[string]int32{
+		"EGRESS_MODE_UNSPECIFIED": 0,
+		"EGRESS_MODE_REPORT":      1,
+		"EGRESS_MODE_ENFORCE":     2,
+	}, v1.EgressMode_value)
 }
 
 // TestGenerationVersion pins the version choice and the mismatch Warn that
@@ -311,6 +307,18 @@ func TestGenerationVersion(t *testing.T) {
 		core, observed := observer.New(zapcore.WarnLevel)
 		ctx := ctxzap.ToContext(context.Background(), zap.New(core))
 		require.Equal(t, "", generationVersion(ctx, "", newResp("", nil)))
+		require.Empty(t, observed.All())
+	})
+	t.Run("present-but-empty config_version falls back to requested without warning", func(t *testing.T) {
+		// newResp skips SetConfigVersion for an empty cv, so build the response
+		// directly: a present-but-empty config_version must not label the
+		// generation with the empty string (which would defeat the reload no-op
+		// guard and rebuild on every invocation).
+		resp := &v1.GetConnectorConfigResponse{}
+		resp.SetConfigVersion("")
+		core, observed := observer.New(zapcore.WarnLevel)
+		ctx := ctxzap.ToContext(context.Background(), zap.New(core))
+		require.Equal(t, "v2", generationVersion(ctx, "v2", resp))
 		require.Empty(t, observed.All())
 	})
 }
