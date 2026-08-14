@@ -10,9 +10,11 @@
 > SQLite was the default engine and Pebble was opt-in; the SDK default is now
 > Pebble for NEWLY CREATED c1z files (`kans/pebble-default-engine`). Existing
 > files still dispatch on their on-disk magic byte, and only an explicit
-> `WithEngine(EnginePebble)` converts a v1 file in place. Statements below
-> that describe SQLite as the connector default (Summary, §5.3/§5.4) reflect
-> the original rollout posture and are retained for historical context.
+> `WithEngine(EnginePebble)` converts a v1 file in place. Every statement
+> below that describes SQLite as the default engine — including the Summary,
+> §2's closing rationale, §3 Goals 2–3, and §5.3/§5.4 (including §5.4's
+> "writing v1 also stays the default") — reflects the original rollout
+> posture and is retained for historical context.
 
 ## 1. Summary
 

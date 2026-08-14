@@ -69,6 +69,15 @@ func TestNewStoreDefaultsToPebbleDriver(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "default.c1z")
 	store, err := NewStore(ctx, path)
 	require.NoError(t, err)
+	// The happy path closes explicitly below (the close must succeed for
+	// the on-disk header check); this guard keeps a mid-test require
+	// failure from leaking the store for the rest of the test binary.
+	storeClosed := false
+	defer func() {
+		if !storeClosed {
+			_ = store.Close(ctx)
+		}
+	}()
 	_, ok := store.(*C1File)
 	require.False(t, ok, "NewStore default type = %T, want the pebble store, not *C1File", store)
 	require.Equal(t, string(c1zstore.EnginePebble), store.Metadata().Engine)
@@ -80,6 +89,7 @@ func TestNewStoreDefaultsToPebbleDriver(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.EndSync(ctx))
 	require.NoError(t, store.Close(ctx))
+	storeClosed = true
 
 	f, err := os.Open(path)
 	require.NoError(t, err)
