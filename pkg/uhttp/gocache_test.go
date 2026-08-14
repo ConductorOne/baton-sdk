@@ -39,7 +39,7 @@ func TestGoCache_GetSet(t *testing.T) {
 	}
 
 	// First Get should return nil (cache miss)
-	result, err := cache.Get(req, nil)
+	result, err := cache.Get(req)
 	require.NoError(t, err)
 	require.Nil(t, result, "First get should be a cache miss")
 	if result != nil {
@@ -47,11 +47,11 @@ func TestGoCache_GetSet(t *testing.T) {
 	}
 
 	// Set the response
-	err = cache.Set(req, resp, nil)
+	err = cache.Set(req, resp)
 	require.NoError(t, err)
 
 	// Second Get should return the cached response
-	result, err = cache.Get(req, nil)
+	result, err = cache.Get(req)
 	require.NoError(t, err)
 	require.NotNil(t, result, "Second get should hit the cache")
 	require.Equal(t, http.StatusOK, result.StatusCode)
@@ -83,7 +83,7 @@ func TestGoCache_Stats(t *testing.T) {
 	require.NoError(t, err)
 
 	// First Get - cache miss
-	res, err := cache.Get(req, nil)
+	res, err := cache.Get(req)
 	require.NoError(t, err)
 	if res != nil {
 		defer res.Body.Close()
@@ -103,11 +103,11 @@ func TestGoCache_Stats(t *testing.T) {
 		Header:     make(http.Header),
 		Body:       io.NopCloser(bytes.NewReader([]byte("test"))),
 	}
-	err = cache.Set(req, resp, nil)
+	err = cache.Set(req, resp)
 	require.NoError(t, err)
 
 	// Second Get - cache hit
-	res, err = cache.Get(req, nil)
+	res, err = cache.Get(req)
 	require.NoError(t, err)
 	if res != nil {
 		defer res.Body.Close()
@@ -140,11 +140,11 @@ func TestGoCache_Clear(t *testing.T) {
 	}
 
 	// Set a response
-	err = cache.Set(req, resp, nil)
+	err = cache.Set(req, resp)
 	require.NoError(t, err)
 
 	// Verify it's cached
-	result, err := cache.Get(req, nil)
+	result, err := cache.Get(req)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	defer result.Body.Close()
@@ -154,7 +154,7 @@ func TestGoCache_Clear(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify it's gone
-	result, err = cache.Get(req, nil)
+	result, err = cache.Get(req)
 	require.NoError(t, err)
 	require.Nil(t, result, "Should be nil after clear")
 	if result != nil {
@@ -195,18 +195,18 @@ func TestGoCache_DifferentRequests(t *testing.T) {
 	}
 
 	// Set both responses
-	err = cache.Set(req1, resp1, nil)
+	err = cache.Set(req1, resp1)
 	require.NoError(t, err)
-	err = cache.Set(req2, resp2, nil)
+	err = cache.Set(req2, resp2)
 	require.NoError(t, err)
 
 	// Get both and verify they're different
-	result1, err := cache.Get(req1, nil)
+	result1, err := cache.Get(req1)
 	require.NoError(t, err)
 	require.NotNil(t, result1)
 	defer result1.Body.Close()
 
-	result2, err := cache.Get(req2, nil)
+	result2, err := cache.Get(req2)
 	require.NoError(t, err)
 	require.NotNil(t, result2)
 	defer result2.Body.Close()
@@ -255,16 +255,16 @@ func TestGoCache_QueryParams(t *testing.T) {
 	}
 
 	// Set both
-	err = cache.Set(req1, resp1, nil)
+	err = cache.Set(req1, resp1)
 	require.NoError(t, err)
-	err = cache.Set(req2, resp2, nil)
+	err = cache.Set(req2, resp2)
 	require.NoError(t, err)
 
 	// Get both and verify they're different
-	result1, err := cache.Get(req1, nil)
+	result1, err := cache.Get(req1)
 	require.NoError(t, err)
 	defer result1.Body.Close()
-	result2, err := cache.Get(req2, nil)
+	result2, err := cache.Get(req2)
 	require.NoError(t, err)
 	defer result2.Body.Close()
 
@@ -297,11 +297,11 @@ func TestGoCache_TTLExpiration(t *testing.T) {
 	}
 
 	// Set the response
-	err = cache.Set(req, resp, nil)
+	err = cache.Set(req, resp)
 	require.NoError(t, err)
 
 	// Immediately get - should be cached
-	result, err := cache.Get(req, nil)
+	result, err := cache.Get(req)
 	require.NoError(t, err)
 	require.NotNil(t, result, "Should be cached immediately")
 	defer result.Body.Close()
@@ -310,7 +310,7 @@ func TestGoCache_TTLExpiration(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Get again - should be nil (expired)
-	result, err = cache.Get(req, nil)
+	result, err = cache.Get(req)
 	require.NoError(t, err)
 	require.Nil(t, result, "Should be nil after TTL expiration")
 	if result != nil {
@@ -321,7 +321,7 @@ func TestGoCache_TTLExpiration(t *testing.T) {
 func TestGoCache_NilResponses(t *testing.T) {
 	// Get with nil cache should not panic
 	gc := &GoCache{}
-	result, err := gc.Get(nil, nil)
+	result, err := gc.Get(nil)
 	require.NoError(t, err)
 	require.Nil(t, result)
 	if result != nil {
@@ -351,17 +351,17 @@ func TestGoCache_Delete(t *testing.T) {
 	}
 
 	// Set the response
-	err = cache.Set(req, resp, nil)
+	err = cache.Set(req, resp)
 	require.NoError(t, err)
 
 	// Verify it's cached
-	result, err := cache.Get(req, nil)
+	result, err := cache.Get(req)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	defer result.Body.Close()
 
 	// Create cache key for deletion
-	key, err := CreateCacheKey(req, nil)
+	key, err := CreateCacheKey(req)
 	require.NoError(t, err)
 
 	// Delete it
@@ -369,7 +369,7 @@ func TestGoCache_Delete(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify it's gone
-	result, err = cache.Get(req, nil)
+	result, err = cache.Get(req)
 	require.NoError(t, err)
 	require.Nil(t, result, "Should be nil after delete")
 	if result != nil {
@@ -390,7 +390,7 @@ func TestGoCache_Has(t *testing.T) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.com/test", nil)
 	require.NoError(t, err)
 
-	key, err := CreateCacheKey(req, nil)
+	key, err := CreateCacheKey(req)
 	require.NoError(t, err)
 
 	// Initially should not exist
@@ -406,7 +406,7 @@ func TestGoCache_Has(t *testing.T) {
 		Body:       io.NopCloser(bytes.NewReader([]byte("test"))),
 	}
 
-	err = cache.Set(req, resp, nil)
+	err = cache.Set(req, resp)
 	require.NoError(t, err)
 
 	// Should now exist
@@ -450,11 +450,11 @@ func TestGoCache_ServerIntegration(t *testing.T) {
 	defer resp.Body.Close()
 
 	// Cache the response
-	err = cache.Set(req, resp, nil)
+	err = cache.Set(req, resp)
 	require.NoError(t, err)
 
 	// Get from cache
-	cachedResp, err := cache.Get(req, nil)
+	cachedResp, err := cache.Get(req)
 	require.NoError(t, err)
 	require.NotNil(t, cachedResp)
 	defer cachedResp.Body.Close()
@@ -503,8 +503,8 @@ func TestGoCache_ConcurrentAccess(t *testing.T) {
 				Body:       io.NopCloser(bytes.NewReader([]byte("test"))),
 			}
 
-			_ = cache.Set(req, resp, nil)
-			res, _ := cache.Get(req, nil)
+			_ = cache.Set(req, resp)
+			res, _ := cache.Get(req)
 			if res != nil {
 				defer res.Body.Close()
 			}

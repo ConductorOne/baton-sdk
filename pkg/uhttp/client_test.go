@@ -19,7 +19,7 @@ func newCacheKeyRequest(t *testing.T, headerKey, headerValue string) *http.Reque
 }
 
 func TestCreateCacheKey_NilRequest(t *testing.T) {
-	_, err := CreateCacheKey(nil, nil)
+	_, err := CreateCacheKey(nil)
 	require.Error(t, err)
 }
 
@@ -27,9 +27,9 @@ func TestCreateCacheKey_IdenticalRequestsMatch(t *testing.T) {
 	req1 := newCacheKeyRequest(t, "Accept", "application/json")
 	req2 := newCacheKeyRequest(t, "Accept", "application/json")
 
-	key1, err := CreateCacheKey(req1, nil)
+	key1, err := CreateCacheKey(req1)
 	require.NoError(t, err)
-	key2, err := CreateCacheKey(req2, nil)
+	key2, err := CreateCacheKey(req2)
 	require.NoError(t, err)
 	require.Equal(t, key1, key2)
 }
@@ -47,9 +47,9 @@ func TestCreateCacheKey_HeadersOutsideDefaultSetAreIgnoredByDefault(t *testing.T
 			reqA := newCacheKeyRequest(t, header, "value-a")
 			reqB := newCacheKeyRequest(t, header, "value-b")
 
-			keyA, err := CreateCacheKey(reqA, nil)
+			keyA, err := CreateCacheKey(reqA)
 			require.NoError(t, err)
-			keyB, err := CreateCacheKey(reqB, nil)
+			keyB, err := CreateCacheKey(reqB)
 			require.NoError(t, err)
 			require.Equal(t, keyA, keyB, "%s is not in the default set and must not affect the key", header)
 		})
@@ -63,40 +63,42 @@ func TestCreateCacheKey_DefaultHeadersStillChangeKey(t *testing.T) {
 			reqA := newCacheKeyRequest(t, header, "value-a")
 			reqB := newCacheKeyRequest(t, header, "value-b")
 
-			keyA, err := CreateCacheKey(reqA, nil)
+			keyA, err := CreateCacheKey(reqA)
 			require.NoError(t, err)
-			keyB, err := CreateCacheKey(reqB, nil)
+			keyB, err := CreateCacheKey(reqB)
 			require.NoError(t, err)
 			require.NotEqual(t, keyA, keyB)
 		})
 	}
 }
 
-// TestCreateCacheKey_ExtraCacheKeyHeadersOptsInAdditionalHeaders is the
+// TestCreateCacheKey_WithCacheKeyHeadersOptsInAdditionalHeaders is the
 // regression test for CE-1056: a caller that knows a header varies the
 // response (e.g. Authorization scoping the result set) can now opt that
 // header into the key instead of two requests silently colliding. The value
-// folded into the key comes directly from extraCacheKeyHeaders, not from
-// req.Header.
-func TestCreateCacheKey_ExtraCacheKeyHeadersOptsInAdditionalHeaders(t *testing.T) {
-	req := newCacheKeyRequest(t, "", "")
+// folded into the key is read from req.Header, same as the default set.
+func TestCreateCacheKey_WithCacheKeyHeadersOptsInAdditionalHeaders(t *testing.T) {
+	reqA := newCacheKeyRequest(t, "Authorization", "value-a")
+	reqB := newCacheKeyRequest(t, "Authorization", "value-b")
 
-	keyA, err := CreateCacheKey(req, map[string]string{"Authorization": "value-a"})
+	keyA, err := CreateCacheKey(reqA, WithCacheKeyHeaders("Authorization"))
 	require.NoError(t, err)
-	keyB, err := CreateCacheKey(req, map[string]string{"Authorization": "value-b"})
+	keyB, err := CreateCacheKey(reqB, WithCacheKeyHeaders("Authorization"))
 	require.NoError(t, err)
 	require.NotEqual(t, keyA, keyB)
 }
 
-// TestCreateCacheKey_ExtraCacheKeyHeadersOnlyAffectsNamedHeaders confirms
+// TestCreateCacheKey_WithCacheKeyHeadersOnlyAffectsNamedHeaders confirms
 // opting a header in doesn't widen the key to every header on the request --
-// a header present on req.Header but absent from extraCacheKeyHeaders still
-// falls back to the default-set rule.
-func TestCreateCacheKey_ExtraCacheKeyHeadersOnlyAffectsNamedHeaders(t *testing.T) {
+// a header present on req.Header but absent from the CacheOption still falls
+// back to the default-set rule.
+func TestCreateCacheKey_WithCacheKeyHeadersOnlyAffectsNamedHeaders(t *testing.T) {
 	reqA := newCacheKeyRequest(t, "X-Tenant-Id", "tenant-a")
+	reqA.Header.Set("Authorization", "same-token")
 	reqB := newCacheKeyRequest(t, "X-Tenant-Id", "tenant-b")
+	reqB.Header.Set("Authorization", "same-token")
 
-	extra := map[string]string{"Authorization": "same-token"}
+	extra := WithCacheKeyHeaders("Authorization")
 	keyA, err := CreateCacheKey(reqA, extra)
 	require.NoError(t, err)
 	keyB, err := CreateCacheKey(reqB, extra)
@@ -104,14 +106,15 @@ func TestCreateCacheKey_ExtraCacheKeyHeadersOnlyAffectsNamedHeaders(t *testing.T
 	require.Equal(t, keyA, keyB, "X-Tenant-Id was never opted in, so it must not affect the key")
 }
 
-// TestCreateCacheKey_ExtraCacheKeyHeadersCanonicalizesNames confirms map keys
-// passed via extraCacheKeyHeaders are treated the same regardless of casing.
-func TestCreateCacheKey_ExtraCacheKeyHeadersCanonicalizesNames(t *testing.T) {
-	req := newCacheKeyRequest(t, "", "")
+// TestCreateCacheKey_WithCacheKeyHeadersCanonicalizesNames confirms header
+// names passed to WithCacheKeyHeaders are treated the same regardless of
+// casing.
+func TestCreateCacheKey_WithCacheKeyHeadersCanonicalizesNames(t *testing.T) {
+	req := newCacheKeyRequest(t, "Authorization", "value-a")
 
-	keyA, err := CreateCacheKey(req, map[string]string{"authorization": "value-a"})
+	keyA, err := CreateCacheKey(req, WithCacheKeyHeaders("authorization"))
 	require.NoError(t, err)
-	keyB, err := CreateCacheKey(req, map[string]string{"Authorization": "value-a"})
+	keyB, err := CreateCacheKey(req, WithCacheKeyHeaders("Authorization"))
 	require.NoError(t, err)
 	require.Equal(t, keyA, keyB)
 }

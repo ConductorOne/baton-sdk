@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -726,4 +728,105 @@ func TestWrapper_RedactSensitiveHeaders(t *testing.T) {
 		"Proxy-Authorization": {"REDACTED"},
 		"Custom-Api-Key":      {"REDACTED"},
 	}, redactedHeaders)
+}
+
+func newCountingServer(hits *int32) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(hits, 1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+}
+
+// TestWrapper_DoWithCacheKeyHeaders_DistinguishesRequests is the regression
+// test for CE-1056: without opting Authorization into the cache key via
+// DoWithCacheKeyHeaders, two GET requests that only differ in that header
+// would collide. With it named, they don't -- both reach the server -- while
+// two calls sharing the same Authorization value still hit the cache on the
+// second call.
+func TestWrapper_DoWithCacheKeyHeaders_DistinguishesRequests(t *testing.T) {
+	var hits int32
+	ts := newCountingServer(&hits)
+	defer ts.Close()
+
+	client, err := NewBaseHttpClientWithContext(ctx, http.DefaultClient)
+	require.NoError(t, err)
+
+	u, err := url.Parse(ts.URL)
+	require.NoError(t, err)
+
+	doWithAuth := func(token string) {
+		req, err := client.NewRequest(ctx, http.MethodGet, u, WithBearerToken(token))
+		require.NoError(t, err)
+		resp, err := client.DoWithCacheKeyHeaders(req, []string{"Authorization"})
+		require.NoError(t, err)
+		resp.Body.Close()
+	}
+
+	doWithAuth("token-a")
+	doWithAuth("token-b")
+	require.EqualValues(t, 2, atomic.LoadInt32(&hits), "different Authorization values must not collide in the cache")
+
+	doWithAuth("token-a")
+	require.EqualValues(t, 2, atomic.LoadInt32(&hits), "repeating the same Authorization value should be served from cache")
+}
+
+// headerInjectingRoundTripper simulates a transport-level RoundTripper (like
+// userAgentTripper in transport.go) that sets a header directly on the
+// *http.Request it's handed, rather than on a private copy.
+type headerInjectingRoundTripper struct {
+	next  http.RoundTripper
+	key   string
+	value string
+}
+
+func (h *headerInjectingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header.Set(h.key, h.value)
+	return h.next.RoundTrip(req)
+}
+
+// TestWrapper_DoWithCacheKeyHeaders_CachesDespiteRoundTripHeaderInjection
+// guards against a regression where a header opted into the cache key via
+// DoWithCacheKeyHeaders gets mutated by a RoundTripper further down the
+// transport chain (transport.go's userAgentTripper does exactly this for
+// User-Agent). BaseHttpClient.do computes the cache key from req before the
+// round trip (Get) and again from the same req after it (Set). http.Client.Do
+// forks the *http.Request struct on every call once Timeout > 0 (which
+// uhttp.NewClient always sets), but that fork is shallow, so Header stays the
+// same map the caller passed in -- any RoundTripper that mutates it mutates
+// the very request do() is holding. If do() round-tripped on req itself
+// rather than a clone, the Set key would differ from every future Get key for
+// that header and the cache would become write-only.
+func TestWrapper_DoWithCacheKeyHeaders_CachesDespiteRoundTripHeaderInjection(t *testing.T) {
+	var hits int32
+	ts := newCountingServer(&hits)
+	defer ts.Close()
+
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second, // matches uhttp.NewClient's guarantee of Timeout > 0
+		Transport: &headerInjectingRoundTripper{
+			next:  http.DefaultTransport,
+			key:   "X-Injected-By-Transport",
+			value: "anything",
+		},
+	}
+
+	client, err := NewBaseHttpClientWithContext(ctx, httpClient)
+	require.NoError(t, err)
+
+	u, err := url.Parse(ts.URL)
+	require.NoError(t, err)
+
+	for i := 0; i < 2; i++ {
+		req, err := client.NewRequest(ctx, http.MethodGet, u)
+		require.NoError(t, err)
+		require.Empty(t, req.Header.Get("X-Injected-By-Transport"), "test setup: header must start unset for this to reproduce the bug")
+
+		resp, err := client.DoWithCacheKeyHeaders(req, []string{"X-Injected-By-Transport"})
+		require.NoError(t, err)
+		resp.Body.Close()
+	}
+
+	require.EqualValues(t, 1, atomic.LoadInt32(&hits),
+		"second identical GET should be served from cache, not reach the server again")
 }

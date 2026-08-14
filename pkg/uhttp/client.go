@@ -104,18 +104,46 @@ func NewClient(ctx context.Context, options ...Option) (*http.Client, error) {
 }
 
 type icache interface {
-	Get(req *http.Request, extraCacheKeyHeaders map[string]string) (*http.Response, error)
-	Set(req *http.Request, value *http.Response, extraCacheKeyHeaders map[string]string) error
+	Get(req *http.Request, opts ...CacheOption) (*http.Response, error)
+	Set(req *http.Request, value *http.Response, opts ...CacheOption) error
 	Clear(ctx context.Context) error
 	Stats(ctx context.Context) CacheStats
 }
 
+type cacheKeyConfig struct {
+	headers []string
+}
+
+// CacheOption configures how CreateCacheKey computes its key, beyond the
+// default set of headers (Accept, Content-Type, Cookie, Range). Kept as an
+// interface so future dimensions (TTL, query-param keying, etc.) can be
+// added without changing CreateCacheKey's or icache's signatures again.
+type CacheOption interface {
+	applyCache(*cacheKeyConfig)
+}
+
+type cacheKeyHeadersOption []string
+
+func (o cacheKeyHeadersOption) applyCache(c *cacheKeyConfig) {
+	c.headers = append(c.headers, o...)
+}
+
+// WithCacheKeyHeaders returns a CacheOption that folds the named headers
+// into the HTTP response cache key, on top of the default set (Accept,
+// Content-Type, Cookie, Range). The value folded in for each is read from
+// req.Header at CreateCacheKey time, same as the default set.
+func WithCacheKeyHeaders(headers ...string) CacheOption {
+	return cacheKeyHeadersOption(headers)
+}
+
 // CreateCacheKey generates a cache key based on the request URL, query parameters, and headers.
-// extraCacheKeyHeaders maps a header name to the value to fold into the key for it, on top of
-// the default set (Accept, Content-Type, Cookie, Range) read directly from req.Header.
-func CreateCacheKey(req *http.Request, extraCacheKeyHeaders map[string]string) (string, error) {
+func CreateCacheKey(req *http.Request, opts ...CacheOption) (string, error) {
 	if req == nil {
 		return "", fmt.Errorf("request is nil")
+	}
+	var cfg cacheKeyConfig
+	for _, o := range opts {
+		o.applyCache(&cfg)
 	}
 
 	var sortedParams []string
@@ -140,9 +168,11 @@ func CreateCacheKey(req *http.Request, extraCacheKeyHeaders map[string]string) (
 			}
 		}
 	}
-	for h, value := range extraCacheKeyHeaders {
+	for _, h := range cfg.headers {
 		key := http.CanonicalHeaderKey(h)
-		headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
+		for _, value := range req.Header[key] {
+			headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
+		}
 	}
 
 	sort.Strings(headerParts)

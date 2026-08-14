@@ -439,11 +439,19 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	return c.do(req, nil, options...)
 }
 
-func (c *BaseHttpClient) DoWithCacheKeyHeaders(req *http.Request, cacheKeyHeaders map[string]string, options ...DoOption) (*http.Response, error) {
-	return c.do(req, cacheKeyHeaders, options...)
+// DoWithCacheKeyHeaders is a sibling to Do that additionally folds the named
+// headers into the HTTP response cache key for this call, on top of the
+// default set (Accept, Content-Type, Cookie, Range). Use this when a request
+// varies by a header the cache wouldn't otherwise key on -- e.g. a per-call
+// Authorization token -- so requests that only differ in that header don't
+// collide. Each header's value is read from req.Header, same as the default
+// set. Do's own signature is untouched -- zero compatibility risk for
+// existing callers.
+func (c *BaseHttpClient) DoWithCacheKeyHeaders(req *http.Request, cacheKeyHeaders []string, options ...DoOption) (*http.Response, error) {
+	return c.do(req, []CacheOption{WithCacheKeyHeaders(cacheKeyHeaders...)}, options...)
 }
 
-func (c *BaseHttpClient) do(req *http.Request, cacheKeyHeaders map[string]string, options ...DoOption) (*http.Response, error) {
+func (c *BaseHttpClient) do(req *http.Request, cacheOpts []CacheOption, options ...DoOption) (*http.Response, error) {
 	var (
 		err  error
 		resp *http.Response
@@ -456,7 +464,7 @@ func (c *BaseHttpClient) do(req *http.Request, cacheKeyHeaders map[string]string
 	}
 
 	if req.Method == http.MethodGet && req.Header.Get("Cache-Control") != "no-cache" {
-		resp, err = c.baseHttpCache.Get(req, cacheKeyHeaders)
+		resp, err = c.baseHttpCache.Get(req, cacheOpts...)
 		if err != nil {
 			return nil, err
 		}
@@ -468,7 +476,16 @@ func (c *BaseHttpClient) do(req *http.Request, cacheKeyHeaders map[string]string
 	}
 
 	if resp == nil {
-		resp, err = c.HttpClient.Do(req) // #nosec G704 -- this HTTP wrapper intentionally supports arbitrary connector-defined endpoints.
+		// Round trip on a clone, not req itself. http.Client.Do forks the
+		// Request struct internally (any non-zero Timeout, which uhttp.NewClient
+		// always sets, triggers this) but that fork is shallow -- the Header map
+		// is still the same one req points to. Transport-level RoundTrippers
+		// (e.g. userAgentTripper) mutate that shared map, so without cloning
+		// here, req.Header could gain or change a header opted into the cache
+		// key (via WithCacheKeyHeaders) between the Get above and the Set
+		// below, and CreateCacheKey(req) would hash a different value for
+		// each -- a store that no future lookup can ever match.
+		resp, err = c.HttpClient.Do(req.Clone(req.Context())) // #nosec G704 -- this HTTP wrapper intentionally supports arbitrary connector-defined endpoints.
 		if err != nil {
 			l.Error("base-http-client: HTTP error response", zap.Error(err))
 			return resp, wrapTransientNetworkError(err)
@@ -528,7 +545,7 @@ func (c *BaseHttpClient) do(req *http.Request, cacheKeyHeaders map[string]string
 	}
 
 	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
-		cacheErr := c.baseHttpCache.Set(req, resp, cacheKeyHeaders)
+		cacheErr := c.baseHttpCache.Set(req, resp, cacheOpts...)
 		if cacheErr != nil {
 			l.Warn("error setting cache", zap.String("url", req.URL.String()), zap.Error(cacheErr))
 		}
