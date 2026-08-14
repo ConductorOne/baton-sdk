@@ -576,7 +576,7 @@ func generationVersion(ctx context.Context, requestedVersion string, config *v1.
 		version = lambdaConnectorConfigVersion(config)
 	}
 	if requestedVersion != "" && version != requestedVersion {
-		ctxzap.Extract(ctx).Warn("connector_authoring: served config_version differs from requested; will retry on next invocation",
+		ctxzap.Extract(ctx).Warn("connector_authoring: served config_version differs from requested; will retry on a later invocation",
 			zap.String("requested_version", requestedVersion),
 			zap.String("served_version", version))
 	}
@@ -678,7 +678,7 @@ func egressPolicyFromResponse(ctx context.Context, config *v1.GetConnectorConfig
 	// server is authoritative and the runtime's compiled hard denylist still
 	// applies, so this only warns — the projection value is unchanged.
 	for _, h := range policy.AllowedHosts {
-		if h == "*" || net.ParseIP(h) != nil {
+		if h == "" || strings.Contains(h, "*") || net.ParseIP(h) != nil {
 			ctxzap.Extract(ctx).Warn("connector_authoring: egress allowlist contains a wildcard or IP-literal; envelope is invalid per contract",
 				zap.String("host", h))
 			break

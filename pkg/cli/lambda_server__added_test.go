@@ -282,6 +282,32 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				"host": "*",
 			},
 		},
+		{
+			name: "allowlist subdomain wildcard invalidates envelope per contract",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_ENFORCE)
+				env.GetEgress().SetAllowedHosts([]string{"*.example.com"})
+				return newResp("cv-1", env)
+			},
+			wantMessage: "connector_authoring: egress allowlist contains a wildcard or IP-literal; envelope is invalid per contract",
+			wantFields: map[string]any{
+				"host": "*.example.com",
+			},
+		},
+		{
+			name: "allowlist empty host invalidates envelope per contract",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_ENFORCE)
+				env.GetEgress().SetAllowedHosts([]string{""})
+				return newResp("cv-1", env)
+			},
+			wantMessage: "connector_authoring: egress allowlist contains a wildcard or IP-literal; envelope is invalid per contract",
+			wantFields: map[string]any{
+				"host": "",
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -309,13 +335,22 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				require.Equal(t, []string{"api.example.com"}, p.AllowedHosts)
 				require.True(t, p.HTTPSOnly)
 			}
-			// The wildcard case is a valid envelope: the Warn is observability
-			// only, so the projection must be unchanged (Enforce=true for
-			// ENFORCE mode, allowlist verbatim).
-			if tc.name == "allowlist wildcard invalidates envelope per contract" {
+			// The wildcard/subdomain-wildcard/empty-host cases are valid
+			// envelopes: the Warn is observability only, so the projection must
+			// be unchanged (Enforce=true for ENFORCE mode, allowlist verbatim).
+			switch tc.name {
+			case "allowlist wildcard invalidates envelope per contract":
 				require.NotNil(t, p)
 				require.True(t, p.Enforce)
 				require.Equal(t, []string{"*"}, p.AllowedHosts)
+			case "allowlist subdomain wildcard invalidates envelope per contract":
+				require.NotNil(t, p)
+				require.True(t, p.Enforce)
+				require.Equal(t, []string{"*.example.com"}, p.AllowedHosts)
+			case "allowlist empty host invalidates envelope per contract":
+				require.NotNil(t, p)
+				require.True(t, p.Enforce)
+				require.Equal(t, []string{""}, p.AllowedHosts)
 			}
 		})
 	}
@@ -352,7 +387,7 @@ func TestGenerationVersion(t *testing.T) {
 		require.Equal(t, "v1", generationVersion(ctx, "v2", newResp("v1", nil)))
 		entries := observed.All()
 		require.Len(t, entries, 1)
-		require.Equal(t, "connector_authoring: served config_version differs from requested; will retry on next invocation", entries[0].Message)
+		require.Equal(t, "connector_authoring: served config_version differs from requested; will retry on a later invocation", entries[0].Message)
 		cm := entries[0].ContextMap()
 		require.Equal(t, "v2", cm["requested_version"])
 		require.Equal(t, "v1", cm["served_version"])
@@ -396,6 +431,12 @@ func TestReloadRefetchesWhenServedVersionDiffersFromRequested(t *testing.T) {
 	old := lambdaConnectorReloadMinInterval
 	lambdaConnectorReloadMinInterval = 0
 	defer func() { lambdaConnectorReloadMinInterval = old }()
+
+	// The stub build applies level:"error" on a successful reload and the
+	// deferred guard does not restore it, so restore the prior process-wide
+	// level on the way out.
+	prevLogLevel := zap.L().Level()
+	t.Cleanup(func() { _ = logging.SetLogLevel(prevLogLevel.String()) })
 
 	activeConnector := &stubConnectorServer{}
 	server := c1_lambda_grpc.NewServer(lambdaUnaryInterceptorChain())
@@ -493,6 +534,12 @@ func TestReloadRateCapsPersistentMismatch(t *testing.T) {
 	defer func() { lambdaConnectorReloadMinInterval = old }()
 	lambdaConnectorReloadMinInterval = time.Hour
 
+	// The stub build applies level:"error" on a successful reload and the
+	// deferred guard does not restore it, so restore the prior process-wide
+	// level on the way out.
+	prevLogLevel := zap.L().Level()
+	t.Cleanup(func() { _ = logging.SetLogLevel(prevLogLevel.String()) })
+
 	activeConnector := &stubConnectorServer{}
 	server := c1_lambda_grpc.NewServer(lambdaUnaryInterceptorChain())
 	server.RegisterService(&grpc.ServiceDesc{
@@ -537,15 +584,23 @@ func TestReloadRateCapsPersistentMismatch(t *testing.T) {
 	}
 	require.Equal(t, 1, buildCalls, "the 2nd and 3rd invocations are rate-capped")
 
-	// Interval expiry re-enables rebuild: with the cap disabled, the next two
-	// invocations each rebuild.
+	// Interval expiry re-enables rebuild: backdate lastRebuildAt so a positive
+	// interval has elapsed, then the next invocation rebuilds.
+	r.lastRebuildAt = time.Now().Add(-2 * time.Hour)
+	resp, err := r.Handler(context.Background(), req)
+	require.NoError(t, err, "invocation after interval expiry")
+	require.NotNil(t, resp)
+	require.Equal(t, 2, buildCalls, "interval expiry re-enables rebuild")
+
+	// Cap-disabled path: with the interval set to 0, the next two invocations
+	// each rebuild.
 	lambdaConnectorReloadMinInterval = 0
 	for i := range 2 {
 		resp, err := r.Handler(context.Background(), req)
 		require.NoError(t, err, "invocation %d", i)
 		require.NotNil(t, resp)
 	}
-	require.Equal(t, 3, buildCalls, "interval expiry re-enables rebuild")
+	require.Equal(t, 4, buildCalls, "cap-disabled path rebuilds on every invocation")
 }
 
 func TestLambdaConnectorConfigVersion(t *testing.T) {
