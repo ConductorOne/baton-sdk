@@ -162,16 +162,13 @@ func fileExists(path string) bool {
 	return err == nil && fi.Mode().IsRegular()
 }
 
-func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
-	ctx, span := tracer.Start(ctx, "fullSyncTaskHandler.sync")
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-	l := ctxzap.Extract(ctx).With(zap.String("task_id", c.task.GetId()), zap.Stringer("task_type", tasks.GetType(c.task)))
-
-	if c.task.GetSyncFull() == nil {
-		return errors.New("task is not a full sync task")
-	}
-
+// syncOpts assembles the sync engine options for this task. Split out of
+// sync() so the translation from handler configuration to sdkSync.SyncOpt is
+// reachable from a test: every option here arrives through a long positional
+// constructor chain from connectorrunner, and a value silently dropped
+// somewhere along it produces a sync that runs with the wrong settings and no
+// other signal.
+func (c *fullSyncTaskHandler) syncOpts(l *zap.Logger, c1zPath string, cc types.ConnectorClient) []sdkSync.SyncOpt {
 	syncOpts := []sdkSync.SyncOpt{
 		sdkSync.WithC1ZPath(c1zPath),
 		sdkSync.WithTmpDir(c.helpers.TempDir()),
@@ -246,8 +243,6 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 	if len(c.targetedSyncResources) > 0 {
 		syncOpts = append(syncOpts, sdkSync.WithTargetedSyncResources(c.targetedSyncResources))
 	}
-	cc := c.helpers.ConnectorClient()
-
 	// Prefer the task's resource type IDs (from the server/UI) over local config.
 	// The UI is the authoritative source when set; local config is the fallback.
 	syncResourceTypeIDs := c.task.GetSyncFull().GetSyncResourceTypeIds()
@@ -262,7 +257,23 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		syncOpts = append(syncOpts, sdkSync.WithSessionStore(setSessionStore))
 	}
 
-	syncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), syncOpts...)
+	return syncOpts
+}
+
+func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
+	ctx, span := tracer.Start(ctx, "fullSyncTaskHandler.sync")
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+	l := ctxzap.Extract(ctx).With(zap.String("task_id", c.task.GetId()), zap.Stringer("task_type", tasks.GetType(c.task)))
+
+	if c.task.GetSyncFull() == nil {
+		return errors.New("task is not a full sync task")
+	}
+
+	cc := c.helpers.ConnectorClient()
+	syncOpts := c.syncOpts(l, c1zPath, cc)
+
+	syncer, err := sdkSync.NewSyncer(ctx, cc, syncOpts...)
 	if err != nil {
 		l.Error("failed to create syncer", zap.Error(err))
 		return err

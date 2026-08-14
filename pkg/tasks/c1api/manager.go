@@ -425,20 +425,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	var handler tasks.TaskHandler
 	switch tasks.GetType(task) {
 	case taskTypes.FullSyncType:
-		handler = newFullSyncTaskHandler(
-			task,
-			tHelpers,
-			c.skipFullSync,
-			c.externalResourceC1Z,
-			c.externalResourceEntitlementIdFilter,
-			c.externalResourceTraits,
-			c.externalPrincipalIndex,
-			c.targetedSyncResources,
-			c.syncResourceTypeIDs,
-			c.workerCount,
-			c.storageEngine,
-			c.previousSyncSparePath,
-		)
+		handler = c.newFullSyncHandler(task, tHelpers)
 	case taskTypes.HelloType:
 		handler = newHelloTaskHandler(task, tHelpers)
 	case taskTypes.GrantType:
@@ -490,6 +477,27 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	}
 
 	return nil
+}
+
+// newFullSyncHandler hands the manager's sync configuration to a full-sync
+// handler. Split out of Process so the hand-off is reachable from a test:
+// these values arrive as a positional argument list and one dropped along the
+// way changes how every sync runs, silently.
+func (c *c1ApiTaskManager) newFullSyncHandler(task *v1.Task, tHelpers fullSyncHelpers) tasks.TaskHandler {
+	return newFullSyncTaskHandler(
+		task,
+		tHelpers,
+		c.skipFullSync,
+		c.externalResourceC1Z,
+		c.externalResourceEntitlementIdFilter,
+		c.externalResourceTraits,
+		c.externalPrincipalIndex,
+		c.targetedSyncResources,
+		c.syncResourceTypeIDs,
+		c.workerCount,
+		c.storageEngine,
+		c.previousSyncSparePath,
+	)
 }
 
 // ensure *c1ApiTaskManager satisfies BootstrappingTaskManager.

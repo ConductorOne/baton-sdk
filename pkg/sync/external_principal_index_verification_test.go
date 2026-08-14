@@ -345,7 +345,16 @@ func grantDigest(t *testing.T, path, syncID string) []string {
 	return digest
 }
 
+// The crash-cut / resume / same-checkpoint-twice seam is shared by both
+// external-principal matchers, but the matcher still runs inside it, so the
+// cell is exercised in both modes. Without this the indexed path -- the one
+// being rolled out -- would never be resumed or replayed by any test, since
+// the linear scan is the default a bare &syncer{} gets.
 func TestVerificationExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T) {
+	forEachExternalMatchMode(t, verifyExternalPrincipalMatchDeleteCutResumesToGolden)
+}
+
+func verifyExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T, indexed bool) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 
@@ -354,7 +363,7 @@ func TestVerificationExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T
 	goldenState := newState()
 	goldenState.SetHasExternalResourcesGrants()
 	goldenState.PushAction(ctx, Action{Op: SyncExternalResourcesOp})
-	goldenSyncer := &syncer{store: goldenStore, state: goldenState}
+	goldenSyncer := &syncer{store: goldenStore, state: goldenState, externalPrincipalIndexEnabled: indexed}
 	require.NoError(t, goldenSyncer.processGrantsWithExternalPrincipals(ctx, principals))
 	finishExternalMatchVerificationSync(t, goldenStore, goldenState)
 	goldenDigest := grantDigest(t, goldenPath, goldenSyncID)
@@ -369,7 +378,7 @@ func TestVerificationExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T
 	currentToken, err := cutStore.CurrentSyncStep(ctx)
 	require.NoError(t, err)
 	require.NoError(t, cutState.Unmarshal(currentToken))
-	cutSyncer := &syncer{store: cutWrapper, state: cutState}
+	cutSyncer := &syncer{store: cutWrapper, state: cutState, externalPrincipalIndexEnabled: indexed}
 	err = cutSyncer.processGrantsWithExternalPrincipals(ctx, principals)
 	require.ErrorIs(t, err, errVerificationDeleteCut)
 	require.Equal(t, []int{9}, cutWrapper.putBatchSizes, "test premise: cut happened after the bulk put")
@@ -388,7 +397,7 @@ func TestVerificationExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T
 	require.NotNil(t, resumedState.Current(), "unfinished action must survive the cut")
 
 	resumedWrapper := &interruptingExternalMatchStore{Store: resumedStore}
-	resumedSyncer := &syncer{store: resumedWrapper, state: resumedState}
+	resumedSyncer := &syncer{store: resumedWrapper, state: resumedState, externalPrincipalIndexEnabled: indexed}
 	require.NoError(t, resumedSyncer.processGrantsWithExternalPrincipals(ctx, principals))
 	require.Equal(t, []int{33}, resumedWrapper.putBatchSizes,
 		"resume scans two remaining carriers plus nine expanded grants, each matching three principals")
