@@ -54,8 +54,13 @@ func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.Reso
 }
 
 func (e *Engine) GetResourceTypeRecord(ctx context.Context, externalID string) (*v3.ResourceTypeRecord, error) {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	key := encodeResourceTypeKey(externalID)
-	val, closer, err := e.db.Get(key)
+	val, closer, err := db.Get(key)
 	if err != nil {
 		return nil, err
 	}

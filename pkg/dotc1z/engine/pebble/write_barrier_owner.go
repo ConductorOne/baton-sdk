@@ -86,11 +86,14 @@ func trackedGoroutineID() uint64 {
 // the barrier — so a transition called from inside a write body supplies
 // the writeMu → lifecycleMu order that deadlocks against it.
 //
-// Three of the five transitions cannot get there: they take the barrier
-// themselves, so lockWriteBarrier's re-entrancy check fires first.
-// ResumeSync and SetCurrentSync do not — a record read and a rebind,
-// neither of which touches writeMu — which leaves them with nothing but
-// this to turn the same mistake into a panic instead of a hang.
+// EVERY transition calls this before taking lifecycleMu. The barrier
+// re-entrancy check inside the transitions that write
+// (startNewSync/CheckpointSync/EndSync) is not a substitute: it fires
+// at the body's first inner write — after lifecycleMu is already held —
+// and a contended lifecycleMu parks the caller before it ever gets
+// there, holding the barrier a concurrent EndSync's finalize is waiting
+// on. That is the deadlock, and only a check placed before the lock
+// turns it into a panic.
 func (e *Engine) assertNotTakingLifecycleFromWrite() {
 	if !writeBarrierOwnerChecks {
 		return

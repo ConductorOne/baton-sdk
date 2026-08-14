@@ -55,8 +55,13 @@ func (e *Engine) SessionGet(ctx context.Context, key string, opt ...sessions.Ses
 		return nil, false, fmt.Errorf("error applying session option: %w", err)
 	}
 
+	db, release, err := e.pinRead()
+	if err != nil {
+		return nil, false, err
+	}
+	defer release()
 	keyBytes := encodeSessionKey(bag.SyncID, bag.Prefix+key)
-	val, closer, err := e.db.Get(keyBytes)
+	val, closer, err := db.Get(keyBytes)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return nil, false, nil
@@ -102,9 +107,14 @@ func (e *Engine) SessionGetMany(ctx context.Context, keys []string, opt ...sessi
 	results := make([]item, 0, len(keys))
 	messageSize := 0
 
+	db, release, err := e.pinRead()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer release()
 	for _, prefixedKey := range prefixedKeys {
 		keyBytes := encodeSessionKey(bag.SyncID, prefixedKey)
-		val, closer, err := e.db.Get(keyBytes)
+		val, closer, err := db.Get(keyBytes)
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
 				continue
@@ -196,7 +206,12 @@ func (e *Engine) sessionGetAllChunk(ctx context.Context, pageToken string, sizeL
 	default:
 		lower = syncPrefix
 	}
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	db, release, err := e.pinRead()
+	if err != nil {
+		return nil, "", 0, err
+	}
+	defer release()
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: lower,
 		UpperBound: upperBoundOf(syncPrefix),
 	})

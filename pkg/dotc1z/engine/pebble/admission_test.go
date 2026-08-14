@@ -94,12 +94,12 @@ func TestAdmissionDrainWritesQuiescesWithoutShutting(t *testing.T) {
 
 // TestAdmissionEnterNeverTripsDrainingWaitGroup hammers the exact
 // interleaving the gate's mu exists for: enters racing a close whose
-// Wait is parked at zero. Without admission atomicity this run dies with
-// sync.WaitGroup's "Add called concurrently with Wait" fatal (a crash,
-// not a test failure) — and the race detector sees the mu-less flag
-// read. Every refused enter must also be refused with the error, never
-// admitted after the flip: an enter that returns nil after close would
-// be a member the drain never counted.
+// drain is parked at zero. Without admission atomicity a joiner that
+// read closing==false can land its increment after the drain sampled
+// zero — a member the drain never counted (and, in the WaitGroup
+// implementation this replaced, the "Add called concurrently with Wait"
+// runtime fatal — a crash, not a test failure). Every refused enter
+// must also be refused with the error, never admitted after the flip.
 func TestAdmissionEnterNeverTripsDrainingWaitGroup(t *testing.T) {
 	for round := 0; round < 200; round++ {
 		var a admission
@@ -142,5 +142,45 @@ func TestAdmissionEnterNeverTripsDrainingWaitGroup(t *testing.T) {
 		}
 		// After the dust settles the gate must be shut for good.
 		require.ErrorIs(t, a.enterWrite(), ErrEngineClosing)
+	}
+}
+
+// TestAdmissionDrainWritesToleratesConcurrentEnters hammers drainWrites
+// against a stream of entering writers. This is the drain sync.WaitGroup
+// could NOT express: the gate stays open, so a writer legally enters in
+// the same instant the counter touches zero — WaitGroup answers that
+// with the "Add called concurrently with Wait" runtime fatal, while the
+// cond-based drain just keeps waiting. The drain must return only at a
+// real zero and the gate must stay open throughout.
+func TestAdmissionDrainWritesToleratesConcurrentEnters(t *testing.T) {
+	for round := 0; round < 200; round++ {
+		var a admission
+		const workers = 8
+		var churn sync.WaitGroup
+		start := make(chan struct{})
+		for i := 0; i < workers; i++ {
+			churn.Add(1)
+			go func() {
+				defer churn.Done()
+				<-start
+				for j := 0; j < 4; j++ {
+					if err := a.enterWrite(); err == nil {
+						a.exitWrite()
+					}
+				}
+			}()
+		}
+		drained := make(chan struct{})
+		go func() {
+			<-start
+			a.drainWrites()
+			close(drained)
+		}()
+		close(start)
+		churn.Wait()
+		<-drained
+		require.False(t, a.isClosing(), "drainWrites shut the gate; it must only quiesce")
+		require.NoError(t, a.enterWrite())
+		a.exitWrite()
 	}
 }

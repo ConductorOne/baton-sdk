@@ -350,7 +350,12 @@ func grantPrimaryKeyFromHashIndexKey(dst, idxKey []byte) ([]byte, bool) {
 // "zero grants" for an entitlement that may have millions — the
 // false-clean trap dirtyPartitionBuckets' doc comment describes.
 func (e *Engine) GetEntitlementDigestRoot(ctx context.Context, id entitlementIdentity) (DigestRoot, bool, error) {
-	return e.getPartitionDigestRoot(grantDigestSpec, digestPartitionForEntitlement(id))
+	db, release, err := e.pinRead()
+	if err != nil {
+		return DigestRoot{}, false, err
+	}
+	defer release()
+	return e.getPartitionDigestRoot(db, grantDigestSpec, digestPartitionForEntitlement(id))
 }
 
 // GetGrantDigestGlobalRoot returns the whole-file grant digest root —
@@ -369,7 +374,12 @@ func (e *Engine) GetGrantDigestGlobalRoot(ctx context.Context) (DigestRoot, bool
 		// hash index that was never ingested.
 		return DigestRoot{}, false, nil
 	}
-	val, closer, err := e.db.Get(rawdb.GlobalGrantDigestNodeKey())
+	db, release, err := e.pinRead()
+	if err != nil {
+		return DigestRoot{}, false, err
+	}
+	defer release()
+	val, closer, err := db.Get(rawdb.GlobalGrantDigestNodeKey())
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return DigestRoot{}, false, nil
@@ -397,7 +407,12 @@ func (e *Engine) GetGrantDigestGlobalRoot(ctx context.Context) (DigestRoot, bool
 // Never use it as a fallback for a missing root; see
 // GetEntitlementDigestRoot and computeBucketDigest's precondition.
 func (e *Engine) ComputeEntitlementBucketDigest(ctx context.Context, id entitlementIdentity, bucket DigestBucket) ([]byte, int64, error) {
-	return e.computeBucketDigest(ctx, grantDigestSpec, digestPartitionForEntitlement(id), bucket)
+	db, release, err := e.pinRead()
+	if err != nil {
+		return nil, 0, err
+	}
+	defer release()
+	return e.computeBucketDigest(ctx, db, grantDigestSpec, digestPartitionForEntitlement(id), bucket)
 }
 
 // DirtyEntitlementBuckets compares this engine's entitlement against

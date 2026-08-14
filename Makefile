@@ -82,14 +82,14 @@ compat-check: ## Exchange checkpoints with a pinned older SDK.
 # uninterrupted baseline. See cmd/baton-crash-harness.
 .PHONY: crash-check
 crash-check: ## Exercise cross-process checkpoint/resume under hard kills.
-	BATON_DEMO_CRASH=1 go test -v -count=1 -timeout=30m -run TestCrashResumeRealConnector ./cmd/baton-crash-harness
+	BATON_DEMO_CRASH=1 go test -tags=baton_lockchecks -v -count=1 -timeout=30m -run TestCrashResumeRealConnector ./cmd/baton-crash-harness
 
 .PHONY: demo-crash-check
 demo-crash-check: crash-check ## Deprecated alias for crash-check.
 
 .PHONY: checkpoint-cut-check
 checkpoint-cut-check: ## Resume from every durable checkpoint cut.
-	BATON_CUT_SWEEP=full go test -v -count=1 -timeout=30m -run TestCheckpointCutEnumeration ./pkg/sync
+	BATON_CUT_SWEEP=full go test -tags=baton_lockchecks -v -count=1 -timeout=30m -run TestCheckpointCutEnumeration ./pkg/sync
 
 .PHONY: interrupt-check
 interrupt-check: checkpoint-cut-check crash-check ## Run in-process cut and real-process interruption checks.
@@ -223,7 +223,7 @@ fuzz-smoke: ## Run each native Go fuzzer for FUZZ_TIME (default 30s).
 
 .PHONY: differential-check
 differential-check: ## Differential-fuzz SQLite and Pebble for DIFFERENTIAL_TIME.
-	BATON_EXPAND_FUZZ_DURATION=$(DIFFERENTIAL_TIME) go test -v -count=1 -timeout=30m -run '^TestFullPipelineDifferentialFuzz$$' ./pkg/sync/expand
+	BATON_EXPAND_FUZZ_DURATION=$(DIFFERENTIAL_TIME) go test -tags=baton_lockchecks -v -count=1 -timeout=30m -run '^TestFullPipelineDifferentialFuzz$$' ./pkg/sync/expand
 
 .PHONY: bench-smoke
 bench-smoke: ## Run the bounded checkpoint cost benchmarks once.
@@ -240,7 +240,7 @@ scheduler-soak: ## Run randomized scheduler cases under race detection.
 
 .PHONY: errorfs-soak
 errorfs-soak: ## Sweep whole-sync Pebble crash points using errorfs.
-	BATON_SOAK=1 go test -v -count=1 -timeout=30m -run TestErrorFSWholeSyncRandomSweepSoak ./pkg/dotc1z/engine/pebble
+	BATON_SOAK=1 go test -tags=baton_lockchecks -v -count=1 -timeout=30m -run TestErrorFSWholeSyncRandomSweepSoak ./pkg/dotc1z/engine/pebble
 
 .PHONY: chaos-check
 chaos-check: ## Run bounded representative chaos checks under race detection.
@@ -270,9 +270,17 @@ test-nightly: ## Run extended confidence, fuzz, scheduler, and errorfs checks.
 # test-extra and test-nightly: they create multi-million-row fixtures and may
 # consume hours and substantial disk. Their BATON_* sizing variables remain
 # available as documented in docs/TESTING.md and the test files.
+#
+# Lock-check arming policy: every correctness-focused target above compiles
+# with -race (which arms the engine's deadlock-shape checks by itself) or
+# with -tags=baton_lockchecks. The pure measurement targets — bench*,
+# prodscale-crossover, prodscale-topebble — stay unarmed so the numbers they
+# exist to produce are not skewed by instrumentation, and compat-check stays
+# unarmed because it also builds a pinned past release that may predate the
+# tag. prodscale-check is a correctness experiment first, so it is armed.
 .PHONY: prodscale-check
 prodscale-check: ## Run the multi-million-row compactor experiment.
-	BATON_PROD_SCALE_TEST=1 go test -v -count=1 -timeout=60m -run 'TestProdScale' ./pkg/synccompactor
+	BATON_PROD_SCALE_TEST=1 go test -tags=baton_lockchecks -v -count=1 -timeout=60m -run 'TestProdScale' ./pkg/synccompactor
 
 .PHONY: prodscale-crossover
 prodscale-crossover: ## Measure fold/overlay crossover at production scale.

@@ -18,6 +18,7 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // Annotation type names the invariant probes match against (the tail
@@ -214,7 +215,7 @@ func (e *Engine) ForEachDanglingGrantEntitlement(ctx context.Context, visit func
 			stripped:       comps[2] == idFlagStripped,
 			tail:           comps[3],
 		}
-		exists, err := e.hasEntitlementIdentity(id)
+		exists, err := hasEntitlementIdentity(db, id)
 		if err != nil {
 			return err
 		}
@@ -229,8 +230,8 @@ func (e *Engine) ForEachDanglingGrantEntitlement(ctx context.Context, visit func
 	return iter.Error()
 }
 
-func (e *Engine) hasEntitlementIdentity(id entitlementIdentity) (bool, error) {
-	_, closer, err := e.db.Get(encodeEntitlementIdentityKey(id))
+func hasEntitlementIdentity(db *rawdb.DB, id entitlementIdentity) (bool, error) {
+	_, closer, err := db.Get(encodeEntitlementIdentityKey(id))
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return false, nil
@@ -323,6 +324,13 @@ func (e *Engine) HasResourceRecord(ctx context.Context, resourceTypeID, resource
 		return false, err
 	}
 	defer release()
+	return hasResourceRecordOn(db, resourceTypeID, resourceID)
+}
+
+// hasResourceRecordOn is HasResourceRecord against a handle the caller
+// already holds admitted — used inside pinned scans so the probe doesn't
+// re-pin (and can't be refused mid-scan by a concurrent Close).
+func hasResourceRecordOn(db *rawdb.DB, resourceTypeID, resourceID string) (bool, error) {
 	_, closer, err := db.Get(encodeResourceKey(resourceTypeID, resourceID))
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {

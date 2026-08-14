@@ -111,8 +111,13 @@ func (e *Engine) PutResourceRecords(ctx context.Context, records ...*v3.Resource
 }
 
 func (e *Engine) GetResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (*v3.ResourceRecord, error) {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	key := encodeResourceKey(resourceTypeID, resourceID)
-	val, closer, err := e.db.Get(key)
+	val, closer, err := db.Get(key)
 	if err != nil {
 		return nil, err
 	}

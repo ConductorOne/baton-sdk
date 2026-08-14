@@ -91,11 +91,16 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 // GetEntitlementRecord fetches an entitlement by its raw public id via the
 // bare-id lookup (exact string-match, exactly-one rule — see lookup.go).
 func (e *Engine) GetEntitlementRecord(ctx context.Context, externalID string) (*v3.EntitlementRecord, error) {
-	id, err := e.resolveEntitlementIdentityByExternalID(ctx, externalID)
+	db, release, err := e.pinRead()
 	if err != nil {
 		return nil, err
 	}
-	val, closer, err := e.db.Get(encodeEntitlementIdentityKey(id))
+	defer release()
+	id, err := e.resolveEntitlementIdentityByExternalID(ctx, db, externalID)
+	if err != nil {
+		return nil, err
+	}
+	val, closer, err := db.Get(encodeEntitlementIdentityKey(id))
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +117,8 @@ func (e *Engine) GetEntitlementRecord(ctx context.Context, externalID string) (*
 // delete).
 func (e *Engine) DeleteEntitlementRecord(ctx context.Context, externalID string) error {
 	return e.withWrite(func() error {
-		id, err := e.resolveEntitlementIdentityByExternalID(ctx, externalID)
+		// e.db is the admitted write's stable handle here.
+		id, err := e.resolveEntitlementIdentityByExternalID(ctx, e.db, externalID)
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
 				return nil

@@ -28,7 +28,12 @@ func (e *Engine) PutAssetRecord(ctx context.Context, r *v3.AssetRecord) error {
 }
 
 func (e *Engine) GetAssetRecord(ctx context.Context, externalID string) (*v3.AssetRecord, error) {
-	val, closer, err := e.db.Get(encodeAssetKey(externalID))
+	db, release, err := e.pinRead()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	val, closer, err := db.Get(encodeAssetKey(externalID))
 	if err != nil {
 		return nil, err
 	}

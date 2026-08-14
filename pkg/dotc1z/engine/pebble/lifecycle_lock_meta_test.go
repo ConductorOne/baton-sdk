@@ -2,6 +2,7 @@ package pebble
 
 import (
 	"go/ast"
+	"go/token"
 	"path/filepath"
 	"testing"
 
@@ -21,17 +22,17 @@ import (
 //
 // The five below are the sync-lifecycle transitions. They earn the lock
 // because their bodies are read-check-write sequences over the sync-run
-// record and the binding, and none of them can be called from a write
-// body — but not all for the same reason. startNewSync, CheckpointSync
-// and EndSync take the barrier themselves, so lockWriteBarrier's
-// re-entrancy check fires first. ResumeSync and SetCurrentSync never
-// touch writeMu (a record read and a rebind, whose locks are
-// currentSyncMu and sealMu), so nothing about them would have hung at
-// the barrier: they call assertNotTakingLifecycleFromWrite instead, and
-// that call is what makes the claim above true for them.
+// record and the binding. EVERY one of them must call
+// assertNotTakingLifecycleFromWrite BEFORE taking the lock: the barrier
+// re-entrancy check inside the writing transitions fires at the first
+// inner write — after lifecycleMu is already held — and a contended
+// lifecycleMu parks the caller before that, holding the barrier a
+// concurrent EndSync's finalize is waiting on. Only a guard placed
+// before the lock turns that hang into a panic, so this test checks the
+// position, not just the presence.
 //
-// A sixth taker is not forbidden, but it does have to be a decision: add
-// it here, and say which of those two protects it.
+// A sixth taker is not forbidden, but it does have to be a decision:
+// add it here, with the guard in the same shape.
 func TestLifecycleMuTakersAreTransitionsOnly(t *testing.T) {
 	want := map[string]bool{
 		"startNewSync":   true,
@@ -41,17 +42,10 @@ func TestLifecycleMuTakersAreTransitionsOnly(t *testing.T) {
 		"EndSync":        true,
 	}
 
-	// The takers that reach lifecycleMu without ever taking the write
-	// barrier, and so need the explicit guard to be unreachable from a
-	// write body.
-	wantGuarded := map[string]bool{
-		"ResumeSync":     true,
-		"SetCurrentSync": true,
-	}
-
 	got := map[string]bool{}
-	guarded := map[string]bool{}
-	_, files := parseProductionDir(t, ".")
+	guardPos := map[string]token.Pos{}
+	lockPos := map[string]token.Pos{}
+	fset, files := parseProductionDir(t, ".")
 	for _, f := range files {
 		for _, decl := range f.Decls {
 			fn, ok := decl.(*ast.FuncDecl)
@@ -66,24 +60,35 @@ func TestLifecycleMuTakersAreTransitionsOnly(t *testing.T) {
 				switch sel.Sel.Name {
 				case "lifecycleMu":
 					got[fn.Name.Name] = true
+					if _, seen := lockPos[fn.Name.Name]; !seen {
+						lockPos[fn.Name.Name] = sel.Pos()
+					}
 				case "assertNotTakingLifecycleFromWrite":
-					guarded[fn.Name.Name] = true
+					if _, seen := guardPos[fn.Name.Name]; !seen {
+						guardPos[fn.Name.Name] = sel.Pos()
+					}
 				}
 				return true
 			})
 		}
 	}
 
-	require.Equal(t, wantGuarded, guarded,
-		"the set of lifecycleMu takers that need the explicit write-body guard changed. A taker that does not "+
-			"take the write barrier somewhere in its body gets no re-entrancy check, so it has to call "+
-			"assertNotTakingLifecycleFromWrite: add it here, or drop the call and say which write in the body "+
-			"the barrier check now covers.")
 	require.Equal(t, want, got,
 		"the set of lifecycleMu takers changed. Lock order is lifecycleMu then writeMu, so a new taker "+
 			"reachable from inside a write body reintroduces the deadlock TestCurrentSyncStepDoesNotDeadlockWithEndSync "+
 			"covers. If the new method is a lifecycle transition, add it here; if it is a read, read the binding "+
 			"instead (see CurrentSyncStep) rather than locking.")
+	for taker := range want {
+		gp, guarded := guardPos[taker]
+		require.True(t, guarded,
+			"%s takes lifecycleMu without calling assertNotTakingLifecycleFromWrite. Called from a write body it "+
+				"parks on the lock holding the barrier — the deadlock — with nothing to turn the hang into a panic.",
+			taker)
+		require.Less(t, gp, lockPos[taker],
+			"%s calls assertNotTakingLifecycleFromWrite at %s, AFTER taking lifecycleMu at %s. Behind the lock the "+
+				"guard is too late: a contended lifecycleMu parks the caller first, and the park is the deadlock.",
+			taker, fset.Position(gp), fset.Position(lockPos[taker]))
+	}
 }
 
 // TestWriteBarrierLockedThroughOwnerPairOnly pins where writeMu may be

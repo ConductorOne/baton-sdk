@@ -61,7 +61,12 @@ func SyncStatsSidecarUpperBound() []byte {
 // mismatched id misses); pass "" to read whatever is stored. Errors
 // surface for real read failures only.
 func (e *Engine) readSyncStats(ctx context.Context, syncID string) (*v3.SyncStatsRecord, error) {
-	val, closer, err := e.db.Get(encodeSyncStatsKey())
+	db, release, err := e.pinRead()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	val, closer, err := db.Get(encodeSyncStatsKey())
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return nil, nil
@@ -111,10 +116,17 @@ func (e *Engine) writeSyncStats(ctx context.Context, rec *v3.SyncStatsRecord) er
 // field removed the final stats-sidecar full unmarshal from compaction; in the
 // same-size syncs=50 overlay case allocs dropped from ~3.05M to ~2.41M/op.
 func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncStatsRecord, error) {
+	// One pin spans all five scans: the Stats reader path calls this on
+	// a bare Engine, and each scan below reads the handle.
+	db, release, err := e.pinRead()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	rec := &v3.SyncStatsRecord{}
 	rec.SetSyncId(syncID)
 
-	resourceTypes, err := countKeyRange(ctx, e.db, ResourceTypeLowerBound(), ResourceTypeUpperBound(), nil)
+	resourceTypes, err := countKeyRange(ctx, db, ResourceTypeLowerBound(), ResourceTypeUpperBound(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("computeSyncStats: resource_types: %w", err)
 	}
@@ -129,7 +141,7 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 	resLower := ResourceLowerBound()
 	var rtScratch, curRT []byte
 	var curCount int64
-	resources, err := countKeyRange(ctx, e.db, resLower, ResourceUpperBound(), func(key []byte, _ []byte) error {
+	resources, err := countKeyRange(ctx, db, resLower, ResourceUpperBound(), func(key []byte, _ []byte) error {
 		if len(key) <= len(resLower) {
 			return fmt.Errorf("resource key shorter than expected lower bound")
 		}
@@ -163,7 +175,7 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 	// time each resource type appears (same shape as the grant grouping
 	// below).
 	entitlementsByRTPtr := map[string]*int64{}
-	entitlements, err := countKeyRange(ctx, e.db, EntitlementLowerBound(), EntitlementUpperBound(), func(_ []byte, value []byte) error {
+	entitlements, err := countKeyRange(ctx, db, EntitlementLowerBound(), EntitlementUpperBound(), func(_ []byte, value []byte) error {
 		rt, err := scanEntitlementResourceTypeRaw(value)
 		if err != nil {
 			return err
@@ -201,7 +213,7 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 		grantsByEntitlementRT = ds.grantsByEntitlementRT
 	} else {
 		grantsByEntRTPtr := map[string]*int64{}
-		grants, err = countKeyRange(ctx, e.db, GrantLowerBound(), GrantUpperBound(), func(_ []byte, value []byte) error {
+		grants, err = countKeyRange(ctx, db, GrantLowerBound(), GrantUpperBound(), func(_ []byte, value []byte) error {
 			entRT, err := scanGrantEntitlementResourceTypeRaw(value)
 			if err != nil {
 				return err
@@ -224,7 +236,7 @@ func (e *Engine) computeSyncStats(ctx context.Context, syncID string) (*v3.SyncS
 	}
 	rec.SetGrants(grants)
 
-	assets, err := countKeyRange(ctx, e.db, AssetLowerBound(), AssetUpperBound(), nil)
+	assets, err := countKeyRange(ctx, db, AssetLowerBound(), AssetUpperBound(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("computeSyncStats: assets: %w", err)
 	}

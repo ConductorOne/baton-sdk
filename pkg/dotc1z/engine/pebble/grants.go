@@ -894,12 +894,17 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 // GetGrantRecord fetches a grant record by its raw public id via the
 // bare-id lookup (candidate-split probing, exactly-one rule — lookup.go).
 func (e *Engine) GetGrantRecord(ctx context.Context, externalID string) (*v3.GrantRecord, error) {
-	id, err := e.resolveGrantIdentityByExternalID(ctx, externalID)
+	db, release, err := e.pinRead()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	id, err := e.resolveGrantIdentityByExternalID(ctx, db, externalID)
 	if err != nil {
 		return nil, err
 	}
 	key := encodeGrantIdentityKey(id)
-	val, closer, err := e.db.Get(key)
+	val, closer, err := db.Get(key)
 	if err != nil {
 		return nil, err
 	}
@@ -916,7 +921,9 @@ func (e *Engine) GetGrantRecord(ctx context.Context, externalID string) (*v3.Gra
 // lossy string must never guess a delete).
 func (e *Engine) DeleteGrantRecord(ctx context.Context, externalID string) error {
 	return e.withWrite(func() error {
-		id, err := e.resolveGrantIdentityByExternalID(ctx, externalID)
+		// e.db is the admitted write's stable handle here (withWrite
+		// holds gate admission, so teardown cannot run).
+		id, err := e.resolveGrantIdentityByExternalID(ctx, e.db, externalID)
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
 				return nil
@@ -1055,7 +1062,7 @@ func (e *Engine) IterateGrantsByEntitlement(ctx context.Context, entitlementID s
 		return err
 	}
 	defer release()
-	entID, err := e.resolveGrantScanEntitlementIdentity(ctx, entitlementID)
+	entID, err := e.resolveGrantScanEntitlementIdentity(ctx, db, entitlementID)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return nil

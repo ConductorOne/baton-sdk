@@ -343,7 +343,13 @@ func (e *Engine) entitlementIdentityForRequest(ctx context.Context, ent *v2.Enti
 	if res := ent.GetResource(); res.GetId().GetResourceType() != "" && res.GetId().GetResource() != "" {
 		return entitlementIdentityFromParts(res.GetId().GetResourceType(), res.GetId().GetResource(), ent.GetId()), nil
 	}
-	return e.resolveGrantScanEntitlementIdentity(ctx, ent.GetId())
+	// Only the fallback touches the store, so only it pins.
+	db, release, err := e.pinRead()
+	if err != nil {
+		return entitlementIdentity{}, err
+	}
+	defer release()
+	return e.resolveGrantScanEntitlementIdentity(ctx, db, ent.GetId())
 }
 
 // ListGrantsForPrincipal returns all grants where the given principal_id is
@@ -752,11 +758,16 @@ func (e *Engine) GetEntitlementGrantDigestNodes(ctx context.Context, ent *v2.Ent
 	// At or below the stored width, fold the digest leaves (cheap). Finer
 	// than what we stored, scan the grant index to compute the rollup.
 	partition := digestPartitionForEntitlement(id)
+	db, release, err := e.pinRead()
+	if err != nil {
+		return nil, false, err
+	}
+	defer release()
 	var folded []foldedBucket
 	if bits <= root.Bits {
-		folded, err = e.foldedLeafBuckets(ctx, grantDigestSpec, partition, bits)
+		folded, err = e.foldedLeafBuckets(ctx, db, grantDigestSpec, partition, bits)
 	} else {
-		folded, err = e.computeBucketsAtWidth(ctx, grantDigestSpec, partition, bits)
+		folded, err = e.computeBucketsAtWidth(ctx, db, grantDigestSpec, partition, bits)
 	}
 	if err != nil {
 		return nil, false, err

@@ -347,7 +347,9 @@ func (e *Engine) Close() error {
 	// paginate holding e.db while the teardown runs — pebble's
 	// "pebble: closed" panic out of its next iterator call), and runs
 	// the teardown exactly once. A Close from inside an admitted
-	// operation panics instead of self-deadlocking; see closeAndDrain.
+	// operation panics instead of self-deadlocking in armed builds
+	// (baton_lockchecks or -race — see writeBarrierOwnerChecks);
+	// unchecked builds hang, which is why CI runs armed.
 	return e.admit.closeAndDrain(func() error {
 		// A leaked synthesized-grant layer session (possible only if a
 		// panic unwound past the expansion driver's Abort) has a
@@ -642,11 +644,13 @@ func (e *Engine) checkWritable() error {
 // checkWritableAllowSealed is checkWritable without the sealed check, for
 // the few write paths that legitimately run on a finished sync (sync-run
 // metadata updates and the pre-StartNewSync wipe).
+//
+// No e.db nil check here on purpose: reading the field outside the gate
+// is exactly the unsynchronized access the gate exists to remove (a data
+// race under -race), and it can never catch anything the closing check
+// misses — the teardown nils the field only after the flip this reads.
 func (e *Engine) checkWritableAllowSealed() error {
 	if e.admit.isClosing() {
-		return ErrEngineClosing
-	}
-	if e.db == nil {
 		return ErrEngineClosing
 	}
 	if e.opts.readOnly {
@@ -714,15 +718,12 @@ func (e *Engine) pinRead() (*rawdb.DB, func(), error) {
 	if err := e.admit.enterRead(); err != nil {
 		return nil, nil, err
 	}
-	// Safe unsynchronized: admission precedes Close's flip, so Close is
-	// still waiting on this pin and has not reached the teardown that
-	// nils the field.
-	db := e.db
-	if db == nil {
-		e.admit.exitRead()
-		return nil, nil, ErrEngineClosing
-	}
-	return db, e.admit.exitRead, nil
+	// Safe unsynchronized, and non-nil by construction: admission
+	// precedes Close's flip, so Close is still waiting on this pin and
+	// has not reached the teardown that nils the field. (A nil check
+	// here would be dead code guarding an ordering the gate already
+	// provides.)
+	return e.db, e.admit.exitRead, nil
 }
 
 func (e *Engine) Save(ctx context.Context, dest string) error {

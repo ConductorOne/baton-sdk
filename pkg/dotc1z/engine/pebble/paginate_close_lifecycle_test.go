@@ -173,16 +173,16 @@ func TestReadSurfaceAfterCloseReturnsClosing(t *testing.T) {
 var pinnedReadPrefixes = []string{"Paginate", "Iterate", "ForEach"}
 
 // TestCloseWaitsForInFlightAdmission pins the ordering that keeps a
-// joiner's closing check and its Add from straddling Close's flip.
+// joiner's closing check and its counter increment from straddling
+// Close's flip.
 //
-// Re-checking the flag after the Add does not close that window, it just
-// narrows it: a reader that read closing==false can be descheduled and
-// run its Add after Close has parked in Wait with the counter at zero,
-// and sync.WaitGroup answers that with "Add called concurrently with
-// Wait" — a panic, not the ErrEngineClosing the re-check was reaching
-// for. It surfaces as a rare crash under load, on the interleaving
-// TestConcurrentCloseWithPaginatedReads spends four goroutines trying to
-// hit, which is the worst way to learn about it.
+// Re-checking the flag after the increment does not close that window,
+// it just narrows it: a reader that read closing==false can be
+// descheduled and land its increment after Close's drain sampled the
+// counter at zero — a member the drain never counted, so the teardown
+// runs under a live read. It surfaces as a rare crash under load, on
+// the interleaving TestConcurrentCloseWithPaginatedReads spends four
+// goroutines trying to hit, which is the worst way to learn about it.
 //
 // Holding the admission lock the way pinRead does is the whole
 // interleaving, stopped in the middle: while a pin is being acquired,
@@ -193,28 +193,32 @@ func TestCloseWaitsForInFlightAdmission(t *testing.T) {
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	// A pin caught between its closing check and its Add: hold the
-	// gate's admission lock the way enterRead does, with the Add not
-	// yet issued. White-box into the admission type — the interleaving
-	// under test is the two statements inside enterRead, so no method
-	// can stand in for the stopped middle.
+	// A pin caught between its closing check and its increment: hold
+	// the gate's admission lock the way enterRead does, with the
+	// increment not yet issued. White-box into the admission type — the
+	// interleaving under test is the two statements inside enterRead,
+	// so no method can stand in for the stopped middle.
 	e.admit.mu.RLock()
 
 	closed := make(chan error, 1)
 	go func() { closed <- e.Close() }()
 
 	require.Never(t, func() bool { return e.admit.isClosing() }, 200*time.Millisecond, 5*time.Millisecond,
-		"Close flipped the closing flag while a pin was mid-acquisition. That pin's Add now lands on a "+
-			"WaitGroup Close is already waiting on at zero, which panics instead of refusing the read")
+		"Close flipped the closing flag while a pin was mid-acquisition. That pin's increment now lands on a "+
+			"drain that already sampled zero, so the teardown runs under a live read instead of refusing it")
 
 	// Finish acquiring, then let Close proceed: it must now see the pin
 	// and wait for it rather than tear the handle down underneath it.
-	e.admit.readers.Add(1)
+	e.admit.countMu.Lock()
+	e.admit.readers++
+	e.admit.countMu.Unlock()
 	e.admit.mu.RUnlock()
 
 	require.Never(t, func() bool { return e.db == nil }, 100*time.Millisecond, 5*time.Millisecond,
 		"Close tore the handle down while a read was pinned")
-	e.admit.readers.Done()
+	// exitRead decrements and broadcasts the drain awake; the untracked
+	// membership entry is a no-op to release.
+	e.admit.exitRead()
 	require.NoError(t, <-closed)
 }
 
@@ -304,20 +308,28 @@ func TestScanReadsArePinned(t *testing.T) {
 // scanLoopCancellation reports whether fn drives a pebble iterator
 // directly, and whether any such loop consults ctx.Err().
 //
-// Keyed on an iterator loop — a `for` whose condition calls Valid() —
-// rather than on any loop at all, because the unbounded thing is the
-// keyspace, not the ranging. PaginateGrants ranges over the page it just
-// read to reconcile absent fields; that loop is bounded by the page limit
-// and the scan feeding it lives in a shared helper that checks per
-// iteration. Requiring a check there would be noise, and noise is how a
-// meta-test gets an exemption list and stops meaning anything.
+// Keyed on an iterator loop rather than on any loop at all, because the
+// unbounded thing is the keyspace, not the ranging. PaginateGrants
+// ranges over the page it just read to reconcile absent fields; that
+// loop is bounded by the page limit and the scan feeding it lives in a
+// shared helper that checks per iteration. Requiring a check there
+// would be noise, and noise is how a meta-test gets an exemption list
+// and stops meaning anything.
+//
+// Two loop shapes count as iterator loops: a `for` whose condition
+// calls Valid() (`for iter.First(); iter.Valid(); iter.Next()`), and
+// the seek-driven shape whose condition is a bool fed by First/SeekGE
+// (`for valid := iter.First(); valid;` — the distinct-referent scans in
+// ingest_facts/ingest_repair). The second used to be invisible here,
+// which meant those scans could lose their ctx check without any test
+// noticing.
 //
 // Deliberately "any iterator loop" rather than "every" one: these shapes
 // nest, an outer index walk feeding an inner primary-key fetch, and one
 // check per scan is what bounds the pin.
 func scanLoopCancellation(fn *ast.FuncDecl) (bool, bool) {
 	var hasLoop, checksCtx bool
-	callsMethod := func(node ast.Node, name string) bool {
+	callsMethod := func(node ast.Node, names ...string) bool {
 		if node == nil {
 			return false
 		}
@@ -327,16 +339,31 @@ func scanLoopCancellation(fn *ast.FuncDecl) (bool, bool) {
 			if !ok {
 				return true
 			}
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == name {
-				found = true
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+				for _, name := range names {
+					if sel.Sel.Name == name {
+						found = true
+					}
+				}
 			}
 			return true
 		})
 		return found
 	}
+	isIterLoop := func(loop *ast.ForStmt) bool {
+		if callsMethod(loop.Cond, "Valid") {
+			return true
+		}
+		// Seek-driven: `for valid := iter.First(); valid;` — condition
+		// is a bare bool whose init assigns from a positioning call.
+		if _, ok := loop.Cond.(*ast.Ident); ok && callsMethod(loop.Init, "First", "SeekGE", "SeekLT", "Last") {
+			return true
+		}
+		return false
+	}
 	ast.Inspect(fn, func(n ast.Node) bool {
 		loop, ok := n.(*ast.ForStmt)
-		if !ok || !callsMethod(loop.Cond, "Valid") {
+		if !ok || !isIterLoop(loop) {
 			return true
 		}
 		hasLoop = true
@@ -352,12 +379,11 @@ func scanLoopCancellation(fn *ast.FuncDecl) (bool, bool) {
 // same contract: "Concurrent Reader/Writer calls are safe."
 //
 // Writers are held to it by a real barrier — the closing check, gate
-// admission, and the barrier mutex — so Close drains them and
-// they never touch a handle that is being torn down. Readers take part
-// in none of that: there is no withRead, and the paginate family reads
-// e.db directly. So a read in flight when Close nils the handle is
-// unsynchronized against that write, and the value it read is one the
-// teardown is about to invalidate.
+// admission, and the barrier mutex. Readers hold only a pin: gate
+// admission with no mutual exclusion, so this hammers the pin's whole
+// job — a read admitted before Close's flip must complete against a
+// live handle, and one arriving after must be refused, across every
+// interleaving four goroutines can produce.
 //
 // A reader here may only succeed or be refused with ErrEngineClosing.
 // A panic, any other error, or a race report is a failure.
