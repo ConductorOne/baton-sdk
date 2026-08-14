@@ -713,21 +713,27 @@ func egressPolicyFromResponse(ctx context.Context, config *v1.GetConnectorConfig
 	// invalidates the whole envelope. The allow-all hazard that makes this
 	// fail closed only exists under ENFORCE: a wildcard entry would read as
 	// allow-all to a wildcard-matching connector. Under REPORT/absent mode the
-	// allowlist is observed, not enforced, so a contract-invalid entry (e.g. an
-	// on-prem instance whose resolved config yields an IP-literal host) must
-	// not take egress offline — but it is also dropped from the projected
-	// allowlist, so a connector that enforces AllowedHosts without reading
-	// Enforce cannot treat a "*" entry as allow-all. Every offending entry is
-	// warned in one projection. A port suffix is split off before the IP check
-	// so a host:port entry is caught.
+	// envelope is not rejected (Enforce stays false, so a mode-honoring
+	// connector observes), but a contract-invalid entry (e.g. an on-prem
+	// instance whose resolved config yields an IP-literal host) is dropped
+	// from the projected allowlist — so a connector that enforces AllowedHosts
+	// without reading Enforce cannot treat a "*" entry as allow-all. If the
+	// dropped entry was the only host, the projection is empty, which a
+	// host-gating connector reads as deny-all: dropping is not rejecting the
+	// envelope, but it can still empty the allowlist. Every offending entry is
+	// warned in one projection. A port-bearing entry is dropped outright (the
+	// canonical form has no port); a port suffix is split off before the IP
+	// check so a host:port IP literal is caught.
 	valid := make([]string, 0, len(policy.AllowedHosts))
 	for _, h := range policy.AllowedHosts {
 		host := h
+		hasPort := false
 		if hp, _, err := net.SplitHostPort(h); err == nil {
 			host = hp
+			hasPort = true
 		}
-		if h == "" || strings.Contains(h, "*") || net.ParseIP(strings.Trim(host, "[]")) != nil {
-			ctxzap.Extract(ctx).Warn("connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+		if h == "" || strings.Contains(h, "*") || hasPort || net.ParseIP(strings.Trim(host, "[]")) != nil {
+			ctxzap.Extract(ctx).Warn("connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
 				zap.String("host", h))
 			if policy.Enforce {
 				return &EgressPolicy{Enforce: true, HTTPSOnly: true}

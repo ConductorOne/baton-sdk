@@ -278,7 +278,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"*"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
 			wantFields: map[string]any{
 				"host": "*",
 			},
@@ -291,7 +291,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"*.example.com"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
 			wantFields: map[string]any{
 				"host": "*.example.com",
 			},
@@ -304,7 +304,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{""})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
 			wantFields: map[string]any{
 				"host": "",
 			},
@@ -317,7 +317,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"192.168.1.1"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
 			wantFields: map[string]any{
 				"host": "192.168.1.1",
 			},
@@ -330,7 +330,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"2001:db8::1"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
 			wantFields: map[string]any{
 				"host": "2001:db8::1",
 			},
@@ -343,7 +343,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"[2001:db8::1]"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
 			wantFields: map[string]any{
 				"host": "[2001:db8::1]",
 			},
@@ -356,7 +356,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"*"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
 			wantFields: map[string]any{
 				"host": "*",
 			},
@@ -369,7 +369,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"192.168.1.1:443"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
 			wantFields: map[string]any{
 				"host": "192.168.1.1:443",
 			},
@@ -382,7 +382,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"[2001:db8::1]:443"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
 			wantFields: map[string]any{
 				"host": "[2001:db8::1]:443",
 			},
@@ -395,11 +395,38 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"*", "10.0.0.5"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
 			wantFields: map[string]any{
 				"host": "*",
 			},
 			wantWarns: 2,
+		},
+		{
+			name: "allowlist partial drop in REPORT mode keeps valid hosts",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_REPORT)
+				env.GetEgress().SetAllowedHosts([]string{"api.example.com", "*", "10.0.0.5"})
+				return newResp("cv-1", env)
+			},
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
+			wantFields: map[string]any{
+				"host": "*",
+			},
+			wantWarns: 2,
+		},
+		{
+			name: "allowlist port-bearing hostname invalidates envelope per contract",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_ENFORCE)
+				env.GetEgress().SetAllowedHosts([]string{"example.com:443"})
+				return newResp("cv-1", env)
+			},
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
+			wantFields: map[string]any{
+				"host": "example.com:443",
+			},
 		},
 	}
 
@@ -445,14 +472,15 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				"allowlist bare IPv6 literal invalidates envelope per contract",
 				"allowlist bracketed IPv6 literal invalidates envelope per contract",
 				"allowlist IPv4 with port invalidates envelope per contract",
-				"allowlist bracketed IPv6 with port invalidates envelope per contract":
+				"allowlist bracketed IPv6 with port invalidates envelope per contract",
+				"allowlist port-bearing hostname invalidates envelope per contract":
 				require.NotNil(t, p)
 				require.True(t, p.Enforce)
 				require.True(t, p.HTTPSOnly)
 				require.Empty(t, p.AllowedHosts)
-			// Under REPORT/absent mode the allowlist is observed, not enforced, so
-			// a contract-invalid entry must not take egress offline: the
-			// projection is unchanged (Enforce=false, hosts verbatim).
+				// Under REPORT/absent mode the envelope is not rejected (Enforce stays
+			// false, so a mode-honoring connector observes), but a contract-invalid
+			// entry is dropped from the projected allowlist.
 			case "allowlist wildcard in REPORT mode observes":
 				require.NotNil(t, p)
 				require.False(t, p.Enforce)
@@ -464,7 +492,13 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				require.Empty(t, p.AllowedHosts, "contract-invalid entries are dropped from the projected allowlist")
 				require.True(t, p.HTTPSOnly)
 				// Both offending entries are surfaced in one projection.
-				require.Equal(t, "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract", entries[1].Message)
+				require.Equal(t, "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract", entries[1].Message)
+				require.Equal(t, "10.0.0.5", entries[1].ContextMap()["host"])
+			case "allowlist partial drop in REPORT mode keeps valid hosts":
+				require.NotNil(t, p)
+				require.False(t, p.Enforce)
+				require.Equal(t, []string{"api.example.com"}, p.AllowedHosts, "valid hosts survive, invalid entries are dropped")
+				require.True(t, p.HTTPSOnly)
 				require.Equal(t, "10.0.0.5", entries[1].ContextMap()["host"])
 			}
 		})
@@ -768,7 +802,7 @@ func TestReloadGlobalFloorAndNewVersion(t *testing.T) {
 		lambdaConnectorReloadGlobalFloor = oldFloor
 	}()
 	lambdaConnectorReloadMinInterval = time.Hour
-	lambdaConnectorReloadGlobalFloor = time.Hour
+	lambdaConnectorReloadGlobalFloor = time.Second
 
 	_, err := logging.Init(context.Background(),
 		logging.WithLogLevel("info"),
@@ -824,11 +858,18 @@ func TestReloadGlobalFloorAndNewVersion(t *testing.T) {
 	}
 	require.Equal(t, 1, buildCalls, "alternating versions are capped by the global floor")
 
-	// Once the global floor has elapsed, a genuinely new version (cv-3, which
-	// differs from the last rebuild's requested cv-2) rebuilds immediately —
-	// not deferred by the full skew interval.
-	r.lastRebuildAt = time.Now().Add(-2 * time.Hour)
-	resp, err := r.Handler(context.Background(), req("cv-3"))
+	// Backdate past the global floor (1s) but inside the skew interval (1h):
+	// a same-version request is still capped by the version-keyed term, while
+	// a genuinely new version (cv-3, differing from the last rebuild's
+	// requested cv-2) rebuilds immediately — proving the new version is not
+	// deferred by the full skew interval.
+	r.lastRebuildAt = time.Now().Add(-2 * time.Second)
+	resp, err := r.Handler(context.Background(), req("cv-2"))
+	require.NoError(t, err, "same-version invocation")
+	require.NotNil(t, resp)
+	require.Equal(t, 1, buildCalls, "a same-version request within the skew interval is still capped by the version-keyed term")
+
+	resp, err = r.Handler(context.Background(), req("cv-3"))
 	require.NoError(t, err, "new-version invocation")
 	require.NotNil(t, resp)
 	require.Equal(t, 2, buildCalls, "a genuinely new version rebuilds once the global floor has elapsed")
