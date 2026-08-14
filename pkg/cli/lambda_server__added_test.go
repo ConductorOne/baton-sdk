@@ -308,6 +308,58 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				"host": "",
 			},
 		},
+		{
+			name: "allowlist IPv4 literal invalidates envelope per contract",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_ENFORCE)
+				env.GetEgress().SetAllowedHosts([]string{"192.168.1.1"})
+				return newResp("cv-1", env)
+			},
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+			wantFields: map[string]any{
+				"host": "192.168.1.1",
+			},
+		},
+		{
+			name: "allowlist bare IPv6 literal invalidates envelope per contract",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_ENFORCE)
+				env.GetEgress().SetAllowedHosts([]string{"2001:db8::1"})
+				return newResp("cv-1", env)
+			},
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+			wantFields: map[string]any{
+				"host": "2001:db8::1",
+			},
+		},
+		{
+			name: "allowlist bracketed IPv6 literal invalidates envelope per contract",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_ENFORCE)
+				env.GetEgress().SetAllowedHosts([]string{"[2001:db8::1]"})
+				return newResp("cv-1", env)
+			},
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+			wantFields: map[string]any{
+				"host": "[2001:db8::1]",
+			},
+		},
+		{
+			name: "allowlist wildcard in REPORT mode observes",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_REPORT)
+				env.GetEgress().SetAllowedHosts([]string{"*"})
+				return newResp("cv-1", env)
+			},
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+			wantFields: map[string]any{
+				"host": "*",
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -335,27 +387,30 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				require.Equal(t, []string{"api.example.com"}, p.AllowedHosts)
 				require.True(t, p.HTTPSOnly)
 			}
-			// The wildcard/subdomain-wildcard/empty-host cases fail closed like
-			// every other v1 invariant: the projection is the synthetic deny-all
-			// (empty allowlist, Enforce=true, HTTPSOnly=true), not the envelope's
-			// hosts verbatim — under ENFORCE a wildcard entry would otherwise
-			// read as allow-all to a wildcard-matching connector.
+			// The wildcard/subdomain-wildcard/empty-host/IP-literal cases fail closed
+			// under ENFORCE like every other v1 invariant: the projection is the
+			// synthetic deny-all (empty allowlist, Enforce=true, HTTPSOnly=true),
+			// not the envelope's hosts verbatim — under ENFORCE a wildcard entry
+			// would otherwise read as allow-all to a wildcard-matching connector.
 			switch tc.name {
-			case "allowlist wildcard invalidates envelope per contract":
+			case "allowlist wildcard invalidates envelope per contract",
+				"allowlist subdomain wildcard invalidates envelope per contract",
+				"allowlist empty host invalidates envelope per contract",
+				"allowlist IPv4 literal invalidates envelope per contract",
+				"allowlist bare IPv6 literal invalidates envelope per contract",
+				"allowlist bracketed IPv6 literal invalidates envelope per contract":
 				require.NotNil(t, p)
 				require.True(t, p.Enforce)
 				require.True(t, p.HTTPSOnly)
 				require.Empty(t, p.AllowedHosts)
-			case "allowlist subdomain wildcard invalidates envelope per contract":
+			// Under REPORT/absent mode the allowlist is observed, not enforced, so
+			// a contract-invalid entry must not take egress offline: the
+			// projection is unchanged (Enforce=false, hosts verbatim).
+			case "allowlist wildcard in REPORT mode observes":
 				require.NotNil(t, p)
-				require.True(t, p.Enforce)
+				require.False(t, p.Enforce)
+				require.Equal(t, []string{"*"}, p.AllowedHosts)
 				require.True(t, p.HTTPSOnly)
-				require.Empty(t, p.AllowedHosts)
-			case "allowlist empty host invalidates envelope per contract":
-				require.NotNil(t, p)
-				require.True(t, p.Enforce)
-				require.True(t, p.HTTPSOnly)
-				require.Empty(t, p.AllowedHosts)
 			}
 		})
 	}

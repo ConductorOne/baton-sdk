@@ -102,9 +102,11 @@ type lambdaConnectorReloader struct {
 	// served-version labeling makes the no-op guard never match, so this bounds
 	// rebuilds to one per lambdaConnectorReloadMinInterval regardless of the
 	// requested version (a time-only floor, so interleaved requested versions
-	// cannot bypass it). Stamped only on the success path, so a persistently
-	// failing build is uncapped — intentional, so a retry can clear a transient
-	// error.
+	// cannot bypass it). A legitimate new version can therefore be deferred by
+	// up to lambdaConnectorReloadMinInterval, serving the previous generation
+	// in the meantime (logged on the capped path). Stamped only on the success
+	// path, so a persistently failing build is uncapped — intentional, so a
+	// retry can clear a transient error.
 	lastRebuildAt time.Time
 }
 
@@ -188,7 +190,15 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 	// generation stays labeled with the served version, so a stale reply is
 	// still re-fetched every interval. The floor is time-only (not keyed on the
 	// requested version), so interleaved requested versions cannot bypass it.
+	// A genuinely new requested version can be deferred by up to
+	// lambdaConnectorReloadMinInterval, serving the previous generation (stale
+	// config and egress policy) in the meantime — log it so the bounded
+	// staleness is observable.
 	if time.Since(r.lastRebuildAt) < lambdaConnectorReloadMinInterval {
+		ctxzap.Extract(ctx).Warn("lambda-run: reload rate-capped; serving previous generation",
+			zap.String("requested_version", requestedVersion),
+			zap.String("current_version", r.current.version),
+			zap.Duration("remaining_interval", lambdaConnectorReloadMinInterval-time.Since(r.lastRebuildAt)))
 		return nil
 	}
 
@@ -676,17 +686,21 @@ func egressPolicyFromResponse(ctx context.Context, config *v1.GetConnectorConfig
 		}
 	}
 	// The proto contract says an empty, wildcard, or IP-literal entry
-	// invalidates the whole envelope. Every other v1 invariant above fails
-	// closed (deny-all), and this one must too: under ENFORCE a wildcard entry
-	// would project to allow-all for a wildcard-matching connector, the
-	// opposite of every other rejection outcome. The server is authoritative
-	// and the runtime's compiled hard denylist still applies, but the
-	// projection itself must not widen to allow-all.
+	// invalidates the whole envelope. The allow-all hazard that makes this
+	// fail closed only exists under ENFORCE: a wildcard entry would read as
+	// allow-all to a wildcard-matching connector. Under REPORT/absent mode the
+	// allowlist is observed, not enforced, so a contract-invalid entry (e.g. an
+	// on-prem instance whose resolved config yields an IP-literal host) must not
+	// take egress offline — warn and leave the projection unchanged. Brackets
+	// are stripped before the IP check so a bracketed IPv6 literal is caught.
 	for _, h := range policy.AllowedHosts {
-		if h == "" || strings.Contains(h, "*") || net.ParseIP(h) != nil {
+		if h == "" || strings.Contains(h, "*") || net.ParseIP(strings.Trim(h, "[]")) != nil {
 			ctxzap.Extract(ctx).Warn("connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
 				zap.String("host", h))
-			return &EgressPolicy{Enforce: true, HTTPSOnly: true}
+			if policy.Enforce {
+				return &EgressPolicy{Enforce: true, HTTPSOnly: true}
+			}
+			break
 		}
 	}
 	return policy
