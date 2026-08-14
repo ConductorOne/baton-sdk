@@ -12,6 +12,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
@@ -105,7 +106,8 @@ func grantPrincipalBucketHash64(encodedPrincipalSegments []byte) uint64 {
 // DigestBucketHashBits is how many of PrincipalBucketHash's leading bits
 // actually select a digest bucket: the stored bucket hash is truncated to
 // this width, so bucket levels beyond it cannot subdivide further and are
-// clamped (see GetEntitlementGrantDigestNodes / ScanEntitlementGrantBucket).
+// rejected (see PrincipalDigestBucket, GetEntitlementGrantDigestNodes,
+// ScanEntitlementGrantBucket).
 //
 // ABI: the stored truncation width, pinned to GrantDigestABIVersion. It may
 // only grow, and only under an index-migration bump — which is why it is a
@@ -119,21 +121,22 @@ const DigestBucketHashBits = digestBucketHashLen * 8
 // only — never the principal's attributes — so a principal keeps its
 // bucket across syncs.
 //
-// Use it to place records held outside a pebble file (e.g. rows in
-// another store) into the same buckets the engine digests, then compare
-// or scan bucket-by-bucket instead of reimplementing the ABI:
+// Use PrincipalDigestBucket to turn this into a bucket at a given level;
+// it owns the index math below so callers never hand-derive it:
 //
-//	idx := uint32(PrincipalBucketHash(rt, id) >> (64 - level))  // level <= DigestBucketHashBits
+//	bucket, _ := PrincipalDigestBucket(rt, id, level)
 //	nodes, _, _ := r.GetEntitlementGrantDigestNodes(ctx, ent, level)
-//	_ = r.ScanEntitlementGrantBucket(ctx, ent, connectorstore.GrantDigestBucket{Level: level, Index: idx}, yield)
+//	_ = r.ScanEntitlementGrantBucket(ctx, ent, bucket, yield)
 //
 // Contract: the bucket at level L holds exactly the principals whose top
 // L bits of this hash equal the bucket index — the same index
 // GetEntitlementGrantDigestNodes(L) reports and ScanEntitlementGrantBucket
 // takes. Only the leading DigestBucketHashBits bits are stored, so a
-// caller must not read a level past that: the engine clamps such a level,
-// and the two sides would disagree. L == 0 is the whole entitlement
-// (index 0).
+// level past that has no addressable bucket: PrincipalDigestBucket and
+// the read APIs all ERROR on such a level rather than silently folding it
+// to DigestBucketHashBits, so a caller's precomputed placement and what
+// the engine actually scans never quietly diverge. L == 0 is the whole
+// entitlement (index 0).
 //
 // ABI: pinned to GrantDigestABIVersion alongside GrantContentHash. Two
 // SDK builds must place the same principal in the same bucket, so the
@@ -141,6 +144,30 @@ const DigestBucketHashBits = digestBucketHashLen * 8
 func PrincipalBucketHash(principalRT, principalID string) uint64 {
 	enc := codec.AppendTupleStrings(make([]byte, 0, 64), principalRT, principalID)
 	return grantPrincipalBucketHash64(enc)
+}
+
+// PrincipalDigestBucket places a principal into its grant-digest bucket
+// at level: the connectorstore.GrantDigestBucket a caller outside this
+// package would otherwise have to hand-derive from PrincipalBucketHash's
+// raw shift formula. Index is the top level bits of PrincipalBucketHash,
+// matching exactly what GetEntitlementGrantDigestNodes(level) reports and
+// ScanEntitlementGrantBucket(level, Index) scans.
+//
+// level must be in [0, DigestBucketHashBits] — 0 is the whole entitlement
+// (Index always 0); past DigestBucketHashBits there is no finer
+// addressable bucket, and this errors rather than silently returning an
+// Index computed at a resolution the stored hash doesn't have. The read
+// APIs enforce the same bound, so a bucket built here is always valid to
+// pass to them.
+func PrincipalDigestBucket(principalRT, principalID string, level int) (connectorstore.GrantDigestBucket, error) {
+	if level < 0 || level > DigestBucketHashBits {
+		return connectorstore.GrantDigestBucket{}, fmt.Errorf("pebble: grant-digest level %d out of range [0, %d]", level, DigestBucketHashBits)
+	}
+	if level == 0 {
+		return connectorstore.GrantDigestBucket{Level: 0, Index: 0}, nil
+	}
+	idx := uint32(PrincipalBucketHash(principalRT, principalID) >> (64 - level)) //nolint:gosec // level <= DigestBucketHashBits (16), so the shift leaves at most 16 bits
+	return connectorstore.GrantDigestBucket{Level: level, Index: idx}, nil
 }
 
 // principalBucketHash is the from-identity form of the bucket hash:

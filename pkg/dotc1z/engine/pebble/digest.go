@@ -132,6 +132,12 @@ const (
 	digestLeafPrefixLen = 2
 )
 
+// The stored bucket-hash width (digestBucketHashLen) and the read-side
+// resolution bound (digestMaxWidthBits) are independent constants that
+// must agree — these fail the build the moment they don't.
+const _ uint = digestMaxWidthBits - digestBucketHashLen*8
+const _ uint = digestBucketHashLen*8 - digestMaxWidthBits
+
 // Node-key levels: the root is level 0 (empty prefix); the single leaf
 // level is 1 (digestLeafPrefixLen-byte prefix). See encodeDigestNodeKey.
 const (
