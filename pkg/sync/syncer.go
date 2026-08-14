@@ -3747,53 +3747,30 @@ type grantByRefsDeleter interface {
 	DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error
 }
 
+// newGrantForExternalPrincipal deliberately copies the placeholder's full
+// annotation set onto the replacement grant it builds, including whichever
+// ExternalResourceMatch* annotation got it into this scan in the first
+// place. That was tried as an optimization (strip the annotation once
+// resolved, so a resume's fresh scan doesn't re-match an already-resolved
+// leftover) but it removed the only mechanism that revokes a resolved
+// grant when its external principal later disappears or stops satisfying
+// the match criteria -- a resolved replacement grant with no match
+// annotation is invisible to this function's own re-scan, and
+// deleteStaleExternalPrincipals only catches principals that are entirely
+// absent, not ones that still exist but no longer match. Retaining the
+// annotation keeps every resolved grant self-healing (a stale one gets
+// re-matched, fails, and is added to grantsToDelete below) at the cost of
+// real, bounded, wasted work on a resumed sync's mid-scan flushes -- an
+// accepted tradeoff over a silent, permanent access-control gap.
 func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.Grant {
 	newGrant := v2.Grant_builder{
 		Entitlement: grant.GetEntitlement(),
 		Principal:   principal,
 		Id:          batonGrant.NewGrantID(principal, grant.GetEntitlement()),
 		Sources:     grant.GetSources(),
-		Annotations: stripExternalResourceMatchAnnotations(grant.GetAnnotations()),
+		Annotations: grant.GetAnnotations(),
 	}.Build()
 	return newGrant
-}
-
-// stripExternalResourceMatchAnnotations drops any ExternalResourceMatch*
-// annotation from a grant's annotations. Without this, newGrantForExternalPrincipal
-// copies the placeholder's full annotation set onto the replacement grant it
-// builds, so a resolved replacement keeps carrying the very annotation that
-// got its placeholder into this scan. A restart's fresh, empty newGrantIDs
-// set has no memory of what a prior, interrupted attempt already resolved,
-// so the next attempt re-matches and rewrites every such leftover as if it
-// were still a placeholder. Grant ids are deterministic per (principal,
-// entitlement), so this never produces a second grant record, but it is
-// real, wasted work on every resume -- flagged during #1046's review as
-// retry amplification (9 buffered writes became 33 on a first resume, 27 on
-// a second). The true placeholder is untouched here -- it keeps its
-// annotation until the delete loop below removes it -- so ingest invariant
-// I9's dangling-principal exemption, which depends on a genuinely
-// unprocessed placeholder still carrying it, is unaffected.
-// externalResourceMatchAnnotationSentinels are hoisted for the same reason
-// unsafeForSlimSentinels is in pkg/dotc1z/grants.go: newGrantForExternalPrincipal
-// runs once per fan-out principal (up to the full external principal count
-// for an ExternalResourceMatchAll grant), so allocating these zero-value
-// protos fresh on every call is avoidable garbage on the exact loop #1046
-// was optimizing.
-var externalResourceMatchAnnotationSentinels = []proto.Message{
-	&v2.ExternalResourceMatchAll{},
-	&v2.ExternalResourceMatch{},
-	&v2.ExternalResourceMatchID{},
-}
-
-func stripExternalResourceMatchAnnotations(annos []*anypb.Any) []*anypb.Any {
-	stripped := make([]*anypb.Any, 0, len(annos))
-	for _, a := range annos {
-		if slices.ContainsFunc(externalResourceMatchAnnotationSentinels, a.MessageIs) {
-			continue
-		}
-		stripped = append(stripped, a)
-	}
-	return stripped
 }
 
 // minimalGrantForDelete strips a grant down to the fields DeleteGrantByRefs

@@ -550,12 +550,11 @@ var (
 // ExternalResourceMatch{All,Match,ID} — processGrantsWithExternalPrincipals
 // builds a bid key from grant.GetPrincipal() that encodes ParentResourceId.
 // A slim stub principal has no parent, so its bid misses keys and loses
-// transitive expansion through the external-resource match. This only
-// applies to unresolved placeholder grants: once a placeholder is matched,
-// the replacement grant it's rewritten into no longer carries this
-// annotation (see stripExternalResourceMatchAnnotations in pkg/sync), so a
-// resolved grant is slim-eligible like any other -- matching is already
-// done and its principal is real, not a stub needing this exemption.
+// transitive expansion through the external-resource match. This applies
+// even to a resolved replacement grant, not just an unresolved placeholder:
+// pkg/sync deliberately keeps the annotation on both, so a later scan can
+// still re-verify and revoke the resolved grant if its external principal
+// disappears or stops matching (see newGrantForExternalPrincipal).
 func unsafeForSlim(grant *v2.Grant) bool {
 	annos := annotations.Annotations(grant.GetAnnotations())
 	return annos.ContainsAny(unsafeForSlimSentinels...)
