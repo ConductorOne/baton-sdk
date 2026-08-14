@@ -846,20 +846,41 @@ func requireCheckpointedOnExpiry(t *testing.T, err error) {
 // flattenJoined returns the leaves of an errors.Join tree, so a caller
 // can assert about each one instead of about the flattened chain, where
 // errors.Is on the whole reports a match no matter which branch it came
-// from.
+// from. Single-error wrappers (fmt.Errorf %w) are peeled while looking
+// for the join: if a layer above handleOperationError ever adds context
+// around it, requiring the join to be outermost would silently degrade
+// requireCheckpointedOnExpiry to a plain errors.Is, which passes whether
+// or not the checkpoint failed.
 func flattenJoined(err error) []error {
 	if err == nil {
 		return nil
 	}
-	joined, ok := err.(interface{ Unwrap() []error })
-	if !ok {
-		return []error{err}
+	for unwrapped := err; unwrapped != nil; unwrapped = errors.Unwrap(unwrapped) {
+		joined, ok := unwrapped.(interface{ Unwrap() []error })
+		if !ok {
+			continue
+		}
+		var leaves []error
+		for _, child := range joined.Unwrap() {
+			leaves = append(leaves, flattenJoined(child)...)
+		}
+		return leaves
 	}
-	var leaves []error
-	for _, child := range joined.Unwrap() {
-		leaves = append(leaves, flattenJoined(child)...)
-	}
-	return leaves
+	return []error{err}
+}
+
+// Validates the oracle above: a planted checkpoint failure must stay a
+// separate leaf even when a wrapper hides the join, or
+// requireCheckpointedOnExpiry would report a healthy expiry.
+func TestFlattenJoinedSeesWrappedJoins(t *testing.T) {
+	checkpointErr := errors.New("checkpoint failed")
+	wrapped := fmt.Errorf("sync: %w", errors.Join(checkpointErr, ErrSyncNotComplete))
+	leaves := flattenJoined(wrapped)
+	require.Len(t, leaves, 2, "a single-error wrapper hid the errors.Join tree from flattenJoined")
+	require.ErrorIs(t, leaves[0], checkpointErr)
+	require.ErrorIs(t, leaves[1], ErrSyncNotComplete)
+	require.NotErrorIs(t, leaves[0], ErrSyncNotComplete,
+		"the checkpoint leaf must not satisfy the ErrSyncNotComplete check, or the oracle cannot fail")
 }
 
 func TestRunDurationCancelsActiveSpawnedCursorBatch(t *testing.T) {
@@ -983,13 +1004,15 @@ func TestSkipSyncHonorsRunDuration(t *testing.T) {
 // runCtx independently.
 //
 // Each pays for its wall-clock wait the same two ways. The store is created
-// before the syncer, keeping c1z creation out of the window the duration has
-// to cover — that is the slowest setup step, and leaving it inside is what
-// made the old 8s versions fail on a loaded Windows runner. And losing the
-// race is a loud failure on reached, never a quiet pass. The 8s duration is
-// kept from those versions: with c1z creation excluded, the window now
-// covers only the sync steps up to the blocked call, well inside the fakes'
-// 30s safety stop.
+// before the syncer, keeping c1z creation — the slowest setup step — out of
+// the window the duration has to cover. For the spawned-cursor and SkipSync
+// families that is a change: their old tests created the c1z inside the
+// window via WithC1ZPath, and the spawned-cursor one is the 8s test that
+// failed on a loaded Windows runner. The root-planner test always created
+// its store first, and that 8s configuration has held in CI since it
+// landed, which is why 8s is kept: the window covers only the sync steps up
+// to the blocked call, well inside the fakes' 30s safety stop. And losing
+// the race is a loud failure on reached, never a quiet pass.
 func TestRunDurationTimerCancelsInFlightWork(t *testing.T) {
 	// Spawned-cursor batch family: the timer cancels runCtx only, so the
 	// blocked ListGrants sees expiry exclusively through the
