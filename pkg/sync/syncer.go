@@ -3419,6 +3419,14 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 	grantsToDelete := make([]*v2.Grant, 0)
 	grantsScanned := 0
+	// newGrantIDs holds one string per expanded grant for the whole scan (the
+	// re-encounter and delete-dedup checks below both need it), so for the
+	// ExternalResourceMatchAll fan-out it has the same cardinality as the
+	// expandedGrants slice this batching replaced. The memory bound below is
+	// therefore partial: it caps the outstanding *grant proto* footprint
+	// (which carries embedded Principal/Entitlement/Annotations and can be
+	// large), not this set of id strings, which remains an O(fan-out)
+	// allocation at the "tens of thousands of principals" scale cited above.
 	newGrantIDs := mapset.NewSet[string]()
 	expandedGrantsTotal := 0
 	expandedGrantsBuf := make([]*v2.Grant, 0, externalGrantFlushBatchSize)
@@ -3470,6 +3478,15 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		return maybeFlushExpandedGrants()
 	}
 
+	// Cost note: flushing mid-scan means this scan reads back its own writes.
+	// SQLite's grant reader pages by ascending rowid, and a flushed
+	// replacement grant's row lands above the read cursor, so every
+	// replacement flushed by this loop gets re-fetched and re-checked by the
+	// same loop later on -- G grants scanned becomes G+N rows processed,
+	// where N is the number of replacements this scan produces. Correctness
+	// is unaffected (the newGrantIDs check below skips them), and N is
+	// bounded by the grant count itself, but it is an unmeasured, real cost
+	// on the exact loop #1046 was optimizing; no benchmark pins it.
 	for ga, err := range s.store.Grants().ListWithAnnotations(ctx) {
 		if err != nil {
 			return err
@@ -3560,13 +3577,6 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		if matchResourceMatchIDAnno != nil {
 			if principal, ok := principalMap[matchResourceMatchIDAnno.GetId()]; ok {
 				newGrant := newGrantForExternalPrincipal(grant, principal)
-				// Buffer without flushing: newGrant may still be mutated in
-				// place below (GrantExpandable remapping). The buffer holds
-				// the pointer, so that mutation is reflected automatically —
-				// but flushing before it happens would commit the
-				// pre-mutation grant, missing its expansion annotation.
-				bufferExpandedGrant(newGrant)
-
 				newGrantAnnos := annotations.Annotations(newGrant.GetAnnotations())
 
 				newExpandableEntitlementIDs := make([]string, 0)
@@ -3597,17 +3607,17 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						ResourceTypeIds: expandableAnno.GetResourceTypeIds(),
 					}.Build()
 					newGrantAnnos.Update(newExpandableAnno)
-					// newGrant is the same pointer already sitting in the
-					// buffer from bufferExpandedGrant above; no second
-					// append is needed, it already reflects this mutation.
 					newGrant.SetAnnotations(newGrantAnnos)
 				}
 
-				// Now that newGrant is in its final form (mutated above, or
-				// left as buffered if expandableAnno was nil / bid.MakeBid
-				// failed and continue fired first), it's safe to check
-				// whether the buffer is due for a flush.
-				if err := maybeFlushExpandedGrants(); err != nil {
+				// newGrant is only buffered here, once it's in its final
+				// form (mutated above, or left as built if expandableAnno
+				// was nil). A bid.MakeBid failure above continues the outer
+				// loop before this point, so newGrant is never buffered at
+				// all -- matching the pre-batching behavior of dropping the
+				// whole attempt on error rather than persisting a grant
+				// that's missing its expansion remap.
+				if err := appendExpandedGrant(newGrant); err != nil {
 					return err
 				}
 			}
