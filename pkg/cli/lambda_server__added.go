@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"runtime/debug"
 	"slices"
@@ -57,6 +58,13 @@ const (
 	egressSectionSchemaVersion  = 1
 )
 
+// lambdaConnectorReloadMinInterval bounds the rebuild rate when the server
+// persistently serves a config_version different from the requested header:
+// the served-version labeling makes the no-op guard never match, so without
+// this cap every invocation would rebuild. The generation stays labeled with
+// the served version, so a stale reply is still re-fetched every interval.
+var lambdaConnectorReloadMinInterval = 5 * time.Second
+
 type lambdaConnectorGeneration struct {
 	version   string
 	connector types.ConnectorServer
@@ -88,6 +96,13 @@ type lambdaConnectorReloader struct {
 	server  *c1_lambda_grpc.Server
 	current *lambdaConnectorGeneration
 	build   func(context.Context, string) (*lambdaConnectorGeneration, error)
+
+	// lastRebuildVersion/lastRebuildAt back the reload rate-cap: when the
+	// server persistently serves a config_version different from the requested
+	// header, the served-version labeling makes the no-op guard never match, so
+	// these bound rebuilds to one per lambdaConnectorReloadMinInterval.
+	lastRebuildVersion string
+	lastRebuildAt      time.Time
 }
 
 // Handler is a recovery wrapper around handle. Config reload and log level
@@ -164,6 +179,14 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 	if r.current == nil {
 		return fmt.Errorf("no current connector generation is registered")
 	}
+	// Rate-cap the rebuild under persistent served/requested version skew: the
+	// served-version labeling makes the no-op guard above never match, so
+	// without this cap every version-stamped invocation would rebuild. The
+	// generation stays labeled with the served version, so a stale reply is
+	// still re-fetched every interval.
+	if requestedVersion == r.lastRebuildVersion && time.Since(r.lastRebuildAt) < lambdaConnectorReloadMinInterval {
+		return nil
+	}
 
 	currentLog := r.current.logging
 	// r.build applies next's log level before it can fail, so every exit that
@@ -195,6 +218,8 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 	}
 
 	r.current = next
+	r.lastRebuildVersion = requestedVersion
+	r.lastRebuildAt = time.Now()
 	if err := applyLambdaLogLevel(next.logging, time.Now()); err != nil {
 		return err
 	}
@@ -428,6 +453,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				return nil, fmt.Errorf("failed to validate config: %w", err)
 			}
 
+			policy, version := egressPolicyAndGenerationVersion(runCtx, requestedVersion, config)
 			ops := RunTimeOpts{
 				SessionStore: NewLazyCachingSessionStore(sessionStoreConstructor, func(otterOptions *otter.Options[string, []byte]) {
 					if sessionStoreMaximumSize <= 0 {
@@ -438,7 +464,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				}),
 				SelectedAuthMethod:  authMethodStr,
 				SyncResourceTypeIDs: effectiveConfig.GetStringSlice("sync-resource-types"),
-				EgressPolicy:        egressPolicyFromResponse(runCtx, config),
+				EgressPolicy:        policy,
 			}
 
 			if hasOauthField(schemaFields) {
@@ -463,7 +489,6 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				return nil, fmt.Errorf("failed to get connector: %w", err)
 			}
 
-			version := generationVersion(ctx, requestedVersion, config)
 			return &lambdaConnectorGeneration{
 				version:   version,
 				connector: c,
@@ -575,6 +600,15 @@ func lambdaConnectorConfigVersion(config *v1.GetConnectorConfigResponse) string 
 	return config.GetLastUpdated().AsTime().UTC().Format(time.RFC3339Nano)
 }
 
+// egressPolicyAndGenerationVersion projects the egress policy and labels the
+// generation version for a fetched config response. It is the single seam the
+// lambda build path uses for the two security-load-bearing compositions
+// (policy delivery + served-version labeling), so both are unit-testable
+// through one function.
+func egressPolicyAndGenerationVersion(ctx context.Context, requestedVersion string, config *v1.GetConnectorConfigResponse) (*EgressPolicy, string) {
+	return egressPolicyFromResponse(ctx, config), generationVersion(ctx, requestedVersion, config)
+}
+
 // egressPolicyFromResponse projects the connector-facing egress policy from the
 // response's served-policy envelope, or nil when no envelope is present. A
 // present envelope yields a non-nil policy even when it fails a binding,
@@ -636,6 +670,18 @@ func egressPolicyFromResponse(ctx context.Context, config *v1.GetConnectorConfig
 		if _, known := v1.EgressMode_name[int32(egress.GetMode())]; !known {
 			ctxzap.Extract(ctx).Warn("connector_authoring: unrecognized egress mode; observing",
 				zap.Int32("mode", int32(egress.GetMode())))
+		}
+	}
+	// Defense-in-depth observability: the proto contract says a wildcard or
+	// IP-literal entry invalidates the whole envelope, and ENFORCE mode makes
+	// AllowedHosts a deny-gate, so a wildcard would project to allow-all. The
+	// server is authoritative and the runtime's compiled hard denylist still
+	// applies, so this only warns — the projection value is unchanged.
+	for _, h := range policy.AllowedHosts {
+		if h == "*" || net.ParseIP(h) != nil {
+			ctxzap.Extract(ctx).Warn("connector_authoring: egress allowlist contains a wildcard or IP-literal; envelope is invalid per contract",
+				zap.String("host", h))
+			break
 		}
 	}
 	return policy

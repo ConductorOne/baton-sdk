@@ -166,6 +166,28 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		require.True(t, p.Enforce)
 		require.True(t, p.HTTPSOnly)
 	})
+
+	t.Run("https_only false survives projection", func(t *testing.T) {
+		t.Parallel()
+		// The valid path overrides the deny-all fallback's forced HTTPSOnly=true
+		// from the envelope, so a false https_only must project as false.
+		env := goodEnvelope("cv-1")
+		env.GetEgress().SetHttpsOnly(false)
+		p := egressPolicyFromResponse(context.Background(), newResp("cv-1", env))
+		require.NotNil(t, p)
+		require.False(t, p.HTTPSOnly)
+	})
+
+	t.Run("projection does not alias the envelope's allowlist", func(t *testing.T) {
+		t.Parallel()
+		// The projection clones AllowedHosts, so mutating the retained envelope
+		// must not change the projected policy.
+		env := goodEnvelope("cv-1")
+		p := egressPolicyFromResponse(context.Background(), newResp("cv-1", env))
+		require.NotNil(t, p)
+		env.GetEgress().GetAllowedHosts()[0] = "mutated.example.com"
+		require.Equal(t, []string{"api.example.com"}, p.AllowedHosts)
+	})
 }
 
 // TestEgressPolicyFromResponseRejectionLogs pins the kill-switch's only operator
@@ -232,6 +254,34 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				"mode": int32(999),
 			},
 		},
+		{
+			name: "nil egress section unsupported",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.SetEgress(nil)
+				return newResp("cv-1", env)
+			},
+			wantMessage: "connector_authoring: served-policy envelope rejected; egress deny-all",
+			wantFields: map[string]any{
+				"reason":                     "egress-section-unsupported",
+				"egress_present":             false,
+				"egress_schema_version":      uint32(0),
+				"want_egress_schema_version": uint32(egressSectionSchemaVersion),
+			},
+		},
+		{
+			name: "allowlist wildcard invalidates envelope per contract",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_ENFORCE)
+				env.GetEgress().SetAllowedHosts([]string{"*"})
+				return newResp("cv-1", env)
+			},
+			wantMessage: "connector_authoring: egress allowlist contains a wildcard or IP-literal; envelope is invalid per contract",
+			wantFields: map[string]any{
+				"host": "*",
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -251,11 +301,21 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 			}
 
 			// The unrecognized-mode case is a valid envelope: the projection must
-			// still observe (Enforce=false) and keep the envelope's hosts.
+			// still observe (Enforce=false) and keep the envelope's hosts and
+			// scheme gate.
 			if tc.name == "unrecognized egress mode observes" {
 				require.NotNil(t, p)
 				require.False(t, p.Enforce)
 				require.Equal(t, []string{"api.example.com"}, p.AllowedHosts)
+				require.True(t, p.HTTPSOnly)
+			}
+			// The wildcard case is a valid envelope: the Warn is observability
+			// only, so the projection must be unchanged (Enforce=true for
+			// ENFORCE mode, allowlist verbatim).
+			if tc.name == "allowlist wildcard invalidates envelope per contract" {
+				require.NotNil(t, p)
+				require.True(t, p.Enforce)
+				require.Equal(t, []string{"*"}, p.AllowedHosts)
 			}
 		})
 	}
@@ -330,6 +390,13 @@ func TestGenerationVersion(t *testing.T) {
 func TestReloadRefetchesWhenServedVersionDiffersFromRequested(t *testing.T) {
 	// The reloader swaps the process-wide log level through the deferred guard,
 	// so this test cannot run in parallel.
+	// Disable the reload rate-cap: this test pins the guard's re-fetch behavior
+	// (two identical cv-2 invocations each rebuild), which the rate-cap would
+	// otherwise bound to one.
+	old := lambdaConnectorReloadMinInterval
+	lambdaConnectorReloadMinInterval = 0
+	defer func() { lambdaConnectorReloadMinInterval = old }()
+
 	activeConnector := &stubConnectorServer{}
 	server := c1_lambda_grpc.NewServer(lambdaUnaryInterceptorChain())
 	server.RegisterService(&grpc.ServiceDesc{
@@ -353,7 +420,13 @@ func TestReloadRefetchesWhenServedVersionDiffersFromRequested(t *testing.T) {
 			buildCalls++
 			// A real build labels the generation with the served config_version
 			// (generationVersion), which here differs from the requested header.
-			return &lambdaConnectorGeneration{version: "cv-1", connector: &stubConnectorServer{}, logging: lambdaLogLevelConfig{level: "error"}}, nil
+			resp := &v1.GetConnectorConfigResponse{}
+			resp.SetConfigVersion("cv-1") // served version differs from the requested cv-2 header
+			return &lambdaConnectorGeneration{
+				version:   generationVersion(ctx, version, resp),
+				connector: &stubConnectorServer{},
+				logging:   lambdaLogLevelConfig{level: "error"},
+			}, nil
 		},
 	}
 
@@ -373,6 +446,106 @@ func TestReloadRefetchesWhenServedVersionDiffersFromRequested(t *testing.T) {
 	// A generation labeled with the served version (cv-1) fails the reload
 	// no-op guard on the next cv-2 invocation and is re-fetched, not pinned.
 	require.Equal(t, 2, buildCalls, "a served-version-labeled generation must be re-fetched on the next version-stamped invocation")
+}
+
+// TestBuildGenerationPolicyAndVersion pins the lambda build path's two
+// security-load-bearing compositions — egress-policy delivery and served-version
+// labeling — through the single seam egressPolicyAndGenerationVersion. A revert
+// of either composition in buildConnectorGeneration ships green unless this test
+// catches it.
+func TestBuildGenerationPolicyAndVersion(t *testing.T) {
+	t.Run("deny-all envelope projects deny-all and labels served version", func(t *testing.T) {
+		// Config-version binding mismatch: the envelope is bound to cv-2 but the
+		// response serves cv-1, so the projection fails closed (deny-all).
+		policy, version := egressPolicyAndGenerationVersion(context.Background(), "cv-2", newResp("cv-1", goodEnvelope("cv-2")))
+		require.NotNil(t, policy)
+		require.True(t, policy.Enforce)
+		require.True(t, policy.HTTPSOnly)
+		require.Empty(t, policy.AllowedHosts)
+		require.Equal(t, "cv-1", version, "labeled with the served version, not the requested cv-2")
+	})
+	t.Run("valid ENFORCE envelope projects enforce and labels served version", func(t *testing.T) {
+		env := goodEnvelope("cv-1")
+		env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_ENFORCE)
+		policy, version := egressPolicyAndGenerationVersion(context.Background(), "cv-2", newResp("cv-1", env))
+		require.NotNil(t, policy)
+		require.True(t, policy.Enforce)
+		require.Equal(t, []string{"api.example.com"}, policy.AllowedHosts)
+		require.True(t, policy.HTTPSOnly)
+		require.Equal(t, "cv-1", version)
+	})
+	t.Run("valid REPORT envelope projects observe and labels served version", func(t *testing.T) {
+		policy, version := egressPolicyAndGenerationVersion(context.Background(), "cv-2", newResp("cv-1", goodEnvelope("cv-1")))
+		require.NotNil(t, policy)
+		require.False(t, policy.Enforce)
+		require.Equal(t, "cv-1", version)
+	})
+}
+
+// TestReloadRateCapsPersistentMismatch pins the reload rate-cap: when the
+// server persistently serves a config_version different from the requested
+// header, the served-version labeling makes the no-op guard never match, so the
+// cap bounds rebuilds to one per interval. Interval expiry re-enables rebuild.
+func TestReloadRateCapsPersistentMismatch(t *testing.T) {
+	// The reloader swaps the process-wide log level through the deferred guard,
+	// so this test cannot run in parallel.
+	old := lambdaConnectorReloadMinInterval
+	defer func() { lambdaConnectorReloadMinInterval = old }()
+	lambdaConnectorReloadMinInterval = time.Hour
+
+	activeConnector := &stubConnectorServer{}
+	server := c1_lambda_grpc.NewServer(lambdaUnaryInterceptorChain())
+	server.RegisterService(&grpc.ServiceDesc{
+		ServiceName: "test.Service",
+		HandlerType: (*types.ConnectorServer)(nil),
+		Methods: []grpc.MethodDesc{
+			{
+				MethodName: "Method",
+				Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+					return &v1.GetConnectorConfigResponse{}, nil
+				},
+			},
+		},
+	}, activeConnector)
+
+	buildCalls := 0
+	r := &lambdaConnectorReloader{
+		server:  server,
+		current: &lambdaConnectorGeneration{version: "cv-1", connector: activeConnector, logging: lambdaLogLevelConfig{level: "error"}},
+		build: func(ctx context.Context, version string) (*lambdaConnectorGeneration, error) {
+			buildCalls++
+			// The server persistently serves cv-1 while the invoker requests
+			// cv-2, so the served-version labeling makes the no-op guard never
+			// match and every invocation would otherwise rebuild.
+			return &lambdaConnectorGeneration{version: "cv-1", connector: &stubConnectorServer{}, logging: lambdaLogLevelConfig{level: "error"}}, nil
+		},
+	}
+
+	req, err := c1_lambda_grpc.NewRequest(
+		"/test.Service/Method",
+		&v1.GetConnectorConfigRequest{},
+		metadata.Pairs(lambdaConnectorConfigVersionHeader, "cv-2"),
+	)
+	require.NoError(t, err, "NewRequest")
+
+	// Three identical cv-2 invocations under a persistent served/requested skew:
+	// the rate-cap bounds the rebuild to one.
+	for i := range 3 {
+		resp, err := r.Handler(context.Background(), req)
+		require.NoError(t, err, "invocation %d", i)
+		require.NotNil(t, resp)
+	}
+	require.Equal(t, 1, buildCalls, "the 2nd and 3rd invocations are rate-capped")
+
+	// Interval expiry re-enables rebuild: with the cap disabled, the next two
+	// invocations each rebuild.
+	lambdaConnectorReloadMinInterval = 0
+	for i := range 2 {
+		resp, err := r.Handler(context.Background(), req)
+		require.NoError(t, err, "invocation %d", i)
+		require.NotNil(t, resp)
+	}
+	require.Equal(t, 3, buildCalls, "interval expiry re-enables rebuild")
 }
 
 func TestLambdaConnectorConfigVersion(t *testing.T) {
