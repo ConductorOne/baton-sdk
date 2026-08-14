@@ -203,6 +203,9 @@ func storeOptionsFromC1ZOptions(options *c1zOptions) StoreOptions {
 		MaxDecodedPayloadBytes:  maxDecodedPayloadBytes,
 		MaxDecoderMemoryBytes:   maxDecoderMemoryBytes,
 	}
+	// Defensive only: NewStore, the sole caller, overwrites Engine with
+	// the selected driver's engine on the next line. Real default
+	// selection lives in selectStoreDriver.
 	if out.Engine == "" {
 		out.Engine = c1zstore.EnginePebble
 	}
