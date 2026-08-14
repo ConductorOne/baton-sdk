@@ -66,6 +66,7 @@ type c1ApiTaskManager struct {
 	externalResourceC1Z                 string
 	externalResourceEntitlementIdFilter string
 	externalResourceTraits              []v2.ResourceType_Trait
+	externalPrincipalIndex              bool
 	targetedSyncResources               []*v2.Resource
 	syncResourceTypeIDs                 []string
 	workerCount                         int
@@ -431,6 +432,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 			c.externalResourceC1Z,
 			c.externalResourceEntitlementIdFilter,
 			c.externalResourceTraits,
+			c.externalPrincipalIndex,
 			c.targetedSyncResources,
 			c.syncResourceTypeIDs,
 			c.workerCount,
@@ -502,6 +504,7 @@ func NewC1TaskManager(
 	externalC1Z string,
 	externalResourceEntitlementIdFilter string,
 	externalResourceTraits []v2.ResourceType_Trait,
+	externalPrincipalIndex bool,
 	targetedSyncResources []*v2.Resource,
 	syncResourceTypeIDs []string,
 	workerCount int,
@@ -531,6 +534,7 @@ func NewC1TaskManager(
 		externalResourceC1Z:                 externalC1Z,
 		externalResourceEntitlementIdFilter: externalResourceEntitlementIdFilter,
 		externalResourceTraits:              externalResourceTraits,
+		externalPrincipalIndex:              externalPrincipalIndex,
 		targetedSyncResources:               targetedSyncResources,
 		syncResourceTypeIDs:                 syncResourceTypeIDs,
 		workerCount:                         workerCount,

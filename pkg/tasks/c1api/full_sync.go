@@ -54,10 +54,14 @@ type fullSyncTaskHandler struct {
 	externalResourceC1ZPath             string
 	externalResourceEntitlementIdFilter string
 	externalResourceTraits              []v2.ResourceType_Trait
-	targetedSyncResources               []*v2.Resource
-	syncResourceTypeIDs                 []string
-	workerCount                         int
-	storageEngine                       c1zstore.Engine
+	// externalPrincipalIndex opts external-resource grant matching into
+	// indexed principal lookups; off by default, see
+	// sdkSync.WithExternalPrincipalIndex.
+	externalPrincipalIndex bool
+	targetedSyncResources  []*v2.Resource
+	syncResourceTypeIDs    []string
+	workerCount            int
+	storageEngine          c1zstore.Engine
 
 	// previousSyncSparePath is the connector's ETag-replay opt-in: when
 	// non-empty, the handler retains one spare c1z (the last successfully
@@ -205,6 +209,10 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 
 	if len(c.externalResourceTraits) > 0 {
 		syncOpts = append(syncOpts, sdkSync.WithExternalResourceTraits(c.externalResourceTraits...))
+	}
+
+	if c.externalPrincipalIndex {
+		syncOpts = append(syncOpts, sdkSync.WithExternalPrincipalIndex(true))
 	}
 
 	// ETag replay (opt-in): feed the spare retained from the last
@@ -376,6 +384,7 @@ func newFullSyncTaskHandler(
 	externalResourceC1ZPath string,
 	externalResourceEntitlementIdFilter string,
 	externalResourceTraits []v2.ResourceType_Trait,
+	externalPrincipalIndex bool,
 	targetedSyncResources []*v2.Resource,
 	syncResourceTypeIDs []string,
 	workerCount int,
@@ -389,6 +398,7 @@ func newFullSyncTaskHandler(
 		externalResourceC1ZPath:             externalResourceC1ZPath,
 		externalResourceEntitlementIdFilter: externalResourceEntitlementIdFilter,
 		externalResourceTraits:              externalResourceTraits,
+		externalPrincipalIndex:              externalPrincipalIndex,
 		targetedSyncResources:               targetedSyncResources,
 		syncResourceTypeIDs:                 syncResourceTypeIDs,
 		workerCount:                         workerCount,

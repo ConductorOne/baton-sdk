@@ -2,6 +2,7 @@ package sync //nolint:revive,nolintlint // matches the existing package name
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,6 +35,23 @@ import (
 //
 // Every case below states its expectation and then pins that expectation to
 // strings.EqualFold, so a case added later cannot quietly encode a divergence.
+//
+// The contract binds both external-principal matchers. The linear scan
+// satisfies the folding cases for free -- it calls strings.EqualFold directly
+// -- so running only the default path would leave the indexed matcher's
+// bucketing, which is where a fold can actually be gotten wrong, unpinned.
+// Every case therefore runs in both modes.
+
+// forEachExternalMatchMode runs fn once per external-principal matcher: the
+// default linear scan, then the indexed lookup (WithExternalPrincipalIndex).
+func forEachExternalMatchMode(t *testing.T, fn func(t *testing.T, indexed bool)) {
+	t.Helper()
+	for _, indexed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("indexed=%t", indexed), func(t *testing.T) {
+			fn(t, indexed)
+		})
+	}
+}
 
 // externalMatchFoldCase is one (stored value, queried value) pair together with
 // whether external matching must pair them.
@@ -80,12 +98,14 @@ func TestExternalResourceMatchProfileFoldingContract(t *testing.T) {
 			require.Equal(t, tc.matches, strings.EqualFold(tc.stored, tc.query),
 				"premise: external matching compares with strings.EqualFold")
 
-			principal := externalMatchPrincipal(t, "external-user-1",
-				map[string]any{"upn": tc.stored})
-			matched := runExternalMatchFold(t, principal, "upn", tc.query)
+			forEachExternalMatchMode(t, func(t *testing.T, indexed bool) {
+				principal := externalMatchPrincipal(t, "external-user-1",
+					map[string]any{"upn": tc.stored})
+				matched := runExternalMatchFold(t, principal, "upn", tc.query, indexed)
 
-			require.Equal(t, tc.matches, matched,
-				"profile %q vs match value %q: expected matched=%t", tc.stored, tc.query, tc.matches)
+				require.Equal(t, tc.matches, matched,
+					"profile %q vs match value %q: expected matched=%t", tc.stored, tc.query, tc.matches)
+			})
 		})
 	}
 }
@@ -96,12 +116,14 @@ func TestExternalResourceMatchEmailFoldingContract(t *testing.T) {
 			require.Equal(t, tc.matches, strings.EqualFold(tc.stored, tc.query),
 				"premise: external matching compares with strings.EqualFold")
 
-			principal := externalMatchPrincipal(t, "external-user-1", nil,
-				rs.WithEmail(tc.stored, true))
-			matched := runExternalMatchFold(t, principal, "email", tc.query)
+			forEachExternalMatchMode(t, func(t *testing.T, indexed bool) {
+				principal := externalMatchPrincipal(t, "external-user-1", nil,
+					rs.WithEmail(tc.stored, true))
+				matched := runExternalMatchFold(t, principal, "email", tc.query, indexed)
 
-			require.Equal(t, tc.matches, matched,
-				"user-trait email %q vs match value %q: expected matched=%t", tc.stored, tc.query, tc.matches)
+				require.Equal(t, tc.matches, matched,
+					"user-trait email %q vs match value %q: expected matched=%t", tc.stored, tc.query, tc.matches)
+			})
 		})
 	}
 }
@@ -134,11 +156,13 @@ func TestExternalResourceMatchEmitsOneGrantPerPrincipal(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			principals := []*v2.Resource{tc.principal(t)}
-			observed := observeExternalMatch(t, principals, "email", "shared@example.com")
-			require.Equal(t, []string{"external-user-1"}, observed.principalIDs,
-				"a principal reachable by two routes must still receive one grant")
-			require.Zero(t, observed.carriers, "the carrier must not survive")
+			forEachExternalMatchMode(t, func(t *testing.T, indexed bool) {
+				principals := []*v2.Resource{tc.principal(t)}
+				observed := observeExternalMatch(t, principals, "email", "shared@example.com", indexed)
+				require.Equal(t, []string{"external-user-1"}, observed.principalIDs,
+					"a principal reachable by two routes must still receive one grant")
+				require.Zero(t, observed.carriers, "the carrier must not survive")
+			})
 		})
 	}
 }
@@ -168,9 +192,9 @@ func externalMatchPrincipal(
 
 // runExternalMatchFold reports whether the single supplied principal received a
 // rewritten grant, and asserts the carrier was consumed either way.
-func runExternalMatchFold(t *testing.T, principal *v2.Resource, key, value string) bool {
+func runExternalMatchFold(t *testing.T, principal *v2.Resource, key, value string, indexed bool) bool {
 	t.Helper()
-	observed := observeExternalMatch(t, []*v2.Resource{principal}, key, value)
+	observed := observeExternalMatch(t, []*v2.Resource{principal}, key, value, indexed)
 	require.Zero(t, observed.carriers,
 		"the carrier is consumed whether or not it matched")
 	require.LessOrEqual(t, len(observed.principalIDs), 1, "one principal cannot yield two grants")
@@ -189,6 +213,7 @@ func observeExternalMatch(
 	t *testing.T,
 	principals []*v2.Resource,
 	key, value string,
+	indexed bool,
 ) externalMatchObservation {
 	t.Helper()
 	ctx := t.Context()
@@ -223,7 +248,7 @@ func observeExternalMatch(
 	state.SetHasExternalResourcesGrants()
 	state.PushAction(ctx, Action{Op: SyncExternalResourcesOp})
 
-	syncer := &syncer{store: store, state: state}
+	syncer := &syncer{store: store, state: state, externalPrincipalIndexEnabled: indexed}
 	require.NoError(t, syncer.processGrantsWithExternalPrincipals(ctx, principals))
 
 	return readExternalMatchGrants(t, ctx, store)

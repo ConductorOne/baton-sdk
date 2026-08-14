@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
@@ -358,4 +359,105 @@ func TestExternalPrincipalMatchParitySkipsUnreadableUserTrait(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestExternalPrincipalMatchDedupesAtTheMatcher asserts on the grants the
+// matchers RETURN rather than on store contents. A principal matched twice
+// produces two grants carrying the same generated grant id, which PutGrants
+// upserts into a single row -- so a lost dedup is invisible to every
+// assertion made after the store write, including the parity digest above.
+func TestExternalPrincipalMatchDedupesAtTheMatcher(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		principal func(*testing.T) *v2.Resource
+	}{
+		{
+			name: "two trait addresses folding alike",
+			principal: func(t *testing.T) *v2.Resource {
+				return parityPrincipal(t, testUserPrincipal(t, "user_dupe", nil,
+					rs.WithEmail("shared@example.com", true),
+					rs.WithEmail("SHARED@example.com", false),
+				))
+			},
+		},
+		{
+			name: "trait address and profile email",
+			principal: func(t *testing.T) *v2.Resource {
+				return parityPrincipal(t, testUserPrincipal(t, "user_dupe",
+					map[string]any{"email": "shared@example.com"},
+					rs.WithEmail("SHARED@example.com", true),
+				))
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			l := zap.NewNop()
+
+			principals := []*v2.Resource{tc.principal(t)}
+			matchTraits := map[v2.ResourceType_Trait]bool{
+				v2.ResourceType_TRAIT_USER:  true,
+				v2.ResourceType_TRAIT_GROUP: true,
+			}
+			principalsByTrait := map[v2.ResourceType_Trait][]*v2.Resource{
+				v2.ResourceType_TRAIT_USER: principals,
+			}
+			indexByTrait := map[v2.ResourceType_Trait]*externalPrincipalIndex{
+				v2.ResourceType_TRAIT_USER: newExternalUserPrincipalIndex(principals, l),
+			}
+			match := v2.ExternalResourceMatch_builder{
+				Key:          "email",
+				Value:        "shared@example.com",
+				ResourceType: v2.ResourceType_TRAIT_USER,
+			}.Build()
+			carrier := gt.NewGrant(
+				testGroupPrincipal(t, "source_group", map[string]any{"external_id": "source"}),
+				"member",
+				v2.ResourceId_builder{
+					ResourceType: userResourceType.GetId(),
+					Resource:     "placeholder_user",
+				}.Build(),
+				gt.WithAnnotation(match),
+			)
+
+			// No store: a TRAIT_USER match never reaches one, so both matchers
+			// can be called directly on a bare syncer.
+			s := &syncer{}
+
+			legacy, err := s.matchExternalPrincipalsLegacy(
+				ctx, l, carrier, match, matchTraits, principalsByTrait, nil, nil)
+			require.NoError(t, err)
+			indexed, err := s.matchExternalPrincipalsIndexed(
+				ctx, l, carrier, match, matchTraits, indexByTrait, nil, nil)
+			require.NoError(t, err)
+
+			require.Len(t, legacy, 1, "linear scan emitted a principal twice")
+			require.Len(t, indexed, 1, "indexed matcher emitted a principal twice")
+			require.Equal(t, legacy[0].GetId(), indexed[0].GetId())
+			require.Equal(t, "user_dupe", indexed[0].GetPrincipal().GetId().GetResource())
+		})
+	}
+}
+
+// The option is the whole product of this change, so the wiring between the
+// public SyncOpt and the field the matcher branches on is worth a test of its
+// own: a NewSyncer that silently stopped applying it would leave every caller
+// on the default with no other test noticing.
+func TestWithExternalPrincipalIndexOptionWiring(t *testing.T) {
+	ctx := t.Context()
+
+	newWith := func(t *testing.T, opts ...SyncOpt) *syncer {
+		t.Helper()
+		opts = append([]SyncOpt{WithC1ZPath(filepath.Join(t.TempDir(), "sync.c1z"))}, opts...)
+		created, err := NewSyncer(ctx, nil, opts...)
+		require.NoError(t, err)
+		s, ok := created.(*syncer)
+		require.True(t, ok)
+		return s
+	}
+
+	require.False(t, newWith(t).externalPrincipalIndexEnabled,
+		"the linear scan must stay the default for callers that pass no options")
+	require.False(t, newWith(t, WithExternalPrincipalIndex(false)).externalPrincipalIndexEnabled)
+	require.True(t, newWith(t, WithExternalPrincipalIndex(true)).externalPrincipalIndexEnabled)
 }

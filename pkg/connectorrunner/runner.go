@@ -1156,6 +1156,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		cfg.externalResourceC1Z,
 		cfg.externalResourceEntitlementIdFilter,
 		cfg.externalResourceTraits,
+		cfg.externalPrincipalIndex,
 		resources,
 		cfg.syncResourceTypeIDs,
 		cfg.workerCount,
