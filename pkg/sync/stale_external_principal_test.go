@@ -76,29 +76,31 @@ func requireExternalMatchBatchFlushedBeforeCut(t *testing.T, cutStore *failAfter
 		"the cut point no longer exercises resume-after-partial-progress", len(cutStore.successfulBatches))
 }
 
-// TestDeleteStaleExternalPrincipalsRevokesGrantAfterCutAndShrink is a
-// regression test for a gap in deleteStaleExternalPrincipals: it previously
-// required resourceRecordDeleter + entitlementRecordDeleter +
-// grantByRefsDeleter support to do ANYTHING, but only the Pebble engine
-// implements any of the three -- so on SQLite (the default storage engine
-// absent an explicit opt-in; see c1's FEATURE_FLAG_ID_PEBBLE_DEFAULT_STORAGE_ENGINE)
-// this whole reconciliation silently no-opped. Before newGrantForExternalPrincipal
-// stripped the ExternalResourceMatch* annotation from resolved replacement
-// grants, that gap was accidentally masked: a resolved grant retained its
-// match annotation forever, so a later scan of processGrantsWithExternalPrincipals
-// would re-evaluate and delete it once its external principal disappeared.
-// Once resolved grants stopped carrying that annotation, SQLite lost its
-// only path to revoking access for a departed external principal -- a real,
-// silent phantom-grant regression on the majority of tenants (Pebble is a
-// manually-gated, SKU-restricted opt-in; SQLite is the default).
+// TestDeleteStaleExternalPrincipalsRevokesGrantAfterCutAndShrink pins the
+// end-to-end invariant: an external principal that disappears between an
+// interrupted attempt and its resume must not leave a live grant behind, on
+// either storage engine.
 //
-// This specifically needs the interrupted-then-resumed shape, not just two
-// independent full syncs: a resume can skip re-running the native
-// grant-sync step for an already-checkpointed entitlement, so the ordinary
-// "a fresh sync's listing replaces what's stored for this entitlement"
-// pruning -- which does clean this up across two independent full syncs on
-// every engine -- does not necessarily run again on resume. That's exactly
-// when deleteStaleExternalPrincipals is the only remaining path.
+// It asserts the outcome, not the mechanism, on purpose -- two independent
+// paths can revoke such a grant and which one gets there first has already
+// changed once underneath this test:
+//   - processGrantsWithExternalPrincipals's own scan, because a resolved
+//     replacement retains its ExternalResourceMatch* annotation (see
+//     newGrantForExternalPrincipal) and so is re-evaluated and dropped once
+//     its principal is gone;
+//   - deleteStaleExternalPrincipals, which reconciles principal rows an
+//     earlier attempt copied in. Its no-refs-deleter fallback -- the SQLite
+//     path -- is pinned separately and directly by
+//     TestExternalPrincipalCleanupFallsBackToIDDeleteWithoutRefsDeleters,
+//     because from out here the first path masks it.
+//
+// The interrupted-then-resumed shape is load-bearing, and two independent
+// full syncs would not substitute for it: a resume can skip re-running the
+// native grant-sync step for an already-checkpointed entitlement, so the
+// ordinary "a fresh listing replaces what is stored for this entitlement"
+// pruning -- which does clean this up across two full syncs on every engine
+// -- does not necessarily run again. Disabling both revocation paths above
+// leaves the phantom grant in place here, which is what makes that concrete.
 func testDeleteStaleExternalPrincipalsRevokesGrantAfterCutAndShrink(t *testing.T, engine c1zstore.Engine) {
 	ctx := context.Background()
 	tempDir, err := os.MkdirTemp("", "stale-external-principal-test")
@@ -245,6 +247,9 @@ func testResolvedGrantRevokedWhenMatchCriteriaChanges(t *testing.T, engine c1zst
 	externalMc := newMockConnector()
 	externalMc.rtDB = append(externalMc.rtDB, userResourceType, groupResourceType)
 
+	// Enough matching users that a single placeholder's fan-out spans several
+	// flush batches, so the cut below lands mid-expansion with some
+	// replacements already durably written.
 	const userCount = 2*externalGrantFlushBatchSize + 50
 	extUsers := make([]*v2.Resource, 0, userCount)
 	for i := range userCount {
@@ -255,8 +260,20 @@ func testResolvedGrantRevokedWhenMatchCriteriaChanges(t *testing.T, engine c1zst
 
 	internalGroup, _, err := internalMc.AddGroup(ctx, "internal_group")
 	require.NoError(t, err)
-	grants := make([]*v2.Grant, 0, len(extUsers))
-	for i := range extUsers {
+	// Two placeholders, not one per user. Unlike the ExternalResourceMatchID
+	// test above -- where each placeholder matches exactly one user, so
+	// spanning multiple flush batches takes userCount of them -- one
+	// department=Sales placeholder here already fans out to every user, so
+	// userCount placeholders would each expand to the *same* userCount
+	// replacement ids (newGrantForExternalPrincipal keys a replacement on
+	// principal + entitlement, not on the placeholder), turning a 1k-row
+	// assertion into a 1M-row rewrite for no extra coverage. Two rather than
+	// one keeps the only thing a single placeholder loses: expandedGrantsBuf
+	// is not reset per placeholder, so a flush batch straddling two
+	// placeholders' expansions stays exercised.
+	const placeholderCount = 2
+	grants := make([]*v2.Grant, 0, placeholderCount)
+	for i := range placeholderCount {
 		grants = append(grants, gt.NewGrant(
 			internalGroup, "member",
 			v2.ResourceId_builder{ResourceType: userResourceType.GetId(), Resource: fmt.Sprintf("placeholder_%d", i)}.Build(),

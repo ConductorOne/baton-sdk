@@ -3385,19 +3385,22 @@ const externalGrantFlushBatchSize = 500
 // work is in processGrantsWithExternalPrincipalsInner, which has its own
 // range-over-func loop (for ga, err := range ...) and several per-branch
 // "X, err := ..." declarations that each shadow the enclosing err -- a
-// defer here that closed over a var err error declared in the *inner*
-// function would have looked at the wrong err on every one of those
+// defer living in the *inner* function, closing over a var err error
+// declared there, would have looked at the wrong err on every one of those
 // nested paths (assigning err = ... at that point resolves to the nearest
-// shadow, not this function's own), so a write failure deep in the scan
+// shadow, not the function's own), so a write failure deep in the scan
 // would still correctly fail the sync but silently close its span as
 // successful. Keeping the span, error, and defer entirely in this wrapper
 // -- which has exactly one err, assigned exactly once from the inner
 // call's return value -- sidesteps the shadowing instead of chasing it
-// through the whole function.
+// through the whole function, while the defer keeps the span ended even if
+// the inner call panics.
 func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, principals []*v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "processGrantsWithExternalPrincipals")
-	err := s.processGrantsWithExternalPrincipalsInner(ctx, principals)
-	uotel.EndSpanWithError(span, err)
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+
+	err = s.processGrantsWithExternalPrincipalsInner(ctx, principals)
 	return err
 }
 
@@ -3503,15 +3506,18 @@ func (s *syncer) processGrantsWithExternalPrincipalsInner(ctx context.Context, p
 		return nil
 	}
 
-	// Cost note: flushing mid-scan means this scan reads back its own writes.
-	// SQLite's grant reader pages by ascending rowid, and a flushed
-	// replacement grant's row lands above the read cursor, so every
-	// replacement flushed by this loop gets re-fetched and re-checked by the
-	// same loop later on -- G grants scanned becomes G+N rows processed,
-	// where N is the number of replacements this scan produces. Correctness
-	// is unaffected (the newGrantIDs check below skips them), and N is
-	// bounded by the grant count itself, but it is an unmeasured, real cost
-	// on the exact loop #1046 was optimizing; no benchmark pins it.
+	// Cost note: flushing mid-scan means this scan can read back its own
+	// writes. SQLite's grant reader pages by ascending rowid, and a flushed
+	// replacement grant's row lands above the read cursor, so a replacement
+	// written while page P is being processed is re-fetched and re-checked
+	// when the loop reaches a later page -- G grants scanned becomes up to
+	// G+N rows processed, where N is the number of replacements this scan
+	// produces. That only happens when there IS a later page, i.e. when the
+	// pre-existing grant set exceeds dotc1z's page size; below that the
+	// first page already covers the whole table and nothing is re-read.
+	// Correctness is unaffected (the newGrantIDs check below skips them),
+	// and N is bounded by the grant count itself, but it is an unmeasured,
+	// real cost on the exact loop #1046 was optimizing; no benchmark pins it.
 	for ga, err := range s.store.Grants().ListWithAnnotations(ctx) {
 		if err != nil {
 			return err
@@ -3544,7 +3550,11 @@ func (s *syncer) processGrantsWithExternalPrincipalsInner(ctx context.Context, p
 		// unresolved, redoing (and re-flushing) its entire fan-out.
 		// newGrantIDs is populated the instant a grant is buffered (see
 		// appendExpandedGrant), so this catches it regardless of whether
-		// the buffered write has physically flushed yet.
+		// the buffered write has physically flushed yet. Reachable only
+		// once the pre-existing grant set spans more than one page (see the
+		// cost note above); TestExternalResourceMatchAllSkipsItsOwnFlushedReplacements
+		// builds that case, where dropping this turns 600 replacement
+		// writes into ~300,000.
 		if newGrantIDs.ContainsOne(grant.GetId()) {
 			continue
 		}
