@@ -101,12 +101,16 @@ func TestLifecycleMuTakersAreTransitionsOnly(t *testing.T) {
 // ordinary work.
 func TestWriteBarrierWaitersCheckOwnership(t *testing.T) {
 	const assertion = "assertNotWaitingOnOwnWrite"
+	const readAssertion = "assertNotWaitingOnOwnRead"
 	waiters := []string{"Close", "CheckpointTo"}
 
 	locksBarrier := map[string]bool{}
 	waitsForWrites := map[string]bool{}
 	joinsWriteWG := map[string]bool{}
 	checksOwnership := map[string]bool{}
+	waitsForReads := map[string]bool{}
+	joinsReadWG := map[string]bool{}
+	checksReadOwnership := map[string]bool{}
 	_, files := parseProductionDir(t, ".")
 	for _, f := range files {
 		for _, decl := range f.Decls {
@@ -124,13 +128,21 @@ func TestWriteBarrierWaitersCheckOwnership(t *testing.T) {
 					locksBarrier[fn.Name.Name] = true
 				case assertion:
 					checksOwnership[fn.Name.Name] = true
+				case readAssertion:
+					checksReadOwnership[fn.Name.Name] = true
 				case "Wait":
 					if inner, ok := sel.X.(*ast.SelectorExpr); ok && inner.Sel.Name == "writeWG" {
 						waitsForWrites[fn.Name.Name] = true
 					}
+					if inner, ok := sel.X.(*ast.SelectorExpr); ok && inner.Sel.Name == "readWG" {
+						waitsForReads[fn.Name.Name] = true
+					}
 				case "Add", "Done":
 					if inner, ok := sel.X.(*ast.SelectorExpr); ok && inner.Sel.Name == "writeWG" {
 						joinsWriteWG[fn.Name.Name] = true
+					}
+					if inner, ok := sel.X.(*ast.SelectorExpr); ok && inner.Sel.Name == "readWG" {
+						joinsReadWG[fn.Name.Name] = true
 					}
 				}
 				return true
@@ -157,4 +169,17 @@ func TestWriteBarrierWaitersCheckOwnership(t *testing.T) {
 	for _, waiter := range waiters {
 		require.True(t, checksOwnership[waiter], "%s waits for in-flight writes without calling %s first", waiter, assertion)
 	}
+
+	// The same three enumerations for readWG, which Close drains next to
+	// writeWG. The read side is the easier one to get wrong: Iterate* and
+	// ForEach* hold the pin across a caller-supplied callback, so the
+	// engine hands out the one context where closing it waits forever.
+	require.Equal(t, map[string]bool{"enterReadWG": true, "exitReadWG": true}, joinsReadWG,
+		"someone joins or leaves readWG outside the enterReadWG/exitReadWG pair. Membership is recorded there, "+
+			"and a bare Add is counted in the group Close drains while staying invisible to "+readAssertion+".")
+	require.Equal(t, map[string]bool{"Close": true}, waitsForReads,
+		"a new readWG waiter appeared. Waiting for in-flight reads from inside a pinned read waits forever, "+
+			"so a waiter has to call "+readAssertion+" before the wait.")
+	require.True(t, checksReadOwnership["Close"],
+		"Close waits for in-flight reads without calling %s first", readAssertion)
 }

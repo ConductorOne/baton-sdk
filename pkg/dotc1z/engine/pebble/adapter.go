@@ -241,10 +241,21 @@ func (e *Engine) CurrentSyncStep(ctx context.Context) (string, error) {
 		}
 		rec, err := e.GetSyncRunRecord(ctx, syncID)
 		if err != nil {
-			if errors.Is(err, pebble.ErrNotFound) {
+			if !errors.Is(err, pebble.ErrNotFound) {
+				return "", err
+			}
+			// Not-found clears the same bar as a hit, or the two answers
+			// disagree about which sync they describe. startNewSync bumps
+			// the generation in MarkFreshSync before it writes the new
+			// record, so a reader that sampled the previous binding can
+			// arrive after the swap and be told "no such sync" — about a
+			// sync that was never unbound, by a lookup that keys on an id
+			// the engine has already left. Reporting no step there is a
+			// lie the locked version could not tell.
+			if _, after := e.currentSyncBinding(); after == gen {
 				return "", nil
 			}
-			return "", err
+			continue
 		}
 		if _, after := e.currentSyncBinding(); after == gen {
 			return rec.GetSyncToken(), nil

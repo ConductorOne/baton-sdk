@@ -118,17 +118,34 @@ type Engine struct {
 	// when it is unheld. Recorded only under `go test`; see
 	// lockWriteBarrier for why the bookkeeping is gated.
 	writeBarrierOwner atomic.Uint64
-	// writeWGParticipants counts, per goroutine id, how many times that
-	// goroutine is currently counted in writeWG. Separate from
-	// writeBarrierOwner because the two answer different questions and
-	// the sets differ: CompactAllRanges and Flush join writeWG without
-	// ever taking writeMu, and it is a writeWG holder — not a barrier
-	// holder — that hangs Close. Recorded only under `go test`, on the
-	// same gate as writeBarrierOwner. Guarded by writeWGParticipantsMu.
-	writeWGParticipants   map[uint64]int
-	writeWGParticipantsMu sync.Mutex
-	closing               atomic.Bool // strict write-barrier flag, read on every Writer call
-	closeMu               sync.Mutex
+	// writeWGParticipants tracks which goroutines are currently counted
+	// in writeWG. Separate from writeBarrierOwner because the two answer
+	// different questions and the sets differ: CompactAllRanges and Flush
+	// join writeWG without ever taking writeMu, and it is a writeWG
+	// holder — not a barrier holder — that hangs Close. Recorded only
+	// under `go test`, on the same gate as writeBarrierOwner.
+	writeWGParticipants goroutineSet
+	// readWGParticipants is the same bookkeeping for readWG. Close drains
+	// both groups, so both can be waited on from inside a member — and a
+	// pinned read is caller-supplied code for the whole of an Iterate* or
+	// ForEach* yield callback, which is where a Close from inside one
+	// would come from.
+	readWGParticipants goroutineSet
+	closing            atomic.Bool // strict write-barrier flag, read on every Writer call
+	closeMu            sync.Mutex
+	// admitMu orders admission into writeWG/readWG against Close's flip of
+	// the closing flag. Joiners hold RLock across the closing check and
+	// their Add; Close holds Lock across closing.Store(true).
+	//
+	// A check and an Add are two steps, and re-checking after the Add does
+	// not make them one: a joiner that read closing==false can be
+	// descheduled and run its Add after Close has parked in Wait with the
+	// counter at zero. sync.WaitGroup calls that misuse and fatals — "Add
+	// called concurrently with Wait" — rather than refusing gracefully,
+	// which is the ErrEngineClosing the re-check was reaching for. Under
+	// this mutex the Add either precedes the flip (Close then waits for it)
+	// or never happens.
+	admitMu sync.RWMutex
 
 	// computedStats holds caller-computed stats records stashed via
 	// StashComputedSyncStats, keyed by sync_id. PersistSyncStats pops
@@ -351,16 +368,26 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 // ErrEngineClosing. Close blocks until all in-flight writes and all
 // pinned reads (see pinRead) complete, so a slow page read delays it.
 func (e *Engine) Close() error {
+	// Before closeMu, not merely before the flag. A concurrent Close can
+	// already hold the lock and be parked in one of the waits below, and
+	// the goroutine that would keep it parked is the one calling here:
+	// behind the lock this caller blocks on closeMu instead, the
+	// diagnostic never runs, and the pair hangs with no output one lock
+	// earlier than the check was looking. Asking first also leaves a
+	// usable engine behind — nothing is marked closing when it panics.
+	e.assertNotWaitingOnOwnWrite()
+	e.assertNotWaitingOnOwnRead()
 	e.closeMu.Lock()
 	defer e.closeMu.Unlock()
 	if e.db == nil {
 		return nil
 	}
-	// Before the flag, not after: a caller that reached here from inside
-	// its own write body is going to panic on the wait below, and it
-	// should leave a usable engine behind rather than one marked closing.
-	e.assertNotWaitingOnOwnWrite()
+	// Under admitMu so the flip cannot land between a joiner's closing
+	// check and its Add, which is a WaitGroup misuse fatal rather than the
+	// ErrEngineClosing that joiner is owed.
+	e.admitMu.Lock()
 	e.closing.Store(true)
+	e.admitMu.Unlock()
 	e.writeWG.Wait()
 	// Reads borrow the handle without any barrier, so draining writes is
 	// not enough: a paginate holding e.db while the teardown below runs
@@ -698,13 +725,19 @@ func (e *Engine) withWriteAllowSealed(fn func() error) error {
 	if err := e.checkWritableAllowSealed(); err != nil {
 		return err
 	}
-	e.enterWriteWG()
-	defer e.exitWriteWG()
-	// Re-check after Add because closing could have flipped between
-	// our first check and our Add.
-	if e.closing.Load() {
+	// The closing check and the Add are one step against Close's flip; see
+	// admitMu. checkWritableAllowSealed above reads the same flag, but a
+	// pass there is only advisory — this is the check that counts.
+	e.admitMu.RLock()
+	closing := e.closing.Load()
+	if !closing {
+		e.enterWriteWG()
+	}
+	e.admitMu.RUnlock()
+	if closing {
 		return ErrEngineClosing
 	}
+	defer e.exitWriteWG()
 	e.lockWriteBarrier()
 	defer e.unlockWriteBarrier()
 	return fn()
@@ -722,25 +755,29 @@ func (e *Engine) withWriteAllowSealed(fn func() error) error {
 // Callers must defer the returned release, and must read through the
 // returned handle rather than e.db — re-reading the field inside the
 // body reintroduces exactly the unordered access this removes.
-// TestPaginateReadsArePinned holds the paginate surface to both.
+// TestScanReadsArePinned holds the read surface to both.
 func (e *Engine) pinRead() (*rawdb.DB, func(), error) {
-	if e.closing.Load() {
+	// The closing check and the Add are one step against Close's flip, so
+	// there is no window in which this joins a group Close has already
+	// stopped counting. See admitMu.
+	e.admitMu.RLock()
+	closing := e.closing.Load()
+	if !closing {
+		e.enterReadWG()
+	}
+	e.admitMu.RUnlock()
+	if closing {
 		return nil, nil, ErrEngineClosing
 	}
-	e.readWG.Add(1)
-	// Re-check after the Add, for the reason withWriteAllowSealed does:
-	// closing can flip between the first check and the Add, and by then
-	// Close's Wait may already have gone past a zero counter.
-	if e.closing.Load() {
-		e.readWG.Done()
-		return nil, nil, ErrEngineClosing
-	}
+	// Safe unsynchronized: the Add above precedes Close's flip, so Close
+	// is still waiting on this pin and has not reached the teardown that
+	// nils the field.
 	db := e.db
 	if db == nil {
-		e.readWG.Done()
+		e.exitReadWG()
 		return nil, nil, ErrEngineClosing
 	}
-	return db, e.readWG.Done, nil
+	return db, e.exitReadWG, nil
 }
 
 func (e *Engine) Save(ctx context.Context, dest string) error {

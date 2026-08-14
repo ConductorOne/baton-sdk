@@ -164,6 +164,39 @@ func TestCurrentSyncStepRetriesWhenBindingMovesMidRead(t *testing.T) {
 		`the retry must answer for the binding in force when it finished; "token-a" is the sync that was bound when it started`)
 }
 
+// TestCurrentSyncStepRetriesWhenBindingMovesMidReadOnMiss is the same
+// window, reached through the not-found branch instead of the hit.
+//
+// A miss is an answer too, and it has to clear the same bar: the record
+// lookup keys on the id sampled at the top, so once the binding has
+// moved, "no record for that id" says nothing about the sync now bound.
+// Returning "" there reports no step for a sync that never unbound and
+// has one — the inconsistency the lock used to rule out, arrived at by
+// the one path that skipped the generation re-check.
+func TestCurrentSyncStepRetriesWhenBindingMovesMidReadOnMiss(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	bound, spare := boundSyncAndSpareID(t, e)
+
+	// Start from the binding with no record, so the first pass misses.
+	require.NoError(t, e.SetCurrentSync(ctx, spare))
+
+	passes := 0
+	e.test.currentSyncStepPreReadHook = func() {
+		passes++
+		if passes > 1 {
+			return
+		}
+		require.NoError(t, e.SetCurrentSync(ctx, bound))
+	}
+
+	step, err := e.CurrentSyncStep(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 2, passes, "the binding moved inside the read window, so the miss must have been retried")
+	require.Equal(t, "token-a", step,
+		`the retry must answer for the binding in force when it finished; "" is the spare that was bound when it started`)
+}
+
 // boundSyncAndSpareID starts a sync with the step token "token-a" and
 // returns its id plus a second id that is bindable but has no record of
 // its own.

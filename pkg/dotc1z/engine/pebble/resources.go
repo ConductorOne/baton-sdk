@@ -165,6 +165,9 @@ func (e *Engine) IterateResources(ctx context.Context, yield func(*v3.ResourceRe
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		r := &v3.ResourceRecord{}
 		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return fmt.Errorf("iterate resources: %w", err)
@@ -192,6 +195,9 @@ func (e *Engine) IterateResourcesByParent(ctx context.Context, parentRT, parentI
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		// Decode (childRT, childID) from the tail.
 		childRT, childID, ok := decodeTwoTupleComponents(iter.Key(), indexPrefix)
 		if !ok {

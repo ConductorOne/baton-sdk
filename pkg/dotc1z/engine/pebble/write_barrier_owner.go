@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"runtime"
 	"strconv"
+	"sync"
 	"testing"
 )
 
@@ -16,6 +17,9 @@ const (
 		"the inner write an unexported sibling that runs under the barrier already held."
 	writeBarrierWaitFromWritePanic = "pebble engine: waited for in-flight writes from inside a write body — " +
 		"this goroutine's own write is one of them, so the wait can never finish."
+	readPinWaitFromReadPanic = "pebble engine: waited for in-flight reads from inside a pinned read — this " +
+		"goroutine's own read is one of them, so the wait can never finish. Iterate* and ForEach* hold the pin " +
+		"across the yield callback, so closing the engine from inside one waits on itself."
 	lifecycleFromWriteBarrierPanic = "pebble engine: sync-lifecycle transition called from inside a write body — " +
 		"the lock order is lifecycleMu then writeMu everywhere else, so taking lifecycleMu while holding the " +
 		"write barrier deadlocks against a concurrent EndSync. Hoist the transition out of the write."
@@ -74,6 +78,54 @@ func (e *Engine) unlockWriteBarrier() {
 	e.writeMu.Unlock()
 }
 
+// goroutineSet records which goroutines are currently counted in one of
+// the WaitGroups Close drains.
+//
+// Counted rather than a plain set: nothing forbids a goroutine from
+// joining one twice — a compaction inside a write body, a second pinned
+// read taken inside a scan's yield callback — and a plain delete on the
+// inner exit would hide the outer one.
+type goroutineSet struct {
+	mu sync.Mutex
+	m  map[uint64]int
+}
+
+func (s *goroutineSet) enter(self uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.m == nil {
+		s.m = make(map[uint64]int, 1)
+	}
+	s.m[self]++
+}
+
+func (s *goroutineSet) exit(self uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if n := s.m[self]; n > 1 {
+		s.m[self] = n - 1
+		return
+	}
+	delete(s.m, self)
+}
+
+func (s *goroutineSet) holds(self uint64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.m[self] > 0
+}
+
+// trackedGoroutineID returns the calling goroutine's id, or 0 when the
+// bookkeeping is off or the id was unreadable. Callers skip their
+// bookkeeping on 0: it is also the "unheld" value, so recording it would
+// make one unreadable id look like every other goroutine.
+func trackedGoroutineID() uint64 {
+	if !writeBarrierOwnerChecks {
+		return 0
+	}
+	return goroutineID()
+}
+
 // enterWriteWG counts the calling goroutine in writeWG; exitWriteWG
 // releases it. Every writeWG.Add and Done goes through the pair (pinned
 // by TestWriteBarrierWaitersCheckOwnership) so the participant set stays
@@ -92,40 +144,35 @@ func (e *Engine) unlockWriteBarrier() {
 // every write, and writes are the hot path this engine exists for.
 func (e *Engine) enterWriteWG() {
 	e.writeWG.Add(1)
-	if !writeBarrierOwnerChecks {
-		return
+	if self := trackedGoroutineID(); self != 0 {
+		e.writeWGParticipants.enter(self)
 	}
-	self := goroutineID()
-	if self == 0 {
-		return
-	}
-	e.writeWGParticipantsMu.Lock()
-	defer e.writeWGParticipantsMu.Unlock()
-	if e.writeWGParticipants == nil {
-		e.writeWGParticipants = make(map[uint64]int, 1)
-	}
-	// Counted rather than a set: nothing forbids a goroutine from being
-	// in writeWG twice (a compaction inside a write body, say), and a
-	// plain delete on the inner exit would hide the outer one.
-	e.writeWGParticipants[self]++
 }
 
 // exitWriteWG is enterWriteWG's release. Always deferred immediately
 // after the enter, so an early return between them cannot leave the
 // counter — or the set — holding a write that finished.
 func (e *Engine) exitWriteWG() {
-	if writeBarrierOwnerChecks {
-		if self := goroutineID(); self != 0 {
-			e.writeWGParticipantsMu.Lock()
-			if n := e.writeWGParticipants[self]; n > 1 {
-				e.writeWGParticipants[self] = n - 1
-			} else {
-				delete(e.writeWGParticipants, self)
-			}
-			e.writeWGParticipantsMu.Unlock()
-		}
+	if self := trackedGoroutineID(); self != 0 {
+		e.writeWGParticipants.exit(self)
 	}
 	e.writeWG.Done()
+}
+
+// enterReadWG and exitReadWG are the read-side pair, for the group
+// pinRead joins and Close drains alongside writeWG.
+func (e *Engine) enterReadWG() {
+	e.readWG.Add(1)
+	if self := trackedGoroutineID(); self != 0 {
+		e.readWGParticipants.enter(self)
+	}
+}
+
+func (e *Engine) exitReadWG() {
+	if self := trackedGoroutineID(); self != 0 {
+		e.readWGParticipants.exit(self)
+	}
+	e.readWG.Done()
 }
 
 // assertNotWaitingOnOwnWrite panics when the calling goroutine is
@@ -134,18 +181,19 @@ func (e *Engine) exitWriteWG() {
 // compaction or flush, which join the group without the barrier — hangs
 // on the wait, one step before the mutex that lockWriteBarrier watches.
 func (e *Engine) assertNotWaitingOnOwnWrite() {
-	if !writeBarrierOwnerChecks {
-		return
-	}
-	self := goroutineID()
-	if self == 0 {
-		return
-	}
-	e.writeWGParticipantsMu.Lock()
-	inFlight := e.writeWGParticipants[self] > 0
-	e.writeWGParticipantsMu.Unlock()
-	if inFlight {
+	if self := trackedGoroutineID(); self != 0 && e.writeWGParticipants.holds(self) {
 		panic(writeBarrierWaitFromWritePanic)
+	}
+}
+
+// assertNotWaitingOnOwnRead is the same check for readWG, which Close
+// drains too. The read side has a shape the write side does not: a
+// pinned read runs caller-supplied code — the yield and visit callbacks
+// of the Iterate* and ForEach* families — for the whole of the pin, so
+// the engine hands a stranger the one context in which closing it hangs.
+func (e *Engine) assertNotWaitingOnOwnRead() {
+	if self := trackedGoroutineID(); self != 0 && e.readWGParticipants.holds(self) {
+		panic(readPinWaitFromReadPanic)
 	}
 }
 

@@ -172,6 +172,48 @@ func TestReadSurfaceAfterCloseReturnsClosing(t *testing.T) {
 // would let a useless pin satisfy the check.
 var pinnedReadPrefixes = []string{"Paginate", "Iterate", "ForEach"}
 
+// TestCloseWaitsForInFlightAdmission pins the ordering that keeps a
+// joiner's closing check and its Add from straddling Close's flip.
+//
+// Re-checking the flag after the Add does not close that window, it just
+// narrows it: a reader that read closing==false can be descheduled and
+// run its Add after Close has parked in Wait with the counter at zero,
+// and sync.WaitGroup answers that with "Add called concurrently with
+// Wait" — a panic, not the ErrEngineClosing the re-check was reaching
+// for. It surfaces as a rare crash under load, on the interleaving
+// TestConcurrentCloseWithPaginatedReads spends four goroutines trying to
+// hit, which is the worst way to learn about it.
+//
+// Holding the admission lock the way pinRead does is the whole
+// interleaving, stopped in the middle: while a pin is being acquired,
+// Close must not have flipped the flag yet.
+func TestCloseWaitsForInFlightAdmission(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	// A pin caught between its closing check and its Add.
+	e.admitMu.RLock()
+
+	closed := make(chan error, 1)
+	go func() { closed <- e.Close() }()
+
+	require.Never(t, func() bool { return e.closing.Load() }, 200*time.Millisecond, 5*time.Millisecond,
+		"Close flipped the closing flag while a pin was mid-acquisition. That pin's Add now lands on a "+
+			"WaitGroup Close is already waiting on at zero, which panics instead of refusing the read")
+
+	// Finish acquiring, then let Close proceed: it must now see the pin
+	// and wait for it rather than tear the handle down underneath it.
+	e.enterReadWG()
+	e.admitMu.RUnlock()
+
+	require.Never(t, func() bool { return e.db == nil }, 100*time.Millisecond, 5*time.Millisecond,
+		"Close tore the handle down while a read was pinned")
+	e.exitReadWG()
+	require.NoError(t, <-closed)
+}
+
 // TestScanReadsArePinned keeps the read surface on the pin.
 //
 // pinRead is what orders a read's view of the handle against Close's
@@ -241,10 +283,65 @@ func TestScanReadsArePinned(t *testing.T) {
 				require.False(t, direct,
 					"%s reads e.db directly. The pinned handle is the one Close's drain accounts for; re-reading the "+
 						"field inside the body is the unordered access pinRead exists to remove", fn.Name.Name)
+
+				hasLoop, loopChecksCtx := scanLoopCancellation(fn)
+				if hasLoop {
+					require.True(t, loopChecksCtx,
+						"%s scans without checking ctx.Err() in the loop. The pin makes Close wait for this scan, so a "+
+							"full-keyspace read — or a yield callback that blocks on IO — holds the teardown open for as "+
+							"long as it takes, with no way for the caller to call it off", fn.Name.Name)
+				}
 			})
 		}
 	}
 	require.Positive(t, checked, "no read methods matched %v: this check has drifted off the surface it is meant to hold", pinnedReadPrefixes)
+}
+
+// scanLoopCancellation reports whether fn drives a pebble iterator
+// directly, and whether any such loop consults ctx.Err().
+//
+// Keyed on an iterator loop — a `for` whose condition calls Valid() —
+// rather than on any loop at all, because the unbounded thing is the
+// keyspace, not the ranging. PaginateGrants ranges over the page it just
+// read to reconcile absent fields; that loop is bounded by the page limit
+// and the scan feeding it lives in a shared helper that checks per
+// iteration. Requiring a check there would be noise, and noise is how a
+// meta-test gets an exemption list and stops meaning anything.
+//
+// Deliberately "any iterator loop" rather than "every" one: these shapes
+// nest, an outer index walk feeding an inner primary-key fetch, and one
+// check per scan is what bounds the pin.
+func scanLoopCancellation(fn *ast.FuncDecl) (bool, bool) {
+	var hasLoop, checksCtx bool
+	callsMethod := func(node ast.Node, name string) bool {
+		if node == nil {
+			return false
+		}
+		found := false
+		ast.Inspect(node, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == name {
+				found = true
+			}
+			return true
+		})
+		return found
+	}
+	ast.Inspect(fn, func(n ast.Node) bool {
+		loop, ok := n.(*ast.ForStmt)
+		if !ok || !callsMethod(loop.Cond, "Valid") {
+			return true
+		}
+		hasLoop = true
+		if callsMethod(loop.Body, "Err") {
+			checksCtx = true
+		}
+		return true
+	})
+	return hasLoop, checksCtx
 }
 
 // TestConcurrentCloseWithPaginatedReads is the concurrent half of the

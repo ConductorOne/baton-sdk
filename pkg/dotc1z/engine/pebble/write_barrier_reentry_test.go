@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
@@ -143,6 +145,64 @@ func TestWriteBarrierAdmitsSequentialAndConcurrentWrites(t *testing.T) {
 	for i := 0; i < writers; i++ {
 		require.NoError(t, <-errs)
 	}
+}
+
+// closeInsidePinnedRead is the read-side shape of the same mistake, and
+// the one the engine invites: Iterate* holds the pin across the yield
+// callback, so a caller that decides mid-scan it is done and closes the
+// engine is waiting for the read it is still inside.
+func (e *Engine) closeInsidePinnedRead(ctx context.Context) error {
+	return e.IterateGrants(ctx, func(*v3.GrantRecord) bool {
+		_ = e.Close()
+		return false
+	})
+}
+
+// TestCloseFromInsidePinnedReadPanics covers the read half of the drain.
+// Close waits on readWG as well as writeWG, so the wait-side check has to
+// see pinned readers too — a scan callback is caller-supplied code
+// running with the pin held, which makes this the easiest way to reach
+// the hang from outside the package.
+func TestCloseFromInsidePinnedReadPanics(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, e.PutGrants(ctx, mkV2Grant("grant-1", "entitlement-1", "user", "principal-1")))
+
+	require.PanicsWithValue(t, readPinWaitFromReadPanic, func() {
+		_ = e.closeInsidePinnedRead(ctx)
+	})
+	// The panic unwinds through the scan's release, and nothing was
+	// marked closing, so the engine is still usable.
+	require.NoError(t, e.CheckpointSync(ctx, "after-panic"))
+}
+
+// TestCloseFromInsideWriteRacingAnotherClosePanics pins where the
+// assertion sits relative to closeMu. One Close already holds the lock
+// and is parked draining writes; the goroutine holding the write it waits
+// for is the one calling here. Behind the lock this caller would block on
+// closeMu and never reach the check — the same silent hang the check
+// exists to report, moved one lock earlier.
+func TestCloseFromInsideWriteRacingAnotherClosePanics(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	e.enterWriteWG()
+	closed := make(chan error, 1)
+	go func() { closed <- e.Close() }()
+	// The flag flips under closeMu on the way to the drain, so observing
+	// it means the other Close holds the lock this caller would queue on.
+	require.Eventually(t, func() bool { return e.closing.Load() }, 10*time.Second, time.Millisecond,
+		"the concurrent Close never reached its drain")
+
+	require.PanicsWithValue(t, writeBarrierWaitFromWritePanic, func() {
+		_ = e.Close()
+	})
+	e.exitWriteWG()
+	require.NoError(t, <-closed)
 }
 
 // TestCloseFromBarrierFreeWriteWGHolderPanics covers the writeWG holders

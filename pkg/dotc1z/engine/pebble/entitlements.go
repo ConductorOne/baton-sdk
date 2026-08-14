@@ -175,6 +175,9 @@ func (e *Engine) IterateEntitlements(ctx context.Context, yield func(*v3.Entitle
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		r := &v3.EntitlementRecord{}
 		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return fmt.Errorf("iterate entitlements: %w", err)
@@ -202,6 +205,9 @@ func (e *Engine) IterateEntitlementsByResource(ctx context.Context, resourceType
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		r := &v3.EntitlementRecord{}
 		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return err

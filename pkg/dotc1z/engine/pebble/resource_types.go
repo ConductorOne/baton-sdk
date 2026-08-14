@@ -97,6 +97,9 @@ func (e *Engine) IterateResourceTypes(ctx context.Context, yield func(*v3.Resour
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		r := &v3.ResourceTypeRecord{}
 		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return fmt.Errorf("iterate resource_types: %w", err)

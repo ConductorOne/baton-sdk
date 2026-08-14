@@ -62,6 +62,9 @@ func (e *Engine) IterateAssets(ctx context.Context, yield func(*v3.AssetRecord) 
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		r := &v3.AssetRecord{}
 		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return fmt.Errorf("iterate assets: %w", err)

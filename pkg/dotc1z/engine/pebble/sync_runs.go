@@ -129,6 +129,9 @@ func (e *Engine) IterateAllSyncRuns(ctx context.Context, yield func(*v3.SyncRunR
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		r := &v3.SyncRunRecord{}
 		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return fmt.Errorf("iterate sync_runs: %w", err)

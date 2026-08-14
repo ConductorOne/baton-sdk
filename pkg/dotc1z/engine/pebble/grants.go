@@ -1028,6 +1028,9 @@ func (e *Engine) IterateGrants(ctx context.Context, yield func(*v3.GrantRecord) 
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		r := &v3.GrantRecord{}
 		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return fmt.Errorf("iterate grants: %w", err)
@@ -1069,6 +1072,9 @@ func (e *Engine) IterateGrantsByEntitlement(ctx context.Context, entitlementID s
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		r := &v3.GrantRecord{}
 		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return fmt.Errorf("iterate by entitlement: %w", err)
@@ -1097,6 +1103,9 @@ func (e *Engine) IterateGrantsByPrincipal(ctx context.Context, principalRT, prin
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		components, ok := decodeTupleComponents(iter.Key(), indexPrefix, 4)
 		if !ok {
 			continue
@@ -1143,6 +1152,9 @@ func (e *Engine) IterateGrantsByPrincipalResourceType(ctx context.Context, princ
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		components, ok := decodeTupleComponents(iter.Key(), indexPrefix, 5)
 		if !ok {
 			continue
@@ -1193,6 +1205,9 @@ func (e *Engine) IterateGrantsByNeedsExpansion(ctx context.Context, yield func(*
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		components, ok := decodeTupleComponents(iter.Key(), indexPrefix, 6)
 		if !ok {
 			continue
