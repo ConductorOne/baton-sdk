@@ -1338,7 +1338,9 @@ func TestExternalResourceUserProfileMatch(t *testing.T) {
 		err = internalSyncer.Close(ctx)
 		require.NoError(t, err)
 
-		store, err := dotc1z.NewC1ZFile(ctx, internalC1zpath)
+		// Engine-neutral open: with the pebble default the synced artifact is
+		// v3, and the sqlite-only NewC1ZFile constructor would reject it.
+		store, err := dotc1z.NewStore(ctx, internalC1zpath)
 		require.NoError(t, err)
 
 		grants, err := store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
