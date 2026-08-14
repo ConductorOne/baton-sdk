@@ -797,13 +797,69 @@ func TestTypeScopedFanoutResumesAfterStoredCursorFailure(t *testing.T) {
 // through budgets of 50ms, then 300ms, then 8s, and the 8s still lost on a
 // Windows runner — the failure is a false negative (setup did not reach the
 // call, so nothing was exercised), which is why the assertions below pin
-// reached as well as cancelled. TestRunDurationTimerEndsSyncWhileParentLives
-// keeps the real timer under test.
+// reached as well as cancelled.
+//
+// What cause injection cannot test is the timer plumbing itself: it cancels
+// the parent of runCtx and workerCtx alike, so every call site sees it
+// whether or not its context descends from runCtx, and the tests using this
+// helper would pass with WithRunDuration ignored outright. The
+// TestRunDurationTimer* tests below keep the real timer under test, one per
+// call-site family.
 func runDurationExpiry(t *testing.T, parent context.Context) (context.Context, func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancelCause(parent)
 	t.Cleanup(func() { cancel(context.Canceled) })
 	return ctx, func() { cancel(context.DeadlineExceeded) }
+}
+
+// requireCheckpointedOnExpiry asserts that the checkpoint taken when the
+// run duration expires actually succeeded — the resumability guarantee.
+//
+// ErrSyncNotComplete on its own proves nothing: Sync joins it onto
+// whatever error it is about to return once the deadline has fired, and
+// handleOperationError joins it onto a failed checkpoint's error too, so
+// ErrorIs passes whether or not the checkpoint was written. What makes
+// the joined tree an oracle is that handleOperationError drops the batch
+// error — the cancellation that ended the run — so on this path a healthy
+// expiry has nothing else to report. Every leaf being ErrSyncNotComplete
+// is therefore the same claim as "the checkpoint returned nil", and it
+// holds for a checkpoint that failed on a dead context, a sealed engine,
+// or a disk error alike, rather than only the context-flavored subset.
+//
+// Only valid for the timer tests. Not for SkipSync, which never
+// checkpoints and returns its cancelled call's error verbatim; and not
+// for the cause-injected tests, which cancel the caller's context — the
+// one the expiry checkpoint writes under — so their checkpoint fails by
+// construction. Real expiry leaves the caller's context alive, which is
+// the very thing these leaves prove the checkpoint relied on.
+func requireCheckpointedOnExpiry(t *testing.T, err error) {
+	t.Helper()
+	leaves := flattenJoined(err)
+	require.NotEmpty(t, leaves, "expected an error on run-duration expiry")
+	for _, leaf := range leaves {
+		require.ErrorIs(t, leaf, ErrSyncNotComplete,
+			"run-duration expiry returned %q next to ErrSyncNotComplete. handleOperationError joins only the "+
+				"checkpoint's error, so this is the checkpoint failing — the sync cannot resume from where it stopped", leaf)
+	}
+}
+
+// flattenJoined returns the leaves of an errors.Join tree, so a caller
+// can assert about each one instead of about the flattened chain, where
+// errors.Is on the whole reports a match no matter which branch it came
+// from.
+func flattenJoined(err error) []error {
+	if err == nil {
+		return nil
+	}
+	joined, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		return []error{err}
+	}
+	var leaves []error
+	for _, child := range joined.Unwrap() {
+		leaves = append(leaves, flattenJoined(child)...)
+	}
+	return leaves
 }
 
 func TestRunDurationCancelsActiveSpawnedCursorBatch(t *testing.T) {
@@ -844,11 +900,13 @@ func TestRunDurationCancelsActiveSpawnedCursorBatch(t *testing.T) {
 
 func TestRunDurationCancelsRootPlannerIO(t *testing.T) {
 	// Root planning steps (entitlements/grants planning, not the parallel
-	// batch workers) are a separate call-site family: both receive
-	// workerCtx today, but a regression could rewire one family without
-	// the other. Expiry must cancel the first blocked root store
-	// ListResources, and cancellation is the only valid oracle here since
-	// workerCtx carries no deadline by design.
+	// batch workers) are a separate call-site family. Expiry must cancel
+	// the first blocked root store ListResources, and cancellation is the
+	// only valid oracle here since workerCtx carries no deadline by
+	// design. Catching this family being rewired off workerCtx is
+	// TestRunDurationTimerCancelsRootPlannerIO's job — cause injection
+	// cancels the parent of every context here, so a rewired call site
+	// would still be cancelled.
 	ctx, expire := runDurationExpiry(t, t.Context())
 	tmpDir := t.TempDir()
 	resourceType := v2.ResourceType_builder{
@@ -913,21 +971,30 @@ func TestSkipSyncHonorsRunDuration(t *testing.T) {
 	require.NoError(t, s.Close(context.WithoutCancel(ctx)))
 }
 
-// TestRunDurationTimerCancelsInFlightWork covers what the three tests above
-// gave up by delivering expiry themselves: that the real timer reaches
-// in-flight work. Nothing a test can cancel from outside distinguishes the
-// two paths — runCtx and workerCtx are both children of the context passed to
-// Sync, so cancelling that cancels workers directly and the
-// context.AfterFunc(runCtx) hop that carries a real expiry is never
-// exercised. Gutting that hop leaves the three tests above passing and this
-// one failing, which is the whole reason it is here.
+// The three TestRunDurationTimer* tests cover what the cause-injected tests
+// above give up by delivering expiry themselves: that the real timer fires
+// and reaches in-flight work through the production plumbing. Nothing a test
+// can cancel from outside distinguishes those paths — runCtx and workerCtx
+// are both children of the context passed to Sync, so cancelling that
+// reaches every call site whether or not it descends from runCtx, and the
+// cause-injected tests would pass with WithRunDuration ignored outright.
+// There is one timer test per call-site family (spawned-cursor batch, root
+// planner, SkipSync's Validate) because each family could be rewired off
+// runCtx independently.
 //
-// So this one waits for the timer, and pays for it in two ways. The store is
-// created before the syncer, keeping c1z creation out of the window that the
-// duration has to cover — that is the slowest step, and leaving it inside is
-// what made the 8s version of these tests fail on a loaded Windows runner.
-// And losing the race is a loud failure on reached, never a quiet pass.
+// Each pays for its wall-clock wait the same two ways. The store is created
+// before the syncer, keeping c1z creation out of the window the duration has
+// to cover — that is the slowest setup step, and leaving it inside is what
+// made the old 8s versions fail on a loaded Windows runner. And losing the
+// race is a loud failure on reached, never a quiet pass. The 8s duration is
+// kept from those versions: with c1z creation excluded, the window now
+// covers only the sync steps up to the blocked call, well inside the fakes'
+// 30s safety stop.
 func TestRunDurationTimerCancelsInFlightWork(t *testing.T) {
+	// Spawned-cursor batch family: the timer cancels runCtx only, so the
+	// blocked ListGrants sees expiry exclusively through the
+	// context.AfterFunc(runCtx) hop into workerCtx. Gutting that hop
+	// leaves the cause-injected tests passing and this one failing.
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 	resourceType := v2.ResourceType_builder{
@@ -946,16 +1013,94 @@ func TestRunDurationTimerCancelsInFlightWork(t *testing.T) {
 		WithConnectorStore(store),
 		WithTmpDir(tmpDir),
 		WithWorkerCount(2),
-		WithRunDuration(3*time.Second),
+		WithRunDuration(8*time.Second),
 	)
 	require.NoError(t, err)
 
 	err = s.Sync(ctx)
 	require.ErrorIs(t, err, ErrSyncNotComplete)
+	requireCheckpointedOnExpiry(t, err)
 	require.True(t, connector.reached.Load(),
 		"the timer expired before the spawned-cursor batch was reached, so nothing was exercised")
 	require.True(t, connector.cancelled.Load(),
 		"the real run-duration timer did not reach the in-flight call")
+	require.NoError(t, ctx.Err(), "the run duration must end the sync without cancelling the caller's context")
+	require.NoError(t, s.Close(ctx))
+}
+
+func TestRunDurationTimerCancelsRootPlannerIO(t *testing.T) {
+	// Root-planner family: this is the test that fails if a root
+	// planning call site is rewired from workerCtx to ctx, because the
+	// timer cancels only runCtx and a rewired call would block until the
+	// fake's safety stop.
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+	resourceType := v2.ResourceType_builder{
+		Id:          "group",
+		DisplayName: "Group",
+	}.Build()
+	resource := v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: "group",
+			Resource:     "group-1",
+		}.Build(),
+		DisplayName: "Group 1",
+	}.Build()
+	connector := newMockConnector()
+	connector.rtDB = append(connector.rtDB, resourceType)
+	connector.resourceDB["group"] = append(connector.resourceDB["group"], resource)
+
+	baseStore, err := dotc1z.NewStore(ctx, filepath.Join(tmpDir, "root-run-duration-timer.c1z"),
+		dotc1z.WithTmpDir(tmpDir),
+	)
+	require.NoError(t, err)
+	store := &blockingRootListResourcesStore{Store: baseStore}
+	s, err := NewSyncer(ctx, connector,
+		WithConnectorStore(store),
+		WithTmpDir(tmpDir),
+		WithWorkerCount(2),
+		WithRunDuration(8*time.Second),
+	)
+	require.NoError(t, err)
+
+	err = s.Sync(ctx)
+	require.ErrorIs(t, err, ErrSyncNotComplete)
+	requireCheckpointedOnExpiry(t, err)
+	require.True(t, store.reached.Load(),
+		"the timer expired before root planner IO was reached, so nothing was exercised")
+	require.True(t, store.cancelled.Load(),
+		"the real run-duration timer did not cancel the blocked root planner IO")
+	require.NoError(t, ctx.Err(), "the run duration must end the sync without cancelling the caller's context")
+	require.NoError(t, s.Close(ctx))
+}
+
+func TestRunDurationTimerCancelsSkipSyncValidate(t *testing.T) {
+	// SkipSync family: SkipSync builds its own runCtx and hands it to
+	// Validate directly, with no AfterFunc hop. This is the test that
+	// fails if Validate's context stops descending from that runCtx. No
+	// checkpoint oracle: SkipSync never checkpoints and returns the
+	// cancelled call's error verbatim.
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+	connector := &blockingValidateConnector{mockConnector: newMockConnector()}
+	store, err := dotc1z.NewStore(ctx, filepath.Join(tmpDir, "skip-run-duration-timer.c1z"),
+		dotc1z.WithTmpDir(tmpDir),
+	)
+	require.NoError(t, err)
+	s, err := NewSyncer(ctx, connector,
+		WithConnectorStore(store),
+		WithTmpDir(tmpDir),
+		WithSkipFullSync(),
+		WithRunDuration(8*time.Second),
+	)
+	require.NoError(t, err)
+
+	err = s.Sync(ctx)
+	require.ErrorIs(t, err, ErrSyncNotComplete)
+	require.True(t, connector.blocked.Load(),
+		"the timer expired before Validate was reached, so nothing was exercised")
+	require.True(t, connector.cancelled.Load(),
+		"the real run-duration timer did not cancel the blocked Validate call")
 	require.NoError(t, ctx.Err(), "the run duration must end the sync without cancelling the caller's context")
 	require.NoError(t, s.Close(ctx))
 }
