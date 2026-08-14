@@ -90,8 +90,8 @@ message EgressSection {
   // resolved hostname against this set after the compiled hard denylist.
   repeated string allowed_hosts = 4;
 
-  // Enforcement posture for allowed_hosts. Absent leaves the runtime on its
-  // own default, so adding this field does not change how an existing envelope
-  // is served.
+  // Enforcement posture for allowed_hosts. Absent is treated as
+  // EGRESS_MODE_REPORT (observe) by consumers, so adding this field does not
+  // change how an existing envelope is served.
   EgressMode mode = 5;
 }
