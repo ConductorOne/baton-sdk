@@ -345,9 +345,9 @@ type EgressSection_builder struct {
 	// empty list is a valid deny-all egress policy. Runtimes check the
 	// resolved hostname against this set after the compiled hard denylist.
 	AllowedHosts []string
-	// Enforcement posture for allowed_hosts. Absent leaves the runtime on its
-	// own default, so adding this field does not change how an existing envelope
-	// is served.
+	// Enforcement posture for allowed_hosts. Absent is treated as
+	// EGRESS_MODE_REPORT (observe) by consumers, so adding this field does not
+	// change how an existing envelope is served.
 	Mode EgressMode
 }
 

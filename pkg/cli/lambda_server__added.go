@@ -97,12 +97,15 @@ type lambdaConnectorReloader struct {
 	current *lambdaConnectorGeneration
 	build   func(context.Context, string) (*lambdaConnectorGeneration, error)
 
-	// lastRebuildVersion/lastRebuildAt back the reload rate-cap: when the
-	// server persistently serves a config_version different from the requested
-	// header, the served-version labeling makes the no-op guard never match, so
-	// these bound rebuilds to one per lambdaConnectorReloadMinInterval.
-	lastRebuildVersion string
-	lastRebuildAt      time.Time
+	// lastRebuildAt backs the reload rate-cap: when the server persistently
+	// serves a config_version different from the requested header, the
+	// served-version labeling makes the no-op guard never match, so this bounds
+	// rebuilds to one per lambdaConnectorReloadMinInterval regardless of the
+	// requested version (a time-only floor, so interleaved requested versions
+	// cannot bypass it). Stamped only on the success path, so a persistently
+	// failing build is uncapped — intentional, so a retry can clear a transient
+	// error.
+	lastRebuildAt time.Time
 }
 
 // Handler is a recovery wrapper around handle. Config reload and log level
@@ -183,8 +186,9 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 	// served-version labeling makes the no-op guard above never match, so
 	// without this cap every version-stamped invocation would rebuild. The
 	// generation stays labeled with the served version, so a stale reply is
-	// still re-fetched every interval.
-	if requestedVersion == r.lastRebuildVersion && time.Since(r.lastRebuildAt) < lambdaConnectorReloadMinInterval {
+	// still re-fetched every interval. The floor is time-only (not keyed on the
+	// requested version), so interleaved requested versions cannot bypass it.
+	if time.Since(r.lastRebuildAt) < lambdaConnectorReloadMinInterval {
 		return nil
 	}
 
@@ -218,7 +222,6 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 	}
 
 	r.current = next
-	r.lastRebuildVersion = requestedVersion
 	r.lastRebuildAt = time.Now()
 	if err := applyLambdaLogLevel(next.logging, time.Now()); err != nil {
 		return err
@@ -672,16 +675,18 @@ func egressPolicyFromResponse(ctx context.Context, config *v1.GetConnectorConfig
 				zap.Int32("mode", int32(egress.GetMode())))
 		}
 	}
-	// Defense-in-depth observability: the proto contract says a wildcard or
-	// IP-literal entry invalidates the whole envelope, and ENFORCE mode makes
-	// AllowedHosts a deny-gate, so a wildcard would project to allow-all. The
-	// server is authoritative and the runtime's compiled hard denylist still
-	// applies, so this only warns — the projection value is unchanged.
+	// The proto contract says an empty, wildcard, or IP-literal entry
+	// invalidates the whole envelope. Every other v1 invariant above fails
+	// closed (deny-all), and this one must too: under ENFORCE a wildcard entry
+	// would project to allow-all for a wildcard-matching connector, the
+	// opposite of every other rejection outcome. The server is authoritative
+	// and the runtime's compiled hard denylist still applies, but the
+	// projection itself must not widen to allow-all.
 	for _, h := range policy.AllowedHosts {
 		if h == "" || strings.Contains(h, "*") || net.ParseIP(h) != nil {
 			ctxzap.Extract(ctx).Warn("connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
 				zap.String("host", h))
-			break
+			return &EgressPolicy{Enforce: true, HTTPSOnly: true}
 		}
 	}
 	return policy

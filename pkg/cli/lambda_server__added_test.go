@@ -335,22 +335,27 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				require.Equal(t, []string{"api.example.com"}, p.AllowedHosts)
 				require.True(t, p.HTTPSOnly)
 			}
-			// The wildcard/subdomain-wildcard/empty-host cases are valid
-			// envelopes: the Warn is observability only, so the projection must
-			// be unchanged (Enforce=true for ENFORCE mode, allowlist verbatim).
+			// The wildcard/subdomain-wildcard/empty-host cases fail closed like
+			// every other v1 invariant: the projection is the synthetic deny-all
+			// (empty allowlist, Enforce=true, HTTPSOnly=true), not the envelope's
+			// hosts verbatim — under ENFORCE a wildcard entry would otherwise
+			// read as allow-all to a wildcard-matching connector.
 			switch tc.name {
 			case "allowlist wildcard invalidates envelope per contract":
 				require.NotNil(t, p)
 				require.True(t, p.Enforce)
-				require.Equal(t, []string{"*"}, p.AllowedHosts)
+				require.True(t, p.HTTPSOnly)
+				require.Empty(t, p.AllowedHosts)
 			case "allowlist subdomain wildcard invalidates envelope per contract":
 				require.NotNil(t, p)
 				require.True(t, p.Enforce)
-				require.Equal(t, []string{"*.example.com"}, p.AllowedHosts)
+				require.True(t, p.HTTPSOnly)
+				require.Empty(t, p.AllowedHosts)
 			case "allowlist empty host invalidates envelope per contract":
 				require.NotNil(t, p)
 				require.True(t, p.Enforce)
-				require.Equal(t, []string{""}, p.AllowedHosts)
+				require.True(t, p.HTTPSOnly)
+				require.Empty(t, p.AllowedHosts)
 			}
 		})
 	}
