@@ -3179,7 +3179,7 @@ func (s *syncer) deleteStaleExternalPrincipals(
 		_, stalePrincipal := staleKeys[principalID.GetResourceType()+"\x00"+principalID.GetResource()]
 		_, staleEntitlement := staleKeys[entitlementResourceID.GetResourceType()+"\x00"+entitlementResourceID.GetResource()]
 		if stalePrincipal || staleEntitlement {
-			staleGrants = append(staleGrants, grant)
+			staleGrants = append(staleGrants, minimalGrantForDelete(grant))
 		}
 	}
 
@@ -3793,11 +3793,12 @@ func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.G
 
 // minimalGrantForDelete strips a grant down to the fields DeleteGrantByRefs
 // (Entitlement + Principal) and the DeleteGrant id fallback actually need.
-// processGrantsWithExternalPrincipals holds one of these per pending delete
-// for the full scan (the newGrantIDs dedup check below can't run until the
-// scan completes), so dropping Sources/Annotations here — which can carry a
-// GrantExpandable entitlement-id list — meaningfully shrinks what stays
-// resident for tenants with a large number of externally-matched grants.
+// Both processGrantsWithExternalPrincipalsInner and
+// deleteStaleExternalPrincipals hold one of these per pending delete for a
+// full scan before issuing any deletes, so dropping Sources/Annotations
+// here — which can carry a GrantExpandable entitlement-id list — meaningfully
+// shrinks what stays resident for tenants with a large number of
+// externally-matched grants.
 func minimalGrantForDelete(grant *v2.Grant) *v2.Grant {
 	return v2.Grant_builder{
 		Id:          grant.GetId(),
