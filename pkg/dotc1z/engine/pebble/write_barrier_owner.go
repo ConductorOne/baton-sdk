@@ -5,7 +5,6 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
-	"testing"
 )
 
 // Panic messages for the two ways a goroutine can wait on itself here.
@@ -25,17 +24,13 @@ const (
 		"write barrier deadlocks against a concurrent EndSync. Hoist the transition out of the write."
 )
 
-// writeBarrierOwnerChecks turns on the ownership bookkeeping below. It
-// is on under `go test` and off in production, the same runtime gate
-// rawdb uses for its escape hatch.
-//
-// Knowing which goroutine holds the barrier means asking the runtime to
-// format a stack, and paying that on every write to catch this class of
-// mistake is the wrong trade: a goroutine that waits on itself does so
-// deterministically, on the first call, with no data dependence and no
-// concurrency required. It cannot reach production without hanging in
-// the test that first exercises it — which is the run this gate covers.
-var writeBarrierOwnerChecks = testing.Testing()
+// writeBarrierOwnerChecks (lock_checks_enabled.go / _disabled.go) gates
+// every check below at compile time. A goroutine that waits on itself
+// does so deterministically, on the first call, with no data dependence
+// and no concurrency required — it cannot reach production without
+// hanging the first armed run that exercises it, so the armed builds
+// are `make test`, CI, and anything built with -race or
+// -tags=baton_lockchecks.
 
 // lockWriteBarrier takes the engine's write barrier; unlockWriteBarrier
 // releases it.

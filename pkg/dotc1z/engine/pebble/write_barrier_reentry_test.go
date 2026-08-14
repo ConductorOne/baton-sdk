@@ -1,3 +1,8 @@
+// These tests assert the panics the deadlock-shape checks raise, so they
+// only exist in builds where the checks are compiled in. Unarmed builds
+// would hang exactly where these expect a panic.
+//go:build baton_lockchecks || race
+
 package pebble
 
 import (

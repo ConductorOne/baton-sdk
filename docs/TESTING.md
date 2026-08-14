@@ -8,9 +8,17 @@ Run `make help` for the current target list.
 
 ## CI-equivalent tests
 
-`make test` runs the ordinary Go test suite with the same build tag used by
+`make test` runs the ordinary Go test suite with the same build tags used by
 CI. Pull-request CI also runs lint, protobuf checks, the full build, and
 `make race-shard-audit` (see [Race shards](#race-shards)).
+
+One of those tags is `baton_lockchecks`, which compiles in the Pebble
+engine's deadlock-shape checks (`pkg/dotc1z/engine/pebble/lock_checks_enabled.go`)
+and the tests that assert them. `-race` arms the same checks without the
+tag, so the race-based targets need no opt-in. A bare `go test ./...`
+fails on `TestLockChecksCompiledIn` by design — that failure is the only
+sign the checks and their tests were silently excluded. Benchmarks are
+the one intended unarmed run; use `-bench` with `-run='^$'`.
 
 Tests in this tier should be deterministic, self-contained, and reasonably
 fast. A test that only skips on Windows with `testing.Short()` is still a CI

@@ -52,7 +52,7 @@ protofmt: ## Format protobuf definitions.
 
 .PHONY: test
 test: ## Run the Go test suite used by CI.
-	go test -tags=baton_lambda_support -v ./...
+	go test -tags=baton_lambda_support,baton_lockchecks -v ./...
 
 # Two-artifact checkpoint compatibility matrix: builds the harness against
 # HEAD and a pinned past release, and exchanges mid-flight checkpoints in

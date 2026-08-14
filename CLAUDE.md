@@ -18,11 +18,13 @@ make frontend
 # Run linter (golangci-lint v2)
 make lint
 
-# Run all tests
-go test -v ./...
+# Run all tests. The baton_lockchecks tag compiles in the pebble engine's
+# deadlock-shape checks; a tripwire test fails any whole-tree run without it.
+# -race arms the same checks without the tag.
+go test -tags=baton_lockchecks -v ./...
 
 # Run a single test
-go test -v -run TestName ./path/to/package
+go test -tags=baton_lockchecks -v -run TestName ./path/to/package
 
 # Update dependencies (updates, tidies, and vendors)
 make update-deps

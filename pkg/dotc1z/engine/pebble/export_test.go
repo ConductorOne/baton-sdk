@@ -47,20 +47,3 @@ func SyncRunKeyForTest() []byte { return []byte{versionV3, typeSyncRun} }
 func MarshalRecordForTest(msg proto.Message) ([]byte, error) {
 	return marshalRecord(msg)
 }
-
-// SetWriteBarrierOwnerChecksForTest turns the barrier ownership
-// bookkeeping on or off and returns the prior setting. It exists for
-// benchmarks: the checks are gated on testing.Testing(), which a
-// benchmark binary satisfies, and each barrier acquisition then formats a
-// runtime stack — around 2µs and an allocation, against roughly 7µs for
-// the grant write being measured. Left on, the write benchmarks report
-// the check, and only on the Pebble side, which skews every
-// Pebble-vs-SQLite comparison in production_bench_test.go.
-//
-// Only benchmarks should call this. A test that turns the checks off
-// gives up the panic that reports a deadlock and gets the hang back.
-func SetWriteBarrierOwnerChecksForTest(enabled bool) bool {
-	prev := writeBarrierOwnerChecks
-	writeBarrierOwnerChecks = enabled
-	return prev
-}
