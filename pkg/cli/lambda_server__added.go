@@ -720,10 +720,14 @@ func egressPolicyFromResponse(ctx context.Context, config *v1.GetConnectorConfig
 	// without reading Enforce cannot treat a "*" entry as allow-all. If the
 	// dropped entry was the only host, the projection is empty, which a
 	// host-gating connector reads as deny-all: dropping is not rejecting the
-	// envelope, but it can still empty the allowlist. Every offending entry is
-	// warned in one projection. A port-bearing entry is dropped outright (the
-	// canonical form has no port); a port suffix is split off before the IP
-	// check so a host:port IP literal is caught.
+	// envelope, but it can still empty the allowlist. Under REPORT/UNSPECIFIED
+	// every offending entry is warned in one projection; under ENFORCE the
+	// first offender rejects the envelope (deny-all), so only that one is
+	// warned. A port-bearing entry is dropped outright (the canonical form has
+	// no port); a port suffix is split off before the IP check so a host:port
+	// IP literal is caught. Entries are normalized to the canonical form
+	// (lowercase, no trailing dot) and path-bearing entries are rejected, so
+	// a non-canonical host cannot silently never match a resolved hostname.
 	valid := make([]string, 0, len(policy.AllowedHosts))
 	for _, h := range policy.AllowedHosts {
 		host := h
@@ -732,15 +736,16 @@ func egressPolicyFromResponse(ctx context.Context, config *v1.GetConnectorConfig
 			host = hp
 			hasPort = true
 		}
-		if h == "" || strings.Contains(h, "*") || hasPort || net.ParseIP(strings.Trim(host, "[]")) != nil {
-			ctxzap.Extract(ctx).Warn("connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
+		canonical := strings.ToLower(strings.TrimSuffix(host, "."))
+		if h == "" || strings.Contains(h, "*") || hasPort || strings.Contains(h, "/") || net.ParseIP(strings.Trim(canonical, "[]")) != nil {
+			ctxzap.Extract(ctx).Warn("connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, port-bearing, or path-bearing host; envelope is invalid per contract",
 				zap.String("host", h))
 			if policy.Enforce {
 				return &EgressPolicy{Enforce: true, HTTPSOnly: true}
 			}
 			continue
 		}
-		valid = append(valid, h)
+		valid = append(valid, canonical)
 	}
 	policy.AllowedHosts = valid
 	return policy

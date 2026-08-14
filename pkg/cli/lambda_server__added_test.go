@@ -188,12 +188,28 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		env.GetEgress().GetAllowedHosts()[0] = "mutated.example.com"
 		require.Equal(t, []string{"api.example.com"}, p.AllowedHosts)
 	})
+
+	t.Run("allowlist entries are normalized to canonical form", func(t *testing.T) {
+		t.Parallel()
+		// The canonical form is lowercase with no trailing dot; a non-canonical
+		// host must be normalized so it can actually match a resolved hostname
+		// rather than silently never matching under ENFORCE.
+		env := goodEnvelope("cv-1")
+		env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_ENFORCE)
+		env.GetEgress().SetAllowedHosts([]string{"API.Example.COM.", "api.example.com"})
+		p := egressPolicyFromResponse(context.Background(), newResp("cv-1", env))
+		require.NotNil(t, p)
+		require.True(t, p.Enforce)
+		require.Equal(t, []string{"api.example.com", "api.example.com"}, p.AllowedHosts)
+	})
 }
 
 // TestEgressPolicyFromResponseRejectionLogs pins the kill-switch's only operator
 // signal: the three envelope-rejection Warns and the unrecognized-mode Warn.
 // ctxzap.Extract no-ops under a bare context.Background(), so these are asserted
 // through an observer core attached via ctxzap.ToContext.
+const egressAllowlistInvalidEntryWarn = "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, port-bearing, or path-bearing host; envelope is invalid per contract"
+
 func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -278,7 +294,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"*"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
+			wantMessage: egressAllowlistInvalidEntryWarn,
 			wantFields: map[string]any{
 				"host": "*",
 			},
@@ -291,7 +307,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"*.example.com"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
+			wantMessage: egressAllowlistInvalidEntryWarn,
 			wantFields: map[string]any{
 				"host": "*.example.com",
 			},
@@ -304,7 +320,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{""})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
+			wantMessage: egressAllowlistInvalidEntryWarn,
 			wantFields: map[string]any{
 				"host": "",
 			},
@@ -317,7 +333,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"192.168.1.1"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
+			wantMessage: egressAllowlistInvalidEntryWarn,
 			wantFields: map[string]any{
 				"host": "192.168.1.1",
 			},
@@ -330,7 +346,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"2001:db8::1"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
+			wantMessage: egressAllowlistInvalidEntryWarn,
 			wantFields: map[string]any{
 				"host": "2001:db8::1",
 			},
@@ -343,7 +359,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"[2001:db8::1]"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
+			wantMessage: egressAllowlistInvalidEntryWarn,
 			wantFields: map[string]any{
 				"host": "[2001:db8::1]",
 			},
@@ -356,7 +372,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"*"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
+			wantMessage: egressAllowlistInvalidEntryWarn,
 			wantFields: map[string]any{
 				"host": "*",
 			},
@@ -369,7 +385,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"192.168.1.1:443"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
+			wantMessage: egressAllowlistInvalidEntryWarn,
 			wantFields: map[string]any{
 				"host": "192.168.1.1:443",
 			},
@@ -382,7 +398,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"[2001:db8::1]:443"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
+			wantMessage: egressAllowlistInvalidEntryWarn,
 			wantFields: map[string]any{
 				"host": "[2001:db8::1]:443",
 			},
@@ -395,7 +411,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"*", "10.0.0.5"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
+			wantMessage: egressAllowlistInvalidEntryWarn,
 			wantFields: map[string]any{
 				"host": "*",
 			},
@@ -409,7 +425,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"api.example.com", "*", "10.0.0.5"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
+			wantMessage: egressAllowlistInvalidEntryWarn,
 			wantFields: map[string]any{
 				"host": "*",
 			},
@@ -423,9 +439,22 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"example.com:443"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract",
+			wantMessage: egressAllowlistInvalidEntryWarn,
 			wantFields: map[string]any{
 				"host": "example.com:443",
+			},
+		},
+		{
+			name: "allowlist path-bearing hostname invalidates envelope per contract",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_ENFORCE)
+				env.GetEgress().SetAllowedHosts([]string{"api.example.com/v1"})
+				return newResp("cv-1", env)
+			},
+			wantMessage: egressAllowlistInvalidEntryWarn,
+			wantFields: map[string]any{
+				"host": "api.example.com/v1",
 			},
 		},
 	}
@@ -492,7 +521,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				require.Empty(t, p.AllowedHosts, "contract-invalid entries are dropped from the projected allowlist")
 				require.True(t, p.HTTPSOnly)
 				// Both offending entries are surfaced in one projection.
-				require.Equal(t, "connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, or port-bearing host; envelope is invalid per contract", entries[1].Message)
+				require.Equal(t, egressAllowlistInvalidEntryWarn, entries[1].Message)
 				require.Equal(t, "10.0.0.5", entries[1].ContextMap()["host"])
 			case "allowlist partial drop in REPORT mode keeps valid hosts":
 				require.NotNil(t, p)
