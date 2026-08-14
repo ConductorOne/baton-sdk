@@ -3103,6 +3103,17 @@ type entitlementRecordDeleter interface {
 // resume deliberately retains completed writes, so without this pass a
 // principal that disappears between attempts survives even though grants are
 // rewritten against the new source.
+//
+// Grant cleanup always runs, falling back to the id-based DeleteGrant (every
+// store implements it) when the refs-based fast path isn't available. That
+// makes it the one piece of this reconciliation every engine can perform,
+// which matters because it's the security-relevant half: a grant left
+// pointing at a principal that no longer exists is live, incorrect access.
+// Resource/entitlement row cleanup is skipped, with a warning, on stores
+// that don't implement the refs-based deleters for them (e.g. SQLite) --
+// a leftover stale resource or entitlement row is inert metadata, not an
+// active grant, so degrading there rather than skipping the whole pass is
+// the safer tradeoff.
 func (s *syncer) deleteStaleExternalPrincipals(
 	ctx context.Context,
 	current []*v2.Resource,
@@ -3115,7 +3126,7 @@ func (s *syncer) deleteStaleExternalPrincipals(
 
 	resourceDeleter, canDeleteResources := s.store.(resourceRecordDeleter)
 	entitlementDeleter, canDeleteEntitlements := s.store.(entitlementRecordDeleter)
-	grantDeleter, canDeleteGrants := s.store.(grantByRefsDeleter)
+	grantDeleter, canDeleteGrantsByRefs := s.store.(grantByRefsDeleter)
 	var staleIDs []*v2.ResourceId
 	pageToken := ""
 	for {
@@ -3144,14 +3155,13 @@ func (s *syncer) deleteStaleExternalPrincipals(
 	if len(staleIDs) == 0 {
 		return nil
 	}
-	if !canDeleteResources || !canDeleteEntitlements || !canDeleteGrants {
+	canCleanUpRows := canDeleteResources && canDeleteEntitlements
+	if !canCleanUpRows {
 		ctxzap.Extract(ctx).Warn(
-			"stale external principal reconciliation is unavailable for this storage engine",
+			"stale external principal resource/entitlement row cleanup is unavailable for this storage engine; stale grants are still removed",
 			zap.Bool("resource_delete_supported", canDeleteResources),
 			zap.Bool("entitlement_delete_supported", canDeleteEntitlements),
-			zap.Bool("grant_delete_supported", canDeleteGrants),
 		)
-		return nil
 	}
 
 	staleKeys := make(map[string]struct{}, len(staleIDs))
@@ -3174,31 +3184,42 @@ func (s *syncer) deleteStaleExternalPrincipals(
 	}
 
 	var staleEntitlements []*v2.Entitlement
-	pageToken = ""
-	for {
-		response, err := s.store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
-			PageToken: pageToken,
-		}.Build())
-		if err != nil {
-			return err
-		}
-		for _, candidate := range response.GetList() {
-			resourceID := candidate.GetResource().GetId()
-			if _, stale := staleKeys[resourceID.GetResourceType()+"\x00"+resourceID.GetResource()]; !stale {
-				continue
+	if canCleanUpRows {
+		pageToken = ""
+		for {
+			response, err := s.store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+				PageToken: pageToken,
+			}.Build())
+			if err != nil {
+				return err
 			}
-			staleEntitlements = append(staleEntitlements, candidate)
-		}
-		pageToken = response.GetNextPageToken()
-		if pageToken == "" {
-			break
+			for _, candidate := range response.GetList() {
+				resourceID := candidate.GetResource().GetId()
+				if _, stale := staleKeys[resourceID.GetResourceType()+"\x00"+resourceID.GetResource()]; !stale {
+					continue
+				}
+				staleEntitlements = append(staleEntitlements, candidate)
+			}
+			pageToken = response.GetNextPageToken()
+			if pageToken == "" {
+				break
+			}
 		}
 	}
 
 	for _, grant := range staleGrants {
-		if err := grantDeleter.DeleteGrantByRefs(ctx, grant); err != nil {
+		var err error
+		if canDeleteGrantsByRefs {
+			err = grantDeleter.DeleteGrantByRefs(ctx, grant)
+		} else {
+			err = s.store.DeleteGrant(ctx, grant.GetId())
+		}
+		if err != nil {
 			return fmt.Errorf("delete grant for stale external principal: %w", err)
 		}
+	}
+	if !canCleanUpRows {
+		return nil
 	}
 	for _, entitlement := range staleEntitlements {
 		if err := entitlementDeleter.DeleteEntitlementByRefs(ctx, entitlement); err != nil {
