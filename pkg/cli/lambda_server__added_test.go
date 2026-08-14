@@ -457,6 +457,19 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				"host": "api.example.com/v1",
 			},
 		},
+		{
+			name: "allowlist dot normalizes to empty and invalidates envelope per contract",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_ENFORCE)
+				env.GetEgress().SetAllowedHosts([]string{"."})
+				return newResp("cv-1", env)
+			},
+			wantMessage: egressAllowlistInvalidEntryWarn,
+			wantFields: map[string]any{
+				"host": ".",
+			},
+		},
 	}
 
 	for _, tc := range cases {
