@@ -3445,37 +3445,23 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		return nil
 	}
 
-	// bufferExpandedGrant records a replacement grant's id in newGrantIDs
+	// appendExpandedGrant records a replacement grant's id in newGrantIDs
 	// immediately (rather than in a second pass over a fully retained
 	// slice, so the delete-dedup check below never needs the complete
-	// expanded-grant set held in memory at once) and adds it to the
-	// pending buffer, without checking whether it's time to flush. Used
-	// directly (instead of appendExpandedGrant) where a grant's
-	// annotations may still be mutated in place after it's buffered — the
-	// buffer holds a pointer, so the mutation is reflected automatically,
-	// but a flush must not land in between and commit the pre-mutation
-	// state (see the MatchID branch below).
-	bufferExpandedGrant := func(g *v2.Grant) {
+	// expanded-grant set held in memory at once), buffers the grant, and
+	// flushes once the buffer is full. Every call site buffers the grant in
+	// its final form -- callers that still need to mutate a grant after
+	// buffering it (e.g. a GrantExpandable remap) finish that mutation
+	// before ever calling this, since flushing early would commit the
+	// pre-mutation state.
+	appendExpandedGrant := func(g *v2.Grant) error {
 		newGrantIDs.Add(g.GetId())
 		expandedGrantsBuf = append(expandedGrantsBuf, g)
 		expandedGrantsTotal++
-	}
-
-	// maybeFlushExpandedGrants flushes once the buffer reaches capacity.
-	maybeFlushExpandedGrants := func() error {
 		if len(expandedGrantsBuf) >= externalGrantFlushBatchSize {
 			return flushExpandedGrants()
 		}
 		return nil
-	}
-
-	// appendExpandedGrant buffers a replacement grant and flushes once the
-	// buffer is full. Safe wherever the grant is already in its final
-	// form — i.e. everywhere except the MatchID branch's in-place mutation
-	// sequence below.
-	appendExpandedGrant := func(g *v2.Grant) error {
-		bufferExpandedGrant(g)
-		return maybeFlushExpandedGrants()
 	}
 
 	// Cost note: flushing mid-scan means this scan reads back its own writes.
@@ -3536,7 +3522,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			}
 			for _, principal := range principalsByTrait[trait] {
 				newGrant := newGrantForExternalPrincipal(grant, principal)
-				if err := appendExpandedGrant(newGrant); err != nil {
+				if err = appendExpandedGrant(newGrant); err != nil {
 					return err
 				}
 			}
@@ -3617,7 +3603,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				// all -- matching the pre-batching behavior of dropping the
 				// whole attempt on error rather than persisting a grant
 				// that's missing its expansion remap.
-				if err := appendExpandedGrant(newGrant); err != nil {
+				if err = appendExpandedGrant(newGrant); err != nil {
 					return err
 				}
 			}
@@ -3657,7 +3643,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				}
 				for _, i := range positions {
 					newGrant := newGrantForExternalPrincipal(grant, idx.principalAt(i))
-					if err := appendExpandedGrant(newGrant); err != nil {
+					if err = appendExpandedGrant(newGrant); err != nil {
 						return err
 					}
 				}
@@ -3683,7 +3669,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						return err
 					}
 					if newGrant != nil {
-						if err := appendExpandedGrant(newGrant); err != nil {
+						if err = appendExpandedGrant(newGrant); err != nil {
 							return err
 						}
 					}
@@ -3708,7 +3694,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	// PutGrants once at the end, even with zero grants: some store
 	// implementations (e.g. the Pebble engine) mark the store dirty as a
 	// side effect of any PutGrants call, empty or not.
-	if err := s.store.PutGrants(ctx, expandedGrantsBuf...); err != nil {
+	if err = s.store.PutGrants(ctx, expandedGrantsBuf...); err != nil {
 		return err
 	}
 
@@ -3766,12 +3752,22 @@ func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.G
 // annotation until the delete loop below removes it -- so ingest invariant
 // I9's dangling-principal exemption, which depends on a genuinely
 // unprocessed placeholder still carrying it, is unaffected.
+// externalResourceMatchAnnotationSentinels are hoisted for the same reason
+// unsafeForSlimSentinels is in pkg/dotc1z/grants.go: newGrantForExternalPrincipal
+// runs once per fan-out principal (up to the full external principal count
+// for an ExternalResourceMatchAll grant), so allocating these zero-value
+// protos fresh on every call is avoidable garbage on the exact loop #1046
+// was optimizing.
+var externalResourceMatchAnnotationSentinels = []proto.Message{
+	&v2.ExternalResourceMatchAll{},
+	&v2.ExternalResourceMatch{},
+	&v2.ExternalResourceMatchID{},
+}
+
 func stripExternalResourceMatchAnnotations(annos []*anypb.Any) []*anypb.Any {
 	stripped := make([]*anypb.Any, 0, len(annos))
 	for _, a := range annos {
-		if a.MessageIs(&v2.ExternalResourceMatchAll{}) ||
-			a.MessageIs(&v2.ExternalResourceMatch{}) ||
-			a.MessageIs(&v2.ExternalResourceMatchID{}) {
+		if slices.ContainsFunc(externalResourceMatchAnnotationSentinels, a.MessageIs) {
 			continue
 		}
 		stripped = append(stripped, a)

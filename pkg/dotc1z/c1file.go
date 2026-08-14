@@ -237,7 +237,9 @@ func WithC1FPayloadEncoding(enc c1zstore.PayloadEncoding) C1FOption {
 // Per-grant escape hatch: see unsafeForSlim. Grants carrying
 // InsertResourceGrants or any ExternalResourceMatch* annotation stay
 // full-blob — those code paths read non-identity fields off the
-// embedded Resource / Principal.
+// embedded Resource / Principal. The ExternalResourceMatch* case only
+// covers unresolved placeholder grants; a resolved replacement no longer
+// carries the annotation and is slim-eligible.
 func WithC1FV2GrantsWriter(enabled bool) C1FOption {
 	return func(o *C1File) {
 		o.v2GrantsWriter = enabled

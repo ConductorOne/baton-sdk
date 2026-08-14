@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -52,11 +53,15 @@ func TestStripExternalResourceMatchAnnotations(t *testing.T) {
 // every call after that -- simulating an interruption partway through
 // processGrantsWithExternalPrincipals's scan/expand loop, after some batches
 // have already durably flushed but before the scan (and the delete loop)
-// complete.
+// complete. successfulBatches records what actually got through, so callers
+// can assert the cut landed where they intended it to (see
+// requireExternalMatchBatchFlushedBeforeCut) instead of assuming it from the
+// call count alone.
 type failAfterNPutGrants struct {
 	c1zstore.Store
-	n     int
-	calls int
+	n                 int
+	calls             int
+	successfulBatches [][]*v2.Grant
 }
 
 var errMidScanCut = errors.New("test: cut after N PutGrants calls")
@@ -66,7 +71,43 @@ func (f *failAfterNPutGrants) PutGrants(ctx context.Context, grants ...*v2.Grant
 	if f.calls > f.n {
 		return errMidScanCut
 	}
+	batch := make([]*v2.Grant, len(grants))
+	copy(batch, grants)
+	f.successfulBatches = append(f.successfulBatches, batch)
 	return f.Store.PutGrants(ctx, grants...)
+}
+
+// DeleteGrantByRefs forwards like countingGrantPutStore's (see its comment):
+// embedding the c1zstore.Store interface doesn't promote this optional
+// method, so without an explicit passthrough the syncer's delete loop
+// always falls back to the id-based path even on engines (Pebble) that
+// support the refs-based one.
+func (f *failAfterNPutGrants) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
+	deleter, ok := f.Store.(grantByRefsDeleter)
+	if !ok {
+		return f.DeleteGrant(ctx, grant.GetId())
+	}
+	return deleter.DeleteGrantByRefs(ctx, grant)
+}
+
+// requireExternalMatchBatchFlushedBeforeCut fails the test if none of the
+// successful PutGrants calls before the cut actually contained a resolved
+// external-match replacement (principal in externalUserIDs). Without this,
+// a future change to page sizing or call ordering could shift the cut to
+// land before any external-match batch flushes, silently making the
+// resume-amplification property these tests exist to check unreachable --
+// they'd still pass, having stopped testing anything.
+func requireExternalMatchBatchFlushedBeforeCut(t *testing.T, cutStore *failAfterNPutGrants, externalUserIDs map[string]bool) {
+	t.Helper()
+	for _, batch := range cutStore.successfulBatches {
+		for _, g := range batch {
+			if externalUserIDs[g.GetPrincipal().GetId().GetResource()] {
+				return
+			}
+		}
+	}
+	t.Fatalf("no external-match replacement grant was flushed before the cut (%d successful batches); "+
+		"the cut point no longer exercises resume-after-partial-progress", len(cutStore.successfulBatches))
 }
 
 // externalPrincipalResumeScenario reports which principal ids are the
@@ -160,7 +201,18 @@ func runExternalPrincipalResumeNoAmplificationTest(
 	cutStore := &failAfterNPutGrants{Store: rawStore1, n: 2}
 	syncer1, err := NewSyncer(ctx, internalMcResume, WithConnectorStore(cutStore), WithTmpDir(resumeDir), WithExternalResourceC1ZPath(externalC1zpathResume))
 	require.NoError(t, err)
+	// Pinned well above this test's actual runtime: the baseline/resume
+	// write-count comparison below only holds if resume replays from
+	// scratch, which only holds if no non-forced checkpoint lands before
+	// the cut. minCheckpointInterval (10s) is normally short enough that a
+	// slow CI runner could land one, making resume skip already-checkpointed
+	// work and fail this test's assertion for a reason that has nothing to
+	// do with the property it checks.
+	syncer1Concrete, ok := syncer1.(*syncer)
+	require.True(t, ok)
+	syncer1Concrete.checkpointInterval = time.Hour
 	require.ErrorIs(t, syncer1.Sync(ctx), errMidScanCut)
+	requireExternalMatchBatchFlushedBeforeCut(t, cutStore, resumeScenario.externalUserIDs)
 
 	ctxCancel, cancel := context.WithCancel(ctx)
 	cancel()
@@ -205,6 +257,7 @@ func runExternalPrincipalResumeNoAmplificationTest(
 }
 
 func TestExternalResourceMatchAllResumeAfterMidScanCut(t *testing.T) {
+	skipChaosInShort(t)
 	const userCount = 5*externalGrantFlushBatchSize + 200
 	build := func(t *testing.T, ctx context.Context, externalMc, internalMc *mockConnector, upns []string) externalPrincipalResumeScenario {
 		externalUserIDs := make(map[string]bool, userCount)
