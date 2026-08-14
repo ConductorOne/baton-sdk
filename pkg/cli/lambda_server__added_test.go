@@ -54,13 +54,13 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 
 	t.Run("no envelope is ungoverned", func(t *testing.T) {
 		t.Parallel()
-		require.Nil(t, egressPolicyFromResponse(newResp("cv-1", nil)))
-		require.Nil(t, egressPolicyFromResponse(nil))
+		require.Nil(t, egressPolicyFromResponse(context.Background(), newResp("cv-1", nil)))
+		require.Nil(t, egressPolicyFromResponse(context.Background(), nil))
 	})
 
 	t.Run("valid envelope surfaces hosts and https_only", func(t *testing.T) {
 		t.Parallel()
-		p := egressPolicyFromResponse(newResp("cv-1", goodEnvelope("cv-1")))
+		p := egressPolicyFromResponse(context.Background(), newResp("cv-1", goodEnvelope("cv-1")))
 		require.NotNil(t, p)
 		require.True(t, p.HTTPSOnly)
 		require.Equal(t, []string{"api.example.com"}, p.AllowedHosts)
@@ -70,7 +70,7 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 	t.Run("binding mismatch is governed deny-all", func(t *testing.T) {
 		t.Parallel()
 		// Envelope config_version differs from the response's.
-		p := egressPolicyFromResponse(newResp("cv-1", goodEnvelope("cv-2")))
+		p := egressPolicyFromResponse(context.Background(), newResp("cv-1", goodEnvelope("cv-2")))
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
 		require.True(t, p.Enforce)
@@ -78,7 +78,7 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 
 	t.Run("empty response config_version is governed deny-all", func(t *testing.T) {
 		t.Parallel()
-		p := egressPolicyFromResponse(newResp("", goodEnvelope("")))
+		p := egressPolicyFromResponse(context.Background(), newResp("", goodEnvelope("")))
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
 		require.True(t, p.Enforce)
@@ -88,7 +88,7 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		t.Parallel()
 		env := goodEnvelope("cv-1")
 		env.SetEnvelopeVersion(999)
-		p := egressPolicyFromResponse(newResp("cv-1", env))
+		p := egressPolicyFromResponse(context.Background(), newResp("cv-1", env))
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
 		require.True(t, p.Enforce)
@@ -98,7 +98,7 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		t.Parallel()
 		env := goodEnvelope("cv-1")
 		env.GetEgress().SetSchemaVersion(999)
-		p := egressPolicyFromResponse(newResp("cv-1", env))
+		p := egressPolicyFromResponse(context.Background(), newResp("cv-1", env))
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
 		require.True(t, p.Enforce)
@@ -107,7 +107,7 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		t.Parallel()
 		env := goodEnvelope("cv-1")
 		env.SetEgress(nil)
-		p := egressPolicyFromResponse(newResp("cv-1", env))
+		p := egressPolicyFromResponse(context.Background(), newResp("cv-1", env))
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
 		require.True(t, p.Enforce)
@@ -131,7 +131,7 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				env := goodEnvelope("cv-1")
 				env.GetEgress().SetMode(tt.mode)
-				p := egressPolicyFromResponse(newResp("cv-1", env))
+				p := egressPolicyFromResponse(context.Background(), newResp("cv-1", env))
 				require.NotNil(t, p, tt.name)
 				require.Equal(t, tt.enforce, p.Enforce, tt.name)
 			})
@@ -144,7 +144,7 @@ func TestEgressPolicyFromResponse(t *testing.T) {
 		// the rejected envelope's mode: empty AllowedHosts + Enforce=true = block all.
 		env := goodEnvelope("cv-2")
 		env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_ENFORCE)
-		p := egressPolicyFromResponse(newResp("cv-1", env))
+		p := egressPolicyFromResponse(context.Background(), newResp("cv-1", env))
 		require.NotNil(t, p)
 		require.Empty(t, p.AllowedHosts)
 		require.True(t, p.Enforce)

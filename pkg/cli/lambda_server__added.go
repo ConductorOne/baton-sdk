@@ -21,6 +21,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/go-jose/go-jose/v4"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/maypok86/otter/v2"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cast"
@@ -436,7 +437,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				}),
 				SelectedAuthMethod:  authMethodStr,
 				SyncResourceTypeIDs: effectiveConfig.GetStringSlice("sync-resource-types"),
-				EgressPolicy:        egressPolicyFromResponse(config),
+				EgressPolicy:        egressPolicyFromResponse(runCtx, config),
 			}
 
 			if hasOauthField(schemaFields) {
@@ -560,24 +561,37 @@ func lambdaConnectorConfigVersion(config *v1.GetConnectorConfigResponse) string 
 // unenforced. The config-version binding (the envelope's config_version must be
 // non-empty and equal to the response's) is the one cross-field check the SDK is
 // uniquely positioned to make; deeper content validation is the connector's.
-func egressPolicyFromResponse(config *v1.GetConnectorConfigResponse) *EgressPolicy {
+func egressPolicyFromResponse(ctx context.Context, config *v1.GetConnectorConfigResponse) *EgressPolicy {
 	if config == nil || !config.HasServedPolicyEnvelope() {
 		return nil
 	}
 	env := config.GetServedPolicyEnvelope()
 	// The deny-all fallback enforces: empty AllowedHosts + Enforce=true = block
 	// all, so a mode-honoring connector fails closed rather than observing.
-	policy := &EgressPolicy{Enforce: true}
+	// HTTPSOnly is also forced true so a scheme-gate-only consumer fails closed
+	// too; the valid path below overrides it from the envelope.
+	policy := &EgressPolicy{Enforce: true, HTTPSOnly: true}
 
 	if env.GetEnvelopeVersion() != servedPolicyEnvelopeVersion {
+		// Version-mismatch kill-switch tradeoff: an unrecognized envelope (or
+		// section) version now fails closed fleet-wide (Enforce=true). That is
+		// the safe default for a security control, but it means a version
+		// mismatch takes egress offline for every connector at once. A future
+		// version handshake is the durable mitigation.
+		ctxzap.Extract(ctx).Warn("connector_authoring: served-policy envelope rejected; egress deny-all",
+			zap.String("reason", "envelope-version-mismatch"))
 		return policy
 	}
 	cv := env.GetConfigVersion()
 	if cv == "" || cv != config.GetConfigVersion() {
+		ctxzap.Extract(ctx).Warn("connector_authoring: served-policy envelope rejected; egress deny-all",
+			zap.String("reason", "config-version-binding-mismatch"))
 		return policy
 	}
 	egress := env.GetEgress()
 	if egress == nil || egress.GetSchemaVersion() != egressSectionSchemaVersion {
+		ctxzap.Extract(ctx).Warn("connector_authoring: served-policy envelope rejected; egress deny-all",
+			zap.String("reason", "egress-section-unsupported"))
 		return policy
 	}
 	policy.AllowedHosts = egress.GetAllowedHosts()
