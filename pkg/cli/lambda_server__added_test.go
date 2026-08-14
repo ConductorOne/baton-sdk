@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"sort"
 	"testing"
 	"time"
 
@@ -259,6 +260,23 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestEgressModeNameKeysPinned pins the set of EgressMode enum keys the egress
+// projection switch in egressPolicyFromResponse depends on. Adding a new enum
+// value fails this test until the switch is revisited, so a regenerated-but-
+// unupdated SDK cannot silently observe a new enforcing posture.
+func TestEgressModeNameKeysPinned(t *testing.T) {
+	names := make([]string, 0, len(v1.EgressMode_name))
+	for _, n := range v1.EgressMode_name {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	require.Equal(t, []string{
+		"EGRESS_MODE_ENFORCE",
+		"EGRESS_MODE_REPORT",
+		"EGRESS_MODE_UNSPECIFIED",
+	}, names)
 }
 
 // TestGenerationVersion pins the version choice and the mismatch Warn that

@@ -540,9 +540,15 @@ func lambdaUnaryInterceptorChain(interceptors ...grpc.UnaryServerInterceptor) gr
 // header) keeps the reload no-op guard honest: a stale reply is re-fetched
 // on the next version-stamped invocation instead of being pinned as current.
 func generationVersion(ctx context.Context, requestedVersion string, config *v1.GetConnectorConfigResponse) string {
-	version := lambdaConnectorConfigVersion(config)
-	if version == "" {
-		version = requestedVersion
+	// Prefer the served config_version only when the server actually stamped
+	// it: lambdaConnectorConfigVersion's last_updated fallback is not in the
+	// same namespace as the requested-version header, so labeling with it would
+	// make the reload no-op guard never match and rebuild on every invocation.
+	version := requestedVersion
+	if config.HasConfigVersion() && config.GetConfigVersion() != "" {
+		version = config.GetConfigVersion()
+	} else if version == "" {
+		version = lambdaConnectorConfigVersion(config)
 	}
 	if requestedVersion != "" && version != requestedVersion {
 		ctxzap.Extract(ctx).Warn("connector_authoring: served config_version differs from requested; will retry on next invocation",
@@ -621,11 +627,16 @@ func egressPolicyFromResponse(ctx context.Context, config *v1.GetConnectorConfig
 	policy.AllowedHosts = slices.Clone(egress.GetAllowedHosts())
 	policy.HTTPSOnly = egress.GetHttpsOnly()
 	// Intentionally lossy: only an explicit ENFORCE enforces; a future
-	// enforcing mode must be added to this comparison.
-	policy.Enforce = egress.GetMode() == v1.EgressMode_EGRESS_MODE_ENFORCE
-	if _, known := v1.EgressMode_name[int32(egress.GetMode())]; !known {
-		ctxzap.Extract(ctx).Warn("connector_authoring: unrecognized egress mode; observing",
-			zap.Int32("mode", int32(egress.GetMode())))
+	// enforcing mode must be added to this switch. Anything else observes.
+	switch egress.GetMode() {
+	case v1.EgressMode_EGRESS_MODE_ENFORCE:
+		policy.Enforce = true
+	default:
+		policy.Enforce = false
+		if _, known := v1.EgressMode_name[int32(egress.GetMode())]; !known {
+			ctxzap.Extract(ctx).Warn("connector_authoring: unrecognized egress mode; observing",
+				zap.Int32("mode", int32(egress.GetMode())))
+		}
 	}
 	return policy
 }
