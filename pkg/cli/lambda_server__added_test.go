@@ -479,8 +479,8 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				require.True(t, p.HTTPSOnly)
 				require.Empty(t, p.AllowedHosts)
 				// Under REPORT/absent mode the envelope is not rejected (Enforce stays
-			// false, so a mode-honoring connector observes), but a contract-invalid
-			// entry is dropped from the projected allowlist.
+				// false, so a mode-honoring connector observes), but a contract-invalid
+				// entry is dropped from the projected allowlist.
 			case "allowlist wildcard in REPORT mode observes":
 				require.NotNil(t, p)
 				require.False(t, p.Enforce)
@@ -802,7 +802,7 @@ func TestReloadGlobalFloorAndNewVersion(t *testing.T) {
 		lambdaConnectorReloadGlobalFloor = oldFloor
 	}()
 	lambdaConnectorReloadMinInterval = time.Hour
-	lambdaConnectorReloadGlobalFloor = time.Second
+	lambdaConnectorReloadGlobalFloor = time.Minute
 
 	_, err := logging.Init(context.Background(),
 		logging.WithLogLevel("info"),
@@ -858,12 +858,12 @@ func TestReloadGlobalFloorAndNewVersion(t *testing.T) {
 	}
 	require.Equal(t, 1, buildCalls, "alternating versions are capped by the global floor")
 
-	// Backdate past the global floor (1s) but inside the skew interval (1h):
+	// Backdate past the global floor (1m) but inside the skew interval (1h):
 	// a same-version request is still capped by the version-keyed term, while
 	// a genuinely new version (cv-3, differing from the last rebuild's
 	// requested cv-2) rebuilds immediately — proving the new version is not
 	// deferred by the full skew interval.
-	r.lastRebuildAt = time.Now().Add(-2 * time.Second)
+	r.lastRebuildAt = time.Now().Add(-2 * time.Minute)
 	resp, err := r.Handler(context.Background(), req("cv-2"))
 	require.NoError(t, err, "same-version invocation")
 	require.NotNil(t, resp)
