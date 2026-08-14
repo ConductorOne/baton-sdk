@@ -1326,7 +1326,17 @@ func TestExternalResourceUserProfileMatch(t *testing.T) {
 		require.NoError(t, err)
 
 		internalC1zpath := filepath.Join(tempDir, "internal.c1z")
-		internalOpts := append([]SyncOpt{WithC1ZPath(internalC1zpath), WithTmpDir(tempDir), WithExternalResourceC1ZPath(externalC1zpath)}, extraOpts...)
+		// This test was written for the indexed matcher, which is opt-in
+		// (WithExternalPrincipalIndex) -- the linear scan is what a caller
+		// gets by default. The equivalent default-path coverage lives in
+		// TestExternalPrincipalMatchParityFixtureExpectations, which runs the
+		// same profile-key match through both matchers.
+		internalOpts := append([]SyncOpt{
+			WithC1ZPath(internalC1zpath),
+			WithTmpDir(tempDir),
+			WithExternalResourceC1ZPath(externalC1zpath),
+			WithExternalPrincipalIndex(true),
+		}, extraOpts...)
 		internalSyncer, err := NewSyncer(ctx, internalMc, internalOpts...)
 		require.NoError(t, err)
 		err = internalSyncer.Sync(ctx)

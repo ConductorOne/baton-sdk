@@ -151,12 +151,17 @@ type syncer struct {
 	// set via WithExternalResourceTraits). When left empty the matcher
 	// falls back to TRAIT_USER/TRAIT_GROUP, preserving pre-CE-975 behavior
 	// for callers that never opt in.
-	externalResourceTraits      []v2.ResourceType_Trait
-	previousSyncC1ZPath         string
-	previousSyncC1ZPathOptional bool
-	store                       c1zstore.Store
-	externalResourceReader      connectorstore.Reader
-	previousSyncReader          connectorstore.Reader
+	externalResourceTraits []v2.ResourceType_Trait
+	// externalPrincipalIndexEnabled selects the indexed external-principal
+	// matcher (see processGrantsWithExternalPrincipals) over the original
+	// per-grant linear scan. Off by default; set via
+	// WithExternalPrincipalIndex.
+	externalPrincipalIndexEnabled bool
+	previousSyncC1ZPath           string
+	previousSyncC1ZPathOptional   bool
+	store                         c1zstore.Store
+	externalResourceReader        connectorstore.Reader
+	previousSyncReader            connectorstore.Reader
 	// Ingestion-invariant state (see ingest_invariants.go):
 	// childSchedule is the monotone record backing invariant I4;
 	// resourcesPhaseRanHere gates I4 to processes that actually ran the
@@ -3296,9 +3301,11 @@ func (s *syncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceT
 // expansion originally written for TRAIT_GROUP, now shared by GROUP and any
 // additional trait configured via WithExternalResourceTraits (e.g.
 // TRAIT_APP). The caller must have already confirmed principal matches the
-// grant's key/value pair via externalPrincipalIndex.matchProfile -- this
-// helper does not re-check the profile, so calling it with an unconfirmed
-// principal will unconditionally produce a grant for it. GrantExpandable
+// grant's key/value pair -- this helper does not check the profile, so
+// calling it with an unconfirmed principal will unconditionally produce a
+// grant for it. The indexed matcher confirms the match via
+// externalPrincipalIndex.matchProfile; the legacy matcher confirms it inline
+// in matchProfileAndExpandLegacy, which wraps this one. GrantExpandable
 // remapping is optional: a matching non-expandable grant must still be
 // rewritten to the external principal, just without a remapped
 // GrantExpandable annotation.
@@ -3346,6 +3353,183 @@ func (s *syncer) matchProfileAndExpand(
 	return newGrant, nil
 }
 
+// matchProfileAndExpandLegacy is the pre-index spelling of
+// matchProfileAndExpand: it confirms the principal's profile value for key
+// equals value before building anything, returning a nil grant (and nil
+// error) when it doesn't. The confirmation lives here rather than in the
+// caller because the legacy matcher has no index to pre-filter with.
+func (s *syncer) matchProfileAndExpandLegacy(
+	ctx context.Context,
+	l *zap.Logger,
+	grant *v2.Grant,
+	principal *v2.Resource,
+	key, value string,
+	expandableAnno *v2.GrantExpandable,
+	expandableEntitlementsResourceMap map[string][]string,
+) (*v2.Grant, error) {
+	profileVal, ok := resource.GetProfileStringValue(resource.GetProfile(principal), key)
+	if !ok || !strings.EqualFold(profileVal, value) {
+		return nil, nil
+	}
+	return s.matchProfileAndExpand(ctx, l, grant, principal, expandableAnno, expandableEntitlementsResourceMap)
+}
+
+func userTraitContainsEmail(emails []*v2.UserTrait_Email, address string) bool {
+	return slices.ContainsFunc(emails, func(e *v2.UserTrait_Email) bool {
+		return strings.EqualFold(e.GetAddress(), address)
+	})
+}
+
+// matchExternalPrincipalsLegacy resolves one grant's ExternalResourceMatch
+// (key/val) annotation by scanning every external principal carrying the
+// grant's trait, unmarshalling that principal's user trait and profile on each
+// visit. It is O(grants x principals) and is the default until the indexed
+// matcher below has been validated against live tenants -- see
+// WithExternalPrincipalIndex.
+//
+// This is the behavior every caller had before the index existed and must stay
+// byte-for-byte equivalent to matchExternalPrincipalsIndexed; the parity test
+// in external_principal_match_parity_test.go is what pins that.
+func (s *syncer) matchExternalPrincipalsLegacy(
+	ctx context.Context,
+	l *zap.Logger,
+	grant *v2.Grant,
+	matchExternalResource *v2.ExternalResourceMatch,
+	matchTraits map[v2.ResourceType_Trait]bool,
+	principalsByTrait map[v2.ResourceType_Trait][]*v2.Resource,
+	expandableAnno *v2.GrantExpandable,
+	expandableEntitlementsResourceMap map[string][]string,
+) ([]*v2.Grant, error) {
+	trait := matchExternalResource.GetResourceType()
+	matchKey := matchExternalResource.GetKey()
+	matchValue := matchExternalResource.GetValue()
+
+	expandedGrants := make([]*v2.Grant, 0)
+	switch {
+	case trait == v2.ResourceType_TRAIT_USER:
+		for _, userPrincipal := range principalsByTrait[v2.ResourceType_TRAIT_USER] {
+			userTrait, err := resource.GetUserTrait(userPrincipal)
+			if err != nil {
+				// Identifiers only: logging the resource serializes its whole
+				// profile, which is where a directory keeps email addresses,
+				// employee numbers and the like.
+				l.Error("error getting user trait",
+					zap.String("principal_resource_type_id", userPrincipal.GetId().GetResourceType()),
+					zap.String("principal_resource_id", userPrincipal.GetId().GetResource()),
+					zap.Error(err),
+				)
+				continue
+			}
+			if matchKey == "email" {
+				if userTraitContainsEmail(userTrait.GetEmails(), matchValue) {
+					newGrant := newGrantForExternalPrincipal(grant, userPrincipal)
+					expandedGrants = append(expandedGrants, newGrant)
+					// continue to next principal since we found an email match
+					continue
+				}
+			}
+			profileVal, ok := resource.GetProfileStringValue(resource.GetProfile(userPrincipal), matchKey)
+			if ok && strings.EqualFold(profileVal, matchValue) {
+				newGrant := newGrantForExternalPrincipal(grant, userPrincipal)
+				expandedGrants = append(expandedGrants, newGrant)
+			}
+		}
+	case matchTraits[trait]:
+		// Generic profile match, shared by TRAIT_GROUP and any additional
+		// trait opted into via WithExternalResourceTraits (e.g. TRAIT_APP).
+		for _, principal := range principalsByTrait[trait] {
+			newGrant, err := s.matchProfileAndExpandLegacy(
+				ctx, l, grant, principal,
+				matchKey, matchValue,
+				expandableAnno, expandableEntitlementsResourceMap,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if newGrant != nil {
+				expandedGrants = append(expandedGrants, newGrant)
+			}
+		}
+	default:
+		l.Error("unexpected external resource type trait", zap.Any("trait", trait))
+	}
+
+	return expandedGrants, nil
+}
+
+// matchExternalPrincipalsIndexed resolves one grant's ExternalResourceMatch
+// (key/val) annotation through the per-trait externalPrincipalIndex built once
+// for the whole scan, turning each grant into a bucket lookup instead of a
+// full principal rescan. Opt-in via WithExternalPrincipalIndex; see
+// matchExternalPrincipalsLegacy for the behavior it must reproduce.
+func (s *syncer) matchExternalPrincipalsIndexed(
+	ctx context.Context,
+	l *zap.Logger,
+	grant *v2.Grant,
+	matchExternalResource *v2.ExternalResourceMatch,
+	matchTraits map[v2.ResourceType_Trait]bool,
+	indexByTrait map[v2.ResourceType_Trait]*externalPrincipalIndex,
+	expandableAnno *v2.GrantExpandable,
+	expandableEntitlementsResourceMap map[string][]string,
+) ([]*v2.Grant, error) {
+	trait := matchExternalResource.GetResourceType()
+	matchKey := matchExternalResource.GetKey()
+	matchValue := matchExternalResource.GetValue()
+
+	expandedGrants := make([]*v2.Grant, 0)
+	switch {
+	case trait == v2.ResourceType_TRAIT_USER:
+		// A user matches on its profile value for the key, or -- when the key
+		// is "email" -- on a user-trait email address. Merging the two
+		// ascending position sets preserves principal order and emits at most
+		// one grant per user, as the per-principal scan this replaces did.
+		idx := indexByTrait[v2.ResourceType_TRAIT_USER]
+		if idx == nil {
+			// A grant can carry a TRAIT_USER match even when USER is not among
+			// the configured match traits. The legacy path scans an empty
+			// slice here; match nothing.
+			break
+		}
+		positions := idx.matchProfile(matchKey, matchValue)
+		if matchKey == "email" {
+			positions = mergePositions(idx.matchUserTraitEmail(matchValue), positions)
+		}
+		for _, i := range positions {
+			newGrant := newGrantForExternalPrincipal(grant, idx.principalAt(i))
+			expandedGrants = append(expandedGrants, newGrant)
+		}
+	case matchTraits[trait]:
+		// Generic profile match, shared by TRAIT_GROUP and any
+		// additional trait opted into via WithExternalResourceTraits
+		// (e.g. TRAIT_APP). A key/val match yields a grant whether or
+		// not the source grant is expandable: expandableAnno only
+		// controls whether the new grant also gets a remapped
+		// GrantExpandable annotation (see matchProfileAndExpand).
+		// No nil check: this case only fires when matchTraits[trait]
+		// is true, and indexByTrait is populated for every key of
+		// matchTraits. The guard in the TRAIT_USER case above is not
+		// the same situation -- that case fires on the trait named by
+		// the grant, which need not be a configured match trait.
+		idx := indexByTrait[trait]
+		for _, i := range idx.matchProfile(matchKey, matchValue) {
+			newGrant, err := s.matchProfileAndExpand(
+				ctx, l, grant, idx.principalAt(i),
+				expandableAnno, expandableEntitlementsResourceMap,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if newGrant != nil {
+				expandedGrants = append(expandedGrants, newGrant)
+			}
+		}
+	default:
+		l.Error("unexpected external resource type trait", zap.Any("trait", trait))
+	}
+
+	return expandedGrants, nil
+}
+
 // externalMatchProgressLogInterval is how many grants the external-principal
 // match scan processes between progress logs. The scan can cover every grant in
 // the store, and without progress output a slow one is indistinguishable from a
@@ -3387,26 +3571,37 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		principalMap[principalID] = principal
 	}
 
+	principalCounts := make(map[string]int, len(matchTraits))
+	for trait := range matchTraits {
+		principalCounts[trait.String()] = len(principalsByTrait[trait])
+	}
+
 	// Index each trait's principals once. Matching each grant against every
 	// principal is O(grants x principals) proto unmarshals, which on large
 	// tenants runs for hours and never finishes inside the sync deadline.
 	// TRAIT_USER gets the user-trait-aware index so an "email" key can match a
 	// user-trait address as well as a profile field; every other opted-in trait
 	// matches on profile alone.
-	indexByTrait := make(map[v2.ResourceType_Trait]*externalPrincipalIndex, len(matchTraits))
-	principalCounts := make(map[string]int, len(matchTraits))
-	for trait := range matchTraits {
-		traitPrincipals := principalsByTrait[trait]
-		if trait == v2.ResourceType_TRAIT_USER {
-			indexByTrait[trait] = newExternalUserPrincipalIndex(traitPrincipals, l)
-		} else {
-			indexByTrait[trait] = newExternalPrincipalIndex(traitPrincipals)
+	//
+	// Built only when the indexed matcher is selected: with the linear scan
+	// nothing would ever look anything up in it, and indexing every principal
+	// is exactly the work the legacy path is being kept to avoid changing.
+	var indexByTrait map[v2.ResourceType_Trait]*externalPrincipalIndex
+	if s.externalPrincipalIndexEnabled {
+		indexByTrait = make(map[v2.ResourceType_Trait]*externalPrincipalIndex, len(matchTraits))
+		for trait := range matchTraits {
+			traitPrincipals := principalsByTrait[trait]
+			if trait == v2.ResourceType_TRAIT_USER {
+				indexByTrait[trait] = newExternalUserPrincipalIndex(traitPrincipals, l)
+			} else {
+				indexByTrait[trait] = newExternalPrincipalIndex(traitPrincipals)
+			}
 		}
-		principalCounts[trait.String()] = len(traitPrincipals)
 	}
 
 	l.Info("matching grants against external principals",
 		zap.Any("principals_by_trait", principalCounts),
+		zap.Bool("indexed", s.externalPrincipalIndexEnabled),
 	)
 
 	grantsToDelete := make([]*v2.Grant, 0)
@@ -3532,59 +3727,27 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		}
 
 		if matchExternalResource != nil {
-			trait := matchExternalResource.GetResourceType()
-			matchKey := matchExternalResource.GetKey()
-			matchValue := matchExternalResource.GetValue()
-			switch {
-			case trait == v2.ResourceType_TRAIT_USER:
-				// A user matches on its profile value for the key, or -- when
-				// the key is "email" -- on a user-trait email address. Merging
-				// the two ascending position sets preserves principal order and
-				// emits at most one grant per user, as the per-principal scan
-				// this replaces did.
-				idx := indexByTrait[v2.ResourceType_TRAIT_USER]
-				if idx == nil {
-					// A grant can carry a TRAIT_USER match even when USER is
-					// not among the configured match traits. The pre-index
-					// code scanned an empty slice here; match nothing.
-					break
-				}
-				positions := idx.matchProfile(matchKey, matchValue)
-				if matchKey == "email" {
-					positions = mergePositions(idx.matchUserTraitEmail(matchValue), positions)
-				}
-				for _, i := range positions {
-					newGrant := newGrantForExternalPrincipal(grant, idx.principalAt(i))
-					expandedGrants = append(expandedGrants, newGrant)
-				}
-			case matchTraits[trait]:
-				// Generic profile match, shared by TRAIT_GROUP and any
-				// additional trait opted into via WithExternalResourceTraits
-				// (e.g. TRAIT_APP). A key/val match yields a grant whether or
-				// not the source grant is expandable: expandableAnno only
-				// controls whether the new grant also gets a remapped
-				// GrantExpandable annotation (see matchProfileAndExpand).
-				// No nil check: this case only fires when matchTraits[trait]
-				// is true, and indexByTrait is populated for every key of
-				// matchTraits. The guard in the TRAIT_USER case above is not
-				// the same situation -- that case fires on the trait named by
-				// the grant, which need not be a configured match trait.
-				idx := indexByTrait[trait]
-				for _, i := range idx.matchProfile(matchKey, matchValue) {
-					newGrant, err := s.matchProfileAndExpand(
-						ctx, l, grant, idx.principalAt(i),
-						expandableAnno, expandableEntitlementsResourceMap,
-					)
-					if err != nil {
-						return err
-					}
-					if newGrant != nil {
-						expandedGrants = append(expandedGrants, newGrant)
-					}
-				}
-			default:
-				l.Error("unexpected external resource type trait", zap.Any("trait", trait))
+			// The two matchers must agree on every input; only how they find
+			// the matching principals differs. See WithExternalPrincipalIndex.
+			var (
+				matchedGrants []*v2.Grant
+				matchErr      error
+			)
+			if s.externalPrincipalIndexEnabled {
+				matchedGrants, matchErr = s.matchExternalPrincipalsIndexed(
+					ctx, l, grant, matchExternalResource, matchTraits, indexByTrait,
+					expandableAnno, expandableEntitlementsResourceMap,
+				)
+			} else {
+				matchedGrants, matchErr = s.matchExternalPrincipalsLegacy(
+					ctx, l, grant, matchExternalResource, matchTraits, principalsByTrait,
+					expandableAnno, expandableEntitlementsResourceMap,
+				)
 			}
+			if matchErr != nil {
+				return matchErr
+			}
+			expandedGrants = append(expandedGrants, matchedGrants...)
 
 			// We still want to delete the grant even if there are no matches
 			grantsToDelete = append(grantsToDelete, grant)
@@ -4074,6 +4237,23 @@ func WithSkipEntitlementsAndGrants(skip bool) SyncOpt {
 func WithSkipGrants(skip bool) SyncOpt {
 	return func(s *syncer) {
 		s.skipGrants = skip
+	}
+}
+
+// WithExternalPrincipalIndex controls whether external-resource grant
+// matching (see processGrantsWithExternalPrincipals) uses an indexed lookup
+// or falls back to the original per-grant linear scan of external principals.
+// Defaults to false (linear scan) to preserve behavior for existing callers;
+// the indexed path is a purely internal performance optimization but is new
+// code touching security-relevant grant-matching logic, so it ships opt-in
+// until validated in production.
+//
+// The two paths are required to produce identical grants — that equivalence
+// is what the flag is for, letting a fleet roll the index out per tenant
+// rather than flipping every connector at once on an SDK bump.
+func WithExternalPrincipalIndex(enabled bool) SyncOpt {
+	return func(s *syncer) {
+		s.externalPrincipalIndexEnabled = enabled
 	}
 }
 

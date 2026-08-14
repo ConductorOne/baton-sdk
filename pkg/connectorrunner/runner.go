@@ -432,6 +432,7 @@ type runnerConfig struct {
 	keepPreviousSyncC1ZEnabled            bool
 	skipEntitlementsAndGrants             bool
 	skipGrants                            bool
+	externalPrincipalIndex                bool
 	sessionStoreEnabled                   bool
 	syncResourceTypeIDs                   []string
 	defaultCapabilitiesConnectorBuilder   connectorbuilder.ConnectorBuilder
@@ -862,6 +863,17 @@ func WithSkipGrants(skip bool) Option {
 	}
 }
 
+// WithExternalPrincipalIndex enables the indexed external-principal matcher in
+// the sync engine's external-resource grant matching. Off by default, which
+// keeps the original per-grant linear scan; see sync.WithExternalPrincipalIndex
+// for why the faster path ships opt-in.
+func WithExternalPrincipalIndex(enabled bool) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.externalPrincipalIndex = enabled
+		return nil
+	}
+}
+
 // WithDefaultCapabilitiesConnectorBuilder sets the default connector builder for the runner
 // This is used by the "capabilities" sub-command to instantiate the connector.
 func WithDefaultCapabilitiesConnectorBuilder(t connectorbuilder.ConnectorBuilder) Option {
@@ -1103,6 +1115,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 				local.WithTargetedSyncResources(resources),
 				local.WithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
 				local.WithSkipGrants(cfg.skipGrants),
+				local.WithExternalPrincipalIndex(cfg.externalPrincipalIndex),
 				local.WithSyncResourceTypeIDs(cfg.syncResourceTypeIDs),
 				local.WithWorkerCount(cfg.workerCount),
 				local.WithStorageEngine(cfg.storageEngine),

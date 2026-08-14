@@ -29,6 +29,7 @@ type localSyncer struct {
 	targetedSyncResources               []*v2.Resource
 	skipEntitlementsAndGrants           bool
 	skipGrants                          bool
+	externalPrincipalIndex              bool
 	syncResourceTypeIDs                 []string
 	workerCount                         int
 	storageEngine                       c1zstore.Engine
@@ -84,6 +85,14 @@ func WithSkipGrants(skip bool) Option {
 	}
 }
 
+// WithExternalPrincipalIndex enables the indexed external-principal matcher
+// in the sync engine. Off by default; see sync.WithExternalPrincipalIndex.
+func WithExternalPrincipalIndex(enabled bool) Option {
+	return func(m *localSyncer) {
+		m.externalPrincipalIndex = enabled
+	}
+}
+
 func WithWorkerCount(workerCount int) Option {
 	return func(m *localSyncer) {
 		m.workerCount = workerCount
@@ -134,6 +143,7 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		sdkSync.WithTargetedSyncResources(m.targetedSyncResources),
 		sdkSync.WithSkipEntitlementsAndGrants(m.skipEntitlementsAndGrants),
 		sdkSync.WithSkipGrants(m.skipGrants),
+		sdkSync.WithExternalPrincipalIndex(m.externalPrincipalIndex),
 		sdkSync.WithSessionStore(setSessionStore),
 		sdkSync.WithSyncResourceTypes(m.syncResourceTypeIDs),
 		sdkSync.WithWorkerCount(m.workerCount),

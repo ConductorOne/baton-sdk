@@ -274,6 +274,20 @@ var (
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone))
 
+	// ExternalPrincipalIndexField opts the external-resource grant matcher
+	// into indexed principal lookups instead of the original per-grant
+	// linear scan. Off by default: the indexed path is a large speedup on
+	// tenants with many external principals, but it is new code in
+	// security-relevant grant-matching logic and ships opt-in until it has
+	// been validated in production. Both paths must produce identical
+	// grants.
+	ExternalPrincipalIndexField = BoolField("external-principal-index",
+		WithDescription("Match external-resource grants using an indexed principal lookup instead of a linear scan "+
+			"(much faster on tenants with many external principals)"),
+		WithDefaultValue(false),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
+
 	// KeepPreviousSyncC1ZField is the CUSTOMER's runtime half of the
 	// service-mode ETag-replay opt-in: keep the last successfully
 	// uploaded c1z on disk as a spare and feed it to the next full sync
@@ -438,6 +452,7 @@ var DefaultFields = append([]SchemaField{
 	externalResourceC1ZField,
 	externalResourceEntitlementIdFilter,
 	externalResourceTraitsField,
+	ExternalPrincipalIndexField,
 	KeepPreviousSyncC1ZField,
 	diffSyncsField,
 	diffSyncsBaseSyncField,

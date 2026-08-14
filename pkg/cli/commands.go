@@ -432,6 +432,14 @@ func MakeMainCommand[T field.Configurable](
 			opts = append(opts, connectorrunner.WithSkipGrants(v.GetBool("skip-grants")))
 		}
 
+		// --external-principal-index / BATON_EXTERNAL_PRINCIPAL_INDEX opts
+		// external-resource grant matching into indexed principal lookups.
+		// Off by default: the linear scan stays the shipped behavior until
+		// the indexed path is validated in production.
+		if v.GetBool(field.ExternalPrincipalIndexField.GetName()) {
+			opts = append(opts, connectorrunner.WithExternalPrincipalIndex(true))
+		}
+
 		httpTimeout := v.GetInt(field.HttpTimeoutField.GetName())
 		if httpTimeout <= 0 {
 			return fmt.Errorf("field %s: value must be greater than or equal to 1 but got %d", field.HttpTimeoutField.GetName(), httpTimeout)
