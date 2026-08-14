@@ -138,7 +138,8 @@ var (
 		WithExportTarget(ExportTargetNone))
 	diffSyncsField = BoolField(
 		"diff-syncs",
-		WithDescription("Create a new partial SyncID from a base and applied sync."),
+		WithDescription("Create a new partial SyncID from a base and applied sync. "+
+			"Requires a sqlite-engine (v1) c1z: pebble (v3) files hold a single sync, so run the syncs with --storage-engine sqlite."),
 		WithHidden(true),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),

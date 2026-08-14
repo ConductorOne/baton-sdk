@@ -3,11 +3,13 @@ package local
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	pebbleengine "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
@@ -61,6 +63,19 @@ func (m *localDiffer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 
 	newSyncID, err := file.FileOps().GenerateSyncDiff(ctx, m.baseSyncID, m.appliedSyncID)
 	if err != nil {
+		if closeErr := file.Close(ctx); closeErr != nil {
+			log.Error("failed to close store after diff error", zap.Error(closeErr))
+		}
+		if errors.Is(err, pebbleengine.ErrDiffUnsupported) {
+			// Structural, not a missing feature: a pebble (v3) c1z holds
+			// exactly one sync, so the base and applied syncs GenerateSyncDiff
+			// needs can never coexist in it. Point the operator at the
+			// engine that supports the workflow.
+			return fmt.Errorf(
+				"diff-syncs requires a sqlite-engine (v1) c1z: %s uses the pebble (v3) engine, which holds a single sync, "+
+					"so a base and an applied sync cannot coexist in it; re-run the syncs with --storage-engine sqlite to use diff-syncs: %w",
+				m.dbPath, err)
+		}
 		return err
 	}
 
