@@ -65,6 +65,14 @@ const (
 // the served version, so a stale reply is still re-fetched every interval.
 var lambdaConnectorReloadMinInterval = 5 * time.Second
 
+// lambdaConnectorReloadGlobalFloor is a short, version-independent rebuild
+// floor: it caps alternating requested versions (cv-2, cv-3, cv-2) that would
+// otherwise each bypass the version-keyed skew cap and rebuild on every
+// invocation. It is deliberately much shorter than
+// lambdaConnectorReloadMinInterval so a genuinely new version is deferred by
+// at most this floor, not the full interval.
+var lambdaConnectorReloadGlobalFloor = 1 * time.Second
+
 type lambdaConnectorGeneration struct {
 	version   string
 	connector types.ConnectorServer
@@ -97,17 +105,19 @@ type lambdaConnectorReloader struct {
 	current *lambdaConnectorGeneration
 	build   func(context.Context, string) (*lambdaConnectorGeneration, error)
 
-	// lastRebuildAt backs the reload rate-cap: when the server persistently
-	// serves a config_version different from the requested header, the
-	// served-version labeling makes the no-op guard never match, so this bounds
-	// rebuilds to one per lambdaConnectorReloadMinInterval regardless of the
-	// requested version (a time-only floor, so interleaved requested versions
-	// cannot bypass it). A legitimate new version can therefore be deferred by
-	// up to lambdaConnectorReloadMinInterval, serving the previous generation
-	// in the meantime. Stamped only on the success path, so a persistently
-	// failing build is uncapped — intentional, so a retry can clear a transient
-	// error.
-	lastRebuildAt time.Time
+	// lastRebuildAt/lastRebuildRequestedVersion back the reload rate-cap. When
+	// the server persistently serves a config_version different from the
+	// requested header, the served-version labeling makes the no-op guard never
+	// match, so the cap bounds rebuilds: the version-keyed term caps the skew
+	// case (the same requested version keeps arriving) to one per
+	// lambdaConnectorReloadMinInterval, while the global floor caps alternating
+	// requested versions to one per lambdaConnectorReloadGlobalFloor. A
+	// genuinely new version is therefore deferred by at most the short global
+	// floor, not the full interval. Stamped only on the success path, so a
+	// persistently failing build is uncapped — intentional, so a retry can
+	// clear a transient error.
+	lastRebuildAt               time.Time
+	lastRebuildRequestedVersion string
 	// lastCapLoggedAt bounds the rate-cap Warn to one per rebuild interval: in
 	// the persistent-skew steady state the cap fires on every invocation, so
 	// without this the log would storm. It is compared against lastRebuildAt,
@@ -193,14 +203,18 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 	// served-version labeling makes the no-op guard above never match, so
 	// without this cap every version-stamped invocation would rebuild. The
 	// generation stays labeled with the served version, so a stale reply is
-	// still re-fetched every interval. The floor is time-only (not keyed on the
-	// requested version), so interleaved requested versions cannot bypass it.
-	// A genuinely new requested version can be deferred by up to
-	// lambdaConnectorReloadMinInterval, serving the previous generation (stale
-	// config and egress policy) in the meantime. The Warn is emitted once per
-	// rebuild interval (lastCapLoggedAt), not on every capped invocation, so
-	// the persistent-skew steady state does not log-storm.
-	if time.Since(r.lastRebuildAt) < lambdaConnectorReloadMinInterval {
+	// still re-fetched every interval. Two tiers: the global floor caps any
+	// rebuild (so alternating requested versions cannot bypass the cap), and
+	// the version-keyed term caps the skew case (the same requested version
+	// keeps arriving) to one per lambdaConnectorReloadMinInterval. A genuinely
+	// new version is deferred by at most the short global floor, not the full
+	// interval. The Warn is emitted once per rebuild interval (lastCapLoggedAt),
+	// not on every capped invocation, so the persistent-skew steady state does
+	// not log-storm.
+	if time.Since(r.lastRebuildAt) < lambdaConnectorReloadGlobalFloor {
+		return nil
+	}
+	if requestedVersion == r.lastRebuildRequestedVersion && time.Since(r.lastRebuildAt) < lambdaConnectorReloadMinInterval {
 		if r.lastCapLoggedAt.Before(r.lastRebuildAt) {
 			ctxzap.Extract(ctx).Warn("lambda-run: reload rate-capped; serving previous generation",
 				zap.String("requested_version", requestedVersion),
@@ -242,6 +256,7 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 
 	r.current = next
 	r.lastRebuildAt = time.Now()
+	r.lastRebuildRequestedVersion = requestedVersion
 	if err := applyLambdaLogLevel(next.logging, time.Now()); err != nil {
 		return err
 	}
@@ -475,7 +490,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				return nil, fmt.Errorf("failed to validate config: %w", err)
 			}
 
-			policy, version := egressPolicyAndGenerationVersion(runCtx, requestedVersion, config)
+			policy, version := egressPolicyAndGenerationVersion(ctx, requestedVersion, config)
 			ops := RunTimeOpts{
 				SessionStore: NewLazyCachingSessionStore(sessionStoreConstructor, func(otterOptions *otter.Options[string, []byte]) {
 					if sessionStoreMaximumSize <= 0 {
@@ -699,10 +714,13 @@ func egressPolicyFromResponse(ctx context.Context, config *v1.GetConnectorConfig
 	// fail closed only exists under ENFORCE: a wildcard entry would read as
 	// allow-all to a wildcard-matching connector. Under REPORT/absent mode the
 	// allowlist is observed, not enforced, so a contract-invalid entry (e.g. an
-	// on-prem instance whose resolved config yields an IP-literal host) must not
-	// take egress offline — warn and leave the projection unchanged, and keep
-	// scanning so every offending entry is surfaced in one projection. A port
-	// suffix is split off before the IP check so a host:port entry is caught.
+	// on-prem instance whose resolved config yields an IP-literal host) must
+	// not take egress offline — but it is also dropped from the projected
+	// allowlist, so a connector that enforces AllowedHosts without reading
+	// Enforce cannot treat a "*" entry as allow-all. Every offending entry is
+	// warned in one projection. A port suffix is split off before the IP check
+	// so a host:port entry is caught.
+	valid := make([]string, 0, len(policy.AllowedHosts))
 	for _, h := range policy.AllowedHosts {
 		host := h
 		if hp, _, err := net.SplitHostPort(h); err == nil {
@@ -716,7 +734,9 @@ func egressPolicyFromResponse(ctx context.Context, config *v1.GetConnectorConfig
 			}
 			continue
 		}
+		valid = append(valid, h)
 	}
+	policy.AllowedHosts = valid
 	return policy
 }
 

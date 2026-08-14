@@ -456,12 +456,12 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 			case "allowlist wildcard in REPORT mode observes":
 				require.NotNil(t, p)
 				require.False(t, p.Enforce)
-				require.Equal(t, []string{"*"}, p.AllowedHosts)
+				require.Empty(t, p.AllowedHosts, "contract-invalid entry is dropped from the projected allowlist")
 				require.True(t, p.HTTPSOnly)
 			case "allowlist multiple invalid entries in REPORT mode observes all":
 				require.NotNil(t, p)
 				require.False(t, p.Enforce)
-				require.Equal(t, []string{"*", "10.0.0.5"}, p.AllowedHosts)
+				require.Empty(t, p.AllowedHosts, "contract-invalid entries are dropped from the projected allowlist")
 				require.True(t, p.HTTPSOnly)
 				// Both offending entries are surfaced in one projection.
 				require.Equal(t, "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract", entries[1].Message)
@@ -544,8 +544,13 @@ func TestReloadRefetchesWhenServedVersionDiffersFromRequested(t *testing.T) {
 	// (two identical cv-2 invocations each rebuild), which the rate-cap would
 	// otherwise bound to one.
 	old := lambdaConnectorReloadMinInterval
+	oldFloor := lambdaConnectorReloadGlobalFloor
 	lambdaConnectorReloadMinInterval = 0
-	defer func() { lambdaConnectorReloadMinInterval = old }()
+	lambdaConnectorReloadGlobalFloor = 0
+	defer func() {
+		lambdaConnectorReloadMinInterval = old
+		lambdaConnectorReloadGlobalFloor = oldFloor
+	}()
 
 	// The stub build applies level:"error" on a successful reload and the
 	// deferred guard does not restore it, so initialize a known process-wide
@@ -652,8 +657,15 @@ func TestReloadRateCapsPersistentMismatch(t *testing.T) {
 	// The reloader swaps the process-wide log level through the deferred guard,
 	// so this test cannot run in parallel.
 	old := lambdaConnectorReloadMinInterval
-	defer func() { lambdaConnectorReloadMinInterval = old }()
+	oldFloor := lambdaConnectorReloadGlobalFloor
+	defer func() {
+		lambdaConnectorReloadMinInterval = old
+		lambdaConnectorReloadGlobalFloor = oldFloor
+	}()
 	lambdaConnectorReloadMinInterval = time.Hour
+	// Disable the global floor so the version-keyed skew cap (and its Warn) is
+	// what the identical-version invocations hit.
+	lambdaConnectorReloadGlobalFloor = 0
 
 	// The stub build applies level:"error" on a successful reload and the
 	// deferred guard does not restore it, so initialize a known process-wide
@@ -741,6 +753,85 @@ func TestReloadRateCapsPersistentMismatch(t *testing.T) {
 		require.NotNil(t, resp)
 	}
 	require.Equal(t, 4, buildCalls, "cap-disabled path rebuilds on every invocation")
+}
+
+// TestReloadGlobalFloorAndNewVersion pins the two-tier rate cap: the global
+// floor caps alternating requested versions (which would each bypass the
+// version-keyed skew cap), while a genuinely new version rebuilds immediately
+// once the global floor has elapsed rather than being deferred by the full
+// skew interval.
+func TestReloadGlobalFloorAndNewVersion(t *testing.T) {
+	old := lambdaConnectorReloadMinInterval
+	oldFloor := lambdaConnectorReloadGlobalFloor
+	defer func() {
+		lambdaConnectorReloadMinInterval = old
+		lambdaConnectorReloadGlobalFloor = oldFloor
+	}()
+	lambdaConnectorReloadMinInterval = time.Hour
+	lambdaConnectorReloadGlobalFloor = time.Hour
+
+	_, err := logging.Init(context.Background(),
+		logging.WithLogLevel("info"),
+		logging.WithOutputPaths([]string{os.DevNull}),
+	)
+	require.NoError(t, err, "logging.Init")
+	t.Cleanup(func() {
+		require.NoError(t, logging.SetLogLevel("info"))
+	})
+
+	activeConnector := &stubConnectorServer{}
+	server := c1_lambda_grpc.NewServer(lambdaUnaryInterceptorChain())
+	server.RegisterService(&grpc.ServiceDesc{
+		ServiceName: "test.Service",
+		HandlerType: (*types.ConnectorServer)(nil),
+		Methods: []grpc.MethodDesc{
+			{
+				MethodName: "Method",
+				Handler: func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+					return &v1.GetConnectorConfigResponse{}, nil
+				},
+			},
+		},
+	}, activeConnector)
+
+	buildCalls := 0
+	r := &lambdaConnectorReloader{
+		server:  server,
+		current: &lambdaConnectorGeneration{version: "cv-1", connector: activeConnector, logging: lambdaLogLevelConfig{level: "error"}},
+		build: func(ctx context.Context, version string) (*lambdaConnectorGeneration, error) {
+			buildCalls++
+			return &lambdaConnectorGeneration{version: "cv-1", connector: &stubConnectorServer{}, logging: lambdaLogLevelConfig{level: "error"}}, nil
+		},
+	}
+
+	req := func(version string) *c1_lambda_grpc.Request {
+		r, err := c1_lambda_grpc.NewRequest(
+			"/test.Service/Method",
+			&v1.GetConnectorConfigRequest{},
+			metadata.Pairs(lambdaConnectorConfigVersionHeader, version),
+		)
+		require.NoError(t, err, "NewRequest")
+		return r
+	}
+
+	// Alternating cv-2, cv-3, cv-2 within the global floor: each would bypass
+	// the version-keyed skew cap, but the global floor bounds them to one
+	// rebuild.
+	for _, v := range []string{"cv-2", "cv-3", "cv-2"} {
+		resp, err := r.Handler(context.Background(), req(v))
+		require.NoError(t, err, "invocation %s", v)
+		require.NotNil(t, resp)
+	}
+	require.Equal(t, 1, buildCalls, "alternating versions are capped by the global floor")
+
+	// Once the global floor has elapsed, a genuinely new version (cv-3, which
+	// differs from the last rebuild's requested cv-2) rebuilds immediately —
+	// not deferred by the full skew interval.
+	r.lastRebuildAt = time.Now().Add(-2 * time.Hour)
+	resp, err := r.Handler(context.Background(), req("cv-3"))
+	require.NoError(t, err, "new-version invocation")
+	require.NotNil(t, resp)
+	require.Equal(t, 2, buildCalls, "a genuinely new version rebuilds once the global floor has elapsed")
 }
 
 func TestLambdaConnectorConfigVersion(t *testing.T) {

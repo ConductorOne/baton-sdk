@@ -341,9 +341,11 @@ type EgressSection_builder struct {
 	HttpsOnly bool
 	// The effective per-instance allowlist. Canonical entry form: lowercase,
 	// IDNA A-label, no trailing dot, no scheme, path, or port. An empty,
-	// wildcard, or IP-literal entry invalidates the whole envelope in v1. An
-	// empty list is a valid deny-all egress policy. Runtimes check the
-	// resolved hostname against this set after the compiled hard denylist.
+	// wildcard, or IP-literal entry is invalid: under EGRESS_MODE_ENFORCE it
+	// invalidates the whole envelope (deny-all); under REPORT/UNSPECIFIED it is
+	// dropped from the projected allowlist with a warn. An empty list is a
+	// valid deny-all egress policy. Runtimes check the resolved hostname
+	// against this set after the compiled hard denylist.
 	AllowedHosts []string
 	// Enforcement posture for allowed_hosts. Absent is treated as
 	// EGRESS_MODE_REPORT (observe) by consumers, so adding this field does not
