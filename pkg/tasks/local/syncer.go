@@ -123,17 +123,11 @@ func (m *localSyncer) Next(ctx context.Context) (*v1.Task, time.Duration, error)
 	return task, 0, nil
 }
 
-func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
-	ctx, span := tracer.Start(ctx, "localSyncer.Process", trace.WithNewRoot())
-	ctx = uotelzap.WithSpanLogFields(ctx)
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-
-	var setSessionStore session.SetSessionStore
-	if ssetSessionStore, ok := cc.(session.SetSessionStore); ok {
-		setSessionStore = ssetSessionStore
-	}
-
+// syncOpts translates this task's configuration into sync engine options.
+// Split out of Process so the translation is reachable from a test: a value
+// dropped here compiles and runs, and produces a sync configured differently
+// than the caller asked for with no other signal.
+func (m *localSyncer) syncOpts(setSessionStore session.SetSessionStore) []sdkSync.SyncOpt {
 	syncOpts := []sdkSync.SyncOpt{
 		sdkSync.WithC1ZPath(m.dbPath),
 		sdkSync.WithTmpDir(m.tmpDir),
@@ -151,6 +145,22 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 	if m.storageEngine != "" {
 		syncOpts = append(syncOpts, sdkSync.WithStorageEngine(m.storageEngine))
 	}
+
+	return syncOpts
+}
+
+func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
+	ctx, span := tracer.Start(ctx, "localSyncer.Process", trace.WithNewRoot())
+	ctx = uotelzap.WithSpanLogFields(ctx)
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+
+	var setSessionStore session.SetSessionStore
+	if ssetSessionStore, ok := cc.(session.SetSessionStore); ok {
+		setSessionStore = ssetSessionStore
+	}
+
+	syncOpts := m.syncOpts(setSessionStore)
 
 	syncer, err := sdkSync.NewSyncer(ctx, cc, syncOpts...)
 	if err != nil {

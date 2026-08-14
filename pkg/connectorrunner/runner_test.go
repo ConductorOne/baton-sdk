@@ -271,3 +271,21 @@ func TestExtractDefaultCapabilitiesConnectorFactory(t *testing.T) {
 		require.ErrorIs(t, gotErr, sentinel)
 	})
 }
+
+// The runner is where the CLI flag lands before it is handed to a task
+// manager. Both halves of that trip are covered: this asserts the Option
+// reaches the config, and the task packages assert the config reaches the
+// engine.
+func TestWithExternalPrincipalIndexOption(t *testing.T) {
+	ctx := context.Background()
+
+	for _, enabled := range []bool{false, true} {
+		cfg := &runnerConfig{}
+		require.NoError(t, WithExternalPrincipalIndex(enabled)(ctx, cfg))
+		require.Equal(t, enabled, cfg.externalPrincipalIndex)
+	}
+
+	// The default is what a connector gets when the flag is never passed.
+	require.False(t, (&runnerConfig{}).externalPrincipalIndex,
+		"external principal indexing must stay opt-in")
+}

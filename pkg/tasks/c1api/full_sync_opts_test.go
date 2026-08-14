@@ -137,8 +137,6 @@ func TestFullSyncTaskHandlerThreadsExternalPrincipalIndex(t *testing.T) {
 	})
 }
 
-// externalResourceTraits reaches the engine through the same chain and had the
-// same untested gap; it is cheap to cover here alongside.
 // The manager -> handler hop is the other half of the chain, and the one that
 // silently dropped the value the first time. It is asserted here rather than
 // through Process(), which needs a live task queue and service client.
@@ -156,6 +154,8 @@ func TestC1TaskManagerThreadsExternalPrincipalIndexToHandler(t *testing.T) {
 	}
 }
 
+// externalResourceTraits reaches the engine through the same chain and had the
+// same untested gap; it is cheap to cover here alongside.
 func TestFullSyncTaskHandlerThreadsExternalResourceTraits(t *testing.T) {
 	t.Run("configured", func(t *testing.T) {
 		engine := engineUnder(t, false, []v2.ResourceType_Trait{v2.ResourceType_TRAIT_APP})
