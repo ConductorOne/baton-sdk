@@ -200,6 +200,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 		buildResp   func() *v1.GetConnectorConfigResponse
 		wantMessage string
 		wantFields  map[string]any
+		wantWarns   int
 	}{
 		{
 			name: "envelope version mismatch",
@@ -360,6 +361,46 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				"host": "*",
 			},
 		},
+		{
+			name: "allowlist IPv4 with port invalidates envelope per contract",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_ENFORCE)
+				env.GetEgress().SetAllowedHosts([]string{"192.168.1.1:443"})
+				return newResp("cv-1", env)
+			},
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+			wantFields: map[string]any{
+				"host": "192.168.1.1:443",
+			},
+		},
+		{
+			name: "allowlist bracketed IPv6 with port invalidates envelope per contract",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_ENFORCE)
+				env.GetEgress().SetAllowedHosts([]string{"[2001:db8::1]:443"})
+				return newResp("cv-1", env)
+			},
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+			wantFields: map[string]any{
+				"host": "[2001:db8::1]:443",
+			},
+		},
+		{
+			name: "allowlist multiple invalid entries in REPORT mode observes all",
+			buildResp: func() *v1.GetConnectorConfigResponse {
+				env := goodEnvelope("cv-1")
+				env.GetEgress().SetMode(v1.EgressMode_EGRESS_MODE_REPORT)
+				env.GetEgress().SetAllowedHosts([]string{"*", "10.0.0.5"})
+				return newResp("cv-1", env)
+			},
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
+			wantFields: map[string]any{
+				"host": "*",
+			},
+			wantWarns: 2,
+		},
 	}
 
 	for _, tc := range cases {
@@ -371,7 +412,11 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 			p := egressPolicyFromResponse(ctx, tc.buildResp())
 
 			entries := observed.All()
-			require.Len(t, entries, 1, "exactly one Warn expected")
+			wantWarns := tc.wantWarns
+			if wantWarns == 0 {
+				wantWarns = 1
+			}
+			require.Len(t, entries, wantWarns, "expected %d Warn(s)", wantWarns)
 			require.Equal(t, tc.wantMessage, entries[0].Message)
 			ctxMap := entries[0].ContextMap()
 			for k, want := range tc.wantFields {
@@ -398,7 +443,9 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				"allowlist empty host invalidates envelope per contract",
 				"allowlist IPv4 literal invalidates envelope per contract",
 				"allowlist bare IPv6 literal invalidates envelope per contract",
-				"allowlist bracketed IPv6 literal invalidates envelope per contract":
+				"allowlist bracketed IPv6 literal invalidates envelope per contract",
+				"allowlist IPv4 with port invalidates envelope per contract",
+				"allowlist bracketed IPv6 with port invalidates envelope per contract":
 				require.NotNil(t, p)
 				require.True(t, p.Enforce)
 				require.True(t, p.HTTPSOnly)
@@ -411,6 +458,14 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				require.False(t, p.Enforce)
 				require.Equal(t, []string{"*"}, p.AllowedHosts)
 				require.True(t, p.HTTPSOnly)
+			case "allowlist multiple invalid entries in REPORT mode observes all":
+				require.NotNil(t, p)
+				require.False(t, p.Enforce)
+				require.Equal(t, []string{"*", "10.0.0.5"}, p.AllowedHosts)
+				require.True(t, p.HTTPSOnly)
+				// Both offending entries are surfaced in one projection.
+				require.Equal(t, "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract", entries[1].Message)
+				require.Equal(t, "10.0.0.5", entries[1].ContextMap()["host"])
 			}
 		})
 	}
@@ -647,19 +702,32 @@ func TestReloadRateCapsPersistentMismatch(t *testing.T) {
 	)
 	require.NoError(t, err, "NewRequest")
 
+	// Attach an observer core so the rate-cap Warn on the capped path is pinned.
+	core, observed := observer.New(zapcore.WarnLevel)
+	ctx := ctxzap.ToContext(context.Background(), zap.New(core))
+
 	// Three identical cv-2 invocations under a persistent served/requested skew:
 	// the rate-cap bounds the rebuild to one.
 	for i := range 3 {
-		resp, err := r.Handler(context.Background(), req)
+		resp, err := r.Handler(ctx, req)
 		require.NoError(t, err, "invocation %d", i)
 		require.NotNil(t, resp)
 	}
 	require.Equal(t, 1, buildCalls, "the 2nd and 3rd invocations are rate-capped")
+	// The capped path warns once per rebuild interval (not per invocation), with
+	// the requested version, the current generation version, and the remaining
+	// interval.
+	require.Len(t, observed.All(), 1, "one rate-cap Warn per rebuild interval")
+	capEntry := observed.All()[0]
+	require.Equal(t, "lambda-run: reload rate-capped; serving previous generation", capEntry.Message)
+	require.Equal(t, "cv-2", capEntry.ContextMap()["requested_version"])
+	require.Equal(t, "cv-1", capEntry.ContextMap()["current_version"])
+	require.Greater(t, capEntry.ContextMap()["remaining_interval"].(time.Duration), time.Duration(0))
 
 	// Interval expiry re-enables rebuild: backdate lastRebuildAt so a positive
 	// interval has elapsed, then the next invocation rebuilds.
 	r.lastRebuildAt = time.Now().Add(-2 * time.Hour)
-	resp, err := r.Handler(context.Background(), req)
+	resp, err := r.Handler(ctx, req)
 	require.NoError(t, err, "invocation after interval expiry")
 	require.NotNil(t, resp)
 	require.Equal(t, 2, buildCalls, "interval expiry re-enables rebuild")
@@ -668,7 +736,7 @@ func TestReloadRateCapsPersistentMismatch(t *testing.T) {
 	// each rebuild.
 	lambdaConnectorReloadMinInterval = 0
 	for i := range 2 {
-		resp, err := r.Handler(context.Background(), req)
+		resp, err := r.Handler(ctx, req)
 		require.NoError(t, err, "invocation %d", i)
 		require.NotNil(t, resp)
 	}

@@ -104,10 +104,15 @@ type lambdaConnectorReloader struct {
 	// requested version (a time-only floor, so interleaved requested versions
 	// cannot bypass it). A legitimate new version can therefore be deferred by
 	// up to lambdaConnectorReloadMinInterval, serving the previous generation
-	// in the meantime (logged on the capped path). Stamped only on the success
-	// path, so a persistently failing build is uncapped — intentional, so a
-	// retry can clear a transient error.
+	// in the meantime. Stamped only on the success path, so a persistently
+	// failing build is uncapped — intentional, so a retry can clear a transient
+	// error.
 	lastRebuildAt time.Time
+	// lastCapLoggedAt bounds the rate-cap Warn to one per rebuild interval: in
+	// the persistent-skew steady state the cap fires on every invocation, so
+	// without this the log would storm. It is compared against lastRebuildAt,
+	// so it needs no reset on the success path.
+	lastCapLoggedAt time.Time
 }
 
 // Handler is a recovery wrapper around handle. Config reload and log level
@@ -192,13 +197,17 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 	// requested version), so interleaved requested versions cannot bypass it.
 	// A genuinely new requested version can be deferred by up to
 	// lambdaConnectorReloadMinInterval, serving the previous generation (stale
-	// config and egress policy) in the meantime — log it so the bounded
-	// staleness is observable.
+	// config and egress policy) in the meantime. The Warn is emitted once per
+	// rebuild interval (lastCapLoggedAt), not on every capped invocation, so
+	// the persistent-skew steady state does not log-storm.
 	if time.Since(r.lastRebuildAt) < lambdaConnectorReloadMinInterval {
-		ctxzap.Extract(ctx).Warn("lambda-run: reload rate-capped; serving previous generation",
-			zap.String("requested_version", requestedVersion),
-			zap.String("current_version", r.current.version),
-			zap.Duration("remaining_interval", lambdaConnectorReloadMinInterval-time.Since(r.lastRebuildAt)))
+		if r.lastCapLoggedAt.Before(r.lastRebuildAt) {
+			ctxzap.Extract(ctx).Warn("lambda-run: reload rate-capped; serving previous generation",
+				zap.String("requested_version", requestedVersion),
+				zap.String("current_version", r.current.version),
+				zap.Duration("remaining_interval", lambdaConnectorReloadMinInterval-time.Since(r.lastRebuildAt)))
+			r.lastCapLoggedAt = time.Now()
+		}
 		return nil
 	}
 
@@ -691,16 +700,21 @@ func egressPolicyFromResponse(ctx context.Context, config *v1.GetConnectorConfig
 	// allow-all to a wildcard-matching connector. Under REPORT/absent mode the
 	// allowlist is observed, not enforced, so a contract-invalid entry (e.g. an
 	// on-prem instance whose resolved config yields an IP-literal host) must not
-	// take egress offline — warn and leave the projection unchanged. Brackets
-	// are stripped before the IP check so a bracketed IPv6 literal is caught.
+	// take egress offline — warn and leave the projection unchanged, and keep
+	// scanning so every offending entry is surfaced in one projection. A port
+	// suffix is split off before the IP check so a host:port entry is caught.
 	for _, h := range policy.AllowedHosts {
-		if h == "" || strings.Contains(h, "*") || net.ParseIP(strings.Trim(h, "[]")) != nil {
+		host := h
+		if hp, _, err := net.SplitHostPort(h); err == nil {
+			host = hp
+		}
+		if h == "" || strings.Contains(h, "*") || net.ParseIP(strings.Trim(host, "[]")) != nil {
 			ctxzap.Extract(ctx).Warn("connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
 				zap.String("host", h))
 			if policy.Enforce {
 				return &EgressPolicy{Enforce: true, HTTPSOnly: true}
 			}
-			break
+			continue
 		}
 	}
 	return policy
