@@ -277,7 +277,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"*"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains a wildcard or IP-literal; envelope is invalid per contract",
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
 			wantFields: map[string]any{
 				"host": "*",
 			},
@@ -290,7 +290,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{"*.example.com"})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains a wildcard or IP-literal; envelope is invalid per contract",
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
 			wantFields: map[string]any{
 				"host": "*.example.com",
 			},
@@ -303,7 +303,7 @@ func TestEgressPolicyFromResponseRejectionLogs(t *testing.T) {
 				env.GetEgress().SetAllowedHosts([]string{""})
 				return newResp("cv-1", env)
 			},
-			wantMessage: "connector_authoring: egress allowlist contains a wildcard or IP-literal; envelope is invalid per contract",
+			wantMessage: "connector_authoring: egress allowlist contains an empty, wildcard, or IP-literal host; envelope is invalid per contract",
 			wantFields: map[string]any{
 				"host": "",
 			},
@@ -433,10 +433,16 @@ func TestReloadRefetchesWhenServedVersionDiffersFromRequested(t *testing.T) {
 	defer func() { lambdaConnectorReloadMinInterval = old }()
 
 	// The stub build applies level:"error" on a successful reload and the
-	// deferred guard does not restore it, so restore the prior process-wide
-	// level on the way out.
-	prevLogLevel := zap.L().Level()
-	t.Cleanup(func() { _ = logging.SetLogLevel(prevLogLevel.String()) })
+	// deferred guard does not restore it, so initialize a known process-wide
+	// level and restore it on the way out.
+	_, err := logging.Init(context.Background(),
+		logging.WithLogLevel("info"),
+		logging.WithOutputPaths([]string{os.DevNull}),
+	)
+	require.NoError(t, err, "logging.Init")
+	t.Cleanup(func() {
+		require.NoError(t, logging.SetLogLevel("info"))
+	})
 
 	activeConnector := &stubConnectorServer{}
 	server := c1_lambda_grpc.NewServer(lambdaUnaryInterceptorChain())
@@ -535,10 +541,16 @@ func TestReloadRateCapsPersistentMismatch(t *testing.T) {
 	lambdaConnectorReloadMinInterval = time.Hour
 
 	// The stub build applies level:"error" on a successful reload and the
-	// deferred guard does not restore it, so restore the prior process-wide
-	// level on the way out.
-	prevLogLevel := zap.L().Level()
-	t.Cleanup(func() { _ = logging.SetLogLevel(prevLogLevel.String()) })
+	// deferred guard does not restore it, so initialize a known process-wide
+	// level and restore it on the way out.
+	_, err := logging.Init(context.Background(),
+		logging.WithLogLevel("info"),
+		logging.WithOutputPaths([]string{os.DevNull}),
+	)
+	require.NoError(t, err, "logging.Init")
+	t.Cleanup(func() {
+		require.NoError(t, logging.SetLogLevel("info"))
+	})
 
 	activeConnector := &stubConnectorServer{}
 	server := c1_lambda_grpc.NewServer(lambdaUnaryInterceptorChain())
