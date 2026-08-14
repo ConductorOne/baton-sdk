@@ -57,7 +57,7 @@ func (e *Engine) setCurrentSyncInsideWrite(ctx context.Context, syncID string) e
 // lifecycle transitions that never take the barrier. ResumeSync and
 // SetCurrentSync read a record and rebind, touching currentSyncMu and
 // sealMu but never writeMu, so neither the re-entrancy check nor the
-// writeWG drain sees them: without the explicit assertion this call
+// write drain sees them: without the explicit assertion this call
 // returns cleanly and leaves the lock-order violation in the tree.
 func TestLifecycleTransitionFromInsideWritePanics(t *testing.T) {
 	ctx := context.Background()
@@ -97,7 +97,7 @@ func TestWriteBarrierPanicsOnReentry(t *testing.T) {
 }
 
 // TestCloseFromInsideWritePanics covers the wait-side variant: Close and
-// CheckpointTo drain writeWG before they reach the barrier, so the
+// CheckpointTo drain admitted writes before they reach the barrier, so the
 // ownership comparison has to happen there too or these hang one step
 // short of the mutex the re-entrancy check watches.
 func TestCloseFromInsideWritePanics(t *testing.T) {
@@ -164,7 +164,7 @@ func (e *Engine) closeInsidePinnedRead(ctx context.Context) error {
 }
 
 // TestCloseFromInsidePinnedReadPanics covers the read half of the drain.
-// Close waits on readWG as well as writeWG, so the wait-side check has to
+// Close drains reads as well as writes, so the wait-side check has to
 // see pinned readers too — a scan callback is caller-supplied code
 // running with the pin held, which makes this the easiest way to reach
 // the hang from outside the package.
@@ -195,37 +195,38 @@ func TestCloseFromInsideWriteRacingAnotherClosePanics(t *testing.T) {
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	e.enterWriteWG()
+	require.NoError(t, e.admit.enterWrite())
 	closed := make(chan error, 1)
 	go func() { closed <- e.Close() }()
 	// The flag flips under closeMu on the way to the drain, so observing
 	// it means the other Close holds the lock this caller would queue on.
-	require.Eventually(t, func() bool { return e.closing.Load() }, 10*time.Second, time.Millisecond,
+	require.Eventually(t, func() bool { return e.admit.isClosing() }, 10*time.Second, time.Millisecond,
 		"the concurrent Close never reached its drain")
 
 	require.PanicsWithValue(t, writeBarrierWaitFromWritePanic, func() {
 		_ = e.Close()
 	})
-	e.exitWriteWG()
+	e.admit.exitWrite()
 	require.NoError(t, <-closed)
 }
 
-// TestCloseFromBarrierFreeWriteWGHolderPanics covers the writeWG holders
-// that never take the barrier. CompactAllRanges and Flush join the group
-// for the length of a compaction or flush deliberately without writeMu,
-// and cleanup.go documents that a Close during either one hangs on the
-// drain — so a check keyed on barrier ownership would see nothing wrong
-// with the very hang it is there to report. Neither has an injection
-// point mid-operation, so this joins the group the same way they do.
-func TestCloseFromBarrierFreeWriteWGHolderPanics(t *testing.T) {
+// TestCloseFromBarrierFreeAdmittedWritePanics covers the gate-admitted
+// writes that never take the barrier. CompactAllRanges and Flush enter
+// the gate for the length of a compaction or flush deliberately without
+// writeMu, and cleanup.go documents that a Close during either one hangs
+// on the drain — so a check keyed on barrier ownership would see nothing
+// wrong with the very hang it is there to report. Neither has an
+// injection point mid-operation, so this enters the gate the same way
+// they do.
+func TestCloseFromBarrierFreeAdmittedWritePanics(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	e.enterWriteWG()
-	defer e.exitWriteWG()
-	require.Zero(t, e.writeBarrierOwner.Load(), "a writeWG holder that skipped the barrier must not own it")
+	require.NoError(t, e.admit.enterWrite())
+	defer e.admit.exitWrite()
+	require.Zero(t, e.writeBarrierOwner.Load(), "a gate-admitted write that skipped the barrier must not own it")
 	require.PanicsWithValue(t, writeBarrierWaitFromWritePanic, func() {
 		_ = e.Close()
 	})

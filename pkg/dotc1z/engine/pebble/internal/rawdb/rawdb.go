@@ -15,7 +15,7 @@
 // obligation unforgettable by construction.
 //
 // What this package deliberately does NOT own: the engine's write
-// BARRIER (writeMu / writeWG / closing / sealed / checkpointMu) stays
+// BARRIER (writeMu / the admission gate / sealed / checkpointMu) stays
 // in the pebble package. The barrier is lifecycle policy — who may
 // write when — while rawdb is write mechanics — what a write must do.
 // Callers arrive here already inside withWrite/withWriteAllowSealed;

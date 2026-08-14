@@ -3,9 +3,10 @@
 package pebble
 
 // writeBarrierOwnerChecks turns on the deadlock-shape checks in
-// write_barrier_owner.go: barrier re-entrancy, waiting on your own
-// write or pinned read, and lifecycle transitions from inside a write
-// body. A compile-time constant, pebble's own invariants pattern, so
+// write_barrier_owner.go and admission.go: barrier re-entrancy, waiting
+// on your own write or pinned read, and lifecycle transitions from
+// inside a write body. A compile-time constant, pebble's own invariants
+// pattern, so
 // the disabled build carries none of the bookkeeping — knowing which
 // goroutine holds what means formatting a runtime stack (~2µs against a
 // ~7µs grant write), which is the wrong trade everywhere the checks are

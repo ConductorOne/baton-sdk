@@ -2,6 +2,7 @@ package pebble
 
 import (
 	"go/ast"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -85,32 +86,17 @@ func TestLifecycleMuTakersAreTransitionsOnly(t *testing.T) {
 			"instead (see CurrentSyncStep) rather than locking.")
 }
 
-// TestWriteBarrierWaitersCheckOwnership pins the coverage the ownership
-// check depends on.
-//
-// The check reports a goroutine waiting on itself, and it can only do
-// that on paths it sees. Three enumerations keep it seeing all of them:
-// lockWriteBarrier records the barrier's owner, enterWriteWG records
-// membership in writeWG, and Close and CheckpointTo drain that group one
-// step before the barrier, so they have to ask explicitly. A method that
-// locks writeMu directly, a bare writeWG.Add (compactions and flushes
-// join the group without the barrier, and one of those is invisible to
-// the check), or a second waiter that skips the assertion is back to
-// hanging with no output — and it would hang in exactly the situation
+// TestWriteBarrierLockedThroughOwnerPairOnly pins where writeMu may be
+// locked. Ownership is recorded in lockWriteBarrier/unlockWriteBarrier,
+// so a method that locks the mutex directly is invisible to the
+// re-entrancy check — it hangs with no output in exactly the situation
 // where nobody is looking for a lock bug, because the call reads like
-// ordinary work.
-func TestWriteBarrierWaitersCheckOwnership(t *testing.T) {
-	const assertion = "assertNotWaitingOnOwnWrite"
-	const readAssertion = "assertNotWaitingOnOwnRead"
-	waiters := []string{"Close", "CheckpointTo"}
-
+// ordinary work. Close and CheckpointTo take the mutex bare on purpose:
+// both run after a drain that already panicked if the caller was inside
+// a write, and recording them as owners would make the teardown look
+// like a write body.
+func TestWriteBarrierLockedThroughOwnerPairOnly(t *testing.T) {
 	locksBarrier := map[string]bool{}
-	waitsForWrites := map[string]bool{}
-	joinsWriteWG := map[string]bool{}
-	checksOwnership := map[string]bool{}
-	waitsForReads := map[string]bool{}
-	joinsReadWG := map[string]bool{}
-	checksReadOwnership := map[string]bool{}
 	_, files := parseProductionDir(t, ".")
 	for _, f := range files {
 		for _, decl := range f.Decls {
@@ -119,31 +105,8 @@ func TestWriteBarrierWaitersCheckOwnership(t *testing.T) {
 				continue
 			}
 			ast.Inspect(fn, func(n ast.Node) bool {
-				sel, ok := n.(*ast.SelectorExpr)
-				if !ok {
-					return true
-				}
-				switch sel.Sel.Name {
-				case "writeMu":
+				if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "writeMu" {
 					locksBarrier[fn.Name.Name] = true
-				case assertion:
-					checksOwnership[fn.Name.Name] = true
-				case readAssertion:
-					checksReadOwnership[fn.Name.Name] = true
-				case "Wait":
-					if inner, ok := sel.X.(*ast.SelectorExpr); ok && inner.Sel.Name == "writeWG" {
-						waitsForWrites[fn.Name.Name] = true
-					}
-					if inner, ok := sel.X.(*ast.SelectorExpr); ok && inner.Sel.Name == "readWG" {
-						waitsForReads[fn.Name.Name] = true
-					}
-				case "Add", "Done":
-					if inner, ok := sel.X.(*ast.SelectorExpr); ok && inner.Sel.Name == "writeWG" {
-						joinsWriteWG[fn.Name.Name] = true
-					}
-					if inner, ok := sel.X.(*ast.SelectorExpr); ok && inner.Sel.Name == "readWG" {
-						joinsReadWG[fn.Name.Name] = true
-					}
 				}
 				return true
 			})
@@ -157,29 +120,78 @@ func TestWriteBarrierWaitersCheckOwnership(t *testing.T) {
 		"CheckpointTo":       true,
 	}, locksBarrier,
 		"someone locks writeMu outside the lockWriteBarrier/unlockWriteBarrier pair. Ownership is recorded "+
-			"there, so a direct lock is invisible to the re-entrancy check: go through the pair, or call "+
-			assertion+" first and say why.")
-	require.Equal(t, map[string]bool{"enterWriteWG": true, "exitWriteWG": true}, joinsWriteWG,
-		"someone joins or leaves writeWG outside the enterWriteWG/exitWriteWG pair. Membership is recorded "+
-			"there, and it is membership — not barrier ownership — that hangs a Close: a bare Add gets counted in "+
-			"the group the waiters drain while staying invisible to "+assertion+". Go through the pair.")
-	require.Equal(t, map[string]bool{"Close": true, "CheckpointTo": true}, waitsForWrites,
-		"a new writeWG waiter appeared. Waiting for in-flight writes from inside a write body waits forever, "+
-			"so a waiter has to call "+assertion+" before the wait.")
-	for _, waiter := range waiters {
-		require.True(t, checksOwnership[waiter], "%s waits for in-flight writes without calling %s first", waiter, assertion)
+			"there, so a direct lock is invisible to the re-entrancy check: go through the pair, or explain "+
+			"why the new use cannot be inside a write body, the way Close and CheckpointTo do.")
+}
+
+// TestAdmissionUsedOnlyThroughItsMethods keeps the close gate's
+// invariants inside the admission type, where admission_test.go tests
+// them directly.
+//
+// Those invariants — entering is atomic against Close's flip, the
+// drains panic instead of waiting on their own caller, the teardown
+// runs exactly once — hold for users of the five entry methods and for
+// nobody else. Engine code that reaches past them (a bare
+// admit.writers.Add, a read of admit.closing, its own drain) is taking
+// on the interleaving bugs the type exists to contain, and it would do
+// so silently: same package, so the compiler has no opinion. The two
+// drains are additionally pinned to their single callers, because each
+// encodes a lifecycle decision (shutting the gate; quiescing writes for
+// a checkpoint cut) that a second call site should have to argue for
+// here.
+func TestAdmissionUsedOnlyThroughItsMethods(t *testing.T) {
+	allowedAnywhere := map[string]bool{
+		"enterWrite": true, "exitWrite": true,
+		"enterRead": true, "exitRead": true,
+		"isClosing": true,
+	}
+	singleCaller := map[string]string{
+		"closeAndDrain": "Close",
+		"drainWrites":   "CheckpointTo",
 	}
 
-	// The same three enumerations for readWG, which Close drains next to
-	// writeWG. The read side is the easier one to get wrong: Iterate* and
-	// ForEach* hold the pin across a caller-supplied callback, so the
-	// engine hands out the one context where closing it waits forever.
-	require.Equal(t, map[string]bool{"enterReadWG": true, "exitReadWG": true}, joinsReadWG,
-		"someone joins or leaves readWG outside the enterReadWG/exitReadWG pair. Membership is recorded there, "+
-			"and a bare Add is counted in the group Close drains while staying invisible to "+readAssertion+".")
-	require.Equal(t, map[string]bool{"Close": true}, waitsForReads,
-		"a new readWG waiter appeared. Waiting for in-flight reads from inside a pinned read waits forever, "+
-			"so a waiter has to call "+readAssertion+" before the wait.")
-	require.True(t, checksReadOwnership["Close"],
-		"Close waits for in-flight reads without calling %s first", readAssertion)
+	callers := map[string]map[string]bool{}
+	fset, files := parseProductionDir(t, ".")
+	for path, f := range files {
+		if filepath.Base(path) == "admission.go" {
+			continue
+		}
+		for _, decl := range f.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok {
+				continue
+			}
+			ast.Inspect(fn, func(n ast.Node) bool {
+				sel, ok := n.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				inner, ok := sel.X.(*ast.SelectorExpr)
+				if !ok || inner.Sel.Name != "admit" {
+					return true
+				}
+				name := sel.Sel.Name
+				if _, pinned := singleCaller[name]; pinned {
+					if callers[name] == nil {
+						callers[name] = map[string]bool{}
+					}
+					callers[name][fn.Name.Name] = true
+					return true
+				}
+				require.True(t, allowedAnywhere[name],
+					"%s: %s reaches into the admission gate's internals (admit.%s). The gate's invariants are "+
+						"only tested for its methods — go through enterWrite/exitWrite, enterRead/exitRead or "+
+						"isClosing, or move the new mechanism into admission.go with a test.",
+					fset.Position(sel.Pos()), fn.Name.Name, name)
+				return true
+			})
+		}
+	}
+
+	for method, caller := range singleCaller {
+		require.Equal(t, map[string]bool{caller: true}, callers[method],
+			"admit.%s is pinned to %s. A second caller is a second place the engine decides to drain "+
+				"in-flight work, which is a lifecycle decision: make it here, in this enumeration, on purpose.",
+			method, caller)
+	}
 }

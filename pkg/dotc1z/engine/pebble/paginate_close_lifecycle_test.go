@@ -193,24 +193,28 @@ func TestCloseWaitsForInFlightAdmission(t *testing.T) {
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	// A pin caught between its closing check and its Add.
-	e.admitMu.RLock()
+	// A pin caught between its closing check and its Add: hold the
+	// gate's admission lock the way enterRead does, with the Add not
+	// yet issued. White-box into the admission type — the interleaving
+	// under test is the two statements inside enterRead, so no method
+	// can stand in for the stopped middle.
+	e.admit.mu.RLock()
 
 	closed := make(chan error, 1)
 	go func() { closed <- e.Close() }()
 
-	require.Never(t, func() bool { return e.closing.Load() }, 200*time.Millisecond, 5*time.Millisecond,
+	require.Never(t, func() bool { return e.admit.isClosing() }, 200*time.Millisecond, 5*time.Millisecond,
 		"Close flipped the closing flag while a pin was mid-acquisition. That pin's Add now lands on a "+
 			"WaitGroup Close is already waiting on at zero, which panics instead of refusing the read")
 
 	// Finish acquiring, then let Close proceed: it must now see the pin
 	// and wait for it rather than tear the handle down underneath it.
-	e.enterReadWG()
-	e.admitMu.RUnlock()
+	e.admit.readers.Add(1)
+	e.admit.mu.RUnlock()
 
 	require.Never(t, func() bool { return e.db == nil }, 100*time.Millisecond, 5*time.Millisecond,
 		"Close tore the handle down while a read was pinned")
-	e.exitReadWG()
+	e.admit.readers.Done()
 	require.NoError(t, <-closed)
 }
 
@@ -347,8 +351,8 @@ func scanLoopCancellation(fn *ast.FuncDecl) (bool, bool) {
 // TestConcurrentCloseWithPaginatedReads is the concurrent half of the
 // same contract: "Concurrent Reader/Writer calls are safe."
 //
-// Writers are held to it by a real barrier — the closing flag, writeWG
-// participation, and the re-check after Add — so Close drains them and
+// Writers are held to it by a real barrier — the closing check, gate
+// admission, and the barrier mutex — so Close drains them and
 // they never touch a handle that is being torn down. Readers take part
 // in none of that: there is no withRead, and the paginate family reads
 // e.db directly. So a read in flight when Close nils the handle is

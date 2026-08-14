@@ -4,33 +4,29 @@ import (
 	"bytes"
 	"runtime"
 	"strconv"
-	"sync"
 )
 
-// Panic messages for the two ways a goroutine can wait on itself here.
-// Exported as constants so the regression tests assert the exact value
-// rather than a substring that could drift.
+// Panic messages for the write barrier's ownership checks. Constants so
+// the regression tests assert the exact value rather than a substring
+// that could drift. The drain-side panics (waiting on your own write or
+// pinned read) live with the admission gate in admission.go.
 const (
 	reentrantWriteBarrierPanic = "pebble engine: re-entrant write barrier — this goroutine already holds it, " +
 		"so an exported write was called from inside another write's body. Restructure the caller, or give " +
 		"the inner write an unexported sibling that runs under the barrier already held."
-	writeBarrierWaitFromWritePanic = "pebble engine: waited for in-flight writes from inside a write body — " +
-		"this goroutine's own write is one of them, so the wait can never finish."
-	readPinWaitFromReadPanic = "pebble engine: waited for in-flight reads from inside a pinned read — this " +
-		"goroutine's own read is one of them, so the wait can never finish. Iterate* and ForEach* hold the pin " +
-		"across the yield callback, so closing the engine from inside one waits on itself."
 	lifecycleFromWriteBarrierPanic = "pebble engine: sync-lifecycle transition called from inside a write body — " +
 		"the lock order is lifecycleMu then writeMu everywhere else, so taking lifecycleMu while holding the " +
 		"write barrier deadlocks against a concurrent EndSync. Hoist the transition out of the write."
 )
 
 // writeBarrierOwnerChecks (lock_checks_enabled.go / _disabled.go) gates
-// every check below at compile time. A goroutine that waits on itself
-// does so deterministically, on the first call, with no data dependence
-// and no concurrency required — it cannot reach production without
-// hanging the first armed run that exercises it, so the armed builds
-// are `make test`, CI, and anything built with -race or
-// -tags=baton_lockchecks.
+// every deadlock-shape check at compile time: the barrier ownership
+// checks below and the admission gate's self-wait checks (admission.go).
+// A goroutine that waits on itself does so deterministically, on the
+// first call, with no data dependence and no concurrency required — it
+// cannot reach production without hanging the first armed run that
+// exercises it, so the armed builds are `make test`, CI, and anything
+// built with -race or -tags=baton_lockchecks.
 
 // lockWriteBarrier takes the engine's write barrier; unlockWriteBarrier
 // releases it.
@@ -73,43 +69,6 @@ func (e *Engine) unlockWriteBarrier() {
 	e.writeMu.Unlock()
 }
 
-// goroutineSet records which goroutines are currently counted in one of
-// the WaitGroups Close drains.
-//
-// Counted rather than a plain set: nothing forbids a goroutine from
-// joining one twice — a compaction inside a write body, a second pinned
-// read taken inside a scan's yield callback — and a plain delete on the
-// inner exit would hide the outer one.
-type goroutineSet struct {
-	mu sync.Mutex
-	m  map[uint64]int
-}
-
-func (s *goroutineSet) enter(self uint64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.m == nil {
-		s.m = make(map[uint64]int, 1)
-	}
-	s.m[self]++
-}
-
-func (s *goroutineSet) exit(self uint64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if n := s.m[self]; n > 1 {
-		s.m[self] = n - 1
-		return
-	}
-	delete(s.m, self)
-}
-
-func (s *goroutineSet) holds(self uint64) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.m[self] > 0
-}
-
 // trackedGoroutineID returns the calling goroutine's id, or 0 when the
 // bookkeeping is off or the id was unreadable. Callers skip their
 // bookkeeping on 0: it is also the "unheld" value, so recording it would
@@ -119,77 +78,6 @@ func trackedGoroutineID() uint64 {
 		return 0
 	}
 	return goroutineID()
-}
-
-// enterWriteWG counts the calling goroutine in writeWG; exitWriteWG
-// releases it. Every writeWG.Add and Done goes through the pair (pinned
-// by TestWriteBarrierWaitersCheckOwnership) so the participant set stays
-// in step with the counter Close and CheckpointTo drain.
-//
-// Barrier ownership is not a usable substitute: CompactAllRanges and
-// Flush hold writeWG for a long operation and deliberately never take
-// writeMu (pebble's compactions and flushes are concurrency-safe with
-// foreground writes), yet a Close called from inside either one blocks
-// on the wait forever — the hang cleanup.go documents. Ownership of the
-// barrier is 0 for those goroutines, so a check that consulted it saw
-// nothing wrong.
-//
-// Two methods rather than one returning its own release, which would read
-// better at the call sites: the returned func is a heap allocation on
-// every write, and writes are the hot path this engine exists for.
-func (e *Engine) enterWriteWG() {
-	e.writeWG.Add(1)
-	if self := trackedGoroutineID(); self != 0 {
-		e.writeWGParticipants.enter(self)
-	}
-}
-
-// exitWriteWG is enterWriteWG's release. Always deferred immediately
-// after the enter, so an early return between them cannot leave the
-// counter — or the set — holding a write that finished.
-func (e *Engine) exitWriteWG() {
-	if self := trackedGoroutineID(); self != 0 {
-		e.writeWGParticipants.exit(self)
-	}
-	e.writeWG.Done()
-}
-
-// enterReadWG and exitReadWG are the read-side pair, for the group
-// pinRead joins and Close drains alongside writeWG.
-func (e *Engine) enterReadWG() {
-	e.readWG.Add(1)
-	if self := trackedGoroutineID(); self != 0 {
-		e.readWGParticipants.enter(self)
-	}
-}
-
-func (e *Engine) exitReadWG() {
-	if self := trackedGoroutineID(); self != 0 {
-		e.readWGParticipants.exit(self)
-	}
-	e.readWG.Done()
-}
-
-// assertNotWaitingOnOwnWrite panics when the calling goroutine is
-// counted in writeWG. Close and CheckpointTo wait on writeWG before they
-// take the barrier, so calling either from a write body — or from a
-// compaction or flush, which join the group without the barrier — hangs
-// on the wait, one step before the mutex that lockWriteBarrier watches.
-func (e *Engine) assertNotWaitingOnOwnWrite() {
-	if self := trackedGoroutineID(); self != 0 && e.writeWGParticipants.holds(self) {
-		panic(writeBarrierWaitFromWritePanic)
-	}
-}
-
-// assertNotWaitingOnOwnRead is the same check for readWG, which Close
-// drains too. The read side has a shape the write side does not: a
-// pinned read runs caller-supplied code — the yield and visit callbacks
-// of the Iterate* and ForEach* families — for the whole of the pin, so
-// the engine hands a stranger the one context in which closing it hangs.
-func (e *Engine) assertNotWaitingOnOwnRead() {
-	if self := trackedGoroutineID(); self != 0 && e.readWGParticipants.holds(self) {
-		panic(readPinWaitFromReadPanic)
-	}
 }
 
 // assertNotTakingLifecycleFromWrite panics when the calling goroutine

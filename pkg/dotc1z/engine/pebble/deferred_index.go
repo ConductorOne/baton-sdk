@@ -268,7 +268,7 @@ func (t *grantRebuildTee) closeAndWait() {
 // would be silently erased. EndSync's callers are expected to have quiesced
 // writers already — holding writeMu for the duration converts that
 // convention into an enforced invariant (a straggler write blocks until the
-// build finishes instead of racing the excise), and writeWG participation
+// build finishes instead of racing the excise), and gate participation
 // means Close waits the build out instead of tearing down e.db under it.
 func (e *Engine) BuildDeferredGrantIndexes(ctx context.Context) error {
 	// AllowSealed: EndSync seals BEFORE running this build so no straggler

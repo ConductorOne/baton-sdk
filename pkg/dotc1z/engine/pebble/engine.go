@@ -104,48 +104,22 @@ type Engine struct {
 	freshGrantsEmpty    bool
 	freshResourcesEmpty bool
 
-	// writeWG tracks in-flight writes. Incremented at the start of
-	// every Writer method, decremented in defer, always through
-	// enterWriteWG.
-	writeWG sync.WaitGroup
-	// readWG tracks in-flight reads. Reads take no barrier — they run
-	// concurrently with each other and with writes by design — but they
-	// do borrow the handle Close tears down, so Close waits for them
-	// the same way it waits for writes. See pinRead.
-	readWG  sync.WaitGroup
+	// admit is the open/close gate: reads and writes enter it for their
+	// duration, Close shuts it and waits for everyone inside, and
+	// late arrivals get ErrEngineClosing. The atomicity of entering
+	// against the shut, the exactly-once teardown, and the self-wait
+	// panics all live behind its methods — see the admission type
+	// (admission.go) for the invariants.
+	admit admission
+	// writeMu is the write barrier: it serializes write bodies against
+	// each other and against CheckpointTo's Flush→Checkpoint window and
+	// Close's teardown. Distinct from admission — CompactAllRanges and
+	// Flush enter the gate as writes without ever taking the barrier.
 	writeMu sync.Mutex
 	// writeBarrierOwner is the id of the goroutine holding writeMu, or 0
-	// when it is unheld. Recorded only under `go test`; see
+	// when it is unheld. Recorded only in checked builds; see
 	// lockWriteBarrier for why the bookkeeping is gated.
 	writeBarrierOwner atomic.Uint64
-	// writeWGParticipants tracks which goroutines are currently counted
-	// in writeWG. Separate from writeBarrierOwner because the two answer
-	// different questions and the sets differ: CompactAllRanges and Flush
-	// join writeWG without ever taking writeMu, and it is a writeWG
-	// holder — not a barrier holder — that hangs Close. Recorded only
-	// under `go test`, on the same gate as writeBarrierOwner.
-	writeWGParticipants goroutineSet
-	// readWGParticipants is the same bookkeeping for readWG. Close drains
-	// both groups, so both can be waited on from inside a member — and a
-	// pinned read is caller-supplied code for the whole of an Iterate* or
-	// ForEach* yield callback, which is where a Close from inside one
-	// would come from.
-	readWGParticipants goroutineSet
-	closing            atomic.Bool // strict write-barrier flag, read on every Writer call
-	closeMu            sync.Mutex
-	// admitMu orders admission into writeWG/readWG against Close's flip of
-	// the closing flag. Joiners hold RLock across the closing check and
-	// their Add; Close holds Lock across closing.Store(true).
-	//
-	// A check and an Add are two steps, and re-checking after the Add does
-	// not make them one: a joiner that read closing==false can be
-	// descheduled and run its Add after Close has parked in Wait with the
-	// counter at zero. sync.WaitGroup calls that misuse and fatals — "Add
-	// called concurrently with Wait" — rather than refusing gracefully,
-	// which is the ErrEngineClosing the re-check was reaching for. Under
-	// this mutex the Add either precedes the flip (Close then waits for it)
-	// or never happens.
-	admitMu sync.RWMutex
 
 	// computedStats holds caller-computed stats records stashed via
 	// StashComputedSyncStats, keyed by sync_id. PersistSyncStats pops
@@ -368,65 +342,50 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 // ErrEngineClosing. Close blocks until all in-flight writes and all
 // pinned reads (see pinRead) complete, so a slow page read delays it.
 func (e *Engine) Close() error {
-	// Before closeMu, not merely before the flag. A concurrent Close can
-	// already hold the lock and be parked in one of the waits below, and
-	// the goroutine that would keep it parked is the one calling here:
-	// behind the lock this caller blocks on closeMu instead, the
-	// diagnostic never runs, and the pair hangs with no output one lock
-	// earlier than the check was looking. Asking first also leaves a
-	// usable engine behind — nothing is marked closing when it panics.
-	e.assertNotWaitingOnOwnWrite()
-	e.assertNotWaitingOnOwnRead()
-	e.closeMu.Lock()
-	defer e.closeMu.Unlock()
-	if e.db == nil {
-		return nil
-	}
-	// Under admitMu so the flip cannot land between a joiner's closing
-	// check and its Add, which is a WaitGroup misuse fatal rather than the
-	// ErrEngineClosing that joiner is owed.
-	e.admitMu.Lock()
-	e.closing.Store(true)
-	e.admitMu.Unlock()
-	e.writeWG.Wait()
-	// Reads borrow the handle without any barrier, so draining writes is
-	// not enough: a paginate holding e.db while the teardown below runs
-	// gets pebble's "pebble: closed" panic out of its next iterator call.
-	e.readWG.Wait()
-	// A leaked synthesized-grant layer session (possible only if a panic
-	// unwound past the expansion driver's Abort) has a background worker
-	// ingesting through e.db; drain it before tearing the DB down. This
-	// runs AFTER the closing/writeWG barrier so no in-flight Add/Finish
-	// (which run under withWrite) can be touching the session concurrently
-	// — Abort itself takes no write barrier, only synthLayerMu for the
-	// pointer handoff, and is a no-op when no session is open.
-	_ = e.AbortSynthesizedGrantLayer(context.Background())
-	// Hold writeMu for the teardown: writeWG only covers withWrite users,
-	// while CheckpointTo takes writeMu directly (no WG participation). A
-	// CheckpointTo that passed its closing check but hasn't locked yet must
-	// find either the mutex held or db nil'd under the lock — never a db
-	// torn down mid-checkpoint.
-	e.writeMu.Lock()
-	defer e.writeMu.Unlock()
-	// Invariant: flush before close on any write path. This drives the
-	// memtable out to an SST so a Close is never the step that leaves
-	// un-materialized writes behind — independent of whether EndSync or
-	// CheckpointTo (which flush for their own reasons) ran first. Skipped
-	// in read-only mode, where Flush is illegal and there is nothing to
-	// harden. A no-op when the memtable is already empty.
-	var err error
-	if !e.opts.readOnly {
-		if ferr := e.db.FlushMemtables(); ferr != nil {
-			err = fmt.Errorf("flush during close: %w", ferr)
+	// The gate shuts, drains reads and writes (reads borrow the handle
+	// without any barrier, so draining writes alone would leave a
+	// paginate holding e.db while the teardown runs — pebble's
+	// "pebble: closed" panic out of its next iterator call), and runs
+	// the teardown exactly once. A Close from inside an admitted
+	// operation panics instead of self-deadlocking; see closeAndDrain.
+	return e.admit.closeAndDrain(func() error {
+		// A leaked synthesized-grant layer session (possible only if a
+		// panic unwound past the expansion driver's Abort) has a
+		// background worker ingesting through e.db; drain it before
+		// tearing the DB down. This runs AFTER the gate's drain so no
+		// in-flight Add/Finish (which run under withWrite) can be
+		// touching the session concurrently — Abort itself enters no
+		// gate, only synthLayerMu for the pointer handoff, and is a
+		// no-op when no session is open.
+		_ = e.AbortSynthesizedGrantLayer(context.Background())
+		// Hold writeMu for the teardown: the gate only covers admitted
+		// operations, while CheckpointTo takes writeMu directly (no gate
+		// participation for its cut). A CheckpointTo that passed its
+		// closing check but hasn't locked yet must find either the mutex
+		// held or db nil'd under the lock — never a db torn down
+		// mid-checkpoint.
+		e.writeMu.Lock()
+		defer e.writeMu.Unlock()
+		// Invariant: flush before close on any write path. This drives the
+		// memtable out to an SST so a Close is never the step that leaves
+		// un-materialized writes behind — independent of whether EndSync or
+		// CheckpointTo (which flush for their own reasons) ran first. Skipped
+		// in read-only mode, where Flush is illegal and there is nothing to
+		// harden. A no-op when the memtable is already empty.
+		var err error
+		if !e.opts.readOnly {
+			if ferr := e.db.FlushMemtables(); ferr != nil {
+				err = fmt.Errorf("flush during close: %w", ferr)
+			}
 		}
-	}
-	err = errors.Join(err, e.db.Close())
-	e.db = nil
-	// Release the cache if we minted it (no shared cache).
-	if e.opts.sharedCache == nil && e.pebbleOpts != nil && e.pebbleOpts.Cache != nil {
-		e.pebbleOpts.Cache.Unref()
-	}
-	return err
+		err = errors.Join(err, e.db.Close())
+		e.db = nil
+		// Release the cache if we minted it (no shared cache).
+		if e.opts.sharedCache == nil && e.pebbleOpts != nil && e.pebbleOpts.Cache != nil {
+			e.pebbleOpts.Cache.Unref()
+		}
+		return err
+	})
 }
 
 // SetCurrentSync sets the engine's tracked current sync_id from a
@@ -591,8 +550,9 @@ func (e *Engine) takeFreshResourcesEmpty() bool {
 // before the caller returns. Called by Adapter.EndSync.
 //
 // Uses withWrite (not a bare writeMu) so the flush participates in the
-// closing check and writeWG: Close tears e.db down after writeWG.Wait,
-// and a bare-mutex EndFreshSync racing Close would flush a nil db.
+// closing check and the close drain: Close tears e.db down only after
+// admitted writes exit, and a bare-mutex EndFreshSync racing Close would
+// flush a nil db.
 func (e *Engine) EndFreshSync(ctx context.Context) error {
 	// AllowSealed: this is the last step of EndSync's sealed finalize
 	// window (see Adapter.EndSync).
@@ -683,7 +643,7 @@ func (e *Engine) checkWritable() error {
 // the few write paths that legitimately run on a finished sync (sync-run
 // metadata updates and the pre-StartNewSync wipe).
 func (e *Engine) checkWritableAllowSealed() error {
-	if e.closing.Load() {
+	if e.admit.isClosing() {
 		return ErrEngineClosing
 	}
 	if e.db == nil {
@@ -725,19 +685,13 @@ func (e *Engine) withWriteAllowSealed(fn func() error) error {
 	if err := e.checkWritableAllowSealed(); err != nil {
 		return err
 	}
-	// The closing check and the Add are one step against Close's flip; see
-	// admitMu. checkWritableAllowSealed above reads the same flag, but a
-	// pass there is only advisory — this is the check that counts.
-	e.admitMu.RLock()
-	closing := e.closing.Load()
-	if !closing {
-		e.enterWriteWG()
+	// checkWritableAllowSealed above reads the closing flag, but a pass
+	// there is only advisory — the gate's admission is the check that
+	// counts.
+	if err := e.admit.enterWrite(); err != nil {
+		return err
 	}
-	e.admitMu.RUnlock()
-	if closing {
-		return ErrEngineClosing
-	}
-	defer e.exitWriteWG()
+	defer e.admit.exitWrite()
 	e.lockWriteBarrier()
 	defer e.unlockWriteBarrier()
 	return fn()
@@ -748,8 +702,8 @@ func (e *Engine) withWriteAllowSealed(fn func() error) error {
 // Reads take no barrier — concurrency between them and with writes is
 // the point — so this is not a lock. What it buys is the two things
 // Close needs: the handle cannot be torn down while a read is using it
-// (Close waits on readWG), and the read's view of e.db is ordered
-// against Close's teardown by the WaitGroup instead of being an
+// (Close drains admitted reads), and the read's view of e.db is ordered
+// against Close's teardown by the gate instead of being an
 // unsynchronized field access.
 //
 // Callers must defer the returned release, and must read through the
@@ -757,27 +711,18 @@ func (e *Engine) withWriteAllowSealed(fn func() error) error {
 // body reintroduces exactly the unordered access this removes.
 // TestScanReadsArePinned holds the read surface to both.
 func (e *Engine) pinRead() (*rawdb.DB, func(), error) {
-	// The closing check and the Add are one step against Close's flip, so
-	// there is no window in which this joins a group Close has already
-	// stopped counting. See admitMu.
-	e.admitMu.RLock()
-	closing := e.closing.Load()
-	if !closing {
-		e.enterReadWG()
+	if err := e.admit.enterRead(); err != nil {
+		return nil, nil, err
 	}
-	e.admitMu.RUnlock()
-	if closing {
-		return nil, nil, ErrEngineClosing
-	}
-	// Safe unsynchronized: the Add above precedes Close's flip, so Close
-	// is still waiting on this pin and has not reached the teardown that
+	// Safe unsynchronized: admission precedes Close's flip, so Close is
+	// still waiting on this pin and has not reached the teardown that
 	// nils the field.
 	db := e.db
 	if db == nil {
-		e.exitReadWG()
+		e.admit.exitRead()
 		return nil, nil, ErrEngineClosing
 	}
-	return db, e.exitReadWG, nil
+	return db, e.admit.exitRead, nil
 }
 
 func (e *Engine) Save(ctx context.Context, dest string) error {
@@ -940,11 +885,11 @@ func (e *Engine) removeStagingDir(dir string) {
 // (see ingestSynthLayerSegment), and a flushable ingest landing mid-window
 // would be a WAL-only record the truncate discards.
 func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
-	// Wait for all in-flight writes to complete.
-	e.assertNotWaitingOnOwnWrite()
-	e.writeWG.Wait()
+	// Wait for all in-flight writes to complete (panics rather than
+	// self-deadlocking if called from inside one).
+	e.admit.drainWrites()
 
-	if e.closing.Load() {
+	if e.admit.isClosing() {
 		return ErrEngineClosing
 	}
 	e.writeMu.Lock()
@@ -953,7 +898,7 @@ func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
 	defer e.checkpointMu.Unlock()
 	// Re-check under the lock: Close (which also takes writeMu for its
 	// teardown) may have won the race and nil'd e.db.
-	if e.closing.Load() || e.db == nil {
+	if e.admit.isClosing() || e.db == nil {
 		return ErrEngineClosing
 	}
 

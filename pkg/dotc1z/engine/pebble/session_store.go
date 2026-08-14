@@ -272,7 +272,7 @@ func (e *Engine) SessionSet(ctx context.Context, key string, value []byte, opt .
 	}
 
 	// Under the write barrier like every other record write: a bare Set
-	// would race Close's teardown (no writeWG coverage) and could land
+	// would race Close's teardown (no close-drain coverage) and could land
 	// inside CheckpointTo's Flush→Checkpoint window as a WAL-only record
 	// the truncate silently drops from the saved snapshot.
 	//
