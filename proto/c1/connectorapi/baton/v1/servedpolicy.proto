@@ -14,7 +14,11 @@ option go_package = "gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1";
 // records are served without one. Runtimes that require an envelope treat
 // absence, an unparseable envelope, an unsupported version, a missing
 // section, or any binding mismatch below as deny-all. A bad section poisons
-// the whole envelope; there are no partial installs.
+// the whole envelope; there are no partial installs at the section level
+// (an unsupported schema_version or a missing section rejects the whole
+// envelope). Individual allowed_hosts entries are a finer-grained case: a
+// contract-invalid entry is dropped from the projected allowlist under
+// REPORT/UNSPECIFIED rather than rejecting the envelope (see EgressSection).
 //
 // Every digest field is lowercase hex with its algorithm bound to a version
 // field — envelope_version, except the egress rules digest, which binds to
