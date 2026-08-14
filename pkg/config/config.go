@@ -20,21 +20,19 @@ import (
 	"go.uber.org/zap"
 )
 
-func RunConnector[T field.Configurable](
-	ctx context.Context,
-	connectorName string,
-	version string,
-	schema field.Configuration,
-	cf cli.NewConnector[T],
-	options ...connectorrunner.Option,
-) {
-	f := func(ctx context.Context, cfg T, runTimeOpts cli.RunTimeOpts) (types.ConnectorServer, error) {
+func connectorOptsFromRunTime(runTimeOpts cli.RunTimeOpts) *cli.ConnectorOpts {
+	return &cli.ConnectorOpts{
+		TokenSource:         runTimeOpts.TokenSource,
+		SelectedAuthMethod:  runTimeOpts.SelectedAuthMethod,
+		SyncResourceTypeIDs: runTimeOpts.SyncResourceTypeIDs,
+		EgressPolicy:        runTimeOpts.EgressPolicy,
+	}
+}
+
+func runConnectorFunc[T field.Configurable](cf cli.NewConnector[T]) cli.GetConnectorFunc2[T] {
+	return func(ctx context.Context, cfg T, runTimeOpts cli.RunTimeOpts) (types.ConnectorServer, error) {
 		l := ctxzap.Extract(ctx)
-		connector, builderOpts, err := cf(ctx, cfg, &cli.ConnectorOpts{
-			TokenSource:         runTimeOpts.TokenSource,
-			SelectedAuthMethod:  runTimeOpts.SelectedAuthMethod,
-			SyncResourceTypeIDs: runTimeOpts.SyncResourceTypeIDs,
-		})
+		connector, builderOpts, err := cf(ctx, cfg, connectorOptsFromRunTime(runTimeOpts))
 		if err != nil {
 			return nil, err
 		}
@@ -48,6 +46,17 @@ func RunConnector[T field.Configurable](
 		}
 		return c, nil
 	}
+}
+
+func RunConnector[T field.Configurable](
+	ctx context.Context,
+	connectorName string,
+	version string,
+	schema field.Configuration,
+	cf cli.NewConnector[T],
+	options ...connectorrunner.Option,
+) {
+	f := runConnectorFunc(cf)
 
 	_, cmd, err := DefineConfigurationV2(ctx, connectorName, f, schema, options...)
 	if err != nil {

@@ -22,6 +22,57 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// EgressMode is the enforcement posture the runtime applies to allowed_hosts.
+// It selects only whether the positive allowlist blocks or observes.
+type EgressMode int32
+
+const (
+	// Posture unstated. Consumers treat this as EGRESS_MODE_REPORT, so an
+	// envelope from a server predating this field leaves the runtime on its own
+	// default posture instead of silently blocking.
+	EgressMode_EGRESS_MODE_UNSPECIFIED EgressMode = 0
+	// Evaluate allowed_hosts and report denied destinations without blocking.
+	EgressMode_EGRESS_MODE_REPORT EgressMode = 1
+	// Block destinations absent from allowed_hosts.
+	EgressMode_EGRESS_MODE_ENFORCE EgressMode = 2
+)
+
+// Enum value maps for EgressMode.
+var (
+	EgressMode_name = map[int32]string{
+		0: "EGRESS_MODE_UNSPECIFIED",
+		1: "EGRESS_MODE_REPORT",
+		2: "EGRESS_MODE_ENFORCE",
+	}
+	EgressMode_value = map[string]int32{
+		"EGRESS_MODE_UNSPECIFIED": 0,
+		"EGRESS_MODE_REPORT":      1,
+		"EGRESS_MODE_ENFORCE":     2,
+	}
+)
+
+func (x EgressMode) Enum() *EgressMode {
+	p := new(EgressMode)
+	*p = x
+	return p
+}
+
+func (x EgressMode) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (EgressMode) Descriptor() protoreflect.EnumDescriptor {
+	return file_c1_connectorapi_baton_v1_servedpolicy_proto_enumTypes[0].Descriptor()
+}
+
+func (EgressMode) Type() protoreflect.EnumType {
+	return &file_c1_connectorapi_baton_v1_servedpolicy_proto_enumTypes[0]
+}
+
+func (x EgressMode) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
 // ServedPolicyEnvelope is the server-computed policy object delivered on the
 // connector-config response. It is never connector-authored and is distinct
 // from any author-editable runtime policy file: the server assembles it per
@@ -32,7 +83,11 @@ const (
 // records are served without one. Runtimes that require an envelope treat
 // absence, an unparseable envelope, an unsupported version, a missing
 // section, or any binding mismatch below as deny-all. A bad section poisons
-// the whole envelope; there are no partial installs.
+// the whole envelope; there are no partial installs at the section level
+// (an unsupported schema_version or a missing section rejects the whole
+// envelope). Individual allowed_hosts entries are a finer-grained case: a
+// contract-invalid entry is dropped from the projected allowlist under
+// REPORT/UNSPECIFIED rather than rejecting the envelope (see EgressSection).
 //
 // Every digest field is lowercase hex with its algorithm bound to a version
 // field — envelope_version, except the egress rules digest, which binds to
@@ -196,10 +251,10 @@ func (b0 ServedPolicyEnvelope_builder) Build() *ServedPolicyEnvelope {
 
 // EgressSection is the per-instance egress allowlist computed at serve from
 // the revision's sealed derivation rules and the instance's resolved config.
-// Deliberately not on the wire: the hard denylist (private ranges,
-// link-local, metadata endpoints, loopback, platform-internal hosts), which
-// is compiled into the runtime and overrides allowed_hosts, and any
-// mode/disable switch — the payload cannot weaken enforcement.
+// The hard denylist (private ranges, link-local, metadata endpoints,
+// loopback, platform-internal hosts) is deliberately not on the wire: it is
+// compiled into the runtime and overrides both allowed_hosts and mode, so no
+// payload can reach a destination the runtime denies outright.
 type EgressSection struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	// Section contract version. Unsupported => whole envelope invalid.
@@ -214,10 +269,16 @@ type EgressSection struct {
 	HttpsOnly bool `protobuf:"varint,3,opt,name=https_only,json=httpsOnly,proto3" json:"https_only,omitempty"`
 	// The effective per-instance allowlist. Canonical entry form: lowercase,
 	// IDNA A-label, no trailing dot, no scheme, path, or port. An empty,
-	// wildcard, or IP-literal entry invalidates the whole envelope in v1. An
-	// empty list is a valid deny-all egress policy. Runtimes check the
-	// resolved hostname against this set after the compiled hard denylist.
-	AllowedHosts  []string `protobuf:"bytes,4,rep,name=allowed_hosts,json=allowedHosts,proto3" json:"allowed_hosts,omitempty"`
+	// wildcard, IP-literal, or port-bearing entry is invalid: under
+	// EGRESS_MODE_ENFORCE it invalidates the whole envelope (deny-all); under
+	// REPORT/UNSPECIFIED it is dropped from the projected allowlist with a
+	// warn. An empty list is a valid deny-all egress policy. Runtimes check
+	// the resolved hostname against this set after the compiled hard denylist.
+	AllowedHosts []string `protobuf:"bytes,4,rep,name=allowed_hosts,json=allowedHosts,proto3" json:"allowed_hosts,omitempty"`
+	// Enforcement posture for allowed_hosts. Absent is treated as
+	// EGRESS_MODE_REPORT (observe) by consumers, so adding this field does not
+	// change how an existing envelope is served.
+	Mode          EgressMode `protobuf:"varint,5,opt,name=mode,proto3,enum=c1.connectorapi.baton.v1.EgressMode" json:"mode,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -275,6 +336,13 @@ func (x *EgressSection) GetAllowedHosts() []string {
 	return nil
 }
 
+func (x *EgressSection) GetMode() EgressMode {
+	if x != nil {
+		return x.Mode
+	}
+	return EgressMode_EGRESS_MODE_UNSPECIFIED
+}
+
 func (x *EgressSection) SetSchemaVersion(v uint32) {
 	x.SchemaVersion = v
 }
@@ -289,6 +357,10 @@ func (x *EgressSection) SetHttpsOnly(v bool) {
 
 func (x *EgressSection) SetAllowedHosts(v []string) {
 	x.AllowedHosts = v
+}
+
+func (x *EgressSection) SetMode(v EgressMode) {
+	x.Mode = v
 }
 
 type EgressSection_builder struct {
@@ -306,10 +378,16 @@ type EgressSection_builder struct {
 	HttpsOnly bool
 	// The effective per-instance allowlist. Canonical entry form: lowercase,
 	// IDNA A-label, no trailing dot, no scheme, path, or port. An empty,
-	// wildcard, or IP-literal entry invalidates the whole envelope in v1. An
-	// empty list is a valid deny-all egress policy. Runtimes check the
-	// resolved hostname against this set after the compiled hard denylist.
+	// wildcard, IP-literal, or port-bearing entry is invalid: under
+	// EGRESS_MODE_ENFORCE it invalidates the whole envelope (deny-all); under
+	// REPORT/UNSPECIFIED it is dropped from the projected allowlist with a
+	// warn. An empty list is a valid deny-all egress policy. Runtimes check
+	// the resolved hostname against this set after the compiled hard denylist.
 	AllowedHosts []string
+	// Enforcement posture for allowed_hosts. Absent is treated as
+	// EGRESS_MODE_REPORT (observe) by consumers, so adding this field does not
+	// change how an existing envelope is served.
+	Mode EgressMode
 }
 
 func (b0 EgressSection_builder) Build() *EgressSection {
@@ -320,6 +398,7 @@ func (b0 EgressSection_builder) Build() *EgressSection {
 	x.RecordedEgressDerivationDigest = b.RecordedEgressDerivationDigest
 	x.HttpsOnly = b.HttpsOnly
 	x.AllowedHosts = b.AllowedHosts
+	x.Mode = b.Mode
 	return m0
 }
 
@@ -333,26 +412,35 @@ const file_c1_connectorapi_baton_v1_servedpolicy_proto_rawDesc = "" +
 	"\x15connector_revision_id\x18\x02 \x01(\tR\x13connectorRevisionId\x120\n" +
 	"\x14revision_root_digest\x18\x03 \x01(\tR\x12revisionRootDigest\x12%\n" +
 	"\x0econfig_version\x18\x04 \x01(\tR\rconfigVersion\x12?\n" +
-	"\x06egress\x18\x05 \x01(\v2'.c1.connectorapi.baton.v1.EgressSectionR\x06egress\"\xc5\x01\n" +
+	"\x06egress\x18\x05 \x01(\v2'.c1.connectorapi.baton.v1.EgressSectionR\x06egress\"\xff\x01\n" +
 	"\rEgressSection\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12I\n" +
 	"!recorded_egress_derivation_digest\x18\x02 \x01(\tR\x1erecordedEgressDerivationDigest\x12\x1d\n" +
 	"\n" +
 	"https_only\x18\x03 \x01(\bR\thttpsOnly\x12#\n" +
-	"\rallowed_hosts\x18\x04 \x03(\tR\fallowedHostsB7Z5gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1b\x06proto3"
+	"\rallowed_hosts\x18\x04 \x03(\tR\fallowedHosts\x128\n" +
+	"\x04mode\x18\x05 \x01(\x0e2$.c1.connectorapi.baton.v1.EgressModeR\x04mode*Z\n" +
+	"\n" +
+	"EgressMode\x12\x1b\n" +
+	"\x17EGRESS_MODE_UNSPECIFIED\x10\x00\x12\x16\n" +
+	"\x12EGRESS_MODE_REPORT\x10\x01\x12\x17\n" +
+	"\x13EGRESS_MODE_ENFORCE\x10\x02B7Z5gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1b\x06proto3"
 
+var file_c1_connectorapi_baton_v1_servedpolicy_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
 var file_c1_connectorapi_baton_v1_servedpolicy_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_c1_connectorapi_baton_v1_servedpolicy_proto_goTypes = []any{
-	(*ServedPolicyEnvelope)(nil), // 0: c1.connectorapi.baton.v1.ServedPolicyEnvelope
-	(*EgressSection)(nil),        // 1: c1.connectorapi.baton.v1.EgressSection
+	(EgressMode)(0),              // 0: c1.connectorapi.baton.v1.EgressMode
+	(*ServedPolicyEnvelope)(nil), // 1: c1.connectorapi.baton.v1.ServedPolicyEnvelope
+	(*EgressSection)(nil),        // 2: c1.connectorapi.baton.v1.EgressSection
 }
 var file_c1_connectorapi_baton_v1_servedpolicy_proto_depIdxs = []int32{
-	1, // 0: c1.connectorapi.baton.v1.ServedPolicyEnvelope.egress:type_name -> c1.connectorapi.baton.v1.EgressSection
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	2, // 0: c1.connectorapi.baton.v1.ServedPolicyEnvelope.egress:type_name -> c1.connectorapi.baton.v1.EgressSection
+	0, // 1: c1.connectorapi.baton.v1.EgressSection.mode:type_name -> c1.connectorapi.baton.v1.EgressMode
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_c1_connectorapi_baton_v1_servedpolicy_proto_init() }
@@ -365,13 +453,14 @@ func file_c1_connectorapi_baton_v1_servedpolicy_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connectorapi_baton_v1_servedpolicy_proto_rawDesc), len(file_c1_connectorapi_baton_v1_servedpolicy_proto_rawDesc)),
-			NumEnums:      0,
+			NumEnums:      1,
 			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
 		GoTypes:           file_c1_connectorapi_baton_v1_servedpolicy_proto_goTypes,
 		DependencyIndexes: file_c1_connectorapi_baton_v1_servedpolicy_proto_depIdxs,
+		EnumInfos:         file_c1_connectorapi_baton_v1_servedpolicy_proto_enumTypes,
 		MessageInfos:      file_c1_connectorapi_baton_v1_servedpolicy_proto_msgTypes,
 	}.Build()
 	File_c1_connectorapi_baton_v1_servedpolicy_proto = out.File

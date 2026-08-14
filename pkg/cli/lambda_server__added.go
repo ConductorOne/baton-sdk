@@ -7,8 +7,10 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +23,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/go-jose/go-jose/v4"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/maypok86/otter/v2"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cast"
@@ -55,6 +58,21 @@ const (
 	egressSectionSchemaVersion  = 1
 )
 
+// lambdaConnectorReloadMinInterval bounds the rebuild rate when the server
+// persistently serves a config_version different from the requested header:
+// the served-version labeling makes the no-op guard never match, so without
+// this cap every invocation would rebuild. The generation stays labeled with
+// the served version, so a stale reply is still re-fetched every interval.
+var lambdaConnectorReloadMinInterval = 5 * time.Second
+
+// lambdaConnectorReloadGlobalFloor is a short, version-independent rebuild
+// floor: it caps alternating requested versions (cv-2, cv-3, cv-2) that would
+// otherwise each bypass the version-keyed skew cap and rebuild on every
+// invocation. It is deliberately much shorter than
+// lambdaConnectorReloadMinInterval so a genuinely new version is deferred by
+// at most this floor, not the full interval.
+var lambdaConnectorReloadGlobalFloor = 1 * time.Second
+
 type lambdaConnectorGeneration struct {
 	version   string
 	connector types.ConnectorServer
@@ -86,6 +104,25 @@ type lambdaConnectorReloader struct {
 	server  *c1_lambda_grpc.Server
 	current *lambdaConnectorGeneration
 	build   func(context.Context, string) (*lambdaConnectorGeneration, error)
+
+	// lastRebuildAt/lastRebuildRequestedVersion back the reload rate-cap. When
+	// the server persistently serves a config_version different from the
+	// requested header, the served-version labeling makes the no-op guard never
+	// match, so the cap bounds rebuilds: the version-keyed term caps the skew
+	// case (the same requested version keeps arriving) to one per
+	// lambdaConnectorReloadMinInterval, while the global floor caps alternating
+	// requested versions to one per lambdaConnectorReloadGlobalFloor. A
+	// genuinely new version is therefore deferred by at most the short global
+	// floor, not the full interval. Stamped only on the success path, so a
+	// persistently failing build is uncapped — intentional, so a retry can
+	// clear a transient error.
+	lastRebuildAt               time.Time
+	lastRebuildRequestedVersion string
+	// lastCapLoggedAt bounds the rate-cap Warn to one per rebuild interval: in
+	// the persistent-skew steady state the cap fires on every invocation, so
+	// without this the log would storm. It is compared against lastRebuildAt,
+	// so it needs no reset on the success path.
+	lastCapLoggedAt time.Time
 }
 
 // Handler is a recovery wrapper around handle. Config reload and log level
@@ -162,6 +199,31 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 	if r.current == nil {
 		return fmt.Errorf("no current connector generation is registered")
 	}
+	// Rate-cap the rebuild under persistent served/requested version skew: the
+	// served-version labeling makes the no-op guard above never match, so
+	// without this cap every version-stamped invocation would rebuild. The
+	// generation stays labeled with the served version, so a stale reply is
+	// still re-fetched every interval. Two tiers: the global floor caps any
+	// rebuild (so alternating requested versions cannot bypass the cap), and
+	// the version-keyed term caps the skew case (the same requested version
+	// keeps arriving) to one per lambdaConnectorReloadMinInterval. A genuinely
+	// new version is deferred by at most the short global floor, not the full
+	// interval. The Warn is emitted once per rebuild interval (lastCapLoggedAt),
+	// not on every capped invocation, so the persistent-skew steady state does
+	// not log-storm.
+	if time.Since(r.lastRebuildAt) < lambdaConnectorReloadGlobalFloor {
+		return nil
+	}
+	if requestedVersion == r.lastRebuildRequestedVersion && time.Since(r.lastRebuildAt) < lambdaConnectorReloadMinInterval {
+		if r.lastCapLoggedAt.Before(r.lastRebuildAt) {
+			ctxzap.Extract(ctx).Warn("lambda-run: reload rate-capped; serving previous generation",
+				zap.String("requested_version", requestedVersion),
+				zap.String("current_version", r.current.version),
+				zap.Duration("remaining_interval", lambdaConnectorReloadMinInterval-time.Since(r.lastRebuildAt)))
+			r.lastCapLoggedAt = time.Now()
+		}
+		return nil
+	}
 
 	currentLog := r.current.logging
 	// r.build applies next's log level before it can fail, so every exit that
@@ -193,6 +255,8 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 	}
 
 	r.current = next
+	r.lastRebuildAt = time.Now()
+	r.lastRebuildRequestedVersion = requestedVersion
 	if err := applyLambdaLogLevel(next.logging, time.Now()); err != nil {
 		return err
 	}
@@ -426,6 +490,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				return nil, fmt.Errorf("failed to validate config: %w", err)
 			}
 
+			policy, version := egressPolicyAndGenerationVersion(ctx, requestedVersion, config)
 			ops := RunTimeOpts{
 				SessionStore: NewLazyCachingSessionStore(sessionStoreConstructor, func(otterOptions *otter.Options[string, []byte]) {
 					if sessionStoreMaximumSize <= 0 {
@@ -436,7 +501,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				}),
 				SelectedAuthMethod:  authMethodStr,
 				SyncResourceTypeIDs: effectiveConfig.GetStringSlice("sync-resource-types"),
-				EgressPolicy:        egressPolicyFromResponse(config),
+				EgressPolicy:        policy,
 			}
 
 			if hasOauthField(schemaFields) {
@@ -461,10 +526,6 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				return nil, fmt.Errorf("failed to get connector: %w", err)
 			}
 
-			version := requestedVersion
-			if version == "" {
-				version = lambdaConnectorConfigVersion(config)
-			}
 			return &lambdaConnectorGeneration{
 				version:   version,
 				connector: c,
@@ -535,6 +596,30 @@ func lambdaUnaryInterceptorChain(interceptors ...grpc.UnaryServerInterceptor) gr
 	return ugrpc.ChainUnaryInterceptors(withRecovery...)
 }
 
+// generationVersion labels a built generation with the config_version the
+// server actually served, falling back to the requested version when the
+// response carries none. Labeling by the served version (not the requested
+// header) keeps the reload no-op guard honest: a stale reply is re-fetched
+// on the next version-stamped invocation instead of being pinned as current.
+func generationVersion(ctx context.Context, requestedVersion string, config *v1.GetConnectorConfigResponse) string {
+	// Prefer the served config_version only when the server actually stamped
+	// it: lambdaConnectorConfigVersion's last_updated fallback is not in the
+	// same namespace as the requested-version header, so labeling with it would
+	// make the reload no-op guard never match and rebuild on every invocation.
+	version := requestedVersion
+	if config.HasConfigVersion() && config.GetConfigVersion() != "" {
+		version = config.GetConfigVersion()
+	} else if version == "" {
+		version = lambdaConnectorConfigVersion(config)
+	}
+	if requestedVersion != "" && version != requestedVersion {
+		ctxzap.Extract(ctx).Warn("connector_authoring: served config_version differs from requested; will retry on a later invocation",
+			zap.String("requested_version", requestedVersion),
+			zap.String("served_version", version))
+	}
+	return version
+}
+
 func lambdaConnectorConfigVersion(config *v1.GetConnectorConfigResponse) string {
 	if config == nil {
 		return ""
@@ -552,6 +637,15 @@ func lambdaConnectorConfigVersion(config *v1.GetConnectorConfigResponse) string 
 	return config.GetLastUpdated().AsTime().UTC().Format(time.RFC3339Nano)
 }
 
+// egressPolicyAndGenerationVersion projects the egress policy and labels the
+// generation version for a fetched config response. It is the single seam the
+// lambda build path uses for the two security-load-bearing compositions
+// (policy delivery + served-version labeling), so both are unit-testable
+// through one function.
+func egressPolicyAndGenerationVersion(ctx context.Context, requestedVersion string, config *v1.GetConnectorConfigResponse) (*EgressPolicy, string) {
+	return egressPolicyFromResponse(ctx, config), generationVersion(ctx, requestedVersion, config)
+}
+
 // egressPolicyFromResponse projects the connector-facing egress policy from the
 // response's served-policy envelope, or nil when no envelope is present. A
 // present envelope yields a non-nil policy even when it fails a binding,
@@ -560,26 +654,101 @@ func lambdaConnectorConfigVersion(config *v1.GetConnectorConfigResponse) string 
 // unenforced. The config-version binding (the envelope's config_version must be
 // non-empty and equal to the response's) is the one cross-field check the SDK is
 // uniquely positioned to make; deeper content validation is the connector's.
-func egressPolicyFromResponse(config *v1.GetConnectorConfigResponse) *EgressPolicy {
+func egressPolicyFromResponse(ctx context.Context, config *v1.GetConnectorConfigResponse) *EgressPolicy {
 	if config == nil || !config.HasServedPolicyEnvelope() {
 		return nil
 	}
 	env := config.GetServedPolicyEnvelope()
-	policy := &EgressPolicy{}
+	// The deny-all fallback enforces: empty AllowedHosts + Enforce=true = block
+	// all, so a mode-honoring connector fails closed rather than observing.
+	// HTTPSOnly is also forced true so a scheme-gate-only consumer fails
+	// stricter (plain-http egress refused) rather than observing; the valid
+	// path below overrides it from the envelope.
+	policy := &EgressPolicy{Enforce: true, HTTPSOnly: true}
 
 	if env.GetEnvelopeVersion() != servedPolicyEnvelopeVersion {
+		// Version-mismatch kill-switch tradeoff: an unrecognized envelope (or
+		// section) version now fails closed fleet-wide (Enforce=true). That is
+		// the safe default for a security control, but it means a version
+		// mismatch takes egress offline for every connector at once. A future
+		// version handshake is the durable mitigation.
+		ctxzap.Extract(ctx).Warn("connector_authoring: served-policy envelope rejected; egress deny-all",
+			zap.String("reason", "envelope-version-mismatch"),
+			zap.Uint32("envelope_version", env.GetEnvelopeVersion()),
+			zap.Uint32("want_envelope_version", servedPolicyEnvelopeVersion))
 		return policy
 	}
 	cv := env.GetConfigVersion()
 	if cv == "" || cv != config.GetConfigVersion() {
+		ctxzap.Extract(ctx).Warn("connector_authoring: served-policy envelope rejected; egress deny-all",
+			zap.String("reason", "config-version-binding-mismatch"),
+			zap.String("envelope_config_version", cv),
+			zap.String("response_config_version", config.GetConfigVersion()))
 		return policy
 	}
 	egress := env.GetEgress()
 	if egress == nil || egress.GetSchemaVersion() != egressSectionSchemaVersion {
+		ctxzap.Extract(ctx).Warn("connector_authoring: served-policy envelope rejected; egress deny-all",
+			zap.String("reason", "egress-section-unsupported"),
+			zap.Bool("egress_present", egress != nil),
+			zap.Uint32("egress_schema_version", egress.GetSchemaVersion()),
+			zap.Uint32("want_egress_schema_version", egressSectionSchemaVersion))
 		return policy
 	}
-	policy.AllowedHosts = egress.GetAllowedHosts()
+	policy.AllowedHosts = slices.Clone(egress.GetAllowedHosts())
 	policy.HTTPSOnly = egress.GetHttpsOnly()
+	// Intentionally lossy: only an explicit ENFORCE enforces; a future
+	// enforcing mode must be added to this switch. Anything else observes.
+	switch egress.GetMode() {
+	case v1.EgressMode_EGRESS_MODE_ENFORCE:
+		policy.Enforce = true
+	default:
+		policy.Enforce = false
+		if _, known := v1.EgressMode_name[int32(egress.GetMode())]; !known {
+			ctxzap.Extract(ctx).Warn("connector_authoring: unrecognized egress mode; observing",
+				zap.Int32("mode", int32(egress.GetMode())))
+		}
+	}
+	// The proto contract says an empty, wildcard, or IP-literal entry
+	// invalidates the whole envelope. The allow-all hazard that makes this
+	// fail closed only exists under ENFORCE: a wildcard entry would read as
+	// allow-all to a wildcard-matching connector. Under REPORT/absent mode the
+	// envelope is not rejected (Enforce stays false, so a mode-honoring
+	// connector observes), but a contract-invalid entry (e.g. an on-prem
+	// instance whose resolved config yields an IP-literal host) is dropped
+	// from the projected allowlist — so a connector that enforces AllowedHosts
+	// without reading Enforce cannot treat a "*" entry as allow-all. If the
+	// dropped entry was the only host, the projection is empty, which a
+	// host-gating connector reads as deny-all: dropping is not rejecting the
+	// envelope, but it can still empty the allowlist. Under REPORT/UNSPECIFIED
+	// every offending entry is warned in one projection; under ENFORCE the
+	// first offender rejects the envelope (deny-all), so only that one is
+	// warned. A port-bearing entry is dropped outright (the canonical form has
+	// no port); a port suffix is split off before the IP check so a host:port
+	// IP literal is caught. Entries are normalized to the canonical form
+	// (lowercase, single trailing dot stripped) and path-bearing entries are
+	// rejected, so those three non-canonical forms cannot silently never match
+	// a resolved hostname.
+	valid := make([]string, 0, len(policy.AllowedHosts))
+	for _, h := range policy.AllowedHosts {
+		host := h
+		hasPort := false
+		if hp, _, err := net.SplitHostPort(h); err == nil {
+			host = hp
+			hasPort = true
+		}
+		canonical := strings.ToLower(strings.TrimSuffix(host, "."))
+		if canonical == "" || strings.Contains(h, "*") || hasPort || strings.Contains(h, "/") || net.ParseIP(strings.Trim(canonical, "[]")) != nil {
+			ctxzap.Extract(ctx).Warn("connector_authoring: egress allowlist contains an empty, wildcard, IP-literal, port-bearing, or path-bearing host; envelope is invalid per contract",
+				zap.String("host", h))
+			if policy.Enforce {
+				return &EgressPolicy{Enforce: true, HTTPSOnly: true}
+			}
+			continue
+		}
+		valid = append(valid, canonical)
+	}
+	policy.AllowedHosts = valid
 	return policy
 }
 

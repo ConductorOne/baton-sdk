@@ -43,6 +43,11 @@ type EgressPolicy struct {
 	AllowedHosts []string
 	// HTTPSOnly reports whether the runtime must refuse non-https egress.
 	HTTPSOnly bool
+	// Enforce reports whether AllowedHosts is a deny-gate rather than an
+	// observed-and-reported allowlist. The wire carries an enum; narrowing it to
+	// a bool here keeps an unrecognized future posture from reaching a runtime
+	// that would have to guess at it — anything but an explicit enforce observes.
+	Enforce bool
 }
 
 // GetConnectorFunc is a function type that creates a connector instance.
@@ -72,6 +77,12 @@ type ConnectorOpts struct {
 	// SyncFilterIsExplicit, SyncResourceTypeSet) over reading this slice
 	// directly.
 	SyncResourceTypeIDs []string
+
+	// EgressPolicy carries the server-computed egress policy delivered on the
+	// connector-config response, when one is present. It is nil for connectors
+	// served without a policy envelope; the connector decides how (and whether)
+	// to enforce it.
+	EgressPolicy *EgressPolicy
 
 	syncResourceTypeSetOnce sync.Once
 	syncResourceTypeSetVal  map[string]struct{}
