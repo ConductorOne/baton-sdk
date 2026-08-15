@@ -196,7 +196,9 @@ type EntitlementGrantDigestReader interface {
 	// resolution, it falls back to scanning the grant index directly
 	// (O(grants)) — slower, but exact. A level outside that resolution
 	// (a negative level, or one past the implementation's bucket-hash
-	// width) errors rather than silently serving the maximum resolution:
+	// width — any level <= the digest's native Level is always in range;
+	// the Pebble engine exports its full width as DigestBucketHashBits)
+	// errors rather than silently serving the maximum resolution:
 	// a caller that placed its own records by hash (e.g. the Pebble
 	// engine's PrincipalDigestBucket) must get the same bucket set the
 	// engine reports, not a quietly coarser one. found is false when no

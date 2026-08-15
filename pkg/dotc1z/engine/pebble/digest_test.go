@@ -577,8 +577,8 @@ func TestPrincipalBucketHashMatchesServedBuckets(t *testing.T) {
 		t.Fatalf("native level = 0 for %d grants; test needs a non-zero digest width", n)
 	}
 
-	// Levels 1..4 are at or below the native width (3) and so are served
-	// by folding the stored leaves (foldedLeafBuckets); 8 and 12 are
+	// Levels 1-3 are at or below the native width (3) and so are served
+	// by folding the stored leaves (foldedLeafBuckets); 4, 8 and 12 are
 	// finer than native and fall back to the index scan
 	// (computeBucketsAtWidth). Both paths must bucket identically to
 	// PrincipalDigestBucket. All are <= DigestBucketHashBits, past which

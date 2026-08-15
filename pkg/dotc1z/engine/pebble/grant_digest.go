@@ -128,6 +128,12 @@ const DigestBucketHashBits = digestBucketHashLen * 8
 //	nodes, _, _ := r.GetEntitlementGrantDigestNodes(ctx, ent, level)
 //	_ = r.ScanEntitlementGrantBucket(ctx, ent, bucket, yield)
 //
+// Cost: levels at or below the digest's native level
+// (GetEntitlementGrantDigest().Level) fold the stored leaves — one cheap
+// contiguous scan. A finer level is exact but costs a full scan of the
+// entitlement's grant index on every call, so prefer the native level
+// unless narrowing a bucket is worth that.
+//
 // Contract: the bucket at level L holds exactly the principals whose top
 // L bits of this hash equal the bucket index — the same index
 // GetEntitlementGrantDigestNodes(L) reports and ScanEntitlementGrantBucket
