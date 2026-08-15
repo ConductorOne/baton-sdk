@@ -3607,14 +3607,35 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		return err
 	}
 
-	// Prefer the refs-based delete (exact structural identity) when the
-	// store supports it; external ids are a lossy external contract and
-	// stores keyed by structural identity cannot always resolve them.
-	refsDeleter, _ := s.store.(grantByRefsDeleter)
+	// A grant that was re-issued against a matched principal keeps its row;
+	// only the unmatched originals are deleted.
+	pendingDeletes := make([]*v2.Grant, 0, len(grantsToDelete))
 	for _, grantToDelete := range grantsToDelete {
 		if newGrantIDs.ContainsOne(grantToDelete.GetId()) {
 			continue
 		}
+		pendingDeletes = append(pendingDeletes, grantToDelete)
+	}
+
+	if len(pendingDeletes) == 0 {
+		return nil
+	}
+
+	// Prefer the bulk refs-based delete when the store supports it: the
+	// per-grant path commits once per grant with pebble.Sync, so on
+	// network-attached storage this loop cost ~956s for ~90k grants. The
+	// batch form amortizes the fsync without weakening durability.
+	// err is the named value the deferred span reports, so assign it.
+	if batchDeleter, ok := s.store.(grantsByRefsBatchDeleter); ok {
+		err = batchDeleter.DeleteGrantsByRefs(ctx, pendingDeletes...)
+		return err
+	}
+
+	// Prefer the refs-based delete (exact structural identity) when the
+	// store supports it; external ids are a lossy external contract and
+	// stores keyed by structural identity cannot always resolve them.
+	refsDeleter, _ := s.store.(grantByRefsDeleter)
+	for _, grantToDelete := range pendingDeletes {
 		if refsDeleter != nil {
 			err = refsDeleter.DeleteGrantByRefs(ctx, grantToDelete)
 		} else {
@@ -3633,6 +3654,14 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 // it; SQLite resolves ids by exact string and does not need it).
 type grantByRefsDeleter interface {
 	DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error
+}
+
+// grantsByRefsBatchDeleter is the bulk form of grantByRefsDeleter. Stores
+// that implement it delete N grants in a bounded number of commits instead
+// of one durable commit per grant; stores that do not (SQLite) fall through
+// to the per-grant loop unchanged.
+type grantsByRefsBatchDeleter interface {
+	DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Grant) error
 }
 
 func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.Grant {

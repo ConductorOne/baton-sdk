@@ -632,6 +632,29 @@ func (e *Engine) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
 	return e.DeleteGrantByIdentityRefs(ctx, rec)
 }
 
+// DeleteGrantsByRefs is the bulk sibling of DeleteGrantByRefs: same exact,
+// refs-derived identity per grant, but the whole set is deleted through
+// chunked batches rather than one fsync'd commit per grant. See
+// DeleteGrantsByIdentityRefs for why that matters.
+func (e *Engine) DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Grant) error {
+	if len(grants) == 0 {
+		return nil
+	}
+	syncID := e.CurrentSyncID()
+	if syncID == "" {
+		return ErrNoCurrentSync
+	}
+	records := make([]*v3.GrantRecord, 0, len(grants))
+	for _, grant := range grants {
+		rec := V2GrantToV3(syncID, grant)
+		if _, err := grantIdentityFromRecord(rec); err != nil {
+			return fmt.Errorf("DeleteGrantsByRefs: grant %q: %w", grant.GetId(), err)
+		}
+		records = append(records, rec)
+	}
+	return e.DeleteGrantsByIdentityRefs(ctx, records...)
+}
+
 // PutAsset writes a single asset row. assetRef carries the
 // (resource_type, resource_id) pair we use as the external_id —
 // joined with a "/" separator since the engine's AssetRecord PK is

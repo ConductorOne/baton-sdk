@@ -191,8 +191,9 @@ var errVerificationDeleteCut = errors.New("verification: injected delete cut")
 
 // interruptingExternalMatchStore delegates to a real store and injects a
 // process-like stop at a selected delete. Embedding preserves the complete
-// c1zstore.Store contract while the explicit DeleteGrantByRefs method ensures
-// processGrantsWithExternalPrincipals takes the production Pebble fast path.
+// c1zstore.Store contract while the explicit DeleteGrantByRefs and
+// DeleteGrantsByRefs methods ensure processGrantsWithExternalPrincipals takes
+// the production Pebble fast path (which is the batched one).
 type interruptingExternalMatchStore struct {
 	c1zstore.Store
 	failDeleteAt  int64
@@ -215,6 +216,32 @@ func (s *interruptingExternalMatchStore) DeleteGrantByRefs(ctx context.Context, 
 		return fmt.Errorf("verification premise: wrapped store lacks DeleteGrantByRefs")
 	}
 	return deleter.DeleteGrantByRefs(ctx, grant)
+}
+
+// DeleteGrantsByRefs keeps the cut per-GRANT (not per-batch) so the injected
+// stop still lands between two individual deletes: everything before
+// failDeleteAt commits durably, the cut grant and everything after it does
+// not. That is the interruption shape the resume-to-golden assertion needs,
+// and routing through the real store's batch method keeps the wrapper on the
+// production path.
+func (s *interruptingExternalMatchStore) DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Grant) error {
+	deleter, ok := s.Store.(grantsByRefsBatchDeleter)
+	if !ok {
+		return fmt.Errorf("verification premise: wrapped store lacks DeleteGrantsByRefs")
+	}
+	if s.failDeleteAt <= 0 {
+		s.deleteCalls.Add(int64(len(grants)))
+		return deleter.DeleteGrantsByRefs(ctx, grants...)
+	}
+	for _, grant := range grants {
+		if s.deleteCalls.Add(1) == s.failDeleteAt {
+			return errVerificationDeleteCut
+		}
+		if err := deleter.DeleteGrantsByRefs(ctx, grant); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func externalMatchGrantIDs(ctx context.Context, store c1zstore.Store) ([]string, error) {
