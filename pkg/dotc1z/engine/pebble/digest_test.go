@@ -578,13 +578,14 @@ func TestPrincipalBucketHashMatchesServedBuckets(t *testing.T) {
 	}
 
 	// Levels 1-3 are at or below the native width (3) and so are served
-	// by folding the stored leaves (foldedLeafBuckets); 4, 8 and 12 are
-	// finer than native and fall back to the index scan
+	// by folding the stored leaves (foldedLeafBuckets); 4, 8, 12 and 16
+	// are finer than native and fall back to the index scan
 	// (computeBucketsAtWidth). Both paths must bucket identically to
-	// PrincipalDigestBucket. All are <= DigestBucketHashBits, past which
-	// the engine now errors instead of clamping (see the level-17
-	// subtest below).
-	for _, level := range []int{1, 2, 3, 4, 8, 12} {
+	// PrincipalDigestBucket. 16 is DigestBucketHashBits itself — the
+	// finest permitted level, where the shifts on both sides consume the
+	// full stored width; past it the engine errors instead of clamping
+	// (see the level-17 subtest below).
+	for _, level := range []int{1, 2, 3, 4, 8, 12, 16} {
 		t.Run(fmt.Sprintf("level-%d", level), func(t *testing.T) {
 			// The placement a downstream caller computes for itself, from
 			// the principal identity alone (type "user", per makeGrant).
@@ -663,6 +664,18 @@ func TestPrincipalBucketHashMatchesServedBuckets(t *testing.T) {
 		}
 		if err := a.ScanEntitlementGrantBucket(ctx, ent, connectorstore.GrantDigestBucket{Level: 17, Index: 0}, func(*v2.Grant) bool { return true }); err == nil {
 			t.Fatal("ScanEntitlementGrantBucket(level 17): want error, got nil")
+		}
+	})
+
+	t.Run("index-out-of-range-errors", func(t *testing.T) {
+		// Same silent-folding class on the Index axis: bucketBounds shifts
+		// an oversized index's high bits away, so {Level: 4, Index: 20}
+		// would otherwise scan bucket 4 (20 mod 16) without complaint.
+		// 16 is the first out-of-range index at level 4.
+		for _, idx := range []uint32{16, 20} {
+			if err := a.ScanEntitlementGrantBucket(ctx, ent, connectorstore.GrantDigestBucket{Level: 4, Index: idx}, func(*v2.Grant) bool { return true }); err == nil {
+				t.Fatalf("ScanEntitlementGrantBucket(level 4, index %d): want out-of-range error, got nil", idx)
+			}
 		}
 	})
 }

@@ -209,9 +209,10 @@ type EntitlementGrantDigestReader interface {
 	// of the entitlement (see GrantDigestBucket) as a v2.Grant, stopping
 	// early if yield returns false. Bucket Level 0 scans the whole
 	// entitlement; a Level outside the bucket-hash resolution errors
-	// (matching GetEntitlementGrantDigestNodes) rather than clamping —
-	// a clamped Level paired with a caller's own unclamped Index would
-	// silently scan the wrong bucket. It reads the grant hash index,
+	// (matching GetEntitlementGrantDigestNodes) rather than clamping,
+	// and an Index outside [0, 2^Level) errors rather than wrapping —
+	// silently folding either coordinate would scan a bucket other than
+	// the one addressed. It reads the grant hash index,
 	// which exists only on files whose digest was built (they are
 	// derived together at seal): callers must check
 	// GetEntitlementGrantDigest first and treat found=false as "scan

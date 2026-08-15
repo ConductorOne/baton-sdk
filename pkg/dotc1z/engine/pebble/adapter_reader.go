@@ -781,9 +781,11 @@ func (e *Engine) GetEntitlementGrantDigestNodes(ctx context.Context, ent *v2.Ent
 // the given digest bucket of the entitlement, translated to v2.Grant.
 // Bucket Level 0 scans the whole entitlement. A Level outside
 // [0, digestMaxWidthBits] errors rather than clamping to the bucket-hash
-// resolution: a clamped Level with the caller's own unclamped Index
-// (see PrincipalDigestBucket) would silently scan the wrong bucket.
-// Yields nothing when there is no active sync or a bare entitlement id
+// resolution, and an Index outside [0, 2^Level) errors rather than
+// wrapping to its low Level bits: either kind of silent folding would
+// scan a bucket other than the one the caller addressed (see
+// PrincipalDigestBucket, which only builds in-range buckets). Yields
+// nothing when there is no active sync or a bare entitlement id
 // resolves to nothing.
 func (e *Engine) ScanEntitlementGrantBucket(ctx context.Context, ent *v2.Entitlement, bucket connectorstore.GrantDigestBucket, yield func(*v2.Grant) bool) error {
 	if bucket.Level < 0 {
@@ -791,6 +793,12 @@ func (e *Engine) ScanEntitlementGrantBucket(ctx context.Context, ent *v2.Entitle
 	}
 	if bucket.Level > digestMaxWidthBits {
 		return fmt.Errorf("pebble: grant-digest level %d exceeds bucket-hash resolution %d", bucket.Level, digestMaxWidthBits)
+	}
+	// Level 0 ignores Index (whole-entitlement scan) per the
+	// GrantDigestBucket contract; past that, bucketBounds would shift an
+	// oversized index's high bits away and scan Index mod 2^Level.
+	if bucket.Level > 0 && uint64(bucket.Index) >= 1<<uint(bucket.Level) {
+		return fmt.Errorf("pebble: grant-digest bucket index %d out of range [0, 2^%d)", bucket.Index, bucket.Level)
 	}
 	syncID, err := e.resolveActiveSyncForReader(ctx, nil)
 	if err != nil {
