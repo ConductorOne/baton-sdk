@@ -941,12 +941,20 @@ func (e *Engine) DeleteGrantByIdentityRefs(ctx context.Context, r *v3.GrantRecor
 	})
 }
 
-// grantDeleteBatchChunk bounds how many grant deletes ride one
-// RecordBatch. Large enough that the per-commit fsync is amortized to
-// nothing (a 90k-grant call becomes 9 commits, not 90k), small enough
-// that a batch's staged bytes stay bounded — each staged delete is a
-// handful of small tombstones, so a chunk is tens of KB.
-const grantDeleteBatchChunk = 10000
+// grantDeleteBatchChunk bounds how many grant deletes ride one RecordBatch.
+//
+// Sized for peak batch memory, not for fsync count. A staged delete is 6
+// batch ops (primary + by_principal + by_needs_expansion + the two digest
+// DeleteRanges + the global root), and its bytes are dominated by the
+// entitlement id repeated across them: measured on this engine, one grant
+// stages ~225 B at a 16-char entitlement id, ~640 B at 75 chars, and ~1.6 KB
+// at 215 chars. So 1000 grants is ~0.2–1.6 MiB of in-memory batch, while
+// 10000 would be ~2.2–16 MiB and keeps scaling with id length.
+//
+// The fsync count barely cares: against the ~90000 fsyncs the batching
+// removes, 90 commits versus 9 is noise, so the 10x lower peak memory is the
+// better side of that trade.
+const grantDeleteBatchChunk = 1000
 
 // DeleteGrantsByIdentityRefs is the plural sibling of
 // DeleteGrantByIdentityRefs: it removes N grants addressed by their
@@ -965,14 +973,10 @@ const grantDeleteBatchChunk = 10000
 // the existence probe: an absent key stages nothing, so a delete of a
 // non-existent grant stays a true no-op and does not invalidate the
 // entitlement's digest partition.
+//
+// The chunk is also the unit of cancellation and of the sealed re-check —
+// see deleteGrantsByIdentities.
 func (e *Engine) DeleteGrantsByIdentityRefs(ctx context.Context, records ...*v3.GrantRecord) error {
-	return e.deleteGrantsByIdentityRefs(ctx, grantDeleteBatchChunk, records...)
-}
-
-// deleteGrantsByIdentityRefs is DeleteGrantsByIdentityRefs with the chunk
-// size injected, so tests can drive the chunk boundary without a
-// grantDeleteBatchChunk-sized fixture.
-func (e *Engine) deleteGrantsByIdentityRefs(ctx context.Context, chunk int, records ...*v3.GrantRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -984,9 +988,40 @@ func (e *Engine) deleteGrantsByIdentityRefs(ctx context.Context, chunk int, reco
 		}
 		ids = append(ids, id)
 	}
+	return e.deleteGrantsByIdentities(ctx, grantDeleteBatchChunk, ids)
+}
+
+// deleteGrantsByIdentities commits ids in chunk-sized RecordBatches under a
+// single write-lock acquisition. chunk is a parameter so tests can drive the
+// boundary without a grantDeleteBatchChunk-sized fixture.
+//
+// Two things are re-checked at every chunk boundary, because taking the lock
+// once means the per-write checks withWrite would have made no longer happen
+// per write:
+//
+//   - ctx cancellation. A 90k-grant delete is otherwise uninterruptible.
+//     Aborting mid-way is safe: committed chunks are durable and the caller's
+//     dirty flag is already set, and a resumed sync re-derives its delete set
+//     and re-issues these deletes, which are idempotent.
+//   - e.sealed. withWrite's under-lock sealed re-check is the actual fence
+//     against writing past EndSync (seal() takes only sealMu and does not
+//     wait on writeWG), and it would otherwise run once for the whole call
+//     instead of once per write. Without this, a late chunk — and the digest
+//     invalidations it stages — could land after finalize began rebuilding
+//     the deferred by_principal index.
+func (e *Engine) deleteGrantsByIdentities(ctx context.Context, chunk int, ids []grantIdentity) error {
+	if len(ids) == 0 {
+		return nil
+	}
 	// One lock acquisition for the whole call, not one per grant.
 	return e.withWrite(func() error {
 		for start := 0; start < len(ids); start += chunk {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if e.sealed.Load() {
+				return ErrEngineSealed
+			}
 			end := min(start+chunk, len(ids))
 			if err := e.deleteGrantsByIdentityChunkLocked(ids[start:end]); err != nil {
 				return err

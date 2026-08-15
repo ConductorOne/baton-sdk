@@ -636,6 +636,12 @@ func (e *Engine) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
 // refs-derived identity per grant, but the whole set is deleted through
 // chunked batches rather than one fsync'd commit per grant. See
 // DeleteGrantsByIdentityRefs for why that matters.
+//
+// Identities are derived in one pass so only the small fixed-size
+// grantIdentity slice is retained: V2GrantToV3 allocates annotation and
+// source slices (and unmarshals GrantExpandable) per grant, and holding N of
+// those alive alongside N identities would be the largest allocation in a
+// 90k-grant delete.
 func (e *Engine) DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Grant) error {
 	if len(grants) == 0 {
 		return nil
@@ -644,15 +650,15 @@ func (e *Engine) DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Grant) er
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
-	records := make([]*v3.GrantRecord, 0, len(grants))
+	ids := make([]grantIdentity, 0, len(grants))
 	for _, grant := range grants {
-		rec := V2GrantToV3(syncID, grant)
-		if _, err := grantIdentityFromRecord(rec); err != nil {
+		id, err := grantIdentityFromRecord(V2GrantToV3(syncID, grant))
+		if err != nil {
 			return fmt.Errorf("DeleteGrantsByRefs: grant %q: %w", grant.GetId(), err)
 		}
-		records = append(records, rec)
+		ids = append(ids, id)
 	}
-	return e.DeleteGrantsByIdentityRefs(ctx, records...)
+	return e.deleteGrantsByIdentities(ctx, grantDeleteBatchChunk, ids)
 }
 
 // PutAsset writes a single asset row. assetRef carries the

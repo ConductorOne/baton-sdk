@@ -2,6 +2,7 @@ package pebble
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -115,6 +116,20 @@ func deleteSingularly(t *testing.T, e *Engine, records ...*v3.GrantRecord) {
 	}
 }
 
+// deleteBatchedWithChunk is DeleteGrantsByIdentityRefs with the chunk size
+// overridden, for the cases that need to straddle a boundary cheaply.
+func deleteBatchedWithChunk(ctx context.Context, e *Engine, chunk int, records ...*v3.GrantRecord) error {
+	ids := make([]grantIdentity, 0, len(records))
+	for _, r := range records {
+		id, err := grantIdentityFromRecord(r)
+		if err != nil {
+			return err
+		}
+		ids = append(ids, id)
+	}
+	return e.deleteGrantsByIdentities(ctx, chunk, ids)
+}
+
 // TestDeleteGrantsByRefsMatchesSingularPath is the equivalence oracle: the
 // batched delete must leave a store indistinguishable from one where the same
 // grants were deleted one durable commit at a time, across the primary rows,
@@ -127,11 +142,13 @@ func TestDeleteGrantsByRefsMatchesSingularPath(t *testing.T) {
 		makeExpandableGrant("g-b-erin", "ent-B", "erin"),
 	}
 
-	// chunk=2 forces a chunk boundary mid-set with a six-row fixture, so the
-	// production chunking loop is exercised without a 10k-grant fixture.
+	// chunk=1 and chunk=2 straddle boundaries within the six-row fixture;
+	// grantDeleteBatchChunk is the single-chunk case. That the chunking loop
+	// runs at all is pinned separately, by
+	// TestDeleteGrantsByRefsCommitsInChunks.
 	for _, chunk := range []int{1, 2, grantDeleteBatchChunk} {
 		batched := batchDeleteFixture(t)
-		require.NoError(t, batched.deleteGrantsByIdentityRefs(ctx, chunk, victims...))
+		require.NoError(t, deleteBatchedWithChunk(ctx, batched, chunk, victims...))
 
 		singular := batchDeleteFixture(t)
 		deleteSingularly(t, singular, victims...)
@@ -200,7 +217,7 @@ func TestDeleteGrantsByRefsMixedBatch(t *testing.T) {
 	// are covered.
 	for _, chunk := range []int{3, grantDeleteBatchChunk} {
 		batched := batchDeleteFixture(t)
-		require.NoError(t, batched.deleteGrantsByIdentityRefs(ctx, chunk, mixed...))
+		require.NoError(t, deleteBatchedWithChunk(ctx, batched, chunk, mixed...))
 
 		singular := batchDeleteFixture(t)
 		deleteSingularly(t, singular, mixed...)
@@ -209,4 +226,130 @@ func TestDeleteGrantsByRefsMixedBatch(t *testing.T) {
 			"exactly the two present identities must be gone")
 		requireSameGrantKeyspaces(t, batched, singular)
 	}
+}
+
+// chunkProbeCtx counts ctx.Err() calls and optionally starts failing them
+// after a given number. deleteGrantsByIdentities consults ctx exactly once
+// per chunk and nothing else in the call path touches it, so the count IS the
+// number of chunks — which makes the chunking observable without adding any
+// production test seam.
+type chunkProbeCtx struct {
+	context.Context
+	checks     int
+	cancelUpon int
+	// onCheck runs at each boundary, before the sealed re-check that
+	// immediately follows ctx.Err() in the loop — which is how a test can
+	// seal the engine strictly between two chunks.
+	onCheck func(check int)
+}
+
+func (c *chunkProbeCtx) Err() error {
+	c.checks++
+	if c.onCheck != nil {
+		c.onCheck(c.checks)
+	}
+	if c.cancelUpon > 0 && c.checks >= c.cancelUpon {
+		return context.Canceled
+	}
+	return c.Context.Err()
+}
+
+// batchDeleteScaleFixture writes n grants under one entitlement, seals to
+// build digest state, and rebinds the sync — the same shape as
+// batchDeleteFixture but sized to cross the real chunk boundary.
+func batchDeleteScaleFixture(t *testing.T, n int) (*Engine, []*v3.GrantRecord) {
+	t.Helper()
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	a := NewAdapter(e)
+
+	_, err := a.StartNewSyncWithID(ctx, connectorstore.SyncTypeFull, batchDeleteSyncID, "")
+	require.NoError(t, err)
+	putEnt(t, e, ctx, "ent-A")
+	recs := make([]*v3.GrantRecord, 0, n)
+	for i := range n {
+		recs = append(recs, makeGrant("", "g-"+strconv.Itoa(i), "ent-A", "user-"+strconv.Itoa(i)))
+	}
+	require.NoError(t, e.PutGrantRecords(ctx, recs...))
+	require.NoError(t, a.EndSync(ctx))
+	require.NoError(t, a.SetCurrentSync(ctx, batchDeleteSyncID))
+	require.Equal(t, n, countKeys(t, e, encodeGrantPrefix()))
+	return e, recs
+}
+
+// TestDeleteGrantsByRefsCommitsInChunks pins that the production entry point
+// actually chunks at grantDeleteBatchChunk, using a record count that crosses
+// the real boundary twice. Without this, a change that ignored the chunk size
+// and staged one unbounded batch — the exact memory blow-up the constant
+// exists to prevent — would pass every other test in this file.
+func TestDeleteGrantsByRefsCommitsInChunks(t *testing.T) {
+	n := grantDeleteBatchChunk*2 + grantDeleteBatchChunk/2 // 2.5 chunks
+	e, recs := batchDeleteScaleFixture(t, n)
+
+	probe := &chunkProbeCtx{Context: context.Background()}
+	require.NoError(t, e.DeleteGrantsByIdentityRefs(probe, recs...))
+
+	require.Equal(t, 3, probe.checks,
+		"%d grants at a chunk of %d must be committed as 3 chunks", n, grantDeleteBatchChunk)
+	require.Equal(t, 0, countKeys(t, e, encodeGrantPrefix()), "every grant must be deleted")
+	require.Equal(t, 0, countKeys(t, e, GrantByPrincipalLowerBound()),
+		"by_principal must be emptied alongside the primary rows")
+}
+
+// TestDeleteGrantsByRefsHonorsCancellation covers the other half of the chunk
+// contract: a cancelled context aborts at the next chunk boundary, and the
+// chunks already committed stay committed. The apply phase this exists for
+// was previously uninterruptible for its whole ~956s.
+func TestDeleteGrantsByRefsHonorsCancellation(t *testing.T) {
+	n := grantDeleteBatchChunk * 3
+	e, recs := batchDeleteScaleFixture(t, n)
+
+	// Pass the first boundary check, fail the second: exactly one chunk
+	// commits.
+	probe := &chunkProbeCtx{Context: context.Background(), cancelUpon: 2}
+	err := e.DeleteGrantsByIdentityRefs(probe, recs...)
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, n-grantDeleteBatchChunk, countKeys(t, e, encodeGrantPrefix()),
+		"the one chunk committed before the cancel must be durable, and no more")
+}
+
+// TestDeleteGrantsByRefsRefusesSealedEngine is the ordinary case: an engine
+// already sealed at entry refuses, via withWrite's own check.
+func TestDeleteGrantsByRefsRefusesSealedEngine(t *testing.T) {
+	ctx := context.Background()
+	e := batchDeleteFixture(t)
+	require.NoError(t, NewAdapter(e).EndSync(ctx))
+
+	err := e.DeleteGrantsByIdentityRefs(ctx, batchDeleteFixtureGrants()...)
+	require.ErrorIs(t, err, ErrEngineSealed)
+	require.Equal(t, 6, countKeys(t, e, encodeGrantPrefix()),
+		"a sealed engine must not have deleted anything")
+}
+
+// TestDeleteGrantsByRefsStopsWhenSealedMidCall pins the fence that holding
+// the write lock across every chunk would otherwise coarsen from per-write to
+// per-call. seal() takes only sealMu and never waits on writeWG, so an
+// in-flight bulk delete CAN be sealed underneath — and the remaining chunks,
+// with the digest invalidations they stage, must not land after finalize has
+// begun rebuilding the deferred by_principal index.
+//
+// Sealing from the boundary hook makes that deterministic: the hook runs
+// immediately before the loop's sealed re-check.
+func TestDeleteGrantsByRefsStopsWhenSealedMidCall(t *testing.T) {
+	n := grantDeleteBatchChunk * 3
+	e, recs := batchDeleteScaleFixture(t, n)
+
+	probe := &chunkProbeCtx{Context: context.Background()}
+	probe.onCheck = func(check int) {
+		if check == 2 {
+			e.seal()
+		}
+	}
+	err := e.DeleteGrantsByIdentityRefs(probe, recs...)
+
+	require.ErrorIs(t, err, ErrEngineSealed,
+		"chunks after the seal must be refused, not committed")
+	require.Equal(t, n-grantDeleteBatchChunk, countKeys(t, e, encodeGrantPrefix()),
+		"only the chunk committed before the seal may have applied")
 }
