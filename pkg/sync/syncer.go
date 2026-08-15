@@ -3381,12 +3381,20 @@ const externalGrantFlushBatchSize = 500
 // the inner function would close over the wrong err on those paths and
 // silently record a failed write as a successful span. Keeping the span,
 // a single err (assigned once from the inner call), and the defer here
-// instead sidesteps the shadowing and still ends the span if the inner
-// call panics.
+// instead sidesteps the shadowing. The defer also recovers a panic just
+// long enough to mark the span as an error before re-panicking -- without
+// that, err is still nil when a panic skips the assignment below, and the
+// span would end looking exactly like a successful run.
 func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, principals []*v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "processGrantsWithExternalPrincipals")
 	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
+	defer func() {
+		if r := recover(); r != nil {
+			uotel.EndSpanWithError(span, fmt.Errorf("panic: %v", r))
+			panic(r)
+		}
+		uotel.EndSpanWithError(span, err)
+	}()
 
 	err = s.processGrantsWithExternalPrincipalsInner(ctx, principals)
 	return err

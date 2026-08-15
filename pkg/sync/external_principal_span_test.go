@@ -192,13 +192,15 @@ func (p *panicAfterNPutGrants) PutGrants(ctx context.Context, grants ...*v2.Gran
 	return p.Store.PutGrants(ctx, grants...)
 }
 
-// TestProcessGrantsWithExternalPrincipalsEndsSpanOnPanic pins the *defer* in
-// processGrantsWithExternalPrincipals, not just its error propagation: an
-// earlier version ended the span with a plain call after the inner call
-// returned, which gets the error status right but leaks the span on any
-// panic below it (the call is simply skipped while the stack unwinds).
-// Since the exporter here is synchronous, "never saw this span" is exactly
-// equivalent to never having been ended.
+// TestProcessGrantsWithExternalPrincipalsEndsSpanOnPanic pins two properties
+// of the panic path together: an earlier version ended the span with a
+// plain call after the inner call returned, which leaked the span entirely
+// on any panic below it (the deferred call never ran); fixing that alone
+// still left err nil at the point of the panic, so the span ended looking
+// like a successful run. The defer now recovers just long enough to mark
+// the span as an error before re-panicking. Since the exporter here is
+// synchronous, "never saw this span" is exactly equivalent to never having
+// been ended.
 func TestProcessGrantsWithExternalPrincipalsEndsSpanOnPanic(t *testing.T) {
 	exporter, tp := installFakeSpanExporter(t)
 
@@ -213,6 +215,8 @@ func TestProcessGrantsWithExternalPrincipalsEndsSpanOnPanic(t *testing.T) {
 
 	require.NoError(t, tp.ForceFlush(ctx))
 
-	require.NotNil(t, exporter.spanNamed("processGrantsWithExternalPrincipals"),
-		"span must still be ended when the inner call panics; only a deferred close does that")
+	span := exporter.spanNamed("processGrantsWithExternalPrincipals")
+	require.NotNil(t, span, "span must still be ended when the inner call panics; only a deferred close does that")
+	require.Equal(t, otelcodes.Error, span.Status().Code,
+		"a panicking sync must not produce a span that looks successful")
 }
