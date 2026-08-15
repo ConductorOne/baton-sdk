@@ -117,21 +117,18 @@ func (s *cleanupNoRefsStore) DeleteGrant(_ context.Context, grantID string) erro
 	return nil
 }
 
-// TestExternalPrincipalCleanupFallsBackToIDDeleteWithoutRefsDeleters covers the
-// engine that actually matters for this reconciliation. deleteStaleExternalPrincipals
-// used to require resourceRecordDeleter + entitlementRecordDeleter +
-// grantByRefsDeleter all at once and return early without them, and only Pebble
-// implements any of the three -- so on SQLite, the default engine, the pass did
-// nothing at all and a grant pointing at a departed external principal stayed
-// live. Grant cleanup now degrades to the id-based DeleteGrant instead of
-// skipping, because a stale grant is real access while a stale resource or
-// entitlement row is inert metadata.
+// TestExternalPrincipalCleanupFallsBackToIDDeleteWithoutRefsDeleters covers
+// the engine that actually matters: deleteStaleExternalPrincipals used to
+// require resourceRecordDeleter + entitlementRecordDeleter + grantByRefsDeleter
+// all at once, and only Pebble implements any of the three -- so on SQLite,
+// the default engine, the pass did nothing and a departed principal's grant
+// stayed live. Grant cleanup now degrades to id-based DeleteGrant instead of
+// skipping, since a stale grant is real access, not inert metadata.
 //
-// The end-to-end tests in stale_external_principal_test.go cannot pin this:
-// there, the resolved replacement grant still carries its
-// ExternalResourceMatch* annotation, so processGrantsWithExternalPrincipals's
-// own scan revokes it first and the sync comes out clean whether or not this
-// fallback exists.
+// stale_external_principal_test.go's end-to-end tests can't pin this: there,
+// the resolved replacement grant still carries its ExternalResourceMatch*
+// annotation, so processGrantsWithExternalPrincipals's own scan revokes it
+// first and masks whether this fallback ran at all.
 func TestExternalPrincipalCleanupFallsBackToIDDeleteWithoutRefsDeleters(t *testing.T) {
 	const size = 3
 	store := &cleanupNoRefsStore{}

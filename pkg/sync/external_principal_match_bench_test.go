@@ -14,11 +14,10 @@ import (
 )
 
 // countingStore wraps a c1zstore.Store to tally every grant handed to
-// PutGrants across a benchmark's b.N iterations. This is a real measurement
-// of the work processGrantsWithExternalPrincipalsInner's scan/flush loop
-// does -- unlike principalCount (a loop constant known before the benchmark
-// even runs), it will move if the matching or flush logic starts writing
-// more or fewer grants than its own cost model predicts.
+// PutGrants across a benchmark's b.N iterations -- a real measurement of
+// the scan/flush loop's work, unlike principalCount (a loop constant known
+// before the benchmark runs): it moves if the loop writes more or fewer
+// grants than its own cost model predicts.
 type countingStore struct {
 	c1zstore.Store
 	grantsWritten *int64
@@ -41,21 +40,16 @@ func (c *countingStore) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) 
 	return deleter.DeleteGrantByRefs(ctx, grant)
 }
 
-// BenchmarkProcessGrantsWithExternalPrincipals pins the cost curve of
-// processGrantsWithExternalPrincipals's ExternalResourceMatchAll fan-out --
-// the exact loop #1046 rewrote from O(grants x principals) to O(grants +
-// principals). Each iteration syncs one internal group with a single
-// placeholder grant that matches all principalCount external users, so the
-// scan/flush loop's own cost model predicts exactly principalCount+1 grants
-// written (1 native placeholder + one resolved replacement per matched
-// principal) regardless of how those writes get batched across
-// externalGrantFlushBatchSize-sized flushes. countingStore measures the
-// actual total and the benchmark fails outright if it drifts from that
-// prediction -- a hard structural gate on the loop's own stated complexity,
-// not just a timing number that quietly gets slower over time. Standard
-// `go test -bench` output (ns/op, plus B/op and allocs/op via
-// b.ReportAllocs()) still carries the wall-clock/allocation side; this adds
-// grants-written/op for the write-volume side, on both storage engines.
+// BenchmarkProcessGrantsWithExternalPrincipals pins the cost curve of the
+// ExternalResourceMatchAll fan-out -- the exact loop #1046 rewrote from
+// O(grants x principals) to O(grants + principals). Each iteration matches
+// one placeholder against principalCount external users, so the loop's own
+// cost model predicts exactly principalCount+1 grants written (1 native
+// placeholder + one replacement per principal); countingStore measures the
+// actual total and the benchmark fails outright on drift -- a structural
+// gate, not just a timing number that quietly regresses. Standard
+// `go test -bench` output covers ns/op, B/op, and allocs/op; this adds
+// grants-written/op for the write-volume side, on both engines.
 //
 //	go test -run='^$' -bench=BenchmarkProcessGrantsWithExternalPrincipals ./pkg/sync/
 func BenchmarkProcessGrantsWithExternalPrincipals(b *testing.B) {

@@ -77,30 +77,21 @@ func requireExternalMatchBatchFlushedBeforeCut(t *testing.T, cutStore *failAfter
 }
 
 // TestDeleteStaleExternalPrincipalsRevokesGrantAfterCutAndShrink pins the
-// end-to-end invariant: an external principal that disappears between an
-// interrupted attempt and its resume must not leave a live grant behind, on
-// either storage engine.
+// end-to-end invariant: a departed external principal's grant must not
+// survive an interrupted-then-resumed sync, on either engine.
 //
-// It asserts the outcome, not the mechanism, on purpose -- two independent
-// paths can revoke such a grant and which one gets there first has already
-// changed once underneath this test:
-//   - processGrantsWithExternalPrincipals's own scan, because a resolved
-//     replacement retains its ExternalResourceMatch* annotation (see
-//     newGrantForExternalPrincipal) and so is re-evaluated and dropped once
-//     its principal is gone;
-//   - deleteStaleExternalPrincipals, which reconciles principal rows an
-//     earlier attempt copied in. Its no-refs-deleter fallback -- the SQLite
-//     path -- is pinned separately and directly by
-//     TestExternalPrincipalCleanupFallsBackToIDDeleteWithoutRefsDeleters,
-//     because from out here the first path masks it.
+// It asserts the outcome, not the mechanism -- two paths can revoke the
+// grant, and which one gets there first has already changed once: the
+// match scan re-evaluates and drops it because a resolved replacement
+// retains its ExternalResourceMatch* annotation (newGrantForExternalPrincipal),
+// while deleteStaleExternalPrincipals's own no-refs-deleter fallback is
+// masked here and pinned directly by
+// TestExternalPrincipalCleanupFallsBackToIDDeleteWithoutRefsDeleters instead.
 //
-// The interrupted-then-resumed shape is load-bearing, and two independent
-// full syncs would not substitute for it: a resume can skip re-running the
-// native grant-sync step for an already-checkpointed entitlement, so the
-// ordinary "a fresh listing replaces what is stored for this entitlement"
-// pruning -- which does clean this up across two full syncs on every engine
-// -- does not necessarily run again. Disabling both revocation paths above
-// leaves the phantom grant in place here, which is what makes that concrete.
+// The interrupted-then-resumed shape matters: a resume can skip re-running
+// native grant-sync for an already-checkpointed entitlement, so the usual
+// "fresh listing replaces old grants" pruning may not fire again -- which
+// two independent full syncs would not exercise.
 func testDeleteStaleExternalPrincipalsRevokesGrantAfterCutAndShrink(t *testing.T, engine c1zstore.Engine) {
 	ctx := context.Background()
 	tempDir, err := os.MkdirTemp("", "stale-external-principal-test")
@@ -222,18 +213,14 @@ func TestDeleteStaleExternalPrincipalsRevokesGrantAfterCutAndShrinkPebble(t *tes
 	testDeleteStaleExternalPrincipalsRevokesGrantAfterCutAndShrink(t, c1zstore.EnginePebble)
 }
 
-// TestResolvedGrantRevokedWhenMatchCriteriaChangesAfterCut is a regression
-// test for why newGrantForExternalPrincipal retains the placeholder's
-// ExternalResourceMatch* annotation on its replacement grant instead of
-// stripping it. Stripping was tried as a fix for retry amplification (a
-// resumed sync's fresh scan re-matching an already-resolved leftover), but
-// it broke self-healing for a case deleteStaleExternalPrincipals cannot
-// cover: an external principal that still EXISTS (so it's never "stale")
-// but whose profile value changes between an interrupted attempt and its
-// resume, so it no longer satisfies the placeholder's match criteria. With
-// the annotation retained, the resumed scan re-encounters the leftover
-// replacement, re-evaluates it, finds no match, and deletes it via the same
-// path as any other unmatched grant -- verified here across both engines,
+// testResolvedGrantRevokedWhenMatchCriteriaChanges is a regression test for
+// why newGrantForExternalPrincipal retains the match annotation instead of
+// stripping it. Stripping was tried to stop a resume from re-matching an
+// already-resolved leftover, but it broke self-healing for a case
+// deleteStaleExternalPrincipals can't cover: a principal that still EXISTS
+// but whose profile changed no longer satisfies the placeholder's match --
+// with the annotation retained, the resumed scan re-encounters, re-evaluates,
+// and deletes it like any other unmatched grant. Verified on both engines,
 // since (unlike the departed-principal case) this one isn't Pebble-safe
 // either way.
 func testResolvedGrantRevokedWhenMatchCriteriaChanges(t *testing.T, engine c1zstore.Engine) {
@@ -260,17 +247,13 @@ func testResolvedGrantRevokedWhenMatchCriteriaChanges(t *testing.T, engine c1zst
 
 	internalGroup, _, err := internalMc.AddGroup(ctx, "internal_group")
 	require.NoError(t, err)
-	// Two placeholders, not one per user. Unlike the ExternalResourceMatchID
-	// test above -- where each placeholder matches exactly one user, so
-	// spanning multiple flush batches takes userCount of them -- one
-	// department=Sales placeholder here already fans out to every user, so
-	// userCount placeholders would each expand to the *same* userCount
-	// replacement ids (newGrantForExternalPrincipal keys a replacement on
-	// principal + entitlement, not on the placeholder), turning a 1k-row
-	// assertion into a 1M-row rewrite for no extra coverage. Two rather than
-	// one keeps the only thing a single placeholder loses: expandedGrantsBuf
-	// is not reset per placeholder, so a flush batch straddling two
-	// placeholders' expansions stays exercised.
+	// Two placeholders, not one per user like the MatchID test above: a
+	// single department=Sales placeholder already fans out to every user
+	// (newGrantForExternalPrincipal keys on principal+entitlement, not the
+	// placeholder), so userCount placeholders would just rewrite the same
+	// userCount ids userCount times. Two, not one, keeps the only thing a
+	// single placeholder loses: a flush batch straddling two placeholders'
+	// expansions.
 	const placeholderCount = 2
 	grants := make([]*v2.Grant, 0, placeholderCount)
 	for i := range placeholderCount {

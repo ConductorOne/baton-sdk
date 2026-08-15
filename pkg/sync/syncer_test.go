@@ -1015,24 +1015,18 @@ func (c *countingGrantPutStore) DeleteGrantByRefs(ctx context.Context, grant *v2
 }
 
 // testExternalResourceMatchAllBatchedFlush proves processGrantsWithExternalPrincipals
-// flushes expanded grants in bounded batches instead of accumulating the full
-// fan-out (one grant per matched principal) in memory before a single write.
-// It exercises a principal count spanning multiple flush batches and checks
-// both that no single PutGrants call exceeds the batch size and that the
-// final grant set is unaffected by how the writes were chunked.
+// flushes expanded grants in bounded batches instead of accumulating the
+// full fan-out before a single write, and that the final grant set is
+// unaffected by how the writes were chunked.
 //
-// It runs on both engines because the two take different delete paths out of
-// this loop: Pebble removes the resolved placeholder through
-// minimalGrantForDelete's refs-based DeleteGrantByRefs, while SQLite -- the
-// default engine, and the one most tenants are on -- has no grantByRefsDeleter
-// at all and falls back to the id-based DeleteGrant. Everything else asserted
-// here (the batch-size cap, the one-write-per-principal total, the final grant
-// set) is engine-independent.
+// Runs on both engines because Pebble's placeholder deletion goes through
+// minimalGrantForDelete's refs-based DeleteGrantByRefs while SQLite -- the
+// default engine -- has no grantByRefsDeleter and falls back to the
+// id-based DeleteGrant; everything else asserted is engine-independent.
 //
-// This is deliberately NOT the test that covers the newGrantIDs re-encounter
-// guard: the fixture's grant table is far smaller than one dotc1z page, so the
-// scan never pages a second time and never reads back its own flushes on
-// either engine. See TestExternalResourceMatchAllSkipsItsOwnFlushedReplacements.
+// Deliberately not the newGrantIDs re-encounter guard's test: this fixture
+// is far smaller than one dotc1z page, so neither engine ever re-reads its
+// own flushes. See TestExternalResourceMatchAllSkipsItsOwnFlushedReplacements.
 func testExternalResourceMatchAllBatchedFlush(t *testing.T, engine c1zstore.Engine) {
 	runWithSyncModes(t, func(t *testing.T, extraOpts []SyncOpt) {
 		ctx := t.Context()
@@ -1120,12 +1114,10 @@ func testExternalResourceMatchAllBatchedFlush(t *testing.T, engine c1zstore.Engi
 		if engine == c1zstore.EnginePebble {
 			require.Greater(t, counting.deleteByRefsCalls, 0, "the resolved placeholder should have been deleted via the refs-based path")
 		} else {
-			// Not merely "skip the Pebble assertion": pinning this at zero is
-			// what proves countingGrantPutStore stayed behavior-preserving on
-			// an engine with no grantByRefsDeleter, rather than quietly
-			// steering SQLite onto a path it doesn't have. The placeholder
-			// still has to be gone -- the final grant-set check below covers
-			// that on both engines.
+			// Pinning this at zero (not just skipping the Pebble assertion)
+			// proves countingGrantPutStore stayed behavior-preserving on an
+			// engine with no grantByRefsDeleter -- the final grant-set check
+			// below covers deletion.
 			require.Zero(t, counting.deleteByRefsCalls, "SQLite has no refs-based delete; the placeholder must go through the id-based DeleteGrant fallback")
 		}
 
@@ -1159,20 +1151,15 @@ func TestExternalResourceMatchAllBatchedFlushPebble(t *testing.T) {
 }
 
 // TestExternalResourceMatchAllSkipsItsOwnFlushedReplacements covers the
-// newGrantIDs re-encounter guard in processGrantsWithExternalPrincipalsInner,
-// which mid-scan flushing made necessary: a replacement grant carries the
-// placeholder's ExternalResourceMatch* annotation, so if the scan reads back a
-// replacement it just wrote, it re-expands it as though it were still an
-// unresolved placeholder.
+// newGrantIDs re-encounter guard: mid-scan flushing means a replacement
+// grant (which carries the placeholder's ExternalResourceMatch* annotation)
+// can get read back by the same scan and re-expanded as unresolved.
 //
-// The reason this needs its own fixture rather than an assertion bolted onto
-// testExternalResourceMatchAllBatchedFlush: SQLite's grant reader pages by
-// ascending rowid, and a replacement flushed while page N is being processed
-// lands above the cursor -- so it is only ever re-read if there IS a page N+1.
-// Every other external-match test in this package starts from a grant table
-// far smaller than one page, which means the first page already covers the
-// whole table and the guard is unreachable. Removing the guard leaves all of
-// them green; here it turns 600 replacement writes into ~300,000.
+// Needs its own fixture: SQLite pages grants by ascending rowid, so a
+// replacement flushed while page N is processed only gets re-read if page
+// N+1 exists. Every other test in this package uses a table smaller than
+// one page, so the guard is unreachable there -- removing it leaves them
+// all green; here it turns 600 replacement writes into ~300,000.
 func TestExternalResourceMatchAllSkipsItsOwnFlushedReplacements(t *testing.T) {
 	ctx := t.Context()
 
@@ -1195,12 +1182,11 @@ func TestExternalResourceMatchAllSkipsItsOwnFlushedReplacements(t *testing.T) {
 		externalUserIDs[u.GetId().GetResource()] = true
 	}
 
-	// dotc1z pages grants at maxPageSize rows. One more than that guarantees a
-	// second page, which is the only way the scan can re-read a replacement it
-	// flushed while working through page one. If dotc1z's page size ever grows
-	// past this number the test still passes but stops exercising anything, so
-	// re-check it by mutation (drop the newGrantIDs continue and confirm this
-	// fails) if you touch either constant.
+	// dotc1z pages grants at maxPageSize rows; one more guarantees a second
+	// page, the only way the scan re-reads a flush from page one. If the
+	// page size ever grows past this, the test still passes but stops
+	// exercising anything -- re-check by mutation if you touch either
+	// constant.
 	const dotc1zGrantPageSize = 10_000
 	const plainGrantCount = dotc1zGrantPageSize + 1
 

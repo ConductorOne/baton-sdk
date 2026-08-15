@@ -18,17 +18,16 @@ import (
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
-// fakeSpanExporter is a minimal sdktrace.SpanExporter -- just enough to
-// capture exported spans by name, without pulling in the unvendored
+// fakeSpanExporter is a minimal sdktrace.SpanExporter -- enough to capture
+// exported spans by name without pulling in the unvendored
 // go.opentelemetry.io/otel/sdk/trace/tracetest package (this repo builds
-// with -mod=vendor and that test-support package isn't part of the vendor
-// tree).
+// with -mod=vendor, and that test-support package isn't in the vendor tree).
 //
-// It captures only while armed, because the provider it feeds stays installed
-// for the rest of the package's tests (see installFakeSpanExporter) and those
-// tests emit tens of thousands of spans nobody looks at. The mutex is not
-// optional: sdktrace's simple span processor exports under a read lock, so
-// spans ended by the parallel syncer's workers land here concurrently.
+// Captures only while armed: the provider stays installed for the rest of
+// the package (see installFakeSpanExporter), which would otherwise emit
+// thousands of spans nobody looks at. The mutex isn't optional -- sdktrace's
+// simple span processor exports under a read lock, so the parallel syncer's
+// workers can call ExportSpans concurrently.
 type fakeSpanExporter struct {
 	mu    native_sync.Mutex
 	armed bool
@@ -73,22 +72,16 @@ var (
 )
 
 // installFakeSpanExporter points the process-global tracer provider at a
-// fakeSpanExporter and arms it for the duration of the test.
+// fakeSpanExporter, armed for the duration of the test, and never uninstalls
+// it: otel's global provider delegates exactly once (the package's tracer
+// binds to whichever provider is Set() first), so a per-test install/restore
+// pair would only work for whichever span test runs first and silently
+// drop every other test's spans.
 //
-// The provider is installed once per test binary and never swapped back out.
-// otel's global provider delegates exactly once: the package-level tracer this
-// package builds at init binds to whichever provider is Set() first, and every
-// later Set() is invisible to it. A per-test install/restore pair therefore
-// works only for whichever span test happens to run first and silently sends
-// the next one's spans nowhere -- which is a test that passes for the wrong
-// reason, or fails for one.
-//
-// The provider is a *synchronous* syncer, so a span reaches the exporter the
-// instant it is ended -- which is what makes "the exporter never saw this
-// span" a sound assertion that the span was never ended at all.
-//
-// Callers must not t.Parallel(): one exporter is shared, and arming it is
-// process-wide.
+// The provider is a synchronous syncer, so a span reaches the exporter the
+// instant it ends -- making "the exporter never saw this span" a sound proof
+// that the span was never ended. Callers must not t.Parallel(): the exporter
+// and its arming are both process-wide.
 func installFakeSpanExporter(t *testing.T) (*fakeSpanExporter, *sdktrace.TracerProvider) {
 	t.Helper()
 	sharedFakeExporterOnce.Do(func() {
@@ -102,13 +95,12 @@ func installFakeSpanExporter(t *testing.T) (*fakeSpanExporter, *sdktrace.TracerP
 }
 
 // newExternalMatchSpanFixture builds the smallest sync that reaches
-// processGrantsWithExternalPrincipals: one external user, and one internal
-// group grant annotated ExternalResourceMatchAll, so the scan expands
-// exactly one replacement grant. wrapStore wraps the internal store, letting
-// a test make that expansion's write fail or panic; the native grant sync's
-// own PutGrants call runs first, so a wrapper keyed on "everything after the
-// first call" lands the fault inside processGrantsWithExternalPrincipalsInner
-// itself rather than somewhere earlier in the sync.
+// processGrantsWithExternalPrincipals: one external user and one internal
+// ExternalResourceMatchAll grant, so the scan expands exactly one
+// replacement. wrapStore lets a test fail or panic that expansion's write --
+// keyed on "after the first PutGrants call" so the fault lands inside
+// processGrantsWithExternalPrincipalsInner, since the native grant sync's
+// own call runs first.
 func newExternalMatchSpanFixture(t *testing.T, wrapStore func(c1zstore.Store) c1zstore.Store) Syncer {
 	t.Helper()
 	ctx := context.Background()
@@ -154,18 +146,12 @@ func newExternalMatchSpanFixture(t *testing.T, wrapStore func(c1zstore.Store) c1
 }
 
 // TestProcessGrantsWithExternalPrincipalsRecordsSpanErrorOnWriteFailure is a
-// regression test for the processGrantsWithExternalPrincipals /
-// processGrantsWithExternalPrincipalsInner split. The original function had
-// its span-ending defer close over a var err error that a range-over-func
-// loop and several per-branch "X, err := ..." declarations each shadowed --
-// so a write failure deep in the scan still correctly failed the sync (the
-// function's own return value was always right) but the defer's closure saw
-// an unset outer err and recorded the span as successful anyway. Splitting
-// into a thin wrapper (owning the span, the defer, and a single err assigned
-// once from the inner call's return) sidesteps the shadowing instead of
-// chasing it through the whole function. This test drives a real mid-scan
-// write failure and asserts the span this wrapper starts is actually marked
-// as an error, which the pre-split code would have failed.
+// regression test for the wrapper/inner split (see the doc comment on
+// processGrantsWithExternalPrincipals): a shadowed err in the original
+// single function meant a write failure deep in the scan still correctly
+// failed the sync but left the span recorded as successful. Drives a real
+// mid-scan write failure and asserts the span is marked as an error, which
+// the pre-split code would have failed.
 func TestProcessGrantsWithExternalPrincipalsRecordsSpanErrorOnWriteFailure(t *testing.T) {
 	exporter, tp := installFakeSpanExporter(t)
 
@@ -207,13 +193,12 @@ func (p *panicAfterNPutGrants) PutGrants(ctx context.Context, grants ...*v2.Gran
 }
 
 // TestProcessGrantsWithExternalPrincipalsEndsSpanOnPanic pins the *defer* in
-// processGrantsWithExternalPrincipals, not just its error propagation. The
-// wrapper split briefly ended its span with a plain call after the inner
-// call returned; that gets the error status right but leaks the span
-// entirely on any panic below it, because the call is simply skipped while
-// the stack unwinds. Since the tracer provider here exports synchronously on
-// End, "the exporter never saw this span" is exactly equivalent to "the span
-// was never ended", which is what a non-deferred close would produce.
+// processGrantsWithExternalPrincipals, not just its error propagation: an
+// earlier version ended the span with a plain call after the inner call
+// returned, which gets the error status right but leaks the span on any
+// panic below it (the call is simply skipped while the stack unwinds).
+// Since the exporter here is synchronous, "never saw this span" is exactly
+// equivalent to never having been ended.
 func TestProcessGrantsWithExternalPrincipalsEndsSpanOnPanic(t *testing.T) {
 	exporter, tp := installFakeSpanExporter(t)
 

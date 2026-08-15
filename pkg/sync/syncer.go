@@ -3104,16 +3104,12 @@ type entitlementRecordDeleter interface {
 // principal that disappears between attempts survives even though grants are
 // rewritten against the new source.
 //
-// Grant cleanup always runs, falling back to the id-based DeleteGrant (every
-// store implements it) when the refs-based fast path isn't available. That
-// makes it the one piece of this reconciliation every engine can perform,
-// which matters because it's the security-relevant half: a grant left
-// pointing at a principal that no longer exists is live, incorrect access.
-// Resource/entitlement row cleanup is skipped, with a warning, on stores
-// that don't implement the refs-based deleters for them (e.g. SQLite) --
-// a leftover stale resource or entitlement row is inert metadata, not an
-// active grant, so degrading there rather than skipping the whole pass is
-// the safer tradeoff.
+// Grant cleanup always runs, falling back to the id-based DeleteGrant when
+// the refs-based path isn't available -- it's the security-relevant half
+// (a grant to a gone principal is live, incorrect access), so every engine
+// must be able to do it. Resource/entitlement row cleanup, in contrast, is
+// skipped with a warning where refs-based deleters are missing (e.g.
+// SQLite): a stale row is inert metadata, not active access.
 func (s *syncer) deleteStaleExternalPrincipals(
 	ctx context.Context,
 	current []*v2.Resource,
@@ -3373,28 +3369,20 @@ func (s *syncer) matchProfileAndExpand(
 // hang.
 const externalMatchProgressLogInterval = 100_000
 
-// externalGrantFlushBatchSize bounds how many expanded grants
-// processGrantsWithExternalPrincipals holds in memory before writing them
-// out. A single ExternalResourceMatchAll grant fans out to one replacement
-// per matching principal, so without a cap the buffer can grow to the full
-// principal count (tens of thousands on large tenants) before a single
-// PutGrants call.
+// externalGrantFlushBatchSize bounds how many expanded grants are held in
+// memory before writing. Without it, an ExternalResourceMatchAll grant's
+// fan-out (one replacement per matching principal) could grow to the full
+// principal count before a single PutGrants call.
 const externalGrantFlushBatchSize = 500
 
-// processGrantsWithExternalPrincipals is a thin tracing wrapper. The actual
-// work is in processGrantsWithExternalPrincipalsInner, which has its own
-// range-over-func loop (for ga, err := range ...) and several per-branch
-// "X, err := ..." declarations that each shadow the enclosing err -- a
-// defer living in the *inner* function, closing over a var err error
-// declared there, would have looked at the wrong err on every one of those
-// nested paths (assigning err = ... at that point resolves to the nearest
-// shadow, not the function's own), so a write failure deep in the scan
-// would still correctly fail the sync but silently close its span as
-// successful. Keeping the span, error, and defer entirely in this wrapper
-// -- which has exactly one err, assigned exactly once from the inner
-// call's return value -- sidesteps the shadowing instead of chasing it
-// through the whole function, while the defer keeps the span ended even if
-// the inner call panics.
+// processGrantsWithExternalPrincipals is a thin tracing wrapper around
+// processGrantsWithExternalPrincipalsInner, which has many nested
+// "X, err := ..." declarations that shadow an outer err. A defer living in
+// the inner function would close over the wrong err on those paths and
+// silently record a failed write as a successful span. Keeping the span,
+// a single err (assigned once from the inner call), and the defer here
+// instead sidesteps the shadowing and still ends the span if the inner
+// call panics.
 func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, principals []*v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "processGrantsWithExternalPrincipals")
 	var err error
@@ -3462,13 +3450,10 @@ func (s *syncer) processGrantsWithExternalPrincipalsInner(ctx context.Context, p
 	grantsToDelete := make([]*v2.Grant, 0)
 	grantsScanned := 0
 	// newGrantIDs holds one string per expanded grant for the whole scan (the
-	// re-encounter and delete-dedup checks below both need it), so for the
-	// ExternalResourceMatchAll fan-out it has the same cardinality as the
-	// expandedGrants slice this batching replaced. The memory bound below is
-	// therefore partial: it caps the outstanding *grant proto* footprint
-	// (which carries embedded Principal/Entitlement/Annotations and can be
-	// large), not this set of id strings, which remains an O(fan-out)
-	// allocation at the "tens of thousands of principals" scale cited above.
+	// re-encounter and delete-dedup checks below need it), so it's still an
+	// O(fan-out) allocation -- the memory bound below only caps the grant-proto
+	// footprint (Principal/Entitlement/Annotations can be large), not this set
+	// of id strings.
 	newGrantIDs := mapset.NewSet[string]()
 	expandedGrantsTotal := 0
 	expandedGrantsBuf := make([]*v2.Grant, 0, externalGrantFlushBatchSize)
@@ -3487,15 +3472,11 @@ func (s *syncer) processGrantsWithExternalPrincipalsInner(ctx context.Context, p
 		return nil
 	}
 
-	// appendExpandedGrant records a replacement grant's id in newGrantIDs
-	// immediately (rather than in a second pass over a fully retained
-	// slice, so the delete-dedup check below never needs the complete
-	// expanded-grant set held in memory at once), buffers the grant, and
-	// flushes once the buffer is full. Every call site buffers the grant in
-	// its final form -- callers that still need to mutate a grant after
-	// buffering it (e.g. a GrantExpandable remap) finish that mutation
-	// before ever calling this, since flushing early would commit the
-	// pre-mutation state.
+	// appendExpandedGrant records the grant's id in newGrantIDs immediately (so
+	// the delete-dedup check never needs the full expanded-grant set in memory),
+	// buffers it, and flushes once the buffer is full. Callers finish any
+	// in-place mutation (e.g. a GrantExpandable remap) before calling this --
+	// flushing early would commit the pre-mutation grant.
 	appendExpandedGrant := func(g *v2.Grant) error {
 		newGrantIDs.Add(g.GetId())
 		expandedGrantsBuf = append(expandedGrantsBuf, g)
@@ -3506,18 +3487,15 @@ func (s *syncer) processGrantsWithExternalPrincipalsInner(ctx context.Context, p
 		return nil
 	}
 
-	// Cost note: flushing mid-scan means this scan can read back its own
-	// writes. SQLite's grant reader pages by ascending rowid, and a flushed
-	// replacement grant's row lands above the read cursor, so a replacement
-	// written while page P is being processed is re-fetched and re-checked
-	// when the loop reaches a later page -- G grants scanned becomes up to
-	// G+N rows processed, where N is the number of replacements this scan
-	// produces. That only happens when there IS a later page, i.e. when the
-	// pre-existing grant set exceeds dotc1z's page size; below that the
-	// first page already covers the whole table and nothing is re-read.
-	// Correctness is unaffected (the newGrantIDs check below skips them),
-	// and N is bounded by the grant count itself, but it is an unmeasured,
-	// real cost on the exact loop #1046 was optimizing; no benchmark pins it.
+	// Cost note: flushing mid-scan can make this scan read back its own writes.
+	// SQLite pages grants by ascending rowid, so a replacement written while
+	// page P is processed lands above the cursor and gets re-fetched on a
+	// later page -- G scanned becomes up to G+N processed, only when the
+	// pre-existing grant set exceeds dotc1z's page size (below that, one page
+	// covers everything and nothing is re-read). Correctness is unaffected
+	// (newGrantIDs below skips them) and N is bounded by the grant count, but
+	// it's an unmeasured, real cost on the loop #1046 optimized; no benchmark
+	// pins it.
 	for ga, err := range s.store.Grants().ListWithAnnotations(ctx) {
 		if err != nil {
 			return err
@@ -3538,23 +3516,14 @@ func (s *syncer) processGrantsWithExternalPrincipalsInner(ctx context.Context, p
 			continue
 		}
 
-		// newGrantForExternalPrincipal copies the placeholder's annotations
-		// onto every replacement grant it builds, including whichever
-		// ExternalResourceMatch* annotation got it into this scan in the
-		// first place. Because mid-scan flushing (unlike the old
-		// single-write-at-the-end behavior) can commit a replacement grant
-		// before this same live, paginated scan reaches its key range, the
-		// scan can re-encounter a grant it wrote itself moments ago. Without
-		// this check that grant — now carrying a real principal instead of
-		// a placeholder — would be re-expanded as if it were still
-		// unresolved, redoing (and re-flushing) its entire fan-out.
-		// newGrantIDs is populated the instant a grant is buffered (see
-		// appendExpandedGrant), so this catches it regardless of whether
-		// the buffered write has physically flushed yet. Reachable only
-		// once the pre-existing grant set spans more than one page (see the
-		// cost note above); TestExternalResourceMatchAllSkipsItsOwnFlushedReplacements
-		// builds that case, where dropping this turns 600 replacement
-		// writes into ~300,000.
+		// A replacement grant carries the placeholder's ExternalResourceMatch*
+		// annotation, so mid-scan flushing lets the scan re-encounter a grant
+		// it just wrote (see the cost note above) and, without this check,
+		// re-expand it as if still unresolved. newGrantIDs is populated the
+		// instant a grant is buffered (appendExpandedGrant), so this catches
+		// it before the write even flushes. See
+		// TestExternalResourceMatchAllSkipsItsOwnFlushedReplacements (drops
+		// this: 600 writes become ~300,000).
 		if newGrantIDs.ContainsOne(grant.GetId()) {
 			continue
 		}
@@ -3645,13 +3614,11 @@ func (s *syncer) processGrantsWithExternalPrincipalsInner(ctx context.Context, p
 					newGrant.SetAnnotations(newGrantAnnos)
 				}
 
-				// newGrant is only buffered here, once it's in its final
-				// form (mutated above, or left as built if expandableAnno
-				// was nil). A bid.MakeBid failure above continues the outer
-				// loop before this point, so newGrant is never buffered at
-				// all -- matching the pre-batching behavior of dropping the
-				// whole attempt on error rather than persisting a grant
-				// that's missing its expansion remap.
+				// Buffered only here, in its final form -- a bid.MakeBid
+				// failure above continues the outer loop before this point,
+				// so newGrant is never buffered, matching the pre-batching
+				// behavior of dropping the whole attempt on error rather
+				// than persisting a grant missing its remap.
 				if err = appendExpandedGrant(newGrant); err != nil {
 					return err
 				}
@@ -3738,11 +3705,10 @@ func (s *syncer) processGrantsWithExternalPrincipalsInner(ctx context.Context, p
 		zap.Int("grants_to_delete", len(grantsToDelete)),
 	)
 
-	// Final call is unconditional (unlike flushExpandedGrants' mid-scan
-	// flushes) to match the pre-batching behavior of always invoking
-	// PutGrants once at the end, even with zero grants: some store
-	// implementations (e.g. the Pebble engine) mark the store dirty as a
-	// side effect of any PutGrants call, empty or not.
+	// Unconditional (unlike flushExpandedGrants' mid-scan flushes) to match
+	// the pre-batching behavior of always calling PutGrants once at the end,
+	// even with zero grants -- some engines (Pebble) mark the store dirty as
+	// a side effect of any call, empty or not.
 	if err = s.store.PutGrants(ctx, expandedGrantsBuf...); err != nil {
 		return err
 	}
@@ -3776,19 +3742,15 @@ type grantByRefsDeleter interface {
 }
 
 // newGrantForExternalPrincipal deliberately copies the placeholder's full
-// annotation set onto the replacement grant it builds, including whichever
-// ExternalResourceMatch* annotation got it into this scan in the first
-// place. That was tried as an optimization (strip the annotation once
-// resolved, so a resume's fresh scan doesn't re-match an already-resolved
-// leftover) but it removed the only mechanism that revokes a resolved
-// grant when its external principal later disappears or stops satisfying
-// the match criteria -- a resolved replacement grant with no match
-// annotation is invisible to this function's own re-scan, and
-// deleteStaleExternalPrincipals only catches principals that are entirely
-// absent, not ones that still exist but no longer match. Retaining the
-// annotation keeps every resolved grant self-healing (a stale one gets
-// re-matched, fails, and is added to grantsToDelete below) at the cost of
-// real, bounded, wasted work on a resumed sync's mid-scan flushes -- an
+// annotation set onto the replacement grant, including whichever
+// ExternalResourceMatch* annotation matched it. Stripping that annotation
+// once resolved was tried (to stop a resume from re-matching an
+// already-resolved leftover) but it broke self-healing: a resolved grant
+// with no match annotation is invisible to this function's own re-scan,
+// and deleteStaleExternalPrincipals only catches principals that are
+// entirely absent, not ones that still exist but no longer match.
+// Retaining the annotation keeps every resolved grant self-healing at the
+// cost of bounded wasted work on a resume's mid-scan flushes -- an
 // accepted tradeoff over a silent, permanent access-control gap.
 func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.Grant {
 	newGrant := v2.Grant_builder{
@@ -3801,14 +3763,13 @@ func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.G
 	return newGrant
 }
 
-// minimalGrantForDelete strips a grant down to the fields DeleteGrantByRefs
-// (Entitlement + Principal) and the DeleteGrant id fallback actually need.
+// minimalGrantForDelete strips a grant to the Id/Entitlement/Principal
+// fields DeleteGrantByRefs and the DeleteGrant fallback actually need.
 // Both processGrantsWithExternalPrincipalsInner and
 // deleteStaleExternalPrincipals hold one of these per pending delete for a
-// full scan before issuing any deletes, so dropping Sources/Annotations
-// here — which can carry a GrantExpandable entitlement-id list — meaningfully
-// shrinks what stays resident for tenants with a large number of
-// externally-matched grants.
+// full scan, so dropping Sources/Annotations (which can carry a bulky
+// GrantExpandable entitlement-id list) meaningfully shrinks what stays
+// resident on large tenants.
 func minimalGrantForDelete(grant *v2.Grant) *v2.Grant {
 	return v2.Grant_builder{
 		Id:          grant.GetId(),
