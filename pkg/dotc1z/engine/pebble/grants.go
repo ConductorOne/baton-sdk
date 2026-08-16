@@ -1013,6 +1013,14 @@ func (e *Engine) deleteGrantsByIdentities(ctx context.Context, chunk int, ids []
 	if len(ids) == 0 {
 		return nil
 	}
+	// A non-positive chunk would make the loop below never advance, spinning
+	// forever while holding the write lock and a writeWG slot — an
+	// unkillable hang. No production caller can reach that (both pass the
+	// constant), so clamp rather than error: the call still does exactly what
+	// it was asked to do, just at the default chunking.
+	if chunk <= 0 {
+		chunk = grantDeleteBatchChunk
+	}
 	// One lock acquisition for the whole call, not one per grant.
 	return e.withWrite(func() error {
 		for start := 0; start < len(ids); start += chunk {

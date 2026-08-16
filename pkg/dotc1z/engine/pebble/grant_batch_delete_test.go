@@ -2,6 +2,7 @@ package pebble
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"testing"
 
@@ -294,6 +295,28 @@ func TestDeleteGrantsByRefsCommitsInChunks(t *testing.T) {
 	require.Equal(t, 0, countKeys(t, e, encodeGrantPrefix()), "every grant must be deleted")
 	require.Equal(t, 0, countKeys(t, e, GrantByPrincipalLowerBound()),
 		"by_principal must be emptied alongside the primary rows")
+}
+
+// TestDeleteGrantsByIdentitiesClampsNonPositiveChunk pins the guard against a
+// chunk of 0 or less. The chunking loop advances by chunk, so a non-positive
+// value would never reach the end and would spin forever holding the engine
+// write lock and a writeWG slot — an unkillable hang, not a returned error.
+// No production caller can reach it (both pass the constant), so the guard
+// clamps to the default and the call still deletes everything it was given.
+func TestDeleteGrantsByIdentitiesClampsNonPositiveChunk(t *testing.T) {
+	for _, chunk := range []int{0, -1} {
+		t.Run(fmt.Sprintf("chunk-%d", chunk), func(t *testing.T) {
+			e, recs := batchDeleteScaleFixture(t, 4)
+
+			probe := &chunkProbeCtx{Context: context.Background()}
+			require.NoError(t, deleteBatchedWithChunk(probe, e, chunk, recs...))
+
+			require.Equal(t, 1, probe.checks,
+				"a clamped chunk must commit these grants as a single chunk")
+			require.Equal(t, 0, countKeys(t, e, encodeGrantPrefix()),
+				"every grant must be deleted")
+		})
+	}
 }
 
 // TestDeleteGrantsByRefsHonorsCancellation covers the other half of the chunk
