@@ -68,6 +68,21 @@ func (s *cleanupScaleStore) DeleteGrantByRefs(context.Context, *v2.Grant) error 
 	return nil
 }
 
+// DeleteGrantsByRefs counts per GRANT, not per batch, so the scale assertion
+// below (grantDeletes == number of stale grants) means the same thing on
+// either delete route.
+//
+// deleteStaleExternalPrincipals — the only caller this double is wired to —
+// still deletes stale grants one at a time and never asserts
+// grantsByRefsBatchDeleter, so this method is not reached today. It exists so
+// that if that cleanup is batched the way processGrantsWithExternalPrincipals
+// already was, the double keeps measuring grant deletions rather than
+// silently collapsing them to one.
+func (s *cleanupScaleStore) DeleteGrantsByRefs(_ context.Context, grants ...*v2.Grant) error {
+	s.grantDeletes += len(grants)
+	return nil
+}
+
 func (s *cleanupScaleStore) DeleteEntitlementByRefs(context.Context, *v2.Entitlement) error {
 	s.entitlementDeletes++
 	return nil
