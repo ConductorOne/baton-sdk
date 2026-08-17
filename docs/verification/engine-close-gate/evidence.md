@@ -70,6 +70,58 @@ finding, the fix, and the instrument that now holds it.
    `TestConcurrentCloseWithPaginatedReads`, and Close's unqualified
    panic-instead-of-hang claim (true only in armed builds). Rewritten.
 
+## Findings fixed in the follow-up stage (unresolved PR review threads)
+
+Re-verified against the code before fixing; two threads on the same file
+were left to main, which had already landed a better version of them (see
+"Deferred to main" below).
+
+9. Windows-only failure in the arming tripwire (blocking).
+   `TestLockChecksSuppliedByTestInvocations` classified config files by
+   `strings.HasPrefix(rel, ".github/")`, but `filepath.Rel` yields
+   backslashes on Windows, so the workflow floor counted zero hits and the
+   test failed the run — on a tree with nothing wrong with it. CI runs
+   `./...` on `windows-latest` with the tag and no `-short` skip on this
+   test, so it was reachable. Fix: `filepath.ToSlash` the relative path,
+   and fail loudly on a `filepath.Rel` error instead of keying the map on
+   an empty string.
+
+10. Unbounded retry in `CurrentSyncStep` (one reviewer). The
+    generation-recheck loop retries until a pass sees a stable binding;
+    nothing in it consults the caller's context, so the termination
+    argument — transitions run out — was the only thing keeping it from
+    spinning forever. Fix: check `ctx.Err()` on every pass after the
+    first. The first pass stays unguarded so a caller reading the step
+    while shutting down (the expiry checkpoint does) still gets an answer.
+    Instrument: `TestCurrentSyncStepRetryHonorsCancellation`.
+
+11. Tag-gated files were unlinted (one reviewer). `.golangci.yml` listed
+    only `baton_lambda_support`, so every linter skipped the lock-check
+    instrumentation and its tests — the least-reviewed code in the tree
+    was the code asserting the concurrency contract. Fix: added
+    `baton_lockchecks` to `run.build-tags`. This surfaced the unused
+    `lineNo` in the tripwire, now folded into the violation message as
+    `file:line: invocation`, which is what a reader needs anyway.
+
+12. After-Close coverage stopped at the scan families (one reviewer).
+    `TestReadSurfaceAfterCloseReturnsClosing` covered Paginate and
+    Iterate; the point reads pinned in this PR had no lifecycle
+    assertion, and they are the quieter failure — no iterator, so nothing
+    on the path that happens to check. Fix: extended the table with 13
+    point reads (the `Get*` family, `HasResourceRecord`,
+    `ComputeEntitlementBucketDigest`, `GetEntitlementGrantDigestNodes`,
+    `SessionGet`, `SessionGetMany`).
+
+## Deferred to main
+
+The two remaining threads were both on `pkg/sync/type_scoped_test.go`,
+whose run-duration work landed on main separately as #1091. Main's
+`flattenJoined` already peels single-error wrappers while looking for the
+join — the exact degradation the thread described — and carries
+`TestFlattenJoinedSeesWrappedJoins` to hold it. This branch's copy was the
+older version, so the rebase resolves the file to main's side and the
+branch no longer touches `pkg/sync` at all.
+
 ## Instrument liveness (mutation evidence)
 
 Each new instrument was shown to fail against a seeded defect before
@@ -86,6 +138,20 @@ closure was claimed:
 - `scanLoopCancellation` extension: deleting the `ctx.Err()` check from
   `ForEachDanglingGrantPrincipal`'s seek-driven loop failed
   `TestScanReadsArePinned/ForEachDanglingGrantPrincipal`; reverted.
+- `TestCurrentSyncStepRetryHonorsCancellation`: removing the `pass > 0`
+  cancellation check made the test report the spin at its own 30s budget
+  rather than hanging the binary until the package timeout; reverted.
+- Point-read after-Close coverage: unpinning `GetResourceTypeRecord` (bare
+  `e.db`) was caught twice over — `TestBareHandleAccessIsGateCovered`
+  named `resource_types.go:57 GetResourceTypeRecord`, and the new
+  `TestReadSurfaceAfterCloseReturnsClosing/GetResourceTypeRecord` caught
+  the nil dereference the pin prevents; reverted.
+- Windows path handling: replacing the `".github/"` prefix with
+  `".github\\"` — what the un-normalized path would have matched on
+  Windows — reproduced the reported failure verbatim ("no whole-tree
+  `go test ./...` line found in any CI workflow"), confirming the floor
+  assertion is what fires and that `ToSlash` is what prevents it;
+  reverted.
 
 ## Suite evidence
 

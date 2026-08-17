@@ -2,6 +2,7 @@ package pebble
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -62,6 +63,16 @@ func TestLockChecksSuppliedByTestInvocations(t *testing.T) {
 		if err != nil {
 			t.Fatalf("opening %s: %v", path, err)
 		}
+		// Slash-normalized, because the ".github/" prefix test below is
+		// the only thing keeping the workflow floor honest, and on Windows
+		// filepath.Rel hands back backslashes — which would leave the
+		// floor at zero and fail a run that has nothing wrong with it.
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			t.Fatalf("relativizing %s against %s: %v", path, root, err)
+		}
+		rel = filepath.ToSlash(rel)
+
 		scanner := bufio.NewScanner(f)
 		lineNo := 0
 		for scanner.Scan() {
@@ -70,10 +81,9 @@ func TestLockChecksSuppliedByTestInvocations(t *testing.T) {
 			if !strings.Contains(line, "go test") || !strings.Contains(line, "./...") {
 				continue
 			}
-			rel, _ := filepath.Rel(root, path)
 			wholeTreeInvocations[rel]++
 			if !strings.Contains(line, "baton_lockchecks") && !race.MatchString(line) {
-				violations = append(violations, rel+":"+strings.TrimSpace(line))
+				violations = append(violations, fmt.Sprintf("%s:%d: %s", rel, lineNo, strings.TrimSpace(line)))
 			}
 		}
 		if err := scanner.Err(); err != nil {

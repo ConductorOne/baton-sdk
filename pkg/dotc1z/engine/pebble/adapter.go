@@ -264,7 +264,18 @@ func (e *Engine) SetCurrentSync(ctx context.Context, syncID string) error {
 // received — and every caller reads this while it owns the sync's
 // lifecycle, so none can tell the difference.
 func (e *Engine) CurrentSyncStep(ctx context.Context) (string, error) {
-	for {
+	for pass := 0; ; pass++ {
+		// Every pass past the first is waiting on transitions this call
+		// does not control, and the termination argument below assumes
+		// they stop coming; if they don't, the caller's cancellation is
+		// the only way out. The first pass stays unguarded so a caller
+		// reading the step while shutting down — which is when the
+		// expiry checkpoint reads it — still gets an answer.
+		if pass > 0 {
+			if err := ctx.Err(); err != nil {
+				return "", err
+			}
+		}
 		syncID, gen := e.currentSyncBinding()
 		if syncID == "" {
 			return "", nil
@@ -299,7 +310,8 @@ func (e *Engine) CurrentSyncStep(ctx context.Context) (string, error) {
 		// reason the lock-holding version made progress: transitions are
 		// serialized by lifecycleMu and happen a handful of times per
 		// sync, so spinning here needs an unbounded stream of them —
-		// which would have starved the blocking version too.
+		// which would have starved the blocking version too. The
+		// cancellation check at the top bounds that case anyway.
 	}
 }
 

@@ -197,6 +197,62 @@ func TestCurrentSyncStepRetriesWhenBindingMovesMidReadOnMiss(t *testing.T) {
 		`the retry must answer for the binding in force when it finished; "" is the spare that was bound when it started`)
 }
 
+// TestCurrentSyncStepRetryHonorsCancellation drives the retry branch
+// forever and requires the call to come back anyway. A hook that rebinds
+// on every pass is the pathological case the loop's termination argument
+// sets aside as unreachable — transitions are supposed to run out — and
+// the argument is about the engine's own behavior, so nothing in it
+// protects a caller from a bug or a hostile workload that keeps them
+// coming. Without the cancellation check this hangs until the test
+// binary's timeout rather than failing.
+func TestCurrentSyncStepRetryHonorsCancellation(t *testing.T) {
+	e, _ := newTestEngine(t)
+	bound, spare := boundSyncAndSpareID(t, e)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Rebind to a different id on every pass, so the generation re-check
+	// never agrees and the read can only end by giving up. Cancel from
+	// inside the loop rather than up front: the first pass is deliberately
+	// unguarded, so a context that was already dead would prove nothing
+	// about the retry.
+	//
+	// The hook runs on the goroutine below, where require's FailNow is
+	// not legal, so failures are carried back and asserted here.
+	setup := context.Background()
+	ids := []string{bound, spare}
+	passes := 0
+	var rebindErr error
+	e.test.currentSyncStepPreReadHook = func() {
+		passes++
+		if err := e.SetCurrentSync(setup, ids[passes%len(ids)]); err != nil && rebindErr == nil {
+			rebindErr = err
+		}
+		if passes == 2 {
+			cancel()
+		}
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := e.CurrentSyncStep(ctx)
+		done <- err
+	}()
+
+	// Reading passes and rebindErr is only safe on this side of the
+	// channel, which is also why the timeout branch does not.
+	select {
+	case err := <-done:
+		require.NoError(t, rebindErr, "rebinding the sync inside the read window failed")
+		require.ErrorIs(t, err, context.Canceled,
+			"a retry loop that outlives its caller's context has no way to stop")
+		require.Greater(t, passes, 1, "the read must have reached the retry branch, not just the first pass")
+	case <-time.After(lifecycleTestTimeout):
+		t.Fatal("CurrentSyncStep kept retrying after its context was cancelled")
+	}
+}
+
 // boundSyncAndSpareID starts a sync with the step token "token-a" and
 // returns its id plus a second id that is bindable but has no record of
 // its own.

@@ -2,6 +2,13 @@ version: "2"
 run:
   build-tags:
     - baton_lambda_support
+    # Files behind this tag are excluded from every linter without it, so
+    # the deadlock-check instrumentation and the tests that assert it
+    # would be the least-reviewed code in the tree.
+    - baton_lockchecks
+    # Files behind this tag are excluded from every linter without it, so
+    # the deadlock-check instrumentation and the tests that assert it
+    # would be the least-reviewed code in the tree.
 linters:
   default: none
   enable:

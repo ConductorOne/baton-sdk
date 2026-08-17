@@ -16,6 +16,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 )
 
 // callAfterClose runs fn and converts a panic into an error.
@@ -35,7 +36,7 @@ func callAfterClose(fn func() error) (err error) {
 }
 
 // TestReadSurfaceAfterCloseReturnsClosing pins the lifecycle contract on
-// the paginate and iterate surfaces.
+// the paginate, iterate, and point-read surfaces.
 //
 // The Engine doc states it outright: "After Close, all methods return
 // ErrEngineClosing." Before pinRead these families reached
@@ -43,6 +44,12 @@ func callAfterClose(fn func() error) (err error) {
 // no guard, and the Iterate family had neither a guard nor the nil check
 // the invariant-scan surface carried
 // (TestIngestScanSurfaceAfterCloseReturnsClosing covers that one).
+//
+// The point reads are here because "all methods" is the contract and the
+// scan families are only the part that crashed loudly. A Get that skips
+// the pin is the same use-after-close with a quieter failure — a stale
+// handle answers, or Close returns while the read is still on it — and
+// nothing about the two-line body invites a second look.
 //
 // Each entry point is its own subtest so one run names every method that
 // regressed rather than stopping at the first.
@@ -151,6 +158,70 @@ func TestReadSurfaceAfterCloseReturnsClosing(t *testing.T) {
 		}},
 		{"IterateAllSyncRuns", func() error {
 			return e.IterateAllSyncRuns(ctx, func(*v3.SyncRunRecord) bool { return true })
+		}},
+
+		// Point reads. A single Get touches the same closed handle a scan
+		// does, and it reaches it by a shorter path — no iterator, so
+		// nothing on the way that happens to check. These take arguments
+		// that match nothing on purpose: the answer under test is the
+		// lifecycle error, and a lookup that would have missed anyway is
+		// the case where a missing guard is easiest to mistake for
+		// working code.
+		{"GetGrantRecord", func() error {
+			_, err := e.GetGrantRecord(ctx, "no-such-grant")
+			return err
+		}},
+		{"GetEntitlementRecord", func() error {
+			_, err := e.GetEntitlementRecord(ctx, "no-such-entitlement")
+			return err
+		}},
+		{"GetResourceRecord", func() error {
+			_, err := e.GetResourceRecord(ctx, "app", "github")
+			return err
+		}},
+		{"GetResourceTypeRecord", func() error {
+			_, err := e.GetResourceTypeRecord(ctx, "app")
+			return err
+		}},
+		{"GetAssetRecord", func() error {
+			_, err := e.GetAssetRecord(ctx, "no-such-asset")
+			return err
+		}},
+		{"GetSyncRunRecord", func() error {
+			_, err := e.GetSyncRunRecord(ctx, "no-such-sync")
+			return err
+		}},
+		{"HasResourceRecord", func() error {
+			_, err := e.HasResourceRecord(ctx, "app", "github")
+			return err
+		}},
+		{"GetEntitlementDigestRoot", func() error {
+			_, _, err := e.GetEntitlementDigestRoot(ctx, entID)
+			return err
+		}},
+		{"GetGrantDigestGlobalRoot", func() error {
+			_, _, err := e.GetGrantDigestGlobalRoot(ctx)
+			return err
+		}},
+		{"ComputeEntitlementBucketDigest", func() error {
+			_, _, err := e.ComputeEntitlementBucketDigest(ctx, entID, DigestBucket{})
+			return err
+		}},
+		{"GetEntitlementGrantDigestNodes", func() error {
+			_, _, err := e.GetEntitlementGrantDigestNodes(ctx, mkV2Entitlement("ent-A", "app", "github"), 0)
+			return err
+		}},
+		// The session reads validate their option bag first and reject a
+		// missing sync id, so they need one supplied explicitly to reach
+		// the lifecycle check at all. The engine is closed and the id
+		// names no session; neither matters to what is under test.
+		{"SessionGet", func() error {
+			_, _, err := e.SessionGet(ctx, "no-such-key", sessions.WithSyncID("no-such-sync"))
+			return err
+		}},
+		{"SessionGetMany", func() error {
+			_, _, err := e.SessionGetMany(ctx, []string{"no-such-key"}, sessions.WithSyncID("no-such-sync"))
+			return err
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

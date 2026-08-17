@@ -32,7 +32,15 @@ named below, which survive this document.
   iteration, including the seek-driven distinct-referent shape.
 - C6 (armed builds): correctness-focused Make targets compile the
   deadlock-shape checks in, either via `-race` or `baton_lockchecks`;
-  measurement targets stay unarmed, stated per target.
+  measurement targets stay unarmed, stated per target. The tag is also in
+  `.golangci.yml`'s build tags, or the instrumentation and the tests
+  asserting it are the only unlinted code in the package.
+- C7 (post-close surface): after `Close`, every exported read returns
+  `ErrEngineClosing` rather than answering from a torn-down handle —
+  point reads included, not just the scan families that crashed loudly.
+- C8 (bounded retries): the lock-free `CurrentSyncStep` re-read loop
+  terminates on caller cancellation, so its liveness does not rest on the
+  assumption that lifecycle transitions stop arriving.
 
 ## Coverage model
 
@@ -55,11 +63,20 @@ Mechanical, not sampled:
 - C5: `TestScanReadsArePinned` (AST) covers both iterator-loop shapes
   (`iter.Valid()` conditions and seek-driven bool conditions).
 - C6: reviewed target-by-target in the Makefile; the arming policy is
-  written beside the targets.
+  written beside the targets. `TestLockChecksCompiledIn` fails an unarmed
+  run and `TestLockChecksSuppliedByTestInvocations` fails the diff that
+  de-arms a whole-tree invocation, with floor assertions so a restructure
+  cannot leave it matching nothing.
+- C7: `TestReadSurfaceAfterCloseReturnsClosing` enumerates the surface as
+  a subtest table, so one run names every method that regressed;
+  `TestIngestScanSurfaceAfterCloseReturnsClosing` covers the
+  invariant-scan family.
+- C8: `TestCurrentSyncStepRetryHonorsCancellation` drives the retry branch
+  through the pre-read seam indefinitely and requires the call to return.
 
 ## Closure
 
-Closure for this stage is: the six meta/unit instruments above pass, the
+Closure for this stage is: the meta/unit instruments above pass, the
 package suite passes under `-race -tags=baton_lockchecks`, and each
 instrument has been shown live by mutation (see evidence.md). Deferred
 beyond this stage: object-tied leases for the merge surface (documented
