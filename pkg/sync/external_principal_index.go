@@ -190,7 +190,7 @@ func foldKey(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range s {
-		b.WriteRune(foldRune(r))
+		_, _ = b.WriteRune(foldRune(r))
 	}
 	return b.String()
 }
