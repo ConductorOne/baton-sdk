@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	native_sync "sync"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -967,6 +968,279 @@ func TestExternalResourceMatchAll(t *testing.T) {
 	})
 }
 
+// countingGrantPutStore wraps a c1zstore.Store and records each PutGrants
+// call's batch, so tests can assert on processGrantsWithExternalPrincipals's
+// flush behavior without reaching into its internal buffer state.
+//
+// DeleteGrantByRefs is forwarded (rather than left to embedding) because
+// c1zstore.Store is an interface: embedding it only promotes the methods
+// declared on that interface, not every method the underlying concrete
+// store happens to implement. Without an explicit passthrough here, the
+// syncer's grantByRefsDeleter type assertion on this wrapper always fails,
+// silently steering every delete through the id-based DeleteGrant fallback
+// instead of the refs-based path minimalGrantForDelete feeds -- leaving
+// that path untested on any engine that supports it (Pebble).
+type countingGrantPutStore struct {
+	c1zstore.Store
+	mu                native_sync.Mutex
+	putBatches        [][]*v2.Grant
+	deleteByRefsCalls int
+}
+
+func (c *countingGrantPutStore) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
+	batch := make([]*v2.Grant, len(grants))
+	copy(batch, grants)
+	c.mu.Lock()
+	c.putBatches = append(c.putBatches, batch)
+	c.mu.Unlock()
+	return c.Store.PutGrants(ctx, grants...)
+}
+
+// DeleteGrantByRefs falls back to the id-based DeleteGrant when the
+// underlying store doesn't implement the refs-based path, exactly as the
+// syncer's own s.store.(grantByRefsDeleter) type assertion would have --
+// this wrapper must stay behavior-preserving on every engine, since always
+// declaring the method (even with an error fallback) would make that type
+// assertion succeed unconditionally and break engines, like SQLite, that
+// never supported it.
+func (c *countingGrantPutStore) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
+	deleter, ok := c.Store.(grantByRefsDeleter)
+	if !ok {
+		return c.DeleteGrant(ctx, grant.GetId())
+	}
+	c.mu.Lock()
+	c.deleteByRefsCalls++
+	c.mu.Unlock()
+	return deleter.DeleteGrantByRefs(ctx, grant)
+}
+
+// testExternalResourceMatchAllBatchedFlush proves processGrantsWithExternalPrincipals
+// flushes expanded grants in bounded batches instead of accumulating the
+// full fan-out before a single write, and that the final grant set is
+// unaffected by how the writes were chunked.
+//
+// Runs on both engines because Pebble's placeholder deletion goes through
+// minimalGrantForDelete's refs-based DeleteGrantByRefs while SQLite -- the
+// default engine -- has no grantByRefsDeleter and falls back to the
+// id-based DeleteGrant; everything else asserted is engine-independent.
+//
+// Deliberately not the newGrantIDs re-encounter guard's test: this fixture
+// is far smaller than one dotc1z page, so neither engine ever re-reads its
+// own flushes. See TestExternalResourceMatchAllSkipsItsOwnFlushedReplacements.
+func testExternalResourceMatchAllBatchedFlush(t *testing.T, engine c1zstore.Engine) {
+	runWithSyncModes(t, func(t *testing.T, extraOpts []SyncOpt) {
+		ctx := t.Context()
+
+		tempDir, err := os.MkdirTemp("", "baton-external-match-all-batch-test")
+		require.NoError(t, err)
+		defer os.RemoveAll(tempDir)
+
+		internalMc := newMockConnector()
+		internalMc.rtDB = append(internalMc.rtDB, userResourceType, groupResourceType)
+
+		externalMc := newMockConnector()
+		externalMc.rtDB = append(externalMc.rtDB, userResourceType, groupResourceType)
+
+		// Span three flush batches so the test can't pass by accident with
+		// a single call that happens to be under the cap.
+		const userCount = 2*externalGrantFlushBatchSize + 200
+
+		externalUserIDs := make(map[string]bool, userCount)
+		for i := 0; i < userCount; i++ {
+			u, err := externalMc.AddUserProfile(ctx, fmt.Sprintf("ext_user_%d", i), map[string]any{})
+			require.NoError(t, err)
+			externalUserIDs[u.GetId().GetResource()] = true
+		}
+
+		// Create internal group with ExternalResourceMatchAll grant
+		internalGroup, internalGroupEnt, err := internalMc.AddGroup(ctx, "internal_group")
+		require.NoError(t, err)
+		internalMc.grantDB[internalGroup.GetId().GetResource()] = []*v2.Grant{
+			gt.NewGrant(
+				internalGroup,
+				"member",
+				v2.ResourceId_builder{
+					ResourceType: userResourceType.GetId(),
+					Resource:     "placeholder",
+				}.Build(),
+				gt.WithAnnotation(v2.ExternalResourceMatchAll_builder{
+					ResourceType: v2.ResourceType_TRAIT_USER,
+				}.Build()),
+			),
+		}
+
+		// Sync external resources first
+		externalC1zpath := filepath.Join(tempDir, "external.c1z")
+		externalOpts := append([]SyncOpt{WithC1ZPath(externalC1zpath), WithTmpDir(tempDir)}, extraOpts...)
+		externalSyncer, err := NewSyncer(ctx, externalMc, externalOpts...)
+		require.NoError(t, err)
+		require.NoError(t, externalSyncer.Sync(ctx))
+		require.NoError(t, externalSyncer.Close(ctx))
+
+		// Sync internal with external reference, through a store wrapper
+		// that records every PutGrants call.
+		internalC1zpath := filepath.Join(tempDir, "internal.c1z")
+		rawStore, err := dotc1z.NewStore(ctx, internalC1zpath, dotc1z.WithEngine(engine), dotc1z.WithTmpDir(tempDir))
+		require.NoError(t, err)
+		counting := &countingGrantPutStore{Store: rawStore}
+
+		internalOpts := append([]SyncOpt{WithConnectorStore(counting), WithTmpDir(tempDir), WithExternalResourceC1ZPath(externalC1zpath)}, extraOpts...)
+		internalSyncer, err := NewSyncer(ctx, internalMc, internalOpts...)
+		require.NoError(t, err)
+		require.NoError(t, internalSyncer.Sync(ctx))
+		require.NoError(t, internalSyncer.Close(ctx))
+
+		var totalMatchedGrants int
+		callsOverBatchSize := 0
+		callsWithMatchedGrants := 0
+		for _, batch := range counting.putBatches {
+			if len(batch) > externalGrantFlushBatchSize {
+				callsOverBatchSize++
+			}
+			matched := 0
+			for _, g := range batch {
+				if externalUserIDs[g.GetPrincipal().GetId().GetResource()] {
+					matched++
+				}
+			}
+			if matched > 0 {
+				callsWithMatchedGrants++
+			}
+			totalMatchedGrants += matched
+		}
+		require.Zero(t, callsOverBatchSize, "no PutGrants call should exceed the flush batch size")
+		require.Greater(t, callsWithMatchedGrants, 1, "expanded grants should be written across more than one PutGrants call")
+		require.Equal(t, userCount, totalMatchedGrants, "every external user should have been granted exactly once across the batched writes")
+		if engine == c1zstore.EnginePebble {
+			require.Greater(t, counting.deleteByRefsCalls, 0, "the resolved placeholder should have been deleted via the refs-based path")
+		} else {
+			// Pinning this at zero (not just skipping the Pebble assertion)
+			// proves countingGrantPutStore stayed behavior-preserving on an
+			// engine with no grantByRefsDeleter -- the final grant-set check
+			// below covers deletion.
+			require.Zero(t, counting.deleteByRefsCalls, "SQLite has no refs-based delete; the placeholder must go through the id-based DeleteGrant fallback")
+		}
+
+		// Confirm the final grant set is exactly what the unbatched
+		// implementation would have produced: one grant per external user,
+		// no duplicates, placeholder gone.
+		store, err := dotc1z.NewStore(ctx, internalC1zpath, dotc1z.WithEngine(engine), dotc1z.WithTmpDir(tempDir))
+		require.NoError(t, err)
+		grants, err := store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+			Entitlement: internalGroupEnt,
+		}.Build())
+		require.NoError(t, err)
+		require.Len(t, grants.GetList(), userCount, "should have created exactly one grant per external user, no more, no less")
+		seen := make(map[string]bool, userCount)
+		for _, grant := range grants.GetList() {
+			principalID := grant.GetPrincipal().GetId().GetResource()
+			require.True(t, externalUserIDs[principalID], "grant principal should be one of the external users")
+			require.False(t, seen[principalID], "should not have duplicate grants for the same principal")
+			seen[principalID] = true
+		}
+		require.NoError(t, store.Close(ctx))
+	})
+}
+
+func TestExternalResourceMatchAllBatchedFlushSQLite(t *testing.T) {
+	testExternalResourceMatchAllBatchedFlush(t, c1zstore.EngineSQLite)
+}
+
+func TestExternalResourceMatchAllBatchedFlushPebble(t *testing.T) {
+	testExternalResourceMatchAllBatchedFlush(t, c1zstore.EnginePebble)
+}
+
+// TestExternalResourceMatchAllSkipsItsOwnFlushedReplacements covers the
+// newGrantIDs re-encounter guard: mid-scan flushing means a replacement
+// grant (which carries the placeholder's ExternalResourceMatch* annotation)
+// can get read back by the same scan and re-expanded as unresolved.
+//
+// Needs its own fixture: SQLite pages grants by ascending rowid, so a
+// replacement flushed while page N is processed only gets re-read if page
+// N+1 exists. Every other test in this package uses a table smaller than
+// one page, so the guard is unreachable there -- removing it leaves them
+// all green; here it turns 600 replacement writes into ~300,000.
+func TestExternalResourceMatchAllSkipsItsOwnFlushedReplacements(t *testing.T) {
+	ctx := t.Context()
+
+	tempDir, err := os.MkdirTemp("", "baton-external-match-reencounter-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	internalMc := newMockConnector()
+	internalMc.rtDB = append(internalMc.rtDB, userResourceType, groupResourceType)
+	externalMc := newMockConnector()
+	externalMc.rtDB = append(externalMc.rtDB, userResourceType, groupResourceType)
+
+	// More than one flush batch, so replacements are durably written while the
+	// scan is still running rather than all at the final unconditional flush.
+	const extUserCount = externalGrantFlushBatchSize + 100
+	externalUserIDs := make(map[string]bool, extUserCount)
+	for i := range extUserCount {
+		u, err := externalMc.AddUserProfile(ctx, fmt.Sprintf("ext_user_%d", i), map[string]any{})
+		require.NoError(t, err)
+		externalUserIDs[u.GetId().GetResource()] = true
+	}
+
+	// dotc1z pages grants at maxPageSize rows; one more guarantees a second
+	// page, the only way the scan re-reads a flush from page one. If the
+	// page size ever grows past this, the test still passes but stops
+	// exercising anything -- re-check by mutation if you touch either
+	// constant.
+	const dotc1zGrantPageSize = 10_000
+	const plainGrantCount = dotc1zGrantPageSize + 1
+
+	internalGroup, _, err := internalMc.AddGroup(ctx, "internal_group")
+	require.NoError(t, err)
+	// The placeholder goes first so it lands on page one and its replacements
+	// land past the page boundary.
+	grants := make([]*v2.Grant, 0, plainGrantCount+1)
+	grants = append(grants, gt.NewGrant(
+		internalGroup, "member",
+		v2.ResourceId_builder{ResourceType: userResourceType.GetId(), Resource: "placeholder"}.Build(),
+		gt.WithAnnotation(v2.ExternalResourceMatchAll_builder{ResourceType: v2.ResourceType_TRAIT_USER}.Build()),
+	))
+	for i := range plainGrantCount {
+		grants = append(grants, gt.NewGrant(
+			internalGroup, "member",
+			v2.ResourceId_builder{ResourceType: userResourceType.GetId(), Resource: fmt.Sprintf("plain_%d", i)}.Build(),
+		))
+	}
+	internalMc.grantDB[internalGroup.GetId().GetResource()] = grants
+
+	externalC1zpath := filepath.Join(tempDir, "external.c1z")
+	externalSyncer, err := NewSyncer(ctx, externalMc, WithC1ZPath(externalC1zpath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	require.NoError(t, externalSyncer.Sync(ctx))
+	require.NoError(t, externalSyncer.Close(ctx))
+
+	// SQLite specifically: ascending-rowid paging is what makes the re-encounter
+	// deterministic. Pebble's key order makes it data-dependent, so pinning an
+	// exact write count there would be pinning an accident.
+	internalC1zpath := filepath.Join(tempDir, "internal.c1z")
+	rawStore, err := dotc1z.NewStore(ctx, internalC1zpath, dotc1z.WithEngine(c1zstore.EngineSQLite), dotc1z.WithTmpDir(tempDir))
+	require.NoError(t, err)
+	counting := &countingGrantPutStore{Store: rawStore}
+
+	internalSyncer, err := NewSyncer(ctx, internalMc,
+		WithConnectorStore(counting), WithTmpDir(tempDir), WithExternalResourceC1ZPath(externalC1zpath))
+	require.NoError(t, err)
+	require.NoError(t, internalSyncer.Sync(ctx))
+	require.NoError(t, internalSyncer.Close(ctx))
+
+	matchedWrites := 0
+	for _, batch := range counting.putBatches {
+		for _, g := range batch {
+			if externalUserIDs[g.GetPrincipal().GetId().GetResource()] {
+				matchedWrites++
+			}
+		}
+	}
+	require.Equal(t, extUserCount, matchedWrites,
+		"each external user's replacement grant must be written exactly once; a count in the hundreds of thousands "+
+			"means the scan re-expanded the replacements it flushed itself")
+}
+
 func TestExternalResourceMatchID(t *testing.T) {
 	runWithSyncModes(t, func(t *testing.T, extraOpts []SyncOpt) {
 		ctx := t.Context()
@@ -1160,6 +1434,91 @@ func TestExternalResourceMatchIDWithExpandableRemapping(t *testing.T) {
 		}
 	}
 	require.True(t, found, "should find expandable grant with remapped entitlement ID %q referencing the external group's entitlement", extGroupEnt.GetId())
+}
+
+// TestExternalResourceMatchIDBidFailureDropsAttempt verifies that when the
+// GrantExpandable remap's bid.MakeBid(grant.GetPrincipal()) fails, the whole
+// attempt is dropped -- no half-resolved replacement grant is persisted, and
+// the placeholder is left alone (annotation intact) for a later sync to
+// retry. Regression test: an early bufferExpandedGrant call before this
+// error path used to persist the replacement grant anyway (missing its
+// expansion remap) while leaving the placeholder undeleted too, since the
+// same continue also skips the trailing grantsToDelete append.
+func TestExternalResourceMatchIDBidFailureDropsAttempt(t *testing.T) {
+	ctx := t.Context()
+
+	tempDir, err := os.MkdirTemp("", "baton-external-match-id-bid-failure-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	internalMc := newMockConnector()
+	internalMc.rtDB = append(internalMc.rtDB, userResourceType, groupResourceType)
+
+	externalMc := newMockConnector()
+	externalMc.rtDB = append(externalMc.rtDB, userResourceType, groupResourceType)
+
+	_, _, err = externalMc.AddGroup(ctx, "ext_role")
+	require.NoError(t, err)
+
+	internalGroup, _, err := internalMc.AddGroup(ctx, "internal_group")
+	require.NoError(t, err)
+
+	// The placeholder principal grant.GetPrincipal() resolves to at match
+	// time. An empty resource id makes bid.MakeBid(grant.GetPrincipal())
+	// fail deterministically inside the expandable-remap block.
+	placeholderID := v2.ResourceId_builder{ResourceType: "group", Resource: ""}.Build()
+	placeholderEntID, err := bid.MakeBid(v2.Entitlement_builder{
+		Resource: v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: "group", Resource: "placeholder_role"}.Build(),
+		}.Build(),
+		Slug: "member",
+	}.Build())
+	require.NoError(t, err)
+
+	internalMc.grantDB[internalGroup.GetId().GetResource()] = []*v2.Grant{
+		gt.NewGrant(
+			internalGroup,
+			"member",
+			placeholderID,
+			gt.WithAnnotation(v2.ExternalResourceMatchID_builder{
+				Id: "ext_role",
+			}.Build()),
+			gt.WithAnnotation(v2.GrantExpandable_builder{
+				EntitlementIds:  []string{placeholderEntID},
+				Shallow:         true,
+				ResourceTypeIds: []string{"user"},
+			}.Build()),
+		),
+	}
+
+	externalC1zpath := filepath.Join(tempDir, "external.c1z")
+	externalSyncer, err := NewSyncer(ctx, externalMc, WithC1ZPath(externalC1zpath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	require.NoError(t, externalSyncer.Sync(ctx))
+	require.NoError(t, externalSyncer.Close(ctx))
+
+	internalC1zpath := filepath.Join(tempDir, "internal.c1z")
+	internalSyncer, err := NewSyncer(ctx, internalMc,
+		WithC1ZPath(internalC1zpath),
+		WithTmpDir(tempDir),
+		WithExternalResourceC1ZPath(externalC1zpath),
+		WithDontExpandGrants(),
+	)
+	require.NoError(t, err)
+	require.NoError(t, internalSyncer.Sync(ctx))
+	require.NoError(t, internalSyncer.Close(ctx))
+
+	store, err := dotc1z.NewC1ZFile(ctx, internalC1zpath)
+	require.NoError(t, err)
+	allGrants, err := store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{})
+	require.NoError(t, err)
+	require.NoError(t, store.Close(ctx))
+
+	require.Len(t, allGrants.GetList(), 1, "the failed attempt should leave exactly the untouched placeholder -- no half-resolved replacement grant")
+	require.Equal(t, placeholderID.GetResource(), allGrants.GetList()[0].GetPrincipal().GetId().GetResource(),
+		"the placeholder must not have been deleted")
+	annos := annotations.Annotations(allGrants.GetList()[0].GetAnnotations())
+	require.True(t, annos.Contains(&v2.ExternalResourceMatchID{}), "the placeholder should retain its match annotation so a later sync retries it")
 }
 
 func TestExternalResourceEmailMatch(t *testing.T) {

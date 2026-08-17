@@ -78,6 +78,91 @@ func (s *cleanupScaleStore) DeleteResourceRecord(context.Context, string, string
 	return nil
 }
 
+// cleanupNoRefsStore presents the shape SQLite does: none of the optional
+// refs-based deleters, only the id-based DeleteGrant every store implements.
+// The embedded c1zstore.Store is left nil deliberately -- any call this test
+// does not expect panics rather than quietly succeeding.
+type cleanupNoRefsStore struct {
+	c1zstore.Store
+	resources []*v2.Resource
+	grants    cleanupScaleGrantStore
+
+	resourceScans    int
+	entitlementScans int
+	deletedGrantIDs  []string
+}
+
+func (s *cleanupNoRefsStore) ListResources(
+	context.Context,
+	*v2.ResourcesServiceListResourcesRequest,
+) (*v2.ResourcesServiceListResourcesResponse, error) {
+	s.resourceScans++
+	return v2.ResourcesServiceListResourcesResponse_builder{List: s.resources}.Build(), nil
+}
+
+func (s *cleanupNoRefsStore) ListEntitlements(
+	context.Context,
+	*v2.EntitlementsServiceListEntitlementsRequest,
+) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
+	s.entitlementScans++
+	return v2.EntitlementsServiceListEntitlementsResponse_builder{}.Build(), nil
+}
+
+func (s *cleanupNoRefsStore) Grants() c1zstore.GrantStore {
+	return &s.grants
+}
+
+func (s *cleanupNoRefsStore) DeleteGrant(_ context.Context, grantID string) error {
+	s.deletedGrantIDs = append(s.deletedGrantIDs, grantID)
+	return nil
+}
+
+// TestExternalPrincipalCleanupFallsBackToIDDeleteWithoutRefsDeleters covers
+// the engine that actually matters: deleteStaleExternalPrincipals used to
+// require resourceRecordDeleter + entitlementRecordDeleter + grantByRefsDeleter
+// all at once, and only Pebble implements any of the three -- so on SQLite,
+// the default engine, the pass did nothing and a departed principal's grant
+// stayed live. Grant cleanup now degrades to id-based DeleteGrant instead of
+// skipping, since a stale grant is real access, not inert metadata.
+//
+// stale_external_principal_test.go's end-to-end tests can't pin this: there,
+// the resolved replacement grant still carries its ExternalResourceMatch*
+// annotation, so processGrantsWithExternalPrincipals's own scan revokes it
+// first and masks whether this fallback ran at all.
+func TestExternalPrincipalCleanupFallsBackToIDDeleteWithoutRefsDeleters(t *testing.T) {
+	const size = 3
+	store := &cleanupNoRefsStore{}
+	wantDeleted := make([]string, 0, size)
+	for i := range size {
+		principal := v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: fmt.Sprintf("external-type-%d", i),
+				Resource:     fmt.Sprintf("external-resource-%d", i),
+			}.Build(),
+			Annotations: annotations.New(&v2.BatonID{}),
+		}.Build()
+		grant := v2.Grant_builder{
+			Id:          fmt.Sprintf("grant-%d", i),
+			Entitlement: v2.Entitlement_builder{Id: fmt.Sprintf("entitlement-%d", i)}.Build(),
+			Principal:   principal,
+		}.Build()
+		store.resources = append(store.resources, principal)
+		store.grants.rows = append(store.grants.rows, c1zstore.GrantAnnotation{Grant: grant})
+		wantDeleted = append(wantDeleted, grant.GetId())
+	}
+
+	// nil current: every stored external principal is stale.
+	syncer := &syncer{store: store}
+	require.NoError(t, syncer.deleteStaleExternalPrincipals(t.Context(), nil))
+
+	require.Equal(t, wantDeleted, store.deletedGrantIDs,
+		"every stale principal's grant must be removed through the id-based fallback, not skipped")
+	require.Equal(t, 1, store.resourceScans)
+	require.Equal(t, 1, store.grants.scans)
+	require.Zero(t, store.entitlementScans,
+		"row cleanup is unavailable without the refs deleters, so the entitlement keyspace should not be scanned at all")
+}
+
 func TestChaosConnectorExternalPrincipalCleanupUsesOnePassPerKeyspace(t *testing.T) {
 	for _, size := range []int{1, 1_000} {
 		t.Run(fmt.Sprintf("rows-%d", size), func(t *testing.T) {
