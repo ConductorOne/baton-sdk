@@ -9,6 +9,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -135,16 +136,9 @@ func (p *Provisioner) Close(ctx context.Context) error {
 // Grant/Revoke, or the connector never sees the resource's Profile,
 // DisplayName, etc.
 func hydrateEntitlementResource(e *v2.Entitlement, resource *v2.Resource) *v2.Entitlement {
-	return v2.Entitlement_builder{
-		Resource:    resource,
-		Id:          e.GetId(),
-		DisplayName: e.GetDisplayName(),
-		Description: e.GetDescription(),
-		GrantableTo: e.GetGrantableTo(),
-		Annotations: e.GetAnnotations(),
-		Purpose:     e.GetPurpose(),
-		Slug:        e.GetSlug(),
-	}.Build()
+	clone := proto.Clone(e).(*v2.Entitlement)
+	clone.SetResource(resource)
+	return clone
 }
 
 func (p *Provisioner) grant(ctx context.Context) error {
