@@ -172,3 +172,39 @@ func TestProvisionerRevokeHydratesResources(t *testing.T) {
 		})
 	}
 }
+
+// TestHydrateEntitlementResource pins the nil-guard contract directly: the
+// end-to-end Grant/Revoke tests above never pass a nil entitlement (both
+// call sites derive it from a store read that errors instead of returning
+// nil), so they can't exercise these branches.
+func TestHydrateEntitlementResource(t *testing.T) {
+	group := v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
+	}.Build()
+	entitlement := v2.Entitlement_builder{
+		Id:          "member",
+		Resource:    v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "stub"}.Build()}.Build(),
+		DisplayName: "Member",
+		Slug:        "member",
+	}.Build()
+
+	t.Run("nil entitlement returns nil", func(t *testing.T) {
+		require.Nil(t, hydrateEntitlementResource(nil, group))
+	})
+
+	t.Run("nil resource clears Resource but keeps other fields", func(t *testing.T) {
+		got := hydrateEntitlementResource(entitlement, nil)
+		require.Nil(t, got.GetResource())
+		require.Equal(t, "member", got.GetSlug())
+		require.Equal(t, "Member", got.GetDisplayName())
+	})
+
+	t.Run("non-nil inputs produce an independent clone", func(t *testing.T) {
+		got := hydrateEntitlementResource(entitlement, group)
+		require.NotSame(t, entitlement, got, "hydrateEntitlementResource must return a clone, not mutate or alias its input")
+		require.Equal(t, group.GetId().GetResource(), got.GetResource().GetId().GetResource())
+		require.Equal(t, "member", got.GetSlug())
+		require.Equal(t, "stub", entitlement.GetResource().GetId().GetResource(),
+			"the original entitlement must be untouched by hydration")
+	})
+}
