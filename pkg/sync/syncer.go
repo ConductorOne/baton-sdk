@@ -81,6 +81,12 @@ var connectorCallMethods = []string{
 // This either means that there was no error, or that the error is recoverable (we can resume the sync and possibly succeed next time).
 // Timeouts (context.DeadlineExceeded or codes.DeadlineExceeded, e.g. an AWS Lambda hard timeout) are
 // preservable because the sync can resume from the checkpoint.
+//
+// FROZEN (RFC 0009): superseded by ShouldDiscardSyncArtifact
+// (preserve-by-default). This behavior must not change — older runners
+// branch on it, so widening it in place ships a silent retention change.
+// Prose freeze rather than `Deprecated:` because unmigrated callers are
+// intentional during rollout and must not fail staticcheck on an SDK bump.
 func IsSyncPreservable(err error) bool {
 	if err == nil {
 		return true
@@ -1056,6 +1062,10 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 	err = s.Checkpoint(ctx, true)
 	if err != nil {
+		// Deliberately no detached rescue (RFC 0009 §4.2): the plan is
+		// already cleared, so a rescue could only write the empty token, and
+		// resuming from an empty token re-runs the whole collection. Failing
+		// without a write resumes from the last mid-plan token instead.
 		return s.returnSyncError(l, span, err)
 	}
 

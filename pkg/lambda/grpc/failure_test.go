@@ -310,6 +310,13 @@ func TestClassifyLambdaFailure(t *testing.T) {
 			// Every failure must stay sanitizable: callers strip the log
 			// summary by keying off these two markers, so no path may omit
 			// either one.
+			//
+			// FROZEN marker text (RFC 0009 §4.4): the hosted runner's
+			// invoke-error mapping string-matches "lambda_transport:" and
+			// "logSummary:" to classify infra failures. Rewording either
+			// marker silently breaks that classification under an unchanged
+			// consumer (the #1048 incident shape). The freeze lifts only
+			// when the runner's typed failure-class routing lands.
 			require.Contains(t, failure.Error(), "lambda_transport:", "error string must carry the transport prefix")
 			require.Contains(t, failure.Error(), "logSummary:", "error string must carry the logSummary separator")
 		})
