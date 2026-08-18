@@ -1074,7 +1074,8 @@ func TestDigestLeafFoldConsistent(t *testing.T) {
 	}
 
 	// Folding at the build width returns the stored leaves one-to-one.
-	leaves, err := e.foldedLeafBuckets(ctx, grantDigestSpec, partition, 8)
+	// (White-box: e.db is stable here — no concurrent Close in this test.)
+	leaves, err := e.foldedLeafBuckets(ctx, e.db, grantDigestSpec, partition, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1103,7 +1104,7 @@ func TestDigestLeafFoldConsistent(t *testing.T) {
 
 	// Folding to a coarser width matches a manual regroup of the
 	// build-width leaves.
-	leaves4, err := e.foldedLeafBuckets(ctx, grantDigestSpec, partition, 4)
+	leaves4, err := e.foldedLeafBuckets(ctx, e.db, grantDigestSpec, partition, 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1137,7 +1138,7 @@ func TestDigestLeafFoldConsistent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lc, ld, present, err := e.getDigestLeaf(grantDigestSpec, partition, b.leafKeyPrefix())
+	lc, ld, present, err := e.getDigestLeaf(e.db, grantDigestSpec, partition, b.leafKeyPrefix())
 	if err != nil || !present {
 		t.Fatalf("leaf %d: present=%v err=%v", b.Index, present, err)
 	}

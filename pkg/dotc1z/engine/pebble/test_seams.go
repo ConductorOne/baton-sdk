@@ -56,4 +56,14 @@ type testSeams struct {
 	// stored record stays unstamped and the sync stays discoverable
 	// as unfinished (resumable).
 	endSyncStampHook func() error
+
+	// currentSyncStepPreReadHook, when non-nil, runs inside
+	// CurrentSyncStep between sampling the binding generation and
+	// reading the sync-run record — the window the seqlock retry
+	// exists for. A hook that rebinds or clears the current sync moves
+	// the generation mid-read, which is the only way to reach the
+	// retry branch from a test: the transition has to land between two
+	// statements of another goroutine's read, and no amount of
+	// concurrent hammering can be made to guarantee it.
+	currentSyncStepPreReadHook func()
 }

@@ -103,10 +103,15 @@ func isGrantDigestRootKey(key []byte) bool {
 // an O(file) rebuild. No-op when partitions is empty or no digest has
 // ever been built for this file.
 func (e *Engine) InvalidateGrantDigestPartitions(ctx context.Context, partitions []string) error {
-	if len(partitions) == 0 || !e.db.GrantDigestsPresent() {
+	if len(partitions) == 0 {
 		return nil
 	}
 	return e.withWrite(func() error {
+		// Checked inside the admitted write: reading the handle before
+		// admission was the bare access the gate exists to remove.
+		if !e.db.GrantDigestsPresent() {
+			return nil
+		}
 		batch := e.db.NewDigestBatch()
 		defer batch.Close()
 		for _, partition := range partitions {
@@ -201,10 +206,21 @@ func (e *Engine) RepairMissingGrantDigests(ctx context.Context) error {
 			return fmt.Errorf("RepairMissingGrantDigests: drop digest state left by an interrupted build: %w", err)
 		}
 	}
-	if !e.db.GrantDigestsPresent() {
+	present, err := func() (bool, error) {
+		db, release, err := e.pinRead()
+		if err != nil {
+			return false, err
+		}
+		defer release()
+		return db.GrantDigestsPresent(), nil
+	}()
+	if err != nil {
+		return err
+	}
+	if !present {
 		return e.BuildGrantDigests(ctx)
 	}
-	err := e.repairMissingGrantDigestsAttempt(ctx)
+	err = e.repairMissingGrantDigestsAttempt(ctx)
 	if err == nil {
 		return nil
 	}

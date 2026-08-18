@@ -46,7 +46,16 @@ func (e *Engine) GetSyncRunRecord(ctx context.Context, syncID string) (*v3.SyncR
 	if syncID == "" {
 		return nil, errors.New("GetSyncRunRecord: empty sync_id")
 	}
-	val, closer, err := e.db.Get(encodeSyncRunKey())
+	// Pinned even though several callers are already-admitted writes:
+	// nesting a read entry inside a write entry is safe (the gate counts
+	// entries, it doesn't own them), and the pin is what protects the
+	// bare-Engine callers (stats, sync-meta, clone).
+	db, release, err := e.pinRead()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	val, closer, err := db.Get(encodeSyncRunKey())
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +107,9 @@ func (e *Engine) DeleteSyncRunRecord(ctx context.Context, syncID string) error {
 
 // hasSyncRun reports whether the engine already holds a sync-run
 // record (the file's one sync). StartNewSync uses it to decide whether
-// a prior sync must be wiped before the replacement is bound.
+// a prior sync must be wiped before the replacement is bound. Its only
+// caller runs as an admitted write (startNewSync holds gate admission),
+// so the bare e.db read here cannot race the teardown.
 func (e *Engine) hasSyncRun() (bool, error) {
 	_, closer, err := e.db.Get(encodeSyncRunKey())
 	if err != nil {
@@ -114,8 +125,13 @@ func (e *Engine) hasSyncRun() (bool, error) {
 // IterateAllSyncRuns iterates every sync_run record in the engine.
 // Used by callers that want "what syncs do I have available?".
 func (e *Engine) IterateAllSyncRuns(ctx context.Context, yield func(*v3.SyncRunRecord) bool) error {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	prefix := encodeSyncRunFullPrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
@@ -124,6 +140,9 @@ func (e *Engine) IterateAllSyncRuns(ctx context.Context, yield func(*v3.SyncRunR
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		r := &v3.SyncRunRecord{}
 		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return fmt.Errorf("iterate sync_runs: %w", err)

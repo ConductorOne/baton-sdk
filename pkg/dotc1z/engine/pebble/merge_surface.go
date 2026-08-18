@@ -20,6 +20,17 @@ package pebble
 //
 // Callers that write the entitlement keyspace through this surface
 // (ingests, excises) must call InvalidateBareIDLookups afterwards.
+//
+// ADMISSION-GATE EXCLUSION (deliberate): nothing here pins or enters
+// the gate. The gate exists for callers that may overlap Close; this
+// surface's one consumer (the compactor pipeline) is single-threaded
+// and strictly ordered before the store's save/Close, so overlap is
+// structurally impossible — and per-call admission could not cover the
+// iterators and closers these methods hand out anyway, since those
+// outlive the call. The e.db nil checks below are SEQUENTIAL
+// post-close misuse guards (a bug in call ordering), not concurrency
+// guards: if the ordering fence is violated concurrently, -race and
+// pebble's own use-after-close panics are the detectors, by design.
 
 import (
 	"context"

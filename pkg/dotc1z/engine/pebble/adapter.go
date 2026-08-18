@@ -96,6 +96,23 @@ func (e *Engine) startNewSync(ctx context.Context, syncType connectorstore.SyncT
 	if syncID == "" {
 		syncID = ksuid.New().String()
 	}
+	// Guard BEFORE lifecycleMu, like every transition: the body's own
+	// writes would trip the barrier re-entrancy check eventually, but
+	// only after lifecycleMu is already held — and blocking on a
+	// contended lifecycleMu while holding the barrier IS the deadlock,
+	// so the check must fire before the lock, not at the first write.
+	e.assertNotTakingLifecycleFromWrite()
+	// The transition runs as one admitted write: Close either waits it
+	// out or refuses it, so the bare handle reads inside (hasSyncRun,
+	// the pre-wipe) can never race the teardown. Steps inside that
+	// re-enter the gate (ResetForNewSync, PutSyncRunRecord) nest —
+	// entries are counted, not owned. If Close flips the gate mid-
+	// transition, the next nested entry is refused and the transition
+	// unwinds with ErrEngineClosing through its normal error path.
+	if err := e.admit.enterWrite(); err != nil {
+		return "", err
+	}
+	defer e.admit.exitWrite()
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
 	// Single-sync contract: a v3 Pebble c1z holds exactly one sync.
@@ -143,11 +160,22 @@ func (e *Engine) ResumeSync(ctx context.Context, syncType connectorstore.SyncTyp
 	if syncID == "" {
 		return "", errors.New("pebble.ResumeSync: empty syncID")
 	}
+	e.assertNotTakingLifecycleFromWrite()
+	// Admitted as one write for the whole check-then-bind; see
+	// startNewSync for the contract.
+	if err := e.admit.enterWrite(); err != nil {
+		return "", err
+	}
+	defer e.admit.exitWrite()
+	e.lifecycleMu.Lock()
+	defer e.lifecycleMu.Unlock()
+	// Validate UNDER lifecycleMu, not before it: startNewSync wipes the
+	// prior sync's record and binds the replacement under this lock, so
+	// a check made outside it can pass against a record the wipe is
+	// about to delete — and then bind a sync that no longer exists.
 	if _, err := e.GetSyncRunRecord(ctx, syncID); err != nil {
 		return "", c1zstore.AdaptNotFound(fmt.Errorf("ResumeSync: lookup: %w", err), pebble.ErrNotFound)
 	}
-	e.lifecycleMu.Lock()
-	defer e.lifecycleMu.Unlock()
 	if err := e.bindCurrentSync(syncID); err != nil {
 		return "", err
 	}
@@ -196,6 +224,13 @@ func (e *Engine) StartOrResumeSync(ctx context.Context, syncType connectorstore.
 // whose step can't be read (SQLite's SetCurrentSync likewise returns
 // its getSync error).
 func (e *Engine) SetCurrentSync(ctx context.Context, syncID string) error {
+	e.assertNotTakingLifecycleFromWrite()
+	// Admitted as one write for the whole check-then-bind; see
+	// startNewSync for the contract.
+	if err := e.admit.enterWrite(); err != nil {
+		return err
+	}
+	defer e.admit.exitWrite()
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
 	if _, err := e.GetSyncRunRecord(ctx, syncID); err != nil && !errors.Is(err, pebble.ErrNotFound) {
@@ -210,31 +245,85 @@ func (e *Engine) SetCurrentSync(ctx context.Context, syncID string) error {
 // step cache to go stale (the old Adapter cached it and grew
 // rehydration logic at every rebind to compensate).
 //
-// Holds lifecycleMu so the id read and the record read are one
-// snapshot with respect to the lifecycle transitions — without it, an
-// interleaved EndSync/SetCurrentSync between the two reads could
-// return a token for a sync the engine is no longer bound to (the old
-// Adapter's mutex gave the same guarantee over its cache; review
-// finding, final round).
+// The id read and the record read have to agree on which sync is
+// bound, or an interleaved EndSync/SetCurrentSync between them would
+// return a token for a sync the engine has already left. This gets that
+// agreement by re-reading the binding generation afterwards instead of
+// holding lifecycleMu, and the difference is not a micro-optimization:
+// EndSync holds lifecycleMu across a finalize whose steps take the
+// write barrier, so taking it here made the order lifecycleMu → writeMu
+// in one direction and writeMu → lifecycleMu in the other for any write
+// whose body read the current step. That deadlock is invisible at the
+// call site, because this reads like a plain getter. Dropping the lock
+// deletes the edge rather than documenting it.
+//
+// What that gives up: a caller racing an in-flight EndSync can observe
+// the token being finalized instead of blocking until the sync detaches.
+// The value still belongs to a sync that was bound at a real instant
+// during the call — the answer a caller a moment earlier would have
+// received — and every caller reads this while it owns the sync's
+// lifecycle, so none can tell the difference.
 func (e *Engine) CurrentSyncStep(ctx context.Context) (string, error) {
-	e.lifecycleMu.Lock()
-	defer e.lifecycleMu.Unlock()
-	syncID := e.CurrentSyncID()
-	if syncID == "" {
-		return "", nil
-	}
-	rec, err := e.GetSyncRunRecord(ctx, syncID)
-	if err != nil {
-		if errors.Is(err, pebble.ErrNotFound) {
+	for pass := 0; ; pass++ {
+		// Every pass past the first is waiting on transitions this call
+		// does not control, and the termination argument below assumes
+		// they stop coming; if they don't, the caller's cancellation is
+		// the only way out. The first pass stays unguarded so a caller
+		// reading the step while shutting down — which is when the
+		// expiry checkpoint reads it — still gets an answer.
+		if pass > 0 {
+			if err := ctx.Err(); err != nil {
+				return "", err
+			}
+		}
+		syncID, gen := e.currentSyncBinding()
+		if syncID == "" {
 			return "", nil
 		}
-		return "", err
+		if e.test.currentSyncStepPreReadHook != nil {
+			e.test.currentSyncStepPreReadHook()
+		}
+		rec, err := e.GetSyncRunRecord(ctx, syncID)
+		if err != nil {
+			if !errors.Is(err, pebble.ErrNotFound) {
+				return "", err
+			}
+			// Not-found clears the same bar as a hit, or the two answers
+			// disagree about which sync they describe. startNewSync bumps
+			// the generation in MarkFreshSync before it writes the new
+			// record, so a reader that sampled the previous binding can
+			// arrive after the swap and be told "no such sync" — about a
+			// sync that was never unbound, by a lookup that keys on an id
+			// the engine has already left. Reporting no step there is a
+			// lie the locked version could not tell.
+			if _, after := e.currentSyncBinding(); after == gen {
+				return "", nil
+			}
+			continue
+		}
+		if _, after := e.currentSyncBinding(); after == gen {
+			return rec.GetSyncToken(), nil
+		}
+		// A transition committed while we were reading; the record we
+		// have may belong to a sync that is no longer bound, so read
+		// again against the new binding. This terminates for the same
+		// reason the lock-holding version made progress: transitions are
+		// serialized by lifecycleMu and happen a handful of times per
+		// sync, so spinning here needs an unbounded stream of them —
+		// which would have starved the blocking version too. The
+		// cancellation check at the top bounds that case anyway.
 	}
-	return rec.GetSyncToken(), nil
 }
 
 // CheckpointSync persists a step token to the open sync's record.
 func (e *Engine) CheckpointSync(ctx context.Context, syncToken string) error {
+	// Guard BEFORE lifecycleMu; see startNewSync for why the body's own
+	// barrier take fires too late to catch the deadlock.
+	e.assertNotTakingLifecycleFromWrite()
+	if err := e.admit.enterWrite(); err != nil {
+		return err
+	}
+	defer e.admit.exitWrite()
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
 	syncID := e.CurrentSyncID()
@@ -258,6 +347,18 @@ func (e *Engine) CheckpointSync(ctx context.Context, syncToken string) error {
 // cleared inside the finalize tail (EndFreshSync), so success leaves
 // no lifecycle state to reset here.
 func (e *Engine) EndSync(ctx context.Context) error {
+	// Guard BEFORE lifecycleMu; see startNewSync for why the finalize's
+	// own barrier takes fire too late to catch the deadlock.
+	e.assertNotTakingLifecycleFromWrite()
+	// Admitted as one write for the whole finalize: Close waits the
+	// finalize out (or, flipping mid-way, refuses its next nested step,
+	// which unwinds through EndSync's unseal error path). This is also
+	// what covers the finalize's bare handle reads — DeferredIdxPending,
+	// the digest repair scans — against the teardown.
+	if err := e.admit.enterWrite(); err != nil {
+		return err
+	}
+	defer e.admit.exitWrite()
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
 	syncID := e.CurrentSyncID()

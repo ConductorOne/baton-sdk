@@ -38,7 +38,7 @@ func plantOrphanPrincipalIndexEntry(t *testing.T, e *Engine, principalID, entTai
 
 func countPrincipalIndexEntries(t *testing.T, e *Engine, principalRT, principalID string) int {
 	t.Helper()
-	ids, err := e.grantIdentitiesForPrincipal(context.Background(), principalRT, principalID)
+	ids, err := grantIdentitiesForPrincipal(context.Background(), e.db, principalRT, principalID)
 	require.NoError(t, err)
 	return len(ids)
 }

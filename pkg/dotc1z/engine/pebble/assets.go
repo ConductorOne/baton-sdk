@@ -28,7 +28,12 @@ func (e *Engine) PutAssetRecord(ctx context.Context, r *v3.AssetRecord) error {
 }
 
 func (e *Engine) GetAssetRecord(ctx context.Context, externalID string) (*v3.AssetRecord, error) {
-	val, closer, err := e.db.Get(encodeAssetKey(externalID))
+	db, release, err := e.pinRead()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	val, closer, err := db.Get(encodeAssetKey(externalID))
 	if err != nil {
 		return nil, err
 	}
@@ -47,8 +52,13 @@ func (e *Engine) DeleteAssetRecord(ctx context.Context, externalID string) error
 }
 
 func (e *Engine) IterateAssets(ctx context.Context, yield func(*v3.AssetRecord) bool) error {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	prefix := encodeAssetPrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
@@ -57,6 +67,9 @@ func (e *Engine) IterateAssets(ctx context.Context, yield func(*v3.AssetRecord) 
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		r := &v3.AssetRecord{}
 		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return fmt.Errorf("iterate assets: %w", err)

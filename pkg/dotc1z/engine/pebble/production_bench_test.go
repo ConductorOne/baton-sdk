@@ -15,6 +15,15 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
+// These benchmarks measure the production write path as long as the
+// binary is built without -tags=baton_lockchecks and without -race:
+// the deadlock-shape checks (see lock_checks_enabled.go) are a
+// compile-time constant, so a plain `go test -bench` carries none of
+// their cost. An armed build formats a runtime stack per barrier
+// acquisition — about 2µs against roughly 7µs for the grant write being
+// measured, and only on the Pebble side of every Pebble-vs-SQLite
+// comparison here — so don't read numbers from one.
+
 func benchmarkGrants(n int) []*v2.Grant {
 	grants := make([]*v2.Grant, 0, n)
 	for i := 0; i < n; i++ {

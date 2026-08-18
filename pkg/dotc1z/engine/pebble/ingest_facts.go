@@ -18,6 +18,7 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // Annotation type names the invariant probes match against (the tail
@@ -72,11 +73,13 @@ func grantValueCarriesInsertFact(val []byte) (bool, error) {
 // distinct resource — O(distinct) seeks, never O(grants). Backs the
 // syncer's grant→resource referential invariant (I3).
 func (e *Engine) ForEachDistinctGrantEntitlementResource(ctx context.Context, visit func(resourceTypeID, resourceID string) error) error {
-	if e.db == nil {
-		return ErrEngineClosing
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
 	}
+	defer release()
 	prefix := encodeGrantPrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
@@ -119,11 +122,13 @@ func (e *Engine) ForEachDistinctGrantEntitlementResource(ctx context.Context, vi
 // scan: one seek per distinct resource, never O(entitlements). Backs
 // the syncer's entitlement→resource referential invariant (I7).
 func (e *Engine) ForEachDistinctEntitlementResource(ctx context.Context, visit func(resourceTypeID, resourceID string) error) error {
-	if e.db == nil {
-		return ErrEngineClosing
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
 	}
+	defer release()
 	prefix := encodeEntitlementPrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
@@ -169,11 +174,13 @@ func (e *Engine) ForEachDistinctEntitlementResource(ctx context.Context, visit f
 // (see identity.go). Backs the syncer's grant→entitlement referential
 // invariant (I8).
 func (e *Engine) ForEachDanglingGrantEntitlement(ctx context.Context, visit func(entitlementID, resourceTypeID, resourceID string) error) error {
-	if e.db == nil {
-		return ErrEngineClosing
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
 	}
+	defer release()
 	prefix := encodeGrantPrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
@@ -208,7 +215,7 @@ func (e *Engine) ForEachDanglingGrantEntitlement(ctx context.Context, visit func
 			stripped:       comps[2] == idFlagStripped,
 			tail:           comps[3],
 		}
-		exists, err := e.hasEntitlementIdentity(id)
+		exists, err := hasEntitlementIdentity(db, id)
 		if err != nil {
 			return err
 		}
@@ -223,8 +230,8 @@ func (e *Engine) ForEachDanglingGrantEntitlement(ctx context.Context, visit func
 	return iter.Error()
 }
 
-func (e *Engine) hasEntitlementIdentity(id entitlementIdentity) (bool, error) {
-	_, closer, err := e.db.Get(encodeEntitlementIdentityKey(id))
+func hasEntitlementIdentity(db *rawdb.DB, id entitlementIdentity) (bool, error) {
+	_, closer, err := db.Get(encodeEntitlementIdentityKey(id))
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return false, nil
@@ -245,12 +252,14 @@ func (e *Engine) hasEntitlementIdentity(id entitlementIdentity) (bool, error) {
 // reference it). Reads row values, so it is reserved for DANGLING
 // referential probes — rare to zero on healthy syncs.
 func (e *Engine) GrantsForEntitlementAllCarryInsertFact(ctx context.Context, entitlementID, entResourceTypeID, entResourceID string) (bool, error) {
-	if e.db == nil {
-		return false, ErrEngineClosing
+	db, release, err := e.pinRead()
+	if err != nil {
+		return false, err
 	}
+	defer release()
 	entID := entitlementIdentityFromParts(entResourceTypeID, entResourceID, entitlementID)
 	prefix := encodeGrantPrimaryEntitlementPrefix(entID)
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
@@ -278,11 +287,13 @@ func (e *Engine) GrantsForEntitlementAllCarryInsertFact(ctx context.Context, ent
 // Reads row values, so it is reserved for DANGLING referential probes —
 // rare to zero on healthy syncs — never the bulk path.
 func (e *Engine) GrantsForEntResourceCarryInsertFact(ctx context.Context, resourceTypeID, resourceID string) (bool, error) {
-	if e.db == nil {
-		return false, ErrEngineClosing
+	db, release, err := e.pinRead()
+	if err != nil {
+		return false, err
 	}
+	defer release()
 	prefix := encodeGrantPrimaryEntitlementResourcePrefix(resourceTypeID, resourceID)
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
@@ -308,10 +319,19 @@ func (e *Engine) GrantsForEntResourceCarryInsertFact(ctx context.Context, resour
 // HasResourceRecord reports whether a resource row exists — the probe
 // side of the referential invariants.
 func (e *Engine) HasResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (bool, error) {
-	if e.db == nil {
-		return false, ErrEngineClosing
+	db, release, err := e.pinRead()
+	if err != nil {
+		return false, err
 	}
-	_, closer, err := e.db.Get(encodeResourceKey(resourceTypeID, resourceID))
+	defer release()
+	return hasResourceRecordOn(db, resourceTypeID, resourceID)
+}
+
+// hasResourceRecordOn is HasResourceRecord against a handle the caller
+// already holds admitted — used inside pinned scans so the probe doesn't
+// re-pin (and can't be refused mid-scan by a concurrent Close).
+func hasResourceRecordOn(db *rawdb.DB, resourceTypeID, resourceID string) (bool, error) {
+	_, closer, err := db.Get(encodeResourceKey(resourceTypeID, resourceID))
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return false, nil

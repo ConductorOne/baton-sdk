@@ -19,6 +19,7 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // EnsureGrantIndexes runs the deferred grant-index build NOW if one is
@@ -38,10 +39,22 @@ import (
 // post-collection seam guarantees quiescence (parallelSync has
 // drained); any new caller must guarantee the same or use EndSync.
 func (e *Engine) EnsureGrantIndexes(ctx context.Context) error {
-	if e.db == nil {
-		return ErrEngineClosing
+	// The pending probe reads the handle, so it needs gate admission like
+	// any other read; the build and clear below take their own write
+	// admission. (The old bare e.db nil check was the unsynchronized
+	// access the gate replaces.)
+	pending, err := func() (bool, error) {
+		db, release, err := e.pinRead()
+		if err != nil {
+			return false, err
+		}
+		defer release()
+		return db.DeferredIdxPending(), nil
+	}()
+	if err != nil {
+		return err
 	}
-	if !e.db.DeferredIdxPending() {
+	if !pending {
 		return nil
 	}
 	if err := e.BuildDeferredGrantIndexes(ctx); err != nil {
@@ -71,12 +84,14 @@ func (e *Engine) EnsureGrantIndexes(ctx context.Context) error {
 // the orphan index keys are deleted — instead of being vacuously
 // classified as match-annotated-only.
 func (e *Engine) ForEachDanglingGrantPrincipal(ctx context.Context, visit func(principalRT, principalID string, matchAnnotatedOnly bool, carrierGrants int64) error) error {
-	if e.db == nil {
-		return ErrEngineClosing
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
 	}
+	defer release()
 	prefix := []byte{versionV3, typeIndex, idxGrantByPrincipal}
 	prefix = codec.AppendTupleSeparator(prefix)
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
@@ -123,12 +138,15 @@ func (e *Engine) ForEachDanglingGrantPrincipal(ctx context.Context, visit func(p
 			return fmt.Errorf("dangling grant-principal scan: malformed index key %x", key)
 		}
 		rt, rid := string(rtBytes), string(ridBytes)
-		exists, err := e.HasResourceRecord(ctx, rt, rid)
+		// The pinned handle threads through the probes: re-pinning inside
+		// an already-admitted scan would let a concurrent Close refuse the
+		// inner probe mid-operation.
+		exists, err := hasResourceRecordOn(db, rt, rid)
 		if err != nil {
 			return err
 		}
 		if !exists {
-			matchOnly, carrierGrants, err := e.grantsForPrincipalAllMatchAnnotated(ctx, rt, rid)
+			matchOnly, carrierGrants, err := grantsForPrincipalAllMatchAnnotated(ctx, db, rt, rid)
 			if err != nil {
 				return err
 			}
@@ -191,7 +209,8 @@ func (e *Engine) invariantWriteOpts() *pebble.WriteOptions {
 func (e *Engine) healOrphanPrincipalIndexEntries(ctx context.Context, principalRT, principalID string) (int64, error) {
 	var healed int64
 	err := e.withWrite(func() error {
-		ids, err := e.grantIdentitiesForPrincipal(ctx, principalRT, principalID)
+		// e.db is the admitted write's stable handle here.
+		ids, err := grantIdentitiesForPrincipal(ctx, e.db, principalRT, principalID)
 		if err != nil {
 			return err
 		}
@@ -240,8 +259,8 @@ func (e *Engine) healOrphanPrincipalIndexEntries(ctx context.Context, principalR
 // their carriers too, so the syncer's per-GRANT carrier totals don't
 // silently lose the mixed case — the full walk is acceptable because
 // this probe runs only for DANGLING principals (reads row values).
-func (e *Engine) grantsForPrincipalAllMatchAnnotated(ctx context.Context, principalRT, principalID string) (bool, int64, error) {
-	ids, err := e.grantIdentitiesForPrincipal(ctx, principalRT, principalID)
+func grantsForPrincipalAllMatchAnnotated(ctx context.Context, db *rawdb.DB, principalRT, principalID string) (bool, int64, error) {
+	ids, err := grantIdentitiesForPrincipal(ctx, db, principalRT, principalID)
 	if err != nil {
 		return false, 0, err
 	}
@@ -251,7 +270,7 @@ func (e *Engine) grantsForPrincipalAllMatchAnnotated(ctx context.Context, princi
 		if err := ctx.Err(); err != nil {
 			return false, 0, err
 		}
-		rec, err := e.getGrantRecordByIdentity(id)
+		rec, err := getGrantRecordByIdentity(db, id)
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
 				continue // index entry without a row; the scan tolerates it
@@ -270,9 +289,9 @@ func (e *Engine) grantsForPrincipalAllMatchAnnotated(ctx context.Context, princi
 // grantIdentitiesForPrincipal collects the grant identities under one
 // principal from the by_principal index. Collected before any deletes so
 // callers never interleave iteration with writes.
-func (e *Engine) grantIdentitiesForPrincipal(ctx context.Context, principalRT, principalID string) ([]grantIdentity, error) {
+func grantIdentitiesForPrincipal(ctx context.Context, db *rawdb.DB, principalRT, principalID string) ([]grantIdentity, error) {
 	prefix := encodeGrantByPrincipalPrefix(principalRT, principalID)
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
@@ -311,8 +330,8 @@ func (e *Engine) grantIdentitiesForPrincipal(ctx context.Context, principalRT, p
 	return ids, iter.Error()
 }
 
-func (e *Engine) getGrantRecordByIdentity(id grantIdentity) (*v3.GrantRecord, error) {
-	val, closer, err := e.db.Get(encodeGrantIdentityKey(id))
+func getGrantRecordByIdentity(db *rawdb.DB, id grantIdentity) (*v3.GrantRecord, error) {
+	val, closer, err := db.Get(encodeGrantIdentityKey(id))
 	if err != nil {
 		return nil, err
 	}

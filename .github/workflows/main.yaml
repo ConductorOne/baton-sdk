@@ -51,11 +51,19 @@ jobs:
           go-version-file: "go.mod"
       - name: go tests
         if: ${{ matrix.platform != 'windows-latest' }}
-        run: go test -tags=baton_lambda_support -v -covermode=count -json ./... > test.json
+        run: go test -tags=baton_lambda_support,baton_lockchecks -v -covermode=count -json ./... > test.json
       - name: go tests
         if: ${{ matrix.platform == 'windows-latest' }}
         # Run tests with -short on Windows since its filesystem is very slow, causing CI to time out.
-        run: go test -timeout=30m -tags=baton_lambda_support -short -v -covermode=count -json ./... > test.json
+        #
+        # bash, not the Windows default of pwsh: PowerShell treats an
+        # unquoted comma as the array operator, so the comma-separated tag
+        # list made this step fail in zero seconds without even creating
+        # test.json, which then surfaced as a confusing "cat test.json"
+        # failure two steps later. bash also keeps the two legs' quoting
+        # rules identical, so a flag that works on one works on the other.
+        shell: bash
+        run: go test -timeout=30m -tags=baton_lambda_support,baton_lockchecks -short -v -covermode=count -json ./... > test.json
       - name: Print go test results
         if: always()
         run: cat test.json

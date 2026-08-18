@@ -111,8 +111,13 @@ func (e *Engine) PutResourceRecords(ctx context.Context, records ...*v3.Resource
 }
 
 func (e *Engine) GetResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (*v3.ResourceRecord, error) {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	key := encodeResourceKey(resourceTypeID, resourceID)
-	val, closer, err := e.db.Get(key)
+	val, closer, err := db.Get(key)
 	if err != nil {
 		return nil, err
 	}
@@ -150,8 +155,13 @@ func (e *Engine) DeleteResourceRecord(ctx context.Context, resourceTypeID, resou
 }
 
 func (e *Engine) IterateResources(ctx context.Context, yield func(*v3.ResourceRecord) bool) error {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	prefix := encodeResourcePrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
@@ -160,6 +170,9 @@ func (e *Engine) IterateResources(ctx context.Context, yield func(*v3.ResourceRe
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		r := &v3.ResourceRecord{}
 		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return fmt.Errorf("iterate resources: %w", err)
@@ -172,8 +185,13 @@ func (e *Engine) IterateResources(ctx context.Context, yield func(*v3.ResourceRe
 }
 
 func (e *Engine) IterateResourcesByParent(ctx context.Context, parentRT, parentID string, yield func(*v3.ResourceRecord) bool) error {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	indexPrefix := encodeResourceByParentPrefix(parentRT, parentID)
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: indexPrefix,
 		UpperBound: upperBoundOf(indexPrefix),
 	})
@@ -182,12 +200,15 @@ func (e *Engine) IterateResourcesByParent(ctx context.Context, parentRT, parentI
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		// Decode (childRT, childID) from the tail.
 		childRT, childID, ok := decodeTwoTupleComponents(iter.Key(), indexPrefix)
 		if !ok {
 			continue
 		}
-		val, closer, err := e.db.Get(encodeResourceKey(childRT, childID))
+		val, closer, err := db.Get(encodeResourceKey(childRT, childID))
 		if err != nil {
 			if errors.Is(err, pebble.ErrNotFound) {
 				continue

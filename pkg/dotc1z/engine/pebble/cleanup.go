@@ -127,12 +127,12 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 // Refuses with ErrEngineSealed after EndSync (via checkWritable): manual
 // compactions go through the same CompactionScheduler as automatic ones,
 // so on a sealed (paused) engine db.Compact would block forever waiting
-// for a grant — and, because we hold writeWG, deadlock Engine.Close too.
-// Bind a sync (SetCurrentSync) first.
+// for a grant — and, because we sit admitted in the close gate, deadlock
+// Engine.Close too. Bind a sync (SetCurrentSync) first.
 //
-// KNOWN LIMITATION: the gate only refuses calls made after the seal. A
+// KNOWN LIMITATION: the seal only refuses calls made after it. A
 // CompactAllRanges already inside its loop when EndSync pauses the
-// scheduler blocks in db.Compact indefinitely (and holds writeWG, so a
+// scheduler blocks in db.Compact indefinitely (and stays admitted, so a
 // later Close hangs too). Do not run this concurrently with EndSync; no
 // in-tree caller does.
 func (e *Engine) CompactAllRanges(ctx context.Context) error {
@@ -142,20 +142,19 @@ func (e *Engine) CompactAllRanges(ctx context.Context) error {
 	if err := e.checkWritable(); err != nil {
 		return err
 	}
-	// Hold the engine's writeWG for the duration of the compaction
-	// so Engine.Close blocks until our in-flight Compact returns.
-	// Without this guard, Close → e.db.Close() can race with our
+	// Enter the gate as a write for the duration of the compaction so
+	// Engine.Close blocks until our in-flight Compact returns. Without
+	// this guard, Close → e.db.Close() can race with our
 	// e.db.Compact(...) call, and pebble.DB.Compact PANICS on a
 	// closed DB (vendor/.../pebble/v2/db.go:1826) rather than
 	// returning an error. Compact doesn't need writeMu — pebble's
 	// own compaction is concurrency-safe with foreground writes,
 	// so we don't go through withWrite (which serializes against
 	// other Puts and DeleteRanges).
-	e.writeWG.Add(1)
-	defer e.writeWG.Done()
-	if e.closing.Load() {
-		return ErrEngineClosing
+	if err := e.admit.enterWrite(); err != nil {
+		return err
 	}
+	defer e.admit.exitWrite()
 
 	var firstErr error
 	for _, r := range scopedRanges() {
@@ -197,15 +196,14 @@ func (e *Engine) Flush(ctx context.Context) error {
 	if err := e.checkWritable(); err != nil {
 		return err
 	}
-	// Hold writeWG so Engine.Close blocks until the Flush + WAL
-	// fsync finish — same close-race protection as CompactSyncRanges.
+	// Enter the gate as a write so Engine.Close blocks until the Flush +
+	// WAL fsync finish — same close-race protection as CompactAllRanges.
 	// pebble.DB.Flush and pebble.DB.LogData both panic on a closed
 	// DB rather than returning an error.
-	e.writeWG.Add(1)
-	defer e.writeWG.Done()
-	if e.closing.Load() {
-		return ErrEngineClosing
+	if err := e.admit.enterWrite(); err != nil {
+		return err
 	}
+	defer e.admit.exitWrite()
 	if err := e.db.FlushMemtables(); err != nil {
 		return fmt.Errorf("engine: flush: %w", err)
 	}

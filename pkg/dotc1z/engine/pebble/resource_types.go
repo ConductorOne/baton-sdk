@@ -54,8 +54,13 @@ func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.Reso
 }
 
 func (e *Engine) GetResourceTypeRecord(ctx context.Context, externalID string) (*v3.ResourceTypeRecord, error) {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	key := encodeResourceTypeKey(externalID)
-	val, closer, err := e.db.Get(key)
+	val, closer, err := db.Get(key)
 	if err != nil {
 		return nil, err
 	}
@@ -82,8 +87,13 @@ func (e *Engine) DeleteResourceTypeRecord(ctx context.Context, externalID string
 }
 
 func (e *Engine) IterateResourceTypes(ctx context.Context, yield func(*v3.ResourceTypeRecord) bool) error {
+	db, release, err := e.pinRead()
+	if err != nil {
+		return err
+	}
+	defer release()
 	prefix := encodeResourceTypePrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := db.NewIter(&pebble.IterOptions{
 		LowerBound: prefix,
 		UpperBound: upperBoundOf(prefix),
 	})
@@ -92,6 +102,9 @@ func (e *Engine) IterateResourceTypes(ctx context.Context, yield func(*v3.Resour
 	}
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		r := &v3.ResourceTypeRecord{}
 		if err := unmarshalRecord(iter.Value(), r); err != nil {
 			return fmt.Errorf("iterate resource_types: %w", err)
