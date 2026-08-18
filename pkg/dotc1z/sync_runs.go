@@ -866,7 +866,7 @@ func (c *C1File) endSyncRun(ctx context.Context, syncID string) error {
 
 	_, err = c.db.ExecContext(ctx, query, args...)
 	if err != nil {
-		return err
+		return c.dbNotOpenOnClosed(err)
 	}
 	c.dbUpdated.Store(true)
 

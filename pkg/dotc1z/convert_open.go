@@ -144,7 +144,7 @@ func (c *C1File) closeWithoutSave(ctx context.Context) error {
 	if c.closed {
 		return nil
 	}
-	if c.rawDb != nil {
+	if c.rawDBOpen() {
 		if err := c.closeRawDB(ctx); err != nil {
 			return err
 		}
