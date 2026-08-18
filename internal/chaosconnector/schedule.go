@@ -153,6 +153,17 @@ func (r *Runtime) ActiveOperations() int {
 	return r.active
 }
 
+// Fires reports how many times the rule with the given id has fired. Tests
+// whose premise is "the faulted call is in flight" must gate on this rather
+// than ActiveOperations alone: active counts every call inside the wrapper,
+// so any healthy in-flight RPC satisfies it long before the targeted rule
+// has matched.
+func (r *Runtime) Fires(id string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.fires[id]
+}
+
 // NewRuntime validates and arms a schedule.
 func NewRuntime(schedule Schedule, trace *Trace) (*Runtime, error) {
 	if err := schedule.Validate(); err != nil {

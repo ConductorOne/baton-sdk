@@ -163,6 +163,14 @@ func (s *syncer) parallelSync(
 
 		err := s.Checkpoint(ctx, false)
 		if err != nil {
+			// An external cancel landing between batches surfaces here,
+			// before the runCtx.Done() select below — the third stop exit
+			// (RFC 0009 §4.2). Same detached rescue, err returned
+			// unchanged. Guarded on ctx.Err() so a genuine store failure
+			// with a live caller is not retried on a detached context.
+			if ctx.Err() != nil {
+				s.checkpointOnStop(ctx)
+			}
 			return warnings, err
 		}
 
@@ -191,6 +199,9 @@ func (s *syncer) parallelSync(
 				return warnings, errors.Join(checkpointErr, ErrSyncNotComplete)
 			default:
 				l.Error("sync context cancelled", zap.String("sync_id", s.syncID), zap.Error(err))
+				// Best-effort checkpoint on the way out; err is returned
+				// unchanged (RFC 0009 §4.2, side-effect-only).
+				s.checkpointOnStop(ctx)
 				return warnings, err
 			}
 		default:
@@ -399,6 +410,9 @@ func (s *syncer) parallelSync(
 					l.Info("sync data collection complete", s.syncSummaryFields(trace.SpanFromContext(ctx))...)
 				}
 				if err := s.store.SyncMeta().MarkSyncSupportsDiff(ctx, s.syncID); err != nil {
+					// No detached rescue on this exit (RFC 0009 §4.2): a
+					// metadata-only write for the unused diff-sync feature,
+					// with no progress since the loop-top checkpoint.
 					l.Error("failed to set supports_diff marker", zap.Error(err))
 					return warnings, err
 				}
@@ -428,7 +442,14 @@ func (s *syncer) handleOperationError(
 	warnings []error,
 	batchErr error,
 ) ([]error, error) {
-	if !errors.Is(context.Cause(runCtx), context.DeadlineExceeded) {
+	cause := context.Cause(runCtx)
+	if !errors.Is(cause, context.DeadlineExceeded) {
+		// A non-nil cause means the run is stopping (external cancel), not
+		// failing: best-effort checkpoint, then return batchErr unchanged —
+		// the stop reason must reach the runner byte-for-byte (RFC 0009 §4.2).
+		if cause != nil {
+			s.checkpointOnStop(ctx)
+		}
 		return warnings, batchErr
 	}
 	// The run duration expired. The operation error is usually just the
@@ -445,6 +466,28 @@ func (s *syncer) handleOperationError(
 	}
 	checkpointErr := s.Checkpoint(ctx, true)
 	return warnings, errors.Join(checkpointErr, ErrSyncNotComplete)
+}
+
+// stopCheckpointTimeout bounds checkpointOnStop: one sync-token write, not
+// the finalize+upload tail that FinalizeTimeout budgets an hour for. The
+// window is caller-uninterruptible and precedes Sync() returning, so it
+// must not eat the drain grace Close() needs to pack the c1z.
+const stopCheckpointTimeout = time.Minute
+
+// checkpointOnStop force-checkpoints on a context detached from the caller's
+// cancellation — at a stop exit that context is already canceled, so an
+// attached write could never succeed. Best-effort freshness for the c1z
+// that Close() packs: failures are logged, never returned, and the stop
+// reason reaches the runner unchanged (RFC 0009 §4.2). The run-duration
+// expiry exits deliberately stay attached instead; if an external cancel
+// lands inside that one write, the stale token costs at most one checkpoint
+// interval of idempotent re-work on resume — accepted.
+func (s *syncer) checkpointOnStop(ctx context.Context) {
+	checkpointCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopCheckpointTimeout)
+	defer cancel()
+	if err := s.Checkpoint(checkpointCtx, true); err != nil {
+		ctxzap.Extract(ctx).Error("error checkpointing while stopping sync", zap.Error(err))
+	}
 }
 
 func tooManyWarnings(warningCount int, completedActionsCount uint64) bool {
@@ -701,6 +744,11 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	var batchErr error
 	defer func() { uotel.EndSpanWithError(span, batchErr) }()
 
+	// The batch context below is canceled by the first failing action, so it
+	// cannot distinguish a stop from a sibling failure. Keep the pre-batch
+	// context (workerCtx: canceled on external cancel and run-duration
+	// expiry, both stops) for the log-suppression test in the worker loop.
+	preBatchCtx := ctx
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
@@ -743,7 +791,19 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 				resultsMu.Unlock()
 				queue.done()
 				if r.err != nil {
-					l.Error("cancelling context due to error in action", zap.Any("action", action), zap.Error(r.err))
+					// Log only failures discovered during a live run: a done
+					// pre-batch context means the run is stopping and this
+					// error is the stop observed from inside an action
+					// (RFC 0009 §4.2). The batch ctx is deliberately not the
+					// test — the first failing sibling cancels it, which
+					// would swallow a second worker's independent failure.
+					// Only the log is conditional; the error reaches the
+					// caller in the batch error regardless, and queue.abort()
+					// must always run — it releases workers blocked in
+					// queue.next().
+					if preBatchCtx.Err() == nil {
+						l.Error("cancelling context due to error in action", zap.Any("action", action), zap.Error(r.err))
+					}
 					cancel(fmt.Errorf("cancelling context due to error in action %v: %w", action, r.err))
 					queue.abort()
 					return

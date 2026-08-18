@@ -760,12 +760,19 @@ func (s *pebbleStore) Close(ctx context.Context) (retErr error) {
 			// condition and Close again; if the process exits instead, the
 			// temp dir survives on disk for manual recovery rather than
 			// being deleted out from under a failed save.
-			return fmt.Errorf("pebble store close: save failed, store left open and unsaved data preserved under %s: %w", s.tmpDir, err)
+			//
+			// Storage verdict: dirty state exists but the output c1z was
+			// not rewritten (save's atomic temp+rename means the on-disk
+			// artifact is stale, never torn).
+			return artifactUnusable(fmt.Errorf("pebble store close: save failed, store left open and unsaved data preserved under %s: %w", s.tmpDir, err))
 		}
 		s.dirty = false
 	}
 	s.closed = true
 
+	// No artifactUnusable below: the save above succeeded (or was not
+	// needed), so the c1z on disk is a faithful commit; teardown failures
+	// must not become a discard verdict.
 	defer func() {
 		if removeErr := os.RemoveAll(s.tmpDir); removeErr != nil {
 			retErr = errors.Join(retErr, removeErr)
