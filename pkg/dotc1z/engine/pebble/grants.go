@@ -16,6 +16,7 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
@@ -940,9 +941,134 @@ func (e *Engine) DeleteGrantByIdentityRefs(ctx context.Context, r *v3.GrantRecor
 	})
 }
 
-// deleteGrantByIdentityLocked deletes one grant row and its index entries.
-// Caller holds the engine write lock (withWrite).
-func (e *Engine) deleteGrantByIdentityLocked(id grantIdentity) error {
+// grantDeleteBatchChunk bounds how many grant deletes ride one RecordBatch.
+//
+// Sized for peak batch memory, not for fsync count. A staged delete is 6
+// batch ops (primary + by_principal + by_needs_expansion + the two digest
+// DeleteRanges + the global root), and its bytes are dominated by the
+// entitlement id repeated across them: measured on this engine, one grant
+// stages ~225 B at a 16-char entitlement id, ~640 B at 75 chars, and ~1.6 KB
+// at 215 chars. So 1000 grants is ~0.2–1.6 MiB of in-memory batch, while
+// 10000 would be ~2.2–16 MiB and keeps scaling with id length.
+//
+// The fsync count barely cares: against the ~90000 fsyncs the batching
+// removes, 90 commits versus 9 is noise, so the 10x lower peak memory is the
+// better side of that trade.
+const grantDeleteBatchChunk = 1000
+
+// DeleteGrantsByIdentityRefs is the plural sibling of
+// DeleteGrantByIdentityRefs: it removes N grants addressed by their
+// structural refs, staging the deletes into chunked RecordBatches instead of
+// one commit per grant.
+//
+// Why this exists: the singular path commits once per grant with
+// pebble.Sync (the engine's default durability), so a bulk caller pays one
+// fsync per grant. On network-attached storage that is ~10ms each — the
+// syncer's external-principal cleanup measured ~956s to delete ~90k grants.
+// Chunking amortizes the fsync across the chunk. Durability is deliberately
+// unchanged: each chunk still commits with writeOpts(e.opts.durability), so
+// crash semantics are identical, only the fsync count drops.
+//
+// Per-grant semantics match deleteGrantByIdentityLocked exactly, including
+// the existence probe: an absent key stages nothing, so a delete of a
+// non-existent grant stays a true no-op and does not invalidate the
+// entitlement's digest partition.
+//
+// The chunk is also the unit of cancellation and of the sealed re-check —
+// see deleteGrantsByIdentities.
+func (e *Engine) DeleteGrantsByIdentityRefs(ctx context.Context, records ...*v3.GrantRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	ids := make([]grantIdentity, 0, len(records))
+	for _, r := range records {
+		id, err := grantIdentityFromRecord(r)
+		if err != nil {
+			return fmt.Errorf("DeleteGrantsByIdentityRefs: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return e.deleteGrantsByIdentities(ctx, grantDeleteBatchChunk, ids)
+}
+
+// deleteGrantsByIdentities commits ids in chunk-sized RecordBatches under a
+// single write-lock acquisition. chunk is a parameter so tests can drive the
+// boundary without a grantDeleteBatchChunk-sized fixture.
+//
+// Two things are re-checked at every chunk boundary, because taking the lock
+// once means the per-write checks withWrite would have made no longer happen
+// per write:
+//
+//   - ctx cancellation. A 90k-grant delete is otherwise uninterruptible.
+//     Aborting mid-way is safe: committed chunks are durable and the caller's
+//     dirty flag is already set, and a resumed sync re-derives its delete set
+//     and re-issues these deletes, which are idempotent.
+//   - e.sealed. withWrite's under-lock sealed re-check is the actual fence
+//     against writing past EndSync (seal() takes only sealMu and does not
+//     wait on writeWG), and it would otherwise run once for the whole call
+//     instead of once per write. Without this, a late chunk — and the digest
+//     invalidations it stages — could land after finalize began rebuilding
+//     the deferred by_principal index.
+func (e *Engine) deleteGrantsByIdentities(ctx context.Context, chunk int, ids []grantIdentity) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	// A non-positive chunk would make the loop below never advance, spinning
+	// forever while holding the write lock and a writeWG slot — an
+	// unkillable hang. No production caller can reach that (both pass the
+	// constant), so clamp rather than error: the call still does exactly what
+	// it was asked to do, just at the default chunking.
+	if chunk <= 0 {
+		chunk = grantDeleteBatchChunk
+	}
+	// One lock acquisition for the whole call, not one per grant.
+	return e.withWrite(func() error {
+		for start := 0; start < len(ids); start += chunk {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if e.sealed.Load() {
+				return ErrEngineSealed
+			}
+			end := min(start+chunk, len(ids))
+			if err := e.deleteGrantsByIdentityChunkLocked(ids[start:end]); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// deleteGrantsByIdentityChunkLocked stages one chunk of grant deletes into a
+// single RecordBatch and commits it once. Caller holds the engine write lock.
+func (e *Engine) deleteGrantsByIdentityChunkLocked(ids []grantIdentity) error {
+	batch := e.db.NewRecordBatch()
+	defer batch.Close()
+
+	staged := 0
+	for _, id := range ids {
+		ok, err := e.stageGrantDeleteIfPresentLocked(batch, id)
+		if err != nil {
+			return err
+		}
+		if ok {
+			staged++
+		}
+	}
+	if staged == 0 {
+		return nil
+	}
+	return batch.Commit(writeOpts(e.opts.durability))
+}
+
+// stageGrantDeleteIfPresentLocked stages one grant row's removal (and the
+// index/digest obligations the typed op derives) into batch, reporting
+// whether anything was staged. A missing row stages nothing — staging
+// unconditionally would emit digest invalidations for identities that never
+// existed. Caller holds the engine write lock.
+//
+// Shared by the singular and batched delete paths so they cannot drift.
+func (e *Engine) stageGrantDeleteIfPresentLocked(batch *rawdb.RecordBatch, id grantIdentity) (bool, error) {
 	key := encodeGrantIdentityKey(id)
 
 	// Existence probe only: delete of non-existent stays a no-op, and
@@ -950,16 +1076,30 @@ func (e *Engine) deleteGrantByIdentityLocked(id grantIdentity) error {
 	_, closer, err := e.db.Get(key)
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
-			return nil
+			return false, nil
 		}
-		return err
+		return false, err
 	}
 	closer.Close()
 
+	if err := batch.StageGrantDelete(key); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// deleteGrantByIdentityLocked deletes one grant row and its index entries.
+// Caller holds the engine write lock (withWrite).
+func (e *Engine) deleteGrantByIdentityLocked(id grantIdentity) error {
 	batch := e.db.NewRecordBatch()
 	defer batch.Close()
-	if err := batch.StageGrantDelete(key); err != nil {
+
+	staged, err := e.stageGrantDeleteIfPresentLocked(batch, id)
+	if err != nil {
 		return err
+	}
+	if !staged {
+		return nil
 	}
 	return batch.Commit(writeOpts(e.opts.durability))
 }

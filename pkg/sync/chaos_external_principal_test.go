@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -42,6 +43,61 @@ func (s *chaosExternalPrincipalCutStore) DeleteGrantByRefs(
 	return deleter.DeleteGrantByRefs(ctx, grant)
 }
 
+// DeleteGrantsByRefs puts this wrapper on the batched production path that
+// processGrantsWithExternalPrincipals now prefers. Without it the type
+// assertion for grantsByRefsBatchDeleter fails and the syncer silently falls
+// back to the singular loop, so the crash-resume corpus would stop covering
+// the code path it is meant to cut.
+//
+// The cut stays per-GRANT, counted in the same order and at the same
+// granularity the singular DeleteGrantByRefs would use: deleteCalls advances
+// once per grant, the failDeleteAt-th grant returns before its delete is
+// issued, and every grant before it is committed by its own call into the
+// real store. That keeps "everything before the cut is durable, the cut grant
+// and everything after it is not" — the interruption shape the resume-to-
+// baseline oracle asserts on — byte-identical to the pre-batching behavior.
+//
+// With no delete cut armed there is nothing to interleave, so the batch is
+// handed to the store whole and actually exercises multi-grant chunking.
+//
+// The syncer asserts grantsByRefsBatchDeleter on THIS wrapper, so declaring
+// the method routes every engine here — including SQLite, which has no
+// batched delete. Degrade to the wrapped store's singular delete in that case
+// instead of advertising batch support it does not have, so the SQLite
+// scenarios keep the one-commit-per-grant shape production would give them.
+func (s *chaosExternalPrincipalCutStore) DeleteGrantsByRefs(
+	ctx context.Context,
+	grants ...*v2.Grant,
+) error {
+	batchDeleter, canBatch := s.Store.(grantsByRefsBatchDeleter)
+	if canBatch && s.failDeleteAt <= 0 {
+		s.deleteCalls.Add(int64(len(grants)))
+		return batchDeleter.DeleteGrantsByRefs(ctx, grants...)
+	}
+	for _, grant := range grants {
+		// Count and cut BEFORE resolving the wrapped store's capability, the
+		// same order DeleteGrantByRefs uses. SQLite implements neither delete
+		// interface, so its scenarios only ever get past this line for grants
+		// the cut does not claim.
+		if s.deleteCalls.Add(1) == s.failDeleteAt {
+			return errChaosExternalPrincipalCut
+		}
+		var err error
+		switch singularDeleter, canSingular := s.Store.(grantByRefsDeleter); {
+		case canBatch:
+			err = batchDeleter.DeleteGrantsByRefs(ctx, grant)
+		case canSingular:
+			err = singularDeleter.DeleteGrantByRefs(ctx, grant)
+		default:
+			err = errors.New("chaos: store lacks refs-based grant deletion")
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *chaosExternalPrincipalCutStore) DeleteResourceRecord(
 	ctx context.Context,
 	resourceTypeID string,
@@ -69,6 +125,88 @@ func (s *chaosExternalPrincipalCutStore) DeleteEntitlementByRefs(
 		return errors.New("chaos: store lacks entitlement-record deletion")
 	}
 	return deleter.DeleteEntitlementByRefs(ctx, entitlement)
+}
+
+// recordingBatchDeleteStore records the batches it is handed so the cut
+// granularity above can be asserted without a chaos scenario.
+type recordingBatchDeleteStore struct {
+	c1zstore.Store
+	batches [][]string
+}
+
+func (s *recordingBatchDeleteStore) DeleteGrantsByRefs(_ context.Context, grants ...*v2.Grant) error {
+	ids := make([]string, 0, len(grants))
+	for _, grant := range grants {
+		ids = append(ids, grant.GetId())
+	}
+	s.batches = append(s.batches, ids)
+	return nil
+}
+
+// recordingSingularDeleteStore supports only the singular delete, standing in
+// for an engine (SQLite) that never implements grantsByRefsBatchDeleter.
+type recordingSingularDeleteStore struct {
+	c1zstore.Store
+	deleted []string
+}
+
+func (s *recordingSingularDeleteStore) DeleteGrantByRefs(_ context.Context, grant *v2.Grant) error {
+	s.deleted = append(s.deleted, grant.GetId())
+	return nil
+}
+
+func chaosCutTestGrants(n int) []*v2.Grant {
+	grants := make([]*v2.Grant, 0, n)
+	for i := 0; i < n; i++ {
+		grants = append(grants, v2.Grant_builder{Id: fmt.Sprintf("grant-%d", i)}.Build())
+	}
+	return grants
+}
+
+// TestChaosExternalPrincipalCutStoreBatchDeleteKeepsCutPerGrant guards the
+// property the crash-resume corpus depends on but cannot itself observe: its
+// fixtures only ever produce a single pending delete per call, so a batched
+// wrapper that collapsed N grants into one opaque store call would still pass
+// every scenario above while silently losing the per-grant cut point.
+func TestChaosExternalPrincipalCutStoreBatchDeleteKeepsCutPerGrant(t *testing.T) {
+	t.Run("cut armed stops between grants", func(t *testing.T) {
+		underlying := &recordingBatchDeleteStore{}
+		cutStore := &chaosExternalPrincipalCutStore{Store: underlying, failDeleteAt: 2}
+
+		err := cutStore.DeleteGrantsByRefs(t.Context(), chaosCutTestGrants(3)...)
+
+		require.ErrorIs(t, err, errChaosExternalPrincipalCut)
+		require.Equal(t, int64(2), cutStore.deleteCalls.Load(),
+			"the cut must be counted per grant, not per batch")
+		require.Equal(t, [][]string{{"grant-0"}}, underlying.batches,
+			"only grants before the cut may reach the store, each in its own durable call")
+	})
+
+	t.Run("no cut armed delegates the whole batch", func(t *testing.T) {
+		underlying := &recordingBatchDeleteStore{}
+		cutStore := &chaosExternalPrincipalCutStore{Store: underlying}
+
+		require.NoError(t, cutStore.DeleteGrantsByRefs(t.Context(), chaosCutTestGrants(3)...))
+		require.Equal(t, int64(3), cutStore.deleteCalls.Load())
+		require.Equal(t, [][]string{{"grant-0", "grant-1", "grant-2"}}, underlying.batches,
+			"an unarmed wrapper must exercise real multi-grant chunking")
+	})
+
+	// Declaring DeleteGrantsByRefs on the wrapper routes every engine through
+	// it, so a store without batch support must degrade to its singular
+	// delete rather than surface a "store lacks batching" error where the
+	// SQLite scenarios expect the injected cut.
+	t.Run("degrades to singular deletes without batch support", func(t *testing.T) {
+		underlying := &recordingSingularDeleteStore{}
+		cutStore := &chaosExternalPrincipalCutStore{Store: underlying, failDeleteAt: 2}
+
+		err := cutStore.DeleteGrantsByRefs(t.Context(), chaosCutTestGrants(3)...)
+
+		require.ErrorIs(t, err, errChaosExternalPrincipalCut,
+			"the injected cut must still be what surfaces on a non-batching store")
+		require.Equal(t, int64(2), cutStore.deleteCalls.Load())
+		require.Equal(t, []string{"grant-0"}, underlying.deleted)
+	})
 }
 
 func TestChaosConnectorExternalPrincipalCorpus(t *testing.T) {

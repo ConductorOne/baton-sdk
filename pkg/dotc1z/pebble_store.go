@@ -565,6 +565,22 @@ func (s *pebbleStore) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) er
 	return s.markDirty(s.Engine.DeleteGrantByRefs(ctx, grant))
 }
 
+// DeleteGrantsByRefs is the bulk form of DeleteGrantByRefs: identical
+// per-grant semantics, but the deletes are committed in chunked batches so a
+// bulk caller does not pay one fsync per grant.
+//
+// Unlike its siblings this marks dirty UNCONDITIONALLY rather than through
+// markDirty, which only marks on success. One call here can commit many
+// chunks: if a later chunk fails, the earlier ones are already durable in
+// Pebble, and leaving dirty unset would let Close discard the temp dir and
+// silently drop that committed work. Over-marking when nothing was staged
+// only costs an unnecessary flush of an unchanged file; under-marking loses
+// data.
+func (s *pebbleStore) DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Grant) error {
+	s.MarkDirty()
+	return s.Engine.DeleteGrantsByRefs(ctx, grants...)
+}
+
 // DeleteResourceRecord removes a resource and marks the envelope dirty so an
 // explicit reconciliation performed by the syncer is persisted on Close.
 func (s *pebbleStore) DeleteResourceRecord(ctx context.Context, resourceTypeID, resourceID string) error {
