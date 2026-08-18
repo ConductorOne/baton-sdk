@@ -16,8 +16,10 @@ import (
 // BenchmarkFullSync_BatonDemoShape drives pkg/sync.NewSyncer
 // end-to-end against a mockConnector seeded at baton-demo scale —
 // the same data dimensions the public baton-demo connector emits —
-// through both the SQLite engine (WithC1ZPath) and the Pebble
-// engine (WithConnectorStore against a Pebble-backed c1zstore.Store).
+// through both the SQLite engine (WithC1ZPath + WithStorageEngine)
+// and the Pebble engine (WithConnectorStore against a Pebble-backed
+// c1zstore.Store). WithC1ZPath alone follows the NewStore default,
+// which is Pebble, so the sqlite arm must pin EngineSQLite.
 //
 // This is the FULL Sync() pipeline, not just the writer surface:
 // ResourceTypes → Resources → Entitlements → Grants iteration
@@ -138,7 +140,7 @@ func runOneFullSync(b *testing.B, engine string, nUsers, nGroups, membershipsPer
 	var opts []SyncOpt
 	switch engine {
 	case "sqlite":
-		opts = []SyncOpt{WithC1ZPath(c1zPath), WithTmpDir(tmpDir)}
+		opts = []SyncOpt{WithC1ZPath(c1zPath), WithTmpDir(tmpDir), WithStorageEngine(c1zstore.EngineSQLite)}
 	case "pebble":
 		store, err := dotc1z.NewStore(ctx, c1zPath,
 			dotc1z.WithEngine(c1zstore.EnginePebble),
