@@ -135,10 +135,21 @@ func (p *Provisioner) Close(ctx context.Context) error {
 // splice it back in before handing the entitlement to a connector's
 // Grant/Revoke, or the connector never sees the resource's Profile,
 // DisplayName, etc.
+//
+// GrantableTo is untouched: V3EntitlementToV2 also stubs it down to
+// ResourceType id-only entries, and this helper does not re-hydrate those —
+// a connector reading entitlement.GrantableTo display names/traits in
+// Grant/Revoke still sees stubs on the Pebble engine.
 func hydrateEntitlementResource(e *v2.Entitlement, resource *v2.Resource) *v2.Entitlement {
-	clone := proto.Clone(e).(*v2.Entitlement)
-	clone.SetResource(resource)
-	return clone
+	if e == nil {
+		return nil
+	}
+	hydrated, ok := proto.Clone(e).(*v2.Entitlement)
+	if !ok {
+		return e
+	}
+	hydrated.SetResource(resource)
+	return hydrated
 }
 
 func (p *Provisioner) grant(ctx context.Context) error {

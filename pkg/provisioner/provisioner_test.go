@@ -123,11 +123,17 @@ func TestProvisionerGrantHydratesResources(t *testing.T) {
 			require.Equal(t, "Alice", principal.GetDisplayName())
 			require.Equal(t, "alice@example.com", principal.GetProfile().GetFields()["email"].GetStringValue())
 
-			entResource := cc.grantReq.GetEntitlement().GetResource()
+			hydratedEntitlement := cc.grantReq.GetEntitlement()
+			entResource := hydratedEntitlement.GetResource()
 			require.Equal(t, "Group One", entResource.GetDisplayName(),
 				"entitlement.Resource must be the fully hydrated group, not an identity-only stub")
 			require.Equal(t, "https://example.com/folders/g1", entResource.GetProfile().GetFields()["href"].GetStringValue(),
 				"entitlement.Resource.Profile must survive so a connector's Grant() can read it")
+
+			require.Equal(t, "member", hydratedEntitlement.GetSlug(),
+				"hydrateEntitlementResource must preserve the entitlement's own fields, not just splice in Resource")
+			require.Equal(t, "Member", hydratedEntitlement.GetDisplayName())
+			require.Equal(t, v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT, hydratedEntitlement.GetPurpose())
 		})
 	}
 }
@@ -152,11 +158,17 @@ func TestProvisionerRevokeHydratesResources(t *testing.T) {
 			require.Equal(t, "Alice", principal.GetDisplayName())
 			require.Equal(t, "alice@example.com", principal.GetProfile().GetFields()["email"].GetStringValue())
 
-			entResource := cc.revokeReq.GetGrant().GetEntitlement().GetResource()
+			hydratedEntitlement := cc.revokeReq.GetGrant().GetEntitlement()
+			entResource := hydratedEntitlement.GetResource()
 			require.Equal(t, "Group One", entResource.GetDisplayName(),
 				"entitlement.Resource must be the fully hydrated group, not an identity-only stub")
 			require.Equal(t, "https://example.com/folders/g1", entResource.GetProfile().GetFields()["href"].GetStringValue(),
 				"entitlement.Resource.Profile must survive so a connector's Revoke() can read it")
+
+			require.Equal(t, "member", hydratedEntitlement.GetSlug(),
+				"hydrateEntitlementResource must preserve the entitlement's own fields, not just splice in Resource")
+			require.Equal(t, "Member", hydratedEntitlement.GetDisplayName())
+			require.Equal(t, v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT, hydratedEntitlement.GetPurpose())
 		})
 	}
 }
