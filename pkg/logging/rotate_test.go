@@ -1214,9 +1214,11 @@ func TestRotationBytesSaturates(t *testing.T) {
 // has to be flushed on recovery. The other ceiling tests set the retry window
 // to zero, which is exactly why this gap wasn't exercised.
 func TestRotatingWriter_DroppedLinesReportedWhenRotationRecovers(t *testing.T) {
-	if !writePermsEnforced() {
-		t.Skip("chmod does not deny writes here")
-	}
+	// No chmod here: the oversize and throttle state is set on the writer
+	// directly, so this needs no permission enforcement and must not skip on
+	// Windows or as root - Windows is the platform the ceiling exists for.
+	t.Parallel()
+
 	dir := t.TempDir()
 	sink := &bytes.Buffer{}
 	w, err := newRotatingWriter(filepath.Join(dir, "baton.log"), 1, 1, sink)
@@ -1245,4 +1247,68 @@ func TestRotatingWriter_DroppedLinesReportedWhenRotationRecovers(t *testing.T) {
 
 	require.Contains(t, sink.String(), "rotation recovered after dropping 1 log line(s)",
 		"the stranded drop count must be reported once rotation works again")
+}
+
+// TestRotatingWriter_DroppedLinesReportedOnClose: the recovery flush above only
+// fires on a rotation that succeeds, so a count still inside the retry window
+// when the process shuts down was discarded - a silent drop, which
+// docs/log-rotation.md promises never happens.
+func TestRotatingWriter_DroppedLinesReportedOnClose(t *testing.T) {
+	t.Parallel()
+
+	sink := &bytes.Buffer{}
+	w, err := newRotatingWriter(filepath.Join(t.TempDir(), "baton.log"), 1, 1, sink)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+
+	// Past the ceiling, rotation blocked, and a retry window long enough that no
+	// drop diagnostic can fire on its own.
+	w.mu.Lock()
+	w.size = w.oversizeCeiling() + 1
+	w.rotateRetryAfter = time.Hour
+	w.nextRotateAttempt = time.Now().Add(time.Hour)
+	w.nextDropReport = time.Now().Add(time.Hour)
+	w.mu.Unlock()
+
+	_, err = w.Write([]byte("dropped\n"))
+	require.ErrorIs(t, err, errLogFileOversized, "the line must be dropped at the ceiling")
+	require.Empty(t, sink.String(), "throttled: nothing reported yet")
+
+	require.NoError(t, w.Close())
+	require.Contains(t, sink.String(), "1 log line(s) dropped, unreported before close",
+		"a drop count still throttled at shutdown must not vanish")
+}
+
+// TestRotatingWriter_DroppedLinesReportedOnCloseAfterReconfigure: raising
+// maxBytes past the current size strands the count a second way - rotation is no
+// longer attempted at all, so the recovery flush in the write path is never
+// reached no matter how many writes follow.
+func TestRotatingWriter_DroppedLinesReportedOnCloseAfterReconfigure(t *testing.T) {
+	t.Parallel()
+
+	sink := &bytes.Buffer{}
+	w, err := newRotatingWriter(filepath.Join(t.TempDir(), "baton.log"), 1, 1, sink)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+
+	w.mu.Lock()
+	w.size = w.oversizeCeiling() + 1
+	w.rotateRetryAfter = time.Hour
+	w.nextRotateAttempt = time.Now().Add(time.Hour)
+	w.nextDropReport = time.Now().Add(time.Hour)
+	w.mu.Unlock()
+
+	_, err = w.Write([]byte("dropped\n"))
+	require.ErrorIs(t, err, errLogFileOversized)
+
+	// A larger cap puts the file back under both the threshold and the ceiling,
+	// so writes resume without ever rotating.
+	w.reconfigure(64, 1, nil)
+	_, err = w.Write([]byte("fits now\n"))
+	require.NoError(t, err, "the write should land under the raised cap")
+	require.Empty(t, sink.String(), "no rotation happened, so nothing has flushed the count yet")
+
+	require.NoError(t, w.Close())
+	require.Contains(t, sink.String(), "1 log line(s) dropped, unreported before close",
+		"raising the cap must not silently discard earlier drops")
 }

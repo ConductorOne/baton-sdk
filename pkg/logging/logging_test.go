@@ -83,7 +83,6 @@ func rotatorTestDir(t *testing.T) string {
 
 // clearRotators empties the package-level registry when the test ends, so one
 // test's rotators can't be reused - or retired - by the next one.
-
 func clearRotators(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {

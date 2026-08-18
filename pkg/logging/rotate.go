@@ -582,25 +582,49 @@ func (w *rotatingWriter) Sync() error {
 // fail with os.ErrClosed rather than reopening the file.
 func (w *rotatingWriter) Close() error {
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	if w.closed {
+		w.mu.Unlock()
 		return nil
 	}
 	w.closed = true
-	if w.f == nil {
-		return nil
-	}
 
-	syncErr := w.f.Sync()
-	closeErr := w.f.Close()
-	w.f = nil
+	// droppedLines is only cleared by a queueDropReport that emits or by a
+	// rotation that recovers, so shutting down first discards the count - the
+	// same silent drop the ceiling diagnostics exist to prevent. Two ways in:
+	// Close landing inside the retry window, and reconfigure raising maxBytes
+	// past the current size, after which rotation is no longer attempted and the
+	// recovery flush is never reached. This is the last chance to say so.
+	// Not zeroed afterwards, unlike the other two flush sites: w.closed is
+	// already set, so writeLocked returns os.ErrClosed and a second Close
+	// short-circuits above - nothing reads droppedLines again.
+	if w.droppedLines > 0 {
+		w.queueError(fmt.Errorf("%w: %d log line(s) dropped, unreported before close",
+			errLogFileOversized, w.droppedLines))
+	}
 
 	var errs []error
-	if syncErr != nil {
-		errs = append(errs, fmt.Errorf("failed to sync log file %q on close: %w", w.path, syncErr))
+	if w.f != nil {
+		syncErr := w.f.Sync()
+		closeErr := w.f.Close()
+		w.f = nil
+
+		if syncErr != nil {
+			errs = append(errs, fmt.Errorf("failed to sync log file %q on close: %w", w.path, syncErr))
+		}
+		if closeErr != nil {
+			errs = append(errs, fmt.Errorf("failed to close log file %q: %w", w.path, closeErr))
+		}
 	}
-	if closeErr != nil {
-		errs = append(errs, fmt.Errorf("failed to close log file %q: %w", w.path, closeErr))
+
+	pending := w.pending
+	w.pending = nil
+	w.mu.Unlock()
+
+	// After the unlock, as in Write: reportError takes w.mu, and errSink is an
+	// Event Log RPC on the platform this targets.
+	for _, e := range pending {
+		w.reportError(e)
 	}
+
 	return errors.Join(errs...)
 }

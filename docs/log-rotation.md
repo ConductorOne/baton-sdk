@@ -151,8 +151,18 @@ is reported on the same retry cadence as the rotation failure itself. The
 outcome of a permanent fault is a file capped at ten times the configured size
 (plus at most one line, so a single log line too large to fit under the ceiling
 is never dropped forever) and a diagnostic that repeats for as long as the fault
-lasts - never a silent drop, and never an unbounded file. The 10x headroom is
-deliberately generous:
+lasts - the fault is never silent, and the file is never unbounded.
+
+One caveat on the accounting, as opposed to the fault: drops are counted between
+diagnostics, and that partial count is only flushed when rotation recovers or
+when the log file is closed - which happens on a re-`Init` that stops logging to
+that path. Raising `log-max-size-mb` on a running logger stops the dropping but
+does not report the count, and nothing closes the log file at process exit, so a
+count accumulated inside the final retry window - at most one window's worth, not
+an outage's worth - is lost if the process exits while the fault is still active.
+The fault itself will already have been reported by the preceding diagnostic.
+
+The 10x headroom is deliberately generous:
 real transient faults clear well inside it, so only a genuinely stuck rotation
 reaches the ceiling. Rotation is retried throughout, so the first successful
 rotation ends both the oversize and the dropping.
