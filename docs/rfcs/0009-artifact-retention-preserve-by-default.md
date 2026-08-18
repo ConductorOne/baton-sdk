@@ -561,12 +561,16 @@ Per the step-up (silent + durable + version pair):
   checkpoint-*age* assertion against the §4.2 bound; the bound is a timeout
   on the rescue write, not an age guarantee, so the implemented oracle is
   the pair that matters: a post-cancel checkpoint happened, and the resumed
-  sync converges.) Run the case at worker counts 1 and N>1: with multiple
-  workers, siblings that exhausted the queue park in `queue.next()` while
-  the blocked call is outstanding, so the bounded-return assertion also pins
-  pool drain. On `queue.abort()` itself, the accurate claim is promptness
-  and post-failure hygiene, not deadlock: `queue.done()` precedes the error
-  return, so waiters wake when stragglers drain even without it — but
+  sync converges.) Run the case at a multi-worker count: siblings that
+  exhausted the queue park in `queue.next()` while the blocked call is
+  outstanding, so the bounded-return assertion also pins pool drain.
+  (Change order, review: an earlier draft also promised a worker-count-1
+  cell; dropped — the multi-worker count is the dimension that buys
+  something here, and a single-worker run exercises nothing the other
+  cancellation chaos tests don't already cover.) On `queue.abort()` itself,
+  the accurate claim is promptness and post-failure hygiene, not deadlock:
+  `queue.done()` precedes the error return, so waiters wake when stragglers
+  drain even without it — but
   removing it would delay exit and let post-failure transitions keep
   admitting children onto a canceled batch. It must stay on every exit.
 - **Storage verdict injection.** Force a save/commit failure; assert the
