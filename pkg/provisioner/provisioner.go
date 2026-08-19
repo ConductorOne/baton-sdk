@@ -9,6 +9,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -126,6 +127,31 @@ func (p *Provisioner) Close(ctx context.Context) error {
 	return nil
 }
 
+// hydrateEntitlementResource returns a copy of e with Resource replaced by
+// resource. The store's entitlement read (GetEntitlement, via
+// V3EntitlementToV2 on the Pebble engine) returns Resource as an
+// identity-only stub; callers that already fetched the full Resource
+// separately (e.g. for the external-resource annotation check) must
+// splice it back in before handing the entitlement to a connector's
+// Grant/Revoke, or the connector never sees the resource's Profile,
+// DisplayName, etc.
+//
+// GrantableTo is untouched: V3EntitlementToV2 also stubs it down to
+// ResourceType id-only entries, and this helper does not re-hydrate those —
+// a connector reading entitlement.GrantableTo display names/traits in
+// Grant/Revoke still sees stubs on the Pebble engine.
+func hydrateEntitlementResource(e *v2.Entitlement, resource *v2.Resource) *v2.Entitlement {
+	if e == nil {
+		return nil
+	}
+	hydrated, ok := proto.Clone(e).(*v2.Entitlement)
+	if !ok {
+		return e
+	}
+	hydrated.SetResource(resource)
+	return hydrated
+}
+
 func (p *Provisioner) grant(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.grant")
 	var err error
@@ -165,18 +191,9 @@ func (p *Provisioner) grant(ctx context.Context) error {
 		return err
 	}
 
-	resource := v2.Resource_builder{
-		Id:               principal.GetResource().GetId(),
-		DisplayName:      principal.GetResource().GetDisplayName(),
-		Annotations:      principal.GetResource().GetAnnotations(),
-		Description:      principal.GetResource().GetDescription(),
-		ExternalId:       principal.GetResource().GetExternalId(), //nolint:staticcheck // Deprecated.
-		ParentResourceId: principal.GetResource().GetParentResourceId(),
-	}.Build()
-
 	_, err = p.connector.Grant(ctx, v2.GrantManagerServiceGrantRequest_builder{
-		Entitlement: entitlement.GetEntitlement(),
-		Principal:   resource,
+		Entitlement: hydrateEntitlementResource(entitlement.GetEntitlement(), entitlementResource.GetResource()),
+		Principal:   principal.GetResource(),
 	}.Build())
 	if err != nil {
 		return err
@@ -228,20 +245,11 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 		return errors.New("cannot revoke grant on external resource")
 	}
 
-	resource := v2.Resource_builder{
-		Id:               principal.GetResource().GetId(),
-		DisplayName:      principal.GetResource().GetDisplayName(),
-		Annotations:      principal.GetResource().GetAnnotations(),
-		Description:      principal.GetResource().GetDescription(),
-		ExternalId:       principal.GetResource().GetExternalId(), //nolint:staticcheck // Deprecated.
-		ParentResourceId: principal.GetResource().GetParentResourceId(),
-	}.Build()
-
 	_, err = p.connector.Revoke(ctx, v2.GrantManagerServiceRevokeRequest_builder{
 		Grant: v2.Grant_builder{
 			Id:          grant.GetGrant().GetId(),
-			Entitlement: entitlement.GetEntitlement(),
-			Principal:   resource,
+			Entitlement: hydrateEntitlementResource(entitlement.GetEntitlement(), entitlementResource.GetResource()),
+			Principal:   principal.GetResource(),
 			Annotations: grant.GetGrant().GetAnnotations(),
 		}.Build(),
 	}.Build())
