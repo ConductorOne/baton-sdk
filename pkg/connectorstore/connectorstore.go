@@ -192,21 +192,29 @@ type EntitlementGrantDigestReader interface {
 	//
 	// For 0 <= level <= the native Level (GrantDigest.Level) this folds
 	// the stored leaves — one contiguous scan of the digest keyspace, no
-	// grant-index scan. For a finer level it falls back to scanning the
-	// grant index directly (O(grants)) — slower, but it never errors on a
-	// "too deep" level. The principal-hash carries a bounded number of
-	// bits, so a level beyond that resolution is served at the maximum
-	// (you may get fewer than 2^level distinct buckets). found is false
-	// when no digest exists.
+	// grant-index scan. For a finer level, up to the principal-hash's
+	// resolution, it falls back to scanning the grant index directly
+	// (O(grants)) — slower, but exact. A level outside that resolution
+	// (a negative level, or one past the implementation's bucket-hash
+	// width — any level <= the digest's native Level is always in range;
+	// the Pebble engine exports its full width as DigestBucketHashBits)
+	// errors rather than silently serving the maximum resolution:
+	// a caller that placed its own records by hash (e.g. the Pebble
+	// engine's PrincipalDigestBucket) must get the same bucket set the
+	// engine reports, not a quietly coarser one. found is false when no
+	// digest exists.
 	GetEntitlementGrantDigestNodes(ctx context.Context, entitlement *v2.Entitlement, level int) (nodes []GrantDigestNode, found bool, err error)
 
 	// ScanEntitlementGrantBucket yields every grant in one digest bucket
 	// of the entitlement (see GrantDigestBucket) as a v2.Grant, stopping
 	// early if yield returns false. Bucket Level 0 scans the whole
-	// entitlement; a Level finer than the bucket-hash resolution is
-	// clamped (matching GetEntitlementGrantDigestNodes). It reads the
-	// grant hash index, which exists only on files whose digest was
-	// built (they are derived together at seal): callers must check
+	// entitlement; a Level outside the bucket-hash resolution errors
+	// (matching GetEntitlementGrantDigestNodes) rather than clamping,
+	// and an Index outside [0, 2^Level) errors rather than wrapping —
+	// silently folding either coordinate would scan a bucket other than
+	// the one addressed. It reads the grant hash index,
+	// which exists only on files whose digest was built (they are
+	// derived together at seal): callers must check
 	// GetEntitlementGrantDigest first and treat found=false as "scan
 	// unavailable — read the grants directly", not as "no grants". It
 	// yields nothing when there is no active sync or no matching grants.

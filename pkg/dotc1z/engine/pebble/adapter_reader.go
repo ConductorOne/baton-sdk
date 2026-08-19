@@ -719,12 +719,17 @@ func (e *Engine) GetEntitlementGrantDigest(ctx context.Context, ent *v2.Entitlem
 // grant-digest rollup nodes at the requested level (2^level buckets;
 // level 0 = the root). For 0 <= level <= the digest's native level it
 // folds the stored leaves — one scan of the digest keyspace. For a finer
-// level it scans the grant index directly (O(grants)) instead of
-// erroring; the level is clamped to the bucket-hash resolution
-// (digestMaxWidthBits).
+// level, up to digestMaxWidthBits, it scans the grant index directly
+// (O(grants)) instead. A level outside [0, digestMaxWidthBits] errors:
+// the bucket hash carries no more resolution than digestMaxWidthBits, so
+// silently clamping would report buckets a caller's own precomputed
+// index (see PrincipalDigestBucket) does not agree with.
 func (e *Engine) GetEntitlementGrantDigestNodes(ctx context.Context, ent *v2.Entitlement, level int) ([]connectorstore.GrantDigestNode, bool, error) {
 	if level < 0 {
 		return nil, false, fmt.Errorf("pebble: negative grant-digest level %d", level)
+	}
+	if level > digestMaxWidthBits {
+		return nil, false, fmt.Errorf("pebble: grant-digest level %d exceeds bucket-hash resolution %d", level, digestMaxWidthBits)
 	}
 	syncID, err := e.resolveActiveSyncForReader(ctx, nil)
 	if err != nil {
@@ -746,11 +751,10 @@ func (e *Engine) GetEntitlementGrantDigestNodes(ctx context.Context, ent *v2.Ent
 	if level == 0 {
 		return []connectorstore.GrantDigestNode{{Index: 0, Hash: root.Hash, Count: root.Count}}, true, nil
 	}
-	// The bucket hash carries at most digestMaxWidthBits of resolution;
-	// a finer level can't address more buckets, so clamp.
-	bits := min(level, digestMaxWidthBits)
-	// At or below the stored width, fold the digest leaves (cheap). Finer
-	// than what we stored, scan the grant index to compute the rollup.
+	// level is already bounded to [0, digestMaxWidthBits] above. At or
+	// below the stored width, fold the digest leaves (cheap); finer than
+	// what we stored, scan the grant index to compute the rollup.
+	bits := level
 	partition := digestPartitionForEntitlement(id)
 	var folded []foldedBucket
 	if bits <= root.Bits {
@@ -775,12 +779,26 @@ func (e *Engine) GetEntitlementGrantDigestNodes(ctx context.Context, ent *v2.Ent
 // ScanEntitlementGrantBucket implements
 // connectorstore.EntitlementGrantDigestReader. It yields every grant in
 // the given digest bucket of the entitlement, translated to v2.Grant.
-// Bucket Level 0 scans the whole entitlement; a finer Level is clamped
-// to the bucket-hash resolution. Yields nothing when there is no active
-// sync or a bare entitlement id resolves to nothing.
+// Bucket Level 0 scans the whole entitlement. A Level outside
+// [0, digestMaxWidthBits] errors rather than clamping to the bucket-hash
+// resolution, and an Index outside [0, 2^Level) errors rather than
+// wrapping to its low Level bits: either kind of silent folding would
+// scan a bucket other than the one the caller addressed (see
+// PrincipalDigestBucket, which only builds in-range buckets). Yields
+// nothing when there is no active sync or a bare entitlement id
+// resolves to nothing.
 func (e *Engine) ScanEntitlementGrantBucket(ctx context.Context, ent *v2.Entitlement, bucket connectorstore.GrantDigestBucket, yield func(*v2.Grant) bool) error {
 	if bucket.Level < 0 {
 		return fmt.Errorf("pebble: negative grant-digest level %d", bucket.Level)
+	}
+	if bucket.Level > digestMaxWidthBits {
+		return fmt.Errorf("pebble: grant-digest level %d exceeds bucket-hash resolution %d", bucket.Level, digestMaxWidthBits)
+	}
+	// Level 0 ignores Index (whole-entitlement scan) per the
+	// GrantDigestBucket contract; past that, bucketBounds would shift an
+	// oversized index's high bits away and scan Index mod 2^Level.
+	if bucket.Level > 0 && uint64(bucket.Index) >= 1<<uint(bucket.Level) {
+		return fmt.Errorf("pebble: grant-digest bucket index %d out of range [0, 2^%d)", bucket.Index, bucket.Level)
 	}
 	syncID, err := e.resolveActiveSyncForReader(ctx, nil)
 	if err != nil {
@@ -793,8 +811,7 @@ func (e *Engine) ScanEntitlementGrantBucket(ctx context.Context, ent *v2.Entitle
 	if err != nil || !ok {
 		return err
 	}
-	bits := min(bucket.Level, digestMaxWidthBits)
-	return e.IterateGrantsByEntitlementBucket(ctx, id, DigestBucket{Index: bucket.Index, Bits: bits}, func(r *v3.GrantRecord) bool {
+	return e.IterateGrantsByEntitlementBucket(ctx, id, DigestBucket{Index: bucket.Index, Bits: bucket.Level}, func(r *v3.GrantRecord) bool {
 		return yield(V3GrantToV2(r))
 	})
 }

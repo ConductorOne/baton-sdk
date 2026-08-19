@@ -424,9 +424,10 @@ func TestAdapterGrantDigestNodes(t *testing.T) {
 		t.Fatalf("finer-level scan: sum=%d xor-matches-root=%v, want sum %d and matching root", sum, bytes.Equal(xor, d.Hash), n)
 	}
 
-	// Absurdly fine level → clamped to the hash resolution, still no error.
-	if _, found, err := a.GetEntitlementGrantDigestNodes(ctx, ent, 999); err != nil || !found {
-		t.Fatalf("nodes(999): found=%v err=%v, want clamped scan with no error", found, err)
+	// Absurdly fine level → errors: past the bucket-hash resolution there
+	// is no addressable bucket to clamp into.
+	if _, _, err := a.GetEntitlementGrantDigestNodes(ctx, ent, 999); err == nil {
+		t.Fatal("nodes(999): want error past the bucket-hash resolution, got nil")
 	}
 }
 
@@ -515,6 +516,168 @@ func TestAdapterScanGrantBucket(t *testing.T) {
 	}); err != nil || missing != 0 {
 		t.Fatalf("scan unknown entitlement: count=%d err=%v, want 0/nil", missing, err)
 	}
+}
+
+// TestPrincipalBucketHashMatchesServedBuckets pins the EXPORTED
+// PrincipalBucketHash against what the read APIs actually serve, over a
+// sealed file with a non-zero digest width.
+//
+// TestGrantDigestSpliceMatchesEncode already pins the internal hash
+// against the spliced key region, but that is an internal consistency
+// check: it cannot catch the exported symbol drifting away from the
+// buckets GetEntitlementGrantDigestNodes reports and
+// ScanEntitlementGrantBucket serves. That drift is exactly the failure
+// this export exists to prevent, and it is silent — a downstream caller
+// placing its own rows with this hash would scan buckets that quietly
+// miss records, with no error and no panic. So the assertions here run
+// through the public read APIs only.
+//
+// Both directions are checked at each level: every principal's predicted
+// index is a reported node with a matching count (no misses), and a
+// sampled bucket's scan yields exactly the principals whose hash prefix
+// is that index (no extras).
+func TestPrincipalBucketHashMatchesServedBuckets(t *testing.T) {
+	// The stored truncation width is what makes levels past it unusable
+	// to callers. If digestBucketHashLen ever changes, fail here — in the
+	// SDK that owns the ABI — rather than downstream.
+	if DigestBucketHashBits != 16 {
+		t.Fatalf("DigestBucketHashBits = %d, want 16; digestBucketHashLen changed — this is an ABI break for downstream callers", DigestBucketHashBits)
+	}
+
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	a := NewAdapter(e)
+	if _, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
+		t.Fatalf("StartNewSync: %v", err)
+	}
+	putEnt(t, e, ctx, "ent-A")
+
+	// 4000 grants → chooseDigestWidth = 3 (512 → 1024 → 2048 → 4096), so
+	// the file is sealed with a real leaf level, not a root-only digest.
+	const n = 4000
+	principals := make([]string, n)
+	grants := make([]*v3.GrantRecord, 0, n)
+	for i := range principals {
+		principals[i] = fmt.Sprintf("user-%04d", i)
+		grants = append(grants, makeGrant("", fmt.Sprintf("g-%04d", i), "ent-A", principals[i]))
+	}
+	if err := e.PutGrantRecords(ctx, grants...); err != nil {
+		t.Fatalf("PutGrantRecords: %v", err)
+	}
+	if err := a.EndSync(ctx); err != nil {
+		t.Fatalf("EndSync: %v", err)
+	}
+
+	ent := testV2Ent("ent-A")
+	d, found, err := a.GetEntitlementGrantDigest(ctx, ent)
+	if err != nil || !found {
+		t.Fatalf("digest: found=%v err=%v", found, err)
+	}
+	if d.Level == 0 {
+		t.Fatalf("native level = 0 for %d grants; test needs a non-zero digest width", n)
+	}
+
+	// Levels 1-3 are at or below the native width (3) and so are served
+	// by folding the stored leaves (foldedLeafBuckets); 4, 8, 12 and 16
+	// are finer than native and fall back to the index scan
+	// (computeBucketsAtWidth). Both paths must bucket identically to
+	// PrincipalDigestBucket. 16 is DigestBucketHashBits itself — the
+	// finest permitted level, where the shifts on both sides consume the
+	// full stored width; past it the engine errors instead of clamping
+	// (see the level-17 subtest below).
+	for _, level := range []int{1, 2, 3, 4, 8, 12, 16} {
+		t.Run(fmt.Sprintf("level-%d", level), func(t *testing.T) {
+			// The placement a downstream caller computes for itself, from
+			// the principal identity alone (type "user", per makeGrant).
+			want := make(map[uint32]map[string]bool)
+			for _, p := range principals {
+				bucket, err := PrincipalDigestBucket("user", p, level)
+				if err != nil {
+					t.Fatalf("PrincipalDigestBucket(%q, %d): %v", p, level, err)
+				}
+				idx := bucket.Index
+				if want[idx] == nil {
+					want[idx] = make(map[string]bool)
+				}
+				want[idx][p] = true
+			}
+
+			nodes, found, err := a.GetEntitlementGrantDigestNodes(ctx, ent, level)
+			if err != nil || !found {
+				t.Fatalf("nodes(%d): found=%v err=%v", level, found, err)
+			}
+			// Nodes are sparse and non-empty, so the reported index set is
+			// exactly the set of predicted indexes: same size, and every
+			// reported node predicted with the same count. A principal
+			// hashing into an index the engine never reports (a "miss")
+			// fails the size check or the lookup below.
+			if len(nodes) != len(want) {
+				t.Fatalf("level %d: engine reports %d non-empty buckets, the hash predicts %d", level, len(nodes), len(want))
+			}
+			for _, nd := range nodes {
+				w, ok := want[nd.Index]
+				if !ok {
+					t.Fatalf("level %d: engine reports bucket %d, which no principal hashes into", level, nd.Index)
+				}
+				if nd.Count != int64(len(w)) {
+					t.Fatalf("level %d bucket %d: node count %d, the hash predicts %d principals there", level, nd.Index, nd.Count, len(w))
+				}
+			}
+
+			// Sampled buckets: the scan yields exactly the predicted
+			// principals — no extras and no misses.
+			step := max(1, len(nodes)/8)
+			for i := 0; i < len(nodes); i += step {
+				idx := nodes[i].Index
+				got := make(map[string]bool, len(want[idx]))
+				if err := a.ScanEntitlementGrantBucket(ctx, ent, connectorstore.GrantDigestBucket{Level: level, Index: idx}, func(g *v2.Grant) bool {
+					got[g.GetPrincipal().GetId().GetResource()] = true
+					return true
+				}); err != nil {
+					t.Fatalf("scan level %d bucket %d: %v", level, idx, err)
+				}
+				for p := range want[idx] {
+					if !got[p] {
+						t.Fatalf("level %d bucket %d: principal %q hashes here, but the bucket scan did not yield it", level, idx, p)
+					}
+				}
+				for p := range got {
+					if !want[idx][p] {
+						gotBucket, _ := PrincipalDigestBucket("user", p, level)
+						t.Fatalf("level %d bucket %d: scan yielded principal %q, which the hash places in bucket %d",
+							level, idx, p, gotBucket.Index)
+					}
+				}
+			}
+		})
+	}
+
+	t.Run("level-17-errors", func(t *testing.T) {
+		// One bit past DigestBucketHashBits: no addressable bucket, so
+		// every level-taking entry point on this contract must error
+		// rather than silently clamp.
+		if _, err := PrincipalDigestBucket("user", principals[0], 17); err == nil {
+			t.Fatal("PrincipalDigestBucket(level 17): want error, got nil")
+		}
+		if _, _, err := a.GetEntitlementGrantDigestNodes(ctx, ent, 17); err == nil {
+			t.Fatal("GetEntitlementGrantDigestNodes(level 17): want error, got nil")
+		}
+		if err := a.ScanEntitlementGrantBucket(ctx, ent, connectorstore.GrantDigestBucket{Level: 17, Index: 0}, func(*v2.Grant) bool { return true }); err == nil {
+			t.Fatal("ScanEntitlementGrantBucket(level 17): want error, got nil")
+		}
+	})
+
+	t.Run("index-out-of-range-errors", func(t *testing.T) {
+		// Same silent-folding class on the Index axis: bucketBounds shifts
+		// an oversized index's high bits away, so {Level: 4, Index: 20}
+		// would otherwise scan bucket 4 (20 mod 16) without complaint.
+		// 16 is the first out-of-range index at level 4.
+		for _, idx := range []uint32{16, 20} {
+			if err := a.ScanEntitlementGrantBucket(ctx, ent, connectorstore.GrantDigestBucket{Level: 4, Index: idx}, func(*v2.Grant) bool { return true }); err == nil {
+				t.Fatalf("ScanEntitlementGrantBucket(level 4, index %d): want out-of-range error, got nil", idx)
+			}
+		}
+	})
 }
 
 // seedEntitlement writes the entitlement record + grants and runs the

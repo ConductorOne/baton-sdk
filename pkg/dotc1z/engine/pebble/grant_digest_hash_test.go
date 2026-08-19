@@ -82,6 +82,7 @@ func TestGrantDigestSpliceMatchesEncode(t *testing.T) {
 			// over freshly encoded principal segments.
 			wantBH64 := xxhash.Sum64(codec.AppendTupleStrings(nil, tc.prt, tc.pid))
 			require.Equal(t, wantBH64, grantPrincipalBucketHash64(priKey[sep4+1:]), "bucket hash from key splice")
+			require.Equal(t, wantBH64, PrincipalBucketHash(tc.prt, tc.pid), "exported PrincipalBucketHash")
 			var full [8]byte
 			binary.BigEndian.PutUint64(full[:], wantBH64)
 			require.Equal(t, full[:digestBucketHashLen], principalBucketHash(tc.prt, tc.pid), "principalBucketHash top bytes")
@@ -263,6 +264,39 @@ func TestGrantDigestAccumulatorMatchesSealedRoots(t *testing.T) {
 	got := global.Root()
 	require.Equal(t, want.Hash, got.Hash, "global digest")
 	require.Equal(t, want.Count, got.Count, "global count")
+}
+
+// TestPrincipalBucketHashGoldenVectors pins PrincipalBucketHash against
+// literal expected values, not against the primitives it is built from
+// (grantPrincipalBucketHash64 / codec.AppendTupleStrings, as
+// TestGrantDigestSpliceMatchesEncode does). Every other test in this
+// file re-derives its expectation from the same code path being tested,
+// so none of them can catch a change to that path itself — e.g. an
+// xxhash version bump, or a tweak to the tuple-encoding escape scheme —
+// producing a different hash for the same input. That is exactly the
+// downstream failure mode this export exists to prevent: a c1-platform
+// build and an SDK build silently disagreeing on bucket placement.
+//
+// These values are ABI, pinned to GrantDigestABIVersion: they may only
+// change alongside a bump to that constant (and the matching
+// index-migration bump — see index_migrations.go).
+func TestPrincipalBucketHashGoldenVectors(t *testing.T) {
+	cases := []struct {
+		name     string
+		rt, id   string
+		wantHash uint64
+	}{
+		{name: "plain ASCII", rt: "user", id: "user-42", wantHash: 0x0908241becfa1cd1},
+		{name: "embedded NUL", rt: "us\x00er", id: "id\x00", wantHash: 0x32ce87a20b0c2dc4},
+		{name: "escape byte", rt: "us\x01er", id: "\x01id", wantHash: 0xab938545e9e1b427},
+		{name: "unicode", rt: "usér", id: "ид-42", wantHash: 0x55b3320cad3a9e7b},
+		{name: "empty strings", rt: "", id: "", wantHash: 0xe934a84adb052768},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.wantHash, PrincipalBucketHash(tc.rt, tc.id))
+		})
+	}
 }
 
 // TestGrantDigestPartitionPrefixFree pins the property bucketBounds and

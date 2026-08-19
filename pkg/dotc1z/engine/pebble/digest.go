@@ -132,6 +132,19 @@ const (
 	digestLeafPrefixLen = 2
 )
 
+// The stored bucket-hash width (digestBucketHashLen), the leaf-key
+// prefix width (digestLeafPrefixLen), and the read-side resolution
+// bound (digestMaxWidthBits) are independent constants that must
+// agree — these fail the build the moment any pair diverges. The
+// leaf-prefix coupling is what makes the ">> (16 - bits)" shifts in
+// bucketOfHash / foldedLeafBuckets / computeBucketsAtWidth safe:
+// growing digestMaxWidthBits without digestLeafPrefixLen would leave
+// bits able to exceed 16 and panic on a negative shift at read time.
+const _ uint = digestMaxWidthBits - digestBucketHashLen*8
+const _ uint = digestBucketHashLen*8 - digestMaxWidthBits
+const _ uint = digestMaxWidthBits - digestLeafPrefixLen*8
+const _ uint = digestLeafPrefixLen*8 - digestMaxWidthBits
+
 // Node-key levels: the root is level 0 (empty prefix); the single leaf
 // level is 1 (digestLeafPrefixLen-byte prefix). See encodeDigestNodeKey.
 const (
