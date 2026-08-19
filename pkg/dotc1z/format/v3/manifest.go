@@ -3,6 +3,7 @@ package v3
 import (
 	"errors"
 	"fmt"
+	"sort"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
@@ -33,6 +34,16 @@ var (
 // The closure invariant: for every file F in the result, every file F
 // imports is also in the result. Reader-side verification can detect
 // any missing import and return ErrManifestIncompleteDescriptors.
+//
+// The result is sorted by file path so the set — and therefore the
+// marshaled manifest that embeds it — is byte-deterministic across
+// calls. proto's Deterministic marshal option only sorts map entries;
+// repeated-field order is part of the message value, so emitting the
+// closure in Go map-iteration order would make every save produce
+// different manifest bytes (and a different manifest_xxh64) for
+// identical content, defeating any use of the manifest as a content
+// identity. Readers do not depend on any particular order
+// (VerifyDescriptorClosure is set-based).
 func BuildDescriptorClosure() (*descriptorpb.FileDescriptorSet, error) {
 	// Collect all files whose package is c1.storage.v3 OR which any
 	// such file transitively imports.
@@ -56,11 +67,20 @@ func BuildDescriptorClosure() (*descriptorpb.FileDescriptorSet, error) {
 		return true
 	})
 
+	// Sort by path (the map key, so unique — no ties) rather than
+	// ranging the map: Go randomizes map iteration per range statement,
+	// which would permute the repeated field on every call.
+	paths := make([]string, 0, len(seen))
+	for p := range seen {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+
 	set := &descriptorpb.FileDescriptorSet{
 		File: make([]*descriptorpb.FileDescriptorProto, 0, len(seen)),
 	}
-	for _, fd := range seen {
-		set.File = append(set.File, protodesc.ToFileDescriptorProto(fd))
+	for _, p := range paths {
+		set.File = append(set.File, protodesc.ToFileDescriptorProto(seen[p]))
 	}
 	return set, nil
 }
