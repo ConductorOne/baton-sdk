@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
@@ -113,6 +114,39 @@ func TestBuildDescriptorClosureIncludesStorageV3(t *testing.T) {
 		}
 	}
 	require.True(t, found, "closure missing %s; got %d files", want, len(set.File))
+}
+
+// TestBuildDescriptorClosureDeterministic pins that the closure — and
+// therefore the manifest bytes that embed it — is byte-deterministic
+// across builds. proto's Deterministic marshal option only sorts map
+// entries; repeated-field order is part of the message value, so the
+// builder must emit a canonical (path-sorted) order itself. The pre-fix
+// builder ranged its collection map, which permuted the set on every
+// call and made two saves of identical content produce different
+// manifest bytes (and a different manifest_xxh64).
+func TestBuildDescriptorClosureDeterministic(t *testing.T) {
+	// Touch the storage.v3 package so its descriptors are registered.
+	_ = &v3pb.GrantRecord{}
+
+	build := func() []byte {
+		set, err := BuildDescriptorClosure()
+		require.NoError(t, err)
+		require.NotEmpty(t, set.File)
+		// The structural property: sorted by path. This catches an
+		// ordering regression deterministically, independent of how
+		// map iteration happens to land in this run.
+		require.True(t, sort.SliceIsSorted(set.File, func(i, j int) bool {
+			return set.File[i].GetName() < set.File[j].GetName()
+		}), "descriptor closure is not sorted by file path")
+		b, err := MarshalManifest(&c1zv3.C1ZManifestV3{Engine: "pebble", Descriptors: set})
+		require.NoError(t, err)
+		return b
+	}
+
+	first := build()
+	for i := 0; i < 20; i++ {
+		require.Equal(t, first, build(), "manifest bytes differ across identical builds (iteration %d)", i)
+	}
 }
 
 // envelope_test helpers below — tiny stand-ins so the test file is self-contained.
