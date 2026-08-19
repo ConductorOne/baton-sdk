@@ -88,8 +88,9 @@ type Engine struct {
 	// call only" — subsequent calls in the same fresh sync must
 	// still read-before-write to clean up cross-call duplicate index
 	// entries.
-	freshGrantsEmpty    bool
-	freshResourcesEmpty bool
+	freshGrantsEmpty       bool
+	freshEntitlementsEmpty bool
+	freshResourcesEmpty    bool
 
 	// writeWG tracks in-flight writes. Incremented at the start of
 	// every Writer method, decremented in defer.
@@ -305,6 +306,17 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		_ = e.Close()
 		return nil, err
 	}
+	// Arm the mutation-path source-scope index obligations iff the file
+	// actually holds by_source_scope entries (bounded seeks, same
+	// contract as the digest probe): scope-free stores keep the exact
+	// pre-scope write cost. Runs BEFORE migrations so any migration
+	// staging typed record ops sees a derived gate, not the false
+	// default; a migration that backfills by_source_scope entries must
+	// itself re-probe or arm (see the indexMigrations registry doc).
+	if err := e.db.ProbeSourceScopeMayExist(); err != nil {
+		_ = e.Close()
+		return nil, err
+	}
 	// Run secondary-index migrations before returning. Migrations
 	// are skipped for read-only opens (the on-disk file is
 	// immutable, so we'd error out trying to backfill).
@@ -375,6 +387,7 @@ func (e *Engine) bindCurrentSync(syncID string) error {
 	e.currentSync = idBytes
 	e.freshSync = false
 	e.freshGrantsEmpty = false
+	e.freshEntitlementsEmpty = false
 	e.freshResourcesEmpty = false
 	e.currentSyncMu.Unlock()
 	// Binding a sync means more writes are coming; leave the sealed state
@@ -453,6 +466,7 @@ func (e *Engine) MarkFreshSync(syncID string) error {
 	e.currentSync = idBytes
 	e.freshSync = true
 	e.freshGrantsEmpty = true
+	e.freshEntitlementsEmpty = true
 	e.freshResourcesEmpty = true
 	e.currentSyncMu.Unlock()
 	// A fresh sync writes heavily; leave the sealed state and resume
@@ -470,6 +484,7 @@ func (e *Engine) clearCurrentSync() {
 	e.currentSync = nil
 	e.freshSync = false
 	e.freshGrantsEmpty = false
+	e.freshEntitlementsEmpty = false
 	e.freshResourcesEmpty = false
 	e.currentSyncMu.Unlock()
 }
@@ -512,6 +527,16 @@ func (e *Engine) takeFreshResourcesEmpty() bool {
 		return false
 	}
 	e.freshResourcesEmpty = false
+	return true
+}
+
+func (e *Engine) takeFreshEntitlementsEmpty() bool {
+	e.currentSyncMu.Lock()
+	defer e.currentSyncMu.Unlock()
+	if !e.freshEntitlementsEmpty {
+		return false
+	}
+	e.freshEntitlementsEmpty = false
 	return true
 }
 
@@ -639,9 +664,9 @@ func (e *Engine) withWrite(fn func() error) error {
 
 // withWriteAllowSealed is withWrite without the sealed check. Reserved for
 // writes that are part of the sealed lifecycle itself: sync-run metadata
-// stamps on a finished sync (ended_at overrides, diff links, supports_diff)
-// and ResetForNewSync's wipe on the way into a new sync. Record-data writes
-// must use withWrite.
+// stamps on a finished sync (ended_at overrides, diff links, supports_diff),
+// compactor source-cache invalidation, and ResetForNewSync's wipe on the way
+// into a new sync. Record-data writes must use withWrite.
 func (e *Engine) withWriteAllowSealed(fn func() error) error {
 	if err := e.checkWritableAllowSealed(); err != nil {
 		return err

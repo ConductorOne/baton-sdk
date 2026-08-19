@@ -138,6 +138,44 @@ func TestPutGrantRecordsIfNewerSkipsStale(t *testing.T) {
 	require.Equal(t, []string{"g-newest"}, grantsByPrincipal(t, ctx, e, "winner"))
 }
 
+func TestGrantMarshalFailureReleasesExistingRowCloser(t *testing.T) {
+	ctx := context.Background()
+	older := time.Unix(1000, 0).UTC()
+	newer := time.Unix(2000, 0).UTC()
+
+	tests := []struct {
+		name string
+		put  func(*Engine, *v3.GrantRecord) error
+	}{
+		{
+			name: "if-newer",
+			put: func(e *Engine, record *v3.GrantRecord) error {
+				return e.PutGrantRecordsIfNewer(ctx, record)
+			},
+		},
+		{
+			name: "expanded",
+			put: func(e *Engine, record *v3.GrantRecord) error {
+				return e.PutExpandedGrantRecords(ctx, []*v3.GrantRecord{record})
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e, _ := newTestEngine(t)
+			require.NoError(t, e.bindCurrentSync(ksuid.New().String()))
+			require.NoError(t, e.PutGrantRecords(ctx, ifNewerGrantExternal("valid", "winner", older)))
+
+			// The identity fields still select the existing row, but the
+			// unrelated malformed external id makes protobuf marshaling fail
+			// after db.Get has returned its closer. newTestEngine's cleanup is
+			// the ride-along oracle for releasing that closer on this branch.
+			malformed := ifNewerGrantExternal(string([]byte{0xff}), "winner", newer)
+			require.Error(t, tt.put(e, malformed))
+		})
+	}
+}
+
 // TestPutRecordsIfNewerRejectsOlderAllTypes guards the per-type
 // discovered_at field constants in the *IfNewer path
 // (grant/resource/entitlement/resource_type each scan a different proto

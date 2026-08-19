@@ -19,7 +19,9 @@ func newEngine(t *testing.T, name string) (*enginepkg.Engine, string) {
 	dir := filepath.Join(root, name)
 	e, err := enginepkg.Open(context.Background(), dir)
 	require.NoError(t, err, "Open %s", name)
-	t.Cleanup(func() { _ = e.Close() })
+	t.Cleanup(func() {
+		require.NoError(t, e.Close(), "Close %s (resource-leak oracle)", name)
+	})
 	return e, dir
 }
 

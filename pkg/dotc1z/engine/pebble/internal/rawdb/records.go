@@ -38,7 +38,13 @@ package rawdb
 // doesn't belong.
 
 import (
+	"bytes"
 	"fmt"
+
+	"github.com/cockroachdb/pebble/v2"
+	"google.golang.org/protobuf/encoding/protowire"
+
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 )
 
 // Family prefixes for the keyspace assertions.
@@ -56,6 +62,30 @@ func assertFamily(op string, key, prefix []byte) error {
 	return nil
 }
 
+// StageSourceCacheReplayInvalidation removes validators that cannot describe a
+// compaction output. Rebuild compactions also drop all source-scope indexes;
+// fold compactions retain them to avoid rewriting the inherited base.
+func (rb *RecordBatch) StageSourceCacheReplayInvalidation(dropScopeIndexes bool) error {
+	lo, hi := SourceCacheEntryBounds()
+	if err := rb.core.DeleteRange(lo, hi); err != nil {
+		return err
+	}
+	if !dropScopeIndexes {
+		return nil
+	}
+	for _, indexID := range []byte{
+		IdxResourceBySourceScope,
+		IdxEntitlementBySourceScope,
+		IdxGrantBySourceScope,
+	} {
+		lo := []byte{VersionV3, TypeIndex, indexID}
+		if err := rb.core.DeleteRange(lo, UpperBound(lo)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // === grant staging ===
 
 // StageGrantPutInline stages one grant row in the INLINE index regime
@@ -68,7 +98,7 @@ func assertFamily(op string, key, prefix []byte) error {
 // (the write path has it; deriving it here would force a value scan).
 // Contrast StageResourcePut, which takes the prior VALUE bytes —
 // resource index keys derive from the value (parent ref), not the key.
-func (rb *RecordBatch) StageGrantPutInline(key, val []byte, hadOldVal, needsExpansion bool) error {
+func (rb *RecordBatch) StageGrantPutInline(key, val, oldVal []byte, needsExpansion bool) error {
 	if err := assertFamily("StageGrantPutInline", key, grantPrimaryPrefix); err != nil {
 		return err
 	}
@@ -76,7 +106,7 @@ func (rb *RecordBatch) StageGrantPutInline(key, val []byte, hadOldVal, needsExpa
 	if !ok {
 		return fmt.Errorf("rawdb.StageGrantPutInline: grant key %x did not decode as a 6-segment identity", key)
 	}
-	if hadOldVal {
+	if oldVal != nil {
 		if err := rb.deleteByPrincipalKey(key); err != nil {
 			return err
 		}
@@ -95,6 +125,9 @@ func (rb *RecordBatch) StageGrantPutInline(key, val []byte, hadOldVal, needsExpa
 			return err
 		}
 	}
+	if err := rb.stageSourceScopeChange(key, val, oldVal, 10); err != nil {
+		return err
+	}
 	return rb.stageGrantDigestInvalidation(key, sep4)
 }
 
@@ -110,7 +143,7 @@ func (rb *RecordBatch) StageGrantPutInline(key, val []byte, hadOldVal, needsExpa
 // a stale-but-present digest, a present-means-exact hole. Key-derived
 // cleanup cannot be skipped; tombstones on absent index keys are
 // harmless.
-func (rb *RecordBatch) StageGrantDelete(key []byte) error {
+func (rb *RecordBatch) StageGrantDelete(key, oldVal []byte) error {
 	if err := assertFamily("StageGrantDelete", key, grantPrimaryPrefix); err != nil {
 		return err
 	}
@@ -127,6 +160,9 @@ func (rb *RecordBatch) StageGrantDelete(key []byte) error {
 	if err := rb.core.b.Delete(key, nil); err != nil {
 		return err
 	}
+	if err := rb.stageSourceScopeCleanup(key, oldVal, 10); err != nil {
+		return err
+	}
 	return rb.stageGrantDigestInvalidation(key, sep4)
 }
 
@@ -138,7 +174,7 @@ func (rb *RecordBatch) StageGrantDelete(key []byte) error {
 // wholesale at seal, which also clears stale entries), and the digest
 // invalidation is staged. hadOldVal selects overwrite cleanup of the
 // needs_expansion entry.
-func (rb *RecordBatch) StageGrantPutDeferred(key, val []byte, hadOldVal, needsExpansion bool) error {
+func (rb *RecordBatch) StageGrantPutDeferred(key, val, oldVal []byte, needsExpansion bool) error {
 	if err := assertFamily("StageGrantPutDeferred", key, grantPrimaryPrefix); err != nil {
 		return err
 	}
@@ -149,7 +185,7 @@ func (rb *RecordBatch) StageGrantPutDeferred(key, val []byte, hadOldVal, needsEx
 	if err := rb.db.ArmDeferredGrantIndex(); err != nil {
 		return err
 	}
-	if hadOldVal {
+	if oldVal != nil {
 		if err := rb.deleteNeedsExpansionKey(key); err != nil {
 			return err
 		}
@@ -161,6 +197,9 @@ func (rb *RecordBatch) StageGrantPutDeferred(key, val []byte, hadOldVal, needsEx
 		if err := rb.setNeedsExpansionKey(key); err != nil {
 			return err
 		}
+	}
+	if err := rb.stageSourceScopeChange(key, val, oldVal, 10); err != nil {
+		return err
 	}
 	return rb.stageGrantDigestInvalidation(key, sep4)
 }
@@ -186,6 +225,21 @@ func (rb *RecordBatch) StageGrantOrphanIndexHeal(primaryKey []byte) error {
 		return fmt.Errorf("rawdb.StageGrantOrphanIndexHeal: grant key %x did not decode as a 6-segment identity", primaryKey)
 	}
 	return rb.deleteByPrincipalKey(primaryKey)
+}
+
+// StageSourceScopeOrphanIndexDelete removes one by_source_scope entry whose
+// primary row is absent. The caller must establish absence while holding the
+// engine write barrier.
+func (rb *RecordBatch) StageSourceScopeOrphanIndexDelete(indexKey []byte) error {
+	if len(indexKey) < 3 || indexKey[0] != VersionV3 || indexKey[1] != TypeIndex {
+		return fmt.Errorf("rawdb.StageSourceScopeOrphanIndexDelete: key %x is not an index key", indexKey)
+	}
+	switch indexKey[2] {
+	case IdxGrantBySourceScope, IdxEntitlementBySourceScope, IdxResourceBySourceScope:
+		return rb.core.b.Delete(indexKey, nil)
+	default:
+		return fmt.Errorf("rawdb.StageSourceScopeOrphanIndexDelete: key %x is outside source-scope families", indexKey)
+	}
 }
 
 func (rb *RecordBatch) setByPrincipalKey(key []byte) error {
@@ -278,9 +332,12 @@ func (rb *RecordBatch) StageResourcePut(key, val, oldVal []byte, childRT, childI
 		return err
 	}
 	if parentID == "" {
-		return nil
+		return rb.stageSourceScopeChange(key, val, oldVal, 12)
 	}
-	return rb.core.b.Set(EncodeResourceByParentIndexKey(parentRT, parentID, childRT, childID), nil, nil)
+	if err := rb.core.b.Set(EncodeResourceByParentIndexKey(parentRT, parentID, childRT, childID), nil, nil); err != nil {
+		return err
+	}
+	return rb.stageSourceScopeChange(key, val, oldVal, 12)
 }
 
 // StageResourceDelete stages one resource row's removal plus its
@@ -289,7 +346,17 @@ func (rb *RecordBatch) StageResourceDelete(key, oldVal []byte, childRT, childID 
 	if err := assertFamily("StageResourceDelete", key, resourcePrimaryPrefix); err != nil {
 		return err
 	}
-	if err := rb.stageResourceParentDelete(oldVal, childRT, childID); err != nil {
+	parentRT, parentID, parentErr := ScanResourceParentRaw(oldVal)
+	if parentErr != nil {
+		if err := rb.deleteAllResourceParentKeysForChild(childRT, childID); err != nil {
+			return err
+		}
+	} else if parentID != "" {
+		if err := rb.core.b.Delete(EncodeResourceByParentIndexKey(parentRT, parentID, childRT, childID), nil); err != nil {
+			return err
+		}
+	}
+	if err := rb.stageSourceScopeCleanup(key, oldVal, 12); err != nil {
 		return err
 	}
 	return rb.core.b.Delete(key, nil)
@@ -306,6 +373,42 @@ func (rb *RecordBatch) stageResourceParentDelete(oldVal []byte, childRT, childID
 	return rb.core.b.Delete(EncodeResourceByParentIndexKey(parentRT, parentID, childRT, childID), nil)
 }
 
+func (rb *RecordBatch) deleteAllResourceParentKeysForChild(childRT, childID string) error {
+	lo := []byte{VersionV3, TypeIndex, IdxResourceByParent}
+	iter, err := rb.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: UpperBound(lo)})
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+	childTail := codec.AppendTupleStrings(nil, childRT, childID)
+	for iter.First(); iter.Valid(); iter.Next() {
+		key := iter.Key()
+		if len(key) < 5 || key[3] != 0 {
+			continue
+		}
+		_, parentRTNext, ok := codec.DecodeTupleStringAlias(key[4:], 0)
+		if !ok {
+			continue
+		}
+		parentIDOffset := 4 + parentRTNext + 1
+		if parentIDOffset > len(key) {
+			continue
+		}
+		_, parentIDNext, ok := codec.DecodeTupleStringAlias(key[parentIDOffset:], 0)
+		if !ok {
+			continue
+		}
+		childOffset := parentIDOffset + parentIDNext + 1
+		if childOffset > len(key) || !bytes.Equal(key[childOffset:], childTail) {
+			continue
+		}
+		if err := rb.core.b.Delete(key, nil); err != nil {
+			return err
+		}
+	}
+	return iter.Error()
+}
+
 // === entitlement / resource-type staging ===
 //
 // Neither family owes inline index entries. The typed ops exist so the
@@ -315,19 +418,141 @@ func (rb *RecordBatch) stageResourceParentDelete(oldVal []byte, childRT, childID
 // obligation and stays with the engine's write paths.
 
 // StageEntitlementPut stages one entitlement row.
-func (rb *RecordBatch) StageEntitlementPut(key, val []byte) error {
+func (rb *RecordBatch) StageEntitlementPut(key, val, oldVal []byte) error {
 	if err := assertFamily("StageEntitlementPut", key, entitlementPrimaryPrefix); err != nil {
 		return err
 	}
-	return rb.core.b.Set(key, val, nil)
+	if err := rb.core.b.Set(key, val, nil); err != nil {
+		return err
+	}
+	return rb.stageSourceScopeChange(key, val, oldVal, 11)
 }
 
 // StageEntitlementDelete stages one entitlement row's removal.
-func (rb *RecordBatch) StageEntitlementDelete(key []byte) error {
+func (rb *RecordBatch) StageEntitlementDelete(key, oldVal []byte) error {
 	if err := assertFamily("StageEntitlementDelete", key, entitlementPrimaryPrefix); err != nil {
 		return err
 	}
+	if err := rb.stageSourceScopeCleanup(key, oldVal, 11); err != nil {
+		return err
+	}
 	return rb.core.b.Delete(key, nil)
+}
+
+// stageSourceScopeCleanup stages the by_source_scope entry removal a
+// record DELETE owes, gated on sourceScopeMayExist exactly like
+// stageSourceScopeChange: an unarmed gate certifies the index families
+// are empty, so there is no entry to remove and the prior-value scan is
+// skipped. A malformed prior value degrades to the bounded family-scan
+// fallback instead of failing the delete (corruption-recovery path).
+func (rb *RecordBatch) stageSourceScopeCleanup(key, oldVal []byte, field protowire.Number) error {
+	if !rb.db.sourceScopeMayExist.Load() {
+		return nil
+	}
+	oldScope, scopeErr := ScanSourceScopeKeyRaw(oldVal, field)
+	if scopeErr != nil {
+		return rb.deleteAllSourceScopeKeysForPrimary(key)
+	}
+	if oldScope == "" {
+		return nil
+	}
+	return rb.deleteSourceScopeKey(key, oldScope)
+}
+
+// stageSourceScopeChange stages the by_source_scope index obligations a
+// record put owes. The new value is ALWAYS scanned (an O(#fields) header
+// walk), so a stamped record arms the sourceScopeMayExist gate right here
+// — no caller can forget to. The PRIOR value is scanned only when the
+// gate was already armed: an unarmed gate certifies the index families
+// are empty, so a stale stamp in oldVal has no entry to clean up (and
+// callers on that fast path may skip fetching oldVal entirely — see
+// PutEntitlementRecords).
+func (rb *RecordBatch) stageSourceScopeChange(key, val, oldVal []byte, field protowire.Number) error {
+	mayExist := rb.db.sourceScopeMayExist.Load()
+	newScope, err := ScanSourceScopeKeyRaw(val, field)
+	if err != nil {
+		return err
+	}
+	if newScope == "" && !mayExist {
+		return nil
+	}
+	if mayExist {
+		oldScope, err := ScanSourceScopeKeyRaw(oldVal, field)
+		if err != nil {
+			return err
+		}
+		if oldScope != "" && oldScope != newScope {
+			if err := rb.deleteSourceScopeKey(key, oldScope); err != nil {
+				return err
+			}
+		}
+	}
+	if newScope == "" {
+		return nil
+	}
+	rb.db.sourceScopeMayExist.Store(true)
+	indexKey, ok := AppendBySourceScopeKeyFromPrimary(rb.scratch[:0], key, newScope)
+	rb.scratch = indexKey
+	if !ok {
+		return fmt.Errorf("rawdb: cannot derive source-scope index from key %x", key)
+	}
+	return rb.core.b.Set(indexKey, nil, nil)
+}
+
+func (rb *RecordBatch) deleteSourceScopeKey(key []byte, scopeKey string) error {
+	indexKey, ok := AppendBySourceScopeKeyFromPrimary(rb.scratch[:0], key, scopeKey)
+	rb.scratch = indexKey
+	if !ok {
+		return fmt.Errorf("rawdb: cannot derive source-scope index from key %x", key)
+	}
+	return rb.core.b.Delete(indexKey, nil)
+}
+
+// deleteAllSourceScopeKeysForPrimary is the bounded-memory corruption fallback
+// for a malformed value whose source_scope_key cannot be decoded. The primary
+// key still gives the exact identity tail, so scan the one source-index family
+// and remove every matching tail in the same batch as the primary deletion.
+// Healthy deletes stay on the O(1) value-derived path.
+func (rb *RecordBatch) deleteAllSourceScopeKeysForPrimary(primaryKey []byte) error {
+	if len(primaryKey) < 3 {
+		return fmt.Errorf("rawdb: malformed primary key %x", primaryKey)
+	}
+	var indexID byte
+	switch primaryKey[1] {
+	case TypeGrant:
+		indexID = IdxGrantBySourceScope
+	case TypeEntitlement:
+		indexID = IdxEntitlementBySourceScope
+	case TypeResource:
+		indexID = IdxResourceBySourceScope
+	default:
+		return fmt.Errorf("rawdb: primary key %x has no source-scope family", primaryKey)
+	}
+	lo := []byte{VersionV3, TypeIndex, indexID}
+	iter, err := rb.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: UpperBound(lo)})
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+	identityTail := primaryKey[3:]
+	for iter.First(); iter.Valid(); iter.Next() {
+		key := iter.Key()
+		if len(key) < 5 || key[3] != 0 {
+			continue
+		}
+		_, next, ok := codec.DecodeTupleStringAlias(key[4:], 0)
+		if !ok {
+			continue
+		}
+		tailOffset := 4 + next + 1
+		if tailOffset > len(key) || !bytes.Equal(key[tailOffset:], identityTail) {
+			continue
+		}
+		if err := rb.core.b.Delete(key, nil); err != nil {
+			return err
+		}
+	}
+	return iter.Error()
 }
 
 // StageResourceTypePut stages one resource-type row.
@@ -358,9 +583,37 @@ func (rb *RecordBatch) StageResourceTypeDelete(key []byte) error {
 // fold compactor.
 type FoldBatch struct {
 	batch
+	db *DB
 }
 
 // NewFoldBatch mints a generic staged batch for the compactor's
 // keep-newer fold and overlay writers. Engine production code must
 // not use it; see the choke-point meta-tests.
-func (d *DB) NewFoldBatch() *FoldBatch { return &FoldBatch{batch{b: d.newBatch()}} }
+//
+// A fold destination inherited from a scoped base is already armed by
+// ProbeSourceScopeMayExist at Open. Rebuild paths start empty and must not pay
+// source-scope maintenance merely because they share this raw batch surface.
+// FoldBatch.Set therefore arms the gate only when a caller actually stages a
+// by_source_scope key.
+func (d *DB) NewFoldBatch() *FoldBatch {
+	d.acct.fold.Add(1)
+	return &FoldBatch{
+		batch: batch{b: d.newBatch(), open: &d.acct.fold},
+		db:    d,
+	}
+}
+
+// Set stages a raw compactor key and self-arms the source-scope obligation
+// gate exactly when the raw surface introduces an entry that typed record ops
+// cannot observe.
+func (b *FoldBatch) Set(key, val []byte) error {
+	if len(key) >= 3 &&
+		key[0] == VersionV3 &&
+		key[1] == TypeIndex {
+		switch key[2] {
+		case IdxResourceBySourceScope, IdxEntitlementBySourceScope, IdxGrantBySourceScope:
+			b.db.sourceScopeMayExist.Store(true)
+		}
+	}
+	return b.batch.Set(key, val)
+}

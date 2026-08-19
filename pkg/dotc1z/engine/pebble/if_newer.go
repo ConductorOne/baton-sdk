@@ -52,42 +52,47 @@ func (e *Engine) PutGrantRecordsIfNewer(ctx context.Context, records ...*v3.Gran
 			if r == nil {
 				continue
 			}
-			id, err := grantIdentityFromRecord(r)
-			if err != nil {
-				return err
-			}
-			key := encodeGrantIdentityKey(id)
-			hadOld := false
-			oldVal, closer, getErr := e.db.Get(key)
-			switch {
-			case getErr == nil:
-				write, err := discoveredAtIsNewerThanRaw(r.GetDiscoveredAt(), oldVal, grantDiscoveredAtField)
+			if err := func() error {
+				id, err := grantIdentityFromRecord(r)
 				if err != nil {
-					closer.Close()
-					return fmt.Errorf("PutGrantRecordsIfNewer: scan old discovered_at: %w", err)
+					return err
 				}
-				if !write {
-					closer.Close()
-					continue
+				key := encodeGrantIdentityKey(id)
+				oldVal, closer, getErr := e.db.Get(key)
+				switch {
+				case getErr == nil:
+					defer closer.Close()
+					write, err := discoveredAtIsNewerThanRaw(r.GetDiscoveredAt(), oldVal, grantDiscoveredAtField)
+					if err != nil {
+						return fmt.Errorf("PutGrantRecordsIfNewer: scan old discovered_at: %w", err)
+					}
+					if !write {
+						return nil
+					}
+				case errors.Is(getErr, pebble.ErrNotFound):
+					// no existing record — write unconditionally
+				default:
+					return fmt.Errorf("PutGrantRecordsIfNewer: get: %w", getErr)
 				}
-				hadOld = true
-				closer.Close()
-			case errors.Is(getErr, pebble.ErrNotFound):
-				// no existing record — write unconditionally
-			default:
-				return fmt.Errorf("PutGrantRecordsIfNewer: get: %w", getErr)
-			}
-			val, err := marshalRecord(r)
-			if err != nil {
+				val, err := marshalRecord(r)
+				if err != nil {
+					return err
+				}
+				// Inline regime: the typed op stages the row plus prior-row
+				// index cleanup, both index entries, and digest invalidation
+				// (this IS the partial-sync path the invalidation exists for).
+				var priorVal []byte
+				if getErr == nil {
+					priorVal = oldVal
+				}
+				if err := batch.StageGrantPutInline(key, val, priorVal, r.GetNeedsExpansion()); err != nil {
+					return err
+				}
+				written++
+				return nil
+			}(); err != nil {
 				return err
 			}
-			// Inline regime: the typed op stages the row plus prior-row
-			// index cleanup, both index entries, and digest invalidation
-			// (this IS the partial-sync path the invalidation exists for).
-			if err := batch.StageGrantPutInline(key, val, hadOld, r.GetNeedsExpansion()); err != nil {
-				return err
-			}
-			written++
 		}
 		if written == 0 {
 			return nil
@@ -192,7 +197,18 @@ func (e *Engine) PutEntitlementRecordsIfNewer(ctx context.Context, records ...*v
 					closer.Close()
 					continue
 				}
+				val, err := marshalRecord(r)
+				if err != nil {
+					closer.Close()
+					return err
+				}
+				err = batch.StageEntitlementPut(key, val, oldVal)
 				closer.Close()
+				if err != nil {
+					return err
+				}
+				written++
+				continue
 			case errors.Is(getErr, pebble.ErrNotFound):
 			default:
 				return fmt.Errorf("PutEntitlementRecordsIfNewer: get: %w", getErr)
@@ -201,7 +217,7 @@ func (e *Engine) PutEntitlementRecordsIfNewer(ctx context.Context, records ...*v
 			if err != nil {
 				return err
 			}
-			if err := batch.StageEntitlementPut(key, val); err != nil {
+			if err := batch.StageEntitlementPut(key, val, nil); err != nil {
 				return err
 			}
 			written++

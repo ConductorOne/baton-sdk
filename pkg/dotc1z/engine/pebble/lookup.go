@@ -265,6 +265,17 @@ func (e *Engine) grantPrimaryPrefixNonEmpty(prefix []byte) (bool, error) {
 // the row instead of the concat). Exactly one hit wins; zero is
 // pebble.ErrNotFound; several is ErrAmbiguousExternalID.
 func (e *Engine) resolveGrantIdentityByExternalID(ctx context.Context, grantID string) (grantIdentity, error) {
+	return e.resolveGrantIdentity(ctx, grantID, true)
+}
+
+// resolveGrantIdentityByCandidates is the bounded variant used by
+// source-cache tombstones. It never falls back to an O(all grants) scan for
+// connector-custom stored ids.
+func (e *Engine) resolveGrantIdentityByCandidates(ctx context.Context, grantID string) (grantIdentity, error) {
+	return e.resolveGrantIdentity(ctx, grantID, false)
+}
+
+func (e *Engine) resolveGrantIdentity(ctx context.Context, grantID string, allowStoredIDScan bool) (grantIdentity, error) {
 	var colons []int
 	for i := 0; i < len(grantID); i++ {
 		if grantID[i] == ':' {
@@ -275,7 +286,10 @@ func (e *Engine) resolveGrantIdentityByExternalID(ctx context.Context, grantID s
 		// No concat shape to split: connector-custom ids (SQLite keyed rows
 		// by these, and provisioner revokes address grants with them) are
 		// findable only by their STORED external id.
-		return e.scanGrantIdentityByStoredExternalID(ctx, grantID)
+		if allowStoredIDScan {
+			return e.scanGrantIdentityByStoredExternalID(ctx, grantID)
+		}
+		return grantIdentity{}, pebble.ErrNotFound
 	}
 	if len(colons) > maxBareIDColons {
 		return grantIdentity{}, fmt.Errorf("%w: grant id has %d colons; too complex to resolve safely by string", ErrAmbiguousExternalID, len(colons))
@@ -380,7 +394,10 @@ func (e *Engine) resolveGrantIdentityByExternalID(ctx context.Context, grantID s
 	case 0:
 		// Every concat split missed: the id may still be a connector-custom
 		// STORED external id that merely contains colons.
-		return e.scanGrantIdentityByStoredExternalID(ctx, grantID)
+		if allowStoredIDScan {
+			return e.scanGrantIdentityByStoredExternalID(ctx, grantID)
+		}
+		return grantIdentity{}, pebble.ErrNotFound
 	case 1:
 		return hits[0], nil
 	default:
