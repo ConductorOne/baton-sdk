@@ -84,11 +84,11 @@ func WithMetricsHandler(handler metrics.Handler) WrapperOption {
 }
 
 type cacheKeyHeadersWrapperOption struct {
-	headers []string
+	opt CacheOption
 }
 
 func (o cacheKeyHeadersWrapperOption) Apply(c *BaseHttpClient) {
-	c.cacheOptions = append(c.cacheOptions, cacheKeyHeadersOption(o.headers))
+	c.cacheOptions = append(c.cacheOptions, o.opt)
 }
 
 // WithCacheKeyHeaders returns a WrapperOption that additionally folds the
@@ -100,8 +100,12 @@ func (o cacheKeyHeadersWrapperOption) Apply(c *BaseHttpClient) {
 // don't collide in the cache. The value folded in is always read from
 // req.Header at request time, so the key can never describe a value other
 // than the one actually sent.
+//
+// Named headers must be set on the request before it reaches Do; a header
+// only added later by a transport-level RoundTripper or a cookie jar is not
+// seen by the cache lookup and will not be reflected in the key.
 func WithCacheKeyHeaders(headers ...string) WrapperOption {
-	return cacheKeyHeadersWrapperOption{headers: headers}
+	return cacheKeyHeadersWrapperOption{opt: CacheKeyHeaders(headers...)}
 }
 
 type WrapperOption interface {
@@ -482,16 +486,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	if resp == nil {
-		// Round trip on a clone, not req itself. http.Client.Do forks the
-		// Request struct internally (any non-zero Timeout, which uhttp.NewClient
-		// always sets, triggers this) but that fork is shallow -- the Header map
-		// is still the same one req points to. Transport-level RoundTrippers
-		// (e.g. userAgentTripper) mutate that shared map, so without cloning
-		// here, req.Header could gain or change a header opted into the cache
-		// key (via WithCacheKeyHeaders) between the Get above and the Set
-		// below, and CreateCacheKey(req) would hash a different value for
-		// each -- a store that no future lookup can ever match.
-		resp, err = c.HttpClient.Do(req.Clone(req.Context())) // #nosec G704 -- this HTTP wrapper intentionally supports arbitrary connector-defined endpoints.
+		resp, err = c.HttpClient.Do(req) // #nosec G704 -- this HTTP wrapper intentionally supports arbitrary connector-defined endpoints.
 		if err != nil {
 			l.Error("base-http-client: HTTP error response", zap.Error(err))
 			return resp, wrapTransientNetworkError(err)
