@@ -104,17 +104,48 @@ func NewClient(ctx context.Context, options ...Option) (*http.Client, error) {
 }
 
 type icache interface {
-	Get(req *http.Request) (*http.Response, error)
-	Set(req *http.Request, value *http.Response) error
+	Get(req *http.Request, opts ...CacheOption) (*http.Response, error)
+	Set(req *http.Request, value *http.Response, opts ...CacheOption) error
 	Clear(ctx context.Context) error
 	Stats(ctx context.Context) CacheStats
 }
 
+type cacheKeyConfig struct {
+	headers []string
+}
+
+// CacheOption configures how CreateCacheKey computes its key, beyond the
+// default set of headers (Accept, Content-Type, Cookie, Range). Kept as an
+// interface so future dimensions (TTL, query-param keying, etc.) can be
+// added without changing CreateCacheKey's or icache's signatures again.
+type CacheOption interface {
+	applyCache(*cacheKeyConfig)
+}
+
+type cacheKeyHeadersOption []string
+
+func (o cacheKeyHeadersOption) applyCache(c *cacheKeyConfig) {
+	c.headers = append(c.headers, o...)
+}
+
+// WithCacheKeyHeaders returns a CacheOption that folds the named headers
+// into the HTTP response cache key, on top of the default set (Accept,
+// Content-Type, Cookie, Range). The value folded in for each is read from
+// req.Header at CreateCacheKey time, same as the default set.
+func WithCacheKeyHeaders(headers ...string) CacheOption {
+	return cacheKeyHeadersOption(headers)
+}
+
 // CreateCacheKey generates a cache key based on the request URL, query parameters, and headers.
-func CreateCacheKey(req *http.Request) (string, error) {
+func CreateCacheKey(req *http.Request, opts ...CacheOption) (string, error) {
 	if req == nil {
 		return "", fmt.Errorf("request is nil")
 	}
+	var cfg cacheKeyConfig
+	for _, o := range opts {
+		o.applyCache(&cfg)
+	}
+
 	var sortedParams []string
 	// Normalize the URL path
 	path := strings.ToLower(req.URL.Path)
@@ -135,6 +166,12 @@ func CreateCacheKey(req *http.Request) (string, error) {
 			if key == "Accept" || key == "Content-Type" || key == "Cookie" || key == "Range" {
 				headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
 			}
+		}
+	}
+	for _, h := range cfg.headers {
+		key := http.CanonicalHeaderKey(h)
+		for _, value := range req.Header[key] {
+			headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
 		}
 	}
 
