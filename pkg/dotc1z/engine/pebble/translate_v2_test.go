@@ -69,6 +69,9 @@ func TestV2ResourceRoundtrip(t *testing.T) {
 			Seconds: 1716393600,
 			Nanos:   0,
 		},
+		Icon: v2.AssetRef_builder{
+			Id: "icon-alice",
+		}.Build(),
 	}.Build()
 
 	v3rec := V2ResourceToV3("sync-1", original)
@@ -78,6 +81,7 @@ func TestV2ResourceRoundtrip(t *testing.T) {
 	require.Equal(t, v3.StatusRecord_RESOURCE_STATUS_ENABLED, v3rec.GetStatus().GetStatus(), "status")
 	require.Equal(t, "unlocked by admin", v3rec.GetStatus().GetDetails(), "status details")
 	require.Equal(t, int64(1716393600), v3rec.GetCreatedAt().GetSeconds(), "created_at")
+	require.Equal(t, "icon-alice", v3rec.GetIconAssetExternalId(), "icon")
 
 	back := V3ResourceToV2(v3rec)
 	require.Equal(t, "alice", back.GetId().GetResource(), "roundtrip resource")
@@ -87,6 +91,7 @@ func TestV2ResourceRoundtrip(t *testing.T) {
 	require.Equal(t, v2.Status_RESOURCE_STATUS_ENABLED, back.GetStatus().GetStatus(), "roundtrip status")
 	require.Equal(t, "unlocked by admin", back.GetStatus().GetDetails(), "roundtrip status details")
 	require.Equal(t, int64(1716393600), back.GetCreatedAt().GetSeconds(), "roundtrip created_at")
+	require.Equal(t, "icon-alice", back.GetIcon().GetId(), "roundtrip icon")
 }
 
 func TestV2ResourceTypeRoundtrip(t *testing.T) {

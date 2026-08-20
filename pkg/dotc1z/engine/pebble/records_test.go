@@ -104,12 +104,12 @@ func TestResourceWithParentIndex(t *testing.T) {
 	require.Equal(t, 9, total, "IterateResourcesBySync")
 }
 
-// TestResourceProfileStatusCreatedAtPersistence verifies profile,
-// status, and created_at survive the full v2 write path (Adapter
+// TestResourceAttributesPersistence verifies profile, status, created_at,
+// and icon survive the full v2 write path (Adapter
 // PutResources → v3 record marshaled into Pebble) and hydrate back
 // out on read. The translate-only round trip is covered in
 // translate_v2_test.go; this pins the on-disk persistence.
-func TestResourceProfileStatusCreatedAtPersistence(t *testing.T) {
+func TestResourceAttributesPersistence(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID := ksuid.New().String()
@@ -132,6 +132,9 @@ func TestResourceProfileStatusCreatedAtPersistence(t *testing.T) {
 			Details: "locked by admin",
 		},
 		CreatedAt: created,
+		Icon: v2.AssetRef_builder{
+			Id: "icon-alice",
+		}.Build(),
 	}.Build()
 	require.NoError(t, e.PutResources(ctx, res))
 
@@ -141,12 +144,14 @@ func TestResourceProfileStatusCreatedAtPersistence(t *testing.T) {
 	require.Equal(t, v3.StatusRecord_RESOURCE_STATUS_DISABLED, rec.GetStatus().GetStatus(), "stored status")
 	require.Equal(t, "locked by admin", rec.GetStatus().GetDetails(), "stored status details")
 	require.Equal(t, int64(1716393600), rec.GetCreatedAt().GetSeconds(), "stored created_at")
+	require.Equal(t, "icon-alice", rec.GetIconAssetExternalId(), "stored icon")
 
 	back := V3ResourceToV2(rec)
 	require.Equal(t, "alice@example.com", back.GetProfile().GetFields()["email"].GetStringValue(), "hydrated profile")
 	require.Equal(t, v2.Status_RESOURCE_STATUS_DISABLED, back.GetStatus().GetStatus(), "hydrated status")
 	require.Equal(t, "locked by admin", back.GetStatus().GetDetails(), "hydrated status details")
 	require.Equal(t, created.GetSeconds(), back.GetCreatedAt().GetSeconds(), "hydrated created_at")
+	require.Equal(t, "icon-alice", back.GetIcon().GetId(), "hydrated icon")
 }
 
 func TestEntitlementByResourceIndex(t *testing.T) {
