@@ -46,6 +46,7 @@ create table if not exists %s (
     sync_token text not null,
     sync_type text not null default 'full',
     parent_sync_id text not null default '',
+    linked_sync_id text not null default '',
     supports_diff integer not null default 0,
     grants_backfilled integer not null default 0,
 		stats text,
@@ -100,6 +101,25 @@ func (r *syncRunsTable) Migrations(ctx context.Context, db *goqu.Database) (bool
 	}
 	if parentSyncIDExists == 0 {
 		_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column parent_sync_id text not null default ''", r.Name()))
+		if err != nil {
+			return false, err
+		}
+		migrated = true
+	}
+
+	// linked_sync_id is vestigial: only the removed diff-sync feature ever
+	// wrote non-empty values, and nothing reads it anymore. The column stays
+	// in the schema (and this migration stays) so every opened file has a
+	// uniform sync_runs shape — CloneSync/SnapshotTo copy rows using the
+	// source's PRAGMA table_info column list into a fresh-DDL destination,
+	// and older SDKs still SELECT the column by name.
+	var linkedSyncIDExists int
+	err = db.QueryRowContext(ctx, fmt.Sprintf("select count(*) from pragma_table_info('%s') where name='linked_sync_id'", r.Name())).Scan(&linkedSyncIDExists)
+	if err != nil {
+		return false, err
+	}
+	if linkedSyncIDExists == 0 {
+		_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column linked_sync_id text not null default ''", r.Name()))
 		if err != nil {
 			return false, err
 		}
