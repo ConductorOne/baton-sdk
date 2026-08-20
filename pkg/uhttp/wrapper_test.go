@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -870,4 +872,45 @@ func TestWrapper_RedactSensitiveHeaders(t *testing.T) {
 		"Proxy-Authorization": {"REDACTED"},
 		"Custom-Api-Key":      {"REDACTED"},
 	}, redactedHeaders)
+}
+
+func newCountingServer(hits *int32) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(hits, 1)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+}
+
+// TestWrapper_WithCacheKeyHeaders_DistinguishesRequests is the regression
+// test for CE-1056: without opting Authorization into the cache key, two
+// GET requests that only differ in that header would collide. With
+// WithCacheKeyHeaders("Authorization") configured on the client, they don't
+// -- both reach the server -- while two calls sharing the same
+// Authorization value still hit the cache on the second call.
+func TestWrapper_WithCacheKeyHeaders_DistinguishesRequests(t *testing.T) {
+	var hits int32
+	ts := newCountingServer(&hits)
+	defer ts.Close()
+
+	client, err := NewBaseHttpClientWithContext(ctx, http.DefaultClient, WithCacheKeyHeaders("Authorization"))
+	require.NoError(t, err)
+
+	u, err := url.Parse(ts.URL)
+	require.NoError(t, err)
+
+	doWithAuth := func(token string) {
+		req, err := client.NewRequest(ctx, http.MethodGet, u, WithBearerToken(token))
+		require.NoError(t, err)
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		resp.Body.Close()
+	}
+
+	doWithAuth("token-a")
+	doWithAuth("token-b")
+	require.EqualValues(t, 2, atomic.LoadInt32(&hits), "different Authorization values must not collide in the cache")
+
+	doWithAuth("token-a")
+	require.EqualValues(t, 2, atomic.LoadInt32(&hits), "repeating the same Authorization value should be served from cache")
 }

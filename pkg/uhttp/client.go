@@ -104,17 +104,53 @@ func NewClient(ctx context.Context, options ...Option) (*http.Client, error) {
 }
 
 type icache interface {
-	Get(req *http.Request) (*http.Response, error)
-	Set(req *http.Request, value *http.Response) error
+	Get(req *http.Request, opts ...CacheOption) (*http.Response, error)
+	Set(req *http.Request, value *http.Response, opts ...CacheOption) error
 	Clear(ctx context.Context) error
 	Stats(ctx context.Context) CacheStats
 }
 
+type cacheKeyConfig struct {
+	headers []string
+}
+
+// CacheOption configures how CreateCacheKey computes its key, beyond the
+// default set of headers (Accept, Content-Type, Cookie, Range). Kept as an
+// interface so future dimensions (TTL, query-param keying, etc.) can be
+// added without changing CreateCacheKey's or icache's signatures again.
+type CacheOption interface {
+	applyCache(*cacheKeyConfig)
+}
+
+type cacheKeyHeadersOption []string
+
+func (o cacheKeyHeadersOption) applyCache(c *cacheKeyConfig) {
+	c.headers = append(c.headers, o...)
+}
+
+// CacheKeyHeaders returns a CacheOption that folds the named headers into
+// the cache key computed by CreateCacheKey (and by GoCache/DBCache's
+// Get/Set), beyond the default set (Accept, Content-Type, Cookie, Range).
+// The value folded in is always read from req.Header at key-computation
+// time, so the key can never describe a value other than the one actually
+// present on the request. Named headers must therefore be set on the
+// request before it reaches the cache lookup; a header only added by a
+// transport-level RoundTripper or a cookie jar after that point is not
+// seen.
+func CacheKeyHeaders(headers ...string) CacheOption {
+	return cacheKeyHeadersOption(headers)
+}
+
 // CreateCacheKey generates a cache key based on the request URL, query parameters, and headers.
-func CreateCacheKey(req *http.Request) (string, error) {
+func CreateCacheKey(req *http.Request, opts ...CacheOption) (string, error) {
 	if req == nil {
 		return "", fmt.Errorf("request is nil")
 	}
+	var cfg cacheKeyConfig
+	for _, o := range opts {
+		o.applyCache(&cfg)
+	}
+
 	var sortedParams []string
 	// Normalize the URL path
 	path := strings.ToLower(req.URL.Path)
@@ -130,11 +166,31 @@ func CreateCacheKey(req *http.Request) (string, error) {
 	queryString := strings.Join(sortedParams, "&")
 	// Include relevant headers in the cache key
 	var headerParts []string
+	seenHeaders := map[string]bool{
+		"Accept":       true,
+		"Content-Type": true,
+		"Cookie":       true,
+		"Range":        true,
+	}
 	for key, values := range req.Header {
 		for _, value := range values {
-			if key == "Accept" || key == "Content-Type" || key == "Cookie" || key == "Range" {
+			if seenHeaders[key] {
 				headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
 			}
+		}
+	}
+	// Opted-in headers are folded in on top of the default set above.
+	// seenHeaders already marks the default set, and gets marked as each
+	// opted-in header is processed, so a header named in cfg.headers -- by
+	// one CacheOption or by several -- is never folded in more than once.
+	for _, h := range cfg.headers {
+		key := http.CanonicalHeaderKey(h)
+		if seenHeaders[key] {
+			continue
+		}
+		seenHeaders[key] = true
+		for _, value := range req.Header[key] {
+			headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
 		}
 	}
 
