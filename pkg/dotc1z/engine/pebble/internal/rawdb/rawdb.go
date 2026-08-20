@@ -220,9 +220,11 @@ func (d *DB) GrantDigestsPresent() bool { return d.grantDigestsPresent.Load() }
 func (d *DB) SetGrantDigestsPresent(present bool) { d.grantDigestsPresent.Store(present) }
 
 // ProbeGrantDigestsPresent initializes the presence flag with one
-// bounded seek over the digest keyspace (the Open-time probe).
+// bounded seek over the digest NODE keyspace (the Open-time probe).
+// The ABI stamp's metadata sub-range is outside the bounds: a file
+// holding only a leftover stamp has no digest state to invalidate.
 func (d *DB) ProbeGrantDigestsPresent() error {
-	lo, hi := DigestKeyspaceBounds()
+	lo, hi := DigestNodeKeyspaceBounds()
 	iter, err := d.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
 	if err != nil {
 		return err

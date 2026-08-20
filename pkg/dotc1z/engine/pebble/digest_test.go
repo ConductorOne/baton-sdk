@@ -95,10 +95,12 @@ func sealGrantDigests(t testing.TB, e *Engine) {
 // keyspace but is a single fold-of-everything summary the seal build
 // writes once per file, not a per-partition node, so counting it here
 // would throw off every existing "N nodes for this one entitlement"
-// assertion by a constant +1.
+// assertion by a constant +1. The ABI stamp is excluded structurally:
+// the node bounds end at the DigestMetaIndexID sub-range it lives in.
 func digestNodeCount(t testing.TB, e *Engine) int {
 	t.Helper()
-	n := countKeyRangeTest(t, e, DigestLowerBound(), DigestUpperBound())
+	lo, hi := rawdb.DigestNodeKeyspaceBounds()
+	n := countKeyRangeTest(t, e, lo, hi)
 	if _, ok, err := e.GetGrantDigestGlobalRoot(context.Background()); err != nil {
 		t.Fatalf("GetGrantDigestGlobalRoot: %v", err)
 	} else if ok {

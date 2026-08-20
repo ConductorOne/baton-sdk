@@ -494,12 +494,15 @@ type DigestRoot struct {
 // computeBucketDigest would read that absence as "zero records" — the
 // false-clean trap dirtyPartitionBuckets' doc comment describes.
 func (e *Engine) getPartitionDigestRoot(spec digestIndexSpec, partition string) (DigestRoot, bool, error) {
-	if e.grantDigestBuildPending.Load() {
+	if e.grantDigestBuildPending.Load() || e.grantDigestAbiStale.Load() {
 		// An interrupted digest build's half-committed nodes may be
 		// durable while its hash index never ingested; until the pending
 		// state is consumed (a writable Open drops it; a read-only open
 		// cannot), no stored root may be trusted — report "never built",
-		// which every consumer already treats as "recalculate".
+		// which every consumer already treats as "recalculate". Roots
+		// computed under a different hash ABI (grantDigestAbiStale, only
+		// ever set on read-only opens) are equally untrustworthy: their
+		// hashes come from a different input framing.
 		return DigestRoot{}, false, nil
 	}
 	val, closer, err := e.db.Get(encodeDigestNodeKey(spec.indexID, partition, digestLevelRoot, nil))

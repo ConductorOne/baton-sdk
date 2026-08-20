@@ -49,7 +49,7 @@ import (
 type grantHashRowScratch struct {
 	keyBuf   []byte
 	tupleBuf []byte
-	srcKeys  [][]byte
+	srcKeys  []grantSourceFact
 }
 
 // appendGrantHashIndexRow derives one hash-index row from a raw
@@ -59,10 +59,11 @@ type grantHashRowScratch struct {
 //     (appendGrantHashIndexKeyFromPrimary — no decode);
 //   - the bucket hash is xxHash64 of the primary key's principal
 //     region (grantPrincipalBucketHash64 — a raw sub-slice);
-//   - the content hash covers the primary-key tail plus the grant's
-//     sorted source-entitlement ids, pulled from the value with a raw
-//     protobuf field scan (scanGrantSourceKeysRawBytes — no proto
-//     unmarshal anywhere on this path).
+//   - the content hash covers the primary-key tail, the grant's
+//     immutability, and its sorted (source-entitlement id, is_direct)
+//     pairs, pulled from the value with a raw protobuf field scan
+//     (scanGrantContentFactsRawBytes — no proto unmarshal anywhere on
+//     this path).
 //
 // key/value are only borrowed (the sorter copies before returning).
 func appendGrantHashIndexRow(sorter *spillSorter, primaryKey, value []byte, s *grantHashRowScratch) error {
@@ -72,15 +73,15 @@ func appendGrantHashIndexRow(sorter *spillSorter, primaryKey, value []byte, s *g
 		// splice; reaching here means the two splitters disagree.
 		return fmt.Errorf("grant hash index: primary key %x did not split as a 6-segment identity", primaryKey)
 	}
-	srcs, err := scanGrantSourceKeysRawBytes(value, s.srcKeys[:0])
+	isImmutable, srcs, err := scanGrantContentFactsRawBytes(value, s.srcKeys[:0])
 	if err != nil {
-		return fmt.Errorf("grant hash index: scan sources: %w", err)
+		return fmt.Errorf("grant hash index: scan content facts: %w", err)
 	}
 	s.srcKeys = srcs
 	if len(srcs) > 1 {
-		sortByteSlices(srcs)
+		sortGrantSourceFacts(srcs)
 	}
-	ch64, tuple := grantContentHash64(s.tupleBuf, primaryKey[grantPrimaryKeyPrefixLen:], srcs)
+	ch64, tuple := grantContentHash64(s.tupleBuf, primaryKey[grantPrimaryKeyPrefixLen:], isImmutable, srcs)
 	s.tupleBuf = tuple
 	bh64 := grantPrincipalBucketHash64(primaryKey[sep4+1:])
 	s.keyBuf = appendGrantHashIndexKeyFromPrimary(s.keyBuf[:0], primaryKey, sep4, bh64)
@@ -285,13 +286,18 @@ func (f *grantDigestFold) closePartition() error {
 
 // finish closes the last partition, writes the whole-file global root
 // (the fold of every partition this build touched — see globalXor/
-// globalTotal), and commits the tail batch. The global root lands in
-// the same final batch as the last partition's nodes, so it is never
-// visible without them: a crash between batches can only leave the
-// global root ABSENT, never present ahead of a partition it should
-// have folded in.
+// globalTotal) plus the ABI stamp certifying which hash version
+// computed it (rawdb.GrantDigestABIStampKey — the fold's opening
+// DeleteRange erased any prior stamp), and commits the tail batch. The
+// global root and stamp land in the same final batch as the last
+// partition's nodes, so neither is ever visible without them: a crash
+// between batches can only leave them ABSENT, never present ahead of a
+// partition the root should have folded in.
 func (f *grantDigestFold) finish() error {
 	if err := f.closePartition(); err != nil {
+		return err
+	}
+	if err := f.batch.Set(rawdb.GrantDigestABIStampKey(), grantDigestABIStampValue()); err != nil {
 		return err
 	}
 	if err := f.batch.Set(rawdb.GlobalGrantDigestNodeKey(), packDigestLeaf(f.globalTotal, f.globalXor[:])); err != nil {
@@ -487,7 +493,12 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 		}
 		// Zero grants still means the digest WAS built (present-means-
 		// exact — an absent global root would tell a manifest reader to
-		// recalculate instead of trusting "nothing to diff").
+		// recalculate instead of trusting "nothing to diff"). The ABI
+		// stamp precedes the root: WAL prefix ordering then guarantees a
+		// durable root is never uncertified.
+		if err := e.db.DigestSet(rawdb.GrantDigestABIStampKey(), grantDigestABIStampValue(), opts); err != nil {
+			return err
+		}
 		if err := e.db.DigestSet(rawdb.GlobalGrantDigestNodeKey(), packDigestLeaf(0, zeroDigest[:]), opts); err != nil {
 			return err
 		}
