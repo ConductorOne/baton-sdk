@@ -81,11 +81,11 @@ func nestedXML(depth int) string {
 	var b strings.Builder
 	b.Grow(depth*7 + 1)
 	for range depth {
-		b.WriteString("<a>")
+		_, _ = b.WriteString("<a>")
 	}
-	b.WriteString("x")
+	_, _ = b.WriteString("x")
 	for range depth {
-		b.WriteString("</a>")
+		_, _ = b.WriteString("</a>")
 	}
 	return b.String()
 }

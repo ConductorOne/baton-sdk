@@ -22,9 +22,9 @@ const defaultCleanupSyncLimit = 2
 //     considered "in flight" and must never be pruned).
 //   - currentSyncID is skipped when non-empty (the actively-open sync
 //     is also off-limits).
-//   - Candidates are bucketed by Type into fullSyncs, partials, and
-//     diff syncs. SyncTypeFull and any unrecognized type go into
-//     fullSyncs (matches the SQLite default branch).
+//   - Candidates are bucketed by Type into fullSyncs and partials.
+//     SyncTypeFull and any unrecognized type go into fullSyncs
+//     (matches the SQLite default branch).
 //   - syncLimit is the number of *additional* full syncs to retain
 //     beyond the current one. The caller has already decremented for
 //     a running sync (see ResolveCleanupSyncLimit), so this function
@@ -32,9 +32,6 @@ const defaultCleanupSyncLimit = 2
 //     oldest overflow is selected for deletion.
 //   - Once the earliest-kept full sync is established, partials that
 //     ended before that sync started are selected for deletion.
-//   - When more than two diff syncs (partial_upserts / partial_deletions)
-//     exist, only the most recent diff sync and its linked pair are
-//     retained; everything else is selected.
 //
 // Order matters: callers must pass candidates in oldest-first order
 // so "drop the oldest overflow" trims the right end. SQLite supplies
@@ -44,7 +41,6 @@ const defaultCleanupSyncLimit = 2
 func SelectSyncsToDelete(candidates []SyncRun, currentSyncID string, syncLimit int) []string {
 	var fullSyncs []SyncRun
 	var partials []SyncRun
-	var diffSyncs []SyncRun
 
 	for _, sr := range candidates {
 		if sr.EndedAt == nil || sr.ID == currentSyncID {
@@ -53,8 +49,6 @@ func SelectSyncsToDelete(candidates []SyncRun, currentSyncID string, syncLimit i
 		switch sr.Type {
 		case connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly:
 			partials = append(partials, sr)
-		case connectorstore.SyncTypePartialUpserts, connectorstore.SyncTypePartialDeletions:
-			diffSyncs = append(diffSyncs, sr)
 		default:
 			fullSyncs = append(fullSyncs, sr)
 		}
@@ -83,31 +77,6 @@ func SelectSyncsToDelete(candidates []SyncRun, currentSyncID string, syncLimit i
 					}
 				}
 			}
-		}
-	}
-
-	// Diff syncs: keep latest + its linked partner; drop the rest.
-	// Mirrors the SQLite branch at sync_runs.go:884-931. The
-	// "diffSyncs > 2" guard preserves the historical no-op behavior
-	// for small histories — we don't prune until there's enough to
-	// be worth touching.
-	if len(diffSyncs) > 2 {
-		syncByID := make(map[string]SyncRun, len(diffSyncs))
-		for _, ds := range diffSyncs {
-			syncByID[ds.ID] = ds
-		}
-		latestDiff := diffSyncs[len(diffSyncs)-1]
-		keepIDs := map[string]struct{}{latestDiff.ID: {}}
-		if latestDiff.LinkedSyncID != "" {
-			if _, ok := syncByID[latestDiff.LinkedSyncID]; ok {
-				keepIDs[latestDiff.LinkedSyncID] = struct{}{}
-			}
-		}
-		for _, ds := range diffSyncs {
-			if _, keep := keepIDs[ds.ID]; keep {
-				continue
-			}
-			toDelete = append(toDelete, ds.ID)
 		}
 	}
 

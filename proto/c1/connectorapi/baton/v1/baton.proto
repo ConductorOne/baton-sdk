@@ -183,8 +183,12 @@ message Task {
     repeated google.protobuf.Any annotations = 3;
   }
 
+  // Deprecated: diff-sync support was removed from the SDK. The message
+  // is retained only to satisfy breaking-change detection; nothing
+  // produces or consumes it.
   message CreateSyncDiffTask {
-    // Open to suggestions here
+    option deprecated = true;
+
     string base_sync_id = 1;
     string new_sync_id = 2;
     repeated google.protobuf.Any annotations = 3;
@@ -202,6 +206,10 @@ message Task {
 
   string id = 1;
   Status status = 2;
+  // 119 was create_sync_diff (CreateSyncDiffTask); diff-sync support was
+  // removed and the task was never issued by any task manager.
+  reserved 119;
+  reserved "create_sync_diff";
   oneof task_type {
     NoneTask none = 100;
     HelloTask hello = 101;
@@ -222,7 +230,6 @@ message Task {
     ActionGetSchemaTask action_get_schema = 116;
     ActionInvokeTask action_invoke = 117;
     ActionStatusTask action_status = 118;
-    CreateSyncDiffTask create_sync_diff = 119;
     CompactSyncs compact_syncs = 120;
     ListEventFeedsTask list_event_feeds = 121;
     ListEventsTask list_events = 122;

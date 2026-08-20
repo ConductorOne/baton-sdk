@@ -23,12 +23,15 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/storage/v3";
 // numbers match v2 to keep translation cheap. Changes to v2 require
 // an explicit mirror update here (no automatic propagation).
 enum SyncType {
+  // 4 and 5 were the diff-sync pair (SYNC_TYPE_PARTIAL_UPSERTS /
+  // SYNC_TYPE_PARTIAL_DELETIONS); diff-sync support was removed and no
+  // file was ever written with them.
+  reserved 4, 5;
+  reserved "SYNC_TYPE_PARTIAL_UPSERTS", "SYNC_TYPE_PARTIAL_DELETIONS";
   SYNC_TYPE_UNSPECIFIED = 0;
   SYNC_TYPE_FULL = 1;
   SYNC_TYPE_PARTIAL = 2;
   SYNC_TYPE_RESOURCES_ONLY = 3;
-  SYNC_TYPE_PARTIAL_UPSERTS = 4;
-  SYNC_TYPE_PARTIAL_DELETIONS = 5;
 }
 
 // StatusRecord mirrors c1.connector.v2.Status. Field numbers and
@@ -264,14 +267,22 @@ message SyncRunRecord {
     primary_key: ["sync_id"]
   };
 
+  // 8 was linked_sync_id, the removed diff-sync pair link; no file was
+  // ever written with it.
+  reserved 8;
+  reserved "linked_sync_id";
+
   string sync_id = 1;
   SyncType type = 2;
   string parent_sync_id = 3;
   google.protobuf.Timestamp started_at = 4;
   google.protobuf.Timestamp ended_at = 5;
   string sync_token = 6;
+  // supports_diff marks a sync whose data collection completed with
+  // SQL-layer grant metadata populated. The name is historical (it once
+  // gated diff-sync generation, since removed); today it gates
+  // `baton rollback-expansion`.
   bool supports_diff = 7;
-  string linked_sync_id = 8;
 
   // compacted marks a sync produced by compaction (fold or rebuild)
   // rather than by a real connector run. Compacted artifacts are

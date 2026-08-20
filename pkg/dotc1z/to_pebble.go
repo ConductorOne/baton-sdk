@@ -200,9 +200,8 @@ type syncIDPreservingStarter interface {
 //
 // When the source has no sync runs at all, "" writes an empty Pebble c1z (so
 // convert-open succeeds on never-synced files). If sync runs exist but none
-// match the selected resolve behavior (e.g. diff-only under Newest), ""
-// returns an error rather than discarding data. Pass an explicit syncID to
-// convert a specific sync (including diff syncs for fixture seeding). The
+// match the selected resolve behavior, "" returns an error rather than
+// discarding data. Pass an explicit syncID to convert a specific sync. The
 // destination sync is written ended when the source was finished; when the
 // source was unfinished, EndSync still runs (indexes/digests/stats/flush) but
 // ended_at is cleared and the source sync_token is preserved so the sync
@@ -214,11 +213,10 @@ type syncIDPreservingStarter interface {
 // since nothing resumes a sealed sync and the connector lifecycle deletes them
 // at that point anyway.
 //
-// The sync's lineage columns — parent_sync_id, linked_sync_id, supports_diff —
-// are preserved too. They reference syncs that the single-sync destination
-// cannot hold, but those references are meaningful across files: dropping them
-// would make a converted partial read as a standalone snapshot and a
-// diff-capable sync read as non-diffable.
+// The sync's lineage columns — parent_sync_id, supports_diff — are preserved
+// too. The parent reference names a sync the single-sync destination cannot
+// hold, but it is meaningful across files: dropping it would make a converted
+// partial read as a standalone snapshot.
 //
 // The Pebble engine is registered statically with dotc1z; no extra
 // imports are needed before calling.
@@ -399,7 +397,6 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	if err != nil {
 		return nil, fmt.Errorf("to-pebble: load destination sync metadata: %w", err)
 	}
-	rec.SetLinkedSyncId(sync.LinkedSyncID)
 	rec.SetSupportsDiff(sync.SupportsDiff)
 	// Localized on the way in: these scanned wall clocks become absolute
 	// instants in the Pebble record, and Pebble's resume cutoff compares
@@ -459,9 +456,7 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 }
 
 // discardedSyncs lists the source syncs a conversion that keeps keepSyncID
-// leaves behind, in sync_runs order. Diff-pair syncs are included: they are
-// dropped from the artifact too, and their absence is what an operator chasing
-// a missing delta needs to see.
+// leaves behind, in sync_runs order.
 //
 // Metadata only. ListSyncRuns reads the sync_runs rows and parses the cached
 // stats blob when one is present; unlike GetSync it never recomputes stats, so
@@ -532,14 +527,6 @@ func discardedSyncFields(discarded []DiscardedSync) []zap.Field {
 // chosen when it is all there is (newest started_at among them), since
 // convert-open must not fail on such a file. Unfinished syncs within the
 // cutoff are live work and keep competing on started_at alone.
-//
-// The excluded types are the diff pair written by attached-file diffing,
-// partial_upserts and partial_deletions: each holds one side of a delta and
-// is meaningless converted alone. GenerateSyncDiff's delta sync is NOT
-// excluded — it is stored as a plain partial (diff.go), indistinguishable
-// from a targeted sync by type, parent_sync_id, or supports_diff — so on a
-// file that was just diffed and holds no newer sync, "" resolves to the
-// delta.
 func (c *C1File) resolveConvertSyncID(ctx context.Context) (string, error) {
 	q := c.db.From(syncRuns.Name()).Prepared(true).
 		Select("sync_id").

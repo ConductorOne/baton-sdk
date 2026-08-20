@@ -30,11 +30,10 @@ func TestC1ZStoreConformance(t *testing.T) {
 	t.Run("SyncMeta/invariant verification migrates and persists", testIngestInvariantVerificationMigratesAndPersists)
 	t.Run("SyncMeta/LatestFullSync returns nil when no runs", testLatestFullSyncEmptyReturnsNil)
 	t.Run("SyncMeta/LatestFullSync ignores in-progress and non-full", testLatestFullSyncIgnoresInProgressAndPartial)
-	t.Run("SyncMeta/LatestFinishedSyncOfAnyType includes diff types", testLatestFinishedSyncOfAnyTypeIncludesDiff)
+	t.Run("SyncMeta/LatestFinishedSyncOfAnyType includes all types", testLatestFinishedSyncOfAnyTypeIncludesAllTypes)
 	t.Run("SyncMeta/Stats reports row counts", testStatsReportsRowCounts)
 	t.Run("SyncMeta/RecalculateStats refreshes stale cached stats", testRecalculateStatsRefreshesStale)
 	t.Run("FileOps/CloneSync produces readable c1z", testCloneSyncProducesReadableC1Z)
-	t.Run("FileOps/GenerateSyncDiff creates partial sync", testGenerateSyncDiffCreatesPartial)
 }
 
 // -----------------------------------------------------------------------------
@@ -316,7 +315,7 @@ func testLatestFullSyncIgnoresInProgressAndPartial(t *testing.T) {
 	require.NotEqual(t, partialID, got.ID)
 }
 
-func testLatestFinishedSyncOfAnyTypeIncludesDiff(t *testing.T) {
+func testLatestFinishedSyncOfAnyTypeIncludesAllTypes(t *testing.T) {
 	ctx := context.Background()
 	c1f, _, cleanup := setupTestC1Z(ctx, t)
 	defer cleanup()
@@ -416,31 +415,6 @@ func testCloneSyncProducesReadableC1Z(t *testing.T) {
 	run, err := cloned.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, run)
-}
-
-func testGenerateSyncDiffCreatesPartial(t *testing.T) {
-	ctx := context.Background()
-	c1f, _, cleanup := setupTestC1Z(ctx, t)
-	defer cleanup()
-
-	baseID := c1f.currentSyncID
-	require.NoError(t, c1f.PutGrants(ctx,
-		plainGrant(t, "g-base", "ent1", "group", "g1", "user", "u1")))
-	require.NoError(t, c1f.EndSync(ctx))
-
-	// Start a second full sync that adds a grant.
-	appliedID, err := c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-	require.NoError(t, c1f.PutGrants(ctx,
-		plainGrant(t, "g-base", "ent1", "group", "g1", "user", "u1"),
-		plainGrant(t, "g-new", "ent1", "group", "g1", "user", "u2")))
-	require.NoError(t, c1f.EndSync(ctx))
-
-	diffID, err := c1f.FileOps().GenerateSyncDiff(ctx, baseID, appliedID)
-	require.NoError(t, err)
-	require.NotEmpty(t, diffID)
-	require.NotEqual(t, baseID, diffID)
-	require.NotEqual(t, appliedID, diffID)
 }
 
 // -----------------------------------------------------------------------------

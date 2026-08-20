@@ -349,9 +349,9 @@ func ensurePebbleRegistered() error {
 }
 
 // compactableV3SyncType reports whether a v3 sync type is a compactable
-// snapshot type. Diff syncs (partial_upserts / partial_deletions) are
-// excluded — compaction folds full / resources-only / partial snapshots
-// only, matching the sqlite source selection.
+// snapshot type. Compaction folds full / resources-only / partial
+// snapshots only (never unspecified/unknown types), matching the sqlite
+// source selection.
 func compactableV3SyncType(t v3.SyncType) bool {
 	switch t {
 	case v3.SyncType_SYNC_TYPE_FULL,
@@ -445,8 +445,8 @@ func selectSourceSyncFromManifest(path string) (manifestSourceSelection, bool) {
 //   - Base primary and index keys: zero writes — the data keyspace
 //     carries no sync_id, so folding and the final rename touch none of
 //     them. Work is O(partials), not O(base).
-//   - Partial winners are merged into the base keyspace via the
-//     engine's keep-newer path (Put*RecordsIfNewer), which compares
+//   - Partial winners are merged into the base keyspace via the raw
+//     keep-newer merge (mergeBucketRawIfNewer), which compares
 //     discovered_at against the incumbent and maintains indexes with
 //     point tombstones proportional to overridden records only.
 //   - Tie semantics: a partial record with discovered_at EQUAL to the
@@ -948,11 +948,7 @@ func resolveSQLiteCompactionSyncID(ctx context.Context, store *dotc1z.C1File, ex
 		}
 	}
 	if best == nil {
-		return "", fmt.Errorf(
-			"no finished compactable sync found in sqlite input (diff sync types %q/%q are not compactable)",
-			string(connectorstore.SyncTypePartialUpserts),
-			string(connectorstore.SyncTypePartialDeletions),
-		)
+		return "", fmt.Errorf("no finished compactable sync found in sqlite input")
 	}
 	return best.GetId(), nil
 }
@@ -1038,8 +1034,8 @@ func (c *Compactor) convertSQLiteInputToPebble(ctx context.Context, cs *Compacta
 
 // compactPebble folds every input into the empty newSyncId on the
 // Pebble output via a native record merge: each input is opened, its
-// latest finished compactable sync is selected (diff syncs excluded),
-// and all are merged keeping the newest record per key. The output
+// latest finished compactable sync is selected, and all are merged
+// keeping the newest record per key. The output
 // sync_run's type and ended_at are then set to the union / max across
 // the inputs (mirroring the sqlite UpdateSync), and its stats are
 // recomputed. Inputs are merged in reverse entry order so the tie
@@ -1146,7 +1142,7 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: select source sync for %s: %w", sourcePath, err)
 			}
 			if rec == nil {
-				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: input %s has no finished compactable sync (diff syncs are not compactable)", sourcePath)
+				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: input %s has no finished compactable sync", sourcePath)
 			}
 
 			// Record only (Path, SyncID, Stats) and fully close the store,

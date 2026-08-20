@@ -170,8 +170,8 @@ type Engine struct {
 	// save/close (checkpoint + envelope encode) never benefits from either.
 	// Binding a sync again (SetCurrentSync / MarkFreshSync) unseals and
 	// resumes compactions. Sync-run metadata writes (PutSyncRunRecord and
-	// friends) are exempt — callers legitimately stamp ended_at overrides,
-	// diff links, and supports_diff markers on a finished sync. Without this
+	// friends) are exempt — callers legitimately stamp ended_at overrides
+	// and supports_diff markers on a finished sync. Without this
 	// state the "no writes while compactions are paused" invariant was
 	// convention only, and a caller that kept writing after EndSync would
 	// silently accumulate L0 until pebble stalled writes at
@@ -639,8 +639,8 @@ func (e *Engine) withWrite(fn func() error) error {
 
 // withWriteAllowSealed is withWrite without the sealed check. Reserved for
 // writes that are part of the sealed lifecycle itself: sync-run metadata
-// stamps on a finished sync (ended_at overrides, diff links, supports_diff)
-// and ResetForNewSync's wipe on the way into a new sync. Record-data writes
+// stamps on a finished sync (ended_at overrides, supports_diff) and
+// ResetForNewSync's wipe on the way into a new sync. Record-data writes
 // must use withWrite.
 func (e *Engine) withWriteAllowSealed(fn func() error) error {
 	if err := e.checkWritableAllowSealed(); err != nil {

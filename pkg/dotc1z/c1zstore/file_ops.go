@@ -18,11 +18,6 @@ type FileOps interface {
 	// the target sync row-by-row. It is the optimized isolation step for large
 	// files; the output contains only the target sync and is schema-normalized.
 	CopyIsolateSync(ctx context.Context, outPath string, syncID string, opts ...CloneSyncOption) error
-
-	// GenerateSyncDiff computes the diff between two existing sync runs
-	// in this same file and writes the delta as a new SyncTypePartial
-	// sync. Returns the new sync's id. Used by the local differ CLI.
-	GenerateSyncDiff(ctx context.Context, baseSyncID, appliedSyncID string) (diffSyncID string, err error)
 }
 
 // CloneSyncOptions carries the engine-neutral knobs for FileOps.CloneSync.

@@ -16,7 +16,7 @@ package rawdb
 //   - INLINE (StageGrantPutInline / StageGrantDelete): by_principal
 //     and by_needs_expansion maintained inline; overwrite/delete
 //     cleans BOTH; digest invalidation when digests are present. The
-//     PutGrantRecords and IfNewer paths, and post-seal deletes.
+//     PutGrantRecords paths and post-seal deletes.
 //   - DEFERRED (StageGrantPutDeferred): the durable deferred-index
 //     marker is armed FIRST (ArmDeferredGrantIndex — CAS-cheap per
 //     record, crash-contract-ordered before the batch can commit),

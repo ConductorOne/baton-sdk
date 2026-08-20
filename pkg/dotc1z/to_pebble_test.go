@@ -365,40 +365,17 @@ func TestToPebbleResourcesOnlyEmptySyncID(t *testing.T) {
 	require.Equal(t, syncID, stats.SourceSyncID)
 }
 
-// TestToPebbleDiffOnlyEmptySyncID pins that finished diff syncs are not
-// auto-selected: syncID "" errors instead of writing an empty c1z.
-func TestToPebbleDiffOnlyEmptySyncID(t *testing.T) {
-	ctx := context.Background()
-
-	dir := t.TempDir()
-	src, err := dotc1z.NewC1ZFile(ctx, filepath.Join(dir, "diff-only.c1z"), dotc1z.WithTmpDir(dir))
-	require.NoError(t, err)
-	defer func() { require.NoError(t, src.Close(ctx)) }()
-
-	_, err = src.StartNewSync(ctx, connectorstore.SyncTypePartialUpserts, "")
-	require.NoError(t, err)
-	require.NoError(t, src.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "user"}.Build()))
-	require.NoError(t, src.EndSync(ctx))
-
-	outPath := filepath.Join(dir, "out.c1z")
-	_, err = src.ToPebble(ctx, outPath, "")
-	require.ErrorContains(t, err, "no convertible sync found")
-	_, statErr := os.Stat(outPath)
-	require.ErrorIs(t, statErr, os.ErrNotExist)
-}
-
 // TestToPebblePreservesSyncLineage pins the remaining sync_runs columns that
-// describe the sync's relationship to other syncs: parent_sync_id,
-// linked_sync_id, and supports_diff.
+// describe the sync's relationship to other syncs: parent_sync_id and
+// supports_diff.
 //
-// These are cross-file references by nature — a partial's parent full sync and
-// a delta's paired sync live in other c1z files — so the fact that the
-// destination holds one sync is not a reason to drop them. Zeroing them makes a
-// converted partial read as a standalone snapshot (losing which full it applies
-// to) and makes a diff-capable sync read as non-diffable, which turns
-// RollbackExpansion into ErrSyncNotExpanded and hides the sync from diff
-// consumers. The sanitizer's c1z-to-c1z copy already carries all three
-// (pkg/c1zsanitize/sanitize.go), and the Pebble record has fields for them.
+// The parent is a cross-file reference by nature — a partial's parent full
+// sync lives in another c1z file — so the fact that the destination holds one
+// sync is not a reason to drop it. Zeroing it makes a converted partial read
+// as a standalone snapshot (losing which full it applies to); dropping
+// supports_diff turns RollbackExpansion into ErrSyncNotExpanded. The
+// sanitizer's c1z-to-c1z copy already carries the marker
+// (pkg/c1zsanitize/sanitize.go), and the Pebble record has fields for both.
 func TestToPebblePreservesSyncLineage(t *testing.T) {
 	ctx := context.Background()
 
@@ -407,8 +384,7 @@ func TestToPebblePreservesSyncLineage(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, src.Close(ctx)) }()
 
-	// A base full sync, then a partial that descends from it and is paired
-	// with a third sync — the shape a diff pipeline produces.
+	// A base full sync, then a partial that descends from it.
 	baseID, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NoError(t, src.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "user"}.Build()))
@@ -421,7 +397,6 @@ func TestToPebblePreservesSyncLineage(t *testing.T) {
 	}.Build()))
 	require.NoError(t, src.EndSync(ctx))
 	require.NoError(t, src.SetSupportsDiff(ctx, partialID))
-	require.NoError(t, src.SetSyncLink(ctx, partialID, baseID))
 
 	srcRun, err := src.GetSync(ctx, reader_v2.SyncsReaderServiceGetSyncRequest_builder{SyncId: partialID}.Build())
 	require.NoError(t, err)
@@ -440,7 +415,6 @@ func TestToPebblePreservesSyncLineage(t *testing.T) {
 	rec, err := eng.GetSyncRunRecord(ctx, partialID)
 	require.NoError(t, err)
 	require.Equal(t, baseID, rec.GetParentSyncId(), "converted sync must keep its parent sync id")
-	require.Equal(t, baseID, rec.GetLinkedSyncId(), "converted sync must keep its linked sync id")
 	require.True(t, rec.GetSupportsDiff(), "converted sync must keep supports_diff")
 
 	// The same lineage has to be visible through the read APIs consumers
@@ -453,7 +427,6 @@ func TestToPebblePreservesSyncLineage(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, latest)
 	require.Equal(t, baseID, latest.ParentSyncID)
-	require.Equal(t, baseID, latest.LinkedSyncID)
 	require.True(t, latest.SupportsDiff)
 }
 
@@ -533,17 +506,15 @@ func TestToPebbleConvertedUnfinishedSyncResumes(t *testing.T) {
 		"sealed snapshot must hold the pre-conversion and post-resume resources")
 }
 
-// TestToPebbleSelectsGenerateSyncDiffDelta pins the documented consequence of
-// ConvertResolveBehaviorNewest on a file that was just diffed. GenerateSyncDiff
-// records its delta as a plain partial with parent_sync_id set — the same shape
-// a targeted sync leaves — so "" resolves to the delta, not the full sync it
-// was derived from. Only the attached-file diff pair (partial_upserts /
-// partial_deletions) is excluded by type.
-func TestToPebbleSelectsGenerateSyncDiffDelta(t *testing.T) {
+// TestToPebbleSelectsNewestPartial pins the documented consequence of
+// ConvertResolveBehaviorNewest on a file whose most recent sync is a
+// partial (e.g. a targeted sync): "" resolves to the partial, not the
+// full sync it was derived from.
+func TestToPebbleSelectsNewestPartial(t *testing.T) {
 	ctx := context.Background()
 
 	dir := t.TempDir()
-	src, err := dotc1z.NewC1ZFile(ctx, filepath.Join(dir, "diffed.c1z"), dotc1z.WithTmpDir(dir))
+	src, err := dotc1z.NewC1ZFile(ctx, filepath.Join(dir, "partialed.c1z"), dotc1z.WithTmpDir(dir))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, src.Close(ctx)) }()
 
@@ -552,21 +523,17 @@ func TestToPebbleSelectsGenerateSyncDiffDelta(t *testing.T) {
 	require.NoError(t, src.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "user"}.Build()))
 	require.NoError(t, src.EndSync(ctx))
 
-	appliedID, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	partialID, err := src.StartNewSync(ctx, connectorstore.SyncTypePartial, baseID)
 	require.NoError(t, err)
 	require.NoError(t, src.PutResourceTypes(ctx,
-		v2.ResourceType_builder{Id: "user"}.Build(),
 		v2.ResourceType_builder{Id: "group"}.Build(),
 	))
 	require.NoError(t, src.EndSync(ctx))
 
-	diffID, err := src.GenerateSyncDiff(ctx, baseID, appliedID)
-	require.NoError(t, err)
-
 	stats, err := src.ToPebble(ctx, filepath.Join(dir, "out.c1z"), "")
 	require.NoError(t, err)
-	require.Equal(t, diffID, stats.SourceSyncID,
-		"a GenerateSyncDiff delta is stored as a partial, so the newest-wins default selects it")
+	require.Equal(t, partialID, stats.SourceSyncID,
+		"the newest-wins default selects the most recent partial")
 }
 
 // TestToPebbleCopiesSessionState pins that conversion carries the converted

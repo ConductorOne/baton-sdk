@@ -35,10 +35,7 @@ var _ connectorstore.Writer = (*pebbleStore)(nil)
 // the source/destination store (pkg/c1zsanitize keeps those interfaces
 // unexported). The assertions below make a refactor that drops one of these
 // methods from either engine break the build here, rather than silently
-// disarming the sanitizer's sync-graph-metadata preservation.
-type sanitizeSyncLinkWriter interface {
-	SetSyncLink(ctx context.Context, syncID string, linkedSyncID string) error
-}
+// disarming the sanitizer's sync-run-metadata preservation.
 type sanitizeSupportsDiffWriter interface {
 	SetSupportsDiff(ctx context.Context, syncID string) error
 }
@@ -47,10 +44,8 @@ type sanitizeSyncRunMetadataReader interface {
 }
 
 var (
-	_ sanitizeSyncLinkWriter        = (*pebbleStore)(nil)
 	_ sanitizeSupportsDiffWriter    = (*pebbleStore)(nil)
 	_ sanitizeSyncRunMetadataReader = (*pebbleStore)(nil)
-	_ sanitizeSyncLinkWriter        = (*C1File)(nil)
 	_ sanitizeSupportsDiffWriter    = (*C1File)(nil)
 	_ sanitizeSyncRunMetadataReader = (*C1File)(nil)
 )
@@ -238,42 +233,12 @@ type pebbleStore struct {
 // route SQLite *C1File handles today.
 var _ c1zstore.Store = (*pebbleStore)(nil)
 
-// FileOps overrides the Adapter-level FileOps for two reasons:
-//
-//   - CloneSync threads the pebbleStore's configured payload encoding
-//     into the destination c1z (otherwise clone output would always
-//     use the default TAR_ZSTD); and
-//   - GenerateSyncDiff writes a NEW sync into THIS store, so it must
-//     flip the dirty bit — without it, Close would skip the envelope
-//     save and the diff sync would exist only in the discarded temp
-//     directory.
+// FileOps overrides the Adapter-level FileOps so CloneSync threads the
+// pebbleStore's configured payload encoding into the destination c1z
+// (otherwise clone output would always use the default TAR_ZSTD).
+// Clone/isolate write a separate file, so no dirty-marking is needed.
 func (s *pebbleStore) FileOps() c1zstore.FileOps {
-	return pebbleStoreFileOps{inner: s.FileOpsWithEncoding(s.payloadEncoding), store: s}
-}
-
-// pebbleStoreFileOps wraps the Adapter-level FileOps to route the one
-// mutating-in-place method (GenerateSyncDiff) through the store's
-// dirty-marking path. CloneSync writes a separate file and passes
-// through unchanged.
-type pebbleStoreFileOps struct {
-	inner c1zstore.FileOps
-	store *pebbleStore
-}
-
-func (f pebbleStoreFileOps) CloneSync(ctx context.Context, outPath string, syncID string, opts ...c1zstore.CloneSyncOption) error {
-	return f.inner.CloneSync(ctx, outPath, syncID, opts...)
-}
-
-func (f pebbleStoreFileOps) CopyIsolateSync(ctx context.Context, outPath string, syncID string, opts ...c1zstore.CloneSyncOption) error {
-	return f.inner.CopyIsolateSync(ctx, outPath, syncID, opts...)
-}
-
-func (f pebbleStoreFileOps) GenerateSyncDiff(ctx context.Context, baseSyncID, appliedSyncID string) (string, error) {
-	diffSyncID, err := f.inner.GenerateSyncDiff(ctx, baseSyncID, appliedSyncID)
-	if err != nil {
-		return "", err
-	}
-	return diffSyncID, f.store.markDirty(nil)
+	return s.FileOpsWithEncoding(s.payloadEncoding)
 }
 
 // SyncMeta overrides the Adapter-level SyncMeta so the MUTATING
@@ -498,36 +463,14 @@ func (s *pebbleStore) PutAsset(ctx context.Context, assetRef *v2.AssetRef, conte
 	return s.markDirty(s.Engine.PutAsset(ctx, assetRef, contentType, data))
 }
 
-// SetSupportsDiff marks the given sync as diff-capable, matching the
-// SQLite engine's sync_runs.supports_diff column. The c1z sanitizer
-// carries this marker from a source sync to its sanitized copy so the
-// output remains usable wherever the source was. Delegates to the
-// SyncMeta sub-store's MarkSyncSupportsDiff.
+// SetSupportsDiff marks the given sync's grant expansion as complete,
+// matching the SQLite engine's sync_runs.supports_diff column (the name
+// is historical; the marker now gates `baton rollback-expansion`). The
+// c1z sanitizer carries this marker from a source sync to its sanitized
+// copy so the output remains usable wherever the source was. Delegates
+// to the SyncMeta sub-store's MarkSyncSupportsDiff.
 func (s *pebbleStore) SetSupportsDiff(ctx context.Context, syncID string) error {
 	return s.markDirty(s.SyncMeta().MarkSyncSupportsDiff(ctx, syncID))
-}
-
-// SetSyncLink records linkedSyncID as the diff partner of syncID on the
-// sync-run record (v3 linked_sync_id), matching the SQLite engine.
-//
-// This is implemented for connectorstore.Writer parity but is NOT
-// reached by the c1z sanitizer's Pebble path: a v3 Pebble c1z holds
-// exactly one sync, so there is never a second sync to link to. Cross-
-// file linkage is unpreservable on either engine regardless, because
-// sanitize mints fresh destination sync ids.
-func (s *pebbleStore) SetSyncLink(ctx context.Context, syncID string, linkedSyncID string) error {
-	if syncID == "" {
-		return fmt.Errorf("SetSyncLink: empty syncID")
-	}
-	r, err := s.GetSyncRunRecord(ctx, syncID)
-	if err != nil {
-		return fmt.Errorf("SetSyncLink: get: %w", err)
-	}
-	r.SetLinkedSyncId(linkedSyncID)
-	if err := s.PutSyncRunRecord(ctx, r); err != nil {
-		return fmt.Errorf("SetSyncLink: put: %w", err)
-	}
-	return s.markDirty(nil)
 }
 
 func (s *pebbleStore) PutGrants(ctx context.Context, grants ...*v2.Grant) error {

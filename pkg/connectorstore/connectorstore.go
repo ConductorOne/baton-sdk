@@ -12,12 +12,10 @@ import (
 type SyncType string
 
 const (
-	SyncTypeFull             SyncType = "full"
-	SyncTypePartial          SyncType = "partial"
-	SyncTypeResourcesOnly    SyncType = "resources_only"
-	SyncTypePartialUpserts   SyncType = "partial_upserts"   // Diff sync: additions and modifications
-	SyncTypePartialDeletions SyncType = "partial_deletions" // Diff sync: deletions
-	SyncTypeAny              SyncType = ""
+	SyncTypeFull          SyncType = "full"
+	SyncTypePartial       SyncType = "partial"
+	SyncTypeResourcesOnly SyncType = "resources_only"
+	SyncTypeAny           SyncType = ""
 )
 
 var AllSyncTypes = []SyncType{
@@ -25,8 +23,6 @@ var AllSyncTypes = []SyncType{
 	SyncTypeFull,
 	SyncTypePartial,
 	SyncTypeResourcesOnly,
-	SyncTypePartialUpserts,
-	SyncTypePartialDeletions,
 }
 
 // StoreMetadata describes the storage backing a Reader. Returned by

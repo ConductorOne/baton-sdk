@@ -384,11 +384,6 @@ type eventStreamConfig struct {
 	cursor  string
 }
 
-type syncDifferConfig struct {
-	baseSyncID    string
-	appliedSyncID string
-}
-
 type syncCompactorConfig struct {
 	filePaths  []string
 	syncIDs    []string
@@ -419,7 +414,6 @@ type runnerConfig struct {
 	bulkCreateTicketConfig                *bulkCreateTicketConfig
 	listTicketSchemasConfig               *listTicketSchemasConfig
 	getTicketConfig                       *getTicketConfig
-	syncDifferConfig                      *syncDifferConfig
 	syncCompactorConfig                   *syncCompactorConfig
 	skipFullSync                          bool
 	storageEngine                         c1zstore.Engine
@@ -819,18 +813,6 @@ func WithKeepPreviousSyncC1ZRuntimeOptIn() Option {
 	}
 }
 
-func WithDiffSyncs(c1zPath string, baseSyncID string, newSyncID string) Option {
-	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.onDemand = true
-		cfg.c1zPath = c1zPath
-		cfg.syncDifferConfig = &syncDifferConfig{
-			baseSyncID:    baseSyncID,
-			appliedSyncID: newSyncID,
-		}
-		return nil
-	}
-}
-
 func WithSyncCompactor(outputPath string, filePaths []string, syncIDs []string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
@@ -1079,8 +1061,6 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewGetTicket(ctx, cfg.getTicketConfig.ticketID)
 		case cfg.bulkCreateTicketConfig != nil:
 			tm = local.NewBulkTicket(ctx, cfg.bulkCreateTicketConfig.templatePath)
-		case cfg.syncDifferConfig != nil:
-			tm = local.NewDiffer(ctx, cfg.c1zPath, cfg.syncDifferConfig.baseSyncID, cfg.syncDifferConfig.appliedSyncID)
 		case cfg.syncCompactorConfig != nil:
 			c := cfg.syncCompactorConfig
 			if len(c.filePaths) != len(c.syncIDs) {

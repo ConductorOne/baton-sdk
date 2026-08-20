@@ -112,10 +112,10 @@ func TestResolveConvertSyncID_Mixed(t *testing.T) {
 			want: "full-short",
 		},
 		{
-			name: "diff syncs are ignored",
+			name: "unknown sync types are ignored",
 			syncs: []convertSyncSeed{
 				{id: "full-done", syncType: connectorstore.SyncTypeFull, started: -2 * time.Hour, ended: dur(-90 * time.Minute)},
-				{id: "diff-new", syncType: connectorstore.SyncTypePartialUpserts, started: -time.Hour, ended: dur(-30 * time.Minute)},
+				{id: "unknown-new", syncType: connectorstore.SyncType("frobnitz"), started: -time.Hour, ended: dur(-30 * time.Minute)},
 			},
 			want: "full-done",
 		},

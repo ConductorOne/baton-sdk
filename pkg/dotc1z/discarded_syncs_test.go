@@ -34,7 +34,7 @@ func TestToPebbleReportsDiscardedSyncs(t *testing.T) {
 	require.NoError(t, src.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "user"}.Build()))
 	require.NoError(t, src.EndSync(ctx))
 
-	// An unfinished sync and a diff-pair sync, both of which the conversion
+	// An unfinished sync and a partial sync, both of which the conversion
 	// drops and neither of which is reproducible from the converted file.
 	abandonedID, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -44,7 +44,7 @@ func TestToPebbleReportsDiscardedSyncs(t *testing.T) {
 		`UPDATE `+syncRuns.Name()+` SET ended_at = NULL WHERE sync_id = ?`, abandonedID)
 	require.NoError(t, err)
 
-	upsertsID, err := src.StartNewSync(ctx, connectorstore.SyncTypePartialUpserts, "")
+	partialID, err := src.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
 	require.NoError(t, err)
 	require.NoError(t, src.EndSync(ctx))
 
@@ -70,8 +70,8 @@ func TestToPebbleReportsDiscardedSyncs(t *testing.T) {
 
 	require.Nil(t, byID[abandonedID].EndedAt, "unfinished sync must report a nil ended_at")
 
-	require.Equal(t, connectorstore.SyncTypePartialUpserts, byID[upsertsID].Type,
-		"diff-pair syncs are dropped too and must be reported")
+	require.Equal(t, connectorstore.SyncTypePartial, byID[partialID].Type,
+		"partial syncs are dropped too and must be reported")
 }
 
 // TestToPebbleDiscardedSyncTimestampsAreAbsoluteInstants pins that the reported
