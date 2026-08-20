@@ -94,6 +94,23 @@ func TestV2ResourceRoundtrip(t *testing.T) {
 	require.Equal(t, "icon-alice", back.GetIcon().GetId(), "roundtrip icon")
 }
 
+func TestV2ResourceWithoutIconRoundtrip(t *testing.T) {
+	original := v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: "user",
+			Resource:     "alice",
+		}.Build(),
+		DisplayName: "Alice",
+	}.Build()
+
+	v3rec := V2ResourceToV3("sync-1", original)
+	require.Empty(t, v3rec.GetIconAssetExternalId(), "icon")
+
+	back := V3ResourceToV2(v3rec)
+	require.False(t, back.HasIcon(), "roundtrip icon presence")
+	require.Nil(t, back.GetIcon(), "roundtrip icon")
+}
+
 func TestV2ResourceTypeRoundtrip(t *testing.T) {
 	original := v2.ResourceType_builder{
 		Id:          "user",
