@@ -632,6 +632,75 @@ func slimGrantForWrite(grant *v2.Grant) {
 	grant.SetPrincipal(nil)
 }
 
+// maxMalformedLogsPerBatch caps how many individual malformed grants are
+// logged per batch before collapsing to a single aggregate line, so a broken
+// connector emitting a run of bad grants can't flood the logs. The exact count
+// is always available via grantMalformedCounter.
+const maxMalformedLogsPerBatch = 10
+
+// grantHasValidIdentity reports whether a grant carries the identity a stored
+// row needs to be queryable. baseGrantRecord extracts these columns straight
+// off the proto with nil-safe getters, so a missing OR empty value would be
+// written as unqueryable junk (and an empty grant id additionally collides on
+// the (external_id, sync_id) unique index). The proto contract
+// (grant.proto) makes all of these required.
+func grantHasValidIdentity(g *v2.Grant) bool {
+	pid := g.GetPrincipal().GetId()
+	return g.GetId() != "" &&
+		pid.GetResourceType() != "" && pid.GetResource() != "" &&
+		g.GetEntitlement().GetId() != ""
+}
+
+// dropMalformedGrants returns the grants that are safe to persist, dropping
+// any missing required identity (principal, entitlement, or grant id — nil or
+// empty). Dropped grants are logged (capped per batch) and counted via
+// grantMalformedCounter. We drop-and-continue rather than failing the batch so
+// one buggy connector grant can't abort an entire sync's grant write; the
+// metric and log make the bad data visible.
+func dropMalformedGrants(ctx context.Context, msgs []*v2.Grant) []*v2.Grant {
+	// Fast path: scan for the first malformed grant. The overwhelmingly common
+	// case is that every grant is well-formed, so avoid reallocating then.
+	firstBad := -1
+	for i, g := range msgs {
+		if !grantHasValidIdentity(g) {
+			firstBad = i
+			break
+		}
+	}
+	if firstBad == -1 {
+		return msgs
+	}
+
+	l := ctxzap.Extract(ctx)
+	valid := make([]*v2.Grant, 0, len(msgs))
+	valid = append(valid, msgs[:firstBad]...)
+	dropped := 0
+	for _, g := range msgs[firstBad:] {
+		if !grantHasValidIdentity(g) {
+			grantMalformedCounter.Add(ctx, 1)
+			if dropped < maxMalformedLogsPerBatch {
+				pid := g.GetPrincipal().GetId()
+				l.Error("dropping malformed grant: missing required identity",
+					zap.String("grant_id", g.GetId()),
+					zap.String("principal_resource_type", pid.GetResourceType()),
+					zap.String("principal_resource_id", pid.GetResource()),
+					zap.String("entitlement_id", g.GetEntitlement().GetId()),
+				)
+			}
+			dropped++
+			continue
+		}
+		valid = append(valid, g)
+	}
+	if dropped > maxMalformedLogsPerBatch {
+		l.Error("dropped malformed grants in batch (per-grant logging capped)",
+			zap.Int("total_dropped", dropped),
+			zap.Int("logged", maxMalformedLogsPerBatch),
+		)
+	}
+	return valid
+}
+
 func upsertGrantsInternal(
 	ctx context.Context,
 	c *C1File,
@@ -641,6 +710,20 @@ func upsertGrantsInternal(
 	if len(msgs) == 0 {
 		return nil
 	}
+
+	// A grant's principal, entitlement, and id are required by the proto
+	// contract (grant.proto). The column extractor (baseGrantRecord) reads
+	// identity columns straight off the live proto via nil-safe opaque getters,
+	// so a grant missing any of them would be silently persisted with empty
+	// identity columns — unqueryable junk rather than a loud failure (and an
+	// empty id collides on the (external_id, sync_id) unique index). Drop such
+	// grants here so bad connector data can't enter the store, and surface it
+	// (log + metric) rather than failing the whole batch.
+	msgs = dropMalformedGrants(ctx, msgs)
+	if len(msgs) == 0 {
+		return nil
+	}
+
 	ctx, span := tracer.Start(ctx, "C1File.bulkUpsertGrants")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
