@@ -205,8 +205,8 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 		}
 	}
 
-	if err := s.preserveSyncGraphMetadata(ctx, src, dst); err != nil {
-		return fmt.Errorf("c1zsanitize: preserve sync graph metadata: %w", err)
+	if err := s.preserveSupportsDiffMarkers(ctx, src, dst); err != nil {
+		return fmt.Errorf("c1zsanitize: preserve supports_diff markers: %w", err)
 	}
 
 	s.completed = true
@@ -663,20 +663,21 @@ func phaseRank(p string) int {
 	}
 }
 
-// preserveSyncGraphMetadata carries the sync-run metadata the proto
-// reader surface cannot express — the supports_diff marker — from src
-// runs to their dst counterparts. Both sides are optional capabilities:
+// preserveSupportsDiffMarkers carries the supports_diff marker — the one
+// sync-run metadata field the proto reader surface cannot express — from
+// src runs to their dst counterparts, so `baton rollback-expansion` keeps
+// working on the sanitized copy. Both sides are optional capabilities:
 // when either store lacks them, the copy is skipped with a log line and
-// the output remains valid, just without the extra metadata.
-func (s *sanitizer) preserveSyncGraphMetadata(ctx context.Context, src connectorstore.Reader, dst connectorstore.Writer) error {
+// the output remains valid, just without the marker.
+func (s *sanitizer) preserveSupportsDiffMarkers(ctx context.Context, src connectorstore.Reader, dst connectorstore.Writer) error {
 	mr, ok := src.(syncRunMetadataReader)
 	if !ok {
 		s.log.Debug("c1zsanitize: source does not expose sync-run metadata; skipping supports_diff preservation")
 		return nil
 	}
-	dw, hasDiffWriter := dst.(supportsDiffWriter)
-	if !hasDiffWriter {
-		s.log.Debug("c1zsanitize: destination does not expose sync-run metadata writers; skipping supports_diff preservation")
+	dw, ok := dst.(supportsDiffWriter)
+	if !ok {
+		s.log.Debug("c1zsanitize: destination does not expose SetSupportsDiff; skipping supports_diff preservation")
 		return nil
 	}
 
