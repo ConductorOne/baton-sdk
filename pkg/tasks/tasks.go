@@ -68,8 +68,6 @@ func Is(task *v1.Task, target taskTypes.TaskType) bool {
 		return actualType == v1.Task_ActionInvoke_case
 	case taskTypes.ActionStatusType:
 		return actualType == v1.Task_ActionStatus_case
-	case taskTypes.CreateSyncDiff:
-		return actualType == v1.Task_CreateSyncDiff_case
 	case taskTypes.ListEventFeedsType:
 		return actualType == v1.Task_ListEventFeeds_case
 	case taskTypes.ListEventsType:
@@ -125,8 +123,6 @@ func GetType(task *v1.Task) taskTypes.TaskType {
 		return taskTypes.ActionInvokeType
 	case v1.Task_ActionStatus_case:
 		return taskTypes.ActionStatusType
-	case v1.Task_CreateSyncDiff_case:
-		return taskTypes.CreateSyncDiff
 	case v1.Task_ListEventFeeds_case:
 		return taskTypes.ListEventFeedsType
 	case v1.Task_ListEvents_case:

@@ -46,7 +46,6 @@ create table if not exists %s (
     sync_token text not null,
     sync_type text not null default 'full',
     parent_sync_id text not null default '',
-    linked_sync_id text not null default '',
     supports_diff integer not null default 0,
     grants_backfilled integer not null default 0,
 		stats text,
@@ -101,20 +100,6 @@ func (r *syncRunsTable) Migrations(ctx context.Context, db *goqu.Database) (bool
 	}
 	if parentSyncIDExists == 0 {
 		_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column parent_sync_id text not null default ''", r.Name()))
-		if err != nil {
-			return false, err
-		}
-		migrated = true
-	}
-
-	// Check if linked_sync_id column exists
-	var linkedSyncIDExists int
-	err = db.QueryRowContext(ctx, fmt.Sprintf("select count(*) from pragma_table_info('%s') where name='linked_sync_id'", r.Name())).Scan(&linkedSyncIDExists)
-	if err != nil {
-		return false, err
-	}
-	if linkedSyncIDExists == 0 {
-		_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column linked_sync_id text not null default ''", r.Name()))
 		if err != nil {
 			return false, err
 		}
@@ -266,7 +251,7 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connector
 	q := c.db.From(syncRuns.Name())
 	q = q.Select(
 		"sync_id", "started_at", "ended_at", "sync_token", "sync_type",
-		"parent_sync_id", "linked_sync_id", "supports_diff",
+		"parent_sync_id", "supports_diff",
 		"ingest_invariant_generation", "ingest_invariant_coverage", "ingest_invariant_mode",
 		"stats",
 	)
@@ -288,7 +273,7 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connector
 	var generation, coverageJSON, mode string
 	err = row.Scan(
 		&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type,
-		&ret.ParentSyncID, &ret.LinkedSyncID, &ret.SupportsDiff,
+		&ret.ParentSyncID, &ret.SupportsDiff,
 		&generation, &coverageJSON, &mode, &statsBytes,
 	)
 	if err != nil {
@@ -323,7 +308,7 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 	q := c.db.From(syncRuns.Name())
 	q = q.Select(
 		"sync_id", "started_at", "ended_at", "sync_token", "sync_type",
-		"parent_sync_id", "linked_sync_id", "supports_diff",
+		"parent_sync_id", "supports_diff",
 		"ingest_invariant_generation", "ingest_invariant_coverage", "ingest_invariant_mode",
 		"stats",
 	)
@@ -352,7 +337,7 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 	var generation, coverageJSON, mode string
 	err = row.Scan(
 		&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type,
-		&ret.ParentSyncID, &ret.LinkedSyncID, &ret.SupportsDiff,
+		&ret.ParentSyncID, &ret.SupportsDiff,
 		&generation, &coverageJSON, &mode, &statsBytes,
 	)
 	if err != nil {
@@ -398,7 +383,7 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize ui
 	q := c.db.From(syncRuns.Name()).Prepared(true)
 	q = q.Select(
 		"id", "sync_id", "started_at", "ended_at", "sync_token", "sync_type",
-		"parent_sync_id", "linked_sync_id", "supports_diff",
+		"parent_sync_id", "supports_diff",
 		"ingest_invariant_generation", "ingest_invariant_coverage", "ingest_invariant_mode",
 		"stats",
 	)
@@ -440,7 +425,7 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize ui
 		var generation, coverageJSON, mode string
 		err := rows.Scan(
 			&rowId, &data.ID, &data.StartedAt, &data.EndedAt, &data.SyncToken, &data.Type,
-			&data.ParentSyncID, &data.LinkedSyncID, &data.SupportsDiff,
+			&data.ParentSyncID, &data.SupportsDiff,
 			&generation, &coverageJSON, &mode, &statsBytes,
 		)
 		if err != nil {
@@ -542,7 +527,7 @@ func (c *C1File) getSync(ctx context.Context, syncID string) (*c1zstore.SyncRun,
 	q := c.db.From(syncRuns.Name())
 	q = q.Select(
 		"sync_id", "started_at", "ended_at", "sync_token", "sync_type",
-		"parent_sync_id", "linked_sync_id", "supports_diff",
+		"parent_sync_id", "supports_diff",
 		"ingest_invariant_generation", "ingest_invariant_coverage", "ingest_invariant_mode",
 		"stats",
 	)
@@ -557,7 +542,7 @@ func (c *C1File) getSync(ctx context.Context, syncID string) (*c1zstore.SyncRun,
 	var generation, coverageJSON, mode string
 	err = row.Scan(
 		&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type,
-		&ret.ParentSyncID, &ret.LinkedSyncID, &ret.SupportsDiff,
+		&ret.ParentSyncID, &ret.SupportsDiff,
 		&generation, &coverageJSON, &mode, &statsBytes,
 	)
 	if err != nil {
@@ -757,10 +742,6 @@ func (c *C1File) StartNewSync(ctx context.Context, syncType connectorstore.SyncT
 			return "", status.Errorf(codes.InvalidArgument, "parent sync id must be empty for resources only sync")
 		}
 	case connectorstore.SyncTypePartial:
-	case connectorstore.SyncTypePartialUpserts, connectorstore.SyncTypePartialDeletions:
-		// Diff syncs carry the base sync as their parent; the linked
-		// pairing (upserts ↔ deletions) is set separately via
-		// SetSyncLink since the partner's id may not exist yet.
 	case connectorstore.SyncTypeAny:
 		return "", status.Errorf(codes.InvalidArgument, "sync cannot be started with SyncTypeAny")
 	default:
@@ -780,10 +761,6 @@ func (c *C1File) StartNewSync(ctx context.Context, syncType connectorstore.SyncT
 }
 
 func (c *C1File) insertSyncRun(ctx context.Context, syncID string, syncType connectorstore.SyncType, parentSyncID string) error {
-	return c.insertSyncRunWithLink(ctx, syncID, syncType, parentSyncID, "")
-}
-
-func (c *C1File) insertSyncRunWithLink(ctx context.Context, syncID string, syncType connectorstore.SyncType, parentSyncID string, linkedSyncID string) error {
 	if c.readOnly {
 		return ErrReadOnly
 	}
@@ -800,7 +777,6 @@ func (c *C1File) insertSyncRunWithLink(ctx context.Context, syncID string, syncT
 		"sync_token":        "",
 		"sync_type":         syncType,
 		"parent_sync_id":    parentSyncID,
-		"linked_sync_id":    linkedSyncID,
 		"grants_backfilled": 1, // New syncs do not require grants backfill.
 	})
 
@@ -883,8 +859,10 @@ func (c *C1File) endSyncRun(ctx context.Context, syncID string) error {
 	return nil
 }
 
-// SetSupportsDiff marks the given sync as supporting diff operations.
-// This indicates the sync has SQL-layer grant metadata (is_expandable) properly populated.
+// SetSupportsDiff marks the given sync's data collection as complete with
+// SQL-layer grant metadata (is_expandable) properly populated. The name is
+// historical (the marker once gated diff-sync generation); today it gates
+// `baton rollback-expansion`, which refuses syncs without the marker.
 func (c *C1File) SetSupportsDiff(ctx context.Context, syncID string) error {
 	ctx, span := tracer.Start(ctx, "C1File.SetSupportsDiff")
 	var err error
@@ -997,43 +975,6 @@ func (c *C1File) clearIngestInvariantVerification(ctx context.Context, syncID st
 	}
 	c.dbUpdated.Store(true)
 	c.invalidateCachedViewSyncRun()
-	return nil
-}
-
-// SetSyncLink sets the linked_sync_id of an existing sync run. Diff
-// sync pairs (partial_upserts ↔ partial_deletions) reference each
-// other bidirectionally; a writer rebuilding such a pair cannot supply
-// the link at StartNewSync time because the partner's id is minted by
-// the store, so the pairing is applied after both runs exist.
-func (c *C1File) SetSyncLink(ctx context.Context, syncID string, linkedSyncID string) error {
-	ctx, span := tracer.Start(ctx, "C1File.SetSyncLink")
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-
-	if c.readOnly {
-		return ErrReadOnly
-	}
-	if syncID == "" {
-		return status.Errorf(codes.InvalidArgument, "sync id is required")
-	}
-
-	q := c.db.Update(syncRuns.Name())
-	q = q.Set(goqu.Record{
-		"linked_sync_id": linkedSyncID,
-	})
-	q = q.Where(goqu.C("sync_id").Eq(syncID))
-
-	query, args, err := q.ToSQL()
-	if err != nil {
-		return err
-	}
-
-	_, err = c.db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return err
-	}
-	c.dbUpdated.Store(true)
-
 	return nil
 }
 

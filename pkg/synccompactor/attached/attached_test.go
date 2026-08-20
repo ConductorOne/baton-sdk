@@ -300,7 +300,7 @@ func retargetAttachedSyncRunID(t testing.TB, ctx context.Context, db *sql.DB, ol
 	require.NoError(t, err)
 }
 
-func TestAttachedCompactorDoesNotOperateOnDiffSyncTypes(t *testing.T) {
+func TestAttachedCompactorRequiresFinishedSync(t *testing.T) {
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 
@@ -317,36 +317,13 @@ func TestAttachedCompactorDoesNotOperateOnDiffSyncTypes(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, baseDB.EndSync(ctx))
 
-	// Old DB (used to generate diff syncs)
-	oldOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
-	oldDB, err := dotc1z.NewC1ZFile(ctx, filepath.Join(tmpDir, "old.c1z"), oldOpts...)
-	require.NoError(t, err)
-	defer oldDB.Close(ctx)
-
-	oldSyncID, err := oldDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-	require.NoError(t, oldDB.EndSync(ctx))
-	require.NoError(t, oldDB.SetSupportsDiff(ctx, oldSyncID))
-
-	// Applied DB: create a full sync, then generate diff syncs, then delete the full sync.
+	// Applied DB holds only an unfinished sync — nothing compactable.
 	appliedFile := filepath.Join(tmpDir, "applied.c1z")
 	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 	require.NoError(t, err)
 
-	appliedFullSyncID, err := appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, appliedDB.EndSync(ctx))
-	require.NoError(t, appliedDB.SetSupportsDiff(ctx, appliedFullSyncID))
-
-	attached, err := appliedDB.AttachFile(oldDB, "attached")
-	require.NoError(t, err)
-	_, _, err = attached.GenerateSyncDiffFromFile(ctx, oldSyncID, appliedFullSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	// Remove the only compactable sync from appliedDB; only diff syncs remain.
-	require.NoError(t, appliedDB.DeleteSyncRun(ctx, appliedFullSyncID))
 
 	err = appliedDB.Close(ctx)
 	require.NoError(t, err)

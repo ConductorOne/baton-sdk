@@ -1041,10 +1041,6 @@ func v2SyncTypeToV3(t connectorstore.SyncType) v3.SyncType {
 		return v3.SyncType_SYNC_TYPE_PARTIAL
 	case connectorstore.SyncTypeResourcesOnly:
 		return v3.SyncType_SYNC_TYPE_RESOURCES_ONLY
-	case connectorstore.SyncTypePartialUpserts:
-		return v3.SyncType_SYNC_TYPE_PARTIAL_UPSERTS
-	case connectorstore.SyncTypePartialDeletions:
-		return v3.SyncType_SYNC_TYPE_PARTIAL_DELETIONS
 	default:
 		return v3.SyncType_SYNC_TYPE_UNSPECIFIED
 	}

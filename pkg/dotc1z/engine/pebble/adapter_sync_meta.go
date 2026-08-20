@@ -31,12 +31,9 @@ var _ c1zstore.IngestInvariantVerificationWriter = pebbleSyncMeta{}
 // MarkSyncSupportsDiff sets supports_diff = true on the named sync's
 // run record. Used by pkg/sync.parallelSyncer after graph
 // construction to signal that the sync has SQL-layer grant metadata
-// populated and diff consumers may rely on it.
-//
-// FileOps().GenerateSyncDiff and FileOps().CloneSync are implemented
-// on the Pebble adapter (see adapter_diff.go and
-// adapter_clone_sync.go); the bit stored here gates downstream
-// consumers' willingness to call them, in parity with the SQLite
+// populated. The name is historical (the marker once gated diff-sync
+// generation, since removed); today it gates `baton
+// rollback-expansion`, in parity with the SQLite
 // sync_runs.supports_diff column.
 func (s pebbleSyncMeta) MarkSyncSupportsDiff(ctx context.Context, syncID string) error {
 	if syncID == "" {
@@ -178,7 +175,6 @@ func syncRunRecordToExported(r *v3.SyncRunRecord) *c1zstore.SyncRun {
 		Type:                        syncTypeV3ToConnectorstore(r.GetType()),
 		SyncToken:                   r.GetSyncToken(),
 		ParentSyncID:                r.GetParentSyncId(),
-		LinkedSyncID:                r.GetLinkedSyncId(),
 		SupportsDiff:                r.GetSupportsDiff(),
 		IngestInvariantVerification: verification,
 	}
@@ -222,7 +218,6 @@ func (e *Engine) sortedSyncRuns(ctx context.Context) ([]c1zstore.SyncRun, error)
 			SyncToken:                   r.GetSyncToken(),
 			ParentSyncID:                r.GetParentSyncId(),
 			SupportsDiff:                r.GetSupportsDiff(),
-			LinkedSyncID:                r.GetLinkedSyncId(),
 			IngestInvariantVerification: verification,
 		}
 		if t := r.GetStartedAt(); t != nil {
@@ -277,8 +272,8 @@ func (e *Engine) CleanupCandidates(ctx context.Context) ([]c1zstore.SyncRun, err
 // returned on the first call and the next-page token is always empty.
 // pageToken and pageSize are accepted for parity with the SQLite
 // ListSyncRuns and are not used. It backs the c1z sanitizer's
-// source-side sync-graph-metadata read (linked_sync_id, supports_diff),
-// which the gRPC reader surface does not carry.
+// source-side sync-run-metadata read (supports_diff), which the gRPC
+// reader surface does not carry.
 func (e *Engine) ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*c1zstore.SyncRun, string, error) {
 	runs, err := e.sortedSyncRuns(ctx)
 	if err != nil {
@@ -304,10 +299,6 @@ func syncTypeV3ToConnectorstore(t v3.SyncType) connectorstore.SyncType {
 		return connectorstore.SyncTypePartial
 	case v3.SyncType_SYNC_TYPE_RESOURCES_ONLY:
 		return connectorstore.SyncTypeResourcesOnly
-	case v3.SyncType_SYNC_TYPE_PARTIAL_UPSERTS:
-		return connectorstore.SyncTypePartialUpserts
-	case v3.SyncType_SYNC_TYPE_PARTIAL_DELETIONS:
-		return connectorstore.SyncTypePartialDeletions
 	default:
 		return ""
 	}

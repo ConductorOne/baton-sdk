@@ -231,9 +231,9 @@ const mergeRawFlushRecords = 32768
 //     newer wins, replacing the value and swapping the incumbent's
 //     derived index keys for the new value's (point deletes
 //     proportional to overridden records only). Ties keep the
-//     incumbent, mirroring the engine's Put*RecordsIfNewer rule —
-//     missing discovered_at scans as 0, reproducing its nil-timestamp
-//     ordering ("never overwrite an incumbent, always fill a hole").
+//     incumbent — missing discovered_at scans as 0, giving
+//     nil-timestamp ordering ("never overwrite an incumbent, always
+//     fill a hole").
 func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, destSyncID string, collectGrantEntitlementIDs bool) (FoldStats, error) {
 	var stats FoldStats
 	for _, bucket := range allBuckets() {

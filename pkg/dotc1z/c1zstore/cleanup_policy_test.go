@@ -30,19 +30,11 @@ func makeCandidate(id string, syncType connectorstore.SyncType, startSec int, en
 	return cand
 }
 
-// withLink returns a copy of c with LinkedSyncID set. Keeps the
-// makeCandidate signature short while letting diff-sync cases set
-// up linked pairs inline.
-func withLink(c SyncRun, linkedID string) SyncRun {
-	c.LinkedSyncID = linkedID
-	return c
-}
-
 // assertDeletes is a set-comparison helper. SelectSyncsToDelete
 // guarantees order only for the full-sync bucket (oldest first);
-// partials and diff syncs ride along after. Tests assert membership
-// rather than exact sequence so the test stays robust to internal
-// re-ordering of the policy implementation.
+// partials ride along after. Tests assert membership rather than
+// exact sequence so the test stays robust to internal re-ordering
+// of the policy implementation.
 func assertDeletes(t *testing.T, got, want []string) {
 	t.Helper()
 	gotSorted := append([]string(nil), got...)
@@ -67,7 +59,7 @@ func TestSelectSyncsToDelete_AllUnfinished(t *testing.T) {
 	cands := []SyncRun{
 		makeCandidate("s1", connectorstore.SyncTypeFull, 0, false),
 		makeCandidate("s2", connectorstore.SyncTypePartial, 10, false),
-		makeCandidate("s3", connectorstore.SyncTypePartialUpserts, 20, false),
+		makeCandidate("s3", connectorstore.SyncTypeResourcesOnly, 20, false),
 	}
 	got := SelectSyncsToDelete(cands, "", 1)
 	require.Empty(t, got)
@@ -256,76 +248,6 @@ func TestSelectSyncsToDelete_NoCurrentSyncCutoffNormal(t *testing.T) {
 	}
 	got := SelectSyncsToDelete(cands, "", 2)
 	assertDeletes(t, got, []string{"f0", "p_t5"})
-}
-
-// -----------------------------------------------------------------------------
-// SelectSyncsToDelete: diff-sync retention
-// -----------------------------------------------------------------------------
-
-func TestSelectSyncsToDelete_TwoDiffSyncs_NoOp(t *testing.T) {
-	// The "> 2" guard means we don't touch diff syncs until there
-	// are at least three. Exactly two is a no-op even if they're
-	// not a linked pair.
-	cands := []SyncRun{
-		makeCandidate("d1", connectorstore.SyncTypePartialUpserts, 0, true),
-		makeCandidate("d2", connectorstore.SyncTypePartialDeletions, 10, true),
-	}
-	got := SelectSyncsToDelete(cands, "", 2)
-	require.Empty(t, got)
-}
-
-func TestSelectSyncsToDelete_ManyDiffSyncs_KeepsLatestOnly(t *testing.T) {
-	// Latest diff sync has no LinkedSyncID; keep only it.
-	cands := []SyncRun{
-		makeCandidate("d1", connectorstore.SyncTypePartialUpserts, 0, true),
-		makeCandidate("d2", connectorstore.SyncTypePartialDeletions, 10, true),
-		makeCandidate("d3", connectorstore.SyncTypePartialUpserts, 20, true),
-		makeCandidate("d4", connectorstore.SyncTypePartialUpserts, 30, true),
-	}
-	got := SelectSyncsToDelete(cands, "", 2)
-	assertDeletes(t, got, []string{"d1", "d2", "d3"})
-}
-
-func TestSelectSyncsToDelete_ManyDiffSyncs_KeepsLinkedPair(t *testing.T) {
-	// Latest diff sync (d4) links to d3 ⇒ keep both. Drop d1 and d2.
-	cands := []SyncRun{
-		makeCandidate("d1", connectorstore.SyncTypePartialUpserts, 0, true),
-		makeCandidate("d2", connectorstore.SyncTypePartialDeletions, 10, true),
-		withLink(makeCandidate("d3", connectorstore.SyncTypePartialDeletions, 20, true), "d4"),
-		withLink(makeCandidate("d4", connectorstore.SyncTypePartialUpserts, 30, true), "d3"),
-	}
-	got := SelectSyncsToDelete(cands, "", 2)
-	assertDeletes(t, got, []string{"d1", "d2"})
-}
-
-func TestSelectSyncsToDelete_ManyDiffSyncs_LinkedPartnerMissing(t *testing.T) {
-	// Latest diff sync (d4) claims to link to a missing sync.
-	// Policy doesn't fabricate the partner ⇒ keep only d4.
-	cands := []SyncRun{
-		makeCandidate("d1", connectorstore.SyncTypePartialUpserts, 0, true),
-		makeCandidate("d2", connectorstore.SyncTypePartialDeletions, 10, true),
-		makeCandidate("d3", connectorstore.SyncTypePartialUpserts, 20, true),
-		withLink(makeCandidate("d4", connectorstore.SyncTypePartialUpserts, 30, true), "ghost"),
-	}
-	got := SelectSyncsToDelete(cands, "", 2)
-	assertDeletes(t, got, []string{"d1", "d2", "d3"})
-}
-
-func TestSelectSyncsToDelete_DiffSyncsIndependentOfFullSyncs(t *testing.T) {
-	// Both branches active in one call: 4 full syncs (drop 2) +
-	// 4 diff syncs with a linked latest pair (drop the other 2).
-	cands := []SyncRun{
-		makeCandidate("f1", connectorstore.SyncTypeFull, 0, true),
-		makeCandidate("f2", connectorstore.SyncTypeFull, 10, true),
-		makeCandidate("f3", connectorstore.SyncTypeFull, 20, true),
-		makeCandidate("f4", connectorstore.SyncTypeFull, 30, true),
-		makeCandidate("d1", connectorstore.SyncTypePartialUpserts, 1, true),
-		makeCandidate("d2", connectorstore.SyncTypePartialDeletions, 11, true),
-		withLink(makeCandidate("d3", connectorstore.SyncTypePartialDeletions, 21, true), "d4"),
-		withLink(makeCandidate("d4", connectorstore.SyncTypePartialUpserts, 31, true), "d3"),
-	}
-	got := SelectSyncsToDelete(cands, "", 2)
-	assertDeletes(t, got, []string{"f1", "f2", "d1", "d2"})
 }
 
 // -----------------------------------------------------------------------------

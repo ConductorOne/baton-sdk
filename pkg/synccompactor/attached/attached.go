@@ -42,7 +42,6 @@ func NewAttachedCompactor(base, applied c1zstore.Store) (*Compactor, error) {
 }
 
 func latestFinishedCompactableSync(ctx context.Context, f *dotc1z.C1File) (*reader_v2.SyncRun, error) {
-	// Compaction must NOT operate on diff syncs (partial_upserts / partial_deletions).
 	// We want the latest finished "snapshot-like" sync.
 	candidates := []connectorstore.SyncType{
 		connectorstore.SyncTypeFull,
@@ -82,11 +81,7 @@ func (c *Compactor) Compact(ctx context.Context) error {
 		return fmt.Errorf("failed to get base sync: %w", err)
 	}
 	if baseSync == nil {
-		return fmt.Errorf(
-			"no finished compactable sync found in base (diff sync types %q/%q are not compactable)",
-			string(connectorstore.SyncTypePartialUpserts),
-			string(connectorstore.SyncTypePartialDeletions),
-		)
+		return fmt.Errorf("no finished compactable sync found in base")
 	}
 
 	appliedSync, err := latestFinishedCompactableSync(ctx, c.applied)
@@ -94,11 +89,7 @@ func (c *Compactor) Compact(ctx context.Context) error {
 		return fmt.Errorf("failed to get applied sync: %w", err)
 	}
 	if appliedSync == nil {
-		return fmt.Errorf(
-			"no finished compactable sync found in applied (diff sync types %q/%q are not compactable)",
-			string(connectorstore.SyncTypePartialUpserts),
-			string(connectorstore.SyncTypePartialDeletions),
-		)
+		return fmt.Errorf("no finished compactable sync found in applied")
 	}
 
 	l := ctxzap.Extract(ctx)

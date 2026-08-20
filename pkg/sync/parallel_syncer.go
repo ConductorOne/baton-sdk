@@ -400,9 +400,11 @@ func (s *syncer) parallelSync(
 			continue
 
 		case SyncGrantExpansionOp:
-			// Mark the sync as supporting diff, but only if we're starting fresh.
-			// If we're resuming (graph has edges or a page token), we may be continuing
-			// from old code that didn't have this marker, so we must not set it.
+			// Stamp the supports_diff marker (data collection complete; the
+			// name is historical — it gates `baton rollback-expansion`), but
+			// only if we're starting fresh. If we're resuming (graph has edges
+			// or a page token), we may be continuing from old code that didn't
+			// have this marker, so we must not set it.
 			entitlementGraph := s.state.EntitlementGraph(ctx)
 			isResumingExpansion := entitlementGraph.Loaded || len(entitlementGraph.Edges) > 0 || stateAction.PageToken != ""
 			if !isResumingExpansion {
@@ -411,8 +413,8 @@ func (s *syncer) parallelSync(
 				}
 				if err := s.store.SyncMeta().MarkSyncSupportsDiff(ctx, s.syncID); err != nil {
 					// No detached rescue on this exit (RFC 0009 §4.2): a
-					// metadata-only write for the unused diff-sync feature,
-					// with no progress since the loop-top checkpoint.
+					// metadata-only write, with no progress since the
+					// loop-top checkpoint.
 					l.Error("failed to set supports_diff marker", zap.Error(err))
 					return warnings, err
 				}

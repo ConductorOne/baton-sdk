@@ -66,7 +66,7 @@ func (b *batch) Close() error { return b.b.Close() }
 // The primary record keyspaces plus their inline-maintained index
 // families and the digest-invalidation markers a record mutation owes.
 // Clients: the Put*Records paths, the expanded/synthesized grant
-// writers, the IfNewer partial-sync paths, and delete paths.
+// writers, and delete paths.
 //
 // RecordBatch exposes NO generic staging. The only way to stage a
 // record mutation is a typed Stage* operation (records.go) that

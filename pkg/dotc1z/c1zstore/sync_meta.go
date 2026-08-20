@@ -15,9 +15,10 @@ import (
 // All methods are callable without an active sync.
 type SyncMeta interface {
 	// MarkSyncSupportsDiff sets the supports_diff flag on the given sync.
-	// Called by pkg/sync.parallelSyncer after graph construction to signal
-	// that the sync run has SQL-layer grant metadata populated and diff
-	// consumers may rely on it.
+	// Called by pkg/sync.parallelSyncer when data collection completes to
+	// signal that the sync run has SQL-layer grant metadata populated.
+	// The name is historical (the marker once gated diff-sync generation);
+	// today it gates `baton rollback-expansion`.
 	MarkSyncSupportsDiff(ctx context.Context, syncID string) error
 
 	// LatestFullSync returns the most-recently-finished SyncTypeFull sync
@@ -25,9 +26,8 @@ type SyncMeta interface {
 	LatestFullSync(ctx context.Context) (*SyncRun, error)
 
 	// LatestFinishedSyncOfAnyType returns the most-recently-finished sync
-	// of any type (including diff types), or nil if none exists. Used by
-	// tooling that wants to inspect whatever sync finished last regardless
-	// of type.
+	// of any type, or nil if none exists. Used by tooling that wants to
+	// inspect whatever sync finished last regardless of type.
 	LatestFinishedSyncOfAnyType(ctx context.Context) (*SyncRun, error)
 
 	// Stats returns a map of table-name to row-count for the given sync.
@@ -66,8 +66,7 @@ type IngestInvariantVerificationWriter interface {
 // sync_runs schema.
 //
 // Callers typically only read ID, Type, and the timestamps; the rest is
-// included for completeness and for use by tooling (e.g. sync-diff
-// pipelines need ParentSyncID and LinkedSyncID).
+// included for completeness and for use by tooling.
 type SyncRun struct {
 	ID           string
 	StartedAt    *time.Time
@@ -75,7 +74,6 @@ type SyncRun struct {
 	SyncToken    string
 	Type         connectorstore.SyncType
 	ParentSyncID string
-	LinkedSyncID string
 	SupportsDiff bool
 	Stats        *reader_v2.SyncStats
 	IngestInvariantVerification
