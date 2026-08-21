@@ -13,12 +13,15 @@ import (
 type Engine string
 
 const (
-	// EngineSQLite is the default engine: the v1 .c1z format backed by
-	// a zstd-compressed SQLite database. Connectors use this; backend
-	// infra can opt out.
+	// EngineSQLite is the legacy v1 engine: the v1 .c1z format backed by
+	// a zstd-compressed SQLite database. Callers opt into it via
+	// WithEngine; the NewStore default is EnginePebble. (The SQLite-only
+	// NewC1ZFile constructor is the exception: it treats an unset engine
+	// as EngineSQLite.)
 	EngineSQLite Engine = "sqlite"
 
-	// EnginePebble is the v3 engine: a Pebble LSM wrapped in the v3
+	// EnginePebble is the v3 engine and the NewStore default when
+	// callers do not specify one: a Pebble LSM wrapped in the v3
 	// envelope. This is the in-process identity AND the value callers
 	// select with (the --storage-engine flag and the gRPC sync-task
 	// field both pass "pebble"); it must stay "pebble" for those

@@ -64,14 +64,39 @@ func TestRegisterEngineRejectsDuplicateEngine(t *testing.T) {
 	require.Error(t, err, "RegisterEngine duplicate returned nil error")
 }
 
-func TestNewStoreDefaultsToSQLiteDriver(t *testing.T) {
+func TestNewStoreDefaultsToPebbleDriver(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "default.c1z")
 	store, err := NewStore(ctx, path)
 	require.NoError(t, err)
-	defer func() { _ = store.Close(ctx) }()
+	// The happy path closes explicitly below (the close must succeed for
+	// the on-disk header check); this guard keeps a mid-test require
+	// failure from leaking the store for the rest of the test binary.
+	storeClosed := false
+	defer func() {
+		if !storeClosed {
+			_ = store.Close(ctx)
+		}
+	}()
 	_, ok := store.(*C1File)
-	require.True(t, ok, "NewStore default type = %T, want *C1File", store)
+	require.False(t, ok, "NewStore default type = %T, want the pebble store, not *C1File", store)
+	require.Equal(t, string(c1zstore.EnginePebble), store.Metadata().Engine)
+
+	// Seal a sync and close so the artifact lands on disk, then prove
+	// the on-disk format is v3 by magic byte, not just in-process
+	// metadata.
+	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, store.EndSync(ctx))
+	require.NoError(t, store.Close(ctx))
+	storeClosed = true
+
+	f, err := os.Open(path)
+	require.NoError(t, err)
+	defer f.Close()
+	format, err := ReadHeaderFormat(f)
+	require.NoError(t, err)
+	require.Equal(t, C1ZFormatV3, format, "default-engine artifact must be a v3 c1z on disk")
 }
 
 func TestNewStoreRequiresRegisteredEngineForNewFile(t *testing.T) {

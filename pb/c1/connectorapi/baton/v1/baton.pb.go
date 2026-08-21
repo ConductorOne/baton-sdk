@@ -2935,7 +2935,7 @@ type Task_SyncFullTask struct {
 	SyncResourceTypeIds []string `protobuf:"bytes,5,rep,name=sync_resource_type_ids,json=syncResourceTypeIds,proto3" json:"sync_resource_type_ids,omitempty"`
 	// If true, skip syncing grants. Resources and entitlements will still be synced.
 	SkipGrants bool `protobuf:"varint,6,opt,name=skip_grants,json=skipGrants,proto3" json:"skip_grants,omitempty"`
-	// Storage engine to use for the sync. If empty, the default engine will be used (currently SQLite).
+	// Storage engine to use for the sync. If empty, the default engine will be used (currently Pebble for new c1z files; existing files keep their on-disk format).
 	StorageEngine string `protobuf:"bytes,7,opt,name=storage_engine,json=storageEngine,proto3" json:"storage_engine,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3057,7 +3057,7 @@ type Task_SyncFullTask_builder struct {
 	SyncResourceTypeIds []string
 	// If true, skip syncing grants. Resources and entitlements will still be synced.
 	SkipGrants bool
-	// Storage engine to use for the sync. If empty, the default engine will be used (currently SQLite).
+	// Storage engine to use for the sync. If empty, the default engine will be used (currently Pebble for new c1z files; existing files keep their on-disk format).
 	StorageEngine string
 }
 

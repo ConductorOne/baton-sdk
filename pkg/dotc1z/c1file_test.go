@@ -686,13 +686,13 @@ func TestC1ZCachedViewSyncRunInvalidation(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestEngineDefaultsToSQLite proves that omitting WithEngine yields
-// c1zstore.EngineSQLite (the documented default), not the empty zero value.
-func TestEngineDefaultsToSQLite(t *testing.T) {
+// TestEngineDefaultsToPebble proves that omitting WithEngine yields
+// c1zstore.EnginePebble (the documented default), not the empty zero value.
+func TestEngineDefaultsToPebble(t *testing.T) {
 	dir := t.TempDir()
 	f, err := NewStore(context.Background(), filepath.Join(dir, "default.c1z"))
 	require.NoError(t, err, "NewStore")
 	defer f.Close(context.Background())
 	engine := f.Metadata().Engine
-	require.Equal(t, string(c1zstore.EngineSQLite), engine)
+	require.Equal(t, string(c1zstore.EnginePebble), engine)
 }

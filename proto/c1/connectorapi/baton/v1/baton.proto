@@ -59,7 +59,7 @@ message Task {
     repeated string sync_resource_type_ids = 5;
     // If true, skip syncing grants. Resources and entitlements will still be synced.
     bool skip_grants = 6;
-    // Storage engine to use for the sync. If empty, the default engine will be used (currently SQLite).
+    // Storage engine to use for the sync. If empty, the default engine will be used (currently Pebble for new c1z files; existing files keep their on-disk format).
     string storage_engine = 7 [(validate.rules).string = {
       in: [
         "pebble",

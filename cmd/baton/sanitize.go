@@ -111,7 +111,9 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 
 	// Default the output engine to the source's so `sanitize` round-trips
 	// the engine unless the operator asks otherwise. An empty source engine
-	// (virtual/unknown store) falls back to the SQLite default.
+	// (virtual/unknown store) is pinned to SQLite explicitly — this
+	// predates the Pebble default flip and is no longer "the default",
+	// but the behavior is deliberately unchanged.
 	dstEngine := c1zstore.Engine(outEngineRaw)
 	if outEngineRaw == "" {
 		dstEngine = c1zstore.Engine(src.Metadata().Engine)

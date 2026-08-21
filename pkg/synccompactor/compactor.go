@@ -45,9 +45,11 @@ type Compactor struct {
 	c1zOptions         []dotc1z.C1ZOption
 	skipGrantExpansion bool
 	// engine selects the storage engine for the compacted output.
-	// Empty means EngineSQLite (the default; behavior is unchanged and
-	// the output is byte-identical to the pre-engine-option compactor).
-	// EnginePebble produces a v3 Pebble c1z via a native record merge.
+	// Empty means "follow the inputs": Compact resolves it via
+	// inferEngineFromInputs (any Pebble input → Pebble, all-SQLite →
+	// SQLite), so the compactor does NOT follow the dotc1z engine
+	// default. EnginePebble produces a v3 Pebble c1z via a native
+	// record merge.
 	engine c1zstore.Engine
 	// pebbleMode optionally forces the Pebble merge strategy; the zero
 	// value (Auto) lets the compactor choose. See WithPebbleCompactorMode.
@@ -348,13 +350,12 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		opts = append(opts, dotc1z.WithDecoderPool(c.decoderPool))
 	}
 
-	if c.resolvedEngine() == c1zstore.EnginePebble {
-		// Force the resolved engine last so a stray engine passed via
-		// WithC1ZOptions cannot mislabel the artifact.
-		c.compactedC1z, err = dotc1z.NewStore(ctx, destFilePath, append(opts, dotc1z.WithEngine(c1zstore.EnginePebble))...)
-	} else {
-		c.compactedC1z, err = dotc1z.NewStore(ctx, destFilePath, opts...)
-	}
+	// Force the resolved engine last: a stray engine passed via
+	// WithC1ZOptions cannot mislabel the artifact, and the dotc1z
+	// engine default (Pebble) cannot leak into a SQLite compaction —
+	// the destination is a new file, so an engine-less open would
+	// otherwise create a v3 store under the SQLite merge path.
+	c.compactedC1z, err = dotc1z.NewStore(ctx, destFilePath, append(opts, dotc1z.WithEngine(c.resolvedEngine()))...)
 	if err != nil {
 		l.Error("doOneCompaction failed: could not create c1z file", zap.Error(err))
 		return nil, err

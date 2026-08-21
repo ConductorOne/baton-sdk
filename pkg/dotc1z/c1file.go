@@ -348,7 +348,9 @@ type c1zOptions struct {
 	disableGrantDigestIndex bool
 
 	// engine is the storage engine to use for newly created files.
-	// Reads dispatch on magic byte regardless. Default EngineSQLite.
+	// Reads dispatch on magic byte regardless. NewStore defaults an
+	// unset engine to EnginePebble; NewC1ZFile (SQLite-only) normalizes
+	// unset to EngineSQLite.
 	engine c1zstore.Engine
 
 	// payloadEncoding controls the v3 envelope payload framing. Only
@@ -433,8 +435,10 @@ func WithSyncLimit(limit int) C1ZOption {
 }
 
 // WithEngine selects the storage engine for newly created .c1z files.
-// Default is EngineSQLite (v1 format). EnginePebble enables the v3
-// engine.
+// Under NewStore the default is EnginePebble (v3 format); EngineSQLite
+// selects the legacy v1 engine. NewC1ZFile does not share that default:
+// it is the SQLite-only constructor, treats an unset engine as
+// EngineSQLite, and rejects a writable EnginePebble request.
 //
 // Reading existing files dispatches on the file's magic byte and is
 // independent of this option.

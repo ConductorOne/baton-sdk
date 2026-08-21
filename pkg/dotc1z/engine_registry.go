@@ -203,8 +203,11 @@ func storeOptionsFromC1ZOptions(options *c1zOptions) StoreOptions {
 		MaxDecodedPayloadBytes:  maxDecodedPayloadBytes,
 		MaxDecoderMemoryBytes:   maxDecoderMemoryBytes,
 	}
+	// Defensive only: NewStore, the sole caller, overwrites Engine with
+	// the selected driver's engine on the next line. Real default
+	// selection lives in selectStoreDriver.
 	if out.Engine == "" {
-		out.Engine = c1zstore.EngineSQLite
+		out.Engine = c1zstore.EnginePebble
 	}
 	out.Pragmas = make([]StorePragma, 0, len(options.pragmas))
 	for _, p := range options.pragmas {
@@ -218,7 +221,7 @@ func storeOptionsFromC1ZOptions(options *c1zOptions) StoreOptions {
 // Dispatch policy (in order):
 //
 //  1. If the file doesn't exist or is empty, honor the caller's
-//     `WithEngine(...)` choice (defaulting to EngineSQLite when
+//     `WithEngine(...)` choice (defaulting to EnginePebble when
 //     unset). The about-to-be-written file gets the requested format.
 //  2. If the file exists with content, dispatch by the on-disk magic
 //     byte — v1 → SQLite, v3 → whatever engine name the manifest
@@ -226,6 +229,11 @@ func storeOptionsFromC1ZOptions(options *c1zOptions) StoreOptions {
 //     case because we can't re-encode an existing file at open time;
 //     the on-disk format is authoritative. This preserves the
 //     read-any-format semantics that pre-dates the engine option.
+//     Exception: an EXPLICIT WithEngine(EnginePebble) on a writable v1
+//     file converts it to Pebble in place. The EnginePebble default
+//     never triggers that conversion — an engine-less open of an
+//     existing v1 file stays SQLite, so read-intent callers (diff,
+//     stats, provisioning) don't rewrite files as a side effect.
 //
 // When the caller's WithEngine disagrees with the on-disk format we
 // log a warning so the divergence is observable. Callers that want
@@ -235,7 +243,7 @@ func selectStoreDriver(ctx context.Context, outputFilePath string, options *c1zO
 	l := ctxzap.Extract(ctx)
 	requested := options.engine
 	if requested == "" {
-		requested = c1zstore.EngineSQLite
+		requested = c1zstore.EnginePebble
 	}
 
 	stat, err := os.Stat(outputFilePath) // #nosec G703 -- c1z path is caller-controlled by API design.
@@ -267,7 +275,9 @@ func selectStoreDriver(ctx context.Context, outputFilePath string, options *c1zO
 	switch format {
 	case C1ZFormatV1:
 		// Maybe error if the file is read-only?
-		if requested == c1zstore.EnginePebble && !options.readOnly {
+		// Only an explicit pebble request converts; the engine default
+		// (options.engine == "") must not rewrite existing v1 files.
+		if options.engine == c1zstore.EnginePebble && !options.readOnly {
 			// Close our header-read handle before converting: the conversion
 			// renames a temp file over outputFilePath, which fails on Windows
 			// if any handle to the destination is still open. Nil out f so
@@ -277,11 +287,11 @@ func selectStoreDriver(ctx context.Context, outputFilePath string, options *c1zO
 			if closeErr != nil {
 				return nil, closeErr
 			}
-			l.Debug("converting existing v1 c1z to pebble", zap.String("output_file_path", outputFilePath))
+			l.Info("converting existing v1 c1z to pebble", zap.String("output_file_path", outputFilePath))
 			if err := convertExistingV1C1ZFile(ctx, outputFilePath, pebbleOpenOptionsFromC1Z(options)); err != nil {
 				return nil, fmt.Errorf("select-store-driver: convert existing v1 c1z to pebble: %w", err)
 			}
-			l.Debug("converted existing v1 c1z to pebble", zap.String("output_file_path", outputFilePath))
+			l.Info("converted existing v1 c1z to pebble", zap.String("output_file_path", outputFilePath))
 			return requireEngineDriver(c1zstore.EnginePebble)
 		}
 		fileEngine = c1zstore.EngineSQLite

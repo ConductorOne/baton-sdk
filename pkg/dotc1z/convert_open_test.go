@@ -100,6 +100,37 @@ func TestNewC1ZFileDoesNotConvertNewSQLiteFile(t *testing.T) {
 	require.Equal(t, string(c1zstore.EngineSQLite), f.Metadata().Engine)
 }
 
+// TestEnginelessOpenOfExistingV1DoesNotConvert proves the EnginePebble
+// default never rewrites existing v1 files: engine-less opens dispatch
+// on the magic byte and stay SQLite, whether writable or read-only.
+// Only an explicit WithEngine(EnginePebble) converts (see
+// TestNewStoreConvertsExistingSQLiteToPebble).
+func TestEnginelessOpenOfExistingV1DoesNotConvert(t *testing.T) {
+	ctx := context.Background()
+
+	dir := t.TempDir()
+	c1zPath := filepath.Join(dir, "source.c1z")
+
+	src, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithTmpDir(dir), dotc1z.WithEngine(c1zstore.EngineSQLite))
+	require.NoError(t, err)
+	require.NoError(t, seedFinishedSQLiteSync(ctx, t, src))
+	require.NoError(t, src.Close(ctx))
+
+	// Writable engine-less open: no conversion.
+	f, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithTmpDir(dir))
+	require.NoError(t, err)
+	require.Equal(t, string(c1zstore.EngineSQLite), f.Metadata().Engine)
+	require.NoError(t, f.Close(ctx))
+	require.Equal(t, dotc1z.C1ZFormatV1, mustReadHeaderFormat(t, c1zPath))
+
+	// Read-only engine-less open: no conversion.
+	ro, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithTmpDir(dir), dotc1z.WithReadOnly(true))
+	require.NoError(t, err)
+	require.Equal(t, string(c1zstore.EngineSQLite), ro.Metadata().Engine)
+	require.NoError(t, ro.Close(ctx))
+	require.Equal(t, dotc1z.C1ZFormatV1, mustReadHeaderFormat(t, c1zPath))
+}
+
 func TestNewC1ZFileDoesNotConvertExistingSQLiteWhenEngineSQLite(t *testing.T) {
 	ctx := context.Background()
 
@@ -111,7 +142,7 @@ func TestNewC1ZFileDoesNotConvertExistingSQLiteWhenEngineSQLite(t *testing.T) {
 	require.NoError(t, seedFinishedSQLiteSync(ctx, t, src))
 	require.NoError(t, src.Close(ctx))
 
-	f, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithTmpDir(dir))
+	f, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithTmpDir(dir), dotc1z.WithEngine(c1zstore.EngineSQLite))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, f.Close(ctx)) }()
 
