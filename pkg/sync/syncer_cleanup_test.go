@@ -120,6 +120,11 @@ func TestCleanupPebbleSingleSyncLifecycle(t *testing.T) {
 	// Engine-less NewStore: the default (pebble) path under test.
 	f, err := dotc1z.NewStore(ctx, testFilePath)
 	require.NoError(t, err)
+	// Fail-safe only: a mid-test require failure must not leak the open
+	// pebble store for the rest of the test binary. On the happy path
+	// syncer.Close closes the store and this is a no-op (Close is
+	// idempotent).
+	defer func() { _ = f.Close(ctx) }()
 
 	// Seed synced data the same way the SQLite test does. Under the
 	// single-sync contract each iteration replaces the previous sync, so
