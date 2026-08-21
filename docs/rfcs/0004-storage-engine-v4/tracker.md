@@ -35,9 +35,10 @@ Pebble end-to-end Sync()                **DONE** as TestPebbleFullSyncThroughSyn
 
 - **Pebble C1ZStore adapter** — ✅ **DONE.** Adapter exposes
   Grants() / SyncMeta() / FileOps() sub-stores; FileOps methods
-  return ErrFileOpsUnsupported (CloneSync + GenerateSyncDiff are
-  separate follow-ups that need the IngestAndExcise / range-pair
-  walk machinery). pkg/sync.NewSyncer now drives Pebble
+  initially returned ErrFileOpsUnsupported (CloneSync was a
+  separate follow-up needing the IngestAndExcise / range-pair
+  walk machinery; GenerateSyncDiff has since been removed from
+  the interface entirely). pkg/sync.NewSyncer now drives Pebble
   end-to-end via WithConnectorStore — exercised by
   TestPebbleFullSyncThroughSyncer. Adapter normalizes
   pebble.ErrNotFound → sql.ErrNoRows at the boundary so
@@ -52,14 +53,14 @@ Pebble end-to-end Sync()                **DONE** as TestPebbleFullSyncThroughSyn
   TestCloneSyncRefusesExistingOutPath,
   TestCloneSyncRefusesUnfinishedSync.
 
-- **FileOps.GenerateSyncDiff** — ✅ **DONE.** Additions-only
-  set difference matching the SQLite contract: walks each
-  record type under appliedSync, looks up base by record
-  identity, writes records absent from base under the new
-  diff sync's prefix via PutXxxRecord (which handles primary
-  + secondary index updates). Tests:
-  TestGenerateSyncDiffAdditionsOnly,
-  TestGenerateSyncDiffRejectsSameSyncIDs.
+- **FileOps.GenerateSyncDiff** — ❌ **REMOVED.** An additions-only
+  set difference matching the SQLite contract shipped here
+  originally, was later replaced by an ErrDiffUnsupported stub
+  under the v3 single-sync contract, and was finally deleted
+  along with all diff-sync support (the feature was never
+  enabled in production and had no consumer). The
+  GenerateSyncDiff method no longer exists on the FileOps
+  interface for either engine.
 - **Autoresearch parallel-build / parallel-idx-sort cherry-picks**
   (99c76cd2 / de099547 / a864d686 / 3d660b9d / 8525c149 / 9b8fc472
   / 4995f17e). The simpler split-batch + skipGet + dedup pieces

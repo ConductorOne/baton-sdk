@@ -23,9 +23,8 @@ import (
 // surface returns the same data shape on both. Closes the
 // equivalence-runner gap flagged in the 2026-05-26 backend audit:
 // the existing equivalence runner only compared Pebble against an
-// in-memory map for GrantRecord, so non-grant divergences (resource
-// IfNewer semantics, trait filter, bulk lookups, streaming) slipped
-// past CI.
+// in-memory map for GrantRecord, so non-grant divergences (trait
+// filter, bulk lookups, streaming) slipped past CI.
 //
 // The contract this test enforces:
 //

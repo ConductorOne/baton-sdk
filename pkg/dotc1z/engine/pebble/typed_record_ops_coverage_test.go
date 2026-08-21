@@ -3,12 +3,11 @@ package pebble
 // Direct engine-level coverage for the typed-op paths a coverage audit
 // (2026-07-17) found exercised only cross-package or not at all:
 // the synthesized-grant puts (deferred regime, driven in production by
-// pkg/sync's expander), the trusted-import path, DeleteResourceRecord
-// (exported but currently caller-less — kept honest here until its
-// removal is decided), and the IfNewer resource branches restructured
-// in 2b. Obligations are asserted directly against the index keyspaces
-// so a regression fails HERE, not two packages away in an equivalence
-// suite.
+// pkg/sync's expander), the trusted-import path, and
+// DeleteResourceRecord (exported but currently caller-less — kept
+// honest here until its removal is decided). Obligations are asserted
+// directly against the index keyspaces so a regression fails HERE, not
+// two packages away in an equivalence suite.
 
 import (
 	"context"
@@ -346,48 +345,4 @@ func TestDeferredMarkerClearFailureKeepsAgreement(t *testing.T) {
 		return true
 	}))
 	require.Equal(t, 1, n)
-}
-
-// TestPutResourceRecordsIfNewerBranches exercises all three branches
-// of the 2b-restructured control flow: no prior (write), prior older
-// (overwrite with by_parent swap), prior newer (skip).
-func TestPutResourceRecordsIfNewerBranches(t *testing.T) {
-	ctx := context.Background()
-	a := newAdapter(t)
-	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-	e := a.PebbleEngine()
-
-	old := timestamppb.New(timestamppb.Now().AsTime().Add(-1000))
-	newer := timestamppb.Now()
-
-	mk := func(parent string, at *timestamppb.Timestamp) *v3.ResourceRecord {
-		b := v3.ResourceRecord_builder{
-			ResourceTypeId: "group",
-			ResourceId:     "r1",
-			DiscoveredAt:   at,
-		}
-		if parent != "" {
-			b.Parent = v3.ResourceRef_builder{ResourceTypeId: "org", ResourceId: parent}.Build()
-		}
-		return b.Build()
-	}
-	byParentPrefix := []byte{versionV3, typeIndex, idxResourceByParent}
-
-	// Branch 1: no prior → written, indexed under parent-A.
-	require.NoError(t, e.PutResourceRecordsIfNewer(ctx, mk("parent-A", old)))
-	require.Equal(t, 1, countKeys(t, e, byParentPrefix))
-
-	// Branch 2: strictly newer → overwritten, index swapped to parent-B.
-	require.NoError(t, e.PutResourceRecordsIfNewer(ctx, mk("parent-B", newer)))
-	require.Equal(t, 1, countKeys(t, e, byParentPrefix), "old parent edge must be cleaned, new one written")
-	got, err := e.GetResourceRecord(ctx, "group", "r1")
-	require.NoError(t, err)
-	require.Equal(t, "parent-B", got.GetParent().GetResourceId())
-
-	// Branch 3: not newer → skipped entirely (record and index untouched).
-	require.NoError(t, e.PutResourceRecordsIfNewer(ctx, mk("parent-C", old)))
-	got, err = e.GetResourceRecord(ctx, "group", "r1")
-	require.NoError(t, err)
-	require.Equal(t, "parent-B", got.GetParent().GetResourceId(), "stale write must not land")
 }

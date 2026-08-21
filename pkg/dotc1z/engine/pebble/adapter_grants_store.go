@@ -17,7 +17,7 @@ import (
 
 // Grants returns the GrantStore implementation backed by the Pebble
 // adapter. Implements c1zstore.Store.Grants(); used by the
-// expander, the c1-side fileClientWrapper, and the differ.
+// expander and the c1-side fileClientWrapper.
 //
 // needs_expansion is populated at PutGrants time: V2GrantToV3 extracts
 // the GrantExpandable annotation and sets NeedsExpansion, which keys the

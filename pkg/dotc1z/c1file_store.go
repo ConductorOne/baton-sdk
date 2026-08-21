@@ -299,7 +299,7 @@ func (s c1FileSyncMeta) LatestFullSync(ctx context.Context) (*c1zstore.SyncRun, 
 }
 
 // LatestFinishedSyncOfAnyType implements SyncMeta. Returns the most-recent
-// finished sync of any type (including diff types), or nil if none.
+// finished sync of any type, or nil if none.
 func (s c1FileSyncMeta) LatestFinishedSyncOfAnyType(ctx context.Context) (*c1zstore.SyncRun, error) {
 	run, err := s.c.getFinishedSync(ctx, 0, connectorstore.SyncTypeAny)
 	if err != nil {
@@ -352,11 +352,6 @@ func (f c1FileFileOps) CopyIsolateSync(ctx context.Context, outPath string, sync
 		c1fOpts = append(c1fOpts, WithC1FTmpDir(cloneOpts.TmpDir))
 	}
 	return f.c.CopyIsolateSync(ctx, outPath, syncID, c1fOpts...)
-}
-
-// GenerateSyncDiff implements FileOps. Direct passthrough.
-func (f c1FileFileOps) GenerateSyncDiff(ctx context.Context, baseSyncID, appliedSyncID string) (string, error) {
-	return f.c.GenerateSyncDiff(ctx, baseSyncID, appliedSyncID)
 }
 
 type c1FileSessionStore struct{ c *C1File }

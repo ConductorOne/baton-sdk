@@ -349,14 +349,6 @@ func MakeMainCommand[T field.Configurable](
 				opts = append(opts,
 					connectorrunner.WithTicketingEnabled(),
 					connectorrunner.WithGetTicket(v.GetString("ticket-id")))
-			case v.GetBool("diff-syncs"):
-				opts = append(opts,
-					connectorrunner.WithDiffSyncs(
-						v.GetString("file"),
-						v.GetString("base-sync-id"),
-						v.GetString("applied-sync-id"),
-					),
-				)
 			case v.GetBool("compact-syncs"):
 				opts = append(opts,
 					connectorrunner.WithSyncCompactor(

@@ -40,12 +40,10 @@ const (
 type SyncType int32
 
 const (
-	SyncType_SYNC_TYPE_UNSPECIFIED       SyncType = 0
-	SyncType_SYNC_TYPE_FULL              SyncType = 1
-	SyncType_SYNC_TYPE_PARTIAL           SyncType = 2
-	SyncType_SYNC_TYPE_RESOURCES_ONLY    SyncType = 3
-	SyncType_SYNC_TYPE_PARTIAL_UPSERTS   SyncType = 4
-	SyncType_SYNC_TYPE_PARTIAL_DELETIONS SyncType = 5
+	SyncType_SYNC_TYPE_UNSPECIFIED    SyncType = 0
+	SyncType_SYNC_TYPE_FULL           SyncType = 1
+	SyncType_SYNC_TYPE_PARTIAL        SyncType = 2
+	SyncType_SYNC_TYPE_RESOURCES_ONLY SyncType = 3
 )
 
 // Enum value maps for SyncType.
@@ -55,16 +53,12 @@ var (
 		1: "SYNC_TYPE_FULL",
 		2: "SYNC_TYPE_PARTIAL",
 		3: "SYNC_TYPE_RESOURCES_ONLY",
-		4: "SYNC_TYPE_PARTIAL_UPSERTS",
-		5: "SYNC_TYPE_PARTIAL_DELETIONS",
 	}
 	SyncType_value = map[string]int32{
-		"SYNC_TYPE_UNSPECIFIED":       0,
-		"SYNC_TYPE_FULL":              1,
-		"SYNC_TYPE_PARTIAL":           2,
-		"SYNC_TYPE_RESOURCES_ONLY":    3,
-		"SYNC_TYPE_PARTIAL_UPSERTS":   4,
-		"SYNC_TYPE_PARTIAL_DELETIONS": 5,
+		"SYNC_TYPE_UNSPECIFIED":    0,
+		"SYNC_TYPE_FULL":           1,
+		"SYNC_TYPE_PARTIAL":        2,
+		"SYNC_TYPE_RESOURCES_ONLY": 3,
 	}
 )
 
@@ -1471,8 +1465,11 @@ type SyncRunRecord struct {
 	StartedAt    *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
 	EndedAt      *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
 	SyncToken    string                 `protobuf:"bytes,6,opt,name=sync_token,json=syncToken,proto3" json:"sync_token,omitempty"`
-	SupportsDiff bool                   `protobuf:"varint,7,opt,name=supports_diff,json=supportsDiff,proto3" json:"supports_diff,omitempty"`
-	LinkedSyncId string                 `protobuf:"bytes,8,opt,name=linked_sync_id,json=linkedSyncId,proto3" json:"linked_sync_id,omitempty"`
+	// supports_diff marks a sync whose data collection completed with
+	// SQL-layer grant metadata populated. The name is historical (it once
+	// gated diff-sync generation, since removed); today it gates
+	// `baton rollback-expansion`.
+	SupportsDiff bool `protobuf:"varint,7,opt,name=supports_diff,json=supportsDiff,proto3" json:"supports_diff,omitempty"`
 	// compacted marks a sync produced by compaction (fold or rebuild)
 	// rather than by a real connector run. Compacted artifacts are
 	// keep-newer UPSERT merges — base rows a newer input deleted survive —
@@ -1577,13 +1574,6 @@ func (x *SyncRunRecord) GetSupportsDiff() bool {
 	return false
 }
 
-func (x *SyncRunRecord) GetLinkedSyncId() string {
-	if x != nil {
-		return x.LinkedSyncId
-	}
-	return ""
-}
-
 func (x *SyncRunRecord) GetCompacted() bool {
 	if x != nil {
 		return x.Compacted
@@ -1640,10 +1630,6 @@ func (x *SyncRunRecord) SetSupportsDiff(v bool) {
 	x.SupportsDiff = v
 }
 
-func (x *SyncRunRecord) SetLinkedSyncId(v string) {
-	x.LinkedSyncId = v
-}
-
 func (x *SyncRunRecord) SetCompacted(v bool) {
 	x.Compacted = v
 }
@@ -1691,8 +1677,11 @@ type SyncRunRecord_builder struct {
 	StartedAt    *timestamppb.Timestamp
 	EndedAt      *timestamppb.Timestamp
 	SyncToken    string
+	// supports_diff marks a sync whose data collection completed with
+	// SQL-layer grant metadata populated. The name is historical (it once
+	// gated diff-sync generation, since removed); today it gates
+	// `baton rollback-expansion`.
 	SupportsDiff bool
-	LinkedSyncId string
 	// compacted marks a sync produced by compaction (fold or rebuild)
 	// rather than by a real connector run. Compacted artifacts are
 	// keep-newer UPSERT merges — base rows a newer input deleted survive —
@@ -1732,7 +1721,6 @@ func (b0 SyncRunRecord_builder) Build() *SyncRunRecord {
 	x.EndedAt = b.EndedAt
 	x.SyncToken = b.SyncToken
 	x.SupportsDiff = b.SupportsDiff
-	x.LinkedSyncId = b.LinkedSyncId
 	x.Compacted = b.Compacted
 	x.IngestInvariantGeneration = b.IngestInvariantGeneration
 	x.IngestInvariantCoverage = b.IngestInvariantCoverage
@@ -2835,7 +2823,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\fcontent_type\x18\x03 \x01(\tR\vcontentType\x12\x12\n" +
 	"\x04data\x18\x04 \x01(\fR\x04data\x12?\n" +
 	"\rdiscovered_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt:\"\x82\xf9+\x1e\n" +
-	"\x06assets\x12\async_id\x12\vexternal_id\"\xbf\x04\n" +
+	"\x06assets\x12\async_id\x12\vexternal_id\"\xaf\x04\n" +
 	"\rSyncRunRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12+\n" +
 	"\x04type\x18\x02 \x01(\x0e2\x17.c1.storage.v3.SyncTypeR\x04type\x12$\n" +
@@ -2845,14 +2833,13 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\bended_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\aendedAt\x12\x1d\n" +
 	"\n" +
 	"sync_token\x18\x06 \x01(\tR\tsyncToken\x12#\n" +
-	"\rsupports_diff\x18\a \x01(\bR\fsupportsDiff\x12$\n" +
-	"\x0elinked_sync_id\x18\b \x01(\tR\flinkedSyncId\x12\x1c\n" +
+	"\rsupports_diff\x18\a \x01(\bR\fsupportsDiff\x12\x1c\n" +
 	"\tcompacted\x18\t \x01(\bR\tcompacted\x12>\n" +
 	"\x1bingest_invariant_generation\x18\n" +
 	" \x01(\tR\x19ingestInvariantGeneration\x12:\n" +
 	"\x19ingest_invariant_coverage\x18\v \x03(\tR\x17ingestInvariantCoverage\x122\n" +
 	"\x15ingest_invariant_mode\x18\f \x01(\tR\x13ingestInvariantMode:\x18\x82\xf9+\x14\n" +
-	"\tsync_runs\x12\async_id\"\xfe\v\n" +
+	"\tsync_runs\x12\async_idJ\x04\b\b\x10\tR\x0elinked_sync_id\"\xfe\v\n" +
 	"\x0fSyncStatsRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12%\n" +
 	"\x0eresource_types\x18\x02 \x01(\x03R\rresourceTypes\x12\x1c\n" +
@@ -2924,14 +2911,12 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x1cconnector_config_fingerprint\x18\x03 \x01(\tR\x1aconnectorConfigFingerprint\x12D\n" +
 	"\x1esdk_materialization_generation\x18\x04 \x01(\tR\x1csdkMaterializationGeneration\x12<\n" +
 	"\x1async_selection_fingerprint\x18\x05 \x01(\tR\x18syncSelectionFingerprint:\x1d\x82\xf9+\x19\n" +
-	"\x13source_cache_compat\x12\x02id*\xae\x01\n" +
+	"\x13source_cache_compat\x12\x02id*\xb2\x01\n" +
 	"\bSyncType\x12\x19\n" +
 	"\x15SYNC_TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSYNC_TYPE_FULL\x10\x01\x12\x15\n" +
 	"\x11SYNC_TYPE_PARTIAL\x10\x02\x12\x1c\n" +
-	"\x18SYNC_TYPE_RESOURCES_ONLY\x10\x03\x12\x1d\n" +
-	"\x19SYNC_TYPE_PARTIAL_UPSERTS\x10\x04\x12\x1f\n" +
-	"\x1bSYNC_TYPE_PARTIAL_DELETIONS\x10\x05B4Z2github.com/conductorone/baton-sdk/pb/c1/storage/v3b\x06proto3"
+	"\x18SYNC_TYPE_RESOURCES_ONLY\x10\x03\"\x04\b\x04\x10\x04\"\x04\b\x05\x10\x05*\x19SYNC_TYPE_PARTIAL_UPSERTS*\x1bSYNC_TYPE_PARTIAL_DELETIONSB4Z2github.com/conductorone/baton-sdk/pb/c1/storage/v3b\x06proto3"
 
 var file_c1_storage_v3_records_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 22)

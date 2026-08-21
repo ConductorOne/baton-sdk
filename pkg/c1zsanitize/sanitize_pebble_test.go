@@ -27,7 +27,7 @@ func TestSanitizePebbleEndToEnd(t *testing.T) {
 	var srcSyncID string
 	func() {
 		src := newEngineStore(t, ctx, srcPath, c1zstore.EnginePebble)
-		// Reuse the shared fixture, then mark the sync diff-capable.
+		// Reuse the shared fixture, then stamp the supports_diff marker.
 		buildParityFixture(t, ctx, src)
 		runs, _, err := src.(syncRunMetadataReader).ListSyncRuns(ctx, "", 100)
 		require.NoError(t, err)

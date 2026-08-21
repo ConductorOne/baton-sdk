@@ -8,9 +8,7 @@ import (
 
 // FileOps returns the FileOps sub-store backed by the Pebble
 // adapter. Implements c1zstore.Store.FileOps(). CloneSync materializes
-// the single sync's data into a fresh c1z (used by `baton clone`);
-// GenerateSyncDiff is unsupported (single-sync contract — see
-// ErrDiffUnsupported).
+// the single sync's data into a fresh c1z (used by `baton clone`).
 func (e *Engine) FileOps() c1zstore.FileOps {
 	return pebbleFileOps{e: e, encoding: c1zstore.PayloadEncodingTarZstd}
 }
@@ -44,11 +42,4 @@ func (f pebbleFileOps) CloneSync(ctx context.Context, outPath string, syncID str
 // cost to avoid.
 func (f pebbleFileOps) CopyIsolateSync(ctx context.Context, outPath string, syncID string, opts ...c1zstore.CloneSyncOption) error {
 	return cloneSync(ctx, f.e, f.encoding, outPath, syncID, opts...)
-}
-
-// GenerateSyncDiff is unsupported on the Pebble v3 engine — a c1z
-// holds exactly one sync by contract, so base + applied syncs can't be
-// co-resident in one file. Always returns ErrDiffUnsupported.
-func (f pebbleFileOps) GenerateSyncDiff(ctx context.Context, baseSyncID, appliedSyncID string) (string, error) {
-	return generateSyncDiff(ctx, f.e, baseSyncID, appliedSyncID)
 }

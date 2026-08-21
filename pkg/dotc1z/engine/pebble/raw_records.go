@@ -2,113 +2,11 @@ package pebble
 
 import (
 	"fmt"
-	"math"
-	"time"
 
 	"google.golang.org/protobuf/encoding/protowire"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
-
-const (
-	resourceTypeDiscoveredAtField protowire.Number = 6
-	resourceDiscoveredAtField     protowire.Number = 8
-	entitlementDiscoveredAtField  protowire.Number = 8
-	grantDiscoveredAtField        protowire.Number = 5
-)
-
-func discoveredAtIsNewerThanRaw(incoming *timestamppb.Timestamp, existingValue []byte, field protowire.Number) (bool, error) {
-	if incoming == nil {
-		return false, nil
-	}
-	existing, ok, err := rawDiscoveredAtNanos(existingValue, field)
-	if err != nil {
-		return false, err
-	}
-	if !ok {
-		return true, nil
-	}
-	return incoming.AsTime().UnixNano() > existing, nil
-}
-
-func rawDiscoveredAtNanos(value []byte, field protowire.Number) (int64, bool, error) {
-	for len(value) > 0 {
-		num, typ, n := protowire.ConsumeTag(value)
-		if n < 0 {
-			return 0, false, protowire.ParseError(n)
-		}
-		value = value[n:]
-		if num != field {
-			n = protowire.ConsumeFieldValue(num, typ, value)
-			if n < 0 {
-				return 0, false, protowire.ParseError(n)
-			}
-			value = value[n:]
-			continue
-		}
-		if typ != protowire.BytesType {
-			return 0, false, fmt.Errorf("raw record: discovered_at has wire type %v", typ)
-		}
-		ts, n := protowire.ConsumeBytes(value)
-		if n < 0 {
-			return 0, false, protowire.ParseError(n)
-		}
-		nanos, err := rawTimestampNanos(ts)
-		return nanos, true, err
-	}
-	return 0, false, nil
-}
-
-func rawTimestampNanos(value []byte) (int64, error) {
-	var seconds int64
-	var nanos int32
-	for len(value) > 0 {
-		num, typ, n := protowire.ConsumeTag(value)
-		if n < 0 {
-			return 0, protowire.ParseError(n)
-		}
-		value = value[n:]
-		switch num {
-		case 1:
-			if typ != protowire.VarintType {
-				return 0, fmt.Errorf("raw record: timestamp seconds has wire type %v", typ)
-			}
-			v, n := protowire.ConsumeVarint(value)
-			if n < 0 {
-				return 0, protowire.ParseError(n)
-			}
-			if v > math.MaxInt64 {
-				return 0, fmt.Errorf("raw record: timestamp seconds exceeds int64: %d", v)
-			}
-			seconds = int64(v)
-			value = value[n:]
-		case 2:
-			if typ != protowire.VarintType {
-				return 0, fmt.Errorf("raw record: timestamp nanos has wire type %v", typ)
-			}
-			v, n := protowire.ConsumeVarint(value)
-			if n < 0 {
-				return 0, protowire.ParseError(n)
-			}
-			if v > math.MaxInt32 {
-				return 0, fmt.Errorf("raw record: timestamp nanos exceeds int32: %d", v)
-			}
-			nanos = int32(v)
-			value = value[n:]
-		default:
-			n = protowire.ConsumeFieldValue(num, typ, value)
-			if n < 0 {
-				return 0, protowire.ParseError(n)
-			}
-			value = value[n:]
-		}
-	}
-	if seconds > math.MaxInt64/int64(time.Second) {
-		return 0, fmt.Errorf("raw record: timestamp seconds overflow: %d", seconds)
-	}
-	return seconds*int64(time.Second) + int64(nanos), nil
-}
 
 // NOTE (2b): deleteResourceIndexesRaw / deleteGrantIndexesRaw are GONE.
 // Prior-row index cleanup is an obligation of rawdb's typed record ops
