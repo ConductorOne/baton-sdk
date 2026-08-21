@@ -2,9 +2,8 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"os"
 
+	"github.com/conductorone/baton-sdk/pkg/exit"
 	"github.com/spf13/cobra"
 )
 
@@ -42,7 +41,6 @@ func main() {
 
 	err := cliCmd.ExecuteContext(ctx)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
+		exit.LogExit(err)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/cli"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
+	"github.com/conductorone/baton-sdk/pkg/exit"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -60,8 +61,7 @@ func RunConnector[T field.Configurable](
 
 	_, cmd, err := DefineConfigurationV2(ctx, connectorName, f, schema, options...)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
+		exit.LogExit(err)
 		return
 	}
 
@@ -69,8 +69,7 @@ func RunConnector[T field.Configurable](
 
 	err = cmd.Execute()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
+		exit.LogExit(err)
 	}
 }
 
