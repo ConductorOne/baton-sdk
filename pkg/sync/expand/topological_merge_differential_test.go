@@ -16,6 +16,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/stretchr/testify/require"
+
+	"github.com/conductorone/baton-sdk/internal/testtier"
 )
 
 // ----------------------------------------------------------------------------
@@ -42,6 +44,7 @@ import (
 // generated cases through real SQLite/Pebble c1z files for the storage- and
 // reader-path coverage the mock can't provide.
 func TestTopologicalMergeDifferentialRandom(t *testing.T) {
+	testtier.RequireExtra(t)
 	start, count := fuzzSeedRange(60, 300)
 	for seed := start; seed < start+count; seed++ {
 		seed := seed
@@ -66,6 +69,7 @@ func TestTopologicalMergeDifferentialRandom(t *testing.T) {
 // it runs a much smaller seed range. The mock sweep remains the wide net; this
 // one is the depth check on the production storage path.
 func TestTopologicalMergeDifferentialRandomStore(t *testing.T) {
+	testtier.RequireExtra(t)
 	// ~1.3s/seed (a fresh c1z per algorithm per seed), so keep this modest: the
 	// mock sweep is the wide net, this is the storage-path depth check.
 	// Store-backed seeds cost ~10s each (a pebble + sqlite store per

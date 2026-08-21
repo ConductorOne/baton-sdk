@@ -9,13 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/conductorone/baton-sdk/internal/chaosconnector"
+	"github.com/conductorone/baton-sdk/internal/testtier"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 func TestChaosConnectorReferentialCorpus(t *testing.T) {
-	skipChaosInShort(t)
+	testtier.RequireNightly(t)
 	for _, corpusCase := range chaosconnector.ReferentialCorpus() {
 		t.Run(corpusCase.Name, func(t *testing.T) {
 			for _, transport := range []chaosTransport{chaosTransportDirect, chaosTransportGRPC} {

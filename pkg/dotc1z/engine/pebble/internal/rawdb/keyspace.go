@@ -34,7 +34,11 @@ const (
 	TypeCounter      byte = 0x08
 	TypeSession      byte = 0x09
 	TypeDigest       byte = 0x0A
-	TypeEngineMeta   byte = 0xFF
+	// TypeSourceCache stores the per-scope replay manifest. It follows
+	// TypeDigest because 0x0A was assigned to digests before source-cache
+	// replay was extracted onto the current keyspace.
+	TypeSourceCache byte = 0x0B
+	TypeEngineMeta  byte = 0xFF
 )
 
 // Index-discriminator bytes (second byte after TypeIndex). One byte
@@ -57,6 +61,9 @@ const (
 	// pass, never maintained inline. See the engine's digest.go and
 	// grant_digest.go.
 	IdxGrantByEntitlementPrincipalHash byte = 0x08
+	IdxGrantBySourceScope              byte = 0x09
+	IdxEntitlementBySourceScope        byte = 0x0A
+	IdxResourceBySourceScope           byte = 0x0B
 )
 
 // GrantPrimaryKeyPrefixLen is the byte length of the grant primary-key
@@ -167,6 +174,66 @@ func AppendGrantByNeedsExpansionKeyFromPrimary(dst, primaryKey []byte) ([]byte, 
 	return append(dst, primaryKey[2:]...), true
 }
 
+// AppendBySourceScopeKeyFromPrimary builds a by_source_scope index key
+// from a primary record key. The primary tail is copied byte-for-byte, so
+// replay can reconstruct the primary key without decoding the record.
+func AppendBySourceScopeKeyFromPrimary(dst, primaryKey []byte, scopeKey string) ([]byte, bool) {
+	if scopeKey == "" || len(primaryKey) < 3 || primaryKey[0] != VersionV3 || primaryKey[2] != 0 {
+		return dst, false
+	}
+	var indexID byte
+	switch primaryKey[1] {
+	case TypeGrant:
+		if _, ok := SplitGrantPrimaryKey(primaryKey); !ok {
+			return dst, false
+		}
+		indexID = IdxGrantBySourceScope
+	case TypeEntitlement:
+		indexID = IdxEntitlementBySourceScope
+	case TypeResource:
+		indexID = IdxResourceBySourceScope
+	default:
+		return dst, false
+	}
+	dst = append(dst, VersionV3, TypeIndex, indexID)
+	dst = codec.AppendTupleSeparator(dst)
+	dst = codec.AppendTupleStrings(dst, scopeKey)
+	dst = codec.AppendTupleSeparator(dst)
+	return append(dst, primaryKey[3:]...), true
+}
+
+// SourceScopeIndexPrefix bounds all rows of one record kind stamped with
+// scopeKey.
+func SourceScopeIndexPrefix(recordType byte, scopeKey string) ([]byte, bool) {
+	var indexID byte
+	switch recordType {
+	case TypeGrant:
+		indexID = IdxGrantBySourceScope
+	case TypeEntitlement:
+		indexID = IdxEntitlementBySourceScope
+	case TypeResource:
+		indexID = IdxResourceBySourceScope
+	default:
+		return nil, false
+	}
+	buf := []byte{VersionV3, TypeIndex, indexID}
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, scopeKey)
+	return codec.AppendTupleSeparator(buf), true
+}
+
+// SourceCacheEntryKey addresses one manifest row.
+func SourceCacheEntryKey(rowKind, scopeKey string) []byte {
+	buf := []byte{VersionV3, TypeSourceCache}
+	buf = codec.AppendTupleSeparator(buf)
+	return codec.AppendTupleStrings(buf, rowKind, scopeKey)
+}
+
+func SourceCacheEntryBounds() ([]byte, []byte) {
+	lo := []byte{VersionV3, TypeSourceCache}
+	return lo, UpperBound(lo)
+}
+
 // === resource index key + value scanners ===
 
 // EncodeResourceByParentIndexKey: index of children-by-parent:
@@ -216,6 +283,38 @@ func ScanResourceParentRaw(value []byte) (string, string, error) {
 		value = value[n:]
 	}
 	return rt, id, nil
+}
+
+// ScanSourceScopeKeyRaw extracts the string source_scope_key field from a
+// marshaled record. Last occurrence wins, matching protobuf semantics for
+// scalar fields.
+func ScanSourceScopeKeyRaw(value []byte, field protowire.Number) (string, error) {
+	var scopeKey string
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return "", protowire.ParseError(n)
+		}
+		value = value[n:]
+		if num != field {
+			n = protowire.ConsumeFieldValue(num, typ, value)
+			if n < 0 {
+				return "", protowire.ParseError(n)
+			}
+			value = value[n:]
+			continue
+		}
+		if typ != protowire.BytesType {
+			return "", fmt.Errorf("raw record: source_scope_key field %d has wire type %v", field, typ)
+		}
+		raw, n := protowire.ConsumeBytes(value)
+		if n < 0 {
+			return "", protowire.ParseError(n)
+		}
+		scopeKey = string(raw)
+		value = value[n:]
+	}
+	return scopeKey, nil
 }
 
 // ScanResourceRefRaw extracts (resource_type_id, resource_id) from a

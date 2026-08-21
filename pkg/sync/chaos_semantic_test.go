@@ -10,12 +10,13 @@ import (
 
 	"github.com/conductorone/baton-sdk/internal/chaosconnector"
 	chaosoracle "github.com/conductorone/baton-sdk/internal/chaosconnector/oracle"
+	"github.com/conductorone/baton-sdk/internal/testtier"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 func TestChaosConnectorSemanticCorpus(t *testing.T) {
-	skipChaosInShort(t)
+	testtier.RequireNightly(t)
 	for _, corpusCase := range chaosconnector.SemanticCorpus() {
 		t.Run(corpusCase.Name, func(t *testing.T) {
 			for _, transport := range []chaosTransport{chaosTransportDirect, chaosTransportGRPC} {
@@ -28,7 +29,7 @@ func TestChaosConnectorSemanticCorpus(t *testing.T) {
 }
 
 func TestChaosConnectorRetryDriftCorpus(t *testing.T) {
-	skipChaosInShort(t)
+	testtier.RequireNightly(t)
 	for _, corpusCase := range chaosconnector.TemporalCorpus() {
 		t.Run(corpusCase.Name, func(t *testing.T) {
 			runTemporalCorpusCase(t, corpusCase)
@@ -37,7 +38,7 @@ func TestChaosConnectorRetryDriftCorpus(t *testing.T) {
 }
 
 func TestChaosConnectorConcurrentDuplicateCompletionOrder(t *testing.T) {
-	skipChaosInShort(t)
+	testtier.RequireNightly(t)
 	for _, corpusCase := range chaosconnector.ConcurrentDuplicateCorpus() {
 		t.Run(corpusCase.Name, func(t *testing.T) {
 			runConcurrentDuplicateCase(t, corpusCase)
@@ -46,7 +47,7 @@ func TestChaosConnectorConcurrentDuplicateCompletionOrder(t *testing.T) {
 }
 
 func TestChaosConnectorConcurrentDuplicateResumeOrder(t *testing.T) {
-	skipChaosInShort(t)
+	testtier.RequireNightly(t)
 	for _, corpusCase := range chaosconnector.ConcurrentDuplicateCorpus() {
 		t.Run(corpusCase.Name, func(t *testing.T) {
 			runConcurrentDuplicateResumeCase(t, corpusCase)

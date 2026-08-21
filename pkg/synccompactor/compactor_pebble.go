@@ -436,6 +436,17 @@ func selectSourceSyncFromManifest(path string) (manifestSourceSelection, bool) {
 	return sel, true
 }
 
+// joinSourceStoreCloseError keeps source-store Close errors as hard ownership
+// failures even after the source has been fully consumed. Downgrading them
+// would report success while hiding leaked Pebble resources or failed
+// temporary-artifact cleanup.
+func joinSourceStoreCloseError(retErr, closeErr error, sourcePath string) error {
+	if closeErr == nil {
+		return retErr
+	}
+	return errors.Join(retErr, fmt.Errorf("close source store %s: %w", sourcePath, closeErr))
+}
+
 // compactPebbleFold is the in-place fold strategy (auto-selected for
 // large-base + small-partial inputs, or forced via
 // BATON_EXPERIMENTAL_PEBBLE_COMPACTOR=fold): the dest store is a copy
@@ -528,18 +539,18 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 		}
 		srcEng, ok := enginepkg.AsEngine(w)
 		if !ok {
-			_ = w.Close(ctx)
-			return "", fmt.Errorf("compactPebbleFold: input %s is not a pebble c1z", sourcePath)
+			err := fmt.Errorf("compactPebbleFold: input %s is not a pebble c1z", sourcePath)
+			return "", joinSourceStoreCloseError(err, w.Close(ctx), sourcePath)
 		}
 		if srcSyncID == "" {
 			rec, err := srcEng.LatestFinishedSyncRecord(ctx, compactableV3SyncType)
 			if err != nil {
-				_ = w.Close(ctx)
-				return "", fmt.Errorf("compactPebbleFold: input %s: select compactable sync: %w", sourcePath, err)
+				err = fmt.Errorf("compactPebbleFold: input %s: select compactable sync: %w", sourcePath, err)
+				return "", joinSourceStoreCloseError(err, w.Close(ctx), sourcePath)
 			}
 			if rec == nil {
-				_ = w.Close(ctx)
-				return "", fmt.Errorf("compactPebbleFold: input %s has no finished compactable sync", sourcePath)
+				err := fmt.Errorf("compactPebbleFold: input %s has no finished compactable sync", sourcePath)
+				return "", joinSourceStoreCloseError(err, w.Close(ctx), sourcePath)
 			}
 			srcSyncID = rec.GetSyncId()
 			unionType = unionV3SyncType(unionType, rec.GetType())
@@ -552,12 +563,36 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 
 		mergeStats, mergeErr := mergepkg.MergeInto(ctx, destEng, []mergepkg.SourceSync{{Engine: srcEng, SyncID: srcSyncID}}, baseSyncID)
 		foldStats.Add(mergeStats)
-		if cerr := w.Close(ctx); cerr != nil {
-			l.Error("compactPebbleFold: error closing source store", zap.Error(cerr), zap.String("file", sourcePath))
+		closeErr := w.Close(ctx)
+		if closeErr != nil {
+			l.Error("compactPebbleFold: error closing source store", zap.Error(closeErr), zap.String("file", sourcePath))
 		}
 		if mergeErr != nil {
-			return "", fmt.Errorf("compactPebbleFold: merge %s: %w", sourcePath, mergeErr)
+			mergeErr = fmt.Errorf("compactPebbleFold: merge %s: %w", sourcePath, mergeErr)
 		}
+		if err := joinSourceStoreCloseError(mergeErr, closeErr, sourcePath); err != nil {
+			return "", err
+		}
+	}
+
+	// A fold inherits its base's validators, but the merged winners no longer
+	// represent that connector snapshot. Drop only the small manifest keyspace;
+	// retaining the existing source-scope indexes avoids an O(base) rewrite.
+	//
+	// DEPENDS ON THE OUTPUT BEING REPLAY-INELIGIBLE. The fold merge writes
+	// winner primaries through allBuckets(), which maintains by_parent and the
+	// grant index families but not by_source_scope. Keeping the base's
+	// source-scope entries therefore leaves them describing pre-fold state:
+	// an entry can point at a primary this fold just overwrote with a
+	// different (or absent) stamp, which is exactly the primary↔index
+	// biconditional that stageSourceScopeCleanup and validateReplaySourceScope
+	// assume. That is safe only because baseRec.SetCompacted(true) below marks
+	// the artifact compacted and validateReplaySourceEligible refuses compacted
+	// sources. If fold output is ever made eligible, this must become
+	// dropScopeIndexes=true (or the scope families must join the fold buckets)
+	// or replay will copy wrong rows silently.
+	if err := destEng.InvalidateSourceCacheReplayState(ctx, false); err != nil {
+		return "", fmt.Errorf("compactPebbleFold: invalidate source-cache replay state: %w", err)
 	}
 
 	// Record the bytes this fold shadowed in the base keyspace. The
@@ -681,6 +716,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	baseRec.SetSyncId(newSyncID)
 	baseRec.SetParentSyncId("")
 	baseRec.SetType(unionType)
+	baseRec.SetCompacted(true)
 	// The fold mutated the inherited base keyspace. Never publish the base
 	// artifact's pre-fold verification as proof of the merged output; a later
 	// expansion/invariant pass will write a fresh marker when one runs.
@@ -1125,18 +1161,12 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 			continue
 		}
 
-		source, syncType, endedAt, err := func() (mergepkg.SourceFile, v3.SyncType, time.Time, error) {
+		w, err := dotc1z.NewStore(ctx, sourcePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir), dotc1z.WithDecoderPool(c.decoderPool))
+		if err != nil {
+			return fmt.Errorf("compactPebble: open input %s: %w", sourcePath, err)
+		}
+		source, syncType, endedAt, selectErr := func() (mergepkg.SourceFile, v3.SyncType, time.Time, error) {
 			var zeroSource mergepkg.SourceFile
-			w, err := dotc1z.NewStore(ctx, sourcePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir), dotc1z.WithDecoderPool(c.decoderPool))
-			if err != nil {
-				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: open input %s: %w", sourcePath, err)
-			}
-			defer func() {
-				if cerr := w.Close(ctx); cerr != nil {
-					l.Error("compactPebble: error closing source store", zap.Error(cerr), zap.String("file", sourcePath))
-				}
-			}()
-
 			srcEng, ok := enginepkg.AsEngine(w)
 			if !ok {
 				return zeroSource, v3.SyncType_SYNC_TYPE_UNSPECIFIED, time.Time{}, fmt.Errorf("compactPebble: input %s is not a pebble c1z", sourcePath)
@@ -1171,7 +1201,11 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 			}
 			return source, rec.GetType(), endedAt, nil
 		}()
-		if err != nil {
+		closeErr := w.Close(ctx)
+		if closeErr != nil {
+			l.Error("compactPebble: error closing source store", zap.Error(closeErr), zap.String("file", sourcePath))
+		}
+		if err := joinSourceStoreCloseError(selectErr, closeErr, sourcePath); err != nil {
 			return err
 		}
 
@@ -1228,6 +1262,13 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 		return fmt.Errorf("compactPebble: merge: %w", err)
 	}
 
+	// K-way and overlay materialize into a fresh store. They must not publish
+	// either inherited validators or source-scope indexes for their merged
+	// winners; range tombstones keep this independent of output row count.
+	if err := destEng.InvalidateSourceCacheReplayState(ctx, true); err != nil {
+		return fmt.Errorf("compactPebble: invalidate source-cache replay state: %w", err)
+	}
+
 	if err := rebuildCompactedGrantDigests(ctx, destEng); err != nil {
 		return fmt.Errorf("compactPebble: %w", err)
 	}
@@ -1240,6 +1281,7 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 		return fmt.Errorf("compactPebble: load dest sync_run: %w", err)
 	}
 	rec.SetType(unionType)
+	rec.SetCompacted(true)
 	if !maxEnded.IsZero() {
 		rec.SetEndedAt(timestamppb.New(maxEnded))
 	}

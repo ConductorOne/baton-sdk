@@ -11,6 +11,7 @@ import (
 	"github.com/doug-martin/goqu/v9"
 	"github.com/stretchr/testify/require"
 
+	"github.com/conductorone/baton-sdk/internal/testtier"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
@@ -36,6 +37,7 @@ import (
 //
 //	go test -run TestGrantStatsGroupByParity -v ./pkg/dotc1z/...
 func TestGrantStatsGroupByParity(t *testing.T) {
+	testtier.RequireExtra(t)
 	if testing.Short() {
 		// Perf-parity measurement over 100k-300k sqlite rows (~2min on a
 		// fast machine, far worse on Windows CI). The correctness it pins

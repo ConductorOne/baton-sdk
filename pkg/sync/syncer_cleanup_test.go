@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/conductorone/baton-sdk/internal/testtier"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
@@ -18,6 +19,7 @@ import (
 )
 
 func TestCleanupContextDeadlineExceeded(t *testing.T) {
+	testtier.RequireExtra(t)
 	ctx := t.Context()
 	tmpDir := t.TempDir()
 
