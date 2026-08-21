@@ -45,6 +45,10 @@ message UserTrait {
     ACCOUNT_TYPE_HUMAN = 1;
     ACCOUNT_TYPE_SERVICE = 2;
     ACCOUNT_TYPE_SYSTEM = 3;
+    // An invitation to join the app that has not been accepted yet. The
+    // account exists in the source system and can hold grants, but no person
+    // or service is behind it until the invite is accepted.
+    ACCOUNT_TYPE_INVITATION = 4;
   }
   AccountType account_type = 5 [(validate.rules).enum = {defined_only: true}];
 
