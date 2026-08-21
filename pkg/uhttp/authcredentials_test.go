@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -203,6 +205,172 @@ func TestHelpers_OAuth2_JWT_GetClient(t *testing.T) {
 		}
 		require.True(t, hitServer)
 	}
+}
+
+// jwtBearerServer stands up a token endpoint that records every assertion it
+// receives and hands back a token with the given expires_in. It returns the
+// server and a pointer to the slice of received assertions.
+func jwtBearerServer(t *testing.T, expiresIn int) (*httptest.Server, *[]string) {
+	t.Helper()
+	assertions := make([]string, 0)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "POST", r.Method)
+		require.Equal(t, "urn:ietf:params:oauth:grant-type:jwt-bearer", r.FormValue("grant_type"))
+		assertions = append(assertions, r.FormValue("assertion"))
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"access_token": "test-access-token", "token_type": "bearer", "expires_in": %d}`, expiresIn)))
+	}))
+	return server, &assertions
+}
+
+// jtiFromAssertion decodes the (unverified) JWT payload of a jwt-bearer
+// assertion and returns its "jti" claim, or "" if absent.
+func jtiFromAssertion(t *testing.T, assertion string) string {
+	t.Helper()
+	parts := strings.Split(assertion, ".")
+	require.Len(t, parts, 3, "assertion should be a JWT of form header.payload.signature")
+
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	require.NoError(t, err)
+
+	var claims map[string]interface{}
+	require.NoError(t, json.Unmarshal(payload, &claims))
+
+	jti, _ := claims["jti"].(string)
+	return jti
+}
+
+// makeRequest drives one HTTP request through the client so the underlying
+// token source is exercised. The request itself targets a non-routable host —
+// the token acquisition (which hits the httptest token endpoint) is what we
+// care about, so any error on the final GET is intentionally ignored.
+func makeRequest(t *testing.T, ctx context.Context, client *http.Client) {
+	t.Helper()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://test-url", nil)
+	res, _ := client.Do(req)
+	if res != nil {
+		defer res.Body.Close()
+	}
+}
+
+// TestHelpers_OAuth2_JWT_ReinvokesCreateJWTConfig proves that when the reused
+// token expires, CreateJWTConfig is invoked again on the next fetch rather than
+// baking a single config in for the client's lifetime.
+func TestHelpers_OAuth2_JWT_ReinvokesCreateJWTConfig(t *testing.T) {
+	ctx := context.Background()
+
+	// expires_in below the oauth2 expiry delta so every fetch sees the cached
+	// token as already expired and refetches.
+	server, assertions := jwtBearerServer(t, 1)
+	defer server.Close()
+
+	callCount := 0
+	o := &OAuth2JWT{
+		Credentials: []byte("test-credentials"),
+		CreateJWTConfig: func(credentials []byte, scopes ...string) (*jwt.Config, error) {
+			callCount++
+			return &jwt.Config{
+				Email:      "test-email",
+				TokenURL:   server.URL,
+				PrivateKey: getDummyPrivateKey(),
+				Scopes:     scopes,
+				Subject:    "test-subject",
+			}, nil
+		},
+	}
+
+	client, err := o.GetClient(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, client)
+
+	makeRequest(t, ctx, client)
+	makeRequest(t, ctx, client)
+	makeRequest(t, ctx, client)
+
+	require.Greater(t, callCount, 1, "CreateJWTConfig should be re-invoked once the reused token expires")
+	require.Len(t, *assertions, callCount, "each token fetch should produce a fresh assertion")
+}
+
+// TestHelpers_OAuth2_JWT_FreshJTIPerFetch proves that a CreateJWTConfig which
+// stamps a fresh PrivateClaims["jti"] on every call yields a distinct jti in
+// each assertion the token endpoint receives.
+func TestHelpers_OAuth2_JWT_FreshJTIPerFetch(t *testing.T) {
+	ctx := context.Background()
+
+	server, assertions := jwtBearerServer(t, 1)
+	defer server.Close()
+
+	nonce := 0
+	o := &OAuth2JWT{
+		Credentials: []byte("test-credentials"),
+		CreateJWTConfig: func(credentials []byte, scopes ...string) (*jwt.Config, error) {
+			nonce++
+			return &jwt.Config{
+				Email:      "test-email",
+				TokenURL:   server.URL,
+				PrivateKey: getDummyPrivateKey(),
+				Scopes:     scopes,
+				Subject:    "test-subject",
+				PrivateClaims: map[string]interface{}{
+					"jti": fmt.Sprintf("nonce-%d", nonce),
+				},
+			}, nil
+		},
+	}
+
+	client, err := o.GetClient(ctx)
+	require.NoError(t, err)
+
+	makeRequest(t, ctx, client)
+	makeRequest(t, ctx, client)
+
+	require.GreaterOrEqual(t, len(*assertions), 2, "expected at least two token fetches")
+
+	seen := make(map[string]bool)
+	for _, a := range *assertions {
+		jti := jtiFromAssertion(t, a)
+		require.NotEmpty(t, jti, "each assertion should carry a jti claim")
+		require.False(t, seen[jti], "jti %q was reused across fetches", jti)
+		seen[jti] = true
+	}
+}
+
+// TestHelpers_OAuth2_JWT_CachesTokenForStaticConfig proves the common case is
+// unchanged: a static config still benefits from oauth2.ReuseTokenSource
+// caching, so a long-lived token is fetched once and reused across requests
+// (CreateJWTConfig is not re-invoked while the token is still valid).
+func TestHelpers_OAuth2_JWT_CachesTokenForStaticConfig(t *testing.T) {
+	ctx := context.Background()
+
+	// Long expiry so the first token stays valid across subsequent requests.
+	server, assertions := jwtBearerServer(t, 3600)
+	defer server.Close()
+
+	callCount := 0
+	o := &OAuth2JWT{
+		Credentials: []byte("test-credentials"),
+		CreateJWTConfig: func(credentials []byte, scopes ...string) (*jwt.Config, error) {
+			callCount++
+			return &jwt.Config{
+				Email:      "test-email",
+				TokenURL:   server.URL,
+				PrivateKey: getDummyPrivateKey(),
+				Scopes:     scopes,
+				Subject:    "test-subject",
+			}, nil
+		},
+	}
+
+	client, err := o.GetClient(ctx)
+	require.NoError(t, err)
+
+	makeRequest(t, ctx, client)
+	makeRequest(t, ctx, client)
+	makeRequest(t, ctx, client)
+
+	require.Equal(t, 1, callCount, "CreateJWTConfig should only run once while the cached token is still valid")
+	require.Len(t, *assertions, 1, "token endpoint should be hit exactly once for a long-lived token")
 }
 
 func getDummyPrivateKey() []byte {
