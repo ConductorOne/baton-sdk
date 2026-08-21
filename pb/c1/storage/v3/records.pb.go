@@ -591,8 +591,10 @@ type ResourceRecord struct {
 	// to 12 when profile/status/created_at (9-11) landed on main first.
 	// No artifact was ever written with the old number.
 	SourceScopeKey string `protobuf:"bytes,12,opt,name=source_scope_key,json=sourceScopeKey,proto3" json:"source_scope_key,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// External ID of the resource icon asset. This must point to an asset that is an image.
+	IconAssetExternalId string `protobuf:"bytes,13,opt,name=icon_asset_external_id,json=iconAssetExternalId,proto3" json:"icon_asset_external_id,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ResourceRecord) Reset() {
@@ -697,6 +699,13 @@ func (x *ResourceRecord) GetSourceScopeKey() string {
 	return ""
 }
 
+func (x *ResourceRecord) GetIconAssetExternalId() string {
+	if x != nil {
+		return x.IconAssetExternalId
+	}
+	return ""
+}
+
 func (x *ResourceRecord) SetResourceTypeId(v string) {
 	x.ResourceTypeId = v
 }
@@ -739,6 +748,10 @@ func (x *ResourceRecord) SetCreatedAt(v *timestamppb.Timestamp) {
 
 func (x *ResourceRecord) SetSourceScopeKey(v string) {
 	x.SourceScopeKey = v
+}
+
+func (x *ResourceRecord) SetIconAssetExternalId(v string) {
+	x.IconAssetExternalId = v
 }
 
 func (x *ResourceRecord) HasParent() bool {
@@ -818,6 +831,8 @@ type ResourceRecord_builder struct {
 	// to 12 when profile/status/created_at (9-11) landed on main first.
 	// No artifact was ever written with the old number.
 	SourceScopeKey string
+	// External ID of the resource icon asset. This must point to an asset that is an image.
+	IconAssetExternalId string
 }
 
 func (b0 ResourceRecord_builder) Build() *ResourceRecord {
@@ -835,6 +850,7 @@ func (b0 ResourceRecord_builder) Build() *ResourceRecord {
 	x.Status = b.Status
 	x.CreatedAt = b.CreatedAt
 	x.SourceScopeKey = b.SourceScopeKey
+	x.IconAssetExternalId = b.IconAssetExternalId
 	return m0
 }
 
@@ -2756,7 +2772,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\rdiscovered_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12 \n" +
 	"\vdescription\x18\a \x01(\tR\vdescription\x12-\n" +
 	"\x12sourced_externally\x18\b \x01(\bR\x11sourcedExternally:!\x82\xf9+\x1d\n" +
-	"\x0eresource_types\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\xb8\x05\n" +
+	"\x0eresource_types\x12\vexternal_idJ\x04\b\x01\x10\x02R\async_id\"\xed\x05\n" +
 	"\x0eResourceRecord\x12(\n" +
 	"\x10resource_type_id\x18\x02 \x01(\tR\x0eresourceTypeId\x12\x1f\n" +
 	"\vresource_id\x18\x03 \x01(\tR\n" +
@@ -2773,7 +2789,8 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12W\n" +
 	"\x10source_scope_key\x18\f \x01(\tB-\x8a\xf9+)\n" +
-	"\x0fby_source_scope\"\x16source_scope_key != ''R\x0esourceScopeKey:.\x82\xf9+*\n" +
+	"\x0fby_source_scope\"\x16source_scope_key != ''R\x0esourceScopeKey\x123\n" +
+	"\x16icon_asset_external_id\x18\r \x01(\tR\x13iconAssetExternalId:.\x82\xf9+*\n" +
 	"\tresources\x12\x10resource_type_id\x12\vresource_idJ\x04\b\x01\x10\x02R\async_id\"\xd7\x04\n" +
 	"\x11EntitlementRecord\x12\x1f\n" +
 	"\vexternal_id\x18\x02 \x01(\tR\n" +

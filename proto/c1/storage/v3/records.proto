@@ -136,6 +136,8 @@ message ResourceRecord {
     name: "by_source_scope"
     partial: "source_scope_key != ''"
   }];
+  // External ID of the resource icon asset. This must point to an asset that is an image.
+  string icon_asset_external_id = 13;
 }
 
 message EntitlementRecord {

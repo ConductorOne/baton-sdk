@@ -341,15 +341,32 @@ func V2ResourceToV3(syncID string, r *v2.Resource) *v3.ResourceRecord {
 		}.Build()
 	}
 	return v3.ResourceRecord_builder{
-		ResourceTypeId: r.GetId().GetResourceType(),
-		ResourceId:     r.GetId().GetResource(),
-		DisplayName:    r.GetDisplayName(),
-		Description:    r.GetDescription(),
-		Parent:         parent,
-		Annotations:    r.GetAnnotations(),
-		CreatedAt:      r.GetCreatedAt(),
-		Profile:        r.GetProfile(),
-		Status:         v2StatusToV3(r.GetStatus()),
+		ResourceTypeId:      r.GetId().GetResourceType(),
+		ResourceId:          r.GetId().GetResource(),
+		DisplayName:         r.GetDisplayName(),
+		Description:         r.GetDescription(),
+		Parent:              parent,
+		Annotations:         r.GetAnnotations(),
+		CreatedAt:           r.GetCreatedAt(),
+		Profile:             r.GetProfile(),
+		Status:              v2StatusToV3(r.GetStatus()),
+		IconAssetExternalId: v2AssetExternalID(r.GetIcon()),
+	}.Build()
+}
+
+func v2AssetExternalID(a *v2.AssetRef) string {
+	if a == nil {
+		return ""
+	}
+	return a.GetId()
+}
+
+func assetExternalIDToV2AssetRef(assetExternalID string) *v2.AssetRef {
+	if assetExternalID == "" {
+		return nil
+	}
+	return v2.AssetRef_builder{
+		Id: assetExternalID,
 	}.Build()
 }
 
@@ -401,6 +418,7 @@ func V3ResourceToV2(r *v3.ResourceRecord) *v2.Resource {
 		Profile:          r.GetProfile(),
 		Status:           v3StatusToV2(r.GetStatus()),
 		CreatedAt:        r.GetCreatedAt(),
+		Icon:             assetExternalIDToV2AssetRef(r.GetIconAssetExternalId()),
 	}.Build()
 }
 

@@ -736,6 +736,8 @@ func (m *ResourceRecord) validate(all bool) error {
 
 	// no validation rules for SourceScopeKey
 
+	// no validation rules for IconAssetExternalId
+
 	if len(errors) > 0 {
 		return ResourceRecordMultiError(errors)
 	}
