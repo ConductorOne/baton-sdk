@@ -12,6 +12,7 @@ SOAK_ITERATIONS ?= 25
 CHAOS_ITERATIONS ?= 25
 NIGHTLY_FUZZ_TIME ?= 5m
 NIGHTLY_DIFFERENTIAL_TIME ?= 10m
+INCREMENTAL_SOAK_TIME ?= 10m
 
 .DEFAULT_GOAL := help
 
@@ -74,7 +75,14 @@ test: ## Run the Go test suite used by CI.
 # sets, not a number this is expected to approach.
 .PHONY: compat-check
 compat-check: ## Exchange checkpoints with a pinned older SDK.
+	go test -count=1 -run 'Test(EntitlementGraphTokenCompatibilityMatrix|GraphFromStore)' ./pkg/sync
+	go test -count=1 -run 'TestCompactorGraphCompatibilityHealing' ./pkg/synccompactor
 	BATON_COMPAT=1 go test -v -count=1 -timeout=45m -run TestCheckpointCompatAcrossSDKVersions ./cmd/baton-compat-harness
+	$(MAKE) graph-compat-check
+
+.PHONY: graph-compat-check
+graph-compat-check: ## Exchange graph-sidecar c1z artifacts with a pinned older SDK.
+	BATON_GRAPH_COMPAT=1 go test -v -count=1 -timeout=30m -run 'Test(GraphReuseCompatAcrossSDKVersions|DefaultPathPerformanceAgainstPinnedMain)' ./cmd/baton-compat-harness
 
 # Real-binary interruption instrument: builds a deterministic connector from
 # this tree, runs budget-bounded sync sessions, SIGKILLs them at varied
@@ -83,6 +91,7 @@ compat-check: ## Exchange checkpoints with a pinned older SDK.
 .PHONY: crash-check
 crash-check: ## Exercise cross-process checkpoint/resume under hard kills.
 	BATON_DEMO_CRASH=1 go test -v -count=1 -timeout=30m -run TestCrashResumeRealConnector ./cmd/baton-crash-harness
+	go test -v -count=1 -run 'TestIncrementalExpansion(ProcessKillRetry|CrashRetry)' ./pkg/synccompactor
 
 .PHONY: demo-crash-check
 demo-crash-check: crash-check ## Deprecated alias for crash-check.
@@ -218,6 +227,7 @@ race-shard-matrix-audit: ## Verify nightly.yaml runs exactly the declared shards
 
 .PHONY: fuzz-smoke
 fuzz-smoke: ## Run each native Go fuzzer for FUZZ_TIME (default 30s).
+	go test -run '^$$' -fuzz '^FuzzIncrementalVsFullExpansion$$' -fuzztime=$(FUZZ_TIME) ./pkg/sync/expand
 	go test -run '^$$' -fuzz '^FuzzCondenseFWBW_Cancellation$$' -fuzztime=$(FUZZ_TIME) ./pkg/sync/expand/scc
 	go test -run '^$$' -fuzz '^FuzzCondenseFWBW_FromBytes$$' -fuzztime=$(FUZZ_TIME) ./pkg/sync/expand/scc
 
@@ -228,6 +238,15 @@ differential-check: ## Differential-fuzz SQLite and Pebble for DIFFERENTIAL_TIME
 .PHONY: bench-smoke
 bench-smoke: ## Run the bounded checkpoint cost benchmarks once.
 	go test -run '^$$' -bench 'Benchmark(CheckpointToken|SpawnedCursorAdmission)' -benchtime=1x -benchmem ./pkg/sync
+
+.PHONY: incremental-performance-check
+incremental-performance-check: ## Enforce 100k-node incremental allocation/work gates.
+	BATON_INCREMENTAL_PERF=1 go test -v -count=1 -timeout=30m -run '^TestIncrementalPerformanceGates$$' ./pkg/sync/expand
+
+.PHONY: incremental-soak
+incremental-soak: ## Run the incremental differential fuzzers for INCREMENTAL_SOAK_TIME.
+	BATON_EXPAND_FUZZ_DURATION=$(INCREMENTAL_SOAK_TIME) go test -count=1 -timeout=30m -run '^TestFullPipelineDifferentialFuzz$$' ./pkg/sync/expand
+	go test -run '^$$' -fuzz '^FuzzIncrementalVsFullExpansion$$' -fuzztime=$(INCREMENTAL_SOAK_TIME) ./pkg/sync/expand
 
 .PHONY: bench
 bench: ## Run curated checkpoint and medium full-sync benchmarks.

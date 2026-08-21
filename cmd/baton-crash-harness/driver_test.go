@@ -125,7 +125,7 @@ func TestCrashResumeRealConnector(t *testing.T) {
 
 	cells := []cellConfig{
 		{engine: "sqlite", workers: 4, budgetMs: 1000},
-		{engine: "pebble", workers: 4, budgetMs: 1000},
+		{engine: "pebble", workers: 4, budgetMs: 500},
 		{engine: "pebble", workers: 0, budgetMs: 2000},
 	}
 	for _, cell := range cells {
@@ -288,7 +288,7 @@ func runSession(
 	if cell.mode != "" {
 		args = append(args, "-mode", cell.mode)
 	}
-	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd := exec.CommandContext(ctx, bin, args...) // #nosec G204 -- bin is built by this test into its private TempDir.
 	cmd.Dir = cellTmp
 	var out bytes.Buffer
 	cmd.Stdout = &out

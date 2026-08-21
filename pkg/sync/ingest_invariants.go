@@ -163,8 +163,7 @@ func invariantVerdict(err error) error { return &invariantVerdictError{err: err}
 // TypeScopedGrants) land, they register here against I7 and I8
 // respectively — type-granularity scopes are exactly the shapes those
 // referential checks exist for.
-//
-//nolint:gosec // G101 false positive: "PageTokens" is an annotation name, not a credential.
+// #nosec G101 -- "PageTokens" is an annotation name, not a credential.
 var sideEffectAnnotationCoverage = map[string]string{
 	"c1.connector.v2.GrantExpandable":           "I1: response-loop expansion arming (SetNeedsExpansion) + needs_expansion column persistence; store-derived probe arrives with replay",
 	"c1.connector.v2.ExternalResourceMatch":     "I2: response-loop match arming (SetHasExternalResourcesGrants); store-derived existence-bit repair arrives with replay",
@@ -449,8 +448,41 @@ func ingestInvariantHaltStages() []string {
 // store-level function so store-producing pipelines without a syncer
 // (the compactor's expand pass) can enforce the same contract.
 func RunIngestInvariants(ctx context.Context, store connectorstore.Reader, policy IngestInvariantsPolicy) error {
-	_, err := runIngestInvariants(ctx, store, policy)
+	_, err := RunIngestInvariantsWithVerification(ctx, store, policy)
 	return err
+}
+
+// RunIngestInvariantsWithVerification evaluates the invariant pass and returns
+// the verification metadata a store-producing caller must persist after the
+// sync is sealed. It does not write the marker itself: publishing proof before
+// EndSync would allow an unfinished artifact to claim verification.
+func RunIngestInvariantsWithVerification(
+	ctx context.Context,
+	store connectorstore.Reader,
+	policy IngestInvariantsPolicy,
+) (*c1zstore.IngestInvariantVerification, error) {
+	coverage, err := runIngestInvariants(ctx, store, policy)
+	if err != nil {
+		return nil, err
+	}
+	return &c1zstore.IngestInvariantVerification{
+		Generation: IngestInvariantGeneration,
+		Coverage:   coverage,
+		Mode:       ingestInvariantVerificationMode(policy),
+	}, nil
+}
+
+func ingestInvariantVerificationMode(policy IngestInvariantsPolicy) c1zstore.IngestInvariantVerificationMode {
+	switch {
+	case policy.CompactionMerge && policy.FailFast:
+		return c1zstore.IngestInvariantVerificationModeCompactionMergeFailFast
+	case policy.CompactionMerge:
+		return c1zstore.IngestInvariantVerificationModeCompactionMerge
+	case policy.FailFast:
+		return c1zstore.IngestInvariantVerificationModeConnectorFailFast
+	default:
+		return c1zstore.IngestInvariantVerificationModeConnector
+	}
 }
 
 // runIngestInvariants returns the IDs of checks that actually completed. The
@@ -608,24 +640,11 @@ func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 	if s.testIngestHaltHook != nil {
 		policy.halt = s.testIngestHaltHook
 	}
-	coverage, err := runIngestInvariants(ctx, s.store, policy)
+	verification, err := RunIngestInvariantsWithVerification(ctx, s.store, policy)
 	if err != nil {
 		return err
 	}
-	mode := c1zstore.IngestInvariantVerificationModeConnector
-	switch {
-	case policy.CompactionMerge && policy.FailFast:
-		mode = c1zstore.IngestInvariantVerificationModeCompactionMergeFailFast
-	case policy.CompactionMerge:
-		mode = c1zstore.IngestInvariantVerificationModeCompactionMerge
-	case policy.FailFast:
-		mode = c1zstore.IngestInvariantVerificationModeConnectorFailFast
-	}
-	s.pendingInvariantVerification = &c1zstore.IngestInvariantVerification{
-		Generation: IngestInvariantGeneration,
-		Coverage:   coverage,
-		Mode:       mode,
-	}
+	s.pendingInvariantVerification = verification
 	return nil
 }
 

@@ -2,7 +2,9 @@ package expand
 
 import (
 	"context"
+	"fmt"
 	"iter"
+	"slices"
 	"sort"
 	"strings"
 
@@ -130,6 +132,111 @@ func (g *EntitlementGraph) IsExpanded() bool {
 		}
 	}
 	return true
+}
+
+// MarkExpansionComplete records that every edge has been evaluated and the
+// graph passed cycle detection. Persisted graphs must carry these facts so the
+// next expansion can safely treat them as completed bases.
+func (g *EntitlementGraph) MarkExpansionComplete() {
+	for edgeID, edge := range g.Edges {
+		edge.IsExpanded = true
+		g.Edges[edgeID] = edge
+	}
+	g.HasNoCycles = true
+	g.Actions = nil
+}
+
+// ValidateCompleted checks the durable facts required before a graph may be
+// reused as an incremental-expansion base.
+func (g *EntitlementGraph) ValidateCompleted() error {
+	if g == nil {
+		return fmt.Errorf("graph is nil")
+	}
+	if !g.Loaded {
+		return fmt.Errorf("graph is not fully loaded")
+	}
+	if !g.HasNoCycles {
+		return fmt.Errorf("graph has not completed cycle detection")
+	}
+	if !g.IsExpanded() {
+		return fmt.Errorf("graph has unexpanded edges")
+	}
+	maxNodeID := 0
+	for nodeID, node := range g.Nodes {
+		if nodeID > maxNodeID {
+			maxNodeID = nodeID
+		}
+		if node.Id != nodeID {
+			return fmt.Errorf("node map key %d does not match node id %d", nodeID, node.Id)
+		}
+		for _, entitlementID := range node.EntitlementIDs {
+			if got, ok := g.EntitlementsToNodes[entitlementID]; !ok || got != nodeID {
+				return fmt.Errorf("entitlement %q does not map back to node %d", entitlementID, nodeID)
+			}
+		}
+	}
+	if g.NextNodeID < maxNodeID {
+		return fmt.Errorf("next node id %d is below existing maximum %d", g.NextNodeID, maxNodeID)
+	}
+	for entitlementID, nodeID := range g.EntitlementsToNodes {
+		node, ok := g.Nodes[nodeID]
+		if !ok || !slices.Contains(node.EntitlementIDs, entitlementID) {
+			return fmt.Errorf("entitlement map entry %q points to inconsistent node %d", entitlementID, nodeID)
+		}
+	}
+	maxEdgeID := 0
+	for edgeID, edge := range g.Edges {
+		if edgeID > maxEdgeID {
+			maxEdgeID = edgeID
+		}
+		if edge.EdgeID != edgeID {
+			return fmt.Errorf("edge map key %d does not match edge id %d", edgeID, edge.EdgeID)
+		}
+		if _, ok := g.Nodes[edge.SourceID]; !ok {
+			return fmt.Errorf("edge %d has missing source node %d", edgeID, edge.SourceID)
+		}
+		if _, ok := g.Nodes[edge.DestinationID]; !ok {
+			return fmt.Errorf("edge %d has missing destination node %d", edgeID, edge.DestinationID)
+		}
+		if got := g.SourcesToDestinations[edge.SourceID][edge.DestinationID]; got != edgeID {
+			return fmt.Errorf("edge %d missing from source adjacency", edgeID)
+		}
+		if got := g.DestinationsToSources[edge.DestinationID][edge.SourceID]; got != edgeID {
+			return fmt.Errorf("edge %d missing from destination adjacency", edgeID)
+		}
+	}
+	if g.NextEdgeID < maxEdgeID {
+		return fmt.Errorf("next edge id %d is below existing maximum %d", g.NextEdgeID, maxEdgeID)
+	}
+	for sourceID, destinations := range g.SourcesToDestinations {
+		for destinationID, edgeID := range destinations {
+			edge, ok := g.Edges[edgeID]
+			if !ok || edge.SourceID != sourceID || edge.DestinationID != destinationID {
+				return fmt.Errorf("source adjacency %d->%d points to inconsistent edge %d", sourceID, destinationID, edgeID)
+			}
+		}
+	}
+	for destinationID, sources := range g.DestinationsToSources {
+		for sourceID, edgeID := range sources {
+			edge, ok := g.Edges[edgeID]
+			if !ok || edge.SourceID != sourceID || edge.DestinationID != destinationID {
+				return fmt.Errorf("destination adjacency %d<-%d points to inconsistent edge %d", destinationID, sourceID, edgeID)
+			}
+		}
+	}
+	return nil
+}
+
+// HasCollapsedCycles reports whether full expansion collapsed an SCC into a
+// multi-entitlement node. Such a graph no longer records its internal edges,
+// so it cannot safely detect an edge removal that splits the SCC.
+func (g *EntitlementGraph) HasCollapsedCycles() bool {
+	for _, node := range g.Nodes {
+		if len(node.EntitlementIDs) > 1 {
+			return true
+		}
+	}
+	return false
 }
 
 // IsEntitlementExpanded returns true if all the outgoing edges for the given entitlement have been expanded.

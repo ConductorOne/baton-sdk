@@ -67,7 +67,7 @@ func TestRawWriteSignalsOnlyInsideRawDB(t *testing.T) {
 		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			return nil
 		}
-		src, readErr := os.ReadFile(path) //nolint:gosec // meta-test walking the repo's own source tree
+		src, readErr := os.ReadFile(path) // #nosec G122 -- read-only meta-test walks the trusted repository tree.
 		if readErr != nil {
 			return readErr
 		}
@@ -197,7 +197,7 @@ func walkClientTreeProductionGoFiles(t *testing.T, visit func(root, path string,
 			if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 				return nil
 			}
-			src, readErr := os.ReadFile(path) //nolint:gosec // meta-test walking the repo's own source tree; no untrusted paths
+			src, readErr := os.ReadFile(path) // #nosec G122 -- read-only meta-test walks the trusted repository tree.
 			if readErr != nil {
 				return readErr
 			}

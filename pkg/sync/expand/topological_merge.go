@@ -429,11 +429,7 @@ func (e *Expander) driveTopologicalLayer(
 // queue. The topological evaluators expand the whole graph in one pass, so they
 // finalize all edges together at the end rather than per action.
 func (e *Expander) markExpansionComplete() {
-	for edgeID, edge := range e.graph.Edges {
-		edge.IsExpanded = true
-		e.graph.Edges[edgeID] = edge
-	}
-	e.graph.Actions = nil
+	e.graph.MarkExpansionComplete()
 }
 
 func sortedCopy(in []string) []string {

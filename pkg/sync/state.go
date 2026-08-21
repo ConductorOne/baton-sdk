@@ -1,6 +1,7 @@
 package sync //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -34,7 +36,9 @@ type State interface {
 	FinishAction(ctx context.Context, action *Action)
 	NextPage(ctx context.Context, actionID string, pageToken string) error
 	EntitlementGraph(ctx context.Context) *expand.EntitlementGraph
+	PeekEntitlementGraph() *expand.EntitlementGraph
 	ClearEntitlementGraph(ctx context.Context)
+	ClearEntitlementGraphTransientState(ctx context.Context)
 	Current() *Action
 	GetAction(id string) *Action
 	PeekMatchingActions(ctx context.Context, op ActionOp) []*Action
@@ -86,6 +90,12 @@ func PrepareExpansionReplayToken(stateStr string) (string, error) {
 		return "", err
 	}
 	st.SetNeedsExpansion()
+	// Clear any preserved entitlement graph. A graph preserved by
+	// WithPreserveEntitlementGraph has Loaded=true with every edge already
+	// marked expanded, so a replayed sync would skip graph loading and the
+	// expander would report done immediately — the replay would silently
+	// no-op. Clearing it makes the replay rebuild the graph from scratch.
+	st.ClearEntitlementGraph(context.Background())
 	if st.Current() == nil {
 		// A finished sync deserializes with no action map, so seed one before
 		// queuing the InitOp that drives the resumed run.
@@ -95,6 +105,68 @@ func PrepareExpansionReplayToken(stateStr string) (string, error) {
 		st.PushAction(context.Background(), Action{Op: InitOp})
 	}
 	return st.Marshal()
+}
+
+// GraphFromToken parses a legacy sync token and returns its entitlement graph
+// for compatibility tests. It returns nil if the token carried no graph.
+//
+// Token graphs have no grant-generation binding and must not drive incremental
+// reuse. Production readers must use GraphFromStore, which verifies that the
+// sidecar graph describes the store's exact sealed grant generation.
+func GraphFromToken(stateStr string) (*expand.EntitlementGraph, error) {
+	st := newState()
+	if err := st.Unmarshal(stateStr); err != nil {
+		return nil, err
+	}
+	return st.entitlementGraph, nil
+}
+
+// EntitlementGraphStore is the optional store capability backing graph
+// persistence in the c1z (Pebble implements it; SQLite does not). The blob
+// format is owned by pkg/sync/expand.
+type EntitlementGraphStore interface {
+	PutEntitlementGraphBlob(ctx context.Context, data []byte) error
+	GetEntitlementGraphBlob(ctx context.Context) ([]byte, error)
+	DeleteEntitlementGraphBlob(ctx context.Context) error
+}
+
+// GraphFromStore loads the entitlement graph persisted in the c1z sidecar for
+// syncID. Returns nil (no error) when the store lacks the capability, no graph
+// was preserved, or the stored graph belongs to a different sync.
+func GraphFromStore(ctx context.Context, store c1zstore.Store, syncID string) (*expand.EntitlementGraph, error) {
+	gs, ok := store.(EntitlementGraphStore)
+	if !ok {
+		return nil, nil
+	}
+	data, err := gs.GetEntitlementGraphBlob(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if data == nil {
+		return nil, nil
+	}
+	graph, boundDigest, err := expand.UnmarshalGraphBlobWithGrantDigest(data, syncID)
+	if err != nil || graph == nil {
+		return graph, err
+	}
+	if boundDigest == nil {
+		return nil, nil
+	}
+	digestReader, ok := store.(c1zstore.GrantGenerationDigestReader)
+	if !ok {
+		return nil, nil
+	}
+	currentDigest, found, err := digestReader.GrantGenerationDigest(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !found ||
+		boundDigest.Count != currentDigest.Count ||
+		boundDigest.ABIVersion != currentDigest.ABIVersion ||
+		!bytes.Equal(boundDigest.Hash, currentDigest.Hash) {
+		return nil, nil
+	}
+	return graph, nil
 }
 
 // ActionOp represents a sync operation.
@@ -1093,9 +1165,26 @@ func (st *state) EntitlementGraph(ctx context.Context) *expand.EntitlementGraph 
 	return st.entitlementGraph
 }
 
+// PeekEntitlementGraph returns the graph without allocating one when absent
+// (unlike EntitlementGraph). Used by the preserve path to decide whether
+// there is a graph worth persisting.
+func (st *state) PeekEntitlementGraph() *expand.EntitlementGraph {
+	return st.entitlementGraph
+}
+
 // ClearEntitlementGraph clears the entitlement graph. This is meant to make the final sync token less confusing.
 func (st *state) ClearEntitlementGraph(ctx context.Context) {
 	st.entitlementGraph = nil
+}
+
+// ClearEntitlementGraphTransientState strips a preserved graph's expansion
+// working state before the final checkpoint. A no-op when no graph was built —
+// deliberately NOT EntitlementGraph(ctx), which would allocate an empty graph
+// into the final token where prior behavior serialized none.
+func (st *state) ClearEntitlementGraphTransientState(_ context.Context) {
+	if st.entitlementGraph != nil {
+		st.entitlementGraph.ClearTransientState()
+	}
 }
 
 func (st *state) GetCompletedActionsCount() uint64 {

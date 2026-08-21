@@ -493,7 +493,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	var convertedInputs []string
 	defer func() {
 		for _, path := range convertedInputs {
-			_ = os.Remove(path)
+			_ = os.Remove(path) // #nosec G703 -- paths come only from CreateTemp in the compactor temp directory.
 		}
 	}()
 	for i := len(c.entries) - 1; i >= 1; i-- {
@@ -550,13 +550,26 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 		partialSyncIDs = append(partialSyncIDs, srcSyncID)
 		partialTokens = append(partialTokens, readSourceSyncToken(ctx, srcEng, srcSyncID))
 
-		mergeStats, mergeErr := mergepkg.MergeInto(ctx, destEng, []mergepkg.SourceSync{{Engine: srcEng, SyncID: srcSyncID}}, baseSyncID)
+		var mergeOpts []mergepkg.MergeOption
+		if c.incrementalExpansion {
+			mergeOpts = append(mergeOpts, mergepkg.WithGrantEntitlementIDs())
+		}
+		mergeStats, mergeErr := mergepkg.MergeInto(ctx, destEng, []mergepkg.SourceSync{{Engine: srcEng, SyncID: srcSyncID}}, baseSyncID, mergeOpts...)
 		foldStats.Add(mergeStats)
 		if cerr := w.Close(ctx); cerr != nil {
 			l.Error("compactPebbleFold: error closing source store", zap.Error(cerr), zap.String("file", sourcePath))
 		}
 		if mergeErr != nil {
 			return "", fmt.Errorf("compactPebbleFold: merge %s: %w", sourcePath, mergeErr)
+		}
+	}
+
+	if c.incrementalExpansion {
+		// Hand the fold's changed-entitlement set to incremental expansion.
+		// Non-nil even when empty: nil means "no fold ran" (derive fallback).
+		c.foldChangedEntitlementIDs = foldStats.GrantEntitlementIDs
+		if c.foldChangedEntitlementIDs == nil {
+			c.foldChangedEntitlementIDs = map[string]struct{}{}
 		}
 	}
 
@@ -678,6 +691,13 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// a lineage link would dangle, and the rebuild path's compacted
 	// output carries no parent either.
 	newSyncID := ksuid.New().String()
+	// The folded store is copied from the base, but the graph sidecar is
+	// stamped with that base sync ID and may no longer describe merged data.
+	// Drop it before publishing the fresh sync; a following expansion writes a
+	// new graph, while skip-expansion artifacts safely fall back next time.
+	if err := destEng.DeleteEntitlementGraphSidecar(ctx); err != nil {
+		return "", fmt.Errorf("compactPebbleFold: delete inherited entitlement graph: %w", err)
+	}
 	baseRec.SetSyncId(newSyncID)
 	baseRec.SetParentSyncId("")
 	baseRec.SetType(unionType)
@@ -882,7 +902,7 @@ func copyFileForFold(src, dst string) error {
 // readCompactionInputFormat reads the c1z header of path and returns its
 // on-disk format, rejecting anything that is not a supported v1/v3 c1z.
 func readCompactionInputFormat(path string) (dotc1z.C1ZFormat, error) {
-	f, err := os.Open(path) // #nosec G304 - compaction inputs are caller-provided c1z paths.
+	f, err := os.Open(path) // #nosec G304,G703 -- compaction inputs are intentionally caller-provided c1z paths.
 	if err != nil {
 		return dotc1z.C1ZFormatUnknown, fmt.Errorf("compactPebble: open input header %s: %w", path, err)
 	}
@@ -1001,11 +1021,11 @@ func (c *Compactor) convertSQLiteInputToPebble(ctx context.Context, cs *Compacta
 	}
 	convertedPath := tmp.Name()
 	if err := tmp.Close(); err != nil {
-		_ = os.Remove(convertedPath)
+		_ = os.Remove(convertedPath) // #nosec G703 -- convertedPath was returned by CreateTemp above.
 		return "", fmt.Errorf("compactPebble: close conversion temp file: %w", err)
 	}
 	// ToPebble requires the destination path to not exist.
-	if err := os.Remove(convertedPath); err != nil {
+	if err := os.Remove(convertedPath); err != nil { // #nosec G703 -- convertedPath was returned by CreateTemp above.
 		return "", fmt.Errorf("compactPebble: remove conversion temp placeholder: %w", err)
 	}
 
@@ -1021,16 +1041,16 @@ func (c *Compactor) convertSQLiteInputToPebble(ctx context.Context, cs *Compacta
 	syncID, err := resolveSQLiteCompactionSyncID(ctx, sqliteStore, cs.SyncID)
 	if err != nil {
 		_ = store.Close(ctx)
-		_ = os.Remove(convertedPath)
+		_ = os.Remove(convertedPath) // #nosec G703 -- convertedPath was returned by CreateTemp above.
 		return "", fmt.Errorf("compactPebble: select sqlite input sync %s: %w", cs.FilePath, err)
 	}
 	if _, err := sqliteStore.ToPebble(ctx, convertedPath, syncID, dotc1z.WithConvertTmpDir(c.tmpDir)); err != nil {
 		_ = store.Close(ctx)
-		_ = os.Remove(convertedPath)
+		_ = os.Remove(convertedPath) // #nosec G703 -- convertedPath was returned by CreateTemp above.
 		return "", fmt.Errorf("compactPebble: convert sqlite input %s to pebble: %w", cs.FilePath, err)
 	}
 	if err := store.Close(ctx); err != nil {
-		_ = os.Remove(convertedPath)
+		_ = os.Remove(convertedPath) // #nosec G703 -- convertedPath was returned by CreateTemp above.
 		return "", fmt.Errorf("compactPebble: close sqlite input after conversion %s: %w", cs.FilePath, err)
 	}
 	return convertedPath, nil
@@ -1089,7 +1109,7 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 	var convertedInputs []string
 	defer func() {
 		for _, path := range convertedInputs {
-			_ = os.Remove(path)
+			_ = os.Remove(path) // #nosec G703 -- paths come only from CreateTemp in the compactor temp directory.
 		}
 	}()
 	for i := len(c.entries) - 1; i >= 0; i-- {

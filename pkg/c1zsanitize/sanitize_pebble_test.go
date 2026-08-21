@@ -11,6 +11,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	sdksync "github.com/conductorone/baton-sdk/pkg/sync"
+	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 )
 
 // TestSanitizePebbleEndToEnd is the core-invariant check on a
@@ -72,6 +74,46 @@ func TestSanitizePebbleEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, dstRuns, 1)
 	require.True(t, dstRuns[0].SupportsDiff, "supports_diff marker must carry to the pebble output")
+}
+
+func TestSanitizeDropsEntitlementGraphSidecar(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "src.c1z")
+	dstPath := filepath.Join(dir, "dst.c1z")
+
+	src := newEngineStore(t, ctx, srcPath, c1zstore.EnginePebble)
+	buildParityFixture(t, ctx, src)
+	runs, _, err := src.(syncRunMetadataReader).ListSyncRuns(ctx, "", 100)
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	syncID := runs[0].ID
+	digest, found, err := src.(c1zstore.GrantGenerationDigestReader).GrantGenerationDigest(ctx)
+	require.NoError(t, err)
+	require.True(t, found)
+	graph := expand.NewEntitlementGraph(ctx)
+	graph.MarkExpansionComplete()
+	graph.Loaded = true
+	graph.HasNoCycles = true
+	blob, err := expand.MarshalGraphBlobWithGrantDigest(syncID, graph, digest)
+	require.NoError(t, err)
+	require.NoError(t, src.(sdksync.EntitlementGraphStore).PutEntitlementGraphBlob(ctx, blob))
+	require.NoError(t, src.Close(ctx))
+
+	source := openEngineStoreRO(t, ctx, srcPath)
+	destination := newEngineStore(t, ctx, dstPath, c1zstore.EnginePebble)
+	require.NoError(t, Sanitize(ctx, source, destination, Options{Secret: bytes32("graph-sidecar"), TimestampAnchor: fixedAnchor}))
+	require.NoError(t, destination.Close(ctx))
+	require.NoError(t, source.Close(ctx))
+
+	ro := openEngineStoreRO(t, ctx, dstPath)
+	dstRuns, _, err := ro.(syncRunMetadataReader).ListSyncRuns(ctx, "", 100)
+	require.NoError(t, err)
+	require.Len(t, dstRuns, 1)
+	got, err := sdksync.GraphFromStore(ctx, ro, dstRuns[0].ID)
+	require.NoError(t, err)
+	require.Nil(t, got, "sanitize changes identities, so it must not carry the source graph")
+	require.NoError(t, ro.Close(ctx))
 }
 
 // TestSanitizeMultiSyncIntoPebbleIsRejected proves the live-dst guard: a

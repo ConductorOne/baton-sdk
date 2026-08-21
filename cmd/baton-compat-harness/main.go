@@ -34,22 +34,29 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	sdksync "github.com/conductorone/baton-sdk/pkg/sync"
+	"github.com/conductorone/baton-sdk/pkg/synccompactor"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -324,6 +331,128 @@ func countList(ctx context.Context, store c1zstore.Store) (int, int, int, error)
 	return resources, ents, grants, nil
 }
 
+// logicalContentDigest hashes the complete logical rows returned by the public
+// reader surface. Stable sorting makes it independent of pagination and Pebble
+// iteration order; deterministic protobuf encoding includes nested refs,
+// sources, and annotations instead of comparing counts only.
+func logicalContentDigest(ctx context.Context, store c1zstore.Store) (string, error) {
+	rows := make([]string, 0)
+	appendRows := func(kind byte, messages []proto.Message) error {
+		for _, message := range messages {
+			data, err := (proto.MarshalOptions{Deterministic: true}).Marshal(message)
+			if err != nil {
+				return err
+			}
+			rows = append(rows, fmt.Sprintf("%c:%x", kind, data))
+		}
+		return nil
+	}
+
+	pageToken := ""
+	for {
+		resp, err := store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
+			PageToken: pageToken,
+		}.Build())
+		if err != nil {
+			return "", fmt.Errorf("digest resource types: %w", err)
+		}
+		messages := make([]proto.Message, 0, len(resp.GetList()))
+		for _, item := range resp.GetList() {
+			messages = append(messages, item)
+		}
+		if err := appendRows('T', messages); err != nil {
+			return "", fmt.Errorf("digest resource types: %w", err)
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+
+	pageToken = ""
+	for {
+		resp, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+			PageToken: pageToken,
+		}.Build())
+		if err != nil {
+			return "", fmt.Errorf("digest resources: %w", err)
+		}
+		messages := make([]proto.Message, 0, len(resp.GetList()))
+		for _, item := range resp.GetList() {
+			messages = append(messages, item)
+		}
+		if err := appendRows('R', messages); err != nil {
+			return "", fmt.Errorf("digest resources: %w", err)
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+
+	pageToken = ""
+	for {
+		resp, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+			PageToken: pageToken,
+		}.Build())
+		if err != nil {
+			return "", fmt.Errorf("digest entitlements: %w", err)
+		}
+		messages := make([]proto.Message, 0, len(resp.GetList()))
+		for _, item := range resp.GetList() {
+			messages = append(messages, item)
+		}
+		if err := appendRows('E', messages); err != nil {
+			return "", fmt.Errorf("digest entitlements: %w", err)
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+
+	pageToken = ""
+	for {
+		resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+			PageToken: pageToken,
+		}.Build())
+		if err != nil {
+			return "", fmt.Errorf("digest grants: %w", err)
+		}
+		messages := make([]proto.Message, 0, len(resp.GetList()))
+		for _, item := range resp.GetList() {
+			messages = append(messages, item)
+		}
+		if err := appendRows('G', messages); err != nil {
+			return "", fmt.Errorf("digest grants: %w", err)
+		}
+		pageToken = resp.GetNextPageToken()
+		if pageToken == "" {
+			break
+		}
+	}
+
+	sort.Strings(rows)
+	hash := sha256.New()
+	for _, row := range rows {
+		_, _ = hash.Write([]byte(row))
+		_, _ = hash.Write([]byte{'\n'})
+	}
+	return fmt.Sprintf("%x", hash.Sum(nil)), nil
+}
+
+func summarizeRows(ctx context.Context, store c1zstore.Store, result *compatResult) (int, int, int, error) {
+	resources, ents, grants, err := countList(ctx, store)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	result.LogicalDigest, err = logicalContentDigest(ctx, store)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	return resources, ents, grants, nil
+}
+
 // syncRunLister is the store surface the run inspection needs; asserted
 // dynamically because the harness compiles against two SDK versions.
 type syncRunLister interface {
@@ -366,7 +495,7 @@ func countRows(ctx context.Context, c1zPath, tmpDir string, result *compatResult
 	}
 	defer func() { _ = store.Close(ctx) }()
 	inspectRuns(ctx, store, result)
-	return countList(ctx, store)
+	return summarizeRows(ctx, store, result)
 }
 
 // compatResult is the machine-readable summary the driver parses from the
@@ -380,15 +509,110 @@ type compatResult struct {
 	Grants      int    `json:"grants"`
 	CountErr    string `json:"count_err,omitempty"`
 	// Checkpoint evidence (see inspectRuns).
-	UnfinishedRuns  int  `json:"unfinished_runs"`
-	TokenLen        int  `json:"token_len"`
-	TokenSpawned    bool `json:"token_spawned"`
-	TokenTypeScoped bool `json:"token_type_scoped"`
+	UnfinishedRuns     int    `json:"unfinished_runs"`
+	TokenLen           int    `json:"token_len"`
+	TokenSpawned       bool   `json:"token_spawned"`
+	TokenTypeScoped    bool   `json:"token_type_scoped"`
+	GraphPresent       bool   `json:"graph_present,omitempty"`
+	GraphReusable      bool   `json:"graph_reusable,omitempty"`
+	GraphErr           string `json:"graph_err,omitempty"`
+	IncrementalRan     bool   `json:"incremental_ran,omitempty"`
+	IncrementalOutcome string `json:"incremental_outcome,omitempty"`
+	IncrementalReason  string `json:"incremental_reason,omitempty"`
+	IncrementalError   string `json:"incremental_error,omitempty"`
+	ArtifactPath       string `json:"artifact_path,omitempty"`
+	AllocatedBytes     uint64 `json:"allocated_bytes,omitempty"`
+	LogicalDigest      string `json:"logical_digest,omitempty"`
+}
+
+// graphCompatHandler is installed by graph_modes_new.go in the candidate
+// binary. The old binary is built from this file alone, so it can inspect new
+// artifacts without compiling against APIs that did not exist at the old ref.
+var graphCompatHandler func(context.Context, string, string, string) (compatResult, error)
+
+func graphCompatEmptyPartial(ctx context.Context, dir string) (*synccompactor.CompactableSync, error) {
+	path := filepath.Join(dir, "empty-partial.c1z")
+	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithTmpDir(os.TempDir()))
+	if err != nil {
+		return nil, err
+	}
+	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
+	if err == nil {
+		err = store.EndSync(ctx)
+	}
+	if closeErr := store.Close(ctx); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &synccompactor.CompactableSync{FilePath: path, SyncID: syncID}, nil
+}
+
+func graphCompatFullCompact(ctx context.Context, inputPath, outPath string) (compatResult, error) {
+	if outPath == "" {
+		return compatResult{}, fmt.Errorf("graph-old-compact requires -out")
+	}
+	store, err := dotc1z.NewStore(ctx, inputPath,
+		dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(os.TempDir()))
+	if err != nil {
+		return compatResult{}, err
+	}
+	run, err := store.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
+	if closeErr := store.Close(ctx); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return compatResult{}, err
+	}
+	if run == nil {
+		return compatResult{}, fmt.Errorf("input artifact has no finished sync")
+	}
+	empty, err := graphCompatEmptyPartial(ctx, filepath.Dir(outPath))
+	if err != nil {
+		return compatResult{}, err
+	}
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
+	compactor, cleanup, err := synccompactor.NewCompactor(ctx, filepath.Dir(outPath),
+		[]*synccompactor.CompactableSync{{FilePath: inputPath, SyncID: run.ID}, empty},
+		synccompactor.WithTmpDir(os.TempDir()))
+	if err != nil {
+		return compatResult{}, err
+	}
+	defer cleanup()
+	out, err := compactor.Compact(ctx)
+	if err != nil {
+		return compatResult{}, err
+	}
+	if out.FilePath != outPath {
+		_ = os.Remove(outPath)
+		if err := os.Rename(out.FilePath, outPath); err != nil {
+			return compatResult{}, err
+		}
+	}
+	result := compatResult{Mode: "graph-old-compact", ArtifactPath: outPath}
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
+	result.AllocatedBytes = after.TotalAlloc - before.TotalAlloc
+	result.Resources, result.Ents, result.Grants, err = countRows(ctx, outPath, os.TempDir(), &result)
+	return result, err
+}
+
+func printCompatResult(result compatResult) error {
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("COMPAT_RESULT %s\n", encoded)
+	return nil
 }
 
 func run() error {
 	mode := flag.String("mode", "", "gen or resume")
 	c1zPath := flag.String("c1z", "", "path to c1z file")
+	outPath := flag.String("out", "", "optional output path for graph compatibility modes")
 	runDuration := flag.Duration("run-duration", 2*time.Second, "gen-mode run duration")
 	flag.Parse()
 	if *mode == "" || *c1zPath == "" {
@@ -401,6 +625,41 @@ func run() error {
 		return err
 	}
 	ctx = ctxzap.ToContext(ctx, logger)
+
+	if strings.HasPrefix(*mode, "graph-") {
+		if *mode == "graph-default-compact" {
+			result, err := graphCompatFullCompact(ctx, *c1zPath, *outPath)
+			if err != nil {
+				return err
+			}
+			result.Mode = *mode
+			return printCompatResult(result)
+		}
+		if graphCompatHandler != nil {
+			result, err := graphCompatHandler(ctx, *mode, *c1zPath, *outPath)
+			if err != nil {
+				return err
+			}
+			return printCompatResult(result)
+		}
+		if *mode == "graph-old-compact" {
+			result, err := graphCompatFullCompact(ctx, *c1zPath, *outPath)
+			if err != nil {
+				return err
+			}
+			return printCompatResult(result)
+		}
+		if *mode != "graph-inspect" {
+			return fmt.Errorf("graph compatibility mode %q unsupported by this SDK", *mode)
+		}
+		result := compatResult{Mode: *mode, ArtifactPath: *c1zPath}
+		var countErr error
+		result.Resources, result.Ents, result.Grants, countErr = countRows(ctx, *c1zPath, os.TempDir(), &result)
+		if countErr != nil {
+			result.CountErr = countErr.Error()
+		}
+		return printCompatResult(result)
+	}
 
 	connector, err := newCompatConnector()
 	if err != nil {
@@ -440,12 +699,7 @@ func run() error {
 	if countErr != nil {
 		result.CountErr = countErr.Error()
 	}
-	encoded, err := json.Marshal(result)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("COMPAT_RESULT %s\n", encoded)
-	return nil
+	return printCompatResult(result)
 }
 
 func main() {

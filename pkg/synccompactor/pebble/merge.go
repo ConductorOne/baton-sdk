@@ -18,6 +18,23 @@ type SourceSync struct {
 	SyncID string
 }
 
+type mergeOptions struct {
+	collectGrantEntitlementIDs bool
+}
+
+// MergeOption enables optional MergeInto behavior without breaking callers
+// that use the original four-argument API.
+type MergeOption func(*mergeOptions)
+
+// WithGrantEntitlementIDs records the entitlement IDs of grant records that
+// MergeInto actually writes. The incremental expander uses these IDs as its
+// changed-node seeds.
+func WithGrantEntitlementIDs() MergeOption {
+	return func(opts *mergeOptions) {
+		opts.collectGrantEntitlementIDs = true
+	}
+}
+
 // FoldStats reports what a MergeInto call overrode in the destination
 // keyspace. DeadBytes is the exact raw size (keys + values) of the
 // incumbent records — and their derived index keys — that the fold
@@ -56,6 +73,9 @@ type FoldStats struct {
 	// (Engine.InvalidateGrantDigestPartitions +
 	// Engine.RepairMissingGrantDigests), instead of the whole file.
 	TouchedGrantPartitions map[string]struct{}
+	// GrantEntitlementIDs: distinct entitlement ids of applied grant records
+	// (no-ops excluded). Seeds incremental expansion without re-reading inputs.
+	GrantEntitlementIDs map[string]struct{}
 }
 
 func (s *FoldStats) Add(o FoldStats) {
@@ -74,6 +94,24 @@ func (s *FoldStats) Add(o FoldStats) {
 		}
 		s.TouchedGrantPartitions[p] = struct{}{}
 	}
+	for id := range o.GrantEntitlementIDs {
+		s.noteGrantEntitlementID([]byte(id))
+	}
+}
+
+// noteGrantEntitlementID records one applied grant's entitlement id;
+// read-before-insert keeps repeats allocation-free.
+func (s *FoldStats) noteGrantEntitlementID(id []byte) {
+	if len(id) == 0 {
+		return
+	}
+	if _, ok := s.GrantEntitlementIDs[string(id)]; ok {
+		return
+	}
+	if s.GrantEntitlementIDs == nil {
+		s.GrantEntitlementIDs = make(map[string]struct{})
+	}
+	s.GrantEntitlementIDs[string(id)] = struct{}{}
 }
 
 func (s *FoldStats) bumpAdded(bucket string, n int64) {
@@ -136,8 +174,14 @@ func (s *FoldStats) bumpReplaced(bucket string, n int64) {
 // (Engine.BuildGrantDigests rebuilds both keyspaces atomically from
 // scratch, so no separate drop is needed even then — see
 // compactPebbleFold).
-func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync, destSyncID string) (FoldStats, error) {
+func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync, destSyncID string, options ...MergeOption) (FoldStats, error) {
 	var stats FoldStats
+	opts := mergeOptions{}
+	for _, option := range options {
+		if option != nil {
+			option(&opts)
+		}
+	}
 	if dest == nil {
 		return stats, errors.New("synccompactor/pebble.MergeInto: dest engine is nil")
 	}
@@ -159,7 +203,7 @@ func MergeInto(ctx context.Context, dest *enginepkg.Engine, sources []SourceSync
 		if s.Engine == nil || s.SyncID == "" {
 			continue
 		}
-		srcStats, err := mergeOneSource(ctx, dest, s, destSyncID)
+		srcStats, err := mergeOneSource(ctx, dest, s, destSyncID, opts.collectGrantEntitlementIDs)
 		stats.Add(srcStats)
 		if err != nil {
 			return stats, fmt.Errorf("merge source %s: %w", s.SyncID, err)
@@ -190,10 +234,10 @@ const mergeRawFlushRecords = 32768
 //     incumbent, mirroring the engine's Put*RecordsIfNewer rule —
 //     missing discovered_at scans as 0, reproducing its nil-timestamp
 //     ordering ("never overwrite an incumbent, always fill a hole").
-func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, destSyncID string) (FoldStats, error) {
+func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, destSyncID string, collectGrantEntitlementIDs bool) (FoldStats, error) {
 	var stats FoldStats
 	for _, bucket := range allBuckets() {
-		bucketStats, err := mergeBucketRawIfNewer(ctx, dest, s.Engine, bucket)
+		bucketStats, err := mergeBucketRawIfNewer(ctx, dest, s.Engine, bucket, collectGrantEntitlementIDs)
 		stats.Add(bucketStats)
 		if err != nil {
 			return stats, fmt.Errorf("merge %s: %w", bucket.name, err)
@@ -202,7 +246,7 @@ func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, d
 	return stats, nil
 }
 
-func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *enginepkg.Engine, bucket bucketSpec) (FoldStats, error) {
+func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *enginepkg.Engine, bucket bucketSpec, collectGrantEntitlementIDs bool) (FoldStats, error) {
 	var stats FoldStats
 	lower, upper := bucket.syncRange()
 	iter, err := src.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
@@ -287,6 +331,9 @@ func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *eng
 		if err := batch.Set(key, value); err != nil {
 			return stats, err
 		}
+		// Applied grant (skips continued above): count it toward the
+		// digest-repair signal and collect its entitlement id for
+		// incremental expansion — both during the read the fold already does.
 		if bucket.id == runBucketGrants {
 			stats.GrantWrites++
 			if partition, ok := enginepkg.GrantPartitionFromPrimaryKey(key); ok {
@@ -294,6 +341,13 @@ func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *eng
 					stats.TouchedGrantPartitions = map[string]struct{}{}
 				}
 				stats.TouchedGrantPartitions[partition] = struct{}{}
+			}
+			if collectGrantEntitlementIDs {
+				_, _, entID, _, _, _, scanErr := scanGrantIndexFieldsBytes(value)
+				if scanErr != nil {
+					return stats, scanErr
+				}
+				stats.noteGrantEntitlementID(entID)
 			}
 		}
 		if err := forEachIndexKeyFromRaw(bucket, key, lower, value, &scratch, nil, setIndexKey); err != nil {

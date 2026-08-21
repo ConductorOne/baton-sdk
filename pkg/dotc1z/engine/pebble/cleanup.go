@@ -41,6 +41,8 @@ func scopedRanges() [][2][]byte {
 		// Stats sidecar — single key; the half-open range shape
 		// contains exactly that one key.
 		{encodeSyncStatsKey(), upperBoundOf(encodeSyncStatsKey())},
+		// Entitlement-graph sidecar — same single-key shape.
+		{EntitlementGraphSidecarLowerBound(), EntitlementGraphSidecarUpperBound()},
 	}
 }
 
@@ -86,6 +88,7 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 	spans := []pebble.KeyRange{
 		{Start: []byte{versionV3, typeResourceType}, End: []byte{versionV3, typeEngineMeta}},
 		{Start: SyncStatsSidecarLowerBound(), End: SyncStatsSidecarUpperBound()},
+		{Start: EntitlementGraphSidecarLowerBound(), End: EntitlementGraphSidecarUpperBound()},
 	}
 	// AllowSealed: StartNewSync legitimately replaces a finished (sealed)
 	// sync; the wipe is the first step of leaving the sealed state. The
