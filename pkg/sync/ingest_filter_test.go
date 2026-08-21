@@ -365,7 +365,7 @@ func TestFreshIngestFilterExternalMatchResolvesUnknownPrincipalType(t *testing.T
 		require.NoError(t, internalSyncer.Sync(ctx))
 		require.NoError(t, internalSyncer.Close(ctx))
 
-		store, err := dotc1z.NewStore(ctx, internalC1zPath)
+		store, err := dotc1z.NewStore(ctx, internalC1zPath, dotc1z.WithReadOnly(true))
 		require.NoError(t, err)
 		defer func() { require.NoError(t, store.Close(ctx)) }()
 
@@ -436,7 +436,7 @@ func TestFreshIngestFilterInsertResourceGrantsResourceInserts(t *testing.T) {
 	require.NoError(t, syncer.Sync(ctx))
 	require.NoError(t, syncer.Close(ctx))
 
-	store, err := dotc1z.NewStore(ctx, c1zPath)
+	store, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close(ctx)) }()
 
@@ -481,7 +481,7 @@ func TestInsertResourceGrantsRejectsReservedBatonIDResource(t *testing.T) {
 	require.ErrorContains(t, syncer.Sync(ctx), "SDK-reserved BatonID ownership annotation")
 	require.NoError(t, syncer.Close(ctx))
 
-	store, err := dotc1z.NewStore(ctx, c1zPath)
+	store, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close(ctx)) }()
 	drives, err := store.ListResources(ctx,
@@ -561,7 +561,7 @@ func TestFreshIngestFilterRunsBeforeExclusionGroupValidation(t *testing.T) {
 	require.NoError(t, syncer.Sync(ctx))
 	require.NoError(t, syncer.Close(ctx))
 
-	store, err := dotc1z.NewStore(ctx, c1zPath)
+	store, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close(ctx)) }()
 
@@ -797,7 +797,7 @@ func TestFreshIngestFilterHandlesMultiPageResourceTypes(t *testing.T) {
 	require.NoError(t, syncer.Sync(ctx))
 	require.NoError(t, syncer.Close(ctx))
 
-	store, err := dotc1z.NewStore(ctx, c1zPath)
+	store, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close(ctx)) }()
 
