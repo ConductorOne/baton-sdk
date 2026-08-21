@@ -131,3 +131,13 @@ func TestUserTrait(t *testing.T) {
 	require.Equal(t, ut.GetEmails()[1].GetAddress(), "bob@example.com")
 	require.Equal(t, v2.UserTrait_ACCOUNT_TYPE_SERVICE, ut.GetAccountType())
 }
+
+func TestUserTraitInvitationAccountType(t *testing.T) {
+	ut, err := NewUserTrait(
+		WithEmail("invitee@example.com", true),
+		WithAccountType(v2.UserTrait_ACCOUNT_TYPE_INVITATION),
+	)
+	require.NoError(t, err)
+	require.Equal(t, v2.UserTrait_ACCOUNT_TYPE_INVITATION, ut.GetAccountType())
+	require.NoError(t, ut.ValidateAll())
+}
