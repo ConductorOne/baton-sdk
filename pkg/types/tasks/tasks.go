@@ -102,6 +102,7 @@ const (
 	ActionGetSchemaType
 	ActionInvokeType
 	ActionStatusType
+	_ // was CreateSyncDiff; placeholder pins the ordinals below to their released values
 	ListStaticEntitlementsType
 	IssueCredentialType
 )
