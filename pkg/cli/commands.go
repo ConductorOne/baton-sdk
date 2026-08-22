@@ -52,6 +52,15 @@ const (
 // value to redirect logging to the Windows event log.
 type eventLogEnabledKey struct{}
 
+// logRotationContextKey carries the configured --log-max-size-mb/
+// --log-max-backups values on the context, mirroring eventLogEnabledKey.
+// This is required because the Windows service re-initializes its logger
+// from batonService.Execute (see service_windows.go), which only has the
+// context to work with - not the original viper flags - so the settings
+// have to be relayed through it to apply rotation to the service's default
+// baton.log.
+type logRotationContextKey struct{}
+
 type ContrainstSetter func(*cobra.Command, field.Configuration) error
 
 // In one shot & service mode, the child process uses this client to connect to the session store server...
@@ -131,9 +140,19 @@ func MakeMainCommand[T field.Configurable](
 		if len(logPaths) > 0 {
 			logOpts = append(logOpts, logging.WithOutputPaths(logPaths))
 		}
+
+		rotateMaxSizeMB := v.GetInt("log-max-size-mb")
+		rotateMaxBackups := v.GetInt("log-max-backups")
+
 		loggerCtx := ctx
 		if v.GetBool(field.LogEventLogFieldName) {
 			loggerCtx = context.WithValue(loggerCtx, eventLogEnabledKey{}, true)
+		}
+		if rotateMaxSizeMB > 0 {
+			loggerCtx = context.WithValue(loggerCtx, logRotationContextKey{}, logging.RotationConfig{
+				MaxSizeMB:  rotateMaxSizeMB,
+				MaxBackups: rotateMaxBackups,
+			})
 		}
 		runCtx, err := initLogger(
 			loggerCtx,
@@ -557,6 +576,17 @@ func MakeGRPCServerCommand[T field.Configurable](
 			return err
 		}
 
+		// The child process deliberately configures neither log-path nor
+		// rotation, even though it inherits those flags: only one process may own
+		// rotation for a file, or the two rename the active log out from under
+		// each other. On a CLI run the child's stderr is the parent's, so nothing is
+		// lost - but on a Windows service the child is spawned with
+		// cmd.Stderr = os.Stderr (internal/connector/connector.go) and the SCM
+		// discards a service's stderr, so the child owning no sink means its
+		// entire diagnostic output (every grpc.service annotation included) is
+		// silently dropped today. That gap needs a design decision (its own
+		// file, copy-truncate rotation, or refusing rotation onto a redirected
+		// stderr) and is tracked separately, not fixed here.
 		runCtx, err := initLogger(
 			ctx,
 			name,
