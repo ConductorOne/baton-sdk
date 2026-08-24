@@ -341,3 +341,61 @@ func TestAttachedCompactorRequiresFinishedSync(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no finished compactable sync found in applied")
 }
+
+// TestAttachedCompactorIgnoresLegacyDiffSyncTypes pins the type allowlist in
+// latestFinishedCompactableSync (full / resources_only / partial). The test
+// above only proves an UNFINISHED sync is rejected — it would stay green if
+// the allowlist were widened to SyncTypeAny. Here the applied file holds a
+// FINISHED sync whose sync_type is the removed diff type partial_upserts
+// (rewritten via raw SQL, since StartNewSync no longer accepts it — the
+// shape an old SDK's diff writer left behind). Admitting such a row would
+// compact one side of a delta as if it were a snapshot, so selection must
+// skip it and fail loudly rather than fall back to it.
+func TestAttachedCompactorIgnoresLegacyDiffSyncTypes(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+
+	opts := []dotc1z.C1ZOption{
+		dotc1z.WithTmpDir(tmpDir),
+	}
+
+	// Base DB with a finished full sync.
+	baseDB, err := dotc1z.NewC1ZFile(ctx, filepath.Join(tmpDir, "base.c1z"), opts...)
+	require.NoError(t, err)
+	defer baseDB.Close(ctx)
+
+	_, err = baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, baseDB.EndSync(ctx))
+
+	// Applied DB: one finished sync, rewritten to the legacy diff type.
+	appliedFile := filepath.Join(tmpDir, "applied.c1z")
+	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
+	require.NoError(t, err)
+
+	_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, appliedDB.EndSync(ctx))
+
+	res, err := rawAttachedSQLiteDBForTest(t, appliedDB).ExecContext(ctx,
+		"UPDATE v1_sync_runs SET sync_type = 'partial_upserts'")
+	require.NoError(t, err)
+	n, err := res.RowsAffected()
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n, "exactly the one finished sync must be rewritten")
+
+	require.NoError(t, appliedDB.Close(ctx))
+
+	readOnlyOpts := append(slices.Clone(opts), dotc1z.WithReadOnly(true))
+	appliedDB, err = dotc1z.NewC1ZFile(ctx, appliedFile, readOnlyOpts...)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, appliedDB.Close(ctx))
+	}()
+
+	compactor, err := NewAttachedCompactor(baseDB, appliedDB)
+	require.NoError(t, err)
+	err = compactor.Compact(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no finished compactable sync found in applied")
+}
