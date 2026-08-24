@@ -49,9 +49,11 @@ type syncRunMetadataReader interface {
 }
 
 // supportsDiffWriter is the optional destination capability for
-// carrying the supports_diff marker over, so a sanitized c1z remains
-// usable wherever the source was (the marker gates `baton
-// rollback-expansion`).
+// carrying the supports_diff marker over. Despite the name, this has
+// nothing to do with diff syncs (that feature was removed): supports_diff
+// is a historically-named sync_runs column that means "grant expansion
+// ran on this sync", and its only remaining consumer is
+// `baton rollback-expansion`, which refuses syncs without it.
 type supportsDiffWriter interface {
 	SetSupportsDiff(ctx context.Context, syncID string) error
 }
@@ -665,10 +667,13 @@ func phaseRank(p string) int {
 
 // preserveSupportsDiffMarkers carries the supports_diff marker — the one
 // sync-run metadata field the proto reader surface cannot express — from
-// src runs to their dst counterparts, so `baton rollback-expansion` keeps
-// working on the sanitized copy. Both sides are optional capabilities:
-// when either store lacks them, the copy is skipped with a log line and
-// the output remains valid, just without the marker.
+// src runs to their dst counterparts. The marker is unrelated to the
+// removed diff-sync feature despite its historical name: it records that
+// grant expansion ran, and dropping it would silently turn
+// `baton rollback-expansion` into ErrSyncNotExpanded on the sanitized
+// copy. Both sides are optional capabilities: when either store lacks
+// them, the copy is skipped with a log line and the output remains
+// valid, just without the marker.
 func (s *sanitizer) preserveSupportsDiffMarkers(ctx context.Context, src connectorstore.Reader, dst connectorstore.Writer) error {
 	mr, ok := src.(syncRunMetadataReader)
 	if !ok {
