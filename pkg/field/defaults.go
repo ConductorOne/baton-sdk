@@ -136,25 +136,6 @@ var (
 		WithDescription("The resource type IDs to sync"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone))
-	diffSyncsField = BoolField(
-		"diff-syncs",
-		WithDescription("Create a new partial SyncID from a base and applied sync."),
-		WithHidden(true),
-		WithPersistent(true),
-		WithExportTarget(ExportTargetNone),
-	)
-	diffSyncsBaseSyncField = StringField("base-sync-id",
-		WithDescription("The base sync to diff from."),
-		WithHidden(true),
-		WithPersistent(true),
-		WithExportTarget(ExportTargetNone),
-	)
-	diffSyncsAppliedSyncField = StringField("applied-sync-id",
-		WithDescription("The sync to show diffs when applied to the base sync."),
-		WithHidden(true),
-		WithPersistent(true),
-		WithExportTarget(ExportTargetNone),
-	)
 
 	compactSyncsField = BoolField("compact-syncs",
 		WithDescription("Provide a list of sync files to compact into a single c1z file and sync ID."),
@@ -439,9 +420,6 @@ var DefaultFields = append([]SchemaField{
 	externalResourceEntitlementIdFilter,
 	externalResourceTraitsField,
 	KeepPreviousSyncC1ZField,
-	diffSyncsField,
-	diffSyncsBaseSyncField,
-	diffSyncsAppliedSyncField,
 	compactSyncIDsField,
 	compactFilePathsField,
 	compactOutputDirectoryField,

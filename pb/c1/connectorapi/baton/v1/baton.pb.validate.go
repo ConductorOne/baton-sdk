@@ -842,47 +842,6 @@ func (m *Task) validate(all bool) error {
 			}
 		}
 
-	case *Task_CreateSyncDiff:
-		if v == nil {
-			err := TaskValidationError{
-				field:  "TaskType",
-				reason: "oneof value cannot be a typed-nil",
-			}
-			if !all {
-				return err
-			}
-			errors = append(errors, err)
-		}
-
-		if all {
-			switch v := interface{}(m.GetCreateSyncDiff()).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, TaskValidationError{
-						field:  "CreateSyncDiff",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, TaskValidationError{
-						field:  "CreateSyncDiff",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(m.GetCreateSyncDiff()).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return TaskValidationError{
-					field:  "CreateSyncDiff",
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
 	case *Task_CompactSyncs_:
 		if v == nil {
 			err := TaskValidationError{

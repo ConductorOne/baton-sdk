@@ -40,24 +40,20 @@ import (
 )
 
 // syncRunMetadataReader is the optional source capability for reading
-// sync-run rows with the linkage fields the gRPC reader surface does
-// not carry (linked_sync_id, supports_diff). *dotc1z.C1File implements
-// it; sources without it skip graph-metadata preservation with a log
-// line rather than failing the run.
+// sync-run rows with the metadata fields the gRPC reader surface does
+// not carry (supports_diff). *dotc1z.C1File implements it; sources
+// without it skip metadata preservation with a log line rather than
+// failing the run.
 type syncRunMetadataReader interface {
 	ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*c1zstore.SyncRun, string, error)
 }
 
-// syncLinkWriter is the optional destination capability for pairing
-// diff syncs (partial_upserts <-> partial_deletions) after both runs
-// exist.
-type syncLinkWriter interface {
-	SetSyncLink(ctx context.Context, syncID string, linkedSyncID string) error
-}
-
 // supportsDiffWriter is the optional destination capability for
-// carrying the supports_diff marker over, so a sanitized c1z remains
-// usable as a diff input wherever the source was.
+// carrying the supports_diff marker over. Despite the name, this has
+// nothing to do with diff syncs (that feature was removed): supports_diff
+// is a historically-named sync_runs column that means "grant expansion
+// ran on this sync", and its only remaining consumer is
+// `baton rollback-expansion`, which refuses syncs without it.
 type supportsDiffWriter interface {
 	SetSupportsDiff(ctx context.Context, syncID string) error
 }
@@ -211,8 +207,8 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 		}
 	}
 
-	if err := s.preserveSyncGraphMetadata(ctx, src, dst); err != nil {
-		return fmt.Errorf("c1zsanitize: preserve sync graph metadata: %w", err)
+	if err := s.preserveSupportsDiffMarkers(ctx, src, dst); err != nil {
+		return fmt.Errorf("c1zsanitize: preserve supports_diff markers: %w", err)
 	}
 
 	s.completed = true
@@ -564,9 +560,7 @@ func (s *sanitizer) sanitizeSync(ctx context.Context, src connectorstore.Reader,
 		if parentSrc := sr.GetParentSyncId(); parentSrc != "" {
 			parentDst = s.syncIDMap[parentSrc]
 			if parentDst == "" {
-				// The parent is not a sync in this c1z — a diff c1z built
-				// by GenerateSyncDiffFromFile records the OTHER file's
-				// base sync id as the pair's parent. HMAC the external
+				// The parent is not a sync in this c1z. HMAC the external
 				// reference instead of dropping it: provenance structure
 				// survives, the raw id does not, and two files sanitized
 				// under the same secret still cross-reference.
@@ -671,22 +665,24 @@ func phaseRank(p string) int {
 	}
 }
 
-// preserveSyncGraphMetadata carries the sync-run linkage the proto
-// reader surface cannot express — the diff pair's bidirectional
-// linked_sync_id and the supports_diff marker — from src runs to their
-// dst counterparts. Both sides are optional capabilities: when either
-// store lacks them, the copy is skipped with a log line and the output
-// remains valid, just without the extra graph metadata.
-func (s *sanitizer) preserveSyncGraphMetadata(ctx context.Context, src connectorstore.Reader, dst connectorstore.Writer) error {
+// preserveSupportsDiffMarkers carries the supports_diff marker — the one
+// sync-run metadata field the proto reader surface cannot express — from
+// src runs to their dst counterparts. The marker is unrelated to the
+// removed diff-sync feature despite its historical name: it records that
+// grant expansion ran, and dropping it would silently turn
+// `baton rollback-expansion` into ErrSyncNotExpanded on the sanitized
+// copy. Both sides are optional capabilities: when either store lacks
+// them, the copy is skipped with a log line and the output remains
+// valid, just without the marker.
+func (s *sanitizer) preserveSupportsDiffMarkers(ctx context.Context, src connectorstore.Reader, dst connectorstore.Writer) error {
 	mr, ok := src.(syncRunMetadataReader)
 	if !ok {
-		s.log.Debug("c1zsanitize: source does not expose sync-run metadata; skipping link/supports_diff preservation")
+		s.log.Debug("c1zsanitize: source does not expose sync-run metadata; skipping supports_diff preservation")
 		return nil
 	}
-	lw, hasLinkWriter := dst.(syncLinkWriter)
-	dw, hasDiffWriter := dst.(supportsDiffWriter)
-	if !hasLinkWriter && !hasDiffWriter {
-		s.log.Debug("c1zsanitize: destination does not expose sync-run metadata writers; skipping link/supports_diff preservation")
+	dw, ok := dst.(supportsDiffWriter)
+	if !ok {
+		s.log.Debug("c1zsanitize: destination does not expose SetSupportsDiff; skipping supports_diff preservation")
 		return nil
 	}
 
@@ -701,14 +697,7 @@ func (s *sanitizer) preserveSyncGraphMetadata(ctx context.Context, src connector
 			if dstID == "" {
 				continue
 			}
-			if run.LinkedSyncID != "" && hasLinkWriter {
-				if dstLinked := s.syncIDMap[run.LinkedSyncID]; dstLinked != "" {
-					if err := lw.SetSyncLink(ctx, dstID, dstLinked); err != nil {
-						return fmt.Errorf("set sync link %s: %w", dstID, err)
-					}
-				}
-			}
-			if run.SupportsDiff && hasDiffWriter {
+			if run.SupportsDiff {
 				if err := dw.SetSupportsDiff(ctx, dstID); err != nil {
 					return fmt.Errorf("set supports_diff %s: %w", dstID, err)
 				}

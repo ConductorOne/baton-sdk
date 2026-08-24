@@ -55,9 +55,9 @@
 //
 // Not a rebuild. The dest store starts as a byte copy of the base
 // input, the output adopts the base sync's id, and each partial's
-// records are streamed into the base keyspace through the engine's
-// keep-newer puts (Put*RecordsIfNewer), which resolve conflicts
-// against incumbents by discovered_at and maintain indexes with point
+// records are streamed into the base keyspace through the raw
+// keep-newer merge (mergeBucketRawIfNewer), which resolves conflicts
+// against incumbents by discovered_at and maintains indexes with point
 // tombstones for overridden records only. Base records are never
 // read, decoded, or rewritten, and the envelope save splices the
 // base's unchanged zstd frames instead of re-encoding them — total

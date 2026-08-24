@@ -352,7 +352,8 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	return ret, nextPageToken, nil
 }
 
-// This is required for sync diffs to work.  Its not much slower.
+// Deterministic marshaling keeps stored blobs byte-comparable across
+// writes (compaction change detection, digests). Its not much slower.
 var protoMarshaler = proto.MarshalOptions{Deterministic: true}
 
 // prepareSingleConnectorObjectRow processes a single message and returns the prepared record.
@@ -424,7 +425,8 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 
 	protoMarshallers := make([]proto.MarshalOptions, numWorkers)
 	for i := range numWorkers {
-		// Deterministic marshaling is required for sync diffs to work.  Its not much slower.
+		// Deterministic marshaling keeps stored blobs byte-comparable
+		// across writes.  Its not much slower.
 		protoMarshallers[i] = proto.MarshalOptions{Deterministic: true}
 	}
 

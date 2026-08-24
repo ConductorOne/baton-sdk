@@ -28,7 +28,7 @@ import (
 //
 //   - Grant operations with expansion-aware semantics, accessed via Grants().
 //   - Sync-run metadata operations, accessed via SyncMeta().
-//   - File-level operations (clone, diff), accessed via FileOps().
+//   - File-level operations (clone), accessed via FileOps().
 //
 // Implementations:
 //
