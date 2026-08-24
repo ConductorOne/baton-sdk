@@ -676,7 +676,11 @@ func (c *Compactor) expandGrantsIncremental(ctx context.Context, newSyncId strin
 		return false, fmt.Errorf("incremental expansion: get sync: %w", err)
 	}
 	syncType := connectorstore.SyncType(syncResp.GetSync().GetSyncType())
-	if _, _, err := c.compactedC1z.StartOrResumeSync(walkCtx, syncType, newSyncId); err != nil {
+	// ResumeSync, never StartOrResumeSync: the merge just produced this sync, so
+	// a failed lookup is an error, not a cue to start a fresh one. On Pebble,
+	// StartOrResumeSync's fallback runs ResetForNewSync, which would wipe
+	// everything the merge wrote.
+	if _, err := c.compactedC1z.ResumeSync(walkCtx, syncType, newSyncId); err != nil {
 		return false, fmt.Errorf("incremental expansion: resume sync: %w", err)
 	}
 
