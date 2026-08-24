@@ -904,7 +904,7 @@ func TestWrapper_WithCacheKeyHeaders_DistinguishesRequests(t *testing.T) {
 		require.NoError(t, err)
 		resp, err := client.Do(req)
 		require.NoError(t, err)
-		resp.Body.Close()
+		defer resp.Body.Close()
 	}
 
 	doWithAuth("token-a")
