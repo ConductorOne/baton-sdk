@@ -23,15 +23,16 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/storage/v3";
 // numbers match v2 to keep translation cheap. Changes to v2 require
 // an explicit mirror update here (no automatic propagation).
 enum SyncType {
-  // 4 and 5 were the diff-sync pair (SYNC_TYPE_PARTIAL_UPSERTS /
-  // SYNC_TYPE_PARTIAL_DELETIONS); diff-sync support was removed and no
-  // file was ever written with them.
-  reserved 4, 5;
-  reserved "SYNC_TYPE_PARTIAL_UPSERTS", "SYNC_TYPE_PARTIAL_DELETIONS";
   SYNC_TYPE_UNSPECIFIED = 0;
   SYNC_TYPE_FULL = 1;
   SYNC_TYPE_PARTIAL = 2;
   SYNC_TYPE_RESOURCES_ONLY = 3;
+  // Deprecated: 4 and 5 were the diff-sync pair; diff-sync support was
+  // removed and nothing produces or consumes them. Kept (rather than
+  // reserved) so the buf breaking policy can keep forbidding enum value
+  // deletion repo-wide.
+  SYNC_TYPE_PARTIAL_UPSERTS = 4 [deprecated = true];
+  SYNC_TYPE_PARTIAL_DELETIONS = 5 [deprecated = true];
 }
 
 // StatusRecord mirrors c1.connector.v2.Status. Field numbers and

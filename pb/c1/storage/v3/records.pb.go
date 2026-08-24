@@ -44,6 +44,15 @@ const (
 	SyncType_SYNC_TYPE_FULL           SyncType = 1
 	SyncType_SYNC_TYPE_PARTIAL        SyncType = 2
 	SyncType_SYNC_TYPE_RESOURCES_ONLY SyncType = 3
+	// Deprecated: 4 and 5 were the diff-sync pair; diff-sync support was
+	// removed and nothing produces or consumes them. Kept (rather than
+	// reserved) so the buf breaking policy can keep forbidding enum value
+	// deletion repo-wide.
+	//
+	// Deprecated: Marked as deprecated in c1/storage/v3/records.proto.
+	SyncType_SYNC_TYPE_PARTIAL_UPSERTS SyncType = 4
+	// Deprecated: Marked as deprecated in c1/storage/v3/records.proto.
+	SyncType_SYNC_TYPE_PARTIAL_DELETIONS SyncType = 5
 )
 
 // Enum value maps for SyncType.
@@ -53,12 +62,16 @@ var (
 		1: "SYNC_TYPE_FULL",
 		2: "SYNC_TYPE_PARTIAL",
 		3: "SYNC_TYPE_RESOURCES_ONLY",
+		4: "SYNC_TYPE_PARTIAL_UPSERTS",
+		5: "SYNC_TYPE_PARTIAL_DELETIONS",
 	}
 	SyncType_value = map[string]int32{
-		"SYNC_TYPE_UNSPECIFIED":    0,
-		"SYNC_TYPE_FULL":           1,
-		"SYNC_TYPE_PARTIAL":        2,
-		"SYNC_TYPE_RESOURCES_ONLY": 3,
+		"SYNC_TYPE_UNSPECIFIED":       0,
+		"SYNC_TYPE_FULL":              1,
+		"SYNC_TYPE_PARTIAL":           2,
+		"SYNC_TYPE_RESOURCES_ONLY":    3,
+		"SYNC_TYPE_PARTIAL_UPSERTS":   4,
+		"SYNC_TYPE_PARTIAL_DELETIONS": 5,
 	}
 )
 
@@ -2911,12 +2924,14 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x1cconnector_config_fingerprint\x18\x03 \x01(\tR\x1aconnectorConfigFingerprint\x12D\n" +
 	"\x1esdk_materialization_generation\x18\x04 \x01(\tR\x1csdkMaterializationGeneration\x12<\n" +
 	"\x1async_selection_fingerprint\x18\x05 \x01(\tR\x18syncSelectionFingerprint:\x1d\x82\xf9+\x19\n" +
-	"\x13source_cache_compat\x12\x02id*\xb2\x01\n" +
+	"\x13source_cache_compat\x12\x02id*\xb6\x01\n" +
 	"\bSyncType\x12\x19\n" +
 	"\x15SYNC_TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSYNC_TYPE_FULL\x10\x01\x12\x15\n" +
 	"\x11SYNC_TYPE_PARTIAL\x10\x02\x12\x1c\n" +
-	"\x18SYNC_TYPE_RESOURCES_ONLY\x10\x03\"\x04\b\x04\x10\x04\"\x04\b\x05\x10\x05*\x19SYNC_TYPE_PARTIAL_UPSERTS*\x1bSYNC_TYPE_PARTIAL_DELETIONSB4Z2github.com/conductorone/baton-sdk/pb/c1/storage/v3b\x06proto3"
+	"\x18SYNC_TYPE_RESOURCES_ONLY\x10\x03\x12!\n" +
+	"\x19SYNC_TYPE_PARTIAL_UPSERTS\x10\x04\x1a\x02\b\x01\x12#\n" +
+	"\x1bSYNC_TYPE_PARTIAL_DELETIONS\x10\x05\x1a\x02\b\x01B4Z2github.com/conductorone/baton-sdk/pb/c1/storage/v3b\x06proto3"
 
 var file_c1_storage_v3_records_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
