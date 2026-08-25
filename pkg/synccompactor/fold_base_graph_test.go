@@ -8,6 +8,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	sdksync "github.com/conductorone/baton-sdk/pkg/sync"
 )
 
@@ -37,20 +38,22 @@ func TestIncrementalFoldReusesCapturedBaseGraph(t *testing.T) {
 		"fixture should take the incremental path")
 	require.NotNil(t, compactor.foldBaseGraph,
 		"the fold must capture the base graph inputs rather than leaving a reopen")
-	require.NotNil(t, compactor.foldBaseGraph.blob,
-		"the base carried a preserved graph, so the captured blob must be populated")
 	require.NotNil(t, compactor.foldBaseGraph.run,
 		"the verification run must be captured before the rename overwrites it")
 	require.True(t, compactor.foldBaseGraph.digestFound,
 		"the grant digest must be captured before the merge rebuilds it")
+	// blob is deliberately released once decoded; that it was captured at all is
+	// what incrementalExpansionRan above proves, since the fast path cannot run
+	// without a decoded graph. captureFromFixture asserts the blob directly.
+	require.Nil(t, compactor.foldBaseGraph.blob,
+		"the decoded blob must be released rather than held through expansion")
 }
 
-// TestIncrementalFoldSurvivesUncapturableBase: the capture is an optimization,
-// not a requirement. A base whose graph inputs cannot be read must still
-// compact — falling back to the reopen path and then to full expansion —
-// rather than failing the run. Enabling a performance flag must never turn a
-// compaction that previously succeeded into one that errors.
-func TestIncrementalFoldSurvivesUncapturableBase(t *testing.T) {
+// TestIncrementalFoldSurvivesBaseWithoutGraph: a base carrying no preserved
+// graph must still compact, via full expansion. The capture succeeds here with
+// an empty blob — this pins the artifact-level outcome, not the capture's
+// error handling, which TestLoadIncrementalBaseGraphReopensWithoutCapture covers.
+func TestIncrementalFoldSurvivesBaseWithoutGraph(t *testing.T) {
 	ctx := context.Background()
 	entries := buildIncrementalFixtures(t, ctx, t.TempDir())
 
@@ -77,6 +80,63 @@ func TestIncrementalFoldSurvivesUncapturableBase(t *testing.T) {
 	require.NotNil(t, out)
 	require.False(t, compactor.incrementalExpansionRan,
 		"no base graph means full expansion, not the fast path")
+}
+
+// TestLoadIncrementalBaseGraphReopensWithoutCapture pins the fallback the
+// capture's doc comment promises: when captureFoldBaseGraph left nothing behind
+// — a failed read, or a rebuild-mode run that never folded — the base is
+// reopened and the graph still loads. This is the guarantee that keeps a failed
+// capture from costing a compaction.
+func TestLoadIncrementalBaseGraphReopensWithoutCapture(t *testing.T) {
+	ctx := context.Background()
+	entries := buildIncrementalFixtures(t, ctx, t.TempDir())
+
+	compactor, cleanup, err := NewCompactor(ctx, t.TempDir(), entries,
+		WithTmpDir(t.TempDir()),
+		WithEngine(c1zstore.EnginePebble),
+		WithIncrementalExpansion(),
+	)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, cleanup()) }()
+
+	require.Nil(t, compactor.foldBaseGraph, "no fold has run yet")
+
+	graph, err := compactor.loadIncrementalBaseGraph(ctx)
+	require.NoError(t, err, "an absent capture must reopen the base, not fail")
+	require.NotNil(t, graph, "the base's preserved graph must load via the reopen path")
+	require.NoError(t, graph.ValidateCompleted())
+}
+
+// TestCaptureFoldBaseGraphLeavesNothingOnReadFailure pins the capture's error
+// handling itself: a failed read must leave c.foldBaseGraph nil so
+// loadIncrementalBaseGraph reopens the base, rather than storing a half-built
+// capture or failing the fold. A cancelled context stands in for any read error
+// — the sidecar and digest reads both check ctx.Err() first.
+func TestCaptureFoldBaseGraphLeavesNothingOnReadFailure(t *testing.T) {
+	ctx := context.Background()
+	entries := buildIncrementalFixtures(t, ctx, t.TempDir())
+
+	store, err := dotc1z.NewStore(ctx, entries[0].FilePath,
+		dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close(ctx)) }()
+
+	destEng, ok := enginepkg.AsEngine(store)
+	require.True(t, ok)
+
+	c := &Compactor{compactedC1z: store, entries: entries, incrementalExpansion: true}
+
+	// Sanity: the same call on a live context does populate the capture, so the
+	// assertion below is about the failure, not a broken fixture.
+	c.captureFoldBaseGraph(ctx, destEng)
+	require.NotNil(t, c.foldBaseGraph)
+
+	c.foldBaseGraph = nil
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	c.captureFoldBaseGraph(cancelled, destEng)
+	require.Nil(t, c.foldBaseGraph,
+		"a failed read must leave no capture, so the reopen path takes over")
 }
 
 // TestFoldBaseGraphCaptureDeclines: the captured path must apply the same

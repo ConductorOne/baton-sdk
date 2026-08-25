@@ -71,6 +71,10 @@ type Compactor struct {
 	// its merge and rename invalidated them. Nil when no fold ran, so
 	// loadIncrementalBaseGraph falls back to reopening the base artifact.
 	foldBaseGraph *foldBaseGraphCapture
+	// disableFoldBaseGraphCapture forces the reopen path even in fold mode, so
+	// the benchmark can price the base extraction this capture removes. Same
+	// role as incrementalTestHook: production compactions leave it false.
+	disableFoldBaseGraphCapture bool
 	// engine selects the storage engine for the compacted output.
 	// Empty means "follow the inputs": Compact resolves it via
 	// inferEngineFromInputs (any Pebble input → Pebble, all-SQLite →
@@ -1413,6 +1417,10 @@ func (c *Compactor) loadIncrementalBaseGraph(ctx context.Context) (*expand.Entit
 	// here would extract the whole base c1z a second time for one blob.
 	if c.foldBaseGraph != nil {
 		graph, err := c.foldBaseGraph.baseGraph(c.entries[0].SyncID)
+		// The serialized copy is dead once decoded. Release it before the walk,
+		// which is the memory-heaviest phase — the reopen path below drops it at
+		// the same point by closing the store.
+		c.foldBaseGraph.blob = nil
 		if err != nil {
 			return nil, err
 		}

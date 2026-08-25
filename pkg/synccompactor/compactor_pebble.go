@@ -486,7 +486,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// base: the merge rebuilds the grant digest and the rename overwrites the
 	// sync run record. Otherwise expansion re-extracts the whole base c1z later
 	// to read one blob we already have open.
-	if c.incrementalExpansion {
+	if c.incrementalExpansion && !c.skipGrantExpansion && !c.disableFoldBaseGraphCapture {
 		c.captureFoldBaseGraph(ctx, destEng)
 	}
 
@@ -1323,6 +1323,9 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 // loadIncrementalBaseGraph reopens the base as it always did — slower, but the
 // compaction still finishes. Erroring here would let a speed-only flag break
 // compactions that used to succeed.
+//
+// Callers skip this entirely when grant expansion will not run, so a
+// skip-expansion compaction does not read and hold a graph nothing consumes.
 func (c *Compactor) captureFoldBaseGraph(ctx context.Context, destEng *enginepkg.Engine) {
 	l := ctxzap.Extract(ctx)
 	capture := &foldBaseGraphCapture{}
