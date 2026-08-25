@@ -460,6 +460,9 @@ message Status {
     RESOURCE_STATUS_ENABLED = 1;
     RESOURCE_STATUS_DISABLED = 2;
     RESOURCE_STATUS_DELETED = 3;
+    // Account creation was initiated but the account is not yet usable, such
+    // as an invitation that has not been accepted.
+    RESOURCE_STATUS_PENDING = 4;
   }
   ResourceStatus status = 1 [(validate.rules).enum = {defined_only: true}];
   // Status details, such as "locked by admin" or "deleted by user X".

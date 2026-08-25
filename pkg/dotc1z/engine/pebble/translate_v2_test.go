@@ -197,3 +197,23 @@ func TestGrantSourcesRoundtrip(t *testing.T) {
 	require.Len(t, back.GetSources().GetSources(), 2, "source count v2 roundtrip")
 	require.True(t, back.GetSources().GetSources()["direct-source"].GetIsDirect(), "roundtrip direct-source.is_direct should be true")
 }
+
+func TestV2ResourceStatusPendingRoundtrip(t *testing.T) {
+	original := v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: "user",
+			Resource:     "alice",
+		}.Build(),
+		Status: v2.Status_builder{
+			Status:  v2.Status_RESOURCE_STATUS_PENDING,
+			Details: "invitation not accepted",
+		}.Build(),
+	}.Build()
+
+	v3rec := V2ResourceToV3("sync-1", original)
+	require.Equal(t, v3.StatusRecord_RESOURCE_STATUS_PENDING, v3rec.GetStatus().GetStatus(), "status")
+
+	back := V3ResourceToV2(v3rec)
+	require.Equal(t, v2.Status_RESOURCE_STATUS_PENDING, back.GetStatus().GetStatus(), "roundtrip status")
+	require.Equal(t, "invitation not accepted", back.GetStatus().GetDetails(), "roundtrip status details")
+}

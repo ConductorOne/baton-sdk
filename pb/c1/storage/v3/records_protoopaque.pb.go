@@ -104,6 +104,7 @@ const (
 	StatusRecord_RESOURCE_STATUS_ENABLED     StatusRecord_ResourceStatus = 1
 	StatusRecord_RESOURCE_STATUS_DISABLED    StatusRecord_ResourceStatus = 2
 	StatusRecord_RESOURCE_STATUS_DELETED     StatusRecord_ResourceStatus = 3
+	StatusRecord_RESOURCE_STATUS_PENDING     StatusRecord_ResourceStatus = 4
 )
 
 // Enum value maps for StatusRecord_ResourceStatus.
@@ -113,12 +114,14 @@ var (
 		1: "RESOURCE_STATUS_ENABLED",
 		2: "RESOURCE_STATUS_DISABLED",
 		3: "RESOURCE_STATUS_DELETED",
+		4: "RESOURCE_STATUS_PENDING",
 	}
 	StatusRecord_ResourceStatus_value = map[string]int32{
 		"RESOURCE_STATUS_UNSPECIFIED": 0,
 		"RESOURCE_STATUS_ENABLED":     1,
 		"RESOURCE_STATUS_DISABLED":    2,
 		"RESOURCE_STATUS_DELETED":     3,
+		"RESOURCE_STATUS_PENDING":     4,
 	}
 )
 
@@ -2630,15 +2633,16 @@ var File_c1_storage_v3_records_proto protoreflect.FileDescriptor
 
 const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\n" +
-	"\x1bc1/storage/v3/records.proto\x12\rc1.storage.v3\x1a\x1bc1/storage/v3/options.proto\x1a\x18c1/storage/v3/refs.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf8\x01\n" +
+	"\x1bc1/storage/v3/records.proto\x12\rc1.storage.v3\x1a\x1bc1/storage/v3/options.proto\x1a\x18c1/storage/v3/refs.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x95\x02\n" +
 	"\fStatusRecord\x12B\n" +
 	"\x06status\x18\x01 \x01(\x0e2*.c1.storage.v3.StatusRecord.ResourceStatusR\x06status\x12\x18\n" +
-	"\adetails\x18\x02 \x01(\tR\adetails\"\x89\x01\n" +
+	"\adetails\x18\x02 \x01(\tR\adetails\"\xa6\x01\n" +
 	"\x0eResourceStatus\x12\x1f\n" +
 	"\x1bRESOURCE_STATUS_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17RESOURCE_STATUS_ENABLED\x10\x01\x12\x1c\n" +
 	"\x18RESOURCE_STATUS_DISABLED\x10\x02\x12\x1b\n" +
-	"\x17RESOURCE_STATUS_DELETED\x10\x03\"\x86\x01\n" +
+	"\x17RESOURCE_STATUS_DELETED\x10\x03\x12\x1b\n" +
+	"\x17RESOURCE_STATUS_PENDING\x10\x04\"\x86\x01\n" +
 	"\x15GrantExpandableRecord\x12'\n" +
 	"\x0fentitlement_ids\x18\x01 \x03(\tR\x0eentitlementIds\x12\x18\n" +
 	"\ashallow\x18\x02 \x01(\bR\ashallow\x12*\n" +

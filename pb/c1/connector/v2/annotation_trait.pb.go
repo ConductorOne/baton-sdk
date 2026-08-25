@@ -80,6 +80,9 @@ const (
 	UserTrait_Status_STATUS_ENABLED     UserTrait_Status_Status = 1
 	UserTrait_Status_STATUS_DISABLED    UserTrait_Status_Status = 2
 	UserTrait_Status_STATUS_DELETED     UserTrait_Status_Status = 3
+	// Account creation was initiated but the account is not yet usable, such
+	// as an invitation that has not been accepted.
+	UserTrait_Status_STATUS_PENDING UserTrait_Status_Status = 4
 )
 
 // Enum value maps for UserTrait_Status_Status.
@@ -89,12 +92,14 @@ var (
 		1: "STATUS_ENABLED",
 		2: "STATUS_DISABLED",
 		3: "STATUS_DELETED",
+		4: "STATUS_PENDING",
 	}
 	UserTrait_Status_Status_value = map[string]int32{
 		"STATUS_UNSPECIFIED": 0,
 		"STATUS_ENABLED":     1,
 		"STATUS_DISABLED":    2,
 		"STATUS_DELETED":     3,
+		"STATUS_PENDING":     4,
 	}
 )
 
@@ -2957,7 +2962,7 @@ var File_c1_connector_v2_annotation_trait_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\n" +
-	"&c1/connector/v2/annotation_trait.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x17validate/validate.proto\"\x9d\v\n" +
+	"&c1/connector/v2/annotation_trait.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x17validate/validate.proto\"\xb1\v\n" +
 	"\tUserTrait\x128\n" +
 	"\x06emails\x18\x01 \x03(\v2 .c1.connector.v2.UserTrait.EmailR\x06emails\x12=\n" +
 	"\x06status\x18\x02 \x01(\v2!.c1.connector.v2.UserTrait.StatusB\x02\x18\x01R\x06status\x125\n" +
@@ -2980,16 +2985,17 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\x05Email\x12!\n" +
 	"\aaddress\x18\x01 \x01(\tB\a\xfaB\x04r\x02`\x01R\aaddress\x12\x1d\n" +
 	"\n" +
-	"is_primary\x18\x02 \x01(\bR\tisPrimary\x1a\xdc\x01\n" +
+	"is_primary\x18\x02 \x01(\bR\tisPrimary\x1a\xf0\x01\n" +
 	"\x06Status\x12J\n" +
 	"\x06status\x18\x01 \x01(\x0e2(.c1.connector.v2.UserTrait.Status.StatusB\b\xfaB\x05\x82\x01\x02\x10\x01R\x06status\x12'\n" +
 	"\adetails\x18\x02 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\b\xd0\x01\x01R\adetails\"]\n" +
+	"r\b \x01(\x80\b\xd0\x01\x01R\adetails\"q\n" +
 	"\x06Status\x12\x16\n" +
 	"\x12STATUS_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSTATUS_ENABLED\x10\x01\x12\x13\n" +
 	"\x0fSTATUS_DISABLED\x10\x02\x12\x12\n" +
-	"\x0eSTATUS_DELETED\x10\x03\x1a,\n" +
+	"\x0eSTATUS_DELETED\x10\x03\x12\x12\n" +
+	"\x0eSTATUS_PENDING\x10\x04\x1a,\n" +
 	"\tMFAStatus\x12\x1f\n" +
 	"\vmfa_enabled\x18\x01 \x01(\bR\n" +
 	"mfaEnabled\x1a,\n" +

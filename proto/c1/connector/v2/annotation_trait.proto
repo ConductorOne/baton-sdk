@@ -25,6 +25,9 @@ message UserTrait {
       STATUS_ENABLED = 1;
       STATUS_DISABLED = 2;
       STATUS_DELETED = 3;
+      // Account creation was initiated but the account is not yet usable, such
+      // as an invitation that has not been accepted.
+      STATUS_PENDING = 4;
     }
     Status status = 1 [(validate.rules).enum = {defined_only: true}];
     string details = 2 [(validate.rules).string = {

@@ -198,6 +198,9 @@ const (
 	Status_RESOURCE_STATUS_ENABLED     Status_ResourceStatus = 1
 	Status_RESOURCE_STATUS_DISABLED    Status_ResourceStatus = 2
 	Status_RESOURCE_STATUS_DELETED     Status_ResourceStatus = 3
+	// Account creation was initiated but the account is not yet usable, such
+	// as an invitation that has not been accepted.
+	Status_RESOURCE_STATUS_PENDING Status_ResourceStatus = 4
 )
 
 // Enum value maps for Status_ResourceStatus.
@@ -207,12 +210,14 @@ var (
 		1: "RESOURCE_STATUS_ENABLED",
 		2: "RESOURCE_STATUS_DISABLED",
 		3: "RESOURCE_STATUS_DELETED",
+		4: "RESOURCE_STATUS_PENDING",
 	}
 	Status_ResourceStatus_value = map[string]int32{
 		"RESOURCE_STATUS_UNSPECIFIED": 0,
 		"RESOURCE_STATUS_ENABLED":     1,
 		"RESOURCE_STATUS_DISABLED":    2,
 		"RESOURCE_STATUS_DELETED":     3,
+		"RESOURCE_STATUS_PENDING":     4,
 	}
 )
 
@@ -6187,16 +6192,17 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x0eCreationSource\x12\x1f\n" +
 	"\x1bCREATION_SOURCE_UNSPECIFIED\x10\x00\x12,\n" +
 	"(CREATION_SOURCE_CONNECTOR_LIST_RESOURCES\x10\x01\x127\n" +
-	"3CREATION_SOURCE_CONNECTOR_LIST_GRANTS_PRINCIPAL_JIT\x10\x02\"\x87\x02\n" +
+	"3CREATION_SOURCE_CONNECTOR_LIST_GRANTS_PRINCIPAL_JIT\x10\x02\"\xa4\x02\n" +
 	"\x06Status\x12H\n" +
 	"\x06status\x18\x01 \x01(\x0e2&.c1.connector.v2.Status.ResourceStatusB\b\xfaB\x05\x82\x01\x02\x10\x01R\x06status\x12'\n" +
 	"\adetails\x18\x02 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\b\xd0\x01\x01R\adetails\"\x89\x01\n" +
+	"r\b \x01(\x80\b\xd0\x01\x01R\adetails\"\xa6\x01\n" +
 	"\x0eResourceStatus\x12\x1f\n" +
 	"\x1bRESOURCE_STATUS_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17RESOURCE_STATUS_ENABLED\x10\x01\x12\x1c\n" +
 	"\x18RESOURCE_STATUS_DISABLED\x10\x02\x12\x1b\n" +
-	"\x17RESOURCE_STATUS_DELETED\x10\x03\"\xb5\x03\n" +
+	"\x17RESOURCE_STATUS_DELETED\x10\x03\x12\x1b\n" +
+	"\x17RESOURCE_STATUS_PENDING\x10\x04\"\xb5\x03\n" +
 	"$ResourcesServiceListResourcesRequest\x124\n" +
 	"\x10resource_type_id\x18\x01 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\x0eresourceTypeId\x12S\n" +
