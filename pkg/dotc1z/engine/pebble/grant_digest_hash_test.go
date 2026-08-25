@@ -12,9 +12,18 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
+
+// testSrcFact is one (source-entitlement id, is_direct) pair used to
+// build sources maps in the tests below — the test-side mirror of
+// grantSourceFact.
+type testSrcFact struct {
+	id     string
+	direct bool
+}
 
 // The seal-time digest build never decodes anything: the hash-index key
 // is spliced out of the grant primary key, the bucket hash is computed
@@ -31,15 +40,21 @@ func TestGrantDigestSpliceMatchesEncode(t *testing.T) {
 		name                 string
 		entRT, entRID, entID string
 		prt, pid, ext        string
-		srcs                 []string
+		immutable            bool
+		srcs                 []testSrcFact
 	}{
 		{name: "plain opaque ent id", entRT: "app", entRID: "github", entID: "ent-1", prt: "user", pid: "user-42", ext: "grant-1"},
 		{name: "stripped ent id", entRT: "app", entRID: "github", entID: "app:github:member", prt: "user", pid: "user-42", ext: "app:github:member:user:user-42"},
-		{name: "sources", entRT: "app", entRID: "github", entID: "ent-1", prt: "user", pid: "user-42", ext: "g", srcs: []string{"c-src", "a-src", "b-src"}},
-		{name: "embedded NUL", entRT: "a\x00pp", entRID: "git\x00hub", entID: "ent\x00x", prt: "us\x00er", pid: "id\x00", ext: "g", srcs: []string{"s\x00rc", "\x00"}},
-		{name: "escape byte", entRT: "a\x01pp", entRID: "hub", entID: "ent\x01x", prt: "us\x01er", pid: "\x01id", ext: "g", srcs: []string{"\x01", "\x00"}},
+		{name: "sources", entRT: "app", entRID: "github", entID: "ent-1", prt: "user", pid: "user-42", ext: "g", srcs: []testSrcFact{{"c-src", true}, {"a-src", false}, {"b-src", true}}},
+		{name: "immutable, no sources", entRT: "app", entRID: "github", entID: "ent-1", prt: "user", pid: "user-42", ext: "g", immutable: true},
+		{
+			name: "immutable with sources", entRT: "app", entRID: "github", entID: "ent-1", prt: "user", pid: "user-42", ext: "g",
+			immutable: true, srcs: []testSrcFact{{"c-src", false}, {"a-src", true}},
+		},
+		{name: "embedded NUL", entRT: "a\x00pp", entRID: "git\x00hub", entID: "ent\x00x", prt: "us\x00er", pid: "id\x00", ext: "g", srcs: []testSrcFact{{"s\x00rc", true}, {"\x00", false}}},
+		{name: "escape byte", entRT: "a\x01pp", entRID: "hub", entID: "ent\x01x", prt: "us\x01er", pid: "\x01id", ext: "g", srcs: []testSrcFact{{"\x01", false}, {"\x00", true}}},
 		{name: "unicode", entRT: "приложение", entRID: "гитхаб", entID: "entitlé", prt: "usér", pid: "ид-42", ext: "грант"},
-		{name: "duplicate-source keys impossible but sorted singleton", entRT: "app", entRID: "gh", entID: "e", prt: "u", pid: "p", ext: "", srcs: []string{"only"}},
+		{name: "duplicate-source keys impossible but sorted singleton", entRT: "app", entRID: "gh", entID: "e", prt: "u", pid: "p", ext: "", srcs: []testSrcFact{{"only", true}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -58,9 +73,14 @@ func TestGrantDigestSpliceMatchesEncode(t *testing.T) {
 			if len(tc.srcs) > 0 {
 				m := make(map[string]*v3.GrantSourceRecord, len(tc.srcs))
 				for _, s := range tc.srcs {
-					m[s] = v3.GrantSourceRecord_builder{}.Build()
+					m[s.id] = v3.GrantSourceRecord_builder{IsDirect: s.direct}.Build()
 				}
 				rec.SetSources(m)
+			}
+			if tc.immutable {
+				annos := annotations.Annotations(rec.GetAnnotations())
+				annos.Update(&v2.GrantImmutable{})
+				rec.SetAnnotations(annos)
 			}
 
 			id, err := grantIdentityFromRecord(rec)
@@ -89,10 +109,11 @@ func TestGrantDigestSpliceMatchesEncode(t *testing.T) {
 
 			// Content hash from raw key+value bytes == content hash from
 			// the decoded record.
-			srcs, err := scanGrantSourceKeysRawBytes(val, nil)
+			isImmutable, srcs, err := scanGrantContentFactsRawBytes(val, nil)
 			require.NoError(t, err)
-			sortByteSlices(srcs)
-			ch64, _ := grantContentHash64(nil, priKey[grantPrimaryKeyPrefixLen:], srcs)
+			require.Equal(t, tc.immutable, isImmutable, "raw-scanned isImmutable")
+			sortGrantSourceFacts(srcs)
+			ch64, _ := grantContentHash64(nil, priKey[grantPrimaryKeyPrefixLen:], isImmutable, srcs)
 			fromRecord, err := grantContentHashForRecord(rec)
 			require.NoError(t, err)
 			require.Equal(t, fromRecord, binary.BigEndian.AppendUint64(nil, ch64), "content hash: raw scan vs decoded record")
@@ -120,8 +141,19 @@ func TestGrantDigestSpliceMatchesEncode(t *testing.T) {
 }
 
 // grantV2WithSources builds the v2 proto form of a grant for the public
-// hash API, with an optional source-entitlement set.
+// hash API, with an optional source-entitlement set (all indirect,
+// non-immutable) — the common case most tests need.
 func grantV2WithSources(entRT, entRID, entID, prt, pid string, sources ...string) *v2.Grant {
+	facts := make([]testSrcFact, len(sources))
+	for i, s := range sources {
+		facts[i] = testSrcFact{id: s}
+	}
+	return grantV2WithSourceFacts(entRT, entRID, entID, prt, pid, false, facts...)
+}
+
+// grantV2WithSourceFacts is grantV2WithSources's full form: an optional
+// GrantImmutable annotation plus per-source is_direct.
+func grantV2WithSourceFacts(entRT, entRID, entID, prt, pid string, immutable bool, sources ...testSrcFact) *v2.Grant {
 	b := v2.Grant_builder{
 		Id: entID + ":" + prt + ":" + pid,
 		Entitlement: v2.Entitlement_builder{
@@ -143,11 +175,17 @@ func grantV2WithSources(entRT, entRID, entID, prt, pid string, sources ...string
 	if len(sources) > 0 {
 		m := make(map[string]*v2.GrantSources_GrantSource, len(sources))
 		for _, s := range sources {
-			m[s] = v2.GrantSources_GrantSource_builder{}.Build()
+			m[s.id] = v2.GrantSources_GrantSource_builder{IsDirect: s.direct}.Build()
 		}
 		b.Sources = v2.GrantSources_builder{Sources: m}.Build()
 	}
-	return b.Build()
+	g := b.Build()
+	if immutable {
+		annos := annotations.Annotations(g.GetAnnotations())
+		annos.Update(&v2.GrantImmutable{})
+		g.SetAnnotations(annos)
+	}
+	return g
 }
 
 // TestGrantContentHashMatchesRecord pins the public from-v2 form of the
@@ -161,18 +199,21 @@ func TestGrantContentHashMatchesRecord(t *testing.T) {
 		name                 string
 		entRT, entRID, entID string
 		prt, pid             string
-		srcs                 []string
+		immutable            bool
+		srcs                 []testSrcFact
 	}{
 		{name: "plain opaque ent id", entRT: "app", entRID: "github", entID: "ent-1", prt: "user", pid: "user-42"},
 		{name: "stripped ent id", entRT: "app", entRID: "github", entID: "app:github:member", prt: "user", pid: "user-42"},
-		{name: "sources", entRT: "app", entRID: "github", entID: "ent-1", prt: "user", pid: "user-42", srcs: []string{"c-src", "a-src", "b-src"}},
-		{name: "embedded NUL", entRT: "a\x00pp", entRID: "git\x00hub", entID: "ent\x00x", prt: "us\x00er", pid: "id\x00", srcs: []string{"s\x00rc", "\x00"}},
-		{name: "escape byte", entRT: "a\x01pp", entRID: "hub", entID: "ent\x01x", prt: "us\x01er", pid: "\x01id", srcs: []string{"\x01", "\x00"}},
+		{name: "sources", entRT: "app", entRID: "github", entID: "ent-1", prt: "user", pid: "user-42", srcs: []testSrcFact{{"c-src", true}, {"a-src", false}, {"b-src", true}}},
+		{name: "immutable, no sources", entRT: "app", entRID: "github", entID: "ent-1", prt: "user", pid: "user-42", immutable: true},
+		{name: "immutable with sources", entRT: "app", entRID: "github", entID: "ent-1", prt: "user", pid: "user-42", immutable: true, srcs: []testSrcFact{{"c-src", false}, {"a-src", true}}},
+		{name: "embedded NUL", entRT: "a\x00pp", entRID: "git\x00hub", entID: "ent\x00x", prt: "us\x00er", pid: "id\x00", srcs: []testSrcFact{{"s\x00rc", true}, {"\x00", false}}},
+		{name: "escape byte", entRT: "a\x01pp", entRID: "hub", entID: "ent\x01x", prt: "us\x01er", pid: "\x01id", srcs: []testSrcFact{{"\x01", false}, {"\x00", true}}},
 		{name: "unicode", entRT: "приложение", entRID: "гитхаб", entID: "entitlé", prt: "usér", pid: "ид-42"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			g := grantV2WithSources(tc.entRT, tc.entRID, tc.entID, tc.prt, tc.pid, tc.srcs...)
+			g := grantV2WithSourceFacts(tc.entRT, tc.entRID, tc.entID, tc.prt, tc.pid, tc.immutable, tc.srcs...)
 			want, err := grantContentHashForRecord(V2GrantToV3("", g))
 			require.NoError(t, err)
 			got, err := GrantContentHash(g)
@@ -180,6 +221,34 @@ func TestGrantContentHashMatchesRecord(t *testing.T) {
 			require.Equal(t, binary.BigEndian.Uint64(want), got, "public hash vs record reference")
 		})
 	}
+}
+
+// TestGrantContentHashDistinguishesImmutabilityAndDirectness pins the
+// ABI v2 addition (GrantDigestABIVersion): two grants with an identical
+// identity tuple and source-id set, differing only in isImmutable or
+// one source's is_direct, must hash differently. Every other case in
+// this file uses a single fixed value for both, so a framing bug that
+// silently turned either back into a no-op (regressing to v1's blind
+// spot — see grantContentHash64's ABI doc) would otherwise go
+// unnoticed.
+func TestGrantContentHashDistinguishesImmutabilityAndDirectness(t *testing.T) {
+	base := grantV2WithSourceFacts("app", "github", "ent-1", "user", "user-42", false,
+		testSrcFact{"src-a", false}, testSrcFact{"src-b", true})
+	immutable := grantV2WithSourceFacts("app", "github", "ent-1", "user", "user-42", true,
+		testSrcFact{"src-a", false}, testSrcFact{"src-b", true})
+	flippedDirect := grantV2WithSourceFacts("app", "github", "ent-1", "user", "user-42", false,
+		testSrcFact{"src-a", true}, testSrcFact{"src-b", true})
+
+	baseHash, err := GrantContentHash(base)
+	require.NoError(t, err)
+	immutableHash, err := GrantContentHash(immutable)
+	require.NoError(t, err)
+	directHash, err := GrantContentHash(flippedDirect)
+	require.NoError(t, err)
+
+	require.NotEqual(t, baseHash, immutableHash, "isImmutable must change the content hash")
+	require.NotEqual(t, baseHash, directHash, "a source's is_direct must change the content hash")
+	require.NotEqual(t, immutableHash, directHash)
 }
 
 // TestGrantContentHashMissingIdentity pins the error half of the

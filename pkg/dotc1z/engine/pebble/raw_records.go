@@ -1,6 +1,7 @@
 package pebble
 
 import (
+	"bytes"
 	"fmt"
 
 	"google.golang.org/protobuf/encoding/protowire"
@@ -87,60 +88,185 @@ func scanGrantEntitlementResourceTypeRaw(value []byte) ([]byte, error) {
 	return entRT, nil
 }
 
-// scanGrantSourceKeysRawBytes extracts the source-entitlement ID keys
-// from a marshaled GrantRecord without a full unmarshal. Sources are
-// field 9 (map<string, GrantSourceRecord>), encoded as repeated embedded
-// messages each with sub-field 1 = key string. The keys are views
-// borrowed from value (valid only while value's backing bytes are),
-// appended to keys — pass a recycled keys[:0] to reuse its backing
-// array across calls. The seal-time grant digest build calls this once
-// per grant (see appendGrantHashIndexRow).
-func scanGrantSourceKeysRawBytes(value []byte, out [][]byte) ([][]byte, error) {
+// grantImmutableAnnotationTypeName is the c1.connector.v2.GrantImmutable
+// message's fully-qualified name — the tail of its anypb type URL
+// ("type.googleapis.com/c1.connector.v2.GrantImmutable"). Matched by
+// name, never by unmarshaling the annotation payload: existence is the
+// only fact the content hash folds in (see grantContentHash64's ABI doc
+// in grant_digest.go).
+const grantImmutableAnnotationTypeName = "c1.connector.v2.GrantImmutable"
+
+// scanGrantContentFactsRawBytes extracts the two grant-content facts a
+// marshaled GrantRecord's value carries beyond its primary-key identity,
+// in one raw field scan (no proto unmarshal):
+//
+//   - isImmutable: whether `annotations` (field 8, repeated
+//     google.protobuf.Any) carries a GrantImmutable entry, checked
+//     against the tail of the embedded Any's type_url (its own field 1)
+//     without unmarshaling the annotation payload.
+//   - sources: the `sources` map (field 9, map<string, GrantSourceRecord>)
+//     as (key, is_direct) pairs — a map entry is a submessage with
+//     sub-field 1 = key string, sub-field 2 = the GrantSourceRecord
+//     value, whose own field 4 is is_direct.
+//
+// out is a recycled scratch slice (pass out[:0] to reuse its backing
+// array across calls, as the seal-time grant digest build does — see
+// appendGrantHashIndexRow); its key slices are views borrowed from
+// value, valid only while value's backing bytes are. Sources are
+// returned in encounter order, NOT sorted — callers sort by key
+// themselves (sortGrantSourceFacts).
+func scanGrantContentFactsRawBytes(value []byte, out []grantSourceFact) (bool, []grantSourceFact, error) {
+	isImmutable := false
 	for len(value) > 0 {
 		num, typ, n := protowire.ConsumeTag(value)
 		if n < 0 {
-			return nil, protowire.ParseError(n)
+			return false, nil, protowire.ParseError(n)
 		}
 		value = value[n:]
-		if num != 9 {
+		switch num {
+		case 8:
+			if typ != protowire.BytesType {
+				return false, nil, fmt.Errorf("raw record: grant annotations entry has wire type %v", typ)
+			}
+			entry, en := protowire.ConsumeBytes(value)
+			if en < 0 {
+				return false, nil, protowire.ParseError(en)
+			}
+			value = value[en:]
+			if !isImmutable {
+				var err error
+				isImmutable, err = scanAnyEntryIsTypeRaw(entry, grantImmutableAnnotationTypeName)
+				if err != nil {
+					return false, nil, err
+				}
+			}
+		case 9:
+			if typ != protowire.BytesType {
+				return false, nil, fmt.Errorf("raw record: grant sources entry has wire type %v", typ)
+			}
+			entry, en := protowire.ConsumeBytes(value)
+			if en < 0 {
+				return false, nil, protowire.ParseError(en)
+			}
+			value = value[en:]
+			var key []byte
+			var isDirect bool
+			for len(entry) > 0 {
+				eNum, eTyp, ren := protowire.ConsumeTag(entry)
+				if ren < 0 {
+					return false, nil, protowire.ParseError(ren)
+				}
+				entry = entry[ren:]
+				switch {
+				case eNum == 1 && eTyp == protowire.BytesType:
+					k, kn := protowire.ConsumeBytes(entry)
+					if kn < 0 {
+						return false, nil, protowire.ParseError(kn)
+					}
+					key = k
+					entry = entry[kn:]
+				case eNum == 2 && eTyp == protowire.BytesType:
+					v, vn := protowire.ConsumeBytes(entry)
+					if vn < 0 {
+						return false, nil, protowire.ParseError(vn)
+					}
+					var err error
+					isDirect, err = scanGrantSourceRecordIsDirectRaw(v)
+					if err != nil {
+						return false, nil, err
+					}
+					entry = entry[vn:]
+				default:
+					ren = protowire.ConsumeFieldValue(eNum, eTyp, entry)
+					if ren < 0 {
+						return false, nil, protowire.ParseError(ren)
+					}
+					entry = entry[ren:]
+				}
+			}
+			out = append(out, grantSourceFact{key: key, isDirect: isDirect})
+		default:
 			n = protowire.ConsumeFieldValue(num, typ, value)
 			if n < 0 {
-				return nil, protowire.ParseError(n)
+				return false, nil, protowire.ParseError(n)
+			}
+			value = value[n:]
+		}
+	}
+	return isImmutable, out, nil
+}
+
+// scanAnyEntryIsTypeRaw reports whether one serialized google.protobuf.Any
+// entry names typeName, checked against the tail of its type_url (field
+// 1) without unmarshaling the payload (field 2).
+//
+// Stays on []byte throughout and keeps the final string(tail) conversion
+// INLINE in the comparison: the compiler rewrites string(b) == s in that
+// position to a non-allocating alias of b's backing array (OBYTES2STRTMP
+// — safe because a comparison cannot retain its operands). Hoisting the
+// conversion into a local would silently restore a copy, and
+// protowire.ConsumeString is exactly that copy — it heap-allocates for
+// anything over 32 bytes, which every real type URL is. The seal-time
+// digest build calls this once per annotation per grant, and that path
+// must not allocate per row (see grantHashRowScratch).
+func scanAnyEntryIsTypeRaw(entry []byte, typeName string) (bool, error) {
+	for len(entry) > 0 {
+		num, typ, n := protowire.ConsumeTag(entry)
+		if n < 0 {
+			return false, protowire.ParseError(n)
+		}
+		entry = entry[n:]
+		if num != 1 {
+			n = protowire.ConsumeFieldValue(num, typ, entry)
+			if n < 0 {
+				return false, protowire.ParseError(n)
+			}
+			entry = entry[n:]
+			continue
+		}
+		if typ != protowire.BytesType {
+			return false, fmt.Errorf("raw record: any type_url has wire type %v", typ)
+		}
+		url, un := protowire.ConsumeBytes(entry)
+		if un < 0 {
+			return false, protowire.ParseError(un)
+		}
+		name := url
+		if i := bytes.LastIndexByte(url, '/'); i >= 0 {
+			name = url[i+1:]
+		}
+		return string(name) == typeName, nil
+	}
+	return false, nil
+}
+
+// scanGrantSourceRecordIsDirectRaw extracts is_direct (GrantSourceRecord
+// field 4) from one marshaled map-entry value.
+func scanGrantSourceRecordIsDirectRaw(value []byte) (bool, error) {
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return false, protowire.ParseError(n)
+		}
+		value = value[n:]
+		if num != 4 {
+			n = protowire.ConsumeFieldValue(num, typ, value)
+			if n < 0 {
+				return false, protowire.ParseError(n)
 			}
 			value = value[n:]
 			continue
 		}
-		if typ != protowire.BytesType {
-			return nil, fmt.Errorf("raw record: grant sources entry has wire type %v", typ)
+		if typ != protowire.VarintType {
+			return false, fmt.Errorf("raw record: grant source is_direct has wire type %v", typ)
 		}
-		entry, n := protowire.ConsumeBytes(value)
+		v, n := protowire.ConsumeVarint(value)
 		if n < 0 {
-			return nil, protowire.ParseError(n)
+			return false, protowire.ParseError(n)
 		}
-		value = value[n:]
-		for len(entry) > 0 {
-			eNum, eTyp, en := protowire.ConsumeTag(entry)
-			if en < 0 {
-				return nil, protowire.ParseError(en)
-			}
-			entry = entry[en:]
-			if eNum == 1 && eTyp == protowire.BytesType {
-				k, kn := protowire.ConsumeBytes(entry)
-				if kn < 0 {
-					return nil, protowire.ParseError(kn)
-				}
-				out = append(out, k)
-				entry = entry[kn:]
-			} else {
-				en = protowire.ConsumeFieldValue(eNum, eTyp, entry)
-				if en < 0 {
-					return nil, protowire.ParseError(en)
-				}
-				entry = entry[en:]
-			}
-		}
+		return v != 0, nil
 	}
-	return out, nil
+	return false, nil
 }
 
 // scanEntitlementResourceTypeRaw extracts only the entitlement's

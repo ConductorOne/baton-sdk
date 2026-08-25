@@ -72,6 +72,15 @@ type indexMigration struct {
 // bait (unbounded latency and memory at Open on large files); prefer
 // seal-time derivation or explicit rebuild commands over registering
 // one here.
+//
+// GrantDigestABIVersion bumps in particular do NOT belong here: a
+// migration records that it ran once, but old binaries can rewrite
+// digest state afterwards without re-triggering it. The digest ABI is
+// instead enforced by a stamp stored WITH the state
+// (rawdb.GrantDigestABIStampKey, checked every Open by
+// verifyGrantDigestABI), so re-polluted state is re-detected — and the
+// remedy is again a cheap drop plus seal-time rebuild, never an
+// Open-time backfill.
 var indexMigrations []indexMigration
 
 // applyIndexMigrations runs on engine Open (writable opens only —

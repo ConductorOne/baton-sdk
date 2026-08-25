@@ -461,16 +461,16 @@ func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partit
 			droppedMalformedKeys++
 			continue
 		}
-		srcs, serr := scanGrantSourceKeysRawBytes(value, scratch.srcKeys[:0])
+		isImmutable, srcs, serr := scanGrantContentFactsRawBytes(value, scratch.srcKeys[:0])
 		if serr != nil {
 			_ = iter.Close()
 			return serr
 		}
 		scratch.srcKeys = srcs
 		if len(srcs) > 1 {
-			sortByteSlices(srcs)
+			sortGrantSourceFacts(srcs)
 		}
-		ch64, tuple := grantContentHash64(scratch.tupleBuf, key[grantPrimaryKeyPrefixLen:], srcs)
+		ch64, tuple := grantContentHash64(scratch.tupleBuf, key[grantPrimaryKeyPrefixLen:], isImmutable, srcs)
 		scratch.tupleBuf = tuple
 		bh64 := grantPrincipalBucketHash64(key[sep4+1:])
 		scratch.keyBuf = appendGrantHashIndexKeyFromPrimary(scratch.keyBuf[:0], key, sep4, bh64)
@@ -582,6 +582,16 @@ func (e *Engine) recomputeGrantDigestGlobalRootLocked(ctx context.Context) error
 	opts := writeOpts(e.opts.durability)
 	if e.IsFreshSync() {
 		opts = pebble.NoSync
+	}
+	// Re-stamp the ABI with the root. Redundant when the stamp survived
+	// (only full-range deletes remove it, and those remove the roots
+	// this recompute folds too), but writing both here keeps the
+	// invariant locally checkable: every global-root write site
+	// certifies the ABI that produced the state under it. Stamp first —
+	// WAL prefix ordering then guarantees a durable root is never
+	// uncertified.
+	if err := e.db.DigestSet(rawdb.GrantDigestABIStampKey(), grantDigestABIStampValue(), opts); err != nil {
+		return err
 	}
 	if err := e.db.DigestSet(rawdb.GlobalGrantDigestNodeKey(), packDigestLeaf(total, xor[:]), opts); err != nil {
 		return err
