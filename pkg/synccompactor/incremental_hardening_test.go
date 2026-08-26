@@ -126,9 +126,9 @@ func TestIncrementalExpansionOutcomeLogging(t *testing.T) {
 			wantOutcome: "declined", wantReason: "dangling_overflow",
 		},
 		{
-			// Ordinary dangling ids must NOT decline. They are seeded instead,
-			// so a permanently broken reference costs one lookup per run rather
-			// than the fast path forever.
+			// Ordinary dangling ids must NOT decline. The expander prechecks them:
+			// still-missing ids remain recorded without seeding a walk, while ids
+			// that now resolve seed their affected closure.
 			name: "recorded dangling ids still take the fast path",
 			build: func(t *testing.T, ctx context.Context, dir string) []*CompactableSync {
 				entries := buildIncrementalFixtures(t, ctx, dir)

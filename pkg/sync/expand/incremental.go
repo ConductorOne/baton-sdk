@@ -139,10 +139,10 @@ var ErrIncrementalDenseChangeDecline = errors.New("incremental expansion: dense 
 
 // ErrIncrementalDanglingReferenceDecline means the base graph can no longer
 // describe what it skipped — the dangling set overflowed its cap, or an
-// evaluator dropped the edges outright — so seeding those ids cannot make the
-// fast path agree with full expansion. Ordinary dangling references do NOT
-// reach this: they are seeded by id instead, because most are permanent and a
-// blanket decline would disable the fast path for good.
+// evaluator dropped the edges outright — so prechecking the recorded ids cannot
+// make the fast path agree with full expansion. Ordinary dangling references do
+// NOT reach this: still-missing ids remain recorded without seeding a walk, and
+// ids that now resolve seed their affected closure.
 var ErrIncrementalDanglingReferenceDecline = errors.New("incremental expansion: base graph dangling set is not seedable, fall back to full expansion")
 
 const (

@@ -668,11 +668,11 @@ func (c *Compactor) expandGrantsIncremental(ctx context.Context, newSyncId strin
 	if base.HasCollapsedCycles() {
 		return false, expand.ErrIncrementalFallback
 	}
-	// The base's dangling endpoints are seeded below rather than declined, so
-	// a permanently broken reference costs a lookup per run instead of the fast
-	// path forever. Overflow is the exception: the recorded set no longer
-	// describes what was skipped, so seeding cannot make this agree with full
-	// expansion.
+	// The expander prechecks the base's dangling endpoints. Still-missing ids
+	// remain recorded without seeding a walk; ids that now resolve seed the
+	// affected closure. Overflow is the exception: the recorded set no longer
+	// describes everything that was skipped, so incremental expansion cannot
+	// safely agree with full expansion.
 	if base.DanglingOverflow {
 		return false, expand.ErrIncrementalDanglingReferenceDecline
 	}
