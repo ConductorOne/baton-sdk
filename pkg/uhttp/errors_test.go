@@ -19,6 +19,14 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/retry"
 )
 
+// wrapAsTokenRequestError mirrors the shape wrapTransientNetworkError
+// actually receives in production: oauth2.Transport's RoundTrip returns the
+// token-source error unwrapped, and http.Client.Do wraps it in *url.Error
+// before BaseHttpClient.Do ever sees it.
+func wrapAsTokenRequestError(retrieveErr *oauth2.RetrieveError) error {
+	return &url.Error{Op: "Post", URL: "https://example.com/oauth/token", Err: retrieveErr}
+}
+
 func TestWrapTransientNetworkError(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -175,19 +183,71 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			wantMsg:  "http2 client connection lost",
 		},
 		{
-			name: "oauth2 token exchange rejected (401)",
-			err: &oauth2.RetrieveError{
-				Response: &http.Response{StatusCode: http.StatusUnauthorized, Status: "401 Unauthorized"},
-				Body:     []byte(`{"error":"invalid_client"}`),
-			},
+			// Production always delivers *oauth2.RetrieveError wrapped in
+			// *url.Error (http.Client.Do's own wrapping), so this — not a
+			// bare RetrieveError — is the shape the errors.As unwrap in
+			// wrapTransientNetworkError actually has to see through.
+			name: "oauth2 invalid_client (RFC 6749 error param, 401)",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode:        "invalid_client",
+				ErrorDescription: "client authentication failed",
+				Response:         &http.Response{StatusCode: http.StatusUnauthorized, Status: "401 Unauthorized"},
+			}),
 			wantCode: codes.Unauthenticated,
-			wantMsg:  "401 Unauthorized",
+			wantMsg:  "invalid_client: client authentication failed",
 		},
 		{
-			name: "oauth2 token exchange forbidden (403)",
-			err: &oauth2.RetrieveError{
+			// RFC 6749 §5.2 makes 400 the default status for invalid_client/
+			// invalid_grant (401 is only a MAY for invalid_client). Relying on
+			// GrpcCodeFromHTTPStatus(400) alone would produce InvalidArgument
+			// for exactly the credentials-rejected case this exists to catch;
+			// the "error" param must take priority over the HTTP status.
+			name: "oauth2 invalid_client on the RFC default status (400)",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "invalid_client",
+				Response:  &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"},
+			}),
+			wantCode: codes.Unauthenticated,
+			wantMsg:  "invalid_client",
+		},
+		{
+			// Some token endpoints report the RFC 6749 error param on a 2xx
+			// response. GrpcCodeFromHTTPStatus(200) would silently map this to
+			// Unknown with a misleading "200 OK" message if the error param
+			// weren't consulted first.
+			name: "oauth2 error param on a 200 response",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "invalid_client",
+				Response:  &http.Response{StatusCode: http.StatusOK, Status: "200 OK"},
+			}),
+			wantCode: codes.Unauthenticated,
+			wantMsg:  "invalid_client",
+		},
+		{
+			name: "oauth2 access_denied",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "access_denied",
+				Response:  &http.Response{StatusCode: http.StatusForbidden, Status: "403 Forbidden"},
+			}),
+			wantCode: codes.PermissionDenied,
+			wantMsg:  "access_denied",
+		},
+		{
+			name: "oauth2 invalid_grant maps to InvalidArgument, not an auth failure",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "invalid_grant",
+				Response:  &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"},
+			}),
+			wantCode: codes.InvalidArgument,
+			wantMsg:  "invalid_grant",
+		},
+		{
+			// No RFC 6749 error param at all (a non-compliant or proxy-mangled
+			// response) falls back to the plain HTTP status.
+			name: "oauth2 token request rejected with no error param (403)",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
 				Response: &http.Response{StatusCode: http.StatusForbidden, Status: "403 Forbidden"},
-			},
+			}),
 			wantCode: codes.PermissionDenied,
 			wantMsg:  "403 Forbidden",
 		},

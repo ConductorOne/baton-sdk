@@ -24,14 +24,24 @@ func wrapTransientNetworkError(err error) error {
 
 	// A failed OAuth2 token exchange (rejected client credentials, wrong
 	// scope, expired secret, etc.) surfaces here as *oauth2.RetrieveError
-	// wrapping the token endpoint's real HTTP response — not as a network
-	// blip. Map its status code the same way a normal API response would
-	// be mapped, instead of falling through to codes.Unknown: callers
-	// (e.g. exit.LogExit) rely on that mapping to tell a real auth failure
+	// wrapping the token endpoint's real response — not as a network blip.
+	// RFC 6749 §5.2's "error" parameter is the authoritative signal: some
+	// servers report it on an HTTP 200 (x/oauth2 still treats that as a
+	// RetrieveError), and the spec's own default status for invalid_client/
+	// invalid_grant is 400, which GrpcCodeFromHTTPStatus maps to
+	// InvalidArgument — not the Unauthenticated/PermissionDenied a bad-
+	// credentials rejection should produce. Only fall back to the HTTP
+	// status when the server didn't send a recognized error code. Callers
+	// (e.g. exit.LogExit) rely on this mapping to tell a real auth failure
 	// apart from an unclassified error.
 	var retrieveErr *oauth2.RetrieveError
-	if errors.As(err, &retrieveErr) && retrieveErr.Response != nil {
-		return WrapErrors(GrpcCodeFromHTTPStatus(retrieveErr.Response.StatusCode), retrieveErr.Response.Status, err)
+	if errors.As(err, &retrieveErr) {
+		if code, ok := oauthTokenErrorCode(retrieveErr.ErrorCode); ok {
+			return WrapErrors(code, oauthTokenErrorMessage(retrieveErr), err)
+		}
+		if retrieveErr.Response != nil {
+			return WrapErrors(GrpcCodeFromHTTPStatus(retrieveErr.Response.StatusCode), oauthTokenErrorMessage(retrieveErr), err)
+		}
 	}
 
 	if errors.Is(err, io.ErrUnexpectedEOF) {
@@ -100,6 +110,38 @@ func wrapTransientNetworkError(err error) error {
 	}
 
 	return err
+}
+
+// oauthTokenErrorCode maps an RFC 6749 §5.2 token-error "error" parameter to
+// a grpc code. ok is false when errCode is empty or not one of the values
+// the spec defines, signaling the caller to fall back to the HTTP status.
+func oauthTokenErrorCode(errCode string) (code codes.Code, ok bool) {
+	switch errCode {
+	case "invalid_client", "unauthorized_client":
+		return codes.Unauthenticated, true
+	case "access_denied":
+		return codes.PermissionDenied, true
+	case "invalid_grant", "invalid_scope", "invalid_request", "unsupported_grant_type", "unsupported_response_type":
+		return codes.InvalidArgument, true
+	default:
+		return codes.Unknown, false
+	}
+}
+
+// oauthTokenErrorMessage prefers the RFC 6749 error/error_description pair
+// the token endpoint sent, since that survives even when the HTTP status
+// alone would be misleading (e.g. a 200 response carrying an error body).
+func oauthTokenErrorMessage(retrieveErr *oauth2.RetrieveError) string {
+	switch {
+	case retrieveErr.ErrorCode != "" && retrieveErr.ErrorDescription != "":
+		return fmt.Sprintf("%s: %s", retrieveErr.ErrorCode, retrieveErr.ErrorDescription)
+	case retrieveErr.ErrorCode != "":
+		return retrieveErr.ErrorCode
+	case retrieveErr.Response != nil:
+		return retrieveErr.Response.Status
+	default:
+		return "oauth2 token request failed"
+	}
 }
 
 func isHTTP2ClientConnectionLost(err error) bool {
