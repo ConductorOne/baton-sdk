@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 
+	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -20,6 +21,19 @@ func wrapTransientNetworkError(err error) error {
 	if err == nil {
 		return nil
 	}
+
+	// A failed OAuth2 token exchange (rejected client credentials, wrong
+	// scope, expired secret, etc.) surfaces here as *oauth2.RetrieveError
+	// wrapping the token endpoint's real HTTP response — not as a network
+	// blip. Map its status code the same way a normal API response would
+	// be mapped, instead of falling through to codes.Unknown: callers
+	// (e.g. exit.LogExit) rely on that mapping to tell a real auth failure
+	// apart from an unclassified error.
+	var retrieveErr *oauth2.RetrieveError
+	if errors.As(err, &retrieveErr) && retrieveErr.Response != nil {
+		return WrapErrors(GrpcCodeFromHTTPStatus(retrieveErr.Response.StatusCode), retrieveErr.Response.Status, err)
+	}
+
 	if errors.Is(err, io.ErrUnexpectedEOF) {
 		return WrapErrors(codes.Unavailable, "unexpected EOF", err)
 	}

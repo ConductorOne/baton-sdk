@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"syscall"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -171,6 +173,23 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			err:      fmt.Errorf(`Get "https://example.com": http2: client connection lost`),
 			wantCode: codes.Unavailable,
 			wantMsg:  "http2 client connection lost",
+		},
+		{
+			name: "oauth2 token exchange rejected (401)",
+			err: &oauth2.RetrieveError{
+				Response: &http.Response{StatusCode: http.StatusUnauthorized, Status: "401 Unauthorized"},
+				Body:     []byte(`{"error":"invalid_client"}`),
+			},
+			wantCode: codes.Unauthenticated,
+			wantMsg:  "401 Unauthorized",
+		},
+		{
+			name: "oauth2 token exchange forbidden (403)",
+			err: &oauth2.RetrieveError{
+				Response: &http.Response{StatusCode: http.StatusForbidden, Status: "403 Forbidden"},
+			},
+			wantCode: codes.PermissionDenied,
+			wantMsg:  "403 Forbidden",
 		},
 	}
 
