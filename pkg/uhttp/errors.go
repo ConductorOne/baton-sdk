@@ -115,7 +115,7 @@ func wrapTransientNetworkError(err error) error {
 // oauthTokenErrorCode maps an RFC 6749 §5.2 token-error "error" parameter to
 // a grpc code. ok is false when errCode is empty or not one of the values
 // the spec defines, signaling the caller to fall back to the HTTP status.
-func oauthTokenErrorCode(errCode string) (code codes.Code, ok bool) {
+func oauthTokenErrorCode(errCode string) (codes.Code, bool) {
 	switch errCode {
 	case "invalid_client", "unauthorized_client":
 		return codes.Unauthenticated, true
