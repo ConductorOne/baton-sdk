@@ -31,6 +31,7 @@ package rawdb
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync/atomic"
 	"testing"
@@ -68,12 +69,76 @@ type DB struct {
 	// build, cleared by the engine's drop/reset paths.
 	grantDigestsPresent atomic.Bool
 
+	// sourceScopeMayExist gates the record ops' source-scope index
+	// obligations, the same shape as grantDigestsPresent: false
+	// certifies that NO by_source_scope index entry exists in any of
+	// the three families, so overwrite/delete cleanup owes nothing and
+	// the prior-value scope scans (and the entitlement write path's
+	// read-before-write, whose only purpose is feeding them) can be
+	// skipped — the ordinary unscoped sync pays exactly the pre-scope
+	// write cost. Conservatively true is always safe; false with
+	// entries present is not.
+	//
+	// Transitions: probed at Open (ProbeSourceScopeMayExist), flipped
+	// true by stageSourceScopeChange the moment a stamped record is
+	// staged (self-healing — no caller coordination can be forgotten),
+	// armed by FoldBatch.Set when a raw compactor write actually stages
+	// a borrowed scope-index key the typed ops never see, re-probed by
+	// bulk import's Finish after its SST ingest (grantIndexKeys emits
+	// scope entries for stamped records; see the ingest-family
+	// obligation in families.go), and cleared only by the engine's
+	// ResetForNewSync wipe, which excises the index families wholesale.
+	// Deliberately NOT cleared by replay-state invalidation: a failed
+	// invalidation commit after a clear would leave false-with-entries,
+	// and stale-true only costs perf.
+	//
+	// Stamped primary rows WITHOUT index entries (the post-invalidation
+	// state on rebuild-compacted stores) keep the flag false at open:
+	// that is sound because everything the flag gates exists to
+	// maintain index entries, and there are none to maintain.
+	sourceScopeMayExist atomic.Bool
+
 	// testArmDeferredMarkerHook / testClearDeferredMarkerHook run
 	// before the marker's durable commit / delete — the in-process
 	// analogs of those writes failing. Installed only via
 	// SetDeferredMarkerTestHooks (testing-gated).
 	testArmDeferredMarkerHook   func() error
 	testClearDeferredMarkerHook func() error
+	testRecordCommitHook        func() error
+
+	// poisonObserver, when set, is invoked once per distinct poison
+	// event AFTER the batch that staged it commits (CO-015 requires
+	// poison events logged with scope, kind, and cause; the marker
+	// itself carries no value). Installed once by the engine at Open,
+	// before any concurrent use — not synchronized.
+	poisonObserver func(PoisonEvent)
+
+	// acct is the ride-along resource ledger for family batches:
+	// every New*Batch increments its family counter and the batch's
+	// first Close decrements it, so Close can report an unreleased
+	// batch as a leak the same way pebble itself reports leaked
+	// iterators and Get closers (via readState/version refs). Pebble
+	// does not track batches, so this is the missing third of the
+	// resource-leak oracle.
+	acct batchAccounting
+}
+
+// batchAccounting counts outstanding (minted, not yet closed) family
+// batches. Always-on: the atomics are contention-free, and prod leak
+// visibility matches pebble's own iterator accounting.
+type batchAccounting struct {
+	record  atomic.Int64
+	session atomic.Int64
+	digest  atomic.Int64
+	fold    atomic.Int64
+}
+
+func (a *batchAccounting) leakError() error {
+	r, s, dg, f := a.record.Load(), a.session.Load(), a.digest.Load(), a.fold.Load()
+	if r == 0 && s == 0 && dg == 0 && f == 0 {
+		return nil
+	}
+	return fmt.Errorf("rawdb: unreleased family batches at Close: record=%d session=%d digest=%d fold=%d", r, s, dg, f)
 }
 
 // Open opens the pebble database at dir. opts is consumed by
@@ -92,8 +157,13 @@ func Open(dir string, opts *pebble.Options, fs vfs.FS) (*DB, error) {
 }
 
 // Close closes the underlying pebble.DB. The engine's teardown
-// ordering (write barrier, worker drain) is the caller's job.
-func (d *DB) Close() error { return d.db.Close() }
+// ordering (write barrier, worker drain) is the caller's job. Like
+// pebble's own Close (which reports leaked iterators and Get closers
+// through version refcounts), it reports any family batch minted but
+// never released — the DB still closes; the error names the leak.
+func (d *DB) Close() error {
+	return errors.Join(d.acct.leakError(), d.db.Close())
+}
 
 // FS returns the filesystem the DB's IO rides on. SSTs staged for
 // Ingest/IngestAndExcise must be created through it.
@@ -232,6 +302,45 @@ func (d *DB) ProbeGrantDigestsPresent() error {
 	return iter.Error()
 }
 
+// SourceScopeMayExist reports whether any by_source_scope index entry
+// may exist (the record ops' scope-obligation gate; see the field doc).
+func (d *DB) SourceScopeMayExist() bool { return d.sourceScopeMayExist.Load() }
+
+// SetSourceScopeMayExist flips the scope-presence gate. The engine owns
+// the false transition (ResetForNewSync, after the index families are
+// excised); true transitions happen inside this package on staging.
+func (d *DB) SetSourceScopeMayExist(present bool) { d.sourceScopeMayExist.Store(present) }
+
+// ProbeSourceScopeMayExist initializes the scope-presence gate with one
+// bounded seek per by_source_scope family (the Open-time probe).
+func (d *DB) ProbeSourceScopeMayExist() error {
+	for _, indexID := range []byte{
+		IdxResourceBySourceScope,
+		IdxEntitlementBySourceScope,
+		IdxGrantBySourceScope,
+	} {
+		lo := []byte{VersionV3, TypeIndex, indexID}
+		iter, err := d.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: UpperBound(lo)})
+		if err != nil {
+			return err
+		}
+		found := iter.First()
+		if err := iter.Error(); err != nil {
+			iter.Close()
+			return err
+		}
+		if err := iter.Close(); err != nil {
+			return err
+		}
+		if found {
+			d.sourceScopeMayExist.Store(true)
+			return nil
+		}
+	}
+	d.sourceScopeMayExist.Store(false)
+	return nil
+}
+
 // SetDeferredMarkerTestHooks installs failure-injection hooks for the
 // marker's durable arm/clear. Test-only, same runtime gate as
 // UnsafeForTesting; pass nil to uninstall.
@@ -241,6 +350,34 @@ func (d *DB) SetDeferredMarkerTestHooks(armHook, clearHook func() error) {
 	}
 	d.testArmDeferredMarkerHook = armHook
 	d.testClearDeferredMarkerHook = clearHook
+}
+
+// SetRecordCommitTestHook installs a failure immediately before every typed
+// RecordBatch commit. It lets obligation tests cover ordinary resource,
+// entitlement, and grant mutation paths through their shared choke point
+// instead of adding incomplete engine-path-specific seams. Test-only; pass nil
+// to uninstall.
+func (d *DB) SetRecordCommitTestHook(hook func() error) {
+	if !testing.Testing() {
+		panic("rawdb.SetRecordCommitTestHook: called outside a test binary")
+	}
+	d.testRecordCommitHook = hook
+}
+
+// PoisonEvent describes one staged source-cache poison marker: the
+// (row_kind, scope) that lost a row and why. Delivered to the poison
+// observer after the staging batch commits.
+type PoisonEvent struct {
+	RowKind  string
+	ScopeKey string
+	Cause    string
+}
+
+// SetPoisonObserver installs the post-commit poison event callback.
+// Must be called before the DB sees concurrent use (the engine installs
+// it at Open); pass nil to uninstall.
+func (d *DB) SetPoisonObserver(fn func(PoisonEvent)) {
+	d.poisonObserver = fn
 }
 
 // === lifecycle operations (write-class, engine-lifecycle-named) ===

@@ -87,6 +87,7 @@ func syncRunSummaries(ctx context.Context, e *Engine) ([]*c1zv3.SyncRunSummary, 
 			EndedAt:      r.GetEndedAt(),
 			ParentSyncId: r.GetParentSyncId(),
 			Stats:        stats,
+			Compacted:    r.GetCompacted(),
 		}.Build())
 		return true
 	})

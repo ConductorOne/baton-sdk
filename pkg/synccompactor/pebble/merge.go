@@ -247,6 +247,17 @@ func mergeOneSource(ctx context.Context, dest *enginepkg.Engine, s SourceSync, d
 }
 
 func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *enginepkg.Engine, bucket bucketSpec, collectGrantEntitlementIDs bool) (FoldStats, error) {
+	return mergeBucketRawIfNewerWithCommitFailure(ctx, dest, src, bucket, collectGrantEntitlementIDs, nil)
+}
+
+func mergeBucketRawIfNewerWithCommitFailure(
+	ctx context.Context,
+	dest *enginepkg.Engine,
+	src *enginepkg.Engine,
+	bucket bucketSpec,
+	collectGrantEntitlementIDs bool,
+	beforeCommit foldCommitFailure,
+) (FoldStats, error) {
 	var stats FoldStats
 	lower, upper := bucket.syncRange()
 	iter, err := src.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
@@ -274,7 +285,7 @@ func mergeBucketRawIfNewer(ctx context.Context, dest *enginepkg.Engine, src *eng
 		}
 		// NoSync: the fold's envelope save checkpoints (which flushes
 		// and fsyncs) before anything depends on these writes.
-		if err := batch.Commit(pebble.NoSync); err != nil {
+		if err := commitFoldBatch(batch, pebble.NoSync, beforeCommit); err != nil {
 			return err
 		}
 		_ = batch.Close()

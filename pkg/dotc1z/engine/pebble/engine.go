@@ -13,6 +13,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/vfs"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
 	v2pb "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -88,8 +89,9 @@ type Engine struct {
 	// call only" — subsequent calls in the same fresh sync must
 	// still read-before-write to clean up cross-call duplicate index
 	// entries.
-	freshGrantsEmpty    bool
-	freshResourcesEmpty bool
+	freshGrantsEmpty       bool
+	freshEntitlementsEmpty bool
+	freshResourcesEmpty    bool
 
 	// writeWG tracks in-flight writes. Incremented at the start of
 	// every Writer method, decremented in defer.
@@ -305,6 +307,74 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		_ = e.Close()
 		return nil, err
 	}
+	// Arm the mutation-path source-scope index obligations iff the file
+	// actually holds by_source_scope entries (bounded seeks, same
+	// contract as the digest probe): scope-free stores keep the exact
+	// pre-scope write cost. Runs BEFORE migrations so any migration
+	// staging typed record ops sees a derived gate, not the false
+	// default; a migration that backfills by_source_scope entries must
+	// itself re-probe or arm (see the indexMigrations registry doc).
+	if err := e.db.ProbeSourceScopeMayExist(); err != nil {
+		_ = e.Close()
+		return nil, err
+	}
+	// Poison events (CO-015) are always actionable — the scope re-fetches
+	// cold next sync, and persistent overlap means the connector's
+	// partitioning is wrong — but NOT rare per sync in the mis-partitioned
+	// case: batch-level staging dedups only within one RecordBatch, and
+	// batches re-mint per chunk, so a persistently overlapping scope (the
+	// external-principal reconciliation shape included) would otherwise
+	// warn once per 10k-row chunk. Dedup here, per (kind, scope) per open:
+	// one warning per poisoned scope per artifact is the diagnostic
+	// signal; the durable marker itself stays idempotent per batch.
+	// The dedup set is a pure log cache in the connector-controlled
+	// scope dimension, so it is bounded like every other scope-scale
+	// allocation: past the cap, one notice and further UNSEEN scopes go
+	// unlogged (already-seen scopes stay deduplicated) — thousands of
+	// distinct poisoned scopes is a partitioning pathology where
+	// per-scope lines stop adding signal, and the durable markers still
+	// record every scope for direct inspection. Logger captured at open
+	// — staging batches have no ctx at commit time. Mutex because
+	// batches from different callers may commit concurrently.
+	const poisonLogSetCap = 4096
+	poisonLogger := ctxzap.Extract(ctx)
+	var poisonLogMu sync.Mutex
+	poisonLogged := make(map[[2]string]struct{})
+	poisonLogCapped := false
+	e.db.SetPoisonObserver(func(ev rawdb.PoisonEvent) {
+		// Bound resolved at event time so the test seam (set after open,
+		// before any mutation commits) can shrink it; events deliver on
+		// the committing goroutine, so the read is ordered after the
+		// test's write.
+		bound := poisonLogSetCap
+		if e.test.poisonLogSetCap > 0 {
+			bound = e.test.poisonLogSetCap
+		}
+		seen := [2]string{ev.RowKind, ev.ScopeKey}
+		poisonLogMu.Lock()
+		if _, dup := poisonLogged[seen]; dup {
+			poisonLogMu.Unlock()
+			return
+		}
+		if len(poisonLogged) >= bound {
+			notice := !poisonLogCapped
+			poisonLogCapped = true
+			poisonLogMu.Unlock()
+			if notice {
+				poisonLogger.Warn("pebble: further source-cache poison warnings suppressed — distinct poisoned scopes exceeded the log-dedup bound; durable poison markers still record every scope",
+					zap.Int("bound", bound),
+				)
+			}
+			return
+		}
+		poisonLogged[seen] = struct{}{}
+		poisonLogMu.Unlock()
+		poisonLogger.Warn("pebble: source-cache scope poisoned — refused as a replay source for this artifact",
+			zap.String("row_kind", ev.RowKind),
+			zap.String("scope_key", ev.ScopeKey),
+			zap.String("cause", ev.Cause),
+		)
+	})
 	// Run secondary-index migrations before returning. Migrations
 	// are skipped for read-only opens (the on-disk file is
 	// immutable, so we'd error out trying to backfill).
@@ -375,11 +445,24 @@ func (e *Engine) bindCurrentSync(syncID string) error {
 	e.currentSync = idBytes
 	e.freshSync = false
 	e.freshGrantsEmpty = false
+	e.freshEntitlementsEmpty = false
 	e.freshResourcesEmpty = false
 	e.currentSyncMu.Unlock()
 	// Binding a sync means more writes are coming; leave the sealed state
 	// and resume compactions so L0 keeps draining (see seal).
 	e.unseal()
+	// Rebinding admits mutations that sealed manifest row counts no longer
+	// witness; strip them so an unpublished rebound store stays fail-closed
+	// for replay (CO-014). Reseal recounts. Must follow unseal — the clear
+	// uses the normal write path. Read-only engines skip it: they admit no
+	// mutations, so sealed counts remain valid witnesses (and the write
+	// would be illegal anyway).
+	if e.opts.readOnly {
+		return nil
+	}
+	if err := e.clearSourceCacheRowCounts(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -453,6 +536,7 @@ func (e *Engine) MarkFreshSync(syncID string) error {
 	e.currentSync = idBytes
 	e.freshSync = true
 	e.freshGrantsEmpty = true
+	e.freshEntitlementsEmpty = true
 	e.freshResourcesEmpty = true
 	e.currentSyncMu.Unlock()
 	// A fresh sync writes heavily; leave the sealed state and resume
@@ -470,6 +554,7 @@ func (e *Engine) clearCurrentSync() {
 	e.currentSync = nil
 	e.freshSync = false
 	e.freshGrantsEmpty = false
+	e.freshEntitlementsEmpty = false
 	e.freshResourcesEmpty = false
 	e.currentSyncMu.Unlock()
 }
@@ -512,6 +597,16 @@ func (e *Engine) takeFreshResourcesEmpty() bool {
 		return false
 	}
 	e.freshResourcesEmpty = false
+	return true
+}
+
+func (e *Engine) takeFreshEntitlementsEmpty() bool {
+	e.currentSyncMu.Lock()
+	defer e.currentSyncMu.Unlock()
+	if !e.freshEntitlementsEmpty {
+		return false
+	}
+	e.freshEntitlementsEmpty = false
 	return true
 }
 
@@ -639,9 +734,9 @@ func (e *Engine) withWrite(fn func() error) error {
 
 // withWriteAllowSealed is withWrite without the sealed check. Reserved for
 // writes that are part of the sealed lifecycle itself: sync-run metadata
-// stamps on a finished sync (ended_at overrides, supports_diff) and
-// ResetForNewSync's wipe on the way into a new sync. Record-data writes
-// must use withWrite.
+// stamps on a finished sync (ended_at overrides, supports_diff),
+// compactor source-cache invalidation, and ResetForNewSync's wipe on the way
+// into a new sync. Record-data writes must use withWrite.
 func (e *Engine) withWriteAllowSealed(fn func() error) error {
 	if err := e.checkWritableAllowSealed(); err != nil {
 		return err

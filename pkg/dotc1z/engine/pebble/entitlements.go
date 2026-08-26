@@ -20,9 +20,24 @@ func (e *Engine) PutEntitlementRecord(ctx context.Context, r *v3.EntitlementReco
 
 // PutEntitlementRecords writes N entitlements by structured primary key.
 // The identity key is a pure function of the record (it contains the raw
-// external id), so overwrites are idempotent and no read-before-write or
-// index cleanup is needed; a within-call dedup pre-pass keeps last-wins
-// semantics for same-identity duplicates in one batch.
+// external id), so overwrites are idempotent; a within-call dedup
+// pre-pass keeps last-wins semantics for same-identity duplicates in one
+// batch.
+//
+// Read-before-write exists ONLY for the by_source_scope obligation: an
+// overwrite that changes a row's scope stamp must clean the prior
+// entry, and entitlement scope entries are value-derived. The Get is
+// therefore skipped while rawdb's sourceScopeMayExist gate is unarmed:
+// the unarmed gate certifies no index entry exists to clean (the only
+// thing the prior value is fetched for), so an ordinary unscoped sync
+// pays no per-row read at all — the pre-scope write cost, exactly. A
+// stamped record still gets its index entry (stageSourceScopeChange
+// always scans the NEW value and arms the gate AT STAGING, before the
+// batch commits), so later records in the same call — and every call
+// after — take the Get path. Rows staged Get-free earlier in the
+// arming call are sound: the gate was unarmed when they staged, so no
+// committed index entry existed for their identities (db.Get cannot
+// see in-batch writes either way).
 func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.EntitlementRecord) error {
 	if len(records) == 0 {
 		return nil
@@ -35,6 +50,7 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 		defer priBatch.Close()
 
 		fresh := e.IsFreshSync()
+		skipGet := e.takeFreshEntitlementsEmpty()
 
 		type dedupKey struct {
 			id entitlementIdentity
@@ -72,7 +88,23 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 			if err != nil {
 				return err
 			}
-			if err := priBatch.StageEntitlementPut(key, val); err != nil {
+			if skipGet || !e.db.SourceScopeMayExist() {
+				if err := priBatch.StageEntitlementPut(key, val, nil); err != nil {
+					return err
+				}
+				continue
+			}
+			oldVal, closer, getErr := e.db.Get(key)
+			switch {
+			case getErr == nil:
+				err = priBatch.StageEntitlementPut(key, val, oldVal)
+				closer.Close()
+			case errors.Is(getErr, pebble.ErrNotFound):
+				err = priBatch.StageEntitlementPut(key, val, nil)
+			default:
+				return fmt.Errorf("PutEntitlementRecords: get old: %w", getErr)
+			}
+			if err != nil {
 				return err
 			}
 		}
@@ -120,11 +152,20 @@ func (e *Engine) DeleteEntitlementRecord(ctx context.Context, externalID string)
 			return err
 		}
 		key := encodeEntitlementIdentityKey(id)
+		oldVal, closer, getErr := e.db.Get(key)
+		if errors.Is(getErr, pebble.ErrNotFound) {
+			return nil
+		}
+		if getErr != nil {
+			return getErr
+		}
 		batch := e.db.NewRecordBatch()
 		defer batch.Close()
-		if err := batch.StageEntitlementDelete(key); err != nil {
+		if err := batch.StageEntitlementDelete(key, oldVal); err != nil {
+			closer.Close()
 			return err
 		}
+		closer.Close()
 		if err := batch.Commit(writeOpts(e.opts.durability)); err != nil {
 			return err
 		}
@@ -146,9 +187,20 @@ func (e *Engine) DeleteEntitlementRecordByIdentity(
 		key := encodeEntitlementIdentityKey(
 			entitlementIdentityFromParts(resourceTypeID, resourceID, externalID),
 		)
+		// A missing row stages nothing, matching the bare-ID delete above and the
+		// grant path's rule: staging unconditionally would emit index and digest
+		// obligations for identities that never existed.
+		oldVal, closer, err := e.db.Get(key)
+		if errors.Is(err, pebble.ErrNotFound) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		defer closer.Close()
 		batch := e.db.NewRecordBatch()
 		defer batch.Close()
-		if err := batch.StageEntitlementDelete(key); err != nil {
+		if err := batch.StageEntitlementDelete(key, oldVal); err != nil {
 			return err
 		}
 		if err := batch.Commit(writeOpts(e.opts.durability)); err != nil {
@@ -156,6 +208,70 @@ func (e *Engine) DeleteEntitlementRecordByIdentity(
 		}
 		e.noteEntitlementKeyspaceWrite()
 		return nil
+	})
+}
+
+// DeleteEntitlementRecords validates every public id before staging any
+// tombstone, then commits the resolved deletes in bounded chunks (deletion
+// is idempotent; a mid-way error retries convergently). Missing ids are
+// no-ops; an ambiguous id rejects the entire request. actingScope is the
+// scope on whose behalf the tombstones act: deleting that scope's own rows
+// stages no poison, while deleting a row stamped with any OTHER scope
+// poisons it (CO-015); "" acts unscoped and poisons any stamped delete.
+func (e *Engine) DeleteEntitlementRecords(ctx context.Context, externalIDs []string, actingScope string) error {
+	return e.withWrite(func() error {
+		identities := make([]entitlementIdentity, 0, len(externalIDs))
+		seen := make(map[entitlementIdentity]struct{}, len(externalIDs))
+		for _, externalID := range externalIDs {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			id, err := e.resolveEntitlementIdentityByExternalID(ctx, externalID)
+			if err != nil {
+				if errors.Is(err, pebble.ErrNotFound) {
+					continue
+				}
+				return err
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			identities = append(identities, id)
+		}
+		if len(identities) == 0 {
+			return nil
+		}
+
+		deletes := newSourceCacheDeleteBatch(e, "entitlements-canonical", actingScope, writeOpts(e.opts.durability))
+		defer deletes.close()
+		// The bare-id lookup map must observe every chunk AS it lands,
+		// not on function exit: entitlementIdentitiesForExternalID takes
+		// only entIDLookupMu, so a concurrent lookup between a mid-loop
+		// chunk commit and this function's return would serve a cached
+		// map listing rows already deleted on disk. The per-commit hook
+		// (an atomic add) closes that window and covers the
+		// error-after-intermediate-commit case for free.
+		deletes.onCommit = e.noteEntitlementKeyspaceWrite
+		for _, id := range identities {
+			key := encodeEntitlementIdentityKey(id)
+			oldVal, closer, err := e.db.Get(key)
+			if errors.Is(err, pebble.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if err := deletes.batch.StageEntitlementDelete(key, oldVal); err != nil {
+				_ = closer.Close()
+				return err
+			}
+			_ = closer.Close()
+			if err := deletes.staged(true); err != nil {
+				return err
+			}
+		}
+		return deletes.commit(true)
 	})
 }
 

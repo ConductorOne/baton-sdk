@@ -34,7 +34,11 @@ const (
 	TypeCounter      byte = 0x08
 	TypeSession      byte = 0x09
 	TypeDigest       byte = 0x0A
-	TypeEngineMeta   byte = 0xFF
+	// TypeSourceCache stores the per-scope replay manifest. It follows
+	// TypeDigest because 0x0A was assigned to digests before source-cache
+	// replay was extracted onto the current keyspace.
+	TypeSourceCache byte = 0x0B
+	TypeEngineMeta  byte = 0xFF
 )
 
 // Index-discriminator bytes (second byte after TypeIndex). One byte
@@ -57,6 +61,9 @@ const (
 	// pass, never maintained inline. See the engine's digest.go and
 	// grant_digest.go.
 	IdxGrantByEntitlementPrincipalHash byte = 0x08
+	IdxGrantBySourceScope              byte = 0x09
+	IdxEntitlementBySourceScope        byte = 0x0A
+	IdxResourceBySourceScope           byte = 0x0B
 )
 
 // GrantPrimaryKeyPrefixLen is the byte length of the grant primary-key
@@ -167,6 +174,125 @@ func AppendGrantByNeedsExpansionKeyFromPrimary(dst, primaryKey []byte) ([]byte, 
 	return append(dst, primaryKey[2:]...), true
 }
 
+// AppendBySourceScopeKeyFromPrimary builds a by_source_scope index key
+// from a primary record key. The primary tail is copied byte-for-byte, so
+// replay can reconstruct the primary key without decoding the record.
+func AppendBySourceScopeKeyFromPrimary(dst, primaryKey []byte, scopeKey string) ([]byte, bool) {
+	if scopeKey == "" || len(primaryKey) < 3 || primaryKey[0] != VersionV3 || primaryKey[2] != 0 {
+		return dst, false
+	}
+	var indexID byte
+	switch primaryKey[1] {
+	case TypeGrant:
+		if _, ok := SplitGrantPrimaryKey(primaryKey); !ok {
+			return dst, false
+		}
+		indexID = IdxGrantBySourceScope
+	case TypeEntitlement:
+		indexID = IdxEntitlementBySourceScope
+	case TypeResource:
+		indexID = IdxResourceBySourceScope
+	default:
+		return dst, false
+	}
+	dst = append(dst, VersionV3, TypeIndex, indexID)
+	dst = codec.AppendTupleSeparator(dst)
+	dst = codec.AppendTupleStrings(dst, scopeKey)
+	dst = codec.AppendTupleSeparator(dst)
+	return append(dst, primaryKey[3:]...), true
+}
+
+// SourceScopeIndexPrefix bounds all rows of one record kind stamped with
+// scopeKey.
+func SourceScopeIndexPrefix(recordType byte, scopeKey string) ([]byte, bool) {
+	var indexID byte
+	switch recordType {
+	case TypeGrant:
+		indexID = IdxGrantBySourceScope
+	case TypeEntitlement:
+		indexID = IdxEntitlementBySourceScope
+	case TypeResource:
+		indexID = IdxResourceBySourceScope
+	default:
+		return nil, false
+	}
+	buf := []byte{VersionV3, TypeIndex, indexID}
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleStrings(buf, scopeKey)
+	return codec.AppendTupleSeparator(buf), true
+}
+
+// Sub-family discriminators inside TypeSourceCache. Manifest entries
+// were laid down as type byte + tuple separator (0x00) + tuple, so the
+// separator byte doubles as the entry family's discriminator — existing
+// artifacts parse unchanged. Poison markers take the next byte, keeping
+// the two ranges disjoint while both stay inside the one family the
+// replay-state invalidation wipes.
+const (
+	sourceCacheEntrySubFamily  byte = 0x00
+	sourceCachePoisonSubFamily byte = 0x01
+)
+
+// SourceCacheEntryKey addresses one manifest row.
+func SourceCacheEntryKey(rowKind, scopeKey string) []byte {
+	buf := []byte{VersionV3, TypeSourceCache}
+	buf = codec.AppendTupleSeparator(buf)
+	return codec.AppendTupleStrings(buf, rowKind, scopeKey)
+}
+
+// SourceCacheEntryBounds bounds manifest entries ONLY — poison markers
+// are deliberately outside so manifest iterators (seal counting, count
+// clearing) never see non-entry values.
+func SourceCacheEntryBounds() ([]byte, []byte) {
+	lo := []byte{VersionV3, TypeSourceCache, sourceCacheEntrySubFamily}
+	return lo, UpperBound(lo)
+}
+
+// SourceCachePoisonKey addresses the per-(row_kind, scope) poison marker
+// (CO-015): present means the source sync observed a row-partition
+// violation against that scope — a cross-scope restamp or an
+// out-of-scope delete removed a row the scope's manifest entry vouches
+// for — so the scope must not be trusted as a replay source. The value
+// is empty; presence is the verdict, cause goes to logs at staging time.
+func SourceCachePoisonKey(rowKind, scopeKey string) []byte {
+	buf := []byte{VersionV3, TypeSourceCache, sourceCachePoisonSubFamily}
+	buf = codec.AppendTupleSeparator(buf)
+	return codec.AppendTupleStrings(buf, rowKind, scopeKey)
+}
+
+// SourceCachePoisonBounds bounds all poison markers.
+func SourceCachePoisonBounds() ([]byte, []byte) {
+	lo := []byte{VersionV3, TypeSourceCache, sourceCachePoisonSubFamily}
+	return lo, UpperBound(lo)
+}
+
+// SourceCacheFamilyBounds bounds the whole source-cache family: manifest
+// entries and poison markers. This is the replay-state invalidation
+// range — an artifact whose validators are wiped has nothing left for
+// poison to protect, so the markers go with them.
+func SourceCacheFamilyBounds() ([]byte, []byte) {
+	lo := []byte{VersionV3, TypeSourceCache}
+	return lo, UpperBound(lo)
+}
+
+// RowKindForRecordType maps a primary record type byte to the row-kind
+// string used in manifest and poison keys. These strings are an on-disk
+// ABI shared with pkg/sourcecache's RowKind constants; the engine's
+// sourceCacheRowKindSpecs pins the same correspondence from the other
+// side.
+func RowKindForRecordType(recordType byte) (string, bool) {
+	switch recordType {
+	case TypeResource:
+		return "resources", true
+	case TypeEntitlement:
+		return "entitlements", true
+	case TypeGrant:
+		return "grants", true
+	default:
+		return "", false
+	}
+}
+
 // === resource index key + value scanners ===
 
 // EncodeResourceByParentIndexKey: index of children-by-parent:
@@ -216,6 +342,38 @@ func ScanResourceParentRaw(value []byte) (string, string, error) {
 		value = value[n:]
 	}
 	return rt, id, nil
+}
+
+// ScanSourceScopeKeyRaw extracts the string source_scope_key field from a
+// marshaled record. Last occurrence wins, matching protobuf semantics for
+// scalar fields.
+func ScanSourceScopeKeyRaw(value []byte, field protowire.Number) (string, error) {
+	var scopeKey string
+	for len(value) > 0 {
+		num, typ, n := protowire.ConsumeTag(value)
+		if n < 0 {
+			return "", protowire.ParseError(n)
+		}
+		value = value[n:]
+		if num != field {
+			n = protowire.ConsumeFieldValue(num, typ, value)
+			if n < 0 {
+				return "", protowire.ParseError(n)
+			}
+			value = value[n:]
+			continue
+		}
+		if typ != protowire.BytesType {
+			return "", fmt.Errorf("raw record: source_scope_key field %d has wire type %v", field, typ)
+		}
+		raw, n := protowire.ConsumeBytes(value)
+		if n < 0 {
+			return "", protowire.ParseError(n)
+		}
+		scopeKey = string(raw)
+		value = value[n:]
+	}
+	return scopeKey, nil
 }
 
 // ScanResourceRefRaw extracts (resource_type_id, resource_id) from a

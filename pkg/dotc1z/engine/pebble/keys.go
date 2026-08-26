@@ -68,6 +68,7 @@ const (
 	typeCounter      = rawdb.TypeCounter
 	typeSession      = rawdb.TypeSession
 	typeDigest       = rawdb.TypeDigest
+	typeSourceCache  = rawdb.TypeSourceCache
 	typeEngineMeta   = rawdb.TypeEngineMeta
 )
 
@@ -80,6 +81,9 @@ const (
 	idxGrantByPrincipalResourceType    = rawdb.IdxGrantByPrincipalResourceType
 	idxGrantByEntitlementResource      = rawdb.IdxGrantByEntitlementResource
 	idxGrantByEntitlementPrincipalHash = rawdb.IdxGrantByEntitlementPrincipalHash
+	idxGrantBySourceScope              = rawdb.IdxGrantBySourceScope
+	idxEntitlementBySourceScope        = rawdb.IdxEntitlementBySourceScope
+	idxResourceBySourceScope           = rawdb.IdxResourceBySourceScope
 )
 
 // --- Grant ---
@@ -272,6 +276,38 @@ func encodeGrantByPrincipalResourceTypeIdentityPrefix(principalRT string) []byte
 	return codec.AppendTupleSeparator(buf)
 }
 
+// --- Source-cache scope indexes and manifest ---
+
+func encodeGrantBySourceScopeIndexKey(scopeKey string, id grantIdentity) []byte {
+	// Callers only enter with a non-empty scope, and encodeGrantIdentityKey
+	// always emits the v3 grant-primary shape accepted by the raw helper.
+	// Therefore ok is an invariant here rather than recoverable input.
+	key, ok := rawdb.AppendBySourceScopeKeyFromPrimary(nil, encodeGrantIdentityKey(id), scopeKey)
+	if !ok {
+		panic("pebble: invalid grant source-scope index key invariant")
+	}
+	return key
+}
+
+func encodeGrantBySourceScopePrefix(scopeKey string) []byte {
+	prefix, _ := rawdb.SourceScopeIndexPrefix(typeGrant, scopeKey)
+	return prefix
+}
+
+func encodeEntitlementBySourceScopePrefix(scopeKey string) []byte {
+	prefix, _ := rawdb.SourceScopeIndexPrefix(typeEntitlement, scopeKey)
+	return prefix
+}
+
+func encodeResourceBySourceScopePrefix(scopeKey string) []byte {
+	prefix, _ := rawdb.SourceScopeIndexPrefix(typeResource, scopeKey)
+	return prefix
+}
+
+func encodeSourceCacheEntryKey(rowKind, scopeKey string) []byte {
+	return rawdb.SourceCacheEntryKey(rowKind, scopeKey)
+}
+
 // --- Grant by (entitlement, principal-hash) + digest nodes ---
 //
 // PARTITION CONVENTION. Both keyspaces below are addressed by a digest
@@ -345,6 +381,43 @@ func DigestLowerBound() []byte {
 
 func DigestUpperBound() []byte {
 	return upperBoundOf(DigestLowerBound())
+}
+
+func GrantBySourceScopeLowerBound() []byte {
+	return []byte{versionV3, typeIndex, idxGrantBySourceScope}
+}
+func GrantBySourceScopeUpperBound() []byte { return upperBoundOf(GrantBySourceScopeLowerBound()) }
+
+func EntitlementBySourceScopeLowerBound() []byte {
+	return []byte{versionV3, typeIndex, idxEntitlementBySourceScope}
+}
+func EntitlementBySourceScopeUpperBound() []byte {
+	return upperBoundOf(EntitlementBySourceScopeLowerBound())
+}
+
+func ResourceBySourceScopeLowerBound() []byte {
+	return []byte{versionV3, typeIndex, idxResourceBySourceScope}
+}
+func ResourceBySourceScopeUpperBound() []byte {
+	return upperBoundOf(ResourceBySourceScopeLowerBound())
+}
+
+func SourceCacheEntryLowerBound() []byte {
+	lo, _ := rawdb.SourceCacheEntryBounds()
+	return lo
+}
+func SourceCacheEntryUpperBound() []byte {
+	_, hi := rawdb.SourceCacheEntryBounds()
+	return hi
+}
+
+func SourceCachePoisonLowerBound() []byte {
+	lo, _ := rawdb.SourceCachePoisonBounds()
+	return lo
+}
+func SourceCachePoisonUpperBound() []byte {
+	_, hi := rawdb.SourceCachePoisonBounds()
+	return hi
 }
 
 // --- ResourceType ---

@@ -16,11 +16,22 @@ Tests in this tier should be deterministic, self-contained, and reasonably
 fast. A test that only skips on Windows with `testing.Short()` is still a CI
 test on the other platforms.
 
+Long-running tests use two repository-wide opt-ins:
+
+- `BATON_TEST_EXTRA=1` enables deterministic exhaustive and boundary-scale
+  tests.
+- `BATON_TEST_NIGHTLY=1` enables randomized, repeated, and full-corpus tests;
+  it also satisfies extra-tier guards.
+
+The named Make targets set these variables. Direct `go test` invocations omit
+both tiers unless the caller explicitly sets the corresponding variable to
+exactly `1`; values such as `0` and `false` leave the tier disabled.
+
 ## Bounded checks omitted from CI
 
 `make test-extra` is the memorable pre-merge/pre-release command. It composes:
 
-- `make race-check` — the complete Go suite under the race detector.
+- `make race-check` — ordinary and extra-tier tests under the race detector.
 - `make compat-check` — exchanges real checkpoint artifacts between HEAD and
   a pinned older SDK release. Override the old release with
   `BATON_COMPAT_OLD_REF=<tag>`.
@@ -41,10 +52,14 @@ that are inappropriate for every pull request.
 
 ## Nightly checks
 
-`make test-nightly` runs `test-extra` with longer fuzz durations, then adds:
+`make test-nightly` enables both opt-in tiers, runs `test-extra` with longer
+fuzz durations, and then adds:
 
 - `make scheduler-soak` — randomized scheduler fan-out and failure histories
   under the race detector.
+- the complete deterministic chaos corpora and randomized source-cache,
+  integrity, and WAL lifecycle checks.
+- `make chaos-soak` — extended seeded chaos connector fan-out schedules.
 - `make errorfs-soak` — randomized whole-sync Pebble failure-point sweeps
   against a crashable filesystem.
 
@@ -84,12 +99,16 @@ make race-check-shard SHARD=sync # instrument just that shard
 usually what you want locally when you are not trying to reproduce a specific
 package's failure.
 
-A shard runs the same command as `race-check` with a narrower package list and
-no extra environment, so reproducing a shard failure locally needs no special
-setup. The exhaustive checkpoint-cut sweep is deliberately not part of it: the
-nightly `interrupt` job runs that sweep on its own budget, and repeating it
-under the race detector inside a shard would buy a second copy of the most
-expensive test in the repository.
+A shard runs the same instrumented command as `race-check` over a narrower
+package list, but with BOTH tier variables set — the shards are the nightly
+sweep, so they run the nightly-gated tests that `race-check` (extra tier
+only) skips. Reproduce a shard failure with `make race-check-shard SHARD=x`,
+or set `BATON_TEST_EXTRA=1 BATON_TEST_NIGHTLY=1` on a direct `go test -race`
+invocation; a bare `go test -race` run would skip the gated test that
+failed. The exhaustive `BATON_CUT_SWEEP=full` checkpoint-cut sweep still
+runs only in the nightly `interrupt` job on its own budget; inside the sync
+shard the extra-tier gate admits the bounded strided sweep, not the full
+space.
 
 The `rest` shard is the complement of the named shards, so every package
 belongs to exactly one shard by construction and a newly added package joins

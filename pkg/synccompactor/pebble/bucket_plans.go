@@ -14,10 +14,18 @@ type bucketPlan struct {
 	upper []byte
 }
 
-// buildBucketPlans returns the set of (lower, upper) excise spans that
-// together cover every key in the engine. A v3 Pebble c1z holds one
-// sync and keys carry no sync_id, so this is the whole keyspace. The
-// order is fixed and deterministic so logs and tests are stable.
+// buildBucketPlans returns the (lower, upper) excise spans this compaction
+// carries forward. A v3 Pebble c1z holds one sync and keys carry no sync_id,
+// so each span covers a whole family. The order is fixed and deterministic so
+// logs and tests are stable.
+//
+// This is deliberately not every family in the engine: the source-cache
+// manifest and the three by_source_scope index families are absent, so they
+// are dropped rather than copied. That is the intended outcome — a compacted
+// artifact is not a replay source (validateReplaySourceEligible), and the
+// callers pair this with InvalidateSourceCacheReplayState(ctx, true). A new
+// family added to the engine does need a span here, or its keys will be lost
+// on compaction without any error.
 func buildBucketPlans() []bucketPlan {
 	return []bucketPlan{
 		{

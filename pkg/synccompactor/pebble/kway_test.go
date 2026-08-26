@@ -3,7 +3,9 @@ package pebble
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"testing"
@@ -202,6 +204,73 @@ func TestReadLengthPrefixedBytesRejectsPartialHeader(t *testing.T) {
 	ok, err := readLengthPrefixedBytes(bytes.NewReader([]byte{1, 2}), &dst, &lenBuf)
 	require.Error(t, err, "readLengthPrefixedBytes partial header error = nil")
 	require.False(t, ok, "readLengthPrefixedBytes partial header ok = true")
+}
+
+func TestCloseSourceHandlesJoinsErrors(t *testing.T) {
+	first := errors.New("first source close")
+	second := errors.New("second source close")
+	closed := 0
+	err := closeSourceHandles([]sourceHandle{
+		{close: func() error {
+			closed++
+			return first
+		}},
+		{close: func() error {
+			closed++
+			return nil
+		}},
+		{close: func() error {
+			closed++
+			return second
+		}},
+	})
+	require.Equal(t, 3, closed, "a close error must not skip later handles")
+	require.ErrorIs(t, err, first)
+	require.ErrorIs(t, err, second)
+}
+
+func TestSourceChunkCloseAsyncPropagatesCloseAndRemovesDirectory(t *testing.T) {
+	injected := errors.New("source close")
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "payload"), []byte("x"), 0o600))
+	chunk := &sourceChunk{
+		handles: []sourceHandle{{close: func() error { return injected }}},
+		dir:     dir,
+	}
+	rm := &asyncRemover{}
+
+	err := chunk.closeAsync(rm)
+	rm.wait()
+
+	require.ErrorIs(t, err, injected)
+	require.NoDirExists(t, dir)
+	require.Empty(t, chunk.handles, "closed handles must not be owned twice")
+}
+
+func TestFinishChunkRunFileRemovesUnpublishedRunAfterCloseFailure(t *testing.T) {
+	injected := errors.New("source close")
+	path := filepath.Join(t.TempDir(), "completed-run.bin")
+	require.NoError(t, os.WriteFile(path, []byte("complete"), 0o600))
+
+	run, err := finishChunkRunFile(runFile{path: path}, nil, injected)
+
+	require.ErrorIs(t, err, injected)
+	require.Empty(t, run.path)
+	require.NoFileExists(t, path, "a completed run cannot be orphaned when source close fails")
+}
+
+func TestFinishChunkRunFileJoinsRemovalFailure(t *testing.T) {
+	injected := errors.New("source close")
+	path := filepath.Join(t.TempDir(), "non-empty-run-path")
+	require.NoError(t, os.Mkdir(path, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(path, "child"), []byte("x"), 0o600))
+
+	run, err := finishChunkRunFile(runFile{path: path}, nil, injected)
+
+	require.ErrorIs(t, err, injected)
+	require.ErrorContains(t, err, "remove unpublished run file")
+	require.Empty(t, run.path)
+	require.DirExists(t, path, "failed removal must remain visible to outer temp-root cleanup")
 }
 
 func grantPrincipalMap(t *testing.T, ctx context.Context, e *enginepkg.Engine, syncID string) map[string]string {

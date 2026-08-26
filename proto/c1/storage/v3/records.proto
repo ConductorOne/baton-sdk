@@ -436,6 +436,18 @@ message SourceCacheEntryRecord {
   // with a cold sync); the entry itself is kept so the scope's surviving
   // stamped rows do not read as an I6 orphan (lost manifest write).
   bool invalidated = 5;
+
+  // Number of primary rows stamped with this scope at seal time,
+  // recomputed by EndSync from the primary keyspace (never maintained
+  // incrementally). Replay preflight requires the scope's index
+  // cardinality to equal this count before mutating the destination;
+  // a replay-eligible entry WITHOUT a count is a hard preflight error
+  // (seal-invariant violation — CO-004 shipped with the manifest format,
+  // so no counting-free artifact population exists). Presence is
+  // explicit so zero remains distinguishable from absent: zero means a
+  // proven empty scope. Cleared when a completed sync is rebound for
+  // mutation and recomputed when it reseals.
+  optional uint64 row_count = 6;
 }
 
 // SourceCacheCompatRecord is the sync's replay-compatibility key: the

@@ -20,6 +20,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -4024,21 +4025,24 @@ func WithExternalResourceC1ZPath(path string) SyncOpt {
 	}
 }
 
-// WithPreviousSyncC1ZPath points ETag-replay at a separate c1z holding
-// the previous sync, instead of reading a previous sync from inside the
-// live store.
+// WithPreviousSyncC1ZPath registers a separate c1z holding the previous sync
+// for replay features.
 //
 // This is required for the single-sync v3 (Pebble) engine: a Pebble c1z
 // holds exactly one sync by contract, so there is no in-file "previous
-// sync" to replay from (StartNewSync replaces the prior sync). Supplying
-// the prior run's c1z here lets the syncer recover unchanged resources'
-// ETags and carry their grants forward across runs. When unset, replay
-// falls back to reading a previous sync from the live store (the SQLite
-// multi-sync behavior), so existing callers are unaffected.
+// sync" to replay from (StartNewSync replaces the prior sync). NewSyncer
+// currently validates and retains the eligible reader as orchestration
+// scaffolding; the ETag read/carry-forward path does not yet consume it.
 //
-// The file is opened read-only and engine-agnostically (the magic byte
-// selects SQLite or Pebble), so the previous-sync c1z may use either
-// engine.
+// The explicitly named file is strict: open, metadata-read, and close failures
+// are returned. A valid file whose run is simply ineligible warns and degrades
+// to a cold sync. Use WithOptionalPreviousSyncC1ZPath for cache-style inputs
+// where every unusable-file failure must degrade instead.
+//
+// The file is opened read-only and engine-agnostically so its format can be
+// diagnosed, but source-cache replay currently requires a Pebble artifact.
+// SQLite inputs are valid c1z files but are treated as cold inputs because they
+// do not carry the replay indexes and compaction provenance this gate requires.
 func WithPreviousSyncC1ZPath(path string) SyncOpt {
 	return func(s *syncer) {
 		s.previousSyncC1ZPath = path
@@ -4053,7 +4057,7 @@ func WithPreviousSyncC1ZPath(path string) SyncOpt {
 // caller maintains automatically (the service-mode previous-sync spare)
 // — a bad cache file must never fail a sync. Callers that name a
 // specific file deliberately should use WithPreviousSyncC1ZPath, which
-// surfaces open failures.
+// surfaces open, metadata-read, and close failures.
 func WithOptionalPreviousSyncC1ZPath(path string) SyncOpt {
 	return func(s *syncer) {
 		s.previousSyncC1ZPath = path
@@ -4285,14 +4289,63 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 
 	if s.previousSyncC1ZPath != "" {
 		// Open the previous-sync c1z read-only and engine-agnostically
-		// (NewStore selects the engine from the file's magic byte), so a
-		// Pebble or SQLite prior run both work as a replay source.
+		// (NewStore selects the engine from the file's magic byte), then
+		// require Pebble: source-cache manifests and replay indexes are a
+		// Pebble capability, so SQLite artifacts are cold inputs.
 		previousSyncStore, err := dotc1z.NewStore(ctx, s.previousSyncC1ZPath,
 			dotc1z.WithReadOnly(true),
 			dotc1z.WithTmpDir(s.tmpDir),
 		)
 		switch {
 		case err == nil:
+			if _, ok := enginepkg.AsEngine(previousSyncStore); !ok {
+				if closeErr := previousSyncStore.Close(ctx); closeErr != nil {
+					if s.previousSyncC1ZPathOptional {
+						ctxzap.Extract(ctx).Warn("non-Pebble previous-sync c1z could not close cleanly; syncing without source-cache replay",
+							zap.String("previous_sync_c1z_path", s.previousSyncC1ZPath),
+							zap.Error(closeErr),
+						)
+						break
+					}
+					return nil, fmt.Errorf("error closing non-Pebble previous-sync c1z %q: %w", s.previousSyncC1ZPath, closeErr)
+				}
+				ctxzap.Extract(ctx).Warn("previous-sync c1z uses an engine that is not replay-eligible; syncing without source-cache replay",
+					zap.String("previous_sync_c1z_path", s.previousSyncC1ZPath),
+				)
+				break
+			}
+			run, metaErr := previousSyncStore.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
+			if metaErr != nil {
+				closeErr := previousSyncStore.Close(ctx)
+				if s.previousSyncC1ZPathOptional {
+					ctxzap.Extract(ctx).Warn("previous-sync c1z metadata unusable; syncing without source-cache replay",
+						zap.String("previous_sync_c1z_path", s.previousSyncC1ZPath),
+						zap.Error(errors.Join(metaErr, closeErr)),
+					)
+					break
+				}
+				return nil, fmt.Errorf(
+					"error reading previous-sync c1z %q metadata: %w",
+					s.previousSyncC1ZPath,
+					errors.Join(metaErr, closeErr),
+				)
+			}
+			if run == nil || !run.UsableAsReplaySource() {
+				if closeErr := previousSyncStore.Close(ctx); closeErr != nil {
+					if s.previousSyncC1ZPathOptional {
+						ctxzap.Extract(ctx).Warn("ineligible previous-sync c1z could not close cleanly; syncing without source-cache replay",
+							zap.String("previous_sync_c1z_path", s.previousSyncC1ZPath),
+							zap.Error(closeErr),
+						)
+						break
+					}
+					return nil, fmt.Errorf("error closing ineligible previous-sync c1z %q: %w", s.previousSyncC1ZPath, closeErr)
+				}
+				ctxzap.Extract(ctx).Warn("previous-sync c1z is not replay-eligible; syncing without source-cache replay",
+					zap.String("previous_sync_c1z_path", s.previousSyncC1ZPath),
+				)
+				break
+			}
 			s.previousSyncReader = previousSyncStore
 		case s.previousSyncC1ZPathOptional:
 			// Best-effort replay source (see WithOptionalPreviousSyncC1ZPath):

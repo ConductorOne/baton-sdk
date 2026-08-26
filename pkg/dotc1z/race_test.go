@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/conductorone/baton-sdk/internal/testtier"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
@@ -25,6 +26,7 @@ import (
 // caching (ZFS ARC), reads can be served from a different cache tier
 // that doesn't yet have the checkpoint data.
 func TestWALCheckpointRace(t *testing.T) {
+	testtier.RequireNightly(t)
 	if testing.Short() {
 		t.Skip("skipping race condition test in short mode")
 	}

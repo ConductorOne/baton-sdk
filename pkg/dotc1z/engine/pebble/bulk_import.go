@@ -58,6 +58,7 @@ const bulkSpillBufferSize = 1 << 20
 var grantIndexFamilies = []byte{
 	idxGrantByPrincipal,
 	idxGrantByNeedsExpansion,
+	idxGrantBySourceScope,
 }
 
 // bulkSSTWriter builds one SST file for a single disjoint key bucket.
@@ -699,7 +700,18 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 		// Put*Records calls in this sync must take their read-before-write
 		// paths so overwrites of imported identities clean up index entries.
 		_ = b.e.takeFreshGrantsEmpty()
+		_ = b.e.takeFreshEntitlementsEmpty()
 		_ = b.e.takeFreshResourcesEmpty()
+		// Same contract for the source-scope gate: grantIndexKeys emits
+		// by_source_scope entries for stamped records (the v2 translators
+		// never stamp today, but the writer is wired for it), and ingest
+		// bypasses the typed ops that would arm the gate. Re-derive it
+		// from the actual family state — exact under the write barrier —
+		// so a scoped import can never leave the unsound
+		// false-with-entries state behind.
+		if err := b.e.db.ProbeSourceScopeMayExist(); err != nil {
+			return fmt.Errorf("bulk sync import: probe source-scope state: %w", err)
+		}
 		return nil
 	})
 	if err != nil {
