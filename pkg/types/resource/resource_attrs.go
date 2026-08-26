@@ -87,8 +87,9 @@ func GetStatus(r *v2.Resource) *v2.Status {
 		}.Build()
 	}
 	if agt := (&v2.AgentTrait{}); pickTrait(r, agt) && agt.GetStatus() != v2.AgentTrait_AGENT_STATUS_UNSPECIFIED {
-		// AgentTrait_AgentStatus and Status_ResourceStatus enum values are
-		// identical (READY maps to ENABLED).
+		// AgentTrait_AgentStatus is a numeric prefix of Status_ResourceStatus
+		// (READY maps to ENABLED); new AgentStatus values must not reuse
+		// ResourceStatus numbers with different meanings.
 		return v2.Status_builder{
 			Status: v2.Status_ResourceStatus(agt.GetStatus()),
 		}.Build()

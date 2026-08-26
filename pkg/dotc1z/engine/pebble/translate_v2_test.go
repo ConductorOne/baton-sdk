@@ -1,6 +1,7 @@
 package pebble
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -196,6 +197,39 @@ func TestGrantSourcesRoundtrip(t *testing.T) {
 	back := V3GrantToV2(v3rec)
 	require.Len(t, back.GetSources().GetSources(), 2, "source count v2 roundtrip")
 	require.True(t, back.GetSources().GetSources()["direct-source"].GetIsDirect(), "roundtrip direct-source.is_direct should be true")
+}
+
+// The three status enums below are maintained by hand and cast into each
+// other numerically; a value added to one but not the others must fail here
+// rather than mistranslate in stored data.
+func TestStatusEnumMirrorsStayAligned(t *testing.T) {
+	stripPrefix := func(name string) string {
+		return strings.TrimPrefix(strings.TrimPrefix(name, "RESOURCE_"), "STATUS_")
+	}
+
+	require.Equal(t, len(v2.Status_ResourceStatus_name), len(v3.StatusRecord_ResourceStatus_name),
+		"c1.storage.v3.StatusRecord.ResourceStatus must mirror c1.connector.v2.Status.ResourceStatus")
+	require.Equal(t, len(v2.Status_ResourceStatus_name), len(v2.UserTrait_Status_Status_name),
+		"c1.connector.v2.UserTrait.Status.Status must mirror c1.connector.v2.Status.ResourceStatus")
+
+	for num, name := range v2.Status_ResourceStatus_name {
+		v3Name, ok := v3.StatusRecord_ResourceStatus_name[num]
+		require.Truef(t, ok, "Status_ResourceStatus value %d (%s) missing from StatusRecord_ResourceStatus", num, name)
+		require.Equalf(t, name, v3Name, "Status_ResourceStatus value %d name mismatch", num)
+
+		utName, ok := v2.UserTrait_Status_Status_name[num]
+		require.Truef(t, ok, "Status_ResourceStatus value %d (%s) missing from UserTrait_Status_Status", num, name)
+		require.Equalf(t, stripPrefix(name), stripPrefix(utName), "Status_ResourceStatus value %d name mismatch vs UserTrait_Status", num)
+	}
+
+	// AgentTrait_AgentStatus is cast numerically into Status_ResourceStatus.
+	// It is a prefix, not a mirror (READY maps to ENABLED); every AgentStatus
+	// number must exist in ResourceStatus so a new AgentStatus value cannot
+	// silently surface as an unrelated resource status.
+	for num, name := range v2.AgentTrait_AgentStatus_name {
+		_, ok := v2.Status_ResourceStatus_name[num]
+		require.Truef(t, ok, "AgentTrait_AgentStatus value %d (%s) has no Status_ResourceStatus counterpart", num, name)
+	}
 }
 
 func TestV2ResourceStatusPendingRoundtrip(t *testing.T) {

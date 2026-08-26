@@ -171,8 +171,9 @@ func syncAgentTraitToResource(r *v2.Resource, at *v2.AgentTrait) {
 		r.SetProfile(at.GetProfile())
 	}
 	if at.GetStatus() != v2.AgentTrait_AGENT_STATUS_UNSPECIFIED && !r.HasStatus() {
-		// AgentTrait_AgentStatus and Status_ResourceStatus enum values are
-		// identical (READY maps to ENABLED).
+		// AgentTrait_AgentStatus is a numeric prefix of Status_ResourceStatus
+		// (READY maps to ENABLED); new AgentStatus values must not reuse
+		// ResourceStatus numbers with different meanings.
 		r.SetStatus(v2.Status_builder{
 			Status: v2.Status_ResourceStatus(at.GetStatus()),
 		}.Build())
