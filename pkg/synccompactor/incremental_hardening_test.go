@@ -108,6 +108,42 @@ func TestIncrementalExpansionOutcomeLogging(t *testing.T) {
 			wantOutcome: "fell_back", wantReason: "base_graph_error",
 		},
 		{
+			// Overflow means the recorded ids no longer describe what was
+			// skipped, so seeding them cannot make this agree with full
+			// expansion. Only this case declines.
+			name: "dangling overflow decline",
+			build: func(t *testing.T, ctx context.Context, dir string) []*CompactableSync {
+				entries := buildIncrementalFixtures(t, ctx, dir)
+				graph := baseGraphForFixtures(t, ctx)
+				graph.NoteUnrecoverableDangling()
+				store, err := dotc1z.NewStore(ctx, entries[0].FilePath, dotc1z.WithTmpDir(t.TempDir()))
+				require.NoError(t, err)
+				persistFixtureGraph(t, ctx, store, entries[0].SyncID, graph)
+				require.NoError(t, store.Close(ctx))
+				return entries
+			},
+			options:     []Option{WithEngine(c1zstore.EnginePebble), WithIncrementalExpansion()},
+			wantOutcome: "declined", wantReason: "dangling_overflow",
+		},
+		{
+			// Ordinary dangling ids must NOT decline. They are seeded instead,
+			// so a permanently broken reference costs one lookup per run rather
+			// than the fast path forever.
+			name: "recorded dangling ids still take the fast path",
+			build: func(t *testing.T, ctx context.Context, dir string) []*CompactableSync {
+				entries := buildIncrementalFixtures(t, ctx, dir)
+				graph := baseGraphForFixtures(t, ctx)
+				graph.NoteDanglingReference("never:resolves")
+				store, err := dotc1z.NewStore(ctx, entries[0].FilePath, dotc1z.WithTmpDir(t.TempDir()))
+				require.NoError(t, err)
+				persistFixtureGraph(t, ctx, store, entries[0].SyncID, graph)
+				require.NoError(t, store.Close(ctx))
+				return entries
+			},
+			options:     []Option{WithEngine(c1zstore.EnginePebble), WithIncrementalExpansion()},
+			wantOutcome: "succeeded", wantReason: "none",
+		},
+		{
 			name: "unsupported engine", build: func(t *testing.T, ctx context.Context, dir string) []*CompactableSync {
 				return buildIncrementalFixturesEngine(t, ctx, dir, c1zstore.EngineSQLite)
 			},

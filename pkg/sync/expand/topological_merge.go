@@ -227,7 +227,14 @@ func (e *Expander) loadExpansionEntitlements(ctx context.Context) (map[string]*v
 		}
 		if ok {
 			entitlements[entID] = ent
+			continue
 		}
+		// Single resolution point for this evaluator: every downstream "not in
+		// store" skip is a consequence of this absence, so recording here is
+		// provably complete over the graph. The id is persisted with the graph
+		// so the next incremental run seeds it — if the row has since appeared
+		// it expands, otherwise it is re-skipped for one lookup.
+		e.graph.NoteDanglingReference(entID)
 	}
 	return entitlements, nil
 }

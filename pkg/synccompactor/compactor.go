@@ -23,6 +23,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/tempdir"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -30,7 +32,20 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
-var tracer = otel.Tracer("baton-sdk/pkg.synccompactor")
+var (
+	tracer = otel.Tracer("baton-sdk/pkg.synccompactor")
+	meter  = otel.Meter("baton-sdk/pkg.synccompactor")
+
+	// One increment per compaction that considered incremental expansion.
+	// Both attributes are closed sets (see logIncrementalOutcome), so the
+	// cardinality is bounded — this is the counterpart of the
+	// incremental_expansion_outcome log field, for alerting on a fast path
+	// that has quietly stopped engaging.
+	incrementalExpansionOutcomeCounter, _ = meter.Int64Counter(
+		"compactor_incremental_expansion_total",
+		metric.WithDescription("Incremental grant expansion attempts by result. Attributes: outcome (not_attempted|fell_back|declined|succeeded|failed), reason."),
+	)
+)
 
 type CompactorType string
 
@@ -653,6 +668,14 @@ func (c *Compactor) expandGrantsIncremental(ctx context.Context, newSyncId strin
 	if base.HasCollapsedCycles() {
 		return false, expand.ErrIncrementalFallback
 	}
+	// The base's dangling endpoints are seeded below rather than declined, so
+	// a permanently broken reference costs a lookup per run instead of the fast
+	// path forever. Overflow is the exception: the recorded set no longer
+	// describes what was skipped, so seeding cannot make this agree with full
+	// expansion.
+	if base.DanglingOverflow {
+		return false, expand.ErrIncrementalDanglingReferenceDecline
+	}
 
 	// Bound the walk by the remaining run duration; the walk polls ctx.Err().
 	// Finalization uses detached contexts, so an expired walk deadline never
@@ -821,6 +844,12 @@ func (c *Compactor) expandGrantsIncremental(ctx context.Context, newSyncId strin
 		}
 		return false, err
 	}
+	// Endpoints the base expansion skipped for a missing entitlement row. An
+	// increment that supplies one of those rows adds no edge and no grant, so
+	// nothing else would seed it; seeding by id is what keeps this path in
+	// agreement with full expansion. Ids still missing are re-skipped inside
+	// the walk for the cost of one lookup, and re-recorded on the way out.
+	changedEntitlementIDs = appendDanglingSeeds(changedEntitlementIDs, base)
 
 	if len(newEdges) == 0 && len(changedEntitlementIDs) == 0 {
 		// Nothing changed relative to the base — its grants were already merged in.
@@ -1264,6 +1293,11 @@ func (c *Compactor) expandGrants(ctx context.Context, newSyncId string, compacti
 			logIncrementalOutcome(ctx, "declined", "revocation")
 		case errors.Is(err, expand.ErrIncrementalDenseChangeDecline):
 			logIncrementalOutcome(ctx, "declined", "dense_change")
+		case errors.Is(err, expand.ErrIncrementalDanglingReferenceDecline):
+			// A dangling endpoint in the base can resolve later with no edge
+			// or grant change to seed on: defer the change set to full
+			// expansion rather than diverge from it.
+			logIncrementalOutcome(ctx, "declined", "dangling_overflow")
 		case errors.Is(err, expand.ErrIncrementalFallback):
 			// New edge closed a cycle: full expansion handles cycles correctly.
 			logIncrementalOutcome(ctx, "declined", "cycle")
@@ -1351,12 +1385,40 @@ func (c *Compactor) expandGrants(ctx context.Context, newSyncId string, compacti
 	return nil
 }
 
+// logIncrementalOutcome is the single reporting site for how an incremental
+// expansion attempt ended. Every caller passes literal outcome/reason strings,
+// so both are safe as metric attributes.
+// appendDanglingSeeds unions the base graph's recorded dangling endpoints into
+// the changed set, deduped and sorted so the walk order stays byte-stable.
+func appendDanglingSeeds(changed []string, base *expand.EntitlementGraph) []string {
+	if len(base.DanglingEntitlementIDs) == 0 {
+		return changed
+	}
+	seen := make(map[string]struct{}, len(changed)+len(base.DanglingEntitlementIDs))
+	for _, id := range changed {
+		seen[id] = struct{}{}
+	}
+	for id := range base.DanglingEntitlementIDs {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		changed = append(changed, id)
+	}
+	sort.Strings(changed)
+	return changed
+}
+
 func logIncrementalOutcome(ctx context.Context, outcome, reason string, fields ...zap.Field) {
 	fields = append([]zap.Field{
 		zap.String("incremental_expansion_outcome", outcome),
 		zap.String("incremental_expansion_reason", reason),
 	}, fields...)
 	ctxzap.Extract(ctx).Info("incremental grant expansion outcome", fields...)
+	incrementalExpansionOutcomeCounter.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("outcome", outcome),
+		attribute.String("reason", reason),
+	))
 }
 
 func (c *Compactor) loadIncrementalBaseGraph(ctx context.Context) (*expand.EntitlementGraph, error) {

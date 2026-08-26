@@ -45,6 +45,13 @@ func (g *EntitlementGraph) Clone() (*EntitlementGraph, error) {
 		Loaded:                g.Loaded,
 		Depth:                 g.Depth,
 		HasNoCycles:           g.HasNoCycles,
+		DanglingOverflow:      g.DanglingOverflow,
+	}
+	if g.DanglingEntitlementIDs != nil {
+		out.DanglingEntitlementIDs = make(map[string]struct{}, len(g.DanglingEntitlementIDs))
+		for id := range g.DanglingEntitlementIDs {
+			out.DanglingEntitlementIDs[id] = struct{}{}
+		}
 	}
 	for id, node := range g.Nodes {
 		node.EntitlementIDs = append([]string(nil), node.EntitlementIDs...)
@@ -110,6 +117,9 @@ func (g *EntitlementGraph) reinitMaps() {
 	if g.Edges == nil {
 		g.Edges = map[int]Edge{}
 	}
+	if g.DanglingEntitlementIDs == nil {
+		g.DanglingEntitlementIDs = map[string]struct{}{}
+	}
 }
 
 // ErrIncrementalFallback means a new edge closed a cycle; the caller should
@@ -126,6 +136,14 @@ var ErrIncrementalRevocationDecline = errors.New("incremental expansion: revocat
 // ErrIncrementalDenseChangeDecline means the affected closure is large enough
 // that normal full expansion is the safer bounded-cost path.
 var ErrIncrementalDenseChangeDecline = errors.New("incremental expansion: dense affected graph, fall back to full expansion")
+
+// ErrIncrementalDanglingReferenceDecline means the base graph can no longer
+// describe what it skipped — the dangling set overflowed its cap, or an
+// evaluator dropped the edges outright — so seeding those ids cannot make the
+// fast path agree with full expansion. Ordinary dangling references do NOT
+// reach this: they are seeded by id instead, because most are permanent and a
+// blanket decline would disable the fast path for good.
+var ErrIncrementalDanglingReferenceDecline = errors.New("incremental expansion: base graph dangling set is not seedable, fall back to full expansion")
 
 const (
 	incrementalDenseGraphMinNodes = 1000
@@ -213,6 +231,12 @@ func (ie *IncrementalExpander) ExpandChanges(ctx context.Context, newEdges []New
 	if len(seeds) == 0 {
 		return &IncrementalResult{}, nil
 	}
+
+	// Seeds are fixed; rebuild the dangling set from what this walk actually
+	// finds. Inheriting it would keep seeding endpoints that have since
+	// resolved — and re-walking their whole forward closure — on every run.
+	// Anything still missing is re-recorded as the walk hits it.
+	ie.graph.DanglingEntitlementIDs = nil
 
 	if cyclic, _ := ie.graph.ComputeCyclicComponents(ctx); len(cyclic) > 0 {
 		return nil, ErrIncrementalFallback
@@ -376,7 +400,10 @@ func (ie *IncrementalExpander) recomputeDestination(ctx context.Context, nodeID 
 	}
 	if destEnt == nil {
 		// Dangling ref: skip-with-warn, matching the full evaluator (don't
-		// error into a fallback).
+		// error into a fallback). Recorded on the graph so the sidecar this
+		// run persists declines the next incremental attempt — the skipped
+		// endpoint may resolve later with no edge or grant change to seed on.
+		ie.graph.NoteDanglingReference(destEntitlementID)
 		ctxzap.Extract(ctx).Warn("incremental expansion: destination entitlement not in store; skipping",
 			zap.String("entitlement_id", destEntitlementID))
 		return 0, nil
@@ -406,6 +433,7 @@ func (ie *IncrementalExpander) recomputeDestination(ctx context.Context, nodeID 
 				return 0, err
 			}
 			if sourceEnt == nil {
+				ie.graph.NoteDanglingReference(sourceEntitlementID)
 				ctxzap.Extract(ctx).Warn("incremental expansion: source entitlement not in store; skipping",
 					zap.String("entitlement_id", sourceEntitlementID))
 				continue
