@@ -233,13 +233,40 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			wantMsg:  "access_denied",
 		},
 		{
-			name: "oauth2 invalid_grant maps to InvalidArgument, not an auth failure",
+			// RFC 6749 §5.2 names "resource owner credentials" (a wrong
+			// username/password under the password grant) as one of the
+			// things invalid_grant covers — a genuine credential failure,
+			// not a malformed request, so it belongs with invalid_client.
+			name: "oauth2 invalid_grant is a credential failure, not InvalidArgument",
 			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
 				ErrorCode: "invalid_grant",
 				Response:  &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"},
 			}),
-			wantCode: codes.InvalidArgument,
+			wantCode: codes.Unauthenticated,
 			wantMsg:  "invalid_grant",
+		},
+		{
+			// RFC 6749 §5.2: "The authenticated client is not authorized to
+			// use this authorization grant type" — the identity was
+			// accepted, so PermissionDenied fits better than
+			// Unauthenticated (re-presenting a different secret can't fix a
+			// grant-type mismatch).
+			name: "oauth2 unauthorized_client is authenticated but not entitled",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "unauthorized_client",
+				Response:  &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"},
+			}),
+			wantCode: codes.PermissionDenied,
+			wantMsg:  "unauthorized_client",
+		},
+		{
+			name: "oauth2 invalid_scope is a malformed request, not a credential failure",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "invalid_scope",
+				Response:  &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"},
+			}),
+			wantCode: codes.InvalidArgument,
+			wantMsg:  "invalid_scope",
 		},
 		{
 			// No RFC 6749 error param at all (a non-compliant or proxy-mangled
@@ -250,6 +277,32 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			}),
 			wantCode: codes.PermissionDenied,
 			wantMsg:  "403 Forbidden",
+		},
+		{
+			// A transient failure at the token endpoint (rate limited or the
+			// server having trouble) has no RFC 6749 error param to key off,
+			// so it falls back to the HTTP status like any other API
+			// response — including retry eligibility: this becomes
+			// Unavailable, which retry.Retryer.ShouldWaitAndRetry treats as
+			// retryable, same as a 503 on a normal API call.
+			name: "oauth2 token endpoint rate limited (429) falls back to status and is retryable",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				Response: &http.Response{StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests"},
+			}),
+			wantCode: codes.Unavailable,
+			wantMsg:  "429 Too Many Requests",
+		},
+		{
+			// An error code the RFC doesn't define (a non-compliant server,
+			// or a future extension this package doesn't know about) also
+			// falls back to the HTTP status rather than being dropped.
+			name: "oauth2 unrecognized error param falls back to status code, keeps the error param in the message",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "some_vendor_specific_error",
+				Response:  &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"},
+			}),
+			wantCode: codes.InvalidArgument,
+			wantMsg:  "some_vendor_specific_error",
 		},
 	}
 

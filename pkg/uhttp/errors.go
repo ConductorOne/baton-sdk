@@ -115,13 +115,29 @@ func wrapTransientNetworkError(err error) error {
 // oauthTokenErrorCode maps an RFC 6749 §5.2 token-error "error" parameter to
 // a grpc code. ok is false when errCode is empty or not one of the values
 // the spec defines, signaling the caller to fall back to the HTTP status.
+//
+//   - invalid_client and unauthorized_client both name the client's
+//     credential/identity as the problem — RFC 6749 defines invalid_client as
+//     "Client authentication failed", and unauthorized_client as "The
+//     authenticated client is not authorized to use this authorization grant
+//     type" (authenticated, but not entitled) — PermissionDenied, not
+//     Unauthenticated, since re-presenting a different secret won't fix a
+//     grant-type mismatch.
+//   - invalid_grant explicitly covers "resource owner credentials" (a wrong
+//     username/password under the password grant) alongside an expired or
+//     revoked authorization code/refresh token — a genuine credential
+//     failure, so it maps with invalid_client rather than the InvalidArgument
+//     bucket.
+//   - access_denied, invalid_scope, invalid_request, unsupported_grant_type,
+//     and unsupported_response_type describe a malformed or disallowed
+//     request rather than a rejected identity.
 func oauthTokenErrorCode(errCode string) (codes.Code, bool) {
 	switch errCode {
-	case "invalid_client", "unauthorized_client":
+	case "invalid_client", "invalid_grant":
 		return codes.Unauthenticated, true
-	case "access_denied":
+	case "unauthorized_client", "access_denied":
 		return codes.PermissionDenied, true
-	case "invalid_grant", "invalid_scope", "invalid_request", "unsupported_grant_type", "unsupported_response_type":
+	case "invalid_scope", "invalid_request", "unsupported_grant_type", "unsupported_response_type":
 		return codes.InvalidArgument, true
 	default:
 		return codes.Unknown, false
