@@ -22,18 +22,10 @@ func wrapTransientNetworkError(err error) error {
 		return nil
 	}
 
-	// A failed OAuth2 token exchange (rejected client credentials, wrong
-	// scope, expired secret, etc.) surfaces here as *oauth2.RetrieveError
-	// wrapping the token endpoint's real response — not as a network blip.
-	// RFC 6749 §5.2's "error" parameter is the authoritative signal: some
-	// servers report it on an HTTP 200 (x/oauth2 still treats that as a
-	// RetrieveError), and the spec's own default status for invalid_client/
-	// invalid_grant is 400, which GrpcCodeFromHTTPStatus maps to
-	// InvalidArgument — not the Unauthenticated/PermissionDenied a bad-
-	// credentials rejection should produce. Only fall back to the HTTP
-	// status when the server didn't send a recognized error code. Callers
-	// (e.g. exit.LogExit) rely on this mapping to tell a real auth failure
-	// apart from an unclassified error.
+	// The RFC 6749 §5.2 error param takes priority over the HTTP status:
+	// some servers report it on a 200, and 400 is the spec default for
+	// invalid_client/invalid_grant, which GrpcCodeFromHTTPStatus alone
+	// would otherwise misclassify.
 	var retrieveErr *oauth2.RetrieveError
 	if errors.As(err, &retrieveErr) {
 		if code, ok := oauthTokenErrorCode(retrieveErr.ErrorCode); ok {
@@ -113,24 +105,8 @@ func wrapTransientNetworkError(err error) error {
 }
 
 // oauthTokenErrorCode maps an RFC 6749 §5.2 token-error "error" parameter to
-// a grpc code. ok is false when errCode is empty or not one of the values
-// the spec defines, signaling the caller to fall back to the HTTP status.
-//
-//   - invalid_client and unauthorized_client both name the client's
-//     credential/identity as the problem — RFC 6749 defines invalid_client as
-//     "Client authentication failed", and unauthorized_client as "The
-//     authenticated client is not authorized to use this authorization grant
-//     type" (authenticated, but not entitled) — PermissionDenied, not
-//     Unauthenticated, since re-presenting a different secret won't fix a
-//     grant-type mismatch.
-//   - invalid_grant explicitly covers "resource owner credentials" (a wrong
-//     username/password under the password grant) alongside an expired or
-//     revoked authorization code/refresh token — a genuine credential
-//     failure, so it maps with invalid_client rather than the InvalidArgument
-//     bucket.
-//   - access_denied, invalid_scope, invalid_request, unsupported_grant_type,
-//     and unsupported_response_type describe a malformed or disallowed
-//     request rather than a rejected identity.
+// a grpc code. ok is false when errCode is empty or unrecognized, signaling
+// the caller to fall back to the HTTP status.
 func oauthTokenErrorCode(errCode string) (codes.Code, bool) {
 	switch errCode {
 	case "invalid_client", "invalid_grant":

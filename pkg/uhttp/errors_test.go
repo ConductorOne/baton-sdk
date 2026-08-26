@@ -19,10 +19,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/retry"
 )
 
-// wrapAsTokenRequestError mirrors the shape wrapTransientNetworkError
-// actually receives in production: oauth2.Transport's RoundTrip returns the
-// token-source error unwrapped, and http.Client.Do wraps it in *url.Error
-// before BaseHttpClient.Do ever sees it.
+// wrapAsTokenRequestError mirrors the *url.Error wrapping http.Client.Do
+// actually produces in production, not a bare *oauth2.RetrieveError.
 func wrapAsTokenRequestError(retrieveErr *oauth2.RetrieveError) error {
 	return &url.Error{Op: "Post", URL: "https://example.com/oauth/token", Err: retrieveErr}
 }
@@ -183,10 +181,6 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			wantMsg:  "http2 client connection lost",
 		},
 		{
-			// Production always delivers *oauth2.RetrieveError wrapped in
-			// *url.Error (http.Client.Do's own wrapping), so this — not a
-			// bare RetrieveError — is the shape the errors.As unwrap in
-			// wrapTransientNetworkError actually has to see through.
 			name: "oauth2 invalid_client (RFC 6749 error param, 401)",
 			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
 				ErrorCode:        "invalid_client",
@@ -197,11 +191,6 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			wantMsg:  "invalid_client: client authentication failed",
 		},
 		{
-			// RFC 6749 §5.2 makes 400 the default status for invalid_client/
-			// invalid_grant (401 is only a MAY for invalid_client). Relying on
-			// GrpcCodeFromHTTPStatus(400) alone would produce InvalidArgument
-			// for exactly the credentials-rejected case this exists to catch;
-			// the "error" param must take priority over the HTTP status.
 			name: "oauth2 invalid_client on the RFC default status (400)",
 			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
 				ErrorCode: "invalid_client",
@@ -211,10 +200,6 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			wantMsg:  "invalid_client",
 		},
 		{
-			// Some token endpoints report the RFC 6749 error param on a 2xx
-			// response. GrpcCodeFromHTTPStatus(200) would silently map this to
-			// Unknown with a misleading "200 OK" message if the error param
-			// weren't consulted first.
 			name: "oauth2 error param on a 200 response",
 			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
 				ErrorCode: "invalid_client",
@@ -233,10 +218,6 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			wantMsg:  "access_denied",
 		},
 		{
-			// RFC 6749 §5.2 names "resource owner credentials" (a wrong
-			// username/password under the password grant) as one of the
-			// things invalid_grant covers — a genuine credential failure,
-			// not a malformed request, so it belongs with invalid_client.
 			name: "oauth2 invalid_grant is a credential failure, not InvalidArgument",
 			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
 				ErrorCode: "invalid_grant",
@@ -246,11 +227,6 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			wantMsg:  "invalid_grant",
 		},
 		{
-			// RFC 6749 §5.2: "The authenticated client is not authorized to
-			// use this authorization grant type" — the identity was
-			// accepted, so PermissionDenied fits better than
-			// Unauthenticated (re-presenting a different secret can't fix a
-			// grant-type mismatch).
 			name: "oauth2 unauthorized_client is authenticated but not entitled",
 			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
 				ErrorCode: "unauthorized_client",
@@ -269,8 +245,6 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			wantMsg:  "invalid_scope",
 		},
 		{
-			// No RFC 6749 error param at all (a non-compliant or proxy-mangled
-			// response) falls back to the plain HTTP status.
 			name: "oauth2 token request rejected with no error param (403)",
 			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
 				Response: &http.Response{StatusCode: http.StatusForbidden, Status: "403 Forbidden"},
@@ -279,12 +253,6 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			wantMsg:  "403 Forbidden",
 		},
 		{
-			// A transient failure at the token endpoint (rate limited or the
-			// server having trouble) has no RFC 6749 error param to key off,
-			// so it falls back to the HTTP status like any other API
-			// response — including retry eligibility: this becomes
-			// Unavailable, which retry.Retryer.ShouldWaitAndRetry treats as
-			// retryable, same as a 503 on a normal API call.
 			name: "oauth2 token endpoint rate limited (429) falls back to status and is retryable",
 			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
 				Response: &http.Response{StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests"},
@@ -293,9 +261,6 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			wantMsg:  "429 Too Many Requests",
 		},
 		{
-			// An error code the RFC doesn't define (a non-compliant server,
-			// or a future extension this package doesn't know about) also
-			// falls back to the HTTP status rather than being dropped.
 			name: "oauth2 unrecognized error param falls back to status code, keeps the error param in the message",
 			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
 				ErrorCode: "some_vendor_specific_error",
