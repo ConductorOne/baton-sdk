@@ -157,13 +157,22 @@ type BulkSyncImport struct {
 	done   bool
 
 	resourceTypes *bulkSSTWriter
-	resources     *bulkSSTWriter
 
-	// entitlements go through a spill sorter, not an ordered SST writer:
-	// the converter scans in external-id order, but the structural identity
-	// key does not sort the same way (tuple separators sort below printable
-	// bytes, and the flag component reorders stripped vs opaque ids), so the
-	// stream must be re-sorted before it can become an SST.
+	// resources and entitlements go through spill sorters, not ordered SST
+	// writers: the structural key does not sort the way a producer's natural
+	// scan order does (for entitlements, tuple separators sort below
+	// printable bytes and the flag component reorders stripped vs opaque
+	// ids), so the stream must be re-sorted before it can become an SST.
+	//
+	// Resources are keyed (resource_type_id, resource_id). A converter
+	// scanning SQLite with ORDER BY on that tuple already arrives sorted and
+	// paid nothing for an ordered writer, but a producer that rewrites
+	// resource ids — the c1z sanitizer HMACs them — emits an order unrelated
+	// to the destination key. Sorting here keeps every producer on one path
+	// rather than making sortedness a precondition each one has to
+	// re-establish, and it holds when a single resource type is too large to
+	// sort in memory.
+	resources    *spillSorter
 	entitlements *spillSorter
 
 	// sortSem bounds concurrently running background chunk sorts
@@ -235,20 +244,13 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 		entitlementsByRT:    map[string]int64{},
 		grantDupRowsByEntRT: map[string]int64{},
 	}
-	for _, w := range []struct {
-		slot **bulkSSTWriter
-		name string
-	}{
-		{&b.resourceTypes, "resource-types"},
-		{&b.resources, "resources"},
-	} {
-		sw, err := newBulkSSTWriter(e.fs(), dir, w.name)
-		if err != nil {
-			b.Abort()
-			return nil, err
-		}
-		*w.slot = sw
+	sw, err := newBulkSSTWriter(e.fs(), dir, "resource-types")
+	if err != nil {
+		b.Abort()
+		return nil, err
 	}
+	b.resourceTypes = sw
+	b.resources = newSpillSorter(dir, "resources", b.sortSem, bulkSpillKeyChunkBytes)
 	b.entitlements = newSpillSorter(dir, "entitlements", b.sortSem, bulkSpillKeyChunkBytes)
 	b.idxResourceByParent = newSpillSorter(dir, fmt.Sprintf("index-%02x-p", idxResourceByParent), b.sortSem, bulkSpillKeyChunkBytes)
 	return b, nil
@@ -423,9 +425,10 @@ func (b *BulkSyncImport) AddResourceTypesWithDiscoveredAt(ctx context.Context, r
 	return nil
 }
 
-// AddResources translates and appends resources, which must arrive
-// sorted by (resource_type_id, resource_id). by_parent index keys are
-// derived and spilled with the same parent guard as writeResourceIndexes.
+// AddResources translates and appends resources. Rows are keyed by
+// (resource_type_id, resource_id) and re-sorted through a spill sorter, so
+// arrival order does not matter. by_parent index keys are derived and
+// spilled with the same parent guard as writeResourceIndexes.
 func (b *BulkSyncImport) AddResources(ctx context.Context, resources ...*v2.Resource) error {
 	return b.AddResourcesWithDiscoveredAt(ctx, resources, nil)
 }
@@ -540,7 +543,7 @@ func (b *BulkSyncImport) ComputedStats() *v3.SyncStatsRecord {
 	rec := &v3.SyncStatsRecord{
 		SyncId:                          b.syncID,
 		ResourceTypes:                   int64(b.resourceTypes.count),
-		Resources:                       int64(b.resources.count),
+		Resources:                       b.resources.count,
 		Entitlements:                    b.entitlements.count,
 		Grants:                          grants,
 		ResourcesByResourceType:         b.resourcesByRT,
@@ -574,13 +577,11 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 	start := time.Now()
 
 	paths := make([]string, 0, 4+len(grantIndexFamilies))
-	for _, w := range []*bulkSSTWriter{b.resourceTypes, b.resources} {
-		if err := w.finish(); err != nil {
-			return err
-		}
-		if w.count > 0 {
-			paths = append(paths, w.path)
-		}
+	if err := b.resourceTypes.finish(); err != nil {
+		return err
+	}
+	if b.resourceTypes.count > 0 {
+		paths = append(paths, b.resourceTypes.path)
 	}
 
 	b.mu.Lock()
@@ -607,6 +608,7 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 	}
 	units := []mergeUnit{
 		{name: "grants", resolve: b.resolveDuplicateGrants},
+		{name: "resources", sorters: []*spillSorter{b.resources}},
 		{name: "entitlements", sorters: []*spillSorter{b.entitlements}},
 		{name: fmt.Sprintf("index-%02x", idxResourceByParent), sorters: []*spillSorter{b.idxResourceByParent}},
 	}
@@ -753,17 +755,15 @@ func (b *BulkSyncImport) Abort() {
 	b.teardown()
 }
 
-// teardown closes both ordered SST writers, waits out every spill
+// teardown closes the ordered SST writer, waits out every spill
 // sorter's in-flight background chunk sorts, and then removes the
 // staging directory. The waits must precede the RemoveAll: a chunk
 // sort racing the removal can re-create a file mid-walk and strand the
-// directory. Idempotent against already-finished writers and
+// directory. Idempotent against an already-finished writer and
 // already-finalized sorters, so Finish can run it unconditionally.
 func (b *BulkSyncImport) teardown() {
-	for _, w := range []*bulkSSTWriter{b.resourceTypes, b.resources} {
-		if w != nil {
-			_ = w.finish()
-		}
+	if b.resourceTypes != nil {
+		_ = b.resourceTypes.finish()
 	}
 	b.mu.Lock()
 	shards := b.shards
@@ -775,7 +775,7 @@ func (b *BulkSyncImport) teardown() {
 			w.abort()
 		}
 	}
-	for _, w := range []*spillSorter{b.entitlements, b.idxResourceByParent} {
+	for _, w := range []*spillSorter{b.resources, b.entitlements, b.idxResourceByParent} {
 		if w != nil {
 			w.abort()
 		}
@@ -1126,6 +1126,83 @@ func readSpillEntry(r io.Reader, key, val *[]byte, lenBuf *[4]byte) (bool, error
 	return true, nil
 }
 
+// spillChunkCursors owns the open chunk files for one merge pass and
+// unlinks each chunk as soon as its last entry has been read. The chunks
+// and the SST being written hold the same entries, so a merge that keeps
+// every chunk until teardown needs staging space for both copies at once;
+// releasing at exhaustion bounds the overlap to the chunks still in
+// flight. This matters well beyond one merge: the same helpers back the
+// bulk import, the deferred grant index, the id-index migration, the
+// segment layer, and the digest build, and the index builds run at
+// EndSync on every pebble sync.
+//
+// Unlinking is deliberately confined to the exhausted-chunk path, where
+// the file is provably fully consumed. A merge that fails partway closes
+// its remaining descriptors and leaves those files for the staging-dir
+// teardown that already owns them.
+type spillChunkCursors struct {
+	paths   []string
+	files   []*os.File
+	bufs    []*bufio.Reader
+	keyBufs [][]byte
+	valBufs [][]byte
+	lenBuf  [4]byte
+}
+
+func openSpillChunks(chunks []string) (*spillChunkCursors, error) {
+	c := &spillChunkCursors{
+		paths:   chunks,
+		files:   make([]*os.File, len(chunks)),
+		bufs:    make([]*bufio.Reader, len(chunks)),
+		keyBufs: make([][]byte, len(chunks)),
+		valBufs: make([][]byte, len(chunks)),
+	}
+	for i, chunk := range chunks {
+		f, err := os.Open(chunk) // #nosec G304 - staged under the import's MkdirTemp dir.
+		if err != nil {
+			c.closeAll()
+			return nil, err
+		}
+		c.files[i] = f
+		c.bufs[i] = bufio.NewReaderSize(f, bulkSpillBufferSize)
+	}
+	return c, nil
+}
+
+// advance reads the next entry of chunk i into that chunk's reusable
+// buffers, reachable via key/val. It reports false once the chunk is
+// exhausted, having already closed and unlinked it.
+func (c *spillChunkCursors) advance(i int) (bool, error) {
+	ok, err := readSpillEntry(c.bufs[i], &c.keyBufs[i], &c.valBufs[i], &c.lenBuf)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		c.closeChunk(i)
+		_ = os.Remove(c.paths[i])
+	}
+	return ok, nil
+}
+
+func (c *spillChunkCursors) key(i int) []byte { return c.keyBufs[i] }
+func (c *spillChunkCursors) val(i int) []byte { return c.valBufs[i] }
+
+func (c *spillChunkCursors) closeChunk(i int) {
+	if c.files[i] == nil {
+		return
+	}
+	_ = c.files[i].Close()
+	c.files[i] = nil
+	c.bufs[i] = nil
+}
+
+// closeAll releases descriptors without unlinking; see the type comment.
+func (c *spillChunkCursors) closeAll() {
+	for i := range c.files {
+		c.closeChunk(i)
+	}
+}
+
 // mergeSortedSpillChunksToSST heap-merges the sorted chunk files into a
 // single SST. Duplicate keys are corruption (the importer requires
 // globally unique tuples) and fail the merge. fs is the engine FS the
@@ -1133,30 +1210,19 @@ func readSpillEntry(r io.Reader, key, val *[]byte, lenBuf *[4]byte) (bool, error
 func mergeSortedSpillChunksToSST(ctx context.Context, fs vfs.FS, sstPath, name string, chunks []string) error {
 	start := time.Now()
 	l := ctxzap.Extract(ctx)
-	readers := make([]*os.File, 0, len(chunks))
-	defer func() {
-		for _, r := range readers {
-			_ = r.Close()
-		}
-	}()
-	bufReaders := make([]*bufio.Reader, len(chunks))
-	keyBufs := make([][]byte, len(chunks))
-	valBufs := make([][]byte, len(chunks))
+	cursors, err := openSpillChunks(chunks)
+	if err != nil {
+		return err
+	}
+	defer cursors.closeAll()
 	h := &spillChunkHeap{}
-	var lenBuf [4]byte
-	for i, chunk := range chunks {
-		f, err := os.Open(chunk) // #nosec G304 - staged under the import's MkdirTemp dir.
-		if err != nil {
-			return err
-		}
-		readers = append(readers, f)
-		bufReaders[i] = bufio.NewReaderSize(f, bulkSpillBufferSize)
-		ok, err := readSpillEntry(bufReaders[i], &keyBufs[i], &valBufs[i], &lenBuf)
+	for i := range chunks {
+		ok, err := cursors.advance(i)
 		if err != nil {
 			return err
 		}
 		if ok {
-			h.push(spillChunkItem{chunkIdx: i, key: keyBufs[i], val: valBufs[i]})
+			h.push(spillChunkItem{chunkIdx: i, key: cursors.key(i), val: cursors.val(i)})
 		}
 	}
 
@@ -1205,12 +1271,12 @@ func mergeSortedSpillChunksToSST(ctx context.Context, fs vfs.FS, sstPath, name s
 			}
 		}
 		last = append(last[:0], item.key...)
-		ok, err := readSpillEntry(bufReaders[item.chunkIdx], &keyBufs[item.chunkIdx], &valBufs[item.chunkIdx], &lenBuf)
+		ok, err := cursors.advance(item.chunkIdx)
 		if err != nil {
 			return err
 		}
 		if ok {
-			h.push(spillChunkItem{chunkIdx: item.chunkIdx, key: keyBufs[item.chunkIdx], val: valBufs[item.chunkIdx]})
+			h.push(spillChunkItem{chunkIdx: item.chunkIdx, key: cursors.key(item.chunkIdx), val: cursors.val(item.chunkIdx)})
 		}
 	}
 	if err := writer.finish(); err != nil {
@@ -1247,30 +1313,19 @@ func mergeSpillChunksToSSTResolvingDuplicates(
 ) (int64, error) {
 	start := time.Now()
 	l := ctxzap.Extract(ctx)
-	readers := make([]*os.File, 0, len(chunks))
-	defer func() {
-		for _, r := range readers {
-			_ = r.Close()
-		}
-	}()
-	bufReaders := make([]*bufio.Reader, len(chunks))
-	keyBufs := make([][]byte, len(chunks))
-	valBufs := make([][]byte, len(chunks))
+	cursors, err := openSpillChunks(chunks)
+	if err != nil {
+		return 0, err
+	}
+	defer cursors.closeAll()
 	h := &spillChunkHeap{}
-	var lenBuf [4]byte
-	for i, chunk := range chunks {
-		f, err := os.Open(chunk) // #nosec G304 - staged under the import's MkdirTemp dir.
-		if err != nil {
-			return 0, err
-		}
-		readers = append(readers, f)
-		bufReaders[i] = bufio.NewReaderSize(f, bulkSpillBufferSize)
-		ok, err := readSpillEntry(bufReaders[i], &keyBufs[i], &valBufs[i], &lenBuf)
+	for i := range chunks {
+		ok, err := cursors.advance(i)
 		if err != nil {
 			return 0, err
 		}
 		if ok {
-			h.push(spillChunkItem{chunkIdx: i, key: keyBufs[i], val: valBufs[i]})
+			h.push(spillChunkItem{chunkIdx: i, key: cursors.key(i), val: cursors.val(i)})
 		}
 	}
 
@@ -1359,12 +1414,12 @@ func mergeSpillChunksToSSTResolvingDuplicates(
 		// Advance the popped chunk only AFTER the entry was consumed into
 		// the group scratch: readSpillEntry overwrites the buffers item
 		// aliases.
-		ok, err := readSpillEntry(bufReaders[item.chunkIdx], &keyBufs[item.chunkIdx], &valBufs[item.chunkIdx], &lenBuf)
+		ok, err := cursors.advance(item.chunkIdx)
 		if err != nil {
 			return dupGroups, err
 		}
 		if ok {
-			h.push(spillChunkItem{chunkIdx: item.chunkIdx, key: keyBufs[item.chunkIdx], val: valBufs[item.chunkIdx]})
+			h.push(spillChunkItem{chunkIdx: item.chunkIdx, key: cursors.key(item.chunkIdx), val: cursors.val(item.chunkIdx)})
 		}
 	}
 	if err := flushCur(); err != nil {
