@@ -124,20 +124,21 @@ func (w *bulkSSTWriter) finish() error {
 // is written once into its final table — no WAL append, no L0 flush, no
 // background compaction debt.
 //
-// Resource types and resources stream straight into one SST per bucket
-// and must arrive in strictly increasing encoded-key order (SQLite BINARY
-// collation order on the key's tuple columns — the tuple key codec is
-// order-preserving; violations fail with ErrBulkImportOutOfOrder). These
-// add methods are single-threaded.
+// Resource types stream straight into one SST and must arrive in strictly
+// increasing encoded-key order (SQLite BINARY collation order on the key's
+// tuple columns — the tuple key codec is order-preserving; violations fail
+// with ErrBulkImportOutOfOrder). AddResourceTypes is single-threaded.
 //
-// Entitlements and grants are keyed by structural identity, whose tuple
-// order does NOT match the converter's external-id scan order, so they go
-// through spill sorters instead (entitlements single-threaded on the
-// parent; grants scale across goroutines, each scanning goroutine taking
-// its own shard via NewGrantShard so the grant hot path acquires no
-// shared lock at all). The secondary index families are derived
-// internally from the translated records — the same nil-guards and key
-// shapes as the engine's canonical writeXxxIndexes paths — and are
+// Every other bucket is re-sorted on the way in and imposes no ordering
+// requirement on its caller. Resources are keyed (resource_type_id,
+// resource_id); entitlements and grants are keyed by structural identity,
+// whose tuple order does NOT match a converter's external-id scan order.
+// All three go through spill sorters (resources and entitlements
+// single-threaded on the parent; grants scale across goroutines, each
+// scanning goroutine taking its own shard via NewGrantShard so the grant
+// hot path acquires no shared lock at all). The secondary index families
+// are derived internally from the translated records — the same nil-guards
+// and key shapes as the engine's canonical writeXxxIndexes paths — and are
 // key-only spill-sorted. Spill chunks sort and flush to disk in the
 // background while the scans keep streaming; Finish k-way merges each
 // family's sorted runs (across all shards) into one SST per family, in
@@ -1131,10 +1132,17 @@ func readSpillEntry(r io.Reader, key, val *[]byte, lenBuf *[4]byte) (bool, error
 // and the SST being written hold the same entries, so a merge that keeps
 // every chunk until teardown needs staging space for both copies at once;
 // releasing at exhaustion bounds the overlap to the chunks still in
-// flight. This matters well beyond one merge: the same helpers back the
-// bulk import, the deferred grant index, the id-index migration, the
-// segment layer, and the digest build, and the index builds run at
-// EndSync on every pebble sync.
+// flight. This matters well beyond one merge: all four of the engine's
+// k-way merges read their chunks through this type —
+// mergeSortedSpillChunksToSST, mergeSpillChunksToSSTResolvingDuplicates,
+// mergeGrantHashChunksToSST and mergeGrantPrimaryMigrationChunksToSST —
+// which between them cover the bulk import, the segment layer, the
+// deferred grant index, the digest build and the id-index migration, and
+// the index builds run at EndSync on every pebble sync. Every one of
+// those except the bulk import spills 128MiB chunks
+// (deferredIndexSpillChunkBytes) rather than 8MiB, which is where the
+// doubling costs most. advance is readSpillEntry's only caller, which is
+// what keeps that list from going stale.
 //
 // Unlinking is deliberately confined to the exhausted-chunk path, where
 // the file is provably fully consumed. A merge that fails partway closes
@@ -1158,7 +1166,7 @@ func openSpillChunks(chunks []string) (*spillChunkCursors, error) {
 		valBufs: make([][]byte, len(chunks)),
 	}
 	for i, chunk := range chunks {
-		f, err := os.Open(chunk) // #nosec G304 - staged under the import's MkdirTemp dir.
+		f, err := os.Open(chunk) // #nosec G304 - engine-private scratch, staged under the caller's MkdirTemp dir.
 		if err != nil {
 			c.closeAll()
 			return nil, err
@@ -1172,7 +1180,15 @@ func openSpillChunks(chunks []string) (*spillChunkCursors, error) {
 // advance reads the next entry of chunk i into that chunk's reusable
 // buffers, reachable via key/val. It reports false once the chunk is
 // exhausted, having already closed and unlinked it.
+//
+// Advancing an already-exhausted chunk keeps reporting false rather than
+// faulting on the released reader. Callers that re-push onto the heap only
+// after a true never reach that, but the inline readSpillEntry calls this
+// replaced were idempotent at EOF and several merges now depend on it.
 func (c *spillChunkCursors) advance(i int) (bool, error) {
+	if c.bufs[i] == nil {
+		return false, nil
+	}
 	ok, err := readSpillEntry(c.bufs[i], &c.keyBufs[i], &c.valBufs[i], &c.lenBuf)
 	if err != nil {
 		return false, err
