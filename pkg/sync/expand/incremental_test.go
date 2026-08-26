@@ -513,9 +513,9 @@ func itoa(i int) string {
 
 // TestIncremental_DanglingDestinationRecordsID: skipping an endpoint with no
 // entitlement row must record that endpoint's id on the graph. The sidecar this
-// run persists then seeds exactly that id on the NEXT run, which is the only
-// place the divergence is catchable — an increment that supplies the missing
-// record changes neither the edge set nor any grant.
+// run persists then prechecks that id on the NEXT run, which is the only place
+// the divergence is catchable — an increment that supplies the missing record
+// changes neither the edge set nor any grant.
 func TestIncremental_DanglingDestinationRecordsID(t *testing.T) {
 	ctx := context.Background()
 	store := NewMockExpanderStore()
@@ -578,6 +578,27 @@ func TestIncremental_ResolvedDanglingSeedExpands(t *testing.T) {
 
 	// And it drops out of the set, so later runs stop re-walking its closure.
 	require.NotContains(t, g.DanglingEntitlementIDs, "late:ent")
+}
+
+func TestIncremental_ResolvedDanglingDoesNotMutateChangedIDs(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+	g := buildExpandedChain(t, ctx, store, "alice", "eng:member", "github:access")
+
+	g.AddEntitlementID("late:ent")
+	require.NoError(t, g.AddEdge(ctx, "github:access", "late:ent", false, nil))
+	g.NoteDanglingReference("late:ent")
+	store.AddEntitlement(makeEntitlement("late:ent", makeResource("group", "late:ent")))
+
+	// Keep a sentinel in the caller's spare capacity. Appending or sorting the
+	// input slice in place would overwrite it or reorder the visible elements.
+	backing := []string{"github:access", "eng:member", "sentinel"}
+	changed := backing[:2]
+	want := append([]string(nil), backing...)
+
+	_, err := NewIncrementalExpander(store, g).ExpandChanges(ctx, nil, changed)
+	require.NoError(t, err)
+	require.Equal(t, want, backing)
 }
 
 // TestIncremental_StillMissingDanglingIsPreservedWithoutWalking: a permanent

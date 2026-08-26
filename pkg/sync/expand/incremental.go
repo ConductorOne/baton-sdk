@@ -209,6 +209,9 @@ func (ie *IncrementalExpander) ExpandChanges(ctx context.Context, newEdges []New
 		return nil, err
 	}
 	if len(resolvedDanglingIDs) > 0 {
+		// Keep the exported method from appending into or sorting the caller's
+		// backing array while combining the internally discovered seeds.
+		changedEntitlementIDs = append([]string(nil), changedEntitlementIDs...)
 		seen := make(map[string]struct{}, len(changedEntitlementIDs)+len(resolvedDanglingIDs))
 		for _, id := range changedEntitlementIDs {
 			seen[id] = struct{}{}
@@ -449,9 +452,8 @@ func (ie *IncrementalExpander) recomputeDestination(ctx context.Context, nodeID 
 	}
 	if destEnt == nil {
 		// Dangling ref: skip-with-warn, matching the full evaluator (don't
-		// error into a fallback). Recorded on the graph so the sidecar this
-		// run persists declines the next incremental attempt — the skipped
-		// endpoint may resolve later with no edge or grant change to seed on.
+		// error into a fallback). Record it on the persisted graph so a later
+		// incremental run can precheck it and seed the walk if it resolves.
 		ie.graph.NoteDanglingReference(destEntitlementID)
 		ctxzap.Extract(ctx).Warn("incremental expansion: destination entitlement not in store; skipping",
 			zap.String("entitlement_id", destEntitlementID))

@@ -96,8 +96,8 @@ type EntitlementGraph struct {
 	// those rows it adds no edge and no grant — the only two things incremental
 	// expansion seeds from — so nothing would seed the walk and the fast path
 	// would miss grants full expansion writes. Persisted so the next compaction
-	// can seed exactly these ids: any that now resolve get expanded, any still
-	// missing are re-skipped for the cost of one lookup.
+	// can precheck these ids: any that now resolve seed expansion, while those
+	// still missing remain recorded without seeding a walk.
 	//
 	// Scoped deliberately. Most dangling references are permanent (connector
 	// magic-id bugs, disabled-by-default resource types — see DroppedEdgeStats),
