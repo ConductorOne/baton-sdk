@@ -33,6 +33,10 @@ const (
 	UserTrait_ACCOUNT_TYPE_HUMAN       UserTrait_AccountType = 1
 	UserTrait_ACCOUNT_TYPE_SERVICE     UserTrait_AccountType = 2
 	UserTrait_ACCOUNT_TYPE_SYSTEM      UserTrait_AccountType = 3
+	// An invitation to join the app that has not been accepted yet. The
+	// account exists in the source system and can hold grants, but no person
+	// or service is behind it until the invite is accepted.
+	UserTrait_ACCOUNT_TYPE_INVITATION UserTrait_AccountType = 4
 )
 
 // Enum value maps for UserTrait_AccountType.
@@ -42,12 +46,14 @@ var (
 		1: "ACCOUNT_TYPE_HUMAN",
 		2: "ACCOUNT_TYPE_SERVICE",
 		3: "ACCOUNT_TYPE_SYSTEM",
+		4: "ACCOUNT_TYPE_INVITATION",
 	}
 	UserTrait_AccountType_value = map[string]int32{
 		"ACCOUNT_TYPE_UNSPECIFIED": 0,
 		"ACCOUNT_TYPE_HUMAN":       1,
 		"ACCOUNT_TYPE_SERVICE":     2,
 		"ACCOUNT_TYPE_SYSTEM":      3,
+		"ACCOUNT_TYPE_INVITATION":  4,
 	}
 )
 
@@ -2957,7 +2963,7 @@ var File_c1_connector_v2_annotation_trait_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\n" +
-	"&c1/connector/v2/annotation_trait.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x17validate/validate.proto\"\x9d\v\n" +
+	"&c1/connector/v2/annotation_trait.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x17validate/validate.proto\"\xbb\v\n" +
 	"\tUserTrait\x128\n" +
 	"\x06emails\x18\x01 \x03(\v2 .c1.connector.v2.UserTrait.EmailR\x06emails\x12=\n" +
 	"\x06status\x18\x02 \x01(\v2!.c1.connector.v2.UserTrait.StatusB\x02\x18\x01R\x06status\x125\n" +
@@ -3003,12 +3009,13 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"familyName\x12!\n" +
 	"\fmiddle_names\x18\x03 \x03(\tR\vmiddleNames\x12\x16\n" +
 	"\x06prefix\x18\x04 \x01(\tR\x06prefix\x12\x16\n" +
-	"\x06suffix\x18\x05 \x01(\tR\x06suffix\"v\n" +
+	"\x06suffix\x18\x05 \x01(\tR\x06suffix\"\x93\x01\n" +
 	"\vAccountType\x12\x1c\n" +
 	"\x18ACCOUNT_TYPE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12ACCOUNT_TYPE_HUMAN\x10\x01\x12\x18\n" +
 	"\x14ACCOUNT_TYPE_SERVICE\x10\x02\x12\x17\n" +
-	"\x13ACCOUNT_TYPE_SYSTEM\x10\x03\"\xee\x01\n" +
+	"\x13ACCOUNT_TYPE_SYSTEM\x10\x03\x12\x1b\n" +
+	"\x17ACCOUNT_TYPE_INVITATION\x10\x04\"\xee\x01\n" +
 	"\n" +
 	"GroupTrait\x121\n" +
 	"\x04icon\x18\x01 \x01(\v2\x19.c1.connector.v2.AssetRefB\x02\x18\x01R\x04icon\x125\n" +
