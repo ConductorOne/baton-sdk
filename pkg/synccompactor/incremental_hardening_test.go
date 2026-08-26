@@ -66,6 +66,7 @@ func TestIncrementalExpansionOutcomeLogging(t *testing.T) {
 		options     []Option
 		wantOutcome string
 		wantReason  string
+		checkOutput func(*testing.T, context.Context, *CompactableSync)
 	}{
 		{
 			name: "success", build: func(t *testing.T, ctx context.Context, dir string) []*CompactableSync {
@@ -142,6 +143,10 @@ func TestIncrementalExpansionOutcomeLogging(t *testing.T) {
 			},
 			options:     []Option{WithEngine(c1zstore.EnginePebble), WithIncrementalExpansion()},
 			wantOutcome: "succeeded", wantReason: "none",
+			checkOutput: func(t *testing.T, ctx context.Context, out *CompactableSync) {
+				graph := artifactGraph(t, ctx, out.FilePath, out.SyncID)
+				require.Contains(t, graph.DanglingEntitlementIDs, "never:resolves")
+			},
 		},
 		{
 			name: "unsupported engine", build: func(t *testing.T, ctx context.Context, dir string) []*CompactableSync {
@@ -163,8 +168,11 @@ func TestIncrementalExpansionOutcomeLogging(t *testing.T) {
 			compactor, cleanup, err := NewCompactor(ctx, t.TempDir(), entries, options...)
 			require.NoError(t, err)
 			defer func() { require.NoError(t, cleanup()) }()
-			_, err = compactor.Compact(ctx)
+			out, err := compactor.Compact(ctx)
 			require.NoError(t, err)
+			if tc.checkOutput != nil {
+				tc.checkOutput(t, ctx, out)
+			}
 
 			found := false
 			for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {

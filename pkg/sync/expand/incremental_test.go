@@ -601,6 +601,19 @@ func TestIncremental_ResolvedDanglingDoesNotMutateChangedIDs(t *testing.T) {
 	require.Equal(t, want, backing)
 }
 
+func TestIncremental_DanglingPrecheckHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	store := NewMockExpanderStore()
+	g := NewEntitlementGraph(ctx)
+	g.NoteDanglingReference("still:missing")
+
+	_, err := NewIncrementalExpander(store, g).ExpandChanges(ctx, nil, nil)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Contains(t, g.DanglingEntitlementIDs, "still:missing")
+}
+
 // TestIncremental_StillMissingDanglingIsPreservedWithoutWalking: a permanent
 // dangling source must cost only its precheck lookup. Seeding it would put its
 // entire forward closure in the affected set before the walk discovers that

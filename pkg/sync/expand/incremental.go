@@ -202,7 +202,9 @@ func NewIncrementalExpander(store ExpanderStore, graph *EntitlementGraph) *Incre
 //
 // The walk reads current membership from the store, so changed members
 // (already merged in) propagate without being passed in. Returns
-// ErrIncrementalFallback if a new edge closes a cycle.
+// ErrIncrementalFallback if a new edge closes a cycle. This method mutates the
+// graph while applying changes and may do so before returning an error; callers
+// that intend to retry must discard or restore the graph first.
 func (ie *IncrementalExpander) ExpandChanges(ctx context.Context, newEdges []NewEdge, changedEntitlementIDs []string) (*IncrementalResult, error) {
 	resolvedDanglingIDs, err := ie.precheckDanglingEntitlements(ctx)
 	if err != nil {
@@ -319,6 +321,9 @@ func (ie *IncrementalExpander) precheckDanglingEntitlements(ctx context.Context)
 	stillMissing := make(map[string]struct{}, len(ids))
 	resolved := make([]string, 0, len(ids))
 	for _, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		entitlement, err := ie.getEntitlement(ctx, id)
 		if err != nil {
 			return nil, err
