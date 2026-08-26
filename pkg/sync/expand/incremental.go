@@ -204,6 +204,25 @@ func NewIncrementalExpander(store ExpanderStore, graph *EntitlementGraph) *Incre
 // (already merged in) propagate without being passed in. Returns
 // ErrIncrementalFallback if a new edge closes a cycle.
 func (ie *IncrementalExpander) ExpandChanges(ctx context.Context, newEdges []NewEdge, changedEntitlementIDs []string) (*IncrementalResult, error) {
+	resolvedDanglingIDs, err := ie.precheckDanglingEntitlements(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(resolvedDanglingIDs) > 0 {
+		seen := make(map[string]struct{}, len(changedEntitlementIDs)+len(resolvedDanglingIDs))
+		for _, id := range changedEntitlementIDs {
+			seen[id] = struct{}{}
+		}
+		for _, id := range resolvedDanglingIDs {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			changedEntitlementIDs = append(changedEntitlementIDs, id)
+		}
+		sort.Strings(changedEntitlementIDs)
+	}
+
 	if len(newEdges) == 0 && len(changedEntitlementIDs) == 0 {
 		return &IncrementalResult{}, nil
 	}
@@ -231,12 +250,6 @@ func (ie *IncrementalExpander) ExpandChanges(ctx context.Context, newEdges []New
 	if len(seeds) == 0 {
 		return &IncrementalResult{}, nil
 	}
-
-	// Seeds are fixed; rebuild the dangling set from what this walk actually
-	// finds. Inheriting it would keep seeding endpoints that have since
-	// resolved — and re-walking their whole forward closure — on every run.
-	// Anything still missing is re-recorded as the walk hits it.
-	ie.graph.DanglingEntitlementIDs = nil
 
 	if cyclic, _ := ie.graph.ComputeCyclicComponents(ctx); len(cyclic) > 0 {
 		return nil, ErrIncrementalFallback
@@ -280,6 +293,42 @@ func (ie *IncrementalExpander) ExpandChanges(ctx context.Context, newEdges []New
 	}
 	ie.graph.MarkExpansionComplete()
 	return result, nil
+}
+
+// precheckDanglingEntitlements separates recorded endpoints that are still
+// missing from those that now resolve. Still-missing ids stay persisted but do
+// not seed the walk, avoiding a useless recomputation of their entire forward
+// closure on every run. Resolved ids become normal changed-entitlement seeds.
+//
+// Build the replacement set locally and publish it only after every lookup
+// succeeds, so a transient store error does not partially mutate the graph.
+func (ie *IncrementalExpander) precheckDanglingEntitlements(ctx context.Context) ([]string, error) {
+	if len(ie.graph.DanglingEntitlementIDs) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]string, 0, len(ie.graph.DanglingEntitlementIDs))
+	for id := range ie.graph.DanglingEntitlementIDs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	stillMissing := make(map[string]struct{}, len(ids))
+	resolved := make([]string, 0, len(ids))
+	for _, id := range ids {
+		entitlement, err := ie.getEntitlement(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if entitlement == nil {
+			stillMissing[id] = struct{}{}
+			continue
+		}
+		resolved = append(resolved, id)
+	}
+
+	ie.graph.DanglingEntitlementIDs = stillMissing
+	return resolved, nil
 }
 
 func topologicalAffectedNodeOrder(g *EntitlementGraph, affected map[int]struct{}) ([]int, error) {

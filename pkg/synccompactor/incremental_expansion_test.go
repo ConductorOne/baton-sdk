@@ -304,6 +304,75 @@ func baseGraphForFixtures(t testing.TB, ctx context.Context) *expand.Entitlement
 	return g
 }
 
+func buildResolvedDanglingFixtures(t *testing.T, ctx context.Context, dir string) []*CompactableSync {
+	t.Helper()
+
+	sourceGroup, destGroup := grp("source"), grp("dest")
+	alice := usr("alice")
+	sourceEnt, destEnt := ent("ent-source", sourceGroup), ent("ent-dest", destGroup)
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+
+	basePath := filepath.Join(dir, "base-dangling.c1z")
+	base, err := dotc1z.NewStore(ctx, basePath, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	baseSyncID, err := base.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, base.PutResourceTypes(ctx, userRT, groupRT))
+	require.NoError(t, base.PutResources(ctx, sourceGroup, alice))
+	require.NoError(t, base.PutEntitlements(ctx, sourceEnt))
+	require.NoError(t, base.PutGrants(ctx,
+		memberGrant(sourceEnt, alice),
+		ruleGrant(destEnt, sourceGroup, sourceEnt.GetId()),
+	))
+	require.NoError(t, base.EndSync(ctx))
+
+	graph := expand.NewEntitlementGraph(ctx)
+	graph.AddEntitlementID(sourceEnt.GetId())
+	graph.AddEntitlementID(destEnt.GetId())
+	require.NoError(t, graph.AddEdge(ctx, sourceEnt.GetId(), destEnt.GetId(), false, nil))
+	graph.MarkEdgeExpanded(sourceEnt.GetId(), destEnt.GetId())
+	graph.Loaded = true
+	graph.HasNoCycles = true
+	graph.NoteDanglingReference(destEnt.GetId())
+	persistFixtureGraph(t, ctx, base, baseSyncID, graph)
+	require.NoError(t, base.Close(ctx))
+
+	incPath := filepath.Join(dir, "resolved-dangling.c1z")
+	inc, err := dotc1z.NewStore(ctx, incPath, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	incSyncID, err := inc.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
+	require.NoError(t, err)
+	require.NoError(t, inc.PutResources(ctx, destGroup))
+	require.NoError(t, inc.PutEntitlements(ctx, destEnt))
+	require.NoError(t, inc.EndSync(ctx))
+	require.NoError(t, inc.Close(ctx))
+
+	return []*CompactableSync{
+		{FilePath: basePath, SyncID: baseSyncID},
+		{FilePath: incPath, SyncID: incSyncID},
+	}
+}
+
+func TestCompactor_ResolvedDanglingEntitlementSeedsIncrementalWalk(t *testing.T) {
+	ctx := context.Background()
+	entries := buildResolvedDanglingFixtures(t, ctx, t.TempDir())
+	c, cleanup, err := NewCompactor(ctx, t.TempDir(), entries,
+		WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble), WithIncrementalExpansion())
+	require.NoError(t, err)
+	defer func() { require.NoError(t, cleanup()) }()
+
+	out, err := c.Compact(ctx)
+	require.NoError(t, err)
+	require.True(t, c.incrementalExpansionRan,
+		"a row-only dangling resolution must be handled by the incremental path")
+	hasGrant(t, grantOutcome(t, ctx, out.FilePath, out.SyncID), "ent-dest|user|alice")
+
+	graph := artifactGraph(t, ctx, out.FilePath, out.SyncID)
+	require.NotContains(t, graph.DanglingEntitlementIDs, "ent-dest",
+		"a resolved id must not persist into the next generation")
+}
+
 // grantOutcome reads every grant from a compacted c1z and returns the set of
 // full-row keys "entitlement|principalType|principalResource|sources=..." —
 // INCLUDING the sources/provenance map, so the differential also pins that

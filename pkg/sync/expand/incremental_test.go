@@ -567,10 +567,11 @@ func TestIncremental_ResolvedDanglingSeedExpands(t *testing.T) {
 	require.Empty(t, principalsOn(t, ctx, store, "late:ent"))
 
 	// The row arrives. No new edge, no new grant — seeding the recorded id is
-	// the only thing that can reach it.
+	// the only thing that can reach it. The caller supplies no changed ids: the
+	// dangling precheck must discover that the row resolved and seed it itself.
 	store.AddEntitlement(makeEntitlement("late:ent", makeResource("group", "late:ent")))
 	ie2 := NewIncrementalExpander(store, g)
-	res, err := ie2.ExpandChanges(ctx, nil, []string{"late:ent"})
+	res, err := ie2.ExpandChanges(ctx, nil, nil)
 	require.NoError(t, err)
 	require.Greater(t, res.GrantsWritten, 0, "the resolved endpoint must expand")
 	require.Contains(t, principalsOn(t, ctx, store, "late:ent"), "alice")
@@ -579,20 +580,25 @@ func TestIncremental_ResolvedDanglingSeedExpands(t *testing.T) {
 	require.NotContains(t, g.DanglingEntitlementIDs, "late:ent")
 }
 
-// TestIncremental_DanglingSetIsRebuiltPerRun: an id that resolves must not
-// linger. Otherwise every run would re-seed it and re-walk its forward closure
-// forever.
-func TestIncremental_DanglingSetIsRebuiltPerRun(t *testing.T) {
+// TestIncremental_StillMissingDanglingIsPreservedWithoutWalking: a permanent
+// dangling source must cost only its precheck lookup. Seeding it would put its
+// entire forward closure in the affected set before the walk discovers that
+// the source is still missing.
+func TestIncremental_StillMissingDanglingIsPreservedWithoutWalking(t *testing.T) {
 	ctx := context.Background()
 	store := NewMockExpanderStore()
 	g := buildExpandedChain(t, ctx, store, "alice", "eng:member", "github:access")
-	g.DanglingEntitlementIDs = map[string]struct{}{"stale:ent": {}}
+	g.AddEntitlementID("missing:src")
+	require.NoError(t, g.AddEdge(ctx, "missing:src", "eng:member", false, nil))
+	g.DanglingEntitlementIDs = map[string]struct{}{"missing:src": {}}
 
 	ie := NewIncrementalExpander(store, g)
-	_, err := ie.ExpandChanges(ctx, nil, []string{"eng:member"})
+	res, err := ie.ExpandChanges(ctx, nil, nil)
 	require.NoError(t, err)
-	require.NotContains(t, g.DanglingEntitlementIDs, "stale:ent",
-		"an id nothing rediscovered must not survive the run")
+	require.Empty(t, res.EntitlementsWalked,
+		"a still-missing seed must not make its descendant closure affected")
+	require.Contains(t, g.DanglingEntitlementIDs, "missing:src",
+		"still-missing ids must survive so a later run can detect resolution")
 }
 
 // TestNoteDanglingReference_OverflowStopsRecording: past the cap the graph stops

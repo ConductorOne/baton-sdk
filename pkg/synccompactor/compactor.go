@@ -844,14 +844,7 @@ func (c *Compactor) expandGrantsIncremental(ctx context.Context, newSyncId strin
 		}
 		return false, err
 	}
-	// Endpoints the base expansion skipped for a missing entitlement row. An
-	// increment that supplies one of those rows adds no edge and no grant, so
-	// nothing else would seed it; seeding by id is what keeps this path in
-	// agreement with full expansion. Ids still missing are re-skipped inside
-	// the walk for the cost of one lookup, and re-recorded on the way out.
-	changedEntitlementIDs = appendDanglingSeeds(changedEntitlementIDs, base)
-
-	if len(newEdges) == 0 && len(changedEntitlementIDs) == 0 {
+	if len(newEdges) == 0 && len(changedEntitlementIDs) == 0 && len(base.DanglingEntitlementIDs) == 0 {
 		// Nothing changed relative to the base — its grants were already merged in.
 		base, err = base.Clone()
 		if err != nil {
@@ -1388,27 +1381,6 @@ func (c *Compactor) expandGrants(ctx context.Context, newSyncId string, compacti
 // logIncrementalOutcome is the single reporting site for how an incremental
 // expansion attempt ended. Every caller passes literal outcome/reason strings,
 // so both are safe as metric attributes.
-// appendDanglingSeeds unions the base graph's recorded dangling endpoints into
-// the changed set, deduped and sorted so the walk order stays byte-stable.
-func appendDanglingSeeds(changed []string, base *expand.EntitlementGraph) []string {
-	if len(base.DanglingEntitlementIDs) == 0 {
-		return changed
-	}
-	seen := make(map[string]struct{}, len(changed)+len(base.DanglingEntitlementIDs))
-	for _, id := range changed {
-		seen[id] = struct{}{}
-	}
-	for id := range base.DanglingEntitlementIDs {
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		changed = append(changed, id)
-	}
-	sort.Strings(changed)
-	return changed
-}
-
 func logIncrementalOutcome(ctx context.Context, outcome, reason string, fields ...zap.Field) {
 	fields = append([]zap.Field{
 		zap.String("incremental_expansion_outcome", outcome),
