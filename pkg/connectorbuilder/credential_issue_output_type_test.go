@@ -36,9 +36,11 @@ func apiKeyDescriptorWithScopes(secretResourceTypeID string, scopes ...string) *
 // divergentAPIKeyDetails advertises the same shape twice with different scopes,
 // so which descriptor the request selects decides which scopes it may ask for.
 func divergentAPIKeyDetails() *v2.CredentialDetailsCredentialIssue {
+	preferred := apiKeyDescriptorWithScopes(orgAPIKeyType, "read")
+	preferred.SetPreferred(true)
 	return v2.CredentialDetailsCredentialIssue_builder{
 		Options: []*v2.CredentialIssueOptionDescriptor{
-			apiKeyDescriptorWithScopes(orgAPIKeyType, "read"),
+			preferred,
 			apiKeyDescriptorWithScopes(serviceAccountKey, "write"),
 		},
 		PreferredOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
@@ -59,7 +61,17 @@ func apiKeyOptions(secretResourceTypeID string) *v2.CredentialIssueOptions {
 	}.Build()
 }
 
+// apiKeyDetails marks the first output type preferred, which registration
+// requires once several descriptors share a shape.
 func apiKeyDetails(secretResourceTypeIDs ...string) *v2.CredentialDetailsCredentialIssue {
+	details := apiKeyDetailsWithoutPreference(secretResourceTypeIDs...)
+	if len(details.GetOptions()) > 1 {
+		details.GetOptions()[0].SetPreferred(true)
+	}
+	return details
+}
+
+func apiKeyDetailsWithoutPreference(secretResourceTypeIDs ...string) *v2.CredentialDetailsCredentialIssue {
 	options := make([]*v2.CredentialIssueOptionDescriptor, 0, len(secretResourceTypeIDs))
 	for _, id := range secretResourceTypeIDs {
 		options = append(options, apiKeyDescriptor(id))
@@ -121,7 +133,7 @@ func TestValidateCredentialIssueCapabilityDetailsDedupesOnShapeAndOutputType(t *
 	})
 
 	t.Run("same shape with the same output type is still a duplicate", func(t *testing.T) {
-		err := validateCredentialIssueCapabilityDetails(apiKeyDetails(orgAPIKeyType, orgAPIKeyType))
+		err := validateCredentialIssueCapabilityDetails(apiKeyDetailsWithoutPreference(orgAPIKeyType, orgAPIKeyType))
 		require.ErrorContains(t, err, "duplicate credential issue option")
 		require.ErrorContains(t, err, orgAPIKeyType)
 	})
@@ -323,4 +335,74 @@ func TestIssueCredentialAppliesTheSelectedDescriptorsConstraints(t *testing.T) {
 	resp, err := connector.IssueCredential(ctx, request(serviceAccountKey, "write"))
 	require.NoError(t, err)
 	require.Equal(t, serviceAccountKey, resp.GetSecret().GetId().GetResourceType())
+}
+
+// preferred names the default descriptor within an option, so a caller
+// presenting a choice always has one to select.
+func TestValidateCredentialIssuePreference(t *testing.T) {
+	tokenDescriptor := func(secretResourceTypeID string, preferred bool) *v2.CredentialIssueOptionDescriptor {
+		return v2.CredentialIssueOptionDescriptor_builder{
+			Option:               v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN,
+			ResourceMode:         v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_VIRTUAL,
+			SecretResourceTypeId: secretResourceTypeID,
+			Preferred:            preferred,
+		}.Build()
+	}
+	details := func(options ...*v2.CredentialIssueOptionDescriptor) *v2.CredentialDetailsCredentialIssue {
+		return v2.CredentialDetailsCredentialIssue_builder{
+			Options:         options,
+			PreferredOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+		}.Build()
+	}
+
+	t.Run("one descriptor per shape needs no preference", func(t *testing.T) {
+		require.NoError(t, validateCredentialIssueCapabilityDetails(apiKeyDetailsWithoutPreference(orgAPIKeyType)))
+	})
+
+	t.Run("one descriptor per shape may still declare one", func(t *testing.T) {
+		single := apiKeyDetailsWithoutPreference(orgAPIKeyType)
+		single.GetOptions()[0].SetPreferred(true)
+		require.NoError(t, validateCredentialIssueCapabilityDetails(single))
+	})
+
+	t.Run("descriptors sharing a shape need exactly one", func(t *testing.T) {
+		require.NoError(t, validateCredentialIssueCapabilityDetails(apiKeyDetails(orgAPIKeyType, serviceAccountKey)))
+	})
+
+	t.Run("descriptors sharing a shape with none preferred are rejected", func(t *testing.T) {
+		err := validateCredentialIssueCapabilityDetails(apiKeyDetailsWithoutPreference(orgAPIKeyType, serviceAccountKey))
+		require.ErrorContains(t, err, "has 2 descriptors and none is preferred")
+	})
+
+	t.Run("descriptors sharing a shape with two preferred are rejected", func(t *testing.T) {
+		both := apiKeyDetailsWithoutPreference(orgAPIKeyType, serviceAccountKey)
+		for _, descriptor := range both.GetOptions() {
+			descriptor.SetPreferred(true)
+		}
+		err := validateCredentialIssueCapabilityDetails(both)
+		require.ErrorContains(t, err, "has 2 preferred descriptors, expected at most one")
+	})
+
+	t.Run("preference is scoped to one shape, not the whole declaration", func(t *testing.T) {
+		mixed := apiKeyDetails(orgAPIKeyType, serviceAccountKey)
+		mixed.SetOptions(append(mixed.GetOptions(),
+			tokenDescriptor("org-token", true),
+			tokenDescriptor("service-account-token", false),
+		))
+		require.NoError(t, validateCredentialIssueCapabilityDetails(mixed))
+	})
+
+	t.Run("a shape whose descriptors are unpreferred is rejected even when another shape is fine", func(t *testing.T) {
+		err := validateCredentialIssueCapabilityDetails(details(
+			append(apiKeyDetails(orgAPIKeyType, serviceAccountKey).GetOptions(),
+				tokenDescriptor("org-token", false),
+				tokenDescriptor("service-account-token", false),
+			)...))
+		require.ErrorContains(t, err, "CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN has 2 descriptors and none is preferred")
+	})
+
+	t.Run("preferred selects nothing at issue time", func(t *testing.T) {
+		_, err := resolveCredentialIssueDescriptor(apiKeyDetails(orgAPIKeyType, serviceAccountKey), apiKeyOptions(""))
+		require.ErrorContains(t, err, "credential_options.secret_resource_type_id is required")
+	})
 }

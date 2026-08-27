@@ -109,9 +109,9 @@ message CredentialDetailsCredentialIssue {
   // resource types -- an organization-wide API key and a per-identity API key,
   // for example.
   repeated CredentialIssueOptionDescriptor options = 1;
-  // The preferred credential shape. It does not name a single descriptor: when
-  // several descriptors share this shape, this field expresses no preference
-  // among them.
+  // The preferred credential shape. Selection is two-level: this field picks
+  // the shape and CredentialIssueOptionDescriptor.preferred picks the
+  // descriptor within it, so the two together always name one default.
   CapabilityDetailCredentialOption preferred_option = 2;
 }
 
@@ -133,6 +133,12 @@ message CredentialIssueOptionDescriptor {
     min_bytes: 1
     max_bytes: 1024
   }];
+  // Marks this descriptor the default within its option, for a caller
+  // presenting a choice. At most one descriptor per option may set it, and one
+  // must whenever several descriptors share that option: a default taken from
+  // declaration order would not be stable. It selects nothing at issue time --
+  // CredentialIssueOptions.secret_resource_type_id is still required.
+  bool preferred = 10;
 }
 
 message IssuanceExpiryCapability {
