@@ -2,23 +2,34 @@ package pebble
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 )
 
 // The spill merges only interleave once a sorter has cut more than one
 // chunk, which needs bulkSpillKeyChunkBytes (8MiB) or
-// deferredIndexSpillChunkBytes (128MiB) of keys — more than any test in
-// this package drives through them. These tests therefore build the sorted
-// runs directly with writeSortedSpillChunk, which is what the sorter's
-// background goroutine calls, and hand them to the real merges. That is
-// the only coverage of multi-chunk exhaustion, of the k-way interleave
-// itself, and of the release-on-exhaustion behavior in spillChunkCursors.
+// deferredIndexSpillChunkBytes (128MiB) of keys — far more than a test
+// wants to write. These tests therefore build the sorted runs directly
+// with writeSortedSpillChunk, which is what the sorter's background
+// goroutine calls, and hand them to the real merges.
+//
+// TestGrantDigestSpillMerge reaches the same paths from the other side, by
+// forcing a 512-byte chunk size through a real digest build, and so also
+// covers multi-chunk exhaustion and the k-way interleave (and, since the
+// digest merge moved onto spillChunkCursors, release-on-exhaustion). What
+// is only covered here is spillChunkCursors itself and the merges the
+// digest build does not run.
 
 type spillKV struct{ k, v string }
 
@@ -152,6 +163,118 @@ func TestMergeSpillChunksResolvingDuplicatesAcrossChunks(t *testing.T) {
 	require.Equal(t, []spillKV{
 		{k("a"), "a0"}, {k("dup"), "d0+d1+d2"}, {k("z"), "z0"},
 	}, ingestAndDump(t, e, sstPath))
+}
+
+// TestMergeGrantPrimaryMigrationChunksFoldsAcrossChunks covers the merge
+// with the densest advance pattern: advanceMigrationChunk fires once for a
+// duplicate group's leader and again for every same-key follower popped
+// inside the inner loop, so one group can drain several chunks. The
+// existing TestIDIndexMigrationSemantics drives this merge end to end
+// through Open, but with few enough rows to fit a single chunk, so the
+// cross-chunk fold was never exercised. It is worth pinning here rather
+// than elsewhere because this merge runs on the open-time id-index
+// migration, and a row dropped or double-counted by it stays sorted —
+// bulkSSTWriter.add would not notice — and is written into the c1z.
+//
+// The rows are laid out globally sorted and then dealt round-robin, which
+// keeps every chunk internally sorted while guaranteeing the duplicate
+// group spans three of them.
+func TestMergeGrantPrimaryMigrationChunksFoldsAcrossChunks(t *testing.T) {
+	ctx := context.Background()
+	e, dir := newTestEngine(t)
+	chunkDir := t.TempDir()
+
+	older := timestamppb.New(time.Unix(1000, 0).UTC())
+	middle := timestamppb.New(time.Unix(2000, 0).UTC())
+	newer := timestamppb.New(time.Unix(3000, 0).UTC())
+
+	mkRow := func(externalID, entResourceID, entID, principalID string, needsExpansion bool, at *timestamppb.Timestamp) (string, []byte) {
+		rec := v3.GrantRecord_builder{
+			ExternalId: externalID,
+			Entitlement: v3.EntitlementRef_builder{
+				ResourceTypeId: "group", ResourceId: entResourceID, EntitlementId: entID,
+			}.Build(),
+			Principal:      v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: principalID}.Build(),
+			DiscoveredAt:   at,
+			NeedsExpansion: needsExpansion,
+		}.Build()
+		id, err := grantIdentityFromRecord(rec)
+		require.NoError(t, err)
+		val, err := marshalRecord(rec)
+		require.NoError(t, err)
+		return string(encodeGrantIdentityKey(id)), val
+	}
+
+	// Three rows with distinct external ids folding to one identity: the
+	// merged row must keep the earliest-discovered external id and OR the
+	// needs_expansion flags. Plus three singleton identities.
+	rows := make([]spillKV, 0, 6)
+	for _, r := range []struct {
+		extID, entRID, entID, principal string
+		needsExpansion                  bool
+		at                              *timestamppb.Timestamp
+	}{
+		{"dup-a", "g1", "member", "u1", false, newer},
+		{"dup-b", "g1", "member", "u1", false, older},
+		{"dup-c", "g1", "member", "u1", true, middle},
+		{"solo-u2", "g1", "member", "u2", false, older},
+		{"solo-u3", "g1", "member", "u3", true, older},
+		{"solo-g2", "g2", "admin", "u1", false, older},
+	} {
+		k, v := mkRow(r.extID, r.entRID, r.entID, r.principal, r.needsExpansion, r.at)
+		rows = append(rows, spillKV{k: k, v: string(v)})
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].k < rows[j].k })
+
+	dealt := make([][]spillKV, 3)
+	for i, r := range rows {
+		dealt[i%3] = append(dealt[i%3], r)
+	}
+	chunks := make([]string, 0, len(dealt))
+	dupKey, _ := mkRow("dup-a", "g1", "member", "u1", false, newer)
+	var chunksHoldingDup int
+	for i, entries := range dealt {
+		for _, kv := range entries {
+			if kv.k == dupKey {
+				chunksHoldingDup++
+				break
+			}
+		}
+		chunks = append(chunks, writeTestSpillChunk(t, chunkDir, fmt.Sprintf("grant-primary-%d", i), entries))
+	}
+	// Everything below only tests the cross-chunk fold if the deal actually
+	// split the group; a key-order change upstream could quietly undo that.
+	require.Equal(t, 3, chunksHoldingDup, "duplicate group must span all three chunks")
+
+	sem := make(chan struct{}, 2)
+	byPrincipal := newSpillSorter(chunkDir, "idx-by-principal", sem, bulkSpillKeyChunkBytes)
+	byNeedsExpansion := newSpillSorter(chunkDir, "idx-by-needs-expansion", sem, bulkSpillKeyChunkBytes)
+
+	sstPath := filepath.Join(dir, "grant-primary.sst")
+	require.NoError(t, mergeGrantPrimaryMigrationChunksToSST(ctx, e.fs(), sstPath, "grant-primary", chunks, byPrincipal, byNeedsExpansion))
+	requireChunksReleased(t, chunks)
+
+	require.NoError(t, e.IngestSSTs(ctx, []string{sstPath}))
+	got := map[string]*v3.GrantRecord{}
+	require.NoError(t, e.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
+		got[r.GetExternalId()] = r
+		return true
+	}))
+
+	// Four identities in, four rows out: the three duplicates folded and
+	// nothing was dropped on the way through three chunks.
+	require.Len(t, got, 4)
+	require.Contains(t, got, "dup-b", "fold must keep the earliest-discovered external id")
+	require.NotContains(t, got, "dup-a")
+	require.NotContains(t, got, "dup-c")
+	require.True(t, got["dup-b"].GetNeedsExpansion(), "needs_expansion ORs across the group, including the follower in a later chunk")
+	require.False(t, got["solo-u2"].GetNeedsExpansion())
+
+	// The derived indexes must be emitted per folded identity, not per
+	// input row — one entry per duplicate would leave rows dangling against
+	// a primary that no longer has them.
+	require.Equal(t, int64(4), byPrincipal.count, "by_principal must be one key per folded identity")
+	require.Equal(t, int64(2), byNeedsExpansion.count, "by_needs_expansion covers the folded dup group and solo-u3")
 }
 
 // TestSpillChunkCursorsAdvancePastExhaustion pins that advancing a drained
