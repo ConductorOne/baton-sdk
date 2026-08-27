@@ -832,7 +832,9 @@ type CredentialDetailsCredentialIssue_builder struct {
 	Options []*CredentialIssueOptionDescriptor
 	// The preferred credential shape. Selection is two-level: this field picks
 	// the shape and CredentialIssueOptionDescriptor.preferred picks the
-	// descriptor within it, so the two together always name one default.
+	// descriptor within it. To resolve the default, look only at the descriptors
+	// carrying this option: one of them has preferred set, except where the
+	// option has a single descriptor, which is the default with the flag unset.
 	PreferredOption CapabilityDetailCredentialOption
 }
 
