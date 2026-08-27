@@ -254,6 +254,19 @@ func TestMergeGrantPrimaryMigrationChunksFoldsAcrossChunks(t *testing.T) {
 	require.NoError(t, mergeGrantPrimaryMigrationChunksToSST(ctx, e.fs(), sstPath, "grant-primary", chunks, byPrincipal, byNeedsExpansion))
 	requireChunksReleased(t, chunks)
 
+	// Close the index sinks the way production does. teardown() documents
+	// why this has to happen before the staging dir goes away: a chunk sort
+	// racing the removal can re-create a file mid-walk. finalize rather
+	// than abort because it cuts the pending arena and so actually
+	// dispatches the background sort this waits for — abort would leave
+	// these sorters having never spawned one, and the wait would stay a
+	// no-op however far the fixture grew.
+	idxChunks, err := byPrincipal.finalize()
+	require.NoError(t, err)
+	require.NotEmpty(t, idxChunks, "finalize must flush the tail chunk")
+	_, err = byNeedsExpansion.finalize()
+	require.NoError(t, err)
+
 	require.NoError(t, e.IngestSSTs(ctx, []string{sstPath}))
 	got := map[string]*v3.GrantRecord{}
 	require.NoError(t, e.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
