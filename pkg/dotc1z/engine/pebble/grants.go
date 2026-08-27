@@ -566,8 +566,8 @@ func (e *Engine) initSynthLayerSession(ctx context.Context, s *synthGrantLayerSe
 // ingestSynthLayerSegment merges one segment's sorted chunks into an SST and
 // ingests it. The merge unlinks each chunk as it drains it, so nothing is
 // left to clean up here on success; a merge that fails partway leaves its
-// remaining chunks to the session's final dir cleanup, which also keeps the
-// SST path (Pebble links/copies it on ingest).
+// remaining chunks to the session's final dir cleanup. The SST path is also
+// left to that cleanup (Pebble links/copies it on ingest).
 //
 // Runs on the session's background worker, which deliberately bypasses the
 // engine write barrier (an Add holding writeMu can block on the bounded

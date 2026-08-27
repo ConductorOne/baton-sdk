@@ -209,6 +209,7 @@ func TestMergeGrantPrimaryMigrationChunksFoldsAcrossChunks(t *testing.T) {
 	// merged row must keep the earliest-discovered external id and OR the
 	// needs_expansion flags. Plus three singleton identities.
 	rows := make([]spillKV, 0, 6)
+	var dupKey string
 	for _, r := range []struct {
 		extID, entRID, entID, principal string
 		needsExpansion                  bool
@@ -222,6 +223,9 @@ func TestMergeGrantPrimaryMigrationChunksFoldsAcrossChunks(t *testing.T) {
 		{"solo-g2", "g2", "admin", "u1", false, older},
 	} {
 		k, v := mkRow(r.extID, r.entRID, r.entID, r.principal, r.needsExpansion, r.at)
+		if r.extID == "dup-a" {
+			dupKey = k
+		}
 		rows = append(rows, spillKV{k: k, v: string(v)})
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].k < rows[j].k })
@@ -231,7 +235,6 @@ func TestMergeGrantPrimaryMigrationChunksFoldsAcrossChunks(t *testing.T) {
 		dealt[i%3] = append(dealt[i%3], r)
 	}
 	chunks := make([]string, 0, len(dealt))
-	dupKey, _ := mkRow("dup-a", "g1", "member", "u1", false, newer)
 	var chunksHoldingDup int
 	for i, entries := range dealt {
 		for _, kv := range entries {

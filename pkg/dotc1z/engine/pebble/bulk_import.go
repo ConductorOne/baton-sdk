@@ -160,19 +160,21 @@ type BulkSyncImport struct {
 	resourceTypes *bulkSSTWriter
 
 	// resources and entitlements go through spill sorters, not ordered SST
-	// writers: the structural key does not sort the way a producer's natural
-	// scan order does (for entitlements, tuple separators sort below
-	// printable bytes and the flag component reorders stripped vs opaque
-	// ids), so the stream must be re-sorted before it can become an SST.
+	// writers, so neither imposes an ordering precondition on its caller.
+	// For entitlements the mismatch is unconditional: the structural key
+	// never sorts the way an external-id scan does (tuple separators sort
+	// below printable bytes, and the flag component reorders stripped vs
+	// opaque ids), so the stream must be re-sorted before it can become an
+	// SST.
 	//
-	// Resources are keyed (resource_type_id, resource_id). A converter
-	// scanning SQLite with ORDER BY on that tuple already arrives sorted and
-	// paid nothing for an ordered writer, but a producer that rewrites
-	// resource ids — the c1z sanitizer HMACs them — emits an order unrelated
-	// to the destination key. Sorting here keeps every producer on one path
-	// rather than making sortedness a precondition each one has to
-	// re-establish, and it holds when a single resource type is too large to
-	// sort in memory.
+	// For resources, keyed (resource_type_id, resource_id), it depends on
+	// the producer. A converter scanning SQLite with ORDER BY on that tuple
+	// already arrives sorted and paid nothing for an ordered writer, but a
+	// producer that rewrites resource ids — the c1z sanitizer HMACs them —
+	// emits an order unrelated to the destination key. Sorting here keeps
+	// every producer on one path rather than making sortedness a
+	// precondition each one has to re-establish, and it holds when a single
+	// resource type is too large to sort in memory.
 	resources    *spillSorter
 	entitlements *spillSorter
 
@@ -567,13 +569,12 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 	}
 	b.done = true
 	// Full teardown, not a bare RemoveAll: Finish's error paths can return
-	// with the ordered SST writers still open (finish() failing on one
-	// leaves the other's file handle live) and with background chunk sorts
-	// still writing into the staging dir (nothing finalized the sorters
-	// yet). Removing the dir while a sort races its os.Create can strand
-	// the dir on disk, and Abort is a no-op once done is set — so this
-	// defer must do the closing and waiting itself. On success everything
-	// is already finished/finalized and teardown reduces to the RemoveAll.
+	// with background chunk sorts still writing into the staging dir
+	// (nothing finalized the sorters yet), and removing the dir while a
+	// sort races its os.Create can strand the dir on disk. Abort is a
+	// no-op once done is set, so this defer must do the waiting itself.
+	// On success everything is already finished/finalized and teardown
+	// reduces to the RemoveAll.
 	defer b.teardown()
 	start := time.Now()
 
@@ -1132,17 +1133,9 @@ func readSpillEntry(r io.Reader, key, val *[]byte, lenBuf *[4]byte) (bool, error
 // and the SST being written hold the same entries, so a merge that keeps
 // every chunk until teardown needs staging space for both copies at once;
 // releasing at exhaustion bounds the overlap to the chunks still in
-// flight. This matters well beyond one merge: all four of the engine's
-// k-way merges read their chunks through this type —
-// mergeSortedSpillChunksToSST, mergeSpillChunksToSSTResolvingDuplicates,
-// mergeGrantHashChunksToSST and mergeGrantPrimaryMigrationChunksToSST —
-// which between them cover the bulk import, the segment layer, the
-// deferred grant index, the digest build and the id-index migration, and
-// the index builds run at EndSync on every pebble sync. Every one of
-// those except the bulk import spills 128MiB chunks
-// (deferredIndexSpillChunkBytes) rather than 8MiB, which is where the
-// doubling costs most. advance is readSpillEntry's only caller, which is
-// what keeps that list from going stale.
+// flight. All of the engine's k-way merges read their chunks through this
+// type (advance is readSpillEntry's only caller), so the bound holds for
+// every spill merge, not just the bulk import's.
 //
 // Unlinking is deliberately confined to the exhausted-chunk path, where
 // the file is provably fully consumed. A merge that fails partway closes
@@ -1182,9 +1175,10 @@ func openSpillChunks(chunks []string) (*spillChunkCursors, error) {
 // exhausted, having already closed and unlinked it.
 //
 // Advancing an already-exhausted chunk keeps reporting false rather than
-// faulting on the released reader. Callers that re-push onto the heap only
-// after a true never reach that, but the inline readSpillEntry calls this
-// replaced were idempotent at EOF and several merges now depend on it.
+// faulting on the released reader. The merges re-push a chunk onto the
+// heap only after a true, so none of them reach this today; the guard
+// preserves the EOF idempotency of the inline readSpillEntry calls this
+// replaced.
 func (c *spillChunkCursors) advance(i int) (bool, error) {
 	if c.bufs[i] == nil {
 		return false, nil
