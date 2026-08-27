@@ -223,12 +223,22 @@ func TestStatusEnumMirrorsStayAligned(t *testing.T) {
 	}
 
 	// AgentTrait_AgentStatus is cast numerically into Status_ResourceStatus.
-	// It is a prefix, not a mirror (READY maps to ENABLED); every AgentStatus
-	// number must exist in ResourceStatus so a new AgentStatus value cannot
-	// silently surface as an unrelated resource status.
+	// It is a prefix, not a mirror (READY maps to ENABLED). Pin the mapping by
+	// name so a new AgentStatus value cannot silently inherit an unrelated
+	// ResourceStatus meaning — extend this table deliberately when adding one.
+	expectedAgentMirror := map[int32]string{
+		0: "RESOURCE_STATUS_UNSPECIFIED",
+		1: "RESOURCE_STATUS_ENABLED",
+		2: "RESOURCE_STATUS_DISABLED",
+		3: "RESOURCE_STATUS_DELETED",
+	}
+	require.Len(t, v2.AgentTrait_AgentStatus_name, len(expectedAgentMirror),
+		"new AgentTrait_AgentStatus value: confirm its numeric cast into Status_ResourceStatus is still meaningful, then extend expectedAgentMirror")
 	for num, name := range v2.AgentTrait_AgentStatus_name {
-		_, ok := v2.Status_ResourceStatus_name[num]
-		require.Truef(t, ok, "AgentTrait_AgentStatus value %d (%s) has no Status_ResourceStatus counterpart", num, name)
+		want, ok := expectedAgentMirror[num]
+		require.Truef(t, ok, "AgentTrait_AgentStatus value %d (%s) has no reviewed Status_ResourceStatus counterpart", num, name)
+		require.Equalf(t, want, v2.Status_ResourceStatus_name[num],
+			"AgentTrait_AgentStatus value %d (%s) casts to an unexpected Status_ResourceStatus", num, name)
 	}
 }
 
