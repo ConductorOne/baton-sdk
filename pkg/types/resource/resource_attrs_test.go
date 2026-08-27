@@ -87,6 +87,21 @@ func TestGetStatusFallsBackToTrait(t *testing.T) {
 	require.Nil(t, GetStatus(v2.Resource_builder{}.Build()))
 }
 
+func TestGetStatusPendingFallsBackToTrait(t *testing.T) {
+	r := resourceWithTrait(t, v2.UserTrait_builder{
+		Status: v2.UserTrait_Status_builder{
+			Status:  v2.UserTrait_Status_STATUS_PENDING,
+			Details: "invitation not accepted",
+		}.Build(),
+	}.Build())
+	st := GetStatus(r)
+	require.Equal(t, v2.Status_RESOURCE_STATUS_PENDING, st.GetStatus())
+	require.Equal(t, "invitation not accepted", st.GetDetails())
+
+	r.SetStatus(v2.Status_builder{Status: v2.Status_RESOURCE_STATUS_PENDING}.Build())
+	require.Equal(t, v2.Status_RESOURCE_STATUS_PENDING, GetStatus(r).GetStatus())
+}
+
 func TestGetCreatedAtFallsBackToTrait(t *testing.T) {
 	createdAt := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 

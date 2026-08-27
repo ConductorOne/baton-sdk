@@ -325,6 +325,30 @@ func TestDeprecatedTraitOptionsSyncToResource(t *testing.T) {
 		require.Equal(t, v2.Status_RESOURCE_STATUS_ENABLED, ur.GetStatus().GetStatus())
 	})
 
+	t.Run("user trait pending status", func(t *testing.T) {
+		rt := NewResourceType("User", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER})
+		ur, err := NewUserResource("test user", rt, 1234, []UserTraitOption{
+			WithDetailedStatus(v2.UserTrait_Status_STATUS_PENDING, "invitation not accepted"),
+		})
+		require.NoError(t, err)
+		require.Equal(t, v2.Status_RESOURCE_STATUS_PENDING, ur.GetStatus().GetStatus())
+		require.Equal(t, "invitation not accepted", ur.GetStatus().GetDetails())
+
+		ut, err := GetUserTrait(ur)
+		require.NoError(t, err)
+		require.Equal(t, v2.UserTrait_Status_STATUS_PENDING, ut.GetStatus().GetStatus())
+	})
+
+	t.Run("resource-level pending status", func(t *testing.T) {
+		rt := NewResourceType("User", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER})
+		ur, err := NewUserResource("test user", rt, 1234, nil,
+			WithResourceStatus(v2.Status_RESOURCE_STATUS_PENDING, "invitation not accepted"),
+		)
+		require.NoError(t, err)
+		require.Equal(t, v2.Status_RESOURCE_STATUS_PENDING, ur.GetStatus().GetStatus())
+		require.Equal(t, "invitation not accepted", ur.GetStatus().GetDetails())
+	})
+
 	t.Run("group trait", func(t *testing.T) {
 		rt := NewResourceType("Group", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP})
 		gr, err := NewGroupResource("test group", rt, 1234, []GroupTraitOption{

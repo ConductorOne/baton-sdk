@@ -249,6 +249,8 @@ func getUserStatus(r *v2.Resource) string {
 		return "Disabled"
 	case v2.Status_RESOURCE_STATUS_DELETED:
 		return "Deleted"
+	case v2.Status_RESOURCE_STATUS_PENDING:
+		return "Pending"
 	default:
 		return "Unknown"
 	}

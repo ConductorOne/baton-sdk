@@ -1,6 +1,7 @@
 package pebble
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -196,4 +197,67 @@ func TestGrantSourcesRoundtrip(t *testing.T) {
 	back := V3GrantToV2(v3rec)
 	require.Len(t, back.GetSources().GetSources(), 2, "source count v2 roundtrip")
 	require.True(t, back.GetSources().GetSources()["direct-source"].GetIsDirect(), "roundtrip direct-source.is_direct should be true")
+}
+
+// The three status enums below are maintained by hand and cast into each
+// other numerically; a value added to one but not the others must fail here
+// rather than mistranslate in stored data.
+func TestStatusEnumMirrorsStayAligned(t *testing.T) {
+	stripPrefix := func(name string) string {
+		return strings.TrimPrefix(strings.TrimPrefix(name, "RESOURCE_"), "STATUS_")
+	}
+
+	require.Equal(t, len(v2.Status_ResourceStatus_name), len(v3.StatusRecord_ResourceStatus_name),
+		"c1.storage.v3.StatusRecord.ResourceStatus must mirror c1.connector.v2.Status.ResourceStatus")
+	require.Equal(t, len(v2.Status_ResourceStatus_name), len(v2.UserTrait_Status_Status_name),
+		"c1.connector.v2.UserTrait.Status.Status must mirror c1.connector.v2.Status.ResourceStatus")
+
+	for num, name := range v2.Status_ResourceStatus_name {
+		v3Name, ok := v3.StatusRecord_ResourceStatus_name[num]
+		require.Truef(t, ok, "Status_ResourceStatus value %d (%s) missing from StatusRecord_ResourceStatus", num, name)
+		require.Equalf(t, name, v3Name, "Status_ResourceStatus value %d name mismatch", num)
+
+		utName, ok := v2.UserTrait_Status_Status_name[num]
+		require.Truef(t, ok, "Status_ResourceStatus value %d (%s) missing from UserTrait_Status_Status", num, name)
+		require.Equalf(t, stripPrefix(name), stripPrefix(utName), "Status_ResourceStatus value %d name mismatch vs UserTrait_Status", num)
+	}
+
+	// AgentTrait_AgentStatus is cast numerically into Status_ResourceStatus.
+	// It is a prefix, not a mirror (READY maps to ENABLED). Pin the mapping by
+	// name so a new AgentStatus value cannot silently inherit an unrelated
+	// ResourceStatus meaning — extend this table deliberately when adding one.
+	expectedAgentMirror := map[int32]string{
+		0: "RESOURCE_STATUS_UNSPECIFIED",
+		1: "RESOURCE_STATUS_ENABLED",
+		2: "RESOURCE_STATUS_DISABLED",
+		3: "RESOURCE_STATUS_DELETED",
+	}
+	require.Len(t, v2.AgentTrait_AgentStatus_name, len(expectedAgentMirror),
+		"new AgentTrait_AgentStatus value: confirm its numeric cast into Status_ResourceStatus is still meaningful, then extend expectedAgentMirror")
+	for num, name := range v2.AgentTrait_AgentStatus_name {
+		want, ok := expectedAgentMirror[num]
+		require.Truef(t, ok, "AgentTrait_AgentStatus value %d (%s) has no reviewed Status_ResourceStatus counterpart", num, name)
+		require.Equalf(t, want, v2.Status_ResourceStatus_name[num],
+			"AgentTrait_AgentStatus value %d (%s) casts to an unexpected Status_ResourceStatus", num, name)
+	}
+}
+
+func TestV2ResourceStatusPendingRoundtrip(t *testing.T) {
+	original := v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: "user",
+			Resource:     "alice",
+		}.Build(),
+		Status: v2.Status_builder{
+			Status:  v2.Status_RESOURCE_STATUS_PENDING,
+			Details: "invitation not accepted",
+		}.Build(),
+	}.Build()
+
+	v3rec := V2ResourceToV3("sync-1", original)
+	require.Equal(t, v3.StatusRecord_RESOURCE_STATUS_PENDING, v3rec.GetStatus().GetStatus(), "status")
+
+	back := V3ResourceToV2(v3rec)
+	require.Equal(t, v2.Status_RESOURCE_STATUS_PENDING, back.GetStatus().GetStatus(), "roundtrip status")
+	require.Equal(t, "invitation not accepted", back.GetStatus().GetDetails(), "roundtrip status details")
 }

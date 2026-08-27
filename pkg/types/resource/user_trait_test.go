@@ -131,3 +131,14 @@ func TestUserTrait(t *testing.T) {
 	require.Equal(t, ut.GetEmails()[1].GetAddress(), "bob@example.com")
 	require.Equal(t, v2.UserTrait_ACCOUNT_TYPE_SERVICE, ut.GetAccountType())
 }
+
+func TestUserTraitPendingStatus(t *testing.T) {
+	ut, err := NewUserTrait(WithStatus(v2.UserTrait_Status_STATUS_PENDING))
+	require.NoError(t, err)
+	require.Equal(t, v2.UserTrait_Status_STATUS_PENDING, ut.GetStatus().GetStatus())
+
+	ut, err = NewUserTrait(WithDetailedStatus(v2.UserTrait_Status_STATUS_PENDING, "invitation not accepted"))
+	require.NoError(t, err)
+	require.Equal(t, v2.UserTrait_Status_STATUS_PENDING, ut.GetStatus().GetStatus())
+	require.Equal(t, "invitation not accepted", ut.GetStatus().GetDetails())
+}
