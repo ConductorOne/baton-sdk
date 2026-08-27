@@ -830,9 +830,9 @@ type CredentialDetailsCredentialIssue_builder struct {
 	// resource types -- an organization-wide API key and a per-identity API key,
 	// for example.
 	Options []*CredentialIssueOptionDescriptor
-	// The preferred credential shape. It does not name a single descriptor: when
-	// several descriptors share this shape, this field expresses no preference
-	// among them.
+	// The preferred credential shape. Selection is two-level: this field picks
+	// the shape and CredentialIssueOptionDescriptor.preferred picks the
+	// descriptor within it, so the two together always name one default.
 	PreferredOption CapabilityDetailCredentialOption
 }
 
@@ -856,6 +856,7 @@ type CredentialIssueOptionDescriptor struct {
 	xxx_hidden_Audiences              []string                         `protobuf:"bytes,7,rep,name=audiences,proto3"`
 	xxx_hidden_ResourceMode           CredentialResourceMode           `protobuf:"varint,8,opt,name=resource_mode,json=resourceMode,proto3,enum=c1.connector.v2.CredentialResourceMode"`
 	xxx_hidden_SecretResourceTypeId   string                           `protobuf:"bytes,9,opt,name=secret_resource_type_id,json=secretResourceTypeId,proto3"`
+	xxx_hidden_Preferred              bool                             `protobuf:"varint,10,opt,name=preferred,proto3"`
 	unknownFields                     protoimpl.UnknownFields
 	sizeCache                         protoimpl.SizeCache
 }
@@ -950,6 +951,13 @@ func (x *CredentialIssueOptionDescriptor) GetSecretResourceTypeId() string {
 	return ""
 }
 
+func (x *CredentialIssueOptionDescriptor) GetPreferred() bool {
+	if x != nil {
+		return x.xxx_hidden_Preferred
+	}
+	return false
+}
+
 func (x *CredentialIssueOptionDescriptor) SetOption(v CapabilityDetailCredentialOption) {
 	x.xxx_hidden_Option = v
 }
@@ -986,6 +994,10 @@ func (x *CredentialIssueOptionDescriptor) SetSecretResourceTypeId(v string) {
 	x.xxx_hidden_SecretResourceTypeId = v
 }
 
+func (x *CredentialIssueOptionDescriptor) SetPreferred(v bool) {
+	x.xxx_hidden_Preferred = v
+}
+
 func (x *CredentialIssueOptionDescriptor) HasExpiry() bool {
 	if x == nil {
 		return false
@@ -1014,6 +1026,12 @@ type CredentialIssueOptionDescriptor_builder struct {
 	// option it identifies this descriptor, so two credential kinds sharing one
 	// shape must return distinct resource types.
 	SecretResourceTypeId string
+	// Marks this descriptor the default within its option, for a caller
+	// presenting a choice. At most one descriptor per option may set it, and one
+	// must whenever several descriptors share that option: a default taken from
+	// declaration order would not be stable. It selects nothing at issue time --
+	// CredentialIssueOptions.secret_resource_type_id is still required.
+	Preferred bool
 }
 
 func (b0 CredentialIssueOptionDescriptor_builder) Build() *CredentialIssueOptionDescriptor {
@@ -1029,6 +1047,7 @@ func (b0 CredentialIssueOptionDescriptor_builder) Build() *CredentialIssueOption
 	x.xxx_hidden_Audiences = b.Audiences
 	x.xxx_hidden_ResourceMode = b.ResourceMode
 	x.xxx_hidden_SecretResourceTypeId = b.SecretResourceTypeId
+	x.xxx_hidden_Preferred = b.Preferred
 	return m0
 }
 
@@ -2702,7 +2721,7 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x1bpreferred_credential_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x19preferredCredentialOption\"\xcc\x01\n" +
 	" CredentialDetailsCredentialIssue\x12J\n" +
 	"\aoptions\x18\x01 \x03(\v20.c1.connector.v2.CredentialIssueOptionDescriptorR\aoptions\x12\\\n" +
-	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption\"\xae\x04\n" +
+	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption\"\xcc\x04\n" +
 	"\x1fCredentialIssueOptionDescriptor\x12I\n" +
 	"\x06option\x18\x01 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x06option\x12H\n" +
 	"\fkey_profiles\x18\x02 \x03(\v2%.c1.connector.v2.KeyGenerationProfileR\vkeyProfiles\x12A\n" +
@@ -2713,7 +2732,9 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\taudiences\x18\a \x03(\tR\taudiences\x12L\n" +
 	"\rresource_mode\x18\b \x01(\x0e2'.c1.connector.v2.CredentialResourceModeR\fresourceMode\x12A\n" +
 	"\x17secret_resource_type_id\x18\t \x01(\tB\n" +
-	"\xfaB\ar\x05 \x01(\x80\bR\x14secretResourceTypeId\"t\n" +
+	"\xfaB\ar\x05 \x01(\x80\bR\x14secretResourceTypeId\x12\x1c\n" +
+	"\tpreferred\x18\n" +
+	" \x01(\bR\tpreferred\"t\n" +
 	"\x18IssuanceExpiryCapability\x12+\n" +
 	"\x03min\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x03min\x12+\n" +
 	"\x03max\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03max\"\xa5\x02\n" +

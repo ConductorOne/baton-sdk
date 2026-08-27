@@ -1297,6 +1297,8 @@ func (m *CredentialIssueOptionDescriptor) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
+	// no validation rules for Preferred
+
 	if len(errors) > 0 {
 		return CredentialIssueOptionDescriptorMultiError(errors)
 	}
