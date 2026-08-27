@@ -2719,16 +2719,7 @@ func (m *CredentialIssueOptions) validate(all bool) error {
 
 	var errors []error
 
-	if len(m.GetSecretResourceTypeId()) > 1024 {
-		err := CredentialIssueOptionsValidationError{
-			field:  "SecretResourceTypeId",
-			reason: "value length must be at most 1024 bytes",
-		}
-		if !all {
-			return err
-		}
-		errors = append(errors, err)
-	}
+	// no validation rules for SecretResourceTypeId
 
 	switch v := m.Options.(type) {
 	case *CredentialIssueOptions_ApiKey_:
