@@ -147,12 +147,6 @@ type CredentialIssueInput struct {
 	CredentialOptions *v2.CredentialIssueOptions
 	ExpiresAt         *timestamppb.Timestamp
 	RequestID         string
-	// SecretResourceTypeID names the advertised option the caller selected, by
-	// the resource type it mints. A connector advertising several options that
-	// share a credential shape branches on it; one advertising a single option
-	// per shape can ignore it, and receives an empty value from callers that
-	// predate the field.
-	SecretResourceTypeID string
 }
 
 type CredentialIssueOutput struct {
@@ -210,11 +204,10 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		return nil, fmt.Errorf("error: get credential issuance capability details: %w", err)
 	}
 	input := &CredentialIssueInput{
-		IdentityID:           request.GetIdentityId(),
-		CredentialOptions:    request.GetCredentialOptions(),
-		ExpiresAt:            request.GetExpiresAt(),
-		RequestID:            request.GetRequestId(),
-		SecretResourceTypeID: request.GetSecretResourceTypeId(),
+		IdentityID:        request.GetIdentityId(),
+		CredentialOptions: request.GetCredentialOptions(),
+		ExpiresAt:         request.GetExpiresAt(),
+		RequestID:         request.GetRequestId(),
 	}
 	descriptor, err := validateCredentialIssueInput(input, details, b.nowFunc())
 	if err != nil {

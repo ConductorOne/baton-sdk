@@ -133,9 +133,6 @@ message Task {
     connector.v2.CredentialIssueOptions credential_options = 2;
     repeated connector.v2.EncryptionConfig encryption_configs = 3;
     google.protobuf.Timestamp expires_at = 4;
-    // Forwarded verbatim to IssueCredentialRequest.secret_resource_type_id.
-    // Empty keeps the pre-existing shape-only selection.
-    string secret_resource_type_id = 5;
   }
 
   message CreateTicketTask {

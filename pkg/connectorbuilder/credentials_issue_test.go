@@ -117,7 +117,8 @@ func TestIssueCredentialFailsBeforeProviderMutation(t *testing.T) {
 		Resource:     "sa-1",
 	}.Build()
 	options := v2.CredentialIssueOptions_builder{
-		ApiKey: &v2.CredentialIssueOptions_ApiKey{},
+		SecretResourceTypeId: "secret",
+		ApiKey:               &v2.CredentialIssueOptions_ApiKey{},
 	}.Build()
 
 	t.Run("missing encryption configuration", func(t *testing.T) {
@@ -184,7 +185,8 @@ func TestIssueCredential(t *testing.T) {
 			Resource:     "sa-1",
 		}.Build(),
 		CredentialOptions: v2.CredentialIssueOptions_builder{
-			ApiKey: &v2.CredentialIssueOptions_ApiKey{},
+			SecretResourceTypeId: "secret",
+			ApiKey:               &v2.CredentialIssueOptions_ApiKey{},
 		}.Build(),
 		RequestId: "request-3",
 	}.Build())
@@ -202,6 +204,7 @@ func TestIssueCredential(t *testing.T) {
 			Resource:     "sa-1",
 		}.Build(),
 		CredentialOptions: v2.CredentialIssueOptions_builder{
+			SecretResourceTypeId: "secret",
 			ApiKey: v2.CredentialIssueOptions_ApiKey_builder{
 				Scopes: []string{"read", "write"},
 			}.Build(),
@@ -337,7 +340,8 @@ func TestValidateCredentialIssueInputExpiryAndAudiences(t *testing.T) {
 	input := &CredentialIssueInput{
 		IdentityID: v2.ResourceId_builder{ResourceType: "service_account", Resource: "sa-1"}.Build(),
 		CredentialOptions: v2.CredentialIssueOptions_builder{
-			Token: v2.CredentialIssueOptions_Token_builder{Audiences: []string{"api://one", "api://two"}}.Build(),
+			SecretResourceTypeId: "secret",
+			Token:                v2.CredentialIssueOptions_Token_builder{Audiences: []string{"api://one", "api://two"}}.Build(),
 		}.Build(),
 		ExpiresAt: timestamppb.New(now.Add(30 * time.Minute)),
 		RequestID: "request-1",

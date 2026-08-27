@@ -21,43 +21,28 @@ type credentialIssueDescriptorKey struct {
 	secretResourceTypeID string
 }
 
-// resolveCredentialIssueDescriptor picks the descriptor a request selects.
-//
-// An empty secretResourceTypeID means the caller did not express a preference,
-// which is every caller predating the field. It resolves as it always has, and
-// is only ambiguous where a connector advertises more than one descriptor for
-// the requested shape -- which registration used to reject outright.
+// resolveCredentialIssueDescriptor looks up the one descriptor a request's
+// CredentialIssueOptions selects: the oneof arm gives the shape, and
+// secret_resource_type_id gives the kind within that shape. Both halves are
+// required, so the pair always names at most one advertised descriptor.
 func resolveCredentialIssueDescriptor(
 	details *v2.CredentialDetailsCredentialIssue,
-	kind v2.CapabilityDetailCredentialOption,
-	secretResourceTypeID string,
+	options *v2.CredentialIssueOptions,
 ) (*v2.CredentialIssueOptionDescriptor, error) {
-	var matches []*v2.CredentialIssueOptionDescriptor
+	kind := credentialIssueOptionKind(options)
+	if kind == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
+		return nil, fmt.Errorf("unsupported credential option")
+	}
+	secretResourceTypeID := options.GetSecretResourceTypeId()
+	if secretResourceTypeID == "" {
+		return nil, fmt.Errorf("credential_options.secret_resource_type_id is required")
+	}
 	for _, candidate := range details.GetOptions() {
-		if candidate.GetOption() != kind {
-			continue
+		if candidate.GetOption() == kind && candidate.GetSecretResourceTypeId() == secretResourceTypeID {
+			return candidate, nil
 		}
-		if secretResourceTypeID != "" && candidate.GetSecretResourceTypeId() != secretResourceTypeID {
-			continue
-		}
-		matches = append(matches, candidate)
 	}
-	switch {
-	case len(matches) == 1:
-		return matches[0], nil
-	case len(matches) == 0 && secretResourceTypeID != "":
-		return nil, fmt.Errorf("credential option %s producing secret resource type %q is not advertised by connector", kind, secretResourceTypeID)
-	case len(matches) == 0:
-		return nil, fmt.Errorf("credential option %s is not advertised by connector", kind)
-	default:
-		advertised := make([]string, 0, len(matches))
-		for _, match := range matches {
-			advertised = append(advertised, match.GetSecretResourceTypeId())
-		}
-		slices.Sort(advertised)
-		return nil, fmt.Errorf("credential option %s is advertised for secret resource types %s; secret_resource_type_id is required to select one",
-			kind, strings.Join(advertised, ", "))
-	}
+	return nil, fmt.Errorf("credential option %s producing secret resource type %q is not advertised by connector", kind, secretResourceTypeID)
 }
 
 func credentialIssueOptionKind(options *v2.CredentialIssueOptions) v2.CapabilityDetailCredentialOption {
@@ -85,11 +70,7 @@ func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.Crede
 	if len(input.RequestID) == 0 || len(input.RequestID) > 128 || !credentialIssueRequestIDPattern.MatchString(input.RequestID) {
 		return nil, fmt.Errorf("request id must be 1..128 characters containing only letters, digits, underscore, or hyphen")
 	}
-	kind := credentialIssueOptionKind(input.CredentialOptions)
-	if kind == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
-		return nil, fmt.Errorf("unsupported credential option")
-	}
-	descriptor, err := resolveCredentialIssueDescriptor(details, kind, input.SecretResourceTypeID)
+	descriptor, err := resolveCredentialIssueDescriptor(details, input.CredentialOptions)
 	if err != nil {
 		return nil, err
 	}

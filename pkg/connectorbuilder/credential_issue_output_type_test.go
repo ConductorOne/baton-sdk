@@ -3,7 +3,6 @@ package connectorbuilder
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -22,6 +21,13 @@ func apiKeyDescriptor(secretResourceTypeID string) *v2.CredentialIssueOptionDesc
 		Option:               v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
 		ResourceMode:         v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_DISCOVERABLE,
 		SecretResourceTypeId: secretResourceTypeID,
+	}.Build()
+}
+
+func apiKeyOptions(secretResourceTypeID string) *v2.CredentialIssueOptions {
+	return v2.CredentialIssueOptions_builder{
+		SecretResourceTypeId: secretResourceTypeID,
+		ApiKey:               &v2.CredentialIssueOptions_ApiKey{},
 	}.Build()
 }
 
@@ -54,10 +60,7 @@ func (m *multiTypeIssuer) IssueCapabilityDetails(context.Context) (*v2.Credentia
 
 func (m *multiTypeIssuer) Issue(_ context.Context, input *CredentialIssueInput) (*CredentialIssueOutput, error) {
 	m.lastInput = input
-	secretType := input.SecretResourceTypeID
-	if secretType == "" {
-		secretType = m.details.GetOptions()[0].GetSecretResourceTypeId()
-	}
+	secretType := input.CredentialOptions.GetSecretResourceTypeId()
 	secret, err := resource.NewSecretResource(
 		"Issued key",
 		v2.ResourceType_builder{Id: secretType}.Build(),
@@ -105,52 +108,42 @@ func TestValidateCredentialIssueCapabilityDetailsDedupesOnShapeAndOutputType(t *
 }
 
 func TestResolveCredentialIssueDescriptor(t *testing.T) {
-	apiKey := v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY
-	token := v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN
-
-	t.Run("absent output type resolves the sole descriptor for the shape", func(t *testing.T) {
-		descriptor, err := resolveCredentialIssueDescriptor(apiKeyDetails(orgAPIKeyType), apiKey, "")
-		require.NoError(t, err)
-		require.Equal(t, orgAPIKeyType, descriptor.GetSecretResourceTypeId())
-	})
-
-	t.Run("output type selects among descriptors sharing a shape", func(t *testing.T) {
+	t.Run("the shape and output type together select one descriptor", func(t *testing.T) {
 		details := apiKeyDetails(orgAPIKeyType, serviceAccountKey)
-		descriptor, err := resolveCredentialIssueDescriptor(details, apiKey, serviceAccountKey)
+		descriptor, err := resolveCredentialIssueDescriptor(details, apiKeyOptions(serviceAccountKey))
 		require.NoError(t, err)
 		require.Equal(t, serviceAccountKey, descriptor.GetSecretResourceTypeId())
 	})
 
-	t.Run("absent output type is ambiguous across descriptors sharing a shape", func(t *testing.T) {
-		_, err := resolveCredentialIssueDescriptor(apiKeyDetails(orgAPIKeyType, serviceAccountKey), apiKey, "")
-		require.ErrorContains(t, err, "secret_resource_type_id is required to select one")
-		require.ErrorContains(t, err, orgAPIKeyType)
-		require.ErrorContains(t, err, serviceAccountKey)
+	t.Run("a missing output type is rejected rather than guessed", func(t *testing.T) {
+		_, err := resolveCredentialIssueDescriptor(apiKeyDetails(orgAPIKeyType), apiKeyOptions(""))
+		require.ErrorContains(t, err, "credential_options.secret_resource_type_id is required")
 	})
 
-	t.Run("undeclared output type is rejected", func(t *testing.T) {
-		_, err := resolveCredentialIssueDescriptor(apiKeyDetails(orgAPIKeyType), apiKey, "made-up-type")
+	t.Run("an undeclared output type is rejected", func(t *testing.T) {
+		_, err := resolveCredentialIssueDescriptor(apiKeyDetails(orgAPIKeyType), apiKeyOptions("made-up-type"))
 		require.ErrorContains(t, err, `"made-up-type" is not advertised by connector`)
 	})
 
-	t.Run("undeclared shape is rejected as before", func(t *testing.T) {
-		_, err := resolveCredentialIssueDescriptor(apiKeyDetails(orgAPIKeyType), token, "")
+	t.Run("an undeclared shape is rejected", func(t *testing.T) {
+		details := v2.CredentialDetailsCredentialIssue_builder{
+			Options: []*v2.CredentialIssueOptionDescriptor{
+				v2.CredentialIssueOptionDescriptor_builder{
+					Option:               v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN,
+					ResourceMode:         v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_VIRTUAL,
+					SecretResourceTypeId: orgAPIKeyType,
+				}.Build(),
+			},
+			PreferredOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN,
+		}.Build()
+		_, err := resolveCredentialIssueDescriptor(details, apiKeyOptions(orgAPIKeyType))
 		require.ErrorContains(t, err, "is not advertised by connector")
 	})
-}
 
-// A connector declaring one descriptor per shape and a caller sending no
-// output type is every deployment predating this field. Resolution must be
-// exactly what it was.
-func TestValidateCredentialIssueInputWithoutOutputTypeIsUnchanged(t *testing.T) {
-	input := &CredentialIssueInput{
-		IdentityID:        v2.ResourceId_builder{ResourceType: "user", Resource: "u-1"}.Build(),
-		CredentialOptions: v2.CredentialIssueOptions_builder{ApiKey: &v2.CredentialIssueOptions_ApiKey{}}.Build(),
-		RequestID:         "request-1",
-	}
-	descriptor, err := validateCredentialIssueInput(input, apiKeyDetails(orgAPIKeyType), time.Now())
-	require.NoError(t, err)
-	require.Equal(t, orgAPIKeyType, descriptor.GetSecretResourceTypeId())
+	t.Run("options with no arm set are rejected", func(t *testing.T) {
+		_, err := resolveCredentialIssueDescriptor(apiKeyDetails(orgAPIKeyType), nil)
+		require.ErrorContains(t, err, "unsupported credential option")
+	})
 }
 
 func TestIssueCredentialSelectsDescriptorByOutputType(t *testing.T) {
@@ -169,11 +162,10 @@ func TestIssueCredentialSelectsDescriptorByOutputType(t *testing.T) {
 
 	request := func(secretResourceTypeID string) *v2.IssueCredentialRequest {
 		return v2.IssueCredentialRequest_builder{
-			IdentityId:           v2.ResourceId_builder{ResourceType: "user", Resource: "u-1"}.Build(),
-			CredentialOptions:    v2.CredentialIssueOptions_builder{ApiKey: &v2.CredentialIssueOptions_ApiKey{}}.Build(),
-			EncryptionConfigs:    []*v2.EncryptionConfig{newIssueEncryptionConfig(t)},
-			RequestId:            "request-1",
-			SecretResourceTypeId: secretResourceTypeID,
+			IdentityId:        v2.ResourceId_builder{ResourceType: "user", Resource: "u-1"}.Build(),
+			CredentialOptions: apiKeyOptions(secretResourceTypeID),
+			EncryptionConfigs: []*v2.EncryptionConfig{newIssueEncryptionConfig(t)},
+			RequestId:         "request-1",
 		}.Build()
 	}
 
@@ -194,14 +186,14 @@ func TestIssueCredentialSelectsDescriptorByOutputType(t *testing.T) {
 		connector, issuer := newConnector(t)
 		resp, err := connector.IssueCredential(ctx, request(serviceAccountKey))
 		require.NoError(t, err)
-		require.Equal(t, serviceAccountKey, issuer.lastInput.SecretResourceTypeID)
+		require.Equal(t, serviceAccountKey, issuer.lastInput.CredentialOptions.GetSecretResourceTypeId())
 		require.Equal(t, serviceAccountKey, resp.GetSecret().GetId().GetResourceType())
 	})
 
 	t.Run("an absent output type is rejected rather than resolved arbitrarily", func(t *testing.T) {
 		connector, issuer := newConnector(t)
 		_, err := connector.IssueCredential(ctx, request(""))
-		require.ErrorContains(t, err, "secret_resource_type_id is required to select one")
+		require.ErrorContains(t, err, "credential_options.secret_resource_type_id is required")
 		require.Nil(t, issuer.lastInput, "the provider must not be mutated when the request is ambiguous")
 	})
 

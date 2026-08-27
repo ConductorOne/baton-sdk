@@ -39,12 +39,11 @@ func (h *issueCredentialTaskHandler) HandleTask(ctx context.Context) error {
 	}
 
 	resp, err := h.helpers.ConnectorClient().IssueCredential(ctx, v2.IssueCredentialRequest_builder{
-		IdentityId:           t.GetIdentityId(),
-		CredentialOptions:    t.GetCredentialOptions(),
-		EncryptionConfigs:    t.GetEncryptionConfigs(),
-		RequestId:            h.task.GetId(),
-		ExpiresAt:            t.GetExpiresAt(),
-		SecretResourceTypeId: t.GetSecretResourceTypeId(),
+		IdentityId:        t.GetIdentityId(),
+		CredentialOptions: t.GetCredentialOptions(),
+		EncryptionConfigs: t.GetEncryptionConfigs(),
+		RequestId:         h.task.GetId(),
+		ExpiresAt:         t.GetExpiresAt(),
 	}.Build())
 	if err != nil {
 		// Issuance may have succeeded before transport failure. Until a connector
