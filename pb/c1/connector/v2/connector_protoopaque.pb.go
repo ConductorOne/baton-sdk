@@ -832,8 +832,7 @@ type CredentialDetailsCredentialIssue_builder struct {
 	Options []*CredentialIssueOptionDescriptor
 	// The preferred credential shape. It does not name a single descriptor: when
 	// several descriptors share this shape, this field expresses no preference
-	// among them. Naming one would need a companion secret_resource_type_id
-	// field, which is deliberately not added until a caller consumes it.
+	// among them.
 	PreferredOption CapabilityDetailCredentialOption
 }
 

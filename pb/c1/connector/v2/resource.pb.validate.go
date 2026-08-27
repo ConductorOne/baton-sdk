@@ -2095,17 +2095,6 @@ func (m *IssueCredentialRequest) validate(all bool) error {
 		}
 	}
 
-	if len(m.GetSecretResourceTypeId()) > 1024 {
-		err := IssueCredentialRequestValidationError{
-			field:  "SecretResourceTypeId",
-			reason: "value length must be at most 1024 bytes",
-		}
-		if !all {
-			return err
-		}
-		errors = append(errors, err)
-	}
-
 	if len(errors) > 0 {
 		return IssueCredentialRequestMultiError(errors)
 	}
@@ -2729,6 +2718,17 @@ func (m *CredentialIssueOptions) validate(all bool) error {
 	}
 
 	var errors []error
+
+	if len(m.GetSecretResourceTypeId()) > 1024 {
+		err := CredentialIssueOptionsValidationError{
+			field:  "SecretResourceTypeId",
+			reason: "value length must be at most 1024 bytes",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
 
 	switch v := m.Options.(type) {
 	case *CredentialIssueOptions_ApiKey_:

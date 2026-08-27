@@ -1242,17 +1242,9 @@ type IssueCredentialRequest struct {
 	RequestId string `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	// Optional absolute expiry requested by the caller. Absolute time avoids
 	// extending a credential merely because an approved task waited in queue.
-	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
-	// Which of the connector's advertised issuance options to use, when several
-	// share credential_options' shape. It names the resource type the minted
-	// credential comes back AS, matching
-	// CredentialIssueOptionDescriptor.secret_resource_type_id.
-	//
-	// Empty selects the connector's single descriptor for that shape. A connector
-	// advertising two same-shape descriptors rejects an empty value as ambiguous.
-	SecretResourceTypeId string `protobuf:"bytes,6,opt,name=secret_resource_type_id,json=secretResourceTypeId,proto3" json:"secret_resource_type_id,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *IssueCredentialRequest) Reset() {
@@ -1315,13 +1307,6 @@ func (x *IssueCredentialRequest) GetExpiresAt() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *IssueCredentialRequest) GetSecretResourceTypeId() string {
-	if x != nil {
-		return x.SecretResourceTypeId
-	}
-	return ""
-}
-
 func (x *IssueCredentialRequest) SetIdentityId(v *ResourceId) {
 	x.IdentityId = v
 }
@@ -1340,10 +1325,6 @@ func (x *IssueCredentialRequest) SetRequestId(v string) {
 
 func (x *IssueCredentialRequest) SetExpiresAt(v *timestamppb.Timestamp) {
 	x.ExpiresAt = v
-}
-
-func (x *IssueCredentialRequest) SetSecretResourceTypeId(v string) {
-	x.SecretResourceTypeId = v
 }
 
 func (x *IssueCredentialRequest) HasIdentityId() bool {
@@ -1396,14 +1377,6 @@ type IssueCredentialRequest_builder struct {
 	// Optional absolute expiry requested by the caller. Absolute time avoids
 	// extending a credential merely because an approved task waited in queue.
 	ExpiresAt *timestamppb.Timestamp
-	// Which of the connector's advertised issuance options to use, when several
-	// share credential_options' shape. It names the resource type the minted
-	// credential comes back AS, matching
-	// CredentialIssueOptionDescriptor.secret_resource_type_id.
-	//
-	// Empty selects the connector's single descriptor for that shape. A connector
-	// advertising two same-shape descriptors rejects an empty value as ambiguous.
-	SecretResourceTypeId string
 }
 
 func (b0 IssueCredentialRequest_builder) Build() *IssueCredentialRequest {
@@ -1415,7 +1388,6 @@ func (b0 IssueCredentialRequest_builder) Build() *IssueCredentialRequest {
 	x.EncryptionConfigs = b.EncryptionConfigs
 	x.RequestId = b.RequestId
 	x.ExpiresAt = b.ExpiresAt
-	x.SecretResourceTypeId = b.SecretResourceTypeId
 	return m0
 }
 
@@ -1859,6 +1831,11 @@ func (*KeyGenerationProfile_Crv) isKeyGenerationProfile_Parameters() {}
 // adding issuance-only arms must not expand account creation or rotation.
 type CredentialIssueOptions struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// Which of the connector's advertised issuance options to select, naming the
+	// resource type the minted credential comes back AS and matching
+	// CredentialIssueOptionDescriptor.secret_resource_type_id. Required: together
+	// with the options arm below it identifies exactly one descriptor.
+	SecretResourceTypeId string `protobuf:"bytes,1,opt,name=secret_resource_type_id,json=secretResourceTypeId,proto3" json:"secret_resource_type_id,omitempty"`
 	// Types that are valid to be assigned to Options:
 	//
 	//	*CredentialIssueOptions_ApiKey_
@@ -1893,6 +1870,13 @@ func (x *CredentialIssueOptions) ProtoReflect() protoreflect.Message {
 		return ms
 	}
 	return mi.MessageOf(x)
+}
+
+func (x *CredentialIssueOptions) GetSecretResourceTypeId() string {
+	if x != nil {
+		return x.SecretResourceTypeId
+	}
+	return ""
 }
 
 func (x *CredentialIssueOptions) GetOptions() isCredentialIssueOptions_Options {
@@ -1936,6 +1920,10 @@ func (x *CredentialIssueOptions) GetClientSecret() *CredentialIssueOptions_Clien
 		}
 	}
 	return nil
+}
+
+func (x *CredentialIssueOptions) SetSecretResourceTypeId(v string) {
+	x.SecretResourceTypeId = v
 }
 
 func (x *CredentialIssueOptions) SetApiKey(v *CredentialIssueOptions_ApiKey) {
@@ -2064,6 +2052,11 @@ func (x *CredentialIssueOptions) WhichOptions() case_CredentialIssueOptions_Opti
 type CredentialIssueOptions_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
+	// Which of the connector's advertised issuance options to select, naming the
+	// resource type the minted credential comes back AS and matching
+	// CredentialIssueOptionDescriptor.secret_resource_type_id. Required: together
+	// with the options arm below it identifies exactly one descriptor.
+	SecretResourceTypeId string
 	// Fields of oneof Options:
 	ApiKey       *CredentialIssueOptions_ApiKey
 	Keypair      *CredentialIssueOptions_Keypair
@@ -2076,6 +2069,7 @@ func (b0 CredentialIssueOptions_builder) Build() *CredentialIssueOptions {
 	m0 := &CredentialIssueOptions{}
 	b, x := &b0, m0
 	_, _ = b, x
+	x.SecretResourceTypeId = b.SecretResourceTypeId
 	if b.ApiKey != nil {
 		x.Options = &CredentialIssueOptions_ApiKey_{b.ApiKey}
 	}
@@ -6050,7 +6044,7 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x0eencrypted_data\x18\x01 \x03(\v2\x1e.c1.connector.v2.EncryptedDataR\rencryptedData\x12<\n" +
 	"\vresource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\n" +
 	"resourceId\x126\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xb9\x03\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xf8\x02\n" +
 	"\x16IssueCredentialRequest\x12<\n" +
 	"\videntity_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\n" +
 	"identityId\x12V\n" +
@@ -6059,8 +6053,7 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x04 \x01(\tB\x1c\xfaB\x19r\x17 \x01(\x80\x012\x10^[A-Za-z0-9_-]+$R\trequestId\x129\n" +
 	"\n" +
-	"expires_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12?\n" +
-	"\x17secret_resource_type_id\x18\x06 \x01(\tB\b\xfaB\x05r\x03(\x80\bR\x14secretResourceTypeId\"\xb8\x02\n" +
+	"expires_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\xb8\x02\n" +
 	"\x17IssueCredentialResponse\x121\n" +
 	"\x06secret\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\x06secret\x12E\n" +
 	"\x0eencrypted_data\x18\x02 \x03(\v2\x1e.c1.connector.v2.EncryptedDataR\rencryptedData\x126\n" +
@@ -6082,8 +6075,9 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x10rsa_modulus_bits\x18\x02 \x01(\rH\x00R\x0ersaModulusBits\x12\x1b\n" +
 	"\x03crv\x18\x03 \x01(\tB\a\xfaB\x04r\x02(@H\x00R\x03crvB\f\n" +
 	"\n" +
-	"parameters\"\x9c\x04\n" +
-	"\x16CredentialIssueOptions\x12I\n" +
+	"parameters\"\xdd\x04\n" +
+	"\x16CredentialIssueOptions\x12?\n" +
+	"\x17secret_resource_type_id\x18\x01 \x01(\tB\b\xfaB\x05r\x03(\x80\bR\x14secretResourceTypeId\x12I\n" +
 	"\aapi_key\x18d \x01(\v2..c1.connector.v2.CredentialIssueOptions.ApiKeyH\x00R\x06apiKey\x12K\n" +
 	"\akeypair\x18e \x01(\v2/.c1.connector.v2.CredentialIssueOptions.KeypairH\x00R\akeypair\x12E\n" +
 	"\x05token\x18f \x01(\v2-.c1.connector.v2.CredentialIssueOptions.TokenH\x00R\x05token\x12[\n" +

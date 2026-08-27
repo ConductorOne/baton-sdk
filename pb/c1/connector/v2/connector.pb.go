@@ -768,8 +768,7 @@ type CredentialDetailsCredentialIssue struct {
 	Options []*CredentialIssueOptionDescriptor `protobuf:"bytes,1,rep,name=options,proto3" json:"options,omitempty"`
 	// The preferred credential shape. It does not name a single descriptor: when
 	// several descriptors share this shape, this field expresses no preference
-	// among them. Naming one would need a companion secret_resource_type_id
-	// field, which is deliberately not added until a caller consumes it.
+	// among them.
 	PreferredOption CapabilityDetailCredentialOption `protobuf:"varint,2,opt,name=preferred_option,json=preferredOption,proto3,enum=c1.connector.v2.CapabilityDetailCredentialOption" json:"preferred_option,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
@@ -832,8 +831,7 @@ type CredentialDetailsCredentialIssue_builder struct {
 	Options []*CredentialIssueOptionDescriptor
 	// The preferred credential shape. It does not name a single descriptor: when
 	// several descriptors share this shape, this field expresses no preference
-	// among them. Naming one would need a companion secret_resource_type_id
-	// field, which is deliberately not added until a caller consumes it.
+	// among them.
 	PreferredOption CapabilityDetailCredentialOption
 }
 

@@ -3902,11 +3902,8 @@ type Task_IssueCredentialTask struct {
 	CredentialOptions *v2.CredentialIssueOptions `protobuf:"bytes,2,opt,name=credential_options,json=credentialOptions,proto3" json:"credential_options,omitempty"`
 	EncryptionConfigs []*v2.EncryptionConfig     `protobuf:"bytes,3,rep,name=encryption_configs,json=encryptionConfigs,proto3" json:"encryption_configs,omitempty"`
 	ExpiresAt         *timestamppb.Timestamp     `protobuf:"bytes,4,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
-	// Forwarded verbatim to IssueCredentialRequest.secret_resource_type_id.
-	// Empty keeps the pre-existing shape-only selection.
-	SecretResourceTypeId string `protobuf:"bytes,5,opt,name=secret_resource_type_id,json=secretResourceTypeId,proto3" json:"secret_resource_type_id,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *Task_IssueCredentialTask) Reset() {
@@ -3962,13 +3959,6 @@ func (x *Task_IssueCredentialTask) GetExpiresAt() *timestamppb.Timestamp {
 	return nil
 }
 
-func (x *Task_IssueCredentialTask) GetSecretResourceTypeId() string {
-	if x != nil {
-		return x.SecretResourceTypeId
-	}
-	return ""
-}
-
 func (x *Task_IssueCredentialTask) SetIdentityId(v *v2.ResourceId) {
 	x.IdentityId = v
 }
@@ -3983,10 +3973,6 @@ func (x *Task_IssueCredentialTask) SetEncryptionConfigs(v []*v2.EncryptionConfig
 
 func (x *Task_IssueCredentialTask) SetExpiresAt(v *timestamppb.Timestamp) {
 	x.ExpiresAt = v
-}
-
-func (x *Task_IssueCredentialTask) SetSecretResourceTypeId(v string) {
-	x.SecretResourceTypeId = v
 }
 
 func (x *Task_IssueCredentialTask) HasIdentityId() bool {
@@ -4029,9 +4015,6 @@ type Task_IssueCredentialTask_builder struct {
 	CredentialOptions *v2.CredentialIssueOptions
 	EncryptionConfigs []*v2.EncryptionConfig
 	ExpiresAt         *timestamppb.Timestamp
-	// Forwarded verbatim to IssueCredentialRequest.secret_resource_type_id.
-	// Empty keeps the pre-existing shape-only selection.
-	SecretResourceTypeId string
 }
 
 func (b0 Task_IssueCredentialTask_builder) Build() *Task_IssueCredentialTask {
@@ -4042,7 +4025,6 @@ func (b0 Task_IssueCredentialTask_builder) Build() *Task_IssueCredentialTask {
 	x.CredentialOptions = b.CredentialOptions
 	x.EncryptionConfigs = b.EncryptionConfigs
 	x.ExpiresAt = b.ExpiresAt
-	x.SecretResourceTypeId = b.SecretResourceTypeId
 	return m0
 }
 
@@ -5616,7 +5598,7 @@ var File_c1_connectorapi_baton_v1_baton_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\n" +
-	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\xc91\n" +
+	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\x921\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12=\n" +
 	"\x06status\x18\x02 \x01(\x0e2%.c1.connectorapi.baton.v1.Task.StatusR\x06status\x12=\n" +
@@ -5697,15 +5679,14 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\vresource_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\n" +
 	"resourceId\x12Q\n" +
 	"\x12credential_options\x18\x02 \x01(\v2\".c1.connector.v2.CredentialOptionsR\x11credentialOptions\x12P\n" +
-	"\x12encryption_configs\x18\x03 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigs\x1a\xef\x02\n" +
+	"\x12encryption_configs\x18\x03 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigs\x1a\xb8\x02\n" +
 	"\x13IssueCredentialTask\x12<\n" +
 	"\videntity_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\n" +
 	"identityId\x12V\n" +
 	"\x12credential_options\x18\x02 \x01(\v2'.c1.connector.v2.CredentialIssueOptionsR\x11credentialOptions\x12P\n" +
 	"\x12encryption_configs\x18\x03 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigs\x129\n" +
 	"\n" +
-	"expires_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x125\n" +
-	"\x17secret_resource_type_id\x18\x05 \x01(\tR\x14secretResourceTypeId\x1a\xd5\x01\n" +
+	"expires_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x1a\xd5\x01\n" +
 	"\x10CreateTicketTask\x12E\n" +
 	"\x0eticket_request\x18\x01 \x01(\v2\x1e.c1.connector.v2.TicketRequestR\rticketRequest\x12B\n" +
 	"\rticket_schema\x18\x02 \x01(\v2\x1d.c1.connector.v2.TicketSchemaR\fticketSchema\x126\n" +
