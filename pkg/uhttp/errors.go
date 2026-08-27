@@ -22,18 +22,26 @@ func wrapTransientNetworkError(err error) error {
 		return nil
 	}
 
-	// The RFC 6749 §5.2 error param takes priority over the HTTP status:
-	// some servers report it on a 200, and 400 is the spec default for
-	// invalid_client/invalid_grant, which GrpcCodeFromHTTPStatus alone
-	// would otherwise misclassify.
+	// A transient token-endpoint status (429/5xx) stays retryable even if
+	// the body also carries a recognized RFC 6749 error param; otherwise
+	// the error param takes priority over the HTTP status, since some
+	// servers report it on a 200 and 400 is the spec default for
+	// invalid_client/invalid_grant, both of which GrpcCodeFromHTTPStatus
+	// alone would misclassify. This branch is total once errors.As matches,
+	// so a RetrieveError never reaches the err.Error() calls below it.
 	var retrieveErr *oauth2.RetrieveError
 	if errors.As(err, &retrieveErr) {
+		if retrieveErr.Response != nil && isTransientHTTPStatus(retrieveErr.Response.StatusCode) {
+			return WrapErrors(GrpcCodeFromHTTPStatus(retrieveErr.Response.StatusCode), retrieveErr.Response.Status, err)
+		}
 		if code, ok := oauthTokenErrorCode(retrieveErr.ErrorCode); ok {
 			return WrapErrors(code, oauthTokenErrorMessage(retrieveErr), err)
 		}
+		code := codes.Unknown
 		if retrieveErr.Response != nil {
-			return WrapErrors(GrpcCodeFromHTTPStatus(retrieveErr.Response.StatusCode), oauthTokenErrorMessage(retrieveErr), err)
+			code = GrpcCodeFromHTTPStatus(retrieveErr.Response.StatusCode)
 		}
+		return WrapErrors(code, oauthTokenErrorMessage(retrieveErr), err)
 	}
 
 	if errors.Is(err, io.ErrUnexpectedEOF) {
@@ -102,6 +110,13 @@ func wrapTransientNetworkError(err error) error {
 	}
 
 	return err
+}
+
+// isTransientHTTPStatus mirrors the statuses GrpcCodeFromHTTPStatus maps to
+// codes.Unavailable, so a transient token-endpoint failure stays retryable
+// regardless of what error param the body also carries.
+func isTransientHTTPStatus(statusCode int) bool {
+	return statusCode == http.StatusTooManyRequests || statusCode >= 500
 }
 
 // oauthTokenErrorCode maps an RFC 6749 §5.2 token-error "error" parameter to

@@ -269,6 +269,23 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			wantCode: codes.InvalidArgument,
 			wantMsg:  "some_vendor_specific_error",
 		},
+		{
+			name: "oauth2 transient status wins over a recognized error param",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "invalid_request",
+				Response:  &http.Response{StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests"},
+			}),
+			wantCode: codes.Unavailable,
+			wantMsg:  "429 Too Many Requests",
+		},
+		{
+			name: "oauth2 retrieve error with no error param and no response still maps, not falls through",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "",
+			}),
+			wantCode: codes.Unknown,
+			wantMsg:  "oauth2 token request failed",
+		},
 	}
 
 	for _, tt := range tests {
@@ -321,6 +338,31 @@ func TestWrapTransientNetworkError_NXDOMAINIsTerminal(t *testing.T) {
 	require.Equal(t, codes.Unavailable, status.Code(temporary))
 	require.True(t, newRetryer().ShouldWaitAndRetry(t.Context(), temporary),
 		"a temporary resolver failure must still be retried")
+}
+
+func TestWrapTransientNetworkError_OAuthTokenEndpointTransientIsRetried(t *testing.T) {
+	newRetryer := func() *retry.Retryer {
+		return retry.NewRetryer(t.Context(), retry.RetryConfig{
+			MaxAttempts:  3,
+			InitialDelay: time.Millisecond,
+			MaxDelay:     time.Millisecond,
+		})
+	}
+
+	rateLimited := wrapTransientNetworkError(wrapAsTokenRequestError(&oauth2.RetrieveError{
+		Response: &http.Response{StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests"},
+	}))
+	require.Equal(t, codes.Unavailable, status.Code(rateLimited))
+	require.True(t, newRetryer().ShouldWaitAndRetry(t.Context(), rateLimited),
+		"a rate-limited token endpoint must still be retried")
+
+	rejected := wrapTransientNetworkError(wrapAsTokenRequestError(&oauth2.RetrieveError{
+		ErrorCode: "invalid_client",
+		Response:  &http.Response{StatusCode: http.StatusUnauthorized, Status: "401 Unauthorized"},
+	}))
+	require.Equal(t, codes.Unauthenticated, status.Code(rejected))
+	require.False(t, newRetryer().ShouldWaitAndRetry(t.Context(), rejected),
+		"rejected credentials must not be retried")
 }
 
 func TestWrapTransientNetworkError_LeavesNonTransientAlone(t *testing.T) {
