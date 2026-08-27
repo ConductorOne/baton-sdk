@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +13,11 @@ import (
 )
 
 var credentialIssueRequestIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// maxCredentialIssueSecretResourceTypeIDBytes bounds
+// CredentialIssueOptions.secret_resource_type_id here rather than in the proto:
+// the generated Validate() is never called on the issuance path.
+const maxCredentialIssueSecretResourceTypeIDBytes = 1024
 
 // credentialIssueDescriptorKey identifies one advertised issuance option. A
 // credential shape alone cannot: a connector may mint several kinds of
@@ -37,12 +43,24 @@ func resolveCredentialIssueDescriptor(
 	if secretResourceTypeID == "" {
 		return nil, fmt.Errorf("credential_options.secret_resource_type_id is required")
 	}
+	if len(secretResourceTypeID) > maxCredentialIssueSecretResourceTypeIDBytes {
+		return nil, fmt.Errorf("credential_options.secret_resource_type_id must be at most %d bytes", maxCredentialIssueSecretResourceTypeIDBytes)
+	}
+	var advertisedForKind []string
 	for _, candidate := range details.GetOptions() {
-		if candidate.GetOption() == kind && candidate.GetSecretResourceTypeId() == secretResourceTypeID {
+		if candidate.GetOption() != kind {
+			continue
+		}
+		if candidate.GetSecretResourceTypeId() == secretResourceTypeID {
 			return candidate, nil
 		}
+		advertisedForKind = append(advertisedForKind, strconv.Quote(candidate.GetSecretResourceTypeId()))
 	}
-	return nil, fmt.Errorf("credential option %s producing secret resource type %q is not advertised by connector", kind, secretResourceTypeID)
+	if len(advertisedForKind) == 0 {
+		return nil, fmt.Errorf("credential option %s is not advertised by connector", kind)
+	}
+	return nil, fmt.Errorf("credential option %s does not produce secret resource type %q; it produces %s",
+		kind, secretResourceTypeID, strings.Join(advertisedForKind, ", "))
 }
 
 func credentialIssueOptionKind(options *v2.CredentialIssueOptions) v2.CapabilityDetailCredentialOption {

@@ -230,8 +230,10 @@ message CredentialIssueOptions {
   // Which of the connector's advertised issuance options to select, naming the
   // resource type the minted credential comes back AS and matching
   // CredentialIssueOptionDescriptor.secret_resource_type_id. Required: together
-  // with the options arm below it identifies exactly one descriptor.
-  string secret_resource_type_id = 1 [(validate.rules).string = {max_bytes: 1024}];
+  // with the options arm below it identifies exactly one descriptor. Carries no
+  // validate.rules because nothing on the issuance path calls the generated
+  // Validate(); the SDK enforces presence and length in Go instead.
+  string secret_resource_type_id = 1;
   message ApiKey {
     repeated string scopes = 1;
   }

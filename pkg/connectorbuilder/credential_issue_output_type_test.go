@@ -2,7 +2,9 @@ package connectorbuilder
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -21,6 +23,31 @@ func apiKeyDescriptor(secretResourceTypeID string) *v2.CredentialIssueOptionDesc
 		Option:               v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
 		ResourceMode:         v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_DISCOVERABLE,
 		SecretResourceTypeId: secretResourceTypeID,
+	}.Build()
+}
+
+func apiKeyDescriptorWithScopes(secretResourceTypeID string, scopes ...string) *v2.CredentialIssueOptionDescriptor {
+	descriptor := apiKeyDescriptor(secretResourceTypeID)
+	descriptor.SetScopes(scopes)
+	return descriptor
+}
+
+// divergentAPIKeyDetails advertises the same shape twice with different scopes,
+// so which descriptor the request selects decides which scopes it may ask for.
+func divergentAPIKeyDetails() *v2.CredentialDetailsCredentialIssue {
+	return v2.CredentialDetailsCredentialIssue_builder{
+		Options: []*v2.CredentialIssueOptionDescriptor{
+			apiKeyDescriptorWithScopes(orgAPIKeyType, "read"),
+			apiKeyDescriptorWithScopes(serviceAccountKey, "write"),
+		},
+		PreferredOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+	}.Build()
+}
+
+func apiKeyOptionsWithScopes(secretResourceTypeID string, scopes ...string) *v2.CredentialIssueOptions {
+	return v2.CredentialIssueOptions_builder{
+		SecretResourceTypeId: secretResourceTypeID,
+		ApiKey:               v2.CredentialIssueOptions_ApiKey_builder{Scopes: scopes}.Build(),
 	}.Build()
 }
 
@@ -120,9 +147,12 @@ func TestResolveCredentialIssueDescriptor(t *testing.T) {
 		require.ErrorContains(t, err, "credential_options.secret_resource_type_id is required")
 	})
 
-	t.Run("an undeclared output type is rejected", func(t *testing.T) {
-		_, err := resolveCredentialIssueDescriptor(apiKeyDetails(orgAPIKeyType), apiKeyOptions("made-up-type"))
-		require.ErrorContains(t, err, `"made-up-type" is not advertised by connector`)
+	t.Run("an undeclared output type names what the shape does produce", func(t *testing.T) {
+		_, err := resolveCredentialIssueDescriptor(apiKeyDetails(orgAPIKeyType, serviceAccountKey), apiKeyOptions("made-up-type"))
+		require.ErrorContains(t, err, `does not produce secret resource type "made-up-type"`)
+		require.ErrorContains(t, err, orgAPIKeyType)
+		require.ErrorContains(t, err, serviceAccountKey)
+		require.NotContains(t, err.Error(), "is not advertised by connector")
 	})
 
 	t.Run("an undeclared shape is rejected", func(t *testing.T) {
@@ -137,7 +167,8 @@ func TestResolveCredentialIssueDescriptor(t *testing.T) {
 			PreferredOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN,
 		}.Build()
 		_, err := resolveCredentialIssueDescriptor(details, apiKeyOptions(orgAPIKeyType))
-		require.ErrorContains(t, err, "is not advertised by connector")
+		require.ErrorContains(t, err, "credential option CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY is not advertised by connector")
+		require.NotContains(t, err.Error(), orgAPIKeyType, "an unadvertised shape must not read as an unadvertised output type")
 	})
 
 	t.Run("options with no arm set are rejected", func(t *testing.T) {
@@ -200,7 +231,7 @@ func TestIssueCredentialSelectsDescriptorByOutputType(t *testing.T) {
 	t.Run("an undeclared output type is rejected", func(t *testing.T) {
 		connector, issuer := newConnector(t)
 		_, err := connector.IssueCredential(ctx, request("made-up-type"))
-		require.ErrorContains(t, err, "is not advertised by connector")
+		require.ErrorContains(t, err, `does not produce secret resource type "made-up-type"`)
 		require.Nil(t, issuer.lastInput)
 	})
 }
@@ -217,4 +248,69 @@ func TestIssueCredentialCapabilityRequiresDeleterForEveryOutputType(t *testing.T
 	_, err = connector.(*builder).GetCapabilities(ctx)
 	require.ErrorContains(t, err, "without ResourceDeleterV2")
 	require.ErrorContains(t, err, serviceAccountKey)
+}
+
+// The selected descriptor must gate the request, not just name it: two
+// same-shape descriptors that differ in what they advertise must accept and
+// reject different requests.
+func TestSelectedDescriptorGatesTheRequest(t *testing.T) {
+	details := divergentAPIKeyDetails()
+	now := time.Now()
+	input := func(secretResourceTypeID string, scopes ...string) *CredentialIssueInput {
+		return &CredentialIssueInput{
+			IdentityID:        v2.ResourceId_builder{ResourceType: "user", Resource: "u-1"}.Build(),
+			CredentialOptions: apiKeyOptionsWithScopes(secretResourceTypeID, scopes...),
+			RequestID:         "request-1",
+		}
+	}
+
+	for _, tc := range []struct {
+		name                 string
+		secretResourceTypeID string
+		scope                string
+		wantErr              bool
+	}{
+		{name: "the read scope is accepted by the descriptor advertising it", secretResourceTypeID: orgAPIKeyType, scope: "read"},
+		{name: "the read scope is rejected by the descriptor advertising write", secretResourceTypeID: serviceAccountKey, scope: "read", wantErr: true},
+		{name: "the write scope is accepted by the descriptor advertising it", secretResourceTypeID: serviceAccountKey, scope: "write"},
+		{name: "the write scope is rejected by the descriptor advertising read", secretResourceTypeID: orgAPIKeyType, scope: "write", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			descriptor, err := validateCredentialIssueInput(input(tc.secretResourceTypeID, tc.scope), details, now)
+			if tc.wantErr {
+				require.ErrorContains(t, err, fmt.Sprintf("scope %q is not advertised by connector", tc.scope))
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.secretResourceTypeID, descriptor.GetSecretResourceTypeId())
+		})
+	}
+}
+
+func TestIssueCredentialAppliesTheSelectedDescriptorsConstraints(t *testing.T) {
+	ctx := context.Background()
+	issuer := newMultiTypeIssuer(divergentAPIKeyDetails())
+	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{
+		issuer,
+		newNamedSecretDeleter(orgAPIKeyType),
+		newNamedSecretDeleter(serviceAccountKey),
+	}))
+	require.NoError(t, err)
+
+	request := func(secretResourceTypeID string, scopes ...string) *v2.IssueCredentialRequest {
+		return v2.IssueCredentialRequest_builder{
+			IdentityId:        v2.ResourceId_builder{ResourceType: "user", Resource: "u-1"}.Build(),
+			CredentialOptions: apiKeyOptionsWithScopes(secretResourceTypeID, scopes...),
+			EncryptionConfigs: []*v2.EncryptionConfig{newIssueEncryptionConfig(t)},
+			RequestId:         "request-1",
+		}.Build()
+	}
+
+	_, err = connector.IssueCredential(ctx, request(serviceAccountKey, "read"))
+	require.ErrorContains(t, err, `scope "read" is not advertised by connector`)
+	require.Nil(t, issuer.lastInput, "the provider must not be mutated when the selected descriptor rejects the request")
+
+	resp, err := connector.IssueCredential(ctx, request(serviceAccountKey, "write"))
+	require.NoError(t, err)
+	require.Equal(t, serviceAccountKey, resp.GetSecret().GetId().GetResourceType())
 }
