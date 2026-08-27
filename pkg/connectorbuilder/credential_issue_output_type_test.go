@@ -3,6 +3,7 @@ package connectorbuilder
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,6 +124,15 @@ func TestValidateCredentialIssueCapabilityDetailsDedupesOnShapeAndOutputType(t *
 		err := validateCredentialIssueCapabilityDetails(apiKeyDetails(orgAPIKeyType, orgAPIKeyType))
 		require.ErrorContains(t, err, "duplicate credential issue option")
 		require.ErrorContains(t, err, orgAPIKeyType)
+	})
+
+	t.Run("an over-long output type is rejected at registration, not at issue time", func(t *testing.T) {
+		tooLong := strings.Repeat("a", maxCredentialIssueSecretResourceTypeIDBytes+1)
+		err := validateCredentialIssueCapabilityDetails(apiKeyDetails(tooLong))
+		require.ErrorContains(t, err, "must be at most 1024 bytes")
+
+		require.NoError(t, validateCredentialIssueCapabilityDetails(
+			apiKeyDetails(strings.Repeat("a", maxCredentialIssueSecretResourceTypeIDBytes))))
 	})
 
 	t.Run("preferred option matches a shape, not a single descriptor", func(t *testing.T) {

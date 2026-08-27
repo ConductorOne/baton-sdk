@@ -14,9 +14,9 @@ import (
 
 var credentialIssueRequestIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-// maxCredentialIssueSecretResourceTypeIDBytes bounds
-// CredentialIssueOptions.secret_resource_type_id here rather than in the proto:
-// the generated Validate() is never called on the issuance path.
+// maxCredentialIssueSecretResourceTypeIDBytes bounds secret_resource_type_id on
+// both the descriptor and the request here rather than in the proto: the
+// generated Validate() is never called on either path.
 const maxCredentialIssueSecretResourceTypeIDBytes = 1024
 
 // credentialIssueDescriptorKey identifies one advertised issuance option. A

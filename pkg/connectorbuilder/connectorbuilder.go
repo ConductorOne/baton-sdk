@@ -542,6 +542,10 @@ func validateCredentialIssueCapabilityDetails(issue *v2.CredentialDetailsCredent
 		if descriptor.GetSecretResourceTypeId() == "" {
 			return status.Error(codes.InvalidArgument, "credential issue secret resource type is not set")
 		}
+		if len(descriptor.GetSecretResourceTypeId()) > maxCredentialIssueSecretResourceTypeIDBytes {
+			return status.Errorf(codes.InvalidArgument, "credential issue secret resource type must be at most %d bytes",
+				maxCredentialIssueSecretResourceTypeIDBytes)
+		}
 		if err := validateCredentialIssueDescriptorShape(descriptor); err != nil {
 			return status.Errorf(codes.InvalidArgument, "invalid credential issue option %s: %v", descriptor.GetOption(), err)
 		}
