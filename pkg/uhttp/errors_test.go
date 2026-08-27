@@ -286,6 +286,28 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			wantCode: codes.Unknown,
 			wantMsg:  "oauth2 token request failed",
 		},
+		{
+			name: "oauth2 transient status keeps the error_description, not just the status",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode:        "invalid_request",
+				ErrorDescription: "rate limit exceeded, retry after 3600 seconds",
+				Response:         &http.Response{StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests"},
+			}),
+			wantCode: codes.Unavailable,
+			wantMsg:  "429 Too Many Requests: rate limit exceeded, retry after 3600 seconds",
+		},
+		{
+			// 501 is Unimplemented, not part of GrpcCodeFromHTTPStatus's
+			// Unavailable set, even though it's >= 500 — isTransientHTTPStatus
+			// must consult the mapping, not approximate it with a numeric range.
+			name: "oauth2 501 is not transient (Unimplemented, not Unavailable)",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "invalid_client",
+				Response:  &http.Response{StatusCode: http.StatusNotImplemented, Status: "501 Not Implemented"},
+			}),
+			wantCode: codes.Unauthenticated,
+			wantMsg:  "invalid_client",
+		},
 	}
 
 	for _, tt := range tests {

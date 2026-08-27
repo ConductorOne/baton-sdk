@@ -32,7 +32,7 @@ func wrapTransientNetworkError(err error) error {
 	var retrieveErr *oauth2.RetrieveError
 	if errors.As(err, &retrieveErr) {
 		if retrieveErr.Response != nil && isTransientHTTPStatus(retrieveErr.Response.StatusCode) {
-			return WrapErrors(GrpcCodeFromHTTPStatus(retrieveErr.Response.StatusCode), retrieveErr.Response.Status, err)
+			return WrapErrors(GrpcCodeFromHTTPStatus(retrieveErr.Response.StatusCode), transientOAuthTokenMessage(retrieveErr), err)
 		}
 		if code, ok := oauthTokenErrorCode(retrieveErr.ErrorCode); ok {
 			return WrapErrors(code, oauthTokenErrorMessage(retrieveErr), err)
@@ -112,11 +112,22 @@ func wrapTransientNetworkError(err error) error {
 	return err
 }
 
-// isTransientHTTPStatus mirrors the statuses GrpcCodeFromHTTPStatus maps to
-// codes.Unavailable, so a transient token-endpoint failure stays retryable
-// regardless of what error param the body also carries.
+// isTransientHTTPStatus reports whether GrpcCodeFromHTTPStatus maps
+// statusCode to codes.Unavailable, so a transient token-endpoint failure
+// stays retryable regardless of what error param the body also carries.
 func isTransientHTTPStatus(statusCode int) bool {
-	return statusCode == http.StatusTooManyRequests || statusCode >= 500
+	return GrpcCodeFromHTTPStatus(statusCode) == codes.Unavailable
+}
+
+// transientOAuthTokenMessage leads with the HTTP status, since that's what
+// drove the Unavailable classification, but keeps ErrorDescription when the
+// server sent one alongside it (e.g. a rate-limit message).
+func transientOAuthTokenMessage(retrieveErr *oauth2.RetrieveError) string {
+	msg := retrieveErr.Response.Status
+	if retrieveErr.ErrorDescription != "" {
+		msg = fmt.Sprintf("%s: %s", msg, retrieveErr.ErrorDescription)
+	}
+	return msg
 }
 
 // oauthTokenErrorCode maps an RFC 6749 §5.2 token-error "error" parameter to
