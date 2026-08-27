@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/retry"
 )
 
@@ -270,6 +271,14 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			wantMsg:  "some_vendor_specific_error",
 		},
 		{
+			name: "oauth2 retrieve error with no error param and no response still maps, not falls through",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "",
+			}),
+			wantCode: codes.Unknown,
+			wantMsg:  "oauth2 token request failed",
+		},
+		{
 			name: "oauth2 transient status wins over a recognized error param",
 			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
 				ErrorCode: "invalid_request",
@@ -277,14 +286,6 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			}),
 			wantCode: codes.Unavailable,
 			wantMsg:  "429 Too Many Requests",
-		},
-		{
-			name: "oauth2 retrieve error with no error param and no response still maps, not falls through",
-			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
-				ErrorCode: "",
-			}),
-			wantCode: codes.Unknown,
-			wantMsg:  "oauth2 token request failed",
 		},
 		{
 			name: "oauth2 transient status keeps the error_description, not just the status",
@@ -308,6 +309,19 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			wantCode: codes.Unauthenticated,
 			wantMsg:  "invalid_client",
 		},
+		{
+			// 408 maps to DeadlineExceeded, which retry.Retryer also treats
+			// as retryable — isTransientHTTPStatus must catch this too, not
+			// just Unavailable, or the same status flips outcome depending
+			// on whether an error param happens to be present.
+			name: "oauth2 408 (DeadlineExceeded) is also transient",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "invalid_request",
+				Response:  &http.Response{StatusCode: http.StatusRequestTimeout, Status: "408 Request Timeout"},
+			}),
+			wantCode: codes.DeadlineExceeded,
+			wantMsg:  "408 Request Timeout",
+		},
 	}
 
 	for _, tt := range tests {
@@ -320,6 +334,38 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			require.ErrorIs(t, got, tt.err)
 		})
 	}
+}
+
+func TestWrapTransientNetworkError_OAuthTransientAttachesRateLimitDetails(t *testing.T) {
+	header := http.Header{}
+	header.Set("Retry-After", "120")
+	got := wrapTransientNetworkError(wrapAsTokenRequestError(&oauth2.RetrieveError{
+		Response: &http.Response{StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests", Header: header},
+	}))
+
+	st, ok := status.FromError(got)
+	require.True(t, ok)
+	require.Equal(t, codes.Unavailable, st.Code())
+
+	var found *v2.RateLimitDescription
+	for _, detail := range st.Details() {
+		if rl, ok := detail.(*v2.RateLimitDescription); ok {
+			found = rl
+		}
+	}
+	require.NotNil(t, found, "expected a RateLimitDescription detail from the Retry-After header")
+}
+
+func TestWrapTransientNetworkError_OAuthNilResponseDoesNotPanicOnFormat(t *testing.T) {
+	got := wrapTransientNetworkError(wrapAsTokenRequestError(&oauth2.RetrieveError{}))
+
+	require.NotPanics(t, func() {
+		_ = got.Error()
+	})
+	st, ok := status.FromError(got)
+	require.True(t, ok)
+	require.Equal(t, codes.Unknown, st.Code())
+	require.Contains(t, st.Message(), "oauth2 token request failed")
 }
 
 // NXDOMAIN is the one classification here that is deliberately terminal: a

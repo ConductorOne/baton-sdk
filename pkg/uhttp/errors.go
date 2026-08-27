@@ -13,6 +13,8 @@ import (
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/conductorone/baton-sdk/pkg/ratelimit"
 )
 
 // wrapTransientNetworkError mirrors Baton HTTP retry classification for callers
@@ -28,11 +30,11 @@ func wrapTransientNetworkError(err error) error {
 	// servers report it on a 200 and 400 is the spec default for
 	// invalid_client/invalid_grant, both of which GrpcCodeFromHTTPStatus
 	// alone would misclassify. This branch is total once errors.As matches,
-	// so a RetrieveError never reaches the err.Error() calls below it.
+	// so a RetrieveError is never run through the network-error checks below.
 	var retrieveErr *oauth2.RetrieveError
 	if errors.As(err, &retrieveErr) {
 		if retrieveErr.Response != nil && isTransientHTTPStatus(retrieveErr.Response.StatusCode) {
-			return WrapErrors(GrpcCodeFromHTTPStatus(retrieveErr.Response.StatusCode), transientOAuthTokenMessage(retrieveErr), err)
+			return wrapTransientOAuthTokenError(retrieveErr, err)
 		}
 		if code, ok := oauthTokenErrorCode(retrieveErr.ErrorCode); ok {
 			return WrapErrors(code, oauthTokenErrorMessage(retrieveErr), err)
@@ -113,21 +115,34 @@ func wrapTransientNetworkError(err error) error {
 }
 
 // isTransientHTTPStatus reports whether GrpcCodeFromHTTPStatus maps
-// statusCode to codes.Unavailable, so a transient token-endpoint failure
+// statusCode to a code retry.Retryer.ShouldWaitAndRetry treats as retryable
+// (Unavailable or DeadlineExceeded), so a transient token-endpoint failure
 // stays retryable regardless of what error param the body also carries.
 func isTransientHTTPStatus(statusCode int) bool {
-	return GrpcCodeFromHTTPStatus(statusCode) == codes.Unavailable
+	switch GrpcCodeFromHTTPStatus(statusCode) {
+	case codes.Unavailable, codes.DeadlineExceeded:
+		return true
+	default:
+		return false
+	}
 }
 
-// transientOAuthTokenMessage leads with the HTTP status, since that's what
-// drove the Unavailable classification, but keeps ErrorDescription when the
-// server sent one alongside it (e.g. a rate-limit message).
-func transientOAuthTokenMessage(retrieveErr *oauth2.RetrieveError) string {
+// wrapTransientOAuthTokenError mirrors WrapErrorsWithRateLimitInfo's detail
+// attachment (retry.Retryer reads it for rate-limit-aware backoff), while
+// keeping ErrorDescription in the message the way oauthTokenErrorMessage
+// does elsewhere in this file.
+func wrapTransientOAuthTokenError(retrieveErr *oauth2.RetrieveError, err error) error {
 	msg := retrieveErr.Response.Status
 	if retrieveErr.ErrorDescription != "" {
 		msg = fmt.Sprintf("%s: %s", msg, retrieveErr.ErrorDescription)
 	}
-	return msg
+	st := status.New(GrpcCodeFromHTTPStatus(retrieveErr.Response.StatusCode), msg)
+	if description, rlErr := ratelimit.ExtractRateLimitData(retrieveErr.Response.StatusCode, &retrieveErr.Response.Header); rlErr == nil {
+		if withDetails, detailsErr := st.WithDetails(description); detailsErr == nil {
+			st = withDetails
+		}
+	}
+	return errors.Join(st.Err(), err)
 }
 
 // oauthTokenErrorCode maps an RFC 6749 §5.2 token-error "error" parameter to
