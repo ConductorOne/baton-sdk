@@ -33,13 +33,13 @@ import (
 
 var tracer = otel.Tracer("baton-sdk/pkg.synccompactor")
 
-// incrementalClassificationBudgetPercent caps the cheaper, speculative
+// defaultIncrementalClassificationBudgetPercent caps the cheaper, speculative
 // pre-write phase at one quarter of the remaining run duration. If it declines,
 // the more expensive full expansion retains most of the budget; if it succeeds,
 // the grant walk may still use the full run deadline. Mandatory detached
 // restore/finalization runs outside this cap on contexts bounded separately by
 // dotc1z.FinalizeTimeout().
-const incrementalClassificationBudgetPercent = 25
+const defaultIncrementalClassificationBudgetPercent = 25
 
 type CompactorType string
 
@@ -66,6 +66,10 @@ type Compactor struct {
 	// during expansion, not supplied by the caller.
 	incrementalExpansion bool
 	incrementalBaseGraph *expand.EntitlementGraph
+	// incrementalClassificationBudgetPercent optionally overrides the share of
+	// remaining run time available to speculative, pre-write classification.
+	// Zero selects defaultIncrementalClassificationBudgetPercent.
+	incrementalClassificationBudgetPercent int
 	// incrementalExpansionRan records whether the diff-aware path actually
 	// handled expansion (vs falling back to full). Read by tests to prove the
 	// fast path ran rather than silently falling back.
@@ -223,6 +227,16 @@ func WithIncrementalExpansion() Option {
 	}
 }
 
+// WithIncrementalClassificationBudgetPercent sets the percentage of remaining
+// run time available to speculative incremental classification. The committed
+// incremental walk still receives the full run deadline. Values must be in the
+// range 1-99 so a declined attempt always reserves time for full expansion.
+func WithIncrementalClassificationBudgetPercent(percent int) Option {
+	return func(c *Compactor) {
+		c.incrementalClassificationBudgetPercent = percent
+	}
+}
+
 // Deprecated: There is now only one compactor type, so this option is no longer needed.
 func WithCompactorType(compactorType CompactorType) Option {
 	return func(c *Compactor) {
@@ -279,6 +293,9 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 	}
 	for _, opt := range opts {
 		opt(c)
+	}
+	if percent := c.incrementalClassificationBudgetPercent; percent < 0 || percent >= 100 {
+		return nil, nil, fmt.Errorf("incremental classification budget percent must be between 1 and 99, got %d", percent)
 	}
 
 	c.tmpDir = tempdir.Resolve(c.tmpDir)
@@ -663,8 +680,8 @@ var errIncrementalDroppedEdgeDecline = fmt.Errorf("%w: dropped edge", expand.Err
 // finalization failed and the compaction must fail. Finalization always runs
 // on a detached context so a run-duration timeout can't abort it.
 // classificationCtx bounds every pre-write operation that can decline to full
-// expansion. Once classification succeeds, walkCtx carries the full run
-// deadline so the cap cannot turn a viable incremental walk into a fallback.
+// expansion. walkCtx carries the stable run context used both by the committed
+// walk and as the parent from which cleanup explicitly detaches.
 func (c *Compactor) expandGrantsIncremental(classificationCtx, walkCtx context.Context, newSyncId string) (bool, error) {
 	// Classification only reads the caller-held graph. Defer the whale-sized
 	// clone until every cheap decline check passes; chronically ineligible
@@ -705,7 +722,7 @@ func (c *Compactor) expandGrantsIncremental(classificationCtx, walkCtx context.C
 	missingSourceEntitlements := make(map[string]struct{})
 	for pe, err := range c.compactedC1z.Grants().PendingExpansion(classificationCtx) {
 		if err != nil {
-			if endErr := c.restoreEndedSync(classificationCtx); endErr != nil {
+			if endErr := c.restoreEndedSync(walkCtx); endErr != nil {
 				return false, endErr
 			}
 			return false, fmt.Errorf("incremental expansion: enumerate pending: %w", err)
@@ -732,7 +749,7 @@ func (c *Compactor) expandGrantsIncremental(classificationCtx, walkCtx context.C
 					continue
 				}
 				if getErr != nil {
-					if endErr := c.restoreEndedSync(classificationCtx); endErr != nil {
+					if endErr := c.restoreEndedSync(walkCtx); endErr != nil {
 						return false, endErr
 					}
 					return false, fmt.Errorf("incremental expansion: get source entitlement %s: %w", src, getErr)
@@ -743,14 +760,14 @@ func (c *Compactor) expandGrantsIncremental(classificationCtx, walkCtx context.C
 
 			sourceResourceID := sourceEntitlement.GetResource().GetId()
 			if sourceResourceID == nil {
-				if endErr := c.restoreEndedSync(classificationCtx); endErr != nil {
+				if endErr := c.restoreEndedSync(walkCtx); endErr != nil {
 					return false, endErr
 				}
 				return false, fmt.Errorf("incremental expansion: source entitlement resource id was nil")
 			}
 			if pe.PrincipalResourceTypeID != sourceResourceID.GetResourceType() ||
 				pe.PrincipalResourceID != sourceResourceID.GetResource() {
-				if endErr := c.restoreEndedSync(classificationCtx); endErr != nil {
+				if endErr := c.restoreEndedSync(walkCtx); endErr != nil {
 					return false, endErr
 				}
 				return false, fmt.Errorf("incremental expansion: source entitlement resource id did not match grant principal id")
@@ -802,7 +819,7 @@ func (c *Compactor) expandGrantsIncremental(classificationCtx, walkCtx context.C
 		case edgeSpecNarrowed:
 			// Revocation-shaped (shallow-ified / filter tightened): can't
 			// remove grants incrementally — decline via the named hook (#6).
-			if endErr := c.restoreEndedSync(classificationCtx); endErr != nil {
+			if endErr := c.restoreEndedSync(walkCtx); endErr != nil {
 				return false, endErr
 			}
 			return false, expand.ErrIncrementalRevocationDecline
@@ -821,7 +838,7 @@ func (c *Compactor) expandGrantsIncremental(classificationCtx, walkCtx context.C
 		if _, ok := currentBaseNodeEdges[[2]int{edge.SourceID, edge.DestinationID}]; ok {
 			continue
 		}
-		if endErr := c.restoreEndedSync(classificationCtx); endErr != nil {
+		if endErr := c.restoreEndedSync(walkCtx); endErr != nil {
 			return false, endErr
 		}
 		return false, errIncrementalDroppedEdgeDecline
@@ -831,7 +848,7 @@ func (c *Compactor) expandGrantsIncremental(classificationCtx, walkCtx context.C
 	// grants' entitlement ids), not supplied by the caller — trust the data.
 	changedEntitlementIDs, err := c.changedEntitlementIDs(classificationCtx)
 	if err != nil {
-		if endErr := c.restoreEndedSync(classificationCtx); endErr != nil {
+		if endErr := c.restoreEndedSync(walkCtx); endErr != nil {
 			return false, endErr
 		}
 		return false, err
@@ -841,24 +858,24 @@ func (c *Compactor) expandGrantsIncremental(classificationCtx, walkCtx context.C
 		// Nothing changed relative to the base — its grants were already merged in.
 		base, err = base.Clone()
 		if err != nil {
-			if endErr := c.restoreEndedSync(classificationCtx); endErr != nil {
+			if endErr := c.restoreEndedSync(walkCtx); endErr != nil {
 				return false, endErr
 			}
 			return false, fmt.Errorf("incremental expansion: clone base graph: %w", err)
 		}
 		verification, err := c.runIncrementalInvariants(walkCtx, newSyncId, syncType)
 		if err != nil {
-			if endErr := c.restoreEndedSync(classificationCtx); endErr != nil {
+			if endErr := c.restoreEndedSync(walkCtx); endErr != nil {
 				return false, endErr
 			}
 			return false, err
 		}
-		return c.finishIncrementalExpansion(classificationCtx, newSyncId, base, verification)
+		return c.finishIncrementalExpansion(walkCtx, newSyncId, base, verification)
 	}
 
 	base, err = base.Clone()
 	if err != nil {
-		if endErr := c.restoreEndedSync(classificationCtx); endErr != nil {
+		if endErr := c.restoreEndedSync(walkCtx); endErr != nil {
 			return false, endErr
 		}
 		return false, fmt.Errorf("incremental expansion: clone base graph: %w", err)
@@ -873,7 +890,7 @@ func (c *Compactor) expandGrantsIncremental(classificationCtx, walkCtx context.C
 		// Restore the ended state so the full path re-runs against a consistent
 		// store — for the cycle decline and any real error alike. Writes are
 		// idempotent by grant identity, so partial progress is safe to re-cover.
-		if endErr := c.restoreEndedSync(classificationCtx); endErr != nil {
+		if endErr := c.restoreEndedSync(walkCtx); endErr != nil {
 			return false, endErr
 		}
 		return false, err // sentinel or plain → caller falls back to full
@@ -887,12 +904,12 @@ func (c *Compactor) expandGrantsIncremental(classificationCtx, walkCtx context.C
 		zap.Int("grants_written", res.GrantsWritten))
 	verification, err := c.runIncrementalInvariants(walkCtx, newSyncId, syncType)
 	if err != nil {
-		if endErr := c.restoreEndedSync(classificationCtx); endErr != nil {
+		if endErr := c.restoreEndedSync(walkCtx); endErr != nil {
 			return false, endErr
 		}
 		return false, err
 	}
-	return c.finishIncrementalExpansion(classificationCtx, newSyncId, base, verification)
+	return c.finishIncrementalExpansion(walkCtx, newSyncId, base, verification)
 }
 
 type incrementalFaultStore struct {
@@ -1247,12 +1264,19 @@ func (c *Compactor) incrementalClassificationContext(ctx context.Context, compac
 	if remaining <= 0 {
 		return ctx, func() {}, false
 	}
-	classificationBudget := remaining * incrementalClassificationBudgetPercent / 100
+	classificationBudget := remaining * time.Duration(c.resolvedIncrementalClassificationBudgetPercent()) / 100
 	if classificationBudget <= 0 {
 		return ctx, func() {}, false
 	}
 	classificationCtx, cancel := context.WithTimeout(ctx, classificationBudget)
 	return classificationCtx, cancel, true
+}
+
+func (c *Compactor) resolvedIncrementalClassificationBudgetPercent() int {
+	if c.incrementalClassificationBudgetPercent > 0 {
+		return c.incrementalClassificationBudgetPercent
+	}
+	return defaultIncrementalClassificationBudgetPercent
 }
 
 func (c *Compactor) expandGrants(ctx, runCtx context.Context, newSyncId string, compactionStart time.Time) error {
@@ -1276,6 +1300,13 @@ func (c *Compactor) expandGrants(ctx, runCtx context.Context, newSyncId string, 
 			break
 		}
 		cancelIncrementalClassification = cancelClassification
+		classificationStart := time.Now()
+		classificationFields := func() []zap.Field {
+			return []zap.Field{
+				zap.Duration("incremental_classification_duration", time.Since(classificationStart)),
+				zap.Int("incremental_classification_budget_percent", c.resolvedIncrementalClassificationBudgetPercent()),
+			}
+		}
 		// Leak guard for every early return; the explicit cancel below releases
 		// the timer before full expansion starts.
 		defer cancelClassification()
@@ -1285,42 +1316,51 @@ func (c *Compactor) expandGrants(ctx, runCtx context.Context, newSyncId string, 
 		// budget before discovering that the base had no reusable graph.
 		baseGraph, loadErr := c.loadIncrementalBaseGraph(classificationCtx)
 		if loadErr != nil {
-			logIncrementalOutcome(ctx, "fell_back", "base_graph_error", zap.Error(loadErr))
+			fields := classificationFields()
+			fields = append(fields, zap.Error(loadErr))
+			if errors.Is(loadErr, context.DeadlineExceeded) {
+				logIncrementalOutcome(ctx, "fell_back", "classification_timeout", fields...)
+			} else {
+				logIncrementalOutcome(ctx, "fell_back", "base_graph_error", fields...)
+			}
 			break
 		}
 		if baseGraph == nil {
-			logIncrementalOutcome(ctx, "fell_back", "base_graph_missing_or_stale")
+			logIncrementalOutcome(ctx, "fell_back", "base_graph_missing_or_stale", classificationFields()...)
 			break
 		}
 		c.incrementalBaseGraph = baseGraph
 		done, err := c.expandGrantsIncremental(classificationCtx, runCtx, newSyncId)
+		fields := classificationFields()
 		switch {
 		case errors.Is(err, errIncrementalFatal):
 			// The store's finalization (or restore-to-ended) failed: it is in an
 			// unknown/torn-down state, so running full expansion against it is
 			// unsafe. Fail the compaction.
-			logIncrementalOutcome(ctx, "failed", "finalization_error", zap.Error(err))
+			logIncrementalOutcome(ctx, "failed", "finalization_error", append(fields, zap.Error(err))...)
 			return fmt.Errorf("incremental grant expansion: %w", err)
+		case errors.Is(err, context.DeadlineExceeded):
+			logIncrementalOutcome(ctx, "fell_back", "classification_timeout", append(fields, zap.Error(err))...)
 		case errors.Is(err, errIncrementalDroppedEdgeDecline):
-			logIncrementalOutcome(ctx, "declined", "dropped_edge")
+			logIncrementalOutcome(ctx, "declined", "dropped_edge", fields...)
 		case errors.Is(err, expand.ErrIncrementalRevocationDecline):
 			// Named revocation hook (#6): today declines to full; a future
 			// tombstone stage flips this one site to apply deletions.
-			logIncrementalOutcome(ctx, "declined", "revocation")
+			logIncrementalOutcome(ctx, "declined", "revocation", fields...)
 		case errors.Is(err, expand.ErrIncrementalDenseChangeDecline):
-			logIncrementalOutcome(ctx, "declined", "dense_change")
+			logIncrementalOutcome(ctx, "declined", "dense_change", fields...)
 		case errors.Is(err, expand.ErrIncrementalFallback):
 			// New edge closed a cycle: full expansion handles cycles correctly.
-			logIncrementalOutcome(ctx, "declined", "cycle")
+			logIncrementalOutcome(ctx, "declined", "cycle", fields...)
 		case err != nil:
 			// Pre-write or restored-state failure: the store is back in the
 			// ended state the full path expects, so falling back is safe.
-			logIncrementalOutcome(ctx, "fell_back", "incremental_error", zap.Error(err))
+			logIncrementalOutcome(ctx, "fell_back", "incremental_error", append(fields, zap.Error(err))...)
 		case done:
 			// Incremental path already ended + closed the store; caller clears
 			// c.compactedC1z after return, same as the full path.
 			c.incrementalExpansionRan = true
-			logIncrementalOutcome(ctx, "succeeded", "none")
+			logIncrementalOutcome(ctx, "succeeded", "none", fields...)
 			return nil
 		}
 	}
@@ -1433,27 +1473,25 @@ func (c *Compactor) loadIncrementalBaseGraph(ctx context.Context) (*expand.Entit
 	if err != nil {
 		return nil, fmt.Errorf("incremental expansion: open base graph store: %w", err)
 	}
-	closeCtx, cancelClose := context.WithTimeout(context.WithoutCancel(ctx), dotc1z.FinalizeTimeout())
-	defer cancelClose()
 	run, runErr := store.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
 	if runErr != nil {
-		_ = store.Close(closeCtx)
+		_ = closeIncrementalBaseStore(ctx, store)
 		return nil, fmt.Errorf("incremental expansion: load base verification: %w", runErr)
 	}
 	// Both engines return (nil, nil) when the artifact holds no finished sync
 	// (e.g. an interrupted collection): decline to full expansion, don't panic.
 	if run == nil {
-		_ = store.Close(closeCtx)
+		_ = closeIncrementalBaseStore(ctx, store)
 		return nil, fmt.Errorf("incremental expansion: base has no finished sync")
 	}
 	if run.ID != c.entries[0].SyncID ||
 		!run.IsVerified() ||
 		run.Generation != sync.IngestInvariantGeneration {
-		_ = store.Close(closeCtx)
+		_ = closeIncrementalBaseStore(ctx, store)
 		return nil, fmt.Errorf("incremental expansion: base grant generation is not verified")
 	}
 	graph, graphErr := sync.GraphFromStore(ctx, store, c.entries[0].SyncID)
-	closeErr := store.Close(closeCtx)
+	closeErr := closeIncrementalBaseStore(ctx, store)
 	if graphErr != nil {
 		return nil, fmt.Errorf("incremental expansion: load base graph: %w", graphErr)
 	}
@@ -1466,4 +1504,12 @@ func (c *Compactor) loadIncrementalBaseGraph(ctx context.Context) (*expand.Entit
 		}
 	}
 	return graph, nil
+}
+
+// closeIncrementalBaseStore starts the detached cleanup budget at close time,
+// after artifact reads have completed, so reading cannot consume that budget.
+func closeIncrementalBaseStore(ctx context.Context, store interface{ Close(context.Context) error }) error {
+	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dotc1z.FinalizeTimeout())
+	defer cancel()
+	return store.Close(closeCtx)
 }

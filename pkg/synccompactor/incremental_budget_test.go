@@ -29,8 +29,33 @@ func TestIncrementalClassificationContextReservesFallbackBudget(t *testing.T) {
 	deadline, ok := classificationCtx.Deadline()
 	require.True(t, ok)
 	got := time.Until(deadline)
-	want := total * incrementalClassificationBudgetPercent / 100
+	want := total * defaultIncrementalClassificationBudgetPercent / 100
 	require.InDelta(t, float64(want), float64(got), float64(250*time.Millisecond))
+}
+
+func TestIncrementalClassificationContextUsesConfiguredBudget(t *testing.T) {
+	ctx := t.Context()
+	const total = time.Hour
+	c := &Compactor{
+		runDuration:                            total,
+		incrementalClassificationBudgetPercent: 10,
+	}
+
+	classificationCtx, cancel, ok := c.incrementalClassificationContext(ctx, time.Now())
+	require.True(t, ok)
+	defer cancel()
+
+	deadline, ok := classificationCtx.Deadline()
+	require.True(t, ok)
+	require.InDelta(t, float64(6*time.Minute), float64(time.Until(deadline)), float64(250*time.Millisecond))
+}
+
+func TestIncrementalClassificationBudgetRejectsInvalidPercent(t *testing.T) {
+	for _, percent := range []int{-1, 100} {
+		_, _, err := NewCompactor(t.Context(), t.TempDir(), []*CompactableSync{{}, {}},
+			WithIncrementalClassificationBudgetPercent(percent))
+		require.ErrorContains(t, err, "incremental classification budget percent must be between 1 and 99")
+	}
 }
 
 func TestExpandGrantsSkipsIncrementalAttemptWhenRunDurationExhausted(t *testing.T) {
@@ -78,7 +103,10 @@ func TestIncrementalDeclineFallsBackWithRunDuration(t *testing.T) {
 }
 
 func TestIncrementalClassificationTimeoutFallsBackWithRunDuration(t *testing.T) {
-	ctx := t.Context()
+	var logs bytes.Buffer
+	core := zapcore.NewCore(zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()),
+		zapcore.AddSync(&logs), zap.InfoLevel)
+	ctx := ctxzap.ToContext(t.Context(), zap.New(core))
 	entries := buildIncrementalFixtures(t, ctx, t.TempDir())
 	c, cleanup, err := NewCompactor(ctx, t.TempDir(), entries,
 		WithTmpDir(t.TempDir()),
@@ -104,6 +132,31 @@ func TestIncrementalClassificationTimeoutFallsBackWithRunDuration(t *testing.T) 
 	require.False(t, c.incrementalExpansionRan, "expired classification must fall back to full expansion")
 	require.NotNil(t, artifactGraph(t, ctx, out.FilePath, out.SyncID),
 		"full expansion must finish after the classification deadline expires")
+	require.Contains(t, logs.String(), `"incremental_expansion_reason":"classification_timeout"`)
+	require.Contains(t, logs.String(), `"incremental_classification_duration":`)
+	require.Contains(t, logs.String(), `"incremental_classification_budget_percent":25`)
+}
+
+type recordingCloser struct {
+	remaining time.Duration
+}
+
+func (c *recordingCloser) Close(ctx context.Context) error {
+	deadline, ok := ctx.Deadline()
+	if ok {
+		c.remaining = time.Until(deadline)
+	}
+	return nil
+}
+
+func TestCloseIncrementalBaseStoreStartsFreshDetachedTimeout(t *testing.T) {
+	expired, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Hour))
+	defer cancel()
+	closer := &recordingCloser{}
+
+	require.NoError(t, closeIncrementalBaseStore(expired, closer))
+	require.Greater(t, closer.remaining, dotc1z.FinalizeTimeout()-time.Second,
+		"artifact reads and the expired parent must not consume the close budget")
 }
 
 func TestRestoreEndedSyncIgnoresExpiredAttemptContext(t *testing.T) {
