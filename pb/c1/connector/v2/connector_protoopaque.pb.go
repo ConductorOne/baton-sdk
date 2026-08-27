@@ -825,7 +825,15 @@ func (x *CredentialDetailsCredentialIssue) SetPreferredOption(v CapabilityDetail
 type CredentialDetailsCredentialIssue_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Options         []*CredentialIssueOptionDescriptor
+	// Advertised issuance options, unique on (option, secret_resource_type_id).
+	// Several descriptors may share an option when they mint different secret
+	// resource types -- an organization-wide API key and a per-identity API key,
+	// for example.
+	Options []*CredentialIssueOptionDescriptor
+	// The preferred credential shape. It does not name a single descriptor: when
+	// several descriptors share this shape, this field expresses no preference
+	// among them. Naming one would need a companion secret_resource_type_id
+	// field, which is deliberately not added until a caller consumes it.
 	PreferredOption CapabilityDetailCredentialOption
 }
 
@@ -1003,7 +1011,9 @@ type CredentialIssueOptionDescriptor_builder struct {
 	ResourceMode           CredentialResourceMode
 	// Resource type returned by IssueCredential. It must be registered with a
 	// ResourceDeleterV2 so every issued credential has a provider revoke path,
-	// including virtual credentials that cannot be listed later.
+	// including virtual credentials that cannot be listed later. Together with
+	// option it identifies this descriptor, so two credential kinds sharing one
+	// shape must return distinct resource types.
 	SecretResourceTypeId string
 }
 

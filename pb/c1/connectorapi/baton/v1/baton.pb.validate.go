@@ -5777,6 +5777,8 @@ func (m *Task_IssueCredentialTask) validate(all bool) error {
 		}
 	}
 
+	// no validation rules for SecretResourceTypeId
+
 	if len(errors) > 0 {
 		return Task_IssueCredentialTaskMultiError(errors)
 	}

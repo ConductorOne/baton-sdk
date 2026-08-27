@@ -760,9 +760,17 @@ func (b0 CredentialDetailsCredentialRotation_builder) Build() *CredentialDetails
 // Advertises which credential options CredentialManagerService.IssueCredential
 // supports for this identity type.
 type CredentialDetailsCredentialIssue struct {
-	state           protoimpl.MessageState             `protogen:"hybrid.v1"`
-	Options         []*CredentialIssueOptionDescriptor `protobuf:"bytes,1,rep,name=options,proto3" json:"options,omitempty"`
-	PreferredOption CapabilityDetailCredentialOption   `protobuf:"varint,2,opt,name=preferred_option,json=preferredOption,proto3,enum=c1.connector.v2.CapabilityDetailCredentialOption" json:"preferred_option,omitempty"`
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// Advertised issuance options, unique on (option, secret_resource_type_id).
+	// Several descriptors may share an option when they mint different secret
+	// resource types -- an organization-wide API key and a per-identity API key,
+	// for example.
+	Options []*CredentialIssueOptionDescriptor `protobuf:"bytes,1,rep,name=options,proto3" json:"options,omitempty"`
+	// The preferred credential shape. It does not name a single descriptor: when
+	// several descriptors share this shape, this field expresses no preference
+	// among them. Naming one would need a companion secret_resource_type_id
+	// field, which is deliberately not added until a caller consumes it.
+	PreferredOption CapabilityDetailCredentialOption `protobuf:"varint,2,opt,name=preferred_option,json=preferredOption,proto3,enum=c1.connector.v2.CapabilityDetailCredentialOption" json:"preferred_option,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -817,7 +825,15 @@ func (x *CredentialDetailsCredentialIssue) SetPreferredOption(v CapabilityDetail
 type CredentialDetailsCredentialIssue_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Options         []*CredentialIssueOptionDescriptor
+	// Advertised issuance options, unique on (option, secret_resource_type_id).
+	// Several descriptors may share an option when they mint different secret
+	// resource types -- an organization-wide API key and a per-identity API key,
+	// for example.
+	Options []*CredentialIssueOptionDescriptor
+	// The preferred credential shape. It does not name a single descriptor: when
+	// several descriptors share this shape, this field expresses no preference
+	// among them. Naming one would need a companion secret_resource_type_id
+	// field, which is deliberately not added until a caller consumes it.
 	PreferredOption CapabilityDetailCredentialOption
 }
 
@@ -842,7 +858,9 @@ type CredentialIssueOptionDescriptor struct {
 	ResourceMode           CredentialResourceMode           `protobuf:"varint,8,opt,name=resource_mode,json=resourceMode,proto3,enum=c1.connector.v2.CredentialResourceMode" json:"resource_mode,omitempty"`
 	// Resource type returned by IssueCredential. It must be registered with a
 	// ResourceDeleterV2 so every issued credential has a provider revoke path,
-	// including virtual credentials that cannot be listed later.
+	// including virtual credentials that cannot be listed later. Together with
+	// option it identifies this descriptor, so two credential kinds sharing one
+	// shape must return distinct resource types.
 	SecretResourceTypeId string `protobuf:"bytes,9,opt,name=secret_resource_type_id,json=secretResourceTypeId,proto3" json:"secret_resource_type_id,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
@@ -996,7 +1014,9 @@ type CredentialIssueOptionDescriptor_builder struct {
 	ResourceMode           CredentialResourceMode
 	// Resource type returned by IssueCredential. It must be registered with a
 	// ResourceDeleterV2 so every issued credential has a provider revoke path,
-	// including virtual credentials that cannot be listed later.
+	// including virtual credentials that cannot be listed later. Together with
+	// option it identifies this descriptor, so two credential kinds sharing one
+	// shape must return distinct resource types.
 	SecretResourceTypeId string
 }
 

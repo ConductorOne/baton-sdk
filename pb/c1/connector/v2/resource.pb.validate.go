@@ -2095,6 +2095,17 @@ func (m *IssueCredentialRequest) validate(all bool) error {
 		}
 	}
 
+	if len(m.GetSecretResourceTypeId()) > 1024 {
+		err := IssueCredentialRequestValidationError{
+			field:  "SecretResourceTypeId",
+			reason: "value length must be at most 1024 bytes",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
 	if len(errors) > 0 {
 		return IssueCredentialRequestMultiError(errors)
 	}
