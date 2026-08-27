@@ -174,6 +174,14 @@ message IssueCredentialRequest {
   // Optional absolute expiry requested by the caller. Absolute time avoids
   // extending a credential merely because an approved task waited in queue.
   google.protobuf.Timestamp expires_at = 5;
+  // Which of the connector's advertised issuance options to use, when several
+  // share credential_options' shape. It names the resource type the minted
+  // credential comes back AS, matching
+  // CredentialIssueOptionDescriptor.secret_resource_type_id.
+  //
+  // Empty selects the connector's single descriptor for that shape. A connector
+  // advertising two same-shape descriptors rejects an empty value as ambiguous.
+  string secret_resource_type_id = 6 [(validate.rules).string = {max_bytes: 1024}];
 }
 
 enum CredentialResourceMode {

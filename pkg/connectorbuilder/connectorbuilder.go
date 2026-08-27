@@ -530,7 +530,8 @@ func validateCredentialIssueCapabilityDetails(issue *v2.CredentialDetailsCredent
 	if issue == nil || issue.GetPreferredOption() == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
 		return status.Error(codes.InvalidArgument, "preferred credential issue option is not set")
 	}
-	seen := make(map[v2.CapabilityDetailCredentialOption]struct{}, len(issue.GetOptions()))
+	seen := make(map[credentialIssueDescriptorKey]struct{}, len(issue.GetOptions()))
+	seenOptions := make(map[v2.CapabilityDetailCredentialOption]struct{}, len(issue.GetOptions()))
 	for _, descriptor := range issue.GetOptions() {
 		if descriptor == nil || descriptor.GetOption() == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
 			return status.Error(codes.InvalidArgument, "credential issue option descriptor is invalid")
@@ -552,12 +553,18 @@ func validateCredentialIssueCapabilityDetails(issue *v2.CredentialDetailsCredent
 		if err := validateIssuanceExpiryCapability(descriptor.GetExpiry()); err != nil {
 			return status.Errorf(codes.InvalidArgument, "invalid credential issue expiry capability: %v", err)
 		}
-		if _, exists := seen[descriptor.GetOption()]; exists {
-			return status.Errorf(codes.InvalidArgument, "duplicate credential issue option %s", descriptor.GetOption())
+		key := credentialIssueDescriptorKey{
+			option:               descriptor.GetOption(),
+			secretResourceTypeID: descriptor.GetSecretResourceTypeId(),
 		}
-		seen[descriptor.GetOption()] = struct{}{}
+		if _, exists := seen[key]; exists {
+			return status.Errorf(codes.InvalidArgument, "duplicate credential issue option %s for secret resource type %q",
+				descriptor.GetOption(), descriptor.GetSecretResourceTypeId())
+		}
+		seen[key] = struct{}{}
+		seenOptions[descriptor.GetOption()] = struct{}{}
 	}
-	if _, ok := seen[issue.GetPreferredOption()]; !ok {
+	if _, ok := seenOptions[issue.GetPreferredOption()]; !ok {
 		return status.Error(codes.InvalidArgument, "preferred credential issue option is not part of the supported options")
 	}
 	return nil

@@ -69,6 +69,24 @@ func TestIssueCredentialTaskHandler(t *testing.T) {
 		require.Same(t, response, helpers.response)
 	})
 
+	t.Run("forwards the task's secret resource type to the connector", func(t *testing.T) {
+		client := &issueCredentialClient{response: v2.IssueCredentialResponse_builder{RequestId: "task-123"}.Build()}
+		helpers := &issueCredentialTestHelpers{client: client}
+		task := issueCredentialTask()
+		task.GetIssueCredential().SetSecretResourceTypeId("service-account-application-key")
+
+		require.NoError(t, newIssueCredentialTaskHandler(task, helpers).HandleTask(context.Background()))
+		require.Equal(t, "service-account-application-key", client.request.GetSecretResourceTypeId())
+	})
+
+	t.Run("a task with no secret resource type sends none", func(t *testing.T) {
+		client := &issueCredentialClient{response: v2.IssueCredentialResponse_builder{RequestId: "task-123"}.Build()}
+		helpers := &issueCredentialTestHelpers{client: client}
+
+		require.NoError(t, newIssueCredentialTaskHandler(issueCredentialTask(), helpers).HandleTask(context.Background()))
+		require.Empty(t, client.request.GetSecretResourceTypeId())
+	})
+
 	t.Run("rejects malformed task before connector call", func(t *testing.T) {
 		client := &issueCredentialClient{}
 		helpers := &issueCredentialTestHelpers{client: client}
