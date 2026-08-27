@@ -38,6 +38,11 @@ type sourceCacheStoreTestSeams struct {
 // implemented ONLY by the Pebble engine; the syncer type-asserts for it and
 // treats a store without it as "source cache unsupported" (no-op lookup,
 // no replay). It is deliberately NOT part of c1zstore.Store.
+//
+// Advanced: this interface exists for the SDK's replay orchestration, not
+// for direct use. The correctness obligations (preflight, scope poisoning,
+// compat validation) live in the callers; see pkg/sourcecache for the
+// connector-facing contract.
 type SourceCacheStore interface {
 	// LookupSourceCacheEntry returns this store's manifest entry for
 	// (kind, scopeKey). Backs the connector-facing lookup when this

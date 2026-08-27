@@ -1,6 +1,12 @@
 // Package sourcecache defines the connector-facing surface of source-cache
 // replay (see proto/c1/connector/v2/annotation_source_cache.proto).
 //
+// ADVANCED FUNCTIONALITY. Source-cache replay is an advanced, opt-in
+// capability with strict correctness obligations on the connector (scope
+// partitioning, validator lifetime — see the invariants below). Most
+// connectors should not use this package; adopt it only in coordination
+// with the SDK maintainers.
+//
 // NOT YET WIRED. This package describes the intended contract, and the
 // storage and eligibility machinery beneath it is in place, but the syncer
 // does not install a Lookup or consume these annotations yet: SyncOpAttrs
