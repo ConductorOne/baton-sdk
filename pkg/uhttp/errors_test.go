@@ -424,6 +424,14 @@ func TestWrapTransientNetworkError_OAuthTokenEndpointTransientIsRetried(t *testi
 	require.True(t, newRetryer().ShouldWaitAndRetry(t.Context(), rateLimited),
 		"a rate-limited token endpoint must still be retried")
 
+	timedOut := wrapTransientNetworkError(wrapAsTokenRequestError(&oauth2.RetrieveError{
+		ErrorCode: "invalid_request",
+		Response:  &http.Response{StatusCode: http.StatusRequestTimeout, Status: "408 Request Timeout"},
+	}))
+	require.Equal(t, codes.DeadlineExceeded, status.Code(timedOut))
+	require.True(t, newRetryer().ShouldWaitAndRetry(t.Context(), timedOut),
+		"a token endpoint timeout must still be retried")
+
 	rejected := wrapTransientNetworkError(wrapAsTokenRequestError(&oauth2.RetrieveError{
 		ErrorCode: "invalid_client",
 		Response:  &http.Response{StatusCode: http.StatusUnauthorized, Status: "401 Unauthorized"},
