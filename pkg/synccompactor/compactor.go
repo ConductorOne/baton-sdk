@@ -37,7 +37,8 @@ var tracer = otel.Tracer("baton-sdk/pkg.synccompactor")
 // pre-write phase at one quarter of the remaining run duration. If it declines,
 // the more expensive full expansion retains most of the budget; if it succeeds,
 // the grant walk may still use the full run deadline. Mandatory detached
-// restore/finalization may consume a small amount beyond this cap.
+// restore/finalization runs outside this cap on contexts bounded separately by
+// dotc1z.FinalizeTimeout().
 const incrementalClassificationBudgetPercent = 25
 
 type CompactorType string
@@ -72,6 +73,10 @@ type Compactor struct {
 	// incrementalTestHook is a package-private fault seam used by crash/retry
 	// tests. Production compactions leave it nil.
 	incrementalTestHook func(stage string) error
+	// incrementalClassificationTestContext lets tests expire classification
+	// after ResumeSync without expiring the full-run context used by fallback.
+	// Production compactions leave it nil.
+	incrementalClassificationTestContext func(context.Context) context.Context
 	// foldChangedEntitlementIDs: changed-entitlement set collected by the
 	// Pebble fold; nil when no fold ran (derive fallback).
 	foldChangedEntitlementIDs map[string]struct{}
@@ -685,6 +690,9 @@ func (c *Compactor) expandGrantsIncremental(classificationCtx, walkCtx context.C
 	// everything the merge wrote.
 	if _, err := c.compactedC1z.ResumeSync(classificationCtx, syncType, newSyncId); err != nil {
 		return false, fmt.Errorf("incremental expansion: resume sync: %w", err)
+	}
+	if c.incrementalClassificationTestContext != nil {
+		classificationCtx = c.incrementalClassificationTestContext(classificationCtx)
 	}
 
 	// Every rule grant currently in the compacted c1z (base + merged

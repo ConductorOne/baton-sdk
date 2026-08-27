@@ -77,6 +77,35 @@ func TestIncrementalDeclineFallsBackWithRunDuration(t *testing.T) {
 		"the fallback must finish and persist the fresh full-expansion graph")
 }
 
+func TestIncrementalClassificationTimeoutFallsBackWithRunDuration(t *testing.T) {
+	ctx := t.Context()
+	entries := buildIncrementalFixtures(t, ctx, t.TempDir())
+	c, cleanup, err := NewCompactor(ctx, t.TempDir(), entries,
+		WithTmpDir(t.TempDir()),
+		WithEngine(c1zstore.EnginePebble),
+		WithIncrementalExpansion(),
+		WithRunDuration(10*time.Second),
+	)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, cleanup()) }()
+
+	classificationExpired := false
+	c.incrementalClassificationTestContext = func(parent context.Context) context.Context {
+		classificationExpired = true
+		expired, cancel := context.WithDeadline(parent, time.Now().Add(-time.Second))
+		t.Cleanup(cancel)
+		return expired
+	}
+
+	out, err := c.Compact(ctx)
+	require.NoError(t, err)
+	require.True(t, classificationExpired, "test must expire classification after ResumeSync")
+	require.NotNil(t, out)
+	require.False(t, c.incrementalExpansionRan, "expired classification must fall back to full expansion")
+	require.NotNil(t, artifactGraph(t, ctx, out.FilePath, out.SyncID),
+		"full expansion must finish after the classification deadline expires")
+}
+
 func TestRestoreEndedSyncIgnoresExpiredAttemptContext(t *testing.T) {
 	ctx := t.Context()
 	store, err := dotc1z.NewStore(ctx, t.TempDir()+"/restore.c1z",
