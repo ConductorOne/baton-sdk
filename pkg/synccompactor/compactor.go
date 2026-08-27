@@ -1287,9 +1287,9 @@ func (c *Compactor) expandGrants(ctx context.Context, newSyncId string, compacti
 		case errors.Is(err, expand.ErrIncrementalDenseChangeDecline):
 			logIncrementalOutcome(ctx, "declined", "dense_change")
 		case errors.Is(err, expand.ErrIncrementalDanglingReferenceDecline):
-			// A dangling endpoint in the base can resolve later with no edge
-			// or grant change to seed on: defer the change set to full
-			// expansion rather than diverge from it.
+			// Overflow means the bounded id set no longer completely describes
+			// the endpoints skipped by the base expansion, so incremental cannot
+			// safely agree with full expansion.
 			logIncrementalOutcome(ctx, "declined", "dangling_overflow")
 		case errors.Is(err, expand.ErrIncrementalFallback):
 			// New edge closed a cycle: full expansion handles cycles correctly.

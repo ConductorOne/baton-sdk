@@ -206,6 +206,9 @@ func NewIncrementalExpander(store ExpanderStore, graph *EntitlementGraph) *Incre
 // graph while applying changes and may do so before returning an error; callers
 // that intend to retry must discard or restore the graph first.
 func (ie *IncrementalExpander) ExpandChanges(ctx context.Context, newEdges []NewEdge, changedEntitlementIDs []string) (*IncrementalResult, error) {
+	if ie.graph.DanglingOverflow {
+		return nil, ErrIncrementalDanglingReferenceDecline
+	}
 	resolvedDanglingIDs, err := ie.precheckDanglingEntitlements(ctx)
 	if err != nil {
 		return nil, err
