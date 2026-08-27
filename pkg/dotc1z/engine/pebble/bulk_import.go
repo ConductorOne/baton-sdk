@@ -44,9 +44,11 @@ var ErrBulkImportOutOfOrder = errors.New("bulk sync import: keys are not strictl
 // requires global uniqueness); hitting this means corrupt input.
 var errBulkImportDuplicateKey = errors.New("bulk sync import: duplicate key in spill merge")
 
-// bulkSpillKeyChunkBytes bounds the in-memory arena of one spill chunk.
-// Chunks are sorted and written as sorted runs in the background while
-// records keep streaming in, then k-way merged into SSTs at Finish.
+// bulkSpillKeyChunkBytes sizes the shared spill arena pool
+// (getSpillArena) and the deferred build's translate-batch arenas.
+// Production spill sorters all cut chunks at
+// deferredIndexSpillChunkBytes with explicit freelists; see that
+// constant for the sizing trade-off.
 const bulkSpillKeyChunkBytes = 8 << 20
 
 // bulkSpillBufferSize is the bufio size for spill-chunk IO.
@@ -178,25 +180,30 @@ type BulkSyncImport struct {
 	// precondition each one has to re-establish, and it holds when a single
 	// resource type is too large to sort in memory.
 	//
-	// Both carry full marshaled records, so both use the record-carrying
-	// chunk size (deferredIndexSpillChunkBytes), not the key-sized default:
-	// Finish's merge holds every chunk open behind a bulkSpillBufferSize
-	// reader, and key-sized chunks over whale record volumes mean thousands
-	// of open chunks and gigabytes of read buffers (grants.go records the
-	// synth-layer incident). These two are single sorters filled in
-	// sequential phases, so the larger arenas do not multiply; grant shards
-	// and the index sorters stay key-sized because shards × families arenas
-	// are alive there at once. Spill-sorting also stages these families
-	// transiently at ~2x (sorted runs plus the SST merged from them, and
-	// the runs' ranges overlap uniformly, so release-on-exhaustion frees
-	// little before the merge tail); the ordered writer resources used
-	// before staged ~1x but pushed sortedness onto every producer.
+	// Spill-sorting stages each family transiently at ~2x (sorted runs
+	// plus the SST merged from them; the runs' ranges overlap uniformly,
+	// so release-on-exhaustion frees little before the merge tail). The
+	// ordered writer resources used before staged ~1x but pushed
+	// sortedness onto every producer.
 	resources    *spillSorter
 	entitlements *spillSorter
 
 	// sortSem bounds concurrently running background chunk sorts
 	// across all sorters and shards.
 	sortSem chan struct{}
+
+	// Every sorter in the import — resources, entitlements, the parent
+	// index, and each shard's grant and index sorters — cuts chunks at
+	// deferredIndexSpillChunkBytes and recycles arenas through this
+	// import-wide freelist (see newSorter). Chunk size sets Finish's merge
+	// fan-in: every chunk stays open behind a bulkSpillBufferSize reader
+	// for the whole merge, so key-sized (8MiB) chunks over a whale's grant
+	// volume mean thousands of open files and gigabytes of read buffers
+	// (grants.go records the synth-layer incident). The large arenas do
+	// not multiply into RSS: a fresh arena's pages commit only as it
+	// fills, sorts in flight are capped by sortSem, and idle arenas are
+	// capped by the freelist.
+	arenaFree *spillArenaFreeList
 
 	// Parent-level sorter for the (single-threaded) resource index keys.
 	idxResourceByParent *spillSorter
@@ -263,16 +270,25 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 		entitlementsByRT:    map[string]int64{},
 		grantDupRowsByEntRT: map[string]int64{},
 	}
+	b.arenaFree = newSpillArenaFreeList(deferredIndexSpillChunkBytes, sorters+2)
 	sw, err := newBulkSSTWriter(e.fs(), dir, "resource-types")
 	if err != nil {
 		b.Abort()
 		return nil, err
 	}
 	b.resourceTypes = sw
-	b.resources = newSpillSorter(dir, "resources", b.sortSem, deferredIndexSpillChunkBytes)
-	b.entitlements = newSpillSorter(dir, "entitlements", b.sortSem, deferredIndexSpillChunkBytes)
-	b.idxResourceByParent = newSpillSorter(dir, fmt.Sprintf("index-%02x-p", idxResourceByParent), b.sortSem, bulkSpillKeyChunkBytes)
+	b.resources = b.newSorter("resources")
+	b.entitlements = b.newSorter("entitlements")
+	b.idxResourceByParent = b.newSorter(fmt.Sprintf("index-%02x-p", idxResourceByParent))
 	return b, nil
+}
+
+// newSorter creates a spill sorter wired to the import's shared sort
+// semaphore and arena freelist (see arenaFree for the sizing rationale).
+func (b *BulkSyncImport) newSorter(name string) *spillSorter {
+	s := newSpillSorter(b.dir, name, b.sortSem, deferredIndexSpillChunkBytes)
+	s.free = b.arenaFree
+	return s
 }
 
 // BulkGrantShard is one goroutine's private view of the grant import:
@@ -308,12 +324,12 @@ func (b *BulkSyncImport) NewGrantShard() (*BulkGrantShard, error) {
 	b.shardSeq++
 	s := &BulkGrantShard{
 		b:      b,
-		grants: newSpillSorter(b.dir, fmt.Sprintf("grants-s%03d", id), b.sortSem, bulkSpillKeyChunkBytes),
+		grants: b.newSorter(fmt.Sprintf("grants-s%03d", id)),
 		idx:    map[byte]*spillSorter{},
 		entRT:  map[string]int64{},
 	}
 	for _, idx := range grantIndexFamilies {
-		s.idx[idx] = newSpillSorter(b.dir, fmt.Sprintf("index-%02x-s%03d", idx, id), b.sortSem, bulkSpillKeyChunkBytes)
+		s.idx[idx] = b.newSorter(fmt.Sprintf("index-%02x-s%03d", idx, id))
 	}
 	b.shards = append(b.shards, s)
 	return s, nil

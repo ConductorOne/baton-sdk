@@ -30,11 +30,11 @@ func (e *Engine) migrateIDIndexFormatToStructuredV1(ctx context.Context) error {
 	defer e.removeStagingDir(dir)
 
 	sortSem := make(chan struct{}, 4)
-	// 128MiB chunks (deferredIndexSpillChunkBytes), not the bulk import's
-	// 8MiB: the merge holds a 1MiB read buffer per chunk, so chunk size
-	// bounds the fan-in. At 8MiB a 150M-grant file would merge ~4,000
-	// chunks (~4GB of buffers); at 128MiB it stays in the low hundreds.
-	// The arena freelist recycles the big chunks across all four sorters.
+	// 128MiB chunks (deferredIndexSpillChunkBytes): the merge holds a
+	// 1MiB read buffer per chunk, so chunk size bounds the fan-in. At
+	// 8MiB a 150M-grant file would merge ~4,000 chunks (~4GB of
+	// buffers); at 128MiB it stays in the low hundreds. The arena
+	// freelist recycles the big chunks across all four sorters.
 	arenaFree := newSpillArenaFreeList(deferredIndexSpillChunkBytes, 6)
 	grantPrimary := newSpillSorter(dir, "grant-primary", sortSem, deferredIndexSpillChunkBytes)
 	entitlementPrimary := newSpillSorter(dir, "entitlement-primary", sortSem, deferredIndexSpillChunkBytes)

@@ -18,17 +18,16 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
-// deferredIndexSpillChunkBytes is the spill-chunk arena size for
-// record-carrying and low-fanout sorters. The shared bulkSpillKeyChunkBytes
-// (8MiB) is sized for the bulk import's sharded grant and index sorters,
-// where shards × index-families sorters are alive at once and small arenas
-// bound aggregate memory (the import's single-instance resources and
-// entitlements sorters use this size instead). The deferred build is the
-// opposite shape — one producer, at most two sorter families, nothing else
-// running —
-// and with 8MiB chunks a whale (57M+ index keys ≈ 6.4GB) produced an 801-way
-// final merge: ~10 heap comparisons per entry plus 801 open chunk files with
-// 1MiB readers (~800MB of buffers). 128MiB chunks cut that to ~50 runs.
+// deferredIndexSpillChunkBytes is the spill-chunk arena size used by every
+// production spill sorter (the deferred build, the bulk import, the synth
+// layer, the digest build, the id-index migration). Chunk size sets the
+// final merge's fan-in — every chunk stays open behind a 1MiB reader for
+// the whole merge — and with 8MiB chunks a whale (57M+ index keys ≈ 6.4GB)
+// produced an 801-way final merge: ~10 heap comparisons per entry plus 801
+// open chunk files (~800MB of buffers). 128MiB chunks cut that to ~50 runs.
+// Large arenas stay affordable because each subsystem pairs them with a
+// bounded spillArenaFreeList and a sort semaphore, and a fresh arena's
+// pages commit only as it fills.
 //
 // Memory budget (revised for the second family): with the grant digest
 // index enabled the scan feeds TWO sorter families — by_principal

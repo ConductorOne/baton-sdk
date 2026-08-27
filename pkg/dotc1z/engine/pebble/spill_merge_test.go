@@ -18,9 +18,9 @@ import (
 )
 
 // The spill merges only interleave once a sorter has cut more than one
-// chunk, which needs bulkSpillKeyChunkBytes (8MiB) or
-// deferredIndexSpillChunkBytes (128MiB) of keys — far more than a test
-// wants to write. These tests therefore build the sorted runs directly
+// chunk, which needs deferredIndexSpillChunkBytes (128MiB) of keys — far
+// more than a test wants to write. These tests therefore build the sorted
+// runs directly
 // with writeSortedSpillChunk, which is what the sorter's background
 // goroutine calls, and hand them to the real merges.
 //
