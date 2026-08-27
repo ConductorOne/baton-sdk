@@ -98,14 +98,14 @@ demo-crash-check: crash-check ## Deprecated alias for crash-check.
 
 .PHONY: checkpoint-cut-check
 checkpoint-cut-check: ## Resume from every durable checkpoint cut.
-	BATON_CUT_SWEEP=full go test -v -count=1 -timeout=30m -run TestCheckpointCutEnumeration ./pkg/sync
+	BATON_TEST_EXTRA=1 BATON_CUT_SWEEP=full go test -v -count=1 -timeout=30m -run TestCheckpointCutEnumeration ./pkg/sync
 
 .PHONY: interrupt-check
 interrupt-check: checkpoint-cut-check crash-check ## Run in-process cut and real-process interruption checks.
 
 .PHONY: race-check
 race-check: ## Run the complete Go suite with the race detector.
-	go test -race -tags=baton_lambda_support -count=1 -timeout=45m ./...
+	BATON_TEST_EXTRA=1 go test -race -tags=baton_lambda_support -count=1 -timeout=45m ./...
 
 # Nightly race shards. A serial instrumented ./... sweep is hours of work, and
 # nearly all of it sits in a handful of packages, so the nightly workflow runs
@@ -167,13 +167,20 @@ race-shard-list: ## Print the packages in race shard SHARD.
 # An empty list cannot get past the capture — the list ends in grep, which exits
 # 1 when it matches nothing — so this reports it here rather than testing $$pkgs
 # afterwards, which would never run.
+#
+# The shards are the nightly instrumented sweep, so they run both opt-in tiers.
+# nightly.yaml invokes these directly rather than through test-nightly, so
+# without the tier variables here the guarded tests would skip in every shard
+# and the sweep would quietly cover less than the un-sharded race-check does.
+# Extra is implied by nightly: a tier that runs the randomized and full-corpus
+# cases has no reason to drop the deterministic long ones.
 .PHONY: race-check-shard
 race-check-shard: ## Race-check one nightly shard, for example SHARD=dotc1z.
 	@pkgs=$$($(MAKE) --no-print-directory race-shard-list SHARD=$(SHARD)) || { \
 		echo "race-check-shard: no packages for SHARD='$(SHARD)' (see above)" >&2; \
 		exit 1; \
 	}; \
-	set -x; go test -race -tags=$(RACE_TAGS) -count=1 -timeout=$(RACE_SHARD_TIMEOUT) $$pkgs
+	set -x; BATON_TEST_EXTRA=1 BATON_TEST_NIGHTLY=1 go test -race -tags=$(RACE_TAGS) -count=1 -timeout=$(RACE_SHARD_TIMEOUT) $$pkgs
 
 # Each shard's list is captured rather than piped straight into wc, for the same
 # reason as race-check-shard above: at the head of a pipe its exit status is
@@ -233,7 +240,7 @@ fuzz-smoke: ## Run each native Go fuzzer for FUZZ_TIME (default 30s).
 
 .PHONY: differential-check
 differential-check: ## Differential-fuzz SQLite and Pebble for DIFFERENTIAL_TIME.
-	BATON_EXPAND_FUZZ_DURATION=$(DIFFERENTIAL_TIME) go test -v -count=1 -timeout=30m -run '^TestFullPipelineDifferentialFuzz$$' ./pkg/sync/expand
+	BATON_TEST_EXTRA=1 BATON_EXPAND_FUZZ_DURATION=$(DIFFERENTIAL_TIME) go test -v -count=1 -timeout=30m -run '^TestFullPipelineDifferentialFuzz$$' ./pkg/sync/expand
 
 .PHONY: bench-smoke
 bench-smoke: ## Run the bounded checkpoint cost benchmarks once.
@@ -255,7 +262,7 @@ bench: ## Run curated checkpoint and medium full-sync benchmarks.
 
 .PHONY: scheduler-soak
 scheduler-soak: ## Run randomized scheduler cases under race detection.
-	BATON_SOAK_ITERATIONS=$(SOAK_ITERATIONS) go test -race -v -count=1 -timeout=30m -run TestSchedulerSoakRandomizedFanoutWithFailures ./pkg/sync
+	BATON_TEST_NIGHTLY=1 BATON_SOAK_ITERATIONS=$(SOAK_ITERATIONS) go test -race -v -count=1 -timeout=30m -run TestSchedulerSoakRandomizedFanoutWithFailures ./pkg/sync
 
 .PHONY: errorfs-soak
 errorfs-soak: ## Sweep whole-sync Pebble crash points using errorfs.
@@ -268,17 +275,19 @@ chaos-check: ## Run bounded representative chaos checks under race detection.
 
 .PHONY: chaos-full-check
 chaos-full-check: ## Run every deterministic chaos corpus under race detection.
-	go test -race -count=1 -timeout=30m -run '^TestChaosConnector' ./pkg/sync
+	BATON_TEST_NIGHTLY=1 go test -race -count=1 -timeout=30m -run '^TestChaosConnector' ./pkg/sync
 
 .PHONY: chaos-soak
 chaos-soak: ## Run extended seeded chaos connector fanout schedules.
 	BATON_CHAOS_ITERATIONS=$(CHAOS_ITERATIONS) go test -race -v -count=1 -timeout=30m -run TestChaosConnectorSeededFanoutWithRetries ./pkg/sync
 
-# race-check already includes chaos-full-check's complete deterministic corpus.
+# Full deterministic chaos corpora are reserved for test-nightly.
 .PHONY: test-extra
+test-extra: export BATON_TEST_EXTRA=1
 test-extra: race-check compat-check interrupt-check fuzz-smoke differential-check bench-smoke ## Run bounded confidence checks omitted from CI.
 
 .PHONY: test-nightly
+test-nightly: export BATON_TEST_NIGHTLY=1
 test-nightly: ## Run extended confidence, fuzz, scheduler, and errorfs checks.
 	$(MAKE) test-extra FUZZ_TIME=$(NIGHTLY_FUZZ_TIME) DIFFERENTIAL_TIME=$(NIGHTLY_DIFFERENTIAL_TIME)
 	$(MAKE) scheduler-soak

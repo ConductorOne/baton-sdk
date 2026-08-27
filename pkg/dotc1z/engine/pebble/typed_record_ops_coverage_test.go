@@ -71,6 +71,8 @@ func TestPutSynthesizedGrantRecordsObligations(t *testing.T) {
 	require.True(t, e.db.DeferredIdxPending(), "synthesized puts must arm the deferred rebuild marker")
 	require.Equal(t, 0, countKeys(t, e, encodeGrantByNeedsExpansionPrefix()),
 		"synthesized grants are never expandable")
+	require.Zero(t, countKeys(t, e, GrantBySourceScopeLowerBound()),
+		"expander-derived grants must never acquire connector source ownership")
 
 	require.NoError(t, a.EndSync(ctx))
 	for _, p := range []string{"alice", "bob"} {
@@ -112,6 +114,8 @@ func TestPutSynthesizedGrantContributionsBatchObligations(t *testing.T) {
 	// batch body are both exercised.
 	require.NoError(t, e.PutSynthesizedGrantContributions(ctx, records))
 	require.True(t, e.db.DeferredIdxPending(), "contributions must arm the deferred rebuild marker")
+	require.Zero(t, countKeys(t, e, GrantBySourceScopeLowerBound()),
+		"synthetic contributions must remain outside source-cache scopes")
 
 	require.NoError(t, a.EndSync(ctx))
 	n := 0
@@ -135,6 +139,7 @@ func TestUnsafePutUniqueGrantRecordsObligations(t *testing.T) {
 
 	expandable := testGrantRecord("ent-A", "alice")
 	expandable.SetNeedsExpansion(true)
+	expandable.SetSourceScopeKey("scope-a")
 	plain := testGrantRecord("ent-B", "bob")
 	require.NoError(t, e.UnsafePutUniqueGrantRecords(ctx, expandable, plain))
 
@@ -143,6 +148,9 @@ func TestUnsafePutUniqueGrantRecordsObligations(t *testing.T) {
 		"inline regime must index exactly the expandable row")
 	require.Equal(t, 2, countKeys(t, e, GrantByPrincipalLowerBound()),
 		"inline regime must write by_principal for every row")
+	require.Equal(t, 1, countKeys(t, e, GrantBySourceScopeLowerBound()),
+		"trusted typed import must preserve and index the one explicitly scoped row")
+	require.NoError(t, auditSourceScopeBiconditional(e))
 
 	// Digest-present refusal: on a fresh sync digest state is provably
 	// absent (StartNewSync excised it), so a present flag means the

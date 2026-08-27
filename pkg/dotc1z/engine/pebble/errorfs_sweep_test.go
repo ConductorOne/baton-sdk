@@ -76,9 +76,11 @@ import (
 	"github.com/cockroachdb/pebble/v2/vfs/errorfs"
 	"github.com/stretchr/testify/require"
 
+	"github.com/conductorone/baton-sdk/internal/testtier"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 )
 
 // skipOnWindowsMemFS skips MemFS-backed tests on Windows: the engine
@@ -244,7 +246,8 @@ func (w sweepWorkload) write(ctx context.Context, a *Adapter) error {
 			Id: v2.ResourceId_builder{ResourceType: "user", Resource: p}.Build(),
 		}.Build())
 	}
-	if err := a.PutResources(ctx, resources...); err != nil {
+	scopedCtx := sourcecache.WithScope(ctx, "errorfs-sweep")
+	if err := a.PutResources(scopedCtx, resources...); err != nil {
 		return err
 	}
 	ents := make([]*v2.Entitlement, 0, w.perPrinc+1)
@@ -262,7 +265,7 @@ func (w sweepWorkload) write(ctx context.Context, a *Adapter) error {
 			Id: v2.ResourceId_builder{ResourceType: "app", Resource: "github"}.Build(),
 		}.Build(),
 	}.Build())
-	if err := a.PutEntitlements(ctx, ents...); err != nil {
+	if err := a.PutEntitlements(scopedCtx, ents...); err != nil {
 		return err
 	}
 	// Two pages of grants, like a paginated connector.
@@ -273,11 +276,20 @@ func (w sweepWorkload) write(ctx context.Context, a *Adapter) error {
 		}
 	}
 	half := len(gs) / 2
-	if err := a.PutGrants(ctx, gs[:half]...); err != nil {
+	if err := a.PutGrants(scopedCtx, gs[:half]...); err != nil {
 		return err
 	}
-	if err := a.PutGrants(ctx, gs[half:]...); err != nil {
+	if err := a.PutGrants(scopedCtx, gs[half:]...); err != nil {
 		return err
+	}
+	for _, kind := range []sourcecache.RowKind{
+		sourcecache.RowKindResources,
+		sourcecache.RowKindEntitlements,
+		sourcecache.RowKindGrants,
+	} {
+		if err := a.PutSourceCacheEntry(ctx, string(kind), "errorfs-sweep", "validator"); err != nil {
+			return err
+		}
 	}
 	// One expanded-grant page: takes the deferred-index write path
 	// (StoreExpandedGrants), arming the EndSync by_principal rebuild —
@@ -373,6 +385,25 @@ func (w sweepWorkload) verifyComplete(ctx context.Context, t *testing.T, e *Engi
 		}), "%s: IterateGrantsByPrincipal(%s)", label, p)
 		require.ElementsMatchf(t, wantEnts, gotEnts, "%s: by_principal entitlement set for %s", label, p)
 	}
+
+	for _, kind := range []sourcecache.RowKind{
+		sourcecache.RowKindResources,
+		sourcecache.RowKindEntitlements,
+		sourcecache.RowKindGrants,
+	} {
+		entry, err := e.GetSourceCacheEntry(ctx, string(kind), "errorfs-sweep")
+		require.NoErrorf(t, err, "%s: source-cache manifest %s", label, kind)
+		require.Equalf(t, "validator", entry.GetCacheValidator(), "%s: source-cache validator %s", label, kind)
+	}
+	require.Equalf(t, 1+len(w.principals), countKeyRangeTest(t, e,
+		encodeResourceBySourceScopePrefix("errorfs-sweep"), upperBoundOf(encodeResourceBySourceScopePrefix("errorfs-sweep"))),
+		"%s: resource source-scope index", label)
+	require.Equalf(t, w.perPrinc+1, countKeyRangeTest(t, e,
+		encodeEntitlementBySourceScopePrefix("errorfs-sweep"), upperBoundOf(encodeEntitlementBySourceScopePrefix("errorfs-sweep"))),
+		"%s: entitlement source-scope index", label)
+	require.Equalf(t, len(w.principals)*w.perPrinc, countKeyRangeTest(t, e,
+		encodeGrantBySourceScopePrefix("errorfs-sweep"), upperBoundOf(encodeGrantBySourceScopePrefix("errorfs-sweep"))),
+		"%s: grant source-scope index", label)
 
 	w.verifyDigests(ctx, t, e, requireDigests, label)
 	w.verifyStatsSidecar(ctx, t, e, syncID, requireStats, label)
@@ -663,6 +694,7 @@ func buildSweepBaseline(ctx context.Context, t *testing.T, w sweepWorkload, cach
 // completes without injecting anything — proof the whole window was
 // covered.
 func TestErrorFSEndSyncWindowSweep(t *testing.T) {
+	testtier.RequireExtra(t)
 	skipOnWindowsMemFS(t)
 	ctx := context.Background()
 	w := defaultSweepWorkload()

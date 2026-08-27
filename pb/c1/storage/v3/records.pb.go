@@ -2465,7 +2465,18 @@ type SourceCacheEntryRecord struct {
 	// invalidated entry as a miss (the scope re-fetches cold and converges
 	// with a cold sync); the entry itself is kept so the scope's surviving
 	// stamped rows do not read as an I6 orphan (lost manifest write).
-	Invalidated   bool `protobuf:"varint,5,opt,name=invalidated,proto3" json:"invalidated,omitempty"`
+	Invalidated bool `protobuf:"varint,5,opt,name=invalidated,proto3" json:"invalidated,omitempty"`
+	// Number of primary rows stamped with this scope at seal time,
+	// recomputed by EndSync from the primary keyspace (never maintained
+	// incrementally). Replay preflight requires the scope's index
+	// cardinality to equal this count before mutating the destination;
+	// a replay-eligible entry WITHOUT a count is a hard preflight error
+	// (seal-invariant violation — CO-004 shipped with the manifest format,
+	// so no counting-free artifact population exists). Presence is
+	// explicit so zero remains distinguishable from absent: zero means a
+	// proven empty scope. Cleared when a completed sync is rebound for
+	// mutation and recomputed when it reseals.
+	RowCount      *uint64 `protobuf:"varint,6,opt,name=row_count,json=rowCount,proto3,oneof" json:"row_count,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2530,6 +2541,13 @@ func (x *SourceCacheEntryRecord) GetInvalidated() bool {
 	return false
 }
 
+func (x *SourceCacheEntryRecord) GetRowCount() uint64 {
+	if x != nil && x.RowCount != nil {
+		return *x.RowCount
+	}
+	return 0
+}
+
 func (x *SourceCacheEntryRecord) SetRowKind(v string) {
 	x.RowKind = v
 }
@@ -2550,6 +2568,10 @@ func (x *SourceCacheEntryRecord) SetInvalidated(v bool) {
 	x.Invalidated = v
 }
 
+func (x *SourceCacheEntryRecord) SetRowCount(v uint64) {
+	x.RowCount = &v
+}
+
 func (x *SourceCacheEntryRecord) HasDiscoveredAt() bool {
 	if x == nil {
 		return false
@@ -2557,8 +2579,19 @@ func (x *SourceCacheEntryRecord) HasDiscoveredAt() bool {
 	return x.DiscoveredAt != nil
 }
 
+func (x *SourceCacheEntryRecord) HasRowCount() bool {
+	if x == nil {
+		return false
+	}
+	return x.RowCount != nil
+}
+
 func (x *SourceCacheEntryRecord) ClearDiscoveredAt() {
 	x.DiscoveredAt = nil
+}
+
+func (x *SourceCacheEntryRecord) ClearRowCount() {
+	x.RowCount = nil
 }
 
 type SourceCacheEntryRecord_builder struct {
@@ -2581,6 +2614,17 @@ type SourceCacheEntryRecord_builder struct {
 	// with a cold sync); the entry itself is kept so the scope's surviving
 	// stamped rows do not read as an I6 orphan (lost manifest write).
 	Invalidated bool
+	// Number of primary rows stamped with this scope at seal time,
+	// recomputed by EndSync from the primary keyspace (never maintained
+	// incrementally). Replay preflight requires the scope's index
+	// cardinality to equal this count before mutating the destination;
+	// a replay-eligible entry WITHOUT a count is a hard preflight error
+	// (seal-invariant violation — CO-004 shipped with the manifest format,
+	// so no counting-free artifact population exists). Presence is
+	// explicit so zero remains distinguishable from absent: zero means a
+	// proven empty scope. Cleared when a completed sync is rebound for
+	// mutation and recomputed when it reseals.
+	RowCount *uint64
 }
 
 func (b0 SourceCacheEntryRecord_builder) Build() *SourceCacheEntryRecord {
@@ -2592,6 +2636,7 @@ func (b0 SourceCacheEntryRecord_builder) Build() *SourceCacheEntryRecord {
 	x.CacheValidator = b.CacheValidator
 	x.DiscoveredAt = b.DiscoveredAt
 	x.Invalidated = b.Invalidated
+	x.RowCount = b.RowCount
 	return m0
 }
 
@@ -2910,14 +2955,17 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12\x10\n" +
 	"\x03key\x18\x02 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x03 \x01(\fR\x05value:\x1c\x82\xf9+\x18\n" +
-	"\bsessions\x12\async_id\x12\x03key\"\x8d\x02\n" +
+	"\bsessions\x12\async_id\x12\x03key\"\xbd\x02\n" +
 	"\x16SourceCacheEntryRecord\x12\x19\n" +
 	"\brow_kind\x18\x01 \x01(\tR\arowKind\x12\x1b\n" +
 	"\tscope_key\x18\x02 \x01(\tR\bscopeKey\x12'\n" +
 	"\x0fcache_validator\x18\x03 \x01(\tR\x0ecacheValidator\x12?\n" +
 	"\rdiscovered_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\fdiscoveredAt\x12 \n" +
-	"\vinvalidated\x18\x05 \x01(\bR\vinvalidated:/\x82\xf9++\n" +
-	"\x14source_cache_entries\x12\brow_kind\x12\tscope_key\"\xcc\x02\n" +
+	"\vinvalidated\x18\x05 \x01(\bR\vinvalidated\x12 \n" +
+	"\trow_count\x18\x06 \x01(\x04H\x00R\browCount\x88\x01\x01:/\x82\xf9++\n" +
+	"\x14source_cache_entries\x12\brow_kind\x12\tscope_keyB\f\n" +
+	"\n" +
+	"_row_count\"\xcc\x02\n" +
 	"\x17SourceCacheCompatRecord\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12<\n" +
 	"\x1aconnector_cache_generation\x18\x02 \x01(\tR\x18connectorCacheGeneration\x12@\n" +
@@ -3016,6 +3064,7 @@ func file_c1_storage_v3_records_proto_init() {
 	}
 	file_c1_storage_v3_options_proto_init()
 	file_c1_storage_v3_refs_proto_init()
+	file_c1_storage_v3_records_proto_msgTypes[13].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

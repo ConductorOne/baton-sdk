@@ -23,6 +23,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 )
 
 // This file is the Engine's connectorstore face: the sync lifecycle
@@ -334,6 +335,14 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 			return fmt.Errorf("EndSync: repair grant digests: %w", err)
 		}
 	}
+	// Seal the source-cache manifest's per-scope row counts BEFORE the
+	// ended_at stamp (CO-004): the counts must be provably present in any
+	// artifact that carries the finished verdict, because replay preflight
+	// hard-fails on a manifest entry without one. A crash in between
+	// leaves the sync unfinished and the resumed EndSync recounts.
+	if err := e.sealSourceCacheRowCounts(ctx); err != nil {
+		return fmt.Errorf("EndSync: seal source cache row counts: %w", err)
+	}
 	// Preserve all provenance fields while adding the lifecycle stamp.
 	updated := proto.Clone(existing).(*v3.SyncRunRecord)
 	updated.SetEndedAt(timestamppb.Now())
@@ -406,10 +415,21 @@ func (e *Engine) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 		return ErrNoCurrentSync
 	}
 	records := translateGrants(syncID, grants)
+	stampSourceScope(ctx, records, func(r *v3.GrantRecord, scope string) { r.SetSourceScopeKey(scope) })
 	if err := e.PutGrantRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutGrants: %w", err)
 	}
 	return nil
+}
+
+func stampSourceScope[T any](ctx context.Context, records []T, set func(T, string)) {
+	scope := sourcecache.ScopeFromContext(ctx)
+	if scope == "" {
+		return
+	}
+	for _, record := range records {
+		set(record, scope)
+	}
 }
 
 // UnsafePutUniqueGrants writes grants on the trusted-import path: records
@@ -569,6 +589,7 @@ func (e *Engine) PutResources(ctx context.Context, resources ...*v2.Resource) er
 		}
 		records = append(records, rec)
 	}
+	stampSourceScope(ctx, records, func(r *v3.ResourceRecord, scope string) { r.SetSourceScopeKey(scope) })
 	if err := e.PutResourceRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutResources: %w", err)
 	}
@@ -596,6 +617,7 @@ func (e *Engine) PutEntitlements(ctx context.Context, entitlements ...*v2.Entitl
 		}
 		records = append(records, rec)
 	}
+	stampSourceScope(ctx, records, func(r *v3.EntitlementRecord, scope string) { r.SetSourceScopeKey(scope) })
 	if err := e.PutEntitlementRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutEntitlements: %w", err)
 	}

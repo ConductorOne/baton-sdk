@@ -223,6 +223,8 @@ type pebbleStore struct {
 	closeMu sync.Mutex
 	closed  bool
 	dirty   bool
+
+	sourceCacheTest sourceCacheStoreTestSeams
 }
 
 // Compile-time guard: a Pebble store satisfies the full C1ZStore
@@ -731,6 +733,9 @@ func (g pebbleStoreGrants) ListWithAnnotations(ctx context.Context) iter.Seq2[c1
 }
 
 func (s *pebbleStore) Close(ctx context.Context) (retErr error) {
+	if s.sourceCacheTest.beforeCloseLock != nil {
+		s.sourceCacheTest.beforeCloseLock()
+	}
 	s.closeMu.Lock()
 	defer s.closeMu.Unlock()
 	if s.closed {

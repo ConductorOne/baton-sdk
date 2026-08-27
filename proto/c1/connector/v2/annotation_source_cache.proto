@@ -20,6 +20,30 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 // Graph-style delta queries. The SDK never computes provider scopes; it
 // only keys storage by the connector-supplied scope_key.
 //
+// PARTITION INVARIANT: scopes must partition rows — within one sync, each
+// row identity belongs to exactly one scope. The stored stamp is
+// single-valued and last-write-wins, so if two scopes emit the same row,
+// the later write silently removes it from the earlier scope's replay set.
+// The SDK detects every such loss (regardless of emission order or
+// interleaving) and durably POISONS the losing scope: a poisoned scope is
+// a lookup miss on the next sync and is refused as a replay source, so it
+// re-fetches cold — correctness is preserved, caching value is lost. The
+// same applies when a row a scope emitted is later deleted or overwritten
+// by anything acting outside that scope (SDK maintenance passes included).
+// Scopes that overlap persistently will be poisoned every sync and gain
+// nothing from this feature; fix the partitioning instead. Poison events
+// are logged with scope, kind, and cause.
+//
+// KNOWN LIMITATION — external-principal matching: grants carrying
+// ExternalResourceMatch* annotations (placeholder grants resolved against
+// an external directory c1z) are today deleted and re-issued by the
+// reconciliation pass every sync. Scopes emitting such grants are
+// therefore poisoned every sync and never replay. This is safe but means
+// source-cache scoping currently buys nothing for those grant listings;
+// directory syncs themselves, direct-ID grant references, and resource/
+// entitlement scopes are unaffected. A planned reconciliation rework
+// (non-destructive, expansion-style derived state) lifts this.
+//
 // The cache_validator is an opaque validator persisted per scope: a literal HTTP ETag
 // for conditional requests, a delta/skip token for delta queries. The SDK
 // hands it back via the source-cache lookup on the next sync and never

@@ -16,6 +16,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
@@ -304,10 +305,10 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 	return c, cleanup, nil
 }
 
-func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
+func (c *Compactor) Compact(ctx context.Context) (_ *CompactableSync, retErr error) {
 	ctx, span := tracer.Start(ctx, "Compactor.Compact")
 	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
+	defer func() { uotel.EndSpanWithError(span, retErr) }()
 	if len(c.entries) < 2 {
 		return nil, nil
 	}
@@ -411,9 +412,9 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		if c.compactedC1z == nil {
 			return
 		}
-		err := c.compactedC1z.Close(ctx)
-		if err != nil {
-			l.Error("compactor: error closing compacted c1z", zap.Error(err), zap.String("compacted_c1z_file", destFilePath))
+		if closeErr := c.compactedC1z.Close(ctx); closeErr != nil {
+			l.Error("compactor: error closing compacted c1z", zap.Error(closeErr), zap.String("compacted_c1z_file", destFilePath))
+			retErr = joinCompactorCloseError(retErr, closeErr, destFilePath)
 		}
 	}()
 	var newSyncId string
@@ -533,6 +534,13 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		finalPath = abs
 	}
 	return &CompactableSync{FilePath: finalPath, SyncID: newSyncId}, nil
+}
+
+func joinCompactorCloseError(retErr, closeErr error, artifactPath string) error {
+	if closeErr == nil {
+		return retErr
+	}
+	return errors.Join(retErr, fmt.Errorf("close compacted c1z %s: %w", artifactPath, closeErr))
 }
 
 func cpFile(ctx context.Context, sourcePath string, destPath string) error {
@@ -1347,6 +1355,21 @@ func (c *Compactor) expandGrants(ctx context.Context, newSyncId string, compacti
 	if err := syncer.Sync(ctx); err != nil {
 		l.Error("error syncing with grant expansion", zap.Error(err))
 		return err
+	}
+	if c.resolvedEngine() == c1zstore.EnginePebble && c.pebbleMode != PebbleCompactorModeFold {
+		eng, ok := enginepkg.AsEngine(c.compactedC1z)
+		if !ok {
+			err := errors.New("invalidate expanded compaction source-cache state: compacted store is not a pebble engine")
+			return errors.Join(err, syncer.Close(ctx))
+		}
+		if err := eng.InvalidateSourceCacheReplayState(ctx, true); err != nil {
+			err = fmt.Errorf("invalidate expanded compaction source-cache state: %w", err)
+			return errors.Join(err, syncer.Close(ctx))
+		}
+		if !enginepkg.MarkStoreDirty(c.compactedC1z) {
+			err := errors.New("invalidate expanded compaction source-cache state: could not mark store dirty")
+			return errors.Join(err, syncer.Close(ctx))
+		}
 	}
 	if err := syncer.Close(ctx); err != nil {
 		l.Error("error closing syncer", zap.Error(err))

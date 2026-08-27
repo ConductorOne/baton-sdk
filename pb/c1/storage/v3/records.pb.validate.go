@@ -2299,6 +2299,10 @@ func (m *SourceCacheEntryRecord) validate(all bool) error {
 
 	// no validation rules for Invalidated
 
+	if m.RowCount != nil {
+		// no validation rules for RowCount
+	}
+
 	if len(errors) > 0 {
 		return SourceCacheEntryRecordMultiError(errors)
 	}

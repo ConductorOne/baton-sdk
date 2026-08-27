@@ -49,6 +49,42 @@ type testSeams struct {
 	// post-arm obligation and no hook.
 	recordCommitHook func() error
 
+	// sourceCacheReplayCommitHook runs immediately before each bounded replay
+	// batch commit. It provides deterministic high-water telemetry and a
+	// per-chunk failure seam without changing the replay iterator.
+	sourceCacheReplayCommitHook func(kind string, rows int, final bool) error
+	sourceCacheReplayBatchRows  int
+
+	// sourceCacheReplayClearCommitHook runs immediately before each bounded
+	// destination-clear batch commit. Replacement clear and replay copy are
+	// distinct commit loops and therefore require distinct failure seams.
+	sourceCacheReplayClearCommitHook func(kind string, rows int, final bool) error
+
+	// sourceCacheReplayReadHook runs before each source index row is consumed.
+	// It supplies deterministic source-iteration errors at exact row cuts.
+	sourceCacheReplayReadHook func(kind string, row int) error
+	// sourceCacheReplayIteratorErrorHook runs at the real Iterator.Error
+	// disposition after source iteration and before the final batch commit.
+	// It proves that an iterator terminal error cannot be swallowed or followed
+	// by publication of the final staged rows.
+	sourceCacheReplayIteratorErrorHook func(kind string) error
+
+	// sourceCacheDeleteCommitHook runs before each bounded scoped-tombstone
+	// commit. sourceCacheDeleteBatchRows lowers the production batch limit so
+	// tests can exercise interrupted multi-batch retry without whale fixtures.
+	sourceCacheDeleteCommitHook func(kind string, rows int, final bool) error
+	sourceCacheDeleteBatchRows  int
+
+	// sourceCacheManifestWriteHook runs immediately before a manifest entry is
+	// committed, after the value has been constructed.
+	sourceCacheManifestWriteHook func() error
+
+	// poisonLogSetCap overrides the poison-warning dedup-set bound (engine.go,
+	// production 4096) so a test can reach the suppression branch with a
+	// handful of scopes: past the bound, unseen scopes stop logging behind a
+	// single one-time notice while already-seen scopes still deduplicate.
+	poisonLogSetCap int
+
 	// endSyncStampHook, when non-nil, runs immediately before the
 	// ended_at stamp's PutSyncRunRecord commit in endSyncFinalize —
 	// the in-process analog of the stamp commit failing. The

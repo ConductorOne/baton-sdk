@@ -63,6 +63,14 @@ type indexMigration struct {
 // the corresponding index for any existing c1z that doesn't have
 // it yet.
 //
+// OBLIGATION: migrations run after the Open-time presence probes
+// (grant digests, source-scope gate). A migration that creates
+// by_source_scope entries must re-probe or arm the gate
+// (SetSourceScopeMayExist / ProbeSourceScopeMayExist) before
+// returning — leaving entries behind an unarmed gate makes later
+// overwrites/deletes skip index cleanup (false-with-entries, the one
+// unsound gate state).
+//
 // Deliberately empty today. The by_entitlement_principal_hash index +
 // grant digests are NOT backfilled at Open: they are rebuilt from the
 // primaries at every seal (the fused deferred pass / BuildGrantDigests),
