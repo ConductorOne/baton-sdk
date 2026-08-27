@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/prototext"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -258,6 +260,89 @@ func entitlementCount(t *testing.T, ctx context.Context, store c1zstore.Store) i
 	return len(resp.GetList())
 }
 
+// fullRecords holds every resource-type, resource, and entitlement record
+// keyed by transformed id. These three families now ride different write
+// paths per destination engine (upserting Put* on sqlite, the non-upserting
+// bulk import on pebble), so the parity oracle pins full record identity —
+// not just cardinality and graph shape — to catch a row one path drops,
+// folds, or mangles field-by-field.
+type fullRecords struct {
+	rts  map[string]*v2.ResourceType
+	ress map[string]*v2.Resource
+	ents map[string]*v2.Entitlement
+}
+
+func fullRecordSets(t *testing.T, ctx context.Context, store c1zstore.Store) fullRecords {
+	t.Helper()
+	fr := fullRecords{
+		rts:  map[string]*v2.ResourceType{},
+		ress: map[string]*v2.Resource{},
+		ents: map[string]*v2.Entitlement{},
+	}
+	rts, err := store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{PageSize: 1000}.Build())
+	require.NoError(t, err)
+	for _, rt := range rts.GetList() {
+		fr.rts[rt.GetId()] = rt
+	}
+	ress, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{PageSize: 1000}.Build())
+	require.NoError(t, err)
+	for _, r := range ress.GetList() {
+		fr.ress[r.GetId().GetResourceType()+"/"+r.GetId().GetResource()] = r
+	}
+	ents, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{PageSize: 1000}.Build())
+	require.NoError(t, err)
+	for _, e := range ents.GetList() {
+		fr.ents[e.GetId()] = normalizeEntitlementForParity(e)
+	}
+	return fr
+}
+
+// normalizeEntitlementForParity slims the two fields pebble's v3 schema
+// stores as identity-only refs: the embedded resource and the grantable_to
+// types are "hydrated as a stub (identity only)" on read (V3EntitlementToV2),
+// while sqlite returns the writer's full embedded copies. Both are derived
+// data — the resource's and resource types' own records are compared in full
+// separately — so slimming them costs no coverage.
+func normalizeEntitlementForParity(e *v2.Entitlement) *v2.Entitlement {
+	out, ok := proto.Clone(e).(*v2.Entitlement)
+	if !ok {
+		panic("clone changed type")
+	}
+	if r := out.GetResource(); r != nil {
+		out.SetResource(v2.Resource_builder{Id: r.GetId()}.Build())
+	}
+	if gs := out.GetGrantableTo(); len(gs) > 0 {
+		slim := make([]*v2.ResourceType, 0, len(gs))
+		for _, rt := range gs {
+			slim = append(slim, v2.ResourceType_builder{Id: rt.GetId()}.Build())
+		}
+		out.SetGrantableTo(slim)
+	}
+	return out
+}
+
+// requireRecordSetEqual asserts got holds exactly want's keys and that each
+// record is proto-equal, printing the diverging pair on failure.
+func requireRecordSetEqual[P proto.Message](t *testing.T, want, got map[string]P, arm, family string) {
+	t.Helper()
+	wantKeys := sortedKeys(want)
+	require.Equalf(t, wantKeys, sortedKeys(got), "%s %s id set", arm, family)
+	for _, id := range wantKeys {
+		require.Truef(t, proto.Equal(want[id], got[id]),
+			"%s %s %q diverged\nbase: %s\narm:  %s",
+			arm, family, id, prototext.Format(want[id]), prototext.Format(got[id]))
+	}
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // resourceParentChains maps each resource id to its parent resource id.
 func resourceParentChains(t *testing.T, ctx context.Context, store c1zstore.Store) map[string]string {
 	t.Helper()
@@ -388,6 +473,7 @@ func TestSanitizeCrossEnginePebbleParity(t *testing.T) {
 		parents, entOwn, refs                   map[string]string
 		sources                                 map[string][]string
 		blobs                                   map[string]expandBlob
+		records                                 fullRecords
 		assetCT                                 string
 		assetBytes                              []byte
 	}
@@ -405,6 +491,7 @@ func TestSanitizeCrossEnginePebbleParity(t *testing.T) {
 			refs:       grantRefs(t, ctx, ro),
 			sources:    grantSourcesCanonical(t, ctx, ro),
 			blobs:      pendingExpansionBlobs(t, ctx, ro),
+			records:    fullRecordSets(t, ctx, ro),
 			assetCT:    ct,
 			assetBytes: ab,
 		}
@@ -429,6 +516,9 @@ func TestSanitizeCrossEnginePebbleParity(t *testing.T) {
 		require.Equalf(t, base.refs, snaps[i].refs, "%s grant entitlement/principal refs", arms[i].name)
 		require.Equalf(t, base.sources, snaps[i].sources, "%s expansion-source edges", arms[i].name)
 		require.Equalf(t, base.blobs, snaps[i].blobs, "%s GrantExpandable blobs + needs_expansion enumeration", arms[i].name)
+		requireRecordSetEqual(t, base.records.rts, snaps[i].records.rts, arms[i].name, "resource type")
+		requireRecordSetEqual(t, base.records.ress, snaps[i].records.ress, arms[i].name, "resource")
+		requireRecordSetEqual(t, base.records.ents, snaps[i].records.ents, arms[i].name, "entitlement")
 	}
 
 	// (3) needs_expansion membership: the multi-expand and divergence-trigger

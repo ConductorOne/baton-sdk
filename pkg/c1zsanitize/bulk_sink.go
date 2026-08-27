@@ -39,11 +39,6 @@ type bulkImportSink struct {
 	bi     *pebble.BulkSyncImport
 	shard  *pebble.BulkGrantShard
 	syncID string
-
-	// finished gates abort(): after a successful finish() there is nothing
-	// to tear down, while any earlier exit (including a failed Finish) must
-	// abort to discard staged spill files and the partial ingest.
-	finished bool
 }
 
 // startBulkImportSink opens a bulk import on the destination's current
@@ -84,20 +79,14 @@ func (s *bulkImportSink) PutGrants(ctx context.Context, grants ...*v2.Grant) err
 // writer path (PutAsset, EndSync) may be used again.
 func (s *bulkImportSink) finish(ctx context.Context) error {
 	s.shard.Close()
-	if err := s.bi.Finish(ctx); err != nil {
-		return err
-	}
-	s.finished = true
-	return nil
+	return s.bi.Finish(ctx)
 }
 
-// abort discards the import unless finish succeeded. Deferred by
-// sanitizeSync so any error exit between start and finish tears down
-// staged spill files and the partial ingest.
+// abort discards a still-open import's staged spill files. Deferred by
+// sanitizeSync to cover error exits before finish is reached; once Finish
+// has run — success or failure — it has marked the import done and torn
+// down its own staging, and Abort is a no-op.
 func (s *bulkImportSink) abort() {
-	if s.finished {
-		return
-	}
 	s.bi.Abort()
 }
 

@@ -30,11 +30,13 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
-// ErrBulkImportOutOfOrder is returned by BulkSyncImport's ordered add
-// methods when a primary key arrives that does not sort strictly after
-// the previous key in the same bucket. It means the caller's
-// sorted-source contract was violated; the import cannot continue and
-// must be Abort()ed.
+// ErrBulkImportOutOfOrder is returned when a key arrives at an ordered
+// SST writer without sorting strictly after its predecessor. Callers can
+// only trigger it through AddResourceTypes, the one add method with a
+// sorted-arrival contract; resources, entitlements, and grants re-sort
+// internally, and their duplicate keys surface at Finish as corrupt
+// input (errBulkImportDuplicateKey) instead. The import cannot continue
+// past it and must be Abort()ed.
 var ErrBulkImportOutOfOrder = errors.New("bulk sync import: keys are not strictly increasing")
 
 // errBulkImportDuplicateKey is the spill-merge guard against duplicate
@@ -175,6 +177,20 @@ type BulkSyncImport struct {
 	// every producer on one path rather than making sortedness a
 	// precondition each one has to re-establish, and it holds when a single
 	// resource type is too large to sort in memory.
+	//
+	// Both carry full marshaled records, so both use the record-carrying
+	// chunk size (deferredIndexSpillChunkBytes), not the key-sized default:
+	// Finish's merge holds every chunk open behind a bulkSpillBufferSize
+	// reader, and key-sized chunks over whale record volumes mean thousands
+	// of open chunks and gigabytes of read buffers (grants.go records the
+	// synth-layer incident). These two are single sorters filled in
+	// sequential phases, so the larger arenas do not multiply; grant shards
+	// and the index sorters stay key-sized because shards × families arenas
+	// are alive there at once. Spill-sorting also stages these families
+	// transiently at ~2x (sorted runs plus the SST merged from them, and
+	// the runs' ranges overlap uniformly, so release-on-exhaustion frees
+	// little before the merge tail); the ordered writer resources used
+	// before staged ~1x but pushed sortedness onto every producer.
 	resources    *spillSorter
 	entitlements *spillSorter
 
@@ -253,8 +269,8 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 		return nil, err
 	}
 	b.resourceTypes = sw
-	b.resources = newSpillSorter(dir, "resources", b.sortSem, bulkSpillKeyChunkBytes)
-	b.entitlements = newSpillSorter(dir, "entitlements", b.sortSem, bulkSpillKeyChunkBytes)
+	b.resources = newSpillSorter(dir, "resources", b.sortSem, deferredIndexSpillChunkBytes)
+	b.entitlements = newSpillSorter(dir, "entitlements", b.sortSem, deferredIndexSpillChunkBytes)
 	b.idxResourceByParent = newSpillSorter(dir, fmt.Sprintf("index-%02x-p", idxResourceByParent), b.sortSem, bulkSpillKeyChunkBytes)
 	return b, nil
 }
@@ -430,8 +446,10 @@ func (b *BulkSyncImport) AddResourceTypesWithDiscoveredAt(ctx context.Context, r
 
 // AddResources translates and appends resources. Rows are keyed by
 // (resource_type_id, resource_id) and re-sorted through a spill sorter, so
-// arrival order does not matter. by_parent index keys are derived and
-// spilled with the same parent guard as writeResourceIndexes.
+// arrival order does not matter; a duplicate key is corrupt input and
+// surfaces at Finish from the spill merge rather than here. by_parent
+// index keys are derived and spilled with the same parent guard as
+// writeResourceIndexes.
 func (b *BulkSyncImport) AddResources(ctx context.Context, resources ...*v2.Resource) error {
 	return b.AddResourcesWithDiscoveredAt(ctx, resources, nil)
 }
