@@ -11,6 +11,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	sdksync "github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 )
@@ -74,6 +75,20 @@ func TestSanitizePebbleEndToEnd(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, dstRuns, 1)
 	require.True(t, dstRuns[0].SupportsDiff, "supports_diff marker must carry to the pebble output")
+
+	// Stats sidecar matches the listed cardinalities. The bulk-import path
+	// stashes its own computed counts (plus the asset count, which rides
+	// outside the import) instead of letting EndSync re-scan the keyspaces;
+	// a wrong stash would persist silently, so pin every family here.
+	eng, ok := pebble.AsEngine(ro)
+	require.True(t, ok, "pebble output must expose its engine")
+	stats, err := eng.Stats(ctx, connectorstore.SyncTypeAny, dstRuns[0].ID)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), stats["resource_types"])
+	require.Equal(t, int64(6), stats["resources"])
+	require.Equal(t, int64(2), stats["entitlements"])
+	require.Equal(t, int64(5), stats["grants"])
+	require.Equal(t, int64(1), stats["assets"], "asset count is stashed explicitly by the sanitizer, not counted by the import")
 }
 
 func TestSanitizeDropsEntitlementGraphSidecar(t *testing.T) {

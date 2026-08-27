@@ -118,7 +118,6 @@ func (s *sanitizer) isKnownResourceType(token string) bool {
 func (s *sanitizer) copyResourceTypes(
 	ctx context.Context,
 	src connectorstore.Reader,
-	dst connectorstore.Writer,
 	srcSyncID string,
 	refs *assetRefSet,
 ) error {
@@ -162,11 +161,13 @@ func (s *sanitizer) copyResourceTypes(
 	out := make([]*v2.ResourceType, len(rows))
 	parallelTransform(len(rows), func(i int) { out[i] = s.transformResourceType(rows[i], refs) })
 	xformDur := time.Since(xformStart)
-	// Sort by output id for destination unique-index locality.
+	// Sort by output id for destination unique-index locality. The bulk
+	// sink requires it: this is the single sorted-by-external-id write
+	// AddResourceTypes' ordered writer needs.
 	sort.Slice(out, func(i, j int) bool { return out[i].GetId() < out[j].GetId() })
 	putStart := time.Now()
 	if len(out) > 0 {
-		if err := dst.PutResourceTypes(ctx, out...); err != nil {
+		if err := s.sink.PutResourceTypes(ctx, out...); err != nil {
 			return fmt.Errorf("put resource types: %w", err)
 		}
 	}
@@ -176,14 +177,14 @@ func (s *sanitizer) copyResourceTypes(
 
 // copyResources walks the source resources for srcSyncID, transforming each
 // (which registers its trait icon/logo asset refs into refs). When write is
-// true the transformed rows are written to dst; when false the walk runs purely
-// to repopulate refs — the resume path where resources were already written in
-// a prior run but their asset refs (lost with the prior process) must be
-// re-collected before copyAssets, mirroring how copyResourceTypes always runs.
+// true the transformed rows are written through s.sink; when false the walk
+// runs purely to repopulate refs — the resume path where resources were
+// already written in a prior run but their asset refs (lost with the prior
+// process) must be re-collected before copyAssets, mirroring how
+// copyResourceTypes always runs.
 func (s *sanitizer) copyResources(
 	ctx context.Context,
 	src connectorstore.Reader,
-	dst connectorstore.Writer,
 	srcSyncID string,
 	refs *assetRefSet,
 	write bool,
@@ -210,7 +211,7 @@ func (s *sanitizer) copyResources(
 		sortByResourceID(out)
 		putStart := time.Now()
 		if write && len(out) > 0 {
-			if err := dst.PutResources(ctx, out...); err != nil {
+			if err := s.sink.PutResources(ctx, out...); err != nil {
 				return fmt.Errorf("put resources: %w", err)
 			}
 		}
@@ -229,7 +230,6 @@ func (s *sanitizer) copyResources(
 func (s *sanitizer) copyEntitlements(
 	ctx context.Context,
 	src connectorstore.Reader,
-	dst connectorstore.Writer,
 	srcSyncID string,
 	refs *assetRefSet,
 	write bool,
@@ -256,7 +256,7 @@ func (s *sanitizer) copyEntitlements(
 		sort.Slice(out, func(i, j int) bool { return out[i].GetId() < out[j].GetId() })
 		putStart := time.Now()
 		if write && len(out) > 0 {
-			if err := dst.PutEntitlements(ctx, out...); err != nil {
+			if err := s.sink.PutEntitlements(ctx, out...); err != nil {
 				return fmt.Errorf("put entitlements: %w", err)
 			}
 		}
@@ -313,7 +313,7 @@ func (s *sanitizer) copyGrants(
 		sort.Slice(out, func(i, j int) bool { return out[i].GetId() < out[j].GetId() })
 		putStart := time.Now()
 		if len(out) > 0 {
-			if err := dst.PutGrants(ctx, out...); err != nil {
+			if err := s.sink.PutGrants(ctx, out...); err != nil {
 				return fmt.Errorf("put grants: %w", err)
 			}
 		}

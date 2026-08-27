@@ -12,6 +12,8 @@
 // Sanitize is engine-agnostic: it reads and writes through
 // connectorstore.Reader / Writer, so a source or destination may be
 // either the v1/v2 sqlite-zstd engine or the v3 Pebble engine. A
+// Pebble destination's record writes are routed through the engine's
+// bulk-import fast path instead of Put upserts (see recordSink). A
 // Pebble c1z holds exactly one sync by contract, so a multi-sync
 // source cannot be sanitized into a Pebble destination; that
 // combination is rejected up front (see Sanitize).
@@ -37,6 +39,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
 // syncRunMetadataReader is the optional source capability for reading
@@ -110,6 +113,12 @@ type Options struct {
 	// The rejection is an explicit destination-engine check, so it holds even
 	// though pebble implements ListSyncRuns.
 	Resumable bool
+
+	// TmpDir stages the bulk import's spill files when the destination is
+	// a pebble store ("" = system temp dir). Peak staging usage is on the
+	// order of the destination's record data, so point it at a volume
+	// sized for the output when the system temp dir is small.
+	TmpDir string
 }
 
 // Sanitize copies records from src to dst, transforming identifiers,
@@ -174,6 +183,7 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 		anchor:                 anchor,
 		anchorExplicit:         anchorExplicit,
 		tMax:                   tMax,
+		tmpDir:                 opts.TmpDir,
 	}
 	s.fingerprint = s.checkpointFingerprint()
 
@@ -274,6 +284,14 @@ type sanitizer struct {
 	anchor         time.Time
 	anchorExplicit bool
 	tMax           time.Time
+
+	// sink receives the four record families for the sync currently being
+	// copied. sanitizeSync points it at dst (upserting Put* path) or, for a
+	// pebble destination, at a bulkImportSink over the engine's bulk-import
+	// fast path. Per-sync, not per-run: each destination sync gets its own
+	// import session. tmpDir stages that import's spill files.
+	sink   recordSink
+	tmpDir string
 }
 
 // Checkpoint phases recorded in a destination sync's token. The value names
@@ -580,6 +598,26 @@ func (s *sanitizer) sanitizeSync(ctx context.Context, src connectorstore.Reader,
 	}
 	s.syncIDMap[srcSyncID] = dstSyncID
 
+	// Pick the write path for this sync's records. A pebble destination
+	// routes the four record families through the engine's bulk import
+	// (sorted SST construction + ingest) instead of per-batch Put upserts.
+	// The bulk contract — fresh sync, nothing else writes until Finish —
+	// holds here by construction: StartNewSync above marked the sync fresh
+	// (the resume branch never runs for pebble, since resumable+pebble is
+	// rejected in Sanitize, which also makes every checkpoint call below a
+	// no-op), and assets are copied only after the import is finished.
+	s.sink = dst
+	var bulk *bulkImportSink
+	if eng, ok := pebble.AsEngine(dst); ok {
+		b, err := startBulkImportSink(ctx, eng, dstSyncID, s.tmpDir)
+		if err != nil {
+			return fmt.Errorf("bulk import: %w", err)
+		}
+		bulk = b
+		s.sink = b
+		defer bulk.abort()
+	}
+
 	assetRefs := newAssetRefSet()
 
 	// Per-sync memo cache for the embedded Entitlement/Principal transforms
@@ -591,7 +629,7 @@ func (s *sanitizer) sanitizeSync(ctx context.Context, src connectorstore.Reader,
 	// (which the id transform consults), so it must be rebuilt even when its
 	// rows were already written in a prior run. PutResourceTypes upserts, so the
 	// re-write is idempotent.
-	if err := s.copyResourceTypes(ctx, src, dst, srcSyncID, assetRefs); err != nil {
+	if err := s.copyResourceTypes(ctx, src, srcSyncID, assetRefs); err != nil {
 		return err
 	}
 
@@ -603,7 +641,7 @@ func (s *sanitizer) sanitizeSync(ctx context.Context, src connectorstore.Reader,
 	// re-writing rows that are already durable in the destination. This mirrors
 	// copyResourceTypes, which always runs to rebuild knownResourceTypes.
 	writeResources := phaseAtOrBefore(startPhase, phaseResources)
-	if err := s.copyResources(ctx, src, dst, srcSyncID, assetRefs, writeResources); err != nil {
+	if err := s.copyResources(ctx, src, srcSyncID, assetRefs, writeResources); err != nil {
 		return err
 	}
 	if writeResources {
@@ -613,7 +651,7 @@ func (s *sanitizer) sanitizeSync(ctx context.Context, src connectorstore.Reader,
 	}
 
 	writeEntitlements := phaseAtOrBefore(startPhase, phaseEntitlements)
-	if err := s.copyEntitlements(ctx, src, dst, srcSyncID, assetRefs, writeEntitlements); err != nil {
+	if err := s.copyEntitlements(ctx, src, srcSyncID, assetRefs, writeEntitlements); err != nil {
 		return err
 	}
 	if writeEntitlements {
@@ -632,8 +670,25 @@ func (s *sanitizer) sanitizeSync(ctx context.Context, src connectorstore.Reader,
 		}
 	}
 
-	if err := s.copyAssets(ctx, src, dst, assetRefs); err != nil {
+	// All four record families are in. Seal the bulk import before assets:
+	// PutAsset writes through the writer, which the bulk contract forbids
+	// until Finish has ingested.
+	if bulk != nil {
+		if err := bulk.finish(ctx); err != nil {
+			return fmt.Errorf("bulk import finish: %w", err)
+		}
+	}
+
+	assetCount, err := s.copyAssets(ctx, src, dst, assetRefs)
+	if err != nil {
 		return err
+	}
+
+	// The import counted every record it wrote; stash that (plus the asset
+	// count, which rode outside the import) so EndSync persists the stats
+	// sidecar directly instead of re-scanning the ingested keyspaces.
+	if bulk != nil {
+		bulk.stashStats(assetCount)
 	}
 
 	if err := dst.EndSync(ctx); err != nil {

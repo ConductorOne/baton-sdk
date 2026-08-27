@@ -97,12 +97,16 @@ func closeIfCloser(r io.Reader) error {
 	return nil
 }
 
+// copyAssets returns the number of assets written, which the pebble bulk
+// path stashes into the sync's stats sidecar (assets ride outside the bulk
+// import, so its ComputedStats cannot count them).
 func (s *sanitizer) copyAssets(
 	ctx context.Context,
 	src connectorstore.Reader,
 	dst connectorstore.Writer,
 	refs *assetRefSet,
-) error {
+) (int64, error) {
+	var written int64
 	ids := refs.drain()
 	for _, srcID := range ids {
 		req := v2.AssetServiceGetAssetRequest_builder{
@@ -119,12 +123,13 @@ func (s *sanitizer) copyAssets(
 			continue
 		}
 		if err := closeIfCloser(r); err != nil {
-			return fmt.Errorf("close source asset %s: %w", srcID, err)
+			return 0, fmt.Errorf("close source asset %s: %w", srcID, err)
 		}
 		dstID := s.id(srcID)
 		if err := dst.PutAsset(ctx, v2.AssetRef_builder{Id: dstID}.Build(), contentType, placeholderForContentType(contentType)); err != nil {
-			return fmt.Errorf("put dst asset %s: %w", dstID, err)
+			return 0, fmt.Errorf("put dst asset %s: %w", dstID, err)
 		}
+		written++
 	}
-	return nil
+	return written, nil
 }
