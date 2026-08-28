@@ -3,6 +3,7 @@ package sync //nolint:revive,nolintlint // backwards-compatible package name
 import (
 	"context"
 	"errors"
+	native_sync "sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -109,12 +110,50 @@ func newChaosHarness(
 	}
 	sdkSyncer, err := NewSyncer(ctx, client, append(baseOpts, opts...)...)
 	require.NoError(t, err)
+	// Held-lock ride-along (CO-6b-007): a source-cache scope lock is
+	// acquired in beforeUpserts and released in afterUpserts or by the
+	// handlers' deferred release(); a lock still held once the sync is
+	// over means a release path was lost — and because syncOneAction
+	// retries a failed action in the SAME goroutine and sync.Mutex is not
+	// reentrant, that is a permanently hung sync, not a slow one. Bound
+	// here so EVERY chaos suite — present and future, success or failure
+	// path — evaluates it at test end; any scenario that errors a scoped
+	// page between the lock's acquire and release trips it if a handler
+	// loses its backstop.
+	if concrete, ok := sdkSyncer.(*syncer); ok {
+		t.Cleanup(func() {
+			require.Empty(t, heldSourceCacheScopeLocks(concrete),
+				"source-cache scope locks still held at sync end: a page errored between beforeUpserts and afterUpserts and its release path was lost — this sync would hang its own retry")
+		})
+	}
 	return &chaosHarness{
 		Syncer:       sdkSyncer,
 		Run:          run,
 		Client:       client,
 		closeAdapter: closeAdapter,
 	}
+}
+
+// heldSourceCacheScopeLocks reports which per-scope replay locks are still
+// held. Only safe once the sync has finished (no workers contend the
+// locks); TryLock on a free mutex briefly holds it, so a concurrent worker
+// could see spurious contention.
+func heldSourceCacheScopeLocks(s *syncer) []string {
+	var held []string
+	s.sourceCacheScopeLocks.Range(func(k, v any) bool {
+		mu, ok := v.(*native_sync.Mutex)
+		if !ok {
+			held = append(held, k.(string)+" (non-mutex entry)")
+			return true
+		}
+		if mu.TryLock() {
+			mu.Unlock()
+		} else {
+			held = append(held, k.(string))
+		}
+		return true
+	})
+	return held
 }
 
 func (h *chaosHarness) SyncAndClose(t *testing.T, ctx context.Context) {

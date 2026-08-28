@@ -31,4 +31,10 @@ func TestVerificationPhase6bExecutableExclusions(t *testing.T) {
 	t.Run("resource-targeted-sync-and-event-feeds", func(t *testing.T) {
 		t.Skip("ResourceTargetedSyncer.Get and event feeds carry no source-cache semantics in Phase 6b (plan B10)")
 	})
+	t.Run("shrunk-resource-type-list-bypasses-fresh-ingest-filter", func(t *testing.T) {
+		t.Skip("round-4 review N-3: a connector whose ListResourceTypes output shrinks between generations without bumping cache_generation can replay rows " +
+			"referencing types a cold sync's fresh-ingest filter would drop (sync_selection_fingerprint digests the caller's selection, not the emitted type list); " +
+			"excluded because the capability contract makes an unbumped visibility change a connector-side violation (same class as an unstable validator), " +
+			"the ingest invariants (I3/I7/I8/I9) surface the dangling references as warn-class verdicts, and connector type lists are static in practice")
+	})
 }

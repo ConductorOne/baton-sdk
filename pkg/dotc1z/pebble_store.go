@@ -22,6 +22,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
@@ -30,6 +31,12 @@ type pebbleDriver struct{}
 
 var _ c1zstore.Store = (*pebbleStore)(nil)
 var _ connectorstore.Writer = (*pebbleStore)(nil)
+
+// The syncer's G5 fence asserts this optional capability on the previous
+// store; the pin makes a rename on either side a build break instead of a
+// silently-open fence (the behavioral test would still catch it, but the
+// compile-time coupling is the point — see CO-6b-005's probe precedent).
+var _ sourcecache.MaterializationWitnessReader = (*pebbleStore)(nil)
 
 // Local mirrors of the optional capabilities the c1z sanitizer probes on
 // the source/destination store (pkg/c1zsanitize keeps those interfaces

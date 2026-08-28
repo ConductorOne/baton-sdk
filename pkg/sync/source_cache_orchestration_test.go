@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/conductorone/baton-sdk/internal/chaosconnector"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -418,36 +419,78 @@ func (f *fakeCompatPreviousReader) GetSourceCacheCompat(context.Context) (source
 // sync must FAIL with a cold ErrReplayIntegrity, never degrade silently.
 func TestChaosSourceCacheReplayWithoutHitFailsCold(t *testing.T) {
 	skipChaosInShort(t)
-	ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
-	defer cancel()
-	tmpDir, paths := sourceCachePaths(t, 1)
 
 	fx := newSCCollectionFixture(t)
-	d := scCollectionBase(fx)
-	// The ROOT grants page itself carries a replay annotation: a
-	// misbehaving connector replaying without ever consulting.
-	d.Grants["team-1"] = chaosconnector.Pages[*v2.Grant]{
-		"": {Annotations: scReplayAnno(scGrantsScopeKey, scValidatorV1, false, nil, nil)},
+	// One cell per collection handler (resources, entitlements, grants):
+	// the loud cold failure must fire from each handler's own
+	// sourceCachePageOps seam, and — with the held-lock ride-along — each
+	// cell also proves that handler's deferred release() backstop frees
+	// the scope lock on the error path (CO-6b-007; removing any one
+	// handler's defer fails its cell at the harness's sync-end assertion).
+	cells := []struct {
+		rowKind  sourcecache.RowKind
+		scopeKey string
+		mutate   func(d *chaosconnector.Dataset)
+	}{
+		{
+			rowKind:  sourcecache.RowKindResources,
+			scopeKey: "resources:user",
+			mutate: func(d *chaosconnector.Dataset) {
+				d.Resources[scUserTypeID] = chaosconnector.Pages[*v2.Resource]{
+					"": {Annotations: scReplayAnno("resources:user", scValidatorV1, false, nil, nil)},
+				}
+			},
+		},
+		{
+			rowKind:  sourcecache.RowKindEntitlements,
+			scopeKey: "entitlements:team-1",
+			mutate: func(d *chaosconnector.Dataset) {
+				d.Entitlements["team-1"] = chaosconnector.Pages[*v2.Entitlement]{
+					"": {Annotations: scReplayAnno("entitlements:team-1", scValidatorV1, false, nil, nil)},
+				}
+			},
+		},
+		{
+			rowKind:  sourcecache.RowKindGrants,
+			scopeKey: scGrantsScopeKey,
+			mutate: func(d *chaosconnector.Dataset) {
+				d.Grants["team-1"] = chaosconnector.Pages[*v2.Grant]{
+					"": {Annotations: scReplayAnno(scGrantsScopeKey, scValidatorV1, false, nil, nil)},
+				}
+			},
+		},
 	}
-	scenario := &chaosconnector.Scenario{
-		Name: "source-cache-replay-without-hit", Seed: 1, InitialEpoch: "seed",
-		Epochs: map[string]*chaosconnector.Dataset{"seed": d},
-	}
-	require.NoError(t, scenario.Validate())
+	for _, cell := range cells {
+		t.Run(string(cell.rowKind), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 60*time.Second)
+			defer cancel()
+			tmpDir, paths := sourceCachePaths(t, 1)
 
-	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
-	require.NoError(t, err)
-	run.SetSourceCacheCapability(sourceCacheCapabilityRW("gen-1", "cfg-1"))
-	harness := newChaosHarness(t, ctx, run, paths[0], tmpDir, chaosTransportDirect, WithWorkerCount(1))
-	syncErr := harness.Syncer.Sync(ctx)
-	require.Error(t, syncErr, "a replay with no this-sync lookup hit must fail the sync")
-	require.ErrorIs(t, syncErr, ErrReplayIntegrity)
-	var rie *ReplayIntegrityError
-	require.ErrorAs(t, syncErr, &rie)
-	require.Equal(t, ReplayVerdictCold, rie.Verdict)
-	require.Equal(t, sourcecache.RowKindGrants, rie.RowKind)
-	require.Equal(t, scGrantsScopeKey, rie.ScopeKey)
-	require.NoError(t, harness.Close(t.Context()))
+			d := scCollectionBase(fx)
+			// The ROOT page itself carries a replay annotation: a
+			// misbehaving connector replaying without ever consulting.
+			cell.mutate(d)
+			scenario := &chaosconnector.Scenario{
+				Name: "source-cache-replay-without-hit-" + string(cell.rowKind), Seed: 1, InitialEpoch: "seed",
+				Epochs: map[string]*chaosconnector.Dataset{"seed": d},
+			}
+			require.NoError(t, scenario.Validate())
+
+			run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
+			require.NoError(t, err)
+			run.SetSourceCacheCapability(sourceCacheCapabilityRW("gen-1", "cfg-1"))
+			harness := newChaosHarness(t, ctx, run, paths[0], tmpDir, chaosTransportDirect, WithWorkerCount(1))
+			syncErr := harness.Syncer.Sync(ctx)
+			require.Error(t, syncErr, "a replay with no this-sync lookup hit must fail the sync")
+			require.ErrorIs(t, syncErr, ErrReplayIntegrity)
+			var rie *ReplayIntegrityError
+			require.ErrorAs(t, syncErr, &rie)
+			require.Equal(t, ReplayVerdictCold, rie.Verdict)
+			require.Equal(t, cell.rowKind, rie.RowKind)
+			require.Equal(t, cell.scopeKey, rie.ScopeKey)
+			require.NoError(t, harness.Close(t.Context()))
+		})
+	}
 }
 
 // TestChaosSourceCacheCompatDriftOnResume pins R4's drift-on-resume clause
@@ -918,6 +961,19 @@ func TestSourceCacheLookupDeliverabilityProbe(t *testing.T) {
 		require.Len(t, client.delivered, 1)
 		teardown()
 	})
+
+	t.Run("client-without-setlookup-stays-cold", func(t *testing.T) {
+		// A capable connector behind a client that does not satisfy
+		// SetLookup at all (coverage-triage cell, CO-6b-007): install
+		// degrades to cold with a warn, returns a no-op teardown, and the
+		// sync proceeds.
+		s := newFixture(struct{ types.ConnectorClient }{})
+		teardown, err := s.installSourceCacheLookup(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, teardown)
+		require.False(t, s.sourceCacheWarm)
+		teardown()
+	})
 }
 
 // blockingReplayStore parks every ReplaySourceCache call until release is
@@ -1068,4 +1124,163 @@ func TestSourceCacheRecordPageParksBehindReplayCopy(t *testing.T) {
 	require.NoError(t, recordOps.afterUpserts(ctx))
 	require.True(t, s.sourceCacheScopeLock(kind, scope).TryLock(),
 		"the scope lock must be free once the record page's afterUpserts returns")
+}
+
+// TestParseSourceCacheCapabilityUnparsable pins the boundary contract for a
+// corrupt SourceCacheCapability annotation (coverage-triage cell,
+// CO-6b-007): unparsable means NOT DECLARED — the sync runs plain cold, it
+// does not error. A capability is an opt-in, so failing to read one must
+// degrade to the opted-out behavior, never block the sync.
+func TestParseSourceCacheCapabilityUnparsable(t *testing.T) {
+	ctx := context.Background()
+
+	corrupt, err := anypb.New(sourceCacheCapabilityRW("gen-1", "cfg-1"))
+	require.NoError(t, err)
+	// A truncated tag byte cannot parse as any proto message.
+	corrupt.Value = []byte{0xff}
+	require.Nil(t, parseSourceCacheCapability(ctx, annotations.Annotations{corrupt}),
+		"an unparsable capability must read as not declared")
+
+	// Control: the same annotation uncorrupted parses.
+	parsed := parseSourceCacheCapability(ctx, annotations.New(sourceCacheCapabilityRW("gen-1", "cfg-1")))
+	require.NotNil(t, parsed)
+	require.Equal(t, v2.SourceCacheCapability_MODE_READ_WRITE, parsed.GetMode())
+}
+
+// countingEntryReader counts LookupSourceCacheEntry consultations so input
+// -validation cells can assert the store is never reached.
+type countingEntryReader struct {
+	stubPreviousReader
+	calls atomic.Int32
+}
+
+func (r *countingEntryReader) LookupSourceCacheEntry(ctx context.Context, kind sourcecache.RowKind, scopeKey string) (sourcecache.Entry, bool, error) {
+	r.calls.Add(1)
+	return r.stubPreviousReader.LookupSourceCacheEntry(ctx, kind, scopeKey)
+}
+
+// TestWarmLookupInputValidationDegradesToMiss pins the warm lookup's
+// input-validation contract (pkg/sourcecache; coverage-triage cells,
+// CO-6b-007): invalid connector-supplied arguments and internal read
+// failures are MISSES, never connector-call errors — a miss means "fetch
+// cold", which is always safe, while an error would fail a page the
+// connector could have served fresh. None of these paths may record a hit.
+func TestWarmLookupInputValidationDegradesToMiss(t *testing.T) {
+	ctx := context.Background()
+
+	newLookup := func(reader sourceCacheEntryReader) (*previousSyncSourceCacheLookup, *int) {
+		hits := 0
+		return &previousSyncSourceCacheLookup{
+			prev: reader,
+			onHit: func(sourcecache.RowKind, string, string) {
+				hits++
+			},
+		}, &hits
+	}
+
+	t.Run("invalid-row-kind-is-a-miss-without-consulting-the-store", func(t *testing.T) {
+		reader := &countingEntryReader{}
+		lookup, hits := newLookup(reader)
+		_, found, err := lookup.LookupPreviousSourceCache(ctx, sourcecache.RowKind("bogus"), "grants:team-1")
+		require.NoError(t, err, "an invalid row kind must not fail the connector's call")
+		require.False(t, found)
+		require.Zero(t, reader.calls.Load(), "invalid input must not reach the store")
+		require.Zero(t, *hits)
+	})
+
+	t.Run("invalid-scope-key-is-a-miss-without-consulting-the-store", func(t *testing.T) {
+		reader := &countingEntryReader{}
+		lookup, hits := newLookup(reader)
+		_, found, err := lookup.LookupPreviousSourceCache(ctx, sourcecache.RowKindGrants, "")
+		require.NoError(t, err, "an invalid scope key must not fail the connector's call")
+		require.False(t, found)
+		require.Zero(t, reader.calls.Load())
+		require.Zero(t, *hits)
+	})
+
+	t.Run("store-read-failure-is-a-miss", func(t *testing.T) {
+		reader := &countingEntryReader{stubPreviousReader: stubPreviousReader{entryErr: errors.New("pebble: sstable checksum mismatch")}}
+		lookup, hits := newLookup(reader)
+		_, found, err := lookup.LookupPreviousSourceCache(ctx, sourcecache.RowKindGrants, "grants:team-1")
+		require.NoError(t, err, "an internal read failure must degrade to a miss while fresh fetch is still available")
+		require.False(t, found)
+		require.Equal(t, int32(1), reader.calls.Load())
+		require.Zero(t, *hits)
+	})
+
+	t.Run("control-valid-hit-is-reported", func(t *testing.T) {
+		reader := &countingEntryReader{stubPreviousReader: stubPreviousReader{entry: sourcecache.Entry{CacheValidator: "v-1"}, found: true}}
+		lookup, hits := newLookup(reader)
+		entry, found, err := lookup.LookupPreviousSourceCache(ctx, sourcecache.RowKindGrants, "grants:team-1")
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, "v-1", entry.CacheValidator)
+		require.Equal(t, 1, *hits)
+	})
+}
+
+// TestSourceCachePageOpsStoreWithoutSurface pins the no-surface page
+// contract (plan B3; coverage-triage cells, CO-6b-007) on a capable
+// connector whose CURRENT store has no source-cache surface: a record is
+// ignored with a warn — nothing can be stamped, cold-sync behavior — while
+// a replay fails loud and cold, because the connector skipped row
+// generation and there is nothing to fall back to.
+func TestSourceCachePageOpsStoreWithoutSurface(t *testing.T) {
+	ctx := context.Background()
+	s := &syncer{
+		state:                 newState(),
+		syncType:              connectorstore.SyncTypeFull,
+		sourceCacheCapability: sourceCacheCapabilityRW("gen-1", "cfg-1"),
+		// sourceCacheStore deliberately nil: the current store exposed no
+		// dotc1z.SourceCacheStore surface at install time.
+	}
+
+	ops, err := s.sourceCachePageOps(ctx, sourcecache.RowKindGrants,
+		scRecordAnno("grants:team-1", "v-1"), 1)
+	require.NoError(t, err, "a record on a surfaceless store is ignored, not an error")
+	require.Nil(t, ops)
+
+	_, err = s.sourceCachePageOps(ctx, sourcecache.RowKindGrants,
+		scReplayAnno("grants:team-1", "v-1", false, nil, nil), 0)
+	require.ErrorIs(t, err, ErrReplayIntegrity)
+	var rie *ReplayIntegrityError
+	require.ErrorAs(t, err, &rie)
+	require.Equal(t, ReplayVerdictCold, rie.Verdict, "no rows were generated and none can be copied: cold")
+}
+
+// compatErrPreviousReader has the entry surface AND the compat surface,
+// but every compat read fails.
+type compatErrPreviousReader struct{ stubPreviousReader }
+
+func (r compatErrPreviousReader) GetSourceCacheCompat(context.Context) (sourcecache.CompatKey, bool, error) {
+	return sourcecache.CompatKey{}, false, errors.New("pebble: compat record read failed")
+}
+
+// TestSourceCacheWarmStoreDegradeLadder pins the install-time consume-gate
+// degradations for a previous store that is PRESENT but structurally or
+// operationally unusable (coverage-triage cells, CO-6b-007): each rung
+// degrades to cold with a warn — the sync proceeds, never errors.
+func TestSourceCacheWarmStoreDegradeLadder(t *testing.T) {
+	ctx := context.Background()
+	cells := []struct {
+		name   string
+		reader connectorstore.Reader
+	}{
+		{name: "previous-store-without-entry-surface", reader: bareStubPreviousReader{}},
+		{name: "previous-store-without-compat-surface", reader: stubPreviousReader{}},
+		{name: "compat-read-failure", reader: compatErrPreviousReader{}},
+	}
+	for _, cell := range cells {
+		t.Run(cell.name, func(t *testing.T) {
+			s := &syncer{
+				state:                 newState(),
+				syncType:              connectorstore.SyncTypeFull,
+				sourceCacheCapability: sourceCacheCapabilityRW("gen-1", "cfg-1"),
+				previousSyncReader:    cell.reader,
+			}
+			reader, warm := s.sourceCacheWarmStore(ctx)
+			require.False(t, warm)
+			require.Nil(t, reader)
+		})
+	}
 }

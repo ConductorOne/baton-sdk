@@ -685,8 +685,13 @@ and verification delta.)
   drop the v1 action stack. Fixed twice over: the reshaped map takes a
   NEW key (`source_cache_hit_validators`; the retired key is ignored,
   degrading legacy hits to loud cold replays, never corruption), and
-  `state.Unmarshal` no longer falls back to v0 when the input DECLARES a
-  version — such tokens now fail loudly. Instruments:
+  `state.Unmarshal` no longer falls back to v0 when the input declares a
+  version AND fails to parse as v1 — such tokens now fail loudly. (A
+  token that parses cleanly but carries an unrecognized version still
+  takes the v0 fallback: that is the pre-version token format's
+  compatibility path, unchanged. The fence targets the misparse hazard —
+  a same-key shape change breaking the v1 parse — not version-unknown
+  inputs; wording narrowed per round-4 review.) Instruments:
   `TestSyncerTokenSourceCacheSetsRoundTrip` (review finding N3 — the
   provenance sets round-trip Marshal → Unmarshal exactly) and
   `TestSyncerTokenSchemaFence` (retired key ignored, versioned parse
@@ -695,3 +700,56 @@ and verification delta.)
   record-page lock, capability-withdrawal block (its cell from
   CO-6b-005 kills disabling the block — closing the review's surviving
   mutant), once-per-scope mutex, deliverability probe.
+
+### CO-6b-007 — Round-4 remediation: held-lock ride-along, coverage triage, witness pin
+
+- Type: verification hardening from the fourth independent-review round
+  (three reviewers against `c33f698e`; all seven CO-6b-006 closure claims
+  independently confirmed mutation-adequate by all three).
+- Held-lock ride-along (closes the round's one new MAJOR — the deferred
+  `release()` backstop CO-6b-006 introduced had no instrument, and the
+  evidence misattributed its coverage to the record-page parking test,
+  which only exercises `afterUpserts`): the chaos fixture itself now
+  registers a sync-end cleanup that walks `sourceCacheScopeLocks` and
+  fails any test that ends with a scope lock still held. This is the
+  ladder climb the recurrence rule prescribes (third uninstrumented
+  resource-release obligation on this branch): every present and future
+  chaos suite evaluates the invariant, including call sites added later.
+  The loud-failure suite additionally grew one cell per collection
+  handler (resources, entitlements, grants — previously grants-only), so
+  each handler's `defer scOps.release()` has a killing scenario.
+  Mutation-verified per site: removing any one handler's defer fails
+  that handler's cell at the ride-along assertion.
+- Structural-coverage triage (closes the round's process MAJOR): the
+  handbook's coverage-driven step for HIGH changes — profile across all
+  changed packages, intersect with the diff, disposition every uncovered
+  changed block — is now recorded in evidence.md, with three new unit
+  instruments for the boundary branches the triage judged worth real
+  tests (unparsable capability, warm-lookup input validation, record on
+  a surfaceless store).
+- Witness compile pin (MINOR): the G5 fence's inline anonymous interface
+  is promoted to `sourcecache.MaterializationWitnessReader` with a
+  `var _` pin on the pebble store — same discipline as the CO-6b-005
+  probe promotion; a method rename is now a build break, not a
+  behavioral-test catch.
+- Probe assertion honesty (MINOR): the syncer now asserts the exported
+  `sourcecache.LookupDeliverabilityProbe` directly; the private duplicate
+  interface it actually used (making the compile-pin claim an
+  overstatement) is deleted.
+- Excluded permutation registered (MINOR): a connector whose emitted
+  resource-type list shrinks between generations without a
+  `cache_generation` bump can replay rows the fresh-ingest filter would
+  drop; registered as an executable exclusion with its containment
+  rationale (connector-side capability-contract violation; warn-class
+  ingest invariants surface the dangling references) rather than gated.
+- Wording deltas (LOW): the token fence's claim narrowed to
+  parse-failure-only (a cleanly-parsed unknown version still takes the
+  v0 fallback — the pre-version compatibility path); the performance
+  evidence now states the extended lock-hold contract for annotated
+  pages; the scope-lock doc comment updated to the extended cardinality.
+- Operational note kept as documentation (LOW, review N-5): a genuinely
+  corrupt same-version token now fails every resume attempt loudly
+  rather than degrading to redone work — same operational contract as
+  the cold-verdict retry-livelock note on `beforeUpserts` (the caller's
+  retry policy abandons the token and a fresh sync starts cold); an
+  in-tree abandon-the-token path is Phase 6c runner-ladder scope.

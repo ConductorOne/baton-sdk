@@ -9,7 +9,7 @@ the warm/cold `ErrReplayIntegrity` taxonomy, the CO-017 fold fence
 (rider A), and the chaos suites that observe all of it. Gates were run on
 2026-08-27 against the working tree; the committed SHA is recorded at
 commit time. Included change orders: CO-6b-001, CO-6b-002, CO-6b-003,
-CO-6b-004, CO-6b-005, CO-6b-006
+CO-6b-004, CO-6b-005, CO-6b-006, CO-6b-007
 (post-review remediation; see Independent reviews).
 
 ## Gates
@@ -56,10 +56,41 @@ fails; withdrawal block disabled -> capability-withdrawn cell fails;
 scope mutex removed and probe assert disabled -> their CO-6b-005
 instruments fail (verified last round, instruments unchanged).
 
+Re-run after the round-4 remediation (CO-6b-007):
+
+```text
+make lint                                                    -> 0 issues
+go test -count=1 -timeout=40m <all changed packages>         -> 14 pkgs ok
+  (the structural-coverage profile run; includes the full
+  ./pkg/sync and ./pkg/dotc1z/... suites)
+go test -count=1 -timeout=30m <all remaining packages>       -> 51 pkgs ok
+  (together the two runs are the whole repo)
+go test -race -count=1 -timeout=10m \
+  -run '^(TestChaosSourceCacheReplayWithoutHitFailsCold|TestSourceCacheRecordPageParksBehindReplayCopy|TestSourceCacheReplayOncePerScopeIsAtomic|TestSourceCacheLookupDeliverabilityProbe|TestSourceCacheWarmStoreDegradeLadder|TestParseSourceCacheCapabilityUnparsable|TestWarmLookupInputValidationDegradesToMiss|TestSourceCachePageOpsStoreWithoutSurface|TestChaosSourceCacheDriftedResumeRejectsRestoredReplay)$' \
+  ./pkg/sync                                                 -> ok 7.8s
+make chaos-check                                             -> pass (x2)
+```
+
+Mutation checks for the round's new instruments: each handler's
+`defer scOps.release()` removed one at a time -> that handler's
+loud-failure cell fails at the ride-along's held-lock assertion, naming
+the leaked scope (all three sites verified individually).
+
 ## Performance evidence
 
 The orchestration's hot-path addition is one `sourceCachePageOps` call per
 list-response page (pure CPU; no store I/O until an annotation is honored).
+For ANNOTATED pages the cost contract also includes the lock hold, not
+just acquisition (noted per round-4 review): since CO-6b-006 the
+per-scope mutex is held from `beforeUpserts` through `afterUpserts`,
+bracketing the page's row writes and — in the grants handler — a
+possible connector RPC (`getResourceFromConnector`). Parallel workers
+serving DISTINCT scopes never contend (one mutex per (rowKind,
+scopeKey)); contention arises only when concurrent cursors carry the
+same scope, which is exactly the interleaving the lock exists to
+serialize. `BenchmarkSourceCacheScopeLocks` measures acquisition cost
+only; no benchmark measures hold time because the held work is the
+page's own ingest, which the sync pays regardless.
 `BenchmarkSourceCachePageOps` (`pkg/sync/source_cache_pageops_bench_test.go`,
 Apple M1):
 
@@ -109,7 +140,8 @@ Instruments: `TestChaosSourceCacheGateMatrix` (OR1 events),
 - The capability is parsed per attempt; the warm-baseline cell observes a
   warm consult with the previous validator, every degrade cell observes a
   cold consult (miss), never an error surfaced to the connector.
-- `requireSourceCacheEvents` asserts on EVERY event in EVERY suite that
+- `requireSourceCacheEvents` asserts on every event passed to it — in
+  every suite that calls the helper, not the suite set as a whole — that
   `SyncOpAttrs.Lookup` arrived non-nil (`NoopLookup` substitutes when
   unset) and that no lookup error reached the connector.
 - Transport coverage: the warm consult contract holds on both in-process
@@ -154,6 +186,19 @@ quality), `TestPreviousSyncC1ZPathEnforcesReplayEligibility`
   `pebble-fence-stripped-old-fold-shape` and `pebble-fence-foreign-witness`
   (G5). Strict `WithPreviousSyncC1ZPath` on an unusable file still fails
   NewSyncer loudly (`TestOptionalPreviousSyncC1ZPath_SoftFails`).
+- Excluded cell (round-4 review N-3): a connector whose
+  `ListResourceTypes` output SHRINKS between generations while
+  `cache_generation` and `config_fingerprint` stay constant can replay
+  rows referencing types a cold sync's fresh-ingest filter would have
+  dropped — `sync_selection_fingerprint` digests the caller's selection,
+  not the connector's emitted type list, so the compat key does not model
+  this. Excluded rather than gated: the capability contract assigns the
+  connector responsibility for fingerprinting anything that changes what
+  it can see (a shrunk type list without a generation bump is a
+  capability-contract violation, same class as an unstable validator),
+  the ingest invariants (I3/I7/I8/I9) surface the resulting dangling
+  references as warn-class verdicts, and connector type lists are
+  static in practice. Registered in the exclusions registry.
 
 ### R3 — Fresh-page semantics
 
@@ -264,7 +309,10 @@ Instruments: `TestChaosSourceCacheReplayWithoutHitFailsCold`,
 - Replay-while-cold fails loudly: a connector emitting `SourceCacheReplay`
   with no this-sync lookup hit (cold sync, `NoopLookup`) fails the sync
   with `ErrReplayIntegrity`, cold verdict, correct row kind and scope key
-  via `errors.As` — never a silent degrade (OR4).
+  via `errors.As` — never a silent degrade (OR4). One cell per collection
+  handler (resources, entitlements, grants; CO-6b-007), so each handler's
+  own `sourceCachePageOps` error seam is exercised, not just the grants
+  seam the coverage triage originally found covered.
 - Planning-call → spawned-cursor handoff: the ordering suite's spawned
   cell consults at the root and honors replay annotations on spawned
   cursors (single copy, OR2 equivalence).
@@ -316,12 +364,31 @@ Instruments: `TestChaosSourceCacheReplayWithoutHitFailsCold`,
   tombstones, and manifest publish cannot interleave with another
   action's REPLACEMENT copy for the same scope (which deletes the
   scope's rows before copying the base — silent wipe of the fresh rows,
-  or a validator published over an incomplete scope). Error paths
-  between the two calls release through an idempotent `release()`
-  deferred at all three handler call sites, so a failed page cannot
-  leak the lock and deadlock its own retry. Instrument
-  `TestSourceCacheRecordPageParksBehindReplayCopy`, mutation-verified
-  against restoring the record-page early return.
+    or a validator published over an incomplete scope). Interleaving
+  instrument `TestSourceCacheRecordPageParksBehindReplayCopy`,
+  mutation-verified against restoring the record-page early return.
+- The release backstop is a distinct obligation with its own instruments
+  (CO-6b-007, closing the round-4 MAJOR that found it uninstrumented —
+  the bullet above previously misattributed its coverage to the parking
+  test, which only exercises `afterUpserts`): error paths between
+  `beforeUpserts` and `afterUpserts` release through an idempotent
+  `release()` deferred at all three handler call sites; losing any one
+  defer leaves the lock held, and because `syncOneAction` retries a
+  failed action in the SAME goroutine and `sync.Mutex` is not reentrant,
+  a retryable connector error would hang the sync permanently. Two
+  layers, per the recurrence rule (third resource-release obligation on
+  this branch — the ladder climb, not a fourth point test):
+  - A held-lock ride-along bound to the chaos fixture itself
+    (`newChaosHarness` registers a cleanup that walks
+    `sourceCacheScopeLocks` and fails the test if any lock is still held
+    at sync end), so EVERY present and future chaos suite — success or
+    failure path — evaluates the invariant, including any fourth call
+    site added later.
+  - Per-site killing scenarios: the loud-failure suite's three cells
+    error a scoped page inside each handler's lock window.
+    Mutation-verified per site: removing the resources, entitlements, or
+    grants handler's `defer scOps.release()` fails that handler's cell
+    at the ride-along assertion, naming the held scope.
 - Post-sync teardown: R1's teardown instrument.
 
 ### R9 — Verdict taxonomy
@@ -478,7 +545,8 @@ Instruments: `TestChaosSourceCacheStaleValidatorFetchesFresh`,
   (`pkg/sync/source_cache_exclusions_verification_test.go`) registers:
   lambda ask/answer continuation (deferred to 6c), subprocess transport
   lookup delivery (CO-6b-001), resource-targeted sync and event feeds
-  (B10); and names the instruments for the static-entitlement and
+  (B10), and the shrunk-resource-type-list permutation (round-4 N-3,
+  CO-6b-007); and names the instruments for the static-entitlement and
   derived-row boundaries.
 - The `NOT YET WIRED` block in `pkg/sourcecache/sourcecache.go` is
   rewritten as current behavior (wiring, CO-6b-001 boundary, CO-016
@@ -491,6 +559,76 @@ Instruments: `TestChaosSourceCacheStaleValidatorFetchesFresh`,
   duplicate cursors, unsupported shapes); `make chaos-full-check` runs
   every `TestChaos(Connector|SourceCache)` suite nightly-tier; the
   six-generation chain requires `BATON_TEST_NIGHTLY=1`.
+
+## Structural-coverage triage (CO-6b-007)
+
+Method (handbook coverage-driven step for HIGH changes): one combined
+profile over every changed package —
+`go test -coverprofile -coverpkg=<changed packages> ./pkg/sync
+./pkg/sourcecache/... ./pkg/connectorbuilder/... ./pkg/dotc1z/...
+./internal/connector/... ./internal/chaosconnector/...
+./pkg/types/resource/...` — merged per block across test binaries (max
+count; a multi-binary profile repeats every block once per binary),
+intersected with the non-test, non-generated lines this branch changed
+against merge-base `72939098`. Standard tier (no nightly flag), so the
+triage covers what a per-PR run exercises.
+
+At the reviewed SHA `c33f698e`: 87 uncovered changed blocks across 11
+files. Triage produced three instruments for branches judged worth real
+tests, plus three more cells while writing the ledger:
+
+- `TestParseSourceCacheCapabilityUnparsable` — corrupt capability
+  annotation reads as NOT DECLARED (plain cold sync, no error).
+- `TestWarmLookupInputValidationDegradesToMiss` — invalid row kind,
+  invalid scope key, and store read failure each degrade to a miss
+  without failing the connector's call or recording a hit.
+- `TestSourceCachePageOpsStoreWithoutSurface` — record ignored with a
+  warn / replay loud-cold on a store with no source-cache surface.
+- Loud-failure cells for the resources and entitlements handlers
+  (previously grants-only — the profile confirmed the round-4 review's
+  observation that the sibling handlers' identical error seams were
+  unexercised).
+- `TestConnectorClientSourceCacheDelivery` (`internal/connector`) — the
+  production client's setter/probe/delivery trio, previously covered
+  only by the compile pin.
+- `TestSourceCacheWarmStoreDegradeLadder` and the
+  `client-without-setlookup-stays-cold` cell — install-time degrade
+  rungs for structurally unusable previous stores and clients.
+
+Residual uncovered changed blocks: 71 (re-profiled at the final tree).
+Dispositions, every block in one of three groups (42 + 24 + 5):
+
+1. **Store/IO fault propagation with no injection seam** (42 blocks) —
+   compat record read/write failures (orchestration and
+   `pkg/dotc1z/source_cache.go`), batch-commit error wrapping at the
+   Pebble replay loops' mid-loop commit sites
+   (`pkg/dotc1z/engine/pebble/source_cache.go` — the final-batch commit
+   path IS covered via the sentinel-identity test's commit hook, which
+   serves as the representative instrument for the wrapping),
+   `installSourceCacheLookup`/`afterUpserts`/`wrapPageRowPutError`
+   propagation in the three handlers, artifact open/close failures in
+   the eligibility ladder (`syncer.go` fence/quality close-error
+   branches), and `pebble_store.go` file-IO branches. One gap, not
+   forty: uniform two-to-three-line `if err != nil` propagation whose
+   fault cannot be injected without a store-fault seam. Registered under
+   Explicit limitations (the `wrapPageRowPutError` entry now stands for
+   the class); carried to 6c.
+2. **Dead-defensive branches** (24 blocks) — double-checked gates
+   (`sourceCacheWarmStore`'s enabled check, re-verified defensively
+   duplicated by its only caller), nil guards, empty-set normalization
+   in token serialization (`state.go`), protowire malformed-field
+   branches for the witness (`envelope.go`), and chaos-harness internal
+   validation (`internal/chaosconnector` scenario/spec/oracle guards —
+   test infrastructure that fails loud on malformed fixtures).
+   Unreachable by construction; kept fail-closed.
+3. **Warn-only boundary branches, sampled** (5 blocks) — the
+   `EnqueuePageTokens`-on-resources warn (registered boundary), the
+   non-FULL-shape warn when the capability is declared (the gate
+   behavior itself is cell-covered; the warn line is not), and page-ops
+   parse-error propagation through the handlers (the classification is
+   unit-enumerated in the taxonomy; the handlers' `return err` shape is
+   chaos-covered per handler via the beforeUpserts seam, which shares
+   the same two lines).
 
 ## Change orders
 
@@ -536,6 +674,15 @@ Instruments: `TestChaosSourceCacheStaleValidatorFetchesFresh`,
   loudly instead of silently downgrading to the v0 format and dropping
   the action stack) with round-trip and fence tests. Full entry in
   `plan.md`.
+- **CO-6b-007** — round-4 remediation: the held-lock ride-along bound to
+  the chaos fixture plus per-handler loud-failure cells (closing the
+  uninstrumented `release()` backstop, mutation-verified per call
+  site), the structural-coverage triage section below, the
+  `MaterializationWitnessReader` compile pin, the syncer's probe
+  assertion switched to the exported interface, the
+  shrunk-resource-type-list exclusion, and the wording corrections the
+  round requested (token fence scope, lock-hold cost contract, lock
+  cardinality comment). Full entry in `plan.md`.
 
 ## Explicit limitations
 
@@ -666,6 +813,48 @@ two genuinely new defects. Dispositions:
    hierarchical resource type blocks every scope), and it fires even for
    child types excluded from the sync — both conservative in the safe
    direction; recorded here as accepted behavior.
+
+### Round 4 (against `c33f698e`)
+
+Three reviewers; one ACCEPT WITH LIMITATIONS, two REJECT. All three
+independently re-ran the recorded gates clean and confirmed all seven
+CO-6b-006 closure claims mutation-adequate by experiment (each fix
+reverted in an isolated clone; the named instrument failed), and
+confirmed every prior-round finding closed. The rejections rested on two
+new findings, both remediated under CO-6b-007:
+
+1. **The scope-lock `release()` backstop was uninstrumented** (MAJOR,
+   one review) — deleting the grants handler's `defer scOps.release()`
+   left the entire package green, while this document named the
+   record-page parking test as its instrument (which only exercises
+   `afterUpserts`'s release). The reviewer verified the hazard is real:
+   `beforeUpserts` retains the lock on its error returns,
+   `syncOneAction` retries a failed action in the same goroutine, and
+   the grants handler makes a connector RPC inside the lock window — a
+   transient `Unavailable` with the backstop absent hangs the sync
+   permanently. Closed with the ride-along + per-handler cells
+   (mutation-verified per site) as the reviewer prescribed: the class is
+   retired structurally, not point-tested a third time.
+2. **Structural-coverage triage absent** (MAJOR, one review) — the
+   handbook requires per-block dispositions for uncovered changed code
+   in HIGH changes, and this document had none. Closed with the
+   triage section above, including the three unit instruments it
+   produced. The review's spot observation — the loud-failure cells
+   exercised only the grants handler's error seam — was confirmed by
+   the profile and closed by the per-handler cells.
+3. **Minor/low**: witness assertion unpinned (closed: named interface +
+   compile pin); syncer asserted a private duplicate of the exported
+   probe interface (closed: duplicate deleted); shrunk-type-list replay
+   permutation unenumerated (closed: registered exclusion with
+   containment rationale); performance evidence silent on the extended
+   lock hold (closed: cost contract stated); token-fence wording
+   overclaimed (closed: narrowed to parse-failure-only); token fence
+   hard-fails a corrupt same-version token on every resume where the
+   handbook prefers degrading to redone work (accepted as the
+   documented operational contract — same shape as the cold-verdict
+   retry-livelock note, with the in-tree abandon path being 6c's
+   runner ladder); `requireSourceCacheEvents` claim scoped to the
+   suites that call it.
 
 ### PR review round (automated, PR #1112)
 

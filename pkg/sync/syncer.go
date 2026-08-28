@@ -4503,7 +4503,7 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 			// carry — or forge — the witness. Absence or mismatch means an
 			// old SDK wrote the file last and its replay state is
 			// untrustworthy: degrade to a cold sync.
-			witnessReader, hasWitness := any(previousSyncStore).(interface{ SourceCacheMaterializationWitness() string })
+			witnessReader, hasWitness := any(previousSyncStore).(sourcecache.MaterializationWitnessReader)
 			if !hasWitness || witnessReader.SourceCacheMaterializationWitness() != sourcecache.MaterializationPolicyGeneration {
 				witness := ""
 				if hasWitness {

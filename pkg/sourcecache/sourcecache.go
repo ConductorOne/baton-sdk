@@ -194,6 +194,18 @@ type LookupDeliverabilityProbe interface {
 	SourceCacheLookupDeliverable() bool
 }
 
+// MaterializationWitnessReader is the optional store capability behind the
+// G5 / CO-017 cross-version fold fence: the previous artifact's envelope
+// must carry the save-time materialization witness byte-equal to this SDK's
+// MaterializationPolicyGeneration or the sync degrades cold. Named here —
+// rather than asserted inline in pkg/sync — so the implementing store can
+// compile-pin it (var _ MaterializationWitnessReader = ...) and a method
+// rename cannot silently sever the fence from the syncer's type assertion
+// (same discipline as LookupDeliverabilityProbe).
+type MaterializationWitnessReader interface {
+	SourceCacheMaterializationWitness() string
+}
+
 // HashScope returns the lowercase-hex sha256 of a canonical scope string.
 // Convenience for connectors; any stable identifier is acceptable as a
 // scope key (only non-emptiness and a length cap are enforced).

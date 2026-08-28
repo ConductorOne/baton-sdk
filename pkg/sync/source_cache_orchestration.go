@@ -74,15 +74,6 @@ type sourceCacheEntryReader interface {
 	LookupSourceCacheEntry(ctx context.Context, kind sourcecache.RowKind, scopeKey string) (sourcecache.Entry, bool, error)
 }
 
-// sourceCacheLookupDeliverable is optionally implemented by connector
-// clients whose SetSourceCache may be a structural no-op (internal/
-// connector's client forwards to a setter that is nil for subprocess
-// transports). False means the connector will observe NoopLookup no matter
-// what the syncer delivers, so install must not report warm.
-type sourceCacheLookupDeliverable interface {
-	SourceCacheLookupDeliverable() bool
-}
-
 // sourceCacheCompatReader is the slice of a store's source-cache surface the
 // consume-side compat gate (G7) needs; sourceCacheCompatWriter adds the
 // produce side (satisfied by dotc1z.SourceCacheStore).
@@ -344,7 +335,7 @@ func (s *syncer) installSourceCacheLookup(ctx context.Context) (func(), error) {
 	// subprocess wrapper, CO-6b-001). Delivery into the void must not
 	// count as warm: the connector would consult NoopLookup while the
 	// syncer believed a warm lookup was live.
-	if probe, ok := s.connector.(sourceCacheLookupDeliverable); ok && !probe.SourceCacheLookupDeliverable() {
+	if probe, ok := s.connector.(sourcecache.LookupDeliverabilityProbe); ok && !probe.SourceCacheLookupDeliverable() {
 		if s.sourceCacheEnabled() {
 			l.Warn("source-cache capability declared but the connector transport cannot deliver a lookup " +
 				"(subprocess connectors have no in-process backchannel, CO-6b-001); syncing cold")
@@ -391,9 +382,11 @@ func (s *syncer) recordSourceCacheHit(rowKind sourcecache.RowKind, scopeKey stri
 	s.state.RecordSourceCacheHit(rowKind, scopeKey, cacheValidator)
 }
 
-// sourceCacheScopeLock returns the mutex serializing replay work for one
-// (rowKind, scopeKey). Locks are per-syncer and never reclaimed: the map is
-// bounded by the number of distinct replayed scopes in one sync.
+// sourceCacheScopeLock returns the mutex serializing page application for
+// one (rowKind, scopeKey) — every scoped page (record or replay) holds it
+// from beforeUpserts through afterUpserts (CO-6b-006). Locks are per-syncer
+// and never reclaimed: the map is bounded by the number of distinct scoped
+// (rowKind, scopeKey) pairs in one sync.
 func (s *syncer) sourceCacheScopeLock(rowKind sourcecache.RowKind, scopeKey string) *sync.Mutex {
 	key := string(rowKind) + "\x00" + scopeKey
 	if mu, ok := s.sourceCacheScopeLocks.Load(key); ok {
