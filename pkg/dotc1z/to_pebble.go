@@ -108,9 +108,12 @@ func WithConvertTmpDir(dir string) ConvertOption {
 // goroutine). The default — min(4, GOMAXPROCS/2) — leaves headroom for
 // shared infrastructure; callers that own the machine can raise it, and
 // 1 fully serializes the grant scan. Values <= 0 are ignored. Memory
-// scales with fan-out: each lane also pins up to three 128MiB spill
-// arenas (its grant sorter plus two index sorters — see the bulk
-// import's arenaFree), so budget ~384MiB of sort memory per lane.
+// scales with fan-out: each lane pins up to three 128MiB spill arenas
+// (its grant sorter plus two index sorters), and the import's three
+// lane-independent sorters (resources, entitlements, parent index) pin
+// another ~384MiB alongside the scan since none finalize until Finish —
+// so budget ~384MiB × (lanes + 1) of sort memory (see the bulk import's
+// arenaFree).
 func WithConvertParallelism(n int) ConvertOption {
 	return func(c *convertConfig) {
 		if n > 0 {

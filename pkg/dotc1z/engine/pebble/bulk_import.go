@@ -39,10 +39,13 @@ import (
 // past it and must be Abort()ed.
 var ErrBulkImportOutOfOrder = errors.New("bulk sync import: keys are not strictly increasing")
 
-// ErrBulkImportDuplicateKey is returned from Finish when a spill merge
-// finds two records with the same key. Duplicates are impossible for
-// well-formed sources (the importer requires global uniqueness), so
-// hitting this means corrupt input, not a caller ordering bug.
+// ErrBulkImportDuplicateKey is returned when a spill merge finds two
+// records with the same key — from BulkSyncImport.Finish, and from the
+// engine's other spill merges (the deferred index and digest builds at
+// EndSync, the synth-grant layer, the open-time id-index migration).
+// Duplicates are impossible for well-formed sources (every producer
+// requires global uniqueness), so hitting this means corrupt input,
+// not a caller ordering bug.
 var ErrBulkImportDuplicateKey = errors.New("bulk sync import: duplicate key in spill merge")
 
 // bulkSpillKeyChunkBytes sizes the shared spill arena pool
