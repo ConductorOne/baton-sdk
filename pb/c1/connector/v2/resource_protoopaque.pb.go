@@ -1836,10 +1836,11 @@ func (*keyGenerationProfile_Crv) isKeyGenerationProfile_Parameters() {}
 // CredentialIssueOptions are intentionally separate from CredentialOptions:
 // adding issuance-only arms must not expand account creation or rotation.
 type CredentialIssueOptions struct {
-	state              protoimpl.MessageState           `protogen:"opaque.v1"`
-	xxx_hidden_Options isCredentialIssueOptions_Options `protobuf_oneof:"options"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	state                           protoimpl.MessageState           `protogen:"opaque.v1"`
+	xxx_hidden_SecretResourceTypeId string                           `protobuf:"bytes,1,opt,name=secret_resource_type_id,json=secretResourceTypeId,proto3"`
+	xxx_hidden_Options              isCredentialIssueOptions_Options `protobuf_oneof:"options"`
+	unknownFields                   protoimpl.UnknownFields
+	sizeCache                       protoimpl.SizeCache
 }
 
 func (x *CredentialIssueOptions) Reset() {
@@ -1865,6 +1866,13 @@ func (x *CredentialIssueOptions) ProtoReflect() protoreflect.Message {
 		return ms
 	}
 	return mi.MessageOf(x)
+}
+
+func (x *CredentialIssueOptions) GetSecretResourceTypeId() string {
+	if x != nil {
+		return x.xxx_hidden_SecretResourceTypeId
+	}
+	return ""
 }
 
 func (x *CredentialIssueOptions) GetApiKey() *CredentialIssueOptions_ApiKey {
@@ -1901,6 +1909,10 @@ func (x *CredentialIssueOptions) GetClientSecret() *CredentialIssueOptions_Clien
 		}
 	}
 	return nil
+}
+
+func (x *CredentialIssueOptions) SetSecretResourceTypeId(v string) {
+	x.xxx_hidden_SecretResourceTypeId = v
 }
 
 func (x *CredentialIssueOptions) SetApiKey(v *CredentialIssueOptions_ApiKey) {
@@ -2029,6 +2041,13 @@ func (x *CredentialIssueOptions) WhichOptions() case_CredentialIssueOptions_Opti
 type CredentialIssueOptions_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
+	// Which of the connector's advertised issuance options to select, naming the
+	// resource type the minted credential comes back AS and matching
+	// CredentialIssueOptionDescriptor.secret_resource_type_id. Required: together
+	// with the options arm below it identifies exactly one descriptor. Carries no
+	// validate.rules because nothing on the issuance path calls the generated
+	// Validate(); the SDK enforces presence and length in Go instead.
+	SecretResourceTypeId string
 	// Fields of oneof xxx_hidden_Options:
 	ApiKey       *CredentialIssueOptions_ApiKey
 	Keypair      *CredentialIssueOptions_Keypair
@@ -2041,6 +2060,7 @@ func (b0 CredentialIssueOptions_builder) Build() *CredentialIssueOptions {
 	m0 := &CredentialIssueOptions{}
 	b, x := &b0, m0
 	_, _ = b, x
+	x.xxx_hidden_SecretResourceTypeId = b.SecretResourceTypeId
 	if b.ApiKey != nil {
 		x.xxx_hidden_Options = &credentialIssueOptions_ApiKey_{b.ApiKey}
 	}
@@ -5988,8 +6008,9 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x10rsa_modulus_bits\x18\x02 \x01(\rH\x00R\x0ersaModulusBits\x12\x1b\n" +
 	"\x03crv\x18\x03 \x01(\tB\a\xfaB\x04r\x02(@H\x00R\x03crvB\f\n" +
 	"\n" +
-	"parameters\"\x9c\x04\n" +
-	"\x16CredentialIssueOptions\x12I\n" +
+	"parameters\"\xd3\x04\n" +
+	"\x16CredentialIssueOptions\x125\n" +
+	"\x17secret_resource_type_id\x18\x01 \x01(\tR\x14secretResourceTypeId\x12I\n" +
 	"\aapi_key\x18d \x01(\v2..c1.connector.v2.CredentialIssueOptions.ApiKeyH\x00R\x06apiKey\x12K\n" +
 	"\akeypair\x18e \x01(\v2/.c1.connector.v2.CredentialIssueOptions.KeypairH\x00R\akeypair\x12E\n" +
 	"\x05token\x18f \x01(\v2-.c1.connector.v2.CredentialIssueOptions.TokenH\x00R\x05token\x12[\n" +

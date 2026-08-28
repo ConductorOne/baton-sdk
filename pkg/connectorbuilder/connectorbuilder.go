@@ -530,7 +530,9 @@ func validateCredentialIssueCapabilityDetails(issue *v2.CredentialDetailsCredent
 	if issue == nil || issue.GetPreferredOption() == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
 		return status.Error(codes.InvalidArgument, "preferred credential issue option is not set")
 	}
-	seen := make(map[v2.CapabilityDetailCredentialOption]struct{}, len(issue.GetOptions()))
+	seen := make(map[credentialIssueDescriptorKey]struct{}, len(issue.GetOptions()))
+	perOption := make(map[v2.CapabilityDetailCredentialOption]int, len(issue.GetOptions()))
+	preferredPerOption := make(map[v2.CapabilityDetailCredentialOption]int, len(issue.GetOptions()))
 	for _, descriptor := range issue.GetOptions() {
 		if descriptor == nil || descriptor.GetOption() == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
 			return status.Error(codes.InvalidArgument, "credential issue option descriptor is invalid")
@@ -540,6 +542,10 @@ func validateCredentialIssueCapabilityDetails(issue *v2.CredentialDetailsCredent
 		}
 		if descriptor.GetSecretResourceTypeId() == "" {
 			return status.Error(codes.InvalidArgument, "credential issue secret resource type is not set")
+		}
+		if len(descriptor.GetSecretResourceTypeId()) > maxCredentialIssueSecretResourceTypeIDBytes {
+			return status.Errorf(codes.InvalidArgument, "credential issue secret resource type must be at most %d bytes",
+				maxCredentialIssueSecretResourceTypeIDBytes)
 		}
 		if err := validateCredentialIssueDescriptorShape(descriptor); err != nil {
 			return status.Errorf(codes.InvalidArgument, "invalid credential issue option %s: %v", descriptor.GetOption(), err)
@@ -552,13 +558,54 @@ func validateCredentialIssueCapabilityDetails(issue *v2.CredentialDetailsCredent
 		if err := validateIssuanceExpiryCapability(descriptor.GetExpiry()); err != nil {
 			return status.Errorf(codes.InvalidArgument, "invalid credential issue expiry capability: %v", err)
 		}
-		if _, exists := seen[descriptor.GetOption()]; exists {
-			return status.Errorf(codes.InvalidArgument, "duplicate credential issue option %s", descriptor.GetOption())
+		key := credentialIssueDescriptorKey{
+			option:               descriptor.GetOption(),
+			secretResourceTypeID: descriptor.GetSecretResourceTypeId(),
 		}
-		seen[descriptor.GetOption()] = struct{}{}
+		if _, exists := seen[key]; exists {
+			return status.Errorf(codes.InvalidArgument, "duplicate credential issue option %s for secret resource type %q",
+				descriptor.GetOption(), descriptor.GetSecretResourceTypeId())
+		}
+		seen[key] = struct{}{}
+		perOption[descriptor.GetOption()]++
+		if descriptor.GetPreferred() {
+			preferredPerOption[descriptor.GetOption()]++
+		}
 	}
-	if _, ok := seen[issue.GetPreferredOption()]; !ok {
+	if err := validateCredentialIssuePreference(issue.GetOptions(), perOption, preferredPerOption); err != nil {
+		return err
+	}
+	if perOption[issue.GetPreferredOption()] == 0 {
 		return status.Error(codes.InvalidArgument, "preferred credential issue option is not part of the supported options")
+	}
+	return nil
+}
+
+// validateCredentialIssuePreference enforces that every option resolves to one
+// default descriptor. It walks the descriptors in declaration order so the
+// error names the first offending option rather than a random one.
+func validateCredentialIssuePreference(
+	descriptors []*v2.CredentialIssueOptionDescriptor,
+	perOption map[v2.CapabilityDetailCredentialOption]int,
+	preferredPerOption map[v2.CapabilityDetailCredentialOption]int,
+) error {
+	reported := make(map[v2.CapabilityDetailCredentialOption]struct{}, len(perOption))
+	for _, descriptor := range descriptors {
+		option := descriptor.GetOption()
+		if _, done := reported[option]; done {
+			continue
+		}
+		reported[option] = struct{}{}
+		if preferredPerOption[option] > 1 {
+			return status.Errorf(codes.InvalidArgument,
+				"credential issue option %s has %d preferred descriptors, expected at most one",
+				option, preferredPerOption[option])
+		}
+		if perOption[option] > 1 && preferredPerOption[option] == 0 {
+			return status.Errorf(codes.InvalidArgument,
+				"credential issue option %s has %d descriptors and none is preferred",
+				option, perOption[option])
+		}
 	}
 	return nil
 }

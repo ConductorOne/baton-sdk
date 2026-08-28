@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +13,56 @@ import (
 )
 
 var credentialIssueRequestIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// maxCredentialIssueSecretResourceTypeIDBytes bounds secret_resource_type_id on
+// both the descriptor and the request. The descriptor's matching proto rules
+// never run: nothing on the capabilities or issuance path calls the generated
+// Validate().
+const maxCredentialIssueSecretResourceTypeIDBytes = 1024
+
+// credentialIssueDescriptorKey identifies one advertised issuance option. A
+// credential shape alone cannot: a connector may mint several kinds of
+// credential that share a shape and differ only in what they come back as.
+type credentialIssueDescriptorKey struct {
+	option               v2.CapabilityDetailCredentialOption
+	secretResourceTypeID string
+}
+
+// resolveCredentialIssueDescriptor looks up the one descriptor a request's
+// CredentialIssueOptions selects: the oneof arm gives the shape, and
+// secret_resource_type_id gives the kind within that shape. Both halves are
+// required, so the pair always names at most one advertised descriptor.
+func resolveCredentialIssueDescriptor(
+	details *v2.CredentialDetailsCredentialIssue,
+	options *v2.CredentialIssueOptions,
+) (*v2.CredentialIssueOptionDescriptor, error) {
+	kind := credentialIssueOptionKind(options)
+	if kind == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
+		return nil, fmt.Errorf("unsupported credential option")
+	}
+	secretResourceTypeID := options.GetSecretResourceTypeId()
+	if secretResourceTypeID == "" {
+		return nil, fmt.Errorf("credential_options.secret_resource_type_id is required")
+	}
+	if len(secretResourceTypeID) > maxCredentialIssueSecretResourceTypeIDBytes {
+		return nil, fmt.Errorf("credential_options.secret_resource_type_id must be at most %d bytes", maxCredentialIssueSecretResourceTypeIDBytes)
+	}
+	var advertisedForKind []string
+	for _, candidate := range details.GetOptions() {
+		if candidate.GetOption() != kind {
+			continue
+		}
+		if candidate.GetSecretResourceTypeId() == secretResourceTypeID {
+			return candidate, nil
+		}
+		advertisedForKind = append(advertisedForKind, strconv.Quote(candidate.GetSecretResourceTypeId()))
+	}
+	if len(advertisedForKind) == 0 {
+		return nil, fmt.Errorf("credential option %s is not advertised by connector", kind)
+	}
+	return nil, fmt.Errorf("credential option %s does not produce secret resource type %q; it produces %s",
+		kind, secretResourceTypeID, strings.Join(advertisedForKind, ", "))
+}
 
 func credentialIssueOptionKind(options *v2.CredentialIssueOptions) v2.CapabilityDetailCredentialOption {
 	if options == nil {
@@ -38,19 +89,9 @@ func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.Crede
 	if len(input.RequestID) == 0 || len(input.RequestID) > 128 || !credentialIssueRequestIDPattern.MatchString(input.RequestID) {
 		return nil, fmt.Errorf("request id must be 1..128 characters containing only letters, digits, underscore, or hyphen")
 	}
-	kind := credentialIssueOptionKind(input.CredentialOptions)
-	if kind == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
-		return nil, fmt.Errorf("unsupported credential option")
-	}
-	var descriptor *v2.CredentialIssueOptionDescriptor
-	for _, candidate := range details.GetOptions() {
-		if candidate.GetOption() == kind {
-			descriptor = candidate
-			break
-		}
-	}
-	if descriptor == nil {
-		return nil, fmt.Errorf("credential option %s is not advertised by connector", kind)
+	descriptor, err := resolveCredentialIssueDescriptor(details, input.CredentialOptions)
+	if err != nil {
+		return nil, err
 	}
 	if descriptor.GetResourceMode() == v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_UNSPECIFIED {
 		return nil, fmt.Errorf("credential resource mode must be advertised")

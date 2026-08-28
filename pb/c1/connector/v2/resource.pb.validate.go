@@ -2719,6 +2719,8 @@ func (m *CredentialIssueOptions) validate(all bool) error {
 
 	var errors []error
 
+	// no validation rules for SecretResourceTypeId
+
 	switch v := m.Options.(type) {
 	case *CredentialIssueOptions_ApiKey_:
 		if v == nil {

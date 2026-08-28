@@ -104,7 +104,16 @@ message CredentialDetailsCredentialRotation {
 // Advertises which credential options CredentialManagerService.IssueCredential
 // supports for this identity type.
 message CredentialDetailsCredentialIssue {
+  // Advertised issuance options, unique on (option, secret_resource_type_id).
+  // Several descriptors may share an option when they mint different secret
+  // resource types -- an organization-wide API key and a per-identity API key,
+  // for example.
   repeated CredentialIssueOptionDescriptor options = 1;
+  // The preferred credential shape. Selection is two-level: this field picks
+  // the shape and CredentialIssueOptionDescriptor.preferred picks the
+  // descriptor within it. To resolve the default, look only at the descriptors
+  // carrying this option: one of them has preferred set, except where the
+  // option has a single descriptor, which is the default with the flag unset.
   CapabilityDetailCredentialOption preferred_option = 2;
 }
 
@@ -119,11 +128,19 @@ message CredentialIssueOptionDescriptor {
   CredentialResourceMode resource_mode = 8;
   // Resource type returned by IssueCredential. It must be registered with a
   // ResourceDeleterV2 so every issued credential has a provider revoke path,
-  // including virtual credentials that cannot be listed later.
+  // including virtual credentials that cannot be listed later. Together with
+  // option it identifies this descriptor, so two credential kinds sharing one
+  // shape must return distinct resource types.
   string secret_resource_type_id = 9 [(validate.rules).string = {
     min_bytes: 1
     max_bytes: 1024
   }];
+  // Marks this descriptor the default within its option, for a caller
+  // presenting a choice. At most one descriptor per option may set it, and one
+  // must whenever several descriptors share that option: a default taken from
+  // declaration order would not be stable. It selects nothing at issue time --
+  // CredentialIssueOptions.secret_resource_type_id is still required.
+  bool preferred = 10;
 }
 
 message IssuanceExpiryCapability {
