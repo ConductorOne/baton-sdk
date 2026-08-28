@@ -80,6 +80,12 @@ func (b *Builder) Metadata(context.Context) (*v2.ConnectorMetadata, error) {
 }
 
 func (b *Builder) Validate(context.Context) (annotations.Annotations, error) {
+	// Source-cache capability is run state, not builder config: generational
+	// suites rotate generations/fingerprints between the syncs of one run,
+	// and the syncer re-parses the capability on every attempt (plan B1).
+	if capability := b.run.SourceCacheCapability(); capability != nil {
+		return annotations.New(capability), nil
+	}
 	return nil, nil
 }
 

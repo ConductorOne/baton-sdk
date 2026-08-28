@@ -28,6 +28,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	ratelimit2 "github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/conductorone/baton-sdk/pkg/session"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
@@ -55,10 +56,20 @@ type connectorClient struct {
 	connectorV2.ActionServiceClient
 
 	sessionStoreSetter sessions.SetSessionStore // this is the session store server
+
+	// sourceCacheSetter forwards the sync runner's source-cache lookup to
+	// an in-process connector server (ADVANCED FUNCTIONALITY — see
+	// pkg/sourcecache). It is nil for subprocess connectors: a live Lookup
+	// interface cannot cross the process boundary, so those connectors see
+	// NoopLookup and degrade to cold fetches until the ask/answer
+	// continuation (deferred) provides an RPC path.
+	sourceCacheSetter sourcecache.SetLookup
 }
 
 var _ sessions.SetSessionStore = (*connectorClient)(nil)
 var _ SetSessionStoreSetter = (*connectorClient)(nil)
+var _ sourcecache.SetLookup = (*connectorClient)(nil)
+var _ SetSourceCacheSetter = (*connectorClient)(nil)
 
 type SetSessionStoreSetter interface {
 	SetSessionStoreSetter(setsessionStoreSetter sessions.SetSessionStore)
@@ -66,6 +77,40 @@ type SetSessionStoreSetter interface {
 
 func (c *connectorClient) SetSessionStoreSetter(sessionStoreSetter sessions.SetSessionStore) {
 	c.sessionStoreSetter = sessionStoreSetter
+}
+
+// SetSourceCacheSetter is implemented by connector clients that can forward
+// the syncer's source-cache lookup to an in-process connector server.
+type SetSourceCacheSetter interface {
+	SetSourceCacheSetter(sourceCacheSetter sourcecache.SetLookup)
+}
+
+func (c *connectorClient) SetSourceCacheSetter(sourceCacheSetter sourcecache.SetLookup) {
+	c.sourceCacheSetter = sourceCacheSetter
+}
+
+// Compile pin: the syncer discovers the probe by type assertion, so a
+// method rename here (or on the interface) must fail the build, not
+// silently re-open the false-warm path this probe closes.
+var _ sourcecache.LookupDeliverabilityProbe = (*connectorClient)(nil)
+
+// SourceCacheLookupDeliverable reports whether SetSourceCache reaches a
+// live in-process target. The syncer probes this before treating a lookup
+// install as warm: for subprocess connectors (the runner's default) the
+// setter is nil and delivery would be a silent no-op (CO-6b-001).
+func (c *connectorClient) SourceCacheLookupDeliverable() bool {
+	return c.sourceCacheSetter != nil
+}
+
+func (c *connectorClient) SetSourceCache(ctx context.Context, lookup sourcecache.Lookup) {
+	if c.sourceCacheSetter == nil {
+		// Normal for every subprocess connector and for connectors that
+		// never opted into source-cache replay; the syncer calls this on
+		// every sync, so anything louder than Debug is noise.
+		ctxzap.Extract(ctx).Debug("connectorClient has no source-cache setter — lookup not delivered; connector degrades to cold fetches")
+		return
+	}
+	c.sourceCacheSetter.SetSourceCache(ctx, lookup)
 }
 
 func (c *connectorClient) SetSessionStore(ctx context.Context, store sessions.SessionStore) {

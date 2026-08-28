@@ -9,6 +9,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/internal/connector"
 	"github.com/conductorone/baton-sdk/pkg/connectorclient"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -23,19 +24,48 @@ import (
 // without serialization. The same fault runtime wraps this and gRPC clients.
 func NewDirectClient(ctx context.Context, server types.ConnectorServer, run *Run) types.ConnectorClient {
 	direct := &directConn{server: server}
-	return connectorclient.NewConnectorClient(ctx, &faultConn{
-		delegate: direct,
-		run:      run,
-	})
+	return &directClient{
+		ConnectorClient: connectorclient.NewConnectorClient(ctx, &faultConn{
+			delegate: direct,
+			run:      run,
+		}),
+		server: server,
+	}
+}
+
+// directClient adds the syncer→connector source-cache lookup delivery
+// (sourcecache.SetLookup) to the direct transport by forwarding to the
+// server-side connectorbuilder, mirroring what the subprocess runner's
+// connectorClient does over its own channel.
+type directClient struct {
+	types.ConnectorClient
+	server types.ConnectorServer
+}
+
+func (c *directClient) SetSourceCache(ctx context.Context, lookup sourcecache.Lookup) {
+	if setter, ok := c.server.(sourcecache.SetLookup); ok {
+		setter.SetSourceCache(ctx, lookup)
+	}
 }
 
 // GRPCClient owns an in-memory gRPC server and its generated connector client.
 type GRPCClient struct {
 	types.ConnectorClient
 
-	conn     *grpc.ClientConn
-	server   *grpc.Server
-	listener *bufconn.Listener
+	conn      *grpc.ClientConn
+	server    *grpc.Server
+	listener  *bufconn.Listener
+	connector types.ConnectorServer
+}
+
+// SetSourceCache delivers the source-cache lookup to the connector-side
+// builder. The lookup is an in-process interface, so it cannot ride the
+// gRPC transport itself; both processes here share memory, and forwarding
+// directly mirrors the delivery a runner would perform out-of-band.
+func (c *GRPCClient) SetSourceCache(ctx context.Context, lookup sourcecache.Lookup) {
+	if setter, ok := c.connector.(sourcecache.SetLookup); ok {
+		setter.SetSourceCache(ctx, lookup)
+	}
 }
 
 // NewGRPCClient starts an in-memory gRPC server. It exercises normal service
@@ -106,6 +136,7 @@ func newGRPCClient(
 		conn:            conn,
 		server:          grpcServer,
 		listener:        listener,
+		connector:       server,
 	}, nil
 }
 

@@ -1312,6 +1312,60 @@ func TestVerificationReplayCommitFailureRetryAllKinds(t *testing.T) {
 	}
 }
 
+// TestVerificationReplayVerdictSentinelIdentity pins the warm/cold
+// classification CONTRACT the sync orchestration's B7 taxonomy rides on
+// (docs/verification/sync-replay-6b): a replay failure at a destination
+// commit point arrives at the caller CARRYING ErrReplayDestinationCommit,
+// and a source-side read failure arrives WITHOUT it. The syncer-level
+// taxonomy test synthesizes the sentinel by hand; this cell proves the
+// engine's real failure paths produce it, so deleting the engine's
+// replayDestinationCommitError wrapping cannot pass unnoticed.
+func TestVerificationReplayVerdictSentinelIdentity(t *testing.T) {
+	for _, kind := range []sourcecache.RowKind{
+		sourcecache.RowKindResources,
+		sourcecache.RowKindEntitlements,
+		sourcecache.RowKindGrants,
+	} {
+		t.Run(string(kind), func(t *testing.T) {
+			ctx := t.Context()
+			prev := newAdapter(t)
+			_, err := prev.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+			require.NoError(t, err)
+			driver := newSourceScopeMutationDriver(t, prev, kind)
+			require.NoError(t, driver.put(ctx, "scope-a"))
+			sealReplaySource(ctx, t, prev.PebbleEngine(), kind, "scope-a")
+
+			cur := newAdapter(t)
+			_, err = cur.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+			require.NoError(t, err)
+
+			// A failure at the destination-commit point carries the
+			// warm sentinel through the engine's wrapping.
+			injectedCommit := errors.New("injected destination commit failure")
+			cur.PebbleEngine().test.sourceCacheReplayCommitHook = func(_ string, _ int, _ bool) error {
+				return injectedCommit
+			}
+			_, err = driver.replay(ctx, cur.PebbleEngine(), prev.PebbleEngine(), "scope-a")
+			require.ErrorIs(t, err, injectedCommit)
+			require.ErrorIs(t, err, ErrReplayDestinationCommit,
+				"a destination-commit failure must carry the warm sentinel")
+			cur.PebbleEngine().test.sourceCacheReplayCommitHook = nil
+
+			// A source-side read failure must NOT carry it: the consumer
+			// classifies unmarked replay failures cold, fail-closed.
+			injectedRead := errors.New("injected source read failure")
+			cur.PebbleEngine().test.sourceCacheReplayReadHook = func(_ string, _ int) error {
+				return injectedRead
+			}
+			_, err = driver.replay(ctx, cur.PebbleEngine(), prev.PebbleEngine(), "scope-a")
+			require.ErrorIs(t, err, injectedRead)
+			require.NotErrorIs(t, err, ErrReplayDestinationCommit,
+				"a source-side failure must not read as a destination commit")
+			cur.PebbleEngine().test.sourceCacheReplayReadHook = nil
+		})
+	}
+}
+
 // C10/C25: failure of the terminal manifest write must not publish a false
 // validator claim over the already-materialized scope; retry writes exactly
 // that claim without disturbing rows or indexes.

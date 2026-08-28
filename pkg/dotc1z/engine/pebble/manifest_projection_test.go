@@ -14,6 +14,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 )
 
 // TestManifestSyncRunProjection locks in the envelope's sync-run
@@ -77,6 +78,11 @@ func TestManifestSyncRunProjection(t *testing.T) {
 	require.True(t, quality.GetSourceCacheReplayBlocked())
 	require.Equal(t, uint64(2), quality.GetEntitlementsDropped())
 	require.Equal(t, uint64(33), quality.GetReasonFlags())
+	// CO-017 fence witness: every save stamps it AND the hand-rolled
+	// header decoder must surface it — the field was once written but
+	// skipped by the decoder, silently colding every warm sync.
+	require.Equal(t, sourcecache.MaterializationPolicyGeneration, m.GetSdkMaterializationGeneration(),
+		"header sdk_materialization_generation")
 
 	// The engine-dispatch header path must surface the same projection.
 	_, err = f.Seek(0, 0)

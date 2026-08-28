@@ -231,6 +231,7 @@ func SourceScopeIndexPrefix(recordType byte, scopeKey string) ([]byte, bool) {
 const (
 	sourceCacheEntrySubFamily  byte = 0x00
 	sourceCachePoisonSubFamily byte = 0x01
+	sourceCacheCompatSubFamily byte = 0x02
 )
 
 // SourceCacheEntryKey addresses one manifest row.
@@ -266,10 +267,27 @@ func SourceCachePoisonBounds() ([]byte, []byte) {
 	return lo, UpperBound(lo)
 }
 
+// SourceCacheCompatKey addresses the singleton replay-compatibility
+// record (SourceCacheCompatRecord). It lives inside the source-cache
+// family on purpose: replay-state invalidation (fold, overlay rebuild)
+// wipes it together with the manifest entries, so a compat record can
+// never outlive the validators it vouches for.
+func SourceCacheCompatKey() []byte {
+	buf := []byte{VersionV3, TypeSourceCache, sourceCacheCompatSubFamily}
+	return codec.AppendTupleSeparator(buf)
+}
+
+// SourceCacheCompatBounds bounds the compat record's singleton subfamily.
+func SourceCacheCompatBounds() ([]byte, []byte) {
+	lo := []byte{VersionV3, TypeSourceCache, sourceCacheCompatSubFamily}
+	return lo, UpperBound(lo)
+}
+
 // SourceCacheFamilyBounds bounds the whole source-cache family: manifest
-// entries and poison markers. This is the replay-state invalidation
-// range — an artifact whose validators are wiped has nothing left for
-// poison to protect, so the markers go with them.
+// entries, poison markers, and the compat record. This is the
+// replay-state invalidation range — an artifact whose validators are
+// wiped has nothing left for poison or compat to protect, so those
+// records go with them.
 func SourceCacheFamilyBounds() ([]byte, []byte) {
 	lo := []byte{VersionV3, TypeSourceCache}
 	return lo, UpperBound(lo)

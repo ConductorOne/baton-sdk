@@ -402,6 +402,100 @@ func (e *Engine) GetSourceCacheEntry(ctx context.Context, rowKind, scopeKey stri
 	return rec, nil
 }
 
+// IterateSourceCacheEntries yields every source-cache manifest entry,
+// including invalidated ones (the record carries the flag). Verification
+// oracles use it to assert exact manifest membership — "unexpected scopes
+// have no entries" needs enumeration, not point reads.
+func (e *Engine) IterateSourceCacheEntries(ctx context.Context, yield func(*v3.SourceCacheEntryRecord) bool) error {
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: SourceCacheEntryLowerBound(),
+		UpperBound: SourceCacheEntryUpperBound(),
+	})
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+	for iter.First(); iter.Valid(); iter.Next() {
+		rec := &v3.SourceCacheEntryRecord{}
+		if err := unmarshalRecord(iter.Value(), rec); err != nil {
+			return fmt.Errorf("iterate source cache entries: %w", err)
+		}
+		if !yield(rec) {
+			return nil
+		}
+	}
+	return iter.Error()
+}
+
+// ErrReplayDestinationCommit marks a replay-copy failure whose cause is the
+// DESTINATION store's commit path, after the source scope passed preflight.
+// Sync orchestration classifies these as warm (the replay decision was
+// sound; a retry may succeed warm — plan B7 in
+// docs/verification/sync-replay-6b/plan.md), while every unmarked replay
+// failure defaults to cold, fail-closed: a wrong cold wastes one fetch, a
+// wrong warm can loop on an untrustworthy artifact.
+var ErrReplayDestinationCommit = errors.New("source cache replay: destination commit")
+
+func replayDestinationCommitError(err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%w: %w", ErrReplayDestinationCommit, err)
+}
+
+// sourceCacheCompatID is the fixed singleton id of the replay-compatibility
+// record (the table shape requires a primary key; the keyspace addresses the
+// record without it).
+const sourceCacheCompatID = "compat"
+
+// PutSourceCacheCompatRecord writes the singleton replay-compatibility
+// record. The caller (sync orchestration) writes it when the source-cache
+// write side enables, before any manifest entry, so a crash can never leave
+// manifest entries whose recording conditions were not declared. The id
+// field is forced to the singleton constant.
+func (e *Engine) PutSourceCacheCompatRecord(ctx context.Context, rec *v3.SourceCacheCompatRecord) error {
+	if rec == nil {
+		return errors.New("source cache compat: nil record")
+	}
+	return e.withWrite(func() error {
+		if err := e.requireCurrentSync(); err != nil {
+			return err
+		}
+		stored := &v3.SourceCacheCompatRecord{}
+		stored.SetId(sourceCacheCompatID)
+		stored.SetConnectorCacheGeneration(rec.GetConnectorCacheGeneration())
+		stored.SetConnectorConfigFingerprint(rec.GetConnectorConfigFingerprint())
+		stored.SetSdkMaterializationGeneration(rec.GetSdkMaterializationGeneration())
+		stored.SetSyncSelectionFingerprint(rec.GetSyncSelectionFingerprint())
+		val, err := marshalRecord(stored)
+		if err != nil {
+			return err
+		}
+		opts := writeOpts(e.opts.durability)
+		if e.IsFreshSync() {
+			opts = pebble.NoSync
+		}
+		return e.db.SourceCacheSet(rawdb.SourceCacheCompatKey(), val, opts)
+	})
+}
+
+// GetSourceCacheCompatRecord returns the artifact's singleton
+// replay-compatibility record, or pebble.ErrNotFound when the artifact
+// never declared one (pre-compat SDK, cold-only sync, or invalidated by a
+// compaction fold).
+func (e *Engine) GetSourceCacheCompatRecord(ctx context.Context) (*v3.SourceCacheCompatRecord, error) {
+	val, closer, err := e.db.Get(rawdb.SourceCacheCompatKey())
+	if err != nil {
+		return nil, err
+	}
+	defer closer.Close()
+	rec := &v3.SourceCacheCompatRecord{}
+	if err := unmarshalRecord(val, rec); err != nil {
+		return nil, fmt.Errorf("GetSourceCacheCompatRecord: unmarshal: %w", err)
+	}
+	return rec, nil
+}
+
 // InvalidateSourceCacheReplayState removes upstream validators from a
 // compaction output. Rebuild compactions also drop the source-scope indexes
 // they synthesized while materializing winner rows; fold keeps those indexes
@@ -1164,13 +1258,15 @@ func (e *Engine) clearReplayDestinationScopeLocked(
 		if rowsInBatch == 0 {
 			return nil
 		}
+		// Hook errors take the same warm marking as the real commit: the
+		// hook exists to simulate exactly this failure point.
 		if e.test.sourceCacheReplayClearCommitHook != nil {
 			if err := e.test.sourceCacheReplayClearCommitHook(rowKind, rowsInBatch, final); err != nil {
-				return err
+				return replayDestinationCommitError(err)
 			}
 		}
 		if err := batch.Commit(opts); err != nil {
-			return err
+			return replayDestinationCommitError(err)
 		}
 		deleted += deletedInBatch
 		// Same per-chunk contract as sourceCacheDeleteBatch.onCommit:
@@ -1404,11 +1500,11 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 			if rowsInBatch >= e.sourceCacheReplayBatchLimit() {
 				if e.test.sourceCacheReplayCommitHook != nil {
 					if err := e.test.sourceCacheReplayCommitHook("grants", rowsInBatch, false); err != nil {
-						return err
+						return replayDestinationCommitError(err)
 					}
 				}
 				if err := batch.Commit(opts); err != nil {
-					return err
+					return replayDestinationCommitError(err)
 				}
 				committedRows += rowsInBatch
 				_ = batch.Close()
@@ -1424,11 +1520,11 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 		}
 		if e.test.sourceCacheReplayCommitHook != nil {
 			if err := e.test.sourceCacheReplayCommitHook("grants", rowsInBatch, true); err != nil {
-				return err
+				return replayDestinationCommitError(err)
 			}
 		}
 		if err := batch.Commit(opts); err != nil {
-			return err
+			return replayDestinationCommitError(err)
 		}
 		// Replay populated the fresh sync's grant keyspace directly. The
 		// first overlay PutGrantRecords must therefore perform its normal
@@ -1570,11 +1666,11 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 			if rowsInBatch >= e.sourceCacheReplayBatchLimit() {
 				if e.test.sourceCacheReplayCommitHook != nil {
 					if err := e.test.sourceCacheReplayCommitHook("entitlements", rowsInBatch, false); err != nil {
-						return err
+						return replayDestinationCommitError(err)
 					}
 				}
 				if err := batch.Commit(opts); err != nil {
-					return err
+					return replayDestinationCommitError(err)
 				}
 				committedRows += rowsInBatch
 				// Same per-chunk contract as the clear half above and
@@ -1597,11 +1693,11 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 		}
 		if e.test.sourceCacheReplayCommitHook != nil {
 			if err := e.test.sourceCacheReplayCommitHook("entitlements", rowsInBatch, true); err != nil {
-				return err
+				return replayDestinationCommitError(err)
 			}
 		}
 		if err := batch.Commit(opts); err != nil {
-			return err
+			return replayDestinationCommitError(err)
 		}
 		// The defer above covers the FINAL chunk's lookup invalidation
 		// (see lookup.go — later tombstones would silently miss replayed
@@ -1741,11 +1837,11 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 			if rowsInBatch >= e.sourceCacheReplayBatchLimit() {
 				if e.test.sourceCacheReplayCommitHook != nil {
 					if err := e.test.sourceCacheReplayCommitHook("resources", rowsInBatch, false); err != nil {
-						return err
+						return replayDestinationCommitError(err)
 					}
 				}
 				if err := batch.Commit(opts); err != nil {
-					return err
+					return replayDestinationCommitError(err)
 				}
 				committedRows += rowsInBatch
 				_ = batch.Close()
@@ -1761,11 +1857,11 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 		}
 		if e.test.sourceCacheReplayCommitHook != nil {
 			if err := e.test.sourceCacheReplayCommitHook("resources", rowsInBatch, true); err != nil {
-				return err
+				return replayDestinationCommitError(err)
 			}
 		}
 		if err := batch.Commit(opts); err != nil {
-			return err
+			return replayDestinationCommitError(err)
 		}
 		// See grant replay above: direct replay writes mean the first
 		// overlay PutResourceRecords must not use the empty-keyspace

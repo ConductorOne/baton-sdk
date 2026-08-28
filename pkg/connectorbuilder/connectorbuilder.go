@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
@@ -23,6 +24,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/session"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
@@ -77,6 +79,8 @@ type builder struct {
 	nowFunc                 func() time.Time
 	clientSecret            *jose.JSONWebKey
 	sessionStore            sessions.SessionStore
+	sourceCacheMu           sync.RWMutex
+	sourceCacheLookup       sourcecache.Lookup
 	metadataProvider        MetadataProvider
 	validateProvider        ValidateProvider
 	ticketManager           TicketManagerLimited

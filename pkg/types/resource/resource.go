@@ -9,6 +9,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -653,6 +654,13 @@ type SyncOpAttrs struct {
 	Session   sessions.SessionStore
 	SyncID    string
 	PageToken pagination.Token
+
+	// Lookup resolves previous-sync source-cache validators for connectors
+	// that declared SourceCacheCapability MODE_READ_WRITE (ADVANCED
+	// FUNCTIONALITY — see pkg/sourcecache). Never nil: when source-cache
+	// replay is disabled or degraded this is sourcecache.NoopLookup and
+	// every lookup misses.
+	Lookup sourcecache.Lookup
 }
 
 type SyncOpResults struct {

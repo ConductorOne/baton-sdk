@@ -9,6 +9,7 @@ import (
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/stretchr/testify/require"
 )
 
@@ -710,4 +711,67 @@ func TestStateLegacyTokenLeavesIngestQualityUnknown(t *testing.T) {
 	st := newState()
 	require.NoError(t, st.Unmarshal(`{"version":1}`))
 	require.Nil(t, st.IngestQuality())
+}
+
+// TestSyncerTokenSourceCacheSetsRoundTrip pins the checkpoint round-trip of
+// the source-cache provenance sets: the hit map (scope → validator,
+// CO-6b-004) and the replayed set must survive Marshal → Unmarshal exactly
+// — they are the same-sync replay authorization a resume restores.
+func TestSyncerTokenSourceCacheSetsRoundTrip(t *testing.T) {
+	st := newState()
+	st.RecordSourceCacheHit(sourcecache.RowKindGrants, "grants:team-1", `W/"etag-1"`)
+	st.RecordSourceCacheHit(sourcecache.RowKindGrants, "grants:team-2", `W/"etag-2"`)
+	st.RecordSourceCacheHit(sourcecache.RowKindResources, "res:all", "delta-9")
+	st.MarkSourceCacheReplayed(sourcecache.RowKindGrants, "grants:team-1")
+
+	tokenString, err := st.Marshal()
+	require.NoError(t, err)
+
+	restored := newState()
+	require.NoError(t, restored.Unmarshal(tokenString))
+
+	v, ok := restored.SourceCacheHitValidator(sourcecache.RowKindGrants, "grants:team-1")
+	require.True(t, ok)
+	require.Equal(t, `W/"etag-1"`, v)
+	v, ok = restored.SourceCacheHitValidator(sourcecache.RowKindGrants, "grants:team-2")
+	require.True(t, ok)
+	require.Equal(t, `W/"etag-2"`, v)
+	v, ok = restored.SourceCacheHitValidator(sourcecache.RowKindResources, "res:all")
+	require.True(t, ok)
+	require.Equal(t, "delta-9", v)
+	_, ok = restored.SourceCacheHitValidator(sourcecache.RowKindEntitlements, "grants:team-1")
+	require.False(t, ok, "row kinds must not alias")
+	require.True(t, restored.SourceCacheReplayed(sourcecache.RowKindGrants, "grants:team-1"))
+	require.False(t, restored.SourceCacheReplayed(sourcecache.RowKindGrants, "grants:team-2"))
+}
+
+// TestSyncerTokenSchemaFence pins the two halves of the token schema fence
+// (review N5): a v1 token carrying the RETIRED source_cache_hits shape (row
+// kind → scope list) parses cleanly with the hits simply absent — never a
+// parse failure — and a v1-versioned token that genuinely fails to parse
+// errors loudly instead of falling back to the v0 format, which would
+// "succeed" with an empty action stack and silently restart the sync.
+func TestSyncerTokenSchemaFence(t *testing.T) {
+	t.Run("retired-hits-key-is-ignored-not-fatal", func(t *testing.T) {
+		st := newState()
+		require.NoError(t, st.Unmarshal(
+			`{"version":1,"actions_map":{"0000000001":{"operation":"init"}},"action_order":["0000000001"],"source_cache_hits":{"grants":["grants:team-1"]}}`))
+		_, ok := st.SourceCacheHitValidator(sourcecache.RowKindGrants, "grants:team-1")
+		require.False(t, ok, "the retired key's hits degrade to cold replays; they must not round-trip into the new shape")
+		require.NotNil(t, st.Current(), "the action stack must survive")
+	})
+	t.Run("versioned-token-that-fails-to-parse-errors-loudly", func(t *testing.T) {
+		st := newState()
+		// A shape conflict on a versioned token (here: hit map value is a
+		// list where an object is expected) must NOT downgrade to v0.
+		err := st.Unmarshal(
+			`{"version":1,"actions_map":{"0000000001":{"operation":"init"}},"source_cache_hit_validators":{"grants":["not-an-object"]}}`)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "declares version 1")
+	})
+	t.Run("version-less-v0-token-still-falls-back", func(t *testing.T) {
+		st := newState()
+		require.NoError(t, st.Unmarshal(`{"actions":[{"operation":"init"}]}`))
+		require.NotNil(t, st.Current())
+	})
 }

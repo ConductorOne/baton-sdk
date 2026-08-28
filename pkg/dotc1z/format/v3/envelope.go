@@ -577,12 +577,18 @@ func readEnvelope(r io.Reader, headerOnly bool, pool *DecoderPool) (*Envelope, e
 // unmarshalManifestHeader decodes the cheap manifest fields by hand:
 // engine (1), engine_schema_version (2), payload_encoding (4), the
 // sync_runs projection (40), fold_dead_bytes (41),
-// pebble_id_index_format (42), and grant_digest_root (43). The
-// descriptor closure (field 10) — by far
-// the largest field — is skipped, which is what makes header reads
-// cheap enough for engine dispatch on every open. Sync run summaries
-// are small and few (bounded by the sync retention limit), so decoding
-// them here costs a handful of allocations.
+// pebble_id_index_format (42), grant_digest_root (43), and
+// sdk_materialization_generation (44). The descriptor closure (field 10)
+// — by far the largest field — is skipped, which is what makes header
+// reads cheap enough for engine dispatch on every open. Sync run
+// summaries are small and few (bounded by the sync retention limit), so
+// decoding them here costs a handful of allocations.
+//
+// NOTE: any new manifest field a header consumer depends on MUST be
+// added here as well as to the proto — the generated decoder is not
+// used on this path, so an omitted field silently reads as its zero
+// value (the CO-017 witness was briefly invisible for exactly this
+// reason).
 func unmarshalManifestHeader(b []byte) (*c1zv3.C1ZManifestV3, error) {
 	out := &c1zv3.C1ZManifestV3{}
 	for len(b) > 0 {
@@ -678,6 +684,16 @@ func unmarshalManifestHeader(b []byte) (*c1zv3.C1ZManifestV3, error) {
 				return nil, fmt.Errorf("%w: grant_digest_root: %w", ErrManifestInvalid, err)
 			}
 			out.SetGrantDigestRoot(root)
+			b = b[n:]
+		case 44:
+			if typ != protowire.BytesType {
+				return nil, fmt.Errorf("c1z v3: manifest sdk_materialization_generation has wire type %v", typ)
+			}
+			v, n := protowire.ConsumeString(b)
+			if n < 0 {
+				return nil, protowire.ParseError(n)
+			}
+			out.SetSdkMaterializationGeneration(v)
 			b = b[n:]
 		default:
 			n := protowire.ConsumeFieldValue(num, typ, b)

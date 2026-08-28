@@ -58,6 +58,10 @@ func skipChaosInShort(t *testing.T) {
 type chaosHarness struct {
 	Syncer Syncer
 	Run    *chaosconnector.Run
+	// Client is the transport-wrapped connector client the syncer holds.
+	// Source-cache teardown probes invoke it directly after a sync to
+	// verify the connector no longer observes the sync's lookup.
+	Client types.ConnectorClient
 
 	closeAdapter func() error
 }
@@ -108,6 +112,7 @@ func newChaosHarness(
 	return &chaosHarness{
 		Syncer:       sdkSyncer,
 		Run:          run,
+		Client:       client,
 		closeAdapter: closeAdapter,
 	}
 }

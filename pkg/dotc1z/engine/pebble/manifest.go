@@ -11,6 +11,7 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 )
 
 // BuildManifest assembles the v3 envelope manifest for a Pebble-engine c1z
@@ -30,6 +31,11 @@ func BuildManifest(encoding c1zstore.PayloadEncoding) (*c1zv3.C1ZManifestV3, err
 		EngineSchemaVersion: uint32(SDKPebbleFormat),
 		PayloadEncoding:     payloadEncodingToProto(encoding),
 		Descriptors:         descriptors,
+		// Save-time materialization witness (CO-017 fold fence): written
+		// on EVERY save. An older SDK's fold rebuilds this manifest from
+		// its own descriptors and necessarily omits it, which is what
+		// makes old-fold outputs replay-ineligible. See the proto field.
+		SdkMaterializationGeneration: sourcecache.MaterializationPolicyGeneration,
 	}.Build(), nil
 }
 
