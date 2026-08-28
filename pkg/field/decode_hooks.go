@@ -2,7 +2,9 @@ package field
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"reflect"
@@ -75,7 +77,7 @@ func getFileContentFromPath(path string) ([]byte, error) {
 	// Check if the file exists
 	fileInfo, err := os.Stat(path)
 	if err != nil {
-		return nil, fmt.Errorf("cannot access file: %w", err)
+		return nil, fmt.Errorf("cannot access file: %w", redactPathError(err))
 	}
 
 	// Check file size limit (2MB)
@@ -87,9 +89,23 @@ func getFileContentFromPath(path string) ([]byte, error) {
 	// Read the file
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("error reading file: %w", err)
+		return nil, fmt.Errorf("error reading file: %w", redactPathError(err))
 	}
 	return content, nil
+}
+
+// redactPathError strips the file path out of an *fs.PathError (as returned
+// by os.Stat/os.ReadFile) before it reaches an error message. The field value
+// passed into this decode hook may be a credential file's contents rather
+// than an actual path, and fs.PathError.Error() otherwise reproduces it
+// verbatim. The underlying OS error (e.g. "no such file or directory") is
+// preserved so the failure reason is still diagnosable.
+func redactPathError(err error) error {
+	var pathErr *fs.PathError
+	if errors.As(err, &pathErr) {
+		return pathErr.Err
+	}
+	return err
 }
 
 // parseFileContent returns the file upload content from a string field value.
@@ -118,6 +134,13 @@ func parseFileContent(data string) ([]byte, error) {
 func parseJSONBase64DataURL(dataURL string) ([]byte, error) {
 	parsedURL, err := url.Parse(dataURL)
 	if err != nil {
+		// url.Error.Error() quotes the full input URL, which here is the
+		// field's raw value (e.g. a PEM or key) rather than an actual URL.
+		// Unwrap to the underlying parse failure so it isn't echoed back.
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			return nil, fmt.Errorf("invalid data URL: %w", urlErr.Err)
+		}
 		return nil, fmt.Errorf("invalid data URL: %w", err)
 	}
 

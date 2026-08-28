@@ -11,6 +11,53 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestFileUploadDecodeHook_DoesNotLeakValueInErrors guards against
+// regressions of CE-1284: the field's value (which may be secret file
+// content, not an actual path) must never be reproduced in a decode error.
+func TestFileUploadDecodeHook_DoesNotLeakValueInErrors(t *testing.T) {
+	tempDir := t.TempDir()
+
+	t.Run("stat failure on a secret-like value does not echo it", func(t *testing.T) {
+		secret := "TOTALLY-SECRET-VALUE-THAT-MUST-NOT-LEAK"
+
+		_, err := mapstructure.DecodeHookExec(
+			FileUploadDecodeHook(true),
+			reflect.ValueOf(secret),
+			reflect.ValueOf([]byte{}),
+		)
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), secret)
+	})
+
+	t.Run("read failure on a directory does not echo its name", func(t *testing.T) {
+		secretDirName := "TOTALLY-SECRET-DIR-NAME"
+		secretDir := filepath.Join(tempDir, secretDirName)
+		require.NoError(t, os.Mkdir(secretDir, 0700))
+
+		_, err := mapstructure.DecodeHookExec(
+			FileUploadDecodeHook(true),
+			reflect.ValueOf(secretDir),
+			reflect.ValueOf([]byte{}),
+		)
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), secretDirName)
+	})
+
+	t.Run("invalid data URL does not echo the payload", func(t *testing.T) {
+		secret := "SECRET\x00PAYLOAD-THAT-MUST-NOT-LEAK"
+		dataURL := "data:application/json;base64," + secret
+
+		_, err := mapstructure.DecodeHookExec(
+			FileUploadDecodeHook(false),
+			reflect.ValueOf(dataURL),
+			reflect.ValueOf([]byte{}),
+		)
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), secret)
+		require.NotContains(t, err.Error(), "PAYLOAD-THAT-MUST-NOT-LEAK")
+	})
+}
+
 func TestFileUploadDecodeHook(t *testing.T) {
 	// Create a temporary file for testing
 	tempDir := t.TempDir()
