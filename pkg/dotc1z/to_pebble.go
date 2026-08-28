@@ -107,7 +107,10 @@ func WithConvertTmpDir(dir string) ConvertOption {
 // lane holds one sqlite connection plus a reader and a decode/encode
 // goroutine). The default — min(4, GOMAXPROCS/2) — leaves headroom for
 // shared infrastructure; callers that own the machine can raise it, and
-// 1 fully serializes the grant scan. Values <= 0 are ignored.
+// 1 fully serializes the grant scan. Values <= 0 are ignored. Memory
+// scales with fan-out: each lane also pins up to three 128MiB spill
+// arenas (its grant sorter plus two index sorters — see the bulk
+// import's arenaFree), so budget ~384MiB of sort memory per lane.
 func WithConvertParallelism(n int) ConvertOption {
 	return func(c *convertConfig) {
 		if n > 0 {

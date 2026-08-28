@@ -115,9 +115,10 @@ type Options struct {
 	Resumable bool
 
 	// TmpDir stages the bulk import's spill files when the destination is
-	// a pebble store ("" = system temp dir). Peak staging usage is on the
-	// order of the destination's record data, so point it at a volume
-	// sized for the output when the system temp dir is small.
+	// a pebble store ("" = system temp dir). Peak staging usage is ~2x the
+	// destination's record data — at the merge tail the sorted runs and
+	// the SSTs built from them coexist — so point it at a volume sized
+	// accordingly when the system temp dir is small.
 	TmpDir string
 }
 

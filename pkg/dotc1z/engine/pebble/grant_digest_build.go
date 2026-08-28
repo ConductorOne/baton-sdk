@@ -376,7 +376,7 @@ func mergeGrantHashChunksToSST(ctx context.Context, fs vfs.FS, sstPath, name str
 	for len(*h) > 0 {
 		item := h.pop()
 		if bytes.Equal(item.key, last) {
-			return fmt.Errorf("%w: bucket %s key %x", errBulkImportDuplicateKey, name, item.key)
+			return fmt.Errorf("%w: bucket %s key %x", ErrBulkImportDuplicateKey, name, item.key)
 		}
 		partition, bucket, ok := splitGrantHashIndexKey(item.key)
 		if !ok {

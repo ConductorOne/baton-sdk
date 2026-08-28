@@ -279,18 +279,24 @@ func fullRecordSets(t *testing.T, ctx context.Context, store c1zstore.Store) ful
 		ress: map[string]*v2.Resource{},
 		ents: map[string]*v2.Entitlement{},
 	}
+	// Single-page reads: if a fixture ever outgrows the page, both arms
+	// would truncate identically and the oracle would silently narrow, so
+	// fail loudly instead of paginating.
 	rts, err := store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{PageSize: 1000}.Build())
 	require.NoError(t, err)
+	require.Empty(t, rts.GetNextPageToken(), "resource-type fixture outgrew one page; oracle would silently truncate")
 	for _, rt := range rts.GetList() {
 		fr.rts[rt.GetId()] = rt
 	}
 	ress, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{PageSize: 1000}.Build())
 	require.NoError(t, err)
+	require.Empty(t, ress.GetNextPageToken(), "resource fixture outgrew one page; oracle would silently truncate")
 	for _, r := range ress.GetList() {
 		fr.ress[r.GetId().GetResourceType()+"/"+r.GetId().GetResource()] = r
 	}
 	ents, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{PageSize: 1000}.Build())
 	require.NoError(t, err)
+	require.Empty(t, ents.GetNextPageToken(), "entitlement fixture outgrew one page; oracle would silently truncate")
 	for _, e := range ents.GetList() {
 		fr.ents[e.GetId()] = normalizeEntitlementForParity(e)
 	}

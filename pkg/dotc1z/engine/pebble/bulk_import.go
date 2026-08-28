@@ -35,14 +35,15 @@ import (
 // only trigger it through AddResourceTypes, the one add method with a
 // sorted-arrival contract; resources, entitlements, and grants re-sort
 // internally, and their duplicate keys surface at Finish as corrupt
-// input (errBulkImportDuplicateKey) instead. The import cannot continue
+// input (ErrBulkImportDuplicateKey) instead. The import cannot continue
 // past it and must be Abort()ed.
 var ErrBulkImportOutOfOrder = errors.New("bulk sync import: keys are not strictly increasing")
 
-// errBulkImportDuplicateKey is the spill-merge guard against duplicate
-// keys. Duplicates are impossible for well-formed sources (the importer
-// requires global uniqueness); hitting this means corrupt input.
-var errBulkImportDuplicateKey = errors.New("bulk sync import: duplicate key in spill merge")
+// ErrBulkImportDuplicateKey is returned from Finish when a spill merge
+// finds two records with the same key. Duplicates are impossible for
+// well-formed sources (the importer requires global uniqueness), so
+// hitting this means corrupt input, not a caller ordering bug.
+var ErrBulkImportDuplicateKey = errors.New("bulk sync import: duplicate key in spill merge")
 
 // bulkSpillKeyChunkBytes sizes the shared spill arena pool
 // (getSpillArena) and the deferred build's translate-batch arenas.
@@ -1287,7 +1288,7 @@ func mergeSortedSpillChunksToSST(ctx context.Context, fs vfs.FS, sstPath, name s
 	for len(*h) > 0 {
 		item := h.pop()
 		if bytes.Equal(item.key, last) {
-			return fmt.Errorf("%w: bucket %s key %x", errBulkImportDuplicateKey, name, item.key)
+			return fmt.Errorf("%w: bucket %s key %x", ErrBulkImportDuplicateKey, name, item.key)
 		}
 		var v []byte
 		if len(item.val) > 0 {

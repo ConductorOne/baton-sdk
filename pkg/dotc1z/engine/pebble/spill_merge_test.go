@@ -128,7 +128,7 @@ func TestMergeSortedSpillChunksRejectsDuplicateAcrossChunks(t *testing.T) {
 	}
 
 	err := mergeSortedSpillChunksToSST(ctx, e.fs(), filepath.Join(dir, "dup.sst"), "dup", chunks)
-	require.ErrorIs(t, err, errBulkImportDuplicateKey)
+	require.ErrorIs(t, err, ErrBulkImportDuplicateKey)
 }
 
 // TestMergeSpillChunksResolvingDuplicatesAcrossChunks pins the
