@@ -103,19 +103,12 @@ func WithNextLinkPagination(bag *pagination.Bag, config *NextLinkConfig) DoOptio
 	}
 }
 
-// PaginatedResponse is implemented by a connector type carrying the pagination
-// data of an API response. Implementations should report presence, not a next
-// page: returning false on an empty cursor fails the last request of every sync.
 type PaginatedResponse interface {
 	HasPaginationData() bool
 }
 
 var ErrMissingPaginationData = errors.New("uhttp: response is missing pagination data")
 
-// WithPaginationData decodes a JSON or XML response body into response like
-// WithResponse does, then fails the request if response reports no pagination
-// data, so an API that drops the cursor doesn't silently truncate a sync at the
-// first page. Non-2xx responses are skipped: pair with WithErrorResponse.
 func WithPaginationData(response PaginatedResponse) DoOption {
 	return func(resp *WrapperResponse) error {
 		if response == nil {
