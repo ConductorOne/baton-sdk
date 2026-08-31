@@ -5,6 +5,7 @@
 #
 # Usage: tools/sweep.sh [schedules]   (run from formal/graph)
 set -u
+. "$(dirname "$0")/alarms.sh"
 S="${1:-10000}"
 OUT="PCheckerOutput/sweep"
 SUMMARY="$OUT/summary.txt"
@@ -95,18 +96,38 @@ for entry in $CELLS; do
   rm -rf "$OUT/$cell"
   # shellcheck disable=SC2086
   p check -tc "$cell" -s "$S" ${strategy/=/ } -o "$OUT/$cell" > "$OUT/$cell.log" 2>&1
+  pstatus=$?
   ce=$(ls "$OUT/$cell"/BugFinding/graph_[0-9]*_[0-9]*.txt 2>/dev/null | head -1)
-  if [ -n "$ce" ]; then observed="RED"; else observed="GREEN"; fi
-  if [ "$observed" = "$expected" ]; then mark="ok"; else mark="MISMATCH"; mismatches=$((mismatches + 1)); fi
+  # Verdict precedence: a counterexample is RED even if the checker
+  # then exited nonzero (the find stands); a counterexample-free
+  # nonzero exit is CHECKER-ERROR, not GREEN — "no bug found" from a
+  # checker that died is not evidence of anything.
+  if [ -n "$ce" ]; then observed="RED"
+  elif [ "$pstatus" -ne 0 ]; then observed="CHECKER-ERROR"
+  else observed="GREEN"; fi
+  mark="ok"
+  [ "$observed" = "$expected" ] || mark="MISMATCH"
   detail=""
   if [ "$observed" = "RED" ]; then
-    # SEAL-WORLD is currently a bake-off-only monitor (tools/bakeoff.sh),
-    # kept in the alternation so a G5d-shaped cell landing here is not
-    # silently untagged. Output-neutral for the frozen 66 cells: the
-    # hyphenated string appears only in that assert's message.
-    detail=" [$(rg -o "(P-GEN|P-MARK|P-ADOPT|P1-[A-Z-]+[A-Z]|P2-[A-Z]+|P3'-[A-Z]+|P4-STUCK|P5-UNDER|P5-OVER|P6-[GES]|SEAL-EXPECT|SEAL-WORLD|REDO-PROBE|PURGE-PROBE|POISON-PROBE|DEAD-DISPATCH|PASS-BUDGET|EXEC-BOUND|Deadlock detected|liveness)" "$ce" 2>/dev/null | sort -u | paste -sd, -)]"
+    tag=$(alarm_tag "$ce")
+    # An empty tag means the firing monitor is outside the shared
+    # alternation (tools/alarms.sh) — an untagged red is unauditable,
+    # so it is a mismatch even when RED was expected. Per-cell alarm
+    # ENFORCEMENT is deliberately bake-off-only (see bakeoff.sh):
+    # sweep cells can legitimately red on more than one calibrated
+    # shape (e.g. the walker's tc3a_P1), so the sweep's comparison
+    # surface for WHICH monitor fired is CALIBRATION.md, not this
+    # script.
+    [ -n "$tag" ] || mark="MISMATCH"
+    detail=" [$tag]"
+  elif [ "$observed" = "CHECKER-ERROR" ]; then
+    detail=" (p exit $pstatus, see $OUT/$cell.log)"
   fi
+  [ "$mark" = "ok" ] || mismatches=$((mismatches + 1))
   line="$cell expected=$expected observed=$observed $mark$detail"
   echo "$line" | tee -a "$SUMMARY"
 done
 echo "SWEEP-DONE cells=$total mismatches=$mismatches" | tee -a "$SUMMARY"
+# The exit status carries the verdict (the Makefile's formal targets
+# rely on it): a drifted sweep must not read as a green make.
+[ "$mismatches" -eq 0 ]

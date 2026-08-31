@@ -6,6 +6,15 @@
 #
 # Usage: tools/sweep.sh [schedules]   (run from formal/walker)
 set -u
+# The alarm-tag pipeline needs rg; without this guard a missing rg is
+# swallowed into an empty tag, indistinguishable from an unrecognized
+# monitor. (The graph scripts share tools/alarms.sh; this alternation
+# is walker-specific and single-consumer, so it stays inline.)
+command -v rg >/dev/null 2>&1 || {
+  echo "walker tools: rg (ripgrep) is required for alarm-tag extraction and is not on PATH" >&2
+  exit 2
+}
+MONITOR_ALTERNATION="P[0-9][0-9A-Z'-]*[A-Z]|SEAL-EXPECT|C1-PROBE|P4-STUCK|Deadlock detected|liveness"
 S="${1:-10000}"
 OUT="PCheckerOutput/sweep"
 SUMMARY="$OUT/summary.txt"
@@ -79,14 +88,37 @@ for entry in $CELLS; do
   total=$((total + 1))
   rm -rf "$OUT/$cell"
   p check -tc "$cell" -s "$S" -o "$OUT/$cell" > "$OUT/$cell.log" 2>&1
+  pstatus=$?
   ce=$(ls "$OUT/$cell"/BugFinding/walker_[0-9]*_[0-9]*.txt 2>/dev/null | head -1)
-  if [ -n "$ce" ]; then observed="RED"; else observed="GREEN"; fi
-  if [ "$observed" = "$expected" ]; then mark="ok"; else mark="MISMATCH"; mismatches=$((mismatches + 1)); fi
+  # Verdict precedence: a counterexample is RED even if the checker
+  # then exited nonzero (the find stands); a counterexample-free
+  # nonzero exit is CHECKER-ERROR, not GREEN — "no bug found" from a
+  # checker that died is not evidence of anything.
+  if [ -n "$ce" ]; then observed="RED"
+  elif [ "$pstatus" -ne 0 ]; then observed="CHECKER-ERROR"
+  else observed="GREEN"; fi
+  mark="ok"
+  [ "$observed" = "$expected" ] || mark="MISMATCH"
   detail=""
   if [ "$observed" = "RED" ]; then
-    detail=" [$(rg -o "(P[0-9][0-9A-Z'-]*[A-Z]|SEAL-EXPECT|C1-PROBE|P4-STUCK|Deadlock detected|liveness)" "$ce" 2>/dev/null | sort -u | paste -sd, -)]"
+    tag=$(rg -o "($MONITOR_ALTERNATION)" "$ce" | sort -u | paste -sd, -)
+    # An empty tag means the firing monitor is outside the alternation
+    # above — an untagged red is unauditable, so it is a mismatch even
+    # when RED was expected. Per-cell alarm enforcement stays with the
+    # graph bake-off (bakeoff.sh): walker sweep cells can legitimately
+    # red on more than one calibrated shape (tc3a_P1's two P1 clauses),
+    # so the comparison surface for WHICH monitor fired is
+    # CALIBRATION.md, not this script.
+    [ -n "$tag" ] || mark="MISMATCH"
+    detail=" [$tag]"
+  elif [ "$observed" = "CHECKER-ERROR" ]; then
+    detail=" (p exit $pstatus, see $OUT/$cell.log)"
   fi
+  [ "$mark" = "ok" ] || mismatches=$((mismatches + 1))
   line="$cell expected=$expected observed=$observed $mark$detail"
   echo "$line" | tee -a "$SUMMARY"
 done
 echo "SWEEP-DONE cells=$total mismatches=$mismatches" | tee -a "$SUMMARY"
+# The exit status carries the verdict (the Makefile's formal targets
+# rely on it): a drifted sweep must not read as a green make.
+[ "$mismatches" -eq 0 ]

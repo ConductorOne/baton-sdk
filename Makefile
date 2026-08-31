@@ -321,9 +321,11 @@ prodscale-topebble: ## Measure SQLite-to-Pebble conversion at production scale.
 # (formal/*/PCheckerOutput/*/summary.txt): a clean run reproduces them
 # byte-for-byte apart from find-rate noise on RED cells, and a mismatch
 # line or changed cell count is a calibration drift finding, not noise.
-# Walker (55 cells) and graph (66 cells) each take on the order of half
-# an hour at the default schedule budget; the bake-off (12 cells) about
-# twenty minutes.
+# The scripts' exit status carries that verdict — any mismatch (drifted
+# cell, untagged red, wrong bake-off alarm, checker error) fails the
+# target. Walker (55 cells) and graph (66 cells) each take on the order
+# of half an hour at the default schedule budget; the bake-off (12
+# cells) about twenty minutes.
 P_SCHEDULES ?= 10000
 OCCULT_TEST_TIMEOUT ?= 90m
 

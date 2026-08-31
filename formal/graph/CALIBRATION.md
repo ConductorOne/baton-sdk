@@ -400,7 +400,8 @@ blocks Axis-3 citation until dispositioned (GS-CO-005(d)).
 
 ### Bake-off results — 2026-08-30, 12/12 match declarations
 
-10k schedules per cell, uniform random, one run (summary archived at
+10k schedules per cell, uniform random except `tcG5dS_W2`, which
+carries `--sch-feedbackpct=20` in the script (summary archived at
 `PCheckerOutput/bakeoff/summary.txt`; reproduce with
 `tools/bakeoff.sh`, which carries exactly these 12 cells — they are
 deliberately NOT in `tools/sweep.sh`, so re-running the calibration
@@ -410,7 +411,13 @@ sweep applies: `[EXEC-BOUND]` on the two G6b probes, `[SEAL-WORLD]`
 on the four reachable-world probes. The tag is what makes an
 expected-RED cell auditable — counterexample presence alone matches
 `expected=RED` even for a cell that redded on a deadlock instead of
-its calibrated monitor. All four v1 controls GREEN
+its calibrated monitor — and in the bake-off it is ENFORCED, not just
+recorded: each red cell declares its calibrated monitor in the script
+and a red whose tag lacks it is a MISMATCH (sound here because every
+bake-off red has exactly one pre-registered monitor; sweep cells can
+legitimately red on more than one calibrated shape, so their tags
+stay informational with CALIBRATION.md as the comparison surface).
+All four v1 controls GREEN
 (the zero-crash redo floor is bound 1 under BOTH variants — the
 count oracle measures crash-caused redo, not variant overhead); both
 G6b bound-1 probes RED on EXEC-BOUND (the mutation chassis's redo is
@@ -424,6 +431,19 @@ envelope (asserted by the honest G5a greens). No divergence finding;
 Axis-3 citation is unblocked. Where the two variants differ is HOW
 a world is reached (E purges C / S refuses C's dispatch on the W1
 path), never WHICH worlds are sealable.
+
+`tcG5dS_W2` STRATEGY PIN (2026-08-31): the cell's find is
+seed-BIMODAL under uniform random — one full-10k seed explored 18
+timelines and found nothing while five other seeds (three uniform,
+two feedback) all found within ~500 schedules at a 0.23%
+buggy-schedule rate, a miss that is ~e^-23 improbable if schedules
+were independent draws. Some seeds evidently cannot reach the target
+at all, so the cell carries `--sch-feedbackpct=20` in `bakeoff.sh` —
+the same remedy the sweep gives its narrow cells (`tcG2awWA_E`,
+`tcG1d_P6G`) and the same lesson BAKEOFF.md's methodology note 4
+records: narrow-target kills must not rely on uniform random
+schedules. The world's REACHABILITY is unaffected (found under both
+strategies); only the gate's reliability needed the pin.
 
 ## Pending
 - Nothing. The verdict document is `BAKEOFF.md` (assembled under

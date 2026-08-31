@@ -7,24 +7,36 @@
 #
 # Usage: tools/bakeoff.sh [schedules]   (run from formal/graph)
 set -u
+. "$(dirname "$0")/alarms.sh"
 S="${1:-10000}"
 OUT="PCheckerOutput/bakeoff"
 SUMMARY="$OUT/summary.txt"
 mkdir -p "$OUT"
 : > "$SUMMARY"
 
-# cell:expected  (RED = counterexample expected, GREEN = none).
+# cell:expected[:alarm[:strategy]]  (RED = counterexample expected,
+# GREEN = none). The third field is the cell's calibrated monitor and
+# it is ENFORCED: counterexample presence alone matches expected=RED
+# even for a cell that redded on a deadlock instead of its declared
+# property, so a RED whose extracted tag does not contain the declared
+# alarm is a MISMATCH. Enforcement is sound here because every
+# bake-off red has exactly one pre-registered monitor (unlike sweep
+# cells, which can legitimately red on more than one calibrated shape
+# — see sweep.sh). The optional fourth field is an extra p-check
+# strategy flag for cells whose target is too narrow for uniform
+# random search to find reliably at the default budget — same
+# mechanism as the sweep's third field.
 CELLS="
 tcG6aE_Ctl:GREEN
 tcG6aS_Ctl:GREEN
 tcG6cE_Ctl:GREEN
 tcG6cS_Ctl:GREEN
-tcG6bE_Redo:RED
-tcG6bS_Redo:RED
-tcG5dE_W1:RED
-tcG5dS_W1:RED
-tcG5dE_W2:RED
-tcG5dS_W2:RED
+tcG6bE_Redo:RED:EXEC-BOUND
+tcG6bS_Redo:RED:EXEC-BOUND
+tcG5dE_W1:RED:SEAL-WORLD
+tcG5dS_W1:RED:SEAL-WORLD
+tcG5dE_W2:RED:SEAL-WORLD
+tcG5dS_W2:RED:SEAL-WORLD:--sch-feedbackpct=20
 tcG5dE_W3:GREEN
 tcG5dS_W3:GREEN
 "
@@ -35,27 +47,49 @@ for entry in $CELLS; do
   rest="${entry#*:}"
   cell="${entry%%:*}"
   expected="${rest%%:*}"
+  alarm=""
   strategy=""
-  case "$rest" in *:*) strategy="${rest#*:}";; esac
+  case "$rest" in *:*)
+    rest="${rest#*:}"
+    alarm="${rest%%:*}"
+    case "$rest" in *:*) strategy="${rest#*:}";; esac
+  ;; esac
   total=$((total + 1))
   rm -rf "$OUT/$cell"
   # shellcheck disable=SC2086
   p check -tc "$cell" -s "$S" ${strategy/=/ } -o "$OUT/$cell" > "$OUT/$cell.log" 2>&1
+  pstatus=$?
   ce=$(ls "$OUT/$cell"/BugFinding/graph_[0-9]*_[0-9]*.txt 2>/dev/null | head -1)
-  if [ -n "$ce" ]; then observed="RED"; else observed="GREEN"; fi
-  if [ "$observed" = "$expected" ]; then mark="ok"; else mark="MISMATCH"; mismatches=$((mismatches + 1)); fi
-  # The alarm tag is what makes an expected-RED cell auditable:
-  # counterexample PRESENCE alone matches expected=RED even when the
-  # cell redded for a different reason than its calibrated monitor (P
-  # also emits a counterexample for deadlock and liveness), so the
-  # firing monitor name is extracted and recorded. Kept in sync with
-  # sweep.sh's alternation so a cell moved between the scripts keeps
-  # its tagging; SEAL-WORLD is the G5d bake-off monitor.
+  # Verdict precedence: a counterexample is RED even if the checker
+  # then exited nonzero (the find stands); a counterexample-free
+  # nonzero exit is CHECKER-ERROR, not GREEN — "no bug found" from a
+  # checker that died is not evidence of anything.
+  if [ -n "$ce" ]; then observed="RED"
+  elif [ "$pstatus" -ne 0 ]; then observed="CHECKER-ERROR"
+  else observed="GREEN"; fi
+  mark="ok"
+  [ "$observed" = "$expected" ] || mark="MISMATCH"
   detail=""
   if [ "$observed" = "RED" ]; then
-    detail=" [$(rg -o "(P-GEN|P-MARK|P-ADOPT|P1-[A-Z-]+[A-Z]|P2-[A-Z]+|P3'-[A-Z]+|P4-STUCK|P5-UNDER|P5-OVER|P6-[GES]|SEAL-EXPECT|SEAL-WORLD|REDO-PROBE|PURGE-PROBE|POISON-PROBE|DEAD-DISPATCH|PASS-BUDGET|EXEC-BOUND|Deadlock detected|liveness)" "$ce" 2>/dev/null | sort -u | paste -sd, -)]"
+    tag=$(alarm_tag "$ce")
+    # Empty tag = firing monitor outside the shared alternation
+    # (tools/alarms.sh): unauditable, so a mismatch even when RED was
+    # expected. Declared-alarm check is a substring match against the
+    # comma-joined tag set — sound while no monitor name is a prefix
+    # of another (EXEC-BOUND and SEAL-WORLD are not).
+    [ -n "$tag" ] || mark="MISMATCH"
+    if [ -n "$alarm" ]; then
+      case "$tag" in *"$alarm"*) ;; *) mark="MISMATCH";; esac
+    fi
+    detail=" [$tag]"
+  elif [ "$observed" = "CHECKER-ERROR" ]; then
+    detail=" (p exit $pstatus, see $OUT/$cell.log)"
   fi
+  [ "$mark" = "ok" ] || mismatches=$((mismatches + 1))
   line="$cell expected=$expected observed=$observed $mark$detail"
   echo "$line" | tee -a "$SUMMARY"
 done
 echo "BAKEOFF-DONE cells=$total mismatches=$mismatches" | tee -a "$SUMMARY"
+# The exit status carries the verdict (the Makefile's formal targets
+# rely on it): a drifted run must not read as a green make.
+[ "$mismatches" -eq 0 ]
