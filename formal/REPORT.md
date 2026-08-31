@@ -45,8 +45,10 @@ and progress cells (scenarios 5–7); and external principals
 (scenario 8's P8 monitor — the `deleteStaleExternalPrincipals`
 contract: the non-deleting engine's stale-survivor degrade and the
 stale-list recency mutant red, the capable-engine crash/stop/carry
-schedules green). Every red archives its
-counterexample schedule under `walker/traces/`.
+schedules green). Every red regenerates its
+counterexample on demand (`p check -tc <cell>` — first find is
+seconds-to-minutes); the sweep summaries are archived under
+`walker/traces/`.
 
 ## Track B — demand-graph runtime model and the bake-off (P)
 

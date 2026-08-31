@@ -23,11 +23,13 @@ also clean, isolating the P4 merge from the v11 monitor change; the
 post-MS-CO-001 47-cell sweep is the current gate.
 
 Toolchain: P 3.1.0 (`p compile` / `p check -tc <cell> -s <schedules>`).
-Every RED row below archives its human-readable counterexample
-schedule under `traces/<scenario>/<cell>/counterexample.txt`; the
-machine-replay `trace.json` files are NOT committed (regenerate any
-cell's replay by re-running its `p check` line — reds reproduce at
-the stated find rates). GREEN rows state the explored budget. A
+Counterexample traces are NOT committed (neither the human-readable
+schedule nor the machine-replay `trace.json`): archived traces rot
+silently as the model evolves, while every red REGENERATES on demand
+— re-run the cell's `p check` line and a counterexample lands in
+`PCheckerOutput/BugFinding/` at the stated find rate (first find is
+seconds-to-minutes on every red below). Only the sweep summaries are
+archived under `traces/`. GREEN rows state the explored budget. A
 green run means nothing except at the stated budget — the reds are the
 calibration currency.
 

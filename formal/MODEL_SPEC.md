@@ -722,8 +722,10 @@ P5 (sweep) and P7 (sealed cuts) are graph-runtime properties — addendum.
 ## 9. Calibration scenarios
 
 Expected-fail runs use the shipped design unless stated; every FIND must
-be a checker counterexample trace, archived under `walker/traces/` and
-rendered per deliverable 6. Every premise below states its reachability
+be a checker counterexample trace (regenerable on demand from its
+CALIBRATION.md cell row; sweep summaries are archived under
+`walker/traces/`), rendered per deliverable 6. Every premise below
+states its reachability
 route; the standard premise generator is the STOP-STRANDING pattern: a
 planning page's transition commits (hit recorded, same-op carrier
 admitted to live state), the stop lands before the carrier's first
