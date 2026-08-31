@@ -1,0 +1,182 @@
+# Sync formal verification — synthesis report
+
+This is the executive summary of the formal verification effort for
+baton-sdk's sync scheduling semantics (charter:
+`docs/tasks/sync-formal-model-brief.md`). It states what was modeled,
+what was found, the verdict, and — as precisely as possible — what is
+and is not guaranteed. Detail lives in the documents each section
+cites. Public-repo content rules apply throughout.
+
+## The verdict in three sentences
+
+The current tiered-walker + source-cache-replay design mechanically
+reproduces every calibration bug it was suspected of, including the
+phantom union, with each failure caught by a dedicated monitor. The
+proposed demand-graph runtime, after three adversarial spec reviews
+and a calibration program that found and fixed five design bugs of
+its own, is verified at small scope in both lineage variants, and the
+registered decision rule selects **variant S (observable-causal
+stamps)** — see `graph/BAKEOFF.md`. The shipped syncer's real
+commit-order behavior has been witnessed conformant to the ordering
+and durability policies on every execution we exported (cold, warm,
+crash/resume, tombstone-delta), and the instrument is sharp enough
+that it falsified one piece of documented resume behavior along the
+way.
+
+## Track A — calibration model of the current design (P)
+
+`MODEL_SPEC.md` (v11, frozen after seven review rounds plus
+MS-CO-001) and the `walker/` P project. Authority is earned by
+rediscovery: with mitigations toggled off, the checker finds the
+known bugs; with the shipped/staged fixes toggled on, the same cells
+go green. The frozen sweep is 47 cells, 0 mismatches, 10k schedules
+per cell (`walker/CALIBRATION.md`).
+
+Reproduced reds include: the phantom union in content, staleness, and
+epoch-coherence form (scenario 1); session laundering under the
+shipped free-form sessions (scenario 2 — an EXPECTED finding, fixed
+only by the demand-graph work); the artifact-swap hit-rebind residual
+hole and the CO-6b-004 binding kill that closes most of it
+(scenario 3); warm-drift, overlay placement, and progress cells
+(scenarios 5–7). Every red archives its counterexample schedule under
+`walker/traces/`.
+
+## Track B — demand-graph runtime model and the bake-off (P)
+
+`GRAPH_MODEL_SPEC.md` (v4, frozen after three adversarial rounds) and
+the `graph/` P project: frontier scheduler, generations with
+quiesce-before-bump and the total mint fence, premise-validated
+markers, seal-time sweep with the closure oracle, atomic units, and
+the two lineage candidates — eager edges (E) and observable-causal
+stamps (S).
+
+The calibration program found five design bugs before any bake-off
+run (GS-CO-001..005 in `graph/CALIBRATION.md`), among them generation
+identity reuse across crash re-mints, the carrier-durability fence,
+and the retraction catch-up bound; plus two mechanism repairs
+(G8B-CAL-1, G9-CAL-1 — stamp compression as first drafted livelocked
+honest histories). The frozen matrix is 66 cells clean at 10k
+schedules, and the 12-cell bake-off phase matched its declared
+verdicts 12/12.
+
+The bake-off (`graph/BAKEOFF.md`, assembled under the GS-CO-005
+registered decision rule) ties on property satisfaction, and S wins
+on mechanism count: no new durable state class, versus E's edge
+checkpoint rows, retraction queue, two recovery machineries, and —
+decisive in kind, not just count — E's correctness DEPENDENCE on the
+constrained session primitives. The calibrated laundering cell
+(`tcG2ea_P6G`) shows E sealing a dead writer's value under free-form
+sessions with every artifact-level oracle green; S is green under
+free-form sessions. Redo work corroborates and does not decide: the
+reachable seal-world sets are identical under both variants.
+
+## Track C — the deductive track (Occult)
+
+`occult/` (deliverables 6–9), proved in the Occult engine (sibling
+repo `../occult`) through the Go host in `occult/host/`:
+
+- **Laws (D9)**: 15 equational laws of the composition algebra and
+  stamp lattice proved, 5 negative controls correctly refused
+  (`occult/LAWS.md`). One law (L1, REPLACES absorption) closes in
+  bounded form pending an induction tactic.
+- **Phantom union, derived**: the broken composition rule
+  (`occult/src/sync_phantom.occult`) DERIVES the phantom union
+  deductively — the same bug Track A reaches by search, reached by
+  proof, from an axiomatization of what the broken algorithm does.
+- **Protocol (D8)**: the syncer↔connector source-cache lookup
+  continuation as a global session term with per-role projections —
+  6 projection derivations plus a structural expansion, 4 polarity/
+  cap/leg controls refused. The bounce cap is structural (no
+  five-bounce term exists), mirroring
+  `sourcecache.MaxLookupBouncesPerRequest`.
+- **Trace policies (D7)**: five ordering/durability policies
+  (consult-before-replay, clear-before-write, once-per-scope,
+  publish-before-checkpoint quiescence, seal obligations) over a
+  canonical event vocabulary including attempt boundaries
+  (`ev_resume`) and the delta protocol's delete leg (`ev_delete`).
+  Verdict matrix: 60 cells (12 fixtures × 5 policies), each green
+  fixture satisfies all, each red violates exactly its own.
+- **Reference implementation**: an executable Go prototype of the
+  demand-graph runtime whose traces are judged by the same oracle;
+  its legacy mode reproduces the broken behavior and is caught.
+- **The bridge to shipped code (D6)**: `pkg/sync` carries a
+  test-only commit-order recorder (`pkg/sync/sync_trace_audit.go`,
+  nil in production — the field is only ever assigned from test
+  files, which are not compiled into non-test binaries). Chaos tests
+  run the real syncer and export JSONL fixtures; the oracle judges
+  them: 20/20 policy cells green across cold, warm, crash/resume,
+  and tombstone-delta executions, with planted-violation tests
+  proving the bridge detects what it claims to
+  (`occult/TRACE_BRIDGE.md`).
+
+## Findings register
+
+Findings that matter beyond the models themselves:
+
+1. **Resume re-copy (real code, documentation falsified).** The
+   resume suite documented that a restored replayed-set skips the
+   replay copy across a mid-batch cut. The real-trace instrument
+   shows the skip cannot occur: checkpoints commit at batch
+   boundaries, so a mid-batch crash always forces a re-copy, and the
+   actual guard is the copy's replacement idempotence. Comments
+   corrected in `pkg/sync/chaos_source_cache_resume_test.go`; pinned
+   in `occult/TRACE_BRIDGE.md`.
+2. **E-only laundering (design).** Eager-edge lineage is correct
+   only with constrained session primitives; free-form reads seal a
+   dead writer's value undetected. This moved the session-primitive
+   audit from a correctness gate to an optimization under the
+   adopted variant S.
+3. **Generation identity reuse (design, fixed in spec).** Crash
+   before checkpoint allowed a re-minted generation to collide with
+   its predecessor; fixed by the total mint fence (GS-CO-002/003
+   family), verified by kill cells.
+4. **Stamp compression livelock (design, fixed in spec).** The
+   first-draft compression rules livelocked honest histories into
+   the pre-seal pass budget; admissible only with the G9-CAL-1
+   minting rules.
+5. **Scheduler sensitivity (verification methodology).** The
+   dying-reader race (`tcG1d_P6G`) needed feedback-PCT and a third
+   worker to exhibit — implementation tests for that race must not
+   rely on uniform random schedules.
+6. **Engine findings (tooling).** Ground-term evaluation cost grows
+   ~2x per trace event (the gate for longer real traces), and
+   parameterized protocol definitions do not project. Recorded with
+   six other asks in `docs/tasks/occult-engine-changes-brief.md`
+   (local working doc).
+
+## What is guaranteed, and what is not
+
+Three grades of code linkage, in decreasing mechanical strength:
+
+- **Witnessed** (trace bridge): the policy verdicts hold for the
+  real executions we exported. This catches what happens; it does
+  not prove what cannot happen.
+- **Calibrated** (both P models, the phantom derivation): the models
+  reproduce the known bugs, which is evidence of fidelity, not proof
+  of it.
+- **Asserted** (laws ↔ named function contracts, protocol ↔ proto
+  shapes and Go constants): documented correspondence, held by
+  review. If the Go side drifts, nothing goes red automatically.
+
+Standing limits: P verdicts are exhaustive only within the stated
+schedule budgets and small-scope configurations (each spec's §8
+declares its exclusions — notably sessions × demand shrink and
+session-transitive chains in the graph model). Redo figures are
+counts at small scope, not throughput. The models arbitrate designs,
+not Go code; the trace bridge is the standing instrument that must
+stay current as the design becomes an implementation.
+
+## What's next
+
+1. **The variant-S RFC and production implementation** in
+   `pkg/sync`, carrying the four design consequences listed in
+   `graph/BAKEOFF.md` (primitives as optimization, observation-point
+   discipline, compression's minting rules, non-uniform-schedule
+   race tests).
+2. **Keep the oracle current**: as demand-graph code lands, extend
+   the trace vocabulary with generation stamps and grow fixtures
+   alongside the implementation — the bridge is only as good as its
+   coverage.
+3. **Occult Ask 8** (tractable ground evaluation) when engine time
+   exists: it unblocks realistic trace lengths and is the wedge for
+   the longer-term single-engine unification path.

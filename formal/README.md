@@ -8,6 +8,10 @@ comments and trace renderings.
 
 ## Contents
 
+- `REPORT.md` — the synthesis report: verdicts, findings register,
+  and the guarantee/non-guarantee boundary, with pointers into
+  everything below. Start here for the outcome; start at GLOSSARY.md
+  to work on the models.
 - `GLOSSARY.md` — deliverable 0: pinned vocabulary. Read this first; every
   other document and every P identifier uses these meanings.
 - `MODEL_SPEC.md` — the frozen model specification (machines, abstraction
