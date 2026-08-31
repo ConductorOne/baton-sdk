@@ -15,7 +15,9 @@ baseline: `formal/MODEL_SPEC.md` v11, FROZEN
 entry), plus change order MS-CO-001 (dispositions for the PARALLEL
 round-7 review — `reviews/model-spec-round7-overlay-parallel.md` —
 surfaced post-freeze; §3/§4/§5 registration edits, the per-verdict
-deferral scoping, and the o-iv-removal kill cell). The v11 monitor
+deferral scoping, and the o-iv-removal kill cell) and MS-CO-002 (the
+§7 torn-round amendment: tearing is stop-reachable, exclusion is
+monitor-side — discharging decision 1 below). The v11 monitor
 pins (F2 complete-rounds replacement counting, F3
 attestation-over-empty-fold) and the two v11 cells (6-overlay-last,
 3-atomic) are built and verified. Sweep history (superseded gates,
@@ -106,7 +108,7 @@ validators):
 
 | cell | config | property | expected | observed | budget |
 |---|---|---|---|---|---|
-| tc3a_P1 | shipped (`hitValidatorBinding` ON) — the residual hole | P1 | RED | RED: `P1-ATTEST-SEAL` (carrier-last shape: rows(B) sealed under entry V_A; the carrier-first/interleaved content shape is also live in the config) — requires the re-consult's lookup-hit V_B to OVERWRITE the hit map before the carrier's LIVE hit read (last-write-wins rebind) | first find (0.34% of 10k — narrow: needs C dispatched after P's re-consult transition) |
+| tc3a_P1 | shipped (`hitValidatorBinding` ON) — the residual hole | P1 | RED | RED: `P1-CONTENT` is the archived sweep's first find (carrier-first/interleaved content shape); the `P1-ATTEST-SEAL` carrier-last shape (rows(B) sealed under entry V_A) is also live in the config — both require the re-consult's lookup-hit V_B to OVERWRITE the hit map before the carrier's LIVE hit read (last-write-wins rebind) | first find (0.34% of 10k — narrow: needs C dispatched after P's re-consult transition) |
 | tc3a_P2 | same config | P2 | GREEN | GREEN — attempt 1's validation match qualifies the scope as consulted; copied rows carry hops 1 (corrected expectation; spec v2 wrongly claimed a P2 red) | 10000 schedules |
 | tc3b_P1 | pre-CO-6b-004 (`hitValidatorBinding` OFF), 1-page planning (cell 31) | P1 | RED | RED: `P1-ATTEST-SEAL` — no re-consult, hit stays V_A, NO binding check; carrier copies swapped B and publishes V_A | first find (100% of explored) |
 | tc3bBindingOn_All | same premise, binding ON — the CO-6b-004 kill | P1+P2+P3′ | GREEN | GREEN — binding gate compares hit V_A to base V_B, fails LOUD-COLD (behavior, not assert); scope seals empty in premise schedules, no wrong data | 10000 schedules |
@@ -229,14 +231,18 @@ and meets the same drifted config:
 
 ## Model decisions of record (change-order candidates for the spec)
 
-1. **Torn-round exclusion is monitor-side, not config-side.** The spec
-   (§7 boundary note) argued no §9 config can tear a round because each
-   config's single stop is consumed by its premise. In the model the
-   stop's placement is genuinely explored, so torn rounds ARE reachable
-   (stop mid-fresh-round, resumed in attempt 2). The monitors track
-   attempt ghosts per round and exclude torn scopes from P1-content and
-   P3′ rather than trusting configs. Spec §7 should be amended by
-   change order.
+1. **Torn-round exclusion is monitor-side, not config-side
+   (DISCHARGED as MS-CO-002).** The spec (§7 boundary note) argued no
+   §9 config can tear a round because each config's single stop is
+   consumed by its premise. In the model the stop's placement is
+   genuinely explored, so torn rounds ARE reachable (stop
+   mid-fresh-round, resumed in attempt 2). The monitors track attempt
+   ghosts per round and exclude torn scopes from P1-content and P3′
+   rather than trusting configs. Spec §7 now carries the amendment
+   (change order MS-CO-002), including the registered narrowing that
+   P3′'s torn tracking observes only overlay writes — a
+   replacement-only tear is P1-excluded but inside P3′'s domain; no
+   calibrated cell reaches one at a P3′-asserted seal.
 2. **P2 corollary-run scoping** is realized as a config flag
    (`verificationOnlyIfInterrupted`): the verification sync runs only in
    histories where the scripted interruption landed. Without it, honest

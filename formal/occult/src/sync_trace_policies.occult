@@ -130,7 +130,11 @@ syntax("standard");
 
 # --- Policy 1: consult-before-replay ---
 # Every replay commit for a scope requires an earlier source-cache
-# consult for that scope in the same attempt.
+# consult for that scope in the same SYNC: the consult flags persist
+# across ev_resume (the hit-set is checkpoint-durable, see the
+# ev_resume note above), so a resumed attempt replaying under attempt
+# 1's consult is legal. A within-sync replay with NO prior consult
+# anywhere is the violation.
 ∃ consult_before_replay;
 ∃ cbr_go;
 consult_before_replay(t) = cbr_go(t, ff, ff);
@@ -246,9 +250,22 @@ cbp_go(tcons(ev_seal, r), tt) = "ok";
 cbp_go(tcons(ev_seal, r), ff) = "violation: checkpoint-before-progress";
 
 # --- Policy 5: seal obligations ---
-# Every scope with any activity this attempt (consult/clear/replay/
-# upsert) must be published before the seal. State per scope: active
-# flag, published flag.
+# Every scope with any activity this sync (consult/clear/replay/
+# upsert/delete) must be published before the seal. State per scope:
+# active flag, published flag.
+#
+# SCOPE, stated deliberately: the obligation is EXISTENTIAL — some
+# publish for the scope precedes the seal. A write AFTER the scope's
+# last publish (publish, upsert, seal with no re-publish) still
+# satisfies this policy: whether every row is covered by the
+# attestation it sealed under is a CONTENT/attestation question,
+# owned by the walker model's P1-ATTEST clauses and the exporting
+# test's content oracle, not by this ordering policy. Strengthening
+# this policy to "last write precedes last publish" is possible
+# (reset the published flag on activity) but is registered as a
+# deliberate non-goal while the real renderer's fixtures publish
+# per-round: the weak form matches what commit order alone can
+# witness.
 ∃ seal_obligations;
 ∃ so_go;
 seal_obligations(t) = so_go(t, ff, ff, ff, ff);

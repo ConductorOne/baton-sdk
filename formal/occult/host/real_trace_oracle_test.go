@@ -40,7 +40,16 @@
 //     policy tracks each principal independently, and the recon gate
 //     is principal-agnostic (every attempt in the committed fixtures
 //     copies the first-seen principal, so a missing ep_recon still
-//     fires on a kept copy).
+//     fires on a kept copy). ORDER DEPENDENCY, stated: the
+//     stale-survivor direction is only observable if the SHRINKING
+//     principal lands inside the p1/p2 envelope. The committed
+//     capable-engine fixture satisfies this (external-user-1 is
+//     second-seen and shrinks away; external-user-2 is projected
+//     out and stays live), and the dependency fails LOUDLY, not
+//     silently: if a regenerated fixture reordered first-seen so the
+//     shrinking principal were projected out,
+//     TestRealTraceBridgeCatchesStaleExternalSurvivor's planted
+//     verdict would come back "ok" and the test would fail.
 //   - Structural clear: a trace that starts at sync birth
 //     (header resumed=false) writes into partitions StartNewSync
 //     created empty, so an upsert with no earlier explicit clear for

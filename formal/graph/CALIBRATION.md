@@ -184,6 +184,21 @@ tcG1iii_S / tcG2s_All / tcG2awS_All / tcG2fbS_All).
    names a dead generation. Honest mechanisms (E resume purge, S
    dispatch refusal) make it unreachable on every cell, so it is
    asserted in the honest G5 greens, not just the kill.
+5. **Digest session fields are DECLARED VACUITY in this envelope
+   (SPEC §4a DIGEST CLOSURE discharge).** `tDigest` carries the
+   session-read fields the spec requires
+   (`sVal`/`sWriter`/`sWGen`/`hasSess`), but every digest the model
+   constructs uses the no-session sentinel (`NodeExec.p`): no
+   adopt-eligible node performs a pre-commit session read in any
+   calibrated cell — readers always fetch fresh and never consult
+   markers, writers are writer-ineligible (pubBearing), and the
+   consult-kind adopt check precedes any session read. Per the
+   spec's own closure clause this omission is registered vacuity,
+   not an escape: any extension that gives an adopt-eligible node a
+   pre-commit session read MUST populate the digest fields (and add
+   a cell where a session-value change kills adoption) or it
+   reopens exactly the E-only-laundering class the digest exists to
+   refuse.
 
 ## G3 / G4 / G6-G9 — built and calibrated
 

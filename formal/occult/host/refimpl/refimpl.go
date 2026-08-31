@@ -17,6 +17,12 @@
 // module. The store commits writes durably as they happen (they survive
 // a crash); the checkpoint is the scheduler watermark, exactly the
 // walker/graph models' crash semantics.
+//
+// SCOPE: the runtime's premise-validated ADOPTION (marker consult on
+// re-execution, GRAPH_MODEL_SPEC §4a) is deliberately NOT modeled — a
+// resumed attempt re-executes the full round under the always-honest
+// path. Adoption semantics are exercised by the P graph model's
+// P-ADOPT cells, not here.
 package refimpl
 
 import (
@@ -37,7 +43,7 @@ const (
 
 // Event is one canonical trace event (TRACE_BRIDGE.md vocabulary).
 type Event struct {
-	Kind  string // consult, clear, replay, upsert, publish, checkpoint, seal
+	Kind  string // consult, clear, replay, upsert, delete, publish, checkpoint, seal
 	Scope string // "" for checkpoint/seal
 }
 
@@ -111,7 +117,6 @@ const scope = "s1"
 // durable is the store state that survives a crash.
 type durable struct {
 	partition  map[string]string
-	hasMarker  bool
 	markerBase int  // the replay unit's attested base epoch
 	checkpoint bool // scope watermark: scope completed at Head
 }
@@ -152,7 +157,6 @@ func runAttempt(cfg Config, st *durable, attempt int) (trace []Event, sealed boo
 		for k, v := range cfg.Cache.Rows {
 			st.partition[k] = v
 		}
-		st.hasMarker = true
 		st.markerBase = cfg.Cache.Base
 		emit("clear", scope)
 		emit("replay", scope)
@@ -177,8 +181,7 @@ func runAttempt(cfg Config, st *durable, attempt int) (trace []Event, sealed boo
 	}
 	for _, k := range deletes {
 		delete(st.partition, k)
-		// Tombstones have no canonical event yet (TRACE_BRIDGE.md
-		// pending extensions); the content oracle still sees them.
+		emit("delete", scope)
 	}
 
 	emit("publish", scope)
