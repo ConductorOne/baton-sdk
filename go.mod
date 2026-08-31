@@ -11,9 +11,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.88.5
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/cockroachdb/pebble/v2 v2.1.5
-	github.com/conductorone/dpop v0.2.6
-	github.com/conductorone/dpop/integrations/dpop_grpc v0.2.4
-	github.com/conductorone/dpop/integrations/dpop_oauth2 v0.2.5
+	github.com/conductorone/dpop v0.3.0
+	github.com/conductorone/dpop/integrations/dpop_grpc v0.3.0
+	github.com/conductorone/dpop/integrations/dpop_oauth2 v0.3.0
 	github.com/deckarep/golang-set/v2 v2.9.0
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/envoyproxy/protoc-gen-validate v1.3.3
