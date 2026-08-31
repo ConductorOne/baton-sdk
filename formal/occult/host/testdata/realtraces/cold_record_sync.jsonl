@@ -1,6 +1,7 @@
 {"name":"cold_record_sync","resumed":false}
 {"kind":"checkpoint"}
 {"kind":"checkpoint"}
+{"kind":"clear","row_kind":"grants","scope_key":"grants:team-1"}
 {"kind":"upsert","row_kind":"grants","scope_key":"grants:team-1"}
 {"kind":"publish","row_kind":"grants","scope_key":"grants:team-1"}
 {"kind":"checkpoint"}

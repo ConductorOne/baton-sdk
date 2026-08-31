@@ -94,12 +94,15 @@ repo.
   executions" leg is IMPLEMENTED end to end: the shipped syncer
   carries a test-only commit-order recorder
   (`pkg/sync/sync_trace_audit.go`), the chaos harness exports cold,
-  warm, crash/resume multi-attempt, and tombstone-delta JSONL
-  fixtures, and `real_trace_oracle_test.go` checks them against all
-  five policies (20/20 green) with planted-violation validation of
-  the bridge itself (dropped consult, un-regrounded resume, stripped
-  resume marker, ungrounded delete). The instrument also falsified a
-  documented resume mechanism — see the finding at the end of
+  warm, crash/resume multi-attempt, tombstone-delta, and
+  record-flip-grounding JSONL fixtures, and
+  `real_trace_oracle_test.go` checks them against all five policies
+  (25/25 green) with planted-violation validation of the bridge
+  itself (dropped consult, un-regrounded resume, stripped resume
+  marker, ungrounded delete). The instrument falsified a documented
+  resume mechanism AND witnessed the model's phantom-union prediction
+  live in the shipped syncer (the verdict-flip path), now fixed by
+  record-round grounding — see the findings at the end of
   `TRACE_BRIDGE.md`. The refimpl leg remains as the demand-graph
   instance of the same oracle.
 

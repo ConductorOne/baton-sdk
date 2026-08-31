@@ -30,6 +30,11 @@ type fakeSourceCacheStore struct {
 	deleteRowsErr  error
 	deleteScopeErr error
 	putEntryErr    error
+	clearScopeErr  error
+}
+
+func (f *fakeSourceCacheStore) ClearSourceCacheScope(context.Context, sourcecache.RowKind, string) (int64, error) {
+	return 0, f.clearScopeErr
 }
 
 func (f *fakeSourceCacheStore) LookupSourceCacheEntry(context.Context, sourcecache.RowKind, string) (sourcecache.Entry, bool, error) {

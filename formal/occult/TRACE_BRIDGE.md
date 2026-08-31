@@ -148,6 +148,35 @@ convergence conclusion was always right, via B5 idempotence). The
 replayed-set's real skip role is within-attempt: a later replay
 annotation for an already-copied scope skips.
 
+The instrument's second finding was a live defect, model-predicted:
+the walker calibration's scenario-1 family (the phantom union, tc1c
+flavor — `formal/walker/CALIBRATION.md`) was REACHABLE in the shipped
+syncer via the verdict-flip path. A warm round cut after its replay
+copy committed but before its validator published, upstream moving
+between attempts, and the resume's consult missing meant the connector
+served a fresh RECORD round — which composed with the crashed
+attempt's copied debris and sealed the union under the fresh validator
+(the non-self-healing direction: the next sync's consult validates the
+entry clean and replays the mosaic forward). Witnessed by
+`TestChaosSourceCacheRecordFlipOverReplayDebris`
+(`pkg/sync/chaos_source_cache_resume_test.go`); fixed by RECORD-ROUND
+GROUNDING: a record round is a replacement listing, so before its
+first write to a scope this attempt, a partition holding rows that no
+completed round published is cleared (`ClearSourceCacheScope` — the
+replay unit's clear leg exposed standalone; `groundRecordScope` in
+`source_cache_orchestration.go`). The fix is trace-visible: record
+rounds now emit a REAL `ev_clear` before their first write —
+"replacement rounds clear first", previously granted structurally by
+the renderer, now witnessed in `cold_record_sync.jsonl` — and the flip
+scenario is fixtured as `warm_replay_sync_record_flip.jsonl`, where
+attempt 2's clear with no replay after it IS the grounding. Scope
+note, pinned honestly: the ordering policies do NOT red the un-fixed
+flip — attempt 1's real clear grounds the scope durably across resume,
+so the union was ordering-legal; it is a CONTENT violation (the
+walker model's `P1-CONTENT`), owned by the exporting test's content
+oracle. The policies' role in the fix is the positive direction: the
+grounded trace joins the green suite.
+
 This leg has an executable instance: `host/refimpl/` (the demand-graph
 reference implementation) emits canonical traces from real executions
 of the phantom-union scenario, rendered by `RenderOccult` and checked

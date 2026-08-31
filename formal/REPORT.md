@@ -104,15 +104,36 @@ repo `../occult`) through the Go host in `occult/host/`:
   nil in production — the field is only ever assigned from test
   files, which are not compiled into non-test binaries). Chaos tests
   run the real syncer and export JSONL fixtures; the oracle judges
-  them: 20/20 policy cells green across cold, warm, crash/resume,
-  and tombstone-delta executions, with planted-violation tests
-  proving the bridge detects what it claims to
-  (`occult/TRACE_BRIDGE.md`).
+  them: 25/25 policy cells green across cold, warm, crash/resume,
+  tombstone-delta, and record-flip executions, with
+  planted-violation tests proving the bridge detects what it claims
+  to (`occult/TRACE_BRIDGE.md`).
 
 ## Findings register
 
 Findings that matter beyond the models themselves:
 
+0. **Phantom union live in shipped code (real defect, FIXED).** The
+   walker model's scenario-1 red (the phantom union, tc1c flavor)
+   was reachable in the shipped 6b syncer via the verdict-flip path:
+   a warm round cut after its replay copy committed but before its
+   validator published, upstream moving between attempts, and the
+   resume's consult missing — the connector's fresh RECORD round
+   composed with the crashed attempt's copied debris and sealed the
+   union under the fresh validator, which the next sync validates
+   clean and replays forward (permanently stale "live" data).
+   Witnessed by `TestChaosSourceCacheRecordFlipOverReplayDebris`,
+   fixed by record-round grounding (`groundRecordScope` +
+   `ClearSourceCacheScope`): a record round is a replacement
+   listing, so a partition holding rows no completed round published
+   is cleared before the round's first write. The grounding is
+   trace-visible ("replacement rounds clear first" — the policy
+   doctrine, previously structural, now witnessed), and the fix's
+   mechanism and outcome are both pinned by the witness test. Note
+   the model's verified V-ATOMIC/V-OVERLAY-UNIT fix family maps onto
+   a code base with durable marker suppression; the shipped code
+   heals by re-execution (restart-from-root + idempotent re-copy),
+   so grounding was the missing piece, not unit-mode commit.
 1. **Resume re-copy (real code, documentation falsified).** The
    resume suite documented that a restored replayed-set skips the
    replay copy across a mid-batch cut. The real-trace instrument

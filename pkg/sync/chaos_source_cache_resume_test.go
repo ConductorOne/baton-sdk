@@ -89,6 +89,135 @@ func scResumeScenario(t *testing.T, fx *scCollectionFixture) *chaosconnector.Sce
 	return scenario
 }
 
+// scValidatorV3 is the "upstream moved between attempts" validator for
+// the flip scenario below.
+const scValidatorV3 = "validator-v3"
+
+// scFlipScenario extends scResumeScenario with a third epoch: upstream
+// truth moves to [g1, g3] at v3 (g2 departs). A consult offering the
+// seed's v1 misses against it, so the connector serves a fresh RECORD
+// round instead of the warm branch — the verdict-flip path.
+func scFlipScenario(t *testing.T, fx *scCollectionFixture) *chaosconnector.Scenario {
+	t.Helper()
+	scenario := scResumeScenario(t, fx)
+	third := scCollectionBase(fx)
+	third.Grants["team-1"] = chaosconnector.Pages[*v2.Grant]{
+		"": {List: []*v2.Grant{fx.Grants[0], fx.Grant3}, Annotations: scRecordAnno(scGrantsScopeKey, scValidatorV3)},
+	}
+	third.SourceCacheGrants = map[string]*chaosconnector.SourceCacheSpec{
+		"team-1": {ScopeKey: scGrantsScopeKey, Validator: scValidatorV3},
+	}
+	scenario.Epochs["third"] = third
+	require.NoError(t, scenario.Validate())
+	return scenario
+}
+
+// TestChaosSourceCacheRecordFlipOverReplayDebris is the Go-side witness
+// for the formal model's phantom-union family (walker calibration
+// scenario 1, tc1c flavor; see formal/walker/CALIBRATION.md): a warm
+// replay round is cut AFTER its copy commits but BEFORE its validator
+// publishes, upstream moves between attempts, and the resume's consult
+// misses — so the connector flips to a fresh RECORD round. The record
+// round is a replacement listing: it must not compose with the crashed
+// attempt's copied debris. Without record-round grounding the sealed
+// artifact is the union {g1, g2, g3} published under v3 — g2 departed
+// upstream before the record round ran, and the v3 manifest entry
+// launders it into every future warm sync (the non-self-healing
+// direction: the next consult validates v3 clean and replays the
+// mosaic forward).
+func TestChaosSourceCacheRecordFlipOverReplayDebris(t *testing.T) {
+	skipChaosInShort(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	defer cancel()
+	tmpDir, paths := sourceCachePaths(t, 2)
+	seedPath, warmPath := paths[0], paths[1]
+
+	fx := newSCCollectionFixture(t)
+	scenario := scFlipScenario(t, fx)
+	capability := sourceCacheCapabilityRW("gen-1", "cfg-1")
+
+	// Generation A: cold seed of [g1, g2] at v1.
+	seedRun, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
+	require.NoError(t, err)
+	seedRun.SetSourceCacheCapability(capability)
+	runSourceCacheSync(t, ctx, seedRun, chaosTransportDirect, seedPath, tmpDir, "", WithWorkerCount(1))
+
+	// Generation B, attempt 1: warm sync at epoch "second", cut before
+	// "warm-2" — the replay copy of [g1, g2] and the g3 overlay commit,
+	// the validator never publishes (same premise as the interrupted
+	// trace fixture).
+	interruptedRun, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule(chaosconnector.Rule{
+		ID: "cut",
+		Match: chaosconnector.Matcher{
+			Service:   chaosconnector.ExactString("GrantsService"),
+			Method:    chaosconnector.ExactString("ListGrants"),
+			PageToken: chaosconnector.ExactString("warm-2"),
+			Attempt:   1,
+			Phase:     chaosconnector.PhaseBeforeCall,
+		},
+		Effects:  []chaosconnector.Effect{{Kind: chaosconnector.EffectCrash}},
+		MinFires: 1,
+		MaxFires: 1,
+	}))
+	require.NoError(t, err)
+	require.NoError(t, interruptedRun.SetEpoch("second"))
+	interruptedRun.SetSourceCacheCapability(capability)
+	interruptedHarness := newChaosHarness(t, ctx, interruptedRun, warmPath, tmpDir, chaosTransportDirect,
+		WithPreviousSyncC1ZPath(seedPath), WithWorkerCount(1))
+	interruptedConcrete, ok := interruptedHarness.Syncer.(*syncer)
+	require.True(t, ok)
+	interruptedConcrete.checkpointInterval = 0
+	attempt1Audit := &syncTraceAudit{}
+	interruptedConcrete.testSyncTraceAudit = attempt1Audit
+	require.ErrorIs(t, interruptedHarness.Syncer.Sync(ctx), chaosconnector.ErrInterruptRequested)
+	require.NoError(t, interruptedHarness.Close(t.Context()))
+
+	// Generation B, resume: upstream has moved to epoch "third" — the
+	// re-consult's v1 offer misses, the connector serves the fresh
+	// record round [g1, g3] @ v3.
+	resumeRun, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
+	require.NoError(t, err)
+	require.NoError(t, resumeRun.SetEpoch("third"))
+	resumeRun.SetSourceCacheCapability(capability)
+	resumeHarness := newChaosHarness(t, ctx, resumeRun, warmPath, tmpDir, chaosTransportDirect,
+		WithPreviousSyncC1ZPath(seedPath), WithWorkerCount(1))
+	resumeConcrete, ok := resumeHarness.Syncer.(*syncer)
+	require.True(t, ok)
+	attempt2Audit := &syncTraceAudit{}
+	resumeConcrete.testSyncTraceAudit = attempt2Audit
+	resumeHarness.SyncAndClose(t, ctx)
+
+	// Mechanism pin: the record round GROUNDS — attempt 2's trace shows
+	// the grounding clear between the consult and the record upserts,
+	// with no replay copy (this is the flip: fresh round, not warm).
+	// This is the trace-visible half of the fix; the content oracle
+	// below is the outcome half.
+	rowKind := "grants"
+	attempt2 := attempt2Audit.snapshot()
+	requireTraceOrder(t, attempt2,
+		syncTraceEvent{Kind: syncTraceConsult, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTraceClear, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTraceUpsert, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTracePublish, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTraceSeal},
+	)
+	require.NotContains(t, kinds(attempt2), syncTraceReplay,
+		"the flip serves a record round: no replay copy may run in attempt 2")
+
+	// Content oracle against epoch "third"'s truth: the record round is
+	// a replacement listing, so the sealed partition must be exactly
+	// what it listed. g2 in the sealed artifact is the phantom — dead
+	// upstream before the round ran, present only as crashed-copy
+	// debris, laundered under the v3 entry.
+	sealed := readChaosGrantsByID(t, ctx, warmPath, tmpDir)
+	require.Contains(t, sealed, fx.Grants[0].GetId(), "g1 is in the record round's listing")
+	require.Contains(t, sealed, fx.Grant3.GetId(), "g3 is in the record round's listing")
+	require.NotContains(t, sealed, fx.Grants[1].GetId(),
+		"g2 departed upstream before the record round: a replacement listing must not compose with crashed-replay debris (phantom union, tc1c flavor)")
+
+	exportTraceFixture(t, "warm_replay_sync_record_flip", attempt1Audit.snapshot(), attempt2)
+}
+
 func TestChaosSourceCacheInterruptResume(t *testing.T) {
 	skipChaosInShort(t)
 

@@ -1338,6 +1338,54 @@ func (e *Engine) clearReplayDestinationScopeLocked(
 	return deleted, nil
 }
 
+// ClearSourceCacheScope removes every destination row stamped with
+// (rowKind, scopeKey) — the replay unit's clear leg exposed standalone.
+// A record round is a replacement listing: orchestration grounds it by
+// clearing a scope whose partition may hold un-attributed rows from a
+// crashed attempt (a replay copy whose round never published) before the
+// round's first write. Composing a record round with such debris is the
+// phantom-union shape (formal/walker/CALIBRATION.md, scenario 1).
+// Deletes commit in the same bounded batches as replay; idempotent, so
+// interruption followed by retry converges. Returns rows deleted.
+func (e *Engine) ClearSourceCacheScope(ctx context.Context, rowKind string, scopeKey string) (int64, error) {
+	var recordType byte
+	var prefix []byte
+	var noteCleared func()
+	switch rowKind {
+	case "grants":
+		recordType, prefix = typeGrant, encodeGrantBySourceScopePrefix(scopeKey)
+		noteCleared = func() { _ = e.takeFreshGrantsEmpty() }
+	case "entitlements":
+		recordType, prefix = typeEntitlement, encodeEntitlementBySourceScopePrefix(scopeKey)
+		noteCleared = func() {
+			e.noteEntitlementKeyspaceWrite()
+			_ = e.takeFreshEntitlementsEmpty()
+		}
+	case "resources":
+		recordType, prefix = typeResource, encodeResourceBySourceScopePrefix(scopeKey)
+		noteCleared = func() { _ = e.takeFreshResourcesEmpty() }
+	default:
+		return 0, fmt.Errorf("source cache clear scope: invalid row kind %q", rowKind)
+	}
+	var deleted int
+	err := e.withWrite(func() error {
+		if err := e.requireCurrentSync(); err != nil {
+			return err
+		}
+		opts := writeOpts(e.opts.durability)
+		if e.IsFreshSync() {
+			opts = pebble.NoSync
+		}
+		var err error
+		deleted, err = e.clearReplayDestinationScopeLocked(ctx, rowKind, recordType, scopeKey, prefix, opts)
+		if deleted > 0 {
+			noteCleared()
+		}
+		return err
+	})
+	return int64(deleted), err
+}
+
 // ReplaySourceCacheGrants copies every grant stamped with scopeKey from
 // prev into the receiver: raw primary copy plus index synthesis from the
 // raw value (principal, needs_expansion, source-scope families). Mirrors

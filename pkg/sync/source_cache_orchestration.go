@@ -397,12 +397,18 @@ func (s *syncer) recordSourceCacheHit(rowKind sourcecache.RowKind, scopeKey stri
 // and never reclaimed: the map is bounded by the number of distinct scoped
 // (rowKind, scopeKey) pairs in one sync.
 func (s *syncer) sourceCacheScopeLock(rowKind sourcecache.RowKind, scopeKey string) *sync.Mutex {
-	key := string(rowKind) + "\x00" + scopeKey
+	key := sourceCacheScopeKey(rowKind, scopeKey)
 	if mu, ok := s.sourceCacheScopeLocks.Load(key); ok {
 		return mu.(*sync.Mutex)
 	}
 	mu, _ := s.sourceCacheScopeLocks.LoadOrStore(key, &sync.Mutex{})
 	return mu.(*sync.Mutex)
+}
+
+// sourceCacheScopeKey is the map key for per-(rowKind, scopeKey) syncer
+// state (scope locks, the attempt-local grounded set).
+func sourceCacheScopeKey(rowKind sourcecache.RowKind, scopeKey string) string {
+	return string(rowKind) + "\x00" + scopeKey
 }
 
 // === Page handling (plan B3 fresh pages, B5 replay pages) ===
@@ -592,7 +598,9 @@ func (o *sourceCachePageOps) beforeUpserts(ctx context.Context) error {
 	mu.Lock()
 	o.held = mu
 	if o.replay == nil {
-		return nil
+		// Record-only page: ground the replacement listing before its
+		// first write this attempt.
+		return o.groundRecordScope(ctx)
 	}
 	l := ctxzap.Extract(ctx)
 	// The warm flag gates every replay this attempt (CO-6b-003): the
@@ -684,6 +692,10 @@ func (o *sourceCachePageOps) beforeUpserts(ctx context.Context) error {
 			zap.Int64("rows", res.Rows),
 		)
 	}
+	// The scope's base is established this attempt (the copy ran, or a
+	// committed copy was observed via the replayed-set): record pages
+	// later in this attempt must not re-ground over it.
+	o.s.sourceCacheScopeGrounded.Store(sourceCacheScopeKey(o.rowKind, o.scopeKey), struct{}{})
 	if !o.replay.GetOverlay() && o.pageRows > 0 {
 		// TRANSITIONAL tolerance (proto contract, pins 6a C34): a
 		// non-overlay replay page must carry no rows. Warn and apply them
@@ -694,6 +706,54 @@ func (o *sourceCachePageOps) beforeUpserts(ctx context.Context) error {
 			zap.Int("rows", o.pageRows),
 		)
 	}
+	return nil
+}
+
+// groundRecordScope grounds a record round's replacement semantics: before
+// the round's first write to a scope this attempt, a partition holding rows
+// that no completed round published is cleared. Un-published rows are
+// un-attributed debris from a crashed attempt — most dangerously a replay
+// copy whose round never published before a cut, after which upstream moved
+// and the resume's consult missed (the verdict-flip path). Composing the
+// record round's fresh listing with that debris seals a phantom union under
+// the fresh validator, which the NEXT sync's consult validates clean and
+// replays forward — the non-self-healing direction. This is the walker
+// model's scenario-1 family (formal/walker/CALIBRATION.md, tc1c flavor),
+// witnessed against this code by
+// TestChaosSourceCacheRecordFlipOverReplayDebris.
+//
+// The rule fires once per scope per attempt (the grounded set is volatile
+// by design — a resume re-decides from the durable facts) and skips scopes
+// with a manifest entry: a published entry means a completed round owns the
+// partition's rows, so later record pages accumulate exactly as before.
+// The caller holds the scope lock. Clearing an empty partition is a no-op,
+// so the common born-empty case costs one manifest lookup.
+func (o *sourceCachePageOps) groundRecordScope(ctx context.Context) error {
+	key := sourceCacheScopeKey(o.rowKind, o.scopeKey)
+	if _, done := o.s.sourceCacheScopeGrounded.Load(key); done {
+		return nil
+	}
+	_, published, err := o.s.sourceCacheStore.LookupSourceCacheEntry(ctx, o.rowKind, o.scopeKey)
+	if err != nil {
+		return newReplayIntegrityError(ReplayVerdictWarm, o.rowKind, o.scopeKey,
+			fmt.Errorf("record grounding: reading this sync's manifest entry: %w", err))
+	}
+	if !published {
+		deleted, err := o.s.sourceCacheStore.ClearSourceCacheScope(ctx, o.rowKind, o.scopeKey)
+		if err != nil {
+			return newReplayIntegrityError(ReplayVerdictWarm, o.rowKind, o.scopeKey,
+				fmt.Errorf("record grounding: clearing un-attributed rows: %w", err))
+		}
+		o.s.testSyncTraceAudit.record(syncTraceClear, string(o.rowKind), o.scopeKey)
+		if deleted > 0 {
+			ctxzap.Extract(ctx).Warn("record grounding cleared un-attributed rows from a prior attempt",
+				zap.String("row_kind", string(o.rowKind)),
+				zap.String("scope_key", o.scopeKey),
+				zap.Int64("rows", deleted),
+			)
+		}
+	}
+	o.s.sourceCacheScopeGrounded.Store(key, struct{}{})
 	return nil
 }
 

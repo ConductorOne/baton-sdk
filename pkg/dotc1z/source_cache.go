@@ -72,6 +72,15 @@ type SourceCacheStore interface {
 	// add-only.
 	ReplaySourceCache(ctx context.Context, prev connectorstore.Reader, kind sourcecache.RowKind, scopeKey string) (SourceCacheReplayResult, error)
 
+	// ClearSourceCacheScope removes every current-sync row stamped with
+	// (kind, scopeKey) — the replay clear leg standalone. Backs
+	// record-round grounding: a record round is a replacement listing,
+	// so a partition holding rows no completed round published (crashed-
+	// attempt debris) is cleared before the round's first write.
+	// Idempotent; deletes commit in bounded chunks, so retry converges.
+	// Returns rows deleted.
+	ClearSourceCacheScope(ctx context.Context, kind sourcecache.RowKind, scopeKey string) (int64, error)
+
 	// DeleteSourceCacheRows removes rows by public canonical ID from the
 	// current sync, after replay + overlay (delta-query tombstones).
 	// ID formats per kind: grants and entitlements use their canonical
@@ -339,6 +348,25 @@ func (s *pebbleStore) GetSourceCacheCompat(ctx context.Context) (sourcecache.Com
 		SDKMaterializationGeneration: rec.GetSdkMaterializationGeneration(),
 		SyncSelectionFingerprint:     rec.GetSyncSelectionFingerprint(),
 	}, true, nil
+}
+
+func (s *pebbleStore) ClearSourceCacheScope(ctx context.Context, kind sourcecache.RowKind, scopeKey string) (int64, error) {
+	if err := sourcecache.ValidateRowKind(kind); err != nil {
+		return 0, err
+	}
+	if err := sourcecache.ValidateScopeKey(scopeKey); err != nil {
+		return 0, err
+	}
+	done, err := s.beginSourceCacheMutation()
+	if err != nil {
+		return 0, err
+	}
+	defer done()
+	deleted, err := s.Engine.ClearSourceCacheScope(ctx, string(kind), scopeKey)
+	if err != nil {
+		return deleted, fmt.Errorf("source cache clear scope %q: %w", scopeKey, err)
+	}
+	return deleted, nil
 }
 
 // DeleteSourceCacheRows deletes delta tombstones by public id string.

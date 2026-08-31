@@ -273,6 +273,14 @@ type syncer struct {
 	// — record or replay — the same cardinality as the scope manifest.
 	// Cost pinned by BenchmarkSourceCacheScopeLocks.
 	sourceCacheScopeLocks native_sync.Map
+	// sourceCacheScopeGrounded is the ATTEMPT-LOCAL set of (rowKind,
+	// scopeKey) pairs whose partition base is established this attempt —
+	// by a replay copy (or its within-attempt skip) or by a record
+	// round's grounding (groundRecordScope). Deliberately volatile: a
+	// resume re-decides grounding from the durable facts (this sync's
+	// manifest entries), which is what clears crashed-attempt debris on
+	// the verdict-flip path instead of composing with it.
+	sourceCacheScopeGrounded native_sync.Map
 	// sourceCacheStore is this sync's store viewed through its source-cache
 	// surface, set at lookup install when the capability is MODE_READ_WRITE
 	// and the store is Pebble; nil otherwise. Non-nil is the produce-side
