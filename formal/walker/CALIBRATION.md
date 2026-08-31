@@ -20,8 +20,11 @@ also clean, isolating the P4 merge from the v11 monitor change; the
 post-MS-CO-001 47-cell sweep is the current gate.
 
 Toolchain: P 3.1.0 (`p compile` / `p check -tc <cell> -s <schedules>`).
-Every RED row below archives its counterexample under
-`traces/<scenario>/<cell>/`; GREEN rows state the explored budget. A
+Every RED row below archives its human-readable counterexample
+schedule under `traces/<scenario>/<cell>/counterexample.txt`; the
+machine-replay `trace.json` files are NOT committed (regenerate any
+cell's replay by re-running its `p check` line — reds reproduce at
+the stated find rates). GREEN rows state the explored budget. A
 green run means nothing except at the stated budget — the reds are the
 calibration currency.
 
