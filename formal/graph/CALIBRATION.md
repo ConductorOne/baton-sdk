@@ -404,8 +404,13 @@ blocks Axis-3 citation until dispositioned (GS-CO-005(d)).
 `PCheckerOutput/bakeoff/summary.txt`; reproduce with
 `tools/bakeoff.sh`, which carries exactly these 12 cells — they are
 deliberately NOT in `tools/sweep.sh`, so re-running the calibration
-sweep cannot overwrite this phase's evidence and vice versa). All
-four v1 controls GREEN
+sweep cannot overwrite this phase's evidence and vice versa). Every
+red records its FIRING MONITOR as an alarm tag, the same audit the
+sweep applies: `[EXEC-BOUND]` on the two G6b probes, `[SEAL-WORLD]`
+on the four reachable-world probes. The tag is what makes an
+expected-RED cell auditable — counterexample presence alone matches
+`expected=RED` even for a cell that redded on a deadlock instead of
+its calibrated monitor. All four v1 controls GREEN
 (the zero-crash redo floor is bound 1 under BOTH variants — the
 count oracle measures crash-caused redo, not variant overhead); both
 G6b bound-1 probes RED on EXEC-BOUND (the mutation chassis's redo is

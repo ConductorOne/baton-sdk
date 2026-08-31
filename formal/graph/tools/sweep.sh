@@ -100,7 +100,11 @@ for entry in $CELLS; do
   if [ "$observed" = "$expected" ]; then mark="ok"; else mark="MISMATCH"; mismatches=$((mismatches + 1)); fi
   detail=""
   if [ "$observed" = "RED" ]; then
-    detail=" [$(rg -o "(P-GEN|P-MARK|P-ADOPT|P1-[A-Z-]+[A-Z]|P2-[A-Z]+|P3'-[A-Z]+|P4-STUCK|P5-UNDER|P5-OVER|P6-[GES]|SEAL-EXPECT|REDO-PROBE|PURGE-PROBE|POISON-PROBE|DEAD-DISPATCH|PASS-BUDGET|EXEC-BOUND|Deadlock detected|liveness)" "$ce" 2>/dev/null | sort -u | paste -sd, -)]"
+    # SEAL-WORLD is currently a bake-off-only monitor (tools/bakeoff.sh),
+    # kept in the alternation so a G5d-shaped cell landing here is not
+    # silently untagged. Output-neutral for the frozen 66 cells: the
+    # hyphenated string appears only in that assert's message.
+    detail=" [$(rg -o "(P-GEN|P-MARK|P-ADOPT|P1-[A-Z-]+[A-Z]|P2-[A-Z]+|P3'-[A-Z]+|P4-STUCK|P5-UNDER|P5-OVER|P6-[GES]|SEAL-EXPECT|SEAL-WORLD|REDO-PROBE|PURGE-PROBE|POISON-PROBE|DEAD-DISPATCH|PASS-BUDGET|EXEC-BOUND|Deadlock detected|liveness)" "$ce" 2>/dev/null | sort -u | paste -sd, -)]"
   fi
   line="$cell expected=$expected observed=$observed $mark$detail"
   echo "$line" | tee -a "$SUMMARY"
