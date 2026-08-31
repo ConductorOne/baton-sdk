@@ -272,10 +272,11 @@ errorfs-soak: ## Sweep whole-sync Pebble crash points using errorfs.
 chaos-check: ## Run bounded representative chaos checks under race detection.
 	go test -race -count=1 ./internal/chaosconnector/...
 	go test -race -count=1 -timeout=10m -run '^TestChaosConnector(LostResponseThenFilesystemFailureResumes|ResourcesAndEntitlementsFaultMatrix|ListGrantsFaultMatrix|ReservedBatonIDOwnershipIsRejected|MalformedKnownAnnotationFailsWithoutSealing|ClearedNextPageTokenSealsOnlyVisiblePrefix|CancellationTerminatesAndColdResumes|DataPolicyLifecycleCorpus|ExternalPrincipalResumeUsesCurrentExternalAnswer|SQLiteExternalPrincipalResumeDegradesWithoutFailure|ExternalPrincipalCleanupUsesOnePassPerKeyspace)$$' ./pkg/sync
+	go test -race -count=1 -timeout=10m -run '^TestChaosSourceCache(GateMatrix|CollectionSemantics|InterruptResume|GenerationalSteadyState|CompatDriftOnResume|ReplayWithoutHitFailsCold|DriftedResumeRejectsRestoredReplay|DuplicateReplayCursorsParallel|UnsupportedShapesBlockReplaySeed)$$' ./pkg/sync
 
 .PHONY: chaos-full-check
 chaos-full-check: ## Run every deterministic chaos corpus under race detection.
-	BATON_TEST_NIGHTLY=1 go test -race -count=1 -timeout=30m -run '^TestChaosConnector' ./pkg/sync
+	BATON_TEST_NIGHTLY=1 go test -race -count=1 -timeout=30m -run '^TestChaos(Connector|SourceCache)' ./pkg/sync
 
 .PHONY: chaos-soak
 chaos-soak: ## Run extended seeded chaos connector fanout schedules.
@@ -309,6 +310,53 @@ prodscale-crossover: ## Measure fold/overlay crossover at production scale.
 .PHONY: prodscale-topebble
 prodscale-topebble: ## Measure SQLite-to-Pebble conversion at production scale.
 	BATON_PROD_SCALE_TOPEBBLE=1 go test -v -count=1 -timeout=180m -run TestProdScaleToPebbleCurve ./pkg/synccompactor
+
+# Formal verification track (formal/). These targets have tool
+# prerequisites this repo deliberately does not install: the P checker
+# (`p` on PATH — https://p-org.github.io/P/) for the model sweeps, and a
+# sibling engine checkout at ../occult (the host go.mod `replace` target)
+# plus a Go 1.26 toolchain for the Occult suite. Each target checks its
+# prerequisite and says what is missing rather than failing confusingly.
+#
+# The sweep targets REGENERATE the committed evidence summaries
+# (formal/*/PCheckerOutput/*/summary.txt): a clean run reproduces them
+# byte-for-byte apart from find-rate noise on RED cells, and a mismatch
+# line or changed cell count is a calibration drift finding, not noise.
+# Walker (55 cells) and graph (66 cells) each take on the order of half
+# an hour at the default schedule budget; the bake-off (12 cells) about
+# twenty minutes.
+P_SCHEDULES ?= 10000
+OCCULT_TEST_TIMEOUT ?= 90m
+
+.PHONY: p-checker-guard
+p-checker-guard:
+	@command -v p >/dev/null 2>&1 || { \
+		echo "formal: the P checker ('p') is not on PATH — install it per https://p-org.github.io/P/ (no install target is provided)" >&2; \
+		exit 2; \
+	}
+
+.PHONY: formal-walker-sweep
+formal-walker-sweep: p-checker-guard ## Compile and sweep the walker model (55 cells; needs P).
+	cd formal/walker && p compile -pp walker.pproj && tools/sweep.sh $(P_SCHEDULES)
+
+.PHONY: formal-graph-sweep
+formal-graph-sweep: p-checker-guard ## Compile and sweep the graph model (66 cells; needs P).
+	cd formal/graph && p compile -pp graph.pproj && tools/sweep.sh $(P_SCHEDULES)
+
+.PHONY: formal-graph-bakeoff
+formal-graph-bakeoff: p-checker-guard ## Run the 12-cell bake-off phase (needs P).
+	cd formal/graph && p compile -pp graph.pproj && tools/bakeoff.sh $(P_SCHEDULES)
+
+.PHONY: formal-occult-check
+formal-occult-check: ## Run the Occult host suite (needs ../occult and Go 1.26).
+	@test -d ../occult || { \
+		echo "formal-occult-check: sibling engine checkout not found at ../occult (the formal/occult/host go.mod 'replace' target); clone it beside this repo (no install target is provided)" >&2; \
+		exit 2; \
+	}
+	cd formal/occult/host && go test -timeout $(OCCULT_TEST_TIMEOUT) ./...
+
+.PHONY: formal-check
+formal-check: formal-walker-sweep formal-graph-sweep formal-graph-bakeoff formal-occult-check ## Run every formal-track sweep and suite.
 
 .PHONY: pkg/sdk/version.go
 pkg/sdk/version.go:
