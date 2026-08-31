@@ -1,0 +1,75 @@
+# The phantom union, derived deductively (the KNOWN-BROKEN composition
+# vs the premise-validated one). This is the walker calibration
+# family's star bug (formal/MODEL_SPEC.md; brief "Calibration cases"):
+# a source-cache replay grounds the partition at the cache's ATTESTED
+# epoch (e0), but the broken algorithm requests the overlay diff from
+# the LAST SYNC's epoch (e1). Each response is individually truthful —
+# the replay really is rows(e0), the diff really is e1→e2 — and their
+# composition is false: a row deleted between e0 and e1 survives as a
+# phantom. The good algorithm (demand-graph runtime / premise-validated
+# adoption) grounds the diff at the marker's attested base, so the same
+# ingredients compose truthfully.
+#
+# Upstream history (two-id observational envelope, as in sync_laws):
+#   e0: id1 = vx, id2 = v1
+#   e1: id1 DELETED, id2 = v1
+#   e2: id1 absent, id2 = v2
+# The truthful diff e1→e2 mentions only id2 (id1 did not change between
+# e1 and e2 — it was already gone). The truthful diff e0→e2 mentions
+# both. Applying diff12 to the e0-grounded base is the bug.
+#
+# CONSTRAINT DISCIPLINE (lint: unconstrained-axiom-universal): the
+# universals v/m/b are deliberately unconstrained — head-guarded by
+# module-local constructors (get/put/del), and the engine cannot yet
+# consume userspace free-term membership at axiom dispatch (pinned by
+# host/constrained_params_probe_test.go; see the engine-changes brief).
+
+syntax("standard");
+
+# Row-map observations (self-contained copy of the two-id algebra).
+∃ get;
+∃ put;
+∃ del;
+∃ mt;
+∃ id1;
+∃ id2;
+∃ found;
+∃ absent;
+
+get(id1, mt) = absent;
+get(id2, mt) = absent;
+get(id1, put(id1, v, m)) = found(v);
+get(id2, put(id2, v, m)) = found(v);
+get(id1, del(id1, m)) = absent;
+get(id2, del(id2, m)) = absent;
+get(id1, put(id2, v, m)) = get(id1, m);
+get(id2, put(id1, v, m)) = get(id2, m);
+get(id1, del(id2, m)) = get(id1, m);
+get(id2, del(id1, m)) = get(id2, m);
+
+# Upstream truth per epoch.
+∃ vx;
+∃ v1;
+∃ v2;
+∃ rows_e0;
+∃ rows_e1;
+∃ rows_e2;
+rows_e0 = put(id1, vx, put(id2, v1, mt));
+rows_e1 = put(id2, v1, mt);
+rows_e2 = put(id2, v2, mt);
+
+# Truthful diffs as base transformers. diff12 is truthful FOR BASE e1;
+# diff02 is truthful for base e0.
+∃ diff12;
+∃ diff02;
+diff12(b) = put(id2, v2, b);
+diff02(b) = put(id2, v2, del(id1, b));
+
+# The two compositions under test. broken: replay grounded at e0, diff
+# requested from e1 (the composition the current algorithm can
+# produce). good: diff grounded at the replay's attested base (what
+# premise-validated adoption enforces).
+∃ result_broken;
+∃ result_good;
+result_broken = diff12(rows_e0);
+result_good = diff02(rows_e0);

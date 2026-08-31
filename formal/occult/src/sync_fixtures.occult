@@ -1,0 +1,9 @@
+# Free Skolem constants for the law checks: no axiom mentions them, so
+# a law verified on them holds for arbitrary values (fresh-constant
+# argument). Both sides of every equivalence query reference THE SAME
+# module existential, which is what makes the two independently loaded
+# query modules talk about one entity.
+
+∃ e1; ∃ e2; ∃ e3;
+∃ x0; ∃ y0; ∃ g0;
+∃ v0; ∃ m0; ∃ op0;

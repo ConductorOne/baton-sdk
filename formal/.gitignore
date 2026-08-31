@@ -1,0 +1,9 @@
+# Regenerable P toolchain outputs (p compile / p check). The sweep
+# summaries the calibration logs cite as evidence are force-added.
+PGenerated/
+PCheckerOutput/
+# Machine-replay counterexample archives (~200k lines across the
+# calibrated reds). Regenerate any cell's replay with
+# `p check -tc <cell>` per the run log; the committed evidence is the
+# human-readable counterexample.txt per cell plus the sweep summaries.
+trace.json

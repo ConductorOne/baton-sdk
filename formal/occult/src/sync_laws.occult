@@ -1,0 +1,87 @@
+# Composition algebra of the P1 fold (formal/MODEL_SPEC.md §7) and the
+# variant-S stamp facts (formal/GRAPH_MODEL_SPEC.md). Loaded into
+# UniversalScope by the host (LoadStdlib): bare identifiers in equation
+# bodies are universal pattern variables; operations and constructors
+# are existentials. Every pattern is head-guarded by a constructor.
+#
+# These equations are the DEFINITIONS (the fold clauses and the
+# dead-membership homomorphism). The laws in formal/occult/LAWS.md are
+# checked as derived equivalences by the host (host/laws_test.go);
+# nothing here states a law as its own assumption.
+#
+# CONSTRAINT DISCIPLINE (lint: unconstrained-axiom-universal). The
+# universals here range over OPEN carriers by design: the laws are
+# verified on the free Skolem constants of sync_fixtures.occult, and
+# the fresh-constant argument needs those constants free of axioms —
+# gating the fold clauses on sorts would demand membership facts about
+# the Skolems, and the engine cannot consume userspace free-term
+# membership at dispatch anyway (host/constrained_params_probe_test.go
+# pins this). This is also why the L7 ACI axioms below COPY the shape
+# of the stdlib's vc_merge instead of requiring std vector_clock: that
+# module's universals are constrained to a VectorClock sort nothing
+# gives members, so its rewrites cannot fire on our stamp terms.
+
+# --- Fold values and complete-round operations ---
+
+∃ app; ∃ foldops;
+∃ rows;
+∃ fresh; ∃ repl; ∃ ovl; ∃ ovlsg; ∃ skip;
+∃ opsnil; ∃ opscons;
+
+# Fold clauses (MODEL_SPEC §7, P1):
+# fresh(e): fetch-fresh / REPLACES round — absorbs any prior fold value.
+app(fresh(e), x) = rows(e);
+# repl(e): completed replacement copy of the attested base e.
+app(repl(e), x) = rows(e);
+# ovlsg(e): self-grounding overlay (its own copy committed in-round).
+app(ovlsg(e), x) = rows(e);
+# ovl(a, b): overlay grounded on this sync's completed replay of a.
+app(ovl(a, b), rows(a)) = rows(b);
+# skip(e): copy-skipped duplicate — a no-op on the already-current value.
+app(skip(e), rows(e)) = rows(e);
+
+# Round-log fold: ops apply in completion order (head first).
+foldops(opsnil, x) = x;
+foldops(opscons(op, rest), x) = foldops(rest, app(op, x));
+
+# --- Row-map observations (two-id envelope, for the tombstone laws) ---
+# Distinct ids are distinct constructors: the coalesced-delta
+# precondition (at most one op per id per round) makes a two-id
+# observational algebra sufficient for the commutation law.
+
+∃ get; ∃ put; ∃ del;
+∃ id1; ∃ id2;
+∃ found; ∃ absent;
+
+get(id1, put(id1, v, m)) = found(v);
+get(id2, put(id2, v, m)) = found(v);
+get(id1, del(id1, m)) = absent;
+get(id2, del(id2, m)) = absent;
+get(id1, put(id2, v, m)) = get(id1, m);
+get(id2, put(id1, v, m)) = get(id2, m);
+get(id1, del(id2, m)) = get(id1, m);
+get(id2, del(id1, m)) = get(id2, m);
+
+# --- Stamps: dead-membership homomorphism (variant S) ---
+# Own booleans (tt/ff) keep the algebra free-constructor: natives are
+# opaque to saturation.
+
+∃ merge; ∃ dead; ∃ live;
+∃ hasdead; ∃ tt; ∃ ff; ∃ bor;
+
+bor(tt, b) = tt;
+bor(b, tt) = tt;
+bor(ff, ff) = ff;
+
+hasdead(dead(g)) = tt;
+hasdead(live(g)) = ff;
+hasdead(merge(a, b)) = bor(hasdead(a), hasdead(b));
+
+# L7 — the join-semilattice ASSUMPTIONS for merge, instantiating the
+# engine stdlib's vector_clock axioms (vc_merge) on our stamp carrier.
+# These are assumptions of the design, not theorems here; they are
+# loaded so every other law is checked IN THEIR PRESENCE (coherence:
+# the controls must stay non-equivalent even with ACI closure active).
+merge(a, b) = merge(b, a);
+merge(a, merge(b, c)) = merge(merge(a, b), c);
+merge(a, a) = a;

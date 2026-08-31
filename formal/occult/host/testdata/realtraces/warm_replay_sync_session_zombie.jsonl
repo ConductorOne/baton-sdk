@@ -1,0 +1,11 @@
+{"name":"warm_replay_sync_session_zombie","resumed":false}
+{"kind":"checkpoint"}
+{"kind":"checkpoint"}
+{"kind":"consult","row_kind":"grants","scope_key":"grants:team-1"}
+{"kind":"clear","row_kind":"grants","scope_key":"grants:team-1"}
+{"kind":"replay","row_kind":"grants","scope_key":"grants:team-1"}
+{"kind":"upsert","row_kind":"grants","scope_key":"grants:team-1"}
+{"kind":"swrite","scope_key":"probe-key"}
+{"kind":"resume"}
+{"kind":"checkpoint"}
+{"kind":"sread_hit","scope_key":"probe-key"}

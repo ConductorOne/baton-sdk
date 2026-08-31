@@ -1,0 +1,47 @@
+tc1a1b_P1 expected=RED observed=RED ok [P1-CONTENT]
+tc1a1b_P2 expected=RED observed=RED ok [P2-STALENESS]
+tc1a1b_P3 expected=RED observed=RED ok [P3'-COHERENCE]
+tc1bii_P1 expected=RED observed=RED ok [P1-CONTENT]
+tc1c_P1 expected=RED observed=RED ok [P1-CONTENT]
+tc1c_P1_probe expected=RED observed=RED ok [P1-CONTENT]
+tc1c_P2 expected=RED observed=RED ok [P2-STALENESS]
+tc1c_P2_honest expected=GREEN observed=GREEN ok
+tcGreen_All expected=GREEN observed=GREEN ok
+tc2stop_P6A expected=RED observed=RED ok [P6-A,P6A]
+tc2crash_P6A expected=RED observed=RED ok [P6-A,P6A]
+tc2green_P6A expected=GREEN observed=GREEN ok
+tc3a_P1 expected=RED observed=RED ok [P1-CONTENT]
+tc3a_P2 expected=GREEN observed=GREEN ok
+tc3b_P1 expected=RED observed=RED ok [P1-ATTEST-SEAL]
+tc3bBindingOn_All expected=GREEN observed=GREEN ok
+tc3atomic_All expected=GREEN observed=GREEN ok
+tc4shipped_All expected=GREEN observed=GREEN ok
+tc4atomic_All expected=GREEN observed=GREEN ok
+tc4noOnce_P1 expected=RED observed=RED ok [P1-LEGALITY]
+tc4noLocks_P1 expected=RED observed=RED ok [P1-LEGALITY]
+tc5a_P1 expected=RED observed=RED ok [P1-CONFIG]
+tc5a_Gate_All expected=GREEN observed=GREEN ok
+tc5b_Dropout_All expected=GREEN observed=GREEN ok
+tc5b_CrashWindow expected=RED observed=RED ok [SEAL-EXPECT]
+tc5c_C1Probe expected=RED observed=RED ok [C1-PROBE]
+tc6naive_P1 expected=RED observed=RED ok [P1-CONTENT]
+tc6atomic_All expected=GREEN observed=GREEN ok
+tc6atomicStop_All expected=GREEN observed=GREEN ok
+tc6overlayNaive_P1 expected=RED observed=RED ok [P1-CONTENT]
+tc6overlayNaive_P2 expected=RED observed=RED ok [P2-STALENESS]
+tc6overlayLast_P1 expected=RED observed=RED ok [P1-CONTENT]
+tc6overlay_All expected=GREEN observed=GREEN ok
+tc6overlayStop_All expected=GREEN observed=GREEN ok
+tc7a_P6R expected=RED observed=RED ok [P6-R,P6R]
+tc7a_P1P2 expected=GREEN observed=GREEN ok
+tc7b_P6R expected=RED observed=RED ok [P6-R,P6R]
+tc7c_All expected=GREEN observed=GREEN ok
+tc7aTaintW_P6R expected=GREEN observed=GREEN ok
+tc7bTaintW_P6R expected=RED observed=RED ok [P6-R,P6R]
+tc7aTaintAll_P6R expected=GREEN observed=GREEN ok
+tc7bTaintAll_P6R expected=GREEN observed=GREEN ok
+tcP4stuck_P4 expected=RED observed=RED ok [P4-STUCK,P4S]
+tcP4ladder_All expected=GREEN observed=GREEN ok
+tcP4leak_P1 expected=RED observed=RED ok [Deadlock detected,P4L]
+tcP4release_All expected=GREEN observed=GREEN ok
+SWEEP-DONE cells=46 mismatches=0
