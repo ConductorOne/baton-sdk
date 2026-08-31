@@ -144,6 +144,10 @@ probe_go(tcons(ev_b(s), r), ff) = "violation: b-before-a";
 
 ∃ probe_green;
 probe_green = tcons(ev_a(1), tcons(ev_b(2), tnil));
+
+∃ bogus;
+∃ probe_rogue;
+probe_rogue = tcons(ev_a(bogus), tnil);
 `
 
 // probeEval loads module src as name and evaluates M.probe(term),
@@ -182,10 +186,17 @@ func TestConstrainedParamsBuiltinClassifierWorks(t *testing.T) {
 }
 
 // TestConstrainedParamsGateRefusesNonMembers pins that the gate is
-// enforced at dispatch, not advisory lint metadata: a trace carrying a
-// declared-but-non-member scope does not reduce to a verdict.
+// enforced at dispatch, not advisory lint metadata. The refusal is
+// asserted against probeBuiltinSrc — the module with a WORKING
+// positive (TestConstrainedParamsBuiltinClassifierWorks reduces
+// probe_green on it) — so non-reduction of the rogue trace can only
+// mean the Number gate refused the non-numeric payload, not that the
+// module never reduces anything. (Asserting refusal on
+// probeConstrainedSrc would be vacuous: nothing reduces under it —
+// that is exactly the gap TestConstrainedParamsUserspaceMembershipNotConsumed
+// pins.)
 func TestConstrainedParamsGateRefusesNonMembers(t *testing.T) {
-	if v, ok := probeEval(t, "probe_constrained", probeConstrainedSrc, "M.probe_rogue"); ok {
+	if v, ok := probeEval(t, "probe_builtin", probeBuiltinSrc, "M.probe_rogue"); ok {
 		t.Fatalf("non-member scope reduced to %q: constraints are not gating dispatch", v)
 	}
 }

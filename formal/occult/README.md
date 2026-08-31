@@ -63,9 +63,12 @@ cd formal/occult/host && go test -timeout 30m ./...
 when run together.)
 
 Requires the sibling engine checkout at `../occult` (the go.mod
-`replace` points there). The pure `.occult` sources carry no Go
-dependency; baton-sdk's public module does not require the engine
-repo.
+`replace` points there) and a Go 1.26 toolchain: the engine's own
+go.mod pins `go 1.26.0`, so the host module pins it too —
+deliberately ahead of the SDK root's 1.25.2 (a 1.25 toolchain with
+auto-switching, `GOTOOLCHAIN=auto`, fetches 1.26 on its own). The
+pure `.occult` sources carry no Go dependency; baton-sdk's public
+module does not require the engine repo.
 
 ## Deliverable status
 

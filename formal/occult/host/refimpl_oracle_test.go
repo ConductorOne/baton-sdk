@@ -4,7 +4,7 @@
 //   - CONTENT oracle (Go): the sealed artifact must equal upstream at
 //     the head epoch.
 //   - TRACE oracle (engine): every attempt's canonical trace is checked
-//     against all five deliverable-7 policies.
+//     against all seven deliverable-7 policies.
 //
 // The matrix this asserts:
 //
@@ -48,7 +48,7 @@ func phantomConfig(mode refimpl.Mode, crash bool) refimpl.Config {
 var truthAtHead = map[string]string{"id2": "v2"}
 var phantomArtifact = map[string]string{"id1": "vx", "id2": "v2"}
 
-// checkAttempts runs every attempt trace through all five policies and
+// checkAttempts runs every attempt trace through all seven policies and
 // asserts the expected verdict: expectViolation maps attempt index
 // (0-based) to the one policy that must fire; every other cell must be
 // "ok".

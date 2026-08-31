@@ -1,26 +1,30 @@
 # Walker calibration — run log
 
-Status: COMPLETE at the v11 freeze + MS-CO-001, extended post-freeze
-with the P6-C session-checkpoint-consistency tranche (three cells,
-decision 25 — the CO-6b-009 root cause made executable; sweep now 50
-cells). Scenarios 1, 2, 3, 4,
-5 (both triggers + crash window + C1 probe), 6 (both flavors + the
-round-7 third-placement cell + the MS-CO-001 o-iv mutant), 7, and the
-P4 progress cells built and calibrated. Spec baseline:
-`formal/MODEL_SPEC.md` v11, FROZEN
+Status: COMPLETE. CURRENT GATE: the 55-cell full-matrix sweep, 0
+mismatches, every red on its calibrated alarm (`tools/sweep.sh`, 10k
+schedules per cell; the run of record is
+`PCheckerOutput/sweep/summary.txt`, ending
+`SWEEP-DONE cells=55 mismatches=0`). Scenarios 1, 2 (including the
+P6-C session-checkpoint-consistency tranche, decision 25 — the
+CO-6b-009 root cause made executable), 3, 4, 5 (both triggers + crash
+window + C1 probe), 6 (both flavors + the round-7 third-placement
+cell + the MS-CO-001 o-iv mutant), 7, 8 (external principals,
+decision 26), and the P4 progress cells built and calibrated. Spec
+baseline: `formal/MODEL_SPEC.md` v11, FROZEN
 (round-7 dispositions + de-scope edits applied; see the §11 v11
 entry), plus change order MS-CO-001 (dispositions for the PARALLEL
 round-7 review — `reviews/model-spec-round7-overlay-parallel.md` —
 surfaced post-freeze; §3/§4/§5 registration edits, the per-verdict
 deferral scoping, and the o-iv-removal kill cell). The v11 monitor
-pins (F2 complete-rounds replacement
-counting, F3 attestation-over-empty-fold) and the two v11 cells
-(6-overlay-last, 3-atomic) are built and verified. FREEZE SWEEP:
-all 46 cells, 0 mismatches, every red on its calibrated alarm
-(`tools/sweep.sh`, 10k schedules per cell; summary archived at
-`traces/freeze-sweep-v11-summary.txt`). The pre-v11 44-cell sweep was
-also clean, isolating the P4 merge from the v11 monitor change; the
-post-MS-CO-001 47-cell sweep is the current gate.
+pins (F2 complete-rounds replacement counting, F3
+attestation-over-empty-fold) and the two v11 cells (6-overlay-last,
+3-atomic) are built and verified. Sweep history (superseded gates,
+summaries archived under `traces/`): the 46-cell v11 freeze sweep
+(`traces/freeze-sweep-v11-summary.txt`; the pre-v11 44-cell sweep was
+also clean, isolating the P4 merge from the v11 monitor change), the
+47-cell post-MS-CO-001 sweep
+(`traces/msco001-sweep-summary.txt`), then +3 P6-C cells (50) and
++5 scenario-8 cells (the current 55).
 
 Toolchain: P 3.1.0 (`p compile` / `p check -tc <cell> -s <schedules>`).
 Counterexample traces are NOT committed (neither the human-readable
@@ -49,6 +53,7 @@ strategy at ~60 schedules, missed by the 100k random pass).
 | tc1bii_P1 | carrier validator-less | P1 | RED | RED: `P1-CONTENT` (the attestation-only 1b-ii edge is also live in this config; the checker surfaces the content shape first) | first find |
 | tc1c_P1 | carrier-less hard crash | P1 | RED | RED: `P1-CONTENT` (copy debris survives restart-from-root; fresh round unions over it) | first find |
 | tc1c_P2 | crash + verification sync | P2 | RED | RED: `P2-STALENESS` | first find |
+| tc1c_P1_probe | tc1c's verification config (3 syncs), P1 asserted | P1 | RED | RED: `P1-CONTENT` — premise-liveness probe: the verify config still contains the sync-2 union, so tc1c_P2's red is fired by the staleness mechanism, not by the premise having drifted out of the config | first find |
 | tcGreen_All | no interruption, no mutation, honest replay | P1+P2+P3′ | GREEN | GREEN | 10000 schedules |
 | tc1c_P2_honest | crash config, P2 only, 2 syncs | P2 | GREEN | GREEN (the corrupted seal itself is staleness-legal; the alarm belongs to the verification sync) | 3000 schedules |
 

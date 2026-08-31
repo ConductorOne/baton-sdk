@@ -3,7 +3,10 @@
 PGenerated/
 PCheckerOutput/
 # Machine-replay counterexample archives (~200k lines across the
-# calibrated reds). Regenerate any cell's replay with
+# calibrated reds). Regenerate any cell's counterexample with
 # `p check -tc <cell>` per the run log; the committed evidence is the
-# human-readable counterexample.txt per cell plus the sweep summaries.
+# sweep summaries.
 trace.json
+# Occult engine solver checkpoints (regenerable tool output, ~1MB of
+# base64 solver state per probe run).
+*.checkpoint.json

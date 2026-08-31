@@ -140,6 +140,19 @@ preserving; the engine's evaluation cost grows steeply with event
 count), and the structural clear is once per scope per SYNC, attempts
 included, granted to the scope's first WRITE (upsert or delete).
 
+Division-of-labor note for the one-term rendering: clear grounding
+persists across `ev_resume` BY DESIGN (committed rows survive the
+crash), so in a whole-sync term an attempt-1 clear legitimately
+grounds an attempt-2 write and policy 2 cannot red the
+resume-without-regrounding class here. That class is covered on the
+refimpl leg, which renders each attempt as its own term — a resumed
+attempt writing without its own grounding reds clear-before-upsert
+(`TestRefImplLegacyCrashResume`) — and its record-flavor incarnation
+(the verdict-flip union) is a CONTENT violation owned by the
+exporting test's content oracle, per the scope note below. The
+policy module carries the same statement at its `ev_resume`
+declaration.
+
 The delete leg is fixtured too: `warm_replay_sync_tombstone.jsonl`
 records a warm delta round that replays the base, overlay-upserts one
 row, tombstones a departed row, and publishes — B3's within-page
