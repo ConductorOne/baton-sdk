@@ -1,6 +1,9 @@
 # Walker calibration — run log
 
-Status: COMPLETE at the v11 freeze + MS-CO-001. Scenarios 1, 2, 3, 4,
+Status: COMPLETE at the v11 freeze + MS-CO-001, extended post-freeze
+with the P6-C session-checkpoint-consistency tranche (three cells,
+decision 25 — the CO-6b-009 root cause made executable; sweep now 50
+cells). Scenarios 1, 2, 3, 4,
 5 (both triggers + crash window + C1 probe), 6 (both flavors + the
 round-7 third-placement cell + the MS-CO-001 o-iv mutant), 7, and the
 P4 progress cells built and calibrated. Spec baseline:
@@ -60,6 +63,32 @@ read-miss emits nothing). Both reds are EXPECTED FINDINGS — no fix run
 | tc2stop_P6A | graceful stop, mutate between attempts | P6-A | RED | RED: `P6-A` — H's d1 commits, G embeds d1 and pops; stop strands H mid-chain; H alone re-derives d2 on resume | first find (0.5% of 10k) |
 | tc2crash_P6A | hard crash (at-least-once, both re-run) | P6-A | RED | RED: `P6-A` — the G-before-H interleaving re-embeds the durable stale d1 under H's re-derived d2; the complementary H-first schedule is green in the same config | first find (11% of 10k) |
 | tc2green_P6A | no interruption, no mutation | P6-A | GREEN | GREEN | 10000 schedules |
+
+### P6-C — session-checkpoint consistency (CO-6b-009 root cause)
+
+The constraint P6-A never stated: post-crash session state must equal
+the session state at the restored checkpoint, in BOTH directions —
+no ZOMBIE (a dead attempt's beyond-checkpoint write observed by the
+re-run: the cursor rolled back, the session did not) and no AMNESIA
+(a checkpoint-committed value destroyed: its producing work will not
+re-run, so deletion is unrecoverable). The axis is `cfg.sessVariant`,
+the store's session semantics at the crash boundary: 0 = shipped
+(durable at op commit), 1 = the rejected wholesale resume-clear,
+2 = checkpoint-consistent sessions (state latched with each
+checkpoint, restored at crash — the registered fix). The amnesia
+cells run cell 21 (cell 2 with the ROOT ORDER REVERSED so the writer
+pops first): under cell 2's LIFO order the reader pops before the
+writer, so every checkpoint that still contains the reader predates
+the writes and a committed-value-plus-re-run-read history is
+structurally unreachable — verified green at 10k before the chassis
+was added, which is a reachability fact, not evidence the rejected
+fix is sound.
+
+| cell | config | property | expected | observed | budget |
+|---|---|---|---|---|---|
+| tc2crash_P6C | cell 2, hard crash, sessVariant 0 (shipped) | P6-C | RED | RED: `P6-C-ZOMBIE` — H's un-checkpointed d1 survives the crash; the re-run G reads it before H's re-derivation lands. The SHIPPED defect, now model-caught | first find (3.7% of explored) |
+| tc2clear_P6C | cell 21, hard crash, sessVariant 1 (rejected resume-clear) | P6-C | RED | RED: `P6-C-AMNESIA` — H's batch completes, the loop-top checkpoint commits d1, the crash clears the namespace wholesale, G's re-run read misses committed data. The rejected fix, now model-killed | first find (20% of explored) |
+| tc2consistent_P6C | cell 21, hard crash, sessVariant 2 (checkpoint-consistent) | P6-C | GREEN | GREEN — rollback to the checkpoint snapshot closes both directions; an un-checkpointed write legally vanishes (the re-run re-derives), a committed value survives | 10000 schedules |
 
 ## Scenario 3 — artifact swap + hit rebind
 
@@ -335,6 +364,26 @@ and meets the same drifted config:
    100% of explored schedules in the stop config shows the reset is
    load-bearing, not vestigial — the strongest possible answer to
    "does the model actually depend on o-iv".
+25. **Session durability variants are store-side, one field, crash-
+   boundary-applied (P6-C).** `cfg.sessVariant` rides `eStoreReset`
+   so MStore stays config-free in spirit (decision 12); variant
+   semantics apply in `fireCrash` (variant 1 clears `sessionKV`,
+   variant 2 restores the `sessCkpt` snapshot latched in
+   `eCheckpointReq`). Applying at the crash commit is equivalent to
+   acting at resume start: dead-gen ops arriving after the crash are
+   dropped by the gen gate and can never observe the adjusted map.
+   The P6-C monitor tracks write provenance from the announce stream
+   (uncommitted → committed at `eAnnCheckpoint`; uncommitted →
+   zombie at `eAnnCrash`, unless value-identical to the committed
+   state, where survival is unobservable; a live rewrite reclaims
+   the key) and judges reads via the new `eAnnSessionGet` announce.
+   DISPOSITION LESSON recorded with the cells: scenario 2's original
+   reds carried the zombie mechanism since calibration but were
+   filed as a future-runtime obligation; the shipped-code defect
+   (CO-6b-009) sat unrouted until re-found by hand. Expected-red
+   findings against SHIPPED semantics must be routed as change
+   orders on the shipped code, not only as obligations on the
+   replacement design.
 
 ## Known latent harness race (no bearing on verdicts)
 

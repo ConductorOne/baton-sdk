@@ -127,7 +127,7 @@ machine MWorker {
         if (action.hasAnnotation) {
             return replayPage(action.annotationV, action.publishes, action.aid * 100, false, -1);
         }
-        if (cfg.cell == 2) {
+        if (cfg.cell == 2 || cfg.cell == 21) {
             return sessionPage();
         }
         if (cfg.cell == 7 && (action.cursor == 0 || action.cursor == 1)) {

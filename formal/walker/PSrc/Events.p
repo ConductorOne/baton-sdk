@@ -58,7 +58,7 @@ event eStoreDead;
 // terminates.
 event eCrashArm: (client: machine, gen: int);
 event eCrashAck;
-event eStoreReset: (client: machine, syncN: int);   // begin-of-sync rotation (env, not gen-gated)
+event eStoreReset: (client: machine, syncN: int, sessVariant: int);   // begin-of-sync rotation (env, not gen-gated)
 event eReadCheckpointReq: (client: machine);
 event eReadCheckpointResp: (ckpt: tCheckpoint, hasCkpt: bool);
 // Session store (MODEL_SPEC 3/9 cases 2 and 7): sync-scoped KV, durable
@@ -172,6 +172,7 @@ event eAnnExpectSeal: (syncN: int, scope: int, wantBlocked: bool, wantScopeEmpty
 // Session announce (P6-A vocabulary): committed session writes and the
 // final session KV at seal ride the announce channel like row ops.
 event eAnnSessionSet: (syncN: int, key: int, val: int);
+event eAnnSessionGet: (syncN: int, key: int, found: bool, val: int);
 // P6-R counterfactual ghost (MODEL_SPEC 7): the producer policy's
 // phase-final session value under an all-fresh execution at this
 // sync's epoch — computable (deterministic policies, sequential

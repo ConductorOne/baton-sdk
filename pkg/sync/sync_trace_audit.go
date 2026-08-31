@@ -53,6 +53,19 @@ const (
 	syncTraceCheckpoint syncTraceKind = "checkpoint"
 	// syncTraceSeal: EndSync succeeded.
 	syncTraceSeal syncTraceKind = "seal"
+	// syncTraceSessionWrite: a connector session write committed.
+	// Sessions are durable at op time, OUTSIDE the checkpoint
+	// mechanism — the provenance hazard the oracle's policy 6
+	// (session-checkpoint consistency) judges. The chaos connector has
+	// no session plumbing, so these events are recorded by the test
+	// acting as the session actor, at the moment of its real store
+	// operation (see TestChaosSourceCacheSessionPersistsAcrossResume).
+	syncTraceSessionWrite syncTraceKind = "swrite"
+	// syncTraceSessionReadHit / syncTraceSessionReadMiss: a session
+	// read returning found / not-found. ScopeKey carries the session
+	// key for session events.
+	syncTraceSessionReadHit  syncTraceKind = "sread_hit"
+	syncTraceSessionReadMiss syncTraceKind = "sread_miss"
 )
 
 // syncTraceEvent is one canonical event. Scope-less kinds (checkpoint,

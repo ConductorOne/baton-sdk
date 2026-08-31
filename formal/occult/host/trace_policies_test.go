@@ -1,8 +1,8 @@
 // Deliverable 7: the trace-policy oracle set
 // (../src/sync_trace_policies.occult) checked as a full verdict matrix
-// — every policy against every fixture. The green fixture must satisfy
-// all five policies; each red fixture must violate EXACTLY its own
-// policy and satisfy the other four, so a policy that silently accepts
+// — every policy against every fixture. Green fixtures must satisfy
+// all six policies; each red fixture must violate EXACTLY its own
+// policy and satisfy the other five, so a policy that silently accepts
 // everything (or rejects everything) cannot pass.
 package host_test
 
@@ -54,6 +54,7 @@ var policies = []string{
 	"once_per_scope",
 	"checkpoint_before_progress",
 	"seal_obligations",
+	"session_ckpt_consistency",
 }
 
 // fixtureViolates maps each fixture to the single policy it violates
@@ -71,6 +72,20 @@ var fixtureViolates = map[string]string{
 	"trace_red_cbu_del":    "clear_before_upsert",
 	"trace_red_cbp_del":    "checkpoint_before_progress",
 	"trace_red_seal_del":   "seal_obligations",
+	// Session fixtures (policy 6, session-checkpoint consistency — the
+	// CO-6b-009 root cause). The two reds violate the SAME policy in
+	// its two directions; fixtureVerdict carries the exact string.
+	"trace_green_session":          "",
+	"trace_green_session_rollback": "",
+	"trace_red_session_zombie":     "session_ckpt_consistency",
+	"trace_red_session_amnesia":    "session_ckpt_consistency",
+}
+
+// fixtureVerdict overrides the expected violation string for fixtures
+// whose policy distinguishes violation directions.
+var fixtureVerdict = map[string]string{
+	"trace_red_session_zombie":  "violation: session-zombie-read",
+	"trace_red_session_amnesia": "violation: session-amnesia",
 }
 
 func TestTracePolicyMatrix(t *testing.T) {
@@ -79,8 +94,12 @@ func TestTracePolicyMatrix(t *testing.T) {
 			t.Run(fixture+"/"+policy, func(t *testing.T) {
 				verdict := policyVerdict(t, policy, fixture)
 				if policy == violated {
-					if verdict != "violation: "+policyLabel(policy) {
-						t.Errorf("expected %s to violate %s, got verdict %q", fixture, policy, verdict)
+					want := "violation: " + policyLabel(policy)
+					if v, ok := fixtureVerdict[fixture]; ok {
+						want = v
+					}
+					if verdict != want {
+						t.Errorf("expected %s to violate %s with %q, got verdict %q", fixture, policy, want, verdict)
 					}
 				} else {
 					if verdict != "ok" {
@@ -104,6 +123,8 @@ func policyLabel(policy string) string {
 		return "checkpoint-before-progress"
 	case "seal_obligations":
 		return "seal-obligations"
+	case "session_ckpt_consistency":
+		return "session-ckpt-consistency"
 	}
 	return policy
 }

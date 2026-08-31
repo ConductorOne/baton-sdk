@@ -466,18 +466,27 @@ func TestChaosSourceCacheSessionPersistsAcrossResume(t *testing.T) {
 				WithPreviousSyncC1ZPath(seedPath), WithWorkerCount(1))
 			interruptedConcrete, ok := interruptedHarness.Syncer.(*syncer)
 			require.True(t, ok)
+			attempt1Audit := &syncTraceAudit{}
+			interruptedConcrete.testSyncTraceAudit = attempt1Audit
 			require.ErrorIs(t, interruptedHarness.Syncer.Sync(ctx), chaosconnector.ErrInterruptRequested)
 			syncID := interruptedConcrete.syncID
 			require.NotEmpty(t, syncID)
 			require.NoError(t, interruptedHarness.Close(t.Context()))
 
 			// Plant the probe into the unfinished sync's session
-			// namespace.
+			// namespace. The recorded swrite closes attempt 1's trace
+			// segment: the plant is the dead attempt's own
+			// beyond-checkpoint write (same keyspace, same durability,
+			// same position in the durable history — after the last
+			// checkpoint, before the resume boundary); the test is the
+			// session actor because the chaos connector has no session
+			// plumbing.
 			probeStore, err := dotc1z.NewStore(ctx, warmPath,
 				dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(tmpDir))
 			require.NoError(t, err)
 			require.NoError(t, probeStore.SessionStore().Set(ctx, "probe-key", []byte("stale-premise"),
 				sessions.WithSyncID(syncID)))
+			attempt1Audit.record(syncTraceSessionWrite, "", "probe-key")
 			require.NoError(t, probeStore.Close(ctx))
 
 			// Resume, crashing on the restarted action's first page so the
@@ -503,6 +512,10 @@ func TestChaosSourceCacheSessionPersistsAcrossResume(t *testing.T) {
 			}
 			resumeHarness := newChaosHarness(t, ctx, resumeRun, warmPath, tmpDir, chaosTransportDirect,
 				WithPreviousSyncC1ZPath(seedPath), WithWorkerCount(1))
+			resumeConcrete, ok := resumeHarness.Syncer.(*syncer)
+			require.True(t, ok)
+			attempt2Audit := &syncTraceAudit{}
+			resumeConcrete.testSyncTraceAudit = attempt2Audit
 			require.ErrorIs(t, resumeHarness.Syncer.Sync(ctx), chaosconnector.ErrInterruptRequested)
 			require.NoError(t, resumeHarness.Close(t.Context()))
 
@@ -512,9 +525,23 @@ func TestChaosSourceCacheSessionPersistsAcrossResume(t *testing.T) {
 			defer func() { require.NoError(t, readStore.Close(ctx)) }()
 			_, found, err := readStore.SessionStore().Get(ctx, "probe-key", sessions.WithSyncID(syncID))
 			require.NoError(t, err)
+			// The re-run window's read, recorded into attempt 2's trace
+			// segment (again the test as session actor). The exported
+			// fixture is the shipped zombie-read history the oracle's
+			// session-checkpoint-consistency policy must judge RED:
+			// swrite with no later checkpoint, resume, read HIT.
+			if found {
+				attempt2Audit.record(syncTraceSessionReadHit, "", "probe-key")
+			} else {
+				attempt2Audit.record(syncTraceSessionReadMiss, "", "probe-key")
+			}
 			require.True(t, found,
 				"session state must persist across resume: completed actions never re-run, so a "+
 					"resume-time clear destroys values whose producing work will not execute again (CO-6b-009)")
+			if leg.withCapability {
+				exportTraceFixture(t, "warm_replay_sync_session_zombie",
+					attempt1Audit.snapshot(), attempt2Audit.snapshot())
+			}
 		})
 	}
 }

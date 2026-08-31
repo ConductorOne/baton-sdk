@@ -67,7 +67,7 @@ machine MEnv {
                 if (cfg.verificationOnlyIfInterrupted && syncN == cfg.nSyncs && !interrupted) {
                     break;
                 }
-                send store, eStoreReset, (client = this, syncN = syncN);
+                send store, eStoreReset, (client = this, syncN = syncN, sessVariant = cfg.sessVariant);
                 receive { case eStoreAck: {} }
                 announce eAnnSyncStart, (syncN = syncN,);
                 if (cfg.cell == 7) {
@@ -200,6 +200,17 @@ machine MEnv {
         if (cfg.cell == 2) {
             root += (0, (aid = 1, op = OP_PLANNING, scope = 0, cursor = 0, hasAnnotation = false, annotationV = -1, publishes = false));
             root += (1, (aid = 2, op = OP_PLANNING, scope = 0, cursor = 0, hasAnnotation = false, annotationV = -1, publishes = false));
+            return (stack = root, hits = default(map[int, int]), replayed = default(map[int, bool]), blocked = false);
+        }
+        if (cfg.cell == 21) {
+            // P6-C chassis: cell 2's actors with the ROOT ORDER
+            // REVERSED — LIFO pops the writer H first, so a loop-top
+            // checkpoint can commit H's session write while the reader
+            // G still has its run ahead of it. That is the amnesia
+            // premise (checkpoint-committed value + a re-run read),
+            // structurally unreachable in cell 2 where G pops first.
+            root += (0, (aid = 2, op = OP_PLANNING, scope = 0, cursor = 0, hasAnnotation = false, annotationV = -1, publishes = false));
+            root += (1, (aid = 1, op = OP_PLANNING, scope = 0, cursor = 0, hasAnnotation = false, annotationV = -1, publishes = false));
             return (stack = root, hits = default(map[int, int]), replayed = default(map[int, bool]), blocked = false);
         }
         if (cfg.cell == 7) {

@@ -97,8 +97,8 @@ manifest-entry writes (publish), durable checkpoint tokens, and
 EndSync (seal). The chaos test `chaos_trace_oracle_test.go` records
 the reference source-cache scenario cold and warm and exports JSONL
 fixtures (`host/testdata/realtraces/`); `host/real_trace_oracle_test.go`
-renders them onto the canonical vocabulary and checks all five
-policies — 10/10 cells green.
+renders them onto the canonical vocabulary and checks all six
+policies.
 
 Two conventions live in the RENDERER, never the recorder (the recorder
 is purely observational): scope names map onto s1/s2 in first-seen
@@ -116,7 +116,7 @@ Multi-attempt traces are in-domain too. The chaos harness cuts a warm
 two-page delta round with an `EffectCrash` after the replay unit and
 overlay upsert committed, resumes with a new syncer, and exports the
 two attempts as one fixture with a `{"kind":"resume"}` marker line
-(`warm_replay_sync_interrupted.jsonl`). All five policies are green on
+(`warm_replay_sync_interrupted.jsonl`). All six policies are green on
 it, and `TestRealTraceBridgeResumeMarkerLoadBearing` proves the marker
 is load-bearing: stripping it turns the two legal across-attempt
 replays into a within-attempt duplicate and reds once-per-scope. Two
@@ -176,6 +176,35 @@ so the union was ordering-legal; it is a CONTENT violation (the
 walker model's `P1-CONTENT`), owned by the exporting test's content
 oracle. The policies' role in the fix is the positive direction: the
 grounded trace joins the green suite.
+
+The instrument's third finding is a STANDING known-defect pin — the
+first fixture committed with a deliberately red expectation. Sessions
+commit durably at op time, OUTSIDE the checkpoint mechanism
+(`SessionSet` batches commit immediately in the pebble engine), so a
+crash rolls the cursor back but not the session namespace: writes from
+beyond the restored checkpoint survive into the re-run window, which
+can then consume its own dead attempt's "future" (CO-6b-009). The
+session vocabulary (`ev_swrite`, `ev_sread_hit`, `ev_sread_miss`, keys
+on the one-key `k1` envelope) and policy 6
+(`session_ckpt_consistency`) state the root cause: post-crash session
+state must equal the restored checkpoint's, in both directions —
+ZOMBIE (a dead attempt's beyond-checkpoint write observed by the
+re-run) and AMNESIA (a checkpoint-committed value silently deleted;
+its producing work never re-runs — the shape of the reverted
+resume-clear fix). The fixture `warm_replay_sync_session_zombie.jsonl`
+is recorded from a real crash/resume execution by
+`TestChaosSourceCacheSessionPersistsAcrossResume`, which acts as the
+session actor (the chaos connector has no session plumbing): the
+probe write and the re-run read fire through the same recorder at the
+moment of their real store operations. The oracle judges it
+`violation: session-zombie-read` — asserted as the EXPECTED verdict in
+`realTraceExpected`. When checkpoint-consistent sessions land (the
+registered future work), the recorded read becomes a miss and the
+expectation flips to "ok". The same constraint is model-side in the
+walker as the P6-C monitor, whose three cells red the shipped
+semantics (zombie), red the rejected wholesale clear (amnesia), and
+green the checkpoint-consistent fix — `formal/walker/CALIBRATION.md`,
+decision 25.
 
 This leg has an executable instance: `host/refimpl/` (the demand-graph
 reference implementation) emits canonical traces from real executions

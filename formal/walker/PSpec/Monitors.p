@@ -320,6 +320,78 @@ spec P6A observes eAnnSyncStart, eAnnSessionSet, eAnnSeal {
     }
 }
 
+// P6-C (session-checkpoint consistency; the CO-6b-009 root cause made
+// executable). THE CONSTRAINT: observable session state after a crash
+// must equal session state at the restored checkpoint — in BOTH
+// directions. Direction 1 (ZOMBIE): a value a dead attempt wrote
+// AFTER its last checkpoint must not be observable by the re-run —
+// the cursor rolled back, the work that produced the value will run
+// again, and the re-run window would otherwise consume its own
+// future. Direction 2 (AMNESIA): a value observable at the restored
+// checkpoint must REMAIN observable — the work that produced it will
+// NOT re-run, so deleting it is unrecoverable data loss. Provenance
+// is tracked monitor-side from the announce stream: writes are
+// uncommitted until an eAnnCheckpoint folds them; a crash turns the
+// still-uncommitted residue into zombies (unless value-identical to
+// the committed state, where survival is unobservable); a live
+// rewrite reclaims the key. Variant 0 (shipped, durable-at-op-commit)
+// violates direction 1; the rejected wholesale resume-clear
+// (variant 1) violates direction 2; checkpoint-consistent sessions
+// (variant 2) satisfy both.
+spec P6C observes eAnnSyncStart, eAnnSessionSet, eAnnSessionGet, eAnnCheckpoint, eAnnCrash {
+    var committed: map[int, int];    // key -> value at the last checkpoint
+    var uncommitted: map[int, int];  // writes since the last checkpoint
+    var zombies: map[int, int];      // dead attempts' beyond-checkpoint values
+
+    start state Monitoring {
+        on eAnnSyncStart do (p: (syncN: int)) {
+            committed = default(map[int, int]);
+            uncommitted = default(map[int, int]);
+            zombies = default(map[int, int]);
+        }
+        on eAnnSessionSet do (p: (syncN: int, key: int, val: int)) {
+            // A live write takes over the key: whatever is durable now
+            // is attributable to the current attempt.
+            uncommitted[p.key] = p.val;
+            if (p.key in zombies) { zombies -= p.key; }
+        }
+        on eAnnCheckpoint do (p: (syncN: int)) {
+            var ks: seq[int];
+            var i: int;
+            ks = keys(uncommitted);
+            i = 0;
+            while (i < sizeof(ks)) {
+                committed[ks[i]] = uncommitted[ks[i]];
+                i = i + 1;
+            }
+            uncommitted = default(map[int, int]);
+        }
+        on eAnnCrash do (p: (syncN: int)) {
+            var ks: seq[int];
+            var i: int;
+            var k: int;
+            ks = keys(uncommitted);
+            i = 0;
+            while (i < sizeof(ks)) {
+                k = ks[i];
+                if (!(k in committed && committed[k] == uncommitted[k])) {
+                    zombies[k] = uncommitted[k];
+                }
+                i = i + 1;
+            }
+            uncommitted = default(map[int, int]);
+        }
+        on eAnnSessionGet do (p: (syncN: int, key: int, found: bool, val: int)) {
+            if (p.key in zombies) {
+                assert !(p.found && p.val == zombies[p.key]), "P6-C-ZOMBIE: session read observed a dead attempt's beyond-checkpoint write (the cursor rolled back; the session state did not)";
+            }
+            if (p.key in committed) {
+                assert p.found, "P6-C-AMNESIA: session read missed a checkpoint-committed value (session data silently deleted; the work that produced it will not re-run)";
+            }
+        }
+    }
+}
+
 // P6-R (MODEL_SPEC 7, case 7): replay-session coherence. Per (sync,
 // key) the model carries a COUNTERFACTUAL session value — the producer
 // policy's phase-final value under an all-fresh execution at this

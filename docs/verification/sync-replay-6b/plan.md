@@ -799,15 +799,38 @@ and verification delta.)
   `groundSessionStoreOnResume`) was briefly shipped and REVERTED —
   see the rejection rationale below before reintroducing anything
   like it.
-- Premise (verified in code, not model-derived): connector
-  session-store writes are durable in the artifact, keyed by sync id,
-  and commit OUTSIDE the checkpoint mechanism (`SessionSet` commits its
-  own batch; `CheckpointSync` is a separate write). After a crash the
-  resumed attempt's cursor rolls back to the last checkpoint while
-  every session write survives — the resumed attempt inherits the dead
-  attempt's session state wholesale, and the connector cannot detect
-  the resume (its process restarted; sessions are the only surviving
-  state).
+- Premise: connector session-store writes are durable in the
+  artifact, keyed by sync id, and commit OUTSIDE the checkpoint
+  mechanism (`SessionSet` commits its own batch; `CheckpointSync` is a
+  separate write). After a crash the resumed attempt's cursor rolls
+  back to the last checkpoint while every session write survives — the
+  resumed attempt inherits the dead attempt's session state wholesale,
+  and the connector cannot detect the resume (its process restarted;
+  sessions are the only surviving state).
+- Provenance, corrected: the walker model carried these exact
+  semantics from calibration (MStore's `sessionKV`, "durable at op
+  commit, survives attempts and crashes") and scenario 2's crash cell
+  (`tc2crash_P6A`) was an EXPECTED red containing the zombie
+  mechanism — but it was filed as a future-runtime obligation, not
+  routed as a shipped-code change order, and the checkpoint-relative
+  root cause was never stated as a property. The concrete shipped-code
+  mechanics were then re-found by code reading.
+- Root cause, now mechanically captured in BOTH formal systems plus a
+  real-execution witness:
+  - P: the `P6C` monitor (session-checkpoint consistency, both
+    directions). `tc2crash_P6C` reds `P6-C-ZOMBIE` under shipped
+    semantics; `tc2clear_P6C` reds `P6-C-AMNESIA` under the rejected
+    wholesale resume-clear; `tc2consistent_P6C` greens the
+    checkpoint-consistent fix (`formal/walker/CALIBRATION.md`,
+    decision 25).
+  - Occult: trace policy 6 (`session_ckpt_consistency`) with four
+    fixtures including the correct-rollback green
+    (`formal/occult/src/sync_trace_policies.occult`).
+  - Witnessed: `warm_replay_sync_session_zombie.jsonl`, recorded from
+    the real syncer by the witness test below, is judged
+    `violation: session-zombie-read` by the oracle — a standing
+    expected-RED pin (`formal/occult/host/real_trace_oracle_test.go`)
+    that flips to green when checkpoint-consistent sessions land.
 - The two-sided hazard:
   - Writes from BEYOND the restored cursor survive into work that
     re-runs: the re-run window can observe its own dead attempt's
@@ -844,4 +867,6 @@ and verification delta.)
   key planted in the interrupted sync's session namespace survives the
   resume with AND without the source-cache capability, pinning the
   persistence semantics and standing guard against reintroducing a
-  resume-time clear.
+  resume-time clear. The participating leg also records the history
+  through the trace-audit recorder (the test as session actor) and
+  exports the session-zombie fixture the oracle judges expected-RED.

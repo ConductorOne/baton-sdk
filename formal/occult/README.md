@@ -75,13 +75,18 @@ repo.
   0..7; 5 saturation negative controls + 1 ground false-live control
   refused (the false-live control reproduces G9-CAL-1's parity
   ambiguity deductively). See `LAWS.md`.
-- 7 (trace-policy oracle set): DONE — five policies, 60-cell verdict
-  matrix (12 fixtures × 5 policies): green satisfies all, each red
+- 7 (trace-policy oracle set): DONE — six policies, 96-cell verdict
+  matrix (16 fixtures × 6 policies): green satisfies all, each red
   violates exactly its own policy. Multi-attempt traces are in-domain
   (ev_resume attempt boundaries: durable facts persist, once-per-scope
-  resets), and so is the delta protocol's delete leg (ev_delete is a
-  write: grounding, quiescence, and seal-activity obligations). No
-  pending vocabulary extensions; generation stamps stay tracked in
+  resets), and so are the delta protocol's delete leg (ev_delete is a
+  write: grounding, quiescence, and seal-activity obligations) and
+  session operations (ev_swrite / ev_sread_hit / ev_sread_miss).
+  Policy 6, session_ckpt_consistency, states the CO-6b-009 root cause
+  — post-crash session state must equal the restored checkpoint's, no
+  zombie reads and no amnesia — with two directional red fixtures and
+  a correct-rollback green; it is the trace-policy form of the walker
+  model's P6-C monitor. Generation stamps stay tracked in
   TRACE_BRIDGE.md.
 - 8 (MPST protocol contract): DONE — 7 projection derivations (syncer
   = P_leader, connector = P_follower; direct, one-bounce, and maximal
@@ -94,17 +99,20 @@ repo.
   executions" leg is IMPLEMENTED end to end: the shipped syncer
   carries a test-only commit-order recorder
   (`pkg/sync/sync_trace_audit.go`), the chaos harness exports cold,
-  warm, crash/resume multi-attempt, tombstone-delta, and
-  record-flip-grounding JSONL fixtures, and
-  `real_trace_oracle_test.go` checks them against all five policies
-  (25/25 green) with planted-violation validation of the bridge
-  itself (dropped consult, un-regrounded resume, stripped resume
-  marker, ungrounded delete). The instrument falsified a documented
-  resume mechanism AND witnessed the model's phantom-union prediction
-  live in the shipped syncer (the verdict-flip path), now fixed by
-  record-round grounding — see the findings at the end of
-  `TRACE_BRIDGE.md`. The refimpl leg remains as the demand-graph
-  instance of the same oracle.
+  warm, crash/resume multi-attempt, tombstone-delta, record-flip, and
+  session-zombie JSONL fixtures, and
+  `real_trace_oracle_test.go` checks them against all six policies
+  (36 cells: 35 green + ONE deliberately red — the session-zombie
+  fixture under session_ckpt_consistency, the standing known-defect
+  pin on the shipped session semantics, which flips to green when
+  checkpoint-consistent sessions land) with planted-violation
+  validation of the bridge itself (dropped consult, un-regrounded
+  resume, stripped resume marker, ungrounded delete). The instrument
+  falsified a documented resume mechanism AND witnessed the model's
+  phantom-union prediction live in the shipped syncer (the
+  verdict-flip path), now fixed by record-round grounding — see the
+  findings at the end of `TRACE_BRIDGE.md`. The refimpl leg remains
+  as the demand-graph instance of the same oracle.
 
 ## Broken vs good, both ways
 

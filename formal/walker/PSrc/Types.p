@@ -150,7 +150,14 @@ type tScenarioCfg = (
     // instead of restarting at the consult — the retry collects only
     // the final page into an empty buffer and commits a unit missing
     // the first page's overlay ops (content-RED in sub-case (b)).
-    o4Mutant: bool
+    o4Mutant: bool,
+    // Session durability variant at the crash boundary (P6-C, the
+    // CO-6b-009 root cause): 0 = shipped (durable at op commit —
+    // beyond-checkpoint writes survive the cursor rollback);
+    // 1 = the rejected wholesale resume-clear (checkpoint-committed
+    // data destroyed); 2 = checkpoint-consistent sessions (session
+    // state latched with each checkpoint, restored at crash).
+    sessVariant: int
 );
 
 // Base config: shipped design, no interruption, no mutation, 2 syncs.
@@ -176,7 +183,8 @@ fun defaultCfg(): tScenarioCfg {
         loudColdFailsAttempt = false,
         warmPageFails = false,
         lockReleaseOnError = true,
-        o4Mutant = false
+        o4Mutant = false,
+        sessVariant = 0
     );
 }
 

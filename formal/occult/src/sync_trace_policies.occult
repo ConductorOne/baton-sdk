@@ -1,7 +1,8 @@
 # Deliverable 7: the ordering/durability trace-policy oracle set
 # (brief: "Trace-policy oracle set" — consult-before-replay,
 # checkpoint-before-progress, clear-before-upsert, once-per-scope, seal
-# obligations) over the announce vocabulary pinned in
+# obligations, plus policy 6: session-checkpoint consistency, the
+# CO-6b-009 root cause) over the announce vocabulary pinned in
 # formal/MODEL_SPEC.md §7. A trace is ONE SYNC's event list — possibly
 # spanning crash/resume attempts, with ev_resume marking each attempt
 # boundary (the multi-attempt extension; single-attempt traces carry no
@@ -53,6 +54,19 @@ syntax("standard");
 # it.
 ∃ ev_delete;
 
+# Session-store events (policy 6). ev_swrite(k) is a committed
+# connector session write for key k; ev_sread_hit(k) / ev_sread_miss(k)
+# a session read returning found / not-found. Sessions commit durably
+# at op time, OUTSIDE the checkpoint mechanism — which is exactly the
+# hazard policy 6 exists to judge. Session events are invisible to the
+# artifact policies (1-5): they are not partition writes, do not need
+# grounding, and do not dirty the quiescent-checkpoint watermark.
+# One-key envelope (k1), mirroring the P model's single session key.
+∃ ev_swrite;
+∃ ev_sread_hit;
+∃ ev_sread_miss;
+∃ k1;
+
 # ev_resume marks a crash/resume attempt boundary inside one sync's
 # trace. Semantics (matching pkg/sync's checkpoint-durable provenance,
 # pinned by chaos_source_cache_resume_test.go): durable facts PERSIST
@@ -96,6 +110,9 @@ cbr_go(tcons(ev_checkpoint, r), a, b) = cbr_go(r, a, b);
 cbr_go(tcons(ev_seal, r), a, b) = cbr_go(r, a, b);
 cbr_go(tcons(ev_resume, r), a, b) = cbr_go(r, a, b);
 cbr_go(tcons(ev_delete(s), r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_swrite(k), r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_sread_hit(k), r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_sread_miss(k), r), a, b) = cbr_go(r, a, b);
 
 # --- Policy 2: clear-before-upsert (clear-before-WRITE) ---
 # Any upsert into — or tombstone delete from — a scope's partition
@@ -124,6 +141,9 @@ cbu_go(tcons(ev_publish(s), r), a, b) = cbu_go(r, a, b);
 cbu_go(tcons(ev_checkpoint, r), a, b) = cbu_go(r, a, b);
 cbu_go(tcons(ev_seal, r), a, b) = cbu_go(r, a, b);
 cbu_go(tcons(ev_resume, r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ev_swrite(k), r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ev_sread_hit(k), r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ev_sread_miss(k), r), a, b) = cbu_go(r, a, b);
 
 # --- Policy 3: once-per-scope ---
 # At most one committed replacement copy per scope per attempt (the
@@ -145,6 +165,9 @@ ops_go(tcons(ev_checkpoint, r), a, b) = ops_go(r, a, b);
 ops_go(tcons(ev_seal, r), a, b) = ops_go(r, a, b);
 ops_go(tcons(ev_resume, r), a, b) = ops_go(r, ff, ff);
 ops_go(tcons(ev_delete(s), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_swrite(k), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_sread_hit(k), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_sread_miss(k), r), a, b) = ops_go(r, a, b);
 
 # --- Policy 4: checkpoint-before-progress (seal form) ---
 # The seal requires a QUIESCENT checkpoint: an ev_checkpoint after
@@ -162,6 +185,9 @@ cbp_go(tcons(ev_delete(s), r), f) = cbp_go(r, ff);
 cbp_go(tcons(ev_publish(s), r), f) = cbp_go(r, ff);
 cbp_go(tcons(ev_consult(s), r), f) = cbp_go(r, f);
 cbp_go(tcons(ev_resume, r), f) = cbp_go(r, f);
+cbp_go(tcons(ev_swrite(k), r), f) = cbp_go(r, f);
+cbp_go(tcons(ev_sread_hit(k), r), f) = cbp_go(r, f);
+cbp_go(tcons(ev_sread_miss(k), r), f) = cbp_go(r, f);
 cbp_go(tcons(ev_seal, r), tt) = "ok";
 cbp_go(tcons(ev_seal, r), ff) = "violation: checkpoint-before-progress";
 
@@ -187,12 +213,57 @@ so_go(tcons(ev_publish(s1), r), a, p, b, q) = so_go(r, a, tt, b, q);
 so_go(tcons(ev_publish(s2), r), a, p, b, q) = so_go(r, a, p, b, tt);
 so_go(tcons(ev_checkpoint, r), a, p, b, q) = so_go(r, a, p, b, q);
 so_go(tcons(ev_resume, r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ev_swrite(k), r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ev_sread_hit(k), r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ev_sread_miss(k), r), a, p, b, q) = so_go(r, a, p, b, q);
 so_go(tcons(ev_seal, r), tt, ff, b, q) = "violation: seal-obligations";
 so_go(tcons(ev_seal, r), a, p, tt, ff) = "violation: seal-obligations";
 so_go(tcons(ev_seal, r), ff, p, ff, q) = "ok";
 so_go(tcons(ev_seal, r), tt, tt, ff, q) = "ok";
 so_go(tcons(ev_seal, r), ff, p, tt, tt) = "ok";
 so_go(tcons(ev_seal, r), tt, tt, tt, tt) = "ok";
+
+# --- Policy 6: session-checkpoint consistency ---
+# THE CONSTRAINT (CO-6b-009's root cause; the P model's P6-C monitor
+# in trace-policy form): observable session state after a crash/resume
+# boundary must equal session state at the restored checkpoint — in
+# BOTH directions.
+#   ZOMBIE: a session write with no later checkpoint before ev_resume
+#     belongs to the dead attempt's rolled-back window; a read HIT on
+#     that key afterwards (with no committed value it could be
+#     shadowing, and no live rewrite) observed the dead attempt's
+#     future.
+#   AMNESIA: a checkpoint-committed session value must remain readable
+#     — the work that produced it will NOT re-run, so a read MISS is
+#     unrecoverable data loss (the rejected wholesale resume-clear).
+# State per key: u = written since the last checkpoint, c = a
+# checkpoint committed some value, z = a dead attempt's uncommitted
+# write is (potentially) still durable. A live rewrite reclaims the
+# key (z := ff). Value-blind conservatism: a HIT with c = tt AND
+# z = tt cannot be judged without values (the durable zombie may
+# shadow the committed value) and passes here — the P model's
+# value-aware P6-C covers that case.
+∃ session_ckpt_consistency;
+∃ scc_go;
+session_ckpt_consistency(t) = scc_go(t, ff, ff, ff);
+scc_go(tnil, u, c, z) = "ok";
+scc_go(tcons(ev_swrite(k1), r), u, c, z) = scc_go(r, tt, c, ff);
+scc_go(tcons(ev_checkpoint, r), tt, c, z) = scc_go(r, ff, tt, z);
+scc_go(tcons(ev_checkpoint, r), ff, c, z) = scc_go(r, ff, c, z);
+scc_go(tcons(ev_resume, r), tt, c, z) = scc_go(r, ff, c, tt);
+scc_go(tcons(ev_resume, r), ff, c, z) = scc_go(r, ff, c, z);
+scc_go(tcons(ev_sread_hit(k1), r), u, c, ff) = scc_go(r, u, c, ff);
+scc_go(tcons(ev_sread_hit(k1), r), u, tt, tt) = scc_go(r, u, tt, tt);
+scc_go(tcons(ev_sread_hit(k1), r), u, ff, tt) = "violation: session-zombie-read";
+scc_go(tcons(ev_sread_miss(k1), r), u, tt, z) = "violation: session-amnesia";
+scc_go(tcons(ev_sread_miss(k1), r), u, ff, z) = scc_go(r, u, ff, z);
+scc_go(tcons(ev_consult(s), r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ev_clear(s), r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ev_replay(s), r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ev_upsert(s), r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ev_delete(s), r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ev_publish(s), r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ev_seal, r), u, c, z) = scc_go(r, u, c, z);
 
 # --- Fixtures ---
 # green: one honest replacement round on s1, published, quiescent
@@ -254,3 +325,32 @@ trace_red_cbp_del = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1
 # longer matches. Violates exactly seal-obligations.
 ∃ trace_red_seal_del;
 trace_red_seal_del = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_delete(s1), tcons(ev_checkpoint, tcons(ev_seal, tnil)))));
+
+# Session fixtures (policy 6). green_session: an honest round whose
+# session write is checkpoint-committed BEFORE the crash — the re-run's
+# read hit observes committed state. Every policy answers "ok".
+∃ trace_green_session;
+trace_green_session = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_swrite(k1), tcons(ev_publish(s1), tcons(ev_checkpoint, tcons(ev_resume, tcons(ev_sread_hit(k1), tcons(ev_seal, tnil))))))))));
+
+# green_session_rollback: the CORRECT crash behavior for an
+# UN-checkpointed write — checkpoint-consistent sessions roll it back,
+# the re-run's read MISSES, and the at-least-once re-run re-derives
+# (the user-stated form: "clearing writes after the last checkpoint,
+# on crash — that sounds correct"). Every policy answers "ok"; the
+# across-attempt re-copy is B5-legal per once-per-scope's reset.
+∃ trace_green_session_rollback;
+trace_green_session_rollback = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_swrite(k1), tcons(ev_resume, tcons(ev_sread_miss(k1), tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_publish(s1), tcons(ev_checkpoint, tcons(ev_seal, tnil))))))))))))));
+
+# red_session_zombie: SHIPPED semantics — the session write commits
+# durably at op time, the crash rolls the cursor back but not the
+# session, and the re-run reads the dead attempt's beyond-checkpoint
+# value. Violates exactly session_ckpt_consistency (zombie direction).
+∃ trace_red_session_zombie;
+trace_red_session_zombie = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_swrite(k1), tcons(ev_resume, tcons(ev_sread_hit(k1), tnil)))))));
+
+# red_session_amnesia: the REJECTED wholesale resume-clear — a
+# checkpoint-committed value is destroyed at the boundary and the
+# re-run's read misses data whose producing work will not re-run.
+# Violates exactly session_ckpt_consistency (amnesia direction).
+∃ trace_red_session_amnesia;
+trace_red_session_amnesia = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_swrite(k1), tcons(ev_publish(s1), tcons(ev_checkpoint, tcons(ev_resume, tcons(ev_sread_miss(k1), tnil)))))))));

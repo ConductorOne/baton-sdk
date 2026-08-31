@@ -2,10 +2,20 @@
 // mapping 2): JSONL trace fixtures recorded from REAL syncer executions
 // by pkg/sync's chaos harness (chaos_trace_oracle_test.go, the
 // testSyncTraceAudit recorder) are rendered onto the canonical event
-// vocabulary and checked against all five deliverable-7 policies. This
+// vocabulary and checked against all six deliverable-7 policies. This
 // closes the loop the brief asked for: the same oracle that gates the P
 // models' traces and the refimpl's traces now gates the shipped
 // syncer's commit order.
+//
+// KNOWN-DEFECT PIN: the session-zombie fixture (recorded by
+// pkg/sync's TestChaosSourceCacheSessionPersistsAcrossResume) is
+// EXPECTED RED on session_ckpt_consistency — sessions commit durably
+// at op time, outside the checkpoint mechanism, so a crashed attempt's
+// beyond-checkpoint write survives the cursor rollback and the re-run
+// reads it (CO-6b-009). The red verdict on a real execution IS the
+// mechanical catch of the shipped defect. When checkpoint-consistent
+// sessions land (the registered future work), the recorded trace
+// becomes a read-miss and this expectation flips to "ok".
 //
 // Rendering conventions (the recorder is purely observational; the
 // conventions live here):
@@ -107,6 +117,7 @@ func renderRealTrace(t *testing.T, header realTraceHeader, events []realTraceEve
 		return name
 	}
 	cleared := map[string]bool{}
+	sessionKey := ""
 	var canonical []string
 	for _, ev := range events {
 		switch ev.Kind {
@@ -119,6 +130,16 @@ func renderRealTrace(t *testing.T, header realTraceHeader, events []realTraceEve
 			canonical = append(canonical, "ev_seal")
 		case "resume":
 			canonical = append(canonical, "ev_resume")
+		case "swrite", "sread_hit", "sread_miss":
+			// Session events map onto the policy module's one-key
+			// envelope (k1), separate from the artifact scopes.
+			if sessionKey == "" {
+				sessionKey = ev.ScopeKey
+			}
+			if ev.ScopeKey != sessionKey {
+				t.Fatalf("fixture %s has more than one session key (policies' one-key envelope)", header.Name)
+			}
+			canonical = append(canonical, "ev_"+ev.Kind+"(M.k1)")
 		case "consult", "clear", "replay", "upsert", "delete", "publish":
 			s := scopeName(ev)
 			if ev.Kind == "clear" {
@@ -143,8 +164,19 @@ func renderRealTrace(t *testing.T, header realTraceHeader, events []realTraceEve
 	return term
 }
 
+// realTraceExpected overrides the default "ok" expectation for
+// (fixture, policy) cells. The only entry is the known-defect pin (see
+// the file comment): the shipped session semantics' zombie read, RED
+// on a real execution's trace by design until checkpoint-consistent
+// sessions land.
+var realTraceExpected = map[string]map[string]string{
+	"warm_replay_sync_session_zombie": {
+		"session_ckpt_consistency": "violation: session-zombie-read",
+	},
+}
+
 // TestRealSyncTracesSatisfyPolicies checks every committed real-trace
-// fixture against all five policies.
+// fixture against all six policies.
 func TestRealSyncTracesSatisfyPolicies(t *testing.T) {
 	paths, err := filepath.Glob(filepath.Join("testdata", "realtraces", "*.jsonl"))
 	if err != nil {
@@ -158,9 +190,15 @@ func TestRealSyncTracesSatisfyPolicies(t *testing.T) {
 		term := renderRealTrace(t, header, events)
 		for _, policy := range policies {
 			t.Run(header.Name+"/"+policy, func(t *testing.T) {
+				want := "ok"
+				if overrides, ok := realTraceExpected[header.Name]; ok {
+					if v, ok := overrides[policy]; ok {
+						want = v
+					}
+				}
 				verdict := policyVerdictTerm(t, policy, term)
-				if verdict != "ok" {
-					t.Errorf("real trace %s violates %s: %q\nterm: %s", header.Name, policy, verdict, term)
+				if verdict != want {
+					t.Errorf("real trace %s under %s: want %q, got %q\nterm: %s", header.Name, policy, want, verdict, term)
 				}
 			})
 		}

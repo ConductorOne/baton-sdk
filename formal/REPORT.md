@@ -29,17 +29,20 @@ way.
 MS-CO-001) and the `walker/` P project. Authority is earned by
 rediscovery: with mitigations toggled off, the checker finds the
 known bugs; with the shipped/staged fixes toggled on, the same cells
-go green. The frozen sweep is 47 cells, 0 mismatches, 10k schedules
+go green. The current sweep is 50 cells, 0 mismatches, 10k schedules
 per cell (`walker/CALIBRATION.md`).
 
 Reproduced reds include: the phantom union in content, staleness, and
 epoch-coherence form (scenario 1); session laundering under the
 shipped free-form sessions (scenario 2 — an EXPECTED finding, fixed
-only by the demand-graph work); the artifact-swap hit-rebind residual
-hole and the CO-6b-004 binding kill that closes most of it
-(scenario 3); warm-drift, overlay placement, and progress cells
-(scenarios 5–7). Every red archives its counterexample schedule under
-`walker/traces/`.
+only by the demand-graph work); session-checkpoint consistency in
+both directions (scenario 2's P6-C cells: the shipped zombie
+direction and the rejected resume-clear's amnesia direction, with
+checkpoint-consistent sessions green — see finding 0); the
+artifact-swap hit-rebind residual hole and the CO-6b-004 binding kill
+that closes most of it (scenario 3); warm-drift, overlay placement,
+and progress cells (scenarios 5–7). Every red archives its
+counterexample schedule under `walker/traces/`.
 
 ## Track B — demand-graph runtime model and the bake-off (P)
 
@@ -89,13 +92,16 @@ repo `../occult`) through the Go host in `occult/host/`:
   cap/leg controls refused. The bounce cap is structural (no
   five-bounce term exists), mirroring
   `sourcecache.MaxLookupBouncesPerRequest`.
-- **Trace policies (D7)**: five ordering/durability policies
+- **Trace policies (D7)**: six ordering/durability policies
   (consult-before-replay, clear-before-write, once-per-scope,
-  publish-before-checkpoint quiescence, seal obligations) over a
-  canonical event vocabulary including attempt boundaries
-  (`ev_resume`) and the delta protocol's delete leg (`ev_delete`).
-  Verdict matrix: 60 cells (12 fixtures × 5 policies), each green
-  fixture satisfies all, each red violates exactly its own.
+  publish-before-checkpoint quiescence, seal obligations, and
+  session-checkpoint consistency — finding 0's root cause as a
+  policy) over a canonical event vocabulary including attempt
+  boundaries (`ev_resume`), the delta protocol's delete leg
+  (`ev_delete`), and session operations (`ev_swrite`,
+  `ev_sread_hit`, `ev_sread_miss`). Verdict matrix: 96 cells
+  (16 fixtures × 6 policies), each green fixture satisfies all, each
+  red violates exactly its own.
 - **Reference implementation**: an executable Go prototype of the
   demand-graph runtime whose traces are judged by the same oracle;
   its legacy mode reproduces the broken behavior and is caught.
@@ -104,9 +110,12 @@ repo `../occult`) through the Go host in `occult/host/`:
   nil in production — the field is only ever assigned from test
   files, which are not compiled into non-test binaries). Chaos tests
   run the real syncer and export JSONL fixtures; the oracle judges
-  them: 25/25 policy cells green across cold, warm, crash/resume,
-  tombstone-delta, and record-flip executions, with
-  planted-violation tests proving the bridge detects what it claims
+  them: 36 policy cells across cold, warm, crash/resume,
+  tombstone-delta, record-flip, and session-zombie executions — 35
+  green plus ONE deliberately red cell, the session-zombie fixture's
+  `session_ckpt_consistency` verdict, which is the standing
+  known-defect pin on the shipped session semantics (finding 0).
+  Planted-violation tests prove the bridge detects what it claims
   to (`occult/TRACE_BRIDGE.md`).
 
 ## Findings register
@@ -135,28 +144,63 @@ Findings that matter beyond the models themselves:
    heals by re-execution (restart-from-root + idempotent re-copy),
    so grounding was the missing piece, not unit-mode commit.
 
-   The adjacent flank is the SESSION STORE — with an honest
-   provenance note: this one was found by code reading (session
-   writes commit outside the checkpoint mechanism, so a resumed
-   attempt inherits the dead attempt's state wholesale, including
-   writes from beyond the restored cursor), NOT by a formal system;
-   none of the models contain a session store, and the resemblance to
-   the graph model's E-only-laundering finding is an analogy, not a
-   derivation. A mechanical fix (clearing the namespace on a
-   participating resume) was shipped and then REVERTED as unsound:
+   The adjacent flank is the SESSION STORE — with a CORRECTED
+   provenance note: an earlier revision of this paragraph claimed
+   the hazard was found by code reading alone and that "none of the
+   models contain a session store." That second claim was WRONG. The
+   walker model has always carried the shipped session semantics
+   (MStore's `sessionKV`: durable at op commit, survives attempts
+   and crashes, while the checkpoint token is separate state), and
+   scenario 2's crash cell (`tc2crash_P6A`, an EXPECTED red since
+   calibration) contains exactly the zombie mechanism — the re-run
+   reads the dead attempt's durable stale value. The failure was
+   dispositional, not model-side: that red was filed as a
+   future-runtime obligation (sessions variant B, the graph
+   addendum) instead of being routed as a shipped-code change order,
+   and the checkpoint-relative ROOT CAUSE — post-crash session state
+   must equal the restored checkpoint's — was never stated as a
+   property in any system. Both gaps are now closed mechanically:
+
+   - **P**: the P6-C monitor states the constraint in BOTH
+     directions. `tc2crash_P6C` reds `P6-C-ZOMBIE` under shipped
+     semantics (a dead attempt's beyond-checkpoint write observed by
+     the re-run); `tc2clear_P6C` reds `P6-C-AMNESIA` under the
+     rejected wholesale resume-clear (a checkpoint-committed value
+     destroyed — data whose producing work will not re-run);
+     `tc2consistent_P6C` is green under checkpoint-consistent
+     sessions, the registered fix. The amnesia premise needed a
+     reversed root order (cell 21) to be reachable — the writer must
+     pop before the reader for a committed value to precede a
+     re-run read.
+   - **Occult**: trace policy 6 (`session_ckpt_consistency`) states
+     the same constraint over the canonical vocabulary, with four
+     fixtures — including the correct-rollback green, where a crash
+     legally erases an UN-checkpointed write and the re-run's miss
+     is the fix behaving properly.
+   - **Witnessed**: `warm_replay_sync_session_zombie.jsonl`,
+     recorded from a REAL syncer crash/resume execution
+     (`TestChaosSourceCacheSessionPersistsAcrossResume`, which acts
+     as the session actor), is judged RED by the oracle — a standing
+     known-defect pin that flips to green when checkpoint-consistent
+     sessions land.
+
+   On the code side: a mechanical fix (clearing the namespace on a
+   participating resume) was shipped and then REVERTED as unsound —
    resume never re-runs completed actions, so a wholesale clear
    destroys session caches whose producing work will not execute
-   again. Current stance is contractual (CO-6b-009 in the 6b plan):
-   session use must survive at-least-once re-execution with prior
-   state present, consults must never be answered from session
-   caches, and session state is silently partial for replayed scopes
-   — pinned in `pkg/sourcecache` and `pkg/session/README.md`, with
+   again (now also a model verdict: `P6-C-AMNESIA`). Current stance
+   is contractual (CO-6b-009 in the 6b plan): session use must
+   survive at-least-once re-execution with prior state present,
+   consults must never be answered from session caches, and session
+   state is silently partial for replayed scopes — pinned in
+   `pkg/sourcecache` and `pkg/session/README.md`, with
    persistence-across-resume pinned by
    `TestChaosSourceCacheSessionPersistsAcrossResume`. The correct
    mechanical fence (checkpoint-consistent sessions: a volatile
    overlay flushed atomically with the checkpoint) is registered as
-   future work; the lineage-bearing fix (session reads as stamped
-   observation points) is variant-S scope.
+   future work — and is now the variant the models verify green;
+   the lineage-bearing fix (session reads as stamped observation
+   points) is variant-S scope.
 1. **Resume re-copy (real code, documentation falsified).** The
    resume suite documented that a restored replayed-set skips the
    replay copy across a mid-batch cut. The real-trace instrument

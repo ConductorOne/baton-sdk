@@ -28,6 +28,11 @@ machine MStore {
     // are durable; the crash protocol only drops UNPROCESSED ops);
     // reset at sync rotation like the checkpoint token.
     var sessionKV: map[int, int];
+    // Session durability variant (P6-C, cfg.sessVariant): sessCkpt is
+    // the session state latched with the last committed checkpoint —
+    // consumed only by variant 2 (checkpoint-consistent rollback).
+    var sessVariant: int;
+    var sessCkpt: map[int, int];
     // Produce-side session taint (case-7 fix runs): kinds (scopes here)
     // marked non-replayable in the artifact being produced. Rotates
     // with the artifact; the NEXT sync's consult on a prev-tainted
@@ -42,7 +47,7 @@ machine MStore {
     var prevBlocked: bool;
 
     start state Serving {
-        on eStoreReset do (p: (client: machine, syncN: int)) {
+        on eStoreReset do (p: (client: machine, syncN: int, sessVariant: int)) {
             // Begin-of-sync rotation: the sealed artifact becomes the
             // replay source; the new artifact starts empty; the
             // checkpoint token belongs to a sync and does not survive it.
@@ -60,6 +65,8 @@ machine MStore {
             curCompat = -1;
             sealedBlocked = false;
             sessionKV = default(map[int, int]);
+            sessVariant = p.sessVariant;
+            sessCkpt = default(map[int, int]);
             hasCkpt = false;
             ckpt = default(tCheckpoint);
             sealed = false;
@@ -81,8 +88,10 @@ machine MStore {
             if (p.gen in deadGens) { send p.client, eStoreDead; return; }
             if (p.taint) { curTaint[p.scope] = true; }
             if (p.key in sessionKV) {
+                announce eAnnSessionGet, (syncN = syncN, key = p.key, found = true, val = sessionKV[p.key]);
                 send p.client, eSessionGetResp, (found = true, val = sessionKV[p.key]);
             } else {
+                announce eAnnSessionGet, (syncN = syncN, key = p.key, found = false, val = 0);
                 send p.client, eSessionGetResp, (found = false, val = 0);
             }
         }
@@ -311,6 +320,9 @@ machine MStore {
             if (p.gen in deadGens) { send p.client, eStoreDead; return; }
             ckpt = p.ckpt;
             hasCkpt = true;
+            // Checkpoint-consistent sessions (variant 2): the session
+            // overlay flushes atomically with the checkpoint token.
+            if (sessVariant == 2) { sessCkpt = sessionKV; }
             announce eAnnCheckpoint, (syncN = syncN,);
             send p.client, eStoreAck;
         }
@@ -361,6 +373,22 @@ machine MStore {
     fun fireCrash() {
         deadGens[armedGen] = true;
         armed = false;
+        // Session state at the crash boundary (P6-C). Variant 0
+        // (shipped) keeps sessionKV untouched: writes beyond the last
+        // checkpoint survive the cursor rollback (the zombie
+        // direction). Variant 1 models the rejected wholesale
+        // resume-clear: checkpoint-committed data is destroyed too
+        // (the amnesia direction). Variant 2 rolls sessions back to
+        // the state latched with the last checkpoint — both
+        // directions closed. Equivalent to acting at resume start:
+        // dead-gen ops arriving after the crash are dropped by the
+        // gen gate and can never observe the adjusted map.
+        if (sessVariant == 1) {
+            sessionKV = default(map[int, int]);
+        }
+        if (sessVariant == 2) {
+            sessionKV = sessCkpt;
+        }
         announce eAnnCrash, (syncN = syncN,);
         send armedClient, eCrashAck;
     }

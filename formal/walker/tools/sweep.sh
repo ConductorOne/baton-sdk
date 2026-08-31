@@ -26,6 +26,9 @@ tcGreen_All:GREEN
 tc2stop_P6A:RED
 tc2crash_P6A:RED
 tc2green_P6A:GREEN
+tc2crash_P6C:RED
+tc2clear_P6C:RED
+tc2consistent_P6C:GREEN
 tc3a_P1:RED
 tc3a_P2:GREEN
 tc3b_P1:RED

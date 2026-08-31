@@ -39,3 +39,12 @@ Sessions are **scratch cache space**, not durable connector state:
 - Under the **source-cache protocol**, session-derived caches carry extra
   obligations — see `pkg/sourcecache` (SESSION STORE section), including
   why replay/record verdicts must never come from session-cached answers.
+
+These semantics are formally captured: the walker model's `P6C` monitor
+(`formal/walker/`) and the trace oracle's `session_ckpt_consistency`
+policy (`formal/occult/`) both state that post-crash session state must
+match the restored checkpoint — the shipped durable-at-op-commit
+behavior violates it in the zombie direction (a standing expected-red
+pin on a real execution's trace), and a resume-time clear violates it in
+the amnesia direction. The registered fix is checkpoint-consistent
+sessions (CO-6b-009).
