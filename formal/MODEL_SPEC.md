@@ -575,18 +575,32 @@ response, the attempt's config) — §2.4.
   round's verdict epoch (plan B5 permits the replay page to publish the
   new delta token before overlay pages land, so no content check at
   publish). The phantom union fails content or attestation in every §9
-  variant; case 4's duplicate copy violates the at-most-one-replacement
-  rule directly; case 5a's drift copy fails config. BOUNDARY: TORN
+variant; case 4's duplicate copy violates the at-most-one-replacement
+rule directly; case 5a's drift copy fails config. BOUNDARY: TORN
   completed rounds are outside P1-content's designed domain — under
   between-attempt mutation a torn fresh round legally mixes epochs
-  (pure smear) and the per-round fold would false-alarm. No §9 config
-  can tear a round (each config's single stop is consumed by its
-  premise, each schedules at most one mutation, and crash-based
-  configs — scenario 6 — cannot tear: crash-only histories resume
-  from root-token checkpoints, §3/§5), so no scripted
-  verdict is affected; widening any config to a second interruption
-  plus a second mutation REQUIRES a fold extension for torn rounds
-  (per-page folding) via change order first.
+  (pure smear) and the per-round fold would false-alarm. AMENDED per
+  MS-CO-002 (build-out find; decision 1 of the calibration log's
+  "Model decisions of record"): this spec originally argued no §9
+  config can tear a round (each config's single stop consumed by its
+  premise), but in the model the stop's PLACEMENT is genuinely
+  explored, so torn rounds ARE reachable (graceful stop mid-fresh-
+  round, resumed in attempt 2; crash-based configs still cannot tear —
+  crash-only histories resume from root-token checkpoints, §3/§5).
+  The exclusion is therefore enforced MONITOR-SIDE, not config-side:
+  P1 tracks attempt ghosts per round across every round op
+  (clear/copy/upsert/tombstones/publish) and excludes torn scopes
+  from the content and attestation folds. KNOWN NARROWING, registered
+  here: P3′'s torn tracking observes only overlay writes
+  (upsert/tombstones), so a replacement-only tear is excluded from
+  P1-content but not from P3′'s domain; no calibrated cell reaches a
+  replacement-only tear that survives to a P3′-asserted seal (the
+  P3′-asserting interrupted cells seal empty or use atomic/overlay
+  shapes), and widening P3′'s tracking to the P1 op set is the
+  registered follow-up if one ever does. Widening any config to a
+  second interruption plus a second mutation still REQUIRES a fold
+  extension for torn rounds (per-page folding) via change order
+  first.
 - **P2 — bounded staleness (safety, multi-sync).** Ghost provenance per
   row: origin epoch and the chain of syncs it traveled by replay.
   "Consulted against upstream during sync N" is pinned as: the scope

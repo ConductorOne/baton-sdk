@@ -60,32 +60,56 @@ recon-before-copy violation.
 Pending extension, tracked not modeled: generation stamps (the graph
 model's variant-S lineage).
 
-## Mapping 1: P model announce events
+## Mapping 1: P model announce events — PROSE ONLY (no renderer)
+
+STATUS: this mapping is a documented convention, not an implemented
+instrument — `host/` carries no P-trace renderer (only
+`renderRealTrace` for Mapping 2 and `refimpl.RenderOccult` for the
+reference implementation). A P counterexample is judged today by
+reading it against this table by hand; anyone automating it must
+build the renderer from the ACTUAL announce vocabularies below and
+add a planted-seal validation test (a renderer that fails to emit
+`ev_seal` silently vacates the seal-anchored policies 4, 5, and 7,
+which are green-by-prefix on seal-less traces).
 
 The walker and graph models announce through the monitor event
 vocabulary (`formal/walker/PSrc/Events.p`, `formal/graph/PSrc/Events.p`).
 A P counterexample trace renders onto the canonical list by keeping
 announce events in schedule order and dropping everything else:
 
-| P announce | Canonical |
+| P announce (walker / graph where they differ) | Canonical |
 |------------|-----------|
 | `eAnnConsult` | `ev_consult(s)` |
-| `eAnnClear` / the clear leg of `eReplayUnit`/`eGReplayUnit` | `ev_clear(s)` |
-| `eAnnReplay` (copy commit) | `ev_replay(s)` |
+| `eAnnClear` (incl. the unit's clear constituent) | `ev_clear(s)` |
+| `eAnnReplay` / `eAnnReplayCopy` (copy commit) | `ev_replay(s)` |
 | `eAnnUpsert` | `ev_upsert(s)` |
-| `eAnnPublish` / `eGSessionPub` (artifact-facing) | `ev_publish(s)` |
+| `eAnnTombstones` (one per removed id) | `ev_delete(s)` |
+| `eAnnPublish` (artifact-facing publish only) | `ev_publish(s)` |
 | `eAnnCheckpoint` | `ev_checkpoint` |
-| `eAnnSealed` | `ev_seal` |
+| `eAnnSessionSet` | `ev_swrite(k)` |
+| `eAnnSessionGet` / `eAnnSessionRead` (found: hit, else miss) | `ev_sread_hit(k)` / `ev_sread_miss(k)` |
+| `eAnnSeal` / `eAnnGSeal` | `ev_seal` |
 
-The atomic units (`eReplayUnit`, `eOverlayUnit`, `eGOverlayUnit`)
-expand to their leg order — clear, copy, marker, publish — because the
-policies check the leg ordering that the units guarantee by
-construction; running unit-built traces through the oracle is a
-consistency check of that guarantee, not new information. Crash
-scenarios cut the list at the crash point: a cut trace must still
-satisfy the prefix-closed policies (1–3), while the seal-anchored
-policies (4–5) are vacuous without `ev_seal` — exactly the
-sync-scoped-freshness stance the models take.
+Session-write REQUESTS (`eGSessionPub`) do not render: they are the
+wire message to the store, and the canonical event is the store's
+committed announce (`eAnnSessionSet`), same as every other write.
+Session events map to the session keyspace (`ev_swrite`), never to
+`ev_publish` — a session write is not an artifact publish.
+
+The atomic units expand to their ANNOUNCE order, which differs by
+model: the walker's `eReplayUnit`/`eOverlayUnit` announce clear, copy
+(, upserts, tombstones), publish; the graph's
+`eGReplayUnit`/`eGOverlayUnit` announce the marker put FIRST (the
+P-MARK convention — see `graph/PSrc/Store.p`'s unit handlers), then
+clear, copy, publish. Marker puts have no canonical event (generation
+stamps are the tracked pending extension), so a rendered unit
+contributes clear, copy, publish either way. The policies check the
+leg ordering the units guarantee by construction; running unit-built
+traces through the oracle is a consistency check of that guarantee,
+not new information. Crash scenarios cut the list at the crash point:
+a cut trace must still satisfy the prefix-closed policies (1–3),
+while the seal-anchored policies (4–5) are vacuous without `ev_seal`
+— exactly the sync-scoped-freshness stance the models take.
 
 ## Mapping 2: real sync executions — IMPLEMENTED
 
@@ -244,7 +268,9 @@ engine records nothing), and `ep_copy` per committed principal write.
 Two fixtures are exported by the existing external-principal chaos
 tests: `external_resume_current_answer.jsonl` (five attempts,
 capable engine, shrink mid-sync — green on all seven policies: every
-resume re-lists and reconciles before copying) and
+attempt that COPIES does so only after a completed `ep_recon`;
+mid-phase crash attempts re-list and are cut before reconciling,
+which is legal — the recon gate binds copies, not lists) and
 `external_resume_sqlite_degrade.jsonl` — a STANDING KNOWN-DEGRADE PIN,
 expected `violation: ext-recon-before-copy`: SQLite cannot delete, the
 resume warns and copies the current answer over the dead attempt's

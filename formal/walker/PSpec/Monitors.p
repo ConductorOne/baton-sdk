@@ -238,6 +238,12 @@ spec P3prime observes eAnnSyncStart, eAnnConsult, eAnnUpsert, eAnnTombstones, eA
                 lastEpoch[p.scope] = p.epoch;
             }
         }
+        // Torn tracking here observes OVERLAY writes only — narrower
+        // than P1's every-round-op tracking. Replacement-only tears
+        // are P1-excluded but inside this monitor's domain; registered
+        // as the MS-CO-002 narrowing (no calibrated cell reaches one
+        // at a P3'-asserted seal). Widen to the P1 op set before
+        // adding any cell that could.
         on eAnnUpsert do (p: (syncN: int, scope: int, rows: seq[tRow], ghost: tRoundGhost)) {
             trackTorn(p.scope, p.ghost);
         }

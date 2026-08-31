@@ -18,10 +18,14 @@ its own, is verified at small scope in both lineage variants, and the
 registered decision rule selects **variant S (observable-causal
 stamps)** — see `graph/BAKEOFF.md`. The shipped syncer's real
 commit-order behavior has been witnessed conformant to the ordering
-and durability policies on every execution we exported (cold, warm,
-crash/resume, tombstone-delta), and the instrument is sharp enough
-that it falsified one piece of documented resume behavior along the
-way.
+and durability policies on every honest execution we exported (cold,
+warm, crash/resume, tombstone-delta, record-flip, external
+principals); two exported fixtures are STANDING RED PINS by design —
+the session-zombie trace under session-checkpoint consistency
+(finding 0) and the SQLite external-principal trace under
+external-principal grounding (the accepted degrade) — and the
+instrument is sharp enough that it falsified one piece of documented
+resume behavior along the way.
 
 ## Track A — calibration model of the current design (P)
 

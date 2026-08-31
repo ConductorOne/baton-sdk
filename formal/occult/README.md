@@ -142,7 +142,7 @@ known-good one:
   is NOT the epoch it claims to be.
 - EXECUTABLE (`refimpl_oracle_test.go` + `host/refimpl/`): the
   demand-graph reference implementation runs the same scenario to seal
-  — content matches upstream and every attempt trace passes all five
+  — content matches upstream and every attempt trace passes all seven
   policies, with and without a crash. In legacy mode the sealed
   artifact carries the phantom row: on a clean run the ordering
   policies are (correctly) blind to it — the composition class belongs
