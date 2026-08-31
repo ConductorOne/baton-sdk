@@ -100,6 +100,22 @@ syntax("standard");
 # B5-legal at-least-once idempotence, while a within-attempt duplicate
 # remains the bug the policy exists to catch. The quiescent-checkpoint
 # flag also persists: a resume adds no progress by itself.
+#
+# CONSEQUENCE, stated so nobody reads more into policy 2 than it says:
+# because clear grounding persists across ev_resume, an attempt-1
+# clear legitimately grounds an attempt-2 write in a ONE-TERM
+# multi-attempt trace — committed rows really do survive the crash, so
+# that history is ordering-legal. Policy 2 is therefore BY DESIGN
+# blind to the resume-without-regrounding class when a whole sync
+# renders as one term. That class is caught on the other leg of the
+# bridge: the refimpl oracle renders EACH ATTEMPT as its own term (no
+# ev_resume), where a resumed attempt writing without its own clear
+# reds clear-before-upsert (TestRefImplLegacyCrashResume), and the
+# real-trace renderer inserts no structural clear for resumed
+# fixtures. The record-flip incarnation (fresh RECORD round over a
+# durably-grounded partition holding crashed-copy debris) is a CONTENT
+# violation, owned by the exporting test's content oracle — see
+# TRACE_BRIDGE.md's scope note.
 ∃ ev_resume;
 
 # Scopes and trace list constructors.
@@ -385,7 +401,7 @@ epg_go(tcons(ev_sread_miss(k), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1,
 trace_green = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_publish(s1), tcons(ev_checkpoint, tcons(ev_seal, tnil)))))));
 
 # Each red fixture violates EXACTLY its own policy and satisfies the
-# other four (the isolation matrix is asserted by the host).
+# other six (the isolation matrix is asserted by the host).
 ∃ trace_red_cbr;
 trace_red_cbr = tcons(ev_clear(s1), tcons(ev_replay(s1), tnil));
 ∃ trace_red_cbu;
@@ -409,7 +425,7 @@ trace_green_resume = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s
 
 # red_ops_resume: a WITHIN-attempt duplicate copy after a resume must
 # still violate once-per-scope — the reset is per boundary, not an
-# amnesty. Satisfies the other four (no upserts, no seal).
+# amnesty. Satisfies the other six (no upserts, no seal).
 ∃ trace_red_ops_resume;
 trace_red_ops_resume = tcons(ev_consult(s1), tcons(ev_replay(s1), tcons(ev_resume, tcons(ev_consult(s1), tcons(ev_replay(s1), tcons(ev_replay(s1), tnil))))));
 

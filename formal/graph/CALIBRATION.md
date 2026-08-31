@@ -1,18 +1,24 @@
 # Graph model calibration — run log
 
-Status: G1 and G2 families calibrated (30 cells; the 26-cell 10k
-gate sweep ran clean and the 4 flap-back/G-pending additions were
-calibrated individually — the next full-matrix sweep is the gate
-after G3+). FLAP-BACK MACHINERY: the upstream reports CONTENT
+Status: COMPLETE. All scenario families (G1–G9) built and
+calibrated; the frozen 66-cell full-matrix sweep PASSED (see
+§"Freeze sweep — 2026-08-30" below; run of record
+`PCheckerOutput/sweep/summary.txt`, `SWEEP-DONE cells=66
+mismatches=0`; reproduce with `tools/sweep.sh`), and the 12-cell
+bake-off phase matched its GS-CO-005 declared verdicts 12/12 (see
+§"Bake-off results — 2026-08-30" below; run of record
+`PCheckerOutput/bakeoff/summary.txt`; reproduce with
+`tools/bakeoff.sh`). The verdict synthesis lives in `BAKEOFF.md`.
+FLAP-BACK MACHINERY: the upstream reports CONTENT
 epochs everywhere (raw epochs never escape it), so `flapBack`
 (raw e>=3 serves content(e1)) keeps validators, manifests, folds,
 and SealExpect worlds coherent with no monitor changes. Spec
 baseline:
-`formal/GRAPH_MODEL_SPEC.md` v4 FROZEN + GS-CO-001..004 (all four
-change orders were driven by calibration finds in this build-out;
-see §12 of the spec and the "Model decisions of record" section
-below). Remaining scenario families (G3–G9, bake-off counts) are
-pending — see Pending.
+`formal/GRAPH_MODEL_SPEC.md` v4 FROZEN + GS-CO-001..005 (the first
+four change orders were driven by calibration finds in this
+build-out — see §12 of the spec and the "Model decisions of record"
+section below; GS-CO-005 is the pre-registered bake-off decision
+rule).
 
 Toolchain: P 3.1.0 (`p compile` / `p check -tc <cell> -s <schedules>`),
 same conventions as `formal/walker/CALIBRATION.md`: verdicts are
@@ -380,7 +386,11 @@ blocks Axis-3 citation until dispositioned (GS-CO-005(d)).
 ### Bake-off results — 2026-08-30, 12/12 match declarations
 
 10k schedules per cell, uniform random, one run (summary archived at
-`PCheckerOutput/bakeoff/summary.txt`). All four v1 controls GREEN
+`PCheckerOutput/bakeoff/summary.txt`; reproduce with
+`tools/bakeoff.sh`, which carries exactly these 12 cells — they are
+deliberately NOT in `tools/sweep.sh`, so re-running the calibration
+sweep cannot overwrite this phase's evidence and vice versa). All
+four v1 controls GREEN
 (the zero-crash redo floor is bound 1 under BOTH variants — the
 count oracle measures crash-caused redo, not variant overhead); both
 G6b bound-1 probes RED on EXEC-BOUND (the mutation chassis's redo is

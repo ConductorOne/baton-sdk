@@ -10,3 +10,4 @@ tcG5dE_W2 expected=RED observed=RED ok
 tcG5dS_W2 expected=RED observed=RED ok
 tcG5dE_W3 expected=GREEN observed=GREEN ok
 tcG5dS_W3 expected=GREEN observed=GREEN ok
+BAKEOFF-DONE cells=12 mismatches=0

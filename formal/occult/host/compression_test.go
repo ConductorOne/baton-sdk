@@ -76,11 +76,6 @@ func TestL9bBucketAlignedLivenessProvable(t *testing.T) {
 	// cur even AND s <= cur AND floor2(s) >= floor2(cur)  ->  s = cur
 	for s := 0; s < genBound; s++ {
 		for cur := 0; cur < genBound; cur += 2 {
-			src := implSource(
-				`%[1]d <= %[2]d`,
-				`classify (`+floor2s+` >= `+floor2c+`) { {true,} : "inner", Bool : "vac" } == "vac"`,
-				s, cur)
-			_ = src // premise chain is easier read as two explicit classifies below
 			full := fmt.Sprintf(
 				`classify (%[1]d <= %[2]d) { {true,} : classify ((%[1]d - %[1]d %% 2) >= (%[2]d - %[2]d %% 2)) { {true,} : classify (%[1]d == %[2]d) { {true,} : "ok", Bool : "violated" }, Bool : "ok" }, Bool : "ok" }`,
 				s, cur)

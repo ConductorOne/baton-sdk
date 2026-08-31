@@ -53,9 +53,12 @@
 //     lines between attempt segments, rendered as ev_resume.
 //   - Checkpoint coalescing: a run of consecutive checkpoints renders
 //     as ONE ev_checkpoint. Verdict-preserving by inspection of all
-//     five policies: four pass checkpoints through untouched and the
-//     fifth (checkpoint-before-progress) sets an idempotent flag, so
-//     back-to-back checkpoints are indistinguishable from one. Needed
+//     seven policies: five pass checkpoints through untouched
+//     (policies 1-3 and 5 by explicit pass-through rules; policy 7's
+//     epg_go likewise), checkpoint-before-progress sets an idempotent
+//     flag, and session_ckpt_consistency's scc_go commits the
+//     uncommitted-write flag — after the first checkpoint the flag is
+//     ff, so an immediately following checkpoint is a no-op. Needed
 //     because the engine's term evaluation cost grows steeply with
 //     event count (a 25-event trace exceeds 18 minutes per cell; 14
 //     events evaluate in tens of seconds).
@@ -67,6 +70,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -392,5 +396,36 @@ func TestRealTraceBridgeCatchesStaleExternalSurvivor(t *testing.T) {
 	term = renderRealTrace(t, header, mutated)
 	if verdict := policyVerdictTerm(t, "external_principal_grounding", term); verdict != "violation: ext-stale-survivor" {
 		t.Errorf("planted stale external survivor not caught, verdict %q", verdict)
+	}
+}
+
+// TestRealTraceBridgeStructuralClearInsertion validates the renderer's
+// structural-clear branch — the ONE place the bridge synthesizes
+// grounding the recorder never observed (a non-resumed trace's
+// partitions are born empty at StartNewSync). Every committed fixture
+// now emits an explicit clear before its first write (record-round
+// grounding made replacement clears real), so without this test the
+// branch is dead across the suite and a regression in it would
+// silently green a genuinely un-grounded write. The synthetic event
+// list has no explicit clear anywhere and spans a resume: the renderer
+// must insert ev_clear exactly ONCE for the scope (per sync, not per
+// attempt — the partition is born empty once) and clear_before_upsert
+// must answer ok for that reason.
+func TestRealTraceBridgeStructuralClearInsertion(t *testing.T) {
+	header := realTraceHeader{Name: "synthetic_structural_clear", Resumed: false}
+	events := []realTraceEvent{
+		{Kind: "upsert", RowKind: "grant", ScopeKey: "k"},
+		{Kind: "resume"},
+		{Kind: "upsert", RowKind: "grant", ScopeKey: "k"},
+	}
+	term := renderRealTrace(t, header, events)
+	if n := strings.Count(term, "ev_clear"); n != 1 {
+		t.Fatalf("structural clear must be synthesized exactly once per scope per sync, found %d in %s", n, term)
+	}
+	if !strings.HasPrefix(term, "M.tcons(M.ev_clear(M.s1)") {
+		t.Fatalf("structural clear must precede the first write, term %s", term)
+	}
+	if verdict := policyVerdictTerm(t, "clear_before_upsert", term); verdict != "ok" {
+		t.Errorf("structurally grounded sync-birth trace must satisfy clear_before_upsert, got %q", verdict)
 	}
 }
