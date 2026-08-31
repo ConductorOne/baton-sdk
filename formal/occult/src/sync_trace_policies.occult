@@ -1,0 +1,160 @@
+# Deliverable 7: the ordering/durability trace-policy oracle set
+# (brief: "Trace-policy oracle set" — consult-before-replay,
+# checkpoint-before-progress, clear-before-upsert, once-per-scope, seal
+# obligations) over the announce vocabulary pinned in
+# formal/MODEL_SPEC.md §7. A trace is one sync attempt's event list;
+# each policy is a recursive verdict function returning "ok" or a
+# violation string. Two scopes (s1, s2) — the same small-scope envelope
+# as the P models; multi-attempt traces (resume markers) are a pending
+# extension, as are tombstone events (deletes are not gated by any of
+# the five policies).
+#
+# Loaded into UniversalScope by the host: equations are rewrite rules,
+# bare identifiers (r, a, b, p, q, s, v) are universal pattern
+# variables, and every pattern is head-guarded by a constructor.
+
+# lint:disable mixed-source-semantics
+# lint:disable unguarded-recursion
+syntax("standard");
+
+# Events. ev_replay(s) is the committed replacement copy for scope s
+# (the replay-unit commit); ev_clear(s) the partition clear;
+# ev_checkpoint the durable watermark commit; ev_seal the artifact
+# seal.
+∃ ev_consult;
+∃ ev_clear;
+∃ ev_replay;
+∃ ev_upsert;
+∃ ev_publish;
+∃ ev_checkpoint;
+∃ ev_seal;
+
+# Scopes and trace list constructors.
+∃ s1;
+∃ s2;
+∃ tnil;
+∃ tcons;
+
+# Flag booleans (free constructors; natives are opaque to saturation).
+∃ tt;
+∃ ff;
+
+# --- Policy 1: consult-before-replay ---
+# Every replay commit for a scope requires an earlier source-cache
+# consult for that scope in the same attempt.
+∃ consult_before_replay;
+∃ cbr_go;
+consult_before_replay(t) = cbr_go(t, ff, ff);
+cbr_go(tnil, a, b) = "ok";
+cbr_go(tcons(ev_consult(s1), r), a, b) = cbr_go(r, tt, b);
+cbr_go(tcons(ev_consult(s2), r), a, b) = cbr_go(r, a, tt);
+cbr_go(tcons(ev_replay(s1), r), tt, b) = cbr_go(r, tt, b);
+cbr_go(tcons(ev_replay(s1), r), ff, b) = "violation: consult-before-replay";
+cbr_go(tcons(ev_replay(s2), r), a, tt) = cbr_go(r, a, tt);
+cbr_go(tcons(ev_replay(s2), r), a, ff) = "violation: consult-before-replay";
+cbr_go(tcons(ev_clear(s), r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_upsert(s), r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_publish(s), r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_checkpoint, r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_seal, r), a, b) = cbr_go(r, a, b);
+
+# --- Policy 2: clear-before-upsert ---
+# Any upsert into a scope's partition requires an earlier clear of that
+# partition this attempt (replacement rounds clear first; overlay
+# upserts are grounded on this sync's replay, which cleared).
+∃ clear_before_upsert;
+∃ cbu_go;
+clear_before_upsert(t) = cbu_go(t, ff, ff);
+cbu_go(tnil, a, b) = "ok";
+cbu_go(tcons(ev_clear(s1), r), a, b) = cbu_go(r, tt, b);
+cbu_go(tcons(ev_clear(s2), r), a, b) = cbu_go(r, a, tt);
+cbu_go(tcons(ev_upsert(s1), r), tt, b) = cbu_go(r, tt, b);
+cbu_go(tcons(ev_upsert(s1), r), ff, b) = "violation: clear-before-upsert";
+cbu_go(tcons(ev_upsert(s2), r), a, tt) = cbu_go(r, a, tt);
+cbu_go(tcons(ev_upsert(s2), r), a, ff) = "violation: clear-before-upsert";
+cbu_go(tcons(ev_consult(s), r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ev_replay(s), r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ev_publish(s), r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ev_checkpoint, r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ev_seal, r), a, b) = cbu_go(r, a, b);
+
+# --- Policy 3: once-per-scope ---
+# At most one committed replacement copy per scope per attempt (the
+# across-attempt idempotent re-run is B5-legal and lives outside a
+# single-attempt trace).
+∃ once_per_scope;
+∃ ops_go;
+once_per_scope(t) = ops_go(t, ff, ff);
+ops_go(tnil, a, b) = "ok";
+ops_go(tcons(ev_replay(s1), r), ff, b) = ops_go(r, tt, b);
+ops_go(tcons(ev_replay(s1), r), tt, b) = "violation: once-per-scope";
+ops_go(tcons(ev_replay(s2), r), a, ff) = ops_go(r, a, tt);
+ops_go(tcons(ev_replay(s2), r), a, tt) = "violation: once-per-scope";
+ops_go(tcons(ev_consult(s), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_clear(s), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_upsert(s), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_publish(s), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_checkpoint, r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_seal, r), a, b) = ops_go(r, a, b);
+
+# --- Policy 4: checkpoint-before-progress (seal form) ---
+# The seal requires a QUIESCENT checkpoint: an ev_checkpoint after
+# which no write event (clear/replay/upsert/publish) occurred. Reads
+# do not dirty the watermark.
+∃ checkpoint_before_progress;
+∃ cbp_go;
+checkpoint_before_progress(t) = cbp_go(t, ff);
+cbp_go(tnil, f) = "ok";
+cbp_go(tcons(ev_checkpoint, r), f) = cbp_go(r, tt);
+cbp_go(tcons(ev_clear(s), r), f) = cbp_go(r, ff);
+cbp_go(tcons(ev_replay(s), r), f) = cbp_go(r, ff);
+cbp_go(tcons(ev_upsert(s), r), f) = cbp_go(r, ff);
+cbp_go(tcons(ev_publish(s), r), f) = cbp_go(r, ff);
+cbp_go(tcons(ev_consult(s), r), f) = cbp_go(r, f);
+cbp_go(tcons(ev_seal, r), tt) = "ok";
+cbp_go(tcons(ev_seal, r), ff) = "violation: checkpoint-before-progress";
+
+# --- Policy 5: seal obligations ---
+# Every scope with any activity this attempt (consult/clear/replay/
+# upsert) must be published before the seal. State per scope: active
+# flag, published flag.
+∃ seal_obligations;
+∃ so_go;
+seal_obligations(t) = so_go(t, ff, ff, ff, ff);
+so_go(tnil, a, p, b, q) = "ok";
+so_go(tcons(ev_consult(s1), r), a, p, b, q) = so_go(r, tt, p, b, q);
+so_go(tcons(ev_consult(s2), r), a, p, b, q) = so_go(r, a, p, tt, q);
+so_go(tcons(ev_clear(s1), r), a, p, b, q) = so_go(r, tt, p, b, q);
+so_go(tcons(ev_clear(s2), r), a, p, b, q) = so_go(r, a, p, tt, q);
+so_go(tcons(ev_replay(s1), r), a, p, b, q) = so_go(r, tt, p, b, q);
+so_go(tcons(ev_replay(s2), r), a, p, b, q) = so_go(r, a, p, tt, q);
+so_go(tcons(ev_upsert(s1), r), a, p, b, q) = so_go(r, tt, p, b, q);
+so_go(tcons(ev_upsert(s2), r), a, p, b, q) = so_go(r, a, p, tt, q);
+so_go(tcons(ev_publish(s1), r), a, p, b, q) = so_go(r, a, tt, b, q);
+so_go(tcons(ev_publish(s2), r), a, p, b, q) = so_go(r, a, p, b, tt);
+so_go(tcons(ev_checkpoint, r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ev_seal, r), tt, ff, b, q) = "violation: seal-obligations";
+so_go(tcons(ev_seal, r), a, p, tt, ff) = "violation: seal-obligations";
+so_go(tcons(ev_seal, r), ff, p, ff, q) = "ok";
+so_go(tcons(ev_seal, r), tt, tt, ff, q) = "ok";
+so_go(tcons(ev_seal, r), ff, p, tt, tt) = "ok";
+so_go(tcons(ev_seal, r), tt, tt, tt, tt) = "ok";
+
+# --- Fixtures ---
+# green: one honest replacement round on s1, published, quiescent
+# checkpoint, seal. Every policy must answer "ok".
+∃ trace_green;
+trace_green = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_publish(s1), tcons(ev_checkpoint, tcons(ev_seal, tnil)))))));
+
+# Each red fixture violates EXACTLY its own policy and satisfies the
+# other four (the isolation matrix is asserted by the host).
+∃ trace_red_cbr;
+trace_red_cbr = tcons(ev_clear(s1), tcons(ev_replay(s1), tnil));
+∃ trace_red_cbu;
+trace_red_cbu = tcons(ev_consult(s1), tcons(ev_upsert(s1), tnil));
+∃ trace_red_ops;
+trace_red_ops = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_replay(s1), tnil))));
+∃ trace_red_cbp;
+trace_red_cbp = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_publish(s1), tcons(ev_seal, tnil)))));
+∃ trace_red_seal;
+trace_red_seal = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_checkpoint, tcons(ev_seal, tnil)))));

@@ -1,0 +1,295 @@
+<TestLog> Running test 'tc5a_P1'.
+<CreateLog> PImplementation.P1 was created.
+<MonitorLog> PImplementation.P1 enters state 'Monitoring'.
+<CreateLog> Test5aGateOff(1) was created by task '2'.
+<StateLog> Test5aGateOff(1) enters state 'I'.
+<CreateLog> MEnv(2) was created by Test5aGateOff(1).
+<StateLog> MEnv(2) enters state 'Run'.
+<AnnounceLog> 'MEnv(2)' announced event 'eAnnScenarioInit' with payload <maxStaleness:1, >.
+<CreateLog> MStore(3) was created by MEnv(2).
+<StateLog> MStore(3) enters state 'Serving'.
+<CreateLog> MUpstream(4) was created by MEnv(2).
+<StateLog> MUpstream(4) enters state 'Serving'.
+<SendLog> 'MEnv(2)' in state 'Run' sent event 'eStoreReset with payload (<client:MEnv(2), syncN:1, >)' to 'MStore(3)'.
+<ReceiveLog> MEnv(2) is waiting to dequeue an event of type 'eStoreAck' or 'PHalt' in state 'Run'.
+<DequeueLog> 'MStore(3)' dequeued event 'eStoreReset with payload (<client:MEnv(2), syncN:1, >)' in state 'Serving'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MEnv(2)'.
+<ReceiveLog> 'MEnv(2)' dequeued event 'eStoreAck' and unblocked in state 'Run'.
+<AnnounceLog> 'MEnv(2)' announced event 'eAnnSyncStart' with payload <syncN:1, >.
+<MonitorLog> P1 is processing event 'eAnnSyncStart with payload (<syncN:1, >)' in state 'Monitoring'.
+<CreateLog> MSyncAttempt(5) was created by MEnv(2).
+<ReceiveLog> MEnv(2) is waiting to dequeue an event of type 'eAttemptEnded' or 'PHalt' in state 'Run'.
+<StateLog> MSyncAttempt(5) enters state 'Boot'.
+<SendLog> 'MSyncAttempt(5)' in state 'Boot' sent event 'eProduceReadReq with payload (<client:MSyncAttempt(5), gen:11, >)' to 'MStore(3)'.
+<ReceiveLog> MSyncAttempt(5) is waiting to dequeue an event of type 'eProduceReadResp', 'eStoreDead' or 'PHalt' in state 'Boot'.
+<DequeueLog> 'MStore(3)' dequeued event 'eProduceReadReq with payload (<client:MSyncAttempt(5), gen:11, >)' in state 'Serving'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eProduceReadResp with payload (<prevCompat:0, prevBlocked:False, curCompat:-1, hasCur:False, hasPrev:False, >)' to 'MSyncAttempt(5)'.
+<ReceiveLog> 'MSyncAttempt(5)' dequeued event 'eProduceReadResp with payload (<prevCompat:0, prevBlocked:False, curCompat:-1, hasCur:False, hasPrev:False, >)' and unblocked in state 'Boot'.
+<SendLog> 'MSyncAttempt(5)' in state 'Boot' sent event 'eCompatPut with payload (<client:MSyncAttempt(5), gen:11, k:1, >)' to 'MStore(3)'.
+<ReceiveLog> MSyncAttempt(5) is waiting to dequeue an event of type 'eStoreAck', 'eStoreDead' or 'PHalt' in state 'Boot'.
+<DequeueLog> 'MStore(3)' dequeued event 'eCompatPut with payload (<client:MSyncAttempt(5), gen:11, k:1, >)' in state 'Serving'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MSyncAttempt(5)'.
+<ReceiveLog> 'MSyncAttempt(5)' dequeued event 'eStoreAck' and unblocked in state 'Boot'.
+<CreateLog> MWorker(6) was created by MSyncAttempt(5).
+<StateLog> MWorker(6) enters state 'Boot'.
+<GotoLog> MWorker(6) is transitioning from state 'Boot' to state 'PImplementation.MWorker.Idle'.
+<StateLog> MWorker(6) exits state 'Boot'.
+<StateLog> MWorker(6) enters state 'Idle'.
+<CreateLog> MWorker(7) was created by MSyncAttempt(5).
+<GotoLog> MSyncAttempt(5) is transitioning from state 'Boot' to state 'PImplementation.MSyncAttempt.Running'.
+<StateLog> MSyncAttempt(5) exits state 'Boot'.
+<StateLog> MSyncAttempt(5) enters state 'Running'.
+<SendLog> 'MSyncAttempt(5)' in state 'Running' sent event 'eCheckpointReq with payload (<client:MSyncAttempt(5), gen:11, ckpt:<stack:(<aid:1, op:0, scope:0, cursor:0, hasAnnotation:False, annotationV:-1, publishes:False, >), hits:(), replayed:(), blocked:False, >, >)' to 'MStore(3)'.
+<ReceiveLog> MSyncAttempt(5) is waiting to dequeue an event of type 'eStoreAck', 'eStoreDead' or 'PHalt' in state 'Running'.
+<StateLog> MWorker(7) enters state 'Boot'.
+<GotoLog> MWorker(7) is transitioning from state 'Boot' to state 'PImplementation.MWorker.Idle'.
+<StateLog> MWorker(7) exits state 'Boot'.
+<StateLog> MWorker(7) enters state 'Idle'.
+<DequeueLog> 'MStore(3)' dequeued event 'eCheckpointReq with payload (<client:MSyncAttempt(5), gen:11, ckpt:<stack:(<aid:1, op:0, scope:0, cursor:0, hasAnnotation:False, annotationV:-1, publishes:False, >), hits:(), replayed:(), blocked:False, >, >)' in state 'Serving'.
+<AnnounceLog> 'MStore(3)' announced event 'eAnnCheckpoint' with payload <syncN:1, >.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MSyncAttempt(5)'.
+<ReceiveLog> 'MSyncAttempt(5)' dequeued event 'eStoreAck' and unblocked in state 'Running'.
+<RandomLog> MSyncAttempt(5) nondeterministically chose '0'.
+<SendLog> 'MSyncAttempt(5)' in state 'Running' sent event 'eDispatch with payload (<action:<aid:1, op:0, scope:0, cursor:0, hasAnnotation:False, annotationV:-1, publishes:False, >, hits:(), replayed:(), >)' to 'MWorker(6)'.
+<DequeueLog> 'MWorker(6)' dequeued event 'eDispatch with payload (<action:<aid:1, op:0, scope:0, cursor:0, hasAnnotation:False, annotationV:-1, publishes:False, >, hits:(), replayed:(), >)' in state 'Idle'.
+<SendLog> 'MWorker(6)' in state 'Idle' sent event 'eActionTransition with payload (<aid:1, nextCursor:2, done:False, spawn:<aid:0, op:0, scope:0, cursor:0, hasAnnotation:False, annotationV:0, publishes:False, >, hasSpawn:False, hitScope:0, hitV:-1, hasHit:False, markReplayed:False, replayedScope:0, >)' to 'MSyncAttempt(5)'.
+<ReceiveLog> MWorker(6) is waiting to dequeue an event of type 'eContinuePage', 'eAbortWorker' or 'PHalt' in state 'Idle'.
+<DequeueLog> 'MSyncAttempt(5)' dequeued event 'eActionTransition with payload (<aid:1, nextCursor:2, done:False, spawn:<aid:0, op:0, scope:0, cursor:0, hasAnnotation:False, annotationV:0, publishes:False, >, hasSpawn:False, hitScope:0, hitV:-1, hasHit:False, markReplayed:False, replayedScope:0, >)' in state 'Running'.
+<SendLog> 'MSyncAttempt(5)' in state 'Running' sent event 'eReplyWorker with payload (<aid:1, worker:MWorker(6), >)' to 'MSyncAttempt(5)'.
+<DequeueLog> 'MSyncAttempt(5)' dequeued event 'eReplyWorker with payload (<aid:1, worker:MWorker(6), >)' in state 'Running'.
+<SendLog> 'MSyncAttempt(5)' in state 'Running' sent event 'eContinuePage' to 'MWorker(6)'.
+<ReceiveLog> 'MWorker(6)' dequeued event 'eContinuePage' and unblocked in state 'Idle'.
+<SendLog> 'MWorker(6)' in state 'Idle' sent event 'eFetchReq with payload (<client:MWorker(6), scope:0, page:0, >)' to 'MUpstream(4)'.
+<ReceiveLog> MWorker(6) is waiting to dequeue an event of type 'eFetchResp' or 'PHalt' in state 'Idle'.
+<DequeueLog> 'MUpstream(4)' dequeued event 'eFetchReq with payload (<client:MWorker(6), scope:0, page:0, >)' in state 'Serving'.
+<SendLog> 'MUpstream(4)' in state 'Serving' sent event 'eFetchResp with payload (<rows:(<id:0, epoch:1, hops:0, config:0, stamp:-1, >), epoch:1, morePages:True, >)' to 'MWorker(6)'.
+<ReceiveLog> 'MWorker(6)' dequeued event 'eFetchResp with payload (<rows:(<id:0, epoch:1, hops:0, config:0, stamp:-1, >), epoch:1, morePages:True, >)' and unblocked in state 'Idle'.
+<AnnounceLog> 'MWorker(6)' announced event 'eAnnConsult' with payload <syncN:1, scope:0, hit:False, v:-1, validated:False, epoch:1, freshFetch:True, diffVerdict:False, >.
+<SendLog> 'MWorker(6)' in state 'Idle' sent event 'eUpsertPage with payload (<client:MWorker(6), gen:11, scope:0, rows:(<id:0, epoch:1, hops:0, config:1, stamp:-1, >), ghost:<roundId:102, verdict:1, consultEpoch:1, config:1, lastOp:False, attempt:11, >, >)' to 'MStore(3)'.
+<ReceiveLog> MWorker(6) is waiting to dequeue an event of type 'eStoreAck', 'eStoreDead' or 'PHalt' in state 'Idle'.
+<DequeueLog> 'MStore(3)' dequeued event 'eUpsertPage with payload (<client:MWorker(6), gen:11, scope:0, rows:(<id:0, epoch:1, hops:0, config:1, stamp:-1, >), ghost:<roundId:102, verdict:1, consultEpoch:1, config:1, lastOp:False, attempt:11, >, >)' in state 'Serving'.
+<AnnounceLog> 'MStore(3)' announced event 'eAnnUpsert' with payload <syncN:1, scope:0, rows:(<id:0, epoch:1, hops:0, config:1, stamp:-1, >), ghost:<roundId:102, verdict:1, consultEpoch:1, config:1, lastOp:False, attempt:11, >, >.
+<MonitorLog> P1 is processing event 'eAnnUpsert with payload (<syncN:1, scope:0, rows:(<id:0, epoch:1, hops:0, config:1, stamp:-1, >), ghost:<roundId:102, verdict:1, consultEpoch:1, config:1, lastOp:False, attempt:11, >, >)' in state 'Monitoring'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MWorker(6)'.
+<ReceiveLog> 'MWorker(6)' dequeued event 'eStoreAck' and unblocked in state 'Idle'.
+<SendLog> 'MWorker(6)' in state 'Idle' sent event 'eActionTransition with payload (<aid:1, nextCursor:3, done:False, spawn:<aid:0, op:0, scope:0, cursor:0, hasAnnotation:False, annotationV:0, publishes:False, >, hasSpawn:False, hitScope:0, hitV:-1, hasHit:False, markReplayed:False, replayedScope:0, >)' to 'MSyncAttempt(5)'.
+<ReceiveLog> MWorker(6) is waiting to dequeue an event of type 'eContinuePage', 'eAbortWorker' or 'PHalt' in state 'Idle'.
+<DequeueLog> 'MSyncAttempt(5)' dequeued event 'eActionTransition with payload (<aid:1, nextCursor:3, done:False, spawn:<aid:0, op:0, scope:0, cursor:0, hasAnnotation:False, annotationV:0, publishes:False, >, hasSpawn:False, hitScope:0, hitV:-1, hasHit:False, markReplayed:False, replayedScope:0, >)' in state 'Running'.
+<SendLog> 'MSyncAttempt(5)' in state 'Running' sent event 'eReplyWorker with payload (<aid:1, worker:MWorker(6), >)' to 'MSyncAttempt(5)'.
+<DequeueLog> 'MSyncAttempt(5)' dequeued event 'eReplyWorker with payload (<aid:1, worker:MWorker(6), >)' in state 'Running'.
+<SendLog> 'MSyncAttempt(5)' in state 'Running' sent event 'eContinuePage' to 'MWorker(6)'.
+<ReceiveLog> 'MWorker(6)' dequeued event 'eContinuePage' and unblocked in state 'Idle'.
+<SendLog> 'MWorker(6)' in state 'Idle' sent event 'eFetchReq with payload (<client:MWorker(6), scope:0, page:1, >)' to 'MUpstream(4)'.
+<ReceiveLog> MWorker(6) is waiting to dequeue an event of type 'eFetchResp' or 'PHalt' in state 'Idle'.
+<DequeueLog> 'MUpstream(4)' dequeued event 'eFetchReq with payload (<client:MWorker(6), scope:0, page:1, >)' in state 'Serving'.
+<SendLog> 'MUpstream(4)' in state 'Serving' sent event 'eFetchResp with payload (<rows:(<id:1, epoch:1, hops:0, config:0, stamp:-1, >), epoch:1, morePages:False, >)' to 'MWorker(6)'.
+<ReceiveLog> 'MWorker(6)' dequeued event 'eFetchResp with payload (<rows:(<id:1, epoch:1, hops:0, config:0, stamp:-1, >), epoch:1, morePages:False, >)' and unblocked in state 'Idle'.
+<AnnounceLog> 'MWorker(6)' announced event 'eAnnConsult' with payload <syncN:1, scope:0, hit:False, v:-1, validated:False, epoch:1, freshFetch:True, diffVerdict:False, >.
+<SendLog> 'MWorker(6)' in state 'Idle' sent event 'eUpsertPage with payload (<client:MWorker(6), gen:11, scope:0, rows:(<id:1, epoch:1, hops:0, config:1, stamp:-1, >), ghost:<roundId:102, verdict:1, consultEpoch:1, config:1, lastOp:False, attempt:11, >, >)' to 'MStore(3)'.
+<ReceiveLog> MWorker(6) is waiting to dequeue an event of type 'eStoreAck', 'eStoreDead' or 'PHalt' in state 'Idle'.
+<DequeueLog> 'MStore(3)' dequeued event 'eUpsertPage with payload (<client:MWorker(6), gen:11, scope:0, rows:(<id:1, epoch:1, hops:0, config:1, stamp:-1, >), ghost:<roundId:102, verdict:1, consultEpoch:1, config:1, lastOp:False, attempt:11, >, >)' in state 'Serving'.
+<AnnounceLog> 'MStore(3)' announced event 'eAnnUpsert' with payload <syncN:1, scope:0, rows:(<id:1, epoch:1, hops:0, config:1, stamp:-1, >), ghost:<roundId:102, verdict:1, consultEpoch:1, config:1, lastOp:False, attempt:11, >, >.
+<MonitorLog> P1 is processing event 'eAnnUpsert with payload (<syncN:1, scope:0, rows:(<id:1, epoch:1, hops:0, config:1, stamp:-1, >), ghost:<roundId:102, verdict:1, consultEpoch:1, config:1, lastOp:False, attempt:11, >, >)' in state 'Monitoring'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MWorker(6)'.
+<ReceiveLog> 'MWorker(6)' dequeued event 'eStoreAck' and unblocked in state 'Idle'.
+<SendLog> 'MWorker(6)' in state 'Idle' sent event 'ePublishEntry with payload (<client:MWorker(6), gen:11, scope:0, v:1, ghost:<roundId:102, verdict:1, consultEpoch:1, config:1, lastOp:True, attempt:11, >, >)' to 'MStore(3)'.
+<ReceiveLog> MWorker(6) is waiting to dequeue an event of type 'eStoreAck', 'eStoreDead' or 'PHalt' in state 'Idle'.
+<DequeueLog> 'MStore(3)' dequeued event 'ePublishEntry with payload (<client:MWorker(6), gen:11, scope:0, v:1, ghost:<roundId:102, verdict:1, consultEpoch:1, config:1, lastOp:True, attempt:11, >, >)' in state 'Serving'.
+<AnnounceLog> 'MStore(3)' announced event 'eAnnPublish' with payload <syncN:1, scope:0, v:1, ghost:<roundId:102, verdict:1, consultEpoch:1, config:1, lastOp:True, attempt:11, >, >.
+<MonitorLog> P1 is processing event 'eAnnPublish with payload (<syncN:1, scope:0, v:1, ghost:<roundId:102, verdict:1, consultEpoch:1, config:1, lastOp:True, attempt:11, >, >)' in state 'Monitoring'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MWorker(6)'.
+<ReceiveLog> 'MWorker(6)' dequeued event 'eStoreAck' and unblocked in state 'Idle'.
+<SendLog> 'MWorker(6)' in state 'Idle' sent event 'eActionTransition with payload (<aid:1, nextCursor:0, done:True, spawn:<aid:0, op:0, scope:0, cursor:0, hasAnnotation:False, annotationV:0, publishes:False, >, hasSpawn:False, hitScope:0, hitV:-1, hasHit:False, markReplayed:False, replayedScope:0, >)' to 'MSyncAttempt(5)'.
+<DequeueLog> 'MSyncAttempt(5)' dequeued event 'eActionTransition with payload (<aid:1, nextCursor:0, done:True, spawn:<aid:0, op:0, scope:0, cursor:0, hasAnnotation:False, annotationV:0, publishes:False, >, hasSpawn:False, hitScope:0, hitV:-1, hasHit:False, markReplayed:False, replayedScope:0, >)' in state 'Running'.
+<SendLog> 'MSyncAttempt(5)' in state 'Running' sent event 'eLoopTop' to 'MSyncAttempt(5)'.
+<DequeueLog> 'MSyncAttempt(5)' dequeued event 'eLoopTop' in state 'Running'.
+<SendLog> 'MSyncAttempt(5)' in state 'Running' sent event 'eCheckpointReq with payload (<client:MSyncAttempt(5), gen:11, ckpt:<stack:(), hits:(), replayed:(), blocked:False, >, >)' to 'MStore(3)'.
+<ReceiveLog> MSyncAttempt(5) is waiting to dequeue an event of type 'eStoreAck', 'eStoreDead' or 'PHalt' in state 'Running'.
+<DequeueLog> 'MStore(3)' dequeued event 'eCheckpointReq with payload (<client:MSyncAttempt(5), gen:11, ckpt:<stack:(), hits:(), replayed:(), blocked:False, >, >)' in state 'Serving'.
+<AnnounceLog> 'MStore(3)' announced event 'eAnnCheckpoint' with payload <syncN:1, >.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MSyncAttempt(5)'.
+<ReceiveLog> 'MSyncAttempt(5)' dequeued event 'eStoreAck' and unblocked in state 'Running'.
+<SendLog> 'MSyncAttempt(5)' in state 'Running' sent event 'eSealReq with payload (<client:MSyncAttempt(5), gen:11, blocked:False, config:1, >)' to 'MStore(3)'.
+<ReceiveLog> MSyncAttempt(5) is waiting to dequeue an event of type 'eStoreAck', 'eStoreDead' or 'PHalt' in state 'Running'.
+<DequeueLog> 'MStore(3)' dequeued event 'eSealReq with payload (<client:MSyncAttempt(5), gen:11, blocked:False, config:1, >)' in state 'Serving'.
+<AnnounceLog> 'MStore(3)' announced event 'eAnnSeal' with payload <syncN:1, partition:(<0->(<0-><id:0, epoch:1, hops:0, config:1, stamp:-1, >>, <1-><id:1, epoch:1, hops:0, config:1, stamp:-1, >>)>), manifest:(<0->1>), blocked:False, config:1, >.
+<MonitorLog> P1 is processing event 'eAnnSeal with payload (<syncN:1, partition:(<0->(<0-><id:0, epoch:1, hops:0, config:1, stamp:-1, >>, <1-><id:1, epoch:1, hops:0, config:1, stamp:-1, >>)>), manifest:(<0->1>), blocked:False, config:1, >)' in state 'Monitoring'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MSyncAttempt(5)'.
+<ReceiveLog> 'MSyncAttempt(5)' dequeued event 'eStoreAck' and unblocked in state 'Running'.
+<SendLog> 'MSyncAttempt(5)' in state 'Running' sent event 'eAttemptEnded with payload (<stopped:False, sealed:True, >)' to 'MEnv(2)'.
+<ReceiveLog> 'MEnv(2)' dequeued event 'eAttemptEnded with payload (<stopped:False, sealed:True, >)' and unblocked in state 'Run'.
+<GotoLog> MSyncAttempt(5) is transitioning from state 'Running' to state 'PImplementation.MSyncAttempt.Done'.
+<StateLog> MSyncAttempt(5) exits state 'Running'.
+<StateLog> MSyncAttempt(5) enters state 'Done'.
+<SendLog> 'MEnv(2)' in state 'Run' sent event 'eStoreReset with payload (<client:MEnv(2), syncN:2, >)' to 'MStore(3)'.
+<ReceiveLog> MEnv(2) is waiting to dequeue an event of type 'eStoreAck' or 'PHalt' in state 'Run'.
+<DequeueLog> 'MStore(3)' dequeued event 'eStoreReset with payload (<client:MEnv(2), syncN:2, >)' in state 'Serving'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MEnv(2)'.
+<ReceiveLog> 'MEnv(2)' dequeued event 'eStoreAck' and unblocked in state 'Run'.
+<AnnounceLog> 'MEnv(2)' announced event 'eAnnSyncStart' with payload <syncN:2, >.
+<MonitorLog> P1 is processing event 'eAnnSyncStart with payload (<syncN:2, >)' in state 'Monitoring'.
+<CreateLog> MSyncAttempt(8) was created by MEnv(2).
+<SendLog> 'MEnv(2)' in state 'Run' sent event 'eStopAttempt' to 'MSyncAttempt(8)'.
+<ReceiveLog> MEnv(2) is waiting to dequeue an event of type 'eAttemptEnded' or 'PHalt' in state 'Run'.
+<StateLog> MSyncAttempt(8) enters state 'Boot'.
+<SendLog> 'MSyncAttempt(8)' in state 'Boot' sent event 'eProduceReadReq with payload (<client:MSyncAttempt(8), gen:21, >)' to 'MStore(3)'.
+<ReceiveLog> MSyncAttempt(8) is waiting to dequeue an event of type 'eProduceReadResp', 'eStoreDead' or 'PHalt' in state 'Boot'.
+<DequeueLog> 'MStore(3)' dequeued event 'eProduceReadReq with payload (<client:MSyncAttempt(8), gen:21, >)' in state 'Serving'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eProduceReadResp with payload (<prevCompat:1, prevBlocked:False, curCompat:-1, hasCur:False, hasPrev:True, >)' to 'MSyncAttempt(8)'.
+<ReceiveLog> 'MSyncAttempt(8)' dequeued event 'eProduceReadResp with payload (<prevCompat:1, prevBlocked:False, curCompat:-1, hasCur:False, hasPrev:True, >)' and unblocked in state 'Boot'.
+<SendLog> 'MSyncAttempt(8)' in state 'Boot' sent event 'eCompatPut with payload (<client:MSyncAttempt(8), gen:21, k:1, >)' to 'MStore(3)'.
+<ReceiveLog> MSyncAttempt(8) is waiting to dequeue an event of type 'eStoreAck', 'eStoreDead' or 'PHalt' in state 'Boot'.
+<DequeueLog> 'MStore(3)' dequeued event 'eCompatPut with payload (<client:MSyncAttempt(8), gen:21, k:1, >)' in state 'Serving'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MSyncAttempt(8)'.
+<ReceiveLog> 'MSyncAttempt(8)' dequeued event 'eStoreAck' and unblocked in state 'Boot'.
+<CreateLog> MWorker(9) was created by MSyncAttempt(8).
+<CreateLog> MWorker(10) was created by MSyncAttempt(8).
+<GotoLog> MSyncAttempt(8) is transitioning from state 'Boot' to state 'PImplementation.MSyncAttempt.Running'.
+<StateLog> MSyncAttempt(8) exits state 'Boot'.
+<StateLog> MSyncAttempt(8) enters state 'Running'.
+<StateLog> MWorker(9) enters state 'Boot'.
+<GotoLog> MWorker(9) is transitioning from state 'Boot' to state 'PImplementation.MWorker.Idle'.
+<StateLog> MWorker(9) exits state 'Boot'.
+<StateLog> MWorker(9) enters state 'Idle'.
+<SendLog> 'MSyncAttempt(8)' in state 'Running' sent event 'eCheckpointReq with payload (<client:MSyncAttempt(8), gen:21, ckpt:<stack:(<aid:1, op:0, scope:0, cursor:0, hasAnnotation:False, annotationV:-1, publishes:False, >), hits:(), replayed:(), blocked:False, >, >)' to 'MStore(3)'.
+<ReceiveLog> MSyncAttempt(8) is waiting to dequeue an event of type 'eStoreAck', 'eStoreDead' or 'PHalt' in state 'Running'.
+<DequeueLog> 'MStore(3)' dequeued event 'eCheckpointReq with payload (<client:MSyncAttempt(8), gen:21, ckpt:<stack:(<aid:1, op:0, scope:0, cursor:0, hasAnnotation:False, annotationV:-1, publishes:False, >), hits:(), replayed:(), blocked:False, >, >)' in state 'Serving'.
+<AnnounceLog> 'MStore(3)' announced event 'eAnnCheckpoint' with payload <syncN:2, >.
+<StateLog> MWorker(10) enters state 'Boot'.
+<GotoLog> MWorker(10) is transitioning from state 'Boot' to state 'PImplementation.MWorker.Idle'.
+<StateLog> MWorker(10) exits state 'Boot'.
+<StateLog> MWorker(10) enters state 'Idle'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MSyncAttempt(8)'.
+<ReceiveLog> 'MSyncAttempt(8)' dequeued event 'eStoreAck' and unblocked in state 'Running'.
+<RandomLog> MSyncAttempt(8) nondeterministically chose '1'.
+<SendLog> 'MSyncAttempt(8)' in state 'Running' sent event 'eDispatch with payload (<action:<aid:1, op:0, scope:0, cursor:0, hasAnnotation:False, annotationV:-1, publishes:False, >, hits:(), replayed:(), >)' to 'MWorker(9)'.
+<DequeueLog> 'MSyncAttempt(8)' dequeued event 'eStopAttempt' in state 'Running'.
+<AnnounceLog> 'MSyncAttempt(8)' announced event 'eAnnStop' with payload <syncN:2, >.
+<DequeueLog> 'MWorker(9)' dequeued event 'eDispatch with payload (<action:<aid:1, op:0, scope:0, cursor:0, hasAnnotation:False, annotationV:-1, publishes:False, >, hits:(), replayed:(), >)' in state 'Idle'.
+<SendLog> 'MWorker(9)' in state 'Idle' sent event 'eLookupReq with payload (<client:MWorker(9), gen:21, scope:0, >)' to 'MStore(3)'.
+<ReceiveLog> MWorker(9) is waiting to dequeue an event of type 'eLookupResp', 'eStoreDead' or 'PHalt' in state 'Idle'.
+<DequeueLog> 'MStore(3)' dequeued event 'eLookupReq with payload (<client:MWorker(9), gen:21, scope:0, >)' in state 'Serving'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eLookupResp with payload (<hit:True, v:1, >)' to 'MWorker(9)'.
+<ReceiveLog> 'MWorker(9)' dequeued event 'eLookupResp with payload (<hit:True, v:1, >)' and unblocked in state 'Idle'.
+<SendLog> 'MWorker(9)' in state 'Idle' sent event 'eValidateReq with payload (<client:MWorker(9), scope:0, v:1, >)' to 'MUpstream(4)'.
+<ReceiveLog> MWorker(9) is waiting to dequeue an event of type 'eValidateResp' or 'PHalt' in state 'Idle'.
+<DequeueLog> 'MUpstream(4)' dequeued event 'eValidateReq with payload (<client:MWorker(9), scope:0, v:1, >)' in state 'Serving'.
+<SendLog> 'MUpstream(4)' in state 'Serving' sent event 'eValidateResp with payload (<ok:True, epoch:1, >)' to 'MWorker(9)'.
+<ReceiveLog> 'MWorker(9)' dequeued event 'eValidateResp with payload (<ok:True, epoch:1, >)' and unblocked in state 'Idle'.
+<AnnounceLog> 'MWorker(9)' announced event 'eAnnConsult' with payload <syncN:2, scope:0, hit:True, v:1, validated:True, epoch:1, freshFetch:False, diffVerdict:False, >.
+<SendLog> 'MWorker(9)' in state 'Idle' sent event 'eActionTransition with payload (<aid:1, nextCursor:0, done:True, spawn:<aid:101, op:0, scope:0, cursor:0, hasAnnotation:True, annotationV:1, publishes:True, >, hasSpawn:True, hitScope:0, hitV:1, hasHit:True, markReplayed:False, replayedScope:-1, >)' to 'MSyncAttempt(8)'.
+<DequeueLog> 'MSyncAttempt(8)' dequeued event 'eActionTransition with payload (<aid:1, nextCursor:0, done:True, spawn:<aid:101, op:0, scope:0, cursor:0, hasAnnotation:True, annotationV:1, publishes:True, >, hasSpawn:True, hitScope:0, hitV:1, hasHit:True, markReplayed:False, replayedScope:-1, >)' in state 'Running'.
+<SendLog> 'MSyncAttempt(8)' in state 'Running' sent event 'eCheckpointReq with payload (<client:MSyncAttempt(8), gen:21, ckpt:<stack:(<aid:101, op:0, scope:0, cursor:0, hasAnnotation:True, annotationV:1, publishes:True, >), hits:(<0->1>), replayed:(), blocked:False, >, >)' to 'MStore(3)'.
+<ReceiveLog> MSyncAttempt(8) is waiting to dequeue an event of type 'eStoreAck', 'eStoreDead' or 'PHalt' in state 'Running'.
+<DequeueLog> 'MStore(3)' dequeued event 'eCheckpointReq with payload (<client:MSyncAttempt(8), gen:21, ckpt:<stack:(<aid:101, op:0, scope:0, cursor:0, hasAnnotation:True, annotationV:1, publishes:True, >), hits:(<0->1>), replayed:(), blocked:False, >, >)' in state 'Serving'.
+<AnnounceLog> 'MStore(3)' announced event 'eAnnCheckpoint' with payload <syncN:2, >.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MSyncAttempt(8)'.
+<ReceiveLog> 'MSyncAttempt(8)' dequeued event 'eStoreAck' and unblocked in state 'Running'.
+<SendLog> 'MSyncAttempt(8)' in state 'Running' sent event 'eAttemptEnded with payload (<stopped:True, sealed:False, >)' to 'MEnv(2)'.
+<ReceiveLog> 'MEnv(2)' dequeued event 'eAttemptEnded with payload (<stopped:True, sealed:False, >)' and unblocked in state 'Run'.
+<GotoLog> MSyncAttempt(8) is transitioning from state 'Running' to state 'PImplementation.MSyncAttempt.Done'.
+<StateLog> MSyncAttempt(8) exits state 'Running'.
+<StateLog> MSyncAttempt(8) enters state 'Done'.
+<SendLog> 'MEnv(2)' in state 'Run' sent event 'eReadCheckpointReq with payload (<client:MEnv(2), >)' to 'MStore(3)'.
+<ReceiveLog> MEnv(2) is waiting to dequeue an event of type 'eReadCheckpointResp' or 'PHalt' in state 'Run'.
+<DequeueLog> 'MStore(3)' dequeued event 'eReadCheckpointReq with payload (<client:MEnv(2), >)' in state 'Serving'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eReadCheckpointResp with payload (<ckpt:<stack:(<aid:101, op:0, scope:0, cursor:0, hasAnnotation:True, annotationV:1, publishes:True, >), hits:(<0->1>), replayed:(), blocked:False, >, hasCkpt:True, >)' to 'MEnv(2)'.
+<ReceiveLog> 'MEnv(2)' dequeued event 'eReadCheckpointResp with payload (<ckpt:<stack:(<aid:101, op:0, scope:0, cursor:0, hasAnnotation:True, annotationV:1, publishes:True, >), hits:(<0->1>), replayed:(), blocked:False, >, hasCkpt:True, >)' and unblocked in state 'Run'.
+<AnnounceLog> 'MEnv(2)' announced event 'eAnnExpectSeal' with payload <syncN:2, scope:0, wantBlocked:True, wantScopeEmpty:False, >.
+<CreateLog> MSyncAttempt(11) was created by MEnv(2).
+<ReceiveLog> MEnv(2) is waiting to dequeue an event of type 'eAttemptEnded' or 'PHalt' in state 'Run'.
+<StateLog> MSyncAttempt(11) enters state 'Boot'.
+<SendLog> 'MSyncAttempt(11)' in state 'Boot' sent event 'eProduceReadReq with payload (<client:MSyncAttempt(11), gen:22, >)' to 'MStore(3)'.
+<ReceiveLog> MSyncAttempt(11) is waiting to dequeue an event of type 'eProduceReadResp', 'eStoreDead' or 'PHalt' in state 'Boot'.
+<DequeueLog> 'MStore(3)' dequeued event 'eProduceReadReq with payload (<client:MSyncAttempt(11), gen:22, >)' in state 'Serving'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eProduceReadResp with payload (<prevCompat:1, prevBlocked:False, curCompat:1, hasCur:True, hasPrev:True, >)' to 'MSyncAttempt(11)'.
+<ReceiveLog> 'MSyncAttempt(11)' dequeued event 'eProduceReadResp with payload (<prevCompat:1, prevBlocked:False, curCompat:1, hasCur:True, hasPrev:True, >)' and unblocked in state 'Boot'.
+<SendLog> 'MSyncAttempt(11)' in state 'Boot' sent event 'eCompatPut with payload (<client:MSyncAttempt(11), gen:22, k:2, >)' to 'MStore(3)'.
+<ReceiveLog> MSyncAttempt(11) is waiting to dequeue an event of type 'eStoreAck', 'eStoreDead' or 'PHalt' in state 'Boot'.
+<DequeueLog> 'MStore(3)' dequeued event 'eCompatPut with payload (<client:MSyncAttempt(11), gen:22, k:2, >)' in state 'Serving'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MSyncAttempt(11)'.
+<ReceiveLog> 'MSyncAttempt(11)' dequeued event 'eStoreAck' and unblocked in state 'Boot'.
+<CreateLog> MWorker(12) was created by MSyncAttempt(11).
+<StateLog> MWorker(12) enters state 'Boot'.
+<GotoLog> MWorker(12) is transitioning from state 'Boot' to state 'PImplementation.MWorker.Idle'.
+<StateLog> MWorker(12) exits state 'Boot'.
+<StateLog> MWorker(12) enters state 'Idle'.
+<CreateLog> MWorker(13) was created by MSyncAttempt(11).
+<GotoLog> MSyncAttempt(11) is transitioning from state 'Boot' to state 'PImplementation.MSyncAttempt.Running'.
+<StateLog> MSyncAttempt(11) exits state 'Boot'.
+<StateLog> MSyncAttempt(11) enters state 'Running'.
+<StateLog> MWorker(13) enters state 'Boot'.
+<GotoLog> MWorker(13) is transitioning from state 'Boot' to state 'PImplementation.MWorker.Idle'.
+<StateLog> MWorker(13) exits state 'Boot'.
+<StateLog> MWorker(13) enters state 'Idle'.
+<SendLog> 'MSyncAttempt(11)' in state 'Running' sent event 'eCheckpointReq with payload (<client:MSyncAttempt(11), gen:22, ckpt:<stack:(<aid:101, op:0, scope:0, cursor:0, hasAnnotation:True, annotationV:1, publishes:True, >), hits:(<0->1>), replayed:(), blocked:True, >, >)' to 'MStore(3)'.
+<ReceiveLog> MSyncAttempt(11) is waiting to dequeue an event of type 'eStoreAck', 'eStoreDead' or 'PHalt' in state 'Running'.
+<DequeueLog> 'MStore(3)' dequeued event 'eCheckpointReq with payload (<client:MSyncAttempt(11), gen:22, ckpt:<stack:(<aid:101, op:0, scope:0, cursor:0, hasAnnotation:True, annotationV:1, publishes:True, >), hits:(<0->1>), replayed:(), blocked:True, >, >)' in state 'Serving'.
+<AnnounceLog> 'MStore(3)' announced event 'eAnnCheckpoint' with payload <syncN:2, >.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MSyncAttempt(11)'.
+<ReceiveLog> 'MSyncAttempt(11)' dequeued event 'eStoreAck' and unblocked in state 'Running'.
+<RandomLog> MSyncAttempt(11) nondeterministically chose '1'.
+<SendLog> 'MSyncAttempt(11)' in state 'Running' sent event 'eDispatch with payload (<action:<aid:101, op:0, scope:0, cursor:0, hasAnnotation:True, annotationV:1, publishes:True, >, hits:(<0->1>), replayed:(), >)' to 'MWorker(12)'.
+<DequeueLog> 'MWorker(12)' dequeued event 'eDispatch with payload (<action:<aid:101, op:0, scope:0, cursor:0, hasAnnotation:True, annotationV:1, publishes:True, >, hits:(<0->1>), replayed:(), >)' in state 'Idle'.
+<SendLog> 'MWorker(12)' in state 'Idle' sent event 'eHitReadReq with payload (<worker:MWorker(12), scope:0, >)' to 'MSyncAttempt(11)'.
+<ReceiveLog> MWorker(12) is waiting to dequeue an event of type 'eHitReadResp', 'eAbortWorker' or 'PHalt' in state 'Idle'.
+<DequeueLog> 'MSyncAttempt(11)' dequeued event 'eHitReadReq with payload (<worker:MWorker(12), scope:0, >)' in state 'Running'.
+<SendLog> 'MSyncAttempt(11)' in state 'Running' sent event 'eHitReadResp with payload (<has:True, v:1, >)' to 'MWorker(12)'.
+<ReceiveLog> 'MWorker(12)' dequeued event 'eHitReadResp with payload (<has:True, v:1, >)' and unblocked in state 'Idle'.
+<SendLog> 'MWorker(12)' in state 'Idle' sent event 'eScopeLockAcquire with payload (<worker:MWorker(12), scope:0, >)' to 'MSyncAttempt(11)'.
+<ReceiveLog> MWorker(12) is waiting to dequeue an event of type 'eScopeLockGrant', 'eAbortWorker' or 'PHalt' in state 'Idle'.
+<DequeueLog> 'MSyncAttempt(11)' dequeued event 'eScopeLockAcquire with payload (<worker:MWorker(12), scope:0, >)' in state 'Running'.
+<SendLog> 'MSyncAttempt(11)' in state 'Running' sent event 'eScopeLockGrant with payload (<replayed:False, >)' to 'MWorker(12)'.
+<ReceiveLog> 'MWorker(12)' dequeued event 'eScopeLockGrant with payload (<replayed:False, >)' and unblocked in state 'Idle'.
+<SendLog> 'MWorker(12)' in state 'Idle' sent event 'eBaseReadReq with payload (<client:MWorker(12), gen:22, scope:0, >)' to 'MStore(3)'.
+<ReceiveLog> MWorker(12) is waiting to dequeue an event of type 'eBaseReadResp', 'eStoreDead' or 'PHalt' in state 'Idle'.
+<DequeueLog> 'MStore(3)' dequeued event 'eBaseReadReq with payload (<client:MWorker(12), gen:22, scope:0, >)' in state 'Serving'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eBaseReadResp with payload (<v:1, present:True, >)' to 'MWorker(12)'.
+<ReceiveLog> 'MWorker(12)' dequeued event 'eBaseReadResp with payload (<v:1, present:True, >)' and unblocked in state 'Idle'.
+<SendLog> 'MWorker(12)' in state 'Idle' sent event 'eClearScope with payload (<client:MWorker(12), gen:22, scope:0, ghost:<roundId:10100, verdict:0, consultEpoch:1, config:2, lastOp:False, attempt:22, >, >)' to 'MStore(3)'.
+<ReceiveLog> MWorker(12) is waiting to dequeue an event of type 'eStoreAck', 'eStoreDead' or 'PHalt' in state 'Idle'.
+<DequeueLog> 'MStore(3)' dequeued event 'eClearScope with payload (<client:MWorker(12), gen:22, scope:0, ghost:<roundId:10100, verdict:0, consultEpoch:1, config:2, lastOp:False, attempt:22, >, >)' in state 'Serving'.
+<AnnounceLog> 'MStore(3)' announced event 'eAnnClear' with payload <syncN:2, scope:0, ghost:<roundId:10100, verdict:0, consultEpoch:1, config:2, lastOp:False, attempt:22, >, >.
+<MonitorLog> P1 is processing event 'eAnnClear with payload (<syncN:2, scope:0, ghost:<roundId:10100, verdict:0, consultEpoch:1, config:2, lastOp:False, attempt:22, >, >)' in state 'Monitoring'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MWorker(12)'.
+<ReceiveLog> 'MWorker(12)' dequeued event 'eStoreAck' and unblocked in state 'Idle'.
+<SendLog> 'MWorker(12)' in state 'Idle' sent event 'eCopyScope with payload (<client:MWorker(12), gen:22, scope:0, ghost:<roundId:10100, verdict:0, consultEpoch:1, config:2, lastOp:False, attempt:22, >, >)' to 'MStore(3)'.
+<ReceiveLog> MWorker(12) is waiting to dequeue an event of type 'eStoreAck', 'eStoreDead' or 'PHalt' in state 'Idle'.
+<DequeueLog> 'MStore(3)' dequeued event 'eCopyScope with payload (<client:MWorker(12), gen:22, scope:0, ghost:<roundId:10100, verdict:0, consultEpoch:1, config:2, lastOp:False, attempt:22, >, >)' in state 'Serving'.
+<AnnounceLog> 'MStore(3)' announced event 'eAnnReplay' with payload <syncN:2, scope:0, vBase:1, cBase:1, ghost:<roundId:10100, verdict:0, consultEpoch:1, config:2, lastOp:False, attempt:22, >, >.
+<MonitorLog> P1 is processing event 'eAnnReplay with payload (<syncN:2, scope:0, vBase:1, cBase:1, ghost:<roundId:10100, verdict:0, consultEpoch:1, config:2, lastOp:False, attempt:22, >, >)' in state 'Monitoring'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MWorker(12)'.
+<ReceiveLog> 'MWorker(12)' dequeued event 'eStoreAck' and unblocked in state 'Idle'.
+<SendLog> 'MWorker(12)' in state 'Idle' sent event 'eScopeLockRelease with payload (<scope:0, mark:True, >)' to 'MSyncAttempt(11)'.
+<SendLog> 'MWorker(12)' in state 'Idle' sent event 'ePublishEntry with payload (<client:MWorker(12), gen:22, scope:0, v:1, ghost:<roundId:10100, verdict:0, consultEpoch:1, config:2, lastOp:True, attempt:22, >, >)' to 'MStore(3)'.
+<ReceiveLog> MWorker(12) is waiting to dequeue an event of type 'eStoreAck', 'eStoreDead' or 'PHalt' in state 'Idle'.
+<DequeueLog> 'MStore(3)' dequeued event 'ePublishEntry with payload (<client:MWorker(12), gen:22, scope:0, v:1, ghost:<roundId:10100, verdict:0, consultEpoch:1, config:2, lastOp:True, attempt:22, >, >)' in state 'Serving'.
+<AnnounceLog> 'MStore(3)' announced event 'eAnnPublish' with payload <syncN:2, scope:0, v:1, ghost:<roundId:10100, verdict:0, consultEpoch:1, config:2, lastOp:True, attempt:22, >, >.
+<MonitorLog> P1 is processing event 'eAnnPublish with payload (<syncN:2, scope:0, v:1, ghost:<roundId:10100, verdict:0, consultEpoch:1, config:2, lastOp:True, attempt:22, >, >)' in state 'Monitoring'.
+<DequeueLog> 'MSyncAttempt(11)' dequeued event 'eScopeLockRelease with payload (<scope:0, mark:True, >)' in state 'Running'.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MWorker(12)'.
+<ReceiveLog> 'MWorker(12)' dequeued event 'eStoreAck' and unblocked in state 'Idle'.
+<SendLog> 'MWorker(12)' in state 'Idle' sent event 'eActionTransition with payload (<aid:101, nextCursor:0, done:True, spawn:<aid:0, op:0, scope:0, cursor:0, hasAnnotation:False, annotationV:0, publishes:False, >, hasSpawn:False, hitScope:0, hitV:1, hasHit:False, markReplayed:True, replayedScope:0, >)' to 'MSyncAttempt(11)'.
+<DequeueLog> 'MSyncAttempt(11)' dequeued event 'eActionTransition with payload (<aid:101, nextCursor:0, done:True, spawn:<aid:0, op:0, scope:0, cursor:0, hasAnnotation:False, annotationV:0, publishes:False, >, hasSpawn:False, hitScope:0, hitV:1, hasHit:False, markReplayed:True, replayedScope:0, >)' in state 'Running'.
+<SendLog> 'MSyncAttempt(11)' in state 'Running' sent event 'eLoopTop' to 'MSyncAttempt(11)'.
+<DequeueLog> 'MSyncAttempt(11)' dequeued event 'eLoopTop' in state 'Running'.
+<SendLog> 'MSyncAttempt(11)' in state 'Running' sent event 'eCheckpointReq with payload (<client:MSyncAttempt(11), gen:22, ckpt:<stack:(), hits:(<0->1>), replayed:(<0->True>), blocked:True, >, >)' to 'MStore(3)'.
+<ReceiveLog> MSyncAttempt(11) is waiting to dequeue an event of type 'eStoreAck', 'eStoreDead' or 'PHalt' in state 'Running'.
+<DequeueLog> 'MStore(3)' dequeued event 'eCheckpointReq with payload (<client:MSyncAttempt(11), gen:22, ckpt:<stack:(), hits:(<0->1>), replayed:(<0->True>), blocked:True, >, >)' in state 'Serving'.
+<AnnounceLog> 'MStore(3)' announced event 'eAnnCheckpoint' with payload <syncN:2, >.
+<SendLog> 'MStore(3)' in state 'Serving' sent event 'eStoreAck' to 'MSyncAttempt(11)'.
+<ReceiveLog> 'MSyncAttempt(11)' dequeued event 'eStoreAck' and unblocked in state 'Running'.
+<SendLog> 'MSyncAttempt(11)' in state 'Running' sent event 'eSealReq with payload (<client:MSyncAttempt(11), gen:22, blocked:True, config:2, >)' to 'MStore(3)'.
+<ReceiveLog> MSyncAttempt(11) is waiting to dequeue an event of type 'eStoreAck', 'eStoreDead' or 'PHalt' in state 'Running'.
+<DequeueLog> 'MStore(3)' dequeued event 'eSealReq with payload (<client:MSyncAttempt(11), gen:22, blocked:True, config:2, >)' in state 'Serving'.
+<AnnounceLog> 'MStore(3)' announced event 'eAnnSeal' with payload <syncN:2, partition:(<0->(<0-><id:0, epoch:1, hops:1, config:1, stamp:-1, >>, <1-><id:1, epoch:1, hops:1, config:1, stamp:-1, >>)>), manifest:(<0->1>), blocked:True, config:2, >.
+<MonitorLog> P1 is processing event 'eAnnSeal with payload (<syncN:2, partition:(<0->(<0-><id:0, epoch:1, hops:1, config:1, stamp:-1, >>, <1-><id:1, epoch:1, hops:1, config:1, stamp:-1, >>)>), manifest:(<0->1>), blocked:True, config:2, >)' in state 'Monitoring'.
+<ErrorLog> Assertion Failed: PSpec/Monitors.p:95:21 P1-CONFIG: sealed row's compat config tag differs from the sealing attempt's config
+<StrategyLog> Found bug using 'random' strategy.
+<StrategyLog> Checking statistics:
+<StrategyLog> Found 1 bug.
+<StrategyLog> Scheduling statistics:
+<StrategyLog> Explored 1 schedule
+<StrategyLog> Explored 1 timeline
+<StrategyLog> Found 100.00% buggy schedules.
+<StrategyLog> Number of scheduling points in terminating schedules: 183 (min), 183 (avg), 183 (max).

@@ -1,0 +1,4 @@
+# Regenerable P toolchain outputs (p compile / p check). The sweep
+# summaries the calibration logs cite as evidence are force-added.
+PGenerated/
+PCheckerOutput/

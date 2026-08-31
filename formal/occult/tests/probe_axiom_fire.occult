@@ -1,0 +1,20 @@
+# Probe: does a single-file axiom (typed universals + free constructors)
+# fire as a rewrite under plain CLI evaluation, and does a ground == check
+# reduce? Expected: assert -> true, exit 0. If the equation loads
+# definitionally instead, app(fresh(7), rows(3)) stays residual and the
+# run exits nonzero — that failure routes us to the axiomatic-require
+# loading path instead.
+# lint:disable mixed-source-semantics
+syntax("standard");
+
+∃ app;
+∃ fresh;
+∃ rows;
+
+x : FoldVal;
+e : Epoch;
+
+app(fresh(e), x) = rows(e);
+
+assert(cond) = classify cond { {true,} : true, Bool : fail };
+assert(app(fresh(7), rows(3)) == rows(7));

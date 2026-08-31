@@ -1,0 +1,78 @@
+# Deliverable 8: the syncer↔connector source-cache protocol as a global
+# session term with per-role projections (brief: "Session-typed protocol
+# contract"). Contract source:
+# proto/c1/connector/v2/annotation_source_cache.proto (lookup
+# continuation: offer→ask→answers with a per-request bounce cap of 4;
+# replay/record annotation exchange on page responses).
+#
+# Role mapping: SYNCER = P_leader, CONNECTOR = P_follower (send(d) is
+# syncer→connector; recv(d) is connector→syncer — the projection
+# functor's polarity).
+#
+# The bounce cap is STRUCTURAL: the module defines sessions with at
+# most four ask rounds and no five-bounce term exists here. Checking a
+# cap VIOLATION (or general stuck-freedom) is the engine's open
+# session-types work; until then the cap lives in the protocol shape,
+# and the Go-side constant it mirrors is
+# sourcecache.MaxLookupBouncesPerRequest = 4.
+#
+# Fidelity note: local(e) is role-unannotated in the projection functor
+# (both projections carry it). resolve_answers is syncer-local in
+# reality; the connector's projected local(resolve_answers) is vacuous.
+
+# lint:disable mixed-source-semantics
+# lint:disable unguarded-recursion
+syntax("standard");
+
+∃ require;
+∃ proto;
+proto = require("protocol");
+∃ send;
+send = (proto.send);
+∃ recv;
+recv = (proto.recv);
+
+∃ proj;
+proj = require("projection");
+∃ local;
+local = (proj.local);
+
+# Message tags:
+# req_offer — list request carrying SourceCacheLookupOffer.
+# req_answers — the SAME request re-invoked with accumulated
+#   SourceCacheLookupAnswers (still carrying the offer).
+# lookup_ask — response carrying SourceCacheLookupAsk: no rows, no token.
+# page_record — page response: fresh rows + SourceCacheRecord.
+# page_replay — page response: no rows + SourceCacheReplay (overlay
+#   pages follow as records).
+# resolve_answers — syncer-local: resolve asks against the previous
+#   artifact.
+∃ req_offer;
+∃ req_answers;
+∃ lookup_ask;
+∃ page_record;
+∃ page_replay;
+∃ resolve_answers;
+
+# Ask bounces as CLOSED terms (the raft shape: parameterized protocol
+# functions gate their rewrite on classifier membership of the
+# argument, which free message tags do not carry). ask_first is the
+# initial request's bounce; ask_again is a re-invoked request's bounce.
+∃ ask_first;
+∃ ask_again;
+ask_first = send(req_offer) pipe recv(lookup_ask) pipe local(resolve_answers);
+ask_again = send(req_answers) pipe recv(lookup_ask) pipe local(resolve_answers);
+
+# Sessions per request (record leg; the replay legs are symmetric):
+# session_direct — no ask: the offer is honored, the page served
+#   immediately; session_ask1 — one bounce; session_ask4 — the maximal
+#   legal session (bounce cap 4).
+∃ session_direct;
+∃ session_ask1;
+∃ session_ask4;
+∃ session_direct_replay;
+
+session_direct = send(req_offer) pipe recv(page_record);
+session_direct_replay = send(req_offer) pipe recv(page_replay);
+session_ask1 = ask_first pipe send(req_answers) pipe recv(page_record);
+session_ask4 = ask_first pipe ask_again pipe ask_again pipe ask_again pipe send(req_answers) pipe recv(page_record);
