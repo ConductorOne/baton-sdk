@@ -16,6 +16,7 @@ import (
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 )
 
 // Phase 6b interruption/resume suite (plan R11 + R8's cross-process resume,
@@ -384,6 +385,122 @@ func TestChaosSourceCacheInterruptResume(t *testing.T) {
 			requireSourceCacheProduceState(t, readSourceCacheSnapshot(t, ctx, warmPath, tmpDir),
 				map[string]string{grantsKindScope(): scValidatorV2},
 				map[string]int{grantsKindScope(): 3})
+		})
+	}
+}
+
+// TestChaosSourceCacheSessionGroundingOnResume pins CO-6b-009: connector
+// session-store writes are durable in the artifact and commit OUTSIDE the
+// checkpoint mechanism, so a resumed attempt inherits the crashed
+// attempt's session state — stale premises the connector cannot detect
+// (its process restarted; sessions are the only state that survived).
+// Under the source-cache protocol that channel can launder replay-era
+// caches into rounds whose rows this attempt re-grounds, so a resumed
+// participating sync clears its session namespace before any connector
+// RPC. A capability-withdrawn resume (CO-6b-003) does NOT clear: that
+// path degrades wholesale and keeps the long-standing session semantics.
+//
+// Both legs plant a probe key into the interrupted sync's session
+// namespace between attempts (equivalent to a crashed attempt's own
+// write — same keyspace, same durability), then crash the resume after
+// dispatch begins and read the artifact: with capability the probe must
+// be gone (grounded before the first connector call), without it the
+// probe must survive.
+func TestChaosSourceCacheSessionGroundingOnResume(t *testing.T) {
+	skipChaosInShort(t)
+
+	for _, leg := range []struct {
+		name           string
+		withCapability bool
+		wantProbe      bool
+	}{
+		{name: "participating-resume-grounds", withCapability: true, wantProbe: false},
+		{name: "withdrawn-capability-resume-keeps", withCapability: false, wantProbe: true},
+	} {
+		t.Run(leg.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+			defer cancel()
+			tmpDir, paths := sourceCachePaths(t, 2)
+			seedPath, warmPath := paths[0], paths[1]
+
+			fx := newSCCollectionFixture(t)
+			scenario := scResumeScenario(t, fx)
+			capability := sourceCacheCapabilityRW("gen-1", "cfg-1")
+
+			seedRun, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
+			require.NoError(t, err)
+			seedRun.SetSourceCacheCapability(capability)
+			runSourceCacheSync(t, ctx, seedRun, chaosTransportDirect, seedPath, tmpDir, "", WithWorkerCount(1))
+
+			// Attempt 1: warm sync cut before "warm-2".
+			interruptedRun, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule(chaosconnector.Rule{
+				ID: "cut",
+				Match: chaosconnector.Matcher{
+					Service:   chaosconnector.ExactString("GrantsService"),
+					Method:    chaosconnector.ExactString("ListGrants"),
+					PageToken: chaosconnector.ExactString("warm-2"),
+					Attempt:   1,
+					Phase:     chaosconnector.PhaseBeforeCall,
+				},
+				Effects:  []chaosconnector.Effect{{Kind: chaosconnector.EffectCrash}},
+				MinFires: 1,
+				MaxFires: 1,
+			}))
+			require.NoError(t, err)
+			require.NoError(t, interruptedRun.SetEpoch("second"))
+			interruptedRun.SetSourceCacheCapability(capability)
+			interruptedHarness := newChaosHarness(t, ctx, interruptedRun, warmPath, tmpDir, chaosTransportDirect,
+				WithPreviousSyncC1ZPath(seedPath), WithWorkerCount(1))
+			interruptedConcrete, ok := interruptedHarness.Syncer.(*syncer)
+			require.True(t, ok)
+			require.ErrorIs(t, interruptedHarness.Syncer.Sync(ctx), chaosconnector.ErrInterruptRequested)
+			syncID := interruptedConcrete.syncID
+			require.NotEmpty(t, syncID)
+			require.NoError(t, interruptedHarness.Close(t.Context()))
+
+			// Plant the probe into the unfinished sync's session
+			// namespace.
+			probeStore, err := dotc1z.NewStore(ctx, warmPath,
+				dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(tmpDir))
+			require.NoError(t, err)
+			require.NoError(t, probeStore.SessionStore().Set(ctx, "probe-key", []byte("stale-premise"),
+				sessions.WithSyncID(syncID)))
+			require.NoError(t, probeStore.Close(ctx))
+
+			// Resume, crashing on the restarted action's first page so the
+			// sync neither seals nor runs connector cleanup (which would
+			// clear sessions and make the read vacuous).
+			resumeRun, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule(chaosconnector.Rule{
+				ID: "cut-resume",
+				Match: chaosconnector.Matcher{
+					Service:   chaosconnector.ExactString("GrantsService"),
+					Method:    chaosconnector.ExactString("ListGrants"),
+					PageToken: chaosconnector.ExactString(""),
+					Attempt:   1,
+					Phase:     chaosconnector.PhaseBeforeCall,
+				},
+				Effects:  []chaosconnector.Effect{{Kind: chaosconnector.EffectCrash}},
+				MinFires: 1,
+				MaxFires: 1,
+			}))
+			require.NoError(t, err)
+			require.NoError(t, resumeRun.SetEpoch("second"))
+			if leg.withCapability {
+				resumeRun.SetSourceCacheCapability(capability)
+			}
+			resumeHarness := newChaosHarness(t, ctx, resumeRun, warmPath, tmpDir, chaosTransportDirect,
+				WithPreviousSyncC1ZPath(seedPath), WithWorkerCount(1))
+			require.ErrorIs(t, resumeHarness.Syncer.Sync(ctx), chaosconnector.ErrInterruptRequested)
+			require.NoError(t, resumeHarness.Close(t.Context()))
+
+			readStore, err := dotc1z.NewStore(ctx, warmPath,
+				dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(tmpDir), dotc1z.WithReadOnly(true))
+			require.NoError(t, err)
+			defer func() { require.NoError(t, readStore.Close(ctx)) }()
+			_, found, err := readStore.SessionStore().Get(ctx, "probe-key", sessions.WithSyncID(syncID))
+			require.NoError(t, err)
+			require.Equal(t, leg.wantProbe, found,
+				"session probe visibility after resume must match the grounding gate (CO-6b-009)")
 		})
 	}
 }

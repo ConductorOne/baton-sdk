@@ -753,3 +753,80 @@ and verification delta.)
   the cold-verdict retry-livelock note on `beforeUpserts` (the caller's
   retry policy abandons the token and a fresh sync starts cold); an
   in-tree abandon-the-token path is Phase 6c runner-ladder scope.
+
+### CO-6b-008 — Record-round grounding: the verdict-flip phantom union, witnessed and fixed
+
+- Type: live defect, predicted by the formal model (walker calibration
+  scenario 1, tc1c flavor — `formal/walker/CALIBRATION.md`), witnessed
+  against the shipped syncer, fixed.
+- Premise (the verdict-flip path): a warm round's replay copy commits,
+  the sync crashes before the round's validator publishes (a round runs
+  inside one batch, so no checkpoint can intervene — CO-6b-002's
+  granularity), upstream moves between attempts, and the resume's
+  consult misses — the connector serves a fresh RECORD round. The
+  record round's upserts landed on the crashed attempt's copied debris;
+  rows departed upstream sealed under the fresh validator, which the
+  NEXT sync's consult validates clean and replays forward (the
+  non-self-healing direction).
+- Fix: a record round is a replacement listing, so before its first
+  write to a scope this attempt, a partition holding rows that no
+  completed round published (no manifest entry this sync) is cleared.
+  Store surface `ClearSourceCacheScope` (the replay unit's clear leg
+  standalone, bounded batches, idempotent); orchestration
+  `groundRecordScope` under the scope lock; attempt-local grounded set
+  (deliberately volatile — a resume re-decides from durable facts) so
+  replay and record pages of one round never re-ground over each other.
+  Published entries exempt the scope, preserving multi-action
+  accumulation into shared scopes.
+- Witness/regression: `TestChaosSourceCacheRecordFlipOverReplayDebris`
+  (fails against the pre-fix code with the union sealed; passes with
+  the fix) pins both the outcome (content oracle: the departed row is
+  absent) and the mechanism (the resumed attempt's trace shows the
+  grounding clear with no replay copy). Trace-visible: record rounds
+  now emit a real clear — "replacement rounds clear first", previously
+  granted structurally by the oracle's renderer, now witnessed
+  (fixtures `cold_record_sync.jsonl`,
+  `warm_replay_sync_record_flip.jsonl`).
+- Scope note: the model's verified V-ATOMIC/V-OVERLAY-UNIT fix family
+  targets designs with durable marker suppression; this code base heals
+  by re-execution (root restart + idempotent re-copy, CO-6b-002), so
+  grounding was the missing piece, not unit-mode commit.
+
+### CO-6b-009 — Session-store grounding: sessions are attempt-scoped under the protocol
+
+- Type: composition-channel gap adjacent to CO-6b-008, closed
+  mechanically for participating syncs and contractually for the rest.
+- Premise: connector session-store writes are durable in the artifact,
+  keyed by sync id, and commit OUTSIDE the checkpoint mechanism — a
+  resumed attempt inherits the crashed attempt's session state
+  wholesale, including writes from beyond the restored cursor and
+  caches derived from rounds whose rows this attempt re-grounds
+  (CO-6b-008 clears the row partition; nothing re-validates session
+  state derived from it). The connector cannot detect the resume (its
+  process restarted; sessions are the only surviving state), so it
+  would consume stale premises silently. Sessions have no
+  publish/validation concept, so the only fence available to 6b is the
+  attempt boundary.
+- Fix: `groundSessionStoreOnResume` — a RESUMED attempt of a sync
+  participating in the source-cache protocol (`sourceCacheStore`
+  non-nil) clears this sync's session namespace before any connector
+  RPC. Connectors rebuild caches (at-least-once cost, like the replay
+  re-copy). Non-participating syncs keep the long-standing semantics
+  (their rows are all fetched fresh, so session staleness cannot
+  launder replay decisions; changing them is out of 6b's scope). A
+  capability-withdrawn resume (CO-6b-003) does not clear — that path
+  already degrades wholesale and its session semantics degrade with it.
+- Witness: `TestChaosSourceCacheSessionGroundingOnResume` — a probe key
+  planted in the interrupted sync's session namespace is gone after a
+  participating resume (grounded before the first connector call) and
+  survives a capability-withdrawn resume (pinning the gate; the
+  surviving leg also proves the probe planting instrument works).
+- Contractual remainder (documented, not mechanical): WITHIN an
+  attempt, a replayed scope's rows never pass through the connector, so
+  session caches built from "rows I generated this sync" are silently
+  partial for replayed scopes; and consult answers must be derived from
+  upstream evidence, never from session-cached verdicts (a
+  session-cached MATCH would launder staleness past every SDK gate).
+  Both are connector obligations pinned in `pkg/sourcecache` and
+  `pkg/session/README.md`. The lineage-bearing fix (session reads as
+  stamped observation points) is variant-S scope (RFC 0011).

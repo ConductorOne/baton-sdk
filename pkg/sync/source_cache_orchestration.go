@@ -18,6 +18,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/sourcecache"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 )
 
 // Source-cache replay orchestration (ADVANCED FUNCTIONALITY — see
@@ -706,6 +707,55 @@ func (o *sourceCachePageOps) beforeUpserts(ctx context.Context) error {
 			zap.Int("rows", o.pageRows),
 		)
 	}
+	return nil
+}
+
+// sessionStoreProvider is the store capability exposing the connector
+// session-store surface (implemented by the dotc1z store). Local
+// interface, mirroring expandedGrantLayerStorer.
+type sessionStoreProvider interface {
+	SessionStore() sessions.SessionStore
+}
+
+// groundSessionStoreOnResume clears this sync's connector session-store
+// namespace at the start of a RESUMED attempt when the sync participates
+// in the source-cache protocol (CO-6b-009).
+//
+// Session writes are durable in the artifact and commit OUTSIDE the
+// checkpoint mechanism, so a resumed attempt inherits the crashed
+// attempt's session state wholesale — including writes from beyond the
+// restored cursor, and caches derived from rounds whose rows this
+// attempt re-grounds (the record-grounding path clears the row
+// partition; nothing re-validates session state derived from it). The
+// connector cannot detect the resume, so it would consume those stale
+// premises silently — the same un-attributed-debris class as the
+// phantom union, on a channel with no publish/validation concept. The
+// attempt boundary is the only fence available to 6b, so the namespace
+// is cleared and the connector rebuilds its caches (at-least-once cost,
+// like the replay re-copy).
+//
+// Gated on protocol participation (s.sourceCacheStore non-nil): sessions
+// on non-participating syncs keep their long-standing semantics, where
+// staleness cannot launder replay decisions because every row is fetched
+// fresh. A capability-withdrawn resume (CO-6b-003) therefore does NOT
+// clear — that path already degrades wholesale (cold rounds, artifact
+// blocked as a future replay source) and its session semantics degrade
+// with it.
+func (s *syncer) groundSessionStoreOnResume(ctx context.Context) error {
+	if s.sourceCacheStore == nil {
+		return nil
+	}
+	provider, ok := s.store.(sessionStoreProvider)
+	if !ok {
+		return nil
+	}
+	if err := provider.SessionStore().Clear(ctx, sessions.WithSyncID(s.syncID)); err != nil {
+		return fmt.Errorf("grounding session store on resume: %w", err)
+	}
+	ctxzap.Extract(ctx).Info("resumed source-cache sync: cleared this sync's session-store namespace "+
+		"(sessions are attempt-scoped under the source-cache protocol)",
+		zap.String("sync_id", s.syncID),
+	)
 	return nil
 }
 

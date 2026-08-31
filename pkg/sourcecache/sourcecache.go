@@ -72,6 +72,26 @@
 // storage engine) the SDK installs NoopLookup, every lookup misses, and a
 // well-behaved connector naturally falls back to full fetch.
 //
+// SESSION STORE (CO-6b-009 in docs/verification/sync-replay-6b/plan.md).
+// The connector session store carries the same discipline:
+//
+//   - Sessions are ATTEMPT-scoped under this protocol. A resumed sync
+//     clears its session namespace before any connector call, because
+//     session writes commit outside the checkpoint mechanism and a
+//     crashed attempt's cached premises would otherwise silently feed
+//     rounds whose rows the resume re-grounds. Treat sessions as a cache
+//     that can vanish between any two calls; rebuild on miss.
+//   - Replay/record verdicts must be derived from upstream evidence
+//     (conditional requests, delta tokens), never from session-cached
+//     verdicts — a session-cached MATCH is exactly the "validator that
+//     outlives its evidence" shape above, and it launders staleness past
+//     every SDK gate.
+//   - A replayed scope's rows never pass through the connector, so
+//     session state built while GENERATING rows ("principals I emitted
+//     this sync") is silently partial for scopes the connector chose to
+//     replay. Do not consume such state for cross-scope decisions unless
+//     every contributing scope was fetched fresh this sync.
+//
 // Replay equivalence: a cached sync must reproduce what a full resync
 // would produce. Replayed rows are verbatim copies of the previous sync's
 // rows with one deliberate exception — expander-written Sources on direct

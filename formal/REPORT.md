@@ -134,6 +134,23 @@ Findings that matter beyond the models themselves:
    a code base with durable marker suppression; the shipped code
    heals by re-execution (restart-from-root + idempotent re-copy),
    so grounding was the missing piece, not unit-mode commit.
+
+   The adjacent flank — the graph model's E-only-laundering finding
+   made concrete in shipped code — is the SESSION STORE: connector
+   session writes are durable in the artifact but commit outside the
+   checkpoint mechanism, so a resumed attempt inherited the crashed
+   attempt's cached premises on a channel with no publish/validation
+   concept, undetectably (the connector's process restarted; sessions
+   were the only surviving state). Fenced at the only boundary 6b has:
+   a resumed attempt of a protocol-participating sync clears its
+   session namespace before any connector call (CO-6b-009,
+   `groundSessionStoreOnResume`, witnessed both ways by
+   `TestChaosSourceCacheSessionGroundingOnResume`). The within-attempt
+   remainder — replayed scopes produce no generation-side session
+   state, and consults must never be answered from session caches —
+   is contractual, pinned in `pkg/sourcecache`; the lineage-bearing
+   fix (session reads as stamped observation points) is variant-S
+   scope.
 1. **Resume re-copy (real code, documentation falsified).** The
    resume suite documented that a restored replayed-set skips the
    replay copy across a mid-batch cut. The real-trace instrument
