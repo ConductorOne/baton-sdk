@@ -149,3 +149,18 @@ known-good one:
   real-trace renderer coalesces consecutive checkpoints to stay
   tractable; an efficient ground-evaluation path is on the engine
   ask list.
+- Constrained axiom universals (the `unconstrained-axiom-universal`
+  lint's prescribed fix, raised by the engine author against our
+  modules) cannot be adopted for free-constructor algebras yet:
+  gating a rewrite universal on a userspace sort makes dispatch
+  require membership evidence that free terms are never given, so
+  member-only ground terms stop reducing. All four documented
+  membership forms fail to feed the gate (set extension, extension +
+  `Unique`, `∃ x ∈ S;` declaration, `∈`-premise with `⇒`); built-in
+  classifiers (`Number`) gate correctly. Same root cause as the
+  parameterized-projection footgun above; pinned executable in
+  `host/constrained_params_probe_test.go`, which fails loudly when
+  the engine closes the gap (the signal to constrain our modules).
+  Until then our universals stay deliberately unconstrained, with
+  head-guard discipline (module-local constructor heads on every
+  LHS) as the mitigation, documented per module.

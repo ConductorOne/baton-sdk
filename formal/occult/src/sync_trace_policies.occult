@@ -12,9 +12,22 @@
 # Loaded into UniversalScope by the host: equations are rewrite rules,
 # bare identifiers (r, a, b, p, q, s, v) are universal pattern
 # variables, and every pattern is head-guarded by a constructor.
+#
+# CONSTRAINT DISCIPLINE (lint: unconstrained-axiom-universal). Every
+# universal here is deliberately unconstrained. The prescribed fix —
+# gating the scope/flag universals on userspace sorts (s : Scope; with
+# Scope = {s1, s2,}) — does not evaluate today: axiom-side dispatch
+# cannot consume free-term classifier membership in any documented form,
+# so member-only traces stop reducing and every verdict becomes a stuck
+# term (pinned by host/constrained_params_probe_test.go; the ask lives
+# in docs/tasks/occult-engine-changes-brief.md). Until the engine lands
+# that evidence, the mitigation is the head-guard discipline: every LHS
+# is guarded by a module-local constructor (tcons/tnil/ev_*), so a
+# universal binds only inside applications of this module's own
+# existentials — the cross-model bridged-class hazard the lint warns
+# about requires someone bridging these heads, which the host never
+# does.
 
-# lint:disable mixed-source-semantics
-# lint:disable unguarded-recursion
 syntax("standard");
 
 # Events. ev_replay(s) is the committed replacement copy for scope s

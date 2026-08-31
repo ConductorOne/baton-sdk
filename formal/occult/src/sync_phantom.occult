@@ -17,9 +17,13 @@
 # The truthful diff e1→e2 mentions only id2 (id1 did not change between
 # e1 and e2 — it was already gone). The truthful diff e0→e2 mentions
 # both. Applying diff12 to the e0-grounded base is the bug.
+#
+# CONSTRAINT DISCIPLINE (lint: unconstrained-axiom-universal): the
+# universals v/m/b are deliberately unconstrained — head-guarded by
+# module-local constructors (get/put/del), and the engine cannot yet
+# consume userspace free-term membership at axiom dispatch (pinned by
+# host/constrained_params_probe_test.go; see the engine-changes brief).
 
-# lint:disable mixed-source-semantics
-# lint:disable unguarded-recursion
 syntax("standard");
 
 # Row-map observations (self-contained copy of the two-id algebra).

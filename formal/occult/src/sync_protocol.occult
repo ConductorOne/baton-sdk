@@ -20,22 +20,19 @@
 # (both projections carry it). resolve_answers is syncer-local in
 # reality; the connector's projected local(resolve_answers) is vacuous.
 
-# lint:disable mixed-source-semantics
-# lint:disable unguarded-recursion
 syntax("standard");
 
-∃ require;
 ∃ proto;
 proto = require("protocol");
 ∃ send;
-send = (proto.send);
+send = proto.send;
 ∃ recv;
-recv = (proto.recv);
+recv = proto.recv;
 
 ∃ proj;
 proj = require("projection");
 ∃ local;
-local = (proj.local);
+local = proj.local;
 
 # Message tags:
 # req_offer — list request carrying SourceCacheLookupOffer.

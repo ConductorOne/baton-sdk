@@ -8,13 +8,25 @@
 # dead-membership homomorphism). The laws in formal/occult/LAWS.md are
 # checked as derived equivalences by the host (host/laws_test.go);
 # nothing here states a law as its own assumption.
+#
+# CONSTRAINT DISCIPLINE (lint: unconstrained-axiom-universal). The
+# universals here range over OPEN carriers by design: the laws are
+# verified on the free Skolem constants of sync_fixtures.occult, and
+# the fresh-constant argument needs those constants free of axioms —
+# gating the fold clauses on sorts would demand membership facts about
+# the Skolems, and the engine cannot consume userspace free-term
+# membership at dispatch anyway (host/constrained_params_probe_test.go
+# pins this). This is also why the L7 ACI axioms below COPY the shape
+# of the stdlib's vc_merge instead of requiring std vector_clock: that
+# module's universals are constrained to a VectorClock sort nothing
+# gives members, so its rewrites cannot fire on our stamp terms.
 
 # --- Fold values and complete-round operations ---
 
-exists app; exists foldops;
-exists rows;
-exists fresh; exists repl; exists ovl; exists ovlsg; exists skip;
-exists opsnil; exists opscons;
+∃ app; ∃ foldops;
+∃ rows;
+∃ fresh; ∃ repl; ∃ ovl; ∃ ovlsg; ∃ skip;
+∃ opsnil; ∃ opscons;
 
 # Fold clauses (MODEL_SPEC §7, P1):
 # fresh(e): fetch-fresh / REPLACES round — absorbs any prior fold value.
@@ -37,9 +49,9 @@ foldops(opscons(op, rest), x) = foldops(rest, app(op, x));
 # precondition (at most one op per id per round) makes a two-id
 # observational algebra sufficient for the commutation law.
 
-exists get; exists put; exists del;
-exists id1; exists id2;
-exists found; exists absent;
+∃ get; ∃ put; ∃ del;
+∃ id1; ∃ id2;
+∃ found; ∃ absent;
 
 get(id1, put(id1, v, m)) = found(v);
 get(id2, put(id2, v, m)) = found(v);
@@ -54,8 +66,8 @@ get(id2, del(id1, m)) = get(id2, m);
 # Own booleans (tt/ff) keep the algebra free-constructor: natives are
 # opaque to saturation.
 
-exists merge; exists dead; exists live;
-exists hasdead; exists tt; exists ff; exists bor;
+∃ merge; ∃ dead; ∃ live;
+∃ hasdead; ∃ tt; ∃ ff; ∃ bor;
 
 bor(tt, b) = tt;
 bor(b, tt) = tt;
