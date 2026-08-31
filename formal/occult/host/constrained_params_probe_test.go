@@ -57,7 +57,6 @@ syntax("standard");
 
 ∃ ev_a;
 ∃ ev_b;
-∃ s_rogue;
 ∃ tnil;
 ∃ tcons;
 
@@ -81,8 +80,6 @@ probe_go(tcons(ev_b(s), r), ff) = "violation: b-before-a";
 
 ∃ probe_green;
 probe_green = tcons(ev_a(s1), tcons(ev_b(s2), tnil));
-∃ probe_rogue;
-probe_rogue = tcons(ev_a(s_rogue), tnil);
 `
 
 // probePremiseSrc states the gate as an explicit rewrite premise
