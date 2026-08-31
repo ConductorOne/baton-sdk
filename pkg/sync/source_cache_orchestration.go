@@ -764,6 +764,7 @@ func (o *sourceCachePageOps) afterUpserts(ctx context.Context) error {
 			return newReplayIntegrityError(ReplayVerdictWarm, o.rowKind, o.scopeKey,
 				fmt.Errorf("canonical-id tombstones: %w", err))
 		}
+		o.s.testSyncTraceAudit.record(syncTraceDelete, string(o.rowKind), o.scopeKey)
 	}
 	principals := append(append([]string{}, o.replay.GetDeletedPrincipalIds()...), o.record.GetDeletedPrincipalIds()...)
 	if len(principals) > 0 {
@@ -771,6 +772,7 @@ func (o *sourceCachePageOps) afterUpserts(ctx context.Context) error {
 			return newReplayIntegrityError(ReplayVerdictWarm, o.rowKind, o.scopeKey,
 				fmt.Errorf("principal-scoped tombstones: %w", err))
 		}
+		o.s.testSyncTraceAudit.record(syncTraceDelete, string(o.rowKind), o.scopeKey)
 	}
 	// Validator publish AFTER the page's rows and tombstones: a failed
 	// page can't leave a phantom manifest entry vouching for rows that

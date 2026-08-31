@@ -7,9 +7,7 @@
 # boundary (the multi-attempt extension; single-attempt traces carry no
 # marker and mean exactly what they did before). Each policy is a
 # recursive verdict function returning "ok" or a violation string. Two
-# scopes (s1, s2) — the same small-scope envelope as the P models;
-# tombstone events remain a pending extension (deletes are not gated by
-# any of the five policies).
+# scopes (s1, s2) — the same small-scope envelope as the P models.
 #
 # Loaded into UniversalScope by the host: equations are rewrite rules,
 # bare identifiers (r, a, b, p, q, s, v) are universal pattern
@@ -30,6 +28,17 @@ syntax("standard");
 ∃ ev_publish;
 ∃ ev_checkpoint;
 ∃ ev_seal;
+
+# ev_delete(s) is a committed tombstone application for scope s (the
+# delta protocol's delete leg: DeletedIds / DeletedPrincipalIds applied
+# by the store after the page's rows, before the validator publish —
+# B3's within-page order). A delete is a WRITE: it needs grounding like
+# an upsert (a tombstone against an un-regrounded base is the same bug
+# class — you cannot delete from a base that was never copied), it
+# dirties the quiescent-checkpoint flag, and it marks the scope active
+# for seal obligations. Consult-before-replay and once-per-scope ignore
+# it.
+∃ ev_delete;
 
 # ev_resume marks a crash/resume attempt boundary inside one sync's
 # trace. Semantics (matching pkg/sync's checkpoint-durable provenance,
@@ -73,11 +82,15 @@ cbr_go(tcons(ev_publish(s), r), a, b) = cbr_go(r, a, b);
 cbr_go(tcons(ev_checkpoint, r), a, b) = cbr_go(r, a, b);
 cbr_go(tcons(ev_seal, r), a, b) = cbr_go(r, a, b);
 cbr_go(tcons(ev_resume, r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_delete(s), r), a, b) = cbr_go(r, a, b);
 
-# --- Policy 2: clear-before-upsert ---
-# Any upsert into a scope's partition requires an earlier clear of that
-# partition this attempt (replacement rounds clear first; overlay
-# upserts are grounded on this sync's replay, which cleared).
+# --- Policy 2: clear-before-upsert (clear-before-WRITE) ---
+# Any upsert into — or tombstone delete from — a scope's partition
+# requires an earlier clear of that partition (replacement rounds clear
+# first; overlay upserts and deletes are grounded on this sync's
+# replay, which cleared). The policy name and violation string keep the
+# original "upsert" form for continuity; the gate covers both write
+# kinds.
 ∃ clear_before_upsert;
 ∃ cbu_go;
 clear_before_upsert(t) = cbu_go(t, ff, ff);
@@ -88,6 +101,10 @@ cbu_go(tcons(ev_upsert(s1), r), tt, b) = cbu_go(r, tt, b);
 cbu_go(tcons(ev_upsert(s1), r), ff, b) = "violation: clear-before-upsert";
 cbu_go(tcons(ev_upsert(s2), r), a, tt) = cbu_go(r, a, tt);
 cbu_go(tcons(ev_upsert(s2), r), a, ff) = "violation: clear-before-upsert";
+cbu_go(tcons(ev_delete(s1), r), tt, b) = cbu_go(r, tt, b);
+cbu_go(tcons(ev_delete(s1), r), ff, b) = "violation: clear-before-upsert";
+cbu_go(tcons(ev_delete(s2), r), a, tt) = cbu_go(r, a, tt);
+cbu_go(tcons(ev_delete(s2), r), a, ff) = "violation: clear-before-upsert";
 cbu_go(tcons(ev_consult(s), r), a, b) = cbu_go(r, a, b);
 cbu_go(tcons(ev_replay(s), r), a, b) = cbu_go(r, a, b);
 cbu_go(tcons(ev_publish(s), r), a, b) = cbu_go(r, a, b);
@@ -114,6 +131,7 @@ ops_go(tcons(ev_publish(s), r), a, b) = ops_go(r, a, b);
 ops_go(tcons(ev_checkpoint, r), a, b) = ops_go(r, a, b);
 ops_go(tcons(ev_seal, r), a, b) = ops_go(r, a, b);
 ops_go(tcons(ev_resume, r), a, b) = ops_go(r, ff, ff);
+ops_go(tcons(ev_delete(s), r), a, b) = ops_go(r, a, b);
 
 # --- Policy 4: checkpoint-before-progress (seal form) ---
 # The seal requires a QUIESCENT checkpoint: an ev_checkpoint after
@@ -127,6 +145,7 @@ cbp_go(tcons(ev_checkpoint, r), f) = cbp_go(r, tt);
 cbp_go(tcons(ev_clear(s), r), f) = cbp_go(r, ff);
 cbp_go(tcons(ev_replay(s), r), f) = cbp_go(r, ff);
 cbp_go(tcons(ev_upsert(s), r), f) = cbp_go(r, ff);
+cbp_go(tcons(ev_delete(s), r), f) = cbp_go(r, ff);
 cbp_go(tcons(ev_publish(s), r), f) = cbp_go(r, ff);
 cbp_go(tcons(ev_consult(s), r), f) = cbp_go(r, f);
 cbp_go(tcons(ev_resume, r), f) = cbp_go(r, f);
@@ -149,6 +168,8 @@ so_go(tcons(ev_replay(s1), r), a, p, b, q) = so_go(r, tt, p, b, q);
 so_go(tcons(ev_replay(s2), r), a, p, b, q) = so_go(r, a, p, tt, q);
 so_go(tcons(ev_upsert(s1), r), a, p, b, q) = so_go(r, tt, p, b, q);
 so_go(tcons(ev_upsert(s2), r), a, p, b, q) = so_go(r, a, p, tt, q);
+so_go(tcons(ev_delete(s1), r), a, p, b, q) = so_go(r, tt, p, b, q);
+so_go(tcons(ev_delete(s2), r), a, p, b, q) = so_go(r, a, p, tt, q);
 so_go(tcons(ev_publish(s1), r), a, p, b, q) = so_go(r, a, tt, b, q);
 so_go(tcons(ev_publish(s2), r), a, p, b, q) = so_go(r, a, p, b, tt);
 so_go(tcons(ev_checkpoint, r), a, p, b, q) = so_go(r, a, p, b, q);
@@ -194,3 +215,29 @@ trace_green_resume = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s
 # amnesty. Satisfies the other four (no upserts, no seal).
 ∃ trace_red_ops_resume;
 trace_red_ops_resume = tcons(ev_consult(s1), tcons(ev_replay(s1), tcons(ev_resume, tcons(ev_consult(s1), tcons(ev_replay(s1), tcons(ev_replay(s1), tnil))))));
+
+# Tombstone fixtures. green_delete: one honest delta round — replay
+# the base, overlay upsert, tombstone a departed row, publish the new
+# validator, quiescent checkpoint, seal. Every policy answers "ok".
+∃ trace_green_delete;
+trace_green_delete = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_delete(s1), tcons(ev_publish(s1), tcons(ev_checkpoint, tcons(ev_seal, tnil))))))));
+
+# red_cbu_del: an UN-GROUNDED tombstone — a delete with no clear this
+# attempt (the un-regrounded-resume class, delete flavor). Violates
+# exactly clear-before-upsert (no replay, no seal, no writes after a
+# checkpoint).
+∃ trace_red_cbu_del;
+trace_red_cbu_del = tcons(ev_consult(s1), tcons(ev_delete(s1), tnil));
+
+# red_cbp_del: a delete AFTER the last checkpoint, then seal — deletes
+# are progress and dirty the watermark. Grounded (clear precedes), so
+# only checkpoint-before-progress fires.
+∃ trace_red_cbp_del;
+trace_red_cbp_del = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_publish(s1), tcons(ev_checkpoint, tcons(ev_delete(s1), tcons(ev_seal, tnil)))))));
+
+# red_seal_del: a scope whose only round activity is a grounded delete
+# must still publish before seal — a delete-only delta round that never
+# publishes leaves the manifest vouching for a base the artifact no
+# longer matches. Violates exactly seal-obligations.
+∃ trace_red_seal_del;
+trace_red_seal_del = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_delete(s1), tcons(ev_checkpoint, tcons(ev_seal, tnil)))));

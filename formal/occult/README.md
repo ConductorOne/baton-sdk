@@ -75,11 +75,14 @@ repo.
   0..7; 5 saturation negative controls + 1 ground false-live control
   refused (the false-live control reproduces G9-CAL-1's parity
   ambiguity deductively). See `LAWS.md`.
-- 7 (trace-policy oracle set): DONE — five policies, 40-cell verdict
-  matrix (8 fixtures × 5 policies): green satisfies all, each red
+- 7 (trace-policy oracle set): DONE — five policies, 60-cell verdict
+  matrix (12 fixtures × 5 policies): green satisfies all, each red
   violates exactly its own policy. Multi-attempt traces are in-domain
   (ev_resume attempt boundaries: durable facts persist, once-per-scope
-  resets). Pending extension: tombstone events.
+  resets), and so is the delta protocol's delete leg (ev_delete is a
+  write: grounding, quiescence, and seal-activity obligations). No
+  pending vocabulary extensions; generation stamps stay tracked in
+  TRACE_BRIDGE.md.
 - 8 (MPST protocol contract): DONE — 7 projection derivations (syncer
   = P_leader, connector = P_follower; direct, one-bounce, and maximal
   four-bounce sessions; record and replay legs) + 4 polarity/shape
@@ -91,14 +94,14 @@ repo.
   executions" leg is IMPLEMENTED end to end: the shipped syncer
   carries a test-only commit-order recorder
   (`pkg/sync/sync_trace_audit.go`), the chaos harness exports cold,
-  warm, and crash/resume multi-attempt JSONL fixtures, and
-  `real_trace_oracle_test.go` checks them against all five policies
-  (15/15 green) with planted-violation validation of the bridge
-  itself (dropped consult, un-regrounded resume, stripped resume
-  marker). The instrument also falsified a documented resume
-  mechanism — see the finding at the end of `TRACE_BRIDGE.md`. The
-  refimpl leg remains as the demand-graph instance of the same
-  oracle.
+  warm, crash/resume multi-attempt, and tombstone-delta JSONL
+  fixtures, and `real_trace_oracle_test.go` checks them against all
+  five policies (20/20 green) with planted-violation validation of
+  the bridge itself (dropped consult, un-regrounded resume, stripped
+  resume marker, ungrounded delete). The instrument also falsified a
+  documented resume mechanism — see the finding at the end of
+  `TRACE_BRIDGE.md`. The refimpl leg remains as the demand-graph
+  instance of the same oracle.
 
 ## Broken vs good, both ways
 

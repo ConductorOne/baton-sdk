@@ -119,14 +119,15 @@ func renderRealTrace(t *testing.T, header realTraceHeader, events []realTraceEve
 			canonical = append(canonical, "ev_seal")
 		case "resume":
 			canonical = append(canonical, "ev_resume")
-		case "consult", "clear", "replay", "upsert", "publish":
+		case "consult", "clear", "replay", "upsert", "delete", "publish":
 			s := scopeName(ev)
 			if ev.Kind == "clear" {
 				cleared[s] = true
 			}
-			if ev.Kind == "upsert" && !cleared[s] && !header.Resumed {
+			if (ev.Kind == "upsert" || ev.Kind == "delete") && !cleared[s] && !header.Resumed {
 				// Structural clear: the partition was born empty this
-				// attempt (see the file comment).
+				// sync (see the file comment). Deletes are writes and
+				// need the same grounding as upserts.
 				canonical = append(canonical, "ev_clear(M."+s+")")
 				cleared[s] = true
 			}
@@ -204,6 +205,40 @@ func TestRealTraceBridgeCatchesPlantedViolation(t *testing.T) {
 	term = renderRealTrace(t, resumed, upsertOnly)
 	if verdict := policyVerdictTerm(t, "clear_before_upsert", term); verdict != "violation: clear-before-upsert" {
 		t.Errorf("planted un-regrounded resume not caught, verdict %q", verdict)
+	}
+}
+
+// TestRealTraceBridgeCatchesUngroundedDelete validates the delete leg
+// of the bridge: the tombstone fixture's REAL delete, replayed as a
+// mid-sync trace with its grounding (clear+replay) and upsert stripped,
+// must red clear-before-upsert — a tombstone against a base this trace
+// never copied is the un-regrounded-resume class, delete flavor.
+func TestRealTraceBridgeCatchesUngroundedDelete(t *testing.T) {
+	path := filepath.Join("testdata", "realtraces", "warm_replay_sync_tombstone.jsonl")
+	header, events := loadRealTrace(t, path)
+
+	term := renderRealTrace(t, header, events)
+	if verdict := policyVerdictTerm(t, "clear_before_upsert", term); verdict != "ok" {
+		t.Errorf("honest tombstone trace must satisfy clear-before-upsert, got %q", verdict)
+	}
+
+	hasDelete := false
+	var ungrounded []realTraceEvent
+	for _, ev := range events {
+		switch ev.Kind {
+		case "clear", "replay", "upsert":
+			continue
+		case "delete":
+			hasDelete = true
+		}
+		ungrounded = append(ungrounded, ev)
+	}
+	if !hasDelete {
+		t.Fatal("tombstone fixture carries no delete event; the delete leg is not being exercised")
+	}
+	term = renderRealTrace(t, realTraceHeader{Name: "planted-ungrounded-delete", Resumed: true}, ungrounded)
+	if verdict := policyVerdictTerm(t, "clear_before_upsert", term); verdict != "violation: clear-before-upsert" {
+		t.Errorf("planted ungrounded delete not caught, verdict %q", verdict)
 	}
 }
 

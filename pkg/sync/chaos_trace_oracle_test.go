@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/conductorone/baton-sdk/internal/chaosconnector"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
 // The sync-trace oracle bridge (formal/occult/TRACE_BRIDGE.md, mapping 2:
@@ -37,6 +38,101 @@ import (
 type syncTraceFixtureHeader struct {
 	Name    string `json:"name"`
 	Resumed bool   `json:"resumed"`
+}
+
+// scTombstoneScenario: seed epoch serves [g1, g2] fresh at v1. Second
+// epoch's truth is [g1, g3] at v2; its warm branch is a one-page delta
+// round that replays the base, overlay-upserts g3, TOMBSTONES g2
+// (departed upstream), and publishes v2.
+func scTombstoneScenario(t *testing.T, fx *scCollectionFixture) *chaosconnector.Scenario {
+	t.Helper()
+	seed := scCollectionBase(fx)
+	seed.Grants["team-1"] = chaosconnector.Pages[*v2.Grant]{
+		"": {List: fx.Grants, Annotations: scRecordAnno(scGrantsScopeKey, scValidatorV1)},
+	}
+	seed.SourceCacheGrants = map[string]*chaosconnector.SourceCacheSpec{
+		"team-1": {ScopeKey: scGrantsScopeKey, Validator: scValidatorV1},
+	}
+	second := scCollectionBase(fx)
+	second.Grants["team-1"] = chaosconnector.Pages[*v2.Grant]{
+		"": {List: []*v2.Grant{fx.Grants[0], fx.Grant3}, Annotations: scRecordAnno(scGrantsScopeKey, scValidatorV2)},
+		"warm": {
+			List:        []*v2.Grant{fx.Grant3},
+			Annotations: scReplayAnno(scGrantsScopeKey, scValidatorV2, true, []string{fx.Grants[1].GetId()}, nil),
+		},
+	}
+	second.SourceCacheGrants = map[string]*chaosconnector.SourceCacheSpec{
+		"team-1": {ScopeKey: scGrantsScopeKey, Validator: scValidatorV1, WarmRoot: "warm"},
+	}
+	scenario := &chaosconnector.Scenario{
+		Name:         "source-cache-tombstone-trace",
+		Seed:         1,
+		InitialEpoch: "seed",
+		Epochs:       map[string]*chaosconnector.Dataset{"seed": seed, "second": second},
+	}
+	require.NoError(t, scenario.Validate())
+	return scenario
+}
+
+// TestChaosSyncTraceOracleTombstoneFixture records the delta protocol's
+// delete leg: a warm replay round whose page tombstones a row that
+// departed upstream. The trace pins B3's within-page commit order —
+// rows, then tombstones, then the validator publish — and the content
+// oracle proves the tombstone actually deleted (the phantom-union
+// family's fix at the row level: without the delete leg, g2 would
+// survive the replay into the sealed artifact).
+func TestChaosSyncTraceOracleTombstoneFixture(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	defer cancel()
+	tmpDir, paths := sourceCachePaths(t, 2)
+	seedPath, warmPath := paths[0], paths[1]
+
+	fx := newSCCollectionFixture(t)
+	scenario := scTombstoneScenario(t, fx)
+	capability := sourceCacheCapabilityRW("gen-1", "cfg-1")
+
+	// Generation A: cold seed of [g1, g2] at v1.
+	seedRun, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
+	require.NoError(t, err)
+	seedRun.SetSourceCacheCapability(capability)
+	runSourceCacheSync(t, ctx, seedRun, chaosTransportDirect, seedPath, tmpDir, "", WithWorkerCount(1))
+
+	// Generation B: warm delta round with the tombstone.
+	warmRun, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
+	require.NoError(t, err)
+	require.NoError(t, warmRun.SetEpoch("second"))
+	warmRun.SetSourceCacheCapability(capability)
+	warmHarness := newChaosHarness(t, ctx, warmRun, warmPath, tmpDir, chaosTransportDirect,
+		WithPreviousSyncC1ZPath(seedPath), WithWorkerCount(1))
+	warmConcrete, ok := warmHarness.Syncer.(*syncer)
+	require.True(t, ok)
+	audit := &syncTraceAudit{}
+	warmConcrete.testSyncTraceAudit = audit
+	warmHarness.SyncAndClose(t, ctx)
+	trace := audit.snapshot()
+
+	rowKind := "grants"
+	requireTraceOrder(t, trace,
+		syncTraceEvent{Kind: syncTraceConsult, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTraceClear, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTraceReplay, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTraceUpsert, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTraceDelete, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTracePublish, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTraceSeal},
+	)
+	require.Equal(t, 1, countKind(trace, syncTraceReplay))
+	require.Equal(t, 1, countKind(trace, syncTraceDelete))
+	require.Equal(t, syncTraceSeal, trace[len(trace)-1].Kind)
+
+	// Content oracle: the tombstoned grant is gone, the survivors and
+	// the overlay row are present.
+	sealed := readChaosGrantsByID(t, ctx, warmPath, tmpDir)
+	require.Contains(t, sealed, fx.Grants[0].GetId(), "surviving base row must replay")
+	require.Contains(t, sealed, fx.Grant3.GetId(), "overlay row must land")
+	require.NotContains(t, sealed, fx.Grants[1].GetId(), "tombstoned row must not survive the replay")
+
+	exportTraceFixture(t, "warm_replay_sync_tombstone", trace)
 }
 
 func TestChaosSyncTraceOracleFixtures(t *testing.T) {

@@ -21,7 +21,17 @@ One trace = one sync attempt's events, in commit order. Constructors
 | `ev_checkpoint` | durable watermark commit |
 | `ev_seal` | artifact seal |
 
+| `ev_delete(s)` | committed tombstone application (the delta protocol's delete leg) for scope s |
 | `ev_resume` | crash/resume attempt boundary inside one sync's trace |
+
+`ev_delete` is a WRITE with upsert's obligations: it needs grounding
+(clear-before-write — a tombstone against a base this sync never
+copied is the un-regrounded class, delete flavor), dirties the
+quiescent-checkpoint flag, and marks the scope active for seal
+obligations. Naming note: these "tombstones" are deletion entries in
+the CONNECTOR RESPONSE (`DeletedIds`/`DeletedPrincipalIds` on the
+replay/record annotations), applied synchronously as plain row
+deletes — nothing deletion-shaped is durably stored.
 
 The multi-attempt extension: a trace is ONE SYNC's events, with
 `ev_resume` marking attempt boundaries. Durable facts persist across
@@ -32,9 +42,8 @@ token, so the across-attempt replay re-copy is B5-legal at-least-once
 idempotence, while a within-attempt duplicate remains the bug.
 Single-attempt traces carry no marker and mean what they always did.
 
-Pending extensions, tracked not modeled: tombstone events (no policy
-gates deletes), generation stamps (the graph model's variant-S
-lineage).
+Pending extension, tracked not modeled: generation stamps (the graph
+model's variant-S lineage).
 
 ## Mapping 1: P model announce events
 
@@ -114,7 +123,17 @@ replays into a within-attempt duplicate and reds once-per-scope. Two
 rendering notes: consecutive checkpoints coalesce to one (verdict
 preserving; the engine's evaluation cost grows steeply with event
 count), and the structural clear is once per scope per SYNC, attempts
-included.
+included, granted to the scope's first WRITE (upsert or delete).
+
+The delete leg is fixtured too: `warm_replay_sync_tombstone.jsonl`
+records a warm delta round that replays the base, overlay-upserts one
+row, tombstones a departed row, and publishes — B3's within-page
+commit order (rows, then tombstones, then the validator) appears
+directly in the trace, and the exporting chaos test's content oracle
+proves the tombstoned row is absent from the sealed artifact.
+`TestRealTraceBridgeCatchesUngroundedDelete` plants the violation:
+the same real delete with its grounding stripped reds
+clear-before-upsert.
 
 The instrument also produced a finding about the shipped resume path:
 for a mid-chain cut, the resume RE-RUNS the replay copy regardless of

@@ -42,6 +42,10 @@ const (
 	// syncTraceUpsert: a scoped page's row upserts committed (page
 	// granularity — the policies gate ordering, not row counts).
 	syncTraceUpsert syncTraceKind = "upsert"
+	// syncTraceDelete: a scoped page's tombstones committed (one event
+	// per successful store delete call: canonical-id and
+	// principal-scoped fire separately, in their contractual order).
+	syncTraceDelete syncTraceKind = "delete"
 	// syncTracePublish: the scope's manifest entry (validator) was
 	// written.
 	syncTracePublish syncTraceKind = "publish"

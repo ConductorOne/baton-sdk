@@ -67,6 +67,10 @@ var fixtureViolates = map[string]string{
 	"trace_red_seal":       "seal_obligations",
 	"trace_green_resume":   "",
 	"trace_red_ops_resume": "once_per_scope",
+	"trace_green_delete":   "",
+	"trace_red_cbu_del":    "clear_before_upsert",
+	"trace_red_cbp_del":    "checkpoint_before_progress",
+	"trace_red_seal_del":   "seal_obligations",
 }
 
 func TestTracePolicyMatrix(t *testing.T) {
