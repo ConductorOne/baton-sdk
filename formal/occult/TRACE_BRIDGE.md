@@ -21,9 +21,20 @@ One trace = one sync attempt's events, in commit order. Constructors
 | `ev_checkpoint` | durable watermark commit |
 | `ev_seal` | artifact seal |
 
-Pending extensions, tracked not modeled: attempt/resume markers
-(multi-attempt traces), tombstone events (no policy gates deletes),
-generation stamps (the graph model's variant-S lineage).
+| `ev_resume` | crash/resume attempt boundary inside one sync's trace |
+
+The multi-attempt extension: a trace is ONE SYNC's events, with
+`ev_resume` marking attempt boundaries. Durable facts persist across
+the marker — consult flags (the checkpoint-durable hit-set), clear
+grounding (committed rows), scope activity and publishes — and only
+once-per-scope RESETS: an interrupted action restarts from its root
+token, so the across-attempt replay re-copy is B5-legal at-least-once
+idempotence, while a within-attempt duplicate remains the bug.
+Single-attempt traces carry no marker and mean what they always did.
+
+Pending extensions, tracked not modeled: tombstone events (no policy
+gates deletes), generation stamps (the graph model's variant-S
+lineage).
 
 ## Mapping 1: P model announce events
 
@@ -90,9 +101,33 @@ clear-before-upsert. The bridge itself is validated by planted
 violations (`TestRealTraceBridgeCatchesPlantedViolation`): dropping the
 warm fixture's consult reds policy 1, and replaying its writes as a
 resumed attempt with the replay downgraded to a bare upsert reds
-policy 2. Multi-attempt (crash-cut) fixture export stays pending with
-the resume-marker extension above; single-attempt traces are in-domain
-today.
+policy 2.
+
+Multi-attempt traces are in-domain too. The chaos harness cuts a warm
+two-page delta round with an `EffectCrash` after the replay unit and
+overlay upsert committed, resumes with a new syncer, and exports the
+two attempts as one fixture with a `{"kind":"resume"}` marker line
+(`warm_replay_sync_interrupted.jsonl`). All five policies are green on
+it, and `TestRealTraceBridgeResumeMarkerLoadBearing` proves the marker
+is load-bearing: stripping it turns the two legal across-attempt
+replays into a within-attempt duplicate and reds once-per-scope. Two
+rendering notes: consecutive checkpoints coalesce to one (verdict
+preserving; the engine's evaluation cost grows steeply with event
+count), and the structural clear is once per scope per SYNC, attempts
+included.
+
+The instrument also produced a finding about the shipped resume path:
+for a mid-chain cut, the resume RE-RUNS the replay copy regardless of
+checkpoint cadence — checkpoints commit at batch boundaries and a page
+chain runs inside one batch, so `MarkSourceCacheReplayed` from a cut
+chain never reaches a checkpoint. The resume suite's prior comment
+claimed the restored replayed-set skips the copy; the trace recorder
+is the first instrument able to distinguish that skip from an
+idempotent re-copy, and it falsified the claimed mechanism (the
+corrected comments live in `chaos_source_cache_resume_test.go`; the
+convergence conclusion was always right, via B5 idempotence). The
+replayed-set's real skip role is within-attempt: a later replay
+annotation for an already-copied scope skips.
 
 This leg has an executable instance: `host/refimpl/` (the demand-graph
 reference implementation) emits canonical traces from real executions

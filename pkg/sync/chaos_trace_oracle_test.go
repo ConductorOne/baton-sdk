@@ -14,22 +14,24 @@ import (
 )
 
 // The sync-trace oracle bridge (formal/occult/TRACE_BRIDGE.md, mapping 2:
-// real sync executions). This test records canonical sync traces
-// (sync_trace_audit.go) from the reference source-cache scenario — one
-// cold record sync, one warm replay sync — sanity-checks their shape
-// in-process, and exports them as JSONL fixtures for the Occult
-// trace-policy oracle when BATON_SYNC_TRACE_FIXTURE_DIR is set. The
-// committed fixtures live at formal/occult/host/testdata/realtraces/ and
-// are verified against the five deliverable-7 policies by
+// real sync executions). These tests record canonical sync traces
+// (sync_trace_audit.go) from the source-cache chaos scenarios —
+// single-attempt cold/warm syncs and crash/resume multi-attempt syncs —
+// sanity-check their shape in-process, and export them as JSONL
+// fixtures for the Occult trace-policy oracle when
+// BATON_SYNC_TRACE_FIXTURE_DIR is set. The committed fixtures live at
+// formal/occult/host/testdata/realtraces/ and are verified against the
+// five deliverable-7 policies by
 // formal/occult/host/real_trace_oracle_test.go; regenerate them with:
 //
-//	BATON_SYNC_TRACE_FIXTURE_DIR=$(pwd)/../../formal/occult/host/testdata/realtraces \
-//	  go test -run TestChaosSyncTraceOracleFixtures ./pkg/sync/
+//	BATON_SYNC_TRACE_FIXTURE_DIR=$(pwd)/formal/occult/host/testdata/realtraces \
+//	  go test -run 'TestChaosSyncTraceOracle' ./pkg/sync/
 //
 // The recorder is observational only (commit-order events); rendering
-// conventions live on the oracle side. Both fixtures are single-attempt
-// traces of NEW syncs (resumed=false in the header), which is the
-// precondition for the renderer's structural-clear convention.
+// conventions live on the oracle side. Every fixture starts at sync
+// birth (resumed=false in the header — the precondition for the
+// renderer's structural-clear convention); crash/resume fixtures carry
+// explicit "resume" marker lines between attempt segments.
 
 // syncTraceFixtureHeader is the first JSONL line of an exported trace.
 type syncTraceFixtureHeader struct {
@@ -144,9 +146,10 @@ func countKind(trace []syncTraceEvent, kind syncTraceKind) int {
 	return n
 }
 
-// exportTraceFixture writes the trace as a JSONL fixture (header line,
-// then one event per line) when BATON_SYNC_TRACE_FIXTURE_DIR is set.
-func exportTraceFixture(t *testing.T, name string, trace []syncTraceEvent) {
+// exportTraceFixture writes one sync's trace as a JSONL fixture (header
+// line, then one event per line, with a {"kind":"resume"} marker line
+// between attempt segments) when BATON_SYNC_TRACE_FIXTURE_DIR is set.
+func exportTraceFixture(t *testing.T, name string, attempts ...[]syncTraceEvent) {
 	t.Helper()
 	dir := os.Getenv("BATON_SYNC_TRACE_FIXTURE_DIR")
 	if dir == "" {
@@ -159,13 +162,134 @@ func exportTraceFixture(t *testing.T, name string, trace []syncTraceEvent) {
 	require.NoError(t, err)
 	buf = append(buf, header...)
 	buf = append(buf, '\n')
-	for _, ev := range trace {
-		line, err := json.Marshal(ev)
-		require.NoError(t, err)
-		buf = append(buf, line...)
-		buf = append(buf, '\n')
+	total := 0
+	for i, trace := range attempts {
+		if i > 0 {
+			buf = append(buf, []byte(`{"kind":"resume"}`)...)
+			buf = append(buf, '\n')
+		}
+		for _, ev := range trace {
+			line, err := json.Marshal(ev)
+			require.NoError(t, err)
+			buf = append(buf, line...)
+			buf = append(buf, '\n')
+		}
+		total += len(trace)
 	}
 	path := filepath.Join(dir, name+".jsonl")
 	require.NoError(t, os.WriteFile(path, buf, 0o600)) //nolint:gosec // test-only fixture export
-	t.Logf("wrote trace fixture %s (%d events)", path, len(trace))
+	t.Logf("wrote trace fixture %s (%d attempts, %d events)", path, len(attempts), total)
+}
+
+// TestChaosSyncTraceOracleInterruptedFixtures records a MULTI-ATTEMPT
+// sync trace from the crash/resume scenario pinned by
+// chaos_source_cache_resume_test.go: a warm two-page delta round is cut
+// by an EffectCrash before its second page ("warm-2" — i.e. AFTER the
+// replay copy and the overlay upsert committed), then resumed to seal
+// by a NEW syncer over the same artifact.
+//
+// PINNED DISCOVERY (this recorder is the first instrument that can
+// distinguish a skipped copy from an idempotent re-copy): the resume
+// RE-RUNS the replay copy even when attempt 1 checkpoints at every
+// batch boundary (checkpointInterval=0, the strongest cadence). The
+// main loop checkpoints between BATCHES, and a paginated action's page
+// chain runs inside one batch, so a mid-chain cut leaves
+// MarkSourceCacheReplayed un-checkpointed no matter the interval — the
+// resume restarts the action from its root and re-copies. The
+// across-attempt re-copy is B5-legal at-least-once idempotence, which
+// is exactly what the policy oracle's once-per-scope-resets-at-resume
+// semantics legalize. The replayed-set's skip role is WITHIN-attempt:
+// warm-2's second replay annotation skips because page "" marked the
+// scope replayed in the same attempt — visible below as exactly one
+// replay per attempt.
+func TestChaosSyncTraceOracleInterruptedFixtures(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	defer cancel()
+	tmpDir, paths := sourceCachePaths(t, 2)
+	seedPath, warmPath := paths[0], paths[1]
+
+	fx := newSCCollectionFixture(t)
+	scenario := scResumeScenario(t, fx)
+	capability := sourceCacheCapabilityRW("gen-1", "cfg-1")
+
+	// Generation A: cold seed (not exported; the sync under trace is
+	// generation B).
+	seedRun, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
+	require.NoError(t, err)
+	seedRun.SetSourceCacheCapability(capability)
+	runSourceCacheSync(t, ctx, seedRun, chaosTransportDirect, seedPath, tmpDir, "", WithWorkerCount(1))
+
+	// Generation B, attempt 1: warm sync cut before "warm-2".
+	interruptedRun, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule(chaosconnector.Rule{
+		ID: "cut",
+		Match: chaosconnector.Matcher{
+			Service:   chaosconnector.ExactString("GrantsService"),
+			Method:    chaosconnector.ExactString("ListGrants"),
+			PageToken: chaosconnector.ExactString("warm-2"),
+			Attempt:   1,
+			Phase:     chaosconnector.PhaseBeforeCall,
+		},
+		Effects:  []chaosconnector.Effect{{Kind: chaosconnector.EffectCrash}},
+		MinFires: 1,
+		MaxFires: 1,
+	}))
+	require.NoError(t, err)
+	require.NoError(t, interruptedRun.SetEpoch("second"))
+	interruptedRun.SetSourceCacheCapability(capability)
+	interruptedHarness := newChaosHarness(t, ctx, interruptedRun, warmPath, tmpDir, chaosTransportDirect,
+		WithPreviousSyncC1ZPath(seedPath), WithWorkerCount(1))
+	interruptedConcrete, ok := interruptedHarness.Syncer.(*syncer)
+	require.True(t, ok)
+	// The strongest cadence: even per-batch checkpoints cannot make the
+	// mid-chain cut resumable past the copy (see the pin above).
+	interruptedConcrete.checkpointInterval = 0
+	attempt1Audit := &syncTraceAudit{}
+	interruptedConcrete.testSyncTraceAudit = attempt1Audit
+	require.ErrorIs(t, interruptedHarness.Syncer.Sync(ctx), chaosconnector.ErrInterruptRequested)
+	require.NoError(t, interruptedHarness.Close(t.Context()))
+	attempt1 := attempt1Audit.snapshot()
+
+	// Generation B, resume: a new syncer over the same artifact.
+	resumeRun, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
+	require.NoError(t, err)
+	require.NoError(t, resumeRun.SetEpoch("second"))
+	resumeRun.SetSourceCacheCapability(capability)
+	resumeHarness := newChaosHarness(t, ctx, resumeRun, warmPath, tmpDir, chaosTransportDirect,
+		WithPreviousSyncC1ZPath(seedPath), WithWorkerCount(1))
+	resumeConcrete, ok := resumeHarness.Syncer.(*syncer)
+	require.True(t, ok)
+	attempt2Audit := &syncTraceAudit{}
+	resumeConcrete.testSyncTraceAudit = attempt2Audit
+	resumeHarness.SyncAndClose(t, ctx)
+	attempt2 := attempt2Audit.snapshot()
+
+	rowKind := "grants"
+	// Attempt 1 committed the replay unit and the overlay upsert, never
+	// published, never sealed (the cut hit before warm-2).
+	requireTraceOrder(t, attempt1,
+		syncTraceEvent{Kind: syncTraceConsult, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTraceClear, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTraceReplay, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTraceUpsert, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+	)
+	require.NotContains(t, kinds(attempt1), syncTracePublish)
+	require.NotContains(t, kinds(attempt1), syncTraceSeal)
+	require.Equal(t, 1, countKind(attempt1, syncTraceReplay))
+
+	// Attempt 2 restarts the action from its root: re-consult, re-clear,
+	// re-copy (the pin), the re-applied overlay upsert, warm-2's skip
+	// (one replay only), the validator publish, and the seal.
+	requireTraceOrder(t, attempt2,
+		syncTraceEvent{Kind: syncTraceConsult, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTraceClear, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTraceReplay, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTraceUpsert, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTracePublish, RowKind: rowKind, ScopeKey: scGrantsScopeKey},
+		syncTraceEvent{Kind: syncTraceSeal},
+	)
+	require.Equal(t, 1, countKind(attempt2, syncTraceReplay),
+		"mid-chain cut resume must re-run the replay copy exactly once (root restart + within-attempt skip on warm-2)")
+	require.Equal(t, syncTraceSeal, attempt2[len(attempt2)-1].Kind)
+
+	exportTraceFixture(t, "warm_replay_sync_interrupted", attempt1, attempt2)
 }

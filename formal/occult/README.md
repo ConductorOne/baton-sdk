@@ -75,10 +75,11 @@ repo.
   0..7; 5 saturation negative controls + 1 ground false-live control
   refused (the false-live control reproduces G9-CAL-1's parity
   ambiguity deductively). See `LAWS.md`.
-- 7 (trace-policy oracle set): DONE — five policies, 30-cell verdict
-  matrix (6 fixtures × 5 policies): green satisfies all, each red
-  violates exactly its own policy. Pending extensions: multi-attempt
-  traces, tombstone events.
+- 7 (trace-policy oracle set): DONE — five policies, 40-cell verdict
+  matrix (8 fixtures × 5 policies): green satisfies all, each red
+  violates exactly its own policy. Multi-attempt traces are in-domain
+  (ev_resume attempt boundaries: durable facts persist, once-per-scope
+  resets). Pending extension: tombstone events.
 - 8 (MPST protocol contract): DONE — 7 projection derivations (syncer
   = P_leader, connector = P_follower; direct, one-bounce, and maximal
   four-bounce sessions; record and replay legs) + 4 polarity/shape
@@ -89,11 +90,15 @@ repo.
   vocabulary); the deliverable-7 policy set is the oracle. The "real
   executions" leg is IMPLEMENTED end to end: the shipped syncer
   carries a test-only commit-order recorder
-  (`pkg/sync/sync_trace_audit.go`), the chaos harness exports cold-
-  and warm-sync JSONL fixtures, and `real_trace_oracle_test.go`
-  checks them against all five policies (10/10 green) with planted-
-  violation validation of the bridge itself. The refimpl leg remains
-  as the demand-graph instance of the same oracle.
+  (`pkg/sync/sync_trace_audit.go`), the chaos harness exports cold,
+  warm, and crash/resume multi-attempt JSONL fixtures, and
+  `real_trace_oracle_test.go` checks them against all five policies
+  (15/15 green) with planted-violation validation of the bridge
+  itself (dropped consult, un-regrounded resume, stripped resume
+  marker). The instrument also falsified a documented resume
+  mechanism — see the finding at the end of `TRACE_BRIDGE.md`. The
+  refimpl leg remains as the demand-graph instance of the same
+  oracle.
 
 ## Broken vs good, both ways
 
@@ -131,3 +136,10 @@ known-good one:
   the engine's own raft test on the egraph backend).
 - `pipe` has no associativity axiom: session terms and expected
   projections must share the same grouping.
+- Ground-term evaluation cost grows steeply (roughly doubling per
+  list element) when reducing recursive verdict functions over long
+  cons-lists under axiomatically loaded rules: a 12-element trace
+  evaluates in seconds, a 25-element trace exceeded 18 minutes. The
+  real-trace renderer coalesces consecutive checkpoints to stay
+  tractable; an efficient ground-evaluation path is on the engine
+  ask list.

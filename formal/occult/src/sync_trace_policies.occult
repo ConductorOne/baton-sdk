@@ -2,12 +2,14 @@
 # (brief: "Trace-policy oracle set" — consult-before-replay,
 # checkpoint-before-progress, clear-before-upsert, once-per-scope, seal
 # obligations) over the announce vocabulary pinned in
-# formal/MODEL_SPEC.md §7. A trace is one sync attempt's event list;
-# each policy is a recursive verdict function returning "ok" or a
-# violation string. Two scopes (s1, s2) — the same small-scope envelope
-# as the P models; multi-attempt traces (resume markers) are a pending
-# extension, as are tombstone events (deletes are not gated by any of
-# the five policies).
+# formal/MODEL_SPEC.md §7. A trace is ONE SYNC's event list — possibly
+# spanning crash/resume attempts, with ev_resume marking each attempt
+# boundary (the multi-attempt extension; single-attempt traces carry no
+# marker and mean exactly what they did before). Each policy is a
+# recursive verdict function returning "ok" or a violation string. Two
+# scopes (s1, s2) — the same small-scope envelope as the P models;
+# tombstone events remain a pending extension (deletes are not gated by
+# any of the five policies).
 #
 # Loaded into UniversalScope by the host: equations are rewrite rules,
 # bare identifiers (r, a, b, p, q, s, v) are universal pattern
@@ -28,6 +30,19 @@ syntax("standard");
 ∃ ev_publish;
 ∃ ev_checkpoint;
 ∃ ev_seal;
+
+# ev_resume marks a crash/resume attempt boundary inside one sync's
+# trace. Semantics (matching pkg/sync's checkpoint-durable provenance,
+# pinned by chaos_source_cache_resume_test.go): durable facts PERSIST
+# across the boundary — consult flags (the hit-set is
+# checkpoint-durable), clear grounding (committed rows survive the
+# crash), scope activity and publishes (seal obligations are
+# sync-scoped). Only once-per-scope RESETS: an interrupted action
+# restarts from its root token, so the across-attempt replay re-copy is
+# B5-legal at-least-once idempotence, while a within-attempt duplicate
+# remains the bug the policy exists to catch. The quiescent-checkpoint
+# flag also persists: a resume adds no progress by itself.
+∃ ev_resume;
 
 # Scopes and trace list constructors.
 ∃ s1;
@@ -57,6 +72,7 @@ cbr_go(tcons(ev_upsert(s), r), a, b) = cbr_go(r, a, b);
 cbr_go(tcons(ev_publish(s), r), a, b) = cbr_go(r, a, b);
 cbr_go(tcons(ev_checkpoint, r), a, b) = cbr_go(r, a, b);
 cbr_go(tcons(ev_seal, r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_resume, r), a, b) = cbr_go(r, a, b);
 
 # --- Policy 2: clear-before-upsert ---
 # Any upsert into a scope's partition requires an earlier clear of that
@@ -77,6 +93,7 @@ cbu_go(tcons(ev_replay(s), r), a, b) = cbu_go(r, a, b);
 cbu_go(tcons(ev_publish(s), r), a, b) = cbu_go(r, a, b);
 cbu_go(tcons(ev_checkpoint, r), a, b) = cbu_go(r, a, b);
 cbu_go(tcons(ev_seal, r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ev_resume, r), a, b) = cbu_go(r, a, b);
 
 # --- Policy 3: once-per-scope ---
 # At most one committed replacement copy per scope per attempt (the
@@ -96,6 +113,7 @@ ops_go(tcons(ev_upsert(s), r), a, b) = ops_go(r, a, b);
 ops_go(tcons(ev_publish(s), r), a, b) = ops_go(r, a, b);
 ops_go(tcons(ev_checkpoint, r), a, b) = ops_go(r, a, b);
 ops_go(tcons(ev_seal, r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_resume, r), a, b) = ops_go(r, ff, ff);
 
 # --- Policy 4: checkpoint-before-progress (seal form) ---
 # The seal requires a QUIESCENT checkpoint: an ev_checkpoint after
@@ -111,6 +129,7 @@ cbp_go(tcons(ev_replay(s), r), f) = cbp_go(r, ff);
 cbp_go(tcons(ev_upsert(s), r), f) = cbp_go(r, ff);
 cbp_go(tcons(ev_publish(s), r), f) = cbp_go(r, ff);
 cbp_go(tcons(ev_consult(s), r), f) = cbp_go(r, f);
+cbp_go(tcons(ev_resume, r), f) = cbp_go(r, f);
 cbp_go(tcons(ev_seal, r), tt) = "ok";
 cbp_go(tcons(ev_seal, r), ff) = "violation: checkpoint-before-progress";
 
@@ -133,6 +152,7 @@ so_go(tcons(ev_upsert(s2), r), a, p, b, q) = so_go(r, a, p, tt, q);
 so_go(tcons(ev_publish(s1), r), a, p, b, q) = so_go(r, a, tt, b, q);
 so_go(tcons(ev_publish(s2), r), a, p, b, q) = so_go(r, a, p, b, tt);
 so_go(tcons(ev_checkpoint, r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ev_resume, r), a, p, b, q) = so_go(r, a, p, b, q);
 so_go(tcons(ev_seal, r), tt, ff, b, q) = "violation: seal-obligations";
 so_go(tcons(ev_seal, r), a, p, tt, ff) = "violation: seal-obligations";
 so_go(tcons(ev_seal, r), ff, p, ff, q) = "ok";
@@ -158,3 +178,19 @@ trace_red_ops = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), t
 trace_red_cbp = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_publish(s1), tcons(ev_seal, tnil)))));
 ∃ trace_red_seal;
 trace_red_seal = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_checkpoint, tcons(ev_seal, tnil)))));
+
+# Multi-attempt fixtures. green_resume: the B5 idempotent re-copy — a
+# crash after attempt 1's replay unit and overlay upsert, an
+# un-checkpointed resume that restarts the action from its root and
+# re-runs the whole round (re-consult, re-clear, re-copy, re-upsert),
+# publishes, checkpoints, seals. Every policy must answer "ok": the
+# across-attempt second replay is exactly what once-per-scope's reset
+# legalizes.
+∃ trace_green_resume;
+trace_green_resume = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_resume, tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_publish(s1), tcons(ev_checkpoint, tcons(ev_seal, tnil))))))))))));
+
+# red_ops_resume: a WITHIN-attempt duplicate copy after a resume must
+# still violate once-per-scope — the reset is per boundary, not an
+# amnesty. Satisfies the other four (no upserts, no seal).
+∃ trace_red_ops_resume;
+trace_red_ops_resume = tcons(ev_consult(s1), tcons(ev_replay(s1), tcons(ev_resume, tcons(ev_consult(s1), tcons(ev_replay(s1), tcons(ev_replay(s1), tnil))))));

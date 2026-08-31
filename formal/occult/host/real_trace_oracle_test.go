@@ -12,13 +12,24 @@
 //   - Scopes: distinct (row_kind, scope_key) pairs map onto s1/s2 in
 //     first-seen order — the policies' two-scope envelope. Fixtures
 //     with more than two scopes are rejected.
-//   - Structural clear: a NON-RESUMED attempt writes into partitions
-//     StartNewSync created empty, so an upsert with no earlier explicit
-//     clear for its scope gets an ev_clear inserted before it. Resumed
-//     attempts inherit their predecessor's rows and get no such
-//     insertion — exactly the case clear-before-upsert exists to catch.
-//     Both committed fixtures are non-resumed; the convention is pinned
-//     by the header's "resumed" field.
+//   - Structural clear: a trace that starts at sync birth
+//     (header resumed=false) writes into partitions StartNewSync
+//     created empty, so an upsert with no earlier explicit clear for
+//     its scope gets an ev_clear inserted before it — once per scope
+//     for the WHOLE sync trace, attempts included (the partition is
+//     born empty once). A trace beginning mid-sync (resumed=true)
+//     gets no insertion — exactly the case clear-before-upsert exists
+//     to catch. All committed fixtures start at sync birth.
+//   - Resume markers: multi-attempt fixtures carry {"kind":"resume"}
+//     lines between attempt segments, rendered as ev_resume.
+//   - Checkpoint coalescing: a run of consecutive checkpoints renders
+//     as ONE ev_checkpoint. Verdict-preserving by inspection of all
+//     five policies: four pass checkpoints through untouched and the
+//     fifth (checkpoint-before-progress) sets an idempotent flag, so
+//     back-to-back checkpoints are indistinguishable from one. Needed
+//     because the engine's term evaluation cost grows steeply with
+//     event count (a 25-event trace exceeds 18 minutes per cell; 14
+//     events evaluate in tens of seconds).
 package host_test
 
 import (
@@ -100,9 +111,14 @@ func renderRealTrace(t *testing.T, header realTraceHeader, events []realTraceEve
 	for _, ev := range events {
 		switch ev.Kind {
 		case "checkpoint":
+			if len(canonical) > 0 && canonical[len(canonical)-1] == "ev_checkpoint" {
+				continue
+			}
 			canonical = append(canonical, "ev_checkpoint")
 		case "seal":
 			canonical = append(canonical, "ev_seal")
+		case "resume":
+			canonical = append(canonical, "ev_resume")
 		case "consult", "clear", "replay", "upsert", "publish":
 			s := scopeName(ev)
 			if ev.Kind == "clear" {
@@ -188,5 +204,38 @@ func TestRealTraceBridgeCatchesPlantedViolation(t *testing.T) {
 	term = renderRealTrace(t, resumed, upsertOnly)
 	if verdict := policyVerdictTerm(t, "clear_before_upsert", term); verdict != "violation: clear-before-upsert" {
 		t.Errorf("planted un-regrounded resume not caught, verdict %q", verdict)
+	}
+}
+
+// TestRealTraceBridgeResumeMarkerLoadBearing validates the multi-attempt
+// leg of the bridge: the interrupted fixture's two replays are legal
+// ONLY because a resume marker separates them (once-per-scope resets at
+// the boundary). Deleting the marker must turn the same events into a
+// within-attempt duplicate copy and red once-per-scope — proving the
+// marker, and therefore the attempt segmentation, is load-bearing.
+func TestRealTraceBridgeResumeMarkerLoadBearing(t *testing.T) {
+	path := filepath.Join("testdata", "realtraces", "warm_replay_sync_interrupted.jsonl")
+	header, events := loadRealTrace(t, path)
+
+	hasResume := false
+	var noMarker []realTraceEvent
+	for _, ev := range events {
+		if ev.Kind == "resume" {
+			hasResume = true
+			continue
+		}
+		noMarker = append(noMarker, ev)
+	}
+	if !hasResume {
+		t.Fatal("interrupted fixture carries no resume marker; the multi-attempt leg is not being exercised")
+	}
+
+	term := renderRealTrace(t, header, events)
+	if verdict := policyVerdictTerm(t, "once_per_scope", term); verdict != "ok" {
+		t.Errorf("marked multi-attempt trace must satisfy once-per-scope, got %q", verdict)
+	}
+	term = renderRealTrace(t, header, noMarker)
+	if verdict := policyVerdictTerm(t, "once_per_scope", term); verdict != "violation: once-per-scope" {
+		t.Errorf("marker-stripped trace must red once-per-scope, got %q", verdict)
 	}
 }

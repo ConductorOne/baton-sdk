@@ -59,12 +59,14 @@ var policies = []string{
 // fixtureViolates maps each fixture to the single policy it violates
 // ("" = none: the green trace).
 var fixtureViolates = map[string]string{
-	"trace_green":    "",
-	"trace_red_cbr":  "consult_before_replay",
-	"trace_red_cbu":  "clear_before_upsert",
-	"trace_red_ops":  "once_per_scope",
-	"trace_red_cbp":  "checkpoint_before_progress",
-	"trace_red_seal": "seal_obligations",
+	"trace_green":          "",
+	"trace_red_cbr":        "consult_before_replay",
+	"trace_red_cbu":        "clear_before_upsert",
+	"trace_red_ops":        "once_per_scope",
+	"trace_red_cbp":        "checkpoint_before_progress",
+	"trace_red_seal":       "seal_obligations",
+	"trace_green_resume":   "",
+	"trace_red_ops_resume": "once_per_scope",
 }
 
 func TestTracePolicyMatrix(t *testing.T) {

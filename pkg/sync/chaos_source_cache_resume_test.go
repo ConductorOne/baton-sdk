@@ -24,10 +24,14 @@ import (
 // cross-process shape). Every cell must converge to the independent cold
 // baseline. The suite also pins the resume granularity it discovered: an
 // interrupted paginated action restarts from its ROOT token (mid-chain
-// tokens are not resume points), so replay processing is at-least-once and
-// the checkpoint-durable provenance sets serve as idempotency guards for
-// the re-run — the re-consult re-records the hit, and the restored
-// replayed-set keeps the re-walked replay pages from re-copying.
+// tokens are not resume points), so replay processing is at-least-once.
+// CORRECTED by the sync-trace audit (chaos_trace_oracle_test.go): for a
+// mid-chain cut the replayed-set does NOT restore — checkpoints commit at
+// batch boundaries and the page chain runs inside one batch, so the
+// resume re-runs the replay copy regardless of checkpoint cadence. The
+// guard for the re-run is the copy's own replacement idempotence (B5);
+// the replayed-set's skip role is WITHIN-attempt (a later replay
+// annotation for an already-copied scope skips, e.g. warm-2 below).
 
 // withExpandGrants re-enables grant expansion (the shared chaos harness
 // disables it by default).
@@ -119,11 +123,12 @@ func TestChaosSourceCacheInterruptResume(t *testing.T) {
 		{
 			// Post-copy cut, warm resume: the action restarts at the root,
 			// re-consults (hit, warm), and re-walks the warm chain over
-			// rows the interrupted attempt already committed. The restored
-			// replayed-set marks the scope already-copied, so the re-run
-			// replay pages skip the copy and the overlay upsert re-applies
-			// idempotently; warm-2 is reached again via the chain and
-			// publishes the new validator.
+			// rows the interrupted attempt already committed. The re-run
+			// replay page RE-RUNS the copy (the mid-chain cut left the
+			// replayed-set un-checkpointed — see the suite comment) and
+			// the overlay upsert re-applies, both idempotently; warm-2 is
+			// reached again via the chain, skips via the same-attempt
+			// replayed-set, and publishes the new validator.
 			name:                   "cut-after-copy-resume-warm",
 			cutToken:               "warm-2",
 			resumeWarm:             true,
