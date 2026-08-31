@@ -73,24 +73,28 @@
 // well-behaved connector naturally falls back to full fetch.
 //
 // SESSION STORE (CO-6b-009 in docs/verification/sync-replay-6b/plan.md).
-// The connector session store carries the same discipline:
+// The connector session store carries the same discipline. Sessions
+// persist across crash/resume — including writes from beyond the restored
+// checkpoint, since session writes commit outside the checkpoint
+// mechanism (the SDK does NOT clear them on resume: completed actions
+// never re-run, so a clear would destroy caches whose producing work
+// will not execute again). The obligations that follow:
 //
-//   - Sessions are ATTEMPT-scoped under this protocol. A resumed sync
-//     clears its session namespace before any connector call, because
-//     session writes commit outside the checkpoint mechanism and a
-//     crashed attempt's cached premises would otherwise silently feed
-//     rounds whose rows the resume re-grounds. Treat sessions as a cache
-//     that can vanish between any two calls; rebuild on miss.
 //   - Replay/record verdicts must be derived from upstream evidence
 //     (conditional requests, delta tokens), never from session-cached
 //     verdicts — a session-cached MATCH is exactly the "validator that
 //     outlives its evidence" shape above, and it launders staleness past
-//     every SDK gate.
+//     every SDK gate. This holds doubly across a resume: a cached verdict
+//     may predate rounds whose rows the resume re-grounds.
 //   - A replayed scope's rows never pass through the connector, so
 //     session state built while GENERATING rows ("principals I emitted
 //     this sync") is silently partial for scopes the connector chose to
 //     replay. Do not consume such state for cross-scope decisions unless
 //     every contributing scope was fetched fresh this sync.
+//   - The window between the last checkpoint and a crash RE-RUNS on
+//     resume, with the dead attempt's session writes still present.
+//     Session use must be safe under at-least-once re-execution — no
+//     once-only dedup, no "already handled" markers.
 //
 // Replay equivalence: a cached sync must reproduce what a full resync
 // would produce. Replayed rows are verbatim copies of the previous sync's

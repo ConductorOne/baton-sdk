@@ -19,17 +19,23 @@ Sessions are **scratch cache space**, not durable connector state:
 
 - The namespace is per **sync ID**. Sessions never cross syncs: they are
   cleared after the sync ends and do not ship in the saved `.c1z`.
-- Session writes are durable within a sync but commit **independently of
-  the syncer's checkpoints**. After a crash, the resumed attempt's cursor
-  rolls back to the last checkpoint while session writes from beyond it
-  survive — session state can describe work the syncer will re-execute.
-  Never use sessions to decide whether to emit rows or how to shape a
-  paginated response; at-least-once re-execution must be safe.
-- Under the **source-cache protocol** (`SourceCacheCapability`
-  MODE_READ_WRITE), sessions are additionally **attempt-scoped**: the SDK
-  clears the sync's session namespace when it resumes an interrupted sync,
-  before any connector call (CO-6b-009 in
-  `docs/verification/sync-replay-6b/plan.md`). Treat sessions as a cache
-  that can vanish between any two calls and rebuild on miss. See
-  `pkg/sourcecache` for the full obligations, including why replay/record
-  verdicts must never come from session-cached answers.
+- Session state **persists across crash/resume**, including writes from
+  beyond the restored checkpoint: session writes are durable but commit
+  **independently of the syncer's checkpoints**, so after a crash the
+  resumed attempt's cursor rolls back to the last checkpoint while every
+  session write survives. Two consequences (CO-6b-009 in
+  `docs/verification/sync-replay-6b/plan.md`):
+  - The work between the checkpoint and the crash **re-runs**, and during
+    that window the connector can observe its own dead attempt's "future"
+    writes. Never use sessions for once-only decisions — whether to emit
+    rows, whether a page was "already handled", how to shape a paginated
+    response. At-least-once re-execution must be safe with session state
+    present from the first run.
+  - Conversely, state written during **completed** actions is preserved
+    and legitimately consumable later in the sync — resume never re-runs
+    completed actions, and the SDK deliberately does **not** clear
+    sessions on resume for exactly this reason (an accumulate-then-consume
+    cache would be unrecoverable).
+- Under the **source-cache protocol**, session-derived caches carry extra
+  obligations — see `pkg/sourcecache` (SESSION STORE section), including
+  why replay/record verdicts must never come from session-cached answers.

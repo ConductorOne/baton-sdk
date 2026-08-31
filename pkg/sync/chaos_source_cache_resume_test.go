@@ -389,33 +389,46 @@ func TestChaosSourceCacheInterruptResume(t *testing.T) {
 	}
 }
 
-// TestChaosSourceCacheSessionGroundingOnResume pins CO-6b-009: connector
-// session-store writes are durable in the artifact and commit OUTSIDE the
+// TestChaosSourceCacheSessionPersistsAcrossResume pins the session
+// store's resume semantics (CO-6b-009, hazard analysis): connector
+// session writes are durable in the artifact and commit OUTSIDE the
 // checkpoint mechanism, so a resumed attempt inherits the crashed
-// attempt's session state — stale premises the connector cannot detect
-// (its process restarted; sessions are the only state that survived).
-// Under the source-cache protocol that channel can launder replay-era
-// caches into rounds whose rows this attempt re-grounds, so a resumed
-// participating sync clears its session namespace before any connector
-// RPC. A capability-withdrawn resume (CO-6b-003) does NOT clear: that
-// path degrades wholesale and keeps the long-standing session semantics.
+// attempt's session state wholesale — regardless of source-cache
+// participation. Both legs must KEEP the probe.
+//
+// This pins a deliberate rejection: an earlier change cleared the
+// namespace on a participating resume ("attempt-scoped sessions"). That
+// is unsound in the other direction — resume restores the action queue
+// from the checkpoint, completed actions never re-run, so a wholesale
+// clear destroys session values whose producing work will not execute
+// again (the accumulate-then-consume pattern: an index built during a
+// completed action, consumed by a later one). Do not reintroduce it.
+//
+// The inherited-state semantics carries a real two-sided hazard,
+// documented in pkg/session/README.md: (a) writes from beyond the
+// restored cursor survive, so the re-run window can observe its own
+// dead attempt's "future" writes — sessions must not implement
+// once-only dedup; (b) under the source-cache protocol, session-derived
+// caches must never feed replay/record verdicts (pkg/sourcecache,
+// SESSION STORE section). The mechanical fix for (a) is checkpoint-
+// consistent sessions (volatile overlay flushed atomically with the
+// checkpoint), registered as future work in
+// docs/verification/sync-replay-6b/plan.md.
 //
 // Both legs plant a probe key into the interrupted sync's session
 // namespace between attempts (equivalent to a crashed attempt's own
 // write — same keyspace, same durability), then crash the resume after
-// dispatch begins and read the artifact: with capability the probe must
-// be gone (grounded before the first connector call), without it the
-// probe must survive.
-func TestChaosSourceCacheSessionGroundingOnResume(t *testing.T) {
+// dispatch begins and read the artifact: the probe must survive with
+// and without the source-cache capability.
+func TestChaosSourceCacheSessionPersistsAcrossResume(t *testing.T) {
 	skipChaosInShort(t)
 
 	for _, leg := range []struct {
 		name           string
 		withCapability bool
-		wantProbe      bool
 	}{
-		{name: "participating-resume-grounds", withCapability: true, wantProbe: false},
-		{name: "withdrawn-capability-resume-keeps", withCapability: false, wantProbe: true},
+		{name: "participating-resume-keeps", withCapability: true},
+		{name: "withdrawn-capability-resume-keeps", withCapability: false},
 	} {
 		t.Run(leg.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
@@ -499,8 +512,9 @@ func TestChaosSourceCacheSessionGroundingOnResume(t *testing.T) {
 			defer func() { require.NoError(t, readStore.Close(ctx)) }()
 			_, found, err := readStore.SessionStore().Get(ctx, "probe-key", sessions.WithSyncID(syncID))
 			require.NoError(t, err)
-			require.Equal(t, leg.wantProbe, found,
-				"session probe visibility after resume must match the grounding gate (CO-6b-009)")
+			require.True(t, found,
+				"session state must persist across resume: completed actions never re-run, so a "+
+					"resume-time clear destroys values whose producing work will not execute again (CO-6b-009)")
 		})
 	}
 }

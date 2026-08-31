@@ -135,22 +135,28 @@ Findings that matter beyond the models themselves:
    heals by re-execution (restart-from-root + idempotent re-copy),
    so grounding was the missing piece, not unit-mode commit.
 
-   The adjacent flank — the graph model's E-only-laundering finding
-   made concrete in shipped code — is the SESSION STORE: connector
-   session writes are durable in the artifact but commit outside the
-   checkpoint mechanism, so a resumed attempt inherited the crashed
-   attempt's cached premises on a channel with no publish/validation
-   concept, undetectably (the connector's process restarted; sessions
-   were the only surviving state). Fenced at the only boundary 6b has:
-   a resumed attempt of a protocol-participating sync clears its
-   session namespace before any connector call (CO-6b-009,
-   `groundSessionStoreOnResume`, witnessed both ways by
-   `TestChaosSourceCacheSessionGroundingOnResume`). The within-attempt
-   remainder — replayed scopes produce no generation-side session
-   state, and consults must never be answered from session caches —
-   is contractual, pinned in `pkg/sourcecache`; the lineage-bearing
-   fix (session reads as stamped observation points) is variant-S
-   scope.
+   The adjacent flank is the SESSION STORE — with an honest
+   provenance note: this one was found by code reading (session
+   writes commit outside the checkpoint mechanism, so a resumed
+   attempt inherits the dead attempt's state wholesale, including
+   writes from beyond the restored cursor), NOT by a formal system;
+   none of the models contain a session store, and the resemblance to
+   the graph model's E-only-laundering finding is an analogy, not a
+   derivation. A mechanical fix (clearing the namespace on a
+   participating resume) was shipped and then REVERTED as unsound:
+   resume never re-runs completed actions, so a wholesale clear
+   destroys session caches whose producing work will not execute
+   again. Current stance is contractual (CO-6b-009 in the 6b plan):
+   session use must survive at-least-once re-execution with prior
+   state present, consults must never be answered from session
+   caches, and session state is silently partial for replayed scopes
+   — pinned in `pkg/sourcecache` and `pkg/session/README.md`, with
+   persistence-across-resume pinned by
+   `TestChaosSourceCacheSessionPersistsAcrossResume`. The correct
+   mechanical fence (checkpoint-consistent sessions: a volatile
+   overlay flushed atomically with the checkpoint) is registered as
+   future work; the lineage-bearing fix (session reads as stamped
+   observation points) is variant-S scope.
 1. **Resume re-copy (real code, documentation falsified).** The
    resume suite documented that a restored replayed-set skips the
    replay copy across a mid-batch cut. The real-trace instrument

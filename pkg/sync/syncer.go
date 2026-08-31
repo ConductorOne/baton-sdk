@@ -1089,16 +1089,6 @@ func (s *syncer) Sync(ctx context.Context) error {
 	defer teardownSourceCache()
 
 	if !newSync {
-		// Sessions are attempt-scoped under the source-cache protocol:
-		// ground the namespace before any connector RPC can read a
-		// crashed attempt's stale premises (CO-6b-009; see
-		// groundSessionStoreOnResume).
-		if err := s.groundSessionStoreOnResume(ctx); err != nil {
-			return s.returnSyncError(l, span, err)
-		}
-	}
-
-	if !newSync {
 		currentAction := s.state.Current()
 		currentActionOp := ""
 		currentActionPageToken := ""

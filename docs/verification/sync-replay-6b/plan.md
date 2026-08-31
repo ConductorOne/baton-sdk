@@ -792,41 +792,56 @@ and verification delta.)
   by re-execution (root restart + idempotent re-copy, CO-6b-002), so
   grounding was the missing piece, not unit-mode commit.
 
-### CO-6b-009 — Session-store grounding: sessions are attempt-scoped under the protocol
+### CO-6b-009 — Session store across resume: hazard analysis; resume-clear REJECTED
 
-- Type: composition-channel gap adjacent to CO-6b-008, closed
-  mechanically for participating syncs and contractually for the rest.
-- Premise: connector session-store writes are durable in the artifact,
-  keyed by sync id, and commit OUTSIDE the checkpoint mechanism — a
-  resumed attempt inherits the crashed attempt's session state
-  wholesale, including writes from beyond the restored cursor and
-  caches derived from rounds whose rows this attempt re-grounds
-  (CO-6b-008 clears the row partition; nothing re-validates session
-  state derived from it). The connector cannot detect the resume (its
-  process restarted; sessions are the only surviving state), so it
-  would consume stale premises silently. Sessions have no
-  publish/validation concept, so the only fence available to 6b is the
-  attempt boundary.
-- Fix: `groundSessionStoreOnResume` — a RESUMED attempt of a sync
-  participating in the source-cache protocol (`sourceCacheStore`
-  non-nil) clears this sync's session namespace before any connector
-  RPC. Connectors rebuild caches (at-least-once cost, like the replay
-  re-copy). Non-participating syncs keep the long-standing semantics
-  (their rows are all fetched fresh, so session staleness cannot
-  launder replay decisions; changing them is out of 6b's scope). A
-  capability-withdrawn resume (CO-6b-003) does not clear — that path
-  already degrades wholesale and its session semantics degrade with it.
-- Witness: `TestChaosSourceCacheSessionGroundingOnResume` — a probe key
-  planted in the interrupted sync's session namespace is gone after a
-  participating resume (grounded before the first connector call) and
-  survives a capability-withdrawn resume (pinning the gate; the
-  surviving leg also proves the probe planting instrument works).
-- Contractual remainder (documented, not mechanical): WITHIN an
-  attempt, a replayed scope's rows never pass through the connector, so
-  session caches built from "rows I generated this sync" are silently
-  partial for replayed scopes; and consult answers must be derived from
-  upstream evidence, never from session-cached verdicts (a
-  session-cached MATCH would launder staleness past every SDK gate).
-  Both are connector obligations pinned in `pkg/sourcecache` and
-  `pkg/session/README.md`. The lineage-bearing fix (session reads as
-  stamped observation points) is variant-S scope (RFC 0011).
+- Type: hazard analysis with contractual pins. A mechanical fix
+  (wholesale namespace clear on a participating resume,
+  `groundSessionStoreOnResume`) was briefly shipped and REVERTED —
+  see the rejection rationale below before reintroducing anything
+  like it.
+- Premise (verified in code, not model-derived): connector
+  session-store writes are durable in the artifact, keyed by sync id,
+  and commit OUTSIDE the checkpoint mechanism (`SessionSet` commits its
+  own batch; `CheckpointSync` is a separate write). After a crash the
+  resumed attempt's cursor rolls back to the last checkpoint while
+  every session write survives — the resumed attempt inherits the dead
+  attempt's session state wholesale, and the connector cannot detect
+  the resume (its process restarted; sessions are the only surviving
+  state).
+- The two-sided hazard:
+  - Writes from BEYOND the restored cursor survive into work that
+    re-runs: the re-run window can observe its own dead attempt's
+    "future" writes, so session-based once-only decisions (dedup,
+    "already handled" markers) silently drop work.
+  - Under the protocol, session caches derived from replay-era rounds
+    can feed rounds whose rows a resume re-grounds (CO-6b-008 clears
+    the row partition; nothing re-validates session state derived from
+    it).
+- Why the resume-clear was rejected: resume restores the action queue
+  from the checkpoint and COMPLETED actions never re-run, so a
+  wholesale clear destroys session values whose producing work will
+  not execute again (accumulate-then-consume: an index built during a
+  completed action, consumed by a later one, is unrecoverable). The
+  clear also rewrote the session contract to match the fix
+  ("attempt-scoped") rather than fixing to the contract.
+- Correct mechanical fix (future work, not scheduled): checkpoint-
+  consistent sessions — session mutations land in a volatile overlay,
+  reads merge overlay-over-durable, and the overlay flushes in the
+  SAME batch as the checkpoint write. Crash then restores sessions to
+  exactly the checkpoint's state: future-writes vanish (hazard a),
+  completed-action caches persist, and the re-run window regenerates
+  its own writes as the work re-runs. (Epoch-tagging entries and
+  purging on resume cannot undo deletes/overwrites without a value
+  journal, which converges to the overlay.) Candidate for RFC 0011
+  scope, where session reads become stamped observation points.
+- Current stance — contractual, pinned in `pkg/sourcecache` and
+  `pkg/session/README.md`: session use must be safe under
+  at-least-once re-execution with prior state present (no once-only
+  decisions); replay/record verdicts must come from upstream evidence,
+  never session-cached answers; session state built while generating
+  rows is silently partial for replayed scopes.
+- Witness: `TestChaosSourceCacheSessionPersistsAcrossResume` — a probe
+  key planted in the interrupted sync's session namespace survives the
+  resume with AND without the source-cache capability, pinning the
+  persistence semantics and standing guard against reintroducing a
+  resume-time clear.
