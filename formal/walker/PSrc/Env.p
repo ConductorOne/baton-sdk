@@ -73,6 +73,9 @@ machine MEnv {
                 if (cfg.cell == 7) {
                     announceCounterfactual(syncN);
                 }
+                if (cfg.cell == 8) {
+                    announceExtTruth(syncN);
+                }
                 attempt = 1;
                 syncDone = false;
                 failCount = 0;
@@ -116,7 +119,7 @@ machine MEnv {
                             // Dead attempt (quiesced by ack); apply the
                             // between-attempt script and resume.
                             interrupted = true;
-                            betweenAttempts();
+                            betweenAttempts(syncN);
                             attempt = attempt + 1;
                         }
                     } else {
@@ -144,12 +147,12 @@ machine MEnv {
                                 if (cfg.toggles.abandonLadder && failCount >= 2) {
                                     syncDone = true;
                                 } else {
-                                    betweenAttempts();
+                                    betweenAttempts(syncN);
                                     attempt = attempt + 1;
                                 }
                             } else {
                                 interrupted = true;
-                                betweenAttempts();
+                                betweenAttempts(syncN);
                                 attempt = attempt + 1;
                             }
                         }
@@ -283,12 +286,18 @@ machine MEnv {
     // Between-attempt premise script: base swap (case 3), upstream
     // mutation (drift premises). Order: swap first — both are env-level
     // initial-condition surgery for the NEXT attempt.
-    fun betweenAttempts() {
+    fun betweenAttempts(n: int) {
         if (cfg.swapBase) {
             swapBaseArtifact();
         }
         if (cfg.mutateBetweenAttempts) {
             mutateUpstream();
+        }
+        // Scenario 8: the truth ghost follows every mutation, so the
+        // P8 CURRENT clause always compares an attempt's list against
+        // the answer that was live when the attempt listed.
+        if (cfg.cell == 8 && cfg.mutateBetweenAttempts) {
+            announceExtTruth(n);
         }
     }
 
@@ -322,5 +331,17 @@ machine MEnv {
             case eValidateResp: (r: (ok: bool, epoch: int)) { e = r.epoch; }
         }
         announce eAnnCounterfactual, (syncN = n, key = 0, val = e);
+    }
+
+    // Scenario-8 truth ghost: the external source's CURRENT answer
+    // (the truthful epoch table at the current epoch) — computed by a
+    // read, never by an execution, like the P6-R counterfactual.
+    fun announceExtTruth(n: int) {
+        var e: int;
+        send upstream, eValidateReq, (client = this, scope = 0, v = -1);
+        receive {
+            case eValidateResp: (r: (ok: bool, epoch: int)) { e = r.epoch; }
+        }
+        announce eAnnExtTruth, (syncN = n, ids = upstreamRowIds(e));
     }
 }

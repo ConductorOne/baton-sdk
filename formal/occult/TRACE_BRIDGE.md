@@ -42,6 +42,21 @@ token, so the across-attempt replay re-copy is B5-legal at-least-once
 idempotence, while a within-attempt duplicate remains the bug.
 Single-attempt traces carry no marker and mean what they always did.
 
+The external-principal extension (policy 7, the
+`deleteStaleExternalPrincipals` contract): `ep_list` marks a phase run
+listing the external source's CURRENT answer; `ep_live(p)` declares p
+a member of that answer; `ep_recon` marks reconciliation COMPLETED
+(stale copies deleted, or nothing stale); `ep_copy(p)` is p's
+committed principal write. These live in their own keyspace —
+invisible to the artifact policies (1–5) and the session policy (6),
+like session events are to both. Committed copies are DURABLE across
+`ev_resume` (checkpoint resume deliberately retains completed writes),
+which is the debris premise: a between-attempt shrink strands a dead
+attempt's copies unless reconciliation deletes them. The
+warn-and-continue degrade of a non-deleting engine emits NO `ep_recon`
+— the pass ran but did not reconcile — so its first copy is the
+recon-before-copy violation.
+
 Pending extension, tracked not modeled: generation stamps (the graph
 model's variant-S lineage).
 
@@ -97,7 +112,7 @@ manifest-entry writes (publish), durable checkpoint tokens, and
 EndSync (seal). The chaos test `chaos_trace_oracle_test.go` records
 the reference source-cache scenario cold and warm and exports JSONL
 fixtures (`host/testdata/realtraces/`); `host/real_trace_oracle_test.go`
-renders them onto the canonical vocabulary and checks all six
+renders them onto the canonical vocabulary and checks all seven
 policies.
 
 Two conventions live in the RENDERER, never the recorder (the recorder
@@ -116,8 +131,8 @@ Multi-attempt traces are in-domain too. The chaos harness cuts a warm
 two-page delta round with an `EffectCrash` after the replay unit and
 overlay upsert committed, resumes with a new syncer, and exports the
 two attempts as one fixture with a `{"kind":"resume"}` marker line
-(`warm_replay_sync_interrupted.jsonl`). All six policies are green on
-it, and `TestRealTraceBridgeResumeMarkerLoadBearing` proves the marker
+(`warm_replay_sync_interrupted.jsonl`). All seven policies are green
+on it, and `TestRealTraceBridgeResumeMarkerLoadBearing` proves the marker
 is load-bearing: stripping it turns the two legal across-attempt
 replays into a within-attempt duplicate and reds once-per-scope. Two
 rendering notes: consecutive checkpoints coalesce to one (verdict
@@ -205,6 +220,37 @@ walker as the P6-C monitor, whose three cells red the shipped
 semantics (zombie), red the rejected wholesale clear (amnesia), and
 green the checkpoint-consistent fix — `formal/walker/CALIBRATION.md`,
 decision 25.
+
+The instrument's fourth leg is the external-principal phase
+(`SyncExternalResources` — an outside source's principals copied into
+the sync store beside connector rows). The syncer records `ep_list`
+after the source's answer is listed, `ep_live` per member, `ep_recon`
+when `deleteStaleExternalPrincipals` COMPLETES (deletes applied or
+none needed — the warn-and-continue degrade branch of a non-deleting
+engine records nothing), and `ep_copy` per committed principal write.
+Two fixtures are exported by the existing external-principal chaos
+tests: `external_resume_current_answer.jsonl` (five attempts,
+capable engine, shrink mid-sync — green on all seven policies: every
+resume re-lists and reconciles before copying) and
+`external_resume_sqlite_degrade.jsonl` — a STANDING KNOWN-DEGRADE PIN,
+expected `violation: ext-recon-before-copy`: SQLite cannot delete, the
+resume warns and copies the current answer over the dead attempt's
+unreconciled debris. That is the ACCEPTED degradation (one-artifact
+staleness, self-healing at the next cold sync, no replay channel to
+launder it further), documented mechanically as an expected red
+exactly like the session pin. The renderer maps distinct principal
+ids onto the two-principal envelope (p1/p2) in first-seen order and
+projects further principals out — sound for the kept ones, since the
+policy tracks principals independently and the recon gate is
+principal-agnostic. Bridge validation for the other direction:
+`TestRealTraceBridgeCatchesStaleExternalSurvivor` strips the final
+attempt's reconciliation and copies from the capable-engine fixture's
+REAL events and the oracle reds `ext-stale-survivor`. The same
+contract is model-side in the walker as the P8 monitor (scenario 8,
+`formal/walker/CALIBRATION.md`): two calibrated reds — the
+non-deleting engine's stale survivor, the stale-list recency mutant —
+and three greens including the completed-then-crash carry
+(sync-scoped freshness).
 
 This leg has an executable instance: `host/refimpl/` (the demand-graph
 reference implementation) emits canonical traces from real executions

@@ -157,7 +157,18 @@ type tScenarioCfg = (
     // 1 = the rejected wholesale resume-clear (checkpoint-committed
     // data destroyed); 2 = checkpoint-consistent sessions (session
     // state latched with each checkpoint, restored at crash).
-    sessVariant: int
+    sessVariant: int,
+    // Scenario-8 axes (external principals; cell 8). extRecon models
+    // the storage engine's delete capability: TRUE = the shipped
+    // capable path (deleteStaleExternalPrincipals reconciles a dead
+    // attempt's copied principals before the current answer is
+    // written); FALSE = the warn-and-continue degrade (non-deleting
+    // engine) — stale principals survive to seal. extStaleList is the
+    // resume-recency mutant: attempts >= 2 list the SYNC-START answer
+    // instead of the current one (the behavior the
+    // ResumeUsesCurrentExternalAnswer chaos pin forbids).
+    extRecon: bool,
+    extStaleList: bool
 );
 
 // Base config: shipped design, no interruption, no mutation, 2 syncs.
@@ -184,7 +195,9 @@ fun defaultCfg(): tScenarioCfg {
         warmPageFails = false,
         lockReleaseOnError = true,
         o4Mutant = false,
-        sessVariant = 0
+        sessVariant = 0,
+        extRecon = true,
+        extStaleList = false
     );
 }
 

@@ -66,6 +66,21 @@ const (
 	// key for session events.
 	syncTraceSessionReadHit  syncTraceKind = "sread_hit"
 	syncTraceSessionReadMiss syncTraceKind = "sread_miss"
+	// External-principal events (the oracle's policy 7,
+	// external-principal grounding — the deleteStaleExternalPrincipals
+	// contract). syncTraceExtList: the external source's current answer
+	// finished listing for this phase run. syncTraceExtLive: one
+	// principal is a member of that answer (ScopeKey carries the
+	// principal's resource id). syncTraceExtRecon: reconciliation
+	// COMPLETED — stale principal rows deleted, or nothing stale. The
+	// warn-and-continue degrade of a non-deleting engine records
+	// NOTHING: the pass ran but did not reconcile, and the missing
+	// event is exactly what the oracle's recon-before-copy direction
+	// flags. syncTraceExtCopy: one principal's row write committed.
+	syncTraceExtList  syncTraceKind = "ep_list"
+	syncTraceExtLive  syncTraceKind = "ep_live"
+	syncTraceExtRecon syncTraceKind = "ep_recon"
+	syncTraceExtCopy  syncTraceKind = "ep_copy"
 )
 
 // syncTraceEvent is one canonical event. Scope-less kinds (checkpoint,

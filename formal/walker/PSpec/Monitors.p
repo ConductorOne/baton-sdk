@@ -392,6 +392,71 @@ spec P6C observes eAnnSyncStart, eAnnSessionSet, eAnnSessionGet, eAnnCheckpoint,
     }
 }
 
+// P8 (external principals, scenario 8 — the deleteStaleExternalPrincipals
+// contract made executable). Two clauses. CURRENT: every external
+// round's listed answer equals the source's answer at that moment
+// (the env truth ghost) — a resumed attempt must RE-LIST, never
+// consume a dead attempt's answer (the ResumeUsesCurrentExternalAnswer
+// chaos pin). SEAL: the sealed ext keyspace equals the LAST-RUN
+// round's listed answer exactly — no dead attempt's copied principal
+// survives reconciliation (STALE direction: the non-deleting-engine
+// degrade's debris), and nothing listed is dropped (MISSING direction:
+// the over-deletion guard). The seal clause compares against the last
+// LIST, not the truth at seal time: an attempt that completed the
+// phase before a crash seals its own answer legitimately even if the
+// source moved afterwards (sync-scoped freshness — the sync is not
+// obligated to chase post-completion changes).
+spec P8 observes eAnnSyncStart, eAnnExtTruth, eAnnExtRound, eAnnExtSeal {
+    var truth: map[int, bool];
+    var lastLive: map[int, bool];
+    var hasRound: bool;
+
+    start state Monitoring {
+        on eAnnSyncStart do (p: (syncN: int)) {
+            truth = default(map[int, bool]);
+            lastLive = default(map[int, bool]);
+            hasRound = false;
+        }
+        on eAnnExtTruth do (p: (syncN: int, ids: seq[int])) {
+            truth = toSet(p.ids);
+        }
+        on eAnnExtRound do (p: (syncN: int, live: seq[int], supported: bool, deleted: seq[int])) {
+            assert toSet(p.live) == truth, "P8-EXT-CURRENT: external round listed an answer differing from the source's current answer (resume consumed a dead attempt's list)";
+            lastLive = toSet(p.live);
+            hasRound = true;
+        }
+        on eAnnExtSeal do (p: (syncN: int, ids: seq[int])) {
+            var i: int;
+            var ks: seq[int];
+            var sealedSet: map[int, bool];
+            if (!hasRound) { return; }
+            sealedSet = toSet(p.ids);
+            i = 0;
+            while (i < sizeof(p.ids)) {
+                assert p.ids[i] in lastLive, "P8-EXT-STALE: sealed external principal absent from the last-run round's answer (dead attempt's copy survived reconciliation)";
+                i = i + 1;
+            }
+            ks = keys(lastLive);
+            i = 0;
+            while (i < sizeof(ks)) {
+                assert ks[i] in sealedSet, "P8-EXT-MISSING: external principal listed by the last-run round missing at seal";
+                i = i + 1;
+            }
+        }
+    }
+}
+
+fun toSet(ids: seq[int]): map[int, bool] {
+    var m: map[int, bool];
+    var i: int;
+    i = 0;
+    while (i < sizeof(ids)) {
+        m[ids[i]] = true;
+        i = i + 1;
+    }
+    return m;
+}
+
 // P6-R (MODEL_SPEC 7, case 7): replay-session coherence. Per (sync,
 // key) the model carries a COUNTERFACTUAL session value — the producer
 // policy's phase-final value under an all-fresh execution at this

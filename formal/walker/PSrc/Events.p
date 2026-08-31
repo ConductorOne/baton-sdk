@@ -74,6 +74,20 @@ event eSessionGetResp: (found: bool, val: int);
 // fabricated-but-legal sibling B (equal compat record, validator
 // vB, content = truthful rows at vB's epoch). Env-level, not gen-gated.
 event eSwapBase: (client: machine, scope: int, vB: int, rowsB: seq[tRow]);
+// Scenario-8 external-principal ops (MODEL_SPEC abstraction of
+// SyncExternalResources). The ext keyspace is separate from scope
+// partitions (external principals carry the BatonID annotation and
+// live beside connector rows; the model keeps them in their own map).
+// eExtReconReq = deleteStaleExternalPrincipals: with supported TRUE
+// it deletes every ext row absent from live (the current listed
+// answer) as ONE atomic op; with supported FALSE it is the
+// warn-and-continue degrade — a no-op that still announces the round
+// (the LIST happened; reconciliation did not).
+event eExtReconReq: (client: machine, gen: int, live: seq[int], supported: bool);
+// eExtCopy = the current answer's principal writes (page-atomic per
+// the MODEL_SPEC 1 store abstraction; partial-write debris reduces to
+// the same stale-survivor class the crash-between-ops windows cover).
+event eExtCopy: (client: machine, gen: int, ids: seq[int]);
 
 // ---- upstream (synchronous request/response) ----
 event eValidateReq: (client: machine, scope: int, v: int);
@@ -181,6 +195,16 @@ event eAnnCounterfactual: (syncN: int, key: int, val: int);
 // Loud-cold: a gate (binding / warm-gate) detected a mismatch and the
 // chain failed cold instead of copying — the mitigation's success path.
 event eAnnLoudCold: (syncN: int, scope: int, reason: int); // 1=binding, 2=warmGate
+// Scenario-8 announce vocabulary (P8). eAnnExtTruth: the env's ghost
+// of the external source's CURRENT answer, announced at sync start
+// and after every between-attempt mutation — the truth the CURRENT
+// clause compares each attempt's list against. eAnnExtRound: the
+// store's commit-side record of one external round (the answer the
+// attempt listed, whether reconciliation ran, what it deleted).
+// eAnnExtSeal: the ext keyspace as sealed, announced with the seal.
+event eAnnExtTruth: (syncN: int, ids: seq[int]);
+event eAnnExtRound: (syncN: int, live: seq[int], supported: bool, deleted: seq[int]);
+event eAnnExtSeal: (syncN: int, ids: seq[int]);
 // Attempt-level loud failure record (P4): the RESTORED checkpoint's
 // scheduler-progress state (stack/hits/replayed — the ingest-quality
 // blocked flag is deliberately excluded: it does not influence the

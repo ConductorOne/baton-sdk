@@ -64,6 +64,11 @@ tcP4stuck_P4:RED
 tcP4ladder_All:GREEN
 tcP4leak_P1:RED
 tcP4release_All:GREEN
+tc8green_P8:GREEN
+tc8crash_P8:GREEN
+tc8stop_P8:GREEN
+tc8reconOff_P8:RED
+tc8staleList_P8:RED
 "
 
 mismatches=0

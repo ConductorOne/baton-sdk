@@ -29,7 +29,7 @@ way.
 MS-CO-001) and the `walker/` P project. Authority is earned by
 rediscovery: with mitigations toggled off, the checker finds the
 known bugs; with the shipped/staged fixes toggled on, the same cells
-go green. The current sweep is 50 cells, 0 mismatches, 10k schedules
+go green. The current sweep is 55 cells, 0 mismatches, 10k schedules
 per cell (`walker/CALIBRATION.md`).
 
 Reproduced reds include: the phantom union in content, staleness, and
@@ -41,7 +41,11 @@ direction and the rejected resume-clear's amnesia direction, with
 checkpoint-consistent sessions green — see finding 0); the
 artifact-swap hit-rebind residual hole and the CO-6b-004 binding kill
 that closes most of it (scenario 3); warm-drift, overlay placement,
-and progress cells (scenarios 5–7). Every red archives its
+and progress cells (scenarios 5–7); and external principals
+(scenario 8's P8 monitor — the `deleteStaleExternalPrincipals`
+contract: the non-deleting engine's stale-survivor degrade and the
+stale-list recency mutant red, the capable-engine crash/stop/carry
+schedules green). Every red archives its
 counterexample schedule under `walker/traces/`.
 
 ## Track B — demand-graph runtime model and the bake-off (P)
@@ -92,16 +96,19 @@ repo `../occult`) through the Go host in `occult/host/`:
   cap/leg controls refused. The bounce cap is structural (no
   five-bounce term exists), mirroring
   `sourcecache.MaxLookupBouncesPerRequest`.
-- **Trace policies (D7)**: six ordering/durability policies
+- **Trace policies (D7)**: seven ordering/durability policies
   (consult-before-replay, clear-before-write, once-per-scope,
-  publish-before-checkpoint quiescence, seal obligations, and
+  publish-before-checkpoint quiescence, seal obligations,
   session-checkpoint consistency — finding 0's root cause as a
-  policy) over a canonical event vocabulary including attempt
+  policy — and external-principal grounding, the
+  `deleteStaleExternalPrincipals` contract) over a canonical event
+  vocabulary including attempt
   boundaries (`ev_resume`), the delta protocol's delete leg
-  (`ev_delete`), and session operations (`ev_swrite`,
-  `ev_sread_hit`, `ev_sread_miss`). Verdict matrix: 96 cells
-  (16 fixtures × 6 policies), each green fixture satisfies all, each
-  red violates exactly its own.
+  (`ev_delete`), session operations (`ev_swrite`,
+  `ev_sread_hit`, `ev_sread_miss`), and the external-principal
+  phase (`ep_list`, `ep_live`, `ep_recon`, `ep_copy`). Verdict
+  matrix: 140 cells (20 fixtures × 7 policies), each green fixture
+  satisfies all, each red violates exactly its own.
 - **Reference implementation**: an executable Go prototype of the
   demand-graph runtime whose traces are judged by the same oracle;
   its legacy mode reproduces the broken behavior and is caught.
@@ -110,11 +117,14 @@ repo `../occult`) through the Go host in `occult/host/`:
   nil in production — the field is only ever assigned from test
   files, which are not compiled into non-test binaries). Chaos tests
   run the real syncer and export JSONL fixtures; the oracle judges
-  them: 36 policy cells across cold, warm, crash/resume,
-  tombstone-delta, record-flip, and session-zombie executions — 35
-  green plus ONE deliberately red cell, the session-zombie fixture's
-  `session_ckpt_consistency` verdict, which is the standing
-  known-defect pin on the shipped session semantics (finding 0).
+  them: 56 policy cells across cold, warm, crash/resume,
+  tombstone-delta, record-flip, session-zombie, and
+  external-principal executions — 54 green plus TWO deliberately red
+  cells: the session-zombie fixture's `session_ckpt_consistency`
+  verdict, the standing known-defect pin on the shipped session
+  semantics (finding 0), and the SQLite external-principal fixture's
+  `external_principal_grounding` verdict, the standing known-degrade
+  pin on the non-deleting engine's warn-and-continue resume.
   Planted-violation tests prove the bridge detects what it claims
   to (`occult/TRACE_BRIDGE.md`).
 

@@ -65,6 +65,16 @@ machine MWorker {
             if (cfg.variant == VAR_OVERLAY_UNIT && action.cursor != 0 && !cfg.o4Mutant) {
                 action.cursor = 0;
             }
+            // Scenario 8: the external op restarts from its root token
+            // on every (re)dispatch — a resumed external phase re-lists
+            // and re-reconciles rather than resuming a mid-phase
+            // cursor (restart-from-root is the healing mechanism
+            // deleteStaleExternalPrincipals is built for; a mid-phase
+            // cursor resume would copy a fresh answer over a stale
+            // reconciliation).
+            if (cfg.cell == 8 && action.cursor != 0) {
+                action.cursor = 0;
+            }
             bufUp = default(seq[tRow]);
             bufRm = default(seq[int]);
             pageStamp = -1;
@@ -129,6 +139,9 @@ machine MWorker {
         }
         if (cfg.cell == 2 || cfg.cell == 21) {
             return sessionPage();
+        }
+        if (cfg.cell == 8) {
+            return extPage();
         }
         if (cfg.cell == 7 && (action.cursor == 0 || action.cursor == 1)) {
             return kindPage7();
@@ -257,6 +270,40 @@ machine MWorker {
         ghost = (roundId = action.aid * 100, verdict = V_FRESH, consultEpoch = 0, config = 0, lastOp = true, attempt = gen);
         rows += (0, (id = 1, epoch = 0, hops = 0, config = 0, stamp = val));
         send store, eUpsertPage, (client = this, gen = gen, scope = action.scope, rows = rows, ghost = ghost);
+        receive { case eStoreAck: {} case eStoreDead: { dead = true; } }
+        return mkTransition(0, true, false, -1, false);
+    }
+
+    // Scenario-8 external phase (MODEL_SPEC abstraction of
+    // SyncExternalResources; cell 8). Page 0 = LIST + RECONCILE: read
+    // the external source's current answer (the truthful epoch table —
+    // the extStaleList mutant lists the sync-start epoch on attempts
+    // >= 2 instead, the recency bug ResumeUsesCurrentExternalAnswer
+    // pins) and commit the reconciliation op (delete-stale under
+    // cfg.extRecon; warn-and-continue degrade otherwise). Page 1 =
+    // COPY: commit the listed answer's principal writes. Crash windows
+    // exist at every op boundary; a resumed phase restarts from page 0
+    // (the eDispatch reset above).
+    fun extPage(): (nextCursor: int, done: bool, spawn: tAction, hasSpawn: bool, hitScope: int, hitV: int, hasHit: bool, markReplayed: bool, replayedScope: int) {
+        var e: int;
+        var live: seq[int];
+        send upstream, eValidateReq, (client = this, scope = action.scope, v = -1);
+        receive {
+            case eValidateResp: (r: (ok: bool, epoch: int)) { e = r.epoch; }
+        }
+        if (cfg.extStaleList && gen % 10 >= 2) {
+            // The recency mutant: the resumed attempt consumes the dead
+            // attempt's answer instead of re-listing.
+            e = 1;
+        }
+        live = upstreamRowIds(e);
+        if (action.cursor == 0) {
+            send store, eExtReconReq, (client = this, gen = gen, live = live, supported = cfg.extRecon);
+            receive { case eStoreAck: {} case eStoreDead: { dead = true; } }
+            if (dead) { return mkTransition(0, true, false, -1, false); }
+            return mkTransition(1, false, false, -1, false);
+        }
+        send store, eExtCopy, (client = this, gen = gen, ids = live);
         receive { case eStoreAck: {} case eStoreDead: { dead = true; } }
         return mkTransition(0, true, false, -1, false);
     }

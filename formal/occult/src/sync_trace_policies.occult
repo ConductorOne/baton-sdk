@@ -1,9 +1,10 @@
 # Deliverable 7: the ordering/durability trace-policy oracle set
 # (brief: "Trace-policy oracle set" — consult-before-replay,
 # checkpoint-before-progress, clear-before-upsert, once-per-scope, seal
-# obligations, plus policy 6: session-checkpoint consistency, the
-# CO-6b-009 root cause) over the announce vocabulary pinned in
-# formal/MODEL_SPEC.md §7. A trace is ONE SYNC's event list — possibly
+# obligations, policy 6: session-checkpoint consistency (the CO-6b-009
+# root cause), plus policy 7: external-principal grounding, the
+# deleteStaleExternalPrincipals contract) over the announce vocabulary
+# pinned in formal/MODEL_SPEC.md §7. A trace is ONE SYNC's event list — possibly
 # spanning crash/resume attempts, with ev_resume marking each attempt
 # boundary (the multi-attempt extension; single-attempt traces carry no
 # marker and mean exactly what they did before). Each policy is a
@@ -67,6 +68,27 @@ syntax("standard");
 ∃ ev_sread_miss;
 ∃ k1;
 
+# External-principal events (policy 7). The external phase copies an
+# outside source's principals into the sync store; committed copies
+# are durable across crashes (checkpoint resume deliberately retains
+# completed writes), so a between-attempt shrink strands a dead
+# attempt's copies unless reconciliation deletes them. ep_list marks a
+# phase run listing the source's CURRENT answer; ep_live(p) declares p
+# a member of that answer; ep_recon marks reconciliation COMPLETED
+# (stale copies deleted, or nothing stale — the warn-and-continue
+# degrade of a non-deleting engine emits NO ep_recon: the pass ran but
+# did not reconcile); ep_copy(p) is p's committed principal write.
+# External events live in their own keyspace: invisible to the
+# artifact policies (1-5) and the session policy (6), like session
+# events are to both. Two-principal envelope (p1, p2), mirroring the
+# P model's scenario-8 row ids.
+∃ ep_list;
+∃ ep_live;
+∃ ep_recon;
+∃ ep_copy;
+∃ p1;
+∃ p2;
+
 # ev_resume marks a crash/resume attempt boundary inside one sync's
 # trace. Semantics (matching pkg/sync's checkpoint-durable provenance,
 # pinned by chaos_source_cache_resume_test.go): durable facts PERSIST
@@ -113,6 +135,10 @@ cbr_go(tcons(ev_delete(s), r), a, b) = cbr_go(r, a, b);
 cbr_go(tcons(ev_swrite(k), r), a, b) = cbr_go(r, a, b);
 cbr_go(tcons(ev_sread_hit(k), r), a, b) = cbr_go(r, a, b);
 cbr_go(tcons(ev_sread_miss(k), r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ep_list, r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ep_live(p), r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ep_recon, r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ep_copy(p), r), a, b) = cbr_go(r, a, b);
 
 # --- Policy 2: clear-before-upsert (clear-before-WRITE) ---
 # Any upsert into — or tombstone delete from — a scope's partition
@@ -144,6 +170,10 @@ cbu_go(tcons(ev_resume, r), a, b) = cbu_go(r, a, b);
 cbu_go(tcons(ev_swrite(k), r), a, b) = cbu_go(r, a, b);
 cbu_go(tcons(ev_sread_hit(k), r), a, b) = cbu_go(r, a, b);
 cbu_go(tcons(ev_sread_miss(k), r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ep_list, r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ep_live(p), r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ep_recon, r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ep_copy(p), r), a, b) = cbu_go(r, a, b);
 
 # --- Policy 3: once-per-scope ---
 # At most one committed replacement copy per scope per attempt (the
@@ -168,6 +198,10 @@ ops_go(tcons(ev_delete(s), r), a, b) = ops_go(r, a, b);
 ops_go(tcons(ev_swrite(k), r), a, b) = ops_go(r, a, b);
 ops_go(tcons(ev_sread_hit(k), r), a, b) = ops_go(r, a, b);
 ops_go(tcons(ev_sread_miss(k), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ep_list, r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ep_live(p), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ep_recon, r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ep_copy(p), r), a, b) = ops_go(r, a, b);
 
 # --- Policy 4: checkpoint-before-progress (seal form) ---
 # The seal requires a QUIESCENT checkpoint: an ev_checkpoint after
@@ -188,6 +222,10 @@ cbp_go(tcons(ev_resume, r), f) = cbp_go(r, f);
 cbp_go(tcons(ev_swrite(k), r), f) = cbp_go(r, f);
 cbp_go(tcons(ev_sread_hit(k), r), f) = cbp_go(r, f);
 cbp_go(tcons(ev_sread_miss(k), r), f) = cbp_go(r, f);
+cbp_go(tcons(ep_list, r), f) = cbp_go(r, f);
+cbp_go(tcons(ep_live(p), r), f) = cbp_go(r, f);
+cbp_go(tcons(ep_recon, r), f) = cbp_go(r, f);
+cbp_go(tcons(ep_copy(p), r), f) = cbp_go(r, f);
 cbp_go(tcons(ev_seal, r), tt) = "ok";
 cbp_go(tcons(ev_seal, r), ff) = "violation: checkpoint-before-progress";
 
@@ -216,6 +254,10 @@ so_go(tcons(ev_resume, r), a, p, b, q) = so_go(r, a, p, b, q);
 so_go(tcons(ev_swrite(k), r), a, p, b, q) = so_go(r, a, p, b, q);
 so_go(tcons(ev_sread_hit(k), r), a, p, b, q) = so_go(r, a, p, b, q);
 so_go(tcons(ev_sread_miss(k), r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ep_list, r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ep_live(x), r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ep_recon, r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ep_copy(x), r), a, p, b, q) = so_go(r, a, p, b, q);
 so_go(tcons(ev_seal, r), tt, ff, b, q) = "violation: seal-obligations";
 so_go(tcons(ev_seal, r), a, p, tt, ff) = "violation: seal-obligations";
 so_go(tcons(ev_seal, r), ff, p, ff, q) = "ok";
@@ -264,6 +306,77 @@ scc_go(tcons(ev_upsert(s), r), u, c, z) = scc_go(r, u, c, z);
 scc_go(tcons(ev_delete(s), r), u, c, z) = scc_go(r, u, c, z);
 scc_go(tcons(ev_publish(s), r), u, c, z) = scc_go(r, u, c, z);
 scc_go(tcons(ev_seal, r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ep_list, r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ep_live(x), r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ep_recon, r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ep_copy(x), r), u, c, z) = scc_go(r, u, c, z);
+
+# --- Policy 7: external-principal grounding ---
+# THE CONSTRAINT (the deleteStaleExternalPrincipals contract; the P
+# model's P8 monitor in trace-policy form). Committed principal copies
+# are durable across crashes, so a dead attempt's copies are debris
+# the moment the source's answer shrinks. Two directions:
+#   RECON-BEFORE-COPY: within a phase run (ep_list starts one), the
+#     current answer's writes may commit only after reconciliation
+#     completed (ep_recon) — the warn-and-continue degrade of a
+#     non-deleting engine copies over unreconciled debris and emits no
+#     ep_recon, so its first copy is the violation.
+#   STALE-SURVIVOR at seal: a principal copied this sync but absent
+#     from the last-listed answer survived to seal undeleted (and,
+#     dually, EXT-MISSING: a listed principal never copied). The seal
+#     clause compares against the last LIST, not truth-at-seal — an
+#     attempt that completed the phase before a crash seals its own
+#     answer legitimately (sync-scoped freshness).
+# State: n = reconciliation completed this phase run (reset by
+# ep_list), c1/c2 = principal copied and not reconciled away (durable
+# — never reset by ep_list or ev_resume), l1/l2 = member of the
+# current answer (reset by ep_list). ep_recon deletes stale copies:
+# c := c AND l. Value-blind like every policy here; the P monitor
+# carries the truth ghost this trace form cannot.
+∃ band;
+band(tt, tt) = tt;
+band(tt, ff) = ff;
+band(ff, tt) = ff;
+band(ff, ff) = ff;
+∃ external_principal_grounding;
+∃ epg_go;
+external_principal_grounding(t) = epg_go(t, ff, ff, ff, ff, ff);
+epg_go(tnil, n, c1, c2, l1, l2) = "ok";
+epg_go(tcons(ep_list, r), n, c1, c2, l1, l2) = epg_go(r, ff, c1, c2, ff, ff);
+epg_go(tcons(ep_live(p1), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, tt, l2);
+epg_go(tcons(ep_live(p2), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, tt);
+epg_go(tcons(ep_recon, r), n, c1, c2, l1, l2) = epg_go(r, tt, band(c1, l1), band(c2, l2), l1, l2);
+epg_go(tcons(ep_copy(p1), r), tt, c1, c2, l1, l2) = epg_go(r, tt, tt, c2, l1, l2);
+epg_go(tcons(ep_copy(p1), r), ff, c1, c2, l1, l2) = "violation: ext-recon-before-copy";
+epg_go(tcons(ep_copy(p2), r), tt, c1, c2, l1, l2) = epg_go(r, tt, c1, tt, l1, l2);
+epg_go(tcons(ep_copy(p2), r), ff, c1, c2, l1, l2) = "violation: ext-recon-before-copy";
+# Seal verdict table, disjoint and total over (c1, l1) x (c2, l2):
+# stale = copied AND not live; missing = live AND not copied; ok
+# otherwise. Stale reports first in mixed cases.
+epg_go(tcons(ev_seal, r), n, tt, c2, ff, l2) = "violation: ext-stale-survivor";
+epg_go(tcons(ev_seal, r), n, ff, tt, l1, ff) = "violation: ext-stale-survivor";
+epg_go(tcons(ev_seal, r), n, tt, tt, tt, ff) = "violation: ext-stale-survivor";
+epg_go(tcons(ev_seal, r), n, ff, ff, tt, ff) = "violation: ext-missing";
+epg_go(tcons(ev_seal, r), n, ff, tt, tt, tt) = "violation: ext-missing";
+epg_go(tcons(ev_seal, r), n, ff, ff, tt, tt) = "violation: ext-missing";
+epg_go(tcons(ev_seal, r), n, ff, ff, ff, tt) = "violation: ext-missing";
+epg_go(tcons(ev_seal, r), n, tt, ff, tt, tt) = "violation: ext-missing";
+epg_go(tcons(ev_seal, r), n, ff, ff, ff, ff) = "ok";
+epg_go(tcons(ev_seal, r), n, ff, tt, ff, tt) = "ok";
+epg_go(tcons(ev_seal, r), n, tt, ff, tt, ff) = "ok";
+epg_go(tcons(ev_seal, r), n, tt, tt, tt, tt) = "ok";
+# Pass-throughs: artifact and session machinery is invisible here.
+epg_go(tcons(ev_consult(s), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_clear(s), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_replay(s), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_upsert(s), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_delete(s), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_publish(s), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_checkpoint, r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_resume, r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_swrite(k), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_sread_hit(k), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_sread_miss(k), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
 
 # --- Fixtures ---
 # green: one honest replacement round on s1, published, quiescent
@@ -354,3 +467,35 @@ trace_red_session_zombie = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_re
 # Violates exactly session_ckpt_consistency (amnesia direction).
 ∃ trace_red_session_amnesia;
 trace_red_session_amnesia = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_swrite(k1), tcons(ev_publish(s1), tcons(ev_checkpoint, tcons(ev_resume, tcons(ev_sread_miss(k1), tnil)))))))));
+
+# External-principal fixtures (policy 7). green_ext: the capable-engine
+# crash/shrink history — attempt 1 lists {p1, p2}, reconciles (nothing
+# stale), copies both, checkpoints; the source shrinks to {p2} across
+# the crash; attempt 2 re-lists, reconciliation deletes the dead
+# attempt's p1, copies p2, seals. Every policy answers "ok".
+∃ trace_green_ext;
+trace_green_ext = tcons(ep_list, tcons(ep_live(p1), tcons(ep_live(p2), tcons(ep_recon, tcons(ep_copy(p1), tcons(ep_copy(p2), tcons(ev_checkpoint, tcons(ev_resume, tcons(ep_list, tcons(ep_live(p2), tcons(ep_recon, tcons(ep_copy(p2), tcons(ev_checkpoint, tcons(ev_seal, tnil))))))))))))));
+
+# green_ext_carry: the phase COMPLETED before the crash and the
+# resumed attempt seals without re-running it — the sealed answer is
+# the completed run's answer, legitimately (sync-scoped freshness; the
+# sync is not obligated to chase post-completion source changes).
+# Every policy answers "ok".
+∃ trace_green_ext_carry;
+trace_green_ext_carry = tcons(ep_list, tcons(ep_live(p1), tcons(ep_live(p2), tcons(ep_recon, tcons(ep_copy(p1), tcons(ep_copy(p2), tcons(ev_checkpoint, tcons(ev_resume, tcons(ev_seal, tnil)))))))));
+
+# red_ext_norecon: the warn-and-continue degrade (non-deleting
+# engine) — the resumed attempt lists the shrunk answer and copies it
+# WITHOUT a completed reconciliation (no ep_recon after its ep_list),
+# writing the current answer over the dead attempt's debris. Violates
+# exactly external_principal_grounding (recon-before-copy direction).
+∃ trace_red_ext_norecon;
+trace_red_ext_norecon = tcons(ep_list, tcons(ep_live(p1), tcons(ep_live(p2), tcons(ep_recon, tcons(ep_copy(p1), tcons(ep_copy(p2), tcons(ev_checkpoint, tcons(ev_resume, tcons(ep_list, tcons(ep_live(p2), tcons(ep_copy(p2), tnil)))))))))));
+
+# red_ext_stale: a dead attempt's copy reaches the seal — the resumed
+# attempt lists the shrunk answer but neither reconciles nor copies,
+# and p1 (copied by attempt 1, absent from the last list) seals as
+# debris. Violates exactly external_principal_grounding
+# (stale-survivor direction).
+∃ trace_red_ext_stale;
+trace_red_ext_stale = tcons(ep_list, tcons(ep_live(p1), tcons(ep_live(p2), tcons(ep_recon, tcons(ep_copy(p1), tcons(ep_copy(p2), tcons(ev_checkpoint, tcons(ev_resume, tcons(ep_list, tcons(ep_live(p2), tcons(ev_seal, tnil)))))))))));

@@ -3114,6 +3114,7 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 		principals = append(principals, resourceVal)
 	}
 
+	s.recordExternalListTrace(principals)
 	err = s.deleteStaleExternalPrincipals(ctx, principals)
 	if err != nil {
 		return err
@@ -3122,6 +3123,7 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 	if err != nil {
 		return err
 	}
+	s.recordExternalCopyTrace(principals)
 
 	entsCount := 0
 	ents := make([]*v2.Entitlement, 0)
@@ -3230,6 +3232,7 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 		}
 	}
 
+	s.recordExternalListTrace(principals)
 	err = s.deleteStaleExternalPrincipals(ctx, principals)
 	if err != nil {
 		return err
@@ -3238,6 +3241,7 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 	if err != nil {
 		return err
 	}
+	s.recordExternalCopyTrace(principals)
 
 	entsCount := 0
 	principalsCount := len(principals)
@@ -3324,6 +3328,30 @@ type entitlementRecordDeleter interface {
 	DeleteEntitlementByRefs(ctx context.Context, entitlement *v2.Entitlement) error
 }
 
+// recordExternalListTrace records the external phase's listed answer for the
+// trace oracle (policy 7): one ep_list marker, then one ep_live per member.
+// Nil-audit safe; a no-op in production.
+func (s *syncer) recordExternalListTrace(principals []*v2.Resource) {
+	if s.testSyncTraceAudit == nil {
+		return
+	}
+	s.testSyncTraceAudit.record(syncTraceExtList, "", "")
+	for _, principal := range principals {
+		s.testSyncTraceAudit.record(syncTraceExtLive, "", principal.GetId().GetResource())
+	}
+}
+
+// recordExternalCopyTrace records the committed principal writes (ep_copy per
+// principal), after the store accepted them.
+func (s *syncer) recordExternalCopyTrace(principals []*v2.Resource) {
+	if s.testSyncTraceAudit == nil {
+		return
+	}
+	for _, principal := range principals {
+		s.testSyncTraceAudit.record(syncTraceExtCopy, "", principal.GetId().GetResource())
+	}
+}
+
 // deleteStaleExternalPrincipals reconciles principal rows copied by an earlier
 // attempt before writing the external source's current answer. Checkpoint
 // resume deliberately retains completed writes, so without this pass a
@@ -3368,6 +3396,12 @@ func (s *syncer) deleteStaleExternalPrincipals(
 		}
 	}
 	if len(staleIDs) == 0 {
+		// Reconciliation completed: nothing was stale. (ep_recon means
+		// the pass RECONCILED — deletes applied or none needed. The
+		// degrade branch below records nothing: its pass ran but left
+		// the debris in place, which is what the trace oracle's
+		// recon-before-copy direction exists to flag.)
+		s.testSyncTraceAudit.record(syncTraceExtRecon, "", "")
 		return nil
 	}
 	if !canDeleteResources || !canDeleteEntitlements || !canDeleteGrants {
@@ -3438,6 +3472,9 @@ func (s *syncer) deleteStaleExternalPrincipals(
 				id.GetResourceType(), id.GetResource(), err)
 		}
 	}
+	// Reconciliation completed: every stale principal (and its dependent
+	// grants and entitlements) is deleted.
+	s.testSyncTraceAudit.record(syncTraceExtRecon, "", "")
 	return nil
 }
 

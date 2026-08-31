@@ -45,6 +45,11 @@ machine MStore {
     var prevCompat: int;
     var sealedBlocked: bool;
     var prevBlocked: bool;
+    // Scenario-8 external-principal keyspace (BatonID-annotated rows,
+    // separate from scope partitions). Durable at op commit like every
+    // row write: a dead attempt's committed copies SURVIVE the crash —
+    // which is exactly why eExtReconReq exists.
+    var extRows: map[int, bool];
 
     start state Serving {
         on eStoreReset do (p: (client: machine, syncN: int, sessVariant: int)) {
@@ -67,6 +72,7 @@ machine MStore {
             sessionKV = default(map[int, int]);
             sessVariant = p.sessVariant;
             sessCkpt = default(map[int, int]);
+            extRows = default(map[int, bool]);
             hasCkpt = false;
             ckpt = default(tCheckpoint);
             sealed = false;
@@ -94,6 +100,51 @@ machine MStore {
                 announce eAnnSessionGet, (syncN = syncN, key = p.key, found = false, val = 0);
                 send p.client, eSessionGetResp, (found = false, val = 0);
             }
+        }
+
+        on eExtReconReq do (p: (client: machine, gen: int, live: seq[int], supported: bool)) {
+            var ids: seq[int];
+            var liveSet: map[int, bool];
+            var deleted: seq[int];
+            var i: int;
+            maybeCrash();
+            if (p.gen in deadGens) { send p.client, eStoreDead; return; }
+            i = 0;
+            while (i < sizeof(p.live)) {
+                liveSet[p.live[i]] = true;
+                i = i + 1;
+            }
+            if (p.supported) {
+                // The capable path: delete every ext row the current
+                // answer no longer contains (one atomic pass —
+                // deleteStaleExternalPrincipals runs before the
+                // current answer's writes).
+                ids = keys(extRows);
+                i = 0;
+                while (i < sizeof(ids)) {
+                    if (!(ids[i] in liveSet)) {
+                        deleted += (sizeof(deleted), ids[i]);
+                        extRows -= ids[i];
+                    }
+                    i = i + 1;
+                }
+            }
+            // supported FALSE: warn-and-continue — the round still
+            // announces (the list happened), nothing is deleted.
+            announce eAnnExtRound, (syncN = syncN, live = p.live, supported = p.supported, deleted = deleted);
+            send p.client, eStoreAck;
+        }
+
+        on eExtCopy do (p: (client: machine, gen: int, ids: seq[int])) {
+            var i: int;
+            maybeCrash();
+            if (p.gen in deadGens) { send p.client, eStoreDead; return; }
+            i = 0;
+            while (i < sizeof(p.ids)) {
+                extRows[p.ids[i]] = true;
+                i = i + 1;
+            }
+            send p.client, eStoreAck;
         }
 
         on eCompatPut do (p: (client: machine, gen: int, k: int)) {
@@ -336,6 +387,7 @@ machine MStore {
                 } else {
                     sealed = true;
                     sealedBlocked = p.blocked;
+                    announce eAnnExtSeal, (syncN = syncN, ids = keys(extRows));
                     announce eAnnSeal, (syncN = syncN, partition = curPart, manifest = curMan, blocked = p.blocked, config = p.config);
                     send p.client, eStoreAck;
                     fireCrash();
@@ -345,6 +397,7 @@ machine MStore {
             if (p.gen in deadGens) { send p.client, eStoreDead; return; }
             sealed = true;
             sealedBlocked = p.blocked;
+            announce eAnnExtSeal, (syncN = syncN, ids = keys(extRows));
             announce eAnnSeal, (syncN = syncN, partition = curPart, manifest = curMan, blocked = p.blocked, config = p.config);
             send p.client, eStoreAck;
         }

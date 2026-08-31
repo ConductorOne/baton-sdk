@@ -171,6 +171,37 @@ interleaving-dependent:
 | tc7bTaintW_P6R | fix run: `sessionTaintWrites` ON, 7b premise | P6-R | RED | RED: `P6-R` — REQUIRED RESIDUAL: R's hazard is a READ; the write-only rule is half a fix | first find |
 | tc7aTaintAll_P6R / tc7bTaintAll_P6R | fix run: `sessionTaintAll` ON | P6-R | GREEN | GREEN — replay forfeited exactly where sessions are used (honest price) | 10000 schedules each |
 
+## Scenario 8 — external principals (P8; the deleteStaleExternalPrincipals contract)
+
+One sync, one external-phase action (cell 8): page 0 LISTs the
+source's current answer and commits the reconciliation op
+(`eExtReconReq`); page 1 COPYs the answer's principals (`eExtCopy`).
+The ext keyspace is separate from scope partitions (BatonID-annotated
+rows beside connector rows). Committed copies are durable across
+crashes — the debris premise — and a redispatched external phase
+restarts from its root token. MEnv announces a truth ghost
+(`eAnnExtTruth`) at sync start and after every between-attempt
+mutation; the shrink drops principal 1 (e1 = {0,1} → e2 = {0}). P8
+asserts two clauses: CURRENT — every round's listed answer equals the
+source's answer at that moment (a resume must RE-LIST; the
+`ResumeUsesCurrentExternalAnswer` chaos pin) — and SEAL — the sealed
+ext keyspace equals the last-RUN round's answer exactly (STALE: a dead
+attempt's copy survived reconciliation; MISSING: a listed principal
+dropped). The seal clause deliberately compares against the last LIST,
+not truth-at-seal: a completed-then-crash schedule seals attempt 1's
+answer legitimately (sync-scoped freshness). The axes are `extRecon`
+(TRUE = the shipped capable-engine path; FALSE = the warn-and-continue
+degrade of a non-deleting engine) and `extStaleList` (the recency
+mutant: attempts ≥ 2 consume the sync-start answer):
+
+| cell | config | property | expected | observed | budget |
+|---|---|---|---|---|---|
+| tc8green_P8 | no interruption, no mutation | P8 | GREEN | GREEN — cold baseline | 10000 schedules |
+| tc8crash_P8 | hard crash sync 1, shrink between attempts, capable engine | P8 | GREEN | GREEN — every crash placement heals: the resumed attempt re-lists the current answer and reconciliation deletes the dead attempt's stale copies before the fresh writes; completed-then-crash schedules seal attempt 1's answer without re-running the phase (deliberately green — sync-scoped freshness) | 10000 schedules |
+| tc8stop_P8 | graceful stop + shrink, capable engine | P8 | GREEN | GREEN — restart-from-root re-lists; no mid-phase cursor can copy a fresh answer over a stale reconciliation | 10000 schedules |
+| tc8reconOff_P8 | crash + shrink, `extRecon` OFF (non-deleting engine) | P8 | RED | RED: `P8-EXT-STALE` — the warn-and-continue degrade seals the dead attempt's principal 1 (the SQLite degradation pinned by `SQLiteExternalPrincipalResumeDegradesWithoutFailure`, now model-caught) | first find (20% of explored) |
+| tc8staleList_P8 | crash + shrink, `extStaleList` ON (resume consumes the dead attempt's answer) | P8 | RED | RED: `P8-EXT-CURRENT` — the recency mutant the `ResumeUsesCurrentExternalAnswer` chaos pin forbids | first find (100% of explored) |
+
 ## P4 tranche — progress properties (stuck-resume, ladder, leaked lock)
 
 Scenario-5 chassis (cell 51 premise: stop strands carrier C in sync 2,
@@ -384,6 +415,25 @@ and meets the same drifted config:
    findings against SHIPPED semantics must be routed as change
    orders on the shipped code, not only as obligations on the
    replacement design.
+26. **External principals are their own keyspace, phase-shaped, with
+   an env truth ghost (scenario 8 / P8).** The spec's announce
+   vocabulary (§7) predates the external phase, so scenario 8 adds
+   `eAnnExtTruth`/`eAnnExtRound`/`eAnnExtSeal` beside it rather than
+   inside a scope partition: external rows carry no validator, no
+   consult, no replay — the only mechanism is LIST (current answer),
+   RECONCILE (delete what the answer no longer contains), COPY. The
+   truth ghost is announced by MEnv at sync start and after every
+   between-attempt mutation, so P8's CURRENT clause always compares a
+   round's list against the answer live when the attempt listed —
+   which is what makes the completed-then-crash carry legitimately
+   green (the seal clause anchors on the last-RUN list, sync-scoped
+   freshness). The reconciliation op is ONE atomic store pass
+   (`eExtReconReq`); partial-delete debris reduces to the same
+   stale-survivor class the crash-between-ops windows already cover,
+   so no finer granularity is modeled. `extRecon` FALSE is a store
+   CAPABILITY (the non-deleting engine), not a worker toggle —
+   the round still announces, because the LIST truly happened; only
+   reconciliation didn't.
 
 ## Known latent harness race (no bearing on verdicts)
 

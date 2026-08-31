@@ -2,7 +2,7 @@
 // mapping 2): JSONL trace fixtures recorded from REAL syncer executions
 // by pkg/sync's chaos harness (chaos_trace_oracle_test.go, the
 // testSyncTraceAudit recorder) are rendered onto the canonical event
-// vocabulary and checked against all six deliverable-7 policies. This
+// vocabulary and checked against all seven deliverable-7 policies. This
 // closes the loop the brief asked for: the same oracle that gates the P
 // models' traces and the refimpl's traces now gates the shipped
 // syncer's commit order.
@@ -17,11 +17,30 @@
 // sessions land (the registered future work), the recorded trace
 // becomes a read-miss and this expectation flips to "ok".
 //
+// KNOWN-DEGRADE PIN: the SQLite external-principal fixture (recorded
+// by pkg/sync's
+// TestChaosConnectorSQLiteExternalPrincipalResumeDegradesWithoutFailure)
+// is EXPECTED RED on external_principal_grounding — a non-deleting
+// engine's resume warns and copies the current answer WITHOUT
+// reconciling the dead attempt's stale principals, so the trace's
+// resumed segment carries copies with no completed ep_recon. This is
+// the ACCEPTED degradation (one-artifact staleness, self-healing at
+// the next cold sync, no replay channel to launder it further); the
+// red verdict on a real execution documents the acceptance
+// mechanically, exactly like the session pin.
+//
 // Rendering conventions (the recorder is purely observational; the
 // conventions live here):
 //   - Scopes: distinct (row_kind, scope_key) pairs map onto s1/s2 in
 //     first-seen order — the policies' two-scope envelope. Fixtures
 //     with more than two scopes are rejected.
+//   - External principals: distinct ep_live/ep_copy scope keys map
+//     onto p1/p2 in first-seen order; further principals are PROJECTED
+//     OUT (their events dropped). Sound for the kept principals: the
+//     policy tracks each principal independently, and the recon gate
+//     is principal-agnostic (every attempt in the committed fixtures
+//     copies the first-seen principal, so a missing ep_recon still
+//     fires on a kept copy).
 //   - Structural clear: a trace that starts at sync birth
 //     (header resumed=false) writes into partitions StartNewSync
 //     created empty, so an upsert with no earlier explicit clear for
@@ -118,6 +137,20 @@ func renderRealTrace(t *testing.T, header realTraceHeader, events []realTraceEve
 	}
 	cleared := map[string]bool{}
 	sessionKey := ""
+	principals := map[string]string{}
+	principalName := func(ev realTraceEvent) string {
+		if name, ok := principals[ev.ScopeKey]; ok {
+			return name
+		}
+		if len(principals) >= 2 {
+			// Projection: principals beyond the envelope drop out
+			// (see the file comment).
+			return ""
+		}
+		name := fmt.Sprintf("p%d", len(principals)+1)
+		principals[ev.ScopeKey] = name
+		return name
+	}
 	var canonical []string
 	for _, ev := range events {
 		switch ev.Kind {
@@ -140,6 +173,14 @@ func renderRealTrace(t *testing.T, header realTraceHeader, events []realTraceEve
 				t.Fatalf("fixture %s has more than one session key (policies' one-key envelope)", header.Name)
 			}
 			canonical = append(canonical, "ev_"+ev.Kind+"(M.k1)")
+		case "ep_list", "ep_recon":
+			canonical = append(canonical, ev.Kind)
+		case "ep_live", "ep_copy":
+			p := principalName(ev)
+			if p == "" {
+				continue
+			}
+			canonical = append(canonical, fmt.Sprintf("%s(M.%s)", ev.Kind, p))
 		case "consult", "clear", "replay", "upsert", "delete", "publish":
 			s := scopeName(ev)
 			if ev.Kind == "clear" {
@@ -165,18 +206,21 @@ func renderRealTrace(t *testing.T, header realTraceHeader, events []realTraceEve
 }
 
 // realTraceExpected overrides the default "ok" expectation for
-// (fixture, policy) cells. The only entry is the known-defect pin (see
-// the file comment): the shipped session semantics' zombie read, RED
-// on a real execution's trace by design until checkpoint-consistent
-// sessions land.
+// (fixture, policy) cells: the two standing pins (see the file
+// comment) — the shipped session semantics' zombie read, and the
+// non-deleting engine's unreconciled external-principal copy. Each is
+// RED on a real execution's trace by design.
 var realTraceExpected = map[string]map[string]string{
 	"warm_replay_sync_session_zombie": {
 		"session_ckpt_consistency": "violation: session-zombie-read",
 	},
+	"external_resume_sqlite_degrade": {
+		"external_principal_grounding": "violation: ext-recon-before-copy",
+	},
 }
 
 // TestRealSyncTracesSatisfyPolicies checks every committed real-trace
-// fixture against all six policies.
+// fixture against all seven policies.
 func TestRealSyncTracesSatisfyPolicies(t *testing.T) {
 	paths, err := filepath.Glob(filepath.Join("testdata", "realtraces", "*.jsonl"))
 	if err != nil {
@@ -310,5 +354,43 @@ func TestRealTraceBridgeResumeMarkerLoadBearing(t *testing.T) {
 	term = renderRealTrace(t, header, noMarker)
 	if verdict := policyVerdictTerm(t, "once_per_scope", term); verdict != "violation: once-per-scope" {
 		t.Errorf("marker-stripped trace must red once-per-scope, got %q", verdict)
+	}
+}
+
+// TestRealTraceBridgeCatchesStaleExternalSurvivor validates the
+// external-principal leg of the bridge (instrument validation for the
+// stale-survivor direction; the recon-before-copy direction is already
+// witnessed by the SQLite degrade pin). The capable-engine fixture's
+// REAL events, with the FINAL attempt's reconciliation and copies
+// stripped, describe a history where a dead attempt's principal
+// reaches the seal undeleted — the oracle must red ext-stale-survivor.
+func TestRealTraceBridgeCatchesStaleExternalSurvivor(t *testing.T) {
+	path := filepath.Join("testdata", "realtraces", "external_resume_current_answer.jsonl")
+	header, events := loadRealTrace(t, path)
+
+	term := renderRealTrace(t, header, events)
+	if verdict := policyVerdictTerm(t, "external_principal_grounding", term); verdict != "ok" {
+		t.Errorf("honest capable-engine trace must satisfy external_principal_grounding, got %q", verdict)
+	}
+
+	lastResume := -1
+	for i, ev := range events {
+		if ev.Kind == "resume" {
+			lastResume = i
+		}
+	}
+	if lastResume < 0 {
+		t.Fatal("capable-engine fixture carries no resume marker; the multi-attempt leg is not being exercised")
+	}
+	var mutated []realTraceEvent
+	for i, ev := range events {
+		if i > lastResume && (ev.Kind == "ep_recon" || ev.Kind == "ep_copy") {
+			continue
+		}
+		mutated = append(mutated, ev)
+	}
+	term = renderRealTrace(t, header, mutated)
+	if verdict := policyVerdictTerm(t, "external_principal_grounding", term); verdict != "violation: ext-stale-survivor" {
+		t.Errorf("planted stale external survivor not caught, verdict %q", verdict)
 	}
 }

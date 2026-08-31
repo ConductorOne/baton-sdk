@@ -28,7 +28,7 @@ traces and real sync executions.
     source-cache session terms (offer→ask→answers, bounce cap 4
     structural) with per-role projections via the engine's
     protocol/projection stdlib.
-  - `sync_trace_policies.occult` — deliverable 7: the five
+  - `sync_trace_policies.occult` — deliverable 7: the seven
     ordering/durability policies as recursive verdict functions, with
     green/red fixtures.
 - `host/` — the verification harness: a standalone Go module (local
@@ -75,19 +75,26 @@ repo.
   0..7; 5 saturation negative controls + 1 ground false-live control
   refused (the false-live control reproduces G9-CAL-1's parity
   ambiguity deductively). See `LAWS.md`.
-- 7 (trace-policy oracle set): DONE — six policies, 96-cell verdict
-  matrix (16 fixtures × 6 policies): green satisfies all, each red
-  violates exactly its own policy. Multi-attempt traces are in-domain
-  (ev_resume attempt boundaries: durable facts persist, once-per-scope
-  resets), and so are the delta protocol's delete leg (ev_delete is a
-  write: grounding, quiescence, and seal-activity obligations) and
-  session operations (ev_swrite / ev_sread_hit / ev_sread_miss).
+- 7 (trace-policy oracle set): DONE — seven policies, 140-cell
+  verdict matrix (20 fixtures × 7 policies): green satisfies all,
+  each red violates exactly its own policy. Multi-attempt traces are
+  in-domain (ev_resume attempt boundaries: durable facts persist,
+  once-per-scope resets), and so are the delta protocol's delete leg
+  (ev_delete is a write: grounding, quiescence, and seal-activity
+  obligations) and session operations (ev_swrite / ev_sread_hit /
+  ev_sread_miss).
   Policy 6, session_ckpt_consistency, states the CO-6b-009 root cause
   — post-crash session state must equal the restored checkpoint's, no
   zombie reads and no amnesia — with two directional red fixtures and
   a correct-rollback green; it is the trace-policy form of the walker
-  model's P6-C monitor. Generation stamps stay tracked in
-  TRACE_BRIDGE.md.
+  model's P6-C monitor. Policy 7, external_principal_grounding,
+  states the deleteStaleExternalPrincipals contract — the current
+  answer's writes commit only after reconciliation completed, and no
+  dead attempt's copy survives to seal (nor is a listed principal
+  dropped) — with two directional reds (recon-before-copy,
+  stale-survivor) and two greens including the completed-then-crash
+  carry; it is the trace-policy form of the walker model's P8
+  monitor. Generation stamps stay tracked in TRACE_BRIDGE.md.
 - 8 (MPST protocol contract): DONE — 7 projection derivations (syncer
   = P_leader, connector = P_follower; direct, one-bounce, and maximal
   four-bounce sessions; record and replay legs) + 4 polarity/shape
@@ -99,15 +106,19 @@ repo.
   executions" leg is IMPLEMENTED end to end: the shipped syncer
   carries a test-only commit-order recorder
   (`pkg/sync/sync_trace_audit.go`), the chaos harness exports cold,
-  warm, crash/resume multi-attempt, tombstone-delta, record-flip, and
-  session-zombie JSONL fixtures, and
-  `real_trace_oracle_test.go` checks them against all six policies
-  (36 cells: 35 green + ONE deliberately red — the session-zombie
+  warm, crash/resume multi-attempt, tombstone-delta, record-flip,
+  session-zombie, and external-principal JSONL fixtures, and
+  `real_trace_oracle_test.go` checks them against all seven policies
+  (56 cells: 54 green + TWO deliberately red — the session-zombie
   fixture under session_ckpt_consistency, the standing known-defect
   pin on the shipped session semantics, which flips to green when
-  checkpoint-consistent sessions land) with planted-violation
+  checkpoint-consistent sessions land; and the SQLite
+  external-principal fixture under external_principal_grounding, the
+  standing known-degrade pin on the non-deleting engine's
+  warn-and-continue resume) with planted-violation
   validation of the bridge itself (dropped consult, un-regrounded
-  resume, stripped resume marker, ungrounded delete). The instrument
+  resume, stripped resume marker, ungrounded delete, stripped
+  external reconciliation). The instrument
   falsified a documented resume mechanism AND witnessed the model's
   phantom-union prediction live in the shipped syncer (the
   verdict-flip path), now fixed by record-round grounding — see the

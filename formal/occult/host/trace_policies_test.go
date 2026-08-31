@@ -1,8 +1,8 @@
 // Deliverable 7: the trace-policy oracle set
 // (../src/sync_trace_policies.occult) checked as a full verdict matrix
 // — every policy against every fixture. Green fixtures must satisfy
-// all six policies; each red fixture must violate EXACTLY its own
-// policy and satisfy the other five, so a policy that silently accepts
+// all seven policies; each red fixture must violate EXACTLY its own
+// policy and satisfy the other six, so a policy that silently accepts
 // everything (or rejects everything) cannot pass.
 package host_test
 
@@ -55,6 +55,7 @@ var policies = []string{
 	"checkpoint_before_progress",
 	"seal_obligations",
 	"session_ckpt_consistency",
+	"external_principal_grounding",
 }
 
 // fixtureViolates maps each fixture to the single policy it violates
@@ -79,6 +80,14 @@ var fixtureViolates = map[string]string{
 	"trace_green_session_rollback": "",
 	"trace_red_session_zombie":     "session_ckpt_consistency",
 	"trace_red_session_amnesia":    "session_ckpt_consistency",
+	// External-principal fixtures (policy 7, external-principal
+	// grounding — the deleteStaleExternalPrincipals contract). The two
+	// reds violate the SAME policy in its two directions;
+	// fixtureVerdict carries the exact string.
+	"trace_green_ext":       "",
+	"trace_green_ext_carry": "",
+	"trace_red_ext_norecon": "external_principal_grounding",
+	"trace_red_ext_stale":   "external_principal_grounding",
 }
 
 // fixtureVerdict overrides the expected violation string for fixtures
@@ -86,6 +95,8 @@ var fixtureViolates = map[string]string{
 var fixtureVerdict = map[string]string{
 	"trace_red_session_zombie":  "violation: session-zombie-read",
 	"trace_red_session_amnesia": "violation: session-amnesia",
+	"trace_red_ext_norecon":     "violation: ext-recon-before-copy",
+	"trace_red_ext_stale":       "violation: ext-stale-survivor",
 }
 
 func TestTracePolicyMatrix(t *testing.T) {
@@ -125,6 +136,8 @@ func policyLabel(policy string) string {
 		return "seal-obligations"
 	case "session_ckpt_consistency":
 		return "session-ckpt-consistency"
+	case "external_principal_grounding":
+		return "external-principal-grounding"
 	}
 	return policy
 }
