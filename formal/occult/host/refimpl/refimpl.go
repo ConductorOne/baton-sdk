@@ -114,11 +114,15 @@ type Result struct {
 
 const scope = "s1"
 
-// durable is the store state that survives a crash.
+// durable is the store state that survives a crash. The checkpoint
+// watermark is deliberately NOT part of it: both crash scenarios here
+// crash before the (single) checkpoint, so resume logic never has a
+// watermark to consult — legacy resumes off partition contents, the
+// demand-graph path re-consults unconditionally. The checkpoint exists
+// in this implementation only as its trace event.
 type durable struct {
 	partition  map[string]string
-	markerBase int  // the replay unit's attested base epoch
-	checkpoint bool // scope watermark: scope completed at Head
+	markerBase int // the replay unit's attested base epoch
 }
 
 // Run executes the sync to seal, crashing and resuming if configured.
@@ -185,7 +189,6 @@ func runAttempt(cfg Config, st *durable, attempt int) (trace []Event, sealed boo
 	}
 
 	emit("publish", scope)
-	st.checkpoint = true
 	emit("checkpoint", "")
 	emit("seal", "")
 	return trace, true
