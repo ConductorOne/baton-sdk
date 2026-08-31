@@ -28,8 +28,13 @@ comments and trace renderings.
 - `graph/` — P project: the demand-graph runtime model (deliverable 4).
   Built after `GRAPH_MODEL_SPEC.md` cleared review. Calibrated and
   frozen: the full 66-cell matrix (G1-G9) sweeps clean at 10k
-  schedules; see `graph/CALIBRATION.md` for the run log and the
+  schedules, plus the 12-cell bake-off phase (12/12 on declared
+  verdicts); see `graph/CALIBRATION.md` for the run log and the
   calibration finds (GS-CO-001..005, G8B-CAL-1, G9-CAL-1).
+- `graph/BAKEOFF.md` — deliverable 4's written recommendation: the
+  lineage bake-off verdict (variant S — observable-causal stamps),
+  assembled under GS-CO-005's registered decision rule. This is the
+  artifact the demand-graph RFC cites.
 - `occult/` — the deductive track (deliverables 6–9): equational laws
   of the composition algebra and stamp lattice proved by equality
   saturation in the Occult engine (sibling repo `../occult`), the

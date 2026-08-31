@@ -377,6 +377,24 @@ Any variant-asymmetric outcome (a leg deviating from its declared
 verdict under exactly one variant) is a divergence finding and
 blocks Axis-3 citation until dispositioned (GS-CO-005(d)).
 
+### Bake-off results — 2026-08-30, 12/12 match declarations
+
+10k schedules per cell, uniform random, one run (summary archived at
+`PCheckerOutput/bakeoff/summary.txt`). All four v1 controls GREEN
+(the zero-crash redo floor is bound 1 under BOTH variants — the
+count oracle measures crash-caused redo, not variant overhead); both
+G6b bound-1 probes RED on EXEC-BOUND (the mutation chassis's redo is
+real and symmetric); all four reachable-world probes RED on
+SEAL-WORLD and both W3 probes GREEN under both variants.
+
+G5d WHICH-IS-RIGHT DETERMINATION: the reachable seal-world sets are
+IDENTICAL across variants — {W1, W2} reachable, W3 unreachable —
+and every reachable world lies inside the sync-scoped SealExpect
+envelope (asserted by the honest G5a greens). No divergence finding;
+Axis-3 citation is unblocked. Where the two variants differ is HOW
+a world is reached (E purges C / S refuses C's dispatch on the W1
+path), never WHICH worlds are sealable.
+
 ## Pending
-- Bake-off runs per the GS-CO-005 declarations above, then the
-  verdict document (`BAKEOFF.md`).
+- Nothing. The verdict document is `BAKEOFF.md` (assembled under
+  GS-CO-005's registered decision rule).
