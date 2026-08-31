@@ -1,7 +1,12 @@
 package uhttp
 
 import (
+	"errors"
+	"fmt"
 	"strings"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 )
@@ -94,6 +99,46 @@ func WithNextLinkPagination(bag *pagination.Bag, config *NextLinkConfig) DoOptio
 			ResourceTypeID: config.ResourceTypeID,
 			ResourceID:     config.ResourceID,
 		})
+		return nil
+	}
+}
+
+// PaginatedResponse is implemented by a connector type carrying the pagination
+// data of an API response. Implementations should report presence, not a next
+// page: returning false on an empty cursor fails the last request of every sync.
+type PaginatedResponse interface {
+	HasPaginationData() bool
+}
+
+var ErrMissingPaginationData = errors.New("uhttp: response is missing pagination data")
+
+// WithPaginationData decodes a JSON response body into response like
+// WithJSONResponse does, then fails the request if response reports no
+// pagination data, so an API that drops the cursor doesn't silently truncate a
+// sync at the first page. Non-2xx responses are skipped: pair with
+// WithErrorResponse.
+func WithPaginationData(response PaginatedResponse) DoOption {
+	return func(resp *WrapperResponse) error {
+		if response == nil {
+			return status.Error(codes.InvalidArgument, "WithPaginationData: response is nil")
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return nil
+		}
+
+		if err := WithJSONResponse(response)(resp); err != nil {
+			return err
+		}
+
+		if !response.HasPaginationData() {
+			return WrapErrors(
+				codes.FailedPrecondition,
+				fmt.Sprintf("%T reported no pagination data. status code: %d", response, resp.StatusCode),
+				ErrMissingPaginationData,
+			)
+		}
+
 		return nil
 	}
 }
