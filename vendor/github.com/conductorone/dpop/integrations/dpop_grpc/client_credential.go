@@ -5,9 +5,12 @@ import (
 	"errors"
 	"net/url"
 
+	"github.com/conductorone/dpop/integrations/dpop_oauth2"
 	"github.com/conductorone/dpop/pkg/dpop"
 	"golang.org/x/oauth2"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 )
 
 // DPoPCredentials implements the credentials.PerRPCCredentials interface
@@ -54,7 +57,7 @@ func (d *DPoPCredentials) GetRequestMetadata(ctx context.Context, uri ...string)
 	// Get the OAuth2 token
 	token, err := d.tokenSource.Token()
 	if err != nil {
-		return nil, err
+		return nil, tokenStatusError(err)
 	}
 
 	// Add access token to proof options
@@ -77,4 +80,20 @@ func (d *DPoPCredentials) GetRequestMetadata(ctx context.Context, uri ...string)
 // RequireTransportSecurity implements credentials.PerRPCCredentials.RequireTransportSecurity
 func (d *DPoPCredentials) RequireTransportSecurity() bool {
 	return d.requireTLS
+}
+
+// tokenStatusError maps a token source failure onto a gRPC status so the
+// transient/definitive classification survives the per-RPC credentials
+// boundary — grpc-go flattens any non-status credentials error to
+// codes.Unauthenticated. Transient failures (5xx responses, transport errors,
+// timeouts; see dpop_oauth2.IsTransient) become codes.Unavailable so callers'
+// retry policies treat them as retryable. Definitive failures (e.g.
+// invalid_client, a disabled credential) become codes.Unauthenticated and
+// fail fast.
+func tokenStatusError(err error) error {
+	code := codes.Unauthenticated
+	if dpop_oauth2.IsTransient(err) {
+		code = codes.Unavailable
+	}
+	return status.Errorf(code, "dpop_grpc: failed to fetch token: %v", err)
 }
