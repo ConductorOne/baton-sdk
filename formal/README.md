@@ -70,6 +70,13 @@ p compile
 p check -tc <TestCaseName> -i 10000
 ```
 
+The repo root Makefile wraps the standard runs — `make
+formal-walker-sweep`, `make formal-graph-sweep`, `make
+formal-graph-bakeoff` (override the budget with `P_SCHEDULES=`), `make
+formal-occult-check` (needs the sibling `../occult` checkout and a Go
+1.26 toolchain), and `make formal-check` for all of them. Each target
+reports its missing prerequisite by name; none are installed for you.
+
 ## Standing rules
 
 - Calibration before trust: the model earns authority by mechanically
