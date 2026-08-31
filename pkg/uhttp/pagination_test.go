@@ -1,6 +1,7 @@
 package uhttp
 
 import (
+	"encoding/xml"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -29,12 +30,13 @@ func TestParseLinkHeader(t *testing.T) {
 
 // The pagination object is a pointer, so it is nil only when the API omitted it.
 type pagedResponse struct {
-	Items      []string    `json:"items"`
-	Pagination *pageCursor `json:"pagination"`
+	XMLName    xml.Name    `json:"-" xml:"response"`
+	Items      []string    `json:"items" xml:"items"`
+	Pagination *pageCursor `json:"pagination" xml:"pagination"`
 }
 
 type pageCursor struct {
-	NextCursor string `json:"next_cursor"`
+	NextCursor string `json:"next_cursor" xml:"next_cursor"`
 }
 
 func (p *pagedResponse) HasPaginationData() bool {
@@ -94,7 +96,24 @@ func TestWithPaginationData_SkipsErrorResponses(t *testing.T) {
 	}
 }
 
-func TestWithPaginationData_NonJSONResponseErrors(t *testing.T) {
+func TestWithPaginationData_XML(t *testing.T) {
+	const withCursor = `<response><items>a</items><pagination><next_cursor>abc</next_cursor></pagination></response>`
+	const withoutPagination = `<response><items>a</items></response>`
+
+	var target pagedResponse
+	require.NoError(t, WithPaginationData(&target)(newPaginationResponse(http.StatusOK, applicationXML, withCursor)))
+	require.Equal(t, []string{"a"}, target.Items)
+	require.Equal(t, "abc", target.Pagination.NextCursor)
+
+	var missing pagedResponse
+	err := WithPaginationData(&missing)(newPaginationResponse(http.StatusOK, applicationXML, withoutPagination))
+	require.ErrorIs(t, err, ErrMissingPaginationData)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.Equal(t, []string{"a"}, missing.Items, "the body should still be decoded")
+}
+
+// Neither JSON nor XML: still an error, but not reported as missing pagination.
+func TestWithPaginationData_UnsupportedContentTypeErrors(t *testing.T) {
 	var target pagedResponse
 	resp := newPaginationResponse(http.StatusOK, "text/html", `<html></html>`)
 

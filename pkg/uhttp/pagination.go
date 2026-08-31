@@ -112,11 +112,10 @@ type PaginatedResponse interface {
 
 var ErrMissingPaginationData = errors.New("uhttp: response is missing pagination data")
 
-// WithPaginationData decodes a JSON response body into response like
-// WithJSONResponse does, then fails the request if response reports no
-// pagination data, so an API that drops the cursor doesn't silently truncate a
-// sync at the first page. Non-2xx responses are skipped: pair with
-// WithErrorResponse.
+// WithPaginationData decodes a JSON or XML response body into response like
+// WithResponse does, then fails the request if response reports no pagination
+// data, so an API that drops the cursor doesn't silently truncate a sync at the
+// first page. Non-2xx responses are skipped: pair with WithErrorResponse.
 func WithPaginationData(response PaginatedResponse) DoOption {
 	return func(resp *WrapperResponse) error {
 		if response == nil {
@@ -127,7 +126,7 @@ func WithPaginationData(response PaginatedResponse) DoOption {
 			return nil
 		}
 
-		if err := WithJSONResponse(response)(resp); err != nil {
+		if err := WithResponse(response)(resp); err != nil {
 			return err
 		}
 
