@@ -169,6 +169,9 @@ type previousSyncSourceCacheLookup struct {
 	// onHit records a lookup hit and its validator for provenance
 	// enforcement. May be nil.
 	onHit func(rowKind sourcecache.RowKind, scopeKey string, cacheValidator string)
+	// onConsult, when non-nil, observes every cleanly resolved lookup
+	// (hit or miss) for the sync-trace audit. Purely observational.
+	onConsult func(rowKind sourcecache.RowKind, scopeKey string)
 }
 
 var _ sourcecache.Lookup = (*previousSyncSourceCacheLookup)(nil)
@@ -210,6 +213,9 @@ func (p *previousSyncSourceCacheLookup) LookupPreviousSourceCache(
 	}
 	if found && p.onHit != nil {
 		p.onHit(rowKind, scopeKey, entry.CacheValidator)
+	}
+	if p.onConsult != nil {
+		p.onConsult(rowKind, scopeKey)
 	}
 	return entry, found, nil
 }
@@ -353,6 +359,9 @@ func (s *syncer) installSourceCacheLookup(ctx context.Context) (func(), error) {
 			lookup = &previousSyncSourceCacheLookup{
 				prev:  warmStore,
 				onHit: s.recordSourceCacheHit,
+				onConsult: func(rowKind sourcecache.RowKind, scopeKey string) {
+					s.testSyncTraceAudit.record(syncTraceConsult, string(rowKind), scopeKey)
+				},
 			}
 		}
 	}
@@ -661,6 +670,10 @@ func (o *sourceCachePageOps) beforeUpserts(ctx context.Context) error {
 			return newReplayIntegrityError(replayCopyVerdict(err), o.rowKind, o.scopeKey,
 				fmt.Errorf("replay copy: %w", err))
 		}
+		// Trace-audit the unit's legs in the store's contractual
+		// clear-then-copy order (TRACE_BRIDGE.md unit expansion).
+		o.s.testSyncTraceAudit.record(syncTraceClear, string(o.rowKind), o.scopeKey)
+		o.s.testSyncTraceAudit.record(syncTraceReplay, string(o.rowKind), o.scopeKey)
 		if res.NeedsExpansion && !o.s.dontExpandGrants {
 			o.s.state.SetNeedsExpansion()
 		}
@@ -727,6 +740,10 @@ func (o *sourceCachePageOps) afterUpserts(ctx context.Context) error {
 		return nil
 	}
 	defer o.release()
+	if o.pageRows > 0 {
+		// The page's row puts committed between beforeUpserts and here.
+		o.s.testSyncTraceAudit.record(syncTraceUpsert, string(o.rowKind), o.scopeKey)
+	}
 	// Replay tombstones precede record tombstones (the replay annotation
 	// describes the base; the record describes this page), each canonical
 	// before principal-scoped.
@@ -770,6 +787,7 @@ func (o *sourceCachePageOps) afterUpserts(ctx context.Context) error {
 			return newReplayIntegrityError(ReplayVerdictWarm, o.rowKind, o.scopeKey,
 				fmt.Errorf("manifest publish: %w", err))
 		}
+		o.s.testSyncTraceAudit.record(syncTracePublish, string(o.rowKind), o.scopeKey)
 	}
 	return nil
 }

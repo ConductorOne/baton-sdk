@@ -44,8 +44,11 @@ comments and trace renderings.
   the broken composition rule, and an executable reference
   implementation of the demand-graph runtime validated against the
   trace oracle (legacy mode reproduces the broken behavior and is
-  caught). See `occult/README.md` for status and `occult/LAWS.md` for
-  the law inventory.
+  caught). The trace bridge is closed against the SHIPPED syncer too:
+  `pkg/sync` chaos tests record real commit-order traces
+  (`pkg/sync/sync_trace_audit.go`) exported as fixtures and checked by
+  the same oracle. See `occult/README.md` for status and
+  `occult/LAWS.md` for the law inventory.
 
 ## Toolchain
 

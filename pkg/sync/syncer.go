@@ -208,7 +208,13 @@ type syncer struct {
 	// event (seed/dequeue/commit/abort/done) for post-hoc verification
 	// of the queue contract. Nil in production: one pointer check per
 	// queue operation.
-	testQueueAudit           *queueAudit
+	testQueueAudit *queueAudit
+	// testSyncTraceAudit, when non-nil, records canonical sync-trace
+	// events (consult/clear/replay/upsert/publish/checkpoint/seal) at
+	// their commit sites for the formal trace-policy oracle
+	// (formal/occult/TRACE_BRIDGE.md, mapping 2). Nil in production:
+	// one pointer check per recorded event.
+	testSyncTraceAudit       *syncTraceAudit
 	connector                types.ConnectorClient
 	state                    State
 	runDuration              time.Duration
@@ -537,6 +543,7 @@ func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
 	if s.testCheckpointHook != nil {
 		s.testCheckpointHook(checkpoint)
 	}
+	s.testSyncTraceAudit.record(syncTraceCheckpoint, "", "")
 
 	return nil
 }
@@ -1182,6 +1189,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 	if err != nil {
 		return s.returnSyncError(l, span, err)
 	}
+	s.testSyncTraceAudit.record(syncTraceSeal, "", "")
 	// EndSync built the authoritative whole-file grant digest. Persisting the
 	// graph now binds it to that exact sealed grant generation. A crash before
 	// this write leaves no reusable graph and therefore fails safe.

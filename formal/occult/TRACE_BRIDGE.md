@@ -52,7 +52,7 @@ satisfy the prefix-closed policies (1–3), while the seal-anchored
 policies (4–5) are vacuous without `ev_seal` — exactly the
 sync-scoped-freshness stance the models take.
 
-## Mapping 2: real sync executions
+## Mapping 2: real sync executions — IMPLEMENTED
 
 The runtime emits the same shapes from the syncer:
 `ev_consult` = the source-cache lookup round-trip;
@@ -66,6 +66,33 @@ minimal chaos outcome for its policy — e.g. `trace_red_cbp` is
 "killed the watermark write, sealed anyway", `trace_red_seal` is
 "sealed with an active unpublished scope" (the phantom-union family's
 observable footprint at the artifact boundary).
+
+This leg now runs against the SHIPPED syncer. `pkg/sync` carries a
+test-only commit-order recorder (`sync_trace_audit.go`,
+`testSyncTraceAudit` — nil-checked, one pointer test per event, the
+`testQueueAudit` pattern) fired at the orchestration seams: lookup
+resolution (consult), the replay unit's clear+copy legs in the store's
+contractual order, scoped page-row commits (upsert, page granularity),
+manifest-entry writes (publish), durable checkpoint tokens, and
+EndSync (seal). The chaos test `chaos_trace_oracle_test.go` records
+the reference source-cache scenario cold and warm and exports JSONL
+fixtures (`host/testdata/realtraces/`); `host/real_trace_oracle_test.go`
+renders them onto the canonical vocabulary and checks all five
+policies — 10/10 cells green.
+
+Two conventions live in the RENDERER, never the recorder (the recorder
+is purely observational): scope names map onto s1/s2 in first-seen
+order (two-scope envelope), and a NON-resumed attempt's upsert with no
+earlier explicit clear gets a structural `ev_clear` inserted — the
+partition was born empty at StartNewSync. Resumed attempts get no such
+insertion, which is exactly how an un-regrounded resume reds
+clear-before-upsert. The bridge itself is validated by planted
+violations (`TestRealTraceBridgeCatchesPlantedViolation`): dropping the
+warm fixture's consult reds policy 1, and replaying its writes as a
+resumed attempt with the replay downgraded to a bare upsert reds
+policy 2. Multi-attempt (crash-cut) fixture export stays pending with
+the resume-marker extension above; single-attempt traces are in-domain
+today.
 
 This leg has an executable instance: `host/refimpl/` (the demand-graph
 reference implementation) emits canonical traces from real executions

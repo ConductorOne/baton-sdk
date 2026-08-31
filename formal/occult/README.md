@@ -37,9 +37,14 @@ traces and real sync executions.
   equality-saturation and evaluation pipelines. Test files:
   `laws_test.go`, `compression_test.go`, `phantom_test.go`,
   `protocol_test.go`, `trace_policies_test.go`,
-  `refimpl_oracle_test.go`, `raft_probe_test.go` (harness positive
+  `refimpl_oracle_test.go`, `real_trace_oracle_test.go` (real syncer
+  traces — see below), `raft_probe_test.go` (harness positive
   control), `pipeline_test.go` (the shared load/bridge/saturate
   sequence).
+- `host/testdata/realtraces/` — JSONL trace fixtures recorded from
+  REAL `pkg/sync` executions by the chaos harness
+  (`pkg/sync/chaos_trace_oracle_test.go`); regeneration instructions
+  are in that file's header comment.
 - `host/refimpl/` — an executable REFERENCE implementation of the
   demand-graph runtime's per-scope loop (the known-good algorithm,
   which has a frozen P model but no production implementation), with a
@@ -51,8 +56,11 @@ traces and real sync executions.
 ## Running
 
 ```bash
-cd formal/occult/host && go test ./...
+cd formal/occult/host && go test -timeout 30m ./...
 ```
+
+(The saturation suites exceed go test's default 10-minute timeout
+when run together.)
 
 Requires the sibling engine checkout at `../occult` (the go.mod
 `replace` points there). The pure `.occult` sources carry no Go
@@ -76,11 +84,16 @@ repo.
   four-bounce sessions; record and replay legs) + 4 polarity/shape
   controls. Bounce cap is structural (no five-bounce term exists);
   stuck-freedom and cap-violation checking are open engine work.
-- 6 (trace bridge): DONE as a mapping note — see `TRACE_BRIDGE.md`.
-  The engine's runtime trace checker was evaluated and NOT adopted
-  (hardcoded vocabulary); the deliverable-7 policy set is the oracle.
-  The "real executions" leg has an executable instance: the refimpl
-  emits canonical traces that are checked through the oracle.
+- 6 (trace bridge): DONE — see `TRACE_BRIDGE.md`. The engine's
+  runtime trace checker was evaluated and NOT adopted (hardcoded
+  vocabulary); the deliverable-7 policy set is the oracle. The "real
+  executions" leg is IMPLEMENTED end to end: the shipped syncer
+  carries a test-only commit-order recorder
+  (`pkg/sync/sync_trace_audit.go`), the chaos harness exports cold-
+  and warm-sync JSONL fixtures, and `real_trace_oracle_test.go`
+  checks them against all five policies (10/10 green) with planted-
+  violation validation of the bridge itself. The refimpl leg remains
+  as the demand-graph instance of the same oracle.
 
 ## Broken vs good, both ways
 
