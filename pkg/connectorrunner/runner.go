@@ -333,6 +333,8 @@ type getTicketConfig struct {
 
 type listTicketSchemasConfig struct{}
 
+type listEventFeedsConfig struct{}
+
 type createTicketConfig struct {
 	templatePath string
 }
@@ -404,10 +406,12 @@ type runnerConfig struct {
 	grantConfig                           *grantConfig
 	revokeConfig                          *revokeConfig
 	eventFeedConfig                       *eventStreamConfig
+	eventFeedPageSize                     *uint32 // nil means "use local.EventsPerPageLocally"
 	tempDir                               string
 	createAccountConfig                   *createAccountConfig
 	invokeActionConfig                    *invokeActionConfig
 	listActionSchemasConfig               *listActionSchemasConfig
+	listEventFeedsConfig                  *listEventFeedsConfig
 	deleteResourceConfig                  *deleteResourceConfig
 	rotateCredentialsConfig               *rotateCredentialsConfig
 	createTicketConfig                    *createTicketConfig
@@ -636,6 +640,17 @@ func WithOnDemandEventStream(feedId string, startAt time.Time, cursor string) Op
 	}
 }
 
+// WithEventFeedPageSize overrides the page size a local event feed run
+// requests. When unset, the run uses local.EventsPerPageLocally. A page size
+// of 0 is passed through to the connector as-is, letting it fall back to its
+// own default. Order-independent with respect to WithOnDemandEventStream.
+func WithEventFeedPageSize(pageSize uint32) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.eventFeedPageSize = &pageSize
+		return nil
+	}
+}
+
 func WithProvisioningEnabled() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.provisioningEnabled = true
@@ -727,6 +742,16 @@ func WithListTicketSchemas() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
 		cfg.listTicketSchemasConfig = &listTicketSchemasConfig{}
+		return nil
+	}
+}
+
+// WithOnDemandListEventFeeds creates an option for listing the event feeds a
+// connector registers. Unlike most on-demand options, it requires no c1z file.
+func WithOnDemandListEventFeeds() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.listEventFeedsConfig = &listEventFeedsConfig{}
 		return nil
 	}
 }
@@ -1018,7 +1043,8 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			cfg.listTicketSchemasConfig == nil &&
 			cfg.getTicketConfig == nil &&
 			cfg.bulkCreateTicketConfig == nil &&
-			cfg.listActionSchemasConfig == nil {
+			cfg.listActionSchemasConfig == nil &&
+			cfg.listEventFeedsConfig == nil {
 			return nil, errors.New("c1zPath must be set when in on-demand mode")
 		}
 
@@ -1052,7 +1078,13 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewCredentialRotator(ctx, cfg.c1zPath, cfg.rotateCredentialsConfig.resourceId, cfg.rotateCredentialsConfig.resourceType)
 
 		case cfg.eventFeedConfig != nil:
-			tm = local.NewEventFeed(ctx, cfg.eventFeedConfig.feedId, cfg.eventFeedConfig.startAt, cfg.eventFeedConfig.cursor)
+			var feedOpts []local.EventFeedOption
+			if cfg.eventFeedPageSize != nil {
+				feedOpts = append(feedOpts, local.WithEventFeedPageSize(*cfg.eventFeedPageSize))
+			}
+			tm = local.NewEventFeed(ctx, cfg.eventFeedConfig.feedId, cfg.eventFeedConfig.startAt, cfg.eventFeedConfig.cursor, feedOpts...)
+		case cfg.listEventFeedsConfig != nil:
+			tm = local.NewListEventFeeds(ctx)
 		case cfg.createTicketConfig != nil:
 			tm = local.NewTicket(ctx, cfg.createTicketConfig.templatePath)
 		case cfg.listTicketSchemasConfig != nil:
