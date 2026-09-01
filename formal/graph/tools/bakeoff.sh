@@ -54,6 +54,16 @@ for entry in $CELLS; do
     alarm="${rest%%:*}"
     case "$rest" in *:*) strategy="${rest#*:}";; esac
   ;; esac
+  # Grammar guard: the fields are positional and the alarm is only
+  # consulted on the RED branch, so a strategy flag written in the
+  # alarm slot (cell:GREEN:--flag) would be dropped SILENTLY — the
+  # cell would run without its intended search and still report ok.
+  # A strategy with no alarm takes an explicit empty third field
+  # (cell:expected::--flag).
+  case "$alarm" in --*)
+    echo "bakeoff.sh: $cell: third field must be the calibrated alarm, not '$alarm' — grammar is cell:expected[:alarm[:strategy]]; for strategy-only write $cell:$expected::$alarm" >&2
+    exit 2
+  ;; esac
   total=$((total + 1))
   rm -rf "$OUT/$cell"
   # shellcheck disable=SC2086
@@ -75,8 +85,9 @@ for entry in $CELLS; do
     # Empty tag = firing monitor outside the shared alternation
     # (tools/alarms.sh): unauditable, so a mismatch even when RED was
     # expected. Declared-alarm check is a substring match against the
-    # comma-joined tag set — sound while no monitor name is a prefix
-    # of another (EXEC-BOUND and SEAL-WORLD are not).
+    # comma-joined tag set — sound while no declared alarm is a
+    # substring of a different monitor's name (EXEC-BOUND and
+    # SEAL-WORLD are not).
     [ -n "$tag" ] || mark="MISMATCH"
     if [ -n "$alarm" ]; then
       case "$tag" in *"$alarm"*) ;; *) mark="MISMATCH";; esac

@@ -319,14 +319,19 @@ prodscale-topebble: ## Measure SQLite-to-Pebble conversion at production scale.
 # prerequisite and says what is missing rather than failing confusingly.
 #
 # The sweep targets REGENERATE the committed evidence summaries
-# (formal/*/PCheckerOutput/*/summary.txt): a clean run reproduces them
-# byte-for-byte apart from find-rate noise on RED cells, and a mismatch
-# line or changed cell count is a calibration drift finding, not noise.
-# The scripts' exit status carries that verdict — any mismatch (drifted
-# cell, untagged red, wrong bake-off alarm, checker error) fails the
-# target. Walker (55 cells) and graph (66 cells) each take on the order
-# of half an hour at the default schedule budget; the bake-off (12
-# cells) about twenty minutes.
+# (formal/*/PCheckerOutput/*/summary.txt): a clean run reproduces every
+# cell's verdict line, and the scripts' exit status carries that
+# verdict — any mismatch (drifted cell, untagged red, wrong bake-off
+# alarm, checker error) fails the target. Two kinds of run-to-run noise
+# are possible and treated differently: an alarm-tag difference on a
+# multi-shape RED cell (e.g. the walker's tc3a_P1 has two calibrated P1
+# shapes) diffs the summary but still exits 0, while a RED cell that
+# MISSES its find fails the gate by design — that has happened once,
+# from seed-bimodal search on a narrow target, and the remedy is a
+# per-cell strategy pin (see the tcG5dS_W2 note in graph CALIBRATION).
+# Walker (55 cells) and graph (66 cells) each take on the order of half
+# an hour at the default schedule budget; the bake-off (12 cells) about
+# twenty minutes.
 P_SCHEDULES ?= 10000
 OCCULT_TEST_TIMEOUT ?= 90m
 

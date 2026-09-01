@@ -98,15 +98,22 @@ Session events map to the session keyspace (`ev_swrite`), never to
 
 The atomic units expand to their ANNOUNCE order, which differs by
 model: the walker's `eReplayUnit`/`eOverlayUnit` announce clear, copy
-(, upserts, tombstones), publish; the graph's
-`eGReplayUnit`/`eGOverlayUnit` announce the marker put FIRST (the
-P-MARK convention — see `graph/PSrc/Store.p`'s unit handlers), then
-clear, copy, publish. Marker puts have no canonical event (generation
-stamps are the tracked pending extension), so a rendered unit
-contributes clear, copy, publish either way. The policies check the
-leg ordering the units guarantee by construction; running unit-built
-traces through the oracle is a consistency check of that guarantee,
-not new information. Crash scenarios cut the list at the crash point:
+(, upserts, tombstones), publish; the graph's `eGReplayUnit` announces
+the marker put FIRST (the P-MARK convention — see
+`graph/PSrc/Store.p`'s unit handlers), then clear, copy, publish; and
+the graph's `eGOverlayUnit` announces marker, clear, copy, upserts,
+tombstones, publish. Marker puts have no canonical event (generation
+stamps are the tracked pending extension). ONE deliberate exception to
+"every unit contributes a clear": under the G8b `composeDead` INJECT
+(`Store.p`'s overlay handler, the `tcG8bMut_P1` kill), the overlay
+unit composes onto existing debris and announces the copy with NO
+clear at all — that missing clear IS the kill, so a hand-renderer
+following this table must not supply a clear the model never
+announced, or the injected counterexample's clear-before-write red is
+masked into a green. The policies check the leg ordering the honest
+units guarantee by construction; running unit-built traces through
+the oracle is a consistency check of that guarantee, not new
+information. Crash scenarios cut the list at the crash point:
 a cut trace must still satisfy the prefix-closed policies (1–3),
 while the seal-anchored policies (4–5) are vacuous without `ev_seal`
 — exactly the sync-scoped-freshness stance the models take.

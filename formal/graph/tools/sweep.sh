@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Graph-model cell regression sweep (walker tools/sweep.sh parity).
 # Verdicts are audited by counterexample trace-file presence, not the
-# "Found N bugs" tail.
+# "Found N bugs" tail; p check's exit status gates only the GREEN side
+# (a counterexample-free nonzero exit is CHECKER-ERROR — absence of a
+# find from a checker that died proves nothing — while a found
+# counterexample stands regardless of exit status).
 #
 # Usage: tools/sweep.sh [schedules]   (run from formal/graph)
 set -u
