@@ -50,9 +50,12 @@ machine MStore {
     // row write: a dead attempt's committed copies SURVIVE the crash —
     // which is exactly why eExtReconReq exists.
     var extRows: map[int, bool];
+    // Scenario-8 over-deletion mutant (cfg.extOverDelete; the
+    // P8-EXT-MISSING kill). See extSweepMutant below.
+    var extOverDelete: bool;
 
     start state Serving {
-        on eStoreReset do (p: (client: machine, syncN: int, sessVariant: int)) {
+        on eStoreReset do (p: (client: machine, syncN: int, sessVariant: int, extOverDelete: bool)) {
             // Begin-of-sync rotation: the sealed artifact becomes the
             // replay source; the new artifact starts empty; the
             // checkpoint token belongs to a sync and does not survive it.
@@ -73,6 +76,7 @@ machine MStore {
             sessVariant = p.sessVariant;
             sessCkpt = default(map[int, int]);
             extRows = default(map[int, bool]);
+            extOverDelete = p.extOverDelete;
             hasCkpt = false;
             ckpt = default(tCheckpoint);
             sealed = false;
@@ -387,6 +391,7 @@ machine MStore {
                 } else {
                     sealed = true;
                     sealedBlocked = p.blocked;
+                    extSweepMutant();
                     announce eAnnExtSeal, (syncN = syncN, ids = keys(extRows));
                     announce eAnnSeal, (syncN = syncN, partition = curPart, manifest = curMan, blocked = p.blocked, config = p.config);
                     send p.client, eStoreAck;
@@ -397,6 +402,7 @@ machine MStore {
             if (p.gen in deadGens) { send p.client, eStoreDead; return; }
             sealed = true;
             sealedBlocked = p.blocked;
+            extSweepMutant();
             announce eAnnExtSeal, (syncN = syncN, ids = keys(extRows));
             announce eAnnSeal, (syncN = syncN, partition = curPart, manifest = curMan, blocked = p.blocked, config = p.config);
             send p.client, eStoreAck;
@@ -444,6 +450,23 @@ machine MStore {
         }
         announce eAnnCrash, (syncN = syncN,);
         send armedClient, eCrashAck;
+    }
+
+    // The over-deletion inject (tc8overDelete_P8's kill, the
+    // P8-EXT-MISSING witness): a LATE deleteStaleExternalPrincipals
+    // sweep whose predicate mistakes a live principal for stale,
+    // committing at seal prep where nothing re-writes the row.
+    // Injected at the seal and not in eExtReconReq because the
+    // engine-ordered early pass is structurally self-healing for
+    // over-deletion: it runs before the page-1 copy, which rewrites
+    // every listed id — an early over-delete cannot survive to seal
+    // in any schedule (recorded in the scenario-8 calibration).
+    fun extSweepMutant() {
+        var ks: seq[int];
+        if (!extOverDelete) { return; }
+        if (sizeof(extRows) == 0) { return; }
+        ks = keys(extRows);
+        extRows -= (ks[0]);
     }
 }
 

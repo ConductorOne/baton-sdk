@@ -1,10 +1,10 @@
 # Walker calibration — run log
 
-Status: COMPLETE. CURRENT GATE: the 55-cell full-matrix sweep, 0
+Status: COMPLETE. CURRENT GATE: the 56-cell full-matrix sweep, 0
 mismatches, every red on its calibrated alarm (`tools/sweep.sh`, 10k
 schedules per cell; the run of record is
 `PCheckerOutput/sweep/summary.txt`, ending
-`SWEEP-DONE cells=55 mismatches=0`). Scenarios 1, 2 (including the
+`SWEEP-DONE cells=56 mismatches=0`). Scenarios 1, 2 (including the
 P6-C session-checkpoint-consistency tranche, decision 25 — the
 CO-6b-009 root cause made executable), 3, 4, 5 (both triggers + crash
 window + C1 probe), 6 (both flavors + the round-7 third-placement
@@ -25,8 +25,9 @@ summaries archived under `traces/`): the 46-cell v11 freeze sweep
 (`traces/freeze-sweep-v11-summary.txt`; the pre-v11 44-cell sweep was
 also clean, isolating the P4 merge from the v11 monitor change), the
 47-cell post-MS-CO-001 sweep
-(`traces/msco001-sweep-summary.txt`), then +3 P6-C cells (50) and
-+5 scenario-8 cells (the current 55).
+(`traces/msco001-sweep-summary.txt`), then +3 P6-C cells (50),
++5 scenario-8 cells (55), and the tc8overDelete_P8 over-deletion
+kill (the current 56).
 
 Toolchain: P 3.1.0 (`p compile` / `p check -tc <cell> -s <schedules>`).
 Counterexample traces are NOT committed (neither the human-readable
@@ -220,8 +221,10 @@ dropped). The seal clause deliberately compares against the last LIST,
 not truth-at-seal: a completed-then-crash schedule seals attempt 1's
 answer legitimately (sync-scoped freshness). The axes are `extRecon`
 (TRUE = the shipped capable-engine path; FALSE = the warn-and-continue
-degrade of a non-deleting engine) and `extStaleList` (the recency
-mutant: attempts ≥ 2 consume the sync-start answer):
+degrade of a non-deleting engine), `extStaleList` (the recency
+mutant: attempts ≥ 2 consume the sync-start answer), and
+`extOverDelete` (the late over-deleting sweep — a seal-prep deletion
+whose predicate mistakes a live principal for stale):
 
 | cell | config | property | expected | observed | budget |
 |---|---|---|---|---|---|
@@ -230,6 +233,7 @@ mutant: attempts ≥ 2 consume the sync-start answer):
 | tc8stop_P8 | graceful stop + shrink, capable engine | P8 | GREEN | GREEN — restart-from-root re-lists; no mid-phase cursor can copy a fresh answer over a stale reconciliation | 10000 schedules |
 | tc8reconOff_P8 | crash + shrink, `extRecon` OFF (non-deleting engine) | P8 | RED | RED: `P8-EXT-STALE` — the warn-and-continue degrade seals the dead attempt's principal 1 (the SQLite degradation pinned by `SQLiteExternalPrincipalResumeDegradesWithoutFailure`, now model-caught) | first find (20% of explored) |
 | tc8staleList_P8 | crash + shrink, `extStaleList` ON (resume consumes the dead attempt's answer) | P8 | RED | RED: `P8-EXT-CURRENT` — the recency mutant the `ResumeUsesCurrentExternalAnswer` chaos pin forbids | first find (100% of explored) |
+| tc8overDelete_P8 | no interruption, `extOverDelete` ON (late over-deleting sweep) | P8 | RED | RED: `P8-EXT-MISSING` — the over-deletion direction of the seal clause, witnessed so P8 is calibrated in both directions (the P6-C ZOMBIE/AMNESIA pattern). MODEL FACT the kill's placement records: an over-deleting EARLY pass — the engine order, delete-stale before copy — cannot produce this shape in ANY schedule, because the page-1 copy rewrites every listed id (structural self-heal); the mutant therefore models a late sweep committing at seal prep, where nothing re-writes the row (`Store.p`'s `extSweepMutant`) | first find (100% of explored) |
 
 ## P4 tranche — progress properties (stuck-resume, ladder, leaked lock)
 

@@ -82,6 +82,7 @@ tc8crash_P8:GREEN
 tc8stop_P8:GREEN
 tc8reconOff_P8:RED
 tc8staleList_P8:RED
+tc8overDelete_P8:RED
 "
 
 mismatches=0
