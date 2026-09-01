@@ -29,6 +29,15 @@ also clean, isolating the P4 merge from the v11 monitor change), the
 +5 scenario-8 cells (55), and the tc8overDelete_P8 over-deletion
 kill (the current 56).
 
+COVERAGE LIMIT of the 56-cell matrix (the graph log carries the
+mirror block for its leg; shared doctrine and both inventories in
+REPORT.md's standing limits): three of this model's alarm strings
+fire in no red cell — P1-ATTEST-EMPTY, P1-ATTEST-PUBLISH, and
+P2-CONSULT. Each is a narrower sibling of a witnessed clause on the
+same monitor (P1-ATTEST-SEAL, P1-CONTENT, and P2-STALENESS all have
+reds); by this log's own doctrine the three are asserted, not
+calibrated, and a green matrix says nothing about them.
+
 Toolchain: P 3.1.0 (`p compile` / `p check -tc <cell> -s <schedules>`).
 Counterexample traces are NOT committed (neither the human-readable
 schedule nor the machine-replay `trace.json`): archived traces rot
@@ -109,7 +118,7 @@ validators):
 
 | cell | config | property | expected | observed | budget |
 |---|---|---|---|---|---|
-| tc3a_P1 | shipped (`hitValidatorBinding` ON) — the residual hole | P1 | RED | RED: `P1-CONTENT` is the archived sweep's first find (carrier-first/interleaved content shape); the `P1-ATTEST-SEAL` carrier-last shape (rows(B) sealed under entry V_A) is also live in the config — both require the re-consult's lookup-hit V_B to OVERWRITE the hit map before the carrier's LIVE hit read (last-write-wins rebind) | first find (0.34% of 10k — narrow: needs C dispatched after P's re-consult transition) |
+| tc3a_P1 | shipped (`hitValidatorBinding` ON) — the residual hole | P1 | RED | RED: TWO calibrated shapes are live in this config and the run of record may show EITHER as its first find — `P1-CONTENT` (carrier-first/interleaved content shape) or `P1-ATTEST-SEAL` (carrier-last: rows(B) sealed under entry V_A); which trips first is seed luck (the Makefile's formal-section note on multi-shape RED tag noise names this cell). The conformance contract for a differ: either of those two alarms is calibrated; any OTHER alarm on this cell is a real drift. Both shapes require the re-consult's lookup-hit V_B to OVERWRITE the hit map before the carrier's LIVE hit read (last-write-wins rebind) | first find (0.34% of 10k — narrow: needs C dispatched after P's re-consult transition) |
 | tc3a_P2 | same config | P2 | GREEN | GREEN — attempt 1's validation match qualifies the scope as consulted; copied rows carry hops 1 (corrected expectation; spec v2 wrongly claimed a P2 red) | 10000 schedules |
 | tc3b_P1 | pre-CO-6b-004 (`hitValidatorBinding` OFF), 1-page planning (cell 31) | P1 | RED | RED: `P1-ATTEST-SEAL` — no re-consult, hit stays V_A, NO binding check; carrier copies swapped B and publishes V_A | first find (100% of explored) |
 | tc3bBindingOn_All | same premise, binding ON — the CO-6b-004 kill | P1+P2+P3′ | GREEN | GREEN — binding gate compares hit V_A to base V_B, fails LOUD-COLD (behavior, not assert); scope seals empty in premise schedules, no wrong data | 10000 schedules |
