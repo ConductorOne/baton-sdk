@@ -8,6 +8,10 @@ type Handler interface {
 	Int64Counter(name string, description string, unit Unit) Int64Counter
 	Int64Gauge(name string, description string, unit Unit) Int64Gauge
 	Int64Histogram(name string, description string, unit Unit) Int64Histogram
+	// RegisterInt64ObservableGauge registers an asynchronous gauge that will be observed
+	// during collection by invoking the provided callback. The callback should return
+	// the current value and optional tags at observation time.
+	RegisterInt64ObservableGauge(name string, description string, unit Unit, callback func(ctx context.Context) (int64, map[string]string))
 	WithTags(tags map[string]string) Handler
 }
 
