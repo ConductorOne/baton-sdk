@@ -42,6 +42,7 @@ func scopedRanges() [][2][]byte {
 		{DigestLowerBound(), DigestUpperBound()},
 		{SourceCacheEntryLowerBound(), SourceCacheEntryUpperBound()},
 		{SourceCachePoisonLowerBound(), SourceCachePoisonUpperBound()},
+		{SourceCacheCompatLowerBound(), SourceCacheCompatUpperBound()},
 		{encodeAssetPrefix(), upperBoundOf(encodeAssetPrefix())},
 		// Stats sidecar — single key; the half-open range shape
 		// contains exactly that one key.

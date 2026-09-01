@@ -87,6 +87,23 @@ message C1ZManifestV3 {
   // c1/dotc1z/engine/pebble/digest.go's present-means-exact contract.
   // Additive field: old readers ignore it, old files simply lack it.
   GrantDigestRoot grant_digest_root = 43;
+
+  // Save-time materialization witness (CO-017 cross-version fold fence).
+  // The SDK's replayed-row materialization-policy generation
+  // (sourcecache.MaterializationPolicyGeneration) as of the save that
+  // produced this envelope; written on EVERY save by a witness-aware SDK.
+  //
+  // Why this fences: an OLDER SDK that folds a scoped artifact rewrites
+  // the envelope and rebuilds this manifest fresh from its own
+  // compiled-in descriptors, which do not know this field — so the
+  // witness is necessarily ABSENT from any old-fold output and cannot be
+  // forged by one, even though the old fold byte-copies the payload's
+  // source-cache manifest, indexes, and compat record intact. A replay
+  // consumer requires the witness to byte-match its own generation and
+  // treats absence as ineligible (degrade to a cold sync), which closes
+  // the stale-but-eligible window that a byte-copied payload compat
+  // record alone cannot close.
+  string sdk_materialization_generation = 44;
 }
 
 // GrantDigestRoot is the whole-file grant digest: present iff the
