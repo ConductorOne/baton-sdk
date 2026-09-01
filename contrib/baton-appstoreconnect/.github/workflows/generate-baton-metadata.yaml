@@ -1,0 +1,186 @@
+# This file is managed by baton-admin. DO NOT EDIT!!!
+name: Generate Baton Metadata
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+jobs:
+  generate_outputs:
+    if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Mint baton-ci app token
+        id: ci-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.BATON_CI_CLIENT_ID }}
+          private-key: ${{ secrets.BATON_CI_SECRET_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.ci-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+
+      - name: Build
+        run: go build -o connector ./cmd/baton-appstoreconnect
+
+      - name: Run and save config output
+        run: ./connector config > config_schema.json
+
+      - name: Run and save capabilities output
+        run: ./connector capabilities > baton_capabilities.json
+
+      - name: Commit changes
+        uses: EndBug/add-and-commit@v9
+        with:
+          default_author: github_actions
+          message: "Updating baton config schema and capabilities."
+          add: |
+            config_schema.json
+            baton_capabilities.json
+
+  validate_metadata:
+    if: github.event_name == 'pull_request' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: "go.mod"
+
+      - name: Build
+        run: go build -o connector ./cmd/baton-appstoreconnect
+
+      - name: Run and save config output
+        run: ./connector config > config_schema.json
+
+      - name: Run and save capabilities output
+        run: ./connector capabilities > baton_capabilities.json
+
+      # Check 1: verify committed JSON matches binary output
+      - name: Verify committed metadata is up to date
+        id: metadata-check
+        continue-on-error: true
+        run: |
+          CAPS_STALE=false
+          CONFIG_STALE=false
+
+          # Semantic JSON comparison (tolerant of whitespace/formatting differences)
+          COMMITTED_CAPS=$(git show HEAD:baton_capabilities.json 2>/dev/null | jq -cS . 2>/dev/null || echo "")
+          GENERATED_CAPS=$(jq -cS . baton_capabilities.json 2>/dev/null || echo "")
+          if [ "$COMMITTED_CAPS" != "$GENERATED_CAPS" ]; then
+            CAPS_STALE=true
+            echo "::warning::baton_capabilities.json differs from binary output"
+            git diff -- baton_capabilities.json
+          fi
+
+          COMMITTED_CONFIG=$(git show HEAD:config_schema.json 2>/dev/null | jq -cS . 2>/dev/null || echo "")
+          GENERATED_CONFIG=$(jq -cS . config_schema.json 2>/dev/null || echo "")
+          if [ "$COMMITTED_CONFIG" != "$GENERATED_CONFIG" ]; then
+            CONFIG_STALE=true
+            echo "::warning::config_schema.json differs from binary output"
+            git diff -- config_schema.json
+          fi
+
+          if [ "$CAPS_STALE" = "true" ] || [ "$CONFIG_STALE" = "true" ]; then
+            echo ""
+            echo "::error::The committed baton_capabilities.json and/or config_schema.json are out of date."
+            echo "::error::The connector binary generates different metadata than what's committed."
+            echo "::error::Run './connector capabilities > baton_capabilities.json' and './connector config > config_schema.json' locally, then commit the updated files."
+            echo "::error::Or use the fix-ci-checks skill to update automatically."
+            echo ""
+            echo "Capabilities stale: $CAPS_STALE"
+            echo "Config stale: $CONFIG_STALE"
+            exit 1
+          fi
+
+          echo "Committed metadata matches binary output."
+
+      # Check 2: verify docs reflect current metadata
+      - name: Verify docs match current metadata
+        id: docs-check
+        if: always()
+        continue-on-error: true
+        run: |
+          CAPS_CHANGED=false
+          CONFIG_CHANGED=false
+
+          BASE_SHA=$(git merge-base HEAD origin/main 2>/dev/null || echo "")
+
+          # Compare PR's committed metadata with main using semantic JSON comparison
+          # (jq -cS normalizes formatting so whitespace-only changes don't trigger docs requirement)
+          if [ -n "$BASE_SHA" ]; then
+            BASE_CAPS=$(git show "$BASE_SHA:baton_capabilities.json" 2>/dev/null | jq -cS . 2>/dev/null || echo "")
+            HEAD_CAPS=$(jq -cS . baton_capabilities.json 2>/dev/null || echo "")
+            if [ "$BASE_CAPS" != "$HEAD_CAPS" ]; then
+              CAPS_CHANGED=true
+            fi
+
+            BASE_CONFIG=$(git show "$BASE_SHA:config_schema.json" 2>/dev/null | jq -cS . 2>/dev/null || echo "")
+            HEAD_CONFIG=$(jq -cS . config_schema.json 2>/dev/null || echo "")
+            if [ "$BASE_CONFIG" != "$HEAD_CONFIG" ]; then
+              CONFIG_CHANGED=true
+            fi
+          fi
+
+          if [ "$CAPS_CHANGED" = "false" ] && [ "$CONFIG_CHANGED" = "false" ]; then
+            echo "Metadata unchanged — no doc update needed."
+            exit 0
+          fi
+
+          # Check if docs/connector.mdx was updated in this PR
+          DOCS_CHANGED=false
+          if [ -n "$BASE_SHA" ]; then
+            if git diff --name-only "$BASE_SHA" HEAD | grep -q "docs/connector.mdx"; then
+              DOCS_CHANGED=true
+            fi
+          fi
+
+          if [ "$DOCS_CHANGED" = "true" ]; then
+            echo "Metadata changed and docs were updated — check passed."
+            exit 0
+          fi
+
+          echo "::error::Connector capabilities or config schema changed but docs/connector.mdx was not updated."
+          echo "::error::Run the fix-ci-checks skill locally to update docs from the current metadata."
+          echo "Capabilities changed: $CAPS_CHANGED"
+          echo "Config changed: $CONFIG_CHANGED"
+          exit 1
+
+      # Fail the job if either PR check failed
+      - name: Enforce PR check results
+        if: always()
+        run: |
+          FAILURES=""
+          if [ "${{ steps.metadata-check.outcome }}" = "failure" ]; then
+            FAILURES="${FAILURES}\n- Committed metadata is out of date"
+          fi
+          if [ "${{ steps.docs-check.outcome }}" = "failure" ]; then
+            FAILURES="${FAILURES}\n- Docs not updated to match metadata changes"
+          fi
+          if [ -n "$FAILURES" ]; then
+            echo "PR checks failed:"
+            echo -e "$FAILURES"
+            echo ""
+            echo "Run the fix-ci-checks skill to resolve these issues."
+            exit 1
+          fi

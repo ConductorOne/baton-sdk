@@ -1,0 +1,19 @@
+# This file is managed by baton-admin. DO NOT EDIT!!!
+name: Connector Docs
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  connector-docs:
+    uses: ConductorOne/github-workflows/.github/workflows/connector-docs-verify.yaml@v4
+    with:
+      ref: ${{ github.event.pull_request.head.sha || github.sha }}
