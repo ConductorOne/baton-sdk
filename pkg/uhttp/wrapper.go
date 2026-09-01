@@ -259,7 +259,7 @@ func WithAlwaysXMLResponse(response any) DoOption {
 			if resp.StatusCode == http.StatusNoContent {
 				return nil
 			}
-			if resp.StatusCode >= 200 && resp.StatusCode < 300 && len(resp.Body) == 0 {
+			if isSuccessStatusCode(resp.StatusCode) && len(resp.Body) == 0 {
 				return nil
 			}
 			return unmarshalXMLToMap(genericResponse, resp)
@@ -317,6 +317,13 @@ type ErrorResponse interface {
 	Message() string
 }
 
+// isSuccessStatusCode reports whether code is in the 2xx success class.
+// http.StatusOK (200) is the inclusive lower bound and
+// http.StatusMultipleChoices (300) the exclusive upper bound.
+func isSuccessStatusCode(code int) bool {
+	return code >= http.StatusOK && code < http.StatusMultipleChoices
+}
+
 // GrpcCodeFromHTTPStatus maps an HTTP status code to the appropriate gRPC status code.
 func GrpcCodeFromHTTPStatus(httpStatus int) codes.Code {
 	switch httpStatus {
@@ -349,7 +356,7 @@ func GrpcCodeFromHTTPStatus(httpStatus int) codes.Code {
 
 func WithErrorResponse(resource ErrorResponse) DoOption {
 	return func(resp *WrapperResponse) error {
-		if resp.StatusCode < 300 {
+		if resp.StatusCode < http.StatusMultipleChoices {
 			return nil
 		}
 
@@ -425,7 +432,7 @@ func WithGenericResponse(response *map[string]any) DoOption {
 			return nil
 		}
 
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 && len(resp.Body) == 0 {
+		if isSuccessStatusCode(resp.StatusCode) && len(resp.Body) == 0 {
 			return nil
 		}
 
@@ -587,7 +594,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		}
 	}
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+	if !isSuccessStatusCode(resp.StatusCode) {
 		grpcCode := GrpcCodeFromHTTPStatus(resp.StatusCode)
 		return resp, WrapErrorsWithRateLimitInfo(grpcCode, resp, optErrs...)
 	}

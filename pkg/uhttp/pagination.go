@@ -115,7 +115,7 @@ func WithPaginationData(response PaginatedResponse) DoOption {
 			return status.Error(codes.InvalidArgument, "WithPaginationData: response is nil")
 		}
 
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if !isSuccessStatusCode(resp.StatusCode) {
 			return nil
 		}
 
