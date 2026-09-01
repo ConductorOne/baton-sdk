@@ -1,0 +1,139 @@
+# This file is managed by baton-admin. DO NOT EDIT!!!
+name: Update Go version and dependencies
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".versions.yaml"
+
+jobs:
+  update-versions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint baton-ci app token
+        id: ci-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.BATON_CI_CLIENT_ID }}
+          private-key: ${{ secrets.BATON_CI_SECRET_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.ci-token.outputs.token }}
+      - name: "Get Go version"
+        uses: mathiasvr/command-output@v2.0.0
+        id: go-version
+        with:
+          run: |
+            version_lt() {
+              [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ] && [ "$1" != "$2" ]
+            }
+
+            versions_go=$(yq -r '.go-version' .versions.yaml)
+            gomod_go=$(awk '/^go [0-9]/{print $2}' go.mod)
+            if version_lt "$versions_go" "$gomod_go"; then
+              printf '%s' "$gomod_go"
+            else
+              printf '%s' "$versions_go"
+            fi
+      - name: "Setup Go"
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ steps.go-version.outputs.stdout }}
+      - name: "Update go.mod"
+        env:
+          GO_VERSION: ${{ steps.go-version.outputs.stdout }}
+        run: |
+          version_lt() {
+            [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ] && [ "$1" != "$2" ]
+          }
+
+          current_go=$(go mod edit -json | jq -r '.Go')
+          if version_lt "$current_go" "$GO_VERSION"; then
+            go mod edit -go="$GO_VERSION"
+          else
+            printf "go.mod already uses Go %s; managed minimum is %s\n" "$current_go" "$GO_VERSION"
+          fi
+      - name: "Update dependencies"
+        run: |
+          length=$(yq -r '.dependencies | length' .versions.yaml)
+          if [[ "$length" -eq  0 ]]; then
+            printf "No dependencies to update\n"
+            exit 1
+          fi
+          
+          deps=$(yq -r '.dependencies | keys | .[]' .versions.yaml)
+          for dep in $deps; do
+            version=$(dependency="$dep" yq -r '.dependencies[env(dependency)]' .versions.yaml)
+            printf "Updating %s to %s\n" "$dep" "$version"
+            go get -u "github.com/conductorone/$dep@$version"
+          done
+      - name: "go mod tidy && go mod vendor"
+        run: |
+          go mod tidy && go mod vendor
+      - name: "Verify managed versions"
+        run: |
+          version_lt() {
+            [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -1)" = "$1" ] && [ "$1" != "$2" ]
+          }
+
+          module_version() {
+            go mod edit -json | jq -r --arg module_path "$1" '.Require[]? | select(.Path == $module_path and (.Indirect | not)) | .Version' | head -1
+          }
+
+          mismatch=0
+
+          expected_go=$(yq -r '.go-version' .versions.yaml)
+          actual_go=$(go mod edit -json | jq -r '.Go')
+          if version_lt "$actual_go" "$expected_go"; then
+            echo "::error::Go version too low after update: .versions.yaml requires at least ${expected_go}, but go.mod has ${actual_go}."
+            mismatch=1
+          elif version_lt "$expected_go" "$actual_go"; then
+            echo "::warning::go.mod uses ${actual_go}, which is newer than .versions.yaml minimum ${expected_go}. baton-admin will sync the higher Go pin."
+          else
+            echo "Go version matches: ${expected_go}"
+          fi
+
+          expected_sdk=$(yq -r '.dependencies.baton-sdk // ""' .versions.yaml)
+          if [ -n "$expected_sdk" ]; then
+            actual_sdk=$(module_version github.com/conductorone/baton-sdk)
+            if [ "$expected_sdk" != "$actual_sdk" ]; then
+              echo "::error::baton-sdk version mismatch after update: .versions.yaml expects ${expected_sdk}, but go.mod has ${actual_sdk}."
+              mismatch=1
+            else
+              echo "baton-sdk version matches: ${expected_sdk}"
+            fi
+          fi
+
+          expected_http=$(yq -r '.dependencies.baton-http // ""' .versions.yaml)
+          if [ -n "$expected_http" ]; then
+            actual_http=$(module_version github.com/conductorone/baton-http)
+            if [ -z "$actual_http" ]; then
+              echo "::warning::baton-http is listed in .versions.yaml (${expected_http}) but not found in go.mod"
+            elif [ "$expected_http" != "$actual_http" ]; then
+              echo "::error::baton-http version mismatch after update: .versions.yaml expects ${expected_http}, but go.mod has ${actual_http}."
+              mismatch=1
+            else
+              echo "baton-http version matches: ${expected_http}"
+            fi
+          fi
+
+          if [ "$mismatch" -ne 0 ]; then
+            exit 1
+          fi
+      - name: "Verify build"
+        run: |
+          go build ./...
+      - name: "Commit changes"
+        uses: EndBug/add-and-commit@v9
+        with:
+          default_author: github_actions
+          message: "chore: update dependency & Go versions"
+          add: |
+            go.mod
+            go.sum
+            vendor/

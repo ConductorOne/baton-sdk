@@ -1,0 +1,71 @@
+name: ci
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  push:
+    branches:
+      - main
+jobs:
+  go-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Run linters
+        uses: golangci/golangci-lint-action@v9
+        with:
+          skip-cache: true
+          version: v2.9.0
+          args: --timeout=3m
+  go-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Build baton-appstoreconnect
+        run: go build ./cmd/baton-appstoreconnect
+      - name: go tests
+        run: go test -v ./...
+  # Live-tenant provisioning checks. These need an App Store Connect API key with the Admin role
+  # stored in repository secrets, plus the ids of a role/app entitlement and a principal to move.
+  # They are skipped until those secrets exist.
+  connector-tests:
+    runs-on: ubuntu-latest
+    if: ${{ vars.CI_ROLE_ENTITLEMENT != '' }}
+    env:
+      BATON_LOG_LEVEL: debug
+      BATON_KEY_ID: ${{ secrets.KEY_ID }}
+      BATON_ISSUER_ID: ${{ secrets.ISSUER_ID }}
+      BATON_PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Build baton-appstoreconnect
+        run: go build ./cmd/baton-appstoreconnect
+      - name: Grant/Revoke Role
+        uses: ConductorOne/github-workflows/actions/sync-test@v4
+        with:
+          connector: ./baton-appstoreconnect
+          baton-entitlement: ${{ vars.CI_ROLE_ENTITLEMENT }}
+          baton-principal: ${{ vars.CI_ROLE_PRINCIPAL }}
+          baton-principal-type: user
+      - name: Grant/Revoke App Access
+        if: ${{ vars.CI_APP_ENTITLEMENT != '' }}
+        uses: ConductorOne/github-workflows/actions/sync-test@v4
+        with:
+          connector: ./baton-appstoreconnect
+          baton-entitlement: ${{ vars.CI_APP_ENTITLEMENT }}
+          baton-principal: ${{ vars.CI_APP_PRINCIPAL }}
+          baton-principal-type: user
