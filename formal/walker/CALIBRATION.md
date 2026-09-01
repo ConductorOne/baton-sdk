@@ -114,6 +114,26 @@ validators):
 | tc3bBindingOn_All | same premise, binding ON — the CO-6b-004 kill | P1+P2+P3′ | GREEN | GREEN — binding gate compares hit V_A to base V_B, fails LOUD-COLD (behavior, not assert); scope seals empty in premise schedules, no wrong data | 10000 schedules |
 | tc3atomic_All | v11: same stop+swap premise under V-ATOMIC — the `annotationBinding` de-scope's subsumption witness | P1+P2+P3′ | GREEN | GREEN — no carrier and no annotation exist; either the unit committed (marker in the CURRENT artifact suppresses attempt 2; seal is the unit's coherent contents) or attempt 2 re-consults the actually-current swapped base (V1 fails validation vs e2 → fetch-fresh). The 3A rebind hole is structurally closed: no restored hit authorizes replay | 20000 schedules |
 
+## Scenario 4 — duplicate replay carriers (MODEL_SPEC §9 case 4)
+
+(Section added post-freeze: the four cells have been in every sweep
+since the v11 freeze — see `traces/freeze-sweep-v11-summary.txt` —
+but this log never carried their section; the run log is completed
+here with the frozen verdicts, no cell or expectation changed.)
+
+Two carriers with byte-distinct page tokens (distinct aids) encoding
+the same (scope, verdict); no interruption, no mutation; 2 syncs. The
+dedup obligation is split across two shipped guards — `oncePerScope`
+(the replayed-set mark) and `scopeLocks` (serialization) — and the
+cells kill each guard separately:
+
+| cell | config | property | expected | observed | budget |
+|---|---|---|---|---|---|
+| tc4shipped_All | `oncePerScope` + `scopeLocks` ON (shipped) | P1+P2+P3′ | GREEN | GREEN — the second carrier's copy is deduped under the lock (grant carries the replayed status; the mark commits at release); its B5-legal copy-skipped round folds as a no-op re-publish | 10000 schedules |
+| tc4noOnce_P1 | `oncePerScope` OFF, locks ON | P1 | RED | RED: `P1-LEGALITY` — both copies commit; the lock serializes but does not dedup | first find |
+| tc4noLocks_P1 | `oncePerScope` ON, locks OFF | P1 | RED | RED: `P1-LEGALITY` — check-then-mark TOCTOU: both carriers read the replayed set before either transition commits the mark | first find |
+| tc4atomic_All | V-ATOMIC re-run (v11 scope) | P1+P2+P3′ | GREEN | GREEN — carriers do not exist under the variant (replay is inline at the consult); the duplicate-carrier premise is structurally unreachable | 10000 schedules |
+
 ## Scenario 5 — warm-drift (both produce triggers + the crash window)
 
 Upstream never moves (drift is config-side). Sync 1 seeds A = rows(e1)
