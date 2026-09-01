@@ -1,0 +1,13 @@
+tcG6aE_Ctl expected=GREEN observed=GREEN ok
+tcG6aS_Ctl expected=GREEN observed=GREEN ok
+tcG6cE_Ctl expected=GREEN observed=GREEN ok
+tcG6cS_Ctl expected=GREEN observed=GREEN ok
+tcG6bE_Redo expected=RED observed=RED ok [EXEC-BOUND]
+tcG6bS_Redo expected=RED observed=RED ok [EXEC-BOUND]
+tcG5dE_W1 expected=RED observed=RED ok [SEAL-WORLD]
+tcG5dS_W1 expected=RED observed=RED ok [SEAL-WORLD]
+tcG5dE_W2 expected=RED observed=RED ok [SEAL-WORLD]
+tcG5dS_W2 expected=RED observed=RED ok [SEAL-WORLD]
+tcG5dE_W3 expected=GREEN observed=GREEN ok
+tcG5dS_W3 expected=GREEN observed=GREEN ok
+BAKEOFF-DONE cells=12 mismatches=0

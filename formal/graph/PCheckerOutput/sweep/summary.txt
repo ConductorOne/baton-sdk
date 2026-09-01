@@ -1,0 +1,67 @@
+tcG1i_All expected=GREEN observed=GREEN ok
+tcG1ii_All expected=GREEN observed=GREEN ok
+tcG1iii_E expected=GREEN observed=GREEN ok
+tcG1iii_S expected=GREEN observed=GREEN ok
+tcG1b_All expected=GREEN observed=GREEN ok
+tcG1cMut_P3 expected=GREEN observed=GREEN ok
+tcG1cMut_Seal expected=GREEN observed=GREEN ok
+tcG1sup_P1 expected=RED observed=RED ok [P1-LEGALITY]
+tcG1bMut_PGEN expected=RED observed=RED ok [P-GEN]
+tcG1cMut_Adopt expected=RED observed=RED ok [P-ADOPT]
+tcG2ea_Core expected=GREEN observed=GREEN ok
+tcG2eb_All expected=GREEN observed=GREEN ok
+tcG2s_All expected=GREEN observed=GREEN ok
+tcG2awE_All expected=GREEN observed=GREEN ok
+tcG2awS_All expected=GREEN observed=GREEN ok
+tcG2eb2c_All expected=GREEN observed=GREEN ok
+tcG2fbE_All expected=GREEN observed=GREEN ok
+tcG2fbS_All expected=GREEN observed=GREEN ok
+tcG2ea_P6G expected=RED observed=RED ok [P6-G]
+tcG2ebRetrOff_P6G expected=RED observed=RED ok [P6-G]
+tcG2sStampOff_P6G expected=RED observed=RED ok [P6-G]
+tcG2awE_Redo expected=RED observed=RED ok [REDO-PROBE]
+tcG2awS_Redo expected=RED observed=RED ok [REDO-PROBE]
+tcG2fbE_Redo expected=RED observed=RED ok [REDO-PROBE]
+tcG2ebPend_Redo expected=RED observed=RED ok [REDO-PROBE]
+tcG2awWA_E expected=RED observed=RED ok [liveness,P6-E]
+tcG2awWA_S expected=RED observed=RED ok [P6-S]
+tcG1dProbe_Redo expected=RED observed=RED ok [REDO-PROBE]
+tcG1d_P6G expected=RED observed=RED ok [P6-G]
+tcG1e_PGEN expected=RED observed=RED ok [P-GEN]
+tcG5aE_All expected=GREEN observed=GREEN ok
+tcG5aS_All expected=GREEN observed=GREEN ok
+tcG5f_All expected=GREEN observed=GREEN ok
+tcG5bE_P5 expected=RED observed=RED ok [P5-UNDER]
+tcG5bS_P5 expected=RED observed=RED ok [P5-UNDER]
+tcG5c_P5 expected=RED observed=RED ok [P5-OVER]
+tcG5e_Probe expected=RED observed=RED ok [PURGE-PROBE]
+tcG5e_PurgeOff expected=RED observed=RED ok [DEAD-DISPATCH]
+tcG5f_Drop expected=RED observed=RED ok [SEAL-EXPECT]
+tcG3_E expected=GREEN observed=GREEN ok
+tcG3_S expected=GREEN observed=GREEN ok
+tcG6aE_All expected=GREEN observed=GREEN ok
+tcG6aS_All expected=GREEN observed=GREEN ok
+tcG6bE_All expected=GREEN observed=GREEN ok
+tcG6bS_All expected=GREEN observed=GREEN ok
+tcG6cE_All expected=GREEN observed=GREEN ok
+tcG6cS_All expected=GREEN observed=GREEN ok
+tcG6aE_Redo expected=RED observed=RED ok [EXEC-BOUND]
+tcG6aS_Redo expected=RED observed=RED ok [EXEC-BOUND]
+tcG6cE_Redo expected=RED observed=RED ok [EXEC-BOUND]
+tcG6cS_Redo expected=RED observed=RED ok [EXEC-BOUND]
+tcG7_Ladder expected=GREEN observed=GREEN ok
+tcG7_Stuck expected=RED observed=RED ok [P4-STUCK]
+tcG8b_All expected=GREEN observed=GREEN ok
+tcG8bMut_Ctl expected=GREEN observed=GREEN ok
+tcG8bMut_P1 expected=RED observed=RED ok [P1-LEGALITY]
+tcG8c_All expected=GREEN observed=GREEN ok
+tcG8c_Poison expected=RED observed=RED ok [POISON-PROBE]
+tcG8d_All expected=GREEN observed=GREEN ok
+tcG8dMut_PMARK expected=RED observed=RED ok [P-MARK]
+tcG9s_All expected=GREEN observed=GREEN ok
+tcG9awS_All expected=GREEN observed=GREEN ok
+tcG9G5aS_All expected=GREEN observed=GREEN ok
+tcG9cBase_All expected=GREEN observed=GREEN ok
+tcG9c_All expected=GREEN observed=GREEN ok
+tcG9c_Redo expected=RED observed=RED ok [EXEC-BOUND]
+SWEEP-DONE cells=66 mismatches=0

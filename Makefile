@@ -310,6 +310,65 @@ prodscale-crossover: ## Measure fold/overlay crossover at production scale.
 prodscale-topebble: ## Measure SQLite-to-Pebble conversion at production scale.
 	BATON_PROD_SCALE_TOPEBBLE=1 go test -v -count=1 -timeout=180m -run TestProdScaleToPebbleCurve ./pkg/synccompactor
 
+# Formal verification track (formal/). These targets have tool
+# prerequisites this repo deliberately does not install: the P checker
+# (`p` on PATH — https://p-org.github.io/P/) for the model sweeps, and a
+# sibling engine checkout at ../occult (the host go.mod `replace` target)
+# plus a Go 1.26 toolchain for the Occult suite. Each target checks its
+# prerequisite and says what is missing rather than failing confusingly.
+#
+# The sweep targets REGENERATE the committed evidence summaries
+# (formal/*/PCheckerOutput/*/summary.txt): a clean run reproduces every
+# cell's verdict line, and the scripts' exit status carries that
+# verdict — any mismatch (drifted cell, untagged red, wrong bake-off
+# alarm, checker error) fails the target. The reproduction claim was
+# validated AFTER the exit-status gate landed: the 2026-09-01 full
+# pass re-ran every cell through the gated scripts and reproduced all
+# three committed summaries byte-identically (which is also why the
+# summaries carry no post-gate commit — identical bytes leave nothing
+# to commit). Two kinds of run-to-run noise
+# are possible and treated differently: an alarm-tag difference on a
+# multi-shape RED cell (e.g. the walker's tc3a_P1 has two calibrated P1
+# shapes) diffs the summary but still exits 0, while a RED cell that
+# MISSES its find fails the gate by design — that has happened once,
+# from seed-bimodal search on a narrow target, and the remedy is a
+# per-cell strategy pin (see the tcG5dS_W2 note in graph CALIBRATION).
+# Walker (56 cells) and graph (66 cells) each take on the order of half
+# an hour at the default schedule budget; the bake-off (12 cells) about
+# twenty minutes.
+P_SCHEDULES ?= 10000
+OCCULT_TEST_TIMEOUT ?= 90m
+
+.PHONY: p-checker-guard
+p-checker-guard:
+	@command -v p >/dev/null 2>&1 || { \
+		echo "formal: the P checker ('p') is not on PATH — install it per https://p-org.github.io/P/ (no install target is provided)" >&2; \
+		exit 2; \
+	}
+
+.PHONY: formal-walker-sweep
+formal-walker-sweep: p-checker-guard ## Compile and sweep the walker model (56 cells; needs P).
+	cd formal/walker && p compile -pp walker.pproj && tools/sweep.sh $(P_SCHEDULES)
+
+.PHONY: formal-graph-sweep
+formal-graph-sweep: p-checker-guard ## Compile and sweep the graph model (66 cells; needs P).
+	cd formal/graph && p compile -pp graph.pproj && tools/sweep.sh $(P_SCHEDULES)
+
+.PHONY: formal-graph-bakeoff
+formal-graph-bakeoff: p-checker-guard ## Run the 12-cell bake-off phase (needs P).
+	cd formal/graph && p compile -pp graph.pproj && tools/bakeoff.sh $(P_SCHEDULES)
+
+.PHONY: formal-occult-check
+formal-occult-check: ## Run the Occult host suite (needs ../occult and Go 1.26).
+	@test -d ../occult || { \
+		echo "formal-occult-check: sibling engine checkout not found at ../occult (the formal/occult/host go.mod 'replace' target); clone it beside this repo (no install target is provided)" >&2; \
+		exit 2; \
+	}
+	cd formal/occult/host && go test -timeout $(OCCULT_TEST_TIMEOUT) ./...
+
+.PHONY: formal-check
+formal-check: formal-walker-sweep formal-graph-sweep formal-graph-bakeoff formal-occult-check ## Run every formal-track sweep and suite.
+
 .PHONY: pkg/sdk/version.go
 pkg/sdk/version.go:
 	echo $(VERSION)

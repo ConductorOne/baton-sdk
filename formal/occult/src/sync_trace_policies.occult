@@ -1,0 +1,534 @@
+# Deliverable 7: the ordering/durability trace-policy oracle set
+# (brief: "Trace-policy oracle set" — consult-before-replay,
+# checkpoint-before-progress, clear-before-upsert, once-per-scope, seal
+# obligations, policy 6: session-checkpoint consistency (the CO-6b-009
+# root cause), plus policy 7: external-principal grounding, the
+# deleteStaleExternalPrincipals contract) over the announce vocabulary
+# pinned in formal/MODEL_SPEC.md §7. A trace is ONE SYNC's event list — possibly
+# spanning crash/resume attempts, with ev_resume marking each attempt
+# boundary (the multi-attempt extension; single-attempt traces carry no
+# marker and mean exactly what they did before). Each policy is a
+# recursive verdict function returning "ok" or a violation string. Two
+# scopes (s1, s2) — the same small-scope envelope as the P models.
+#
+# Loaded into UniversalScope by the host: equations are rewrite rules,
+# bare identifiers (r, a, b, p, q, s, v) are universal pattern
+# variables, and every pattern is head-guarded by a constructor.
+#
+# CONSTRAINT DISCIPLINE (lint: unconstrained-axiom-universal). Every
+# universal here is deliberately unconstrained. The prescribed fix —
+# gating the scope/flag universals on userspace sorts (s : Scope; with
+# Scope = {s1, s2,}) — does not evaluate today: axiom-side dispatch
+# cannot consume free-term classifier membership in any documented form,
+# so member-only traces stop reducing and every verdict becomes a stuck
+# term (pinned by host/constrained_params_probe_test.go; the ask lives
+# in docs/tasks/occult-engine-changes-brief.md). Until the engine lands
+# that evidence, the mitigation is the head-guard discipline: every LHS
+# is guarded by a module-local constructor (tcons/tnil/ev_*), so a
+# universal binds only inside applications of this module's own
+# existentials — the cross-model bridged-class hazard the lint warns
+# about requires someone bridging these heads, which the host never
+# does.
+
+syntax("standard");
+
+# Events. ev_replay(s) is the committed replacement copy for scope s
+# (the replay-unit commit); ev_clear(s) the partition clear;
+# ev_checkpoint the durable watermark commit; ev_seal the artifact
+# seal.
+∃ ev_consult;
+∃ ev_clear;
+∃ ev_replay;
+∃ ev_upsert;
+∃ ev_publish;
+∃ ev_checkpoint;
+∃ ev_seal;
+
+# ev_delete(s) is a committed tombstone application for scope s (the
+# delta protocol's delete leg: DeletedIds / DeletedPrincipalIds applied
+# by the store after the page's rows, before the validator publish —
+# B3's within-page order). A delete is a WRITE: it needs grounding like
+# an upsert (a tombstone against an un-regrounded base is the same bug
+# class — you cannot delete from a base that was never copied), it
+# dirties the quiescent-checkpoint flag, and it marks the scope active
+# for seal obligations. Consult-before-replay and once-per-scope ignore
+# it.
+∃ ev_delete;
+
+# Session-store events (policy 6). ev_swrite(k) is a committed
+# connector session write for key k; ev_sread_hit(k) / ev_sread_miss(k)
+# a session read returning found / not-found. Sessions commit durably
+# at op time, OUTSIDE the checkpoint mechanism — which is exactly the
+# hazard policy 6 exists to judge. Session events are invisible to the
+# artifact policies (1-5): they are not partition writes, do not need
+# grounding, and do not dirty the quiescent-checkpoint watermark.
+# One-key envelope (k1), mirroring the P model's single session key.
+∃ ev_swrite;
+∃ ev_sread_hit;
+∃ ev_sread_miss;
+∃ k1;
+
+# External-principal events (policy 7). The external phase copies an
+# outside source's principals into the sync store; committed copies
+# are durable across crashes (checkpoint resume deliberately retains
+# completed writes), so a between-attempt shrink strands a dead
+# attempt's copies unless reconciliation deletes them. ep_list marks a
+# phase run listing the source's CURRENT answer; ep_live(p) declares p
+# a member of that answer; ep_recon marks reconciliation COMPLETED
+# (stale copies deleted, or nothing stale — the warn-and-continue
+# degrade of a non-deleting engine emits NO ep_recon: the pass ran but
+# did not reconcile); ep_copy(p) is p's committed principal write.
+# External events live in their own keyspace: invisible to the
+# artifact policies (1-5) and the session policy (6), like session
+# events are to both. Two-principal envelope (p1, p2), mirroring the
+# P model's scenario-8 row ids.
+∃ ep_list;
+∃ ep_live;
+∃ ep_recon;
+∃ ep_copy;
+∃ p1;
+∃ p2;
+
+# ev_resume marks a crash/resume attempt boundary inside one sync's
+# trace. Semantics (matching pkg/sync's checkpoint-durable provenance,
+# pinned by chaos_source_cache_resume_test.go): durable facts PERSIST
+# across the boundary — consult flags (the hit-set is
+# checkpoint-durable), clear grounding (committed rows survive the
+# crash), scope activity and publishes (seal obligations are
+# sync-scoped). Only once-per-scope RESETS: an interrupted action
+# restarts from its root token, so the across-attempt replay re-copy is
+# B5-legal at-least-once idempotence, while a within-attempt duplicate
+# remains the bug the policy exists to catch. The quiescent-checkpoint
+# flag also persists: a resume adds no progress by itself.
+#
+# CONSEQUENCE, stated so nobody reads more into policy 2 than it says:
+# because clear grounding persists across ev_resume, an attempt-1
+# clear legitimately grounds an attempt-2 write in a ONE-TERM
+# multi-attempt trace — committed rows really do survive the crash, so
+# that history is ordering-legal. Policy 2 is therefore BY DESIGN
+# blind to the resume-without-regrounding class when a whole sync
+# renders as one term. That class is caught on the other leg of the
+# bridge: the refimpl oracle renders EACH ATTEMPT as its own term (no
+# ev_resume), where a resumed attempt writing without its own clear
+# reds clear-before-upsert (TestRefImplLegacyCrashResume), and the
+# real-trace renderer inserts no structural clear for resumed
+# fixtures. The record-flip incarnation (fresh RECORD round over a
+# durably-grounded partition holding crashed-copy debris) is a CONTENT
+# violation, owned by the exporting test's content oracle — see
+# TRACE_BRIDGE.md's scope note.
+∃ ev_resume;
+
+# Scopes and trace list constructors.
+∃ s1;
+∃ s2;
+∃ tnil;
+∃ tcons;
+
+# Flag booleans (free constructors; natives are opaque to saturation).
+∃ tt;
+∃ ff;
+
+# --- Policy 1: consult-before-replay ---
+# Every replay commit for a scope requires an earlier source-cache
+# consult for that scope in the same SYNC: the consult flags persist
+# across ev_resume (the hit-set is checkpoint-durable, see the
+# ev_resume note above), so a resumed attempt replaying under attempt
+# 1's consult is legal. A within-sync replay with NO prior consult
+# anywhere is the violation.
+∃ consult_before_replay;
+∃ cbr_go;
+consult_before_replay(t) = cbr_go(t, ff, ff);
+cbr_go(tnil, a, b) = "ok";
+cbr_go(tcons(ev_consult(s1), r), a, b) = cbr_go(r, tt, b);
+cbr_go(tcons(ev_consult(s2), r), a, b) = cbr_go(r, a, tt);
+cbr_go(tcons(ev_replay(s1), r), tt, b) = cbr_go(r, tt, b);
+cbr_go(tcons(ev_replay(s1), r), ff, b) = "violation: consult-before-replay";
+cbr_go(tcons(ev_replay(s2), r), a, tt) = cbr_go(r, a, tt);
+cbr_go(tcons(ev_replay(s2), r), a, ff) = "violation: consult-before-replay";
+cbr_go(tcons(ev_clear(s), r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_upsert(s), r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_publish(s), r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_checkpoint, r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_seal, r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_resume, r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_delete(s), r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_swrite(k), r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_sread_hit(k), r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ev_sread_miss(k), r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ep_list, r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ep_live(p), r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ep_recon, r), a, b) = cbr_go(r, a, b);
+cbr_go(tcons(ep_copy(p), r), a, b) = cbr_go(r, a, b);
+
+# --- Policy 2: clear-before-upsert (clear-before-WRITE) ---
+# Any upsert into — or tombstone delete from — a scope's partition
+# requires an earlier clear of that partition (replacement rounds clear
+# first; overlay upserts and deletes are grounded on this sync's
+# replay, which cleared). The policy name and violation string keep the
+# original "upsert" form for continuity; the gate covers both write
+# kinds.
+∃ clear_before_upsert;
+∃ cbu_go;
+clear_before_upsert(t) = cbu_go(t, ff, ff);
+cbu_go(tnil, a, b) = "ok";
+cbu_go(tcons(ev_clear(s1), r), a, b) = cbu_go(r, tt, b);
+cbu_go(tcons(ev_clear(s2), r), a, b) = cbu_go(r, a, tt);
+cbu_go(tcons(ev_upsert(s1), r), tt, b) = cbu_go(r, tt, b);
+cbu_go(tcons(ev_upsert(s1), r), ff, b) = "violation: clear-before-upsert";
+cbu_go(tcons(ev_upsert(s2), r), a, tt) = cbu_go(r, a, tt);
+cbu_go(tcons(ev_upsert(s2), r), a, ff) = "violation: clear-before-upsert";
+cbu_go(tcons(ev_delete(s1), r), tt, b) = cbu_go(r, tt, b);
+cbu_go(tcons(ev_delete(s1), r), ff, b) = "violation: clear-before-upsert";
+cbu_go(tcons(ev_delete(s2), r), a, tt) = cbu_go(r, a, tt);
+cbu_go(tcons(ev_delete(s2), r), a, ff) = "violation: clear-before-upsert";
+cbu_go(tcons(ev_consult(s), r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ev_replay(s), r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ev_publish(s), r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ev_checkpoint, r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ev_seal, r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ev_resume, r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ev_swrite(k), r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ev_sread_hit(k), r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ev_sread_miss(k), r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ep_list, r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ep_live(p), r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ep_recon, r), a, b) = cbu_go(r, a, b);
+cbu_go(tcons(ep_copy(p), r), a, b) = cbu_go(r, a, b);
+
+# --- Policy 3: once-per-scope ---
+# At most one committed replacement copy per scope per attempt (the
+# across-attempt idempotent re-run is B5-legal and lives outside a
+# single-attempt trace).
+∃ once_per_scope;
+∃ ops_go;
+once_per_scope(t) = ops_go(t, ff, ff);
+ops_go(tnil, a, b) = "ok";
+ops_go(tcons(ev_replay(s1), r), ff, b) = ops_go(r, tt, b);
+ops_go(tcons(ev_replay(s1), r), tt, b) = "violation: once-per-scope";
+ops_go(tcons(ev_replay(s2), r), a, ff) = ops_go(r, a, tt);
+ops_go(tcons(ev_replay(s2), r), a, tt) = "violation: once-per-scope";
+ops_go(tcons(ev_consult(s), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_clear(s), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_upsert(s), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_publish(s), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_checkpoint, r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_seal, r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_resume, r), a, b) = ops_go(r, ff, ff);
+ops_go(tcons(ev_delete(s), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_swrite(k), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_sread_hit(k), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ev_sread_miss(k), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ep_list, r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ep_live(p), r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ep_recon, r), a, b) = ops_go(r, a, b);
+ops_go(tcons(ep_copy(p), r), a, b) = ops_go(r, a, b);
+
+# --- Policy 4: checkpoint-before-progress (seal form) ---
+# The seal requires a QUIESCENT checkpoint: an ev_checkpoint after
+# which no write event (clear/replay/upsert/publish) occurred. Reads
+# do not dirty the watermark.
+∃ checkpoint_before_progress;
+∃ cbp_go;
+checkpoint_before_progress(t) = cbp_go(t, ff);
+cbp_go(tnil, f) = "ok";
+cbp_go(tcons(ev_checkpoint, r), f) = cbp_go(r, tt);
+cbp_go(tcons(ev_clear(s), r), f) = cbp_go(r, ff);
+cbp_go(tcons(ev_replay(s), r), f) = cbp_go(r, ff);
+cbp_go(tcons(ev_upsert(s), r), f) = cbp_go(r, ff);
+cbp_go(tcons(ev_delete(s), r), f) = cbp_go(r, ff);
+cbp_go(tcons(ev_publish(s), r), f) = cbp_go(r, ff);
+cbp_go(tcons(ev_consult(s), r), f) = cbp_go(r, f);
+cbp_go(tcons(ev_resume, r), f) = cbp_go(r, f);
+cbp_go(tcons(ev_swrite(k), r), f) = cbp_go(r, f);
+cbp_go(tcons(ev_sread_hit(k), r), f) = cbp_go(r, f);
+cbp_go(tcons(ev_sread_miss(k), r), f) = cbp_go(r, f);
+cbp_go(tcons(ep_list, r), f) = cbp_go(r, f);
+cbp_go(tcons(ep_live(p), r), f) = cbp_go(r, f);
+cbp_go(tcons(ep_recon, r), f) = cbp_go(r, f);
+cbp_go(tcons(ep_copy(p), r), f) = cbp_go(r, f);
+cbp_go(tcons(ev_seal, r), tt) = "ok";
+cbp_go(tcons(ev_seal, r), ff) = "violation: checkpoint-before-progress";
+
+# --- Policy 5: seal obligations ---
+# Every scope with any activity this sync (consult/clear/replay/
+# upsert/delete) must be published before the seal. State per scope:
+# active flag, published flag.
+#
+# SCOPE, stated deliberately: the obligation is EXISTENTIAL — some
+# publish for the scope precedes the seal. A write AFTER the scope's
+# last publish (publish, upsert, seal with no re-publish) still
+# satisfies this policy: whether every row is covered by the
+# attestation it sealed under is a CONTENT/attestation question,
+# owned by the walker model's P1-ATTEST clauses and the exporting
+# test's content oracle, not by this ordering policy. Strengthening
+# this policy to "last write precedes last publish" is possible
+# (reset the published flag on activity) but is registered as a
+# deliberate non-goal while the real renderer's fixtures publish
+# per-round: the weak form matches what commit order alone can
+# witness.
+∃ seal_obligations;
+∃ so_go;
+seal_obligations(t) = so_go(t, ff, ff, ff, ff);
+so_go(tnil, a, p, b, q) = "ok";
+so_go(tcons(ev_consult(s1), r), a, p, b, q) = so_go(r, tt, p, b, q);
+so_go(tcons(ev_consult(s2), r), a, p, b, q) = so_go(r, a, p, tt, q);
+so_go(tcons(ev_clear(s1), r), a, p, b, q) = so_go(r, tt, p, b, q);
+so_go(tcons(ev_clear(s2), r), a, p, b, q) = so_go(r, a, p, tt, q);
+so_go(tcons(ev_replay(s1), r), a, p, b, q) = so_go(r, tt, p, b, q);
+so_go(tcons(ev_replay(s2), r), a, p, b, q) = so_go(r, a, p, tt, q);
+so_go(tcons(ev_upsert(s1), r), a, p, b, q) = so_go(r, tt, p, b, q);
+so_go(tcons(ev_upsert(s2), r), a, p, b, q) = so_go(r, a, p, tt, q);
+so_go(tcons(ev_delete(s1), r), a, p, b, q) = so_go(r, tt, p, b, q);
+so_go(tcons(ev_delete(s2), r), a, p, b, q) = so_go(r, a, p, tt, q);
+so_go(tcons(ev_publish(s1), r), a, p, b, q) = so_go(r, a, tt, b, q);
+so_go(tcons(ev_publish(s2), r), a, p, b, q) = so_go(r, a, p, b, tt);
+so_go(tcons(ev_checkpoint, r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ev_resume, r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ev_swrite(k), r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ev_sread_hit(k), r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ev_sread_miss(k), r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ep_list, r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ep_live(x), r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ep_recon, r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ep_copy(x), r), a, p, b, q) = so_go(r, a, p, b, q);
+so_go(tcons(ev_seal, r), tt, ff, b, q) = "violation: seal-obligations";
+so_go(tcons(ev_seal, r), a, p, tt, ff) = "violation: seal-obligations";
+so_go(tcons(ev_seal, r), ff, p, ff, q) = "ok";
+so_go(tcons(ev_seal, r), tt, tt, ff, q) = "ok";
+so_go(tcons(ev_seal, r), ff, p, tt, tt) = "ok";
+so_go(tcons(ev_seal, r), tt, tt, tt, tt) = "ok";
+
+# --- Policy 6: session-checkpoint consistency ---
+# THE CONSTRAINT (CO-6b-009's root cause; the P model's P6-C monitor
+# in trace-policy form): observable session state after a crash/resume
+# boundary must equal session state at the restored checkpoint — in
+# BOTH directions.
+#   ZOMBIE: a session write with no later checkpoint before ev_resume
+#     belongs to the dead attempt's rolled-back window; a read HIT on
+#     that key afterwards (with no committed value it could be
+#     shadowing, and no live rewrite) observed the dead attempt's
+#     future.
+#   AMNESIA: a checkpoint-committed session value must remain readable
+#     — the work that produced it will NOT re-run, so a read MISS is
+#     unrecoverable data loss (the rejected wholesale resume-clear).
+# State per key: u = written since the last checkpoint, c = a
+# checkpoint committed some value, z = a dead attempt's uncommitted
+# write is (potentially) still durable. A live rewrite reclaims the
+# key (z := ff). Value-blind conservatism: a HIT with c = tt AND
+# z = tt cannot be judged without values (the durable zombie may
+# shadow the committed value) and passes here — the P model's
+# value-aware P6-C covers that case.
+∃ session_ckpt_consistency;
+∃ scc_go;
+session_ckpt_consistency(t) = scc_go(t, ff, ff, ff);
+scc_go(tnil, u, c, z) = "ok";
+scc_go(tcons(ev_swrite(k1), r), u, c, z) = scc_go(r, tt, c, ff);
+scc_go(tcons(ev_checkpoint, r), tt, c, z) = scc_go(r, ff, tt, z);
+scc_go(tcons(ev_checkpoint, r), ff, c, z) = scc_go(r, ff, c, z);
+scc_go(tcons(ev_resume, r), tt, c, z) = scc_go(r, ff, c, tt);
+scc_go(tcons(ev_resume, r), ff, c, z) = scc_go(r, ff, c, z);
+scc_go(tcons(ev_sread_hit(k1), r), u, c, ff) = scc_go(r, u, c, ff);
+scc_go(tcons(ev_sread_hit(k1), r), u, tt, tt) = scc_go(r, u, tt, tt);
+scc_go(tcons(ev_sread_hit(k1), r), u, ff, tt) = "violation: session-zombie-read";
+scc_go(tcons(ev_sread_miss(k1), r), u, tt, z) = "violation: session-amnesia";
+scc_go(tcons(ev_sread_miss(k1), r), u, ff, z) = scc_go(r, u, ff, z);
+scc_go(tcons(ev_consult(s), r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ev_clear(s), r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ev_replay(s), r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ev_upsert(s), r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ev_delete(s), r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ev_publish(s), r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ev_seal, r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ep_list, r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ep_live(x), r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ep_recon, r), u, c, z) = scc_go(r, u, c, z);
+scc_go(tcons(ep_copy(x), r), u, c, z) = scc_go(r, u, c, z);
+
+# --- Policy 7: external-principal grounding ---
+# THE CONSTRAINT (the deleteStaleExternalPrincipals contract; the P
+# model's P8 monitor in trace-policy form). Committed principal copies
+# are durable across crashes, so a dead attempt's copies are debris
+# the moment the source's answer shrinks. Two directions:
+#   RECON-BEFORE-COPY: within a phase run (ep_list starts one), the
+#     current answer's writes may commit only after reconciliation
+#     completed (ep_recon) — the warn-and-continue degrade of a
+#     non-deleting engine copies over unreconciled debris and emits no
+#     ep_recon, so its first copy is the violation.
+#   STALE-SURVIVOR at seal: a principal copied this sync but absent
+#     from the last-listed answer survived to seal undeleted (and,
+#     dually, EXT-MISSING: a listed principal never copied). The seal
+#     clause compares against the last LIST, not truth-at-seal — an
+#     attempt that completed the phase before a crash seals its own
+#     answer legitimately (sync-scoped freshness).
+# State: n = reconciliation completed this phase run (reset by
+# ep_list), c1/c2 = principal copied and not reconciled away (durable
+# — never reset by ep_list or ev_resume), l1/l2 = member of the
+# current answer (reset by ep_list). ep_recon deletes stale copies:
+# c := c AND l. Value-blind like every policy here; the P monitor
+# carries the truth ghost this trace form cannot.
+∃ band;
+band(tt, tt) = tt;
+band(tt, ff) = ff;
+band(ff, tt) = ff;
+band(ff, ff) = ff;
+∃ external_principal_grounding;
+∃ epg_go;
+external_principal_grounding(t) = epg_go(t, ff, ff, ff, ff, ff);
+epg_go(tnil, n, c1, c2, l1, l2) = "ok";
+epg_go(tcons(ep_list, r), n, c1, c2, l1, l2) = epg_go(r, ff, c1, c2, ff, ff);
+epg_go(tcons(ep_live(p1), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, tt, l2);
+epg_go(tcons(ep_live(p2), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, tt);
+epg_go(tcons(ep_recon, r), n, c1, c2, l1, l2) = epg_go(r, tt, band(c1, l1), band(c2, l2), l1, l2);
+epg_go(tcons(ep_copy(p1), r), tt, c1, c2, l1, l2) = epg_go(r, tt, tt, c2, l1, l2);
+epg_go(tcons(ep_copy(p1), r), ff, c1, c2, l1, l2) = "violation: ext-recon-before-copy";
+epg_go(tcons(ep_copy(p2), r), tt, c1, c2, l1, l2) = epg_go(r, tt, c1, tt, l1, l2);
+epg_go(tcons(ep_copy(p2), r), ff, c1, c2, l1, l2) = "violation: ext-recon-before-copy";
+# Seal verdict table, disjoint and total over (c1, l1) x (c2, l2):
+# stale = copied AND not live; missing = live AND not copied; ok
+# otherwise. Stale reports first in mixed cases.
+epg_go(tcons(ev_seal, r), n, tt, c2, ff, l2) = "violation: ext-stale-survivor";
+epg_go(tcons(ev_seal, r), n, ff, tt, l1, ff) = "violation: ext-stale-survivor";
+epg_go(tcons(ev_seal, r), n, tt, tt, tt, ff) = "violation: ext-stale-survivor";
+epg_go(tcons(ev_seal, r), n, ff, ff, tt, ff) = "violation: ext-missing";
+epg_go(tcons(ev_seal, r), n, ff, tt, tt, tt) = "violation: ext-missing";
+epg_go(tcons(ev_seal, r), n, ff, ff, tt, tt) = "violation: ext-missing";
+epg_go(tcons(ev_seal, r), n, ff, ff, ff, tt) = "violation: ext-missing";
+epg_go(tcons(ev_seal, r), n, tt, ff, tt, tt) = "violation: ext-missing";
+epg_go(tcons(ev_seal, r), n, ff, ff, ff, ff) = "ok";
+epg_go(tcons(ev_seal, r), n, ff, tt, ff, tt) = "ok";
+epg_go(tcons(ev_seal, r), n, tt, ff, tt, ff) = "ok";
+epg_go(tcons(ev_seal, r), n, tt, tt, tt, tt) = "ok";
+# Pass-throughs: artifact and session machinery is invisible here.
+epg_go(tcons(ev_consult(s), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_clear(s), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_replay(s), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_upsert(s), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_delete(s), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_publish(s), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_checkpoint, r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_resume, r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_swrite(k), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_sread_hit(k), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+epg_go(tcons(ev_sread_miss(k), r), n, c1, c2, l1, l2) = epg_go(r, n, c1, c2, l1, l2);
+
+# --- Fixtures ---
+# green: one honest replacement round on s1, published, quiescent
+# checkpoint, seal. Every policy must answer "ok".
+∃ trace_green;
+trace_green = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_publish(s1), tcons(ev_checkpoint, tcons(ev_seal, tnil)))))));
+
+# Each red fixture violates EXACTLY its own policy and satisfies the
+# other six (the isolation matrix is asserted by the host).
+∃ trace_red_cbr;
+trace_red_cbr = tcons(ev_clear(s1), tcons(ev_replay(s1), tnil));
+∃ trace_red_cbu;
+trace_red_cbu = tcons(ev_consult(s1), tcons(ev_upsert(s1), tnil));
+∃ trace_red_ops;
+trace_red_ops = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_replay(s1), tnil))));
+∃ trace_red_cbp;
+trace_red_cbp = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_publish(s1), tcons(ev_seal, tnil)))));
+∃ trace_red_seal;
+trace_red_seal = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_checkpoint, tcons(ev_seal, tnil)))));
+
+# Multi-attempt fixtures. green_resume: the B5 idempotent re-copy — a
+# crash after attempt 1's replay unit and overlay upsert, an
+# un-checkpointed resume that restarts the action from its root and
+# re-runs the whole round (re-consult, re-clear, re-copy, re-upsert),
+# publishes, checkpoints, seals. Every policy must answer "ok": the
+# across-attempt second replay is exactly what once-per-scope's reset
+# legalizes.
+∃ trace_green_resume;
+trace_green_resume = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_resume, tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_publish(s1), tcons(ev_checkpoint, tcons(ev_seal, tnil))))))))))));
+
+# red_ops_resume: a WITHIN-attempt duplicate copy after a resume must
+# still violate once-per-scope — the reset is per boundary, not an
+# amnesty. Satisfies the other six (no upserts, no seal).
+∃ trace_red_ops_resume;
+trace_red_ops_resume = tcons(ev_consult(s1), tcons(ev_replay(s1), tcons(ev_resume, tcons(ev_consult(s1), tcons(ev_replay(s1), tcons(ev_replay(s1), tnil))))));
+
+# Tombstone fixtures. green_delete: one honest delta round — replay
+# the base, overlay upsert, tombstone a departed row, publish the new
+# validator, quiescent checkpoint, seal. Every policy answers "ok".
+∃ trace_green_delete;
+trace_green_delete = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_delete(s1), tcons(ev_publish(s1), tcons(ev_checkpoint, tcons(ev_seal, tnil))))))));
+
+# red_cbu_del: an UN-GROUNDED tombstone — a delete with no clear this
+# attempt (the un-regrounded-resume class, delete flavor). Violates
+# exactly clear-before-upsert (no replay, no seal, no writes after a
+# checkpoint).
+∃ trace_red_cbu_del;
+trace_red_cbu_del = tcons(ev_consult(s1), tcons(ev_delete(s1), tnil));
+
+# red_cbp_del: a delete AFTER the last checkpoint, then seal — deletes
+# are progress and dirty the watermark. Grounded (clear precedes), so
+# only checkpoint-before-progress fires.
+∃ trace_red_cbp_del;
+trace_red_cbp_del = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_publish(s1), tcons(ev_checkpoint, tcons(ev_delete(s1), tcons(ev_seal, tnil)))))));
+
+# red_seal_del: a scope whose only round activity is a grounded delete
+# must still publish before seal — a delete-only delta round that never
+# publishes leaves the manifest vouching for a base the artifact no
+# longer matches. Violates exactly seal-obligations.
+∃ trace_red_seal_del;
+trace_red_seal_del = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_delete(s1), tcons(ev_checkpoint, tcons(ev_seal, tnil)))));
+
+# Session fixtures (policy 6). green_session: an honest round whose
+# session write is checkpoint-committed BEFORE the crash — the re-run's
+# read hit observes committed state. Every policy answers "ok".
+∃ trace_green_session;
+trace_green_session = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_swrite(k1), tcons(ev_publish(s1), tcons(ev_checkpoint, tcons(ev_resume, tcons(ev_sread_hit(k1), tcons(ev_seal, tnil))))))))));
+
+# green_session_rollback: the CORRECT crash behavior for an
+# UN-checkpointed write — checkpoint-consistent sessions roll it back,
+# the re-run's read MISSES, and the at-least-once re-run re-derives
+# (the user-stated form: "clearing writes after the last checkpoint,
+# on crash — that sounds correct"). Every policy answers "ok"; the
+# across-attempt re-copy is B5-legal per once-per-scope's reset.
+∃ trace_green_session_rollback;
+trace_green_session_rollback = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_swrite(k1), tcons(ev_resume, tcons(ev_sread_miss(k1), tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_publish(s1), tcons(ev_checkpoint, tcons(ev_seal, tnil))))))))))))));
+
+# red_session_zombie: SHIPPED semantics — the session write commits
+# durably at op time, the crash rolls the cursor back but not the
+# session, and the re-run reads the dead attempt's beyond-checkpoint
+# value. Violates exactly session_ckpt_consistency (zombie direction).
+∃ trace_red_session_zombie;
+trace_red_session_zombie = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_swrite(k1), tcons(ev_resume, tcons(ev_sread_hit(k1), tnil)))))));
+
+# red_session_amnesia: the REJECTED wholesale resume-clear — a
+# checkpoint-committed value is destroyed at the boundary and the
+# re-run's read misses data whose producing work will not re-run.
+# Violates exactly session_ckpt_consistency (amnesia direction).
+∃ trace_red_session_amnesia;
+trace_red_session_amnesia = tcons(ev_consult(s1), tcons(ev_clear(s1), tcons(ev_replay(s1), tcons(ev_upsert(s1), tcons(ev_swrite(k1), tcons(ev_publish(s1), tcons(ev_checkpoint, tcons(ev_resume, tcons(ev_sread_miss(k1), tnil)))))))));
+
+# External-principal fixtures (policy 7). green_ext: the capable-engine
+# crash/shrink history — attempt 1 lists {p1, p2}, reconciles (nothing
+# stale), copies both, checkpoints; the source shrinks to {p2} across
+# the crash; attempt 2 re-lists, reconciliation deletes the dead
+# attempt's p1, copies p2, seals. Every policy answers "ok".
+∃ trace_green_ext;
+trace_green_ext = tcons(ep_list, tcons(ep_live(p1), tcons(ep_live(p2), tcons(ep_recon, tcons(ep_copy(p1), tcons(ep_copy(p2), tcons(ev_checkpoint, tcons(ev_resume, tcons(ep_list, tcons(ep_live(p2), tcons(ep_recon, tcons(ep_copy(p2), tcons(ev_checkpoint, tcons(ev_seal, tnil))))))))))))));
+
+# green_ext_carry: the phase COMPLETED before the crash and the
+# resumed attempt seals without re-running it — the sealed answer is
+# the completed run's answer, legitimately (sync-scoped freshness; the
+# sync is not obligated to chase post-completion source changes).
+# Every policy answers "ok".
+∃ trace_green_ext_carry;
+trace_green_ext_carry = tcons(ep_list, tcons(ep_live(p1), tcons(ep_live(p2), tcons(ep_recon, tcons(ep_copy(p1), tcons(ep_copy(p2), tcons(ev_checkpoint, tcons(ev_resume, tcons(ev_seal, tnil)))))))));
+
+# red_ext_norecon: the warn-and-continue degrade (non-deleting
+# engine) — the resumed attempt lists the shrunk answer and copies it
+# WITHOUT a completed reconciliation (no ep_recon after its ep_list),
+# writing the current answer over the dead attempt's debris. Violates
+# exactly external_principal_grounding (recon-before-copy direction).
+∃ trace_red_ext_norecon;
+trace_red_ext_norecon = tcons(ep_list, tcons(ep_live(p1), tcons(ep_live(p2), tcons(ep_recon, tcons(ep_copy(p1), tcons(ep_copy(p2), tcons(ev_checkpoint, tcons(ev_resume, tcons(ep_list, tcons(ep_live(p2), tcons(ep_copy(p2), tnil)))))))))));
+
+# red_ext_stale: a dead attempt's copy reaches the seal — the resumed
+# attempt lists the shrunk answer but neither reconciles nor copies,
+# and p1 (copied by attempt 1, absent from the last list) seals as
+# debris. Violates exactly external_principal_grounding
+# (stale-survivor direction).
+∃ trace_red_ext_stale;
+trace_red_ext_stale = tcons(ep_list, tcons(ep_live(p1), tcons(ep_live(p2), tcons(ep_recon, tcons(ep_copy(p1), tcons(ep_copy(p2), tcons(ev_checkpoint, tcons(ev_resume, tcons(ep_list, tcons(ep_live(p2), tcons(ev_seal, tnil)))))))))));
