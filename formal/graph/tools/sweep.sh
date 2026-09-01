@@ -95,6 +95,15 @@ for entry in $CELLS; do
   expected="${rest%%:*}"
   strategy=""
   case "$rest" in *:*) strategy="${rest#*:}";; esac
+  # Grammar guard, symmetric to bakeoff.sh's: this script's third field
+  # is a p-check strategy flag, but bakeoff.sh's is the calibrated
+  # alarm — an entry pasted across the two grammars would hand p check
+  # an alarm name as a bogus positional argument. Fail loudly at parse
+  # time instead of with a confusing checker error mid-sweep.
+  if [ -n "$strategy" ]; then case "$strategy" in -*) ;; *)
+    echo "sweep.sh: $cell: third field must be a p-check strategy flag, not '$strategy' — grammar is cell:expected[:strategy] (the alarm-carrying 4-field grammar belongs to bakeoff.sh)" >&2
+    exit 2
+  ;; esac; fi
   total=$((total + 1))
   rm -rf "$OUT/$cell"
   # shellcheck disable=SC2086

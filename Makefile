@@ -321,7 +321,12 @@ prodscale-topebble: ## Measure SQLite-to-Pebble conversion at production scale.
 # (formal/*/PCheckerOutput/*/summary.txt): a clean run reproduces every
 # cell's verdict line, and the scripts' exit status carries that
 # verdict — any mismatch (drifted cell, untagged red, wrong bake-off
-# alarm, checker error) fails the target. Two kinds of run-to-run noise
+# alarm, checker error) fails the target. The reproduction claim was
+# validated AFTER the exit-status gate landed: the 2026-09-01 full
+# pass re-ran every cell through the gated scripts and reproduced all
+# three committed summaries byte-identically (which is also why the
+# summaries carry no post-gate commit — identical bytes leave nothing
+# to commit). Two kinds of run-to-run noise
 # are possible and treated differently: an alarm-tag difference on a
 # multi-shape RED cell (e.g. the walker's tc3a_P1 has two calibrated P1
 # shapes) diffs the summary but still exits 0, while a RED cell that

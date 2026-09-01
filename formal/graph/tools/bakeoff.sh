@@ -60,7 +60,7 @@ for entry in $CELLS; do
   # cell would run without its intended search and still report ok.
   # A strategy with no alarm takes an explicit empty third field
   # (cell:expected::--flag).
-  case "$alarm" in --*)
+  case "$alarm" in -*)
     echo "bakeoff.sh: $cell: third field must be the calibrated alarm, not '$alarm' — grammar is cell:expected[:alarm[:strategy]]; for strategy-only write $cell:$expected::$alarm" >&2
     exit 2
   ;; esac
