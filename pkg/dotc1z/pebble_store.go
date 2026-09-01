@@ -22,6 +22,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
@@ -30,6 +31,12 @@ type pebbleDriver struct{}
 
 var _ c1zstore.Store = (*pebbleStore)(nil)
 var _ connectorstore.Writer = (*pebbleStore)(nil)
+
+// The syncer's G5 fence asserts this optional capability on the previous
+// store; the pin makes a rename on either side a build break instead of a
+// silently-open fence (the behavioral test would still catch it, but the
+// compile-time coupling is the point — see CO-6b-005's probe precedent).
+var _ sourcecache.MaterializationWitnessReader = (*pebbleStore)(nil)
 
 // Local mirrors of the optional capabilities the c1z sanitizer probes on
 // the source/destination store (pkg/c1zsanitize keeps those interfaces
@@ -66,7 +73,7 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	}
 
 	dbDir := filepath.Join(tmpDir, "db")
-	reuse, fileEncoding, foldDeadBytes, err := unpackExistingPebbleC1Z(outputFilePath, dbDir, opts.MaxDecodedPayloadBytes, opts.MaxDecoderMemoryBytes, opts.DecoderPool)
+	reuse, fileEncoding, foldDeadBytes, materializationWitness, err := unpackExistingPebbleC1Z(outputFilePath, dbDir, opts.MaxDecodedPayloadBytes, opts.MaxDecoderMemoryBytes, opts.DecoderPool)
 	if err != nil {
 		return nil, cleanupOnError(err)
 	}
@@ -119,15 +126,16 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	}
 
 	return &pebbleStore{
-		Engine:          e,
-		outputFilePath:  outputFilePath,
-		tmpDir:          tmpDir,
-		readOnly:        opts.ReadOnly,
-		payloadEncoding: encoding,
-		payloadReuse:    reuse,
-		foldDeadBytes:   foldDeadBytes,
-		syncLimit:       opts.SyncLimit,
-		skipCleanup:     opts.SkipCleanup,
+		Engine:                 e,
+		outputFilePath:         outputFilePath,
+		tmpDir:                 tmpDir,
+		readOnly:               opts.ReadOnly,
+		payloadEncoding:        encoding,
+		payloadReuse:           reuse,
+		foldDeadBytes:          foldDeadBytes,
+		materializationWitness: materializationWitness,
+		syncLimit:              opts.SyncLimit,
+		skipCleanup:            opts.SkipCleanup,
 		// A writable open that ran the in-place id-index migration must
 		// save the migrated layout back into the c1z even if the caller
 		// never writes, or every subsequent open re-pays the O(rows)
@@ -142,32 +150,32 @@ func unpackExistingPebbleC1Z(
 	maxDecodedPayloadBytes uint64,
 	maxDecoderMemoryBytes uint64,
 	pool *EnvelopeDecoderPool,
-) (*formatv3.PayloadReuse, c1zstore.PayloadEncoding, int64, error) {
+) (*formatv3.PayloadReuse, c1zstore.PayloadEncoding, int64, string, error) {
 	stat, err := os.Stat(outputFilePath)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		return nil, c1zstore.PayloadEncodingUnspecified, 0, nil
+		return nil, c1zstore.PayloadEncodingUnspecified, 0, "", nil
 	case err != nil:
-		return nil, c1zstore.PayloadEncodingUnspecified, 0, err
+		return nil, c1zstore.PayloadEncodingUnspecified, 0, "", err
 	case stat.Size() == 0:
-		return nil, c1zstore.PayloadEncodingUnspecified, 0, nil
+		return nil, c1zstore.PayloadEncodingUnspecified, 0, "", nil
 	}
 
 	f, err := os.Open(outputFilePath)
 	if err != nil {
-		return nil, c1zstore.PayloadEncodingUnspecified, 0, err
+		return nil, c1zstore.PayloadEncodingUnspecified, 0, "", err
 	}
 	defer f.Close()
 
 	header, err := formatv3.ReadManifestHeader(f)
 	if err != nil {
-		return nil, c1zstore.PayloadEncodingUnspecified, 0, err
+		return nil, c1zstore.PayloadEncodingUnspecified, 0, "", err
 	}
 	if e := c1zstore.Engine(header.GetEngine()); e != c1zstore.EnginePebble && e != c1zstore.PebbleManifestEngine && e != c1zstore.PebbleManifestEngineV2 {
-		return nil, c1zstore.PayloadEncodingUnspecified, 0, fmt.Errorf("%w: %s", pebble.ErrUnknownEngine, header.GetEngine())
+		return nil, c1zstore.PayloadEncodingUnspecified, 0, "", fmt.Errorf("%w: %s", pebble.ErrUnknownEngine, header.GetEngine())
 	}
 	if err := os.MkdirAll(dbDir, 0o755); err != nil {
-		return nil, c1zstore.PayloadEncodingUnspecified, 0, err
+		return nil, c1zstore.PayloadEncodingUnspecified, 0, "", err
 	}
 	manifest, reuse, err := formatv3.ExtractEnvelopePayload(f, dbDir,
 		formatv3.WithMaxDecodedPayloadBytes(maxDecodedPayloadBytes),
@@ -175,12 +183,14 @@ func unpackExistingPebbleC1Z(
 		formatv3.WithPayloadDecoderPool(pool),
 	)
 	if err != nil {
-		return nil, c1zstore.PayloadEncodingUnspecified, 0, err
+		return nil, c1zstore.PayloadEncodingUnspecified, 0, "", err
 	}
 	// fold_dead_bytes is inherited from the source file so the waste
 	// accounting survives arbitrary open/save cycles, not just fold
-	// compactions; a fresh file starts at zero.
-	return reuse, payloadEncodingFromProto(manifest.GetPayloadEncoding()), header.GetFoldDeadBytes(), nil
+	// compactions; a fresh file starts at zero. The materialization
+	// witness comes from the header verbatim: absent (older writer or
+	// old-SDK fold) reads as "" and fails the replay fence.
+	return reuse, payloadEncodingFromProto(manifest.GetPayloadEncoding()), header.GetFoldDeadBytes(), header.GetSdkMaterializationGeneration(), nil
 }
 
 func payloadEncodingFromProto(enc c1zv3.PayloadEncoding) c1zstore.PayloadEncoding {
@@ -213,6 +223,12 @@ type pebbleStore struct {
 	// single merge goroutine; the lock just pairs it with save/Close).
 	foldDeadBytes int64
 
+	// materializationWitness is the envelope header's save-time
+	// materialization witness (C1ZManifestV3.sdk_materialization_generation,
+	// the CO-017 fold fence) as read at open; "" when the file predates the
+	// witness or was last saved by an old-SDK fold. Immutable after open.
+	materializationWitness string
+
 	// syncLimit and skipCleanup mirror StoreOptions and feed into
 	// Cleanup. The Adapter intentionally has no awareness of these
 	// — retention policy is an envelope-writer concern, not an
@@ -241,6 +257,15 @@ var _ c1zstore.Store = (*pebbleStore)(nil)
 // Clone/isolate write a separate file, so no dirty-marking is needed.
 func (s *pebbleStore) FileOps() c1zstore.FileOps {
 	return s.FileOpsWithEncoding(s.payloadEncoding)
+}
+
+// SourceCacheMaterializationWitness returns the envelope's save-time
+// materialization witness (CO-017 fold fence) as read at open. The replay
+// consumer requires it to byte-match sourcecache.MaterializationPolicyGeneration;
+// "" (pre-witness file, or an old-SDK fold that rebuilt the envelope
+// without the field) fails the fence and degrades the sync cold.
+func (s *pebbleStore) SourceCacheMaterializationWitness() string {
+	return s.materializationWitness
 }
 
 // SyncMeta overrides the Adapter-level SyncMeta so the MUTATING

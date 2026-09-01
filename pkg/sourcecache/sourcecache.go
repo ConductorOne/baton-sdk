@@ -1,14 +1,52 @@
 // Package sourcecache defines the connector-facing surface of source-cache
 // replay (see proto/c1/connector/v2/annotation_source_cache.proto).
 //
-// NOT YET WIRED. This package describes the intended contract, and the
-// storage and eligibility machinery beneath it is in place, but the syncer
-// does not install a Lookup or consume these annotations yet: SyncOpAttrs
-// carries no source-cache field, and nothing outside this package references
-// Lookup, SetLookup, or NoopLookup. A connector written against the surface
-// below will compile and do nothing until the orchestration lands. The
-// wiring described here is present tense on purpose — it is the contract the
-// orchestration must satisfy, not a description of today's behavior.
+// ADVANCED FUNCTIONALITY. Source-cache replay is an advanced, opt-in
+// capability with strict correctness obligations on the connector (scope
+// partitioning, validator lifetime — see the invariants below). Most
+// connectors should not use this package; adopt it only in coordination
+// with the SDK maintainers.
+//
+// WIRING. The syncer parses SourceCacheCapability from the Validate
+// response at the start of every sync attempt (including resumes). When the
+// capability is MODE_READ_WRITE and the previous-sync artifact passes the
+// eligibility gates (Pebble engine, finished non-compacted FULL sync, clean
+// ingest quality, current materialization witness, byte-matching compat
+// record), the syncer installs a warm Lookup via SetLookup.SetSourceCache
+// at sync start and delivers nil on every exit; otherwise connectors
+// observe NoopLookup and every lookup misses. The lookup reaches connector
+// code through SyncOpAttrs.Lookup at the four list sites (resources, static
+// entitlements, entitlements, grants).
+//
+// DELIVERY LIMITATION (CO-6b-001 in
+// docs/verification/sync-replay-6b/plan.md). SetSourceCache is only a
+// conduit: the transport that constructs the connector client must also
+// wire a live in-process setter behind it. The standard subprocess wrapper
+// (internal/connector.NewWrapper) has no RPC backchannel for an interface
+// value and never wires one, so subprocess-run connectors observe
+// NoopLookup in this phase; in-tree, only the chaos harness's in-process
+// clients deliver. The syncer probes deliverability before install
+// (LookupDeliverabilityProbe) and keeps the consume side cold when the
+// transport cannot deliver — no warm lookup, and any SourceCacheReplay
+// annotation fails loud — so a structurally-satisfied but unwired
+// SetLookup is never reported warm. The produce side (row stamping,
+// validator publish) still runs, so such syncs build artifacts that can
+// seed a warm sync once a delivering transport exists — unless the
+// artifact was quality-blocked as a replay source (unreplayable page
+// shapes such as child resource types or InsertResourceGrants, compat
+// drift or capability withdrawal across a resume, or row-partition
+// violations), in which case it seeds nothing and the next sync runs
+// cold.
+//
+// Composition with external-resource reconciliation (CO-016): connectors
+// using ExternalResourceMatch* annotations get their placeholder-grant
+// scopes poisoned every sync by design — destructive reconciliation
+// deletes match-annotated placeholder grants and re-issues derived grants
+// unscoped, which the row-partition contract records as poison. Poison
+// reads as a lookup miss, so those scopes cold-fetch inside an
+// otherwise-warm sync: graceful, pre-replay behavior. Replay for such
+// scopes cannot engage until the non-destructive reconciliation rework
+// lands.
 //
 // A connector that can cheaply revalidate upstream data — HTTP conditional
 // requests (GitHub), delta queries (Microsoft Graph) — opts in by attaching
@@ -33,6 +71,30 @@
 // disabled or degraded (no capability, no usable previous sync, unsupported
 // storage engine) the SDK installs NoopLookup, every lookup misses, and a
 // well-behaved connector naturally falls back to full fetch.
+//
+// SESSION STORE (CO-6b-009 in docs/verification/sync-replay-6b/plan.md).
+// The connector session store carries the same discipline. Sessions
+// persist across crash/resume — including writes from beyond the restored
+// checkpoint, since session writes commit outside the checkpoint
+// mechanism (the SDK does NOT clear them on resume: completed actions
+// never re-run, so a clear would destroy caches whose producing work
+// will not execute again). The obligations that follow:
+//
+//   - Replay/record verdicts must be derived from upstream evidence
+//     (conditional requests, delta tokens), never from session-cached
+//     verdicts — a session-cached MATCH is exactly the "validator that
+//     outlives its evidence" shape above, and it launders staleness past
+//     every SDK gate. This holds doubly across a resume: a cached verdict
+//     may predate rounds whose rows the resume re-grounds.
+//   - A replayed scope's rows never pass through the connector, so
+//     session state built while GENERATING rows ("principals I emitted
+//     this sync") is silently partial for scopes the connector chose to
+//     replay. Do not consume such state for cross-scope decisions unless
+//     every contributing scope was fetched fresh this sync.
+//   - The window between the last checkpoint and a crash RE-RUNS on
+//     resume, with the dead attempt's session writes still present.
+//     Session use must be safe under at-least-once re-execution — no
+//     once-only dedup, no "already handled" markers.
 //
 // Replay equivalence: a cached sync must reproduce what a full resync
 // would produce. Replayed rows are verbatim copies of the previous sync's
@@ -137,6 +199,35 @@ func (NoopLookup) LookupPreviousSourceCache(context.Context, RowKind, string) (E
 // when the sync ends so a late RPC can't read stale state.
 type SetLookup interface {
 	SetSourceCache(ctx context.Context, lookup Lookup)
+}
+
+// LookupDeliverabilityProbe is optionally implemented by connector clients
+// whose SetSourceCache may be a structural no-op — a wrapper that satisfies
+// SetLookup while forwarding to a transport that cannot carry an interface
+// value (the runner's subprocess wrapper, CO-6b-001). False means the
+// connector will observe NoopLookup no matter what the syncer delivers, so
+// lookup install must not report warm. Clients that do not implement the
+// probe are presumed deliverable: they own their SetSourceCache and are
+// expected to satisfy SetLookup only when delivery is real.
+//
+// This interface is defined here — rather than privately in pkg/sync — so
+// implementing clients can compile-pin it (var _ LookupDeliverabilityProbe
+// = ...) and a method rename cannot silently sever the probe from the
+// syncer's type assertion.
+type LookupDeliverabilityProbe interface {
+	SourceCacheLookupDeliverable() bool
+}
+
+// MaterializationWitnessReader is the optional store capability behind the
+// G5 / CO-017 cross-version fold fence: the previous artifact's envelope
+// must carry the save-time materialization witness byte-equal to this SDK's
+// MaterializationPolicyGeneration or the sync degrades cold. Named here —
+// rather than asserted inline in pkg/sync — so the implementing store can
+// compile-pin it (var _ MaterializationWitnessReader = ...) and a method
+// rename cannot silently sever the fence from the syncer's type assertion
+// (same discipline as LookupDeliverabilityProbe).
+type MaterializationWitnessReader interface {
+	SourceCacheMaterializationWitness() string
 }
 
 // HashScope returns the lowercase-hex sha256 of a canonical scope string.

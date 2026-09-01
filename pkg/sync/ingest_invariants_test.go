@@ -121,10 +121,11 @@ func TestIngestInvariantVerdictTable(t *testing.T) {
 			"%s is both a verdict-table row and a documented exclusion; remove one", id)
 	}
 
-	// The replay ladder does not exist yet: no row may pre-enable it.
+	// ErrReplayIntegrity exists (Phase 6b) but the invariant ladder that
+	// rides it is Phase 6c runner work: no row may pre-enable it.
 	for _, inv := range ingestInvariants {
 		require.Falsef(t, inv.ridesReplayLadder,
-			"row %s sets ridesReplayLadder, but the ErrReplayIntegrity ladder arrives with replay", inv.id)
+			"row %s sets ridesReplayLadder, but consuming the ErrReplayIntegrity ladder is Phase 6c work", inv.id)
 	}
 
 	// A fail-fast-only check trivially promotes under fail-fast; the

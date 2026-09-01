@@ -272,10 +272,11 @@ errorfs-soak: ## Sweep whole-sync Pebble crash points using errorfs.
 chaos-check: ## Run bounded representative chaos checks under race detection.
 	go test -race -count=1 ./internal/chaosconnector/...
 	go test -race -count=1 -timeout=10m -run '^TestChaosConnector(LostResponseThenFilesystemFailureResumes|ResourcesAndEntitlementsFaultMatrix|ListGrantsFaultMatrix|ReservedBatonIDOwnershipIsRejected|MalformedKnownAnnotationFailsWithoutSealing|ClearedNextPageTokenSealsOnlyVisiblePrefix|CancellationTerminatesAndColdResumes|DataPolicyLifecycleCorpus|ExternalPrincipalResumeUsesCurrentExternalAnswer|SQLiteExternalPrincipalResumeDegradesWithoutFailure|ExternalPrincipalCleanupUsesOnePassPerKeyspace)$$' ./pkg/sync
+	go test -race -count=1 -timeout=10m -run '^TestChaosSourceCache(GateMatrix|CollectionSemantics|InterruptResume|GenerationalSteadyState|CompatDriftOnResume|ReplayWithoutHitFailsCold|DriftedResumeRejectsRestoredReplay|DuplicateReplayCursorsParallel|UnsupportedShapesBlockReplaySeed)$$' ./pkg/sync
 
 .PHONY: chaos-full-check
 chaos-full-check: ## Run every deterministic chaos corpus under race detection.
-	BATON_TEST_NIGHTLY=1 go test -race -count=1 -timeout=30m -run '^TestChaosConnector' ./pkg/sync
+	BATON_TEST_NIGHTLY=1 go test -race -count=1 -timeout=30m -run '^TestChaos(Connector|SourceCache)' ./pkg/sync
 
 .PHONY: chaos-soak
 chaos-soak: ## Run extended seeded chaos connector fanout schedules.

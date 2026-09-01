@@ -21,6 +21,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -207,7 +208,13 @@ type syncer struct {
 	// event (seed/dequeue/commit/abort/done) for post-hoc verification
 	// of the queue contract. Nil in production: one pointer check per
 	// queue operation.
-	testQueueAudit           *queueAudit
+	testQueueAudit *queueAudit
+	// testSyncTraceAudit, when non-nil, records canonical sync-trace
+	// events (consult/clear/replay/upsert/publish/checkpoint/seal) at
+	// their commit sites for the formal trace-policy oracle
+	// (formal/occult/TRACE_BRIDGE.md, mapping 2). Nil in production:
+	// one pointer check per recorded event.
+	testSyncTraceAudit       *syncTraceAudit
 	connector                types.ConnectorClient
 	state                    State
 	runDuration              time.Duration
@@ -244,11 +251,47 @@ type syncer struct {
 	syncType                              connectorstore.SyncType
 	injectSyncIDAnnotation                bool
 	setSessionStore                       sessions.SetSessionStore
-	syncResourceTypes                     []string
-	workerCount                           int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
-	metricsHandler                        metrics.Handler
-	syncIdentity                          uotel.SyncIdentity
-	recordStats                           bool
+	// sourceCacheCapability is the SourceCacheCapability parsed from this
+	// sync's Validate response (nil when absent). Only MODE_READ_WRITE
+	// activates source-cache handling; see source_cache_orchestration.go.
+	sourceCacheCapability *v2.SourceCacheCapability
+	// sourceCacheWarm reports whether a warm (previous-artifact-backed)
+	// lookup was installed AND delivered for this sync attempt. When false
+	// and capability is MODE_READ_WRITE, the connector sees NoopLookup and
+	// every scope cold-fetches; replay annotations are provenance
+	// violations, enforced by beforeUpserts (CO-6b-003) — a checkpointed
+	// hit-set must not authorize replay on an attempt whose consume gates
+	// degraded to cold.
+	sourceCacheWarm bool
+	// sourceCacheScopeLocks serializes page application per (rowKind,
+	// scopeKey): the once-per-scope replacement copy stays atomic at
+	// worker counts above one, and a record-only page's puts/tombstones/
+	// publish cannot interleave with another action's in-flight copy for
+	// the same scope (re-review N1); see sourceCachePageOps.beforeUpserts.
+	// Entries are never reclaimed for the syncer's lifetime (a syncer runs
+	// one sync): one mutex per distinct SCOPED page's (rowKind, scopeKey)
+	// — record or replay — the same cardinality as the scope manifest.
+	// Cost pinned by BenchmarkSourceCacheScopeLocks.
+	sourceCacheScopeLocks native_sync.Map
+	// sourceCacheScopeGrounded is the ATTEMPT-LOCAL set of (rowKind,
+	// scopeKey) pairs whose partition base is established this attempt —
+	// by a replay copy (or its within-attempt skip) or by a record
+	// round's grounding (groundRecordScope). Deliberately volatile: a
+	// resume re-decides grounding from the durable facts (this sync's
+	// manifest entries), which is what clears crashed-attempt debris on
+	// the verdict-flip path instead of composing with it.
+	sourceCacheScopeGrounded native_sync.Map
+	// sourceCacheStore is this sync's store viewed through its source-cache
+	// surface, set at lookup install when the capability is MODE_READ_WRITE
+	// and the store is Pebble; nil otherwise. Non-nil is the produce-side
+	// gate: only then are SourceCacheRecord / SourceCacheReplay page
+	// annotations honored.
+	sourceCacheStore  dotc1z.SourceCacheStore
+	syncResourceTypes []string
+	workerCount       int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
+	metricsHandler    metrics.Handler
+	syncIdentity      uotel.SyncIdentity
+	recordStats       bool
 	// parallelActionTransitioner atomically commits parent pagination and
 	// spawned work to state and the active worker pool.
 	parallelTransitionMu       native_sync.RWMutex
@@ -508,6 +551,7 @@ func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
 	if s.testCheckpointHook != nil {
 		s.testCheckpointHook(checkpoint)
 	}
+	s.testSyncTraceAudit.record(syncTraceCheckpoint, "", "")
 
 	return nil
 }
@@ -934,6 +978,10 @@ func (s *syncer) Sync(ctx context.Context) error {
 		}
 	}
 
+	// Re-parsed on every attempt, including resumes: the capability is the
+	// produce-side gate for every source-cache annotation this sync serves.
+	s.sourceCacheCapability = parseSourceCacheCapability(ctx, resp.GetAnnotations())
+
 	syncResourceTypeMap := make(map[string]bool)
 	if len(s.syncResourceTypes) > 0 {
 		for _, rt := range s.syncResourceTypes {
@@ -1028,6 +1076,18 @@ func (s *syncer) Sync(ctx context.Context) error {
 		}
 		s.ingestFilterStats.restore(quality)
 	}
+
+	// Deliver this sync's source-cache lookup (warm or nil→NoopLookup)
+	// after the state restore: the warm lookup records hits into the
+	// checkpointed provenance set and the compat drift check layers on the
+	// restored ingest-quality flags. The teardown clears the connector-held
+	// lookup on every exit so a late RPC cannot read stale state.
+	teardownSourceCache, err := s.installSourceCacheLookup(ctx)
+	if err != nil {
+		return err
+	}
+	defer teardownSourceCache()
+
 	if !newSync {
 		currentAction := s.state.Current()
 		currentActionOp := ""
@@ -1137,6 +1197,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 	if err != nil {
 		return s.returnSyncError(l, span, err)
 	}
+	s.testSyncTraceAudit.record(syncTraceSeal, "", "")
 	// EndSync built the authoritative whole-file grant digest. Persisting the
 	// graph now binds it to that exact sealed grant generation. A crash before
 	// this write leaves no reusable graph and therefore fails safe.
@@ -1664,6 +1725,45 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 		return err
 	}
 
+	respAnnotations := annotations.Annotations(resp.GetAnnotations())
+	if respAnnotations.Contains(&v2.EnqueuePageTokens{}) {
+		// Spawned-cursor fanout is an entitlements/grants surface; a
+		// resources response carrying it would silently drop the spawned
+		// tokens, so say so loudly (CO-6b-003 registered boundary).
+		ctxzap.Extract(ctx).Warn("EnqueuePageTokens on a resources page is not supported; the spawned page tokens were ignored")
+	}
+	scOps, err := s.sourceCachePageOps(ctx, sourcecache.RowKindResources, respAnnotations, len(resp.GetList()))
+	if err != nil {
+		return err
+	}
+	// Backstop: release the scope lock on any error path between
+	// beforeUpserts and afterUpserts (release is idempotent and nil-safe).
+	defer scOps.release()
+	if scOps != nil {
+		// Child-resource discovery is scheduled from a page's OWN rows, so
+		// a replayed resources scope would never re-schedule its children —
+		// silent row loss relative to a cold sync. A scope-annotated page
+		// whose rows declare children therefore blocks this artifact as a
+		// future replay source (CO-6b-003): the scope's shape cannot be
+		// reproduced by replay.
+		for _, r := range resp.GetList() {
+			if s.hasChildResources(r) {
+				s.ingestFilterStats.blockReplay(ingestQualityReasonSourceCacheShapeUnsupported)
+				ctxzap.Extract(ctx).Warn(
+					"source-cache-annotated resources page declares child resource types; replay cannot re-schedule child discovery — "+
+						"blocking this artifact as a future replay source",
+					zap.String("scope_key", scOps.scopeKey),
+				)
+				break
+			}
+		}
+	}
+	// Replay copy precedes the page's own rows (frozen order: replay copy →
+	// page upserts → page tombstones).
+	if err := scOps.beforeUpserts(ctx); err != nil {
+		return err
+	}
+
 	resources, err := filterConnectorData(s, connectorDataResource, resp.GetList(), validateConnectorResource)
 	if err != nil {
 		return err
@@ -1716,10 +1816,15 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 	}
 
 	if len(bulkPutResoruces) > 0 {
-		err = s.putConnectorResources(ctx, bulkPutResoruces...)
+		// stampCtx scopes ONLY the page's connector rows; sub-resource and
+		// related-resource writes happen through other actions/contexts.
+		err = s.putConnectorResources(scOps.stampCtx(ctx), bulkPutResoruces...)
 		if err != nil {
-			return err
+			return scOps.wrapPageRowPutError(err)
 		}
+	}
+	if err := scOps.afterUpserts(ctx); err != nil {
+		return err
 	}
 
 	s.handleProgress(ctx, action, len(resp.GetList()))
@@ -2115,6 +2220,19 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	if err != nil {
 		return err
 	}
+	scOps, err := s.sourceCachePageOps(ctx, sourcecache.RowKindEntitlements, annotations.Annotations(resp.GetAnnotations()), len(resp.GetList()))
+	if err != nil {
+		return err
+	}
+	// Backstop: release the scope lock on any error path between
+	// beforeUpserts and afterUpserts (release is idempotent and nil-safe).
+	defer scOps.release()
+	// Replay copy precedes the page's own rows (frozen order: replay copy →
+	// page upserts → page tombstones).
+	if err := scOps.beforeUpserts(ctx); err != nil {
+		return err
+	}
+
 	// Filter before the put: a dropped entitlement must never be
 	// ingested (exclusion-group validation happens post-collection over
 	// the STORED keyspace — ingestion invariant I5 — so filtered rows
@@ -2127,8 +2245,11 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	if err != nil {
 		return err
 	}
-	err = s.store.PutEntitlements(ctx, entitlements...)
+	err = s.store.PutEntitlements(scOps.stampCtx(ctx), entitlements...)
 	if err != nil {
+		return scOps.wrapPageRowPutError(err)
+	}
+	if err := scOps.afterUpserts(ctx); err != nil {
 		return err
 	}
 
@@ -2201,6 +2322,10 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 
 		return err
 	}
+
+	// Static entitlements stay unscoped: source-cache annotations here are
+	// a registered exclusion (plan B3), ignored with a warn.
+	warnIgnoredSourceCacheAnnotations(ctx, "static entitlements", annotations.Annotations(resp.GetAnnotations()))
 
 	for _, ent := range resp.GetList() {
 		resourcePageToken := ""
@@ -2687,6 +2812,33 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 	respAnnos := annotations.Annotations(resp.GetAnnotations())
 	insertResourceGrants := respAnnos.Contains(&v2.InsertResourceGrants{})
 
+	scOps, err := s.sourceCachePageOps(ctx, sourcecache.RowKindGrants, respAnnos, len(resp.GetList()))
+	if err != nil {
+		return err
+	}
+	// Backstop: release the scope lock on any error path between
+	// beforeUpserts and afterUpserts (release is idempotent and nil-safe).
+	defer scOps.release()
+	if scOps != nil && insertResourceGrants {
+		// Grant-discovered resources are materialized from a page's OWN
+		// rows and response annotation; a replayed grants scope copies the
+		// grants but can never re-run the discovery, so the resources
+		// would silently vanish relative to a cold sync. A scope-annotated
+		// page carrying InsertResourceGrants therefore blocks this
+		// artifact as a future replay source (CO-6b-003).
+		s.ingestFilterStats.blockReplay(ingestQualityReasonSourceCacheShapeUnsupported)
+		l.Warn(
+			"source-cache-annotated grants page carries InsertResourceGrants; replay cannot re-materialize grant-discovered resources — "+
+				"blocking this artifact as a future replay source",
+			zap.String("scope_key", scOps.scopeKey),
+		)
+	}
+	// Replay copy precedes the page's own rows (frozen order: replay copy →
+	// page upserts → page tombstones).
+	if err := scOps.beforeUpserts(ctx); err != nil {
+		return err
+	}
+
 	// Stamp InsertResourceGrants per-grant so the slim-blob writer's
 	// gate sees it. The annotation is response-level, but the writer
 	// needs it per-row to avoid stripping the Resource this path
@@ -2809,9 +2961,15 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 		}
 	}
 
-	err = s.store.PutGrants(ctx, grants...)
+	// stampCtx scopes ONLY the page's grant rows: grant-discovered resources
+	// and related-resource fetches above are resource rows on a grants page
+	// and stay unstamped (a scope partitions one row kind).
+	err = s.store.PutGrants(scOps.stampCtx(ctx), grants...)
 	if err != nil {
-		return fmt.Errorf("sync-grants-for-resource: error putting grants: %w", err)
+		return scOps.wrapPageRowPutError(fmt.Errorf("sync-grants-for-resource: error putting grants: %w", err))
+	}
+	if err := scOps.afterUpserts(ctx); err != nil {
+		return err
 	}
 
 	s.handleProgress(ctx, action, len(grants))
@@ -2956,6 +3114,7 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 		principals = append(principals, resourceVal)
 	}
 
+	s.recordExternalListTrace(principals)
 	err = s.deleteStaleExternalPrincipals(ctx, principals)
 	if err != nil {
 		return err
@@ -2964,6 +3123,7 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 	if err != nil {
 		return err
 	}
+	s.recordExternalCopyTrace(principals)
 
 	entsCount := 0
 	ents := make([]*v2.Entitlement, 0)
@@ -3072,6 +3232,7 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 		}
 	}
 
+	s.recordExternalListTrace(principals)
 	err = s.deleteStaleExternalPrincipals(ctx, principals)
 	if err != nil {
 		return err
@@ -3080,6 +3241,7 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 	if err != nil {
 		return err
 	}
+	s.recordExternalCopyTrace(principals)
 
 	entsCount := 0
 	principalsCount := len(principals)
@@ -3166,6 +3328,30 @@ type entitlementRecordDeleter interface {
 	DeleteEntitlementByRefs(ctx context.Context, entitlement *v2.Entitlement) error
 }
 
+// recordExternalListTrace records the external phase's listed answer for the
+// trace oracle (policy 7): one ep_list marker, then one ep_live per member.
+// Nil-audit safe; a no-op in production.
+func (s *syncer) recordExternalListTrace(principals []*v2.Resource) {
+	if s.testSyncTraceAudit == nil {
+		return
+	}
+	s.testSyncTraceAudit.record(syncTraceExtList, "", "")
+	for _, principal := range principals {
+		s.testSyncTraceAudit.record(syncTraceExtLive, "", principal.GetId().GetResource())
+	}
+}
+
+// recordExternalCopyTrace records the committed principal writes (ep_copy per
+// principal), after the store accepted them.
+func (s *syncer) recordExternalCopyTrace(principals []*v2.Resource) {
+	if s.testSyncTraceAudit == nil {
+		return
+	}
+	for _, principal := range principals {
+		s.testSyncTraceAudit.record(syncTraceExtCopy, "", principal.GetId().GetResource())
+	}
+}
+
 // deleteStaleExternalPrincipals reconciles principal rows copied by an earlier
 // attempt before writing the external source's current answer. Checkpoint
 // resume deliberately retains completed writes, so without this pass a
@@ -3210,6 +3396,12 @@ func (s *syncer) deleteStaleExternalPrincipals(
 		}
 	}
 	if len(staleIDs) == 0 {
+		// Reconciliation completed: nothing was stale. (ep_recon means
+		// the pass RECONCILED — deletes applied or none needed. The
+		// degrade branch below records nothing: its pass ran but left
+		// the debris in place, which is what the trace oracle's
+		// recon-before-copy direction exists to flag.)
+		s.testSyncTraceAudit.record(syncTraceExtRecon, "", "")
 		return nil
 	}
 	if !canDeleteResources || !canDeleteEntitlements || !canDeleteGrants {
@@ -3280,6 +3472,9 @@ func (s *syncer) deleteStaleExternalPrincipals(
 				id.GetResourceType(), id.GetResource(), err)
 		}
 	}
+	// Reconciliation completed: every stale principal (and its dependent
+	// grants and entitlements) is deleted.
+	s.testSyncTraceAudit.record(syncTraceExtRecon, "", "")
 	return nil
 }
 
@@ -4028,6 +4223,9 @@ func WithExternalResourceC1ZPath(path string) SyncOpt {
 // WithPreviousSyncC1ZPath registers a separate c1z holding the previous sync
 // for replay features.
 //
+// Advanced: source-cache replay is advanced, opt-in functionality (see
+// pkg/sourcecache); most callers should not set this option.
+//
 // This is required for the single-sync v3 (Pebble) engine: a Pebble c1z
 // holds exactly one sync by contract, so there is no in-file "previous
 // sync" to replay from (StartNewSync replaces the prior sync). NewSyncer
@@ -4053,7 +4251,8 @@ func WithPreviousSyncC1ZPath(path string) SyncOpt {
 // WithOptionalPreviousSyncC1ZPath is WithPreviousSyncC1ZPath with
 // best-effort semantics: if the file is missing, corrupt, or written by
 // an incompatible SDK, NewSyncer logs and proceeds WITHOUT replay
-// instead of failing. Intended for cache-style replay sources the
+// instead of failing. Advanced, opt-in functionality like its strict
+// twin — see pkg/sourcecache. Intended for cache-style replay sources the
 // caller maintains automatically (the service-mode previous-sync spare)
 // — a bad cache file must never fail a sync. Callers that name a
 // specific file deliberately should use WithPreviousSyncC1ZPath, which
@@ -4298,7 +4497,8 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 		)
 		switch {
 		case err == nil:
-			if _, ok := enginepkg.AsEngine(previousSyncStore); !ok {
+			prevEngine, ok := enginepkg.AsEngine(previousSyncStore)
+			if !ok {
 				if closeErr := previousSyncStore.Close(ctx); closeErr != nil {
 					if s.previousSyncC1ZPathOptional {
 						ctxzap.Extract(ctx).Warn("non-Pebble previous-sync c1z could not close cleanly; syncing without source-cache replay",
@@ -4343,6 +4543,67 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 				}
 				ctxzap.Extract(ctx).Warn("previous-sync c1z is not replay-eligible; syncing without source-cache replay",
 					zap.String("previous_sync_c1z_path", s.previousSyncC1ZPath),
+				)
+				break
+			}
+			// G5 — CO-017 cross-version fold fence (plan B8): the previous
+			// artifact's ENVELOPE manifest must carry the save-time
+			// materialization witness equal to this SDK's generation. An
+			// older pebble3 SDK's fold byte-copies the payload's
+			// source-cache state intact (manifest entries, indexes, compat
+			// record) and sets no compacted stamp, but it rebuilds the
+			// envelope manifest from its own descriptors and so cannot
+			// carry — or forge — the witness. Absence or mismatch means an
+			// old SDK wrote the file last and its replay state is
+			// untrustworthy: degrade to a cold sync.
+			witnessReader, hasWitness := any(previousSyncStore).(sourcecache.MaterializationWitnessReader)
+			if !hasWitness || witnessReader.SourceCacheMaterializationWitness() != sourcecache.MaterializationPolicyGeneration {
+				witness := ""
+				if hasWitness {
+					witness = witnessReader.SourceCacheMaterializationWitness()
+				}
+				if closeErr := previousSyncStore.Close(ctx); closeErr != nil {
+					if s.previousSyncC1ZPathOptional {
+						ctxzap.Extract(ctx).Warn("fence-ineligible previous-sync c1z could not close cleanly; syncing without source-cache replay",
+							zap.String("previous_sync_c1z_path", s.previousSyncC1ZPath),
+							zap.Error(closeErr),
+						)
+						break
+					}
+					return nil, fmt.Errorf("error closing fence-ineligible previous-sync c1z %q: %w", s.previousSyncC1ZPath, closeErr)
+				}
+				ctxzap.Extract(ctx).Warn("previous-sync c1z lacks this SDK's materialization witness (last saved by a pre-witness or older SDK); syncing without source-cache replay",
+					zap.String("previous_sync_c1z_path", s.previousSyncC1ZPath),
+					zap.String("witness", witness),
+					zap.String("required", sourcecache.MaterializationPolicyGeneration),
+				)
+				break
+			}
+			// G4 — quality consume gate (plan B6), evaluated against the SAME
+			// run G3 selected: the replay source must carry ingest-quality
+			// stats and not be replay-blocked. Absent stats fail closed
+			// (pre-quality artifacts and unknown-checkpoint conservatism);
+			// blocked stats degrade with the reason flags visible. A lossy
+			// sync must never seed the next generation. Like the gates
+			// above, failure degrades to a cold sync, never an error.
+			statsRec, statsErr := enginepkg.ReadSyncStatsRecord(ctx, prevEngine, run.ID)
+			if statsErr != nil || !c1zstore.SourceCacheReplayEligible(statsRec) {
+				if closeErr := previousSyncStore.Close(ctx); closeErr != nil {
+					if s.previousSyncC1ZPathOptional {
+						ctxzap.Extract(ctx).Warn("quality-ineligible previous-sync c1z could not close cleanly; syncing without source-cache replay",
+							zap.String("previous_sync_c1z_path", s.previousSyncC1ZPath),
+							zap.Error(errors.Join(statsErr, closeErr)),
+						)
+						break
+					}
+					return nil, fmt.Errorf("error closing quality-ineligible previous-sync c1z %q: %w", s.previousSyncC1ZPath, errors.Join(statsErr, closeErr))
+				}
+				ctxzap.Extract(ctx).Warn("previous-sync c1z failed the source-cache quality gate; syncing without source-cache replay",
+					zap.String("previous_sync_c1z_path", s.previousSyncC1ZPath),
+					zap.Bool("stats_present", statsRec != nil),
+					zap.Bool("replay_blocked", statsRec.GetIngestQuality().GetSourceCacheReplayBlocked()),
+					zap.Uint64("reason_flags", statsRec.GetIngestQuality().GetReasonFlags()),
+					zap.Error(statsErr),
 				)
 				break
 			}

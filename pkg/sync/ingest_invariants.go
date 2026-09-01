@@ -322,8 +322,9 @@ type ingestInvariant struct {
 	failFastPromotes bool
 	// ridesReplayLadder: the check's FAIL-class verdicts wrap
 	// ErrReplayIntegrity on warm syncs for the runners' cold-retry
-	// ladder. Always false until source-cache replay lands; the
-	// meta-test pins that so the field cannot silently pre-enable.
+	// ladder. ErrReplayIntegrity exists (Phase 6b) but no invariant rides
+	// it yet — consuming the ladder is Phase 6c's runner work; the
+	// meta-test pins false so the field cannot silently pre-enable.
 	ridesReplayLadder bool
 	// haltStage, when non-empty, names the test-only halt seam fired
 	// AFTER this invariant completes.

@@ -45,6 +45,16 @@ const (
 	ingestQualityReasonExpansionDropped
 	ingestQualityReasonRetainedInvalid
 	ingestQualityReasonUnknownPriorCheckpoint
+	// ingestQualityReasonCompatDriftOnResume: the source-cache compat key
+	// changed across resume attempts, so this artifact's cached rows are
+	// mixed-generation (see ensureSourceCacheCompatRecord). Append-only:
+	// these bit values are persisted in sync stats.
+	ingestQualityReasonCompatDriftOnResume
+	// ingestQualityReasonSourceCacheShapeUnsupported: a source-cache-
+	// annotated page carried a shape replay cannot reproduce (child
+	// resource types, InsertResourceGrants discovery), so replaying this
+	// artifact would silently lose the derived rows (CO-6b-003).
+	ingestQualityReasonSourceCacheShapeUnsupported
 )
 
 func (s *ingestFilterStats) markKnown() {

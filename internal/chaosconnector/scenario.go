@@ -31,6 +31,13 @@ type Dataset struct {
 	StaticEntitlements map[string]Pages[*v2.Entitlement]
 	Entitlements       map[string]Pages[*v2.Entitlement]
 	Grants             map[string]Pages[*v2.Grant]
+
+	// SourceCache* declare per-serve-scope source-cache behavior, keyed by
+	// the SAME keys as the page maps above (see SourceCacheSpec). Scopes
+	// without a spec never consult the lookup.
+	SourceCacheResources    map[string]*SourceCacheSpec
+	SourceCacheEntitlements map[string]*SourceCacheSpec
+	SourceCacheGrants       map[string]*SourceCacheSpec
 }
 
 // Scenario is an immutable deterministic connector world. Runtime state such
@@ -76,6 +83,44 @@ func (s *Scenario) Validate() error {
 				return fmt.Errorf("chaosconnector: epoch %q repeats resource type %q", name, resourceType.GetId())
 			}
 			seenTypes[resourceType.GetId()] = struct{}{}
+		}
+		if err := validateSourceCacheSpecs(name, "resources", dataset.SourceCacheResources, dataset.Resources); err != nil {
+			return err
+		}
+		if err := validateSourceCacheSpecs(name, "entitlements", dataset.SourceCacheEntitlements, dataset.Entitlements); err != nil {
+			return err
+		}
+		if err := validateSourceCacheSpecs(name, "grants", dataset.SourceCacheGrants, dataset.Grants); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateSourceCacheSpecs fails fast on specs that would silently serve
+// nothing: an unkeyed spec, a spec for a scope without pages, or a warm
+// root token that no page declares.
+func validateSourceCacheSpecs[T any](
+	epoch, kind string,
+	specs map[string]*SourceCacheSpec,
+	pages map[string]Pages[T],
+) error {
+	for scope, spec := range specs {
+		if spec == nil {
+			return fmt.Errorf("chaosconnector: epoch %q %s source-cache spec for scope %q is nil", epoch, kind, scope)
+		}
+		if spec.ScopeKey == "" {
+			return fmt.Errorf("chaosconnector: epoch %q %s source-cache spec for scope %q has no scope key", epoch, kind, scope)
+		}
+		scopePages, ok := pages[scope]
+		if !ok {
+			return fmt.Errorf("chaosconnector: epoch %q %s source-cache spec for scope %q has no pages", epoch, kind, scope)
+		}
+		if spec.WarmRoot != "" {
+			if _, ok := scopePages[spec.WarmRoot]; !ok {
+				return fmt.Errorf("chaosconnector: epoch %q %s source-cache spec for scope %q names warm root %q which no page declares",
+					epoch, kind, scope, spec.WarmRoot)
+			}
 		}
 	}
 	return nil
@@ -177,6 +222,10 @@ func cloneDataset(dataset *Dataset) *Dataset {
 		StaticEntitlements: clonePageMap(dataset.StaticEntitlements),
 		Entitlements:       clonePageMap(dataset.Entitlements),
 		Grants:             clonePageMap(dataset.Grants),
+
+		SourceCacheResources:    cloneSourceCacheSpecs(dataset.SourceCacheResources),
+		SourceCacheEntitlements: cloneSourceCacheSpecs(dataset.SourceCacheEntitlements),
+		SourceCacheGrants:       cloneSourceCacheSpecs(dataset.SourceCacheGrants),
 	}
 }
 

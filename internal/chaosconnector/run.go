@@ -3,6 +3,8 @@ package chaosconnector
 import (
 	"fmt"
 	"sync"
+
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
 // Run binds immutable scenario truth to mutable execution state.
@@ -13,6 +15,13 @@ type Run struct {
 
 	mu    sync.RWMutex
 	epoch string
+	// sourceCacheCapability is the capability annotation the reference
+	// connector attaches to Validate responses; nil means not declared.
+	// Mutable so generational suites can rotate it between syncs.
+	sourceCacheCapability *v2.SourceCacheCapability
+	// sourceCacheEvents records connector-side lookup consults in serve
+	// order (see source_cache.go).
+	sourceCacheEvents []SourceCacheLookupEvent
 }
 
 // NewRun validates and arms one scenario execution.

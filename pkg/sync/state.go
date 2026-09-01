@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -65,6 +66,10 @@ type State interface {
 	SessionStoreStats() map[string]SessionStoreStat
 	SetIngestQuality(quality *IngestQualityCheckpoint)
 	IngestQuality() *IngestQualityCheckpoint
+	RecordSourceCacheHit(rowKind sourcecache.RowKind, scopeKey string, cacheValidator string)
+	SourceCacheHitValidator(rowKind sourcecache.RowKind, scopeKey string) (string, bool)
+	MarkSourceCacheReplayed(rowKind sourcecache.RowKind, scopeKey string)
+	SourceCacheReplayed(rowKind sourcecache.RowKind, scopeKey string) bool
 }
 
 func NeedsExpansion(stateStr string) (bool, error) {
@@ -350,6 +355,39 @@ type state struct {
 	// cycles still terminate. Guarded by st.mtx; bounded by total
 	// spawned admissions in the process (32-byte keys).
 	spawnedAdmitted map[parallelActionKey]string
+	// sourceCacheHits records every warm source-cache lookup HIT of this
+	// sync, keyed (row kind → scope key → the validator the lookup
+	// returned). It is the same-sync replay provenance map: a
+	// SourceCacheReplay annotation is honored only for a scope recorded
+	// here, and only while the CURRENT replay base's manifest entry still
+	// byte-matches the recorded validator — the binding that rejects a
+	// previous artifact swapped between attempts for a different one that
+	// passes every eligibility gate (two artifacts from the same connector
+	// and config share a compat key). Checkpointed (unlike spawnedAdmitted)
+	// because the connector contract allows a planning call to
+	// batch-resolve scopes and hand verdicts to sibling cursors through
+	// EnqueuePageTokens page tokens — those cursors may run after an
+	// interrupt/resume in a different process, and rejecting their
+	// legitimate replays would convert routine resumes into loud sync
+	// failures. Monotone within a sync; guarded by st.mtx.
+	//
+	// Cost bound: one entry per distinct warm-consulted scope (scope keys
+	// ≤256 bytes, validators typically ETag/delta-token sized), re-sorted
+	// and re-serialized into the sync token on every checkpoint —
+	// O(scopes·log scopes) per checkpoint, pinned by
+	// BenchmarkStateMarshalSourceCacheSets. A connector whose scope count
+	// makes that material should move the sets to sidecar persistence
+	// (like the entitlement graph) before adopting source cache at that
+	// scale.
+	sourceCacheHits map[sourcecache.RowKind]map[string]string
+	// sourceCacheReplayed records every (row kind, scope) whose replay
+	// copy COMPLETED this sync. Replay copies run once per scope per
+	// sync: duplicate pages and lost-response retries re-deliver the
+	// replay annotation, and re-copying the base over already-applied
+	// overlay pages would resurrect replaced rows. Marked only after the
+	// copy commits, so a cut mid-copy re-runs the copy on resume.
+	// Checkpointed alongside sourceCacheHits; guarded by st.mtx.
+	sourceCacheReplayed map[sourcecache.RowKind]map[string]struct{}
 }
 
 // stateOpt configures a state at construction. Not part of the State
@@ -437,7 +475,23 @@ type serializedTokenV1 struct {
 	SessionStoreStats  map[string]*SessionStoreStat  `json:"session_store_stats,omitempty"`
 	IngestQuality      *IngestQualityCheckpoint      `json:"ingest_quality,omitempty"`
 	Compaction         *CompactionTokenStats         `json:"compaction,omitempty"`
-	Version            uint64                        `json:"version"`
+	// Source-cache replay provenance; see the state struct fields for
+	// semantics. Additive: older parsers ignore the fields, and an older
+	// SDK resuming such a token pairs with an older connector build that
+	// never emits replay annotations.
+	//
+	// SCHEMA FENCE: the hit map is keyed source_cache_hit_validators, NOT
+	// the earlier source_cache_hits (row kind → scope list) — the value
+	// shape changed when hits gained validators (CO-6b-004), and reusing
+	// a key with a new shape makes json.Unmarshal fail the WHOLE v1 token,
+	// which the version-less fallback below would then misparse as v0 and
+	// silently drop the action stack. A token field's shape is frozen the
+	// moment it ships; changed shapes take a new key (old keys are
+	// ignored, so a legacy hit map degrades to loud cold replays, never
+	// to corruption).
+	SourceCacheHits     map[string]map[string]string `json:"source_cache_hit_validators,omitempty"`
+	SourceCacheReplayed map[string][]string          `json:"source_cache_replayed,omitempty"`
+	Version             uint64                       `json:"version"`
 }
 
 func newState(opts ...stateOpt) *state {
@@ -556,8 +610,27 @@ func (st *state) Unmarshal(input string) error {
 
 	if input != "" {
 		err := json.Unmarshal([]byte(input), &token)
-		if err != nil || (token.Version != StateTokenVersion && token.Version != StateTokenVersionTypeScoped) {
-			// Fall back to old serialized token format.
+		if err != nil {
+			// A token that DECLARES a version is a v1+ token whose full
+			// parse failed (corrupt, or a field's shape changed under a
+			// reused key). Falling back to v0 here would misparse it —
+			// the v0 struct ignores the unknown v1 fields, "succeeds"
+			// with an empty action stack, and the resume silently
+			// restarts as a fresh sync. Fail loud instead; only tokens
+			// without a version field are genuinely v0.
+			var probe struct {
+				Version *uint64 `json:"version"`
+			}
+			if probeErr := json.Unmarshal([]byte(input), &probe); probeErr == nil && probe.Version != nil {
+				return fmt.Errorf("syncer token declares version %d but failed to parse: %w", *probe.Version, err)
+			}
+			token, err = unmarshalTokenV0(input)
+			if err != nil {
+				return err
+			}
+		} else if token.Version != StateTokenVersion && token.Version != StateTokenVersionTypeScoped {
+			// Parsed cleanly but with an unrecognized (or absent) version:
+			// the original pre-version token format.
 			token, err = unmarshalTokenV0(input)
 			if err != nil {
 				return err
@@ -609,6 +682,8 @@ func (st *state) Unmarshal(input string) error {
 		}
 		st.ingestQuality = cloneIngestQualityCheckpoint(token.IngestQuality)
 		st.compaction = token.Compaction
+		st.sourceCacheHits = scopeValidatorsFromToken(token.SourceCacheHits)
+		st.sourceCacheReplayed = scopeSetsFromSorted(token.SourceCacheReplayed)
 		// Rebuild the I10 drain-evidence set from the checkpointed
 		// actions: a spawned cursor restored from a token was admitted
 		// by a previous process and must still drain in the process
@@ -641,6 +716,8 @@ func (st *state) Unmarshal(input string) error {
 		st.compaction = nil
 		st.spawnedInFlight = make(map[string]Action)
 		st.spawnedAdmitted = make(map[parallelActionKey]string)
+		st.sourceCacheHits = nil
+		st.sourceCacheReplayed = nil
 	}
 
 	return nil
@@ -754,6 +831,8 @@ func (st *state) Marshal() (string, error) {
 		SessionStoreStats:               st.sessionStoreStats,
 		IngestQuality:                   cloneIngestQualityCheckpoint(st.ingestQuality),
 		Compaction:                      st.compaction,
+		SourceCacheHits:                 scopeValidatorsToToken(st.sourceCacheHits),
+		SourceCacheReplayed:             scopeSetsToSorted(st.sourceCacheReplayed),
 		Version:                         version,
 	})
 	if err != nil {
@@ -918,6 +997,141 @@ func cloneIngestQualityCheckpoint(in *IngestQualityCheckpoint) *IngestQualityChe
 	}
 	out := *in
 	return &out
+}
+
+// RecordSourceCacheHit records a warm source-cache lookup hit and the
+// validator it returned; see the sourceCacheHits field for why the map is
+// checkpointed and what the validator binds. A later hit for the same
+// scope overwrites: the connector's most recent consult is the one whose
+// verdict its cursors carry.
+func (st *state) RecordSourceCacheHit(rowKind sourcecache.RowKind, scopeKey string, cacheValidator string) {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+	if st.sourceCacheHits == nil {
+		st.sourceCacheHits = make(map[sourcecache.RowKind]map[string]string)
+	}
+	scopes := st.sourceCacheHits[rowKind]
+	if scopes == nil {
+		scopes = make(map[string]string)
+		st.sourceCacheHits[rowKind] = scopes
+	}
+	scopes[scopeKey] = cacheValidator
+}
+
+// SourceCacheHitValidator returns the validator recorded by this sync's
+// warm lookup hit for (rowKind, scopeKey) — the same-sync replay
+// provenance check. ok is false when no hit was recorded.
+func (st *state) SourceCacheHitValidator(rowKind sourcecache.RowKind, scopeKey string) (string, bool) {
+	st.mtx.RLock()
+	defer st.mtx.RUnlock()
+	validator, ok := st.sourceCacheHits[rowKind][scopeKey]
+	return validator, ok
+}
+
+// MarkSourceCacheReplayed records that (rowKind, scopeKey)'s replay copy
+// completed this sync. Called only after the copy commits.
+func (st *state) MarkSourceCacheReplayed(rowKind sourcecache.RowKind, scopeKey string) {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+	if st.sourceCacheReplayed == nil {
+		st.sourceCacheReplayed = make(map[sourcecache.RowKind]map[string]struct{})
+	}
+	scopes := st.sourceCacheReplayed[rowKind]
+	if scopes == nil {
+		scopes = make(map[string]struct{})
+		st.sourceCacheReplayed[rowKind] = scopes
+	}
+	scopes[scopeKey] = struct{}{}
+}
+
+// SourceCacheReplayed reports whether (rowKind, scopeKey) already completed
+// its replay copy this sync (duplicate-page / retry dedup).
+func (st *state) SourceCacheReplayed(rowKind sourcecache.RowKind, scopeKey string) bool {
+	st.mtx.RLock()
+	defer st.mtx.RUnlock()
+	_, ok := st.sourceCacheReplayed[rowKind][scopeKey]
+	return ok
+}
+
+// scopeSetsToSorted projects the in-memory provenance sets into the
+// deterministic token shape (row kind → sorted scope keys).
+func scopeSetsToSorted(in map[sourcecache.RowKind]map[string]struct{}) map[string][]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(in))
+	for rowKind, scopes := range in {
+		if len(scopes) == 0 {
+			continue
+		}
+		sorted := make([]string, 0, len(scopes))
+		for scope := range scopes {
+			sorted = append(sorted, scope)
+		}
+		sort.Strings(sorted)
+		out[string(rowKind)] = sorted
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// scopeSetsFromSorted restores the in-memory provenance sets from a token.
+func scopeSetsFromSorted(in map[string][]string) map[sourcecache.RowKind]map[string]struct{} {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[sourcecache.RowKind]map[string]struct{}, len(in))
+	for rowKind, scopes := range in {
+		set := make(map[string]struct{}, len(scopes))
+		for _, scope := range scopes {
+			set[scope] = struct{}{}
+		}
+		out[sourcecache.RowKind(rowKind)] = set
+	}
+	return out
+}
+
+// scopeValidatorsToToken projects the hit map into the token shape
+// (row kind → scope key → validator). encoding/json marshals map keys in
+// sorted order, so the serialized form is deterministic without an
+// explicit sort.
+func scopeValidatorsToToken(in map[sourcecache.RowKind]map[string]string) map[string]map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]map[string]string, len(in))
+	for rowKind, scopes := range in {
+		if len(scopes) == 0 {
+			continue
+		}
+		copied := make(map[string]string, len(scopes))
+		for scope, validator := range scopes {
+			copied[scope] = validator
+		}
+		out[string(rowKind)] = copied
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// scopeValidatorsFromToken restores the in-memory hit map from a token.
+func scopeValidatorsFromToken(in map[string]map[string]string) map[sourcecache.RowKind]map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[sourcecache.RowKind]map[string]string, len(in))
+	for rowKind, scopes := range in {
+		copied := make(map[string]string, len(scopes))
+		for scope, validator := range scopes {
+			copied[scope] = validator
+		}
+		out[sourcecache.RowKind(rowKind)] = copied
+	}
+	return out
 }
 
 func makeActionID(id uint64) string {

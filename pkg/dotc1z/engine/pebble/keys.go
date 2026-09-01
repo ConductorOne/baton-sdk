@@ -420,6 +420,15 @@ func SourceCachePoisonUpperBound() []byte {
 	return hi
 }
 
+func SourceCacheCompatLowerBound() []byte {
+	lo, _ := rawdb.SourceCacheCompatBounds()
+	return lo
+}
+func SourceCacheCompatUpperBound() []byte {
+	_, hi := rawdb.SourceCacheCompatBounds()
+	return hi
+}
+
 // --- ResourceType ---
 
 // encodeResourceTypeKey returns the primary key for a resource_type:

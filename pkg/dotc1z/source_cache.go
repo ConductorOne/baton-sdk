@@ -19,6 +19,12 @@ import (
 // SourceCacheReplayResult reports what one scope's replay copied.
 type SourceCacheReplayResult = pebble.SourceCacheReplayResult
 
+// ErrSourceCacheReplayDestination marks a ReplaySourceCache failure caused
+// by the DESTINATION store's commit path after the source passed preflight.
+// The sync orchestration classifies these as warm-retryable; every unmarked
+// replay failure is treated as a source-side (cold) verdict, fail-closed.
+var ErrSourceCacheReplayDestination = pebble.ErrReplayDestinationCommit
+
 type sourceCacheStoreTestSeams struct {
 	// afterEngineReplay injects a wrapper-level error after the engine has
 	// committed replay work.
@@ -38,6 +44,11 @@ type sourceCacheStoreTestSeams struct {
 // implemented ONLY by the Pebble engine; the syncer type-asserts for it and
 // treats a store without it as "source cache unsupported" (no-op lookup,
 // no replay). It is deliberately NOT part of c1zstore.Store.
+//
+// Advanced: this interface exists for the SDK's replay orchestration, not
+// for direct use. The correctness obligations (preflight, scope poisoning,
+// compat validation) live in the callers; see pkg/sourcecache for the
+// connector-facing contract.
 type SourceCacheStore interface {
 	// LookupSourceCacheEntry returns this store's manifest entry for
 	// (kind, scopeKey). Backs the connector-facing lookup when this
@@ -60,6 +71,15 @@ type SourceCacheStore interface {
 	// row — the safe direction, since arming expansion is idempotent and
 	// add-only.
 	ReplaySourceCache(ctx context.Context, prev connectorstore.Reader, kind sourcecache.RowKind, scopeKey string) (SourceCacheReplayResult, error)
+
+	// ClearSourceCacheScope removes every current-sync row stamped with
+	// (kind, scopeKey) — the replay clear leg standalone. Backs
+	// record-round grounding: a record round is a replacement listing,
+	// so a partition holding rows no completed round published (crashed-
+	// attempt debris) is cleared before the round's first write.
+	// Idempotent; deletes commit in bounded chunks, so retry converges.
+	// Returns rows deleted.
+	ClearSourceCacheScope(ctx context.Context, kind sourcecache.RowKind, scopeKey string) (int64, error)
 
 	// DeleteSourceCacheRows removes rows by public canonical ID from the
 	// current sync, after replay + overlay (delta-query tombstones).
@@ -97,6 +117,18 @@ type SourceCacheStore interface {
 	// no matching rows are no-ops. Deletes commit in bounded chunks; on
 	// error, the returned count reports rows already committed.
 	DeleteSourceCacheGrantsByIDInScope(ctx context.Context, scopeKey string, ids []string) (int64, error)
+
+	// PutSourceCacheCompat writes the current sync's replay-compatibility
+	// key. Orchestration writes it when the source-cache write side
+	// enables, BEFORE any manifest entry, so a crash can never leave
+	// manifest entries whose recording conditions were undeclared.
+	PutSourceCacheCompat(ctx context.Context, compat sourcecache.CompatKey) error
+
+	// GetSourceCacheCompat returns this artifact's stored
+	// replay-compatibility key. found is false when the artifact never
+	// declared one (pre-compat SDK, cold-only sync, or invalidated by a
+	// compaction fold) — the caller must treat that as incompatible.
+	GetSourceCacheCompat(ctx context.Context) (compat sourcecache.CompatKey, found bool, err error)
 }
 
 var _ SourceCacheStore = (*pebbleStore)(nil)
@@ -286,6 +318,55 @@ func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore
 		}
 	}
 	return res, nil
+}
+
+func (s *pebbleStore) PutSourceCacheCompat(ctx context.Context, compat sourcecache.CompatKey) error {
+	rec := &v3.SourceCacheCompatRecord{}
+	rec.SetConnectorCacheGeneration(compat.ConnectorCacheGeneration)
+	rec.SetConnectorConfigFingerprint(compat.ConnectorConfigFingerprint)
+	rec.SetSdkMaterializationGeneration(compat.SDKMaterializationGeneration)
+	rec.SetSyncSelectionFingerprint(compat.SyncSelectionFingerprint)
+	done, err := s.beginSourceCacheMutation()
+	if err != nil {
+		return err
+	}
+	defer done()
+	return s.PutSourceCacheCompatRecord(ctx, rec)
+}
+
+func (s *pebbleStore) GetSourceCacheCompat(ctx context.Context) (sourcecache.CompatKey, bool, error) {
+	rec, err := s.GetSourceCacheCompatRecord(ctx)
+	if err != nil {
+		if errors.Is(err, cdbpebble.ErrNotFound) {
+			return sourcecache.CompatKey{}, false, nil
+		}
+		return sourcecache.CompatKey{}, false, err
+	}
+	return sourcecache.CompatKey{
+		ConnectorCacheGeneration:     rec.GetConnectorCacheGeneration(),
+		ConnectorConfigFingerprint:   rec.GetConnectorConfigFingerprint(),
+		SDKMaterializationGeneration: rec.GetSdkMaterializationGeneration(),
+		SyncSelectionFingerprint:     rec.GetSyncSelectionFingerprint(),
+	}, true, nil
+}
+
+func (s *pebbleStore) ClearSourceCacheScope(ctx context.Context, kind sourcecache.RowKind, scopeKey string) (int64, error) {
+	if err := sourcecache.ValidateRowKind(kind); err != nil {
+		return 0, err
+	}
+	if err := sourcecache.ValidateScopeKey(scopeKey); err != nil {
+		return 0, err
+	}
+	done, err := s.beginSourceCacheMutation()
+	if err != nil {
+		return 0, err
+	}
+	defer done()
+	deleted, err := s.Engine.ClearSourceCacheScope(ctx, string(kind), scopeKey)
+	if err != nil {
+		return deleted, fmt.Errorf("source cache clear scope %q: %w", scopeKey, err)
+	}
+	return deleted, nil
 }
 
 // DeleteSourceCacheRows deletes delta tombstones by public id string.

@@ -16,7 +16,9 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
+	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 	"github.com/conductorone/baton-sdk/pkg/logging"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -24,18 +26,10 @@ import (
 
 // etagObservingMockConnector emits an ETag on every ListGrants
 // response and records the ETag the syncer attaches to the resource
-// it sends back on the next sync. The recorded ETag is the load-
-// bearing observation: when etag-replay is working, sync 2's
-// ListGrants request carries the ETag that sync 1 persisted on the
-// resource; when etag-replay is broken, sync 2 sends a bare
-// resource and the connector observes an empty ETag.
-//
-// When `matchOnIncomingETag` is set, the next call carrying a
-// matching incoming ETag returns ETagMatch with an empty grant list
-// (mimicking a real connector that decided the data is unchanged).
-// That drives the syncer's `fetchEtaggedGrantsForResource` path so
-// downstream assertions can verify the previous sync's grants
-// actually get re-written into the current sync.
+// it sends back on the next sync. It remains the fixture for the
+// previous-sync plumbing tests below (soft-fail contract, replay
+// eligibility gates); the replay behavior itself is verified by the
+// source-cache chaos suites.
 type etagObservingMockConnector struct {
 	*mockConnector
 	etagValue     string
@@ -43,7 +37,6 @@ type etagObservingMockConnector struct {
 
 	mu                  sync.Mutex
 	etagsReceivedByCall []string
-	matchOnIncomingETag bool
 }
 
 func newEtagObservingMockConnector(etagValue string) *etagObservingMockConnector {
@@ -81,21 +74,7 @@ func (mc *etagObservingMockConnector) ListGrants(
 	}
 	mc.mu.Lock()
 	mc.etagsReceivedByCall = append(mc.etagsReceivedByCall, incomingETag)
-	matchMode := mc.matchOnIncomingETag
 	mc.mu.Unlock()
-
-	// When configured to match, the FIRST call with a non-empty
-	// incoming ETag matching ours returns ETagMatch + empty list.
-	// This drives the syncer's etag-replay path that pulls the
-	// previous sync's grants into the current sync.
-	if matchMode && incomingETag == mc.etagValue {
-		return v2.GrantsServiceListGrantsResponse_builder{
-			List: []*v2.Grant{},
-			Annotations: annotations.New(&v2.ETagMatch{
-				EntitlementId: mc.entitlementID,
-			}),
-		}.Build(), nil
-	}
 
 	var key string
 	if r := in.GetResource(); r != nil {
@@ -110,219 +89,26 @@ func (mc *etagObservingMockConnector) ListGrants(
 	}.Build(), nil
 }
 
-// TestPebble_EtagReplay_SendsPreviousEtagOnSecondSync is the
-// end-to-end regression guard for ETag-based replay on the single-sync
-// Pebble engine. A Pebble c1z holds exactly one sync, so the previous
-// sync lives in a SEPARATE c1z supplied via WithPreviousSyncC1ZPath —
-// there is no in-file previous sync to replay from.
+// The two skipped ETag replay tests that lived here
+// (TestPebble_EtagReplay_SendsPreviousEtagOnSecondSync and
+// TestPebble_EtagReplay_CarriesPreviousSyncsGrantsForward) were REMOVED in
+// Phase 6b, replaced by the source-cache chaos suites per the frozen plan
+// (docs/verification/sync-replay-6b/plan.md, closure rules):
 //
-// The story:
+//   - "the previous sync's validator is re-presented to the connector on
+//     the next sync" is subsumed by the lookup consult contract — the gate
+//     matrix (chaos_source_cache_gate_test.go) and the generational suite
+//     (chaos_source_cache_generational_test.go, etag-style scope) assert
+//     the exact validator every consult observes across generations;
+//   - "previous-sync rows are carried forward on a validator match" is
+//     subsumed by the collection-semantics suite
+//     (chaos_source_cache_collection_test.go) and the generational
+//     steady-state suite, which compare replayed content against
+//     independent cold baselines by full-proto fingerprint.
 //
-//  1. Sync 1 into file A stores a grant + an ETag annotation on the
-//     resource, then closes.
-//  2. Sync 2 into a fresh file B is configured with
-//     WithPreviousSyncC1ZPath(A). The syncer's
-//     fetchResourceForPreviousSync reads file A's resource, extracts
-//     the ETag, and re-attaches it to the request it sends the
-//     connector.
-//
-// This asserts the contract the optimisation depends on: every sync
-// after the first re-attaches the previous sync's persisted ETag to the
-// resource the syncer sends the connector.
-func TestPebble_EtagReplay_SendsPreviousEtagOnSecondSync(t *testing.T) {
-	// TODO(kans): re-enable when the ETag-replay read path returns. The
-	// previous-sync scaffolding (WithPreviousSyncC1ZPath, previousSyncReader)
-	// and the etag protobufs are intentionally retained for that future
-	// effort, but the syncer no longer resolves/reads the previous sync
-	// (getPreviousFullSyncID / fetchResourceForPreviousSync were removed),
-	// so the connector never receives the prior ETag.
-	t.Skip("etag replay read path not implemented on the single-sync Pebble engine yet")
-
-	ctx := t.Context()
-	ctx, err := logging.Init(ctx)
-	require.NoError(t, err)
-
-	tempDir := t.TempDir()
-	sync1Path := filepath.Join(tempDir, "etag-prev-pebble.c1z")
-	sync2Path := filepath.Join(tempDir, "etag-current-pebble.c1z")
-
-	group, err := rs.NewGroupResource("g1", groupResourceType, "g1", nil)
-	require.NoError(t, err)
-	ent := et.NewAssignmentEntitlement(group, "member", et.WithGrantableTo(groupResourceType, userResourceType))
-	ent.SetSlug("member")
-	user, err := rs.NewUserResource("u1", userResourceType, "u1", nil, rs.WithAnnotation(&v2.SkipEntitlementsAndGrants{}))
-	require.NoError(t, err)
-	grant := gt.NewGrant(group, "member", user)
-
-	mc := newEtagObservingMockConnector("etag-v1")
-	mc.WithData(group, ent, grant)
-
-	// --- Sync 1 into file A ---
-	store1, err := dotc1z.NewStore(ctx, sync1Path,
-		dotc1z.WithEngine(c1zstore.EnginePebble),
-		dotc1z.WithTmpDir(tempDir),
-	)
-	require.NoError(t, err)
-	syncer1, err := NewSyncer(ctx, mc, WithConnectorStore(store1), WithTmpDir(tempDir))
-	require.NoError(t, err)
-	require.NoError(t, syncer1.Sync(ctx))
-	require.NoError(t, syncer1.Close(ctx))
-
-	// --- Sync 2 into a fresh file B, replaying from file A ---
-	store2, err := dotc1z.NewStore(ctx, sync2Path,
-		dotc1z.WithEngine(c1zstore.EnginePebble),
-		dotc1z.WithTmpDir(tempDir),
-	)
-	require.NoError(t, err)
-	syncer2, err := NewSyncer(ctx, mc,
-		WithConnectorStore(store2),
-		WithTmpDir(tempDir),
-		WithPreviousSyncC1ZPath(sync1Path),
-	)
-	require.NoError(t, err)
-	require.NoError(t, syncer2.Sync(ctx))
-	require.NoError(t, syncer2.Close(ctx))
-
-	mc.mu.Lock()
-	calls := append([]string(nil), mc.etagsReceivedByCall...)
-	mc.mu.Unlock()
-
-	require.GreaterOrEqual(t, len(calls), 2,
-		"expected at least two ListGrants calls across the two syncs; got %d", len(calls))
-
-	require.Equal(t, "", calls[0], "sync 1's first ListGrants must not carry an ETag (no previous sync to replay from)")
-
-	// The load-bearing assertion. Sync 2's ListGrants call must have
-	// received the ETag sync 1 persisted on the resource — recovered
-	// from the previous-sync c1z (file A) via WithPreviousSyncC1ZPath.
-	require.Equal(t, "etag-v1", calls[1],
-		"sync 2's ListGrants request must carry the ETag persisted by sync 1 (read from the "+
-			"previous-sync c1z); got %q. The syncer's fetchResourceForPreviousSync reads file A's "+
-			"resource through the previous-sync reader; if that read regresses the connector sees a "+
-			"bare resource and etag-replay is silently defeated",
-		calls[1],
-	)
-}
-
-// TestPebble_EtagReplay_CarriesPreviousSyncsGrantsForward is the
-// downstream half of the etag-replay contract that
-// `SendsPreviousEtagOnSecondSync` (above) gates: when the connector
-// responds with ETagMatch, the syncer's `fetchEtaggedGrantsForResource`
-// (pkg/sync/syncer.go) must read the previous sync's grants for the
-// resource — from the previous-sync c1z (WithPreviousSyncC1ZPath) on
-// the single-sync Pebble engine — and re-write them into the current
-// sync.
-//
-// The read is `previousSyncReadStore().ListGrants(Resource=g1,
-// SyncDetails=sync1)`. `Adapter.ListGrants` must filter `req.Resource`
-// against the entitlement-side resource (matching SQLite's
-// `listGrantsGeneric`) via the `idxGrantByEntitlementResource` index /
-// `PaginateGrantsByEntitlementResource` path; a principal-side filter
-// would return zero grants for membership-style grants and silently
-// drop the carry-forward.
-func TestPebble_EtagReplay_CarriesPreviousSyncsGrantsForward(t *testing.T) {
-	// TODO(kans): re-enable when the ETag-replay read path returns. The
-	// previous-sync scaffolding (WithPreviousSyncC1ZPath, previousSyncReader)
-	// and the etag protobufs are intentionally retained for that future
-	// effort, but the syncer no longer resolves/reads the previous sync
-	// (getPreviousFullSyncID / fetchResourceForPreviousSync were removed),
-	// so grants from the prior sync are not carried forward.
-	t.Skip("etag replay read path not implemented on the single-sync Pebble engine yet")
-
-	ctx := t.Context()
-	ctx, err := logging.Init(ctx)
-	require.NoError(t, err)
-
-	tempDir := t.TempDir()
-	sync1Path := filepath.Join(tempDir, "etag-carryforward-prev.c1z")
-	sync2Path := filepath.Join(tempDir, "etag-carryforward-current.c1z")
-
-	group, err := rs.NewGroupResource("g1", groupResourceType, "g1", nil)
-	require.NoError(t, err)
-	ent := et.NewAssignmentEntitlement(group, "member", et.WithGrantableTo(groupResourceType, userResourceType))
-	ent.SetSlug("member")
-	user, err := rs.NewUserResource("u1", userResourceType, "u1", nil, rs.WithAnnotation(&v2.SkipEntitlementsAndGrants{}))
-	require.NoError(t, err)
-	grant := gt.NewGrant(group, "member", user)
-
-	mc := newEtagObservingMockConnector("etag-v1")
-	mc.WithData(group, ent, grant)
-
-	// --- Sync 1 into file A: stores the grant and the ETag. ---
-	store1, err := dotc1z.NewStore(ctx, sync1Path,
-		dotc1z.WithEngine(c1zstore.EnginePebble),
-		dotc1z.WithTmpDir(tempDir),
-	)
-	require.NoError(t, err)
-	syncer1, err := NewSyncer(ctx, mc, WithConnectorStore(store1), WithTmpDir(tempDir))
-	require.NoError(t, err)
-	require.NoError(t, syncer1.Sync(ctx))
-	require.NoError(t, syncer1.Close(ctx))
-
-	// --- Sync 2 into a fresh file B, replaying from file A. The
-	// connector returns ETagMatch when it sees the previous ETag the
-	// syncer attaches, so the syncer's etag-replay path is responsible
-	// for carrying sync 1's grant forward.
-	mc.mu.Lock()
-	mc.matchOnIncomingETag = true
-	mc.etagsReceivedByCall = nil
-	mc.mu.Unlock()
-
-	store2, err := dotc1z.NewStore(ctx, sync2Path,
-		dotc1z.WithEngine(c1zstore.EnginePebble),
-		dotc1z.WithTmpDir(tempDir),
-	)
-	require.NoError(t, err)
-	syncer2, err := NewSyncer(ctx, mc,
-		WithConnectorStore(store2),
-		WithTmpDir(tempDir),
-		WithPreviousSyncC1ZPath(sync1Path),
-	)
-	require.NoError(t, err)
-	require.NoError(t, syncer2.Sync(ctx))
-	require.NoError(t, syncer2.Close(ctx))
-
-	// Sanity: sync 2 actually sent sync 1's ETag (replay source read OK).
-	mc.mu.Lock()
-	calls := append([]string(nil), mc.etagsReceivedByCall...)
-	mc.mu.Unlock()
-	require.NotEmpty(t, calls)
-	require.Equal(t, "etag-v1", calls[0], "sanity: sync 2's ListGrants must carry sync 1's ETag from the previous-sync c1z")
-
-	// Reopen the current sync's c1z (file B): with etag-replay working
-	// end-to-end, sync 2 carried sync 1's grant forward into its own
-	// grants keyspace.
-	reopen, err := dotc1z.NewStore(ctx, sync2Path,
-		dotc1z.WithEngine(c1zstore.EnginePebble),
-		dotc1z.WithReadOnly(true),
-	)
-	require.NoError(t, err)
-	defer func() { _ = reopen.Close(ctx) }()
-
-	latest, ok := reopen.(interface {
-		LatestFinishedSyncID(ctx context.Context, syncType connectorstore.SyncType) (string, error)
-	})
-	require.True(t, ok)
-	sync2ID, err := latest.LatestFinishedSyncID(ctx, connectorstore.SyncTypeFull)
-	require.NoError(t, err)
-	require.NotEmpty(t, sync2ID)
-	require.NoError(t, reopen.SetCurrentSync(ctx, sync2ID))
-
-	resp, err := reopen.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
-	require.NoError(t, err)
-
-	require.Len(t, resp.GetList(), 1,
-		"sync 2 must carry sync 1's grant forward after ETagMatch; got %d. "+
-			"fetchEtaggedGrantsForResource reads the previous-sync c1z via "+
-			"ListGrants(Resource=g1); if Adapter.ListGrants(req.Resource) reverts to a "+
-			"principal filter (PaginateGrantsByPrincipal) instead of the entitlement-side "+
-			"PaginateGrantsByEntitlementResource path, the read silently returns zero grants "+
-			"and etag-replay drops sync 1's grants entirely",
-		len(resp.GetList()))
-
-	got := resp.GetList()[0]
-	require.Equal(t, grant.GetId(), got.GetId(), "the etag-replayed grant must round-trip its identity")
-}
+// The generalized source-cache annotations replace the ETag/ETagMatch
+// protobufs as the replay contract; the old protobufs remain for wire
+// compatibility only.
 
 // TestOptionalPreviousSyncC1ZPath_SoftFails pins the best-effort
 // contract of WithOptionalPreviousSyncC1ZPath: a missing or corrupt
@@ -388,38 +174,211 @@ func TestOptionalPreviousSyncC1ZPath_SoftFails(t *testing.T) {
 	require.NoError(t, store.Close(ctx))
 }
 
+// buildSyncedPreviousArtifact runs a REAL full sync (group + member
+// entitlement + one grant to an existing user) into a fresh Pebble c1z and
+// returns its path. Unlike a bare StartNewSync/EndSync artifact, the result
+// carries everything the consume gates demand of a replay source: a finished
+// FULL run, ingest-quality stats with no drops (G4), and the save-time
+// materialization witness in the envelope manifest (G5).
+func buildSyncedPreviousArtifact(t *testing.T, extra ...SyncOpt) string {
+	t.Helper()
+	ctx, err := logging.Init(t.Context())
+	require.NoError(t, err)
+
+	tempDir := t.TempDir()
+	path := filepath.Join(tempDir, "previous.c1z")
+
+	group, err := rs.NewGroupResource("g1", groupResourceType, "g1", nil)
+	require.NoError(t, err)
+	ent := et.NewAssignmentEntitlement(group, "member", et.WithGrantableTo(groupResourceType, userResourceType))
+	ent.SetSlug("member")
+	user, err := rs.NewUserResource("u1", userResourceType, "u1", nil, rs.WithAnnotation(&v2.SkipEntitlementsAndGrants{}))
+	require.NoError(t, err)
+	grant := gt.NewGrant(group, "member", user)
+
+	mc := newEtagObservingMockConnector("etag-v1")
+	mc.WithData(group, ent, grant)
+	// The grant's principal must resolve to a synced resource so an
+	// unrestricted sync ends with clean ingest quality.
+	mc.AddResource(ctx, user)
+
+	store, err := dotc1z.NewStore(ctx, path,
+		dotc1z.WithEngine(c1zstore.EnginePebble),
+		dotc1z.WithTmpDir(tempDir),
+	)
+	require.NoError(t, err)
+	opts := append([]SyncOpt{WithConnectorStore(store), WithTmpDir(tempDir)}, extra...)
+	syncer, err := NewSyncer(ctx, mc, opts...)
+	require.NoError(t, err)
+	require.NoError(t, syncer.Sync(ctx))
+	require.NoError(t, syncer.Close(ctx))
+	return path
+}
+
+// buildBarePreviousArtifact writes an artifact with StartNewSync/EndSync
+// only — no syncer, so no ingest-quality stats. Saved by the current SDK it
+// still carries the envelope witness, which makes it the isolation case for
+// G4's absent-stats fail-closed rule.
+func buildBarePreviousArtifact(t *testing.T, engine c1zstore.Engine, syncType connectorstore.SyncType) string {
+	t.Helper()
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "previous.c1z")
+	previous, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(engine))
+	require.NoError(t, err)
+	_, err = previous.StartNewSync(ctx, syncType, "")
+	require.NoError(t, err)
+	require.NoError(t, previous.EndSync(ctx))
+	require.NoError(t, previous.Close(ctx))
+	return path
+}
+
+// TestPreviousSyncC1ZPathEnforcesReplayEligibility pins the NewSyncer half
+// of the source-cache gate ladder (docs/verification/sync-replay-6b/plan.md
+// B2, gates G1–G5): which previous-sync artifacts are accepted as warm
+// replay sources (previousSyncReader != nil) and which degrade to a cold
+// sync. The install-time gates (G6 capability, G7 compat byte-match) run at
+// Sync, not NewSyncer, so reader presence here is independent of the
+// connector's declared capability.
 func TestPreviousSyncC1ZPathEnforcesReplayEligibility(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
-		engine     c1zstore.Engine
-		syncType   connectorstore.SyncType
-		compacted  bool
+		build      func(t *testing.T) string
 		wantReader bool
 	}{
-		{name: "pebble-full", engine: c1zstore.EnginePebble, syncType: connectorstore.SyncTypeFull, wantReader: true},
-		{name: "pebble-partial", engine: c1zstore.EnginePebble, syncType: connectorstore.SyncTypePartial},
-		{name: "pebble-compacted-full", engine: c1zstore.EnginePebble, syncType: connectorstore.SyncTypeFull, compacted: true},
-		{name: "sqlite-full", engine: c1zstore.EngineSQLite, syncType: connectorstore.SyncTypeFull},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := t.Context()
-			previousPath := filepath.Join(t.TempDir(), "previous.c1z")
-			previous, err := dotc1z.NewStore(ctx, previousPath, dotc1z.WithEngine(tc.engine))
-			require.NoError(t, err)
-			syncID, err := previous.StartNewSync(ctx, tc.syncType, "")
-			require.NoError(t, err)
-			require.NoError(t, previous.EndSync(ctx))
-			if tc.compacted {
-				require.Equal(t, c1zstore.EnginePebble, tc.engine)
-				eng, ok := enginepkg.AsEngine(previous)
+		{
+			// Every gate passes: Pebble artifact (G2) holding a finished,
+			// non-compacted FULL sync (G3) produced by a real syncer run, so
+			// ingest-quality stats exist with no drop flags (G4) and the
+			// envelope carries this SDK's materialization witness (G5).
+			name:       "pebble-full-synced",
+			build:      func(t *testing.T) string { return buildSyncedPreviousArtifact(t) },
+			wantReader: true,
+		},
+		{
+			// G4 absent-stats conservatism: a finished FULL Pebble sync
+			// written without the syncer has no ingest-quality stats.
+			// Unknown quality must fail closed — pre-quality artifacts can
+			// never seed a warm sync.
+			name: "pebble-full-no-quality-stats",
+			build: func(t *testing.T) string {
+				return buildBarePreviousArtifact(t, c1zstore.EnginePebble, connectorstore.SyncTypeFull)
+			},
+		},
+		{
+			// G3: partial syncs never serve as replay sources.
+			name: "pebble-partial",
+			build: func(t *testing.T) string {
+				return buildBarePreviousArtifact(t, c1zstore.EnginePebble, connectorstore.SyncTypePartial)
+			},
+		},
+		{
+			// G3: a folded (compacted) artifact is rejected even when its
+			// quality stats and witness are intact — fold retains stale
+			// source-scope indexes, so compacted must dominate.
+			name: "pebble-compacted-full",
+			build: func(t *testing.T) string {
+				path := buildSyncedPreviousArtifact(t)
+				ctx := t.Context()
+				store, err := dotc1z.NewStore(ctx, path,
+					dotc1z.WithEngine(c1zstore.EnginePebble),
+					dotc1z.WithTmpDir(t.TempDir()),
+				)
+				require.NoError(t, err)
+				latest, ok := store.(interface {
+					LatestFinishedSyncID(ctx context.Context, syncType connectorstore.SyncType) (string, error)
+				})
+				require.True(t, ok)
+				syncID, err := latest.LatestFinishedSyncID(ctx, connectorstore.SyncTypeFull)
+				require.NoError(t, err)
+				eng, ok := enginepkg.AsEngine(store)
 				require.True(t, ok)
 				run, err := eng.GetSyncRunRecord(ctx, syncID)
 				require.NoError(t, err)
 				run.SetCompacted(true)
 				require.NoError(t, eng.PutSyncRunRecord(ctx, run))
-				require.True(t, enginepkg.MarkStoreDirty(previous))
-			}
-			require.NoError(t, previous.Close(ctx))
+				require.True(t, enginepkg.MarkStoreDirty(store))
+				require.NoError(t, store.Close(ctx))
+				return path
+			},
+		},
+		{
+			// G2: SQLite is conversion-only (RFC 0010) — always cold.
+			name: "sqlite-full",
+			build: func(t *testing.T) string {
+				return buildBarePreviousArtifact(t, c1zstore.EngineSQLite, connectorstore.SyncTypeFull)
+			},
+		},
+		{
+			// G4 replay-blocked: restricting the sync to the group type
+			// leaves the grant's user principal type unscheduled, so the
+			// ingest filter drops the grant and flags the run
+			// source_cache_replay_blocked. A lossy sync must never seed the
+			// next generation, however healthy it looks structurally.
+			name: "pebble-quality-blocked",
+			build: func(t *testing.T) string {
+				return buildSyncedPreviousArtifact(t, WithSyncResourceTypes([]string{"group"}))
+			},
+		},
+		{
+			// G5 — CO-017 old-fold shape (plan B8). An older SDK's fold
+			// byte-copies the payload intact (source-cache manifest entries,
+			// indexes, compat record survive; compacted stays false on the
+			// surviving run) but rebuilds the ENVELOPE manifest from its own
+			// descriptors, so it cannot carry the materialization witness.
+			// Simulate exactly that: extract the payload of a fully eligible
+			// artifact, clear the witness, and re-wrap the same payload. The
+			// result passes G1–G4 and must be rejected by the fence alone.
+			name: "pebble-fence-stripped-old-fold-shape",
+			build: func(t *testing.T) string {
+				path := buildSyncedPreviousArtifact(t)
+				src, err := os.Open(path)
+				require.NoError(t, err)
+				payloadDir := filepath.Join(t.TempDir(), "payload")
+				require.NoError(t, os.MkdirAll(payloadDir, 0o755))
+				manifest, _, err := formatv3.ExtractEnvelopePayload(src, payloadDir)
+				require.NoError(t, err)
+				require.NoError(t, src.Close())
+				// Sanity: current-SDK saves stamp the witness; without this
+				// the strip below would be a no-op and the case vacuous.
+				require.Equal(t, sourcecache.MaterializationPolicyGeneration, manifest.GetSdkMaterializationGeneration())
+				manifest.SetSdkMaterializationGeneration("")
+				stripped := filepath.Join(t.TempDir(), "old-fold-shape.c1z")
+				out, err := os.Create(stripped)
+				require.NoError(t, err)
+				require.NoError(t, formatv3.WriteEnvelope(out, manifest, payloadDir))
+				require.NoError(t, out.Close())
+				return stripped
+			},
+		},
+		{
+			// G5 — witness MISMATCH (not absence): an artifact whose witness
+			// names a different materialization generation (a future SDK's
+			// save, or any generation bump) must be rejected the same way.
+			// The fence is an exact-match check, never "witness present".
+			name: "pebble-fence-foreign-witness",
+			build: func(t *testing.T) string {
+				path := buildSyncedPreviousArtifact(t)
+				src, err := os.Open(path)
+				require.NoError(t, err)
+				payloadDir := filepath.Join(t.TempDir(), "payload")
+				require.NoError(t, os.MkdirAll(payloadDir, 0o755))
+				manifest, _, err := formatv3.ExtractEnvelopePayload(src, payloadDir)
+				require.NoError(t, err)
+				require.NoError(t, src.Close())
+				manifest.SetSdkMaterializationGeneration(
+					sourcecache.MaterializationPolicyGeneration + "-future")
+				rewrapped := filepath.Join(t.TempDir(), "foreign-witness.c1z")
+				out, err := os.Create(rewrapped)
+				require.NoError(t, err)
+				require.NoError(t, formatv3.WriteEnvelope(out, manifest, payloadDir))
+				require.NoError(t, out.Close())
+				return rewrapped
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			previousPath := tc.build(t)
 
 			current, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "current.c1z"), dotc1z.WithEngine(c1zstore.EnginePebble))
 			require.NoError(t, err)

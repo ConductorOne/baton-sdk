@@ -206,8 +206,24 @@ type C1ZManifestV3 struct {
 	// c1/dotc1z/engine/pebble/digest.go's present-means-exact contract.
 	// Additive field: old readers ignore it, old files simply lack it.
 	GrantDigestRoot *GrantDigestRoot `protobuf:"bytes,43,opt,name=grant_digest_root,json=grantDigestRoot,proto3" json:"grant_digest_root,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Save-time materialization witness (CO-017 cross-version fold fence).
+	// The SDK's replayed-row materialization-policy generation
+	// (sourcecache.MaterializationPolicyGeneration) as of the save that
+	// produced this envelope; written on EVERY save by a witness-aware SDK.
+	//
+	// Why this fences: an OLDER SDK that folds a scoped artifact rewrites
+	// the envelope and rebuilds this manifest fresh from its own
+	// compiled-in descriptors, which do not know this field — so the
+	// witness is necessarily ABSENT from any old-fold output and cannot be
+	// forged by one, even though the old fold byte-copies the payload's
+	// source-cache manifest, indexes, and compat record intact. A replay
+	// consumer requires the witness to byte-match its own generation and
+	// treats absence as ineligible (degrade to a cold sync), which closes
+	// the stale-but-eligible window that a byte-copied payload compat
+	// record alone cannot close.
+	SdkMaterializationGeneration string `protobuf:"bytes,44,opt,name=sdk_materialization_generation,json=sdkMaterializationGeneration,proto3" json:"sdk_materialization_generation,omitempty"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *C1ZManifestV3) Reset() {
@@ -305,6 +321,13 @@ func (x *C1ZManifestV3) GetGrantDigestRoot() *GrantDigestRoot {
 	return nil
 }
 
+func (x *C1ZManifestV3) GetSdkMaterializationGeneration() string {
+	if x != nil {
+		return x.SdkMaterializationGeneration
+	}
+	return ""
+}
+
 func (x *C1ZManifestV3) SetEngine(v string) {
 	x.Engine = v
 }
@@ -343,6 +366,10 @@ func (x *C1ZManifestV3) SetPebbleIdIndexFormat(v PebbleIdIndexFormat) {
 
 func (x *C1ZManifestV3) SetGrantDigestRoot(v *GrantDigestRoot) {
 	x.GrantDigestRoot = v
+}
+
+func (x *C1ZManifestV3) SetSdkMaterializationGeneration(v string) {
+	x.SdkMaterializationGeneration = v
 }
 
 func (x *C1ZManifestV3) HasEngineConfig() bool {
@@ -438,6 +465,22 @@ type C1ZManifestV3_builder struct {
 	// c1/dotc1z/engine/pebble/digest.go's present-means-exact contract.
 	// Additive field: old readers ignore it, old files simply lack it.
 	GrantDigestRoot *GrantDigestRoot
+	// Save-time materialization witness (CO-017 cross-version fold fence).
+	// The SDK's replayed-row materialization-policy generation
+	// (sourcecache.MaterializationPolicyGeneration) as of the save that
+	// produced this envelope; written on EVERY save by a witness-aware SDK.
+	//
+	// Why this fences: an OLDER SDK that folds a scoped artifact rewrites
+	// the envelope and rebuilds this manifest fresh from its own
+	// compiled-in descriptors, which do not know this field — so the
+	// witness is necessarily ABSENT from any old-fold output and cannot be
+	// forged by one, even though the old fold byte-copies the payload's
+	// source-cache manifest, indexes, and compat record intact. A replay
+	// consumer requires the witness to byte-match its own generation and
+	// treats absence as ineligible (degrade to a cold sync), which closes
+	// the stale-but-eligible window that a byte-copied payload compat
+	// record alone cannot close.
+	SdkMaterializationGeneration string
 }
 
 func (b0 C1ZManifestV3_builder) Build() *C1ZManifestV3 {
@@ -454,6 +497,7 @@ func (b0 C1ZManifestV3_builder) Build() *C1ZManifestV3 {
 	x.FoldDeadBytes = b.FoldDeadBytes
 	x.PebbleIdIndexFormat = b.PebbleIdIndexFormat
 	x.GrantDigestRoot = b.GrantDigestRoot
+	x.SdkMaterializationGeneration = b.SdkMaterializationGeneration
 	return m0
 }
 
@@ -1236,7 +1280,7 @@ var File_c1_c1z_v3_manifest_proto protoreflect.FileDescriptor
 
 const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\n" +
-	"\x18c1/c1z/v3/manifest.proto\x12\tc1.c1z.v3\x1a\x1bc1/storage/v3/records.proto\x1a\x19google/protobuf/any.proto\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xde\x04\n" +
+	"\x18c1/c1z/v3/manifest.proto\x12\tc1.c1z.v3\x1a\x1bc1/storage/v3/records.proto\x1a\x19google/protobuf/any.proto\x1a google/protobuf/descriptor.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa4\x05\n" +
 	"\rC1ZManifestV3\x12\x16\n" +
 	"\x06engine\x18\x01 \x01(\tR\x06engine\x122\n" +
 	"\x15engine_schema_version\x18\x02 \x01(\rR\x13engineSchemaVersion\x129\n" +
@@ -1248,7 +1292,8 @@ const file_c1_c1z_v3_manifest_proto_rawDesc = "" +
 	"\tsync_runs\x18( \x03(\v2\x19.c1.c1z.v3.SyncRunSummaryR\bsyncRuns\x12&\n" +
 	"\x0ffold_dead_bytes\x18) \x01(\x03R\rfoldDeadBytes\x12S\n" +
 	"\x16pebble_id_index_format\x18* \x01(\x0e2\x1e.c1.c1z.v3.PebbleIdIndexFormatR\x13pebbleIdIndexFormat\x12F\n" +
-	"\x11grant_digest_root\x18+ \x01(\v2\x1a.c1.c1z.v3.GrantDigestRootR\x0fgrantDigestRoot\"g\n" +
+	"\x11grant_digest_root\x18+ \x01(\v2\x1a.c1.c1z.v3.GrantDigestRootR\x0fgrantDigestRoot\x12D\n" +
+	"\x1esdk_materialization_generation\x18, \x01(\tR\x1csdkMaterializationGeneration\"g\n" +
 	"\x0fGrantDigestRoot\x12\x1d\n" +
 	"\n" +
 	"xor_digest\x18\x01 \x01(\fR\txorDigest\x12\x14\n" +

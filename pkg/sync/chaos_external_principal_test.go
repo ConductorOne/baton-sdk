@@ -457,6 +457,7 @@ func TestChaosConnectorExternalPrincipalResumeUsesCurrentExternalAnswer(t *testi
 		WithExternalResourceC1ZPath(firstExternalPath),
 		WithConnectorStore(cutStore),
 	)
+	attempt1Audit := attachSyncTraceAudit(t, cutHarness)
 	require.ErrorIs(t, cutHarness.Syncer.Sync(ctx), errChaosExternalPrincipalCut)
 	require.NoError(t, cutHarness.Close(ctx))
 	seedStaleExternalPrincipalDependencies(t, internalPath, tmpDir)
@@ -505,6 +506,7 @@ func TestChaosConnectorExternalPrincipalResumeUsesCurrentExternalAnswer(t *testi
 		WithExternalResourceC1ZPath(resumeExternalPath),
 		WithConnectorStore(dependencyCutStore),
 	)
+	attempt2Audit := attachSyncTraceAudit(t, resumeHarness)
 	require.ErrorIs(t, resumeHarness.Syncer.Sync(ctx), errChaosExternalPrincipalCut)
 	require.NoError(t, resumeHarness.Close(ctx))
 	require.Equal(t, int64(2), dependencyCutStore.deleteCalls.Load(),
@@ -514,15 +516,19 @@ func TestChaosConnectorExternalPrincipalResumeUsesCurrentExternalAnswer(t *testi
 	require.Equal(t, interruptedSyncID, partiallyCleanedRuns[0].ID)
 	require.Nil(t, partiallyCleanedRuns[0].EndedAt)
 
+	attempt3Audit := &syncTraceAudit{}
 	entitlementCutStore := runExternalPrincipalCleanupCut(
 		t, internalScenario, internalPath, resumeExternalPath, tmpDir,
 		&chaosExternalPrincipalCutStore{failEntitlementAt: 2},
+		attempt3Audit,
 	)
 	require.Equal(t, int64(2), entitlementCutStore.entitlementCalls.Load(),
 		"entitlement cleanup cut must occur after a committed entitlement deletion")
+	attempt4Audit := &syncTraceAudit{}
 	resourceCutStore := runExternalPrincipalCleanupCut(
 		t, internalScenario, internalPath, resumeExternalPath, tmpDir,
 		&chaosExternalPrincipalCutStore{failResourceAt: 1},
+		attempt4Audit,
 	)
 	require.Equal(t, int64(1), resourceCutStore.resourceCalls.Load(),
 		"resource cleanup cut must fire before the stale principal deletion")
@@ -539,6 +545,7 @@ func TestChaosConnectorExternalPrincipalResumeUsesCurrentExternalAnswer(t *testi
 		WithWorkerCount(1),
 		WithExternalResourceC1ZPath(resumeExternalPath),
 	)
+	attempt5Audit := attachSyncTraceAudit(t, finalResumeHarness)
 	finalResumeHarness.SyncAndClose(t, ctx)
 
 	manifest, err := internalScenario.Manifest(internalScenario.InitialEpoch)
@@ -564,6 +571,14 @@ func TestChaosConnectorExternalPrincipalResumeUsesCurrentExternalAnswer(t *testi
 	finalContent := readChaosLogicalContent(t, ctx, internalPath, tmpDir)
 	require.NoError(t, chaosoracle.CompareLogicalContent(baselineContent, finalContent),
 		"resume against changed external data must equal a clean run against that data")
+
+	// Trace-oracle witness (policy 7, external-principal grounding):
+	// the five attempts of this capable-engine history — including the
+	// final resume whose completed reconciliation deletes the dead
+	// attempts' stale principal — must satisfy every policy.
+	exportTraceFixture(t, "external_resume_current_answer",
+		attempt1Audit.snapshot(), attempt2Audit.snapshot(), attempt3Audit.snapshot(),
+		attempt4Audit.snapshot(), attempt5Audit.snapshot())
 }
 
 func TestChaosConnectorSQLiteExternalPrincipalResumeDegradesWithoutFailure(t *testing.T) {
@@ -602,6 +617,7 @@ func TestChaosConnectorSQLiteExternalPrincipalResumeDegradesWithoutFailure(t *te
 		WithExternalResourceC1ZPath(firstExternalPath),
 		WithConnectorStore(cutStore),
 	)
+	attempt1Audit := attachSyncTraceAudit(t, firstHarness)
 	require.ErrorIs(t, firstHarness.Syncer.Sync(ctx), errChaosExternalPrincipalCut)
 	require.NoError(t, firstHarness.Close(ctx))
 
@@ -640,6 +656,7 @@ func TestChaosConnectorSQLiteExternalPrincipalResumeDegradesWithoutFailure(t *te
 		WithExternalResourceC1ZPath(resumeExternalPath),
 		WithStorageEngine(c1zstore.EngineSQLite),
 	)
+	attempt2Audit := attachSyncTraceAudit(t, resumeHarness)
 	resumeHarness.SyncAndClose(t, ctx)
 
 	finalStore, err := dotc1z.NewStore(
@@ -673,6 +690,25 @@ func TestChaosConnectorSQLiteExternalPrincipalResumeDegradesWithoutFailure(t *te
 	}
 	require.True(t, currentPrincipalPresent,
 		"SQLite degradation must still ingest the current external answer")
+
+	// Trace-oracle witness (policy 7, KNOWN-DEGRADE PIN): the resumed
+	// attempt's principal writes commit with NO completed
+	// reconciliation (SQLite cannot delete), so the oracle must flag
+	// ext-recon-before-copy — the accepted degradation, witnessed as an
+	// expected RED like the session-zombie pin.
+	exportTraceFixture(t, "external_resume_sqlite_degrade",
+		attempt1Audit.snapshot(), attempt2Audit.snapshot())
+}
+
+// attachSyncTraceAudit installs a fresh trace recorder on the harness's
+// concrete syncer (the same wiring every trace-oracle export uses).
+func attachSyncTraceAudit(t *testing.T, h *chaosHarness) *syncTraceAudit {
+	t.Helper()
+	concrete, ok := h.Syncer.(*syncer)
+	require.True(t, ok, "chaos harness syncer is not the concrete *syncer")
+	audit := &syncTraceAudit{}
+	concrete.testSyncTraceAudit = audit
+	return audit
 }
 
 func runExternalPrincipalCleanupCut(
@@ -682,6 +718,7 @@ func runExternalPrincipalCleanupCut(
 	externalPath string,
 	tmpDir string,
 	cutStore *chaosExternalPrincipalCutStore,
+	audit *syncTraceAudit,
 ) *chaosExternalPrincipalCutStore {
 	t.Helper()
 	ctx := t.Context()
@@ -706,6 +743,11 @@ func runExternalPrincipalCleanupCut(
 		WithExternalResourceC1ZPath(externalPath),
 		WithConnectorStore(cutStore),
 	)
+	if audit != nil {
+		concrete, ok := harness.Syncer.(*syncer)
+		require.True(t, ok, "chaos harness syncer is not the concrete *syncer")
+		concrete.testSyncTraceAudit = audit
+	}
 	require.ErrorIs(t, harness.Syncer.Sync(ctx), errChaosExternalPrincipalCut)
 	require.NoError(t, harness.Close(ctx))
 	return cutStore

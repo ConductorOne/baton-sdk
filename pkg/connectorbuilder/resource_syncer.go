@@ -139,7 +139,7 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 		Size:  int(request.GetPageSize()),
 		Token: request.GetPageToken(),
 	}
-	opts := resource.SyncOpAttrs{SyncID: request.GetActiveSyncId(), PageToken: token, Session: WithSyncId(b.sessionStore, request.GetActiveSyncId())}
+	opts := resource.SyncOpAttrs{SyncID: request.GetActiveSyncId(), PageToken: token, Session: WithSyncId(b.sessionStore, request.GetActiveSyncId()), Lookup: b.sourceCache()}
 	out, retOptions, err := rb.List(ctx, request.GetParentResourceId(), opts)
 	if retOptions == nil {
 		retOptions = &resource.SyncOpResults{}
@@ -228,7 +228,7 @@ func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.Entitl
 		Size:  int(request.GetPageSize()),
 		Token: request.GetPageToken(),
 	}
-	opts := resource.SyncOpAttrs{SyncID: request.GetActiveSyncId(), PageToken: token, Session: WithSyncId(b.sessionStore, request.GetActiveSyncId())}
+	opts := resource.SyncOpAttrs{SyncID: request.GetActiveSyncId(), PageToken: token, Session: WithSyncId(b.sessionStore, request.GetActiveSyncId()), Lookup: b.sourceCache()}
 	out, retOptions, err := rbse.StaticEntitlements(ctx, opts)
 	if retOptions == nil {
 		retOptions = &resource.SyncOpResults{}
@@ -283,7 +283,7 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 		Size:  int(request.GetPageSize()),
 		Token: request.GetPageToken(),
 	}
-	opts := resource.SyncOpAttrs{SyncID: request.GetActiveSyncId(), PageToken: token, Session: WithSyncId(b.sessionStore, request.GetActiveSyncId())}
+	opts := resource.SyncOpAttrs{SyncID: request.GetActiveSyncId(), PageToken: token, Session: WithSyncId(b.sessionStore, request.GetActiveSyncId()), Lookup: b.sourceCache()}
 	var out []*v2.Entitlement
 	var retOptions *resource.SyncOpResults
 	reqAnnos := annotations.Annotations(request.GetAnnotations())
@@ -355,7 +355,7 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 		Size:  int(request.GetPageSize()),
 		Token: request.GetPageToken(),
 	}
-	opts := resource.SyncOpAttrs{SyncID: request.GetActiveSyncId(), PageToken: token, Session: WithSyncId(b.sessionStore, request.GetActiveSyncId())}
+	opts := resource.SyncOpAttrs{SyncID: request.GetActiveSyncId(), PageToken: token, Session: WithSyncId(b.sessionStore, request.GetActiveSyncId()), Lookup: b.sourceCache()}
 	var out []*v2.Grant
 	var retOptions *resource.SyncOpResults
 	reqAnnos := annotations.Annotations(request.GetAnnotations())

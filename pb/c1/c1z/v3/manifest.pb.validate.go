@@ -226,6 +226,8 @@ func (m *C1ZManifestV3) validate(all bool) error {
 		}
 	}
 
+	// no validation rules for SdkMaterializationGeneration
+
 	if len(errors) > 0 {
 		return C1ZManifestV3MultiError(errors)
 	}
