@@ -90,10 +90,17 @@ func equivalent(t *testing.T, requires []string, locals []localModule, lhs, rhs 
 
 	lhsQuery := findQueryNode(interp, lhsRoot)
 	rhsQuery := findQueryNode(interp, rhsRoot)
-	interp.Solver.LoadExpressions(ctx, interp.Graph, []solve.Expr{
+	// A swallowed error here is worse than a flake: the positives would
+	// fail loudly, but the negative controls assert REFUSAL, and an
+	// e-graph with no loaded expressions refuses every equivalence —
+	// they would all pass vacuously. (This module is outside root
+	// `make lint`, so errcheck does not cover it.)
+	if err := interp.Solver.LoadExpressions(ctx, interp.Graph, []solve.Expr{
 		{RootNodeID: lhsQuery},
 		{RootNodeID: rhsQuery},
-	})
+	}); err != nil {
+		t.Fatalf("LoadExpressions: %v", err)
+	}
 	for _, root := range allRoots {
 		if err := interp.BridgeModulePropertyAccess(ctx, root); err != nil {
 			t.Fatalf("BridgeModulePropertyAccess root %d: %v", root, err)

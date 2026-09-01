@@ -333,7 +333,7 @@ prodscale-topebble: ## Measure SQLite-to-Pebble conversion at production scale.
 # MISSES its find fails the gate by design — that has happened once,
 # from seed-bimodal search on a narrow target, and the remedy is a
 # per-cell strategy pin (see the tcG5dS_W2 note in graph CALIBRATION).
-# Walker (55 cells) and graph (66 cells) each take on the order of half
+# Walker (56 cells) and graph (66 cells) each take on the order of half
 # an hour at the default schedule budget; the bake-off (12 cells) about
 # twenty minutes.
 P_SCHEDULES ?= 10000
@@ -347,7 +347,7 @@ p-checker-guard:
 	}
 
 .PHONY: formal-walker-sweep
-formal-walker-sweep: p-checker-guard ## Compile and sweep the walker model (55 cells; needs P).
+formal-walker-sweep: p-checker-guard ## Compile and sweep the walker model (56 cells; needs P).
 	cd formal/walker && p compile -pp walker.pproj && tools/sweep.sh $(P_SCHEDULES)
 
 .PHONY: formal-graph-sweep

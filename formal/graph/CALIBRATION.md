@@ -373,6 +373,19 @@ leg is clean. Three cells carry the pinned `--sch-feedbackpct=20`
 strategy (tcG1d_P6G, tcG2awWA_E, tcG8dMut_PMARK — deep-crash-window
 reach, G1D-REACH/G8D-CAL). The graph model is CALIBRATED and FROZEN.
 
+COVERAGE LIMIT of the frozen matrix (registered post-freeze; no cell
+or expectation changed): eight of Monitors.p's 25 alarm strings fire
+in no red cell — P1-CONTENT, P1-ATTEST-PUBLISH, P1-ATTEST-SEAL,
+P1-ATTEST-EMPTY, P2-CONSULT, P2-STALENESS, P3'-COHERENCE,
+PASS-BUDGET. They are the walker-inherited content/attestation/
+staleness oracles restated over the graph store; the matrix's kills
+deliberately target the graph's OWN mechanisms, and the walker leg
+witnesses the same property statements with its own reds — but
+against the walker's checking code. By this log's own doctrine those
+eight clauses are asserted, not calibrated, in THIS model: a
+green matrix says nothing about them. Inventory mirrored in
+REPORT.md's standing limits so the 66-cell green is not over-read.
+
 ## Bake-off phase — declarations (GS-CO-005, registered BEFORE run)
 
 The protocol, the restated decision rule, and the provenance repair

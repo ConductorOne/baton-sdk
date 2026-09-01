@@ -33,7 +33,7 @@ resume behavior along the way.
 MS-CO-001) and the `walker/` P project. Authority is earned by
 rediscovery: with mitigations toggled off, the checker finds the
 known bugs; with the shipped/staged fixes toggled on, the same cells
-go green. The current sweep is 55 cells, 0 mismatches, 10k schedules
+go green. The current sweep is 56 cells, 0 mismatches, 10k schedules
 per cell (`walker/CALIBRATION.md`).
 
 Reproduced reds include: the phantom union in content, staleness, and
@@ -269,6 +269,29 @@ session-transitive chains in the graph model). Redo figures are
 counts at small scope, not throughput. The models arbitrate designs,
 not Go code; the trace bridge is the standing instrument that must
 stay current as the design becomes an implementation.
+
+**Asserted-but-unwitnessed monitor clauses.** By this track's own
+doctrine, a monitor clause no red cell fires is indistinguishable
+from dead code, and the greens say nothing about it. The frozen
+matrices leave these alarm strings unwitnessed; a reader must not
+credit the green cells with covering them:
+
+- Walker (3 of its alarms): `P1-ATTEST-EMPTY`, `P1-ATTEST-PUBLISH`,
+  `P2-CONSULT`. Each is a narrower sibling of a witnessed clause on
+  the same monitor (`P1-ATTEST-SEAL`, `P1-CONTENT`, and
+  `P2-STALENESS` all have red cells); no cell targets these
+  specific legs. (`P8-EXT-MISSING`, formerly on this list, is now
+  witnessed by tc8overDelete_P8.)
+- Graph (8 of its 25 alarms): `P1-CONTENT`, `P1-ATTEST-PUBLISH`,
+  `P1-ATTEST-SEAL`, `P1-ATTEST-EMPTY`, `P2-CONSULT`,
+  `P2-STALENESS`, `P3'-COHERENCE`, `PASS-BUDGET`. These are the
+  walker-inherited content/attestation/staleness oracles restated
+  over the graph store; the graph matrix's kills target the graph's
+  OWN mechanisms (generations, markers, adoption, sweep, counts —
+  all witnessed). The walker leg witnesses the same property
+  STATEMENTS with 9+ reds, but against the walker's checking code,
+  not the graph's — the graph implementations of these clauses are
+  calibrated only by review.
 
 ## What's next
 

@@ -168,7 +168,15 @@ type tScenarioCfg = (
     // instead of the current one (the behavior the
     // ResumeUsesCurrentExternalAnswer chaos pin forbids).
     extRecon: bool,
-    extStaleList: bool
+    extStaleList: bool,
+    // extOverDelete is the over-deletion mutant (P8-EXT-MISSING kill):
+    // a LATE stale-principal sweep whose predicate mistakes a live
+    // principal for stale, running at seal prep where nothing re-writes
+    // the row. It is injected at the seal (Store.p) and NOT in
+    // eExtReconReq because the engine-ordered early pass is
+    // structurally self-healing for over-deletion — the page-1 copy
+    // rewrites every listed id (see the scenario-8 calibration notes).
+    extOverDelete: bool
 );
 
 // Base config: shipped design, no interruption, no mutation, 2 syncs.
@@ -197,7 +205,8 @@ fun defaultCfg(): tScenarioCfg {
         o4Mutant = false,
         sessVariant = 0,
         extRecon = true,
-        extStaleList = false
+        extStaleList = false,
+        extOverDelete = false
     );
 }
 

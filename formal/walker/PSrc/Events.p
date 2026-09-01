@@ -58,7 +58,7 @@ event eStoreDead;
 // terminates.
 event eCrashArm: (client: machine, gen: int);
 event eCrashAck;
-event eStoreReset: (client: machine, syncN: int, sessVariant: int);   // begin-of-sync rotation (env, not gen-gated)
+event eStoreReset: (client: machine, syncN: int, sessVariant: int, extOverDelete: bool);   // begin-of-sync rotation (env, not gen-gated)
 event eReadCheckpointReq: (client: machine);
 event eReadCheckpointResp: (ckpt: tCheckpoint, hasCkpt: bool);
 // Session store (MODEL_SPEC 3/9 cases 2 and 7): sync-scoped KV, durable

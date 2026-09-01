@@ -67,7 +67,7 @@ machine MEnv {
                 if (cfg.verificationOnlyIfInterrupted && syncN == cfg.nSyncs && !interrupted) {
                     break;
                 }
-                send store, eStoreReset, (client = this, syncN = syncN, sessVariant = cfg.sessVariant);
+                send store, eStoreReset, (client = this, syncN = syncN, sessVariant = cfg.sessVariant, extOverDelete = cfg.extOverDelete);
                 receive { case eStoreAck: {} }
                 announce eAnnSyncStart, (syncN = syncN,);
                 if (cfg.cell == 7) {
