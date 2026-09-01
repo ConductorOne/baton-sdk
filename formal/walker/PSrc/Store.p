@@ -211,6 +211,28 @@ machine MStore {
             send p.client, eStoreAck;
         }
 
+        on eGroundScope do (p: (client: machine, gen: int, scope: int, boundV: int, ghost: tRoundGhost)) {
+            maybeCrash();
+            if (p.gen in deadGens) { send p.client, eStoreDead; return; }
+            // MS-CO-003: the record round is a replacement listing —
+            // rows present with NO published entry this sync are
+            // un-attributed debris from a crashed attempt (most
+            // dangerously a replay copy whose round never published
+            // before a cut). A published entry means a completed round
+            // owns the rows: skip, record pages accumulate (the shipped
+            // skip; its residual is explored, not assumed away).
+            // boundV >= 0 (validator-bound candidate): a published
+            // entry whose validator differs from the record round's
+            // incoming validator is a completed round of DIFFERENT
+            // content — it does not own a replacement listing's
+            // partition, so clear anyway.
+            if (!(p.scope in curMan) || (p.boundV >= 0 && curMan[p.scope] != p.boundV)) {
+                curPart[p.scope] = default(map[int, tRow]);
+                announce eAnnClear, (syncN = syncN, scope = p.scope, ghost = p.ghost);
+            }
+            send p.client, eStoreAck;
+        }
+
         on eCopyScope do (p: (client: machine, gen: int, scope: int, ghost: tRoundGhost)) {
             var ids: seq[int];
             var i: int;

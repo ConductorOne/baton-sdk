@@ -441,7 +441,11 @@ machine MWorker {
             if (action.cursor == 0 && cfg.cell == 3) {
                 // Carrier-less variant (1c): replay inline on the
                 // consulting page itself; no spawn, no stop needed.
-                rp = replayPage(v, true, action.aid * 100, true, v);
+                // carrierPublishes (default true) is reused for the
+                // 1b-ii-style validator-less flavor (MS-CO-003's
+                // tc1cNoPub pair: an unpublished replay round is
+                // exactly the debris shipped grounding closes).
+                rp = replayPage(v, cfg.carrierPublishes, action.aid * 100, true, v);
                 return rp;
             }
             // Re-consult page (cursor 1): still valid, nothing new.
@@ -559,6 +563,7 @@ machine MWorker {
         var i: int;
         var r2: tRow;
         var ghost: tRoundGhost;
+        var boundV: int;
         page = action.cursor - 2;
         send upstream, eFetchReq, (client = this, scope = action.scope, page = page);
         receive {
@@ -583,6 +588,21 @@ machine MWorker {
             }
         }
         announce eAnnConsult, (syncN = syncN, scope = action.scope, hit = false, v = -1, validated = false, epoch = e, freshFetch = true, diffVerdict = false, attempt = gen);
+        // MS-CO-003 record-round grounding: before the round's FIRST
+        // write to the scope (page 0), one atomic check-and-clear. The
+        // page-0 placement realizes the shipped once-per-scope-per-
+        // attempt volatile set: a crash-restarted chain re-runs page 0
+        // and re-decides from the durable facts; a stop-resumed chain
+        // continues mid-cursor without re-grounding — exactly the
+        // shipped grounded-set's semantics (volatile, first write).
+        if (cfg.toggles.recordGrounding && page == 0) {
+            boundV = -1;
+            if (cfg.toggles.groundValidatorBound) { boundV = e; }
+            ghost = (roundId = action.aid * 100 + 2, verdict = V_FRESH, consultEpoch = e, config = aconfig, lastOp = false, attempt = gen);
+            send store, eGroundScope, (client = this, gen = gen, scope = action.scope, boundV = boundV, ghost = ghost);
+            receive { case eStoreAck: {} case eStoreDead: { dead = true; } }
+            if (dead) { return mkTransition(0, true, false, -1, false); }
+        }
         ghost = (roundId = action.aid * 100 + 2, verdict = V_FRESH, consultEpoch = e, config = aconfig, lastOp = false, attempt = gen);
         send store, eUpsertPage, (client = this, gen = gen, scope = action.scope, rows = rows, ghost = ghost);
         receive { case eStoreAck: {} case eStoreDead: { dead = true; } }

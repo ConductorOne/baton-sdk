@@ -24,7 +24,27 @@ type tToggles = (
     annotationBinding: bool,   // de-scoped from build; kept for spec parity
     abandonLadder: bool,
     sessionTaintWrites: bool,
-    sessionTaintAll: bool
+    sessionTaintAll: bool,
+    // MS-CO-003: record-round grounding (the shipped groundRecordScope +
+    // ClearSourceCacheScope fix for the scenario-1/tc1c phantom union).
+    // Faithful to the code: fires at a record (fresh) round's FIRST write
+    // to a scope this attempt, and clears ONLY when this sync's manifest
+    // has no published entry for the scope — a published entry means a
+    // completed round owns the partition's rows and record pages
+    // accumulate exactly as before (the skip is load-bearing: collection
+    // scopes legally accumulate record pages across rounds).
+    recordGrounding: bool,
+    // MS-CO-003 candidate closure (NOT shipped; kept as a design-
+    // arbitration toggle like annotationBinding): validator-bound
+    // grounding ALSO clears when the published entry's validator
+    // differs from the record round's incoming validator — a completed
+    // round of DIFFERENT content does not own a replacement listing's
+    // partition. Closes the published-replay verdict-flip residual the
+    // shipped skip leaves open (tc1cGround_P1's red). Caveat: multi-
+    // contributor collection scopes need their own safety argument
+    // before this rule could ship (contributors stamping different
+    // validators would wipe each other under it).
+    groundValidatorBound: bool
 );
 
 // Verdict classes (P1 ghost "verdict class"; GLOSSARY "verdict").
@@ -187,7 +207,7 @@ fun defaultCfg(): tScenarioCfg {
         cell = 1,
         interrupt = 0,
         interruptSync = 2,
-        toggles = (warmGate = true, hitValidatorBinding = true, scopeLocks = true, oncePerScope = true, annotationBinding = false, abandonLadder = false, sessionTaintWrites = false, sessionTaintAll = false),
+        toggles = (warmGate = true, hitValidatorBinding = true, scopeLocks = true, oncePerScope = true, annotationBinding = false, abandonLadder = false, sessionTaintWrites = false, sessionTaintAll = false, recordGrounding = false, groundValidatorBound = false),
         carrierPublishes = true,
         nSyncs = 2,
         mutateBetweenAttempts = false,

@@ -1,10 +1,10 @@
 # Walker calibration — run log
 
-Status: COMPLETE. CURRENT GATE: the 56-cell full-matrix sweep, 0
+Status: COMPLETE. CURRENT GATE: the 62-cell full-matrix sweep, 0
 mismatches, every red on its calibrated alarm (`tools/sweep.sh`, 10k
 schedules per cell; the run of record is
 `PCheckerOutput/sweep/summary.txt`, ending
-`SWEEP-DONE cells=56 mismatches=0`). Scenarios 1, 2 (including the
+`SWEEP-DONE cells=62 mismatches=0`). Scenarios 1, 2 (including the
 P6-C session-checkpoint-consistency tranche, decision 25 — the
 CO-6b-009 root cause made executable), 3, 4, 5 (both triggers + crash
 window + C1 probe), 6 (both flavors + the round-7 third-placement
@@ -17,7 +17,11 @@ round-7 review — `reviews/model-spec-round7-overlay-parallel.md` —
 surfaced post-freeze; §3/§4/§5 registration edits, the per-verdict
 deferral scoping, and the o-iv-removal kill cell) and MS-CO-002 (the
 §7 torn-round amendment: tearing is stop-reachable, exclusion is
-monitor-side — discharging decision 1 below). The v11 monitor
+monitor-side — discharging decision 1 below), and MS-CO-003 (the
+record-round grounding toggle pair and its six-cell ladder — the
+shipped groundRecordScope fix modeled faithfully, its kill pair, its
+REGISTERED RESIDUAL, and the validator-bound candidate closure; see
+the scenario-1 MS-CO-003 subsection below). The v11 monitor
 pins (F2 complete-rounds replacement counting, F3
 attestation-over-empty-fold) and the two v11 cells (6-overlay-last,
 3-atomic) are built and verified. Sweep history (superseded gates,
@@ -26,10 +30,11 @@ summaries archived under `traces/`): the 46-cell v11 freeze sweep
 also clean, isolating the P4 merge from the v11 monitor change), the
 47-cell post-MS-CO-001 sweep
 (`traces/msco001-sweep-summary.txt`), then +3 P6-C cells (50),
-+5 scenario-8 cells (55), and the tc8overDelete_P8 over-deletion
-kill (the current 56).
++5 scenario-8 cells (55), the tc8overDelete_P8 over-deletion
+kill (56), and the six MS-CO-003 grounding-ladder cells (the current
+62).
 
-COVERAGE LIMIT of the 56-cell matrix (the graph log carries the
+COVERAGE LIMIT of the 62-cell matrix (the graph log carries the
 mirror block for its leg; shared doctrine and both inventories in
 REPORT.md's standing limits): three of this model's alarm strings
 fire in no red cell — P1-ATTEST-EMPTY, P1-ATTEST-PUBLISH, and
@@ -68,6 +73,61 @@ strategy at ~60 schedules, missed by the 100k random pass).
 | tc1c_P1_probe | tc1c's verification config (3 syncs), P1 asserted | P1 | RED | RED: `P1-CONTENT` — premise-liveness probe: the verify config still contains the sync-2 union, so tc1c_P2's red is fired by the staleness mechanism, not by the premise having drifted out of the config | first find |
 | tcGreen_All | no interruption, no mutation, honest replay | P1+P2+P3′ | GREEN | GREEN | 10000 schedules |
 | tc1c_P2_honest | crash config, P2 only, 2 syncs | P2 | GREEN | GREEN (the corrupted seal itself is staleness-legal; the alarm belongs to the verification sync) | 3000 schedules |
+
+### MS-CO-003 — record-round grounding (the shipped tc1c fix, modeled)
+
+The shipped code fix for this scenario's tc1c flavor is record-round
+grounding (`groundRecordScope` + `ClearSourceCacheScope` in
+`pkg/sync`): before a record round's first write to a scope this
+attempt, a partition holding rows with NO published manifest entry
+this sync is cleared. The `recordGrounding` toggle encodes it
+FAITHFULLY, including the shipped skip: a published entry means a
+completed round owns the partition's rows, so grounding declines to
+clear (the skip is load-bearing in the real design — collection
+scopes legally accumulate record pages across rounds). One atomic
+check-and-clear store op (`eGroundScope`), fired at fresh-round
+page 0 — the page-0 placement realizes the shipped
+once-per-scope-per-attempt volatile grounded-set (a crash-restart
+re-runs page 0 and re-decides; a stop-resume continues mid-cursor
+without re-grounding).
+
+The ladder (all cells the tc1c config unless noted):
+
+| cell | config | property | expected | observed | budget |
+|---|---|---|---|---|---|
+| tc1cNoPub_P1 | validator-less inline replay (carrierPublishes=false), grounding OFF | P1 | RED | RED: `P1-CONTENT` (the unpublished replay round's debris unions with the flipped record round) | first find |
+| tc1cNoPubGround_P1 | same config, grounding ON | P1 | GREEN | GREEN — the toggle's KILL PAIR: every crash flavor in this config leaves unpublished rows, exactly what grounding clears | 10000 schedules |
+| tc1cGround_P1 | tc1c + grounding ON (faithful, skip included) | P1 | RED | RED: `P1-CONTENT` — the REGISTERED RESIDUAL, see below | first find |
+| tc1cGround_P2 | tc1c verify config + grounding ON | P2 | RED | RED: `P2-STALENESS` (the residual union replays forward) | first find |
+| tc1cGroundV_P1 | grounding + validator-bound rule (candidate, NOT shipped) | P1 | GREEN | GREEN | 10000 schedules |
+| tc1cGroundV_P2 | verify config + validator-bound rule | P2 | GREEN | GREEN | 10000 schedules |
+
+REGISTERED RESIDUAL (found by this build, not seeded): the shipped
+skip leaves the PUBLISHED-replay verdict-flip flavor open. Audited
+counterexample (tc1cGround_P1, `walker_0_0.txt` of the probe run):
+the interrupted sync's replay round commits its copy AND publishes
+its validator, the crash lands after the publish but before any
+checkpoint marks the action done, the resume re-runs the action,
+upstream moved between attempts so the consult's revalidation fails
+and the verdict flips to fetch-fresh — and grounding SKIPS (the
+entry is published), so the record round's listing accumulates over
+the completed replay's rows and seals a phantom union under the
+fresh validator. The flavor argument is structural: any
+unpublished-debris counterexample is cleared by the toggle, so every
+tc1cGround red NECESSARILY publishes before crashing. Reachability
+in the real code does not depend on any copy/publish commit window —
+it needs only a crash between the replay action's completion and the
+checkpoint that would record it, then a verdict flip on the re-run;
+`groundRecordScope`'s published-entry skip then declines to clear.
+
+The tc1cGroundV pair arbitrates the candidate closure: ALSO clear
+when the published entry's validator differs from the record round's
+incoming validator (a completed round of different content does not
+own a replacement listing's partition). Green on both properties.
+NOT shipped, and not shippable as-is without a collection-scope
+safety argument: multi-contributor collection scopes whose
+contributors stamp different validators would wipe each other under
+the naive form of this rule.
 
 ## Scenario 2 — session laundering (P6-A; sessions variant A, shipped)
 

@@ -56,7 +56,7 @@ machine Test5aGateOff {
             c.interrupt = 1;
             c.baseConfig = 1;
             c.driftCompat = true;
-            c.toggles = (warmGate = false, hitValidatorBinding = true, scopeLocks = true, oncePerScope = true, annotationBinding = false, abandonLadder = false, sessionTaintWrites = false, sessionTaintAll = false);
+            c.toggles = (warmGate = false, hitValidatorBinding = true, scopeLocks = true, oncePerScope = true, annotationBinding = false, abandonLadder = false, sessionTaintWrites = false, sessionTaintAll = false, recordGrounding = false, groundValidatorBound = false);
             new MEnv(c);
         }
     }

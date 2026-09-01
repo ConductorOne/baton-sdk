@@ -68,7 +68,7 @@ machine Test6AtomicStop {
    under that broader drift and are preserved as-is). */
 
 fun overlayToggles(): tToggles {
-    return (warmGate = true, hitValidatorBinding = true, scopeLocks = false, oncePerScope = false, annotationBinding = false, abandonLadder = false, sessionTaintWrites = false, sessionTaintAll = false);
+    return (warmGate = true, hitValidatorBinding = true, scopeLocks = false, oncePerScope = false, annotationBinding = false, abandonLadder = false, sessionTaintWrites = false, sessionTaintAll = false, recordGrounding = false, groundValidatorBound = false);
 }
 
 machine Test6OverlayCrash {

@@ -331,9 +331,15 @@ poisons likewise), `eTombstones(s, ids)`, `ePublishEntry(s, v)`,
 only; registered here per MS-CO-001 so §5's crash protocol and §2.1's
 arrival-order choice points quantify over the full op vocabulary):
 `eReplayUnit(s, v)` (V-ATOMIC's one-op {clear, copy, marker, publish}),
-`eOverlayUnit(s, v, pages)` (V-OVERLAY-UNIT's one-op unit), and the
+`eOverlayUnit(s, v, pages)` (V-OVERLAY-UNIT's one-op unit), the
 marker ops `eMarkerPut(s)` / marker read (the per-scope marker row all
-§9.6 variants share).
+§9.6 variants share), and `eGroundScope(s, boundV)` (MS-CO-003
+record-round grounding: one atomic check-and-clear — clears the
+scope's partition when this sync's manifest has no entry for it, or,
+under the `groundValidatorBound` candidate (boundV ≥ 0), when the
+entry's validator differs from the record round's incoming validator;
+mirrors the shipped `groundRecordScope`, whose lookup and clear run
+under the scope lock inside the destination batch).
 
 Scheduler-state mutations (hit recording, replayed marking, warm flag,
 stack transitions, ingest-quality/replay-blocked flags) are NOT store
@@ -466,6 +472,8 @@ OFF never adds behavior; it removes a check or a lock.
 | `abandonLadder` | after k identical resume failures, abandon and start the next sync cold | 6c ladder | off |
 | `sessionTaintWrites` | produce-side: a connector session WRITE during a replay-capable kind's phase marks that kind non-replayable in this artifact's produce state (checkpoint-durable, ingest-quality-style) | sessions×replay fix, PROPOSED (partial) | off |
 | `sessionTaintAll` | produce-side: ANY connector session traffic (read or write) during a replay-capable kind's phase marks that kind non-replayable (checkpoint-durable, ingest-quality-style) | sessions×replay fix, PROPOSED (isolation) | off |
+| `recordGrounding` | record round's first write to a scope this attempt clears the partition WHEN this sync's manifest has no entry for the scope (one atomic check-and-clear; the published-entry skip is part of the shipped rule) | the SHIPPED tc1c fix (`groundRecordScope` + `ClearSourceCacheScope`); MS-CO-003 | off in the model (post-freeze fix; cells opt in) |
+| `groundValidatorBound` | grounding ALSO clears when the published entry's validator differs from the record round's incoming validator | MS-CO-003 candidate closure of the tc1cGround residual, PROPOSED — collection-scope safety argument outstanding | off |
 
 Taint pins (round-6): REPLAY-CAPABLE KIND = a kind in the declared
 source-cache flow — its rows are eligible to seed future replays from
@@ -491,7 +499,10 @@ Kill obligations (§10.5): every BUILT toggle has at least one §9 cell
 whose verdict it flips — `warmGate` in 5a, `hitValidatorBinding` in 3B,
 `scopeLocks` in 4, `oncePerScope` in 4, `abandonLadder` in the P4
 cells, `sessionTaintWrites` in 7a (its 7b residual is a REQUIRED
-finding), `sessionTaintAll` in 7a and 7b. The DE-SCOPED toggles
+finding), `sessionTaintAll` in 7a and 7b, `recordGrounding` in the
+MS-CO-003 tc1cNoPub pair (its tc1cGround residual is a REGISTERED
+finding), and `groundValidatorBound` in tc1cGround vs tc1cGroundV
+(MS-CO-003). The DE-SCOPED toggles
 (`annotationBinding`, `compositionEnum` — v11) carry no kill
 obligation: they remain documented as reviewed design records, their
 fix duty discharged by the atomic-unit story (§9.6's 1a/1b/1c and
@@ -1592,3 +1603,33 @@ P1 must not be weakened to silence them.
   axis) is subsumed by v11's F5 rewording ("whichever page carries
   it"); noted here that both B5 token placements collapse into the
   single unit publish by construction.
+- MS-CO-003: the record-round grounding tranche. The code base
+  shipped a DIFFERENT fix for the scenario-1 tc1c flavor than the
+  fix family this model verified (V-ATOMIC / V-OVERLAY-UNIT):
+  record-round grounding (`groundRecordScope` +
+  `ClearSourceCacheScope` — a record round's first write to a scope
+  this attempt clears a partition holding rows with no published
+  manifest entry this sync). This change order closes the model-side
+  gap: `recordGrounding` encodes the shipped rule FAITHFULLY,
+  including its published-entry skip and its
+  once-per-scope-per-attempt volatile grant (realized as the
+  fresh-round page-0 placement: crash-restarts re-decide, stop-
+  resumes do not re-ground); the store op `eGroundScope` commits the
+  check-and-clear atomically (the real check and clear run under the
+  scope lock inside the destination batch). Registrations: §3 store
+  op (scenario-local), §6 toggle rows (`recordGrounding` and the
+  `groundValidatorBound` candidate), §10.5 kill obligations, and
+  six §9 scenario-1 cells (the ladder). ADJUDICATION: the toggle's
+  kill pair is the validator-less flavor (tc1cNoPub red →
+  tc1cNoPubGround green); the faithful shipped design remains RED
+  (tc1cGround_P1/P2) — a REGISTERED RESIDUAL found by this change
+  order, not seeded: a replay round that completed and PUBLISHED
+  before a crash is skipped by grounding, and a verdict-flipped
+  re-run then accumulates its record listing over the completed
+  replay's rows (phantom union under the fresh validator; the
+  calibration log carries the audited trace and the real-code
+  reachability argument). The `groundValidatorBound` candidate
+  (also clear when the published entry's validator differs from the
+  record round's incoming validator) greens both properties
+  (tc1cGroundV_P1/P2) and is PROPOSED, not shipped: the naive form
+  is unsafe for multi-contributor collection scopes.

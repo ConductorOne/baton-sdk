@@ -16,11 +16,11 @@
      the duplicate-carrier premise is structurally unreachable. */
 
 fun noOnceToggles(): tToggles {
-    return (warmGate = true, hitValidatorBinding = true, scopeLocks = true, oncePerScope = false, annotationBinding = false, abandonLadder = false, sessionTaintWrites = false, sessionTaintAll = false);
+    return (warmGate = true, hitValidatorBinding = true, scopeLocks = true, oncePerScope = false, annotationBinding = false, abandonLadder = false, sessionTaintWrites = false, sessionTaintAll = false, recordGrounding = false, groundValidatorBound = false);
 }
 
 fun noLocksToggles(): tToggles {
-    return (warmGate = true, hitValidatorBinding = true, scopeLocks = false, oncePerScope = true, annotationBinding = false, abandonLadder = false, sessionTaintWrites = false, sessionTaintAll = false);
+    return (warmGate = true, hitValidatorBinding = true, scopeLocks = false, oncePerScope = true, annotationBinding = false, abandonLadder = false, sessionTaintWrites = false, sessionTaintAll = false, recordGrounding = false, groundValidatorBound = false);
 }
 
 machine Test4Shipped {

@@ -6,6 +6,12 @@ tc1c_P1 expected=RED observed=RED ok [P1-CONTENT]
 tc1c_P1_probe expected=RED observed=RED ok [P1-CONTENT]
 tc1c_P2 expected=RED observed=RED ok [P2-STALENESS]
 tc1c_P2_honest expected=GREEN observed=GREEN ok
+tc1cNoPub_P1 expected=RED observed=RED ok [P1-CONTENT]
+tc1cNoPubGround_P1 expected=GREEN observed=GREEN ok
+tc1cGround_P1 expected=RED observed=RED ok [P1-CONTENT]
+tc1cGround_P2 expected=RED observed=RED ok [P2-STALENESS]
+tc1cGroundV_P1 expected=GREEN observed=GREEN ok
+tc1cGroundV_P2 expected=GREEN observed=GREEN ok
 tcGreen_All expected=GREEN observed=GREEN ok
 tc2stop_P6A expected=RED observed=RED ok [P6-A,P6A]
 tc2crash_P6A expected=RED observed=RED ok [P6-A,P6A]
@@ -13,7 +19,7 @@ tc2green_P6A expected=GREEN observed=GREEN ok
 tc2crash_P6C expected=RED observed=RED ok [P6-C-ZOMBIE,P6C]
 tc2clear_P6C expected=RED observed=RED ok [P6-C-AMNESIA,P6C]
 tc2consistent_P6C expected=GREEN observed=GREEN ok
-tc3a_P1 expected=RED observed=RED ok [P1-ATTEST-SEAL]
+tc3a_P1 expected=RED observed=RED ok [P1-CONTENT]
 tc3a_P2 expected=GREEN observed=GREEN ok
 tc3b_P1 expected=RED observed=RED ok [P1-ATTEST-SEAL]
 tc3bBindingOn_All expected=GREEN observed=GREEN ok
@@ -54,4 +60,4 @@ tc8stop_P8 expected=GREEN observed=GREEN ok
 tc8reconOff_P8 expected=RED observed=RED ok [P8-EXT-STALE]
 tc8staleList_P8 expected=RED observed=RED ok [P8-EXT-CURRENT]
 tc8overDelete_P8 expected=RED observed=RED ok [P8-EXT-MISSING]
-SWEEP-DONE cells=56 mismatches=0
+SWEEP-DONE cells=62 mismatches=0

@@ -234,7 +234,12 @@ flip — attempt 1's real clear grounds the scope durably across resume,
 so the union was ordering-legal; it is a CONTENT violation (the
 walker model's `P1-CONTENT`), owned by the exporting test's content
 oracle. The policies' role in the fix is the positive direction: the
-grounded trace joins the green suite.
+grounded trace joins the green suite. (The grounding rule is now also
+a modeled mitigation on the P side — walker MS-CO-003 — whose ladder
+both kills the toggle and REGISTERS a residual the shipped skip
+leaves open: a replay round that completed and PUBLISHED inside the
+crash window is exempt from grounding, and a verdict-flipped re-run
+then unions over its rows. See `walker/CALIBRATION.md`, MS-CO-003.)
 
 The instrument's third finding is a STANDING known-defect pin — the
 first fixture committed with a deliberately red expectation. Sessions

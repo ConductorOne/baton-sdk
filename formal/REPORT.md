@@ -33,7 +33,7 @@ resume behavior along the way.
 MS-CO-001) and the `walker/` P project. Authority is earned by
 rediscovery: with mitigations toggled off, the checker finds the
 known bugs; with the shipped/staged fixes toggled on, the same cells
-go green. The current sweep is 56 cells, 0 mismatches, 10k schedules
+go green. The current sweep is 62 cells, 0 mismatches, 10k schedules
 per cell (`walker/CALIBRATION.md`).
 
 Reproduced reds include: the phantom union in content, staleness, and
@@ -138,7 +138,8 @@ repo `../occult`) through the Go host in `occult/host/`:
 
 Findings that matter beyond the models themselves:
 
-0. **Phantom union live in shipped code (real defect, FIXED).** The
+0. **Phantom union live in shipped code (real defect, FIXED — with a
+   narrower residual registered under MS-CO-003, below).** The
    walker model's scenario-1 red (the phantom union, tc1c flavor)
    was reachable in the shipped 6b syncer via the verdict-flip path:
    a warm round cut after its replay copy committed but before its
@@ -159,6 +160,30 @@ Findings that matter beyond the models themselves:
    a code base with durable marker suppression; the shipped code
    heals by re-execution (restart-from-root + idempotent re-copy),
    so grounding was the missing piece, not unit-mode commit.
+
+   MODEL-SIDE CLOSURE AND A REGISTERED RESIDUAL (MS-CO-003): the
+   shipped grounding rule is now itself a modeled mitigation
+   (`recordGrounding`), encoded faithfully INCLUDING its
+   published-entry skip, with a six-cell ladder in scenario 1. The
+   toggle's kill pair is the validator-less flavor (tc1cNoPub_P1 red
+   → tc1cNoPubGround_P1 green). The faithful shipped design stays
+   RED (tc1cGround_P1/P2): a replay round that completed AND
+   PUBLISHED before a crash is skipped by grounding, and when no
+   checkpoint recorded the action's completion the re-run's flipped
+   verdict accumulates its record listing over the completed
+   replay's rows — the phantom union again, through the skip. The
+   flavor does not depend on any copy/publish commit window, only on
+   the crash landing between the replay action's completion and the
+   next checkpoint, plus upstream movement. A validator-bound
+   candidate rule (also clear when the published entry's validator
+   differs from the record round's incoming one) greens both
+   properties (tc1cGroundV_P1/P2) but is NOT shippable as-is —
+   multi-contributor collection scopes need their own safety
+   argument first. The residual is narrower than the original
+   defect (it additionally requires the replay round to have fully
+   published inside the crash window) and is REGISTERED, not fixed;
+   `walker/CALIBRATION.md`'s MS-CO-003 subsection carries the
+   audited trace and the reachability argument.
 
    The adjacent flank is the SESSION STORE — with a CORRECTED
    provenance note: an earlier revision of this paragraph claimed

@@ -32,7 +32,7 @@
    cell) are de-scoped from the build with the toggle itself (v11). */
 
 fun noBindingToggles(): tToggles {
-    return (warmGate = true, hitValidatorBinding = false, scopeLocks = true, oncePerScope = true, annotationBinding = false, abandonLadder = false, sessionTaintWrites = false, sessionTaintAll = false);
+    return (warmGate = true, hitValidatorBinding = false, scopeLocks = true, oncePerScope = true, annotationBinding = false, abandonLadder = false, sessionTaintWrites = false, sessionTaintAll = false, recordGrounding = false, groundValidatorBound = false);
 }
 
 machine Test3A {

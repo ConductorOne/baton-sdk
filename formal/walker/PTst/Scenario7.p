@@ -30,11 +30,11 @@
      (the toggle's honest price, recorded not hidden). */
 
 fun taintWritesToggles(): tToggles {
-    return (warmGate = true, hitValidatorBinding = true, scopeLocks = true, oncePerScope = true, annotationBinding = false, abandonLadder = false, sessionTaintWrites = true, sessionTaintAll = false);
+    return (warmGate = true, hitValidatorBinding = true, scopeLocks = true, oncePerScope = true, annotationBinding = false, abandonLadder = false, sessionTaintWrites = true, sessionTaintAll = false, recordGrounding = false, groundValidatorBound = false);
 }
 
 fun taintAllToggles(): tToggles {
-    return (warmGate = true, hitValidatorBinding = true, scopeLocks = true, oncePerScope = true, annotationBinding = false, abandonLadder = false, sessionTaintWrites = false, sessionTaintAll = true);
+    return (warmGate = true, hitValidatorBinding = true, scopeLocks = true, oncePerScope = true, annotationBinding = false, abandonLadder = false, sessionTaintWrites = false, sessionTaintAll = true, recordGrounding = false, groundValidatorBound = false);
 }
 
 machine Test7a {

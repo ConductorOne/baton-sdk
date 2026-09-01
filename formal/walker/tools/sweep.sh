@@ -35,6 +35,12 @@ tc1c_P1:RED
 tc1c_P1_probe:RED
 tc1c_P2:RED
 tc1c_P2_honest:GREEN
+tc1cNoPub_P1:RED
+tc1cNoPubGround_P1:GREEN
+tc1cGround_P1:RED
+tc1cGround_P2:RED
+tc1cGroundV_P1:GREEN
+tc1cGroundV_P2:GREEN
 tcGreen_All:GREEN
 tc2stop_P6A:RED
 tc2crash_P6A:RED

@@ -13,6 +13,15 @@ event eLookupResp: (hit: bool, v: int);
 event eBaseReadReq: (client: machine, gen: int, scope: int);   // base-binding check read
 event eBaseReadResp: (v: int, present: bool);
 event eClearScope: (client: machine, gen: int, scope: int, ghost: tRoundGhost);
+// MS-CO-003 record-round grounding: ONE atomic check-and-clear (the real
+// groundRecordScope runs its manifest lookup and ClearSourceCacheScope
+// under the scope lock inside the destination batch). Clears the scope's
+// partition ONLY when this sync's manifest has no entry for it; a no-op
+// (published entry, or empty partition) still acks. boundV >= 0 is the
+// validator-bound candidate rule: ALSO clear when the published entry's
+// validator differs from boundV (the record round's incoming validator);
+// boundV = -1 is the shipped conditional.
+event eGroundScope: (client: machine, gen: int, scope: int, boundV: int, ghost: tRoundGhost);
 event eCopyScope: (client: machine, gen: int, scope: int, ghost: tRoundGhost);
 event eUpsertPage: (client: machine, gen: int, scope: int, rows: seq[tRow], ghost: tRoundGhost);
 event ePublishEntry: (client: machine, gen: int, scope: int, v: int, ghost: tRoundGhost);

@@ -61,7 +61,7 @@ machine TestP4Ladder {
             c.driftCompat = true;
             c.loudColdFailsAttempt = true;
             c.nSyncs = 3;
-            c.toggles = (warmGate = true, hitValidatorBinding = true, scopeLocks = true, oncePerScope = true, annotationBinding = false, abandonLadder = true, sessionTaintWrites = false, sessionTaintAll = false);
+            c.toggles = (warmGate = true, hitValidatorBinding = true, scopeLocks = true, oncePerScope = true, annotationBinding = false, abandonLadder = true, sessionTaintWrites = false, sessionTaintAll = false, recordGrounding = false, groundValidatorBound = false);
             new MEnv(c);
         }
     }
