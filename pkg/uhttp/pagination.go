@@ -113,7 +113,7 @@ type PaginatedResponse interface {
 var ErrMissingPaginationData = errors.New("uhttp: response is missing pagination data")
 
 // WithPaginationData decodes the body into response and fails the request if its pagination data is absent, so an API that silently drops its cursor errors instead of ending the sync after one page.
-// response must be a non-nil pointer to a zero value: allocate a fresh one per request rather than declaring one outside the page loop, or the check below reports it as a caller error.
+// response must be a non-nil pointer, since the body is decoded into it.
 func WithPaginationData(response PaginatedResponse) DoOption {
 	return func(resp *WrapperResponse) error {
 		if response == nil {
@@ -123,10 +123,6 @@ func WithPaginationData(response PaginatedResponse) DoOption {
 		rv := reflect.ValueOf(response)
 		if rv.Kind() != reflect.Pointer || rv.IsNil() {
 			return status.Errorf(codes.InvalidArgument, "WithPaginationData: response must be a non-nil pointer, got %T", response)
-		}
-
-		if !rv.Elem().IsZero() {
-			return status.Errorf(codes.InvalidArgument, "WithPaginationData: %T must be zero-valued. allocate a fresh response per request", response)
 		}
 
 		if !isSuccessStatusCode(resp.StatusCode) {
