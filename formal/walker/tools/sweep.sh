@@ -2,7 +2,11 @@
 # Full-cell regression sweep. Verdicts are audited by counterexample
 # trace-file presence (NOT the "Found N bugs" tail — see the NOTE in
 # CALIBRATION.md: the strategy portfolio's last block can report 0
-# bugs after an earlier block found one).
+# bugs after an earlier block found one). p check's exit status gates
+# only the GREEN side (a counterexample-free nonzero exit is
+# CHECKER-ERROR — absence of a find from a checker that died proves
+# nothing — while a found counterexample stands regardless of exit
+# status).
 #
 # Usage: tools/sweep.sh [schedules]   (run from formal/walker)
 set -u
