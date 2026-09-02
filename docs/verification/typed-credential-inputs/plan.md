@@ -88,4 +88,12 @@ A final-code review must produce no new correctness finding before closure.
 
 ## Change orders
 
-None.
+### CO-1 — Defaults are host policy, not connector schema
+
+Recorded after implementation inspection. `c1.config.v1.Field` has no default
+value member. Connector schemas therefore define accepted and required values;
+offering defaults belong to the host policy layered over that schema. In C2,
+"invalid defaults" is not an SDK schema case. In the coverage model, schema
+default-present/default-absent is replaced by host verification of offering
+defaults. This does not weaken an SDK-side behavior because the underlying SDK
+field contract cannot express a default.
