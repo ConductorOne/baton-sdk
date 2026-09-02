@@ -54,7 +54,10 @@ func TestGrantDigestSpliceMatchesEncode(t *testing.T) {
 		{name: "embedded NUL", entRT: "a\x00pp", entRID: "git\x00hub", entID: "ent\x00x", prt: "us\x00er", pid: "id\x00", ext: "g", srcs: []testSrcFact{{"s\x00rc", true}, {"\x00", false}}},
 		{name: "escape byte", entRT: "a\x01pp", entRID: "hub", entID: "ent\x01x", prt: "us\x01er", pid: "\x01id", ext: "g", srcs: []testSrcFact{{"\x01", false}, {"\x00", true}}},
 		{name: "unicode", entRT: "приложение", entRID: "гитхаб", entID: "entitlé", prt: "usér", pid: "ид-42", ext: "грант"},
-		{name: "duplicate-source keys impossible but sorted singleton", entRT: "app", entRID: "gh", entID: "e", prt: "u", pid: "p", ext: "", srcs: []testSrcFact{{"only", true}}},
+		// Duplicate source keys from a DECODED record are impossible (a Go
+		// map already dedupes); the raw-scan duplicate-key path is covered
+		// separately by TestGrantContentHashRawMatchesDecodedOnDuplicateWireFields.
+		{name: "single source key, sorted singleton", entRT: "app", entRID: "gh", entID: "e", prt: "u", pid: "p", ext: "", srcs: []testSrcFact{{"only", true}}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -112,7 +115,7 @@ func TestGrantDigestSpliceMatchesEncode(t *testing.T) {
 			isImmutable, srcs, err := scanGrantContentFactsRawBytes(val, nil)
 			require.NoError(t, err)
 			require.Equal(t, tc.immutable, isImmutable, "raw-scanned isImmutable")
-			sortGrantSourceFacts(srcs)
+			srcs = sortGrantSourceFacts(srcs)
 			ch64, _ := grantContentHash64(nil, priKey[grantPrimaryKeyPrefixLen:], isImmutable, srcs)
 			fromRecord, err := grantContentHashForRecord(rec)
 			require.NoError(t, err)

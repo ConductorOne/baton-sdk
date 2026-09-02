@@ -77,7 +77,8 @@ func appendGrantHashIndexRow(sorter *spillSorter, primaryKey, value []byte, s *g
 	}
 	s.srcKeys = srcs
 	if len(srcs) > 1 {
-		sortGrantSourceFacts(srcs)
+		srcs = sortGrantSourceFacts(srcs)
+		s.srcKeys = srcs
 	}
 	ch64, tuple := grantContentHash64(s.tupleBuf, primaryKey[grantPrimaryKeyPrefixLen:], isImmutable, srcs)
 	s.tupleBuf = tuple

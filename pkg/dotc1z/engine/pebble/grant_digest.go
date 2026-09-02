@@ -301,14 +301,39 @@ type grantSourceFact struct {
 	isDirect bool
 }
 
-// sortGrantSourceFacts sorts by key ascending (bytes.Compare order).
-func sortGrantSourceFacts(s []grantSourceFact) {
+// sortGrantSourceFacts sorts by key ascending (bytes.Compare order) and
+// collapses duplicate keys down to one entry each, keeping the LAST
+// duplicate in original encounter order — matching proto map semantics,
+// where a marshaled map field with a repeated key (never produced by
+// proto.Marshal, but legal wire bytes proto.Unmarshal must still accept)
+// keeps only the last entry seen for that key. A raw-scanned source list
+// can carry such duplicates (scanGrantContentFactsRawBytes does not
+// dedupe); the from-record paths (grantContentHashForRecord,
+// GrantContentHash) never can, since a Go map has already deduplicated
+// by construction before they build the fact list — but they still route
+// through here for one sort implementation.
+//
+// The insertion sort below is stable, so a run of equal keys is left in
+// wire/encounter order after sorting; collapsing each run to its last
+// element is therefore exactly "last write wins". Returns the
+// (possibly shortened) slice, reusing s's backing array — callers must
+// use the returned slice, not their original variable.
+func sortGrantSourceFacts(s []grantSourceFact) []grantSourceFact {
 	// Small-n insertion sort: source sets are tiny (usually 0–4).
 	for i := 1; i < len(s); i++ {
 		for j := i; j > 0 && bytes.Compare(s[j].key, s[j-1].key) < 0; j-- {
 			s[j], s[j-1] = s[j-1], s[j]
 		}
 	}
+	// Collapse runs of equal keys, keeping the last of each run.
+	out := s[:0]
+	for i := 0; i < len(s); i++ {
+		if i+1 < len(s) && bytes.Equal(s[i].key, s[i+1].key) {
+			continue
+		}
+		out = append(out, s[i])
+	}
+	return out
 }
 
 // grantContentHash64 is the canonical content hash of a grant — the
@@ -325,8 +350,9 @@ func sortGrantSourceFacts(s []grantSourceFact) {
 // whether the grant carries a GrantImmutable annotation, and the
 // sources — the grant's expansion provenance — are appended as
 // (source_id, is_direct) pairs in ascending source_id byte order
-// (sortedSources must already be sorted; the escape is order-preserving
-// so raw order == encoded order). bool(...) is codec.AppendTupleBool's
+// (sortedSources must already be sorted AND deduplicated by key — see
+// sortGrantSourceFacts; the escape is order-preserving so raw order ==
+// encoded order). bool(...) is codec.AppendTupleBool's
 // single-byte encoding (0x26/0x27 — disjoint from the tuple separator
 // and escape bytes, so it needs no escaping of its own).
 //
@@ -395,7 +421,7 @@ func grantContentHashForRecord(r *v3.GrantRecord) ([]byte, error) {
 	for k, v := range srcMap {
 		srcs = append(srcs, grantSourceFact{key: []byte(k), isDirect: v.GetIsDirect()})
 	}
-	sortGrantSourceFacts(srcs)
+	srcs = sortGrantSourceFacts(srcs)
 	h, _ := grantContentHash64(nil, key[grantPrimaryKeyPrefixLen:], isImmutable, srcs)
 	out := make([]byte, hashLen)
 	binary.BigEndian.PutUint64(out, h)
@@ -439,7 +465,7 @@ func GrantContentHash(g *v2.Grant) (uint64, error) {
 	for k, v := range sources {
 		srcs = append(srcs, grantSourceFact{key: []byte(k), isDirect: v.GetIsDirect()})
 	}
-	sortGrantSourceFacts(srcs)
+	srcs = sortGrantSourceFacts(srcs)
 	h, _ := grantContentHash64(nil, key[grantPrimaryKeyPrefixLen:], isImmutable, srcs)
 	return h, nil
 }

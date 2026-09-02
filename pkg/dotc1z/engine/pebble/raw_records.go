@@ -113,8 +113,13 @@ const grantImmutableAnnotationTypeName = "c1.connector.v2.GrantImmutable"
 // array across calls, as the seal-time grant digest build does — see
 // appendGrantHashIndexRow); its key slices are views borrowed from
 // value, valid only while value's backing bytes are. Sources are
-// returned in encounter order, NOT sorted — callers sort by key
-// themselves (sortGrantSourceFacts).
+// returned in encounter order, NOT sorted, and NOT deduplicated — a
+// map field with a duplicated key (legal but never proto.Marshal-
+// produced wire bytes) comes back as two entries here; callers sort
+// AND collapse duplicate keys themselves (sortGrantSourceFacts).
+//
+// Fields 8 and 9 carrying the wrong wire type are skipped as unknown
+// data, matching protobuf-go's decoder rather than erroring.
 func scanGrantContentFactsRawBytes(value []byte, out []grantSourceFact) (bool, []grantSourceFact, error) {
 	isImmutable := false
 	for len(value) > 0 {
@@ -126,7 +131,16 @@ func scanGrantContentFactsRawBytes(value []byte, out []grantSourceFact) (bool, [
 		switch num {
 		case 8:
 			if typ != protowire.BytesType {
-				return false, nil, fmt.Errorf("raw record: grant annotations entry has wire type %v", typ)
+				// A known field number carrying the wrong wire type is
+				// unknown-field data to protobuf-go's decoder (it does not
+				// error); skip it the same way so this scanner accepts
+				// exactly what proto.Unmarshal accepts.
+				n = protowire.ConsumeFieldValue(num, typ, value)
+				if n < 0 {
+					return false, nil, protowire.ParseError(n)
+				}
+				value = value[n:]
+				continue
 			}
 			entry, en := protowire.ConsumeBytes(value)
 			if en < 0 {
@@ -142,7 +156,15 @@ func scanGrantContentFactsRawBytes(value []byte, out []grantSourceFact) (bool, [
 			}
 		case 9:
 			if typ != protowire.BytesType {
-				return false, nil, fmt.Errorf("raw record: grant sources entry has wire type %v", typ)
+				// Same unknown-field treatment as field 8 above: a wrong
+				// wire type on a known field number is skipped, not an
+				// error, matching protobuf-go.
+				n = protowire.ConsumeFieldValue(num, typ, value)
+				if n < 0 {
+					return false, nil, protowire.ParseError(n)
+				}
+				value = value[n:]
+				continue
 			}
 			entry, en := protowire.ConsumeBytes(value)
 			if en < 0 {
@@ -170,10 +192,18 @@ func scanGrantContentFactsRawBytes(value []byte, out []grantSourceFact) (bool, [
 					if vn < 0 {
 						return false, nil, protowire.ParseError(vn)
 					}
-					var err error
-					isDirect, err = scanGrantSourceRecordIsDirectRaw(v)
+					fragDirect, present, err := scanGrantSourceRecordIsDirectRaw(v)
 					if err != nil {
 						return false, nil, err
+					}
+					// The map entry's value (field 2) is itself an
+					// embedded message: proto merges repeated
+					// occurrences of it field-by-field rather than
+					// replacing wholesale, so a later fragment that
+					// doesn't mention is_direct must not reset a true
+					// carried over from an earlier one.
+					if present {
+						isDirect = fragDirect
 					}
 					entry = entry[vn:]
 				default:
@@ -198,9 +228,12 @@ func scanGrantContentFactsRawBytes(value []byte, out []grantSourceFact) (bool, [
 
 // scanAnyEntryIsTypeRaw reports whether one serialized google.protobuf.Any
 // entry names typeName, checked against the tail of its type_url (field
-// 1) without unmarshaling the payload (field 2).
+// 1) without unmarshaling the payload (field 2). type_url is a scalar
+// (string) field, so proto merge semantics say the LAST occurrence in
+// the fragment wins — this scans to the end rather than returning on
+// the first field-1 hit.
 //
-// Stays on []byte throughout and keeps the final string(tail) conversion
+// Stays on []byte throughout and keeps each string(tail) conversion
 // INLINE in the comparison: the compiler rewrites string(b) == s in that
 // position to a non-allocating alias of b's backing array (OBYTES2STRTMP
 // — safe because a comparison cannot retain its operands). Hoisting the
@@ -209,23 +242,24 @@ func scanGrantContentFactsRawBytes(value []byte, out []grantSourceFact) (bool, [
 // anything over 32 bytes, which every real type URL is. The seal-time
 // digest build calls this once per annotation per grant, and that path
 // must not allocate per row (see grantHashRowScratch).
+//
+// field 1 carrying the wrong wire type is skipped as unknown data,
+// matching protobuf-go's decoder rather than erroring.
 func scanAnyEntryIsTypeRaw(entry []byte, typeName string) (bool, error) {
+	isType := false
 	for len(entry) > 0 {
 		num, typ, n := protowire.ConsumeTag(entry)
 		if n < 0 {
 			return false, protowire.ParseError(n)
 		}
 		entry = entry[n:]
-		if num != 1 {
+		if num != 1 || typ != protowire.BytesType {
 			n = protowire.ConsumeFieldValue(num, typ, entry)
 			if n < 0 {
 				return false, protowire.ParseError(n)
 			}
 			entry = entry[n:]
 			continue
-		}
-		if typ != protowire.BytesType {
-			return false, fmt.Errorf("raw record: any type_url has wire type %v", typ)
 		}
 		url, un := protowire.ConsumeBytes(entry)
 		if un < 0 {
@@ -235,38 +269,49 @@ func scanAnyEntryIsTypeRaw(entry []byte, typeName string) (bool, error) {
 		if i := bytes.LastIndexByte(url, '/'); i >= 0 {
 			name = url[i+1:]
 		}
-		return string(name) == typeName, nil
+		isType = string(name) == typeName
+		entry = entry[un:]
 	}
-	return false, nil
+	return isType, nil
 }
 
 // scanGrantSourceRecordIsDirectRaw extracts is_direct (GrantSourceRecord
-// field 4) from one marshaled map-entry value.
-func scanGrantSourceRecordIsDirectRaw(value []byte) (bool, error) {
+// field 4) from one marshaled map-entry value fragment. is_direct is a
+// scalar field, so proto merge semantics say the LAST occurrence wins —
+// this scans to the end of the fragment rather than returning on the
+// first hit. present reports whether field 4 occurred at all in this
+// fragment, so a caller merging this fragment's result into a value
+// accumulated from an earlier fragment (a duplicated map-entry value
+// submessage, itself a proto-merge case) can tell "this fragment said
+// false" apart from "this fragment didn't mention it" — the latter must
+// not stomp a true carried over from an earlier fragment.
+//
+// field 4 carrying the wrong wire type is skipped as unknown data,
+// matching protobuf-go's decoder rather than erroring.
+func scanGrantSourceRecordIsDirectRaw(value []byte) (bool, bool, error) {
+	var isDirect, present bool
 	for len(value) > 0 {
 		num, typ, n := protowire.ConsumeTag(value)
 		if n < 0 {
-			return false, protowire.ParseError(n)
+			return false, false, protowire.ParseError(n)
 		}
 		value = value[n:]
-		if num != 4 {
+		if num != 4 || typ != protowire.VarintType {
 			n = protowire.ConsumeFieldValue(num, typ, value)
 			if n < 0 {
-				return false, protowire.ParseError(n)
+				return false, false, protowire.ParseError(n)
 			}
 			value = value[n:]
 			continue
 		}
-		if typ != protowire.VarintType {
-			return false, fmt.Errorf("raw record: grant source is_direct has wire type %v", typ)
-		}
 		v, n := protowire.ConsumeVarint(value)
 		if n < 0 {
-			return false, protowire.ParseError(n)
+			return false, false, protowire.ParseError(n)
 		}
-		return v != 0, nil
+		isDirect, present = v != 0, true
+		value = value[n:]
 	}
-	return false, nil
+	return isDirect, present, nil
 }
 
 // scanEntitlementResourceTypeRaw extracts only the entitlement's

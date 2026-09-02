@@ -468,7 +468,8 @@ func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partit
 		}
 		scratch.srcKeys = srcs
 		if len(srcs) > 1 {
-			sortGrantSourceFacts(srcs)
+			srcs = sortGrantSourceFacts(srcs)
+			scratch.srcKeys = srcs
 		}
 		ch64, tuple := grantContentHash64(scratch.tupleBuf, key[grantPrimaryKeyPrefixLen:], isImmutable, srcs)
 		scratch.tupleBuf = tuple
