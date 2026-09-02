@@ -55,8 +55,8 @@ func TestValidateCredentialIssueRequestData(t *testing.T) {
 		return value
 	}
 
-	require.NoError(t, validateCredentialIssueRequestData(schema, valid()))
-	require.NoError(t, validateCredentialIssueRequestData(nil, nil), "legacy descriptors accept legacy requests")
+	require.NoError(t, ValidateCredentialIssueRequestData(schema, valid()))
+	require.NoError(t, ValidateCredentialIssueRequestData(nil, nil), "legacy descriptors accept legacy requests")
 
 	tests := []struct {
 		name      string
@@ -131,7 +131,7 @@ func TestValidateCredentialIssueRequestData(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			data := valid()
 			tt.mutate(data)
-			err := validateCredentialIssueRequestData(schema, data)
+			err := ValidateCredentialIssueRequestData(schema, data)
 			require.ErrorContains(t, err, tt.wantError)
 		})
 	}
@@ -141,14 +141,14 @@ func TestValidateCredentialIssueRequestSchema(t *testing.T) {
 	t.Run("rejects duplicate fields", func(t *testing.T) {
 		field := config.Field_builder{Name: "scope", StringField: &config.StringField{}}.Build()
 		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{field, field}}.Build()
-		require.ErrorContains(t, validateCredentialIssueRequestSchema(schema), `duplicate request schema field "scope"`)
+		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), `duplicate request schema field "scope"`)
 	})
 
 	t.Run("rejects unsupported output fields", func(t *testing.T) {
 		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
 			config.Field_builder{Name: "result", ResourceField: &config.ResourceField{}}.Build(),
 		}}.Build()
-		require.ErrorContains(t, validateCredentialIssueRequestSchema(schema), "unsupported type")
+		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "unsupported type")
 	})
 
 	t.Run("rejects invalid rules", func(t *testing.T) {
@@ -157,7 +157,7 @@ func TestValidateCredentialIssueRequestSchema(t *testing.T) {
 				Rules: config.StringRules_builder{Pattern: proto.String("[")}.Build(),
 			}.Build()}.Build(),
 		}}.Build()
-		require.ErrorContains(t, validateCredentialIssueRequestSchema(schema), "invalid pattern")
+		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "invalid pattern")
 	})
 
 	t.Run("rejects constraint references to unknown fields", func(t *testing.T) {
@@ -168,7 +168,7 @@ func TestValidateCredentialIssueRequestSchema(t *testing.T) {
 				FieldNames: []string{"region", "account"},
 			}.Build()},
 		}.Build()
-		require.ErrorContains(t, validateCredentialIssueRequestSchema(schema), `unknown field "account"`)
+		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), `unknown field "account"`)
 	})
 }
 

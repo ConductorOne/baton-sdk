@@ -100,7 +100,7 @@ func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.Crede
 	if descriptor.GetResourceMode() == v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_UNSPECIFIED {
 		return nil, fmt.Errorf("credential resource mode must be advertised")
 	}
-	if err := validateCredentialIssueRequestData(descriptor.GetRequestSchema(), input.RequestData); err != nil {
+	if err := ValidateCredentialIssueRequestData(descriptor.GetRequestSchema(), input.RequestData); err != nil {
 		return nil, err
 	}
 	if keypair := input.CredentialOptions.GetKeypair(); keypair != nil {
@@ -148,7 +148,9 @@ func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.Crede
 	return descriptor, nil
 }
 
-func validateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchema) error {
+// ValidateCredentialIssueRequestSchema validates connector-owned credential
+// request schema structure before the capability is published or consumed.
+func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchema) error {
 	if schema == nil {
 		return nil
 	}
@@ -240,8 +242,11 @@ func firstDuplicate(values []string) string {
 	return ""
 }
 
-func validateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema, data *structpb.Struct) error {
-	if err := validateCredentialIssueRequestSchema(schema); err != nil {
+// ValidateCredentialIssueRequestData validates typed values against one
+// credential issue descriptor. Hosts use the same validator after applying
+// their generic offering policy so host and connector validation cannot drift.
+func ValidateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema, data *structpb.Struct) error {
+	if err := ValidateCredentialIssueRequestSchema(schema); err != nil {
 		return fmt.Errorf("invalid request schema: %w", err)
 	}
 	values := map[string]*structpb.Value(nil)
