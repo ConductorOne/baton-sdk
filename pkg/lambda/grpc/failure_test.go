@@ -288,6 +288,75 @@ func TestClassifyLambdaFailure(t *testing.T) {
 			wantCode:       codes.Unknown,
 			wantLogSummary: "lambda-run: unexpected failure",
 		},
+		{
+			// A connector whose SDK predates the RPC cannot resolve the request
+			// message's type URL. The method is absent, not broken, so it maps
+			// to Unimplemented and the caller can skip the step.
+			name:          "unresolved request type from an old connector sdk",
+			functionError: "Unhandled",
+			statusCode:    200,
+			payload: `{"errorMessage":"proto: (line 1:88): unable to resolve ` +
+				`\"type.googleapis.com/c1.connector.v2.ExampleServiceListExamplesRequest\": ` +
+				`\"not found\"","errorType":"prefixError"}`,
+			rawLog: "2026/05/22 21:50:47 unable to resolve type URL\n",
+
+			wantClass:      FailureClassUnsupportedRPC,
+			wantCode:       codes.Unimplemented,
+			wantErrorType:  "prefixError",
+			wantLogSummary: "2026/05/22 21:50:47 unable to resolve type URL",
+			wantErrorMessage: `proto: (line 1:88): unable to resolve ` +
+				`"type.googleapis.com/c1.connector.v2.ExampleServiceListExamplesRequest": "not found"`,
+		},
+		{
+			// The memory fallback infers an OOM from peak memory reaching the
+			// ceiling. A function that surfaced its own error value already
+			// explained the failure, and a Go runtime routinely sits at its
+			// ceiling without being killed, so the ceiling proves nothing here.
+			name:          "function error type at memory ceiling is not an oom",
+			functionError: "Unhandled",
+			statusCode:    200,
+			payload:       `{"errorType":"prefixError","errorMessage":"malformed request"}`,
+			rawLog: "REPORT RequestId: abc-123\tDuration: 5000.00 ms\tBilled Duration: 5000 ms\t" +
+				"Memory Size: 128 MB\tMax Memory Used: 128 MB\tStatus: error\n",
+
+			wantClass:        FailureClassUnhandled,
+			wantCode:         codes.Unknown,
+			wantRequestID:    "abc-123",
+			wantErrorType:    "prefixError",
+			wantMemorySize:   128,
+			wantMaxMemory:    128,
+			wantDurationMS:   5000,
+			wantUtilization:  100,
+			wantErrorMessage: "malformed request",
+		},
+		{
+			// An absent RPC is a statement only the function can make, so the
+			// classification reads the payload's error type rather than the
+			// resolved one. A REPORT line carrying its own Error Type must not
+			// overwrite that and turn the capability gap back into a crash --
+			// the ErrorType field still reports the platform's verdict, because
+			// that is what the field means.
+			name:          "report error type does not mask an unresolved request type",
+			functionError: "Unhandled",
+			statusCode:    200,
+			payload: `{"errorMessage":"proto: (line 1:88): unable to resolve ` +
+				`\"type.googleapis.com/c1.connector.v2.ExampleServiceListExamplesRequest\": ` +
+				`\"not found\"","errorType":"prefixError"}`,
+			rawLog: "REPORT RequestId: def-456\tDuration: 12.00 ms\tBilled Duration: 12 ms\t" +
+				"Memory Size: 128 MB\tMax Memory Used: 64 MB\tStatus: error\t" +
+				"Error Type: Runtime.ExitError\n",
+
+			wantClass:      FailureClassUnsupportedRPC,
+			wantCode:       codes.Unimplemented,
+			wantRequestID:  "def-456",
+			wantErrorType:  "Runtime.ExitError",
+			wantMemorySize: 128,
+			wantMaxMemory:  64,
+			wantDurationMS: 12,
+			wantErrorMessage: `proto: (line 1:88): unable to resolve ` +
+				`"type.googleapis.com/c1.connector.v2.ExampleServiceListExamplesRequest": "not found"`,
+			wantUtilization: 50,
+		},
 	}
 
 	for _, c := range cases {
@@ -456,6 +525,66 @@ func TestDropTruncatedFirstLine(t *testing.T) {
 		raw := strings.Repeat("x", lambdaLogTailTruncationThresholdBytes+10)
 		require.Equal(t, raw, dropTruncatedFirstLine(raw))
 	})
+
+	// Connector runtimes log through Go's standard logger, whose default prefix
+	// is "2006/01/02 15:04:05". Recognising only RFC3339 treated every one of
+	// those whole lines as a truncated fragment and dropped it.
+	t.Run("keeps a Go stdlib timestamped leading line in a full window", func(t *testing.T) {
+		var b strings.Builder
+		b.WriteString("2026/05/22 21:50:47 lambda-run: failed to get connector\n")
+		for b.Len() < lambdaLogTailTruncationThresholdBytes {
+			b.WriteString(`{"level":"debug","msg":"listing resources","duration_ms":12}` + "\n")
+		}
+		require.Equal(t, b.String(), dropTruncatedFirstLine(b.String()))
+	})
+}
+
+// TestClassifyLambdaFailureTruncationDoesNotChangeClass pins that sanitizing the
+// log summary cannot change which class an invoke lands in.
+//
+// The truncation pre-filter drops a leading line it cannot recognise as a whole
+// record. Classifying from that filtered text made the in-function timeout
+// signal vanish whenever it landed on the first line of a full tail window,
+// downgrading a retryable DeadlineExceeded into a terminal Unknown.
+func TestClassifyLambdaFailureTruncationDoesNotChangeClass(t *testing.T) {
+	const deadlineMarker = `\"error\":\"context deadline exceeded\"`
+
+	fullTail := func(firstLine string) string {
+		var b strings.Builder
+		b.WriteString(firstLine)
+		b.WriteString("\n")
+		for b.Len() < lambdaLogTailTruncationThresholdBytes {
+			b.WriteString("2026/05/22 21:50:48 still listing resources\n")
+		}
+		b.WriteString(reportHealthy)
+		return b.String()
+	}
+
+	// A whole Go-stdlib line that the pre-filter used to misjudge as a fragment.
+	t.Run("whole leading line carrying the signal", func(t *testing.T) {
+		raw := fullTail(`2026/05/22 21:50:47 {"level":"error",` + deadlineMarker + `}`)
+		require.GreaterOrEqual(t, len(raw), lambdaLogTailTruncationThresholdBytes)
+
+		failure := classifyLambdaFailure("Unhandled", 200, nil, raw)
+		require.Equal(t, FailureClassTimeout, failure.FailureClass)
+		require.Equal(t, codes.DeadlineExceeded, failure.Code(),
+			"a timeout must stay retryable for the sync framework")
+	})
+
+	// A genuine mid-record fragment that still carries the signal. The pre-filter
+	// is right to keep this out of the summary and wrong to let that decision
+	// reach classification, so this case is covered by reading the raw log.
+	t.Run("truncated leading line carrying the signal", func(t *testing.T) {
+		fragment := `msg":"page timed out",` + deadlineMarker + `}`
+		raw := fullTail(fragment)
+		require.GreaterOrEqual(t, len(raw), lambdaLogTailTruncationThresholdBytes)
+
+		failure := classifyLambdaFailure("Unhandled", 200, nil, raw)
+		require.Equal(t, FailureClassTimeout, failure.FailureClass)
+		require.Equal(t, codes.DeadlineExceeded, failure.Code())
+		require.NotContains(t, failure.LogSummary, fragment,
+			"the fragment must still be kept out of the sanitizable summary")
+	})
 }
 
 // TestClassifyLambdaFailureTruncatedTailDoesNotLeak is the regression test for
@@ -490,6 +619,11 @@ func TestLooksLikeTimestampPrefix(t *testing.T) {
 		expected bool
 	}{
 		{line: "2026-05-22T21:50:47.000Z\tabc\tINFO\thello", expected: true},
+		// Go's standard logger default prefix, which connector runtimes emit.
+		{line: "2026/05/22 21:50:47 lambda-run: failed to get connector", expected: true},
+		{line: "2026/05/22 21:50:47", expected: true},
+		{line: "2026/05/22 21:50", expected: false},
+		{line: "2026/05/22", expected: false},
 		{line: "2026-05-22 21:50:47", expected: false},
 		{line: "202X-05-22T21:50:47.000Z", expected: false},
 		{line: "2026-05-22", expected: false},

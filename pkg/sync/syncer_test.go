@@ -141,6 +141,74 @@ func TestExpandGrants(t *testing.T) {
 	})
 }
 
+// TestSyncToleratesUnimplementedStaticEntitlements pins that a connector too old
+// to serve ListStaticEntitlements does not fail the whole sync.
+//
+// A connector built against an SDK that predates the RPC cannot resolve the
+// request message's type URL, and the transport reports that as
+// codes.Unimplemented. The tolerance used to key off a substring of the
+// connector's raw log text instead, which a caller that sanitizes transport
+// errors strips out - so the tolerance silently stopped applying and every sync
+// of such a connector failed.
+//
+// The "other errors" case is also the reachability oracle: it only fails the
+// sync if the RPC is genuinely called during a full sync.
+func TestSyncToleratesUnimplementedStaticEntitlements(t *testing.T) {
+	cases := []struct {
+		name    string
+		err     error
+		wantErr bool
+	}{
+		{
+			name: "unimplemented is skipped",
+			// What the caller sees once the transport classifies the failure
+			// and sanitizes the message.
+			err: status.Error(codes.Unimplemented, "connector function returned an error"),
+		},
+		{
+			name: "legacy unsanitized transport error is still skipped",
+			err: fmt.Errorf("lambda_transport: function returned error: Unhandled; logSummary: %s",
+				legacyUnresolvedStaticEntitlementsMarker),
+		},
+		{
+			name:    "unrelated errors still fail the sync",
+			err:     status.Error(codes.Internal, "simulated connector failure"),
+			wantErr: true,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			runWithSyncModes(t, func(t *testing.T, extraOpts []SyncOpt) {
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+
+				mc := newMockConnector()
+				mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
+				group, _, err := mc.AddGroup(ctx, "group_0")
+				require.NoError(t, err)
+				user, err := mc.AddUser(ctx, "user_0")
+				require.NoError(t, err)
+				_ = mc.AddGroupMember(ctx, group, user)
+
+				tempDir := t.TempDir()
+				c1zpath := filepath.Join(tempDir, "static-entitlements.c1z")
+				opts := append([]SyncOpt{WithC1ZPath(c1zpath), WithTmpDir(tempDir)}, extraOpts...)
+				syncer, err := NewSyncer(ctx, &staticEntitlementsErrorMockConnector{mockConnector: mc, err: c.err}, opts...)
+				require.NoError(t, err)
+
+				err = syncer.Sync(ctx)
+				if c.wantErr {
+					require.Error(t, err, "an unrelated connector error must fail the sync")
+				} else {
+					require.NoError(t, err, "an absent ListStaticEntitlements must not fail the sync")
+				}
+				require.NoError(t, syncer.Close(ctx))
+			})
+		})
+	}
+}
+
 func TestInvalidResourceTypeFilter(t *testing.T) {
 	runWithSyncModes(t, func(t *testing.T, extraOpts []SyncOpt) {
 		ctx := t.Context()
@@ -1898,6 +1966,21 @@ func TestResumeSyncWithChildResources(t *testing.T) {
 		require.Equal(t, parentResource.GetId().GetResource(), child.GetParentResourceId().GetResource())
 		require.Equal(t, parentResourceType.GetId(), child.GetParentResourceId().GetResourceType())
 	}
+}
+
+// staticEntitlementsErrorMockConnector fails ListStaticEntitlements with a
+// caller-supplied error, standing in for a connector whose SDK predates the RPC.
+type staticEntitlementsErrorMockConnector struct {
+	*mockConnector
+	err error
+}
+
+func (mc *staticEntitlementsErrorMockConnector) ListStaticEntitlements(
+	ctx context.Context,
+	in *v2.EntitlementsServiceListStaticEntitlementsRequest,
+	opts ...grpc.CallOption,
+) (*v2.EntitlementsServiceListStaticEntitlementsResponse, error) {
+	return nil, mc.err
 }
 
 // failChildResourceMockConnector wraps a mockConnector and fails ListResources calls for child resources.

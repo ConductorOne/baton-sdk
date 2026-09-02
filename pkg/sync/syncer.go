@@ -2176,6 +2176,12 @@ func (s *syncer) SyncStaticEntitlements(ctx context.Context, action *Action) err
 	return s.nextPageOrFinishAction(ctx, action, "", actions...)
 }
 
+// legacyUnresolvedStaticEntitlementsMarker is the raw lambda error text a
+// connector too old for ListStaticEntitlements produces. It is a fallback for
+// transports that do not classify the failure as codes.Unimplemented; prefer
+// the status code, which survives error-string sanitization.
+const legacyUnresolvedStaticEntitlementsMarker = `unable to resolve \"type.googleapis.com/c1.connector.v2.EntitlementsServiceListStaticEntitlementsRequest\": \"not found\"","errorType":"prefixError"`
+
 func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.syncStaticEntitlementsForResource")
 	var err error
@@ -2191,10 +2197,19 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 	s.recordSessionUsage(resp.GetAnnotations())
 	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
-		// Ignore prefixError if we're calling a lambda with an old version of baton-sdk.
-		if strings.Contains(err.Error(), `unable to resolve \"type.googleapis.com/c1.connector.v2.EntitlementsServiceListStaticEntitlementsRequest\": \"not found\"","errorType":"prefixError"`) {
+		// A connector built against an SDK older than this RPC cannot resolve
+		// the request message's type URL, so the method is absent rather than
+		// broken. Skip the step and let the rest of the sync run.
+		//
+		// The status code is the signal that holds. The substring below reads
+		// the connector's raw log text, which a caller may sanitize out of the
+		// error before it reaches here; it is kept only so this still works
+		// against a transport that does not yet map the failure to
+		// Unimplemented.
+		if status.Code(err) == codes.Unimplemented ||
+			strings.Contains(err.Error(), legacyUnresolvedStaticEntitlementsMarker) {
 			l := ctxzap.Extract(ctx)
-			l.Info("ignoring prefixError when calling ListStaticEntitlements", zap.Error(err))
+			l.Info("connector does not support ListStaticEntitlements, skipping", zap.Error(err))
 			s.state.FinishAction(ctx, action)
 			return nil
 		}
