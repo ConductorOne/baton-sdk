@@ -172,6 +172,104 @@ func TestValidateCredentialIssueRequestSchema(t *testing.T) {
 	})
 }
 
+func TestValidateCredentialIssueRequestDataTypes(t *testing.T) {
+	schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+		config.Field_builder{Name: "enabled", BoolField: &config.BoolField{}}.Build(),
+		config.Field_builder{Name: "labels", StringMapField: &config.StringMapField{}}.Build(),
+	}}.Build()
+
+	valid, err := structpb.NewStruct(map[string]any{
+		"enabled": true,
+		"labels":  map[string]any{"environment": "production"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, ValidateCredentialIssueRequestData(schema, valid))
+
+	valid.GetFields()["enabled"] = structpb.NewStringValue("true")
+	require.ErrorContains(t, ValidateCredentialIssueRequestData(schema, valid), `field "enabled" must be a boolean`)
+	valid.GetFields()["enabled"] = structpb.NewBoolValue(true)
+	valid.GetFields()["labels"] = structpb.NewStringValue("production")
+	require.ErrorContains(t, ValidateCredentialIssueRequestData(schema, valid), `field "labels" must be an object`)
+}
+
+func TestValidateCredentialIssueRequestConstraints(t *testing.T) {
+	fields := []*config.Field{
+		config.Field_builder{Name: "a", StringField: &config.StringField{}}.Build(),
+		config.Field_builder{Name: "b", StringField: &config.StringField{}}.Build(),
+		config.Field_builder{Name: "c", StringField: &config.StringField{}}.Build(),
+	}
+	tests := []struct {
+		name           string
+		constraint     *config.Constraint
+		values         map[string]any
+		wantError      string
+		acceptedValues map[string]any
+	}{
+		{
+			name:           "required together",
+			constraint:     config.Constraint_builder{Kind: config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER, FieldNames: []string{"a", "b"}}.Build(),
+			values:         map[string]any{"a": "one"},
+			wantError:      "required together",
+			acceptedValues: map[string]any{"a": "one", "b": "two"},
+		},
+		{
+			name:           "at least one",
+			constraint:     config.Constraint_builder{Kind: config.ConstraintKind_CONSTRAINT_KIND_AT_LEAST_ONE, FieldNames: []string{"a", "b"}}.Build(),
+			values:         map[string]any{},
+			wantError:      "requires at least one",
+			acceptedValues: map[string]any{"b": "two"},
+		},
+		{
+			name:           "mutually exclusive",
+			constraint:     config.Constraint_builder{Kind: config.ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE, FieldNames: []string{"a", "b"}}.Build(),
+			values:         map[string]any{"a": "one", "b": "two"},
+			wantError:      "mutually exclusive",
+			acceptedValues: map[string]any{"a": "one"},
+		},
+		{
+			name:           "dependent on",
+			constraint:     config.Constraint_builder{Kind: config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON, FieldNames: []string{"a"}, SecondaryFieldNames: []string{"b", "c"}}.Build(),
+			values:         map[string]any{"a": "one", "b": "two"},
+			wantError:      "depend on",
+			acceptedValues: map[string]any{"a": "one", "b": "two", "c": "three"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schema := v2.CredentialIssueRequestSchema_builder{Fields: fields, Constraints: []*config.Constraint{tt.constraint}}.Build()
+			data, err := structpb.NewStruct(tt.values)
+			require.NoError(t, err)
+			require.ErrorContains(t, ValidateCredentialIssueRequestData(schema, data), tt.wantError)
+			accepted, err := structpb.NewStruct(tt.acceptedValues)
+			require.NoError(t, err)
+			require.NoError(t, ValidateCredentialIssueRequestData(schema, accepted))
+		})
+	}
+}
+
+func TestCredentialIssueTypedInputsWireRoundTrip(t *testing.T) {
+	schema := testCredentialIssueRequestSchema()
+	data, err := structpb.NewStruct(map[string]any{"scopes": []any{"keys:read"}})
+	require.NoError(t, err)
+	descriptor := v2.CredentialIssueOptionDescriptor_builder{RequestSchema: schema}.Build()
+	request := v2.IssueCredentialRequest_builder{RequestData: data}.Build()
+
+	descriptorBytes, err := proto.Marshal(descriptor)
+	require.NoError(t, err)
+	requestBytes, err := proto.Marshal(request)
+	require.NoError(t, err)
+
+	descriptorRoundTrip := &v2.CredentialIssueOptionDescriptor{}
+	require.NoError(t, proto.Unmarshal(descriptorBytes, descriptorRoundTrip))
+	requestRoundTrip := &v2.IssueCredentialRequest{}
+	require.NoError(t, proto.Unmarshal(requestBytes, requestRoundTrip))
+	require.True(t, proto.Equal(schema, descriptorRoundTrip.GetRequestSchema()))
+	require.True(t, proto.Equal(data, requestRoundTrip.GetRequestData()))
+
+	legacyRequest := v2.IssueCredentialRequest_builder{RequestId: "legacy"}.Build()
+	require.Nil(t, legacyRequest.GetRequestData())
+}
+
 func TestIssueCredentialValidatesAndForwardsRequestData(t *testing.T) {
 	ctx := context.Background()
 	issuer := newTestCredentialIssuer("service_account")
