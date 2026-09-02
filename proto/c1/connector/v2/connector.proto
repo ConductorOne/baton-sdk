@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package c1.connector.v2;
 
+import "c1/config/v1/config.proto";
 import "c1/connector/v2/asset.proto";
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
@@ -141,6 +142,15 @@ message CredentialIssueOptionDescriptor {
   // declaration order would not be stable. It selects nothing at issue time --
   // CredentialIssueOptions.secret_resource_type_id is still required.
   bool preferred = 10;
+  // Connector-owned schema for additional values required to issue this
+  // credential kind. Hosts may narrow this schema in an offering, but must not
+  // add connector-specific fields to their own credential models.
+  CredentialIssueRequestSchema request_schema = 11;
+}
+
+message CredentialIssueRequestSchema {
+  repeated c1.config.v1.Field fields = 1;
+  repeated c1.config.v1.Constraint constraints = 2;
 }
 
 message IssuanceExpiryCapability {

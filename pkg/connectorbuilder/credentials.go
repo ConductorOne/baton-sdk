@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -147,6 +148,7 @@ type CredentialIssueInput struct {
 	CredentialOptions *v2.CredentialIssueOptions
 	ExpiresAt         *timestamppb.Timestamp
 	RequestID         string
+	RequestData       *structpb.Struct
 }
 
 type CredentialIssueOutput struct {
@@ -208,6 +210,7 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		CredentialOptions: request.GetCredentialOptions(),
 		ExpiresAt:         request.GetExpiresAt(),
 		RequestID:         request.GetRequestId(),
+		RequestData:       request.GetRequestData(),
 	}
 	descriptor, err := validateCredentialIssueInput(input, details, b.nowFunc())
 	if err != nil {

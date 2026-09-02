@@ -2,14 +2,18 @@ package connectorbuilder
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/field"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 var credentialIssueRequestIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
@@ -96,6 +100,9 @@ func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.Crede
 	if descriptor.GetResourceMode() == v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_UNSPECIFIED {
 		return nil, fmt.Errorf("credential resource mode must be advertised")
 	}
+	if err := validateCredentialIssueRequestData(descriptor.GetRequestSchema(), input.RequestData); err != nil {
+		return nil, err
+	}
 	if keypair := input.CredentialOptions.GetKeypair(); keypair != nil {
 		if err := validateKeyGenerationProfile(keypair.GetProfile()); err != nil {
 			return nil, err
@@ -139,6 +146,251 @@ func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.Crede
 		}
 	}
 	return descriptor, nil
+}
+
+func validateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchema) error {
+	if schema == nil {
+		return nil
+	}
+	fields := make(map[string]*config.Field, len(schema.GetFields()))
+	for _, schemaField := range schema.GetFields() {
+		if schemaField == nil || strings.TrimSpace(schemaField.GetName()) == "" {
+			return fmt.Errorf("request schema field name is required")
+		}
+		name := schemaField.GetName()
+		if _, ok := fields[name]; ok {
+			return fmt.Errorf("duplicate request schema field %q", name)
+		}
+		fields[name] = schemaField
+		switch schemaField.WhichField() {
+		case config.Field_StringField_case:
+			if rules := schemaField.GetStringField().GetRules(); rules != nil {
+				if rules.HasPattern() {
+					if _, err := regexp.CompilePOSIX(rules.GetPattern()); err != nil {
+						return fmt.Errorf("request schema field %q has invalid pattern: %w", name, err)
+					}
+				}
+				if rules.HasMinLen() && rules.HasMaxLen() && rules.GetMinLen() > rules.GetMaxLen() {
+					return fmt.Errorf("request schema field %q has minimum length greater than maximum", name)
+				}
+			}
+		case config.Field_IntField_case:
+			if rules := schemaField.GetIntField().GetRules(); rules != nil {
+				if rules.HasGte() && rules.HasLte() && rules.GetGte() > rules.GetLte() {
+					return fmt.Errorf("request schema field %q has minimum greater than maximum", name)
+				}
+				if rules.HasGt() && rules.HasLt() && rules.GetGt() >= rules.GetLt() {
+					return fmt.Errorf("request schema field %q has empty integer range", name)
+				}
+			}
+		case config.Field_BoolField_case, config.Field_StringMapField_case:
+		case config.Field_StringSliceField_case:
+			rules := schemaField.GetStringSliceField().GetRules()
+			if rules != nil && rules.HasMinItems() && rules.HasMaxItems() && rules.GetMinItems() > rules.GetMaxItems() {
+				return fmt.Errorf("request schema field %q has minimum items greater than maximum", name)
+			}
+			if rules != nil && rules.HasItemRules() && rules.GetItemRules().HasPattern() {
+				if _, err := regexp.CompilePOSIX(rules.GetItemRules().GetPattern()); err != nil {
+					return fmt.Errorf("request schema field %q has invalid item pattern: %w", name, err)
+				}
+			}
+		default:
+			return fmt.Errorf("request schema field %q has unsupported type", name)
+		}
+	}
+	for _, constraint := range schema.GetConstraints() {
+		if constraint == nil {
+			return fmt.Errorf("request schema constraint is required")
+		}
+		if constraint.GetKind() == config.ConstraintKind_CONSTRAINT_KIND_UNSPECIFIED {
+			return fmt.Errorf("request schema constraint kind is required")
+		}
+		if len(constraint.GetFieldNames()) == 0 {
+			return fmt.Errorf("request schema constraint fields are required")
+		}
+		if duplicate := firstDuplicate(constraint.GetFieldNames()); duplicate != "" {
+			return fmt.Errorf("request schema constraint repeats field %q", duplicate)
+		}
+		if duplicate := firstDuplicate(constraint.GetSecondaryFieldNames()); duplicate != "" {
+			return fmt.Errorf("request schema constraint repeats secondary field %q", duplicate)
+		}
+		for _, name := range append(slices.Clone(constraint.GetFieldNames()), constraint.GetSecondaryFieldNames()...) {
+			if _, ok := fields[name]; !ok {
+				return fmt.Errorf("request schema constraint refers to unknown field %q", name)
+			}
+		}
+		if constraint.GetKind() == config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON && len(constraint.GetSecondaryFieldNames()) == 0 {
+			return fmt.Errorf("request schema dependent-on constraint requires secondary fields")
+		}
+		if constraint.GetKind() != config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON && len(constraint.GetFieldNames()) < 2 {
+			return fmt.Errorf("request schema constraint requires at least two fields")
+		}
+	}
+	return nil
+}
+
+func firstDuplicate(values []string) string {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			return value
+		}
+		seen[value] = struct{}{}
+	}
+	return ""
+}
+
+func validateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema, data *structpb.Struct) error {
+	if err := validateCredentialIssueRequestSchema(schema); err != nil {
+		return fmt.Errorf("invalid request schema: %w", err)
+	}
+	values := map[string]*structpb.Value(nil)
+	if data != nil {
+		values = data.GetFields()
+	}
+	fields := make(map[string]*config.Field, len(schema.GetFields()))
+	for _, schemaField := range schema.GetFields() {
+		fields[schemaField.GetName()] = schemaField
+	}
+	for name := range values {
+		if _, ok := fields[name]; !ok {
+			return fmt.Errorf("request data contains unknown field %q", name)
+		}
+	}
+	present := make(map[string]bool, len(values))
+	for name, schemaField := range fields {
+		value, ok := values[name]
+		_, isNull := value.GetKind().(*structpb.Value_NullValue)
+		if !ok || value == nil || value.GetKind() == nil || isNull {
+			if schemaField.GetIsRequired() {
+				return fmt.Errorf("request data field %q is required", name)
+			}
+			continue
+		}
+		present[name] = true
+		if err := validateCredentialIssueRequestValue(schemaField, value); err != nil {
+			return err
+		}
+		if schemaField.GetIsRequired() && credentialIssueRequestValueIsEmpty(value) {
+			return fmt.Errorf("request data field %q is required", name)
+		}
+	}
+	for _, constraint := range schema.GetConstraints() {
+		if err := validateCredentialIssueConstraint(constraint, present); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func credentialIssueRequestValueIsEmpty(value *structpb.Value) bool {
+	switch kind := value.GetKind().(type) {
+	case *structpb.Value_StringValue:
+		return kind.StringValue == ""
+	case *structpb.Value_ListValue:
+		return len(kind.ListValue.GetValues()) == 0
+	case *structpb.Value_StructValue:
+		return len(kind.StructValue.GetFields()) == 0
+	default:
+		return false
+	}
+}
+
+func validateCredentialIssueRequestValue(schemaField *config.Field, value *structpb.Value) error {
+	name := schemaField.GetName()
+	switch schemaField.WhichField() {
+	case config.Field_StringField_case:
+		kind, ok := value.GetKind().(*structpb.Value_StringValue)
+		if !ok {
+			return fmt.Errorf("request data field %q must be a string", name)
+		}
+		if err := field.ValidateStringRules(schemaField.GetStringField().GetRules(), kind.StringValue, name); err != nil {
+			return err
+		}
+	case config.Field_IntField_case:
+		kind, ok := value.GetKind().(*structpb.Value_NumberValue)
+		const maxSafeJSONInteger = float64(1<<53 - 1)
+		if !ok || math.IsNaN(kind.NumberValue) || math.IsInf(kind.NumberValue, 0) || math.Trunc(kind.NumberValue) != kind.NumberValue || kind.NumberValue < -maxSafeJSONInteger || kind.NumberValue > maxSafeJSONInteger {
+			return fmt.Errorf("request data field %q must be an integer", name)
+		}
+		if err := field.ValidateIntRules(schemaField.GetIntField().GetRules(), int(kind.NumberValue), name); err != nil {
+			return err
+		}
+	case config.Field_BoolField_case:
+		kind, ok := value.GetKind().(*structpb.Value_BoolValue)
+		if !ok {
+			return fmt.Errorf("request data field %q must be a boolean", name)
+		}
+		if err := field.ValidateBoolRules(schemaField.GetBoolField().GetRules(), kind.BoolValue, name); err != nil {
+			return err
+		}
+	case config.Field_StringSliceField_case:
+		kind, ok := value.GetKind().(*structpb.Value_ListValue)
+		if !ok {
+			return fmt.Errorf("request data field %q must be a string list", name)
+		}
+		items := make([]string, 0, len(kind.ListValue.GetValues()))
+		for _, item := range kind.ListValue.GetValues() {
+			stringItem, ok := item.GetKind().(*structpb.Value_StringValue)
+			if !ok {
+				return fmt.Errorf("request data field %q must contain only strings", name)
+			}
+			items = append(items, stringItem.StringValue)
+		}
+		if err := field.ValidateRepeatedStringRules(schemaField.GetStringSliceField().GetRules(), items, name); err != nil {
+			return err
+		}
+	case config.Field_StringMapField_case:
+		kind, ok := value.GetKind().(*structpb.Value_StructValue)
+		if !ok {
+			return fmt.Errorf("request data field %q must be an object", name)
+		}
+		if err := field.ValidateStringMapRules(schemaField.GetStringMapField().GetRules(), kind.StructValue.AsMap(), name); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("request data field %q has unsupported type", name)
+	}
+	return nil
+}
+
+func validateCredentialIssueConstraint(constraint *config.Constraint, present map[string]bool) error {
+	countPresent := func(names []string) int {
+		seen := make(map[string]struct{}, len(names))
+		count := 0
+		for _, name := range names {
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			if present[name] {
+				count++
+			}
+		}
+		return count
+	}
+	primaryCount := countPresent(constraint.GetFieldNames())
+	switch constraint.GetKind() {
+	case config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER:
+		if primaryCount > 0 && primaryCount < len(constraint.GetFieldNames()) {
+			return fmt.Errorf("request data fields required together: %v", constraint.GetFieldNames())
+		}
+	case config.ConstraintKind_CONSTRAINT_KIND_AT_LEAST_ONE:
+		if primaryCount == 0 {
+			return fmt.Errorf("request data requires at least one of: %v", constraint.GetFieldNames())
+		}
+	case config.ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE:
+		if primaryCount > 1 {
+			return fmt.Errorf("request data fields are mutually exclusive: %v", constraint.GetFieldNames())
+		}
+	case config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON:
+		if primaryCount > 0 && countPresent(constraint.GetSecondaryFieldNames()) < len(constraint.GetSecondaryFieldNames()) {
+			return fmt.Errorf("request data fields %v depend on %v", constraint.GetFieldNames(), constraint.GetSecondaryFieldNames())
+		}
+	default:
+		return fmt.Errorf("unknown request schema constraint kind %v", constraint.GetKind())
+	}
+	return nil
 }
 
 func validateRequestedValues(kind string, requested []string, advertised []string, customAllowed bool) error {
