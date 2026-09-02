@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"syscall"
@@ -11,11 +12,19 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/retry"
 )
+
+// wrapAsTokenRequestError mirrors the *url.Error wrapping http.Client.Do
+// actually produces in production, not a bare *oauth2.RetrieveError.
+func wrapAsTokenRequestError(retrieveErr *oauth2.RetrieveError) error {
+	return &url.Error{Op: "Post", URL: "https://example.com/oauth/token", Err: retrieveErr}
+}
 
 func TestWrapTransientNetworkError(t *testing.T) {
 	tests := []struct {
@@ -172,6 +181,147 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			wantCode: codes.Unavailable,
 			wantMsg:  "http2 client connection lost",
 		},
+		{
+			name: "oauth2 invalid_client (RFC 6749 error param, 401)",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode:        "invalid_client",
+				ErrorDescription: "client authentication failed",
+				Response:         &http.Response{StatusCode: http.StatusUnauthorized, Status: "401 Unauthorized"},
+			}),
+			wantCode: codes.Unauthenticated,
+			wantMsg:  "invalid_client: client authentication failed",
+		},
+		{
+			name: "oauth2 invalid_client on the RFC default status (400)",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "invalid_client",
+				Response:  &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"},
+			}),
+			wantCode: codes.Unauthenticated,
+			wantMsg:  "invalid_client",
+		},
+		{
+			name: "oauth2 error param on a 200 response",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "invalid_client",
+				Response:  &http.Response{StatusCode: http.StatusOK, Status: "200 OK"},
+			}),
+			wantCode: codes.Unauthenticated,
+			wantMsg:  "invalid_client",
+		},
+		{
+			name: "oauth2 access_denied",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "access_denied",
+				Response:  &http.Response{StatusCode: http.StatusForbidden, Status: "403 Forbidden"},
+			}),
+			wantCode: codes.PermissionDenied,
+			wantMsg:  "access_denied",
+		},
+		{
+			name: "oauth2 invalid_grant is a credential failure, not InvalidArgument",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "invalid_grant",
+				Response:  &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"},
+			}),
+			wantCode: codes.Unauthenticated,
+			wantMsg:  "invalid_grant",
+		},
+		{
+			name: "oauth2 unauthorized_client is authenticated but not entitled",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "unauthorized_client",
+				Response:  &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"},
+			}),
+			wantCode: codes.PermissionDenied,
+			wantMsg:  "unauthorized_client",
+		},
+		{
+			name: "oauth2 invalid_scope is a malformed request, not a credential failure",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "invalid_scope",
+				Response:  &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"},
+			}),
+			wantCode: codes.InvalidArgument,
+			wantMsg:  "invalid_scope",
+		},
+		{
+			name: "oauth2 token request rejected with no error param (403)",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				Response: &http.Response{StatusCode: http.StatusForbidden, Status: "403 Forbidden"},
+			}),
+			wantCode: codes.PermissionDenied,
+			wantMsg:  "403 Forbidden",
+		},
+		{
+			name: "oauth2 token endpoint rate limited (429) falls back to status and is retryable",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				Response: &http.Response{StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests"},
+			}),
+			wantCode: codes.Unavailable,
+			wantMsg:  "429 Too Many Requests",
+		},
+		{
+			name: "oauth2 unrecognized error param falls back to status code, keeps the error param in the message",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "some_vendor_specific_error",
+				Response:  &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"},
+			}),
+			wantCode: codes.InvalidArgument,
+			wantMsg:  "some_vendor_specific_error",
+		},
+		{
+			name: "oauth2 retrieve error with no error param and no response still maps, not falls through",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "",
+			}),
+			wantCode: codes.Unknown,
+			wantMsg:  "oauth2 token request failed",
+		},
+		{
+			name: "oauth2 transient status wins over a recognized error param",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "invalid_request",
+				Response:  &http.Response{StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests"},
+			}),
+			wantCode: codes.Unavailable,
+			wantMsg:  "429 Too Many Requests",
+		},
+		{
+			name: "oauth2 transient status keeps the error_description, not just the status",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode:        "invalid_request",
+				ErrorDescription: "rate limit exceeded, retry after 3600 seconds",
+				Response:         &http.Response{StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests"},
+			}),
+			wantCode: codes.Unavailable,
+			wantMsg:  "429 Too Many Requests: rate limit exceeded, retry after 3600 seconds",
+		},
+		{
+			// 501 is Unimplemented, not part of GrpcCodeFromHTTPStatus's
+			// Unavailable set, even though it's >= 500 — isTransientHTTPStatus
+			// must consult the mapping, not approximate it with a numeric range.
+			name: "oauth2 501 is not transient (Unimplemented, not Unavailable)",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "invalid_client",
+				Response:  &http.Response{StatusCode: http.StatusNotImplemented, Status: "501 Not Implemented"},
+			}),
+			wantCode: codes.Unauthenticated,
+			wantMsg:  "invalid_client",
+		},
+		{
+			// 408 maps to DeadlineExceeded, which retry.Retryer also treats
+			// as retryable — isTransientHTTPStatus must catch this too, not
+			// just Unavailable, or the same status flips outcome depending
+			// on whether an error param happens to be present.
+			name: "oauth2 408 (DeadlineExceeded) is also transient",
+			err: wrapAsTokenRequestError(&oauth2.RetrieveError{
+				ErrorCode: "invalid_request",
+				Response:  &http.Response{StatusCode: http.StatusRequestTimeout, Status: "408 Request Timeout"},
+			}),
+			wantCode: codes.DeadlineExceeded,
+			wantMsg:  "408 Request Timeout",
+		},
 	}
 
 	for _, tt := range tests {
@@ -184,6 +334,38 @@ func TestWrapTransientNetworkError(t *testing.T) {
 			require.ErrorIs(t, got, tt.err)
 		})
 	}
+}
+
+func TestWrapTransientNetworkError_OAuthTransientAttachesRateLimitDetails(t *testing.T) {
+	header := http.Header{}
+	header.Set("Retry-After", "120")
+	got := wrapTransientNetworkError(wrapAsTokenRequestError(&oauth2.RetrieveError{
+		Response: &http.Response{StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests", Header: header},
+	}))
+
+	st, ok := status.FromError(got)
+	require.True(t, ok)
+	require.Equal(t, codes.Unavailable, st.Code())
+
+	var found *v2.RateLimitDescription
+	for _, detail := range st.Details() {
+		if rl, ok := detail.(*v2.RateLimitDescription); ok {
+			found = rl
+		}
+	}
+	require.NotNil(t, found, "expected a RateLimitDescription detail from the Retry-After header")
+}
+
+func TestWrapTransientNetworkError_OAuthNilResponseDoesNotPanicOnFormat(t *testing.T) {
+	got := wrapTransientNetworkError(wrapAsTokenRequestError(&oauth2.RetrieveError{}))
+
+	require.NotPanics(t, func() {
+		_ = got.Error()
+	})
+	st, ok := status.FromError(got)
+	require.True(t, ok)
+	require.Equal(t, codes.Unknown, st.Code())
+	require.Contains(t, st.Message(), "oauth2 token request failed")
 }
 
 // NXDOMAIN is the one classification here that is deliberately terminal: a
@@ -224,6 +406,39 @@ func TestWrapTransientNetworkError_NXDOMAINIsTerminal(t *testing.T) {
 	require.Equal(t, codes.Unavailable, status.Code(temporary))
 	require.True(t, newRetryer().ShouldWaitAndRetry(t.Context(), temporary),
 		"a temporary resolver failure must still be retried")
+}
+
+func TestWrapTransientNetworkError_OAuthTokenEndpointTransientIsRetried(t *testing.T) {
+	newRetryer := func() *retry.Retryer {
+		return retry.NewRetryer(t.Context(), retry.RetryConfig{
+			MaxAttempts:  3,
+			InitialDelay: time.Millisecond,
+			MaxDelay:     time.Millisecond,
+		})
+	}
+
+	rateLimited := wrapTransientNetworkError(wrapAsTokenRequestError(&oauth2.RetrieveError{
+		Response: &http.Response{StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests"},
+	}))
+	require.Equal(t, codes.Unavailable, status.Code(rateLimited))
+	require.True(t, newRetryer().ShouldWaitAndRetry(t.Context(), rateLimited),
+		"a rate-limited token endpoint must still be retried")
+
+	timedOut := wrapTransientNetworkError(wrapAsTokenRequestError(&oauth2.RetrieveError{
+		ErrorCode: "invalid_request",
+		Response:  &http.Response{StatusCode: http.StatusRequestTimeout, Status: "408 Request Timeout"},
+	}))
+	require.Equal(t, codes.DeadlineExceeded, status.Code(timedOut))
+	require.True(t, newRetryer().ShouldWaitAndRetry(t.Context(), timedOut),
+		"a token endpoint timeout must still be retried")
+
+	rejected := wrapTransientNetworkError(wrapAsTokenRequestError(&oauth2.RetrieveError{
+		ErrorCode: "invalid_client",
+		Response:  &http.Response{StatusCode: http.StatusUnauthorized, Status: "401 Unauthorized"},
+	}))
+	require.Equal(t, codes.Unauthenticated, status.Code(rejected))
+	require.False(t, newRetryer().ShouldWaitAndRetry(t.Context(), rejected),
+		"rejected credentials must not be retried")
 }
 
 func TestWrapTransientNetworkError_LeavesNonTransientAlone(t *testing.T) {
