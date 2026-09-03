@@ -77,6 +77,13 @@ func TestValidateCredentialIssueRequestData(t *testing.T) {
 			wantError: `unknown field "provider_flag"`,
 		},
 		{
+			name: "empty unknown field name",
+			mutate: func(data *structpb.Struct) {
+				data.GetFields()[""] = structpb.NewStringValue("value")
+			},
+			wantError: `unknown field ""`,
+		},
+		{
 			name: "missing required field",
 			mutate: func(data *structpb.Struct) {
 				delete(data.GetFields(), "scopes")
@@ -174,6 +181,8 @@ func TestValidateCredentialIssueRequestData(t *testing.T) {
 	emptyOptional := valid()
 	emptyOptional.GetFields()["region"] = structpb.NewStringValue("")
 	require.NoError(t, ValidateCredentialIssueRequestData(schema, emptyOptional), "an explicit empty optional value is equivalent to omission")
+	emptyOptional.GetFields()["region"] = structpb.NewListValue(&structpb.ListValue{})
+	require.ErrorContains(t, ValidateCredentialIssueRequestData(schema, emptyOptional), `field "region" must be a string`)
 }
 
 func TestValidateCredentialIssueRequestSchema(t *testing.T) {
@@ -227,6 +236,18 @@ func TestValidateCredentialIssueRequestSchema(t *testing.T) {
 			}.Build()}.Build(),
 		}}.Build()
 		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "must not declare file extensions")
+	})
+
+	t.Run("rejects unsupported string field types", func(t *testing.T) {
+		for _, fieldType := range []config.StringFieldType{
+			config.StringFieldType_STRING_FIELD_TYPE_FILE_UPLOAD,
+			config.StringFieldType_STRING_FIELD_TYPE_CONNECTOR_DERIVED_OPTIONS,
+		} {
+			schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+				config.Field_builder{Name: "input", StringField: config.StringField_builder{Type: fieldType}.Build()}.Build(),
+			}}.Build()
+			require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "unsupported string field type")
+		}
 	})
 
 	t.Run("rejects constraint references to unknown fields", func(t *testing.T) {
@@ -355,6 +376,15 @@ func TestValidateCredentialIssueRequestDataTypes(t *testing.T) {
 	emptyMap, err := structpb.NewStruct(map[string]any{"labels": map[string]any{}})
 	require.NoError(t, err)
 	require.ErrorContains(t, ValidateCredentialIssueRequestData(emptyMapSchema, emptyMap), `field "labels" is required`)
+
+	optionalListSchema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+		config.Field_builder{Name: "scopes", StringSliceField: config.StringSliceField_builder{
+			Rules: config.RepeatedStringRules_builder{MinItems: proto.Uint64(1)}.Build(),
+		}.Build()}.Build(),
+	}}.Build()
+	require.NoError(t, ValidateCredentialIssueRequestData(optionalListSchema, &structpb.Struct{Fields: map[string]*structpb.Value{
+		"scopes": structpb.NewListValue(&structpb.ListValue{}),
+	}}), "an empty optional collection is equivalent to omission")
 }
 
 func TestValidateCredentialIssueRequestDataReportsFieldsInSchemaOrder(t *testing.T) {

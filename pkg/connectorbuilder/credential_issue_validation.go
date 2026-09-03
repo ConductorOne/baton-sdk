@@ -182,6 +182,9 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 		fields[name] = schemaField
 		switch schemaField.WhichField() {
 		case config.Field_StringField_case:
+			if schemaField.GetStringField().GetType() != config.StringFieldType_STRING_FIELD_TYPE_TEXT_UNSPECIFIED {
+				return fmt.Errorf("request schema field %q has unsupported string field type", name)
+			}
 			if len(schemaField.GetStringField().GetAllowedExtensions()) > 0 {
 				return fmt.Errorf("request schema field %q must not declare file extensions", name)
 			}
@@ -293,14 +296,16 @@ func ValidateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema,
 		fields[schemaField.GetName()] = schemaField
 	}
 	unknownName := ""
+	unknownFound := false
 	for name := range values {
 		if _, ok := fields[name]; !ok {
-			if unknownName == "" || name < unknownName {
+			if !unknownFound || name < unknownName {
 				unknownName = name
+				unknownFound = true
 			}
 		}
 	}
-	if unknownName != "" {
+	if unknownFound {
 		return fmt.Errorf("request data contains unknown field %q", unknownName)
 	}
 	present := make(map[string]bool, len(values))
@@ -315,7 +320,7 @@ func ValidateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema,
 			continue
 		}
 		required := credentialIssueRequestFieldIsRequired(schemaField)
-		empty := credentialIssueRequestValueIsEmpty(value)
+		empty := credentialIssueRequestValueMatchesType(schemaField, value) && credentialIssueRequestValueIsEmpty(value)
 		// Presence follows the config-field empty semantics: empty strings and
 		// collections are absent, while explicitly supplied numeric zero and false
 		// are present. Int64Rules.is_required retains its older zero-value rule.
@@ -336,6 +341,28 @@ func ValidateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema,
 		}
 	}
 	return nil
+}
+
+func credentialIssueRequestValueMatchesType(schemaField *config.Field, value *structpb.Value) bool {
+	switch schemaField.WhichField() {
+	case config.Field_StringField_case:
+		_, ok := value.GetKind().(*structpb.Value_StringValue)
+		return ok
+	case config.Field_IntField_case:
+		_, ok := value.GetKind().(*structpb.Value_NumberValue)
+		return ok
+	case config.Field_BoolField_case:
+		_, ok := value.GetKind().(*structpb.Value_BoolValue)
+		return ok
+	case config.Field_StringSliceField_case:
+		_, ok := value.GetKind().(*structpb.Value_ListValue)
+		return ok
+	case config.Field_StringMapField_case:
+		_, ok := value.GetKind().(*structpb.Value_StructValue)
+		return ok
+	default:
+		return false
+	}
 }
 
 func credentialIssueRequestFieldIsRequired(schemaField *config.Field) bool {
