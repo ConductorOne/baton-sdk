@@ -2,12 +2,12 @@
 
 Plan: [`plan.md`](plan.md)
 
-Implementation revision: `9de186d3`.
+Implementation revision: `3d371564`.
 
 | Criterion | Status | Instrument | Evidence |
 | --- | --- | --- | --- |
 | C1 | pass | `TestValidateCredentialIssueRequestSchema`, `TestValidateCredentialIssueRequestDataTypes` | Supported scalar/collection kinds and structural schema checks pass. |
-| C2 | pass | `TestValidateCredentialIssueRequestSchema`; CO-1 | Duplicate fields, unsupported kinds, invalid patterns, and invalid constraint references are rejected at capability construction. |
+| C2 | pass | `TestValidateCredentialIssueRequestSchema`; CO-2 | Duplicate fields, unsupported kinds, invalid patterns/defaults/suggestions, oversized collections, and invalid constraint references are rejected at capability construction. |
 | C3 | pass | existing credential issue suite plus `TestIssueCredentialValidatesAndForwardsRequestData` | Validation uses the schema on the descriptor selected by shape and output resource type. |
 | C4 | pass | `TestValidateCredentialIssueRequestData`, `TestValidateCredentialIssueRequestConstraints` | Unknown/missing/wrong-kind/rule/constraint failures are covered. |
 | C5 | pass | `TestValidateCredentialIssueRequestData` | Nil schema plus nil data remains valid. |
