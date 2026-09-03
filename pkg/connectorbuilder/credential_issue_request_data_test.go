@@ -10,6 +10,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -229,6 +230,58 @@ func TestValidateCredentialIssueRequestSchema(t *testing.T) {
 		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "invalid pattern")
 	})
 
+	t.Run("rejects invalid defaults and suggestions", func(t *testing.T) {
+		numberValue, err := anypb.New(structpb.NewNumberValue(5))
+		require.NoError(t, err)
+		tests := []struct {
+			name  string
+			field *config.Field
+		}{
+			{
+				name: "string default",
+				field: config.Field_builder{Name: "region", StringField: config.StringField_builder{
+					DefaultValue: "USA",
+					Rules:        config.StringRules_builder{Pattern: proto.String("^[a-z]+$")}.Build(),
+				}.Build()}.Build(),
+			},
+			{
+				name: "integer suggestion",
+				field: config.Field_builder{Name: "ttl", IntField: config.IntField_builder{
+					SuggestedValue: 30,
+					Rules:          config.Int64Rules_builder{Gte: proto.Int64(60)}.Build(),
+				}.Build()}.Build(),
+			},
+			{
+				name: "boolean default",
+				field: config.Field_builder{Name: "enabled", BoolField: config.BoolField_builder{
+					DefaultValue: true,
+					Rules:        config.BoolRules_builder{Eq: proto.Bool(false)}.Build(),
+				}.Build()}.Build(),
+			},
+			{
+				name: "list default",
+				field: config.Field_builder{Name: "scopes", StringSliceField: config.StringSliceField_builder{
+					DefaultValue: []string{"admin"},
+					Rules: config.RepeatedStringRules_builder{ItemRules: config.StringRules_builder{
+						In: []string{"read"},
+					}.Build()}.Build(),
+				}.Build()}.Build(),
+			},
+			{
+				name: "map default",
+				field: config.Field_builder{Name: "labels", StringMapField: config.StringMapField_builder{
+					DefaultValue: map[string]*anypb.Any{"priority": numberValue},
+				}.Build()}.Build(),
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				err := ValidateCredentialIssueRequestSchema(v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{tt.field}}.Build())
+				require.ErrorContains(t, err, "invalid")
+			})
+		}
+	})
+
 	t.Run("rejects unsupported file extension declarations", func(t *testing.T) {
 		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
 			config.Field_builder{Name: "document", StringField: config.StringField_builder{
@@ -287,6 +340,15 @@ func TestValidateCredentialIssueRequestSchema(t *testing.T) {
 			require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "outside the supported JSON integer range")
 		}
 	})
+
+	t.Run("rejects collection rules above the request bound", func(t *testing.T) {
+		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+			config.Field_builder{Name: "scopes", StringSliceField: config.StringSliceField_builder{
+				Rules: config.RepeatedStringRules_builder{MaxItems: proto.Uint64(maxCredentialIssueCollectionItems + 1)}.Build(),
+			}.Build()}.Build(),
+		}}.Build()
+		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "maximum items must not exceed 64")
+	})
 }
 
 func TestValidateCredentialIssueRequestDataHonorsRulesRequired(t *testing.T) {
@@ -320,6 +382,25 @@ func TestValidateCredentialIssueRequestDataBoundsAndOptions(t *testing.T) {
 	require.ErrorContains(t, ValidateCredentialIssueRequestData(optionSchema, &structpb.Struct{Fields: map[string]*structpb.Value{
 		"region": structpb.NewStringValue(strings.Repeat("x", maxCredentialIssueRequestDataBytes)),
 	}}), "must not exceed")
+
+	collectionSchema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+		config.Field_builder{Name: "scopes", StringSliceField: &config.StringSliceField{}}.Build(),
+		config.Field_builder{Name: "labels", StringMapField: &config.StringMapField{}}.Build(),
+	}}.Build()
+	manyItems := make([]*structpb.Value, maxCredentialIssueCollectionItems+1)
+	for index := range manyItems {
+		manyItems[index] = structpb.NewStringValue("value")
+	}
+	require.ErrorContains(t, ValidateCredentialIssueRequestData(collectionSchema, &structpb.Struct{Fields: map[string]*structpb.Value{
+		"scopes": structpb.NewListValue(&structpb.ListValue{Values: manyItems}),
+	}}), "more than 64 items")
+	manyEntries := make(map[string]*structpb.Value, maxCredentialIssueCollectionItems+1)
+	for index := range maxCredentialIssueCollectionItems + 1 {
+		manyEntries[fmt.Sprintf("key_%d", index)] = structpb.NewStringValue("value")
+	}
+	require.ErrorContains(t, ValidateCredentialIssueRequestData(collectionSchema, &structpb.Struct{Fields: map[string]*structpb.Value{
+		"labels": structpb.NewStructValue(&structpb.Struct{Fields: manyEntries}),
+	}}), "more than 64 entries")
 }
 
 func TestValidateCredentialIssueRequestConstraintTreatsEmptyValuesAsAbsent(t *testing.T) {

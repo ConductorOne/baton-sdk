@@ -1,6 +1,7 @@
 package connectorbuilder
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"regexp"
@@ -13,16 +14,19 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
 var credentialIssueRequestIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+var errInvalidCredentialIssueRequestSchema = errors.New("invalid credential issue request schema")
 
 const (
 	maxSafeJSONInteger                   = int64(1<<53 - 1)
 	maxCredentialIssueRequestFields      = 64
 	maxCredentialIssueRequestConstraints = 64
 	maxCredentialIssueRequestDataBytes   = 64 * 1024
+	maxCredentialIssueCollectionItems    = 64
 )
 
 // maxCredentialIssueSecretResourceTypeIDBytes bounds secret_resource_type_id on
@@ -213,6 +217,9 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 		case config.Field_BoolField_case, config.Field_StringMapField_case:
 		case config.Field_StringSliceField_case:
 			rules := schemaField.GetStringSliceField().GetRules()
+			if rules != nil && rules.HasMaxItems() && rules.GetMaxItems() > maxCredentialIssueCollectionItems {
+				return fmt.Errorf("request schema field %q maximum items must not exceed %d", name, maxCredentialIssueCollectionItems)
+			}
 			if rules != nil && rules.HasMinItems() && rules.HasMaxItems() && rules.GetMinItems() > rules.GetMaxItems() {
 				return fmt.Errorf("request schema field %q has minimum items greater than maximum", name)
 			}
@@ -223,6 +230,9 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 			}
 		default:
 			return fmt.Errorf("request schema field %q has unsupported type", name)
+		}
+		if err := validateCredentialIssueFieldDefaults(schemaField); err != nil {
+			return err
 		}
 	}
 	for _, constraint := range schema.GetConstraints() {
@@ -274,12 +284,123 @@ func firstDuplicate(values []string) string {
 	return ""
 }
 
+func validateCredentialIssueFieldDefaults(schemaField *config.Field) error {
+	name := schemaField.GetName()
+	validate := func(kind string, value *structpb.Value) error {
+		if err := validateCredentialIssueRequestValue(schemaField, value); err != nil {
+			return fmt.Errorf("request schema field %q has invalid %s: %w", name, kind, err)
+		}
+		return nil
+	}
+	switch schemaField.WhichField() {
+	case config.Field_StringField_case:
+		fieldConfig := schemaField.GetStringField()
+		for _, candidate := range []struct{ kind, value string }{
+			{"default value", fieldConfig.GetDefaultValue()},
+			{"suggested value", fieldConfig.GetSuggestedValue()},
+		} {
+			if candidate.value != "" {
+				if err := validate(candidate.kind, structpb.NewStringValue(candidate.value)); err != nil {
+					return err
+				}
+			}
+		}
+	case config.Field_IntField_case:
+		fieldConfig := schemaField.GetIntField()
+		for _, candidate := range []struct {
+			kind  string
+			value int64
+		}{
+			{"default value", fieldConfig.GetDefaultValue()},
+			{"suggested value", fieldConfig.GetSuggestedValue()},
+		} {
+			if candidate.value != 0 {
+				if err := validate(candidate.kind, structpb.NewNumberValue(float64(candidate.value))); err != nil {
+					return err
+				}
+			}
+		}
+	case config.Field_BoolField_case:
+		fieldConfig := schemaField.GetBoolField()
+		for _, candidate := range []struct {
+			kind  string
+			value bool
+		}{
+			{"default value", fieldConfig.GetDefaultValue()},
+			{"suggested value", fieldConfig.GetSuggestedValue()},
+		} {
+			if candidate.value {
+				if err := validate(candidate.kind, structpb.NewBoolValue(candidate.value)); err != nil {
+					return err
+				}
+			}
+		}
+	case config.Field_StringSliceField_case:
+		fieldConfig := schemaField.GetStringSliceField()
+		for _, candidate := range []struct {
+			kind  string
+			value []string
+		}{
+			{"default value", fieldConfig.GetDefaultValue()},
+			{"suggested value", fieldConfig.GetSuggestedValue()},
+		} {
+			if len(candidate.value) > 0 {
+				values := make([]*structpb.Value, 0, len(candidate.value))
+				for _, item := range candidate.value {
+					values = append(values, structpb.NewStringValue(item))
+				}
+				if err := validate(candidate.kind, structpb.NewListValue(&structpb.ListValue{Values: values})); err != nil {
+					return err
+				}
+			}
+		}
+	case config.Field_StringMapField_case:
+		fieldConfig := schemaField.GetStringMapField()
+		for _, candidate := range []struct {
+			kind  string
+			value map[string]*anypb.Any
+		}{
+			{"default value", fieldConfig.GetDefaultValue()},
+			{"suggested value", fieldConfig.GetSuggestedValue()},
+		} {
+			if len(candidate.value) > 0 {
+				structValue, err := credentialIssueConfigMapValue(candidate.value)
+				if err != nil {
+					return fmt.Errorf("request schema field %q has invalid %s: %w", name, candidate.kind, err)
+				}
+				if err := validate(candidate.kind, structpb.NewStructValue(structValue)); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func credentialIssueConfigMapValue(values map[string]*anypb.Any) (*structpb.Struct, error) {
+	converted := make(map[string]*structpb.Value, len(values))
+	for name, value := range values {
+		if value == nil {
+			return nil, fmt.Errorf("map entry %q is nil", name)
+		}
+		convertedValue := &structpb.Value{}
+		if err := value.UnmarshalTo(convertedValue); err != nil {
+			return nil, fmt.Errorf("map entry %q is not a protobuf value: %w", name, err)
+		}
+		converted[name] = convertedValue
+	}
+	return &structpb.Struct{Fields: converted}, nil
+}
+
 // ValidateCredentialIssueRequestData validates typed values against one
 // credential issue descriptor. Hosts use the same validator after applying
 // their generic offering policy so host and connector validation cannot drift.
+// Correctly typed empty strings, lists, and maps follow config-field semantics:
+// they are omissions for requiredness and cross-field constraints. Numeric zero
+// and false remain present because Struct preserves their explicit value.
 func ValidateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema, data *structpb.Struct) error {
 	if err := ValidateCredentialIssueRequestSchema(schema); err != nil {
-		return fmt.Errorf("invalid request schema: %w", err)
+		return fmt.Errorf("%w: %v", errInvalidCredentialIssueRequestSchema, err)
 	}
 	values := map[string]*structpb.Value(nil)
 	if data != nil {
@@ -440,6 +561,9 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 		if !ok {
 			return fmt.Errorf("request data field %q must be a string list", name)
 		}
+		if len(kind.ListValue.GetValues()) > maxCredentialIssueCollectionItems {
+			return fmt.Errorf("request data field %q must not contain more than %d items", name, maxCredentialIssueCollectionItems)
+		}
 		items := make([]string, 0, len(kind.ListValue.GetValues()))
 		for _, item := range kind.ListValue.GetValues() {
 			stringItem, ok := item.GetKind().(*structpb.Value_StringValue)
@@ -456,6 +580,9 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 		kind, ok := value.GetKind().(*structpb.Value_StructValue)
 		if !ok {
 			return fmt.Errorf("request data field %q must be an object", name)
+		}
+		if len(kind.StructValue.GetFields()) > maxCredentialIssueCollectionItems {
+			return fmt.Errorf("request data field %q must not contain more than %d entries", name, maxCredentialIssueCollectionItems)
 		}
 		for _, item := range kind.StructValue.GetFields() {
 			if _, ok := item.GetKind().(*structpb.Value_StringValue); !ok {

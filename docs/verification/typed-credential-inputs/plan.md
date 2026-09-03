@@ -97,3 +97,18 @@ offering defaults belong to the host policy layered over that schema. In C2,
 default-present/default-absent is replaced by host verification of offering
 defaults. This does not weaken an SDK-side behavior because the underlying SDK
 field contract cannot express a default.
+
+### CO-2 — Correction: typed field variants do carry defaults
+
+CO-1 was based on the outer `Field` message and missed `default_value` and
+`suggested_value` on each accepted typed field variant. It is superseded by
+this correction. Schema validation covers every non-zero/non-empty advertised
+default and suggestion using the same rules as request data; proto3 scalar
+fields do not preserve presence for zero values. C2 and the schema
+default-present/default-absent coverage dimension remain SDK closure claims.
+
+Credential issuance intentionally treats correctly typed empty strings, lists,
+and maps as omitted when evaluating cross-field constraints. The generic action
+argument validator treats every non-null value as present. These are separate
+contracts: credential forms use config-field empty semantics, while action
+arguments retain their existing wire-presence behavior.

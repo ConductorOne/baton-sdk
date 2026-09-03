@@ -10,9 +10,12 @@ import (
 
 	"github.com/go-jose/go-jose/v4"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
@@ -149,6 +152,33 @@ func TestIssueCredentialFailsBeforeProviderMutation(t *testing.T) {
 		}.Build())
 		require.ErrorContains(t, err, "capability unavailable")
 		require.Nil(t, issuer.lastInput, "connector must not mint a credential when preflight fails")
+	})
+
+	t.Run("malformed live schema is a connector failure", func(t *testing.T) {
+		issuer := newTestCredentialIssuer("service_account")
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{issuer, newTestCredentialSecretDeleter()}))
+		require.NoError(t, err)
+		issuer.capabilityDetails = v2.CredentialDetailsCredentialIssue_builder{
+			Options: []*v2.CredentialIssueOptionDescriptor{v2.CredentialIssueOptionDescriptor_builder{
+				Option:               v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+				ResourceMode:         v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_DISCOVERABLE,
+				SecretResourceTypeId: "secret",
+				RequestSchema: v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+					config.Field_builder{Name: "broken"}.Build(),
+				}}.Build(),
+			}.Build()},
+			PreferredOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+		}.Build()
+
+		_, err = connector.IssueCredential(ctx, v2.IssueCredentialRequest_builder{
+			IdentityId:        identityID,
+			CredentialOptions: options,
+			EncryptionConfigs: []*v2.EncryptionConfig{newIssueEncryptionConfig(t)},
+			RequestId:         "request-invalid-live-schema",
+		}.Build())
+		require.Equal(t, codes.Internal, status.Code(err))
+		require.ErrorContains(t, err, "connector returned invalid credential issuance request schema")
+		require.Nil(t, issuer.lastInput, "connector must not mint a credential with a malformed live schema")
 	})
 }
 
