@@ -285,13 +285,18 @@ func (f *grantDigestFold) closePartition() error {
 
 // finish closes the last partition, writes the whole-file global root
 // (the fold of every partition this build touched — see globalXor/
-// globalTotal), and commits the tail batch. The global root lands in
-// the same final batch as the last partition's nodes, so it is never
-// visible without them: a crash between batches can only leave the
-// global root ABSENT, never present ahead of a partition it should
-// have folded in.
+// globalTotal) plus the ABI stamp certifying which hash version
+// computed it (rawdb.GrantDigestABIStampKey — the fold's opening
+// DeleteRange erased any prior stamp), and commits the tail batch. The
+// global root and stamp land in the same final batch as the last
+// partition's nodes, so neither is ever visible without them: a crash
+// between batches can only leave them ABSENT, never present ahead of a
+// partition the root should have folded in.
 func (f *grantDigestFold) finish() error {
 	if err := f.closePartition(); err != nil {
+		return err
+	}
+	if err := f.batch.Set(rawdb.GrantDigestABIStampKey(), grantDigestABIStampValue()); err != nil {
 		return err
 	}
 	if err := f.batch.Set(rawdb.GlobalGrantDigestNodeKey(), packDigestLeaf(f.globalTotal, f.globalXor[:])); err != nil {
@@ -487,7 +492,12 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 		}
 		// Zero grants still means the digest WAS built (present-means-
 		// exact — an absent global root would tell a manifest reader to
-		// recalculate instead of trusting "nothing to diff").
+		// recalculate instead of trusting "nothing to diff"). The ABI
+		// stamp precedes the root: WAL prefix ordering then guarantees a
+		// durable root is never uncertified.
+		if err := e.db.DigestSet(rawdb.GrantDigestABIStampKey(), grantDigestABIStampValue(), opts); err != nil {
+			return err
+		}
 		if err := e.db.DigestSet(rawdb.GlobalGrantDigestNodeKey(), packDigestLeaf(0, zeroDigest[:]), opts); err != nil {
 			return err
 		}
