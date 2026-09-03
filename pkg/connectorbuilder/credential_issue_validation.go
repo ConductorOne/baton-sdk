@@ -293,6 +293,9 @@ func ValidateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema,
 			}
 			continue
 		}
+		// Presence follows the config-field empty semantics: empty strings and
+		// collections are absent, while explicitly supplied numeric zero and false
+		// are present. Int64Rules.is_required retains its older zero-value rule.
 		present[name] = !credentialIssueRequestValueIsEmpty(value)
 		if err := validateCredentialIssueRequestValue(schemaField, value); err != nil {
 			return err
@@ -342,7 +345,8 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 		if kind.NumberValue < float64(-maxSafeJSONInteger) || kind.NumberValue > float64(maxSafeJSONInteger) {
 			return fmt.Errorf("request data field %q must be within the supported integer range", name)
 		}
-		if err := validateCredentialIssueIntRules(schemaField.GetIntField().GetRules(), int64(kind.NumberValue), name); err != nil {
+		rules := cloneIntRulesForRequest(schemaField.GetIntField().GetRules())
+		if err := field.ValidateInt64Rules(rules, int64(kind.NumberValue), name); err != nil {
 			return err
 		}
 	case config.Field_BoolField_case:
@@ -401,42 +405,20 @@ func validateCredentialIssueIntRuleBounds(rules *config.Int64Rules) error {
 	return nil
 }
 
-func validateCredentialIssueIntRules(rules *config.Int64Rules, value int64, name string) error {
-	if rules == nil {
-		return nil
-	}
-	if rules.GetIsRequired() && value == 0 {
-		return fmt.Errorf("request data field %q is required", name)
-	}
-	if rules.HasEq() && value != rules.GetEq() {
-		return fmt.Errorf("request data field %q must equal %d", name, rules.GetEq())
-	}
-	if rules.HasLt() && value >= rules.GetLt() {
-		return fmt.Errorf("request data field %q must be less than %d", name, rules.GetLt())
-	}
-	if rules.HasLte() && value > rules.GetLte() {
-		return fmt.Errorf("request data field %q must be less than or equal to %d", name, rules.GetLte())
-	}
-	if rules.HasGt() && value <= rules.GetGt() {
-		return fmt.Errorf("request data field %q must be greater than %d", name, rules.GetGt())
-	}
-	if rules.HasGte() && value < rules.GetGte() {
-		return fmt.Errorf("request data field %q must be greater than or equal to %d", name, rules.GetGte())
-	}
-	if len(rules.GetIn()) > 0 && !slices.Contains(rules.GetIn(), value) {
-		return fmt.Errorf("request data field %q must be one of %v", name, rules.GetIn())
-	}
-	if slices.Contains(rules.GetNotIn(), value) {
-		return fmt.Errorf("request data field %q contains a disallowed value", name)
-	}
-	return nil
-}
-
 func cloneStringRulesForRequest(rules *config.StringRules) *config.StringRules {
 	if rules == nil {
 		return nil
 	}
 	cloned := proto.Clone(rules).(*config.StringRules)
+	cloned.SetValidateEmpty(true)
+	return cloned
+}
+
+func cloneIntRulesForRequest(rules *config.Int64Rules) *config.Int64Rules {
+	if rules == nil {
+		return nil
+	}
+	cloned := proto.Clone(rules).(*config.Int64Rules)
 	cloned.SetValidateEmpty(true)
 	return cloned
 }

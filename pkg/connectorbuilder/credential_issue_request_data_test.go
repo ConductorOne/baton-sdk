@@ -109,6 +109,13 @@ func TestValidateCredentialIssueRequestData(t *testing.T) {
 			wantError: `field "ttl_seconds" must be an integer`,
 		},
 		{
+			name: "integer must be JSON safe",
+			mutate: func(data *structpb.Struct) {
+				data.GetFields()["ttl_seconds"] = structpb.NewNumberValue(1e18)
+			},
+			wantError: `field "ttl_seconds" must be within the supported integer range`,
+		},
+		{
 			name: "integer rule",
 			mutate: func(data *structpb.Struct) {
 				data.GetFields()["ttl_seconds"] = structpb.NewNumberValue(30)
@@ -217,12 +224,16 @@ func TestValidateCredentialIssueRequestSchema(t *testing.T) {
 	})
 
 	t.Run("rejects integer rules outside the JSON-safe range", func(t *testing.T) {
-		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
-			config.Field_builder{Name: "ttl", IntField: config.IntField_builder{Rules: config.Int64Rules_builder{
-				Gte: proto.Int64(1 << 60),
-			}.Build()}.Build()}.Build(),
-		}}.Build()
-		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "outside the supported JSON integer range")
+		for _, rules := range []*config.Int64Rules{
+			config.Int64Rules_builder{Gte: proto.Int64(1 << 60)}.Build(),
+			config.Int64Rules_builder{In: []int64{1 << 60}}.Build(),
+			config.Int64Rules_builder{NotIn: []int64{-(1 << 60)}}.Build(),
+		} {
+			schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+				config.Field_builder{Name: "ttl", IntField: config.IntField_builder{Rules: rules}.Build()}.Build(),
+			}}.Build()
+			require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "outside the supported JSON integer range")
+		}
 	})
 }
 
