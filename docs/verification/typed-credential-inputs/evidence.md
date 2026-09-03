@@ -2,7 +2,7 @@
 
 Plan: [`plan.md`](plan.md)
 
-Implementation revision: `39caa2e4`.
+Implementation revision: `9de186d3`.
 
 | Criterion | Status | Instrument | Evidence |
 | --- | --- | --- | --- |
@@ -18,7 +18,7 @@ Implementation revision: `39caa2e4`.
 
 ## Commands
 
-- `go test -race ./pkg/connectorbuilder -run 'Test(ValidateCredentialIssueRequest|CredentialIssueTypedInputsWireRoundTrip|IssueCredentialValidatesAndForwardsRequestData)' -count=1` — pass.
+- `GOTOOLCHAIN=go1.25.2 go test -race ./pkg/field ./pkg/connectorbuilder ./pkg/tasks/c1api` — pass.
 - `buf lint` — pass.
 - `buf breaking --against '.git#tag=v0.26.0'` — pass.
 - `make protogen` followed by `git status --short` — pass; clean tree.
