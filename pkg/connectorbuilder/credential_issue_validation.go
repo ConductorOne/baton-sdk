@@ -13,6 +13,7 @@ import (
 	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/field"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -196,19 +197,13 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 				return fmt.Errorf("request schema field %q must not declare file extensions", name)
 			}
 			if rules := schemaField.GetStringField().GetRules(); rules != nil {
-				if rules.HasLen() && rules.GetLen() > maxCredentialIssueRequestDataBytes {
-					return fmt.Errorf("request schema field %q exact length must not exceed %d", name, maxCredentialIssueRequestDataBytes)
-				}
-				if rules.HasMinLen() && rules.GetMinLen() > maxCredentialIssueRequestDataBytes {
-					return fmt.Errorf("request schema field %q minimum length must not exceed %d", name, maxCredentialIssueRequestDataBytes)
+				if err := validateCredentialIssueStringRuleBounds(name, rules, false); err != nil {
+					return err
 				}
 				if rules.HasPattern() {
 					if _, err := regexp.CompilePOSIX(rules.GetPattern()); err != nil {
 						return fmt.Errorf("request schema field %q has invalid pattern: %w", name, err)
 					}
-				}
-				if rules.HasMinLen() && rules.HasMaxLen() && rules.GetMinLen() > rules.GetMaxLen() {
-					return fmt.Errorf("request schema field %q has minimum length greater than maximum", name)
 				}
 			}
 		case config.Field_IntField_case:
@@ -234,6 +229,11 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 			}
 			if rules != nil && rules.HasMinItems() && rules.HasMaxItems() && rules.GetMinItems() > rules.GetMaxItems() {
 				return fmt.Errorf("request schema field %q has minimum items greater than maximum", name)
+			}
+			if rules != nil && rules.HasItemRules() {
+				if err := validateCredentialIssueStringRuleBounds(name, rules.GetItemRules(), true); err != nil {
+					return err
+				}
 			}
 			if rules != nil && rules.HasItemRules() && rules.GetItemRules().HasPattern() {
 				if _, err := regexp.CompilePOSIX(rules.GetItemRules().GetPattern()); err != nil {
@@ -283,6 +283,33 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 		}
 	}
 	return nil
+}
+
+func validateCredentialIssueStringRuleBounds(name string, rules *config.StringRules, listItem bool) error {
+	if rules.HasLen() && credentialIssueRequestStringValueSize(name, rules.GetLen(), listItem) > maxCredentialIssueRequestDataBytes {
+		return fmt.Errorf("request schema field %q exact length cannot fit within the %d-byte request data limit", name, maxCredentialIssueRequestDataBytes)
+	}
+	if rules.HasMinLen() && credentialIssueRequestStringValueSize(name, rules.GetMinLen(), listItem) > maxCredentialIssueRequestDataBytes {
+		return fmt.Errorf("request schema field %q minimum length cannot fit within the %d-byte request data limit", name, maxCredentialIssueRequestDataBytes)
+	}
+	if rules.HasMinLen() && rules.HasMaxLen() && rules.GetMinLen() > rules.GetMaxLen() {
+		return fmt.Errorf("request schema field %q has minimum length greater than maximum", name)
+	}
+	return nil
+}
+
+func credentialIssueRequestStringValueSize(name string, length uint64, listItem bool) int {
+	if length > maxCredentialIssueRequestDataBytes {
+		return maxCredentialIssueRequestDataBytes + 1
+	}
+	stringValueSize := protowire.SizeTag(3) + protowire.SizeBytes(int(length))
+	valueSize := stringValueSize
+	if listItem {
+		listSize := protowire.SizeTag(1) + protowire.SizeBytes(stringValueSize)
+		valueSize = protowire.SizeTag(6) + protowire.SizeBytes(listSize)
+	}
+	mapEntrySize := protowire.SizeTag(1) + protowire.SizeBytes(len(name)) + protowire.SizeTag(2) + protowire.SizeBytes(valueSize)
+	return protowire.SizeTag(1) + protowire.SizeBytes(mapEntrySize)
 }
 
 func firstDuplicate(values []string) string {

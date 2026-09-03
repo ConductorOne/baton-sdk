@@ -356,14 +356,25 @@ func TestValidateCredentialIssueRequestSchema(t *testing.T) {
 
 	t.Run("rejects string rules above the request size bound", func(t *testing.T) {
 		for _, rules := range []*config.StringRules{
-			config.StringRules_builder{Len: proto.Uint64(maxCredentialIssueRequestDataBytes + 1)}.Build(),
-			config.StringRules_builder{MinLen: proto.Uint64(maxCredentialIssueRequestDataBytes + 1)}.Build(),
+			config.StringRules_builder{Len: proto.Uint64(maxCredentialIssueRequestDataBytes)}.Build(),
+			config.StringRules_builder{MinLen: proto.Uint64(maxCredentialIssueRequestDataBytes)}.Build(),
 		} {
 			schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
 				config.Field_builder{Name: "value", StringField: config.StringField_builder{Rules: rules}.Build()}.Build(),
 			}}.Build()
-			require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "length must not exceed 65536")
+			require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "length cannot fit within the 65536-byte request data limit")
 		}
+	})
+
+	t.Run("rejects list item rules above the request size bound", func(t *testing.T) {
+		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+			config.Field_builder{Name: "values", StringSliceField: config.StringSliceField_builder{
+				Rules: config.RepeatedStringRules_builder{ItemRules: config.StringRules_builder{
+					MinLen: proto.Uint64(maxCredentialIssueRequestDataBytes),
+				}.Build()}.Build(),
+			}.Build()}.Build(),
+		}}.Build()
+		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "minimum length cannot fit within the 65536-byte request data limit")
 	})
 }
 
@@ -377,6 +388,19 @@ func TestValidateCredentialIssueRequestDataIdentifiesSchemaErrors(t *testing.T) 
 	err := ValidateCredentialIssueRequestData(schema, nil)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrInvalidCredentialIssueRequestSchema))
+}
+
+func TestCredentialIssueRequestStringValueSize(t *testing.T) {
+	for _, listItem := range []bool{false, true} {
+		for _, length := range []int{0, 1, 127, 128, maxCredentialIssueRequestDataBytes} {
+			value := structpb.NewStringValue(strings.Repeat("x", length))
+			if listItem {
+				value = structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{value}})
+			}
+			data := &structpb.Struct{Fields: map[string]*structpb.Value{"value": value}}
+			require.Equal(t, proto.Size(data), credentialIssueRequestStringValueSize("value", uint64(length), listItem)) //nolint:gosec // non-negative test cases
+		}
+	}
 }
 
 func TestValidateCredentialIssueRequestDataHonorsRulesRequired(t *testing.T) {
