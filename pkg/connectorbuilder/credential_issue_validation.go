@@ -18,7 +18,12 @@ import (
 
 var credentialIssueRequestIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-const maxSafeJSONInteger = int64(1<<53 - 1)
+const (
+	maxSafeJSONInteger                   = int64(1<<53 - 1)
+	maxCredentialIssueRequestFields      = 64
+	maxCredentialIssueRequestConstraints = 64
+	maxCredentialIssueRequestDataBytes   = 64 * 1024
+)
 
 // maxCredentialIssueSecretResourceTypeIDBytes bounds secret_resource_type_id on
 // both the descriptor and the request. The descriptor's matching proto rules
@@ -156,11 +161,11 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 	if schema == nil {
 		return nil
 	}
-	if len(schema.GetFields()) > 64 {
-		return fmt.Errorf("request schema must not contain more than 64 fields")
+	if len(schema.GetFields()) > maxCredentialIssueRequestFields {
+		return fmt.Errorf("request schema must not contain more than %d fields", maxCredentialIssueRequestFields)
 	}
-	if len(schema.GetConstraints()) > 64 {
-		return fmt.Errorf("request schema must not contain more than 64 constraints")
+	if len(schema.GetConstraints()) > maxCredentialIssueRequestConstraints {
+		return fmt.Errorf("request schema must not contain more than %d constraints", maxCredentialIssueRequestConstraints)
 	}
 	fields := make(map[string]*config.Field, len(schema.GetFields()))
 	for _, schemaField := range schema.GetFields() {
@@ -177,6 +182,9 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 		fields[name] = schemaField
 		switch schemaField.WhichField() {
 		case config.Field_StringField_case:
+			if len(schemaField.GetStringField().GetAllowedExtensions()) > 0 {
+				return fmt.Errorf("request schema field %q must not declare file extensions", name)
+			}
 			if rules := schemaField.GetStringField().GetRules(); rules != nil {
 				if rules.HasPattern() {
 					if _, err := regexp.CompilePOSIX(rules.GetPattern()); err != nil {
@@ -274,19 +282,26 @@ func ValidateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema,
 	if data != nil {
 		values = data.GetFields()
 	}
+	if len(values) > maxCredentialIssueRequestFields {
+		return fmt.Errorf("request data must not contain more than %d fields", maxCredentialIssueRequestFields)
+	}
+	if proto.Size(data) > maxCredentialIssueRequestDataBytes {
+		return fmt.Errorf("request data must not exceed %d bytes", maxCredentialIssueRequestDataBytes)
+	}
 	fields := make(map[string]*config.Field, len(schema.GetFields()))
 	for _, schemaField := range schema.GetFields() {
 		fields[schemaField.GetName()] = schemaField
 	}
-	unknownNames := make([]string, 0)
+	unknownName := ""
 	for name := range values {
 		if _, ok := fields[name]; !ok {
-			unknownNames = append(unknownNames, name)
+			if unknownName == "" || name < unknownName {
+				unknownName = name
+			}
 		}
 	}
-	slices.Sort(unknownNames)
-	if len(unknownNames) > 0 {
-		return fmt.Errorf("request data contains unknown field %q", unknownNames[0])
+	if unknownName != "" {
+		return fmt.Errorf("request data contains unknown field %q", unknownName)
 	}
 	present := make(map[string]bool, len(values))
 	for _, schemaField := range schema.GetFields() {
@@ -299,15 +314,20 @@ func ValidateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema,
 			}
 			continue
 		}
+		required := credentialIssueRequestFieldIsRequired(schemaField)
+		empty := credentialIssueRequestValueIsEmpty(value)
 		// Presence follows the config-field empty semantics: empty strings and
 		// collections are absent, while explicitly supplied numeric zero and false
 		// are present. Int64Rules.is_required retains its older zero-value rule.
-		present[name] = !credentialIssueRequestValueIsEmpty(value)
+		present[name] = !empty
+		if empty {
+			if required {
+				return fmt.Errorf("request data field %q is required", name)
+			}
+			continue
+		}
 		if err := validateCredentialIssueRequestValue(schemaField, value); err != nil {
 			return err
-		}
-		if credentialIssueRequestFieldIsRequired(schemaField) && credentialIssueRequestValueIsEmpty(value) {
-			return fmt.Errorf("request data field %q is required", name)
 		}
 	}
 	for _, constraint := range schema.GetConstraints() {
@@ -358,6 +378,12 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 		kind, ok := value.GetKind().(*structpb.Value_StringValue)
 		if !ok {
 			return fmt.Errorf("request data field %q must be a string", name)
+		}
+		options := schemaField.GetStringField().GetOptions()
+		if len(options) > 0 && !slices.ContainsFunc(options, func(option *config.StringFieldOption) bool {
+			return option.GetValue() == kind.StringValue
+		}) {
+			return fmt.Errorf("request data field %q must match an advertised option", name)
 		}
 		rules := cloneStringRulesForRequest(schemaField.GetStringField().GetRules())
 		if err := field.ValidateStringRules(rules, kind.StringValue, name); err != nil {

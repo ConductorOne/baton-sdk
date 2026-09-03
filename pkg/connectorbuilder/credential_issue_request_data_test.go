@@ -3,6 +3,7 @@ package connectorbuilder
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
@@ -148,18 +149,11 @@ func TestValidateCredentialIssueRequestData(t *testing.T) {
 			wantError: "must match pattern",
 		},
 		{
-			name: "empty string still validates rules",
-			mutate: func(data *structpb.Struct) {
-				data.GetFields()["region"] = structpb.NewStringValue("")
-			},
-			wantError: "must match pattern",
-		},
-		{
-			name: "empty list still validates rules",
+			name: "empty required list is rejected",
 			mutate: func(data *structpb.Struct) {
 				data.GetFields()["scopes"] = structpb.NewListValue(&structpb.ListValue{})
 			},
-			wantError: "at least 1 items",
+			wantError: `field "scopes" is required`,
 		},
 		{
 			name: "constraint",
@@ -177,6 +171,9 @@ func TestValidateCredentialIssueRequestData(t *testing.T) {
 			require.ErrorContains(t, err, tt.wantError)
 		})
 	}
+	emptyOptional := valid()
+	emptyOptional.GetFields()["region"] = structpb.NewStringValue("")
+	require.NoError(t, ValidateCredentialIssueRequestData(schema, emptyOptional), "an explicit empty optional value is equivalent to omission")
 }
 
 func TestValidateCredentialIssueRequestSchema(t *testing.T) {
@@ -221,6 +218,15 @@ func TestValidateCredentialIssueRequestSchema(t *testing.T) {
 			}.Build()}.Build(),
 		}}.Build()
 		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "invalid pattern")
+	})
+
+	t.Run("rejects unsupported file extension declarations", func(t *testing.T) {
+		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+			config.Field_builder{Name: "document", StringField: config.StringField_builder{
+				AllowedExtensions: []string{"pdf"},
+			}.Build()}.Build(),
+		}}.Build()
+		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "must not declare file extensions")
 	})
 
 	t.Run("rejects constraint references to unknown fields", func(t *testing.T) {
@@ -270,6 +276,29 @@ func TestValidateCredentialIssueRequestDataHonorsRulesRequired(t *testing.T) {
 	}}.Build()
 
 	require.ErrorContains(t, ValidateCredentialIssueRequestData(schema, nil), `field "ttl" is required`)
+}
+
+func TestValidateCredentialIssueRequestDataBoundsAndOptions(t *testing.T) {
+	optionSchema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+		config.Field_builder{Name: "region", StringField: config.StringField_builder{Options: []*config.StringFieldOption{
+			config.StringFieldOption_builder{Value: "us-east-1"}.Build(),
+		}}.Build()}.Build(),
+	}}.Build()
+	require.NoError(t, ValidateCredentialIssueRequestData(optionSchema, &structpb.Struct{Fields: map[string]*structpb.Value{
+		"region": structpb.NewStringValue("us-east-1"),
+	}}))
+	require.ErrorContains(t, ValidateCredentialIssueRequestData(optionSchema, &structpb.Struct{Fields: map[string]*structpb.Value{
+		"region": structpb.NewStringValue("us-west-2"),
+	}}), "must match an advertised option")
+
+	manyFields := make(map[string]*structpb.Value, 65)
+	for index := range 65 {
+		manyFields[fmt.Sprintf("field_%d", index)] = structpb.NewStringValue("value")
+	}
+	require.ErrorContains(t, ValidateCredentialIssueRequestData(nil, &structpb.Struct{Fields: manyFields}), "more than 64 fields")
+	require.ErrorContains(t, ValidateCredentialIssueRequestData(optionSchema, &structpb.Struct{Fields: map[string]*structpb.Value{
+		"region": structpb.NewStringValue(strings.Repeat("x", maxCredentialIssueRequestDataBytes)),
+	}}), "must not exceed")
 }
 
 func TestValidateCredentialIssueRequestConstraintTreatsEmptyValuesAsAbsent(t *testing.T) {
@@ -325,7 +354,7 @@ func TestValidateCredentialIssueRequestDataTypes(t *testing.T) {
 	}}.Build()
 	emptyMap, err := structpb.NewStruct(map[string]any{"labels": map[string]any{}})
 	require.NoError(t, err)
-	require.ErrorContains(t, ValidateCredentialIssueRequestData(emptyMapSchema, emptyMap), "zero-value")
+	require.ErrorContains(t, ValidateCredentialIssueRequestData(emptyMapSchema, emptyMap), `field "labels" is required`)
 }
 
 func TestValidateCredentialIssueRequestDataReportsFieldsInSchemaOrder(t *testing.T) {
