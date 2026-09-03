@@ -529,8 +529,8 @@ func (e *Engine) GetEntitlementDigestRoot(ctx context.Context, id entitlementIde
 // invalidation paths that drop any per-entitlement root — see
 // stageGrantDigestInvalidation and the Drop* functions below.
 func (e *Engine) GetGrantDigestGlobalRoot(ctx context.Context) (DigestRoot, bool, error) {
-	if e.grantDigestBuildPending.Load() || e.grantDigestAbiStale.Load() {
-		// Same guards as getPartitionDigestRoot: a global root committed
+	if e.grantDigestStateUntrusted() {
+		// Same guard as getPartitionDigestRoot: a global root committed
 		// by an interrupted build must read as absent, not certify a
 		// hash index that was never ingested — and one computed under a
 		// different hash ABI (read-only open of an old file) must read
@@ -564,7 +564,18 @@ func (e *Engine) GetGrantDigestGlobalRoot(ctx context.Context) (DigestRoot, bool
 // absent index range and returns {0, 0} — "zero grants", not "unknown".
 // Never use it as a fallback for a missing root; see
 // GetEntitlementDigestRoot and computeBucketDigest's precondition.
+//
+// Gated on grantDigestStateUntrusted: while either flag is set, the
+// hash index this folds may be half-built (grantDigestBuildPending) or
+// hold content hashes from a different ABI (grantDigestAbiStale), so
+// folding it directly — unlike getPartitionDigestRoot, this method has
+// no stored-root check of its own to lean on — would return digests
+// derived from untrustworthy content. Report the same {0, 0} "not
+// built / absent" shape a never-built partition already produces.
 func (e *Engine) ComputeEntitlementBucketDigest(ctx context.Context, id entitlementIdentity, bucket DigestBucket) ([]byte, int64, error) {
+	if e.grantDigestStateUntrusted() {
+		return make([]byte, hashLen), 0, nil
+	}
 	return e.computeBucketDigest(ctx, grantDigestSpec, digestPartitionForEntitlement(id), bucket)
 }
 
@@ -583,6 +594,17 @@ func (e *Engine) DirtyEntitlementBuckets(ctx context.Context, other *Engine, id 
 // The primary key is reconstructed from each index key by byte splice
 // (no decode); the point Get per entry is the cost of MATERIALIZING a
 // changed grant, not of finding it. Orphan index entries are skipped.
+//
+// Deliberately NOT gated by grantDigestStateUntrusted, unlike
+// getPartitionDigestRoot / GetGrantDigestGlobalRoot /
+// ComputeEntitlementBucketDigest: a bucket's MEMBERSHIP is the
+// principal bucket hash over the encoded principal identity, frozen by
+// the v3 key encoding and untouched by any GrantDigestABIVersion bump
+// (only the stored CONTENT hashes and digest nodes are ABI-dependent —
+// see grantContentHash64 vs grantPrincipalBucketHash64). So a stale
+// file's bucket placement is still exact, and this keeps yielding the
+// grants a caller already knows to be dirty even on a read-only open
+// over a stale ABI stamp.
 func (e *Engine) IterateGrantsByEntitlementBucket(ctx context.Context, id entitlementIdentity, bucket DigestBucket, yield func(*v3.GrantRecord) bool) error {
 	lower, upper := grantDigestSpec.bucketBounds(digestPartitionForEntitlement(id), bucket)
 	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})

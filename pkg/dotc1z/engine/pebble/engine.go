@@ -595,6 +595,33 @@ func (e *Engine) IsFreshSync() bool {
 // See WithGrantDigestIndex.
 func (e *Engine) GrantDigestIndexEnabled() bool { return e.opts.grantDigestIndex }
 
+// GrantDigestsPresent reports whether this engine currently holds ANY
+// grant-digest state (nodes + the by_entitlement_principal_hash index
+// beneath them) — the same Open-probed flag the record write paths
+// gate their per-write invalidation obligation on. Exported for
+// callers outside this package that need to tell "no digest state at
+// all" apart from "digest state present but stale/invalidated" (e.g.
+// the compactor's fold, deciding whether a byte-copied base needs a
+// one-time digest build).
+func (e *Engine) GrantDigestsPresent() bool { return e.db.GrantDigestsPresent() }
+
+// grantDigestStateUntrusted reports whether NO stored grant-digest
+// state — digest nodes, the whole-file root, or the
+// by_entitlement_principal_hash index beneath them — may be trusted
+// right now. Both flags it OR's together mean this by construction:
+// grantDigestBuildPending means an interrupted build may have left
+// digest nodes durable while the hash index under them never finished
+// ingesting; grantDigestAbiStale means the nodes and hash-index
+// content hashes were computed by a different hash ABI (a read-only
+// open of a file whose stamp doesn't name the current
+// GrantDigestABIVersion). Either way, every getter and on-demand fold
+// over that state must report "not built" rather than trust or
+// recompute from it — see getPartitionDigestRoot,
+// GetGrantDigestGlobalRoot, and ComputeEntitlementBucketDigest.
+func (e *Engine) grantDigestStateUntrusted() bool {
+	return e.grantDigestBuildPending.Load() || e.grantDigestAbiStale.Load()
+}
+
 // takeFreshGrantsEmpty / takeFreshResourcesEmpty return true
 // exactly once per fresh sync, for the first PutXxxRecords call
 // of that type after

@@ -12,6 +12,7 @@ import (
 	"github.com/segmentio/ksuid"
 	"github.com/stretchr/testify/require"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
@@ -364,6 +365,60 @@ func TestGrantDigestABIStaleReadOnlyOpen(t *testing.T) {
 	require.NotZero(t, digestNodeCount(t, e2), "read-only open must not drop digest nodes")
 	require.NotZero(t, countKeyRangeTest(t, e2, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound()),
 		"read-only open must not drop the hash index")
+}
+
+// TestGrantDigestABIStaleReadOnlyGatesBucketDigest verifies
+// ComputeEntitlementBucketDigest is gated by grantDigestStateUntrusted
+// exactly like the root getters: on a read-only open over a stale ABI
+// stamp it must report "not built" ({0, 0}), even though the hash
+// index it would otherwise fold is still fully present on disk — never
+// silently fold content hashes computed under a different ABI. A fresh
+// non-stale seal must still report the real digest, pinning that the
+// gate only trips on the untrusted-state flags, not always.
+//
+// ScanEntitlementGrantBucket (which reads through
+// IterateGrantsByEntitlementBucket) is asserted to still yield every
+// grant on the SAME stale read-only engine: bucket membership is
+// deliberately NOT gated (see IterateGrantsByEntitlementBucket's
+// doc comment) because it is exact regardless of ABI.
+func TestGrantDigestABIStaleReadOnlyGatesBucketDigest(t *testing.T) {
+	ctx := context.Background()
+	const entID = "ent-A"
+	const n = 20
+
+	// Fresh, non-stale engine: bucket digest must report present (a
+	// non-zero digest and the true grant count).
+	fresh, _ := newTestEngine(t)
+	seedEntitlement(t, fresh, entID, makeTestGrants(entID, n))
+	freshDigest, freshCount, err := fresh.ComputeEntitlementBucketDigest(ctx, testEntIdentity(entID), DigestBucket{})
+	require.NoError(t, err)
+	require.EqualValues(t, n, freshCount, "non-stale engine must report the real grant count")
+	require.NotEqual(t, make([]byte, hashLen), freshDigest, "non-stale engine must report a real, non-zero digest")
+
+	// Stale read-only engine: same call must report "not built".
+	e, dbDir, _ := sealedGrantDigestEngine(t, entID, n)
+	setABIStamp(t, e, staleABIVersion)
+	require.NoError(t, e.Close())
+
+	e2, err := Open(ctx, dbDir, WithReadOnly(true))
+	require.NoError(t, err, "read-only open over a stale-ABI stamp must not error")
+	t.Cleanup(func() { _ = e2.Close() })
+	require.True(t, e2.grantDigestAbiStale.Load(), "precondition: stale flag must be set")
+
+	staleDigest, staleCount, err := e2.ComputeEntitlementBucketDigest(ctx, testEntIdentity(entID), DigestBucket{})
+	require.NoError(t, err)
+	require.Zero(t, staleCount, "stale ABI must report not-built, not the real count")
+	require.Equal(t, make([]byte, hashLen), staleDigest, "stale ABI must report the zero digest, not one folded from untrusted content hashes")
+
+	// Bucket membership (not content) is exact regardless of ABI: the
+	// grants must still come back through ScanEntitlementGrantBucket on
+	// the very same stale engine.
+	var got int
+	require.NoError(t, e2.ScanEntitlementGrantBucket(ctx, testV2Ent(entID), connectorstore.GrantDigestBucket{}, func(g *v2.Grant) bool {
+		got++
+		return true
+	}), "ScanEntitlementGrantBucket must not be gated by the stale ABI flag")
+	require.Equal(t, n, got, "bucket membership must still yield every grant on a stale read-only engine")
 }
 
 // TestGrantDigestABIStampOrphanIgnored verifies the "empty node

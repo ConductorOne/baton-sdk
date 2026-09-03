@@ -671,28 +671,48 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// bucket copy up front, keeps the no-grant-write fold preserving
 	// the base's still-exact digests for free even on a disabled-index
 	// engine. See TestCompactPebbleFoldDigestIndexDisabledDropsDigests.
-	if len(foldStats.TouchedGrantPartitions) > 0 {
-		if !destEng.GrantDigestIndexEnabled() {
-			if err := destEng.DropAllGrantDigestState(ctx); err != nil {
-				return "", fmt.Errorf("compactPebbleFold: drop grant digest state (digest index disabled): %w", err)
-			}
-			l.Info("compactPebbleFold: grant writes with digest index disabled; dropped the base's copied digest state",
-				zap.Int("touched_partitions", len(foldStats.TouchedGrantPartitions)))
-		} else {
-			partitions := make([]string, 0, len(foldStats.TouchedGrantPartitions))
-			for p := range foldStats.TouchedGrantPartitions {
-				partitions = append(partitions, p)
-			}
-			if err := destEng.InvalidateGrantDigestPartitions(ctx, partitions); err != nil {
-				return "", fmt.Errorf("compactPebbleFold: invalidate grant digest partitions: %w", err)
-			}
-			if err := destEng.RepairMissingGrantDigests(ctx); err != nil {
-				return "", fmt.Errorf("compactPebbleFold: repair grant digests: %w", err)
-			}
-			l.Info("compactPebbleFold: repaired grant digests for touched entitlements",
-				zap.Int("touched_partitions", len(partitions)))
+	//
+	// When the fold writes NO grants, the base's copied digest state is
+	// normally left exactly as it was (cheapest possible: zero touched
+	// partitions, nothing to repair). But that copy is only ever as
+	// good as what Open decided to keep: the dest's writable Open just
+	// dropped a base whose stamp named a different GrantDigestABIVersion,
+	// or the base was sealed with the digest index disabled, or a prior
+	// digest-build failure dropped it — either way the dest can carry NO
+	// digest state at all, and with no grant write to trigger the repair
+	// branch above, nothing else in this fold would ever fix that. So when
+	// the dest engine wants digests but GrantDigestsPresent() reports
+	// none, RepairMissingGrantDigests runs anyway: with nothing present
+	// it delegates straight to the full BuildGrantDigests, a one-time
+	// O(base) scan the first time a digest-less base is folded. Every
+	// later fold of the same lineage finds digests already present and
+	// stamped, and pays the normal O(partials) cost again.
+	switch {
+	case len(foldStats.TouchedGrantPartitions) > 0 && !destEng.GrantDigestIndexEnabled():
+		if err := destEng.DropAllGrantDigestState(ctx); err != nil {
+			return "", fmt.Errorf("compactPebbleFold: drop grant digest state (digest index disabled): %w", err)
 		}
-	} else {
+		l.Info("compactPebbleFold: grant writes with digest index disabled; dropped the base's copied digest state",
+			zap.Int("touched_partitions", len(foldStats.TouchedGrantPartitions)))
+	case len(foldStats.TouchedGrantPartitions) > 0:
+		partitions := make([]string, 0, len(foldStats.TouchedGrantPartitions))
+		for p := range foldStats.TouchedGrantPartitions {
+			partitions = append(partitions, p)
+		}
+		if err := destEng.InvalidateGrantDigestPartitions(ctx, partitions); err != nil {
+			return "", fmt.Errorf("compactPebbleFold: invalidate grant digest partitions: %w", err)
+		}
+		if err := destEng.RepairMissingGrantDigests(ctx); err != nil {
+			return "", fmt.Errorf("compactPebbleFold: repair grant digests: %w", err)
+		}
+		l.Info("compactPebbleFold: repaired grant digests for touched entitlements",
+			zap.Int("touched_partitions", len(partitions)))
+	case destEng.GrantDigestIndexEnabled() && !destEng.GrantDigestsPresent():
+		if err := destEng.RepairMissingGrantDigests(ctx); err != nil {
+			return "", fmt.Errorf("compactPebbleFold: build grant digests for a base with none: %w", err)
+		}
+		l.Info("compactPebbleFold: no grant writes, but the base carried no grant digest state; built it")
+	default:
 		l.Info("compactPebbleFold: no grant writes; base grant digest state left untouched")
 	}
 
