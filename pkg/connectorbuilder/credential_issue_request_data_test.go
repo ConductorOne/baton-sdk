@@ -2,6 +2,7 @@ package connectorbuilder
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -342,13 +343,40 @@ func TestValidateCredentialIssueRequestSchema(t *testing.T) {
 	})
 
 	t.Run("rejects collection rules above the request bound", func(t *testing.T) {
-		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
-			config.Field_builder{Name: "scopes", StringSliceField: config.StringSliceField_builder{
-				Rules: config.RepeatedStringRules_builder{MaxItems: proto.Uint64(maxCredentialIssueCollectionItems + 1)}.Build(),
-			}.Build()}.Build(),
-		}}.Build()
-		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "maximum items must not exceed 64")
+		for _, rules := range []*config.RepeatedStringRules{
+			config.RepeatedStringRules_builder{MinItems: proto.Uint64(maxCredentialIssueCollectionItems + 1)}.Build(),
+			config.RepeatedStringRules_builder{MaxItems: proto.Uint64(maxCredentialIssueCollectionItems + 1)}.Build(),
+		} {
+			schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+				config.Field_builder{Name: "scopes", StringSliceField: config.StringSliceField_builder{Rules: rules}.Build()}.Build(),
+			}}.Build()
+			require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "items must not exceed 64")
+		}
 	})
+
+	t.Run("rejects string rules above the request size bound", func(t *testing.T) {
+		for _, rules := range []*config.StringRules{
+			config.StringRules_builder{Len: proto.Uint64(maxCredentialIssueRequestDataBytes + 1)}.Build(),
+			config.StringRules_builder{MinLen: proto.Uint64(maxCredentialIssueRequestDataBytes + 1)}.Build(),
+		} {
+			schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+				config.Field_builder{Name: "value", StringField: config.StringField_builder{Rules: rules}.Build()}.Build(),
+			}}.Build()
+			require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "length must not exceed 65536")
+		}
+	})
+}
+
+func TestValidateCredentialIssueRequestDataIdentifiesSchemaErrors(t *testing.T) {
+	schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+		config.Field_builder{Name: "value", StringField: config.StringField_builder{
+			Rules: config.StringRules_builder{Pattern: proto.String("[")}.Build(),
+		}.Build()}.Build(),
+	}}.Build()
+
+	err := ValidateCredentialIssueRequestData(schema, nil)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrInvalidCredentialIssueRequestSchema))
 }
 
 func TestValidateCredentialIssueRequestDataHonorsRulesRequired(t *testing.T) {

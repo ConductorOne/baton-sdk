@@ -216,7 +216,7 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 	descriptor, err := validateCredentialIssueInput(input, details, b.nowFunc())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		if errors.Is(err, errInvalidCredentialIssueRequestSchema) {
+		if errors.Is(err, ErrInvalidCredentialIssueRequestSchema) {
 			return nil, status.Errorf(codes.Internal, "connector returned invalid credential issuance request schema: %v", err)
 		}
 		return nil, status.Errorf(codes.InvalidArgument, "invalid credential issuance request: %v", err)

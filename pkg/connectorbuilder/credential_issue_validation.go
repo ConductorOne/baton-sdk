@@ -19,7 +19,10 @@ import (
 )
 
 var credentialIssueRequestIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-var errInvalidCredentialIssueRequestSchema = errors.New("invalid credential issue request schema")
+
+// ErrInvalidCredentialIssueRequestSchema identifies connector-owned schema
+// errors separately from caller-owned request data errors.
+var ErrInvalidCredentialIssueRequestSchema = errors.New("invalid credential issue request schema")
 
 const (
 	maxSafeJSONInteger                   = int64(1<<53 - 1)
@@ -193,6 +196,12 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 				return fmt.Errorf("request schema field %q must not declare file extensions", name)
 			}
 			if rules := schemaField.GetStringField().GetRules(); rules != nil {
+				if rules.HasLen() && rules.GetLen() > maxCredentialIssueRequestDataBytes {
+					return fmt.Errorf("request schema field %q exact length must not exceed %d", name, maxCredentialIssueRequestDataBytes)
+				}
+				if rules.HasMinLen() && rules.GetMinLen() > maxCredentialIssueRequestDataBytes {
+					return fmt.Errorf("request schema field %q minimum length must not exceed %d", name, maxCredentialIssueRequestDataBytes)
+				}
 				if rules.HasPattern() {
 					if _, err := regexp.CompilePOSIX(rules.GetPattern()); err != nil {
 						return fmt.Errorf("request schema field %q has invalid pattern: %w", name, err)
@@ -217,6 +226,9 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 		case config.Field_BoolField_case, config.Field_StringMapField_case:
 		case config.Field_StringSliceField_case:
 			rules := schemaField.GetStringSliceField().GetRules()
+			if rules != nil && rules.HasMinItems() && rules.GetMinItems() > maxCredentialIssueCollectionItems {
+				return fmt.Errorf("request schema field %q minimum items must not exceed %d", name, maxCredentialIssueCollectionItems)
+			}
 			if rules != nil && rules.HasMaxItems() && rules.GetMaxItems() > maxCredentialIssueCollectionItems {
 				return fmt.Errorf("request schema field %q maximum items must not exceed %d", name, maxCredentialIssueCollectionItems)
 			}
@@ -373,6 +385,7 @@ func validateCredentialIssueFieldDefaults(schemaField *config.Field) error {
 				}
 			}
 		}
+	default:
 	}
 	return nil
 }
@@ -400,7 +413,7 @@ func credentialIssueConfigMapValue(values map[string]*anypb.Any) (*structpb.Stru
 // and false remain present because Struct preserves their explicit value.
 func ValidateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema, data *structpb.Struct) error {
 	if err := ValidateCredentialIssueRequestSchema(schema); err != nil {
-		return fmt.Errorf("%w: %v", errInvalidCredentialIssueRequestSchema, err)
+		return fmt.Errorf("%w: %w", ErrInvalidCredentialIssueRequestSchema, err)
 	}
 	values := map[string]*structpb.Value(nil)
 	if data != nil {
