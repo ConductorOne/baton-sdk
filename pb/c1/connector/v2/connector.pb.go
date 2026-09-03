@@ -1095,9 +1095,11 @@ func (b0 CredentialIssueOptionDescriptor_builder) Build() *CredentialIssueOption
 }
 
 type CredentialIssueRequestSchema struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Fields        []*v1.Field            `protobuf:"bytes,1,rep,name=fields,proto3" json:"fields,omitempty"`
-	Constraints   []*v1.Constraint       `protobuf:"bytes,2,rep,name=constraints,proto3" json:"constraints,omitempty"`
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// Request fields are carried through host task and webhook surfaces. Secret
+	// fields are therefore unsupported; schema validation rejects is_secret.
+	Fields        []*v1.Field      `protobuf:"bytes,1,rep,name=fields,proto3" json:"fields,omitempty"`
+	Constraints   []*v1.Constraint `protobuf:"bytes,2,rep,name=constraints,proto3" json:"constraints,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1152,6 +1154,8 @@ func (x *CredentialIssueRequestSchema) SetConstraints(v []*v1.Constraint) {
 type CredentialIssueRequestSchema_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
+	// Request fields are carried through host task and webhook surfaces. Secret
+	// fields are therefore unsupported; schema validation rejects is_secret.
 	Fields      []*v1.Field
 	Constraints []*v1.Constraint
 }

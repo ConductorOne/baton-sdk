@@ -1144,6 +1144,8 @@ func (x *CredentialIssueRequestSchema) SetConstraints(v []*v1.Constraint) {
 type CredentialIssueRequestSchema_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
+	// Request fields are carried through host task and webhook surfaces. Secret
+	// fields are therefore unsupported; schema validation rejects is_secret.
 	Fields      []*v1.Field
 	Constraints []*v1.Constraint
 }
