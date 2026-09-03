@@ -156,6 +156,12 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 	if schema == nil {
 		return nil
 	}
+	if len(schema.GetFields()) > 64 {
+		return fmt.Errorf("request schema must not contain more than 64 fields")
+	}
+	if len(schema.GetConstraints()) > 64 {
+		return fmt.Errorf("request schema must not contain more than 64 constraints")
+	}
 	fields := make(map[string]*config.Field, len(schema.GetFields()))
 	for _, schemaField := range schema.GetFields() {
 		if schemaField == nil || strings.TrimSpace(schemaField.GetName()) == "" {

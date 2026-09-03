@@ -2,6 +2,7 @@ package connectorbuilder
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
@@ -179,6 +180,20 @@ func TestValidateCredentialIssueRequestData(t *testing.T) {
 }
 
 func TestValidateCredentialIssueRequestSchema(t *testing.T) {
+	t.Run("bounds schema collections", func(t *testing.T) {
+		fields := make([]*config.Field, 65)
+		for index := range fields {
+			fields[index] = config.Field_builder{Name: fmt.Sprintf("field_%d", index), StringField: &config.StringField{}}.Build()
+		}
+		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(v2.CredentialIssueRequestSchema_builder{Fields: fields}.Build()), "more than 64 fields")
+
+		constraints := make([]*config.Constraint, 65)
+		for index := range constraints {
+			constraints[index] = config.Constraint_builder{Kind: config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER}.Build()
+		}
+		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(v2.CredentialIssueRequestSchema_builder{Constraints: constraints}.Build()), "more than 64 constraints")
+	})
+
 	t.Run("rejects duplicate fields", func(t *testing.T) {
 		field := config.Field_builder{Name: "scope", StringField: &config.StringField{}}.Build()
 		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{field, field}}.Build()
