@@ -18,6 +18,8 @@ import (
 
 var credentialIssueRequestIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
+const maxSafeJSONInteger = int64(1<<53 - 1)
+
 // maxCredentialIssueSecretResourceTypeIDBytes bounds secret_resource_type_id on
 // both the descriptor and the request. The descriptor's matching proto rules
 // never run: nothing on the capabilities or issuance path calls the generated
@@ -181,6 +183,9 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 			}
 		case config.Field_IntField_case:
 			if rules := schemaField.GetIntField().GetRules(); rules != nil {
+				if err := validateCredentialIssueIntRuleBounds(rules); err != nil {
+					return fmt.Errorf("request schema field %q: %w", name, err)
+				}
 				if rules.HasGte() && rules.HasLte() && rules.GetGte() > rules.GetLte() {
 					return fmt.Errorf("request schema field %q has minimum greater than maximum", name)
 				}
@@ -207,8 +212,15 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 		if constraint == nil {
 			return fmt.Errorf("request schema constraint is required")
 		}
-		if constraint.GetKind() == config.ConstraintKind_CONSTRAINT_KIND_UNSPECIFIED {
+		switch constraint.GetKind() {
+		case config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER,
+			config.ConstraintKind_CONSTRAINT_KIND_AT_LEAST_ONE,
+			config.ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE,
+			config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON:
+		case config.ConstraintKind_CONSTRAINT_KIND_UNSPECIFIED:
 			return fmt.Errorf("request schema constraint kind is required")
+		default:
+			return fmt.Errorf("request schema constraint kind %v is unsupported", constraint.GetKind())
 		}
 		if len(constraint.GetFieldNames()) == 0 {
 			return fmt.Errorf("request schema constraint fields are required")
@@ -281,7 +293,7 @@ func ValidateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema,
 			}
 			continue
 		}
-		present[name] = true
+		present[name] = !credentialIssueRequestValueIsEmpty(value)
 		if err := validateCredentialIssueRequestValue(schemaField, value); err != nil {
 			return err
 		}
@@ -324,16 +336,13 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 		}
 	case config.Field_IntField_case:
 		kind, ok := value.GetKind().(*structpb.Value_NumberValue)
-		const maxSafeJSONInteger = float64(1<<53 - 1)
-		minInt, maxInt := -maxSafeJSONInteger, maxSafeJSONInteger
-		if strconv.IntSize == 32 {
-			minInt, maxInt = float64(-1<<31), float64(1<<31-1)
-		}
-		if !ok || math.IsNaN(kind.NumberValue) || math.IsInf(kind.NumberValue, 0) || math.Trunc(kind.NumberValue) != kind.NumberValue || kind.NumberValue < -maxSafeJSONInteger || kind.NumberValue > maxSafeJSONInteger || kind.NumberValue < minInt || kind.NumberValue > maxInt {
+		if !ok || math.IsNaN(kind.NumberValue) || math.IsInf(kind.NumberValue, 0) || math.Trunc(kind.NumberValue) != kind.NumberValue {
 			return fmt.Errorf("request data field %q must be an integer", name)
 		}
-		rules := cloneIntRulesForRequest(schemaField.GetIntField().GetRules())
-		if err := field.ValidateIntRules(rules, int(kind.NumberValue), name); err != nil {
+		if kind.NumberValue < float64(-maxSafeJSONInteger) || kind.NumberValue > float64(maxSafeJSONInteger) {
+			return fmt.Errorf("request data field %q must be within the supported integer range", name)
+		}
+		if err := validateCredentialIssueIntRules(schemaField.GetIntField().GetRules(), int64(kind.NumberValue), name); err != nil {
 			return err
 		}
 	case config.Field_BoolField_case:
@@ -376,20 +385,58 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 	return nil
 }
 
+func validateCredentialIssueIntRuleBounds(rules *config.Int64Rules) error {
+	values := []int64{rules.GetEq(), rules.GetLt(), rules.GetLte(), rules.GetGt(), rules.GetGte()}
+	set := []bool{rules.HasEq(), rules.HasLt(), rules.HasLte(), rules.HasGt(), rules.HasGte()}
+	for index, value := range values {
+		if set[index] && (value < -maxSafeJSONInteger || value > maxSafeJSONInteger) {
+			return fmt.Errorf("integer rule is outside the supported JSON integer range")
+		}
+	}
+	for _, value := range append(slices.Clone(rules.GetIn()), rules.GetNotIn()...) {
+		if value < -maxSafeJSONInteger || value > maxSafeJSONInteger {
+			return fmt.Errorf("integer rule is outside the supported JSON integer range")
+		}
+	}
+	return nil
+}
+
+func validateCredentialIssueIntRules(rules *config.Int64Rules, value int64, name string) error {
+	if rules == nil {
+		return nil
+	}
+	if rules.GetIsRequired() && value == 0 {
+		return fmt.Errorf("request data field %q is required", name)
+	}
+	if rules.HasEq() && value != rules.GetEq() {
+		return fmt.Errorf("request data field %q must equal %d", name, rules.GetEq())
+	}
+	if rules.HasLt() && value >= rules.GetLt() {
+		return fmt.Errorf("request data field %q must be less than %d", name, rules.GetLt())
+	}
+	if rules.HasLte() && value > rules.GetLte() {
+		return fmt.Errorf("request data field %q must be less than or equal to %d", name, rules.GetLte())
+	}
+	if rules.HasGt() && value <= rules.GetGt() {
+		return fmt.Errorf("request data field %q must be greater than %d", name, rules.GetGt())
+	}
+	if rules.HasGte() && value < rules.GetGte() {
+		return fmt.Errorf("request data field %q must be greater than or equal to %d", name, rules.GetGte())
+	}
+	if len(rules.GetIn()) > 0 && !slices.Contains(rules.GetIn(), value) {
+		return fmt.Errorf("request data field %q must be one of %v", name, rules.GetIn())
+	}
+	if slices.Contains(rules.GetNotIn(), value) {
+		return fmt.Errorf("request data field %q contains a disallowed value", name)
+	}
+	return nil
+}
+
 func cloneStringRulesForRequest(rules *config.StringRules) *config.StringRules {
 	if rules == nil {
 		return nil
 	}
 	cloned := proto.Clone(rules).(*config.StringRules)
-	cloned.SetValidateEmpty(true)
-	return cloned
-}
-
-func cloneIntRulesForRequest(rules *config.Int64Rules) *config.Int64Rules {
-	if rules == nil {
-		return nil
-	}
-	cloned := proto.Clone(rules).(*config.Int64Rules)
 	cloned.SetValidateEmpty(true)
 	return cloned
 }

@@ -57,6 +57,9 @@ func TestValidateCredentialIssueRequestData(t *testing.T) {
 
 	require.NoError(t, ValidateCredentialIssueRequestData(schema, valid()))
 	require.NoError(t, ValidateCredentialIssueRequestData(nil, nil), "legacy descriptors accept legacy requests")
+	legacyData, err := structpb.NewStruct(map[string]any{"region": "us-east-1"})
+	require.NoError(t, err)
+	require.ErrorContains(t, ValidateCredentialIssueRequestData(nil, legacyData), `unknown field "region"`)
 
 	tests := []struct {
 		name      string
@@ -198,6 +201,56 @@ func TestValidateCredentialIssueRequestSchema(t *testing.T) {
 		}.Build()
 		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), `unknown field "account"`)
 	})
+
+	t.Run("rejects unknown constraint kinds", func(t *testing.T) {
+		schema := v2.CredentialIssueRequestSchema_builder{
+			Fields: []*config.Field{
+				config.Field_builder{Name: "region", StringField: &config.StringField{}}.Build(),
+				config.Field_builder{Name: "account", StringField: &config.StringField{}}.Build(),
+			},
+			Constraints: []*config.Constraint{config.Constraint_builder{
+				Kind:       config.ConstraintKind(99),
+				FieldNames: []string{"region", "account"},
+			}.Build()},
+		}.Build()
+		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "unsupported")
+	})
+
+	t.Run("rejects integer rules outside the JSON-safe range", func(t *testing.T) {
+		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+			config.Field_builder{Name: "ttl", IntField: config.IntField_builder{Rules: config.Int64Rules_builder{
+				Gte: proto.Int64(1 << 60),
+			}.Build()}.Build()}.Build(),
+		}}.Build()
+		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "outside the supported JSON integer range")
+	})
+}
+
+func TestValidateCredentialIssueRequestConstraintTreatsEmptyValuesAsAbsent(t *testing.T) {
+	for _, value := range []*structpb.Value{
+		structpb.NewStringValue(""),
+		structpb.NewListValue(&structpb.ListValue{}),
+		structpb.NewStructValue(&structpb.Struct{}),
+	} {
+		schema := v2.CredentialIssueRequestSchema_builder{
+			Fields: []*config.Field{
+				config.Field_builder{Name: "a", StringField: &config.StringField{}}.Build(),
+				config.Field_builder{Name: "b", StringField: &config.StringField{}}.Build(),
+			},
+			Constraints: []*config.Constraint{config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_AT_LEAST_ONE,
+				FieldNames: []string{"a", "b"},
+			}.Build()},
+		}.Build()
+		if _, ok := value.GetKind().(*structpb.Value_ListValue); ok {
+			schema.GetFields()[0].SetStringSliceField(&config.StringSliceField{})
+		}
+		if _, ok := value.GetKind().(*structpb.Value_StructValue); ok {
+			schema.GetFields()[0].SetStringMapField(&config.StringMapField{})
+		}
+		data := &structpb.Struct{Fields: map[string]*structpb.Value{"a": value}}
+		require.ErrorContains(t, ValidateCredentialIssueRequestData(schema, data), "requires at least one")
+	}
 }
 
 func TestValidateCredentialIssueRequestDataTypes(t *testing.T) {
