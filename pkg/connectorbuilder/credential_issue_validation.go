@@ -412,8 +412,7 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 		}) {
 			return fmt.Errorf("request data field %q must match an advertised option", name)
 		}
-		rules := cloneStringRulesForRequest(schemaField.GetStringField().GetRules())
-		if err := field.ValidateStringRules(rules, kind.StringValue, name); err != nil {
+		if err := field.ValidateStringRules(schemaField.GetStringField().GetRules(), kind.StringValue, name); err != nil {
 			return err
 		}
 	case config.Field_IntField_case:
@@ -463,8 +462,7 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 				return fmt.Errorf("request data field %q must contain only string values", name)
 			}
 		}
-		rules := cloneStringMapRulesForRequest(schemaField.GetStringMapField().GetRules())
-		if err := field.ValidateStringMapRules(rules, kind.StructValue.AsMap(), name); err != nil {
+		if err := field.ValidateStringMapRules(schemaField.GetStringMapField().GetRules(), kind.StructValue.AsMap(), name); err != nil {
 			return err
 		}
 	default:
@@ -489,15 +487,6 @@ func validateCredentialIssueIntRuleBounds(rules *config.Int64Rules) error {
 	return nil
 }
 
-func cloneStringRulesForRequest(rules *config.StringRules) *config.StringRules {
-	if rules == nil {
-		return nil
-	}
-	cloned := proto.Clone(rules).(*config.StringRules)
-	cloned.SetValidateEmpty(true)
-	return cloned
-}
-
 func cloneIntRulesForRequest(rules *config.Int64Rules) *config.Int64Rules {
 	if rules == nil {
 		return nil
@@ -512,19 +501,9 @@ func cloneRepeatedStringRulesForRequest(rules *config.RepeatedStringRules) *conf
 		return nil
 	}
 	cloned := proto.Clone(rules).(*config.RepeatedStringRules)
-	cloned.SetValidateEmpty(true)
 	if cloned.HasItemRules() {
 		cloned.GetItemRules().SetValidateEmpty(true)
 	}
-	return cloned
-}
-
-func cloneStringMapRulesForRequest(rules *config.StringMapRules) *config.StringMapRules {
-	if rules == nil {
-		return nil
-	}
-	cloned := proto.Clone(rules).(*config.StringMapRules)
-	cloned.SetValidateEmpty(true)
 	return cloned
 }
 
