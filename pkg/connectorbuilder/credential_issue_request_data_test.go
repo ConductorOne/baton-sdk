@@ -30,6 +30,7 @@ func testCredentialIssueRequestSchema() *v2.CredentialIssueRequestSchema {
 				Rules: config.StringRules_builder{Pattern: proto.String("^[a-z]+-[a-z]+-[0-9]+$")}.Build(),
 			}.Build()}.Build(),
 			config.Field_builder{Name: "global", BoolField: &config.BoolField{}}.Build(),
+			config.Field_builder{Name: "labels", StringMapField: &config.StringMapField{}}.Build(),
 			config.Field_builder{Name: "ttl_seconds", IntField: config.IntField_builder{
 				Rules: config.Int64Rules_builder{Gte: proto.Int64(60), Lte: proto.Int64(3600)}.Build(),
 			}.Build()}.Build(),
@@ -93,6 +94,15 @@ func TestValidateCredentialIssueRequestData(t *testing.T) {
 				data.GetFields()["scopes"] = structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{structpb.NewNumberValue(1)}})
 			},
 			wantError: `field "scopes" must contain only strings`,
+		},
+		{
+			name: "string map values must be strings",
+			mutate: func(data *structpb.Struct) {
+				data.GetFields()["labels"] = structpb.NewStructValue(&structpb.Struct{Fields: map[string]*structpb.Value{
+					"environment": structpb.NewNumberValue(5),
+				}})
+			},
+			wantError: `field "labels" must contain only string values`,
 		},
 		{
 			name: "field rule",
@@ -235,6 +245,16 @@ func TestValidateCredentialIssueRequestSchema(t *testing.T) {
 			require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "outside the supported JSON integer range")
 		}
 	})
+}
+
+func TestValidateCredentialIssueRequestDataHonorsRulesRequired(t *testing.T) {
+	schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+		config.Field_builder{Name: "ttl", IntField: config.IntField_builder{
+			Rules: config.Int64Rules_builder{IsRequired: true}.Build(),
+		}.Build()}.Build(),
+	}}.Build()
+
+	require.ErrorContains(t, ValidateCredentialIssueRequestData(schema, nil), `field "ttl" is required`)
 }
 
 func TestValidateCredentialIssueRequestConstraintTreatsEmptyValuesAsAbsent(t *testing.T) {

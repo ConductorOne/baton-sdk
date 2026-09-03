@@ -288,7 +288,7 @@ func ValidateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema,
 		value, ok := values[name]
 		_, isNull := value.GetKind().(*structpb.Value_NullValue)
 		if !ok || value == nil || value.GetKind() == nil || isNull {
-			if schemaField.GetIsRequired() {
+			if credentialIssueRequestFieldIsRequired(schemaField) {
 				return fmt.Errorf("request data field %q is required", name)
 			}
 			continue
@@ -300,7 +300,7 @@ func ValidateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema,
 		if err := validateCredentialIssueRequestValue(schemaField, value); err != nil {
 			return err
 		}
-		if schemaField.GetIsRequired() && credentialIssueRequestValueIsEmpty(value) {
+		if credentialIssueRequestFieldIsRequired(schemaField) && credentialIssueRequestValueIsEmpty(value) {
 			return fmt.Errorf("request data field %q is required", name)
 		}
 	}
@@ -310,6 +310,26 @@ func ValidateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema,
 		}
 	}
 	return nil
+}
+
+func credentialIssueRequestFieldIsRequired(schemaField *config.Field) bool {
+	if schemaField.GetIsRequired() {
+		return true
+	}
+	switch schemaField.WhichField() {
+	case config.Field_StringField_case:
+		return schemaField.GetStringField().GetRules().GetIsRequired()
+	case config.Field_IntField_case:
+		return schemaField.GetIntField().GetRules().GetIsRequired()
+	case config.Field_BoolField_case:
+		return false
+	case config.Field_StringSliceField_case:
+		return schemaField.GetStringSliceField().GetRules().GetIsRequired()
+	case config.Field_StringMapField_case:
+		return schemaField.GetStringMapField().GetRules().GetIsRequired()
+	default:
+		return false
+	}
 }
 
 func credentialIssueRequestValueIsEmpty(value *structpb.Value) bool {
@@ -378,6 +398,11 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 		kind, ok := value.GetKind().(*structpb.Value_StructValue)
 		if !ok {
 			return fmt.Errorf("request data field %q must be an object", name)
+		}
+		for _, item := range kind.StructValue.GetFields() {
+			if _, ok := item.GetKind().(*structpb.Value_StringValue); !ok {
+				return fmt.Errorf("request data field %q must contain only string values", name)
+			}
 		}
 		rules := cloneStringMapRulesForRequest(schemaField.GetStringMapField().GetRules())
 		if err := field.ValidateStringMapRules(rules, kind.StructValue.AsMap(), name); err != nil {
