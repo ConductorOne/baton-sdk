@@ -113,11 +113,32 @@ func TestValidateCredentialIssueRequestData(t *testing.T) {
 			wantError: "greater than or equal to 60",
 		},
 		{
+			name: "zero integer still validates rules",
+			mutate: func(data *structpb.Struct) {
+				data.GetFields()["ttl_seconds"] = structpb.NewNumberValue(0)
+			},
+			wantError: "greater than or equal to 60",
+		},
+		{
 			name: "string rule",
 			mutate: func(data *structpb.Struct) {
 				data.GetFields()["region"] = structpb.NewStringValue("USA")
 			},
 			wantError: "must match pattern",
+		},
+		{
+			name: "empty string still validates rules",
+			mutate: func(data *structpb.Struct) {
+				data.GetFields()["region"] = structpb.NewStringValue("")
+			},
+			wantError: "must match pattern",
+		},
+		{
+			name: "empty list still validates rules",
+			mutate: func(data *structpb.Struct) {
+				data.GetFields()["scopes"] = structpb.NewListValue(&structpb.ListValue{})
+			},
+			wantError: "at least 1 items",
 		},
 		{
 			name: "constraint",
@@ -149,6 +170,13 @@ func TestValidateCredentialIssueRequestSchema(t *testing.T) {
 			config.Field_builder{Name: "result", ResourceField: &config.ResourceField{}}.Build(),
 		}}.Build()
 		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "unsupported type")
+	})
+
+	t.Run("rejects secret fields", func(t *testing.T) {
+		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+			config.Field_builder{Name: "token", IsSecret: true, StringField: &config.StringField{}}.Build(),
+		}}.Build()
+		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), `field "token" must not be secret`)
 	})
 
 	t.Run("rejects invalid rules", func(t *testing.T) {
@@ -190,6 +218,26 @@ func TestValidateCredentialIssueRequestDataTypes(t *testing.T) {
 	valid.GetFields()["enabled"] = structpb.NewBoolValue(true)
 	valid.GetFields()["labels"] = structpb.NewStringValue("production")
 	require.ErrorContains(t, ValidateCredentialIssueRequestData(schema, valid), `field "labels" must be an object`)
+
+	emptyMapSchema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+		config.Field_builder{Name: "labels", StringMapField: config.StringMapField_builder{
+			Rules: config.StringMapRules_builder{IsRequired: true}.Build(),
+		}.Build()}.Build(),
+	}}.Build()
+	emptyMap, err := structpb.NewStruct(map[string]any{"labels": map[string]any{}})
+	require.NoError(t, err)
+	require.ErrorContains(t, ValidateCredentialIssueRequestData(emptyMapSchema, emptyMap), "zero-value")
+}
+
+func TestValidateCredentialIssueRequestDataReportsFieldsInSchemaOrder(t *testing.T) {
+	schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+		config.Field_builder{Name: "first", IsRequired: true, StringField: &config.StringField{}}.Build(),
+		config.Field_builder{Name: "second", IsRequired: true, StringField: &config.StringField{}}.Build(),
+	}}.Build()
+	for range 20 {
+		err := ValidateCredentialIssueRequestData(schema, &structpb.Struct{})
+		require.ErrorContains(t, err, `field "first" is required`)
+	}
 }
 
 func TestValidateCredentialIssueRequestConstraints(t *testing.T) {

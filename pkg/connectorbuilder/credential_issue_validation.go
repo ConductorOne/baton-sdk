@@ -160,6 +160,9 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 			return fmt.Errorf("request schema field name is required")
 		}
 		name := schemaField.GetName()
+		if schemaField.GetIsSecret() {
+			return fmt.Errorf("request schema field %q must not be secret", name)
+		}
 		if _, ok := fields[name]; ok {
 			return fmt.Errorf("duplicate request schema field %q", name)
 		}
@@ -257,13 +260,19 @@ func ValidateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema,
 	for _, schemaField := range schema.GetFields() {
 		fields[schemaField.GetName()] = schemaField
 	}
+	unknownNames := make([]string, 0)
 	for name := range values {
 		if _, ok := fields[name]; !ok {
-			return fmt.Errorf("request data contains unknown field %q", name)
+			unknownNames = append(unknownNames, name)
 		}
 	}
+	slices.Sort(unknownNames)
+	if len(unknownNames) > 0 {
+		return fmt.Errorf("request data contains unknown field %q", unknownNames[0])
+	}
 	present := make(map[string]bool, len(values))
-	for name, schemaField := range fields {
+	for _, schemaField := range schema.GetFields() {
+		name := schemaField.GetName()
 		value, ok := values[name]
 		_, isNull := value.GetKind().(*structpb.Value_NullValue)
 		if !ok || value == nil || value.GetKind() == nil || isNull {
@@ -309,16 +318,22 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 		if !ok {
 			return fmt.Errorf("request data field %q must be a string", name)
 		}
-		if err := field.ValidateStringRules(schemaField.GetStringField().GetRules(), kind.StringValue, name); err != nil {
+		rules := cloneStringRulesForRequest(schemaField.GetStringField().GetRules())
+		if err := field.ValidateStringRules(rules, kind.StringValue, name); err != nil {
 			return err
 		}
 	case config.Field_IntField_case:
 		kind, ok := value.GetKind().(*structpb.Value_NumberValue)
 		const maxSafeJSONInteger = float64(1<<53 - 1)
-		if !ok || math.IsNaN(kind.NumberValue) || math.IsInf(kind.NumberValue, 0) || math.Trunc(kind.NumberValue) != kind.NumberValue || kind.NumberValue < -maxSafeJSONInteger || kind.NumberValue > maxSafeJSONInteger {
+		minInt, maxInt := -maxSafeJSONInteger, maxSafeJSONInteger
+		if strconv.IntSize == 32 {
+			minInt, maxInt = float64(-1<<31), float64(1<<31-1)
+		}
+		if !ok || math.IsNaN(kind.NumberValue) || math.IsInf(kind.NumberValue, 0) || math.Trunc(kind.NumberValue) != kind.NumberValue || kind.NumberValue < -maxSafeJSONInteger || kind.NumberValue > maxSafeJSONInteger || kind.NumberValue < minInt || kind.NumberValue > maxInt {
 			return fmt.Errorf("request data field %q must be an integer", name)
 		}
-		if err := field.ValidateIntRules(schemaField.GetIntField().GetRules(), int(kind.NumberValue), name); err != nil {
+		rules := cloneIntRulesForRequest(schemaField.GetIntField().GetRules())
+		if err := field.ValidateIntRules(rules, int(kind.NumberValue), name); err != nil {
 			return err
 		}
 	case config.Field_BoolField_case:
@@ -342,7 +357,8 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 			}
 			items = append(items, stringItem.StringValue)
 		}
-		if err := field.ValidateRepeatedStringRules(schemaField.GetStringSliceField().GetRules(), items, name); err != nil {
+		rules := cloneRepeatedStringRulesForRequest(schemaField.GetStringSliceField().GetRules())
+		if err := field.ValidateRepeatedStringRules(rules, items, name); err != nil {
 			return err
 		}
 	case config.Field_StringMapField_case:
@@ -350,13 +366,53 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 		if !ok {
 			return fmt.Errorf("request data field %q must be an object", name)
 		}
-		if err := field.ValidateStringMapRules(schemaField.GetStringMapField().GetRules(), kind.StructValue.AsMap(), name); err != nil {
+		rules := cloneStringMapRulesForRequest(schemaField.GetStringMapField().GetRules())
+		if err := field.ValidateStringMapRules(rules, kind.StructValue.AsMap(), name); err != nil {
 			return err
 		}
 	default:
 		return fmt.Errorf("request data field %q has unsupported type", name)
 	}
 	return nil
+}
+
+func cloneStringRulesForRequest(rules *config.StringRules) *config.StringRules {
+	if rules == nil {
+		return nil
+	}
+	cloned := proto.Clone(rules).(*config.StringRules)
+	cloned.SetValidateEmpty(true)
+	return cloned
+}
+
+func cloneIntRulesForRequest(rules *config.Int64Rules) *config.Int64Rules {
+	if rules == nil {
+		return nil
+	}
+	cloned := proto.Clone(rules).(*config.Int64Rules)
+	cloned.SetValidateEmpty(true)
+	return cloned
+}
+
+func cloneRepeatedStringRulesForRequest(rules *config.RepeatedStringRules) *config.RepeatedStringRules {
+	if rules == nil {
+		return nil
+	}
+	cloned := proto.Clone(rules).(*config.RepeatedStringRules)
+	cloned.SetValidateEmpty(true)
+	if cloned.HasItemRules() {
+		cloned.GetItemRules().SetValidateEmpty(true)
+	}
+	return cloned
+}
+
+func cloneStringMapRulesForRequest(rules *config.StringMapRules) *config.StringMapRules {
+	if rules == nil {
+		return nil
+	}
+	cloned := proto.Clone(rules).(*config.StringMapRules)
+	cloned.SetValidateEmpty(true)
+	return cloned
 }
 
 func validateCredentialIssueConstraint(constraint *config.Constraint, present map[string]bool) error {

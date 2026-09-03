@@ -149,6 +149,8 @@ message CredentialIssueOptionDescriptor {
 }
 
 message CredentialIssueRequestSchema {
+  // Request fields are carried through host task and webhook surfaces. Secret
+  // fields are therefore unsupported; schema validation rejects is_secret.
   repeated c1.config.v1.Field fields = 1;
   repeated c1.config.v1.Constraint constraints = 2;
 }
