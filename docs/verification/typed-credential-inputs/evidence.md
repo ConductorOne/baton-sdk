@@ -2,7 +2,7 @@
 
 Plan: [`plan.md`](plan.md)
 
-Implementation revision: `aac1e2fa`.
+Implementation revision: `1879b939`.
 
 | Criterion | Status | Instrument | Evidence |
 | --- | --- | --- | --- |
