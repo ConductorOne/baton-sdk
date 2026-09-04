@@ -624,12 +624,12 @@ func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 	}
 	policy := IngestInvariantsPolicy{
 		ActiveSyncID:      s.getActiveSyncID(),
-		SyncType:          s.syncType,
-		FailFast:          s.failFastInvariants,
-		CompactionMerge:   s.compactionMergedStore,
+		SyncType:          s.cfg.syncType,
+		FailFast:          s.cfg.failFastInvariants,
+		CompactionMerge:   s.cfg.compactionMergedStore,
 		childSchedule:     &s.childSchedule,
 		resourcesPhaseRan: s.resourcesPhaseRanHere,
-		syncResourceTypes: s.syncResourceTypes,
+		syncResourceTypes: s.cfg.syncResourceTypes,
 		onRetainedInvalid: func() {
 			s.ingestFilterStats.blockReplay(ingestQualityReasonRetainedInvalid)
 		},

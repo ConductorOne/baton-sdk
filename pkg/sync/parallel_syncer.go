@@ -211,10 +211,10 @@ func (s *syncer) parallelSync(
 		case InitOp:
 			s.state.FinishAction(ctx, stateAction)
 
-			if s.skipEntitlementsAndGrants {
+			if s.cfg.skipEntitlementsAndGrants {
 				s.state.SetShouldSkipEntitlementsAndGrants()
 			}
-			if s.skipGrants {
+			if s.cfg.skipGrants {
 				s.state.SetShouldSkipGrants()
 			}
 			if len(targetedResources) > 0 {
@@ -245,7 +245,7 @@ func (s *syncer) parallelSync(
 			if s.externalResourceReader != nil {
 				s.state.PushAction(ctx, Action{Op: SyncExternalResourcesOp})
 			}
-			if s.onlyExpandGrants {
+			if s.cfg.onlyExpandGrants {
 				s.state.SetNeedsExpansion()
 				err = s.Checkpoint(ctx, true)
 				if err != nil {
@@ -420,7 +420,7 @@ func (s *syncer) parallelSync(
 				}
 			}
 
-			if s.dontExpandGrants || !s.state.NeedsExpansion() {
+			if s.cfg.dontExpandGrants || !s.state.NeedsExpansion() {
 				l.Debug("skipping grant expansion, no grants to expand")
 				s.state.FinishAction(ctx, stateAction)
 				continue
@@ -725,7 +725,7 @@ func (s *syncer) setParallelActionTransitioner(
 
 func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actions []*Action, f func(ctx context.Context, action *Action) error) ([]error, error) {
 	l := ctxzap.Extract(ctx)
-	l.Info("syncing in parallel", zap.Int("actions", len(actions)), zap.Int("workers", s.workerCount))
+	l.Info("syncing in parallel", zap.Int("actions", len(actions)), zap.Int("workers", s.cfg.workerCount))
 
 	// One bounded summary span per fan-out batch. The per-action work (f) starts
 	// its own linked-root span, so this stays a handful of spans per sync rather
@@ -740,7 +740,7 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	span.SetAttributes(
 		attribute.String("sync.op", op),
 		attribute.Int("sync.action_count", len(actions)),
-		attribute.Int("sync.worker_count", s.workerCount),
+		attribute.Int("sync.worker_count", s.cfg.workerCount),
 	)
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var batchErr error
@@ -775,7 +775,7 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	var errs []error
 
 	var wg native_sync.WaitGroup
-	for i := 0; i < s.workerCount; i++ {
+	for i := 0; i < s.cfg.workerCount; i++ {
 		wg.Go(func() {
 			for {
 				action, ok := queue.next()

@@ -129,7 +129,7 @@ func TestSyncParallelDrainsMultipleSpawnedCursors(t *testing.T) {
 		ResourceTypeID: "group",
 		ResourceID:     "group-1",
 	})
-	s := &syncer{state: st, workerCount: 3}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 3}}
 
 	var mu sync.Mutex
 	processed := make(map[string]int)
@@ -173,7 +173,7 @@ func TestSyncParallelBreaksCyclicSpawnedCursorIdempotently(t *testing.T) {
 		ResourceID:     "group-1",
 		PageToken:      "loop",
 	})
-	s := &syncer{state: st, workerCount: 1}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
 
 	calls := 0
 	f := func(ctx context.Context, action *Action) error {
@@ -219,7 +219,7 @@ func TestFailedSiblingAdmissionDoesNotAdvanceParentCursor(t *testing.T) {
 		ResourceID:     "group-1",
 		PageToken:      "origin",
 	})
-	s := &syncer{state: st, workerCount: 1}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
 
 	calls := 0
 	f := func(ctx context.Context, action *Action) error {
@@ -285,7 +285,7 @@ func TestContinuationReconvergenceFinishesParent(t *testing.T) {
 		PageToken:      "held-token",
 		Spawned:        true,
 	})
-	s := &syncer{state: st, workerCount: 1}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
 
 	processed := map[string]int{}
 	f := func(ctx context.Context, action *Action) error {
@@ -317,7 +317,7 @@ func TestSpawnedCursorCannotCollideWithParentContinuation(t *testing.T) {
 		ResourceID:     "group-1",
 		PageToken:      "current",
 	})
-	s := &syncer{state: st, workerCount: 1}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
 
 	calls := 0
 	f := func(ctx context.Context, action *Action) error {
@@ -585,7 +585,7 @@ func TestSyncParallelErrorAbortsQueuedWorkAndCancelsPeer(t *testing.T) {
 	fail := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "fail"})
 	slow := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "slow"})
 	queued := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "queued"})
-	s := &syncer{state: st, workerCount: 2}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 2}}
 
 	slowStarted := make(chan struct{})
 	var queuedRan bool
@@ -627,7 +627,7 @@ func TestSyncParallelAggregatesWarningAndContinues(t *testing.T) {
 	st := newEmptySchedulerState(t)
 	warningAction := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "missing"})
 	successAction := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "present"})
-	s := &syncer{state: st, workerCount: 2}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 2}}
 
 	f := func(ctx context.Context, action *Action) error {
 		if action.ResourceID == "missing" {
@@ -648,7 +648,7 @@ func TestSyncParallelRetriesActionWithinWorker(t *testing.T) {
 	ctx := t.Context()
 	st := newEmptySchedulerState(t)
 	action := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-1"})
-	s := &syncer{state: st, workerCount: 1}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
 
 	calls := 0
 	f := func(ctx context.Context, action *Action) error {
@@ -671,7 +671,7 @@ func TestSyncParallelFiltersSpawnedActionsFromOtherOperations(t *testing.T) {
 	ctx := t.Context()
 	st := newEmptySchedulerState(t)
 	origin := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-1"})
-	s := &syncer{state: st, workerCount: 2}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 2}}
 
 	calls := 0
 	f := func(ctx context.Context, action *Action) error {
@@ -693,7 +693,7 @@ func TestSyncParallelFiltersSpawnedActionsFromOtherOperations(t *testing.T) {
 func TestSyncParallelEmptyBatchWithIdleWorkers(t *testing.T) {
 	ctx := t.Context()
 	st := newEmptySchedulerState(t)
-	s := &syncer{state: st, workerCount: 8}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 8}}
 
 	warnings, err := s.syncParallel(ctx, newTestRetryer(ctx), nil, func(context.Context, *Action) error {
 		panic("empty batch invoked worker function")
@@ -720,7 +720,7 @@ func TestSpawnedCursorsResumeAfterPartialCompletion(t *testing.T) {
 	require.NoError(t, err)
 	resumed := newState()
 	require.NoError(t, resumed.Unmarshal(token))
-	s := &syncer{state: resumed, workerCount: 2}
+	s := &syncer{state: resumed, cfg: syncConfig{workerCount: 2}}
 
 	var mu sync.Mutex
 	var processed []string
@@ -809,7 +809,7 @@ func TestOriginContinuationAndSiblingsResumeExactlyOnce(t *testing.T) {
 	require.NoError(t, err)
 	resumed := newState()
 	require.NoError(t, resumed.Unmarshal(token))
-	s := &syncer{state: resumed, workerCount: 2}
+	s := &syncer{state: resumed, cfg: syncConfig{workerCount: 2}}
 
 	var mu sync.Mutex
 	processed := make(map[string]int)
