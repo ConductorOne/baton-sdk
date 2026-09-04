@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -366,6 +367,43 @@ func TestValidateCredentialIssueRequestSchema(t *testing.T) {
 		}.Build()
 		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "requires secondary fields")
 	})
+	t.Run("rejects dependent-on constraint overlapping field lists", func(t *testing.T) {
+		fields := []*config.Field{
+			config.Field_builder{Name: "a", StringField: &config.StringField{}}.Build(),
+			config.Field_builder{Name: "b", StringField: &config.StringField{}}.Build(),
+			config.Field_builder{Name: "c", StringField: &config.StringField{}}.Build(),
+		}
+		tests := []struct {
+			name      string
+			primary   []string
+			secondary []string
+		}{
+			{name: "exact overlap", primary: []string{"a"}, secondary: []string{"a"}},
+			{name: "partial overlap", primary: []string{"a", "b"}, secondary: []string{"b", "c"}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				schema := v2.CredentialIssueRequestSchema_builder{
+					Fields: fields,
+					Constraints: []*config.Constraint{config.Constraint_builder{
+						Kind:                config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON,
+						FieldNames:          tt.primary,
+						SecondaryFieldNames: tt.secondary,
+					}.Build()},
+				}.Build()
+				require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "overlapping dependent-on constraint")
+			})
+		}
+		disjoint := v2.CredentialIssueRequestSchema_builder{
+			Fields: fields,
+			Constraints: []*config.Constraint{config.Constraint_builder{
+				Kind:                config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON,
+				FieldNames:          []string{"a"},
+				SecondaryFieldNames: []string{"b", "c"},
+			}.Build()},
+		}.Build()
+		require.NoError(t, ValidateCredentialIssueRequestSchema(disjoint))
+	})
 
 	t.Run("rejects unknown constraint kinds", func(t *testing.T) {
 		schema := v2.CredentialIssueRequestSchema_builder{
@@ -638,6 +676,76 @@ func TestValidateCredentialIssueRequestConstraints(t *testing.T) {
 	}
 }
 
+func TestValidateCredentialIssueRequestDataRejectsOverlappingDependentOnSchema(t *testing.T) {
+	schema := v2.CredentialIssueRequestSchema_builder{
+		Fields: []*config.Field{
+			config.Field_builder{Name: "a", StringField: &config.StringField{}}.Build(),
+			config.Field_builder{Name: "b", StringField: &config.StringField{}}.Build(),
+			config.Field_builder{Name: "c", StringField: &config.StringField{}}.Build(),
+		},
+		Constraints: []*config.Constraint{config.Constraint_builder{
+			Kind:                config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON,
+			FieldNames:          []string{"a"},
+			SecondaryFieldNames: []string{"a"},
+		}.Build()},
+	}.Build()
+
+	err := ValidateCredentialIssueRequestData(schema, nil)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrInvalidCredentialIssueRequestSchema), "overlap must be reported as a schema error")
+}
+
+func TestValidateCredentialIssueRequestDataDependentOnEvaluatorSemantics(t *testing.T) {
+	// Regression table for the overlapping-lists rejection: the valid
+	// disjoint case must keep its exact evaluator semantics while the
+	// malformed schemas can no longer be published at all.
+	schema := func() *v2.CredentialIssueRequestSchema {
+		return v2.CredentialIssueRequestSchema_builder{
+			Fields: []*config.Field{
+				config.Field_builder{Name: "a", StringField: &config.StringField{}}.Build(),
+				config.Field_builder{Name: "b", StringField: &config.StringField{}}.Build(),
+				config.Field_builder{Name: "c", StringField: &config.StringField{}}.Build(),
+			},
+			Constraints: []*config.Constraint{config.Constraint_builder{
+				Kind:                config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON,
+				FieldNames:          []string{"a"},
+				SecondaryFieldNames: []string{"b", "c"},
+			}.Build()},
+		}.Build()
+	}()
+
+	accept := func(t *testing.T, values map[string]any, msgAndArgs ...any) {
+		t.Helper()
+		data, err := structpb.NewStruct(values)
+		require.NoError(t, err)
+		require.NoError(t, ValidateCredentialIssueRequestData(schema, data), msgAndArgs...)
+	}
+	accept(t, map[string]any{"a": "one", "b": "two", "c": "three"})
+	accept(t, map[string]any{}, "an omitted dependent requires neither dependency")
+
+	missing, err := structpb.NewStruct(map[string]any{"a": "one", "b": "two"})
+	require.NoError(t, err)
+	require.ErrorContains(t, ValidateCredentialIssueRequestData(schema, missing), "depend on")
+
+	for _, overlap := range [][]string{
+		{"a"},
+		{"b", "c"},
+	} {
+		constraint := config.Constraint_builder{
+			Kind:                config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON,
+			FieldNames:          []string{"a", "b"},
+			SecondaryFieldNames: overlap,
+		}.Build()
+		malformed := v2.CredentialIssueRequestSchema_builder{
+			Fields:      schema.GetFields(),
+			Constraints: []*config.Constraint{constraint},
+		}.Build()
+		err := ValidateCredentialIssueRequestData(malformed, nil)
+		require.Error(t, err)
+		require.True(t, errors.Is(err, ErrInvalidCredentialIssueRequestSchema))
+	}
+}
+
 func TestCredentialIssueTypedInputsWireRoundTrip(t *testing.T) {
 	schema := testCredentialIssueRequestSchema()
 	data, err := structpb.NewStruct(map[string]any{"scopes": []any{"keys:read"}})
@@ -694,4 +802,340 @@ func TestIssueCredentialValidatesAndForwardsRequestData(t *testing.T) {
 	_, err = connector.IssueCredential(ctx, request)
 	require.NoError(t, err)
 	require.True(t, proto.Equal(data, issuer.lastInput.RequestData))
+}
+
+func TestCredentialIssueSchemaRequiredFieldsExceedRequestDataLimit(t *testing.T) {
+	// Publication-time feasibility: a schema whose unconditionally required
+	// fields provably exceed the request-data cap cannot have any valid
+	// request, so publication must reject it up front instead of at request
+	// time.
+	requiredString := func(name string, minLen uint64) *config.Field {
+		return config.Field_builder{
+			Name:       name,
+			IsRequired: true,
+			StringField: config.StringField_builder{
+				Rules: config.StringRules_builder{MinLen: proto.Uint64(minLen)}.Build(),
+			}.Build(),
+		}.Build()
+	}
+
+	t.Run("rejects required list aggregate", func(t *testing.T) {
+		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+			config.Field_builder{
+				Name:       "scopes",
+				IsRequired: true,
+				StringSliceField: config.StringSliceField_builder{
+					Rules: config.RepeatedStringRules_builder{
+						MinItems:  proto.Uint64(64),
+						ItemRules: config.StringRules_builder{MinLen: proto.Uint64(2000)}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build(),
+		}}.Build()
+		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "cannot fit within the 65536-byte request data limit")
+	})
+
+	t.Run("rejects two required oversized strings", func(t *testing.T) {
+		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+			requiredString("token1", 40000),
+			requiredString("token2", 40000),
+		}}.Build()
+		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "cannot fit within the 65536-byte request data limit")
+	})
+
+	t.Run("accepts optional oversized strings", func(t *testing.T) {
+		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+			requiredString("token1", 40000),
+			config.Field_builder{
+				Name: "token2",
+				StringField: config.StringField_builder{
+					Rules: config.StringRules_builder{MinLen: proto.Uint64(40000)}.Build(),
+				}.Build(),
+			}.Build(),
+		}}.Build()
+		require.NoError(t, ValidateCredentialIssueRequestSchema(schema))
+	})
+
+	t.Run("accepts small required combinations", func(t *testing.T) {
+		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+			requiredString("name", 1),
+			config.Field_builder{
+				Name:       "scopes",
+				IsRequired: true,
+				StringSliceField: config.StringSliceField_builder{
+					Rules: config.RepeatedStringRules_builder{
+						MinItems:  proto.Uint64(2),
+						ItemRules: config.StringRules_builder{MinLen: proto.Uint64(8)}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build(),
+		}}.Build()
+		require.NoError(t, ValidateCredentialIssueRequestSchema(schema))
+
+		// The under-cap fixture must also pass actual request validation,
+		// guarding against an implementation that rejects everything.
+		data, err := structpb.NewStruct(map[string]any{
+			"name":   "sa",
+			"scopes": []any{"keys:read", "keys:write"},
+		})
+		require.NoError(t, err)
+		require.NoError(t, ValidateCredentialIssueRequestData(schema, data))
+	})
+
+	t.Run("accepts optional oversized list", func(t *testing.T) {
+		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+			config.Field_builder{
+				Name: "scopes",
+				StringSliceField: config.StringSliceField_builder{
+					Rules: config.RepeatedStringRules_builder{
+						MinItems:  proto.Uint64(64),
+						ItemRules: config.StringRules_builder{MinLen: proto.Uint64(2000)}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build(),
+		}}.Build()
+		require.NoError(t, ValidateCredentialIssueRequestSchema(schema))
+	})
+
+	t.Run("saturates without overflow", func(t *testing.T) {
+		// Declared bounds near MaxUint64 must not wrap into a false accept.
+		for _, rules := range []*config.StringRules{
+			config.StringRules_builder{Len: proto.Uint64(math.MaxUint64)}.Build(),
+			config.StringRules_builder{MinLen: proto.Uint64(math.MaxUint64)}.Build(),
+		} {
+			schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+				requiredString("token", 0),
+			}}.Build()
+			schema.GetFields()[0].GetStringField().SetRules(rules)
+			require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "cannot fit within the 65536-byte request data limit")
+		}
+	})
+
+	t.Run("rejects rules-level required oversized strings", func(t *testing.T) {
+		// IsRequired may also be declared at the rules level, not the field.
+		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+			config.Field_builder{Name: "token1", StringField: config.StringField_builder{
+				Rules: config.StringRules_builder{IsRequired: true, MinLen: proto.Uint64(40000)}.Build(),
+			}.Build()}.Build(),
+			config.Field_builder{Name: "token2", StringField: config.StringField_builder{
+				Rules: config.StringRules_builder{IsRequired: true, MinLen: proto.Uint64(40000)}.Build(),
+			}.Build()}.Build(),
+		}}.Build()
+		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "cannot fit within the 65536-byte request data limit")
+	})
+
+	t.Run("rejects rules-level required list aggregate", func(t *testing.T) {
+		schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+			config.Field_builder{Name: "scopes", StringSliceField: config.StringSliceField_builder{
+				Rules: config.RepeatedStringRules_builder{
+					IsRequired: true,
+					MinItems:   proto.Uint64(64),
+					ItemRules:  config.StringRules_builder{MinLen: proto.Uint64(2000)}.Build(),
+				}.Build(),
+			}.Build()}.Build(),
+		}}.Build()
+		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "cannot fit within the 65536-byte request data limit")
+	})
+}
+
+func TestCredentialIssueRequestStringValueSizeMaxUint64(t *testing.T) {
+	// The length > cap guard must return the cap+1 sentinel before any int
+	// conversion; a mutation removing it wraps and fails these cases.
+	for _, listItem := range []bool{false, true} {
+		for _, length := range []uint64{uint64(maxCredentialIssueRequestDataBytes + 1), math.MaxUint64} {
+			require.Equal(t, maxCredentialIssueRequestDataBytes+1, credentialIssueRequestStringValueSize("value", length, listItem))
+		}
+	}
+}
+
+func TestCredentialIssueRequestFieldMinSizeMatchesProtoSize(t *testing.T) {
+	// The conservative lower bound must never exceed the size of an actual
+	// minimal valid fixture, and on small boundary fixtures it must equal
+	// proto.Size exactly so the framing arithmetic stays honest.
+	field := func(name string, mutateRules func(rules *config.StringRules)) *config.Field {
+		rules := config.StringRules_builder{}.Build()
+		mutateRules(rules)
+		return config.Field_builder{
+			Name:       name,
+			IsRequired: true,
+			StringField: config.StringField_builder{
+				Rules: rules,
+			}.Build(),
+		}.Build()
+	}
+	cases := []struct {
+		name        string
+		schemaField *config.Field
+		minValue    string
+	}{
+		{
+			name:        "empty bounded string",
+			schemaField: field("value", func(rules *config.StringRules) {}),
+			minValue:    "x",
+		},
+		{
+			name: "min length string",
+			schemaField: field("value", func(rules *config.StringRules) {
+				rules.SetMinLen(8)
+			}),
+			minValue: strings.Repeat("x", 8),
+		},
+		{
+			name: "exact length string",
+			schemaField: field("value", func(rules *config.StringRules) {
+				rules.SetLen(200)
+			}),
+			minValue: strings.Repeat("x", 200),
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			bound := credentialIssueRequestFieldMinSize(tt.schemaField)
+			fixture := &structpb.Struct{Fields: map[string]*structpb.Value{
+				tt.schemaField.GetName(): structpb.NewStringValue(tt.minValue),
+			}}
+			actual := proto.Size(fixture)
+			require.LessOrEqual(t, bound, actual, "conservative bound must not exceed the minimal fixture size")
+			require.Equal(t, actual, bound, "small boundary fixtures must compute exact sizes")
+		})
+	}
+
+	t.Run("list aggregate", func(t *testing.T) {
+		schemaField := config.Field_builder{
+			Name:       "scopes",
+			IsRequired: true,
+			StringSliceField: config.StringSliceField_builder{
+				Rules: config.RepeatedStringRules_builder{
+					MinItems:  proto.Uint64(3),
+					ItemRules: config.StringRules_builder{MinLen: proto.Uint64(8)}.Build(),
+				}.Build(),
+			}.Build(),
+		}.Build()
+		bound := credentialIssueRequestFieldMinSize(schemaField)
+		items := make([]*structpb.Value, 3)
+		for index := range items {
+			items[index] = structpb.NewStringValue(strings.Repeat("x", 8))
+		}
+		fixture := &structpb.Struct{Fields: map[string]*structpb.Value{
+			"scopes": structpb.NewListValue(&structpb.ListValue{Values: items}),
+		}}
+		actual := proto.Size(fixture)
+		require.LessOrEqual(t, bound, actual)
+		require.Equal(t, actual, bound)
+	})
+}
+
+func TestCredentialIssueSchemaListAggregateBoundary(t *testing.T) {
+	// Boundary pair around the 65536-byte cap at the maximum declarable item
+	// count (MinItems is capped at 64): the largest per-item minimum length
+	// whose complete lower bound still fits publishes and validates a real
+	// minimal request; one byte more per item crosses the cap and must fail
+	// publication.
+	requiredList := func(itemMinLen uint64) *v2.CredentialIssueRequestSchema {
+		return v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+			config.Field_builder{
+				Name:       "scopes",
+				IsRequired: true,
+				StringSliceField: config.StringSliceField_builder{
+					Rules: config.RepeatedStringRules_builder{
+						MinItems:  proto.Uint64(maxCredentialIssueCollectionItems),
+						ItemRules: config.StringRules_builder{MinLen: proto.Uint64(itemMinLen)}.Build(),
+					}.Build(),
+				}.Build(),
+			}.Build(),
+		}}.Build()
+	}
+
+	// Largest per-item minimum length whose proven lower bound still fits.
+	// 64x1000 fits (about 64.4k) and 64x2000 cannot (about 128k), so the
+	// crossing point exists in between.
+	underCap := uint64(0)
+	for itemLen := uint64(1000); itemLen <= 2000; itemLen++ {
+		if credentialIssueRequestFieldMinSize(requiredList(itemLen).GetFields()[0]) <= maxCredentialIssueRequestDataBytes {
+			underCap = itemLen
+		} else {
+			break
+		}
+	}
+	require.Greater(t, underCap, uint64(0), "64 items of 1000 bytes must fit under the cap")
+
+	accepted := requiredList(underCap)
+	require.NoError(t, ValidateCredentialIssueRequestSchema(accepted))
+	items := make([]*structpb.Value, maxCredentialIssueCollectionItems)
+	itemLen := int(underCap) //nolint:gosec // bounded by the loop above (1000..2000)
+	for index := range items {
+		items[index] = structpb.NewStringValue(strings.Repeat("x", itemLen))
+	}
+	data := &structpb.Struct{Fields: map[string]*structpb.Value{
+		"scopes": structpb.NewListValue(&structpb.ListValue{Values: items}),
+	}}
+	require.NoError(t, ValidateCredentialIssueRequestData(accepted, data), "the boundary fixture must be a valid request")
+
+	rejected := requiredList(underCap + 1)
+	require.Greater(t, credentialIssueRequestFieldMinSize(rejected.GetFields()[0]), maxCredentialIssueRequestDataBytes)
+	require.ErrorContains(t, ValidateCredentialIssueRequestSchema(rejected), "cannot fit within the 65536-byte request data limit")
+}
+
+func TestCredentialIssueSchemaRequiredListMinItemsZeroFloor(t *testing.T) {
+	// An explicit MinItems=0 must not collapse a required list's lower bound
+	// to zero: the list still must be nonempty, so two such lists with
+	// oversized item minimums cannot fit together.
+	requiredList := func(name string) *config.Field {
+		return config.Field_builder{
+			Name:       name,
+			IsRequired: true,
+			StringSliceField: config.StringSliceField_builder{
+				Rules: config.RepeatedStringRules_builder{
+					MinItems:  proto.Uint64(0),
+					ItemRules: config.StringRules_builder{MinLen: proto.Uint64(40000)}.Build(),
+				}.Build(),
+			}.Build(),
+		}.Build()
+	}
+	schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+		requiredList("scopes"),
+		requiredList("groups"),
+	}}.Build()
+	require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "cannot fit within the 65536-byte request data limit")
+
+	// A feasible required list with MinItems=0 stays publishable: one item
+	// satisfying the item rules is a valid request.
+	feasible := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+		config.Field_builder{
+			Name:       "scopes",
+			IsRequired: true,
+			StringSliceField: config.StringSliceField_builder{
+				Rules: config.RepeatedStringRules_builder{
+					MinItems:  proto.Uint64(0),
+					ItemRules: config.StringRules_builder{MinLen: proto.Uint64(8)}.Build(),
+				}.Build(),
+			}.Build(),
+		}.Build(),
+	}}.Build()
+	require.NoError(t, ValidateCredentialIssueRequestSchema(feasible))
+	data := &structpb.Struct{Fields: map[string]*structpb.Value{
+		"scopes": structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{
+			structpb.NewStringValue("keys:read"),
+		}}),
+	}}
+	require.NoError(t, ValidateCredentialIssueRequestData(feasible, data))
+
+	// A required list with MinItems=0 and permissive item rules also accepts
+	// a single empty item: empty items are legal when the item rules allow.
+	emptyItem := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+		config.Field_builder{
+			Name:       "scopes",
+			IsRequired: true,
+			StringSliceField: config.StringSliceField_builder{
+				Rules: config.RepeatedStringRules_builder{MinItems: proto.Uint64(0)}.Build(),
+			}.Build(),
+		}.Build(),
+	}}.Build()
+	require.NoError(t, ValidateCredentialIssueRequestSchema(emptyItem))
+	emptyItemData := &structpb.Struct{Fields: map[string]*structpb.Value{
+		"scopes": structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{
+			structpb.NewStringValue(""),
+		}}),
+	}}
+	require.NoError(t, ValidateCredentialIssueRequestData(emptyItem, emptyItemData))
 }

@@ -281,9 +281,23 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 		if constraint.GetKind() != config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON && len(constraint.GetSecondaryFieldNames()) > 0 {
 			return fmt.Errorf("request schema constraint kind %v must not declare secondary fields", constraint.GetKind())
 		}
+		if constraint.GetKind() == config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON {
+			// The public FieldsDependentOn DSL rejects a field appearing on both
+			// sides: the dependency would be self-satisfied. Match that contract
+			// here so an overlapping schema cannot be published.
+			primary := constraint.GetFieldNames()
+			for _, secondaryName := range constraint.GetSecondaryFieldNames() {
+				if slices.Contains(primary, secondaryName) {
+					return fmt.Errorf("request schema has overlapping dependent-on constraint lists: field %q appears in both field_names and secondary_field_names", secondaryName)
+				}
+			}
+		}
 		if constraint.GetKind() != config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON && len(constraint.GetFieldNames()) < 2 {
 			return fmt.Errorf("request schema constraint requires at least two fields")
 		}
+	}
+	if err := validateCredentialIssueRequiredFieldsFit(schema); err != nil {
+		return err
 	}
 	return nil
 }
@@ -313,6 +327,166 @@ func credentialIssueRequestStringValueSize(name string, length uint64, listItem 
 	}
 	mapEntrySize := protowire.SizeTag(1) + protowire.SizeBytes(len(name)) + protowire.SizeTag(2) + protowire.SizeBytes(valueSize)
 	return protowire.SizeTag(1) + protowire.SizeBytes(mapEntrySize)
+}
+
+// credentialIssueRequestSizeLimit is the saturation sentinel: every
+// intermediate aggregate larger than the cap collapses to cap+1 so no
+// framing arithmetic can wrap a declared bound back under the limit.
+const credentialIssueRequestSizeLimit = maxCredentialIssueRequestDataBytes + 1
+
+// credentialIssueSaturatingAdd adds a and b, saturating at the size limit.
+// Operands are bounded: callers clamp any uint64 rule value to the limit
+// before conversion, so both are nonnegative and at most the limit.
+func credentialIssueSaturatingAdd(a, b int) int {
+	if a >= credentialIssueRequestSizeLimit || b >= credentialIssueRequestSizeLimit {
+		return credentialIssueRequestSizeLimit
+	}
+	sum := a + b
+	if sum > credentialIssueRequestSizeLimit {
+		return credentialIssueRequestSizeLimit
+	}
+	return sum
+}
+
+// credentialIssueSaturatingMul multiplies a and b, saturating at the size
+// limit. Both operands are already bounded: a is an int below the limit and
+// b is a clamped count below the limit, so the division-based bound check
+// only needs a zero guard.
+func credentialIssueSaturatingMul(a int, b uint64) int {
+	if a == 0 || b == 0 {
+		return 0
+	}
+	limit := uint64(credentialIssueRequestSizeLimit)
+	if a >= credentialIssueRequestSizeLimit || b >= limit {
+		return credentialIssueRequestSizeLimit
+	}
+	if b > limit/uint64(a) { //nolint:gosec // a is positive and bounded above
+		return credentialIssueRequestSizeLimit
+	}
+	product := a * int(b)
+	if product > credentialIssueRequestSizeLimit {
+		return credentialIssueRequestSizeLimit
+	}
+	return product
+}
+
+// credentialIssueClampLength clamps a declared uint64 length to the size
+// limit. The rule value is hostile input: only the clamped result feeds
+// framing arithmetic.
+func credentialIssueClampLength(length uint64) int {
+	if length > uint64(credentialIssueRequestSizeLimit) {
+		return credentialIssueRequestSizeLimit
+	}
+	return int(length)
+}
+
+// credentialIssueMinStringLength returns a provable lower bound for one
+// string value under the declared rules: the largest of an exact length, a
+// minimum length, and one byte when the value must be nonempty. Empty list
+// items are otherwise legal, so callers pass mustBeNonempty false for list
+// items unless the item rules themselves demand a nonempty value.
+func credentialIssueMinStringLength(rules *config.StringRules, mustBeNonempty bool) int {
+	if rules == nil {
+		if mustBeNonempty {
+			return 1
+		}
+		return 0
+	}
+	bound := 0
+	if rules.HasLen() {
+		bound = max(bound, credentialIssueClampLength(rules.GetLen()))
+	}
+	if rules.HasMinLen() {
+		bound = max(bound, credentialIssueClampLength(rules.GetMinLen()))
+	}
+	if mustBeNonempty && !rules.HasLen() {
+		// is_required plus config-field empty semantics: an accepted value
+		// is nonempty, so at least one byte is unavoidable.
+		bound = max(bound, 1)
+	}
+	return bound
+}
+
+func credentialIssueRequestFieldMinSize(schemaField *config.Field) int {
+	if !credentialIssueRequestFieldIsRequired(schemaField) {
+		return 0
+	}
+	name := schemaField.GetName()
+	switch schemaField.WhichField() {
+	case config.Field_StringField_case:
+		return credentialIssueRequestFieldMinSizeFromString(name, schemaField.GetStringField().GetRules())
+	case config.Field_StringSliceField_case:
+		return credentialIssueRequestFieldMinSizeFromList(name, schemaField.GetStringSliceField().GetRules())
+	default:
+		// Other required kinds contribute a safe structural lower bound: the
+		// map entry wrapper alone is unavoidable for a required field.
+		return credentialIssueStructEntryMinSize(name, 0)
+	}
+}
+
+// credentialIssueStructEntryMinSize sizes one Struct map entry carrying a
+// Value whose payload is at least valueSize bytes, wrapped in the Struct's
+// repeated fields framing.
+func credentialIssueStructEntryMinSize(name string, valueSize int) int {
+	// mapEntry: tag1 + len(name) + tag2 + len(valueSize)
+	mapEntrySize := credentialIssueSaturatingAdd(
+		credentialIssueSaturatingAdd(protowire.SizeTag(1), protowire.SizeBytes(len(name))),
+		credentialIssueSaturatingAdd(protowire.SizeTag(2), protowire.SizeBytes(valueSize)),
+	)
+	// Struct repeated fields: tag1 + len(mapEntrySize)
+	return credentialIssueSaturatingAdd(protowire.SizeTag(1), protowire.SizeBytes(mapEntrySize))
+}
+
+// credentialIssueRequestFieldMinSizeFromString returns the wire lower bound
+// for a required string field: a Value{string_value} is at least
+// tag3 + SizeBytes(minStringLength) bytes.
+func credentialIssueRequestFieldMinSizeFromString(name string, rules *config.StringRules) int {
+	stringValueSize := credentialIssueSaturatingAdd(protowire.SizeTag(3), protowire.SizeBytes(credentialIssueMinStringLength(rules, true)))
+	return credentialIssueStructEntryMinSize(name, stringValueSize)
+}
+
+// credentialIssueRequestFieldMinSizeFromList returns the wire lower bound
+// for a required string-list field: minItems repetitions of the complete
+// per-item Value framing (tag1 + SizeBytes(tag3 + SizeBytes(itemBytes))),
+// wrapped by Value{list_value} tag6 + SizeBytes(listPayloadSize).
+func credentialIssueRequestFieldMinSizeFromList(name string, rules *config.RepeatedStringRules) int {
+	// A required list must be nonempty under the config-field empty
+	// semantics, so one item is unavoidable even when MinItems is explicitly
+	// declared as zero.
+	itemCount := uint64(1)
+	if rules != nil && rules.HasMinItems() {
+		itemCount = min(max(rules.GetMinItems(), uint64(1)), uint64(credentialIssueRequestSizeLimit))
+	}
+	itemMustBeNonempty := rules != nil && rules.GetItemRules().GetIsRequired()
+	itemBytes := 0
+	if rules != nil {
+		itemBytes = credentialIssueMinStringLength(rules.GetItemRules(), itemMustBeNonempty)
+	}
+	// Each list element is a full Value: tag3 + SizeBytes(itemBytes).
+	itemValueSize := credentialIssueSaturatingAdd(protowire.SizeTag(3), protowire.SizeBytes(itemBytes))
+	itemContribution := credentialIssueSaturatingAdd(protowire.SizeTag(1), protowire.SizeBytes(itemValueSize))
+	listPayloadSize := credentialIssueSaturatingMul(itemContribution, itemCount)
+	listValueSize := credentialIssueSaturatingAdd(protowire.SizeTag(6), protowire.SizeBytes(listPayloadSize))
+	return credentialIssueStructEntryMinSize(name, listValueSize)
+}
+
+// validateCredentialIssueRequiredFieldsFit rejects schemas whose
+// unconditionally required fields provably exceed the request-data cap:
+// every satisfying request would fail request validation, so publication
+// fails early. The bound is conservative: optional fields contribute zero
+// and cross-constraint branches are not summed, so a schema can be
+// rejected only when a proven lower bound exceeds the cap, never on a
+// false accept.
+func validateCredentialIssueRequiredFieldsFit(schema *v2.CredentialIssueRequestSchema) error {
+	total := 0
+	for _, schemaField := range schema.GetFields() {
+		fieldMinSize := credentialIssueRequestFieldMinSize(schemaField)
+		total = credentialIssueSaturatingAdd(total, fieldMinSize)
+		if total >= credentialIssueRequestSizeLimit {
+			return fmt.Errorf("request schema required fields cannot fit within the %d-byte request data limit", maxCredentialIssueRequestDataBytes)
+		}
+	}
+	return nil
 }
 
 func firstDuplicate(values []string) string {

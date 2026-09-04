@@ -180,6 +180,39 @@ func TestIssueCredentialFailsBeforeProviderMutation(t *testing.T) {
 		require.ErrorContains(t, err, "connector returned invalid credential issuance request schema")
 		require.Nil(t, issuer.lastInput, "connector must not mint a credential with a malformed live schema")
 	})
+
+	t.Run("overlapping dependent-on live schema is a connector failure", func(t *testing.T) {
+		issuer := newTestCredentialIssuer("service_account")
+		issuer.capabilityDetails = v2.CredentialDetailsCredentialIssue_builder{
+			Options: []*v2.CredentialIssueOptionDescriptor{v2.CredentialIssueOptionDescriptor_builder{
+				Option:               v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+				ResourceMode:         v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_DISCOVERABLE,
+				SecretResourceTypeId: "secret",
+				RequestSchema: v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+					config.Field_builder{Name: "a", StringField: &config.StringField{}}.Build(),
+					config.Field_builder{Name: "b", StringField: &config.StringField{}}.Build(),
+				}, Constraints: []*config.Constraint{config.Constraint_builder{
+					Kind:                config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON,
+					FieldNames:          []string{"a"},
+					SecondaryFieldNames: []string{"a"},
+				}.Build()}}.Build(),
+			}.Build()},
+			PreferredOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+		}.Build()
+
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{issuer, newTestCredentialSecretDeleter()}))
+		require.NoError(t, err)
+
+		_, err = connector.IssueCredential(ctx, v2.IssueCredentialRequest_builder{
+			IdentityId:        identityID,
+			CredentialOptions: options,
+			EncryptionConfigs: []*v2.EncryptionConfig{newIssueEncryptionConfig(t)},
+			RequestId:         "request-overlapping-live-schema",
+		}.Build())
+		require.Equal(t, codes.Internal, status.Code(err))
+		require.ErrorContains(t, err, "overlapping dependent-on constraint")
+		require.Nil(t, issuer.lastInput, "connector must not mint a credential with an overlapping dependent-on schema")
+	})
 }
 
 // newIssueEncryptionConfig builds a JWK EncryptionConfig from a fresh RSA key so
