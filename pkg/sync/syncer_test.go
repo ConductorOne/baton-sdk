@@ -11,7 +11,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"google.golang.org/protobuf/proto"
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -24,6 +23,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 var groupResourceType = v2.ResourceType_builder{
@@ -867,6 +867,15 @@ func TestSkipAnnotationScopes(t *testing.T) {
 			resourceAnnotation: &v2.SkipEntitlementsAndGrants{},
 			wantEntitlements:   0,
 			wantGrants:         0,
+		},
+		// TypeScopedGrants + SkipGrants: the type-scoped grant action is planned
+		// before shouldSkipGrants is consulted, so grants are still emitted.
+		// This mirrors the existing SkipEntitlements/TypeScopedEntitlements
+		// interaction and is intentionally left as-is.
+		{
+			name:         "TypeScopedGrants + SkipGrants on resource type — grants still emitted (type-scoped path bypasses skip check)",
+			rtAnnotation: &v2.SkipGrants{},
+			skipReason:   "TypeScopedGrants planning precedes shouldSkipGrants; grants are emitted by design — matches SkipEntitlements/TypeScopedEntitlements precedent",
 		},
 	}
 
