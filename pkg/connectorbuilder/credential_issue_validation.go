@@ -278,6 +278,9 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 		if constraint.GetKind() == config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON && len(constraint.GetSecondaryFieldNames()) == 0 {
 			return fmt.Errorf("request schema dependent-on constraint requires secondary fields")
 		}
+		if constraint.GetKind() != config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON && len(constraint.GetSecondaryFieldNames()) > 0 {
+			return fmt.Errorf("request schema constraint kind %v must not declare secondary fields", constraint.GetKind())
+		}
 		if constraint.GetKind() != config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON && len(constraint.GetFieldNames()) < 2 {
 			return fmt.Errorf("request schema constraint requires at least two fields")
 		}

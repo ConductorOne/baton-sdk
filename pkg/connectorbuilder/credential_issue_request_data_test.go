@@ -315,6 +315,58 @@ func TestValidateCredentialIssueRequestSchema(t *testing.T) {
 		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), `unknown field "account"`)
 	})
 
+	t.Run("rejects secondary fields on non-dependent constraints", func(t *testing.T) {
+		fields := []*config.Field{
+			config.Field_builder{Name: "a", StringField: &config.StringField{}}.Build(),
+			config.Field_builder{Name: "b", StringField: &config.StringField{}}.Build(),
+			config.Field_builder{Name: "c", StringField: &config.StringField{}}.Build(),
+		}
+		kinds := []struct {
+			name string
+			kind config.ConstraintKind
+		}{
+			{name: "required together", kind: config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER},
+			{name: "at least one", kind: config.ConstraintKind_CONSTRAINT_KIND_AT_LEAST_ONE},
+			{name: "mutually exclusive", kind: config.ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE},
+		}
+		for _, kk := range kinds {
+			t.Run(kk.name, func(t *testing.T) {
+				valid := v2.CredentialIssueRequestSchema_builder{
+					Fields: fields,
+					Constraints: []*config.Constraint{config.Constraint_builder{
+						Kind:       kk.kind,
+						FieldNames: []string{"a", "b"},
+					}.Build()},
+				}.Build()
+				require.NoError(t, ValidateCredentialIssueRequestSchema(valid))
+
+				invalid := v2.CredentialIssueRequestSchema_builder{
+					Fields: fields,
+					Constraints: []*config.Constraint{config.Constraint_builder{
+						Kind:                kk.kind,
+						FieldNames:          []string{"a", "b"},
+						SecondaryFieldNames: []string{"c"},
+					}.Build()},
+				}.Build()
+				require.ErrorContains(t, ValidateCredentialIssueRequestSchema(invalid), "must not declare secondary fields")
+			})
+		}
+	})
+
+	t.Run("rejects dependent-on constraint without secondary fields", func(t *testing.T) {
+		schema := v2.CredentialIssueRequestSchema_builder{
+			Fields: []*config.Field{
+				config.Field_builder{Name: "a", StringField: &config.StringField{}}.Build(),
+				config.Field_builder{Name: "b", StringField: &config.StringField{}}.Build(),
+			},
+			Constraints: []*config.Constraint{config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON,
+				FieldNames: []string{"a"},
+			}.Build()},
+		}.Build()
+		require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "requires secondary fields")
+	})
+
 	t.Run("rejects unknown constraint kinds", func(t *testing.T) {
 		schema := v2.CredentialIssueRequestSchema_builder{
 			Fields: []*config.Field{

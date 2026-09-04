@@ -112,3 +112,15 @@ and maps as omitted when evaluating cross-field constraints. The generic action
 argument validator treats every non-null value as present. These are separate
 contracts: credential forms use config-field empty semantics, while action
 arguments retain their existing wire-presence behavior.
+
+### CO-3 — Secondary fields are DEPENDENT_ON-only
+
+Recorded after implementation inspection. The schema validator checked duplicate
+and unknown secondary field names for every constraint kind, but the request
+evaluator reads `secondary_field_names` only for DEPENDENT_ON. A non-DEPENDENT_ON
+constraint (e.g. MUTUALLY_EXCLUSIVE) with secondary fields therefore accepted a
+schema whose secondary names were silently ignored at evaluation. Schema
+publication now rejects nonempty `secondary_field_names` unless the kind is
+DEPENDENT_ON, and the public `CredentialIssueRequestSchema` documentation states
+the restriction. This tightens C2 without changing the shared `config.Constraint`
+contract, which has no per-kind semantics annotation.
