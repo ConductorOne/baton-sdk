@@ -897,8 +897,11 @@ func TestCredentialIssueSchemaRequiredFieldsExceedRequestDataLimit(t *testing.T)
 		require.NoError(t, ValidateCredentialIssueRequestSchema(schema))
 	})
 
-	t.Run("saturates without overflow", func(t *testing.T) {
-		// Declared bounds near MaxUint64 must not wrap into a false accept.
+	t.Run("rejects schema MaxUint64 length rules", func(t *testing.T) {
+		// Declared bounds at MaxUint64 are rejected. This path exits in the
+		// pre-existing per-field rule-bound guard, which is the publication
+		// seam; the saturating helpers themselves are pinned directly in
+		// TestCredentialIssueFieldMinSizeSaturates.
 		for _, rules := range []*config.StringRules{
 			config.StringRules_builder{Len: proto.Uint64(math.MaxUint64)}.Build(),
 			config.StringRules_builder{MinLen: proto.Uint64(math.MaxUint64)}.Build(),
@@ -946,6 +949,40 @@ func TestCredentialIssueRequestStringValueSizeMaxUint64(t *testing.T) {
 			require.Equal(t, maxCredentialIssueRequestDataBytes+1, credentialIssueRequestStringValueSize("value", length, listItem))
 		}
 	}
+}
+
+func TestCredentialIssueFieldMinSizeSaturates(t *testing.T) {
+	// Direct helper-level saturation: MaxUint64 Len/MinLen rules must clamp
+	// to the cap+1 sentinel without wrapping, for both the string lower
+	// bound and the complete per-field wire size. No publishable schema can
+	// reach the clamp (the per-field rule-bound guard rejects first), so the
+	// helpers are pinned here directly. No giant strings are allocated.
+	for _, rules := range []*config.StringRules{
+		config.StringRules_builder{Len: proto.Uint64(math.MaxUint64)}.Build(),
+		config.StringRules_builder{MinLen: proto.Uint64(math.MaxUint64)}.Build(),
+	} {
+		if rules.HasLen() {
+			require.Equal(t, maxCredentialIssueRequestDataBytes+1, credentialIssueClampLength(rules.GetLen()))
+		}
+		if rules.HasMinLen() {
+			require.Equal(t, maxCredentialIssueRequestDataBytes+1, credentialIssueClampLength(rules.GetMinLen()))
+		}
+		require.Equal(t, maxCredentialIssueRequestDataBytes+1, credentialIssueMinStringLength(rules, true))
+	}
+	// A required string field whose declared length is MaxUint64 reports the
+	// saturated cap+1 wire bound, and the aggregate check rejects on the
+	// first such field without further framing arithmetic.
+	schemaField := config.Field_builder{
+		Name:       "token",
+		IsRequired: true,
+		StringField: config.StringField_builder{
+			Rules: config.StringRules_builder{MinLen: proto.Uint64(math.MaxUint64)}.Build(),
+		}.Build(),
+	}.Build()
+	require.Equal(t, maxCredentialIssueRequestDataBytes+1, credentialIssueRequestFieldMinSize(schemaField))
+	require.Equal(t, credentialIssueRequestSizeLimit, credentialIssueClampLength(math.MaxUint64),
+		"the clamp and the sentinel are the same bound",
+	)
 }
 
 func TestCredentialIssueRequestFieldMinSizeMatchesProtoSize(t *testing.T) {
@@ -1076,6 +1113,34 @@ func TestCredentialIssueSchemaListAggregateBoundary(t *testing.T) {
 	rejected := requiredList(underCapLen + 1)
 	require.Greater(t, credentialIssueRequestFieldMinSize(rejected.GetFields()[0]), maxCredentialIssueRequestDataBytes)
 	require.ErrorContains(t, ValidateCredentialIssueRequestSchema(rejected), "cannot fit within the 65536-byte request data limit")
+
+	// Cap-adjacent rejection: 64 items of 1020 bytes (field name "k") wire to
+	// 65679 bytes, above the cap; the bound must exceed the cap too and
+	// publication must reject.
+	capAdjacent := config.Field_builder{
+		Name:       "k",
+		IsRequired: true,
+		StringSliceField: config.StringSliceField_builder{
+			Rules: config.RepeatedStringRules_builder{
+				MinItems:  proto.Uint64(64),
+				ItemRules: config.StringRules_builder{MinLen: proto.Uint64(1020)}.Build(),
+			}.Build(),
+		}.Build(),
+	}.Build()
+	adjacentItems := make([]*structpb.Value, 64)
+	for index := range adjacentItems {
+		adjacentItems[index] = structpb.NewStringValue(strings.Repeat("x", 1020))
+	}
+	adjacentData := &structpb.Struct{Fields: map[string]*structpb.Value{
+		"k": structpb.NewListValue(&structpb.ListValue{Values: adjacentItems}),
+	}}
+	require.Greater(t, proto.Size(adjacentData), maxCredentialIssueRequestDataBytes)
+	require.Greater(t, credentialIssueRequestFieldMinSize(capAdjacent), maxCredentialIssueRequestDataBytes)
+	require.ErrorContains(
+		t,
+		ValidateCredentialIssueRequestSchema(v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{capAdjacent}}.Build()),
+		"cannot fit within the 65536-byte request data limit",
+	)
 }
 
 func TestCredentialIssueSchemaRequiredListMinItemsZeroFloor(t *testing.T) {
@@ -1145,32 +1210,4 @@ func TestCredentialIssueSchemaRequiredListMinItemsZeroFloor(t *testing.T) {
 	// size exactly: one item, zero payload bytes, complete Value framing.
 	bound := credentialIssueRequestFieldMinSize(emptyItem.GetFields()[0])
 	require.Equal(t, proto.Size(emptyItemData), bound)
-
-	// Cap-adjacent rejection: 64 items of 1020 bytes (field name "k") wire to
-	// 65679 bytes, above the cap; the bound must exceed the cap too and
-	// publication must reject.
-	capAdjacent := config.Field_builder{
-		Name:       "k",
-		IsRequired: true,
-		StringSliceField: config.StringSliceField_builder{
-			Rules: config.RepeatedStringRules_builder{
-				MinItems:  proto.Uint64(64),
-				ItemRules: config.StringRules_builder{MinLen: proto.Uint64(1020)}.Build(),
-			}.Build(),
-		}.Build(),
-	}.Build()
-	adjacentItems := make([]*structpb.Value, 64)
-	for index := range adjacentItems {
-		adjacentItems[index] = structpb.NewStringValue(strings.Repeat("x", 1020))
-	}
-	adjacentData := &structpb.Struct{Fields: map[string]*structpb.Value{
-		"k": structpb.NewListValue(&structpb.ListValue{Values: adjacentItems}),
-	}}
-	require.Greater(t, proto.Size(adjacentData), maxCredentialIssueRequestDataBytes)
-	require.Greater(t, credentialIssueRequestFieldMinSize(capAdjacent), maxCredentialIssueRequestDataBytes)
-	require.ErrorContains(
-		t,
-		ValidateCredentialIssueRequestSchema(v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{capAdjacent}}.Build()),
-		"cannot fit within the 65536-byte request data limit",
-	)
 }
