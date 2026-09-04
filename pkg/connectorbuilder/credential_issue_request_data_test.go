@@ -1048,30 +1048,32 @@ func TestCredentialIssueSchemaListAggregateBoundary(t *testing.T) {
 
 	// Largest per-item minimum length whose proven lower bound still fits.
 	// 64x1000 fits (about 64.4k) and 64x2000 cannot (about 128k), so the
-	// crossing point exists in between.
-	underCap := uint64(0)
+	// crossing point exists in between. The search stays in uint64 (the
+	// schema domain); the fixture builder stays in int (the wire domain),
+	// tracked by the same loop counter.
+	underCapLen := uint64(0)
 	for itemLen := uint64(1000); itemLen <= 2000; itemLen++ {
 		if credentialIssueRequestFieldMinSize(requiredList(itemLen).GetFields()[0]) <= maxCredentialIssueRequestDataBytes {
-			underCap = itemLen
+			underCapLen = itemLen
 		} else {
 			break
 		}
 	}
-	require.Greater(t, underCap, uint64(0), "64 items of 1000 bytes must fit under the cap")
+	require.Greater(t, underCapLen, uint64(0), "64 items of 1000 bytes must fit under the cap")
 
-	accepted := requiredList(underCap)
+	accepted := requiredList(underCapLen)
 	require.NoError(t, ValidateCredentialIssueRequestSchema(accepted))
-	items := make([]*structpb.Value, maxCredentialIssueCollectionItems)
-	itemLen := int(underCap) //nolint:gosec // bounded by the loop above (1000..2000)
-	for index := range items {
-		items[index] = structpb.NewStringValue(strings.Repeat("x", itemLen))
+	fixtureItems := make([]*structpb.Value, maxCredentialIssueCollectionItems)
+	fixtureItem := strings.Repeat("x", int(underCapLen))
+	for index := range fixtureItems {
+		fixtureItems[index] = structpb.NewStringValue(fixtureItem)
 	}
 	data := &structpb.Struct{Fields: map[string]*structpb.Value{
-		"scopes": structpb.NewListValue(&structpb.ListValue{Values: items}),
+		"scopes": structpb.NewListValue(&structpb.ListValue{Values: fixtureItems}),
 	}}
 	require.NoError(t, ValidateCredentialIssueRequestData(accepted, data), "the boundary fixture must be a valid request")
 
-	rejected := requiredList(underCap + 1)
+	rejected := requiredList(underCapLen + 1)
 	require.Greater(t, credentialIssueRequestFieldMinSize(rejected.GetFields()[0]), maxCredentialIssueRequestDataBytes)
 	require.ErrorContains(t, ValidateCredentialIssueRequestSchema(rejected), "cannot fit within the 65536-byte request data limit")
 }
@@ -1138,4 +1140,37 @@ func TestCredentialIssueSchemaRequiredListMinItemsZeroFloor(t *testing.T) {
 		}}),
 	}}
 	require.NoError(t, ValidateCredentialIssueRequestData(emptyItem, emptyItemData))
+
+	// The computed bound for the [""] fixture must match its actual wire
+	// size exactly: one item, zero payload bytes, complete Value framing.
+	bound := credentialIssueRequestFieldMinSize(emptyItem.GetFields()[0])
+	require.Equal(t, proto.Size(emptyItemData), bound)
+
+	// Cap-adjacent rejection: 64 items of 1020 bytes (field name "k") wire to
+	// 65679 bytes, above the cap; the bound must exceed the cap too and
+	// publication must reject.
+	capAdjacent := config.Field_builder{
+		Name:       "k",
+		IsRequired: true,
+		StringSliceField: config.StringSliceField_builder{
+			Rules: config.RepeatedStringRules_builder{
+				MinItems:  proto.Uint64(64),
+				ItemRules: config.StringRules_builder{MinLen: proto.Uint64(1020)}.Build(),
+			}.Build(),
+		}.Build(),
+	}.Build()
+	adjacentItems := make([]*structpb.Value, 64)
+	for index := range adjacentItems {
+		adjacentItems[index] = structpb.NewStringValue(strings.Repeat("x", 1020))
+	}
+	adjacentData := &structpb.Struct{Fields: map[string]*structpb.Value{
+		"k": structpb.NewListValue(&structpb.ListValue{Values: adjacentItems}),
+	}}
+	require.Greater(t, proto.Size(adjacentData), maxCredentialIssueRequestDataBytes)
+	require.Greater(t, credentialIssueRequestFieldMinSize(capAdjacent), maxCredentialIssueRequestDataBytes)
+	require.ErrorContains(
+		t,
+		ValidateCredentialIssueRequestSchema(v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{capAdjacent}}.Build()),
+		"cannot fit within the 65536-byte request data limit",
+	)
 }
