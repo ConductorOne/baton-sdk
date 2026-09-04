@@ -1146,11 +1146,15 @@ type CredentialIssueRequestSchema_builder struct {
 
 	// Request fields are carried through host task and webhook surfaces. Secret
 	// fields are therefore unsupported; schema validation rejects is_secret.
-	// Presence constraints treat empty strings and collections as absent. An
-	// explicitly submitted numeric zero or false is present, so connectors
+	// Correctly typed empty strings and collections are omission-equivalent:
+	// they are absent for requiredness, presence constraints, and value rules.
+	// An explicitly submitted numeric zero or false is present, so connectors
 	// should omit bool/int fields from presence constraints unless that is the
-	// intended form-submission behavior.
-	Fields      []*v1.Field
+	// intended form-submission behavior. Connector authors requiring a value
+	// must declare the field required.
+	Fields []*v1.Field
+	// Cross-field constraints. secondary_field_names is only read by
+	// DEPENDENT_ON; schema validation rejects it on every other kind.
 	Constraints []*v1.Constraint
 }
 
