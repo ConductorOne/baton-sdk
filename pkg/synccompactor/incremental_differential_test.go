@@ -241,3 +241,61 @@ func assertSealedCompactionArtifact(
 	require.NoError(t, roundTrip.ValidateCompleted())
 	require.Equal(t, graph, roundTrip, "graph must survive a serialization round trip")
 }
+
+// TestCompactorIncrementalDifferentialFoldMode is the fold-mode counterpart of
+// TestCompactorIncrementalDifferentialRandom. The base graph reaches expansion
+// by a different route in each mode: fold captures it before its merge, every
+// other mode reopens the base artifact. Auto mode resolves these fixtures to an
+// overlay rebuild, so without forcing fold the captured route never reaches the
+// differential oracle and its grant equivalence rests on hand-built fixtures.
+func TestCompactorIncrementalDifferentialFoldMode(t *testing.T) {
+	const cases = 10
+	capturedRuns := 0
+	for seed := int64(0); seed < cases; seed++ {
+		seed := seed
+		t.Run(fmt.Sprintf("seed=%d", seed), func(t *testing.T) {
+			ctx := context.Background()
+
+			incEntries := buildRandomDifferentialFixtures(t, ctx, t.TempDir(), seed)
+			incCompactor, incCleanup, err := NewCompactor(ctx, t.TempDir(), incEntries,
+				WithTmpDir(t.TempDir()),
+				WithEngine(c1zstore.EnginePebble),
+				WithPebbleCompactorMode(PebbleCompactorModeFold),
+				WithIncrementalExpansion(),
+			)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, incCleanup()) }()
+			incOut, err := incCompactor.Compact(ctx)
+			require.NoError(t, err)
+			require.NotNil(t, incOut)
+			require.True(t, incCompactor.incrementalExpansionRan,
+				"seed=%d silently fell back instead of expanding incrementally", seed)
+			require.NotNil(t, incCompactor.foldBaseGraph,
+				"seed=%d fold mode must serve the base graph from its own capture", seed)
+			capturedRuns++
+
+			// Full expansion, same inputs, same fold mode: the only difference
+			// under comparison is how expansion obtained the base graph.
+			fullEntries := buildRandomDifferentialFixtures(t, ctx, t.TempDir(), seed)
+			fullCompactor, fullCleanup, err := NewCompactor(ctx, t.TempDir(), fullEntries,
+				WithTmpDir(t.TempDir()),
+				WithEngine(c1zstore.EnginePebble),
+				WithPebbleCompactorMode(PebbleCompactorModeFold),
+			)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, fullCleanup()) }()
+			fullOut, err := fullCompactor.Compact(ctx)
+			require.NoError(t, err)
+			require.NotNil(t, fullOut)
+
+			require.Equal(t,
+				grantOutcome(t, ctx, fullOut.FilePath, fullOut.SyncID),
+				grantOutcome(t, ctx, incOut.FilePath, incOut.SyncID),
+				"seed=%d captured-graph incremental grants differ from full expansion", seed,
+			)
+			assertSealedCompactionArtifact(t, ctx, incOut, true)
+			assertSealedCompactionArtifact(t, ctx, fullOut, false)
+		})
+	}
+	require.Equal(t, cases, capturedRuns, "every case must exercise the captured base graph")
+}

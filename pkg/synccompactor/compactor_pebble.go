@@ -493,6 +493,15 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	unionType := baseRec.GetType()
 	maxEnded := baseRec.GetEndedAt().AsTime()
 
+	// Snapshot the base's graph inputs now, while this store still describes the
+	// base: the rename below overwrites the sync run record, and the post-merge
+	// digest repair invalidates the digest the graph is validated against.
+	// Otherwise expansion re-extracts the whole base c1z later to read one blob
+	// we already have open.
+	if c.incrementalExpansion && !c.skipGrantExpansion && !c.disableFoldBaseGraphCapture {
+		c.captureFoldBaseGraph(ctx, destEng)
+	}
+
 	// Apply partials newest-first (reverse entry order, excluding the
 	// base at entries[0]); strictly-newer-wins makes earlier
 	// applications take precedence on ties.
@@ -1343,4 +1352,46 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 		return fmt.Errorf("compactPebble: persist dest sync_run: %w", err)
 	}
 	return nil
+}
+
+// captureFoldBaseGraph snapshots the base's graph inputs from the already-open
+// fold destination. Must run before the rename (which overwrites the sync run
+// record) and before the post-merge digest repair (which invalidates the digest
+// the graph is validated against).
+//
+// Best-effort on purpose. A failed read leaves c.foldBaseGraph nil and
+// loadIncrementalBaseGraph reopens the base as it always did — slower, but the
+// compaction still finishes. Erroring here would let a speed-only flag break
+// compactions that used to succeed.
+//
+// Callers gate this on !skipGrantExpansion; Compact releases the capture for the
+// partial-union case, which is not known until after the fold.
+func (c *Compactor) captureFoldBaseGraph(ctx context.Context, destEng *enginepkg.Engine) {
+	l := ctxzap.Extract(ctx)
+	capture := &foldBaseGraphCapture{}
+
+	run, err := c.compactedC1z.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
+	if err != nil {
+		l.Warn("compactPebbleFold: capture base verification failed; will reopen the base", zap.Error(err))
+		return
+	}
+	capture.run = run
+
+	blob, err := destEng.GetEntitlementGraphSidecar(ctx)
+	if err != nil {
+		l.Warn("compactPebbleFold: capture base graph sidecar failed; will reopen the base", zap.Error(err))
+		return
+	}
+	capture.blob = blob
+
+	if reader, ok := c.compactedC1z.(c1zstore.GrantGenerationDigestReader); ok {
+		digest, found, err := reader.GrantGenerationDigest(ctx)
+		if err != nil {
+			l.Warn("compactPebbleFold: capture base grant digest failed; will reopen the base", zap.Error(err))
+			return
+		}
+		capture.digest, capture.digestFound = digest, found
+	}
+
+	c.foldBaseGraph = capture
 }
