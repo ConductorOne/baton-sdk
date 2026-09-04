@@ -134,6 +134,10 @@ type recordingBatchDeleteStore struct {
 	batches [][]string
 }
 
+// SyncMeta answers the capability resolution setStore performs at attach; see
+// legacyPaginatedCheckpointStore.SyncMeta.
+func (s *recordingBatchDeleteStore) SyncMeta() c1zstore.SyncMeta { return nil }
+
 func (s *recordingBatchDeleteStore) DeleteGrantsByRefs(_ context.Context, grants ...*v2.Grant) error {
 	ids := make([]string, 0, len(grants))
 	for _, grant := range grants {
@@ -149,6 +153,10 @@ type recordingSingularDeleteStore struct {
 	c1zstore.Store
 	deleted []string
 }
+
+// SyncMeta answers the capability resolution setStore performs at attach; see
+// legacyPaginatedCheckpointStore.SyncMeta.
+func (s *recordingSingularDeleteStore) SyncMeta() c1zstore.SyncMeta { return nil }
 
 func (s *recordingSingularDeleteStore) DeleteGrantByRefs(_ context.Context, grant *v2.Grant) error {
 	s.deleted = append(s.deleted, grant.GetId())

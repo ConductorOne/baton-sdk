@@ -151,8 +151,11 @@ func (sm *syncMap[K, V]) Store(key K, val V) {
 type syncer struct {
 	// cfg is the caller's request: every value set by a With* option and
 	// nothing else, immutable once NewSyncer returns (see config.go).
-	cfg                    syncConfig
-	store                  c1zstore.Store
+	cfg   syncConfig
+	store c1zstore.Store
+	// caps are store's optional capabilities, resolved once by setStore
+	// (see store_caps.go). Always in step with store.
+	caps                   storeCaps
 	externalResourceReader connectorstore.Reader
 	previousSyncReader     connectorstore.Reader
 	// Ingestion-invariant state (see ingest_invariants.go):
@@ -231,15 +234,14 @@ func (s *syncer) persistEntitlementGraphToStore(ctx context.Context, syncID stri
 	if g == nil {
 		return
 	}
-	gs, ok := s.store.(EntitlementGraphStore)
-	if !ok {
+	gs := s.caps.entitlementGraph
+	if gs == nil {
 		return
 	}
-	digestReader, ok := s.store.(c1zstore.GrantGenerationDigestReader)
-	if !ok {
+	if s.caps.grantDigest == nil {
 		return
 	}
-	digest, found, err := digestReader.GrantGenerationDigest(ctx)
+	digest, found, err := s.caps.grantDigest.GrantGenerationDigest(ctx)
 	if err != nil || !found {
 		ctxzap.Extract(ctx).Warn("preserve entitlement graph: sealed grant digest unavailable; graph will not be reusable", zap.Error(err))
 		return
@@ -944,7 +946,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 	// stale marker would read as verified while collection rewrites the
 	// data underneath it. The invariant pass re-stages and the marker is
 	// re-persisted after EndSync.
-	if w, ok := s.store.SyncMeta().(c1zstore.IngestInvariantVerificationWriter); ok {
+	if w := s.caps.ingestVerification; w != nil {
 		if err := w.ClearIngestInvariantVerification(ctx, syncID); err != nil {
 			return s.returnSyncError(l, span, fmt.Errorf("clear prior ingest invariant verification: %w", err))
 		}
@@ -1050,9 +1052,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 	var graphToPersist *expand.EntitlementGraph
 	if s.cfg.preserveEntitlementGraph {
 		s.state.ClearEntitlementGraphTransientState(ctx)
-		_, hasGraphSidecar := s.store.(EntitlementGraphStore)
-		_, hasGrantDigest := s.store.(c1zstore.GrantGenerationDigestReader)
-		if hasGraphSidecar && hasGrantDigest {
+		if s.caps.entitlementGraph != nil && s.caps.grantDigest != nil {
 			graphToPersist = s.state.PeekEntitlementGraph()
 			s.state.ClearEntitlementGraph(ctx)
 		}
@@ -3793,7 +3793,7 @@ func (s *syncer) loadStore(ctx context.Context) error {
 		kind := "c1z_" + store.Metadata().Engine
 		s.cfg.setSessionStore.SetSessionStore(ctx, session.NewInstrumentedSessionStore(store.SessionStore(), kind, "", s.recordSessionOp))
 	}
-	s.store = store
+	s.setStore(store)
 
 	// Now that s.store is populated, wire the expand progress log's size
 	// provider. NewSyncer could not do this when the caller used
@@ -3803,17 +3803,25 @@ func (s *syncer) loadStore(ctx context.Context) error {
 	return nil
 }
 
+// setStore is the only way a store is attached to a syncer: it resolves the
+// store's optional capabilities in the same statement, so s.caps can never
+// describe a different store than s.store. Both attach points (NewSyncer for
+// WithConnectorStore, loadStore for WithC1ZPath) go through here, as do the
+// tests that drive a syncer without NewSyncer.
+func (s *syncer) setStore(store c1zstore.Store) {
+	s.store = store
+	s.caps = resolveStoreCaps(store)
+}
+
 // wireCountsDBSizeProvider attaches the store's DBSizeProvider capability
 // (if implemented) to s.counts so LogExpandProgress emits decompressed_bytes
 // and growth delta during long expansions. Idempotent: may be called from
 // both NewSyncer (WithConnectorStore case) and loadStore (WithC1ZPath case).
 func (s *syncer) wireCountsDBSizeProvider() {
-	if s.counts == nil || s.store == nil {
+	if s.counts == nil || s.caps.dbSize == nil {
 		return
 	}
-	if sp, ok := s.store.(connectorstore.DBSizeProvider); ok {
-		s.counts.SetDBSizeProvider(sp)
-	}
+	s.counts.SetDBSizeProvider(s.caps.dbSize)
 }
 
 // Close closes the store so the c1z is flushed to disk.
@@ -3917,7 +3925,7 @@ func WithProgressHandler(f func(s *Progress)) SyncOpt {
 // Either this or WithC1ZPath must be provided to create a new syncer.
 func WithConnectorStore(store c1zstore.Store) SyncOpt {
 	return func(s *syncer) {
-		s.store = store
+		s.setStore(store)
 	}
 }
 
