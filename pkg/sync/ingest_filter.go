@@ -183,7 +183,7 @@ func (s *syncer) filterFreshEntitlements(
 	ctx context.Context,
 	entitlements []*v2.Entitlement,
 ) ([]*v2.Entitlement, error) {
-	if s.syncType != connectorstore.SyncTypeFull || len(entitlements) == 0 {
+	if s.cfg.syncType != connectorstore.SyncTypeFull || len(entitlements) == 0 {
 		return entitlements, nil
 	}
 	out := make([]*v2.Entitlement, 0, len(entitlements))
@@ -284,7 +284,7 @@ func (s *syncer) filterGrantExpansionTypes(
 }
 
 func (s *syncer) filterFreshGrants(ctx context.Context, grants []*v2.Grant) ([]*v2.Grant, error) {
-	if s.syncType != connectorstore.SyncTypeFull || len(grants) == 0 {
+	if s.cfg.syncType != connectorstore.SyncTypeFull || len(grants) == 0 {
 		return grants, nil
 	}
 	out := make([]*v2.Grant, 0, len(grants))
@@ -345,7 +345,7 @@ func (s *syncer) filterFreshGrants(ctx context.Context, grants []*v2.Grant) ([]*
 // resources whose type is absent from the sync's resource types, so storing
 // them is dead data even though the resource row itself could be written.
 func (s *syncer) filterFreshGrantResource(ctx context.Context, resource *v2.Resource) (bool, error) {
-	if s.syncType != connectorstore.SyncTypeFull || resource.GetId() == nil {
+	if s.cfg.syncType != connectorstore.SyncTypeFull || resource.GetId() == nil {
 		return true, nil
 	}
 	exists, err := s.scheduledResourceTypeExists(ctx, resource.GetId().GetResourceType())

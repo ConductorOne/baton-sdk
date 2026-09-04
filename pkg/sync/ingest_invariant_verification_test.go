@@ -83,11 +83,13 @@ func TestIngestInvariantVerificationCoverageByEngine(t *testing.T) {
 			syncID, err := store.StartNewSync(ctx, tc.syncType, "")
 			require.NoError(t, err)
 			s := &syncer{
-				store:                 store,
-				syncID:                syncID,
-				syncType:              tc.syncType,
-				compactionMergedStore: tc.compaction,
-				failFastInvariants:    tc.failFast,
+				store:  store,
+				syncID: syncID,
+				cfg: syncConfig{
+					syncType:              tc.syncType,
+					compactionMergedStore: tc.compaction,
+					failFastInvariants:    tc.failFast,
+				},
 				resourcesPhaseRanHere: tc.resources,
 			}
 			require.NoError(t, s.runIngestionInvariants(ctx))
@@ -312,7 +314,7 @@ func TestFailedIngestInvariantPassDoesNotWriteVerification(t *testing.T) {
 	}))
 	require.NoError(t, store.SetCurrentSync(ctx, syncID))
 
-	s := &syncer{store: store, syncID: syncID, syncType: connectorstore.SyncTypeFull}
+	s := &syncer{store: store, syncID: syncID, cfg: syncConfig{syncType: connectorstore.SyncTypeFull}}
 	require.Error(t, s.runIngestionInvariants(ctx))
 
 	// The failed pass must have invalidated the inherited proof, and no
