@@ -2,7 +2,7 @@
 
 Plan: [`plan.md`](plan.md)
 
-Implementation revision: `82323321`.
+Implementation revision: `a5979e9e`.
 
 | Criterion | Status | Instrument | Evidence |
 | --- | --- | --- | --- |
@@ -18,20 +18,17 @@ Implementation revision: `82323321`.
 
 ## Commands
 
-- `GOTOOLCHAIN=go1.25.2 go test -race ./pkg/field ./pkg/connectorbuilder ./pkg/tasks/c1api` — pass.
+- `GOTOOLCHAIN=go1.25.2 go test -race -tags=baton_lambda_support ./pkg/field ./pkg/connectorbuilder ./pkg/tasks/c1api` — pass.
 - `buf lint` — pass.
 - `buf breaking --against '.git#tag=v0.26.0'` — pass.
 - `make protogen` followed by `git status --short` — pass; clean tree, no generated change needed.
-- `GOTOOLCHAIN=go1.25.2 go test ./...` — pass; exit 0, no failing packages.
-- `GOTOOLCHAIN=go1.25.2 golangci-lint run --timeout=10m` — pass; 0 issues.
-- `make lint` — unavailable under the default Go 1.27 toolchain: the installed
-  golangci-lint 2.9.0 panics on Go 1.27 export data (binary built with
-  go1.26). The panic reproduces at the pre-change revision without the
-  feature code. The full-repo lint above passes under the matching
-  GOTOOLCHAIN, and `go test ./...` under default Go 1.27 hits the same
-  `cockroachdb/swiss` `!go1.27` build constraint in the compat/crash
-  harnesses as before; failure sets are identical with and without these
-  changes.
+- `GOTOOLCHAIN=go1.25.2 go test -tags=baton_lambda_support ./...` (the CI suite command) — pass; exit 0, no failing packages.
+- `golangci-lint 2.12.2 run --timeout=10m` (the CI go-lint pin, GOTOOLCHAIN=go1.25.2) — pass; 0 issues.
+- `make lint` under the default Go 1.27 toolchain is unavailable in this
+  environment: the installed golangci-lint 2.9.0 panics on Go 1.27 export
+  data (binary built with go1.26). The panic reproduces at the pre-change
+  revision without the feature code. The CI go-lint job itself runs
+  golangci-lint 2.12.2 against this revision and passes.
 
 The limited gates reproduce without the feature code and are toolchain
 compatibility constraints, not typed-input validation failures.
