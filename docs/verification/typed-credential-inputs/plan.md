@@ -124,3 +124,35 @@ publication now rejects nonempty `secondary_field_names` unless the kind is
 DEPENDENT_ON, and the public `CredentialIssueRequestSchema` documentation states
 the restriction. This tightens C2 without changing the shared `config.Constraint`
 contract, which has no per-kind semantics annotation.
+
+### CO-4 — DEPENDENT_ON lists must be disjoint
+
+Recorded after final-code review. The schema validator rejected duplicates
+within each constraint list and references to unknown fields, but accepted a
+name appearing in both `field_names` and `secondary_field_names`. The public
+`FieldsDependentOn` DSL rejects that cross-list overlap because the
+dependency would be self-satisfied; the request evaluator likewise counts
+one submitted field on both sides. Schema publication now rejects the first
+secondary name also contained in the primary names, with an error naming
+the field, preserving declaration-order errors, unknown-name checks,
+missing-secondary checks, and the non-DEPENDENT_ON prohibition. This
+tightens C2 without changing the shared `config.Constraint` contract.
+
+### CO-5 — Required-field aggregate feasibility at publication
+
+Recorded after final-code review. Individual string bounds and list
+MinItems/MaxItems were each capped, but nothing aggregated them: a required
+list with 64 items of 2000 bytes minimum, or two required strings of 40000
+bytes each, published successfully while every satisfying request exceeded
+the 65536-byte request-data cap and failed request validation. Publication
+now computes a conservative protobuf lower bound over unconditionally
+required fields and rejects when a proven lower bound exceeds the cap. The
+bound reuses `credentialIssueRequestFieldIsRequired` for requiredness,
+saturates every intermediate at cap+1, clamps uint64 rule values before
+conversion, sizes each list element as a complete Value, and floors
+required lists at max(1, min_items) so an explicit MinItems=0 cannot
+collapse it. Optional fields contribute zero and cross-constraint branches
+are not summed: this is a publication-quality correction, not a proof that
+every accepted schema is satisfiable, and no constraint solver is
+introduced. This tightens C2; the runtime cap remains the enforcement
+seam.
