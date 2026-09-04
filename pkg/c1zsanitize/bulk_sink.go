@@ -42,9 +42,10 @@ type bulkImportSink struct {
 }
 
 // startBulkImportSink opens a bulk import on the destination's current
-// fresh sync. tmpDir stages spill files ("" = system temp dir).
+// fresh sync. tmpDir stages spill files ("" = system temp dir). The
+// import is sized for the single grant shard this sink opens.
 func startBulkImportSink(ctx context.Context, eng *pebble.Engine, syncID string, tmpDir string) (*bulkImportSink, error) {
-	bi, err := eng.StartBulkSyncImport(ctx, syncID, tmpDir)
+	bi, err := eng.StartBulkSyncImport(ctx, syncID, tmpDir, 1)
 	if err != nil {
 		return nil, fmt.Errorf("start bulk import: %w", err)
 	}

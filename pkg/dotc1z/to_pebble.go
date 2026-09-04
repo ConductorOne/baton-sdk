@@ -107,13 +107,13 @@ func WithConvertTmpDir(dir string) ConvertOption {
 // lane holds one sqlite connection plus a reader and a decode/encode
 // goroutine). The default — min(4, GOMAXPROCS/2) — leaves headroom for
 // shared infrastructure; callers that own the machine can raise it, and
-// 1 fully serializes the grant scan. Values <= 0 are ignored. Memory
-// scales with fan-out: each lane pins up to three 128MiB spill arenas
-// (its grant sorter plus two index sorters), and the import's three
-// lane-independent sorters (resources, entitlements, parent index) pin
-// another ~384MiB alongside the scan since none finalize until Finish —
-// so budget ~384MiB × (lanes + 1) of sort memory (see the bulk import's
-// arenaFree).
+// 1 fully serializes the grant scan. Values <= 0 are ignored.
+//
+// Sort memory does not scale with fan-out: the bulk import sizes its
+// spill chunks from a fixed budget divided by the arena count the lane
+// count implies (see pebble's bulkImportSortBudgetBytes), so more lanes
+// mean smaller chunks and a wider final merge — more open chunk files
+// and read buffers at Finish — rather than more RSS during the scan.
 func WithConvertParallelism(n int) ConvertOption {
 	return func(c *convertConfig) {
 		if n > 0 {
@@ -338,7 +338,7 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 	if !ok {
 		return nil, errors.New("to-pebble: destination store is not a pebble engine")
 	}
-	bi, err := destEng.StartBulkSyncImport(ctx, destSyncID, cfg.tmpDir)
+	bi, err := destEng.StartBulkSyncImport(ctx, destSyncID, cfg.tmpDir, cfg.grantScanLanes())
 	if err != nil {
 		return nil, fmt.Errorf("to-pebble: start bulk import: %w", err)
 	}
@@ -803,6 +803,20 @@ func (c *C1File) convertEntitlements(ctx context.Context, bi *pebble.BulkSyncImp
 // via WithConvertParallelism.
 const convertGrantScanLanes = 4
 
+// grantScanLanes returns the grant scan fan-out the conversion will
+// attempt: the caller's WithConvertParallelism when set, otherwise half
+// the available CPUs capped at convertGrantScanLanes, never below 1.
+// convertGrants may still fall back to a single lane if the extra sqlite
+// readers cannot attach; the value here is also what the bulk import
+// sizes its spill arenas for, so it is computed once up front.
+func (cfg *convertConfig) grantScanLanes() int {
+	lanes := min(convertGrantScanLanes, max(1, runtime.GOMAXPROCS(0)/2))
+	if cfg.parallelism > 0 {
+		lanes = cfg.parallelism
+	}
+	return max(1, lanes)
+}
+
 // rawGrantRow is one grant row's raw column bytes, copied out of the
 // scan into a batch-owned arena so decoding can happen on another
 // goroutine after the scanner has moved on, plus the row's
@@ -847,13 +861,7 @@ func (c *C1File) convertGrants(ctx context.Context, bi *pebble.BulkSyncImport, s
 		return nil // no grants in this sync
 	}
 
-	lanes := min(convertGrantScanLanes, max(1, runtime.GOMAXPROCS(0)/2))
-	if cfg.parallelism > 0 {
-		lanes = cfg.parallelism
-	}
-	if lanes < 1 {
-		lanes = 1
-	}
+	lanes := cfg.grantScanLanes()
 	// The C1File's own pool is capped at one connection (WAL checkpoint
 	// hygiene — see NewC1File) and defaults to locking_mode=EXCLUSIVE,
 	// which holds its lock indefinitely once acquired and would starve a

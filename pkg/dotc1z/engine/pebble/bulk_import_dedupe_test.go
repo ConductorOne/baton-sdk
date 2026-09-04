@@ -20,7 +20,7 @@ func startBulkImport(t *testing.T, ctx context.Context) (*Adapter, *BulkSyncImpo
 	store := NewAdapter(e)
 	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err, "StartNewSync")
-	b, err := e.StartBulkSyncImport(ctx, syncID, t.TempDir())
+	b, err := e.StartBulkSyncImport(ctx, syncID, t.TempDir(), 1)
 	require.NoError(t, err, "StartBulkSyncImport")
 	return store, b
 }

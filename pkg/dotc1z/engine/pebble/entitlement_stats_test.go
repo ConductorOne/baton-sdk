@@ -70,7 +70,7 @@ func TestBulkImportComputedStatsEntitlementsByResourceType(t *testing.T) {
 	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err, "StartNewSync")
 
-	b, err := e.StartBulkSyncImport(ctx, syncID, t.TempDir())
+	b, err := e.StartBulkSyncImport(ctx, syncID, t.TempDir(), 1)
 	require.NoError(t, err, "StartBulkSyncImport")
 	defer b.Abort()
 

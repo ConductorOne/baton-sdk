@@ -49,11 +49,40 @@ var ErrBulkImportOutOfOrder = errors.New("bulk sync import: keys are not strictl
 var ErrBulkImportDuplicateKey = errors.New("bulk sync import: duplicate key in spill merge")
 
 // bulkSpillKeyChunkBytes sizes the shared spill arena pool
-// (getSpillArena) and the deferred build's translate-batch arenas.
-// Production spill sorters all cut chunks at
-// deferredIndexSpillChunkBytes with explicit freelists; see that
-// constant for the sizing trade-off.
+// (getSpillArena) and the deferred build's translate-batch arenas. The
+// engine's single-producer spill sorters cut chunks at
+// deferredIndexSpillChunkBytes with explicit freelists (see that
+// constant for the sizing trade-off); the bulk import derives its chunk
+// size from bulkImportSortBudgetBytes instead, because its sorter count
+// scales with the caller's scan fan-out.
 const bulkSpillKeyChunkBytes = 8 << 20
+
+// bulkImportSortBudgetBytes bounds the anonymous memory the bulk import's
+// spill arenas can hold at once. Chunk size is derived from it, not
+// hard-coded: chunkBytes = budget / liveArenas, where liveArenas counts
+// every arena that can be committed simultaneously — one per sorter
+// (resources, entitlements, the parent index, and per grant shard one
+// primary plus one per index family) plus one per background sort slot.
+// Adding an index family or raising the shard count therefore shrinks
+// the chunks instead of silently raising peak RSS.
+//
+// Chunk size sets Finish's merge fan-in: every chunk stays open behind a
+// bulkSpillBufferSize reader for the whole merge, so the derived value is
+// clamped to [bulkImportMinChunkBytes, deferredIndexSpillChunkBytes] —
+// the floor keeps a whale-sized grant family (~17GB) to a few hundred
+// chunks rather than the thousands 8MiB chunks produced (grants.go
+// records the synth-layer incident), and the ceiling is the size the
+// single-producer builds already validated.
+//
+// Worked examples with three grant index families and 4 sort slots: the
+// sanitizer (1 shard, 11 arenas) derives ~93MiB; the converter at 4 lanes
+// (23 arenas) ~44MiB; at 8 lanes (39 arenas) ~26MiB. The freelist
+// recycles arenas within the same budget, so idle arenas never add to it.
+const bulkImportSortBudgetBytes = 1 << 30
+
+// bulkImportMinChunkBytes is the floor on the derived bulk-import chunk
+// size; see bulkImportSortBudgetBytes.
+const bulkImportMinChunkBytes = 16 << 20
 
 // bulkSpillBufferSize is the bufio size for spill-chunk IO.
 const bulkSpillBufferSize = 1 << 20
@@ -198,16 +227,17 @@ type BulkSyncImport struct {
 
 	// Every sorter in the import — resources, entitlements, the parent
 	// index, and each shard's grant and index sorters — cuts chunks at
-	// deferredIndexSpillChunkBytes and recycles arenas through this
-	// import-wide freelist (see newSorter). Chunk size sets Finish's merge
-	// fan-in: every chunk stays open behind a bulkSpillBufferSize reader
-	// for the whole merge, so key-sized (8MiB) chunks over a whale's grant
-	// volume mean thousands of open files and gigabytes of read buffers
-	// (grants.go records the synth-layer incident). The large arenas do
-	// not multiply into RSS: a fresh arena's pages commit only as it
-	// fills, sorts in flight are capped by sortSem, and idle arenas are
-	// capped by the freelist.
-	arenaFree *spillArenaFreeList
+	// chunkBytes and recycles arenas through this import-wide freelist
+	// (see newSorter). chunkBytes is derived from
+	// bulkImportSortBudgetBytes and the caller's expected shard count so
+	// the arenas' aggregate stays under the budget: sorts in flight are
+	// capped by sortSem, and idle arenas are capped by the freelist, so
+	// the live set is exactly the arena count the derivation counted.
+	// (A fresh arena's pages also commit only as it fills, so small
+	// imports stay well under the budget; recycled arenas are fully
+	// committed, which is why the budget counts them all.)
+	chunkBytes int
+	arenaFree  *spillArenaFreeList
 
 	// Parent-level sorter for the (single-threaded) resource index keys.
 	idxResourceByParent *spillSorter
@@ -245,7 +275,13 @@ type BulkSyncImport struct {
 // the engine's current FRESH sync (see BulkSyncImport contract). Working
 // files are staged in a fresh directory under tmpDir ("" = system temp
 // dir) and removed by Finish/Abort.
-func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir string) (*BulkSyncImport, error) {
+//
+// expectedShards is the number of grant shards the caller intends to open
+// via NewGrantShard (values < 1 are treated as 1). It is a sizing hint,
+// not a limit: the import derives its spill chunk size from it so the
+// arenas' aggregate stays within bulkImportSortBudgetBytes. Opening more
+// shards than declared still works but raises peak memory proportionally.
+func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir string, expectedShards int) (*BulkSyncImport, error) {
 	if !e.IsFreshSync() {
 		return nil, errors.New("StartBulkSyncImport: sync is not fresh")
 	}
@@ -270,11 +306,12 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 		syncID:              syncID,
 		dir:                 dir,
 		sortSem:             make(chan struct{}, sorters),
+		chunkBytes:          bulkImportChunkBytes(expectedShards, sorters),
 		resourcesByRT:       map[string]int64{},
 		entitlementsByRT:    map[string]int64{},
 		grantDupRowsByEntRT: map[string]int64{},
 	}
-	b.arenaFree = newSpillArenaFreeList(deferredIndexSpillChunkBytes, sorters+2)
+	b.arenaFree = newSpillArenaFreeList(b.chunkBytes, sorters+2)
 	sw, err := newBulkSSTWriter(e.fs(), dir, "resource-types")
 	if err != nil {
 		b.Abort()
@@ -287,10 +324,23 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 	return b, nil
 }
 
+// bulkImportChunkBytes derives the spill chunk size that keeps the
+// import's simultaneously-live arenas within bulkImportSortBudgetBytes.
+// The live set is one arena per sorter — the three lane-independent
+// sorters plus, per grant shard, one primary and one per index family —
+// plus one per background sort slot (a sorter that just cut a chunk
+// fills a fresh arena while the cut one sorts). See
+// bulkImportSortBudgetBytes for the clamp rationale.
+func bulkImportChunkBytes(expectedShards, sortSlots int) int {
+	expectedShards = max(1, expectedShards)
+	liveArenas := 3 + (1+len(grantIndexFamilies))*expectedShards + sortSlots
+	return min(deferredIndexSpillChunkBytes, max(bulkImportMinChunkBytes, bulkImportSortBudgetBytes/liveArenas))
+}
+
 // newSorter creates a spill sorter wired to the import's shared sort
 // semaphore and arena freelist (see arenaFree for the sizing rationale).
 func (b *BulkSyncImport) newSorter(name string) *spillSorter {
-	s := newSpillSorter(b.dir, name, b.sortSem, deferredIndexSpillChunkBytes)
+	s := newSpillSorter(b.dir, name, b.sortSem, b.chunkBytes)
 	s.free = b.arenaFree
 	return s
 }
@@ -941,6 +991,17 @@ func (s *spillSorter) add(key, val []byte) error {
 	}
 	if err := s.takeErr(); err != nil {
 		return err
+	}
+	// Cut BEFORE an entry would overflow the arena's capacity, not after.
+	// Appending past cap makes Go reallocate the arena at ~1.25x with a
+	// full copy — a 128MiB memcpy per fresh arena — and the freelist then
+	// keeps the oversized copy, so every recycled arena would carry that
+	// growth for the rest of the build. Cutting early keeps arenas at
+	// exactly their allocated size and makes the budget arithmetic in
+	// bulkImportSortBudgetBytes true. (An arena holding nothing yet is
+	// left to grow: a single entry larger than a chunk is legal.)
+	if len(s.views) > 0 && len(s.arena)+len(key)+len(val) > cap(s.arena) {
+		s.cutAndDispatch()
 	}
 	if s.arena == nil {
 		if s.free != nil {
