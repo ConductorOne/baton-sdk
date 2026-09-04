@@ -69,10 +69,10 @@ const bulkSpillKeyChunkBytes = 8 << 20
 // Chunk size sets Finish's merge fan-in: every chunk stays open behind a
 // bulkSpillBufferSize reader for the whole merge, so the derived value is
 // clamped to [bulkImportMinChunkBytes, deferredIndexSpillChunkBytes] —
-// the floor keeps a whale-sized grant family (~17GB) to a few hundred
-// chunks rather than the thousands 8MiB chunks produced (grants.go
-// records the synth-layer incident), and the ceiling is the size the
-// single-producer builds already validated.
+// the floor caps the run count at half what 8MiB chunks produce (a
+// whale-sized ~17GB grant family is ~1,100 runs at the floor versus
+// ~2,200 at 8MiB; grants.go records the synth-layer incident), and the
+// ceiling is the size the single-producer builds already validated.
 //
 // Worked examples with three grant index families and 4 sort slots: the
 // sanitizer (1 shard, 11 arenas) derives ~93MiB; the converter at 4 lanes

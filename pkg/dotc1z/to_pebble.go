@@ -109,11 +109,14 @@ func WithConvertTmpDir(dir string) ConvertOption {
 // shared infrastructure; callers that own the machine can raise it, and
 // 1 fully serializes the grant scan. Values <= 0 are ignored.
 //
-// Sort memory does not scale with fan-out: the bulk import sizes its
-// spill chunks from a fixed budget divided by the arena count the lane
-// count implies (see pebble's bulkImportSortBudgetBytes), so more lanes
-// mean smaller chunks and a wider final merge — more open chunk files
-// and read buffers at Finish — rather than more RSS during the scan.
+// Sort memory is budgeted, not proportional to fan-out, up to a point:
+// the bulk import sizes its spill chunks from a fixed budget divided by
+// the arena count the lane count implies (see pebble's
+// bulkImportSortBudgetBytes), so up to ~14 lanes more lanes mean smaller
+// chunks and a wider final merge — more open chunk files and read buffers
+// at Finish — rather than more RSS during the scan. Past that the chunk
+// size hits its 16MiB floor and sort memory grows again, by roughly four
+// 16MiB arenas per additional lane.
 func WithConvertParallelism(n int) ConvertOption {
 	return func(c *convertConfig) {
 		if n > 0 {
@@ -177,17 +180,23 @@ type syncIDPreservingStarter interface {
 // .c1z written to outPath, which must not already exist.
 //
 // It uses the engine's BulkSyncImport SST fast path: each record table is
-// streamed out of SQLite once, in primary-key order via `ORDER BY` on the
-// key's tuple columns (SQLite BINARY collation is bytewise, and the engine's
-// tuple key codec is order-preserving, so SQL order == encoded-key order —
-// enforced at runtime by the importer's strictly-increasing check). Primary
-// records stream straight into one sorted SST per bucket; secondary index
-// keys are derived from the translated records and externally sorted into
-// one index SST; everything is ingested in a single pebble Ingest. No
-// memtable, no WAL, no L0 flush, no background compaction debt.
+// streamed out of SQLite once. Resource types are scanned in primary-key
+// order via `ORDER BY` on the key column (SQLite BINARY collation is
+// bytewise and the engine's tuple key codec is order-preserving, so SQL
+// order == encoded-key order — enforced at runtime by the importer's
+// strictly-increasing check) and stream straight into one sorted SST.
+// Resources, entitlements, and grants are keyed by tuples whose order the
+// scan cannot cheaply reproduce, so the importer spill-sorts them (and the
+// secondary index keys derived from them) into sorted runs and k-way
+// merges each family into one SST at Finish; everything is ingested in a
+// single pebble Ingest. No memtable, no WAL, no L0 flush, no background
+// compaction debt.
 //
 // SQLite's UNIQUE(external_id, sync_id) indexes provide the no-duplicates
-// guarantee the importer requires.
+// guarantee the importer requires for resource types, resources, and
+// entitlements. Grants are keyed by structural identity (entitlement +
+// principal refs), which that index does not cover; legacy rows sharing an
+// identity under distinct external ids fold at Finish with a warning.
 //
 // syncID selects the source sync to convert; the destination holds that one
 // sync and nothing else, so every other sync in the source is dropped. Those
@@ -829,13 +838,13 @@ type rawGrantRow struct {
 
 // convertGrants streams the sync's grants into the bulk import. The
 // scan shards by EXTERNAL ID range over the UNIQUE(external_id,
-// sync_id) index: each lane's ordered range scan yields rows already in
-// the shard's final pebble key order, so grant primaries stream
-// straight into one final SST per lane — no spill, no external sort, no
-// merge (see BulkGrantShard). Range boundaries come from sampling
-// external ids at random rowids and taking quantiles; uneven lanes only
-// cost balance, never correctness, and pebble's Ingest rejects
-// overlapping shard SSTs outright.
+// sync_id) index purely to spread the SQLite read and decode work across
+// lanes: grants are keyed by structural identity, whose order the
+// external-id scan does not reproduce, so each shard spill-sorts its
+// primaries and index keys and Finish k-way merges every shard's runs
+// into one grants SST (see BulkGrantShard). Range boundaries come from
+// sampling external ids at random rowids and taking quantiles; uneven
+// lanes only cost balance, never correctness.
 //
 // Each lane is a two-stage pipeline: a reader goroutine does nothing
 // but step rows and memcpy the raw (data, expansion) column bytes into

@@ -1,6 +1,7 @@
 package c1zsanitize
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"path/filepath"
@@ -260,24 +261,30 @@ func entitlementCount(t *testing.T, ctx context.Context, store c1zstore.Store) i
 	return len(resp.GetList())
 }
 
-// fullRecords holds every resource-type, resource, and entitlement record
-// keyed by transformed id. These three families now ride different write
-// paths per destination engine (upserting Put* on sqlite, the non-upserting
-// bulk import on pebble), so the parity oracle pins full record identity —
-// not just cardinality and graph shape — to catch a row one path drops,
-// folds, or mangles field-by-field.
+// fullRecords holds every resource-type, resource, entitlement, and grant
+// record keyed by transformed id (grants by parityGrantRef, their identity
+// on both engines). These families now ride different write paths per
+// destination engine (upserting Put* on sqlite, the non-upserting bulk
+// import on pebble), so the parity oracle pins full record identity — not
+// just cardinality and graph shape — to catch a row one path drops, folds,
+// or mangles field-by-field. For grants this is the only oracle that sees
+// the grant's own transformed external id and its non-expansion
+// annotations; grantRefs/grantSourcesCanonical/pendingExpansionBlobs all
+// key by ref and never look at them.
 type fullRecords struct {
-	rts  map[string]*v2.ResourceType
-	ress map[string]*v2.Resource
-	ents map[string]*v2.Entitlement
+	rts    map[string]*v2.ResourceType
+	ress   map[string]*v2.Resource
+	ents   map[string]*v2.Entitlement
+	grants map[string]*v2.Grant
 }
 
 func fullRecordSets(t *testing.T, ctx context.Context, store c1zstore.Store) fullRecords {
 	t.Helper()
 	fr := fullRecords{
-		rts:  map[string]*v2.ResourceType{},
-		ress: map[string]*v2.Resource{},
-		ents: map[string]*v2.Entitlement{},
+		rts:    map[string]*v2.ResourceType{},
+		ress:   map[string]*v2.Resource{},
+		ents:   map[string]*v2.Entitlement{},
+		grants: map[string]*v2.Grant{},
 	}
 	// Single-page reads: if a fixture ever outgrows the page, both arms
 	// would truncate identically and the oracle would silently narrow, so
@@ -300,7 +307,57 @@ func fullRecordSets(t *testing.T, ctx context.Context, store c1zstore.Store) ful
 	for _, e := range ents.GetList() {
 		fr.ents[e.GetId()] = normalizeEntitlementForParity(e)
 	}
+	grs, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 1000}.Build())
+	require.NoError(t, err)
+	require.Empty(t, grs.GetNextPageToken(), "grant fixture outgrew one page; oracle would silently truncate")
+	for _, g := range grs.GetList() {
+		ref := parityGrantRef(g)
+		_, dup := fr.grants[ref]
+		require.Falsef(t, dup, "grant ref %q listed twice; the oracle would silently keep one", ref)
+		fr.grants[ref] = normalizeGrantForParity(g)
+	}
 	return fr
+}
+
+// normalizeGrantForParity slims the embedded entitlement and principal to
+// the identity-only stubs pebble's V3GrantToV2 hydrates (entitlement id +
+// owning resource id; principal id + parent id), drops the GrantExpandable
+// annotation, and sorts the remaining annotations by (type_url, value).
+// GrantExpandable is dropped because the engines disagree on plain
+// ListGrants independently of the sanitizer: both store it in a side
+// column, but only pebble re-attaches it on read (sqlite exposes it via
+// ListWithAnnotationsPage). Its content is compared separately through
+// pendingExpansionBlobs. The grant's own id, sources, and every other
+// annotation payload are kept verbatim.
+func normalizeGrantForParity(g *v2.Grant) *v2.Grant {
+	out, ok := proto.Clone(g).(*v2.Grant)
+	if !ok {
+		panic("clone changed type")
+	}
+	if e := out.GetEntitlement(); e != nil {
+		out.SetEntitlement(v2.Entitlement_builder{
+			Id:       e.GetId(),
+			Resource: v2.Resource_builder{Id: e.GetResource().GetId()}.Build(),
+		}.Build())
+	}
+	if p := out.GetPrincipal(); p != nil {
+		out.SetPrincipal(v2.Resource_builder{Id: p.GetId(), ParentResourceId: p.GetParentResourceId()}.Build())
+	}
+	expandableURL := "type.googleapis.com/" + string((&v2.GrantExpandable{}).ProtoReflect().Descriptor().FullName())
+	anns := make([]*anypb.Any, 0, len(out.GetAnnotations()))
+	for _, a := range out.GetAnnotations() {
+		if a.GetTypeUrl() != expandableURL {
+			anns = append(anns, a)
+		}
+	}
+	sort.Slice(anns, func(i, j int) bool {
+		if anns[i].GetTypeUrl() != anns[j].GetTypeUrl() {
+			return anns[i].GetTypeUrl() < anns[j].GetTypeUrl()
+		}
+		return bytes.Compare(anns[i].GetValue(), anns[j].GetValue()) < 0
+	})
+	out.SetAnnotations(anns)
+	return out
 }
 
 // normalizeEntitlementForParity slims the two fields pebble's v3 schema
@@ -525,6 +582,7 @@ func TestSanitizeCrossEnginePebbleParity(t *testing.T) {
 		requireRecordSetEqual(t, base.records.rts, snaps[i].records.rts, arms[i].name, "resource type")
 		requireRecordSetEqual(t, base.records.ress, snaps[i].records.ress, arms[i].name, "resource")
 		requireRecordSetEqual(t, base.records.ents, snaps[i].records.ents, arms[i].name, "entitlement")
+		requireRecordSetEqual(t, base.records.grants, snaps[i].records.grants, arms[i].name, "grant")
 	}
 
 	// (3) needs_expansion membership: the multi-expand and divergence-trigger

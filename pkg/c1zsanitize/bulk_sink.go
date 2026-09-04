@@ -26,11 +26,18 @@ type recordSink interface {
 // fresh, resumable+pebble is rejected up front so every checkpoint call is
 // a no-op, and assets are copied only after finish() has ingested.
 //
-// Semantics vs. the Put* path: Put* upserts, the bulk path does not. A
-// source sync carrying two records with the same sanitized external id now
-// fails the import (resource types/resources/entitlements) or folds with a
-// warning (grants) instead of silently last-write-wins. A valid c1z has
-// unique external ids per sync, so this only surfaces on corrupt input.
+// Semantics vs. the Put* path: Put* upserts, the bulk path does not. For
+// resource types, resources, and entitlements a source sync carrying two
+// records with the same sanitized external id now fails the import
+// instead of silently last-write-wins; a valid c1z has unique external ids
+// per sync, so that only surfaces on corrupt input. Grants are keyed by
+// structural identity (entitlement + principal refs), which SQLite's
+// UNIQUE(external_id, sync_id) does not cover, so a legacy source can
+// legitimately hold two grants with distinct external ids and identical
+// refs. Those now fold at Finish with a warning — keeping the
+// earliest-discovered external id and OR-ing needs_expansion — where
+// PutGrants on pebble kept whichever arrived last. Same row count, but the
+// surviving transformed grant id can differ from the previous path's.
 //
 // Grants flow through a single shard: the sanitizer's grant loop is
 // sequential, so shard fan-out would add nothing.
