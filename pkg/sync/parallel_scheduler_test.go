@@ -25,6 +25,13 @@ type legacyPaginatedCheckpointStore struct {
 	listResourcesErr error
 }
 
+// SyncMeta reports "no sync-metadata sub-store". syncer.setStore resolves the
+// store's optional capabilities once at attach (store_caps.go), which asks
+// every store for its SyncMeta; a double with a nil embedded interface has to
+// answer rather than panic. nil means the verification capability is absent,
+// which is what this double intends.
+func (s *legacyPaginatedCheckpointStore) SyncMeta() c1zstore.SyncMeta { return nil }
+
 func (s *legacyPaginatedCheckpointStore) ListResourceTypes(
 	context.Context,
 	*v2.ResourceTypesServiceListResourceTypesRequest,
@@ -505,10 +512,8 @@ func TestLegacyPaginatedCheckpointPlansTypeScopedCollection(t *testing.T) {
 			ctx := t.Context()
 			st := newEmptySchedulerState(t)
 			root := st.pushAction(ctx, Action{Op: tt.op, PageToken: "legacy-page-2"})
-			s := &syncer{
-				state: st,
-				store: &legacyPaginatedCheckpointStore{resourceType: tt.annotation},
-			}
+			s := &syncer{state: st}
+			s.setStore(&legacyPaginatedCheckpointStore{resourceType: tt.annotation})
 
 			require.NoError(t, tt.sync(s, ctx, root))
 			planned := st.Current()
@@ -532,7 +537,8 @@ func TestTypeScopedPlanningFailureDoesNotCommitMarker(t *testing.T) {
 		}.Build(),
 		listResourcesErr: errors.New("injected list-resources failure"),
 	}
-	s := &syncer{state: st, store: store}
+	s := &syncer{state: st}
+	s.setStore(store)
 
 	require.ErrorContains(t, s.SyncGrants(ctx, root), "injected list-resources failure")
 	persisted := st.GetAction(root.ID)
@@ -559,7 +565,8 @@ func TestTypeScopedPlanningMarkerSurvivesCheckpoint(t *testing.T) {
 		}.Build(),
 		nextPageToken: "page-3",
 	}
-	s := &syncer{state: st, store: store}
+	s := &syncer{state: st}
+	s.setStore(store)
 
 	require.NoError(t, s.SyncGrants(ctx, root))
 	planned := st.Current()

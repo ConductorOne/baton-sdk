@@ -642,7 +642,8 @@ func TestSyncerWiresSpawnDrainEvidenceIntoInvariants(t *testing.T) {
 	st := newEmptySchedulerState(t)
 	st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "wired", Spawned: true, TypeScoped: true})
 
-	s := &syncer{state: st, store: store, syncID: syncID, cfg: syncConfig{syncType: connectorstore.SyncTypeFull}}
+	s := &syncer{state: st, syncID: syncID, cfg: syncConfig{syncType: connectorstore.SyncTypeFull}}
+	s.setStore(store)
 	err := s.runIngestionInvariants(ctx)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrIngestInvariantViolated)

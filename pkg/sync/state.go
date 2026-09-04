@@ -134,11 +134,13 @@ type EntitlementGraphStore interface {
 // syncID. Returns nil (no error) when the store lacks the capability, no graph
 // was preserved, or the stored graph belongs to a different sync.
 func GraphFromStore(ctx context.Context, store c1zstore.Store, syncID string) (*expand.EntitlementGraph, error) {
-	gs, ok := store.(EntitlementGraphStore)
-	if !ok {
+	// Exported entry point: callers hand us a bare store, so this is one of
+	// the two places allowed to resolve capabilities (see store_caps.go).
+	caps := resolveReaderCaps(store)
+	if caps.entitlementGraph == nil {
 		return nil, nil
 	}
-	data, err := gs.GetEntitlementGraphBlob(ctx)
+	data, err := caps.entitlementGraph.GetEntitlementGraphBlob(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -152,11 +154,10 @@ func GraphFromStore(ctx context.Context, store c1zstore.Store, syncID string) (*
 	if boundDigest == nil {
 		return nil, nil
 	}
-	digestReader, ok := store.(c1zstore.GrantGenerationDigestReader)
-	if !ok {
+	if caps.grantDigest == nil {
 		return nil, nil
 	}
-	currentDigest, found, err := digestReader.GrantGenerationDigest(ctx)
+	currentDigest, found, err := caps.grantDigest.GrantGenerationDigest(ctx)
 	if err != nil {
 		return nil, err
 	}

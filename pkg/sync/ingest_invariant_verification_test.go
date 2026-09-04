@@ -83,7 +83,6 @@ func TestIngestInvariantVerificationCoverageByEngine(t *testing.T) {
 			syncID, err := store.StartNewSync(ctx, tc.syncType, "")
 			require.NoError(t, err)
 			s := &syncer{
-				store:  store,
 				syncID: syncID,
 				cfg: syncConfig{
 					syncType:              tc.syncType,
@@ -92,6 +91,7 @@ func TestIngestInvariantVerificationCoverageByEngine(t *testing.T) {
 				},
 				resourcesPhaseRanHere: tc.resources,
 			}
+			s.setStore(store)
 			require.NoError(t, s.runIngestionInvariants(ctx))
 			// The production seam checkpoints after validation. Pebble must
 			// preserve provenance while updating the sync token.
@@ -314,7 +314,8 @@ func TestFailedIngestInvariantPassDoesNotWriteVerification(t *testing.T) {
 	}))
 	require.NoError(t, store.SetCurrentSync(ctx, syncID))
 
-	s := &syncer{store: store, syncID: syncID, cfg: syncConfig{syncType: connectorstore.SyncTypeFull}}
+	s := &syncer{syncID: syncID, cfg: syncConfig{syncType: connectorstore.SyncTypeFull}}
+	s.setStore(store)
 	require.Error(t, s.runIngestionInvariants(ctx))
 
 	// The failed pass must have invalidated the inherited proof, and no

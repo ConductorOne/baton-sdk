@@ -28,6 +28,10 @@ type batchDeleteRouteStore struct {
 
 func (s *batchDeleteRouteStore) Grants() c1zstore.GrantStore { return &s.grants }
 
+// SyncMeta answers the capability resolution setStore performs at attach; see
+// legacyPaginatedCheckpointStore.SyncMeta.
+func (s *batchDeleteRouteStore) SyncMeta() c1zstore.SyncMeta { return nil }
+
 func (s *batchDeleteRouteStore) PutGrants(_ context.Context, grants ...*v2.Grant) error {
 	s.putGrantsSizes = append(s.putGrantsSizes, len(grants))
 	return nil
@@ -99,7 +103,9 @@ func newBatchDeleteRouteStore(size int) (*batchDeleteRouteStore, []string) {
 func newExternalMatchSyncer(store c1zstore.Store) *syncer {
 	st := newState()
 	st.SetHasExternalResourcesGrants()
-	return &syncer{store: store, state: st}
+	s := &syncer{state: st}
+	s.setStore(store)
+	return s
 }
 
 // TestProcessGrantsWithExternalPrincipalsDeleteRouting pins the three-way
