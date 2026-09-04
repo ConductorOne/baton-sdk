@@ -16,9 +16,10 @@ var errInjectedCheckpointWrite = errors.New("injected checkpoint write failure")
 
 // checkpointOutcomeStore stubs the single store call the loop-top periodic
 // checkpoint reaches (CheckpointSync) and records the outcome of each call.
-// Every other method except SyncMeta panics through the embedded nil
-// interface, which is part of the assertion — this exit must touch nothing
-// else in the store.
+// Every other method except SyncMeta and Grants panics through the embedded
+// nil interface, which is part of the assertion — this exit must touch
+// nothing else in the store. Those two are asked at attach, before the exit
+// under test, so the assertion is intact.
 type checkpointOutcomeStore struct {
 	c1zstore.Store
 	failWhenCallerDone bool
@@ -30,6 +31,10 @@ type checkpointOutcomeStore struct {
 // legacyPaginatedCheckpointStore.SyncMeta. It returns nil rather than panicking
 // because attach happens before the exit under test, not on it.
 func (s *checkpointOutcomeStore) SyncMeta() c1zstore.SyncMeta { return nil }
+
+// Grants answers the same attach-time capability resolution; see
+// legacyPaginatedCheckpointStore.Grants.
+func (s *checkpointOutcomeStore) Grants() c1zstore.GrantStore { return nil }
 
 func (s *checkpointOutcomeStore) CheckpointSync(ctx context.Context, _ string) error {
 	var err error

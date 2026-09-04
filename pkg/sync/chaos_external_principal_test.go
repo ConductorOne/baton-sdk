@@ -60,8 +60,8 @@ func (s *chaosExternalPrincipalCutStore) DeleteGrantByRefs(
 // With no delete cut armed there is nothing to interleave, so the batch is
 // handed to the store whole and actually exercises multi-grant chunking.
 //
-// The syncer asserts grantsByRefsBatchDeleter on THIS wrapper, so declaring
-// the method routes every engine here — including SQLite, which has no
+// The syncer resolves grantsByRefsBatchDeleter on THIS wrapper at attach, so
+// declaring the method routes every engine here — including SQLite, which has no
 // batched delete. Degrade to the wrapped store's singular delete in that case
 // instead of advertising batch support it does not have, so the SQLite
 // scenarios keep the one-commit-per-grant shape production would give them.
@@ -138,6 +138,10 @@ type recordingBatchDeleteStore struct {
 // legacyPaginatedCheckpointStore.SyncMeta.
 func (s *recordingBatchDeleteStore) SyncMeta() c1zstore.SyncMeta { return nil }
 
+// Grants answers the same attach-time capability resolution; see
+// legacyPaginatedCheckpointStore.Grants.
+func (s *recordingBatchDeleteStore) Grants() c1zstore.GrantStore { return nil }
+
 func (s *recordingBatchDeleteStore) DeleteGrantsByRefs(_ context.Context, grants ...*v2.Grant) error {
 	ids := make([]string, 0, len(grants))
 	for _, grant := range grants {
@@ -157,6 +161,10 @@ type recordingSingularDeleteStore struct {
 // SyncMeta answers the capability resolution setStore performs at attach; see
 // legacyPaginatedCheckpointStore.SyncMeta.
 func (s *recordingSingularDeleteStore) SyncMeta() c1zstore.SyncMeta { return nil }
+
+// Grants answers the same attach-time capability resolution; see
+// legacyPaginatedCheckpointStore.Grants.
+func (s *recordingSingularDeleteStore) Grants() c1zstore.GrantStore { return nil }
 
 func (s *recordingSingularDeleteStore) DeleteGrantByRefs(_ context.Context, grant *v2.Grant) error {
 	s.deleted = append(s.deleted, grant.GetId())

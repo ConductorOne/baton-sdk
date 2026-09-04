@@ -55,7 +55,19 @@ func TestPebbleExpansionUsesSynthesizedFastPath(t *testing.T) {
 	graph.AddEntitlementID(dstID)
 	require.NoError(t, graph.AddEdge(ctx, srcID, dstID, false, []string{"user"}))
 
-	adapter := expanderStoreAdapter{store: store}
+	adapter := NewExpanderStore(store)
+
+	// Pin the layer seam before running the projection. The write-path
+	// assertions below cannot see it: the layered and unlayered synthesized
+	// paths feed the same counters, so an adapter built without `caps:`
+	// passes them while silently dropping expansion to the per-row path.
+	layered, ok := adapter.(expandedGrantLayerStorer)
+	require.True(t, ok)
+	opened, err := layered.BeginExpandedGrantLayer(ctx)
+	require.NoError(t, err)
+	require.True(t, opened, "Pebble must serve a layer session through NewExpanderStore")
+	require.NoError(t, layered.AbortExpandedGrantLayer(ctx))
+
 	require.NoError(t, expand.NewExpander(adapter, graph).RunTopologicalMergeProjection(ctx))
 
 	eng, ok := enginepebble.AsEngine(store)
@@ -99,7 +111,7 @@ func TestPebbleExpansionSplitsSynthesizedAndUpdatePaths(t *testing.T) {
 	graph.AddEntitlementID(dstID)
 	require.NoError(t, graph.AddEdge(ctx, srcID, dstID, false, []string{"user"}))
 
-	adapter := expanderStoreAdapter{store: store}
+	adapter := NewExpanderStore(store)
 	require.NoError(t, expand.NewExpander(adapter, graph).RunTopologicalMergeProjection(ctx))
 
 	eng, ok := enginepebble.AsEngine(store)
@@ -107,4 +119,82 @@ func TestPebbleExpansionSplitsSynthesizedAndUpdatePaths(t *testing.T) {
 	stats := eng.ExpandWritePathStats()
 	require.Greater(t, stats.SynthesizedRows, int64(0), "alice should synthesize")
 	require.Greater(t, stats.ExpandedRows, int64(0), "bob base grant should update")
+}
+
+// TestPebbleExpanderStoreResolvesLayerCapability pins the grant-layer seam at
+// both ends: the resolution site in store_caps.go must find the capability on
+// a Pebble store, and NewExpanderStore must carry it into the adapter.
+//
+// This is a hot-path performance property with no single-run oracle. Dropping
+// `caps:` from an expanderStoreAdapter literal compiles, keeps every
+// write-path assertion in this file green, and quietly moves Pebble expansion
+// from batched layer sessions to the per-row path. The planted violation below
+// is the control: it shows what a dropped `caps:` looks like, and therefore
+// that the assertions above it would catch one.
+func TestPebbleExpanderStoreResolvesLayerCapability(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "layer-seam.c1z")
+	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	defer store.Close(ctx)
+
+	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	// The resolution site itself, independent of the adapter.
+	require.NotNil(t, resolveStoreCaps(store).expandedGrantLayer,
+		"resolveStoreCaps must find the grant-layer capability on a Pebble store")
+
+	// The wiring: NewExpanderStore resolves at entry, so the adapter it
+	// returns serves a real session.
+	wired, ok := NewExpanderStore(store).(expandedGrantLayerStorer)
+	require.True(t, ok)
+	opened, err := wired.BeginExpandedGrantLayer(ctx)
+	require.NoError(t, err)
+	require.True(t, opened, "Pebble must serve a layer session through NewExpanderStore")
+	require.NoError(t, wired.AbortExpandedGrantLayer(ctx))
+
+	// Planted violation: the same Pebble store, adapter built without caps.
+	unwired := expanderStoreAdapter{store: store}
+	openedUnwired, err := unwired.BeginExpandedGrantLayer(ctx)
+	require.NoError(t, err)
+	require.False(t, openedUnwired,
+		"an adapter built without caps: must report no layer support")
+	require.ErrorContains(t,
+		unwired.AddExpandedGrantLayerContributions(ctx, nil, nil, nil),
+		"does not support layer sessions")
+}
+
+// TestPebbleSyncerExpanderStoreCarriesLayerCapability pins the production
+// construction site. NewExpanderStore is covered above, but the sync itself
+// builds its adapter through (*syncer).expanderStore from the capabilities
+// setStore resolved, and that is the path a real sync's expansion runs on.
+// Without this test, an expanderStore that ignored s.caps would compile and
+// pass every other test in the package while dropping Pebble expansion to
+// the per-row path; the planted violation above shows exactly what that
+// looks like.
+func TestPebbleSyncerExpanderStoreCarriesLayerCapability(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "syncer-layer-seam.c1z")
+	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	defer store.Close(ctx)
+
+	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	s := &syncer{}
+	s.setStore(store)
+
+	layered, ok := s.expanderStore().(expandedGrantLayerStorer)
+	require.True(t, ok)
+	opened, err := layered.BeginExpandedGrantLayer(ctx)
+	require.NoError(t, err)
+	require.True(t, opened, "the syncer's own expansion adapter must serve a Pebble layer session")
+	require.NoError(t, layered.AbortExpandedGrantLayer(ctx))
+
+	// And the cheaper fast paths ride along on the same caps: the syncer's
+	// adapter must answer the principal-sort question the way Pebble does.
+	require.True(t, s.expanderStore().GrantsForEntitlementPrincipalSorted(),
+		"the syncer's expansion adapter must carry Pebble's principal-sort capability")
 }
