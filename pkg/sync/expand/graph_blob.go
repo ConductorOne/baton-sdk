@@ -19,7 +19,11 @@ type graphBlobEnvelope struct {
 	Graph         *EntitlementGraph               `json:"graph"`
 }
 
-const graphBlobFormatVersion uint32 = 2
+// Version 3 adds EntitlementGraph.DanglingEntitlementIDs and DanglingOverflow.
+// A v2 blob predates that bookkeeping, so what it skipped is unknowable and it
+// must not be trusted as an incremental base: the version check below rejects
+// it and the reader falls back to full expansion.
+const graphBlobFormatVersion uint32 = 3
 
 // MarshalGraphBlob serializes a legacy, unbound graph blob for compatibility
 // tests. Transient state is stripped first (a reload rebuilds it).

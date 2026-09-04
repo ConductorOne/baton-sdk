@@ -24,6 +24,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/tempdir"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -31,7 +33,20 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
-var tracer = otel.Tracer("baton-sdk/pkg.synccompactor")
+var (
+	tracer = otel.Tracer("baton-sdk/pkg.synccompactor")
+	meter  = otel.Meter("baton-sdk/pkg.synccompactor")
+
+	// One increment per compaction that considered incremental expansion.
+	// Both attributes are closed sets (see logIncrementalOutcome), so the
+	// cardinality is bounded — this is the counterpart of the
+	// incremental_expansion_outcome log field, for alerting on a fast path
+	// that has quietly stopped engaging.
+	incrementalExpansionOutcomeCounter, _ = meter.Int64Counter(
+		"compactor_incremental_expansion_total",
+		metric.WithDescription("Incremental grant expansion attempts by result. Attributes: outcome (not_attempted|fell_back|declined|succeeded|failed), reason."),
+	)
+)
 
 type CompactorType string
 
@@ -661,6 +676,14 @@ func (c *Compactor) expandGrantsIncremental(ctx context.Context, newSyncId strin
 	if base.HasCollapsedCycles() {
 		return false, expand.ErrIncrementalFallback
 	}
+	// The expander prechecks the base's dangling endpoints. Still-missing ids
+	// remain recorded without seeding a walk; ids that now resolve seed the
+	// affected closure. Overflow is the exception: the recorded set no longer
+	// describes everything that was skipped, so incremental expansion cannot
+	// safely agree with full expansion.
+	if base.DanglingOverflow {
+		return false, expand.ErrIncrementalDanglingReferenceDecline
+	}
 
 	// Bound the walk by the remaining run duration; the walk polls ctx.Err().
 	// Finalization uses detached contexts, so an expired walk deadline never
@@ -833,8 +856,7 @@ func (c *Compactor) expandGrantsIncremental(ctx context.Context, newSyncId strin
 		}
 		return false, err
 	}
-
-	if len(newEdges) == 0 && len(changedEntitlementIDs) == 0 {
+	if len(newEdges) == 0 && len(changedEntitlementIDs) == 0 && len(base.DanglingEntitlementIDs) == 0 {
 		// Nothing changed relative to the base — its grants were already merged in.
 		base, err = base.Clone()
 		if err != nil {
@@ -1276,6 +1298,11 @@ func (c *Compactor) expandGrants(ctx context.Context, newSyncId string, compacti
 			logIncrementalOutcome(ctx, "declined", "revocation")
 		case errors.Is(err, expand.ErrIncrementalDenseChangeDecline):
 			logIncrementalOutcome(ctx, "declined", "dense_change")
+		case errors.Is(err, expand.ErrIncrementalDanglingReferenceDecline):
+			// Overflow means the bounded id set no longer completely describes
+			// the endpoints skipped by the base expansion, so incremental cannot
+			// safely agree with full expansion.
+			logIncrementalOutcome(ctx, "declined", "dangling_overflow")
 		case errors.Is(err, expand.ErrIncrementalFallback):
 			// New edge closed a cycle: full expansion handles cycles correctly.
 			logIncrementalOutcome(ctx, "declined", "cycle")
@@ -1378,12 +1405,19 @@ func (c *Compactor) expandGrants(ctx context.Context, newSyncId string, compacti
 	return nil
 }
 
+// logIncrementalOutcome is the single reporting site for how an incremental
+// expansion attempt ended. Every caller passes literal outcome/reason strings,
+// so both are safe as metric attributes.
 func logIncrementalOutcome(ctx context.Context, outcome, reason string, fields ...zap.Field) {
 	fields = append([]zap.Field{
 		zap.String("incremental_expansion_outcome", outcome),
 		zap.String("incremental_expansion_reason", reason),
 	}, fields...)
 	ctxzap.Extract(ctx).Info("incremental grant expansion outcome", fields...)
+	incrementalExpansionOutcomeCounter.Add(ctx, 1, metric.WithAttributes(
+		attribute.String("outcome", outcome),
+		attribute.String("reason", reason),
+	))
 }
 
 func (c *Compactor) loadIncrementalBaseGraph(ctx context.Context) (*expand.EntitlementGraph, error) {
