@@ -32,6 +32,10 @@ type legacyPaginatedCheckpointStore struct {
 // which is what this double intends.
 func (s *legacyPaginatedCheckpointStore) SyncMeta() c1zstore.SyncMeta { return nil }
 
+// Grants reports "no grant sub-store", for the same reason as SyncMeta above:
+// capability resolution at attach asks for it.
+func (s *legacyPaginatedCheckpointStore) Grants() c1zstore.GrantStore { return nil }
+
 func (s *legacyPaginatedCheckpointStore) ListResourceTypes(
 	context.Context,
 	*v2.ResourceTypesServiceListResourceTypesRequest,

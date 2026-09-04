@@ -218,14 +218,23 @@ var _ Syncer = (*syncer)(nil)
 // a single narrow interface without knowing about C1ZStore.
 type expanderStoreAdapter struct {
 	store c1zstore.Store
+	// caps are the store's optional fast paths, resolved once when the
+	// adapter is built (see storeCaps). A nil capability means the engine
+	// does not offer it, and each method below reports that exactly as the
+	// use-site assertion it replaced did. Holding the whole set rather than
+	// one field per capability keeps both construction sites from having to
+	// grow every time the expander learns about another fast path.
+	caps storeCaps
 }
 
 // NewExpanderStore adapts a c1zstore.Store into an expand.ExpanderStore,
 // bridging engine differences (Pebble exposes StoreExpandedGrants on its
 // Grants() sub-store, SQLite at top level). Use this instead of type-asserting
-// the store, which is unsafe for Pebble.
+// the store, which is unsafe for Pebble — and because this is where the
+// store's optional expansion capabilities are resolved for callers who hand
+// us a bare store.
 func NewExpanderStore(store c1zstore.Store) expand.ExpanderStore {
-	return expanderStoreAdapter{store: store}
+	return expanderStoreAdapter{store: store, caps: resolveStoreCaps(store)}
 }
 
 // persistEntitlementGraphToStore binds the preserved graph to the exact sealed
@@ -299,9 +308,7 @@ func (a expanderStoreAdapter) ListGrantPrincipalKeysForEntitlement(
 	}
 	// Preserve Pebble's compact prefetch path through this wrapper. Non-Pebble
 	// stores fall back to regular grant listing and local key extraction.
-	if store, ok := a.store.(interface {
-		ListGrantPrincipalKeysForEntitlement(context.Context, *v2.Entitlement, string, uint32) ([]string, string, error)
-	}); ok {
+	if store := a.caps.grantPrincipalKeys; store != nil {
 		return store.ListGrantPrincipalKeysForEntitlement(ctx, entitlement, pageToken, pageSize)
 	}
 	resp, err := a.store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
@@ -328,18 +335,14 @@ func (a expanderStoreAdapter) StoreExpandedGrants(ctx context.Context, grants ..
 }
 
 func (a expanderStoreAdapter) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
-	if fast, ok := a.store.Grants().(interface {
-		StoreNewExpandedGrants(context.Context, ...*v2.Grant) error
-	}); ok {
+	if fast := a.caps.newExpandedGrants; fast != nil {
 		return fast.StoreNewExpandedGrants(ctx, grants...)
 	}
 	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
 }
 
 func (a expanderStoreAdapter) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*storage_v3.PrincipalRef, sources []batonGrant.Sources) error {
-	if fast, ok := a.store.Grants().(interface {
-		StoreNewExpandedGrantContributions(context.Context, *v2.Entitlement, []*storage_v3.PrincipalRef, []batonGrant.Sources) error
-	}); ok {
+	if fast := a.caps.newExpandedContributions; fast != nil {
 		return fast.StoreNewExpandedGrantContributions(ctx, dest, principals, sources)
 	}
 	grants := make([]*v2.Grant, 0, len(principals))
@@ -354,6 +357,34 @@ func (a expanderStoreAdapter) StoreNewExpandedGrantContributions(ctx context.Con
 	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
 }
 
+// grantPrincipalKeyLister is the store's compact principal-key prefetch for an
+// entitlement (Pebble). Without it the adapter lists whole grants and extracts
+// the keys locally.
+type grantPrincipalKeyLister interface {
+	ListGrantPrincipalKeysForEntitlement(context.Context, *v2.Entitlement, string, uint32) ([]string, string, error)
+}
+
+// principalSortedGrantLister reports whether the engine yields an
+// entitlement's grants in principal order (Pebble's entitlement-first key
+// does). Without it the topological merge buffers and sorts per entitlement.
+type principalSortedGrantLister interface {
+	GrantsForEntitlementPrincipalSorted() bool
+}
+
+// newExpandedGrantStorer persists caller-proven-new expanded grants without
+// read-before-write, on the store's GrantStore (Pebble). Without it the
+// adapter falls back to StoreExpandedGrants.
+type newExpandedGrantStorer interface {
+	StoreNewExpandedGrants(context.Context, ...*v2.Grant) error
+}
+
+// newExpandedGrantContributionStorer is the contribution-shaped form of
+// newExpandedGrantStorer: it takes destination plus principal refs and skips
+// materializing v2.Grants. Without it the adapter builds the grants itself.
+type newExpandedGrantContributionStorer interface {
+	StoreNewExpandedGrantContributions(context.Context, *v2.Entitlement, []*storage_v3.PrincipalRef, []batonGrant.Sources) error
+}
+
 // expandedGrantLayerStorer is the layer-scoped synthesized-grant layer session
 // surface the store's GrantStore may implement (Pebble). Local interface so
 // the adapter can pass sessions through without importing engine internals.
@@ -365,31 +396,29 @@ type expandedGrantLayerStorer interface {
 }
 
 func (a expanderStoreAdapter) BeginExpandedGrantLayer(ctx context.Context) (bool, error) {
-	if fast, ok := a.store.Grants().(expandedGrantLayerStorer); ok {
-		return fast.BeginExpandedGrantLayer(ctx)
+	if a.caps.expandedGrantLayer != nil {
+		return a.caps.expandedGrantLayer.BeginExpandedGrantLayer(ctx)
 	}
 	return false, nil
 }
 
 func (a expanderStoreAdapter) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*storage_v3.PrincipalRef, sources []batonGrant.Sources) error {
-	fast, ok := a.store.Grants().(expandedGrantLayerStorer)
-	if !ok {
+	if a.caps.expandedGrantLayer == nil {
 		return errors.New("expanded grant layer: store does not support layer sessions")
 	}
-	return fast.AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
+	return a.caps.expandedGrantLayer.AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
 }
 
 func (a expanderStoreAdapter) FinishExpandedGrantLayer(ctx context.Context) error {
-	fast, ok := a.store.Grants().(expandedGrantLayerStorer)
-	if !ok {
+	if a.caps.expandedGrantLayer == nil {
 		return errors.New("expanded grant layer: store does not support layer sessions")
 	}
-	return fast.FinishExpandedGrantLayer(ctx)
+	return a.caps.expandedGrantLayer.FinishExpandedGrantLayer(ctx)
 }
 
 func (a expanderStoreAdapter) AbortExpandedGrantLayer(ctx context.Context) error {
-	if fast, ok := a.store.Grants().(expandedGrantLayerStorer); ok {
-		return fast.AbortExpandedGrantLayer(ctx)
+	if a.caps.expandedGrantLayer != nil {
+		return a.caps.expandedGrantLayer.AbortExpandedGrantLayer(ctx)
 	}
 	return nil
 }
@@ -419,10 +448,8 @@ func resourceFromPrincipalRef(ref *storage_v3.PrincipalRef) *v2.Resource {
 // groups instead of buffering and sorting each entitlement. Engines that do not
 // implement it (SQLite) report false and get the buffering fallback.
 func (a expanderStoreAdapter) GrantsForEntitlementPrincipalSorted() bool {
-	store, ok := a.store.(interface {
-		GrantsForEntitlementPrincipalSorted() bool
-	})
-	return ok && store.GrantsForEntitlementPrincipalSorted()
+	store := a.caps.principalSortedGrants
+	return store != nil && store.GrantsForEntitlementPrincipalSorted()
 }
 
 const minCheckpointInterval = 10 * time.Second
@@ -3126,9 +3153,12 @@ func (s *syncer) deleteStaleExternalPrincipals(
 		currentIDs[id.GetResourceType()+"\x00"+id.GetResource()] = struct{}{}
 	}
 
-	resourceDeleter, canDeleteResources := s.store.(resourceRecordDeleter)
-	entitlementDeleter, canDeleteEntitlements := s.store.(entitlementRecordDeleter)
-	grantDeleter, canDeleteGrants := s.store.(grantByRefsDeleter)
+	resourceDeleter := s.caps.resourceDeleter
+	entitlementDeleter := s.caps.entitlementDeleter
+	grantDeleter := s.caps.grantRefsDeleter
+	canDeleteResources := resourceDeleter != nil
+	canDeleteEntitlements := entitlementDeleter != nil
+	canDeleteGrants := grantDeleter != nil
 	var staleIDs []*v2.ResourceId
 	pageToken := ""
 	for {
@@ -3639,7 +3669,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	// network-attached storage this loop cost ~956s for ~90k grants. The
 	// batch form amortizes the fsync without weakening durability.
 	// err is the named value the deferred span reports, so assign it.
-	if batchDeleter, ok := s.store.(grantsByRefsBatchDeleter); ok {
+	if batchDeleter := s.caps.grantBatchDeleter; batchDeleter != nil {
 		err = batchDeleter.DeleteGrantsByRefs(ctx, pendingDeletes...)
 		return err
 	}
@@ -3647,7 +3677,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	// Prefer the refs-based delete (exact structural identity) when the
 	// store supports it; external ids are a lossy external contract and
 	// stores keyed by structural identity cannot always resolve them.
-	refsDeleter, _ := s.store.(grantByRefsDeleter)
+	refsDeleter := s.caps.grantRefsDeleter
 	for _, grantToDelete := range pendingDeletes {
 		if refsDeleter != nil {
 			err = refsDeleter.DeleteGrantByRefs(ctx, grantToDelete)
@@ -3743,7 +3773,7 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context, action *Action
 	if s.expandDropStats == nil {
 		s.expandDropStats = &expand.DroppedEdgeStats{}
 	}
-	expander := expand.NewExpander(expanderStoreAdapter{s.store}, graph)
+	expander := expand.NewExpander(expanderStoreAdapter{store: s.store, caps: s.caps}, graph)
 	expander.SetDropStats(s.expandDropStats)
 	err = expander.RunSingleStep(ctx)
 	if err != nil {

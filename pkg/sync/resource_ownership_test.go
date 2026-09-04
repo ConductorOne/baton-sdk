@@ -20,6 +20,10 @@ type ownershipGuardStore struct {
 // legacyPaginatedCheckpointStore.SyncMeta.
 func (s *ownershipGuardStore) SyncMeta() c1zstore.SyncMeta { return nil }
 
+// Grants answers the same attach-time capability resolution; see
+// legacyPaginatedCheckpointStore.Grants.
+func (s *ownershipGuardStore) Grants() c1zstore.GrantStore { return nil }
+
 func (s *ownershipGuardStore) PutResources(context.Context, ...*v2.Resource) error {
 	s.putCalls++
 	return nil
