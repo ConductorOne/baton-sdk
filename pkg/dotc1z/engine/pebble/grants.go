@@ -46,8 +46,8 @@ func (e *Engine) PutGrantRecord(ctx context.Context, r *v3.GrantRecord) error {
 // the latest occurrence of each external_id and process only those —
 // earlier duplicates are dropped before any batch byte is written.
 // db.Get doesn't see in-batch writes either way, so this dedup pass is
-// the load-bearing safety net that neither the old read-before-write
-// path nor a pure skip-Get path provides.
+// required: neither the old read-before-write path nor a pure skip-Get
+// path drops earlier duplicates in the same batch.
 //
 // Read-before-write overwrite probe. On a NON-fresh sync the engine
 // must Get the prior primary key so StageGrantPutInline can stage the
