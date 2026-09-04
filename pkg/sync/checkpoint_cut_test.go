@@ -380,7 +380,7 @@ func runCutAttempt(
 	sc.checkpointInterval = 0
 	checkpoints := 0
 	spawnedTokens := 0
-	sc.testCheckpointHook = func(token string) {
+	sc.testHooks.checkpointHook = func(token string) {
 		checkpoints++
 		if strings.Contains(token, `"spawned":true`) {
 			spawnedTokens++

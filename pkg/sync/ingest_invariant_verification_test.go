@@ -150,7 +150,7 @@ func TestCrashBetweenInvariantPassAndSealLeavesNoMarker(t *testing.T) {
 				WithStorageEngine(engine),
 			)
 			require.NoError(t, err)
-			crashed.(*syncer).testIngestHaltHook = func(stage string) error {
+			crashed.(*syncer).testHooks.ingestHaltHook = func(stage string) error {
 				if stage == haltStageInvariantsComplete {
 					return errCrash
 				}

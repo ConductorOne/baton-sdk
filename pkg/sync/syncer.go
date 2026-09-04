@@ -166,12 +166,8 @@ type syncer struct {
 	// entitlements across the whole sync (see expand.DroppedEdgeStats);
 	// summarized once when expansion completes.
 	expandDropStats *expand.DroppedEdgeStats
-	// testIngestHaltHook, when non-nil, fires at named seams of the
-	// ingestion-invariant pass (see ingestInvariantHaltStages);
-	// returning an error fails the sync at exactly that boundary. The
-	// halt sweep uses it to prove crash/resume equivalence at every
-	// ordering-sensitive point. Nil in production: one pointer check.
-	testIngestHaltHook func(stage string) error
+	// testHooks are the test seams (see hooks.go). All nil in production.
+	testHooks syncTestHooks
 	// pendingInvariantVerification is the verification a successful
 	// runIngestionInvariants staged, awaiting persistence by
 	// persistIngestInvariantVerification AFTER EndSync. Deferring the
@@ -183,17 +179,7 @@ type syncer struct {
 	// minCheckpointInterval). The checkpoint-cut verification harness
 	// sets it to zero so every loop-top checkpoint durably commits,
 	// making each one an enumerable crash-cut point.
-	checkpointInterval time.Duration
-	// testCheckpointHook, when non-nil, observes every durably written
-	// checkpoint token. The cut harness uses it to count checkpoints
-	// and to simulate a crash immediately after a chosen one. Nil in
-	// production: one pointer check.
-	testCheckpointHook func(token string)
-	// testQueueAudit, when non-nil, records every parallelActionQueue
-	// event (seed/dequeue/commit/abort/done) for post-hoc verification
-	// of the queue contract. Nil in production: one pointer check per
-	// queue operation.
-	testQueueAudit                        *queueAudit
+	checkpointInterval                    time.Duration
 	connector                             types.ConnectorClient
 	state                                 State
 	lastCheckPointTime                    time.Time
@@ -464,8 +450,8 @@ func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
 	if err != nil {
 		return err
 	}
-	if s.testCheckpointHook != nil {
-		s.testCheckpointHook(checkpoint)
+	if s.testHooks.checkpointHook != nil {
+		s.testHooks.checkpointHook(checkpoint)
 	}
 
 	return nil
@@ -1046,12 +1032,12 @@ func (s *syncer) Sync(ctx context.Context) error {
 	if err := s.runIngestionInvariants(ctx); err != nil {
 		return s.returnSyncError(l, span, err)
 	}
-	if s.testIngestHaltHook != nil {
+	if s.testHooks.ingestHaltHook != nil {
 		// The seam AFTER the invariant pass and BEFORE the
 		// checkpoint/EndSync below: a resumed sync re-runs the whole
 		// invariant pass over the same state, so every check must be
 		// idempotent.
-		if err := s.testIngestHaltHook(haltStageInvariantsComplete); err != nil {
+		if err := s.testHooks.ingestHaltHook(haltStageInvariantsComplete); err != nil {
 			return s.returnSyncError(l, span, err)
 		}
 	}

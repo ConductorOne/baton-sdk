@@ -191,7 +191,7 @@ func TestChaosExternalCancelStopsQuietlyAndCheckpoints(t *testing.T) {
 	require.True(t, ok)
 	var cancelIssued atomic.Bool
 	var checkpointAfterCancel atomic.Bool
-	sc.testCheckpointHook = func(string) {
+	sc.testHooks.checkpointHook = func(string) {
 		if cancelIssued.Load() {
 			checkpointAfterCancel.Store(true)
 		}

@@ -60,7 +60,7 @@ func TestSyncerCrashResumeAtInvariantSeams(t *testing.T) {
 					WithStorageEngine(c1zstore.EnginePebble),
 				)
 				require.NoError(t, err)
-				s.(*syncer).testIngestHaltHook = hook
+				s.(*syncer).testHooks.ingestHaltHook = hook
 				return s
 			}
 

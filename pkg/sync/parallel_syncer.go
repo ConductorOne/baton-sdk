@@ -755,8 +755,8 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	defer cancel(nil)
 
 	queue := newParallelActionQueue(actions)
-	if s.testQueueAudit != nil {
-		queue.attachAudit(s.testQueueAudit, batchOp, s.testQueueAudit.newBatch())
+	if s.testHooks.queueAudit != nil {
+		queue.attachAudit(s.testHooks.queueAudit, batchOp, s.testHooks.queueAudit.newBatch())
 	}
 	s.setParallelActionTransitioner(func(
 		transitionCtx context.Context,
@@ -817,8 +817,8 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	wg.Wait()
 
 	batchErr = errors.Join(errs...)
-	if s.testQueueAudit != nil {
-		s.testQueueAudit.record(queueAuditEvent{kind: auditBatchEnd, batch: queue.auditBatch, clean: batchErr == nil})
+	if s.testHooks.queueAudit != nil {
+		s.testHooks.queueAudit.record(queueAuditEvent{kind: auditBatchEnd, batch: queue.auditBatch, clean: batchErr == nil})
 	}
 	return warnings, batchErr
 }
