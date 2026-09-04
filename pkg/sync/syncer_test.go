@@ -11,6 +11,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"google.golang.org/protobuf/proto"
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -805,6 +806,149 @@ func TestPartialSyncSkipEntitlementsAndGrants(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 0, len(grants.GetList()))
 	})
+}
+
+// TestSkipAnnotationScopes is a table-driven test that covers the cross-product
+// of annotation scope (resource-instance, resource-type) and annotation kind
+// (SkipGrants, SkipEntitlements, SkipEntitlementsAndGrants), asserting which
+// of entitlements and grants land in the store for each combination.
+func TestSkipAnnotationScopes(t *testing.T) {
+	type testCase struct {
+		name string
+		// rtAnnotation is placed on the ResourceType; nil means no type-level annotation.
+		rtAnnotation proto.Message
+		// resourceAnnotation is placed on the individual resource; nil means no instance annotation.
+		resourceAnnotation proto.Message
+		wantEntitlements   int
+		wantGrants         int
+		skipReason         string // non-empty means the case is intentionally excluded from the type-scope path
+	}
+
+	cases := []testCase{
+		{
+			name:             "no annotations — baseline",
+			wantEntitlements: 1,
+			wantGrants:       1,
+		},
+		// Resource-type scope
+		{
+			name:             "SkipGrants on resource type — grants skipped, entitlements present",
+			rtAnnotation:     &v2.SkipGrants{},
+			wantEntitlements: 1,
+			wantGrants:       0,
+		},
+		{
+			name:             "SkipEntitlements on resource type — entitlements skipped, grants still synced",
+			rtAnnotation:     &v2.SkipEntitlements{},
+			wantEntitlements: 0,
+			wantGrants:       1,
+		},
+		{
+			name:             "SkipEntitlementsAndGrants on resource type — both skipped",
+			rtAnnotation:     &v2.SkipEntitlementsAndGrants{},
+			wantEntitlements: 0,
+			wantGrants:       0,
+		},
+		// Resource-instance scope
+		{
+			name:               "SkipGrants on resource instance — grants skipped, entitlements present",
+			resourceAnnotation: &v2.SkipGrants{},
+			wantEntitlements:   1,
+			wantGrants:         0,
+		},
+		{
+			name:               "SkipEntitlements on resource instance — entitlements skipped, grants still synced",
+			resourceAnnotation: &v2.SkipEntitlements{},
+			wantEntitlements:   0,
+			wantGrants:         1,
+		},
+		{
+			name:               "SkipEntitlementsAndGrants on resource instance — both skipped",
+			resourceAnnotation: &v2.SkipEntitlementsAndGrants{},
+			wantEntitlements:   0,
+			wantGrants:         0,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.skipReason != "" {
+				t.Skip(tc.skipReason)
+			}
+
+			runWithSyncModes(t, func(t *testing.T, extraOpts []SyncOpt) {
+				ctx := t.Context()
+
+				tempDir, err := os.MkdirTemp("", "baton-skip-annotation-scopes-test")
+				require.NoError(t, err)
+				defer os.RemoveAll(tempDir)
+
+				c1zPath := filepath.Join(tempDir, "skip-annotation-scopes.c1z")
+
+				// Build a fresh resource type for this case, optionally with a type-level annotation.
+				var rtAnnos annotations.Annotations
+				if tc.rtAnnotation != nil {
+					rtAnnos = annotations.New(tc.rtAnnotation)
+				}
+				roleRT := v2.ResourceType_builder{
+					Id:          "role",
+					DisplayName: "Role",
+					Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_ROLE},
+					Annotations: rtAnnos,
+				}.Build()
+
+				mc := newMockConnector()
+				mc.rtDB = append(mc.rtDB, roleRT)
+
+				// Build the resource, optionally with an instance-level annotation.
+				var resourceOpts []rs.ResourceOption
+				if tc.resourceAnnotation != nil {
+					resourceOpts = append(resourceOpts, rs.WithAnnotation(tc.resourceAnnotation))
+				}
+				role, err := rs.NewRoleResource("test_role", roleRT, "test_role", []rs.RoleTraitOption{}, resourceOpts...)
+				require.NoError(t, err)
+				mc.resourceDB[roleRT.GetId()] = append(mc.resourceDB[roleRT.GetId()], role)
+
+				ent := et.NewAssignmentEntitlement(role, "member", et.WithGrantableTo(roleRT))
+				ent.SetSlug("member")
+				mc.entDB[role.GetId().GetResource()] = append(mc.entDB[role.GetId().GetResource()], ent)
+
+				grant := gt.NewGrant(role, "member", role.GetId())
+				mc.grantDB[role.GetId().GetResource()] = append(mc.grantDB[role.GetId().GetResource()], grant)
+
+				opts := append([]SyncOpt{
+					WithC1ZPath(c1zPath),
+					WithTmpDir(tempDir),
+				}, extraOpts...)
+				syncer, err := NewSyncer(ctx, mc, opts...)
+				require.NoError(t, err)
+
+				err = syncer.Sync(ctx)
+				require.NoError(t, err)
+
+				err = syncer.Close(ctx)
+				require.NoError(t, err)
+
+				store, err := dotc1z.NewStore(ctx, c1zPath, dotc1z.WithReadOnly(true))
+				require.NoError(t, err)
+				defer func() { _ = store.Close(ctx) }()
+
+				entitlements, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+					Resource: role,
+				}.Build())
+				require.NoError(t, err)
+				require.Equal(t, tc.wantEntitlements, len(entitlements.GetList()),
+					"entitlements count mismatch for %q", tc.name)
+
+				grants, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+					Resource: role,
+				}.Build())
+				require.NoError(t, err)
+				require.Equal(t, tc.wantGrants, len(grants.GetList()),
+					"grants count mismatch for %q", tc.name)
+			})
+		})
+	}
 }
 
 func TestPartialSyncUnimplemented(t *testing.T) {
