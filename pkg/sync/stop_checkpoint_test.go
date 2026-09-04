@@ -16,14 +16,25 @@ var errInjectedCheckpointWrite = errors.New("injected checkpoint write failure")
 
 // checkpointOutcomeStore stubs the single store call the loop-top periodic
 // checkpoint reaches (CheckpointSync) and records the outcome of each call.
-// Every other method panics through the embedded nil interface, which is
-// part of the assertion — this exit must touch nothing else in the store.
+// Every other method except SyncMeta and Grants panics through the embedded
+// nil interface, which is part of the assertion — this exit must touch
+// nothing else in the store. Those two are asked at attach, before the exit
+// under test, so the assertion is intact.
 type checkpointOutcomeStore struct {
 	c1zstore.Store
 	failWhenCallerDone bool
 	failAlways         bool
 	outcomes           []error
 }
+
+// SyncMeta answers the capability resolution setStore performs at attach; see
+// legacyPaginatedCheckpointStore.SyncMeta. It returns nil rather than panicking
+// because attach happens before the exit under test, not on it.
+func (s *checkpointOutcomeStore) SyncMeta() c1zstore.SyncMeta { return nil }
+
+// Grants answers the same attach-time capability resolution; see
+// legacyPaginatedCheckpointStore.Grants.
+func (s *checkpointOutcomeStore) Grants() c1zstore.GrantStore { return nil }
 
 func (s *checkpointOutcomeStore) CheckpointSync(ctx context.Context, _ string) error {
 	var err error
@@ -51,7 +62,8 @@ func TestPeriodicCheckpointStopExitTakesDetachedRescue(t *testing.T) {
 	st := newEmptySchedulerState(t)
 	st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-1"})
 	store := &checkpointOutcomeStore{failWhenCallerDone: true}
-	s := &syncer{state: st, store: store, workerCount: 1}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
+	s.setStore(store)
 
 	// The stop lands "between batches": the loop's first periodic checkpoint
 	// is the first code to observe it.
@@ -80,7 +92,8 @@ func TestPeriodicCheckpointFailureWithLiveCallerIsNotRetried(t *testing.T) {
 	st := newEmptySchedulerState(t)
 	st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-1"})
 	store := &checkpointOutcomeStore{failAlways: true}
-	s := &syncer{state: st, store: store, workerCount: 1}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
+	s.setStore(store)
 
 	_, err := s.parallelSync(ctx, ctx, nil)
 	require.ErrorIs(t, err, errInjectedCheckpointWrite,

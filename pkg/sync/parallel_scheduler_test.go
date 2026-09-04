@@ -25,6 +25,17 @@ type legacyPaginatedCheckpointStore struct {
 	listResourcesErr error
 }
 
+// SyncMeta reports "no sync-metadata sub-store". syncer.setStore resolves the
+// store's optional capabilities once at attach (store_caps.go), which asks
+// every store for its SyncMeta; a double with a nil embedded interface has to
+// answer rather than panic. nil means the verification capability is absent,
+// which is what this double intends.
+func (s *legacyPaginatedCheckpointStore) SyncMeta() c1zstore.SyncMeta { return nil }
+
+// Grants reports "no grant sub-store", for the same reason as SyncMeta above:
+// capability resolution at attach asks for it.
+func (s *legacyPaginatedCheckpointStore) Grants() c1zstore.GrantStore { return nil }
+
 func (s *legacyPaginatedCheckpointStore) ListResourceTypes(
 	context.Context,
 	*v2.ResourceTypesServiceListResourceTypesRequest,
@@ -129,7 +140,7 @@ func TestSyncParallelDrainsMultipleSpawnedCursors(t *testing.T) {
 		ResourceTypeID: "group",
 		ResourceID:     "group-1",
 	})
-	s := &syncer{state: st, workerCount: 3}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 3}}
 
 	var mu sync.Mutex
 	processed := make(map[string]int)
@@ -173,7 +184,7 @@ func TestSyncParallelBreaksCyclicSpawnedCursorIdempotently(t *testing.T) {
 		ResourceID:     "group-1",
 		PageToken:      "loop",
 	})
-	s := &syncer{state: st, workerCount: 1}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
 
 	calls := 0
 	f := func(ctx context.Context, action *Action) error {
@@ -219,7 +230,7 @@ func TestFailedSiblingAdmissionDoesNotAdvanceParentCursor(t *testing.T) {
 		ResourceID:     "group-1",
 		PageToken:      "origin",
 	})
-	s := &syncer{state: st, workerCount: 1}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
 
 	calls := 0
 	f := func(ctx context.Context, action *Action) error {
@@ -285,7 +296,7 @@ func TestContinuationReconvergenceFinishesParent(t *testing.T) {
 		PageToken:      "held-token",
 		Spawned:        true,
 	})
-	s := &syncer{state: st, workerCount: 1}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
 
 	processed := map[string]int{}
 	f := func(ctx context.Context, action *Action) error {
@@ -317,7 +328,7 @@ func TestSpawnedCursorCannotCollideWithParentContinuation(t *testing.T) {
 		ResourceID:     "group-1",
 		PageToken:      "current",
 	})
-	s := &syncer{state: st, workerCount: 1}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
 
 	calls := 0
 	f := func(ctx context.Context, action *Action) error {
@@ -505,10 +516,8 @@ func TestLegacyPaginatedCheckpointPlansTypeScopedCollection(t *testing.T) {
 			ctx := t.Context()
 			st := newEmptySchedulerState(t)
 			root := st.pushAction(ctx, Action{Op: tt.op, PageToken: "legacy-page-2"})
-			s := &syncer{
-				state: st,
-				store: &legacyPaginatedCheckpointStore{resourceType: tt.annotation},
-			}
+			s := &syncer{state: st}
+			s.setStore(&legacyPaginatedCheckpointStore{resourceType: tt.annotation})
 
 			require.NoError(t, tt.sync(s, ctx, root))
 			planned := st.Current()
@@ -532,7 +541,8 @@ func TestTypeScopedPlanningFailureDoesNotCommitMarker(t *testing.T) {
 		}.Build(),
 		listResourcesErr: errors.New("injected list-resources failure"),
 	}
-	s := &syncer{state: st, store: store}
+	s := &syncer{state: st}
+	s.setStore(store)
 
 	require.ErrorContains(t, s.SyncGrants(ctx, root), "injected list-resources failure")
 	persisted := st.GetAction(root.ID)
@@ -559,7 +569,8 @@ func TestTypeScopedPlanningMarkerSurvivesCheckpoint(t *testing.T) {
 		}.Build(),
 		nextPageToken: "page-3",
 	}
-	s := &syncer{state: st, store: store}
+	s := &syncer{state: st}
+	s.setStore(store)
 
 	require.NoError(t, s.SyncGrants(ctx, root))
 	planned := st.Current()
@@ -585,7 +596,7 @@ func TestSyncParallelErrorAbortsQueuedWorkAndCancelsPeer(t *testing.T) {
 	fail := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "fail"})
 	slow := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "slow"})
 	queued := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "queued"})
-	s := &syncer{state: st, workerCount: 2}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 2}}
 
 	slowStarted := make(chan struct{})
 	var queuedRan bool
@@ -627,7 +638,7 @@ func TestSyncParallelAggregatesWarningAndContinues(t *testing.T) {
 	st := newEmptySchedulerState(t)
 	warningAction := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "missing"})
 	successAction := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "present"})
-	s := &syncer{state: st, workerCount: 2}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 2}}
 
 	f := func(ctx context.Context, action *Action) error {
 		if action.ResourceID == "missing" {
@@ -648,7 +659,7 @@ func TestSyncParallelRetriesActionWithinWorker(t *testing.T) {
 	ctx := t.Context()
 	st := newEmptySchedulerState(t)
 	action := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-1"})
-	s := &syncer{state: st, workerCount: 1}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
 
 	calls := 0
 	f := func(ctx context.Context, action *Action) error {
@@ -671,7 +682,7 @@ func TestSyncParallelFiltersSpawnedActionsFromOtherOperations(t *testing.T) {
 	ctx := t.Context()
 	st := newEmptySchedulerState(t)
 	origin := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-1"})
-	s := &syncer{state: st, workerCount: 2}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 2}}
 
 	calls := 0
 	f := func(ctx context.Context, action *Action) error {
@@ -693,7 +704,7 @@ func TestSyncParallelFiltersSpawnedActionsFromOtherOperations(t *testing.T) {
 func TestSyncParallelEmptyBatchWithIdleWorkers(t *testing.T) {
 	ctx := t.Context()
 	st := newEmptySchedulerState(t)
-	s := &syncer{state: st, workerCount: 8}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 8}}
 
 	warnings, err := s.syncParallel(ctx, newTestRetryer(ctx), nil, func(context.Context, *Action) error {
 		panic("empty batch invoked worker function")
@@ -720,7 +731,7 @@ func TestSpawnedCursorsResumeAfterPartialCompletion(t *testing.T) {
 	require.NoError(t, err)
 	resumed := newState()
 	require.NoError(t, resumed.Unmarshal(token))
-	s := &syncer{state: resumed, workerCount: 2}
+	s := &syncer{state: resumed, cfg: syncConfig{workerCount: 2}}
 
 	var mu sync.Mutex
 	var processed []string
@@ -809,7 +820,7 @@ func TestOriginContinuationAndSiblingsResumeExactlyOnce(t *testing.T) {
 	require.NoError(t, err)
 	resumed := newState()
 	require.NoError(t, resumed.Unmarshal(token))
-	s := &syncer{state: resumed, workerCount: 2}
+	s := &syncer{state: resumed, cfg: syncConfig{workerCount: 2}}
 
 	var mu sync.Mutex
 	processed := make(map[string]int)

@@ -43,6 +43,10 @@ type cleanupScaleStore struct {
 	grantDeletes       int
 }
 
+// SyncMeta answers the capability resolution setStore performs at attach; see
+// legacyPaginatedCheckpointStore.SyncMeta.
+func (s *cleanupScaleStore) SyncMeta() c1zstore.SyncMeta { return nil }
+
 func (s *cleanupScaleStore) ListResources(
 	context.Context,
 	*v2.ResourcesServiceListResourcesRequest,
@@ -119,7 +123,8 @@ func TestChaosConnectorExternalPrincipalCleanupUsesOnePassPerKeyspace(t *testing
 				store.grants.rows = append(store.grants.rows, c1zstore.GrantAnnotation{Grant: grant})
 			}
 
-			syncer := &syncer{store: store}
+			syncer := &syncer{}
+			syncer.setStore(store)
 			require.NoError(t, syncer.deleteStaleExternalPrincipals(t.Context(), nil))
 			require.Equal(t, 1, store.resourceScans)
 			require.Equal(t, 1, store.entitlementScans)

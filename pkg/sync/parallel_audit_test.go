@@ -25,7 +25,7 @@ package sync //nolint:revive,nolintlint // backwards-compatible package name
 //       they match (every taken action was returned).
 //
 // Any heavy test that runs the scheduler gets these checks for free by
-// attaching an audit (syncer.testQueueAudit) and calling verifyQueueAudit.
+// attaching an audit (syncer.queueAudit) and calling verifyQueueAudit.
 
 import (
 	"fmt"
@@ -148,6 +148,6 @@ func attachQueueAudit(t *testing.T, s Syncer) *queueAudit {
 	sc, ok := s.(*syncer)
 	require.True(t, ok, "syncer under test is not *syncer")
 	audit := &queueAudit{}
-	sc.testQueueAudit = audit
+	sc.testHooks.queueAudit = audit
 	return audit
 }

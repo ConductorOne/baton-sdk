@@ -504,9 +504,7 @@ func runIngestInvariants(
 		return nil, fmt.Errorf("ingest invariants: policy.SyncType is required (the zero value would silently skip the full-keyspace invariants; pass the sync's actual type)")
 	}
 	pass := &ingestInvariantsPass{store: store, p: &policy}
-	if facts, ok := store.(dotc1z.IngestInvariantStore); ok {
-		pass.facts = facts
-	}
+	pass.facts = resolveReaderCaps(store).ingestFacts
 	var skippedNoStore []string
 	coverage := make([]string, 0, len(ingestInvariants))
 	for i := range ingestInvariants {
@@ -615,7 +613,7 @@ func storeCarriesTypeScopedTypes(ctx context.Context, store connectorstore.Reade
 // unfinished artifact the resume machinery will rewrite.
 func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 	s.pendingInvariantVerification = nil
-	if verificationWriter, ok := s.store.SyncMeta().(c1zstore.IngestInvariantVerificationWriter); ok {
+	if verificationWriter := s.caps.ingestVerification; verificationWriter != nil {
 		// Invalidate any proof inherited from an earlier pass before
 		// re-evaluating. A failed rerun must leave the sync unverified.
 		if err := verificationWriter.ClearIngestInvariantVerification(ctx, s.syncID); err != nil {
@@ -624,12 +622,12 @@ func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 	}
 	policy := IngestInvariantsPolicy{
 		ActiveSyncID:      s.getActiveSyncID(),
-		SyncType:          s.syncType,
-		FailFast:          s.failFastInvariants,
-		CompactionMerge:   s.compactionMergedStore,
+		SyncType:          s.cfg.syncType,
+		FailFast:          s.cfg.failFastInvariants,
+		CompactionMerge:   s.cfg.compactionMergedStore,
 		childSchedule:     &s.childSchedule,
 		resourcesPhaseRan: s.resourcesPhaseRanHere,
-		syncResourceTypes: s.syncResourceTypes,
+		syncResourceTypes: s.cfg.syncResourceTypes,
 		onRetainedInvalid: func() {
 			s.ingestFilterStats.blockReplay(ingestQualityReasonRetainedInvalid)
 		},
@@ -637,8 +635,8 @@ func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 	if st, ok := s.state.(*state); ok {
 		policy.undrainedSpawned = st.UndrainedSpawnedCursors
 	}
-	if s.testIngestHaltHook != nil {
-		policy.halt = s.testIngestHaltHook
+	if s.testHooks.ingestHaltHook != nil {
+		policy.halt = s.testHooks.ingestHaltHook
 	}
 	verification, err := RunIngestInvariantsWithVerification(ctx, s.store, policy)
 	if err != nil {
@@ -662,8 +660,8 @@ func (s *syncer) persistIngestInvariantVerification(ctx context.Context) error {
 	}
 	verification := *s.pendingInvariantVerification
 	s.pendingInvariantVerification = nil
-	verificationWriter, ok := s.store.SyncMeta().(c1zstore.IngestInvariantVerificationWriter)
-	if !ok {
+	verificationWriter := s.caps.ingestVerification
+	if verificationWriter == nil {
 		// SyncMeta predates verification metadata and is implemented outside
 		// this repository. Preserve its established behavior; the absent
 		// marker truthfully distinguishes it from built-in verified stores.

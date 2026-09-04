@@ -84,6 +84,43 @@ Executable failure · failure re-converges derived state · success reaches the
 checkpoint · partial progress accounted and retryable · released exactly once
 · durability class justified by a named fence.
 
+## Syncer structure (`pkg/sync`)
+
+Structural rules for `syncer`. They exist because two feature branches grew it
+from 57 fields to 81, from 3 test hooks to 11, and from 13 capability type
+assertions to 54 — each feature got a file, but every function became a method
+on `*syncer` and every value a new field. Reject on these, not on taste.
+
+- A feature adds a runtime struct with its own file and its own receiver,
+  owned by `syncer` as exactly one field. It does not add fields to `syncer`.
+  "One field that is a bag of eleven" does not satisfy this.
+- Store capabilities — anything `pkg/sync` discovers on the store or its
+  sub-stores by optional interface, whether that interface is exported from
+  `c1zstore`/`dotc1z`/`connectorstore`, declared locally, or written inline as
+  an anonymous `interface{...}` in the assertion — are resolved once,
+  at attach, into `storeCaps` (`store_caps.go`). Package-level entry points that
+  receive a bare store (`GraphFromStore`, `runIngestInvariants`,
+  `NewExpanderStore`) resolve at entry through the same functions. No
+  `x.(Interface)` on a store at a use site in `pkg/sync`; the only resolution
+  sites are in `store_caps.go`. A use-site assertion hides how many
+  capabilities the syncer depends on and makes each new dependency a two-line
+  change nobody reviews as a dependency. Known exception: `pkg/sync/expand`
+  widens its own `ExpanderStore` parameter by assertion; that is the expander's
+  interface design, not store capability discovery, and is out of scope for
+  this rule.
+- Test seams live in `syncTestHooks` (`hooks.go`) and nowhere else, reached as
+  `s.testHooks.x`. A seam stays nil in production and no production path may
+  set one. The struct name carries the "test" marking, so its fields do not:
+  apart from the `syncer.testHooks` anchor itself, any `test`-prefixed field
+  in `pkg/sync` is by itself the finding.
+- `state` is the resumable action stack; nothing else goes on it. (It is
+  currently also a grab-bag of facts and run stats — CXE-1356 splits it. This
+  is the rule going forward: do not add to the grab-bag.)
+- Configuration is immutable after `NewSyncer`. Anything mutated during
+  `Sync` is not configuration and does not belong in `syncConfig` — for
+  something that resumes across process boundaries, the immutable/mutable
+  line is a correctness property, not bookkeeping.
+
 ## Principle index (§5)
 
 5.1 durable claims are ordered after the facts they claim · 5.2 every exit

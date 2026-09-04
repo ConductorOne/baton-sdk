@@ -116,9 +116,11 @@ func TestSyncSummaryFieldsShape(t *testing.T) {
 	s := &syncer{
 		recordStats: true,
 		syncID:      "sync-1",
-		syncType:    connectorstore.SyncTypeFull,
-		workerCount: 20,
-		state:       newState(),
+		cfg: syncConfig{
+			syncType:    connectorstore.SyncTypeFull,
+			workerCount: 20,
+		},
+		state: newState(),
 	}
 	s.state.AddStepDuration("list-grants", time.Second)
 	s.state.AddStepDuration("checkpoint", 29*time.Millisecond)

@@ -439,7 +439,7 @@ func TestSpawnedCursorJoinsActiveParallelBatch(t *testing.T) {
 		ResourceTypeID: "group",
 		ResourceID:     "group-1",
 	})
-	s := &syncer{state: st, workerCount: 2}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 2}}
 	childStarted := make(chan struct{})
 
 	f := func(ctx context.Context, action *Action) error {
