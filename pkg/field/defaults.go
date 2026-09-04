@@ -89,7 +89,27 @@ var (
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
 	logFormatField = StringField("log-format", WithDefaultValueFunc(defaultLogFormat), WithDescription("The output format for logs: json, console"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
-	logOutputPathField     = StringSliceField("log-path", WithDescription("The file path to write logs to"), WithPersistent(true), WithExportTarget(ExportTargetNone))
+	logOutputPathField = StringSliceField("log-path", WithDescription("The file path to write logs to"), WithPersistent(true), WithExportTarget(ExportTargetNone))
+	logMaxSizeMBField  = IntField("log-max-size-mb",
+		WithDefaultValue(0),
+		WithDescription("Max size in whole MB of the log file before rotation; 0 disables rotation (default), "+
+			"minimum 1 (= 1 MB) when enabled. Windows service connectors typically set this in config.yaml."),
+		WithInt(func(r *IntRuler) {
+			r.Gte(0)
+		}),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
+	logMaxBackupsField = IntField("log-max-backups",
+		WithDefaultValue(5),
+		WithDescription("Number of rotated log files to keep when rotation is enabled; 0 keeps none, "+
+			"so every rotation discards the previous file."),
+		// Gte(0) rather than allowing negatives: logging.RotationConfig treats
+		// anything <= 0 as "keep none", so a negative here is only ever a typo.
+		WithInt(func(r *IntRuler) {
+			r.Gte(0)
+		}),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
 	revokeGrantField       = StringField("revoke-grant", WithHidden(true), WithDescription("The grant to revoke"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	rotateCredentialsField = StringField("rotate-credentials", WithHidden(true), WithDescription("The id of the resource to rotate credentials on"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
@@ -404,6 +424,8 @@ var DefaultFields = append([]SchemaField{
 	grantPrincipalTypeField,
 	logFormatField,
 	logOutputPathField,
+	logMaxSizeMBField,
+	logMaxBackupsField,
 	revokeGrantField,
 	rotateCredentialsField,
 	rotateCredentialsTypeField,
