@@ -234,6 +234,7 @@ type syncer struct {
 	syncID                                string
 	skipEGForResourceType                 syncMap[string, bool]
 	skipEntitlementsForResourceType       syncMap[string, bool]
+	skipGrantsForResourceType             syncMap[string, bool]
 	typeScopedGrantsForResourceType       syncMap[string, bool]
 	typeScopedEntitlementsForResourceType syncMap[string, bool]
 	scheduledResourceTypes                syncMap[string, bool]
@@ -1954,7 +1955,29 @@ func (s *syncer) shouldSkipGrants(ctx context.Context, r *v2.Resource) (bool, er
 		return true, nil
 	}
 
-	return s.shouldSkipEntitlementsAndGrants(ctx, r)
+	// Check SkipEntitlementsAndGrants at instance or resource-type scope.
+	ok, err := s.shouldSkipEntitlementsAndGrants(ctx, r)
+	if err != nil || ok {
+		return ok, err
+	}
+
+	// Check SkipGrants at resource-type scope.
+	if skip, ok := s.skipGrantsForResourceType.Load(r.GetId().GetResourceType()); ok {
+		return skip, nil
+	}
+
+	rt, err := s.store.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
+		ResourceTypeId: r.GetId().GetResourceType(),
+	}.Build())
+	if err != nil {
+		return false, err
+	}
+
+	rtAnnos := annotations.Annotations(rt.GetResourceType().GetAnnotations())
+	skipGrants := rtAnnos.Contains(&v2.SkipGrants{})
+	s.skipGrantsForResourceType.Store(r.GetId().GetResourceType(), skipGrants)
+
+	return skipGrants, nil
 }
 
 // No span here: shouldSkipEntitlements is called per-resource and almost
