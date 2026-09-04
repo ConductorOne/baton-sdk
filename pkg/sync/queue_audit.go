@@ -14,7 +14,7 @@ import (
 // the checker replays the log against the contract post-hoc.
 //
 // Production cost is one nil check per queue operation: the syncer only
-// attaches an audit when a test sets testQueueAudit.
+// attaches an audit when a test sets syncTestHooks.queueAudit.
 type queueAudit struct {
 	mu       native_sync.Mutex
 	events   []queueAuditEvent

@@ -637,8 +637,8 @@ func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 	if st, ok := s.state.(*state); ok {
 		policy.undrainedSpawned = st.UndrainedSpawnedCursors
 	}
-	if s.testIngestHaltHook != nil {
-		policy.halt = s.testIngestHaltHook
+	if s.testHooks.ingestHaltHook != nil {
+		policy.halt = s.testHooks.ingestHaltHook
 	}
 	verification, err := RunIngestInvariantsWithVerification(ctx, s.store, policy)
 	if err != nil {
