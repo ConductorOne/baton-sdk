@@ -985,6 +985,36 @@ func TestCredentialIssueFieldMinSizeSaturates(t *testing.T) {
 	)
 }
 
+func TestCredentialIssueFieldMinSizeListSaturates(t *testing.T) {
+	// Direct list-path saturation: the validator caps MinItems at 64 before
+	// credentialIssueRequestFieldMinSizeFromList runs, so the saturating
+	// multiply's huge-operand guards are unreachable through the validator.
+	// Pin them here so raising the 64-item cap later cannot silently
+	// un-cover the multiply. No giant lists or strings are allocated.
+	for _, rules := range []*config.RepeatedStringRules{
+		// Huge item count alone saturates the multiply's uint64 operand.
+		config.RepeatedStringRules_builder{MinItems: proto.Uint64(math.MaxUint64)}.Build(),
+		// Huge item bytes saturate the per-item Value framing add.
+		config.RepeatedStringRules_builder{ItemRules: config.StringRules_builder{MinLen: proto.Uint64(math.MaxUint64)}.Build()}.Build(),
+		// Both operands huge: the multiply must saturate without wrapping.
+		config.RepeatedStringRules_builder{
+			MinItems:  proto.Uint64(math.MaxUint64),
+			ItemRules: config.StringRules_builder{MinLen: proto.Uint64(math.MaxUint64)}.Build(),
+		}.Build(),
+		// The division-bound guard specifically: an item count just above
+		// limit/itemContribution saturates via b > limit/a rather than
+		// b >= limit. With empty items the per-item contribution is 2, so
+		// 32768 items still fit (65536) but 32769 must saturate.
+		config.RepeatedStringRules_builder{MinItems: proto.Uint64(32769)}.Build(),
+	} {
+		require.Equal(t, credentialIssueRequestSizeLimit, credentialIssueRequestFieldMinSizeFromList("k", rules),
+			"huge declared list bounds must yield the cap+1 sentinel, not a wrapped size")
+	}
+	// The guards must not corrupt finite cases that stay below the cap.
+	require.Less(t, credentialIssueRequestFieldMinSizeFromList("k",
+		config.RepeatedStringRules_builder{MinItems: proto.Uint64(3)}.Build()), credentialIssueRequestSizeLimit)
+}
+
 func TestCredentialIssueRequestFieldMinSizeMatchesProtoSize(t *testing.T) {
 	// The conservative lower bound must never exceed the size of an actual
 	// minimal valid fixture, and on small boundary fixtures it must equal
