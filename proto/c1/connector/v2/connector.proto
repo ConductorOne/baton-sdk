@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package c1.connector.v2;
 
+import "c1/config/v1/config.proto";
 import "c1/connector/v2/asset.proto";
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
@@ -141,6 +142,25 @@ message CredentialIssueOptionDescriptor {
   // declaration order would not be stable. It selects nothing at issue time --
   // CredentialIssueOptions.secret_resource_type_id is still required.
   bool preferred = 10;
+  // Connector-owned schema for additional values required to issue this
+  // credential kind. Hosts may narrow this schema in an offering, but must not
+  // add connector-specific fields to their own credential models.
+  CredentialIssueRequestSchema request_schema = 11;
+}
+
+message CredentialIssueRequestSchema {
+  // Request fields are carried through host task and webhook surfaces. Secret
+  // fields are therefore unsupported; schema validation rejects is_secret.
+  // Correctly typed empty strings and collections are omission-equivalent:
+  // they are absent for requiredness, presence constraints, and value rules.
+  // An explicitly submitted numeric zero or false is present, so connectors
+  // should omit bool/int fields from presence constraints unless that is the
+  // intended form-submission behavior. Connector authors requiring a value
+  // must declare the field required.
+  repeated c1.config.v1.Field fields = 1;
+  // Cross-field constraints. secondary_field_names is only read by
+  // DEPENDENT_ON; schema validation rejects it on every other kind.
+  repeated c1.config.v1.Constraint constraints = 2;
 }
 
 message IssuanceExpiryCapability {

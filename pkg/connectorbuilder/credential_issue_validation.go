@@ -1,18 +1,37 @@
 package connectorbuilder
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/field"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 var credentialIssueRequestIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// ErrInvalidCredentialIssueRequestSchema identifies connector-owned schema
+// errors separately from caller-owned request data errors.
+var ErrInvalidCredentialIssueRequestSchema = errors.New("invalid credential issue request schema")
+
+const (
+	maxSafeJSONInteger                   = int64(1<<53 - 1)
+	maxCredentialIssueRequestFields      = 64
+	maxCredentialIssueRequestConstraints = 64
+	maxCredentialIssueRequestDataBytes   = 64 * 1024
+	maxCredentialIssueCollectionItems    = 64
+)
 
 // maxCredentialIssueSecretResourceTypeIDBytes bounds secret_resource_type_id on
 // both the descriptor and the request. The descriptor's matching proto rules
@@ -96,6 +115,9 @@ func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.Crede
 	if descriptor.GetResourceMode() == v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_UNSPECIFIED {
 		return nil, fmt.Errorf("credential resource mode must be advertised")
 	}
+	if err := ValidateCredentialIssueRequestData(descriptor.GetRequestSchema(), input.RequestData); err != nil {
+		return nil, err
+	}
 	if keypair := input.CredentialOptions.GetKeypair(); keypair != nil {
 		if err := validateKeyGenerationProfile(keypair.GetProfile()); err != nil {
 			return nil, err
@@ -139,6 +161,733 @@ func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.Crede
 		}
 	}
 	return descriptor, nil
+}
+
+// ValidateCredentialIssueRequestSchema validates connector-owned credential
+// request schema structure before the capability is published or consumed.
+func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchema) error {
+	if schema == nil {
+		return nil
+	}
+	if len(schema.GetFields()) > maxCredentialIssueRequestFields {
+		return fmt.Errorf("request schema must not contain more than %d fields", maxCredentialIssueRequestFields)
+	}
+	if len(schema.GetConstraints()) > maxCredentialIssueRequestConstraints {
+		return fmt.Errorf("request schema must not contain more than %d constraints", maxCredentialIssueRequestConstraints)
+	}
+	fields := make(map[string]*config.Field, len(schema.GetFields()))
+	for _, schemaField := range schema.GetFields() {
+		if schemaField == nil || strings.TrimSpace(schemaField.GetName()) == "" {
+			return fmt.Errorf("request schema field name is required")
+		}
+		name := schemaField.GetName()
+		if schemaField.GetIsSecret() {
+			return fmt.Errorf("request schema field %q must not be secret", name)
+		}
+		if _, ok := fields[name]; ok {
+			return fmt.Errorf("duplicate request schema field %q", name)
+		}
+		fields[name] = schemaField
+		switch schemaField.WhichField() {
+		case config.Field_StringField_case:
+			if schemaField.GetStringField().GetType() != config.StringFieldType_STRING_FIELD_TYPE_TEXT_UNSPECIFIED {
+				return fmt.Errorf("request schema field %q has unsupported string field type", name)
+			}
+			if len(schemaField.GetStringField().GetAllowedExtensions()) > 0 {
+				return fmt.Errorf("request schema field %q must not declare file extensions", name)
+			}
+			if rules := schemaField.GetStringField().GetRules(); rules != nil {
+				if err := validateCredentialIssueStringRuleBounds(name, rules, false); err != nil {
+					return err
+				}
+				if rules.HasPattern() {
+					if _, err := regexp.CompilePOSIX(rules.GetPattern()); err != nil {
+						return fmt.Errorf("request schema field %q has invalid pattern: %w", name, err)
+					}
+				}
+			}
+		case config.Field_IntField_case:
+			if rules := schemaField.GetIntField().GetRules(); rules != nil {
+				if err := validateCredentialIssueIntRuleBounds(rules); err != nil {
+					return fmt.Errorf("request schema field %q: %w", name, err)
+				}
+				if rules.HasGte() && rules.HasLte() && rules.GetGte() > rules.GetLte() {
+					return fmt.Errorf("request schema field %q has minimum greater than maximum", name)
+				}
+				if rules.HasGt() && rules.HasLt() && rules.GetGt() >= rules.GetLt() {
+					return fmt.Errorf("request schema field %q has empty integer range", name)
+				}
+			}
+		case config.Field_BoolField_case, config.Field_StringMapField_case:
+		case config.Field_StringSliceField_case:
+			rules := schemaField.GetStringSliceField().GetRules()
+			if rules != nil && rules.HasMinItems() && rules.GetMinItems() > maxCredentialIssueCollectionItems {
+				return fmt.Errorf("request schema field %q minimum items must not exceed %d", name, maxCredentialIssueCollectionItems)
+			}
+			if rules != nil && rules.HasMaxItems() && rules.GetMaxItems() > maxCredentialIssueCollectionItems {
+				return fmt.Errorf("request schema field %q maximum items must not exceed %d", name, maxCredentialIssueCollectionItems)
+			}
+			if rules != nil && rules.HasMinItems() && rules.HasMaxItems() && rules.GetMinItems() > rules.GetMaxItems() {
+				return fmt.Errorf("request schema field %q has minimum items greater than maximum", name)
+			}
+			if rules != nil && rules.HasItemRules() {
+				if err := validateCredentialIssueStringRuleBounds(name, rules.GetItemRules(), true); err != nil {
+					return err
+				}
+			}
+			if rules != nil && rules.HasItemRules() && rules.GetItemRules().HasPattern() {
+				if _, err := regexp.CompilePOSIX(rules.GetItemRules().GetPattern()); err != nil {
+					return fmt.Errorf("request schema field %q has invalid item pattern: %w", name, err)
+				}
+			}
+		default:
+			return fmt.Errorf("request schema field %q has unsupported type", name)
+		}
+		if err := validateCredentialIssueFieldDefaults(schemaField); err != nil {
+			return err
+		}
+	}
+	for _, constraint := range schema.GetConstraints() {
+		if constraint == nil {
+			return fmt.Errorf("request schema constraint is required")
+		}
+		switch constraint.GetKind() {
+		case config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER,
+			config.ConstraintKind_CONSTRAINT_KIND_AT_LEAST_ONE,
+			config.ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE,
+			config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON:
+		case config.ConstraintKind_CONSTRAINT_KIND_UNSPECIFIED:
+			return fmt.Errorf("request schema constraint kind is required")
+		default:
+			return fmt.Errorf("request schema constraint kind %v is unsupported", constraint.GetKind())
+		}
+		if len(constraint.GetFieldNames()) == 0 {
+			return fmt.Errorf("request schema constraint fields are required")
+		}
+		if duplicate := firstDuplicate(constraint.GetFieldNames()); duplicate != "" {
+			return fmt.Errorf("request schema constraint repeats field %q", duplicate)
+		}
+		if duplicate := firstDuplicate(constraint.GetSecondaryFieldNames()); duplicate != "" {
+			return fmt.Errorf("request schema constraint repeats secondary field %q", duplicate)
+		}
+		for _, name := range append(slices.Clone(constraint.GetFieldNames()), constraint.GetSecondaryFieldNames()...) {
+			if _, ok := fields[name]; !ok {
+				return fmt.Errorf("request schema constraint refers to unknown field %q", name)
+			}
+		}
+		if constraint.GetKind() == config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON && len(constraint.GetSecondaryFieldNames()) == 0 {
+			return fmt.Errorf("request schema dependent-on constraint requires secondary fields")
+		}
+		if constraint.GetKind() != config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON && len(constraint.GetSecondaryFieldNames()) > 0 {
+			return fmt.Errorf("request schema constraint kind %v must not declare secondary fields", constraint.GetKind())
+		}
+		if constraint.GetKind() == config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON {
+			// The public FieldsDependentOn DSL rejects a field appearing on both
+			// sides: the dependency would be self-satisfied. Match that contract
+			// here so an overlapping schema cannot be published.
+			primary := constraint.GetFieldNames()
+			for _, secondaryName := range constraint.GetSecondaryFieldNames() {
+				if slices.Contains(primary, secondaryName) {
+					return fmt.Errorf("request schema has overlapping dependent-on constraint lists: field %q appears in both field_names and secondary_field_names", secondaryName)
+				}
+			}
+		}
+		if constraint.GetKind() != config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON && len(constraint.GetFieldNames()) < 2 {
+			return fmt.Errorf("request schema constraint requires at least two fields")
+		}
+	}
+	if err := validateCredentialIssueRequiredFieldsFit(schema); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateCredentialIssueStringRuleBounds(name string, rules *config.StringRules, listItem bool) error {
+	if rules.HasLen() && credentialIssueRequestStringValueSize(name, rules.GetLen(), listItem) > maxCredentialIssueRequestDataBytes {
+		return fmt.Errorf("request schema field %q exact length cannot fit within the %d-byte request data limit", name, maxCredentialIssueRequestDataBytes)
+	}
+	if rules.HasMinLen() && credentialIssueRequestStringValueSize(name, rules.GetMinLen(), listItem) > maxCredentialIssueRequestDataBytes {
+		return fmt.Errorf("request schema field %q minimum length cannot fit within the %d-byte request data limit", name, maxCredentialIssueRequestDataBytes)
+	}
+	if rules.HasMinLen() && rules.HasMaxLen() && rules.GetMinLen() > rules.GetMaxLen() {
+		return fmt.Errorf("request schema field %q has minimum length greater than maximum", name)
+	}
+	return nil
+}
+
+func credentialIssueRequestStringValueSize(name string, length uint64, listItem bool) int {
+	if length > maxCredentialIssueRequestDataBytes {
+		return maxCredentialIssueRequestDataBytes + 1
+	}
+	stringValueSize := protowire.SizeTag(3) + protowire.SizeBytes(int(length))
+	valueSize := stringValueSize
+	if listItem {
+		listSize := protowire.SizeTag(1) + protowire.SizeBytes(stringValueSize)
+		valueSize = protowire.SizeTag(6) + protowire.SizeBytes(listSize)
+	}
+	mapEntrySize := protowire.SizeTag(1) + protowire.SizeBytes(len(name)) + protowire.SizeTag(2) + protowire.SizeBytes(valueSize)
+	return protowire.SizeTag(1) + protowire.SizeBytes(mapEntrySize)
+}
+
+// credentialIssueRequestSizeLimit is the saturation sentinel: every
+// intermediate aggregate larger than the cap collapses to cap+1 so no
+// framing arithmetic can wrap a declared bound back under the limit.
+const credentialIssueRequestSizeLimit = maxCredentialIssueRequestDataBytes + 1
+
+// credentialIssueSaturatingAdd adds a and b, saturating at the size limit.
+// Operands are bounded: callers clamp any uint64 rule value to the limit
+// before conversion, so both are nonnegative and at most the limit.
+func credentialIssueSaturatingAdd(a, b int) int {
+	if a >= credentialIssueRequestSizeLimit || b >= credentialIssueRequestSizeLimit {
+		return credentialIssueRequestSizeLimit
+	}
+	sum := a + b
+	if sum > credentialIssueRequestSizeLimit {
+		return credentialIssueRequestSizeLimit
+	}
+	return sum
+}
+
+// credentialIssueSaturatingMul multiplies a and b, saturating at the size
+// limit. Both operands are already bounded: a is an int below the limit and
+// b is a clamped count below the limit, so the division-based bound check
+// only needs a zero guard.
+func credentialIssueSaturatingMul(a int, b uint64) int {
+	if a == 0 || b == 0 {
+		return 0
+	}
+	limit := uint64(credentialIssueRequestSizeLimit)
+	if a >= credentialIssueRequestSizeLimit || b >= limit {
+		return credentialIssueRequestSizeLimit
+	}
+	if b > limit/uint64(a) { //nolint:gosec // a is positive and bounded above
+		return credentialIssueRequestSizeLimit
+	}
+	product := a * int(b)
+	if product > credentialIssueRequestSizeLimit {
+		return credentialIssueRequestSizeLimit
+	}
+	return product
+}
+
+// credentialIssueClampLength clamps a declared uint64 length to the size
+// limit. The rule value is hostile input: only the clamped result feeds
+// framing arithmetic.
+func credentialIssueClampLength(length uint64) int {
+	if length > uint64(credentialIssueRequestSizeLimit) {
+		return credentialIssueRequestSizeLimit
+	}
+	return int(length)
+}
+
+// credentialIssueMinStringLength returns a provable lower bound for one
+// string value under the declared rules: the largest of an exact length, a
+// minimum length, and one byte when the value must be nonempty. Empty list
+// items are otherwise legal, so callers pass mustBeNonempty false for list
+// items unless the item rules themselves demand a nonempty value.
+func credentialIssueMinStringLength(rules *config.StringRules, mustBeNonempty bool) int {
+	if rules == nil {
+		if mustBeNonempty {
+			return 1
+		}
+		return 0
+	}
+	bound := 0
+	if rules.HasLen() {
+		bound = max(bound, credentialIssueClampLength(rules.GetLen()))
+	}
+	if rules.HasMinLen() {
+		bound = max(bound, credentialIssueClampLength(rules.GetMinLen()))
+	}
+	if mustBeNonempty && !rules.HasLen() {
+		// is_required plus config-field empty semantics: an accepted value
+		// is nonempty, so at least one byte is unavoidable.
+		bound = max(bound, 1)
+	}
+	return bound
+}
+
+func credentialIssueRequestFieldMinSize(schemaField *config.Field) int {
+	if !credentialIssueRequestFieldIsRequired(schemaField) {
+		return 0
+	}
+	name := schemaField.GetName()
+	switch schemaField.WhichField() {
+	case config.Field_StringField_case:
+		return credentialIssueRequestFieldMinSizeFromString(name, schemaField.GetStringField().GetRules())
+	case config.Field_StringSliceField_case:
+		return credentialIssueRequestFieldMinSizeFromList(name, schemaField.GetStringSliceField().GetRules())
+	default:
+		// Other required kinds contribute a safe structural lower bound: the
+		// map entry wrapper alone is unavoidable for a required field.
+		return credentialIssueStructEntryMinSize(name, 0)
+	}
+}
+
+// credentialIssueStructEntryMinSize sizes one Struct map entry carrying a
+// Value whose payload is at least valueSize bytes, wrapped in the Struct's
+// repeated fields framing.
+func credentialIssueStructEntryMinSize(name string, valueSize int) int {
+	// mapEntry: tag1 + len(name) + tag2 + len(valueSize)
+	mapEntrySize := credentialIssueSaturatingAdd(
+		credentialIssueSaturatingAdd(protowire.SizeTag(1), protowire.SizeBytes(len(name))),
+		credentialIssueSaturatingAdd(protowire.SizeTag(2), protowire.SizeBytes(valueSize)),
+	)
+	// Struct repeated fields: tag1 + len(mapEntrySize)
+	return credentialIssueSaturatingAdd(protowire.SizeTag(1), protowire.SizeBytes(mapEntrySize))
+}
+
+// credentialIssueRequestFieldMinSizeFromString returns the wire lower bound
+// for a required string field: a Value{string_value} is at least
+// tag3 + SizeBytes(minStringLength) bytes.
+func credentialIssueRequestFieldMinSizeFromString(name string, rules *config.StringRules) int {
+	stringValueSize := credentialIssueSaturatingAdd(protowire.SizeTag(3), protowire.SizeBytes(credentialIssueMinStringLength(rules, true)))
+	return credentialIssueStructEntryMinSize(name, stringValueSize)
+}
+
+// credentialIssueRequestFieldMinSizeFromList returns the wire lower bound
+// for a required string-list field: minItems repetitions of the complete
+// per-item Value framing (tag1 + SizeBytes(tag3 + SizeBytes(itemBytes))),
+// wrapped by Value{list_value} tag6 + SizeBytes(listPayloadSize).
+func credentialIssueRequestFieldMinSizeFromList(name string, rules *config.RepeatedStringRules) int {
+	// A required list must be nonempty under the config-field empty
+	// semantics, so one item is unavoidable even when MinItems is explicitly
+	// declared as zero.
+	itemCount := uint64(1)
+	if rules != nil && rules.HasMinItems() {
+		itemCount = min(max(rules.GetMinItems(), uint64(1)), uint64(credentialIssueRequestSizeLimit))
+	}
+	itemMustBeNonempty := rules != nil && rules.GetItemRules().GetIsRequired()
+	itemBytes := 0
+	if rules != nil {
+		itemBytes = credentialIssueMinStringLength(rules.GetItemRules(), itemMustBeNonempty)
+	}
+	// Each list element is a full Value: tag3 + SizeBytes(itemBytes).
+	itemValueSize := credentialIssueSaturatingAdd(protowire.SizeTag(3), protowire.SizeBytes(itemBytes))
+	itemContribution := credentialIssueSaturatingAdd(protowire.SizeTag(1), protowire.SizeBytes(itemValueSize))
+	listPayloadSize := credentialIssueSaturatingMul(itemContribution, itemCount)
+	listValueSize := credentialIssueSaturatingAdd(protowire.SizeTag(6), protowire.SizeBytes(listPayloadSize))
+	return credentialIssueStructEntryMinSize(name, listValueSize)
+}
+
+// validateCredentialIssueRequiredFieldsFit rejects schemas whose
+// unconditionally required fields provably exceed the request-data cap:
+// every satisfying request would fail request validation, so publication
+// fails early. The bound is conservative: optional fields contribute zero
+// and cross-constraint branches are not summed, so a schema can be
+// rejected only when a proven lower bound exceeds the cap, never on a
+// false accept.
+func validateCredentialIssueRequiredFieldsFit(schema *v2.CredentialIssueRequestSchema) error {
+	total := 0
+	for _, schemaField := range schema.GetFields() {
+		fieldMinSize := credentialIssueRequestFieldMinSize(schemaField)
+		total = credentialIssueSaturatingAdd(total, fieldMinSize)
+		if total >= credentialIssueRequestSizeLimit {
+			return fmt.Errorf("request schema required fields cannot fit within the %d-byte request data limit", maxCredentialIssueRequestDataBytes)
+		}
+	}
+	return nil
+}
+
+func firstDuplicate(values []string) string {
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			return value
+		}
+		seen[value] = struct{}{}
+	}
+	return ""
+}
+
+func validateCredentialIssueFieldDefaults(schemaField *config.Field) error {
+	name := schemaField.GetName()
+	validate := func(kind string, value *structpb.Value) error {
+		if err := validateCredentialIssueRequestValue(schemaField, value); err != nil {
+			return fmt.Errorf("request schema field %q has invalid %s: %w", name, kind, err)
+		}
+		return nil
+	}
+	switch schemaField.WhichField() {
+	case config.Field_StringField_case:
+		fieldConfig := schemaField.GetStringField()
+		for _, candidate := range []struct{ kind, value string }{
+			{"default value", fieldConfig.GetDefaultValue()},
+			{"suggested value", fieldConfig.GetSuggestedValue()},
+		} {
+			if candidate.value != "" {
+				if err := validate(candidate.kind, structpb.NewStringValue(candidate.value)); err != nil {
+					return err
+				}
+			}
+		}
+	case config.Field_IntField_case:
+		fieldConfig := schemaField.GetIntField()
+		for _, candidate := range []struct {
+			kind  string
+			value int64
+		}{
+			{"default value", fieldConfig.GetDefaultValue()},
+			{"suggested value", fieldConfig.GetSuggestedValue()},
+		} {
+			if candidate.value != 0 {
+				if err := validate(candidate.kind, structpb.NewNumberValue(float64(candidate.value))); err != nil {
+					return err
+				}
+			}
+		}
+	case config.Field_BoolField_case:
+		fieldConfig := schemaField.GetBoolField()
+		for _, candidate := range []struct {
+			kind  string
+			value bool
+		}{
+			{"default value", fieldConfig.GetDefaultValue()},
+			{"suggested value", fieldConfig.GetSuggestedValue()},
+		} {
+			if candidate.value {
+				if err := validate(candidate.kind, structpb.NewBoolValue(candidate.value)); err != nil {
+					return err
+				}
+			}
+		}
+	case config.Field_StringSliceField_case:
+		fieldConfig := schemaField.GetStringSliceField()
+		for _, candidate := range []struct {
+			kind  string
+			value []string
+		}{
+			{"default value", fieldConfig.GetDefaultValue()},
+			{"suggested value", fieldConfig.GetSuggestedValue()},
+		} {
+			if len(candidate.value) > 0 {
+				values := make([]*structpb.Value, 0, len(candidate.value))
+				for _, item := range candidate.value {
+					values = append(values, structpb.NewStringValue(item))
+				}
+				if err := validate(candidate.kind, structpb.NewListValue(&structpb.ListValue{Values: values})); err != nil {
+					return err
+				}
+			}
+		}
+	case config.Field_StringMapField_case:
+		fieldConfig := schemaField.GetStringMapField()
+		for _, candidate := range []struct {
+			kind  string
+			value map[string]*anypb.Any
+		}{
+			{"default value", fieldConfig.GetDefaultValue()},
+			{"suggested value", fieldConfig.GetSuggestedValue()},
+		} {
+			if len(candidate.value) > 0 {
+				structValue, err := credentialIssueConfigMapValue(candidate.value)
+				if err != nil {
+					return fmt.Errorf("request schema field %q has invalid %s: %w", name, candidate.kind, err)
+				}
+				if err := validate(candidate.kind, structpb.NewStructValue(structValue)); err != nil {
+					return err
+				}
+			}
+		}
+	default:
+	}
+	return nil
+}
+
+func credentialIssueConfigMapValue(values map[string]*anypb.Any) (*structpb.Struct, error) {
+	converted := make(map[string]*structpb.Value, len(values))
+	for name, value := range values {
+		if value == nil {
+			return nil, fmt.Errorf("map entry %q is nil", name)
+		}
+		convertedValue := &structpb.Value{}
+		if err := value.UnmarshalTo(convertedValue); err != nil {
+			return nil, fmt.Errorf("map entry %q is not a protobuf value: %w", name, err)
+		}
+		converted[name] = convertedValue
+	}
+	return &structpb.Struct{Fields: converted}, nil
+}
+
+// ValidateCredentialIssueRequestData validates typed values against one
+// credential issue descriptor. Hosts use the same validator after applying
+// their generic offering policy so host and connector validation cannot drift.
+// Correctly typed empty strings, lists, and maps follow config-field semantics:
+// they are omissions for requiredness and cross-field constraints. Numeric zero
+// and false remain present because Struct preserves their explicit value.
+func ValidateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema, data *structpb.Struct) error {
+	if err := ValidateCredentialIssueRequestSchema(schema); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidCredentialIssueRequestSchema, err)
+	}
+	values := map[string]*structpb.Value(nil)
+	if data != nil {
+		values = data.GetFields()
+	}
+	if len(values) > maxCredentialIssueRequestFields {
+		return fmt.Errorf("request data must not contain more than %d fields", maxCredentialIssueRequestFields)
+	}
+	if proto.Size(data) > maxCredentialIssueRequestDataBytes {
+		return fmt.Errorf("request data must not exceed %d bytes", maxCredentialIssueRequestDataBytes)
+	}
+	fields := make(map[string]*config.Field, len(schema.GetFields()))
+	for _, schemaField := range schema.GetFields() {
+		fields[schemaField.GetName()] = schemaField
+	}
+	unknownName := ""
+	unknownFound := false
+	for name := range values {
+		if _, ok := fields[name]; !ok {
+			if !unknownFound || name < unknownName {
+				unknownName = name
+				unknownFound = true
+			}
+		}
+	}
+	if unknownFound {
+		return fmt.Errorf("request data contains unknown field %q", unknownName)
+	}
+	present := make(map[string]bool, len(values))
+	for _, schemaField := range schema.GetFields() {
+		name := schemaField.GetName()
+		value, ok := values[name]
+		_, isNull := value.GetKind().(*structpb.Value_NullValue)
+		if !ok || value == nil || value.GetKind() == nil || isNull {
+			if credentialIssueRequestFieldIsRequired(schemaField) {
+				return fmt.Errorf("request data field %q is required", name)
+			}
+			continue
+		}
+		required := credentialIssueRequestFieldIsRequired(schemaField)
+		empty := credentialIssueRequestValueMatchesType(schemaField, value) && credentialIssueRequestValueIsEmpty(value)
+		// Presence follows the config-field empty semantics: empty strings and
+		// collections are absent, while explicitly supplied numeric zero and false
+		// are present. Int64Rules.is_required retains its older zero-value rule.
+		present[name] = !empty
+		if empty {
+			if required {
+				return fmt.Errorf("request data field %q is required", name)
+			}
+			continue
+		}
+		if err := validateCredentialIssueRequestValue(schemaField, value); err != nil {
+			return err
+		}
+	}
+	for _, constraint := range schema.GetConstraints() {
+		if err := validateCredentialIssueConstraint(constraint, present); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func credentialIssueRequestValueMatchesType(schemaField *config.Field, value *structpb.Value) bool {
+	switch schemaField.WhichField() {
+	case config.Field_StringField_case:
+		_, ok := value.GetKind().(*structpb.Value_StringValue)
+		return ok
+	case config.Field_IntField_case:
+		_, ok := value.GetKind().(*structpb.Value_NumberValue)
+		return ok
+	case config.Field_BoolField_case:
+		_, ok := value.GetKind().(*structpb.Value_BoolValue)
+		return ok
+	case config.Field_StringSliceField_case:
+		_, ok := value.GetKind().(*structpb.Value_ListValue)
+		return ok
+	case config.Field_StringMapField_case:
+		_, ok := value.GetKind().(*structpb.Value_StructValue)
+		return ok
+	default:
+		return false
+	}
+}
+
+func credentialIssueRequestFieldIsRequired(schemaField *config.Field) bool {
+	if schemaField.GetIsRequired() {
+		return true
+	}
+	switch schemaField.WhichField() {
+	case config.Field_StringField_case:
+		return schemaField.GetStringField().GetRules().GetIsRequired()
+	case config.Field_IntField_case:
+		return schemaField.GetIntField().GetRules().GetIsRequired()
+	case config.Field_BoolField_case:
+		return false
+	case config.Field_StringSliceField_case:
+		return schemaField.GetStringSliceField().GetRules().GetIsRequired()
+	case config.Field_StringMapField_case:
+		return schemaField.GetStringMapField().GetRules().GetIsRequired()
+	default:
+		return false
+	}
+}
+
+func credentialIssueRequestValueIsEmpty(value *structpb.Value) bool {
+	switch kind := value.GetKind().(type) {
+	case *structpb.Value_StringValue:
+		return kind.StringValue == ""
+	case *structpb.Value_ListValue:
+		return len(kind.ListValue.GetValues()) == 0
+	case *structpb.Value_StructValue:
+		return len(kind.StructValue.GetFields()) == 0
+	default:
+		return false
+	}
+}
+
+func validateCredentialIssueRequestValue(schemaField *config.Field, value *structpb.Value) error {
+	name := schemaField.GetName()
+	switch schemaField.WhichField() {
+	case config.Field_StringField_case:
+		kind, ok := value.GetKind().(*structpb.Value_StringValue)
+		if !ok {
+			return fmt.Errorf("request data field %q must be a string", name)
+		}
+		options := schemaField.GetStringField().GetOptions()
+		if len(options) > 0 && !slices.ContainsFunc(options, func(option *config.StringFieldOption) bool {
+			return option.GetValue() == kind.StringValue
+		}) {
+			return fmt.Errorf("request data field %q must match an advertised option", name)
+		}
+		if err := field.ValidateStringRules(schemaField.GetStringField().GetRules(), kind.StringValue, name); err != nil {
+			return err
+		}
+	case config.Field_IntField_case:
+		kind, ok := value.GetKind().(*structpb.Value_NumberValue)
+		if !ok || math.IsNaN(kind.NumberValue) || math.IsInf(kind.NumberValue, 0) || math.Trunc(kind.NumberValue) != kind.NumberValue {
+			return fmt.Errorf("request data field %q must be an integer", name)
+		}
+		if kind.NumberValue < float64(-maxSafeJSONInteger) || kind.NumberValue > float64(maxSafeJSONInteger) {
+			return fmt.Errorf("request data field %q must be within the supported integer range", name)
+		}
+		rules := cloneIntRulesForRequest(schemaField.GetIntField().GetRules())
+		if err := field.ValidateInt64Rules(rules, int64(kind.NumberValue), name); err != nil {
+			return err
+		}
+	case config.Field_BoolField_case:
+		kind, ok := value.GetKind().(*structpb.Value_BoolValue)
+		if !ok {
+			return fmt.Errorf("request data field %q must be a boolean", name)
+		}
+		if err := field.ValidateBoolRules(schemaField.GetBoolField().GetRules(), kind.BoolValue, name); err != nil {
+			return err
+		}
+	case config.Field_StringSliceField_case:
+		kind, ok := value.GetKind().(*structpb.Value_ListValue)
+		if !ok {
+			return fmt.Errorf("request data field %q must be a string list", name)
+		}
+		if len(kind.ListValue.GetValues()) > maxCredentialIssueCollectionItems {
+			return fmt.Errorf("request data field %q must not contain more than %d items", name, maxCredentialIssueCollectionItems)
+		}
+		items := make([]string, 0, len(kind.ListValue.GetValues()))
+		for _, item := range kind.ListValue.GetValues() {
+			stringItem, ok := item.GetKind().(*structpb.Value_StringValue)
+			if !ok {
+				return fmt.Errorf("request data field %q must contain only strings", name)
+			}
+			items = append(items, stringItem.StringValue)
+		}
+		rules := cloneRepeatedStringRulesForRequest(schemaField.GetStringSliceField().GetRules())
+		if err := field.ValidateRepeatedStringRules(rules, items, name); err != nil {
+			return err
+		}
+	case config.Field_StringMapField_case:
+		kind, ok := value.GetKind().(*structpb.Value_StructValue)
+		if !ok {
+			return fmt.Errorf("request data field %q must be an object", name)
+		}
+		if len(kind.StructValue.GetFields()) > maxCredentialIssueCollectionItems {
+			return fmt.Errorf("request data field %q must not contain more than %d entries", name, maxCredentialIssueCollectionItems)
+		}
+		for _, item := range kind.StructValue.GetFields() {
+			if _, ok := item.GetKind().(*structpb.Value_StringValue); !ok {
+				return fmt.Errorf("request data field %q must contain only string values", name)
+			}
+		}
+		if err := field.ValidateStringMapRules(schemaField.GetStringMapField().GetRules(), kind.StructValue.AsMap(), name); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("request data field %q has unsupported type", name)
+	}
+	return nil
+}
+
+func validateCredentialIssueIntRuleBounds(rules *config.Int64Rules) error {
+	values := []int64{rules.GetEq(), rules.GetLt(), rules.GetLte(), rules.GetGt(), rules.GetGte()}
+	set := []bool{rules.HasEq(), rules.HasLt(), rules.HasLte(), rules.HasGt(), rules.HasGte()}
+	for index, value := range values {
+		if set[index] && (value < -maxSafeJSONInteger || value > maxSafeJSONInteger) {
+			return fmt.Errorf("integer rule is outside the supported JSON integer range")
+		}
+	}
+	for _, value := range append(slices.Clone(rules.GetIn()), rules.GetNotIn()...) {
+		if value < -maxSafeJSONInteger || value > maxSafeJSONInteger {
+			return fmt.Errorf("integer rule is outside the supported JSON integer range")
+		}
+	}
+	return nil
+}
+
+func cloneIntRulesForRequest(rules *config.Int64Rules) *config.Int64Rules {
+	if rules == nil {
+		return nil
+	}
+	cloned := proto.Clone(rules).(*config.Int64Rules)
+	cloned.SetValidateEmpty(true)
+	return cloned
+}
+
+func cloneRepeatedStringRulesForRequest(rules *config.RepeatedStringRules) *config.RepeatedStringRules {
+	if rules == nil {
+		return nil
+	}
+	cloned := proto.Clone(rules).(*config.RepeatedStringRules)
+	if cloned.HasItemRules() {
+		cloned.GetItemRules().SetValidateEmpty(true)
+	}
+	return cloned
+}
+
+func validateCredentialIssueConstraint(constraint *config.Constraint, present map[string]bool) error {
+	countPresent := func(names []string) int {
+		seen := make(map[string]struct{}, len(names))
+		count := 0
+		for _, name := range names {
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			if present[name] {
+				count++
+			}
+		}
+		return count
+	}
+	primaryCount := countPresent(constraint.GetFieldNames())
+	switch constraint.GetKind() {
+	case config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER:
+		if primaryCount > 0 && primaryCount < len(constraint.GetFieldNames()) {
+			return fmt.Errorf("request data fields required together: %v", constraint.GetFieldNames())
+		}
+	case config.ConstraintKind_CONSTRAINT_KIND_AT_LEAST_ONE:
+		if primaryCount == 0 {
+			return fmt.Errorf("request data requires at least one of: %v", constraint.GetFieldNames())
+		}
+	case config.ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE:
+		if primaryCount > 1 {
+			return fmt.Errorf("request data fields are mutually exclusive: %v", constraint.GetFieldNames())
+		}
+	case config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON:
+		if primaryCount > 0 && countPresent(constraint.GetSecondaryFieldNames()) < len(constraint.GetSecondaryFieldNames()) {
+			return fmt.Errorf("request data fields %v depend on %v", constraint.GetFieldNames(), constraint.GetSecondaryFieldNames())
+		}
+	default:
+		return fmt.Errorf("unknown request schema constraint kind %v", constraint.GetKind())
+	}
+	return nil
 }
 
 func validateRequestedValues(kind string, requested []string, advertised []string, customAllowed bool) error {

@@ -44,6 +44,7 @@ func (h *issueCredentialTaskHandler) HandleTask(ctx context.Context) error {
 		EncryptionConfigs: t.GetEncryptionConfigs(),
 		RequestId:         h.task.GetId(),
 		ExpiresAt:         t.GetExpiresAt(),
+		RequestData:       t.GetRequestData(),
 	}.Build())
 	if err != nil {
 		// Issuance may have succeeded before transport failure. Until a connector
