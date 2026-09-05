@@ -1001,18 +1001,24 @@ func TestCredentialIssueFieldMinSizeListSaturates(t *testing.T) {
 			MinItems:  proto.Uint64(math.MaxUint64),
 			ItemRules: config.StringRules_builder{MinLen: proto.Uint64(math.MaxUint64)}.Build(),
 		}.Build(),
-		// The division-bound guard specifically: an item count just above
-		// limit/itemContribution saturates via b > limit/a rather than
-		// b >= limit. With empty items the per-item contribution is 2, so
-		// 32768 items still fit (65536) but 32769 must saturate.
-		config.RepeatedStringRules_builder{MinItems: proto.Uint64(32769)}.Build(),
+		// The division-bound guard specifically: with empty items each
+		// element contributes tag1 + SizeBytes(tag3 + SizeBytes(0)) = 4, so
+		// the first saturating count is 16381 (16380 items still fit: the
+		// 16380x4 payload plus entry framing stays under the sentinel). This
+		// count saturates via b > limit/a rather than the b >= limit arm.
+		config.RepeatedStringRules_builder{MinItems: proto.Uint64(16381)}.Build(),
 	} {
 		require.Equal(t, credentialIssueRequestSizeLimit, credentialIssueRequestFieldMinSizeFromList("k", rules),
 			"huge declared list bounds must yield the cap+1 sentinel, not a wrapped size")
 	}
-	// The guards must not corrupt finite cases that stay below the cap.
-	require.Less(t, credentialIssueRequestFieldMinSizeFromList("k",
-		config.RepeatedStringRules_builder{MinItems: proto.Uint64(3)}.Build()), credentialIssueRequestSizeLimit)
+	for _, rules := range []*config.RepeatedStringRules{
+		// 16380 is the largest empty-item count that still fits; the guard
+		// must not over-trigger on counts that legitimately fit.
+		config.RepeatedStringRules_builder{MinItems: proto.Uint64(16380)}.Build(),
+		config.RepeatedStringRules_builder{MinItems: proto.Uint64(3)}.Build(),
+	} {
+		require.Less(t, credentialIssueRequestFieldMinSizeFromList("k", rules), credentialIssueRequestSizeLimit)
+	}
 }
 
 func TestCredentialIssueRequestFieldMinSizeMatchesProtoSize(t *testing.T) {
