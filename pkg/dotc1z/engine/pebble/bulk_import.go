@@ -30,22 +30,59 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
-// ErrBulkImportOutOfOrder is returned by BulkSyncImport's ordered add
-// methods when a primary key arrives that does not sort strictly after
-// the previous key in the same bucket. It means the caller's
-// sorted-source contract was violated; the import cannot continue and
-// must be Abort()ed.
+// ErrBulkImportOutOfOrder is returned when a key arrives at an ordered
+// SST writer without sorting strictly after its predecessor. Callers can
+// only trigger it through AddResourceTypes, the one add method with a
+// sorted-arrival contract; resources, entitlements, and grants re-sort
+// internally, and their duplicate keys surface at Finish as corrupt
+// input (ErrBulkImportDuplicateKey) instead. The import cannot continue
+// past it and must be Abort()ed.
 var ErrBulkImportOutOfOrder = errors.New("bulk sync import: keys are not strictly increasing")
 
-// errBulkImportDuplicateKey is the spill-merge guard against duplicate
-// keys. Duplicates are impossible for well-formed sources (the importer
-// requires global uniqueness); hitting this means corrupt input.
-var errBulkImportDuplicateKey = errors.New("bulk sync import: duplicate key in spill merge")
+// ErrBulkImportDuplicateKey is returned when a spill merge finds two
+// records with the same key — from BulkSyncImport.Finish, and from the
+// engine's other spill merges (the deferred index and digest builds at
+// EndSync, the synth-grant layer, the open-time id-index migration).
+// Duplicates are impossible for well-formed sources (every producer
+// requires global uniqueness), so hitting this means corrupt input,
+// not a caller ordering bug.
+var ErrBulkImportDuplicateKey = errors.New("bulk sync import: duplicate key in spill merge")
 
-// bulkSpillKeyChunkBytes bounds the in-memory arena of one spill chunk.
-// Chunks are sorted and written as sorted runs in the background while
-// records keep streaming in, then k-way merged into SSTs at Finish.
+// bulkSpillKeyChunkBytes sizes the shared spill arena pool
+// (getSpillArena) and the deferred build's translate-batch arenas. The
+// engine's single-producer spill sorters cut chunks at
+// deferredIndexSpillChunkBytes with explicit freelists (see that
+// constant for the sizing trade-off); the bulk import derives its chunk
+// size from bulkImportSortBudgetBytes instead, because its sorter count
+// scales with the caller's scan fan-out.
 const bulkSpillKeyChunkBytes = 8 << 20
+
+// bulkImportSortBudgetBytes bounds the anonymous memory the bulk import's
+// spill arenas can hold at once. Chunk size is derived from it, not
+// hard-coded: chunkBytes = budget / liveArenas, where liveArenas counts
+// every arena that can be committed simultaneously — one per sorter
+// (resources, entitlements, the parent index, and per grant shard one
+// primary plus one per index family) plus one per background sort slot.
+// Adding an index family or raising the shard count therefore shrinks
+// the chunks instead of silently raising peak RSS.
+//
+// Chunk size sets Finish's merge fan-in: every chunk stays open behind a
+// bulkSpillBufferSize reader for the whole merge, so the derived value is
+// clamped to [bulkImportMinChunkBytes, deferredIndexSpillChunkBytes] —
+// the floor caps the run count at half what 8MiB chunks produce (a
+// whale-sized ~17GB grant family is ~1,100 runs at the floor versus
+// ~2,200 at 8MiB; grants.go records the synth-layer incident), and the
+// ceiling is the size the single-producer builds already validated.
+//
+// Worked examples with three grant index families and 4 sort slots: the
+// sanitizer (1 shard, 11 arenas) derives ~93MiB; the converter at 4 lanes
+// (23 arenas) ~44MiB; at 8 lanes (39 arenas) ~26MiB. The freelist
+// recycles arenas within the same budget, so idle arenas never add to it.
+const bulkImportSortBudgetBytes = 1 << 30
+
+// bulkImportMinChunkBytes is the floor on the derived bulk-import chunk
+// size; see bulkImportSortBudgetBytes.
+const bulkImportMinChunkBytes = 16 << 20
 
 // bulkSpillBufferSize is the bufio size for spill-chunk IO.
 const bulkSpillBufferSize = 1 << 20
@@ -124,20 +161,21 @@ func (w *bulkSSTWriter) finish() error {
 // is written once into its final table — no WAL append, no L0 flush, no
 // background compaction debt.
 //
-// Resource types and resources stream straight into one SST per bucket
-// and must arrive in strictly increasing encoded-key order (SQLite BINARY
-// collation order on the key's tuple columns — the tuple key codec is
-// order-preserving; violations fail with ErrBulkImportOutOfOrder). These
-// add methods are single-threaded.
+// Resource types stream straight into one SST and must arrive in strictly
+// increasing encoded-key order (SQLite BINARY collation order on the key's
+// tuple columns — the tuple key codec is order-preserving; violations fail
+// with ErrBulkImportOutOfOrder). AddResourceTypes is single-threaded.
 //
-// Entitlements and grants are keyed by structural identity, whose tuple
-// order does NOT match the converter's external-id scan order, so they go
-// through spill sorters instead (entitlements single-threaded on the
-// parent; grants scale across goroutines, each scanning goroutine taking
-// its own shard via NewGrantShard so the grant hot path acquires no
-// shared lock at all). The secondary index families are derived
-// internally from the translated records — the same nil-guards and key
-// shapes as the engine's canonical writeXxxIndexes paths — and are
+// Every other bucket is re-sorted on the way in and imposes no ordering
+// requirement on its caller. Resources are keyed (resource_type_id,
+// resource_id); entitlements and grants are keyed by structural identity,
+// whose tuple order does NOT match a converter's external-id scan order.
+// All three go through spill sorters (resources and entitlements
+// single-threaded on the parent; grants scale across goroutines, each
+// scanning goroutine taking its own shard via NewGrantShard so the grant
+// hot path acquires no shared lock at all). The secondary index families
+// are derived internally from the translated records — the same nil-guards
+// and key shapes as the engine's canonical writeXxxIndexes paths — and are
 // key-only spill-sorted. Spill chunks sort and flush to disk in the
 // background while the scans keep streaming; Finish k-way merges each
 // family's sorted runs (across all shards) into one SST per family, in
@@ -157,18 +195,49 @@ type BulkSyncImport struct {
 	done   bool
 
 	resourceTypes *bulkSSTWriter
-	resources     *bulkSSTWriter
 
-	// entitlements go through a spill sorter, not an ordered SST writer:
-	// the converter scans in external-id order, but the structural identity
-	// key does not sort the same way (tuple separators sort below printable
-	// bytes, and the flag component reorders stripped vs opaque ids), so the
-	// stream must be re-sorted before it can become an SST.
+	// resources and entitlements go through spill sorters, not ordered SST
+	// writers, so neither imposes an ordering precondition on its caller.
+	// For entitlements the mismatch is unconditional: the structural key
+	// never sorts the way an external-id scan does (tuple separators sort
+	// below printable bytes, and the flag component reorders stripped vs
+	// opaque ids), so the stream must be re-sorted before it can become an
+	// SST.
+	//
+	// For resources, keyed (resource_type_id, resource_id), it depends on
+	// the producer. A converter scanning SQLite with ORDER BY on that tuple
+	// already arrives sorted and paid nothing for an ordered writer, but a
+	// producer that rewrites resource ids — the c1z sanitizer HMACs them —
+	// emits an order unrelated to the destination key. Sorting here keeps
+	// every producer on one path rather than making sortedness a
+	// precondition each one has to re-establish, and it holds when a single
+	// resource type is too large to sort in memory.
+	//
+	// Spill-sorting stages each family transiently at ~2x (sorted runs
+	// plus the SST merged from them; the runs' ranges overlap uniformly,
+	// so release-on-exhaustion frees little before the merge tail). The
+	// ordered writer resources used before staged ~1x but pushed
+	// sortedness onto every producer.
+	resources    *spillSorter
 	entitlements *spillSorter
 
 	// sortSem bounds concurrently running background chunk sorts
 	// across all sorters and shards.
 	sortSem chan struct{}
+
+	// Every sorter in the import — resources, entitlements, the parent
+	// index, and each shard's grant and index sorters — cuts chunks at
+	// chunkBytes and recycles arenas through this import-wide freelist
+	// (see newSorter). chunkBytes is derived from
+	// bulkImportSortBudgetBytes and the caller's expected shard count so
+	// the arenas' aggregate stays under the budget: sorts in flight are
+	// capped by sortSem, and idle arenas are capped by the freelist, so
+	// the live set is exactly the arena count the derivation counted.
+	// (A fresh arena's pages also commit only as it fills, so small
+	// imports stay well under the budget; recycled arenas are fully
+	// committed, which is why the budget counts them all.)
+	chunkBytes int
+	arenaFree  *spillArenaFreeList
 
 	// Parent-level sorter for the (single-threaded) resource index keys.
 	idxResourceByParent *spillSorter
@@ -206,7 +275,13 @@ type BulkSyncImport struct {
 // the engine's current FRESH sync (see BulkSyncImport contract). Working
 // files are staged in a fresh directory under tmpDir ("" = system temp
 // dir) and removed by Finish/Abort.
-func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir string) (*BulkSyncImport, error) {
+//
+// expectedShards is the number of grant shards the caller intends to open
+// via NewGrantShard (values < 1 are treated as 1). It is a sizing hint,
+// not a limit: the import derives its spill chunk size from it so the
+// arenas' aggregate stays within bulkImportSortBudgetBytes. Opening more
+// shards than declared still works but raises peak memory proportionally.
+func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir string, expectedShards int) (*BulkSyncImport, error) {
 	if !e.IsFreshSync() {
 		return nil, errors.New("StartBulkSyncImport: sync is not fresh")
 	}
@@ -231,27 +306,43 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 		syncID:              syncID,
 		dir:                 dir,
 		sortSem:             make(chan struct{}, sorters),
+		chunkBytes:          bulkImportChunkBytes(expectedShards, sorters),
 		resourcesByRT:       map[string]int64{},
 		entitlementsByRT:    map[string]int64{},
 		grantDupRowsByEntRT: map[string]int64{},
 	}
-	for _, w := range []struct {
-		slot **bulkSSTWriter
-		name string
-	}{
-		{&b.resourceTypes, "resource-types"},
-		{&b.resources, "resources"},
-	} {
-		sw, err := newBulkSSTWriter(e.fs(), dir, w.name)
-		if err != nil {
-			b.Abort()
-			return nil, err
-		}
-		*w.slot = sw
+	b.arenaFree = newSpillArenaFreeList(b.chunkBytes, sorters+2)
+	sw, err := newBulkSSTWriter(e.fs(), dir, "resource-types")
+	if err != nil {
+		b.Abort()
+		return nil, err
 	}
-	b.entitlements = newSpillSorter(dir, "entitlements", b.sortSem, bulkSpillKeyChunkBytes)
-	b.idxResourceByParent = newSpillSorter(dir, fmt.Sprintf("index-%02x-p", idxResourceByParent), b.sortSem, bulkSpillKeyChunkBytes)
+	b.resourceTypes = sw
+	b.resources = b.newSorter("resources")
+	b.entitlements = b.newSorter("entitlements")
+	b.idxResourceByParent = b.newSorter(fmt.Sprintf("index-%02x-p", idxResourceByParent))
 	return b, nil
+}
+
+// bulkImportChunkBytes derives the spill chunk size that keeps the
+// import's simultaneously-live arenas within bulkImportSortBudgetBytes.
+// The live set is one arena per sorter — the three lane-independent
+// sorters plus, per grant shard, one primary and one per index family —
+// plus one per background sort slot (a sorter that just cut a chunk
+// fills a fresh arena while the cut one sorts). See
+// bulkImportSortBudgetBytes for the clamp rationale.
+func bulkImportChunkBytes(expectedShards, sortSlots int) int {
+	expectedShards = max(1, expectedShards)
+	liveArenas := 3 + (1+len(grantIndexFamilies))*expectedShards + sortSlots
+	return min(deferredIndexSpillChunkBytes, max(bulkImportMinChunkBytes, bulkImportSortBudgetBytes/liveArenas))
+}
+
+// newSorter creates a spill sorter wired to the import's shared sort
+// semaphore and arena freelist (see arenaFree for the sizing rationale).
+func (b *BulkSyncImport) newSorter(name string) *spillSorter {
+	s := newSpillSorter(b.dir, name, b.sortSem, b.chunkBytes)
+	s.free = b.arenaFree
+	return s
 }
 
 // BulkGrantShard is one goroutine's private view of the grant import:
@@ -287,12 +378,12 @@ func (b *BulkSyncImport) NewGrantShard() (*BulkGrantShard, error) {
 	b.shardSeq++
 	s := &BulkGrantShard{
 		b:      b,
-		grants: newSpillSorter(b.dir, fmt.Sprintf("grants-s%03d", id), b.sortSem, bulkSpillKeyChunkBytes),
+		grants: b.newSorter(fmt.Sprintf("grants-s%03d", id)),
 		idx:    map[byte]*spillSorter{},
 		entRT:  map[string]int64{},
 	}
 	for _, idx := range grantIndexFamilies {
-		s.idx[idx] = newSpillSorter(b.dir, fmt.Sprintf("index-%02x-s%03d", idx, id), b.sortSem, bulkSpillKeyChunkBytes)
+		s.idx[idx] = b.newSorter(fmt.Sprintf("index-%02x-s%03d", idx, id))
 	}
 	b.shards = append(b.shards, s)
 	return s, nil
@@ -423,9 +514,12 @@ func (b *BulkSyncImport) AddResourceTypesWithDiscoveredAt(ctx context.Context, r
 	return nil
 }
 
-// AddResources translates and appends resources, which must arrive
-// sorted by (resource_type_id, resource_id). by_parent index keys are
-// derived and spilled with the same parent guard as writeResourceIndexes.
+// AddResources translates and appends resources. Rows are keyed by
+// (resource_type_id, resource_id) and re-sorted through a spill sorter, so
+// arrival order does not matter; a duplicate key is corrupt input and
+// surfaces at Finish from the spill merge rather than here. by_parent
+// index keys are derived and spilled with the same parent guard as
+// writeResourceIndexes.
 func (b *BulkSyncImport) AddResources(ctx context.Context, resources ...*v2.Resource) error {
 	return b.AddResourcesWithDiscoveredAt(ctx, resources, nil)
 }
@@ -540,7 +634,7 @@ func (b *BulkSyncImport) ComputedStats() *v3.SyncStatsRecord {
 	rec := &v3.SyncStatsRecord{
 		SyncId:                          b.syncID,
 		ResourceTypes:                   int64(b.resourceTypes.count),
-		Resources:                       int64(b.resources.count),
+		Resources:                       b.resources.count,
 		Entitlements:                    b.entitlements.count,
 		Grants:                          grants,
 		ResourcesByResourceType:         b.resourcesByRT,
@@ -563,24 +657,21 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 	}
 	b.done = true
 	// Full teardown, not a bare RemoveAll: Finish's error paths can return
-	// with the ordered SST writers still open (finish() failing on one
-	// leaves the other's file handle live) and with background chunk sorts
-	// still writing into the staging dir (nothing finalized the sorters
-	// yet). Removing the dir while a sort races its os.Create can strand
-	// the dir on disk, and Abort is a no-op once done is set — so this
-	// defer must do the closing and waiting itself. On success everything
-	// is already finished/finalized and teardown reduces to the RemoveAll.
+	// with background chunk sorts still writing into the staging dir
+	// (nothing finalized the sorters yet), and removing the dir while a
+	// sort races its os.Create can strand the dir on disk. Abort is a
+	// no-op once done is set, so this defer must do the waiting itself.
+	// On success everything is already finished/finalized and teardown
+	// reduces to the RemoveAll.
 	defer b.teardown()
 	start := time.Now()
 
 	paths := make([]string, 0, 4+len(grantIndexFamilies))
-	for _, w := range []*bulkSSTWriter{b.resourceTypes, b.resources} {
-		if err := w.finish(); err != nil {
-			return err
-		}
-		if w.count > 0 {
-			paths = append(paths, w.path)
-		}
+	if err := b.resourceTypes.finish(); err != nil {
+		return err
+	}
+	if b.resourceTypes.count > 0 {
+		paths = append(paths, b.resourceTypes.path)
 	}
 
 	b.mu.Lock()
@@ -607,6 +698,7 @@ func (b *BulkSyncImport) Finish(ctx context.Context) error {
 	}
 	units := []mergeUnit{
 		{name: "grants", resolve: b.resolveDuplicateGrants},
+		{name: "resources", sorters: []*spillSorter{b.resources}},
 		{name: "entitlements", sorters: []*spillSorter{b.entitlements}},
 		{name: fmt.Sprintf("index-%02x", idxResourceByParent), sorters: []*spillSorter{b.idxResourceByParent}},
 	}
@@ -753,17 +845,15 @@ func (b *BulkSyncImport) Abort() {
 	b.teardown()
 }
 
-// teardown closes both ordered SST writers, waits out every spill
+// teardown closes the ordered SST writer, waits out every spill
 // sorter's in-flight background chunk sorts, and then removes the
 // staging directory. The waits must precede the RemoveAll: a chunk
 // sort racing the removal can re-create a file mid-walk and strand the
-// directory. Idempotent against already-finished writers and
+// directory. Idempotent against an already-finished writer and
 // already-finalized sorters, so Finish can run it unconditionally.
 func (b *BulkSyncImport) teardown() {
-	for _, w := range []*bulkSSTWriter{b.resourceTypes, b.resources} {
-		if w != nil {
-			_ = w.finish()
-		}
+	if b.resourceTypes != nil {
+		_ = b.resourceTypes.finish()
 	}
 	b.mu.Lock()
 	shards := b.shards
@@ -775,7 +865,7 @@ func (b *BulkSyncImport) teardown() {
 			w.abort()
 		}
 	}
-	for _, w := range []*spillSorter{b.entitlements, b.idxResourceByParent} {
+	for _, w := range []*spillSorter{b.resources, b.entitlements, b.idxResourceByParent} {
 		if w != nil {
 			w.abort()
 		}
@@ -901,6 +991,17 @@ func (s *spillSorter) add(key, val []byte) error {
 	}
 	if err := s.takeErr(); err != nil {
 		return err
+	}
+	// Cut BEFORE an entry would overflow the arena's capacity, not after.
+	// Appending past cap makes Go reallocate the arena at ~1.25x with a
+	// full copy — a 128MiB memcpy per fresh arena — and the freelist then
+	// keeps the oversized copy, so every recycled arena would carry that
+	// growth for the rest of the build. Cutting early keeps arenas at
+	// exactly their allocated size and makes the budget arithmetic in
+	// bulkImportSortBudgetBytes true. (An arena holding nothing yet is
+	// left to grow: a single entry larger than a chunk is legal.)
+	if len(s.views) > 0 && len(s.arena)+len(key)+len(val) > cap(s.arena) {
+		s.cutAndDispatch()
 	}
 	if s.arena == nil {
 		if s.free != nil {
@@ -1126,6 +1227,91 @@ func readSpillEntry(r io.Reader, key, val *[]byte, lenBuf *[4]byte) (bool, error
 	return true, nil
 }
 
+// spillChunkCursors owns the open chunk files for one merge pass and
+// unlinks each chunk as soon as its last entry has been read. The chunks
+// and the SST being written hold the same entries, so a merge that keeps
+// every chunk until teardown needs staging space for both copies at once;
+// releasing at exhaustion bounds the overlap to the chunks still in
+// flight. All of the engine's k-way merges read their chunks through this
+// type (advance is readSpillEntry's only caller), so the bound holds for
+// every spill merge, not just the bulk import's.
+//
+// Unlinking is deliberately confined to the exhausted-chunk path, where
+// the file is provably fully consumed. A merge that fails partway closes
+// its remaining descriptors and leaves those files for the staging-dir
+// teardown that already owns them.
+type spillChunkCursors struct {
+	paths   []string
+	files   []*os.File
+	bufs    []*bufio.Reader
+	keyBufs [][]byte
+	valBufs [][]byte
+	lenBuf  [4]byte
+}
+
+func openSpillChunks(chunks []string) (*spillChunkCursors, error) {
+	c := &spillChunkCursors{
+		paths:   chunks,
+		files:   make([]*os.File, len(chunks)),
+		bufs:    make([]*bufio.Reader, len(chunks)),
+		keyBufs: make([][]byte, len(chunks)),
+		valBufs: make([][]byte, len(chunks)),
+	}
+	for i, chunk := range chunks {
+		f, err := os.Open(chunk) // #nosec G304 - engine-private scratch, staged under the caller's MkdirTemp dir.
+		if err != nil {
+			c.closeAll()
+			return nil, err
+		}
+		c.files[i] = f
+		c.bufs[i] = bufio.NewReaderSize(f, bulkSpillBufferSize)
+	}
+	return c, nil
+}
+
+// advance reads the next entry of chunk i into that chunk's reusable
+// buffers, reachable via key/val. It reports false once the chunk is
+// exhausted, having already closed and unlinked it.
+//
+// Advancing an already-exhausted chunk keeps reporting false rather than
+// faulting on the released reader. The merges re-push a chunk onto the
+// heap only after a true, so none of them reach this today; the guard
+// preserves the EOF idempotency of the inline readSpillEntry calls this
+// replaced.
+func (c *spillChunkCursors) advance(i int) (bool, error) {
+	if c.bufs[i] == nil {
+		return false, nil
+	}
+	ok, err := readSpillEntry(c.bufs[i], &c.keyBufs[i], &c.valBufs[i], &c.lenBuf)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		c.closeChunk(i)
+		_ = os.Remove(c.paths[i])
+	}
+	return ok, nil
+}
+
+func (c *spillChunkCursors) key(i int) []byte { return c.keyBufs[i] }
+func (c *spillChunkCursors) val(i int) []byte { return c.valBufs[i] }
+
+func (c *spillChunkCursors) closeChunk(i int) {
+	if c.files[i] == nil {
+		return
+	}
+	_ = c.files[i].Close()
+	c.files[i] = nil
+	c.bufs[i] = nil
+}
+
+// closeAll releases descriptors without unlinking; see the type comment.
+func (c *spillChunkCursors) closeAll() {
+	for i := range c.files {
+		c.closeChunk(i)
+	}
+}
+
 // mergeSortedSpillChunksToSST heap-merges the sorted chunk files into a
 // single SST. Duplicate keys are corruption (the importer requires
 // globally unique tuples) and fail the merge. fs is the engine FS the
@@ -1133,30 +1319,19 @@ func readSpillEntry(r io.Reader, key, val *[]byte, lenBuf *[4]byte) (bool, error
 func mergeSortedSpillChunksToSST(ctx context.Context, fs vfs.FS, sstPath, name string, chunks []string) error {
 	start := time.Now()
 	l := ctxzap.Extract(ctx)
-	readers := make([]*os.File, 0, len(chunks))
-	defer func() {
-		for _, r := range readers {
-			_ = r.Close()
-		}
-	}()
-	bufReaders := make([]*bufio.Reader, len(chunks))
-	keyBufs := make([][]byte, len(chunks))
-	valBufs := make([][]byte, len(chunks))
+	cursors, err := openSpillChunks(chunks)
+	if err != nil {
+		return err
+	}
+	defer cursors.closeAll()
 	h := &spillChunkHeap{}
-	var lenBuf [4]byte
-	for i, chunk := range chunks {
-		f, err := os.Open(chunk) // #nosec G304 - staged under the import's MkdirTemp dir.
-		if err != nil {
-			return err
-		}
-		readers = append(readers, f)
-		bufReaders[i] = bufio.NewReaderSize(f, bulkSpillBufferSize)
-		ok, err := readSpillEntry(bufReaders[i], &keyBufs[i], &valBufs[i], &lenBuf)
+	for i := range chunks {
+		ok, err := cursors.advance(i)
 		if err != nil {
 			return err
 		}
 		if ok {
-			h.push(spillChunkItem{chunkIdx: i, key: keyBufs[i], val: valBufs[i]})
+			h.push(spillChunkItem{chunkIdx: i, key: cursors.key(i), val: cursors.val(i)})
 		}
 	}
 
@@ -1177,7 +1352,7 @@ func mergeSortedSpillChunksToSST(ctx context.Context, fs vfs.FS, sstPath, name s
 	for len(*h) > 0 {
 		item := h.pop()
 		if bytes.Equal(item.key, last) {
-			return fmt.Errorf("%w: bucket %s key %x", errBulkImportDuplicateKey, name, item.key)
+			return fmt.Errorf("%w: bucket %s key %x", ErrBulkImportDuplicateKey, name, item.key)
 		}
 		var v []byte
 		if len(item.val) > 0 {
@@ -1205,12 +1380,12 @@ func mergeSortedSpillChunksToSST(ctx context.Context, fs vfs.FS, sstPath, name s
 			}
 		}
 		last = append(last[:0], item.key...)
-		ok, err := readSpillEntry(bufReaders[item.chunkIdx], &keyBufs[item.chunkIdx], &valBufs[item.chunkIdx], &lenBuf)
+		ok, err := cursors.advance(item.chunkIdx)
 		if err != nil {
 			return err
 		}
 		if ok {
-			h.push(spillChunkItem{chunkIdx: item.chunkIdx, key: keyBufs[item.chunkIdx], val: valBufs[item.chunkIdx]})
+			h.push(spillChunkItem{chunkIdx: item.chunkIdx, key: cursors.key(item.chunkIdx), val: cursors.val(item.chunkIdx)})
 		}
 	}
 	if err := writer.finish(); err != nil {
@@ -1247,30 +1422,19 @@ func mergeSpillChunksToSSTResolvingDuplicates(
 ) (int64, error) {
 	start := time.Now()
 	l := ctxzap.Extract(ctx)
-	readers := make([]*os.File, 0, len(chunks))
-	defer func() {
-		for _, r := range readers {
-			_ = r.Close()
-		}
-	}()
-	bufReaders := make([]*bufio.Reader, len(chunks))
-	keyBufs := make([][]byte, len(chunks))
-	valBufs := make([][]byte, len(chunks))
+	cursors, err := openSpillChunks(chunks)
+	if err != nil {
+		return 0, err
+	}
+	defer cursors.closeAll()
 	h := &spillChunkHeap{}
-	var lenBuf [4]byte
-	for i, chunk := range chunks {
-		f, err := os.Open(chunk) // #nosec G304 - staged under the import's MkdirTemp dir.
-		if err != nil {
-			return 0, err
-		}
-		readers = append(readers, f)
-		bufReaders[i] = bufio.NewReaderSize(f, bulkSpillBufferSize)
-		ok, err := readSpillEntry(bufReaders[i], &keyBufs[i], &valBufs[i], &lenBuf)
+	for i := range chunks {
+		ok, err := cursors.advance(i)
 		if err != nil {
 			return 0, err
 		}
 		if ok {
-			h.push(spillChunkItem{chunkIdx: i, key: keyBufs[i], val: valBufs[i]})
+			h.push(spillChunkItem{chunkIdx: i, key: cursors.key(i), val: cursors.val(i)})
 		}
 	}
 
@@ -1359,12 +1523,12 @@ func mergeSpillChunksToSSTResolvingDuplicates(
 		// Advance the popped chunk only AFTER the entry was consumed into
 		// the group scratch: readSpillEntry overwrites the buffers item
 		// aliases.
-		ok, err := readSpillEntry(bufReaders[item.chunkIdx], &keyBufs[item.chunkIdx], &valBufs[item.chunkIdx], &lenBuf)
+		ok, err := cursors.advance(item.chunkIdx)
 		if err != nil {
 			return dupGroups, err
 		}
 		if ok {
-			h.push(spillChunkItem{chunkIdx: item.chunkIdx, key: keyBufs[item.chunkIdx], val: valBufs[item.chunkIdx]})
+			h.push(spillChunkItem{chunkIdx: item.chunkIdx, key: cursors.key(item.chunkIdx), val: cursors.val(item.chunkIdx)})
 		}
 	}
 	if err := flushCur(); err != nil {

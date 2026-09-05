@@ -59,17 +59,8 @@ var allowedOSFileIO = map[string]map[string]string{
 	},
 	"bulk_import.go": {
 		"Create": "writeSortedSpillChunk: spill-chunk scratch is engine-private; only readSpillEntry reads it back, never the DB",
-		"Open":   "spill-chunk merge readers (engine-private scratch, see Create)",
-		"Remove": "failed spill-chunk cleanup (engine-private scratch)",
-	},
-	"grants.go": {
-		"Remove": "ingestSynthLayerSegment deletes merged spill chunks (engine-private scratch)",
-	},
-	"grant_digest_build.go": {
-		"Open": "spill-chunk merge readers (engine-private scratch)",
-	},
-	"id_index_migration.go": {
-		"Open": "spill-chunk merge readers (engine-private scratch)",
+		"Open":   "openSpillChunks: the one place any merge opens spill chunks (engine-private scratch, see Create)",
+		"Remove": "spill-chunk release on exhaustion + failed-chunk cleanup (engine-private scratch)",
 	},
 	"adapter_clone_sync.go": {
 		"Stat":      "clone-sync writes a v3 envelope to a caller-supplied host path; the whole save path is host IO by contract (out of engine-FS scope, like the store layer's envelope save)",

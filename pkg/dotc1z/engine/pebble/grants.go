@@ -564,8 +564,10 @@ func (e *Engine) initSynthLayerSession(ctx context.Context, s *synthGrantLayerSe
 }
 
 // ingestSynthLayerSegment merges one segment's sorted chunks into an SST and
-// ingests it. Chunk files are deleted once merged; the SST path is left for
-// the session's final dir cleanup (Pebble links/copies it on ingest).
+// ingests it. The merge unlinks each chunk as it drains it, so nothing is
+// left to clean up here on success; a merge that fails partway leaves its
+// remaining chunks to the session's final dir cleanup. The SST path is also
+// left to that cleanup (Pebble links/copies it on ingest).
 //
 // Runs on the session's background worker, which deliberately bypasses the
 // engine write barrier (an Add holding writeMu can block on the bounded
@@ -580,9 +582,6 @@ func (e *Engine) ingestSynthLayerSegment(ctx context.Context, dir string, seg sy
 	sstPath := filepath.Join(dir, seg.name+".sst")
 	if err := mergeSortedSpillChunksToSST(ctx, e.fs(), sstPath, seg.name, seg.chunks); err != nil {
 		return err
-	}
-	for _, chunk := range seg.chunks {
-		_ = os.Remove(chunk)
 	}
 	e.checkpointMu.RLock()
 	defer e.checkpointMu.RUnlock()

@@ -119,7 +119,7 @@ func TestVerificationBulkImportFinishDisarmsAllFastPathProofs(t *testing.T) {
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	e := a.PebbleEngine()
-	bulk, err := e.StartBulkSyncImport(ctx, syncID, t.TempDir())
+	bulk, err := e.StartBulkSyncImport(ctx, syncID, t.TempDir(), 1)
 	require.NoError(t, err)
 	defer bulk.Abort()
 

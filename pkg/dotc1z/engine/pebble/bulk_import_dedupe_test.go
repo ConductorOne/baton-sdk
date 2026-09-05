@@ -20,7 +20,7 @@ func startBulkImport(t *testing.T, ctx context.Context) (*Adapter, *BulkSyncImpo
 	store := NewAdapter(e)
 	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err, "StartNewSync")
-	b, err := e.StartBulkSyncImport(ctx, syncID, t.TempDir())
+	b, err := e.StartBulkSyncImport(ctx, syncID, t.TempDir(), 1)
 	require.NoError(t, err, "StartBulkSyncImport")
 	return store, b
 }
@@ -91,6 +91,70 @@ func TestBulkImportEntitlementIdentityOrderDivergesFromExternalID(t *testing.T) 
 	stats := b.ComputedStats()
 	require.Equal(t, int64(4), stats.GetEntitlements())
 	require.Equal(t, map[string]int64{"app": 2, "group": 2}, stats.GetEntitlementsByResourceType())
+}
+
+// TestBulkImportAcceptsResourcesOutOfKeyOrder pins that resources no longer
+// have to arrive in destination-key order. Two producers reach AddResources
+// unsorted: one that rewrites resource ids (the c1z sanitizer HMACs them, so
+// its output order is unrelated to the order it read), and a converter
+// hitting the same separator trap that bit entitlements — external-id string
+// order puts "app-x:a" before "app:dev" ('-' 0x2D < ':' 0x3A) while the tuple
+// order is the reverse, because the tuple separator sorts below printable
+// bytes. Both previously aborted with ErrBulkImportOutOfOrder.
+func TestBulkImportAcceptsResourcesOutOfKeyOrder(t *testing.T) {
+	ctx := context.Background()
+	store, b := startBulkImport(t, ctx)
+	defer b.Abort()
+
+	require.NoError(t, b.AddResourceTypes(ctx,
+		v2.ResourceType_builder{Id: "app"}.Build(),
+		v2.ResourceType_builder{Id: "app-x"}.Build(),
+	))
+	appDev := v2.ResourceId_builder{ResourceType: "app", Resource: "dev"}.Build()
+
+	// Scrambled against (resource_type_id, resource_id) on every axis the
+	// key has: the "app-x" type leads but sorts last, "z" precedes "a", and
+	// both children are added before their parent.
+	require.NoError(t, b.AddResources(ctx,
+		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "app-x", Resource: "a"}.Build()}.Build(),
+		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "app", Resource: "z"}.Build(), ParentResourceId: appDev}.Build(),
+		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "app", Resource: "a"}.Build(), ParentResourceId: appDev}.Build(),
+		v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "app", Resource: "dev"}.Build()}.Build(),
+	), "AddResources must accept rows out of destination-key order")
+
+	shard, err := b.NewGrantShard()
+	require.NoError(t, err)
+	shard.Close()
+	require.NoError(t, b.Finish(ctx), "Finish")
+
+	resp, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{PageSize: 100}.Build())
+	require.NoError(t, err)
+	got := make([]string, 0, len(resp.GetList()))
+	for _, r := range resp.GetList() {
+		got = append(got, r.GetId().GetResourceType()+"/"+r.GetId().GetResource())
+	}
+	// Unsorted, this is an assertion that all four rows landed; because the
+	// primary keyspace is scanned in key order it also pins that the merge
+	// really sorted them, "app-x" last rather than first as submitted.
+	require.Equal(t, []string{"app/a", "app/dev", "app/z", "app-x/a"}, got)
+
+	// The by_parent index is spilled from the same unsorted stream and has
+	// to agree with the primary.
+	children, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ParentResourceId: appDev,
+		PageSize:         100,
+	}.Build())
+	require.NoError(t, err)
+	kids := make([]string, 0, len(children.GetList()))
+	for _, r := range children.GetList() {
+		kids = append(kids, r.GetId().GetResource())
+	}
+	sort.Strings(kids)
+	require.Equal(t, []string{"a", "z"}, kids)
+
+	stats := b.ComputedStats()
+	require.Equal(t, int64(4), stats.GetResources())
+	require.Equal(t, map[string]int64{"app": 3, "app-x": 1}, stats.GetResourcesByResourceType())
 }
 
 // TestBulkImportMergesDuplicateIdentityGrants pins the merge-and-warn

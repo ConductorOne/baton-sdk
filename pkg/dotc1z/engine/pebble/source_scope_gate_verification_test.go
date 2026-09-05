@@ -366,7 +366,7 @@ func TestVerificationBulkImportFinishReprobesSourceScopeGate(t *testing.T) {
 	require.NoError(t, raw.Set(encodeGrantIdentityKey(id), val, nil))
 	require.NoError(t, raw.Set(encodeGrantBySourceScopeIndexKey(scopeA, id), nil, nil))
 
-	bulk, err := e.StartBulkSyncImport(ctx, syncID, t.TempDir())
+	bulk, err := e.StartBulkSyncImport(ctx, syncID, t.TempDir(), 1)
 	require.NoError(t, err)
 	defer bulk.Abort()
 	require.NoError(t, bulk.AddResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build()))

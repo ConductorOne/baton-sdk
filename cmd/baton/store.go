@@ -10,8 +10,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-func openReadOnlyC1ZStore(ctx context.Context, path string) (c1zstore.Store, error) {
-	c1zStore, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
+func openReadOnlyC1ZStore(ctx context.Context, path string, extraOpts ...dotc1z.C1ZOption) (c1zstore.Store, error) {
+	c1zStore, err := dotc1z.NewStore(ctx, path, append([]dotc1z.C1ZOption{dotc1z.WithReadOnly(true)}, extraOpts...)...)
 	if err != nil {
 		return nil, err
 	}

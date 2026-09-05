@@ -28,6 +28,7 @@ func sanitizeCmd() *cobra.Command {
 	cmd.Flags().String("secret-file", "", "Path to a per-c1z HMAC secret (>=32 random bytes). If unset, a fresh secret is generated and written next to --out.")
 	cmd.Flags().String("anchor", "", "RFC3339 timestamp the newest source timestamp lands on. Defaults to now.")
 	cmd.Flags().Bool("allow-unknown-annotations", false, "Pass annotations of unknown type through unchanged instead of dropping. Dangerous on real customer data.")
+	cmd.Flags().String("tmp-dir", "", "The temporary directory to use while sanitizing")
 
 	return cmd
 }
@@ -60,6 +61,10 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	outEngineRaw, err := cmd.Flags().GetString("out-engine")
+	if err != nil {
+		return err
+	}
+	tmpDir, err := cmd.Flags().GetString("tmp-dir")
 	if err != nil {
 		return err
 	}
@@ -103,7 +108,11 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 			zap.String("path", c1zsanitize.SecretPath(secretFile, outPath)))
 	}
 
-	src, err := openReadOnlyC1ZStore(ctx, inPath)
+	var srcOpts []dotc1z.C1ZOption
+	if tmpDir != "" {
+		srcOpts = append(srcOpts, dotc1z.WithTmpDir(tmpDir))
+	}
+	src, err := openReadOnlyC1ZStore(ctx, inPath, srcOpts...)
 	if err != nil {
 		return fmt.Errorf("open source c1z: %w", err)
 	}
@@ -136,6 +145,9 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 	// These pragmas are scoped to THIS writer instance; normal connector
 	// syncs open their own store and are unaffected.
 	dstOpts := []dotc1z.C1ZOption{dotc1z.WithEngine(dstEngine)}
+	if tmpDir != "" {
+		dstOpts = append(dstOpts, dotc1z.WithTmpDir(tmpDir))
+	}
 	if dstEngine == c1zstore.EngineSQLite {
 		dstOpts = append(dstOpts,
 			dotc1z.WithPragma("journal_mode", "OFF"),
@@ -165,6 +177,7 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 		Secret:                  secret,
 		TimestampAnchor:         anchor,
 		AllowUnknownAnnotations: allowUnknown,
+		TmpDir:                  tmpDir,
 	}
 
 	log.Info("c1zsanitize: starting",

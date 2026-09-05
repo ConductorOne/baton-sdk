@@ -1,11 +1,9 @@
 package pebble
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"time"
@@ -32,11 +30,11 @@ func (e *Engine) migrateIDIndexFormatToStructuredV1(ctx context.Context) error {
 	defer e.removeStagingDir(dir)
 
 	sortSem := make(chan struct{}, 4)
-	// 128MiB chunks (deferredIndexSpillChunkBytes), not the bulk import's
-	// 8MiB: the merge holds a 1MiB read buffer per chunk, so chunk size
-	// bounds the fan-in. At 8MiB a 150M-grant file would merge ~4,000
-	// chunks (~4GB of buffers); at 128MiB it stays in the low hundreds.
-	// The arena freelist recycles the big chunks across all four sorters.
+	// 128MiB chunks (deferredIndexSpillChunkBytes): the merge holds a
+	// 1MiB read buffer per chunk, so chunk size bounds the fan-in. At
+	// 8MiB a 150M-grant file would merge ~4,000 chunks (~4GB of
+	// buffers); at 128MiB it stays in the low hundreds. The arena
+	// freelist recycles the big chunks across all four sorters.
 	arenaFree := newSpillArenaFreeList(deferredIndexSpillChunkBytes, 6)
 	grantPrimary := newSpillSorter(dir, "grant-primary", sortSem, deferredIndexSpillChunkBytes)
 	entitlementPrimary := newSpillSorter(dir, "entitlement-primary", sortSem, deferredIndexSpillChunkBytes)
@@ -281,30 +279,19 @@ func finalizeGrantPrimaryMigrationSorter(ctx context.Context, fs vfs.FS, dir, na
 }
 
 func mergeGrantPrimaryMigrationChunksToSST(ctx context.Context, fs vfs.FS, sstPath, name string, chunks []string, byPrincipal, byNeedsExpansion *spillSorter) error {
-	readers := make([]*os.File, 0, len(chunks))
-	defer func() {
-		for _, r := range readers {
-			_ = r.Close()
-		}
-	}()
-	bufReaders := make([]*bufio.Reader, len(chunks))
-	keyBufs := make([][]byte, len(chunks))
-	valBufs := make([][]byte, len(chunks))
+	cursors, err := openSpillChunks(chunks)
+	if err != nil {
+		return err
+	}
+	defer cursors.closeAll()
 	h := &spillChunkHeap{}
-	var lenBuf [4]byte
-	for i, chunk := range chunks {
-		f, err := os.Open(chunk) // #nosec G304 - staged under migration temp dir.
-		if err != nil {
-			return err
-		}
-		readers = append(readers, f)
-		bufReaders[i] = bufio.NewReaderSize(f, bulkSpillBufferSize)
-		ok, err := readSpillEntry(bufReaders[i], &keyBufs[i], &valBufs[i], &lenBuf)
+	for i := range chunks {
+		ok, err := cursors.advance(i)
 		if err != nil {
 			return err
 		}
 		if ok {
-			h.push(spillChunkItem{chunkIdx: i, key: append([]byte(nil), keyBufs[i]...), val: append([]byte(nil), valBufs[i]...)})
+			h.push(spillChunkItem{chunkIdx: i, key: append([]byte(nil), cursors.key(i)...), val: append([]byte(nil), cursors.val(i)...)})
 		}
 	}
 
@@ -336,13 +323,13 @@ func mergeGrantPrimaryMigrationChunksToSST(ctx context.Context, fs vfs.FS, sstPa
 		first := h.pop()
 		key := first.key
 		values := [][]byte{first.val}
-		if err := advanceMigrationChunk(h, bufReaders, keyBufs, valBufs, &lenBuf, first.chunkIdx); err != nil {
+		if err := advanceMigrationChunk(h, cursors, first.chunkIdx); err != nil {
 			return err
 		}
 		for len(*h) > 0 && bytes.Equal((*h)[0].key, key) {
 			item := h.pop()
 			values = append(values, item.val)
-			if err := advanceMigrationChunk(h, bufReaders, keyBufs, valBufs, &lenBuf, item.chunkIdx); err != nil {
+			if err := advanceMigrationChunk(h, cursors, item.chunkIdx); err != nil {
 				return err
 			}
 		}
@@ -406,13 +393,13 @@ func mergeGrantPrimaryMigrationChunksToSST(ctx context.Context, fs vfs.FS, sstPa
 	return nil
 }
 
-func advanceMigrationChunk(h *spillChunkHeap, readers []*bufio.Reader, keyBufs, valBufs [][]byte, lenBuf *[4]byte, idx int) error {
-	ok, err := readSpillEntry(readers[idx], &keyBufs[idx], &valBufs[idx], lenBuf)
+func advanceMigrationChunk(h *spillChunkHeap, cursors *spillChunkCursors, idx int) error {
+	ok, err := cursors.advance(idx)
 	if err != nil {
 		return err
 	}
 	if ok {
-		h.push(spillChunkItem{chunkIdx: idx, key: append([]byte(nil), keyBufs[idx]...), val: append([]byte(nil), valBufs[idx]...)})
+		h.push(spillChunkItem{chunkIdx: idx, key: append([]byte(nil), cursors.key(idx)...), val: append([]byte(nil), cursors.val(idx)...)})
 	}
 	return nil
 }

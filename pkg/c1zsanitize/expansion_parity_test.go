@@ -1,6 +1,7 @@
 package c1zsanitize
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/prototext"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -258,6 +261,151 @@ func entitlementCount(t *testing.T, ctx context.Context, store c1zstore.Store) i
 	return len(resp.GetList())
 }
 
+// fullRecords holds every resource-type, resource, entitlement, and grant
+// record keyed by transformed id (grants by parityGrantRef, their identity
+// on both engines). These families now ride different write paths per
+// destination engine (upserting Put* on sqlite, the non-upserting bulk
+// import on pebble), so the parity oracle pins full record identity — not
+// just cardinality and graph shape — to catch a row one path drops, folds,
+// or mangles field-by-field. For grants this is the only oracle that sees
+// the grant's own transformed external id and its non-expansion
+// annotations; grantRefs/grantSourcesCanonical/pendingExpansionBlobs all
+// key by ref and never look at them.
+type fullRecords struct {
+	rts    map[string]*v2.ResourceType
+	ress   map[string]*v2.Resource
+	ents   map[string]*v2.Entitlement
+	grants map[string]*v2.Grant
+}
+
+func fullRecordSets(t *testing.T, ctx context.Context, store c1zstore.Store) fullRecords {
+	t.Helper()
+	fr := fullRecords{
+		rts:    map[string]*v2.ResourceType{},
+		ress:   map[string]*v2.Resource{},
+		ents:   map[string]*v2.Entitlement{},
+		grants: map[string]*v2.Grant{},
+	}
+	// Single-page reads: if a fixture ever outgrows the page, both arms
+	// would truncate identically and the oracle would silently narrow, so
+	// fail loudly instead of paginating.
+	rts, err := store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{PageSize: 1000}.Build())
+	require.NoError(t, err)
+	require.Empty(t, rts.GetNextPageToken(), "resource-type fixture outgrew one page; oracle would silently truncate")
+	for _, rt := range rts.GetList() {
+		fr.rts[rt.GetId()] = rt
+	}
+	ress, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{PageSize: 1000}.Build())
+	require.NoError(t, err)
+	require.Empty(t, ress.GetNextPageToken(), "resource fixture outgrew one page; oracle would silently truncate")
+	for _, r := range ress.GetList() {
+		fr.ress[r.GetId().GetResourceType()+"/"+r.GetId().GetResource()] = r
+	}
+	ents, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{PageSize: 1000}.Build())
+	require.NoError(t, err)
+	require.Empty(t, ents.GetNextPageToken(), "entitlement fixture outgrew one page; oracle would silently truncate")
+	for _, e := range ents.GetList() {
+		fr.ents[e.GetId()] = normalizeEntitlementForParity(e)
+	}
+	grs, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 1000}.Build())
+	require.NoError(t, err)
+	require.Empty(t, grs.GetNextPageToken(), "grant fixture outgrew one page; oracle would silently truncate")
+	for _, g := range grs.GetList() {
+		ref := parityGrantRef(g)
+		_, dup := fr.grants[ref]
+		require.Falsef(t, dup, "grant ref %q listed twice; the oracle would silently keep one", ref)
+		fr.grants[ref] = normalizeGrantForParity(g)
+	}
+	return fr
+}
+
+// normalizeGrantForParity slims the embedded entitlement and principal to
+// the identity-only stubs pebble's V3GrantToV2 hydrates (entitlement id +
+// owning resource id; principal id + parent id), drops the GrantExpandable
+// annotation, and sorts the remaining annotations by (type_url, value).
+// GrantExpandable is dropped because the engines disagree on plain
+// ListGrants independently of the sanitizer: both store it in a side
+// column, but only pebble re-attaches it on read (sqlite exposes it via
+// ListWithAnnotationsPage). Its content is compared separately through
+// pendingExpansionBlobs. The grant's own id, sources, and every other
+// annotation payload are kept verbatim.
+func normalizeGrantForParity(g *v2.Grant) *v2.Grant {
+	out, ok := proto.Clone(g).(*v2.Grant)
+	if !ok {
+		panic("clone changed type")
+	}
+	if e := out.GetEntitlement(); e != nil {
+		out.SetEntitlement(v2.Entitlement_builder{
+			Id:       e.GetId(),
+			Resource: v2.Resource_builder{Id: e.GetResource().GetId()}.Build(),
+		}.Build())
+	}
+	if p := out.GetPrincipal(); p != nil {
+		out.SetPrincipal(v2.Resource_builder{Id: p.GetId(), ParentResourceId: p.GetParentResourceId()}.Build())
+	}
+	expandableURL := "type.googleapis.com/" + string((&v2.GrantExpandable{}).ProtoReflect().Descriptor().FullName())
+	anns := make([]*anypb.Any, 0, len(out.GetAnnotations()))
+	for _, a := range out.GetAnnotations() {
+		if a.GetTypeUrl() != expandableURL {
+			anns = append(anns, a)
+		}
+	}
+	sort.Slice(anns, func(i, j int) bool {
+		if anns[i].GetTypeUrl() != anns[j].GetTypeUrl() {
+			return anns[i].GetTypeUrl() < anns[j].GetTypeUrl()
+		}
+		return bytes.Compare(anns[i].GetValue(), anns[j].GetValue()) < 0
+	})
+	out.SetAnnotations(anns)
+	return out
+}
+
+// normalizeEntitlementForParity slims the two fields pebble's v3 schema
+// stores as identity-only refs: the embedded resource and the grantable_to
+// types are "hydrated as a stub (identity only)" on read (V3EntitlementToV2),
+// while sqlite returns the writer's full embedded copies. Both are derived
+// data — the resource's and resource types' own records are compared in full
+// separately — so slimming them costs no coverage.
+func normalizeEntitlementForParity(e *v2.Entitlement) *v2.Entitlement {
+	out, ok := proto.Clone(e).(*v2.Entitlement)
+	if !ok {
+		panic("clone changed type")
+	}
+	if r := out.GetResource(); r != nil {
+		out.SetResource(v2.Resource_builder{Id: r.GetId()}.Build())
+	}
+	if gs := out.GetGrantableTo(); len(gs) > 0 {
+		slim := make([]*v2.ResourceType, 0, len(gs))
+		for _, rt := range gs {
+			slim = append(slim, v2.ResourceType_builder{Id: rt.GetId()}.Build())
+		}
+		out.SetGrantableTo(slim)
+	}
+	return out
+}
+
+// requireRecordSetEqual asserts got holds exactly want's keys and that each
+// record is proto-equal, printing the diverging pair on failure.
+func requireRecordSetEqual[P proto.Message](t *testing.T, want, got map[string]P, arm, family string) {
+	t.Helper()
+	wantKeys := sortedKeys(want)
+	require.Equalf(t, wantKeys, sortedKeys(got), "%s %s id set", arm, family)
+	for _, id := range wantKeys {
+		require.Truef(t, proto.Equal(want[id], got[id]),
+			"%s %s %q diverged\nbase: %s\narm:  %s",
+			arm, family, id, prototext.Format(want[id]), prototext.Format(got[id]))
+	}
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // resourceParentChains maps each resource id to its parent resource id.
 func resourceParentChains(t *testing.T, ctx context.Context, store c1zstore.Store) map[string]string {
 	t.Helper()
@@ -388,6 +536,7 @@ func TestSanitizeCrossEnginePebbleParity(t *testing.T) {
 		parents, entOwn, refs                   map[string]string
 		sources                                 map[string][]string
 		blobs                                   map[string]expandBlob
+		records                                 fullRecords
 		assetCT                                 string
 		assetBytes                              []byte
 	}
@@ -405,6 +554,7 @@ func TestSanitizeCrossEnginePebbleParity(t *testing.T) {
 			refs:       grantRefs(t, ctx, ro),
 			sources:    grantSourcesCanonical(t, ctx, ro),
 			blobs:      pendingExpansionBlobs(t, ctx, ro),
+			records:    fullRecordSets(t, ctx, ro),
 			assetCT:    ct,
 			assetBytes: ab,
 		}
@@ -429,6 +579,10 @@ func TestSanitizeCrossEnginePebbleParity(t *testing.T) {
 		require.Equalf(t, base.refs, snaps[i].refs, "%s grant entitlement/principal refs", arms[i].name)
 		require.Equalf(t, base.sources, snaps[i].sources, "%s expansion-source edges", arms[i].name)
 		require.Equalf(t, base.blobs, snaps[i].blobs, "%s GrantExpandable blobs + needs_expansion enumeration", arms[i].name)
+		requireRecordSetEqual(t, base.records.rts, snaps[i].records.rts, arms[i].name, "resource type")
+		requireRecordSetEqual(t, base.records.ress, snaps[i].records.ress, arms[i].name, "resource")
+		requireRecordSetEqual(t, base.records.ents, snaps[i].records.ents, arms[i].name, "entitlement")
+		requireRecordSetEqual(t, base.records.grants, snaps[i].records.grants, arms[i].name, "grant")
 	}
 
 	// (3) needs_expansion membership: the multi-expand and divergence-trigger
