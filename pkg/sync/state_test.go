@@ -121,6 +121,111 @@ func TestSyncerTokenMarshalUnmarshal(t *testing.T) {
 	require.Equal(t, i, -1)
 }
 
+func TestActionCountsIncrementAndCheckpoint(t *testing.T) {
+	ctx := t.Context()
+	st := newState()
+	st.PushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: "user"})
+	parent := st.Current()
+	require.Equal(t, uint64(0), st.GetActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(0), st.GetCompletedActionsCount())
+
+	_, err := st.transitionAction(ctx, parent, "page-2", nil)
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), st.GetActionCount(SyncResourcesOp).CompletedCount, "pagination must not count as completion")
+	require.Equal(t, uint64(0), st.GetCompletedActionsCount())
+
+	parent = st.Current()
+	_, err = st.transitionAction(ctx, parent, "", nil)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), st.GetActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(1), st.GetCompletedActionsCount())
+
+	st.PushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: "group"})
+	st.FinishAction(ctx, st.Current())
+	require.Equal(t, uint64(2), st.GetActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(0), st.GetActionCount(SyncResourcesOp).WarningCount)
+	require.Equal(t, uint64(2), st.GetCompletedActionsCount())
+
+	st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "user"})
+	st.FinishActionWithWarning(ctx, st.Current())
+	require.Equal(t, uint64(2), st.GetActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(1), st.GetActionCount(SyncGrantsOp).CompletedCount)
+	require.Equal(t, uint64(1), st.GetActionCount(SyncGrantsOp).WarningCount)
+	require.Equal(t, uint64(0), st.GetActionCount(SyncResourcesOp).WarningCount)
+	require.Equal(t, uint64(3), st.GetCompletedActionsCount())
+
+	st.PushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: "role"})
+	st.FinishActionWithWarning(ctx, st.Current())
+	require.Equal(t, uint64(3), st.GetActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(1), st.GetActionCount(SyncResourcesOp).WarningCount)
+
+	tokenString, err := st.Marshal()
+	require.NoError(t, err)
+	got := newState()
+	require.NoError(t, got.Unmarshal(tokenString))
+	require.Equal(t, uint64(3), got.GetActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(1), got.GetActionCount(SyncResourcesOp).WarningCount)
+	require.Equal(t, uint64(1), got.GetActionCount(SyncGrantsOp).CompletedCount)
+	require.Equal(t, uint64(1), got.GetActionCount(SyncGrantsOp).WarningCount)
+	require.Equal(t, uint64(4), got.GetCompletedActionsCount())
+
+	tokenV0Bytes, err := json.Marshal(serializedTokenV0{
+		Actions:               []Action{{Op: InitOp}},
+		CompletedActionsCount: 45,
+	})
+	require.NoError(t, err)
+	v0 := newState()
+	require.NoError(t, v0.Unmarshal(string(tokenV0Bytes)))
+	require.Equal(t, uint64(0), v0.GetActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(0), v0.GetActionCount(SyncResourcesOp).WarningCount)
+	require.Equal(t, uint64(45), v0.GetCompletedActionsCount())
+
+	legacy, err := json.Marshal(serializedTokenV1{Version: StateTokenVersion, CompletedActionsCount: 5})
+	require.NoError(t, err)
+	fresh := newState()
+	require.NoError(t, fresh.Unmarshal(string(legacy)))
+	require.Equal(t, uint64(0), fresh.GetActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(0), fresh.GetActionCount(SyncResourcesOp).WarningCount)
+	fresh.PushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: "user"})
+	fresh.FinishAction(ctx, fresh.Current())
+	require.Equal(t, uint64(1), fresh.GetActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(0), fresh.GetActionCount(SyncResourcesOp).WarningCount)
+}
+
+func TestResumedActionWarningCountsTripThreshold(t *testing.T) {
+	tokenBytes, err := json.Marshal(serializedTokenV1{
+		Version:               StateTokenVersion,
+		CompletedActionsCount: 220,
+		ActionCountsMap: map[string]ActionCount{
+			SyncResourcesOp.String(): {CompletedCount: 20, WarningCount: 11},
+			SyncGrantsOp.String():    {CompletedCount: 200, WarningCount: 2},
+		},
+	})
+	require.NoError(t, err)
+
+	st := newState()
+	require.NoError(t, st.Unmarshal(string(tokenBytes)))
+	require.Equal(t, uint64(220), st.GetCompletedActionsCount())
+	require.Equal(t, uint64(2), st.GetActionCount(SyncGrantsOp).WarningCount)
+
+	listResources := st.GetActionCount(SyncResourcesOp)
+	require.True(t, tooManyWarnings(listResources.WarningCount, listResources.CompletedCount, 0.05),
+		"resume must use checkpointed list-resource warnings, not an empty in-memory slice")
+	require.False(t, tooManyWarnings(st.GetActionCount(SyncGrantsOp).WarningCount, st.GetActionCount(SyncGrantsOp).CompletedCount, 0.1),
+		"grant warnings stay on the grant bucket and do not trip the list-resource threshold")
+
+	// ErrTooManyWarnings is preservable, so this token is what the next run
+	// resumes. The ratio alone must not stop that run before this process
+	// finishes more than ten list-resource actions, or every resume exits
+	// with zero progress.
+	require.False(t, tooManyListResourceWarnings(listResources, 0),
+		"a resumed run must not abort before completing a list-resource action")
+	require.False(t, tooManyListResourceWarnings(listResources, 10),
+		"ten completions this run are not enough to re-arm the durable ratio")
+	require.True(t, tooManyListResourceWarnings(listResources, 11),
+		"more than ten completions this run re-arm the durable ratio")
+}
+
 func TestSyncerTokenTimingStatsMarshalUnmarshal(t *testing.T) {
 	st := newState()
 	st.AddStepDuration("list-resources", 1500*time.Millisecond)

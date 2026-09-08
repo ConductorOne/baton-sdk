@@ -74,10 +74,41 @@ func newTestRetryer(ctx context.Context) *retry.Retryer {
 }
 
 func TestTooManyWarningsThreshold(t *testing.T) {
-	require.False(t, tooManyWarnings(10, 1), "requires more than ten warnings")
-	require.False(t, tooManyWarnings(11, 0), "requires completed actions")
-	require.False(t, tooManyWarnings(11, 110), "exactly ten percent is allowed")
-	require.True(t, tooManyWarnings(11, 109), "more than ten percent must stop the sync")
+	require.False(t, tooManyWarnings(10, 1, 0.1), "requires more than ten warnings")
+	require.False(t, tooManyWarnings(11, 0, 0.1), "requires completed actions")
+	require.False(t, tooManyWarnings(11, 110, 0.1), "exactly ten percent is allowed")
+	require.True(t, tooManyWarnings(11, 109, 0.1), "more than ten percent must stop the sync")
+
+	require.False(t, tooManyWarnings(11, 220, 0.05), "exactly five percent is allowed")
+	require.True(t, tooManyWarnings(11, 219, 0.05), "more than five percent must stop the sync")
+	require.False(t, tooManyWarnings(11, 0, 0.05), "empty list-resource counts must not trip the five percent check")
+}
+
+func TestTooManyListResourceWarnings(t *testing.T) {
+	bad := ActionCount{CompletedCount: 20, WarningCount: 11}
+
+	require.False(t, tooManyListResourceWarnings(bad, 0),
+		"resumed counts must not stop a run that has not completed a list-resource action")
+	require.False(t, tooManyListResourceWarnings(bad, 10),
+		"ten completions this run are not enough to re-arm the durable ratio")
+	require.True(t, tooManyListResourceWarnings(bad, 11),
+		"more than ten completions this run re-arm the durable ratio")
+	require.False(t, tooManyListResourceWarnings(ActionCount{CompletedCount: 220, WarningCount: 11}, 11),
+		"exactly five percent is allowed")
+	require.False(t, tooManyListResourceWarnings(ActionCount{CompletedCount: 20, WarningCount: 10}, 11),
+		"requires more than ten warnings")
+	require.False(t, tooManyListResourceWarnings(ActionCount{}, 11),
+		"a run with no list-resource warnings never trips")
+}
+
+func TestRecordListResourceCompletedThisRun(t *testing.T) {
+	s := &syncer{}
+	s.recordListResourceCompletedThisRun(&Action{Op: SyncGrantsOp})
+	require.Equal(t, uint64(0), s.listResourceActionsCompletedThisRun.Load())
+	s.recordListResourceCompletedThisRun(&Action{Op: SyncResourcesOp})
+	require.Equal(t, uint64(1), s.listResourceActionsCompletedThisRun.Load())
+	s.recordListResourceCompletedThisRun(nil)
+	require.Equal(t, uint64(1), s.listResourceActionsCompletedThisRun.Load())
 }
 
 func TestCollectionProgressAccounting(t *testing.T) {

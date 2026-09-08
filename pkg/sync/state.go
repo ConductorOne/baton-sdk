@@ -34,6 +34,7 @@ const StateTokenVersionTypeScoped = 2
 type State interface {
 	PushAction(ctx context.Context, action Action)
 	FinishAction(ctx context.Context, action *Action)
+	FinishActionWithWarning(ctx context.Context, action *Action)
 	NextPage(ctx context.Context, actionID string, pageToken string) error
 	EntitlementGraph(ctx context.Context) *expand.EntitlementGraph
 	PeekEntitlementGraph() *expand.EntitlementGraph
@@ -55,6 +56,7 @@ type State interface {
 	ShouldSkipGrants() bool
 	SetShouldSkipGrants()
 	GetCompletedActionsCount() uint64
+	GetActionCount(op ActionOp) ActionCount
 	AddStepDuration(bucket string, duration time.Duration)
 	StepDurations() map[string]int64
 	RecordConnectorCall(method string, duration time.Duration)
@@ -295,6 +297,11 @@ type Action struct {
 
 var _ State = &state{}
 
+type ActionCount struct {
+	CompletedCount uint64 `json:"completed_count,omitempty"`
+	WarningCount   uint64 `json:"warning_count,omitempty"`
+}
+
 // state is an object used for tracking the current status of a connector sync. It operates like a stack.
 type state struct {
 	mtx                             sync.RWMutex
@@ -308,6 +315,7 @@ type state struct {
 	shouldSkipEntitlementsAndGrants bool
 	shouldSkipGrants                bool
 	completedActionsCount           uint64
+	actionCountsMap                 map[string]ActionCount
 	stepDurationsMs                 map[string]int64
 	connectorCallStats              map[string]*ConnectorCallStat
 	sessionStoreStats               map[string]*SessionStoreStat
@@ -410,6 +418,7 @@ type serializedTokenV1 struct {
 	ShouldSkipEntitlementsAndGrants bool                     `json:"should_skip_entitlements_and_grants,omitempty"`
 	ShouldSkipGrants                bool                     `json:"should_skip_grants,omitempty"`
 	CompletedActionsCount           uint64                   `json:"completed_actions_count,omitempty"`
+	ActionCountsMap                 map[string]ActionCount   `json:"action_counts,omitempty"`
 	// Exclusion-group tracking maps (exclusion_group_resource_types,
 	// exclusion_group_defaults, exclusion_group_counts) were removed
 	// when the streaming exclusion-group validation was replaced by
@@ -435,6 +444,7 @@ func newState() *state {
 		sessionStoreStats:  make(map[string]*SessionStoreStat),
 		spawnedInFlight:    make(map[string]Action),
 		spawnedAdmitted:    make(map[parallelActionKey]string),
+		actionCountsMap:    make(map[string]ActionCount),
 	}
 }
 
@@ -521,6 +531,7 @@ func unmarshalTokenV0(input string) (serializedTokenV1, error) {
 		ShouldSkipEntitlementsAndGrants: tokenV0.ShouldSkipEntitlementsAndGrants,
 		ShouldSkipGrants:                tokenV0.ShouldSkipGrants,
 		CompletedActionsCount:           tokenV0.CompletedActionsCount,
+		ActionCountsMap:                 make(map[string]ActionCount),
 		Version:                         1,
 	}, nil
 }
@@ -574,6 +585,10 @@ func (st *state) Unmarshal(input string) error {
 		st.shouldSkipGrants = token.ShouldSkipGrants
 		st.shouldFetchRelatedResources = token.ShouldFetchRelatedResources
 		st.completedActionsCount = token.CompletedActionsCount
+		st.actionCountsMap = token.ActionCountsMap
+		if st.actionCountsMap == nil {
+			st.actionCountsMap = make(map[string]ActionCount)
+		}
 		st.stepDurationsMs = token.StepDurationsMs
 		if st.stepDurationsMs == nil {
 			st.stepDurationsMs = make(map[string]int64)
@@ -613,6 +628,7 @@ func (st *state) Unmarshal(input string) error {
 		st.actions[actionID] = Action{Op: InitOp, ID: actionID}
 		st.actionOrder = append(st.actionOrder, actionID)
 		st.completedActionsCount = 0
+		st.actionCountsMap = make(map[string]ActionCount)
 		st.stepDurationsMs = make(map[string]int64)
 		st.connectorCallStats = make(map[string]*ConnectorCallStat)
 		st.sessionStoreStats = make(map[string]*SessionStoreStat)
@@ -720,6 +736,7 @@ func (st *state) Marshal() (string, error) {
 		ShouldSkipEntitlementsAndGrants: st.shouldSkipEntitlementsAndGrants,
 		ShouldSkipGrants:                st.shouldSkipGrants,
 		CompletedActionsCount:           st.completedActionsCount,
+		ActionCountsMap:                 st.actionCountsMap,
 		StepDurationsMs:                 st.stepDurationsMs,
 		ConnectorCallStats:              st.connectorCallStats,
 		SessionStoreStats:               st.sessionStoreStats,
@@ -1011,15 +1028,7 @@ func (st *state) transitionAction(
 		return pushed, nil
 	}
 
-	index, ok := slices.BinarySearch(st.actionOrder, parent.ID)
-	if !ok {
-		panic(fmt.Sprintf("action ID %s does not exist in action order", parent.ID))
-	}
-	st.actionOrder = slices.Delete(st.actionOrder, index, index+1)
-	delete(st.actions, parent.ID)
-	delete(st.spawnedInFlight, parent.ID)
-	st.completedActionsCount++
-	ctxzap.Extract(ctx).Debug("finishing action", zap.Any("action", parent))
+	st.finishAction(ctx, parent, false)
 	return pushed, nil
 }
 
@@ -1027,7 +1036,17 @@ func (st *state) transitionAction(
 func (st *state) FinishAction(ctx context.Context, action *Action) {
 	st.mtx.Lock()
 	defer st.mtx.Unlock()
+	st.finishAction(ctx, action, false)
+}
 
+func (st *state) FinishActionWithWarning(ctx context.Context, action *Action) {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+	st.finishAction(ctx, action, true)
+}
+
+// finishAction requires st.mtx to be locked before calling it.
+func (st *state) finishAction(ctx context.Context, action *Action, isWarning bool) {
 	if action == nil {
 		panic("action cannot be nil")
 	}
@@ -1044,6 +1063,12 @@ func (st *state) FinishAction(ctx context.Context, action *Action) {
 	delete(st.actions, action.ID)
 	delete(st.spawnedInFlight, action.ID)
 	st.completedActionsCount++
+	actionCount := st.actionCountsMap[action.Op.String()]
+	actionCount.CompletedCount++
+	if isWarning {
+		actionCount.WarningCount++
+	}
+	st.actionCountsMap[action.Op.String()] = actionCount
 	ctxzap.Extract(ctx).Debug("finishing action", zap.Any("action", action))
 }
 
@@ -1162,4 +1187,10 @@ func (st *state) GetCompletedActionsCount() uint64 {
 	st.mtx.RLock()
 	defer st.mtx.RUnlock()
 	return st.completedActionsCount
+}
+
+func (st *state) GetActionCount(op ActionOp) ActionCount {
+	st.mtx.RLock()
+	defer st.mtx.RUnlock()
+	return st.actionCountsMap[op.String()]
 }

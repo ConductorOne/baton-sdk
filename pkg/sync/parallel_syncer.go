@@ -174,12 +174,24 @@ func (s *syncer) parallelSync(
 			return warnings, err
 		}
 
-		// If we have more than 10 warnings and more than 10% of actions ended in a warning, exit the sync.
-		if len(warnings) > 10 {
-			completedActionsCount := s.state.GetCompletedActionsCount()
-			if tooManyWarnings(len(warnings), completedActionsCount) {
-				return warnings, fmt.Errorf("%w: warnings: %v completed actions: %d", ErrTooManyWarnings, warnings, completedActionsCount)
-			}
+		// If > 10% of actions ended in a warning, exit the sync.
+		completedActionsCount := s.state.GetCompletedActionsCount()
+		if tooManyWarnings(uint64(len(warnings)), completedActionsCount, 0.1) {
+			return warnings, fmt.Errorf("%w: warnings: %v completed actions: %d", ErrTooManyWarnings, warnings, completedActionsCount)
+		}
+		// If > 5% of list resource actions ended in a warning, exit the sync.
+		// Wait until this run has finished more than ten list-resource actions
+		// so a resumed token cannot abort before new listing work has a chance
+		// to move the ratio.
+		listResourceActionsCount := s.state.GetActionCount(SyncResourcesOp)
+		if tooManyListResourceWarnings(listResourceActionsCount, s.listResourceActionsCompletedThisRun.Load()) {
+			return warnings, fmt.Errorf(
+				"%w: warnings: %v list resource warning count: %d completed list resource actions: %d",
+				ErrTooManyWarnings,
+				warnings,
+				listResourceActionsCount.WarningCount,
+				listResourceActionsCount.CompletedCount,
+			)
 		}
 		select {
 		case <-runCtx.Done():
@@ -209,7 +221,7 @@ func (s *syncer) parallelSync(
 
 		switch stateAction.Op {
 		case InitOp:
-			s.state.FinishAction(ctx, stateAction)
+			s.finishAction(ctx, stateAction)
 
 			if s.cfg.skipEntitlementsAndGrants {
 				s.state.SetShouldSkipEntitlementsAndGrants()
@@ -320,7 +332,7 @@ func (s *syncer) parallelSync(
 			if isWarning(ctx, err) {
 				l.Warn("skipping sync static entitlements action", zap.Any("stateAction", stateAction), zap.Error(err))
 				warnings = append(warnings, err)
-				s.state.FinishAction(ctx, stateAction)
+				s.finishActionWithWarning(ctx, stateAction)
 				continue
 			}
 			if !s.timedShouldWaitAndRetry(workerCtx, SyncStaticEntitlementsOp, stateAction.ResourceTypeID, retryer, err) {
@@ -335,7 +347,7 @@ func (s *syncer) parallelSync(
 				if isWarning(ctx, err) {
 					l.Warn("skipping sync entitlement action", zap.Any("stateAction", stateAction), zap.Error(err))
 					warnings = append(warnings, err)
-					s.state.FinishAction(ctx, stateAction)
+					s.finishActionWithWarning(ctx, stateAction)
 					continue
 				}
 				if !s.timedShouldWaitAndRetry(workerCtx, SyncEntitlementsOp, stateAction.ResourceTypeID, retryer, err) {
@@ -362,7 +374,7 @@ func (s *syncer) parallelSync(
 				if isWarning(ctx, err) {
 					l.Warn("skipping sync grant action", zap.Any("stateAction", stateAction), zap.Error(err))
 					warnings = append(warnings, err)
-					s.state.FinishAction(ctx, stateAction)
+					s.finishActionWithWarning(ctx, stateAction)
 					continue
 				}
 				if !s.timedShouldWaitAndRetry(workerCtx, SyncGrantsOp, stateAction.ResourceTypeID, retryer, err) {
@@ -422,7 +434,7 @@ func (s *syncer) parallelSync(
 
 			if s.cfg.dontExpandGrants || !s.state.NeedsExpansion() {
 				l.Debug("skipping grant expansion, no grants to expand")
-				s.state.FinishAction(ctx, stateAction)
+				s.finishAction(ctx, stateAction)
 				continue
 			}
 
@@ -492,10 +504,23 @@ func (s *syncer) checkpointOnStop(ctx context.Context) {
 	}
 }
 
-func tooManyWarnings(warningCount int, completedActionsCount uint64) bool {
+func tooManyWarnings(warningCount uint64, completedActionsCount uint64, threshold float64) bool {
 	return warningCount > 10 &&
 		completedActionsCount > 0 &&
-		float64(warningCount)/float64(completedActionsCount) > 0.1
+		float64(warningCount)/float64(completedActionsCount) > threshold
+}
+
+// tooManyListResourceWarnings judges the checkpointed list-resource warning
+// ratio, but only after this run has finished more than ten list-resource
+// actions. ErrTooManyWarnings is preservable (IsSyncPreservable), so the next
+// run resumes the token that tripped it. Judging the resumed counts before any
+// new list-resource work completes would abort on the first loop iteration
+// with zero progress, and no new completion could ever move the ratio. The
+// this-run floor means each resume drains at least eleven list-resource
+// actions, and once none remain the ratio stops gating the rest of the sync.
+func tooManyListResourceWarnings(counts ActionCount, completedThisRun uint64) bool {
+	return completedThisRun > 10 &&
+		tooManyWarnings(counts.WarningCount, counts.CompletedCount, 0.05)
 }
 
 type workerResult struct {
@@ -830,7 +855,7 @@ func (s *syncer) syncOneAction(ctx context.Context, l *zap.Logger, retryer *retr
 		err := f(ctx, action)
 		if isWarning(ctx, err) {
 			l.Warn("skipping sync action", zap.Any("action", action), zap.Error(err))
-			s.state.FinishAction(ctx, action)
+			s.finishActionWithWarning(ctx, action)
 			return workerResult{warning: err}
 		}
 		if err != nil {
