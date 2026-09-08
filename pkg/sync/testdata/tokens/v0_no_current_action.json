@@ -1,0 +1,1 @@
+{"actions":[{"operation":"init"},{"operation":"fetch-assets","resource_type_id":"user","resource_id":"u-9"}],"should_fetch_related_resources":true,"should_skip_entitlements_and_grants":true,"should_skip_grants":true,"completed_actions_count":17}
