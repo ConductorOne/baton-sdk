@@ -68,6 +68,15 @@ type Compactor struct {
 	// foldChangedEntitlementIDs: changed-entitlement set collected by the
 	// Pebble fold; nil when no fold ran (derive fallback).
 	foldChangedEntitlementIDs map[string]struct{}
+	// foldBaseGraph: base-state graph inputs captured by the Pebble fold before
+	// the rename overwrote the sync run record. Nil when there is nothing to
+	// serve — no fold ran, the capture failed, or expansion was skipped — and
+	// loadIncrementalBaseGraph then reopens the base artifact.
+	foldBaseGraph *foldBaseGraphCapture
+	// disableFoldBaseGraphCapture forces the reopen path even in fold mode, so
+	// the benchmark can price the base extraction this capture removes. Same
+	// role as incrementalTestHook: production compactions leave it false.
+	disableFoldBaseGraphCapture bool
 	// engine selects the storage engine for the compacted output.
 	// Empty means "follow the inputs": Compact resolves it via
 	// inferEngineFromInputs (any Pebble input → Pebble, all-SQLite →
@@ -196,8 +205,10 @@ func WithTmpDir(tempDir string) Option {
 }
 
 // WithIncrementalExpansion enables diff-aware grant expansion during compaction.
-// The compactor loads the graph from entries[0] via sync.GraphFromStore;
-// missing, stale, incomplete, or inconsistent graphs safely fall back. The set of
+// The compactor loads the graph for entries[0] itself — from the fold's own
+// capture, else by reopening the base — so callers cannot pair a graph with the
+// wrong artifact; missing, stale, incomplete, or inconsistent graphs safely
+// fall back. The set of
 // entitlements whose membership changed is derived from the applied increments
 // during expansion (not supplied by the caller), so new members propagate. A
 // new edge that closes a cycle falls back to full expansion; nil baseGraph
@@ -488,6 +499,10 @@ func (c *Compactor) Compact(ctx context.Context) (_ *CompactableSync, retErr err
 
 	skipExpansion := c.skipGrantExpansion || newSync.GetSyncType() == string(connectorstore.SyncTypePartial)
 	if skipExpansion {
+		// Nothing will consume the captured base graph. The union type is not
+		// known at capture time, so the fold's own gate cannot cover the partial
+		// case; release it here instead of holding the blob to Close.
+		c.foldBaseGraph = nil
 		err = c.compactedC1z.Cleanup(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to cleanup compacted c1z: %w", err)
@@ -1386,12 +1401,73 @@ func logIncrementalOutcome(ctx context.Context, outcome, reason string, fields .
 	ctxzap.Extract(ctx).Info("incremental grant expansion outcome", fields...)
 }
 
+// foldBaseGraphCapture holds the base-state inputs loadIncrementalBaseGraph
+// would otherwise re-extract the base c1z to obtain: the sync run it verifies,
+// the preserved graph blob, and the grant digest that blob must describe.
+type foldBaseGraphCapture struct {
+	run         *c1zstore.SyncRun
+	blob        []byte
+	digest      c1zstore.GrantGenerationDigest
+	digestFound bool
+}
+
+// baseGraph applies the same verification and digest-binding checks as the
+// reopen path, against the captured base state.
+func (f *foldBaseGraphCapture) baseGraph(syncID string) (*expand.EntitlementGraph, error) {
+	// The capture found no finished sync (e.g. an interrupted collection):
+	// decline to full expansion.
+	if f.run == nil {
+		return nil, fmt.Errorf("incremental expansion: base has no finished sync")
+	}
+	if f.run.ID != syncID ||
+		!f.run.IsVerified() ||
+		f.run.Generation != sync.IngestInvariantGeneration {
+		return nil, fmt.Errorf("incremental expansion: base grant generation is not verified")
+	}
+	graph, err := sync.GraphFromBlob(f.blob, syncID, f.digest, f.digestFound)
+	if err != nil {
+		return nil, fmt.Errorf("incremental expansion: load base graph: %w", err)
+	}
+	return graph, nil
+}
+
+// validatedBaseGraph rejects a structurally inconsistent graph on both load
+// paths. A nil graph means "none preserved" and is a clean decline, not an error.
+func validatedBaseGraph(graph *expand.EntitlementGraph) (*expand.EntitlementGraph, error) {
+	if graph == nil {
+		return nil, nil
+	}
+	if err := graph.ValidateCompleted(); err != nil {
+		return nil, fmt.Errorf("incremental expansion: invalid base graph: %w", err)
+	}
+	return graph, nil
+}
+
 func (c *Compactor) loadIncrementalBaseGraph(ctx context.Context) (*expand.EntitlementGraph, error) {
 	if len(c.entries) == 0 || c.entries[0] == nil || c.entries[0].SyncID == "" {
 		return nil, fmt.Errorf("incremental expansion: compaction base is missing")
 	}
+	// The fold already had the base open and snapshotted what we need. Reopening
+	// here would extract the whole base c1z a second time for one blob.
+	// Absent capture falls through below.
+	if c.foldBaseGraph != nil {
+		graph, err := c.foldBaseGraph.baseGraph(c.entries[0].SyncID)
+		// The serialized copy is dead once decoded. Release it before the walk,
+		// which is the memory-heaviest phase — the reopen path below drops it at
+		// the same point by closing the store.
+		c.foldBaseGraph.blob = nil
+		if err != nil {
+			return nil, err
+		}
+		return validatedBaseGraph(graph)
+	}
+	// No capture to serve this: a rebuild-mode run that never folded, a fold
+	// whose capture failed, or the benchmark knob. Open the base, sharing the
+	// run's decoder pool like the fold's other input opens.
 	store, err := dotc1z.NewStore(ctx, c.entries[0].FilePath,
-		dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(c.tmpDir))
+		dotc1z.WithReadOnly(true),
+		dotc1z.WithTmpDir(c.tmpDir),
+		dotc1z.WithDecoderPool(c.decoderPool))
 	if err != nil {
 		return nil, fmt.Errorf("incremental expansion: open base graph store: %w", err)
 	}
@@ -1400,8 +1476,6 @@ func (c *Compactor) loadIncrementalBaseGraph(ctx context.Context) (*expand.Entit
 		_ = store.Close(ctx)
 		return nil, fmt.Errorf("incremental expansion: load base verification: %w", runErr)
 	}
-	// Both engines return (nil, nil) when the artifact holds no finished sync
-	// (e.g. an interrupted collection): decline to full expansion, don't panic.
 	if run == nil {
 		_ = store.Close(ctx)
 		return nil, fmt.Errorf("incremental expansion: base has no finished sync")
@@ -1420,10 +1494,5 @@ func (c *Compactor) loadIncrementalBaseGraph(ctx context.Context) (*expand.Entit
 	if closeErr != nil {
 		return nil, fmt.Errorf("incremental expansion: close base graph store: %w", closeErr)
 	}
-	if graph != nil {
-		if err := graph.ValidateCompleted(); err != nil {
-			return nil, fmt.Errorf("incremental expansion: invalid base graph: %w", err)
-		}
-	}
-	return graph, nil
+	return validatedBaseGraph(graph)
 }

@@ -145,13 +145,6 @@ func GraphFromStore(ctx context.Context, store c1zstore.Store, syncID string) (*
 	if data == nil {
 		return nil, nil
 	}
-	graph, boundDigest, err := expand.UnmarshalGraphBlobWithGrantDigest(data, syncID)
-	if err != nil || graph == nil {
-		return graph, err
-	}
-	if boundDigest == nil {
-		return nil, nil
-	}
 	digestReader, ok := store.(c1zstore.GrantGenerationDigestReader)
 	if !ok {
 		return nil, nil
@@ -160,7 +153,32 @@ func GraphFromStore(ctx context.Context, store c1zstore.Store, syncID string) (*
 	if err != nil {
 		return nil, err
 	}
-	if !found ||
+	return GraphFromBlob(data, syncID, currentDigest, found)
+}
+
+// GraphFromBlob validates a persisted graph blob against the grant generation
+// it must describe, returning nil (no error) when the blob is absent, belongs
+// to a different sync, is unbound, or does not match. Split out of
+// GraphFromStore so a caller holding the blob and digest already — the
+// compactor's fold captures both before its merge invalidates them — runs the
+// identical checks without reopening the artifact.
+func GraphFromBlob(
+	data []byte,
+	syncID string,
+	currentDigest c1zstore.GrantGenerationDigest,
+	digestFound bool,
+) (*expand.EntitlementGraph, error) {
+	if data == nil {
+		return nil, nil
+	}
+	graph, boundDigest, err := expand.UnmarshalGraphBlobWithGrantDigest(data, syncID)
+	if err != nil || graph == nil {
+		return graph, err
+	}
+	if boundDigest == nil {
+		return nil, nil
+	}
+	if !digestFound ||
 		boundDigest.Count != currentDigest.Count ||
 		boundDigest.ABIVersion != currentDigest.ABIVersion ||
 		!bytes.Equal(boundDigest.Hash, currentDigest.Hash) {
