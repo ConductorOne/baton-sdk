@@ -223,7 +223,8 @@ func observeExternalMatch(
 	state.SetHasExternalResourcesGrants()
 	state.PushAction(ctx, Action{Op: SyncExternalResourcesOp})
 
-	syncer := &syncer{store: store, state: state}
+	syncer := &syncer{state: state}
+	syncer.setStore(store)
 	require.NoError(t, syncer.processGrantsWithExternalPrincipals(ctx, principals))
 
 	return readExternalMatchGrants(t, ctx, store)

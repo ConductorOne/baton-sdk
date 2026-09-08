@@ -568,12 +568,12 @@ func TestSyncerTokenVersionStampSurvivesGraphOmission(t *testing.T) {
 // this the knob is inert and the OOM escape hatch does not exist.
 func TestWithEntitlementGraphInCheckpointsReachesState(t *testing.T) {
 	s := &syncer{}
-	require.False(t, s.checkpointEntitlementGraph)
+	require.False(t, s.cfg.checkpointEntitlementGraph)
 
 	WithEntitlementGraphInCheckpoints(true)(s)
-	require.True(t, s.checkpointEntitlementGraph)
+	require.True(t, s.cfg.checkpointEntitlementGraph)
 
-	st := newState(withCheckpointEntitlementGraph(s.checkpointEntitlementGraph))
+	st := newState(withCheckpointEntitlementGraph(s.cfg.checkpointEntitlementGraph))
 	require.True(t, st.checkpointEntitlementGraph)
 }
 

@@ -191,7 +191,7 @@ func TestChaosExternalCancelStopsQuietlyAndCheckpoints(t *testing.T) {
 	require.True(t, ok)
 	var cancelIssued atomic.Bool
 	var checkpointAfterCancel atomic.Bool
-	sc.testCheckpointHook = func(string) {
+	sc.testHooks.checkpointHook = func(string) {
 		if cancelIssued.Load() {
 			checkpointAfterCancel.Store(true)
 		}
@@ -312,7 +312,7 @@ func TestParallelBatchSecondGenuineFailureStillLogs(t *testing.T) {
 	st := newEmptySchedulerState(t)
 	first := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-1"})
 	second := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-2"})
-	s := &syncer{state: st, workerCount: 2}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 2}}
 
 	// Bounded rendezvous, not a WaitGroup: if the pool ever stops dispatching
 	// these two actions concurrently, the premise is broken and this must fail
@@ -368,7 +368,7 @@ func TestParallelBatchFailureDuringStopStaysQuiet(t *testing.T) {
 
 	st := newEmptySchedulerState(t)
 	action := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-1"})
-	s := &syncer{state: st, workerCount: 1}
+	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
 
 	f := func(ctx context.Context, action *Action) error {
 		stop(context.DeadlineExceeded)

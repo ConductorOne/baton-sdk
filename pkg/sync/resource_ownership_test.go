@@ -16,6 +16,14 @@ type ownershipGuardStore struct {
 	putCalls int
 }
 
+// SyncMeta answers the capability resolution setStore performs at attach; see
+// legacyPaginatedCheckpointStore.SyncMeta.
+func (s *ownershipGuardStore) SyncMeta() c1zstore.SyncMeta { return nil }
+
+// Grants answers the same attach-time capability resolution; see
+// legacyPaginatedCheckpointStore.Grants.
+func (s *ownershipGuardStore) Grants() c1zstore.GrantStore { return nil }
+
 func (s *ownershipGuardStore) PutResources(context.Context, ...*v2.Resource) error {
 	s.putCalls++
 	return nil
@@ -23,7 +31,8 @@ func (s *ownershipGuardStore) PutResources(context.Context, ...*v2.Resource) err
 
 func TestPutConnectorResourcesRejectsReservedOwnership(t *testing.T) {
 	store := &ownershipGuardStore{}
-	syncer := &syncer{store: store}
+	syncer := &syncer{}
+	syncer.setStore(store)
 	reserved := v2.Resource_builder{
 		Id: v2.ResourceId_builder{
 			ResourceType: "user",

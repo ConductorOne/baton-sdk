@@ -381,7 +381,8 @@ func TestVerificationExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T
 	goldenState := newState()
 	goldenState.SetHasExternalResourcesGrants()
 	goldenState.PushAction(ctx, Action{Op: SyncExternalResourcesOp})
-	goldenSyncer := &syncer{store: goldenStore, state: goldenState}
+	goldenSyncer := &syncer{state: goldenState}
+	goldenSyncer.setStore(goldenStore)
 	require.NoError(t, goldenSyncer.processGrantsWithExternalPrincipals(ctx, principals))
 	finishExternalMatchVerificationSync(t, goldenStore, goldenState)
 	goldenDigest := grantDigest(t, goldenPath, goldenSyncID)
@@ -396,7 +397,8 @@ func TestVerificationExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T
 	currentToken, err := cutStore.CurrentSyncStep(ctx)
 	require.NoError(t, err)
 	require.NoError(t, cutState.Unmarshal(currentToken))
-	cutSyncer := &syncer{store: cutWrapper, state: cutState}
+	cutSyncer := &syncer{state: cutState}
+	cutSyncer.setStore(cutWrapper)
 	err = cutSyncer.processGrantsWithExternalPrincipals(ctx, principals)
 	require.ErrorIs(t, err, errVerificationDeleteCut)
 	require.Equal(t, []int{9}, cutWrapper.putBatchSizes, "test premise: cut happened after the bulk put")
@@ -415,7 +417,8 @@ func TestVerificationExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T
 	require.NotNil(t, resumedState.Current(), "unfinished action must survive the cut")
 
 	resumedWrapper := &interruptingExternalMatchStore{Store: resumedStore}
-	resumedSyncer := &syncer{store: resumedWrapper, state: resumedState}
+	resumedSyncer := &syncer{state: resumedState}
+	resumedSyncer.setStore(resumedWrapper)
 	require.NoError(t, resumedSyncer.processGrantsWithExternalPrincipals(ctx, principals))
 	require.Equal(t, []int{33}, resumedWrapper.putBatchSizes,
 		"resume scans two remaining carriers plus nine expanded grants, each matching three principals")

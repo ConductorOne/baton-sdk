@@ -78,7 +78,8 @@ func TestFreshIngestFilterMirrorsMachineryExemptions(t *testing.T) {
 			disabled := ingestFilterResource("iam_policy", "p1")
 			goodEntitlement := ingestFilterEntitlement(group, "group:g1:member")
 			disabledEntitlement := ingestFilterEntitlement(disabled, "iam_policy:p1:assigned")
-			s := &syncer{store: store, syncType: connectorstore.SyncTypeFull}
+			s := &syncer{cfg: syncConfig{syncType: connectorstore.SyncTypeFull}}
+			s.setStore(store)
 
 			entitlements, err := s.filterFreshEntitlements(ctx, []*v2.Entitlement{goodEntitlement, disabledEntitlement})
 			require.NoError(t, err)
@@ -181,7 +182,8 @@ func TestFreshIngestFilterNarrowsExpansionWithoutWidening(t *testing.T) {
 		}.Build())...,
 	))
 
-	s := &syncer{store: store, syncType: connectorstore.SyncTypeFull}
+	s := &syncer{cfg: syncConfig{syncType: connectorstore.SyncTypeFull}}
+	s.setStore(store)
 	filtered, err := s.filterFreshGrants(ctx, []*v2.Grant{mixed, disabledOnly, unfiltered, matchExpansion, matchAllExpansion, matchKeyExpansion})
 	require.NoError(t, err)
 	require.Len(t, filtered, 6, "filtering expansion metadata does not drop the base grant")
@@ -287,7 +289,7 @@ func grantIDs(grants []*v2.Grant) []string {
 }
 
 func TestFreshIngestFilterBypassesPartialSyncs(t *testing.T) {
-	s := &syncer{syncType: connectorstore.SyncTypePartial}
+	s := &syncer{cfg: syncConfig{syncType: connectorstore.SyncTypePartial}}
 	disabled := ingestFilterEntitlement(ingestFilterResource("iam_policy", "p1"), "iam_policy:p1:assigned")
 	entitlements, err := s.filterFreshEntitlements(t.Context(), []*v2.Entitlement{disabled})
 	require.NoError(t, err)
@@ -586,7 +588,8 @@ func TestFreshIngestFilterRoutesNilEntries(t *testing.T) {
 		v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build(),
 	))
 
-	s := &syncer{store: store, syncType: connectorstore.SyncTypeFull}
+	s := &syncer{cfg: syncConfig{syncType: connectorstore.SyncTypeFull}}
+	s.setStore(store)
 
 	missingRefEnt := v2.Entitlement_builder{Id: "no-resource"}.Build()
 	goodEnt := ingestFilterEntitlement(ingestFilterResource("group", "g1"), "group:g1:member")
@@ -641,7 +644,8 @@ func TestFreshIngestFilterProbeFailureFailsSyncNotDrops(t *testing.T) {
 
 	t.Run("local store failure", func(t *testing.T) {
 		failing := &resourceTypeProbeStore{Store: store, err: status.Error(codes.Internal, "probe boom")}
-		s := &syncer{store: failing, syncType: connectorstore.SyncTypeFull}
+		s := &syncer{cfg: syncConfig{syncType: connectorstore.SyncTypeFull}}
+		s.setStore(failing)
 
 		_, err := s.filterFreshEntitlements(ctx, []*v2.Entitlement{entitlement})
 		require.ErrorContains(t, err, "probe boom")
@@ -654,7 +658,8 @@ func TestFreshIngestFilterProbeFailureFailsSyncNotDrops(t *testing.T) {
 	t.Run("external reader failure", func(t *testing.T) {
 		external := newIngestFilterStore(ctx, t, c1zstore.EnginePebble)
 		failingExternal := &resourceTypeProbeStore{Store: external, err: status.Error(codes.Internal, "external boom")}
-		s := &syncer{store: store, externalResourceReader: failingExternal, syncType: connectorstore.SyncTypeFull}
+		s := &syncer{externalResourceReader: failingExternal, cfg: syncConfig{syncType: connectorstore.SyncTypeFull}}
+		s.setStore(store)
 
 		_, err := s.filterFreshEntitlements(ctx, []*v2.Entitlement{entitlement})
 		require.ErrorContains(t, err, "external boom")
@@ -673,7 +678,8 @@ func TestFreshIngestFilterCachesProbeVerdicts(t *testing.T) {
 	))
 
 	counting := &resourceTypeProbeStore{Store: store, calls: map[string]int{}}
-	s := &syncer{store: counting, syncType: connectorstore.SyncTypeFull}
+	s := &syncer{cfg: syncConfig{syncType: connectorstore.SyncTypeFull}}
+	s.setStore(counting)
 
 	group := ingestFilterResource("group", "g1")
 	disabled := ingestFilterResource("iam_policy", "p1")
@@ -712,7 +718,8 @@ func TestFreshIngestFilterKeepsExternalSuppliedTypes(t *testing.T) {
 		v2.ResourceType_builder{Id: "widget", DisplayName: "Widget"}.Build(),
 	))
 
-	s := &syncer{store: store, externalResourceReader: external, syncType: connectorstore.SyncTypeFull}
+	s := &syncer{externalResourceReader: external, cfg: syncConfig{syncType: connectorstore.SyncTypeFull}}
+	s.setStore(store)
 
 	group := ingestFilterResource("group", "g1")
 	externalUser := ingestFilterResource("user", "u1")
