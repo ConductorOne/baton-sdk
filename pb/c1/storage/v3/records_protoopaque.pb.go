@@ -1697,6 +1697,7 @@ type SyncStatsRecord struct {
 	xxx_hidden_ConnectorCallStats              map[string]*CallStat   `protobuf:"bytes,11,rep,name=connector_call_stats,json=connectorCallStats,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	xxx_hidden_SessionStoreStats               map[string]*CallStat   `protobuf:"bytes,12,rep,name=session_store_stats,json=sessionStoreStats,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	xxx_hidden_IngestQuality                   *IngestQualityStats    `protobuf:"bytes,13,opt,name=ingest_quality,json=ingestQuality,proto3"`
+	xxx_hidden_Compaction                      *CompactionProvenance  `protobuf:"bytes,14,opt,name=compaction,proto3"`
 	xxx_hidden_WrittenAt                       *timestamppb.Timestamp `protobuf:"bytes,100,opt,name=written_at,json=writtenAt,proto3"`
 	unknownFields                              protoimpl.UnknownFields
 	sizeCache                                  protoimpl.SizeCache
@@ -1818,6 +1819,13 @@ func (x *SyncStatsRecord) GetIngestQuality() *IngestQualityStats {
 	return nil
 }
 
+func (x *SyncStatsRecord) GetCompaction() *CompactionProvenance {
+	if x != nil {
+		return x.xxx_hidden_Compaction
+	}
+	return nil
+}
+
 func (x *SyncStatsRecord) GetWrittenAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.xxx_hidden_WrittenAt
@@ -1877,6 +1885,10 @@ func (x *SyncStatsRecord) SetIngestQuality(v *IngestQualityStats) {
 	x.xxx_hidden_IngestQuality = v
 }
 
+func (x *SyncStatsRecord) SetCompaction(v *CompactionProvenance) {
+	x.xxx_hidden_Compaction = v
+}
+
 func (x *SyncStatsRecord) SetWrittenAt(v *timestamppb.Timestamp) {
 	x.xxx_hidden_WrittenAt = v
 }
@@ -1888,6 +1900,13 @@ func (x *SyncStatsRecord) HasIngestQuality() bool {
 	return x.xxx_hidden_IngestQuality != nil
 }
 
+func (x *SyncStatsRecord) HasCompaction() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Compaction != nil
+}
+
 func (x *SyncStatsRecord) HasWrittenAt() bool {
 	if x == nil {
 		return false
@@ -1897,6 +1916,10 @@ func (x *SyncStatsRecord) HasWrittenAt() bool {
 
 func (x *SyncStatsRecord) ClearIngestQuality() {
 	x.xxx_hidden_IngestQuality = nil
+}
+
+func (x *SyncStatsRecord) ClearCompaction() {
+	x.xxx_hidden_Compaction = nil
 }
 
 func (x *SyncStatsRecord) ClearWrittenAt() {
@@ -1921,10 +1944,12 @@ type SyncStatsRecord_builder struct {
 	GrantsByEntitlementResourceType map[string]int64
 	// Per-resource-type entitlements counts: keyed by resource_type_id.
 	EntitlementsByResourceType map[string]int64
-	// Timing / call stats lifted from the syncer token at EndSync.
-	// Mirror of c1.reader.v2.SyncStats fields 9–11 (storage cannot import
-	// reader protos; CallStat is duplicated below). Compacted syncs fold
-	// partial timings into the token's top-level maps at compaction time.
+	// Timing / call stats. Ledgered syncs hand these to the engine directly
+	// at EndSync (the fold of every LedgerCounterBucket); token-only
+	// syncs still have them lifted from the syncer token. Mirror of
+	// c1.reader.v2.SyncStats fields 9–11 (storage cannot import reader
+	// protos; CallStat is duplicated below). Compacted syncs fold partial
+	// timings into these maps at compaction time.
 	StepDurationsMs    map[string]int64
 	ConnectorCallStats map[string]*CallStat
 	SessionStoreStats  map[string]*CallStat
@@ -1933,7 +1958,10 @@ type SyncStatsRecord_builder struct {
 	// Compacted syncs omit this field: source-cache replay is not supported for
 	// compacted artifacts and ingestion counters do not compose through merges.
 	IngestQuality *IngestQualityStats
-	WrittenAt     *timestamppb.Timestamp
+	// Compaction provenance, set only on compacted outputs (previously a
+	// section of the sync token; the token is not written for ledgered syncs).
+	Compaction *CompactionProvenance
+	WrittenAt  *timestamppb.Timestamp
 }
 
 func (b0 SyncStatsRecord_builder) Build() *SyncStatsRecord {
@@ -1953,7 +1981,241 @@ func (b0 SyncStatsRecord_builder) Build() *SyncStatsRecord {
 	x.xxx_hidden_ConnectorCallStats = b.ConnectorCallStats
 	x.xxx_hidden_SessionStoreStats = b.SessionStoreStats
 	x.xxx_hidden_IngestQuality = b.IngestQuality
+	x.xxx_hidden_Compaction = b.Compaction
 	x.xxx_hidden_WrittenAt = b.WrittenAt
+	return m0
+}
+
+// CompactionProvenance records what a compaction produced and from what.
+type CompactionProvenance struct {
+	state                     protoimpl.MessageState             `protogen:"opaque.v1"`
+	xxx_hidden_Mode           string                             `protobuf:"bytes,1,opt,name=mode,proto3"`
+	xxx_hidden_StatsSyncId    string                             `protobuf:"bytes,2,opt,name=stats_sync_id,json=statsSyncId,proto3"`
+	xxx_hidden_BaseSyncId     string                             `protobuf:"bytes,3,opt,name=base_sync_id,json=baseSyncId,proto3"`
+	xxx_hidden_PartialSyncIds []string                           `protobuf:"bytes,4,rep,name=partial_sync_ids,json=partialSyncIds,proto3"`
+	xxx_hidden_PartialCount   int64                              `protobuf:"varint,5,opt,name=partial_count,json=partialCount,proto3"`
+	xxx_hidden_RecordCounts   map[string]*CompactionRecordCounts `protobuf:"bytes,6,rep,name=record_counts,json=recordCounts,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
+}
+
+func (x *CompactionProvenance) Reset() {
+	*x = CompactionProvenance{}
+	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompactionProvenance) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompactionProvenance) ProtoMessage() {}
+
+func (x *CompactionProvenance) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *CompactionProvenance) GetMode() string {
+	if x != nil {
+		return x.xxx_hidden_Mode
+	}
+	return ""
+}
+
+func (x *CompactionProvenance) GetStatsSyncId() string {
+	if x != nil {
+		return x.xxx_hidden_StatsSyncId
+	}
+	return ""
+}
+
+func (x *CompactionProvenance) GetBaseSyncId() string {
+	if x != nil {
+		return x.xxx_hidden_BaseSyncId
+	}
+	return ""
+}
+
+func (x *CompactionProvenance) GetPartialSyncIds() []string {
+	if x != nil {
+		return x.xxx_hidden_PartialSyncIds
+	}
+	return nil
+}
+
+func (x *CompactionProvenance) GetPartialCount() int64 {
+	if x != nil {
+		return x.xxx_hidden_PartialCount
+	}
+	return 0
+}
+
+func (x *CompactionProvenance) GetRecordCounts() map[string]*CompactionRecordCounts {
+	if x != nil {
+		return x.xxx_hidden_RecordCounts
+	}
+	return nil
+}
+
+func (x *CompactionProvenance) SetMode(v string) {
+	x.xxx_hidden_Mode = v
+}
+
+func (x *CompactionProvenance) SetStatsSyncId(v string) {
+	x.xxx_hidden_StatsSyncId = v
+}
+
+func (x *CompactionProvenance) SetBaseSyncId(v string) {
+	x.xxx_hidden_BaseSyncId = v
+}
+
+func (x *CompactionProvenance) SetPartialSyncIds(v []string) {
+	x.xxx_hidden_PartialSyncIds = v
+}
+
+func (x *CompactionProvenance) SetPartialCount(v int64) {
+	x.xxx_hidden_PartialCount = v
+}
+
+func (x *CompactionProvenance) SetRecordCounts(v map[string]*CompactionRecordCounts) {
+	x.xxx_hidden_RecordCounts = v
+}
+
+type CompactionProvenance_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Compactor mode (fold, kway, overlay).
+	Mode string
+	// The sync whose collection run the timing stats describe (the base
+	// sync for fold, "" for rebuild modes which have no single origin).
+	StatsSyncId    string
+	BaseSyncId     string
+	PartialSyncIds []string
+	PartialCount   int64
+	// Per record-type counts (resource_types, resources, entitlements,
+	// grants): output totals, plus added/replaced/carried attribution when
+	// the mode can tell (fold).
+	RecordCounts map[string]*CompactionRecordCounts
+}
+
+func (b0 CompactionProvenance_builder) Build() *CompactionProvenance {
+	m0 := &CompactionProvenance{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Mode = b.Mode
+	x.xxx_hidden_StatsSyncId = b.StatsSyncId
+	x.xxx_hidden_BaseSyncId = b.BaseSyncId
+	x.xxx_hidden_PartialSyncIds = b.PartialSyncIds
+	x.xxx_hidden_PartialCount = b.PartialCount
+	x.xxx_hidden_RecordCounts = b.RecordCounts
+	return m0
+}
+
+type CompactionRecordCounts struct {
+	state               protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Output   int64                  `protobuf:"varint,1,opt,name=output,proto3"`
+	xxx_hidden_Added    int64                  `protobuf:"varint,2,opt,name=added,proto3"`
+	xxx_hidden_Replaced int64                  `protobuf:"varint,3,opt,name=replaced,proto3"`
+	xxx_hidden_Carried  int64                  `protobuf:"varint,4,opt,name=carried,proto3"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *CompactionRecordCounts) Reset() {
+	*x = CompactionRecordCounts{}
+	mi := &file_c1_storage_v3_records_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CompactionRecordCounts) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CompactionRecordCounts) ProtoMessage() {}
+
+func (x *CompactionRecordCounts) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_storage_v3_records_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *CompactionRecordCounts) GetOutput() int64 {
+	if x != nil {
+		return x.xxx_hidden_Output
+	}
+	return 0
+}
+
+func (x *CompactionRecordCounts) GetAdded() int64 {
+	if x != nil {
+		return x.xxx_hidden_Added
+	}
+	return 0
+}
+
+func (x *CompactionRecordCounts) GetReplaced() int64 {
+	if x != nil {
+		return x.xxx_hidden_Replaced
+	}
+	return 0
+}
+
+func (x *CompactionRecordCounts) GetCarried() int64 {
+	if x != nil {
+		return x.xxx_hidden_Carried
+	}
+	return 0
+}
+
+func (x *CompactionRecordCounts) SetOutput(v int64) {
+	x.xxx_hidden_Output = v
+}
+
+func (x *CompactionRecordCounts) SetAdded(v int64) {
+	x.xxx_hidden_Added = v
+}
+
+func (x *CompactionRecordCounts) SetReplaced(v int64) {
+	x.xxx_hidden_Replaced = v
+}
+
+func (x *CompactionRecordCounts) SetCarried(v int64) {
+	x.xxx_hidden_Carried = v
+}
+
+type CompactionRecordCounts_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Output   int64
+	Added    int64
+	Replaced int64
+	Carried  int64
+}
+
+func (b0 CompactionRecordCounts_builder) Build() *CompactionRecordCounts {
+	m0 := &CompactionRecordCounts{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Output = b.Output
+	x.xxx_hidden_Added = b.Added
+	x.xxx_hidden_Replaced = b.Replaced
+	x.xxx_hidden_Carried = b.Carried
 	return m0
 }
 
@@ -1975,7 +2237,7 @@ type IngestQualityStats struct {
 
 func (x *IngestQualityStats) Reset() {
 	*x = IngestQualityStats{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1987,7 +2249,7 @@ func (x *IngestQualityStats) String() string {
 func (*IngestQualityStats) ProtoMessage() {}
 
 func (x *IngestQualityStats) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[10]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2150,6 +2412,748 @@ func (b0 IngestQualityStats_builder) Build() *IngestQualityStats {
 	return m0
 }
 
+// LedgerActionIdentity is the semantic identity of one syncer action
+// instance: the flat tuple that determines the connector request the
+// action's page makes (docs/tasks/sound-syncs-solutions-brief.md §3.2).
+// Equal identity ⇒ equal work. Field names mirror pkg/sync.Action; the
+// op is the action kind's stable string name so storage never imports
+// the syncer's enum.
+type LedgerActionIdentity struct {
+	state                           protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Op                   string                 `protobuf:"bytes,1,opt,name=op,proto3"`
+	xxx_hidden_ResourceTypeId       string                 `protobuf:"bytes,2,opt,name=resource_type_id,json=resourceTypeId,proto3"`
+	xxx_hidden_ResourceId           string                 `protobuf:"bytes,3,opt,name=resource_id,json=resourceId,proto3"`
+	xxx_hidden_ParentResourceTypeId string                 `protobuf:"bytes,4,opt,name=parent_resource_type_id,json=parentResourceTypeId,proto3"`
+	xxx_hidden_ParentResourceId     string                 `protobuf:"bytes,5,opt,name=parent_resource_id,json=parentResourceId,proto3"`
+	xxx_hidden_PageToken            string                 `protobuf:"bytes,6,opt,name=page_token,json=pageToken,proto3"`
+	xxx_hidden_PageTokenHash        []byte                 `protobuf:"bytes,7,opt,name=page_token_hash,json=pageTokenHash,proto3"`
+	xxx_hidden_TypeScoped           bool                   `protobuf:"varint,8,opt,name=type_scoped,json=typeScoped,proto3"`
+	xxx_hidden_Spawned              bool                   `protobuf:"varint,9,opt,name=spawned,proto3"`
+	unknownFields                   protoimpl.UnknownFields
+	sizeCache                       protoimpl.SizeCache
+}
+
+func (x *LedgerActionIdentity) Reset() {
+	*x = LedgerActionIdentity{}
+	mi := &file_c1_storage_v3_records_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LedgerActionIdentity) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LedgerActionIdentity) ProtoMessage() {}
+
+func (x *LedgerActionIdentity) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_storage_v3_records_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *LedgerActionIdentity) GetOp() string {
+	if x != nil {
+		return x.xxx_hidden_Op
+	}
+	return ""
+}
+
+func (x *LedgerActionIdentity) GetResourceTypeId() string {
+	if x != nil {
+		return x.xxx_hidden_ResourceTypeId
+	}
+	return ""
+}
+
+func (x *LedgerActionIdentity) GetResourceId() string {
+	if x != nil {
+		return x.xxx_hidden_ResourceId
+	}
+	return ""
+}
+
+func (x *LedgerActionIdentity) GetParentResourceTypeId() string {
+	if x != nil {
+		return x.xxx_hidden_ParentResourceTypeId
+	}
+	return ""
+}
+
+func (x *LedgerActionIdentity) GetParentResourceId() string {
+	if x != nil {
+		return x.xxx_hidden_ParentResourceId
+	}
+	return ""
+}
+
+func (x *LedgerActionIdentity) GetPageToken() string {
+	if x != nil {
+		return x.xxx_hidden_PageToken
+	}
+	return ""
+}
+
+func (x *LedgerActionIdentity) GetPageTokenHash() []byte {
+	if x != nil {
+		return x.xxx_hidden_PageTokenHash
+	}
+	return nil
+}
+
+func (x *LedgerActionIdentity) GetTypeScoped() bool {
+	if x != nil {
+		return x.xxx_hidden_TypeScoped
+	}
+	return false
+}
+
+func (x *LedgerActionIdentity) GetSpawned() bool {
+	if x != nil {
+		return x.xxx_hidden_Spawned
+	}
+	return false
+}
+
+func (x *LedgerActionIdentity) SetOp(v string) {
+	x.xxx_hidden_Op = v
+}
+
+func (x *LedgerActionIdentity) SetResourceTypeId(v string) {
+	x.xxx_hidden_ResourceTypeId = v
+}
+
+func (x *LedgerActionIdentity) SetResourceId(v string) {
+	x.xxx_hidden_ResourceId = v
+}
+
+func (x *LedgerActionIdentity) SetParentResourceTypeId(v string) {
+	x.xxx_hidden_ParentResourceTypeId = v
+}
+
+func (x *LedgerActionIdentity) SetParentResourceId(v string) {
+	x.xxx_hidden_ParentResourceId = v
+}
+
+func (x *LedgerActionIdentity) SetPageToken(v string) {
+	x.xxx_hidden_PageToken = v
+}
+
+func (x *LedgerActionIdentity) SetPageTokenHash(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.xxx_hidden_PageTokenHash = v
+}
+
+func (x *LedgerActionIdentity) SetTypeScoped(v bool) {
+	x.xxx_hidden_TypeScoped = v
+}
+
+func (x *LedgerActionIdentity) SetSpawned(v bool) {
+	x.xxx_hidden_Spawned = v
+}
+
+type LedgerActionIdentity_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Op                   string
+	ResourceTypeId       string
+	ResourceId           string
+	ParentResourceTypeId string
+	ParentResourceId     string
+	// The page token the action was AT (its request's cursor). Verbatim
+	// unless the row was scrubbed (LedgerRow.scrubbed), in which case
+	// empty; page_token_hash always identifies it.
+	PageToken string
+	// 16-byte truncated SHA-256 of page_token. The ledger key carries
+	// this instead of the token (bounded key size); the read-side
+	// identity compare uses it when the verbatim token is absent.
+	PageTokenHash []byte
+	TypeScoped    bool
+	// The action was admitted as a spawned cursor (connector-enqueued
+	// page token) rather than pushed by the walk. Not part of the key;
+	// carried so a child recorded in a row can be re-pushed faithfully.
+	Spawned bool
+}
+
+func (b0 LedgerActionIdentity_builder) Build() *LedgerActionIdentity {
+	m0 := &LedgerActionIdentity{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Op = b.Op
+	x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
+	x.xxx_hidden_ResourceId = b.ResourceId
+	x.xxx_hidden_ParentResourceTypeId = b.ParentResourceTypeId
+	x.xxx_hidden_ParentResourceId = b.ParentResourceId
+	x.xxx_hidden_PageToken = b.PageToken
+	x.xxx_hidden_PageTokenHash = b.PageTokenHash
+	x.xxx_hidden_TypeScoped = b.TypeScoped
+	x.xxx_hidden_Spawned = b.Spawned
+	return m0
+}
+
+// LedgerRow records one COMMITTED page: the action's transition and
+// everything it spawned, written in the same pebble batch as the
+// page's record rows, so "the rows landed" and "the page is done" are
+// one fact (brief §3.1). Stored under the engine's ledger keyspace
+// (TypeLedger); the key is derived from identity. Rows persist after
+// the sync seals as its execution trace (§3.12); the resume walk
+// (§3.3) reads them and never writes.
+type LedgerRow struct {
+	state                           protoimpl.MessageState   `protogen:"opaque.v1"`
+	xxx_hidden_Identity             *LedgerActionIdentity    `protobuf:"bytes,1,opt,name=identity,proto3"`
+	xxx_hidden_NextPageToken        string                   `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3"`
+	xxx_hidden_NextPageTokenHash    []byte                   `protobuf:"bytes,3,opt,name=next_page_token_hash,json=nextPageTokenHash,proto3"`
+	xxx_hidden_Children             *[]*LedgerActionIdentity `protobuf:"bytes,4,rep,name=children,proto3"`
+	xxx_hidden_Attempt              string                   `protobuf:"bytes,5,opt,name=attempt,proto3"`
+	xxx_hidden_CommittedAt          *timestamppb.Timestamp   `protobuf:"bytes,6,opt,name=committed_at,json=committedAt,proto3"`
+	xxx_hidden_ResourceTypesWritten uint64                   `protobuf:"varint,7,opt,name=resource_types_written,json=resourceTypesWritten,proto3"`
+	xxx_hidden_ResourcesWritten     uint64                   `protobuf:"varint,8,opt,name=resources_written,json=resourcesWritten,proto3"`
+	xxx_hidden_EntitlementsWritten  uint64                   `protobuf:"varint,9,opt,name=entitlements_written,json=entitlementsWritten,proto3"`
+	xxx_hidden_GrantsWritten        uint64                   `protobuf:"varint,10,opt,name=grants_written,json=grantsWritten,proto3"`
+	xxx_hidden_Replayed             bool                     `protobuf:"varint,11,opt,name=replayed,proto3"`
+	xxx_hidden_TypeScopedPlanned    bool                     `protobuf:"varint,12,opt,name=type_scoped_planned,json=typeScopedPlanned,proto3"`
+	xxx_hidden_Scrubbed             bool                     `protobuf:"varint,13,opt,name=scrubbed,proto3"`
+	xxx_hidden_PageMs               uint64                   `protobuf:"varint,14,opt,name=page_ms,json=pageMs,proto3"`
+	xxx_hidden_ConnectorMs          uint64                   `protobuf:"varint,15,opt,name=connector_ms,json=connectorMs,proto3"`
+	xxx_hidden_WaitMs               uint64                   `protobuf:"varint,16,opt,name=wait_ms,json=waitMs,proto3"`
+	unknownFields                   protoimpl.UnknownFields
+	sizeCache                       protoimpl.SizeCache
+}
+
+func (x *LedgerRow) Reset() {
+	*x = LedgerRow{}
+	mi := &file_c1_storage_v3_records_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LedgerRow) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LedgerRow) ProtoMessage() {}
+
+func (x *LedgerRow) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_storage_v3_records_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *LedgerRow) GetIdentity() *LedgerActionIdentity {
+	if x != nil {
+		return x.xxx_hidden_Identity
+	}
+	return nil
+}
+
+func (x *LedgerRow) GetNextPageToken() string {
+	if x != nil {
+		return x.xxx_hidden_NextPageToken
+	}
+	return ""
+}
+
+func (x *LedgerRow) GetNextPageTokenHash() []byte {
+	if x != nil {
+		return x.xxx_hidden_NextPageTokenHash
+	}
+	return nil
+}
+
+func (x *LedgerRow) GetChildren() []*LedgerActionIdentity {
+	if x != nil {
+		if x.xxx_hidden_Children != nil {
+			return *x.xxx_hidden_Children
+		}
+	}
+	return nil
+}
+
+func (x *LedgerRow) GetAttempt() string {
+	if x != nil {
+		return x.xxx_hidden_Attempt
+	}
+	return ""
+}
+
+func (x *LedgerRow) GetCommittedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.xxx_hidden_CommittedAt
+	}
+	return nil
+}
+
+func (x *LedgerRow) GetResourceTypesWritten() uint64 {
+	if x != nil {
+		return x.xxx_hidden_ResourceTypesWritten
+	}
+	return 0
+}
+
+func (x *LedgerRow) GetResourcesWritten() uint64 {
+	if x != nil {
+		return x.xxx_hidden_ResourcesWritten
+	}
+	return 0
+}
+
+func (x *LedgerRow) GetEntitlementsWritten() uint64 {
+	if x != nil {
+		return x.xxx_hidden_EntitlementsWritten
+	}
+	return 0
+}
+
+func (x *LedgerRow) GetGrantsWritten() uint64 {
+	if x != nil {
+		return x.xxx_hidden_GrantsWritten
+	}
+	return 0
+}
+
+func (x *LedgerRow) GetReplayed() bool {
+	if x != nil {
+		return x.xxx_hidden_Replayed
+	}
+	return false
+}
+
+func (x *LedgerRow) GetTypeScopedPlanned() bool {
+	if x != nil {
+		return x.xxx_hidden_TypeScopedPlanned
+	}
+	return false
+}
+
+func (x *LedgerRow) GetScrubbed() bool {
+	if x != nil {
+		return x.xxx_hidden_Scrubbed
+	}
+	return false
+}
+
+func (x *LedgerRow) GetPageMs() uint64 {
+	if x != nil {
+		return x.xxx_hidden_PageMs
+	}
+	return 0
+}
+
+func (x *LedgerRow) GetConnectorMs() uint64 {
+	if x != nil {
+		return x.xxx_hidden_ConnectorMs
+	}
+	return 0
+}
+
+func (x *LedgerRow) GetWaitMs() uint64 {
+	if x != nil {
+		return x.xxx_hidden_WaitMs
+	}
+	return 0
+}
+
+func (x *LedgerRow) SetIdentity(v *LedgerActionIdentity) {
+	x.xxx_hidden_Identity = v
+}
+
+func (x *LedgerRow) SetNextPageToken(v string) {
+	x.xxx_hidden_NextPageToken = v
+}
+
+func (x *LedgerRow) SetNextPageTokenHash(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.xxx_hidden_NextPageTokenHash = v
+}
+
+func (x *LedgerRow) SetChildren(v []*LedgerActionIdentity) {
+	x.xxx_hidden_Children = &v
+}
+
+func (x *LedgerRow) SetAttempt(v string) {
+	x.xxx_hidden_Attempt = v
+}
+
+func (x *LedgerRow) SetCommittedAt(v *timestamppb.Timestamp) {
+	x.xxx_hidden_CommittedAt = v
+}
+
+func (x *LedgerRow) SetResourceTypesWritten(v uint64) {
+	x.xxx_hidden_ResourceTypesWritten = v
+}
+
+func (x *LedgerRow) SetResourcesWritten(v uint64) {
+	x.xxx_hidden_ResourcesWritten = v
+}
+
+func (x *LedgerRow) SetEntitlementsWritten(v uint64) {
+	x.xxx_hidden_EntitlementsWritten = v
+}
+
+func (x *LedgerRow) SetGrantsWritten(v uint64) {
+	x.xxx_hidden_GrantsWritten = v
+}
+
+func (x *LedgerRow) SetReplayed(v bool) {
+	x.xxx_hidden_Replayed = v
+}
+
+func (x *LedgerRow) SetTypeScopedPlanned(v bool) {
+	x.xxx_hidden_TypeScopedPlanned = v
+}
+
+func (x *LedgerRow) SetScrubbed(v bool) {
+	x.xxx_hidden_Scrubbed = v
+}
+
+func (x *LedgerRow) SetPageMs(v uint64) {
+	x.xxx_hidden_PageMs = v
+}
+
+func (x *LedgerRow) SetConnectorMs(v uint64) {
+	x.xxx_hidden_ConnectorMs = v
+}
+
+func (x *LedgerRow) SetWaitMs(v uint64) {
+	x.xxx_hidden_WaitMs = v
+}
+
+func (x *LedgerRow) HasIdentity() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Identity != nil
+}
+
+func (x *LedgerRow) HasCommittedAt() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_CommittedAt != nil
+}
+
+func (x *LedgerRow) ClearIdentity() {
+	x.xxx_hidden_Identity = nil
+}
+
+func (x *LedgerRow) ClearCommittedAt() {
+	x.xxx_hidden_CommittedAt = nil
+}
+
+type LedgerRow_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// Echo of the key's identity, verbatim. The read-side compare
+	// against the action being resolved is what makes a key collision
+	// (an identity omission or key-function bug) a re-run instead of a
+	// silent skip.
+	Identity *LedgerActionIdentity
+	// Cursor for the action's next page; empty means the action
+	// finished on this page. Scrubbed to empty with next_page_token_hash
+	// retained when scrubbed is set.
+	NextPageToken     string
+	NextPageTokenHash []byte
+	// Actions this page pushed (children carry full identity so the
+	// walk can push them without a lookup).
+	Children []*LedgerActionIdentity
+	// Attempt that committed the page (the syncer's attempt epoch) and
+	// when.
+	Attempt     string
+	CommittedAt *timestamppb.Timestamp
+	// Records staged in the page's batch, by kind.
+	ResourceTypesWritten uint64
+	ResourcesWritten     uint64
+	EntitlementsWritten  uint64
+	GrantsWritten        uint64
+	// The page's rows came from source-cache replay rather than a fresh
+	// connector fetch.
+	Replayed bool
+	// Post-transition action state that must ride in the row (brief
+	// §3.2 structural finding 2): row present ⇒ type-scoped planning ran.
+	TypeScopedPlanned bool
+	// Tokens (identity.page_token, next_page_token, children tokens)
+	// were replaced by their hashes at seal because the connector
+	// declared its page tokens sensitive.
+	Scrubbed bool
+	// Per-page timings (brief §3.12): wall time of the handler, time
+	// spent inside connector calls, and time spent waiting (rate-limit
+	// and retry sleeps). Milliseconds; zero when not measured.
+	PageMs      uint64
+	ConnectorMs uint64
+	WaitMs      uint64
+}
+
+func (b0 LedgerRow_builder) Build() *LedgerRow {
+	m0 := &LedgerRow{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Identity = b.Identity
+	x.xxx_hidden_NextPageToken = b.NextPageToken
+	x.xxx_hidden_NextPageTokenHash = b.NextPageTokenHash
+	x.xxx_hidden_Children = &b.Children
+	x.xxx_hidden_Attempt = b.Attempt
+	x.xxx_hidden_CommittedAt = b.CommittedAt
+	x.xxx_hidden_ResourceTypesWritten = b.ResourceTypesWritten
+	x.xxx_hidden_ResourcesWritten = b.ResourcesWritten
+	x.xxx_hidden_EntitlementsWritten = b.EntitlementsWritten
+	x.xxx_hidden_GrantsWritten = b.GrantsWritten
+	x.xxx_hidden_Replayed = b.Replayed
+	x.xxx_hidden_TypeScopedPlanned = b.TypeScopedPlanned
+	x.xxx_hidden_Scrubbed = b.Scrubbed
+	x.xxx_hidden_PageMs = b.PageMs
+	x.xxx_hidden_ConnectorMs = b.ConnectorMs
+	x.xxx_hidden_WaitMs = b.WaitMs
+	return m0
+}
+
+// LedgerCounterBucket is one (run, worker) bucket of sync-level
+// counters and stats (brief §3.6, §3.13). Every page commit blind-writes
+// its worker's whole bucket (cached total + this page's delta) in the
+// page's batch, so the contents are exactly as durable as the pages
+// that produced them; the sync-level value is the fold over every
+// bucket (counters, totals and durations sum; max latencies take the
+// max; flags OR). Buckets are keyed by a per-Sync()-invocation run id
+// and a worker index, so a resume with a different worker count never
+// overwrites a prior run's buckets. One reserved worker index per run
+// holds the run-level stats that are not page-shaped (phase durations,
+// session-store calls), blind-written best-effort at phase boundaries,
+// stop and seal. Names are the syncer's; the engine treats them as
+// opaque.
+type LedgerCounterBucket struct {
+	state                      protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Counters        map[string]uint64      `protobuf:"bytes,1,rep,name=counters,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	xxx_hidden_Flags           uint64                 `protobuf:"varint,2,opt,name=flags,proto3"`
+	xxx_hidden_ConnectorCalls  map[string]*CallStat   `protobuf:"bytes,3,rep,name=connector_calls,json=connectorCalls,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	xxx_hidden_StepDurationsMs map[string]int64       `protobuf:"bytes,4,rep,name=step_durations_ms,json=stepDurationsMs,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	xxx_hidden_SessionCalls    map[string]*CallStat   `protobuf:"bytes,5,rep,name=session_calls,json=sessionCalls,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
+}
+
+func (x *LedgerCounterBucket) Reset() {
+	*x = LedgerCounterBucket{}
+	mi := &file_c1_storage_v3_records_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LedgerCounterBucket) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LedgerCounterBucket) ProtoMessage() {}
+
+func (x *LedgerCounterBucket) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_storage_v3_records_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *LedgerCounterBucket) GetCounters() map[string]uint64 {
+	if x != nil {
+		return x.xxx_hidden_Counters
+	}
+	return nil
+}
+
+func (x *LedgerCounterBucket) GetFlags() uint64 {
+	if x != nil {
+		return x.xxx_hidden_Flags
+	}
+	return 0
+}
+
+func (x *LedgerCounterBucket) GetConnectorCalls() map[string]*CallStat {
+	if x != nil {
+		return x.xxx_hidden_ConnectorCalls
+	}
+	return nil
+}
+
+func (x *LedgerCounterBucket) GetStepDurationsMs() map[string]int64 {
+	if x != nil {
+		return x.xxx_hidden_StepDurationsMs
+	}
+	return nil
+}
+
+func (x *LedgerCounterBucket) GetSessionCalls() map[string]*CallStat {
+	if x != nil {
+		return x.xxx_hidden_SessionCalls
+	}
+	return nil
+}
+
+func (x *LedgerCounterBucket) SetCounters(v map[string]uint64) {
+	x.xxx_hidden_Counters = v
+}
+
+func (x *LedgerCounterBucket) SetFlags(v uint64) {
+	x.xxx_hidden_Flags = v
+}
+
+func (x *LedgerCounterBucket) SetConnectorCalls(v map[string]*CallStat) {
+	x.xxx_hidden_ConnectorCalls = v
+}
+
+func (x *LedgerCounterBucket) SetStepDurationsMs(v map[string]int64) {
+	x.xxx_hidden_StepDurationsMs = v
+}
+
+func (x *LedgerCounterBucket) SetSessionCalls(v map[string]*CallStat) {
+	x.xxx_hidden_SessionCalls = v
+}
+
+type LedgerCounterBucket_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Counters map[string]uint64
+	// Bitset OR'd across the run (the syncer's ingest-quality reasons).
+	Flags uint64
+	// Connector calls made by this worker's committed pages, by method.
+	ConnectorCalls map[string]*CallStat
+	// Run-level (reserved worker index only): phase wall time by step
+	// name, and session-store calls by op.
+	StepDurationsMs map[string]int64
+	SessionCalls    map[string]*CallStat
+}
+
+func (b0 LedgerCounterBucket_builder) Build() *LedgerCounterBucket {
+	m0 := &LedgerCounterBucket{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Counters = b.Counters
+	x.xxx_hidden_Flags = b.Flags
+	x.xxx_hidden_ConnectorCalls = b.ConnectorCalls
+	x.xxx_hidden_StepDurationsMs = b.StepDurationsMs
+	x.xxx_hidden_SessionCalls = b.SessionCalls
+	return m0
+}
+
+// LedgerFrontier is the takeover record for a sync that began under a
+// token-only SDK (brief §3.8): the checkpoint token's serialized state
+// (the action stack and phase flags) moved into the ledger family in
+// the same batch that clears the sync run's token. Resume under atomic
+// pages loads the stack from here and walks the ledger forward; the
+// token is never consulted again for that sync.
+type LedgerFrontier struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_State       string                 `protobuf:"bytes,1,opt,name=state,proto3"`
+	xxx_hidden_Attempt     string                 `protobuf:"bytes,2,opt,name=attempt,proto3"`
+	xxx_hidden_TakenOverAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=taken_over_at,json=takenOverAt,proto3"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *LedgerFrontier) Reset() {
+	*x = LedgerFrontier{}
+	mi := &file_c1_storage_v3_records_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LedgerFrontier) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LedgerFrontier) ProtoMessage() {}
+
+func (x *LedgerFrontier) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_storage_v3_records_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *LedgerFrontier) GetState() string {
+	if x != nil {
+		return x.xxx_hidden_State
+	}
+	return ""
+}
+
+func (x *LedgerFrontier) GetAttempt() string {
+	if x != nil {
+		return x.xxx_hidden_Attempt
+	}
+	return ""
+}
+
+func (x *LedgerFrontier) GetTakenOverAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.xxx_hidden_TakenOverAt
+	}
+	return nil
+}
+
+func (x *LedgerFrontier) SetState(v string) {
+	x.xxx_hidden_State = v
+}
+
+func (x *LedgerFrontier) SetAttempt(v string) {
+	x.xxx_hidden_Attempt = v
+}
+
+func (x *LedgerFrontier) SetTakenOverAt(v *timestamppb.Timestamp) {
+	x.xxx_hidden_TakenOverAt = v
+}
+
+func (x *LedgerFrontier) HasTakenOverAt() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_TakenOverAt != nil
+}
+
+func (x *LedgerFrontier) ClearTakenOverAt() {
+	x.xxx_hidden_TakenOverAt = nil
+}
+
+type LedgerFrontier_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	State       string
+	Attempt     string
+	TakenOverAt *timestamppb.Timestamp
+}
+
+func (b0 LedgerFrontier_builder) Build() *LedgerFrontier {
+	m0 := &LedgerFrontier{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_State = b.State
+	x.xxx_hidden_Attempt = b.Attempt
+	x.xxx_hidden_TakenOverAt = b.TakenOverAt
+	return m0
+}
+
 // CallStat mirrors c1.reader.v2.CallStat for the storage sidecar.
 type CallStat struct {
 	state               protoimpl.MessageState `protogen:"opaque.v1"`
@@ -2164,7 +3168,7 @@ type CallStat struct {
 
 func (x *CallStat) Reset() {
 	*x = CallStat{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[11]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2176,7 +3180,7 @@ func (x *CallStat) String() string {
 func (*CallStat) ProtoMessage() {}
 
 func (x *CallStat) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[11]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2275,7 +3279,7 @@ type SessionRecord struct {
 
 func (x *SessionRecord) Reset() {
 	*x = SessionRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[12]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2287,7 +3291,7 @@ func (x *SessionRecord) String() string {
 func (*SessionRecord) ProtoMessage() {}
 
 func (x *SessionRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[12]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2374,7 +3378,7 @@ type SourceCacheEntryRecord struct {
 
 func (x *SourceCacheEntryRecord) Reset() {
 	*x = SourceCacheEntryRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[13]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2386,7 +3390,7 @@ func (x *SourceCacheEntryRecord) String() string {
 func (*SourceCacheEntryRecord) ProtoMessage() {}
 
 func (x *SourceCacheEntryRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[13]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2560,7 +3564,7 @@ type SourceCacheCompatRecord struct {
 
 func (x *SourceCacheCompatRecord) Reset() {
 	*x = SourceCacheCompatRecord{}
-	mi := &file_c1_storage_v3_records_proto_msgTypes[14]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2572,7 +3576,7 @@ func (x *SourceCacheCompatRecord) String() string {
 func (*SourceCacheCompatRecord) ProtoMessage() {}
 
 func (x *SourceCacheCompatRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_storage_v3_records_proto_msgTypes[14]
+	mi := &file_c1_storage_v3_records_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2783,7 +3787,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	" \x01(\tR\x19ingestInvariantGeneration\x12:\n" +
 	"\x19ingest_invariant_coverage\x18\v \x03(\tR\x17ingestInvariantCoverage\x122\n" +
 	"\x15ingest_invariant_mode\x18\f \x01(\tR\x13ingestInvariantMode:\x18\x82\xf9+\x14\n" +
-	"\tsync_runs\x12\async_idJ\x04\b\b\x10\tR\x0elinked_sync_id\"\xfe\v\n" +
+	"\tsync_runs\x12\async_idJ\x04\b\b\x10\tR\x0elinked_sync_id\"\xc3\f\n" +
 	"\x0fSyncStatsRecord\x12\x17\n" +
 	"\async_id\x18\x01 \x01(\tR\x06syncId\x12%\n" +
 	"\x0eresource_types\x18\x02 \x01(\x03R\rresourceTypes\x12\x1c\n" +
@@ -2798,7 +3802,10 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	" \x03(\v23.c1.storage.v3.SyncStatsRecord.StepDurationsMsEntryR\x0fstepDurationsMs\x12h\n" +
 	"\x14connector_call_stats\x18\v \x03(\v26.c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntryR\x12connectorCallStats\x12e\n" +
 	"\x13session_store_stats\x18\f \x03(\v25.c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntryR\x11sessionStoreStats\x12H\n" +
-	"\x0eingest_quality\x18\r \x01(\v2!.c1.storage.v3.IngestQualityStatsR\ringestQuality\x129\n" +
+	"\x0eingest_quality\x18\r \x01(\v2!.c1.storage.v3.IngestQualityStatsR\ringestQuality\x12C\n" +
+	"\n" +
+	"compaction\x18\x0e \x01(\v2#.c1.storage.v3.CompactionProvenanceR\n" +
+	"compaction\x129\n" +
 	"\n" +
 	"written_at\x18d \x01(\v2\x1a.google.protobuf.TimestampR\twrittenAt\x1aJ\n" +
 	"\x1cResourcesByResourceTypeEntry\x12\x10\n" +
@@ -2818,7 +3825,23 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\v2\x17.c1.storage.v3.CallStatR\x05value:\x028\x01\x1a]\n" +
 	"\x16SessionStoreStatsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
-	"\x05value\x18\x02 \x01(\v2\x17.c1.storage.v3.CallStatR\x05value:\x028\x01\"\xc9\x04\n" +
+	"\x05value\x18\x02 \x01(\v2\x17.c1.storage.v3.CallStatR\x05value:\x028\x01\"\x83\x03\n" +
+	"\x14CompactionProvenance\x12\x12\n" +
+	"\x04mode\x18\x01 \x01(\tR\x04mode\x12\"\n" +
+	"\rstats_sync_id\x18\x02 \x01(\tR\vstatsSyncId\x12 \n" +
+	"\fbase_sync_id\x18\x03 \x01(\tR\n" +
+	"baseSyncId\x12(\n" +
+	"\x10partial_sync_ids\x18\x04 \x03(\tR\x0epartialSyncIds\x12#\n" +
+	"\rpartial_count\x18\x05 \x01(\x03R\fpartialCount\x12Z\n" +
+	"\rrecord_counts\x18\x06 \x03(\v25.c1.storage.v3.CompactionProvenance.RecordCountsEntryR\frecordCounts\x1af\n" +
+	"\x11RecordCountsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12;\n" +
+	"\x05value\x18\x02 \x01(\v2%.c1.storage.v3.CompactionRecordCountsR\x05value:\x028\x01\"|\n" +
+	"\x16CompactionRecordCounts\x12\x16\n" +
+	"\x06output\x18\x01 \x01(\x03R\x06output\x12\x14\n" +
+	"\x05added\x18\x02 \x01(\x03R\x05added\x12\x1a\n" +
+	"\breplaced\x18\x03 \x01(\x03R\breplaced\x12\x18\n" +
+	"\acarried\x18\x04 \x01(\x03R\acarried\"\xc9\x04\n" +
 	"\x12IngestQualityStats\x12=\n" +
 	"\x1bsource_cache_replay_blocked\x18\x01 \x01(\bR\x18sourceCacheReplayBlocked\x121\n" +
 	"\x14entitlements_dropped\x18\x02 \x01(\x04R\x13entitlementsDropped\x12%\n" +
@@ -2830,7 +3853,60 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x1finvalid_resource_types_observed\x18\b \x01(\x04R\x1cinvalidResourceTypesObserved\x12<\n" +
 	"\x1ainvalid_resources_observed\x18\t \x01(\x04R\x18invalidResourcesObserved\x12B\n" +
 	"\x1dinvalid_entitlements_observed\x18\n" +
-	" \x01(\x04R\x1binvalidEntitlementsObserved\"\x86\x01\n" +
+	" \x01(\x04R\x1binvalidEntitlementsObserved\"\xd8\x02\n" +
+	"\x14LedgerActionIdentity\x12\x0e\n" +
+	"\x02op\x18\x01 \x01(\tR\x02op\x12(\n" +
+	"\x10resource_type_id\x18\x02 \x01(\tR\x0eresourceTypeId\x12\x1f\n" +
+	"\vresource_id\x18\x03 \x01(\tR\n" +
+	"resourceId\x125\n" +
+	"\x17parent_resource_type_id\x18\x04 \x01(\tR\x14parentResourceTypeId\x12,\n" +
+	"\x12parent_resource_id\x18\x05 \x01(\tR\x10parentResourceId\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x06 \x01(\tR\tpageToken\x12&\n" +
+	"\x0fpage_token_hash\x18\a \x01(\fR\rpageTokenHash\x12\x1f\n" +
+	"\vtype_scoped\x18\b \x01(\bR\n" +
+	"typeScoped\x12\x18\n" +
+	"\aspawned\x18\t \x01(\bR\aspawned\"\xb9\x05\n" +
+	"\tLedgerRow\x12?\n" +
+	"\bidentity\x18\x01 \x01(\v2#.c1.storage.v3.LedgerActionIdentityR\bidentity\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12/\n" +
+	"\x14next_page_token_hash\x18\x03 \x01(\fR\x11nextPageTokenHash\x12?\n" +
+	"\bchildren\x18\x04 \x03(\v2#.c1.storage.v3.LedgerActionIdentityR\bchildren\x12\x18\n" +
+	"\aattempt\x18\x05 \x01(\tR\aattempt\x12=\n" +
+	"\fcommitted_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\vcommittedAt\x124\n" +
+	"\x16resource_types_written\x18\a \x01(\x04R\x14resourceTypesWritten\x12+\n" +
+	"\x11resources_written\x18\b \x01(\x04R\x10resourcesWritten\x121\n" +
+	"\x14entitlements_written\x18\t \x01(\x04R\x13entitlementsWritten\x12%\n" +
+	"\x0egrants_written\x18\n" +
+	" \x01(\x04R\rgrantsWritten\x12\x1a\n" +
+	"\breplayed\x18\v \x01(\bR\breplayed\x12.\n" +
+	"\x13type_scoped_planned\x18\f \x01(\bR\x11typeScopedPlanned\x12\x1a\n" +
+	"\bscrubbed\x18\r \x01(\bR\bscrubbed\x12\x17\n" +
+	"\apage_ms\x18\x0e \x01(\x04R\x06pageMs\x12!\n" +
+	"\fconnector_ms\x18\x0f \x01(\x04R\vconnectorMs\x12\x17\n" +
+	"\await_ms\x18\x10 \x01(\x04R\x06waitMs\"\xd1\x05\n" +
+	"\x13LedgerCounterBucket\x12L\n" +
+	"\bcounters\x18\x01 \x03(\v20.c1.storage.v3.LedgerCounterBucket.CountersEntryR\bcounters\x12\x14\n" +
+	"\x05flags\x18\x02 \x01(\x04R\x05flags\x12_\n" +
+	"\x0fconnector_calls\x18\x03 \x03(\v26.c1.storage.v3.LedgerCounterBucket.ConnectorCallsEntryR\x0econnectorCalls\x12c\n" +
+	"\x11step_durations_ms\x18\x04 \x03(\v27.c1.storage.v3.LedgerCounterBucket.StepDurationsMsEntryR\x0fstepDurationsMs\x12Y\n" +
+	"\rsession_calls\x18\x05 \x03(\v24.c1.storage.v3.LedgerCounterBucket.SessionCallsEntryR\fsessionCalls\x1a;\n" +
+	"\rCountersEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x04R\x05value:\x028\x01\x1aZ\n" +
+	"\x13ConnectorCallsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
+	"\x05value\x18\x02 \x01(\v2\x17.c1.storage.v3.CallStatR\x05value:\x028\x01\x1aB\n" +
+	"\x14StepDurationsMsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1aX\n" +
+	"\x11SessionCallsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
+	"\x05value\x18\x02 \x01(\v2\x17.c1.storage.v3.CallStatR\x05value:\x028\x01\"\x80\x01\n" +
+	"\x0eLedgerFrontier\x12\x14\n" +
+	"\x05state\x18\x01 \x01(\tR\x05state\x12\x18\n" +
+	"\aattempt\x18\x02 \x01(\tR\aattempt\x12>\n" +
+	"\rtaken_over_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\vtakenOverAt\"\x86\x01\n" +
 	"\bCallStat\x12\x14\n" +
 	"\x05count\x18\x01 \x01(\x03R\x05count\x12\x19\n" +
 	"\btotal_ms\x18\x02 \x01(\x03R\atotalMs\x12\x15\n" +
@@ -2868,7 +3944,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x1bSYNC_TYPE_PARTIAL_DELETIONS\x10\x05\x1a\x02\b\x01B4Z2github.com/conductorone/baton-sdk/pb/c1/storage/v3b\x06proto3"
 
 var file_c1_storage_v3_records_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_c1_storage_v3_records_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
 var file_c1_storage_v3_records_proto_goTypes = []any{
 	(SyncType)(0),                    // 0: c1.storage.v3.SyncType
 	(StatusRecord_ResourceStatus)(0), // 1: c1.storage.v3.StatusRecord.ResourceStatus
@@ -2882,65 +3958,89 @@ var file_c1_storage_v3_records_proto_goTypes = []any{
 	(*AssetRecord)(nil),              // 9: c1.storage.v3.AssetRecord
 	(*SyncRunRecord)(nil),            // 10: c1.storage.v3.SyncRunRecord
 	(*SyncStatsRecord)(nil),          // 11: c1.storage.v3.SyncStatsRecord
-	(*IngestQualityStats)(nil),       // 12: c1.storage.v3.IngestQualityStats
-	(*CallStat)(nil),                 // 13: c1.storage.v3.CallStat
-	(*SessionRecord)(nil),            // 14: c1.storage.v3.SessionRecord
-	(*SourceCacheEntryRecord)(nil),   // 15: c1.storage.v3.SourceCacheEntryRecord
-	(*SourceCacheCompatRecord)(nil),  // 16: c1.storage.v3.SourceCacheCompatRecord
-	nil,                              // 17: c1.storage.v3.GrantRecord.SourcesEntry
-	nil,                              // 18: c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
-	nil,                              // 19: c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
-	nil,                              // 20: c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
-	nil,                              // 21: c1.storage.v3.SyncStatsRecord.StepDurationsMsEntry
-	nil,                              // 22: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry
-	nil,                              // 23: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
-	(*anypb.Any)(nil),                // 24: google.protobuf.Any
-	(*timestamppb.Timestamp)(nil),    // 25: google.protobuf.Timestamp
-	(*ResourceRef)(nil),              // 26: c1.storage.v3.ResourceRef
-	(*structpb.Struct)(nil),          // 27: google.protobuf.Struct
-	(*EntitlementRef)(nil),           // 28: c1.storage.v3.EntitlementRef
-	(*PrincipalRef)(nil),             // 29: c1.storage.v3.PrincipalRef
+	(*CompactionProvenance)(nil),     // 12: c1.storage.v3.CompactionProvenance
+	(*CompactionRecordCounts)(nil),   // 13: c1.storage.v3.CompactionRecordCounts
+	(*IngestQualityStats)(nil),       // 14: c1.storage.v3.IngestQualityStats
+	(*LedgerActionIdentity)(nil),     // 15: c1.storage.v3.LedgerActionIdentity
+	(*LedgerRow)(nil),                // 16: c1.storage.v3.LedgerRow
+	(*LedgerCounterBucket)(nil),      // 17: c1.storage.v3.LedgerCounterBucket
+	(*LedgerFrontier)(nil),           // 18: c1.storage.v3.LedgerFrontier
+	(*CallStat)(nil),                 // 19: c1.storage.v3.CallStat
+	(*SessionRecord)(nil),            // 20: c1.storage.v3.SessionRecord
+	(*SourceCacheEntryRecord)(nil),   // 21: c1.storage.v3.SourceCacheEntryRecord
+	(*SourceCacheCompatRecord)(nil),  // 22: c1.storage.v3.SourceCacheCompatRecord
+	nil,                              // 23: c1.storage.v3.GrantRecord.SourcesEntry
+	nil,                              // 24: c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
+	nil,                              // 25: c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
+	nil,                              // 26: c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
+	nil,                              // 27: c1.storage.v3.SyncStatsRecord.StepDurationsMsEntry
+	nil,                              // 28: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry
+	nil,                              // 29: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
+	nil,                              // 30: c1.storage.v3.CompactionProvenance.RecordCountsEntry
+	nil,                              // 31: c1.storage.v3.LedgerCounterBucket.CountersEntry
+	nil,                              // 32: c1.storage.v3.LedgerCounterBucket.ConnectorCallsEntry
+	nil,                              // 33: c1.storage.v3.LedgerCounterBucket.StepDurationsMsEntry
+	nil,                              // 34: c1.storage.v3.LedgerCounterBucket.SessionCallsEntry
+	(*anypb.Any)(nil),                // 35: google.protobuf.Any
+	(*timestamppb.Timestamp)(nil),    // 36: google.protobuf.Timestamp
+	(*ResourceRef)(nil),              // 37: c1.storage.v3.ResourceRef
+	(*structpb.Struct)(nil),          // 38: google.protobuf.Struct
+	(*EntitlementRef)(nil),           // 39: c1.storage.v3.EntitlementRef
+	(*PrincipalRef)(nil),             // 40: c1.storage.v3.PrincipalRef
 }
 var file_c1_storage_v3_records_proto_depIdxs = []int32{
 	1,  // 0: c1.storage.v3.StatusRecord.status:type_name -> c1.storage.v3.StatusRecord.ResourceStatus
-	24, // 1: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
-	25, // 2: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	26, // 3: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
-	24, // 4: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
-	25, // 5: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	27, // 6: c1.storage.v3.ResourceRecord.profile:type_name -> google.protobuf.Struct
+	35, // 1: c1.storage.v3.ResourceTypeRecord.annotations:type_name -> google.protobuf.Any
+	36, // 2: c1.storage.v3.ResourceTypeRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	37, // 3: c1.storage.v3.ResourceRecord.parent:type_name -> c1.storage.v3.ResourceRef
+	35, // 4: c1.storage.v3.ResourceRecord.annotations:type_name -> google.protobuf.Any
+	36, // 5: c1.storage.v3.ResourceRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	38, // 6: c1.storage.v3.ResourceRecord.profile:type_name -> google.protobuf.Struct
 	2,  // 7: c1.storage.v3.ResourceRecord.status:type_name -> c1.storage.v3.StatusRecord
-	25, // 8: c1.storage.v3.ResourceRecord.created_at:type_name -> google.protobuf.Timestamp
-	26, // 9: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
-	24, // 10: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
-	25, // 11: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	28, // 12: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
-	29, // 13: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
-	25, // 14: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	36, // 8: c1.storage.v3.ResourceRecord.created_at:type_name -> google.protobuf.Timestamp
+	37, // 9: c1.storage.v3.EntitlementRecord.resource:type_name -> c1.storage.v3.ResourceRef
+	35, // 10: c1.storage.v3.EntitlementRecord.annotations:type_name -> google.protobuf.Any
+	36, // 11: c1.storage.v3.EntitlementRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	39, // 12: c1.storage.v3.GrantRecord.entitlement:type_name -> c1.storage.v3.EntitlementRef
+	40, // 13: c1.storage.v3.GrantRecord.principal:type_name -> c1.storage.v3.PrincipalRef
+	36, // 14: c1.storage.v3.GrantRecord.discovered_at:type_name -> google.protobuf.Timestamp
 	3,  // 15: c1.storage.v3.GrantRecord.expansion:type_name -> c1.storage.v3.GrantExpandableRecord
-	24, // 16: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
-	17, // 17: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
-	25, // 18: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	35, // 16: c1.storage.v3.GrantRecord.annotations:type_name -> google.protobuf.Any
+	23, // 17: c1.storage.v3.GrantRecord.sources:type_name -> c1.storage.v3.GrantRecord.SourcesEntry
+	36, // 18: c1.storage.v3.AssetRecord.discovered_at:type_name -> google.protobuf.Timestamp
 	0,  // 19: c1.storage.v3.SyncRunRecord.type:type_name -> c1.storage.v3.SyncType
-	25, // 20: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
-	25, // 21: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
-	18, // 22: c1.storage.v3.SyncStatsRecord.resources_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
-	19, // 23: c1.storage.v3.SyncStatsRecord.grants_by_entitlement_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
-	20, // 24: c1.storage.v3.SyncStatsRecord.entitlements_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
-	21, // 25: c1.storage.v3.SyncStatsRecord.step_durations_ms:type_name -> c1.storage.v3.SyncStatsRecord.StepDurationsMsEntry
-	22, // 26: c1.storage.v3.SyncStatsRecord.connector_call_stats:type_name -> c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry
-	23, // 27: c1.storage.v3.SyncStatsRecord.session_store_stats:type_name -> c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
-	12, // 28: c1.storage.v3.SyncStatsRecord.ingest_quality:type_name -> c1.storage.v3.IngestQualityStats
-	25, // 29: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
-	25, // 30: c1.storage.v3.SourceCacheEntryRecord.discovered_at:type_name -> google.protobuf.Timestamp
-	4,  // 31: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
-	13, // 32: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry.value:type_name -> c1.storage.v3.CallStat
-	13, // 33: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry.value:type_name -> c1.storage.v3.CallStat
-	34, // [34:34] is the sub-list for method output_type
-	34, // [34:34] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	34, // [34:34] is the sub-list for extension extendee
-	0,  // [0:34] is the sub-list for field type_name
+	36, // 20: c1.storage.v3.SyncRunRecord.started_at:type_name -> google.protobuf.Timestamp
+	36, // 21: c1.storage.v3.SyncRunRecord.ended_at:type_name -> google.protobuf.Timestamp
+	24, // 22: c1.storage.v3.SyncStatsRecord.resources_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.ResourcesByResourceTypeEntry
+	25, // 23: c1.storage.v3.SyncStatsRecord.grants_by_entitlement_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.GrantsByEntitlementResourceTypeEntry
+	26, // 24: c1.storage.v3.SyncStatsRecord.entitlements_by_resource_type:type_name -> c1.storage.v3.SyncStatsRecord.EntitlementsByResourceTypeEntry
+	27, // 25: c1.storage.v3.SyncStatsRecord.step_durations_ms:type_name -> c1.storage.v3.SyncStatsRecord.StepDurationsMsEntry
+	28, // 26: c1.storage.v3.SyncStatsRecord.connector_call_stats:type_name -> c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry
+	29, // 27: c1.storage.v3.SyncStatsRecord.session_store_stats:type_name -> c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry
+	14, // 28: c1.storage.v3.SyncStatsRecord.ingest_quality:type_name -> c1.storage.v3.IngestQualityStats
+	12, // 29: c1.storage.v3.SyncStatsRecord.compaction:type_name -> c1.storage.v3.CompactionProvenance
+	36, // 30: c1.storage.v3.SyncStatsRecord.written_at:type_name -> google.protobuf.Timestamp
+	30, // 31: c1.storage.v3.CompactionProvenance.record_counts:type_name -> c1.storage.v3.CompactionProvenance.RecordCountsEntry
+	15, // 32: c1.storage.v3.LedgerRow.identity:type_name -> c1.storage.v3.LedgerActionIdentity
+	15, // 33: c1.storage.v3.LedgerRow.children:type_name -> c1.storage.v3.LedgerActionIdentity
+	36, // 34: c1.storage.v3.LedgerRow.committed_at:type_name -> google.protobuf.Timestamp
+	31, // 35: c1.storage.v3.LedgerCounterBucket.counters:type_name -> c1.storage.v3.LedgerCounterBucket.CountersEntry
+	32, // 36: c1.storage.v3.LedgerCounterBucket.connector_calls:type_name -> c1.storage.v3.LedgerCounterBucket.ConnectorCallsEntry
+	33, // 37: c1.storage.v3.LedgerCounterBucket.step_durations_ms:type_name -> c1.storage.v3.LedgerCounterBucket.StepDurationsMsEntry
+	34, // 38: c1.storage.v3.LedgerCounterBucket.session_calls:type_name -> c1.storage.v3.LedgerCounterBucket.SessionCallsEntry
+	36, // 39: c1.storage.v3.LedgerFrontier.taken_over_at:type_name -> google.protobuf.Timestamp
+	36, // 40: c1.storage.v3.SourceCacheEntryRecord.discovered_at:type_name -> google.protobuf.Timestamp
+	4,  // 41: c1.storage.v3.GrantRecord.SourcesEntry.value:type_name -> c1.storage.v3.GrantSourceRecord
+	19, // 42: c1.storage.v3.SyncStatsRecord.ConnectorCallStatsEntry.value:type_name -> c1.storage.v3.CallStat
+	19, // 43: c1.storage.v3.SyncStatsRecord.SessionStoreStatsEntry.value:type_name -> c1.storage.v3.CallStat
+	13, // 44: c1.storage.v3.CompactionProvenance.RecordCountsEntry.value:type_name -> c1.storage.v3.CompactionRecordCounts
+	19, // 45: c1.storage.v3.LedgerCounterBucket.ConnectorCallsEntry.value:type_name -> c1.storage.v3.CallStat
+	19, // 46: c1.storage.v3.LedgerCounterBucket.SessionCallsEntry.value:type_name -> c1.storage.v3.CallStat
+	47, // [47:47] is the sub-list for method output_type
+	47, // [47:47] is the sub-list for method input_type
+	47, // [47:47] is the sub-list for extension type_name
+	47, // [47:47] is the sub-list for extension extendee
+	0,  // [0:47] is the sub-list for field type_name
 }
 
 func init() { file_c1_storage_v3_records_proto_init() }
@@ -2950,14 +4050,14 @@ func file_c1_storage_v3_records_proto_init() {
 	}
 	file_c1_storage_v3_options_proto_init()
 	file_c1_storage_v3_refs_proto_init()
-	file_c1_storage_v3_records_proto_msgTypes[13].OneofWrappers = []any{}
+	file_c1_storage_v3_records_proto_msgTypes[19].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_storage_v3_records_proto_rawDesc), len(file_c1_storage_v3_records_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   22,
+			NumMessages:   33,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
