@@ -1,0 +1,17 @@
+# This file is managed by baton-admin. DO NOT EDIT!!!
+name: Verify
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  push:
+    branches:
+      - main
+
+jobs:
+  verify:
+    uses: ConductorOne/github-workflows/.github/workflows/verify.yaml@v4
+    with:
+      ref: ${{ github.event.pull_request.head.sha || github.sha }}
+    secrets:
+      RELENG_GITHUB_TOKEN: ${{ secrets.RELENG_GITHUB_TOKEN }}
