@@ -133,6 +133,8 @@ message Task {
     connector.v2.CredentialIssueOptions credential_options = 2;
     repeated connector.v2.EncryptionConfig encryption_configs = 3;
     google.protobuf.Timestamp expires_at = 4;
+    // Values for the selected credential descriptor's request_schema.
+    google.protobuf.Struct request_data = 5;
   }
 
   message CreateTicketTask {

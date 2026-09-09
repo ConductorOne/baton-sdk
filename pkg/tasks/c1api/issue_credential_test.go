@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -67,6 +68,22 @@ func TestIssueCredentialTaskHandler(t *testing.T) {
 		require.NoError(t, newIssueCredentialTaskHandler(task, helpers).HandleTask(context.Background()))
 		require.Equal(t, "task-123", client.request.GetRequestId())
 		require.Same(t, response, helpers.response)
+	})
+
+	t.Run("forwards typed request data", func(t *testing.T) {
+		response := v2.IssueCredentialResponse_builder{RequestId: "task-123"}.Build()
+		client := &issueCredentialClient{response: response}
+		helpers := &issueCredentialTestHelpers{client: client}
+		task := issueCredentialTask()
+		requestData, err := structpb.NewStruct(map[string]any{
+			"region":      "us-east-1",
+			"ttl_seconds": float64(300),
+		})
+		require.NoError(t, err)
+		task.GetIssueCredential().SetRequestData(requestData)
+
+		require.NoError(t, newIssueCredentialTaskHandler(task, helpers).HandleTask(context.Background()))
+		require.True(t, proto.Equal(requestData, client.request.GetRequestData()))
 	})
 
 	t.Run("rejects malformed task before connector call", func(t *testing.T) {

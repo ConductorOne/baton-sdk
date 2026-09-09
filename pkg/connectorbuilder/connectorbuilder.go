@@ -550,6 +550,9 @@ func validateCredentialIssueCapabilityDetails(issue *v2.CredentialDetailsCredent
 		if err := validateCredentialIssueDescriptorShape(descriptor); err != nil {
 			return status.Errorf(codes.InvalidArgument, "invalid credential issue option %s: %v", descriptor.GetOption(), err)
 		}
+		if err := ValidateCredentialIssueRequestSchema(descriptor.GetRequestSchema()); err != nil {
+			return status.Errorf(codes.InvalidArgument, "invalid credential issue option %s request schema: %v", descriptor.GetOption(), err)
+		}
 		for _, profile := range descriptor.GetKeyProfiles() {
 			if err := validateKeyGenerationProfile(profile); err != nil {
 				return status.Errorf(codes.InvalidArgument, "invalid credential issue key profile: %v", err)

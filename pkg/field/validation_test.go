@@ -7,6 +7,7 @@ import (
 	v1_conf "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func fieldsPresent(fieldNames ...string) map[string]string {
@@ -309,6 +310,11 @@ func TestIntRules_Validate(t *testing.T) {
 		err := run(60, v1_conf.Int64Rules_builder{NotIn: []int64{60, 70, 80, 90, 100}}.Build())
 		require.EqualError(t, err, "field TestField: value must not be one of [60 70 80 90 100] but got 60")
 	})
+}
+
+func TestValidateInt64RulesDoesNotNarrowToPlatformInt(t *testing.T) {
+	rules := v1_conf.Int64Rules_builder{Eq: proto.Int64(1 << 40)}.Build()
+	require.NoError(t, ValidateInt64Rules(rules, 1<<40, "large"))
 }
 
 func TestStringRules_Validate(t *testing.T) {

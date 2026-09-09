@@ -3882,6 +3882,7 @@ type Task_IssueCredentialTask struct {
 	xxx_hidden_CredentialOptions *v2.CredentialIssueOptions `protobuf:"bytes,2,opt,name=credential_options,json=credentialOptions,proto3"`
 	xxx_hidden_EncryptionConfigs *[]*v2.EncryptionConfig    `protobuf:"bytes,3,rep,name=encryption_configs,json=encryptionConfigs,proto3"`
 	xxx_hidden_ExpiresAt         *timestamppb.Timestamp     `protobuf:"bytes,4,opt,name=expires_at,json=expiresAt,proto3"`
+	xxx_hidden_RequestData       *structpb.Struct           `protobuf:"bytes,5,opt,name=request_data,json=requestData,proto3"`
 	unknownFields                protoimpl.UnknownFields
 	sizeCache                    protoimpl.SizeCache
 }
@@ -3941,6 +3942,13 @@ func (x *Task_IssueCredentialTask) GetExpiresAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *Task_IssueCredentialTask) GetRequestData() *structpb.Struct {
+	if x != nil {
+		return x.xxx_hidden_RequestData
+	}
+	return nil
+}
+
 func (x *Task_IssueCredentialTask) SetIdentityId(v *v2.ResourceId) {
 	x.xxx_hidden_IdentityId = v
 }
@@ -3955,6 +3963,10 @@ func (x *Task_IssueCredentialTask) SetEncryptionConfigs(v []*v2.EncryptionConfig
 
 func (x *Task_IssueCredentialTask) SetExpiresAt(v *timestamppb.Timestamp) {
 	x.xxx_hidden_ExpiresAt = v
+}
+
+func (x *Task_IssueCredentialTask) SetRequestData(v *structpb.Struct) {
+	x.xxx_hidden_RequestData = v
 }
 
 func (x *Task_IssueCredentialTask) HasIdentityId() bool {
@@ -3978,6 +3990,13 @@ func (x *Task_IssueCredentialTask) HasExpiresAt() bool {
 	return x.xxx_hidden_ExpiresAt != nil
 }
 
+func (x *Task_IssueCredentialTask) HasRequestData() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_RequestData != nil
+}
+
 func (x *Task_IssueCredentialTask) ClearIdentityId() {
 	x.xxx_hidden_IdentityId = nil
 }
@@ -3990,6 +4009,10 @@ func (x *Task_IssueCredentialTask) ClearExpiresAt() {
 	x.xxx_hidden_ExpiresAt = nil
 }
 
+func (x *Task_IssueCredentialTask) ClearRequestData() {
+	x.xxx_hidden_RequestData = nil
+}
+
 type Task_IssueCredentialTask_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -3997,6 +4020,8 @@ type Task_IssueCredentialTask_builder struct {
 	CredentialOptions *v2.CredentialIssueOptions
 	EncryptionConfigs []*v2.EncryptionConfig
 	ExpiresAt         *timestamppb.Timestamp
+	// Values for the selected credential descriptor's request_schema.
+	RequestData *structpb.Struct
 }
 
 func (b0 Task_IssueCredentialTask_builder) Build() *Task_IssueCredentialTask {
@@ -4007,6 +4032,7 @@ func (b0 Task_IssueCredentialTask_builder) Build() *Task_IssueCredentialTask {
 	x.xxx_hidden_CredentialOptions = b.CredentialOptions
 	x.xxx_hidden_EncryptionConfigs = &b.EncryptionConfigs
 	x.xxx_hidden_ExpiresAt = b.ExpiresAt
+	x.xxx_hidden_RequestData = b.RequestData
 	return m0
 }
 
@@ -5607,7 +5633,7 @@ var File_c1_connectorapi_baton_v1_baton_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\n" +
-	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\x921\n" +
+	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\xce1\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12=\n" +
 	"\x06status\x18\x02 \x01(\x0e2%.c1.connectorapi.baton.v1.Task.StatusR\x06status\x12=\n" +
@@ -5688,14 +5714,15 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\vresource_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\n" +
 	"resourceId\x12Q\n" +
 	"\x12credential_options\x18\x02 \x01(\v2\".c1.connector.v2.CredentialOptionsR\x11credentialOptions\x12P\n" +
-	"\x12encryption_configs\x18\x03 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigs\x1a\xb8\x02\n" +
+	"\x12encryption_configs\x18\x03 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigs\x1a\xf4\x02\n" +
 	"\x13IssueCredentialTask\x12<\n" +
 	"\videntity_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\n" +
 	"identityId\x12V\n" +
 	"\x12credential_options\x18\x02 \x01(\v2'.c1.connector.v2.CredentialIssueOptionsR\x11credentialOptions\x12P\n" +
 	"\x12encryption_configs\x18\x03 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigs\x129\n" +
 	"\n" +
-	"expires_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x1a\xd5\x01\n" +
+	"expires_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12:\n" +
+	"\frequest_data\x18\x05 \x01(\v2\x17.google.protobuf.StructR\vrequestData\x1a\xd5\x01\n" +
 	"\x10CreateTicketTask\x12E\n" +
 	"\x0eticket_request\x18\x01 \x01(\v2\x1e.c1.connector.v2.TicketRequestR\rticketRequest\x12B\n" +
 	"\rticket_schema\x18\x02 \x01(\v2\x1d.c1.connector.v2.TicketSchemaR\fticketSchema\x126\n" +
@@ -5910,9 +5937,9 @@ var file_c1_connectorapi_baton_v1_baton_proto_goTypes = []any{
 	(*v2.EncryptionConfig)(nil),                           // 58: c1.connector.v2.EncryptionConfig
 	(*v2.ResourceId)(nil),                                 // 59: c1.connector.v2.ResourceId
 	(*v2.CredentialIssueOptions)(nil),                     // 60: c1.connector.v2.CredentialIssueOptions
-	(*v2.TicketRequest)(nil),                              // 61: c1.connector.v2.TicketRequest
-	(*v2.TicketSchema)(nil),                               // 62: c1.connector.v2.TicketSchema
-	(*structpb.Struct)(nil),                               // 63: google.protobuf.Struct
+	(*structpb.Struct)(nil),                               // 61: google.protobuf.Struct
+	(*v2.TicketRequest)(nil),                              // 62: c1.connector.v2.TicketRequest
+	(*v2.TicketSchema)(nil),                               // 63: c1.connector.v2.TicketSchema
 }
 var file_c1_connectorapi_baton_v1_baton_proto_depIdxs = []int32{
 	0,   // 0: c1.connectorapi.baton.v1.Task.status:type_name -> c1.connectorapi.baton.v1.Task.Status
@@ -5992,46 +6019,47 @@ var file_c1_connectorapi_baton_v1_baton_proto_depIdxs = []int32{
 	60,  // 74: c1.connectorapi.baton.v1.Task.IssueCredentialTask.credential_options:type_name -> c1.connector.v2.CredentialIssueOptions
 	58,  // 75: c1.connectorapi.baton.v1.Task.IssueCredentialTask.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
 	53,  // 76: c1.connectorapi.baton.v1.Task.IssueCredentialTask.expires_at:type_name -> google.protobuf.Timestamp
-	61,  // 77: c1.connectorapi.baton.v1.Task.CreateTicketTask.ticket_request:type_name -> c1.connector.v2.TicketRequest
-	62,  // 78: c1.connectorapi.baton.v1.Task.CreateTicketTask.ticket_schema:type_name -> c1.connector.v2.TicketSchema
-	49,  // 79: c1.connectorapi.baton.v1.Task.CreateTicketTask.annotations:type_name -> google.protobuf.Any
-	29,  // 80: c1.connectorapi.baton.v1.Task.BulkCreateTicketsTask.ticket_requests:type_name -> c1.connectorapi.baton.v1.Task.CreateTicketTask
-	33,  // 81: c1.connectorapi.baton.v1.Task.BulkGetTicketsTask.ticket_requests:type_name -> c1.connectorapi.baton.v1.Task.GetTicketTask
-	49,  // 82: c1.connectorapi.baton.v1.Task.ListTicketSchemasTask.annotations:type_name -> google.protobuf.Any
-	49,  // 83: c1.connectorapi.baton.v1.Task.GetTicketTask.annotations:type_name -> google.protobuf.Any
-	49,  // 84: c1.connectorapi.baton.v1.Task.ActionListSchemasTask.annotations:type_name -> google.protobuf.Any
-	49,  // 85: c1.connectorapi.baton.v1.Task.ActionGetSchemaTask.annotations:type_name -> google.protobuf.Any
-	63,  // 86: c1.connectorapi.baton.v1.Task.ActionInvokeTask.args:type_name -> google.protobuf.Struct
-	49,  // 87: c1.connectorapi.baton.v1.Task.ActionInvokeTask.annotations:type_name -> google.protobuf.Any
-	49,  // 88: c1.connectorapi.baton.v1.Task.ActionStatusTask.annotations:type_name -> google.protobuf.Any
-	49,  // 89: c1.connectorapi.baton.v1.Task.CreateSyncDiffTask.annotations:type_name -> google.protobuf.Any
-	40,  // 90: c1.connectorapi.baton.v1.Task.CompactSyncs.compactable_syncs:type_name -> c1.connectorapi.baton.v1.Task.CompactSyncs.CompactableSync
-	49,  // 91: c1.connectorapi.baton.v1.Task.CompactSyncs.annotations:type_name -> google.protobuf.Any
-	49,  // 92: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadMetadata.annotations:type_name -> google.protobuf.Any
-	49,  // 93: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadEOF.annotations:type_name -> google.protobuf.Any
-	49,  // 94: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error.annotations:type_name -> google.protobuf.Any
-	49,  // 95: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error.response:type_name -> google.protobuf.Any
-	49,  // 96: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success.annotations:type_name -> google.protobuf.Any
-	49,  // 97: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success.response:type_name -> google.protobuf.Any
-	2,   // 98: c1.connectorapi.baton.v1.BatonService.Hello:input_type -> c1.connectorapi.baton.v1.BatonServiceHelloRequest
-	4,   // 99: c1.connectorapi.baton.v1.BatonService.GetTask:input_type -> c1.connectorapi.baton.v1.BatonServiceGetTaskRequest
-	5,   // 100: c1.connectorapi.baton.v1.BatonService.GetTasks:input_type -> c1.connectorapi.baton.v1.BatonServiceGetTasksRequest
-	8,   // 101: c1.connectorapi.baton.v1.BatonService.Heartbeat:input_type -> c1.connectorapi.baton.v1.BatonServiceHeartbeatRequest
-	12,  // 102: c1.connectorapi.baton.v1.BatonService.FinishTask:input_type -> c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest
-	10,  // 103: c1.connectorapi.baton.v1.BatonService.UploadAsset:input_type -> c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest
-	14,  // 104: c1.connectorapi.baton.v1.BatonService.StartDebugging:input_type -> c1.connectorapi.baton.v1.StartDebuggingRequest
-	3,   // 105: c1.connectorapi.baton.v1.BatonService.Hello:output_type -> c1.connectorapi.baton.v1.BatonServiceHelloResponse
-	7,   // 106: c1.connectorapi.baton.v1.BatonService.GetTask:output_type -> c1.connectorapi.baton.v1.BatonServiceGetTaskResponse
-	6,   // 107: c1.connectorapi.baton.v1.BatonService.GetTasks:output_type -> c1.connectorapi.baton.v1.BatonServiceGetTasksResponse
-	9,   // 108: c1.connectorapi.baton.v1.BatonService.Heartbeat:output_type -> c1.connectorapi.baton.v1.BatonServiceHeartbeatResponse
-	13,  // 109: c1.connectorapi.baton.v1.BatonService.FinishTask:output_type -> c1.connectorapi.baton.v1.BatonServiceFinishTaskResponse
-	11,  // 110: c1.connectorapi.baton.v1.BatonService.UploadAsset:output_type -> c1.connectorapi.baton.v1.BatonServiceUploadAssetResponse
-	15,  // 111: c1.connectorapi.baton.v1.BatonService.StartDebugging:output_type -> c1.connectorapi.baton.v1.StartDebuggingResponse
-	105, // [105:112] is the sub-list for method output_type
-	98,  // [98:105] is the sub-list for method input_type
-	98,  // [98:98] is the sub-list for extension type_name
-	98,  // [98:98] is the sub-list for extension extendee
-	0,   // [0:98] is the sub-list for field type_name
+	61,  // 77: c1.connectorapi.baton.v1.Task.IssueCredentialTask.request_data:type_name -> google.protobuf.Struct
+	62,  // 78: c1.connectorapi.baton.v1.Task.CreateTicketTask.ticket_request:type_name -> c1.connector.v2.TicketRequest
+	63,  // 79: c1.connectorapi.baton.v1.Task.CreateTicketTask.ticket_schema:type_name -> c1.connector.v2.TicketSchema
+	49,  // 80: c1.connectorapi.baton.v1.Task.CreateTicketTask.annotations:type_name -> google.protobuf.Any
+	29,  // 81: c1.connectorapi.baton.v1.Task.BulkCreateTicketsTask.ticket_requests:type_name -> c1.connectorapi.baton.v1.Task.CreateTicketTask
+	33,  // 82: c1.connectorapi.baton.v1.Task.BulkGetTicketsTask.ticket_requests:type_name -> c1.connectorapi.baton.v1.Task.GetTicketTask
+	49,  // 83: c1.connectorapi.baton.v1.Task.ListTicketSchemasTask.annotations:type_name -> google.protobuf.Any
+	49,  // 84: c1.connectorapi.baton.v1.Task.GetTicketTask.annotations:type_name -> google.protobuf.Any
+	49,  // 85: c1.connectorapi.baton.v1.Task.ActionListSchemasTask.annotations:type_name -> google.protobuf.Any
+	49,  // 86: c1.connectorapi.baton.v1.Task.ActionGetSchemaTask.annotations:type_name -> google.protobuf.Any
+	61,  // 87: c1.connectorapi.baton.v1.Task.ActionInvokeTask.args:type_name -> google.protobuf.Struct
+	49,  // 88: c1.connectorapi.baton.v1.Task.ActionInvokeTask.annotations:type_name -> google.protobuf.Any
+	49,  // 89: c1.connectorapi.baton.v1.Task.ActionStatusTask.annotations:type_name -> google.protobuf.Any
+	49,  // 90: c1.connectorapi.baton.v1.Task.CreateSyncDiffTask.annotations:type_name -> google.protobuf.Any
+	40,  // 91: c1.connectorapi.baton.v1.Task.CompactSyncs.compactable_syncs:type_name -> c1.connectorapi.baton.v1.Task.CompactSyncs.CompactableSync
+	49,  // 92: c1.connectorapi.baton.v1.Task.CompactSyncs.annotations:type_name -> google.protobuf.Any
+	49,  // 93: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadMetadata.annotations:type_name -> google.protobuf.Any
+	49,  // 94: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadEOF.annotations:type_name -> google.protobuf.Any
+	49,  // 95: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error.annotations:type_name -> google.protobuf.Any
+	49,  // 96: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error.response:type_name -> google.protobuf.Any
+	49,  // 97: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success.annotations:type_name -> google.protobuf.Any
+	49,  // 98: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success.response:type_name -> google.protobuf.Any
+	2,   // 99: c1.connectorapi.baton.v1.BatonService.Hello:input_type -> c1.connectorapi.baton.v1.BatonServiceHelloRequest
+	4,   // 100: c1.connectorapi.baton.v1.BatonService.GetTask:input_type -> c1.connectorapi.baton.v1.BatonServiceGetTaskRequest
+	5,   // 101: c1.connectorapi.baton.v1.BatonService.GetTasks:input_type -> c1.connectorapi.baton.v1.BatonServiceGetTasksRequest
+	8,   // 102: c1.connectorapi.baton.v1.BatonService.Heartbeat:input_type -> c1.connectorapi.baton.v1.BatonServiceHeartbeatRequest
+	12,  // 103: c1.connectorapi.baton.v1.BatonService.FinishTask:input_type -> c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest
+	10,  // 104: c1.connectorapi.baton.v1.BatonService.UploadAsset:input_type -> c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest
+	14,  // 105: c1.connectorapi.baton.v1.BatonService.StartDebugging:input_type -> c1.connectorapi.baton.v1.StartDebuggingRequest
+	3,   // 106: c1.connectorapi.baton.v1.BatonService.Hello:output_type -> c1.connectorapi.baton.v1.BatonServiceHelloResponse
+	7,   // 107: c1.connectorapi.baton.v1.BatonService.GetTask:output_type -> c1.connectorapi.baton.v1.BatonServiceGetTaskResponse
+	6,   // 108: c1.connectorapi.baton.v1.BatonService.GetTasks:output_type -> c1.connectorapi.baton.v1.BatonServiceGetTasksResponse
+	9,   // 109: c1.connectorapi.baton.v1.BatonService.Heartbeat:output_type -> c1.connectorapi.baton.v1.BatonServiceHeartbeatResponse
+	13,  // 110: c1.connectorapi.baton.v1.BatonService.FinishTask:output_type -> c1.connectorapi.baton.v1.BatonServiceFinishTaskResponse
+	11,  // 111: c1.connectorapi.baton.v1.BatonService.UploadAsset:output_type -> c1.connectorapi.baton.v1.BatonServiceUploadAssetResponse
+	15,  // 112: c1.connectorapi.baton.v1.BatonService.StartDebugging:output_type -> c1.connectorapi.baton.v1.StartDebuggingResponse
+	106, // [106:113] is the sub-list for method output_type
+	99,  // [99:106] is the sub-list for method input_type
+	99,  // [99:99] is the sub-list for extension type_name
+	99,  // [99:99] is the sub-list for extension extendee
+	0,   // [0:99] is the sub-list for field type_name
 }
 
 func init() { file_c1_connectorapi_baton_v1_baton_proto_init() }
