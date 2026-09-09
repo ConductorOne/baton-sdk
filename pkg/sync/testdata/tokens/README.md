@@ -10,14 +10,13 @@ Two kinds of file live here:
 - **Recorded output** — built as a `state` through the package API and
   recorded from `Marshal()`. To reproduce one, construct the same state in
   a scratch test in `package sync` and log `Marshal()`; the fixture is that
-  line verbatim. `v1_inline_graph.json` is the one recorded under a
-  non-default option: it comes from the opt-in inline-graph writer
-  (`WithEntitlementGraphInCheckpoints`), not the default one.
+  line verbatim.
 - **Hand-authored input** — bytes no current writer can produce, so they
   are edited by hand; the partner file is recorded from `Marshal()`. These
   are every `v0_*.json`, `v3_future_version.json` (a version this SDK does
-  not recognize) and `v1_unknown_op.json` (a newer writer's operation
-  string).
+  not recognize), `v1_unknown_op.json` (a newer writer's operation string)
+  and `v1_inline_graph.json` (an SDK that still serialized the graph into
+  the token, which no writer has done since CXE-1376).
 
 There is deliberately no `-update` flag. These bytes are a compatibility
 surface rather than golden output: rewriting them from the current
@@ -47,8 +46,8 @@ refactor.
 | `v1_facts_all.json` | All five facts together. |
 | `v1_run_stats.json` | `step_durations_ms`, `connector_call_stats` (recorded and merged), `session_store_stats` (including `errors`/`timeouts`), a fully populated `ingest_quality`. |
 | `v1_compaction.json` | The `compaction` provenance block written by `BuildCompactedToken`, with partial timings folded into the top-level stat maps. |
-| `v1_inline_graph.json` | An inline `entitlement_graph` (4 nodes, 3 edges, one expanded, one shallow, one with a nil resource-type filter) travelling with a live `grant-expansion` page token. Written by the opt-in inline-graph writer. |
-| `v1_inline_graph.dropped.json` | The same token read back by the default writer: graph dropped, `grant-expansion` page token blanked. |
+| `v1_inline_graph.json` | An inline `entitlement_graph` (4 nodes, 3 edges, one expanded, one shallow, one with a nil resource-type filter) travelling with a live `grant-expansion` page token. Hand-authored: no writer has produced this shape since CXE-1376 removed the inline-graph writer. |
+| `v1_inline_graph.dropped.json` | The same token re-encoded by the current writer: graph dropped, `grant-expansion` page token blanked. |
 | `v0_current_action.json` → `.expected.json` | V0 with `current_action` present: the current action is appended last and gets the highest id. |
 | `v0_no_current_action.json` → `.expected.json` | V0 with `current_action` absent, carrying the three skip/fetch facts and a nonzero `completed_actions_count`. |
 | `v0_empty_object.json` → `.expected.json` | `{}` — no `version`, so the V1 parse is rejected and the V0 parser produces an empty V1 token. |

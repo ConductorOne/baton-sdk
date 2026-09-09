@@ -18,12 +18,11 @@ func TestGraphFromToken(t *testing.T) {
 	g.AddEntitlementID("eng:member")
 	require.NoError(t, g.AddEdge(ctx, "eng:manager", "eng:member", false, nil))
 
-	// Opt in to the legacy inline-graph token shape. New checkpoints omit the
-	// graph by default, but readers must remain compatible with older tokens.
-	st := newState(withCheckpointEntitlementGraph(true))
+	// Hand-build the legacy inline-graph token shape. Checkpoints no longer
+	// carry the graph, but readers must remain compatible with older tokens.
+	st := newState()
 	st.entitlementGraph = g
-	token, err := st.Marshal()
-	require.NoError(t, err)
+	token := marshalLegacyInlineGraphToken(t, st)
 
 	loaded, err := GraphFromToken(token)
 	require.NoError(t, err)
@@ -59,12 +58,11 @@ func TestPrepareExpansionReplayToken_ClearsPreservedGraph(t *testing.T) {
 	g.MarkEdgeExpanded("eng:manager", "eng:member")
 	g.Loaded = true
 
-	// Build the legacy inline-graph token shape so replay compatibility is
-	// exercised even though new checkpoints omit graphs by default.
-	st := newState(withCheckpointEntitlementGraph(true))
+	// Hand-build the legacy inline-graph token shape so replay compatibility
+	// is exercised even though checkpoints no longer carry graphs.
+	st := newState()
 	st.entitlementGraph = g
-	token, err := st.Marshal()
-	require.NoError(t, err)
+	token := marshalLegacyInlineGraphToken(t, st)
 	// Sanity: the token really does carry a graph.
 	pre, err := GraphFromToken(token)
 	require.NoError(t, err)
