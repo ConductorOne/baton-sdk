@@ -9,13 +9,14 @@ Two kinds of file live here:
 - **Recorded output** — built as a `state` through the package API and
   recorded from `Marshal()`. To reproduce one, construct the same state in
   a scratch test in `package sync` and log `Marshal()`; the fixture is that
-  line verbatim.
+  line verbatim. `v1_inline_graph.json` is the one recorded under a
+  non-default option: it comes from the opt-in inline-graph writer
+  (`WithEntitlementGraphInCheckpoints`), not the default one.
 - **Hand-authored input** — bytes no current writer can produce, so they
-  are edited by hand and only their `.expected.json` partner is recorded
-  from `Marshal()`. These are every `v0_*.json`, `v3_future_version.json`,
-  `v1_unknown_op.json` (a newer writer's operation string) and
-  `v1_inline_graph.json` (a writer that predates the graph's removal from
-  checkpoints).
+  are edited by hand; the partner file is recorded from `Marshal()`. These
+  are every `v0_*.json`, `v3_future_version.json` (a version this SDK does
+  not recognize) and `v1_unknown_op.json` (a newer writer's operation
+  string).
 
 There is deliberately no `-update` flag. These bytes are a compatibility
 surface rather than golden output: rewriting them from the current
