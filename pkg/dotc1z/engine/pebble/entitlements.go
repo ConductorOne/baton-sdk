@@ -8,6 +8,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // PutEntitlementRecord writes an entitlement + its by_resource index.
@@ -50,63 +51,8 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 		defer priBatch.Close()
 
 		fresh := e.IsFreshSync()
-		skipGet := e.takeFreshEntitlementsEmpty()
-
-		type dedupKey struct {
-			id entitlementIdentity
-		}
-		var dedup map[dedupKey]int
-		if len(records) > 1 {
-			dedup = make(map[dedupKey]int, len(records))
-			for i, r := range records {
-				if r == nil {
-					continue
-				}
-				id, err := entitlementIdentityFromRecord(r)
-				if err != nil {
-					return err
-				}
-				dedup[dedupKey{id}] = i
-			}
-		}
-
-		for i, r := range records {
-			if r == nil {
-				continue
-			}
-			id, err := entitlementIdentityFromRecord(r)
-			if err != nil {
-				return err
-			}
-			if dedup != nil {
-				if dedup[dedupKey{id}] != i {
-					continue
-				}
-			}
-			key := encodeEntitlementIdentityKey(id)
-			val, err := marshalRecord(r)
-			if err != nil {
-				return err
-			}
-			if skipGet || !e.db.SourceScopeMayExist() {
-				if err := priBatch.StageEntitlementPut(key, val, nil); err != nil {
-					return err
-				}
-				continue
-			}
-			oldVal, closer, getErr := e.db.Get(key)
-			switch {
-			case getErr == nil:
-				err = priBatch.StageEntitlementPut(key, val, oldVal)
-				closer.Close()
-			case errors.Is(getErr, pebble.ErrNotFound):
-				err = priBatch.StageEntitlementPut(key, val, nil)
-			default:
-				return fmt.Errorf("PutEntitlementRecords: get old: %w", getErr)
-			}
-			if err != nil {
-				return err
-			}
+		if err := e.stageEntitlementRecords(priBatch, records); err != nil {
+			return err
 		}
 		opts := writeOpts(e.opts.durability)
 		if fresh {
@@ -118,6 +64,76 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 		e.noteEntitlementKeyspaceWrite()
 		return nil
 	})
+}
+
+// stageEntitlementRecords stages records (with within-call dedup and
+// the source-scope-gated read-before-write) into batch. Caller holds
+// the write barrier and has checked requireCurrentSync; the caller
+// commits and then calls noteEntitlementKeyspaceWrite. Shared by
+// PutEntitlementRecords and the page unit's commit.
+func (e *Engine) stageEntitlementRecords(batch *rawdb.RecordBatch, records []*v3.EntitlementRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	skipGet := e.takeFreshEntitlementsEmpty()
+
+	type dedupKey struct {
+		id entitlementIdentity
+	}
+	var dedup map[dedupKey]int
+	if len(records) > 1 {
+		dedup = make(map[dedupKey]int, len(records))
+		for i, r := range records {
+			if r == nil {
+				continue
+			}
+			id, err := entitlementIdentityFromRecord(r)
+			if err != nil {
+				return err
+			}
+			dedup[dedupKey{id}] = i
+		}
+	}
+
+	for i, r := range records {
+		if r == nil {
+			continue
+		}
+		id, err := entitlementIdentityFromRecord(r)
+		if err != nil {
+			return err
+		}
+		if dedup != nil {
+			if dedup[dedupKey{id}] != i {
+				continue
+			}
+		}
+		key := encodeEntitlementIdentityKey(id)
+		val, err := marshalRecord(r)
+		if err != nil {
+			return err
+		}
+		if skipGet || !e.db.SourceScopeMayExist() {
+			if err := batch.StageEntitlementPut(key, val, nil); err != nil {
+				return err
+			}
+			continue
+		}
+		oldVal, closer, getErr := e.db.Get(key)
+		switch {
+		case getErr == nil:
+			err = batch.StageEntitlementPut(key, val, oldVal)
+			closer.Close()
+		case errors.Is(getErr, pebble.ErrNotFound):
+			err = batch.StageEntitlementPut(key, val, nil)
+		default:
+			return fmt.Errorf("PutEntitlementRecords: get old: %w", getErr)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // GetEntitlementRecord fetches an entitlement by its raw public id via the

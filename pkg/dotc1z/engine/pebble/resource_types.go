@@ -8,6 +8,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // PutResourceTypeRecord writes a resource_type record. No secondary
@@ -32,18 +33,8 @@ func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.Reso
 		batch := e.db.NewRecordBatch()
 		defer batch.Close()
 		fresh := e.IsFreshSync()
-		for _, r := range records {
-			if r == nil {
-				continue
-			}
-			key := encodeResourceTypeKey(r.GetExternalId())
-			val, err := marshalRecord(r)
-			if err != nil {
-				return err
-			}
-			if err := batch.StageResourceTypePut(key, val); err != nil {
-				return err
-			}
+		if err := stageResourceTypeRecords(batch, records); err != nil {
+			return err
 		}
 		opts := writeOpts(e.opts.durability)
 		if fresh {
@@ -51,6 +42,25 @@ func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.Reso
 		}
 		return batch.Commit(opts)
 	})
+}
+
+// stageResourceTypeRecords stages records into batch. Shared by
+// PutResourceTypeRecords and the page unit's commit.
+func stageResourceTypeRecords(batch *rawdb.RecordBatch, records []*v3.ResourceTypeRecord) error {
+	for _, r := range records {
+		if r == nil {
+			continue
+		}
+		key := encodeResourceTypeKey(r.GetExternalId())
+		val, err := marshalRecord(r)
+		if err != nil {
+			return err
+		}
+		if err := batch.StageResourceTypePut(key, val); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (e *Engine) GetResourceTypeRecord(ctx context.Context, externalID string) (*v3.ResourceTypeRecord, error) {

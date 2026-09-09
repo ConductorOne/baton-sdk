@@ -82,78 +82,8 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		defer batch.Close()
 
 		fresh := e.IsFreshSync()
-		// skipGet fires exactly once per fresh sync — only the first
-		// PutGrantRecords call sees the keyspace empty by construction.
-		// Subsequent calls in the same fresh sync still need
-		// read-before-write to clean up index entries that the prior
-		// in-sync calls already committed (e.g. paginated sources
-		// emitting an external_id on two pages).
-		skipGet := e.takeFreshGrantsEmpty()
-
-		// Dedup pre-pass: keep only the LAST occurrence of each
-		// structured grant identity. The map value is the records[]
-		// index — when we re-iterate, we process record i only if
-		// dedup[ext] == i.
-		type dedupKey struct {
-			id grantIdentity
-		}
-		var dedup map[dedupKey]int
-		if len(records) > 1 {
-			dedup = make(map[dedupKey]int, len(records))
-			for i, r := range records {
-				if r == nil {
-					continue
-				}
-				id, err := grantIdentityFromRecord(r)
-				if err != nil {
-					return err
-				}
-				dedup[dedupKey{id}] = i
-			}
-		}
-
-		for i, r := range records {
-			if r == nil {
-				continue
-			}
-			id, err := grantIdentityFromRecord(r)
-			if err != nil {
-				return err
-			}
-			if dedup != nil {
-				if dedup[dedupKey{id}] != i {
-					continue
-				}
-			}
-			key := encodeGrantIdentityKey(id)
-			val, err := marshalRecord(r)
-			if err != nil {
-				return err
-			}
-			// One typed op stages the row and everything it owes:
-			// prior-row index cleanup, by_principal, needs_expansion,
-			// digest invalidation. Index keys derive from the primary
-			// key (identity-encoded); the prior value is retained only
-			// long enough to clean a changed source-scope index entry.
-			if skipGet {
-				if err := batch.StageGrantPutInline(key, val, nil, r.GetNeedsExpansion()); err != nil {
-					return err
-				}
-				continue
-			}
-			oldVal, closer, getErr := e.db.Get(key)
-			switch {
-			case getErr == nil:
-				err = batch.StageGrantPutInline(key, val, oldVal, r.GetNeedsExpansion())
-				closer.Close()
-			case errors.Is(getErr, pebble.ErrNotFound):
-				err = batch.StageGrantPutInline(key, val, nil, r.GetNeedsExpansion())
-			default:
-				return fmt.Errorf("PutGrantRecords: get old: %w", getErr)
-			}
-			if err != nil {
-				return err
-			}
+		if err := e.stageGrantRecords(batch, records); err != nil {
+			return err
 		}
 		opts := writeOpts(e.opts.durability)
 		if fresh {
@@ -164,6 +94,91 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		// without its index entries is unexpressible.
 		return batch.Commit(opts)
 	})
+}
+
+// stageGrantRecords stages records in the INLINE index regime (with
+// within-call dedup and the read-before-write overwrite probe) into
+// batch. Caller holds the write barrier and has checked
+// requireCurrentSync; the caller commits. Shared by PutGrantRecords and
+// the page unit's commit.
+func (e *Engine) stageGrantRecords(batch *rawdb.RecordBatch, records []*v3.GrantRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+	// skipGet fires exactly once per fresh sync — only the first
+	// grant-staging call sees the keyspace empty by construction.
+	// Subsequent calls in the same fresh sync still need
+	// read-before-write to clean up index entries that the prior
+	// in-sync calls already committed (e.g. paginated sources
+	// emitting an external_id on two pages).
+	skipGet := e.takeFreshGrantsEmpty()
+
+	// Dedup pre-pass: keep only the LAST occurrence of each
+	// structured grant identity. The map value is the records[]
+	// index — when we re-iterate, we process record i only if
+	// dedup[ext] == i.
+	type dedupKey struct {
+		id grantIdentity
+	}
+	var dedup map[dedupKey]int
+	if len(records) > 1 {
+		dedup = make(map[dedupKey]int, len(records))
+		for i, r := range records {
+			if r == nil {
+				continue
+			}
+			id, err := grantIdentityFromRecord(r)
+			if err != nil {
+				return err
+			}
+			dedup[dedupKey{id}] = i
+		}
+	}
+
+	for i, r := range records {
+		if r == nil {
+			continue
+		}
+		id, err := grantIdentityFromRecord(r)
+		if err != nil {
+			return err
+		}
+		if dedup != nil {
+			if dedup[dedupKey{id}] != i {
+				continue
+			}
+		}
+		key := encodeGrantIdentityKey(id)
+		val, err := marshalRecord(r)
+		if err != nil {
+			return err
+		}
+		// One typed op stages the row and everything it owes:
+		// prior-row index cleanup, by_principal, needs_expansion,
+		// digest invalidation. Index keys derive from the primary
+		// key (identity-encoded); the prior value is retained only
+		// long enough to clean a changed source-scope index entry.
+		if skipGet {
+			if err := batch.StageGrantPutInline(key, val, nil, r.GetNeedsExpansion()); err != nil {
+				return err
+			}
+			continue
+		}
+		oldVal, closer, getErr := e.db.Get(key)
+		switch {
+		case getErr == nil:
+			err = batch.StageGrantPutInline(key, val, oldVal, r.GetNeedsExpansion())
+			closer.Close()
+		case errors.Is(getErr, pebble.ErrNotFound):
+			err = batch.StageGrantPutInline(key, val, nil, r.GetNeedsExpansion())
+		default:
+			return fmt.Errorf("PutGrantRecords: get old: %w", getErr)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // PutExpandedGrantRecords is the grant-expander write path — the
