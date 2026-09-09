@@ -50,6 +50,11 @@ func goldenTokenCases() []goldenTokenCase {
 		{file: "empty.json"},
 		{file: "v1_init.json"},
 		{file: "v1_actions_multi.json"},
+		// An operation string this SDK does not know decodes to UnknownOp,
+		// which is 0, and `operation` is omitempty on a uint8 kind — so
+		// encoding/json drops the key before ActionOp.MarshalJSON can write
+		// "unknown". The action survives, still paginating, with no op.
+		{file: "v1_unknown_op.json", expected: "v1_unknown_op.expected.json"},
 		{file: "v2_type_scoped.json"},
 		{file: "v1_fact_needs_expansion.json", needsExpansion: true},
 		{file: "v1_fact_has_external_resource_grants.json"},
@@ -89,6 +94,18 @@ func goldenTokenCases() []goldenTokenCase {
 		{file: "v0_current_action.json", expected: "v0_current_action.expected.json", needsExpansion: true},
 		{file: "v0_no_current_action.json", expected: "v0_no_current_action.expected.json"},
 		{file: "v0_empty_object.json", expected: "v0_empty_object.expected.json"},
+		// An unrecognized version falls back to the V0 parser, which shares
+		// the fact and completed_actions_count keys with V1 but not
+		// actions_map / action_order. The facts and the count survive; the
+		// action stack and current_action_id are dropped. The graph is still
+		// decoded (entitlement_graph is a shared key), which is why this
+		// case expects one even though the re-encoded bytes carry none.
+		{
+			file:           "v3_future_version.json",
+			expected:       "v3_future_version.expected.json",
+			needsExpansion: true,
+			graph:          &goldenGraph{nodes: 2, edges: 1, nextNodeID: 2, nextEdgeID: 1, depth: 3, loaded: true},
+		},
 	}
 }
 
@@ -115,9 +132,13 @@ func TestGoldenTokenRoundTrip(t *testing.T) {
 				want = readGoldenToken(t, tc.expected)
 			}
 
-			// Encoding the same decoded token twice must produce the same
-			// bytes, or the byte comparison below would pass or fail on Go's
-			// randomized map iteration order rather than on the codec.
+			// One decode, two encodes: Marshal must be idempotent, so the
+			// byte comparison below reads the codec and not a side effect the
+			// first encode left on the state. Map key order is not the risk —
+			// encoding/json sorts map keys. Nor does this prove Marshal
+			// leaves the live state alone: blanking the expansion page token
+			// in place would still give two equal encodings.
+			// TestSyncerTokenOmitsEntitlementGraph asserts that.
 			first, second, err := goldenEncodeTwice(input, tc.inlineGraph)
 			require.NoError(t, err)
 			require.Equal(t, first, second, "two encodings of one decoded token differ")
