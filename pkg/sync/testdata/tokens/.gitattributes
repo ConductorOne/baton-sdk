@@ -1,0 +1,7 @@
+# These fixtures are the sync token's exact bytes, so git must not rewrite
+# their line endings in either direction. Without this, a checkout on Windows
+# (core.autocrlf defaults on, including on GitHub's windows-latest runners)
+# gets CRLF and every round-trip case compares against a trailing \r that no
+# writer emits. `text eol=lf` also normalizes on commit, so an editor that
+# saves CRLF cannot put one into the corpus.
+*.json text eol=lf

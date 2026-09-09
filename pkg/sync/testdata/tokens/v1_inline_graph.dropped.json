@@ -1,0 +1,1 @@
+{"actions_map":{"0000000000":{"id":"0000000000","operation":"grant-expansion"},"0000000001":{"id":"0000000001","operation":"list-resources","resource_type_id":"user"}},"action_order":["0000000000","0000000001"],"current_action_id":2,"needs_expansion":true,"completed_actions_count":8,"version":1}

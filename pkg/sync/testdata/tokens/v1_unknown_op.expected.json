@@ -1,0 +1,1 @@
+{"actions_map":{"0000000000":{"id":"0000000000","operation":"list-grants","resource_type_id":"group","resource_id":"g-1"},"0000000001":{"id":"0000000001","page_token":"sp-page-2","resource_type_id":"user"}},"action_order":["0000000000","0000000001"],"current_action_id":2,"completed_actions_count":3,"version":1}
