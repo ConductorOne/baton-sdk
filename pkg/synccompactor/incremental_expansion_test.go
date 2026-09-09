@@ -897,11 +897,10 @@ func TestCompactor_IncrementalDegradesGracefullyOnSQLite(t *testing.T) {
 	hasGrant(t, grants, "ent-c|user|sam")
 	hasGrant(t, grants, "ent-c|user|mandy")
 
-	// SQLite has no graph sidecar, so a preserved graph could never be read
-	// back — the only place it could land is the final sync token, as
-	// unreadable bloat. Pin that the final token carries no graph (enforced
-	// twice over: graph preservation is Pebble-gated in expandGrants, and
-	// state.Marshal drops the graph from tokens by default).
+	// SQLite has no graph sidecar, so a preserved graph would have nowhere to
+	// go. Pin that the final token carries no graph (enforced twice over:
+	// graph preservation is Pebble-gated in expandGrants, and state.Marshal
+	// drops the graph from every token it writes).
 	store, err := dotc1z.NewStore(ctx, out.FilePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
 	require.NoError(t, err)
 	defer store.Close(ctx)

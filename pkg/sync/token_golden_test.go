@@ -33,9 +33,6 @@ type goldenTokenCase struct {
 	// expected is the fixture the input must re-encode to. Empty means the
 	// input re-encodes to its own bytes.
 	expected string
-	// inlineGraph selects the writer option that serializes the entitlement
-	// graph into the token.
-	inlineGraph bool
 	// needsExpansion is what NeedsExpansion(input) returns.
 	needsExpansion bool
 	// graph is what GraphFromToken(input) returns; nil expects nil.
@@ -77,12 +74,6 @@ func goldenTokenCases() []goldenTokenCase {
 					"entitlements": {Output: 40},
 				},
 			},
-		},
-		{
-			file:           "v1_inline_graph.json",
-			inlineGraph:    true,
-			needsExpansion: true,
-			graph:          &goldenGraph{nodes: 4, edges: 3, nextNodeID: 4, nextEdgeID: 3, depth: 2, loaded: true},
 		},
 		{
 			file:           "v1_inline_graph.json",
@@ -144,7 +135,7 @@ func TestGoldenTokenRoundTrip(t *testing.T) {
 			// leaves the live state alone: blanking the expansion page token
 			// in place would still give two equal encodings.
 			// TestSyncerTokenOmitsEntitlementGraph asserts that.
-			first, second, err := goldenEncodeTwice(input, tc.inlineGraph)
+			first, second, err := goldenEncodeTwice(input)
 			require.NoError(t, err)
 			require.Equal(t, first, second, "two encodings of one decoded token differ")
 			require.Equal(t, want, first)
@@ -154,7 +145,7 @@ func TestGoldenTokenRoundTrip(t *testing.T) {
 				// checkpoint after the resume carries. If they did not
 				// re-encode to themselves the first checkpoint after a
 				// resume would differ from the second.
-				again, err := goldenDecodeEncode(want, tc.inlineGraph)
+				again, err := goldenDecodeEncode(want)
 				require.NoError(t, err)
 				require.Equal(t, want, again)
 			}

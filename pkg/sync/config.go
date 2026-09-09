@@ -56,18 +56,17 @@ type syncConfig struct {
 	// merge and soften hard arms to aggregated warnings. Distinct from
 	// onlyExpandGrants, which changes WHAT syncs and carries no
 	// invariant policy on its own.
-	compactionMergedStore      bool
-	targetedSyncResources      []*v2.Resource
-	onlyExpandGrants           bool
-	preserveEntitlementGraph   bool
-	dontExpandGrants           bool
-	checkpointEntitlementGraph bool
-	skipEntitlementsAndGrants  bool
-	skipGrants                 bool
-	syncType                   connectorstore.SyncType
-	setSessionStore            sessions.SetSessionStore
-	syncResourceTypes          []string
-	workerCount                int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
-	metricsHandler             metrics.Handler
-	syncIdentity               uotel.SyncIdentity
+	compactionMergedStore     bool
+	targetedSyncResources     []*v2.Resource
+	onlyExpandGrants          bool
+	preserveEntitlementGraph  bool
+	dontExpandGrants          bool
+	skipEntitlementsAndGrants bool
+	skipGrants                bool
+	syncType                  connectorstore.SyncType
+	setSessionStore           sessions.SetSessionStore
+	syncResourceTypes         []string
+	workerCount               int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
+	metricsHandler            metrics.Handler
+	syncIdentity              uotel.SyncIdentity
 }

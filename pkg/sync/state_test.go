@@ -418,9 +418,9 @@ func TestSyncTokenV0FromC1Z(t *testing.T) {
 // entitlement graph and a SyncGrantExpansionOp action paginating the load,
 // stacked on a non-expansion action whose own pagination must survive the
 // checkpoint normalization untouched.
-func buildLoadedGraphState(t *testing.T, ctx context.Context, pageToken string, opts ...stateOpt) *state {
+func buildLoadedGraphState(t *testing.T, ctx context.Context, pageToken string) *state {
 	t.Helper()
-	st := newState(opts...)
+	st := newState()
 
 	st.PushAction(ctx, Action{Op: SyncGrantsOp})
 	require.NoError(t, st.NextPage(ctx, st.Current().ID, "grants-p9"))
@@ -495,43 +495,6 @@ func TestSyncerTokenOmitsEntitlementGraph(t *testing.T) {
 	}
 }
 
-// WithEntitlementGraphInCheckpoints is the escape hatch for a tenant whose
-// expansion cannot finish within one worker lifetime. With it on, the graph and
-// the expansion pagination both stay in the token, so a resume continues the
-// load where it left off instead of restarting it.
-func TestSyncerTokenIncludesEntitlementGraphWhenEnabled(t *testing.T) {
-	ctx := t.Context()
-	st := buildLoadedGraphState(t, ctx, "page37", withCheckpointEntitlementGraph(true))
-
-	tokenString, err := st.Marshal()
-	require.NoError(t, err)
-	require.Contains(t, tokenString, `"entitlement_graph"`)
-
-	var raw serializedTokenV1
-	require.NoError(t, json.Unmarshal([]byte(tokenString), &raw))
-	require.NotNil(t, raw.EntitlementGraph)
-	// The graph and the page token that indexes it must travel together — a
-	// preserved page token against a dropped graph silently loses edges.
-	for _, a := range raw.ActionsMap {
-		if a.Op == SyncGrantExpansionOp {
-			require.Equal(t, "page37", a.PageToken, "expansion pagination must survive when the graph does")
-		}
-	}
-
-	// A resumed reader continues the load rather than restarting it, with the
-	// graph's contents intact.
-	resumed := newState()
-	require.NoError(t, resumed.Unmarshal(tokenString))
-	require.NotNil(t, resumed.entitlementGraph)
-	require.Equal(t, SyncGrantExpansionOp, resumed.Current().Op)
-	require.Equal(t, "page37", resumed.Current().PageToken)
-	require.Equal(t, 5, resumed.entitlementGraph.Depth)
-	require.Len(t, resumed.entitlementGraph.Nodes, len(st.entitlementGraph.Nodes))
-
-	// Default stays off, so one syncer's opt-in cannot leak into another's state.
-	require.False(t, newState().checkpointEntitlementGraph)
-}
-
 // Graph omission rewrites the serialized actions map, and the type-scoped
 // version stamp is computed from it. The rewrite must not drop the markers that
 // drive the stamp: a token that lands on version 1 while carrying them is
@@ -564,17 +527,21 @@ func TestSyncerTokenVersionStampSurvivesGraphOmission(t *testing.T) {
 	}
 }
 
-// The SyncOpt must actually reach the state that writes checkpoints; without
-// this the knob is inert and the OOM escape hatch does not exist.
-func TestWithEntitlementGraphInCheckpointsReachesState(t *testing.T) {
-	s := &syncer{}
-	require.False(t, s.cfg.checkpointEntitlementGraph)
-
-	WithEntitlementGraphInCheckpoints(true)(s)
-	require.True(t, s.cfg.checkpointEntitlementGraph)
-
-	st := newState(withCheckpointEntitlementGraph(s.cfg.checkpointEntitlementGraph))
-	require.True(t, st.checkpointEntitlementGraph)
+// marshalLegacyInlineGraphToken encodes st the way pre-omission SDKs did:
+// entitlement graph inline, expansion page token kept. No writer produces
+// this shape any more, so the reader tests build the bytes directly.
+func marshalLegacyInlineGraphToken(t *testing.T, st *state) string {
+	t.Helper()
+	legacy, err := json.Marshal(serializedTokenV1{
+		ActionsMap:       st.actions,
+		ActionOrder:      st.actionOrder,
+		CurrentActionID:  st.currentActionID,
+		NeedsExpansion:   st.needsExpansion,
+		EntitlementGraph: st.entitlementGraph,
+		Version:          StateTokenVersion,
+	})
+	require.NoError(t, err)
+	return string(legacy)
 }
 
 // Tokens written by older SDKs carry the graph inline. They must decode and
@@ -585,18 +552,10 @@ func TestSyncerTokenLegacyInlineGraphStillDecodes(t *testing.T) {
 	st.entitlementGraph.Loaded = true
 	st.entitlementGraph.HasNoCycles = true
 
-	// Serialize the way pre-omission SDKs did: graph inline, page token kept.
-	legacy, err := json.Marshal(serializedTokenV1{
-		ActionsMap:       st.actions,
-		ActionOrder:      st.actionOrder,
-		CurrentActionID:  st.currentActionID,
-		EntitlementGraph: st.entitlementGraph,
-		Version:          1,
-	})
-	require.NoError(t, err)
+	legacy := marshalLegacyInlineGraphToken(t, st)
 
 	resumed := newState()
-	require.NoError(t, resumed.Unmarshal(string(legacy)))
+	require.NoError(t, resumed.Unmarshal(legacy))
 
 	restored := resumed.entitlementGraph
 	require.NotNil(t, restored, "inline graph must be restored")

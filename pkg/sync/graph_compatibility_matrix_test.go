@@ -12,15 +12,14 @@ import (
 // TestGraphFromStore and synccompactor's TestCompactorGraphCompatibilityHealing.
 func TestEntitlementGraphTokenCompatibilityMatrix(t *testing.T) {
 	ctx := context.Background()
-	// Opt in to the legacy inline-graph token shape. Current checkpoints omit
-	// graphs by default, while readers remain compatible with older tokens.
-	stateWithGraph := newState(withCheckpointEntitlementGraph(true))
+	// Hand-build the legacy inline-graph token shape. Checkpoints no longer
+	// carry a graph, while readers remain compatible with older tokens.
+	stateWithGraph := newState()
 	graph := stateWithGraph.EntitlementGraph(ctx)
 	graph.AddEntitlementID("a")
 	graph.Loaded = true
 	graph.MarkExpansionComplete()
-	legacyToken, err := stateWithGraph.Marshal()
-	require.NoError(t, err)
+	legacyToken := marshalLegacyInlineGraphToken(t, stateWithGraph)
 
 	emptyState := newState()
 	emptyToken, err := emptyState.Marshal()
