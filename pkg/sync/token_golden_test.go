@@ -120,7 +120,12 @@ func readGoldenToken(t *testing.T, file string) string {
 	t.Helper()
 	body, err := os.ReadFile(filepath.Join(goldenTokenDir, file))
 	require.NoError(t, err)
-	return strings.TrimRight(string(body), "\n")
+	// Trim \r as well as \n. .gitattributes pins these files to LF so the
+	// working tree matches the committed bytes, but a checkout that predates
+	// it, an archive download, or an editor that rewrites endings would
+	// otherwise leave a \r that no writer emits and every case compares
+	// against.
+	return strings.TrimRight(string(body), "\r\n")
 }
 
 func TestGoldenTokenRoundTrip(t *testing.T) {

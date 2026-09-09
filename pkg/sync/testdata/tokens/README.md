@@ -1,8 +1,9 @@
 # Golden sync-token fixtures
 
 Each `.json` file is one sync state token in the codec's own encoding
-(compact JSON, one line, trailing newline). Originally captured for
-PR #1125.
+(compact JSON, one line, trailing LF — `.gitattributes` here pins the line
+ending, because a CRLF checkout would compare every case against a trailing
+`\r` no writer emits). Originally captured for PR #1125.
 
 Two kinds of file live here:
 
