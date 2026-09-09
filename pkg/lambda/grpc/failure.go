@@ -33,11 +33,19 @@ const (
 	// FailureClassHandled means the function returned an error response through
 	// the runtime API rather than crashing.
 	FailureClassHandled = "handled"
+	// FailureClassUnsupportedRPC means the connector could not resolve the
+	// request message's type URL against its proto registry, which is how an
+	// SDK older than the RPC fails. The RPC is absent, not broken.
+	FailureClassUnsupportedRPC = "unsupported_rpc"
 )
 
 // oomErrorType is the Error Type the AWS platform stamps on the REPORT line
 // when it kills a sandbox for exceeding its memory limit.
 const oomErrorType = "Runtime.OutOfMemory"
+
+// protoResolveErrorType is the errorType a connector runtime reports when it
+// cannot resolve a message's type URL against its proto registry.
+const protoResolveErrorType = "prefixError"
 
 // LambdaInvokeFailure is a structured description of a failed Lambda invoke.
 //
@@ -105,6 +113,13 @@ func (e *LambdaInvokeFailure) Code() codes.Code {
 		return codes.DeadlineExceeded
 	case FailureClassOOM:
 		return codes.ResourceExhausted
+	case FailureClassUnsupportedRPC:
+		// The connector predates the RPC, so every invoke fails identically
+		// until it is rebuilt. Unimplemented lets a caller skip the step the
+		// same way it would for any connector that does not serve the method,
+		// and survives error-string sanitization, which a substring match on
+		// the log summary does not.
+		return codes.Unimplemented
 	default:
 		return codes.Unknown
 	}
@@ -129,6 +144,8 @@ func (e *LambdaInvokeFailure) Error() string {
 		}
 	case FailureClassTimeout:
 		_, _ = b.WriteString("function timed out")
+	case FailureClassUnsupportedRPC:
+		_, _ = b.WriteString("function does not support this RPC")
 	default:
 		_, _ = b.WriteString("function returned error")
 	}
@@ -373,6 +390,15 @@ func extractMeaningfulLogLines(raw string) string {
 func classifyLambdaFailure(functionError string, statusCode int32, payload []byte, rawLog string) *LambdaInvokeFailure {
 	report, haveReport := parseLambdaReportLine(rawLog)
 	errPayload := parseLambdaErrorPayload(payload)
+
+	// Two different views of the same log, on purpose.
+	//
+	// LogSummary is the one that may reach a customer-visible field, so it
+	// keeps the truncation pre-filter that drops a partial leading line.
+	// Classification reads the unfiltered lines instead: dropping a line is a
+	// sanitization decision, and a sanitization decision must never be able to
+	// change which failure class an invoke lands in.
+	signalLogs := extractMeaningfulLogLines(rawLog)
 	filteredLogs := extractMeaningfulLogLines(dropTruncatedFirstLine(rawLog))
 
 	failure := &LambdaInvokeFailure{
@@ -392,7 +418,15 @@ func classifyLambdaFailure(functionError string, statusCode int32, payload []byt
 	if haveReport && report.ErrorType != "" {
 		failure.ErrorType = report.ErrorType
 	}
-	failure.FailureClass = lambdaFailureClass(functionError, payload, filteredLogs, report, failure.ErrorType)
+	failure.FailureClass = lambdaFailureClass(
+		functionError,
+		payload,
+		signalLogs,
+		report,
+		failure.ErrorType,
+		errPayload.ErrorType,
+		failure.ErrorMessage,
+	)
 
 	return failure
 }
@@ -402,7 +436,21 @@ func classifyLambdaFailure(functionError string, statusCode int32, payload []byt
 // Timeout is checked first: a sandbox killed on its execution timeout can also
 // show peak memory at its ceiling, which would otherwise trip the OOM
 // memory-comparison fallback.
-func lambdaFailureClass(functionError string, payload []byte, filteredLogs string, report lambdaReport, errorType string) string {
+//
+// errorType is the resolved type, where a REPORT line's platform verdict wins
+// over the payload's. payloadErrorType is the function's own, always. The two
+// are separate because the OOM signals want the platform's verdict while an
+// absent RPC is a statement only the function can make: a REPORT line carrying
+// any Error Type would otherwise overwrite it and lose the capability gap.
+func lambdaFailureClass(
+	functionError string,
+	payload []byte,
+	signalLogs string,
+	report lambdaReport,
+	errorType string,
+	payloadErrorType string,
+	errorMessage string,
+) string {
 	// Existing signal, unchanged: the platform writes this into the error
 	// payload on a hard timeout kill.
 	if strings.Contains(string(payload), "Task timed out after") {
@@ -410,12 +458,20 @@ func lambdaFailureClass(functionError string, payload []byte, filteredLogs strin
 	}
 	// Existing signal, unchanged: the function's own context deadline was
 	// exhausted and the connector logged it.
-	if strings.Contains(filteredLogs, `\"error\":\"context deadline exceeded\"`) {
+	if strings.Contains(signalLogs, `\"error\":\"context deadline exceeded\"`) {
 		return FailureClassTimeout
 	}
 	// New signal: newer runtimes stamp the outcome on the REPORT line.
 	if strings.EqualFold(report.Status, "timeout") {
 		return FailureClassTimeout
+	}
+
+	// A connector whose SDK predates the RPC cannot resolve the request
+	// message's type URL. Checked before the OOM signals because it is an exact
+	// match on the runtime's own verdict, where the memory fallback below is
+	// inferred.
+	if isUnresolvedTypeURL(payloadErrorType, errorMessage, signalLogs) {
+		return FailureClassUnsupportedRPC
 	}
 
 	// Primary OOM signal, from the REPORT line or the error payload.
@@ -424,7 +480,15 @@ func lambdaFailureClass(functionError string, payload []byte, filteredLogs strin
 	}
 	// Fallback for runtimes that report the kill without an Error Type: a
 	// failed invoke whose peak memory reached its ceiling was an OOM.
-	if strings.EqualFold(report.Status, "error") &&
+	//
+	// Gated on the error type not being the function's own. A process the
+	// platform killed reports either nothing or a Runtime.* type such as
+	// Runtime.ExitError ("signal: killed"), so the ceiling is the best
+	// explanation available. When the function surfaced its own error value it
+	// has already explained the failure, and peak memory sitting at the ceiling
+	// is a coincidence - a Go runtime routinely runs at its ceiling without
+	// being killed.
+	if !isFunctionErrorType(errorType) && strings.EqualFold(report.Status, "error") &&
 		report.MemorySizeMB > 0 && report.MaxMemoryUsedMB >= report.MemorySizeMB {
 		return FailureClassOOM
 	}
@@ -433,6 +497,38 @@ func lambdaFailureClass(functionError string, payload []byte, filteredLogs strin
 		return FailureClassHandled
 	}
 	return FailureClassUnhandled
+}
+
+// platformErrorTypePrefix marks the error types the AWS runtime generates
+// itself, such as Runtime.ExitError and Runtime.OutOfMemory. Anything without
+// it came from the function's own error value.
+const platformErrorTypePrefix = "Runtime."
+
+// isFunctionErrorType reports whether the error type came from the function
+// rather than the platform. An absent type is not a function error: a hard kill
+// leaves nothing behind.
+func isFunctionErrorType(errorType string) bool {
+	return errorType != "" && !strings.HasPrefix(errorType, platformErrorTypePrefix)
+}
+
+// isUnresolvedTypeURL reports whether the runtime failed to resolve a message's
+// type URL against its proto registry.
+//
+// Both the error payload's message and the log lines are searched because which
+// one carries the text depends on how the runtime surfaced the failure. The
+// type URL itself is deliberately not matched: every RPC added after a given
+// connector's SDK version fails this same way, so pinning the check to one
+// method name would leave the next one unhandled.
+func isUnresolvedTypeURL(errorType string, errorMessage string, signalLogs string) bool {
+	if errorType != protoResolveErrorType {
+		return false
+	}
+	for _, s := range []string{errorMessage, signalLogs} {
+		if strings.Contains(s, "unable to resolve") && strings.Contains(s, "type.googleapis.com/") {
+			return true
+		}
+	}
+	return false
 }
 
 // lambdaLogTailTruncationThresholdBytes is the point at which a tail log may
@@ -493,20 +589,42 @@ func looksLikeLogLineStart(line string) bool {
 			return true
 		}
 	}
-	// A text-format runtime line, which the platform prefixes with an
-	// RFC3339 timestamp such as "2006-01-02T15:04:05.000Z".
+	// A text-format line, identified by the timestamp its writer puts in front.
 	return looksLikeTimestampPrefix(line)
 }
 
-// looksLikeTimestampPrefix reports whether a line opens with an RFC3339-style
-// date, i.e. "NNNN-NN-NNT".
+// timestampLayouts are the line-leading timestamp shapes that mark a whole log
+// record, written with 'N' standing for any digit.
+//
+// Both entries matter. The AWS platform writes RFC3339, but the connector
+// runtimes writing into this log use Go's standard logger, whose default prefix
+// is "2006/01/02 15:04:05" - slashes and a space, not dashes and a "T".
+// Recognising only RFC3339 classifies every one of those whole lines as a
+// truncated fragment.
+var timestampLayouts = []string{
+	"NNNN-NN-NNT",
+	"NNNN/NN/NN NN:NN:NN",
+}
+
+// looksLikeTimestampPrefix reports whether a line opens with a recognised
+// timestamp layout.
 func looksLikeTimestampPrefix(line string) bool {
-	const stamp = "NNNN-NN-NNT"
-	if len(line) < len(stamp) {
+	for _, layout := range timestampLayouts {
+		if matchesDigitLayout(line, layout) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesDigitLayout reports whether line starts with layout, where 'N' matches
+// any digit and every other byte must match exactly.
+func matchesDigitLayout(line string, layout string) bool {
+	if len(line) < len(layout) {
 		return false
 	}
-	for i := range len(stamp) {
-		want := stamp[i]
+	for i := range len(layout) {
+		want := layout[i]
 		got := line[i]
 		switch want {
 		case 'N':
