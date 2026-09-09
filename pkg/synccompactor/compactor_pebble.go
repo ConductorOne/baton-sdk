@@ -22,7 +22,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
-	sdksync "github.com/conductorone/baton-sdk/pkg/sync"
 	mergepkg "github.com/conductorone/baton-sdk/pkg/synccompactor/pebble"
 )
 
@@ -498,7 +497,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// applications take precedence on ties.
 	var foldStats mergepkg.FoldStats
 	var partialSyncIDs []string
-	var partialTokens []string
+	var partialStats []*v3.SyncStatsRecord
 	// SQLite/v1 partials are converted to Pebble in the tmp dir before being
 	// folded in; their converted copies are removed when this run completes.
 	var convertedInputs []string
@@ -559,7 +558,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 			}
 		}
 		partialSyncIDs = append(partialSyncIDs, srcSyncID)
-		partialTokens = append(partialTokens, readSourceSyncToken(ctx, srcEng, srcSyncID))
+		partialStats = append(partialStats, readSourceSyncStats(ctx, srcEng, srcSyncID))
 
 		var mergeOpts []mergepkg.MergeOption
 		if c.incrementalExpansion {
@@ -746,6 +745,12 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	if !maxEnded.IsZero() {
 		baseRec.SetEndedAt(timestamppb.New(maxEnded))
 	}
+	// The base's stats sidecar (still under the base id) is the starting
+	// point of the output's timing stats and carries any prior
+	// compaction's provenance; read it before the rename and recompute
+	// below replace it. Best-effort: a base without a sidecar just
+	// contributes no timings.
+	baseStats := readSourceSyncStats(ctx, destEng, baseSyncID)
 	// PutSyncRunRecord overwrites the single fixed sync-run key, so the
 	// file's one sync-run record now carries newSyncID. (The compactor
 	// GetSync's this id right after and asserts it matches — the
@@ -760,27 +765,32 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	if err := destEng.PersistSyncStats(ctx, newSyncID); err != nil {
 		return "", fmt.Errorf("compactPebbleFold: persist stats: %w", err)
 	}
-	// Rewrite the token with compaction provenance: the base token's
-	// timing stats describe the base sync's collection run, so the
-	// section re-attributes them (stats_sync_id) and adds what this fold
-	// merged. Provenance is best-effort — it never fails the compaction.
+	// Stamp the output's stats with compaction provenance and the
+	// combined timings: the base's timing stats describe the base sync's
+	// collection run, so the provenance re-attributes them
+	// (stats_sync_id) and records what this fold merged; each partial's
+	// timings are folded on top. Provenance is best-effort — it never
+	// fails the compaction.
 	outputStats, statsErr := enginepkg.ReadSyncStatsRecord(ctx, destEng, newSyncID)
-	if statsErr != nil {
+	switch {
+	case statsErr != nil:
 		l.Warn("compactPebbleFold: could not read output stats for provenance", zap.Error(statsErr))
-	}
-	compactedToken, tokenErr := sdksync.BuildCompactedToken(baseRec.GetSyncToken(), sdksync.CompactionTokenInput{
-		Mode:           string(PebbleCompactorModeFold),
-		BaseSyncID:     baseSyncID,
-		PartialSyncIDs: partialSyncIDs,
-		PartialTokens:  partialTokens,
-		RecordCounts:   compactionRecordCounts(outputStats, &foldStats),
-	})
-	if tokenErr != nil {
-		l.Warn("compactPebbleFold: could not build compaction provenance token", zap.Error(tokenErr))
-	} else {
-		baseRec.SetSyncToken(compactedToken)
-		if err := destEng.PutSyncRunRecord(ctx, baseRec); err != nil {
-			return "", fmt.Errorf("compactPebbleFold: persist provenance token: %w", err)
+	case outputStats == nil:
+		l.Warn("compactPebbleFold: output stats missing; provenance not recorded")
+	default:
+		overlayTimingStats(outputStats, baseStats)
+		for _, partial := range partialStats {
+			foldPartialTimings(outputStats, partial)
+		}
+		outputStats.SetCompaction(buildCompactionProvenance(
+			baseStats.GetCompaction(),
+			string(PebbleCompactorModeFold),
+			baseSyncID,
+			partialSyncIDs,
+			compactionRecordCounts(outputStats, &foldStats),
+		))
+		if err := destEng.PersistComputedSyncStats(ctx, newSyncID, outputStats); err != nil {
+			return "", fmt.Errorf("compactPebbleFold: persist provenance: %w", err)
 		}
 	}
 	// All writes above went through the engine directly; flip the
@@ -876,44 +886,16 @@ func (c *Compactor) runPebbleRebuild(ctx context.Context, runCtx context.Context
 	return newSyncId, nil
 }
 
-// readSourceSyncToken returns a source sync's marshalled token, or "" when
-// the record is unavailable (e.g. converted sqlite inputs carry none).
-func readSourceSyncToken(ctx context.Context, eng *enginepkg.Engine, syncID string) string {
-	rec, err := eng.GetSyncRunRecord(ctx, syncID)
-	if err != nil || rec == nil {
-		return ""
-	}
-	return rec.GetSyncToken()
-}
-
-// compactionRecordCounts renders per-type provenance counts for the token's
-// compaction section. fold carries added/replaced attribution (fold mode
-// only); rebuild modes pass nil and report output totals alone.
-func compactionRecordCounts(output *v3.SyncStatsRecord, fold *mergepkg.FoldStats) map[string]sdksync.CompactionRecordCounts {
-	if output == nil {
+// readSourceSyncStats returns a source sync's stats sidecar, or nil when
+// it is unavailable (e.g. inputs sealed before the sidecar existed). The
+// sidecar is the one home for a sync's timing stats: ledgered syncs write
+// no token, and token-only syncs had theirs lifted into it at EndSync.
+func readSourceSyncStats(ctx context.Context, eng *enginepkg.Engine, syncID string) *v3.SyncStatsRecord {
+	rec, err := enginepkg.ReadSyncStatsRecord(ctx, eng, syncID)
+	if err != nil {
 		return nil
 	}
-	totals := map[string]int64{
-		"resource_types": output.GetResourceTypes(),
-		"resources":      output.GetResources(),
-		"entitlements":   output.GetEntitlements(),
-		"grants":         output.GetGrants(),
-	}
-	out := make(map[string]sdksync.CompactionRecordCounts, len(totals))
-	for bucket, total := range totals {
-		counts := sdksync.CompactionRecordCounts{Output: total}
-		if fold != nil {
-			counts.Added = fold.AddedByBucket[bucket]
-			counts.Replaced = fold.ReplacedByBucket[bucket]
-			carried := total - counts.Added - counts.Replaced
-			if carried < 0 {
-				carried = 0
-			}
-			counts.Carried = carried
-		}
-		out[bucket] = counts
-	}
-	return out
+	return rec
 }
 
 // copyFileForFold copies the base input to the dest path so the fold
@@ -1303,11 +1285,7 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 	}
 	// The merge accumulated the dest stats while writing winners, so
 	// persist those instead of re-scanning the freshly written output.
-	if statsRec != nil {
-		if err := destEng.PersistComputedSyncStats(ctx, newSyncId, statsRec); err != nil {
-			return fmt.Errorf("compactPebble: persist stats: %w", err)
-		}
-	} else {
+	if statsRec == nil {
 		if err := destEng.PersistSyncStats(ctx, newSyncId); err != nil {
 			return fmt.Errorf("compactPebble: persist stats: %w", err)
 		}
@@ -1318,26 +1296,23 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 			statsRec = recomputed
 		}
 	}
-	// Stamp compaction provenance on the (otherwise empty) rebuild token.
-	// Rebuild merges lose per-source attribution in their run-file paths,
-	// so record counts carry output totals only, and the partials' timing
-	// aggregate is fold-only — collecting rebuild source tokens would pay
-	// a second envelope unpack per source. Best-effort: provenance never
-	// fails the compaction.
+	// Stamp compaction provenance on the output's stats. Rebuild merges
+	// lose per-source attribution in their run-file paths, so record
+	// counts carry output totals only, and the partials' timing aggregate
+	// is fold-only — collecting rebuild source stats would pay a second
+	// envelope unpack per source. Best-effort: provenance never fails the
+	// compaction.
 	mode := PebbleCompactorModeKWay
 	if useOverlay {
 		mode = PebbleCompactorModeOverlay
 	}
-	compactedToken, tokenErr := sdksync.BuildCompactedToken(rec.GetSyncToken(), sdksync.CompactionTokenInput{
-		Mode:           string(mode),
-		BaseSyncID:     rebuildBaseSyncID,
-		PartialSyncIDs: rebuildPartialSyncIDs,
-		RecordCounts:   compactionRecordCounts(statsRec, nil),
-	})
-	if tokenErr != nil {
-		l.Warn("compactPebble: could not build compaction provenance token", zap.Error(tokenErr))
-	} else {
-		rec.SetSyncToken(compactedToken)
+	if statsRec != nil {
+		statsRec.SetCompaction(buildCompactionProvenance(
+			nil, string(mode), rebuildBaseSyncID, rebuildPartialSyncIDs, compactionRecordCounts(statsRec, nil),
+		))
+		if err := destEng.PersistComputedSyncStats(ctx, newSyncId, statsRec); err != nil {
+			return fmt.Errorf("compactPebble: persist stats: %w", err)
+		}
 	}
 	if err := destEng.PutSyncRunRecord(ctx, rec); err != nil {
 		return fmt.Errorf("compactPebble: persist dest sync_run: %w", err)
