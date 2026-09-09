@@ -83,9 +83,11 @@ func (b *batch) Close() error {
 // === record family: grants / entitlements / resources / resource types ===
 //
 // The primary record keyspaces plus their inline-maintained index
-// families and the digest-invalidation markers a record mutation owes.
-// Clients: the Put*Records paths, the expanded/synthesized grant
-// writers, and delete paths.
+// families, the digest-invalidation markers a record mutation owes,
+// and the page ledger (TypeLedger), whose rows are meaningful only
+// alongside the records they vouch for and so ride this batch.
+// Clients: the Put*Records paths, the page unit, the
+// expanded/synthesized grant writers, and delete paths.
 //
 // RecordBatch exposes NO generic staging. The only way to stage a
 // record mutation is a typed Stage* operation (records.go) that
@@ -143,6 +145,12 @@ func (rb *RecordBatch) Commit(o *pebble.WriteOptions) error {
 
 // Close releases the batch. Safe after Commit.
 func (rb *RecordBatch) Close() error { return rb.core.Close() }
+
+// Empty reports whether nothing was staged.
+func (rb *RecordBatch) Empty() bool { return rb.core.Empty() }
+
+// Len returns the encoded batch size in bytes (flush-threshold checks).
+func (rb *RecordBatch) Len() int { return rb.core.Len() }
 
 // NOTE (2b): Absorb (the pri/idx two-batch fold) is gone — the typed
 // Stage* ops put a row and its obligations into ONE batch, so the
