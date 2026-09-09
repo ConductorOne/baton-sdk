@@ -43,11 +43,13 @@ func TestGraphFromToken_Empty(t *testing.T) {
 	require.Nil(t, loaded)
 }
 
-// TestPrepareExpansionReplayToken_ClearsPreservedGraph (U2): a token that
-// preserved its entitlement graph (WithPreserveEntitlementGraph) must have that
-// graph cleared when rewritten for replay — otherwise the replay skips graph
-// loading (graph already "expanded") and silently no-ops.
-func TestPrepareExpansionReplayToken_ClearsPreservedGraph(t *testing.T) {
+// TestPrepareExpansionReplayToken_DropsInlineGraph (U2): a token carrying an
+// inline entitlement graph — which only a pre-omission SDK writes — must not
+// carry one after being rewritten for replay, otherwise the replay skips graph
+// loading (graph already "expanded") and silently no-ops. Marshal's
+// unconditional drop is what enforces this; the clear in
+// PrepareExpansionReplayToken is redundant, so no assertion below pins it.
+func TestPrepareExpansionReplayToken_DropsInlineGraph(t *testing.T) {
 	ctx := context.Background()
 
 	// A finished sync that preserved its (fully-expanded) graph.

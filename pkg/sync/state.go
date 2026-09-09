@@ -90,11 +90,13 @@ func PrepareExpansionReplayToken(stateStr string) (string, error) {
 		return "", err
 	}
 	st.SetNeedsExpansion()
-	// Clear any preserved entitlement graph. A graph preserved by
-	// WithPreserveEntitlementGraph has Loaded=true with every edge already
-	// marked expanded, so a replayed sync would skip graph loading and the
-	// expander would report done immediately — the replay would silently
-	// no-op. Clearing it makes the replay rebuild the graph from scratch.
+	// Clear any inline entitlement graph the token carried. Only a
+	// pre-omission SDK writes one — WithPreserveEntitlementGraph writes to the
+	// c1z sidecar. Such a graph has Loaded=true with every edge marked
+	// expanded, so a replayed sync would skip graph loading and the expander
+	// would report done immediately, making the replay a silent no-op. Marshal
+	// drops the graph from every token it writes, so this clear does not change
+	// the emitted bytes; it states the contract here instead of resting on that.
 	st.ClearEntitlementGraph(context.Background())
 	if st.Current() == nil {
 		// A finished sync deserializes with no action map, so seed one before
