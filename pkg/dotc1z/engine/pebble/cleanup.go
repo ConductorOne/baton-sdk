@@ -48,6 +48,9 @@ func scopedRanges() [][2][]byte {
 		{encodeSyncStatsKey(), upperBoundOf(encodeSyncStatsKey())},
 		// Entitlement-graph sidecar — same single-key shape.
 		{EntitlementGraphSidecarLowerBound(), EntitlementGraphSidecarUpperBound()},
+		// Page ledger (ledger.go): the sync's execution trace, wiped
+		// with the sync it describes.
+		{LedgerLowerBound(), LedgerUpperBound()},
 	}
 }
 

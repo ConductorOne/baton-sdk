@@ -51,6 +51,19 @@ var commitPointRegistry = map[string][]string{
 	"resource_types.go:DeleteResourceTypeRecord":        {"SetRecordCommitTestHook"},
 	"ingest_repair.go:healOrphanPrincipalIndexEntries":  {"SetRecordCommitTestHook"},
 	"source_cache.go:InvalidateSourceCacheReplayState":  {"SetRecordCommitTestHook"},
+	// The page unit (records + ledger row, one batch) and the seal-time
+	// ledger token scrub both commit a RecordBatch:
+	// TestPageUnitFailedCommitLandsNothing and
+	// TestLedgerScrubAtSealForSensitiveTokens/"failed scrub" execute
+	// the seam.
+	"page_unit.go:Commit":         {"SetRecordCommitTestHook"},
+	"adapter_page.go:Commit":      {"SetRecordCommitTestHook"}, // v2 wrapper delegating to PageUnit.Commit
+	"ledger.go:ScrubLedgerTokens": {"SetRecordCommitTestHook"},
+	"ledger.go:takeoverToken":     {"SetRecordCommitTestHook"}, // RecordBatch: frontier + facts + bucket + token clear, one unit
+	"ledger.go:PutLedgerCounterBucket": {
+		"excluded: single-key blind write of one bucket's whole value (the run's stats bucket); no cross-family obligation and " +
+			"idempotent on retry (the next forced point rewrites the same key); best-effort at the caller; errorfs covers write failure",
+	},
 
 	// Source-cache replay/tombstone loops: dedicated per-loop seams
 	// (each distinct commit loop is its own cut — CO-009's lesson).

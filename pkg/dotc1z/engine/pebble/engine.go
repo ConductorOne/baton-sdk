@@ -107,6 +107,11 @@ type Engine struct {
 	// record they wrote.
 	computedStatsMu sync.Mutex
 	computedStats   map[string]*v3.SyncStatsRecord
+	// syncStatsOverlay carries the stats EndSyncWithStats was given from
+	// the top of the seal to PersistSyncStats, which lays them over the
+	// counted record instead of parsing them out of a checkpoint token.
+	// Ledgered syncs write no token and must seal through that call.
+	syncStatsOverlay map[string]*v3.SyncStatsRecord
 
 	// deferredGrantStats holds the grant counts BuildDeferredGrantIndexes
 	// accumulated while scanning the whole grant primary keyspace, so
@@ -197,6 +202,18 @@ type Engine struct {
 	entIDLookupMu       sync.Mutex
 	entIDLookup         map[string][]entitlementIdentity
 	entIDLookupBuiltGen uint64
+
+	// Page ledger state (ledger.go). ledgerTokensSensitive is the
+	// connector-declared flag that makes EndSync scrub ledger tokens to
+	// hash-only before the seal; ledgerMismatches counts read-side
+	// identity-compare failures (a key-function bug signal, never
+	// data loss: the page re-runs).
+	ledgerTokensSensitive atomic.Bool
+	ledgerMismatches      atomic.Uint64
+	// ledgerInFlight mirrors the keyspaceVersionLedgerInFlight stamp
+	// (keyspace_version.go): set on Open when the file carries it, by the
+	// first PageUnit commit, cleared at seal.
+	ledgerInFlight atomic.Bool
 
 	// migratedOnOpen reports that this Open ran the in-place id-index
 	// migration. The store layer uses it to mark a writable store dirty so

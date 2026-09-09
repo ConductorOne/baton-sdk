@@ -92,4 +92,11 @@ type testSeams struct {
 	// stored record stays unstamped and the sync stays discoverable
 	// as unfinished (resumable).
 	endSyncStampHook func() error
+
+	// skipLedgerResiduePurge, when true, makes endSyncFinalize skip
+	// the PurgeLedgerResidue that follows ScrubLedgerTokens. It exists
+	// so the SST-residue test can show the purge is load-bearing:
+	// without it the scrubbed rows read clean while the verbatim tokens
+	// remain in the checkpointed SSTs (ledger_test.go).
+	skipLedgerResiduePurge bool
 }

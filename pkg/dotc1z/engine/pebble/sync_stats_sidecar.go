@@ -267,26 +267,73 @@ func (e *Engine) takeDeferredGrantStats(syncID string) *deferredGrantStats {
 // token on the sync_run record are overlaid before write.
 func (e *Engine) PersistSyncStats(ctx context.Context, syncID string) error {
 	if rec := e.takeStashedSyncStats(syncID); rec != nil {
-		e.applyTokenStatsFromSyncRun(ctx, syncID, rec)
+		e.applySyncerStats(ctx, syncID, rec)
 		return e.PersistComputedSyncStats(ctx, syncID, rec)
 	}
 	rec, err := e.computeSyncStats(ctx, syncID)
 	if err != nil {
 		return err
 	}
-	e.applyTokenStatsFromSyncRun(ctx, syncID, rec)
+	e.applySyncerStats(ctx, syncID, rec)
 	return e.writeSyncStats(ctx, rec)
 }
 
-// applyTokenStatsFromSyncRun loads the sync_run's sync_token and lifts
-// step_durations_ms / connector_call_stats / session_store_stats into
-// rec. Failures are ignored — row counts remain usable without them.
-func (e *Engine) applyTokenStatsFromSyncRun(ctx context.Context, syncID string, rec *v3.SyncStatsRecord) {
+// applySyncerStats lays the syncer's timing / call / ingest-quality
+// stats over rec's record counts: the stats EndSyncWithStats was given
+// when the seal came through it, else lifted from the sync_run's sealed
+// token. A Pebble sync never has a token (the syncer's Pebble path is
+// the ledger; CheckpointSync refuses one); the token here is a sealed
+// SQLite sync's, copied in by the converter (to_pebble.go), whose stats
+// live nowhere else. Failures are ignored — row counts remain usable
+// without them.
+func (e *Engine) applySyncerStats(ctx context.Context, syncID string, rec *v3.SyncStatsRecord) {
+	if overlay := e.takeSyncStatsOverlay(syncID); overlay != nil {
+		if len(overlay.GetStepDurationsMs()) > 0 {
+			rec.SetStepDurationsMs(overlay.GetStepDurationsMs())
+		}
+		if len(overlay.GetConnectorCallStats()) > 0 {
+			rec.SetConnectorCallStats(overlay.GetConnectorCallStats())
+		}
+		if len(overlay.GetSessionStoreStats()) > 0 {
+			rec.SetSessionStoreStats(overlay.GetSessionStoreStats())
+		}
+		if overlay.HasIngestQuality() {
+			rec.SetIngestQuality(overlay.GetIngestQuality())
+		}
+		return
+	}
 	sr, err := e.GetSyncRunRecord(ctx, syncID)
 	if err != nil || sr == nil {
 		return
 	}
 	c1zstore.ApplySyncTokenStatsRecord(rec, sr.GetSyncToken())
+}
+
+// setSyncStatsOverlay holds the stats EndSyncWithStats was given for
+// syncID until the seal's PersistSyncStats lays them over the counted
+// record. Private to the seal: the only entry is EndSyncWithStats, so
+// the value never outlives the EndSync call that supplied it.
+func (e *Engine) setSyncStatsOverlay(syncID string, overlay *v3.SyncStatsRecord) {
+	if overlay == nil {
+		return
+	}
+	e.computedStatsMu.Lock()
+	if e.syncStatsOverlay == nil {
+		e.syncStatsOverlay = map[string]*v3.SyncStatsRecord{}
+	}
+	e.syncStatsOverlay[syncID] = overlay
+	e.computedStatsMu.Unlock()
+}
+
+func (e *Engine) takeSyncStatsOverlay(syncID string) *v3.SyncStatsRecord {
+	e.computedStatsMu.Lock()
+	defer e.computedStatsMu.Unlock()
+	rec, ok := e.syncStatsOverlay[syncID]
+	if !ok {
+		return nil
+	}
+	delete(e.syncStatsOverlay, syncID)
+	return rec
 }
 
 // StashComputedSyncStats registers a caller-computed stats record to be
