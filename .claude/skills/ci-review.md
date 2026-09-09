@@ -57,7 +57,7 @@ review; a single-shot CI review is advisory sampling, not coverage. Specifically
   absence / error-path, per `docs/BUG_CATCHING.md` §2).
 - Name the instrument that would give real coverage — differential oracle against
   full recomputation, two-artifact cross-version harness, `-race` plus seeded soak,
-  fault injection at the seam, or a permutation table as a table-driven test — and
+  fault injection at a hook, or a permutation table as a table-driven test — and
   state whether the PR already contains it.
 - A HIGH-risk PR that names no instrument and no permutation table is itself a
   finding: request the full pass-set review per `docs/BUG_CATCHING.md` §6 before

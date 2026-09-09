@@ -343,7 +343,7 @@ The first implementation does not claim:
 - malformed wire bytes, trailers, or connection resets;
 - combined connector and filesystem schedules other than the named
   lost-entitlement-response/first-subsequent-write case;
-- raw `os.*` calls outside existing injectable seams;
+- raw `os.*` calls outside existing injectable hooks;
 - closure over generated or seeded schedules;
 - deletion of disappeared external resource-type rows: resource types do not
   yet carry store-owned provenance, and deleting by a shared public type ID
