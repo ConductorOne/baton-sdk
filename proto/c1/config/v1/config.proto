@@ -53,6 +53,10 @@ message Field {
   string placeholder = 4;
   bool is_required = 5;
   bool is_ops = 6;
+  // For configuration and action arguments, the UI obscures this field. For
+  // action return types, the connector must return the value as PlaintextData
+  // through ActionHandlerWithSecrets; it is omitted from the public response
+  // and returned as EncryptedData.
   bool is_secret = 7;
 
   oneof field {

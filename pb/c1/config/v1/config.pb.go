@@ -554,7 +554,11 @@ type Field struct {
 	Placeholder string                 `protobuf:"bytes,4,opt,name=placeholder,proto3" json:"placeholder,omitempty"`
 	IsRequired  bool                   `protobuf:"varint,5,opt,name=is_required,json=isRequired,proto3" json:"is_required,omitempty"`
 	IsOps       bool                   `protobuf:"varint,6,opt,name=is_ops,json=isOps,proto3" json:"is_ops,omitempty"`
-	IsSecret    bool                   `protobuf:"varint,7,opt,name=is_secret,json=isSecret,proto3" json:"is_secret,omitempty"`
+	// For configuration and action arguments, the UI obscures this field. For
+	// action return types, the connector must return the value as PlaintextData
+	// through ActionHandlerWithSecrets; it is omitted from the public response
+	// and returned as EncryptedData.
+	IsSecret bool `protobuf:"varint,7,opt,name=is_secret,json=isSecret,proto3" json:"is_secret,omitempty"`
 	// Types that are valid to be assigned to Field:
 	//
 	//	*Field_StringField
@@ -1088,7 +1092,11 @@ type Field_builder struct {
 	Placeholder string
 	IsRequired  bool
 	IsOps       bool
-	IsSecret    bool
+	// For configuration and action arguments, the UI obscures this field. For
+	// action return types, the connector must return the value as PlaintextData
+	// through ActionHandlerWithSecrets; it is omitted from the public response
+	// and returned as EncryptedData.
+	IsSecret bool
 	// Fields of oneof Field:
 	StringField          *StringField
 	IntField             *IntField

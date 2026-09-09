@@ -1,16 +1,20 @@
 package actions
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"runtime"
 	"testing"
 	"time"
 
+	filippoage "filippo.io/age"
 	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -967,4 +971,570 @@ func TestActionStatusPredicates(t *testing.T) {
 			require.Equal(t, tc.settled, IsSettled(tc.status))
 		})
 	}
+}
+
+func secretActionSchema(name string) *v2.BatonActionSchema {
+	return v2.BatonActionSchema_builder{
+		Name: name,
+		ReturnTypes: []*config.Field{
+			config.Field_builder{
+				Name:       "success",
+				BoolField:  &config.BoolField{},
+				IsRequired: true,
+			}.Build(),
+			config.Field_builder{
+				Name:        "token",
+				StringField: &config.StringField{},
+				IsSecret:    true,
+			}.Build(),
+		},
+	}.Build()
+}
+
+func ageEncryptionConfig(t *testing.T) (*v2.EncryptionConfig, filippoage.Identity) {
+	t.Helper()
+	identity, err := filippoage.GenerateHybridIdentity()
+	require.NoError(t, err)
+	return v2.EncryptionConfig_builder{
+		AgeRecipientConfig: v2.EncryptionConfig_AgeRecipientConfig_builder{
+			Recipient: identity.Recipient().String(),
+		}.Build(),
+	}.Build(), identity
+}
+
+func decryptAgeActionResult(t *testing.T, encrypted *v2.EncryptedData, identity filippoage.Identity) []byte {
+	t.Helper()
+	reader, err := filippoage.Decrypt(bytes.NewReader(encrypted.GetEncryptedBytes()), identity)
+	require.NoError(t, err)
+	var plaintext bytes.Buffer
+	_, err = plaintext.ReadFrom(reader)
+	require.NoError(t, err)
+	return plaintext.Bytes()
+}
+
+func TestActionHandlerWithSecretsEncryptsInlineResultForEveryRecipient(t *testing.T) {
+	ctx := t.Context()
+	manager := NewActionManager(ctx)
+	schema := secretActionSchema("issue_token")
+	schema.SetReturnTypes(append(schema.GetReturnTypes(),
+		config.Field_builder{Name: "refresh_token", StringField: &config.StringField{}, IsSecret: true}.Build()))
+	handler := func(context.Context, *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
+		response, err := structpb.NewStruct(map[string]interface{}{"success": true})
+		require.NoError(t, err)
+		return response, []*v2.PlaintextData{
+			v2.PlaintextData_builder{
+				Name:        "token",
+				Description: "issued token",
+				Schema:      "text/plain",
+				Bytes:       []byte("action-secret"),
+			}.Build(),
+			v2.PlaintextData_builder{
+				Name:  "refresh_token",
+				Bytes: []byte("refresh-secret"),
+			}.Build(),
+		}, nil, nil
+	}
+	require.NoError(t, RegisterWithSecrets(ctx, manager, schema, handler))
+
+	configA, identityA := ageEncryptionConfig(t)
+	configB, identityB := ageEncryptionConfig(t)
+	_, actionStatus, response, encryptedData, _, err := manager.InvokeActionWithWaitAndEncryption(
+		ctx,
+		"issue_token",
+		"",
+		nil,
+		time.Second,
+		[]*v2.EncryptionConfig{configA, configB},
+	)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, actionStatus)
+	require.Equal(t, true, response.GetFields()["success"].GetBoolValue())
+	require.NotContains(t, response.GetFields(), "token")
+	require.Len(t, encryptedData, 4)
+	require.Equal(t, "token", encryptedData[0].GetName())
+	require.Equal(t, "issued token", encryptedData[0].GetDescription())
+	require.Equal(t, "text/plain", encryptedData[0].GetSchema())
+	require.Equal(t, []byte("action-secret"), decryptAgeActionResult(t, encryptedData[0], identityA))
+	require.Equal(t, []byte("action-secret"), decryptAgeActionResult(t, encryptedData[1], identityB))
+	require.Equal(t, "refresh_token", encryptedData[2].GetName())
+	require.Equal(t, []byte("refresh-secret"), decryptAgeActionResult(t, encryptedData[2], identityA))
+	require.Equal(t, []byte("refresh-secret"), decryptAgeActionResult(t, encryptedData[3], identityB))
+}
+
+func TestActionHandlerWithSecretsEncryptsBeforeStatusPublication(t *testing.T) {
+	ctx := t.Context()
+	manager := NewActionManager(ctx)
+	release := make(chan struct{})
+	handler := func(ctx context.Context, _ *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, nil, nil, ctx.Err()
+		}
+		return &structpb.Struct{}, []*v2.PlaintextData{
+			v2.PlaintextData_builder{Name: "token", Bytes: []byte("polled-secret")}.Build(),
+		}, nil, nil
+	}
+	require.NoError(t, RegisterWithSecrets(ctx, manager, secretActionSchema("issue_token_async"), handler))
+	config, identity := ageEncryptionConfig(t)
+
+	id, actionStatus, _, encryptedData, _, err := manager.InvokeActionWithWaitAndEncryption(
+		ctx,
+		"issue_token_async",
+		"",
+		nil,
+		time.Millisecond,
+		[]*v2.EncryptionConfig{config},
+	)
+	require.NoError(t, err)
+	require.True(t, IsInFlight(actionStatus))
+	require.Empty(t, encryptedData)
+	// Detached settlement must use the recipient snapshot captured at invoke.
+	config.GetAgeRecipientConfig().SetRecipient("mutated-after-invoke")
+	close(release)
+
+	var settledEncrypted []*v2.EncryptedData
+	require.Eventually(t, func() bool {
+		status, _, response, gotEncrypted, _, statusErr := manager.GetActionStatusWithEncryptedData(ctx, id)
+		if statusErr != nil || status != v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE {
+			return false
+		}
+		require.NotContains(t, response.GetFields(), "token")
+		settledEncrypted = gotEncrypted
+		return true
+	}, time.Second, time.Millisecond)
+	require.Len(t, settledEncrypted, 1)
+	require.Equal(t, []byte("polled-secret"), decryptAgeActionResult(t, settledEncrypted[0], identity))
+
+	_, _, _, repeatedEncrypted, _, err := manager.GetActionStatusWithEncryptedData(ctx, id)
+	require.NoError(t, err)
+	require.True(t, proto.Equal(settledEncrypted[0], repeatedEncrypted[0]))
+	_, resultStatus, _, resultEncrypted, _ := manager.actions[id].ResultWithEncryptedData()
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, resultStatus)
+	require.True(t, proto.Equal(settledEncrypted[0], resultEncrypted[0]))
+}
+
+func TestActionHandlerWithSecretsRejectsInvalidRecipientsBeforeInvocation(t *testing.T) {
+	tests := []struct {
+		name    string
+		configs []*v2.EncryptionConfig
+	}{
+		{name: "missing"},
+		{name: "nil config", configs: []*v2.EncryptionConfig{nil}},
+		{name: "unknown provider", configs: []*v2.EncryptionConfig{v2.EncryptionConfig_builder{Provider: "unknown"}.Build()}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := t.Context()
+			manager := NewActionManager(ctx)
+			invoked := false
+			handler := func(context.Context, *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
+				invoked = true
+				return nil, nil, nil, nil
+			}
+			require.NoError(t, RegisterWithSecrets(ctx, manager, secretActionSchema("issue_token"), handler))
+
+			_, _, _, _, _, err := manager.InvokeActionWithWaitAndEncryption(ctx, "issue_token", "", nil, time.Second, test.configs)
+			require.Error(t, err)
+			require.Equal(t, codes.InvalidArgument, status.Code(err))
+			require.False(t, invoked)
+		})
+	}
+}
+
+func TestResourceActionHandlerWithSecretsEncryptsResult(t *testing.T) {
+	ctx := t.Context()
+	manager := NewActionManager(ctx)
+	registry, err := manager.GetTypeRegistry(ctx, "service-account")
+	require.NoError(t, err)
+	handler := func(context.Context, *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
+		return &structpb.Struct{}, []*v2.PlaintextData{
+			v2.PlaintextData_builder{Name: "token", Bytes: []byte("resource-secret")}.Build(),
+		}, nil, nil
+	}
+	require.NoError(t, RegisterWithSecrets(ctx, registry, secretActionSchema("issue_resource_token"), handler))
+	config, identity := ageEncryptionConfig(t)
+
+	_, actionStatus, response, encryptedData, _, err := manager.InvokeActionWithWaitAndEncryption(
+		ctx,
+		"issue_resource_token",
+		"service-account",
+		nil,
+		time.Second,
+		[]*v2.EncryptionConfig{config},
+	)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, actionStatus)
+	require.NotContains(t, response.GetFields(), "token")
+	require.Len(t, encryptedData, 1)
+	require.Equal(t, []byte("resource-secret"), decryptAgeActionResult(t, encryptedData[0], identity))
+}
+
+func TestActionHandlerWithSecretsFailsWhenRequiredSecretIsMissingOnSuccess(t *testing.T) {
+	ctx := t.Context()
+	manager := NewActionManager(ctx)
+	schema := secretActionSchema("missing_required_token")
+	schema.GetReturnTypes()[1].SetIsRequired(true)
+	handler := func(context.Context, *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
+		response, err := structpb.NewStruct(map[string]interface{}{"success": true})
+		require.NoError(t, err)
+		return response, nil, nil, nil
+	}
+	require.NoError(t, RegisterWithSecrets(ctx, manager, schema, handler))
+	config, _ := ageEncryptionConfig(t)
+
+	_, actionStatus, response, encryptedData, _, err := manager.InvokeActionWithWaitAndEncryption(
+		ctx,
+		"missing_required_token",
+		"",
+		nil,
+		time.Second,
+		[]*v2.EncryptionConfig{config},
+	)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+	require.Empty(t, encryptedData)
+	require.Contains(t, response.GetFields()["error"].GetStringValue(), `required secret return type "token" is missing`)
+}
+
+func TestActionHandlerWithSecretsDoesNotRequireSecretWhenHandlerFails(t *testing.T) {
+	ctx := t.Context()
+	manager := NewActionManager(ctx)
+	schema := secretActionSchema("failing_required_token")
+	schema.GetReturnTypes()[1].SetIsRequired(true)
+	handler := func(context.Context, *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
+		return nil, nil, nil, errors.New("provider rejected action")
+	}
+	require.NoError(t, RegisterWithSecrets(ctx, manager, schema, handler))
+	config, _ := ageEncryptionConfig(t)
+
+	_, actionStatus, response, encryptedData, _, err := manager.InvokeActionWithWaitAndEncryption(
+		ctx,
+		"failing_required_token",
+		"",
+		nil,
+		time.Second,
+		[]*v2.EncryptionConfig{config},
+	)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+	require.Empty(t, encryptedData)
+	require.Equal(t, "provider rejected action", response.GetFields()["error"].GetStringValue())
+}
+
+func TestActionHandlerWithSecretsDropsPlaintextWhenHandlerFails(t *testing.T) {
+	ctx := t.Context()
+	manager := NewActionManager(ctx)
+	handler := func(context.Context, *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
+		response, err := structpb.NewStruct(map[string]interface{}{"partial": "safe"})
+		require.NoError(t, err)
+		return response, []*v2.PlaintextData{
+			v2.PlaintextData_builder{Name: "token", Bytes: []byte("failed-action-secret")}.Build(),
+		}, nil, errors.New("provider rejected action")
+	}
+	require.NoError(t, RegisterWithSecrets(ctx, manager, secretActionSchema("failing_issue"), handler))
+	config, _ := ageEncryptionConfig(t)
+
+	_, actionStatus, response, encryptedData, _, err := manager.InvokeActionWithWaitAndEncryption(
+		ctx,
+		"failing_issue",
+		"",
+		nil,
+		time.Second,
+		[]*v2.EncryptionConfig{config},
+	)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+	require.Empty(t, encryptedData)
+	require.Equal(t, "safe", response.GetFields()["partial"].GetStringValue())
+	require.Equal(t, "provider rejected action", response.GetFields()["error"].GetStringValue())
+	require.NotContains(t, response.String(), "failed-action-secret")
+}
+
+func TestActionHandlerWithSecretsDropsPlaintextWhenEncryptionFails(t *testing.T) {
+	ctx := t.Context()
+	manager := NewActionManager(ctx)
+	manager.encryptPlaintext = func(context.Context, *crypto.EncryptionManager, *v2.PlaintextData) ([]*v2.EncryptedData, error) {
+		return nil, errors.New("injected encryption failure")
+	}
+	plaintext := []byte("encryption-failure-secret")
+	handler := func(context.Context, *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
+		return &structpb.Struct{}, []*v2.PlaintextData{
+			v2.PlaintextData_builder{Name: "token", Bytes: plaintext}.Build(),
+		}, nil, nil
+	}
+	require.NoError(t, RegisterWithSecrets(ctx, manager, secretActionSchema("oversized_token"), handler))
+	encryptionConfig, _ := ageEncryptionConfig(t)
+
+	_, actionStatus, response, encryptedData, _, err := manager.InvokeActionWithWaitAndEncryption(
+		ctx,
+		"oversized_token",
+		"",
+		nil,
+		time.Second,
+		[]*v2.EncryptionConfig{encryptionConfig},
+	)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+	require.Empty(t, encryptedData)
+	require.Contains(t, response.GetFields()["error"].GetStringValue(), "encrypt action return value")
+	require.NotContains(t, response.String(), string(plaintext))
+}
+
+func TestActionHandlerWithSecretsClonesEncryptedResultBeforePublication(t *testing.T) {
+	ctx := t.Context()
+	manager := NewActionManager(ctx)
+	handlerOwned := v2.EncryptedData_builder{
+		Name:           "token",
+		EncryptedBytes: []byte("original-ciphertext"),
+	}.Build()
+	manager.encryptPlaintext = func(context.Context, *crypto.EncryptionManager, *v2.PlaintextData) ([]*v2.EncryptedData, error) {
+		return []*v2.EncryptedData{handlerOwned}, nil
+	}
+	handler := func(context.Context, *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
+		return &structpb.Struct{}, []*v2.PlaintextData{
+			v2.PlaintextData_builder{Name: "token", Bytes: []byte("plaintext")}.Build(),
+		}, nil, nil
+	}
+	require.NoError(t, RegisterWithSecrets(ctx, manager, secretActionSchema("clone_ciphertext"), handler))
+	config, _ := ageEncryptionConfig(t)
+
+	id, actionStatus, _, encryptedData, _, err := manager.InvokeActionWithWaitAndEncryption(
+		ctx,
+		"clone_ciphertext",
+		"",
+		nil,
+		time.Second,
+		[]*v2.EncryptionConfig{config},
+	)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, actionStatus)
+	handlerOwned.SetEncryptedBytes([]byte("mutated-ciphertext"))
+	require.Equal(t, []byte("original-ciphertext"), encryptedData[0].GetEncryptedBytes())
+
+	_, _, _, statusEncrypted, _, err := manager.GetActionStatusWithEncryptedData(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, []byte("original-ciphertext"), statusEncrypted[0].GetEncryptedBytes())
+}
+
+func TestActionHandlerWithSecretsRedactsPanicValue(t *testing.T) {
+	ctx := t.Context()
+	manager := NewActionManager(ctx)
+	handler := func(context.Context, *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
+		panic("panic-secret")
+	}
+	require.NoError(t, RegisterWithSecrets(ctx, manager, secretActionSchema("panicking_issue"), handler))
+	config, _ := ageEncryptionConfig(t)
+
+	_, actionStatus, response, encryptedData, _, err := manager.InvokeActionWithWaitAndEncryption(
+		ctx,
+		"panicking_issue",
+		"",
+		nil,
+		time.Second,
+		[]*v2.EncryptionConfig{config},
+	)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+	require.Empty(t, encryptedData)
+	require.Equal(t, "panic in action handler", response.GetFields()["error"].GetStringValue())
+	require.NotContains(t, response.String(), "panic-secret")
+}
+
+func TestActionHandlerIncludesPanicValueWhenHandlerDoesNotReturnSecrets(t *testing.T) {
+	ctx := t.Context()
+	manager := NewActionManager(ctx)
+	handler := func(context.Context, *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
+		panic("lock failed")
+	}
+	require.NoError(t, manager.Register(ctx, testActionSchema, handler))
+
+	_, actionStatus, response, _, err := manager.InvokeActionWithWait(ctx, "lock_account", "", testInput, time.Second)
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+	require.Equal(t, "panic in action handler: lock failed", response.GetFields()["error"].GetStringValue())
+}
+
+func TestActionHandlerWithSecretsPublishesCiphertextAfterInvokeCancellation(t *testing.T) {
+	invokeCtx, cancel := context.WithCancel(t.Context())
+	manager := NewActionManager(invokeCtx)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	handler := func(context.Context, *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
+		close(started)
+		<-release
+		return &structpb.Struct{}, []*v2.PlaintextData{
+			v2.PlaintextData_builder{Name: "token", Bytes: []byte("late-secret")}.Build(),
+		}, nil, nil
+	}
+	require.NoError(t, RegisterWithSecrets(invokeCtx, manager, secretActionSchema("cancelled_issue"), handler))
+	config, identity := ageEncryptionConfig(t)
+
+	type invokeResult struct {
+		id            string
+		status        v2.BatonActionStatus
+		encryptedData []*v2.EncryptedData
+		err           error
+	}
+	resultCh := make(chan invokeResult, 1)
+	go func() {
+		id, actionStatus, _, encryptedData, _, err := manager.InvokeActionWithWaitAndEncryption(
+			invokeCtx,
+			"cancelled_issue",
+			"",
+			nil,
+			time.Second,
+			[]*v2.EncryptionConfig{config},
+		)
+		resultCh <- invokeResult{id: id, status: actionStatus, encryptedData: encryptedData, err: err}
+	}()
+
+	<-started
+	cancel()
+	cancelledResult := <-resultCh
+	require.ErrorIs(t, cancelledResult.err, context.Canceled)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, cancelledResult.status)
+	require.Empty(t, cancelledResult.encryptedData)
+	close(release)
+
+	var settledEncrypted []*v2.EncryptedData
+	require.Eventually(t, func() bool {
+		status, _, _, encryptedData, _, err := manager.GetActionStatusWithEncryptedData(t.Context(), cancelledResult.id)
+		settledEncrypted = encryptedData
+		return err == nil && status == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE
+	}, time.Second, time.Millisecond)
+	require.Len(t, settledEncrypted, 1)
+	require.Equal(t, []byte("late-secret"), decryptAgeActionResult(t, settledEncrypted[0], identity))
+}
+
+func TestActionHandlerWithSecretsRejectsInvalidOutputs(t *testing.T) {
+	tests := []struct {
+		name      string
+		response  map[string]interface{}
+		plaintext []*v2.PlaintextData
+		errText   string
+	}{
+		{
+			name:     "secret in public response",
+			response: map[string]interface{}{"token": "plaintext-secret"},
+			errText:  "must not be included in the public response",
+		},
+		{
+			name: "undeclared plaintext",
+			plaintext: []*v2.PlaintextData{
+				v2.PlaintextData_builder{Name: "password", Bytes: []byte("undeclared-sensitive-value")}.Build(),
+			},
+			errText: "is not declared as a secret return type",
+		},
+		{
+			name: "duplicate plaintext name",
+			plaintext: []*v2.PlaintextData{
+				v2.PlaintextData_builder{Name: "token", Bytes: []byte("duplicate-value-one")}.Build(),
+				v2.PlaintextData_builder{Name: "token", Bytes: []byte("duplicate-value-two")}.Build(),
+			},
+			errText: "duplicate plaintext return value",
+		},
+		{
+			name: "empty plaintext bytes",
+			plaintext: []*v2.PlaintextData{
+				v2.PlaintextData_builder{Name: "token"}.Build(),
+			},
+			errText: "must have a name and non-empty bytes",
+		},
+		{
+			name:      "nil plaintext",
+			plaintext: []*v2.PlaintextData{nil},
+			errText:   "must have a name and non-empty bytes",
+		},
+		{
+			name: "empty plaintext name",
+			plaintext: []*v2.PlaintextData{
+				v2.PlaintextData_builder{Bytes: []byte("empty-name-sensitive-value")}.Build(),
+			},
+			errText: "must have a name and non-empty bytes",
+		},
+		{
+			name: "name declared non-secret",
+			plaintext: []*v2.PlaintextData{
+				v2.PlaintextData_builder{Name: "success", Bytes: []byte("non-secret-field-sensitive-value")}.Build(),
+			},
+			errText: "is not declared as a secret return type",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := t.Context()
+			manager := NewActionManager(ctx)
+			handler := func(context.Context, *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
+				response, err := structpb.NewStruct(test.response)
+				require.NoError(t, err)
+				return response, test.plaintext, nil, nil
+			}
+			require.NoError(t, RegisterWithSecrets(ctx, manager, secretActionSchema("issue_token"), handler))
+			config, _ := ageEncryptionConfig(t)
+
+			id, actionStatus, response, encryptedData, _, err := manager.InvokeActionWithWaitAndEncryption(
+				ctx,
+				"issue_token",
+				"",
+				nil,
+				time.Second,
+				[]*v2.EncryptionConfig{config},
+			)
+			require.NoError(t, err)
+			require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, actionStatus)
+			require.Empty(t, encryptedData)
+			require.NotContains(t, response.String(), "plaintext-secret")
+			for _, plaintext := range test.plaintext {
+				if len(plaintext.GetBytes()) > 0 {
+					require.NotContains(t, response.String(), string(plaintext.GetBytes()))
+				}
+			}
+			require.Contains(t, response.GetFields()["error"].GetStringValue(), test.errText)
+
+			_, _, statusResponse, statusEncrypted, _, statusErr := manager.GetActionStatusWithEncryptedData(ctx, id)
+			require.NoError(t, statusErr)
+			require.Empty(t, statusEncrypted)
+			require.Contains(t, statusResponse.GetFields()["error"].GetStringValue(), test.errText)
+		})
+	}
+}
+
+type actionRegistryWithoutSecretSupport struct{}
+
+func (actionRegistryWithoutSecretSupport) Register(context.Context, *v2.BatonActionSchema, ActionHandler) error {
+	return nil
+}
+
+func (actionRegistryWithoutSecretSupport) RegisterAction(context.Context, string, *v2.BatonActionSchema, ActionHandler) error {
+	return nil
+}
+
+func TestSecretActionRegistrationValidatesSchemaAndRegistry(t *testing.T) {
+	ctx := t.Context()
+	handler := func(context.Context, *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
+		return nil, nil, nil, nil
+	}
+
+	err := RegisterWithSecrets(ctx, actionRegistryWithoutSecretSupport{}, secretActionSchema("issue_token"), handler)
+	require.ErrorContains(t, err, "does not support secret results")
+
+	manager := NewActionManager(ctx)
+	err = manager.Register(ctx, secretActionSchema("issue_token"), testActionHandler)
+	require.ErrorContains(t, err, "must use RegisterWithSecrets")
+
+	err = manager.RegisterWithSecrets(ctx, v2.BatonActionSchema_builder{Name: "no_secret"}.Build(), handler)
+	require.ErrorContains(t, err, "requires at least one secret return type")
+
+	emptyNameSchema := secretActionSchema("empty_name")
+	emptyNameSchema.GetReturnTypes()[1].SetName("")
+	err = manager.RegisterWithSecrets(ctx, emptyNameSchema, handler)
+	require.ErrorContains(t, err, "name cannot be empty")
+
+	duplicateNameSchema := secretActionSchema("duplicate_name")
+	duplicateNameSchema.SetReturnTypes(append(duplicateNameSchema.GetReturnTypes(),
+		config.Field_builder{Name: "token", StringField: &config.StringField{}, IsSecret: true}.Build()))
+	err = manager.RegisterWithSecrets(ctx, duplicateNameSchema, handler)
+	require.ErrorContains(t, err, "duplicate secret return type")
 }

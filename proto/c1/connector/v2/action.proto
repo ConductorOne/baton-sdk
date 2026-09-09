@@ -3,6 +3,7 @@ syntax = "proto3";
 package c1.connector.v2;
 
 import "c1/config/v1/config.proto";
+import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
@@ -80,6 +81,8 @@ message InvokeActionRequest {
     gte: {}
     lte: {seconds: 86400}
   }];
+  // Public keys the connector uses to encrypt secret return values.
+  repeated EncryptionConfig encryption_configs = 6;
 }
 
 message InvokeActionResponse {
@@ -88,6 +91,8 @@ message InvokeActionResponse {
   repeated google.protobuf.Any annotations = 3;
   google.protobuf.Struct response = 4;
   string name = 5;
+  // Secret return values encrypted for every requested recipient.
+  repeated EncryptedData encrypted_data = 6;
 }
 
 message GetActionStatusRequest {
@@ -102,6 +107,8 @@ message GetActionStatusResponse {
   BatonActionStatus status = 3;
   repeated google.protobuf.Any annotations = 4;
   google.protobuf.Struct response = 5;
+  // Secret return values encrypted when the action settled.
+  repeated EncryptedData encrypted_data = 6;
 }
 
 message GetActionSchemaRequest {
