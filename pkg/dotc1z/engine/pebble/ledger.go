@@ -360,7 +360,11 @@ func (e *Engine) takeoverToken(ctx context.Context, runID string, facts []string
 			}
 		}
 		if bv != nil {
-			if err := batch.StageLedgerCounterBucket(encodeLedgerCounterKey(runID, 0), bv); err != nil {
+			// A reserved index, not 0: worker 0 is a real page worker and
+			// blind-writes its own whole total at (runID, 0), so it would
+			// overwrite the counters this takeover just migrated.
+			key := encodeLedgerCounterKey(runID, c1zstore.TakeoverBucketWorker)
+			if err := batch.StageLedgerCounterBucket(key, bv); err != nil {
 				return err
 			}
 		}
@@ -642,7 +646,21 @@ func (e *Engine) PurgeLedgerResidue(ctx context.Context) error {
 func (e *Engine) DropLedger(ctx context.Context) error {
 	return e.withWriteAllowSealed(func() error {
 		lo, hi := rawdb.LedgerBounds()
-		return e.db.DropKeyRange(lo, hi, writeOpts(e.opts.durability))
+		if err := e.db.DropKeyRange(lo, hi, writeOpts(e.opts.durability)); err != nil {
+			return err
+		}
+		// The stamp classifies the file as mid-ledgered-sync, so it has to
+		// go with the rows it describes. Left standing on a drop that runs
+		// before the seal, it refuses the replacement sync a checkpoint
+		// token AND a plain seal, on a file with no ledger, and still
+		// reads as an unsupported layout to a token-only SDK. Same defect
+		// ResetForNewSync had, in the other place that deletes these rows.
+		//
+		// After the drop, not before: if the clear fails, the rows are
+		// gone but the file still refuses a token, which is the safe way
+		// round. Clearing first would leave a window where the stamp says
+		// token-only over a ledger that is still there.
+		return e.clearLedgerInFlight()
 	})
 }
 

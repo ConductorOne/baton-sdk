@@ -91,6 +91,18 @@ type LedgerCounters struct {
 // worker count); nothing else writes this index.
 const RunBucketWorker uint32 = 0xFFFFFFFF
 
+// TakeoverBucketWorker is the reserved worker index of the counter
+// bucket a token-only takeover migrates into the ledger.
+//
+// It needs an index of its own. Buckets are blind-written whole totals
+// keyed by (run, worker), so any index a page worker can also use is an
+// index the takeover's bucket gets overwritten at — worker 0 is a real
+// worker, and its first page commit in the same run would drop the
+// pre-takeover counters from the fold with nothing to detect it.
+// RunBucketWorker is no good either: the syncer writes the run-level
+// bucket there, which is the same collision one index over.
+const TakeoverBucketWorker uint32 = 0xFFFFFFFE
+
 // LedgerFrontier is the takeover record of a sync that began token-only
 // (brief §3.8): the checkpoint state the ledger now owns.
 type LedgerFrontier struct {

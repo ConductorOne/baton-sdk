@@ -8,6 +8,7 @@ package pebble
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -31,8 +32,10 @@ func TestLedgerScrubReachesTheTakeoverFrontier(t *testing.T) {
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	const secret = "tok_live_CREDENTIAL"
-	state := `{"v":1,"actions":[{"op":"list-grants","page_token":"` + secret + `"}]}`
+	// Stands in for a page token that carries a credential, which is the
+	// case SetLedgerTokensSensitive exists for.
+	const marker = "opaque-cursor-9f3a"
+	state := `{"v":1,"actions":[{"op":"list-grants","page_token":"` + marker + `"}]}`
 	require.NoError(t, e.CheckpointSync(ctx, state))
 
 	moved, err := e.TakeoverToken(ctx, "run-1", nil, c1zstore.LedgerCounters{
@@ -44,7 +47,7 @@ func TestLedgerScrubReachesTheTakeoverFrontier(t *testing.T) {
 	f, found, err := e.GetLedgerFrontier(ctx)
 	require.NoError(t, err)
 	require.True(t, found)
-	require.Contains(t, f.GetState(), secret, "before the seal the frontier holds the stack")
+	require.Contains(t, f.GetState(), marker, "before the seal the frontier holds the stack")
 
 	e.SetLedgerTokensSensitive(true)
 	require.NoError(t, e.ScrubLedgerTokens(ctx))
@@ -54,7 +57,7 @@ func TestLedgerScrubReachesTheTakeoverFrontier(t *testing.T) {
 	require.True(t, found, "the takeover record survives as an audit trail")
 	require.Empty(t, f.GetState(), "the verbatim stack does not")
 	require.NotEmpty(t, f.GetAttempt(), "attempt and taken_over_at are the audit fact and stay")
-	require.False(t, strings.Contains(f.GetState(), secret))
+	require.False(t, strings.Contains(f.GetState(), marker))
 }
 
 // A sync with ledger rows must be refused a checkpoint token even when
@@ -217,6 +220,107 @@ func TestPageUnitReadsAfterCommitAreRefusedNotPanics(t *testing.T) {
 			require.ErrorIs(t, err, ErrPageUnitCommitted)
 		})
 	}
+}
+
+// A takeover's migrated counters must survive worker 0's first page.
+//
+// Buckets are blind-written whole totals keyed by (run, worker) and the
+// fold sums across them, so the takeover writing at (runID, 0) put it on
+// a key a real page worker also owns: worker 0's first commit in the
+// same run replaced it and the pre-takeover counters left the fold with
+// nothing to detect the loss.
+func TestTakeoverBucketSurvivesWorkerZerosPage(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, e.CheckpointSync(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
+
+	_, err = e.TakeoverToken(ctx, "run-1", nil, c1zstore.LedgerCounters{
+		Counters: map[string]uint64{"completed_actions": 5},
+	})
+	require.NoError(t, err)
+
+	// Worker 0's page, same run, staging its own whole total.
+	u := e.NewPageUnit()
+	require.NoError(t, u.StageCounterBucket("run-1", 0, bucket(0, "completed_actions", uint64(2))))
+	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
+
+	sum, err := e.SumLedgerCounters(ctx)
+	require.NoError(t, err)
+	require.Equal(t, uint64(7), sum.GetCounters()["completed_actions"],
+		"5 migrated by the takeover plus 2 from worker 0; a shared key would report only 2")
+
+	n, err := e.LedgerCounterBucketCount(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 2, n, "two distinct buckets, not one overwritten")
+}
+
+// Dropping the ledger must drop the stamp that describes it.
+//
+// DropLedger removed the rows and left both the on-disk stamp and the
+// in-memory flag set, so a drop before the seal left a file with no
+// ledger that still refused CheckpointSync and still refused a plain
+// EndSync — and still read as an unsupported layout to a token-only SDK.
+// Same defect ResetForNewSync had, in the other place that deletes these
+// rows.
+func TestDropLedgerClearsTheInFlightStamp(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	u := e.NewPageUnit()
+	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
+	require.True(t, e.ledgerInFlight.Load())
+	require.ErrorIs(t, e.CheckpointSync(ctx, "tok"), ErrLedgeredSyncWritesNoToken)
+
+	require.NoError(t, e.ResetLedger(ctx))
+	require.False(t, e.ledgerInFlight.Load(), "the stamp goes with the rows")
+
+	stamp, err := e.keyspaceVersionStamp()
+	require.NoError(t, err)
+	require.Equal(t, keyspaceVersion, stamp, "and on disk, so an older SDK can read the file")
+
+	// The sync is token-only again, which is what the drop made true.
+	require.NoError(t, e.CheckpointSync(ctx, "tok"))
+	require.NoError(t, e.EndSync(ctx))
+}
+
+// A failed seal must not leave its stats overlay behind.
+//
+// endSync stashes the overlay before GetSyncRunRecord and endSyncFinalize
+// can fail, and only PersistSyncStats consumes it. A failed seal leaves
+// the sync bound for a retry with the entry still keyed by syncID, where
+// a later PersistSyncStats for that id would apply it — contradicting
+// setSyncStatsOverlay's own contract that the value never outlives the
+// EndSync that supplied it.
+func TestFailedSealDropsItsStatsOverlay(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	// Fail the ended_at stamp, which is before the stats sidecar write,
+	// so the overlay is stashed but never consumed.
+	boom := errors.New("injected")
+	e.test.endSyncStampHook = func() error { return boom }
+	require.ErrorIs(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{
+		Run: c1zstore.RunStats{StepDurationsMs: map[string]int64{"list-grants": 3}},
+	}), boom)
+	e.test.endSyncStampHook = nil
+
+	require.NotContains(t, e.syncStatsOverlay, syncID,
+		"a failed seal's stats must not be waiting for the next seal of this id")
+
+	// The retry supplies its own stats, and those are what get persisted.
+	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{
+		Run: c1zstore.RunStats{StepDurationsMs: map[string]int64{"list-grants": 9}},
+	}))
+	stats, err := e.readSyncStats(ctx, syncID)
+	require.NoError(t, err)
+	require.Equal(t, int64(9), stats.GetStepDurationsMs()["list-grants"],
+		"the retry's stats, not the failed attempt's")
 }
 
 // ResetLedger must mark the store dirty; see the store-level test in

@@ -308,12 +308,14 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 			return ErrLedgeredSyncNeedsStats
 		}
 	}
-	if overlay != nil {
-		e.setSyncStatsOverlay(syncID, overlay)
-	}
 	existing, err := e.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return err
+	}
+	// Stashed after the last fallible step before the finalize that
+	// consumes it, so exactly one path can leave it behind.
+	if overlay != nil {
+		e.setSyncStatsOverlay(syncID, overlay)
 	}
 	// The sync's writes are done. From here to save/close the store only
 	// runs the deferred index build, the stats sidecar, and the durability
@@ -337,6 +339,15 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 		// compactions, or L0 would accumulate until pebble stalls writes at
 		// L0StopWritesThreshold with nothing left to resume the scheduler.
 		e.unseal()
+		// Drop the stash. Only PersistSyncStats consumes it, and finalize
+		// can fail before reaching it, so leaving it here would park these
+		// stats under syncID for whatever seals that id next —
+		// setSyncStatsOverlay's contract is that the value never outlives
+		// the EndSync that supplied it, and the retry brings its own.
+		// A no-op when finalize already consumed it.
+		if overlay != nil {
+			e.takeSyncStatsOverlay(syncID)
+		}
 		return err
 	}
 	return nil
