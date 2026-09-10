@@ -395,7 +395,7 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 
 // PutGrants writes a batch of grants in a single Pebble batch. v2 is
 // translated to v3 first; the engine then commits the whole batch
-// with one fsync (or NoSync during a fresh sync — see MarkFreshSync).
+// NoSync, fresh sync or not (see recordWriteOpts).
 //
 // The translation uses per-shard arenas (grantTranslateArena) so the
 // 3 × N proto-struct allocations from V2GrantToV3's builder pattern

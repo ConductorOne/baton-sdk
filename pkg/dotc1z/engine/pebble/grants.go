@@ -68,8 +68,8 @@ func (e *Engine) PutGrantRecord(ctx context.Context, r *v3.GrantRecord) error {
 // them, trading that micro-optimization for atomicity and
 // can't-forget index derivation.)
 //
-// Fresh-sync still uses pebble.NoSync — EndFreshSync does one
-// Flush+fsync at sync end to harden the data.
+// The batch commits NoSync — EndFreshSync does one Flush+fsync at
+// sync end to harden the data (see recordWriteOpts).
 func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord) error {
 	if len(records) == 0 {
 		return nil
@@ -81,7 +81,6 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		batch := e.db.NewRecordBatch()
 		defer batch.Close()
 
-		fresh := e.IsFreshSync()
 		// skipGet fires exactly once per fresh sync — only the first
 		// PutGrantRecords call sees the keyspace empty by construction.
 		// Subsequent calls in the same fresh sync still need
@@ -155,10 +154,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 				return err
 			}
 		}
-		opts := writeOpts(e.opts.durability)
-		if fresh {
-			opts = pebble.NoSync
-		}
+		opts := recordWriteOpts
 		// One atomic commit: primary rows and their index/invalidation
 		// obligations ride the same batch, so a primary commit landing
 		// without its index entries is unexpressible.
@@ -184,9 +180,8 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 //     sync (the expander recomputes them from the entitlement graph),
 //     so a per-batch fsync buys nothing. Writes commit with
 //     pebble.NoSync and are hardened by the single Flush at sync end
-//     (EndFreshSync) or Close — the same bargain the
-//     fresh-sync fast path strikes, extended to resumed syncs where
-//     IsFreshSync() is false.
+//     (EndFreshSync) or Close. This path took that bargain on bound
+//     syncs before recordWriteOpts made it the rule everywhere.
 //
 // records arrive as freshly translated v3 GrantRecords with NO
 // preservation or discovered_at stamping applied; this method performs
@@ -887,10 +882,7 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 			}
 		}
 
-		opts := writeOpts(e.opts.durability)
-		if e.IsFreshSync() {
-			opts = pebble.NoSync
-		}
+		opts := recordWriteOpts
 		// One atomic commit: rows and their obligations ride the same
 		// batch, so a primary commit landing without its index entries
 		// is unexpressible.

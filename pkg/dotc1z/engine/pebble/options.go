@@ -18,10 +18,12 @@ import (
 const SDKPebbleFormat = pebble.FormatNewest
 
 // Durability controls how aggressively the engine fsyncs writes. The
-// default for production is DurabilitySync; the fresh-sync fast path
-// (which uses pebble.NoSync for in-flight grant batches) falls under
-// DurabilityNoSync because the sync workflow can replay from the
-// connector if the host crashes before checkpoint.
+// default for production is DurabilitySync.
+//
+// It does not reach record writes inside a sync: those commit NoSync
+// unconditionally (see recordWriteOpts). What is left under this
+// setting is the writes that are not part of an ingest — session keys,
+// assets, sync-run records, and the digest keyspace drop.
 type Durability int
 
 const (
@@ -85,8 +87,9 @@ type Option func(*Options)
 // Unrefs it in Engine.Close.
 func WithSharedCache(c *pebble.Cache) Option { return func(o *Options) { o.sharedCache = c } }
 
-// WithDurability selects the fsync policy for writes. Default is
-// DurabilitySync.
+// WithDurability selects the fsync policy for writes outside a sync's
+// record path. Default is DurabilitySync. See Durability for what it
+// no longer covers.
 func WithDurability(d Durability) Option { return func(o *Options) { o.durability = d } }
 
 // WithReadOnly opens the engine in read-only mode. Save is disallowed.
@@ -207,6 +210,38 @@ func writeOpts(d Durability) *pebble.WriteOptions {
 	}
 	return pebble.Sync
 }
+
+// recordWriteOpts is the durability every record write inside a sync
+// uses. It is NoSync unconditionally — not writeOpts(e.opts.durability),
+// and not conditioned on IsFreshSync. Binding a sync used to cost an
+// fsync per Put* call for the whole ingest
+// (TestBoundSyncRecordWritesDoNotSyncTheWAL measures it).
+//
+// The sealed artifact does not depend on the WAL. CheckpointTo flushes
+// memtables, cuts the checkpoint, and then truncateCheckpointWALs
+// replaces every copied .log with a zero-byte file, so what ships is
+// the SST bytes the flush produced. An fsync here hardens a WAL the
+// artifact throws away.
+//
+// Nothing reads that WAL after a crash either. OpenStore unpacks the
+// c1z into os.MkdirTemp(opts.TmpDir, "c1z-pebble") and removes the
+// directory at Close; the artifact appears only when Close runs
+// CheckpointTo and saveC1z writes a new file. A process that dies
+// mid-sync orphans a temp directory under a random name nothing
+// recorded, and the next process unpacks the last saved c1z into a
+// fresh one.
+//
+// This is safe here while the SQLite path keeps synchronous=NORMAL
+// because the two are not the same trade. SQLite's rollback journal is
+// what makes its transactions atomic, so dropping its sync risks a
+// broken database. Pebble writes its WAL in order and keeps batches
+// atomic either way, so the worst a lost commit costs is recent writes
+// in a database that was going to be discarded.
+//
+// Writes that must outlive the temp directory do not come through here:
+// the keyspace-version stamp calls MetaSet with pebble.Sync directly,
+// and EndFreshSync flushes before the seal.
+var recordWriteOpts = pebble.NoSync
 
 func defaultOptions() *Options {
 	return &Options{

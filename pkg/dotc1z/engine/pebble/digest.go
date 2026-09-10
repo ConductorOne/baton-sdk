@@ -466,10 +466,7 @@ func (e *Engine) buildPartitionDigestAtWidth(ctx context.Context, spec digestInd
 			}
 		}
 
-		opts := writeOpts(e.opts.durability)
-		if e.IsFreshSync() {
-			opts = pebble.NoSync
-		}
+		opts := recordWriteOpts
 		if err := batch.Commit(opts); err != nil {
 			return err
 		}
