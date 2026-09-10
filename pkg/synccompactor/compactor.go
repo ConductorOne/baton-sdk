@@ -420,8 +420,10 @@ func (c *Compactor) Compact(ctx context.Context) (_ *CompactableSync, retErr err
 	var newSyncId string
 	switch {
 	case foldMode:
-		// In-place fold: no fresh sync — the output adopts the base
-		// sync's id and partials merge into its keyspace.
+		// In-place fold: no StartNewSync. Partials merge into the base's
+		// keyspace under the base sync id, and compactPebbleFold renames
+		// the single sync-run record to a fresh id at the end (see
+		// TestCompactPebbleFoldMintsFreshSync).
 		newSyncId, err = c.compactPebbleFold(runCtx)
 		if err != nil {
 			if cause := context.Cause(runCtx); errors.Is(cause, context.DeadlineExceeded) && c.runDuration > 0 && ctx.Err() == nil {

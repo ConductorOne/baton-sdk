@@ -489,6 +489,25 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 		zap.String("base_sync_id", baseSyncID),
 		zap.Int("partials", len(c.entries)-1),
 	)
+
+	// copyFileForFold byte-copies the base, so a ledgered base's rows,
+	// facts, and counter buckets arrive in the output. encodeLedgerKey
+	// carries no sync id — there is one ledger per file — so they do not
+	// travel with the base sync so much as stay behind describing an
+	// ingest this file no longer contains: the fold merges partials in
+	// and then renames the sync-run record to newSyncID below.
+	//
+	// Two things go wrong if they stay. ledgerActive reports true on the
+	// output, so any later rebind that writes a checkpoint token gets
+	// ErrLedgeredSyncWritesNoToken. And LedgerCounters folds the base
+	// ingest's totals in as though they were this artifact's.
+	//
+	// DropLedger, not ResetForNewSync: drop the trace and keep the
+	// records, which is the caller DropLedger's comment names.
+	if err := destEng.DropLedger(ctx); err != nil {
+		return "", fmt.Errorf("compactPebbleFold: drop inherited base ledger: %w", err)
+	}
+
 	unionType := baseRec.GetType()
 	maxEnded := baseRec.GetEndedAt().AsTime()
 
