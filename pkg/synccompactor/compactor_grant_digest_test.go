@@ -310,6 +310,101 @@ func TestCompactPebbleFoldRepairsOnlyTouchedEntitlements(t *testing.T) {
 		"compacted root %x must byte-equal a from-scratch build %x", gotRoot.Hash, wantRoot.Hash)
 }
 
+// TestCompactPebbleFoldRebuildsDigestsWhenBaseHasNone pins the fold's
+// heal-on-fold branch (compactPebbleFold, the case added alongside the
+// digest-index-disabled and targeted-repair branches above): a fold
+// that writes ZERO grants must still end up with a present, correct
+// grant digest when the byte-copied base it started from carried NONE
+// — e.g. because the dest's writable Open just dropped state stamped
+// with a different GrantDigestABIVersion, or the base was sealed with
+// the digest index disabled. Before this branch, such a base's absent digest state rode
+// straight through an all-resource/entitlement partial with nothing to
+// notice or repair it, shipping a digest-free output that nothing
+// downstream would ever fix.
+func TestCompactPebbleFoldRebuildsDigestsWhenBaseHasNone(t *testing.T) {
+	logger, capture := newCapturingLogger()
+	ctx := ctxzap.ToContext(context.Background(), logger)
+	inDir := t.TempDir()
+	outDir := t.TempDir()
+
+	basePath := filepath.Join(inDir, "base.c1z")
+	partialPath := filepath.Join(inDir, "partial-no-grants.c1z")
+	baseSync := buildPebbleInput(t, ctx, basePath, connectorstore.SyncTypeFull, "g1", "g2")
+	// A partial that writes zero grants (only the shared
+	// resource/entitlement shape): the fold's grants-bucket scan
+	// iterates nothing, so FoldStats.TouchedGrantPartitions is empty —
+	// the only way to reach the "no grant writes" branch family.
+	partialSync := buildPebbleInput(t, ctx, partialPath, connectorstore.SyncTypePartial)
+
+	// Precondition: the freshly sealed base DOES carry digest state.
+	wantBaseRoot := grantDigestGlobalRootOf(t, ctx, basePath, baseSync)
+	require.NotZero(t, wantBaseRoot.Count)
+
+	// Drop the base's digest state entirely, simulating a base that
+	// carries none (what a writable Open leaves behind after a stale ABI
+	// stamp, or a base sealed with the digest index disabled) —
+	// Engine.DropAllGrantDigestState is the
+	// exported production op for exactly this state. The drop goes
+	// straight through the raw engine, bypassing the wrapping store's
+	// dirty-marking, so MarkStoreDirty is required for Close to persist
+	// it (mirrors dotc1z's own TestVerificationSourceCache* pattern).
+	baseStore, err := dotc1z.NewStore(ctx, basePath, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(t.TempDir()))
+	require.NoError(t, err)
+	baseEng, ok := enginepkg.AsEngine(baseStore)
+	require.True(t, ok)
+	require.True(t, baseEng.GrantDigestsPresent(), "precondition: reopened base still carries digest state")
+	require.NoError(t, baseEng.DropAllGrantDigestState(ctx))
+	require.False(t, baseEng.GrantDigestsPresent())
+	require.True(t, enginepkg.MarkStoreDirty(baseStore), "base must be a registered pebble store")
+	require.NoError(t, baseStore.Close(ctx))
+
+	// Confirm the drop actually persisted: a fresh read-only open sees
+	// no digest state at all.
+	{
+		reopened, err := dotc1z.NewStore(ctx, basePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
+		require.NoError(t, err)
+		reopenedEng, ok := enginepkg.AsEngine(reopened)
+		require.True(t, ok)
+		require.False(t, reopenedEng.GrantDigestsPresent(), "precondition: base must carry no digest state on disk")
+		require.NoError(t, reopened.Close(ctx))
+	}
+
+	entries := []*CompactableSync{{FilePath: basePath, SyncID: baseSync}, {FilePath: partialPath, SyncID: partialSync}}
+	c, cleanup, err := NewCompactor(ctx, outDir, entries,
+		WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble), WithPebbleCompactorMode(PebbleCompactorModeFold),
+		WithSkipGrantExpansion())
+	require.NoError(t, err)
+	defer func() { _ = cleanup() }()
+
+	out, err := c.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+
+	var sawBuilt bool
+	for _, msg := range capture() {
+		if msg == "compactPebbleFold: no grant writes, but the base carried no grant digest state; built it" {
+			sawBuilt = true
+		}
+	}
+	require.True(t, sawBuilt, "expected the fold to log that it built digests for a digest-less base")
+
+	// The output must now carry a present, correct grant digest —
+	// matching the ORIGINAL base's digest (the fold wrote no grants, so
+	// the final grant set is unchanged from the base's).
+	gotRoot := grantDigestGlobalRootOf(t, ctx, out.FilePath, out.SyncID)
+	require.Equal(t, wantBaseRoot.Count, gotRoot.Count, "grant count must match the base's, unchanged")
+	require.True(t, bytes.Equal(wantBaseRoot.Hash, gotRoot.Hash),
+		"rebuilt output root %x must byte-equal the original base's root %x", gotRoot.Hash, wantBaseRoot.Hash)
+
+	// Oracle: also matches a from-scratch build over the final records.
+	oraclePath := filepath.Join(outDir, "oracle.c1z")
+	oracleSyncID := buildOracleFromCompacted(t, ctx, out, oraclePath)
+	wantRoot := grantDigestGlobalRootOf(t, ctx, oraclePath, oracleSyncID)
+	require.Equal(t, wantRoot.Count, gotRoot.Count)
+	require.True(t, bytes.Equal(wantRoot.Hash, gotRoot.Hash),
+		"compacted root %x must byte-equal a from-scratch build %x", gotRoot.Hash, wantRoot.Hash)
+}
+
 // requireEmptyKeyRange asserts the engine's raw keyspace holds nothing
 // in [lo, hi).
 func requireEmptyKeyRange(t testing.TB, eng *enginepkg.Engine, lo, hi []byte, what string) {

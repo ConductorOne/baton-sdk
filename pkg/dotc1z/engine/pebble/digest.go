@@ -494,12 +494,10 @@ type DigestRoot struct {
 // computeBucketDigest would read that absence as "zero records" — the
 // false-clean trap dirtyPartitionBuckets' doc comment describes.
 func (e *Engine) getPartitionDigestRoot(spec digestIndexSpec, partition string) (DigestRoot, bool, error) {
-	if e.grantDigestBuildPending.Load() {
-		// An interrupted digest build's half-committed nodes may be
-		// durable while its hash index never ingested; until the pending
-		// state is consumed (a writable Open drops it; a read-only open
-		// cannot), no stored root may be trusted — report "never built",
-		// which every consumer already treats as "recalculate".
+	if e.grantDigestStateUntrusted() {
+		// See grantDigestStateUntrusted: no stored root may be trusted
+		// while either flag is set — report "never built", which every
+		// consumer already treats as "recalculate".
 		return DigestRoot{}, false, nil
 	}
 	val, closer, err := e.db.Get(encodeDigestNodeKey(spec.indexID, partition, digestLevelRoot, nil))
