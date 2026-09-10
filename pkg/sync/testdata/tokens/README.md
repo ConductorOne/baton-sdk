@@ -31,6 +31,18 @@ wire format is read by older and newer SDKs against the same sync artifact,
 so a change to any of these bytes is a compatibility change, not a
 refactor.
 
+**Adding a token field means adding bytes here.**
+`TestGoldenTokenFieldCoverage` in `pkg/sync/token_golden_coverage_test.go`
+walks every field reachable from `serializedTokenV0` and `serializedTokenV1`
+and fails unless some fixture below sets it. A Go round-trip test cannot
+stand in for this: it marshals and unmarshals through the same code, so
+renaming a `json` tag moves the writer and the reader together and stays
+green. Only recorded bytes pin the name. If a field genuinely cannot appear
+in a fixture, list it in `goldenTokenUncoveredFields` with the reason — an
+entry there that a fixture does set fails too, so the list cannot go stale.
+`TestGoldenTokenFixturesAreRegistered` catches the other direction, a `.json`
+file here that no `goldenTokenCases` entry reads.
+
 | Fixture | Exercises |
 |---|---|
 | `empty.json` | A state with nothing set: every `omitempty` field absent, only `version`. |
