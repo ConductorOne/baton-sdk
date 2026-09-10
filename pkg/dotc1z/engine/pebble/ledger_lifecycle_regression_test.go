@@ -24,8 +24,8 @@ import (
 // takeoverToken stores the taken-over sync token JSON verbatim, and every
 // Action in that JSON carries a page_token. ScrubLedgerTokens iterates
 // LedgerRowBounds, which is kind 0x00 only; the frontier is kind 0x03, so
-// it was never rewritten and the sealed artifact shipped the tokens that
-// SetLedgerTokensSensitive promises are never in a sealed artifact.
+// it was never rewritten and the sealed artifact shipped tokens the seal
+// is supposed to have removed.
 func TestLedgerScrubReachesTheTakeoverFrontier(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
@@ -33,7 +33,7 @@ func TestLedgerScrubReachesTheTakeoverFrontier(t *testing.T) {
 	require.NoError(t, err)
 
 	// Stands in for a page token that carries a credential, which is the
-	// case SetLedgerTokensSensitive exists for.
+	// case the seal's scrub exists for.
 	const marker = "opaque-cursor-9f3a"
 	state := `{"v":1,"actions":[{"op":"list-grants","page_token":"` + marker + `"}]}`
 	require.NoError(t, e.CheckpointSync(ctx, state))
@@ -49,7 +49,6 @@ func TestLedgerScrubReachesTheTakeoverFrontier(t *testing.T) {
 	require.True(t, found)
 	require.Contains(t, f.GetState(), marker, "before the seal the frontier holds the stack")
 
-	e.SetLedgerTokensSensitive(true)
 	require.NoError(t, e.ScrubLedgerTokens(ctx))
 
 	f, found, err = e.GetLedgerFrontier(ctx)
@@ -222,55 +221,63 @@ func TestPageUnitReadsAfterCommitAreRefusedNotPanics(t *testing.T) {
 	}
 }
 
-// The seal must scrub even when THIS process never declared the tokens
-// sensitive.
+// The retain opt-out must survive a crash, and its absence must scrub.
 //
-// SetLedgerTokensSensitive set an in-memory atomic.Bool and the seal read
-// only that. The declaration is made by the process that starts the sync;
-// after a crash, the process that resumes and seals is a different one
-// and has no way to know. It skipped the scrub and shipped verbatim
-// credentials. The declaration is now a durable ledger fact written into
-// the page's own batch, so the obligation travels with the file.
-func TestSealScrubsOnTheDurableFactWithoutTheFlag(t *testing.T) {
+// The declaration is made by the process that starts the sync while the
+// seal runs wherever the sync finishes, which after a crash is a
+// different process holding a zero-valued flag. An in-memory flag alone
+// cannot cross that boundary, so the declaration is also a durable ledger
+// fact written into the page's own batch.
+//
+// Both directions matter, and they are not symmetric. Losing the fact
+// costs a debugging aid; the default it falls back to is the safe one.
+// That asymmetry is why the flag records the exception rather than the
+// rule — see LedgerFactRetainTokens.
+func TestRetainDeclarationSurvivesCrashAndItsAbsenceScrubs(t *testing.T) {
 	ctx := context.Background()
-	e, dir := newTestEngine(t)
-	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-
 	const marker = "opaque-cursor-7c1b"
-	e.SetLedgerTokensSensitive(true)
-	u := e.NewPageUnit()
-	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"),
-		v3.LedgerRow_builder{NextPageToken: marker}.Build()))
 
-	facts, err := e.LedgerFacts(ctx)
-	require.NoError(t, err)
-	require.Contains(t, facts, c1zstore.LedgerFactTokensSensitive,
-		"the page batch records the declaration durably")
+	// A page, a crash, and a resume in a process that never declared
+	// anything. Returns the sealed engine's rows.
+	sealAfterCrash := func(t *testing.T, declare func(e *Engine)) []*v3.LedgerRow {
+		t.Helper()
+		e, dir := newTestEngine(t)
+		syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		declare(e)
+		u := e.NewPageUnit()
+		require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"),
+			v3.LedgerRow_builder{NextPageToken: marker}.Build()))
 
-	// The crash, and a reopen that stands in for a different process: the
-	// flag is back to false and nothing re-declares it.
-	e = reopenEngine(t, e, dir)
-	require.False(t, e.LedgerTokensSensitive(), "the in-memory declaration did not survive")
+		e = reopenEngine(t, e, dir)
+		require.False(t, e.RetainLedgerTokens(), "no in-memory declaration survives a reopen")
+		resumed, err := NewAdapter(e).ResumeSync(ctx, connectorstore.SyncTypeFull, syncID)
+		require.NoError(t, err)
+		require.Equal(t, syncID, resumed)
+		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 
-	// The resuming process picks the sync back up and seals it, never
-	// having called SetLedgerTokensSensitive.
-	resumed, err := NewAdapter(e).ResumeSync(ctx, connectorstore.SyncTypeFull, syncID)
-	require.NoError(t, err)
-	require.Equal(t, syncID, resumed)
-	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		var rows []*v3.LedgerRow
+		require.NoError(t, e.IterateLedger(ctx, func(r *v3.LedgerRow) bool {
+			rows = append(rows, r)
+			return true
+		}))
+		require.Len(t, rows, 1)
+		return rows
+	}
 
-	n := 0
-	require.NoError(t, e.IterateLedger(ctx, func(r *v3.LedgerRow) bool {
-		n++
-		require.True(t, r.GetScrubbed(), "the seal scrubbed on the fact alone")
-		require.Empty(t, r.GetNextPageToken())
-		require.NotEqual(t, marker, r.GetNextPageToken())
-		require.Len(t, r.GetNextPageTokenHash(), ledgerTokenHashLen,
-			"the hash is kept so resume still works")
-		return true
-	}))
-	require.Equal(t, 1, n)
+	t.Run("retain declared: the fact carries it across the crash", func(t *testing.T) {
+		rows := sealAfterCrash(t, func(e *Engine) { e.SetRetainLedgerTokens(true) })
+		require.False(t, rows[0].GetScrubbed(), "the sealing process honored a fact it never set")
+		require.Equal(t, marker, rows[0].GetNextPageToken())
+	})
+
+	t.Run("nothing declared: the seal scrubs", func(t *testing.T) {
+		rows := sealAfterCrash(t, func(*Engine) {})
+		require.True(t, rows[0].GetScrubbed())
+		require.Empty(t, rows[0].GetNextPageToken())
+		require.Len(t, rows[0].GetNextPageTokenHash(), ledgerTokenHashLen,
+			"the hash is kept, so the ledger can still match the page")
+	})
 }
 
 // A takeover's migrated counters must survive worker 0's first page.

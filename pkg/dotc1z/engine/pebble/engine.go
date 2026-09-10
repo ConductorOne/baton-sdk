@@ -203,13 +203,14 @@ type Engine struct {
 	entIDLookup         map[string][]entitlementIdentity
 	entIDLookupBuiltGen uint64
 
-	// Page ledger state (ledger.go). ledgerTokensSensitive is the
-	// connector-declared flag that makes EndSync scrub ledger tokens to
-	// hash-only before the seal; ledgerMismatches counts read-side
-	// identity-compare failures (a key-function bug signal, never
-	// data loss: the page re-runs).
-	ledgerTokensSensitive atomic.Bool
-	ledgerMismatches      atomic.Uint64
+	// Page ledger state (ledger.go). retainLedgerTokens opts OUT of the
+	// token scrub EndSync performs before the seal; the zero value is
+	// therefore the safe one, which is the point — a caller that never
+	// thinks about tokens gets hash-only rows. ledgerMismatches counts
+	// read-side identity-compare failures (a key-function bug signal,
+	// never data loss: the page re-runs).
+	retainLedgerTokens atomic.Bool
+	ledgerMismatches   atomic.Uint64
 	// ledgerInFlight mirrors the keyspaceVersionLedgerInFlight stamp
 	// (keyspace_version.go): set on Open when the file carries it, by the
 	// first PageUnit commit, cleared at seal.

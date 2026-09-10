@@ -400,18 +400,19 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	if err := e.sealSourceCacheRowCounts(ctx); err != nil {
 		return fmt.Errorf("EndSync: seal source cache row counts: %w", err)
 	}
-	// Scrub ledger tokens for connectors that declared them sensitive,
-	// BEFORE the ended_at stamp for the same reason as the row counts:
-	// the finished verdict must never be durable over a verbatim token.
-	// A crash in between leaves the sync unfinished and the resumed
-	// EndSync re-runs the (idempotent) scrub.
-	// Fact OR flag: this process may not be the one that declared the
-	// tokens sensitive (see LedgerFactTokensSensitive).
-	sensitive, err := e.ledgerTokensSensitiveDurable()
+	// Scrub ledger tokens to hash-only BEFORE the ended_at stamp, for the
+	// same reason as the row counts: the finished verdict must never be
+	// durable over a verbatim token. A crash in between leaves the sync
+	// unfinished and the resumed EndSync re-runs the idempotent scrub.
+	//
+	// Scrubs unless retention was declared, in memory or by the durable
+	// fact (see LedgerFactRetainTokens). This process may not be the one
+	// that declared it.
+	scrub, err := e.sealScrubsTokens()
 	if err != nil {
-		return fmt.Errorf("EndSync: read tokens-sensitive fact: %w", err)
+		return fmt.Errorf("EndSync: read retain-tokens fact: %w", err)
 	}
-	if sensitive {
+	if scrub {
 		if err := e.ScrubLedgerTokens(ctx); err != nil {
 			return fmt.Errorf("EndSync: scrub ledger tokens: %w", err)
 		}

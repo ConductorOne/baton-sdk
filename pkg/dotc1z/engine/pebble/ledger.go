@@ -359,12 +359,11 @@ func (e *Engine) takeoverToken(ctx context.Context, runID string, facts []string
 				return err
 			}
 		}
-		// Same durable declaration as the page batch makes. The takeover
-		// needs its own: it writes a frontier holding a verbatim token
-		// before any page exists, so a crash right after it would leave
-		// that token with no fact to tell the sealing process to scrub it.
-		if e.ledgerTokensSensitive.Load() {
-			if err := batch.StageLedgerFact(encodeLedgerFactKey(c1zstore.LedgerFactTokensSensitive)); err != nil {
+		// Same durable declaration the page batch makes. The takeover needs
+		// its own because it can be the first thing to write the ledger,
+		// before any page exists to carry the fact.
+		if e.retainLedgerTokens.Load() {
+			if err := batch.StageLedgerFact(encodeLedgerFactKey(c1zstore.LedgerFactRetainTokens)); err != nil {
 				return err
 			}
 		}
@@ -455,40 +454,49 @@ func (e *Engine) LedgerRowCount(ctx context.Context) (uint64, error) {
 	return n, err
 }
 
-// SetLedgerTokensSensitive declares that this sync's connector returns
-// page tokens that may carry credentials (brief §3.12). When set, the
-// seal (EndSync) rewrites every ledger row to hash-only tokens before
-// the ended_at stamp, so no sealed artifact carries a verbatim token.
-// The syncer sets it from the connector's capabilities at sync start.
-func (e *Engine) SetLedgerTokensSensitive(sensitive bool) {
-	e.ledgerTokensSensitive.Store(sensitive)
+// SetRetainLedgerTokens keeps this sync's page tokens verbatim in the
+// sealed artifact, opting out of the scrub EndSync otherwise performs
+// before the ended_at stamp (brief §3.12).
+//
+// The default scrubs, and the default is the one that needs no thought:
+// a page token can carry a credential, and the ledger is the first thing
+// in a c1z to store one durably. Declaring safety per connector would
+// mean every connector that never considers the question ships
+// credentials in its artifacts, so the flag records the exception.
+//
+// Nothing needs the verbatim token after the seal — the ledger keys and
+// compares by hash (encodeLedgerKey, ledgerIdentityMatches), and the one
+// reader of a token, a resume fetching the next page, cannot exist on a
+// sealed sync. This is for reading a finished file by hand.
+func (e *Engine) SetRetainLedgerTokens(retain bool) {
+	e.retainLedgerTokens.Store(retain)
 }
 
-// LedgerTokensSensitive reports the flag.
-func (e *Engine) LedgerTokensSensitive() bool { return e.ledgerTokensSensitive.Load() }
+// RetainLedgerTokens reports the flag.
+func (e *Engine) RetainLedgerTokens() bool { return e.retainLedgerTokens.Load() }
 
-// ledgerTokensSensitiveDurable reports whether the seal must scrub: the
-// in-memory declaration OR the durable fact the page batch wrote.
+// sealScrubsTokens reports whether the seal must scrub. It scrubs unless
+// retention was declared, in memory OR by the durable fact a page batch
+// wrote.
 //
-// The fact is what makes this correct across processes. The flag is set
-// by whoever starts the sync; the seal can run in a different process
-// after a crash, and that process has no way to know the connector's
-// tokens were sensitive. Reading the fact means the obligation travels
-// with the file instead of with the goroutine that created it. Called
-// once per seal.
-func (e *Engine) ledgerTokensSensitiveDurable() (bool, error) {
-	if e.ledgerTokensSensitive.Load() {
-		return true, nil
+// The fact is what makes the opt-out work across processes: the flag is
+// set by whoever starts the sync, while the seal runs wherever the sync
+// finishes, which after a crash is a different process. Note that an
+// unreadable or absent fact yields true — scrub — so every way this can
+// go wrong over-protects. Called once per seal.
+func (e *Engine) sealScrubsTokens() (bool, error) {
+	if e.retainLedgerTokens.Load() {
+		return false, nil
 	}
-	_, closer, err := e.db.Get(encodeLedgerFactKey(c1zstore.LedgerFactTokensSensitive))
+	_, closer, err := e.db.Get(encodeLedgerFactKey(c1zstore.LedgerFactRetainTokens))
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
-			return false, nil
+			return true, nil
 		}
-		return false, err
+		return true, err
 	}
 	defer closer.Close()
-	return true, nil
+	return false, nil
 }
 
 // scrubLedgerRow blanks every verbatim token on the row, keeping the
@@ -598,11 +606,10 @@ func (e *Engine) ScrubLedgerTokens(ctx context.Context) error {
 // lives at its own kind (0x03) outside LedgerRowBounds. It needs its own
 // scrub because takeoverToken stores the taken-over sync token JSON
 // verbatim, and every Action in that JSON carries a page_token field. So
-// on a connector that declared its tokens sensitive, a sync that began
-// token-only and was taken over would seal with those tokens readable in
-// the artifact — exactly what SetLedgerTokensSensitive promises cannot
-// happen. The token-only path never had this exposure: its stack is
-// empty by the time it seals.
+// a sync that began token-only and was taken over would seal with those
+// tokens readable in the artifact even though the seal scrubbed every
+// row. The token-only path never had this exposure: its stack is empty
+// by the time it seals.
 //
 // Attempt and taken_over_at stay, so the ledger still records that a
 // takeover happened and when. Only the state goes. Nothing needs it

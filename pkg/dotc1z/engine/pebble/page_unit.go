@@ -428,14 +428,14 @@ func (u *PageUnit) Commit(ctx context.Context, id LedgerIdentity, row *v3.Ledger
 				return err
 			}
 		}
-		// Record the sensitive-tokens declaration durably, in the batch
-		// that carries the tokens it governs. Blind-set on every page: a
-		// fact is a monotone last-writer-wins key, so re-staging costs one
-		// key and makes the write self-healing on resume — a run whose
-		// first page landed before the declaring process crashed still
-		// stamps the fact on its next page.
-		if e.ledgerTokensSensitive.Load() {
-			if err := batch.StageLedgerFact(encodeLedgerFactKey(c1zstore.LedgerFactTokensSensitive)); err != nil {
+		// Record the retain opt-out durably, in the batch that carries the
+		// tokens it governs, so the process that seals honors it even if
+		// it is not the process that declared it. Blind-set on every page:
+		// a fact is a monotone last-writer-wins key, so re-staging costs
+		// one key and self-heals a run whose declaring process died after
+		// the first page.
+		if e.retainLedgerTokens.Load() {
+			if err := batch.StageLedgerFact(encodeLedgerFactKey(c1zstore.LedgerFactRetainTokens)); err != nil {
 				return err
 			}
 		}

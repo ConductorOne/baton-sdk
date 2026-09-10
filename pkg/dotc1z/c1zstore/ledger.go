@@ -91,22 +91,25 @@ type LedgerCounters struct {
 // worker count); nothing else writes this index.
 const RunBucketWorker uint32 = 0xFFFFFFFF
 
-// LedgerFactTokensSensitive is the engine-reserved ledger fact that
-// records durably what SetLedgerTokensSensitive declares in memory: this
-// sync's page tokens may carry credentials, so the seal must rewrite
+// LedgerFactRetainTokens is the engine-reserved ledger fact recording
+// that this sync opted OUT of the seal's token scrub (see
+// SetRetainLedgerTokens). Absent — the ordinary case — the seal rewrites
 // every ledger row to hash-only tokens.
 //
-// It has to be durable. The declaration is made by the process that
-// STARTS the sync, and the process that SEALS it need not be the same
-// one — a crash mid-sync is resumed and sealed by whatever runs next.
-// An in-memory flag alone means that process skips the scrub and ships
-// verbatim credentials in the artifact. The engine writes this fact into
-// the page's own batch, so it is as durable as the rows it governs, and
-// the seal scrubs on the fact OR the flag.
+// It has to be durable because the opt-out is declared by the process
+// that STARTS the sync while the seal runs wherever the sync finishes,
+// which after a crash is a different process with no memory of the
+// declaration. The engine writes the fact into the page's own batch, so
+// it is exactly as durable as the tokens it governs.
+//
+// Note which way this fails. A lost or never-written fact means the seal
+// scrubs a sync that wanted its tokens kept: a debugging aid is gone,
+// nothing is exposed. That is the entire reason the flag records the
+// exception rather than the rule.
 //
 // The "c1z." prefix marks it engine-owned; the syncer's facts are bare
 // names and cannot collide with it.
-const LedgerFactTokensSensitive = "c1z.tokens_sensitive" //nolint:gosec // Ledger fact name, not a credential value.
+const LedgerFactRetainTokens = "c1z.retain_tokens" //nolint:gosec // Ledger fact name, not a credential value.
 
 // TakeoverBucketWorker is the reserved worker index of the counter
 // bucket a token-only takeover migrates into the ledger.
@@ -247,10 +250,18 @@ type PageLedgerStore interface {
 	// echoes a different identity (a key collision, counted by the
 	// store): in either case the page must run.
 	GetLedgerRow(ctx context.Context, id LedgerActionIdentity) (row *LedgerRow, found bool, err error)
-	// SetLedgerTokensSensitive declares that the connector's page tokens
-	// may carry credentials; the store scrubs ledger tokens to hashes
-	// at seal.
-	SetLedgerTokensSensitive(sensitive bool)
+	// SetRetainLedgerTokens keeps this sync's page tokens verbatim in the
+	// sealed artifact. Off by default: the seal rewrites every ledger row
+	// to hash-only tokens, because a page token can carry a credential
+	// and the ledger is the first thing to store one durably.
+	//
+	// Nothing needs the verbatim token after the seal. The ledger keys and
+	// compares rows by token HASH, and the one caller that reads a token
+	// back — a resume, to fetch the next page — cannot exist on a sealed
+	// sync, since the seal only runs once every action is done. So this is
+	// for inspecting a finished file by hand, and the cost of forgetting
+	// it is a lost convenience rather than a leak.
+	SetRetainLedgerTokens(retain bool)
 
 	// LedgerFacts returns every fact a committed page (or the takeover)
 	// established. Absent means never durably established.

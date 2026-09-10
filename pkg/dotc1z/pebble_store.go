@@ -600,8 +600,8 @@ func (s *pebbleStore) DeleteGrant(ctx context.Context, grantID string) error {
 // BeginPage implements c1zstore.PageLedgerStore (the atomic page unit,
 // docs/tasks/sound-syncs-solutions-brief.md §3). The engine's writer is
 // wrapped so a committed page marks the store dirty like every other
-// write; GetLedgerRow and SetLedgerTokensSensitive are promoted from
-// the embedded engine unchanged.
+// write; GetLedgerRow and SetRetainLedgerTokens are promoted from the
+// embedded engine unchanged.
 func (s *pebbleStore) BeginPage() c1zstore.PageWriter {
 	return &dirtyPageWriter{PageWriter: s.Engine.BeginPage(), store: s}
 }

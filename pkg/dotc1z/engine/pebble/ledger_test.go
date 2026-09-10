@@ -316,10 +316,11 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 		}
 	}
 
-	t.Run("unflagged keeps tokens verbatim", func(t *testing.T) {
+	t.Run("retain keeps tokens verbatim", func(t *testing.T) {
 		e, _ := newTestEngine(t)
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
+		e.SetRetainLedgerTokens(true)
 		commitPages(t, e)
 		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 		require.NoError(t, e.IterateLedger(ctx, func(r *v3.LedgerRow) bool {
@@ -331,11 +332,10 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 		}))
 	})
 
-	t.Run("flagged scrubs before seal", func(t *testing.T) {
+	t.Run("the default scrubs before seal", func(t *testing.T) {
 		e, _ := newTestEngine(t)
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		e.SetLedgerTokensSensitive(true)
 		commitPages(t, e)
 		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 
@@ -379,7 +379,6 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 		e, _ := newTestEngine(t)
 		syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		e.SetLedgerTokensSensitive(true)
 		commitPages(t, e)
 
 		boom := errors.New("injected scrub commit failure")
@@ -701,20 +700,23 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 		require.NoError(t, e.Flush(ctx))
 	}
 
-	t.Run("unflagged control: tokens ship", func(t *testing.T) {
+	// Validates the needle oracle itself: with retention declared the
+	// tokens are still there, so a zero count below means the scrub
+	// worked rather than that the detector cannot see.
+	t.Run("retain control: tokens ship", func(t *testing.T) {
 		e, _ := newTestEngine(t)
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
+		e.SetRetainLedgerTokens(true)
 		commitPages(t, e)
 		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
-		require.Positive(t, checkpointNeedleHits(t, e, []byte(needleText)), "oracle must see verbatim tokens in an unflagged file")
+		require.Positive(t, checkpointNeedleHits(t, e, []byte(needleText)), "oracle must see verbatim tokens when retention is declared")
 	})
 
-	t.Run("flagged: zero residue", func(t *testing.T) {
+	t.Run("default: zero residue", func(t *testing.T) {
 		e, _ := newTestEngine(t)
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		e.SetLedgerTokensSensitive(true)
 		commitPages(t, e)
 		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 		require.Zero(t, checkpointNeedleHits(t, e, []byte(needleText)), "verbatim token bytes survive in the checkpointed SSTs")
@@ -729,7 +731,6 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 		e.test.skipLedgerResiduePurge = true
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		e.SetLedgerTokensSensitive(true)
 		commitPages(t, e)
 		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 		// Query level: clean.
