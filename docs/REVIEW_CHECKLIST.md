@@ -136,9 +136,12 @@ on `*syncer` and every value a new field. Reject on these, not on taste.
   outside any lock anyway — a holder that skips the mutex says why in its
   doc comment. `marshalToken` is the only caller that holds two, `run`
   before `stats`; a second such caller takes the same order.
-  `TestRunStatsLockOrder` enforces both halves against the package AST,
+  `TestRunStatsLockOrder` checks both halves against the package AST,
   because the race detector has no lock-order analysis and an inverted
-  caller would only hang, and only when it interleaved.
+  caller would only hang, and only when it interleaved. It sees a function
+  that takes both mutexes directly and one that takes one and calls the
+  other holder's own locking method; a hop through a method on some other
+  type, `*syncer` included, is not followed, and its header comment says so.
   CXE-1356 split the old `state` grab-bag into these three; put
   new state on the one whose lifetime it shares, or in a new type, rather than
   back onto `runState`.

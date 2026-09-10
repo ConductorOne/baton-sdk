@@ -33,6 +33,23 @@ import (
 // nothing and calls two single-lock functions in sequence, which is what
 // unmarshalToken does with loadRunState and loadRunStats, is not holding
 // both and does not count.
+//
+// Where that one hop reaches, exactly: a plain package function, or a
+// locking method on runState or runStats. It does not reach a method on any
+// other type, so a function holding stats.mu that gets to run.mu through a
+// *syncer method is not reported. Closing that needs a transitive closure
+// over the call graph rather than one hop. Left undone deliberately: the two
+// forms someone writes by hand are covered, the missed shape also has to be
+// written stats-first and has to run on a goroutine other than the
+// checkpoint's to deadlock at all, and the failure is a hang rather than a
+// bad artifact.
+//
+// The unresolved-acquisition guard below spans every type in the package
+// with a mu field, not just these two — childScheduleSet,
+// parallelActionQueue and queueAudit included. An acquisition on one of
+// those that pkgAST.resolve cannot type fails this test even though no
+// run/stats order is at stake there. That is deliberate: a resolver that
+// quietly skips what it cannot read stops being a check.
 
 const (
 	runHolder   = "runState"
@@ -345,8 +362,10 @@ func TestRunStatsLockOrder(t *testing.T) {
 	sort.Strings(bothHolders)
 
 	require.Emptyf(t, unresolvedSites,
-		"this test could not tell which type these mutex acquisitions lock, so it cannot see whether they hold both. Extend pkgAST.resolve:\n  %s",
-		strings.Join(unresolvedSites, "\n  "))
+		"pkgAST.resolve could not name the type these mutex acquisitions lock, so this test cannot tell whether they are %s and %s. "+
+			"If they are some other holder — parallelActionQueue, queueAudit, childScheduleSet — no lock order is at stake and teaching "+
+			"resolve to name the type is all that is needed:\n  %s",
+		runHolder, statsHolder, strings.Join(unresolvedSites, "\n  "))
 	require.Equalf(t, []string{twoLockFunc}, bothHolders,
 		"%s is meant to be the only function holding both %s's and %s's mutex. A new one must take run before stats "+
 			"(token.go's header comment, docs/REVIEW_CHECKLIST.md) — say so in its doc comment and add it here.",

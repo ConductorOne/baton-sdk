@@ -18,8 +18,9 @@ import (
 // under their mutexes, so a token is a consistent view of both. marshalToken
 // takes runState's read lock and then runStats'; if some future caller needs
 // both locks, take them in that order. TestRunStatsLockOrder walks the
-// package and fails on a second function that holds both, or on marshalToken
-// taking them the other way.
+// package and fails on marshalToken taking them the other way, or on a
+// second function that takes both directly or through a holder's own locking
+// method; its header comment states what that walk does not reach.
 
 // If you make a breaking change to the state token, you must increment this version.
 const StateTokenVersion = 1
