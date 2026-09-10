@@ -62,7 +62,7 @@ func TestPeriodicCheckpointStopExitTakesDetachedRescue(t *testing.T) {
 	st := newEmptySchedulerState(t)
 	st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-1"})
 	store := &checkpointOutcomeStore{failWhenCallerDone: true}
-	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
+	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 1}}
 	s.setStore(store)
 
 	// The stop lands "between batches": the loop's first periodic checkpoint
@@ -92,7 +92,7 @@ func TestPeriodicCheckpointFailureWithLiveCallerIsNotRetried(t *testing.T) {
 	st := newEmptySchedulerState(t)
 	st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-1"})
 	store := &checkpointOutcomeStore{failAlways: true}
-	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
+	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 1}}
 	s.setStore(store)
 
 	_, err := s.parallelSync(ctx, ctx, nil)

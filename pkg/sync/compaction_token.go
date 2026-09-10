@@ -72,16 +72,16 @@ type CompactionTokenInput struct {
 // the original StatsSyncID, the uncapped partial count, and already-folded
 // top-level timings carry forward; new partials are added on top.
 func BuildCompactedToken(baseToken string, in CompactionTokenInput) (string, error) {
-	st := newState()
+	// An empty base token starts from an empty run rather than going through
+	// unmarshalToken, which would seed an InitOp action to drive a fresh
+	// sync; a finished compacted output must not carry one.
+	parts := tokenParts{run: newRunState(), stats: newRunStats()}
 	if baseToken != "" {
-		if err := st.Unmarshal(baseToken); err != nil {
+		var err error
+		parts, err = unmarshalToken(baseToken)
+		if err != nil {
 			return "", err
 		}
-	} else {
-		// Skip Unmarshal("") — it seeds an InitOp action to drive a fresh
-		// sync, which a finished compacted output must not carry.
-		st.actions = make(map[string]Action)
-		st.actionOrder = []string{}
 	}
 
 	comp := &CompactionTokenStats{
@@ -89,7 +89,7 @@ func BuildCompactedToken(baseToken string, in CompactionTokenInput) (string, err
 		StatsSyncID: in.BaseSyncID,
 		BaseSyncID:  in.BaseSyncID,
 	}
-	if prior := st.compaction; prior != nil {
+	if prior := parts.stats.compactionStats(); prior != nil {
 		if prior.StatsSyncID != "" {
 			comp.StatsSyncID = prior.StatsSyncID
 		}
@@ -106,7 +106,7 @@ func BuildCompactedToken(baseToken string, in CompactionTokenInput) (string, err
 	}
 
 	for _, token := range in.PartialTokens {
-		foldPartialTimings(st, token)
+		foldPartialTimings(parts.stats, token)
 	}
 
 	if len(in.RecordCounts) > 0 {
@@ -117,33 +117,35 @@ func BuildCompactedToken(baseToken string, in CompactionTokenInput) (string, err
 		}
 	}
 
-	st.compaction = comp
-	return st.Marshal()
+	parts.stats.setCompaction(comp)
+	// A compacted output is a finished artifact: it carries no inline
+	// entitlement graph, the same as every default checkpoint.
+	return marshalToken(parts.run, parts.stats)
 }
 
 // foldPartialTimings adds one partial's timing stats into the compacted
 // token's top-level maps. Unparseable or stat-less tokens contribute
 // nothing; parse errors are not surfaced because provenance must never
 // fail a compaction.
-func foldPartialTimings(st *state, token string) {
+func foldPartialTimings(stats *runStats, token string) {
 	if token == "" {
 		return
 	}
-	partial := newState()
-	if err := partial.Unmarshal(token); err != nil {
+	partial, err := unmarshalToken(token)
+	if err != nil {
 		return
 	}
-	for bucket, ms := range partial.StepDurations() {
+	for bucket, ms := range partial.stats.stepDurations() {
 		if ms == 0 {
 			continue
 		}
-		st.AddStepDuration(bucket, time.Duration(ms)*time.Millisecond)
+		stats.addStepDuration(bucket, time.Duration(ms)*time.Millisecond)
 	}
-	for method, stat := range partial.ConnectorCallStats() {
-		st.MergeConnectorCallStat(method, stat)
+	for method, stat := range partial.stats.connectorCallStats() {
+		stats.mergeConnectorCallStat(method, stat)
 	}
-	for op, stat := range partial.SessionStoreStats() {
-		st.MergeSessionStat(op, stat)
+	for op, stat := range partial.stats.sessionStoreStats() {
+		stats.mergeSessionStat(op, stat)
 	}
 }
 
@@ -153,14 +155,15 @@ func CompactionStatsFromToken(token string) (*CompactionTokenStats, error) {
 	if token == "" {
 		return nil, nil
 	}
-	st := newState()
-	if err := st.Unmarshal(token); err != nil {
+	parts, err := unmarshalToken(token)
+	if err != nil {
 		return nil, err
 	}
-	if st.compaction == nil {
+	comp := parts.stats.compactionStats()
+	if comp == nil {
 		return nil, nil
 	}
-	out, err := json.Marshal(st.compaction)
+	out, err := json.Marshal(comp)
 	if err != nil {
 		return nil, err
 	}

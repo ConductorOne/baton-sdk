@@ -107,10 +107,9 @@ func TestRateLimitGateWaitsReachSyncStats(t *testing.T) {
 	require.NoError(t, store.SetCurrentSync(ctx, syncID))
 	token, err := store.CurrentSyncStep(ctx)
 	require.NoError(t, err)
-	completedState := newState()
-	require.NoError(t, completedState.Unmarshal(token))
+	_, completedState, _ := decodeTestRun(t, token)
 
-	durations := completedState.StepDurations()
+	durations := completedState.stepDurations()
 	require.Positive(t, gc.gateCalls, "sync should have listed grants")
 	require.Positive(t, gc.rtCalls, "sync should have listed resource types")
 	// All three sources must land: observer-reported gate sleeps,

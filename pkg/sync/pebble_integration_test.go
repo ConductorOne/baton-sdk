@@ -82,12 +82,11 @@ func TestPebbleFullSyncThroughSyncer(t *testing.T) {
 
 	token, err := reopen.CurrentSyncStep(ctx)
 	require.NoError(t, err)
-	completedState := newState()
-	require.NoError(t, completedState.Unmarshal(token))
-	require.Contains(t, completedState.StepDurations(), SyncResourceTypesOp.String())
-	require.Contains(t, completedState.StepDurations(), SyncResourcesOp.String())
-	require.NotZero(t, completedState.ConnectorCallStats()["list-resource-types"].Count)
-	require.NotZero(t, completedState.ConnectorCallStats()["list-resources"].Count)
+	_, completedState, _ := decodeTestRun(t, token)
+	require.Contains(t, completedState.stepDurations(), SyncResourceTypesOp.String())
+	require.Contains(t, completedState.stepDurations(), SyncResourcesOp.String())
+	require.NotZero(t, completedState.connectorCallStats()["list-resource-types"].Count)
+	require.NotZero(t, completedState.connectorCallStats()["list-resources"].Count)
 
 	resp, err := reopen.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoError(t, err)
@@ -118,10 +117,9 @@ func TestSQLiteSyncDoesNotRecordTimingStats(t *testing.T) {
 	require.NoError(t, store.SetCurrentSync(ctx, syncID))
 	token, err := store.CurrentSyncStep(ctx)
 	require.NoError(t, err)
-	completedState := newState()
-	require.NoError(t, completedState.Unmarshal(token))
-	require.Empty(t, completedState.StepDurations())
-	require.Empty(t, completedState.ConnectorCallStats())
+	_, completedState, _ := decodeTestRun(t, token)
+	require.Empty(t, completedState.stepDurations())
+	require.Empty(t, completedState.connectorCallStats())
 
 	require.NoError(t, syncer.Close(ctx))
 }

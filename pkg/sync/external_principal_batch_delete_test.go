@@ -101,9 +101,9 @@ func newBatchDeleteRouteStore(size int) (*batchDeleteRouteStore, []string) {
 }
 
 func newExternalMatchSyncer(store c1zstore.Store) *syncer {
-	st := newState()
-	st.SetHasExternalResourcesGrants()
-	s := &syncer{state: st}
+	run := newRunState()
+	run.setFact(factHasExternalResourceGrants)
+	s := &syncer{run: run, stats: newRunStats(), graph: newExpansionGraph()}
 	s.setStore(store)
 	return s
 }

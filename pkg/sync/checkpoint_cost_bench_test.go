@@ -8,24 +8,24 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 //
 // What this branch added to that loop, and the curves these benchmarks pin:
 //
-//   - Every in-flight spawned cursor is an Action in state.actions, and
-//     Marshal re-serializes the whole map on EVERY checkpoint (default
+//   - Every in-flight spawned cursor is an Action in runState.actions, and
+//     marshalToken re-serializes the whole map on EVERY checkpoint (default
 //     every ~10s for the sync's lifetime). Cost is O(width) in time and
 //     token bytes, where width is UNBOUNDED and connector-controlled: the
 //     batch cursor cap was removed by RFC 0007 phase 1, and a bound on
 //     outstanding actions returns with phase 2. Each cursor's page token
 //     may itself be up to ~1 MiB. The benchmark reports token-bytes
 //     alongside ns/op so a regression in either is visible.
-//   - Marshal also version-stamps by scanning every action for
+//   - marshalToken also version-stamps by scanning every action for
 //     type-scoped/spawned markers: a second O(width) pass that exists only
 //     on this branch. It is measured by the same benchmark.
 //   - Each admission permanently retains a spawnedAdmitted entry (32-byte
 //     identity digest + action-ID string) for the process lifetime BY
-//     DESIGN (re-mention termination guard; see state.go). Admission cost,
+//     DESIGN (re-mention termination guard; see run_state.go). Admission cost,
 //     including that never-pruned entry, is pinned per-op below.
 //
-// Ratchet these against main when touching the checkpoint loop, state
-// serialization, or the scheduler's admission path:
+// Ratchet these against main when touching the checkpoint loop, the token
+// codec, or the scheduler's admission path:
 //
 //	go test ./pkg/sync/ -run '^$' -bench BenchmarkCheckpoint -benchmem
 
@@ -38,10 +38,10 @@ import (
 // buildFanoutState models the checkpoint-visible state of a sync holding
 // `width` in-flight spawned type-scoped cursors, plus the parent action
 // that spawned them.
-func buildFanoutState(b *testing.B, width int) *state {
+func buildFanoutState(b *testing.B, width int) *runState {
 	b.Helper()
 	ctx := context.Background()
-	st := newState()
+	st := newRunState()
 	st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", TypeScoped: true})
 	for i := 0; i < width; i++ {
 		st.pushAction(ctx, Action{
@@ -68,7 +68,8 @@ func BenchmarkCheckpointTokenMarshalFanout(b *testing.B) {
 	for _, width := range checkpointFanoutWidths {
 		b.Run(fmt.Sprintf("width-%d", width), func(b *testing.B) {
 			st := buildFanoutState(b, width)
-			token, err := st.Marshal()
+			stats := newRunStats()
+			token, err := marshalToken(st, stats)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -76,7 +77,7 @@ func BenchmarkCheckpointTokenMarshalFanout(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				if _, err := st.Marshal(); err != nil {
+				if _, err := marshalToken(st, stats); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -90,14 +91,14 @@ func BenchmarkCheckpointTokenMarshalFanout(b *testing.B) {
 func BenchmarkCheckpointTokenUnmarshalFanout(b *testing.B) {
 	for _, width := range checkpointFanoutWidths {
 		b.Run(fmt.Sprintf("width-%d", width), func(b *testing.B) {
-			token, err := buildFanoutState(b, width).Marshal()
+			token, err := marshalToken(buildFanoutState(b, width), newRunStats())
 			if err != nil {
 				b.Fatal(err)
 			}
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				if err := newState().Unmarshal(token); err != nil {
+				if _, err := unmarshalToken(token); err != nil {
 					b.Fatal(err)
 				}
 			}
@@ -112,7 +113,7 @@ func BenchmarkCheckpointTokenUnmarshalFanout(b *testing.B) {
 // across the loop, so amortized growth is in the number).
 func BenchmarkSpawnedCursorAdmission(b *testing.B) {
 	ctx := context.Background()
-	st := newState()
+	st := newRunState()
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -123,6 +124,6 @@ func BenchmarkSpawnedCursorAdmission(b *testing.B) {
 			Spawned:        true,
 			TypeScoped:     true,
 		})
-		st.FinishAction(ctx, admitted)
+		st.finishAction(ctx, admitted)
 	}
 }

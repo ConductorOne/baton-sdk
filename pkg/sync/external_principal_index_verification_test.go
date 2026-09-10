@@ -311,11 +311,10 @@ func seedExternalMatchVerificationStore(
 	}
 	require.NoError(t, store.PutGrants(ctx, carriers...))
 
-	state := newState()
-	state.SetHasExternalResourcesGrants()
-	state.PushAction(ctx, Action{Op: SyncExternalResourcesOp})
-	token, err := state.Marshal()
-	require.NoError(t, err)
+	run := newRunState()
+	run.setFact(factHasExternalResourceGrants)
+	run.pushAction(ctx, Action{Op: SyncExternalResourcesOp})
+	token := encodeTestRun(t, run, newRunStats())
 	require.NoError(t, store.CheckpointSync(ctx, token))
 
 	return store, syncID, verificationPrincipals(t)
@@ -324,16 +323,15 @@ func seedExternalMatchVerificationStore(
 func finishExternalMatchVerificationSync(
 	t *testing.T,
 	store c1zstore.Store,
-	state *state,
+	run *runState,
 ) {
 	t.Helper()
 	ctx := t.Context()
-	action := state.Current()
+	action := run.current()
 	require.NotNil(t, action)
 	require.Equal(t, SyncExternalResourcesOp, action.Op)
-	state.FinishAction(ctx, action)
-	token, err := state.Marshal()
-	require.NoError(t, err)
+	run.finishAction(ctx, action)
+	token := encodeTestRun(t, run, newRunStats())
 	require.NoError(t, store.CheckpointSync(ctx, token))
 	require.NoError(t, store.EndSync(ctx))
 	require.NoError(t, store.Close(ctx))
@@ -378,10 +376,10 @@ func TestVerificationExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T
 
 	goldenPath := filepath.Join(tmpDir, "golden.c1z")
 	goldenStore, goldenSyncID, principals := seedExternalMatchVerificationStore(t, goldenPath)
-	goldenState := newState()
-	goldenState.SetHasExternalResourcesGrants()
-	goldenState.PushAction(ctx, Action{Op: SyncExternalResourcesOp})
-	goldenSyncer := &syncer{state: goldenState}
+	goldenState := newRunState()
+	goldenState.setFact(factHasExternalResourceGrants)
+	goldenState.pushAction(ctx, Action{Op: SyncExternalResourcesOp})
+	goldenSyncer := &syncer{run: goldenState, stats: newRunStats(), graph: newExpansionGraph()}
 	goldenSyncer.setStore(goldenStore)
 	require.NoError(t, goldenSyncer.processGrantsWithExternalPrincipals(ctx, principals))
 	finishExternalMatchVerificationSync(t, goldenStore, goldenState)
@@ -393,11 +391,10 @@ func TestVerificationExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T
 		Store:        cutStore,
 		failDeleteAt: 2,
 	}
-	cutState := newState()
 	currentToken, err := cutStore.CurrentSyncStep(ctx)
 	require.NoError(t, err)
-	require.NoError(t, cutState.Unmarshal(currentToken))
-	cutSyncer := &syncer{state: cutState}
+	cutState, _, _ := decodeTestRun(t, currentToken)
+	cutSyncer := &syncer{run: cutState, stats: newRunStats(), graph: newExpansionGraph()}
 	cutSyncer.setStore(cutWrapper)
 	err = cutSyncer.processGrantsWithExternalPrincipals(ctx, principals)
 	require.ErrorIs(t, err, errVerificationDeleteCut)
@@ -412,12 +409,11 @@ func TestVerificationExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T
 	require.NoError(t, resumedStore.SetCurrentSync(ctx, cutSyncID))
 	resumedToken, err := resumedStore.CurrentSyncStep(ctx)
 	require.NoError(t, err)
-	resumedState := newState()
-	require.NoError(t, resumedState.Unmarshal(resumedToken))
-	require.NotNil(t, resumedState.Current(), "unfinished action must survive the cut")
+	resumedState, _, _ := decodeTestRun(t, resumedToken)
+	require.NotNil(t, resumedState.current(), "unfinished action must survive the cut")
 
 	resumedWrapper := &interruptingExternalMatchStore{Store: resumedStore}
-	resumedSyncer := &syncer{state: resumedState}
+	resumedSyncer := &syncer{run: resumedState, stats: newRunStats(), graph: newExpansionGraph()}
 	resumedSyncer.setStore(resumedWrapper)
 	require.NoError(t, resumedSyncer.processGrantsWithExternalPrincipals(ctx, principals))
 	require.Equal(t, []int{33}, resumedWrapper.putBatchSizes,

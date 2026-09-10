@@ -76,7 +76,7 @@ the model checks, not descriptions of shipped behavior.
   (`validateReplaySourceScope`).
 - **Checkpoint**: the durable snapshot of scheduler state — action stack,
   provenance sets, flags — written between dispatch batches
-  (`state.Marshal` → sync token), and FORCE-written at Init, before seal,
+  (`marshalToken` → sync token), and FORCE-written at Init, before seal,
   and on graceful stop (`checkpointOnStop`, run-expiry). A stop-forced
   checkpoint captures live mid-batch state: mid-chain cursors of
   unfinished actions, admitted-but-undrained spawns, and hits recorded

@@ -95,7 +95,7 @@ func TestStateSkipsReAdmittedSpawnIdentity(t *testing.T) {
 
 	// Finish the original, then re-mention again — the batch-scoped queue
 	// would have forgotten it by the next batch; the state must not.
-	st.FinishAction(ctx, pushed[0])
+	st.finishAction(ctx, pushed[0])
 	pushed3, err := st.transitionAction(ctx, parent, "root-4", []Action{spawn})
 	require.NoError(t, err)
 	require.Empty(t, pushed3, "re-mentioned COMPLETED spawn must stay skipped for the life of the process")
@@ -109,11 +109,9 @@ func TestStateSkipsReAdmittedSpawnIdentity(t *testing.T) {
 	// Resume semantics: the guard rebuilds from the SURVIVING stack.
 	// shard-2 is still in flight (survives, stays skippable); shard-1
 	// completed (amnesia — re-doable once, idempotently).
-	token, err := st.Marshal()
-	require.NoError(t, err)
-	resumed := newState()
-	require.NoError(t, resumed.Unmarshal(token))
-	restoredParent := resumed.Current()
+	token := encodeTestRun(t, st, newRunStats())
+	resumed, _, _ := decodeTestRun(t, token)
+	restoredParent := resumed.current()
 	require.NotNil(t, restoredParent)
 	require.Equal(t, "shard-2", restoredParent.PageToken)
 
@@ -420,9 +418,7 @@ func TestSpawnedCursorErrorCategoriesEndToEnd(t *testing.T) {
 
 			impl, ok := s.(*syncer)
 			require.True(t, ok)
-			state, ok := impl.state.(*state)
-			require.True(t, ok)
-			undrained := state.UndrainedSpawnedCursors()
+			undrained := impl.run.undrainedSpawnedCursors()
 			if tc.wantColdResume {
 				require.NotEmpty(t, undrained, "fatal spawned action must remain enrolled for resume")
 				require.Contains(t, fmt.Sprint(undrained), `token="e2"`)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/stretchr/testify/require"
 )
 
@@ -14,16 +15,13 @@ func TestEntitlementGraphTokenCompatibilityMatrix(t *testing.T) {
 	ctx := context.Background()
 	// Hand-build the legacy inline-graph token shape. Checkpoints no longer
 	// carry a graph, while readers remain compatible with older tokens.
-	stateWithGraph := newState()
-	graph := stateWithGraph.EntitlementGraph(ctx)
+	graph := expand.NewEntitlementGraph(ctx)
 	graph.AddEntitlementID("a")
 	graph.Loaded = true
 	graph.MarkExpansionComplete()
-	legacyToken := marshalLegacyInlineGraphToken(t, stateWithGraph)
+	legacyToken := marshalLegacyInlineGraphToken(t, newRunState(), graph)
 
-	emptyState := newState()
-	emptyToken, err := emptyState.Marshal()
-	require.NoError(t, err)
+	emptyToken := encodeTestRun(t, newRunState(), newRunStats())
 
 	tests := []struct {
 		name        string
@@ -49,8 +47,9 @@ func TestEntitlementGraphTokenCompatibilityMatrix(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			token := tc.token
 			if tc.prepare {
-				token, err = PrepareExpansionReplayToken(token)
+				prepared, err := PrepareExpansionReplayToken(token)
 				require.NoError(t, err)
+				token = prepared
 			}
 			got, err := GraphFromToken(token)
 			require.NoError(t, err)

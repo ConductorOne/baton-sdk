@@ -165,10 +165,10 @@ func invariantVerdict(err error) error { return &invariantVerdictError{err: err}
 // referential checks exist for.
 // #nosec G101 -- "PageTokens" is an annotation name, not a credential.
 var sideEffectAnnotationCoverage = map[string]string{
-	"c1.connector.v2.GrantExpandable":           "I1: response-loop expansion arming (SetNeedsExpansion) + needs_expansion column persistence; store-derived probe arrives with replay",
-	"c1.connector.v2.ExternalResourceMatch":     "I2: response-loop match arming (SetHasExternalResourcesGrants); store-derived existence-bit repair arrives with replay",
-	"c1.connector.v2.ExternalResourceMatchAll":  "I2: response-loop match arming (SetHasExternalResourcesGrants); store-derived existence-bit repair arrives with replay",
-	"c1.connector.v2.ExternalResourceMatchID":   "I2: response-loop match arming (SetHasExternalResourcesGrants); store-derived existence-bit repair arrives with replay",
+	"c1.connector.v2.GrantExpandable":           "I1: response-loop expansion arming (setFact(factNeedsExpansion)) + needs_expansion column persistence; store-derived probe arrives with replay",
+	"c1.connector.v2.ExternalResourceMatch":     "I2: response-loop match arming (setFact(factHasExternalResourceGrants)); store-derived existence-bit repair arrives with replay",
+	"c1.connector.v2.ExternalResourceMatchAll":  "I2: response-loop match arming (setFact(factHasExternalResourceGrants)); store-derived existence-bit repair arrives with replay",
+	"c1.connector.v2.ExternalResourceMatchID":   "I2: response-loop match arming (setFact(factHasExternalResourceGrants)); store-derived existence-bit repair arrives with replay",
 	"c1.connector.v2.InsertResourceGrants":      "I3: grant→resource referential check post-collection",
 	"c1.connector.v2.ChildResourceType":         "I4: scheduled-set completeness check post-collection",
 	"c1.connector.v2.EntitlementExclusionGroup": "I5: stored-keyspace validation post-collection",
@@ -262,7 +262,7 @@ type IngestInvariantsPolicy struct {
 	syncResourceTypes []string
 
 	// I10 evidence: the sync state's spawned-cursor drain read
-	// (state.UndrainedSpawnedCursors), evaluated at check time. Only a
+	// (runState.undrainedSpawnedCursors), evaluated at check time. Only a
 	// caller that runs the scheduler can supply it; nil skips the check
 	// (a store-level pipeline never schedules cursors, so the predicate
 	// has no subject).
@@ -632,8 +632,15 @@ func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 			s.ingestFilterStats.blockReplay(ingestQualityReasonRetainedInvalid)
 		},
 	}
-	if st, ok := s.state.(*state); ok {
-		policy.undrainedSpawned = st.UndrainedSpawnedCursors
+	// Leaving the predicate nil is how the policy says "no scheduler
+	// evidence, skip I10". The nil check has to be here: a bound method
+	// value on a nil *runState is itself non-nil, so assigning
+	// unconditionally would sail past checkSpawnedCursorDrain's nil test
+	// and dereference the receiver at r.mu.RLock(). Sync assigns s.run
+	// before this pass, so only a hand-assembled syncer takes the false
+	// branch (TestRunIngestionInvariantsI10EvidenceWiring).
+	if s.run != nil {
+		policy.undrainedSpawned = s.run.undrainedSpawnedCursors
 	}
 	if s.testHooks.ingestHaltHook != nil {
 		policy.halt = s.testHooks.ingestHaltHook
@@ -966,7 +973,7 @@ func (pass *ingestInvariantsPass) checkSpawnedCursorDrain(ctx context.Context) e
 	if len(undrained) == 0 {
 		return nil
 	}
-	// Already sorted by action ID (state.UndrainedSpawnedCursors); the
+	// Already sorted by action ID (runState.undrainedSpawnedCursors); the
 	// verdict text is byte-stable.
 	return invariantVerdict(fmt.Errorf(
 		"ingest invariant I10 violated: %d spawned page-token cursor(s) were admitted to the schedule but never drained (scheduler bug — the sync is missing their data): %v",

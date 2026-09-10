@@ -25,7 +25,7 @@ import (
 //   - the interrupted sync is resumed (started_new == false), not
 //     replaced by a fresh sync, and
 //   - CurrentSyncStep returns the checkpointed token, so the syncer's
-//     state.Unmarshal sees a real FSM cursor rather than "" (which
+//     unmarshalToken sees a real FSM cursor rather than "" (which
 //     would reset the FSM to InitOp and re-run the whole sync).
 //
 // Pebble previously failed both: StartOrResumeSync("") always started a

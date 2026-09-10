@@ -30,7 +30,7 @@ func reopenEngine(t testing.TB, e *Engine, dir string) *Engine {
 // Pebble resume bug: ResumeSync must rehydrate the in-memory step from
 // the persisted SyncToken so CurrentSyncStep returns the checkpointed
 // token (not "") after a new-process resume. A lost step makes the
-// syncer's state.Unmarshal("") restart the FSM from InitOp — i.e. a
+// syncer's unmarshalToken("") restart the FSM from InitOp — i.e. a
 // full sync on every activity window.
 func TestResumeSyncRestoresCheckpointStep(t *testing.T) {
 	ctx := context.Background()
