@@ -91,6 +91,23 @@ type LedgerCounters struct {
 // worker count); nothing else writes this index.
 const RunBucketWorker uint32 = 0xFFFFFFFF
 
+// LedgerFactTokensSensitive is the engine-reserved ledger fact that
+// records durably what SetLedgerTokensSensitive declares in memory: this
+// sync's page tokens may carry credentials, so the seal must rewrite
+// every ledger row to hash-only tokens.
+//
+// It has to be durable. The declaration is made by the process that
+// STARTS the sync, and the process that SEALS it need not be the same
+// one — a crash mid-sync is resumed and sealed by whatever runs next.
+// An in-memory flag alone means that process skips the scrub and ships
+// verbatim credentials in the artifact. The engine writes this fact into
+// the page's own batch, so it is as durable as the rows it governs, and
+// the seal scrubs on the fact OR the flag.
+//
+// The "c1z." prefix marks it engine-owned; the syncer's facts are bare
+// names and cannot collide with it.
+const LedgerFactTokensSensitive = "c1z.tokens_sensitive" //nolint:gosec // Ledger fact name, not a credential value.
+
 // TakeoverBucketWorker is the reserved worker index of the counter
 // bucket a token-only takeover migrates into the ledger.
 //

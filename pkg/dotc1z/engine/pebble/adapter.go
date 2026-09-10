@@ -405,7 +405,13 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	// the finished verdict must never be durable over a verbatim token.
 	// A crash in between leaves the sync unfinished and the resumed
 	// EndSync re-runs the (idempotent) scrub.
-	if e.ledgerTokensSensitive.Load() {
+	// Fact OR flag: this process may not be the one that declared the
+	// tokens sensitive (see LedgerFactTokensSensitive).
+	sensitive, err := e.ledgerTokensSensitiveDurable()
+	if err != nil {
+		return fmt.Errorf("EndSync: read tokens-sensitive fact: %w", err)
+	}
+	if sensitive {
 		if err := e.ScrubLedgerTokens(ctx); err != nil {
 			return fmt.Errorf("EndSync: scrub ledger tokens: %w", err)
 		}

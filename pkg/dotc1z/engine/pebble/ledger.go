@@ -359,6 +359,15 @@ func (e *Engine) takeoverToken(ctx context.Context, runID string, facts []string
 				return err
 			}
 		}
+		// Same durable declaration as the page batch makes. The takeover
+		// needs its own: it writes a frontier holding a verbatim token
+		// before any page exists, so a crash right after it would leave
+		// that token with no fact to tell the sealing process to scrub it.
+		if e.ledgerTokensSensitive.Load() {
+			if err := batch.StageLedgerFact(encodeLedgerFactKey(c1zstore.LedgerFactTokensSensitive)); err != nil {
+				return err
+			}
+		}
 		if bv != nil {
 			// A reserved index, not 0: worker 0 is a real page worker and
 			// blind-writes its own whole total at (runID, 0), so it would
@@ -457,6 +466,30 @@ func (e *Engine) SetLedgerTokensSensitive(sensitive bool) {
 
 // LedgerTokensSensitive reports the flag.
 func (e *Engine) LedgerTokensSensitive() bool { return e.ledgerTokensSensitive.Load() }
+
+// ledgerTokensSensitiveDurable reports whether the seal must scrub: the
+// in-memory declaration OR the durable fact the page batch wrote.
+//
+// The fact is what makes this correct across processes. The flag is set
+// by whoever starts the sync; the seal can run in a different process
+// after a crash, and that process has no way to know the connector's
+// tokens were sensitive. Reading the fact means the obligation travels
+// with the file instead of with the goroutine that created it. Called
+// once per seal.
+func (e *Engine) ledgerTokensSensitiveDurable() (bool, error) {
+	if e.ledgerTokensSensitive.Load() {
+		return true, nil
+	}
+	_, closer, err := e.db.Get(encodeLedgerFactKey(c1zstore.LedgerFactTokensSensitive))
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	defer closer.Close()
+	return true, nil
+}
 
 // scrubLedgerRow blanks every verbatim token on the row, keeping the
 // hashes, and marks it scrubbed. Returns false if the row was already

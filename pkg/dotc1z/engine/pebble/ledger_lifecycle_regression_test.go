@@ -222,6 +222,57 @@ func TestPageUnitReadsAfterCommitAreRefusedNotPanics(t *testing.T) {
 	}
 }
 
+// The seal must scrub even when THIS process never declared the tokens
+// sensitive.
+//
+// SetLedgerTokensSensitive set an in-memory atomic.Bool and the seal read
+// only that. The declaration is made by the process that starts the sync;
+// after a crash, the process that resumes and seals is a different one
+// and has no way to know. It skipped the scrub and shipped verbatim
+// credentials. The declaration is now a durable ledger fact written into
+// the page's own batch, so the obligation travels with the file.
+func TestSealScrubsOnTheDurableFactWithoutTheFlag(t *testing.T) {
+	ctx := context.Background()
+	e, dir := newTestEngine(t)
+	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	const marker = "opaque-cursor-7c1b"
+	e.SetLedgerTokensSensitive(true)
+	u := e.NewPageUnit()
+	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"),
+		v3.LedgerRow_builder{NextPageToken: marker}.Build()))
+
+	facts, err := e.LedgerFacts(ctx)
+	require.NoError(t, err)
+	require.Contains(t, facts, c1zstore.LedgerFactTokensSensitive,
+		"the page batch records the declaration durably")
+
+	// The crash, and a reopen that stands in for a different process: the
+	// flag is back to false and nothing re-declares it.
+	e = reopenEngine(t, e, dir)
+	require.False(t, e.LedgerTokensSensitive(), "the in-memory declaration did not survive")
+
+	// The resuming process picks the sync back up and seals it, never
+	// having called SetLedgerTokensSensitive.
+	resumed, err := NewAdapter(e).ResumeSync(ctx, connectorstore.SyncTypeFull, syncID)
+	require.NoError(t, err)
+	require.Equal(t, syncID, resumed)
+	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+
+	n := 0
+	require.NoError(t, e.IterateLedger(ctx, func(r *v3.LedgerRow) bool {
+		n++
+		require.True(t, r.GetScrubbed(), "the seal scrubbed on the fact alone")
+		require.Empty(t, r.GetNextPageToken())
+		require.NotEqual(t, marker, r.GetNextPageToken())
+		require.Len(t, r.GetNextPageTokenHash(), ledgerTokenHashLen,
+			"the hash is kept so resume still works")
+		return true
+	}))
+	require.Equal(t, 1, n)
+}
+
 // A takeover's migrated counters must survive worker 0's first page.
 //
 // Buckets are blind-written whole totals keyed by (run, worker) and the

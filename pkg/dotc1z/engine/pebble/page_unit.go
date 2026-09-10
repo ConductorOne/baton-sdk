@@ -41,6 +41,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // ErrPageUnitCommitted is returned by a unit used after Commit or
@@ -424,6 +425,17 @@ func (u *PageUnit) Commit(ctx context.Context, id LedgerIdentity, row *v3.Ledger
 		}
 		for _, f := range u.facts {
 			if err := batch.StageLedgerFactValue(encodeLedgerFactKey(f.name), f.value); err != nil {
+				return err
+			}
+		}
+		// Record the sensitive-tokens declaration durably, in the batch
+		// that carries the tokens it governs. Blind-set on every page: a
+		// fact is a monotone last-writer-wins key, so re-staging costs one
+		// key and makes the write self-healing on resume — a run whose
+		// first page landed before the declaring process crashed still
+		// stamps the fact on its next page.
+		if e.ledgerTokensSensitive.Load() {
+			if err := batch.StageLedgerFact(encodeLedgerFactKey(c1zstore.LedgerFactTokensSensitive)); err != nil {
 				return err
 			}
 		}
