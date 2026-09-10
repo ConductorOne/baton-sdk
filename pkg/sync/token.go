@@ -17,7 +17,9 @@ import (
 // Encoding and decoding reach into runState's and runStats' fields directly,
 // under their mutexes, so a token is a consistent view of both. marshalToken
 // takes runState's read lock and then runStats'; if some future caller needs
-// both locks, take them in that order.
+// both locks, take them in that order. TestRunStatsLockOrder walks the
+// package and fails on a second function that holds both, or on marshalToken
+// taking them the other way.
 
 // If you make a breaking change to the state token, you must increment this version.
 const StateTokenVersion = 1

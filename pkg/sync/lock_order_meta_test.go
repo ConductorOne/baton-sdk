@@ -348,7 +348,8 @@ func TestRunStatsLockOrder(t *testing.T) {
 		"this test could not tell which type these mutex acquisitions lock, so it cannot see whether they hold both. Extend pkgAST.resolve:\n  %s",
 		strings.Join(unresolvedSites, "\n  "))
 	require.Equalf(t, []string{twoLockFunc}, bothHolders,
-		"%s is meant to be the only function holding both %s's and %s's mutex. A new one must take run before stats (token.go's header comment, docs/REVIEW_CHECKLIST.md) — say so in its doc comment and add it here.",
+		"%s is meant to be the only function holding both %s's and %s's mutex. A new one must take run before stats "+
+			"(token.go's header comment, docs/REVIEW_CHECKLIST.md) — say so in its doc comment and add it here.",
 		twoLockFunc, runHolder, statsHolder)
 }
 
