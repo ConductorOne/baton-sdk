@@ -1,10 +1,13 @@
 package connectorbuilder
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
 
+	filippoage "filippo.io/age"
+	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -114,4 +117,65 @@ func TestInlineWaitValidationCeiling(t *testing.T) {
 			}
 		})
 	}
+}
+
+type testSecretGlobalActionProvider struct {
+	ConnectorBuilder
+}
+
+func (t *testSecretGlobalActionProvider) GlobalActions(ctx context.Context, registry actions.ActionRegistry) error {
+	schema := v2.BatonActionSchema_builder{
+		Name: "issue-token",
+		ReturnTypes: []*config.Field{
+			config.Field_builder{
+				Name:        "token",
+				StringField: &config.StringField{},
+				IsSecret:    true,
+			}.Build(),
+		},
+	}.Build()
+	handler := func(context.Context, *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
+		return &structpb.Struct{}, []*v2.PlaintextData{
+			v2.PlaintextData_builder{Name: "token", Bytes: []byte("connector-secret")}.Build(),
+		}, nil, nil
+	}
+	return actions.RegisterWithSecrets(ctx, registry, schema, handler)
+}
+
+func TestInvokeActionReturnsEncryptedDataOnInvokeAndStatus(t *testing.T) {
+	ctx := t.Context()
+	identity, err := filippoage.GenerateHybridIdentity()
+	require.NoError(t, err)
+	encryptionConfig := v2.EncryptionConfig_builder{
+		AgeRecipientConfig: v2.EncryptionConfig_AgeRecipientConfig_builder{
+			Recipient: identity.Recipient().String(),
+		}.Build(),
+	}.Build()
+
+	connector, err := NewConnector(ctx, &testSecretGlobalActionProvider{
+		ConnectorBuilder: newTestConnector([]ResourceSyncer{}),
+	})
+	require.NoError(t, err)
+
+	invokeResponse, err := connector.InvokeAction(ctx, v2.InvokeActionRequest_builder{
+		Name:              "issue-token",
+		EncryptionConfigs: []*v2.EncryptionConfig{encryptionConfig},
+	}.Build())
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, invokeResponse.GetStatus())
+	require.Len(t, invokeResponse.GetEncryptedData(), 1)
+	require.NotContains(t, invokeResponse.GetResponse().GetFields(), "token")
+
+	statusResponse, err := connector.GetActionStatus(ctx, v2.GetActionStatusRequest_builder{Id: invokeResponse.GetId()}.Build())
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, statusResponse.GetStatus())
+	require.Len(t, statusResponse.GetEncryptedData(), 1)
+	require.Equal(t, invokeResponse.GetEncryptedData()[0].GetEncryptedBytes(), statusResponse.GetEncryptedData()[0].GetEncryptedBytes())
+
+	reader, err := filippoage.Decrypt(bytes.NewReader(statusResponse.GetEncryptedData()[0].GetEncryptedBytes()), identity)
+	require.NoError(t, err)
+	var plaintext bytes.Buffer
+	_, err = plaintext.ReadFrom(reader)
+	require.NoError(t, err)
+	require.Equal(t, "connector-secret", plaintext.String())
 }

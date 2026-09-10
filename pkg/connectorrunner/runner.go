@@ -359,9 +359,10 @@ type createAccountConfig struct {
 }
 
 type invokeActionConfig struct {
-	action         string
-	resourceTypeID string // Optional: if set, invokes a resource-scoped action
-	args           *structpb.Struct
+	action            string
+	resourceTypeID    string // Optional: if set, invokes a resource-scoped action
+	args              *structpb.Struct
+	encryptionConfigs []*v2.EncryptionConfig
 }
 
 type listActionSchemasConfig struct {
@@ -567,13 +568,26 @@ func WithOnDemandCreateAccount(c1zPath string, login string, email string, profi
 // WithOnDemandInvokeAction creates an option for invoking an action.
 // If resourceTypeID is provided, it invokes a resource-scoped action.
 func WithOnDemandInvokeAction(c1zPath string, action string, resourceTypeID string, args *structpb.Struct) Option {
+	return WithOnDemandInvokeActionWithEncryption(c1zPath, action, resourceTypeID, args, nil)
+}
+
+// WithOnDemandInvokeActionWithEncryption creates an option for invoking an
+// action with recipients for encrypted results.
+func WithOnDemandInvokeActionWithEncryption(
+	c1zPath string,
+	action string,
+	resourceTypeID string,
+	args *structpb.Struct,
+	encryptionConfigs []*v2.EncryptionConfig,
+) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
 		cfg.c1zPath = c1zPath
 		cfg.invokeActionConfig = &invokeActionConfig{
-			action:         action,
-			resourceTypeID: resourceTypeID,
-			args:           args,
+			action:            action,
+			resourceTypeID:    resourceTypeID,
+			args:              args,
+			encryptionConfigs: encryptionConfigs,
 		}
 		return nil
 	}
@@ -1040,7 +1054,14 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewCreateAccountManager(ctx, cfg.c1zPath, cfg.createAccountConfig.login, cfg.createAccountConfig.email, cfg.createAccountConfig.profile, cfg.createAccountConfig.resourceTypeID)
 
 		case cfg.invokeActionConfig != nil:
-			tm = local.NewActionInvoker(ctx, cfg.c1zPath, cfg.invokeActionConfig.action, cfg.invokeActionConfig.resourceTypeID, cfg.invokeActionConfig.args)
+			tm = local.NewActionInvokerWithEncryption(
+				ctx,
+				cfg.c1zPath,
+				cfg.invokeActionConfig.action,
+				cfg.invokeActionConfig.resourceTypeID,
+				cfg.invokeActionConfig.args,
+				cfg.invokeActionConfig.encryptionConfigs,
+			)
 
 		case cfg.listActionSchemasConfig != nil:
 			tm = local.NewListActionSchemas(ctx, cfg.listActionSchemasConfig.resourceTypeID)

@@ -24,9 +24,10 @@ type localActionInvoker struct {
 	dbPath string
 	o      sync.Once
 
-	action         string
-	resourceTypeID string // Optional: if set, invokes a resource-scoped action
-	args           *structpb.Struct
+	action            string
+	resourceTypeID    string // Optional: if set, invokes a resource-scoped action
+	args              *structpb.Struct
+	encryptionConfigs []*v2.EncryptionConfig
 }
 
 func (m *localActionInvoker) GetTempDir() string {
@@ -42,9 +43,10 @@ func (m *localActionInvoker) Next(ctx context.Context) (*v1.Task, time.Duration,
 	m.o.Do(func() {
 		task = v1.Task_builder{
 			ActionInvoke: v1.Task_ActionInvokeTask_builder{
-				Name:           m.action,
-				Args:           m.args,
-				ResourceTypeId: m.resourceTypeID,
+				Name:              m.action,
+				Args:              m.args,
+				ResourceTypeId:    m.resourceTypeID,
+				EncryptionConfigs: m.encryptionConfigs,
 			}.Build(),
 		}.Build()
 	})
@@ -60,9 +62,10 @@ func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc type
 
 	t := task.GetActionInvoke()
 	reqBuilder := v2.InvokeActionRequest_builder{
-		Name:        t.GetName(),
-		Args:        t.GetArgs(),
-		Annotations: t.GetAnnotations(),
+		Name:              t.GetName(),
+		Args:              t.GetArgs(),
+		Annotations:       t.GetAnnotations(),
+		EncryptionConfigs: t.GetEncryptionConfigs(),
 	}
 	if resourceTypeID := t.GetResourceTypeId(); resourceTypeID != "" {
 		reqBuilder.ResourceTypeId = resourceTypeID
@@ -74,6 +77,7 @@ func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc type
 
 	status := resp.GetStatus()
 	finalResp := resp.GetResponse()
+	finalEncryptedData := resp.GetEncryptedData()
 	l.Info("ActionInvoke response",
 		zap.String("action_id", resp.GetId()),
 		zap.String("name", resp.GetName()),
@@ -97,10 +101,11 @@ func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc type
 			}
 			status = r.GetStatus()
 			finalResp = r.GetResponse()
+			finalEncryptedData = r.GetEncryptedData()
 		}
 	}
 
-	l.Info("ActionInvoke response", zap.Any("resp", finalResp))
+	l.Info("ActionInvoke response", zap.Any("resp", finalResp), zap.Any("encrypted_data", finalEncryptedData))
 
 	if status == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
 		return fmt.Errorf("action invoke failed: %v", finalResp)
@@ -112,10 +117,24 @@ func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc type
 // NewActionInvoker returns a task manager that queues an action invoke task.
 // If resourceTypeID is provided, it invokes a resource-scoped action.
 func NewActionInvoker(ctx context.Context, dbPath string, action string, resourceTypeID string, args *structpb.Struct) tasks.Manager {
+	return NewActionInvokerWithEncryption(ctx, dbPath, action, resourceTypeID, args, nil)
+}
+
+// NewActionInvokerWithEncryption returns a task manager that supplies
+// recipients for encrypted action results.
+func NewActionInvokerWithEncryption(
+	_ context.Context,
+	dbPath string,
+	action string,
+	resourceTypeID string,
+	args *structpb.Struct,
+	encryptionConfigs []*v2.EncryptionConfig,
+) tasks.Manager {
 	return &localActionInvoker{
-		dbPath:         dbPath,
-		action:         action,
-		resourceTypeID: resourceTypeID,
-		args:           args,
+		dbPath:            dbPath,
+		action:            action,
+		resourceTypeID:    resourceTypeID,
+		args:              args,
+		encryptionConfigs: encryptionConfigs,
 	}
 }

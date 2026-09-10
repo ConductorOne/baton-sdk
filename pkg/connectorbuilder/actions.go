@@ -7,6 +7,8 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -78,6 +80,20 @@ type ActionManager interface {
 	// HasActions returns true if there are any registered actions.
 	HasActions() bool
 }
+
+type encryptedActionManager interface {
+	InvokeActionWithWaitAndEncryption(
+		ctx context.Context,
+		name string,
+		resourceTypeID string,
+		args *structpb.Struct,
+		inlineWait time.Duration,
+		encryptionConfigs []*v2.EncryptionConfig,
+	) (string, v2.BatonActionStatus, *structpb.Struct, []*v2.EncryptedData, annotations.Annotations, error)
+	GetActionStatusWithEncryptedData(ctx context.Context, id string) (v2.BatonActionStatus, string, *structpb.Struct, []*v2.EncryptedData, annotations.Annotations, error)
+}
+
+var _ encryptedActionManager = (*actions.ActionManager)(nil)
 
 // GlobalActionProvider allows connectors to register global (non-resource-scoped) actions.
 // This is the preferred method for registering global actions in new connectors.
@@ -191,18 +207,32 @@ func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequ
 
 	resourceTypeID := request.GetResourceTypeId()
 
-	id, actionStatus, resp, annos, err := b.actionManager.InvokeActionWithWait(ctx, request.GetName(), resourceTypeID, request.GetArgs(), request.GetInlineWait().AsDuration())
+	encryptedManager, ok := b.actionManager.(encryptedActionManager)
+	if !ok {
+		err = status.Error(codes.Internal, "action manager does not support encrypted action results")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
+	id, actionStatus, resp, encryptedData, annos, err := encryptedManager.InvokeActionWithWaitAndEncryption(
+		ctx,
+		request.GetName(),
+		resourceTypeID,
+		request.GetArgs(),
+		request.GetInlineWait().AsDuration(),
+		request.GetEncryptionConfigs(),
+	)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: invoking action failed: %w", err)
 	}
 
 	rv := v2.InvokeActionResponse_builder{
-		Id:          id,
-		Name:        request.GetName(),
-		Status:      actionStatus,
-		Annotations: annos,
-		Response:    resp,
+		Id:            id,
+		Name:          request.GetName(),
+		Status:        actionStatus,
+		Annotations:   annos,
+		Response:      resp,
+		EncryptedData: encryptedData,
 	}.Build()
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
@@ -217,18 +247,25 @@ func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStat
 	start := b.nowFunc()
 	tt := tasks.ActionStatusType
 
-	actionStatus, name, rv, annos, err := b.actionManager.GetActionStatus(ctx, request.GetId())
+	encryptedManager, ok := b.actionManager.(encryptedActionManager)
+	if !ok {
+		err = status.Error(codes.Internal, "action manager does not support encrypted action results")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
+	actionStatus, name, rv, encryptedData, annos, err := encryptedManager.GetActionStatusWithEncryptedData(ctx, request.GetId())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: action status for id %s not found: %w", request.GetId(), err)
 	}
 
 	resp := v2.GetActionStatusResponse_builder{
-		Id:          request.GetId(),
-		Name:        name,
-		Status:      actionStatus,
-		Annotations: annos,
-		Response:    rv,
+		Id:            request.GetId(),
+		Name:          name,
+		Status:        actionStatus,
+		Annotations:   annos,
+		Response:      rv,
+		EncryptedData: encryptedData,
 	}.Build()
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return resp, nil
