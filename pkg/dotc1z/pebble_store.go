@@ -628,6 +628,23 @@ func (s *pebbleStore) PutCounterBucket(ctx context.Context, runID string, worker
 	return s.markDirty(s.Engine.PutCounterBucket(ctx, runID, worker, counters))
 }
 
+// ResetLedger implements c1zstore.PageLedgerStore. A delete is a write:
+// without the dirty mark, Close skips save() and drops the temp DB, so
+// the wipe never reaches the c1z and the next open still enumerates
+// every prior action as done — the sync then skips work it never did.
+// The documented caller rebinds a FINISHED sync, whose store is
+// otherwise clean, so the drop is frequently the only write in the
+// session and there is nothing else to set the flag.
+func (s *pebbleStore) ResetLedger(ctx context.Context) error {
+	return s.markDirty(s.Engine.ResetLedger(ctx))
+}
+
+// DropLedger is ResetLedger's engine-level spelling, promoted through
+// the embedded Engine and wrapped for the same reason.
+func (s *pebbleStore) DropLedger(ctx context.Context) error {
+	return s.markDirty(s.Engine.DropLedger(ctx))
+}
+
 // DeleteGrantByRefs is the exact grant delete for callers holding the full
 // grant: identity derives from the structured refs, never the lossy id
 // string. The syncer prefers this when available.

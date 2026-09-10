@@ -137,6 +137,13 @@ func (rb *RecordBatch) StageLedgerTakeover(frontierVal, syncRunVal []byte) error
 	return rb.core.Set(SyncRunKey(), syncRunVal)
 }
 
+// StageLedgerFrontier rewrites the frontier record alone. Separate from
+// StageLedgerTakeover because the seal's token scrub rewrites the
+// frontier without touching the sync-run key.
+func (rb *RecordBatch) StageLedgerFrontier(val []byte) error {
+	return rb.core.Set(LedgerFrontierKey(), val)
+}
+
 func assertFamily(op string, key, prefix []byte) error {
 	if len(key) < len(prefix) || string(key[:len(prefix)]) != string(prefix) {
 		return fmt.Errorf("rawdb.%s: key %x is outside this op's keyspace family (want prefix %x) — use the family op that owns that keyspace", op, key, prefix)

@@ -124,6 +124,18 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 				return err
 			}
 		}
+		// The record-type span covers typeLedger, so the ledger family is
+		// gone. Restore the keyspace stamp with it: the in-flight stamp
+		// classifies a file as mid-ledgered-sync, and left standing it
+		// outlives the rows it describes. The replacement sync then gets
+		// CheckpointSync refused with ErrLedgeredSyncWritesNoToken and
+		// plain EndSync refused with ErrLedgeredSyncNeedsStats, on a file
+		// with no ledger at all — neither protocol can finish it. Safe in
+		// this direction because a wiped file has no rows for an older
+		// SDK to misread.
+		if err := e.clearLedgerInFlight(); err != nil {
+			return fmt.Errorf("ResetForNewSync: %w", err)
+		}
 		e.noteEntitlementKeyspaceWrite()
 		return nil
 	})

@@ -547,8 +547,43 @@ func (e *Engine) ScrubLedgerTokens(ctx context.Context) error {
 		if err := iter.Error(); err != nil {
 			return err
 		}
+		if err := e.scrubLedgerFrontierLocked(ctx, batch); err != nil {
+			return err
+		}
 		return commit()
 	})
+}
+
+// scrubLedgerFrontierLocked blanks the frontier's verbatim state. The
+// caller holds the write barrier and commits the batch.
+//
+// The frontier is not a ledger row and so is not in the loop above: it
+// lives at its own kind (0x03) outside LedgerRowBounds. It needs its own
+// scrub because takeoverToken stores the taken-over sync token JSON
+// verbatim, and every Action in that JSON carries a page_token field. So
+// on a connector that declared its tokens sensitive, a sync that began
+// token-only and was taken over would seal with those tokens readable in
+// the artifact — exactly what SetLedgerTokensSensitive promises cannot
+// happen. The token-only path never had this exposure: its stack is
+// empty by the time it seals.
+//
+// Attempt and taken_over_at stay, so the ledger still records that a
+// takeover happened and when. Only the state goes. Nothing needs it
+// after the resume that consumed it, and a sealed sync has no resume.
+func (e *Engine) scrubLedgerFrontierLocked(ctx context.Context, batch *rawdb.RecordBatch) error {
+	frontier, found, err := e.GetLedgerFrontier(ctx)
+	if err != nil {
+		return fmt.Errorf("ScrubLedgerTokens: read frontier: %w", err)
+	}
+	if !found || frontier.GetState() == "" {
+		return nil
+	}
+	frontier.SetState("")
+	val, err := marshalRecord(frontier)
+	if err != nil {
+		return err
+	}
+	return batch.StageLedgerFrontier(val)
 }
 
 // PurgeLedgerResidue rewrites the SSTs overlapping the ledger family so

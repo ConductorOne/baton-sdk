@@ -177,10 +177,21 @@ func (e *Engine) LedgerFrontier(ctx context.Context) (*c1zstore.LedgerFrontier, 
 // TakeoverToken implements c1zstore.PageLedgerStore.
 func (e *Engine) TakeoverToken(ctx context.Context, runID string, facts []string, counters c1zstore.LedgerCounters) (string, error) {
 	var bucket *v3.LedgerCounterBucket
-	if len(counters.Counters) > 0 || counters.Flags != 0 {
+	if !ledgerCountersEmpty(counters) {
 		bucket = ledgerCountersToProto(counters)
 	}
 	return e.takeoverToken(ctx, runID, facts, bucket)
+}
+
+// ledgerCountersEmpty reports whether counters carries nothing worth a
+// bucket. It tests all five fields, not just Counters and Flags: the
+// token being taken over may carry only timings or call stats (phases
+// ran, no page committed yet), and takeover clears that token in the
+// same batch that writes the bucket. Miss a field here and those maps
+// are gone with no second copy to fold from.
+func ledgerCountersEmpty(c c1zstore.LedgerCounters) bool {
+	return len(c.Counters) == 0 && c.Flags == 0 &&
+		len(c.ConnectorCalls) == 0 && len(c.StepDurationsMs) == 0 && len(c.SessionCalls) == 0
 }
 
 // PutCounterBucket implements c1zstore.SyncStatsStore.

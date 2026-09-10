@@ -9,6 +9,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // keyspaceVersion is the on-disk key-layout version this SDK writes and
@@ -157,6 +158,37 @@ func (e *Engine) clearLedgerInFlight() error {
 	}
 	e.ledgerInFlight.Store(false)
 	return nil
+}
+
+// ledgerActive reports whether this sync must be treated as ledgered:
+// the in-flight stamp is set, OR the ledger family holds a key.
+//
+// The stamp alone is not enough. clearLedgerInFlight runs before the
+// ended_at stamp, and it drops both the durable stamp and the in-memory
+// flag, so two states have a ledger while the flag says otherwise:
+//
+//   - endSyncFinalize fails after the clear (PutSyncRunRecord IO error).
+//     EndSync unseals and the caller may keep writing or retry, with the
+//     flag now false.
+//   - a crash in the same window. The next open reads a v2 stamp and
+//     sets the flag false, over rows that are still there.
+//
+// In both, gating on the flag alone would let CheckpointSync write a
+// token beside a live ledger — the second, lagging authority that
+// ErrLedgeredSyncWritesNoToken exists to refuse. Rows outlive the stamp,
+// so rows are what the gate asks about. Called from CheckpointSync and
+// EndSync only, never per record.
+func (e *Engine) ledgerActive() (bool, error) {
+	if e.ledgerInFlight.Load() {
+		return true, nil
+	}
+	lo, hi := rawdb.LedgerBounds()
+	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
+	if err != nil {
+		return false, err
+	}
+	defer iter.Close()
+	return iter.First(), iter.Error()
 }
 
 // isKeyspaceEmpty reports whether the DB holds any v3 key at all (data,

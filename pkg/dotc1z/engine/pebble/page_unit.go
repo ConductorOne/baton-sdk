@@ -191,6 +191,9 @@ func (u *PageUnit) StageGrants(records ...*v3.GrantRecord) error {
 // last-occurrence dedup), else the DB. Returns pebble.ErrNotFound as
 // the engine's GetResourceRecord does.
 func (u *PageUnit) GetResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (*v3.ResourceRecord, error) {
+	if u.done {
+		return nil, ErrPageUnitCommitted
+	}
 	if i, ok := u.resourceIdx[resourceBufKey{resourceTypeID, resourceID}]; ok {
 		return u.resources[i], nil
 	}
@@ -306,7 +309,14 @@ func (u *PageUnit) DropStagedRows(kind string, scopeKey string, canonicalIDs, pr
 
 // GetEntitlementRecord is the page-scoped read for entitlements: the
 // page's own staged record by external id if it has one, else the DB.
+//
+// Guarded on done for the same reason as GetResourceRecord: release
+// clears the buffer, so a read of a staged id after Commit or Discard
+// would index a nil slice.
 func (u *PageUnit) GetEntitlementRecord(ctx context.Context, externalID string) (*v3.EntitlementRecord, error) {
+	if u.done {
+		return nil, ErrPageUnitCommitted
+	}
 	if i, ok := u.entitlementIdx[externalID]; ok {
 		return u.entitlements[i], nil
 	}
@@ -456,5 +466,8 @@ func (u *PageUnit) Discard() { u.release() }
 func (u *PageUnit) release() {
 	u.done = true
 	u.resourceTypes, u.resources, u.entitlements, u.grants = nil, nil, nil, nil
-	u.resourceIdx = nil
+	u.resourceIdx, u.entitlementIdx = nil, nil
+	u.grantDeletes = nil
+	u.facts = nil
+	u.bucketKey, u.bucketValue = nil, nil
 }

@@ -251,7 +251,11 @@ func (e *Engine) CheckpointSync(ctx context.Context, syncToken string) error {
 	if syncID == "" {
 		return errors.New("CheckpointSync: no open sync")
 	}
-	if e.ledgerInFlight.Load() {
+	ledgered, err := e.ledgerActive()
+	if err != nil {
+		return err
+	}
+	if ledgered {
 		return ErrLedgeredSyncWritesNoToken
 	}
 	existing, err := e.GetSyncRunRecord(ctx, syncID)
@@ -295,8 +299,14 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 	if syncID == "" {
 		return errors.New("EndSync: no open sync")
 	}
-	if overlay == nil && e.ledgerInFlight.Load() {
-		return ErrLedgeredSyncNeedsStats
+	if overlay == nil {
+		ledgered, err := e.ledgerActive()
+		if err != nil {
+			return err
+		}
+		if ledgered {
+			return ErrLedgeredSyncNeedsStats
+		}
 	}
 	if overlay != nil {
 		e.setSyncStatsOverlay(syncID, overlay)

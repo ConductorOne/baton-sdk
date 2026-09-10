@@ -80,6 +80,53 @@ func TestPebbleStorePageCommitMarksDirty(t *testing.T) {
 	require.True(t, found)
 }
 
+// TestPebbleStoreResetLedgerMarksDirty pins the dirty flag for
+// ResetLedger, the one PageLedgerStore write that was promoted from the
+// embedded Engine without a wrapper.
+//
+// The documented caller rebinds a FINISHED sync and drops the old
+// ledger so the next run does not read every prior action as done. That
+// store is otherwise clean, so the drop is the only write in the
+// session: without the mark, Close skips save() and deletes the temp
+// DB, the wipe never reaches the c1z, and the next open still
+// enumerates the old rows. The sync then skips work it never did, which
+// is silent under-collection rather than a visible failure.
+func TestPebbleStoreResetLedgerMarksDirty(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "reset-ledger-dirty.c1z")
+	id := c1zstore.LedgerActionIdentity{Op: "SyncGrants", ResourceTypeID: "app", ResourceID: "github"}
+
+	// A sealed sync whose ledger is retained in the artifact.
+	store, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	w := store.(c1zstore.PageLedgerStore).BeginPage()
+	require.NoError(t, w.PutGrants(ctx, mkV2Grant("g1", "ent", "user", "alice")))
+	require.NoError(t, w.Commit(ctx, id, nil))
+	require.NoError(t, store.(c1zstore.SyncStatsStore).EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+	require.NoError(t, store.Close(ctx))
+
+	// Reopen CLEAN and make the drop the only write of the session.
+	store, err = NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	ledger, ok := store.(c1zstore.PageLedgerStore)
+	require.True(t, ok)
+	_, found, err := ledger.GetLedgerRow(ctx, id)
+	require.NoError(t, err)
+	require.True(t, found, "the sealed artifact carries its ledger")
+	require.NoError(t, ledger.ResetLedger(ctx))
+	require.NoError(t, store.Close(ctx))
+
+	// The drop has to be in the saved file, not just the discarded temp DB.
+	store, err = NewStore(ctx, path, WithEngine(c1zstore.EnginePebble), WithReadOnly(true))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, store.Close(ctx)) }()
+	_, found, err = store.(c1zstore.PageLedgerStore).GetLedgerRow(ctx, id)
+	require.NoError(t, err)
+	require.False(t, found, "a drop-only session must save; otherwise the next run skips completed actions it never ran")
+}
+
 // TestPebbleStoreSyncMetaMarksDirty pins the same dirty-flag escape for
 // the SyncMeta mutators: a standalone metadata stamp on a REOPENED c1z
 // (nothing else set the dirty flag in the session) must survive Close.
