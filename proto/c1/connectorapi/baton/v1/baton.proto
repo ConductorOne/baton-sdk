@@ -175,6 +175,8 @@ message Task {
     repeated google.protobuf.Any annotations = 3;
     // Optional: if set, invokes a resource-scoped action
     string resource_type_id = 4;
+    // Public keys the connector uses to encrypt secret return values.
+    repeated connector.v2.EncryptionConfig encryption_configs = 5;
   }
 
   message ActionStatusTask {

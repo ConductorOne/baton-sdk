@@ -128,9 +128,10 @@ func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
 	}
 
 	reqBuilder := v2.InvokeActionRequest_builder{
-		Name:        t.GetName(),
-		Args:        t.GetArgs(),
-		Annotations: t.GetAnnotations(),
+		Name:              t.GetName(),
+		Args:              t.GetArgs(),
+		Annotations:       t.GetAnnotations(),
+		EncryptionConfigs: t.GetEncryptionConfigs(),
 	}
 	if resourceTypeID := t.GetResourceTypeId(); resourceTypeID != "" {
 		reqBuilder.ResourceTypeId = resourceTypeID

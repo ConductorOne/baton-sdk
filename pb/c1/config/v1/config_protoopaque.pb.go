@@ -1074,7 +1074,11 @@ type Field_builder struct {
 	Placeholder string
 	IsRequired  bool
 	IsOps       bool
-	IsSecret    bool
+	// For configuration and action arguments, the UI obscures this field. For
+	// action return types, the connector must return the value as PlaintextData
+	// through ActionHandlerWithSecrets; it is omitted from the public response
+	// and returned as EncryptedData.
+	IsSecret bool
 	// Fields of oneof xxx_hidden_Field:
 	StringField          *StringField
 	IntField             *IntField
