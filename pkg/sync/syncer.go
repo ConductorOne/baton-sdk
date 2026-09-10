@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	native_sync "sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
@@ -198,6 +199,11 @@ type syncer struct {
 	resourceTypeTraits                    syncMap[string, []v2.ResourceType_Trait]
 	injectSyncIDAnnotation                bool
 	recordStats                           bool
+	// listResourceActionsCompletedThisRun is process-local: it is not in the
+	// sync token. tooManyListResourceWarnings uses it so a resumed token
+	// whose durable list-resource ratio already trips cannot abort before
+	// this run finishes more than ten list-resource actions.
+	listResourceActionsCompletedThisRun atomic.Uint64
 	// parallelActionTransitioner atomically commits parent pagination and
 	// spawned work to state and the active worker pool.
 	parallelTransitionMu       native_sync.RWMutex
@@ -776,7 +782,11 @@ func (s *syncer) transitionActionState(
 	childActions []Action,
 ) ([]*Action, error) {
 	if st, ok := s.state.(*state); ok {
-		return st.transitionAction(ctx, action, nextPageToken, childActions)
+		pushed, err := st.transitionAction(ctx, action, nextPageToken, childActions)
+		if err == nil && nextPageToken == "" {
+			s.recordListResourceCompletedThisRun(action)
+		}
+		return pushed, err
 	}
 	if nextPageToken != "" {
 		if err := s.state.NextPage(ctx, action.ID, nextPageToken); err != nil {
@@ -788,8 +798,25 @@ func (s *syncer) transitionActionState(
 	}
 	if nextPageToken == "" {
 		s.state.FinishAction(ctx, action)
+		s.recordListResourceCompletedThisRun(action)
 	}
 	return nil, nil
+}
+
+func (s *syncer) finishAction(ctx context.Context, action *Action) {
+	s.state.FinishAction(ctx, action)
+	s.recordListResourceCompletedThisRun(action)
+}
+
+func (s *syncer) finishActionWithWarning(ctx context.Context, action *Action) {
+	s.state.FinishActionWithWarning(ctx, action)
+	s.recordListResourceCompletedThisRun(action)
+}
+
+func (s *syncer) recordListResourceCompletedThisRun(action *Action) {
+	if action != nil && action.Op == SyncResourcesOp {
+		s.listResourceActionsCompletedThisRun.Add(1)
+	}
 }
 
 func isWarning(ctx context.Context, err error) bool {
