@@ -1,0 +1,1 @@
+{"actions_map":{"0000000003":{"id":"0000000003","operation":"list-resources","page_token":"role-page-2","resource_type_id":"role"}},"action_order":["0000000003"],"current_action_id":4,"completed_actions_count":3,"action_counts":{"list-grants":{"completed_count":1},"list-resources":{"completed_count":2,"warning_count":1}},"version":1}
