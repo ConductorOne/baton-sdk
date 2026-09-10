@@ -23,11 +23,13 @@ import (
 // reads message text instead of error identity.
 const oauth2FetchTokenPrefix = "oauth2: cannot fetch token" //nolint:gosec // G101: a message prefix, not a credential
 
-// maxRecoveredDescription bounds an error_description recovered from a
-// response body before it becomes part of a grpc status message. x/oauth2
-// caps the body it reads at 1 MiB, and that whole body can be one JSON
-// string field.
-const maxRecoveredDescription = 256
+// maxErrorParamLength bounds an RFC 6749 error param before it becomes part
+// of a grpc status message. It applies whether the param came off the
+// *oauth2.RetrieveError or out of the body: x/oauth2 populates
+// ErrorDescription from up to 1 MiB of response body on the
+// clientcredentials and oauth2.Config paths, and that whole body can be one
+// JSON string field.
+const maxErrorParamLength = 256
 
 // ClassifyOAuth2TokenError attaches a grpc status to a golang.org/x/oauth2
 // token-exchange failure, so retry.Retryer can act on it: a token endpoint
@@ -135,15 +137,18 @@ func oauth2TokenErrorFrom(retrieveErr *oauth2.RetrieveError) oauth2TokenError {
 		code:        retrieveErr.ErrorCode,
 		description: retrieveErr.ErrorDescription,
 	}
-	if tokenErr.code != "" {
-		return tokenErr
+	if tokenErr.code == "" {
+		code, description := oauth2ErrorParamsFromBody(retrieveErr.Response, retrieveErr.Body)
+		tokenErr.code = code
+		if tokenErr.description == "" {
+			tokenErr.description = description
+		}
 	}
 
-	code, description := oauth2ErrorParamsFromBody(retrieveErr.Response, retrieveErr.Body)
-	tokenErr.code = code
-	if tokenErr.description == "" {
-		tokenErr.description = description
-	}
+	// Bound both params here rather than at each source, so nothing reaches
+	// message() or wrapTransientOAuth2TokenError unbounded.
+	tokenErr.code = truncateErrorParam(tokenErr.code)
+	tokenErr.description = truncateErrorParam(tokenErr.description)
 	return tokenErr
 }
 
@@ -239,7 +244,7 @@ func oauth2ErrorParamsFromBody(resp *http.Response, body []byte) (string, string
 		if err != nil {
 			return "", ""
 		}
-		return vals.Get("error"), truncateDescription(vals.Get("error_description"))
+		return vals.Get("error"), vals.Get("error_description")
 	default:
 		return oauth2ErrorParamsFromJSONBody(body)
 	}
@@ -255,12 +260,12 @@ func oauth2ErrorParamsFromJSONBody(body []byte) (string, string) {
 	}
 	description := parsed.ErrorDescription
 	if len(parsed.Error) == 0 {
-		return "", truncateDescription(description)
+		return "", description
 	}
 
 	var errCode string
 	if err := json.Unmarshal(parsed.Error, &errCode); err == nil {
-		return errCode, truncateDescription(description)
+		return errCode, description
 	}
 
 	// RFC 6749 §5.2 defines "error" as a string. An endpoint that answers
@@ -272,18 +277,18 @@ func oauth2ErrorParamsFromJSONBody(body []byte) (string, string) {
 	if description == "" {
 		description = strings.TrimSpace(string(body))
 	}
-	return "", truncateDescription(description)
+	return "", description
 }
 
-func truncateDescription(description string) string {
-	if len(description) <= maxRecoveredDescription {
-		return description
+func truncateErrorParam(param string) string {
+	if len(param) <= maxErrorParamLength {
+		return param
 	}
-	runes := []rune(description)
-	if len(runes) <= maxRecoveredDescription {
-		return description
+	runes := []rune(param)
+	if len(runes) <= maxErrorParamLength {
+		return param
 	}
-	return string(runes[:maxRecoveredDescription]) + "..."
+	return string(runes[:maxErrorParamLength]) + "..."
 }
 
 // grpcStatusInText matches what status.Err().Error() prints, which is all
@@ -300,34 +305,50 @@ var grpcCodeByName = func() map[string]codes.Code {
 	return byName
 }()
 
+type flattenedTokenFailure struct {
+	substr string
+	code   codes.Code
+	msg    string
+}
+
 // flattenedTokenFailures classifies the token-request failures that reach a
-// caller as text only. Each entry restates a condition
-// wrapTransientNetworkError classifies from error identity, and the codes
-// have to agree with it: the same failure takes either path depending on
-// whether the caller installed this package's transport under
-// oauth2.HTTPClient. TestFlattenedAndTypedClassificationAgree asserts that.
+// caller as text only. Its socket entries are built from
+// transientSocketConditions, the same per-platform list the predicates in
+// errors_other.go and errors_windows.go match on, with each errno's own
+// Error() string as the text the OS wrote into the flattened message. So the
+// two classifiers cannot disagree about a socket failure, and the Winsock
+// spellings are covered on Windows without being transcribed by hand.
+// TestFlattenedAndTypedClassificationAgree walks that list and requires both
+// paths to land on one code.
 //
 // Order matters. "no such host" comes before the timeout entries because a
 // resolver failure text can carry both, and EOF comes last because
 // "unexpected EOF" contains it.
-var flattenedTokenFailures = []struct {
-	substr string
-	code   codes.Code
-	msg    string
-}{
-	{substr: "no such host", code: codes.InvalidArgument, msg: "dns lookup failed: NXDOMAIN"},
-	{substr: "server misbehaving", code: codes.Unavailable, msg: "temporary dns lookup failure"},
-	{substr: "context deadline exceeded", code: codes.DeadlineExceeded, msg: "request timeout"},
-	{substr: "Client.Timeout exceeded", code: codes.DeadlineExceeded, msg: "request timeout"},
-	{substr: "TLS handshake timeout", code: codes.DeadlineExceeded, msg: "request timeout"},
-	{substr: "i/o timeout", code: codes.DeadlineExceeded, msg: "request timeout"},
-	{substr: "connection reset by peer", code: codes.Unavailable, msg: "connection reset"},
-	{substr: "connection refused", code: codes.Unavailable, msg: "connection refused"},
-	{substr: "broken pipe", code: codes.Unavailable, msg: "broken pipe"},
-	{substr: "network is unreachable", code: codes.Unavailable, msg: "network unreachable"},
-	{substr: "no route to host", code: codes.Unavailable, msg: "network unreachable"},
-	{substr: "http2: client connection lost", code: codes.Unavailable, msg: "http2 client connection lost"},
-	{substr: "EOF", code: codes.Unavailable, msg: "connection closed before response"},
+var flattenedTokenFailures = buildFlattenedTokenFailures()
+
+func buildFlattenedTokenFailures() []flattenedTokenFailure {
+	failures := []flattenedTokenFailure{
+		{substr: "no such host", code: codes.InvalidArgument, msg: "dns lookup failed: NXDOMAIN"},
+		{substr: "server misbehaving", code: codes.Unavailable, msg: "temporary dns lookup failure"},
+		{substr: "context deadline exceeded", code: codes.DeadlineExceeded, msg: "request timeout"},
+		{substr: "Client.Timeout exceeded", code: codes.DeadlineExceeded, msg: "request timeout"},
+		{substr: "TLS handshake timeout", code: codes.DeadlineExceeded, msg: "request timeout"},
+		{substr: "i/o timeout", code: codes.DeadlineExceeded, msg: "request timeout"},
+	}
+
+	for _, condition := range transientSocketConditions {
+		classification := socketClassifications[condition.class]
+		failures = append(failures, flattenedTokenFailure{
+			substr: condition.err.Error(),
+			code:   classification.code,
+			msg:    classification.msg,
+		})
+	}
+
+	return append(failures,
+		flattenedTokenFailure{substr: "http2: client connection lost", code: codes.Unavailable, msg: "http2 client connection lost"},
+		flattenedTokenFailure{substr: "EOF", code: codes.Unavailable, msg: "connection closed before response"},
+	)
 }
 
 // classifyFlattenedOAuth2TokenError classifies a token failure whose error

@@ -41,16 +41,16 @@ func wrapTransientNetworkError(err error) error {
 		return WrapErrors(codes.Unavailable, "connection closed before response", err)
 	}
 	if isConnectionReset(err) {
-		return WrapErrors(codes.Unavailable, "connection reset", err)
+		return wrapSocketClass(socketReset, err)
 	}
 	if isConnectionRefused(err) {
-		return WrapErrors(codes.Unavailable, "connection refused", err)
+		return wrapSocketClass(socketRefused, err)
 	}
 	if isBrokenPipe(err) {
-		return WrapErrors(codes.Unavailable, "broken pipe", err)
+		return wrapSocketClass(socketBrokenPipe, err)
 	}
 	if isNetworkUnreachable(err) {
-		return WrapErrors(codes.Unavailable, "network unreachable", err)
+		return wrapSocketClass(socketNetworkUnreachable, err)
 	}
 
 	var dnsErr *net.DNSError
@@ -97,6 +97,59 @@ func wrapTransientNetworkError(err error) error {
 	}
 
 	return err
+}
+
+// socketClass groups the socket failures the platform predicates in
+// errors_other.go and errors_windows.go match. Each platform lists the
+// errnos it spells a class with in transientSocketConditions, so the
+// predicates, the messages wrapTransientNetworkError attaches, and the
+// text-only table in oauth2.go all derive from one list and cannot drift
+// apart.
+type socketClass int
+
+const (
+	socketReset socketClass = iota
+	socketRefused
+	socketBrokenPipe
+	socketNetworkUnreachable
+	socketTimeout
+)
+
+// socketCondition is one platform spelling of a socketClass.
+type socketCondition struct {
+	err   error
+	class socketClass
+}
+
+// socketClassifications is the classification each class receives.
+// socketTimeout's message is reached only from oauth2.go's text-only table:
+// on the typed path a timeout is caught by the net.Error branch below (or by
+// isSocketTimeout on Windows), which keeps the underlying error in the
+// message.
+var socketClassifications = map[socketClass]struct {
+	code codes.Code
+	msg  string
+}{
+	socketReset:              {code: codes.Unavailable, msg: "connection reset"},
+	socketRefused:            {code: codes.Unavailable, msg: "connection refused"},
+	socketBrokenPipe:         {code: codes.Unavailable, msg: "broken pipe"},
+	socketNetworkUnreachable: {code: codes.Unavailable, msg: "network unreachable"},
+	socketTimeout:            {code: codes.DeadlineExceeded, msg: "network timeout"},
+}
+
+// hasSocketClass reports whether err is any platform spelling of class.
+func hasSocketClass(err error, class socketClass) bool {
+	for _, condition := range transientSocketConditions {
+		if condition.class == class && errors.Is(err, condition.err) {
+			return true
+		}
+	}
+	return false
+}
+
+func wrapSocketClass(class socketClass, err error) error {
+	classification := socketClassifications[class]
+	return WrapErrors(classification.code, classification.msg, err)
 }
 
 func isHTTP2ClientConnectionLost(err error) bool {

@@ -332,44 +332,105 @@ func TestClassifyOAuth2TokenError_IsStableUnderReclassification(t *testing.T) {
 	}
 }
 
-// Every entry in flattenedTokenFailures restates a condition
-// wrapTransientNetworkError classifies from error identity. The pair has to
-// agree: which path a failure takes depends only on whether the caller
-// installed this package's transport under oauth2.HTTPClient.
+// The two classifiers over this domain have to agree on every socket
+// condition the platform predicates know, not only on the ones a test author
+// thought of: which path a failure takes depends solely on whether the caller
+// installed this package's transport under oauth2.HTTPClient. Walking
+// transientSocketConditions closes that over the platform's own list, so a
+// new errno cannot be added to it without both paths being checked, and the
+// Winsock spellings are covered when this runs on Windows.
 func TestFlattenedAndTypedClassificationAgree(t *testing.T) {
 	flatten := func(err error) error {
 		//nolint:errorlint // reproduces x/oauth2's %v flattening; %w would defeat the test
 		return fmt.Errorf("oauth2: cannot fetch token: %v", err)
 	}
-	dialFailure := func(inner error) error {
-		return &url.Error{Op: "Post", URL: "https://example.com/token", Err: &net.OpError{Op: "dial", Net: "tcp", Err: inner}}
-	}
-	readFailure := func(inner error) error {
-		return &url.Error{Op: "Post", URL: "https://example.com/token", Err: &net.OpError{Op: "read", Net: "tcp", Err: inner}}
+	socketFailure := func(inner error) error {
+		return &url.Error{Op: "Post", URL: "https://example.com/token", Err: &net.OpError{
+			Op:  "dial",
+			Net: "tcp",
+			Err: os.NewSyscallError("connect", inner),
+		}}
 	}
 
-	tests := []struct {
+	require.NotEmpty(t, transientSocketConditions)
+	classesPresent := map[socketClass]bool{}
+	for _, condition := range transientSocketConditions {
+		classesPresent[condition.class] = true
+	}
+	for class := range socketClassifications {
+		require.True(t, classesPresent[class],
+			"class %d has no spelling on this platform, so neither classifier can reach it", class)
+	}
+
+	for _, condition := range transientSocketConditions {
+		t.Run(condition.err.Error(), func(t *testing.T) {
+			typed := socketFailure(condition.err)
+
+			typedCode := status.Code(wrapTransientNetworkError(typed))
+			require.Equal(t, socketClassifications[condition.class].code, typedCode,
+				"the platform predicates and the shared condition list disagree")
+
+			require.Equal(t, typedCode, status.Code(ClassifyOAuth2TokenError(flatten(typed))),
+				"same failure, one code, whichever path it takes")
+		})
+	}
+
+	// The conditions that are not socket errnos, and so are not on the
+	// shared list, still have to agree.
+	dnsFailure := func(dnsErr *net.DNSError) error {
+		return &url.Error{Op: "Post", URL: "https://example.com/token", Err: &net.OpError{Op: "dial", Net: "tcp", Err: dnsErr}}
+	}
+	others := []struct {
 		name  string
 		typed error
 	}{
-		{name: "connection reset", typed: readFailure(os.NewSyscallError("read", syscall.ECONNRESET))},
-		{name: "connection refused", typed: dialFailure(os.NewSyscallError("connect", syscall.ECONNREFUSED))},
-		{name: "broken pipe", typed: readFailure(os.NewSyscallError("write", syscall.EPIPE))},
-		{name: "network unreachable", typed: dialFailure(os.NewSyscallError("connect", syscall.ENETUNREACH))},
-		{name: "NXDOMAIN", typed: dialFailure(&net.DNSError{Err: "no such host", Name: "example.invalid", IsNotFound: true})},
-		{name: "temporary dns failure", typed: dialFailure(&net.DNSError{Err: "server misbehaving", Name: "example.com", IsTemporary: true})},
+		{name: "NXDOMAIN", typed: dnsFailure(&net.DNSError{Err: "no such host", Name: "example.invalid", IsNotFound: true})},
+		{name: "temporary dns failure", typed: dnsFailure(&net.DNSError{Err: "server misbehaving", Name: "example.com", IsTemporary: true})},
 		{name: "context deadline exceeded", typed: context.DeadlineExceeded},
 	}
-
-	for _, tt := range tests {
+	for _, tt := range others {
 		t.Run(tt.name, func(t *testing.T) {
 			typedCode := status.Code(wrapTransientNetworkError(tt.typed))
 			require.NotEqual(t, codes.Unknown, typedCode, "the typed classifier must have an answer for this case")
-
-			flattenedCode := status.Code(ClassifyOAuth2TokenError(flatten(tt.typed)))
-			require.Equal(t, typedCode, flattenedCode,
-				"flattened text classified as %s, typed error as %s", flattenedCode, typedCode)
+			require.Equal(t, typedCode, status.Code(ClassifyOAuth2TokenError(flatten(tt.typed))))
 		})
+	}
+}
+
+// ETIMEDOUT is the one condition whose typed classification does not come off
+// the shared list — net.Error.Timeout() answers it before any predicate runs
+// (isSocketTimeout on Windows) — so dropping it from the list would leave the
+// flattened path silently unclassified again, which is the gap this table was
+// widened to close. The text comes from syscall rather than from the list, so
+// this fails if the entry goes away.
+func TestClassifyOAuth2TokenError_FlattenedConnectTimeout(t *testing.T) {
+	typed := &url.Error{Op: "Post", URL: "https://example.com/token", Err: &net.OpError{
+		Op:  "dial",
+		Net: "tcp",
+		Err: os.NewSyscallError("connect", syscall.ETIMEDOUT),
+	}}
+	//nolint:errorlint // reproduces x/oauth2's %v flattening; %w would defeat the test
+	flattened := fmt.Errorf("oauth2: cannot fetch token: %v", typed)
+
+	require.Contains(t, flattened.Error(), syscall.ETIMEDOUT.Error())
+	require.Equal(t, codes.DeadlineExceeded, status.Code(ClassifyOAuth2TokenError(flattened)))
+	require.True(t, newTestRetryer(t).ShouldWaitAndRetry(t.Context(), ClassifyOAuth2TokenError(flattened)),
+		"a token fetch whose TCP connect timed out must be retryable")
+}
+
+// The table is scanned in order and the first match wins, so an entry whose
+// text contains an earlier entry's text can never be reached. Substring
+// overlap is only safe when both land on the same code.
+func TestFlattenedTokenFailures_OrderIsUnambiguous(t *testing.T) {
+	for i, earlier := range flattenedTokenFailures {
+		for j, later := range flattenedTokenFailures {
+			if i >= j || earlier.code == later.code {
+				continue
+			}
+			require.False(t, strings.Contains(later.substr, earlier.substr),
+				"%q (%s) is shadowed by the earlier %q (%s); reorder or split them",
+				later.substr, later.code, earlier.substr, earlier.code)
+		}
 	}
 }
 
@@ -390,10 +451,56 @@ func TestClassifyOAuth2TokenError_TruncatesRecoveredDescription(t *testing.T) {
 	require.True(t, utf8.ValidString(msg), "truncation split a rune: %q", msg)
 }
 
+// x/oauth2 populates ErrorDescription itself on the clientcredentials and
+// oauth2.Config paths, from up to 1 MiB of body, so the bound has to cover
+// the params that arrive on the error and not only what is parsed out of a
+// body. Both the terminal and the transient path build the message.
+func TestClassifyOAuth2TokenError_TruncatesParamsFromTheError(t *testing.T) {
+	tests := []struct {
+		name  string
+		err   error
+		found string
+	}{
+		{
+			name: "terminal path",
+			err: &url.Error{Op: "Post", URL: "https://example.com/oauth/token", Err: &oauth2.RetrieveError{
+				Response:         &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"},
+				ErrorCode:        "invalid_grant",
+				ErrorDescription: strings.Repeat("y", 5000),
+			}},
+			found: "invalid_grant",
+		},
+		{
+			name: "transient path",
+			err: &url.Error{Op: "Post", URL: "https://example.com/oauth/token", Err: &oauth2.RetrieveError{
+				Response:         &http.Response{StatusCode: http.StatusServiceUnavailable, Status: "503 Service Unavailable"},
+				ErrorDescription: strings.Repeat("z", 5000),
+			}},
+			found: "503 Service Unavailable",
+		},
+		{
+			name: "error code itself",
+			err: &url.Error{Op: "Post", URL: "https://example.com/oauth/token", Err: &oauth2.RetrieveError{
+				Response:  &http.Response{StatusCode: http.StatusBadRequest, Status: "400 Bad Request"},
+				ErrorCode: strings.Repeat("w", 5000),
+			}},
+			found: "www",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			msg := statusMessage(t, ClassifyOAuth2TokenError(tt.err))
+			require.Less(t, len(msg), 512, "message was not truncated: %d bytes", len(msg))
+			require.Contains(t, msg, tt.found)
+		})
+	}
+}
+
 // The bound is on runes, so a description that is long in bytes but short in
 // characters survives whole.
 func TestClassifyOAuth2TokenError_KeepsMultibyteDescriptionUnderTheBound(t *testing.T) {
-	description := strings.Repeat("é", maxRecoveredDescription-1)
+	description := strings.Repeat("é", maxErrorParamLength-1)
 	body, err := json.Marshal(map[string]string{"error": "invalid_grant", "error_description": description})
 	require.NoError(t, err)
 
