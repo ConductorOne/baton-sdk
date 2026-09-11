@@ -21,15 +21,18 @@ package dotc1z
 // C22/C24 in docs/verification/page-ledger/plan.md.
 
 import (
+	"context"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
@@ -175,4 +178,30 @@ func TestPebbleStoreDirtyCoverage(t *testing.T) {
 		"these capability methods are not classified in capabilityMethods, so this test cannot tell whether they need a "+
 			"markDirty wrapper. Classify each as dirtyWrite, dirtyRead or dirtyDeferred with a reason:\n  %s",
 		strings.Join(unclassified, "\n  "))
+}
+
+// The other direction: callers choose the ledger path by probing the store
+// for these interfaces, so a SQLite store that satisfied one would send a
+// v1 file down a path with no ledger to write to. There is no compile-time
+// form of this — you cannot assert that a type does not implement an
+// interface — so it is a test.
+func TestSQLiteStoreOffersNoLedgerCapabilities(t *testing.T) {
+	ctx := context.Background()
+
+	store, err := NewStore(ctx, filepath.Join(t.TempDir(), "v1.c1z"), WithEngine(c1zstore.EngineSQLite))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close(ctx) })
+
+	// Premise: the probe finds what this store does offer. Without it the
+	// three assertions below would also pass on a store that implements
+	// nothing at all.
+	_, ok := store.(connectorstore.DBSizeProvider)
+	require.True(t, ok, "the SQLite store offers DBSizeProvider; if this fails the probe is wrong, not the store")
+
+	_, ok = store.(c1zstore.PageLedgerStore)
+	require.False(t, ok, "the SQLite store has no ledger to write pages into")
+	_, ok = store.(c1zstore.SyncStatsStore)
+	require.False(t, ok, "the SQLite store seals through EndSync, with no stats-bearing seal")
+	_, ok = store.(c1zstore.WriteSeamStore)
+	require.False(t, ok, "the SQLite store has no page writes to gate")
 }

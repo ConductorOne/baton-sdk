@@ -341,7 +341,7 @@ instrument that closes it.
 
 ### C24 Capability presence and absence
 
-- Status: evidence incomplete; the pebble half is closed.
+- Status: verified to stated coverage (single per store, both stores).
 - Candidate: the three assertions at `pebble_store.go:33,44,45` cover
   `pebbleStore` through the `dotc1z` open path, plus the runtime `ok`
   checks in `pebble_store_dirty_test.go` and
@@ -349,9 +349,18 @@ instrument that closes it.
   what they do not mean: `pebbleStore` embeds `*pebble.Engine`, so a
   promoted mutating method satisfies an interface while skipping
   `markDirty`. `TestPebbleStoreDirtyCoverage` covers that.
-- Not covered: the SQLite negative assertion (type assertion false, no
-  panic). This is the criterion's remaining cell.
-- Closes with: one negative assertion in `pkg/dotc1z`.
+- Absence: `TestSQLiteStoreOffersNoLedgerCapabilities` probes a store
+  opened with `WithEngine(EngineSQLite)` for all three and requires false
+  on each. `*C1File` has none of the five methods, so the result is a
+  property of the type, not of the file's state.
+- Mutation adequacy. Giving `*C1File` a `SetWriteSeam` method fails the
+  `WriteSeamStore` assertion by name. Run and reverted. The test also
+  carries a premise assertion — the same probe finds
+  `connectorstore.DBSizeProvider`, which the store does offer — so three
+  falses cannot come from probing a store that implements nothing.
+- Not covered: nothing in the criterion as stated. The criterion does not
+  ask whether a caller that finds no capability behaves correctly; that is
+  C32, deferred to the syncer change.
 
 ### C25 Downstream readers family-bounded
 
@@ -423,12 +432,13 @@ instrument that closes it.
 
 - Status: evidence incomplete.
 - Candidate: the `skipLedgerResiduePurge` arm of
-  `TestLedgerScrubLeavesNoSSTResidue` (O5 only). Four more mutants were
+  `TestLedgerScrubLeavesNoSSTResidue` (O5 only). Five more mutants were
   planted and run by hand this round, each against the assertion written
   to catch it: buffer-length counts restored (O3), a first-wins dedup
-  pre-pass (O3 survivor), `markDirty` dropped from grant-layer ingest and
-  a method left unclassified (O9's meta-test). Only the first is in the
-  tree as a switchable arm; the other four were reverted after the run.
+  pre-pass (O3 survivor), `markDirty` dropped from grant-layer ingest, a
+  method left unclassified (O9's meta-test), and a `SetWriteSeam` method
+  on `*C1File` (C24's absence half). Only the first is in the tree as a
+  switchable arm; the other five were reverted after the run.
 - The first-wins mutant is the one worth keeping: it passes the count
   assertion, because either pre-pass leaves one key, and fails only the
   assertion on which record survived. A count oracle cannot see it.
