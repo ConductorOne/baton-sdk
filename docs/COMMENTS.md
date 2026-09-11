@@ -47,9 +47,9 @@ front of you.
 
 1. A contract the name and signature do not carry. Ask first whether they
    should: a constructor that fails on an existing file is better named
-   `CreateStore` than commented. Sometimes the answer is no; a signature can
+   `CreateLedger` than commented. Sometimes the answer is no; a signature can
    be made to carry anything and most of it is not worth it. Then the
-   sentence is the right call. `// NewStore returns a new Store.` is never
+   sentence is the right call. `// NewLedger returns a new Ledger.` is never
    this and is deleted. Exported is not a reason.
 2. Why this and not the obvious alternative: an external system's behavior,
    a spec clause, an ordering dependency, a past incident. Name the source.
@@ -62,7 +62,7 @@ front of you.
 4. Code that looks wrong and is not. State what breaks if it is "fixed".
 5. Which of several variants is the way forward. On the preferred one: use
    this; the others remain for X and go away after Y. On the others:
-   `// Deprecated: use NewStore.` (`staticcheck` SA1019 flags callers.) The
+   `// Deprecated: use NewLedger.` (`staticcheck` SA1019 flags callers.) The
    duplication is the defect; the comment holds the line.
 6. A TODO that says what would make it done: a ticket, a condition, a
    version. `// TODO(BATON-123): ...`.
@@ -103,9 +103,8 @@ front of you.
 
 One line by default. A paragraph for a protocol, a cross-function
 invariant, or a non-obvious algorithm. Full sentences, present tense, period
-at the end (`godot`). A date belongs
-when the fact has one: "the upstream API changed this in 2025-03" is a fact,
-"added 2025-03" is not.
+at the end (`godot`). A date belongs when the fact has one: "the upstream
+API changed this in 2025-03" is a fact, "added 2025-03" is not.
 
 ## Existing comments
 
@@ -149,17 +148,17 @@ and say so.
 ## Examples
 
 ```go
-// NewStore returns a new Store.
-func NewStore(path string) (*Store, error) {
+// NewLedger returns a new Ledger.
+func NewLedger(path string) (*Ledger, error) {
 ```
 
 Delete. If it fails on an existing file, the name carries that, and what
 remains is the part the name cannot:
 
 ```go
-// CreateStore returns ErrExists if path is already present. Use this over
-// OpenOrCreateStore, which is deprecated.
-func CreateStore(path string) (*Store, error) {
+// CreateLedger returns ErrExists if path is already present. Use this over
+// OpenOrCreateLedger, which is deprecated.
+func CreateLedger(path string) (*Ledger, error) {
 ```
 
 ```go

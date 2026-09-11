@@ -507,11 +507,11 @@ store state before falling back). Additionally:
 ### Pass 5: Invariant & verification gating
 
 Any code that writes rows is an ingestion path and must pass through the invariant
-gate (`RunIngestInvariants` + verification marker). New write paths that bypass the
-syncer are guilty until proven registered. Artifacts must satisfy their
-self-description: sidecar sync IDs match the sync-run record, verification markers
-current, graphs marked expanded, format versions valid. (This pass polices that
-funnel; §5.9 is why it exists and where it must sit.)
+gate (`RunIngestInvariants` + verification marker; the code calls this the invariant
+pass). New write paths that bypass the syncer are guilty until proven registered.
+Artifacts must satisfy their self-description: sidecar sync IDs match the sync-run
+record, verification markers current, graphs marked expanded, format versions valid.
+(This review pass polices that gate; §5.9 is why it exists and where it must sit.)
 
 ### Pass 6: Performance
 
