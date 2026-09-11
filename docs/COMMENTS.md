@@ -13,8 +13,8 @@ front of you.
 - The code is the authoritative description of what the code does and what
   it is intended to do: names, types, structure, and to a lesser extent
   tests.
-- A comment earns its keep by stating something that is true that the code 
-  does not express that the reader ought to know.
+- A comment earns its keep by stating something true that the reader ought
+  to know and the code does not express clearly.
 - A comment is a very strong signal that something the reader ought to know 
   is not expressed by the code. That is chiefly a flaw in the code, not the
   comment. Ask whether the code could carry it (a name, a function, a type,
