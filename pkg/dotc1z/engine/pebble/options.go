@@ -207,10 +207,8 @@ func writeOpts(d Durability) *pebble.WriteOptions {
 }
 
 // recordWriteOpts is NoSync for every commit that takes it, whether the
-// sync is fresh or bound and regardless of Options.durability: the
-// record Put paths inside a sync and the digest, source-cache, and
-// index-repair work downstream of them. The record delete paths stay on
-// writeOpts. TestBoundSyncRecordWritesDoNotSyncTheWAL pins the Put path.
+// sync is fresh or bound and regardless of Options.durability.
+// TestBoundSyncRecordWritesDoNotSyncTheWAL pins the Put path.
 //
 // The artifact does not depend on the WAL. CheckpointTo flushes
 // memtables, cuts the checkpoint, and truncateCheckpointWALs zeroes
