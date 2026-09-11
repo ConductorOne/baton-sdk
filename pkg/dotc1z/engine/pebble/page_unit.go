@@ -446,9 +446,9 @@ func (u *PageUnit) Commit(ctx context.Context, id LedgerIdentity, row *v3.Ledger
 				return err
 			}
 		}
-		// Counts come from the stagers, not from the buffer lengths: each
-		// dedups by identity, so a page that staged one identity twice has
-		// fewer keys in the keyspace than records in its buffer.
+		// Every stager dedups by identity, so a page that staged one
+		// identity twice has fewer keys in the keyspace than records in its
+		// buffer. The counts are the only record of what the page put there.
 		row.SetResourceTypesWritten(resourceTypes)
 		row.SetResourcesWritten(resources)
 		row.SetEntitlementsWritten(entitlements)

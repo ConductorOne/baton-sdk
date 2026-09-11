@@ -159,10 +159,6 @@ func TestPageWriterRequiresSync(t *testing.T) {
 	require.ErrorIs(t, w.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "SyncResources"}, nil), ErrNoCurrentSync)
 }
 
-// A page that stages one identity twice writes one key, and the ledger row
-// has to say one. The counts are the only record of what a page put in the
-// keyspace, so a count taken from the buffer instead of from the stagers
-// would report work that is not there.
 func TestLedgerRowCountsDistinctKeysNotBufferedRecords(t *testing.T) {
 	ctx := context.Background()
 	rt, res, ent, grant := pageTestV2Fixtures()

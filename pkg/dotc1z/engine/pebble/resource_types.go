@@ -49,8 +49,7 @@ func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.Reso
 // unit's commit.
 //
 // Last occurrence of an external ID wins, matching the other three stagers.
-// Without the pre-pass the batch carries the same key twice; the later put
-// still wins, so this is cost rather than outcome.
+// The pre-pass is cost, not outcome: the later put wins either way.
 func stageResourceTypeRecords(batch *rawdb.RecordBatch, records []*v3.ResourceTypeRecord) (uint64, error) {
 	var last map[string]int
 	if len(records) > 1 {
