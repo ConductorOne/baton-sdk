@@ -67,6 +67,9 @@ front of you.
 
 ## Not comments
 
+The gate is Good comments. This is what agents write most often that fails
+it.
+
 - Restates the code or the name.
 - Narrates steps. Extract and name the function.
 - Describes the change: "now handles", "previously", "moved from". Commit
@@ -85,9 +88,13 @@ front of you.
 - Two comments justifying opposite decisions. That is one inconsistency in
   the code, not two facts about it.
 - Commented-out code.
+- Section banners and labels. Navigation the structure should provide;
+  split the literal or the file. If one stays, it is a name, not a
+  sentence.
 - Test-body narration. The name and assertion are the documentation. A test
   comment is for what they cannot show: a call that is deliberately absent,
-  or why a premise is asserted before the step under test.
+  or why a premise is asserted before the step under test. A fact about
+  the code under test belongs at that code.
 
 ## Where it goes instead
 
@@ -133,8 +140,8 @@ Principles.
   not exist.
 - A comment that does exist is a signal about the code. Ask whether the
   finding is "the code should carry this" (a rename, a type, a split; not
-  on an exported signature, where the sentence is the fix) before anything
-  about the comment itself.
+  on a signature you cannot change, where the sentence is the fix) before
+  anything about the comment itself.
 - Do not request a comment where a rename or a split would do. Request the
   rename, if sensible.
 - Do not request a comment that explains the diff.
