@@ -20,8 +20,8 @@ front of you.
   something it could. That is chiefly a flaw in the code. Ask whether a
   name, a function, a type, or a test could carry it, and whether that
   change is worth making. Often it is. Sometimes it is too much effort, too
-  disruptive, or touches an API you do not own. Only write one when you
-  mean to send that signal. When comments are everywhere, the signal is
+  disruptive, or touches an API you do not own. Ideally, only write one when 
+  you mean to send that signal. When comments are everywhere, the signal is
   lost.
 - Write for future us: someone opening the file months from now without
   today's context. Not current us, and not the reviewer. Every comment
