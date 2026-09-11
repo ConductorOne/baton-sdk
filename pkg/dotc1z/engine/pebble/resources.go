@@ -44,7 +44,7 @@ func (e *Engine) PutResourceRecords(ctx context.Context, records ...*v3.Resource
 		defer batch.Close()
 
 		fresh := e.IsFreshSync()
-		if err := e.stageResourceRecords(batch, records); err != nil {
+		if _, err := e.stageResourceRecords(batch, records); err != nil {
 			return err
 		}
 		opts := writeOpts(e.opts.durability)
@@ -59,12 +59,13 @@ func (e *Engine) PutResourceRecords(ctx context.Context, records ...*v3.Resource
 }
 
 // stageResourceRecords stages records (with within-call dedup and the
-// read-before-write by_parent cleanup) into batch. Caller holds the
-// write barrier and has checked requireCurrentSync; the caller commits.
-// Shared by PutResourceRecords and the page unit's commit.
-func (e *Engine) stageResourceRecords(batch *rawdb.RecordBatch, records []*v3.ResourceRecord) error {
+// read-before-write by_parent cleanup) into batch and returns the number of
+// distinct keys it staged. Caller holds the write barrier and has checked
+// requireCurrentSync; the caller commits. Shared by PutResourceRecords and
+// the page unit's commit.
+func (e *Engine) stageResourceRecords(batch *rawdb.RecordBatch, records []*v3.ResourceRecord) (uint64, error) {
 	if len(records) == 0 {
-		return nil
+		return 0, nil
 	}
 	skipGet := e.takeFreshResourcesEmpty()
 
@@ -82,6 +83,7 @@ func (e *Engine) stageResourceRecords(batch *rawdb.RecordBatch, records []*v3.Re
 		}
 	}
 
+	var staged uint64
 	for i, r := range records {
 		if r == nil {
 			continue
@@ -91,10 +93,11 @@ func (e *Engine) stageResourceRecords(batch *rawdb.RecordBatch, records []*v3.Re
 				continue
 			}
 		}
+		staged++
 		key := encodeResourceKey(r.GetResourceTypeId(), r.GetResourceId())
 		val, err := marshalRecord(r)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		var oldVal []byte
 		var oldCloser io.Closer
@@ -109,7 +112,7 @@ func (e *Engine) stageResourceRecords(batch *rawdb.RecordBatch, records []*v3.Re
 			case errors.Is(getErr, pebble.ErrNotFound):
 				// no prior — write unconditionally
 			default:
-				return fmt.Errorf("PutResourceRecords: get old: %w", getErr)
+				return 0, fmt.Errorf("PutResourceRecords: get old: %w", getErr)
 			}
 		}
 		// One typed op stages the row and its by_parent obligations
@@ -119,10 +122,10 @@ func (e *Engine) stageResourceRecords(batch *rawdb.RecordBatch, records []*v3.Re
 			_ = oldCloser.Close()
 		}
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return nil
+	return staged, nil
 }
 
 func (e *Engine) GetResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (*v3.ResourceRecord, error) {

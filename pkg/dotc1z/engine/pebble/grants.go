@@ -82,7 +82,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		defer batch.Close()
 
 		fresh := e.IsFreshSync()
-		if err := e.stageGrantRecords(batch, records); err != nil {
+		if _, err := e.stageGrantRecords(batch, records); err != nil {
 			return err
 		}
 		opts := writeOpts(e.opts.durability)
@@ -98,12 +98,12 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 
 // stageGrantRecords stages records in the INLINE index regime (with
 // within-call dedup and the read-before-write overwrite probe) into
-// batch. Caller holds the write barrier and has checked
-// requireCurrentSync; the caller commits. Shared by PutGrantRecords and
-// the page unit's commit.
-func (e *Engine) stageGrantRecords(batch *rawdb.RecordBatch, records []*v3.GrantRecord) error {
+// batch and returns the number of distinct keys it staged. Caller holds
+// the write barrier and has checked requireCurrentSync; the caller
+// commits. Shared by PutGrantRecords and the page unit's commit.
+func (e *Engine) stageGrantRecords(batch *rawdb.RecordBatch, records []*v3.GrantRecord) (uint64, error) {
 	if len(records) == 0 {
-		return nil
+		return 0, nil
 	}
 	// skipGet fires exactly once per fresh sync — only the first
 	// grant-staging call sees the keyspace empty by construction.
@@ -129,29 +129,31 @@ func (e *Engine) stageGrantRecords(batch *rawdb.RecordBatch, records []*v3.Grant
 			}
 			id, err := grantIdentityFromRecord(r)
 			if err != nil {
-				return err
+				return 0, err
 			}
 			dedup[dedupKey{id}] = i
 		}
 	}
 
+	var staged uint64
 	for i, r := range records {
 		if r == nil {
 			continue
 		}
 		id, err := grantIdentityFromRecord(r)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if dedup != nil {
 			if dedup[dedupKey{id}] != i {
 				continue
 			}
 		}
+		staged++
 		key := encodeGrantIdentityKey(id)
 		val, err := marshalRecord(r)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		// One typed op stages the row and everything it owes:
 		// prior-row index cleanup, by_principal, needs_expansion,
@@ -160,7 +162,7 @@ func (e *Engine) stageGrantRecords(batch *rawdb.RecordBatch, records []*v3.Grant
 		// long enough to clean a changed source-scope index entry.
 		if skipGet {
 			if err := batch.StageGrantPutInline(key, val, nil, r.GetNeedsExpansion()); err != nil {
-				return err
+				return 0, err
 			}
 			continue
 		}
@@ -172,13 +174,13 @@ func (e *Engine) stageGrantRecords(batch *rawdb.RecordBatch, records []*v3.Grant
 		case errors.Is(getErr, pebble.ErrNotFound):
 			err = batch.StageGrantPutInline(key, val, nil, r.GetNeedsExpansion())
 		default:
-			return fmt.Errorf("PutGrantRecords: get old: %w", getErr)
+			return 0, fmt.Errorf("PutGrantRecords: get old: %w", getErr)
 		}
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return nil
+	return staged, nil
 }
 
 // PutExpandedGrantRecords is the grant-expander write path — the

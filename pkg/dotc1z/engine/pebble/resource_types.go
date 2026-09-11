@@ -33,7 +33,7 @@ func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.Reso
 		batch := e.db.NewRecordBatch()
 		defer batch.Close()
 		fresh := e.IsFreshSync()
-		if err := stageResourceTypeRecords(batch, records); err != nil {
+		if _, err := stageResourceTypeRecords(batch, records); err != nil {
 			return err
 		}
 		opts := writeOpts(e.opts.durability)
@@ -44,23 +44,42 @@ func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.Reso
 	})
 }
 
-// stageResourceTypeRecords stages records into batch. Shared by
-// PutResourceTypeRecords and the page unit's commit.
-func stageResourceTypeRecords(batch *rawdb.RecordBatch, records []*v3.ResourceTypeRecord) error {
-	for _, r := range records {
+// stageResourceTypeRecords stages records into batch and returns the number
+// of distinct keys it staged. Shared by PutResourceTypeRecords and the page
+// unit's commit.
+//
+// Last occurrence of an external ID wins, matching the other three stagers.
+// Without the pre-pass the batch carries the same key twice; the later put
+// still wins, so this is cost rather than outcome.
+func stageResourceTypeRecords(batch *rawdb.RecordBatch, records []*v3.ResourceTypeRecord) (uint64, error) {
+	var last map[string]int
+	if len(records) > 1 {
+		last = make(map[string]int, len(records))
+		for i, r := range records {
+			if r != nil {
+				last[r.GetExternalId()] = i
+			}
+		}
+	}
+	var staged uint64
+	for i, r := range records {
 		if r == nil {
+			continue
+		}
+		if last != nil && last[r.GetExternalId()] != i {
 			continue
 		}
 		key := encodeResourceTypeKey(r.GetExternalId())
 		val, err := marshalRecord(r)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if err := batch.StageResourceTypePut(key, val); err != nil {
-			return err
+			return 0, err
 		}
+		staged++
 	}
-	return nil
+	return staged, nil
 }
 
 func (e *Engine) GetResourceTypeRecord(ctx context.Context, externalID string) (*v3.ResourceTypeRecord, error) {

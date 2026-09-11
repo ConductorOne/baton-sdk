@@ -158,3 +158,41 @@ func TestPageWriterRequiresSync(t *testing.T) {
 	require.ErrorIs(t, w.PutResources(ctx, res...), ErrNoCurrentSync)
 	require.ErrorIs(t, w.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "SyncResources"}, nil), ErrNoCurrentSync)
 }
+
+// A page that stages one identity twice writes one key, and the ledger row
+// has to say one. The counts are the only record of what a page put in the
+// keyspace, so a count taken from the buffer instead of from the stagers
+// would report work that is not there.
+func TestLedgerRowCountsDistinctKeysNotBufferedRecords(t *testing.T) {
+	ctx := context.Background()
+	rt, res, ent, grant := pageTestV2Fixtures()
+
+	e, _ := newTestEngine(t)
+	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	var store c1zstore.PageLedgerStore = e
+	w := store.BeginPage()
+	require.NoError(t, w.PutResourceTypes(ctx, rt, rt))
+	require.NoError(t, w.PutResources(ctx, res[0], res[0]))
+	require.NoError(t, w.PutEntitlements(ctx, ent, ent))
+	require.NoError(t, w.PutGrants(ctx, grant, grant))
+	id := c1zstore.LedgerActionIdentity{Op: "SyncGrants", ResourceTypeID: "app", ResourceID: "github", PageToken: "p1"}
+	require.NoError(t, w.Commit(ctx, id, &c1zstore.LedgerRow{Attempt: "a1"}))
+
+	var rts, rs, es, gs int
+	require.NoError(t, e.IterateResourceTypes(ctx, func(*v3.ResourceTypeRecord) bool { rts++; return true }))
+	require.NoError(t, e.IterateResources(ctx, func(*v3.ResourceRecord) bool { rs++; return true }))
+	require.NoError(t, e.IterateEntitlements(ctx, func(*v3.EntitlementRecord) bool { es++; return true }))
+	require.NoError(t, e.IterateGrants(ctx, func(*v3.GrantRecord) bool { gs++; return true }))
+	require.Equal(t, [4]int{1, 1, 1, 1}, [4]int{rts, rs, es, gs},
+		"premise: staging an identity twice leaves one key per family")
+
+	row, found, err := store.GetLedgerRow(ctx, id)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.EqualValues(t, 1, row.ResourceTypesWritten)
+	require.EqualValues(t, 1, row.ResourcesWritten)
+	require.EqualValues(t, 1, row.EntitlementsWritten)
+	require.EqualValues(t, 1, row.GrantsWritten)
+}

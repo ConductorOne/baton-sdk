@@ -51,7 +51,7 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 		defer priBatch.Close()
 
 		fresh := e.IsFreshSync()
-		if err := e.stageEntitlementRecords(priBatch, records); err != nil {
+		if _, err := e.stageEntitlementRecords(priBatch, records); err != nil {
 			return err
 		}
 		opts := writeOpts(e.opts.durability)
@@ -67,13 +67,14 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 }
 
 // stageEntitlementRecords stages records (with within-call dedup and
-// the source-scope-gated read-before-write) into batch. Caller holds
-// the write barrier and has checked requireCurrentSync; the caller
-// commits and then calls noteEntitlementKeyspaceWrite. Shared by
-// PutEntitlementRecords and the page unit's commit.
-func (e *Engine) stageEntitlementRecords(batch *rawdb.RecordBatch, records []*v3.EntitlementRecord) error {
+// the source-scope-gated read-before-write) into batch and returns the
+// number of distinct keys it staged. Caller holds the write barrier and
+// has checked requireCurrentSync; the caller commits and then calls
+// noteEntitlementKeyspaceWrite. Shared by PutEntitlementRecords and the
+// page unit's commit.
+func (e *Engine) stageEntitlementRecords(batch *rawdb.RecordBatch, records []*v3.EntitlementRecord) (uint64, error) {
 	if len(records) == 0 {
-		return nil
+		return 0, nil
 	}
 	skipGet := e.takeFreshEntitlementsEmpty()
 
@@ -89,33 +90,35 @@ func (e *Engine) stageEntitlementRecords(batch *rawdb.RecordBatch, records []*v3
 			}
 			id, err := entitlementIdentityFromRecord(r)
 			if err != nil {
-				return err
+				return 0, err
 			}
 			dedup[dedupKey{id}] = i
 		}
 	}
 
+	var staged uint64
 	for i, r := range records {
 		if r == nil {
 			continue
 		}
 		id, err := entitlementIdentityFromRecord(r)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if dedup != nil {
 			if dedup[dedupKey{id}] != i {
 				continue
 			}
 		}
+		staged++
 		key := encodeEntitlementIdentityKey(id)
 		val, err := marshalRecord(r)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if skipGet || !e.db.SourceScopeMayExist() {
 			if err := batch.StageEntitlementPut(key, val, nil); err != nil {
-				return err
+				return 0, err
 			}
 			continue
 		}
@@ -127,13 +130,13 @@ func (e *Engine) stageEntitlementRecords(batch *rawdb.RecordBatch, records []*v3
 		case errors.Is(getErr, pebble.ErrNotFound):
 			err = batch.StageEntitlementPut(key, val, nil)
 		default:
-			return fmt.Errorf("PutEntitlementRecords: get old: %w", getErr)
+			return 0, fmt.Errorf("PutEntitlementRecords: get old: %w", getErr)
 		}
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return nil
+	return staged, nil
 }
 
 // GetEntitlementRecord fetches an entitlement by its raw public id via the

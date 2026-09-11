@@ -392,19 +392,10 @@ func (u *PageUnit) Commit(ctx context.Context, id LedgerIdentity, row *v3.Ledger
 		}
 		u.grants = kept
 	}
-	row.SetResourceTypesWritten(uint64(len(u.resourceTypes)))
-	row.SetResourcesWritten(uint64(len(u.resources)))
-	row.SetEntitlementsWritten(uint64(len(u.entitlements)))
-	row.SetGrantsWritten(uint64(len(u.grants)))
-
-	rowVal, err := marshalRecord(row)
-	if err != nil {
-		return err
-	}
 	key := encodeLedgerKey(id)
 
 	e := u.e
-	err = e.withWrite(func() error {
+	err := e.withWrite(func() error {
 		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
@@ -434,22 +425,37 @@ func (u *PageUnit) Commit(ctx context.Context, id LedgerIdentity, row *v3.Ledger
 		defer batch.Close()
 
 		fresh := e.IsFreshSync()
-		if err := stageResourceTypeRecords(batch, u.resourceTypes); err != nil {
+		resourceTypes, err := stageResourceTypeRecords(batch, u.resourceTypes)
+		if err != nil {
 			return err
 		}
-		if err := e.stageResourceRecords(batch, u.resources); err != nil {
+		resources, err := e.stageResourceRecords(batch, u.resources)
+		if err != nil {
 			return err
 		}
-		if err := e.stageEntitlementRecords(batch, u.entitlements); err != nil {
+		entitlements, err := e.stageEntitlementRecords(batch, u.entitlements)
+		if err != nil {
 			return err
 		}
-		if err := e.stageGrantRecords(batch, u.grants); err != nil {
+		grants, err := e.stageGrantRecords(batch, u.grants)
+		if err != nil {
 			return err
 		}
 		for _, id := range u.grantDeletes {
 			if _, err := e.stageGrantDeleteIfPresentLocked(batch, id); err != nil {
 				return err
 			}
+		}
+		// Counts come from the stagers, not from the buffer lengths: each
+		// dedups by identity, so a page that staged one identity twice has
+		// fewer keys in the keyspace than records in its buffer.
+		row.SetResourceTypesWritten(resourceTypes)
+		row.SetResourcesWritten(resources)
+		row.SetEntitlementsWritten(entitlements)
+		row.SetGrantsWritten(grants)
+		rowVal, err := marshalRecord(row)
+		if err != nil {
+			return err
 		}
 		if err := batch.StageLedgerRow(key, rowVal); err != nil {
 			return err
