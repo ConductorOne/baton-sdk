@@ -98,10 +98,24 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 		{Start: SyncStatsSidecarLowerBound(), End: SyncStatsSidecarUpperBound()},
 		{Start: EntitlementGraphSidecarLowerBound(), End: EntitlementGraphSidecarUpperBound()},
 	}
+	// Read before the excise: an interrupted ledgered sync's rows are still
+	// here, and once excised nothing tells the seal they ever were.
+	ledgered, err := e.ledgerActive()
+	if err != nil {
+		return fmt.Errorf("ResetForNewSync: check ledger presence: %w", err)
+	}
+	// Armed before the excise, not after: a crash in between leaves the
+	// marker over rows that are still there, which costs one compaction at
+	// the next seal. The other order loses the marker and ships the bytes.
+	if ledgered {
+		if err := e.markLedgerResiduePending(residueExcised); err != nil {
+			return fmt.Errorf("ResetForNewSync: %w", err)
+		}
+	}
 	// AllowSealed: StartNewSync legitimately replaces a finished (sealed)
 	// sync; the wipe is the first step of leaving the sealed state. The
 	// engine stays sealed until MarkFreshSync unseals it right after.
-	return e.withWriteAllowSealed(func() error {
+	if err := e.withWriteAllowSealed(func() error {
 		for _, span := range spans {
 			if err := e.db.ExciseRange(ctx, span); err != nil {
 				return fmt.Errorf("ResetForNewSync: excise [%x, %x): %w", span.Start, span.End, err)
@@ -138,7 +152,10 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 		}
 		e.noteEntitlementKeyspaceWrite()
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	return nil
 }
 
 // CompactAllRanges runs pebble.Compact over every sync-scoped range to

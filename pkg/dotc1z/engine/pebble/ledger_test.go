@@ -667,6 +667,176 @@ func checkpointNeedleHits(t *testing.T, e *Engine, needle []byte) int {
 	return hits
 }
 
+// Making the scrub the default must not put a manual compaction on the
+// seal path of the syncs that have no ledger — which is every sync until
+// the syncer moves onto it. sealScrubsTokens reports true whenever the
+// retain fact is absent, and a ledger-free sync never writes that fact,
+// so the gate endSyncFinalize applies is ledger presence, not the fact.
+// The ledgered arm is what keeps this from passing vacuously: if the gate
+// were stuck closed, the purge would stop running where it is needed and
+// the residue arms above would catch it, but this pins the pair directly.
+func TestLedgerFreeSealSkipsResiduePurge(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("no ledger: no purge", func(t *testing.T) {
+		e, _ := newTestEngine(t)
+		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		require.NoError(t, e.PutResourceRecords(ctx, ledgerTestResource("user", "u1")))
+		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		require.Zero(t, e.test.ledgerResiduePurges.Load(),
+			"a sync with no ledger must not reach PurgeLedgerResidue's db.Compact")
+	})
+
+	t.Run("ledgered: purge runs", func(t *testing.T) {
+		e, _ := newTestEngine(t)
+		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		require.NoError(t, e.NewPageUnit().Commit(ctx, grantsPageIdentity("github", "p1"), nil))
+		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		require.EqualValues(t, 1, e.test.ledgerResiduePurges.Load(),
+			"a ledgered seal must still purge the pre-scrub row versions")
+	})
+}
+
+// The two ways a ledger leaves the keyspace without going through a seal.
+// Both leave its verbatim page tokens in the SSTs a checkpoint hard-links,
+// and in both endSyncFinalize's ledgerActive gate finds no ledger and
+// would skip the purge — the shapes that gate opened.
+//
+// The halves of the fix differ because the deletions differ. DropLedger
+// tombstones the rows, which a compaction of the ledger range still
+// rewrites, so it purges inline. ResetForNewSync excises, which narrows
+// the overlapping SSTs into virtual ones whose bounds exclude the range,
+// putting the bytes past what a compaction of that range can reach; it
+// arms encodeLedgerResiduePendingKey and the next seal purges.
+func TestLedgerResidueOutlivesTheLedger(t *testing.T) {
+	ctx := context.Background()
+	const needleText = "sig=SECRET-RESIDUE"
+
+	commitTokenPages := func(t *testing.T, e *Engine) {
+		t.Helper()
+		for i := range 2 {
+			tok := fmt.Sprintf("https://x/?%s-%d", needleText, i)
+			u := e.NewPageUnit()
+			require.NoError(t, u.StageResources(ledgerTestResource("user", fmt.Sprintf("u%d", i))))
+			require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", tok),
+				v3.LedgerRow_builder{NextPageToken: tok}.Build()))
+		}
+		// Into SSTs, where a real sync's flushes put them.
+		require.NoError(t, e.Flush(ctx))
+		require.Positive(t, checkpointNeedleHits(t, e, []byte(needleText)),
+			"premise: the verbatim tokens are in the SSTs before the ledger goes")
+	}
+
+	// compactPebbleFold's shape: drop the output's ledger, then seal it.
+	t.Run("DropLedger mid-sync, then seal", func(t *testing.T) {
+		e, _ := newTestEngine(t)
+		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		commitTokenPages(t, e)
+
+		require.NoError(t, e.DropLedger(ctx))
+		active, err := e.ledgerActive()
+		require.NoError(t, err)
+		require.False(t, active, "premise: the drop leaves the seal's gate nothing to find")
+
+		require.NoError(t, e.EndSync(ctx))
+		require.Zero(t, checkpointNeedleHits(t, e, []byte(needleText)),
+			"a dropped ledger must not ship its tokens in the sealed artifact")
+	})
+
+	t.Run("interrupted ledgered sync, then a ledger-free one", func(t *testing.T) {
+		dbDir := filepath.Join(t.TempDir(), "db")
+		e, err := Open(ctx, dbDir)
+		require.NoError(t, err)
+		_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		commitTokenPages(t, e)
+
+		// Interrupted: no EndSync. Reopen, as the next attempt does.
+		require.NoError(t, e.Close())
+		e, err = Open(ctx, dbDir)
+		require.NoError(t, err)
+		defer func() { _ = e.Close() }()
+
+		// A replacement sync in the same file, with no ledger of its own.
+		_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		kind, err := e.ledgerResidueKind()
+		require.NoError(t, err)
+		require.EqualValues(t, residueExcised, kind, "the reset's excise has to arm the marker")
+		active, err := e.ledgerActive()
+		require.NoError(t, err)
+		require.False(t, active, "premise: the marker is the only thing left saying so")
+
+		require.NoError(t, e.PutResourceRecords(ctx, ledgerTestResource("user", "z1")))
+		require.NoError(t, e.EndSync(ctx))
+		require.Zero(t, checkpointNeedleHits(t, e, []byte(needleText)),
+			"the interrupted sync's tokens must not ship in the replacement's artifact")
+		kind, err = e.ledgerResidueKind()
+		require.NoError(t, err)
+		require.Zero(t, kind, "the purge consumes the marker")
+	})
+
+	// The purge inside DropLedger is not the last line of defence, because
+	// the drop has already made the residue unfindable by then. A caller
+	// that retries a failed drop, or a process that dies between the two,
+	// gets a file whose ledger is gone and whose tokens are not.
+	t.Run("DropLedger's purge fails, then a later seal", func(t *testing.T) {
+		e, _ := newTestEngine(t)
+		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		commitTokenPages(t, e)
+
+		cancelled, cancel := context.WithCancel(ctx)
+		cancel()
+		require.Error(t, e.DropLedger(cancelled), "premise: the purge has to fail")
+		kind, err := e.ledgerResidueKind()
+		require.NoError(t, err)
+		require.EqualValues(t, residueTombstoned, kind,
+			"a failed purge leaves the marker armed for the next seal")
+
+		require.NoError(t, e.EndSync(ctx))
+		require.Zero(t, checkpointNeedleHits(t, e, []byte(needleText)),
+			"the seal is the retry, and it must not ship what the failed purge left")
+	})
+
+	// A file that collects both kinds: the reset's excised bytes cannot be
+	// reached by the narrow compaction the later drop asks for, so the wider
+	// kind has to win rather than being overwritten and consumed.
+	t.Run("excised then tombstoned: the wider kind wins", func(t *testing.T) {
+		dbDir := filepath.Join(t.TempDir(), "db")
+		e, err := Open(ctx, dbDir)
+		require.NoError(t, err)
+		_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		commitTokenPages(t, e)
+		require.NoError(t, e.Close())
+
+		e, err = Open(ctx, dbDir)
+		require.NoError(t, err)
+		defer func() { _ = e.Close() }()
+		_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		kind, err := e.ledgerResidueKind()
+		require.NoError(t, err)
+		require.EqualValues(t, residueExcised, kind, "premise: the reset armed the excised kind")
+
+		// A ledgered page in the replacement sync, then a drop, which arms
+		// the tombstoned kind over the standing excised one.
+		require.NoError(t, e.NewPageUnit().Commit(ctx, grantsPageIdentity("github", "p9"), nil))
+		require.NoError(t, e.markLedgerResiduePending(residueTombstoned))
+		kind, err = e.ledgerResidueKind()
+		require.NoError(t, err)
+		require.EqualValues(t, residueExcised, kind, "tombstoned must not downgrade excised")
+
+		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		require.Zero(t, checkpointNeedleHits(t, e, []byte(needleText)),
+			"the interrupted sync's tokens must not survive the wider purge")
+	})
+}
+
 // The flagged-connector scrub must hold at the byte level of the saved
 // artifact, not just at the query level. Pebble never overwrites in
 // place: without a compaction of the ledger range after the scrub, the
@@ -724,6 +894,48 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 		n, err := e.LedgerRowCount(ctx)
 		require.NoError(t, err)
 		require.EqualValues(t, len(tokens), n)
+	})
+
+	// The takeover moves a verbatim token OUT of the sync-run record, so
+	// the record's superseded versions are residue at a key the ledger
+	// range does not cover (v3|TypeSyncRun is 0x06, the ledger family is
+	// 0x0C). The purge removes them anyway because the SSTs overlapping
+	// one overlap the other; PurgeLedgerResidue's comment says why that is
+	// incidental and what to do if this arm ever fails. Each checkpoint
+	// gets its own flush so the older version is provably in an SST of its
+	// own rather than elided as a same-memtable overwrite.
+	takeoverPages := func(t *testing.T, e *Engine) {
+		t.Helper()
+		for i, tok := range tokens[1:] {
+			require.NoError(t, e.CheckpointSync(ctx, fmt.Sprintf(`{"state":%q,"n":%d}`, tok, i)))
+			require.NoError(t, e.Flush(ctx))
+		}
+		_, err := e.TakeoverToken(ctx, "run-1", nil, c1zstore.LedgerCounters{})
+		require.NoError(t, err)
+		require.NoError(t, e.Flush(ctx))
+	}
+
+	t.Run("takeover retain control: tokens ship", func(t *testing.T) {
+		e, _ := newTestEngine(t)
+		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		e.SetRetainLedgerTokens(true)
+		takeoverPages(t, e)
+		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		require.Positive(t, checkpointNeedleHits(t, e, []byte(needleText)),
+			"oracle must see the taken-over token when retention is declared")
+	})
+
+	t.Run("takeover: zero residue", func(t *testing.T) {
+		e, _ := newTestEngine(t)
+		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		takeoverPages(t, e)
+		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		// The frontier's copy is scrubbed and purged with the ledger
+		// family; this covers the sync-run record it was migrated out of.
+		require.Zero(t, checkpointNeedleHits(t, e, []byte(needleText)),
+			"a superseded sync-run version keeps the pre-takeover token in its SST")
 	})
 
 	t.Run("mutant: scrub without residue purge leaks", func(t *testing.T) {

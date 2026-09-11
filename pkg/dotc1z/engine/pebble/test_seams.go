@@ -1,5 +1,7 @@
 package pebble
 
+import "sync/atomic"
+
 // testSeams aggregates every test-only injection point on the Engine
 // behind a single field (Engine.test), so the production struct isn't
 // littered with hook fields and new seams have one obvious home. All
@@ -99,4 +101,13 @@ type testSeams struct {
 	// without it the scrubbed rows read clean while the verbatim tokens
 	// remain in the checkpointed SSTs (ledger_test.go).
 	skipLedgerResiduePurge bool
+
+	// ledgerResiduePurges counts PurgeLedgerResidue entries. The gate it
+	// pins is endSyncFinalize's, which skips the scrub and the purge
+	// unless a ledger exists: ungated, the purge's db.Compact ran on
+	// every seal in the fleet, since sealScrubsTokens reports true
+	// whenever the retain fact is absent. Nothing else observes a
+	// compaction that did not happen, and counting pebble's own
+	// Compact.Count would fold in automatic compactions.
+	ledgerResiduePurges atomic.Int64
 }

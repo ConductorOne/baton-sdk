@@ -90,6 +90,9 @@ func sealBenchSizes(b *testing.B, e *Engine) (uint64, uint64) {
 
 func benchmarkSealCost(b *testing.B, pages, grants int, op string, grantIndex bool) {
 	ctx := context.Background()
+	// Summed across iterations and divided by b.N below. Reporting the
+	// last iteration's values instead would describe one run out of b.N,
+	// and silently so at any -benchtime above the default.
 	var ledgerBytes, dbBytes uint64
 	var compactions int64
 	var compactMS float64
@@ -98,7 +101,9 @@ func benchmarkSealCost(b *testing.B, pages, grants int, op string, grantIndex bo
 	for n := 0; n < b.N; n++ {
 		b.StopTimer()
 		e := buildSealBenchEngine(b, pages, grants, grantIndex)
-		ledgerBytes, dbBytes = sealBenchSizes(b, e)
+		iterLedgerBytes, iterDBBytes := sealBenchSizes(b, e)
+		ledgerBytes += iterLedgerBytes
+		dbBytes += iterDBBytes
 		before := e.db.UnsafeForTesting().Metrics()
 		beforeCount, beforeDur := before.Compact.Count, before.Compact.Duration
 		switch op {
@@ -126,16 +131,17 @@ func benchmarkSealCost(b *testing.B, pages, grants int, op string, grantIndex bo
 
 		b.StopTimer()
 		after := e.db.UnsafeForTesting().Metrics()
-		compactions = after.Compact.Count - beforeCount
-		compactMS = float64((after.Compact.Duration - beforeDur).Microseconds()) / 1000
+		compactions += after.Compact.Count - beforeCount
+		compactMS += float64((after.Compact.Duration - beforeDur).Microseconds()) / 1000
 		require.NoError(b, e.Close())
 		b.StartTimer()
 	}
 	b.StopTimer()
-	b.ReportMetric(float64(ledgerBytes), "ledger_bytes")
-	b.ReportMetric(float64(dbBytes), "db_bytes")
-	b.ReportMetric(float64(compactions), "compactions")
-	b.ReportMetric(compactMS, "compact_ms")
+	n := float64(b.N)
+	b.ReportMetric(float64(ledgerBytes)/n, "ledger_bytes")
+	b.ReportMetric(float64(dbBytes)/n, "db_bytes")
+	b.ReportMetric(float64(compactions)/n, "compactions")
+	b.ReportMetric(compactMS/n, "compact_ms")
 }
 
 // BenchmarkLedgerSealCost sweeps the scrub and the purge separately, then
@@ -146,6 +152,12 @@ func BenchmarkLedgerSealCost(b *testing.B) {
 	// Page counts span a small sync to one checkpointing every page of a
 	// large one; grant volume is what puts unrelated SSTs near the bounds.
 	shapes := []shape{
+		// pages=0 is every sync in the fleet until the syncer moves onto
+		// the ledger, and the shape the scrub default would otherwise have
+		// taxed for nothing: endSyncFinalize gates the scrub and the purge
+		// on ledgerActive, so seal here must not differ from seal-retain
+		// and compactions must stay at whatever the seal already did.
+		{pages: 0, grants: 1_000_000},
 		{pages: 1_000, grants: 0},
 		{pages: 1_000, grants: 200_000},
 		{pages: 10_000, grants: 200_000},

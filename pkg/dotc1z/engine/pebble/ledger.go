@@ -315,7 +315,19 @@ func (e *Engine) GetLedgerFrontier(ctx context.Context) (*v3.LedgerFrontier, boo
 // empty and the frontier is the only copy of the stack; a crash before
 // the commit leaves the token intact and the frontier absent, so the
 // resumed sync takes over again. Returns the state string it moved.
+//
+// Holds lifecycleMu for the whole read-check-write, the same as
+// CheckpointSync and endSync: this is exactly the sequence that mutex
+// documents (see engine.go). withWrite serializes only the commit, not
+// the GetSyncRunRecord above it, and StageLedgerTakeover blind-sets the
+// whole sync-run key. Without the mutex, a CheckpointSync landing between
+// the read and the commit is silently reverted, and an endSync that
+// snapshotted the record first writes the pre-takeover token back —
+// resurrecting a verbatim checkpoint token beside a live frontier, the
+// two-authority state ErrLedgeredSyncWritesNoToken exists to prevent.
 func (e *Engine) takeoverToken(ctx context.Context, runID string, facts []string, counters *v3.LedgerCounterBucket) (string, error) {
+	e.lifecycleMu.Lock()
+	defer e.lifecycleMu.Unlock()
 	syncID := e.CurrentSyncID()
 	if syncID == "" {
 		return "", errors.New("takeoverToken: no open sync")
@@ -481,9 +493,16 @@ func (e *Engine) RetainLedgerTokens() bool { return e.retainLedgerTokens.Load() 
 //
 // The fact is what makes the opt-out work across processes: the flag is
 // set by whoever starts the sync, while the seal runs wherever the sync
-// finishes, which after a crash is a different process. Note that an
-// unreadable or absent fact yields true — scrub — so every way this can
-// go wrong over-protects. Called once per seal.
+// finishes, which after a crash is a different process. Called once per
+// seal.
+//
+// Both ways this can go wrong are safe, by different routes. An absent
+// fact yields true, so the seal scrubs. An unreadable one fails the seal:
+// endSyncFinalize returns on the error without looking at the bool, which
+// leaves the sync unfinished and the resumed EndSync re-reads the fact.
+// Scrubbing on a failed read would be the wrong call — it would destroy
+// the verbatim tokens of a retain-tokens sync whose intent this could not
+// read.
 func (e *Engine) sealScrubsTokens() (bool, error) {
 	if e.retainLedgerTokens.Load() {
 		return false, nil
@@ -648,7 +667,127 @@ func (e *Engine) scrubLedgerFrontierLocked(ctx context.Context, batch *rawdb.Rec
 // family — the ledger's own plus the L0 files it is interleaved with.
 // Compact flushes an overlapping memtable first, so the compacted
 // output covers every version that ever landed.
+//
+// The range is the ledger family alone, and one thing sits outside it:
+// takeoverToken clears sync_token by rewriting the sync-run record at
+// v3|TypeSyncRun (0x06), so each CheckpointSync before the takeover left
+// a superseded version of that key carrying a page token verbatim. Those
+// versions do go, but incidentally — little enough lives between 0x06 and
+// the ledger family that the SSTs overlapping one overlap the other, so
+// this compaction rewrites them anyway. TestLedgerScrubLeavesNoSSTResidue's
+// takeover arm pins the end-to-end property. Compacting SyncRunKey's own
+// single-key range here would make it structural instead, which is the fix
+// if a keyspace change ever puts enough between the two to split them and
+// that arm fails.
 func (e *Engine) PurgeLedgerResidue(ctx context.Context) error {
+	lo, hi := rawdb.LedgerBounds()
+	return e.compactForLedgerResidue(ctx, lo, hi)
+}
+
+// purgeMarkedLedgerResidue compacts whatever range the armed marker calls
+// for and consumes it. A no-op when nothing is armed.
+//
+// It runs regardless of the retain-tokens fact, unlike the scrub. The
+// residue belongs to the sync whose ledger was deleted, whose retention
+// intent went with it, and a compaction never removes live rows — so this
+// cannot destroy the verbatim tokens of a sync that did ask to keep them.
+func (e *Engine) purgeMarkedLedgerResidue(ctx context.Context) error {
+	kind, err := e.ledgerResidueKind()
+	if err != nil {
+		return fmt.Errorf("purgeMarkedLedgerResidue: read marker: %w", err)
+	}
+	if kind == 0 {
+		return nil
+	}
+	lo, hi := rawdb.LedgerBounds()
+	if kind == residueExcised {
+		lo, hi = []byte{versionV3}, []byte{versionV3 + 1}
+	}
+	if err := e.compactForLedgerResidue(ctx, lo, hi); err != nil {
+		return err
+	}
+	if err := e.db.MetaDelete(encodeLedgerResiduePendingKey(), pebble.Sync); err != nil {
+		return fmt.Errorf("purgeMarkedLedgerResidue: consume marker: %w", err)
+	}
+	return nil
+}
+
+// encodeLedgerResiduePendingKey is the durable marker that ledger bytes are
+// still physically in the SSTs with no ledger left in the keyspace to infer
+// it from — the state both ways of deleting the family leave behind. It is
+// an engine-meta key because ResetForNewSync's excise spans
+// typeResourceType..typeEngineMeta, so engine-meta is the one family that
+// survives the wipe that creates this state.
+//
+// DropLedger and ResetForNewSync arm it before deleting, since the deletion
+// is what destroys the evidence. purgeMarkedLedgerResidue consumes it, and
+// only after its compaction succeeds, so a failed or interrupted purge is
+// retried by the next seal instead of shipping tokens.
+func encodeLedgerResiduePendingKey() []byte {
+	buf := make([]byte, 0, 2+len("ledger_residue_pending"))
+	buf = append(buf, versionV3, typeEngineMeta)
+	return codec.AppendTupleStrings(buf, "ledger_residue_pending")
+}
+
+// How the rows were deleted, which decides the range the purge has to
+// compact. db.Compact selects files by their bounds: DropKeyRange leaves the
+// old versions in files whose bounds still cover the ledger range, so
+// compacting that range rewrites them, but ExciseRange narrows those files
+// into virtual ones whose bounds exclude it, and then only a compaction wide
+// enough to still overlap them reaches the bytes.
+//
+// The distinction is worth keeping because DropLedger runs on every
+// compaction fold, where the wide compaction would rewrite the whole
+// artifact.
+const (
+	residueTombstoned = 't'
+	residueExcised    = 'x'
+)
+
+// markLedgerResiduePending is fsync'd because the state it records outlives
+// the process that created it: an interrupted sync's bytes are purged by
+// whichever later seal reads the marker.
+//
+// An excised marker is never downgraded to a tombstoned one. A file can
+// collect both — a reset, then a ledgered sync, then a drop — and the narrow
+// compaction the tombstoned kind asks for would leave the excised bytes and
+// consume the marker that was standing for them.
+func (e *Engine) markLedgerResiduePending(kind byte) error {
+	if kind == residueTombstoned {
+		standing, err := e.ledgerResidueKind()
+		if err != nil {
+			return fmt.Errorf("arm ledger-residue marker: read standing kind: %w", err)
+		}
+		if standing == residueExcised {
+			return nil
+		}
+	}
+	if err := e.db.MetaSet(encodeLedgerResiduePendingKey(), []byte{kind}, pebble.Sync); err != nil {
+		return fmt.Errorf("arm ledger-residue marker: %w", err)
+	}
+	return nil
+}
+
+// ledgerResidueKind returns 0 when no marker is armed.
+func (e *Engine) ledgerResidueKind() (byte, error) {
+	val, closer, err := e.db.Get(encodeLedgerResiduePendingKey())
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	defer closer.Close()
+	if len(val) != 1 {
+		// Written by markLedgerResiduePending alone, so this is corruption.
+		// Treat it as the wider kind: the marker's whole purpose is that the
+		// bytes cannot be found any other way.
+		return residueExcised, nil
+	}
+	return val[0], nil
+}
+
+func (e *Engine) compactForLedgerResidue(ctx context.Context, lo, hi []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -671,7 +810,7 @@ func (e *Engine) PurgeLedgerResidue(ctx context.Context) error {
 		e.resumeCompactions()
 		defer e.pauseCompactions()
 	}
-	lo, hi := rawdb.LedgerBounds()
+	e.test.ledgerResiduePurges.Add(1)
 	if err := e.db.Compact(ctx, lo, hi, true); err != nil {
 		return fmt.Errorf("PurgeLedgerResidue: %w", err)
 	}
@@ -684,7 +823,24 @@ func (e *Engine) PurgeLedgerResidue(ctx context.Context) error {
 // only its trace (compaction outputs, the sanitizer's drop policy, the
 // syncer's rebind of a finished sync).
 func (e *Engine) DropLedger(ctx context.Context) error {
-	return e.withWriteAllowSealed(func() error {
+	ledgeredBeforeDrop, err := e.ledgerActive()
+	if err != nil {
+		return fmt.Errorf("DropLedger: check ledger presence: %w", err)
+	}
+	// Armed before the drop, because the drop is what destroys the evidence:
+	// DropKeyRange takes the rows out of the keyspace and not out of the
+	// SSTs, so afterwards neither ledgerActive nor anything else can tell
+	// that the verbatim page tokens are still there. Without the marker a
+	// failed or interrupted purge below is permanent — the retry reads no
+	// ledger and returns, and endSyncFinalize's gate finds none either, so
+	// the tokens ship. compactPebbleFold is this exact shape: drop the
+	// ledger, then seal.
+	if ledgeredBeforeDrop {
+		if err := e.markLedgerResiduePending(residueTombstoned); err != nil {
+			return fmt.Errorf("DropLedger: %w", err)
+		}
+	}
+	if err := e.withWriteAllowSealed(func() error {
 		lo, hi := rawdb.LedgerBounds()
 		if err := e.db.DropKeyRange(lo, hi, writeOpts(e.opts.durability)); err != nil {
 			return err
@@ -701,7 +857,13 @@ func (e *Engine) DropLedger(ctx context.Context) error {
 		// round. Clearing first would leave a window where the stamp says
 		// token-only over a ledger that is still there.
 		return e.clearLedgerInFlight()
-	})
+	}); err != nil {
+		return err
+	}
+	// Inline rather than left to the seal, so a file dropped and shipped
+	// without one is clean. On failure the marker stays armed and the next
+	// seal retries; the error is returned so the caller sees it too.
+	return e.purgeMarkedLedgerResidue(ctx)
 }
 
 // ResetLedger implements c1zstore.PageLedgerStore.
