@@ -15,21 +15,20 @@ front of you.
   tests.
 - A comment earns its keep by stating something true that the reader ought
   to know and the code does not express clearly.
-- A comment is a very strong signal that something the reader ought to know 
+- A comment is a very strong signal that something the reader ought to know
   is not expressed by the code. That is chiefly a flaw in the code, not the
   comment. Ask whether the code could carry it (a name, a function, a type,
   a test) and whether that change is worth making. Often it is. Sometimes
   it is too much effort, too disruptive, or touches an API you do not own.
   Ideally, only write a comment when you want to make such a signal to the
-  reader.
+  reader. When comments are everywhere, the signal is lost.
 - Our target audience is _not current us and not the reviewer_. Our
   audience is future us: someone opening the file tomorrow or months from
   now without today's context. Comments are an ongoing maintenance burden
   and often lead future us in the wrong direction or waste our time
   verifying correctness.
-- Comments are often wrong *when written*. Review rounds spent on their
-  wording are entirely wasted. A comment that does not exist cannot be
-  wrong.
+- Comments are often wrong *when written*. A comment that does not exist
+  cannot be wrong.
 - A typical change adds zero comments (or may even net remove some at this
   point).
 - A comment is judged in context, not alone. Every comment can pass on its
@@ -78,11 +77,11 @@ front of you.
 - Hedges: "should work", "probably". A limitation stated as fact with its
   condition, or nothing.
 - Reasoning trace: "here we", "note that", "we need to".
-- Repeats a fact stated at its owner. The owner of a contract is the code
-  that enforces it, since that is where a reader about to delete it is
-  standing; a value the check returns gets its godoc sentence and no more.
-  A call site restating what the callee's doc says, in this file or
-  another. Once, at the owner. A pointer to it at most.
+- Repeats a fact stated at its owner. For a guard, the owner is the guard,
+  since that is where a reader about to delete it is standing; a type or
+  value the guard produces gets one godoc sentence. A call site restating
+  what the callee's doc says, in this file or another. Once, at the owner.
+  A pointer to it at most.
 - Two comments justifying opposite decisions. That is one inconsistency in
   the code, not two facts about it.
 - Commented-out code.
@@ -99,7 +98,7 @@ front of you.
 | Why this approach over others | PR description, or `docs/rfcs/` |
 | What broke and how it was found | The ticket; a comment only if the code must stay odd because of it |
 | Which test or benchmark catches it | The comment, by name, without numbers, when the code looks wrong (item 4) |
-| Measurements and evidence | `docs/verification/`; a number does not live in a comment |
+| Measurements and evidence | `docs/verification/`; a measurement does not live in a comment |
 | How a subsystem works | `docs/` or the package doc |
 | Who and when | `git blame` |
 
@@ -110,22 +109,22 @@ invariant, or a non-obvious algorithm. A comment longer than the code under
 it is a red flag: the code is not carrying what it should, this is package
 documentation in the wrong place, or several facts with different owners
 have collected on one declaration. Ideally, fix the code, move it and leave
-a pointer, or split it. A flag is a question; answer it before keeping the
-comment, and do not write the answer into the comment. Full sentences,
-present tense, period at the end
-(`godot`). A date belongs when the fact has one: "the upstream API changed
-this in 2025-03" is a fact, "added 2025-03" is not.
+a pointer, or split it. A flag is a question; decide before keeping the
+comment, and do not write the decision into the comment. Full sentences,
+present tense, period at the end (`godot`). A date belongs when the fact
+has one: "the upstream API changed this in 2025-03" is a fact, "added
+2025-03" is not.
 
 ## Existing comments
 
-Leave comments you did not need to touch. A stale comment inside lines you
-are changing gets fixed or deleted. Do not sweep a file for comment quality
-in an unrelated change.
+Leave comments outside your change alone, except copies of a fact your
+change places at its owner. A stale comment inside lines you are changing
+gets fixed or deleted. Do not sweep a file for comment quality in an
+unrelated change.
 
 Before finishing a change, reread every comment you added against this
-page, and read each fact in every place it now appears. If it reads
-complete in more than one place, all but one are deletions, or, rarely, a
-pointer.
+page, and read each fact in every place it now appears. One owner, as in
+Principles.
 
 ## Reviewing
 
@@ -133,8 +132,9 @@ pointer.
   "delete", not "reword". No thread on the wording of a comment that should
   not exist.
 - A comment that does exist is a signal about the code. Ask whether the
-  finding is "the code should carry this" (a rename, a type, a split)
-  before anything about the comment itself.
+  finding is "the code should carry this" (a rename, a type, a split; not
+  on an exported signature, where the sentence is the fix) before anything
+  about the comment itself.
 - Do not request a comment where a rename or a split would do. Request the
   rename, if sensible.
 - Do not request a comment that explains the diff.
@@ -155,9 +155,10 @@ pointer.
 
 ## Fixing review findings
 
-"This comment is imprecise" is not an instruction to reword. Ask whether the
-comment should exist. Most that draw wording findings should not. Delete
-and say so.
+A finding that the comment is false: correct the fact, or make the code
+carry it. A finding that it is imprecise is not an instruction to reword:
+ask whether the comment should exist. Most that draw wording findings
+should not. Delete and say so.
 
 ## Examples
 
@@ -203,7 +204,7 @@ Delete. Commit message.
 ```go
 // Grants are written before entitlements so that a crash between the two
 // leaves a resumable state; resume treats a grant with no entitlement as
-// pending, never the reverse. See resumeState.
+// pending, never the reverse. See resumeLedger.
 ```
 
 Keep.
