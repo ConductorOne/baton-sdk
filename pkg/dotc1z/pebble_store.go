@@ -33,6 +33,17 @@ var _ c1zstore.Store = (*pebbleStore)(nil)
 var _ c1zstore.WriteSeamStore = (*pebbleStore)(nil)
 var _ connectorstore.Writer = (*pebbleStore)(nil)
 
+// The two capability interfaces callers reach through a runtime `ok`
+// assertion. Asserting them here is what makes a signature drift a build
+// error instead of an `ok` that silently goes false and sends the caller
+// down its no-ledger path. It does NOT protect the other direction:
+// pebbleStore embeds *pebble.Engine, so a new mutating method is promoted
+// and satisfies the interface while skipping the markDirty wrapper that
+// gets the mutation into the saved file. TestPebbleStoreDirtyCoverage is
+// what covers that.
+var _ c1zstore.PageLedgerStore = (*pebbleStore)(nil)
+var _ c1zstore.SyncStatsStore = (*pebbleStore)(nil)
+
 // Local mirrors of the optional capabilities the c1z sanitizer probes on
 // the source/destination store (pkg/c1zsanitize keeps those interfaces
 // unexported). The assertions below make a refactor that drops one of these
