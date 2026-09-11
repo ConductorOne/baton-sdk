@@ -78,9 +78,11 @@ front of you.
 - Hedges: "should work", "probably". A limitation stated as fact with its
   condition, or nothing.
 - Reasoning trace: "here we", "note that", "we need to".
-- Repeats a fact stated at its owner: the definition, the type, the
-  package doc. A call site restating what the callee's doc says, in this
-  file or another. Once, at the owner. A pointer to it at most.
+- Repeats a fact stated at its owner. The owner of a contract is the code
+  that enforces it, since that is where a reader about to delete it is
+  standing; a value the check returns gets its godoc sentence and no more.
+  A call site restating what the callee's doc says, in this file or
+  another. Once, at the owner. A pointer to it at most.
 - Two comments justifying opposite decisions. That is one inconsistency in
   the code, not two facts about it.
 - Commented-out code.
@@ -96,8 +98,8 @@ front of you.
 | Why this change | Commit message |
 | Why this approach over others | PR description, or `docs/rfcs/` |
 | What broke and how it was found | The ticket; a comment only if the code must stay odd because of it |
-| Which test catches it | The comment, by test name, when the code looks wrong (item 4) |
-| Measurements and evidence | `docs/verification/` |
+| Which test or benchmark catches it | The comment, by name, without numbers, when the code looks wrong (item 4) |
+| Measurements and evidence | `docs/verification/`; a number does not live in a comment |
 | How a subsystem works | `docs/` or the package doc |
 | Who and when | `git blame` |
 
@@ -105,9 +107,12 @@ front of you.
 
 One line by default. A paragraph for a protocol, a cross-function
 invariant, or a non-obvious algorithm. A comment longer than the code under
-it is a red flag: the code is not carrying what it should, or this is
-package documentation in the wrong place. Fix the code, or move it and
-leave a pointer. Full sentences, present tense, period at the end
+it is a red flag: the code is not carrying what it should, this is package
+documentation in the wrong place, or several facts with different owners
+have collected on one declaration. Ideally, fix the code, move it and leave
+a pointer, or split it. A flag is a question; answer it before keeping the
+comment, and do not write the answer into the comment. Full sentences,
+present tense, period at the end
 (`godot`). A date belongs when the fact has one: "the upstream API changed
 this in 2025-03" is a fact, "added 2025-03" is not.
 
