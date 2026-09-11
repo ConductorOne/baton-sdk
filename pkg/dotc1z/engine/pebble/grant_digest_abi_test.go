@@ -269,13 +269,12 @@ func TestGrantDigestABIStaleStampDroppedAtWritableOpen(t *testing.T) {
 // file that has digest nodes but no stamp key at all — one sealed by a
 // pre-stamp SDK build. Every such build hashed at ABI version 1, so the
 // stamp reader must report exactly that, independent of what the
-// current GrantDigestABIVersion is: Open then treats the file like any
-// other stamped-at-1 file (kept while the current ABI is 1, dropped and
-// rebuilt once it is not). The reader-level assertion is the durable
-// contract; the Open-level half below is only meaningful while the
-// current ABI is still 1 (once it moves, the missing-stamp file is
-// just another stale file, covered by
-// TestGrantDigestABIStaleStampDroppedAtWritableOpen).
+// current GrantDigestABIVersion is. Open then treats the file like any
+// other stamped-at-1 file: the current ABI is 2, so a writable open must
+// drop the whole digest state (nodes and hash index alike) and the next
+// seal must rebuild it at the current ABI and stamp it — the v1 hashes
+// under an unstamped file omit isImmutable / is_direct and must never
+// be extended or trusted by v2 code.
 func TestGrantDigestABIMissingStampReadsAsVersion1(t *testing.T) {
 	ctx := context.Background()
 	const entID = "ent-A"
@@ -283,7 +282,6 @@ func TestGrantDigestABIMissingStampReadsAsVersion1(t *testing.T) {
 
 	e, dbDir, syncID := sealedGrantDigestEngine(t, entID, n)
 	require.NotZero(t, digestNodeCount(t, e), "precondition: seal must have built digest nodes")
-	nodesBefore := digestNodeCount(t, e)
 
 	deleteABIStamp(t, e)
 	_, _, err := e.db.Get(rawdb.GrantDigestABIStampKey())
@@ -292,46 +290,35 @@ func TestGrantDigestABIMissingStampReadsAsVersion1(t *testing.T) {
 	stamped, err := e.readGrantDigestABIStamp()
 	require.NoError(t, err)
 	require.EqualValues(t, 1, stamped, "a missing stamp must read as ABI version 1, the only version pre-stamp SDKs ever hashed at")
+	require.NotEqual(t, GrantDigestABIVersion, stamped, "precondition: the current ABI must have moved past 1 for the drop half below to be live")
 	require.NoError(t, e.Close())
 
-	if GrantDigestABIVersion != 1 {
-		t.Skip("current ABI is past 1; a missing stamp is now just a stale stamp — see TestGrantDigestABIStaleStampDroppedAtWritableOpen")
-	}
-
-	// Current ABI is 1: introducing the stamp must cost a pre-stamp file
-	// nothing. Open keeps its digest state, and the next seal merely
-	// adds the stamp.
 	e2, err := Open(ctx, dbDir)
 	require.NoError(t, err, "writable open over digest nodes with NO stamp at all must not error")
 	t.Cleanup(func() { _ = e2.Close() })
 
-	require.Equal(t, nodesBefore, digestNodeCount(t, e2), "missing-stamp file at ABI 1 must keep every digest node")
-	require.EqualValues(t, n, entHashIndexRowCount(t, e2, entID), "missing-stamp file at ABI 1 must keep every hash-index row")
+	require.Zero(t, digestNodeCount(t, e2), "missing-stamp (v1) file must have every digest node dropped")
+	require.Zero(t, countKeyRangeTest(t, e2, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound()),
+		"missing-stamp (v1) file must have the whole hash index dropped")
 	_, ok, err := e2.GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, err)
-	require.True(t, ok, "global root must still read as present")
-	require.False(t, e2.grantDigestAbiStale.Load())
-	require.True(t, e2.db.GrantDigestsPresent())
-	require.NoError(t, verifyGrantHashIndexAgainstPrimaries(t, e2), "kept state must still check out against the primaries")
+	require.False(t, ok, "global root must read as absent after the drop")
+	require.False(t, e2.grantDigestAbiStale.Load(), "a writable open drops the state, never sets the read-only stale flag")
+	require.False(t, e2.db.GrantDigestsPresent())
 
-	// An unstamped file stays unstamped until something rewrites the
-	// global root — a seal that finds nothing missing takes the repair
-	// fast path and writes nothing, and that is fine: absence keeps
-	// reading as version 1. The first root rewrite (here: one grant
-	// mutation invalidates its partition + the root, and EndSync's
-	// targeted repair rebuilds both) must stamp the file explicitly.
 	a2 := NewAdapter(e2)
 	require.NoError(t, a2.SetCurrentSync(ctx, syncID))
-	require.NoError(t, e2.PutGrantRecords(ctx, makeGrant("", "g-"+entID+"-extra", entID, "user-extra")))
 	require.NoError(t, a2.EndSync(ctx))
 
-	require.EqualValues(t, n+1, entHashIndexRowCount(t, e2, entID), "repair must cover the mutated partition")
-	require.NoError(t, verifyGrantHashIndexAgainstPrimaries(t, e2), "repaired state must check out against the primaries")
+	require.NotZero(t, digestNodeCount(t, e2), "reseal must rebuild digest nodes")
+	require.EqualValues(t, n, entHashIndexRowCount(t, e2, entID), "reseal must rebuild every hash-index row")
+	require.NoError(t, verifyGrantHashIndexAgainstPrimaries(t, e2), "oracle must pass over the rebuilt state")
+
 	stampVal, closer, err := e2.db.Get(rawdb.GrantDigestABIStampKey())
-	require.NoError(t, err, "the first global-root rewrite must write the stamp")
+	require.NoError(t, err)
 	gotStamp := append([]byte(nil), stampVal...)
 	closer.Close()
-	require.Equal(t, grantDigestABIStampValue(), gotStamp, "the root rewrite must stamp the file at the current ABI")
+	require.Equal(t, grantDigestABIStampValue(), gotStamp, "reseal must stamp the file at the current ABI")
 }
 
 // TestGrantDigestABIStaleReadOnlyOpen verifies the read-only-open
