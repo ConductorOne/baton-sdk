@@ -362,7 +362,8 @@ design deliverable**:
 1. **State the contract as explicit properties** — exactly-once execution, dedup
    soundness, termination, transition atomicity, bounded memory, crash-cut
    consistency. If the property list can't be written, the design is not done.
-2. **Construct the oracle** — the required step for silent failures:
+2. **Construct the oracle** — without it a silent failure has nothing to fail
+   against:
    *self-equivalence* (an interrupted-and-resumed run must produce the same sealed
    store as an uninterrupted one); *derived ground truth* (a deterministic topology
    makes the expected store computable); *contract audit* (record the operation
@@ -506,7 +507,7 @@ store state before falling back). Additionally:
 ### Pass 5: Invariant & verification gating
 
 Any code that writes rows is an ingestion path and must pass through the invariant
-pass (`RunIngestInvariants` + verification marker). New write paths that bypass the
+gate (`RunIngestInvariants` + verification marker). New write paths that bypass the
 syncer are guilty until proven registered. Artifacts must satisfy their
 self-description: sidecar sync IDs match the sync-run record, verification markers
 current, graphs marked expanded, format versions valid. (This pass polices that
@@ -821,7 +822,7 @@ common thread: each of these fails by *nothing happening*.
   permanent.)
 - Branch aging: a conflict-free rebase can be semantically stale — review the
   *rebased* semantics against current main (the incremental branch predated the
-  invariant pass entirely).
+  invariant gate entirely).
 
 ### 5.9 An obligation owned by every path is owned by none — localize it
 

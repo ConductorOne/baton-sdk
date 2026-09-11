@@ -61,7 +61,7 @@ Hard rules along the way:
 4. Error handling, classification & budgets — every error in a declared
    category, every category's recovery obligation discharged and injectable.
 5. Invariant & verification gating — every write path passes the invariant
-   pass; bypasses are guilty until proven registered.
+   gate; bypasses are guilty until proven registered.
 6. Performance — per-iteration cost at whale scale, failure-path cost,
    cost-contract deliverable on hot paths.
 7. Concurrency — TOCTOU, duplicate writers, goroutine lifecycle; data races

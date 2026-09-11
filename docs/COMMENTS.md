@@ -103,7 +103,7 @@ front of you.
 
 One line by default. A paragraph for a protocol, a cross-function
 invariant, or a non-obvious algorithm. Full sentences, present tense, period
-at the end (`godot`). Doc comments start with the identifier. A date belongs
+at the end (`godot`). A date belongs
 when the fact has one: "the upstream API changed this in 2025-03" is a fact,
 "added 2025-03" is not.
 
@@ -158,8 +158,7 @@ remains is the part the name cannot:
 
 ```go
 // CreateStore returns ErrExists if path is already present. Use this over
-// NewC1ZFile, which remains for opening existing files and is removed in
-// the next major.
+// OpenOrCreateStore, which is deprecated.
 func CreateStore(path string) (*Store, error) {
 ```
 
@@ -170,7 +169,7 @@ func merge(ids []string) {
 
 The comment is asking for `func merge(ids sortedIDs)`. Internal with a few
 callers: make the type. Public API with external callers: the sentence may be
-the right call; it reads `// ids is sorted; merge relies on it.`
+the right call; it reads `// merge requires ids sorted.`
 
 ```go
 // Safe: we validated len(ids) > 0 above.

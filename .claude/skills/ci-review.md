@@ -152,3 +152,10 @@ Shared SDK convenience APIs become long-term commitments. If a helper is only ne
 caller, check whether it belongs in that caller instead of the SDK. Prefer narrow additions
 that preserve existing contracts over broad abstractions that create new obligations for all
 downstreams.
+
+## Code Comments
+
+Review code comments per `docs/COMMENTS.md`, "Reviewing". The first question about any
+comment is whether it should exist; if not, the finding is delete, not reword. A comment
+finding blocks only when the comment is false in a way that would lead a reader to write
+wrong code. Deleting a comment that would not pass that page needs no justification.
