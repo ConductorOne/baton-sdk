@@ -121,8 +121,8 @@ on `*syncer` and every value a new field. Reject on these, not on taste.
     `w.(engineAccessor)` assertion. The question is "is this a Pebble file",
     not "does this store implement operation X", and its answer does not
     select a fallback path the way a nil `storeCaps` field does.
-- Test seams live in `syncTestHooks` (`hooks.go`) and nowhere else, reached as
-  `s.testHooks.x`. A seam stays nil in production and no production path may
+- Test hooks live in `syncTestHooks` (`hooks.go`) and nowhere else, reached as
+  `s.testHooks.x`. A hook stays nil in production and no production path may
   set one. The struct name carries the "test" marking, so its fields do not:
   apart from the `syncer.testHooks` anchor itself, any `test`-prefixed field
   in `pkg/sync` is by itself the finding.
