@@ -155,7 +155,7 @@ downstreams.
 
 ## Review Budget And Wording Findings
 
-These constrain what you emit; they apply to every finding, code or prose.
+These constrain what you emit. They apply to every finding, whatever it is about.
 
 - A non-blocking wording finding is unsaid unless the wording would change what a reader
   does. Still-imprecise is not a finding.
