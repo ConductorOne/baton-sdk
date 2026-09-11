@@ -1,25 +1,36 @@
 # Page ledger: verification evidence
 
 Plan: `docs/verification/page-ledger/plan.md`. Commit under verification:
-`04644cf6` (`kans/ledger-storage`, `origin/main..HEAD`).
+`8feb0b06` (`kans/ledger-storage`, `origin/main..HEAD`). The plan was frozen
+at `04644cf6`; §0.5 records the change orders since.
 
 ## Status of this file
 
-No instrument in plan §7 has been run under the plan. The authoring
-machine was under load; the plan's §0.4 records what was and was not
-executed. Every criterion below is therefore in one of: **not
-assessed**, **evidence incomplete** (a candidate test exists whose
-assertions were read but not run under this plan), **explicitly
-excluded**, or **deferred**. No criterion is **verified** and no
-criterion is **failed** by measurement; two are marked **expected
-failed** from reading, which is a prediction and not a result.
+Candidates have been run. Most criteria are still **evidence incomplete** —
+a candidate exists and passes, without covering every cell the criterion
+names — and that is a statement about coverage, not about the candidate.
+Two things changed from the first version of this file: C07 was **failed**
+by measurement and is now fixed and pinned, and C22's interface-drift
+direction is closed by a meta-test.
 
-What was executed at `04644cf6`:
+A passing candidate is not closure. Where a criterion asserts an absence,
+the entry says whether the assertion was validated against a planted
+defect; where it was not, the entry says so.
+
+What was executed at `8feb0b06` unless noted:
 
 ```
-go build ./pkg/dotc1z/... ./pkg/synccompactor/...   # ok
-go vet ./pkg/dotc1z/engine/pebble/ ./pkg/dotc1z/c1zstore/ ./pkg/dotc1z/   # ok
+go test ./pkg/dotc1z/                    # ok 130.1s
+go test ./pkg/dotc1z/engine/pebble/      # ok 158.1s
+go test ./pkg/sync/                      # ok 282.8s
+go test ./pkg/synccompactor/             # ok 283.8s
+go test ./pkg/sync/expand/               # ok  91.4s   (at 2c321bea)
+golangci-lint run pkg/dotc1z/...         # 0 issues
 ```
+
+Machine under load for parts of the run; every number above is a wall
+clock on a shared machine and none of it is a cost measurement. C30 has
+no evidence.
 
 Status vocabulary (plan §6): not assessed · evidence incomplete ·
 verified to stated coverage · failed · explicitly excluded · deferred.
@@ -96,13 +107,33 @@ instrument that closes it.
 
 ### C07 `*_written` counts equal distinct committed records
 
-- Status: not assessed; **expected failed** from reading.
-- Reason: `page_unit.go:Commit` sets `ResourceTypesWritten` etc. from
-  `len(u.resourceTypes)` and friends, while `stageResourceRecords` and
-  the other stagers dedup by identity (last wins). A page with a
-  duplicate key reports one more than it committed. Silent, well-formed,
-  durable in the row.
-- Closes with: the I3 duplicate cells; fix is to count staged keys.
+- Status: **failed** by measurement at `2bbfa1b3`; fixed at `11f8c8c3` and
+  `21d4349e`; now evidence incomplete.
+- The failure. `page_unit.go:Commit` set all four counts from
+  `len(u.resourceTypes)` and friends while the stagers dedup by identity,
+  so a page that staged one identity twice reported a key it did not
+  write. One page staging 2 resource types (1 distinct), 3 resources, 3
+  entitlements and 3 grants (2 distinct each) committed a row reading
+  `2, 3, 3, 3` against a keyspace holding `1, 2, 2, 2`. Silent,
+  well-formed, durable in the row.
+- The resource-type kind failed for a second reason: `stageResourceTypeRecords`
+  had no dedup pre-pass at all, the only one of the four without one.
+- The fix. All four stagers return the number of keys they staged and
+  `Commit` writes those into the row; `stageResourceTypeRecords` got the
+  pre-pass, last occurrence winning like the other three.
+- Candidate: `TestLedgerRowCountsDistinctKeysNotBufferedRecords`
+  (`adapter_page_test.go`) — 4 kinds × duplicate, each count against an
+  independent iteration of the keyspace; and
+  `TestFreshSyncWithinCallDuplicateResourceTypeDedup` (`mutation_test.go`),
+  which pins *which* occurrence survives the new pre-pass.
+- Mutation adequacy. Restoring the buffer-length counts fails the first
+  test (2 vs 1). Inverting the new pre-pass to keep the first occurrence
+  passes it — one key either way — and fails the second on the survivor's
+  display name. Both were run.
+- Not covered: the 4 no-duplicate cells are exercised by every other
+  ledger test but never asserted against a key count; the doomed-put half
+  of the criterion is correct by reading and has no test.
+- Closes with: the remaining I3 duplicate cells.
 
 ### C08 Identity compare, every field, scrubbed and unscrubbed
 
@@ -240,7 +271,20 @@ instrument that closes it.
 - Status: evidence incomplete.
 - Candidate: `TestResetLedgerWipesEveryLedgerSubFamily`,
   `TestDropLedgerClearsTheInFlightStamp`, `TestLedgerWipedWithItsSync`,
-  `TestResetForNewSyncClearsTheInFlightStamp`.
+  `TestResetForNewSyncClearsTheInFlightStamp`. These check the keyspace,
+  not the bytes.
+- The bytes are covered separately, and were a defect. A ledger dropped
+  or reset mid-sync leaves its verbatim page tokens in the SSTs a
+  checkpoint hard-links, and `endSyncFinalize`'s `ledgerActive` gate finds
+  no ledger on the later seal and skips the purge. Fixed with a durable
+  marker that outlives the rows; `TestLedgerResidueOutlivesTheLedger`
+  covers both deletion shapes (`DropLedger` mid-sync then seal; an
+  interrupted ledgered sync followed by a ledger-free one) with a needle
+  planted in page tokens and a byte scan of the checkpoint.
+- The two arms are not redundant: the deletion path decides the compaction
+  range, because `DropKeyRange` leaves file bounds covering the range while
+  `ExciseRange` narrows them into virtual SSTs that only a wider compaction
+  reaches.
 - Not covered: F12 image (L6) and its recovery by each of the three
   operations; `ResetForNewSync` refused while `IsFreshSync`;
   `BoundSyncFinished` ⇔ `ended_at`.
@@ -248,38 +292,77 @@ instrument that closes it.
 
 ### C22 Store dirty marking
 
-- Status: evidence incomplete.
+- Status: evidence incomplete; the interface-drift direction is closed.
 - Candidate: `pkg/dotc1z/pebble_store_dirty_test.go`
   (`TestPebbleStorePageCommitMarksDirty`,
-  `TestPebbleStoreResetLedgerMarksDirty`, and siblings).
+  `TestPebbleStoreResetLedgerMarksDirty`, and siblings), plus
+  `TestPebbleStoreDirtyCoverage`, a meta-test that walks three capability
+  interfaces by reflection and fails on any method not classified as
+  marking dirty or justified as not needing to.
+- The meta-test found a defect in a method set it did not yet scan.
+  `AddExpandedGrantLayerContributions` reached `markDirty` on no path: the
+  first Add arms the deferred `by_principal` rebuild and a segment that
+  fills mid-layer is ingested into the live keyspace, both before `Finish`,
+  which was the only method marking the store. `Begin → Add → Abort →
+  Close` therefore left a clean store over a mutated file. Latent, because
+  every path that persists goes through `Finish`. Fixed at `2c321bea`,
+  which also extended the walker to `pebbleStoreGrantLayerStorer` and to
+  the `pebbleStoreGrants` receiver.
+- Mutation adequacy. Dropping the new `markDirty` fails the extended
+  meta-test naming that method; leaving a method unclassified fails it
+  listing the method. Both were run.
 - Not covered: error cells (a failed call must not mark dirty) for each
-  of the six methods; `Close` persists a page commit (reopen and read).
+  of the six methods; `Close` persists a page commit (reopen and read);
+  the `Begin → Add → Abort → Close` save path is argued, not tested — the
+  fix is that the store is dirty, and no test reopens the file to confirm
+  the ingested rows survive.
 - Closes with: extend the candidate with an injected failure per method.
 
 ### C23 Write-hook coverage of record-mutating store methods
 
-- Status: not assessed.
-- Reading: `pebble_store.go` has 16 `s.seam(ctx, …)` calls and
-  `source_cache.go` has 5. `FinishExpandedGrantLayer` and
-  `AddExpandedGrantLayerContributions` mutate records and have no hook
-  call. `StrictWriteSeam`'s three-way behaviour is asserted nowhere.
+- Status: evidence incomplete.
+- Candidate: `TestWriteSeamOutcomes`, `TestWriteSeamContextHelpers` —
+  these close the second clause, `StrictWriteSeam`'s outcomes inside and
+  outside `WithOpenPage`, `WithPageWriteBypass`, empty-reason rejection
+  and hook removal.
+- Not covered: the first clause, set equality. No test compares the set of
+  record-mutating store methods against the set that calls `seam` first.
+  `TestPebbleStoreDirtyCoverage` is not a stand-in: different property
+  (`markDirty`, not `seam`) over a different method set.
+- Correction to the earlier reading: `FinishExpandedGrantLayer` and
+  `AddExpandedGrantLayerContributions` are methods on `pebbleStoreGrants`
+  (`pebble_store.go:793,801`), not on `*pebbleStore`. They still have no
+  `seam` call. `BeginExpandedGrantLayer` and `AbortExpandedGrantLayer` are
+  exclusion candidates rather than gaps.
+- No caller marks a page context outside tests, so the hook is a no-op
+  today for every method. That makes the gap cheap either way; it is not
+  a reason to call the set closed.
 - Closes with: I6.
 
 ### C24 Capability presence and absence
 
-- Status: evidence incomplete.
-- Candidate: `var _ c1zstore.PageLedgerStore = (*Engine)(nil)` in
-  `adapter_page.go` (engine only).
-- Not covered: `pebbleStore` through the `dotc1z` open path for all three
-  interfaces; the SQLite negative assertion.
-- Closes with: two one-line tests in `pkg/dotc1z`.
+- Status: evidence incomplete; the pebble half is closed.
+- Candidate: the three assertions at `pebble_store.go:33,44,45` cover
+  `pebbleStore` through the `dotc1z` open path, plus the runtime `ok`
+  checks in `pebble_store_dirty_test.go` and
+  `pebble_store_write_seam_test.go`. A comment on the assertions records
+  what they do not mean: `pebbleStore` embeds `*pebble.Engine`, so a
+  promoted mutating method satisfies an interface while skipping
+  `markDirty`. `TestPebbleStoreDirtyCoverage` covers that.
+- Not covered: the SQLite negative assertion (type assertion false, no
+  panic). This is the criterion's remaining cell.
+- Closes with: one negative assertion in `pkg/dotc1z`.
 
 ### C25 Downstream readers family-bounded
 
-- Status: not assessed; fold cell **expected failed** from reading.
-- Reading: `compactPebbleFold` calls `copyFileForFold` on the base and
-  never `DropLedger`/`ResetLedger`; the output carries the base's rows
-  under a new sync id and `ledgerActive` is true on it. Rebuild modes
+- Status: evidence incomplete; the fold cell is covered and passes.
+- The fold cell was predicted failed from reading and is not: the fold
+  calls `DropLedger` at `compactor_pebble.go:508` (`1f6cd380`), clearing
+  rows, facts, buckets, frontier and the retain fact, clearing the stamp
+  and rewriting the token key. Candidate:
+  `TestCompactPebbleFoldDropsInheritedBaseLedger`. That closes CO-003 in
+  the code's favour.
+- Not covered: the rest of the P7 table. Rebuild modes
   (`compactPebble`) materialize records fresh and write no ledger key.
   `cloneSync` excises only the counter/session span and keeps the ledger.
   Stats, CLI readers, explorer, and sanitizer were not read for this
@@ -303,17 +386,22 @@ instrument that closes it.
   `TestLedgeredSyncSealsOnlyWithStats`.
 - Not covered: F11 (`PersistSyncStats` fails, seal finishes without a
   sidecar) and `SourceCacheReplayEligible` on that file; a stale overlay
-  never reaching a later token-only `EndSync`.
+  never reaching a later token-only `EndSync`; the warn branch's
+  `takeSyncStatsOverlay` call, which closed an overlay leak on the
+  sidecar-failure path and has no test.
 - Closes with: I2 F11 arm.
 
 ### C28 Commit-point registry
 
-- Status: evidence incomplete.
+- Status: verified to stated coverage.
 - Candidate: `commit_point_enumeration_test.go` — entries for
   `page_unit.go:Commit`, `adapter_page.go:Commit`,
   `ledger.go:ScrubLedgerTokens`, `ledger.go:takeoverToken`, and the
-  `ledger.go:PutLedgerCounterBucket` exclusion. Read, not run.
-- Closes with: running the meta-test.
+  `ledger.go:PutLedgerCounterBucket` exclusion. Runs green in the package
+  run above.
+- What that means: the registry matches the code as the meta-test reads
+  it. A commit point the meta-test's scan does not reach is outside what
+  the pass covers.
 
 ### C29 Concurrency
 
@@ -335,8 +423,17 @@ instrument that closes it.
 
 - Status: evidence incomplete.
 - Candidate: the `skipLedgerResiduePurge` arm of
-  `TestLedgerScrubLeavesNoSSTResidue` (O5 only).
-- Not covered: mutants for O1, O2, O3, O4, O6, O7, O8, O9, O10.
+  `TestLedgerScrubLeavesNoSSTResidue` (O5 only). Four more mutants were
+  planted and run by hand this round, each against the assertion written
+  to catch it: buffer-length counts restored (O3), a first-wins dedup
+  pre-pass (O3 survivor), `markDirty` dropped from grant-layer ingest and
+  a method left unclassified (O9's meta-test). Only the first is in the
+  tree as a switchable arm; the other four were reverted after the run.
+- The first-wins mutant is the one worth keeping: it passes the count
+  assertion, because either pre-pass leaves one key, and fails only the
+  assertion on which record survived. A count oracle cannot see it.
+- Not covered: mutants for O1, O2, O4, O6, O7, O8, O10, and no switchable
+  arm for the four run by hand.
 - Closes with: I10.
 
 ### C32 Syncer-owned obligations
@@ -359,8 +456,8 @@ instrument that closes it.
 
 ## Structural coverage triage: P3 (sub-family × surface), from reading
 
-Legend: W writes · C clears · R reads · — must not touch · ? not
-confirmed by a test. Every cell is a reading result until I5 runs.
+Legend: W writes · C clears · R reads · — must not touch. Cells are reading
+results except where the note below names the test that asserts them.
 
 | Surface | rows | facts | buckets | frontier | retain fact | stamp | token key |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -374,33 +471,53 @@ confirmed by a test. Every cell is a reading result until I5 runs.
 | `ResetForNewSync` | C | C | C | C | C | C | C (whole span) |
 | `ledgerActive` | R | R | R | R | R | R | — |
 | `CloneSync` | copy | copy | copy | copy | copy | copy | copy |
-| compactor fold | copy? | copy? | copy? | copy? | copy? | copy? | rewritten |
+| compactor fold | C | C | C | C | C | C | rewritten |
 
-Cells marked `?` (compactor fold): the fold path byte-copies the base, so
-every ledger key is expected to be present in the output; no test
-confirms it. The stamp column for takeover and `PutCounterBucket` is from
+The compactor fold row was read as `copy?` and is not: the fold calls
+`DropLedger` after copying the base, so the output carries no ledger key,
+asserted by `TestCompactPebbleFoldDropsInheritedBaseLedger`. The `purge`
+row's `bytes` cells are asserted by the needle scans in
+`TestLedgerScrubLeavesNoSSTResidue` and
+`TestLedgerResidueOutlivesTheLedger`; the rest of the table is still a
+reading result. The stamp column for takeover and `PutCounterBucket` is from
 reading `ledger.go:takeoverToken` and `ledger.go:PutLedgerCounterBucket`,
 which both call `markLedgerInFlight` before their batch; the
 `TakeoverToken × L0` cell in P1 is still an I5 assertion, not a result.
 
-## Evidence commands (not run under this plan)
+## Evidence commands
 
-Listed so the next pass can run them unchanged. Package path
-`pkg/dotc1z/engine/pebble` unless stated.
+The package runs recorded under "Status of this file" include all of
+these. Listed so a next pass can run a criterion's candidates alone.
+Package path `pkg/dotc1z/engine/pebble` unless stated.
 
 ```
 go test -run 'TestPageUnit|TestLedger|TestLedgered|TestCheckpointRefused|TestResetForNewSync|TestTakeover|TestRetainDeclaration|TestDropLedger|TestFailedSeal|TestResetLedger' ./pkg/dotc1z/engine/pebble/
 go test -run 'TestPageWriter' ./pkg/dotc1z/engine/pebble/
 go test -run 'TestCommitPoint' ./pkg/dotc1z/engine/pebble/
-go test -run 'TestPebbleStore.*Dirty' ./pkg/dotc1z/
-go test -run 'Provenance' ./pkg/synccompactor/
+go test -run 'TestPebbleStore.*Dirty|TestWriteSeam' ./pkg/dotc1z/
+go test -run 'Provenance|TestCompactPebbleFold' ./pkg/synccompactor/
+go test -run 'TestClearCompactionSection|TestBuildCompactedToken' ./pkg/sync/
 go test -race -run 'TestPageUnit' ./pkg/dotc1z/engine/pebble/
 go test -run '^$' -bench 'BenchmarkLedger' -benchtime 20x ./pkg/dotc1z/engine/pebble/   # unloaded machine only
 ```
 
 ## Performance evidence
 
-None. C30 and OQ-7 are open until I8 runs on an unloaded machine.
+None. C30 is open until I8 runs on an unloaded machine.
+
+OQ-7 is narrowed, not answered. The ledger-free half is settled without a
+benchmark: `endSyncFinalize` gates the purge on `ledgerActive`, so a file
+that never had a ledger pays nothing, pinned by
+`TestLedgerFreeSealSkipsResiduePurge` against a counter. What remains is
+the ledgered half — whether the purge's compaction on a 10^5-row seal with
+the deferred grant index off is within a stated fraction of the
+`BuildGrantDigests` seal time. Nothing measures it.
+
+Page-commit cost is also unmeasured. The counts fix added a dedup pre-pass
+over the resource-type buffer, allocating a `map[string]int` sized to the
+buffer on any page staging more than one record. The argument that this is
+immaterial next to the marshal and batch-write it sits beside is an
+argument, not a measurement.
 
 ## Process corrections
 
@@ -410,6 +527,21 @@ None. C30 and OQ-7 are open until I8 runs on an unloaded machine.
 - Three contract disagreements between the brief and the code were
   resolved as change orders before modeling (CO-001..003), not by
   silently testing the code's behaviour.
-- No test was run under this plan because of the authoring machine's
-  load. Candidate artifacts are named from reading their assertions;
-  their pass state at `04644cf6` is not claimed here.
+- The first version of this file claimed nothing had been run, which was
+  true at `04644cf6` and is no longer. Candidates have since been run at
+  the commits recorded above.
+- The plan froze at `04644cf6` and the branch did not stop. Per plan §6,
+  a post-fix change restarts the clock; these are the change orders since,
+  each re-routed through the risk model before landing:
+  - `1f6cd380` fold calls `DropLedger`, resolving CO-003 and C25's fold
+    cell.
+  - the residue marker: `DropLedger` and `ResetForNewSync` leave a durable
+    marker so a later seal purges bytes whose rows are already gone (C21).
+  - `11f8c8c3` + `21d4349e` the counts fix, which is C07's own defect
+    found by this plan's reading and closed by measurement.
+  - `2c321bea` the `markDirty` fix on grant-layer ingest (C22), with the
+    meta-test extended to the method set that hid it.
+- Two verification gaps are stated rather than closed, and are recorded
+  above under C22 and Performance evidence: the `Begin → Add → Abort →
+  Close` save path is argued, not tested, and page-commit cost is
+  unmeasured.

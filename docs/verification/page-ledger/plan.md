@@ -115,11 +115,11 @@ addendum.
   `pebble.Sync`. The implemented contract is: fresh syncs are NoSync per
   page, resumed syncs are Sync per page, and the fresh case is the cost
   claim under test (S9). Recorded as CO-002.
-- `ledger.go:DropLedger` documents compaction outputs as a caller. The
-  compactor's fold path (`compactPebbleFold`) byte-copies the base and
-  does not call it. The plan tests the implemented behaviour (fold
-  output inherits the base's ledger) as a criterion with an expected
-  status of open (C25), and records it as OQ-6.
+- `ledger.go:DropLedger` documented compaction outputs as a caller while
+  the fold path byte-copied the base without calling it. Resolved in the
+  doc's favour by `1f6cd380`, which calls `DropLedger` after the copy.
+  Recorded as CO-003, now closed; C25's fold cell passes and OQ-6 is
+  answered.
 
 ### 0.4 Machine constraints on this authoring pass
 
@@ -128,6 +128,19 @@ authoring. `go build ./pkg/dotc1z/... ./pkg/synccompactor/...` and
 `go vet` on the three changed packages pass at `04644cf6`. Every
 "candidate artifact" named in the evidence file is a test that exists and
 whose assertions this author read; none was executed under this plan.
+
+### 0.5 Changes since the freeze
+
+The plan froze at `04644cf6` and the branch did not stop. Per §6, a
+post-fix change restarts the clock, so each change since was routed through
+§0.2's risk model before landing and is logged in §11: CO-003 through
+CO-006. Three came from this plan's own reading — C07's counts, C22's
+missing dirty mark, OQ-5's residue — and one from the code disagreeing with
+the plan's prediction. The evidence file records the commits its candidates
+were run at.
+
+Still unmeasured after all of it: C30 entirely, OQ-7's ledgered half, and
+page-commit cost after the counts fix. Benchmarks want an unloaded machine.
 
 ## 1. Frozen core: stage claims (S#)
 
@@ -388,7 +401,7 @@ nothing else (`TestLedgerScrubReachesTheTakeoverFrontier` covers the
 frontier half); purge touches bytes, not keys; `DropLedger` and
 `ResetLedger` clear all seven except the token key; `ledgerActive` reads
 rows-or-any-key and the stamp; `CloneSync` copies all seven as they
-stand; compactor fold copies all seven (OQ-6); page commit writes rows,
+stand; compactor fold clears all seven and rewrites the token key; page commit writes rows,
 facts, bucket, retain fact, stamp and never the frontier or the token;
 takeover writes frontier, facts, retain fact, bucket, and clears the
 token, never a row.
@@ -474,7 +487,7 @@ instrument is required (§7).
 | C04 | S2 | `GetResource`/`GetEntitlement` on an open unit return the buffered value when present, else the store's, and after `DropStagedRows` return the store's. | O3 | exhaustive over {buffered, store-only, dropped, absent} × 2 kinds | now | `TestPageUnitReadSeesOwnWrites` (partial: buffered and store-only) |
 | C05 | S2 | For every P4 record-shape cell, the page-unit file equals the `Put*`/`DeleteGrants` file outside `LedgerBounds` and the stamp key, including indexes, digests, and source scope rows. | O2 | exhaustive over P4's 15 + 3 cells | now | `TestPageWriterMatchesSingleCallAdapters` (partial: new records only; no overwrite, index-affecting, duplicate, or delete cells) |
 | C06 | S2, S4 | A grant delete in the same page removes the buffered put (never lands) and deletes a store row with its index rows; `DropStagedRows` selector semantics equal the store's `DeleteSourceCacheRows*` on the same input for all twelve cells. | O2, O3 | exhaustive over P4's 3 + 12 cells | now | none |
-| C07 | S1 | `LedgerRow.*_written` equals the count of distinct records the page committed, after in-page dedup and doomed-put removal. | O3 vs an independent count | exhaustive over 4 kinds × {no dups, dups} | now | none. Expected **failed**: `page_unit.go:Commit` records raw buffer length while the stagers dedup by identity. |
+| C07 | S1 | `LedgerRow.*_written` equals the count of distinct records the page committed, after in-page dedup and doomed-put removal. | O3 vs an independent count | exhaustive over 4 kinds × {no dups, dups} | now | **Failed** by measurement, then fixed. A page staging duplicates reported `2, 3, 3, 3` over a keyspace of `1, 2, 2, 2`; `stageResourceTypeRecords` also had no dedup pre-pass at all. Fixed by taking the counts from the stagers (`11f8c8c3`, `21d4349e`). Candidates `TestLedgerRowCountsDistinctKeysNotBufferedRecords`, `TestFreshSyncWithinCallDuplicateResourceTypeDedup`; the no-duplicate cells are not asserted against a key count. |
 | C08 | S3 | Every P5 cell: exact match returns the row; each single-field difference reads absent and increments `ledgerMismatches` once; `next_page_token` and `children` differences do not affect the match; scrubbed rows match by hash. | O6 | exhaustive over P5 (20) | now | `TestLedgerIdentityMismatchReadsAsAbsent` (partial: token only, unscrubbed) |
 | C09 | S3 | `encodeLedgerKey` is injective over the tuple and prefix-ordered by (op, rt, rid); `IterateLedgerRowsForOp` and `IterateLedgerRowsForResource` return exactly the rows under the prefix and no neighbour's. | key round-trip + prefix scan vs. an independent filter | exhaustive over field-boundary cases (empty strings, shared prefixes, `TypeScoped` flip) | now | `TestLedgerKeyEncoding` (partial) |
 | C10 | S2 | The page path consumes and honours the fresh-sync proofs (`takeFresh*Empty`) identically to `Put*`: a proof consumed by a page whose commit fails leaves the slow path armed; a later colliding overwrite after a page uses read-before-write. | O2 plus `SourceScopeMayExist` and proof-flag inspection | exhaustive over 4 kinds × {commit ok, commit fail} | now | none |
@@ -490,9 +503,9 @@ instrument is required (§7).
 | C20 | S5, S6 | Takeover writes frontier + facts + retain fact (if set) + bucket and clears the token in one Sync batch; no token → `""` and no write; no open sync → refused; F5 yields one of exactly two images. | O3, I1 | exhaustive over {token, no token} × {sync open, none} × {retain on, off}; F5 sampled | now | `TestLedgerTakeoverIsOneUnit`, `TestLedgerTakeoverRequiresOpenSync` |
 | C21 | S5 | `DropLedger`, `ResetLedger`, `ResetForNewSync` each remove all of rows, facts, buckets, frontier, retain fact, and clear the stamp; `ResetForNewSync` is refused while `IsFreshSync`; F12 yields L6 and L6 is recoverable by any of the three; `BoundSyncFinished` is true exactly when `ended_at` is set. | O3 | exhaustive over 3 ops × 6 sub-families + F12 | now | `TestResetLedgerWipesEveryLedgerSubFamily`, `TestDropLedgerClearsTheInFlightStamp`, `TestLedgerWipedWithItsSync`, `TestResetForNewSyncClearsTheInFlightStamp` |
 | C22 | S11 | Every mutating `PageLedgerStore`/`SyncStatsStore` method on `pebbleStore` marks dirty on success and not on error; `Close` after a page commit persists it. | O8 | exhaustive over {Commit, TakeoverToken, PutCounterBucket, ResetLedger, DropLedger, EndSyncWithStats} × {ok, err} | now | `pebble_store_dirty_test.go` (partial: success cells) |
-| C23 | S11 | The set of `pebbleStore` methods that mutate records equals the set that calls `seam` first, modulo a stated exclusion list; `StrictWriteSeam` refuses outside `WithOpenPage`, allows inside, and `WithPageWriteBypass` allows outside. | O9 | exhaustive by meta-test | now | none. Known open cells: `FinishExpandedGrantLayer`, `AddExpandedGrantLayerContributions` (record-affecting, unguarded). |
-| C24 | S11 | `pebbleStore` satisfies `PageLedgerStore`, `SyncStatsStore`, `WriteSeamStore` through the `dotc1z` open path; the SQLite store satisfies none (type assertion false, no panic). | compile-time + runtime assertion | single per store | now | `var _ c1zstore.PageLedgerStore = (*Engine)(nil)` (engine only) |
-| C25 | S12 | For each D10 reader × {L4, L5}: output on the file equals output with `LedgerBounds` excised. Fold output is expected to differ (inherits the base's ledger) and is recorded as open, not verified. | P7 differential | exhaustive over P7 (16) | now for Stats, CLI readers, sanitizer, clone, token-only Open, rebuild; fold expected **failed** (OQ-6) | none |
+| C23 | S11 | The set of `pebbleStore` methods that mutate records equals the set that calls `seam` first, modulo a stated exclusion list; `StrictWriteSeam` refuses outside `WithOpenPage`, allows inside, and `WithPageWriteBypass` allows outside. | O9 | exhaustive by meta-test | now | `TestWriteSeamOutcomes`, `TestWriteSeamContextHelpers` close the `StrictWriteSeam` clause; the set-equality clause has no test. Known open cells: `FinishExpandedGrantLayer` and `AddExpandedGrantLayerContributions`, record-affecting and unguarded — both on `pebbleStoreGrants`, not `*pebbleStore`, with `Begin`/`Abort` as exclusion candidates. |
+| C24 | S11 | `pebbleStore` satisfies `PageLedgerStore`, `SyncStatsStore`, `WriteSeamStore` through the `dotc1z` open path; the SQLite store satisfies none (type assertion false, no panic). | compile-time + runtime assertion | single per store | now | the three assertions at `pebble_store.go:33,44,45` plus runtime `ok` checks in `pebble_store_dirty_test.go` and `pebble_store_write_seam_test.go`; only the SQLite negative assertion is open |
+| C25 | S12 | For each D10 reader × {L4, L5}: output on the file equals output with `LedgerBounds` excised. | P7 differential | exhaustive over P7 (16) | now for Stats, CLI readers, sanitizer, clone, token-only Open, rebuild, fold | `TestCompactPebbleFoldDropsInheritedBaseLedger` (the fold cell only) |
 | C26 | S10 | Fold and rebuild write `CompactionProvenance` with mode, base, partials, counts; chained folds accumulate; timings fold via `FoldCallStats`/`FoldDurations`; a source with no sidecar contributes nothing; no output writes a token. | sidecar read + token absence | exhaustive over {fold, k-way, overlay} × {base has sidecar, has none} × {first, chained} | now | `compactor_provenance_test.go` (partial) |
 | C27 | S10 | `EndSyncWithStats` lays stats over the counted record and persists ingest quality; a failed finalize drops the overlay; a later plain `EndSync` on a token-only sync does not see a stale overlay; F11 leaves a finished file without a sidecar and `SourceCacheReplayEligible` fails closed on it. | `ReadSyncStatsRecord`, overlay inspection | exhaustive over {ok, finalize fail, stats-persist fail} × {ledgered, token-only} | now | `TestFailedSealDropsItsStatsOverlay`, `TestLedgeredSyncSealsOnlyWithStats` (partial) |
 | C28 | S1 | Every `RecordBatch` commit site introduced by the change is in `commitPointRegistry` with a hook or a stated exclusion. | registry meta-test | exhaustive | now | `commit_point_enumeration_test.go` |
@@ -501,9 +514,10 @@ instrument is required (§7).
 | C31 | all | Each oracle O1–O10 catches a planted violation: torn page (write records without the row), wrong-field row, unscrubbed row, missing stamp, skipped purge, missing dirty mark, unguarded writer. | mutant per oracle | exhaustive over oracles | now | `TestLedgerScrubLeavesNoSSTResidue` mutant arm only |
 | C32 | S3, S4 | Deferred: the resume walk writes nothing; absent or mismatched row → re-run, never skip; a scrubbed row in an unfinished file (L3) is read as "done" only because every action is done at seal (OQ-1); the syncer calls `BoundSyncFinished` then `ResetLedger` on rebind of a finished sync; every non-page write on the sync path is registered through `WithPageWriteBypass`; one commit per page; counters and facts producers; takeover trigger; stats fold across attempts. | deferred | deferred | deferred to the syncer integration change | none |
 
-Count: 32 criteria. 31 closable now (C30 requires an unloaded machine; C07
-and the fold half of C25 are expected to fail as written), 1 deferred
-(C32, which bundles the syncer-owned obligations so the split is visible).
+Count: 32 criteria. 31 closable now (C30 requires an unloaded machine), 1
+deferred (C32, which bundles the syncer-owned obligations so the split is
+visible). Of the two cells predicted to fail from reading, C07 did and the
+fold half of C25 did not.
 
 ## 6. Closure criteria
 
@@ -513,8 +527,8 @@ premise and mutant checks (C31) pass for the oracle it uses, and the
 evidence file records the command and the commit hash.
 
 A criterion is **failed** when any cell fails; the evidence entry names
-the cell and the observed value. C07 and C25's fold cell are expected to
-enter this state on first run.
+the cell and the observed value. C07 entered this state on first run; C25's
+fold cell, predicted with it, did not.
 
 The stage claim S# is **closed** when every criterion citing it is
 verified, failed-and-change-ordered, explicitly excluded, or deferred
@@ -603,12 +617,15 @@ None of these change production behaviour.
   re-running `EndSyncWithStats` (not a walk) is the only accepted path,
   and record in C32 that the walk must refuse L3 or treat it as sealed.
 - **OQ-2 Page begun under one sync, committed after rebind.** `BeginPage`
-  captures `syncID`; `Commit` checks only `requireCurrentSync`. A unit
-  begun under sync A and committed after `SetCurrentSync(B)` writes A's
-  `sync_id` into record values under B. No caller today. Settling check:
-  one test in I5 that binds B between `BeginPage` and `Commit` and
-  asserts either refusal or the observed `sync_id`; the answer decides
-  whether `Commit` needs a sync-id equality check.
+    captures `syncID`; `Commit` checked only `requireCurrentSync`. **Answered:
+    refusal.** `Commit` compares the captured id against the current binding
+    and returns `ErrPageUnitForeignSync`, pinned by
+    `TestPageUnitCommitRefusesAForeignSync`. The hazard was stated wrong
+    here: v3 record values carry no sync id (`sync_id` is `reserved` in all
+    four record messages), so nothing writes A's id under B. The harm is
+    that A's records become indistinguishable from B's own and B's ledger
+    row claims a page B never ran. Not covered: the check is not atomic
+    against a bind racing it, which the code says of itself.
 - **OQ-3 Rowless in-flight file (L1).** F4 leaves a file a token-only SDK
   refuses although it holds no ledger data. Is refusal the intended
   contract (conservative) or should `Open` clear a rowless stamp?
@@ -618,31 +635,32 @@ None of these change production behaviour.
   non-fatal, so a ledgered sync can finish with no ingest quality while
   `ErrLedgeredSyncNeedsStats` exists to guarantee stats. Settling check:
   C27's F11 cell; then decide whether F11 should fail the seal.
-- **OQ-5 `DropLedger` on an unfinished ledgered sync.** It removes keys
-  with `DropKeyRange` and clears the stamp without scrub or purge, so
-  pre-scrub token bytes stay in SSTs until a later compaction, and the
-  file is now accepted by a token-only SDK. Documented caller is
-  rebind-of-finished only. Settling check: I5 `DropLedger` row on an L2
-  file with O5; then either purge in `DropLedger` or document the
-  contract as "finished syncs only" and assert it.
-- **OQ-6 Compactor fold inherits the base's ledger.** `compactPebbleFold`
-  byte-copies the base and never calls `DropLedger`; the fold output
-  (a new sync id) carries the base's rows attributed to a different
-  sync, and `ledgerActive` on the output is true, so any token-writing
-  rebind of the output would be refused with
-  `ErrLedgeredSyncWritesNoToken`. Not reachable until a ledgered base
-  exists. Settling check: C25's fold cell with I7; expected to fail;
-  change order to call `DropLedger` (or `ResetLedger`) on the fold
-  output before `PutSyncRunRecord`.
-- **OQ-7 Purge cost inside `EndSync`.** `PurgeLedgerResidue` un-pauses
-  the compaction scheduler and compacts `LedgerBounds`. With the
-  deferred grant index off, seal has no other large step to hide behind.
-  Settling check: I8 `BenchmarkLedgerSealCostNoGrantIndex` at 10^5 rows
-  on an unloaded machine; threshold is a stated fraction of the
-  `BuildGrantDigests` seal time at the same scale.
-- **OQ-8 `*_written` counts.** C07 is expected to fail. Settling check:
-  the I3 cell with in-page duplicates; the fix is to count staged keys,
-  not buffer length.
+  - **OQ-5 `DropLedger` on an unfinished ledgered sync.** It removed keys
+    with `DropKeyRange` and cleared the stamp without scrub or purge, so
+    pre-scrub token bytes stayed in the SSTs a checkpoint hard-links, and
+    the later seal's `ledgerActive` gate found no ledger and skipped the
+    purge. **Answered: purge.** A durable marker outlives the rows, so the
+    seal purges bytes whose rows are already gone; `ResetForNewSync` sets
+    it too. Covered by `TestLedgerResidueOutlivesTheLedger` under the byte
+    oracle. The marker records which deletion path ran, because
+    `DropKeyRange` and `ExciseRange` need different compaction widths.
+  - **OQ-6 Compactor fold inherits the base's ledger.** **Answered: it does
+    not.** `1f6cd380` calls `DropLedger` on the fold output. Covered by
+    `TestCompactPebbleFoldDropsInheritedBaseLedger`. CO-003 closed.
+  - **OQ-7 Purge cost inside `EndSync`.** Half answered. A file that never
+    had a ledger pays nothing: `endSyncFinalize` gates the purge on
+    `ledgerActive`, pinned by `TestLedgerFreeSealSkipsResiduePurge` against
+    a counter. The ledgered half stands as written — with the deferred
+    grant index off, seal has no other large step to hide behind. Settling
+    check: I8 `BenchmarkLedgerSealCostNoGrantIndex` at 10^5 rows on an
+    unloaded machine; threshold is a stated fraction of the
+    `BuildGrantDigests` seal time at the same scale.
+  - **OQ-8 `*_written` counts.** **Answered: C07 failed and is fixed.** The
+    fix was wider than this entry assumed: three stagers deduped and
+    `stageResourceTypeRecords` did not, so it needed the pre-pass before
+    anything could count staged keys. Open, and the reason this had to be
+    right: no non-test caller reads the counts, so nothing today would
+    notice them being wrong.
 
 ## 11. Change-order log (CO-###)
 
@@ -653,5 +671,22 @@ None of these change production behaviour.
   to fresh syncs only; resumed syncs commit Sync per page by
   `bindCurrentSync`. S9 and C11 state both halves.
 - **CO-003 (extension).** `ledger.go:DropLedger` names compaction outputs
-  as a caller; the compactor does not call it. C25's fold cell and OQ-6
-  carry this until a fix or a documentation change lands.
+  as a caller; the compactor did not call it. **Closed** in the doc's
+  favour by `1f6cd380`, which calls it on the fold output. C25's fold cell
+  and OQ-6 are answered.
+- **CO-004 (fix).** C07 failed by measurement: page ledger counts came
+  from buffer length while the stagers deduped. The counts now come from
+  the stagers, and `stageResourceTypeRecords` got the dedup pre-pass it
+  never had (`11f8c8c3`, `21d4349e`). A behaviour change beyond the
+  counts: a duplicated resource type in one call now resolves
+  last-occurrence-wins explicitly rather than by put order.
+- **CO-005 (fix).** C22's method set was too narrow to see its own defect.
+  `AddExpandedGrantLayerContributions` mutated the file — ingesting a
+  filled segment and arming the deferred `by_principal` rebuild — without
+  marking the store dirty, and the meta-test scanned only two capability
+  interfaces on one receiver. Fixed with the mark and a third capability
+  in the walker (`2c321bea`). Latent before the fix: every path that
+  persists goes through `Finish`, which did mark.
+- **CO-006 (fix).** OQ-5's residue: a ledger dropped or reset mid-sync
+  left its page tokens in checkpointed SSTs with no rows for the seal's
+  gate to find. Fixed with a durable marker that outlives the rows.
