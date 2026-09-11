@@ -67,9 +67,6 @@ func (e *Engine) PutGrantRecord(ctx context.Context, r *v3.GrantRecord) error {
 // flushable-batch promotion; the choke-point migration collapsed
 // them, trading that micro-optimization for atomicity and
 // can't-forget index derivation.)
-//
-// Fresh-sync still uses pebble.NoSync — EndFreshSync does one
-// Flush+fsync at sync end to harden the data.
 func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord) error {
 	if len(records) == 0 {
 		return nil
@@ -81,7 +78,6 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 		batch := e.db.NewRecordBatch()
 		defer batch.Close()
 
-		fresh := e.IsFreshSync()
 		// skipGet fires exactly once per fresh sync — only the first
 		// PutGrantRecords call sees the keyspace empty by construction.
 		// Subsequent calls in the same fresh sync still need
@@ -155,10 +151,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 				return err
 			}
 		}
-		opts := writeOpts(e.opts.durability)
-		if fresh {
-			opts = pebble.NoSync
-		}
+		opts := recordWriteOpts
 		// One atomic commit: primary rows and their index/invalidation
 		// obligations ride the same batch, so a primary commit landing
 		// without its index entries is unexpressible.
@@ -169,24 +162,14 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 // PutExpandedGrantRecords is the grant-expander write path — the
 // engine side of GrantStore.StoreExpandedGrants, and its only caller.
 //
-// Two properties distinguish it from PutGrantRecords:
-//
-//   - Single read-before-write. The expander must preserve each
-//     grant's existing Expansion / NeedsExpansion / DiscoveredAt
-//     side-state, which requires reading the prior primary value. That
-//     same read also yields the bytes needed to delete the prior
-//     value's stale index entries. The old path did BOTH a
-//     GetGrantRecord in the adapter (to preserve side-state) AND a
-//     db.Get here (to clean indexes) — two point lookups per grant.
-//     This path issues one and uses it for both.
-//
-//   - NoSync commit. Expanded grants are fully regenerable from the
-//     sync (the expander recomputes them from the entitlement graph),
-//     so a per-batch fsync buys nothing. Writes commit with
-//     pebble.NoSync and are hardened by the single Flush at sync end
-//     (EndFreshSync) or Close — the same bargain the
-//     fresh-sync fast path strikes, extended to resumed syncs where
-//     IsFreshSync() is false.
+// What distinguishes it from PutGrantRecords is a single
+// read-before-write. The expander must preserve each grant's existing
+// Expansion / NeedsExpansion / DiscoveredAt side-state, which requires
+// reading the prior primary value. That same read also yields the bytes
+// needed to delete the prior value's stale index entries. The old path
+// did BOTH a GetGrantRecord in the adapter (to preserve side-state) AND
+// a db.Get here (to clean indexes) — two point lookups per grant. This
+// path issues one and uses it for both.
 //
 // records arrive as freshly translated v3 GrantRecords with NO
 // preservation or discovered_at stamping applied; this method performs
@@ -771,7 +754,7 @@ func (e *Engine) putSynthesizedGrantContributionsBatch(ctx context.Context, reco
 // across the whole sync (not just within this batch). Primary + index key/value
 // encoding — including the proto marshal — runs in parallel across GOMAXPROCS
 // workers; a single goroutine then stages the pre-encoded bytes into a single
-// RecordBatch and commits it (NoSync during a fresh sync).
+// RecordBatch and commits it.
 //
 // Unlike PutGrantRecords this skips the per-record db.Get that PutGrantRecords
 // performs on every batch after the first of a fresh sync. That read-before-
@@ -887,10 +870,7 @@ func (e *Engine) UnsafePutUniqueGrantRecords(ctx context.Context, records ...*v3
 			}
 		}
 
-		opts := writeOpts(e.opts.durability)
-		if e.IsFreshSync() {
-			opts = pebble.NoSync
-		}
+		opts := recordWriteOpts
 		// One atomic commit: rows and their obligations ride the same
 		// batch, so a primary commit landing without its index entries
 		// is unexpressible.

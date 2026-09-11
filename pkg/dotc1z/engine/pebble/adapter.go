@@ -114,9 +114,6 @@ func (e *Engine) startNewSync(ctx context.Context, syncType connectorstore.SyncT
 			return "", err
 		}
 	}
-	// MarkFreshSync flips the engine into the perf-fast write path:
-	// pebble.NoSync per commit, skip read-before-write index cleanup.
-	// EndSync calls EndFreshSync to flush + fsync once at the end.
 	if err := e.MarkFreshSync(syncID); err != nil {
 		return "", err
 	}
@@ -394,8 +391,7 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 // === writes ===
 
 // PutGrants writes a batch of grants in a single Pebble batch. v2 is
-// translated to v3 first; the engine then commits the whole batch
-// with one fsync (or NoSync during a fresh sync — see MarkFreshSync).
+// translated to v3 first.
 //
 // The translation uses per-shard arenas (grantTranslateArena) so the
 // 3 × N proto-struct allocations from V2GrantToV3's builder pattern

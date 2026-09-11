@@ -18,10 +18,8 @@ import (
 const SDKPebbleFormat = pebble.FormatNewest
 
 // Durability controls how aggressively the engine fsyncs writes. The
-// default for production is DurabilitySync; the fresh-sync fast path
-// (which uses pebble.NoSync for in-flight grant batches) falls under
-// DurabilityNoSync because the sync workflow can replay from the
-// connector if the host crashes before checkpoint.
+// default for production is DurabilitySync. Commits that take
+// recordWriteOpts do not consult it.
 type Durability int
 
 const (
@@ -85,8 +83,8 @@ type Option func(*Options)
 // Unrefs it in Engine.Close.
 func WithSharedCache(c *pebble.Cache) Option { return func(o *Options) { o.sharedCache = c } }
 
-// WithDurability selects the fsync policy for writes. Default is
-// DurabilitySync.
+// WithDurability selects the fsync policy for writes outside a sync's
+// record path (see Durability). Default is DurabilitySync.
 func WithDurability(d Durability) Option { return func(o *Options) { o.durability = d } }
 
 // WithReadOnly opens the engine in read-only mode. Save is disallowed.
@@ -207,6 +205,22 @@ func writeOpts(d Durability) *pebble.WriteOptions {
 	}
 	return pebble.Sync
 }
+
+// recordWriteOpts is NoSync for every commit that takes it, whether the
+// sync is fresh or bound and regardless of Options.durability.
+// TestBoundSyncRecordWritesDoNotSyncTheWAL pins the Put path.
+//
+// The artifact does not depend on the WAL. CheckpointTo flushes
+// memtables, cuts the checkpoint, and truncateCheckpointWALs zeroes
+// every copied .log, so what ships is the SST bytes the flush produced.
+// Nothing reads the WAL after a crash either: OpenStore unpacks into a
+// temp directory that a dying process orphans and the next process never
+// finds. An fsync here hardens bytes nothing will read.
+//
+// Writes a crash image or the sealed file must hold do not come through
+// here: PutSyncRunRecord and the keyspace-version stamp say why at their
+// sites, and EndFreshSync flushes before the seal.
+var recordWriteOpts = pebble.NoSync
 
 func defaultOptions() *Options {
 	return &Options{

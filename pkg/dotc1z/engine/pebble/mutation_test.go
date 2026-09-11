@@ -150,7 +150,6 @@ func TestPutEntitlementRecordOverwriteCleansIndexes(t *testing.T) {
 // to save a Get per record, but that leaked orphan index entries
 // when a connector (legitimately or buggily) emitted the same
 // external_id twice. Now read-before-write runs unconditionally,
-// preserving freshSync's main perf win (NoSync per batch) while
 // guaranteeing index integrity.
 func TestFreshSyncDuplicateExternalIDCleansIndexes(t *testing.T) {
 	ctx := context.Background()

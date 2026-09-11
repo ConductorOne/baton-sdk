@@ -355,10 +355,7 @@ func (e *Engine) PutSourceCacheEntry(ctx context.Context, rowKind, scopeKey, cac
 		if err != nil {
 			return err
 		}
-		opts := writeOpts(e.opts.durability)
-		if e.IsFreshSync() {
-			opts = pebble.NoSync
-		}
+		opts := recordWriteOpts
 		if e.test.sourceCacheManifestWriteHook != nil {
 			if err := e.test.sourceCacheManifestWriteHook(); err != nil {
 				return err
@@ -677,10 +674,7 @@ func (e *Engine) DeleteGrantsByPrincipalsInScope(ctx context.Context, scopeKey s
 		}
 		defer iter.Close()
 
-		opts := writeOpts(e.opts.durability)
-		if e.IsFreshSync() {
-			opts = pebble.NoSync
-		}
+		opts := recordWriteOpts
 		deletes := newSourceCacheDeleteBatch(e, "grant-principals", scopeKey, opts)
 		defer deletes.close()
 		defer func() { deleted = deletes.committedDeleted }()
@@ -767,10 +761,7 @@ func (e *Engine) DeleteGrantsByExternalIDsInScope(ctx context.Context, scopeKey 
 		}
 		defer iter.Close()
 
-		opts := writeOpts(e.opts.durability)
-		if e.IsFreshSync() {
-			opts = pebble.NoSync
-		}
+		opts := recordWriteOpts
 		deletes := newSourceCacheDeleteBatch(e, "grant-external-ids", scopeKey, opts)
 		defer deletes.close()
 		defer func() { deleted = deletes.committedDeleted }()
@@ -858,10 +849,7 @@ func (e *Engine) DeleteResourcesByIDsInScope(ctx context.Context, scopeKey strin
 		}
 		defer iter.Close()
 
-		opts := writeOpts(e.opts.durability)
-		if e.IsFreshSync() {
-			opts = pebble.NoSync
-		}
+		opts := recordWriteOpts
 		deletes := newSourceCacheDeleteBatch(e, "resources", scopeKey, opts)
 		defer deletes.close()
 		defer func() { deleted = deletes.committedDeleted }()
@@ -1269,10 +1257,7 @@ func (e *Engine) ReplaySourceCacheGrants(ctx context.Context, prev *Engine, scop
 		}
 		defer iter.Close()
 
-		opts := writeOpts(e.opts.durability)
-		if e.IsFreshSync() {
-			opts = pebble.NoSync
-		}
+		opts := recordWriteOpts
 		deleted, err := e.clearReplayDestinationScopeLocked(ctx, "grants", typeGrant, scopeKey, prefix, opts)
 		if deleted > 0 {
 			_ = e.takeFreshGrantsEmpty()
@@ -1478,10 +1463,7 @@ func (e *Engine) ReplaySourceCacheEntitlements(ctx context.Context, prev *Engine
 		}
 		defer iter.Close()
 
-		opts := writeOpts(e.opts.durability)
-		if e.IsFreshSync() {
-			opts = pebble.NoSync
-		}
+		opts := recordWriteOpts
 		deleted, err := e.clearReplayDestinationScopeLocked(ctx, "entitlements", typeEntitlement, scopeKey, prefix, opts)
 		if deleted > 0 {
 			e.noteEntitlementKeyspaceWrite()
@@ -1649,10 +1631,7 @@ func (e *Engine) ReplaySourceCacheResources(ctx context.Context, prev *Engine, s
 		}
 		defer iter.Close()
 
-		opts := writeOpts(e.opts.durability)
-		if e.IsFreshSync() {
-			opts = pebble.NoSync
-		}
+		opts := recordWriteOpts
 		deleted, err := e.clearReplayDestinationScopeLocked(ctx, "resources", typeResource, scopeKey, prefix, opts)
 		if deleted > 0 {
 			_ = e.takeFreshResourcesEmpty()

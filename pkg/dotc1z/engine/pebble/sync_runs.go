@@ -38,6 +38,12 @@ func (e *Engine) PutSyncRunRecord(ctx context.Context, r *v3.SyncRunRecord) erro
 		if err != nil {
 			return err
 		}
+		// writeOpts, not recordWriteOpts. The crash-image tests (pkg/sync
+		// TestChaosConnectorLostResponseThenFilesystemFailureResumes,
+		// errorfs_sweep_test.go) reopen a mid-sync CrashClone and need
+		// the shared WAL to hold at least the last checkpoint; this fsync
+		// is what pushes it there. NoSync here makes those assertions
+		// depend on how much the OS happened to flush.
 		return e.db.MetaSet(encodeSyncRunKey(), val, writeOpts(e.opts.durability))
 	})
 }

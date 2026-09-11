@@ -172,17 +172,6 @@ func (e *Engine) ForEachDanglingGrantPrincipal(ctx context.Context, visit func(p
 // healed-orphan warning, matching the dangling-reference warnings' shape.
 const maxHealedOrphanExamples = 25
 
-// invariantWriteOpts returns the write options for invariant-pass
-// writes (today: the orphan heal). During a fresh sync they ride
-// NoSync — the seal's durability flush hardens them, matching every
-// other during-sync write path.
-func (e *Engine) invariantWriteOpts() *pebble.WriteOptions {
-	if e.IsFreshSync() {
-		return pebble.NoSync
-	}
-	return writeOpts(e.opts.durability)
-}
-
 // healOrphanPrincipalIndexEntries deletes by_principal index entries
 // whose primary grant row does not exist, for one principal. Identities
 // are re-collected and re-probed under the write lock, so an entry whose
@@ -218,7 +207,7 @@ func (e *Engine) healOrphanPrincipalIndexEntries(ctx context.Context, principalR
 		if healed == 0 {
 			return nil
 		}
-		return rb.Commit(e.invariantWriteOpts())
+		return rb.Commit(recordWriteOpts)
 	})
 	if err != nil {
 		return 0, err
