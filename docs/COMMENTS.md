@@ -40,6 +40,8 @@ front of you.
 
 ## Good comments
 
+Six kinds. The examples inside each are examples.
+
 1. A contract the name and signature do not carry. Ask first whether they
    should: a constructor that fails on an existing file is better named
    `CreateLedger` than commented. Sometimes the answer is no; a signature can
