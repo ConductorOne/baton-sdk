@@ -38,10 +38,12 @@ front of you.
   another file; the same fact at the helper and at every call site is one
   comment and the rest are deletions. Before adding one, read what is
   already there, here and at the definition of whatever you are calling.
-- Most code affects correctness, not performance; the clearer version is
-  often the better one. In code that exists for performance (grant
-  expansion, compaction, et al), the comment explaining its shape is a good
-  comment. A comment describing a novel algorithm is fine.
+- Most code is shaped only by what it does, and the clearer version is the
+  better one. Some code is shaped by something it cannot show: a hot path,
+  crash ordering, what the storage engine does with deleted bytes, a call
+  that is deliberately absent. There the obvious alternative is slower or
+  silently wrong, and the comment explaining the shape is a good comment.
+  A comment describing a novel algorithm is fine.
 
 ## Good comments
 
@@ -49,8 +51,9 @@ front of you.
    should: a constructor that fails on an existing file is better named
    `CreateLedger` than commented. Sometimes the answer is no; a signature can
    be made to carry anything and most of it is not worth it. Then the
-   sentence is the right call. `// NewLedger returns a new Ledger.` is never
-   this and is deleted. Exported is not a reason.
+   sentence is the right call. For a guard or a check, the contract is what
+   it does not cover. `// NewLedger returns a new Ledger.` is never this and
+   is deleted. Exported is not a reason.
 2. Why this and not the obvious alternative: an external system's behavior,
    a spec clause, an ordering dependency, a past incident. Name the source.
    The alternative has to be one a competent reader would reach for, and
@@ -59,7 +62,9 @@ front of you.
    it would have worked too, it is a preference.
 3. An invariant the code cannot carry, after you have decided a type or a
    test is not worth it here. `// Caller holds mu.`
-4. Code that looks wrong and is not. State what breaks if it is "fixed".
+4. Code that looks wrong and is not, and a property that holds by accident
+   rather than by construction. State what breaks if it is "fixed", or what
+   would make the accident structural.
 5. Which of several variants is the way forward. On the preferred one: use
    this; the others remain for X and go away after Y. On the others:
    `// Deprecated: use NewLedger.` (`staticcheck` SA1019 flags callers.) The
@@ -74,7 +79,8 @@ front of you.
 - Describes the change: "now handles", "previously", "moved from". Commit
   message.
 - Addresses the reviewer: "safe because", "this is intentional". PR
-  description, or state the invariant and drop the reassurance.
+  description, or state the invariant and drop the reassurance. Delete the
+  framing sentence, not the contract under it.
 - Hedges: "should work", "probably". A limitation stated as fact with its
   condition, or nothing.
 - Reasoning trace: "here we", "note that", "we need to".
@@ -85,8 +91,8 @@ front of you.
   the code, not two facts about it.
 - Commented-out code.
 - Test-body narration. The name and assertion are the documentation. A test
-  comment states what the test would miss if removed, when the name does
-  not.
+  comment is for what they cannot show: a call that is deliberately absent,
+  or why a premise is asserted before the step under test.
 
 ## Where it goes instead
 
@@ -96,15 +102,20 @@ front of you.
 | Why this change | Commit message |
 | Why this approach over others | PR description, or `docs/rfcs/` |
 | What broke and how it was found | The ticket; a comment only if the code must stay odd because of it |
+| Which test catches it | The comment, by test name, when the code looks wrong (item 4) |
+| Measurements and evidence | `docs/verification/` |
 | How a subsystem works | `docs/` or the package doc |
 | Who and when | `git blame` |
 
 ## Form
 
 One line by default. A paragraph for a protocol, a cross-function
-invariant, or a non-obvious algorithm. Full sentences, present tense, period
-at the end (`godot`). A date belongs when the fact has one: "the upstream
-API changed this in 2025-03" is a fact, "added 2025-03" is not.
+invariant, or a non-obvious algorithm. A comment longer than the code under
+it is a red flag: the code is not carrying what it should, or this is
+package documentation in the wrong place. Fix the code, or move it and
+leave a pointer. Full sentences, present tense, period at the end
+(`godot`). A date belongs when the fact has one: "the upstream API changed
+this in 2025-03" is a fact, "added 2025-03" is not.
 
 ## Existing comments
 
@@ -113,7 +124,9 @@ are changing gets fixed or deleted. Do not sweep a file for comment quality
 in an unrelated change.
 
 Before finishing a change, reread every comment you added against this
-page.
+page, and read each fact in every place it now appears. If it reads
+complete in more than one place, all but one are deletions, or, rarely, a
+pointer.
 
 ## Reviewing
 
