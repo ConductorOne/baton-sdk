@@ -33,14 +33,10 @@ var _ c1zstore.Store = (*pebbleStore)(nil)
 var _ c1zstore.WriteSeamStore = (*pebbleStore)(nil)
 var _ connectorstore.Writer = (*pebbleStore)(nil)
 
-// The two capability interfaces callers reach through a runtime `ok`
-// assertion. Asserting them here is what makes a signature drift a build
-// error instead of an `ok` that silently goes false and sends the caller
-// down its no-ledger path. It does NOT protect the other direction:
-// pebbleStore embeds *pebble.Engine, so a new mutating method is promoted
-// and satisfies the interface while skipping the markDirty wrapper that
-// gets the mutation into the saved file. TestPebbleStoreDirtyCoverage is
-// what covers that.
+// These do not mean every method of theirs is safe: pebbleStore embeds
+// *pebble.Engine, so a promoted mutating method satisfies the interface
+// while skipping the markDirty wrapper that gets the mutation into the
+// saved file. TestPebbleStoreDirtyCoverage covers that.
 var _ c1zstore.PageLedgerStore = (*pebbleStore)(nil)
 var _ c1zstore.SyncStatsStore = (*pebbleStore)(nil)
 

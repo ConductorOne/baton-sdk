@@ -704,12 +704,8 @@ func TestLedgerFreeSealSkipsResiduePurge(t *testing.T) {
 // and in both endSyncFinalize's ledgerActive gate finds no ledger and
 // would skip the purge — the shapes that gate opened.
 //
-// The halves of the fix differ because the deletions differ. DropLedger
-// tombstones the rows, which a compaction of the ledger range still
-// rewrites, so it purges inline. ResetForNewSync excises, which narrows
-// the overlapping SSTs into virtual ones whose bounds exclude the range,
-// putting the bytes past what a compaction of that range can reach; it
-// arms encodeLedgerResiduePendingKey and the next seal purges.
+// The arms differ in how the rows were deleted, which decides the range the
+// purge has to compact and whether it can run inline; see residueTombstoned.
 func TestLedgerResidueOutlivesTheLedger(t *testing.T) {
 	ctx := context.Background()
 	const needleText = "sig=SECRET-RESIDUE"

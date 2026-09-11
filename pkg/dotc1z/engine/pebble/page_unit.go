@@ -49,13 +49,7 @@ import (
 var ErrPageUnitCommitted = errors.New("pebble page unit: already committed or discarded")
 
 // ErrPageUnitForeignSync is returned by Commit when the sync open now is
-// not the one the page was begun under. requireCurrentSync only asserts
-// that SOME sync is open, which is not enough: a page that straddles an
-// EndSync/StartNewSync pair would otherwise commit the previous run's
-// buffered records into the replacement sync, and its ledger row would
-// then enumerate a page the new run never ran. The keyspace holds one
-// sync at a time, so those records are indistinguishable from the new
-// run's own once they land.
+// not the one the page was begun under.
 var ErrPageUnitForeignSync = errors.New("pebble page unit: sync changed since the page was begun")
 
 type resourceBufKey struct{ rt, id string }
@@ -414,13 +408,18 @@ func (u *PageUnit) Commit(ctx context.Context, id LedgerIdentity, row *v3.Ledger
 		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
-		// The shape this catches is a page that outlived a completed
-		// EndSync/StartNewSync pair: withWrite's sealed check already
-		// rejects a commit arriving between the seal and the next bind,
-		// but the rebound engine is unsealed again and would accept it.
-		// The binding itself flips under currentSyncMu rather than
-		// writeMu, so this is not atomic against a bind racing the next
-		// few instructions; it closes the wide window (a page lives for
+		// A page that outlived a completed EndSync/StartNewSync pair
+		// would otherwise land the previous run's records in the
+		// replacement sync, and its ledger row would enumerate a page the
+		// new run never ran. Nothing later can tell them apart: the
+		// keyspace holds one sync at a time and sync_id is not in the
+		// keys. withWrite's sealed check rejects a commit arriving
+		// between the seal and the next bind, but the rebound engine is
+		// unsealed again and would accept it.
+		//
+		// The binding flips under currentSyncMu rather than writeMu, so
+		// this is not atomic against a bind racing the next few
+		// instructions; it closes the wide window (a page lives for
 		// seconds to minutes), not that one.
 		if now := e.CurrentSyncID(); u.syncID != "" && now != u.syncID {
 			return fmt.Errorf("%w: begun under %s, now %s", ErrPageUnitForeignSync, u.syncID, now)

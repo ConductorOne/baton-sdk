@@ -659,14 +659,10 @@ func (e *Engine) scrubLedgerFrontierLocked(ctx context.Context, batch *rawdb.Rec
 // this the verbatim token would ride along in the shipped c1z as
 // byte-level residue — query-invisible, `strings`-visible.
 //
-// Runs on the sealed lifecycle path. The scheduler is paused under
-// seal and a manual compaction needs a grant like any other, so the
-// pause is lifted for the duration of the call (any automatic
-// compaction that slips in runs to completion; bounded, and the window
-// is short). Cost is proportional to the bytes in SSTs overlapping the
-// family — the ledger's own plus the L0 files it is interleaved with.
-// Compact flushes an overlapping memtable first, so the compacted
-// output covers every version that ever landed.
+// Cost is proportional to the bytes in SSTs overlapping the family — the
+// ledger's own plus the L0 files it is interleaved with. Compact flushes
+// an overlapping memtable first, so the compacted output covers every
+// version that ever landed.
 //
 // The range is the ledger family alone, and one thing sits outside it:
 // takeoverToken clears sync_token by rewriting the sync-run record at
@@ -803,6 +799,9 @@ func (e *Engine) compactForLedgerResidue(ctx context.Context, lo, hi []byte) err
 	if e.closing.Load() {
 		return ErrEngineClosing
 	}
+	// A manual compaction needs a scheduler grant like any other and seal()
+	// leaves the scheduler paused, so the pause is lifted for the call; an
+	// automatic compaction that starts in that window runs to completion.
 	// Re-pause only what we un-paused: on an unsealed engine (direct
 	// callers, tests) leaving the scheduler paused is the documented
 	// L0StopWritesThreshold hang.

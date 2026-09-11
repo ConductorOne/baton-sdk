@@ -419,6 +419,9 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	// The scrub alone is cheap over an empty range; the compaction is
 	// not. BenchmarkLedgerSealCost's pages=0 shape measures this.
 	//
+	// What the gate does not cover: a ledger deleted earlier in this file's
+	// life, whose bytes are still in the SSTs with no rows left to find. The
+	// marker block below is that case, and is deliberately outside this one.
 	ledgered, err := e.ledgerActive()
 	if err != nil {
 		return fmt.Errorf("EndSync: check ledger presence: %w", err)
