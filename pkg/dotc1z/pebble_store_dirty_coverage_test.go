@@ -53,7 +53,7 @@ var capabilityMethods = map[string]struct {
 	kind dirtyKind
 	why  string
 }{
-	// PageLedgerStore.
+	// PageLedgerStore
 	"BeginPage":             {dirtyDeferred, "returns a PageWriter; the staging calls write nothing until Commit, and dirtyPageWriter.Commit carries the mark for the whole batch"},
 	"GetLedgerRow":          {dirtyRead, "read"},
 	"SetRetainLedgerTokens": {dirtyRead, "sets an in-memory flag; the durable retain fact is written by a later page commit, which marks dirty itself"},
@@ -64,11 +64,11 @@ var capabilityMethods = map[string]struct {
 	"BoundSyncFinished":     {dirtyRead, "read"},
 	"ResetLedger":           {dirtyWrite, "a delete is a write; without the mark the wipe never reaches the c1z"},
 
-	// SyncStatsStore.
+	// SyncStatsStore
 	"PutCounterBucket": {dirtyWrite, "blind-writes the bucket"},
 	"EndSyncWithStats": {dirtyWrite, "the seal: scrub, purge, stamp, ended_at, stats sidecar"},
 
-	// pebbleStoreGrantLayerStorer.
+	// pebbleStoreGrantLayerStorer
 	"BeginExpandedGrantLayer":            {dirtyRead, "allocates an in-memory session; the first Add is what touches the file"},
 	"AddExpandedGrantLayerContributions": {dirtyWrite, "ingests a filled segment into the live keyspace and arms the deferred by_principal rebuild, both before Finish"},
 	"FinishExpandedGrantLayer":           {dirtyWrite, "publishes the layer"},
