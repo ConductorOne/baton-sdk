@@ -159,7 +159,8 @@ remains is the part the name cannot:
 
 ```go
 // CreateLedger returns ErrExists if path is already present. Use this over
-// OpenOrCreateLedger, which is deprecated.
+// OpenOrCreateLedger, which remains for opening existing files and goes away
+// in the next major.
 func CreateLedger(path string) (*Ledger, error) {
 ```
 
