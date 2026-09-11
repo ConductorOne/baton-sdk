@@ -18,8 +18,8 @@ import (
 const SDKPebbleFormat = pebble.FormatNewest
 
 // Durability controls how aggressively the engine fsyncs writes. The
-// default for production is DurabilitySync. Record writes inside a sync
-// do not consult it; they take recordWriteOpts.
+// default for production is DurabilitySync. Commits that take
+// recordWriteOpts do not consult it.
 type Durability int
 
 const (
@@ -206,9 +206,11 @@ func writeOpts(d Durability) *pebble.WriteOptions {
 	return pebble.Sync
 }
 
-// recordWriteOpts is the durability for every record write inside a
-// sync: NoSync whether the sync is fresh or bound, regardless of
-// Options.durability. TestBoundSyncRecordWritesDoNotSyncTheWAL pins it.
+// recordWriteOpts is NoSync for every commit that takes it, whether the
+// sync is fresh or bound and regardless of Options.durability: the
+// record Put paths inside a sync and the digest, source-cache, and
+// index-repair work downstream of them. The record delete paths stay on
+// writeOpts. TestBoundSyncRecordWritesDoNotSyncTheWAL pins the Put path.
 //
 // The artifact does not depend on the WAL. CheckpointTo flushes
 // memtables, cuts the checkpoint, and truncateCheckpointWALs zeroes
