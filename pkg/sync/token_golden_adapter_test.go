@@ -7,25 +7,25 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 
 // goldenDecodeEncode decodes a token and re-encodes it.
 func goldenDecodeEncode(input string) (string, error) {
-	st := newState()
-	if err := st.Unmarshal(input); err != nil {
+	parts, err := unmarshalToken(input)
+	if err != nil {
 		return "", err
 	}
-	return st.Marshal()
+	return marshalToken(parts.run, parts.stats)
 }
 
 // goldenEncodeTwice decodes a token once and encodes the decoded value
 // twice.
 func goldenEncodeTwice(input string) (string, string, error) {
-	st := newState()
-	if err := st.Unmarshal(input); err != nil {
-		return "", "", err
-	}
-	first, err := st.Marshal()
+	parts, err := unmarshalToken(input)
 	if err != nil {
 		return "", "", err
 	}
-	second, err := st.Marshal()
+	first, err := marshalToken(parts.run, parts.stats)
+	if err != nil {
+		return "", "", err
+	}
+	second, err := marshalToken(parts.run, parts.stats)
 	if err != nil {
 		return "", "", err
 	}

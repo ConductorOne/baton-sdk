@@ -57,11 +57,11 @@ func (s *legacyPaginatedCheckpointStore) ListResources(
 	}.Build(), nil
 }
 
-func newEmptySchedulerState(t *testing.T) *state {
+func newEmptySchedulerState(t *testing.T) *runState {
 	t.Helper()
-	st := newState()
-	require.NoError(t, st.Unmarshal(""))
-	st.FinishAction(t.Context(), st.Current())
+	st := newRunState()
+	st.seedInitAction()
+	st.finishAction(t.Context(), st.current())
 	return st
 }
 
@@ -74,10 +74,41 @@ func newTestRetryer(ctx context.Context) *retry.Retryer {
 }
 
 func TestTooManyWarningsThreshold(t *testing.T) {
-	require.False(t, tooManyWarnings(10, 1), "requires more than ten warnings")
-	require.False(t, tooManyWarnings(11, 0), "requires completed actions")
-	require.False(t, tooManyWarnings(11, 110), "exactly ten percent is allowed")
-	require.True(t, tooManyWarnings(11, 109), "more than ten percent must stop the sync")
+	require.False(t, tooManyWarnings(10, 1, 0.1), "requires more than ten warnings")
+	require.False(t, tooManyWarnings(11, 0, 0.1), "requires completed actions")
+	require.False(t, tooManyWarnings(11, 110, 0.1), "exactly ten percent is allowed")
+	require.True(t, tooManyWarnings(11, 109, 0.1), "more than ten percent must stop the sync")
+
+	require.False(t, tooManyWarnings(11, 220, 0.05), "exactly five percent is allowed")
+	require.True(t, tooManyWarnings(11, 219, 0.05), "more than five percent must stop the sync")
+	require.False(t, tooManyWarnings(11, 0, 0.05), "empty list-resource counts must not trip the five percent check")
+}
+
+func TestTooManyListResourceWarnings(t *testing.T) {
+	bad := ActionCount{CompletedCount: 20, WarningCount: 11}
+
+	require.False(t, tooManyListResourceWarnings(bad, 0),
+		"resumed counts must not stop a run that has not completed a list-resource action")
+	require.False(t, tooManyListResourceWarnings(bad, 10),
+		"ten completions this run are not enough to re-arm the durable ratio")
+	require.True(t, tooManyListResourceWarnings(bad, 11),
+		"more than ten completions this run re-arm the durable ratio")
+	require.False(t, tooManyListResourceWarnings(ActionCount{CompletedCount: 220, WarningCount: 11}, 11),
+		"exactly five percent is allowed")
+	require.False(t, tooManyListResourceWarnings(ActionCount{CompletedCount: 20, WarningCount: 10}, 11),
+		"requires more than ten warnings")
+	require.False(t, tooManyListResourceWarnings(ActionCount{}, 11),
+		"a run with no list-resource warnings never trips")
+}
+
+func TestRecordListResourceCompletedThisRun(t *testing.T) {
+	s := &syncer{}
+	s.recordListResourceCompletedThisRun(&Action{Op: SyncGrantsOp})
+	require.Equal(t, uint64(0), s.listResourceActionsCompletedThisRun.Load())
+	s.recordListResourceCompletedThisRun(&Action{Op: SyncResourcesOp})
+	require.Equal(t, uint64(1), s.listResourceActionsCompletedThisRun.Load())
+	s.recordListResourceCompletedThisRun(nil)
+	require.Equal(t, uint64(1), s.listResourceActionsCompletedThisRun.Load())
 }
 
 func TestCollectionProgressAccounting(t *testing.T) {
@@ -140,7 +171,7 @@ func TestSyncParallelDrainsMultipleSpawnedCursors(t *testing.T) {
 		ResourceTypeID: "group",
 		ResourceID:     "group-1",
 	})
-	s := &syncer{state: st, cfg: syncConfig{workerCount: 3}}
+	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 3}}
 
 	var mu sync.Mutex
 	processed := make(map[string]int)
@@ -155,7 +186,7 @@ func TestSyncParallelDrainsMultipleSpawnedCursors(t *testing.T) {
 				Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "group-1", PageToken: "c", Spawned: true},
 			)
 		}
-		s.state.FinishAction(ctx, action)
+		s.run.finishAction(ctx, action)
 		return nil
 	}
 
@@ -163,13 +194,13 @@ func TestSyncParallelDrainsMultipleSpawnedCursors(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, warnings)
 	require.Equal(t, map[string]int{"": 1, "a": 1, "b": 1, "c": 1}, processed)
-	require.Nil(t, st.Current())
+	require.Nil(t, st.current())
 }
 
 func TestSyncParallelBreaksCyclicSpawnedCursorIdempotently(t *testing.T) {
 	t.Skip("pinned the queue's batch-lifetime seen-set cycle break, removed by RFC 0007 phase 1 " +
 		"(docs/rfcs/0007-scheduler-cursor-accounting.md): the queue keeps no identity history; " +
-		"spawn-cycle termination is owned by state.transitionAction's spawnedAdmitted guard " +
+		"spawn-cycle termination is owned by runState.transitionAction's spawnedAdmitted guard " +
 		"(one extra idempotent re-run of the first re-mention), and queue-level detection " +
 		"returns with phase 2's working set")
 	// A cursor that re-mentions its own identity (the tightest cycle) is
@@ -184,7 +215,7 @@ func TestSyncParallelBreaksCyclicSpawnedCursorIdempotently(t *testing.T) {
 		ResourceID:     "group-1",
 		PageToken:      "loop",
 	})
-	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
+	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 1}}
 
 	calls := 0
 	f := func(ctx context.Context, action *Action) error {
@@ -204,7 +235,7 @@ func TestSyncParallelBreaksCyclicSpawnedCursorIdempotently(t *testing.T) {
 	_, err := s.syncParallel(ctx, newTestRetryer(ctx), []*Action{origin}, f)
 	require.NoError(t, err)
 	require.Equal(t, 1, calls, "the cycle must be broken at admission, not by re-running the cursor")
-	require.Nil(t, st.Current(), "the batch must drain completely")
+	require.Nil(t, st.current(), "the batch must drain completely")
 }
 
 func TestParallelActionKeyDoesNotRetainCursorStrings(t *testing.T) {
@@ -230,7 +261,7 @@ func TestFailedSiblingAdmissionDoesNotAdvanceParentCursor(t *testing.T) {
 		ResourceID:     "group-1",
 		PageToken:      "origin",
 	})
-	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
+	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 1}}
 
 	calls := 0
 	f := func(ctx context.Context, action *Action) error {
@@ -261,11 +292,11 @@ func TestFailedSiblingAdmissionDoesNotAdvanceParentCursor(t *testing.T) {
 
 	_, err := s.syncParallel(ctx, newTestRetryer(ctx), []*Action{origin}, f)
 	require.ErrorContains(t, err, "duplicate or cyclic spawned cursor")
-	persisted := st.GetAction(origin.ID)
+	persisted := st.getAction(origin.ID)
 	require.NotNil(t, persisted)
 	require.Equal(t, "origin", persisted.PageToken)
 	require.Equal(t, []string{origin.ID}, st.actionOrder)
-	require.Len(t, st.PeekMatchingActions(ctx, SyncGrantsOp), 1)
+	require.Len(t, st.peekMatchingActions(ctx, SyncGrantsOp), 1)
 }
 
 func TestContinuationReconvergenceFinishesParent(t *testing.T) {
@@ -296,7 +327,7 @@ func TestContinuationReconvergenceFinishesParent(t *testing.T) {
 		PageToken:      "held-token",
 		Spawned:        true,
 	})
-	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
+	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 1}}
 
 	processed := map[string]int{}
 	f := func(ctx context.Context, action *Action) error {
@@ -306,7 +337,7 @@ func TestContinuationReconvergenceFinishesParent(t *testing.T) {
 			// which the sibling seed already owns.
 			return s.nextPageOrFinishAction(ctx, action, "held-token")
 		}
-		s.state.FinishAction(ctx, action)
+		s.run.finishAction(ctx, action)
 		return nil
 	}
 
@@ -315,8 +346,8 @@ func TestContinuationReconvergenceFinishesParent(t *testing.T) {
 	require.Empty(t, warnings)
 	require.Equal(t, map[string]int{"walker": 1, "held-token": 1}, processed,
 		"the held token must be walked exactly once, by its owner")
-	require.Nil(t, st.GetAction(walker.ID), "the re-converged parent must finish, not continue")
-	require.Nil(t, st.Current(), "the batch must drain completely")
+	require.Nil(t, st.getAction(walker.ID), "the re-converged parent must finish, not continue")
+	require.Nil(t, st.current(), "the batch must drain completely")
 }
 
 func TestSpawnedCursorCannotCollideWithParentContinuation(t *testing.T) {
@@ -328,7 +359,7 @@ func TestSpawnedCursorCannotCollideWithParentContinuation(t *testing.T) {
 		ResourceID:     "group-1",
 		PageToken:      "current",
 	})
-	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
+	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 1}}
 
 	calls := 0
 	f := func(ctx context.Context, action *Action) error {
@@ -348,7 +379,7 @@ func TestSpawnedCursorCannotCollideWithParentContinuation(t *testing.T) {
 	_, err := s.syncParallel(ctx, newTestRetryer(ctx), []*Action{origin}, f)
 	require.ErrorContains(t, err, "duplicate or cyclic spawned cursor")
 	require.Equal(t, 1, calls)
-	require.Equal(t, "current", st.GetAction(origin.ID).PageToken)
+	require.Equal(t, "current", st.getAction(origin.ID).PageToken)
 	require.Equal(t, []string{origin.ID}, st.actionOrder)
 }
 
@@ -432,11 +463,11 @@ func TestNextPageOrFinishActionStateTransitions(t *testing.T) {
 				ResourceID:     "group-1",
 				PageToken:      "current",
 			})
-			s := &syncer{state: st}
+			s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph()}
 
 			require.NoError(t, s.nextPageOrFinishAction(ctx, parent, tt.nextPageToken, tt.children...))
 			require.Len(t, st.actions, tt.wantActions)
-			persistedParent := st.GetAction(parent.ID)
+			persistedParent := st.getAction(parent.ID)
 			if tt.wantParent {
 				require.NotNil(t, persistedParent)
 				require.Equal(t, tt.wantParentToken, persistedParent.PageToken)
@@ -445,14 +476,14 @@ func TestNextPageOrFinishActionStateTransitions(t *testing.T) {
 			}
 			if tt.wantCurrentToken == "" {
 				if tt.wantActions == 0 {
-					require.Nil(t, st.Current())
+					require.Nil(t, st.current())
 				} else {
-					require.Equal(t, parent.ID, st.Current().ID)
+					require.Equal(t, parent.ID, st.current().ID)
 				}
 			} else {
-				require.NotNil(t, st.Current())
-				require.Equal(t, tt.wantCurrentToken, st.Current().PageToken)
-				require.NotEqual(t, parent.ID, st.Current().ID)
+				require.NotNil(t, st.current())
+				require.Equal(t, tt.wantCurrentToken, st.current().PageToken)
+				require.NotEqual(t, parent.ID, st.current().ID)
 			}
 		})
 	}
@@ -467,7 +498,7 @@ func TestTransitionActionValidationFailureIsAtomic(t *testing.T) {
 		PageToken:  "current",
 	})
 	beforeOrder := append([]string(nil), st.actionOrder...)
-	beforeCompleted := st.GetCompletedActionsCount()
+	beforeCompleted := st.completedActionsCount()
 
 	_, err := st.transitionAction(ctx, parent, "next", []Action{
 		{Op: SyncGrantsOp, ResourceID: "group-1", PageToken: "valid"},
@@ -475,9 +506,9 @@ func TestTransitionActionValidationFailureIsAtomic(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "action ID must be empty")
 	require.Equal(t, beforeOrder, st.actionOrder)
-	require.Equal(t, beforeCompleted, st.GetCompletedActionsCount())
+	require.Equal(t, beforeCompleted, st.completedActionsCount())
 	require.Len(t, st.actions, 1)
-	persisted := st.GetAction(parent.ID)
+	persisted := st.getAction(parent.ID)
 	require.NotNil(t, persisted)
 	require.Equal(t, "current", persisted.PageToken)
 }
@@ -516,11 +547,11 @@ func TestLegacyPaginatedCheckpointPlansTypeScopedCollection(t *testing.T) {
 			ctx := t.Context()
 			st := newEmptySchedulerState(t)
 			root := st.pushAction(ctx, Action{Op: tt.op, PageToken: "legacy-page-2"})
-			s := &syncer{state: st}
+			s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph()}
 			s.setStore(&legacyPaginatedCheckpointStore{resourceType: tt.annotation})
 
 			require.NoError(t, tt.sync(s, ctx, root))
-			planned := st.Current()
+			planned := st.current()
 			require.NotNil(t, planned)
 			require.Equal(t, tt.op, planned.Op)
 			require.Equal(t, "group", planned.ResourceTypeID)
@@ -541,17 +572,17 @@ func TestTypeScopedPlanningFailureDoesNotCommitMarker(t *testing.T) {
 		}.Build(),
 		listResourcesErr: errors.New("injected list-resources failure"),
 	}
-	s := &syncer{state: st}
+	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph()}
 	s.setStore(store)
 
 	require.ErrorContains(t, s.SyncGrants(ctx, root), "injected list-resources failure")
-	persisted := st.GetAction(root.ID)
+	persisted := st.getAction(root.ID)
 	require.NotNil(t, persisted)
 	require.False(t, persisted.TypeScopedPlanned)
 
 	store.listResourcesErr = nil
 	require.NoError(t, s.SyncGrants(ctx, persisted))
-	planned := st.Current()
+	planned := st.current()
 	require.NotNil(t, planned)
 	require.True(t, planned.TypeScoped)
 	require.Equal(t, "group", planned.ResourceTypeID)
@@ -569,24 +600,22 @@ func TestTypeScopedPlanningMarkerSurvivesCheckpoint(t *testing.T) {
 		}.Build(),
 		nextPageToken: "page-3",
 	}
-	s := &syncer{state: st}
+	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph()}
 	s.setStore(store)
 
 	require.NoError(t, s.SyncGrants(ctx, root))
-	planned := st.Current()
+	planned := st.current()
 	require.NotNil(t, planned)
 	require.True(t, planned.TypeScoped)
-	st.FinishAction(ctx, planned)
-	resumedRoot := st.Current()
+	st.finishAction(ctx, planned)
+	resumedRoot := st.current()
 	require.NotNil(t, resumedRoot)
 	require.True(t, resumedRoot.TypeScopedPlanned)
 	require.Equal(t, "page-3", resumedRoot.PageToken)
 
-	token, err := st.Marshal()
-	require.NoError(t, err)
-	resumed := newState()
-	require.NoError(t, resumed.Unmarshal(token))
-	require.True(t, resumed.Current().TypeScopedPlanned)
+	token := encodeTestRun(t, st, newRunStats())
+	resumed, _, _ := decodeTestRun(t, token)
+	require.True(t, resumed.current().TypeScopedPlanned)
 }
 
 func TestSyncParallelErrorAbortsQueuedWorkAndCancelsPeer(t *testing.T) {
@@ -596,7 +625,7 @@ func TestSyncParallelErrorAbortsQueuedWorkAndCancelsPeer(t *testing.T) {
 	fail := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "fail"})
 	slow := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "slow"})
 	queued := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "queued"})
-	s := &syncer{state: st, cfg: syncConfig{workerCount: 2}}
+	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 2}}
 
 	slowStarted := make(chan struct{})
 	var queuedRan bool
@@ -630,7 +659,7 @@ func TestSyncParallelErrorAbortsQueuedWorkAndCancelsPeer(t *testing.T) {
 	mu.Lock()
 	require.False(t, queuedRan)
 	mu.Unlock()
-	require.NotNil(t, st.GetAction(queued.ID))
+	require.NotNil(t, st.getAction(queued.ID))
 }
 
 func TestSyncParallelAggregatesWarningAndContinues(t *testing.T) {
@@ -638,13 +667,13 @@ func TestSyncParallelAggregatesWarningAndContinues(t *testing.T) {
 	st := newEmptySchedulerState(t)
 	warningAction := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "missing"})
 	successAction := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "present"})
-	s := &syncer{state: st, cfg: syncConfig{workerCount: 2}}
+	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 2}}
 
 	f := func(ctx context.Context, action *Action) error {
 		if action.ResourceID == "missing" {
 			return status.Error(codes.NotFound, "resource disappeared")
 		}
-		s.state.FinishAction(ctx, action)
+		s.run.finishAction(ctx, action)
 		return nil
 	}
 
@@ -652,14 +681,14 @@ func TestSyncParallelAggregatesWarningAndContinues(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, warnings, 1)
 	require.Equal(t, codes.NotFound, status.Code(warnings[0]))
-	require.Nil(t, st.Current())
+	require.Nil(t, st.current())
 }
 
 func TestSyncParallelRetriesActionWithinWorker(t *testing.T) {
 	ctx := t.Context()
 	st := newEmptySchedulerState(t)
 	action := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-1"})
-	s := &syncer{state: st, cfg: syncConfig{workerCount: 1}}
+	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 1}}
 
 	calls := 0
 	f := func(ctx context.Context, action *Action) error {
@@ -667,7 +696,7 @@ func TestSyncParallelRetriesActionWithinWorker(t *testing.T) {
 		if calls == 1 {
 			return status.Error(codes.Unavailable, "transient")
 		}
-		s.state.FinishAction(ctx, action)
+		s.run.finishAction(ctx, action)
 		return nil
 	}
 
@@ -675,14 +704,14 @@ func TestSyncParallelRetriesActionWithinWorker(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, warnings)
 	require.Equal(t, 2, calls)
-	require.Nil(t, st.Current())
+	require.Nil(t, st.current())
 }
 
 func TestSyncParallelFiltersSpawnedActionsFromOtherOperations(t *testing.T) {
 	ctx := t.Context()
 	st := newEmptySchedulerState(t)
 	origin := st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "group-1"})
-	s := &syncer{state: st, cfg: syncConfig{workerCount: 2}}
+	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 2}}
 
 	calls := 0
 	f := func(ctx context.Context, action *Action) error {
@@ -697,14 +726,14 @@ func TestSyncParallelFiltersSpawnedActionsFromOtherOperations(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, warnings)
 	require.Equal(t, 1, calls)
-	require.NotNil(t, st.Current())
-	require.Equal(t, SyncEntitlementsOp, st.Current().Op)
+	require.NotNil(t, st.current())
+	require.Equal(t, SyncEntitlementsOp, st.current().Op)
 }
 
 func TestSyncParallelEmptyBatchWithIdleWorkers(t *testing.T) {
 	ctx := t.Context()
 	st := newEmptySchedulerState(t)
-	s := &syncer{state: st, cfg: syncConfig{workerCount: 8}}
+	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 8}}
 
 	warnings, err := s.syncParallel(ctx, newTestRetryer(ctx), nil, func(context.Context, *Action) error {
 		panic("empty batch invoked worker function")
@@ -717,7 +746,7 @@ func TestSpawnedCursorsResumeAfterPartialCompletion(t *testing.T) {
 	ctx := t.Context()
 	st := newEmptySchedulerState(t)
 	for _, token := range []string{"a", "b", "c"} {
-		st.PushAction(ctx, Action{
+		st.pushAction(ctx, Action{
 			Op:             SyncGrantsOp,
 			ResourceTypeID: "group",
 			PageToken:      token,
@@ -725,13 +754,11 @@ func TestSpawnedCursorsResumeAfterPartialCompletion(t *testing.T) {
 			TypeScoped:     true,
 		})
 	}
-	st.FinishAction(ctx, st.Current())
+	st.finishAction(ctx, st.current())
 
-	token, err := st.Marshal()
-	require.NoError(t, err)
-	resumed := newState()
-	require.NoError(t, resumed.Unmarshal(token))
-	s := &syncer{state: resumed, cfg: syncConfig{workerCount: 2}}
+	token := encodeTestRun(t, st, newRunStats())
+	resumed, _, _ := decodeTestRun(t, token)
+	s := &syncer{run: resumed, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 2}}
 
 	var mu sync.Mutex
 	var processed []string
@@ -739,15 +766,15 @@ func TestSpawnedCursorsResumeAfterPartialCompletion(t *testing.T) {
 		mu.Lock()
 		processed = append(processed, action.PageToken)
 		mu.Unlock()
-		s.state.FinishAction(ctx, action)
+		s.run.finishAction(ctx, action)
 		return nil
 	}
 
-	warnings, err := s.syncParallel(ctx, newTestRetryer(ctx), resumed.PeekMatchingActions(ctx, SyncGrantsOp), f)
+	warnings, err := s.syncParallel(ctx, newTestRetryer(ctx), resumed.peekMatchingActions(ctx, SyncGrantsOp), f)
 	require.NoError(t, err)
 	require.Empty(t, warnings)
 	require.ElementsMatch(t, []string{"a", "b"}, processed)
-	require.Nil(t, resumed.Current())
+	require.Nil(t, resumed.current())
 }
 
 // Checkpoint tokens carrying type-scoped or spawned markers must be stamped
@@ -761,36 +788,30 @@ func TestCheckpointVersionStampsTypeScopedTokens(t *testing.T) {
 	ctx := t.Context()
 
 	plain := newEmptySchedulerState(t)
-	plain.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "g1"})
-	plainToken, err := plain.Marshal()
-	require.NoError(t, err)
+	plain.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "g1"})
+	plainToken := encodeTestRun(t, plain, newRunStats())
 	require.Contains(t, plainToken, `"version":1`)
 
 	scoped := newEmptySchedulerState(t)
-	scoped.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", TypeScoped: true})
-	scopedToken, err := scoped.Marshal()
-	require.NoError(t, err)
+	scoped.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", TypeScoped: true})
+	scopedToken := encodeTestRun(t, scoped, newRunStats())
 	require.Contains(t, scopedToken, `"version":2`)
 
 	spawned := newEmptySchedulerState(t)
-	spawned.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "g1", PageToken: "p", Spawned: true})
-	spawnedToken, err := spawned.Marshal()
-	require.NoError(t, err)
+	spawned.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "g1", PageToken: "p", Spawned: true})
+	spawnedToken := encodeTestRun(t, spawned, newRunStats())
 	require.Contains(t, spawnedToken, `"version":2`)
 
 	planned := newEmptySchedulerState(t)
-	planned.PushAction(ctx, Action{Op: SyncGrantsOp, TypeScopedPlanned: true})
-	plannedToken, err := planned.Marshal()
-	require.NoError(t, err)
+	planned.pushAction(ctx, Action{Op: SyncGrantsOp, TypeScopedPlanned: true})
+	plannedToken := encodeTestRun(t, planned, newRunStats())
 	require.Contains(t, plannedToken, `"version":2`)
 
 	// This SDK accepts both versions losslessly.
-	resumedScoped := newState()
-	require.NoError(t, resumedScoped.Unmarshal(scopedToken))
-	require.True(t, resumedScoped.Current().TypeScoped)
-	resumedPlain := newState()
-	require.NoError(t, resumedPlain.Unmarshal(plainToken))
-	require.NotNil(t, resumedPlain.Current())
+	resumedScoped, _, _ := decodeTestRun(t, scopedToken)
+	require.True(t, resumedScoped.current().TypeScoped)
+	resumedPlain, _, _ := decodeTestRun(t, plainToken)
+	require.NotNil(t, resumedPlain.current())
 
 	// An older SDK rejects version 2 and reparses via the V0 format, which
 	// carries no actions_map — the state comes back empty and the old
@@ -814,13 +835,11 @@ func TestOriginContinuationAndSiblingsResumeExactlyOnce(t *testing.T) {
 		{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "group-1", PageToken: "sibling-b", Spawned: true},
 	})
 	require.NoError(t, err)
-	st.FinishAction(ctx, st.Current())
+	st.finishAction(ctx, st.current())
 
-	token, err := st.Marshal()
-	require.NoError(t, err)
-	resumed := newState()
-	require.NoError(t, resumed.Unmarshal(token))
-	s := &syncer{state: resumed, cfg: syncConfig{workerCount: 2}}
+	token := encodeTestRun(t, st, newRunStats())
+	resumed, _, _ := decodeTestRun(t, token)
+	s := &syncer{run: resumed, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 2}}
 
 	var mu sync.Mutex
 	processed := make(map[string]int)
@@ -828,13 +847,13 @@ func TestOriginContinuationAndSiblingsResumeExactlyOnce(t *testing.T) {
 		mu.Lock()
 		processed[action.PageToken]++
 		mu.Unlock()
-		s.state.FinishAction(ctx, action)
+		s.run.finishAction(ctx, action)
 		return nil
 	}
 
-	warnings, err := s.syncParallel(ctx, newTestRetryer(ctx), resumed.PeekMatchingActions(ctx, SyncGrantsOp), f)
+	warnings, err := s.syncParallel(ctx, newTestRetryer(ctx), resumed.peekMatchingActions(ctx, SyncGrantsOp), f)
 	require.NoError(t, err)
 	require.Empty(t, warnings)
 	require.Equal(t, map[string]int{"origin-next": 1, "sibling-a": 1}, processed)
-	require.Nil(t, resumed.Current())
+	require.Nil(t, resumed.current())
 }

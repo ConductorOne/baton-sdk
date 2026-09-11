@@ -397,7 +397,7 @@ func TestParallelQueueExhaustiveInterleavings(t *testing.T) {
 		// phase 1, docs/rfcs/0007-scheduler-cursor-accounting.md): both
 		// pinned seen-set dedup/re-convergence, and the stepper's fake
 		// commit has no state layer, so without that set a spawn cycle
-		// spins forever here (in production state.transitionAction's
+		// spins forever here (in production runState.transitionAction's
 		// spawnedAdmitted guard breaks it) and a re-converging
 		// continuation legitimately re-walks pages. They return with
 		// phase 2's working set.

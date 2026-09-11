@@ -84,6 +84,7 @@ func TestIngestInvariantVerificationCoverageByEngine(t *testing.T) {
 			require.NoError(t, err)
 			s := &syncer{
 				syncID: syncID,
+				run:    newRunState(), stats: newRunStats(), graph: newExpansionGraph(),
 				cfg: syncConfig{
 					syncType:              tc.syncType,
 					compactionMergedStore: tc.compaction,
@@ -314,7 +315,7 @@ func TestFailedIngestInvariantPassDoesNotWriteVerification(t *testing.T) {
 	}))
 	require.NoError(t, store.SetCurrentSync(ctx, syncID))
 
-	s := &syncer{syncID: syncID, cfg: syncConfig{syncType: connectorstore.SyncTypeFull}}
+	s := &syncer{syncID: syncID, run: newRunState(), stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{syncType: connectorstore.SyncTypeFull}}
 	s.setStore(store)
 	require.Error(t, s.runIngestionInvariants(ctx))
 

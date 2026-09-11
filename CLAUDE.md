@@ -6,7 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Follow `AGENTS.md` for all writing: comments, docs, commits, PRs, review
 notes, and conversation with humans. Name the function, type, hook, or
-check. State the fact with essential framing.
+check. State the fact with essential framing. For whether a code comment
+should exist at all, follow `docs/COMMENTS.md`.
 
 ## Project Overview
 

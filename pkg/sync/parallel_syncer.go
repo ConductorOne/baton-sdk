@@ -36,18 +36,18 @@ func (s *syncer) timedShouldWaitAndRetry(ctx context.Context, op ActionOp, resou
 // wall-clock companion; see recordRateLimitWallInterval.
 func (s *syncer) recordRetryWait(ctx context.Context, wait time.Duration, rateLimited bool) {
 	// The wait observer is installed at the top of Sync, before the state
-	// token exists; a gate wait during the initial Validate call must be
-	// dropped, not dereference a nil state.
-	if s.state == nil {
+	// token is decoded; a gate wait during the initial Validate call must be
+	// dropped, not dereference nil stats.
+	if s.stats == nil {
 		return
 	}
 	bucket := "retry_wait"
 	if rateLimited {
 		bucket = "rate_limit_wait"
 	}
-	s.state.AddStepDuration(bucket, wait)
+	s.stats.addStepDuration(bucket, wait)
 	if label, ok := ratelimit.WaitLabelFromContext(ctx); ok {
-		s.state.AddStepDuration(bucket+":"+label, wait)
+		s.stats.addStepDuration(bucket+":"+label, wait)
 	}
 	if rateLimited {
 		s.recordRateLimitWallInterval(wait)
@@ -77,7 +77,7 @@ func (s *syncer) recordRetryWait(ctx context.Context, wait time.Duration, rateLi
 // the post-sleep RPC latency of that one report. The bucket stays bounded by
 // elapsed sync time regardless.
 func (s *syncer) recordRateLimitWallInterval(wait time.Duration) {
-	if wait <= 0 || s.state == nil {
+	if wait <= 0 || s.stats == nil {
 		return
 	}
 	s.rlWallMu.Lock()
@@ -91,7 +91,7 @@ func (s *syncer) recordRateLimitWallInterval(wait time.Duration) {
 		return
 	}
 	s.rlWallCoveredUntil = end
-	// The state bucket accumulates whole milliseconds per call, so carry the
+	// The stats bucket accumulates whole milliseconds per call, so carry the
 	// sub-millisecond remainder locally: overlapping parallel waits contribute
 	// many tiny past-the-watermark slivers that would otherwise all truncate
 	// to zero and systematically undercount the bucket.
@@ -99,10 +99,10 @@ func (s *syncer) recordRateLimitWallInterval(wait time.Duration) {
 	whole := delta.Truncate(time.Millisecond)
 	s.rlWallCarry = delta - whole
 	// Flush outside rlWallMu: additions commute, and this keeps the wall
-	// lock from nesting the state mutex.
+	// lock from nesting the stats mutex.
 	s.rlWallMu.Unlock()
 	if whole > 0 {
-		s.state.AddStepDuration("rate_limit_wait_wall", whole)
+		s.stats.addStepDuration("rate_limit_wait_wall", whole)
 	}
 }
 
@@ -156,7 +156,7 @@ func (s *syncer) parallelSync(
 
 	var warnings []error
 	for {
-		stateAction := s.state.Current()
+		stateAction := s.run.current()
 		if stateAction == nil {
 			break
 		}
@@ -174,12 +174,24 @@ func (s *syncer) parallelSync(
 			return warnings, err
 		}
 
-		// If we have more than 10 warnings and more than 10% of actions ended in a warning, exit the sync.
-		if len(warnings) > 10 {
-			completedActionsCount := s.state.GetCompletedActionsCount()
-			if tooManyWarnings(len(warnings), completedActionsCount) {
-				return warnings, fmt.Errorf("%w: warnings: %v completed actions: %d", ErrTooManyWarnings, warnings, completedActionsCount)
-			}
+		// If > 10% of actions ended in a warning, exit the sync.
+		completedActionsCount := s.run.completedActionsCount()
+		if tooManyWarnings(uint64(len(warnings)), completedActionsCount, 0.1) {
+			return warnings, fmt.Errorf("%w: warnings: %v completed actions: %d", ErrTooManyWarnings, warnings, completedActionsCount)
+		}
+		// If > 5% of list resource actions ended in a warning, exit the sync.
+		// Wait until this run has finished more than ten list-resource actions
+		// so a resumed token cannot abort before new listing work has a chance
+		// to move the ratio.
+		listResourceActionsCount := s.run.getActionCount(SyncResourcesOp)
+		if tooManyListResourceWarnings(listResourceActionsCount, s.listResourceActionsCompletedThisRun.Load()) {
+			return warnings, fmt.Errorf(
+				"%w: warnings: %v list resource warning count: %d completed list resource actions: %d",
+				ErrTooManyWarnings,
+				warnings,
+				listResourceActionsCount.WarningCount,
+				listResourceActionsCount.CompletedCount,
+			)
 		}
 		select {
 		case <-runCtx.Done():
@@ -209,17 +221,17 @@ func (s *syncer) parallelSync(
 
 		switch stateAction.Op {
 		case InitOp:
-			s.state.FinishAction(ctx, stateAction)
+			s.finishAction(ctx, stateAction)
 
 			if s.cfg.skipEntitlementsAndGrants {
-				s.state.SetShouldSkipEntitlementsAndGrants()
+				s.run.setFact(factShouldSkipEntitlementsAndGrants)
 			}
 			if s.cfg.skipGrants {
-				s.state.SetShouldSkipGrants()
+				s.run.setFact(factShouldSkipGrants)
 			}
 			if len(targetedResources) > 0 {
 				for _, r := range targetedResources {
-					s.state.PushAction(ctx, Action{
+					s.run.pushAction(ctx, Action{
 						Op:                   SyncTargetedResourceOp,
 						ResourceID:           r.GetId().GetResource(),
 						ResourceTypeID:       r.GetId().GetResourceType(),
@@ -227,8 +239,8 @@ func (s *syncer) parallelSync(
 						ParentResourceTypeID: r.GetParentResourceId().GetResourceType(),
 					})
 				}
-				s.state.SetShouldFetchRelatedResources()
-				s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
+				s.run.setFact(factShouldFetchRelatedResources)
+				s.run.pushAction(ctx, Action{Op: SyncResourceTypesOp})
 				err = s.Checkpoint(ctx, true)
 				if err != nil {
 					return warnings, err
@@ -238,32 +250,32 @@ func (s *syncer) parallelSync(
 			}
 
 			// FIXME(jirwin): Disabling syncing assets for now
-			// s.state.PushAction(ctx, Action{Op: SyncAssetsOp})
-			if !s.state.ShouldSkipEntitlementsAndGrants() {
-				s.state.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
+			// s.run.pushAction(ctx, Action{Op: SyncAssetsOp})
+			if !s.run.hasFact(factShouldSkipEntitlementsAndGrants) {
+				s.run.pushAction(ctx, Action{Op: SyncGrantExpansionOp})
 			}
 			if s.externalResourceReader != nil {
-				s.state.PushAction(ctx, Action{Op: SyncExternalResourcesOp})
+				s.run.pushAction(ctx, Action{Op: SyncExternalResourcesOp})
 			}
 			if s.cfg.onlyExpandGrants {
-				s.state.SetNeedsExpansion()
+				s.run.setFact(factNeedsExpansion)
 				err = s.Checkpoint(ctx, true)
 				if err != nil {
 					return warnings, err
 				}
 				continue
 			}
-			if !s.state.ShouldSkipEntitlementsAndGrants() {
-				if !s.state.ShouldSkipGrants() {
-					s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
+			if !s.run.hasFact(factShouldSkipEntitlementsAndGrants) {
+				if !s.run.hasFact(factShouldSkipGrants) {
+					s.run.pushAction(ctx, Action{Op: SyncGrantsOp})
 				}
 
-				s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
+				s.run.pushAction(ctx, Action{Op: SyncEntitlementsOp})
 
-				s.state.PushAction(ctx, Action{Op: SyncStaticEntitlementsOp})
+				s.run.pushAction(ctx, Action{Op: SyncStaticEntitlementsOp})
 			}
-			s.state.PushAction(ctx, Action{Op: SyncResourcesOp})
-			s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
+			s.run.pushAction(ctx, Action{Op: SyncResourcesOp})
+			s.run.pushAction(ctx, Action{Op: SyncResourceTypesOp})
 
 			err = s.Checkpoint(ctx, true)
 			if err != nil {
@@ -290,7 +302,7 @@ func (s *syncer) parallelSync(
 				}
 				continue
 			}
-			resourceActions := s.state.PeekMatchingActions(ctx, SyncResourcesOp)
+			resourceActions := s.run.peekMatchingActions(ctx, SyncResourcesOp)
 			err = s.timedStep(SyncResourcesOp, func() error {
 				w, syncErr := s.syncParallel(workerCtx, retryer, resourceActions, s.SyncResources)
 				warnings = append(warnings, w...)
@@ -302,7 +314,7 @@ func (s *syncer) parallelSync(
 			continue
 
 		case SyncTargetedResourceOp:
-			targetedResourceActions := s.state.PeekMatchingActions(ctx, SyncTargetedResourceOp)
+			targetedResourceActions := s.run.peekMatchingActions(ctx, SyncTargetedResourceOp)
 			err = s.timedStep(SyncTargetedResourceOp, func() error {
 				w, syncErr := s.syncParallel(workerCtx, retryer, targetedResourceActions, s.SyncTargetedResource)
 				warnings = append(warnings, w...)
@@ -320,7 +332,7 @@ func (s *syncer) parallelSync(
 			if isWarning(ctx, err) {
 				l.Warn("skipping sync static entitlements action", zap.Any("stateAction", stateAction), zap.Error(err))
 				warnings = append(warnings, err)
-				s.state.FinishAction(ctx, stateAction)
+				s.finishActionWithWarning(ctx, stateAction)
 				continue
 			}
 			if !s.timedShouldWaitAndRetry(workerCtx, SyncStaticEntitlementsOp, stateAction.ResourceTypeID, retryer, err) {
@@ -335,7 +347,7 @@ func (s *syncer) parallelSync(
 				if isWarning(ctx, err) {
 					l.Warn("skipping sync entitlement action", zap.Any("stateAction", stateAction), zap.Error(err))
 					warnings = append(warnings, err)
-					s.state.FinishAction(ctx, stateAction)
+					s.finishActionWithWarning(ctx, stateAction)
 					continue
 				}
 				if !s.timedShouldWaitAndRetry(workerCtx, SyncEntitlementsOp, stateAction.ResourceTypeID, retryer, err) {
@@ -343,7 +355,7 @@ func (s *syncer) parallelSync(
 				}
 				continue
 			}
-			entitlementActions := s.state.PeekMatchingActions(ctx, SyncEntitlementsOp)
+			entitlementActions := s.run.peekMatchingActions(ctx, SyncEntitlementsOp)
 			err = s.timedStep(SyncEntitlementsOp, func() error {
 				w, syncErr := s.syncParallel(workerCtx, retryer, entitlementActions, s.SyncEntitlements)
 				warnings = append(warnings, w...)
@@ -362,7 +374,7 @@ func (s *syncer) parallelSync(
 				if isWarning(ctx, err) {
 					l.Warn("skipping sync grant action", zap.Any("stateAction", stateAction), zap.Error(err))
 					warnings = append(warnings, err)
-					s.state.FinishAction(ctx, stateAction)
+					s.finishActionWithWarning(ctx, stateAction)
 					continue
 				}
 				if !s.timedShouldWaitAndRetry(workerCtx, SyncGrantsOp, stateAction.ResourceTypeID, retryer, err) {
@@ -371,7 +383,7 @@ func (s *syncer) parallelSync(
 				continue
 			}
 
-			grantActions := s.state.PeekMatchingActions(ctx, SyncGrantsOp)
+			grantActions := s.run.peekMatchingActions(ctx, SyncGrantsOp)
 			err = s.timedStep(SyncGrantsOp, func() error {
 				w, syncErr := s.syncParallel(workerCtx, retryer, grantActions, s.SyncGrants)
 				warnings = append(warnings, w...)
@@ -405,7 +417,7 @@ func (s *syncer) parallelSync(
 			// only if we're starting fresh. If we're resuming (graph has edges
 			// or a page token), we may be continuing from old code that didn't
 			// have this marker, so we must not set it.
-			entitlementGraph := s.state.EntitlementGraph(ctx)
+			entitlementGraph := s.graph.get(ctx)
 			isResumingExpansion := entitlementGraph.Loaded || len(entitlementGraph.Edges) > 0 || stateAction.PageToken != ""
 			if !isResumingExpansion {
 				if s.recordStats {
@@ -420,9 +432,9 @@ func (s *syncer) parallelSync(
 				}
 			}
 
-			if s.cfg.dontExpandGrants || !s.state.NeedsExpansion() {
+			if s.cfg.dontExpandGrants || !s.run.hasFact(factNeedsExpansion) {
 				l.Debug("skipping grant expansion, no grants to expand")
-				s.state.FinishAction(ctx, stateAction)
+				s.finishAction(ctx, stateAction)
 				continue
 			}
 
@@ -492,10 +504,23 @@ func (s *syncer) checkpointOnStop(ctx context.Context) {
 	}
 }
 
-func tooManyWarnings(warningCount int, completedActionsCount uint64) bool {
+func tooManyWarnings(warningCount uint64, completedActionsCount uint64, threshold float64) bool {
 	return warningCount > 10 &&
 		completedActionsCount > 0 &&
-		float64(warningCount)/float64(completedActionsCount) > 0.1
+		float64(warningCount)/float64(completedActionsCount) > threshold
+}
+
+// tooManyListResourceWarnings judges the checkpointed list-resource warning
+// ratio, but only after this run has finished more than ten list-resource
+// actions. ErrTooManyWarnings is preservable (IsSyncPreservable), so the next
+// run resumes the token that tripped it. Judging the resumed counts before any
+// new list-resource work completes would abort on the first loop iteration
+// with zero progress, and no new completion could ever move the ratio. The
+// this-run floor means each resume drains at least eleven list-resource
+// actions, and once none remain the ratio stops gating the rest of the sync.
+func tooManyListResourceWarnings(counts ActionCount, completedThisRun uint64) bool {
+	return completedThisRun > 10 &&
+		tooManyWarnings(counts.WarningCount, counts.CompletedCount, 0.05)
 }
 
 type workerResult struct {
@@ -520,7 +545,7 @@ type parallelActionQueue struct {
 	// years): no batch-lifetime seen set, no cap, no cross-commit dedup,
 	// no continuation re-convergence. Duplicate mentions of finished work
 	// re-run idempotently; spawned re-mentions are still skipped by the
-	// state layer's spawnedAdmitted guard (state.transitionAction); a
+	// spawnedAdmitted guard in runState.transitionAction; a
 	// cyclic continuation chain is a connector bug that runs until the
 	// run-duration budget expires. Phase 2 reintroduces bounded
 	// accounting as a working set over outstanding actions only.
@@ -596,7 +621,7 @@ func (q *parallelActionQueue) attachAudit(audit *queueAudit, batchOp ActionOp, b
 // batch's life) failed deterministically on every retry. Both were removed
 // to restore the posture prod ran on before that machinery existed:
 // duplicate mentions of finished work re-run idempotently (spawned
-// re-mentions are still skipped by state.transitionAction's
+// re-mentions are still skipped by runState.transitionAction's
 // spawnedAdmitted guard), and cyclic continuation chains are connector
 // bugs that run until the run-duration budget expires. Phase 2
 // reintroduces bounded accounting over outstanding actions only.
@@ -830,7 +855,7 @@ func (s *syncer) syncOneAction(ctx context.Context, l *zap.Logger, retryer *retr
 		err := f(ctx, action)
 		if isWarning(ctx, err) {
 			l.Warn("skipping sync action", zap.Any("action", action), zap.Error(err))
-			s.state.FinishAction(ctx, action)
+			s.finishActionWithWarning(ctx, action)
 			return workerResult{warning: err}
 		}
 		if err != nil {
@@ -841,7 +866,7 @@ func (s *syncer) syncOneAction(ctx context.Context, l *zap.Logger, retryer *retr
 			return workerResult{err: err}
 		}
 
-		updated := s.state.GetAction(action.ID)
+		updated := s.run.getAction(action.ID)
 		if updated == nil {
 			return workerResult{}
 		}

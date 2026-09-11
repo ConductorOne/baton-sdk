@@ -31,6 +31,18 @@ wire format is read by older and newer SDKs against the same sync artifact,
 so a change to any of these bytes is a compatibility change, not a
 refactor.
 
+**Adding a token field means adding bytes here.**
+`TestGoldenTokenFieldCoverage` in `pkg/sync/token_golden_coverage_test.go`
+walks every field reachable from `serializedTokenV0` and `serializedTokenV1`
+and fails unless some fixture below sets it. A Go round-trip test cannot
+stand in for this: it marshals and unmarshals through the same code, so
+renaming a `json` tag moves the writer and the reader together and stays
+green. Only recorded bytes pin the name. If a field genuinely cannot appear
+in a fixture, list it in `goldenTokenUncoveredFields` with the reason — an
+entry there that a fixture does set fails too, so the list cannot go stale.
+`TestGoldenTokenFixturesAreRegistered` catches the other direction, a `.json`
+file here that no `goldenTokenCases` entry reads.
+
 | Fixture | Exercises |
 |---|---|
 | `empty.json` | A state with nothing set: every `omitempty` field absent, only `version`. |
@@ -45,6 +57,7 @@ refactor.
 | `v1_fact_should_skip_grants.json` | `should_skip_grants` alone. |
 | `v1_facts_all.json` | All five facts together. |
 | `v1_run_stats.json` | `step_durations_ms`, `connector_call_stats` (recorded and merged), `session_store_stats` (including `errors`/`timeouts`), a fully populated `ingest_quality`. |
+| `v1_action_counts.json` | The per-op `action_counts` tally, alongside a live `list-resources` action mid-pagination — the shape a resumed sync reads the tally in. Two ops: one with `warning_count` set, one where it is absent because `omitempty` drops a zero. |
 | `v1_compaction.json` | The `compaction` provenance block written by `BuildCompactedToken`, with partial timings folded into the top-level stat maps. |
 | `v1_inline_graph.json` | An inline `entitlement_graph` (4 nodes, 3 edges, one expanded, one shallow, one with a nil resource-type filter) travelling with a live `grant-expansion` page token. Hand-authored: no writer has produced this shape since CXE-1376 removed the inline-graph writer. |
 | `v1_inline_graph.dropped.json` | The same token re-encoded by the current writer: graph dropped, `grant-expansion` page token blanked. |

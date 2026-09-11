@@ -6,7 +6,9 @@ to code edits.
 
 Project overview, build commands, and architecture live in `CLAUDE.md`.
 Review and verification live in `docs/REVIEW_CHECKLIST.md` and
-`docs/BUG_CATCHING.md`.
+`docs/BUG_CATCHING.md`. When to write a code comment, and what it may say,
+lives in `docs/COMMENTS.md`. A comment is worse than nothing until it
+proves otherwise; put intent in names, types, and tests first.
 
 ## Diction
 

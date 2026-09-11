@@ -57,7 +57,7 @@ review; a single-shot CI review is advisory sampling, not coverage. Specifically
   absence / error-path, per `docs/BUG_CATCHING.md` §2).
 - Name the instrument that would give real coverage — differential oracle against
   full recomputation, two-artifact cross-version harness, `-race` plus seeded soak,
-  fault injection at the seam, or a permutation table as a table-driven test — and
+  fault injection at a hook, or a permutation table as a table-driven test — and
   state whether the PR already contains it.
 - A HIGH-risk PR that names no instrument and no permutation table is itself a
   finding: request the full pass-set review per `docs/BUG_CATCHING.md` §6 before
@@ -152,3 +152,17 @@ Shared SDK convenience APIs become long-term commitments. If a helper is only ne
 caller, check whether it belongs in that caller instead of the SDK. Prefer narrow additions
 that preserve existing contracts over broad abstractions that create new obligations for all
 downstreams.
+
+## Review Budget And Wording Findings
+
+These constrain what you emit. They apply to every finding, whatever it is about.
+
+- A non-blocking wording finding is unsaid unless the wording would change what a reader
+  does. Still-imprecise is not a finding.
+- One round per location by default. If you already commented on a line and the fix is
+  still imprecise, propose the exact replacement text or say nothing. A second thread is
+  for a fix that introduced something new that would mislead a reader.
+- Code comments: review per `docs/COMMENTS.md`, "Reviewing". The first question is whether
+  the comment should exist; if not, the finding is delete, not reword. A comment finding
+  blocks only when the comment is false in a way that would lead a reader to write wrong
+  code. Deleting a comment that would not pass that page needs no justification.

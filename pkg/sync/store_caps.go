@@ -20,10 +20,12 @@ import (
 //
 // The read-side subset is its own type, readerCaps, embedded here. The
 // exported entry points that take a bare reader (GraphFromStore,
-// runIngestInvariants) resolve a readerCaps, and a readerCaps is not
-// assignable to a storeCaps, so a syncer cannot be handed a reader's
-// capabilities in place of its store's — which would compile, and would
-// silently switch every write-side path to its fallback.
+// runIngestInvariants) resolve a readerCaps. Because readerCaps is not
+// assignable to storeCaps, assigning a resolved reader straight onto a
+// syncer — s.caps = resolveReaderCaps(x) — is a type error rather than a
+// silent switch of every write-side path to its fallback. Building the
+// embedded field by hand, storeCaps{readerCaps: resolveReaderCaps(x)},
+// compiles and does exactly that, so it is a use-site read.
 type storeCaps struct {
 	readerCaps
 	// ingestVerification writes and clears the ingestion-invariant

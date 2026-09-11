@@ -363,7 +363,7 @@ func benchmarkExpand(b *testing.B, syncID string, perStep bool) {
 				// Expander wraps the persistent graph + store for each
 				// step, and the loop exits when IsDone reports the graph
 				// is fully expanded. The graph mutates across steps just
-				// as it does in production via state.EntitlementGraph.
+				// as it does in production via expansionGraph.get.
 				for {
 					expander := NewExpander(c1fCopy, graphCopy)
 					if err = expander.RunSingleStep(ctx); err != nil {

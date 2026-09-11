@@ -1,0 +1,11 @@
+---
+description: Follow docs/COMMENTS.md when writing or reviewing code comments
+alwaysApply: true
+---
+
+# Comments
+
+For any code comment you write, edit, or review, follow `docs/COMMENTS.md`.
+The prior is that a comment is worse than nothing most of the time. A
+typical change adds zero. In review, the first question is whether the
+comment should exist; if not, the finding is delete, not reword.

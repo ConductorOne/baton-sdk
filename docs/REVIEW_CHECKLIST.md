@@ -61,7 +61,7 @@ Hard rules along the way:
 4. Error handling, classification & budgets — every error in a declared
    category, every category's recovery obligation discharged and injectable.
 5. Invariant & verification gating — every write path passes the invariant
-   seam; bypasses are guilty until proven registered.
+   gate; bypasses are guilty until proven registered.
 6. Performance — per-iteration cost at whale scale, failure-path cost,
    cost-contract deliverable on hot paths.
 7. Concurrency — TOCTOU, duplicate writers, goroutine lifecycle; data races
@@ -72,7 +72,7 @@ Hard rules along the way:
 1. Type system / API shape — make the invalid state unrepresentable.
 2. Fuzzing / property tests with an oracle — including the stateful executable
    reference model for lifecycle interleavings.
-3. One validator over many point tests — production seam, ride-along fixture
+3. One validator over many point tests — production check, ride-along fixture
    checker, or positive-evidence ledger.
 4. Integration tests over the real store lifecycle (resume, seal, fold,
    reuse), not mocks.
@@ -109,21 +109,42 @@ on `*syncer` and every value a new field. Reject on these, not on taste.
   Package-level entry points that
   receive a bare store (`GraphFromStore`, `runIngestInvariants`,
   `NewExpanderStore`) resolve at entry through the same functions. No
-  `x.(Interface)` on a store at a use site in `pkg/sync`; the only resolution
-  sites are in `store_caps.go`. A use-site assertion hides how many
+  `x.(Interface)` on a store at a use site in `pkg/sync`; capability
+  resolution belongs in `store_caps.go`. A use-site assertion hides how many
   capabilities the syncer depends on and makes each new dependency a two-line
-  change nobody reviews as a dependency. Known exception: `pkg/sync/expand`
-  widens its own `ExpanderStore` parameter by assertion; that is the expander's
-  interface design, not store capability discovery, and is out of scope for
-  this rule.
-- Test seams live in `syncTestHooks` (`hooks.go`) and nowhere else, reached as
-  `s.testHooks.x`. A seam stays nil in production and no production path may
+  change nobody reviews as a dependency. Out of scope for this rule:
+  - `pkg/sync/expand` widens its own `ExpanderStore` parameter by assertion.
+    That is the expander's interface design, not store capability discovery.
+  - Engine identity, as distinct from a capability: `enginepkg.AsEngine(...)`
+    in `syncer.go` asks which engine wrote an artifact, and answers it through
+    a helper in `pkg/dotc1z/engine/pebble` that owns the
+    `w.(engineAccessor)` assertion. The question is "is this a Pebble file",
+    not "does this store implement operation X", and its answer does not
+    select a fallback path the way a nil `storeCaps` field does.
+- Test hooks live in `syncTestHooks` (`hooks.go`) and nowhere else, reached as
+  `s.testHooks.x`. A hook stays nil in production and no production path may
   set one. The struct name carries the "test" marking, so its fields do not:
   apart from the `syncer.testHooks` anchor itself, any `test`-prefixed field
   in `pkg/sync` is by itself the finding.
-- `state` is the resumable action stack; nothing else goes on it. (It is
-  currently also a grab-bag of facts and run stats — CXE-1356 splits it. This
-  is the rule going forward: do not add to the grab-bag.)
+- `runState` (`run_state.go`) is the resumable action stack plus the sync
+  facts a resume needs (`sync_facts.go`); nothing else goes on it. Run
+  accounting is `runStats` (`run_stats.go`) and the entitlement graph is
+  `expansionGraph` (`expansion_graph.go`), each its own field on `syncer`.
+  `runState` and `runStats` each carry a mutex; `syncFacts` has none because
+  it lives inside `runState` and `runState.mu` guards it, and
+  `expansionGraph` has none because the graph it hands out is mutated
+  outside any lock anyway — a holder that skips the mutex says why in its
+  doc comment. `marshalToken` is the only caller that holds two, `run`
+  before `stats`; a second such caller takes the same order.
+  `TestRunStatsLockOrder` checks both halves against the package AST,
+  because the race detector has no lock-order analysis and an inverted
+  caller would only hang, and only when it interleaved. It sees a function
+  that takes both mutexes directly and one that takes one and calls the
+  other holder's own locking method; a hop through a method on some other
+  type, `*syncer` included, is not followed, and its header comment says so.
+  CXE-1356 split the old `state` grab-bag into these three; put
+  new state on the one whose lifetime it shares, or in a new type, rather than
+  back onto `runState`.
 - Configuration is immutable after `NewSyncer`. Anything mutated during
   `Sync` is not configuration and does not belong in `syncConfig` — for
   something that resumes across process boundaries, the immutable/mutable

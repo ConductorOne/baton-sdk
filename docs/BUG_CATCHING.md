@@ -44,10 +44,10 @@ Corollaries:
   different implementations, failure modes, and consistency behavior per environment
   (`pkg/session`: client/server split, memory and noop variants).
 - **A contract is only as strong as its consumers.** SDK error codes, checkpoint
-  semantics, and preservability classifications are load-bearing for the c1 host,
+  semantics, and preservability classifications are required by the c1 host,
   which can silently neutralize them (timeout effort: a host-side rewrap stripped
   the status that made timeouts retryable). Review a changed contract *at its
-  consumers*, and put the contract test on the consumer side of the seam — the two
+  consumers*, and put the contract test on the consumer side of the boundary — the two
   highest-impact bugs of that effort were invisible from inside either repo alone.
 - **SQLite is deprecated** — major bug fixes only. Pebble is the target engine. New
   features may be Pebble-only *by design*, with graceful degradation (feature cleanly
@@ -222,7 +222,7 @@ step-up criteria:
   leaving every dependent criterion evidence incomplete. Keep the ledger in
   Markdown or generated test cases; build a framework only when repetition or
   drift justifies it.
-- Test each obligation at the layer that owns it and across the seam that
+- Test each obligation at the layer that owns it and across the boundary that
   could lose it — typed/raw mutation, engine operation, public capability,
   close/reopen artifact — without duplicating identical pure logic at every
   layer. A schema-only stage closes schema obligations (lint, compatibility,
@@ -286,7 +286,7 @@ representative violation. A red test may indicate a product defect, an invalid
 premise, an incorrect oracle, or unresolved boundary ownership — classify which
 before changing production code. Concretely: a rejection test asserts the expected
 error class and must not pass on an unexpected setup error; a fault test asserts
-the seam actually fired; a forbidden-mutation test seeds non-empty target state
+the hook actually fired; a forbidden-mutation test seeds non-empty target state
 and compares complete before/after snapshots (an empty destination cannot detect
 clear-before-validation; key counts cannot detect value mutation). Assert
 postconditions at the plan's stated strength: a digest is not replaced by a key
@@ -306,7 +306,7 @@ cancellation/retry where supported. Derive the commit sites from the
 implementation: every loop that commits is its own cut, not only the headline
 one, and each site owes §5.12's six answers (sync-replay: replacement ran a
 destructive clear loop before its copy loop, with the same dirty/cache/fast-path
-obligations and no seam). Equivalent repeated chunks may share one
+obligations and no hook). Equivalent repeated chunks may share one
 representative cut; distinct commit sites may not.
 
 Four classes review is structurally blind to, and where to send them:
@@ -334,7 +334,7 @@ Four classes review is structurally blind to, and where to send them:
 - **Error-path properties** — code that runs only when the environment fails.
   Review reads it; nothing executes it, because ordinary tests run over an
   implicitly cooperative environment (disks persist, RPCs return, deadlines never
-  fire). Instrument: fault injection at a seam, with a stated recovery contract as
+  fire). Instrument: fault injection at a hook, with a stated recovery contract as
   the oracle (§5.10; house example: the engine errorfs sweep — every write/fsync
   failure in the EndSync window must reopen as resumable-unfinished or
   finished-and-complete, exhaustively).
@@ -354,7 +354,7 @@ Recognition criterion — all three must hold:
    defined against something no run exhibits (what the store *would* contain
    uninterrupted). The oracle must be constructed.
 
-House example: the parallel scheduler + checkpoint/resume seam (5 adversarial rounds
+House example: the parallel scheduler + checkpoint/resume boundary (5 adversarial rounds
 did not converge on it; from first principles, should not have). For such
 subsystems, the only conversion of effort into confidence is **verification as a
 design deliverable**:
@@ -362,7 +362,8 @@ design deliverable**:
 1. **State the contract as explicit properties** — exactly-once execution, dedup
    soundness, termination, transition atomicity, bounded memory, crash-cut
    consistency. If the property list can't be written, the design is not done.
-2. **Construct the oracle** — the load-bearing step for silent failures:
+2. **Construct the oracle** — without it a silent failure has nothing to fail
+   against:
    *self-equivalence* (an interrupted-and-resumed run must produce the same sealed
    store as an uninterrupted one); *derived ground truth* (a deterministic topology
    makes the expected store computable); *contract audit* (record the operation
@@ -469,7 +470,7 @@ should ask for the table, not read the if-branches and try to reconstruct it.
   table-driven test — the expected value *is* the outcome, and excluded cells
   are skipped rows with a reason string, so the table cannot drift from behavior.
   Cells that require an artifact this repo cannot execute (an older SDK's
-  behavior) become a comment on the seam itself — where the next editor of the
+  behavior) become a comment on the boundary itself — where the next editor of the
   format will be looking — and migrate to the two-artifact harness when it
   exists. The PR description only *points* at both: nobody rereads a merged PR,
   and the table is needed by whoever touches the format next.
@@ -500,17 +501,17 @@ store state before falling back). Additionally:
 - Watch for silent degradation: a fallback that always fires is a dead feature with
   green tests.
 - A declared error category no test can *cause* is dead code with a taxonomy:
-  fault-inject each category at its producing seam and assert the recovery
+  fault-inject each category at the site that produces it and assert the recovery
   obligation is actually discharged (§5.10).
 
 ### Pass 5: Invariant & verification gating
 
 Any code that writes rows is an ingestion path and must pass through the invariant
-seam (`RunIngestInvariants` + verification marker). New write paths that bypass the
-syncer are guilty until proven registered. Artifacts must satisfy their
-self-description: sidecar sync IDs match the sync-run record, verification markers
-current, graphs marked expanded, format versions valid. (This pass polices the
-seam; §5.9 is the design principle for why the seam exists and where it must sit.)
+gate (`RunIngestInvariants` + verification marker; the code calls this the invariant
+pass). New write paths that bypass the syncer are guilty until proven registered.
+Artifacts must satisfy their self-description: sidecar sync IDs match the sync-run
+record, verification markers current, graphs marked expanded, format versions valid.
+(This review pass polices that gate; §5.9 is why it exists and where it must sit.)
 
 ### Pass 6: Performance
 
@@ -571,9 +572,9 @@ validation: premise proven, oracle shown to fail on a planted violation.)
      where they enter. Direct logging of secrets is ordinary review's job; the type is
      for the *indirect* flow — a third-party parse error echoing secret-bearing input
      into a wrapped error that lands in a durable artifact (log, token, checkpoint).
-     At seams that wrap third-party errors around secret input, add one
+     Where third-party errors wrap secret input, add one
      `NotContains(err.Error(), secret)` test — upstream error content is not ours to
-     control (age branch tests exactly this seam).
+     control (age branch tests exactly this wrap).
 2. **Fuzzing / property tests with an oracle.** This repo is rich in free oracles:
    incremental vs. full recomputation, marshal/unmarshal round-trips (including
    converters — #997 dropped a field in toPebble), retry-twice-converges idempotency.
@@ -592,13 +593,13 @@ validation: premise proven, oracle shown to fail on a planted violation.)
      External existence proof: Amazon S3's ShardStore validated an LSM storage
      node exactly this way, run by ordinary engineers, not specialists.
 3. **One validator over many point tests, when production owns the invariant.** A
-   validator needs a stable production seam and an actual caller; do not add an
+   validator needs a stable production call path and an actual caller; do not add an
    unused runtime validator to a schema-only stage. An artifact fsck — sealed-c1z
    self-description checked at the end of every producing test — retires a bug
    *category*. Include a leak check: every key/record in a store is owned by the live
    sync or explicitly allowlisted. Cheap variant: run the suite once with the noop
    session store; any failure is a source-of-truth violation hiding in the cache
-   layer. When no production seam exists yet, use a test-only oracle or defer the
+   layer. When no production call path exists yet, use a test-only oracle or defer the
    runtime obligation to the stage that introduces its owner.
    - **Ride-along variant when the test fixture owns the invariant**: bind the
      checker to a shared fixture or choke point so every existing test evaluates
@@ -676,7 +677,7 @@ Wherever behavior branches on the class or identity of a value — an error's
 retryability, a cursor's identity, a record's kind, a store's capability — that
 classification must be **explicit** (a dedicated field, never an in-band magic
 value), **total** (closed over every producer of the domain, including implicit
-ones), **preserved across seams** (wraps, RPC hops, and serialization must not strip
+ones), **preserved across boundaries** (wraps, RPC hops, and serialization must not strip
 the status/sentinel identity downstream classifiers act on), and **coherent** (two
 classifiers over one domain state their intended relationship, asserted in a test).
 
@@ -689,7 +690,7 @@ classifiers over one domain state their intended relationship, asserted in a tes
 - Preserved: a host-side wrapper string-matched `err.Error()` and returned a fresh
   error, stripping the gRPC status — retryable lambda timeouts became
   non-retryable, discarding hours of checkpoint progress ~1,100×/fortnight (timeout
-  effort; visible only by tracing the value across the repo seam).
+  effort; visible only by tracing the value across the repo boundary).
   `strings.Contains(err.Error(), ...)` gates are findings by default; a rewrap
   preserves status/sentinels or explicitly declares the downgrade, enforced by a
   consumer-side test.
@@ -755,7 +756,7 @@ only when wire compatibility alone cannot preserve meaning.
   the contract to "call this" — greppable, and it cannot drift. Do not create that
   owner speculatively in a schema-only stage. (Age branch: `key_ids =
   hex(sha256(recipient))` lives in a proto comment while the consumer imports this
-  repo.) Prose remains appropriate for staged contracts and seams where code cannot
+  repo.) Prose remains appropriate for staged contracts and boundaries where code cannot
   be shared.
 
 ### 5.6 Distribution invalidates local intuitions
@@ -810,7 +811,7 @@ common thread: each of these fails by *nothing happening*.
   investigation). Every flag carries graduation-or-delete, and each long-lived flag
   doubles Pass 3's state space.
 - Deprecated-engine rot cuts both ways: SQLite fallback paths decay untested but
-  stay load-bearing until removal ships. Touching a dual-engine seam: verify the
+  stay required until removal ships. Touching a dual-engine path: verify the
   SQLite path or explicitly gate it off. The capability interfaces and
   degrade-to-token dualities are the removal-day cleanup checklist.
 - In exported library API the transition may be *unfinishable*: deprecated symbols
@@ -821,7 +822,7 @@ common thread: each of these fails by *nothing happening*.
   permanent.)
 - Branch aging: a conflict-free rebase can be semantically stale — review the
   *rebased* semantics against current main (the incremental branch predated the
-  invariant seam entirely).
+  invariant gate entirely).
 
 ### 5.9 An obligation owned by every path is owned by none — localize it
 
@@ -837,13 +838,13 @@ escalating fixes, both used in this repo:
   obligation once on the shared path (Phase 2, #1016 — the rawdb choke point: a new
   path has no way in except through it).
 - **Re-derive the obligation from state, not events**: redefine it as a function of
-  the *resulting* state, evaluated once at a terminal seam, making it independent of
+  the *resulting* state, evaluated once at a terminal check, making it independent of
   how the state arrived (Phase 3, #1017 — ingest invariants: "each side effect is
   defined as a function of the store and evaluated after every writer has
   finished"). Stronger than the funnel: it severs the event coupling instead of
   centralizing it.
 
-The caveat that bit anyway: **the seam must sit at the true convergence point.**
+The caveat that bit anyway: **the check must sit at the true convergence point.**
 Phase 3 attached evaluation to the syncer, but the syncer is a client of the store,
 not its funnel — the compactor's resume-and-write path bypassed the syncer while
 still reaching the sealed artifact (incremental branch). The point nothing can avoid
@@ -879,12 +880,12 @@ errorfs sweep (#1015; `pkg/dotc1z/engine/pebble/errorfs_sweep_test.go`).
   monotonic clock, so `IdleConnTimeout` never sees the gap while proxies time
   pooled connections out on the wall clock (#1005 — the fix measures the gap in
   wall-clock time, and its tests count connections to prove the pool was dropped).
-- **Seams are a design requirement.** Injection reaches only what flows through an
+- **Injection points are a design requirement.** Injection reaches only what flows through an
   interface (pebble vfs, session store, connector RPCs, contexts/clocks). Raw
   `os.*` IO is outside every fault domain — the sweep's own stated exclusion (the
   v3 envelope save) is an untested error path by construction. State exclusions
   explicitly; each one is a finding-in-waiting, and new IO should route through an
-  injectable seam rather than enlarge the exclusion list.
+  injectable hook rather than enlarge the exclusion list.
 - **Completeness must be provable.** The sweep arms at EndSync and raises k until
   an armed run completes without injecting anything — positive evidence the window
   was covered end-to-end. Prefer that shape over "we injected some faults."
@@ -892,10 +893,10 @@ errorfs sweep (#1015; `pkg/dotc1z/engine/pebble/errorfs_sweep_test.go`).
   known contract violation and watch the harness fail. A sweep that has never
   caught a planted bug is itself unverified code.
 - **Enumerate injection points mechanically, not from memory.** A hand-maintained
-  seam registry drifts exactly like §5.4's convention registries: the next commit
-  loop ships without a seam and its error path is dead code again. Prefer a
+  hook registry drifts exactly like §5.4's convention registries: the next commit
+  loop ships without a hook and its error path is dead code again. Prefer a
   meta-test that derives the commit/write call sites from the code (AST scan or
-  choke-point registration) and fails when one lacks a registered seam and a
+  choke-point registration) and fails when one lacks a registered hook and a
   failure-obligation test — the house idiom is `seamFailureCases` +
   `TestSeamsArmedOnlyInTests` in the pebble engine; SQLite's
   OOM-injection-at-every-allocation is the fully generalized form.
@@ -941,10 +942,10 @@ principles above concentrate, so audit each site against all six at once
 rather than rediscovering them one bug at a time. Every commit call site owes:
 
 1. **An executable failure.** Some instrument forces THIS commit to fail and
-   observes the aftermath. Each distinct commit loop is its own cut — a seam
+   observes the aftermath. Each distinct commit loop is its own cut — a hook
    on a sibling loop proves nothing here (§5.10; enforced mechanically by the
    pebble engine's commit-point registry meta-test, which fails when a commit
-   site ships without a seam route or a written exclusion).
+   site ships without a hook route or a written exclusion).
 2. **Failure re-converges derived state.** The batch is atomic; the flags,
    proofs, markers, and caches ABOUT the keyspace are not. A failed commit
    must invalidate every proof it may have falsified (§5.11).
@@ -966,7 +967,7 @@ rather than rediscovering them one bug at a time. Every commit call site owes:
    because a named downstream fence (checkpoint, envelope save, WAL sync
    point) fsyncs before anything depends on the write. This is the one
    obligation on this list with no mechanical check — the justification lives
-   in comments at each site, and the in-process error seams are only a proxy
+   in comments at each site, and the in-process error hooks are only a proxy
    for the real event (a crash between the halves of an ordering contract),
    which the errorfs sweep and crash-reopen tests carry for the paths they
    visit.
@@ -1057,7 +1058,7 @@ rather than rediscovering them one bug at a time. Every commit call site owes:
   - Pass 7 (concurrency): §1 + Pass 7 + §5.6
   - Fix-time agent: §4 + this section's failing-test-first and recurrence rules
   - Orchestrator (you): the whole document, read once.
-  A consequence: mild redundancy across sections is load-bearing — sliced readers
+  A consequence: mild redundancy across sections is required — sliced readers
   never see the other copies. Do not deduplicate it away.
 - Check merge-base age first; review what the change means on *current* main. Also
   confirm `git log base..head` contains exactly the intended commits before spending
@@ -1075,7 +1076,7 @@ rather than rediscovering them one bug at a time. Every commit call site owes:
   Schema, documentation, generation, and build defects may instead use the
   corresponding lint, compatibility check, static reproducer, or generated diff;
   record why a runtime regression test is not the right instrument. (Empirically
-  load-bearing on the fan-out branch: fix rounds stopped regressing when test-first
+  required on the fan-out branch: fix rounds stopped regressing when test-first
   became mandatory for its runtime bugs.)
 - Contracts check on any exported API touched: doc comments match actual behavior;
   functions whose names promise purity (Marshal, Get, Read) don't mutate arguments.
@@ -1117,7 +1118,7 @@ Evidence bullets cite recurring efforts by shorthand. PR numbers resolve with
   cross-version checkpoint resume that silently sealed an incomplete sync.
 - **Timeout effort** — lambda-timeout preservability work spanning this repo and
   the c1 host: retryable-timeout classification, preservable sync state, and the
-  host-side rewrap that stripped gRPC status. Source of the cross-repo seam
+  host-side rewrap that stripped gRPC status. Source of the cross-repo boundary
   evidence; its contract tests live on the consumer side.
 - **Sync-replay effort** — multi-model implementation-blind plan synthesis broadened
   the coverage model before freeze; repeated implementation review still supplied
