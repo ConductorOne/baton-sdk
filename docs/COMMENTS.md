@@ -38,12 +38,6 @@ front of you.
   another file; the same fact at the helper and at every call site is one
   comment and the rest are deletions. Before adding one, read what is
   already there, here and at the definition of whatever you are calling.
-- Most code is shaped only by what it does, and the clearer version is the
-  better one. Some code is shaped by something it cannot show: a hot path,
-  crash ordering, what the storage engine does with deleted bytes, a call
-  that is deliberately absent. There the obvious alternative is slower or
-  silently wrong, and the comment explaining the shape is a good comment.
-  A comment describing a novel algorithm is fine.
 
 ## Good comments
 
