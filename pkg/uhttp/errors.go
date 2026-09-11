@@ -13,8 +13,6 @@ import (
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-
-	"github.com/conductorone/baton-sdk/pkg/ratelimit"
 )
 
 // wrapTransientNetworkError mirrors Baton HTTP retry classification for callers
@@ -24,26 +22,13 @@ func wrapTransientNetworkError(err error) error {
 		return nil
 	}
 
-	// A transient token-endpoint status (429/5xx) stays retryable even if
-	// the body also carries a recognized RFC 6749 error param; otherwise
-	// the error param takes priority over the HTTP status, since some
-	// servers report it on a 200 and 400 is the spec default for
-	// invalid_client/invalid_grant, both of which GrpcCodeFromHTTPStatus
-	// alone would misclassify. This branch is total once errors.As matches,
-	// so a RetrieveError is never run through the network-error checks below.
+	// A rejected token request is classified in oauth2.go, from the RFC 6749
+	// error param rather than the HTTP status alone. This branch is total
+	// once errors.As matches, so a RetrieveError is never run through the
+	// network-error checks below.
 	var retrieveErr *oauth2.RetrieveError
 	if errors.As(err, &retrieveErr) {
-		if retrieveErr.Response != nil && isTransientHTTPStatus(retrieveErr.Response.StatusCode) {
-			return wrapTransientOAuthTokenError(retrieveErr, err)
-		}
-		if code, ok := oauthTokenErrorCode(retrieveErr.ErrorCode); ok {
-			return WrapErrors(code, oauthTokenErrorMessage(retrieveErr), err)
-		}
-		code := codes.Unknown
-		if retrieveErr.Response != nil {
-			code = GrpcCodeFromHTTPStatus(retrieveErr.Response.StatusCode)
-		}
-		return WrapErrors(code, oauthTokenErrorMessage(retrieveErr), err)
+		return classifyOAuth2RetrieveError(retrieveErr, err)
 	}
 
 	if errors.Is(err, io.ErrUnexpectedEOF) {
@@ -56,16 +41,16 @@ func wrapTransientNetworkError(err error) error {
 		return WrapErrors(codes.Unavailable, "connection closed before response", err)
 	}
 	if isConnectionReset(err) {
-		return WrapErrors(codes.Unavailable, "connection reset", err)
+		return wrapSocketClass(socketReset, err)
 	}
 	if isConnectionRefused(err) {
-		return WrapErrors(codes.Unavailable, "connection refused", err)
+		return wrapSocketClass(socketRefused, err)
 	}
 	if isBrokenPipe(err) {
-		return WrapErrors(codes.Unavailable, "broken pipe", err)
+		return wrapSocketClass(socketBrokenPipe, err)
 	}
 	if isNetworkUnreachable(err) {
-		return WrapErrors(codes.Unavailable, "network unreachable", err)
+		return wrapSocketClass(socketNetworkUnreachable, err)
 	}
 
 	var dnsErr *net.DNSError
@@ -114,67 +99,57 @@ func wrapTransientNetworkError(err error) error {
 	return err
 }
 
-// isTransientHTTPStatus reports whether GrpcCodeFromHTTPStatus maps
-// statusCode to a code retry.Retryer.ShouldWaitAndRetry treats as retryable
-// (Unavailable or DeadlineExceeded), so a transient token-endpoint failure
-// stays retryable regardless of what error param the body also carries.
-func isTransientHTTPStatus(statusCode int) bool {
-	switch GrpcCodeFromHTTPStatus(statusCode) {
-	case codes.Unavailable, codes.DeadlineExceeded:
-		return true
-	default:
-		return false
-	}
+// socketClass groups the socket failures the platform predicates in
+// errors_other.go and errors_windows.go match. Each platform lists the
+// errnos it spells a class with in transientSocketConditions, so the
+// predicates, the messages wrapTransientNetworkError attaches, and the
+// text-only table in oauth2.go all derive from one list and cannot drift
+// apart.
+type socketClass int
+
+const (
+	socketReset socketClass = iota
+	socketRefused
+	socketBrokenPipe
+	socketNetworkUnreachable
+	socketTimeout
+)
+
+// socketCondition is one platform spelling of a socketClass.
+type socketCondition struct {
+	err   error
+	class socketClass
 }
 
-// wrapTransientOAuthTokenError mirrors WrapErrorsWithRateLimitInfo's detail
-// attachment (retry.Retryer reads it for rate-limit-aware backoff), while
-// keeping ErrorDescription in the message the way oauthTokenErrorMessage
-// does elsewhere in this file.
-func wrapTransientOAuthTokenError(retrieveErr *oauth2.RetrieveError, err error) error {
-	msg := retrieveErr.Response.Status
-	if retrieveErr.ErrorDescription != "" {
-		msg = fmt.Sprintf("%s: %s", msg, retrieveErr.ErrorDescription)
-	}
-	st := status.New(GrpcCodeFromHTTPStatus(retrieveErr.Response.StatusCode), msg)
-	if description, rlErr := ratelimit.ExtractRateLimitData(retrieveErr.Response.StatusCode, &retrieveErr.Response.Header); rlErr == nil {
-		if withDetails, detailsErr := st.WithDetails(description); detailsErr == nil {
-			st = withDetails
+// socketClassifications is the classification each class receives.
+// socketTimeout's message is reached only from oauth2.go's text-only table:
+// on the typed path a timeout is caught by the net.Error branch below (or by
+// isSocketTimeout on Windows), which keeps the underlying error in the
+// message.
+var socketClassifications = map[socketClass]struct {
+	code codes.Code
+	msg  string
+}{
+	socketReset:              {code: codes.Unavailable, msg: "connection reset"},
+	socketRefused:            {code: codes.Unavailable, msg: "connection refused"},
+	socketBrokenPipe:         {code: codes.Unavailable, msg: "broken pipe"},
+	socketNetworkUnreachable: {code: codes.Unavailable, msg: "network unreachable"},
+	socketTimeout:            {code: codes.DeadlineExceeded, msg: "network timeout"},
+}
+
+// hasSocketClass reports whether err is any platform spelling of class.
+func hasSocketClass(err error, class socketClass) bool {
+	for _, condition := range transientSocketConditions {
+		if condition.class == class && errors.Is(err, condition.err) {
+			return true
 		}
 	}
-	return errors.Join(st.Err(), err)
+	return false
 }
 
-// oauthTokenErrorCode maps an RFC 6749 §5.2 token-error "error" parameter to
-// a grpc code. ok is false when errCode is empty or unrecognized, signaling
-// the caller to fall back to the HTTP status.
-func oauthTokenErrorCode(errCode string) (codes.Code, bool) {
-	switch errCode {
-	case "invalid_client", "invalid_grant":
-		return codes.Unauthenticated, true
-	case "unauthorized_client", "access_denied":
-		return codes.PermissionDenied, true
-	case "invalid_scope", "invalid_request", "unsupported_grant_type", "unsupported_response_type":
-		return codes.InvalidArgument, true
-	default:
-		return codes.Unknown, false
-	}
-}
-
-// oauthTokenErrorMessage prefers the RFC 6749 error/error_description pair
-// the token endpoint sent, since that survives even when the HTTP status
-// alone would be misleading (e.g. a 200 response carrying an error body).
-func oauthTokenErrorMessage(retrieveErr *oauth2.RetrieveError) string {
-	switch {
-	case retrieveErr.ErrorCode != "" && retrieveErr.ErrorDescription != "":
-		return fmt.Sprintf("%s: %s", retrieveErr.ErrorCode, retrieveErr.ErrorDescription)
-	case retrieveErr.ErrorCode != "":
-		return retrieveErr.ErrorCode
-	case retrieveErr.Response != nil:
-		return retrieveErr.Response.Status
-	default:
-		return "oauth2 token request failed"
-	}
+func wrapSocketClass(class socketClass, err error) error {
+	classification := socketClassifications[class]
+	return WrapErrors(classification.code, classification.msg, err)
 }
 
 func isHTTP2ClientConnectionLost(err error) bool {
