@@ -791,7 +791,10 @@ func (g pebbleStoreGrants) AddExpandedGrantLayerContributions(ctx context.Contex
 	if !ok {
 		return fmt.Errorf("expanded grant layer: store does not support layer sessions")
 	}
-	return fast.AddExpandedGrantLayerContributions(ctx, dest, principals, sources)
+	// A segment that fills mid-layer is ingested into the live keyspace here,
+	// and the first Add arms the deferred by_principal rebuild, so this
+	// mutates the file before Finish is ever called.
+	return g.store.markDirty(fast.AddExpandedGrantLayerContributions(ctx, dest, principals, sources))
 }
 
 func (g pebbleStoreGrants) FinishExpandedGrantLayer(ctx context.Context) error {

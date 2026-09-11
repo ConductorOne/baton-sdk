@@ -11,10 +11,12 @@ package dotc1z
 // that, because the method it would have to call does not exist yet.
 //
 // So the check is over the method SET: every method of
-// c1zstore.PageLedgerStore and c1zstore.SyncStatsStore must be classified
-// here, and every one classified as a write must be declared on
-// *pebbleStore with markDirty in its body. Adding a method to either
-// interface fails this test until its author classifies it.
+// c1zstore.PageLedgerStore, c1zstore.SyncStatsStore and
+// pebbleStoreGrantLayerStorer must be classified here, and every one
+// classified as a write must be declared with markDirty in its body — on
+// *pebbleStore for the first two, on pebbleStoreGrants for the layer
+// session. Adding a method to any of them fails this test until its author
+// classifies it.
 //
 // C22/C24 in docs/verification/page-ledger/plan.md.
 
@@ -65,6 +67,12 @@ var capabilityMethods = map[string]struct {
 	// SyncStatsStore.
 	"PutCounterBucket": {dirtyWrite, "blind-writes the bucket"},
 	"EndSyncWithStats": {dirtyWrite, "the seal: scrub, purge, stamp, ended_at, stats sidecar"},
+
+	// pebbleStoreGrantLayerStorer.
+	"BeginExpandedGrantLayer":            {dirtyRead, "allocates an in-memory session; the first Add is what touches the file"},
+	"AddExpandedGrantLayerContributions": {dirtyWrite, "ingests a filled segment into the live keyspace and arms the deferred by_principal rebuild, both before Finish"},
+	"FinishExpandedGrantLayer":           {dirtyWrite, "publishes the layer"},
+	"AbortExpandedGrantLayer":            {dirtyRead, "drops staged chunks and the temp dir; the ingested segments it leaves behind were marked by Add"},
 }
 
 // pebbleStoreMethods returns, for each method declared on *pebbleStore and
@@ -83,11 +91,11 @@ func pebbleStoreMethods(t *testing.T) map[string]bool {
 				if !ok || fn.Recv == nil || len(fn.Recv.List) == 0 {
 					continue
 				}
-				star, ok := fn.Recv.List[0].Type.(*ast.StarExpr)
-				if !ok {
-					continue
+				recv := fn.Recv.List[0].Type
+				if star, ok := recv.(*ast.StarExpr); ok {
+					recv = star.X
 				}
-				ident, ok := star.X.(*ast.Ident)
+				ident, ok := recv.(*ast.Ident)
 				if !ok {
 					continue
 				}
@@ -97,6 +105,8 @@ func pebbleStoreMethods(t *testing.T) map[string]bool {
 					key = fn.Name.Name
 				case "dirtyPageWriter":
 					key = "dirtyPageWriter." + fn.Name.Name
+				case "pebbleStoreGrants":
+					key = "pebbleStoreGrants." + fn.Name.Name
 				default:
 					continue
 				}
@@ -118,10 +128,18 @@ func TestPebbleStoreDirtyCoverage(t *testing.T) {
 	declared := pebbleStoreMethods(t)
 
 	var unclassified []string
-	for _, iface := range []reflect.Type{
-		reflect.TypeOf((*c1zstore.PageLedgerStore)(nil)).Elem(),
-		reflect.TypeOf((*c1zstore.SyncStatsStore)(nil)).Elem(),
+	// recv is the type whose method carries the mark for that interface: the
+	// two store capabilities are satisfied by *pebbleStore itself, the layer
+	// session by the value Grants() returns.
+	for _, capability := range []struct {
+		iface reflect.Type
+		recv  string
+	}{
+		{reflect.TypeOf((*c1zstore.PageLedgerStore)(nil)).Elem(), "*pebbleStore"},
+		{reflect.TypeOf((*c1zstore.SyncStatsStore)(nil)).Elem(), "*pebbleStore"},
+		{reflect.TypeOf((*pebbleStoreGrantLayerStorer)(nil)).Elem(), "pebbleStoreGrants"},
 	} {
+		iface := capability.iface
 		for i := 0; i < iface.NumMethod(); i++ {
 			name := iface.Method(i).Name
 			spec, ok := capabilityMethods[name]
@@ -129,15 +147,20 @@ func TestPebbleStoreDirtyCoverage(t *testing.T) {
 				unclassified = append(unclassified, iface.String()+"."+name)
 				continue
 			}
+			lookup := name
+			if capability.recv == "pebbleStoreGrants" {
+				lookup = capability.recv + "." + name
+			}
 			switch spec.kind {
 			case dirtyWrite:
-				marks, found := declared[name]
+				marks, found := declared[lookup]
 				require.Truef(t, found,
-					"%s.%s mutates the file (%s) but *pebbleStore does not declare it, so it is promoted from the embedded "+
+					"%s.%s mutates the file (%s) but %s does not declare it, so it is promoted from the embedded "+
 						"*pebble.Engine and skips markDirty: the mutation lands in pebble and Close drops it without save()",
-					iface.String(), name, spec.why)
+					iface.String(), name, spec.why, capability.recv)
 				require.Truef(t, marks,
-					"*pebbleStore.%s is declared but its body never reaches markDirty, so its write does not reach the c1z", name)
+					"%s.%s is declared but its body never reaches markDirty, so its write does not reach the c1z",
+					capability.recv, name)
 			case dirtyDeferred:
 				marks, found := declared["dirtyPageWriter."+"Commit"]
 				require.Truef(t, found && marks,
