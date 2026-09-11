@@ -136,8 +136,10 @@ page.
   route by consequence as in `docs/REVIEW_CHECKLIST.md`. Everything else is
   unsaid unless it would change what a reader does; then it is
   non-blocking.
-- One round per code comment. If the reworded version is still imprecise,
-  propose the exact text or drop it. Do not open a second thread on it.
+- One round per code comment by default. If the reworded version is still
+  imprecise, propose the exact text or drop it. A second thread is for a fix
+  that introduced something new that would mislead a reader, not for
+  wording that is still not quite right.
 
 ## Fixing review findings
 
