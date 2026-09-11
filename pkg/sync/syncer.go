@@ -7,10 +7,8 @@ import (
 	"fmt"
 	"io"
 	"iter"
-	"os"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	native_sync "sync"
 	"sync/atomic"
@@ -51,8 +49,6 @@ import (
 )
 
 var tracer = otel.Tracer("baton-sdk/sync")
-
-var dontFixCycles, _ = strconv.ParseBool(os.Getenv("BATON_DONT_FIX_CYCLES"))
 
 var ErrSyncNotComplete = fmt.Errorf("sync exited without finishing")
 var ErrTooManyWarnings = fmt.Errorf("too many warnings, exiting sync")
@@ -2574,9 +2570,7 @@ func (s *syncer) fixEntitlementGraphCycles(ctx context.Context, graph *expand.En
 		zap.Int("depth", graph.Depth),
 		zap.Bool("has_no_cycles", graph.HasNoCycles),
 	)
-	if dontFixCycles {
-		return fmt.Errorf("cycles detected in entitlement graph")
-	}
+
 	return graph.FixCyclesFromComponents(ctx, comps)
 }
 
