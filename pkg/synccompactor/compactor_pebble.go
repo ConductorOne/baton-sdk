@@ -22,6 +22,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
+	sdksync "github.com/conductorone/baton-sdk/pkg/sync"
 	mergepkg "github.com/conductorone/baton-sdk/pkg/synccompactor/pebble"
 )
 
@@ -503,7 +504,8 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// ingest's totals in as though they were this artifact's.
 	//
 	// DropLedger, not ResetForNewSync: drop the trace and keep the
-	// records, which is the caller DropLedger's comment names.
+	// records. This is the compaction-output caller DropLedger's own doc
+	// names.
 	if err := destEng.DropLedger(ctx); err != nil {
 		return "", fmt.Errorf("compactPebbleFold: drop inherited base ledger: %w", err)
 	}
@@ -790,6 +792,19 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// below replace it. Best-effort: a base without a sidecar just
 	// contributes no timings.
 	baseStats := readSourceSyncStats(ctx, destEng, baseSyncID)
+	// The record being renamed is the BASE's, so its token can still carry
+	// a compaction section an older SDK wrote describing the base's own
+	// compaction. Strip just that section: provenance now lives in
+	// SyncStatsRecord.compaction (set below), and an inherited section
+	// reads as this artifact's provenance while naming another one's mode,
+	// base and counts. The token's resume state and timing stats stay,
+	// because PersistSyncStats still falls back to them when a sync has no
+	// stats overlay. Best-effort, like the provenance write itself.
+	if tok, err := sdksync.ClearCompactionSection(baseRec.GetSyncToken()); err != nil {
+		l.Warn("compactPebbleFold: could not strip the base's inherited compaction token section", zap.Error(err))
+	} else {
+		baseRec.SetSyncToken(tok)
+	}
 	// PutSyncRunRecord overwrites the single fixed sync-run key, so the
 	// file's one sync-run record now carries newSyncID. (The compactor
 	// GetSync's this id right after and asserts it matches — the
@@ -1352,6 +1367,15 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 		if err := destEng.PersistComputedSyncStats(ctx, newSyncId, statsRec); err != nil {
 			return fmt.Errorf("compactPebble: persist stats: %w", err)
 		}
+	}
+	// Same reason as the fold path: a k-way or overlay output must not
+	// report a compaction section it did not write. These outputs merge
+	// into a fresh store so the token is normally empty already, which
+	// ClearCompactionSection returns unchanged.
+	if tok, err := sdksync.ClearCompactionSection(rec.GetSyncToken()); err != nil {
+		l.Warn("compactPebble: could not strip an inherited compaction token section", zap.Error(err))
+	} else {
+		rec.SetSyncToken(tok)
 	}
 	if err := destEng.PutSyncRunRecord(ctx, rec); err != nil {
 		return fmt.Errorf("compactPebble: persist dest sync_run: %w", err)

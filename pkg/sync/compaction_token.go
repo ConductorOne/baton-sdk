@@ -71,6 +71,11 @@ type CompactionTokenInput struct {
 // stats are preserved as the starting point. Chained compactions accumulate:
 // the original StatsSyncID, the uncapped partial count, and already-folded
 // top-level timings carry forward; new partials are added on top.
+//
+// Deprecated: compaction provenance is written to
+// SyncStatsRecord.compaction (the stats sidecar) instead, and nothing in
+// this repo calls this. Read provenance with
+// enginepkg.ReadSyncStatsRecord followed by GetCompaction().
 func BuildCompactedToken(baseToken string, in CompactionTokenInput) (string, error) {
 	st := newState()
 	if baseToken != "" {
@@ -147,8 +152,40 @@ func foldPartialTimings(st *state, token string) {
 	}
 }
 
+// ClearCompactionSection returns token with its compaction provenance
+// section removed and everything else — resume state, skip flags, timing
+// stats — left alone. A compacted output must not ship the section it
+// inherited from its base: that copy describes the BASE's compaction, so a
+// reader would take the wrong mode, base id and counts for this artifact.
+// Absent is the honest answer, and it sends the reader to
+// SyncStatsRecord.compaction where the provenance now lives.
+//
+// An empty token stays empty rather than round-tripping, because
+// Unmarshal("") seeds an InitOp action to drive a fresh sync, which a
+// finished compacted output must not carry (same reason
+// BuildCompactedToken skips it).
+func ClearCompactionSection(token string) (string, error) {
+	if token == "" {
+		return "", nil
+	}
+	st := newState()
+	if err := st.Unmarshal(token); err != nil {
+		return "", err
+	}
+	if st.compaction == nil {
+		return token, nil
+	}
+	st.compaction = nil
+	return st.Marshal()
+}
+
 // CompactionStatsFromToken returns the compaction provenance section of a
 // marshalled sync token, or nil when the token is empty or carries none.
+//
+// Deprecated: provenance moved to SyncStatsRecord.compaction (the stats
+// sidecar). This returns nil for anything compacted by this SDK or later —
+// the section is no longer written, and compaction strips an inherited one
+// through ClearCompactionSection. Kept for reading older artifacts.
 func CompactionStatsFromToken(token string) (*CompactionTokenStats, error) {
 	if token == "" {
 		return nil, nil
