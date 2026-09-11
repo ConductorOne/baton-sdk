@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/stretchr/testify/require"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -379,6 +380,77 @@ func TestFailedSealDropsItsStatsOverlay(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(9), stats.GetStepDurationsMs()["list-grants"],
 		"the retry's stats, not the failed attempt's")
+}
+
+// A page begun under one sync must not commit into another.
+//
+// BeginPage captures the sync open at the time; Commit's
+// requireCurrentSync only asserts that SOME sync is open. A page lives
+// for seconds to minutes, long enough to straddle an EndSync followed by
+// a StartNewSync, and the rebound engine is unsealed again — so without
+// an equality check the previous run's buffered records land in the
+// replacement sync and the ledger row enumerates a page that run never
+// ran. v3 records carry no sync id (the field is reserved in
+// records.proto and the keyspace holds one sync at a time), so once they
+// land nothing distinguishes them from the new run's own rows.
+func TestPageUnitCommitRefusesAForeignSync(t *testing.T) {
+	ctx := context.Background()
+
+	// The page's staged content, identical in both arms, so the arms
+	// differ only in whether the sync was replaced under the unit.
+	stage := func(t *testing.T, u *PageUnit) {
+		t.Helper()
+		require.NoError(t, u.StageResources(ledgerTestResource("user", "u1")))
+	}
+
+	t.Run("same sync: commits", func(t *testing.T) {
+		e, _ := newTestEngine(t)
+		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+
+		u := e.NewPageUnit()
+		stage(t, u)
+		require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil),
+			"premise: this page commits when its sync is still the open one")
+		_, err = e.GetResourceRecord(ctx, "user", "u1")
+		require.NoError(t, err)
+	})
+
+	t.Run("sync replaced under the page: refused, nothing lands", func(t *testing.T) {
+		e, _ := newTestEngine(t)
+		syncA, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+
+		u := e.NewPageUnit()
+		stage(t, u)
+
+		// A finishes and B replaces it while the page is still buffering.
+		// Plain EndSync is available because the page has not committed,
+		// so A never became ledgered.
+		require.NoError(t, e.EndSync(ctx))
+		syncB, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+		require.NotEqual(t, syncA, syncB)
+
+		id := grantsPageIdentity("github", "p1")
+		err = u.Commit(ctx, id, nil)
+		require.ErrorIs(t, err, ErrPageUnitForeignSync)
+		require.Contains(t, err.Error(), syncA, "the error names the sync the page was begun under")
+		require.Contains(t, err.Error(), syncB, "and the one open now")
+
+		// A refused commit is a page that never ran: no records, no row.
+		_, err = e.GetResourceRecord(ctx, "user", "u1")
+		require.ErrorIs(t, err, pebble.ErrNotFound, "A's buffered rows must not land in B")
+		_, err = e.GetLedgerRowRecord(ctx, id)
+		require.ErrorIs(t, err, pebble.ErrNotFound, "and B's ledger must not claim a page A ran")
+		require.False(t, e.ledgerInFlight.Load(),
+			"a refused commit must not leave B stamped in flight")
+
+		// The unit is not spent: the refusal is the same on a retry, and
+		// the buffer is still there to be retried with.
+		require.ErrorIs(t, u.Commit(ctx, id, nil), ErrPageUnitForeignSync)
+		require.False(t, u.Empty())
+	})
 }
 
 // ResetLedger must mark the store dirty; see the store-level test in

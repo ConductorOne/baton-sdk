@@ -12,6 +12,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"time"
 
@@ -269,9 +270,15 @@ func msToDuration(ms uint64) time.Duration {
 	return time.Duration(ms) * time.Millisecond
 }
 
+// ledgerCountersToProto copies every map it takes. The bucket it builds is
+// held by StageCounterBucket until the page's Commit, which is seconds to
+// minutes later, and that method's doc says the caller keeps owning the
+// cache — so an aliased map would let a worker's later increment change
+// what gets marshaled, and race the marshal if the cache is touched
+// off-worker.
 func ledgerCountersToProto(c c1zstore.LedgerCounters) *v3.LedgerCounterBucket {
 	return v3.LedgerCounterBucket_builder{
-		Counters:        c.Counters,
+		Counters:        maps.Clone(c.Counters),
 		Flags:           c.Flags,
 		ConnectorCalls:  callStatsToProto(c.ConnectorCalls),
 		StepDurationsMs: cloneInt64Map(c.StepDurationsMs),
