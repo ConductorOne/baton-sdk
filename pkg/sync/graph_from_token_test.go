@@ -20,9 +20,7 @@ func TestGraphFromToken(t *testing.T) {
 
 	// Hand-build the legacy inline-graph token shape. Checkpoints no longer
 	// carry the graph, but readers must remain compatible with older tokens.
-	st := newState()
-	st.entitlementGraph = g
-	token := marshalLegacyInlineGraphToken(t, st)
+	token := marshalLegacyInlineGraphToken(t, newRunState(), g)
 
 	loaded, err := GraphFromToken(token)
 	require.NoError(t, err)
@@ -34,9 +32,7 @@ func TestGraphFromToken(t *testing.T) {
 
 // TestGraphFromToken_Empty: a token with no graph yields nil, not an error.
 func TestGraphFromToken_Empty(t *testing.T) {
-	st := newState()
-	token, err := st.Marshal()
-	require.NoError(t, err)
+	token := encodeTestRun(t, newRunState(), newRunStats())
 
 	loaded, err := GraphFromToken(token)
 	require.NoError(t, err)
@@ -62,9 +58,7 @@ func TestPrepareExpansionReplayToken_DropsInlineGraph(t *testing.T) {
 
 	// Hand-build the legacy inline-graph token shape so replay compatibility
 	// is exercised even though checkpoints no longer carry graphs.
-	st := newState()
-	st.entitlementGraph = g
-	token := marshalLegacyInlineGraphToken(t, st)
+	token := marshalLegacyInlineGraphToken(t, newRunState(), g)
 	// Sanity: the token really does carry a graph.
 	pre, err := GraphFromToken(token)
 	require.NoError(t, err)

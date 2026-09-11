@@ -10,17 +10,15 @@ import (
 
 func marshalledStatsToken(t *testing.T, stepMs map[string]time.Duration, calls map[string]time.Duration) string {
 	t.Helper()
-	st := newState()
-	st.SetShouldSkipGrants()
+	run, stats, _ := newTestRun()
+	run.setFact(factShouldSkipGrants)
 	for bucket, d := range stepMs {
-		st.AddStepDuration(bucket, d)
+		stats.addStepDuration(bucket, d)
 	}
 	for method, d := range calls {
-		st.RecordConnectorCall(method, d)
+		stats.recordConnectorCall(method, d)
 	}
-	token, err := st.Marshal()
-	require.NoError(t, err)
-	return token
+	return encodeTestRun(t, run, stats)
 }
 
 func TestBuildCompactedTokenFold(t *testing.T) {
@@ -48,13 +46,12 @@ func TestBuildCompactedTokenFold(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	st := newState()
-	require.NoError(t, st.Unmarshal(token))
+	run, stats, _ := decodeTestRun(t, token)
 	// Resume state survives; timings are base + partials.
-	require.True(t, st.ShouldSkipGrants())
-	require.EqualValues(t, (98 * time.Minute).Milliseconds(), st.StepDurations()["list-grants"])
-	require.EqualValues(t, time.Minute.Milliseconds(), st.StepDurations()["rate_limit_wait"])
-	require.EqualValues(t, 3, st.ConnectorCallStats()["list-grants"].Count)
+	require.True(t, run.hasFact(factShouldSkipGrants))
+	require.EqualValues(t, (98 * time.Minute).Milliseconds(), stats.stepDurations()["list-grants"])
+	require.EqualValues(t, time.Minute.Milliseconds(), stats.stepDurations()["rate_limit_wait"])
+	require.EqualValues(t, 3, stats.connectorCallStats()["list-grants"].Count)
 
 	comp, err := CompactionStatsFromToken(token)
 	require.NoError(t, err)
@@ -90,10 +87,9 @@ func TestBuildCompactedTokenChainedFoldPreservesOriginalAttribution(t *testing.T
 	})
 	require.NoError(t, err)
 
-	st := newState()
-	require.NoError(t, st.Unmarshal(second))
+	_, stats, _ := decodeTestRun(t, second)
 	// Top-level timings accumulate across chained folds.
-	require.EqualValues(t, (13 * time.Minute).Milliseconds(), st.StepDurations()["list-resources"])
+	require.EqualValues(t, (13 * time.Minute).Milliseconds(), stats.stepDurations()["list-resources"])
 
 	comp, err := CompactionStatsFromToken(second)
 	require.NoError(t, err)
@@ -115,11 +111,10 @@ func TestBuildCompactedTokenEmptyBase(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	st := newState()
-	require.NoError(t, st.Unmarshal(token))
+	run, stats, _ := decodeTestRun(t, token)
 	// A rebuild output's token must not carry a pending action stack.
-	require.Nil(t, st.Current())
-	require.Empty(t, st.StepDurations())
+	require.Nil(t, run.current())
+	require.Empty(t, stats.stepDurations())
 
 	comp, err := CompactionStatsFromToken(token)
 	require.NoError(t, err)
@@ -156,9 +151,8 @@ func TestBuildCompactedTokenIgnoresUnparseablePartials(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	st := newState()
-	require.NoError(t, st.Unmarshal(token))
-	require.Empty(t, st.StepDurations())
+	_, stats, _ := decodeTestRun(t, token)
+	require.Empty(t, stats.stepDurations())
 
 	comp, err := CompactionStatsFromToken(token)
 	require.NoError(t, err)

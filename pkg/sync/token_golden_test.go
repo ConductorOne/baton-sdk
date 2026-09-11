@@ -60,6 +60,7 @@ func goldenTokenCases() []goldenTokenCase {
 		{file: "v1_fact_should_skip_grants.json"},
 		{file: "v1_facts_all.json", needsExpansion: true},
 		{file: "v1_run_stats.json"},
+		{file: "v1_action_counts.json"},
 		{
 			file: "v1_compaction.json",
 			compaction: &CompactionTokenStats{

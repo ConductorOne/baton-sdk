@@ -378,27 +378,24 @@ func TestCollectEnqueuedPageTokensAcceptsMaximumCount(t *testing.T) {
 
 func TestSpawnedActionsCoexistWithOriginContinuation(t *testing.T) {
 	ctx := context.Background()
-	st := newState()
-	require.NoError(t, st.Unmarshal(""))
-	st.FinishAction(ctx, st.Current())
-	st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "group-1"})
-	origin := st.Current()
-	s := &syncer{state: st}
+	st, _, _ := decodeTestRun(t, "")
+	st.finishAction(ctx, st.current())
+	st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "group-1"})
+	origin := st.current()
+	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph()}
 	require.NoError(t, s.nextPageOrFinishAction(ctx, origin, "origin-next",
 		Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "group-1", PageToken: "sibling-1", Spawned: true},
 		Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "group-1", PageToken: "sibling-2", Spawned: true},
 	))
 
-	token, err := st.Marshal()
-	require.NoError(t, err)
-	resumed := newState()
-	require.NoError(t, resumed.Unmarshal(token))
+	token := encodeTestRun(t, st, newRunStats())
+	resumed, _, _ := decodeTestRun(t, token)
 
 	seen := map[string]Action{}
-	for resumed.Current() != nil {
-		action := *resumed.Current()
+	for resumed.current() != nil {
+		action := *resumed.current()
 		seen[action.PageToken] = action
-		resumed.FinishAction(ctx, &action)
+		resumed.finishAction(ctx, &action)
 	}
 	require.Len(t, seen, 3)
 	require.False(t, seen["origin-next"].Spawned)
@@ -408,10 +405,9 @@ func TestSpawnedActionsCoexistWithOriginContinuation(t *testing.T) {
 
 func TestSpawnedActionsSurviveCheckpoint(t *testing.T) {
 	ctx := context.Background()
-	st := newState()
-	require.NoError(t, st.Unmarshal(""))
-	st.FinishAction(ctx, st.Current())
-	st.PushAction(ctx, Action{
+	st, _, _ := decodeTestRun(t, "")
+	st.finishAction(ctx, st.current())
+	st.pushAction(ctx, Action{
 		Op:             SyncEntitlementsOp,
 		ResourceTypeID: "group",
 		PageToken:      "chunk-1",
@@ -419,27 +415,24 @@ func TestSpawnedActionsSurviveCheckpoint(t *testing.T) {
 		TypeScoped:     true,
 	})
 
-	token, err := st.Marshal()
-	require.NoError(t, err)
-	resumed := newState()
-	require.NoError(t, resumed.Unmarshal(token))
-	require.NotNil(t, resumed.Current())
-	require.True(t, resumed.Current().Spawned)
-	require.True(t, resumed.Current().TypeScoped)
-	require.Equal(t, "chunk-1", resumed.Current().PageToken)
+	token := encodeTestRun(t, st, newRunStats())
+	resumed, _, _ := decodeTestRun(t, token)
+	require.NotNil(t, resumed.current())
+	require.True(t, resumed.current().Spawned)
+	require.True(t, resumed.current().TypeScoped)
+	require.Equal(t, "chunk-1", resumed.current().PageToken)
 }
 
 func TestSpawnedCursorJoinsActiveParallelBatch(t *testing.T) {
 	ctx := t.Context()
-	st := newState()
-	require.NoError(t, st.Unmarshal(""))
-	st.FinishAction(ctx, st.Current())
+	st, _, _ := decodeTestRun(t, "")
+	st.finishAction(ctx, st.current())
 	origin := st.pushAction(ctx, Action{
 		Op:             SyncGrantsOp,
 		ResourceTypeID: "group",
 		ResourceID:     "group-1",
 	})
-	s := &syncer{state: st, cfg: syncConfig{workerCount: 2}}
+	s := &syncer{run: st, stats: newRunStats(), graph: newExpansionGraph(), cfg: syncConfig{workerCount: 2}}
 	childStarted := make(chan struct{})
 
 	f := func(ctx context.Context, action *Action) error {
@@ -454,12 +447,12 @@ func TestSpawnedCursorJoinsActiveParallelBatch(t *testing.T) {
 			})
 		case "sibling":
 			close(childStarted)
-			s.state.FinishAction(ctx, action)
+			s.run.finishAction(ctx, action)
 			return nil
 		case "origin-next":
 			select {
 			case <-childStarted:
-				s.state.FinishAction(ctx, action)
+				s.run.finishAction(ctx, action)
 				return nil
 			case <-time.After(2 * time.Second):
 				return fmt.Errorf("spawned cursor did not join the active worker batch")
@@ -471,7 +464,7 @@ func TestSpawnedCursorJoinsActiveParallelBatch(t *testing.T) {
 
 	_, err := s.syncParallel(ctx, retry.NewRetryer(ctx, retry.RetryConfig{}), []*Action{origin}, f)
 	require.NoError(t, err)
-	require.Nil(t, st.Current())
+	require.Nil(t, st.current())
 }
 
 func TestParallelActionQueueReleasesDequeuedStorage(t *testing.T) {
@@ -580,9 +573,9 @@ func TestTargetedResourceSchedulingFailureLeavesParentAndNoFollowups(t *testing.
 	require.NoError(t, err)
 	require.Error(t, s.Sync(ctx))
 
-	internalState := s.(*syncer).state.(*state)
+	internalRun := s.(*syncer).run
 	var targetedActions, followupActions int
-	for _, action := range internalState.actions {
+	for _, action := range internalRun.actions {
 		switch action.Op {
 		case SyncTargetedResourceOp:
 			targetedActions++

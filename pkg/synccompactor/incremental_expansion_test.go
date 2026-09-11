@@ -899,7 +899,7 @@ func TestCompactor_IncrementalDegradesGracefullyOnSQLite(t *testing.T) {
 
 	// SQLite has no graph sidecar, so a preserved graph would have nowhere to
 	// go. Pin that the final token carries no graph (enforced twice over:
-	// graph preservation is Pebble-gated in expandGrants, and state.Marshal
+	// graph preservation is Pebble-gated in expandGrants, and marshalToken
 	// drops the graph from every token it writes).
 	store, err := dotc1z.NewStore(ctx, out.FilePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
 	require.NoError(t, err)

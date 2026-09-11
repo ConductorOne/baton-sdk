@@ -277,13 +277,12 @@ func TestSessionStatsEndToEndOverGRPC(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, syncer.Close(ctx))
 
-	completedState := newState()
-	require.NoError(t, completedState.Unmarshal(token))
+	_, completedState, _ := decodeTestRun(t, token)
 
 	// The grant collection ran once (one repo resource): the connector's
 	// session ops crossed the gRPC hop as a response annotation and were
 	// folded into the token under connector.-prefixed ops.
-	sessionStats := completedState.SessionStoreStats()
+	sessionStats := completedState.sessionStoreStats()
 	require.EqualValues(t, 1, sessionStats["connector.set"].Count)
 	// Two gets: the cursor read-back plus the missing-key probe. Misses are
 	// not errors, so both land as clean ops.
@@ -292,6 +291,6 @@ func TestSessionStatsEndToEndOverGRPC(t *testing.T) {
 	require.Zero(t, sessionStats["connector.get"].Timeouts)
 
 	// Ordinary timing stats coexist with the session stats.
-	require.Contains(t, completedState.StepDurations(), SyncGrantsOp.String())
-	require.NotZero(t, completedState.ConnectorCallStats()["list-grants"].Count)
+	require.Contains(t, completedState.stepDurations(), SyncGrantsOp.String())
+	require.NotZero(t, completedState.connectorCallStats()["list-grants"].Count)
 }

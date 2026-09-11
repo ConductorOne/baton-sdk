@@ -219,11 +219,11 @@ func observeExternalMatch(
 	)
 	require.NoError(t, store.PutGrants(ctx, carrier))
 
-	state := newState()
-	state.SetHasExternalResourcesGrants()
-	state.PushAction(ctx, Action{Op: SyncExternalResourcesOp})
+	run := newRunState()
+	run.setFact(factHasExternalResourceGrants)
+	run.pushAction(ctx, Action{Op: SyncExternalResourcesOp})
 
-	syncer := &syncer{state: state}
+	syncer := &syncer{run: run, stats: newRunStats(), graph: newExpansionGraph()}
 	syncer.setStore(store)
 	require.NoError(t, syncer.processGrantsWithExternalPrincipals(ctx, principals))
 

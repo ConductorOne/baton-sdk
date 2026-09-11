@@ -19,13 +19,13 @@ import (
 func TestRecordRetryWaitWithResourceType(t *testing.T) {
 	s := &syncer{
 		recordStats: true,
-		state:       newState(),
+		stats:       newRunStats(),
 	}
 
 	s.recordRetryWait(ratelimit.WithWaitLabel(t.Context(), "rt1"), 2*time.Second, false)
 	s.recordRetryWait(ratelimit.WithWaitLabel(t.Context(), "rt1"), 3*time.Second, true)
 
-	durations := s.state.StepDurations()
+	durations := s.stats.stepDurations()
 	require.EqualValues(t, 2000, durations["retry_wait"])
 	require.EqualValues(t, 2000, durations["retry_wait:rt1"])
 	require.EqualValues(t, 3000, durations["rate_limit_wait"])
@@ -39,7 +39,7 @@ func TestRecordRetryWaitWithResourceType(t *testing.T) {
 func TestRetryerReportsThroughWaitObserver(t *testing.T) {
 	s := &syncer{
 		recordStats: true,
-		state:       newState(),
+		stats:       newRunStats(),
 	}
 	ctx := s.withRateLimitWaitObserver(t.Context())
 	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
@@ -61,7 +61,7 @@ func TestRetryerReportsThroughWaitObserver(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, retryer.ShouldWaitAndRetry(ratelimit.WithWaitLabel(ctx, "rt1"), st.Err()))
 
-	durations := s.state.StepDurations()
+	durations := s.stats.stepDurations()
 	require.Positive(t, durations["retry_wait"])
 	require.Positive(t, durations["retry_wait:rt1"])
 	require.Positive(t, durations["rate_limit_wait"])
@@ -71,7 +71,7 @@ func TestRetryerReportsThroughWaitObserver(t *testing.T) {
 func TestWaitObserverRecordsRateLimitWait(t *testing.T) {
 	s := &syncer{
 		recordStats: true,
-		state:       newState(),
+		stats:       newRunStats(),
 	}
 
 	ctx := s.withRateLimitWaitObserver(t.Context())
@@ -80,7 +80,7 @@ func TestWaitObserverRecordsRateLimitWait(t *testing.T) {
 	ratelimit.ObserveWait(ratelimit.WithWaitLabel(ctx, "repository"), ratelimit.WaitEvent{Duration: 30 * time.Second})
 	ratelimit.ObserveWait(ctx, ratelimit.WaitEvent{Duration: 10 * time.Second})
 
-	durations := s.state.StepDurations()
+	durations := s.stats.stepDurations()
 	require.EqualValues(t, 40000, durations["rate_limit_wait"])
 	require.EqualValues(t, 30000, durations["rate_limit_wait:repository"])
 }
@@ -88,24 +88,24 @@ func TestWaitObserverRecordsRateLimitWait(t *testing.T) {
 func TestWaitObserverDisabledWithoutStats(t *testing.T) {
 	s := &syncer{
 		recordStats: false,
-		state:       newState(),
+		stats:       newRunStats(),
 	}
 
 	ctx := s.withRateLimitWaitObserver(t.Context())
 	// The observer is installed regardless (recordStats is only decided
 	// after store load), but reports are dropped when stats are off.
 	ratelimit.ObserveWait(ctx, ratelimit.WaitEvent{Duration: time.Second})
-	require.Empty(t, s.state.StepDurations())
+	require.Empty(t, s.stats.stepDurations())
 }
 
 // TestWaitObserverBeforeStateExists covers the window at the top of Sync:
 // the observer is installed (and recordStats may already be true) before the
-// state token is loaded. A gate wait during the initial Validate call must be
-// dropped, not panic on a nil state.
+// state token is decoded. A gate wait during the initial Validate call must be
+// dropped, not panic on nil stats.
 func TestWaitObserverBeforeStateExists(t *testing.T) {
 	s := &syncer{
 		recordStats: true,
-		state:       nil,
+		stats:       nil,
 	}
 
 	ctx := s.withRateLimitWaitObserver(t.Context())
@@ -117,7 +117,7 @@ func TestWaitObserverBeforeStateExists(t *testing.T) {
 func TestRecordConnectorWaitReport(t *testing.T) {
 	s := &syncer{
 		recordStats: true,
-		state:       newState(),
+		stats:       newRunStats(),
 	}
 
 	var annos annotations.Annotations
@@ -126,7 +126,7 @@ func TestRecordConnectorWaitReport(t *testing.T) {
 	s.recordConnectorWaitReport(annos, "repository")
 	s.recordConnectorWaitReport(annos, "")
 
-	durations := s.state.StepDurations()
+	durations := s.stats.stepDurations()
 	require.EqualValues(t, 3000, durations["rate_limit_wait"])
 	require.EqualValues(t, 1500, durations["rate_limit_wait:repository"])
 
@@ -137,7 +137,7 @@ func TestRecordConnectorWaitReport(t *testing.T) {
 	require.Empty(t, zeroAnnos)
 	s.recordStats = false
 	s.recordConnectorWaitReport(annos, "repository")
-	require.EqualValues(t, 3000, s.state.StepDurations()["rate_limit_wait"])
+	require.EqualValues(t, 3000, s.stats.stepDurations()["rate_limit_wait"])
 }
 
 // TestRecordConnectorWaitReportClampsOverflow: the annotation crosses a
@@ -147,7 +147,7 @@ func TestRecordConnectorWaitReport(t *testing.T) {
 func TestRecordConnectorWaitReportClampsOverflow(t *testing.T) {
 	s := &syncer{
 		recordStats: true,
-		state:       newState(),
+		stats:       newRunStats(),
 	}
 
 	report := &v2.RateLimitWaitReport{}
@@ -157,7 +157,7 @@ func TestRecordConnectorWaitReportClampsOverflow(t *testing.T) {
 
 	s.recordConnectorWaitReport(annos, "repository")
 
-	durations := s.state.StepDurations()
+	durations := s.stats.stepDurations()
 	const dayMs = int64(24 * 60 * 60 * 1000)
 	require.EqualValues(t, dayMs, durations["rate_limit_wait"])
 	require.EqualValues(t, dayMs, durations["rate_limit_wait:repository"])
@@ -172,7 +172,7 @@ func TestRecordConnectorWaitReportClampsOverflow(t *testing.T) {
 func TestRateLimitWallIntervalMergesOverlap(t *testing.T) {
 	s := &syncer{
 		recordStats: true,
-		state:       newState(),
+		stats:       newRunStats(),
 	}
 
 	// Two 10s waits reported back-to-back: intervals [now-10s, now] overlap
@@ -185,14 +185,14 @@ func TestRateLimitWallIntervalMergesOverlap(t *testing.T) {
 	s.recordRateLimitWallInterval(10 * time.Second)
 	elapsedMs := time.Since(callsStart).Milliseconds()
 
-	wallMs := s.state.StepDurations()["rate_limit_wait_wall"]
+	wallMs := s.stats.stepDurations()["rate_limit_wait_wall"]
 	require.GreaterOrEqual(t, wallMs, int64(10_000))
 	require.LessOrEqual(t, wallMs, 10_000+elapsedMs+1, "overlapping waits must merge, not sum")
 
-	// Non-positive waits and nil state are no-ops.
+	// Non-positive waits and a nil runStats are no-ops.
 	s.recordRateLimitWallInterval(0)
 	s.recordRateLimitWallInterval(-time.Second)
-	require.Equal(t, wallMs, s.state.StepDurations()["rate_limit_wait_wall"])
+	require.Equal(t, wallMs, s.stats.stepDurations()["rate_limit_wait_wall"])
 	stateless := &syncer{recordStats: true}
 	require.NotPanics(t, func() { stateless.recordRateLimitWallInterval(time.Second) })
 }
@@ -204,7 +204,7 @@ func TestRateLimitWallIntervalMergesOverlap(t *testing.T) {
 func TestRateLimitWallIntervalCarriesSubMillisecond(t *testing.T) {
 	s := &syncer{
 		recordStats: true,
-		state:       newState(),
+		stats:       newRunStats(),
 	}
 
 	// Rewind the watermark ~500µs before each report so every event
@@ -214,24 +214,24 @@ func TestRateLimitWallIntervalCarriesSubMillisecond(t *testing.T) {
 		s.rlWallCoveredUntil = time.Now().Add(-500 * time.Microsecond)
 		s.recordRateLimitWallInterval(time.Hour)
 	}
-	require.GreaterOrEqual(t, s.state.StepDurations()["rate_limit_wait_wall"], int64(4))
+	require.GreaterOrEqual(t, s.stats.stepDurations()["rate_limit_wait_wall"], int64(4))
 }
 
 func TestRecordRetryWaitWithoutResourceType(t *testing.T) {
 	s := &syncer{
 		recordStats: true,
-		state:       newState(),
+		stats:       newRunStats(),
 	}
 
 	s.recordRetryWait(t.Context(), time.Second, false)
 
-	require.Equal(t, map[string]int64{"retry_wait": 1000}, s.state.StepDurations())
+	require.Equal(t, map[string]int64{"retry_wait": 1000}, s.stats.stepDurations())
 }
 
 func TestObserveConnectorCallRecordsPerResourceType(t *testing.T) {
 	s := &syncer{
 		recordStats: true,
-		state:       newState(),
+		stats:       newRunStats(),
 	}
 
 	s.observeConnectorCall(t.Context(), "list-grants", time.Now().Add(-10*time.Millisecond), "repo", "repo-1")
@@ -239,7 +239,7 @@ func TestObserveConnectorCallRecordsPerResourceType(t *testing.T) {
 	// No resource type (e.g. list-resource-types): flat entry only.
 	s.observeConnectorCall(t.Context(), "list-resource-types", time.Now(), "", "")
 
-	stats := s.state.ConnectorCallStats()
+	stats := s.stats.connectorCallStats()
 	require.EqualValues(t, 2, stats["list-grants"].Count)
 	require.EqualValues(t, 1, stats["list-grants:repo"].Count)
 	require.EqualValues(t, 1, stats["list-grants:user"].Count)
@@ -252,7 +252,7 @@ func TestObserveConnectorCallRecordsPerResourceType(t *testing.T) {
 func TestRecordSessionUsageFoldsAnnotationIntoState(t *testing.T) {
 	s := &syncer{
 		recordStats: true,
-		state:       newState(),
+		stats:       newRunStats(),
 	}
 
 	usage := v2.SessionStoreUsage_builder{
@@ -272,23 +272,23 @@ func TestRecordSessionUsageFoldsAnnotationIntoState(t *testing.T) {
 	s.recordSessionUsage(annos)
 	s.recordSessionUsage(annos)
 
-	stats := s.state.SessionStoreStats()
+	stats := s.stats.sessionStoreStats()
 	require.Equal(t, SessionStoreStat{Count: 20, Errors: 20, Timeouts: 20, TotalMs: 600_000, MaxMs: 30_000}, stats["connector.get"])
 	require.Equal(t, SessionStoreStat{Count: 6, TotalMs: 18, MaxMs: 4}, stats["connector.set"])
 
 	// Store-side observations land under the store. prefix.
 	s.recordSessionOp("get", 2*time.Second, context.DeadlineExceeded)
-	require.Equal(t, SessionStoreStat{Count: 1, Errors: 1, Timeouts: 1, TotalMs: 2000, MaxMs: 2000}, s.state.SessionStoreStats()["store.get"])
+	require.Equal(t, SessionStoreStat{Count: 1, Errors: 1, Timeouts: 1, TotalMs: 2000, MaxMs: 2000}, s.stats.sessionStoreStats()["store.get"])
 
 	// Empty and non-matching annotations are no-ops.
 	s.recordSessionUsage(nil)
 	s.recordSessionUsage(annotations.New(&v2.RateLimitDescription{}))
-	require.Len(t, s.state.SessionStoreStats(), 3)
+	require.Len(t, s.stats.sessionStoreStats(), 3)
 
 	// The gate suppresses recording entirely.
-	gated := &syncer{recordStats: false, state: newState()}
+	gated := &syncer{recordStats: false, stats: newRunStats()}
 	gated.recordSessionUsage(annos)
-	require.Empty(t, gated.state.SessionStoreStats())
+	require.Empty(t, gated.stats.sessionStoreStats())
 }
 
 // TestStatsRecordingConcurrentWithMarshal exercises the parallel-worker shape:
@@ -297,7 +297,9 @@ func TestRecordSessionUsageFoldsAnnotationIntoState(t *testing.T) {
 func TestStatsRecordingConcurrentWithMarshal(t *testing.T) {
 	s := &syncer{
 		recordStats: true,
-		state:       newState(),
+		run:         newRunState(),
+		stats:       newRunStats(),
+		graph:       newExpansionGraph(),
 	}
 
 	const workers = 8
@@ -307,24 +309,24 @@ func TestStatsRecordingConcurrentWithMarshal(t *testing.T) {
 	for w := 0; w < workers; w++ {
 		wg.Go(func() {
 			for i := 0; i < iterations; i++ {
-				s.state.AddStepDuration("list-grants", time.Millisecond)
-				s.state.RecordConnectorCall("list-grants", 2*time.Millisecond)
+				s.stats.addStepDuration("list-grants", time.Millisecond)
+				s.stats.recordConnectorCall("list-grants", 2*time.Millisecond)
 				s.recordRetryWait(ratelimit.WithWaitLabel(t.Context(), "rt1"), time.Millisecond, i%2 == 0)
 			}
 		})
 	}
 	wg.Go(func() {
 		for i := 0; i < iterations; i++ {
-			_, err := s.state.Marshal()
+			_, err := marshalToken(s.run, s.stats)
 			require.NoError(t, err)
-			_ = s.state.StepDurations()
-			_ = s.state.ConnectorCallStats()
+			_ = s.stats.stepDurations()
+			_ = s.stats.connectorCallStats()
 		}
 	})
 	wg.Wait()
 
-	durations := s.state.StepDurations()
+	durations := s.stats.stepDurations()
 	require.EqualValues(t, workers*iterations, durations["list-grants"])
 	require.EqualValues(t, workers*iterations, durations["retry_wait:rt1"]+durations["rate_limit_wait:rt1"])
-	require.EqualValues(t, workers*iterations, s.state.ConnectorCallStats()["list-grants"].Count)
+	require.EqualValues(t, workers*iterations, s.stats.connectorCallStats()["list-grants"].Count)
 }

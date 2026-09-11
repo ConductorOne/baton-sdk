@@ -42,57 +42,57 @@ func TestActionOps(t *testing.T) {
 
 func TestSyncerToken(t *testing.T) {
 	ctx := t.Context()
-	st := newState()
+	st := newRunState()
 	op1 := Action{Op: InitOp, PageToken: ""}
 	op2 := Action{Op: SyncResourcesOp, PageToken: "", ResourceTypeID: "user", ResourceID: "userID1"}
 	op3 := Action{Op: SyncEntitlementsOp, PageToken: "1234", ResourceTypeID: "repo", ResourceID: "repo42"}
 	op4 := Action{Op: SyncEntitlementsOp, PageToken: "5678", ResourceTypeID: "repo", ResourceID: "repo42"}
 
-	st.PushAction(ctx, op1)
-	compareSyncerState(t, op1, *st.Current())
+	st.pushAction(ctx, op1)
+	compareSyncerState(t, op1, *st.current())
 	require.Len(t, st.actions, 1)
-	st.PushAction(ctx, op2)
-	compareSyncerState(t, op2, *st.Current())
+	st.pushAction(ctx, op2)
+	compareSyncerState(t, op2, *st.current())
 	require.Len(t, st.actions, 2)
 	compareSyncerState(t, op1, st.actions[st.actionOrder[0]])
 	compareSyncerState(t, op2, st.actions[st.actionOrder[1]])
 
-	compareSyncerState(t, op2, *st.Current())
-	st.FinishAction(ctx, st.Current())
-	compareSyncerState(t, op1, *st.Current())
+	compareSyncerState(t, op2, *st.current())
+	st.finishAction(ctx, st.current())
+	compareSyncerState(t, op1, *st.current())
 	require.Len(t, st.actions, 1)
 
-	st.PushAction(ctx, op3)
-	compareSyncerState(t, op3, *st.Current())
+	st.pushAction(ctx, op3)
+	compareSyncerState(t, op3, *st.current())
 	require.Len(t, st.actions, 2)
 	compareSyncerState(t, op1, st.actions[st.actionOrder[0]])
 	compareSyncerState(t, op3, st.actions[st.actionOrder[1]])
 
-	st.PushAction(ctx, op4)
-	compareSyncerState(t, op4, *st.Current())
+	st.pushAction(ctx, op4)
+	compareSyncerState(t, op4, *st.current())
 	require.Len(t, st.actions, 3)
 
 	compareSyncerState(t, op1, st.actions[st.actionOrder[0]])
 	compareSyncerState(t, op3, st.actions[st.actionOrder[1]])
 	compareSyncerState(t, op4, st.actions[st.actionOrder[2]])
 
-	st.FinishAction(ctx, st.Current())
-	compareSyncerState(t, op3, *st.Current())
+	st.finishAction(ctx, st.current())
+	compareSyncerState(t, op3, *st.current())
 	require.Len(t, st.actions, 2)
 	compareSyncerState(t, op1, st.actions[st.actionOrder[0]])
 
-	st.FinishAction(ctx, st.Current())
-	compareSyncerState(t, op1, *st.Current())
+	st.finishAction(ctx, st.current())
+	compareSyncerState(t, op1, *st.current())
 	require.Len(t, st.actions, 1)
 
-	st.FinishAction(ctx, st.Current())
-	require.Nil(t, st.Current())
+	st.finishAction(ctx, st.current())
+	require.Nil(t, st.current())
 	require.Len(t, st.actions, 0)
 }
 
 func TestSyncerTokenMarshalUnmarshal(t *testing.T) {
 	ctx := t.Context()
-	st := newState()
+	run, stats, _ := newTestRun()
 	states := []Action{
 		{Op: InitOp, PageToken: ""},
 		{Op: SyncResourcesOp, PageToken: "", ResourceTypeID: "user", ResourceID: "userID1"},
@@ -101,20 +101,17 @@ func TestSyncerTokenMarshalUnmarshal(t *testing.T) {
 	}
 
 	for _, s := range states {
-		st.PushAction(ctx, s)
+		run.pushAction(ctx, s)
 	}
 
-	tokenString, err := st.Marshal()
-	require.NoError(t, err)
+	tokenString := encodeTestRun(t, run, stats)
 
-	newToken := newState()
-	err = newToken.Unmarshal(tokenString)
-	require.NoError(t, err)
+	resumed, _, _ := decodeTestRun(t, tokenString)
 
 	i := len(states) - 1
-	for newToken.Current() != nil {
-		compareSyncerState(t, states[i], *newToken.Current())
-		newToken.FinishAction(ctx, newToken.Current())
+	for resumed.current() != nil {
+		compareSyncerState(t, states[i], *resumed.current())
+		resumed.finishAction(ctx, resumed.current())
 		i--
 	}
 
@@ -123,73 +120,74 @@ func TestSyncerTokenMarshalUnmarshal(t *testing.T) {
 
 func TestActionCountsIncrementAndCheckpoint(t *testing.T) {
 	ctx := t.Context()
-	st := newState()
-	st.PushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: "user"})
-	parent := st.Current()
-	require.Equal(t, uint64(0), st.GetActionCount(SyncResourcesOp).CompletedCount)
-	require.Equal(t, uint64(0), st.GetCompletedActionsCount())
+	st := newRunState()
+	st.pushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: "user"})
+	parent := st.current()
+	require.Equal(t, uint64(0), st.getActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(0), st.completedActionsCount())
 
 	_, err := st.transitionAction(ctx, parent, "page-2", nil)
 	require.NoError(t, err)
-	require.Equal(t, uint64(0), st.GetActionCount(SyncResourcesOp).CompletedCount, "pagination must not count as completion")
-	require.Equal(t, uint64(0), st.GetCompletedActionsCount())
+	require.Equal(t, uint64(0), st.getActionCount(SyncResourcesOp).CompletedCount, "pagination must not count as completion")
+	require.Equal(t, uint64(0), st.completedActionsCount())
 
-	parent = st.Current()
+	parent = st.current()
 	_, err = st.transitionAction(ctx, parent, "", nil)
 	require.NoError(t, err)
-	require.Equal(t, uint64(1), st.GetActionCount(SyncResourcesOp).CompletedCount)
-	require.Equal(t, uint64(1), st.GetCompletedActionsCount())
+	require.Equal(t, uint64(1), st.getActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(1), st.completedActionsCount())
 
-	st.PushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: "group"})
-	st.FinishAction(ctx, st.Current())
-	require.Equal(t, uint64(2), st.GetActionCount(SyncResourcesOp).CompletedCount)
-	require.Equal(t, uint64(0), st.GetActionCount(SyncResourcesOp).WarningCount)
-	require.Equal(t, uint64(2), st.GetCompletedActionsCount())
+	st.pushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: "group"})
+	st.finishAction(ctx, st.current())
+	require.Equal(t, uint64(2), st.getActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(0), st.getActionCount(SyncResourcesOp).WarningCount)
+	require.Equal(t, uint64(2), st.completedActionsCount())
 
-	st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "user"})
-	st.FinishActionWithWarning(ctx, st.Current())
-	require.Equal(t, uint64(2), st.GetActionCount(SyncResourcesOp).CompletedCount)
-	require.Equal(t, uint64(1), st.GetActionCount(SyncGrantsOp).CompletedCount)
-	require.Equal(t, uint64(1), st.GetActionCount(SyncGrantsOp).WarningCount)
-	require.Equal(t, uint64(0), st.GetActionCount(SyncResourcesOp).WarningCount)
-	require.Equal(t, uint64(3), st.GetCompletedActionsCount())
+	st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "user"})
+	st.finishActionWithWarning(ctx, st.current())
+	require.Equal(t, uint64(2), st.getActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(1), st.getActionCount(SyncGrantsOp).CompletedCount)
+	require.Equal(t, uint64(1), st.getActionCount(SyncGrantsOp).WarningCount)
+	require.Equal(t, uint64(0), st.getActionCount(SyncResourcesOp).WarningCount)
+	require.Equal(t, uint64(3), st.completedActionsCount())
 
-	st.PushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: "role"})
-	st.FinishActionWithWarning(ctx, st.Current())
-	require.Equal(t, uint64(3), st.GetActionCount(SyncResourcesOp).CompletedCount)
-	require.Equal(t, uint64(1), st.GetActionCount(SyncResourcesOp).WarningCount)
+	st.pushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: "role"})
+	st.finishActionWithWarning(ctx, st.current())
+	require.Equal(t, uint64(3), st.getActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(1), st.getActionCount(SyncResourcesOp).WarningCount)
 
-	tokenString, err := st.Marshal()
+	tokenString, err := marshalToken(st, newRunStats())
 	require.NoError(t, err)
-	got := newState()
-	require.NoError(t, got.Unmarshal(tokenString))
-	require.Equal(t, uint64(3), got.GetActionCount(SyncResourcesOp).CompletedCount)
-	require.Equal(t, uint64(1), got.GetActionCount(SyncResourcesOp).WarningCount)
-	require.Equal(t, uint64(1), got.GetActionCount(SyncGrantsOp).CompletedCount)
-	require.Equal(t, uint64(1), got.GetActionCount(SyncGrantsOp).WarningCount)
-	require.Equal(t, uint64(4), got.GetCompletedActionsCount())
+	got, err := unmarshalToken(tokenString)
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), got.run.getActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(1), got.run.getActionCount(SyncResourcesOp).WarningCount)
+	require.Equal(t, uint64(1), got.run.getActionCount(SyncGrantsOp).CompletedCount)
+	require.Equal(t, uint64(1), got.run.getActionCount(SyncGrantsOp).WarningCount)
+	require.Equal(t, uint64(4), got.run.completedActionsCount())
 
 	tokenV0Bytes, err := json.Marshal(serializedTokenV0{
 		Actions:               []Action{{Op: InitOp}},
 		CompletedActionsCount: 45,
 	})
 	require.NoError(t, err)
-	v0 := newState()
-	require.NoError(t, v0.Unmarshal(string(tokenV0Bytes)))
-	require.Equal(t, uint64(0), v0.GetActionCount(SyncResourcesOp).CompletedCount)
-	require.Equal(t, uint64(0), v0.GetActionCount(SyncResourcesOp).WarningCount)
-	require.Equal(t, uint64(45), v0.GetCompletedActionsCount())
+	v0, err := unmarshalToken(string(tokenV0Bytes))
+	require.NoError(t, err)
+	require.Equal(t, uint64(0), v0.run.getActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(0), v0.run.getActionCount(SyncResourcesOp).WarningCount)
+	require.Equal(t, uint64(45), v0.run.completedActionsCount())
 
 	legacy, err := json.Marshal(serializedTokenV1{Version: StateTokenVersion, CompletedActionsCount: 5})
 	require.NoError(t, err)
-	fresh := newState()
-	require.NoError(t, fresh.Unmarshal(string(legacy)))
-	require.Equal(t, uint64(0), fresh.GetActionCount(SyncResourcesOp).CompletedCount)
-	require.Equal(t, uint64(0), fresh.GetActionCount(SyncResourcesOp).WarningCount)
-	fresh.PushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: "user"})
-	fresh.FinishAction(ctx, fresh.Current())
-	require.Equal(t, uint64(1), fresh.GetActionCount(SyncResourcesOp).CompletedCount)
-	require.Equal(t, uint64(0), fresh.GetActionCount(SyncResourcesOp).WarningCount)
+	freshParts, err := unmarshalToken(string(legacy))
+	require.NoError(t, err)
+	fresh := freshParts.run
+	require.Equal(t, uint64(0), fresh.getActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(0), fresh.getActionCount(SyncResourcesOp).WarningCount)
+	fresh.pushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: "user"})
+	fresh.finishAction(ctx, fresh.current())
+	require.Equal(t, uint64(1), fresh.getActionCount(SyncResourcesOp).CompletedCount)
+	require.Equal(t, uint64(0), fresh.getActionCount(SyncResourcesOp).WarningCount)
 }
 
 func TestResumedActionWarningCountsTripThreshold(t *testing.T) {
@@ -203,15 +201,16 @@ func TestResumedActionWarningCountsTripThreshold(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	st := newState()
-	require.NoError(t, st.Unmarshal(string(tokenBytes)))
-	require.Equal(t, uint64(220), st.GetCompletedActionsCount())
-	require.Equal(t, uint64(2), st.GetActionCount(SyncGrantsOp).WarningCount)
+	parts, err := unmarshalToken(string(tokenBytes))
+	require.NoError(t, err)
+	st := parts.run
+	require.Equal(t, uint64(220), st.completedActionsCount())
+	require.Equal(t, uint64(2), st.getActionCount(SyncGrantsOp).WarningCount)
 
-	listResources := st.GetActionCount(SyncResourcesOp)
+	listResources := st.getActionCount(SyncResourcesOp)
 	require.True(t, tooManyWarnings(listResources.WarningCount, listResources.CompletedCount, 0.05),
 		"resume must use checkpointed list-resource warnings, not an empty in-memory slice")
-	require.False(t, tooManyWarnings(st.GetActionCount(SyncGrantsOp).WarningCount, st.GetActionCount(SyncGrantsOp).CompletedCount, 0.1),
+	require.False(t, tooManyWarnings(st.getActionCount(SyncGrantsOp).WarningCount, st.getActionCount(SyncGrantsOp).CompletedCount, 0.1),
 		"grant warnings stay on the grant bucket and do not trip the list-resource threshold")
 
 	// ErrTooManyWarnings is preservable, so this token is what the next run
@@ -227,148 +226,139 @@ func TestResumedActionWarningCountsTripThreshold(t *testing.T) {
 }
 
 func TestSyncerTokenTimingStatsMarshalUnmarshal(t *testing.T) {
-	st := newState()
-	st.AddStepDuration("list-resources", 1500*time.Millisecond)
-	st.AddStepDuration("list-resources", 500*time.Millisecond)
-	st.RecordConnectorCall("list-resources", 1250*time.Millisecond)
-	st.RecordConnectorCall("list-resources", 750*time.Millisecond)
+	run, stats, _ := newTestRun()
+	stats.addStepDuration("list-resources", 1500*time.Millisecond)
+	stats.addStepDuration("list-resources", 500*time.Millisecond)
+	stats.recordConnectorCall("list-resources", 1250*time.Millisecond)
+	stats.recordConnectorCall("list-resources", 750*time.Millisecond)
 
-	tokenString, err := st.Marshal()
-	require.NoError(t, err)
+	tokenString := encodeTestRun(t, run, stats)
 
-	got := newState()
-	require.NoError(t, got.Unmarshal(tokenString))
-	require.Equal(t, map[string]int64{"list-resources": 2000}, got.StepDurations())
+	_, got, _ := decodeTestRun(t, tokenString)
+	require.Equal(t, map[string]int64{"list-resources": 2000}, got.stepDurations())
 	require.Equal(t, map[string]ConnectorCallStat{
 		"list-resources": {Count: 2, TotalMs: 2000, MaxMs: 1250},
-	}, got.ConnectorCallStats())
+	}, got.connectorCallStats())
 
-	durations := got.StepDurations()
+	durations := got.stepDurations()
 	durations["list-resources"] = 0
-	stats := got.ConnectorCallStats()
-	stats["list-resources"] = ConnectorCallStat{}
-	require.EqualValues(t, 2000, got.StepDurations()["list-resources"])
-	require.EqualValues(t, 2, got.ConnectorCallStats()["list-resources"].Count)
+	callStats := got.connectorCallStats()
+	callStats["list-resources"] = ConnectorCallStat{}
+	require.EqualValues(t, 2000, got.stepDurations()["list-resources"])
+	require.EqualValues(t, 2, got.connectorCallStats()["list-resources"].Count)
 }
 
 func TestSyncerTokenSessionStatsMarshalUnmarshal(t *testing.T) {
-	st := newState()
-	st.RecordSessionOp("get", 30*time.Second, context.DeadlineExceeded, true)
-	st.RecordSessionOp("get", time.Millisecond, nil, false)
-	st.RecordSessionOp("set", 5*time.Millisecond, errors.New("boom"), false)
+	run, stats, _ := newTestRun()
+	stats.recordSessionOp("get", 30*time.Second, context.DeadlineExceeded, true)
+	stats.recordSessionOp("get", time.Millisecond, nil, false)
+	stats.recordSessionOp("set", 5*time.Millisecond, errors.New("boom"), false)
 
-	tokenString, err := st.Marshal()
-	require.NoError(t, err)
+	tokenString := encodeTestRun(t, run, stats)
 
-	got := newState()
-	require.NoError(t, got.Unmarshal(tokenString))
-	stats := got.SessionStoreStats()
-	require.Equal(t, SessionStoreStat{Count: 2, Errors: 1, Timeouts: 1, TotalMs: 30_001, MaxMs: 30_000}, stats["get"])
-	require.Equal(t, SessionStoreStat{Count: 1, Errors: 1, TotalMs: 5, MaxMs: 5}, stats["set"])
+	_, got, _ := decodeTestRun(t, tokenString)
+	sessionStats := got.sessionStoreStats()
+	require.Equal(t, SessionStoreStat{Count: 2, Errors: 1, Timeouts: 1, TotalMs: 30_001, MaxMs: 30_000}, sessionStats["get"])
+	require.Equal(t, SessionStoreStat{Count: 1, Errors: 1, TotalMs: 5, MaxMs: 5}, sessionStats["set"])
 
 	// Legacy tokens without the field yield an empty-but-usable map.
 	legacy, err := json.Marshal(serializedTokenV1{Version: StateTokenVersion})
 	require.NoError(t, err)
-	fresh := newState()
-	require.NoError(t, fresh.Unmarshal(string(legacy)))
-	require.Empty(t, fresh.SessionStoreStats())
-	fresh.RecordSessionOp("get", time.Millisecond, nil, false)
-	require.EqualValues(t, 1, fresh.SessionStoreStats()["get"].Count)
+	_, fresh, _ := decodeTestRun(t, string(legacy))
+	require.Empty(t, fresh.sessionStoreStats())
+	fresh.recordSessionOp("get", time.Millisecond, nil, false)
+	require.EqualValues(t, 1, fresh.sessionStoreStats()["get"].Count)
 }
 
 func TestSyncerTokenLegacyTimingStatsAreUsable(t *testing.T) {
 	tokenBytes, err := json.Marshal(serializedTokenV1{Version: StateTokenVersion})
 	require.NoError(t, err)
 
-	st := newState()
-	require.NoError(t, st.Unmarshal(string(tokenBytes)))
-	require.Empty(t, st.StepDurations())
-	require.Empty(t, st.ConnectorCallStats())
+	_, stats, _ := decodeTestRun(t, string(tokenBytes))
+	require.Empty(t, stats.stepDurations())
+	require.Empty(t, stats.connectorCallStats())
 
-	st.AddStepDuration("checkpoint", time.Millisecond)
-	st.RecordConnectorCall("list-grants", time.Millisecond)
-	require.EqualValues(t, 1, st.StepDurations()["checkpoint"])
-	require.EqualValues(t, 1, st.ConnectorCallStats()["list-grants"].Count)
+	stats.addStepDuration("checkpoint", time.Millisecond)
+	stats.recordConnectorCall("list-grants", time.Millisecond)
+	require.EqualValues(t, 1, stats.stepDurations()["checkpoint"])
+	require.EqualValues(t, 1, stats.connectorCallStats()["list-grants"].Count)
 }
 
 func TestSyncerTokenUnmarshalEmptyString(t *testing.T) {
 	ctx := t.Context()
-	st := newState()
+	run, _, _ := decodeTestRun(t, "")
 	op1 := Action{Op: InitOp}
 
-	err := st.Unmarshal("")
-	require.NoError(t, err)
-
-	st.PushAction(ctx, op1)
-	compareSyncerState(t, op1, *st.Current())
+	// The empty token seeds an InitOp, so the pushed one lands on top of it.
+	require.Equal(t, InitOp, run.current().Op)
+	run.pushAction(ctx, op1)
+	compareSyncerState(t, op1, *run.current())
 }
 
 func TestPrepareExpansionReplayTokenPreservesState(t *testing.T) {
-	st := newState()
-	st.SetShouldSkipGrants()
-	st.AddStepDuration("checkpoint", time.Millisecond)
-	require.False(t, st.NeedsExpansion())
+	run, stats, _ := newTestRun()
+	run.setFact(factShouldSkipGrants)
+	stats.addStepDuration("checkpoint", time.Millisecond)
+	require.False(t, run.hasFact(factNeedsExpansion))
 
-	token, err := st.Marshal()
-	require.NoError(t, err)
+	token := encodeTestRun(t, run, stats)
 
 	replayToken, err := PrepareExpansionReplayToken(token)
 	require.NoError(t, err)
 
-	got := newState()
-	require.NoError(t, got.Unmarshal(replayToken))
+	replayRun, replayStats, _ := decodeTestRun(t, replayToken)
 
-	// The flag the rollback sets.
-	require.True(t, got.NeedsExpansion(), "expansion must be re-flagged")
+	// The fact the rollback sets.
+	require.True(t, replayRun.hasFact(factNeedsExpansion), "expansion must be re-flagged")
 	// The rest of the token must survive rather than be cleared.
-	require.True(t, got.ShouldSkipGrants(), "skip-grants flag must be preserved")
-	require.EqualValues(t, 1, got.StepDurations()["checkpoint"], "preserved step durations must survive the rewrite")
+	require.True(t, replayRun.hasFact(factShouldSkipGrants), "skip-grants fact must be preserved")
+	require.EqualValues(t, 1, replayStats.stepDurations()["checkpoint"], "preserved step durations must survive the rewrite")
 	// A finished token has no current action, so an InitOp is queued to drive
 	// the resumed run.
-	require.NotNil(t, got.Current())
-	require.Equal(t, InitOp, got.Current().Op)
+	require.NotNil(t, replayRun.current())
+	require.Equal(t, InitOp, replayRun.current().Op)
 }
 
 func TestSyncerTokenNextPage(t *testing.T) {
 	ctx := t.Context()
-	st := newState()
+	st := newRunState()
 	op1 := Action{Op: InitOp}
 	op2 := Action{Op: InitOp, PageToken: "next-page"}
 
-	st.PushAction(ctx, op1)
-	compareSyncerState(t, op1, *st.Current())
+	st.pushAction(ctx, op1)
+	compareSyncerState(t, op1, *st.current())
 	require.Len(t, st.actions, 1)
 
-	err := st.NextPage(ctx, st.Current().ID, "next-page")
+	err := st.nextPage(ctx, st.current().ID, "next-page")
 	require.NoError(t, err)
 	require.Len(t, st.actions, 1)
-	compareSyncerState(t, op2, *st.Current())
+	compareSyncerState(t, op2, *st.current())
 }
 
 func TestPeekMatchingActionsCapsBatchesAndDrainsRemainder(t *testing.T) {
 	ctx := t.Context()
 	st := newEmptySchedulerState(t)
 	for range maxPeekActionsCount + 5 {
-		st.PushAction(ctx, Action{Op: SyncGrantsOp})
+		st.pushAction(ctx, Action{Op: SyncGrantsOp})
 	}
 
-	firstBatch := st.PeekMatchingActions(ctx, SyncGrantsOp)
+	firstBatch := st.peekMatchingActions(ctx, SyncGrantsOp)
 	require.Len(t, firstBatch, maxPeekActionsCount)
 	for _, action := range firstBatch {
-		st.FinishAction(ctx, action)
+		st.finishAction(ctx, action)
 	}
 
-	require.Len(t, st.PeekMatchingActions(ctx, SyncGrantsOp), 5)
+	require.Len(t, st.peekMatchingActions(ctx, SyncGrantsOp), 5)
 }
 
 func TestPeekMatchingActionsStopsAtDifferentOperation(t *testing.T) {
 	ctx := t.Context()
 	st := newEmptySchedulerState(t)
-	st.PushAction(ctx, Action{Op: SyncEntitlementsOp})
-	st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "first"})
-	st.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "second"})
+	st.pushAction(ctx, Action{Op: SyncEntitlementsOp})
+	st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "first"})
+	st.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: "second"})
 
-	actions := st.PeekMatchingActions(ctx, SyncGrantsOp)
+	actions := st.peekMatchingActions(ctx, SyncGrantsOp)
 	require.Len(t, actions, 2)
 	require.Equal(t, "second", actions[0].ResourceID)
 	require.Equal(t, "first", actions[1].ResourceID)
@@ -391,17 +381,13 @@ func TestSyncerTokenUnmarshalBackwardsCompatible(t *testing.T) {
 	tokenV0Bytes, err := json.Marshal(tokenV0)
 	require.NoError(t, err)
 	require.NotEmpty(t, tokenV0Bytes)
-	st := newState()
-	err = st.Unmarshal(string(tokenV0Bytes))
-	require.NoError(t, err)
 
-	tokenV1String, err := st.Marshal()
-	require.NoError(t, err)
+	run, stats, _ := decodeTestRun(t, string(tokenV0Bytes))
+	tokenV1String := encodeTestRun(t, run, stats)
 	require.NotEmpty(t, tokenV1String)
 	tokenV1 := serializedTokenV1{}
 	err = json.Unmarshal([]byte(tokenV1String), &tokenV1)
 	require.NoError(t, err)
-	require.NotEmpty(t, tokenV0Bytes)
 
 	expectedToken := serializedTokenV1{
 		ActionsMap: map[string]Action{
@@ -441,19 +427,17 @@ func TestUnmarshalV0ThenPushAction(t *testing.T) {
 	tokenV0Bytes, err := json.Marshal(tokenV0)
 	require.NoError(t, err)
 
-	st := newState()
-	err = st.Unmarshal(string(tokenV0Bytes))
-	require.NoError(t, err)
+	run, _, _ := decodeTestRun(t, string(tokenV0Bytes))
 
 	// Current should be the old CurrentAction (top of stack)
-	require.NotNil(t, st.Current())
-	require.Equal(t, SyncResourcesOp, st.Current().Op)
+	require.NotNil(t, run.current())
+	require.Equal(t, SyncResourcesOp, run.current().Op)
 
 	// This must not panic. After migrating a V0 token, pushing a new action
 	// should produce a fresh ID that doesn't collide with any migrated ID.
-	st.PushAction(ctx, Action{Op: SyncEntitlementsOp})
+	run.pushAction(ctx, Action{Op: SyncEntitlementsOp})
 
-	require.Equal(t, SyncEntitlementsOp, st.Current().Op)
+	require.Equal(t, SyncEntitlementsOp, run.current().Op)
 }
 
 func TestSyncTokenV0FromC1Z(t *testing.T) {
@@ -487,19 +471,16 @@ func TestSyncTokenV0FromC1Z(t *testing.T) {
 	require.Equal(t, SyncEntitlementsOp, tokenV0.CurrentAction.Op)
 	require.Equal(t, uint64(45), tokenV0.CompletedActionsCount)
 
-	// Migrate v0 -> v1 through state.Unmarshal.
-	st := newState()
-	err = st.Unmarshal(tokenStr)
-	require.NoError(t, err)
+	// Migrate v0 -> v1 through unmarshalToken.
+	run, stats, _ := decodeTestRun(t, tokenStr)
 
-	// Verify the migrated state has the correct current action (top of stack).
-	require.NotNil(t, st.Current())
-	require.Equal(t, SyncEntitlementsOp, st.Current().Op)
-	require.Equal(t, "0000000002", st.Current().ID)
+	// Verify the migrated run has the correct current action (top of stack).
+	require.NotNil(t, run.current())
+	require.Equal(t, SyncEntitlementsOp, run.current().Op)
+	require.Equal(t, "0000000002", run.current().ID)
 
-	// Marshal back to v1 and validate the full structure.
-	v1Str, err := st.Marshal()
-	require.NoError(t, err)
+	// Encode back to v1 and validate the full structure.
+	v1Str := encodeTestRun(t, run, stats)
 	require.NotEmpty(t, v1Str)
 
 	var tokenV1 serializedTokenV1
@@ -519,23 +500,23 @@ func TestSyncTokenV0FromC1Z(t *testing.T) {
 	}, tokenV1)
 }
 
-// buildLoadedGraphState returns a state mid-grant-expansion: a populated
+// buildLoadedGraphRun returns a run mid-grant-expansion: a populated
 // entitlement graph and a SyncGrantExpansionOp action paginating the load,
 // stacked on a non-expansion action whose own pagination must survive the
 // checkpoint normalization untouched.
-func buildLoadedGraphState(t *testing.T, ctx context.Context, pageToken string) *state {
+func buildLoadedGraphRun(t *testing.T, ctx context.Context, pageToken string) (*runState, *runStats, *expansionGraph) {
 	t.Helper()
-	st := newState()
+	run, stats, holder := newTestRun()
 
-	st.PushAction(ctx, Action{Op: SyncGrantsOp})
-	require.NoError(t, st.NextPage(ctx, st.Current().ID, "grants-p9"))
+	run.pushAction(ctx, Action{Op: SyncGrantsOp})
+	require.NoError(t, run.nextPage(ctx, run.current().ID, "grants-p9"))
 
-	st.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
+	run.pushAction(ctx, Action{Op: SyncGrantExpansionOp})
 	if pageToken != "" {
-		require.NoError(t, st.NextPage(ctx, st.Current().ID, pageToken))
+		require.NoError(t, run.nextPage(ctx, run.current().ID, pageToken))
 	}
 
-	graph := st.EntitlementGraph(ctx)
+	graph := holder.get(ctx)
 	require.NotNil(t, graph)
 	graph.AddEntitlementID("ent1")
 	graph.AddEntitlementID("ent2")
@@ -543,19 +524,18 @@ func buildLoadedGraphState(t *testing.T, ctx context.Context, pageToken string) 
 	require.NoError(t, graph.AddEdge(ctx, "ent1", "ent2", false, []string{"user"}))
 	require.NoError(t, graph.AddEdge(ctx, "ent2", "ent3", true, []string{"group"}))
 	graph.Depth = 5
-	return st
+	return run, stats, holder
 }
 
 // The entitlement graph is a projection of store data and is deliberately
-// omitted from checkpoints (see state.Marshal). A resumed state must instead
+// omitted from checkpoints (see marshalToken). A resumed run must instead
 // restart the expansion load from the first page, so the serialized expansion
-// action's page token is blanked while the live state keeps paginating.
+// action's page token is blanked while the live run keeps paginating.
 func TestSyncerTokenOmitsEntitlementGraph(t *testing.T) {
 	ctx := t.Context()
-	st := buildLoadedGraphState(t, ctx, "page37")
+	run, stats, holder := buildLoadedGraphRun(t, ctx, "page37")
 
-	tokenString, err := st.Marshal()
-	require.NoError(t, err)
+	tokenString := encodeTestRun(t, run, stats)
 	require.NotEmpty(t, tokenString)
 
 	// The serialized token carries neither the graph nor the pagination that
@@ -579,19 +559,18 @@ func TestSyncerTokenOmitsEntitlementGraph(t *testing.T) {
 		}
 	}
 
-	// Marshal must not mutate the live state: the in-process sync keeps its
+	// Encoding must not mutate the live run: the in-process sync keeps its
 	// graph and continues from its current page.
-	require.NotNil(t, st.entitlementGraph)
-	require.Equal(t, "page37", st.Current().PageToken)
+	require.NotNil(t, holder.peek())
+	require.Equal(t, "page37", run.current().PageToken)
 
-	// A resumed state starts expansion over: fresh graph, first page — with
+	// A resumed run starts expansion over: fresh graph, first page — with
 	// the rest of the action stack intact.
-	resumed := newState()
-	require.NoError(t, resumed.Unmarshal(tokenString))
-	require.Nil(t, resumed.entitlementGraph)
-	require.Equal(t, SyncGrantExpansionOp, resumed.Current().Op)
-	require.Empty(t, resumed.Current().PageToken)
-	require.False(t, resumed.EntitlementGraph(ctx).Loaded)
+	resumed, _, resumedHolder := decodeTestRun(t, tokenString)
+	require.Nil(t, resumedHolder.peek())
+	require.Equal(t, SyncGrantExpansionOp, resumed.current().Op)
+	require.Empty(t, resumed.current().PageToken)
+	require.False(t, resumedHolder.get(ctx).Loaded)
 	require.Len(t, resumed.actions, 2)
 	for _, a := range resumed.actions {
 		if a.Op == SyncGrantsOp {
@@ -606,19 +585,18 @@ func TestSyncerTokenOmitsEntitlementGraph(t *testing.T) {
 // silently misparsed by an older SDK.
 func TestSyncerTokenVersionStampSurvivesGraphOmission(t *testing.T) {
 	ctx := t.Context()
-	st := buildLoadedGraphState(t, ctx, "page37")
+	run, stats, _ := buildLoadedGraphRun(t, ctx, "page37")
 
 	// A type-scoped marker alongside the in-flight expansion that triggers
 	// the actions-map rewrite.
-	for id, a := range st.actions {
+	for id, a := range run.actions {
 		if a.Op == SyncGrantsOp {
 			a.TypeScoped = true
-			st.actions[id] = a
+			run.actions[id] = a
 		}
 	}
 
-	tokenString, err := st.Marshal()
-	require.NoError(t, err)
+	tokenString := encodeTestRun(t, run, stats)
 
 	var raw serializedTokenV1
 	require.NoError(t, json.Unmarshal([]byte(tokenString), &raw))
@@ -632,55 +610,37 @@ func TestSyncerTokenVersionStampSurvivesGraphOmission(t *testing.T) {
 	}
 }
 
-// marshalLegacyInlineGraphToken encodes st the way pre-omission SDKs did:
-// entitlement graph inline, expansion page token kept. No writer produces
-// this shape any more, so the reader tests build the bytes directly.
-func marshalLegacyInlineGraphToken(t *testing.T, st *state) string {
-	t.Helper()
-	legacy, err := json.Marshal(serializedTokenV1{
-		ActionsMap:       st.actions,
-		ActionOrder:      st.actionOrder,
-		CurrentActionID:  st.currentActionID,
-		NeedsExpansion:   st.needsExpansion,
-		EntitlementGraph: st.entitlementGraph,
-		Version:          StateTokenVersion,
-	})
-	require.NoError(t, err)
-	return string(legacy)
-}
-
 // Tokens written by older SDKs carry the graph inline. They must decode and
 // resume exactly as before: graph restored, pagination preserved.
 func TestSyncerTokenLegacyInlineGraphStillDecodes(t *testing.T) {
 	ctx := t.Context()
-	st := buildLoadedGraphState(t, ctx, "page37")
-	st.entitlementGraph.Loaded = true
-	st.entitlementGraph.HasNoCycles = true
+	run, _, holder := buildLoadedGraphRun(t, ctx, "page37")
+	holder.peek().Loaded = true
+	holder.peek().HasNoCycles = true
 
-	legacy := marshalLegacyInlineGraphToken(t, st)
+	// Serialize the way pre-omission SDKs did: graph inline, page token kept.
+	legacy := marshalLegacyInlineGraphToken(t, run, holder.peek())
 
-	resumed := newState()
-	require.NoError(t, resumed.Unmarshal(legacy))
+	resumed, resumedStats, resumedHolder := decodeTestRun(t, legacy)
 
-	restored := resumed.entitlementGraph
+	restored := resumedHolder.peek()
 	require.NotNil(t, restored, "inline graph must be restored")
 	require.Len(t, restored.Nodes, 3)
 	require.Len(t, restored.Edges, 2)
 	require.Equal(t, 5, restored.Depth)
 	require.True(t, restored.Loaded)
 	require.True(t, restored.HasNoCycles)
-	require.Equal(t, st.entitlementGraph.NextNodeID, restored.NextNodeID)
-	require.Equal(t, st.entitlementGraph.NextEdgeID, restored.NextEdgeID)
+	require.Equal(t, holder.peek().NextNodeID, restored.NextNodeID)
+	require.Equal(t, holder.peek().NextEdgeID, restored.NextEdgeID)
 	// With the graph present, the pagination is still valid and must survive.
-	require.Equal(t, "page37", resumed.Current().PageToken)
+	require.Equal(t, "page37", resumed.current().PageToken)
 
 	// The upgrade chain: the next checkpoint after resuming a legacy token
 	// must write the new format — graph omitted AND the in-flight expansion
 	// pagination blanked (a graph-less token carrying the page token would be
-	// exactly the orphan shape Unmarshal defends against) — while the live
-	// resumed state keeps both and continues unaffected.
-	out, err := resumed.Marshal()
-	require.NoError(t, err)
+	// exactly the orphan shape decoding defends against) — while the live
+	// resumed run keeps both and continues unaffected.
+	out := encodeTestRun(t, resumed, resumedStats)
 	var reserialized serializedTokenV1
 	require.NoError(t, json.Unmarshal([]byte(out), &reserialized))
 	require.Nil(t, reserialized.EntitlementGraph)
@@ -689,8 +649,8 @@ func TestSyncerTokenLegacyInlineGraphStillDecodes(t *testing.T) {
 			require.Empty(t, a.PageToken)
 		}
 	}
-	require.NotNil(t, resumed.entitlementGraph)
-	require.Equal(t, "page37", resumed.Current().PageToken)
+	require.NotNil(t, resumedHolder.peek())
+	require.Equal(t, "page37", resumed.current().PageToken)
 }
 
 // The defensive blanking also applies to tokens decoded through the V0
@@ -703,11 +663,10 @@ func TestSyncerTokenV0OrphanExpansionPageTokenBlanked(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	resumed := newState()
-	require.NoError(t, resumed.Unmarshal(string(legacy)))
-	require.Nil(t, resumed.entitlementGraph)
-	require.Equal(t, SyncGrantExpansionOp, resumed.Current().Op)
-	require.Empty(t, resumed.Current().PageToken)
+	resumed, _, resumedHolder := decodeTestRun(t, string(legacy))
+	require.Nil(t, resumedHolder.peek())
+	require.Equal(t, SyncGrantExpansionOp, resumed.current().Op)
+	require.Empty(t, resumed.current().PageToken)
 	require.Len(t, resumed.actions, 2)
 	for _, a := range resumed.actions {
 		if a.Op == SyncGrantsOp {
@@ -718,12 +677,12 @@ func TestSyncerTokenV0OrphanExpansionPageTokenBlanked(t *testing.T) {
 
 // A graph-less token whose expansion action still carries a page token (a
 // writer that did not normalize) cannot safely resume that pagination —
-// Unmarshal must blank it so the load restarts from the first page.
+// decoding must blank it so the load restarts from the first page.
 func TestSyncerTokenUnmarshalBlanksOrphanExpansionPageToken(t *testing.T) {
 	ctx := t.Context()
-	st := newState()
-	st.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
-	require.NoError(t, st.NextPage(ctx, st.Current().ID, "page37"))
+	st := newRunState()
+	st.pushAction(ctx, Action{Op: SyncGrantExpansionOp})
+	require.NoError(t, st.nextPage(ctx, st.current().ID, "page37"))
 
 	orphan, err := json.Marshal(serializedTokenV1{
 		ActionsMap:      st.actions,
@@ -733,11 +692,10 @@ func TestSyncerTokenUnmarshalBlanksOrphanExpansionPageToken(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	resumed := newState()
-	require.NoError(t, resumed.Unmarshal(string(orphan)))
-	require.Nil(t, resumed.entitlementGraph)
-	require.Equal(t, SyncGrantExpansionOp, resumed.Current().Op)
-	require.Empty(t, resumed.Current().PageToken)
+	resumed, _, resumedHolder := decodeTestRun(t, string(orphan))
+	require.Nil(t, resumedHolder.peek())
+	require.Equal(t, SyncGrantExpansionOp, resumed.current().Op)
+	require.Empty(t, resumed.current().PageToken)
 }
 
 func TestStateIngestQualityRoundTripPreservesCleanPresence(t *testing.T) {
@@ -756,22 +714,18 @@ func TestStateIngestQualityRoundTripPreservesCleanPresence(t *testing.T) {
 			ReasonFlags:                   63,
 		},
 	} {
-		st := newState()
-		require.NoError(t, st.Unmarshal(""))
-		st.SetIngestQuality(quality)
+		run, stats, _ := decodeTestRun(t, "")
+		stats.setIngestQuality(quality)
 
-		token, err := st.Marshal()
-		require.NoError(t, err)
+		token := encodeTestRun(t, run, stats)
 		require.Contains(t, token, `"ingest_quality"`)
 
-		resumed := newState()
-		require.NoError(t, resumed.Unmarshal(token))
-		require.Equal(t, quality, resumed.IngestQuality())
+		_, resumedStats, _ := decodeTestRun(t, token)
+		require.Equal(t, quality, resumedStats.ingestQuality())
 	}
 }
 
 func TestStateLegacyTokenLeavesIngestQualityUnknown(t *testing.T) {
-	st := newState()
-	require.NoError(t, st.Unmarshal(`{"version":1}`))
-	require.Nil(t, st.IngestQuality())
+	_, stats, _ := decodeTestRun(t, `{"version":1}`)
+	require.Nil(t, stats.ingestQuality())
 }

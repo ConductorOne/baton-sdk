@@ -120,17 +120,18 @@ func TestSyncSummaryFieldsShape(t *testing.T) {
 			syncType:    connectorstore.SyncTypeFull,
 			workerCount: 20,
 		},
-		state: newState(),
+		run:   newRunState(),
+		stats: newRunStats(),
 	}
-	s.state.AddStepDuration("list-grants", time.Second)
-	s.state.AddStepDuration("checkpoint", 29*time.Millisecond)
-	s.state.AddStepDuration("rate_limit_wait", 50*time.Millisecond)
-	s.state.AddStepDuration("source_cache_tombstones", 3*time.Millisecond)
-	s.state.RecordConnectorCall("list-grants", 100*time.Millisecond)
-	s.state.RecordConnectorCall("list-grants:group", 80*time.Millisecond)
+	s.stats.addStepDuration("list-grants", time.Second)
+	s.stats.addStepDuration("checkpoint", 29*time.Millisecond)
+	s.stats.addStepDuration("rate_limit_wait", 50*time.Millisecond)
+	s.stats.addStepDuration("source_cache_tombstones", 3*time.Millisecond)
+	s.stats.recordConnectorCall("list-grants", 100*time.Millisecond)
+	s.stats.recordConnectorCall("list-grants:group", 80*time.Millisecond)
 	// Sub-ms static entitlement labeled entry should not appear in by-RT log output.
-	s.state.RecordConnectorCall("list-static-entitlements:user", 0)
-	s.state.MergeSessionStat("connector.get", SessionStoreStat{Count: 1, TotalMs: 1})
+	s.stats.recordConnectorCall("list-static-entitlements:user", 0)
+	s.stats.mergeSessionStat("connector.get", SessionStoreStat{Count: 1, TotalMs: 1})
 
 	fields := s.syncSummaryFields(trace.SpanFromContext(t.Context()))
 	byKey := zapFieldsByKey(t, fields)
