@@ -6,7 +6,8 @@ per `AGENTS.md`.
 ## Principles
 
 Exercise judgment, not procedure. Our a priori estimate is that a comment
-is worse than nothing most of the time. Everything below is what usually
+is worse than nothing most of the time: it is often wrong when written, and
+one that does not exist cannot be wrong. Everything below is what usually
 follows from that prior; none of it is a rule that overrides the case in
 front of you.
 
@@ -15,28 +16,22 @@ front of you.
   tests.
 - A comment earns its keep by stating something true that the reader ought
   to know and the code does not express clearly.
-- A comment is a very strong signal that something the reader ought to know
-  is not expressed by the code. That is chiefly a flaw in the code, not the
-  comment. Ask whether the code could carry it (a name, a function, a type,
-  a test) and whether that change is worth making. Often it is. Sometimes
-  it is too much effort, too disruptive, or touches an API you do not own.
-  Ideally, only write a comment when you want to make such a signal to the
-  reader. When comments are everywhere, the signal is lost.
-- Our target audience is _not current us and not the reviewer_. Our
-  audience is future us: someone opening the file tomorrow or months from
-  now without today's context. Comments are an ongoing maintenance burden
-  and often lead future us in the wrong direction or waste our time
-  verifying correctness.
-- Comments are often wrong *when written*. A comment that does not exist
-  cannot be wrong.
-- A typical change adds zero comments (or may even net remove some at this
-  point).
-- A comment is judged in context, not alone. Every comment can pass on its
-  own while the file has three times too many; comments compete for
-  attention. A fact has one owner, usually the definition, possibly in
-  another file; the same fact at the helper and at every call site is one
-  comment and the rest are deletions. Before adding one, read what is
-  already there, here and at the definition of whatever you are calling.
+- It is therefore a very strong signal that the code is not carrying
+  something it could. That is chiefly a flaw in the code. Ask whether a
+  name, a function, a type, or a test could carry it, and whether that
+  change is worth making. Often it is. Sometimes it is too much effort, too
+  disruptive, or touches an API you do not own. Only write one when you
+  mean to send that signal. When comments are everywhere, the signal is
+  lost.
+- Write for future us: someone opening the file months from now without
+  today's context. Not current us, and not the reviewer. Every comment
+  costs them a check against the code.
+- A fact has one owner, usually the definition, possibly in another file.
+  The same fact at the helper and at every call site is one comment and the
+  rest are deletions. Before adding one, read what is already there, here
+  and at the definition of whatever you are calling.
+- Comments compete for attention: every one can pass on its own while the
+  file has three times too many. A typical change adds zero.
 
 ## Good comments
 
