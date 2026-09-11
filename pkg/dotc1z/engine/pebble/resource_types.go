@@ -20,8 +20,6 @@ func (e *Engine) PutResourceTypeRecord(ctx context.Context, r *v3.ResourceTypeRe
 }
 
 // PutResourceTypeRecords writes N resource_types in one batch.
-// The batch commits NoSync; EndFreshSync flushes once at sync end
-// (see recordWriteOpts).
 func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.ResourceTypeRecord) error {
 	if len(records) == 0 {
 		return nil

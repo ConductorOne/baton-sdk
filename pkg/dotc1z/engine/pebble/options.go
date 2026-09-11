@@ -18,18 +18,8 @@ import (
 const SDKPebbleFormat = pebble.FormatNewest
 
 // Durability controls how aggressively the engine fsyncs writes. The
-// default for production is DurabilitySync.
-//
-// It does not reach the paths that take recordWriteOpts, which commit
-// NoSync unconditionally: the record Put paths inside a sync, the digest
-// build and repair work they feed, and the source-cache in-scope deletes.
-//
-// Everything else stays under this setting, including writes that do land
-// during an ingest — session keys, assets, sync-run records, the exported
-// digest drops, and the canonical record delete paths (Delete*Record, the
-// *-canonical bounded batches, and the by-identity grant deletes). Those
-// deletes keep it deliberately, so tombstone crash semantics do not
-// change; DeleteGrantByIdentityRefs' comment says why.
+// default for production is DurabilitySync. Record writes inside a sync
+// do not consult it; they take recordWriteOpts.
 type Durability int
 
 const (
@@ -94,8 +84,7 @@ type Option func(*Options)
 func WithSharedCache(c *pebble.Cache) Option { return func(o *Options) { o.sharedCache = c } }
 
 // WithDurability selects the fsync policy for writes outside a sync's
-// record path. Default is DurabilitySync. See Durability for what it
-// no longer covers.
+// record path (see Durability). Default is DurabilitySync.
 func WithDurability(d Durability) Option { return func(o *Options) { o.durability = d } }
 
 // WithReadOnly opens the engine in read-only mode. Save is disallowed.
@@ -217,50 +206,20 @@ func writeOpts(d Durability) *pebble.WriteOptions {
 	return pebble.Sync
 }
 
-// recordWriteOpts is the durability every record write inside a sync
-// uses. It is NoSync unconditionally — not writeOpts(e.opts.durability),
-// and not conditioned on IsFreshSync. Binding a sync used to cost an
-// fsync per Put* call for the whole ingest
-// (TestBoundSyncRecordWritesDoNotSyncTheWAL measures it).
+// recordWriteOpts is the durability for every record write inside a
+// sync: NoSync whether the sync is fresh or bound, regardless of
+// Options.durability. TestBoundSyncRecordWritesDoNotSyncTheWAL pins it.
 //
-// The sealed artifact does not depend on the WAL. CheckpointTo flushes
-// memtables, cuts the checkpoint, and then truncateCheckpointWALs
-// replaces every copied .log with a zero-byte file, so what ships is
-// the SST bytes the flush produced. An fsync here hardens a WAL the
-// artifact throws away.
+// The artifact does not depend on the WAL. CheckpointTo flushes
+// memtables, cuts the checkpoint, and truncateCheckpointWALs zeroes
+// every copied .log, so what ships is the SST bytes the flush produced.
+// Nothing reads the WAL after a crash either: OpenStore unpacks into a
+// temp directory that a dying process orphans and the next process never
+// finds. An fsync here hardens bytes nothing will read.
 //
-// In production nothing reads that WAL after a crash. OpenStore unpacks
-// the c1z into os.MkdirTemp(opts.TmpDir, "c1z-pebble") and removes the
-// directory at Close; the artifact appears only when Close runs
-// CheckpointTo and saveC1z writes a new file. A process that dies
-// mid-sync orphans a temp directory under a random name nothing
-// recorded, and the next process unpacks the last saved c1z into a
-// fresh one.
-//
-// The crash-image tests do read it, and they are why PutSyncRunRecord
-// keeps writeOpts(e.opts.durability). pkg/sync's
-// TestChaosConnectorLostResponseThenFilesystemFailureResumes takes a
-// CrashClone mid-sync, reopens that database, and requires both a
-// resumable sync and content matching an uninterrupted baseline;
-// errorfs_sweep_test.go cuts five more images. rawdb owns one *pebble.DB,
-// so records, meta and sessions share one WAL and a crash truncates it at
-// a point — a recovered sync-run record therefore always carries the
-// record writes that preceded it, whatever options those writes used. The
-// fsync is what buys the floor: it pushes the WAL out to at least the last
-// checkpoint, so the image holds that checkpoint instead of an arbitrary
-// prefix. Make the sync-run record NoSync and those assertions start
-// depending on how much the OS happened to flush.
-//
-// This is safe here while the SQLite path keeps synchronous=NORMAL
-// because the two are not the same trade. SQLite's rollback journal is
-// what makes its transactions atomic, so dropping its sync risks a
-// broken database. Pebble writes its WAL in order and keeps batches
-// atomic either way, so the worst a lost commit costs is recent writes
-// in a database that was going to be discarded.
-//
-// Writes that must outlive the temp directory do not come through here:
-// the keyspace-version stamp calls MetaSet with pebble.Sync directly,
-// and EndFreshSync flushes before the seal.
+// Writes a crash image or the sealed file must hold do not come through
+// here: PutSyncRunRecord and the keyspace-version stamp say why at their
+// sites, and EndFreshSync flushes before the seal.
 var recordWriteOpts = pebble.NoSync
 
 func defaultOptions() *Options {

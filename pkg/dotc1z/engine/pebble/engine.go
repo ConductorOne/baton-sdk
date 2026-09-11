@@ -76,10 +76,8 @@ type Engine struct {
 	// freshSync is true between MarkFreshSync (called by StartNewSync)
 	// and EndSync. It lets PutXRecord skip the read-before-write
 	// index-cleanup path, because ResetForNewSync excised the record
-	// keyspace and this sync is therefore empty by construction.
-	//
-	// It does not affect durability. Record writes commit NoSync
-	// whether the sync is fresh or bound (see recordWriteOpts).
+	// keyspace and this sync is therefore empty by construction. It
+	// does not affect durability (recordWriteOpts).
 	freshSync bool
 	// freshGrantsEmpty / freshResourcesEmpty
 	// are one-shot bits guarded by currentSyncMu. MarkFreshSync sets
@@ -454,12 +452,10 @@ func (e *Engine) Close() error {
 	return err
 }
 
-// SetCurrentSync sets the engine's tracked current sync_id from a
+// bindCurrentSync sets the engine's tracked current sync_id from a
 // string KSUID. Subsequent Put*/List* calls with an empty syncID
-// use this value. Clears the freshSync flag — a bare SetCurrentSync
-// is conservative and treats the sync as resumable, so writes keep
-// read-before-write. Durability does not change with it: record
-// writes commit NoSync either way (see recordWriteOpts).
+// use this value. Clears the freshSync flag: a bound sync is treated
+// as resumable, so writes keep read-before-write.
 func (e *Engine) bindCurrentSync(syncID string) error {
 	idBytes, err := codec.EncodeSyncID(syncID)
 	if err != nil {
@@ -542,15 +538,9 @@ func (e *Engine) IsSealed() bool {
 }
 
 // MarkFreshSync sets currentSync AND flags the sync as freshly
-// started (no prior records under this sync_id). The engine then
-// takes the perf-fast write path: pebble.NoSync per commit and skip
-// read-before-write index cleanup. The host crash semantics match
-// SQLite's PRAGMA synchronous=NORMAL — the connector is the source
-// of truth during the sync; a crash forces re-sync rather than
-// silent data loss.
-//
-// Callers should call EndFreshSync (via Flush) at sync end to harden
-// the data with a single fsync.
+// started (no prior records under this sync_id), so Put*Records skip
+// the read-before-write index cleanup. Callers call EndFreshSync at
+// sync end.
 func (e *Engine) MarkFreshSync(syncID string) error {
 	idBytes, err := codec.EncodeSyncID(syncID)
 	if err != nil {

@@ -67,9 +67,6 @@ func (e *Engine) PutGrantRecord(ctx context.Context, r *v3.GrantRecord) error {
 // flushable-batch promotion; the choke-point migration collapsed
 // them, trading that micro-optimization for atomicity and
 // can't-forget index derivation.)
-//
-// The batch commits NoSync — EndFreshSync does one Flush+fsync at
-// sync end to harden the data (see recordWriteOpts).
 func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord) error {
 	if len(records) == 0 {
 		return nil
@@ -165,23 +162,14 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 // PutExpandedGrantRecords is the grant-expander write path — the
 // engine side of GrantStore.StoreExpandedGrants, and its only caller.
 //
-// Two properties distinguish it from PutGrantRecords:
-//
-//   - Single read-before-write. The expander must preserve each
-//     grant's existing Expansion / NeedsExpansion / DiscoveredAt
-//     side-state, which requires reading the prior primary value. That
-//     same read also yields the bytes needed to delete the prior
-//     value's stale index entries. The old path did BOTH a
-//     GetGrantRecord in the adapter (to preserve side-state) AND a
-//     db.Get here (to clean indexes) — two point lookups per grant.
-//     This path issues one and uses it for both.
-//
-//   - NoSync commit. Expanded grants are fully regenerable from the
-//     sync (the expander recomputes them from the entitlement graph),
-//     so a per-batch fsync buys nothing. Writes commit with
-//     pebble.NoSync and are hardened by the single Flush at sync end
-//     (EndFreshSync) or Close. This path took that bargain on bound
-//     syncs before recordWriteOpts made it the rule everywhere.
+// What distinguishes it from PutGrantRecords is a single
+// read-before-write. The expander must preserve each grant's existing
+// Expansion / NeedsExpansion / DiscoveredAt side-state, which requires
+// reading the prior primary value. That same read also yields the bytes
+// needed to delete the prior value's stale index entries. The old path
+// did BOTH a GetGrantRecord in the adapter (to preserve side-state) AND
+// a db.Get here (to clean indexes) — two point lookups per grant. This
+// path issues one and uses it for both.
 //
 // records arrive as freshly translated v3 GrantRecords with NO
 // preservation or discovered_at stamping applied; this method performs
@@ -766,7 +754,7 @@ func (e *Engine) putSynthesizedGrantContributionsBatch(ctx context.Context, reco
 // across the whole sync (not just within this batch). Primary + index key/value
 // encoding — including the proto marshal — runs in parallel across GOMAXPROCS
 // workers; a single goroutine then stages the pre-encoded bytes into a single
-// RecordBatch and commits it (NoSync during a fresh sync).
+// RecordBatch and commits it.
 //
 // Unlike PutGrantRecords this skips the per-record db.Get that PutGrantRecords
 // performs on every batch after the first of a fresh sync. That read-before-

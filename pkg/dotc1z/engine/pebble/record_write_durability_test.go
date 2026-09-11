@@ -78,16 +78,6 @@ func durabilityTestGrants(lo, hi int) []*v3.GrantRecord {
 	return grants
 }
 
-// TestBoundSyncRecordWritesDoNotSyncTheWAL pins recordWriteOpts: record
-// writes commit NoSync whether the sync is fresh or bound. Binding a
-// sync used to send every batch out with pebble.Sync, which is an fsync
-// per Put* call for the whole ingest.
-//
-// The writes still have to reach the artifact, and they do without the
-// WAL: CheckpointTo flushes memtables before cutting the checkpoint and
-// then truncates the copied WALs to zero (truncateCheckpointWALs), so
-// the artifact is SST bytes only. A WAL nobody synced and nobody reads
-// cannot cost the artifact a record.
 func TestBoundSyncRecordWritesDoNotSyncTheWAL(t *testing.T) {
 	ctx := context.Background()
 	fs := &syncCountingFS{FS: vfs.NewMem()}
@@ -105,8 +95,6 @@ func TestBoundSyncRecordWritesDoNotSyncTheWAL(t *testing.T) {
 	require.NoError(t, eng.PutGrantRecords(ctx, durabilityTestGrants(0, 50)...))
 	require.NoError(t, eng.EndFreshSync(ctx))
 
-	// Bind the sync. bindCurrentSync clears freshSync, so every write
-	// below takes the path this test is about.
 	require.NoError(t, eng.SetCurrentSync(ctx, syncID))
 	require.False(t, eng.IsFreshSync(), "SetCurrentSync left the sync fresh, so the writes below cover nothing")
 
@@ -121,8 +109,8 @@ func TestBoundSyncRecordWritesDoNotSyncTheWAL(t *testing.T) {
 	ckDir := "durability-checkpoint"
 	require.NoError(t, eng.CheckpointTo(ctx, ckDir), "CheckpointTo")
 
-	// The checkpoint's WALs are zero bytes, so the grants found below
-	// came out of SSTs the flush produced, not out of a WAL replay.
+	// Zero-byte WALs mean the grants counted below came out of SSTs, not
+	// a WAL replay.
 	entries, err := fs.List(ckDir)
 	require.NoError(t, err)
 	sawWAL := false

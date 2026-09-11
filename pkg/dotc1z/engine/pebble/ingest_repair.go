@@ -207,8 +207,6 @@ func (e *Engine) healOrphanPrincipalIndexEntries(ctx context.Context, principalR
 		if healed == 0 {
 			return nil
 		}
-		// Invariant-pass writes (today: the orphan heal) take the same
-		// durability as the records they repair; see recordWriteOpts.
 		return rb.Commit(recordWriteOpts)
 	})
 	if err != nil {
