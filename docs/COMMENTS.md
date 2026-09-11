@@ -191,6 +191,15 @@ callers: make the type. Public API with external callers: the sentence may be
 the right call; it reads `// merge requires ids sorted.`
 
 ```go
+// checkSorted verifies adjacent order only. Duplicates pass; merge
+// tolerates them.
+func checkSorted(ids []string) error {
+```
+
+Keep. The name carries what it checks. The comment carries what it does not,
+which is what a reader about to rely on it, or delete it, needs.
+
+```go
 // Safe: we validated len(ids) > 0 above.
 first := ids[0]
 ```
