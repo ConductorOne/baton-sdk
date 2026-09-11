@@ -91,8 +91,8 @@ it.
   the code, not two facts about it.
 - Commented-out code.
 - Section banners and labels. Navigation the structure should provide;
-  split the literal or the file. If one stays, it is a name, not a
-  sentence.
+  split the literal or the file. If one stays inside a literal or a body,
+  it is a name, not a sentence.
 - Test-body narration. The name and assertion are the documentation. A test
   comment is for what they cannot show: a call that is deliberately absent,
   or why a premise is asserted before the step under test. A fact about
