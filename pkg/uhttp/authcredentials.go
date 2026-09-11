@@ -129,19 +129,40 @@ func NewOAuth2JWT(credentials []byte, scopes []string, createfn CreateJWTConfig)
 	}
 }
 
+// reCreatingJWTSource is an oauth2.TokenSource that rebuilds the *jwt.Config via
+// CreateJWTConfig on every token fetch. This lets callers inject per-request
+// claims (e.g. a fresh jti nonce in PrivateClaims for RFC 7523 replay
+// protection) that must change on each token acquisition. Wrapping this in an
+// oauth2.ReuseTokenSource preserves normal token caching: CreateJWTConfig is
+// only re-invoked when the cached token has expired, not on every HTTP request.
+type reCreatingJWTSource struct {
+	ctx         context.Context
+	createfn    CreateJWTConfig
+	credentials []byte
+	scopes      []string
+}
+
+func (s reCreatingJWTSource) Token() (*oauth2.Token, error) {
+	cfg, err := s.createfn(s.credentials, s.scopes...)
+	if err != nil {
+		return nil, fmt.Errorf("creating JWT config failed: %w", err)
+	}
+	return cfg.TokenSource(s.ctx).Token()
+}
+
 func (o *OAuth2JWT) GetClient(ctx context.Context, options ...Option) (*http.Client, error) {
 	httpClient, err := getHttpClient(ctx, options...)
 	if err != nil {
 		return nil, err
 	}
 
-	jwt, err := o.CreateJWTConfig(o.Credentials, o.Scopes...)
-	if err != nil {
-		return nil, fmt.Errorf("creating JWT config failed: %w", err)
-	}
-
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
-	ts := jwt.TokenSource(ctx)
+	ts := oauth2.ReuseTokenSource(nil, reCreatingJWTSource{
+		ctx:         ctx,
+		createfn:    o.CreateJWTConfig,
+		credentials: o.Credentials,
+		scopes:      o.Scopes,
+	})
 	httpClient = oauth2.NewClient(ctx, ts)
 
 	return httpClient, nil
