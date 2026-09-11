@@ -339,10 +339,12 @@ message SyncStatsRecord {
   // Per-resource-type entitlements counts: keyed by resource_type_id.
   map<string, int64> entitlements_by_resource_type = 9;
 
-  // Timing / call stats lifted from the syncer token at EndSync.
-  // Mirror of c1.reader.v2.SyncStats fields 9–11 (storage cannot import
-  // reader protos; CallStat is duplicated below). Compacted syncs fold
-  // partial timings into the token's top-level maps at compaction time.
+  // Timing / call stats. Ledgered syncs hand these to the engine directly
+  // at EndSync (the fold of every LedgerCounterBucket); token-only
+  // syncs still have them lifted from the syncer token. Mirror of
+  // c1.reader.v2.SyncStats fields 9–11 (storage cannot import reader
+  // protos; CallStat is duplicated below). Compacted syncs fold partial
+  // timings into these maps at compaction time.
   map<string, int64> step_durations_ms = 10;
   map<string, CallStat> connector_call_stats = 11;
   map<string, CallStat> session_store_stats = 12;
@@ -351,8 +353,34 @@ message SyncStatsRecord {
   // Compacted syncs omit this field: source-cache replay is not supported for
   // compacted artifacts and ingestion counters do not compose through merges.
   IngestQualityStats ingest_quality = 13;
+  // Compaction provenance, set only on compacted outputs (previously a
+  // section of the sync token; the token is not written for ledgered syncs).
+  CompactionProvenance compaction = 14;
 
   google.protobuf.Timestamp written_at = 100;
+}
+
+// CompactionProvenance records what a compaction produced and from what.
+message CompactionProvenance {
+  // Compactor mode (fold, kway, overlay).
+  string mode = 1;
+  // The sync whose collection run the timing stats describe (the base
+  // sync for fold, "" for rebuild modes which have no single origin).
+  string stats_sync_id = 2;
+  string base_sync_id = 3;
+  repeated string partial_sync_ids = 4;
+  int64 partial_count = 5;
+  // Per record-type counts (resource_types, resources, entitlements,
+  // grants): output totals, plus added/replaced/carried attribution when
+  // the mode can tell (fold).
+  map<string, CompactionRecordCounts> record_counts = 6;
+}
+
+message CompactionRecordCounts {
+  int64 output = 1;
+  int64 added = 2;
+  int64 replaced = 3;
+  int64 carried = 4;
 }
 
 message IngestQualityStats {
@@ -376,6 +404,118 @@ message IngestQualityStats {
   uint64 invalid_resource_types_observed = 8;
   uint64 invalid_resources_observed = 9;
   uint64 invalid_entitlements_observed = 10;
+}
+
+// LedgerActionIdentity is the semantic identity of one syncer action
+// instance: the flat tuple that determines the connector request the
+// action's page makes (docs/tasks/sound-syncs-solutions-brief.md §3.2).
+// Equal identity ⇒ equal work. Field names mirror pkg/sync.Action; the
+// op is the action kind's stable string name so storage never imports
+// the syncer's enum.
+message LedgerActionIdentity {
+  string op = 1;
+  string resource_type_id = 2;
+  string resource_id = 3;
+  string parent_resource_type_id = 4;
+  string parent_resource_id = 5;
+  // The page token the action was AT (its request's cursor). Verbatim
+  // unless the row was scrubbed (LedgerRow.scrubbed), in which case
+  // empty; page_token_hash always identifies it.
+  string page_token = 6;
+  // 16-byte truncated SHA-256 of page_token. The ledger key carries
+  // this instead of the token (bounded key size); the read-side
+  // identity compare uses it when the verbatim token is absent.
+  bytes page_token_hash = 7;
+  bool type_scoped = 8;
+  // The action was admitted as a spawned cursor (connector-enqueued
+  // page token) rather than pushed by the walk. Not part of the key;
+  // carried so a child recorded in a row can be re-pushed faithfully.
+  bool spawned = 9;
+}
+
+// LedgerRow records one COMMITTED page: the action's transition and
+// everything it spawned, written in the same pebble batch as the
+// page's record rows, so "the rows landed" and "the page is done" are
+// one fact (brief §3.1). Stored under the engine's ledger keyspace
+// (TypeLedger); the key is derived from identity. Rows persist after
+// the sync seals as its execution trace (§3.12); the resume walk
+// (§3.3) reads them and never writes.
+message LedgerRow {
+  // Echo of the key's identity, verbatim. The read-side compare
+  // against the action being resolved is what makes a key collision
+  // (an identity omission or key-function bug) a re-run instead of a
+  // silent skip.
+  LedgerActionIdentity identity = 1;
+  // Cursor for the action's next page; empty means the action
+  // finished on this page. Scrubbed to empty with next_page_token_hash
+  // retained when scrubbed is set.
+  string next_page_token = 2;
+  bytes next_page_token_hash = 3;
+  // Actions this page pushed (children carry full identity so the
+  // walk can push them without a lookup).
+  repeated LedgerActionIdentity children = 4;
+  // Attempt that committed the page (the syncer's attempt epoch) and
+  // when.
+  string attempt = 5;
+  google.protobuf.Timestamp committed_at = 6;
+  // Records staged in the page's batch, by kind.
+  uint64 resource_types_written = 7;
+  uint64 resources_written = 8;
+  uint64 entitlements_written = 9;
+  uint64 grants_written = 10;
+  // The page's rows came from source-cache replay rather than a fresh
+  // connector fetch.
+  bool replayed = 11;
+  // Post-transition action state that must ride in the row (brief
+  // §3.2 structural finding 2): row present ⇒ type-scoped planning ran.
+  bool type_scoped_planned = 12;
+  // Tokens (identity.page_token, next_page_token, children tokens)
+  // were replaced by their hashes at seal because the connector
+  // declared its page tokens sensitive.
+  bool scrubbed = 13;
+  // Per-page timings (brief §3.12): wall time of the handler, time
+  // spent inside connector calls, and time spent waiting (rate-limit
+  // and retry sleeps). Milliseconds; zero when not measured.
+  uint64 page_ms = 14;
+  uint64 connector_ms = 15;
+  uint64 wait_ms = 16;
+}
+
+// LedgerCounterBucket is one (run, worker) bucket of sync-level
+// counters and stats (brief §3.6, §3.13). Every page commit blind-writes
+// its worker's whole bucket (cached total + this page's delta) in the
+// page's batch, so the contents are exactly as durable as the pages
+// that produced them; the sync-level value is the fold over every
+// bucket (counters, totals and durations sum; max latencies take the
+// max; flags OR). Buckets are keyed by a per-Sync()-invocation run id
+// and a worker index, so a resume with a different worker count never
+// overwrites a prior run's buckets. One reserved worker index per run
+// holds the run-level stats that are not page-shaped (phase durations,
+// session-store calls), blind-written best-effort at phase boundaries,
+// stop and seal. Names are the syncer's; the engine treats them as
+// opaque.
+message LedgerCounterBucket {
+  map<string, uint64> counters = 1;
+  // Bitset OR'd across the run (the syncer's ingest-quality reasons).
+  uint64 flags = 2;
+  // Connector calls made by this worker's committed pages, by method.
+  map<string, CallStat> connector_calls = 3;
+  // Run-level (reserved worker index only): phase wall time by step
+  // name, and session-store calls by op.
+  map<string, int64> step_durations_ms = 4;
+  map<string, CallStat> session_calls = 5;
+}
+
+// LedgerFrontier is the takeover record for a sync that began under a
+// token-only SDK (brief §3.8): the checkpoint token's serialized state
+// (the action stack and phase flags) moved into the ledger family in
+// the same batch that clears the sync run's token. Resume under atomic
+// pages loads the stack from here and walks the ledger forward; the
+// token is never consulted again for that sync.
+message LedgerFrontier {
+  string state = 1;
+  string attempt = 2;
+  google.protobuf.Timestamp taken_over_at = 3;
 }
 
 // CallStat mirrors c1.reader.v2.CallStat for the storage sidecar.

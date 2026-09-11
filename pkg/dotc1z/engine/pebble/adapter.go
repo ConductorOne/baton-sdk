@@ -234,13 +234,29 @@ func (e *Engine) CurrentSyncStep(ctx context.Context) (string, error) {
 	return rec.GetSyncToken(), nil
 }
 
-// CheckpointSync persists a step token to the open sync's record.
+// ErrLedgeredSyncWritesNoToken is returned by CheckpointSync once the
+// open sync has a ledger: the syncer's progress is its pages (brief
+// §3), and a token beside a ledger would be a second, lagging authority.
+// The syncer never calls this on Pebble; the guard makes that a property
+// of the engine rather than of the caller.
+var ErrLedgeredSyncWritesNoToken = errors.New("CheckpointSync: sync has a ledger; ledgered syncs write no token")
+
+// CheckpointSync persists a step token to the open sync's record. This
+// is the token-only protocol — the c1zsanitize resumable checkpoint,
+// which never has a ledger — and is refused for a ledgered sync.
 func (e *Engine) CheckpointSync(ctx context.Context, syncToken string) error {
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
 	syncID := e.CurrentSyncID()
 	if syncID == "" {
 		return errors.New("CheckpointSync: no open sync")
+	}
+	ledgered, err := e.ledgerActive()
+	if err != nil {
+		return err
+	}
+	if ledgered {
+		return ErrLedgeredSyncWritesNoToken
 	}
 	existing, err := e.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
@@ -259,15 +275,47 @@ func (e *Engine) CheckpointSync(ctx context.Context, syncToken string) error {
 // cleared inside the finalize tail (EndFreshSync), so success leaves
 // no lifecycle state to reset here.
 func (e *Engine) EndSync(ctx context.Context) error {
+	return e.endSync(ctx, nil)
+}
+
+// EndSyncWithStats implements c1zstore.PageLedgerStore: EndSync with the
+// sync's final stats as an argument. The stats are laid over the record
+// counts the seal computes for the stats sidecar (PersistSyncStats).
+func (e *Engine) EndSyncWithStats(ctx context.Context, stats c1zstore.SyncStats) error {
+	return e.endSync(ctx, syncStatsOverlay(stats))
+}
+
+// ErrLedgeredSyncNeedsStats is returned by EndSync for a sync whose
+// ledger is in flight: such a sync writes no checkpoint token, so
+// nothing but the caller can supply its stats — it must seal through
+// EndSyncWithStats. Failing here is deliberate: a silent fallback would
+// seal without ingest quality, a replay-eligibility input.
+var ErrLedgeredSyncNeedsStats = errors.New("EndSync: ledgered sync must seal through EndSyncWithStats")
+
+func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error {
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
 	syncID := e.CurrentSyncID()
 	if syncID == "" {
 		return errors.New("EndSync: no open sync")
 	}
+	if overlay == nil {
+		ledgered, err := e.ledgerActive()
+		if err != nil {
+			return err
+		}
+		if ledgered {
+			return ErrLedgeredSyncNeedsStats
+		}
+	}
 	existing, err := e.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return err
+	}
+	// Stashed after the last fallible step before the finalize that
+	// consumes it, so exactly one path can leave it behind.
+	if overlay != nil {
+		e.setSyncStatsOverlay(syncID, overlay)
 	}
 	// The sync's writes are done. From here to save/close the store only
 	// runs the deferred index build, the stats sidecar, and the durability
@@ -291,6 +339,15 @@ func (e *Engine) EndSync(ctx context.Context) error {
 		// compactions, or L0 would accumulate until pebble stalls writes at
 		// L0StopWritesThreshold with nothing left to resume the scheduler.
 		e.unseal()
+		// Drop the stash. Only PersistSyncStats consumes it, and finalize
+		// can fail before reaching it, so leaving it here would park these
+		// stats under syncID for whatever seals that id next —
+		// setSyncStatsOverlay's contract is that the value never outlives
+		// the EndSync that supplied it, and the retry brings its own.
+		// A no-op when finalize already consumed it.
+		if overlay != nil {
+			e.takeSyncStatsOverlay(syncID)
+		}
 		return err
 	}
 	return nil
@@ -343,6 +400,71 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	if err := e.sealSourceCacheRowCounts(ctx); err != nil {
 		return fmt.Errorf("EndSync: seal source cache row counts: %w", err)
 	}
+	// Scrub ledger tokens to hash-only BEFORE the ended_at stamp, for the
+	// same reason as the row counts: the finished verdict must never be
+	// durable over a verbatim token. A crash in between leaves the sync
+	// unfinished and the resumed EndSync re-runs the idempotent scrub.
+	//
+	// Scrubs unless retention was declared, in memory or by the durable
+	// fact (see LedgerFactRetainTokens). This process may not be the one
+	// that declared it.
+	//
+	// ledgerActive gates the whole block, and has to: sealScrubsTokens
+	// reports true whenever the retain fact is absent, and a sync with no
+	// ledger never writes that fact, so without this gate every EndSync
+	// in the fleet reaches PurgeLedgerResidue. Its db.Compact rewrites
+	// every SST whose bounds OVERLAP the ledger range, and on a
+	// ledger-free file the SSTs spanning the gap between TypeSourceCache
+	// and TypeEngineMeta do overlap it, at every level that has files.
+	// The scrub alone is cheap over an empty range; the compaction is
+	// not. BenchmarkLedgerSealCost's pages=0 shape measures this.
+	//
+	// What the gate does not cover: a ledger deleted earlier in this file's
+	// life, whose bytes are still in the SSTs with no rows left to find. The
+	// marker block below is that case, and is deliberately outside this one.
+	ledgered, err := e.ledgerActive()
+	if err != nil {
+		return fmt.Errorf("EndSync: check ledger presence: %w", err)
+	}
+	if ledgered {
+		scrub, err := e.sealScrubsTokens()
+		if err != nil {
+			return fmt.Errorf("EndSync: read retain-tokens fact: %w", err)
+		}
+		if scrub {
+			if err := e.ScrubLedgerTokens(ctx); err != nil {
+				return fmt.Errorf("EndSync: scrub ledger tokens: %w", err)
+			}
+			// The scrub is query-level until the pre-scrub SST versions
+			// are compacted away; nothing later on the seal-to-save path
+			// compacts (see PurgeLedgerResidue). Same crash argument as
+			// the scrub: a crash here leaves the sync unfinished and the
+			// resumed EndSync re-runs both (idempotent).
+			if !e.test.skipLedgerResiduePurge {
+				if err := e.PurgeLedgerResidue(ctx); err != nil {
+					return fmt.Errorf("EndSync: purge ledger residue after scrub: %w", err)
+				}
+			}
+		}
+	}
+	// Separate from the block above, and gated on neither ledgerActive nor
+	// the retain fact: this is the state where a deleted ledger's bytes are
+	// still in the SSTs with nothing left in the keyspace to infer it from.
+	// DropLedger and ResetForNewSync arm the marker for it, and this is the
+	// retry for one of their own purges that failed (see
+	// encodeLedgerResiduePendingKey).
+	if !e.test.skipLedgerResiduePurge {
+		if err := e.purgeMarkedLedgerResidue(ctx); err != nil {
+			return fmt.Errorf("EndSync: purge marked ledger residue: %w", err)
+		}
+	}
+	// Restore the v2 stamp BEFORE ended_at: a finished file must be
+	// openable by every v2 reader (the rows stay; those readers are
+	// family-bounded). A crash in between leaves an unfinished v2 file
+	// with rows; the resumed EndSync re-runs this (idempotent).
+	if err := e.clearLedgerInFlight(); err != nil {
+		return fmt.Errorf("EndSync: %w", err)
+	}
 	// Preserve all provenance fields while adding the lifecycle stamp.
 	updated := proto.Clone(existing).(*v3.SyncRunRecord)
 	updated.SetEndedAt(timestamppb.Now())
@@ -372,6 +494,12 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 			zap.String("sync_id", existing.GetSyncId()),
 			zap.Error(err),
 		)
+		// Drop the stash here too, for the reason the failure path above
+		// gives: only PersistSyncStats consumes it, and it can return on a
+		// computeSyncStats error before reaching applySyncerStats, which
+		// leaves these stats parked under this sync id. The seal is done
+		// with them either way — it just finished the sync without them.
+		e.takeSyncStatsOverlay(existing.GetSyncId())
 	}
 	// Single flush + WAL fsync at sync end. This is the counterpart to
 	// MarkFreshSync at StartNewSync; after it returns all of the sync's
@@ -414,12 +542,20 @@ func (e *Engine) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
-	records := translateGrants(syncID, grants)
-	stampSourceScope(ctx, records, func(r *v3.GrantRecord, scope string) { r.SetSourceScopeKey(scope) })
+	records := translateGrantsForPut(ctx, syncID, grants)
 	if err := e.PutGrantRecords(ctx, records...); err != nil {
 		return fmt.Errorf("PutGrants: %w", err)
 	}
 	return nil
+}
+
+// translateGrantsForPut is the v2→v3 step of PutGrants: parallel
+// translate plus the context's source-scope stamp. Shared with the
+// page writer.
+func translateGrantsForPut(ctx context.Context, syncID string, grants []*v2.Grant) []*v3.GrantRecord {
+	records := translateGrants(syncID, grants)
+	stampSourceScope(ctx, records, func(r *v3.GrantRecord, scope string) { r.SetSourceScopeKey(scope) })
+	return records
 }
 
 func stampSourceScope[T any](ctx context.Context, records []T, set func(T, string)) {
@@ -547,6 +683,16 @@ func (e *Engine) PutResourceTypes(ctx context.Context, rts ...*v2.ResourceType) 
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
+	records := translateResourceTypesForPut(syncID, rts)
+	if err := e.PutResourceTypeRecords(ctx, records...); err != nil {
+		return fmt.Errorf("PutResourceTypes: %w", err)
+	}
+	return nil
+}
+
+// translateResourceTypesForPut is the v2→v3 step of PutResourceTypes:
+// translate and default discovered_at. Shared with the page writer.
+func translateResourceTypesForPut(syncID string, rts []*v2.ResourceType) []*v3.ResourceTypeRecord {
 	records := make([]*v3.ResourceTypeRecord, 0, len(rts))
 	now := timestamppb.Now()
 	for _, rt := range rts {
@@ -562,10 +708,7 @@ func (e *Engine) PutResourceTypes(ctx context.Context, rts ...*v2.ResourceType) 
 		}
 		records = append(records, rec)
 	}
-	if err := e.PutResourceTypeRecords(ctx, records...); err != nil {
-		return fmt.Errorf("PutResourceTypes: %w", err)
-	}
-	return nil
+	return records
 }
 
 // PutResources writes a batch of resources in a single Pebble batch.
@@ -574,6 +717,17 @@ func (e *Engine) PutResources(ctx context.Context, resources ...*v2.Resource) er
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
+	records := translateResourcesForPut(ctx, syncID, resources)
+	if err := e.PutResourceRecords(ctx, records...); err != nil {
+		return fmt.Errorf("PutResources: %w", err)
+	}
+	return nil
+}
+
+// translateResourcesForPut is the v2→v3 step of PutResources: translate,
+// default discovered_at, stamp the context's source scope. Shared with
+// the page writer.
+func translateResourcesForPut(ctx context.Context, syncID string, resources []*v2.Resource) []*v3.ResourceRecord {
 	records := make([]*v3.ResourceRecord, 0, len(resources))
 	now := timestamppb.Now()
 	for _, r := range resources {
@@ -590,10 +744,7 @@ func (e *Engine) PutResources(ctx context.Context, resources ...*v2.Resource) er
 		records = append(records, rec)
 	}
 	stampSourceScope(ctx, records, func(r *v3.ResourceRecord, scope string) { r.SetSourceScopeKey(scope) })
-	if err := e.PutResourceRecords(ctx, records...); err != nil {
-		return fmt.Errorf("PutResources: %w", err)
-	}
-	return nil
+	return records
 }
 
 // PutEntitlements writes a batch of entitlements in a single Pebble batch.
@@ -602,6 +753,16 @@ func (e *Engine) PutEntitlements(ctx context.Context, entitlements ...*v2.Entitl
 	if syncID == "" {
 		return ErrNoCurrentSync
 	}
+	records := translateEntitlementsForPut(ctx, syncID, entitlements)
+	if err := e.PutEntitlementRecords(ctx, records...); err != nil {
+		return fmt.Errorf("PutEntitlements: %w", err)
+	}
+	return nil
+}
+
+// translateEntitlementsForPut is the v2→v3 step of PutEntitlements.
+// Shared with the page writer.
+func translateEntitlementsForPut(ctx context.Context, syncID string, entitlements []*v2.Entitlement) []*v3.EntitlementRecord {
 	records := make([]*v3.EntitlementRecord, 0, len(entitlements))
 	now := timestamppb.Now()
 	for _, e := range entitlements {
@@ -618,10 +779,7 @@ func (e *Engine) PutEntitlements(ctx context.Context, entitlements ...*v2.Entitl
 		records = append(records, rec)
 	}
 	stampSourceScope(ctx, records, func(r *v3.EntitlementRecord, scope string) { r.SetSourceScopeKey(scope) })
-	if err := e.PutEntitlementRecords(ctx, records...); err != nil {
-		return fmt.Errorf("PutEntitlements: %w", err)
-	}
-	return nil
+	return records
 }
 
 // DeleteGrant removes a grant by its raw public id, resolved through the

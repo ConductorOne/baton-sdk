@@ -201,6 +201,9 @@ func (s *pebbleStore) LookupSourceCacheEntry(ctx context.Context, kind sourcecac
 }
 
 func (s *pebbleStore) PutSourceCacheEntry(ctx context.Context, kind sourcecache.RowKind, scopeKey string, cacheValidator string) error {
+	if err := s.seam(ctx, "PutSourceCacheEntry"); err != nil {
+		return err
+	}
 	if err := sourcecache.ValidateRowKind(kind); err != nil {
 		return err
 	}
@@ -219,6 +222,9 @@ func (s *pebbleStore) PutSourceCacheEntry(ctx context.Context, kind sourcecache.
 }
 
 func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore.Reader, kind sourcecache.RowKind, scopeKey string) (SourceCacheReplayResult, error) {
+	if err := s.seam(ctx, "ReplaySourceCache"); err != nil {
+		return SourceCacheReplayResult{}, err
+	}
 	if err := sourcecache.ValidateRowKind(kind); err != nil {
 		return SourceCacheReplayResult{}, err
 	}
@@ -303,6 +309,9 @@ func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore
 // sync loudly rather than guessing a delete, which matches the
 // source-cache replay-phase error policy.
 func (s *pebbleStore) DeleteSourceCacheRows(ctx context.Context, kind sourcecache.RowKind, scopeKey string, ids []string) error {
+	if err := s.seam(ctx, "DeleteSourceCacheRows"); err != nil {
+		return err
+	}
 	if err := sourcecache.ValidateRowKind(kind); err != nil {
 		return err
 	}
@@ -355,6 +364,9 @@ func (s *pebbleStore) DeleteSourceCacheRows(ctx context.Context, kind sourcecach
 }
 
 func (s *pebbleStore) DeleteSourceCacheGrantsByIDInScope(ctx context.Context, scopeKey string, ids []string) (int64, error) {
+	if err := s.seam(ctx, "DeleteSourceCacheGrantsByIDInScope"); err != nil {
+		return 0, err
+	}
 	if err := sourcecache.ValidateScopeKey(scopeKey); err != nil {
 		return 0, err
 	}
@@ -378,6 +390,9 @@ func (s *pebbleStore) DeleteSourceCacheGrantsByIDInScope(ctx context.Context, sc
 }
 
 func (s *pebbleStore) DeleteSourceCacheRowsInScope(ctx context.Context, kind sourcecache.RowKind, scopeKey string, ids []string) (int64, error) {
+	if err := s.seam(ctx, "DeleteSourceCacheRowsInScope"); err != nil {
+		return 0, err
+	}
 	if err := sourcecache.ValidateRowKind(kind); err != nil {
 		return 0, err
 	}

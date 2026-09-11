@@ -49,7 +49,100 @@ var (
 	resourcePrimaryPrefix     = []byte{VersionV3, TypeResource}
 	entitlementPrimaryPrefix  = []byte{VersionV3, TypeEntitlement}
 	resourceTypePrimaryPrefix = []byte{VersionV3, TypeResourceType}
+	ledgerRowPrefix           = []byte{VersionV3, TypeLedger, ledgerKindRow}
 )
+
+// === ledger staging ===
+
+// StageLedgerRow stages one page-completion row into a RECORD batch.
+// The ledger lives on RecordBatch deliberately: the row's meaning is
+// "the records staged alongside me landed", so the only batch it may
+// ride is the one carrying those records — the page unit's. There is
+// no standalone ledger writer; a row landing without its page, or a
+// page landing without its row, is unexpressible by construction.
+//
+// The seal-time token scrub rewrites rows in place through this same
+// op on a records-free batch (the row's records are already durable;
+// the rewrite changes only token fields).
+func (rb *RecordBatch) StageLedgerRow(key, val []byte) error {
+	if err := assertFamily("StageLedgerRow", key, ledgerRowPrefix); err != nil {
+		return err
+	}
+	return rb.core.Set(key, val)
+}
+
+// Ledger fact value encoding (on-disk ABI). A bare fact is the single
+// byte 0x01 (the original form); a valued fact is 0x02 followed by the
+// value bytes. DecodeLedgerFactValue reads both.
+const (
+	ledgerFactBare   = 0x01
+	ledgerFactValued = 0x02
+)
+
+// StageLedgerFact blind-sets one fact key (v3|TypeLedger|0x01|name).
+// Idempotent and order-independent: a fact is a monotone bit for the
+// sync, written by every page that establishes it.
+func (rb *RecordBatch) StageLedgerFact(key []byte) error {
+	if err := assertFamily("StageLedgerFact", key, LedgerFactPrefix()); err != nil {
+		return err
+	}
+	return rb.core.Set(key, []byte{ledgerFactBare})
+}
+
+// StageLedgerFactValue blind-sets one fact key with a value: the same
+// monotone, last-writer-wins key as StageLedgerFact, carrying a small
+// string (a source-cache hit's validator). An empty value is a bare fact.
+func (rb *RecordBatch) StageLedgerFactValue(key []byte, value string) error {
+	if value == "" {
+		return rb.StageLedgerFact(key)
+	}
+	if err := assertFamily("StageLedgerFactValue", key, LedgerFactPrefix()); err != nil {
+		return err
+	}
+	val := make([]byte, 0, 1+len(value))
+	val = append(val, ledgerFactValued)
+	return rb.core.Set(key, append(val, value...))
+}
+
+// DecodeLedgerFactValue returns the value a fact key carries: "" for a
+// bare fact, the string for a valued one.
+func DecodeLedgerFactValue(val []byte) string {
+	if len(val) >= 1 && val[0] == ledgerFactValued {
+		return string(val[1:])
+	}
+	return ""
+}
+
+// StageLedgerCounterBucket blind-writes one (run, worker) counter
+// bucket. The caller writes its cached total, never a delta, so a
+// replayed or re-committed page cannot double count.
+func (rb *RecordBatch) StageLedgerCounterBucket(key, val []byte) error {
+	if err := assertFamily("StageLedgerCounterBucket", key, LedgerCounterPrefix()); err != nil {
+		return err
+	}
+	return rb.core.Set(key, val)
+}
+
+// StageLedgerTakeover stages the token-only → ledger migration as one
+// unit: the frontier record (the token's state, now owned by the
+// ledger) and the sync-run record with its token cleared. The two must
+// land together — a frontier without a cleared token would be taken
+// over twice; a cleared token without a frontier would lose the stack.
+// This is the one RecordBatch op that touches the sync-run key, and it
+// exists only for that atomicity.
+func (rb *RecordBatch) StageLedgerTakeover(frontierVal, syncRunVal []byte) error {
+	if err := rb.core.Set(LedgerFrontierKey(), frontierVal); err != nil {
+		return err
+	}
+	return rb.core.Set(SyncRunKey(), syncRunVal)
+}
+
+// StageLedgerFrontier rewrites the frontier record alone. Separate from
+// StageLedgerTakeover because the seal's token scrub rewrites the
+// frontier without touching the sync-run key.
+func (rb *RecordBatch) StageLedgerFrontier(val []byte) error {
+	return rb.core.Set(LedgerFrontierKey(), val)
+}
 
 func assertFamily(op string, key, prefix []byte) error {
 	if len(key) < len(prefix) || string(key[:len(prefix)]) != string(prefix) {

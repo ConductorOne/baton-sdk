@@ -8,6 +8,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // PutResourceTypeRecord writes a resource_type record. No secondary
@@ -32,18 +33,8 @@ func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.Reso
 		batch := e.db.NewRecordBatch()
 		defer batch.Close()
 		fresh := e.IsFreshSync()
-		for _, r := range records {
-			if r == nil {
-				continue
-			}
-			key := encodeResourceTypeKey(r.GetExternalId())
-			val, err := marshalRecord(r)
-			if err != nil {
-				return err
-			}
-			if err := batch.StageResourceTypePut(key, val); err != nil {
-				return err
-			}
+		if _, err := stageResourceTypeRecords(batch, records); err != nil {
+			return err
 		}
 		opts := writeOpts(e.opts.durability)
 		if fresh {
@@ -51,6 +42,43 @@ func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.Reso
 		}
 		return batch.Commit(opts)
 	})
+}
+
+// stageResourceTypeRecords stages records into batch and returns the number
+// of distinct keys it staged. Shared by PutResourceTypeRecords and the page
+// unit's commit.
+//
+// Last occurrence of an external ID wins, matching the other three stagers.
+// The pre-pass is cost, not outcome: the later put wins either way.
+func stageResourceTypeRecords(batch *rawdb.RecordBatch, records []*v3.ResourceTypeRecord) (uint64, error) {
+	var last map[string]int
+	if len(records) > 1 {
+		last = make(map[string]int, len(records))
+		for i, r := range records {
+			if r != nil {
+				last[r.GetExternalId()] = i
+			}
+		}
+	}
+	var staged uint64
+	for i, r := range records {
+		if r == nil {
+			continue
+		}
+		if last != nil && last[r.GetExternalId()] != i {
+			continue
+		}
+		key := encodeResourceTypeKey(r.GetExternalId())
+		val, err := marshalRecord(r)
+		if err != nil {
+			return 0, err
+		}
+		if err := batch.StageResourceTypePut(key, val); err != nil {
+			return 0, err
+		}
+		staged++
+	}
+	return staged, nil
 }
 
 func (e *Engine) GetResourceTypeRecord(ctx context.Context, externalID string) (*v3.ResourceTypeRecord, error) {

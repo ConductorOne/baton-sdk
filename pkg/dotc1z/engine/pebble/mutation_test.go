@@ -375,3 +375,24 @@ func TestDeleteThenPutCleansAndRewrites(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, n, "after delete + reput: by_ent(C)")
 }
+
+// The resource-type stager's dedup pre-pass, the last of the four to get
+// one. Which occurrence survives is the whole point: a pre-pass that kept
+// the first would persist the stale record and still leave one key, so a
+// count or key-set assertion cannot tell the two apart.
+func TestFreshSyncWithinCallDuplicateResourceTypeDedup(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	require.NoError(t, e.MarkFreshSync(ksuid.New().String()))
+	mkRT := func(displayName string) *v3.ResourceTypeRecord {
+		return v3.ResourceTypeRecord_builder{ExternalId: "app", DisplayName: displayName}.Build()
+	}
+	require.NoError(t, e.PutResourceTypeRecords(ctx, mkRT("stale"), mkRT("fresh")))
+
+	got, err := e.GetResourceTypeRecord(ctx, "app")
+	require.NoError(t, err)
+	require.Equal(t, "fresh", got.GetDisplayName(), "the last occurrence of an external ID wins")
+	n := 0
+	require.NoError(t, e.IterateResourceTypes(ctx, func(*v3.ResourceTypeRecord) bool { n++; return true }))
+	require.Equal(t, 1, n)
+}

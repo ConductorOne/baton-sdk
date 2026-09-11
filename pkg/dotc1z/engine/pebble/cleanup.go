@@ -48,6 +48,9 @@ func scopedRanges() [][2][]byte {
 		{encodeSyncStatsKey(), upperBoundOf(encodeSyncStatsKey())},
 		// Entitlement-graph sidecar — same single-key shape.
 		{EntitlementGraphSidecarLowerBound(), EntitlementGraphSidecarUpperBound()},
+		// Page ledger (ledger.go): the sync's execution trace, wiped
+		// with the sync it describes.
+		{LedgerLowerBound(), LedgerUpperBound()},
 	}
 }
 
@@ -95,10 +98,24 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 		{Start: SyncStatsSidecarLowerBound(), End: SyncStatsSidecarUpperBound()},
 		{Start: EntitlementGraphSidecarLowerBound(), End: EntitlementGraphSidecarUpperBound()},
 	}
+	// Read before the excise: an interrupted ledgered sync's rows are still
+	// here, and once excised nothing tells the seal they ever were.
+	ledgered, err := e.ledgerActive()
+	if err != nil {
+		return fmt.Errorf("ResetForNewSync: check ledger presence: %w", err)
+	}
+	// Armed before the excise, not after: a crash in between leaves the
+	// marker over rows that are still there, which costs one compaction at
+	// the next seal. The other order loses the marker and ships the bytes.
+	if ledgered {
+		if err := e.markLedgerResiduePending(residueExcised); err != nil {
+			return fmt.Errorf("ResetForNewSync: %w", err)
+		}
+	}
 	// AllowSealed: StartNewSync legitimately replaces a finished (sealed)
 	// sync; the wipe is the first step of leaving the sealed state. The
 	// engine stays sealed until MarkFreshSync unseals it right after.
-	return e.withWriteAllowSealed(func() error {
+	if err := e.withWriteAllowSealed(func() error {
 		for _, span := range spans {
 			if err := e.db.ExciseRange(ctx, span); err != nil {
 				return fmt.Errorf("ResetForNewSync: excise [%x, %x): %w", span.Start, span.End, err)
@@ -121,9 +138,24 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 				return err
 			}
 		}
+		// The record-type span covers typeLedger, so the ledger family is
+		// gone. Restore the keyspace stamp with it: the in-flight stamp
+		// classifies a file as mid-ledgered-sync, and left standing it
+		// outlives the rows it describes. The replacement sync then gets
+		// CheckpointSync refused with ErrLedgeredSyncWritesNoToken and
+		// plain EndSync refused with ErrLedgeredSyncNeedsStats, on a file
+		// with no ledger at all — neither protocol can finish it. Safe in
+		// this direction because a wiped file has no rows for an older
+		// SDK to misread.
+		if err := e.clearLedgerInFlight(); err != nil {
+			return fmt.Errorf("ResetForNewSync: %w", err)
+		}
 		e.noteEntitlementKeyspaceWrite()
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	return nil
 }
 
 // CompactAllRanges runs pebble.Compact over every sync-scoped range to

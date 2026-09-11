@@ -9,6 +9,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // PutResourceRecord writes a resource record + its by_parent index
@@ -43,61 +44,8 @@ func (e *Engine) PutResourceRecords(ctx context.Context, records ...*v3.Resource
 		defer batch.Close()
 
 		fresh := e.IsFreshSync()
-		skipGet := e.takeFreshResourcesEmpty()
-
-		type dedupKey struct {
-			rtID, resID string
-		}
-		var dedup map[dedupKey]int
-		if len(records) > 1 {
-			dedup = make(map[dedupKey]int, len(records))
-			for i, r := range records {
-				if r == nil {
-					continue
-				}
-				dedup[dedupKey{r.GetResourceTypeId(), r.GetResourceId()}] = i
-			}
-		}
-
-		for i, r := range records {
-			if r == nil {
-				continue
-			}
-			if dedup != nil {
-				if dedup[dedupKey{r.GetResourceTypeId(), r.GetResourceId()}] != i {
-					continue
-				}
-			}
-			key := encodeResourceKey(r.GetResourceTypeId(), r.GetResourceId())
-			val, err := marshalRecord(r)
-			if err != nil {
-				return err
-			}
-			var oldVal []byte
-			var oldCloser io.Closer
-			if !skipGet {
-				got, closer, getErr := e.db.Get(key)
-				switch {
-				case getErr == nil:
-					// The prior VALUE is genuinely needed here (unlike
-					// grants): the by_parent cleanup key depends on the old
-					// parent ref, which only the old bytes carry.
-					oldVal, oldCloser = got, closer
-				case errors.Is(getErr, pebble.ErrNotFound):
-					// no prior — write unconditionally
-				default:
-					return fmt.Errorf("PutResourceRecords: get old: %w", getErr)
-				}
-			}
-			// One typed op stages the row and its by_parent obligations
-			// (old entry cleanup from oldVal, new entry from val).
-			err = batch.StageResourcePut(key, val, oldVal, r.GetResourceTypeId(), r.GetResourceId())
-			if oldCloser != nil {
-				_ = oldCloser.Close()
-			}
-			if err != nil {
-				return err
-			}
+		if _, err := e.stageResourceRecords(batch, records); err != nil {
+			return err
 		}
 		opts := writeOpts(e.opts.durability)
 		if fresh {
@@ -108,6 +56,76 @@ func (e *Engine) PutResourceRecords(ctx context.Context, records ...*v3.Resource
 		// entries is unexpressible.
 		return batch.Commit(opts)
 	})
+}
+
+// stageResourceRecords stages records (with within-call dedup and the
+// read-before-write by_parent cleanup) into batch and returns the number of
+// distinct keys it staged. Caller holds the write barrier and has checked
+// requireCurrentSync; the caller commits. Shared by PutResourceRecords and
+// the page unit's commit.
+func (e *Engine) stageResourceRecords(batch *rawdb.RecordBatch, records []*v3.ResourceRecord) (uint64, error) {
+	if len(records) == 0 {
+		return 0, nil
+	}
+	skipGet := e.takeFreshResourcesEmpty()
+
+	type dedupKey struct {
+		rtID, resID string
+	}
+	var dedup map[dedupKey]int
+	if len(records) > 1 {
+		dedup = make(map[dedupKey]int, len(records))
+		for i, r := range records {
+			if r == nil {
+				continue
+			}
+			dedup[dedupKey{r.GetResourceTypeId(), r.GetResourceId()}] = i
+		}
+	}
+
+	var staged uint64
+	for i, r := range records {
+		if r == nil {
+			continue
+		}
+		if dedup != nil {
+			if dedup[dedupKey{r.GetResourceTypeId(), r.GetResourceId()}] != i {
+				continue
+			}
+		}
+		staged++
+		key := encodeResourceKey(r.GetResourceTypeId(), r.GetResourceId())
+		val, err := marshalRecord(r)
+		if err != nil {
+			return 0, err
+		}
+		var oldVal []byte
+		var oldCloser io.Closer
+		if !skipGet {
+			got, closer, getErr := e.db.Get(key)
+			switch {
+			case getErr == nil:
+				// The prior VALUE is genuinely needed here (unlike
+				// grants): the by_parent cleanup key depends on the old
+				// parent ref, which only the old bytes carry.
+				oldVal, oldCloser = got, closer
+			case errors.Is(getErr, pebble.ErrNotFound):
+				// no prior — write unconditionally
+			default:
+				return 0, fmt.Errorf("PutResourceRecords: get old: %w", getErr)
+			}
+		}
+		// One typed op stages the row and its by_parent obligations
+		// (old entry cleanup from oldVal, new entry from val).
+		err = batch.StageResourcePut(key, val, oldVal, r.GetResourceTypeId(), r.GetResourceId())
+		if oldCloser != nil {
+			_ = oldCloser.Close()
+		}
+		if err != nil {
+			return 0, err
+		}
+	}
+	return staged, nil
 }
 
 func (e *Engine) GetResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (*v3.ResourceRecord, error) {

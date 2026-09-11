@@ -64,6 +64,58 @@ func TestBuildCompactedTokenFold(t *testing.T) {
 	require.Equal(t, &CompactionRecordCounts{Output: 100, Added: 10, Replaced: 5, Carried: 85}, comp.RecordCounts["grants"])
 }
 
+// A compacted output inherits its base's token, so if the base was
+// compacted by an SDK that still wrote the token's compaction section, the
+// output would report that compaction as its own. Provenance lives in
+// SyncStatsRecord.compaction now, so the section is stripped and the rest
+// of the token — resume state and timings, which PersistSyncStats still
+// falls back to — has to survive intact.
+func TestClearCompactionSection(t *testing.T) {
+	baseToken := marshalledStatsToken(t,
+		map[string]time.Duration{"list-grants": 90 * time.Minute},
+		map[string]time.Duration{"list-grants": 2 * time.Second},
+	)
+	withSection, err := BuildCompactedToken(baseToken, CompactionTokenInput{
+		Mode:           "fold",
+		BaseSyncID:     "an-older-compaction",
+		PartialSyncIDs: []string{"p1"},
+		RecordCounts: map[string]CompactionRecordCounts{
+			"grants": {Output: 100, Added: 10},
+		},
+	})
+	require.NoError(t, err)
+	comp, err := CompactionStatsFromToken(withSection)
+	require.NoError(t, err)
+	require.NotNil(t, comp, "premise: the token under test must carry a section to strip")
+
+	stripped, err := ClearCompactionSection(withSection)
+	require.NoError(t, err)
+	gone, err := CompactionStatsFromToken(stripped)
+	require.NoError(t, err)
+	require.Nil(t, gone, "the inherited compaction section must not survive")
+
+	parts, err := unmarshalToken(stripped)
+	require.NoError(t, err)
+	require.True(t, parts.run.facts.has(factShouldSkipGrants), "resume state must survive the strip")
+	require.EqualValues(t, (90 * time.Minute).Milliseconds(), parts.stats.stepDurations()["list-grants"],
+		"timings must survive: PersistSyncStats reads them when a sync has no stats overlay")
+	require.EqualValues(t, 1, parts.stats.connectorCallStats()["list-grants"].Count)
+
+	t.Run("empty stays empty", func(t *testing.T) {
+		// Not a round-trip: Unmarshal("") seeds an InitOp action, which a
+		// finished compacted output must never carry.
+		out, err := ClearCompactionSection("")
+		require.NoError(t, err)
+		require.Empty(t, out)
+	})
+
+	t.Run("no section is returned unchanged", func(t *testing.T) {
+		out, err := ClearCompactionSection(baseToken)
+		require.NoError(t, err)
+		require.Equal(t, baseToken, out)
+	})
+}
+
 func TestBuildCompactedTokenChainedFoldPreservesOriginalAttribution(t *testing.T) {
 	baseToken := marshalledStatsToken(t,
 		map[string]time.Duration{"list-resources": 10 * time.Minute},
