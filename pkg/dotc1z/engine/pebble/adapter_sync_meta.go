@@ -129,7 +129,7 @@ func (s pebbleSyncMeta) latestFinishedSync(ctx context.Context, typeOK func(v3.S
 }
 
 // Stats returns a map of record-type → row count for the named sync.
-// Delegates to Adapter.Stats, which reads the EndFreshSync stats
+// Delegates to Adapter.Stats, which reads the EndSync stats
 // sidecar (O(1)) when present and falls back to iteration when not.
 func (s pebbleSyncMeta) Stats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error) {
 	return s.e.Stats(ctx, syncType, syncID)

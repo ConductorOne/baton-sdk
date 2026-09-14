@@ -74,12 +74,10 @@ type Engine struct {
 	currentSyncMu sync.RWMutex
 	currentSync   []byte
 	// freshSync is true between MarkFreshSync (called by StartNewSync)
-	// and EndSync. Indicates the engine can take perf shortcuts that
-	// trade durability for throughput while the connector is the
-	// source of truth (host crash → connector replays). Concretely:
-	// writes skip per-batch fsync (use pebble.NoSync) and PutXRecord
-	// can skip the read-before-write index-cleanup path because this
-	// sync_id is guaranteed to be empty.
+	// and EndSync. It lets PutXRecord skip the read-before-write
+	// index-cleanup path, because ResetForNewSync excised the record
+	// keyspace and this sync is therefore empty by construction. It
+	// does not affect durability (recordWriteOpts).
 	freshSync bool
 	// freshGrantsEmpty / freshResourcesEmpty
 	// are one-shot bits guarded by currentSyncMu. MarkFreshSync sets
@@ -454,11 +452,10 @@ func (e *Engine) Close() error {
 	return err
 }
 
-// SetCurrentSync sets the engine's tracked current sync_id from a
+// bindCurrentSync sets the engine's tracked current sync_id from a
 // string KSUID. Subsequent Put*/List* calls with an empty syncID
-// use this value. Clears the freshSync flag — a bare SetCurrentSync
-// is conservative (treats the sync as resumable, so writes keep
-// fsync + read-before-write).
+// use this value. Clears the freshSync flag: a bound sync is treated
+// as resumable, so writes keep read-before-write.
 func (e *Engine) bindCurrentSync(syncID string) error {
 	idBytes, err := codec.EncodeSyncID(syncID)
 	if err != nil {
@@ -541,15 +538,8 @@ func (e *Engine) IsSealed() bool {
 }
 
 // MarkFreshSync sets currentSync AND flags the sync as freshly
-// started (no prior records under this sync_id). The engine then
-// takes the perf-fast write path: pebble.NoSync per commit and skip
-// read-before-write index cleanup. The host crash semantics match
-// SQLite's PRAGMA synchronous=NORMAL — the connector is the source
-// of truth during the sync; a crash forces re-sync rather than
-// silent data loss.
-//
-// Callers should call EndFreshSync (via Flush) at sync end to harden
-// the data with a single fsync.
+// started (no prior records under this sync_id), so Put*Records skip
+// the read-before-write index cleanup. FinishSync clears it.
 func (e *Engine) MarkFreshSync(syncID string) error {
 	idBytes, err := codec.EncodeSyncID(syncID)
 	if err != nil {
@@ -660,32 +650,25 @@ func (e *Engine) takeFreshEntitlementsEmpty() bool {
 	return true
 }
 
-// EndFreshSync clears the fresh-sync flag and flushes the memtable
-// + fsyncs the WAL so the data written during the sync is on disk
-// before the caller returns. Called by Adapter.EndSync.
+// FinishSync flushes the memtable, fsyncs the WAL, and clears the
+// current sync and the fresh-sync flag. Last step of Adapter.EndSync,
+// fresh or bound.
 //
 // Uses withWrite (not a bare writeMu) so the flush participates in the
 // closing check and writeWG: Close tears e.db down after writeWG.Wait,
-// and a bare-mutex EndFreshSync racing Close would flush a nil db.
-func (e *Engine) EndFreshSync(ctx context.Context) error {
+// and a bare-mutex FinishSync racing Close would flush a nil db.
+func (e *Engine) FinishSync(ctx context.Context) error {
 	// AllowSealed: this is the last step of EndSync's sealed finalize
 	// window (see Adapter.EndSync).
 	return e.withWriteAllowSealed(func() error {
-		e.currentSyncMu.RLock()
-		wasFresh := e.freshSync
-		e.currentSyncMu.RUnlock()
-		if !wasFresh {
-			e.clearCurrentSync()
-			return nil
-		}
-		// Flush the memtable (turns NoSync-buffered writes into on-disk
-		// SSTs) and force-fsync the WAL tail (rawdb.WALSyncPoint =
-		// pebble.LogData(nil, Sync)).
 		if err := e.db.FlushMemtables(); err != nil {
-			return fmt.Errorf("EndFreshSync: flush: %w", err)
+			return fmt.Errorf("FinishSync: flush: %w", err)
 		}
+		// SIDE EFFECT ONLY. WALSyncPoint writes no key; it commits an
+		// empty pebble.Sync record so that the WAL gets fsynced, which
+		// puts every earlier NoSync commit (recordWriteOpts) on disk.
 		if err := e.db.WALSyncPoint(); err != nil {
-			return fmt.Errorf("EndFreshSync: fsync WAL: %w", err)
+			return fmt.Errorf("FinishSync: fsync WAL: %w", err)
 		}
 		e.clearCurrentSync()
 		return nil

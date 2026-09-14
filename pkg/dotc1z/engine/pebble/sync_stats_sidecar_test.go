@@ -107,9 +107,6 @@ func TestSyncStatsSidecarBackfillOnOpen(t *testing.T) {
 	require.Equal(t, 1, v, "applied-version after migration")
 }
 
-// TestSyncStatsSidecarFallback verifies that a sync without a
-// sidecar (e.g. partial sync that bypassed EndFreshSync) falls
-// through to the iteration path correctly.
 func TestSyncStatsSidecarFallback(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
