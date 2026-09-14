@@ -9,6 +9,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/cockroachdb/pebble/v2/vfs"
 	"github.com/stretchr/testify/require"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -181,6 +182,103 @@ func TestLedgerTakeoverIsOneUnit(t *testing.T) {
 	require.True(t, found)
 	require.Equal(t, legacyState, sf.State)
 	require.False(t, sf.TakenOverAt.IsZero())
+}
+
+// The same unit on crash images instead of injected errors. Three cuts:
+// before the call, between the in-flight stamp and the batch (the record
+// commit hook fires before the WAL write, so a clone taken in it is that
+// image), and after the call returns with every unsynced byte dropped.
+// Retention is on, so the post image is also where a process that never
+// set the flag reads the takeover's retain fact.
+func TestLedgerTakeoverCrashImages(t *testing.T) {
+	skipOnWindowsMemFS(t)
+	ctx := context.Background()
+	fs := vfs.NewCrashableMem()
+	e, err := Open(ctx, "takeover-crash-db", WithVFS(fs), withPanicOnFatalLogger())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = e.Close() })
+	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	const legacyState = `{"v":1,"actions":[{"op":"list-grants"}]}`
+	require.NoError(t, e.CheckpointSync(ctx, legacyState))
+	e.SetRetainLedgerTokens(true)
+	counters := c1zstore.LedgerCounters{Counters: map[string]uint64{"grants_dropped": 7}, Flags: 0b100}
+
+	open := func(image *vfs.MemFS, label string) *Engine {
+		re, err := Open(ctx, "takeover-crash-db", WithVFS(image), withPanicOnFatalLogger())
+		require.NoError(t, err, label)
+		t.Cleanup(func() { _ = re.Close() })
+		require.NoError(t, re.SetCurrentSync(ctx, syncID), label)
+		return re
+	}
+	stamp := func(re *Engine) uint32 {
+		v, err := re.keyspaceVersionStamp()
+		require.NoError(t, err)
+		return v
+	}
+	tokenOnly := func(re *Engine, label string) {
+		step, err := re.CurrentSyncStep(ctx)
+		require.NoError(t, err, label)
+		require.Equal(t, legacyState, step, "%s: token intact", label)
+		_, found, err := re.GetLedgerFrontier(ctx)
+		require.NoError(t, err, label)
+		require.False(t, found, "%s: no frontier", label)
+		facts, err := re.LedgerFacts(ctx)
+		require.NoError(t, err, label)
+		require.Empty(t, facts, "%s: no facts", label)
+		n, err := re.LedgerCounterBucketCount(ctx)
+		require.NoError(t, err, label)
+		require.Zero(t, n, "%s: no bucket", label)
+	}
+
+	pre := open(fs.CrashClone(vfs.CrashCloneCfg{}), "pre")
+	tokenOnly(pre, "pre")
+	require.Equal(t, keyspaceVersion, stamp(pre), "pre: a plain v2 file")
+
+	var mid *vfs.MemFS
+	e.db.SetRecordCommitTestHook(func() error {
+		mid = fs.CrashClone(vfs.CrashCloneCfg{})
+		return nil
+	})
+	moved, err := e.TakeoverToken(ctx, "run-1", []string{"needs_expansion"}, counters)
+	e.db.SetRecordCommitTestHook(nil)
+	require.NoError(t, err)
+	require.Equal(t, legacyState, moved)
+	require.NotNil(t, mid, "the hook ran")
+
+	// Stamp ahead of the batch. A token-only SDK refuses a file it could
+	// have resumed; this SDK sees a token-only sync and takes over again.
+	withTokenOnlySDK(func() {
+		_, err := Open(ctx, "takeover-crash-db", WithVFS(mid), WithReadOnly(true))
+		require.Error(t, err, "mid: token-only SDK refuses the in-flight stamp")
+		require.Contains(t, err.Error(), "unsupported keyspace layout v3")
+	})
+	m := open(mid, "mid")
+	tokenOnly(m, "mid")
+	require.Equal(t, keyspaceVersionLedgerInFlight, stamp(m), "mid: stamp landed before the batch")
+	again, err := m.TakeoverToken(ctx, "run-1", nil, c1zstore.LedgerCounters{})
+	require.NoError(t, err)
+	require.Equal(t, legacyState, again, "mid: the resumed sync takes over again")
+
+	post := open(fs.CrashClone(vfs.CrashCloneCfg{}), "post")
+	step, err := post.CurrentSyncStep(ctx)
+	require.NoError(t, err)
+	require.Empty(t, step, "post: token cleared")
+	f, found, err := post.GetLedgerFrontier(ctx)
+	require.NoError(t, err)
+	require.True(t, found, "post: frontier durable with no unsynced bytes kept")
+	require.Equal(t, legacyState, f.GetState())
+	facts, err := post.LedgerFacts(ctx)
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"needs_expansion": "", c1zstore.LedgerFactRetainTokens: ""}, facts)
+	got, err := post.LedgerCounters(ctx)
+	require.NoError(t, err)
+	require.Equal(t, counters, got)
+	require.Equal(t, keyspaceVersionLedgerInFlight, stamp(post))
+	require.False(t, post.RetainLedgerTokens(), "premise: this process never set the flag")
+	scrub, err := post.sealScrubsTokens()
+	require.NoError(t, err)
+	require.False(t, scrub, "post: the takeover's fact alone keeps the seal from scrubbing")
 }
 
 func TestLedgerTakeoverRequiresOpenSync(t *testing.T) {

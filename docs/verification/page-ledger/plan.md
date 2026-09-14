@@ -512,12 +512,37 @@ instrument is required (§7).
 | C29 | S1, S9 | N page units on distinct pages commit concurrently under `-race` with O1 holding per page; a page commit racing `Close` is either fully in the saved file or absent; a page commit racing `EndSyncWithStats` is refused or lands before scrub (never after). | O1, O3 under `-race` | sampled: N ∈ {2, 8, 32} | now | none |
 | C30 | S9 | Page commit ns/page and bytes/page within a stated ratio of `Put*Records` at 100/1k/10k; seal time vs rows at 10^3–10^5 with and without the deferred grant index; walk time vs rows; `ledgerActive` cost per `CheckpointSync` on an L0 file is one seek. | O11 (I8) | sampled | now, but not runnable on the authoring machine | `BenchmarkLedgerPageCommit`, `BenchmarkLedgerPageCommitSync`, `BenchmarkLedgerResumeWalk`, `BenchmarkLedgerSealCost`, `BenchmarkLedgerSealCostNoGrantIndex` (exist, unrun) |
 | C31 | all | Each oracle O1–O10 catches a planted violation: torn page (write records without the row), wrong-field row, unscrubbed row, missing stamp, skipped purge, missing dirty mark, unguarded writer. | mutant per oracle | exhaustive over oracles | now | `TestLedgerScrubLeavesNoSSTResidue` mutant arm only |
-| C32 | S3, S4 | Deferred: the resume walk writes nothing; absent or mismatched row → re-run, never skip; a scrubbed row in an unfinished file (L3) is read as "done" only because every action is done at seal (OQ-1); the syncer calls `BoundSyncFinished` then `ResetLedger` on rebind of a finished sync; every non-page write on the sync path is registered through `WithPageWriteBypass`; one commit per page; counters and facts producers; takeover trigger; stats fold across attempts. | deferred | deferred | deferred to the syncer integration change | none |
+| C32 | S3, S4 | Deferred: the resume walk writes nothing; absent or mismatched row → re-run, never skip; a scrubbed row in an unfinished file (L3) is read as "done" only because every action is done at seal (OQ-1); the syncer calls `BoundSyncFinished` then `ResetLedger` on rebind of a finished sync; every non-page write on the sync path is registered through `WithPageWriteBypass`; one commit per page; counters and facts producers; takeover trigger and resume from the frontier (§5.1); stats fold across attempts. | deferred | deferred | deferred to the syncer integration change | none |
 
 Count: 32 criteria. 31 closable now (C30 requires an unloaded machine), 1
 deferred (C32, which bundles the syncer-owned obligations so the split is
 visible). Of the two cells predicted to fail from reading, C07 did and the
 fold half of C25 did not.
+
+### 5.1 C32's takeover clause, itemized
+
+The engine's half of the takeover is a move: `takeoverToken` copies the
+token string into `LedgerFrontier.State` unparsed and clears it on the
+sync-run record in one Sync batch (C20, `TestLedgerTakeoverIsOneUnit`,
+`TestLedgerTakeoverCrashImages`). Nothing in this diff reads the frontier
+back. The syncer change does, and after the takeover the token is gone,
+so a wrong reading skips pages with nothing to fall back to. That change
+owes these cells, each on a crash image or reopen and not only in-process:
+
+- Every token format the syncer has ever checkpointed round-trips through
+  `LedgerFrontier.State` and resumes at the same action and page it would
+  have from the token. `TestSyncTokenV0FromC1Z` names the oldest; the
+  cell set is every version `unmarshalToken` accepts.
+- Resume from a frontier with zero ledger rows (crash between the takeover
+  and the first page commit) continues from the frontier's state. It does
+  not start fresh, and it does not take over again on a file whose token
+  is already empty (`TakeoverToken` returns `""` there; the syncer must
+  read the frontier on that return, not treat it as "no prior state").
+- Resume from the mid image (`TestLedgerTakeoverCrashImages`: stamp
+  in flight, token intact, no frontier) takes over again and lands the
+  same frontier a first attempt would have.
+- The counters the takeover moved (`TakeoverBucketWorker`) fold into the
+  sync's stats exactly once across any number of later resumes.
 
 ## 6. Closure criteria
 

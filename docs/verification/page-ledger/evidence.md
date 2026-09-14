@@ -221,10 +221,12 @@ instrument that closes it.
 ### C16 Retain declaration durable; absent or unreadable scrubs
 
 - Status: evidence incomplete.
-- Candidate: `TestRetainDeclarationSurvivesCrashAndItsAbsenceScrubs`.
+- Candidate: `TestRetainDeclarationSurvivesCrashAndItsAbsenceScrubs`,
+  `TestLedgerTakeoverCrashImages` (the takeover-writes-the-fact cell: the
+  post image is reopened by an engine that never set the flag, and
+  `sealScrubsTokens` returns false from the fact alone).
 - Not covered: the read-error cell (`sealScrubsTokens` returns scrub +
-  error); the takeover-writes-the-fact cell; "flag only, fact only" in a
-  fresh process.
+  error); "flag only, fact only" in a fresh process.
 - Closes with: extend the candidate; the read-error cell needs a fact
   read fault injection.
 
@@ -258,13 +260,21 @@ instrument that closes it.
 
 ### C20 Takeover is one Sync batch
 
-- Status: evidence incomplete.
-- Candidate: `TestLedgerTakeoverIsOneUnit`,
-  `TestLedgerTakeoverRequiresOpenSync`.
-- Not covered: no-token returns `""` and writes nothing (read as the
-  code's behaviour, not asserted); retain-on cell (takeover stages the
-  retain fact); F5 crash image under I1.
-- Closes with: extend; I1 F5 arm.
+- Status: verified to stated coverage.
+- Evidence: `TestLedgerTakeoverIsOneUnit` (token × open × retain off;
+  injected commit failure; second takeover is a no-op with the bucket
+  count unchanged), `TestLedgerTakeoverRequiresOpenSync` (no sync →
+  refused; sync with no token → `""`, no frontier),
+  `TestLedgerTakeoverCrashImages` (token × open × retain on, on
+  `CrashableMem`: the pre image, the image between the in-flight stamp and
+  the batch, and the post image with every unsynced byte dropped; the mid
+  image is refused by a token-only SDK and taken over again by this one).
+- Mutation adequacy: `batch.Commit(pebble.Sync)` → `pebble.NoSync` at
+  `ledger.go:393` fails `TestLedgerTakeoverCrashImages` at "post: token
+  cleared". The injected-error arm cannot see that mutant; the crash arm is
+  what pins durability.
+- Unexercised: {no token, retain on}. The `state == ""` return at
+  `ledger.go:340` precedes the flag read, so it is the retain-off path.
 
 ### C21 Drop / reset remove every sub-family and the stamp
 
@@ -452,7 +462,10 @@ instrument that closes it.
   plan. The bundle: read-only walk; absent-or-mismatch → re-run; L3
   handling (OQ-1); `BoundSyncFinished` then `ResetLedger` on rebind;
   `WithPageWriteBypass` registrations; one commit per page; counters and
-  facts producers; takeover trigger; stats fold across attempts.
+  facts producers; takeover trigger and resume from the frontier (plan
+  §5.1 itemizes these: the engine moves the token unparsed, and the
+  token is gone once it has, so the reading side is where a wrong resume
+  skips pages with no fallback); stats fold across attempts.
 
 ## Explicit exclusions (plan §3.4)
 
@@ -488,11 +501,13 @@ The compactor fold row was read as `copy?` and is not: the fold calls
 asserted by `TestCompactPebbleFoldDropsInheritedBaseLedger`. The `purge`
 row's `bytes` cells are asserted by the needle scans in
 `TestLedgerScrubLeavesNoSSTResidue` and
-`TestLedgerResidueOutlivesTheLedger`; the rest of the table is still a
-reading result. The stamp column for takeover and `PutCounterBucket` is from
-reading `ledger.go:takeoverToken` and `ledger.go:PutLedgerCounterBucket`,
-which both call `markLedgerInFlight` before their batch; the
-`TakeoverToken × L0` cell in P1 is still an I5 assertion, not a result.
+`TestLedgerResidueOutlivesTheLedger`. The takeover row is asserted whole by
+`TestLedgerTakeoverCrashImages`: every W and the C land together in the
+post image and none of them in the pre image, and the stamp's W (Sync)
+lands ahead of the batch, which is the mid image. That also settles the
+`TakeoverToken × L0` cell in P1. The `PutCounterBucket` stamp cell is still
+from reading `ledger.go:PutLedgerCounterBucket`; the rest of the table is a
+reading result.
 
 ## Evidence commands
 
