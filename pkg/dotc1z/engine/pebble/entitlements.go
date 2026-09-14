@@ -50,14 +50,10 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 		priBatch := e.db.NewRecordBatch()
 		defer priBatch.Close()
 
-		fresh := e.IsFreshSync()
 		if _, err := e.stageEntitlementRecords(priBatch, records); err != nil {
 			return err
 		}
-		opts := writeOpts(e.opts.durability)
-		if fresh {
-			opts = pebble.NoSync
-		}
+		opts := recordWriteOpts
 		if err := priBatch.Commit(opts); err != nil {
 			return err
 		}

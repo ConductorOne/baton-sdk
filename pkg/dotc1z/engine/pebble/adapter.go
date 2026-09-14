@@ -114,9 +114,6 @@ func (e *Engine) startNewSync(ctx context.Context, syncType connectorstore.SyncT
 			return "", err
 		}
 	}
-	// MarkFreshSync flips the engine into the perf-fast write path:
-	// pebble.NoSync per commit, skip read-before-write index cleanup.
-	// EndSync calls EndFreshSync to flush + fsync once at the end.
 	if err := e.MarkFreshSync(syncID); err != nil {
 		return "", err
 	}
@@ -272,7 +269,7 @@ func (e *Engine) CheckpointSync(ctx context.Context, syncToken string) error {
 // EndSync stamps the open sync_run's ended_at and detaches it. After
 // EndSync, the engine has no current sync; SetCurrentSync or
 // StartNewSync are required for further writes. The binding itself is
-// cleared inside the finalize tail (EndFreshSync), so success leaves
+// cleared inside the finalize tail (FinishSync), so success leaves
 // no lifecycle state to reset here.
 func (e *Engine) EndSync(ctx context.Context) error {
 	return e.endSync(ctx, nil)
@@ -462,7 +459,7 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	// openable by every v2 reader (the rows stay; those readers are
 	// family-bounded). A crash in between leaves an unfinished v2 file
 	// with rows; the resumed EndSync re-runs this (idempotent).
-	if err := e.clearLedgerInFlight(); err != nil {
+	if err := e.withWriteAllowSealed(e.clearLedgerInFlightLocked); err != nil {
 		return fmt.Errorf("EndSync: %w", err)
 	}
 	// Preserve all provenance fields while adding the lifecycle stamp.
@@ -481,7 +478,7 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	}
 	// Populate the stats sidecar BEFORE the durability flush. Stats
 	// is engine-meta keyspace, committed pebble.Sync in
-	// writeSyncStats; the EndFreshSync flush below then bounds reopen
+	// writeSyncStats; the FinishSync flush below then bounds reopen
 	// WAL-replay cost for everything. Failures here are non-fatal — Stats() falls back to legacy
 	// O(N) iteration on a missing sidecar. NOTE: there is currently
 	// no on-Open backfill (the indexMigrations registry is
@@ -501,29 +498,21 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 		// with them either way — it just finished the sync without them.
 		e.takeSyncStatsOverlay(existing.GetSyncId())
 	}
-	// Single flush + WAL fsync at sync end. This is the counterpart to
-	// MarkFreshSync at StartNewSync; after it returns all of the sync's
-	// writes are SST-durable and the WAL is fsynced. Note the ordering
-	// above is CRASH-SAFE even though the pages were NoSync: every
-	// pebble.Sync commit in the finalize sequence (marker clears, the
-	// ended_at stamp, the stats key) rides pebble's sequential WAL, so
-	// each fsync also hardens every earlier NoSync page commit — a
-	// crash image can hold the finished verdict only if it also holds
-	// the pages. Pinned by TestEndSyncStampDurabilityCarriesPages
-	// (isolated: the stamp is the ONLY Sync between the pages and the
-	// crash cut) and TestEndSyncStampWindowImageComplete (the full
-	// default workload at the same cut). This flush's job is bounding
-	// reopen WAL-replay cost and hardening the NoSync case
-	// (WithDurability(DurabilityNoSync)), where the stamp itself was
-	// not synced.
-	return e.EndFreshSync(ctx)
+	// The pages above were NoSync and the ended_at stamp was Sync in the
+	// same WAL, so the stamp's fsync put the pages on disk before the
+	// stamp; a crash image holds the finished verdict only with its
+	// pages. TestEndSyncStampDurabilityCarriesPages pins the mechanism
+	// with the stamp as the only Sync before the cut;
+	// TestEndSyncStampWindowImageComplete pins the full workload.
+	// FinishSync's flush and fence are not part of that; they bound
+	// reopen WAL replay.
+	return e.FinishSync(ctx)
 }
 
 // === writes ===
 
 // PutGrants writes a batch of grants in a single Pebble batch. v2 is
-// translated to v3 first; the engine then commits the whole batch
-// with one fsync (or NoSync during a fresh sync — see MarkFreshSync).
+// translated to v3 first.
 //
 // The translation uses per-shard arenas (grantTranslateArena) so the
 // 3 × N proto-struct allocations from V2GrantToV3's builder pattern

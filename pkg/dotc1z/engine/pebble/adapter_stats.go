@@ -73,21 +73,15 @@ func (e *Engine) stats(ctx context.Context, syncType connectorstore.SyncType, sy
 		return nil, status.Errorf(codes.InvalidArgument, "sync '%s' is not of type '%s'", syncID, syncType)
 	}
 
-	// Fast path: read the sidecar populated at EndFreshSync. Sidecar
-	// is one LSM Get vs the legacy fallback's O(N) iteration. Sync
-	// types that haven't run through the sidecar writer (Partial /
-	// Incremental that bypass EndFreshSync) fall through to the
-	// legacy path below. Token timings are written into the sidecar
-	// at EndSync; older count-only sidecars are returned as-is.
 	if cached, err := e.readSyncStats(ctx, syncID); err == nil && cached != nil {
 		return cached, nil
 	}
 	return e.statsFromIteration(ctx, syncID)
 }
 
-// statsFromIteration is the legacy O(N) path retained as the
-// sidecar fallback. Used by older c1z files that predate the
-// sidecar and by sync types that don't go through EndFreshSync.
+// statsFromIteration is O(records). Stats reaches it when the sidecar
+// is missing: files that predate it, or a PersistSyncStats failure,
+// which endSyncFinalize logs and swallows.
 func (e *Engine) statsFromIteration(ctx context.Context, syncID string) (*v3.SyncStatsRecord, error) {
 	stats := &v3.SyncStatsRecord{
 		SyncId:                          syncID,

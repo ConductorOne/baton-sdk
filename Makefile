@@ -265,8 +265,8 @@ scheduler-soak: ## Run randomized scheduler cases under race detection.
 	BATON_TEST_NIGHTLY=1 BATON_SOAK_ITERATIONS=$(SOAK_ITERATIONS) go test -race -v -count=1 -timeout=30m -run TestSchedulerSoakRandomizedFanoutWithFailures ./pkg/sync
 
 .PHONY: errorfs-soak
-errorfs-soak: ## Sweep whole-sync Pebble crash points using errorfs.
-	BATON_SOAK=1 go test -v -count=1 -timeout=30m -run TestErrorFSWholeSyncRandomSweepSoak ./pkg/dotc1z/engine/pebble
+errorfs-soak: ## Sweep whole-sync Pebble crash points using errorfs, fresh and bound.
+	BATON_SOAK=1 go test -v -count=1 -timeout=30m -run 'TestErrorFSWholeSyncRandomSweepSoak|TestErrorFSBoundSyncRandomSweepSoak' ./pkg/dotc1z/engine/pebble
 
 .PHONY: chaos-check
 chaos-check: ## Run bounded representative chaos checks under race detection.

@@ -16,8 +16,8 @@ import (
 )
 
 func fastPathProofArmed(e *Engine, kind sourcecache.RowKind) bool {
-	e.currentSyncMu.RLock()
-	defer e.currentSyncMu.RUnlock()
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
 	switch kind {
 	case sourcecache.RowKindResources:
 		return e.freshResourcesEmpty
@@ -31,8 +31,8 @@ func fastPathProofArmed(e *Engine, kind sourcecache.RowKind) bool {
 }
 
 func armFastPathProof(e *Engine, kind sourcecache.RowKind) {
-	e.currentSyncMu.Lock()
-	defer e.currentSyncMu.Unlock()
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
 	switch kind {
 	case sourcecache.RowKindResources:
 		e.freshResourcesEmpty = true

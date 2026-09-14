@@ -55,8 +55,8 @@ func BenchmarkCompactionFlow(b *testing.B) {
 				if err := src.PutGrantRecords(ctx, records...); err != nil {
 					b.Fatalf("PutGrantRecords: %v", err)
 				}
-				if err := src.EndFreshSync(ctx); err != nil {
-					b.Fatalf("EndFreshSync: %v", err)
+				if err := src.FinishSync(ctx); err != nil {
+					b.Fatalf("FinishSync: %v", err)
 				}
 
 				comp, err := NewCompactor(dst, b.TempDir())

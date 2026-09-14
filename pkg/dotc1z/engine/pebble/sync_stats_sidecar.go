@@ -15,7 +15,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
-// Sync-stats sidecar. Populated by EndFreshSync (one full pass
+// Sync-stats sidecar. Populated by EndSync (one full pass
 // over the per-record-type keyspaces) and read by Stats() /
 // GrantStats() as a single LSM Get. Eliminates the O(N) iteration
 // the Adapter used to do on every Stats() call.
@@ -88,12 +88,11 @@ func (e *Engine) writeSyncStats(ctx context.Context, rec *v3.SyncStatsRecord) er
 	if err != nil {
 		return err
 	}
-	// AllowSealed under the write barrier: callers span EndSync's sealed
-	// finalize window and the compactor's bound-sync flow. The barrier
-	// (rather than a bare Set) gives the write the closing check, writeWG
-	// coverage against Close's teardown, and exclusion from CheckpointTo's
-	// Flush→Checkpoint window (a WAL-only record landing mid-window would
-	// be truncated out of the saved snapshot).
+	// AllowSealed under writeMu: callers span EndSync's sealed finalize
+	// window and the compactor's bound-sync flow. The lock (rather than a
+	// bare Set) gives the write the closed check and exclusion from
+	// CheckpointTo's Flush→Checkpoint window (a WAL-only record landing
+	// mid-window would be truncated out of the saved snapshot).
 	return e.withWriteAllowSealed(func() error {
 		return e.db.MetaSet(encodeSyncStatsKey(), val, pebble.Sync)
 	})
@@ -260,7 +259,7 @@ func (e *Engine) takeDeferredGrantStats(syncID string) *deferredGrantStats {
 }
 
 // PersistSyncStats computes and writes the stats sidecar for
-// syncID. Exposed for the EndFreshSync caller and the on-Open
+// syncID. Exposed for the EndSync caller and the on-Open
 // migration backfill. If a caller-computed record was stashed for
 // this sync (StashComputedSyncStats), it is persisted instead of
 // re-scanning the keyspaces. Timing / call stats from the syncer's

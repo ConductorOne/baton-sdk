@@ -27,7 +27,7 @@ type testSeams struct {
 
 	// endSyncPreFlushHook, when non-nil, runs inside endSyncFinalize
 	// IMMEDIATELY after the ended_at stamp commits — before the stats
-	// sidecar write and the EndFreshSync durability flush. Tests
+	// sidecar write and the FinishSync durability flush. Tests
 	// crash-clone the FS here to pin the WAL-prefix-durability
 	// contract: a Sync commit's WAL fsync also hardens every earlier
 	// NoSync page commit (sequential WAL; rotated WALs sync at

@@ -47,7 +47,7 @@ func TestCheckpointWALsAreEmpty(t *testing.T) {
 		}.Build())
 	}
 	require.NoError(t, eng.PutGrantRecords(ctx, grants...))
-	require.NoError(t, eng.EndFreshSync(ctx))
+	require.NoError(t, eng.FinishSync(ctx))
 
 	ckDir := filepath.Join(t.TempDir(), "checkpoint")
 	require.NoError(t, eng.CheckpointTo(ctx, ckDir), "CheckpointTo")

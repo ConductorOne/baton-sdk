@@ -37,7 +37,6 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/bid"
 
-	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -406,25 +405,21 @@ func (u *PageUnit) Commit(ctx context.Context, id LedgerIdentity, row *v3.Ledger
 		// keyspace holds one sync at a time and sync_id is not in the
 		// keys. withWrite's sealed check rejects a commit arriving
 		// between the seal and the next bind, but the rebound engine is
-		// unsealed again and would accept it.
-		//
-		// The binding flips under currentSyncMu rather than writeMu, so
-		// this is not atomic against a bind racing the next few
-		// instructions; it closes the wide window (a page lives for
-		// seconds to minutes), not that one.
+		// unsealed again and would accept it. The binding is replaced
+		// under writeMu, which this holds, so the id read here is the
+		// one the commit below lands under.
 		if now := e.CurrentSyncID(); u.syncID != "" && now != u.syncID {
 			return fmt.Errorf("%w: begun under %s, now %s", ErrPageUnitForeignSync, u.syncID, now)
 		}
 		// The in-flight stamp precedes the first row (synced, its own
 		// write): a token-only SDK must refuse this file from here until
 		// seal. See keyspaceVersionLedgerInFlight.
-		if err := e.markLedgerInFlight(); err != nil {
+		if err := e.markLedgerInFlightLocked(); err != nil {
 			return err
 		}
 		batch := e.db.NewRecordBatch()
 		defer batch.Close()
 
-		fresh := e.IsFreshSync()
 		resourceTypes, err := stageResourceTypeRecords(batch, u.resourceTypes)
 		if err != nil {
 			return err
@@ -485,15 +480,11 @@ func (u *PageUnit) Commit(ctx context.Context, id LedgerIdentity, row *v3.Ledger
 				return err
 			}
 		}
-		opts := writeOpts(e.opts.durability)
-		if fresh {
-			// Pages commit NoSync as today; EndFreshSync's flush and
-			// every pebble.Sync commit in the finalize sequence harden
-			// them (see endSyncFinalize). A crash before that loses
-			// whole pages, never parts of one.
-			opts = pebble.NoSync
-		}
-		if err := batch.Commit(opts); err != nil {
+		// Pages commit like every record write (recordWriteOpts);
+		// FinishSync's flush and every pebble.Sync commit in the finalize
+		// sequence harden them (see endSyncFinalize). A crash before that
+		// loses whole pages, never parts of one.
+		if err := batch.Commit(recordWriteOpts); err != nil {
 			return err
 		}
 		if len(u.entitlements) > 0 {

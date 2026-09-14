@@ -63,7 +63,7 @@ func TestLedgerScrubReachesTheTakeoverFrontier(t *testing.T) {
 // A sync with ledger rows must be refused a checkpoint token even when
 // the in-flight stamp has been cleared.
 //
-// clearLedgerInFlight drops the durable stamp and the in-memory flag
+// clearLedgerInFlightLocked drops the durable stamp and the in-memory flag
 // before endSyncFinalize writes ended_at. If the write then fails, or the
 // process crashes and reopens, the flag reads false over rows that are
 // still there, and gating on the flag alone let CheckpointSync write a
@@ -82,7 +82,7 @@ func TestCheckpointRefusedWhileLedgerRowsExistWithoutTheStamp(t *testing.T) {
 	// Exactly the state the seal's clear leaves behind, and the state a
 	// reopen after a crash in that window reconstructs: stamp gone, rows
 	// still there.
-	require.NoError(t, e.clearLedgerInFlight())
+	require.NoError(t, e.withWriteAllowSealed(e.clearLedgerInFlightLocked))
 	require.False(t, e.ledgerInFlight.Load())
 
 	require.ErrorIs(t, e.CheckpointSync(ctx, "tok"), ErrLedgeredSyncWritesNoToken,

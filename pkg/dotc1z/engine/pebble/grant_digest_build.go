@@ -158,12 +158,7 @@ type grantDigestFold struct {
 }
 
 func newGrantDigestFold(e *Engine) (*grantDigestFold, error) {
-	opts := writeOpts(e.opts.durability)
-	if e.IsFreshSync() {
-		// EndSync's EndFreshSync flush is the durability boundary for
-		// seal-time writes; matches the deferred pass's other writes.
-		opts = pebble.NoSync
-	}
+	opts := recordWriteOpts
 	flushBytes := digestNodeBatchFlushBytes
 	if e.test.digestNodeFlushBytes > 0 {
 		flushBytes = e.test.digestNodeFlushBytes
@@ -455,10 +450,7 @@ func (e *Engine) buildGrantDigestsFromSpill(ctx context.Context, dir string, has
 	if err != nil {
 		return err
 	}
-	opts := writeOpts(e.opts.durability)
-	if e.IsFreshSync() {
-		opts = pebble.NoSync
-	}
+	opts := recordWriteOpts
 	// Arm the durable crash marker before the first digest write on
 	// EITHER branch below.
 	if err := e.markGrantDigestBuildPending(); err != nil {
@@ -726,10 +718,7 @@ func (e *Engine) buildGrantDigestsStandaloneLocked(ctx context.Context) error {
 // above durable before the marker's absence is.
 func (e *Engine) dropAllGrantDigestStateLocked() error {
 	e.db.SetGrantDigestsPresent(false)
-	opts := writeOpts(e.opts.durability)
-	if e.IsFreshSync() {
-		opts = pebble.NoSync
-	}
+	opts := recordWriteOpts
 	if err := e.db.DropKeyRange(DigestLowerBound(), DigestUpperBound(), opts); err != nil {
 		return err
 	}

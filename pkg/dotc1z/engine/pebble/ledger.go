@@ -358,7 +358,7 @@ func (e *Engine) takeoverToken(ctx context.Context, runID string, facts []string
 		}
 	}
 	err = e.withWrite(func() error {
-		if err := e.markLedgerInFlight(); err != nil {
+		if err := e.markLedgerInFlightLocked(); err != nil {
 			return err
 		}
 		batch := e.db.NewRecordBatch()
@@ -416,7 +416,7 @@ func (e *Engine) PutLedgerCounterBucket(ctx context.Context, runID string, worke
 		return err
 	}
 	return e.withWrite(func() error {
-		if err := e.markLedgerInFlight(); err != nil {
+		if err := e.markLedgerInFlightLocked(); err != nil {
 			return err
 		}
 		batch := e.db.NewRecordBatch()
@@ -677,7 +677,10 @@ func (e *Engine) scrubLedgerFrontierLocked(ctx context.Context, batch *rawdb.Rec
 // that arm fails.
 func (e *Engine) PurgeLedgerResidue(ctx context.Context) error {
 	lo, hi := rawdb.LedgerBounds()
-	return e.compactForLedgerResidue(ctx, lo, hi)
+	// AllowSealed: the seal's residue purge runs on a sealed engine.
+	return e.withWriteAllowSealed(func() error {
+		return e.compactForLedgerResidueLocked(ctx, lo, hi)
+	})
 }
 
 // purgeMarkedLedgerResidue compacts whatever range the armed marker calls
@@ -699,13 +702,17 @@ func (e *Engine) purgeMarkedLedgerResidue(ctx context.Context) error {
 	if kind == residueExcised {
 		lo, hi = []byte{versionV3}, []byte{versionV3 + 1}
 	}
-	if err := e.compactForLedgerResidue(ctx, lo, hi); err != nil {
-		return err
-	}
-	if err := e.db.MetaDelete(encodeLedgerResiduePendingKey(), pebble.Sync); err != nil {
-		return fmt.Errorf("purgeMarkedLedgerResidue: consume marker: %w", err)
-	}
-	return nil
+	// One critical section for the purge and the consume, so the marker
+	// cannot be consumed for a compaction that a concurrent Close cut off.
+	return e.withWriteAllowSealed(func() error {
+		if err := e.compactForLedgerResidueLocked(ctx, lo, hi); err != nil {
+			return err
+		}
+		if err := e.db.MetaDelete(encodeLedgerResiduePendingKey(), pebble.Sync); err != nil {
+			return fmt.Errorf("purgeMarkedLedgerResidue: consume marker: %w", err)
+		}
+		return nil
+	})
 }
 
 // encodeLedgerResiduePendingKey is the durable marker that ledger bytes are
@@ -749,19 +756,22 @@ const (
 // compaction the tombstoned kind asks for would leave the excised bytes and
 // consume the marker that was standing for them.
 func (e *Engine) markLedgerResiduePending(kind byte) error {
-	if kind == residueTombstoned {
-		standing, err := e.ledgerResidueKind()
-		if err != nil {
-			return fmt.Errorf("arm ledger-residue marker: read standing kind: %w", err)
+	// AllowSealed: DropLedger arms it on a finished sync.
+	return e.withWriteAllowSealed(func() error {
+		if kind == residueTombstoned {
+			standing, err := e.ledgerResidueKind()
+			if err != nil {
+				return fmt.Errorf("arm ledger-residue marker: read standing kind: %w", err)
+			}
+			if standing == residueExcised {
+				return nil
+			}
 		}
-		if standing == residueExcised {
-			return nil
+		if err := e.db.MetaSet(encodeLedgerResiduePendingKey(), []byte{kind}, pebble.Sync); err != nil {
+			return fmt.Errorf("arm ledger-residue marker: %w", err)
 		}
-	}
-	if err := e.db.MetaSet(encodeLedgerResiduePendingKey(), []byte{kind}, pebble.Sync); err != nil {
-		return fmt.Errorf("arm ledger-residue marker: %w", err)
-	}
-	return nil
+		return nil
+	})
 }
 
 // ledgerResidueKind returns 0 when no marker is armed.
@@ -783,21 +793,12 @@ func (e *Engine) ledgerResidueKind() (byte, error) {
 	return val[0], nil
 }
 
-func (e *Engine) compactForLedgerResidue(ctx context.Context, lo, hi []byte) error {
+// compactForLedgerResidueLocked runs under writeMu like CompactAllRanges,
+// so Close waits for the in-flight Compact (pebble.DB.Compact panics on a
+// closed DB).
+func (e *Engine) compactForLedgerResidueLocked(ctx context.Context, lo, hi []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
-	}
-	if err := e.checkWritableAllowSealed(); err != nil {
-		return err
-	}
-	// Same Close-race guard as CompactAllRanges: hold writeWG so Close
-	// waits for the in-flight Compact (pebble.DB.Compact panics on a
-	// closed DB). No writeMu: pebble's compaction is concurrency-safe
-	// with foreground writes.
-	e.writeWG.Add(1)
-	defer e.writeWG.Done()
-	if e.closing.Load() {
-		return ErrEngineClosing
 	}
 	// A manual compaction needs a scheduler grant like any other and seal()
 	// leaves the scheduler paused, so the pause is lifted for the call; an
@@ -855,7 +856,7 @@ func (e *Engine) DropLedger(ctx context.Context) error {
 		// gone but the file still refuses a token, which is the safe way
 		// round. Clearing first would leave a window where the stamp says
 		// token-only over a ledger that is still there.
-		return e.clearLedgerInFlight()
+		return e.clearLedgerInFlightLocked()
 	}); err != nil {
 		return err
 	}

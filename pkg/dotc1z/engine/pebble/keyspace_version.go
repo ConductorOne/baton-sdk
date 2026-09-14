@@ -109,10 +109,10 @@ func (e *Engine) verifyOrStampKeyspaceVersion(ctx context.Context) error {
 // the file is never left unstamped-but-populated (which the next Open
 // would reject).
 func (e *Engine) stampKeyspaceVersion() error {
-	return e.stampKeyspaceVersionValue(keyspaceVersion)
+	return e.stampKeyspaceVersionValueLocked(keyspaceVersion)
 }
 
-func (e *Engine) stampKeyspaceVersionValue(v uint32) error {
+func (e *Engine) stampKeyspaceVersionValueLocked(v uint32) error {
 	var buf [4]byte
 	binary.BigEndian.PutUint32(buf[:], v)
 	return e.db.MetaSet(encodeKeyspaceVersionKey(), buf[:], pebble.Sync)
@@ -131,29 +131,28 @@ func (e *Engine) keyspaceVersionStamp() (uint32, error) {
 	return binary.BigEndian.Uint32(val), nil
 }
 
-// markLedgerInFlight stamps keyspaceVersionLedgerInFlight, once per
+// markLedgerInFlightLocked stamps keyspaceVersionLedgerInFlight, once per
 // open. Called by PageUnit.Commit BEFORE the unit's batch, synced, so
-// the stamp is durable in every image the row is durable in. Must be
-// called with the write gate held (caller is inside withWrite).
-func (e *Engine) markLedgerInFlight() error {
+// the stamp is durable in every image the row is durable in.
+func (e *Engine) markLedgerInFlightLocked() error {
 	if e.ledgerInFlight.Load() {
 		return nil
 	}
-	if err := e.stampKeyspaceVersionValue(keyspaceVersionLedgerInFlight); err != nil {
+	if err := e.stampKeyspaceVersionValueLocked(keyspaceVersionLedgerInFlight); err != nil {
 		return fmt.Errorf("pebble: stamp ledger in-flight: %w", err)
 	}
 	e.ledgerInFlight.Store(true)
 	return nil
 }
 
-// clearLedgerInFlight restores keyspaceVersion at seal. Idempotent; a
+// clearLedgerInFlightLocked restores keyspaceVersion at seal. Idempotent; a
 // crash between it and the ended_at stamp leaves an unfinished v2 file
 // with rows, which the syncer's attempt guard tolerates.
-func (e *Engine) clearLedgerInFlight() error {
+func (e *Engine) clearLedgerInFlightLocked() error {
 	if !e.ledgerInFlight.Load() {
 		return nil
 	}
-	if err := e.stampKeyspaceVersionValue(keyspaceVersion); err != nil {
+	if err := e.stampKeyspaceVersionValueLocked(keyspaceVersion); err != nil {
 		return fmt.Errorf("pebble: clear ledger in-flight stamp: %w", err)
 	}
 	e.ledgerInFlight.Store(false)

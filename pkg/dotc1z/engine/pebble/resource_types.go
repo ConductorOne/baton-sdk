@@ -21,7 +21,6 @@ func (e *Engine) PutResourceTypeRecord(ctx context.Context, r *v3.ResourceTypeRe
 }
 
 // PutResourceTypeRecords writes N resource_types in one batch.
-// Fresh-sync uses pebble.NoSync (one fsync at EndFreshSync).
 func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.ResourceTypeRecord) error {
 	if len(records) == 0 {
 		return nil
@@ -32,14 +31,10 @@ func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.Reso
 		}
 		batch := e.db.NewRecordBatch()
 		defer batch.Close()
-		fresh := e.IsFreshSync()
 		if _, err := stageResourceTypeRecords(batch, records); err != nil {
 			return err
 		}
-		opts := writeOpts(e.opts.durability)
-		if fresh {
-			opts = pebble.NoSync
-		}
+		opts := recordWriteOpts
 		return batch.Commit(opts)
 	})
 }

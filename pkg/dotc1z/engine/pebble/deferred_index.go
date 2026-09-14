@@ -272,9 +272,9 @@ func (t *grantRebuildTee) closeAndWait() {
 // row committed by a concurrent writer after the scan's iterator snapshot
 // would be silently erased. EndSync's callers are expected to have quiesced
 // writers already — holding writeMu for the duration converts that
-// convention into an enforced invariant (a straggler write blocks until the
-// build finishes instead of racing the excise), and writeWG participation
-// means Close waits the build out instead of tearing down e.db under it.
+// convention into an enforced invariant: a straggler write blocks until the
+// build finishes instead of racing the excise, and Close waits the build out
+// instead of tearing down e.db under it.
 func (e *Engine) BuildDeferredGrantIndexes(ctx context.Context) error {
 	// AllowSealed: EndSync seals BEFORE running this build so no straggler
 	// record writer can slip a row in behind the scan (see Adapter.EndSync);

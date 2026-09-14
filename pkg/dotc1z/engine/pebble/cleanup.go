@@ -88,7 +88,7 @@ func scopedRanges() [][2][]byte {
 // intentionally preserved.
 //
 // Refuses while a fresh sync is in progress (between MarkFreshSync and
-// EndFreshSync): wiping mid-sync would corrupt the in-flight sync.
+// FinishSync): wiping mid-sync would corrupt the in-flight sync.
 func (e *Engine) ResetForNewSync(ctx context.Context) error {
 	if e.IsFreshSync() {
 		return errors.New("ResetForNewSync: refusing to reset while a sync is in progress")
@@ -147,7 +147,7 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 		// with no ledger at all — neither protocol can finish it. Safe in
 		// this direction because a wiped file has no rows for an older
 		// SDK to misread.
-		if err := e.clearLedgerInFlight(); err != nil {
+		if err := e.clearLedgerInFlightLocked(); err != nil {
 			return fmt.Errorf("ResetForNewSync: %w", err)
 		}
 		e.noteEntitlementKeyspaceWrite()
@@ -168,37 +168,20 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 // the others — pebble retries compaction in the background. ctx is
 // honored between ranges and surfaced verbatim on cancellation.
 //
-// Refuses with ErrEngineSealed after EndSync (via checkWritable): manual
-// compactions go through the same CompactionScheduler as automatic ones,
-// so on a sealed (paused) engine db.Compact would block forever waiting
-// for a grant — and, because we hold writeWG, deadlock Engine.Close too.
-// Bind a sync (SetCurrentSync) first.
-//
-// KNOWN LIMITATION: the gate only refuses calls made after the seal. A
-// CompactAllRanges already inside its loop when EndSync pauses the
-// scheduler blocks in db.Compact indefinitely (and holds writeWG, so a
-// later Close hangs too). Do not run this concurrently with EndSync; no
-// in-tree caller does.
+// Refuses with ErrEngineSealed after EndSync: manual compactions go
+// through the same CompactionScheduler as automatic ones, so on a sealed
+// (paused) engine db.Compact would block forever waiting for a grant.
+// Bind a sync (SetCurrentSync) first. Holds writeMu for the duration, so
+// concurrent writers and Close wait for the compaction; pebble.DB.Compact
+// panics on a closed DB rather than returning an error.
 func (e *Engine) CompactAllRanges(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := e.checkWritable(); err != nil {
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+	if err := e.checkWritableLocked(); err != nil {
 		return err
-	}
-	// Hold the engine's writeWG for the duration of the compaction
-	// so Engine.Close blocks until our in-flight Compact returns.
-	// Without this guard, Close → e.db.Close() can race with our
-	// e.db.Compact(...) call, and pebble.DB.Compact PANICS on a
-	// closed DB (vendor/.../pebble/v2/db.go:1826) rather than
-	// returning an error. Compact doesn't need writeMu — pebble's
-	// own compaction is concurrency-safe with foreground writes,
-	// so we don't go through withWrite (which serializes against
-	// other Puts and DeleteRanges).
-	e.writeWG.Add(1)
-	defer e.writeWG.Done()
-	if e.closing.Load() {
-		return ErrEngineClosing
 	}
 
 	var firstErr error
@@ -231,24 +214,17 @@ func (e *Engine) CompactAllRanges(ctx context.Context) error {
 // the next checkpoint reads the LSM.
 //
 // This is a thin wrapper over pebble.DB.Flush + a WAL fsync; the
-// EndFreshSync path uses the same combination at sync end. ctx is
+// FinishSync path uses the same combination at sync end. ctx is
 // checked before the blocking calls so a cancelled deadline doesn't
 // trigger a full memtable flush.
 func (e *Engine) Flush(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := e.checkWritable(); err != nil {
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+	if err := e.checkWritableLocked(); err != nil {
 		return err
-	}
-	// Hold writeWG so Engine.Close blocks until the Flush + WAL
-	// fsync finish — same close-race protection as CompactSyncRanges.
-	// pebble.DB.Flush and pebble.DB.LogData both panic on a closed
-	// DB rather than returning an error.
-	e.writeWG.Add(1)
-	defer e.writeWG.Done()
-	if e.closing.Load() {
-		return ErrEngineClosing
 	}
 	if err := e.db.FlushMemtables(); err != nil {
 		return fmt.Errorf("engine: flush: %w", err)

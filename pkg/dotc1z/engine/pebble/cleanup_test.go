@@ -20,7 +20,7 @@ import (
 
 // TestResetForNewSyncRefusesActiveSync verifies the engine-level
 // guard: ResetForNewSync refuses to wipe the keyspace while a sync is
-// in progress (between MarkFreshSync and EndFreshSync), which would
+// in progress (between MarkFreshSync and FinishSync), which would
 // otherwise corrupt the in-flight write path.
 func TestResetForNewSyncRefusesActiveSync(t *testing.T) {
 	ctx := context.Background()
@@ -44,7 +44,7 @@ func TestResetForNewSyncReclaimsDiskImmediately(t *testing.T) {
 	a := NewAdapter(e)
 
 	// Sync 1: enough grant data to materialize real SSTs, then EndSync
-	// (EndFreshSync flushes the memtable to L0).
+	// (FinishSync flushes the memtable to L0).
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoErrorf(t, err, "StartNewSync")
 	for i := 0; i < 50; i++ {

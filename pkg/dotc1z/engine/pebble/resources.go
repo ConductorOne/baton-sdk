@@ -43,14 +43,10 @@ func (e *Engine) PutResourceRecords(ctx context.Context, records ...*v3.Resource
 		batch := e.db.NewRecordBatch()
 		defer batch.Close()
 
-		fresh := e.IsFreshSync()
 		if _, err := e.stageResourceRecords(batch, records); err != nil {
 			return err
 		}
-		opts := writeOpts(e.opts.durability)
-		if fresh {
-			opts = pebble.NoSync
-		}
+		opts := recordWriteOpts
 		// One atomic commit: rows and their index obligations ride the
 		// same batch, so a primary commit landing without its index
 		// entries is unexpressible.
