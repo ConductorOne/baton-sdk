@@ -67,8 +67,12 @@ var grantDigestSpec = digestIndexSpec{
 // state to be rebuilt in full at the new ABI on its next writable use.
 // A file with digest nodes but NO stamp was sealed by an SDK that
 // predates the stamp; those builds all hashed at version 1, so absence
-// reads as grantDigestABIVersionUnstamped and is current for as long
-// as this constant stays 1 — introducing the stamp costs no rebuild.
+// reads as grantDigestABIVersionUnstamped. That made introducing the
+// stamp itself free of any rebuild (the constant was still 1 then),
+// but is a fixed historical fact, not a standing guarantee: at ABI >=
+// 2 an unstamped file is stale like any other mismatched stamp, and a
+// writable Open drops and rebuilds it — see
+// TestGrantDigestABIMissingStampReadsAsVersion1.
 // No index-migration entry is needed — see the note on digest-ABI
 // handling in index_migrations.go.
 //

@@ -14,8 +14,10 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
 // Tests for the digest ABI stamp (rawdb.GrantDigestABIStampKey,
@@ -481,6 +483,84 @@ func TestGrantDigestABIOracle(t *testing.T) {
 
 	err = verifyGrantHashIndexAgainstPrimaries(t, e)
 	require.Error(t, err, "the oracle must detect a tampered hash-index row")
+}
+
+// TestGrantDigestABIOracleCoversImmutableAndDirectSources closes the gap
+// TestGrantDigestABIOracle and every ABI drop/rebuild test above leave open:
+// makeTestGrants (via makeGrant) sets no annotations and no sources, so every
+// grant those tests seal and check against verifyGrantHashIndexAgainstPrimaries
+// takes grantContentHash64's `!isImmutable && len(sortedSources)==0` early
+// return — the two facts GrantDigestABIVersion 2 exists to fold in
+// (isImmutable, is_direct) are never exercised end-to-end through the real
+// seal-time raw-scan build (spill-sorter, SST merge, digest fold) by any
+// oracle-verified test.
+//
+// This test seals one entitlement whose grants cover, in the SAME seal:
+//   - plain grants (the existing early-return case, kept so the mix doesn't
+//     silently drop that coverage);
+//   - a grant with a GrantImmutable annotation and no sources;
+//   - a grant with a source whose is_direct is true;
+//   - a grant written through PutSynthesizedGrantContributions rather than
+//     PutGrantRecords — the expander's hand-encoded-wire path
+//     (fillSynthGrantRecord + appendGrantSourcesWire in
+//     grants_synth_encode.go), which always stamps GrantImmutable and never
+//     passes through proto.Marshal, exercising scanGrantContentFactsRawBytes
+//     against hand-built wire bytes rather than a reflective marshal's output.
+//
+// verifyGrantHashIndexAgainstPrimaries passing over this mix is the actual
+// end-to-end pin TestGrantDigestSpliceMatchesEncode's per-case unit coverage
+// (grant_digest_hash_test.go) does not provide by itself: that test drives
+// scanGrantContentFactsRawBytes directly against marshaled bytes, never
+// through the seal build's spill-sort/merge/ingest machinery this oracle
+// checks.
+func TestGrantDigestABIOracleCoversImmutableAndDirectSources(t *testing.T) {
+	ctx := context.Background()
+	const entID = "ent-A"
+
+	e, _ := newTestEngine(t)
+	require.NoError(t, e.bindCurrentSync(ksuid.New().String()))
+	putEnt(t, e, ctx, entID)
+
+	plain := makeTestGrants(entID, 5)
+
+	immutable := makeGrant("", "g-immutable", entID, "user-immutable")
+	immAnnos := annotations.Annotations(immutable.GetAnnotations())
+	immAnnos.Update(&v2.GrantImmutable{})
+	immutable.SetAnnotations(immAnnos)
+
+	directSource := makeGrant("", "g-direct-source", entID, "user-direct")
+	directSource.SetSources(map[string]*v3.GrantSourceRecord{
+		"src-ent": v3.GrantSourceRecord_builder{IsDirect: true}.Build(),
+	})
+
+	plain = append(plain, immutable, directSource)
+	require.NoError(t, e.PutGrantRecords(ctx, plain...), "PutGrantRecords")
+
+	synthRecords := []synthesizedGrantRecord{
+		{
+			id: grantIdentity{
+				entitlement:     testEntIdentity(entID),
+				principalTypeID: "user",
+				principalID:     "user-synth",
+			},
+			entitlement: v3.EntitlementRef_builder{
+				ResourceTypeId: "app",
+				ResourceId:     "github",
+				EntitlementId:  canonicalTestEntID(entID),
+			}.Build(),
+			principal: v3.PrincipalRef_builder{ResourceTypeId: "user", ResourceId: "user-synth"}.Build(),
+			sources: batonGrant.Sources{
+				{EntitlementID: "src-indirect", IsDirect: false},
+				{EntitlementID: "src-direct", IsDirect: true},
+			},
+		},
+	}
+	require.NoError(t, e.PutSynthesizedGrantContributions(ctx, synthRecords), "PutSynthesizedGrantContributions")
+
+	sealGrantDigests(t, e)
+
+	require.NoError(t, verifyGrantHashIndexAgainstPrimaries(t, e),
+		"oracle must pass over a seal covering isImmutable, is_direct sources, and the hand-encoded synthesized-write wire path")
 }
 
 // TestGrantDigestABIStaleWithPendingMarker verifies Open handles BOTH

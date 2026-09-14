@@ -63,6 +63,22 @@ type grantHashRowScratch struct {
 //     (scanGrantContentFactsRawBytes — no proto unmarshal anywhere on
 //     this path).
 //
+// Cost contract (GrantDigestABIVersion 2): folding isImmutable in made this
+// walk every grant's annotation list looking for a GrantImmutable Any
+// (scanAnyEntryIsTypeRaw), where v1 skipped field 8 with one
+// ConsumeFieldValue. Big-O per row is unchanged and the walk is alloc-free
+// (BenchmarkRegisteredPebbleWritePack vs BenchmarkRegisteredPebbleWritePackImmutable,
+// both against their _NoDigestIndex twins to isolate this function from the
+// unrelated cost of marshaling one more annotation on the write path
+// itself, at grants=100000, -benchtime=8x: B/op delta 139.4MB plain vs
+// 139.8MB immutable, i.e. no measurable extra allocation). ns/op is not
+// free: ~242 ns/grant attributable to the digest build with no
+// annotations vs ~402 ns/grant with one GrantImmutable annotation on every
+// grant — the shape every synthesized grant has (fillSynthGrantRecord) — a
+// ~66% increase in this function's own per-row cost, ~8s of added seal time
+// at 50M grants (one whale expansion). Re-run this comparison if
+// grantContentHash64's field set changes again.
+//
 // key/value are only borrowed (the sorter copies before returning).
 func appendGrantHashIndexRow(sorter *spillSorter, primaryKey, value []byte, s *grantHashRowScratch) error {
 	sep4, ok := rawdb.SplitGrantPrimaryKey(primaryKey)

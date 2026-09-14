@@ -28,6 +28,24 @@ func benchmarkGrants(n int) []*v2.Grant {
 	return grants
 }
 
+// benchmarkGrantsImmutable is benchmarkGrants with every grant carrying a
+// GrantImmutable annotation — the production shape (every synthesized grant
+// gets one; see fillSynthGrantRecord) that benchmarkGrants itself does not
+// cover, so a benchmark built on this is the one that costs the grant-digest
+// seal-time annotation walk instead of taking its early return.
+func benchmarkGrantsImmutable(n int) []*v2.Grant {
+	grants := make([]*v2.Grant, 0, n)
+	for i := 0; i < n; i++ {
+		grants = append(grants, mkV2GrantImmutable(
+			fmt.Sprintf("grant-%08d", i),
+			fmt.Sprintf("entitlement-%04d", i%100),
+			"user",
+			fmt.Sprintf("user-%08d", i%1000),
+		))
+	}
+	return grants
+}
+
 func prepareRegisteredC1Z(b *testing.B, n int, engine c1zstore.Engine) (string, string) {
 	b.Helper()
 	ctx := context.Background()
@@ -53,9 +71,16 @@ func prepareRegisteredC1Z(b *testing.B, n int, engine c1zstore.Engine) (string, 
 }
 
 func benchmarkRegisteredWritePack(b *testing.B, engine c1zstore.Engine, n int, storeOpts ...dotc1z.C1ZOption) {
+	benchmarkRegisteredWritePackGrants(b, engine, benchmarkGrants(n), storeOpts...)
+}
+
+// benchmarkRegisteredWritePackGrants is benchmarkRegisteredWritePack over a
+// caller-supplied grant set, so a variant fixture (e.g.
+// benchmarkGrantsImmutable) can drive the same write+seal timing.
+func benchmarkRegisteredWritePackGrants(b *testing.B, engine c1zstore.Engine, grants []*v2.Grant, storeOpts ...dotc1z.C1ZOption) {
 	ctx := context.Background()
 	root := b.TempDir()
-	grants := benchmarkGrants(n)
+	n := len(grants)
 	b.ReportAllocs()
 	b.ReportMetric(float64(n), "grants/op")
 	b.ResetTimer()
@@ -240,6 +265,41 @@ func BenchmarkRegisteredPebbleWritePack_NoDigestIndex(b *testing.B) {
 	for _, n := range grantsScales() {
 		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
 			benchmarkRegisteredWritePack(b, c1zstore.EnginePebble, n,
+				dotc1z.WithGrantDigestIndex(false),
+			)
+		})
+	}
+}
+
+// BenchmarkRegisteredPebbleWritePackImmutable is BenchmarkRegisteredPebbleWritePack
+// over grants that all carry a GrantImmutable annotation — the production
+// shape every synthesized grant has (fillSynthGrantRecord) but
+// benchmarkGrants does not. Diffing this against
+// BenchmarkRegisteredPebbleWritePack isolates the seal-time cost of the
+// grant-digest annotation walk (appendGrantHashIndexRow's
+// scanGrantContentFactsRawBytes / scanAnyEntryIsTypeRaw) added to fold
+// isImmutable into the content hash (GrantDigestABIVersion 2): per
+// docs/BUG_CATCHING.md's cost-contract rule, this is what states that
+// change's ns/op + B/op delta instead of leaving it as unmeasured prose.
+func BenchmarkRegisteredPebbleWritePackImmutable(b *testing.B) {
+	for _, n := range grantsScales() {
+		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
+			benchmarkRegisteredWritePackGrants(b, c1zstore.EnginePebble, benchmarkGrantsImmutable(n))
+		})
+	}
+}
+
+// BenchmarkRegisteredPebbleWritePackImmutable_NoDigestIndex is the
+// digest-off twin of BenchmarkRegisteredPebbleWritePackImmutable: with the
+// grant-digest index disabled, EndSync never runs appendGrantHashIndexRow at
+// all, so (Immutable - Immutable_NoDigestIndex) minus (WritePack -
+// WritePack_NoDigestIndex) isolates the annotation walk's own cost from the
+// unrelated cost of marshaling one more annotation per grant on the write
+// path itself.
+func BenchmarkRegisteredPebbleWritePackImmutable_NoDigestIndex(b *testing.B) {
+	for _, n := range grantsScales() {
+		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
+			benchmarkRegisteredWritePackGrants(b, c1zstore.EnginePebble, benchmarkGrantsImmutable(n),
 				dotc1z.WithGrantDigestIndex(false),
 			)
 		})
