@@ -286,7 +286,7 @@ func (e *Engine) PutExpandedGrantRecords(ctx context.Context, records []*v3.Gran
 		// One atomic commit: rows and their obligations ride the same
 		// batch, so a primary commit landing without its index entries
 		// is unexpressible.
-		return batch.Commit(pebble.NoSync)
+		return batch.Commit(recordWriteOpts)
 	})
 }
 
@@ -341,7 +341,7 @@ func (e *Engine) PutSynthesizedGrantRecords(ctx context.Context, records []*v3.G
 		// One atomic commit: rows and their obligations ride the same
 		// batch, so a primary commit landing without its index entries
 		// is unexpressible.
-		return batch.Commit(pebble.NoSync)
+		return batch.Commit(recordWriteOpts)
 	})
 }
 
@@ -743,7 +743,7 @@ func (e *Engine) putSynthesizedGrantContributionsBatch(ctx context.Context, reco
 		// One atomic commit: rows and their obligations ride the same
 		// batch, so a primary commit landing without its index entries
 		// is unexpressible.
-		return batch.Commit(pebble.NoSync)
+		return batch.Commit(recordWriteOpts)
 	})
 }
 

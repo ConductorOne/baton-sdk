@@ -414,10 +414,7 @@ func (e *Engine) InvalidateSourceCacheReplayState(ctx context.Context, dropScope
 		if err := batch.StageSourceCacheReplayInvalidation(dropScopeIndexes); err != nil {
 			return err
 		}
-		// Compaction does not publish the artifact until Close checkpoints and
-		// fsyncs the engine. Match the fold batches' NoSync policy so this
-		// constant-size tombstone does not add a standalone fsync.
-		return batch.Commit(pebble.NoSync)
+		return batch.Commit(recordWriteOpts)
 	})
 }
 
