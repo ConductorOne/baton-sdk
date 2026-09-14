@@ -47,7 +47,7 @@ import (
 type grantHashRowScratch struct {
 	keyBuf   []byte
 	tupleBuf []byte
-	srcKeys  [][]byte
+	srcKeys  []grantSourceFact
 }
 
 // appendGrantHashIndexRow derives one hash-index row from a raw
@@ -57,10 +57,27 @@ type grantHashRowScratch struct {
 //     (appendGrantHashIndexKeyFromPrimary — no decode);
 //   - the bucket hash is xxHash64 of the primary key's principal
 //     region (grantPrincipalBucketHash64 — a raw sub-slice);
-//   - the content hash covers the primary-key tail plus the grant's
-//     sorted source-entitlement ids, pulled from the value with a raw
-//     protobuf field scan (scanGrantSourceKeysRawBytes — no proto
-//     unmarshal anywhere on this path).
+//   - the content hash covers the primary-key tail, the grant's
+//     immutability, and its sorted (source-entitlement id, is_direct)
+//     pairs, pulled from the value with a raw protobuf field scan
+//     (scanGrantContentFactsRawBytes — no proto unmarshal anywhere on
+//     this path).
+//
+// Cost contract (GrantDigestABIVersion 2): folding isImmutable in made this
+// walk every grant's annotation list looking for a GrantImmutable Any
+// (scanAnyEntryIsTypeRaw), where v1 skipped field 8 with one
+// ConsumeFieldValue. Big-O per row is unchanged and the walk is alloc-free
+// (BenchmarkRegisteredPebbleWritePack vs BenchmarkRegisteredPebbleWritePackImmutable,
+// both against their _NoDigestIndex twins to isolate this function from the
+// unrelated cost of marshaling one more annotation on the write path
+// itself, at grants=100000, -benchtime=8x: B/op delta 139.4MB plain vs
+// 139.8MB immutable, i.e. no measurable extra allocation). ns/op is not
+// free: ~242 ns/grant attributable to the digest build with no
+// annotations vs ~402 ns/grant with one GrantImmutable annotation on every
+// grant — the shape every synthesized grant has (fillSynthGrantRecord) — a
+// ~66% increase in this function's own per-row cost, ~8s of added seal time
+// at 50M grants (one whale expansion). Re-run this comparison if
+// grantContentHash64's field set changes again.
 //
 // key/value are only borrowed (the sorter copies before returning).
 func appendGrantHashIndexRow(sorter *spillSorter, primaryKey, value []byte, s *grantHashRowScratch) error {
@@ -70,15 +87,16 @@ func appendGrantHashIndexRow(sorter *spillSorter, primaryKey, value []byte, s *g
 		// splice; reaching here means the two splitters disagree.
 		return fmt.Errorf("grant hash index: primary key %x did not split as a 6-segment identity", primaryKey)
 	}
-	srcs, err := scanGrantSourceKeysRawBytes(value, s.srcKeys[:0])
+	isImmutable, srcs, err := scanGrantContentFactsRawBytes(value, s.srcKeys[:0])
 	if err != nil {
-		return fmt.Errorf("grant hash index: scan sources: %w", err)
+		return fmt.Errorf("grant hash index: scan content facts: %w", err)
 	}
 	s.srcKeys = srcs
 	if len(srcs) > 1 {
-		sortByteSlices(srcs)
+		srcs = sortGrantSourceFacts(srcs)
+		s.srcKeys = srcs
 	}
-	ch64, tuple := grantContentHash64(s.tupleBuf, primaryKey[grantPrimaryKeyPrefixLen:], srcs)
+	ch64, tuple := grantContentHash64(s.tupleBuf, primaryKey[grantPrimaryKeyPrefixLen:], isImmutable, srcs)
 	s.tupleBuf = tuple
 	bh64 := grantPrincipalBucketHash64(primaryKey[sep4+1:])
 	s.keyBuf = appendGrantHashIndexKeyFromPrimary(s.keyBuf[:0], primaryKey, sep4, bh64)

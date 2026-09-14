@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
@@ -52,4 +53,18 @@ func mkV2Grant(id, entID, principalRT, principalID string) *v2.Grant {
 		Entitlement: ent,
 		Principal:   principal,
 	}.Build()
+}
+
+// mkV2GrantImmutable is mkV2Grant plus a GrantImmutable annotation —
+// the shape real synthesized (expander-derived) grants carry
+// unconditionally (see fillSynthGrantRecord in grants_synth_encode.go),
+// for benchmarks that need to cost the grant-digest seal-time
+// annotation walk (appendGrantHashIndexRow's scanGrantContentFactsRawBytes
+// / scanAnyEntryIsTypeRaw) rather than skip it.
+func mkV2GrantImmutable(id, entID, principalRT, principalID string) *v2.Grant {
+	g := mkV2Grant(id, entID, principalRT, principalID)
+	annos := annotations.Annotations(g.GetAnnotations())
+	annos.Update(&v2.GrantImmutable{})
+	g.SetAnnotations(annos)
+	return g
 }
