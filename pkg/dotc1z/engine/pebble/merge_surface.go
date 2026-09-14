@@ -5,9 +5,9 @@ package pebble
 // hold, and every call nil-checks the engine's lifecycle instead of
 // trusting a retained handle). Exported for the synccompactor/pebble
 // package, whose merge/fold/overlay machinery reads source files and
-// writes the record keyspaces outside the engine's writeMu barrier —
-// fenced by call ordering: the merge completes before the store's
-// save/CheckpointTo runs (see the checkpointMu inventory).
+// writes the record keyspaces outside the engine's writeMu — fenced by
+// call ordering: the merge completes before the store's save/CheckpointTo
+// runs.
 //
 // The surface carries only what the compactor needs — reads, LSM
 // stats, the bulk range/ingest ops, and the fold-exempt batch. Typed

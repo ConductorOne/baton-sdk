@@ -368,10 +368,10 @@ func (e *Engine) PutSynthesizedGrantContributions(ctx context.Context, records [
 
 // synthLayerSegmentRows is the default row count at which an open layer
 // session cuts its current segment and hands it to the background worker for
-// merge + SST ingest. Cutting mid-layer is safe: nothing reads a layer's rows
+// merge into an SST. Cutting mid-layer is safe: nothing reads a layer's rows
 // until the next layer begins, and keys are globally unique, so segments may
 // cover overlapping key ranges without conflict. Segments keep the merge
-// fan-in small, bound temp-disk usage, and overlap merge/ingest work with the
+// fan-in small, bound temp-disk usage, and overlap merge work with the
 // producer's compute instead of serializing it at the layer boundary.
 const synthLayerSegmentRows = 8_000_000
 
@@ -385,7 +385,7 @@ func synthLayerSegmentLimit() int64 {
 }
 
 // synthLayerSegment is one finalized batch of sorted spill chunks awaiting
-// merge + ingest on the session's background worker.
+// merge on the session's background worker.
 type synthLayerSegment struct {
 	name   string
 	chunks []string
@@ -395,11 +395,12 @@ type synthLayerSegment struct {
 // rows as encoded (key, value) pairs in a background-sorted spill sorter.
 // Every segLimit rows the current sorter is finalized into a segment and
 // queued for the background worker, which k-way merges the segment's chunks
-// into one SST and ingests it while the producer keeps encoding. Finish
-// flushes the tail segment and waits the worker out. Encoding happens at Add
-// time, so the session never retains references into the caller's reused
-// buffers. One session at a time; the expansion driver is the single
-// producer.
+// into one SST while the producer keeps encoding. The producer ingests
+// finished SSTs on its next Add or at Finish, under writeMu; the worker
+// never touches the DB. Finish flushes the tail segment, waits the worker
+// out, and ingests what remains. Encoding happens at Add time, so the
+// session never retains references into the caller's reused buffers. One
+// session at a time; the expansion driver is the single producer.
 type synthGrantLayerSession struct {
 	dir      string
 	sorter   *spillSorter
@@ -409,13 +410,14 @@ type synthGrantLayerSession struct {
 	segLimit int64
 
 	// segCh carries finalized segments to the worker; its capacity bounds
-	// how many merged-but-uningested segments can stack up before Add blocks
-	// (backpressure). segErr holds the worker's first failure, surfaced on
-	// the next Add/Finish.
+	// how many segments can stack up before Add blocks (backpressure).
+	// segMu guards segErr (the worker's first failure, surfaced on the next
+	// Add/Finish) and ready (merged SST paths awaiting ingest).
 	segCh  chan synthLayerSegment
 	segWG  sync.WaitGroup
 	segMu  sync.Mutex
 	segErr error
+	ready  []string
 
 	// arenaFree recycles the 128MiB chunk arenas across all of the
 	// session's segment sorters (see spillArenaFreeList).
@@ -441,6 +443,20 @@ func (s *synthGrantLayerSession) takeErr() error {
 	s.segMu.Lock()
 	defer s.segMu.Unlock()
 	return s.segErr
+}
+
+func (s *synthGrantLayerSession) pushReady(sstPath string) {
+	s.segMu.Lock()
+	s.ready = append(s.ready, sstPath)
+	s.segMu.Unlock()
+}
+
+func (s *synthGrantLayerSession) takeReady() []string {
+	s.segMu.Lock()
+	defer s.segMu.Unlock()
+	out := s.ready
+	s.ready = nil
+	return out
 }
 
 func (s *synthGrantLayerSession) segName() string {
@@ -473,45 +489,28 @@ func (s *synthGrantLayerSession) cutSegment() error {
 // The boolean is part of the store-level contract (non-Pebble stores report
 // false and callers fall back to StoreNewExpandedGrantContributions).
 func (e *Engine) BeginSynthesizedGrantLayer(ctx context.Context) (bool, error) {
-	if err := e.checkWritable(); err != nil {
+	err := e.withWrite(func() error {
+		if err := e.requireCurrentSync(); err != nil {
+			return err
+		}
+		if e.synthLayer != nil {
+			return errors.New("pebble: synthesized grant layer session already open")
+		}
+		e.synthLayer = &synthGrantLayerSession{
+			now:      timestamppb.Now(),
+			rec:      &v3.GrantRecord{},
+			segLimit: synthLayerSegmentLimit(),
+		}
+		return nil
+	})
+	if err != nil {
 		return false, err
-	}
-	if err := e.requireCurrentSync(); err != nil {
-		return false, err
-	}
-	e.synthLayerMu.Lock()
-	defer e.synthLayerMu.Unlock()
-	if e.synthLayer != nil {
-		return false, errors.New("pebble: synthesized grant layer session already open")
-	}
-	e.synthLayer = &synthGrantLayerSession{
-		now:      timestamppb.Now(),
-		rec:      &v3.GrantRecord{},
-		segLimit: synthLayerSegmentLimit(),
 	}
 	return true, nil
 }
 
-// loadSynthLayer returns the open layer session (or nil) under synthLayerMu.
-func (e *Engine) loadSynthLayer() *synthGrantLayerSession {
-	e.synthLayerMu.Lock()
-	defer e.synthLayerMu.Unlock()
-	return e.synthLayer
-}
-
-// takeSynthLayer detaches and returns the open layer session (or nil) under
-// synthLayerMu, so Finish/Abort can tear it down without racing each other
-// or Close.
-func (e *Engine) takeSynthLayer() *synthGrantLayerSession {
-	e.synthLayerMu.Lock()
-	defer e.synthLayerMu.Unlock()
-	s := e.synthLayer
-	e.synthLayer = nil
-	return s
-}
-
 // initSynthLayerSession lazily allocates the session's temp dir, first
-// sorter, and background merge+ingest worker on the first Add.
+// sorter, and background merge worker on the first Add.
 func (e *Engine) initSynthLayerSession(ctx context.Context, s *synthGrantLayerSession) error {
 	dir, err := e.prepareStagingDir("", "pebble-synth-grant-layer-")
 	if err != nil {
@@ -534,59 +533,57 @@ func (e *Engine) initSynthLayerSession(ctx context.Context, s *synthGrantLayerSe
 		defer s.segWG.Done()
 		for seg := range s.segCh {
 			// After a failure (or abort), drain remaining segments without
-			// touching the DB; Finish surfaces the stored error.
+			// merging; Finish surfaces the stored error.
 			if s.takeErr() != nil {
 				continue
 			}
-			if err := e.ingestSynthLayerSegment(ctx, s.dir, seg); err != nil {
+			// The merge unlinks each chunk as it drains it; a merge that
+			// fails partway leaves its remaining chunks, and the SST, to the
+			// session's final dir cleanup.
+			sstPath := filepath.Join(s.dir, seg.name+".sst")
+			if err := mergeSortedSpillChunksToSST(ctx, e.fs(), sstPath, seg.name, seg.chunks); err != nil {
 				s.setErr(err)
+				continue
 			}
+			s.pushReady(sstPath)
 		}
 	}()
 	return nil
 }
 
-// ingestSynthLayerSegment merges one segment's sorted chunks into an SST and
-// ingests it. The merge unlinks each chunk as it drains it, so nothing is
-// left to clean up here on success; a merge that fails partway leaves its
-// remaining chunks to the session's final dir cleanup. The SST path is also
-// left to that cleanup (Pebble links/copies it on ingest).
-//
-// Runs on the session's background worker, which deliberately bypasses the
-// engine write barrier (an Add holding writeMu can block on the bounded
-// segment channel waiting for this worker, so worker-takes-writeMu would
-// deadlock). The db itself stays valid for the worker's whole life — Close
-// drains the worker via AbortSynthesizedGrantLayer before tearing the db
-// down — but CheckpointTo's Flush→Checkpoint→WAL-truncate window must not
-// see an ingest land in the middle: pebble's flushable-ingest path writes a
-// WAL record referencing the ingested SSTs, and truncateCheckpointWALs would
-// discard it from the snapshot. checkpointMu is that barrier.
-func (e *Engine) ingestSynthLayerSegment(ctx context.Context, dir string, seg synthLayerSegment) error {
-	sstPath := filepath.Join(dir, seg.name+".sst")
-	if err := mergeSortedSpillChunksToSST(ctx, e.fs(), sstPath, seg.name, seg.chunks); err != nil {
-		return err
-	}
-	e.checkpointMu.RLock()
-	defer e.checkpointMu.RUnlock()
-	if err := e.db.IngestSSTs(ctx, []string{sstPath}); err != nil {
-		return fmt.Errorf("synth grant layer: ingest segment %s: %w", seg.name, err)
+// ingestReadyLocked ingests the SSTs the worker has finished, one call per
+// SST because segments cover overlapping key ranges. Requires writeMu, so
+// an ingest can never land inside CheckpointTo's Flush→Checkpoint→truncate
+// window: pebble's flushable-ingest path writes a WAL record naming the
+// SSTs, and truncateCheckpointWALs would discard it from the snapshot.
+func (e *Engine) ingestReadyLocked(ctx context.Context, s *synthGrantLayerSession) error {
+	for _, sstPath := range s.takeReady() {
+		if err := e.db.IngestSSTs(ctx, []string{sstPath}); err != nil {
+			err = fmt.Errorf("synth grant layer: ingest %s: %w", filepath.Base(sstPath), err)
+			s.setErr(err)
+			return err
+		}
 	}
 	return nil
 }
 
 // AddSynthesizedGrantLayerContributions encodes records into the open layer
-// session. Rows become readable as their segment is ingested; callers must
-// not rely on visibility before FinishSynthesizedGrantLayer returns.
+// session. Rows become readable as the producer ingests finished segments
+// on later Adds; callers must not rely on visibility before
+// FinishSynthesizedGrantLayer returns.
 func (e *Engine) AddSynthesizedGrantLayerContributions(ctx context.Context, records []synthesizedGrantRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
 	return e.withWrite(func() error {
-		s := e.loadSynthLayer()
+		s := e.synthLayer
 		if s == nil {
 			return errors.New("pebble: no open synthesized grant layer session")
 		}
 		if err := s.takeErr(); err != nil {
+			return err
+		}
+		if err := e.ingestReadyLocked(ctx, s); err != nil {
 			return err
 		}
 		if s.sorter == nil {
@@ -642,11 +639,13 @@ func (e *Engine) AddSynthesizedGrantLayerContributions(ctx context.Context, reco
 }
 
 // FinishSynthesizedGrantLayer flushes the session's tail segment, waits for
-// the background worker to merge and ingest every queued segment, and closes
-// the session. No-op if no session is open or the session saw no rows.
+// the background worker to merge every queued segment, ingests the merged
+// SSTs, and closes the session. No-op if no session is open or the session
+// saw no rows.
 func (e *Engine) FinishSynthesizedGrantLayer(ctx context.Context) error {
 	return e.withWrite(func() error {
-		s := e.takeSynthLayer()
+		s := e.synthLayer
+		e.synthLayer = nil
 		if s == nil {
 			return nil
 		}
@@ -668,20 +667,26 @@ func (e *Engine) FinishSynthesizedGrantLayer(ctx context.Context) error {
 		if err := s.takeErr(); err != nil && finishErr == nil {
 			finishErr = err
 		}
-		return finishErr
+		if finishErr != nil {
+			return finishErr
+		}
+		return e.ingestReadyLocked(ctx, s)
 	})
 }
 
 // AbortSynthesizedGrantLayer discards an in-flight layer session: already
 // ingested segments remain in the DB (their rows are idempotent overwrites on
-// retry), staged chunks are dropped. Safe to call with no open session.
-//
-// Deliberately does NOT take the engine write barrier — Close calls it after
-// setting the closing flag (withWrite would refuse), and it must stay callable
-// as a cleanup path when a writer holding writeMu panicked. The synthLayerMu
-// take keeps the pointer handoff race-free against Begin/Add/Finish/Close.
+// retry), staged chunks and merged-but-uningested SSTs are dropped. Safe to
+// call with no open session, and after Close (it does not touch the DB).
 func (e *Engine) AbortSynthesizedGrantLayer(ctx context.Context) error {
-	s := e.takeSynthLayer()
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
+	return e.abortSynthesizedGrantLayerLocked(ctx)
+}
+
+func (e *Engine) abortSynthesizedGrantLayerLocked(_ context.Context) error {
+	s := e.synthLayer
+	e.synthLayer = nil
 	if s == nil {
 		return nil
 	}
@@ -689,7 +694,7 @@ func (e *Engine) AbortSynthesizedGrantLayer(ctx context.Context) error {
 		s.sorter.abort()
 	}
 	if s.segCh != nil {
-		// Make the worker drain queued segments without ingesting them.
+		// Make the worker drain queued segments without merging them.
 		s.setErr(errors.New("pebble: synthesized grant layer session aborted"))
 		close(s.segCh)
 		s.segWG.Wait()
@@ -960,8 +965,7 @@ const grantDeleteBatchChunk = 1000
 // non-existent grant stays a true no-op and does not invalidate the
 // entitlement's digest partition.
 //
-// The chunk is also the unit of cancellation and of the sealed re-check —
-// see deleteGrantsByIdentities.
+// The chunk is also the unit of cancellation — see deleteGrantsByIdentities.
 func (e *Engine) DeleteGrantsByIdentityRefs(ctx context.Context, records ...*v3.GrantRecord) error {
 	if len(records) == 0 {
 		return nil
@@ -981,29 +985,20 @@ func (e *Engine) DeleteGrantsByIdentityRefs(ctx context.Context, records ...*v3.
 // single write-lock acquisition. chunk is a parameter so tests can drive the
 // boundary without a grantDeleteBatchChunk-sized fixture.
 //
-// Two things are re-checked at every chunk boundary, because taking the lock
-// once means the per-write checks withWrite would have made no longer happen
-// per write:
-//
-//   - ctx cancellation. A 90k-grant delete is otherwise uninterruptible.
-//     Aborting mid-way is safe: committed chunks are durable and the caller's
-//     dirty flag is already set, and a resumed sync re-derives its delete set
-//     and re-issues these deletes, which are idempotent.
-//   - e.sealed. withWrite's under-lock sealed re-check is the actual fence
-//     against writing past EndSync (seal() takes only sealMu and does not
-//     wait on writeWG), and it would otherwise run once for the whole call
-//     instead of once per write. Without this, a late chunk — and the digest
-//     invalidations it stages — could land after finalize began rebuilding
-//     the deferred by_principal index.
+// ctx is re-checked at every chunk boundary: a 90k-grant delete is otherwise
+// uninterruptible. Aborting mid-way is safe: committed chunks are durable
+// and the caller's dirty flag is already set, and a resumed sync re-derives
+// its delete set and re-issues these deletes, which are idempotent. The
+// sealed state cannot change mid-call: seal takes writeMu, which this holds.
 func (e *Engine) deleteGrantsByIdentities(ctx context.Context, chunk int, ids []grantIdentity) error {
 	if len(ids) == 0 {
 		return nil
 	}
 	// A non-positive chunk would make the loop below never advance, spinning
-	// forever while holding the write lock and a writeWG slot — an
-	// unkillable hang. No production caller can reach that (both pass the
-	// constant), so clamp rather than error: the call still does exactly what
-	// it was asked to do, just at the default chunking.
+	// forever while holding the write lock — an unkillable hang. No
+	// production caller can reach that (both pass the constant), so clamp
+	// rather than error: the call still does exactly what it was asked to
+	// do, just at the default chunking.
 	if chunk <= 0 {
 		chunk = grantDeleteBatchChunk
 	}
@@ -1012,9 +1007,6 @@ func (e *Engine) deleteGrantsByIdentities(ctx context.Context, chunk int, ids []
 		for start := 0; start < len(ids); start += chunk {
 			if err := ctx.Err(); err != nil {
 				return err
-			}
-			if e.sealed.Load() {
-				return ErrEngineSealed
 			}
 			end := min(start+chunk, len(ids))
 			if err := e.deleteGrantsByIdentityChunkLocked(ids[start:end]); err != nil {
