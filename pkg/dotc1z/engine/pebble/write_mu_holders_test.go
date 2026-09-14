@@ -120,14 +120,10 @@ func TestWriteMuHolders(t *testing.T) {
 	var sites []writeMuSite
 	callers := map[string]map[string]bool{} // callee -> set of enclosing methods
 	for name, fd := range methods {
-		lock, isDirect := lockPos[name]
-		walkWithContext(fd.Body, strings.HasSuffix(name, "Locked"), func(n ast.Node, holder bool) {
+		walkWithContext(fd.Body, strings.HasSuffix(name, "Locked"), lockPos[name], func(n ast.Node, holder bool) {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
 				return
-			}
-			if isDirect && call.Pos() > lock {
-				holder = true
 			}
 			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && writeMuMutatingRawdbMethods[sel.Sel.Name] && isSelectorChain(sel.X, "e", "db") {
 				sites = append(sites, writeMuSite{pos: call.Pos(), enclosing: name, rawdb: sel.Sel.Name, holder: holder})
@@ -218,26 +214,29 @@ func TestWriteMuHolders(t *testing.T) {
 	require.Empty(t, violations, "writeMu discipline violations:\n"+strings.Join(violations, "\n"))
 }
 
-// walkWithContext visits every node under root with the holder flag,
-// resetting it for function literals that escape and inheriting it for
-// literals invoked synchronously (arguments, local closures).
-func walkWithContext(root ast.Node, holder bool, visit func(ast.Node, bool)) {
-	var walk func(n ast.Node, holder bool)
-	escaping := func(lit ast.Expr) bool {
-		_, ok := lit.(*ast.FuncLit)
-		return ok
-	}
-	walk = func(n ast.Node, holder bool) {
+// walkWithContext visits every node under root with the holder flag. The
+// flag is holder, or true for nodes after lock (the position of a direct
+// e.writeMu.Lock() call; NoPos when there is none). Function literals that
+// escape reset both: their bodies run outside the caller's critical
+// section even when they appear after the Lock(). Literals invoked
+// synchronously (arguments, local closures) inherit.
+func walkWithContext(root ast.Node, holder bool, lock token.Pos, visit func(ast.Node, bool)) {
+	var walk func(n ast.Node, holder bool, lock token.Pos)
+	escaped := func(lit *ast.FuncLit) { walk(lit.Body, false, token.NoPos) }
+	walk = func(n ast.Node, holder bool, lock token.Pos) {
 		if n == nil {
 			return
+		}
+		if lock.IsValid() && n.Pos() > lock {
+			holder = true
 		}
 		visit(n, holder)
 		switch x := n.(type) {
 		case *ast.GoStmt:
 			if lit, ok := x.Call.Fun.(*ast.FuncLit); ok {
-				walk(lit.Body, false)
+				escaped(lit)
 				for _, a := range x.Call.Args {
-					walk(a, holder)
+					walk(a, holder, lock)
 				}
 				return
 			}
@@ -247,41 +246,41 @@ func walkWithContext(root ast.Node, holder bool, visit func(ast.Node, bool)) {
 				if _, ok := l.(*ast.SelectorExpr); ok {
 					toField = true
 				}
-				walk(l, holder)
+				walk(l, holder, lock)
 			}
 			for _, r := range x.Rhs {
 				if lit, ok := r.(*ast.FuncLit); ok && toField {
-					walk(lit.Body, false)
+					escaped(lit)
 				} else {
-					walk(r, holder)
+					walk(r, holder, lock)
 				}
 			}
 			return
 		case *ast.ReturnStmt:
 			for _, r := range x.Results {
 				if lit, ok := r.(*ast.FuncLit); ok {
-					walk(lit.Body, false)
+					escaped(lit)
 				} else {
-					walk(r, holder)
+					walk(r, holder, lock)
 				}
 			}
 			return
 		case *ast.KeyValueExpr:
-			walk(x.Key, holder)
-			if escaping(x.Value) {
-				walk(x.Value.(*ast.FuncLit).Body, false)
+			walk(x.Key, holder, lock)
+			if lit, ok := x.Value.(*ast.FuncLit); ok {
+				escaped(lit)
 			} else {
-				walk(x.Value, holder)
+				walk(x.Value, holder, lock)
 			}
 			return
 		case *ast.CallExpr:
 			if callee, ok := engineMethodCall(x); ok && (callee == "withWrite" || callee == "withWriteAllowSealed") {
-				walk(x.Fun, holder)
+				walk(x.Fun, holder, lock)
 				for _, a := range x.Args {
 					if lit, ok := a.(*ast.FuncLit); ok {
-						walk(lit.Body, true)
+						walk(lit.Body, true, lock)
 					} else {
-						walk(a, holder)
+						walk(a, holder, lock)
 					}
 				}
 				return
@@ -292,12 +291,12 @@ func walkWithContext(root ast.Node, holder bool, visit func(ast.Node, bool)) {
 				return true
 			}
 			if c != nil {
-				walk(c, holder)
+				walk(c, holder, lock)
 			}
 			return false
 		})
 	}
-	walk(root, holder)
+	walk(root, holder, lock)
 }
 
 // engineMethodCall reports the method name when call is e.X(...).
