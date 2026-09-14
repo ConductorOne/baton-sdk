@@ -132,7 +132,7 @@ func TestSynthLayerSessionAbortAfterIngestThenRetry(t *testing.T) {
 
 // TestSynthLayerSessionWorkerErrorPropagates pins the worker→producer error
 // channel: a failure stored by the background worker (setErr is exactly what
-// its merge/ingest error branch calls) must surface from the NEXT Add and
+// its merge error branch calls) must surface from the NEXT Add and
 // from Finish — never be swallowed — the failed session must be abortable
 // without hanging on the dead worker, and the engine must serve a fresh
 // session afterward.
@@ -148,7 +148,7 @@ func TestSynthLayerSessionWorkerErrorPropagates(t *testing.T) {
 		require.NoError(t, e.AddSynthesizedGrantLayerContributions(ctx, []synthesizedGrantRecord{synthLayerRow(0)}))
 
 		injected := errors.New("test: synth layer worker ingest failed")
-		e.loadSynthLayer().setErr(injected)
+		e.synthLayer.setErr(injected)
 
 		err = e.AddSynthesizedGrantLayerContributions(ctx, []synthesizedGrantRecord{synthLayerRow(1)})
 		require.ErrorIs(t, err, injected, "worker error must surface at the next Add")
@@ -174,7 +174,7 @@ func TestSynthLayerSessionWorkerErrorPropagates(t *testing.T) {
 		require.NoError(t, e.AddSynthesizedGrantLayerContributions(ctx, []synthesizedGrantRecord{synthLayerRow(0)}))
 
 		injected := errors.New("test: synth layer worker ingest failed")
-		e.loadSynthLayer().setErr(injected)
+		e.synthLayer.setErr(injected)
 
 		// Finish waits the worker out and must report the stored error,
 		// not success.

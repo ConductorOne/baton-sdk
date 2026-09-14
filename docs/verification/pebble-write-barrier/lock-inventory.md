@@ -61,6 +61,27 @@ held (shared), so the worker cannot participate in a cycle.
 The `writeWG` `Add`/`Wait` ordering defect is the subject of this change; see
 `plan.md`.
 
+#### 1.1a After this branch
+
+Deleted: `writeWG`, `closing`, `closeMu`, `checkpointMu`, `sealMu`, `sealed`,
+`currentSyncMu`, `synthLayerMu`. Added: `Engine.binding`, an
+`atomic.Pointer[syncBinding]` holding (`id`, `fresh`, `sealed`) as one
+snapshot, replaced only under `writeMu` by `transitionLocked`.
+
+| Primitive | Guards | Acquirers |
+| --- | --- | --- |
+| `writeMu` | every DB mutation the engine's goroutines make; `db` (nil after `Close`); `fresh*Empty`; `synthLayer`; the `binding` swap | `withWrite`, `withWriteAllowSealed`, `Close`, `CheckpointTo`, `CompactAllRanges`, `Flush`, `transition`, `setSealed`, `clearCurrentSync`, `AbortSynthesizedGrantLayer` — exactly this set, checked by `TestWriteMuHolders` |
+| `binding` | lifecycle snapshot, lock-free reads | `Store` under `writeMu`; `Load` from `CurrentSyncID`, `IsFreshSync`, `IsSealed`, `requireCurrentSync`, `currentSyncBytes`, `checkWritableLocked` |
+| `lifecycleMu`, `entIDLookupMu`, `computedStatsMu`, `deferredGrantStatsMu`, `poisonLogMu`, scheduler `mu` | unchanged | unchanged |
+| `synthGrantLayerSession.segMu` | `segErr` and now `ready` (merged SST paths) | producer under `writeMu`; the worker, which no longer touches the DB |
+
+```
+pebbleStore.closeMu → lifecycleMu → writeMu → {entIDLookupMu, computedStatsMu,
+                                               deferredGrantStatsMu, poisonLogMu, segMu}
+pebbleStore.closeMu → writeMu                                    (save → CheckpointTo, Engine.Close)
+                      segMu                                      (synth worker, holds nothing else)
+```
+
 ### 1.2 Compaction scheduler (`compaction_scheduler.go`)
 
 | Primitive | Type | Guards | Acquirers | Notes |

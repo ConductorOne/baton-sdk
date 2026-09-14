@@ -88,12 +88,11 @@ func (e *Engine) writeSyncStats(ctx context.Context, rec *v3.SyncStatsRecord) er
 	if err != nil {
 		return err
 	}
-	// AllowSealed under the write barrier: callers span EndSync's sealed
-	// finalize window and the compactor's bound-sync flow. The barrier
-	// (rather than a bare Set) gives the write the closing check, writeWG
-	// coverage against Close's teardown, and exclusion from CheckpointTo's
-	// Flush→Checkpoint window (a WAL-only record landing mid-window would
-	// be truncated out of the saved snapshot).
+	// AllowSealed under writeMu: callers span EndSync's sealed finalize
+	// window and the compactor's bound-sync flow. The lock (rather than a
+	// bare Set) gives the write the closed check and exclusion from
+	// CheckpointTo's Flush→Checkpoint window (a WAL-only record landing
+	// mid-window would be truncated out of the saved snapshot).
 	return e.withWriteAllowSealed(func() error {
 		return e.db.MetaSet(encodeSyncStatsKey(), val, pebble.Sync)
 	})

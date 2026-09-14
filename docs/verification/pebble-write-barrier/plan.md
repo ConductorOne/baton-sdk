@@ -62,7 +62,7 @@ binding atomic.Pointer[syncBinding]   // never nil; replaced only under writeMu
 `CurrentSyncID`, `IsFreshSync`, `IsSealed`, `requireCurrentSync`,
 `currentSyncBytes` load it. `bindCurrentSync`, `MarkFreshSync`,
 `clearCurrentSync`, `seal`, `unseal` take `writeMu` and replace it; each has
-a `Locked` form for callers already holding `writeMu` (`EndFreshSync`'s
+a `Locked` form for callers already holding `writeMu` (`FinishSync`'s
 closure calls `clearCurrentSyncLocked`).
 
 ### 3.3 Barrier

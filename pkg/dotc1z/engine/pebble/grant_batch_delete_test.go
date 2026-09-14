@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/stretchr/testify/require"
@@ -300,7 +301,7 @@ func TestDeleteGrantsByRefsCommitsInChunks(t *testing.T) {
 // TestDeleteGrantsByIdentitiesClampsNonPositiveChunk pins the guard against a
 // chunk of 0 or less. The chunking loop advances by chunk, so a non-positive
 // value would never reach the end and would spin forever holding the engine
-// write lock and a writeWG slot — an unkillable hang, not a returned error.
+// write lock — an unkillable hang, not a returned error.
 // No production caller can reach it (both pass the constant), so the guard
 // clamps to the default and the call still deletes everything it was given.
 func TestDeleteGrantsByIdentitiesClampsNonPositiveChunk(t *testing.T) {
@@ -350,29 +351,41 @@ func TestDeleteGrantsByRefsRefusesSealedEngine(t *testing.T) {
 		"a sealed engine must not have deleted anything")
 }
 
-// TestDeleteGrantsByRefsStopsWhenSealedMidCall pins the fence that holding
-// the write lock across every chunk would otherwise coarsen from per-write to
-// per-call. seal() takes only sealMu and never waits on writeWG, so an
-// in-flight bulk delete CAN be sealed underneath — and the remaining chunks,
-// with the digest invalidations they stage, must not land after finalize has
-// begun rebuilding the deferred by_principal index.
-//
-// Sealing from the boundary hook makes that deterministic: the hook runs
-// immediately before the loop's sealed re-check.
-func TestDeleteGrantsByRefsStopsWhenSealedMidCall(t *testing.T) {
+// TestDeleteGrantsByRefsCompletesBeforeSeal pins the exclusion between a
+// bulk delete and seal: seal takes writeMu, so a seal requested while a
+// delete holds it waits for every chunk to commit. No chunk — nor the digest
+// invalidations it stages — can land after EndSync's finalize has begun
+// rebuilding the deferred by_principal index, and no chunk is refused
+// mid-call. Requesting the seal from the chunk-boundary hook makes the
+// overlap deterministic.
+func TestDeleteGrantsByRefsCompletesBeforeSeal(t *testing.T) {
 	n := grantDeleteBatchChunk * 3
 	e, recs := batchDeleteScaleFixture(t, n)
 
+	sealed := make(chan struct{})
 	probe := &chunkProbeCtx{Context: context.Background()}
 	probe.onCheck = func(check int) {
-		if check == 2 {
-			e.seal()
+		if check != 2 {
+			return
 		}
+		started := make(chan struct{})
+		go func() {
+			close(started)
+			e.seal()
+			close(sealed)
+		}()
+		<-started
+		select {
+		case <-sealed:
+			t.Error("seal returned while the delete held writeMu")
+		case <-time.After(50 * time.Millisecond):
+		}
+		require.False(t, e.IsSealed(), "the snapshot must not flip under a writer")
 	}
-	err := e.DeleteGrantsByIdentityRefs(probe, recs...)
-
-	require.ErrorIs(t, err, ErrEngineSealed,
-		"chunks after the seal must be refused, not committed")
-	require.Equal(t, n-grantDeleteBatchChunk, countKeys(t, e, encodeGrantPrefix()),
-		"only the chunk committed before the seal may have applied")
+	require.NoError(t, e.DeleteGrantsByIdentityRefs(probe, recs...),
+		"a delete that started before the seal completes every chunk")
+	<-sealed
+	require.True(t, e.IsSealed())
+	require.Equal(t, 0, countKeys(t, e, encodeGrantPrefix()),
+		"every chunk committed before the seal took effect")
 }
