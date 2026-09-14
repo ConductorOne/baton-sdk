@@ -83,8 +83,7 @@ type Option func(*Options)
 // Unrefs it in Engine.Close.
 func WithSharedCache(c *pebble.Cache) Option { return func(o *Options) { o.sharedCache = c } }
 
-// WithDurability selects the fsync policy for writes outside a sync's
-// record path (see Durability). Default is DurabilitySync.
+// WithDurability sets Options.durability. Default is DurabilitySync.
 func WithDurability(d Durability) Option { return func(o *Options) { o.durability = d } }
 
 // WithReadOnly opens the engine in read-only mode. Save is disallowed.

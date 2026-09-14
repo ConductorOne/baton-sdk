@@ -98,9 +98,11 @@ func TestBoundSyncRecordWritesDoNotSyncTheWAL(t *testing.T) {
 	require.NoError(t, eng.SetCurrentSync(ctx, syncID))
 	require.False(t, eng.IsFreshSync(), "SetCurrentSync left the sync fresh, so the writes below cover nothing")
 
-	// Count only the bound writes: the keyspace-version stamp and the
-	// fresh seal legitimately sync, and they already happened.
+	// Count only the bound writes: the keyspace-version stamp, the
+	// sync-run record, and FinishSync legitimately sync, and they already
+	// happened.
 	before := fs.walSyncs.Load()
+	require.Positive(t, before, "the counting FS saw no WAL sync from the fresh sync, so the equality below proves nothing")
 	require.NoError(t, eng.PutGrantRecords(ctx, durabilityTestGrants(50, 100)...))
 	require.Equal(t, before, fs.walSyncs.Load(), "PutGrantRecords on a bound sync fsynced the WAL")
 

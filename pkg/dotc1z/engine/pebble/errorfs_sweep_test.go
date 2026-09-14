@@ -890,6 +890,7 @@ func TestErrorFSBoundSyncRandomSweepSoak(t *testing.T) {
 
 	const maxK = 5000
 	var injectedRuns int64
+	outcomes := map[crashImageOutcome]int64{}
 	for k := int64(0); ; k++ {
 		require.Less(t, k, int64(maxK), "bound-sync sweep exceeded %d write ops", maxK)
 		stepFS := baseline.CrashClone(vfs.CrashCloneCfg{})
@@ -925,9 +926,10 @@ func TestErrorFSBoundSyncRandomSweepSoak(t *testing.T) {
 			"%s: the baseline's sync-run record was durable before the run and cannot vanish", label)
 		if res.err == nil && res.injected == 0 {
 			require.Equal(t, k, injectedRuns, "every earlier write point must inject")
-			t.Logf("bound pre-EndSync path covered: %d write-op failure points", injectedRuns)
+			t.Logf("bound pre-EndSync path covered: %d write-op failure points; crash-image outcomes: %v", injectedRuns, outcomes)
 			break
 		}
+		outcomes[outcome]++
 		injectedRuns++
 	}
 }

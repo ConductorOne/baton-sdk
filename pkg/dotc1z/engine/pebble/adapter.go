@@ -376,8 +376,8 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	// pages. TestEndSyncStampDurabilityCarriesPages pins the mechanism
 	// with the stamp as the only Sync before the cut;
 	// TestEndSyncStampWindowImageComplete pins the full workload.
-	// FinishSync's flush and fence are not part of that: they bound
-	// reopen WAL replay and, under DurabilityNoSync, are the only fsync.
+	// FinishSync's flush and fence are not part of that; they bound
+	// reopen WAL replay.
 	return e.FinishSync(ctx)
 }
 
