@@ -93,7 +93,7 @@ func TestBoundSyncRecordWritesDoNotSyncTheWAL(t *testing.T) {
 		StartedAt: timestamppb.Now(),
 	}.Build()))
 	require.NoError(t, eng.PutGrantRecords(ctx, durabilityTestGrants(0, 50)...))
-	require.NoError(t, eng.EndFreshSync(ctx))
+	require.NoError(t, eng.FinishSync(ctx))
 
 	require.NoError(t, eng.SetCurrentSync(ctx, syncID))
 	require.False(t, eng.IsFreshSync(), "SetCurrentSync left the sync fresh, so the writes below cover nothing")

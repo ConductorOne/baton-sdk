@@ -217,9 +217,9 @@ func writeOpts(d Durability) *pebble.WriteOptions {
 // temp directory that a dying process orphans and the next process never
 // finds. An fsync here hardens bytes nothing will read.
 //
-// Writes a crash image or the sealed file must hold do not come through
-// here: PutSyncRunRecord and the keyspace-version stamp say why at their
-// sites, and EndFreshSync flushes before the seal.
+// Writes a crash image must hold do not come through here:
+// PutSyncRunRecord and the keyspace-version stamp say why at their
+// sites. FinishSync flushes and fences the WAL once at EndSync.
 var recordWriteOpts = pebble.NoSync
 
 func defaultOptions() *Options {

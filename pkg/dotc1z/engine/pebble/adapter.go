@@ -253,7 +253,7 @@ func (e *Engine) CheckpointSync(ctx context.Context, syncToken string) error {
 // EndSync stamps the open sync_run's ended_at and detaches it. After
 // EndSync, the engine has no current sync; SetCurrentSync or
 // StartNewSync are required for further writes. The binding itself is
-// cleared inside the finalize tail (EndFreshSync), so success leaves
+// cleared inside the finalize tail (FinishSync), so success leaves
 // no lifecycle state to reset here.
 func (e *Engine) EndSync(ctx context.Context) error {
 	e.lifecycleMu.Lock()
@@ -356,7 +356,7 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	}
 	// Populate the stats sidecar BEFORE the durability flush. Stats
 	// is engine-meta keyspace, committed pebble.Sync in
-	// writeSyncStats; the EndFreshSync flush below then bounds reopen
+	// writeSyncStats; the FinishSync flush below then bounds reopen
 	// WAL-replay cost for everything. Failures here are non-fatal — Stats() falls back to legacy
 	// O(N) iteration on a missing sidecar. NOTE: there is currently
 	// no on-Open backfill (the indexMigrations registry is
@@ -370,22 +370,15 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 			zap.Error(err),
 		)
 	}
-	// Single flush + WAL fsync at sync end. This is the counterpart to
-	// MarkFreshSync at StartNewSync; after it returns all of the sync's
-	// writes are SST-durable and the WAL is fsynced. Note the ordering
-	// above is CRASH-SAFE even though the pages were NoSync: every
-	// pebble.Sync commit in the finalize sequence (marker clears, the
-	// ended_at stamp, the stats key) rides pebble's sequential WAL, so
-	// each fsync also hardens every earlier NoSync page commit — a
-	// crash image can hold the finished verdict only if it also holds
-	// the pages. Pinned by TestEndSyncStampDurabilityCarriesPages
-	// (isolated: the stamp is the ONLY Sync between the pages and the
-	// crash cut) and TestEndSyncStampWindowImageComplete (the full
-	// default workload at the same cut). This flush's job is bounding
-	// reopen WAL-replay cost and hardening the NoSync case
-	// (WithDurability(DurabilityNoSync)), where the stamp itself was
-	// not synced.
-	return e.EndFreshSync(ctx)
+	// The pages above were NoSync and the ended_at stamp was Sync in the
+	// same WAL, so the stamp's fsync put the pages on disk before the
+	// stamp; a crash image holds the finished verdict only with its
+	// pages. TestEndSyncStampDurabilityCarriesPages pins the mechanism
+	// with the stamp as the only Sync before the cut;
+	// TestEndSyncStampWindowImageComplete pins the full workload.
+	// FinishSync's flush and fence are not part of that: they bound
+	// reopen WAL replay and, under DurabilityNoSync, are the only fsync.
+	return e.FinishSync(ctx)
 }
 
 // === writes ===

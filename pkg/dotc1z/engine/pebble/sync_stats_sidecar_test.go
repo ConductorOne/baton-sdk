@@ -108,7 +108,7 @@ func TestSyncStatsSidecarBackfillOnOpen(t *testing.T) {
 }
 
 // TestSyncStatsSidecarFallback verifies that a sync without a
-// sidecar (e.g. partial sync that bypassed EndFreshSync) falls
+// sidecar (e.g. partial sync that bypassed EndSync) falls
 // through to the iteration path correctly.
 func TestSyncStatsSidecarFallback(t *testing.T) {
 	ctx := context.Background()

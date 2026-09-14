@@ -85,7 +85,7 @@ func scopedRanges() [][2][]byte {
 // intentionally preserved.
 //
 // Refuses while a fresh sync is in progress (between MarkFreshSync and
-// EndFreshSync): wiping mid-sync would corrupt the in-flight sync.
+// FinishSync): wiping mid-sync would corrupt the in-flight sync.
 func (e *Engine) ResetForNewSync(ctx context.Context) error {
 	if e.IsFreshSync() {
 		return errors.New("ResetForNewSync: refusing to reset while a sync is in progress")
@@ -199,7 +199,7 @@ func (e *Engine) CompactAllRanges(ctx context.Context) error {
 // the next checkpoint reads the LSM.
 //
 // This is a thin wrapper over pebble.DB.Flush + a WAL fsync; the
-// EndFreshSync path uses the same combination at sync end. ctx is
+// FinishSync path uses the same combination at sync end. ctx is
 // checked before the blocking calls so a cancelled deadline doesn't
 // trigger a full memtable flush.
 func (e *Engine) Flush(ctx context.Context) error {

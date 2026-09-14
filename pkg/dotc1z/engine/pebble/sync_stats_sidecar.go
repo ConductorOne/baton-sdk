@@ -15,7 +15,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
-// Sync-stats sidecar. Populated by EndFreshSync (one full pass
+// Sync-stats sidecar. Populated by EndSync (one full pass
 // over the per-record-type keyspaces) and read by Stats() /
 // GrantStats() as a single LSM Get. Eliminates the O(N) iteration
 // the Adapter used to do on every Stats() call.
@@ -260,7 +260,7 @@ func (e *Engine) takeDeferredGrantStats(syncID string) *deferredGrantStats {
 }
 
 // PersistSyncStats computes and writes the stats sidecar for
-// syncID. Exposed for the EndFreshSync caller and the on-Open
+// syncID. Exposed for the EndSync caller and the on-Open
 // migration backfill. If a caller-computed record was stashed for
 // this sync (StashComputedSyncStats), it is persisted instead of
 // re-scanning the keyspaces. Timing / call stats from the syncer's
