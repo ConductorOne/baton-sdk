@@ -965,8 +965,7 @@ const grantDeleteBatchChunk = 1000
 // non-existent grant stays a true no-op and does not invalidate the
 // entitlement's digest partition.
 //
-// The chunk is also the unit of cancellation and of the sealed re-check —
-// see deleteGrantsByIdentities.
+// The chunk is also the unit of cancellation — see deleteGrantsByIdentities.
 func (e *Engine) DeleteGrantsByIdentityRefs(ctx context.Context, records ...*v3.GrantRecord) error {
 	if len(records) == 0 {
 		return nil

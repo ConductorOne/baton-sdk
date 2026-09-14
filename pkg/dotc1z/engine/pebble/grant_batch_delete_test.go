@@ -239,9 +239,9 @@ type chunkProbeCtx struct {
 	context.Context
 	checks     int
 	cancelUpon int
-	// onCheck runs at each boundary, before the sealed re-check that
-	// immediately follows ctx.Err() in the loop — which is how a test can
-	// seal the engine strictly between two chunks.
+	// onCheck runs at each chunk boundary, from the loop's ctx.Err() call,
+	// while the delete holds writeMu. A seal requested from it waits on
+	// writeMu until the delete finishes.
 	onCheck func(check int)
 }
 

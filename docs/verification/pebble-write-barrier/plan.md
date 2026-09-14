@@ -132,6 +132,7 @@ redeploy for the first, re-sync for the second.
 | C8 | Synth-layer rows all present after `Finish`; `Abort` leaves already-ingested rows and no staging dir | existing `synth_layer_session_test.go` | bounded |
 | C9 | Existing semantics: `ErrEngineClosing` code, read-only `CheckpointTo` copy path, `Close` idempotent, leak oracle at `Close` | existing package suite | bounded |
 | C10 | Suites: `go test ./pkg/dotc1z/engine/pebble/`, `go test ./pkg/dotc1z/`, `go test -race ./pkg/dotc1z/engine/pebble/`, `golangci-lint run pkg/dotc1z/...` | repository gates | — |
+| C11 | Cost: moving the synth-layer segment ingest from the worker onto the producer's `Add`/`Finish` under `writeMu` does not slow expansion measurably (`docs/BUG_CATCHING.md` §2 cost contract) | `TestRunWhalePebbleProjectionExpansion` on the whale seed, base vs branch, back-to-back on one machine; compare the expansion phase and an untouched phase (`EndSync` deferred index) as the noise reference | measured, one seed |
 
 Structural coverage over changed files after C1–C9 run; every uncovered
 changed branch dispositioned in `evidence.md`.
