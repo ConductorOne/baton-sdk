@@ -230,6 +230,25 @@ func defaultSweepWorkload() sweepWorkload {
 // (puts are upserts) — resume paths call it again on the reopened
 // store, mirroring the connector-replay resume model.
 func (w sweepWorkload) write(ctx context.Context, a *Adapter) error {
+	if err := w.writeFirstPages(ctx, a); err != nil {
+		return err
+	}
+	return w.writeRemainingPages(ctx, a)
+}
+
+func (w sweepWorkload) connectorGrants() []*v2.Grant {
+	var gs []*v2.Grant
+	for _, p := range w.principals {
+		for i := 0; i < w.perPrinc; i++ {
+			gs = append(gs, mkV2Grant("", fmt.Sprintf("ent-%02d", i), "user", p))
+		}
+	}
+	return gs
+}
+
+// The bound-sync sweep's baseline stops after writeFirstPages so the
+// bound run writes new rows, not only overwrites.
+func (w sweepWorkload) writeFirstPages(ctx context.Context, a *Adapter) error {
 	if err := a.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "app"}.Build(),
 		v2.ResourceType_builder{Id: "user"}.Build(),
@@ -269,17 +288,14 @@ func (w sweepWorkload) write(ctx context.Context, a *Adapter) error {
 		return err
 	}
 	// Two pages of grants, like a paginated connector.
-	var gs []*v2.Grant
-	for _, p := range w.principals {
-		for i := 0; i < w.perPrinc; i++ {
-			gs = append(gs, mkV2Grant("", fmt.Sprintf("ent-%02d", i), "user", p))
-		}
-	}
-	half := len(gs) / 2
-	if err := a.PutGrants(scopedCtx, gs[:half]...); err != nil {
-		return err
-	}
-	if err := a.PutGrants(scopedCtx, gs[half:]...); err != nil {
+	gs := w.connectorGrants()
+	return a.PutGrants(scopedCtx, gs[:len(gs)/2]...)
+}
+
+func (w sweepWorkload) writeRemainingPages(ctx context.Context, a *Adapter) error {
+	scopedCtx := sourcecache.WithScope(ctx, "errorfs-sweep")
+	gs := w.connectorGrants()
+	if err := a.PutGrants(scopedCtx, gs[len(gs)/2:]...); err != nil {
 		return err
 	}
 	for _, kind := range []sourcecache.RowKind{
@@ -833,6 +849,86 @@ func TestErrorFSWholeSyncRandomSweepSoak(t *testing.T) {
 			continue
 		}
 		verifyCrashImage(ctx, t, w, res.image, cache, syncID, true, true, label)
+	}
+}
+
+// buildBoundSweepBaseline leaves a durable, unfinished sync holding the
+// workload's first pages and a checkpoint token: the last pebble.Sync
+// before anything a bound run writes.
+func buildBoundSweepBaseline(ctx context.Context, t *testing.T, w sweepWorkload, cache *pebble.Cache) (*vfs.MemFS, string) {
+	t.Helper()
+	fs := vfs.NewCrashableMem()
+	e, err := Open(ctx, "sweep-db", WithVFS(fs), WithSharedCache(cache), withPanicOnFatalLogger())
+	require.NoError(t, err)
+	a := NewAdapter(e)
+	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, w.writeFirstPages(ctx, a))
+	require.NoError(t, a.CheckpointSync(ctx, "after-first-pages"))
+	require.NoError(t, e.Close())
+	return fs, syncID
+}
+
+// TestErrorFSBoundSyncRandomSweepSoak is TestErrorFSWholeSyncRandomSweepSoak
+// for a bound sync: the engine reopens a durable unfinished baseline,
+// SetCurrentSync binds it, and the k-th write-class op of the replay
+// fails. Bound record writes commit NoSync (recordWriteOpts), so a
+// crash image holds them only up to the last Sync in the shared WAL;
+// the image must still reopen unfinished-and-resumable or finished-
+// and-complete, and it must still hold the baseline's sync-run record.
+func TestErrorFSBoundSyncRandomSweepSoak(t *testing.T) {
+	skipOnWindowsMemFS(t)
+	if os.Getenv("BATON_SOAK") == "" {
+		t.Skip("set BATON_SOAK=1 to run the bound-sync errorfs sweep")
+	}
+	ctx := context.Background()
+	w := defaultSweepWorkload()
+	cache := pebble.NewCache(8 << 20)
+	defer cache.Unref()
+
+	baseline, syncID := buildBoundSweepBaseline(ctx, t, w, cache)
+
+	const maxK = 5000
+	var injectedRuns int64
+	for k := int64(0); ; k++ {
+		require.Less(t, k, int64(maxK), "bound-sync sweep exceeded %d write ops", maxK)
+		stepFS := baseline.CrashClone(vfs.CrashCloneCfg{})
+		inj := &failFromInjector{failOnce: true}
+		efs := errorfs.Wrap(stepFS, inj)
+
+		gate := newFatalGate()
+		e, err := Open(ctx, "sweep-db", WithVFS(efs), WithSharedCache(cache), withFatalGate(gate))
+		require.NoError(t, err, "open before arming")
+		a := NewAdapter(e)
+		require.NoError(t, a.SetCurrentSync(ctx, syncID), "bind before arming")
+		require.False(t, e.IsFreshSync(), "the bound run must not take the fresh path")
+
+		res := runInjected(stepFS, inj, e, gate, k, func() error {
+			if err := w.write(ctx, a); err != nil {
+				return err
+			}
+			// Disarm before EndSync for the reason the fresh soak gives:
+			// EndSync's flushable ingests panic on injection.
+			inj.disarm()
+			return a.EndSync(ctx)
+		})
+
+		label := fmt.Sprintf("bound k=%d", k)
+		var outcome crashImageOutcome
+		if res.err == nil {
+			outcome = verifyCrashImage(ctx, t, w, res.image, cache, syncID, true, res.injected > 0, label+" (clean run)")
+		} else {
+			require.Positive(t, res.injected, "failed run must contain an injected write fault")
+			outcome = verifyCrashImage(ctx, t, w, res.image, cache, syncID, true, true, label)
+		}
+		require.NotEqual(t, outcomeNoSyncRunRestarted, outcome,
+			"%s: the baseline's sync-run record was durable before the run and cannot vanish", label)
+		if res.err == nil && res.injected == 0 {
+			require.Equal(t, k, injectedRuns, "every earlier write point must inject")
+			t.Logf("bound pre-EndSync path covered: %d write-op failure points", injectedRuns)
+			break
+		}
+		injectedRuns++
 	}
 }
 
