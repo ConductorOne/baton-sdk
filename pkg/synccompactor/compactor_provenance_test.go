@@ -11,6 +11,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
+	sdksync "github.com/conductorone/baton-sdk/pkg/sync"
 )
 
 // stampSyncStats writes timing stats onto the (finished) sync's stats
@@ -191,4 +192,32 @@ func TestCompactPebbleRebuildWritesProvenance(t *testing.T) {
 	require.Zero(t, grants.GetReplaced())
 	require.Zero(t, grants.GetCarried())
 	require.Empty(t, readSyncToken(t, ctx, out.FilePath, out.SyncID))
+}
+
+// A base compacted by an SDK that wrote provenance into the token chains
+// through the fold like a sidecar-provenance base does.
+func TestProvenanceFromTokenSectionChains(t *testing.T) {
+	tok, err := sdksync.BuildCompactedToken("", sdksync.CompactionTokenInput{
+		Mode:           "fold",
+		BaseSyncID:     "base-0",
+		PartialSyncIDs: []string{"p1", "p2"},
+		RecordCounts:   map[string]sdksync.CompactionRecordCounts{"grants": {Output: 7, Added: 2}},
+	})
+	require.NoError(t, err)
+
+	prior := provenanceFromTokenSection(context.Background(), tok)
+	require.NotNil(t, prior)
+	require.Equal(t, "base-0", prior.GetStatsSyncId())
+	require.EqualValues(t, 2, prior.GetPartialCount())
+	require.EqualValues(t, 7, prior.GetRecordCounts()["grants"].GetOutput())
+
+	next := buildCompactionProvenance(prior, "fold", "base-1", []string{"p3"}, nil)
+	require.Equal(t, "base-0", next.GetStatsSyncId(), "the root stats sync survives the SDK boundary")
+	require.EqualValues(t, 3, next.GetPartialCount())
+	require.Equal(t, []string{"p1", "p2", "p3"}, next.GetPartialSyncIds())
+
+	require.Nil(t, provenanceFromTokenSection(context.Background(), ""))
+	stripped, err := sdksync.ClearCompactionSection(tok)
+	require.NoError(t, err)
+	require.Nil(t, provenanceFromTokenSection(context.Background(), stripped))
 }

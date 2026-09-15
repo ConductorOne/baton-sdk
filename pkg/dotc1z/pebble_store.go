@@ -787,6 +787,9 @@ func (g pebbleStoreGrants) BeginExpandedGrantLayer(ctx context.Context) (bool, e
 }
 
 func (g pebbleStoreGrants) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
+	if err := g.store.seam(ctx, "Grants.AddExpandedGrantLayerContributions"); err != nil {
+		return err
+	}
 	fast, ok := g.inner.(pebbleStoreGrantLayerStorer)
 	if !ok {
 		return fmt.Errorf("expanded grant layer: store does not support layer sessions")
@@ -798,6 +801,9 @@ func (g pebbleStoreGrants) AddExpandedGrantLayerContributions(ctx context.Contex
 }
 
 func (g pebbleStoreGrants) FinishExpandedGrantLayer(ctx context.Context) error {
+	if err := g.store.seam(ctx, "Grants.FinishExpandedGrantLayer"); err != nil {
+		return err
+	}
 	fast, ok := g.inner.(pebbleStoreGrantLayerStorer)
 	if !ok {
 		return fmt.Errorf("expanded grant layer: store does not support layer sessions")

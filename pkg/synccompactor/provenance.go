@@ -1,9 +1,14 @@
 package synccompactor
 
 import (
+	"context"
+
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	sdksync "github.com/conductorone/baton-sdk/pkg/sync"
 	mergepkg "github.com/conductorone/baton-sdk/pkg/synccompactor/pebble"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
 // maxCompactionPartialIDs caps how many partial sync ids the provenance
@@ -114,4 +119,34 @@ func compactionRecordCounts(output *v3.SyncStatsRecord, fold *mergepkg.FoldStats
 		out[bucket] = counts
 	}
 	return out
+}
+
+// provenanceFromTokenSection is the prior link for a base compacted by an
+// SDK that wrote provenance into the token. nil when there is none.
+func provenanceFromTokenSection(ctx context.Context, token string) *v3.CompactionProvenance {
+	stats, err := sdksync.CompactionStatsFromToken(token) //nolint:staticcheck // reading the old artifact shape is the point
+	if err != nil {
+		ctxzap.Extract(ctx).Warn("compaction provenance: base token's compaction section unreadable; ancestry restarts here", zap.Error(err))
+		return nil
+	}
+	if stats == nil {
+		return nil
+	}
+	counts := make(map[string]*v3.CompactionRecordCounts, len(stats.RecordCounts))
+	for k, c := range stats.RecordCounts {
+		if c == nil {
+			continue
+		}
+		counts[k] = v3.CompactionRecordCounts_builder{
+			Output: c.Output, Added: c.Added, Replaced: c.Replaced, Carried: c.Carried,
+		}.Build()
+	}
+	return v3.CompactionProvenance_builder{
+		Mode:           stats.Mode,
+		StatsSyncId:    stats.StatsSyncID,
+		BaseSyncId:     stats.BaseSyncID,
+		PartialSyncIds: append([]string(nil), stats.PartialSyncIDs...),
+		PartialCount:   stats.PartialCount,
+		RecordCounts:   counts,
+	}.Build()
 }

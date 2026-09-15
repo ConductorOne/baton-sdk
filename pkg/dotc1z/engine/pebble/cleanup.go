@@ -52,27 +52,18 @@ func scopedRanges() [][2][]byte {
 	}
 }
 
-// ResetForNewSync empties the keyspace so a freshly started sync begins
-// on a file in the state a fresh Open would produce.
+// ResetForNewSync empties the keyspace and re-runs Open's fresh-file
+// initialization. A v3 Pebble c1z holds one sync and keys carry no
+// sync_id, so StartNewSync calls this before binding a replacement.
 //
-// Why this exists: a v3 Pebble c1z holds exactly one sync, and the
-// keys carry no sync_id. StartNewSync calls this before binding a new
-// sync so the replacement sync never inherits orphan records from a
-// prior sync — records the new sync doesn't happen to overwrite would
-// otherwise linger under identical keys.
-//
-// The wipe is one pebble.DB.Excise over the widest span pebble can
-// express, then the initialization Open runs on a fresh file. Excise
-// drops every SST the span fully covers from the manifest (O(files), immediate disk reclaim,
-// overlapping memtable flushed first) and keeps only an SST that crosses
-// the span's edge, narrowed. A span over every key the engine writes has
-// no SST crossing its edge, so no bytes survive — including the verbatim
-// page tokens of an interrupted ledgered sync, which a narrowed SST
-// would carry into the next checkpoint (TestLedgerResidueOutlivesTheLedger).
-// Re-stamping the engine-global metadata is cheaper than preserving it.
+// One Excise over the widest span pebble can express: every SST is fully
+// covered and dropped from the manifest, so no bytes survive — including
+// the verbatim page tokens of an interrupted ledgered sync, which a
+// narrowed SST would carry into the next checkpoint
+// (TestLedgerResidueOutlivesTheLedger).
 //
 // Refuses while a fresh sync is in progress (between MarkFreshSync and
-// FinishSync): wiping mid-sync would corrupt the in-flight sync.
+// FinishSync).
 func (e *Engine) ResetForNewSync(ctx context.Context) error {
 	if e.IsFreshSync() {
 		return errors.New("ResetForNewSync: refusing to reset while a sync is in progress")
@@ -81,14 +72,16 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 	// sync; the wipe is the first step of leaving the sealed state. The
 	// engine stays sealed until MarkFreshSync unseals it right after.
 	return e.withWriteAllowSealed(func() error {
-		// Every key the engine writes starts with versionV3; the span is
-		// wider so a key that shouldn't be there goes too. End is exclusive
-		// and must be a real key, so 0xff is the widest bound available.
 		// Start must be non-nil: KeyRange.Valid is false on a nil bound and
-		// pebble ignores an invalid excise span without error.
+		// pebble ignores an invalid excise span without error. End is
+		// exclusive with no max sentinel; requireKeyspaceEmpty catches a key
+		// at or above it.
 		span := pebble.KeyRange{Start: []byte{}, End: []byte{0xff}}
 		if err := e.db.ExciseRange(ctx, span); err != nil {
 			return fmt.Errorf("ResetForNewSync: excise [%x, %x): %w", span.Start, span.End, err)
+		}
+		if err := e.requireKeyspaceEmpty(); err != nil {
+			return fmt.Errorf("ResetForNewSync: %w", err)
 		}
 		// A crash between the excise and this leaves an empty, unstamped
 		// file, which the next Open stamps like any fresh one.
@@ -98,6 +91,18 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 		e.noteEntitlementKeyspaceWrite()
 		return nil
 	})
+}
+
+func (e *Engine) requireKeyspaceEmpty() error {
+	iter, err := e.db.NewIter(&pebble.IterOptions{})
+	if err != nil {
+		return err
+	}
+	defer iter.Close()
+	if iter.First() {
+		return fmt.Errorf("key %x survived the excise", iter.Key())
+	}
+	return iter.Error()
 }
 
 // CompactAllRanges runs pebble.Compact over every sync-scoped range to

@@ -794,12 +794,19 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	baseStats := readSourceSyncStats(ctx, destEng, baseSyncID)
 	// The record being renamed is the BASE's, so its token can still carry
 	// a compaction section an older SDK wrote describing the base's own
-	// compaction. Strip just that section: provenance now lives in
+	// compaction. That section is the base's ancestry when the base
+	// predates sidecar provenance: read it before stripping it, so a fold
+	// chain that crosses the SDK boundary keeps its root stats sync and
+	// partial count. Then strip just that section: provenance now lives in
 	// SyncStatsRecord.compaction (set below), and an inherited section
 	// reads as this artifact's provenance while naming another one's mode,
 	// base and counts. The token's resume state and timing stats stay,
 	// because PersistSyncStats still falls back to them when a sync has no
 	// stats overlay. Best-effort, like the provenance write itself.
+	priorProvenance := baseStats.GetCompaction()
+	if priorProvenance == nil {
+		priorProvenance = provenanceFromTokenSection(ctx, baseRec.GetSyncToken())
+	}
 	if tok, err := sdksync.ClearCompactionSection(baseRec.GetSyncToken()); err != nil {
 		l.Warn("compactPebbleFold: could not strip the base's inherited compaction token section", zap.Error(err))
 	} else {
@@ -837,7 +844,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 			foldPartialTimings(outputStats, partial)
 		}
 		outputStats.SetCompaction(buildCompactionProvenance(
-			baseStats.GetCompaction(),
+			priorProvenance,
 			string(PebbleCompactorModeFold),
 			baseSyncID,
 			partialSyncIDs,

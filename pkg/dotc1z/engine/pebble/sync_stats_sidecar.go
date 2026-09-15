@@ -278,34 +278,37 @@ func (e *Engine) PersistSyncStats(ctx context.Context, syncID string) error {
 }
 
 // applySyncerStats lays the syncer's timing / call / ingest-quality
-// stats over rec's record counts: the stats EndSyncWithStats was given
-// when the seal came through it, else lifted from the sync_run's sealed
-// token. A Pebble sync never has a token (the syncer's Pebble path is
+// stats over rec's record counts: what the sync_run's sealed token
+// supplies, then per field the stats EndSyncWithStats was given when the
+// seal came through it. A Pebble sync never has a token (the syncer's Pebble path is
 // the ledger; CheckpointSync refuses one); the token here is a sealed
 // SQLite sync's, copied in by the converter (to_pebble.go), whose stats
 // live nowhere else. Failures are ignored — row counts remain usable
 // without them.
 func (e *Engine) applySyncerStats(ctx context.Context, syncID string, rec *v3.SyncStatsRecord) {
-	if overlay := e.takeSyncStatsOverlay(syncID); overlay != nil {
-		if len(overlay.GetStepDurationsMs()) > 0 {
-			rec.SetStepDurationsMs(overlay.GetStepDurationsMs())
-		}
-		if len(overlay.GetConnectorCallStats()) > 0 {
-			rec.SetConnectorCallStats(overlay.GetConnectorCallStats())
-		}
-		if len(overlay.GetSessionStoreStats()) > 0 {
-			rec.SetSessionStoreStats(overlay.GetSessionStoreStats())
-		}
-		if overlay.HasIngestQuality() {
-			rec.SetIngestQuality(overlay.GetIngestQuality())
-		}
+	// Token first, overlay on top, so a field the overlay left empty keeps
+	// the token's value: EndSyncWithStats with a partial SyncStats reads
+	// like EndSync for the fields it did not fill. A ledgered sync has no
+	// token and the first step is a no-op.
+	if sr, err := e.GetSyncRunRecord(ctx, syncID); err == nil && sr != nil {
+		c1zstore.ApplySyncTokenStatsRecord(rec, sr.GetSyncToken())
+	}
+	overlay := e.takeSyncStatsOverlay(syncID)
+	if overlay == nil {
 		return
 	}
-	sr, err := e.GetSyncRunRecord(ctx, syncID)
-	if err != nil || sr == nil {
-		return
+	if len(overlay.GetStepDurationsMs()) > 0 {
+		rec.SetStepDurationsMs(overlay.GetStepDurationsMs())
 	}
-	c1zstore.ApplySyncTokenStatsRecord(rec, sr.GetSyncToken())
+	if len(overlay.GetConnectorCallStats()) > 0 {
+		rec.SetConnectorCallStats(overlay.GetConnectorCallStats())
+	}
+	if len(overlay.GetSessionStoreStats()) > 0 {
+		rec.SetSessionStoreStats(overlay.GetSessionStoreStats())
+	}
+	if overlay.HasIngestQuality() {
+		rec.SetIngestQuality(overlay.GetIngestQuality())
+	}
 }
 
 // setSyncStatsOverlay holds the stats EndSyncWithStats was given for

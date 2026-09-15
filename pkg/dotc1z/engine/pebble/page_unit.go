@@ -121,6 +121,9 @@ func (u *PageUnit) StageCounterBucket(runID string, worker uint32, bucket *v3.Le
 	if u.done {
 		return ErrPageUnitCommitted
 	}
+	if bucket == nil {
+		return errors.New("StageCounterBucket: nil bucket")
+	}
 	u.bucketKey = encodeLedgerCounterKey(runID, worker)
 	u.bucketValue = bucket
 	return nil

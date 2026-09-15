@@ -357,7 +357,7 @@ instrument that closes it.
 ### C24 Capability presence and absence
 
 - Status: verified to stated coverage (single per store, both stores).
-- Candidate: the three assertions at `pebble_store.go:33,44,45` cover
+- Candidate: the three assertions at `pebble_store.go:33,40,41` cover
   `pebbleStore` through the `dotc1z` open path, plus the runtime `ok`
   checks in `pebble_store_dirty_test.go` and
   `pebble_store_write_seam_test.go`. A comment on the assertions records

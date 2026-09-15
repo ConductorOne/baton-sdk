@@ -664,22 +664,26 @@ func (e *Engine) scrubLedgerFrontierLocked(ctx context.Context, batch *rawdb.Rec
 // an overlapping memtable first, so the compacted output covers every
 // version that ever landed.
 //
-// The range is the ledger family alone, and one thing sits outside it:
+// Two ranges: the ledger family, and SyncRunKey's own single-key range.
 // takeoverToken clears sync_token by rewriting the sync-run record at
-// v3|TypeSyncRun (0x06), so each CheckpointSync before the takeover left
-// a superseded version of that key carrying a page token verbatim. Those
-// versions do go, but incidentally — little enough lives between 0x06 and
-// the ledger family that the SSTs overlapping one overlap the other, so
-// this compaction rewrites them anyway. TestLedgerScrubLeavesNoSSTResidue's
-// takeover arm pins the end-to-end property. Compacting SyncRunKey's own
-// single-key range here would make it structural instead, which is the fix
-// if a keyspace change ever puts enough between the two to split them and
-// that arm fails.
+// v3|TypeSyncRun (0x06), so each CheckpointSync before the takeover left a
+// superseded version of that key carrying a page token verbatim. Those
+// versions sit in whatever SSTs 0x06 was flushed to, and with TypeIndex
+// and four other families between 0x06 and the ledger at 0x0C, a
+// compacted L1+ file holding them need not overlap the ledger range at
+// all. TestLedgerScrubLeavesNoSSTResidue's takeover arm pins the end-to-end
+// property; the second range is what makes it hold at scale rather than
+// at fixture size.
 func (e *Engine) PurgeLedgerResidue(ctx context.Context) error {
 	lo, hi := rawdb.LedgerBounds()
+	runKey := rawdb.SyncRunKey()
+	spans := []pebble.KeyRange{
+		{Start: lo, End: hi},
+		{Start: runKey, End: upperBoundOf(runKey)},
+	}
 	// AllowSealed: the seal's residue purge runs on a sealed engine.
 	return e.withWriteAllowSealed(func() error {
-		return e.compactForLedgerResidueLocked(ctx, lo, hi)
+		return e.compactForLedgerResidueLocked(ctx, spans)
 	})
 }
 
@@ -702,7 +706,7 @@ func (e *Engine) purgeMarkedLedgerResidue(ctx context.Context) error {
 	// One critical section for the purge and the consume, so the marker
 	// cannot be consumed for a compaction that a concurrent Close cut off.
 	return e.withWriteAllowSealed(func() error {
-		if err := e.compactForLedgerResidueLocked(ctx, lo, hi); err != nil {
+		if err := e.compactForLedgerResidueLocked(ctx, []pebble.KeyRange{{Start: lo, End: hi}}); err != nil {
 			return err
 		}
 		if err := e.db.MetaDelete(encodeLedgerResiduePendingKey(), pebble.Sync); err != nil {
@@ -758,7 +762,7 @@ func (e *Engine) ledgerResiduePending() (bool, error) {
 // compactForLedgerResidueLocked runs under writeMu like CompactAllRanges,
 // so Close waits for the in-flight Compact (pebble.DB.Compact panics on a
 // closed DB).
-func (e *Engine) compactForLedgerResidueLocked(ctx context.Context, lo, hi []byte) error {
+func (e *Engine) compactForLedgerResidueLocked(ctx context.Context, spans []pebble.KeyRange) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -773,8 +777,10 @@ func (e *Engine) compactForLedgerResidueLocked(ctx context.Context, lo, hi []byt
 		defer e.pauseCompactions()
 	}
 	e.test.ledgerResiduePurges.Add(1)
-	if err := e.db.Compact(ctx, lo, hi, true); err != nil {
-		return fmt.Errorf("PurgeLedgerResidue: %w", err)
+	for _, span := range spans {
+		if err := e.db.Compact(ctx, span.Start, span.End, true); err != nil {
+			return fmt.Errorf("PurgeLedgerResidue: [%x, %x): %w", span.Start, span.End, err)
+		}
 	}
 	return nil
 }
