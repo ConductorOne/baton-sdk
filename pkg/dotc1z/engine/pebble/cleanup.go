@@ -61,9 +61,9 @@ func scopedRanges() [][2][]byte {
 // prior sync — records the new sync doesn't happen to overwrite would
 // otherwise linger under identical keys.
 //
-// The wipe is one pebble.DB.Excise over the whole v3 keyspace, then the
-// initialization Open runs on a fresh file. Excise drops every SST the
-// span fully covers from the manifest (O(files), immediate disk reclaim,
+// The wipe is one pebble.DB.Excise over the widest span pebble can
+// express, then the initialization Open runs on a fresh file. Excise
+// drops every SST the span fully covers from the manifest (O(files), immediate disk reclaim,
 // overlapping memtable flushed first) and keeps only an SST that crosses
 // the span's edge, narrowed. A span over every key the engine writes has
 // no SST crossing its edge, so no bytes survive — including the verbatim
@@ -81,7 +81,12 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 	// sync; the wipe is the first step of leaving the sealed state. The
 	// engine stays sealed until MarkFreshSync unseals it right after.
 	return e.withWriteAllowSealed(func() error {
-		span := pebble.KeyRange{Start: []byte{versionV3}, End: []byte{versionV3 + 1}}
+		// Every key the engine writes starts with versionV3; the span is
+		// wider so a key that shouldn't be there goes too. End is exclusive
+		// and must be a real key, so 0xff is the widest bound available.
+		// Start must be non-nil: KeyRange.Valid is false on a nil bound and
+		// pebble ignores an invalid excise span without error.
+		span := pebble.KeyRange{Start: []byte{}, End: []byte{0xff}}
 		if err := e.db.ExciseRange(ctx, span); err != nil {
 			return fmt.Errorf("ResetForNewSync: excise [%x, %x): %w", span.Start, span.End, err)
 		}
