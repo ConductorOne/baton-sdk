@@ -273,6 +273,7 @@ func (d *DB) RestoreDeferredIdxPending() error {
 		d.deferredIdxPending.Store(true)
 		return nil
 	case errors.Is(err, pebble.ErrNotFound):
+		d.deferredIdxPending.Store(false)
 		return nil
 	default:
 		return err

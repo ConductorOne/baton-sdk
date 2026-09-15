@@ -91,12 +91,12 @@ type indexMigration struct {
 // Open-time backfill.
 var indexMigrations []indexMigration
 
-// applyIndexMigrations runs on engine Open (writable opens only —
-// read-only files are immutable on disk). For each registered
-// migration whose stored applied-version is older than the
-// target, it invokes Apply and persists the new version on
-// success. Errors surface to Open; callers can decide whether
-// to abort or proceed with the partially-migrated engine.
+// applyIndexMigrations runs from initKeyspaceStateLocked (Open and
+// ResetForNewSync; writable opens only — read-only files are immutable
+// on disk). For each registered migration whose stored applied-version
+// is older than the target, it invokes Apply and persists the new
+// version on success. The caller holds writeMu, so Apply must use raw
+// e.db operations or *Locked methods, never withWrite.
 func (e *Engine) applyIndexMigrations(ctx context.Context) error {
 	if e.opts.readOnly {
 		return nil

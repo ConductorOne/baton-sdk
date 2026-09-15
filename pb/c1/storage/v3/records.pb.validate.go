@@ -1797,6 +1797,35 @@ func (m *SyncStatsRecord) validate(all bool) error {
 	}
 
 	if all {
+		switch v := interface{}(m.GetCompaction()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, SyncStatsRecordValidationError{
+					field:  "Compaction",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, SyncStatsRecordValidationError{
+					field:  "Compaction",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetCompaction()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return SyncStatsRecordValidationError{
+				field:  "Compaction",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
 		switch v := interface{}(m.GetWrittenAt()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
@@ -1902,6 +1931,272 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = SyncStatsRecordValidationError{}
+
+// Validate checks the field values on CompactionProvenance with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *CompactionProvenance) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CompactionProvenance with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// CompactionProvenanceMultiError, or nil if none found.
+func (m *CompactionProvenance) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CompactionProvenance) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Mode
+
+	// no validation rules for StatsSyncId
+
+	// no validation rules for BaseSyncId
+
+	// no validation rules for PartialCount
+
+	{
+		sorted_keys := make([]string, len(m.GetRecordCounts()))
+		i := 0
+		for key := range m.GetRecordCounts() {
+			sorted_keys[i] = key
+			i++
+		}
+		sort.Slice(sorted_keys, func(i, j int) bool { return sorted_keys[i] < sorted_keys[j] })
+		for _, key := range sorted_keys {
+			val := m.GetRecordCounts()[key]
+			_ = val
+
+			// no validation rules for RecordCounts[key]
+
+			if all {
+				switch v := interface{}(val).(type) {
+				case interface{ ValidateAll() error }:
+					if err := v.ValidateAll(); err != nil {
+						errors = append(errors, CompactionProvenanceValidationError{
+							field:  fmt.Sprintf("RecordCounts[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				case interface{ Validate() error }:
+					if err := v.Validate(); err != nil {
+						errors = append(errors, CompactionProvenanceValidationError{
+							field:  fmt.Sprintf("RecordCounts[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				}
+			} else if v, ok := interface{}(val).(interface{ Validate() error }); ok {
+				if err := v.Validate(); err != nil {
+					return CompactionProvenanceValidationError{
+						field:  fmt.Sprintf("RecordCounts[%v]", key),
+						reason: "embedded message failed validation",
+						cause:  err,
+					}
+				}
+			}
+
+		}
+	}
+
+	if len(errors) > 0 {
+		return CompactionProvenanceMultiError(errors)
+	}
+
+	return nil
+}
+
+// CompactionProvenanceMultiError is an error wrapping multiple validation
+// errors returned by CompactionProvenance.ValidateAll() if the designated
+// constraints aren't met.
+type CompactionProvenanceMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CompactionProvenanceMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CompactionProvenanceMultiError) AllErrors() []error { return m }
+
+// CompactionProvenanceValidationError is the validation error returned by
+// CompactionProvenance.Validate if the designated constraints aren't met.
+type CompactionProvenanceValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CompactionProvenanceValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CompactionProvenanceValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CompactionProvenanceValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CompactionProvenanceValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CompactionProvenanceValidationError) ErrorName() string {
+	return "CompactionProvenanceValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CompactionProvenanceValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCompactionProvenance.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CompactionProvenanceValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CompactionProvenanceValidationError{}
+
+// Validate checks the field values on CompactionRecordCounts with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *CompactionRecordCounts) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CompactionRecordCounts with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// CompactionRecordCountsMultiError, or nil if none found.
+func (m *CompactionRecordCounts) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CompactionRecordCounts) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Output
+
+	// no validation rules for Added
+
+	// no validation rules for Replaced
+
+	// no validation rules for Carried
+
+	if len(errors) > 0 {
+		return CompactionRecordCountsMultiError(errors)
+	}
+
+	return nil
+}
+
+// CompactionRecordCountsMultiError is an error wrapping multiple validation
+// errors returned by CompactionRecordCounts.ValidateAll() if the designated
+// constraints aren't met.
+type CompactionRecordCountsMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CompactionRecordCountsMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CompactionRecordCountsMultiError) AllErrors() []error { return m }
+
+// CompactionRecordCountsValidationError is the validation error returned by
+// CompactionRecordCounts.Validate if the designated constraints aren't met.
+type CompactionRecordCountsValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CompactionRecordCountsValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CompactionRecordCountsValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CompactionRecordCountsValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CompactionRecordCountsValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CompactionRecordCountsValidationError) ErrorName() string {
+	return "CompactionRecordCountsValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CompactionRecordCountsValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCompactionRecordCounts.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CompactionRecordCountsValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CompactionRecordCountsValidationError{}
 
 // Validate checks the field values on IngestQualityStats with the rules
 // defined in the proto definition for this message. If any rules are
@@ -2024,6 +2319,676 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = IngestQualityStatsValidationError{}
+
+// Validate checks the field values on LedgerActionIdentity with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *LedgerActionIdentity) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on LedgerActionIdentity with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// LedgerActionIdentityMultiError, or nil if none found.
+func (m *LedgerActionIdentity) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *LedgerActionIdentity) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Op
+
+	// no validation rules for ResourceTypeId
+
+	// no validation rules for ResourceId
+
+	// no validation rules for ParentResourceTypeId
+
+	// no validation rules for ParentResourceId
+
+	// no validation rules for PageToken
+
+	// no validation rules for PageTokenHash
+
+	// no validation rules for TypeScoped
+
+	// no validation rules for Spawned
+
+	if len(errors) > 0 {
+		return LedgerActionIdentityMultiError(errors)
+	}
+
+	return nil
+}
+
+// LedgerActionIdentityMultiError is an error wrapping multiple validation
+// errors returned by LedgerActionIdentity.ValidateAll() if the designated
+// constraints aren't met.
+type LedgerActionIdentityMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m LedgerActionIdentityMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m LedgerActionIdentityMultiError) AllErrors() []error { return m }
+
+// LedgerActionIdentityValidationError is the validation error returned by
+// LedgerActionIdentity.Validate if the designated constraints aren't met.
+type LedgerActionIdentityValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e LedgerActionIdentityValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e LedgerActionIdentityValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e LedgerActionIdentityValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e LedgerActionIdentityValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e LedgerActionIdentityValidationError) ErrorName() string {
+	return "LedgerActionIdentityValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e LedgerActionIdentityValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sLedgerActionIdentity.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = LedgerActionIdentityValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = LedgerActionIdentityValidationError{}
+
+// Validate checks the field values on LedgerRow with the rules defined in the
+// proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *LedgerRow) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on LedgerRow with the rules defined in
+// the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in LedgerRowMultiError, or nil
+// if none found.
+func (m *LedgerRow) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *LedgerRow) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetIdentity()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, LedgerRowValidationError{
+					field:  "Identity",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, LedgerRowValidationError{
+					field:  "Identity",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetIdentity()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return LedgerRowValidationError{
+				field:  "Identity",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for NextPageToken
+
+	// no validation rules for NextPageTokenHash
+
+	for idx, item := range m.GetChildren() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, LedgerRowValidationError{
+						field:  fmt.Sprintf("Children[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, LedgerRowValidationError{
+						field:  fmt.Sprintf("Children[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return LedgerRowValidationError{
+					field:  fmt.Sprintf("Children[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	// no validation rules for Attempt
+
+	if all {
+		switch v := interface{}(m.GetCommittedAt()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, LedgerRowValidationError{
+					field:  "CommittedAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, LedgerRowValidationError{
+					field:  "CommittedAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetCommittedAt()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return LedgerRowValidationError{
+				field:  "CommittedAt",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for ResourceTypesWritten
+
+	// no validation rules for ResourcesWritten
+
+	// no validation rules for EntitlementsWritten
+
+	// no validation rules for GrantsWritten
+
+	// no validation rules for Replayed
+
+	// no validation rules for TypeScopedPlanned
+
+	// no validation rules for Scrubbed
+
+	// no validation rules for PageMs
+
+	// no validation rules for ConnectorMs
+
+	// no validation rules for WaitMs
+
+	if len(errors) > 0 {
+		return LedgerRowMultiError(errors)
+	}
+
+	return nil
+}
+
+// LedgerRowMultiError is an error wrapping multiple validation errors returned
+// by LedgerRow.ValidateAll() if the designated constraints aren't met.
+type LedgerRowMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m LedgerRowMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m LedgerRowMultiError) AllErrors() []error { return m }
+
+// LedgerRowValidationError is the validation error returned by
+// LedgerRow.Validate if the designated constraints aren't met.
+type LedgerRowValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e LedgerRowValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e LedgerRowValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e LedgerRowValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e LedgerRowValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e LedgerRowValidationError) ErrorName() string { return "LedgerRowValidationError" }
+
+// Error satisfies the builtin error interface
+func (e LedgerRowValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sLedgerRow.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = LedgerRowValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = LedgerRowValidationError{}
+
+// Validate checks the field values on LedgerCounterBucket with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *LedgerCounterBucket) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on LedgerCounterBucket with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// LedgerCounterBucketMultiError, or nil if none found.
+func (m *LedgerCounterBucket) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *LedgerCounterBucket) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Counters
+
+	// no validation rules for Flags
+
+	{
+		sorted_keys := make([]string, len(m.GetConnectorCalls()))
+		i := 0
+		for key := range m.GetConnectorCalls() {
+			sorted_keys[i] = key
+			i++
+		}
+		sort.Slice(sorted_keys, func(i, j int) bool { return sorted_keys[i] < sorted_keys[j] })
+		for _, key := range sorted_keys {
+			val := m.GetConnectorCalls()[key]
+			_ = val
+
+			// no validation rules for ConnectorCalls[key]
+
+			if all {
+				switch v := interface{}(val).(type) {
+				case interface{ ValidateAll() error }:
+					if err := v.ValidateAll(); err != nil {
+						errors = append(errors, LedgerCounterBucketValidationError{
+							field:  fmt.Sprintf("ConnectorCalls[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				case interface{ Validate() error }:
+					if err := v.Validate(); err != nil {
+						errors = append(errors, LedgerCounterBucketValidationError{
+							field:  fmt.Sprintf("ConnectorCalls[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				}
+			} else if v, ok := interface{}(val).(interface{ Validate() error }); ok {
+				if err := v.Validate(); err != nil {
+					return LedgerCounterBucketValidationError{
+						field:  fmt.Sprintf("ConnectorCalls[%v]", key),
+						reason: "embedded message failed validation",
+						cause:  err,
+					}
+				}
+			}
+
+		}
+	}
+
+	// no validation rules for StepDurationsMs
+
+	{
+		sorted_keys := make([]string, len(m.GetSessionCalls()))
+		i := 0
+		for key := range m.GetSessionCalls() {
+			sorted_keys[i] = key
+			i++
+		}
+		sort.Slice(sorted_keys, func(i, j int) bool { return sorted_keys[i] < sorted_keys[j] })
+		for _, key := range sorted_keys {
+			val := m.GetSessionCalls()[key]
+			_ = val
+
+			// no validation rules for SessionCalls[key]
+
+			if all {
+				switch v := interface{}(val).(type) {
+				case interface{ ValidateAll() error }:
+					if err := v.ValidateAll(); err != nil {
+						errors = append(errors, LedgerCounterBucketValidationError{
+							field:  fmt.Sprintf("SessionCalls[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				case interface{ Validate() error }:
+					if err := v.Validate(); err != nil {
+						errors = append(errors, LedgerCounterBucketValidationError{
+							field:  fmt.Sprintf("SessionCalls[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				}
+			} else if v, ok := interface{}(val).(interface{ Validate() error }); ok {
+				if err := v.Validate(); err != nil {
+					return LedgerCounterBucketValidationError{
+						field:  fmt.Sprintf("SessionCalls[%v]", key),
+						reason: "embedded message failed validation",
+						cause:  err,
+					}
+				}
+			}
+
+		}
+	}
+
+	if len(errors) > 0 {
+		return LedgerCounterBucketMultiError(errors)
+	}
+
+	return nil
+}
+
+// LedgerCounterBucketMultiError is an error wrapping multiple validation
+// errors returned by LedgerCounterBucket.ValidateAll() if the designated
+// constraints aren't met.
+type LedgerCounterBucketMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m LedgerCounterBucketMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m LedgerCounterBucketMultiError) AllErrors() []error { return m }
+
+// LedgerCounterBucketValidationError is the validation error returned by
+// LedgerCounterBucket.Validate if the designated constraints aren't met.
+type LedgerCounterBucketValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e LedgerCounterBucketValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e LedgerCounterBucketValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e LedgerCounterBucketValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e LedgerCounterBucketValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e LedgerCounterBucketValidationError) ErrorName() string {
+	return "LedgerCounterBucketValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e LedgerCounterBucketValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sLedgerCounterBucket.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = LedgerCounterBucketValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = LedgerCounterBucketValidationError{}
+
+// Validate checks the field values on LedgerFrontier with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *LedgerFrontier) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on LedgerFrontier with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in LedgerFrontierMultiError,
+// or nil if none found.
+func (m *LedgerFrontier) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *LedgerFrontier) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for State
+
+	// no validation rules for Attempt
+
+	if all {
+		switch v := interface{}(m.GetTakenOverAt()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, LedgerFrontierValidationError{
+					field:  "TakenOverAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, LedgerFrontierValidationError{
+					field:  "TakenOverAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetTakenOverAt()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return LedgerFrontierValidationError{
+				field:  "TakenOverAt",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return LedgerFrontierMultiError(errors)
+	}
+
+	return nil
+}
+
+// LedgerFrontierMultiError is an error wrapping multiple validation errors
+// returned by LedgerFrontier.ValidateAll() if the designated constraints
+// aren't met.
+type LedgerFrontierMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m LedgerFrontierMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m LedgerFrontierMultiError) AllErrors() []error { return m }
+
+// LedgerFrontierValidationError is the validation error returned by
+// LedgerFrontier.Validate if the designated constraints aren't met.
+type LedgerFrontierValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e LedgerFrontierValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e LedgerFrontierValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e LedgerFrontierValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e LedgerFrontierValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e LedgerFrontierValidationError) ErrorName() string { return "LedgerFrontierValidationError" }
+
+// Error satisfies the builtin error interface
+func (e LedgerFrontierValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sLedgerFrontier.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = LedgerFrontierValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = LedgerFrontierValidationError{}
 
 // Validate checks the field values on CallStat with the rules defined in the
 // proto definition for this message. If any rules are violated, the first

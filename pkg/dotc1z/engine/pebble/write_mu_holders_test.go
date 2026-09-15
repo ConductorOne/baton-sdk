@@ -38,6 +38,7 @@ import (
 var writeMuDirectAcquirers = map[string]bool{
 	"withWrite":                  true,
 	"withWriteAllowSealed":       true,
+	"withWriteMu":                true,
 	"Close":                      true,
 	"CheckpointTo":               true,
 	"CompactAllRanges":           true,

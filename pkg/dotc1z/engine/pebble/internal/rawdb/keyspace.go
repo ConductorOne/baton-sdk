@@ -38,7 +38,15 @@ const (
 	// TypeDigest because 0x0A was assigned to digests before source-cache
 	// replay was extracted onto the current keyspace.
 	TypeSourceCache byte = 0x0B
-	TypeEngineMeta  byte = 0xFF
+	// TypeLedger holds one row per committed syncer page (the atomic
+	// page unit's completion record, docs/tasks/sound-syncs-solutions-
+	// brief.md §3). A ledger row is only ever staged into the SAME
+	// RecordBatch as the page's record rows (StageLedgerRow), so a row
+	// without its records, or records without their row, is
+	// unexpressible. Additive under the v2 keyspace layout: older
+	// readers are family-bounded and never see it (§3.8).
+	TypeLedger     byte = 0x0C
+	TypeEngineMeta byte = 0xFF
 )
 
 // Index-discriminator bytes (second byte after TypeIndex). One byte
@@ -281,6 +289,75 @@ func SourceCachePoisonBounds() ([]byte, []byte) {
 func SourceCacheFamilyBounds() ([]byte, []byte) {
 	lo := []byte{VersionV3, TypeSourceCache}
 	return lo, UpperBound(lo)
+}
+
+// The ledger family (v3 | TypeLedger) is split by a sub-kind byte:
+//
+//	0x00  page rows        (LedgerKeyPrefix; tuple-encoded identity tail)
+//	0x01  fact keys        (LedgerFactPrefix; tuple(name) → 1 byte)
+//	0x02  counter buckets  (LedgerCounterPrefix; tuple(run) | sep | worker → LedgerCounterBucket;
+//	                        worker 0xFFFFFFFF is the run's reserved run-level stats bucket)
+//	0x03  frontier         (LedgerFrontierKey; single key → LedgerFrontier)
+//
+// All ride the RecordBatch and are wiped with the sync (scopedRanges
+// covers the family). Row readers bound themselves to 0x00
+// (LedgerRowBounds); the family-wide bound is for wipe and purge.
+const (
+	ledgerKindRow      byte = 0x00
+	ledgerKindFact     byte = 0x01
+	ledgerKindCounter  byte = 0x02
+	ledgerKindFrontier byte = 0x03
+)
+
+// LedgerKeyPrefix is the prefix of the page-row sub-family.
+func LedgerKeyPrefix() []byte {
+	return []byte{VersionV3, TypeLedger, ledgerKindRow}
+}
+
+// LedgerRowBounds bounds the page rows only.
+func LedgerRowBounds() ([]byte, []byte) {
+	lo := LedgerKeyPrefix()
+	return lo, UpperBound(lo)
+}
+
+// LedgerFactPrefix is the prefix of the fact-key sub-family.
+func LedgerFactPrefix() []byte {
+	return []byte{VersionV3, TypeLedger, ledgerKindFact}
+}
+
+// LedgerFactBounds bounds the fact keys.
+func LedgerFactBounds() ([]byte, []byte) {
+	lo := LedgerFactPrefix()
+	return lo, UpperBound(lo)
+}
+
+// LedgerCounterPrefix is the prefix of the counter-bucket sub-family.
+func LedgerCounterPrefix() []byte {
+	return []byte{VersionV3, TypeLedger, ledgerKindCounter}
+}
+
+// LedgerCounterBounds bounds the counter buckets.
+func LedgerCounterBounds() ([]byte, []byte) {
+	lo := LedgerCounterPrefix()
+	return lo, UpperBound(lo)
+}
+
+// LedgerFrontierKey is the single takeover-record key.
+func LedgerFrontierKey() []byte {
+	return []byte{VersionV3, TypeLedger, ledgerKindFrontier}
+}
+
+// LedgerBounds bounds the whole ledger family.
+func LedgerBounds() ([]byte, []byte) {
+	lo := []byte{VersionV3, TypeLedger}
+	return lo, UpperBound(lo)
+}
+
+// SyncRunKey is the file's single sync-run record key (the engine's
+// encodeSyncRunKey; duplicated here so the ledger takeover can stage it
+// alongside ledger keys with a family assert).
+func SyncRunKey() []byte {
+	return []byte{VersionV3, TypeSyncRun}
 }
 
 // RowKindForRecordType maps a primary record type byte to the row-kind
