@@ -1,29 +1,12 @@
 package pebble
 
-// What the seal's token scrub costs, and whether making it the default
-// (SetRetainLedgerTokens opts out) is affordable.
-//
-// EndSync does two things when it scrubs. ScrubLedgerTokens rewrites
-// every ledger row to hash-only tokens, which is O(rows) and confined to
-// the ledger keyspace. PurgeLedgerResidue then runs db.Compact over
-// LedgerBounds, and that is the one with an open-ended cost: a manual
-// compaction rewrites every SST that OVERLAPS the range, so an SST
-// holding the tail of the record keyspace next to the first ledger key
-// gets rewritten whole. Whether that happens decides whether the cost
-// tracks the ledger's size or the file's.
-//
-// The sweep is pages × grants for that reason: pages drive the scrub,
-// grants drive how much unrelated data sits near the ledger bounds.
-// The purge's second span, SyncRunKey's single key, selects the files
-// whose bounds contain 0x06: at most one per L1+ level plus overlapping
-// L0s, so it adds a bounded term the sweep does not vary; it is inside
-// the compactions / compact_ms counters. Reported alongside ns/op:
-//
-//   - ledger_bytes / db_bytes: EstimateDiskUsage over LedgerBounds and
-//     over everything. Their ratio is what the purge SHOULD cost.
-//   - compactions / compact_ms: pebble's cumulative counters, delta'd
-//     across the call, so the work is attributed rather than inferred
-//     from wall time.
+// What the seal's token scrub costs: ScrubLedgerTokens is O(rows) over
+// the ledger; PurgeLedgerResidue is a manual compaction, which rewrites
+// every SST overlapping its spans, so its cost depends on what sits next
+// to the ledger. The sweep is pages × grants: pages drive the scrub,
+// grants drive the neighbours. Reported alongside ns/op: ledger_bytes /
+// db_bytes (EstimateDiskUsage), and pebble's compactions / compact_ms
+// counters delta'd across the call.
 
 import (
 	"context"
