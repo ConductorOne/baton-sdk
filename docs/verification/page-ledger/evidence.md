@@ -344,11 +344,11 @@ instrument that closes it.
   record-mutating store methods against the set that calls `seam` first.
   `TestPebbleStoreDirtyCoverage` is not a stand-in: different property
   (`markDirty`, not `seam`) over a different method set.
-- Correction to the earlier reading: `FinishExpandedGrantLayer` and
-  `AddExpandedGrantLayerContributions` are methods on `pebbleStoreGrants`
-  (`pebble_store.go:793,801`), not on `*pebbleStore`. They still have no
-  `seam` call. `BeginExpandedGrantLayer` and `AbortExpandedGrantLayer` are
-  exclusion candidates rather than gaps.
+- `FinishExpandedGrantLayer` and `AddExpandedGrantLayerContributions`
+  (methods on `pebbleStoreGrants`, `pebble_store.go:790,804`) call `seam`
+  first as of `ac006e32`; nothing exercises those two guards yet.
+  `BeginExpandedGrantLayer` and `AbortExpandedGrantLayer` are exclusion
+  candidates rather than gaps.
 - No caller marks a page context outside tests, so the hook is a no-op
   today for every method. That makes the gap cheap either way; it is not
   a reason to call the set closed.

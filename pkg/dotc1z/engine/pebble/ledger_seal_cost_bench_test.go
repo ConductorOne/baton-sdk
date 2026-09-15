@@ -14,7 +14,10 @@ package pebble
 //
 // The sweep is pages × grants for that reason: pages drive the scrub,
 // grants drive how much unrelated data sits near the ledger bounds.
-// Reported alongside ns/op:
+// The purge's second span, SyncRunKey's single key, selects the files
+// whose bounds contain 0x06: at most one per L1+ level plus overlapping
+// L0s, so it adds a bounded term the sweep does not vary; it is inside
+// the compactions / compact_ms counters. Reported alongside ns/op:
 //
 //   - ledger_bytes / db_bytes: EstimateDiskUsage over LedgerBounds and
 //     over everything. Their ratio is what the purge SHOULD cost.

@@ -675,19 +675,26 @@ func (e *Engine) scrubLedgerFrontierLocked(ctx context.Context, batch *rawdb.Rec
 // property; the second range is what makes it hold at scale rather than
 // at fixture size.
 func (e *Engine) PurgeLedgerResidue(ctx context.Context) error {
-	lo, hi := rawdb.LedgerBounds()
-	runKey := rawdb.SyncRunKey()
-	spans := []pebble.KeyRange{
-		{Start: lo, End: hi},
-		{Start: runKey, End: upperBoundOf(runKey)},
-	}
 	// AllowSealed: the seal's residue purge runs on a sealed engine.
 	return e.withWriteAllowSealed(func() error {
-		return e.compactForLedgerResidueLocked(ctx, spans)
+		return e.compactForLedgerResidueLocked(ctx, ledgerResidueSpans())
 	})
 }
 
-// purgeMarkedLedgerResidue compacts the ledger family if the marker is
+// ledgerResidueSpans: the ledger family and SyncRunKey's single-key range,
+// for both purge paths. The second selects the files whose bounds contain
+// 0x06 — at most one per L1+ level plus overlapping L0s — so its cost is
+// independent of the ledger's size.
+func ledgerResidueSpans() []pebble.KeyRange {
+	lo, hi := rawdb.LedgerBounds()
+	runKey := rawdb.SyncRunKey()
+	return []pebble.KeyRange{
+		{Start: lo, End: hi},
+		{Start: runKey, End: upperBoundOf(runKey)},
+	}
+}
+
+// purgeMarkedLedgerResidue compacts ledgerResidueSpans if the marker is
 // armed, and consumes it. A no-op when nothing is armed.
 //
 // It runs regardless of the retain-tokens fact, unlike the scrub. The
@@ -702,11 +709,10 @@ func (e *Engine) purgeMarkedLedgerResidue(ctx context.Context) error {
 	if !armed {
 		return nil
 	}
-	lo, hi := rawdb.LedgerBounds()
 	// One critical section for the purge and the consume, so the marker
 	// cannot be consumed for a compaction that a concurrent Close cut off.
 	return e.withWriteAllowSealed(func() error {
-		if err := e.compactForLedgerResidueLocked(ctx, []pebble.KeyRange{{Start: lo, End: hi}}); err != nil {
+		if err := e.compactForLedgerResidueLocked(ctx, ledgerResidueSpans()); err != nil {
 			return err
 		}
 		if err := e.db.MetaDelete(encodeLedgerResiduePendingKey(), pebble.Sync); err != nil {
