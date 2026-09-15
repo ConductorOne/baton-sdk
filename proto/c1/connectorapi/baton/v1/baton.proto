@@ -133,6 +133,8 @@ message Task {
     connector.v2.CredentialIssueOptions credential_options = 2;
     repeated connector.v2.EncryptionConfig encryption_configs = 3;
     google.protobuf.Timestamp expires_at = 4;
+    // Correlates issuance with its request; defaults to the enclosing task ID when empty.
+    string request_id = 6;
   }
 
   message CreateTicketTask {

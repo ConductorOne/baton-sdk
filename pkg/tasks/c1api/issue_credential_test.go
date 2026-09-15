@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -56,6 +58,32 @@ func issueCredentialTask() *v1.Task {
 }
 
 func TestIssueCredentialTaskHandler(t *testing.T) {
+	for _, requestID := range []string{"", "request-456"} {
+		for _, expiresAt := range []*timestamppb.Timestamp{nil, timestamppb.New(time.Date(2030, time.January, 2, 3, 4, 5, 0, time.UTC))} {
+			t.Run("forwards request id and expiry/"+requestID+"/"+expiresAt.String(), func(t *testing.T) {
+				task := issueCredentialTask()
+				task.GetIssueCredential().SetRequestId(requestID)
+				task.GetIssueCredential().SetExpiresAt(expiresAt)
+				wire, err := proto.Marshal(task)
+				require.NoError(t, err)
+				decoded := &v1.Task{}
+				require.NoError(t, proto.Unmarshal(wire, decoded))
+				expectedID := requestID
+				if expectedID == "" {
+					expectedID = task.GetId()
+				}
+				response := v2.IssueCredentialResponse_builder{RequestId: expectedID}.Build()
+				client := &issueCredentialClient{response: response}
+				helpers := &issueCredentialTestHelpers{client: client}
+
+				require.NoError(t, newIssueCredentialTaskHandler(decoded, helpers).HandleTask(context.Background()))
+				require.Equal(t, expectedID, client.request.GetRequestId())
+				require.True(t, proto.Equal(expiresAt, client.request.GetExpiresAt()))
+				require.Same(t, response, helpers.response)
+			})
+		}
+	}
+
 	t.Run("dispatches stable task id and returns response", func(t *testing.T) {
 		response := v2.IssueCredentialResponse_builder{RequestId: "task-123"}.Build()
 		client := &issueCredentialClient{response: response}

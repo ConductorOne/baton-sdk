@@ -38,11 +38,15 @@ func (h *issueCredentialTaskHandler) HandleTask(ctx context.Context) error {
 		return h.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed issue credential task"), ErrTaskNonRetryable))
 	}
 
+	requestID := t.GetRequestId()
+	if requestID == "" {
+		requestID = h.task.GetId()
+	}
 	resp, err := h.helpers.ConnectorClient().IssueCredential(ctx, v2.IssueCredentialRequest_builder{
 		IdentityId:        t.GetIdentityId(),
 		CredentialOptions: t.GetCredentialOptions(),
 		EncryptionConfigs: t.GetEncryptionConfigs(),
-		RequestId:         h.task.GetId(),
+		RequestId:         requestID,
 		ExpiresAt:         t.GetExpiresAt(),
 	}.Build())
 	if err != nil {
