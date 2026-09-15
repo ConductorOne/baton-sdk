@@ -103,7 +103,7 @@ func (e *Engine) migrateIDIndexFormatToStructuredV1(ctx context.Context) error {
 		return err
 	}
 	e.noteEntitlementKeyspaceWrite()
-	if err := e.writeIDIndexFormat(idIndexFormatCurrent); err != nil {
+	if err := e.withWriteAllowSealed(func() error { return e.writeIDIndexFormat(idIndexFormatCurrent) }); err != nil {
 		return err
 	}
 	e.migratedOnOpen = true

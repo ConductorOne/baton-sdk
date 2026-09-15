@@ -665,10 +665,10 @@ None of these change production behaviour.
     pre-scrub token bytes stayed in the SSTs a checkpoint hard-links, and
     the later seal's `ledgerActive` gate found no ledger and skipped the
     purge. **Answered: purge.** A durable marker outlives the rows, so the
-    seal purges bytes whose rows are already gone; `ResetForNewSync` sets
-    it too. Covered by `TestLedgerResidueOutlivesTheLedger` under the byte
-    oracle. The marker records which deletion path ran, because
-    `DropKeyRange` and `ExciseRange` need different compaction widths.
+    seal purges bytes whose rows are already gone. `ResetForNewSync` needs
+    none: it excises the whole v3 keyspace, so no SST survives to hold the
+    bytes. Covered by `TestLedgerResidueOutlivesTheLedger` under the byte
+    oracle.
   - **OQ-6 Compactor fold inherits the base's ledger.** **Answered: it does
     not.** `1f6cd380` calls `DropLedger` on the fold output. Covered by
     `TestCompactPebbleFoldDropsInheritedBaseLedger`. CO-003 closed.
@@ -714,4 +714,5 @@ None of these change production behaviour.
   persists goes through `Finish`, which did mark.
 - **CO-006 (fix).** OQ-5's residue: a ledger dropped or reset mid-sync
   left its page tokens in checkpointed SSTs with no rows for the seal's
-  gate to find. Fixed with a durable marker that outlives the rows.
+  gate to find. Fixed with a durable marker that outlives the rows for
+  `DropLedger`, and a whole-keyspace excise for `ResetForNewSync`.

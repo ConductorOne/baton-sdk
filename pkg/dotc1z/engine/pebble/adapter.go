@@ -447,9 +447,8 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	// Separate from the block above, and gated on neither ledgerActive nor
 	// the retain fact: this is the state where a deleted ledger's bytes are
 	// still in the SSTs with nothing left in the keyspace to infer it from.
-	// DropLedger and ResetForNewSync arm the marker for it, and this is the
-	// retry for one of their own purges that failed (see
-	// encodeLedgerResiduePendingKey).
+	// DropLedger arms the marker for it, and this is the retry for a purge
+	// of its own that failed (see encodeLedgerResiduePendingKey).
 	if !e.test.skipLedgerResiduePurge {
 		if err := e.purgeMarkedLedgerResidue(ctx); err != nil {
 			return fmt.Errorf("EndSync: purge marked ledger residue: %w", err)

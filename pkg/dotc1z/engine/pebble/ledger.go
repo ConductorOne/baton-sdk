@@ -683,25 +683,22 @@ func (e *Engine) PurgeLedgerResidue(ctx context.Context) error {
 	})
 }
 
-// purgeMarkedLedgerResidue compacts whatever range the armed marker calls
-// for and consumes it. A no-op when nothing is armed.
+// purgeMarkedLedgerResidue compacts the ledger family if the marker is
+// armed, and consumes it. A no-op when nothing is armed.
 //
 // It runs regardless of the retain-tokens fact, unlike the scrub. The
 // residue belongs to the sync whose ledger was deleted, whose retention
 // intent went with it, and a compaction never removes live rows — so this
 // cannot destroy the verbatim tokens of a sync that did ask to keep them.
 func (e *Engine) purgeMarkedLedgerResidue(ctx context.Context) error {
-	kind, err := e.ledgerResidueKind()
+	armed, err := e.ledgerResiduePending()
 	if err != nil {
 		return fmt.Errorf("purgeMarkedLedgerResidue: read marker: %w", err)
 	}
-	if kind == 0 {
+	if !armed {
 		return nil
 	}
 	lo, hi := rawdb.LedgerBounds()
-	if kind == residueExcised {
-		lo, hi = []byte{versionV3}, []byte{versionV3 + 1}
-	}
 	// One critical section for the purge and the consume, so the marker
 	// cannot be consumed for a compaction that a concurrent Close cut off.
 	return e.withWriteAllowSealed(func() error {
@@ -717,80 +714,45 @@ func (e *Engine) purgeMarkedLedgerResidue(ctx context.Context) error {
 
 // encodeLedgerResiduePendingKey is the durable marker that ledger bytes are
 // still physically in the SSTs with no ledger left in the keyspace to infer
-// it from — the state both ways of deleting the family leave behind. It is
-// an engine-meta key because ResetForNewSync's excise spans
-// typeResourceType..typeEngineMeta, so engine-meta is the one family that
-// survives the wipe that creates this state.
+// it from — the state DropLedger leaves behind. DropKeyRange takes the rows
+// out of the keyspace and not out of the SSTs, and db.Compact selects files
+// by their bounds, which still cover the ledger range, so compacting that
+// range is what reaches the bytes. (ResetForNewSync needs no marker: its
+// excise spans the whole keyspace, so no SST survives to hold residue.)
 //
-// DropLedger and ResetForNewSync arm it before deleting, since the deletion
-// is what destroys the evidence. purgeMarkedLedgerResidue consumes it, and
-// only after its compaction succeeds, so a failed or interrupted purge is
-// retried by the next seal instead of shipping tokens.
+// DropLedger arms it before deleting, since the deletion is what destroys
+// the evidence. purgeMarkedLedgerResidue consumes it, and only after its
+// compaction succeeds, so a failed or interrupted purge is retried by the
+// next seal instead of shipping tokens.
 func encodeLedgerResiduePendingKey() []byte {
 	buf := make([]byte, 0, 2+len("ledger_residue_pending"))
 	buf = append(buf, versionV3, typeEngineMeta)
 	return codec.AppendTupleStrings(buf, "ledger_residue_pending")
 }
 
-// How the rows were deleted, which decides the range the purge has to
-// compact. db.Compact selects files by their bounds: DropKeyRange leaves the
-// old versions in files whose bounds still cover the ledger range, so
-// compacting that range rewrites them, but ExciseRange narrows those files
-// into virtual ones whose bounds exclude it, and then only a compaction wide
-// enough to still overlap them reaches the bytes.
-//
-// The distinction is worth keeping because DropLedger runs on every
-// compaction fold, where the wide compaction would rewrite the whole
-// artifact.
-const (
-	residueTombstoned = 't'
-	residueExcised    = 'x'
-)
-
 // markLedgerResiduePending is fsync'd because the state it records outlives
 // the process that created it: an interrupted sync's bytes are purged by
 // whichever later seal reads the marker.
-//
-// An excised marker is never downgraded to a tombstoned one. A file can
-// collect both — a reset, then a ledgered sync, then a drop — and the narrow
-// compaction the tombstoned kind asks for would leave the excised bytes and
-// consume the marker that was standing for them.
-func (e *Engine) markLedgerResiduePending(kind byte) error {
+func (e *Engine) markLedgerResiduePending() error {
 	// AllowSealed: DropLedger arms it on a finished sync.
 	return e.withWriteAllowSealed(func() error {
-		if kind == residueTombstoned {
-			standing, err := e.ledgerResidueKind()
-			if err != nil {
-				return fmt.Errorf("arm ledger-residue marker: read standing kind: %w", err)
-			}
-			if standing == residueExcised {
-				return nil
-			}
-		}
-		if err := e.db.MetaSet(encodeLedgerResiduePendingKey(), []byte{kind}, pebble.Sync); err != nil {
+		if err := e.db.MetaSet(encodeLedgerResiduePendingKey(), []byte{1}, pebble.Sync); err != nil {
 			return fmt.Errorf("arm ledger-residue marker: %w", err)
 		}
 		return nil
 	})
 }
 
-// ledgerResidueKind returns 0 when no marker is armed.
-func (e *Engine) ledgerResidueKind() (byte, error) {
-	val, closer, err := e.db.Get(encodeLedgerResiduePendingKey())
+func (e *Engine) ledgerResiduePending() (bool, error) {
+	_, closer, err := e.db.Get(encodeLedgerResiduePendingKey())
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
-			return 0, nil
+			return false, nil
 		}
-		return 0, err
+		return false, err
 	}
-	defer closer.Close()
-	if len(val) != 1 {
-		// Written by markLedgerResiduePending alone, so this is corruption.
-		// Treat it as the wider kind: the marker's whole purpose is that the
-		// bytes cannot be found any other way.
-		return residueExcised, nil
-	}
-	return val[0], nil
+	closer.Close()
+	return true, nil
 }
 
 // compactForLedgerResidueLocked runs under writeMu like CompactAllRanges,
@@ -819,7 +781,7 @@ func (e *Engine) compactForLedgerResidueLocked(ctx context.Context, lo, hi []byt
 
 // DropLedger removes the whole ledger family (rows, facts, buckets,
 // frontier). The single-sync wipe (ResetForNewSync) covers the family
-// through scopedRanges; this is for callers that keep the sync and drop
+// with everything else; this is for callers that keep the sync and drop
 // only its trace (compaction outputs, the sanitizer's drop policy, the
 // syncer's rebind of a finished sync).
 func (e *Engine) DropLedger(ctx context.Context) error {
@@ -836,7 +798,7 @@ func (e *Engine) DropLedger(ctx context.Context) error {
 	// the tokens ship. compactPebbleFold is this exact shape: drop the
 	// ledger, then seal.
 	if ledgeredBeforeDrop {
-		if err := e.markLedgerResiduePending(residueTombstoned); err != nil {
+		if err := e.markLedgerResiduePending(); err != nil {
 			return fmt.Errorf("DropLedger: %w", err)
 		}
 	}
@@ -849,8 +811,7 @@ func (e *Engine) DropLedger(ctx context.Context) error {
 		// go with the rows it describes. Left standing on a drop that runs
 		// before the seal, it refuses the replacement sync a checkpoint
 		// token AND a plain seal, on a file with no ledger, and still
-		// reads as an unsupported layout to a token-only SDK. Same defect
-		// ResetForNewSync had, in the other place that deletes these rows.
+		// reads as an unsupported layout to a token-only SDK.
 		//
 		// After the drop, not before: if the clear fails, the rows are
 		// gone but the file still refuses a token, which is the safe way

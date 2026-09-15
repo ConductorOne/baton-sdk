@@ -254,80 +254,6 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 	if s, ok := pebbleOpts.Experimental.CompactionScheduler.(*pausableCompactionScheduler); ok {
 		e.compactionScheduler = s
 	}
-	// Enforce the single-sync key-layout contract before touching any
-	// keys: reject an old multi-sync-layout file (which the current
-	// encoders would silently mis-decode) and stamp a fresh writable
-	// file. Runs before migrations so we never try to backfill indexes
-	// on a file we can't read.
-	if err := e.verifyOrStampKeyspaceVersion(ctx); err != nil {
-		_ = e.Close()
-		return nil, err
-	}
-	if err := e.verifyOrStampIDIndexFormat(ctx); err != nil {
-		_ = e.Close()
-		return nil, err
-	}
-	// Restore the durable deferred-index marker (see
-	// rawdb.DeferredIdxPendingKey): a prior process may have deferred
-	// by_principal writes and been interrupted before the EndSync
-	// rebuild (rawdb owns the marker's crash contract).
-	if err := e.db.RestoreDeferredIdxPending(); err != nil {
-		_ = e.Close()
-		return nil, err
-	}
-	// Honor the durable digest-build marker (see
-	// encodeGrantDigestBuildPendingKey): a prior process was killed
-	// mid-digest-build, after some digest-node commits were durable but
-	// before the hash-index ingest completed. Those nodes LOOK present
-	// while the index beneath them is empty or stale, so nothing stored
-	// may be trusted: drop it all before probing presence — absent
-	// digests are always safe (present-means-exact, digest.go). A
-	// read-only open cannot drop; it keeps the flag set instead, which
-	// makes the digest root getters report "never built".
-	if _, closer, err := e.db.Get(encodeGrantDigestBuildPendingKey()); err == nil {
-		closer.Close()
-		e.grantDigestBuildPending.Store(true)
-		if !o.readOnly {
-			ctxzap.Extract(ctx).Warn("pebble: interrupted grant digest build detected at open; dropping all digest state — the next EndSync rebuilds it from scratch")
-			if err := e.dropAllGrantDigestStateLocked(); err != nil {
-				_ = e.Close()
-				return nil, fmt.Errorf("pebble: drop digest state left by an interrupted build: %w", err)
-			}
-		}
-	} else if !errors.Is(err, pebble.ErrNotFound) {
-		_ = e.Close()
-		return nil, err
-	}
-	// Arm the mutation-path digest invalidation iff the file actually
-	// holds digest nodes (one bounded seek; rawdb owns the flag its
-	// record ops gate on).
-	if err := e.db.ProbeGrantDigestsPresent(); err != nil {
-		_ = e.Close()
-		return nil, err
-	}
-	// Enforce the digest ABI contract: digest nodes not certified by a
-	// stamp naming the CURRENT GrantDigestABIVersion were computed by
-	// different hash code and must never be trusted or extended — a
-	// writable open drops them wholesale (the next EndSync's existing
-	// digests-absent path rebuilds everything at the current ABI); a
-	// read-only open flags them so the root getters report "never
-	// built". Runs after the probe so it sees post-marker-recovery
-	// presence, and its own drop re-falses the flag.
-	if err := e.verifyGrantDigestABI(ctx, o.readOnly); err != nil {
-		_ = e.Close()
-		return nil, err
-	}
-	// Arm the mutation-path source-scope index obligations iff the file
-	// actually holds by_source_scope entries (bounded seeks, same
-	// contract as the digest probe): scope-free stores keep the exact
-	// pre-scope write cost. Runs BEFORE migrations so any migration
-	// staging typed record ops sees a derived gate, not the false
-	// default; a migration that backfills by_source_scope entries must
-	// itself re-probe or arm (see the indexMigrations registry doc).
-	if err := e.db.ProbeSourceScopeMayExist(); err != nil {
-		_ = e.Close()
-		return nil, err
-	}
 	// Poison events (CO-015) are always actionable — the scope re-fetches
 	// cold next sync, and persistent overlap means the connector's
 	// partitioning is wrong — but NOT rare per sync in the mis-partitioned
@@ -385,14 +311,113 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 			zap.String("cause", ev.Cause),
 		)
 	})
-	// Run secondary-index migrations before returning. Migrations
-	// are skipped for read-only opens (the on-disk file is
-	// immutable, so we'd error out trying to backfill).
-	if err := e.applyIndexMigrations(ctx); err != nil {
+	// Under writeMu although nothing else can hold the engine yet:
+	// ResetForNewSync runs the same method on a published engine, and
+	// TestWriteMuHolders reasons about call sites, not publication.
+	initKeyspaceState := func() error {
+		return e.withWriteMu(func() error { return e.initKeyspaceStateLocked(ctx) })
+	}
+	err = initKeyspaceState()
+	if errors.Is(err, errLegacyIDIndexLayout) {
+		// The in-place migration takes writeMu itself, so it runs between
+		// two init passes: the first stops at the format check, the
+		// second sees the migrated file.
+		if err := e.migrateIDIndexFormatToStructuredV1(ctx); err != nil {
+			_ = e.Close()
+			return nil, err
+		}
+		err = initKeyspaceState()
+	}
+	if err != nil {
 		_ = e.Close()
-		return nil, fmt.Errorf("pebble: apply index migrations: %w", err)
+		return nil, err
 	}
 	return e, nil
+}
+
+// initKeyspaceStateLocked derives every piece of engine state that
+// describes the file's contents, and stamps a fresh file. Open calls it
+// on the file as found; ResetForNewSync calls it on the keyspace it has
+// just emptied, so a reset engine is in the state a fresh Open would
+// produce by running the same code rather than by mirroring it. Every
+// branch here assigns its flag unconditionally for that reason.
+func (e *Engine) initKeyspaceStateLocked(ctx context.Context) error {
+	// Enforce the single-sync key-layout contract before touching any
+	// keys: reject an old multi-sync-layout file (which the current
+	// encoders would silently mis-decode) and stamp a fresh writable
+	// file. Runs before migrations so we never try to backfill indexes
+	// on a file we can't read.
+	if err := e.verifyOrStampKeyspaceVersion(ctx); err != nil {
+		return err
+	}
+	if err := e.verifyOrStampIDIndexFormat(ctx); err != nil {
+		return err
+	}
+	// Restore the durable deferred-index marker (see
+	// rawdb.DeferredIdxPendingKey): a prior process may have deferred
+	// by_principal writes and been interrupted before the EndSync
+	// rebuild (rawdb owns the marker's crash contract).
+	if err := e.db.RestoreDeferredIdxPending(); err != nil {
+		return err
+	}
+	// Honor the durable digest-build marker (see
+	// encodeGrantDigestBuildPendingKey): a prior process was killed
+	// mid-digest-build, after some digest-node commits were durable but
+	// before the hash-index ingest completed. Those nodes LOOK present
+	// while the index beneath them is empty or stale, so nothing stored
+	// may be trusted: drop it all before probing presence — absent
+	// digests are always safe (present-means-exact, digest.go). A
+	// read-only open cannot drop; it keeps the flag set instead, which
+	// makes the digest root getters report "never built".
+	_, closer, err := e.db.Get(encodeGrantDigestBuildPendingKey())
+	switch {
+	case err == nil:
+		closer.Close()
+		e.grantDigestBuildPending.Store(true)
+		if !e.opts.readOnly {
+			ctxzap.Extract(ctx).Warn("pebble: interrupted grant digest build detected at open; dropping all digest state — the next EndSync rebuilds it from scratch")
+			if err := e.dropAllGrantDigestStateLocked(); err != nil {
+				return fmt.Errorf("pebble: drop digest state left by an interrupted build: %w", err)
+			}
+		}
+	case errors.Is(err, pebble.ErrNotFound):
+		e.grantDigestBuildPending.Store(false)
+	default:
+		return err
+	}
+	// Arm the mutation-path digest invalidation iff the file actually
+	// holds digest nodes (one bounded seek; rawdb owns the flag its
+	// record ops gate on).
+	if err := e.db.ProbeGrantDigestsPresent(); err != nil {
+		return err
+	}
+	// Enforce the digest ABI contract: digest nodes not certified by a
+	// stamp naming the CURRENT GrantDigestABIVersion were computed by
+	// different hash code and must never be trusted or extended — a
+	// writable open drops them wholesale (the next EndSync's existing
+	// digests-absent path rebuilds everything at the current ABI); a
+	// read-only open flags them so the root getters report "never
+	// built". Runs after the probe so it sees post-marker-recovery
+	// presence, and its own drop re-falses the flag.
+	if err := e.verifyGrantDigestABI(ctx, e.opts.readOnly); err != nil {
+		return err
+	}
+	// Arm the mutation-path source-scope index obligations iff the file
+	// actually holds by_source_scope entries (bounded seeks, same
+	// contract as the digest probe): scope-free stores keep the exact
+	// pre-scope write cost. Runs BEFORE migrations so any migration
+	// staging typed record ops sees a derived gate, not the false
+	// default; a migration that backfills by_source_scope entries must
+	// itself re-probe or arm (see the indexMigrations registry doc).
+	if err := e.db.ProbeSourceScopeMayExist(); err != nil {
+		return err
+	}
+	// Migrations are skipped for read-only opens (the on-disk file is
+	// immutable, so we'd error out trying to backfill).
+	if err := e.applyIndexMigrations(ctx); err != nil {
+		return fmt.Errorf("pebble: apply index migrations: %w", err)
+	}
+	return nil
 }
 
 // Close shuts down the engine. After Close, write methods return
@@ -742,6 +767,16 @@ func (e *Engine) withWriteAllowSealed(fn func() error) error {
 	if err := e.checkWritableAllowSealedLocked(); err != nil {
 		return err
 	}
+	return fn()
+}
+
+// withWriteMu runs fn under writeMu with no writability check. Open-time
+// only: initKeyspaceStateLocked has to run on read-only engines too,
+// which withWriteAllowSealed refuses. Everything after Open goes through
+// withWrite or withWriteAllowSealed.
+func (e *Engine) withWriteMu(fn func() error) error {
+	e.writeMu.Lock()
+	defer e.writeMu.Unlock()
 	return fn()
 }
 

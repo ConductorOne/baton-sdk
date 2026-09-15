@@ -111,10 +111,16 @@ func (e *Engine) verifyOrStampIDIndexFormat(ctx context.Context) error {
 		return errors.New("pebble: this file uses the legacy grant/entitlement id layout; a writable open is required to migrate it")
 	}
 	if !empty {
-		return e.migrateIDIndexFormatToStructuredV1(ctx)
+		return errLegacyIDIndexLayout
 	}
 	return e.writeIDIndexFormat(idIndexFormatCurrent)
 }
+
+// errLegacyIDIndexLayout: a writable, non-empty file with the legacy id
+// layout. Open runs migrateIDIndexFormatToStructuredV1 on it outside
+// writeMu (the migration writes through withWrite) and re-runs the
+// keyspace init; ResetForNewSync cannot see it, the keyspace is empty.
+var errLegacyIDIndexLayout = errors.New("pebble: legacy grant/entitlement id layout")
 
 func (e *Engine) isDataKeyspaceEmpty() (bool, error) {
 	iter, err := e.db.NewIter(&pebble.IterOptions{

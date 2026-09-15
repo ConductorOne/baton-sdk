@@ -291,10 +291,15 @@ instrument that closes it.
   covers both deletion shapes (`DropLedger` mid-sync then seal; an
   interrupted ledgered sync followed by a ledger-free one) with a needle
   planted in page tokens and a byte scan of the checkpoint.
-- The two arms are not redundant: the deletion path decides the compaction
-  range, because `DropKeyRange` leaves file bounds covering the range while
-  `ExciseRange` narrows them into virtual SSTs that only a wider compaction
-  reaches.
+- The two arms differ in kind: `DropLedger` tombstones with `DropKeyRange`
+  and owes a compaction, so it arms the marker; `ResetForNewSync` excises
+  the whole v3 keyspace, so no SST survives to hold residue, and the arm
+  asserts zero needle hits right after the reset with no marker armed and
+  `ledgerResiduePurges` still zero at the replacement's seal. (An earlier
+  revision excised sub-ranges around the engine-global metadata, which left
+  narrowed SSTs and needed a second marker kind plus an O(file) compaction
+  at the next seal; a whole-keyspace excise followed by the Open-time
+  initialization removed both.)
 - Not covered: F12 image (L6) and its recovery by each of the three
   operations; `ResetForNewSync` refused while `IsFreshSync`;
   `BoundSyncFinished` ⇔ `ended_at`.
@@ -560,8 +565,9 @@ argument, not a measurement.
   each re-routed through the risk model before landing:
   - `1f6cd380` fold calls `DropLedger`, resolving CO-003 and C25's fold
     cell.
-  - the residue marker: `DropLedger` and `ResetForNewSync` leave a durable
-    marker so a later seal purges bytes whose rows are already gone (C21).
+  - the residue marker: `DropLedger` leaves a durable marker so a later
+    seal purges bytes whose rows are already gone (C21). `ResetForNewSync`
+    excises the whole keyspace instead and owes nothing.
   - `11f8c8c3` + `21d4349e` the counts fix, which is C07's own defect
     found by this plan's reading and closed by measurement.
   - `2c321bea` the `markDirty` fix on grant-layer ingest (C22), with the

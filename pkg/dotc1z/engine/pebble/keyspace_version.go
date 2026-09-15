@@ -95,6 +95,7 @@ func (e *Engine) verifyOrStampKeyspaceVersion(ctx context.Context) error {
 		if !empty {
 			return fmt.Errorf("pebble: unsupported keyspace layout (no version stamp on a non-empty file; want v%d single-sync); regenerate this c1z with a current SDK", keyspaceVersion)
 		}
+		e.ledgerInFlight.Store(false)
 		if e.opts.readOnly {
 			return nil
 		}

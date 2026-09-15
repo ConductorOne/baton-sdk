@@ -13,9 +13,7 @@ import (
 // sync and keys carry no sync_id, so these cover the entire data
 // keyspace. Engine-global metadata (keyspace-version stamp,
 // index-migration markers) is deliberately NOT included. Mirrors the
-// bucket plan in adapter_clone_sync.go; kept in lockstep so
-// ResetForNewSync leaves no orphan rows that CloneSync would
-// otherwise have copied.
+// bucket plan in adapter_clone_sync.go.
 //
 // The returned ranges are NOT ordered for compaction efficiency.
 // Callers that want one Compact() per range should iterate the slice
@@ -54,9 +52,8 @@ func scopedRanges() [][2][]byte {
 	}
 }
 
-// ResetForNewSync wipes every sync-scoped keyspace (records, indexes,
-// the sync-run record, and the stats sidecar) so a freshly started
-// sync begins on an empty keyspace.
+// ResetForNewSync empties the keyspace so a freshly started sync begins
+// on a file in the state a fresh Open would produce.
 //
 // Why this exists: a v3 Pebble c1z holds exactly one sync, and the
 // keys carry no sync_id. StartNewSync calls this before binding a new
@@ -64,28 +61,15 @@ func scopedRanges() [][2][]byte {
 // prior sync — records the new sync doesn't happen to overwrite would
 // otherwise linger under identical keys.
 //
-// The wipe uses pebble.DB.Excise rather than DeleteRange tombstones:
-// excise drops fully-covered SSTs from the manifest outright
-// (O(metadata), immediate disk reclaim) instead of leaving range
-// tombstones whose dead bytes survive until compaction. With
-// tombstones, a replacement sync that finishes before background
-// compaction catches up would hard-link the prior sync's dead SSTs
-// into the CheckpointTo envelope at save — the same bloat the old
-// multi-sync Cleanup path ran CompactSyncRanges to avoid. Excise also
-// keeps the MarkFreshSync "empty by construction" fast path honest
-// physically, not just logically.
-//
-// Two spans cover everything sync-scoped:
-//
-//   - [v3|typeResourceType, v3|typeEngineMeta): every record type,
-//     the sync-run record, all secondary indexes, assets, and the
-//     reserved counter/session bytes — one contiguous span, so
-//     almost every SST is fully covered and dropped whole.
-//   - the stats sidecar range inside engine-meta.
-//
-// Engine-global metadata — the keyspace-version stamp and
-// index-migration markers — lives elsewhere in engine-meta and is
-// intentionally preserved.
+// The wipe is one pebble.DB.Excise over the whole v3 keyspace, then the
+// initialization Open runs on a fresh file. Excise drops every SST the
+// span fully covers from the manifest (O(files), immediate disk reclaim,
+// overlapping memtable flushed first) and keeps only an SST that crosses
+// the span's edge, narrowed. A span over every key the engine writes has
+// no SST crossing its edge, so no bytes survive — including the verbatim
+// page tokens of an interrupted ledgered sync, which a narrowed SST
+// would carry into the next checkpoint (TestLedgerResidueOutlivesTheLedger).
+// Re-stamping the engine-global metadata is cheaper than preserving it.
 //
 // Refuses while a fresh sync is in progress (between MarkFreshSync and
 // FinishSync): wiping mid-sync would corrupt the in-flight sync.
@@ -93,69 +77,22 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 	if e.IsFreshSync() {
 		return errors.New("ResetForNewSync: refusing to reset while a sync is in progress")
 	}
-	spans := []pebble.KeyRange{
-		{Start: []byte{versionV3, typeResourceType}, End: []byte{versionV3, typeEngineMeta}},
-		{Start: SyncStatsSidecarLowerBound(), End: SyncStatsSidecarUpperBound()},
-		{Start: EntitlementGraphSidecarLowerBound(), End: EntitlementGraphSidecarUpperBound()},
-	}
-	// Read before the excise: an interrupted ledgered sync's rows are still
-	// here, and once excised nothing tells the seal they ever were.
-	ledgered, err := e.ledgerActive()
-	if err != nil {
-		return fmt.Errorf("ResetForNewSync: check ledger presence: %w", err)
-	}
-	// Armed before the excise, not after: a crash in between leaves the
-	// marker over rows that are still there, which costs one compaction at
-	// the next seal. The other order loses the marker and ships the bytes.
-	if ledgered {
-		if err := e.markLedgerResiduePending(residueExcised); err != nil {
-			return fmt.Errorf("ResetForNewSync: %w", err)
-		}
-	}
 	// AllowSealed: StartNewSync legitimately replaces a finished (sealed)
 	// sync; the wipe is the first step of leaving the sealed state. The
 	// engine stays sealed until MarkFreshSync unseals it right after.
-	if err := e.withWriteAllowSealed(func() error {
-		for _, span := range spans {
-			if err := e.db.ExciseRange(ctx, span); err != nil {
-				return fmt.Errorf("ResetForNewSync: excise [%x, %x): %w", span.Start, span.End, err)
-			}
+	return e.withWriteAllowSealed(func() error {
+		span := pebble.KeyRange{Start: []byte{versionV3}, End: []byte{versionV3 + 1}}
+		if err := e.db.ExciseRange(ctx, span); err != nil {
+			return fmt.Errorf("ResetForNewSync: excise [%x, %x): %w", span.Start, span.End, err)
 		}
-		// The record-type span above covers typeDigest and the hash
-		// index too; disarm the mutation-path digest invalidation.
-		e.db.SetGrantDigestsPresent(false)
-		// It also covers all three by_source_scope families; disarm the
-		// scope-obligation gate so the replacement sync starts on the
-		// unscoped fast path.
-		e.db.SetSourceScopeMayExist(false)
-		// The digest-build crash marker lives in the preserved
-		// engine-meta range, but the excise just removed everything it
-		// was guarding against trusting — consume it (only reachable
-		// when an interrupted build's cleanup drop itself failed;
-		// writable Opens consume it before anything else runs).
-		if e.grantDigestBuildPending.Load() {
-			if err := e.clearGrantDigestBuildPending(); err != nil {
-				return err
-			}
-		}
-		// The record-type span covers typeLedger, so the ledger family is
-		// gone. Restore the keyspace stamp with it: the in-flight stamp
-		// classifies a file as mid-ledgered-sync, and left standing it
-		// outlives the rows it describes. The replacement sync then gets
-		// CheckpointSync refused with ErrLedgeredSyncWritesNoToken and
-		// plain EndSync refused with ErrLedgeredSyncNeedsStats, on a file
-		// with no ledger at all — neither protocol can finish it. Safe in
-		// this direction because a wiped file has no rows for an older
-		// SDK to misread.
-		if err := e.clearLedgerInFlightLocked(); err != nil {
+		// A crash between the excise and this leaves an empty, unstamped
+		// file, which the next Open stamps like any fresh one.
+		if err := e.initKeyspaceStateLocked(ctx); err != nil {
 			return fmt.Errorf("ResetForNewSync: %w", err)
 		}
 		e.noteEntitlementKeyspaceWrite()
 		return nil
-	}); err != nil {
-		return err
-	}
-	return nil
+	})
 }
 
 // CompactAllRanges runs pebble.Compact over every sync-scoped range to

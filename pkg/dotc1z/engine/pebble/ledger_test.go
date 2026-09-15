@@ -700,12 +700,11 @@ func TestLedgerFreeSealSkipsResiduePurge(t *testing.T) {
 }
 
 // The two ways a ledger leaves the keyspace without going through a seal.
-// Both leave its verbatim page tokens in the SSTs a checkpoint hard-links,
-// and in both endSyncFinalize's ledgerActive gate finds no ledger and
-// would skip the purge — the shapes that gate opened.
-//
-// The arms differ in how the rows were deleted, which decides the range the
-// purge has to compact and whether it can run inline; see residueTombstoned.
+// In both, endSyncFinalize's ledgerActive gate finds no ledger and would
+// skip the purge — the shapes that gate opened. DropLedger tombstones the
+// rows and leaves their bytes in the SSTs, so it owes a compaction and arms
+// the marker for it. ResetForNewSync excises the whole keyspace, so no SST
+// survives to hold the bytes and no compaction is owed.
 func TestLedgerResidueOutlivesTheLedger(t *testing.T) {
 	ctx := context.Background()
 	const needleText = "sig=SECRET-RESIDUE"
@@ -759,20 +758,18 @@ func TestLedgerResidueOutlivesTheLedger(t *testing.T) {
 		// A replacement sync in the same file, with no ledger of its own.
 		_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		kind, err := e.ledgerResidueKind()
+		require.Zero(t, checkpointNeedleHits(t, e, []byte(needleText)),
+			"the reset's excise must leave no SST holding the interrupted sync's tokens")
+		armed, err := e.ledgerResiduePending()
 		require.NoError(t, err)
-		require.EqualValues(t, residueExcised, kind, "the reset's excise has to arm the marker")
-		active, err := e.ledgerActive()
-		require.NoError(t, err)
-		require.False(t, active, "premise: the marker is the only thing left saying so")
+		require.False(t, armed, "nothing survives the excise, so the reset owes no purge")
 
 		require.NoError(t, e.PutResourceRecords(ctx, ledgerTestResource("user", "z1")))
 		require.NoError(t, e.EndSync(ctx))
 		require.Zero(t, checkpointNeedleHits(t, e, []byte(needleText)),
 			"the interrupted sync's tokens must not ship in the replacement's artifact")
-		kind, err = e.ledgerResidueKind()
-		require.NoError(t, err)
-		require.Zero(t, kind, "the purge consumes the marker")
+		require.Zero(t, e.test.ledgerResiduePurges.Load(),
+			"a ledger-free replacement sync pays no residue compaction")
 	})
 
 	// The purge inside DropLedger is not the last line of defence, because
@@ -788,48 +785,13 @@ func TestLedgerResidueOutlivesTheLedger(t *testing.T) {
 		cancelled, cancel := context.WithCancel(ctx)
 		cancel()
 		require.Error(t, e.DropLedger(cancelled), "premise: the purge has to fail")
-		kind, err := e.ledgerResidueKind()
+		armed, err := e.ledgerResiduePending()
 		require.NoError(t, err)
-		require.EqualValues(t, residueTombstoned, kind,
-			"a failed purge leaves the marker armed for the next seal")
+		require.True(t, armed, "a failed purge leaves the marker armed for the next seal")
 
 		require.NoError(t, e.EndSync(ctx))
 		require.Zero(t, checkpointNeedleHits(t, e, []byte(needleText)),
 			"the seal is the retry, and it must not ship what the failed purge left")
-	})
-
-	// A file that collects both kinds: the reset's excised bytes cannot be
-	// reached by the narrow compaction the later drop asks for, so the wider
-	// kind has to win rather than being overwritten and consumed.
-	t.Run("excised then tombstoned: the wider kind wins", func(t *testing.T) {
-		dbDir := filepath.Join(t.TempDir(), "db")
-		e, err := Open(ctx, dbDir)
-		require.NoError(t, err)
-		_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-		require.NoError(t, err)
-		commitTokenPages(t, e)
-		require.NoError(t, e.Close())
-
-		e, err = Open(ctx, dbDir)
-		require.NoError(t, err)
-		defer func() { _ = e.Close() }()
-		_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-		require.NoError(t, err)
-		kind, err := e.ledgerResidueKind()
-		require.NoError(t, err)
-		require.EqualValues(t, residueExcised, kind, "premise: the reset armed the excised kind")
-
-		// A ledgered page in the replacement sync, then a drop, which arms
-		// the tombstoned kind over the standing excised one.
-		require.NoError(t, e.NewPageUnit().Commit(ctx, grantsPageIdentity("github", "p9"), nil))
-		require.NoError(t, e.markLedgerResiduePending(residueTombstoned))
-		kind, err = e.ledgerResidueKind()
-		require.NoError(t, err)
-		require.EqualValues(t, residueExcised, kind, "tombstoned must not downgrade excised")
-
-		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
-		require.Zero(t, checkpointNeedleHits(t, e, []byte(needleText)),
-			"the interrupted sync's tokens must not survive the wider purge")
 	})
 }
 
