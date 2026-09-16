@@ -854,14 +854,10 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 		require.EqualValues(t, len(tokens), n)
 	})
 
-	// The takeover moves a verbatim token OUT of the sync-run record, so
-	// the record's superseded versions are residue at a key the ledger
-	// range does not cover (v3|TypeSyncRun is 0x06, the ledger family is
-	// 0x0C). The purge removes them anyway because the SSTs overlapping
-	// one overlap the other; PurgeLedgerResidue's comment says why that is
-	// incidental and what to do if this arm ever fails. Each checkpoint
-	// gets its own flush so the older version is provably in an SST of its
-	// own rather than elided as a same-memtable overwrite.
+	// The takeover leaves superseded sync-run versions carrying tokens at
+	// v3|TypeSyncRun, outside the ledger range (ledgerResidueSpans covers
+	// it). Each checkpoint gets its own flush so the older version is in
+	// an SST of its own rather than elided as a same-memtable overwrite.
 	takeoverPages := func(t *testing.T, e *Engine) {
 		t.Helper()
 		for i, tok := range tokens[1:] {
