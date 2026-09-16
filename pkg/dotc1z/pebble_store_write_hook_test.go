@@ -1,7 +1,7 @@
 package dotc1z
 
 // The write hook shipped with no test of its own: nothing exercised
-// StrictWriteHook, SetWriteHook, WithOpenPage or WithPageWriteBypass, so
+// strictWriteHook, SetWriteHook, WithOpenPage or WithPageWriteBypass, so
 // a guard wired after its write, or a method returning before it reaches
 // writeHook(), would have gone unnoticed. Covering the contract needs no
 // syncer — a direct store write and a context are enough.
@@ -11,13 +11,15 @@ package dotc1z
 //	hook installed  page open  bypass registered  result
 //	no              -          -                  write proceeds, PageOpen not reached
 //	yes             no         -                  write proceeds (not inside a page)
-//	yes             yes        no                 ErrUnregisteredPageWrite, write refused
+//	yes             yes        no                 errUnregisteredPageWrite, write refused
 //	yes             yes        yes                write proceeds, event recorded
 //
 // I6/C23 in docs/verification/page-ledger/plan.md.
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -44,7 +46,7 @@ func TestWriteHookOutcomes(t *testing.T) {
 		if install {
 			hooked, ok := store.(c1zstore.WriteHookStore)
 			require.True(t, ok, "the pebble store exposes the write hook")
-			hooked.SetWriteHook(c1zstore.StrictWriteHook(func(ev c1zstore.WriteHookEvent) {
+			hooked.SetWriteHook(strictWriteHook(func(ev c1zstore.WriteHookEvent) {
 				seen = append(seen, ev)
 			}))
 		}
@@ -74,9 +76,9 @@ func TestWriteHookOutcomes(t *testing.T) {
 	t.Run("hook, page open, unregistered: refused", func(t *testing.T) {
 		store, seen := newHookStore(t, true)
 		err := directWrite(c1zstore.WithOpenPage(ctx), store)
-		require.ErrorIs(t, err, c1zstore.ErrUnregisteredPageWrite)
+		require.ErrorIs(t, err, errUnregisteredPageWrite)
 		require.Len(t, *seen, 1)
-		require.False(t, (*seen)[0].Registered())
+		require.Empty(t, (*seen)[0].Bypass)
 		require.NotEmpty(t, (*seen)[0].Method, "the event must name the method so a failure is actionable")
 	})
 
@@ -86,7 +88,7 @@ func TestWriteHookOutcomes(t *testing.T) {
 		pageCtx := c1zstore.WithPageWriteBypass(c1zstore.WithOpenPage(ctx), reason)
 		require.NoError(t, directWrite(pageCtx, store))
 		require.Len(t, *seen, 1)
-		require.True(t, (*seen)[0].Registered())
+		require.NotEmpty(t, (*seen)[0].Bypass)
 		require.Equal(t, reason, (*seen)[0].Bypass)
 	})
 
@@ -116,9 +118,23 @@ func TestWriteHookContextHelpers(t *testing.T) {
 	_, ok = c1zstore.PageWriteBypass(c1zstore.WithPageWriteBypass(ctx, ""))
 	require.False(t, ok, "an empty reason must not count as a registration")
 
-	// StrictWriteHook tolerates a nil recorder.
-	require.NoError(t, c1zstore.StrictWriteHook(nil)(ctx, c1zstore.WriteHookEvent{Method: "M", Bypass: "r"}))
+	// strictWriteHook tolerates a nil recorder.
+	require.NoError(t, strictWriteHook(nil)(ctx, c1zstore.WriteHookEvent{Method: "M", Bypass: "r"}))
 	require.ErrorIs(t,
-		c1zstore.StrictWriteHook(nil)(ctx, c1zstore.WriteHookEvent{Method: "M"}),
-		c1zstore.ErrUnregisteredPageWrite)
+		strictWriteHook(nil)(ctx, c1zstore.WriteHookEvent{Method: "M"}),
+		errUnregisteredPageWrite)
+}
+
+var errUnregisteredPageWrite = errors.New("atomic pages: direct store write inside an open page bypasses the page's unit")
+
+func strictWriteHook(record func(c1zstore.WriteHookEvent)) c1zstore.WriteHook {
+	return func(_ context.Context, ev c1zstore.WriteHookEvent) error {
+		if record != nil {
+			record(ev)
+		}
+		if ev.Bypass == "" {
+			return fmt.Errorf("%w: %s", errUnregisteredPageWrite, ev.Method)
+		}
+		return nil
+	}
 }

@@ -276,7 +276,7 @@ func TestLedgerIdentityMismatchReadsAsAbsent(t *testing.T) {
 	require.NoError(t, e.db.UnsafeForTesting().Set(encodeLedgerKey(y), val, pebble.Sync))
 
 	_, err = e.ledger.getRowRecord(ctx, y)
-	require.ErrorIs(t, err, ErrLedgerIdentityMismatch)
+	require.ErrorIs(t, err, errLedgerIdentityMismatch)
 	require.EqualValues(t, 1, e.ledger.mismatchCount())
 
 	// Same fields, different token: also a mismatch (the token is part
@@ -286,7 +286,7 @@ func TestLedgerIdentityMismatchReadsAsAbsent(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, e.db.UnsafeForTesting().Set(encodeLedgerKey(x), val, pebble.Sync))
 	_, err = e.ledger.getRowRecord(ctx, x)
-	require.ErrorIs(t, err, ErrLedgerIdentityMismatch)
+	require.ErrorIs(t, err, errLedgerIdentityMismatch)
 	require.EqualValues(t, 2, e.ledger.mismatchCount())
 
 	// The honest row is accepted.

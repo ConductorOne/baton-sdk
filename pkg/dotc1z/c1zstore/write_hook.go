@@ -1,10 +1,6 @@
 package c1zstore
 
-import (
-	"context"
-	"errors"
-	"fmt"
-)
+import "context"
 
 // The write hook (docs/tasks/sound-syncs-solutions-brief.md §3.10 fact 1):
 // under atomic pages every store write a page makes goes through its
@@ -59,13 +55,6 @@ type WriteHookEvent struct {
 	Bypass string
 }
 
-// Registered reports whether the write carried a bypass registration.
-func (e WriteHookEvent) Registered() bool { return e.Bypass != "" }
-
-// ErrUnregisteredPageWrite is returned by the strict hook for an
-// unregistered direct write inside a page.
-var ErrUnregisteredPageWrite = errors.New("atomic pages: direct store write inside an open page bypasses the page's unit")
-
 // WriteHook receives every direct write observed inside an open
 // page. A non-nil error fails the write.
 type WriteHook func(ctx context.Context, ev WriteHookEvent) error
@@ -75,19 +64,4 @@ type WriteHookStore interface {
 	// SetWriteHook installs hook; nil removes it. With no hook installed
 	// the hook costs one nil check per write.
 	SetWriteHook(hook WriteHook)
-}
-
-// StrictWriteHook is the test-time hook: unregistered writes fail with
-// ErrUnregisteredPageWrite; registered bypasses pass and are recorded
-// through record (may be nil).
-func StrictWriteHook(record func(WriteHookEvent)) WriteHook {
-	return func(_ context.Context, ev WriteHookEvent) error {
-		if record != nil {
-			record(ev)
-		}
-		if !ev.Registered() {
-			return fmt.Errorf("%w: %s", ErrUnregisteredPageWrite, ev.Method)
-		}
-		return nil
-	}
 }

@@ -144,7 +144,7 @@ func (l *Ledger) GetRow(ctx context.Context, id c1zstore.LedgerActionIdentity) (
 	switch {
 	case err == nil:
 		return ledgerRowFromProto(row), true, nil
-	case errors.Is(err, pebble.ErrNotFound), errors.Is(err, ErrLedgerIdentityMismatch):
+	case errors.Is(err, pebble.ErrNotFound), errors.Is(err, errLedgerIdentityMismatch):
 		return nil, false, nil
 	default:
 		return nil, false, err

@@ -339,7 +339,7 @@ instrument that closes it.
 
 - Status: evidence incomplete.
 - Candidate: `TestWriteHookOutcomes`, `TestWriteHookContextHelpers` —
-  these close the second clause, `StrictWriteHook`'s outcomes inside and
+  these close the second clause, `strictWriteHook`'s outcomes inside and
   outside `WithOpenPage`, `WithPageWriteBypass`, empty-reason rejection
   and hook removal.
 - Not covered: the first clause, set equality. No test compares the set of

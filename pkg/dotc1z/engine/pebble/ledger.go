@@ -100,22 +100,6 @@ func encodeLedgerKey(id ledgerIdentity) []byte {
 	return codec.AppendTupleBytes(buf, ledgerTokenHash(id.PageToken))
 }
 
-// encodeLedgerPrefixOp bounds every row of one op (by-value prefix:
-// trailing separator is load-bearing, see keys.go).
-func encodeLedgerPrefixOp(op string) []byte {
-	buf := append([]byte{}, rawdb.LedgerKeyPrefix()...)
-	buf = codec.AppendTupleStrings(buf, op)
-	return codec.AppendTupleSeparator(buf)
-}
-
-// encodeLedgerPrefixResource bounds every row of one op on one
-// resource (all pages, all parents).
-func encodeLedgerPrefixResource(op, resourceTypeID, resourceID string) []byte {
-	buf := append([]byte{}, rawdb.LedgerKeyPrefix()...)
-	buf = codec.AppendTupleStrings(buf, op, resourceTypeID, resourceID)
-	return codec.AppendTupleSeparator(buf)
-}
-
 // ledgerLowerBound / ledgerUpperBound bound the whole family (wipe,
 // compaction, family-bounded readers).
 func ledgerLowerBound() []byte { lo, _ := rawdb.LedgerBounds(); return lo }
@@ -172,16 +156,16 @@ func ledgerIdentityMatches(want ledgerIdentity, got *v3.LedgerActionIdentity, sc
 	return bytes.Equal(got.GetPageTokenHash(), ledgerTokenHash(want.PageToken))
 }
 
-// ErrLedgerIdentityMismatch is returned by GetRow when a row
+// errLedgerIdentityMismatch is returned by getRowRecord when a row
 // exists at the identity's key but echoes a different identity: the
 // key function lost a distinguishing field, or two actions collided.
 // Callers treat it as "no row" (re-run the page) and it is counted so
 // the collision is never silent.
-var ErrLedgerIdentityMismatch = errors.New("pebble ledger: row at key echoes a different identity")
+var errLedgerIdentityMismatch = errors.New("pebble ledger: row at key echoes a different identity")
 
 // getRowRecord reads the completion row for id. Returns
 // pebble.ErrNotFound when the page never committed and
-// ErrLedgerIdentityMismatch (also counted in Ledger.mismatches) when a
+// errLedgerIdentityMismatch (also counted in Ledger.mismatches) when a
 // row exists but belongs to another identity. Reads never write.
 func (l *Ledger) getRowRecord(ctx context.Context, id ledgerIdentity) (*v3.LedgerRow, error) {
 	key := encodeLedgerKey(id)
@@ -204,22 +188,9 @@ func (l *Ledger) getRowRecord(ctx context.Context, id ledgerIdentity) (*v3.Ledge
 			zap.String("row_resource_type_id", row.GetIdentity().GetResourceTypeId()),
 			zap.String("row_resource_id", row.GetIdentity().GetResourceId()),
 		)
-		return nil, ErrLedgerIdentityMismatch
+		return nil, errLedgerIdentityMismatch
 	}
 	return row, nil
-}
-
-// mismatchCount reports how many GetRow calls found a row
-// echoing a different identity since Open. Nonzero is a key-function
-// bug to investigate, not a data-loss event (the page re-ran).
-func (l *Ledger) mismatchCount() uint64 { return l.mismatches.Load() }
-
-// iterate yields every page row in key order (op, then resource).
-// Rows only: facts, counter buckets and the frontier are sibling
-// sub-families (rawdb keyspace.go) with their own readers below.
-func (l *Ledger) iterate(ctx context.Context, yield func(*v3.LedgerRow) bool) error {
-	lo, hi := rawdb.LedgerRowBounds()
-	return l.iterateRange(lo, hi, yield)
 }
 
 // === facts, counter buckets, frontier (brief §3.6, §3.8) ===
@@ -295,21 +266,6 @@ func (l *Ledger) sumCounters(ctx context.Context) (*v3.LedgerCounterBucket, erro
 		SessionCalls:    sessions,
 		StepDurationsMs: durations,
 	}.Build(), nil
-}
-
-// counterBucketCount reports how many buckets exist (tests).
-func (l *Ledger) counterBucketCount(ctx context.Context) (int, error) {
-	lo, hi := rawdb.LedgerCounterBounds()
-	iter, err := l.e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
-	if err != nil {
-		return 0, err
-	}
-	defer iter.Close()
-	n := 0
-	for iter.First(); iter.Valid(); iter.Next() {
-		n++
-	}
-	return n, iter.Error()
 }
 
 // getFrontier returns the takeover record, if the sync began
@@ -452,43 +408,6 @@ func (l *Ledger) putCounterBucketRecord(ctx context.Context, runID string, worke
 	})
 }
 
-// iterateByOp yields every row of one op.
-func (l *Ledger) iterateByOp(ctx context.Context, op string, yield func(*v3.LedgerRow) bool) error {
-	lo := encodeLedgerPrefixOp(op)
-	return l.iterateRange(lo, upperBoundOf(lo), yield)
-}
-
-// iterateByResource yields every row of one op on one resource.
-func (l *Ledger) iterateByResource(ctx context.Context, op, resourceTypeID, resourceID string, yield func(*v3.LedgerRow) bool) error {
-	lo := encodeLedgerPrefixResource(op, resourceTypeID, resourceID)
-	return l.iterateRange(lo, upperBoundOf(lo), yield)
-}
-
-func (l *Ledger) iterateRange(lo, hi []byte, yield func(*v3.LedgerRow) bool) error {
-	iter, err := l.e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
-	if err != nil {
-		return err
-	}
-	defer iter.Close()
-	for iter.First(); iter.Valid(); iter.Next() {
-		row := &v3.LedgerRow{}
-		if err := unmarshalRecord(iter.Value(), row); err != nil {
-			return fmt.Errorf("iterate ledger: %w", err)
-		}
-		if !yield(row) {
-			return nil
-		}
-	}
-	return iter.Error()
-}
-
-// rowCount counts rows (the trace's size; tests and Stats).
-func (l *Ledger) rowCount(ctx context.Context) (uint64, error) {
-	var n uint64
-	err := l.iterate(ctx, func(*v3.LedgerRow) bool { n++; return true })
-	return n, err
-}
-
 // SetRetainTokens keeps this sync's page tokens verbatim in the
 // sealed artifact, opting out of the scrub EndSync otherwise performs
 // before the ended_at stamp (brief §3.12).
@@ -506,9 +425,6 @@ func (l *Ledger) rowCount(ctx context.Context) (uint64, error) {
 func (l *Ledger) SetRetainTokens(retain bool) {
 	l.retainTokens.Store(retain)
 }
-
-// retainTokensFlag reports the flag.
-func (l *Ledger) retainTokensFlag() bool { return l.retainTokens.Load() }
 
 // sealScrubsTokens reports whether the seal must scrub. It scrubs unless
 // retention was declared, in memory OR by the durable fact a page batch
