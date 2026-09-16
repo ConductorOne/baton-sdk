@@ -1,22 +1,9 @@
 package dotc1z
 
-// Why this is a meta-test rather than more cases in
-// pebble_store_dirty_test.go: pebbleStore embeds *pebble.Engine, so every
-// method of the ledger and stats capabilities is satisfied by promotion
-// whether or not anyone wrote it down. The six overrides exist for one
-// reason — to wrap the engine call in markDirty, which is what makes Close
-// run save() and get the mutation into the .c1z. A mutating method added
-// to either interface therefore keeps compiling, keeps satisfying the
-// interface, and silently loses its write at Close. No runtime test sees
-// that, because the method it would have to call does not exist yet.
-//
-// So the check is over the method SET: every method of
-// c1zstore.PageLedgerStore, c1zstore.PageLedgerStore and
-// pebbleStoreGrantLayerStorer must be classified here, and every one
-// classified as a write must be declared with markDirty in its body — on
-// *pebbleStore for the first two, on pebbleStoreGrants for the layer
-// session. Adding a method to any of them fails this test until its author
-// classifies it.
+// TestPebbleStoreDirtyCoverage requires every PageLedgerStore and
+// pebbleStoreGrantLayerStorer method to be classified. Writes must have
+// a store wrapper that marks dirty so Close saves them to the c1z;
+// page commits carry the mark through dirtyPageWriter.Commit.
 //
 // C22/C24 in docs/verification/page-ledger/plan.md.
 
@@ -66,10 +53,8 @@ var capabilityMethods = map[string]struct {
 	"TakeoverToken":         {dirtyWrite, "one batch: frontier, facts, bucket, token cleared"},
 	"BoundSyncFinished":     {dirtyRead, "read"},
 	"DropLedger":            {dirtyWrite, "a delete is a write; without the mark the wipe never reaches the c1z"},
-
-	// SyncStatsStore
-	"PutCounterBucket": {dirtyWrite, "blind-writes the bucket"},
-	"EndSyncWithStats": {dirtyWrite, "the seal: scrub, purge, stamp, ended_at, stats sidecar"},
+	"PutCounterBucket":      {dirtyWrite, "blind-writes the bucket"},
+	"EndSyncWithStats":      {dirtyWrite, "the seal: scrub, purge, stamp, ended_at, stats sidecar"},
 
 	// pebbleStoreGrantLayerStorer
 	"BeginExpandedGrantLayer":            {dirtyRead, "allocates an in-memory session; the first Add is what touches the file"},
@@ -132,13 +117,12 @@ func TestPebbleStoreDirtyCoverage(t *testing.T) {
 
 	var unclassified []string
 	// recv is the type whose method carries the mark for that interface: the
-	// two store capabilities are satisfied by *pebbleStore itself, the layer
+	// page ledger capability is satisfied by *pebbleStore itself, the layer
 	// session by the value Grants() returns.
 	for _, capability := range []struct {
 		iface reflect.Type
 		recv  string
 	}{
-		{reflect.TypeOf((*c1zstore.PageLedgerStore)(nil)).Elem(), "*pebbleStore"},
 		{reflect.TypeOf((*c1zstore.PageLedgerStore)(nil)).Elem(), "*pebbleStore"},
 		{reflect.TypeOf((*pebbleStoreGrantLayerStorer)(nil)).Elem(), "pebbleStoreGrants"},
 	} {
@@ -193,15 +177,13 @@ func TestSQLiteStoreOffersNoLedgerCapabilities(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close(ctx) })
 
 	// Premise: the probe finds what this store does offer. Without it the
-	// three assertions below would also pass on a store that implements
+	// two assertions below would also pass on a store that implements
 	// nothing at all.
 	_, ok := store.(connectorstore.DBSizeProvider)
 	require.True(t, ok, "the SQLite store offers DBSizeProvider; if this fails the probe is wrong, not the store")
 
 	_, ok = store.(c1zstore.PageLedgerStore)
 	require.False(t, ok, "the SQLite store has no ledger to write pages into")
-	_, ok = store.(c1zstore.PageLedgerStore)
-	require.False(t, ok, "the SQLite store seals through EndSync, with no stats-bearing seal")
 	_, ok = store.(c1zstore.WriteHookStore)
 	require.False(t, ok, "the SQLite store has no page writes to gate")
 }

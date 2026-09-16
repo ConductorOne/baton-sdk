@@ -21,7 +21,7 @@ package pebble
 // paths hold, the unit holds, because it is the same code.
 //
 // Reads inside a page see the page's own writes (brief §3.5): the
-// unit answers GetResourceRecord from its buffer first, then the DB.
+// unit answers resourceRecord from its buffer first, then the DB.
 //
 // Memory: the buffer is the page. For the write bursts the brief
 // identifies (static entitlements over every resource of a type, a
@@ -196,7 +196,7 @@ func (u *pageUnit) StageGrants(records ...*v3.GrantRecord) error {
 	return nil
 }
 
-// GetResourceRecord is the page-scoped read: the page's own staged
+// resourceRecord is the page-scoped read: the page's own staged
 // resource if it has one (latest staged wins, matching the commit's
 // last-occurrence dedup), else the DB. Returns pebble.ErrNotFound as
 // the engine's GetResourceRecord does.
@@ -317,10 +317,10 @@ func (u *pageUnit) DropStagedRows(kind string, scopeKey string, canonicalIDs, pr
 	return dropped, nil
 }
 
-// GetEntitlementRecord is the page-scoped read for entitlements: the
+// entitlementRecord is the page-scoped read for entitlements: the
 // page's own staged record by external id if it has one, else the DB.
 //
-// Guarded on done for the same reason as GetResourceRecord: release
+// Guarded on done for the same reason as resourceRecord: release
 // clears the buffer, so a read of a staged id after Commit or Discard
 // would index a nil slice.
 func (u *pageUnit) entitlementRecord(ctx context.Context, externalID string) (*v3.EntitlementRecord, error) {

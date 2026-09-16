@@ -1,7 +1,7 @@
 package pebble
 
-// What the seal's token scrub costs: scrubLedgerTokens is O(rows) over
-// the ledger; purgeLedgerResidue is a manual compaction, which rewrites
+// What the seal's token scrub costs: Ledger.scrubTokens is O(rows) over
+// the ledger; Ledger.purgeResidue is a manual compaction, which rewrites
 // every SST overlapping its spans, so its cost depends on what sits next
 // to the ledger. The sweep is pages × grants: pages drive the scrub,
 // grants drive the neighbours. Reported alongside ns/op: ledger_bytes /
@@ -97,7 +97,7 @@ func benchmarkSealCost(b *testing.B, pages, grants int, op string, grantIndex bo
 			e.ledger.SetRetainTokens(true)
 		case "seal-scrub-only":
 			// Isolates the scrub's contribution INSIDE the seal, which is
-			// not the same as calling scrubLedgerTokens standalone: the
+			// not the same as calling Ledger.scrubTokens standalone: the
 			// scrub's rewritten rows are still in the memtable when the
 			// later seal steps run.
 			e.test.skipLedgerResiduePurge = true
@@ -141,7 +141,7 @@ func BenchmarkLedgerSealCost(b *testing.B) {
 		// pages=0 is every sync in the fleet until the syncer moves onto
 		// the ledger, and the shape the scrub default would otherwise have
 		// taxed for nothing: endSyncFinalize gates the scrub and the purge
-		// on ledgerActive, so seal here must not differ from seal-retain
+		// on Ledger.active, so seal here must not differ from seal-retain
 		// and compactions must stay at whatever the seal already did.
 		{pages: 0, grants: 1_000_000},
 		{pages: 1_000, grants: 0},

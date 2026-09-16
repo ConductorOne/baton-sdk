@@ -22,8 +22,8 @@ import (
 
 // The seal must not leave a verbatim page token in the frontier.
 //
-// takeoverToken stores the taken-over sync token JSON verbatim, and every
-// Action in that JSON carries a page_token. scrubLedgerTokens iterates
+// Ledger.takeoverRecord stores the taken-over sync token JSON verbatim, and every
+// Action in that JSON carries a page_token. Ledger.scrubTokens iterates
 // LedgerRowBounds, which is kind 0x00 only; the frontier is kind 0x03, so
 // it was never rewritten and the sealed artifact shipped tokens the seal
 // is supposed to have removed.
@@ -63,7 +63,7 @@ func TestLedgerScrubReachesTheTakeoverFrontier(t *testing.T) {
 // A sync with ledger rows must be refused a checkpoint token even when
 // the in-flight stamp has been cleared.
 //
-// clearLedgerInFlightLocked drops the durable stamp and the in-memory flag
+// Ledger.clearInFlightLocked drops the durable stamp and the in-memory flag
 // before endSyncFinalize writes ended_at. If the write then fails, or the
 // process crashes and reopens, the flag reads false over rows that are
 // still there, and gating on the flag alone let CheckpointSync write a
@@ -100,7 +100,7 @@ func TestCheckpointRefusedWhileLedgerRowsExistWithoutTheStamp(t *testing.T) {
 // ledger at all: neither protocol could finish it.
 // The stamp only outlives its rows when the ledgered sync never sealed,
 // so the setup has to abandon one: commit a page, then reopen without
-// EndSync. A seal would call clearLedgerInFlight itself and the reset
+// EndSync. A seal would call Ledger.clearInFlightLocked itself and the reset
 // would have nothing left to clear.
 func TestResetForNewSyncClearsTheInFlightStamp(t *testing.T) {
 	ctx := context.Background()

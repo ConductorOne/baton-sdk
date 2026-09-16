@@ -96,13 +96,13 @@ type testSeams struct {
 	endSyncStampHook func() error
 
 	// skipLedgerResiduePurge, when true, makes endSyncFinalize skip
-	// the purgeLedgerResidue that follows scrubLedgerTokens. It exists
+	// the Ledger.purgeResidue that follows Ledger.scrubTokens. It exists
 	// so the SST-residue test can show the purge is load-bearing:
 	// without it the scrubbed rows read clean while the verbatim tokens
 	// remain in the checkpointed SSTs (ledger_test.go).
 	skipLedgerResiduePurge bool
 
-	// ledgerResiduePurges counts purgeLedgerResidue entries. The gate it
+	// ledgerResiduePurges counts Ledger.purgeResidue entries. The gate it
 	// pins is endSyncFinalize's, which skips the scrub and the purge
 	// unless a ledger exists: ungated, the purge's db.Compact ran on
 	// every seal in the fleet, since sealScrubsTokens reports true

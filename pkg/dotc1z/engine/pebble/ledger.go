@@ -181,7 +181,7 @@ var ErrLedgerIdentityMismatch = errors.New("pebble ledger: row at key echoes a d
 
 // getRowRecord reads the completion row for id. Returns
 // pebble.ErrNotFound when the page never committed and
-// ErrLedgerIdentityMismatch (also counted in ledgerMismatches) when a
+// ErrLedgerIdentityMismatch (also counted in Ledger.mismatches) when a
 // row exists but belongs to another identity. Reads never write.
 func (l *Ledger) getRowRecord(ctx context.Context, id ledgerIdentity) (*v3.LedgerRow, error) {
 	key := encodeLedgerKey(id)
@@ -900,7 +900,7 @@ func (l *Ledger) clearInFlightLocked() error {
 // active reports whether this sync must be treated as ledgered:
 // the in-flight stamp is set, OR the ledger family holds a key.
 //
-// The stamp alone is not enough. clearLedgerInFlight runs before the
+// The stamp alone is not enough. Ledger.clearInFlightLocked runs before the
 // ended_at stamp, and it drops both the durable stamp and the in-memory
 // flag, so two states have a ledger while the flag says otherwise:
 //

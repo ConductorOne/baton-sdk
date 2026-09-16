@@ -145,7 +145,7 @@ synchronization primitives (`c1zstore/write_hook.go` uses context values only).
 | Primitive | Type | Guards | Acquirers | Hold |
 | --- | --- | --- | --- | --- |
 | `pebbleStore.closeMu` (`:232`) | `sync.Mutex` | `closed`, `dirty`, `foldDeadBytes` | `Close` (`:885`, whole method), `CloseEngineOnly` (`:396`, unlocks before `Engine.Close`), `MarkDirty` (`:442`), `AddFoldDeadBytes` (`:457`), `StartNewSync`/`StartOrResumeSync` dirty stamp (`:481-493`), `NormalizeForFixtureSave` (`:430`), `beginSourceCacheMutation` (`source_cache.go:109-121`) | `Close` holds it across `save` → `Engine.CheckpointTo` (`:938`) and `Engine.Close` (`:919`). Source-cache mutations hold it across the engine write (`PutSourceCacheEntry`, `ReplaySourceCache*`, `DeleteSourceCacheRows*`, `DeleteSourceCacheGrantsByIDInScope`). Everything else is a field stamp |
-| `pebbleStore.writeSeam` (`:246`) | `atomic.Pointer[WriteHook]` | test-only write hook; nil in production | `seam` | — |
+| `pebbleStore.writeHookFn` (`:245`) | `atomic.Pointer[WriteHook]` | test-only write hook; nil in production | `writeHook` | — |
 
 Order: `closeMu → Engine.{CheckpointTo, Close, Put*, Delete*}`. The ordinary
 record write path is the reverse shape but not a cycle: `Engine.Put*` returns,

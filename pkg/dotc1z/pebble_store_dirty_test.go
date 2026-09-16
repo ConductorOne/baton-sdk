@@ -63,9 +63,7 @@ func TestPebbleStorePageCommitMarksDirty(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, found)
 
-	stats, ok := store.(c1zstore.PageLedgerStore)
-	require.True(t, ok, "the pebble store implements the stats side of the ledger")
-	require.NoError(t, stats.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+	require.NoError(t, ledger.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 	require.NoError(t, store.Close(ctx))
 	fi, err := os.Stat(path)
 	require.NoError(t, err)

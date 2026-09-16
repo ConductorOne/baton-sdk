@@ -87,7 +87,7 @@ compaction.
 
 Exposure of the reachable delta, today, on the default path: the shared
 staging refactor of `Put*Records` (`fceb24c4`) is on every write; the
-write-hook check `pebbleStore.seam` is on every store write; `ledgerActive`
+write-hook check `pebbleStore.writeHook` is on every store write; `Ledger.active`
 runs a bounded iterator on every `CheckpointSync` and `EndSync`; the
 compactor now writes provenance to the stats sidecar instead of the token
 (`91bf689e`); the accepted `supportedKeyspaceVersions` set changed at
@@ -149,8 +149,10 @@ Each claim is stated on the file, not on the code.
 - **S1 Atomic page.** For every page unit, either every record staged in
   it, its ledger row, its facts, and its bucket are present after any
   crash or reopen, or none of them is. There is no third image. A commit
-  that returns an error leaves the file byte-identical to before the
-  call and leaves the unit usable.
+  that returns an error leaves those page writes absent and the unit
+  usable. The in-flight keyspace stamp is written separately before the
+  page batch and may survive failure; checkpoint-token writes remain
+  refused until the ledger is dropped or the sync is sealed (CO-007).
 - **S2 Path equivalence.** Records committed through a page unit produce
   the same primary rows, secondary index rows, grant digest and source
   scope rows, and fresh-sync proof state as the same records committed
@@ -161,7 +163,7 @@ Each claim is stated on the file, not on the code.
   `ResourceTypeId`, `ResourceId`, parent type and id, `TypeScoped`,
   `Spawned`, and the page token (by value, or by hash when the row is
   scrubbed). Any mismatch reads as absent, is counted in
-  `ledgerMismatches`, and never returns a different action's row.
+  `Ledger.mismatches`, and never returns a different action's row.
 - **S4 Ordering.** Within a page: puts land before grant deletes, so a
   buffered put doomed by a delete in the same page never lands. Across
   pages: because every page rides one WAL batch and the WAL is a prefix,
@@ -171,13 +173,13 @@ Each claim is stated on the file, not on the code.
 - **S5 Sub-family isolation.** Rows (`0x00`), facts (`0x01`), counter
   buckets (`0x02`), and the frontier (`0x03`) are written only through
   `rawdb.RecordBatch` staging ops; every write surface touches exactly
-  the sub-families its contract names (§3.3); `DropLedger`, `DropLedger`,
+  the sub-families its contract names (§3.3); `DropLedger`,
   and `ResetForNewSync` remove all four; the token key is written by
-  `takeoverToken` (cleared) and by nothing else on a ledgered run.
+  `Ledger.takeoverRecord` (cleared) and by nothing else on a ledgered run.
 - **S6 Version stamp.** The in-flight stamp is durable (Sync) before the
   first ledger row lands and is cleared before `ended_at` is written. A
   token-only SDK opens a sealed file, opens a no-row file, and refuses an
-  in-flight file. `ledgerActive` is true when the stamp is set or any
+  in-flight file. `Ledger.active` is true when the stamp is set or any
   ledger key exists; `CheckpointSync` and plain `EndSync` refuse while it
   is true.
 - **S7 Seal.** `EndSyncWithStats` runs scrub, purge, stamp clear,
@@ -193,7 +195,7 @@ Each claim is stated on the file, not on the code.
   (`c1z.retain_tokens`) that survives a crash; an absent or unreadable
   fact scrubs.
 - **S9 Cost.** Fresh-sync page commit costs one NoSync batch, no fsync,
-  no extra iterator; `ledgerActive` costs one bounded seek; scrub costs
+  no extra iterator; `Ledger.active` costs one bounded seek; scrub costs
   O(rows) with bounded batch memory (`ledgerScrubBatchBytes`); purge
   compacts only `LedgerBounds`; the resume walk over 10^4–10^5 rows is
   read-only and bounded.
@@ -242,7 +244,7 @@ instrument in §7.
   Zero after seal without retain; non-zero with retain (control).
 - **O6 Identity-compare table.** For each of the eight identity fields,
   a row written with tuple T and read with T' differing in exactly that
-  field returns `found = false` and increments `ledgerMismatches` by one;
+  field returns `found = false` and increments `Ledger.mismatches` by one;
   T read with T returns the row.
 - **O7 Fold oracle.** `SumLedgerCounters` equals an independent fold:
   sums for the four counts and `Retries`, computed by the test from the
@@ -278,11 +280,11 @@ instrument in §7.
 
 ### 3.1 Axes
 
-- **D1 Lifecycle operation (17):** `BeginPage`+`Stage*`; `Commit`;
+- **D1 Lifecycle operation (16):** `BeginPage`+`Stage*`; `Commit`;
   `Discard`; `GetLedgerRow`; `TakeoverToken`; `PutCounterBucket`;
   `SetRetainLedgerTokens`; the three reads (`LedgerFacts`,
   `LedgerCounters`, `LedgerFrontier`) as one; `BoundSyncFinished`;
-  `DropLedger`; `DropLedger`; `EndSyncWithStats`; plain `EndSync`;
+  `DropLedger`; `EndSyncWithStats`; plain `EndSync`;
   `CheckpointSync`; `StartNewSync`/`ResetForNewSync`; bind
   (`ResumeSync`/`SetCurrentSync`); `Open`.
 - **D2 Ledger file state (7):** L0 no rows, no stamp; L1 stamp only;
@@ -291,16 +293,16 @@ instrument in §7.
   at `keyspaceVersion`; L5 sealed, unscrubbed (retain), stamp at
   `keyspaceVersion`; L6 rows without stamp, unfinished (an image from a
   build before the stamp, or from a `DropLedger` that failed between
-  `DropKeyRange` and `clearLedgerInFlight`).
+  `DropKeyRange` and `Ledger.clearInFlightLocked`).
 - **D3 Cut point (12):** F1 page batch commit returns an error; F2 crash
   after a NoSync page commit with k% of pages unsynced; F3 crash after a
-  Sync page commit; F4 crash after `markLedgerInFlight` before the first
+  Sync page commit; F4 crash after `Ledger.markInFlightLocked` before the first
   batch; F5 takeover batch fails or crashes; F6 `PutCounterBucket` fails;
   F7 seal: after scrub before purge; F8 after purge before
-  `clearLedgerInFlight`; F9 after clear before `ended_at`; F10 after
+  `Ledger.clearInFlightLocked`; F9 after clear before `ended_at`; F10 after
   `ended_at` before `PersistSyncStats`; F11 `PersistSyncStats` fails
   (non-fatal by design); F12 `DropLedger` after `DropKeyRange` before
-  `clearLedgerInFlight`.
+  `Ledger.clearInFlightLocked`.
 - **D4 Process identity at reopen (4):** same process, no reopen; new
   process, this SDK, writable; new process, token-only SDK
   (`withTokenOnlySDK`), writable; read-only `Open`.
@@ -308,9 +310,9 @@ instrument in §7.
   buckets `0x02`; frontier `0x03`; the retain fact (a fact with its own
   consumer, `sealScrubsTokens`); the in-flight stamp (engine meta); the
   sync-run token key.
-- **D6 Write surface (11):** page commit; takeover; `PutCounterBucket`;
-  scrub; purge; `DropLedger`; `DropLedger`; `ResetForNewSync`;
-  `ledgerActive` (a read that decides a write); `CloneSync`; compactor
+- **D6 Write surface (10):** page commit; takeover; `PutCounterBucket`;
+  scrub; purge; `DropLedger`; `ResetForNewSync`;
+  `Ledger.active` (a read that decides a write); `CloneSync`; compactor
   fold.
 - **D7 Record shape:** kind (4) × mutation {new; overwrite same value;
   overwrite with an index-affecting change (parent, principal, source
@@ -338,14 +340,14 @@ instrument in §7.
 
 | Product | Axes | Cells | Reduction | Distinct |
 | --- | --- | --- | --- | --- |
-| P1 lifecycle × state | D1 × D2 | 17 × 7 = 119 | the four reads leave state unchanged in every L (collapse to one obligation per read per L, still 28 cells but one oracle) | 119 |
-| P2 cut × identity | D3 × D4 | 12 × 4 = 48 | F1 and F6 land nothing, so the three reopen identities equal same-process: 6 cells collapse | 42 |
-| P3 sub-family × surface | D5 × D6 | 7 × 11 = 77 | none; every cell states writes / clears / reads / must-not-touch | 77 |
+| P1 lifecycle × state | D1 × D2 | 16 × 7 = 112 | the four reads leave state unchanged in every L (collapse to one obligation per read per L, still 28 cells but one oracle) | 112 |
+| P2 cut × identity | D3 × D4 | 12 × 4 = 48 | none; F1 and F6 may leave the durable in-flight stamp | 48 |
+| P3 sub-family × surface | D5 × D6 | 7 × 10 = 70 | none; every cell states writes / clears / reads / must-not-touch | 70 |
 | P4 record shape | D7 | 15 + 3 + 12 + 6 + 1 | none | 37 |
 | P5 identity compare | D8 | 16 + 2 + 2 | none | 20 |
 | P6 durability × write | D9 | 6 | none | 6 |
 | P7 reader × sealed state | D10 | 8 × 2 | none | 16 |
-| **Bounded total** | | | | **317** |
+| **Bounded total** | | | | **309** |
 
 Closure by exhaustion is claimed only for P1–P7. F2's k% sweep,
 concurrency, scale, and cost are measured sampling and are reported as
@@ -376,9 +378,9 @@ The rows that are not obvious from the interface docs:
 - `TakeoverToken` in L0 with a token → L2 (frontier + facts + bucket,
   token cleared) in one Sync batch; without a token → returns `""` and
   writes nothing; without an open sync → refused.
-- `Open` in L1, L2, L3, L6 with this SDK → accepted, `ledgerInFlight`
+- `Open` in L1, L2, L3, L6 with this SDK → accepted, `Ledger.inFlight`
   mirror set from the stamp (L6 sets it from rows through
-  `ledgerActive`, not from the stamp: this is a cell to assert, not
+  `Ledger.active`, not from the stamp: this is a cell to assert, not
   assume); with a token-only SDK → L1, L2 refused; L3, L6 accepted
   (stamp is `keyspaceVersion`) — L3 and L6 are the cells where an older
   SDK can open an unfinished ledgered file and must not be able to
@@ -398,8 +400,7 @@ F7–F11: O10. F12: image is L6; O3 and P1's L6 row.
 **P3 (sub-family × surface).** Stated as a matrix in the evidence file.
 The cells that carry the most weight: scrub touches rows and frontier and
 nothing else (`TestLedgerScrubReachesTheTakeoverFrontier` covers the
-frontier half); purge touches bytes, not keys; `DropLedger` and
-`DropLedger` clear all seven except the token key; `ledgerActive` reads
+frontier half); purge touches bytes, not keys; `DropLedger` clears all seven except the token key; `Ledger.active` reads
 rows-or-any-key and the stamp; `CloneSync` copies all seven as they
 stand; compactor fold clears all seven and rewrites the token key; page commit writes rows,
 facts, bucket, retain fact, stamp and never the frontier or the token;
@@ -435,7 +436,7 @@ difference (the ledger is inherited) and records it as open.
 - Hash collision on the 16-byte truncated SHA-256 (P5): not
   constructible; the contract is "collision → re-run", and the re-run
   side is the syncer's (deferred).
-- Concurrent `Commit` on one `PageUnit`: the unit is documented
+- Concurrent `Commit` on one `pageUnit`: the unit is documented
   single-goroutine; the `done` guard converts misuse into
   `ErrPageUnitCommitted`, asserted once (C03), not swept.
 - SQLite store: has no ledger; one negative type assertion (C24).
@@ -481,19 +482,19 @@ instrument is required (§7).
 
 | ID | Claim | Criterion | Oracle | Coverage | Stage | Candidate |
 | --- | --- | --- | --- | --- | --- | --- |
-| C01 | S1 | A failed page commit leaves the keyspace byte-identical and the unit usable; a successful commit lands records, row, facts, bucket, retain fact together. | O1 | exhaustive over P4 side-state cells × {fail, succeed} | now | `TestPageUnitCommitIsOneFact`, `TestPageUnitFailedCommitLandsNothing`, `TestLedgerFactsAndBucketsRideThePageUnit` |
+| C01 | S1 | A failed page commit leaves its page writes absent and the unit usable; the separately written in-flight stamp may survive; a successful commit lands records, row, facts, bucket, retain fact together. | O1 | exhaustive over P4 side-state cells × {fail, succeed} | now | `TestPageUnitCommitIsOneFact`, `TestPageUnitFailedCommitLandsNothing`, `TestLedgerFactsAndBucketsRideThePageUnit` |
 | C02 | S1, S4 | No crash image has a torn page; row present ⇔ all page records present; a WAL sync point hardens every earlier page. | O1 (I1) | sampled: k ∈ {0,20,50,80,100}% × 120 pages, plus F3 | now | `TestPageUnitCrashImageStoreEqualsLedger` |
 | C03 | S1 | `Discard` writes nothing and releases buffers; a spent unit refuses every `Stage*`, `Get*`, `DropStagedRows`, and `Commit` with `ErrPageUnitCommitted`, never panics. | O3, O12 | exhaustive over the unit's methods | now | `TestPageWriterGetResourceAndDiscard`, `TestPageUnitReadsAfterCommitAreRefusedNotPanics` |
 | C04 | S2 | `GetResource`/`GetEntitlement` on an open unit return the buffered value when present, else the store's, and after `DropStagedRows` return the store's. | O3 | exhaustive over {buffered, store-only, dropped, absent} × 2 kinds | now | `TestPageUnitReadSeesOwnWrites` (partial: buffered and store-only) |
 | C05 | S2 | For every P4 record-shape cell, the page-unit file equals the `Put*`/`DeleteGrants` file outside `LedgerBounds` and the stamp key, including indexes, digests, and source scope rows. | O2 | exhaustive over P4's 15 + 3 cells | now | `TestPageWriterMatchesSingleCallAdapters` (partial: new records only; no overwrite, index-affecting, duplicate, or delete cells) |
 | C06 | S2, S4 | A grant delete in the same page removes the buffered put (never lands) and deletes a store row with its index rows; `DropStagedRows` selector semantics equal the store's `DeleteSourceCacheRows*` on the same input for all twelve cells. | O2, O3 | exhaustive over P4's 3 + 12 cells | now | none |
 | C07 | S1 | `LedgerRow.*_written` equals the count of distinct records the page committed, after in-page dedup and doomed-put removal. | O3 vs an independent count | exhaustive over 4 kinds × {no dups, dups} | now | **Failed** by measurement, then fixed. A page staging duplicates reported `2, 3, 3, 3` over a keyspace of `1, 2, 2, 2`; `stageResourceTypeRecords` also had no dedup pre-pass at all. Fixed by taking the counts from the stagers (`11f8c8c3`, `21d4349e`). Candidates `TestLedgerRowCountsDistinctKeysNotBufferedRecords`, `TestFreshSyncWithinCallDuplicateResourceTypeDedup`; the no-duplicate cells are not asserted against a key count. |
-| C08 | S3 | Every P5 cell: exact match returns the row; each single-field difference reads absent and increments `ledgerMismatches` once; `next_page_token` and `children` differences do not affect the match; scrubbed rows match by hash. | O6 | exhaustive over P5 (20) | now | `TestLedgerIdentityMismatchReadsAsAbsent` (partial: token only, unscrubbed) |
+| C08 | S3 | Every P5 cell: exact match returns the row; each single-field difference reads absent and increments `Ledger.mismatches` once; `next_page_token` and `children` differences do not affect the match; scrubbed rows match by hash. | O6 | exhaustive over P5 (20) | now | `TestLedgerIdentityMismatchReadsAsAbsent` (partial: token only, unscrubbed) |
 | C09 | S3 | `encodeLedgerKey` is injective over the tuple and prefix-ordered by (op, rt, rid); `IterateLedgerRowsForOp` and `IterateLedgerRowsForResource` return exactly the rows under the prefix and no neighbour's. | key round-trip + prefix scan vs. an independent filter | exhaustive over field-boundary cases (empty strings, shared prefixes, `TypeScoped` flip) | now | `TestLedgerKeyEncoding` (partial) |
 | C10 | S2 | The page path consumes and honours the fresh-sync proofs (`takeFresh*Empty`) identically to `Put*`: a proof consumed by a page whose commit fails leaves the slow path armed; a later colliding overwrite after a page uses read-before-write. | O2 plus `SourceScopeMayExist` and proof-flag inspection | exhaustive over 4 kinds × {commit ok, commit fail} | now | none |
 | C11 | S4, S6 | Fresh pages are NoSync; resumed pages Sync; takeover, bucket, stamp always Sync (all P6 cells). | P6 write-option inspection + crash image | exhaustive over P6 (6) | now | none (`TestPageUnitCrashImageStoreEqualsLedger` shows the fresh half indirectly) |
 | C12 | S6 | The stamp is durable before the first row: every crash image with a row has the stamp; F4 yields L1; token-only SDK refuses L1 and L2, accepts L0, L4, L5, and (assert) L3, L6. | O3, O4 | exhaustive over D2 × {this SDK, token-only} | now | `TestLedgerInFlightStampGatesTokenOnlyReaders` (partial: L0, L2, L4) |
-| C13 | S6 | `CheckpointSync` and plain `EndSync` are refused in L1, L2, L3, L6 with the named errors and accepted in L0; accepted again after `ResetForNewSync`, `DropLedger`, or `DropLedger`. | error identity + O3 | exhaustive over P1's two rows × 7 states | now | `TestLedgeredSyncSealsOnlyWithStats`, `TestCheckpointRefusedWhileLedgerRowsExistWithoutTheStamp` (partial) |
+| C13 | S6 | `CheckpointSync` and plain `EndSync` are refused in L1, L2, L3, L6 with the named errors and accepted in L0; accepted again after `ResetForNewSync`, `DropLedger`. | error identity + O3 | exhaustive over P1's two rows × 7 states | now | `TestLedgeredSyncSealsOnlyWithStats`, `TestCheckpointRefusedWhileLedgerRowsExistWithoutTheStamp` (partial) |
 | C14 | S7 | Seal-cut dichotomy at F7, F8, F9, F10, F11 for each of the four D4 identities; second `EndSyncWithStats` after an unfinished cut is idempotent and reaches the finished image. | O10 (I2) | exhaustive over P2's seal cells (5 × 4) | now | `TestFailedSealDropsItsStatsOverlay` (F7-class, same process only) |
 | C15 | S8 | After seal without retain: every row's tokens and the frontier token are empty, hashes intact, identity compare (by hash) still finds every row; zero needle hits in any SST or WAL; purge is what makes the byte count zero (mutant `skipLedgerResiduePurge` shows non-zero). | O3, O5, O6 | exhaustive over {rows, frontier} × {retain off, retain on, mutant} | now | `TestLedgerScrubAtSealForSensitiveTokens`, `TestLedgerScrubLeavesNoSSTResidue`, `TestLedgerScrubReachesTheTakeoverFrontier` |
 | C16 | S8 | The retain declaration is a fact written by page commit and by takeover when the flag is set; it survives a crash and a reopen in a process that never called `SetRetainLedgerTokens`; absent fact scrubs; an unreadable fact scrubs and returns the error. | O3, O5 | exhaustive over {flag only, fact only, both, neither, read error} × {same process, new process} | now | `TestRetainDeclarationSurvivesCrashAndItsAbsenceScrubs` (partial: no read-error cell) |
@@ -501,16 +502,16 @@ instrument is required (§7).
 | C18 | S5 | Facts: bare (`0x01`), valued (`0x02`+bytes), and empty-valued (`0x02` alone) round-trip through `LedgerFacts`; last writer wins across pages; facts survive reopen; `SetFact` after `SetFactValue` on the same key overwrites. | O3 | exhaustive over {bare, valued, empty} × {page, takeover} × {first write, overwrite} | now | `TestLedgerFactsAndBucketsRideThePageUnit` (partial) |
 | C19 | S5 | Buckets keyed (runID, worker) are blind-written whole; `SumLedgerCounters` folds all five fields across workers and runs; `TakeoverBucketWorker` and `RunBucketWorker` never collide with a page worker including `0`; `PutCounterBucket` is Sync and outside any page. | O7, O3 | exhaustive over {worker 0, worker N, takeover, run} × {one run, two runs} | now | `TestTakeoverBucketSurvivesWorkerZerosPage`, `TestTakeoverPersistsStatsOnlyCounters` (partial) |
 | C20 | S5, S6 | Takeover writes frontier + facts + retain fact (if set) + bucket and clears the token in one Sync batch; no token → `""` and no write; no open sync → refused; F5 yields one of exactly two images. | O3, I1 | exhaustive over {token, no token} × {sync open, none} × {retain on, off}; F5 sampled | now | `TestLedgerTakeoverIsOneUnit`, `TestLedgerTakeoverRequiresOpenSync` |
-| C21 | S5 | `DropLedger`, `DropLedger`, `ResetForNewSync` each remove all of rows, facts, buckets, frontier, retain fact, and clear the stamp; `ResetForNewSync` is refused while `IsFreshSync`; F12 yields L6 and L6 is recoverable by any of the three; `BoundSyncFinished` is true exactly when `ended_at` is set. | O3 | exhaustive over 3 ops × 6 sub-families + F12 | now | `TestDropLedgerWipesEveryLedgerSubFamily`, `TestDropLedgerClearsTheInFlightStamp`, `TestLedgerWipedWithItsSync`, `TestResetForNewSyncClearsTheInFlightStamp` |
-| C22 | S11 | Every mutating `PageLedgerStore`/`PageLedgerStore` method on `pebbleStore` marks dirty on success and not on error; `Close` after a page commit persists it. | O8 | exhaustive over {Commit, TakeoverToken, PutCounterBucket, DropLedger, DropLedger, EndSyncWithStats} × {ok, err} | now | `pebble_store_dirty_test.go` (partial: success cells) |
+| C21 | S5 | `DropLedger`, `ResetForNewSync` each remove all of rows, facts, buckets, frontier, retain fact, and clear the stamp; `ResetForNewSync` is refused while `IsFreshSync`; F12 yields L6 and L6 is recoverable by either operation; `BoundSyncFinished` is true exactly when `ended_at` is set. | O3 | exhaustive over 2 ops × 6 sub-families + F12 | now | `TestDropLedgerWipesEveryLedgerSubFamily`, `TestDropLedgerClearsTheInFlightStamp`, `TestLedgerWipedWithItsSync`, `TestResetForNewSyncClearsTheInFlightStamp` |
+| C22 | S11 | Every mutating `PageLedgerStore` method on `pebbleStore` marks dirty on success and not on error; `Close` after a page commit persists it. | O8 | exhaustive over {Commit, TakeoverToken, PutCounterBucket, DropLedger, EndSyncWithStats} × {ok, err} | now | `pebble_store_dirty_test.go` (partial: success cells) |
 | C23 | S11 | The set of `pebbleStore` methods that mutate records equals the set that calls `seam` first, modulo a stated exclusion list; `StrictWriteHook` refuses outside `WithOpenPage`, allows inside, and `WithPageWriteBypass` allows outside. | O9 | exhaustive by meta-test | now | `TestWriteHookOutcomes`, `TestWriteHookContextHelpers` close the `StrictWriteHook` clause; the set-equality clause has no test. |
-| C24 | S11 | `pebbleStore` satisfies `PageLedgerStore`, `PageLedgerStore`, `WriteHookStore` through the `dotc1z` open path; the SQLite store satisfies none (type assertion false, no panic). | compile-time + runtime assertion | single per store | now | the three assertions at `pebble_store.go:33,40,41` plus runtime `ok` checks in `pebble_store_dirty_test.go` and `pebble_store_write_hook_test.go`; absence by `TestSQLiteStoreOffersNoLedgerCapabilities` |
+| C24 | S11 | `pebbleStore` satisfies `PageLedgerStore` and `WriteHookStore` through the `dotc1z` open path; the SQLite store satisfies none (type assertion false, no panic). | compile-time + runtime assertion | single per store | now | the `PageLedgerStore` and `WriteHookStore` assertions in `pebble_store.go` plus runtime `ok` checks in `pebble_store_dirty_test.go` and `pebble_store_write_hook_test.go`; absence by `TestSQLiteStoreOffersNoLedgerCapabilities` |
 | C25 | S12 | For each D10 reader × {L4, L5}: output on the file equals output with `LedgerBounds` excised. | P7 differential | exhaustive over P7 (16) | now for Stats, CLI readers, sanitizer, clone, token-only Open, rebuild, fold | `TestCompactPebbleFoldDropsInheritedBaseLedger` (the fold cell only) |
 | C26 | S10 | Fold and rebuild write `CompactionProvenance` with mode, base, partials, counts; chained folds accumulate; timings fold via `FoldCallStats`/`FoldDurations`; a source with no sidecar contributes nothing; no output writes a token. | sidecar read + token absence | exhaustive over {fold, k-way, overlay} × {base has sidecar, has none} × {first, chained} | now | `compactor_provenance_test.go` (partial) |
 | C27 | S10 | `EndSyncWithStats` lays stats over the counted record and persists ingest quality; a failed finalize drops the overlay; a later plain `EndSync` on a token-only sync does not see a stale overlay; F11 leaves a finished file without a sidecar and `SourceCacheReplayEligible` fails closed on it. | `ReadSyncStatsRecord`, overlay inspection | exhaustive over {ok, finalize fail, stats-persist fail} × {ledgered, token-only} | now | `TestFailedSealDropsItsStatsOverlay`, `TestLedgeredSyncSealsOnlyWithStats` (partial) |
 | C28 | S1 | Every `RecordBatch` commit site introduced by the change is in `commitPointRegistry` with a hook or a stated exclusion. | registry meta-test | exhaustive | now | `commit_point_enumeration_test.go` |
 | C29 | S1, S9 | N page units on distinct pages commit concurrently under `-race` with O1 holding per page; a page commit racing `Close` is either fully in the saved file or absent; a page commit racing `EndSyncWithStats` is refused or lands before scrub (never after). | O1, O3 under `-race` | sampled: N ∈ {2, 8, 32} | now | none |
-| C30 | S9 | Page commit ns/page and bytes/page within a stated ratio of `Put*Records` at 100/1k/10k; seal time vs rows at 10^3–10^5 with and without the deferred grant index; walk time vs rows; `ledgerActive` cost per `CheckpointSync` on an L0 file is one seek. | O11 (I8) | sampled | now, but not runnable on the authoring machine | `BenchmarkLedgerPageCommit`, `BenchmarkLedgerPageCommitSync`, `BenchmarkLedgerResumeWalk`, `BenchmarkLedgerSealCost`, `BenchmarkLedgerSealCostNoGrantIndex` (exist, unrun) |
+| C30 | S9 | Page commit ns/page and bytes/page within a stated ratio of `Put*Records` at 100/1k/10k; seal time vs rows at 10^3–10^5 with and without the deferred grant index; walk time vs rows; `Ledger.active` cost per `CheckpointSync` on an L0 file is one seek. | O11 (I8) | sampled | now, but not runnable on the authoring machine | `BenchmarkLedgerPageCommit`, `BenchmarkLedgerPageCommitSync`, `BenchmarkLedgerResumeWalk`, `BenchmarkLedgerSealCost`, `BenchmarkLedgerSealCostNoGrantIndex` (exist, unrun) |
 | C31 | all | Each oracle O1–O10 catches a planted violation: torn page (write records without the row), wrong-field row, unscrubbed row, missing stamp, skipped purge, missing dirty mark, unguarded writer. | mutant per oracle | exhaustive over oracles | now | `TestLedgerScrubLeavesNoSSTResidue` mutant arm only |
 | C32 | S3, S4 | Deferred: the resume walk writes nothing; absent or mismatched row → re-run, never skip; a scrubbed row in an unfinished file (L3) is read as "done" only because every action is done at seal (OQ-1); the syncer calls `BoundSyncFinished` then `DropLedger` on rebind of a finished sync; every non-page write on the sync path is registered through `WithPageWriteBypass`; one commit per page; counters and facts producers; takeover trigger and resume from the frontier (§5.1); stats fold across attempts. | deferred | deferred | deferred to the syncer integration change | none |
 
@@ -521,7 +522,7 @@ fold half of C25 did not.
 
 ### 5.1 C32's takeover clause, itemized
 
-The engine's half of the takeover is a move: `takeoverToken` copies the
+The engine's half of the takeover is a move: `Ledger.takeoverRecord` copies the
 token string into `LedgerFrontier.State` unparsed and clears it on the
 sync-run record in one Sync batch (C20, `TestLedgerTakeoverIsOneUnit`,
 `TestLedgerTakeoverCrashImages`). Nothing in this diff reads the frontier
@@ -559,7 +560,7 @@ The stage claim S# is **closed** when every criterion citing it is
 verified, failed-and-change-ordered, explicitly excluded, or deferred
 with a named owner.
 
-Bounded closure (P1–P7, 317 cells) is claimed only when a cell log
+Bounded closure (P1–P7, 309 cells) is claimed only when a cell log
 exists per product. Sampled criteria (C02's k%, C17, C29, C30) report the
 sample and never claim exhaustion.
 
@@ -572,7 +573,7 @@ sample and never claim exhaustion.
   planted torn page (records without row via `Put*Records` on the same
   batch boundary) is caught.
 - **I2 Seal-cut harness.** `testSeams` hook after each of scrub, purge,
-  `clearLedgerInFlight`, `PutSyncRunRecord(ended_at)`, and a
+  `Ledger.clearInFlightLocked`, `PutSyncRunRecord(ended_at)`, and a
   `PersistSyncStats` failure injection; crash or return at the hook;
   reopen under each D4 identity; apply O10. Requires hooks that do not
   exist yet at F8, F9, F10 (obligation, §9).
@@ -581,7 +582,7 @@ sample and never claim exhaustion.
   `LedgerBounds` and the stamp key. Premise check: a deliberately
   different record set produces a diff.
 - **I4 Identity table.** Table-driven over P5's 20 cells with
-  `ledgerMismatches` deltas (O6).
+  `Ledger.mismatches` deltas (O6).
 - **I5 Sub-family matrix.** For each D6 surface, execute once on an L2
   file with every sub-family populated, then O3 per D5 family: state
   whether each is present, cleared, or unchanged. Produces the P3 cell
@@ -616,14 +617,14 @@ sample and never claim exhaustion.
 
 Hooks and helpers the instruments need that do not exist at `04644cf6`:
 
-- `testSeams` injection points after purge, after `clearLedgerInFlight`,
+- `testSeams` injection points after purge, after `Ledger.clearInFlightLocked`,
   and after `PutSyncRunRecord(ended_at)` inside `endSyncFinalize`
   (I2). Today `skipLedgerResiduePurge` is the only seal-window hook.
 - A `PersistSyncStats` failure injection (I2, C27 F11 cell).
 - A write-options observer on the page-unit batch commit, or an
   equivalent `CrashableMem` assertion that a Sync write is never
   unsynced in an image (C11).
-- A `ledgerMismatches` reader for tests (C08). It is an unexported
+- A `Ledger.mismatches` reader for tests (C08). It is an unexported
   atomic today; a `test_seams.go` accessor suffices.
 - A `DropStagedRows` store-half comparator: the buffer-half selector must
   be checked against `DeleteSourceCacheRowsInScope` on identical input
@@ -634,7 +635,7 @@ None of these change production behaviour.
 ## 10. Open questions (OQ-#) with settling checks
 
 - **OQ-1 Scrubbed rows in an unfinished file (L3).** A crash between
-  `scrubLedgerTokens` and `ended_at` leaves rows with
+  `Ledger.scrubTokens` and `ended_at` leaves rows with
   `next_page_token = ""` and a non-empty hash. The future walk must not
   read `""` as "no next page" for an action that was mid-pagination.
   Today this is safe only because scrub runs after every action is done.
@@ -663,7 +664,7 @@ None of these change production behaviour.
   - **OQ-5 `DropLedger` on an unfinished ledgered sync.** It removed keys
     with `DropKeyRange` and cleared the stamp without scrub or purge, so
     pre-scrub token bytes stayed in the SSTs a checkpoint hard-links, and
-    the later seal's `ledgerActive` gate found no ledger and skipped the
+    the later seal's `Ledger.active` gate found no ledger and skipped the
     purge. **Answered: purge.** A durable marker outlives the rows, so the
     seal purges bytes whose rows are already gone. `ResetForNewSync` needs
     none: it excises the whole v3 keyspace, so no SST survives to hold the
@@ -674,7 +675,7 @@ None of these change production behaviour.
     `TestCompactPebbleFoldDropsInheritedBaseLedger`. CO-003 closed.
   - **OQ-7 Purge cost inside `EndSync`.** Half answered. A file that never
     had a ledger pays nothing: `endSyncFinalize` gates the purge on
-    `ledgerActive`, pinned by `TestLedgerFreeSealSkipsResiduePurge` against
+    `Ledger.active`, pinned by `TestLedgerFreeSealSkipsResiduePurge` against
     a counter. The ledgered half stands as written — with the deferred
     grant index off, seal has no other large step to hide behind. Settling
     check: I8 `BenchmarkLedgerSealCostNoGrantIndex` at 10^5 rows on an
@@ -716,3 +717,10 @@ None of these change production behaviour.
   left its page tokens in checkpointed SSTs with no rows for the seal's
   gate to find. Fixed with a durable marker that outlives the rows for
   `DropLedger`, and a whole-keyspace excise for `ResetForNewSync`.
+
+- **CO-007 (clarification).** S1 and C01 previously claimed a failed page
+  commit left the file byte-identical. `Ledger.markInFlightLocked` writes
+  the durable in-flight stamp before the page batch, so that claim was
+  false. The atomic unit covers the page's records, indexes, row, facts,
+  and bucket; the stamp may survive a failed commit. `PageWriter.Commit`
+  and C01's evidence now state that exception. No runtime behavior changes.

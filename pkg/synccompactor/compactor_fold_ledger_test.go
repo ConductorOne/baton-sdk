@@ -40,8 +40,6 @@ func buildLedgeredPebbleInput(t *testing.T, ctx context.Context, path string, st
 	require.NoError(t, err)
 	ledger, ok := w.(c1zstore.PageLedgerStore)
 	require.True(t, ok, "the pebble store implements the page ledger")
-	stats, ok := w.(c1zstore.PageLedgerStore)
-	require.True(t, ok, "the pebble store implements the stats side of the ledger")
 
 	syncID, err := w.StartNewSync(ctx, st, "")
 	require.NoError(t, err)
@@ -97,7 +95,7 @@ func buildLedgeredPebbleInput(t *testing.T, ctx context.Context, path string, st
 	require.True(t, found, "fixture did not record a ledger row")
 
 	require.NoError(t, w.PutAsset(ctx, v2.AssetRef_builder{Id: "asset-1"}.Build(), "text/plain", []byte("payload")))
-	require.NoError(t, stats.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+	require.NoError(t, ledger.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 	require.NoError(t, w.Close(ctx))
 	return syncID
 }
@@ -109,7 +107,7 @@ func buildLedgeredPebbleInput(t *testing.T, ctx context.Context, path string, st
 // the fold renames the sync-run record to a fresh id. They then describe
 // an ingest the output no longer claims.
 //
-// Two things go wrong if they stay: ledgerActive reports true, so a
+// Two things go wrong if they stay: Ledger.active reports true, so a
 // later rebind that writes a checkpoint token fails with
 // ErrLedgeredSyncWritesNoToken; and LedgerCounters reports the base
 // ingest's totals as this artifact's.
@@ -161,7 +159,7 @@ func TestCompactPebbleFoldDropsInheritedBaseLedger(t *testing.T) {
 
 	// The consequence that bites in production: a rebound sync must be
 	// able to write a checkpoint token. An inherited ledger makes
-	// ledgerActive true and this fails with ErrLedgeredSyncWritesNoToken.
+	// Ledger.active true and this fails with ErrLedgeredSyncWritesNoToken.
 	require.NoError(t, store.SetCurrentSync(ctx, out.SyncID))
 	require.NoError(t, store.CheckpointSync(ctx, "token-after-fold"),
 		"an inherited ledger blocks the fold output from checkpointing a later sync")

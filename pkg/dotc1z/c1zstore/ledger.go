@@ -192,8 +192,7 @@ type SyncStats struct {
 // PageWriter buffers one page's writes and commits them with the
 // page's ledger row in one atomic unit. Not safe for concurrent use.
 // The Put* methods mirror connectorstore.Writer's so a handler can be
-// pointed at either. Discard drops everything; a discarded or failed
-// page is, to the store, a page that never ran.
+// pointed at either. Discard drops buffered writes.
 type PageWriter interface {
 	PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error
 	PutResources(ctx context.Context, resources ...*v2.Resource) error
@@ -235,8 +234,11 @@ type PageWriter interface {
 	SetCounterBucket(runID string, worker uint32, counters LedgerCounters) error
 
 	// Commit applies the buffered records and the ledger row for id in
-	// one unit. row may be nil (a bare completion). On failure nothing
-	// landed and the writer remains usable for a retry.
+	// one unit. row may be nil (a bare completion). On failure the page
+	// records, indexes, ledger row, facts, and bucket do not land, and the
+	// writer remains usable for a retry. Store metadata may still change:
+	// Pebble durably stamps the sync as ledgered before committing the page,
+	// so a failed first page does not permit falling back to checkpoint tokens.
 	Commit(ctx context.Context, id LedgerActionIdentity, row *LedgerRow) error
 	Discard()
 }

@@ -41,7 +41,7 @@ Each entry: status; candidate artifact (exists at `04644cf6`, read, not
 run under this plan); the cells the candidate does not cover; the
 instrument that closes it.
 
-### C01 Failed commit lands nothing; success lands everything together
+### C01 Failed commit leaves page writes absent; stamp may survive
 
 - Status: evidence incomplete.
 - Candidate: `TestPageUnitCommitIsOneFact`,
@@ -51,8 +51,10 @@ instrument that closes it.
 - Not covered by the candidate: the retain-fact side-state cell under a
   failed commit; a failed commit followed by a successful re-commit of
   the same unit with O1 equality on the first and full presence on the
-  second. The "unit stays usable" half is asserted; the "byte-identical"
-  half uses a record count, not a keyspace digest (O1 as written).
+  second. The "unit stays usable" half is asserted. Whole-keyspace
+  equality is not the contract: the separately written in-flight stamp
+  may survive a failed commit (plan CO-007). Page-write equality needs
+  to exclude that metadata effect.
 - Closes with: I3 driver plus a keyspace digest helper.
 
 ### C02 No torn page in any crash image
@@ -140,7 +142,7 @@ instrument that closes it.
 - Status: evidence incomplete.
 - Candidate: `TestLedgerIdentityMismatchReadsAsAbsent` (page-token
   difference only, unscrubbed).
-- Not covered: 17 of 20 P5 cells; `ledgerMismatches` delta is not
+- Not covered: 17 of 20 P5 cells; `Ledger.mismatches` delta is not
   asserted (no test accessor; plan §9).
 - Closes with: I4.
 
@@ -165,8 +167,8 @@ instrument that closes it.
 
 - Status: not assessed.
 - Reading: `page_unit.go:Commit` uses `writeOpts(durability)` and
-  `pebble.NoSync` when `e.freshSync`; `takeoverToken` and
-  `PutLedgerCounterBucket` use `pebble.Sync`; `markLedgerInFlight` uses
+  `pebble.NoSync` when `e.freshSync`; `Ledger.takeoverRecord` and
+  `Ledger.PutCounterBucket` use `pebble.Sync`; `Ledger.markInFlightLocked` uses
   `MetaSet` with Sync. No test asserts the option chosen; the crash-image
   test shows the fresh half indirectly.
 - Closes with: the write-options observer in plan §9, or I1's "a Sync
@@ -189,7 +191,7 @@ instrument that closes it.
   refused, `EndSyncWithStats` accepted),
   `TestCheckpointRefusedWhileLedgerRowsExistWithoutTheStamp` (L6).
 - Not covered: L1 and L3 for both operations; L0 acceptance after
-  `DropLedger` and after `DropLedger` (only `ResetForNewSync` is
+  `DropLedger` (only `ResetForNewSync` is
   covered, in `TestResetForNewSyncClearsTheInFlightStamp`).
 - Closes with: a table test over P1's two rows × 7 states.
 
@@ -201,7 +203,7 @@ instrument that closes it.
 - Not covered: F8, F9, F10, F11 entirely; every cut under the three
   reopen identities; the idempotent second `EndSyncWithStats`.
 - Blocked on: the `testSeams` hooks named in plan §9 (after purge, after
-  `clearLedgerInFlight`, after `ended_at`; `PersistSyncStats` failure).
+  `Ledger.clearInFlightLocked`, after `ended_at`; `PersistSyncStats` failure).
 - Closes with: I2.
 
 ### C15 Scrub result and byte-level absence
@@ -233,7 +235,7 @@ instrument that closes it.
 ### C17 Scrub batch bound and idempotence
 
 - Status: not assessed.
-- Reading: `scrubLedgerTokens` re-mints at `ledgerScrubBatchBytes =
+- Reading: `Ledger.scrubTokens` re-mints at `ledgerScrubBatchBytes =
   16<<20` and skips rows already scrubbed. Not asserted.
 - Closes with: a 10^4-row scrub with a batch-count observer and a second
   call asserting zero writes.
@@ -285,7 +287,7 @@ instrument that closes it.
   not the bytes.
 - The bytes are covered separately, and were a defect. A ledger dropped
   or reset mid-sync leaves its verbatim page tokens in the SSTs a
-  checkpoint hard-links, and `endSyncFinalize`'s `ledgerActive` gate finds
+  checkpoint hard-links, and `endSyncFinalize`'s `Ledger.active` gate finds
   no ledger on the later seal and skips the purge. Fixed with a durable
   marker that outlives the rows; `TestLedgerResidueOutlivesTheLedger`
   covers both deletion shapes (`DropLedger` mid-sync then seal; an
@@ -300,10 +302,10 @@ instrument that closes it.
   narrowed SSTs and needed a second marker kind plus an O(file) compaction
   at the next seal; a whole-keyspace excise followed by the Open-time
   initialization removed both.)
-- Not covered: F12 image (L6) and its recovery by each of the three
+- Not covered: F12 image (L6) and its recovery by each of the two
   operations; `ResetForNewSync` refused while `IsFreshSync`;
   `BoundSyncFinished` ⇔ `ended_at`.
-- Closes with: I5 rows for the three operations; I1 F12 arm.
+- Closes with: I5 rows for the two operations; I1 F12 arm.
 
 ### C22 Store dirty marking
 
@@ -311,7 +313,7 @@ instrument that closes it.
 - Candidate: `pkg/dotc1z/pebble_store_dirty_test.go`
   (`TestPebbleStorePageCommitMarksDirty`,
   `TestPebbleStoreDropLedgerMarksDirty`, and siblings), plus
-  `TestPebbleStoreDirtyCoverage`, a meta-test that walks three capability
+  `TestPebbleStoreDirtyCoverage`, a meta-test that walks two capability
   interfaces by reflection and fails on any method not classified as
   marking dirty or justified as not needing to.
 - The meta-test found a defect in a method set it did not yet scan.
@@ -352,7 +354,7 @@ instrument that closes it.
 ### C24 Capability presence and absence
 
 - Status: verified to stated coverage (single per store, both stores).
-- Candidate: the three assertions at `pebble_store.go:33,40,41` cover
+- Candidate: the `PageLedgerStore` and `WriteHookStore` assertions in `pebble_store.go` cover
   `pebbleStore` through the `dotc1z` open path, plus the runtime `ok`
   checks in `pebble_store_dirty_test.go` and
   `pebble_store_write_hook_test.go`. A comment on the assertions records
@@ -360,13 +362,12 @@ instrument that closes it.
   promoted mutating method satisfies an interface while skipping
   `markDirty`. `TestPebbleStoreDirtyCoverage` covers that.
 - Absence: `TestSQLiteStoreOffersNoLedgerCapabilities` probes a store
-  opened with `WithEngine(EngineSQLite)` for all three and requires false
-  on each. `*C1File` has none of the five methods, so the result is a
-  property of the type, not of the file's state.
+  opened with `WithEngine(EngineSQLite)` for both interfaces and requires
+  false on each. The result is a property of `*C1File`, not the file's state.
 - Mutation adequacy. Giving `*C1File` a `SetWriteHook` method fails the
   `WriteHookStore` assertion by name. Run and reverted. The test also
   carries a premise assertion — the same probe finds
-  `connectorstore.DBSizeProvider`, which the store does offer — so three
+  `connectorstore.DBSizeProvider`, which the store does offer — so both
   falses cannot come from probing a store that implements nothing.
 - Not covered: nothing in the criterion as stated. The criterion does not
   ask whether a caller that finds no capability behaves correctly; that is
@@ -415,8 +416,8 @@ instrument that closes it.
 - Status: verified to stated coverage.
 - Candidate: `commit_point_enumeration_test.go` — entries for
   `page_unit.go:Commit`, `adapter_page.go:Commit`,
-  `ledger.go:scrubLedgerTokens`, `ledger.go:takeoverToken`, and the
-  `ledger.go:PutLedgerCounterBucket` exclusion. Runs green in the package
+  `ledger.go:Ledger.scrubTokens`, `ledger.go:Ledger.takeoverRecord`, and the
+  `ledger.go:Ledger.PutCounterBucket` exclusion. Runs green in the package
   run above.
 - What that means: the registry matches the code as the meta-test reads
   it. A commit point the meta-test's scan does not reach is outside what
@@ -470,7 +471,7 @@ instrument that closes it.
 ## Explicit exclusions (plan §3.4)
 
 - P5 hash collision at 128 bits: not constructible.
-- Concurrent `Commit` on a single `PageUnit`: single-goroutine by
+- Concurrent `Commit` on a single `pageUnit`: single-goroutine by
   contract; the `done` guard is asserted once under C03.
 - SQLite store ledger behaviour: none exists; one negative assertion
   under C24.
@@ -490,9 +491,8 @@ results except where the note below names the test that asserts them.
 | scrub | W (token fields) | — | — | W (token) | R | — | — |
 | purge | bytes | bytes | bytes | bytes | bytes | — | — |
 | `DropLedger` | C | C | C | C | C | C | — |
-| `DropLedger` | C | C | C | C | C | C | — |
 | `ResetForNewSync` | C | C | C | C | C | C | C (whole span) |
-| `ledgerActive` | R | R | R | R | R | R | — |
+| `Ledger.active` | R | R | R | R | R | R | — |
 | `CloneSync` | copy | copy | copy | copy | copy | copy | copy |
 | compactor fold | C | C | C | C | C | C | rewritten |
 
@@ -506,7 +506,7 @@ row's `bytes` cells are asserted by the needle scans in
 post image and none of them in the pre image, and the stamp's W (Sync)
 lands ahead of the batch, which is the mid image. That also settles the
 `TakeoverToken × L0` cell in P1. The `PutCounterBucket` stamp cell is still
-from reading `ledger.go:PutLedgerCounterBucket`; the rest of the table is a
+from reading `ledger.go:Ledger.PutCounterBucket`; the rest of the table is a
 reading result.
 
 ## Evidence commands
@@ -516,10 +516,10 @@ these. Listed so a next pass can run a criterion's candidates alone.
 Package path `pkg/dotc1z/engine/pebble` unless stated.
 
 ```
-go test -run 'TestPageUnit|TestLedger|TestLedgered|TestCheckpointRefused|TestResetForNewSync|TestTakeover|TestRetainDeclaration|TestDropLedger|TestFailedSeal|TestDropLedger' ./pkg/dotc1z/engine/pebble/
+go test -run 'TestPageUnit|TestLedger|TestLedgered|TestCheckpointRefused|TestResetForNewSync|TestTakeover|TestRetainDeclaration|TestDropLedger|TestFailedSeal' ./pkg/dotc1z/engine/pebble/
 go test -run 'TestPageWriter' ./pkg/dotc1z/engine/pebble/
 go test -run 'TestCommitPoint' ./pkg/dotc1z/engine/pebble/
-go test -run 'TestPebbleStore.*Dirty|TestWriteSeam' ./pkg/dotc1z/
+go test -run 'TestPebbleStore.*Dirty|TestWriteHook' ./pkg/dotc1z/
 go test -run 'Provenance|TestCompactPebbleFold' ./pkg/synccompactor/
 go test -run 'TestClearCompactionSection|TestBuildCompactedToken' ./pkg/sync/
 go test -race -run 'TestPageUnit' ./pkg/dotc1z/engine/pebble/
@@ -531,7 +531,7 @@ go test -run '^$' -bench 'BenchmarkLedger' -benchtime 20x ./pkg/dotc1z/engine/pe
 None. C30 is open until I8 runs on an unloaded machine.
 
 OQ-7 is narrowed, not answered. The ledger-free half is settled without a
-benchmark: `endSyncFinalize` gates the purge on `ledgerActive`, so a file
+benchmark: `endSyncFinalize` gates the purge on `Ledger.active`, so a file
 that never had a ledger pays nothing, pinned by
 `TestLedgerFreeSealSkipsResiduePurge` against a counter. What remains is
 the ledgered half — whether the purge's compaction on a 10^5-row seal with

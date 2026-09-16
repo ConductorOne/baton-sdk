@@ -685,7 +685,7 @@ func TestLedgerFreeSealSkipsResiduePurge(t *testing.T) {
 		require.NoError(t, e.PutResourceRecords(ctx, ledgerTestResource("user", "u1")))
 		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 		require.Zero(t, e.test.ledgerResiduePurges.Load(),
-			"a sync with no ledger must not reach purgeLedgerResidue's db.Compact")
+			"a sync with no ledger must not reach Ledger.purgeResidue's db.Compact")
 	})
 
 	t.Run("ledgered: purge runs", func(t *testing.T) {
@@ -700,7 +700,7 @@ func TestLedgerFreeSealSkipsResiduePurge(t *testing.T) {
 }
 
 // The two ways a ledger leaves the keyspace without going through a seal.
-// In both, endSyncFinalize's ledgerActive gate finds no ledger and would
+// In both, endSyncFinalize's Ledger.active gate finds no ledger and would
 // skip the purge — the shapes that gate opened. DropLedger tombstones the
 // rows and leaves their bytes in the SSTs, so it owes a compaction and arms
 // the marker for it. ResetForNewSync excises the whole keyspace, so no SST

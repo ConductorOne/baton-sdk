@@ -498,7 +498,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// ingest this file no longer contains: the fold merges partials in
 	// and then renames the sync-run record to newSyncID below.
 	//
-	// Two things go wrong if they stay. ledgerActive reports true on the
+	// Two things go wrong if they stay. Ledger.active reports true on the
 	// output, so any later rebind that writes a checkpoint token gets
 	// ErrLedgeredSyncWritesNoToken. And LedgerCounters folds the base
 	// ingest's totals in as though they were this artifact's.
