@@ -1,8 +1,12 @@
-// exportcheck reports exported identifiers in the scoped packages that no
-// non-test code outside their own package refers to. Satisfying an
-// interface declared anywhere in the module or its imports counts as a
-// reference. A committed baseline holds the accepted set; the check fails
-// on names not in it.
+// exportcheck checks the scoped packages for two things a reviewer can't
+// see in a diff. Exported identifiers that no non-test code outside their
+// own package refers to (satisfying an interface declared anywhere in the
+// module or its imports counts). And type size: a struct over
+// maxStructMethods methods or maxStructFields fields, or an interface over
+// maxInterfaceMethods, is pinned at its baselined count and may only
+// shrink; a type under the limits may grow up to them. A committed
+// baseline holds the accepted exports and the pinned sizes; the check
+// fails on additions to either, and -update rewrites it.
 //
 //	go run -C tools/exportcheck . -dir ../.. -scope ./pkg/dotc1z/...,./pkg/synccompactor/... -baseline ../../.exportcheck-baseline
 //	go run -C tools/exportcheck . ... -update   # rewrite the baseline
@@ -56,6 +60,8 @@ func main() {
 	}
 
 	unused := findUnreferenced(all, inScope)
+	sizes := oversizedTypes(all, inScope)
+	unused = append(unused, sizes...)
 	sort.Strings(unused)
 
 	if *update {
@@ -77,19 +83,96 @@ func main() {
 	}
 	var fresh []string
 	for _, n := range unused {
-		if !accepted[n] {
-			fresh = append(fresh, n)
+		if accepted[n] {
+			continue
 		}
+		if size, ok := parseSizeLine(n); ok && sizeShrank(accepted, size) {
+			continue
+		}
+		fresh = append(fresh, n)
 	}
 	if len(fresh) == 0 {
 		fmt.Printf("exportcheck: ok (%d accepted)\n", len(unused))
 		return
 	}
-	fmt.Println("exportcheck: exported with no reference outside the package (unexport, or add to the baseline with -update):")
+	fmt.Println("exportcheck: new findings (fix, or accept with `make exportcheck-update` and say why in the PR):")
 	for _, n := range fresh {
 		fmt.Println("  " + n)
 	}
 	os.Exit(1)
+}
+
+const (
+	maxStructMethods    = 20
+	maxStructFields     = 15
+	maxInterfaceMethods = 10
+)
+
+// oversizedTypes returns "size pkgpath.Type methods=N fields=M" for every
+// named type in scope over a limit.
+func oversizedTypes(all []*packages.Package, inScope map[string]bool) []string {
+	var out []string
+	for _, p := range all {
+		if !inScope[p.PkgPath] || p.Types == nil || p.Name == "main" {
+			continue
+		}
+		scope := p.Types.Scope()
+		for _, name := range scope.Names() {
+			tn, ok := scope.Lookup(name).(*types.TypeName)
+			if !ok {
+				continue
+			}
+			named, ok := tn.Type().(*types.Named)
+			if !ok {
+				continue
+			}
+			methods, fields, over := 0, 0, false
+			switch u := named.Underlying().(type) {
+			case *types.Interface:
+				methods = u.NumMethods()
+				over = methods > maxInterfaceMethods
+			case *types.Struct:
+				methods = named.NumMethods()
+				fields = u.NumFields()
+				over = methods > maxStructMethods || fields > maxStructFields
+			default:
+				continue
+			}
+			if over {
+				out = append(out, sizeLine(p.PkgPath+"."+name, methods, fields))
+			}
+		}
+	}
+	return out
+}
+
+type typeSize struct {
+	name            string
+	methods, fields int
+}
+
+func sizeLine(name string, methods, fields int) string {
+	return fmt.Sprintf("size %s methods=%d fields=%d", name, methods, fields)
+}
+
+func parseSizeLine(l string) (typeSize, bool) {
+	var s typeSize
+	if _, err := fmt.Sscanf(l, "size %s methods=%d fields=%d", &s.name, &s.methods, &s.fields); err != nil {
+		return typeSize{}, false
+	}
+	return s, true
+}
+
+// sizeShrank reports whether the baseline pins name at a size no smaller
+// than the current one on both axes. A shrink passes without a baseline
+// update; -update lowers the pin.
+func sizeShrank(accepted map[string]bool, cur typeSize) bool {
+	for l := range accepted {
+		if base, ok := parseSizeLine(l); ok && base.name == cur.name {
+			return cur.methods <= base.methods && cur.fields <= base.fields
+		}
+	}
+	return false
 }
 
 // findUnreferenced returns "pkgpath.Name" (or "pkgpath.Type.Method") for

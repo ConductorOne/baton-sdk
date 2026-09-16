@@ -377,7 +377,7 @@ pkg/sdk/version.go:
 EXPORTCHECK_SCOPE := ./pkg/dotc1z/...,./pkg/synccompactor/...,./pkg/sync/...
 
 .PHONY: exportcheck
-exportcheck: ## Fail on exported names in the storage packages that nothing outside their package uses (see .exportcheck-baseline)
+exportcheck: ## Fail on new unreferenced exports or grown oversized types in the storage packages (see .exportcheck-baseline)
 	go run -C tools/exportcheck . -dir ../.. -scope $(EXPORTCHECK_SCOPE) -baseline ../../.exportcheck-baseline
 
 .PHONY: exportcheck-update

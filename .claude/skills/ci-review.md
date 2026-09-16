@@ -74,9 +74,14 @@ outrank everything below; a review with a design finding emits no comment
 findings.
 
 - Every exported name: who outside the package calls it? None, or only
-  tests: finding, unexport it. `make exportcheck` answers this for the
-  storage packages; a PR that adds to `.exportcheck-baseline` says why in
-  the PR.
+  tests: finding, unexport it.
+- Type size: a struct over 20 methods or 15 fields, or an interface over
+  10 methods, is pinned at its current size and may only shrink. A change
+  that grows one adds a method to the type that was there because it was
+  there; finding, ask what type the new methods belong to.
+- `make exportcheck` enforces both for the storage packages. A PR that
+  adds to `.exportcheck-baseline` says why in the PR; that is the only
+  path to growing a pinned type.
 - Every new interface: what implements it, and what else could? Two
   optional interfaces that a store never has one without the other are one
   interface.
