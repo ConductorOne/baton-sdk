@@ -351,10 +351,8 @@ func (u *PageUnit) Empty() bool {
 // Commit applies the buffered records and the ledger row for id in
 // one batch. row may be nil (a bare completion); its identity and
 // record counts are set here from id and the buffer, and committed_at
-// defaults to now. On success the unit is spent. On failure NOTHING
-// landed (the batch is discarded) and the unit stays usable for a
-// retry, which matches the brief's crash contract: a failed page is
-// indistinguishable from a page that never ran.
+// defaults to now. On success the unit is spent; on failure it stays
+// usable for a retry.
 func (u *PageUnit) Commit(ctx context.Context, id LedgerIdentity, row *v3.LedgerRow) error {
 	if u.done {
 		return ErrPageUnitCommitted
