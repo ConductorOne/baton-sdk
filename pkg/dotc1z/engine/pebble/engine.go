@@ -192,7 +192,7 @@ type Engine struct {
 	ledgerMismatches   atomic.Uint64
 	// ledgerInFlight mirrors the keyspaceVersionLedgerInFlight stamp
 	// (keyspace_version.go): set on Open when the file carries it, by the
-	// first PageUnit commit, cleared at seal.
+	// first pageUnit commit, cleared at seal.
 	ledgerInFlight atomic.Bool
 
 	// migratedOnOpen reports that this Open ran the in-place id-index

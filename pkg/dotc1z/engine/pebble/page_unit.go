@@ -1,6 +1,6 @@
 package pebble
 
-// PageUnit is the engine side of the atomic page (docs/tasks/sound-
+// pageUnit is the engine side of the atomic page (docs/tasks/sound-
 // syncs-solutions-brief.md §3.1): everything one syncer page writes,
 // plus the ledger row that records the page as done, committed as ONE
 // pebble batch. The store is therefore only ever in one of two states
@@ -53,9 +53,9 @@ var ErrPageUnitForeignSync = errors.New("pebble page unit: sync changed since th
 
 type resourceBufKey struct{ rt, id string }
 
-// PageUnit buffers one page's writes. Not safe for concurrent use; a
+// pageUnit buffers one page's writes. Not safe for concurrent use; a
 // page is executed by one worker.
-type PageUnit struct {
+type pageUnit struct {
 	e *Engine
 	// syncID is the sync open when the page was begun. Commit refuses to
 	// land in any other one (see ErrPageUnitForeignSync).
@@ -96,7 +96,7 @@ type ledgerFact struct {
 
 // StageFactValue records a sync-level fact with a value (a source-cache
 // hit's validator). Last writer wins across pages.
-func (u *PageUnit) StageFactValue(name, value string) error {
+func (u *pageUnit) StageFactValue(name, value string) error {
 	if u.done {
 		return ErrPageUnitCommitted
 	}
@@ -106,7 +106,7 @@ func (u *PageUnit) StageFactValue(name, value string) error {
 
 // StageFact records that this page established the named sync-level
 // fact (e.g. "needs_expansion"). Idempotent.
-func (u *PageUnit) StageFact(name string) error {
+func (u *pageUnit) StageFact(name string) error {
 	if u.done {
 		return ErrPageUnitCommitted
 	}
@@ -117,7 +117,7 @@ func (u *PageUnit) StageFact(name string) error {
 // StageCounterBucket sets the (run, worker) counter bucket this page's
 // commit writes. The value is the worker's cumulative total for the
 // run; the caller owns the cache. Last call wins.
-func (u *PageUnit) StageCounterBucket(runID string, worker uint32, bucket *v3.LedgerCounterBucket) error {
+func (u *pageUnit) StageCounterBucket(runID string, worker uint32, bucket *v3.LedgerCounterBucket) error {
 	if u.done {
 		return ErrPageUnitCommitted
 	}
@@ -129,13 +129,13 @@ func (u *PageUnit) StageCounterBucket(runID string, worker uint32, bucket *v3.Le
 	return nil
 }
 
-// NewPageUnit starts buffering a page, bound to the sync open now.
-func (e *Engine) NewPageUnit() *PageUnit {
-	return &PageUnit{e: e, syncID: e.CurrentSyncID()}
+// newPageUnit starts buffering a page, bound to the sync open now.
+func (e *Engine) newPageUnit() *pageUnit {
+	return &pageUnit{e: e, syncID: e.CurrentSyncID()}
 }
 
 // StageResourceTypes buffers resource types for the page's commit.
-func (u *PageUnit) StageResourceTypes(records ...*v3.ResourceTypeRecord) error {
+func (u *pageUnit) StageResourceTypes(records ...*v3.ResourceTypeRecord) error {
 	if u.done {
 		return ErrPageUnitCommitted
 	}
@@ -148,7 +148,7 @@ func (u *PageUnit) StageResourceTypes(records ...*v3.ResourceTypeRecord) error {
 }
 
 // StageResources buffers resources for the page's commit.
-func (u *PageUnit) StageResources(records ...*v3.ResourceRecord) error {
+func (u *pageUnit) StageResources(records ...*v3.ResourceRecord) error {
 	if u.done {
 		return ErrPageUnitCommitted
 	}
@@ -166,7 +166,7 @@ func (u *PageUnit) StageResources(records ...*v3.ResourceRecord) error {
 }
 
 // StageEntitlements buffers entitlements for the page's commit.
-func (u *PageUnit) StageEntitlements(records ...*v3.EntitlementRecord) error {
+func (u *pageUnit) StageEntitlements(records ...*v3.EntitlementRecord) error {
 	if u.done {
 		return ErrPageUnitCommitted
 	}
@@ -184,7 +184,7 @@ func (u *PageUnit) StageEntitlements(records ...*v3.EntitlementRecord) error {
 }
 
 // StageGrants buffers grants for the page's commit.
-func (u *PageUnit) StageGrants(records ...*v3.GrantRecord) error {
+func (u *pageUnit) StageGrants(records ...*v3.GrantRecord) error {
 	if u.done {
 		return ErrPageUnitCommitted
 	}
@@ -200,7 +200,7 @@ func (u *PageUnit) StageGrants(records ...*v3.GrantRecord) error {
 // resource if it has one (latest staged wins, matching the commit's
 // last-occurrence dedup), else the DB. Returns pebble.ErrNotFound as
 // the engine's GetResourceRecord does.
-func (u *PageUnit) GetResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (*v3.ResourceRecord, error) {
+func (u *pageUnit) GetResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (*v3.ResourceRecord, error) {
 	if u.done {
 		return nil, ErrPageUnitCommitted
 	}
@@ -214,7 +214,7 @@ func (u *PageUnit) GetResourceRecord(ctx context.Context, resourceTypeID, resour
 // the page's commit. A record whose refs derive no identity could not
 // have been stored, so it is an error, never a fallback to string
 // resolution (see DeleteGrantByRefs).
-func (u *PageUnit) StageGrantDeletes(records ...*v3.GrantRecord) error {
+func (u *pageUnit) StageGrantDeletes(records ...*v3.GrantRecord) error {
 	if u.done {
 		return ErrPageUnitCommitted
 	}
@@ -241,7 +241,7 @@ func (u *PageUnit) StageGrantDeletes(records ...*v3.GrantRecord) error {
 // bid:r: resource BID); principalIDs match grants by principal id and
 // resources by resource id, in scopeKey only — the same rules as the
 // store's scoped delete. Returns the number of buffered rows dropped.
-func (u *PageUnit) DropStagedRows(kind string, scopeKey string, canonicalIDs, principalIDs []string) (int, error) {
+func (u *pageUnit) DropStagedRows(kind string, scopeKey string, canonicalIDs, principalIDs []string) (int, error) {
 	if u.done {
 		return 0, ErrPageUnitCommitted
 	}
@@ -323,7 +323,7 @@ func (u *PageUnit) DropStagedRows(kind string, scopeKey string, canonicalIDs, pr
 // Guarded on done for the same reason as GetResourceRecord: release
 // clears the buffer, so a read of a staged id after Commit or Discard
 // would index a nil slice.
-func (u *PageUnit) GetEntitlementRecord(ctx context.Context, externalID string) (*v3.EntitlementRecord, error) {
+func (u *pageUnit) GetEntitlementRecord(ctx context.Context, externalID string) (*v3.EntitlementRecord, error) {
 	if u.done {
 		return nil, ErrPageUnitCommitted
 	}
@@ -341,7 +341,7 @@ func (u *PageUnit) GetEntitlementRecord(ctx context.Context, externalID string) 
 // writes on commit and is not empty. A caller that skipped it on the
 // strength of the four slices alone would silently drop the external
 // resource phase's replaced originals.
-func (u *PageUnit) Empty() bool {
+func (u *pageUnit) Empty() bool {
 	return len(u.resourceTypes) == 0 && len(u.resources) == 0 &&
 		len(u.entitlements) == 0 && len(u.grants) == 0 &&
 		len(u.grantDeletes) == 0 && len(u.facts) == 0 &&
@@ -353,7 +353,7 @@ func (u *PageUnit) Empty() bool {
 // record counts are set here from id and the buffer, and committed_at
 // defaults to now. On success the unit is spent; on failure it stays
 // usable for a retry.
-func (u *PageUnit) Commit(ctx context.Context, id LedgerIdentity, row *v3.LedgerRow) error {
+func (u *pageUnit) Commit(ctx context.Context, id ledgerIdentity, row *v3.LedgerRow) error {
 	if u.done {
 		return ErrPageUnitCommitted
 	}
@@ -502,9 +502,9 @@ func (u *PageUnit) Commit(ctx context.Context, id LedgerIdentity, row *v3.Ledger
 
 // Discard drops the buffer without writing. The page is then, to the
 // store, a page that never ran.
-func (u *PageUnit) Discard() { u.release() }
+func (u *pageUnit) Discard() { u.release() }
 
-func (u *PageUnit) release() {
+func (u *pageUnit) release() {
 	u.done = true
 	u.resourceTypes, u.resources, u.entitlements, u.grants = nil, nil, nil, nil
 	u.resourceIdx, u.entitlementIdx = nil, nil

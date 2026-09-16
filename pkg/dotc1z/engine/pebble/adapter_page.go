@@ -1,7 +1,7 @@
 package pebble
 
 // The v2-facing page unit: c1zstore.PageWriter / PageLedgerStore over
-// PageUnit (page_unit.go) and the ledger (ledger.go). This layer does
+// pageUnit (page_unit.go) and the ledger (ledger.go). This layer does
 // exactly what the single-call Put* adapters do between the syncer's
 // v2 messages and the engine's v3 records — translate, default
 // discovered_at, stamp the source scope — through the same shared
@@ -28,18 +28,18 @@ import (
 
 var _ c1zstore.PageLedgerStore = (*Engine)(nil)
 
-// pageWriter is the c1zstore.PageWriter over a PageUnit.
+// pageWriter is the c1zstore.PageWriter over a pageUnit.
 type pageWriter struct {
 	e      *Engine
 	syncID string
-	unit   *PageUnit
+	unit   *pageUnit
 }
 
 // BeginPage implements c1zstore.PageLedgerStore. The sync id is
 // captured at begin so a page that straddles nothing else's lifecycle
 // translates against the sync it was started in.
 func (e *Engine) BeginPage() c1zstore.PageWriter {
-	return &pageWriter{e: e, syncID: e.CurrentSyncID(), unit: e.NewPageUnit()}
+	return &pageWriter{e: e, syncID: e.CurrentSyncID(), unit: e.newPageUnit()}
 }
 
 func (w *pageWriter) requireSync() error {
@@ -111,7 +111,7 @@ func (w *pageWriter) DeleteGrants(ctx context.Context, grants ...*v2.Grant) erro
 }
 
 // DropStagedSourceCacheRows implements c1zstore.PageWriter: the
-// buffer half of a same-page tombstone (PageUnit.DropStagedRows).
+// buffer half of a same-page tombstone (pageUnit.DropStagedRows).
 func (w *pageWriter) DropStagedSourceCacheRows(kind sourcecache.RowKind, scopeKey string, canonicalIDs, principalIDs []string) (int, error) {
 	return w.unit.DropStagedRows(string(kind), scopeKey, canonicalIDs, principalIDs)
 }
@@ -142,7 +142,7 @@ func (w *pageWriter) Discard() { w.unit.Discard() }
 // identity-mismatch both read as not found (the mismatch is counted and
 // logged by the engine).
 func (e *Engine) GetLedgerRow(ctx context.Context, id c1zstore.LedgerActionIdentity) (*c1zstore.LedgerRow, bool, error) {
-	row, err := e.GetLedgerRowRecord(ctx, ledgerIdentityFromStore(id))
+	row, err := e.getLedgerRowRecord(ctx, ledgerIdentityFromStore(id))
 	switch {
 	case err == nil:
 		return ledgerRowFromProto(row), true, nil
@@ -155,7 +155,7 @@ func (e *Engine) GetLedgerRow(ctx context.Context, id c1zstore.LedgerActionIdent
 
 // LedgerCounters implements c1zstore.PageLedgerStore.
 func (e *Engine) LedgerCounters(ctx context.Context) (c1zstore.LedgerCounters, error) {
-	sum, err := e.SumLedgerCounters(ctx)
+	sum, err := e.sumLedgerCounters(ctx)
 	if err != nil {
 		return c1zstore.LedgerCounters{}, err
 	}
@@ -164,7 +164,7 @@ func (e *Engine) LedgerCounters(ctx context.Context) (c1zstore.LedgerCounters, e
 
 // LedgerFrontier implements c1zstore.PageLedgerStore.
 func (e *Engine) LedgerFrontier(ctx context.Context) (*c1zstore.LedgerFrontier, bool, error) {
-	f, found, err := e.GetLedgerFrontier(ctx)
+	f, found, err := e.getLedgerFrontier(ctx)
 	if err != nil || !found {
 		return nil, found, err
 	}
@@ -195,9 +195,9 @@ func ledgerCountersEmpty(c c1zstore.LedgerCounters) bool {
 		len(c.ConnectorCalls) == 0 && len(c.StepDurationsMs) == 0 && len(c.SessionCalls) == 0
 }
 
-// PutCounterBucket implements c1zstore.SyncStatsStore.
+// PutCounterBucket implements c1zstore.PageLedgerStore.
 func (e *Engine) PutCounterBucket(ctx context.Context, runID string, worker uint32, counters c1zstore.LedgerCounters) error {
-	return e.PutLedgerCounterBucket(ctx, runID, worker, ledgerCountersToProto(counters))
+	return e.putLedgerCounterBucket(ctx, runID, worker, ledgerCountersToProto(counters))
 }
 
 // syncStatsOverlay renders the syncer's seal-time stats as the partial
@@ -300,11 +300,11 @@ func ledgerCountersFromProto(b *v3.LedgerCounterBucket) c1zstore.LedgerCounters 
 	return out
 }
 
-func ledgerIdentityFromStore(id c1zstore.LedgerActionIdentity) LedgerIdentity {
-	return LedgerIdentity(id)
+func ledgerIdentityFromStore(id c1zstore.LedgerActionIdentity) ledgerIdentity {
+	return ledgerIdentity(id)
 }
 
-func ledgerIdentityToStore(id LedgerIdentity) c1zstore.LedgerActionIdentity {
+func ledgerIdentityToStore(id ledgerIdentity) c1zstore.LedgerActionIdentity {
 	return c1zstore.LedgerActionIdentity(id)
 }
 

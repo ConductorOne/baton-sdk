@@ -40,7 +40,7 @@ func buildLedgeredPebbleInput(t *testing.T, ctx context.Context, path string, st
 	require.NoError(t, err)
 	ledger, ok := w.(c1zstore.PageLedgerStore)
 	require.True(t, ok, "the pebble store implements the page ledger")
-	stats, ok := w.(c1zstore.SyncStatsStore)
+	stats, ok := w.(c1zstore.PageLedgerStore)
 	require.True(t, ok, "the pebble store implements the stats side of the ledger")
 
 	syncID, err := w.StartNewSync(ctx, st, "")

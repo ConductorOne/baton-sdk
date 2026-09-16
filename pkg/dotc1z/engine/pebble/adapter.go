@@ -409,7 +409,7 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	// ledgerActive gates the whole block, and has to: sealScrubsTokens
 	// reports true whenever the retain fact is absent, and a sync with no
 	// ledger never writes that fact, so without this gate every EndSync
-	// in the fleet reaches PurgeLedgerResidue. Its db.Compact rewrites
+	// in the fleet reaches purgeLedgerResidue. Its db.Compact rewrites
 	// every SST whose bounds OVERLAP the ledger range, and on a
 	// ledger-free file the SSTs spanning the gap between TypeSourceCache
 	// and TypeEngineMeta do overlap it, at every level that has files.
@@ -429,16 +429,16 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 			return fmt.Errorf("EndSync: read retain-tokens fact: %w", err)
 		}
 		if scrub {
-			if err := e.ScrubLedgerTokens(ctx); err != nil {
+			if err := e.scrubLedgerTokens(ctx); err != nil {
 				return fmt.Errorf("EndSync: scrub ledger tokens: %w", err)
 			}
 			// The scrub is query-level until the pre-scrub SST versions
 			// are compacted away; nothing later on the seal-to-save path
-			// compacts (see PurgeLedgerResidue). Same crash argument as
+			// compacts (see purgeLedgerResidue). Same crash argument as
 			// the scrub: a crash here leaves the sync unfinished and the
 			// resumed EndSync re-runs both (idempotent).
 			if !e.test.skipLedgerResiduePurge {
-				if err := e.PurgeLedgerResidue(ctx); err != nil {
+				if err := e.purgeLedgerResidue(ctx); err != nil {
 					return fmt.Errorf("EndSync: purge ledger residue after scrub: %w", err)
 				}
 			}

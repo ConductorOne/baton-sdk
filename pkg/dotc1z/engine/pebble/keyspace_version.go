@@ -133,7 +133,7 @@ func (e *Engine) keyspaceVersionStamp() (uint32, error) {
 }
 
 // markLedgerInFlightLocked stamps keyspaceVersionLedgerInFlight, once per
-// open. Called by PageUnit.Commit BEFORE the unit's batch, synced, so
+// open. Called by pageUnit.Commit BEFORE the unit's batch, synced, so
 // the stamp is durable in every image the row is durable in.
 func (e *Engine) markLedgerInFlightLocked() error {
 	if e.ledgerInFlight.Load() {

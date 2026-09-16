@@ -1,7 +1,7 @@
 package pebble
 
-// What the seal's token scrub costs: ScrubLedgerTokens is O(rows) over
-// the ledger; PurgeLedgerResidue is a manual compaction, which rewrites
+// What the seal's token scrub costs: scrubLedgerTokens is O(rows) over
+// the ledger; purgeLedgerResidue is a manual compaction, which rewrites
 // every SST overlapping its spans, so its cost depends on what sits next
 // to the ledger. The sweep is pages × grants: pages drive the scrub,
 // grants drive the neighbours. Reported alongside ns/op: ledger_bytes /
@@ -48,7 +48,7 @@ func buildSealBenchEngine(b *testing.B, pages, grants int, grantIndex bool) *Eng
 	}
 
 	for i := 0; i < pages; i++ {
-		u := e.NewPageUnit()
+		u := e.newPageUnit()
 		row := v3.LedgerRow_builder{NextPageToken: sealBenchToken(i + 1)}.Build()
 		require.NoError(b, u.Commit(ctx, grantsPageIdentity("github", sealBenchToken(i)), row))
 	}
@@ -97,7 +97,7 @@ func benchmarkSealCost(b *testing.B, pages, grants int, op string, grantIndex bo
 			e.SetRetainLedgerTokens(true)
 		case "seal-scrub-only":
 			// Isolates the scrub's contribution INSIDE the seal, which is
-			// not the same as calling ScrubLedgerTokens standalone: the
+			// not the same as calling scrubLedgerTokens standalone: the
 			// scrub's rewritten rows are still in the memtable when the
 			// later seal steps run.
 			e.test.skipLedgerResiduePurge = true
@@ -106,9 +106,9 @@ func benchmarkSealCost(b *testing.B, pages, grants int, op string, grantIndex bo
 
 		switch op {
 		case "scrub":
-			require.NoError(b, e.ScrubLedgerTokens(ctx))
+			require.NoError(b, e.scrubLedgerTokens(ctx))
 		case "purge":
-			require.NoError(b, e.PurgeLedgerResidue(ctx))
+			require.NoError(b, e.purgeLedgerResidue(ctx))
 		case "seal", "seal-retain", "seal-scrub-only":
 			require.NoError(b, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 		default:

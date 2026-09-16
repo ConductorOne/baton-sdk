@@ -11,7 +11,7 @@ package dotc1z
 // that, because the method it would have to call does not exist yet.
 //
 // So the check is over the method SET: every method of
-// c1zstore.PageLedgerStore, c1zstore.SyncStatsStore and
+// c1zstore.PageLedgerStore, c1zstore.PageLedgerStore and
 // pebbleStoreGrantLayerStorer must be classified here, and every one
 // classified as a write must be declared with markDirty in its body — on
 // *pebbleStore for the first two, on pebbleStoreGrants for the layer
@@ -65,7 +65,7 @@ var capabilityMethods = map[string]struct {
 	"LedgerFrontier":        {dirtyRead, "read"},
 	"TakeoverToken":         {dirtyWrite, "one batch: frontier, facts, bucket, token cleared"},
 	"BoundSyncFinished":     {dirtyRead, "read"},
-	"ResetLedger":           {dirtyWrite, "a delete is a write; without the mark the wipe never reaches the c1z"},
+	"DropLedger":            {dirtyWrite, "a delete is a write; without the mark the wipe never reaches the c1z"},
 
 	// SyncStatsStore
 	"PutCounterBucket": {dirtyWrite, "blind-writes the bucket"},
@@ -139,7 +139,7 @@ func TestPebbleStoreDirtyCoverage(t *testing.T) {
 		recv  string
 	}{
 		{reflect.TypeOf((*c1zstore.PageLedgerStore)(nil)).Elem(), "*pebbleStore"},
-		{reflect.TypeOf((*c1zstore.SyncStatsStore)(nil)).Elem(), "*pebbleStore"},
+		{reflect.TypeOf((*c1zstore.PageLedgerStore)(nil)).Elem(), "*pebbleStore"},
 		{reflect.TypeOf((*pebbleStoreGrantLayerStorer)(nil)).Elem(), "pebbleStoreGrants"},
 	} {
 		iface := capability.iface
@@ -200,8 +200,8 @@ func TestSQLiteStoreOffersNoLedgerCapabilities(t *testing.T) {
 
 	_, ok = store.(c1zstore.PageLedgerStore)
 	require.False(t, ok, "the SQLite store has no ledger to write pages into")
-	_, ok = store.(c1zstore.SyncStatsStore)
+	_, ok = store.(c1zstore.PageLedgerStore)
 	require.False(t, ok, "the SQLite store seals through EndSync, with no stats-bearing seal")
-	_, ok = store.(c1zstore.WriteSeamStore)
+	_, ok = store.(c1zstore.WriteHookStore)
 	require.False(t, ok, "the SQLite store has no page writes to gate")
 }

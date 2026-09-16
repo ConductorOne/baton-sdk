@@ -23,7 +23,7 @@ import (
 // The seal must not leave a verbatim page token in the frontier.
 //
 // takeoverToken stores the taken-over sync token JSON verbatim, and every
-// Action in that JSON carries a page_token. ScrubLedgerTokens iterates
+// Action in that JSON carries a page_token. scrubLedgerTokens iterates
 // LedgerRowBounds, which is kind 0x00 only; the frontier is kind 0x03, so
 // it was never rewritten and the sealed artifact shipped tokens the seal
 // is supposed to have removed.
@@ -45,14 +45,14 @@ func TestLedgerScrubReachesTheTakeoverFrontier(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, state, moved, "the resume gets the stack verbatim; that part is intended")
 
-	f, found, err := e.GetLedgerFrontier(ctx)
+	f, found, err := e.getLedgerFrontier(ctx)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Contains(t, f.GetState(), marker, "before the seal the frontier holds the stack")
 
-	require.NoError(t, e.ScrubLedgerTokens(ctx))
+	require.NoError(t, e.scrubLedgerTokens(ctx))
 
-	f, found, err = e.GetLedgerFrontier(ctx)
+	f, found, err = e.getLedgerFrontier(ctx)
 	require.NoError(t, err)
 	require.True(t, found, "the takeover record survives as an audit trail")
 	require.Empty(t, f.GetState(), "the verbatim stack does not")
@@ -74,7 +74,7 @@ func TestCheckpointRefusedWhileLedgerRowsExistWithoutTheStamp(t *testing.T) {
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	u := e.NewPageUnit()
+	u := e.newPageUnit()
 	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
 	require.True(t, e.ledgerInFlight.Load(), "committing a page stamps in flight")
 	require.ErrorIs(t, e.CheckpointSync(ctx, "tok"), ErrLedgeredSyncWritesNoToken)
@@ -108,7 +108,7 @@ func TestResetForNewSyncClearsTheInFlightStamp(t *testing.T) {
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	u := e.NewPageUnit()
+	u := e.newPageUnit()
 	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
 	require.True(t, e.ledgerInFlight.Load(), "committing a page stamps in flight")
 
@@ -119,7 +119,7 @@ func TestResetForNewSyncClearsTheInFlightStamp(t *testing.T) {
 	// StartNewSync wipes the ledger family. The stamp has to go with it.
 	_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	rows, err := e.LedgerRowCount(ctx)
+	rows, err := e.ledgerRowCount(ctx)
 	require.NoError(t, err)
 	require.Zero(t, rows, "the wipe took the rows")
 	require.False(t, e.ledgerInFlight.Load(), "and the stamp that described them")
@@ -151,11 +151,11 @@ func TestTakeoverPersistsStatsOnlyCounters(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	n, err := e.LedgerCounterBucketCount(ctx)
+	n, err := e.ledgerCounterBucketCount(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 1, n, "the takeover's stats survive it")
 
-	sum, err := e.SumLedgerCounters(ctx)
+	sum, err := e.sumLedgerCounters(ctx)
 	require.NoError(t, err)
 	require.Equal(t, int64(100), sum.GetStepDurationsMs()["list-grants"])
 	require.Equal(t, int64(2), sum.GetConnectorCalls()["ListGrants"].GetCount())
@@ -170,12 +170,12 @@ func TestTakeoverPersistsStatsOnlyCounters(t *testing.T) {
 	require.NoError(t, e2.CheckpointSync(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
 	_, err = e2.TakeoverToken(ctx, "run-1", nil, c1zstore.LedgerCounters{})
 	require.NoError(t, err)
-	n, err = e2.LedgerCounterBucketCount(ctx)
+	n, err = e2.ledgerCounterBucketCount(ctx)
 	require.NoError(t, err)
 	require.Zero(t, n, "nothing to record, so no bucket")
 }
 
-// A spent PageUnit must answer both page-scoped reads the same way.
+// A spent pageUnit must answer both page-scoped reads the same way.
 //
 // release nilled resourceIdx but not entitlementIdx, and neither getter
 // checked done. GetResourceRecord therefore fell through to the DB while
@@ -189,7 +189,7 @@ func TestPageUnitReadsAfterCommitAreRefusedNotPanics(t *testing.T) {
 
 	for _, spend := range []string{"commit", "discard"} {
 		t.Run(spend, func(t *testing.T) {
-			u := e.NewPageUnit()
+			u := e.newPageUnit()
 			require.NoError(t, u.StageEntitlements(v3.EntitlementRecord_builder{
 				ExternalId: "ent-1",
 				Resource:   v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "g1"}.Build(),
@@ -246,19 +246,19 @@ func TestRetainDeclarationSurvivesCrashAndItsAbsenceScrubs(t *testing.T) {
 		syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
 		declare(e)
-		u := e.NewPageUnit()
+		u := e.newPageUnit()
 		require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"),
 			v3.LedgerRow_builder{NextPageToken: marker}.Build()))
 
 		e = reopenEngine(t, e, dir)
-		require.False(t, e.RetainLedgerTokens(), "no in-memory declaration survives a reopen")
+		require.False(t, e.retainLedgerTokensFlag(), "no in-memory declaration survives a reopen")
 		resumed, err := NewAdapter(e).ResumeSync(ctx, connectorstore.SyncTypeFull, syncID)
 		require.NoError(t, err)
 		require.Equal(t, syncID, resumed)
 		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 
 		var rows []*v3.LedgerRow
-		require.NoError(t, e.IterateLedger(ctx, func(r *v3.LedgerRow) bool {
+		require.NoError(t, e.iterateLedger(ctx, func(r *v3.LedgerRow) bool {
 			rows = append(rows, r)
 			return true
 		}))
@@ -301,16 +301,16 @@ func TestTakeoverBucketSurvivesWorkerZerosPage(t *testing.T) {
 	require.NoError(t, err)
 
 	// Worker 0's page, same run, staging its own whole total.
-	u := e.NewPageUnit()
+	u := e.newPageUnit()
 	require.NoError(t, u.StageCounterBucket("run-1", 0, bucket(0, "completed_actions", uint64(2))))
 	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
 
-	sum, err := e.SumLedgerCounters(ctx)
+	sum, err := e.sumLedgerCounters(ctx)
 	require.NoError(t, err)
 	require.Equal(t, uint64(7), sum.GetCounters()["completed_actions"],
 		"5 migrated by the takeover plus 2 from worker 0; a shared key would report only 2")
 
-	n, err := e.LedgerCounterBucketCount(ctx)
+	n, err := e.ledgerCounterBucketCount(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 2, n, "two distinct buckets, not one overwritten")
 }
@@ -329,12 +329,12 @@ func TestDropLedgerClearsTheInFlightStamp(t *testing.T) {
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	u := e.NewPageUnit()
+	u := e.newPageUnit()
 	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
 	require.True(t, e.ledgerInFlight.Load())
 	require.ErrorIs(t, e.CheckpointSync(ctx, "tok"), ErrLedgeredSyncWritesNoToken)
 
-	require.NoError(t, e.ResetLedger(ctx))
+	require.NoError(t, e.DropLedger(ctx))
 	require.False(t, e.ledgerInFlight.Load(), "the stamp goes with the rows")
 
 	stamp, err := e.keyspaceVersionStamp()
@@ -398,7 +398,7 @@ func TestPageUnitCommitRefusesAForeignSync(t *testing.T) {
 
 	// The page's staged content, identical in both arms, so the arms
 	// differ only in whether the sync was replaced under the unit.
-	stage := func(t *testing.T, u *PageUnit) {
+	stage := func(t *testing.T, u *pageUnit) {
 		t.Helper()
 		require.NoError(t, u.StageResources(ledgerTestResource("user", "u1")))
 	}
@@ -408,7 +408,7 @@ func TestPageUnitCommitRefusesAForeignSync(t *testing.T) {
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
 
-		u := e.NewPageUnit()
+		u := e.newPageUnit()
 		stage(t, u)
 		require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil),
 			"premise: this page commits when its sync is still the open one")
@@ -421,7 +421,7 @@ func TestPageUnitCommitRefusesAForeignSync(t *testing.T) {
 		syncA, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
 
-		u := e.NewPageUnit()
+		u := e.newPageUnit()
 		stage(t, u)
 
 		// A finishes and B replaces it while the page is still buffering.
@@ -441,7 +441,7 @@ func TestPageUnitCommitRefusesAForeignSync(t *testing.T) {
 		// A refused commit is a page that never ran: no records, no row.
 		_, err = e.GetResourceRecord(ctx, "user", "u1")
 		require.ErrorIs(t, err, pebble.ErrNotFound, "A's buffered rows must not land in B")
-		_, err = e.GetLedgerRowRecord(ctx, id)
+		_, err = e.getLedgerRowRecord(ctx, id)
 		require.ErrorIs(t, err, pebble.ErrNotFound, "and B's ledger must not claim a page A ran")
 		require.False(t, e.ledgerInFlight.Load(),
 			"a refused commit must not leave B stamped in flight")
@@ -453,10 +453,10 @@ func TestPageUnitCommitRefusesAForeignSync(t *testing.T) {
 	})
 }
 
-// ResetLedger must mark the store dirty; see the store-level test in
+// DropLedger must mark the store dirty; see the store-level test in
 // pkg/dotc1z. Here: the engine-level wipe itself is complete, so the
 // store wrapper is the only thing between it and the saved file.
-func TestResetLedgerWipesEveryLedgerSubFamily(t *testing.T) {
+func TestDropLedgerWipesEveryLedgerSubFamily(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -466,22 +466,22 @@ func TestResetLedgerWipesEveryLedgerSubFamily(t *testing.T) {
 		Counters: map[string]uint64{"completed_actions": 1},
 	})
 	require.NoError(t, err)
-	u := e.NewPageUnit()
+	u := e.newPageUnit()
 	require.NoError(t, u.StageFact("has_external_resource_grants"))
 	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
 
-	require.NoError(t, e.ResetLedger(ctx))
+	require.NoError(t, e.DropLedger(ctx))
 
-	rows, err := e.LedgerRowCount(ctx)
+	rows, err := e.ledgerRowCount(ctx)
 	require.NoError(t, err)
 	require.Zero(t, rows, "rows")
 	facts, err := e.LedgerFacts(ctx)
 	require.NoError(t, err)
 	require.Empty(t, facts, "facts")
-	n, err := e.LedgerCounterBucketCount(ctx)
+	n, err := e.ledgerCounterBucketCount(ctx)
 	require.NoError(t, err)
 	require.Zero(t, n, "buckets")
-	_, found, err := e.GetLedgerFrontier(ctx)
+	_, found, err := e.getLedgerFrontier(ctx)
 	require.NoError(t, err)
 	require.False(t, found, "frontier")
 }

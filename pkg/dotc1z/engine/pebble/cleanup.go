@@ -48,7 +48,7 @@ func scopedRanges() [][2][]byte {
 		{EntitlementGraphSidecarLowerBound(), EntitlementGraphSidecarUpperBound()},
 		// Page ledger (ledger.go): the sync's execution trace, wiped
 		// with the sync it describes.
-		{LedgerLowerBound(), LedgerUpperBound()},
+		{ledgerLowerBound(), ledgerUpperBound()},
 	}
 }
 

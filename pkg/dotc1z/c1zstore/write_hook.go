@@ -6,11 +6,11 @@ import (
 	"fmt"
 )
 
-// The write seam (docs/tasks/sound-syncs-solutions-brief.md §3.10 fact 1):
+// The write hook (docs/tasks/sound-syncs-solutions-brief.md §3.10 fact 1):
 // under atomic pages every store write a page makes goes through its
 // PageWriter and lands in the page's unit. A direct store write from
 // inside a page is a bypass — the write is durable on its own, ahead of
-// the page's ledger row. The seam makes fact 1 checkable instead of
+// the page's ledger row. The hook makes fact 1 checkable instead of
 // audited: the syncer marks a page's context open, the store checks the
 // mark on every direct write, and a test-time hook turns a bypass into a
 // failure.
@@ -19,9 +19,9 @@ import (
 // idempotent on re-run (an asset blob; a source-cache replay copy whose
 // scope is cleared first) is safe: a row can never claim work that is
 // not there. Such a site registers itself with WithPageWriteBypass and a
-// reason, so the seam sees an accounted-for write rather than an
+// reason, so the hook sees an accounted-for write rather than an
 // unknown one. The unsafe direction — a write landing AFTER the row —
-// is not reachable through this seam at all: the row commits in
+// is not reachable through this hook at all: the row commits in
 // PageWriter.Commit, the last thing a page does.
 
 type openPageKey struct{}
@@ -41,7 +41,7 @@ func PageOpen(ctx context.Context) bool {
 
 // WithPageWriteBypass registers that direct writes carrying ctx are a
 // known, reasoned bypass of the page's unit. reason is recorded on the
-// seam event and should say why the order is safe.
+// hook event and should say why the order is safe.
 func WithPageWriteBypass(ctx context.Context, reason string) context.Context {
 	return context.WithValue(ctx, pageBypassKey{}, reason)
 }
@@ -52,36 +52,36 @@ func PageWriteBypass(ctx context.Context) (string, bool) {
 	return r, ok && r != ""
 }
 
-// WriteSeamEvent is one direct store write observed while a page was
+// WriteHookEvent is one direct store write observed while a page was
 // open. Bypass is the registered reason, "" for an unregistered write.
-type WriteSeamEvent struct {
+type WriteHookEvent struct {
 	Method string
 	Bypass string
 }
 
 // Registered reports whether the write carried a bypass registration.
-func (e WriteSeamEvent) Registered() bool { return e.Bypass != "" }
+func (e WriteHookEvent) Registered() bool { return e.Bypass != "" }
 
-// ErrUnregisteredPageWrite is returned by the strict seam for an
+// ErrUnregisteredPageWrite is returned by the strict hook for an
 // unregistered direct write inside a page.
 var ErrUnregisteredPageWrite = errors.New("atomic pages: direct store write inside an open page bypasses the page's unit")
 
-// WriteSeamHook receives every direct write observed inside an open
+// WriteHook receives every direct write observed inside an open
 // page. A non-nil error fails the write.
-type WriteSeamHook func(ctx context.Context, ev WriteSeamEvent) error
+type WriteHook func(ctx context.Context, ev WriteHookEvent) error
 
-// WriteSeamStore is implemented by stores that expose the seam.
-type WriteSeamStore interface {
-	// SetWriteSeam installs hook; nil removes it. With no hook installed
-	// the seam costs one nil check per write.
-	SetWriteSeam(hook WriteSeamHook)
+// WriteHookStore is implemented by stores that expose the hook.
+type WriteHookStore interface {
+	// SetWriteHook installs hook; nil removes it. With no hook installed
+	// the hook costs one nil check per write.
+	SetWriteHook(hook WriteHook)
 }
 
-// StrictWriteSeam is the test-time hook: unregistered writes fail with
+// StrictWriteHook is the test-time hook: unregistered writes fail with
 // ErrUnregisteredPageWrite; registered bypasses pass and are recorded
 // through record (may be nil).
-func StrictWriteSeam(record func(WriteSeamEvent)) WriteSeamHook {
-	return func(_ context.Context, ev WriteSeamEvent) error {
+func StrictWriteHook(record func(WriteHookEvent)) WriteHook {
+	return func(_ context.Context, ev WriteHookEvent) error {
 		if record != nil {
 			record(ev)
 		}

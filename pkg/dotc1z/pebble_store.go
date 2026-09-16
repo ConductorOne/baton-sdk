@@ -30,7 +30,7 @@ import (
 type pebbleDriver struct{}
 
 var _ c1zstore.Store = (*pebbleStore)(nil)
-var _ c1zstore.WriteSeamStore = (*pebbleStore)(nil)
+var _ c1zstore.WriteHookStore = (*pebbleStore)(nil)
 var _ connectorstore.Writer = (*pebbleStore)(nil)
 
 // These do not mean every method of theirs is safe: pebbleStore embeds
@@ -38,7 +38,6 @@ var _ connectorstore.Writer = (*pebbleStore)(nil)
 // while skipping the markDirty wrapper that gets the mutation into the
 // saved file. TestPebbleStoreDirtyCoverage covers that.
 var _ c1zstore.PageLedgerStore = (*pebbleStore)(nil)
-var _ c1zstore.SyncStatsStore = (*pebbleStore)(nil)
 
 // Local mirrors of the optional capabilities the c1z sanitizer probes on
 // the source/destination store (pkg/c1zsanitize keeps those interfaces
@@ -235,37 +234,36 @@ type pebbleStore struct {
 
 	sourceCacheTest sourceCacheStoreTestSeams
 
-	// writeSeam, when installed, observes every direct record write made
+	// writeHookFn, when installed, observes every direct record write made
 	// while an atomic page is open (c1zstore.PageOpen). See
-	// c1zstore/write_seam.go. Nil in production.
+	// c1zstore/write_hook.go. Nil in production.
 	//
-	// An atomic pointer, not a mutex: seam() is called by every direct
+	// An atomic pointer, not a mutex: writeHook() is called by every direct
 	// record write, so the idle path has to be a load and nothing else.
-	// WriteSeamHook is a func type, hence the pointer indirection —
+	// WriteHook is a func type, hence the pointer indirection —
 	// atomic.Pointer needs something addressable.
-	writeSeam atomic.Pointer[c1zstore.WriteSeamHook]
+	writeHookFn atomic.Pointer[c1zstore.WriteHook]
 }
 
-// SetWriteSeam implements c1zstore.WriteSeamStore.
-func (s *pebbleStore) SetWriteSeam(hook c1zstore.WriteSeamHook) {
+// SetWriteHook implements c1zstore.WriteHookStore.
+func (s *pebbleStore) SetWriteHook(hook c1zstore.WriteHook) {
 	if hook == nil {
-		s.writeSeam.Store(nil)
+		s.writeHookFn.Store(nil)
 		return
 	}
-	s.writeSeam.Store(&hook)
+	s.writeHookFn.Store(&hook)
 }
 
-// seam is the write seam's check, called first by every direct record
-// write. It is a no-op unless a hook is installed AND ctx is inside an
+// writeHook is called first by every direct record write. It is a no-op unless a hook is installed AND ctx is inside an
 // open page; the hook decides whether the write proceeds. With no hook
 // installed the cost is one atomic load — PageOpen is not reached.
-func (s *pebbleStore) seam(ctx context.Context, method string) error {
-	hook := s.writeSeam.Load()
+func (s *pebbleStore) writeHook(ctx context.Context, method string) error {
+	hook := s.writeHookFn.Load()
 	if hook == nil || !c1zstore.PageOpen(ctx) {
 		return nil
 	}
 	reason, _ := c1zstore.PageWriteBypass(ctx)
-	return (*hook)(ctx, c1zstore.WriteSeamEvent{Method: method, Bypass: reason})
+	return (*hook)(ctx, c1zstore.WriteHookEvent{Method: method, Bypass: reason})
 }
 
 // Compile-time guard: a Pebble store satisfies the full C1ZStore
@@ -521,7 +519,7 @@ func (s *pebbleStore) Cleanup(ctx context.Context) error {
 }
 
 func (s *pebbleStore) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error {
-	if err := s.seam(ctx, "PutAsset"); err != nil {
+	if err := s.writeHook(ctx, "PutAsset"); err != nil {
 		return err
 	}
 	return s.markDirty(s.Engine.PutAsset(ctx, assetRef, contentType, data))
@@ -531,7 +529,7 @@ func (s *pebbleStore) PutAsset(ctx context.Context, assetRef *v2.AssetRef, conte
 // expose the entitlement-graph sidecar (see pkg/sync's EntitlementGraphStore).
 // The blob format is owned by pkg/sync/expand; the store treats it as opaque.
 func (s *pebbleStore) PutEntitlementGraphBlob(ctx context.Context, data []byte) error {
-	if err := s.seam(ctx, "PutEntitlementGraphBlob"); err != nil {
+	if err := s.writeHook(ctx, "PutEntitlementGraphBlob"); err != nil {
 		return err
 	}
 	return s.markDirty(s.PutEntitlementGraphSidecar(ctx, data))
@@ -542,7 +540,7 @@ func (s *pebbleStore) GetEntitlementGraphBlob(ctx context.Context) ([]byte, erro
 }
 
 func (s *pebbleStore) DeleteEntitlementGraphBlob(ctx context.Context) error {
-	if err := s.seam(ctx, "DeleteEntitlementGraphBlob"); err != nil {
+	if err := s.writeHook(ctx, "DeleteEntitlementGraphBlob"); err != nil {
 		return err
 	}
 	return s.markDirty(s.DeleteEntitlementGraphSidecar(ctx))
@@ -559,7 +557,7 @@ func (s *pebbleStore) SetSupportsDiff(ctx context.Context, syncID string) error 
 }
 
 func (s *pebbleStore) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
-	if err := s.seam(ctx, "PutGrants"); err != nil {
+	if err := s.writeHook(ctx, "PutGrants"); err != nil {
 		return err
 	}
 	return s.markDirty(s.Engine.PutGrants(ctx, grants...))
@@ -570,35 +568,35 @@ func (s *pebbleStore) PutGrants(ctx context.Context, grants ...*v2.Grant) error 
 // connector output. Caller must guarantee unique external_ids across the whole
 // destination sync. See pebble.Adapter.UnsafePutUniqueGrants.
 func (s *pebbleStore) UnsafePutUniqueGrants(ctx context.Context, grants ...*v2.Grant) error {
-	if err := s.seam(ctx, "UnsafePutUniqueGrants"); err != nil {
+	if err := s.writeHook(ctx, "UnsafePutUniqueGrants"); err != nil {
 		return err
 	}
 	return s.markDirty(s.Engine.UnsafePutUniqueGrants(ctx, grants...))
 }
 
 func (s *pebbleStore) PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error {
-	if err := s.seam(ctx, "PutResourceTypes"); err != nil {
+	if err := s.writeHook(ctx, "PutResourceTypes"); err != nil {
 		return err
 	}
 	return s.markDirty(s.Engine.PutResourceTypes(ctx, resourceTypes...))
 }
 
 func (s *pebbleStore) PutResources(ctx context.Context, resources ...*v2.Resource) error {
-	if err := s.seam(ctx, "PutResources"); err != nil {
+	if err := s.writeHook(ctx, "PutResources"); err != nil {
 		return err
 	}
 	return s.markDirty(s.Engine.PutResources(ctx, resources...))
 }
 
 func (s *pebbleStore) PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error {
-	if err := s.seam(ctx, "PutEntitlements"); err != nil {
+	if err := s.writeHook(ctx, "PutEntitlements"); err != nil {
 		return err
 	}
 	return s.markDirty(s.Engine.PutEntitlements(ctx, entitlements...))
 }
 
 func (s *pebbleStore) DeleteGrant(ctx context.Context, grantID string) error {
-	if err := s.seam(ctx, "DeleteGrant"); err != nil {
+	if err := s.writeHook(ctx, "DeleteGrant"); err != nil {
 		return err
 	}
 	return s.markDirty(s.Engine.DeleteGrant(ctx, grantID))
@@ -629,25 +627,19 @@ func (s *pebbleStore) TakeoverToken(ctx context.Context, runID string, facts []s
 	return state, s.markDirty(err)
 }
 
-// PutCounterBucket implements c1zstore.SyncStatsStore; a write, so it
+// PutCounterBucket implements c1zstore.PageLedgerStore; a write, so it
 // marks the store dirty.
 func (s *pebbleStore) PutCounterBucket(ctx context.Context, runID string, worker uint32, counters c1zstore.LedgerCounters) error {
 	return s.markDirty(s.Engine.PutCounterBucket(ctx, runID, worker, counters))
 }
 
-// ResetLedger implements c1zstore.PageLedgerStore. A delete is a write:
+// DropLedger implements c1zstore.PageLedgerStore. A delete is a write:
 // without the dirty mark, Close skips save() and drops the temp DB, so
 // the wipe never reaches the c1z and the next open still enumerates
 // every prior action as done — the sync then skips work it never did.
 // The documented caller rebinds a FINISHED sync, whose store is
 // otherwise clean, so the drop is frequently the only write in the
 // session and there is nothing else to set the flag.
-func (s *pebbleStore) ResetLedger(ctx context.Context) error {
-	return s.markDirty(s.Engine.ResetLedger(ctx))
-}
-
-// DropLedger is ResetLedger's engine-level spelling, promoted through
-// the embedded Engine and wrapped for the same reason.
 func (s *pebbleStore) DropLedger(ctx context.Context) error {
 	return s.markDirty(s.Engine.DropLedger(ctx))
 }
@@ -656,7 +648,7 @@ func (s *pebbleStore) DropLedger(ctx context.Context) error {
 // grant: identity derives from the structured refs, never the lossy id
 // string. The syncer prefers this when available.
 func (s *pebbleStore) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error {
-	if err := s.seam(ctx, "DeleteGrantByRefs"); err != nil {
+	if err := s.writeHook(ctx, "DeleteGrantByRefs"); err != nil {
 		return err
 	}
 	return s.markDirty(s.Engine.DeleteGrantByRefs(ctx, grant))
@@ -674,7 +666,7 @@ func (s *pebbleStore) DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) er
 // only costs an unnecessary flush of an unchanged file; under-marking loses
 // data.
 func (s *pebbleStore) DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Grant) error {
-	if err := s.seam(ctx, "DeleteGrantsByRefs"); err != nil {
+	if err := s.writeHook(ctx, "DeleteGrantsByRefs"); err != nil {
 		return err
 	}
 	s.MarkDirty()
@@ -684,7 +676,7 @@ func (s *pebbleStore) DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Gran
 // DeleteResourceRecord removes a resource and marks the envelope dirty so an
 // explicit reconciliation performed by the syncer is persisted on Close.
 func (s *pebbleStore) DeleteResourceRecord(ctx context.Context, resourceTypeID, resourceID string) error {
-	if err := s.seam(ctx, "DeleteResourceRecord"); err != nil {
+	if err := s.writeHook(ctx, "DeleteResourceRecord"); err != nil {
 		return err
 	}
 	return s.markDirty(s.Engine.DeleteResourceRecord(ctx, resourceTypeID, resourceID))
@@ -693,7 +685,7 @@ func (s *pebbleStore) DeleteResourceRecord(ctx context.Context, resourceTypeID, 
 // DeleteEntitlementByRefs removes one exact entitlement identity and preserves
 // the mutation when the envelope is closed.
 func (s *pebbleStore) DeleteEntitlementByRefs(ctx context.Context, entitlement *v2.Entitlement) error {
-	if err := s.seam(ctx, "DeleteEntitlementByRefs"); err != nil {
+	if err := s.writeHook(ctx, "DeleteEntitlementByRefs"); err != nil {
 		return err
 	}
 	resourceID := entitlement.GetResource().GetId()
@@ -730,14 +722,14 @@ var pebbleStoreExpandedGrantImmutableAnnotationAny = func() *anypb.Any {
 }()
 
 func (g pebbleStoreGrants) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
-	if err := g.store.seam(ctx, "Grants.StoreExpandedGrants"); err != nil {
+	if err := g.store.writeHook(ctx, "Grants.StoreExpandedGrants"); err != nil {
 		return err
 	}
 	return g.store.markDirty(g.inner.StoreExpandedGrants(ctx, grants...))
 }
 
 func (g pebbleStoreGrants) StoreNewExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
-	if err := g.store.seam(ctx, "Grants.StoreNewExpandedGrants"); err != nil {
+	if err := g.store.writeHook(ctx, "Grants.StoreNewExpandedGrants"); err != nil {
 		return err
 	}
 	if fast, ok := g.inner.(interface {
@@ -749,7 +741,7 @@ func (g pebbleStoreGrants) StoreNewExpandedGrants(ctx context.Context, grants ..
 }
 
 func (g pebbleStoreGrants) StoreNewExpandedGrantContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
-	if err := g.store.seam(ctx, "Grants.StoreNewExpandedGrantContributions"); err != nil {
+	if err := g.store.writeHook(ctx, "Grants.StoreNewExpandedGrantContributions"); err != nil {
 		return err
 	}
 	if fast, ok := g.inner.(interface {
@@ -787,7 +779,7 @@ func (g pebbleStoreGrants) BeginExpandedGrantLayer(ctx context.Context) (bool, e
 }
 
 func (g pebbleStoreGrants) AddExpandedGrantLayerContributions(ctx context.Context, dest *v2.Entitlement, principals []*v3.PrincipalRef, sources []batonGrant.Sources) error {
-	if err := g.store.seam(ctx, "Grants.AddExpandedGrantLayerContributions"); err != nil {
+	if err := g.store.writeHook(ctx, "Grants.AddExpandedGrantLayerContributions"); err != nil {
 		return err
 	}
 	fast, ok := g.inner.(pebbleStoreGrantLayerStorer)
@@ -801,7 +793,7 @@ func (g pebbleStoreGrants) AddExpandedGrantLayerContributions(ctx context.Contex
 }
 
 func (g pebbleStoreGrants) FinishExpandedGrantLayer(ctx context.Context) error {
-	if err := g.store.seam(ctx, "Grants.FinishExpandedGrantLayer"); err != nil {
+	if err := g.store.writeHook(ctx, "Grants.FinishExpandedGrantLayer"); err != nil {
 		return err
 	}
 	fast, ok := g.inner.(pebbleStoreGrantLayerStorer)

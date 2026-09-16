@@ -117,10 +117,10 @@ func TestPageWriterMatchesSingleCallAdapters(t *testing.T) {
 	_, found, err = store.GetLedgerRow(ctx, other)
 	require.NoError(t, err)
 	require.False(t, found, "a colliding row is not this page's row")
-	require.EqualValues(t, 1, paged.LedgerMismatches())
+	require.EqualValues(t, 1, paged.ledgerMismatchCount())
 
 	// The single-call engine has no ledger at all.
-	cnt, err := single.LedgerRowCount(ctx)
+	cnt, err := single.ledgerRowCount(ctx)
 	require.NoError(t, err)
 	require.Zero(t, cnt)
 }

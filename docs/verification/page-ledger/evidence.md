@@ -189,7 +189,7 @@ instrument that closes it.
   refused, `EndSyncWithStats` accepted),
   `TestCheckpointRefusedWhileLedgerRowsExistWithoutTheStamp` (L6).
 - Not covered: L1 and L3 for both operations; L0 acceptance after
-  `DropLedger` and after `ResetLedger` (only `ResetForNewSync` is
+  `DropLedger` and after `DropLedger` (only `ResetForNewSync` is
   covered, in `TestResetForNewSyncClearsTheInFlightStamp`).
 - Closes with: a table test over P1's two rows × 7 states.
 
@@ -233,7 +233,7 @@ instrument that closes it.
 ### C17 Scrub batch bound and idempotence
 
 - Status: not assessed.
-- Reading: `ScrubLedgerTokens` re-mints at `ledgerScrubBatchBytes =
+- Reading: `scrubLedgerTokens` re-mints at `ledgerScrubBatchBytes =
   16<<20` and skips rows already scrubbed. Not asserted.
 - Closes with: a 10^4-row scrub with a batch-count observer and a second
   call asserting zero writes.
@@ -279,7 +279,7 @@ instrument that closes it.
 ### C21 Drop / reset remove every sub-family and the stamp
 
 - Status: evidence incomplete.
-- Candidate: `TestResetLedgerWipesEveryLedgerSubFamily`,
+- Candidate: `TestDropLedgerWipesEveryLedgerSubFamily`,
   `TestDropLedgerClearsTheInFlightStamp`, `TestLedgerWipedWithItsSync`,
   `TestResetForNewSyncClearsTheInFlightStamp`. These check the keyspace,
   not the bytes.
@@ -310,7 +310,7 @@ instrument that closes it.
 - Status: evidence incomplete; the interface-drift direction is closed.
 - Candidate: `pkg/dotc1z/pebble_store_dirty_test.go`
   (`TestPebbleStorePageCommitMarksDirty`,
-  `TestPebbleStoreResetLedgerMarksDirty`, and siblings), plus
+  `TestPebbleStoreDropLedgerMarksDirty`, and siblings), plus
   `TestPebbleStoreDirtyCoverage`, a meta-test that walks three capability
   interfaces by reflection and fails on any method not classified as
   marking dirty or justified as not needing to.
@@ -336,8 +336,8 @@ instrument that closes it.
 ### C23 Write-hook coverage of record-mutating store methods
 
 - Status: evidence incomplete.
-- Candidate: `TestWriteSeamOutcomes`, `TestWriteSeamContextHelpers` —
-  these close the second clause, `StrictWriteSeam`'s outcomes inside and
+- Candidate: `TestWriteHookOutcomes`, `TestWriteHookContextHelpers` —
+  these close the second clause, `StrictWriteHook`'s outcomes inside and
   outside `WithOpenPage`, `WithPageWriteBypass`, empty-reason rejection
   and hook removal.
 - Not covered: the first clause, set equality. No test compares the set of
@@ -355,7 +355,7 @@ instrument that closes it.
 - Candidate: the three assertions at `pebble_store.go:33,40,41` cover
   `pebbleStore` through the `dotc1z` open path, plus the runtime `ok`
   checks in `pebble_store_dirty_test.go` and
-  `pebble_store_write_seam_test.go`. A comment on the assertions records
+  `pebble_store_write_hook_test.go`. A comment on the assertions records
   what they do not mean: `pebbleStore` embeds `*pebble.Engine`, so a
   promoted mutating method satisfies an interface while skipping
   `markDirty`. `TestPebbleStoreDirtyCoverage` covers that.
@@ -363,8 +363,8 @@ instrument that closes it.
   opened with `WithEngine(EngineSQLite)` for all three and requires false
   on each. `*C1File` has none of the five methods, so the result is a
   property of the type, not of the file's state.
-- Mutation adequacy. Giving `*C1File` a `SetWriteSeam` method fails the
-  `WriteSeamStore` assertion by name. Run and reverted. The test also
+- Mutation adequacy. Giving `*C1File` a `SetWriteHook` method fails the
+  `WriteHookStore` assertion by name. Run and reverted. The test also
   carries a premise assertion — the same probe finds
   `connectorstore.DBSizeProvider`, which the store does offer — so three
   falses cannot come from probing a store that implements nothing.
@@ -415,7 +415,7 @@ instrument that closes it.
 - Status: verified to stated coverage.
 - Candidate: `commit_point_enumeration_test.go` — entries for
   `page_unit.go:Commit`, `adapter_page.go:Commit`,
-  `ledger.go:ScrubLedgerTokens`, `ledger.go:takeoverToken`, and the
+  `ledger.go:scrubLedgerTokens`, `ledger.go:takeoverToken`, and the
   `ledger.go:PutLedgerCounterBucket` exclusion. Runs green in the package
   run above.
 - What that means: the registry matches the code as the meta-test reads
@@ -446,7 +446,7 @@ instrument that closes it.
   planted and run by hand this round, each against the assertion written
   to catch it: buffer-length counts restored (O3), a first-wins dedup
   pre-pass (O3 survivor), `markDirty` dropped from grant-layer ingest, a
-  method left unclassified (O9's meta-test), and a `SetWriteSeam` method
+  method left unclassified (O9's meta-test), and a `SetWriteHook` method
   on `*C1File` (C24's absence half). Only the first is in the tree as a
   switchable arm; the other five were reverted after the run.
 - The first-wins mutant is the one worth keeping: it passes the count
@@ -460,7 +460,7 @@ instrument that closes it.
 
 - Status: deferred to the syncer integration change. Owner: that change's
   plan. The bundle: read-only walk; absent-or-mismatch → re-run; L3
-  handling (OQ-1); `BoundSyncFinished` then `ResetLedger` on rebind;
+  handling (OQ-1); `BoundSyncFinished` then `DropLedger` on rebind;
   `WithPageWriteBypass` registrations; one commit per page; counters and
   facts producers; takeover trigger and resume from the frontier (plan
   §5.1 itemizes these: the engine moves the token unparsed, and the
@@ -490,7 +490,7 @@ results except where the note below names the test that asserts them.
 | scrub | W (token fields) | — | — | W (token) | R | — | — |
 | purge | bytes | bytes | bytes | bytes | bytes | — | — |
 | `DropLedger` | C | C | C | C | C | C | — |
-| `ResetLedger` | C | C | C | C | C | C | — |
+| `DropLedger` | C | C | C | C | C | C | — |
 | `ResetForNewSync` | C | C | C | C | C | C | C (whole span) |
 | `ledgerActive` | R | R | R | R | R | R | — |
 | `CloneSync` | copy | copy | copy | copy | copy | copy | copy |
@@ -516,7 +516,7 @@ these. Listed so a next pass can run a criterion's candidates alone.
 Package path `pkg/dotc1z/engine/pebble` unless stated.
 
 ```
-go test -run 'TestPageUnit|TestLedger|TestLedgered|TestCheckpointRefused|TestResetForNewSync|TestTakeover|TestRetainDeclaration|TestDropLedger|TestFailedSeal|TestResetLedger' ./pkg/dotc1z/engine/pebble/
+go test -run 'TestPageUnit|TestLedger|TestLedgered|TestCheckpointRefused|TestResetForNewSync|TestTakeover|TestRetainDeclaration|TestDropLedger|TestFailedSeal|TestDropLedger' ./pkg/dotc1z/engine/pebble/
 go test -run 'TestPageWriter' ./pkg/dotc1z/engine/pebble/
 go test -run 'TestCommitPoint' ./pkg/dotc1z/engine/pebble/
 go test -run 'TestPebbleStore.*Dirty|TestWriteSeam' ./pkg/dotc1z/

@@ -63,7 +63,7 @@ func TestPebbleStorePageCommitMarksDirty(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, found)
 
-	stats, ok := store.(c1zstore.SyncStatsStore)
+	stats, ok := store.(c1zstore.PageLedgerStore)
 	require.True(t, ok, "the pebble store implements the stats side of the ledger")
 	require.NoError(t, stats.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 	require.NoError(t, store.Close(ctx))
@@ -80,8 +80,8 @@ func TestPebbleStorePageCommitMarksDirty(t *testing.T) {
 	require.True(t, found)
 }
 
-// TestPebbleStoreResetLedgerMarksDirty pins the dirty flag for
-// ResetLedger, the one PageLedgerStore write that was promoted from the
+// TestPebbleStoreDropLedgerMarksDirty pins the dirty flag for
+// DropLedger, the one PageLedgerStore write that was promoted from the
 // embedded Engine without a wrapper.
 //
 // The documented caller rebinds a FINISHED sync and drops the old
@@ -91,7 +91,7 @@ func TestPebbleStorePageCommitMarksDirty(t *testing.T) {
 // DB, the wipe never reaches the c1z, and the next open still
 // enumerates the old rows. The sync then skips work it never did, which
 // is silent under-collection rather than a visible failure.
-func TestPebbleStoreResetLedgerMarksDirty(t *testing.T) {
+func TestPebbleStoreDropLedgerMarksDirty(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "reset-ledger-dirty.c1z")
 	id := c1zstore.LedgerActionIdentity{Op: "SyncGrants", ResourceTypeID: "app", ResourceID: "github"}
@@ -104,7 +104,7 @@ func TestPebbleStoreResetLedgerMarksDirty(t *testing.T) {
 	w := store.(c1zstore.PageLedgerStore).BeginPage()
 	require.NoError(t, w.PutGrants(ctx, mkV2Grant("g1", "ent", "user", "alice")))
 	require.NoError(t, w.Commit(ctx, id, nil))
-	require.NoError(t, store.(c1zstore.SyncStatsStore).EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+	require.NoError(t, store.(c1zstore.PageLedgerStore).EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 	require.NoError(t, store.Close(ctx))
 
 	// Reopen CLEAN and make the drop the only write of the session.
@@ -115,7 +115,7 @@ func TestPebbleStoreResetLedgerMarksDirty(t *testing.T) {
 	_, found, err := ledger.GetLedgerRow(ctx, id)
 	require.NoError(t, err)
 	require.True(t, found, "the sealed artifact carries its ledger")
-	require.NoError(t, ledger.ResetLedger(ctx))
+	require.NoError(t, ledger.DropLedger(ctx))
 	require.NoError(t, store.Close(ctx))
 
 	// The drop has to be in the saved file, not just the discarded temp DB.

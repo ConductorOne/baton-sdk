@@ -81,7 +81,7 @@ type LedgerCounters struct {
 	// method.
 	ConnectorCalls map[string]CallStat
 	// StepDurationsMs / SessionCalls: run-level stats, carried by the
-	// run's reserved bucket (see SyncStatsStore.PutCounterBucket).
+	// run's reserved bucket (see PageLedgerStore.PutCounterBucket).
 	StepDurationsMs map[string]int64
 	SessionCalls    map[string]CallStat
 }
@@ -279,24 +279,14 @@ type PageLedgerStore interface {
 	// already sealed (its run record carries an end time). Metadata
 	// only — no stats are computed.
 	BoundSyncFinished(ctx context.Context) (bool, error)
-	// ResetLedger drops the whole ledger family — rows, facts, buckets,
+	// DropLedger drops the whole ledger family — rows, facts, buckets,
 	// frontier. The syncer calls it when it rebinds a FINISHED sync
 	// (WithSyncID over a sealed run: the compactor's expansion pass, the
 	// rollback tool's replay, a reused syncer): the retained ledger
 	// describes the run that produced the sealed data, and a rebind is a
 	// new run that rewrites it. Trusting the old rows would make every
 	// action look complete and seal the rebind without doing anything.
-	ResetLedger(ctx context.Context) error
-}
-
-// SyncStatsStore is the stats side of a store that writes no checkpoint
-// token (brief §3.13). Page-shaped stats ride each page's bucket
-// (PageWriter.SetCounterBucket); what is not page-shaped — phase
-// durations, session-store calls — goes in the run's reserved bucket
-// through PutCounterBucket, and the seal takes the fold. Separate from
-// PageLedgerStore because it is about the sync's stats, not its pages;
-// the syncer requires both when atomic pages are on.
-type SyncStatsStore interface {
+	DropLedger(ctx context.Context) error
 	// PutCounterBucket blind-writes one (run, worker) bucket outside a
 	// page: the run's whole cumulative value for that index, so a later
 	// write supersedes an earlier one and the fold never double counts.
