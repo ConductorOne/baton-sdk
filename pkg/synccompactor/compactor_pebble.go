@@ -789,8 +789,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// The base's stats sidecar (still under the base id) is the starting
 	// point of the output's timing stats and carries any prior
 	// compaction's provenance; read it before the rename and recompute
-	// below replace it. Best-effort: a base without a sidecar just
-	// contributes no timings.
+	// below replace it. Legacy timing stats fall back to the token.
 	baseStats := readSourceSyncStats(ctx, destEng, baseSyncID)
 	// The record being renamed is the BASE's, so its token can still carry
 	// a compaction section an older SDK wrote describing the base's own
@@ -947,15 +946,27 @@ func (c *Compactor) runPebbleRebuild(ctx context.Context, runCtx context.Context
 	return newSyncId, nil
 }
 
-// readSourceSyncStats returns a source sync's stats sidecar, or nil when
-// it is unavailable (e.g. inputs sealed before the sidecar existed). The
-// sidecar is the one home for a sync's timing stats: ledgered syncs write
-// no token, and token-only syncs had theirs lifted into it at EndSync.
+// Legacy folds wrote accumulated timings to the token after persisting the
+// sidecar. Sidecar compaction provenance identifies outputs whose sidecar
+// timings are authoritative; their inherited token can be stale instead.
 func readSourceSyncStats(ctx context.Context, eng *enginepkg.Engine, syncID string) *v3.SyncStatsRecord {
 	rec, err := enginepkg.ReadSyncStatsRecord(ctx, eng, syncID)
 	if err != nil {
 		return nil
 	}
+	if rec.GetCompaction() != nil {
+		return rec
+	}
+	sr, err := eng.GetSyncRunRecord(ctx, syncID)
+	if err != nil {
+		return rec
+	}
+	legacy := &v3.SyncStatsRecord{}
+	c1zstore.ApplySyncTokenStatsRecord(legacy, sr.GetSyncToken())
+	if rec == nil {
+		rec = &v3.SyncStatsRecord{}
+	}
+	overlayTimingStats(rec, legacy)
 	return rec
 }
 

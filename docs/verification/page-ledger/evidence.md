@@ -394,8 +394,13 @@ instrument that closes it.
 - Status: evidence incomplete.
 - Candidate: `pkg/synccompactor/compactor_provenance_test.go` (fold,
   chained fold, rebuild provenance).
-- Not covered: base without a sidecar (`readSourceSyncStats` returns
-  nil) in fold; timing fold correctness against an independent
+- Verified legacy transition: `TestCompactPebbleFoldLegacyProvenance`
+  reads fixtures produced by SDK v0.30.1 (`bba86699c59a`), folds and
+  reopens them, and checks durations, connector/session call totals,
+  ancestry, record counts, and a subsequent fold of the new output.
+  The unpatched code fails with 93,000 ms instead of 98,000 ms because
+  the old sidecar predates the old token's accumulated timings.
+- Not covered: base without a sidecar in fold; timing fold correctness against an independent
   `FoldCallStats`; "no output writes a token" as an explicit assertion.
 - Closes with: extend the candidate.
 
