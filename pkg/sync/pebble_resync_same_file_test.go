@@ -98,11 +98,11 @@ func c1zVersionHits(t *testing.T, c1zPath, needle string) int {
 
 	n := []byte(needle)
 	hits := 0
-	require.NoError(t, filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		switch filepath.Ext(path) {
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, ent := range entries {
+		path := filepath.Join(dir, ent.Name())
+		switch filepath.Ext(ent.Name()) {
 		case ".sst":
 			sf, err := vfs.Default.Open(path)
 			require.NoError(t, err)
@@ -126,7 +126,6 @@ func c1zVersionHits(t *testing.T, c1zPath, needle string) int {
 			require.NoError(t, err)
 			hits += bytes.Count(raw, n)
 		}
-		return nil
-	}))
+	}
 	return hits
 }
