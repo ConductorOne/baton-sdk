@@ -412,8 +412,6 @@ size github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble.Engine methods=3
 size github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble.synthGrantLayerSession methods=6 fields=18
 size github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb.DB methods=49 fields=10
 size github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb.RecordBatch methods=25 fields=6
-size github.com/conductorone/baton-sdk/pkg/sync.serializedTokenV1 methods=0 fields=17
-size github.com/conductorone/baton-sdk/pkg/sync.syncConfig methods=0 fields=26
 size github.com/conductorone/baton-sdk/pkg/sync.syncer methods=94 fields=34
 size github.com/conductorone/baton-sdk/pkg/sync/expand.EntitlementGraph methods=39 fields=13
 size github.com/conductorone/baton-sdk/pkg/sync/progresslog.ProgressLog methods=12 fields=23

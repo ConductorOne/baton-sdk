@@ -75,10 +75,12 @@ findings.
 
 - Every exported name: who outside the package calls it? None, or only
   tests: finding, unexport it.
-- Type size: a struct over 20 methods or 15 fields, or an interface over
-  10 methods, is pinned at its current size and may only shrink. A change
-  that grows one adds a method to the type that was there because it was
-  there; finding, ask what type the new methods belong to.
+- Type size: a hand-written struct over 20 methods, a struct with methods
+  over 15 fields, or a hand-written interface over 10 methods, is pinned
+  at its current size and may only shrink. Generated types and
+  method-less records track a schema and are exempt. A change that grows
+  a pinned type adds to the type that was there because it was there;
+  finding, ask what type the new methods belong to.
 - `make exportcheck` enforces both for the storage packages. A PR that
   adds to `.exportcheck-baseline` says why in the PR; that is the only
   path to growing a pinned type.

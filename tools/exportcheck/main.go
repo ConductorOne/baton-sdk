@@ -109,17 +109,20 @@ const (
 )
 
 // oversizedTypes returns "size pkgpath.Type methods=N fields=M" for every
-// named type in scope over a limit.
+// hand-written named type in scope over a limit. Generated types track
+// their schema and are skipped; so is the field count of a struct with no
+// methods, which is a record, not an abstraction.
 func oversizedTypes(all []*packages.Package, inScope map[string]bool) []string {
 	var out []string
 	for _, p := range all {
 		if !inScope[p.PkgPath] || p.Types == nil || p.Name == "main" {
 			continue
 		}
+		generated := generatedFiles(p)
 		scope := p.Types.Scope()
 		for _, name := range scope.Names() {
 			tn, ok := scope.Lookup(name).(*types.TypeName)
-			if !ok {
+			if !ok || generated[p.Fset.Position(tn.Pos()).Filename] {
 				continue
 			}
 			named, ok := tn.Type().(*types.Named)
@@ -134,7 +137,7 @@ func oversizedTypes(all []*packages.Package, inScope map[string]bool) []string {
 			case *types.Struct:
 				methods = named.NumMethods()
 				fields = u.NumFields()
-				over = methods > maxStructMethods || fields > maxStructFields
+				over = methods > maxStructMethods || (methods > 0 && fields > maxStructFields)
 			default:
 				continue
 			}
@@ -245,12 +248,7 @@ func findUnreferenced(all []*packages.Package, inScope map[string]bool) []string
 		if !inScope[p.PkgPath] || p.Types == nil || p.Name == "main" {
 			continue
 		}
-		generated := map[string]bool{}
-		for i, f := range p.Syntax {
-			if ast.IsGenerated(f) {
-				generated[p.CompiledGoFiles[i]] = true
-			}
-		}
+		generated := generatedFiles(p)
 		fromGenerated := func(pos token.Pos) bool {
 			return generated[p.Fset.Position(pos).Filename]
 		}
@@ -284,4 +282,14 @@ func findUnreferenced(all []*packages.Package, inScope map[string]bool) []string
 		}
 	}
 	return out
+}
+
+func generatedFiles(p *packages.Package) map[string]bool {
+	generated := map[string]bool{}
+	for i, f := range p.Syntax {
+		if ast.IsGenerated(f) {
+			generated[p.CompiledGoFiles[i]] = true
+		}
+	}
+	return generated
 }
