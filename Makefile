@@ -373,3 +373,13 @@ formal-check: formal-walker-sweep formal-graph-sweep formal-graph-bakeoff formal
 pkg/sdk/version.go:
 	echo $(VERSION)
 	echo "package sdk\n\nconst Version = \"$(VERSION)\"" > $@
+
+EXPORTCHECK_SCOPE := ./pkg/dotc1z/...,./pkg/synccompactor/...,./pkg/sync/...
+
+.PHONY: exportcheck
+exportcheck: ## Fail on new unreferenced exports or grown oversized types in the storage packages (see .exportcheck-baseline)
+	go run -C tools/exportcheck . -dir ../.. -scope $(EXPORTCHECK_SCOPE) -baseline ../../.exportcheck-baseline
+
+.PHONY: exportcheck-update
+exportcheck-update: ## Rewrite .exportcheck-baseline from the current tree
+	go run -C tools/exportcheck . -dir ../.. -scope $(EXPORTCHECK_SCOPE) -baseline ../../.exportcheck-baseline -update
