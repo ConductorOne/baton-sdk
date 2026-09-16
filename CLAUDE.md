@@ -11,11 +11,13 @@ should exist at all, follow `docs/COMMENTS.md`.
 
 ## Comments
 
-Follow `docs/COMMENTS.md`. A typical change adds zero comments. Before
-adding one, name which of the six kinds it is; if you cannot, do not write
-it. A comment longer than the code under it is deleted or moved to `docs/`.
-Before finishing, delete half of the comments you added, then reread the
-rest.
+Follow `docs/COMMENTS.md`. A typical change adds zero comments. A comment
+records something genuinely surprising that a reader could not glean from
+the code; before writing one, change the code so it is not surprising, and
+write the comment only for what remains. A comment longer than the code
+under it is deleted or moved to `docs/`, except one block for a sizeable,
+novel algorithm or protocol. Before finishing, delete half of the comments
+you added, then reread the rest.
 
 ## Project Overview
 

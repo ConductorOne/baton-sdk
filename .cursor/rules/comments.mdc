@@ -6,16 +6,21 @@ alwaysApply: true
 # Comments
 
 For any code comment you write, edit, or review, follow `docs/COMMENTS.md`.
-The prior is that a comment is worse than nothing most of the time. A
-typical change adds zero.
+A typical change adds zero.
 
 When writing:
 
-- Before adding a comment, name which of the six kinds in `docs/COMMENTS.md`
-  it is. If you cannot, do not write it.
+- A comment records something genuinely surprising that a reader could
+  not glean from the code in front of them. Before writing one, change
+  the code so it is not surprising: a name, a type, a split, a test. Write
+  the comment only for what remains.
 - A comment longer than the code under it is deleted or moved to `docs/`.
+  The one exception is a single block describing a sizeable, novel
+  algorithm or protocol whose shape the code cannot show at once.
 - Before finishing, delete half of the comments you added. Then reread the
-  rest against the page.
+  rest.
 
-When reviewing: the first question is whether the comment should exist; if
-not, the finding is delete, not reword. Stale but harmless is silent.
+When reviewing: a comment finding is that the comment is false, that it
+documents a surprise the code should have removed (the finding is the
+rename, type, or split, not the comment), or that it documents nothing
+surprising (the finding is delete). Never request a comment.

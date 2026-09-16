@@ -187,11 +187,12 @@ downstreams.
 
 These constrain what you emit. They apply to every finding, whatever it is about.
 
-- Code comments: at most one comment finding per review, and only when the comment is
-  false in a way that would change what a reader writes. The finding is delete, not
-  reword; never propose replacement text longer than one line. Stale but harmless is
-  silent. Deleting a comment that would not pass `docs/COMMENTS.md` needs no
-  justification.
+- Code comments: a comment finding is one of three things. The comment is false. It
+  documents a surprise the code should have removed, and the finding is the rename, type,
+  or split, not the comment. It documents nothing a reader could not glean from the code,
+  and the finding is delete. Anything else about a comment is silent: stale, imprecise,
+  too long, restating the diff. Never request a comment, and never propose replacement
+  text longer than one line.
 - A non-blocking wording finding is unsaid unless the wording would change what a reader
   does. Still-imprecise is not a finding.
 - One round per location. A second thread is for a fix that introduced something new that
