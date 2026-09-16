@@ -7,5 +7,15 @@ alwaysApply: true
 
 For any code comment you write, edit, or review, follow `docs/COMMENTS.md`.
 The prior is that a comment is worse than nothing most of the time. A
-typical change adds zero. In review, the first question is whether the
-comment should exist; if not, the finding is delete, not reword.
+typical change adds zero.
+
+When writing:
+
+- Before adding a comment, name which of the six kinds in `docs/COMMENTS.md`
+  it is. If you cannot, do not write it.
+- A comment longer than the code under it is deleted or moved to `docs/`.
+- Before finishing, delete half of the comments you added. Then reread the
+  rest against the page.
+
+When reviewing: the first question is whether the comment should exist; if
+not, the finding is delete, not reword. Stale but harmless is silent.
