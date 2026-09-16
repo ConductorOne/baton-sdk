@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	v1_conf "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 )
 
 func normalizeJSON(jsonStr string) (string, error) {
@@ -172,6 +174,28 @@ func TestDefaultValueOnlyExport(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"runtime"}, v1.GetStringSliceField().GetDefaultValue())
 	require.Empty(t, v1.GetStringSliceField().GetSuggestedValue(), "suggested_value must be empty for a default-only field")
+}
+
+func TestMultiline(t *testing.T) {
+	// WithMultiline is a GUI render hint, orthogonal to both the field type and
+	// WithIsSecret, so a secret field can also be multiline.
+	multiline := StringField("pem", WithMultiline(true), WithIsSecret(true))
+
+	v1, err := schemaFieldToV1(multiline)
+	require.NoError(t, err)
+	require.True(t, v1.GetStringField().GetMultiline())
+	require.True(t, v1.GetIsSecret())
+	// The render hint must not change the field's type away from plain text,
+	// which is what keeps the generated config struct a string.
+	require.Equal(t, v1_conf.StringFieldType_STRING_FIELD_TYPE_TEXT_UNSPECIFIED, v1.GetStringField().GetType())
+}
+
+func TestMultilineDefaultsOff(t *testing.T) {
+	plain := StringField("pem")
+
+	v1, err := schemaFieldToV1(plain)
+	require.NoError(t, err)
+	require.False(t, v1.GetStringField().GetMultiline())
 }
 
 func TestSuggestedValuePrecedence(t *testing.T) {

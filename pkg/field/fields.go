@@ -57,6 +57,7 @@ type connectorConfig struct {
 	FieldType   WebFieldType
 	// Only used by file uploads atm.
 	BonusStrings []string
+	Multiline    bool
 }
 
 type SchemaField struct {

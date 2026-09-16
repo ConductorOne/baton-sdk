@@ -261,6 +261,7 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 		if sv != nil {
 			stringField.SetSuggestedValue(*sv)
 		}
+		stringField.SetMultiline(f.ConnectorConfig.Multiline)
 
 		switch f.ConnectorConfig.FieldType {
 		case Text:

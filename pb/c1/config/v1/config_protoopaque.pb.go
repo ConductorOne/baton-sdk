@@ -2655,6 +2655,7 @@ type StringField struct {
 	xxx_hidden_AllowedExtensions []string               `protobuf:"bytes,4,rep,name=allowed_extensions,json=allowedExtensions,proto3"`
 	xxx_hidden_Options           *[]*StringFieldOption  `protobuf:"bytes,5,rep,name=options,proto3"`
 	xxx_hidden_SuggestedValue    string                 `protobuf:"bytes,6,opt,name=suggested_value,json=suggestedValue,proto3"`
+	xxx_hidden_Multiline         bool                   `protobuf:"varint,7,opt,name=multiline,proto3"`
 	unknownFields                protoimpl.UnknownFields
 	sizeCache                    protoimpl.SizeCache
 }
@@ -2728,6 +2729,13 @@ func (x *StringField) GetSuggestedValue() string {
 	return ""
 }
 
+func (x *StringField) GetMultiline() bool {
+	if x != nil {
+		return x.xxx_hidden_Multiline
+	}
+	return false
+}
+
 func (x *StringField) SetDefaultValue(v string) {
 	x.xxx_hidden_DefaultValue = v
 }
@@ -2752,6 +2760,10 @@ func (x *StringField) SetSuggestedValue(v string) {
 	x.xxx_hidden_SuggestedValue = v
 }
 
+func (x *StringField) SetMultiline(v bool) {
+	x.xxx_hidden_Multiline = v
+}
+
 func (x *StringField) HasRules() bool {
 	if x == nil {
 		return false
@@ -2773,6 +2785,9 @@ type StringField_builder struct {
 	AllowedExtensions []string
 	Options           []*StringFieldOption
 	SuggestedValue    string
+	// Render the input as a multiline textarea. Orthogonal to type and to
+	// Field.is_secret, so a secret field can also be multiline.
+	Multiline bool
 }
 
 func (b0 StringField_builder) Build() *StringField {
@@ -2785,6 +2800,7 @@ func (b0 StringField_builder) Build() *StringField {
 	x.xxx_hidden_AllowedExtensions = b.AllowedExtensions
 	x.xxx_hidden_Options = &b.Options
 	x.xxx_hidden_SuggestedValue = b.SuggestedValue
+	x.xxx_hidden_Multiline = b.Multiline
 	return m0
 }
 
@@ -2917,14 +2933,15 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\x11StringFieldOption\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\x12!\n" +
-	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\"\xb8\x02\n" +
+	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\"\xd6\x02\n" +
 	"\vStringField\x12#\n" +
 	"\rdefault_value\x18\x01 \x01(\tR\fdefaultValue\x124\n" +
 	"\x05rules\x18\x02 \x01(\v2\x19.c1.config.v1.StringRulesH\x00R\x05rules\x88\x01\x01\x121\n" +
 	"\x04type\x18\x03 \x01(\x0e2\x1d.c1.config.v1.StringFieldTypeR\x04type\x12-\n" +
 	"\x12allowed_extensions\x18\x04 \x03(\tR\x11allowedExtensions\x129\n" +
 	"\aoptions\x18\x05 \x03(\v2\x1f.c1.config.v1.StringFieldOptionR\aoptions\x12'\n" +
-	"\x0fsuggested_value\x18\x06 \x01(\tR\x0esuggestedValueB\b\n" +
+	"\x0fsuggested_value\x18\x06 \x01(\tR\x0esuggestedValue\x12\x1c\n" +
+	"\tmultiline\x18\a \x01(\bR\tmultilineB\b\n" +
 	"\x06_rules*\xc4\x01\n" +
 	"\x0eConstraintKind\x12\x1f\n" +
 	"\x1bCONSTRAINT_KIND_UNSPECIFIED\x10\x00\x12%\n" +
