@@ -56,7 +56,7 @@ type resourceBufKey struct{ rt, id string }
 // pageUnit buffers one page's writes. Not safe for concurrent use; a
 // page is executed by one worker.
 type pageUnit struct {
-	e *Engine
+	l *Ledger
 	// syncID is the sync open when the page was begun. Commit refuses to
 	// land in any other one (see ErrPageUnitForeignSync).
 	syncID string
@@ -130,8 +130,8 @@ func (u *pageUnit) StageCounterBucket(runID string, worker uint32, bucket *v3.Le
 }
 
 // newPageUnit starts buffering a page, bound to the sync open now.
-func (e *Engine) newPageUnit() *pageUnit {
-	return &pageUnit{e: e, syncID: e.CurrentSyncID()}
+func (l *Ledger) newPageUnit() *pageUnit {
+	return &pageUnit{l: l, syncID: l.e.CurrentSyncID()}
 }
 
 // StageResourceTypes buffers resource types for the page's commit.
@@ -200,14 +200,14 @@ func (u *pageUnit) StageGrants(records ...*v3.GrantRecord) error {
 // resource if it has one (latest staged wins, matching the commit's
 // last-occurrence dedup), else the DB. Returns pebble.ErrNotFound as
 // the engine's GetResourceRecord does.
-func (u *pageUnit) GetResourceRecord(ctx context.Context, resourceTypeID, resourceID string) (*v3.ResourceRecord, error) {
+func (u *pageUnit) resourceRecord(ctx context.Context, resourceTypeID, resourceID string) (*v3.ResourceRecord, error) {
 	if u.done {
 		return nil, ErrPageUnitCommitted
 	}
 	if i, ok := u.resourceIdx[resourceBufKey{resourceTypeID, resourceID}]; ok {
 		return u.resources[i], nil
 	}
-	return u.e.GetResourceRecord(ctx, resourceTypeID, resourceID)
+	return u.l.e.GetResourceRecord(ctx, resourceTypeID, resourceID)
 }
 
 // StageGrantDeletes buffers grant removals by structural identity for
@@ -323,14 +323,14 @@ func (u *pageUnit) DropStagedRows(kind string, scopeKey string, canonicalIDs, pr
 // Guarded on done for the same reason as GetResourceRecord: release
 // clears the buffer, so a read of a staged id after Commit or Discard
 // would index a nil slice.
-func (u *pageUnit) GetEntitlementRecord(ctx context.Context, externalID string) (*v3.EntitlementRecord, error) {
+func (u *pageUnit) entitlementRecord(ctx context.Context, externalID string) (*v3.EntitlementRecord, error) {
 	if u.done {
 		return nil, ErrPageUnitCommitted
 	}
 	if i, ok := u.entitlementIdx[externalID]; ok {
 		return u.entitlements[i], nil
 	}
-	return u.e.GetEntitlementRecord(ctx, externalID)
+	return u.l.e.GetEntitlementRecord(ctx, externalID)
 }
 
 // Empty reports whether nothing has been staged. A page that wrote
@@ -394,9 +394,9 @@ func (u *pageUnit) Commit(ctx context.Context, id ledgerIdentity, row *v3.Ledger
 	}
 	key := encodeLedgerKey(id)
 
-	e := u.e
-	err := e.withWrite(func() error {
-		if err := e.requireCurrentSync(); err != nil {
+	l := u.l
+	err := l.e.withWrite(func() error {
+		if err := l.e.requireCurrentSync(); err != nil {
 			return err
 		}
 		// A page that outlived a completed EndSync/StartNewSync pair
@@ -409,36 +409,36 @@ func (u *pageUnit) Commit(ctx context.Context, id ledgerIdentity, row *v3.Ledger
 		// unsealed again and would accept it. The binding is replaced
 		// under writeMu, which this holds, so the id read here is the
 		// one the commit below lands under.
-		if now := e.CurrentSyncID(); u.syncID != "" && now != u.syncID {
+		if now := l.e.CurrentSyncID(); u.syncID != "" && now != u.syncID {
 			return fmt.Errorf("%w: begun under %s, now %s", ErrPageUnitForeignSync, u.syncID, now)
 		}
 		// The in-flight stamp precedes the first row (synced, its own
 		// write): a token-only SDK must refuse this file from here until
 		// seal. See keyspaceVersionLedgerInFlight.
-		if err := e.markLedgerInFlightLocked(); err != nil {
+		if err := l.markInFlightLocked(); err != nil {
 			return err
 		}
-		batch := e.db.NewRecordBatch()
+		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
 
 		resourceTypes, err := stageResourceTypeRecords(batch, u.resourceTypes)
 		if err != nil {
 			return err
 		}
-		resources, err := e.stageResourceRecords(batch, u.resources)
+		resources, err := l.e.stageResourceRecords(batch, u.resources)
 		if err != nil {
 			return err
 		}
-		entitlements, err := e.stageEntitlementRecords(batch, u.entitlements)
+		entitlements, err := l.e.stageEntitlementRecords(batch, u.entitlements)
 		if err != nil {
 			return err
 		}
-		grants, err := e.stageGrantRecords(batch, u.grants)
+		grants, err := l.e.stageGrantRecords(batch, u.grants)
 		if err != nil {
 			return err
 		}
 		for _, id := range u.grantDeletes {
-			if _, err := e.stageGrantDeleteIfPresentLocked(batch, id); err != nil {
+			if _, err := l.e.stageGrantDeleteIfPresentLocked(batch, id); err != nil {
 				return err
 			}
 		}
@@ -467,7 +467,7 @@ func (u *pageUnit) Commit(ctx context.Context, id ledgerIdentity, row *v3.Ledger
 		// a fact is a monotone last-writer-wins key, so re-staging costs
 		// one key and self-heals a run whose declaring process died after
 		// the first page.
-		if e.retainLedgerTokens.Load() {
+		if l.retainTokens.Load() {
 			if err := batch.StageLedgerFact(encodeLedgerFactKey(c1zstore.LedgerFactRetainTokens)); err != nil {
 				return err
 			}
@@ -489,7 +489,7 @@ func (u *pageUnit) Commit(ctx context.Context, id ledgerIdentity, row *v3.Ledger
 			return err
 		}
 		if len(u.entitlements) > 0 {
-			e.noteEntitlementKeyspaceWrite()
+			l.e.noteEntitlementKeyspaceWrite()
 		}
 		return nil
 	})

@@ -26,8 +26,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-var _ c1zstore.PageLedgerStore = (*Engine)(nil)
-
 // pageWriter is the c1zstore.PageWriter over a pageUnit.
 type pageWriter struct {
 	e      *Engine
@@ -38,8 +36,8 @@ type pageWriter struct {
 // BeginPage implements c1zstore.PageLedgerStore. The sync id is
 // captured at begin so a page that straddles nothing else's lifecycle
 // translates against the sync it was started in.
-func (e *Engine) BeginPage() c1zstore.PageWriter {
-	return &pageWriter{e: e, syncID: e.CurrentSyncID(), unit: e.newPageUnit()}
+func (l *Ledger) BeginPage() c1zstore.PageWriter {
+	return &pageWriter{e: l.e, syncID: l.e.CurrentSyncID(), unit: l.newPageUnit()}
 }
 
 func (w *pageWriter) requireSync() error {
@@ -81,7 +79,7 @@ func (w *pageWriter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 // Not-found is adapted to the store's usual error, as the reader RPC
 // does.
 func (w *pageWriter) GetResource(ctx context.Context, resourceTypeID, resourceID string) (*v2.Resource, error) {
-	rec, err := w.unit.GetResourceRecord(ctx, resourceTypeID, resourceID)
+	rec, err := w.unit.resourceRecord(ctx, resourceTypeID, resourceID)
 	if err = c1zstore.AdaptNotFound(err, pebble.ErrNotFound); err != nil {
 		return nil, err
 	}
@@ -90,7 +88,7 @@ func (w *pageWriter) GetResource(ctx context.Context, resourceTypeID, resourceID
 
 // GetEntitlement is the page-scoped entitlement read (buffer, then DB).
 func (w *pageWriter) GetEntitlement(ctx context.Context, entitlementID string) (*v2.Entitlement, error) {
-	rec, err := w.unit.GetEntitlementRecord(ctx, entitlementID)
+	rec, err := w.unit.entitlementRecord(ctx, entitlementID)
 	if err = c1zstore.AdaptNotFound(err, pebble.ErrNotFound); err != nil {
 		return nil, err
 	}
@@ -138,11 +136,11 @@ func (w *pageWriter) Commit(ctx context.Context, id c1zstore.LedgerActionIdentit
 
 func (w *pageWriter) Discard() { w.unit.Discard() }
 
-// GetLedgerRow implements c1zstore.PageLedgerStore: absent and
+// GetRow implements c1zstore.PageLedgerStore: absent and
 // identity-mismatch both read as not found (the mismatch is counted and
 // logged by the engine).
-func (e *Engine) GetLedgerRow(ctx context.Context, id c1zstore.LedgerActionIdentity) (*c1zstore.LedgerRow, bool, error) {
-	row, err := e.getLedgerRowRecord(ctx, ledgerIdentityFromStore(id))
+func (l *Ledger) GetRow(ctx context.Context, id c1zstore.LedgerActionIdentity) (*c1zstore.LedgerRow, bool, error) {
+	row, err := l.getRowRecord(ctx, ledgerIdentityFromStore(id))
 	switch {
 	case err == nil:
 		return ledgerRowFromProto(row), true, nil
@@ -153,18 +151,18 @@ func (e *Engine) GetLedgerRow(ctx context.Context, id c1zstore.LedgerActionIdent
 	}
 }
 
-// LedgerCounters implements c1zstore.PageLedgerStore.
-func (e *Engine) LedgerCounters(ctx context.Context) (c1zstore.LedgerCounters, error) {
-	sum, err := e.sumLedgerCounters(ctx)
+// Counters implements c1zstore.PageLedgerStore.
+func (l *Ledger) Counters(ctx context.Context) (c1zstore.LedgerCounters, error) {
+	sum, err := l.sumCounters(ctx)
 	if err != nil {
 		return c1zstore.LedgerCounters{}, err
 	}
 	return ledgerCountersFromProto(sum), nil
 }
 
-// LedgerFrontier implements c1zstore.PageLedgerStore.
-func (e *Engine) LedgerFrontier(ctx context.Context) (*c1zstore.LedgerFrontier, bool, error) {
-	f, found, err := e.getLedgerFrontier(ctx)
+// Frontier implements c1zstore.PageLedgerStore.
+func (l *Ledger) Frontier(ctx context.Context) (*c1zstore.LedgerFrontier, bool, error) {
+	f, found, err := l.getFrontier(ctx)
 	if err != nil || !found {
 		return nil, found, err
 	}
@@ -175,13 +173,13 @@ func (e *Engine) LedgerFrontier(ctx context.Context) (*c1zstore.LedgerFrontier, 
 	return out, true, nil
 }
 
-// TakeoverToken implements c1zstore.PageLedgerStore.
-func (e *Engine) TakeoverToken(ctx context.Context, runID string, facts []string, counters c1zstore.LedgerCounters) (string, error) {
+// Takeover implements c1zstore.PageLedgerStore.
+func (l *Ledger) Takeover(ctx context.Context, runID string, facts []string, counters c1zstore.LedgerCounters) (string, error) {
 	var bucket *v3.LedgerCounterBucket
 	if !ledgerCountersEmpty(counters) {
 		bucket = ledgerCountersToProto(counters)
 	}
-	return e.takeoverToken(ctx, runID, facts, bucket)
+	return l.takeoverRecord(ctx, runID, facts, bucket)
 }
 
 // ledgerCountersEmpty reports whether counters carries nothing worth a
@@ -196,8 +194,8 @@ func ledgerCountersEmpty(c c1zstore.LedgerCounters) bool {
 }
 
 // PutCounterBucket implements c1zstore.PageLedgerStore.
-func (e *Engine) PutCounterBucket(ctx context.Context, runID string, worker uint32, counters c1zstore.LedgerCounters) error {
-	return e.putLedgerCounterBucket(ctx, runID, worker, ledgerCountersToProto(counters))
+func (l *Ledger) PutCounterBucket(ctx context.Context, runID string, worker uint32, counters c1zstore.LedgerCounters) error {
+	return l.putCounterBucketRecord(ctx, runID, worker, ledgerCountersToProto(counters))
 }
 
 // syncStatsOverlay renders the syncer's seal-time stats as the partial

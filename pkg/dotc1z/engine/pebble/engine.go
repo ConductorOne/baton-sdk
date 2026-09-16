@@ -182,18 +182,7 @@ type Engine struct {
 	entIDLookup         map[string][]entitlementIdentity
 	entIDLookupBuiltGen uint64
 
-	// Page ledger state (ledger.go). retainLedgerTokens opts OUT of the
-	// token scrub EndSync performs before the seal; the zero value is
-	// therefore the safe one, which is the point — a caller that never
-	// thinks about tokens gets hash-only rows. ledgerMismatches counts
-	// read-side identity-compare failures (a key-function bug signal,
-	// never data loss: the page re-runs).
-	retainLedgerTokens atomic.Bool
-	ledgerMismatches   atomic.Uint64
-	// ledgerInFlight mirrors the keyspaceVersionLedgerInFlight stamp
-	// (keyspace_version.go): set on Open when the file carries it, by the
-	// first pageUnit commit, cleared at seal.
-	ledgerInFlight atomic.Bool
+	ledger Ledger
 
 	// migratedOnOpen reports that this Open ran the in-place id-index
 	// migration. The store layer uses it to mark a writable store dirty so
@@ -251,6 +240,7 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		resolvedFS: db.FS(),
 	}
 	e.binding.Store(&syncBinding{})
+	e.ledger.e = e
 	if s, ok := pebbleOpts.Experimental.CompactionScheduler.(*pausableCompactionScheduler); ok {
 		e.compactionScheduler = s
 	}

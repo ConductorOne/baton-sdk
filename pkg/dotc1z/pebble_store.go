@@ -602,13 +602,29 @@ func (s *pebbleStore) DeleteGrant(ctx context.Context, grantID string) error {
 	return s.markDirty(s.Engine.DeleteGrant(ctx, grantID))
 }
 
-// BeginPage implements c1zstore.PageLedgerStore (the atomic page unit,
-// docs/tasks/sound-syncs-solutions-brief.md §3). The engine's writer is
-// wrapped so a committed page marks the store dirty like every other
-// write; GetLedgerRow and SetRetainLedgerTokens are promoted from the
-// embedded engine unchanged.
+// The c1zstore.PageLedgerStore methods delegate to the engine's Ledger;
+// the writes mark the store dirty like every other write.
+
 func (s *pebbleStore) BeginPage() c1zstore.PageWriter {
-	return &dirtyPageWriter{PageWriter: s.Engine.BeginPage(), store: s}
+	return &dirtyPageWriter{PageWriter: s.Engine.Ledger().BeginPage(), store: s}
+}
+
+func (s *pebbleStore) GetLedgerRow(ctx context.Context, id c1zstore.LedgerActionIdentity) (*c1zstore.LedgerRow, bool, error) {
+	return s.Engine.Ledger().GetRow(ctx, id)
+}
+
+func (s *pebbleStore) SetRetainLedgerTokens(retain bool) { s.Engine.Ledger().SetRetainTokens(retain) }
+
+func (s *pebbleStore) LedgerFacts(ctx context.Context) (map[string]string, error) {
+	return s.Engine.Ledger().Facts(ctx)
+}
+
+func (s *pebbleStore) LedgerCounters(ctx context.Context) (c1zstore.LedgerCounters, error) {
+	return s.Engine.Ledger().Counters(ctx)
+}
+
+func (s *pebbleStore) LedgerFrontier(ctx context.Context) (*c1zstore.LedgerFrontier, bool, error) {
+	return s.Engine.Ledger().Frontier(ctx)
 }
 
 type dirtyPageWriter struct {
@@ -620,28 +636,20 @@ func (w *dirtyPageWriter) Commit(ctx context.Context, id c1zstore.LedgerActionId
 	return w.store.markDirty(w.PageWriter.Commit(ctx, id, row))
 }
 
-// TakeoverToken implements c1zstore.PageLedgerStore; a write, so it
-// marks the store dirty.
 func (s *pebbleStore) TakeoverToken(ctx context.Context, runID string, facts []string, counters c1zstore.LedgerCounters) (string, error) {
-	state, err := s.Engine.TakeoverToken(ctx, runID, facts, counters)
+	state, err := s.Engine.Ledger().Takeover(ctx, runID, facts, counters)
 	return state, s.markDirty(err)
 }
 
-// PutCounterBucket implements c1zstore.PageLedgerStore; a write, so it
-// marks the store dirty.
 func (s *pebbleStore) PutCounterBucket(ctx context.Context, runID string, worker uint32, counters c1zstore.LedgerCounters) error {
-	return s.markDirty(s.Engine.PutCounterBucket(ctx, runID, worker, counters))
+	return s.markDirty(s.Engine.Ledger().PutCounterBucket(ctx, runID, worker, counters))
 }
 
-// DropLedger implements c1zstore.PageLedgerStore. A delete is a write:
-// without the dirty mark, Close skips save() and drops the temp DB, so
-// the wipe never reaches the c1z and the next open still enumerates
-// every prior action as done — the sync then skips work it never did.
-// The documented caller rebinds a FINISHED sync, whose store is
-// otherwise clean, so the drop is frequently the only write in the
-// session and there is nothing else to set the flag.
+// DropLedger marks dirty like the other writes; it is frequently the only
+// write in a session (the syncer rebinds a FINISHED sync), so nothing else
+// would set the flag and the wipe would never reach the c1z.
 func (s *pebbleStore) DropLedger(ctx context.Context) error {
-	return s.markDirty(s.Engine.DropLedger(ctx))
+	return s.markDirty(s.Engine.Ledger().Drop(ctx))
 }
 
 // DeleteGrantByRefs is the exact grant delete for callers holding the full

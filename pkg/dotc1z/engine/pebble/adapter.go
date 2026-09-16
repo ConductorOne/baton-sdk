@@ -248,7 +248,7 @@ func (e *Engine) CheckpointSync(ctx context.Context, syncToken string) error {
 	if syncID == "" {
 		return errors.New("CheckpointSync: no open sync")
 	}
-	ledgered, err := e.ledgerActive()
+	ledgered, err := e.ledger.active()
 	if err != nil {
 		return err
 	}
@@ -297,7 +297,7 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 		return errors.New("EndSync: no open sync")
 	}
 	if overlay == nil {
-		ledgered, err := e.ledgerActive()
+		ledgered, err := e.ledger.active()
 		if err != nil {
 			return err
 		}
@@ -406,10 +406,10 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	// fact (see LedgerFactRetainTokens). This process may not be the one
 	// that declared it.
 	//
-	// ledgerActive gates the whole block, and has to: sealScrubsTokens
+	// Ledger.active gates the whole block, and has to: sealScrubsTokens
 	// reports true whenever the retain fact is absent, and a sync with no
 	// ledger never writes that fact, so without this gate every EndSync
-	// in the fleet reaches purgeLedgerResidue. Its db.Compact rewrites
+	// in the fleet reaches Ledger.purgeResidue. Its db.Compact rewrites
 	// every SST whose bounds OVERLAP the ledger range, and on a
 	// ledger-free file the SSTs spanning the gap between TypeSourceCache
 	// and TypeEngineMeta do overlap it, at every level that has files.
@@ -419,38 +419,38 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	// What the gate does not cover: a ledger deleted earlier in this file's
 	// life, whose bytes are still in the SSTs with no rows left to find. The
 	// marker block below is that case, and is deliberately outside this one.
-	ledgered, err := e.ledgerActive()
+	ledgered, err := e.ledger.active()
 	if err != nil {
 		return fmt.Errorf("EndSync: check ledger presence: %w", err)
 	}
 	if ledgered {
-		scrub, err := e.sealScrubsTokens()
+		scrub, err := e.ledger.sealScrubsTokens()
 		if err != nil {
 			return fmt.Errorf("EndSync: read retain-tokens fact: %w", err)
 		}
 		if scrub {
-			if err := e.scrubLedgerTokens(ctx); err != nil {
+			if err := e.ledger.scrubTokens(ctx); err != nil {
 				return fmt.Errorf("EndSync: scrub ledger tokens: %w", err)
 			}
 			// The scrub is query-level until the pre-scrub SST versions
 			// are compacted away; nothing later on the seal-to-save path
-			// compacts (see purgeLedgerResidue). Same crash argument as
+			// compacts (see Ledger.purgeResidue). Same crash argument as
 			// the scrub: a crash here leaves the sync unfinished and the
 			// resumed EndSync re-runs both (idempotent).
 			if !e.test.skipLedgerResiduePurge {
-				if err := e.purgeLedgerResidue(ctx); err != nil {
+				if err := e.ledger.purgeResidue(ctx); err != nil {
 					return fmt.Errorf("EndSync: purge ledger residue after scrub: %w", err)
 				}
 			}
 		}
 	}
-	// Separate from the block above, and gated on neither ledgerActive nor
+	// Separate from the block above, and gated on neither Ledger.active nor
 	// the retain fact: this is the state where a deleted ledger's bytes are
 	// still in the SSTs with nothing left in the keyspace to infer it from.
-	// DropLedger arms the marker for it, and this is the retry for a purge
+	// Ledger.Drop arms the marker for it, and this is the retry for a purge
 	// of its own that failed (see encodeLedgerResiduePendingKey).
 	if !e.test.skipLedgerResiduePurge {
-		if err := e.purgeMarkedLedgerResidue(ctx); err != nil {
+		if err := e.ledger.purgeMarkedResidue(ctx); err != nil {
 			return fmt.Errorf("EndSync: purge marked ledger residue: %w", err)
 		}
 	}
@@ -458,7 +458,7 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	// openable by every v2 reader (the rows stay; those readers are
 	// family-bounded). A crash in between leaves an unfinished v2 file
 	// with rows; the resumed EndSync re-runs this (idempotent).
-	if err := e.withWriteAllowSealed(e.clearLedgerInFlightLocked); err != nil {
+	if err := e.withWriteAllowSealed(e.ledger.clearInFlightLocked); err != nil {
 		return fmt.Errorf("EndSync: %w", err)
 	}
 	// Preserve all provenance fields while adding the lifecycle stamp.
@@ -1230,4 +1230,20 @@ func (r *bytesReader) Read(p []byte) (int, error) {
 	n := copy(p, r.b[r.i:])
 	r.i += n
 	return n, nil
+}
+
+// BoundSyncFinished implements c1zstore.PageLedgerStore.
+func (e *Engine) BoundSyncFinished(ctx context.Context) (bool, error) {
+	syncID := e.CurrentSyncID()
+	if syncID == "" {
+		return false, nil
+	}
+	rec, err := e.GetSyncRunRecord(ctx, syncID)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return rec.GetEndedAt() != nil, nil
 }

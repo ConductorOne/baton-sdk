@@ -9,7 +9,6 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // keyspaceVersion is the on-disk key-layout version this SDK writes and
@@ -85,7 +84,7 @@ func (e *Engine) verifyOrStampKeyspaceVersion(ctx context.Context) error {
 		if !supportedKeyspaceVersions[got] {
 			return fmt.Errorf("pebble: unsupported keyspace layout v%d (want v%d single-sync); regenerate this c1z with a current SDK", got, keyspaceVersion)
 		}
-		e.ledgerInFlight.Store(got == keyspaceVersionLedgerInFlight)
+		e.ledger.inFlight.Store(got == keyspaceVersionLedgerInFlight)
 		return nil
 	case errors.Is(err, pebble.ErrNotFound):
 		empty, derr := e.isKeyspaceEmpty()
@@ -95,7 +94,7 @@ func (e *Engine) verifyOrStampKeyspaceVersion(ctx context.Context) error {
 		if !empty {
 			return fmt.Errorf("pebble: unsupported keyspace layout (no version stamp on a non-empty file; want v%d single-sync); regenerate this c1z with a current SDK", keyspaceVersion)
 		}
-		e.ledgerInFlight.Store(false)
+		e.ledger.inFlight.Store(false)
 		if e.opts.readOnly {
 			return nil
 		}
@@ -130,65 +129,6 @@ func (e *Engine) keyspaceVersionStamp() (uint32, error) {
 		return 0, fmt.Errorf("pebble: malformed keyspace-version stamp: %d bytes, want 4", len(val))
 	}
 	return binary.BigEndian.Uint32(val), nil
-}
-
-// markLedgerInFlightLocked stamps keyspaceVersionLedgerInFlight, once per
-// open. Called by pageUnit.Commit BEFORE the unit's batch, synced, so
-// the stamp is durable in every image the row is durable in.
-func (e *Engine) markLedgerInFlightLocked() error {
-	if e.ledgerInFlight.Load() {
-		return nil
-	}
-	if err := e.stampKeyspaceVersionValueLocked(keyspaceVersionLedgerInFlight); err != nil {
-		return fmt.Errorf("pebble: stamp ledger in-flight: %w", err)
-	}
-	e.ledgerInFlight.Store(true)
-	return nil
-}
-
-// clearLedgerInFlightLocked restores keyspaceVersion at seal. Idempotent; a
-// crash between it and the ended_at stamp leaves an unfinished v2 file
-// with rows, which the syncer's attempt guard tolerates.
-func (e *Engine) clearLedgerInFlightLocked() error {
-	if !e.ledgerInFlight.Load() {
-		return nil
-	}
-	if err := e.stampKeyspaceVersionValueLocked(keyspaceVersion); err != nil {
-		return fmt.Errorf("pebble: clear ledger in-flight stamp: %w", err)
-	}
-	e.ledgerInFlight.Store(false)
-	return nil
-}
-
-// ledgerActive reports whether this sync must be treated as ledgered:
-// the in-flight stamp is set, OR the ledger family holds a key.
-//
-// The stamp alone is not enough. clearLedgerInFlight runs before the
-// ended_at stamp, and it drops both the durable stamp and the in-memory
-// flag, so two states have a ledger while the flag says otherwise:
-//
-//   - endSyncFinalize fails after the clear (PutSyncRunRecord IO error).
-//     EndSync unseals and the caller may keep writing or retry, with the
-//     flag now false.
-//   - a crash in the same window. The next open reads a v2 stamp and
-//     sets the flag false, over rows that are still there.
-//
-// In both, gating on the flag alone would let CheckpointSync write a
-// token beside a live ledger — the second, lagging authority that
-// ErrLedgeredSyncWritesNoToken exists to refuse. Rows outlive the stamp,
-// so rows are what the gate asks about. Called from CheckpointSync and
-// EndSync only, never per record.
-func (e *Engine) ledgerActive() (bool, error) {
-	if e.ledgerInFlight.Load() {
-		return true, nil
-	}
-	lo, hi := rawdb.LedgerBounds()
-	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
-	if err != nil {
-		return false, err
-	}
-	defer iter.Close()
-	return iter.First(), iter.Error()
 }
 
 // isKeyspaceEmpty reports whether the DB holds any v3 key at all (data,

@@ -506,7 +506,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// DropLedger, not ResetForNewSync: drop the trace and keep the
 	// records. This is the compaction-output caller DropLedger's own doc
 	// names.
-	if err := destEng.DropLedger(ctx); err != nil {
+	if err := destEng.Ledger().Drop(ctx); err != nil {
 		return "", fmt.Errorf("compactPebbleFold: drop inherited base ledger: %w", err)
 	}
 

@@ -25,6 +25,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -37,6 +38,28 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
+
+// Ledger is the page ledger of the engine's bound sync: one row per
+// committed page, facts, counter buckets and the takeover frontier
+// (docs/tasks/sound-syncs-solutions-brief.md §3). It writes through the
+// engine's lock and stagers; the engine's seal calls scrubTokens and
+// purgeResidue.
+type Ledger struct {
+	e *Engine
+	// retainTokens opts OUT of the token scrub the seal performs; the
+	// zero value is the safe one.
+	retainTokens atomic.Bool
+	// mismatches counts read-side identity-compare failures (a key-function
+	// bug signal, never data loss: the page re-runs).
+	mismatches atomic.Uint64
+	// inFlight mirrors the keyspaceVersionLedgerInFlight stamp
+	// (keyspace_version.go): set on Open when the file carries it, by the
+	// first page commit, cleared at seal.
+	inFlight atomic.Bool
+}
+
+// Ledger returns the engine's page ledger.
+func (e *Engine) Ledger() *Ledger { return &e.ledger }
 
 // ledgerIdentity is the engine-side view of a syncer action's semantic
 // identity (brief §3.2): the flat tuple that determines the connector
@@ -149,30 +172,30 @@ func ledgerIdentityMatches(want ledgerIdentity, got *v3.LedgerActionIdentity, sc
 	return bytes.Equal(got.GetPageTokenHash(), ledgerTokenHash(want.PageToken))
 }
 
-// ErrLedgerIdentityMismatch is returned by GetLedgerRow when a row
+// ErrLedgerIdentityMismatch is returned by GetRow when a row
 // exists at the identity's key but echoes a different identity: the
 // key function lost a distinguishing field, or two actions collided.
 // Callers treat it as "no row" (re-run the page) and it is counted so
 // the collision is never silent.
 var ErrLedgerIdentityMismatch = errors.New("pebble ledger: row at key echoes a different identity")
 
-// getLedgerRowRecord reads the completion row for id. Returns
+// getRowRecord reads the completion row for id. Returns
 // pebble.ErrNotFound when the page never committed and
 // ErrLedgerIdentityMismatch (also counted in ledgerMismatches) when a
 // row exists but belongs to another identity. Reads never write.
-func (e *Engine) getLedgerRowRecord(ctx context.Context, id ledgerIdentity) (*v3.LedgerRow, error) {
+func (l *Ledger) getRowRecord(ctx context.Context, id ledgerIdentity) (*v3.LedgerRow, error) {
 	key := encodeLedgerKey(id)
-	val, closer, err := e.db.Get(key)
+	val, closer, err := l.e.db.Get(key)
 	if err != nil {
 		return nil, err
 	}
 	defer closer.Close()
 	row := &v3.LedgerRow{}
 	if err := unmarshalRecord(val, row); err != nil {
-		return nil, fmt.Errorf("GetLedgerRow: unmarshal: %w", err)
+		return nil, fmt.Errorf("GetRow: unmarshal: %w", err)
 	}
 	if !ledgerIdentityMatches(id, row.GetIdentity(), row.GetScrubbed()) {
-		e.ledgerMismatches.Add(1)
+		l.mismatches.Add(1)
 		ctxzap.Extract(ctx).Warn("pebble ledger: identity mismatch at key; treating page as not committed",
 			zap.String("op", id.Op),
 			zap.String("resource_type_id", id.ResourceTypeID),
@@ -186,17 +209,17 @@ func (e *Engine) getLedgerRowRecord(ctx context.Context, id ledgerIdentity) (*v3
 	return row, nil
 }
 
-// ledgerMismatchCount reports how many GetLedgerRow calls found a row
+// mismatchCount reports how many GetRow calls found a row
 // echoing a different identity since Open. Nonzero is a key-function
 // bug to investigate, not a data-loss event (the page re-ran).
-func (e *Engine) ledgerMismatchCount() uint64 { return e.ledgerMismatches.Load() }
+func (l *Ledger) mismatchCount() uint64 { return l.mismatches.Load() }
 
-// iterateLedger yields every page row in key order (op, then resource).
+// iterate yields every page row in key order (op, then resource).
 // Rows only: facts, counter buckets and the frontier are sibling
 // sub-families (rawdb keyspace.go) with their own readers below.
-func (e *Engine) iterateLedger(ctx context.Context, yield func(*v3.LedgerRow) bool) error {
+func (l *Ledger) iterate(ctx context.Context, yield func(*v3.LedgerRow) bool) error {
 	lo, hi := rawdb.LedgerRowBounds()
-	return e.iterateLedgerRange(lo, hi, yield)
+	return l.iterateRange(lo, hi, yield)
 }
 
 // === facts, counter buckets, frontier (brief §3.6, §3.8) ===
@@ -213,12 +236,12 @@ func encodeLedgerCounterKey(runID string, worker uint32) []byte {
 	return codec.AppendTupleUint32(buf, worker)
 }
 
-// LedgerFacts returns every fact set by a committed page (or the
+// Facts returns every fact set by a committed page (or the
 // takeover), name → value ("" for a bare fact). A fact absent here was
 // never durably established.
-func (e *Engine) LedgerFacts(ctx context.Context) (map[string]string, error) {
+func (l *Ledger) Facts(ctx context.Context) (map[string]string, error) {
 	lo, hi := rawdb.LedgerFactBounds()
-	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
+	iter, err := l.e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
 	if err != nil {
 		return nil, err
 	}
@@ -235,11 +258,11 @@ func (e *Engine) LedgerFacts(ctx context.Context) (map[string]string, error) {
 	return facts, iter.Error()
 }
 
-// sumLedgerCounters folds every (run, worker) bucket into one: counters
+// sumCounters folds every (run, worker) bucket into one: counters
 // summed by name, flags OR'd. This is the sync-level value.
-func (e *Engine) sumLedgerCounters(ctx context.Context) (*v3.LedgerCounterBucket, error) {
+func (l *Ledger) sumCounters(ctx context.Context) (*v3.LedgerCounterBucket, error) {
 	lo, hi := rawdb.LedgerCounterBounds()
-	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
+	iter, err := l.e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
 	if err != nil {
 		return nil, err
 	}
@@ -274,10 +297,10 @@ func (e *Engine) sumLedgerCounters(ctx context.Context) (*v3.LedgerCounterBucket
 	}.Build(), nil
 }
 
-// ledgerCounterBucketCount reports how many buckets exist (tests).
-func (e *Engine) ledgerCounterBucketCount(ctx context.Context) (int, error) {
+// counterBucketCount reports how many buckets exist (tests).
+func (l *Ledger) counterBucketCount(ctx context.Context) (int, error) {
 	lo, hi := rawdb.LedgerCounterBounds()
-	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
+	iter, err := l.e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
 	if err != nil {
 		return 0, err
 	}
@@ -289,10 +312,10 @@ func (e *Engine) ledgerCounterBucketCount(ctx context.Context) (int, error) {
 	return n, iter.Error()
 }
 
-// getLedgerFrontier returns the takeover record, if the sync began
+// getFrontier returns the takeover record, if the sync began
 // under a token-only SDK and was taken over.
-func (e *Engine) getLedgerFrontier(ctx context.Context) (*v3.LedgerFrontier, bool, error) {
-	val, closer, err := e.db.Get(rawdb.LedgerFrontierKey())
+func (l *Ledger) getFrontier(ctx context.Context) (*v3.LedgerFrontier, bool, error) {
+	val, closer, err := l.e.db.Get(rawdb.LedgerFrontierKey())
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return nil, false, nil
@@ -307,7 +330,7 @@ func (e *Engine) getLedgerFrontier(ctx context.Context) (*v3.LedgerFrontier, boo
 	return f, true, nil
 }
 
-// takeoverToken migrates a token-only sync to the ledger (brief §3.8):
+// takeoverRecord migrates a token-only sync to the ledger (brief §3.8):
 // in ONE batch it writes the frontier record (the token's state, now
 // the ledger's), the given facts, an initial counter bucket under
 // runID (the token's counters, so the sync-level sum stays exact), and
@@ -325,14 +348,14 @@ func (e *Engine) getLedgerFrontier(ctx context.Context) (*v3.LedgerFrontier, boo
 // snapshotted the record first writes the pre-takeover token back —
 // resurrecting a verbatim checkpoint token beside a live frontier, the
 // two-authority state ErrLedgeredSyncWritesNoToken exists to prevent.
-func (e *Engine) takeoverToken(ctx context.Context, runID string, facts []string, counters *v3.LedgerCounterBucket) (string, error) {
-	e.lifecycleMu.Lock()
-	defer e.lifecycleMu.Unlock()
-	syncID := e.CurrentSyncID()
+func (l *Ledger) takeoverRecord(ctx context.Context, runID string, facts []string, counters *v3.LedgerCounterBucket) (string, error) {
+	l.e.lifecycleMu.Lock()
+	defer l.e.lifecycleMu.Unlock()
+	syncID := l.e.CurrentSyncID()
 	if syncID == "" {
-		return "", errors.New("takeoverToken: no open sync")
+		return "", errors.New("takeoverRecord: no open sync")
 	}
-	rec, err := e.GetSyncRunRecord(ctx, syncID)
+	rec, err := l.e.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return "", err
 	}
@@ -357,11 +380,11 @@ func (e *Engine) takeoverToken(ctx context.Context, runID string, facts []string
 			return "", err
 		}
 	}
-	err = e.withWrite(func() error {
-		if err := e.markLedgerInFlightLocked(); err != nil {
+	err = l.e.withWrite(func() error {
+		if err := l.markInFlightLocked(); err != nil {
 			return err
 		}
-		batch := e.db.NewRecordBatch()
+		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
 		if err := batch.StageLedgerTakeover(fv, rv); err != nil {
 			return err
@@ -374,7 +397,7 @@ func (e *Engine) takeoverToken(ctx context.Context, runID string, facts []string
 		// Same durable declaration the page batch makes. The takeover needs
 		// its own because it can be the first thing to write the ledger,
 		// before any page exists to carry the fact.
-		if e.retainLedgerTokens.Load() {
+		if l.retainTokens.Load() {
 			if err := batch.StageLedgerFact(encodeLedgerFactKey(c1zstore.LedgerFactRetainTokens)); err != nil {
 				return err
 			}
@@ -398,28 +421,28 @@ func (e *Engine) takeoverToken(ctx context.Context, runID string, facts []string
 	return state, nil
 }
 
-// putLedgerCounterBucket blind-writes one (run, worker) bucket outside a
+// putCounterBucketRecord blind-writes one (run, worker) bucket outside a
 // page (brief §3.13): the run's whole cumulative value for that index.
 // The syncer uses it for the run's reserved stats bucket — phase
 // durations and session-store calls, which are not page-shaped — at
 // phase boundaries, stop and seal, best-effort. The value is the whole
 // bucket, so the last write wins and the fold never double counts.
-func (e *Engine) putLedgerCounterBucket(ctx context.Context, runID string, worker uint32, bucket *v3.LedgerCounterBucket) error {
+func (l *Ledger) putCounterBucketRecord(ctx context.Context, runID string, worker uint32, bucket *v3.LedgerCounterBucket) error {
 	if runID == "" {
-		return errors.New("putLedgerCounterBucket: empty run id")
+		return errors.New("putCounterBucketRecord: empty run id")
 	}
 	if bucket == nil {
-		return errors.New("putLedgerCounterBucket: nil bucket")
+		return errors.New("putCounterBucketRecord: nil bucket")
 	}
 	val, err := marshalRecord(bucket)
 	if err != nil {
 		return err
 	}
-	return e.withWrite(func() error {
-		if err := e.markLedgerInFlightLocked(); err != nil {
+	return l.e.withWrite(func() error {
+		if err := l.markInFlightLocked(); err != nil {
 			return err
 		}
-		batch := e.db.NewRecordBatch()
+		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
 		if err := batch.StageLedgerCounterBucket(encodeLedgerCounterKey(runID, worker), val); err != nil {
 			return err
@@ -429,20 +452,20 @@ func (e *Engine) putLedgerCounterBucket(ctx context.Context, runID string, worke
 	})
 }
 
-// iterateLedgerByOp yields every row of one op.
-func (e *Engine) iterateLedgerByOp(ctx context.Context, op string, yield func(*v3.LedgerRow) bool) error {
+// iterateByOp yields every row of one op.
+func (l *Ledger) iterateByOp(ctx context.Context, op string, yield func(*v3.LedgerRow) bool) error {
 	lo := encodeLedgerPrefixOp(op)
-	return e.iterateLedgerRange(lo, upperBoundOf(lo), yield)
+	return l.iterateRange(lo, upperBoundOf(lo), yield)
 }
 
-// iterateLedgerByResource yields every row of one op on one resource.
-func (e *Engine) iterateLedgerByResource(ctx context.Context, op, resourceTypeID, resourceID string, yield func(*v3.LedgerRow) bool) error {
+// iterateByResource yields every row of one op on one resource.
+func (l *Ledger) iterateByResource(ctx context.Context, op, resourceTypeID, resourceID string, yield func(*v3.LedgerRow) bool) error {
 	lo := encodeLedgerPrefixResource(op, resourceTypeID, resourceID)
-	return e.iterateLedgerRange(lo, upperBoundOf(lo), yield)
+	return l.iterateRange(lo, upperBoundOf(lo), yield)
 }
 
-func (e *Engine) iterateLedgerRange(lo, hi []byte, yield func(*v3.LedgerRow) bool) error {
-	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
+func (l *Ledger) iterateRange(lo, hi []byte, yield func(*v3.LedgerRow) bool) error {
+	iter, err := l.e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
 	if err != nil {
 		return err
 	}
@@ -459,14 +482,14 @@ func (e *Engine) iterateLedgerRange(lo, hi []byte, yield func(*v3.LedgerRow) boo
 	return iter.Error()
 }
 
-// ledgerRowCount counts rows (the trace's size; tests and Stats).
-func (e *Engine) ledgerRowCount(ctx context.Context) (uint64, error) {
+// rowCount counts rows (the trace's size; tests and Stats).
+func (l *Ledger) rowCount(ctx context.Context) (uint64, error) {
 	var n uint64
-	err := e.iterateLedger(ctx, func(*v3.LedgerRow) bool { n++; return true })
+	err := l.iterate(ctx, func(*v3.LedgerRow) bool { n++; return true })
 	return n, err
 }
 
-// SetRetainLedgerTokens keeps this sync's page tokens verbatim in the
+// SetRetainTokens keeps this sync's page tokens verbatim in the
 // sealed artifact, opting out of the scrub EndSync otherwise performs
 // before the ended_at stamp (brief §3.12).
 //
@@ -480,12 +503,12 @@ func (e *Engine) ledgerRowCount(ctx context.Context) (uint64, error) {
 // compares by hash (encodeLedgerKey, ledgerIdentityMatches), and the one
 // reader of a token, a resume fetching the next page, cannot exist on a
 // sealed sync. This is for reading a finished file by hand.
-func (e *Engine) SetRetainLedgerTokens(retain bool) {
-	e.retainLedgerTokens.Store(retain)
+func (l *Ledger) SetRetainTokens(retain bool) {
+	l.retainTokens.Store(retain)
 }
 
-// retainLedgerTokensFlag reports the flag.
-func (e *Engine) retainLedgerTokensFlag() bool { return e.retainLedgerTokens.Load() }
+// retainTokensFlag reports the flag.
+func (l *Ledger) retainTokensFlag() bool { return l.retainTokens.Load() }
 
 // sealScrubsTokens reports whether the seal must scrub. It scrubs unless
 // retention was declared, in memory OR by the durable fact a page batch
@@ -503,11 +526,11 @@ func (e *Engine) retainLedgerTokensFlag() bool { return e.retainLedgerTokens.Loa
 // Scrubbing on a failed read would be the wrong call — it would destroy
 // the verbatim tokens of a retain-tokens sync whose intent this could not
 // read.
-func (e *Engine) sealScrubsTokens() (bool, error) {
-	if e.retainLedgerTokens.Load() {
+func (l *Ledger) sealScrubsTokens() (bool, error) {
+	if l.retainTokens.Load() {
 		return false, nil
 	}
-	_, closer, err := e.db.Get(encodeLedgerFactKey(c1zstore.LedgerFactRetainTokens))
+	_, closer, err := l.e.db.Get(encodeLedgerFactKey(c1zstore.LedgerFactRetainTokens))
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return true, nil
@@ -549,7 +572,7 @@ func scrubLedgerRow(row *v3.LedgerRow) bool {
 // not build a single multi-GB batch at seal.
 const ledgerScrubBatchBytes = 16 << 20
 
-// scrubLedgerTokens rewrites every unscrubbed ledger row to hash-only
+// scrubTokens rewrites every unscrubbed ledger row to hash-only
 // tokens. Idempotent: already-scrubbed rows are skipped, so a crash
 // mid-scrub and a re-run EndSync finish the job. Runs on the sealed
 // lifecycle path (EndSync's finalize) and so takes the AllowSealed
@@ -557,16 +580,16 @@ const ledgerScrubBatchBytes = 16 << 20
 // change. Rows are read through an iterator whose snapshot predates
 // the batches it feeds, which is fine: nothing else writes the ledger
 // once the engine is sealed.
-func (e *Engine) scrubLedgerTokens(ctx context.Context) error {
-	return e.withWriteAllowSealed(func() error {
+func (l *Ledger) scrubTokens(ctx context.Context) error {
+	return l.e.withWriteAllowSealed(func() error {
 		lo, hi := rawdb.LedgerRowBounds()
-		iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
+		iter, err := l.e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
 		if err != nil {
 			return err
 		}
 		defer iter.Close()
 
-		batch := e.db.NewRecordBatch()
+		batch := l.e.db.NewRecordBatch()
 		// Closure, not `defer batch.Close()`: commit re-mints the batch,
 		// and a direct defer would bind the first one.
 		defer func() { _ = batch.Close() }()
@@ -574,13 +597,13 @@ func (e *Engine) scrubLedgerTokens(ctx context.Context) error {
 			if batch.Empty() {
 				return nil
 			}
-			if err := batch.Commit(writeOpts(e.opts.durability)); err != nil {
+			if err := batch.Commit(writeOpts(l.e.opts.durability)); err != nil {
 				return err
 			}
 			if err := batch.Close(); err != nil {
 				return err
 			}
-			batch = e.db.NewRecordBatch()
+			batch = l.e.db.NewRecordBatch()
 			return nil
 		}
 
@@ -590,7 +613,7 @@ func (e *Engine) scrubLedgerTokens(ctx context.Context) error {
 			}
 			row := &v3.LedgerRow{}
 			if err := unmarshalRecord(iter.Value(), row); err != nil {
-				return fmt.Errorf("scrubLedgerTokens: unmarshal: %w", err)
+				return fmt.Errorf("scrubTokens: unmarshal: %w", err)
 			}
 			if !scrubLedgerRow(row) {
 				continue
@@ -611,19 +634,19 @@ func (e *Engine) scrubLedgerTokens(ctx context.Context) error {
 		if err := iter.Error(); err != nil {
 			return err
 		}
-		if err := e.scrubLedgerFrontierLocked(ctx, batch); err != nil {
+		if err := l.scrubFrontierLocked(ctx, batch); err != nil {
 			return err
 		}
 		return commit()
 	})
 }
 
-// scrubLedgerFrontierLocked blanks the frontier's verbatim state. The
+// scrubFrontierLocked blanks the frontier's verbatim state. The
 // caller holds the write barrier and commits the batch.
 //
 // The frontier is not a ledger row and so is not in the loop above: it
 // lives at its own kind (0x03) outside LedgerRowBounds. It needs its own
-// scrub because takeoverToken stores the taken-over sync token JSON
+// scrub because takeoverRecord stores the taken-over sync token JSON
 // verbatim, and every Action in that JSON carries a page_token field. So
 // a sync that began token-only and was taken over would seal with those
 // tokens readable in the artifact even though the seal scrubbed every
@@ -633,10 +656,10 @@ func (e *Engine) scrubLedgerTokens(ctx context.Context) error {
 // Attempt and taken_over_at stay, so the ledger still records that a
 // takeover happened and when. Only the state goes. Nothing needs it
 // after the resume that consumed it, and a sealed sync has no resume.
-func (e *Engine) scrubLedgerFrontierLocked(ctx context.Context, batch *rawdb.RecordBatch) error {
-	frontier, found, err := e.getLedgerFrontier(ctx)
+func (l *Ledger) scrubFrontierLocked(ctx context.Context, batch *rawdb.RecordBatch) error {
+	frontier, found, err := l.getFrontier(ctx)
 	if err != nil {
-		return fmt.Errorf("scrubLedgerTokens: read frontier: %w", err)
+		return fmt.Errorf("scrubTokens: read frontier: %w", err)
 	}
 	if !found || frontier.GetState() == "" {
 		return nil
@@ -649,8 +672,8 @@ func (e *Engine) scrubLedgerFrontierLocked(ctx context.Context, batch *rawdb.Rec
 	return batch.StageLedgerFrontier(val)
 }
 
-// purgeLedgerResidue rewrites the SSTs overlapping the ledger family so
-// that superseded row versions are physically gone. scrubLedgerTokens
+// purgeResidue rewrites the SSTs overlapping the ledger family so
+// that superseded row versions are physically gone. scrubTokens
 // alone is not enough: pebble never overwrites in place, the scrubbed
 // rows flush to a new SST and the pre-scrub rows stay in the SSTs they
 // were flushed to. Nothing on the seal-to-save path compacts (seal()
@@ -665,7 +688,7 @@ func (e *Engine) scrubLedgerFrontierLocked(ctx context.Context, batch *rawdb.Rec
 // version that ever landed.
 //
 // Two ranges: the ledger family, and SyncRunKey's own single-key range.
-// takeoverToken clears sync_token by rewriting the sync-run record at
+// takeoverRecord clears sync_token by rewriting the sync-run record at
 // v3|TypeSyncRun (0x06), so each CheckpointSync before the takeover left a
 // superseded version of that key carrying a page token verbatim. Those
 // versions sit in whatever SSTs 0x06 was flushed to, and with TypeIndex
@@ -674,10 +697,10 @@ func (e *Engine) scrubLedgerFrontierLocked(ctx context.Context, batch *rawdb.Rec
 // all. TestLedgerScrubLeavesNoSSTResidue's takeover arm pins the end-to-end
 // property; the second range is what makes it hold at scale rather than
 // at fixture size.
-func (e *Engine) purgeLedgerResidue(ctx context.Context) error {
+func (l *Ledger) purgeResidue(ctx context.Context) error {
 	// AllowSealed: the seal's residue purge runs on a sealed engine.
-	return e.withWriteAllowSealed(func() error {
-		return e.compactForLedgerResidueLocked(ctx, ledgerResidueSpans())
+	return l.e.withWriteAllowSealed(func() error {
+		return l.compactForResidueLocked(ctx, ledgerResidueSpans())
 	})
 }
 
@@ -694,29 +717,29 @@ func ledgerResidueSpans() []pebble.KeyRange {
 	}
 }
 
-// purgeMarkedLedgerResidue compacts ledgerResidueSpans if the marker is
+// purgeMarkedResidue compacts ledgerResidueSpans if the marker is
 // armed, and consumes it. A no-op when nothing is armed.
 //
 // It runs regardless of the retain-tokens fact, unlike the scrub. The
 // residue belongs to the sync whose ledger was deleted, whose retention
 // intent went with it, and a compaction never removes live rows — so this
 // cannot destroy the verbatim tokens of a sync that did ask to keep them.
-func (e *Engine) purgeMarkedLedgerResidue(ctx context.Context) error {
-	armed, err := e.ledgerResiduePending()
+func (l *Ledger) purgeMarkedResidue(ctx context.Context) error {
+	armed, err := l.residuePending()
 	if err != nil {
-		return fmt.Errorf("purgeMarkedLedgerResidue: read marker: %w", err)
+		return fmt.Errorf("purgeMarkedResidue: read marker: %w", err)
 	}
 	if !armed {
 		return nil
 	}
 	// One critical section for the purge and the consume, so the marker
 	// cannot be consumed for a compaction that a concurrent Close cut off.
-	return e.withWriteAllowSealed(func() error {
-		if err := e.compactForLedgerResidueLocked(ctx, ledgerResidueSpans()); err != nil {
+	return l.e.withWriteAllowSealed(func() error {
+		if err := l.compactForResidueLocked(ctx, ledgerResidueSpans()); err != nil {
 			return err
 		}
-		if err := e.db.MetaDelete(encodeLedgerResiduePendingKey(), pebble.Sync); err != nil {
-			return fmt.Errorf("purgeMarkedLedgerResidue: consume marker: %w", err)
+		if err := l.e.db.MetaDelete(encodeLedgerResiduePendingKey(), pebble.Sync); err != nil {
+			return fmt.Errorf("purgeMarkedResidue: consume marker: %w", err)
 		}
 		return nil
 	})
@@ -724,14 +747,14 @@ func (e *Engine) purgeMarkedLedgerResidue(ctx context.Context) error {
 
 // encodeLedgerResiduePendingKey is the durable marker that ledger bytes are
 // still physically in the SSTs with no ledger left in the keyspace to infer
-// it from — the state DropLedger leaves behind. DropKeyRange takes the rows
+// it from — the state Drop leaves behind. DropKeyRange takes the rows
 // out of the keyspace and not out of the SSTs, and db.Compact selects files
 // by their bounds, which still cover the ledger range, so compacting that
 // range is what reaches the bytes. (ResetForNewSync needs no marker: its
 // excise spans the whole keyspace, so no SST survives to hold residue.)
 //
-// DropLedger arms it before deleting, since the deletion is what destroys
-// the evidence. purgeMarkedLedgerResidue consumes it, and only after its
+// Drop arms it before deleting, since the deletion is what destroys
+// the evidence. purgeMarkedResidue consumes it, and only after its
 // compaction succeeds, so a failed or interrupted purge is retried by the
 // next seal instead of shipping tokens.
 func encodeLedgerResiduePendingKey() []byte {
@@ -740,21 +763,21 @@ func encodeLedgerResiduePendingKey() []byte {
 	return codec.AppendTupleStrings(buf, "ledger_residue_pending")
 }
 
-// markLedgerResiduePending is fsync'd because the state it records outlives
+// markResiduePending is fsync'd because the state it records outlives
 // the process that created it: an interrupted sync's bytes are purged by
 // whichever later seal reads the marker.
-func (e *Engine) markLedgerResiduePending() error {
-	// AllowSealed: DropLedger arms it on a finished sync.
-	return e.withWriteAllowSealed(func() error {
-		if err := e.db.MetaSet(encodeLedgerResiduePendingKey(), []byte{1}, pebble.Sync); err != nil {
+func (l *Ledger) markResiduePending() error {
+	// AllowSealed: Drop arms it on a finished sync.
+	return l.e.withWriteAllowSealed(func() error {
+		if err := l.e.db.MetaSet(encodeLedgerResiduePendingKey(), []byte{1}, pebble.Sync); err != nil {
 			return fmt.Errorf("arm ledger-residue marker: %w", err)
 		}
 		return nil
 	})
 }
 
-func (e *Engine) ledgerResiduePending() (bool, error) {
-	_, closer, err := e.db.Get(encodeLedgerResiduePendingKey())
+func (l *Ledger) residuePending() (bool, error) {
+	_, closer, err := l.e.db.Get(encodeLedgerResiduePendingKey())
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return false, nil
@@ -765,10 +788,10 @@ func (e *Engine) ledgerResiduePending() (bool, error) {
 	return true, nil
 }
 
-// compactForLedgerResidueLocked runs under writeMu like CompactAllRanges,
+// compactForResidueLocked runs under writeMu like CompactAllRanges,
 // so Close waits for the in-flight Compact (pebble.DB.Compact panics on a
 // closed DB).
-func (e *Engine) compactForLedgerResidueLocked(ctx context.Context, spans []pebble.KeyRange) error {
+func (l *Ledger) compactForResidueLocked(ctx context.Context, spans []pebble.KeyRange) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -778,45 +801,45 @@ func (e *Engine) compactForLedgerResidueLocked(ctx context.Context, spans []pebb
 	// Re-pause only what we un-paused: on an unsealed engine (direct
 	// callers, tests) leaving the scheduler paused is the documented
 	// L0StopWritesThreshold hang.
-	if e.compactionScheduler != nil && e.compactionScheduler.paused.Load() {
-		e.resumeCompactions()
-		defer e.pauseCompactions()
+	if l.e.compactionScheduler != nil && l.e.compactionScheduler.paused.Load() {
+		l.e.resumeCompactions()
+		defer l.e.pauseCompactions()
 	}
-	e.test.ledgerResiduePurges.Add(1)
+	l.e.test.ledgerResiduePurges.Add(1)
 	for _, span := range spans {
-		if err := e.db.Compact(ctx, span.Start, span.End, true); err != nil {
-			return fmt.Errorf("purgeLedgerResidue: [%x, %x): %w", span.Start, span.End, err)
+		if err := l.e.db.Compact(ctx, span.Start, span.End, true); err != nil {
+			return fmt.Errorf("purgeResidue: [%x, %x): %w", span.Start, span.End, err)
 		}
 	}
 	return nil
 }
 
-// DropLedger removes the whole ledger family (rows, facts, buckets,
+// Drop removes the whole ledger family (rows, facts, buckets,
 // frontier). The single-sync wipe (ResetForNewSync) covers the family
 // with everything else; this is for callers that keep the sync and drop
 // only its trace (compaction outputs, the sanitizer's drop policy, the
 // syncer's rebind of a finished sync).
-func (e *Engine) DropLedger(ctx context.Context) error {
-	ledgeredBeforeDrop, err := e.ledgerActive()
+func (l *Ledger) Drop(ctx context.Context) error {
+	ledgeredBeforeDrop, err := l.active()
 	if err != nil {
-		return fmt.Errorf("DropLedger: check ledger presence: %w", err)
+		return fmt.Errorf("Drop: check ledger presence: %w", err)
 	}
 	// Armed before the drop, because the drop is what destroys the evidence:
 	// DropKeyRange takes the rows out of the keyspace and not out of the
-	// SSTs, so afterwards neither ledgerActive nor anything else can tell
+	// SSTs, so afterwards neither active nor anything else can tell
 	// that the verbatim page tokens are still there. Without the marker a
 	// failed or interrupted purge below is permanent — the retry reads no
 	// ledger and returns, and endSyncFinalize's gate finds none either, so
 	// the tokens ship. compactPebbleFold is this exact shape: drop the
 	// ledger, then seal.
 	if ledgeredBeforeDrop {
-		if err := e.markLedgerResiduePending(); err != nil {
-			return fmt.Errorf("DropLedger: %w", err)
+		if err := l.markResiduePending(); err != nil {
+			return fmt.Errorf("Drop: %w", err)
 		}
 	}
-	if err := e.withWriteAllowSealed(func() error {
+	if err := l.e.withWriteAllowSealed(func() error {
 		lo, hi := rawdb.LedgerBounds()
-		if err := e.db.DropKeyRange(lo, hi, writeOpts(e.opts.durability)); err != nil {
+		if err := l.e.db.DropKeyRange(lo, hi, writeOpts(l.e.opts.durability)); err != nil {
 			return err
 		}
 		// The stamp classifies the file as mid-ledgered-sync, so it has to
@@ -829,30 +852,14 @@ func (e *Engine) DropLedger(ctx context.Context) error {
 		// gone but the file still refuses a token, which is the safe way
 		// round. Clearing first would leave a window where the stamp says
 		// token-only over a ledger that is still there.
-		return e.clearLedgerInFlightLocked()
+		return l.clearInFlightLocked()
 	}); err != nil {
 		return err
 	}
 	// Inline rather than left to the seal, so a file dropped and shipped
 	// without one is clean. On failure the marker stays armed and the next
 	// seal retries; the error is returned so the caller sees it too.
-	return e.purgeMarkedLedgerResidue(ctx)
-}
-
-// BoundSyncFinished implements c1zstore.PageLedgerStore.
-func (e *Engine) BoundSyncFinished(ctx context.Context) (bool, error) {
-	syncID := e.CurrentSyncID()
-	if syncID == "" {
-		return false, nil
-	}
-	rec, err := e.GetSyncRunRecord(ctx, syncID)
-	if err != nil {
-		if errors.Is(err, pebble.ErrNotFound) {
-			return false, nil
-		}
-		return false, err
-	}
-	return rec.GetEndedAt() != nil, nil
+	return l.purgeMarkedResidue(ctx)
 }
 
 // cloneLedgerRow is the deep copy used by the page unit so a caller
@@ -860,4 +867,63 @@ func (e *Engine) BoundSyncFinished(ctx context.Context) (bool, error) {
 // source.
 func cloneLedgerRow(row *v3.LedgerRow) *v3.LedgerRow {
 	return proto.Clone(row).(*v3.LedgerRow)
+}
+
+// markInFlightLocked stamps keyspaceVersionLedgerInFlight, once per
+// open. Called by pageUnit.Commit BEFORE the unit's batch, synced, so
+// the stamp is durable in every image the row is durable in.
+func (l *Ledger) markInFlightLocked() error {
+	if l.inFlight.Load() {
+		return nil
+	}
+	if err := l.e.stampKeyspaceVersionValueLocked(keyspaceVersionLedgerInFlight); err != nil {
+		return fmt.Errorf("pebble: stamp ledger in-flight: %w", err)
+	}
+	l.inFlight.Store(true)
+	return nil
+}
+
+// clearInFlightLocked restores keyspaceVersion at seal. Idempotent; a
+// crash between it and the ended_at stamp leaves an unfinished v2 file
+// with rows, which the syncer's attempt guard tolerates.
+func (l *Ledger) clearInFlightLocked() error {
+	if !l.inFlight.Load() {
+		return nil
+	}
+	if err := l.e.stampKeyspaceVersionValueLocked(keyspaceVersion); err != nil {
+		return fmt.Errorf("pebble: clear ledger in-flight stamp: %w", err)
+	}
+	l.inFlight.Store(false)
+	return nil
+}
+
+// active reports whether this sync must be treated as ledgered:
+// the in-flight stamp is set, OR the ledger family holds a key.
+//
+// The stamp alone is not enough. clearLedgerInFlight runs before the
+// ended_at stamp, and it drops both the durable stamp and the in-memory
+// flag, so two states have a ledger while the flag says otherwise:
+//
+//   - endSyncFinalize fails after the clear (PutSyncRunRecord IO error).
+//     EndSync unseals and the caller may keep writing or retry, with the
+//     flag now false.
+//   - a crash in the same window. The next open reads a v2 stamp and
+//     sets the flag false, over rows that are still there.
+//
+// In both, gating on the flag alone would let CheckpointSync write a
+// token beside a live ledger — the second, lagging authority that
+// ErrLedgeredSyncWritesNoToken exists to refuse. Rows outlive the stamp,
+// so rows are what the gate asks about. Called from CheckpointSync and
+// EndSync only, never per record.
+func (l *Ledger) active() (bool, error) {
+	if l.inFlight.Load() {
+		return true, nil
+	}
+	lo, hi := rawdb.LedgerBounds()
+	iter, err := l.e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
+	if err != nil {
+		return false, err
+	}
+	defer iter.Close()
+	return iter.First(), iter.Error()
 }

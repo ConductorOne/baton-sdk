@@ -91,10 +91,10 @@ func TestPageUnitCommitIsOneFact(t *testing.T) {
 	child := ledgerIdentity{Op: "SyncGrants", ResourceTypeID: "app", ResourceID: "github", PageToken: "spawn-7", TypeScoped: true}
 
 	// Nothing before: the identity resolves to "never ran".
-	_, err = e.getLedgerRowRecord(ctx, id)
+	_, err = e.ledger.getRowRecord(ctx, id)
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 
-	u := e.newPageUnit()
+	u := e.ledger.newPageUnit()
 	require.NoError(t, u.StageResourceTypes(v3.ResourceTypeRecord_builder{ExternalId: "app"}.Build()))
 	require.NoError(t, u.StageResources(ledgerTestResource("app", "github"), ledgerTestResource("user", "alice")))
 	require.NoError(t, u.StageEntitlements(ledgerTestEntitlement("app", "github", "ent-A")))
@@ -125,7 +125,7 @@ func TestPageUnitCommitIsOneFact(t *testing.T) {
 	require.Equal(t, 1, n, "inline by_principal index must serve the unit's grant")
 
 	// The row landed with them, echoing identity and completion.
-	got, err := e.getLedgerRowRecord(ctx, id)
+	got, err := e.ledger.getRowRecord(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, id, ledgerIdentityFromProto(got.GetIdentity()))
 	require.Equal(t, ledgerTokenHash("p1"), got.GetIdentity().GetPageTokenHash())
@@ -144,33 +144,33 @@ func TestPageUnitCommitIsOneFact(t *testing.T) {
 
 	// The caller's row object was not aliased by the store.
 	row.SetAttempt("mutated-after-commit")
-	got, err = e.getLedgerRowRecord(ctx, id)
+	got, err = e.ledger.getRowRecord(ctx, id)
 	require.NoError(t, err)
 	require.Equal(t, "attempt-1", got.GetAttempt())
 
 	// A neighbouring page is still "never ran".
-	_, err = e.getLedgerRowRecord(ctx, grantsPageIdentity("github", "p2"))
+	_, err = e.ledger.getRowRecord(ctx, grantsPageIdentity("github", "p2"))
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 
 	// An empty page still records that it ran.
-	empty := e.newPageUnit()
+	empty := e.ledger.newPageUnit()
 	require.True(t, empty.Empty())
 	require.NoError(t, empty.Commit(ctx, grantsPageIdentity("github", "p2"), nil))
-	got, err = e.getLedgerRowRecord(ctx, grantsPageIdentity("github", "p2"))
+	got, err = e.ledger.getRowRecord(ctx, grantsPageIdentity("github", "p2"))
 	require.NoError(t, err)
 	require.Zero(t, got.GetGrantsWritten())
 	require.Empty(t, got.GetNextPageToken(), "bare completion: action finished")
 
-	cnt, err := e.ledgerRowCount(ctx)
+	cnt, err := e.ledger.rowCount(ctx)
 	require.NoError(t, err)
 	require.EqualValues(t, 2, cnt)
 
 	// Prefix iteration finds both pages of the resource.
 	n = 0
-	require.NoError(t, e.iterateLedgerByResource(ctx, "SyncGrants", "app", "github", func(*v3.LedgerRow) bool { n++; return true }))
+	require.NoError(t, e.ledger.iterateByResource(ctx, "SyncGrants", "app", "github", func(*v3.LedgerRow) bool { n++; return true }))
 	require.Equal(t, 2, n)
 	n = 0
-	require.NoError(t, e.iterateLedgerByOp(ctx, "SyncEntitlements", func(*v3.LedgerRow) bool { n++; return true }))
+	require.NoError(t, e.ledger.iterateByOp(ctx, "SyncEntitlements", func(*v3.LedgerRow) bool { n++; return true }))
 	require.Zero(t, n)
 }
 
@@ -183,7 +183,7 @@ func TestPageUnitFailedCommitLandsNothing(t *testing.T) {
 	require.NoError(t, err)
 
 	id := grantsPageIdentity("github", "p1")
-	u := e.newPageUnit()
+	u := e.ledger.newPageUnit()
 	require.NoError(t, u.StageResources(ledgerTestResource("user", "alice")))
 	require.NoError(t, u.StageGrants(testGrantRecord("ent-A", "alice")))
 
@@ -193,7 +193,7 @@ func TestPageUnitFailedCommitLandsNothing(t *testing.T) {
 
 	_, err = e.GetResourceRecord(ctx, "user", "alice")
 	require.ErrorIs(t, err, pebble.ErrNotFound, "no record from a failed page")
-	_, err = e.getLedgerRowRecord(ctx, id)
+	_, err = e.ledger.getRowRecord(ctx, id)
 	require.ErrorIs(t, err, pebble.ErrNotFound, "no row from a failed page")
 	n := 0
 	require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", "alice", func(*v3.GrantRecord) bool { n++; return true }))
@@ -203,11 +203,11 @@ func TestPageUnitFailedCommitLandsNothing(t *testing.T) {
 	require.NoError(t, u.Commit(ctx, id, nil), "the unit is reusable after a failed commit")
 	_, err = e.GetResourceRecord(ctx, "user", "alice")
 	require.NoError(t, err)
-	_, err = e.getLedgerRowRecord(ctx, id)
+	_, err = e.ledger.getRowRecord(ctx, id)
 	require.NoError(t, err)
 
 	// Discard is the other exit: also nothing.
-	d := e.newPageUnit()
+	d := e.ledger.newPageUnit()
 	require.NoError(t, d.StageResources(ledgerTestResource("user", "bob")))
 	d.Discard()
 	require.ErrorIs(t, d.Commit(ctx, grantsPageIdentity("github", "p2"), nil), ErrPageUnitCommitted)
@@ -221,13 +221,13 @@ func TestPageUnitReadSeesOwnWrites(t *testing.T) {
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	u := e.newPageUnit()
-	_, err = u.GetResourceRecord(ctx, "user", "alice")
+	u := e.ledger.newPageUnit()
+	_, err = u.resourceRecord(ctx, "user", "alice")
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 
 	first := ledgerTestResource("user", "alice")
 	require.NoError(t, u.StageResources(first))
-	got, err := u.GetResourceRecord(ctx, "user", "alice")
+	got, err := u.resourceRecord(ctx, "user", "alice")
 	require.NoError(t, err)
 	require.Same(t, first, got, "the page sees its own staged resource before commit")
 
@@ -235,13 +235,13 @@ func TestPageUnitReadSeesOwnWrites(t *testing.T) {
 	second := ledgerTestResource("user", "alice")
 	second.SetParent(v3.ResourceRef_builder{ResourceTypeId: "org", ResourceId: "acme"}.Build())
 	require.NoError(t, u.StageResources(second))
-	got, err = u.GetResourceRecord(ctx, "user", "alice")
+	got, err = u.resourceRecord(ctx, "user", "alice")
 	require.NoError(t, err)
 	require.Same(t, second, got)
 
 	// Other pages' committed data still reads through to the DB.
 	require.NoError(t, e.PutResourceRecords(ctx, ledgerTestResource("user", "bob")))
-	got, err = u.GetResourceRecord(ctx, "user", "bob")
+	got, err = u.resourceRecord(ctx, "user", "bob")
 	require.NoError(t, err)
 	require.Equal(t, "bob", got.GetResourceId())
 
@@ -275,9 +275,9 @@ func TestLedgerIdentityMismatchReadsAsAbsent(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, e.db.UnsafeForTesting().Set(encodeLedgerKey(y), val, pebble.Sync))
 
-	_, err = e.getLedgerRowRecord(ctx, y)
+	_, err = e.ledger.getRowRecord(ctx, y)
 	require.ErrorIs(t, err, ErrLedgerIdentityMismatch)
-	require.EqualValues(t, 1, e.ledgerMismatchCount())
+	require.EqualValues(t, 1, e.ledger.mismatchCount())
 
 	// Same fields, different token: also a mismatch (the token is part
 	// of identity; the key carries only its hash).
@@ -285,15 +285,15 @@ func TestLedgerIdentityMismatchReadsAsAbsent(t *testing.T) {
 	val, err = marshalRecord(rowX2)
 	require.NoError(t, err)
 	require.NoError(t, e.db.UnsafeForTesting().Set(encodeLedgerKey(x), val, pebble.Sync))
-	_, err = e.getLedgerRowRecord(ctx, x)
+	_, err = e.ledger.getRowRecord(ctx, x)
 	require.ErrorIs(t, err, ErrLedgerIdentityMismatch)
-	require.EqualValues(t, 2, e.ledgerMismatchCount())
+	require.EqualValues(t, 2, e.ledger.mismatchCount())
 
 	// The honest row is accepted.
-	require.NoError(t, e.newPageUnit().Commit(ctx, x, nil))
-	_, err = e.getLedgerRowRecord(ctx, x)
+	require.NoError(t, e.ledger.newPageUnit().Commit(ctx, x, nil))
+	_, err = e.ledger.getRowRecord(ctx, x)
 	require.NoError(t, err)
-	require.EqualValues(t, 2, e.ledgerMismatchCount())
+	require.EqualValues(t, 2, e.ledger.mismatchCount())
 }
 
 func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
@@ -306,7 +306,7 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 			if i+1 < len(tokens) {
 				next = tokens[i+1]
 			}
-			u := e.newPageUnit()
+			u := e.ledger.newPageUnit()
 			require.NoError(t, u.StageResources(ledgerTestResource("user", fmt.Sprintf("u%d", i))))
 			row := v3.LedgerRow_builder{
 				NextPageToken: next,
@@ -320,10 +320,10 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 		e, _ := newTestEngine(t)
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		e.SetRetainLedgerTokens(true)
+		e.ledger.SetRetainTokens(true)
 		commitPages(t, e)
 		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
-		require.NoError(t, e.iterateLedger(ctx, func(r *v3.LedgerRow) bool {
+		require.NoError(t, e.ledger.iterate(ctx, func(r *v3.LedgerRow) bool {
 			require.False(t, r.GetScrubbed())
 			if r.GetIdentity().GetPageToken() != "" {
 				require.Contains(t, r.GetIdentity().GetPageToken(), "SECRET")
@@ -340,7 +340,7 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 
 		n := 0
-		require.NoError(t, e.iterateLedger(ctx, func(r *v3.LedgerRow) bool {
+		require.NoError(t, e.ledger.iterate(ctx, func(r *v3.LedgerRow) bool {
 			n++
 			require.True(t, r.GetScrubbed())
 			require.Empty(t, r.GetIdentity().GetPageToken())
@@ -358,15 +358,15 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 		// The identity compare survives the scrub (hash path): a
 		// scrubbed row still resolves for its own identity and still
 		// refuses another's.
-		got, err := e.getLedgerRowRecord(ctx, grantsPageIdentity("github", tokens[1]))
+		got, err := e.ledger.getRowRecord(ctx, grantsPageIdentity("github", tokens[1]))
 		require.NoError(t, err)
 		require.Equal(t, ledgerTokenHash(tokens[2]), got.GetNextPageTokenHash())
-		_, err = e.getLedgerRowRecord(ctx, grantsPageIdentity("github", "not-a-real-token"))
+		_, err = e.ledger.getRowRecord(ctx, grantsPageIdentity("github", "not-a-real-token"))
 		require.ErrorIs(t, err, pebble.ErrNotFound)
 
 		// Idempotent: a second pass (the resumed-EndSync shape) changes nothing.
-		require.NoError(t, e.scrubLedgerTokens(ctx))
-		cnt, err := e.ledgerRowCount(ctx)
+		require.NoError(t, e.ledger.scrubTokens(ctx))
+		cnt, err := e.ledger.rowCount(ctx)
 		require.NoError(t, err)
 		require.EqualValues(t, len(tokens), cnt)
 	})
@@ -389,7 +389,7 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 		sr, err := e.GetSyncRunRecord(ctx, syncID)
 		require.NoError(t, err)
 		require.Nil(t, sr.GetEndedAt(), "no finished verdict after a failed scrub")
-		require.NoError(t, e.iterateLedger(ctx, func(r *v3.LedgerRow) bool {
+		require.NoError(t, e.ledger.iterate(ctx, func(r *v3.LedgerRow) bool {
 			require.False(t, r.GetScrubbed(), "a failed scrub batch lands nothing")
 			return true
 		}))
@@ -398,7 +398,7 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 		sr, err = e.GetSyncRunRecord(ctx, syncID)
 		require.NoError(t, err)
 		require.NotNil(t, sr.GetEndedAt())
-		require.NoError(t, e.iterateLedger(ctx, func(r *v3.LedgerRow) bool {
+		require.NoError(t, e.ledger.iterate(ctx, func(r *v3.LedgerRow) bool {
 			require.True(t, r.GetScrubbed())
 			require.Empty(t, r.GetIdentity().GetPageToken())
 			return true
@@ -411,24 +411,24 @@ func TestLedgerWipedWithItsSync(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e.newPageUnit().Commit(ctx, grantsPageIdentity("github", "p1"), nil))
-	require.NoError(t, e.newPageUnit().Commit(ctx, grantsPageIdentity("github", "p2"), nil))
+	require.NoError(t, e.ledger.newPageUnit().Commit(ctx, grantsPageIdentity("github", "p1"), nil))
+	require.NoError(t, e.ledger.newPageUnit().Commit(ctx, grantsPageIdentity("github", "p2"), nil))
 	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 
-	cnt, err := e.ledgerRowCount(ctx)
+	cnt, err := e.ledger.rowCount(ctx)
 	require.NoError(t, err)
 	require.EqualValues(t, 2, cnt, "the sealed sync keeps its trace")
 
 	// A new sync starts on an empty ledger (scopedRanges wipe).
 	_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	cnt, err = e.ledgerRowCount(ctx)
+	cnt, err = e.ledger.rowCount(ctx)
 	require.NoError(t, err)
 	require.Zero(t, cnt)
 
-	require.NoError(t, e.newPageUnit().Commit(ctx, grantsPageIdentity("github", "p1"), nil))
-	require.NoError(t, e.DropLedger(ctx))
-	cnt, err = e.ledgerRowCount(ctx)
+	require.NoError(t, e.ledger.newPageUnit().Commit(ctx, grantsPageIdentity("github", "p1"), nil))
+	require.NoError(t, e.ledger.Drop(ctx))
+	cnt, err = e.ledger.rowCount(ctx)
 	require.NoError(t, err)
 	require.Zero(t, cnt)
 }
@@ -457,7 +457,7 @@ func TestPageUnitCrashImageStoreEqualsLedger(t *testing.T) {
 	pageRT := func(p int) string { return fmt.Sprintf("t%03d", p) }
 	pageID := func(p int) ledgerIdentity { return grantsPageIdentity("github", fmt.Sprintf("page-%03d", p)) }
 	for p := 0; p < pages; p++ {
-		u := e.newPageUnit()
+		u := e.ledger.newPageUnit()
 		for i := 0; i < perPage; i++ {
 			require.NoError(t, u.StageResources(ledgerTestResource(pageRT(p), fmt.Sprintf("r%d", i))))
 		}
@@ -474,7 +474,7 @@ func TestPageUnitCrashImageStoreEqualsLedger(t *testing.T) {
 
 		survivors := 0
 		for p := 0; p < pages; p++ {
-			_, rowErr := re.getLedgerRowRecord(ctx, pageID(p))
+			_, rowErr := re.ledger.getRowRecord(ctx, pageID(p))
 			rowPresent := rowErr == nil
 			if !rowPresent {
 				require.ErrorIs(t, rowErr, pebble.ErrNotFound, label)
@@ -568,7 +568,7 @@ func TestLedgerInFlightStampGatesTokenOnlyReaders(t *testing.T) {
 		require.NoError(t, old.Close())
 	})
 
-	u := e.newPageUnit()
+	u := e.ledger.newPageUnit()
 	require.NoError(t, u.StageResources(ledgerTestResource("t", "r1")))
 	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
 	require.Equal(t, keyspaceVersionLedgerInFlight, stamp(e), "first row flips the stamp")
@@ -580,7 +580,7 @@ func TestLedgerInFlightStampGatesTokenOnlyReaders(t *testing.T) {
 		img := fs.CrashClone(vfs.CrashCloneCfg{UnsyncedDataPercent: pct, RNG: rng})
 		re, err := Open(ctx, "ledger-stamp-db", WithVFS(img), WithReadOnly(true))
 		require.NoError(t, err, "current SDK opens every image")
-		n, err := re.ledgerRowCount(ctx)
+		n, err := re.ledger.rowCount(ctx)
 		require.NoError(t, err)
 		if n > 0 {
 			require.Equal(t, keyspaceVersionLedgerInFlight, stamp(re), "unsynced=%d%%: a row without the in-flight stamp", pct)
@@ -597,7 +597,7 @@ func TestLedgerInFlightStampGatesTokenOnlyReaders(t *testing.T) {
 	// Seal restores v2; the rows stay; a token-only SDK opens the sealed file.
 	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 	require.Equal(t, keyspaceVersion, stamp(e), "seal restores the v2 stamp")
-	n, err := e.ledgerRowCount(ctx)
+	n, err := e.ledger.rowCount(ctx)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, n, "seal keeps the rows")
 	sealed := fs.CrashClone(vfs.CrashCloneCfg{UnsyncedDataPercent: 100, RNG: rng})
@@ -616,7 +616,7 @@ func TestLedgerInFlightStampGatesTokenOnlyReaders(t *testing.T) {
 	_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.Equal(t, keyspaceVersion, stamp(e))
-	require.NoError(t, e.newPageUnit().Commit(ctx, grantsPageIdentity("github", "p1"), nil))
+	require.NoError(t, e.ledger.newPageUnit().Commit(ctx, grantsPageIdentity("github", "p1"), nil))
 	require.Equal(t, keyspaceVersionLedgerInFlight, stamp(e))
 }
 
@@ -692,7 +692,7 @@ func TestLedgerFreeSealSkipsResiduePurge(t *testing.T) {
 		e, _ := newTestEngine(t)
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		require.NoError(t, e.newPageUnit().Commit(ctx, grantsPageIdentity("github", "p1"), nil))
+		require.NoError(t, e.ledger.newPageUnit().Commit(ctx, grantsPageIdentity("github", "p1"), nil))
 		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 		require.EqualValues(t, 1, e.test.ledgerResiduePurges.Load(),
 			"a ledgered seal must still purge the pre-scrub row versions")
@@ -713,7 +713,7 @@ func TestLedgerResidueOutlivesTheLedger(t *testing.T) {
 		t.Helper()
 		for i := range 2 {
 			tok := fmt.Sprintf("https://x/?%s-%d", needleText, i)
-			u := e.newPageUnit()
+			u := e.ledger.newPageUnit()
 			require.NoError(t, u.StageResources(ledgerTestResource("user", fmt.Sprintf("u%d", i))))
 			require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", tok),
 				v3.LedgerRow_builder{NextPageToken: tok}.Build()))
@@ -731,8 +731,8 @@ func TestLedgerResidueOutlivesTheLedger(t *testing.T) {
 		require.NoError(t, err)
 		commitTokenPages(t, e)
 
-		require.NoError(t, e.DropLedger(ctx))
-		active, err := e.ledgerActive()
+		require.NoError(t, e.ledger.Drop(ctx))
+		active, err := e.ledger.active()
 		require.NoError(t, err)
 		require.False(t, active, "premise: the drop leaves the seal's gate nothing to find")
 
@@ -760,7 +760,7 @@ func TestLedgerResidueOutlivesTheLedger(t *testing.T) {
 		require.NoError(t, err)
 		require.Zero(t, checkpointNeedleHits(t, e, []byte(needleText)),
 			"the reset's excise must leave no SST holding the interrupted sync's tokens")
-		armed, err := e.ledgerResiduePending()
+		armed, err := e.ledger.residuePending()
 		require.NoError(t, err)
 		require.False(t, armed, "nothing survives the excise, so the reset owes no purge")
 
@@ -784,8 +784,8 @@ func TestLedgerResidueOutlivesTheLedger(t *testing.T) {
 
 		cancelled, cancel := context.WithCancel(ctx)
 		cancel()
-		require.Error(t, e.DropLedger(cancelled), "premise: the purge has to fail")
-		armed, err := e.ledgerResiduePending()
+		require.Error(t, e.ledger.Drop(cancelled), "premise: the purge has to fail")
+		armed, err := e.ledger.residuePending()
 		require.NoError(t, err)
 		require.True(t, armed, "a failed purge leaves the marker armed for the next seal")
 
@@ -814,7 +814,7 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 			if i+1 < len(tokens) {
 				next = tokens[i+1]
 			}
-			u := e.newPageUnit()
+			u := e.ledger.newPageUnit()
 			require.NoError(t, u.StageResources(ledgerTestResource("user", fmt.Sprintf("u%d", i))))
 			row := v3.LedgerRow_builder{
 				NextPageToken: next,
@@ -835,7 +835,7 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 		e, _ := newTestEngine(t)
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		e.SetRetainLedgerTokens(true)
+		e.ledger.SetRetainTokens(true)
 		commitPages(t, e)
 		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 		require.Positive(t, checkpointNeedleHits(t, e, []byte(needleText)), "oracle must see verbatim tokens when retention is declared")
@@ -849,7 +849,7 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 		require.Zero(t, checkpointNeedleHits(t, e, []byte(needleText)), "verbatim token bytes survive in the checkpointed SSTs")
 		// And the rows are still there, scrubbed.
-		n, err := e.ledgerRowCount(ctx)
+		n, err := e.ledger.rowCount(ctx)
 		require.NoError(t, err)
 		require.EqualValues(t, len(tokens), n)
 	})
@@ -864,7 +864,7 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 			require.NoError(t, e.CheckpointSync(ctx, fmt.Sprintf(`{"state":%q,"n":%d}`, tok, i)))
 			require.NoError(t, e.Flush(ctx))
 		}
-		_, err := e.TakeoverToken(ctx, "run-1", nil, c1zstore.LedgerCounters{})
+		_, err := e.ledger.Takeover(ctx, "run-1", nil, c1zstore.LedgerCounters{})
 		require.NoError(t, err)
 		require.NoError(t, e.Flush(ctx))
 	}
@@ -873,7 +873,7 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 		e, _ := newTestEngine(t)
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		e.SetRetainLedgerTokens(true)
+		e.ledger.SetRetainTokens(true)
 		takeoverPages(t, e)
 		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 		require.Positive(t, checkpointNeedleHits(t, e, []byte(needleText)),
@@ -900,7 +900,7 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 		commitPages(t, e)
 		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 		// Query level: clean.
-		require.NoError(t, e.iterateLedger(ctx, func(r *v3.LedgerRow) bool {
+		require.NoError(t, e.ledger.iterate(ctx, func(r *v3.LedgerRow) bool {
 			require.True(t, r.GetScrubbed())
 			require.Empty(t, r.GetNextPageToken())
 			return true

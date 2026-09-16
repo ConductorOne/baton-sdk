@@ -66,7 +66,7 @@ func TestPageWriterMatchesSingleCallAdapters(t *testing.T) {
 	paged, _ := newTestEngine(t)
 	_, err = paged.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	var store c1zstore.PageLedgerStore = paged
+	store := paged.Ledger()
 	w := store.BeginPage()
 	require.NoError(t, w.PutResourceTypes(ctx, rt))
 	require.NoError(t, w.PutResources(ctx, res...))
@@ -92,7 +92,7 @@ func TestPageWriterMatchesSingleCallAdapters(t *testing.T) {
 	require.NotNil(t, p.rts[0].GetDiscoveredAt(), "discovered_at defaulted on the paged path")
 
 	// The row, through the c1zstore view.
-	row, found, err := store.GetLedgerRow(ctx, id)
+	row, found, err := store.GetRow(ctx, id)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, id, row.Identity)
@@ -106,7 +106,7 @@ func TestPageWriterMatchesSingleCallAdapters(t *testing.T) {
 	require.EqualValues(t, 1, row.GrantsWritten)
 
 	// Absent and identity-mismatch both read as not found.
-	_, found, err = store.GetLedgerRow(ctx, c1zstore.LedgerActionIdentity{Op: "SyncGrants", ResourceTypeID: "app", ResourceID: "github", PageToken: "p2"})
+	_, found, err = store.GetRow(ctx, c1zstore.LedgerActionIdentity{Op: "SyncGrants", ResourceTypeID: "app", ResourceID: "github", PageToken: "p2"})
 	require.NoError(t, err)
 	require.False(t, found)
 	other := id
@@ -114,13 +114,13 @@ func TestPageWriterMatchesSingleCallAdapters(t *testing.T) {
 	val, err := marshalRecord(v3.LedgerRow_builder{Identity: ledgerIdentityToProto(ledgerIdentityFromStore(id))}.Build())
 	require.NoError(t, err)
 	require.NoError(t, paged.db.UnsafeForTesting().Set(encodeLedgerKey(ledgerIdentityFromStore(other)), val, pebble.Sync))
-	_, found, err = store.GetLedgerRow(ctx, other)
+	_, found, err = store.GetRow(ctx, other)
 	require.NoError(t, err)
 	require.False(t, found, "a colliding row is not this page's row")
-	require.EqualValues(t, 1, paged.ledgerMismatchCount())
+	require.EqualValues(t, 1, paged.ledger.mismatchCount())
 
 	// The single-call engine has no ledger at all.
-	cnt, err := single.ledgerRowCount(ctx)
+	cnt, err := single.ledger.rowCount(ctx)
 	require.NoError(t, err)
 	require.Zero(t, cnt)
 }
@@ -132,7 +132,7 @@ func TestPageWriterGetResourceAndDiscard(t *testing.T) {
 	require.NoError(t, err)
 	_, res, _, _ := pageTestV2Fixtures()
 
-	w := e.BeginPage()
+	w := e.ledger.BeginPage()
 	_, err = w.GetResource(ctx, "user", "alice")
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 	require.Equal(t, codes.NotFound, status.Code(err), "not-found adapts to the store's gRPC-shaped error")
@@ -153,7 +153,7 @@ func TestPageWriterGetResourceAndDiscard(t *testing.T) {
 func TestPageWriterRequiresSync(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
-	w := e.BeginPage()
+	w := e.ledger.BeginPage()
 	_, res, _, _ := pageTestV2Fixtures()
 	require.ErrorIs(t, w.PutResources(ctx, res...), ErrNoCurrentSync)
 	require.ErrorIs(t, w.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "SyncResources"}, nil), ErrNoCurrentSync)
@@ -167,7 +167,7 @@ func TestLedgerRowCountsDistinctKeysNotBufferedRecords(t *testing.T) {
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	var store c1zstore.PageLedgerStore = e
+	store := e.Ledger()
 	w := store.BeginPage()
 	require.NoError(t, w.PutResourceTypes(ctx, rt, rt))
 	require.NoError(t, w.PutResources(ctx, res[0], res[0]))
@@ -184,7 +184,7 @@ func TestLedgerRowCountsDistinctKeysNotBufferedRecords(t *testing.T) {
 	require.Equal(t, [4]int{1, 1, 1, 1}, [4]int{rts, rs, es, gs},
 		"premise: staging an identity twice leaves one key per family")
 
-	row, found, err := store.GetLedgerRow(ctx, id)
+	row, found, err := store.GetRow(ctx, id)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.EqualValues(t, 1, row.ResourceTypesWritten)

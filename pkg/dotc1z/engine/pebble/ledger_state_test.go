@@ -37,55 +37,55 @@ func TestLedgerFactsAndBucketsRideThePageUnit(t *testing.T) {
 	require.NoError(t, err)
 
 	// Failed commit: nothing.
-	u := e.newPageUnit()
+	u := e.ledger.newPageUnit()
 	require.NoError(t, u.StageFact("needs_expansion"))
 	require.NoError(t, u.StageCounterBucket("run-1", 0, bucket(0b1, "grants_dropped", uint64(3))))
 	boom := errors.New("injected")
 	e.db.SetRecordCommitTestHook(func() error { return boom })
 	require.ErrorIs(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil), boom)
 	e.db.SetRecordCommitTestHook(nil)
-	facts, err := e.LedgerFacts(ctx)
+	facts, err := e.ledger.Facts(ctx)
 	require.NoError(t, err)
 	require.Empty(t, facts, "a fact from a failed page was never established")
-	sum, err := e.sumLedgerCounters(ctx)
+	sum, err := e.ledger.sumCounters(ctx)
 	require.NoError(t, err)
 	require.Empty(t, sum.GetCounters())
 
 	// Retry: both land with the row.
 	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
-	facts, err = e.LedgerFacts(ctx)
+	facts, err = e.ledger.Facts(ctx)
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"needs_expansion": ""}, facts)
 
 	// Same fact again, another worker's bucket in the same run, then a
 	// second run with one worker (fewer workers on resume).
-	u2 := e.newPageUnit()
+	u2 := e.ledger.newPageUnit()
 	require.NoError(t, u2.StageFact("needs_expansion"))
 	require.NoError(t, u2.StageFact("has_external_resource_grants"))
 	require.NoError(t, u2.StageCounterBucket("run-1", 3, bucket(0b10, "grants_dropped", uint64(2), "entitlements_dropped", uint64(1))))
 	require.NoError(t, u2.Commit(ctx, grantsPageIdentity("github", "p2"), nil))
-	u3 := e.newPageUnit()
+	u3 := e.ledger.newPageUnit()
 	// The worker's cumulative total (5), not a delta: blind overwrite.
 	require.NoError(t, u3.StageCounterBucket("run-1", 0, bucket(0b1, "grants_dropped", uint64(5))))
 	require.NoError(t, u3.Commit(ctx, grantsPageIdentity("github", "p3"), nil))
-	u4 := e.newPageUnit()
+	u4 := e.ledger.newPageUnit()
 	require.NoError(t, u4.StageCounterBucket("run-2", 0, bucket(0, "grants_dropped", uint64(1))))
 	require.NoError(t, u4.Commit(ctx, grantsPageIdentity("github", "p4"), nil))
 
-	facts, err = e.LedgerFacts(ctx)
+	facts, err = e.ledger.Facts(ctx)
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"needs_expansion": "", "has_external_resource_grants": ""}, facts)
-	n, err := e.ledgerCounterBucketCount(ctx)
+	n, err := e.ledger.counterBucketCount(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 3, n, "(run-1,0) (run-1,3) (run-2,0)")
-	sum, err = e.sumLedgerCounters(ctx)
+	sum, err = e.ledger.sumCounters(ctx)
 	require.NoError(t, err)
 	require.EqualValues(t, 5+2+1, sum.GetCounters()["grants_dropped"])
 	require.EqualValues(t, 1, sum.GetCounters()["entitlements_dropped"])
 	require.EqualValues(t, 0b11, sum.GetFlags())
 
 	// Rows are unaffected by the siblings: the row iterators see rows only.
-	rows, err := e.ledgerRowCount(ctx)
+	rows, err := e.ledger.rowCount(ctx)
 	require.NoError(t, err)
 	require.EqualValues(t, 4, rows)
 
@@ -93,13 +93,13 @@ func TestLedgerFactsAndBucketsRideThePageUnit(t *testing.T) {
 	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 	_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	facts, err = e.LedgerFacts(ctx)
+	facts, err = e.ledger.Facts(ctx)
 	require.NoError(t, err)
 	require.Empty(t, facts)
-	n, err = e.ledgerCounterBucketCount(ctx)
+	n, err = e.ledger.counterBucketCount(ctx)
 	require.NoError(t, err)
 	require.Zero(t, n)
-	_, found, err := e.getLedgerFrontier(ctx)
+	_, found, err := e.ledger.getFrontier(ctx)
 	require.NoError(t, err)
 	require.False(t, found)
 }
@@ -121,39 +121,39 @@ func TestLedgerTakeoverIsOneUnit(t *testing.T) {
 	// facts, no bucket. The resumed sync will take over again.
 	boom := errors.New("injected")
 	e.db.SetRecordCommitTestHook(func() error { return boom })
-	_, err = e.TakeoverToken(ctx, "run-1", []string{"needs_expansion"}, counters)
+	_, err = e.ledger.Takeover(ctx, "run-1", []string{"needs_expansion"}, counters)
 	require.ErrorIs(t, err, boom)
 	e.db.SetRecordCommitTestHook(nil)
 	step, err := e.CurrentSyncStep(ctx)
 	require.NoError(t, err)
 	require.Equal(t, legacyState, step, "legacyState survives a failed takeover")
-	_, found, err := e.getLedgerFrontier(ctx)
+	_, found, err := e.ledger.getFrontier(ctx)
 	require.NoError(t, err)
 	require.False(t, found)
-	facts, err := e.LedgerFacts(ctx)
+	facts, err := e.ledger.Facts(ctx)
 	require.NoError(t, err)
 	require.Empty(t, facts)
-	n, err := e.ledgerCounterBucketCount(ctx)
+	n, err := e.ledger.counterBucketCount(ctx)
 	require.NoError(t, err)
 	require.Zero(t, n)
 
 	// Success: all four.
-	moved, err := e.TakeoverToken(ctx, "run-1", []string{"needs_expansion"}, counters)
+	moved, err := e.ledger.Takeover(ctx, "run-1", []string{"needs_expansion"}, counters)
 	require.NoError(t, err)
 	require.Equal(t, legacyState, moved)
 	step, err = e.CurrentSyncStep(ctx)
 	require.NoError(t, err)
 	require.Empty(t, step, "token cleared")
-	f, found, err := e.getLedgerFrontier(ctx)
+	f, found, err := e.ledger.getFrontier(ctx)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, legacyState, f.GetState())
 	require.Equal(t, e.CurrentSyncID(), f.GetAttempt())
 	require.NotNil(t, f.GetTakenOverAt())
-	facts, err = e.LedgerFacts(ctx)
+	facts, err = e.ledger.Facts(ctx)
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"needs_expansion": ""}, facts)
-	got, err := e.LedgerCounters(ctx)
+	got, err := e.ledger.Counters(ctx)
 	require.NoError(t, err)
 	require.Equal(t, counters, got)
 	// The takeover marks the file in flight like a page commit would.
@@ -162,10 +162,10 @@ func TestLedgerTakeoverIsOneUnit(t *testing.T) {
 	require.Equal(t, keyspaceVersionLedgerInFlight, v)
 
 	// Nothing to take over now: a no-op that leaves the frontier alone.
-	moved, err = e.TakeoverToken(ctx, "run-2", nil, c1zstore.LedgerCounters{})
+	moved, err = e.ledger.Takeover(ctx, "run-2", nil, c1zstore.LedgerCounters{})
 	require.NoError(t, err)
 	require.Empty(t, moved)
-	n, err = e.ledgerCounterBucketCount(ctx)
+	n, err = e.ledger.counterBucketCount(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 
@@ -177,7 +177,7 @@ func TestLedgerTakeoverIsOneUnit(t *testing.T) {
 	require.Nil(t, rec.GetEndedAt())
 
 	// The frontier is readable through the store-facing interface too.
-	sf, found, err := e.LedgerFrontier(ctx)
+	sf, found, err := e.ledger.Frontier(ctx)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, legacyState, sf.State)
@@ -201,7 +201,7 @@ func TestLedgerTakeoverCrashImages(t *testing.T) {
 	require.NoError(t, err)
 	const legacyState = `{"v":1,"actions":[{"op":"list-grants"}]}`
 	require.NoError(t, e.CheckpointSync(ctx, legacyState))
-	e.SetRetainLedgerTokens(true)
+	e.ledger.SetRetainTokens(true)
 	counters := c1zstore.LedgerCounters{Counters: map[string]uint64{"grants_dropped": 7}, Flags: 0b100}
 
 	open := func(image *vfs.MemFS, label string) *Engine {
@@ -220,13 +220,13 @@ func TestLedgerTakeoverCrashImages(t *testing.T) {
 		step, err := re.CurrentSyncStep(ctx)
 		require.NoError(t, err, label)
 		require.Equal(t, legacyState, step, "%s: token intact", label)
-		_, found, err := re.getLedgerFrontier(ctx)
+		_, found, err := re.ledger.getFrontier(ctx)
 		require.NoError(t, err, label)
 		require.False(t, found, "%s: no frontier", label)
-		facts, err := re.LedgerFacts(ctx)
+		facts, err := re.ledger.Facts(ctx)
 		require.NoError(t, err, label)
 		require.Empty(t, facts, "%s: no facts", label)
-		n, err := re.ledgerCounterBucketCount(ctx)
+		n, err := re.ledger.counterBucketCount(ctx)
 		require.NoError(t, err, label)
 		require.Zero(t, n, "%s: no bucket", label)
 	}
@@ -240,7 +240,7 @@ func TestLedgerTakeoverCrashImages(t *testing.T) {
 		mid = fs.CrashClone(vfs.CrashCloneCfg{})
 		return nil
 	})
-	moved, err := e.TakeoverToken(ctx, "run-1", []string{"needs_expansion"}, counters)
+	moved, err := e.ledger.Takeover(ctx, "run-1", []string{"needs_expansion"}, counters)
 	e.db.SetRecordCommitTestHook(nil)
 	require.NoError(t, err)
 	require.Equal(t, legacyState, moved)
@@ -256,7 +256,7 @@ func TestLedgerTakeoverCrashImages(t *testing.T) {
 	m := open(mid, "mid")
 	tokenOnly(m, "mid")
 	require.Equal(t, keyspaceVersionLedgerInFlight, stamp(m), "mid: stamp landed before the batch")
-	again, err := m.TakeoverToken(ctx, "run-1", nil, c1zstore.LedgerCounters{})
+	again, err := m.ledger.Takeover(ctx, "run-1", nil, c1zstore.LedgerCounters{})
 	require.NoError(t, err)
 	require.Equal(t, legacyState, again, "mid: the resumed sync takes over again")
 
@@ -264,19 +264,19 @@ func TestLedgerTakeoverCrashImages(t *testing.T) {
 	step, err := post.CurrentSyncStep(ctx)
 	require.NoError(t, err)
 	require.Empty(t, step, "post: token cleared")
-	f, found, err := post.getLedgerFrontier(ctx)
+	f, found, err := post.ledger.getFrontier(ctx)
 	require.NoError(t, err)
 	require.True(t, found, "post: frontier durable with no unsynced bytes kept")
 	require.Equal(t, legacyState, f.GetState())
-	facts, err := post.LedgerFacts(ctx)
+	facts, err := post.ledger.Facts(ctx)
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"needs_expansion": "", c1zstore.LedgerFactRetainTokens: ""}, facts)
-	got, err := post.LedgerCounters(ctx)
+	got, err := post.ledger.Counters(ctx)
 	require.NoError(t, err)
 	require.Equal(t, counters, got)
 	require.Equal(t, keyspaceVersionLedgerInFlight, stamp(post))
-	require.False(t, post.retainLedgerTokensFlag(), "premise: this process never set the flag")
-	scrub, err := post.sealScrubsTokens()
+	require.False(t, post.ledger.retainTokensFlag(), "premise: this process never set the flag")
+	scrub, err := post.ledger.sealScrubsTokens()
 	require.NoError(t, err)
 	require.False(t, scrub, "post: the takeover's fact alone keeps the seal from scrubbing")
 }
@@ -284,15 +284,15 @@ func TestLedgerTakeoverCrashImages(t *testing.T) {
 func TestLedgerTakeoverRequiresOpenSync(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
-	_, err := e.TakeoverToken(ctx, "run", nil, c1zstore.LedgerCounters{})
+	_, err := e.ledger.Takeover(ctx, "run", nil, c1zstore.LedgerCounters{})
 	require.Error(t, err)
 	// And with a sync but no token: no-op, no frontier.
 	_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	moved, err := e.TakeoverToken(ctx, "run", nil, c1zstore.LedgerCounters{})
+	moved, err := e.ledger.Takeover(ctx, "run", nil, c1zstore.LedgerCounters{})
 	require.NoError(t, err)
 	require.Empty(t, moved)
-	_, found, err := e.getLedgerFrontier(ctx)
+	_, found, err := e.ledger.getFrontier(ctx)
 	require.NoError(t, err)
 	require.False(t, found)
 }
@@ -311,32 +311,32 @@ func TestLedgeredSyncSealsOnlyWithStats(t *testing.T) {
 
 	// Two runs' buckets (a page bucket and a run-level bucket each); the
 	// fold adds counts and durations and takes the max latency.
-	require.NoError(t, e.PutCounterBucket(ctx, "run-1", 0, c1zstore.LedgerCounters{
+	require.NoError(t, e.ledger.PutCounterBucket(ctx, "run-1", 0, c1zstore.LedgerCounters{
 		Counters:       map[string]uint64{"completed_actions": 3},
 		ConnectorCalls: map[string]c1zstore.CallStat{"ListGrants": {Count: 2, TotalMs: 40, MaxMs: 30}},
 	}))
-	require.NoError(t, e.PutCounterBucket(ctx, "run-1", c1zstore.RunBucketWorker, c1zstore.LedgerCounters{
+	require.NoError(t, e.ledger.PutCounterBucket(ctx, "run-1", c1zstore.RunBucketWorker, c1zstore.LedgerCounters{
 		StepDurationsMs: map[string]int64{"list-grants": 100},
 	}))
-	require.NoError(t, e.PutCounterBucket(ctx, "run-2", 0, c1zstore.LedgerCounters{
+	require.NoError(t, e.ledger.PutCounterBucket(ctx, "run-2", 0, c1zstore.LedgerCounters{
 		Counters:       map[string]uint64{"completed_actions": 1},
 		ConnectorCalls: map[string]c1zstore.CallStat{"ListGrants": {Count: 1, TotalMs: 10, MaxMs: 10}},
 	}))
-	require.NoError(t, e.PutCounterBucket(ctx, "run-2", c1zstore.RunBucketWorker, c1zstore.LedgerCounters{
+	require.NoError(t, e.ledger.PutCounterBucket(ctx, "run-2", c1zstore.RunBucketWorker, c1zstore.LedgerCounters{
 		StepDurationsMs: map[string]int64{"list-grants": 50},
 	}))
 	// Rewriting a bucket supersedes it (a total, not a delta).
-	require.NoError(t, e.PutCounterBucket(ctx, "run-2", 0, c1zstore.LedgerCounters{
+	require.NoError(t, e.ledger.PutCounterBucket(ctx, "run-2", 0, c1zstore.LedgerCounters{
 		Counters:       map[string]uint64{"completed_actions": 2},
 		ConnectorCalls: map[string]c1zstore.CallStat{"ListGrants": {Count: 2, TotalMs: 20, MaxMs: 12}},
 	}))
-	require.NoError(t, e.PutCounterBucket(ctx, "run-2", c1zstore.RunBucketWorker, c1zstore.LedgerCounters{
+	require.NoError(t, e.ledger.PutCounterBucket(ctx, "run-2", c1zstore.RunBucketWorker, c1zstore.LedgerCounters{
 		StepDurationsMs: map[string]int64{"list-grants": 60},
 	}))
-	n, err := e.ledgerCounterBucketCount(ctx)
+	n, err := e.ledger.counterBucketCount(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 4, n)
-	foldC, err := e.LedgerCounters(ctx)
+	foldC, err := e.ledger.Counters(ctx)
 	require.NoError(t, err)
 	fold := c1zstore.RunStats{
 		StepDurationsMs:    foldC.StepDurationsMs,
@@ -348,7 +348,7 @@ func TestLedgeredSyncSealsOnlyWithStats(t *testing.T) {
 	require.Equal(t, c1zstore.CallStat{Count: 4, TotalMs: 60, MaxMs: 30}, fold.ConnectorCallStats["ListGrants"])
 	require.EqualValues(t, 5, fold.CompletedActions)
 
-	require.True(t, e.ledgerInFlight.Load(), "bucket writes mark the ledger in flight")
+	require.True(t, e.ledger.inFlight.Load(), "bucket writes mark the ledger in flight")
 	require.ErrorIs(t, e.EndSync(ctx), ErrLedgeredSyncNeedsStats, "plain EndSync must refuse a ledgered sync")
 	still, err := e.GetSyncRunRecord(ctx, syncID)
 	require.NoError(t, err)
