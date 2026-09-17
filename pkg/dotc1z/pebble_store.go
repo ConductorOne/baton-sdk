@@ -33,10 +33,8 @@ var _ c1zstore.Store = (*pebbleStore)(nil)
 var _ c1zstore.WriteHookStore = (*pebbleStore)(nil)
 var _ connectorstore.Writer = (*pebbleStore)(nil)
 
-// These do not mean every method of theirs is safe: pebbleStore embeds
-// *pebble.Engine, so a promoted mutating method satisfies the interface
-// while skipping the markDirty wrapper that gets the mutation into the
-// saved file. TestPebbleStoreDirtyCoverage covers that.
+// A promoted Engine method satisfies these while skipping markDirty;
+// TestPebbleStoreDirtyCoverage checks the method set.
 var _ c1zstore.PageLedgerStore = (*pebbleStore)(nil)
 
 // Local mirrors of the optional capabilities the c1z sanitizer probes on
@@ -234,18 +232,11 @@ type pebbleStore struct {
 
 	sourceCacheTest sourceCacheStoreTestSeams
 
-	// writeHookFn, when installed, observes every direct record write made
-	// while an atomic page is open (c1zstore.PageOpen). See
-	// c1zstore/write_hook.go. Nil in production.
-	//
-	// An atomic pointer, not a mutex: writeHook() is called by every direct
-	// record write, so the idle path has to be a load and nothing else.
-	// WriteHook is a func type, hence the pointer indirection —
-	// atomic.Pointer needs something addressable.
+	// Nil in production. An atomic pointer, not a mutex: read on every direct
+	// write.
 	writeHookFn atomic.Pointer[c1zstore.WriteHook]
 }
 
-// SetWriteHook implements c1zstore.WriteHookStore.
 func (s *pebbleStore) SetWriteHook(hook c1zstore.WriteHook) {
 	if hook == nil {
 		s.writeHookFn.Store(nil)
@@ -254,9 +245,6 @@ func (s *pebbleStore) SetWriteHook(hook c1zstore.WriteHook) {
 	s.writeHookFn.Store(&hook)
 }
 
-// writeHook is called first by every direct record write. It is a no-op unless a hook is installed AND ctx is inside an
-// open page; the hook decides whether the write proceeds. With no hook
-// installed the cost is one atomic load — PageOpen is not reached.
 func (s *pebbleStore) writeHook(ctx context.Context, method string) error {
 	hook := s.writeHookFn.Load()
 	if hook == nil || !c1zstore.PageOpen(ctx) {
@@ -501,8 +489,6 @@ func (s *pebbleStore) EndSync(ctx context.Context) error {
 	return s.markDirty(s.Engine.EndSync(ctx))
 }
 
-// EndSyncWithStats implements c1zstore.PageLedgerStore; the seal for a
-// ledgered sync.
 func (s *pebbleStore) EndSyncWithStats(ctx context.Context, stats c1zstore.SyncStats) error {
 	return s.markDirty(s.Engine.EndSyncWithStats(ctx, stats))
 }
@@ -602,9 +588,6 @@ func (s *pebbleStore) DeleteGrant(ctx context.Context, grantID string) error {
 	return s.markDirty(s.Engine.DeleteGrant(ctx, grantID))
 }
 
-// The c1zstore.PageLedgerStore methods delegate to the engine's Ledger;
-// the writes mark the store dirty like every other write.
-
 func (s *pebbleStore) BeginPage() c1zstore.PageWriter {
 	return &dirtyPageWriter{PageWriter: s.Engine.Ledger().BeginPage(), store: s}
 }
@@ -645,9 +628,8 @@ func (s *pebbleStore) PutCounterBucket(ctx context.Context, runID string, worker
 	return s.markDirty(s.Engine.Ledger().PutCounterBucket(ctx, runID, worker, counters))
 }
 
-// DropLedger marks dirty like the other writes; it is frequently the only
-// write in a session (the syncer rebinds a FINISHED sync), so nothing else
-// would set the flag and the wipe would never reach the c1z.
+// Frequently the only write in a session (the syncer rebinds a FINISHED
+// sync), so nothing else would set the flag.
 func (s *pebbleStore) DropLedger(ctx context.Context) error {
 	return s.markDirty(s.Engine.Ledger().Drop(ctx))
 }
@@ -794,9 +776,7 @@ func (g pebbleStoreGrants) AddExpandedGrantLayerContributions(ctx context.Contex
 	if !ok {
 		return fmt.Errorf("expanded grant layer: store does not support layer sessions")
 	}
-	// A segment that fills mid-layer is ingested into the live keyspace here,
-	// and the first Add arms the deferred by_principal rebuild, so this
-	// mutates the file before Finish is ever called.
+	// A segment that fills mid-layer is ingested here, before Finish.
 	return g.store.markDirty(fast.AddExpandedGrantLayerContributions(ctx, dest, principals, sources))
 }
 

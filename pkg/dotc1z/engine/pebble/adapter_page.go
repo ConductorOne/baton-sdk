@@ -1,13 +1,5 @@
 package pebble
 
-// The v2-facing page unit: c1zstore.PageWriter / PageLedgerStore over
-// pageUnit (page_unit.go) and the ledger (ledger.go). This layer does
-// exactly what the single-call Put* adapters do between the syncer's
-// v2 messages and the engine's v3 records — translate, default
-// discovered_at, stamp the source scope — through the same shared
-// helpers, so a page committed through here is byte-identical to the
-// same records committed through PutResources/PutEntitlements/PutGrants.
-
 import (
 	"context"
 	"errors"
@@ -26,16 +18,14 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-// pageWriter is the c1zstore.PageWriter over a pageUnit.
 type pageWriter struct {
 	e      *Engine
 	syncID string
 	unit   *pageUnit
 }
 
-// BeginPage implements c1zstore.PageLedgerStore. The sync id is
-// captured at begin so a page that straddles nothing else's lifecycle
-// translates against the sync it was started in.
+// The sync id is captured at begin so the page translates against the sync
+// it was started in.
 func (l *Ledger) BeginPage() c1zstore.PageWriter {
 	return &pageWriter{e: l.e, syncID: l.e.CurrentSyncID(), unit: l.newPageUnit()}
 }
@@ -75,9 +65,6 @@ func (w *pageWriter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 	return w.unit.StageGrants(translateGrantsForPut(ctx, w.syncID, grants)...)
 }
 
-// GetResource is the page-scoped read (buffer, then DB), in v2 shape.
-// Not-found is adapted to the store's usual error, as the reader RPC
-// does.
 func (w *pageWriter) GetResource(ctx context.Context, resourceTypeID, resourceID string) (*v2.Resource, error) {
 	rec, err := w.unit.resourceRecord(ctx, resourceTypeID, resourceID)
 	if err = c1zstore.AdaptNotFound(err, pebble.ErrNotFound); err != nil {
@@ -86,7 +73,6 @@ func (w *pageWriter) GetResource(ctx context.Context, resourceTypeID, resourceID
 	return V3ResourceToV2(rec), nil
 }
 
-// GetEntitlement is the page-scoped entitlement read (buffer, then DB).
 func (w *pageWriter) GetEntitlement(ctx context.Context, entitlementID string) (*v2.Entitlement, error) {
 	rec, err := w.unit.entitlementRecord(ctx, entitlementID)
 	if err = c1zstore.AdaptNotFound(err, pebble.ErrNotFound); err != nil {
@@ -95,8 +81,6 @@ func (w *pageWriter) GetEntitlement(ctx context.Context, entitlementID string) (
 	return V3EntitlementToV2(rec), nil
 }
 
-// DeleteGrants implements c1zstore.PageWriter: removals by structural
-// refs, applied in the page's commit after its puts.
 func (w *pageWriter) DeleteGrants(ctx context.Context, grants ...*v2.Grant) error {
 	if err := w.requireSync(); err != nil {
 		return err
@@ -108,8 +92,6 @@ func (w *pageWriter) DeleteGrants(ctx context.Context, grants ...*v2.Grant) erro
 	return w.unit.StageGrantDeletes(recs...)
 }
 
-// DropStagedSourceCacheRows implements c1zstore.PageWriter: the
-// buffer half of a same-page tombstone (pageUnit.DropStagedRows).
 func (w *pageWriter) DropStagedSourceCacheRows(kind sourcecache.RowKind, scopeKey string, canonicalIDs, principalIDs []string) (int, error) {
 	return w.unit.DropStagedRows(string(kind), scopeKey, canonicalIDs, principalIDs)
 }
@@ -136,9 +118,7 @@ func (w *pageWriter) Commit(ctx context.Context, id c1zstore.LedgerActionIdentit
 
 func (w *pageWriter) Discard() { w.unit.Discard() }
 
-// GetRow implements c1zstore.PageLedgerStore: absent and
-// identity-mismatch both read as not found (the mismatch is counted and
-// logged by the engine).
+// Absent and identity-mismatch both read as not found.
 func (l *Ledger) GetRow(ctx context.Context, id c1zstore.LedgerActionIdentity) (*c1zstore.LedgerRow, bool, error) {
 	row, err := l.getRowRecord(ctx, ledgerIdentityFromStore(id))
 	switch {
@@ -151,7 +131,6 @@ func (l *Ledger) GetRow(ctx context.Context, id c1zstore.LedgerActionIdentity) (
 	}
 }
 
-// Counters implements c1zstore.PageLedgerStore.
 func (l *Ledger) Counters(ctx context.Context) (c1zstore.LedgerCounters, error) {
 	sum, err := l.sumCounters(ctx)
 	if err != nil {
@@ -160,7 +139,6 @@ func (l *Ledger) Counters(ctx context.Context) (c1zstore.LedgerCounters, error) 
 	return ledgerCountersFromProto(sum), nil
 }
 
-// Frontier implements c1zstore.PageLedgerStore.
 func (l *Ledger) Frontier(ctx context.Context) (*c1zstore.LedgerFrontier, bool, error) {
 	f, found, err := l.getFrontier(ctx)
 	if err != nil || !found {
@@ -173,7 +151,6 @@ func (l *Ledger) Frontier(ctx context.Context) (*c1zstore.LedgerFrontier, bool, 
 	return out, true, nil
 }
 
-// Takeover implements c1zstore.PageLedgerStore.
 func (l *Ledger) Takeover(ctx context.Context, runID string, facts []string, counters c1zstore.LedgerCounters) (string, error) {
 	var bucket *v3.LedgerCounterBucket
 	if !ledgerCountersEmpty(counters) {
@@ -182,24 +159,17 @@ func (l *Ledger) Takeover(ctx context.Context, runID string, facts []string, cou
 	return l.takeoverRecord(ctx, runID, facts, bucket)
 }
 
-// ledgerCountersEmpty reports whether counters carries nothing worth a
-// bucket. It tests all five fields, not just Counters and Flags: the
-// token being taken over may carry only timings or call stats (phases
-// ran, no page committed yet), and takeover clears that token in the
-// same batch that writes the bucket. Miss a field here and those maps
-// are gone with no second copy to fold from.
+// All five fields: the token being taken over may carry only timings or
+// call stats, and the takeover clears that token in the same batch.
 func ledgerCountersEmpty(c c1zstore.LedgerCounters) bool {
 	return len(c.Counters) == 0 && c.Flags == 0 &&
 		len(c.ConnectorCalls) == 0 && len(c.StepDurationsMs) == 0 && len(c.SessionCalls) == 0
 }
 
-// PutCounterBucket implements c1zstore.PageLedgerStore.
 func (l *Ledger) PutCounterBucket(ctx context.Context, runID string, worker uint32, counters c1zstore.LedgerCounters) error {
 	return l.putCounterBucketRecord(ctx, runID, worker, ledgerCountersToProto(counters))
 }
 
-// syncStatsOverlay renders the syncer's seal-time stats as the partial
-// SyncStatsRecord PersistSyncStats lays over the counted record.
 func syncStatsOverlay(stats c1zstore.SyncStats) *v3.SyncStatsRecord {
 	overlay := v3.SyncStatsRecord_builder{
 		StepDurationsMs:    cloneInt64Map(stats.Run.StepDurationsMs),
@@ -222,8 +192,6 @@ func syncStatsOverlay(stats c1zstore.SyncStats) *v3.SyncStatsRecord {
 	}
 	return overlay
 }
-
-// === conversions between c1zstore's engine-neutral types and the protos ===
 
 func cloneInt64Map(in map[string]int64) map[string]int64 {
 	if len(in) == 0 {
@@ -258,8 +226,6 @@ func callStatsFromProto(in map[string]*v3.CallStat) map[string]c1zstore.CallStat
 	return out
 }
 
-// msToDuration converts a stored millisecond count, saturating rather
-// than wrapping on absurd values.
 func msToDuration(ms uint64) time.Duration {
 	const maxMs = uint64(math.MaxInt64 / int64(time.Millisecond))
 	if ms > maxMs {
@@ -268,12 +234,8 @@ func msToDuration(ms uint64) time.Duration {
 	return time.Duration(ms) * time.Millisecond
 }
 
-// ledgerCountersToProto copies every map it takes. The bucket it builds is
-// held by StageCounterBucket until the page's Commit, which is seconds to
-// minutes later, and that method's doc says the caller keeps owning the
-// cache — so an aliased map would let a worker's later increment change
-// what gets marshaled, and race the marshal if the cache is touched
-// off-worker.
+// Copies every map: the bucket is held until Commit while the caller keeps
+// mutating its cache.
 func ledgerCountersToProto(c c1zstore.LedgerCounters) *v3.LedgerCounterBucket {
 	return v3.LedgerCounterBucket_builder{
 		Counters:        maps.Clone(c.Counters),

@@ -1,34 +1,5 @@
 package pebble
 
-// pageUnit is the engine side of the atomic page (docs/tasks/sound-
-// syncs-solutions-brief.md §3.1): everything one syncer page writes,
-// plus the ledger row that records the page as done, committed as ONE
-// pebble batch. The store is therefore only ever in one of two states
-// per page — not run (no rows, no ledger row) or done (rows and ledger
-// row) — and a crash anywhere leaves exactly the set of committed
-// pages, which the ledger enumerates.
-//
-// Buffer-then-stage, not stage-as-you-go. A page spans connector calls
-// (seconds to minutes), so the unit cannot hold the write barrier for
-// its lifetime, and staging encoded keys outside the barrier would race
-// the read-before-write index cleanup between concurrent pages (two
-// pages re-parenting the same resource would each read the same prior
-// value and leave an orphan index entry). The unit therefore buffers
-// TYPED records and, at Commit, runs the exact staging logic the
-// Put*Records paths run — same dedup, same read-before-write, same
-// typed rawdb ops — into one RecordBatch under the barrier, then adds
-// the ledger row and commits once. Every invariant the single-call
-// paths hold, the unit holds, because it is the same code.
-//
-// Reads inside a page see the page's own writes (brief §3.5): the
-// unit answers resourceRecord from its buffer first, then the DB.
-//
-// Memory: the buffer is the page. For the write bursts the brief
-// identifies (static entitlements over every resource of a type, a
-// replayed "all users" scope) the SST vehicle (§3.5) will replace the
-// batch above a size threshold; until then the unit is the batch path
-// only and callers keep pages page-sized.
-
 import (
 	"fmt"
 
@@ -43,45 +14,28 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-// ErrPageUnitCommitted is returned by a unit used after Commit or
-// Discard.
 var ErrPageUnitCommitted = errors.New("pebble page unit: already committed or discarded")
 
-// ErrPageUnitForeignSync is returned by Commit when the sync open now is
-// not the one the page was begun under.
 var ErrPageUnitForeignSync = errors.New("pebble page unit: sync changed since the page was begun")
 
 type resourceBufKey struct{ rt, id string }
 
-// pageUnit buffers one page's writes. Not safe for concurrent use; a
-// page is executed by one worker.
+// Not safe for concurrent use.
 type pageUnit struct {
-	l *Ledger
-	// syncID is the sync open when the page was begun. Commit refuses to
-	// land in any other one (see ErrPageUnitForeignSync).
+	l      *Ledger
 	syncID string
 
-	resourceTypes []*v3.ResourceTypeRecord
-	resources     []*v3.ResourceRecord
-	// resourceIdx maps identity → latest index in resources, for the
-	// batch-then-DB read.
-	resourceIdx  map[resourceBufKey]int
-	entitlements []*v3.EntitlementRecord
-	// entitlementIdx maps external id → latest index in entitlements.
+	resourceTypes  []*v3.ResourceTypeRecord
+	resources      []*v3.ResourceRecord
+	resourceIdx    map[resourceBufKey]int
+	entitlements   []*v3.EntitlementRecord
 	entitlementIdx map[string]int
 	grants         []*v3.GrantRecord
-	// grantDeletes are grants the page removes, by structural identity
-	// (the external-resource phase's replaced originals). Applied at
-	// Commit after the page's puts, in the same batch: a buffered put of
-	// the same identity is dropped (the delete wins, as it does when the
-	// two are separate store calls), and a store row is staged for
-	// removal with its index cleanup.
+	// Applied at Commit after the puts, in the same batch; a buffered put of the
+	// same identity is dropped, as when the two are separate store calls.
 	grantDeletes []grantIdentity
 
-	// facts / bucket: sync-level state the page establishes (brief
-	// §3.6), staged in the page's batch so it is exactly as durable as
-	// the page. Facts are blind-set monotone bits; the bucket is the
-	// worker's whole counter total for this run (not a delta).
+	// The bucket is the worker's whole counter total for this run, not a delta.
 	facts       []ledgerFact
 	bucketKey   []byte
 	bucketValue *v3.LedgerCounterBucket
@@ -89,13 +43,10 @@ type pageUnit struct {
 	done bool
 }
 
-// ledgerFact is one staged fact: a name and an optional value.
 type ledgerFact struct {
 	name, value string
 }
 
-// StageFactValue records a sync-level fact with a value (a source-cache
-// hit's validator). Last writer wins across pages.
 func (u *pageUnit) StageFactValue(name, value string) error {
 	if u.done {
 		return ErrPageUnitCommitted
@@ -104,8 +55,6 @@ func (u *pageUnit) StageFactValue(name, value string) error {
 	return nil
 }
 
-// StageFact records that this page established the named sync-level
-// fact (e.g. "needs_expansion"). Idempotent.
 func (u *pageUnit) StageFact(name string) error {
 	if u.done {
 		return ErrPageUnitCommitted
@@ -114,9 +63,6 @@ func (u *pageUnit) StageFact(name string) error {
 	return nil
 }
 
-// StageCounterBucket sets the (run, worker) counter bucket this page's
-// commit writes. The value is the worker's cumulative total for the
-// run; the caller owns the cache. Last call wins.
 func (u *pageUnit) StageCounterBucket(runID string, worker uint32, bucket *v3.LedgerCounterBucket) error {
 	if u.done {
 		return ErrPageUnitCommitted
@@ -129,12 +75,10 @@ func (u *pageUnit) StageCounterBucket(runID string, worker uint32, bucket *v3.Le
 	return nil
 }
 
-// newPageUnit starts buffering a page, bound to the sync open now.
 func (l *Ledger) newPageUnit() *pageUnit {
 	return &pageUnit{l: l, syncID: l.e.CurrentSyncID()}
 }
 
-// StageResourceTypes buffers resource types for the page's commit.
 func (u *pageUnit) StageResourceTypes(records ...*v3.ResourceTypeRecord) error {
 	if u.done {
 		return ErrPageUnitCommitted
@@ -147,7 +91,6 @@ func (u *pageUnit) StageResourceTypes(records ...*v3.ResourceTypeRecord) error {
 	return nil
 }
 
-// StageResources buffers resources for the page's commit.
 func (u *pageUnit) StageResources(records ...*v3.ResourceRecord) error {
 	if u.done {
 		return ErrPageUnitCommitted
@@ -165,7 +108,6 @@ func (u *pageUnit) StageResources(records ...*v3.ResourceRecord) error {
 	return nil
 }
 
-// StageEntitlements buffers entitlements for the page's commit.
 func (u *pageUnit) StageEntitlements(records ...*v3.EntitlementRecord) error {
 	if u.done {
 		return ErrPageUnitCommitted
@@ -183,7 +125,6 @@ func (u *pageUnit) StageEntitlements(records ...*v3.EntitlementRecord) error {
 	return nil
 }
 
-// StageGrants buffers grants for the page's commit.
 func (u *pageUnit) StageGrants(records ...*v3.GrantRecord) error {
 	if u.done {
 		return ErrPageUnitCommitted
@@ -196,10 +137,7 @@ func (u *pageUnit) StageGrants(records ...*v3.GrantRecord) error {
 	return nil
 }
 
-// resourceRecord is the page-scoped read: the page's own staged
-// resource if it has one (latest staged wins, matching the commit's
-// last-occurrence dedup), else the DB. Returns pebble.ErrNotFound as
-// the engine's GetResourceRecord does.
+// Latest staged wins, matching the commit's last-occurrence dedup.
 func (u *pageUnit) resourceRecord(ctx context.Context, resourceTypeID, resourceID string) (*v3.ResourceRecord, error) {
 	if u.done {
 		return nil, ErrPageUnitCommitted
@@ -210,10 +148,8 @@ func (u *pageUnit) resourceRecord(ctx context.Context, resourceTypeID, resourceI
 	return u.l.e.GetResourceRecord(ctx, resourceTypeID, resourceID)
 }
 
-// StageGrantDeletes buffers grant removals by structural identity for
-// the page's commit. A record whose refs derive no identity could not
-// have been stored, so it is an error, never a fallback to string
-// resolution (see DeleteGrantByRefs).
+// A record whose refs derive no identity could not have been stored, so it
+// is an error, never a fallback to string resolution.
 func (u *pageUnit) StageGrantDeletes(records ...*v3.GrantRecord) error {
 	if u.done {
 		return ErrPageUnitCommitted
@@ -231,16 +167,8 @@ func (u *pageUnit) StageGrantDeletes(records ...*v3.GrantRecord) error {
 	return nil
 }
 
-// DropStagedRows removes from the buffer the rows a source-cache
-// tombstone in the SAME page names: the page's own put-then-delete.
-// The store cannot see a buffered put, so the store-side tombstone
-// (DeleteSourceCacheRows*, a registered pre-row bypass) only reaches
-// rows earlier pages committed; this is the buffer half of B3's
-// within-page order (upserts before deletes). canonicalIDs are the
-// kind's public ids (grants/entitlements: external id; resources: the
-// bid:r: resource BID); principalIDs match grants by principal id and
-// resources by resource id, in scopeKey only — the same rules as the
-// store's scoped delete. Returns the number of buffered rows dropped.
+// The buffer half of a same-page tombstone: the store-side tombstone cannot
+// see a buffered put.
 func (u *pageUnit) DropStagedRows(kind string, scopeKey string, canonicalIDs, principalIDs []string) (int, error) {
 	if u.done {
 		return 0, ErrPageUnitCommitted
@@ -317,12 +245,8 @@ func (u *pageUnit) DropStagedRows(kind string, scopeKey string, canonicalIDs, pr
 	return dropped, nil
 }
 
-// entitlementRecord is the page-scoped read for entitlements: the
-// page's own staged record by external id if it has one, else the DB.
-//
-// Guarded on done for the same reason as resourceRecord: release
-// clears the buffer, so a read of a staged id after Commit or Discard
-// would index a nil slice.
+// Guarded on done: release clears the buffer, so a read of a staged id
+// after Commit or Discard would index a nil slice.
 func (u *pageUnit) entitlementRecord(ctx context.Context, externalID string) (*v3.EntitlementRecord, error) {
 	if u.done {
 		return nil, ErrPageUnitCommitted
@@ -333,14 +257,8 @@ func (u *pageUnit) entitlementRecord(ctx context.Context, externalID string) (*v
 	return u.l.e.GetEntitlementRecord(ctx, externalID)
 }
 
-// Empty reports whether nothing has been staged. A page that wrote
-// nothing still commits (its ledger row is the fact that it ran).
-//
-// Every staged thing counts, not just the record slices: a page that
-// staged only grant deletes, only a fact, or only its counter bucket
-// writes on commit and is not empty. A caller that skipped it on the
-// strength of the four slices alone would silently drop the external
-// resource phase's replaced originals.
+// A page that wrote nothing still commits; its ledger row is the fact that
+// it ran.
 func (u *pageUnit) Empty() bool {
 	return len(u.resourceTypes) == 0 && len(u.resources) == 0 &&
 		len(u.entitlements) == 0 && len(u.grants) == 0 &&
@@ -348,11 +266,7 @@ func (u *pageUnit) Empty() bool {
 		u.bucketValue == nil
 }
 
-// Commit applies the buffered records and the ledger row for id in
-// one batch. row may be nil (a bare completion); its identity and
-// record counts are set here from id and the buffer, and committed_at
-// defaults to now. On success the unit is spent; on failure it stays
-// usable for a retry.
+// On failure the unit stays usable for a retry.
 func (u *pageUnit) Commit(ctx context.Context, id ledgerIdentity, row *v3.LedgerRow) error {
 	if u.done {
 		return ErrPageUnitCommitted
@@ -375,8 +289,6 @@ func (u *pageUnit) Commit(ctx context.Context, id ledgerIdentity, row *v3.Ledger
 		}
 	}
 	if len(u.grantDeletes) > 0 && len(u.grants) > 0 {
-		// The delete wins over a buffered put of the same identity; the
-		// put is dropped so its index entries are never staged.
 		doomed := make(map[grantIdentity]struct{}, len(u.grantDeletes))
 		for _, id := range u.grantDeletes {
 			doomed[id] = struct{}{}
@@ -399,22 +311,11 @@ func (u *pageUnit) Commit(ctx context.Context, id ledgerIdentity, row *v3.Ledger
 		if err := l.e.requireCurrentSync(); err != nil {
 			return err
 		}
-		// A page that outlived a completed EndSync/StartNewSync pair
-		// would otherwise land the previous run's records in the
-		// replacement sync, and its ledger row would enumerate a page the
-		// new run never ran. Nothing later can tell them apart: the
-		// keyspace holds one sync at a time and sync_id is not in the
-		// keys. withWrite's sealed check rejects a commit arriving
-		// between the seal and the next bind, but the rebound engine is
-		// unsealed again and would accept it. The binding is replaced
-		// under writeMu, which this holds, so the id read here is the
-		// one the commit below lands under.
+		// A page begun under a previous sync would land its records in the
+		// replacement; sync_id is not in the keys, so nothing later could tell.
 		if now := l.e.CurrentSyncID(); u.syncID != "" && now != u.syncID {
 			return fmt.Errorf("%w: begun under %s, now %s", ErrPageUnitForeignSync, u.syncID, now)
 		}
-		// The in-flight stamp precedes the first row (synced, its own
-		// write): a token-only SDK must refuse this file from here until
-		// seal. See keyspaceVersionLedgerInFlight.
 		if err := l.markInFlightLocked(); err != nil {
 			return err
 		}
@@ -442,9 +343,8 @@ func (u *pageUnit) Commit(ctx context.Context, id ledgerIdentity, row *v3.Ledger
 				return err
 			}
 		}
-		// Every stager dedups by identity, so a page that staged one
-		// identity twice has fewer keys in the keyspace than records in its
-		// buffer. The counts are the only record of what the page put there.
+		// Stagers dedup by identity, so the buffer length overcounts; these counts
+		// are the only record of what the page wrote.
 		row.SetResourceTypesWritten(resourceTypes)
 		row.SetResourcesWritten(resources)
 		row.SetEntitlementsWritten(entitlements)
@@ -461,12 +361,8 @@ func (u *pageUnit) Commit(ctx context.Context, id ledgerIdentity, row *v3.Ledger
 				return err
 			}
 		}
-		// Record the retain opt-out durably, in the batch that carries the
-		// tokens it governs, so the process that seals honors it even if
-		// it is not the process that declared it. Blind-set on every page:
-		// a fact is a monotone last-writer-wins key, so re-staging costs
-		// one key and self-heals a run whose declaring process died after
-		// the first page.
+		// Blind-set on every page: a fact is last-writer-wins, and re-staging
+		// self-heals a run whose declaring process died after the first page.
 		if l.retainTokens.Load() {
 			if err := batch.StageLedgerFact(encodeLedgerFactKey(c1zstore.LedgerFactRetainTokens)); err != nil {
 				return err
@@ -481,10 +377,6 @@ func (u *pageUnit) Commit(ctx context.Context, id ledgerIdentity, row *v3.Ledger
 				return err
 			}
 		}
-		// Pages commit like every record write (recordWriteOpts);
-		// FinishSync's flush and every pebble.Sync commit in the finalize
-		// sequence harden them (see endSyncFinalize). A crash before that
-		// loses whole pages, never parts of one.
 		if err := batch.Commit(recordWriteOpts); err != nil {
 			return err
 		}
@@ -500,8 +392,6 @@ func (u *pageUnit) Commit(ctx context.Context, id ledgerIdentity, row *v3.Ledger
 	return nil
 }
 
-// Discard drops the buffer without writing. The page is then, to the
-// store, a page that never ran.
 func (u *pageUnit) Discard() { u.release() }
 
 func (u *pageUnit) release() {

@@ -113,12 +113,8 @@ type Engine struct {
 	// and persists the stashed record instead of re-scanning the
 	// keyspaces — used by bulk imports that already counted every
 	// record they wrote.
-	computedStatsMu sync.Mutex
-	computedStats   map[string]*v3.SyncStatsRecord
-	// syncStatsOverlay carries the stats EndSyncWithStats was given from
-	// the top of the seal to PersistSyncStats, which lays them over the
-	// counted record instead of parsing them out of a checkpoint token.
-	// Ledgered syncs write no token and must seal through that call.
+	computedStatsMu  sync.Mutex
+	computedStats    map[string]*v3.SyncStatsRecord
 	syncStatsOverlay map[string]*v3.SyncStatsRecord
 
 	// deferredGrantStats holds the grant counts BuildDeferredGrantIndexes
@@ -301,17 +297,14 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 			zap.String("cause", ev.Cause),
 		)
 	})
-	// Under writeMu although nothing else can hold the engine yet:
-	// ResetForNewSync runs the same method on a published engine, and
-	// TestWriteMuHolders reasons about call sites, not publication.
+	// Under writeMu: TestWriteMuHolders reasons about call sites, and
+	// ResetForNewSync runs the same method on a published engine.
 	initKeyspaceState := func() error {
 		return e.withWriteMu(func() error { return e.initKeyspaceStateLocked(ctx) })
 	}
 	err = initKeyspaceState()
 	if errors.Is(err, errLegacyIDIndexLayout) {
-		// The in-place migration takes writeMu itself, so it runs between
-		// two init passes: the first stops at the format check, the
-		// second sees the migrated file.
+		// The migration takes writeMu itself, so it runs between two init passes.
 		if err := e.migrateIDIndexFormatToStructuredV1(ctx); err != nil {
 			_ = e.Close()
 			return nil, err
@@ -325,12 +318,9 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 	return e, nil
 }
 
-// initKeyspaceStateLocked derives every piece of engine state that
-// describes the file's contents, and stamps a fresh file. Open calls it
-// on the file as found; ResetForNewSync calls it on the keyspace it has
-// just emptied, so a reset engine is in the state a fresh Open would
-// produce by running the same code rather than by mirroring it. Every
-// branch here assigns its flag unconditionally for that reason.
+// Open and ResetForNewSync both run this, so a reset engine reaches the
+// fresh-Open state by the same code. Every branch assigns its flag
+// (TestResetForNewSyncRederivesKeyspaceFlags).
 func (e *Engine) initKeyspaceStateLocked(ctx context.Context) error {
 	// Enforce the single-sync key-layout contract before touching any
 	// keys: reject an old multi-sync-layout file (which the current
@@ -760,10 +750,8 @@ func (e *Engine) withWriteAllowSealed(fn func() error) error {
 	return fn()
 }
 
-// withWriteMu runs fn under writeMu with no writability check. Open-time
-// only: initKeyspaceStateLocked has to run on read-only engines too,
-// which withWriteAllowSealed refuses. Everything after Open goes through
-// withWrite or withWriteAllowSealed.
+// Open-time only: the init runs on read-only engines too, which
+// withWriteAllowSealed refuses.
 func (e *Engine) withWriteMu(fn func() error) error {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()

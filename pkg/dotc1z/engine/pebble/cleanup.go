@@ -46,8 +46,6 @@ func scopedRanges() [][2][]byte {
 		{encodeSyncStatsKey(), upperBoundOf(encodeSyncStatsKey())},
 		// Entitlement-graph sidecar — same single-key shape.
 		{EntitlementGraphSidecarLowerBound(), EntitlementGraphSidecarUpperBound()},
-		// Page ledger (ledger.go): the sync's execution trace, wiped
-		// with the sync it describes.
 		{ledgerLowerBound(), ledgerUpperBound()},
 	}
 }
@@ -83,8 +81,6 @@ func (e *Engine) ResetForNewSync(ctx context.Context) error {
 		if err := e.requireKeyspaceEmpty(); err != nil {
 			return fmt.Errorf("ResetForNewSync: %w", err)
 		}
-		// A crash between the excise and this leaves an empty, unstamped
-		// file, which the next Open stamps like any fresh one.
 		if err := e.initKeyspaceStateLocked(ctx); err != nil {
 			return fmt.Errorf("ResetForNewSync: %w", err)
 		}

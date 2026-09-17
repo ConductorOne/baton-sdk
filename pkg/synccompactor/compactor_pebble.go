@@ -491,21 +491,9 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 		zap.Int("partials", len(c.entries)-1),
 	)
 
-	// copyFileForFold byte-copies the base, so a ledgered base's rows,
-	// facts, and counter buckets arrive in the output. encodeLedgerKey
-	// carries no sync id — there is one ledger per file — so they do not
-	// travel with the base sync so much as stay behind describing an
-	// ingest this file no longer contains: the fold merges partials in
-	// and then renames the sync-run record to newSyncID below.
-	//
-	// Two things go wrong if they stay. Ledger.active reports true on the
-	// output, so any later rebind that writes a checkpoint token gets
-	// ErrLedgeredSyncWritesNoToken. And LedgerCounters folds the base
-	// ingest's totals in as though they were this artifact's.
-	//
-	// DropLedger, not ResetForNewSync: drop the trace and keep the
-	// records. This is the compaction-output caller DropLedger's own doc
-	// names.
+	// The byte-copied base brings its ledger along; left in place it makes the
+	// output refuse checkpoint tokens and folds the base ingest's counters in as
+	// this artifact's.
 	if err := destEng.Ledger().Drop(ctx); err != nil {
 		return "", fmt.Errorf("compactPebbleFold: drop inherited base ledger: %w", err)
 	}
@@ -786,22 +774,10 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	if !maxEnded.IsZero() {
 		baseRec.SetEndedAt(timestamppb.New(maxEnded))
 	}
-	// The base's stats sidecar (still under the base id) is the starting
-	// point of the output's timing stats and carries any prior
-	// compaction's provenance; read it before the rename and recompute
-	// below replace it. Legacy timing stats fall back to the token.
 	baseStats := readSourceSyncStats(ctx, destEng, baseSyncID)
-	// The record being renamed is the BASE's, so its token can still carry
-	// a compaction section an older SDK wrote describing the base's own
-	// compaction. That section is the base's ancestry when the base
-	// predates sidecar provenance: read it before stripping it, so a fold
-	// chain that crosses the SDK boundary keeps its root stats sync and
-	// partial count. Then strip just that section: provenance now lives in
-	// SyncStatsRecord.compaction (set below), and an inherited section
-	// reads as this artifact's provenance while naming another one's mode,
-	// base and counts. The token's resume state and timing stats stay,
-	// because PersistSyncStats still falls back to them when a sync has no
-	// stats overlay. Best-effort, like the provenance write itself.
+	// An older SDK wrote provenance into the token. It is the base's ancestry
+	// when the sidecar has none, so read it before stripping it; left in the
+	// token it would read as this artifact's provenance.
 	priorProvenance := baseStats.GetCompaction()
 	if priorProvenance == nil {
 		priorProvenance = provenanceFromTokenSection(ctx, baseRec.GetSyncToken())
@@ -825,12 +801,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	if err := destEng.PersistSyncStats(ctx, newSyncID); err != nil {
 		return "", fmt.Errorf("compactPebbleFold: persist stats: %w", err)
 	}
-	// Stamp the output's stats with compaction provenance and the
-	// combined timings: the base's timing stats describe the base sync's
-	// collection run, so the provenance re-attributes them
-	// (stats_sync_id) and records what this fold merged; each partial's
-	// timings are folded on top. Provenance is best-effort — it never
-	// fails the compaction.
+	// Best-effort: provenance never fails the compaction.
 	outputStats, statsErr := enginepkg.ReadSyncStatsRecord(ctx, destEng, newSyncID)
 	switch {
 	case statsErr != nil:
@@ -947,8 +918,7 @@ func (c *Compactor) runPebbleRebuild(ctx context.Context, runCtx context.Context
 }
 
 // Legacy folds wrote accumulated timings to the token after persisting the
-// sidecar. Sidecar compaction provenance identifies outputs whose sidecar
-// timings are authoritative; their inherited token can be stale instead.
+// sidecar, so for an input without sidecar provenance the token is fresher.
 func readSourceSyncStats(ctx context.Context, eng *enginepkg.Engine, syncID string) *v3.SyncStatsRecord {
 	rec, err := enginepkg.ReadSyncStatsRecord(ctx, eng, syncID)
 	if err != nil {
@@ -1368,12 +1338,8 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 			statsRec = recomputed
 		}
 	}
-	// Stamp compaction provenance on the output's stats. Rebuild merges
-	// lose per-source attribution in their run-file paths, so record
-	// counts carry output totals only, and the partials' timing aggregate
-	// is fold-only — collecting rebuild source stats would pay a second
-	// envelope unpack per source. Best-effort: provenance never fails the
-	// compaction.
+	// Rebuild merges lose per-source attribution, so counts carry output totals
+	// only. Best-effort: provenance never fails the compaction.
 	mode := PebbleCompactorModeKWay
 	if useOverlay {
 		mode = PebbleCompactorModeOverlay
@@ -1386,10 +1352,6 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 			return fmt.Errorf("compactPebble: persist stats: %w", err)
 		}
 	}
-	// Same reason as the fold path: a k-way or overlay output must not
-	// report a compaction section it did not write. These outputs merge
-	// into a fresh store so the token is normally empty already, which
-	// ClearCompactionSection returns unchanged.
 	if tok, err := sdksync.ClearCompactionSection(rec.GetSyncToken()); err != nil {
 		l.Warn("compactPebble: could not strip an inherited compaction token section", zap.Error(err))
 	} else {

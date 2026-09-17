@@ -54,11 +54,7 @@ func (e *Engine) PutResourceRecords(ctx context.Context, records ...*v3.Resource
 	})
 }
 
-// stageResourceRecords stages records (with within-call dedup and the
-// read-before-write by_parent cleanup) into batch and returns the number of
-// distinct keys it staged. Caller holds the write barrier and has checked
-// requireCurrentSync; the caller commits. Shared by PutResourceRecords and
-// the page unit's commit.
+// Caller holds the write barrier and commits the batch.
 func (e *Engine) stageResourceRecords(batch *rawdb.RecordBatch, records []*v3.ResourceRecord) (uint64, error) {
 	if len(records) == 0 {
 		return 0, nil

@@ -86,10 +86,6 @@ func ApplySyncTokenStatsRecord(rec *v3.SyncStatsRecord, syncToken string) {
 	}
 }
 
-// addCallStat folds add into cur: counts, totals, errors and timeouts
-// add; the max latency takes the max. The one definition of "sum two
-// call stats" for the storage type — the ledger's attempt fold and the
-// compactor's partial fold both use it.
 func addCallStat(cur, add *v3.CallStat) {
 	if cur == nil || add == nil {
 		return
@@ -103,8 +99,7 @@ func addCallStat(cur, add *v3.CallStat) {
 	}
 }
 
-// FoldCallStats adds every entry of from into into (allocating into when
-// nil) and returns it. Entries of from are copied, never aliased.
+// Entries of from are copied, never aliased.
 func FoldCallStats(into map[string]*v3.CallStat, from map[string]*v3.CallStat) map[string]*v3.CallStat {
 	if len(from) == 0 {
 		return into
@@ -124,8 +119,6 @@ func FoldCallStats(into map[string]*v3.CallStat, from map[string]*v3.CallStat) m
 	return into
 }
 
-// FoldDurations adds every entry of from into into (allocating into when
-// nil) and returns it.
 func FoldDurations(into map[string]int64, from map[string]int64) map[string]int64 {
 	if len(from) == 0 {
 		return into

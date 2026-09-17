@@ -27,24 +27,14 @@ import (
 // future incompatible key-encoding change.
 const keyspaceVersion uint32 = 2
 
-// keyspaceVersionLedgerInFlight is the stamp a file carries while a
-// ledgered sync (atomic pages, docs/tasks/sound-syncs-solutions-brief.md
-// §3) is in flight. The key layout is v2 plus the additive ledger family;
-// the stamp exists so an SDK that resumes from the checkpoint token
-// alone REFUSES the file at Open instead of resuming a sync whose truth
-// is in a family it cannot read. Written (pebble.Sync) before the first
-// ledger row can commit — no image holds a row under v2 — and restored
-// to keyspaceVersion at seal (endSyncFinalize), so a finished file is
-// readable by every v2 reader; they are family-bounded and never see the
-// rows. An older SDK opening an in-flight ledgered file sees
-// "unsupported keyspace layout v3; regenerate this c1z with a current
-// SDK": the sync is stuck until a ledger-aware SDK resumes it or the
-// file is discarded, which is the intended failure (§3.8).
+// The layout is v2 plus the additive ledger family; the stamp exists so a
+// token-only SDK refuses the file at Open instead of resuming a sync whose
+// truth is in a family it cannot read. Written before the first ledger row,
+// restored to keyspaceVersion at seal, so finished files open under v2
+// readers.
 const keyspaceVersionLedgerInFlight uint32 = 3
 
-// supportedKeyspaceVersions is what this SDK will open. A package var so
-// a test can shrink it to an older SDK's set and prove the in-flight
-// stamp refuses.
+// A package var so a test can shrink it to an older SDK's set.
 var supportedKeyspaceVersions = map[uint32]bool{
 	keyspaceVersion:               true,
 	keyspaceVersionLedgerInFlight: true,

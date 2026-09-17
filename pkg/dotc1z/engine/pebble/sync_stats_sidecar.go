@@ -277,19 +277,10 @@ func (e *Engine) PersistSyncStats(ctx context.Context, syncID string) error {
 	return e.writeSyncStats(ctx, rec)
 }
 
-// applySyncerStats lays the syncer's timing / call / ingest-quality
-// stats over rec's record counts: what the sync_run's sealed token
-// supplies, then per field the stats EndSyncWithStats was given when the
-// seal came through it. A Pebble sync never has a token (the syncer's Pebble path is
-// the ledger; CheckpointSync refuses one); the token here is a sealed
-// SQLite sync's, copied in by the converter (to_pebble.go), whose stats
-// live nowhere else. Failures are ignored — row counts remain usable
-// without them.
+// A Pebble sync never has a token; the token here is a converted SQLite
+// sync's, whose stats live nowhere else.
 func (e *Engine) applySyncerStats(ctx context.Context, syncID string, rec *v3.SyncStatsRecord) {
-	// Token first, overlay on top, so a field the overlay left empty keeps
-	// the token's value: EndSyncWithStats with a partial SyncStats reads
-	// like EndSync for the fields it did not fill. A ledgered sync has no
-	// token and the first step is a no-op.
+	// Token first, overlay per field on top.
 	if sr, err := e.GetSyncRunRecord(ctx, syncID); err == nil && sr != nil {
 		c1zstore.ApplySyncTokenStatsRecord(rec, sr.GetSyncToken())
 	}
@@ -311,10 +302,6 @@ func (e *Engine) applySyncerStats(ctx context.Context, syncID string, rec *v3.Sy
 	}
 }
 
-// setSyncStatsOverlay holds the stats EndSyncWithStats was given for
-// syncID until the seal's PersistSyncStats lays them over the counted
-// record. Private to the seal: the only entry is EndSyncWithStats, so
-// the value never outlives the EndSync call that supplied it.
 func (e *Engine) setSyncStatsOverlay(syncID string, overlay *v3.SyncStatsRecord) {
 	if overlay == nil {
 		return

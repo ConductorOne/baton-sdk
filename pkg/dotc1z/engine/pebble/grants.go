@@ -89,11 +89,7 @@ func (e *Engine) PutGrantRecords(ctx context.Context, records ...*v3.GrantRecord
 	})
 }
 
-// stageGrantRecords stages records in the INLINE index regime (with
-// within-call dedup and the read-before-write overwrite probe) into
-// batch and returns the number of distinct keys it staged. Caller holds
-// the write barrier and has checked requireCurrentSync; the caller
-// commits. Shared by PutGrantRecords and the page unit's commit.
+// Caller holds the write barrier and commits the batch.
 func (e *Engine) stageGrantRecords(batch *rawdb.RecordBatch, records []*v3.GrantRecord) (uint64, error) {
 	if len(records) == 0 {
 		return 0, nil

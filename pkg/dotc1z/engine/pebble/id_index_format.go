@@ -116,10 +116,8 @@ func (e *Engine) verifyOrStampIDIndexFormat(ctx context.Context) error {
 	return e.writeIDIndexFormat(idIndexFormatCurrent)
 }
 
-// errLegacyIDIndexLayout: a writable, non-empty file with the legacy id
-// layout. Open runs migrateIDIndexFormatToStructuredV1 on it outside
-// writeMu (the migration writes through withWrite) and re-runs the
-// keyspace init; ResetForNewSync cannot see it, the keyspace is empty.
+// Open runs the migration outside writeMu (it writes through withWrite) and
+// re-runs the init.
 var errLegacyIDIndexLayout = errors.New("pebble: legacy grant/entitlement id layout")
 
 func (e *Engine) isDataKeyspaceEmpty() (bool, error) {

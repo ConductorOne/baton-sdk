@@ -154,18 +154,8 @@ func foldPartialTimings(stats *runStats, token string) {
 	}
 }
 
-// ClearCompactionSection returns token with its compaction provenance
-// section removed and everything else — resume state, skip flags, timing
-// stats — left alone. A compacted output must not ship the section it
-// inherited from its base: that copy describes the BASE's compaction, so a
-// reader would take the wrong mode, base id and counts for this artifact.
-// Absent is the honest answer, and it sends the reader to
-// SyncStatsRecord.compaction where the provenance now lives.
-//
-// An empty token stays empty rather than round-tripping, because
-// Unmarshal("") seeds an InitOp action to drive a fresh sync, which a
-// finished compacted output must not carry (same reason
-// BuildCompactedToken skips it).
+// Removes the compaction section and nothing else. An inherited section
+// describes the base's compaction, not this artifact's.
 func ClearCompactionSection(token string) (string, error) {
 	if token == "" {
 		return "", nil

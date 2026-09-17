@@ -62,12 +62,8 @@ func (e *Engine) PutEntitlementRecords(ctx context.Context, records ...*v3.Entit
 	})
 }
 
-// stageEntitlementRecords stages records (with within-call dedup and
-// the source-scope-gated read-before-write) into batch and returns the
-// number of distinct keys it staged. Caller holds the write barrier and
-// has checked requireCurrentSync; the caller commits and then calls
-// noteEntitlementKeyspaceWrite. Shared by PutEntitlementRecords and the
-// page unit's commit.
+// Caller holds the write barrier, commits the batch, and then calls
+// noteEntitlementKeyspaceWrite.
 func (e *Engine) stageEntitlementRecords(batch *rawdb.RecordBatch, records []*v3.EntitlementRecord) (uint64, error) {
 	if len(records) == 0 {
 		return 0, nil

@@ -231,16 +231,9 @@ func (e *Engine) CurrentSyncStep(ctx context.Context) (string, error) {
 	return rec.GetSyncToken(), nil
 }
 
-// ErrLedgeredSyncWritesNoToken is returned by CheckpointSync once the
-// open sync has a ledger: the syncer's progress is its pages (brief
-// §3), and a token beside a ledger would be a second, lagging authority.
-// The syncer never calls this on Pebble; the guard makes that a property
-// of the engine rather than of the caller.
+// A token beside a ledger would be a second, lagging authority.
 var ErrLedgeredSyncWritesNoToken = errors.New("CheckpointSync: sync has a ledger; ledgered syncs write no token")
 
-// CheckpointSync persists a step token to the open sync's record. This
-// is the token-only protocol — the c1zsanitize resumable checkpoint,
-// which never has a ledger — and is refused for a ledgered sync.
 func (e *Engine) CheckpointSync(ctx context.Context, syncToken string) error {
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
@@ -275,18 +268,12 @@ func (e *Engine) EndSync(ctx context.Context) error {
 	return e.endSync(ctx, nil)
 }
 
-// EndSyncWithStats implements c1zstore.PageLedgerStore: EndSync with the
-// sync's final stats as an argument. The stats are laid over the record
-// counts the seal computes for the stats sidecar (PersistSyncStats).
 func (e *Engine) EndSyncWithStats(ctx context.Context, stats c1zstore.SyncStats) error {
 	return e.endSync(ctx, syncStatsOverlay(stats))
 }
 
-// ErrLedgeredSyncNeedsStats is returned by EndSync for a sync whose
-// ledger is in flight: such a sync writes no checkpoint token, so
-// nothing but the caller can supply its stats — it must seal through
-// EndSyncWithStats. Failing here is deliberate: a silent fallback would
-// seal without ingest quality, a replay-eligibility input.
+// A ledgered sync writes no token, so only the caller can supply its stats;
+// sealing without them would drop ingest quality, a replay-eligibility input.
 var ErrLedgeredSyncNeedsStats = errors.New("EndSync: ledgered sync must seal through EndSyncWithStats")
 
 func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error {
@@ -309,8 +296,6 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 	if err != nil {
 		return err
 	}
-	// Stashed after the last fallible step before the finalize that
-	// consumes it, so exactly one path can leave it behind.
 	if overlay != nil {
 		e.setSyncStatsOverlay(syncID, overlay)
 	}
@@ -336,12 +321,8 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 		// compactions, or L0 would accumulate until pebble stalls writes at
 		// L0StopWritesThreshold with nothing left to resume the scheduler.
 		e.unseal()
-		// Drop the stash. Only PersistSyncStats consumes it, and finalize
-		// can fail before reaching it, so leaving it here would park these
-		// stats under syncID for whatever seals that id next —
-		// setSyncStatsOverlay's contract is that the value never outlives
-		// the EndSync that supplied it, and the retry brings its own.
-		// A no-op when finalize already consumed it.
+		// finalize can fail before PersistSyncStats consumes the stash; left behind,
+		// it would apply to whatever seals this id next.
 		if overlay != nil {
 			e.takeSyncStatsOverlay(syncID)
 		}
@@ -397,28 +378,11 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	if err := e.sealSourceCacheRowCounts(ctx); err != nil {
 		return fmt.Errorf("EndSync: seal source cache row counts: %w", err)
 	}
-	// Scrub ledger tokens to hash-only BEFORE the ended_at stamp, for the
-	// same reason as the row counts: the finished verdict must never be
-	// durable over a verbatim token. A crash in between leaves the sync
-	// unfinished and the resumed EndSync re-runs the idempotent scrub.
-	//
-	// Scrubs unless retention was declared, in memory or by the durable
-	// fact (see LedgerFactRetainTokens). This process may not be the one
-	// that declared it.
-	//
-	// Ledger.active gates the whole block, and has to: sealScrubsTokens
-	// reports true whenever the retain fact is absent, and a sync with no
-	// ledger never writes that fact, so without this gate every EndSync
-	// in the fleet reaches Ledger.purgeResidue. Its db.Compact rewrites
-	// every SST whose bounds OVERLAP the ledger range, and on a
-	// ledger-free file the SSTs spanning the gap between TypeSourceCache
-	// and TypeEngineMeta do overlap it, at every level that has files.
-	// The scrub alone is cheap over an empty range; the compaction is
-	// not. BenchmarkLedgerSealCost's pages=0 shape measures this.
-	//
-	// What the gate does not cover: a ledger deleted earlier in this file's
-	// life, whose bytes are still in the SSTs with no rows left to find. The
-	// marker block below is that case, and is deliberately outside this one.
+	// Before ended_at: the finished verdict must never be durable over a
+	// verbatim token. Gated on the ledger's presence, not the retain fact: a
+	// ledger-free sync never writes the fact, and the purge's compaction
+	// overlaps SSTs even on a ledger-free file (BenchmarkLedgerSealCost,
+	// pages=0).
 	ledgered, err := e.ledger.active()
 	if err != nil {
 		return fmt.Errorf("EndSync: check ledger presence: %w", err)
@@ -432,11 +396,6 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 			if err := e.ledger.scrubTokens(ctx); err != nil {
 				return fmt.Errorf("EndSync: scrub ledger tokens: %w", err)
 			}
-			// The scrub is query-level until the pre-scrub SST versions
-			// are compacted away; nothing later on the seal-to-save path
-			// compacts (see Ledger.purgeResidue). Same crash argument as
-			// the scrub: a crash here leaves the sync unfinished and the
-			// resumed EndSync re-runs both (idempotent).
 			if !e.test.skipLedgerResiduePurge {
 				if err := e.ledger.purgeResidue(ctx); err != nil {
 					return fmt.Errorf("EndSync: purge ledger residue after scrub: %w", err)
@@ -444,20 +403,14 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 			}
 		}
 	}
-	// Separate from the block above, and gated on neither Ledger.active nor
-	// the retain fact: this is the state where a deleted ledger's bytes are
-	// still in the SSTs with nothing left in the keyspace to infer it from.
-	// Ledger.Drop arms the marker for it, and this is the retry for a purge
-	// of its own that failed (see encodeLedgerResiduePendingKey).
+	// Not gated on the ledger's presence: this is the residue of a ledger
+	// already dropped, with no rows left to find it by.
 	if !e.test.skipLedgerResiduePurge {
 		if err := e.ledger.purgeMarkedResidue(ctx); err != nil {
 			return fmt.Errorf("EndSync: purge marked ledger residue: %w", err)
 		}
 	}
-	// Restore the v2 stamp BEFORE ended_at: a finished file must be
-	// openable by every v2 reader (the rows stay; those readers are
-	// family-bounded). A crash in between leaves an unfinished v2 file
-	// with rows; the resumed EndSync re-runs this (idempotent).
+	// Before ended_at: a finished file must open under every v2 reader.
 	if err := e.withWriteAllowSealed(e.ledger.clearInFlightLocked); err != nil {
 		return fmt.Errorf("EndSync: %w", err)
 	}
@@ -490,11 +443,6 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 			zap.String("sync_id", existing.GetSyncId()),
 			zap.Error(err),
 		)
-		// Drop the stash here too, for the reason the failure path above
-		// gives: only PersistSyncStats consumes it, and it can return on a
-		// computeSyncStats error before reaching applySyncerStats, which
-		// leaves these stats parked under this sync id. The seal is done
-		// with them either way — it just finished the sync without them.
 		e.takeSyncStatsOverlay(existing.GetSyncId())
 	}
 	// The pages above were NoSync and the ended_at stamp was Sync in the
@@ -537,9 +485,6 @@ func (e *Engine) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 	return nil
 }
 
-// translateGrantsForPut is the v2→v3 step of PutGrants: parallel
-// translate plus the context's source-scope stamp. Shared with the
-// page writer.
 func translateGrantsForPut(ctx context.Context, syncID string, grants []*v2.Grant) []*v3.GrantRecord {
 	records := translateGrants(syncID, grants)
 	stampSourceScope(ctx, records, func(r *v3.GrantRecord, scope string) { r.SetSourceScopeKey(scope) })
@@ -678,8 +623,6 @@ func (e *Engine) PutResourceTypes(ctx context.Context, rts ...*v2.ResourceType) 
 	return nil
 }
 
-// translateResourceTypesForPut is the v2→v3 step of PutResourceTypes:
-// translate and default discovered_at. Shared with the page writer.
 func translateResourceTypesForPut(syncID string, rts []*v2.ResourceType) []*v3.ResourceTypeRecord {
 	records := make([]*v3.ResourceTypeRecord, 0, len(rts))
 	now := timestamppb.Now()
@@ -712,9 +655,6 @@ func (e *Engine) PutResources(ctx context.Context, resources ...*v2.Resource) er
 	return nil
 }
 
-// translateResourcesForPut is the v2→v3 step of PutResources: translate,
-// default discovered_at, stamp the context's source scope. Shared with
-// the page writer.
 func translateResourcesForPut(ctx context.Context, syncID string, resources []*v2.Resource) []*v3.ResourceRecord {
 	records := make([]*v3.ResourceRecord, 0, len(resources))
 	now := timestamppb.Now()
@@ -748,8 +688,6 @@ func (e *Engine) PutEntitlements(ctx context.Context, entitlements ...*v2.Entitl
 	return nil
 }
 
-// translateEntitlementsForPut is the v2→v3 step of PutEntitlements.
-// Shared with the page writer.
 func translateEntitlementsForPut(ctx context.Context, syncID string, entitlements []*v2.Entitlement) []*v3.EntitlementRecord {
 	records := make([]*v3.EntitlementRecord, 0, len(entitlements))
 	now := timestamppb.Now()
@@ -1232,7 +1170,6 @@ func (r *bytesReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// BoundSyncFinished implements c1zstore.PageLedgerStore.
 func (e *Engine) BoundSyncFinished(ctx context.Context) (bool, error) {
 	syncID := e.CurrentSyncID()
 	if syncID == "" {

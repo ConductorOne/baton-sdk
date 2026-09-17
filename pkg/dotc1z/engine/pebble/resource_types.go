@@ -39,12 +39,6 @@ func (e *Engine) PutResourceTypeRecords(ctx context.Context, records ...*v3.Reso
 	})
 }
 
-// stageResourceTypeRecords stages records into batch and returns the number
-// of distinct keys it staged. Shared by PutResourceTypeRecords and the page
-// unit's commit.
-//
-// Last occurrence of an external ID wins, matching the other three stagers.
-// The pre-pass is cost, not outcome: the later put wins either way.
 func stageResourceTypeRecords(batch *rawdb.RecordBatch, records []*v3.ResourceTypeRecord) (uint64, error) {
 	var last map[string]int
 	if len(records) > 1 {
