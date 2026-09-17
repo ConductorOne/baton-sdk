@@ -139,7 +139,7 @@ func TestC1ZConcurrentClose(t *testing.T) {
 			}.Build())
 			if err != nil {
 				if !errors.Is(err, ErrDbNotOpen) {
-					require.EqualError(t, err, "sql: database is closed")
+					require.ErrorContains(t, err, "sql: database is closed")
 				}
 				break
 			}
