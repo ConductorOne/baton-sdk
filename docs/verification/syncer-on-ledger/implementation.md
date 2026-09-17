@@ -658,3 +658,11 @@ that integration and removes the historical executor fixture. Run the full
 sync suite, ledger race repetitions, build/vet and applicable lint at each
 completed increment. Record any diagnostic still aimed at the historical
 fixture as such; it is not a regression guard for the integrated scheduler.
+
+K2c keeps warning eligibility at the existing call site. A NotFound from a
+root resource-type listing remains an error and discards its page; scoped
+worker warnings may commit terminal accounting. Persistence errors retain
+their cause for errors.Is but cannot enter the connector-warning branch.
+New child IDs are checked before commit because runState otherwise rejects
+them after the durable write. Page facts become visible in runState only
+after the page commits, before the existing transition is published.

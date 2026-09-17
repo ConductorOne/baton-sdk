@@ -57,7 +57,7 @@ func (r *ledgerRuntime) seal(ctx context.Context) error {
 
 func ledgerSyncStats(facts map[string]string, counters c1zstore.LedgerCounters) c1zstore.SyncStats {
 	_, blocked := facts[ledgerFactIngestBlocked]
-	return c1zstore.SyncStats{
+	stats := c1zstore.SyncStats{
 		Run: c1zstore.RunStats{
 			CompletedActions:   counters.Counters[ledgerCompletedActions],
 			StepDurationsMs:    maps.Clone(counters.StepDurationsMs),
@@ -76,4 +76,8 @@ func ledgerSyncStats(facts map[string]string, counters c1zstore.LedgerCounters) 
 			InvalidEntitlementsObserved:   counters.Counters["ingest.invalid_entitlements_observed"],
 		},
 	}
+	if _, known := facts[ledgerFactIngestKnown]; !known && !blocked {
+		stats.IngestQuality = nil
+	}
+	return stats
 }

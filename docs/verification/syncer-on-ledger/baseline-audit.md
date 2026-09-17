@@ -7,9 +7,9 @@ caller contracts after rejecting a change to sync lifecycle semantics.
 The public syncer still executes the baseline implementation. This report
 identifies differences in the private runtime and requirements missing from
 its integration design. It does not claim these regressions are deployed.
-The only changed existing production bodies are capability resolution and
-observational seal timing. Existing handler, token and lifecycle bodies are
-unchanged. The two package declaration edits are lint directives only.
+That statement describes the audited revision. K2c now adds page invocation
+and commit branches to the existing scheduler and transition functions, as
+authorized by CO-011. Public attachment still leaves the ledger path off.
 
 ## Confirmed differences
 
@@ -21,7 +21,7 @@ unchanged. The two package declaration edits are lint directives only.
 | A4 | Missing ingestion quality is unknown. Sync restores conservative blocked state for resumed legacy history with no quality checkpoint. | ledgerSyncStats emits a non-nil clean quality record when both ingest facts are absent. Empty-token restoration can reach the missing-fact state. | Absence of evidence becomes a positive quality claim. ledgerFactIngestKnown is recorded but not consulted at seal. | C19,C24,C30 |
 | A5 | syncParallel joins independent worker errors; errors.Is can find each cause. | execute retains only the first error and discards later results while joining workers. | A concurrent storage failure can disappear behind another worker's error. | C39,C40 |
 
-All five are reproduced by TestLedgerBaselineContractAudit. These are tests
+All five were reproduced by TestLedgerBaselineContractAudit at 6cc6eab4. These were tests
 against currently wrong behavior, not planted production mutations. The
 baseline sides use unchanged runState and parallelActionQueue helpers,
 main's quality representation, and its explicit errors.Join contract. The
@@ -87,18 +87,24 @@ and handlers do not exist yet. They are required before that work is ready.
 
 ## Tests and scope
 
-Run the deliberately failing comparisons:
+The opt-in TestLedgerBaselineContractAudit at 6cc6eab4 failed all five
+comparisons in an ordinary run and three race repetitions. K2c removes that
+historical diagnostic and replaces it with normal tests of the actual
+scheduler's page integration:
 
-```sh
-BATON_LEDGER_BASELINE_AUDIT=1 GOTOOLCHAIN=go1.26.0 go test -mod=vendor ./pkg/sync -run '^TestLedgerBaselineContractAudit$' -count=1 -timeout 5m
-BATON_LEDGER_BASELINE_AUDIT=1 GOTOOLCHAIN=go1.26.0 go test -mod=vendor -race ./pkg/sync -run '^TestLedgerBaselineContractAudit$' -count=3 -timeout 10m
-```
+| Finding | Current regression test | Scope |
+| --- | --- | --- |
+| A1 | TestLedgerExistingSchedulerOperationBarrier | Real parallelSync with two blocked resource workers and a later grant phase. |
+| A2 | TestLedgerExistingSchedulerSpawnedCompletion | Spawned page counts match existing runState completion counts. |
+| A3 | TestLedgerExistingSchedulerRejectsDuplicateBeforeCommit | Existing queue rejects duplicate response children before any durable page change. |
+| A4 | TestLedgerSealPreservesUnknownIngestQuality | Absent quality stays nil; known clean and blocked states remain represented. |
+| A5 | TestLedgerExistingSchedulerPreservesIndependentErrors | Both concurrent causes remain reachable through errors.Is. |
 
-Both commands fail on all five named comparisons. Three race repetitions
-show the same differences without a race report. Without the environment
-variable the diagnostic test skips explicitly. Remove that gate as fixes
-turn the comparisons into passing regression guards; a skipped test does
-not close a criterion. pkg/sync lint reports zero issues for the added test.
+The rejected executor is compiled only as a test fixture for historical
+runtime, crash and cost tests. It is not a second production scheduler.
+These replacement guards cover the adapter with injected handlers. Public
+attachment, production handlers, Init and lifecycle restoration remain
+unimplemented; passing them does not establish full caller equivalence.
 
 The audit read all new production runtime files, capability resolution,
 storage timing changes and the implementation brief, and compared them with

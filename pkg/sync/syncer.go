@@ -146,6 +146,8 @@ func (sm *syncMap[K, V]) Store(key K, val V) {
 
 // syncer orchestrates a connector sync and stores the results using the provided datasource.Writer.
 type syncer struct {
+	ledgered bool
+	ledger   *ledgerRuntime
 	// cfg is the caller's request: every value set by a With* option and
 	// nothing else, immutable once NewSyncer returns (see config.go).
 	cfg   syncConfig
@@ -472,6 +474,9 @@ const minCheckpointInterval = 10 * time.Second
 
 // Checkpoint marshals the current state and stores it.
 func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
+	if s.ledgered {
+		return nil
+	}
 	if !force && !s.lastCheckPointTime.IsZero() && time.Since(s.lastCheckPointTime) < s.checkpointInterval {
 		return nil
 	}
@@ -758,6 +763,11 @@ const maxEntitlementsPerExclusionGroup = 50
 // It also pushes any child actions before updating/finishing the action.
 // This is useful for pagination, and for actions that create other actions.
 func (s *syncer) nextPageOrFinishAction(ctx context.Context, action *Action, nextPageToken string, childActions ...Action) error {
+	if s.ledgered {
+		if invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation); ok {
+			return invocation.stage(action, nextPageToken, childActions)
+		}
+	}
 	s.parallelTransitionMu.RLock()
 	transitioner := s.parallelActionTransitioner
 	s.parallelTransitionMu.RUnlock()
@@ -775,6 +785,16 @@ func (s *syncer) transitionActionState(
 	nextPageToken string,
 	childActions []Action,
 ) ([]*Action, error) {
+	if s.ledgered {
+		if pending, ok := ctx.Value(ledgerCommitKey{}).(ledgerTransitionCommit); ok {
+			if err := pending.commit(); err != nil {
+				return nil, err
+			}
+			if pending.warning {
+				return nil, nil
+			}
+		}
+	}
 	pushed, err := s.run.transitionAction(ctx, action, nextPageToken, childActions)
 	if err == nil && nextPageToken == "" {
 		s.recordListResourceCompletedThisRun(action)

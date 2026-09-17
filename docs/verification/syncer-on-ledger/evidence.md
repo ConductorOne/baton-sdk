@@ -818,3 +818,45 @@ changes permitted for page persistence and restoration. The five audit
 failures remain recorded; no replacement-executor fix or production-equivalence
 pass is claimed. SQLite behavioral preservation is still required, while an
 absolute prohibition on shared-path edits is superseded by CO-011.
+
+## K2c existing scheduler page integration
+
+The production replacement executor has been removed. Its old callers now
+compile against a test-only fixture pending migration. The existing
+parallelSync/syncParallel queue, batching, retries and joined-error handling
+remain in use. The new invocation stages a page, validates its proposed
+transition through the existing queue, and commits inside the queue's
+transition callback before runState changes. Public attach routing and
+production handlers remain off. No pkg/dotc1z changes occur in K2c.
+
+The following tests are normal suite tests with strict page-write auditing.
+These are bounded adapter results; the listed criteria remain evidence
+incomplete until production handlers, restoration and their required crash
+products are covered.
+
+| Criteria / finding | Test | Defect and observed failure before correction |
+| --- | --- | --- |
+| C13–C16,C41 / A1 | TestLedgerExistingSchedulerOperationBarrier | Historical mixed-operation executor admitted grants while resources were blocked; the replacement test holds two real scheduler workers and asserts no grant start until release. |
+| C20,C23,C30 / A2 | TestLedgerExistingSchedulerSpawnedCompletion | Planted exclusion of spawned actions from terminal accounting produced one in runState and zero in the ledger. |
+| C05,C13,C14,C39 / A3 | TestLedgerExistingSchedulerRejectsDuplicateBeforeCommit | Planted commit before queue validation changed the raw key snapshot despite duplicate-child rejection. |
+| C19,C24,C30 / A4 | TestLedgerSealPreservesUnknownIngestQuality | Historical audit failed on non-nil clean quality with no quality facts. Guard now distinguishes absent, known clean and blocked state. |
+| C39,C40 / A5 | TestLedgerExistingSchedulerPreservesIndependentErrors | Planted string-only wrapping lost errors.Is access to both concurrent causes. |
+| C05,C17 | TestLedgerExistingSchedulerPublishesFactsAfterCommit | Actual missing publication to runState left the committed needs-expansion fact invisible to subsequent scheduling. |
+| C05,C39 | TestLedgerExistingSchedulerCommitNotFoundIsNotWarning | Actual commit NotFound was consumed as a warning and syncParallel returned nil. |
+| C05,C39 | TestLedgerExistingSchedulerRootNotFoundDiscardsPage | Actual adapter treated every NotFound as a warning; root listing failure left a durable row. Raw snapshot assertion failed. |
+| C05,C13 | TestLedgerExistingSchedulerRejectsAssignedChildBeforeCommit | Actual child-ID rejection occurred after commit; raw snapshot assertion failed. |
+
+All planted edits were restored. WarningCommitsAccounting also compares
+existing warning counts with the committed bucket, and CommitFailureKeepsAction
+checks the pending action and unchanged durable keys under a commit fault.
+These additional assertions are passing candidates, not separate mutation
+coverage. Init, finished-artifact processing, duration expiry, resume-walk
+publication and production connector writes are not covered by this increment.
+
+K2c validation: full pkg/sync suite passed in 74.329 seconds; all TestLedger
+race tests passed three repetitions in 9.437 seconds; full synccompactor
+suite passed in 15.736 seconds. Vet passed for sync and synccompactor;
+pkg/sync lint reported zero issues. Go 1.26.0 and vendored dependencies were
+used. The six previously recorded storage lint findings remain outside this
+increment. These checks apply to the final K2c code, including the warning
+classification and assigned-child guards.

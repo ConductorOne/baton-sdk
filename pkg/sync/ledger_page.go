@@ -102,6 +102,16 @@ func (r *ledgerRuntime) runPage(
 	id c1zstore.LedgerActionIdentity,
 	handler func(context.Context, *ledgerPage) error,
 ) (*c1zstore.LedgerRow, error) {
+	return r.runPageWithCommit(ctx, worker, id, handler, nil)
+}
+
+func (r *ledgerRuntime) runPageWithCommit(
+	ctx context.Context,
+	worker uint32,
+	id c1zstore.LedgerActionIdentity,
+	handler func(context.Context, *ledgerPage) error,
+	transition func(*ledgerPage, func() error) error,
+) (*c1zstore.LedgerRow, error) {
 	if worker >= c1zstore.TakeoverBucketWorker {
 		return nil, errors.New("reserved ledger worker index")
 	}
@@ -142,15 +152,35 @@ func (r *ledgerRuntime) runPage(
 	if err := page.writer.SetCounterBucket(r.runID, worker, candidate); err != nil {
 		return nil, err
 	}
-	r.commitMu.Lock()
-	defer r.commitMu.Unlock()
-	if err := page.writer.Commit(ctx, id, &page.row); err != nil {
-		return nil, fmt.Errorf("commit ledger page: %w", err)
+	committed := false
+	publish := func() error {
+		if committed {
+			return errors.New("ledger page committed twice")
+		}
+		r.commitMu.Lock()
+		defer r.commitMu.Unlock()
+		if err := page.writer.Commit(ctx, id, &page.row); err != nil {
+			return fmt.Errorf("commit ledger page: %w", err)
+		}
+		r.mu.Lock()
+		r.workers[worker] = candidate
+		maps.Copy(r.facts, page.facts)
+		r.mu.Unlock()
+		committed = true
+		return nil
 	}
-	r.mu.Lock()
-	r.workers[worker] = candidate
-	maps.Copy(r.facts, page.facts)
-	r.mu.Unlock()
+	var err error
+	if transition == nil {
+		err = publish()
+	} else {
+		err = transition(page, publish)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !committed {
+		return nil, errors.New("ledger transition did not commit its page")
+	}
 	row := page.row
 	row.Children = slices.Clone(row.Children)
 	return &row, nil
