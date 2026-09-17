@@ -458,3 +458,21 @@ pending action is Init with an empty token after a second ledger reset. It
 is retained as an explicitly disabled boundary candidate until that storage
 change exists; it is not passing evidence for C33/C34. Ordinary finished
 rebind and uninterrupted completion tests do not cover this failure.
+
+## 10. C49 resumed-arm durability discrepancy
+
+The executable baseline at eb63f1b5 disagrees with the storage plan's C11
+and CO-002 description carried into calibration CO-009. In options.go,
+recordWriteOpts is pebble.NoSync for fresh and bound syncs, independent of
+Options.durability. page_unit.go commits every page with recordWriteOpts.
+Changing WithDurability therefore cannot produce CO-009's asserted resumed
+Sync-per-page arm. The same code is present at this branch's baseline;
+no implementation change here caused the discrepancy.
+
+The first C49 table must identify the actual resumed NoSync path. A
+hypothetical Sync-per-page arm can be measured only with an explicitly
+identified test-only engine modification, or after a requester-directed
+storage contract change. It must not be labeled the existing production
+resume path. CO-005 says no engine durability change, so this PR does not
+silently change recordWriteOpts to satisfy the table label. Requester
+boundary disposition is pending; C49 remains evidence incomplete.

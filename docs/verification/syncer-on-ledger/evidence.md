@@ -58,12 +58,12 @@ closure of C10, C37, C38 or C47.
 
 ### C04
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
-- Required coverage: plan C04 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Status: evidence incomplete.
+- Candidate: TestLedgerRuntimeCrashProcess.
+- Required coverage: plan C04 and calibration CO-005.
+- Planted defect: no separate torn-write mutant; six process-exit boundaries pass.
+- Green command/revision: K2b execution entry below.
+- Not covered: physical WAL-loss cuts, all handler families, public Sync entry, complete mechanical products.
 
 ### C05
 
@@ -166,12 +166,12 @@ closure of C10, C37, C38 or C47.
 
 ### C16
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
-- Required coverage: plan C16 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Status: evidence incomplete.
+- Candidate: TestLedgerResumeLogicalDifferential.
+- Required coverage: plan C16 and calibration CO-005.
+- Planted defect: subtracted one record observation from resumed worker candidates; canonical accounting comparison failed; defect removed.
+- Green command/revision: K2b execution entry below.
+- Not covered: physical WAL-loss cuts, all handler families, public Sync entry, complete mechanical products.
 
 ### C17
 
@@ -638,3 +638,50 @@ git diff --check
 
 The ledger-suite result includes the explicit interrupted-rebind skip named
 above. Lint reports zero issues. No test result here closes that boundary.
+
+## K2b crash and differential instruments
+
+Revision: the commit adding ledger_runtime_crash_test.go and
+ledger_differential_test.go. Six abrupt process exits cover an open handler,
+a fully staged page before Commit, a returned page commit, a staged terminal
+page, a returned terminal commit, and a completed seal. The parent reopens
+the orphaned raw Pebble directory without invoking child cleanup. It asserts
+whole records/facts/buckets/row transition, atomic terminal proof and
+completion. This does not simulate lost unsynced WAL sectors or recover the
+.c1z envelope through public Sync. No test claims returned NoSync commits
+must survive a power-loss image.
+
+The logical differential uses a common initial file and Go's controlled
+clock. It compares every raw key/value family after only the approved
+row/frontier normalizations and the semantic fold of counter buckets across
+worker/attempt keys. The fold preserves all counter totals, OR flags, step
+sums, call totals/errors/timeouts and maximum latency; it does not remove
+accounting. discovered_at, started_at and ended_at are retained unchanged,
+not normalized away. Raw artifact SHA-256 digests are logged separately.
+
+The fixture has resource types, resources, entitlements and grants, two
+concurrent streams, one/four workers, and failure before committing each of
+three data-page positions. The interrupted arm closes/reopens its file and
+reconstructs the remaining work. It is a controlled interruption fixture,
+not a physical crash differential. Assets, external mutation, expansion,
+public handlers, all process identities and large products remain untested.
+
+A planted defect decremented the resumed worker's `records` observation
+before committing its bucket. The canonical comparison failed at the folded
+bucket, with 15 instead of 18 records in the first affected case. The defect
+was removed; the differential passed three race repetitions. The canonical
+instrument also rejects a same-key counter change with unchanged bucket
+count and verifies sum/max/OR behavior independently of the runtime's fold.
+
+The full pkg/sync suite passed at this stage in 75.494 seconds:
+`GOTOOLCHAIN=go1.26.0 go test -mod=vendor ./pkg/sync/ -count=1 -timeout 30m`.
+The ledger suite passed three race repetitions, including six subprocess
+cuts per repetition. Build/vet passed for pkg/sync and pkg/synccompactor;
+lint passed after removing a redundant interface declaration in the new
+crash fixture. The interrupted-finished-rebind candidate remains skipped
+and recorded failed; no boundary was silently declared settled.
+
+The storage durability discrepancy in implementation.md §10 also remains
+open: the source commits resumed pages NoSync, whereas storage-plan C11 and
+calibration CO-009 describe Sync. No pkg/dotc1z code was changed to disguise
+that discrepancy. C49 has no measured acceptance table yet.

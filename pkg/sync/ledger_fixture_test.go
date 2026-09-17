@@ -151,6 +151,11 @@ func newLedgerFixture(t *testing.T) *ledgerFixture {
 
 func newLedgerFixtureAt(t *testing.T, path string) *ledgerFixture {
 	t.Helper()
+	return openLedgerFixtureAt(t, path, true)
+}
+
+func openLedgerFixtureAt(t *testing.T, path string, start bool) *ledgerFixture {
+	t.Helper()
 	ctx := t.Context()
 	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(filepath.Dir(path)))
 	require.NoError(t, err)
@@ -162,8 +167,10 @@ func newLedgerFixtureAt(t *testing.T, path string) *ledgerFixture {
 	require.True(t, ok)
 	audit := &ledgerWriteAudit{}
 	caps.writeHook.SetWriteHook(audit.hook)
-	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
+	if start {
+		_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+	}
 	guarded := &ledgerGuardedStore{
 		Store: store, PageLedgerStore: caps.pageLedger, WriteHookStore: caps.writeHook,
 		caps: caps, audit: audit, EntitlementGraphStore: caps.entitlementGraph,
