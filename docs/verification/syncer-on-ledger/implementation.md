@@ -519,3 +519,20 @@ that fails after entering either phase. The observation changes no write
 ordering, error handling, durability or stored data. A consumer test checks
 scrub versus retain; an engine test checks failed-finalize reporting. This
 serves C49's decomposition and does not settle the resumed durability gap.
+
+## 13. Scope of the proposed finished-run reset
+
+The concrete Engine.Ledger().Drop operation also serves compactor output
+cleanup (synccompactor/compactor_pebble.go). Its semantics must remain ledger
+removal with the completion record retained. The proposed reset belongs at
+the PageLedgerStore finished-rebind boundary, implemented by a distinct
+engine operation called from pebbleStore.DropLedger. It must not make the
+compactor reopen a sealed output.
+
+The proposed atomic batch removes ledger state and stale completion/stats
+state while reopening the bound finished SyncRunRecord; it retains record
+families and secondary indexes. Token purging and the durable pending-purge
+marker still have to survive failure cuts. The required tests compare both
+consumers: interrupted syncer rebind remains unfinished and resumable, while
+compactor ledger removal preserves completion. This narrows §9's proposal;
+it is not an implemented contract change or a resolved C33/C34 claim.

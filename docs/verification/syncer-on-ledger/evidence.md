@@ -746,3 +746,31 @@ three duration conversions in adapter_page.go and three integer conversions
 in ledger_cost_bench_test.go. All six expressions exist at eb63f1b5; none is
 introduced by this change. The final zero-issue lint requirement remains
 open; this run is not reported as passing.
+
+## K3c resumed cost smoke and interleaving
+
+[The smoke table](cost-smoke/table.md), raw samples and machine snapshot
+record 18 successful processes: token/fresh/resumed, three repetitions,
+1,000 pages × 100 records/page, workers one/four. Each process verified
+100,000 resources. The runtime verified 1,002 committed pages. The resumed
+fixture verified exactly one data page before stop, then reopened and
+walked before running remaining pages. I/O totals include both openings.
+Scrub and purge are measured separately, and peak RSS comes from wait4.
+
+These are private-runtime, actual-NoSync measurements on a loaded machine.
+They cannot estimate production public-Sync overhead or close C49. In
+particular they do not supply calibration's Sync-per-page resumed arm,
+full matrix, row/bucket/fact byte decomposition or production-shaped
+estimate. The phase data identifies purge as most of the measured seal
+cost in these two small cells; it does not establish scaling with rows.
+
+After K3b, the ledger race suite passed three repetitions in 8.951 seconds.
+Build/vet passed for sync, Pebble and synccompactor. The timing instrument's
+planted defect and restored pass are recorded above. The new interleaving
+runner is candidate instrumentation; no planted defect is claimed for its
+process/RSS collection or ratio aggregation.
+
+The full synccompactor suite also passed in 15.724 seconds with Go 1.26.0.
+The concrete Ledger.Drop compactor consumer was inspected while narrowing
+the pending reset proposal (implementation.md §13). No reset behavior was
+changed, and the interrupted-finished-rebind candidate remains disabled.

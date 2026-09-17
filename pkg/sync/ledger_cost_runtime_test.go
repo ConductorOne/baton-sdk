@@ -3,6 +3,7 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -62,6 +63,11 @@ func TestLedgerCostRuntime(t *testing.T) {
 	if os.Getenv("BATON_LEDGER_COST") != "1" {
 		t.Skip("opt-in private-runtime cost smoke; not C49 evidence")
 	}
+	arm := os.Getenv("BATON_LEDGER_COST_ARM")
+	if arm == "" {
+		arm = "fresh"
+	}
+	require.Contains(t, []string{"fresh", "resume"}, arm)
 	pages := ledgerCostInput(t, "BATON_LEDGER_COST_PAGES", 10)
 	records := ledgerCostInput(t, "BATON_LEDGER_COST_RECORDS", 100)
 	workers := ledgerCostInput(t, "BATON_LEDGER_COST_WORKERS", 1)
@@ -123,14 +129,51 @@ func TestLedgerCostRuntime(t *testing.T) {
 		}
 		return page.transition(response.GetNextPageToken())
 	}
+	var reopenNs, walkNs int64
+	var priorWAL, priorFlushed, priorCompacted uint64
+	if arm == "resume" {
+		stopped := errors.New("cost fixture: one data page committed")
+		f.audit.enter(ledgerHandler)
+		err := runtime.execute(t.Context(), ledgerInitialActions(), 1, func(ctx context.Context, action ledgerAction, page *ledgerPage) error {
+			if connector.calls.Load() == 1 {
+				return stopped
+			}
+			return handler(ctx, action, page)
+		})
+		f.audit.enter(ledgerLifecycle)
+		require.ErrorIs(t, err, stopped)
+		require.EqualValues(t, 1, connector.calls.Load())
+		require.EqualValues(t, 2, measurements.commits.Load())
+		reopenStart := time.Now()
+		require.NoError(t, f.audit.record(t.Context(), "CostResumeFlush"))
+		require.NoError(t, f.engine.Flush(t.Context()))
+		priorMetrics := f.engine.Metrics()
+		priorWAL = priorMetrics.WAL.BytesWritten
+		for _, level := range priorMetrics.Levels {
+			priorFlushed += level.TableBytesFlushed + level.BlobBytesFlushed
+			priorCompacted += level.TableBytesCompacted + level.BlobBytesCompacted
+		}
+		require.NoError(t, f.store.Close(t.Context()))
+		f = openLedgerFixtureAt(t, path, false)
+		source = ledgerCostStore{PageLedgerStore: f.ledger, observations: measurements}
+		runtime, err = newLedgerRuntime(t.Context(), source, "cost-resumed-attempt")
+		require.NoError(t, err)
+		reopenNs = time.Since(reopenStart).Nanoseconds()
+	}
+	f.audit.enter(ledgerWalk)
+	walkStart := time.Now()
+	roots, err := runtime.walk(t.Context(), ledgerInitialActions())
+	require.NoError(t, err)
+	walkNs = time.Since(walkStart).Nanoseconds()
 	f.audit.enter(ledgerHandler)
-	require.NoError(t, runtime.execute(t.Context(), ledgerInitialActions(), workerCount, handler))
+	require.NoError(t, runtime.execute(t.Context(), roots, workerCount, handler))
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{}))
 	sealStart := time.Now()
 	measurements.sealing.Store(true)
 	require.NoError(t, runtime.seal(t.Context()))
 	sealElapsed := time.Since(sealStart)
+	sealCost := f.engine.LastSealCost()
 	elapsed := time.Since(start)
 	require.EqualValues(t, pages, connector.calls.Load())
 	require.EqualValues(t, pages+2, measurements.commits.Load())
@@ -147,7 +190,7 @@ func TestLedgerCostRuntime(t *testing.T) {
 	}
 	require.Equal(t, pages*records, count)
 	metrics := f.engine.Metrics()
-	var flushed, compacted uint64
+	flushed, compacted := priorFlushed, priorCompacted
 	for _, level := range metrics.Levels {
 		flushed += level.TableBytesFlushed + level.BlobBytesFlushed
 		compacted += level.TableBytesCompacted + level.BlobBytesCompacted
@@ -156,10 +199,11 @@ func TestLedgerCostRuntime(t *testing.T) {
 	info, err := os.Stat(path)
 	require.NoError(t, err)
 	result := map[string]any{
-		"arm": "ledger-private-fresh-no-sync", "pages": pages, "records_per_page": records, "workers": workers,
+		"arm":       "ledger-private-" + arm + "-no-sync",
+		"reopen_ns": reopenNs, "resume_walk_ns": walkNs, "pages": pages, "records_per_page": records, "workers": workers,
 		"sync_wall_ns": elapsed.Nanoseconds(), "page_commit_ns": measurements.commitNs.Load(), "handler_ns": measurements.handlerNs.Load(),
-		"seal_ns": sealElapsed.Nanoseconds(), "seal_fold_ns": measurements.foldNs.Load(), "seal_scrub_ns": nil,
-		"wal_bytes_before_close": metrics.WAL.BytesWritten, "flush_bytes_before_close": flushed, "compaction_bytes_before_close": compacted,
+		"seal_ns": sealElapsed.Nanoseconds(), "seal_fold_ns": measurements.foldNs.Load(), "seal_scrub_ns": sealCost.LedgerScrub.Nanoseconds(), "seal_purge_ns": sealCost.LedgerPurge.Nanoseconds(),
+		"wal_bytes_before_close": priorWAL + metrics.WAL.BytesWritten, "flush_bytes_before_close": flushed, "compaction_bytes_before_close": compacted,
 		"c1z_bytes": info.Size(), "resources_verified": count, "ledger_commits": measurements.commits.Load(),
 		"scope": "private-runtime smoke; not C49 measurement evidence",
 	}
