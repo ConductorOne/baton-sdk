@@ -406,3 +406,16 @@ a distinction between the pre-handler runtime measurement and final public
 Sync measurement; §4 makes that distinction explicit for review. Neither
 uncertainty prevents committing this implementation brief, and neither may
 be hidden by claiming a passing test or benchmark that has not run.
+
+
+## 8. Execution note: K1 split
+
+K1 is being delivered in two independently buildable commits. K1a contains
+the strict fixture's initial direct-write coverage, raw snapshot/reopen
+oracle, cell enumerator, per-criterion evidence record, machine recorder and
+pinned baseline smoke executable. K1b completes sub-store/lifecycle write
+coverage, canonical comparison and crash-image/legacy integration before
+K2. This changes commit granularity, not required coverage or the order of
+production handler work. The two capability fields are resolved in
+store_caps.go in K1a so test fixtures obey the capability-resolution rule;
+no execution path selects the ledger yet.
