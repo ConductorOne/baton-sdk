@@ -107,6 +107,15 @@ holding `writeMu` calls one that takes it.
   flip mid-call.
 - A write arriving during `Close`'s teardown blocks until teardown finishes,
   then returns `ErrEngineClosing`, instead of returning immediately.
+- Likewise for `ErrEngineSealed`: `withWrite` had a lock-free `sealed` check
+  before taking `writeMu`; now the check is under the lock only. A record
+  write issued during `EndSync` parks behind `BuildDeferredGrantIndexes`
+  (~1m45s on the whale fixture) and then gets the same refusal. No in-repo
+  caller writes during `EndSync` (workers are joined first); an embedder's
+  goroutine would. Record `Put*` paths on `pebbleStore` do not hold
+  `closeMu` across the engine call, so the park does not propagate there.
+  Not restored: the two-check shape is the one this change removes, and the
+  refusal is unchanged.
 - Synth-layer rows become visible at the next `Add`/`Finish` instead of when
   the worker's ingest lands.
 

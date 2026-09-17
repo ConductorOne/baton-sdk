@@ -1,0 +1,178 @@
+package dotc1z
+
+// TestPebbleStoreDirtyCoverage requires every PageLedgerStore and
+// pebbleStoreGrantLayerStorer method to be classified. Writes must have
+// a store wrapper that marks dirty so Close saves them to the c1z;
+// page commits carry the mark through dirtyPageWriter.Commit.
+//
+// C22/C24 in docs/verification/page-ledger/plan.md.
+
+import (
+	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+)
+
+// dirtyKind classifies what a capability method does to the file.
+type dirtyKind int
+
+const (
+	dirtyWrite dirtyKind = iota
+	dirtyRead
+	dirtyDeferred
+)
+
+// capabilityMethods classifies every method of the two capability
+// interfaces. A method missing from this map fails the test by name.
+var capabilityMethods = map[string]struct {
+	kind dirtyKind
+	why  string
+}{
+	"BeginPage":             {dirtyDeferred, "returns a PageWriter; the staging calls write nothing until Commit, and dirtyPageWriter.Commit carries the mark for the whole batch"},
+	"GetLedgerRow":          {dirtyRead, "read"},
+	"SetRetainLedgerTokens": {dirtyRead, "sets an in-memory flag; the durable retain fact is written by a later page commit, which marks dirty itself"},
+	"LedgerFacts":           {dirtyRead, "read"},
+	"LedgerCounters":        {dirtyRead, "read"},
+	"LedgerFrontier":        {dirtyRead, "read"},
+	"TakeoverToken":         {dirtyWrite, "one batch: frontier, facts, bucket, token cleared"},
+	"BoundSyncFinished":     {dirtyRead, "read"},
+	"DropLedger":            {dirtyWrite, "a delete is a write; without the mark the wipe never reaches the c1z"},
+	"PutCounterBucket":      {dirtyWrite, "blind-writes the bucket"},
+	"EndSyncWithStats":      {dirtyWrite, "the seal: scrub, purge, stamp, ended_at, stats sidecar"},
+
+	"BeginExpandedGrantLayer":            {dirtyRead, "allocates an in-memory session; the first Add is what touches the file"},
+	"AddExpandedGrantLayerContributions": {dirtyWrite, "ingests a filled segment into the live keyspace and arms the deferred by_principal rebuild, both before Finish"},
+	"FinishExpandedGrantLayer":           {dirtyWrite, "publishes the layer"},
+	"AbortExpandedGrantLayer":            {dirtyRead, "drops staged chunks and the temp dir; the ingested segments it leaves behind were marked by Add"},
+}
+
+// pebbleStoreMethods returns, for each method declared on *pebbleStore and
+// *dirtyPageWriter in this package, whether its body reaches markDirty.
+func pebbleStoreMethods(t *testing.T) map[string]bool {
+	t.Helper()
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, ".", nil, 0)
+	require.NoError(t, err)
+
+	out := map[string]bool{}
+	for _, pkg := range pkgs {
+		for _, file := range pkg.Files {
+			for _, decl := range file.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok || fn.Recv == nil || len(fn.Recv.List) == 0 {
+					continue
+				}
+				recv := fn.Recv.List[0].Type
+				if star, ok := recv.(*ast.StarExpr); ok {
+					recv = star.X
+				}
+				ident, ok := recv.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				var key string
+				switch ident.Name {
+				case "pebbleStore":
+					key = fn.Name.Name
+				case "dirtyPageWriter":
+					key = "dirtyPageWriter." + fn.Name.Name
+				case "pebbleStoreGrants":
+					key = "pebbleStoreGrants." + fn.Name.Name
+				default:
+					continue
+				}
+				marks := false
+				ast.Inspect(fn.Body, func(n ast.Node) bool {
+					if id, ok := n.(*ast.Ident); ok && id.Name == "markDirty" {
+						marks = true
+					}
+					return !marks
+				})
+				out[key] = marks
+			}
+		}
+	}
+	return out
+}
+
+func TestPebbleStoreDirtyCoverage(t *testing.T) {
+	declared := pebbleStoreMethods(t)
+
+	var unclassified []string
+	for _, capability := range []struct {
+		iface reflect.Type
+		recv  string
+	}{
+		{reflect.TypeOf((*c1zstore.PageLedgerStore)(nil)).Elem(), "*pebbleStore"},
+		{reflect.TypeOf((*pebbleStoreGrantLayerStorer)(nil)).Elem(), "pebbleStoreGrants"},
+	} {
+		iface := capability.iface
+		for i := 0; i < iface.NumMethod(); i++ {
+			name := iface.Method(i).Name
+			spec, ok := capabilityMethods[name]
+			if !ok {
+				unclassified = append(unclassified, iface.String()+"."+name)
+				continue
+			}
+			lookup := name
+			if capability.recv == "pebbleStoreGrants" {
+				lookup = capability.recv + "." + name
+			}
+			switch spec.kind {
+			case dirtyWrite:
+				marks, found := declared[lookup]
+				require.Truef(t, found,
+					"%s.%s mutates the file (%s) but %s does not declare it, so it is promoted from the embedded "+
+						"*pebble.Engine and skips markDirty: the mutation lands in pebble and Close drops it without save()",
+					iface.String(), name, spec.why, capability.recv)
+				require.Truef(t, marks,
+					"%s.%s is declared but its body never reaches markDirty, so its write does not reach the c1z",
+					capability.recv, name)
+			case dirtyDeferred:
+				marks, found := declared["dirtyPageWriter."+"Commit"]
+				require.Truef(t, found && marks,
+					"%s.%s defers its write (%s), so dirtyPageWriter.Commit must carry the mark", iface.String(), name, spec.why)
+			case dirtyRead:
+			}
+		}
+	}
+
+	require.Emptyf(t, unclassified,
+		"these capability methods are not classified in capabilityMethods, so this test cannot tell whether they need a "+
+			"markDirty wrapper. Classify each as dirtyWrite, dirtyRead or dirtyDeferred with a reason:\n  %s",
+		strings.Join(unclassified, "\n  "))
+}
+
+// The other direction: callers choose the ledger path by probing the store
+// for these interfaces, so a SQLite store that satisfied one would send a
+// v1 file down a path with no ledger to write to. There is no compile-time
+// form of this — you cannot assert that a type does not implement an
+// interface — so it is a test.
+func TestSQLiteStoreOffersNoLedgerCapabilities(t *testing.T) {
+	ctx := context.Background()
+
+	store, err := NewStore(ctx, filepath.Join(t.TempDir(), "v1.c1z"), WithEngine(c1zstore.EngineSQLite))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close(ctx) })
+
+	// Premise: the probe finds what this store does offer. Without it the
+	// two assertions below would also pass on a store that implements
+	// nothing at all.
+	_, ok := store.(connectorstore.DBSizeProvider)
+	require.True(t, ok, "the SQLite store offers DBSizeProvider; if this fails the probe is wrong, not the store")
+
+	_, ok = store.(c1zstore.PageLedgerStore)
+	require.False(t, ok, "the SQLite store has no ledger to write pages into")
+	_, ok = store.(c1zstore.WriteHookStore)
+	require.False(t, ok, "the SQLite store has no page writes to gate")
+}

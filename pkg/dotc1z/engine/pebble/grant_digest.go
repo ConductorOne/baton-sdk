@@ -121,6 +121,7 @@ func grantDigestABIStampValue() []byte {
 // stamp on its completion side (the fold's opening DeleteRange erases
 // it first).
 func (e *Engine) verifyGrantDigestABI(ctx context.Context, readOnly bool) error {
+	e.grantDigestAbiStale.Store(false)
 	if !e.db.GrantDigestsPresent() {
 		return nil
 	}

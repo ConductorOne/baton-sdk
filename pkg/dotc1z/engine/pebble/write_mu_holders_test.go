@@ -20,9 +20,10 @@ package pebble
 // only from Open, before the engine is published) need no lock. A function
 // literal inherits its enclosing context unless it escapes: the function
 // of a go statement, a struct field, a return value, or an assignment to
-// a field. Calls are recognised on the receiver ident e (every Engine
-// method uses e); a mutation through an alias of e.db, or through a helper
-// type that holds the engine, is not followed.
+// a field. The engine is recognised as e, l.e and u.l.e; the ledger as l,
+// u.l and e.ledger (receiverKind). Methods on Engine, Ledger and pageUnit
+// share one name space, so a name may not be declared on two of them. A
+// mutation through any other alias of the DB is not followed.
 
 import (
 	"fmt"
@@ -38,6 +39,7 @@ import (
 var writeMuDirectAcquirers = map[string]bool{
 	"withWrite":                  true,
 	"withWriteAllowSealed":       true,
+	"withWriteMu":                true,
 	"Close":                      true,
 	"CheckpointTo":               true,
 	"CompactAllRanges":           true,
@@ -87,9 +89,9 @@ func TestWriteMuHolders(t *testing.T) {
 			if !ok || fd.Body == nil {
 				continue
 			}
-			// Engine methods, plus plain functions (Open builds the engine
-			// as a local e and calls its methods before publishing it).
-			if fd.Recv == nil || (len(fd.Recv.List) == 1 && receiverTypeName(fd.Recv.List[0].Type) == "Engine") {
+			if fd.Recv == nil || (len(fd.Recv.List) == 1 && checkedReceivers[receiverTypeName(fd.Recv.List[0].Type)]) {
+				_, dup := methods[fd.Name.Name]
+				require.False(t, dup, "%s declared on two checked types; the checker keys by name", fd.Name.Name)
 				methods[fd.Name.Name] = fd
 				fileOf[fd.Name.Name] = baseName(fset.Position(fd.Pos()).Filename)
 			}
@@ -100,7 +102,7 @@ func TestWriteMuHolders(t *testing.T) {
 	lockPos := map[string]token.Pos{}
 	for name, fd := range methods {
 		ast.Inspect(fd.Body, func(n ast.Node) bool {
-			if call, ok := n.(*ast.CallExpr); ok && isSelectorChain(call.Fun, "e", "writeMu", "Lock") {
+			if call, ok := n.(*ast.CallExpr); ok && isEngineField(call.Fun, "writeMu", "Lock") {
 				if _, seen := lockPos[name]; !seen {
 					lockPos[name] = call.Pos()
 				}
@@ -125,10 +127,10 @@ func TestWriteMuHolders(t *testing.T) {
 			if !ok {
 				return
 			}
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && writeMuMutatingRawdbMethods[sel.Sel.Name] && isSelectorChain(sel.X, "e", "db") {
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && writeMuMutatingRawdbMethods[sel.Sel.Name] && isEngineField(sel.X, "db") {
 				sites = append(sites, writeMuSite{pos: call.Pos(), enclosing: name, rawdb: sel.Sel.Name, holder: holder})
 			}
-			callee, ok := engineMethodCall(call)
+			callee, _, ok := memberCall(call)
 			if !ok {
 				// A plain package function (newSourceCacheDeleteBatch(e, ...)).
 				if id, isIdent := call.Fun.(*ast.Ident); isIdent {
@@ -274,7 +276,7 @@ func walkWithContext(root ast.Node, holder bool, lock token.Pos, visit func(ast.
 			}
 			return
 		case *ast.CallExpr:
-			if callee, ok := engineMethodCall(x); ok && (callee == "withWrite" || callee == "withWriteAllowSealed") {
+			if callee, kind, ok := memberCall(x); ok && kind == recvEngine && (callee == "withWrite" || callee == "withWriteAllowSealed") {
 				walk(x.Fun, holder, lock)
 				for _, a := range x.Args {
 					if lit, ok := a.(*ast.FuncLit); ok {
@@ -299,29 +301,69 @@ func walkWithContext(root ast.Node, holder bool, lock token.Pos, visit func(ast.
 	walk(root, holder, lock)
 }
 
-// engineMethodCall reports the method name when call is e.X(...).
-func engineMethodCall(call *ast.CallExpr) (string, bool) {
-	sel, ok := call.Fun.(*ast.SelectorExpr)
-	if !ok {
-		return "", false
+var checkedReceivers = map[string]bool{"Engine": true, "Ledger": true, "pageUnit": true}
+
+type recvKind int
+
+const (
+	recvNone recvKind = iota
+	recvEngine
+	recvLedger
+)
+
+// receiverKind resolves an expression to the engine or the ledger: e, l.e,
+// u.l.e are the engine; l, u.l, e.ledger are the ledger.
+func receiverKind(expr ast.Expr) recvKind {
+	switch x := expr.(type) {
+	case *ast.Ident:
+		switch x.Name {
+		case "e":
+			return recvEngine
+		case "l":
+			return recvLedger
+		}
+	case *ast.SelectorExpr:
+		switch x.Sel.Name {
+		case "l":
+			if _, ok := x.X.(*ast.Ident); ok {
+				return recvLedger
+			}
+		case "e":
+			if receiverKind(x.X) == recvLedger {
+				return recvEngine
+			}
+		case "ledger":
+			if receiverKind(x.X) == recvEngine {
+				return recvLedger
+			}
+		}
 	}
-	if id, ok := sel.X.(*ast.Ident); ok && id.Name == "e" {
-		return sel.Sel.Name, true
-	}
-	return "", false
+	return recvNone
 }
 
-// isSelectorChain reports whether expr is exactly parts[0].parts[1]....
-func isSelectorChain(expr ast.Expr, parts ...string) bool {
-	for i := len(parts) - 1; i > 0; i-- {
+// memberCall reports the method name and receiver kind when call is
+// <engine>.X(...) or <ledger>.X(...).
+func memberCall(call *ast.CallExpr) (string, recvKind, bool) {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return "", recvNone, false
+	}
+	if kind := receiverKind(sel.X); kind != recvNone {
+		return sel.Sel.Name, kind, true
+	}
+	return "", recvNone, false
+}
+
+// isEngineField reports whether expr is <engine>.parts[0].parts[1]...
+func isEngineField(expr ast.Expr, parts ...string) bool {
+	for i := len(parts) - 1; i >= 0; i-- {
 		sel, ok := expr.(*ast.SelectorExpr)
 		if !ok || sel.Sel.Name != parts[i] {
 			return false
 		}
 		expr = sel.X
 	}
-	id, ok := expr.(*ast.Ident)
-	return ok && id.Name == parts[0]
+	return receiverKind(expr) == recvEngine
 }
 
 func baseName(path string) string {

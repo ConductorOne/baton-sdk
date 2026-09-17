@@ -1,6 +1,7 @@
 package dotc1z
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -115,7 +116,7 @@ func TestC1ZConcurrentClose(t *testing.T) {
 		var err error
 		// Close will finish at some point, causing DB operations to fail.
 		defer wg.Done()
-		// Put grants in a loop until we get a DbNotOpen error.
+		// A write admitted before close can fail inside database/sql.
 		i := 0
 		for {
 			err = f.PutGrants(ctx, v2.Grant_builder{
@@ -137,7 +138,9 @@ func TestC1ZConcurrentClose(t *testing.T) {
 				}.Build(),
 			}.Build())
 			if err != nil {
-				require.ErrorIs(t, err, ErrDbNotOpen)
+				if !errors.Is(err, ErrDbNotOpen) {
+					require.ErrorContains(t, err, "sql: database is closed")
+				}
 				break
 			}
 			i++

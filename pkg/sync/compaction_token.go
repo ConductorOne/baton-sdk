@@ -71,6 +71,11 @@ type CompactionTokenInput struct {
 // stats are preserved as the starting point. Chained compactions accumulate:
 // the original StatsSyncID, the uncapped partial count, and already-folded
 // top-level timings carry forward; new partials are added on top.
+//
+// Deprecated: compaction provenance is written to
+// SyncStatsRecord.compaction (the stats sidecar) instead, and nothing in
+// this repo calls this. Read provenance with
+// enginepkg.ReadSyncStatsRecord followed by GetCompaction().
 func BuildCompactedToken(baseToken string, in CompactionTokenInput) (string, error) {
 	// An empty base token starts from an empty run rather than going through
 	// unmarshalToken, which would seed an InitOp action to drive a fresh
@@ -149,8 +154,30 @@ func foldPartialTimings(stats *runStats, token string) {
 	}
 }
 
+// Removes the compaction section and nothing else. An inherited section
+// describes the base's compaction, not this artifact's.
+func ClearCompactionSection(token string) (string, error) {
+	if token == "" {
+		return "", nil
+	}
+	parts, err := unmarshalToken(token)
+	if err != nil {
+		return "", err
+	}
+	if parts.stats.compactionStats() == nil {
+		return token, nil
+	}
+	parts.stats.setCompaction(nil)
+	return marshalToken(parts.run, parts.stats)
+}
+
 // CompactionStatsFromToken returns the compaction provenance section of a
 // marshalled sync token, or nil when the token is empty or carries none.
+//
+// Deprecated: provenance moved to SyncStatsRecord.compaction (the stats
+// sidecar). This returns nil for anything compacted by this SDK or later —
+// the section is no longer written, and compaction strips an inherited one
+// through ClearCompactionSection. Kept for reading older artifacts.
 func CompactionStatsFromToken(token string) (*CompactionTokenStats, error) {
 	if token == "" {
 		return nil, nil

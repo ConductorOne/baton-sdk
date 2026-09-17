@@ -111,10 +111,14 @@ func (e *Engine) verifyOrStampIDIndexFormat(ctx context.Context) error {
 		return errors.New("pebble: this file uses the legacy grant/entitlement id layout; a writable open is required to migrate it")
 	}
 	if !empty {
-		return e.migrateIDIndexFormatToStructuredV1(ctx)
+		return errLegacyIDIndexLayout
 	}
 	return e.writeIDIndexFormat(idIndexFormatCurrent)
 }
+
+// Open runs the migration outside writeMu (it writes through withWrite) and
+// re-runs the init.
+var errLegacyIDIndexLayout = errors.New("pebble: legacy grant/entitlement id layout")
 
 func (e *Engine) isDataKeyspaceEmpty() (bool, error) {
 	iter, err := e.db.NewIter(&pebble.IterOptions{

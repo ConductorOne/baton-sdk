@@ -7,6 +7,8 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble/v2"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -265,27 +267,70 @@ func (e *Engine) takeDeferredGrantStats(syncID string) *deferredGrantStats {
 // re-scanning the keyspaces. Timing / call stats from the syncer's
 // token on the sync_run record are overlaid before write.
 func (e *Engine) PersistSyncStats(ctx context.Context, syncID string) error {
-	if rec := e.takeStashedSyncStats(syncID); rec != nil {
-		e.applyTokenStatsFromSyncRun(ctx, syncID, rec)
-		return e.PersistComputedSyncStats(ctx, syncID, rec)
+	rec := e.takeStashedSyncStats(syncID)
+	if rec == nil {
+		var err error
+		rec, err = e.computeSyncStats(ctx, syncID)
+		if err != nil {
+			return err
+		}
 	}
-	rec, err := e.computeSyncStats(ctx, syncID)
+	previous, err := e.readSyncStats(ctx, syncID)
 	if err != nil {
-		return err
+		ctxzap.Extract(ctx).Warn("pebble: previous sync stats unreadable; replacing with current counts",
+			zap.String("sync_id", syncID), zap.Error(err))
 	}
-	e.applyTokenStatsFromSyncRun(ctx, syncID, rec)
-	return e.writeSyncStats(ctx, rec)
+	if rec.GetCompaction() == nil && previous != nil {
+		rec.SetCompaction(previous.GetCompaction())
+	}
+	e.applySyncerStats(ctx, syncID, rec)
+	return e.PersistComputedSyncStats(ctx, syncID, rec)
 }
 
-// applyTokenStatsFromSyncRun loads the sync_run's sync_token and lifts
-// step_durations_ms / connector_call_stats / session_store_stats into
-// rec. Failures are ignored — row counts remain usable without them.
-func (e *Engine) applyTokenStatsFromSyncRun(ctx context.Context, syncID string, rec *v3.SyncStatsRecord) {
-	sr, err := e.GetSyncRunRecord(ctx, syncID)
-	if err != nil || sr == nil {
+func (e *Engine) applySyncerStats(ctx context.Context, syncID string, rec *v3.SyncStatsRecord) {
+	// Token first, overlay per field on top.
+	if sr, err := e.GetSyncRunRecord(ctx, syncID); err == nil && sr != nil {
+		c1zstore.ApplySyncTokenStatsRecord(rec, sr.GetSyncToken())
+	}
+	overlay := e.takeSyncStatsOverlay(syncID)
+	if overlay == nil {
 		return
 	}
-	c1zstore.ApplySyncTokenStatsRecord(rec, sr.GetSyncToken())
+	if len(overlay.GetStepDurationsMs()) > 0 {
+		rec.SetStepDurationsMs(overlay.GetStepDurationsMs())
+	}
+	if len(overlay.GetConnectorCallStats()) > 0 {
+		rec.SetConnectorCallStats(overlay.GetConnectorCallStats())
+	}
+	if len(overlay.GetSessionStoreStats()) > 0 {
+		rec.SetSessionStoreStats(overlay.GetSessionStoreStats())
+	}
+	if overlay.HasIngestQuality() {
+		rec.SetIngestQuality(overlay.GetIngestQuality())
+	}
+}
+
+func (e *Engine) setSyncStatsOverlay(syncID string, overlay *v3.SyncStatsRecord) {
+	if overlay == nil {
+		return
+	}
+	e.computedStatsMu.Lock()
+	if e.syncStatsOverlay == nil {
+		e.syncStatsOverlay = map[string]*v3.SyncStatsRecord{}
+	}
+	e.syncStatsOverlay[syncID] = overlay
+	e.computedStatsMu.Unlock()
+}
+
+func (e *Engine) takeSyncStatsOverlay(syncID string) *v3.SyncStatsRecord {
+	e.computedStatsMu.Lock()
+	defer e.computedStatsMu.Unlock()
+	rec, ok := e.syncStatsOverlay[syncID]
+	if !ok {
+		return nil
+	}
+	delete(e.syncStatsOverlay, syncID)
+	return rec
 }
 
 // StashComputedSyncStats registers a caller-computed stats record to be
@@ -321,11 +366,22 @@ func (e *Engine) takeStashedSyncStats(syncID string) *v3.SyncStatsRecord {
 // PersistComputedSyncStats writes a caller-computed stats record —
 // e.g. one accumulated while the synccompactor wrote merge winners —
 // without re-scanning the keyspaces. SyncId and WrittenAt are set
-// here so callers only fill counts. Durability matches
-// PersistSyncStats (pebble.Sync via writeSyncStats).
+// here on the supplied record; compacted runs also clear its collection
+// statistics and ingestion quality.
+// Durability matches PersistSyncStats (pebble.Sync via writeSyncStats).
 func (e *Engine) PersistComputedSyncStats(ctx context.Context, syncID string, rec *v3.SyncStatsRecord) error {
 	if rec == nil {
 		return fmt.Errorf("PersistComputedSyncStats: nil record")
+	}
+	sr, err := e.GetSyncRunRecord(ctx, syncID)
+	if err != nil && !errors.Is(err, pebble.ErrNotFound) {
+		return err
+	}
+	if sr.GetCompacted() {
+		rec.SetStepDurationsMs(nil)
+		rec.SetConnectorCallStats(nil)
+		rec.SetSessionStoreStats(nil)
+		rec.ClearIngestQuality()
 	}
 	rec.SetSyncId(syncID)
 	rec.SetWrittenAt(timestamppb.Now())

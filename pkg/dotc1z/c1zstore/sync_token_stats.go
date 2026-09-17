@@ -86,6 +86,52 @@ func ApplySyncTokenStatsRecord(rec *v3.SyncStatsRecord, syncToken string) {
 	}
 }
 
+func addCallStat(cur, add *v3.CallStat) {
+	if cur == nil || add == nil {
+		return
+	}
+	cur.SetCount(cur.GetCount() + add.GetCount())
+	cur.SetTotalMs(cur.GetTotalMs() + add.GetTotalMs())
+	cur.SetErrors(cur.GetErrors() + add.GetErrors())
+	cur.SetTimeouts(cur.GetTimeouts() + add.GetTimeouts())
+	if add.GetMaxMs() > cur.GetMaxMs() {
+		cur.SetMaxMs(add.GetMaxMs())
+	}
+}
+
+// Entries of from are copied, never aliased.
+func FoldCallStats(into map[string]*v3.CallStat, from map[string]*v3.CallStat) map[string]*v3.CallStat {
+	if len(from) == 0 {
+		return into
+	}
+	if into == nil {
+		into = make(map[string]*v3.CallStat, len(from))
+	}
+	for k, v := range from {
+		if cur, ok := into[k]; ok {
+			addCallStat(cur, v)
+			continue
+		}
+		into[k] = v3.CallStat_builder{
+			Count: v.GetCount(), TotalMs: v.GetTotalMs(), MaxMs: v.GetMaxMs(), Errors: v.GetErrors(), Timeouts: v.GetTimeouts(),
+		}.Build()
+	}
+	return into
+}
+
+func FoldDurations(into map[string]int64, from map[string]int64) map[string]int64 {
+	if len(from) == 0 {
+		return into
+	}
+	if into == nil {
+		into = make(map[string]int64, len(from))
+	}
+	for k, v := range from {
+		into[k] += v
+	}
+	return into
+}
+
 // SourceCacheReplayEligible fails closed for legacy and compacted artifacts:
 // both omit ingest_quality. Only a quality-aware original sync that completed
 // without a replay-blocking ingestion defect is eligible.

@@ -1,0 +1,51 @@
+package synccompactor
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
+	"github.com/stretchr/testify/require"
+)
+
+func TestGenerateLegacyFixtures(t *testing.T) {
+	ctx := context.Background()
+	root := "/tmp/ledger-legacy-fixtures"
+	makeInput := func(name string, st connectorstore.SyncType, duration, total, max, count int64) *CompactableSync {
+		path := filepath.Join(t.TempDir(), name+".c1z")
+		id := buildPebbleInput(t, ctx, path, st, name)
+		var fields map[string]any
+		require.NoError(t, json.Unmarshal([]byte(fixtureStatsToken(duration, total, max, count)), &fields))
+		fields["session_store_stats"] = map[string]any{"Get": map[string]int64{"count": count, "total_ms": total, "max_ms": max, "errors": 1, "timeouts": 1}}
+		token, err := json.Marshal(fields)
+		require.NoError(t, err)
+		stampSyncToken(t, ctx, path, id, string(token))
+		w, err := dotc1z.NewStore(ctx, path, dotc1z.WithTmpDir(t.TempDir()))
+		require.NoError(t, err)
+		eng, ok := enginepkg.AsEngine(w)
+		require.True(t, ok)
+		require.NoError(t, eng.PersistSyncStats(ctx, id))
+		require.True(t, enginepkg.MarkStoreDirty(w))
+		require.NoError(t, w.Close(ctx))
+		return &CompactableSync{FilePath: path, SyncID: id}
+	}
+	base := makeInput("base", connectorstore.SyncTypeFull, 90000, 2000, 2000, 1)
+	p1 := makeInput("p1", connectorstore.SyncTypePartial, 5000, 1000, 1000, 2)
+	p2 := makeInput("p2", connectorstore.SyncTypePartial, 3000, 500, 500, 1)
+	t.Setenv("BATON_EXPERIMENTAL_PEBBLE_COMPACTOR", "fold")
+	folded := compactPairOnce(t, ctx, base, p1)
+	for name, input := range map[string]*CompactableSync{"old-fold": folded, "old-partial": p2} {
+		data, err := os.ReadFile(input.FilePath)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(filepath.Join(root, name+".c1z"), data, 0600))
+	}
+	metadata := map[string]string{"sdk_commit": "bba86699c59a733974cfbf16b6e3a3cacfa01256", "base_id": base.SyncID, "first_partial_id": p1.SyncID, "fold_id": folded.SyncID, "next_partial_id": p2.SyncID}
+	data, err := json.MarshalIndent(metadata, "", "  ")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(root, "metadata.json"), data, 0600))
+}

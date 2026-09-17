@@ -123,3 +123,38 @@ func TestSyncStatsSidecarFallback(t *testing.T) {
 }
 
 var _ = v3.SyncStatsRecord{} // keep import used in test
+
+func TestPersistSyncStatsRepairsCorruptSidecar(t *testing.T) {
+	for _, stashed := range []bool{false, true} {
+		name := "recomputed"
+		if stashed {
+			name = "precomputed"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			e, _ := newTestEngine(t)
+			syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+			require.NoError(t, err)
+			require.NoError(t, e.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "user"}.Build()))
+			require.NoError(t, e.PutResources(ctx,
+				v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build(),
+			))
+			require.NoError(t, e.db.UnsafeForTesting().Set(encodeSyncStatsKey(), []byte{0xff}, nil))
+			_, err = e.readSyncStats(ctx, syncID)
+			require.Error(t, err)
+			if stashed {
+				e.StashComputedSyncStats(syncID, v3.SyncStatsRecord_builder{
+					ResourceTypes: 1, Resources: 1, ResourcesByResourceType: map[string]int64{"user": 1},
+				}.Build())
+			}
+			require.NoError(t, e.PersistSyncStats(ctx, syncID))
+			stats, err := e.readSyncStats(ctx, syncID)
+			require.NoError(t, err)
+			require.NotNil(t, stats)
+			require.EqualValues(t, 1, stats.GetResourceTypes())
+			require.EqualValues(t, 1, stats.GetResources())
+			require.Equal(t, map[string]int64{"user": 1}, stats.GetResourcesByResourceType())
+			require.Nil(t, stats.GetCompaction())
+		})
+	}
+}

@@ -138,14 +138,14 @@ top level before `dest.withWrite` on a different engine).
 ## 2. Store layer (`pkg/dotc1z`, `format/v3`, `synccompactor`, `session`)
 
 `pkg/dotc1z/c1zstore`, `pkg/connectorstore`, and `pkg/sourcecache` hold no
-synchronization primitives (`c1zstore/write_seam.go` uses context values only).
+synchronization primitives (`c1zstore/write_hook.go` uses context values only).
 
 ### 2.1 `pebbleStore` (`pkg/dotc1z/pebble_store.go`)
 
 | Primitive | Type | Guards | Acquirers | Hold |
 | --- | --- | --- | --- | --- |
 | `pebbleStore.closeMu` (`:232`) | `sync.Mutex` | `closed`, `dirty`, `foldDeadBytes` | `Close` (`:885`, whole method), `CloseEngineOnly` (`:396`, unlocks before `Engine.Close`), `MarkDirty` (`:442`), `AddFoldDeadBytes` (`:457`), `StartNewSync`/`StartOrResumeSync` dirty stamp (`:481-493`), `NormalizeForFixtureSave` (`:430`), `beginSourceCacheMutation` (`source_cache.go:109-121`) | `Close` holds it across `save` → `Engine.CheckpointTo` (`:938`) and `Engine.Close` (`:919`). Source-cache mutations hold it across the engine write (`PutSourceCacheEntry`, `ReplaySourceCache*`, `DeleteSourceCacheRows*`, `DeleteSourceCacheGrantsByIDInScope`). Everything else is a field stamp |
-| `pebbleStore.writeSeam` (`:246`) | `atomic.Pointer[WriteSeamHook]` | test-only write hook; nil in production | `seam` | — |
+| `pebbleStore.writeHookFn` (`:245`) | `atomic.Pointer[WriteHook]` | test-only write hook; nil in production | `writeHook` | — |
 
 Order: `closeMu → Engine.{CheckpointTo, Close, Put*, Delete*}`. The ordinary
 record write path is the reverse shape but not a cycle: `Engine.Put*` returns,

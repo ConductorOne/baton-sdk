@@ -49,7 +49,70 @@ var (
 	resourcePrimaryPrefix     = []byte{VersionV3, TypeResource}
 	entitlementPrimaryPrefix  = []byte{VersionV3, TypeEntitlement}
 	resourceTypePrimaryPrefix = []byte{VersionV3, TypeResourceType}
+	ledgerRowPrefix           = []byte{VersionV3, TypeLedger, ledgerKindRow}
 )
+
+// On RecordBatch, not its own batch: the row means "the records staged
+// alongside me landed", so there is no standalone ledger writer.
+func (rb *RecordBatch) StageLedgerRow(key, val []byte) error {
+	if err := assertFamily("StageLedgerRow", key, ledgerRowPrefix); err != nil {
+		return err
+	}
+	return rb.core.Set(key, val)
+}
+
+// On-disk: a bare fact is 0x01; a valued fact is 0x02 followed by the value.
+const (
+	ledgerFactBare   = 0x01
+	ledgerFactValued = 0x02
+)
+
+func (rb *RecordBatch) StageLedgerFact(key []byte) error {
+	if err := assertFamily("StageLedgerFact", key, LedgerFactPrefix()); err != nil {
+		return err
+	}
+	return rb.core.Set(key, []byte{ledgerFactBare})
+}
+
+func (rb *RecordBatch) StageLedgerFactValue(key []byte, value string) error {
+	if value == "" {
+		return rb.StageLedgerFact(key)
+	}
+	if err := assertFamily("StageLedgerFactValue", key, LedgerFactPrefix()); err != nil {
+		return err
+	}
+	val := make([]byte, 0, 1+len(value))
+	val = append(val, ledgerFactValued)
+	return rb.core.Set(key, append(val, value...))
+}
+
+func DecodeLedgerFactValue(val []byte) string {
+	if len(val) >= 1 && val[0] == ledgerFactValued {
+		return string(val[1:])
+	}
+	return ""
+}
+
+// The caller writes its cached total, never a delta.
+func (rb *RecordBatch) StageLedgerCounterBucket(key, val []byte) error {
+	if err := assertFamily("StageLedgerCounterBucket", key, LedgerCounterPrefix()); err != nil {
+		return err
+	}
+	return rb.core.Set(key, val)
+}
+
+// One unit: a frontier without a cleared token would be taken over twice; a
+// cleared token without a frontier would lose the stack.
+func (rb *RecordBatch) StageLedgerTakeover(frontierVal, syncRunVal []byte) error {
+	if err := rb.core.Set(LedgerFrontierKey(), frontierVal); err != nil {
+		return err
+	}
+	return rb.core.Set(SyncRunKey(), syncRunVal)
+}
+
+func (rb *RecordBatch) StageLedgerFrontier(val []byte) error {
+	return rb.core.Set(LedgerFrontierKey(), val)
+}
 
 func assertFamily(op string, key, prefix []byte) error {
 	if len(key) < len(prefix) || string(key[:len(prefix)]) != string(prefix) {

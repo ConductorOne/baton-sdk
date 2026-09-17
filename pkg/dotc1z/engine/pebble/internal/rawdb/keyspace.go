@@ -38,7 +38,10 @@ const (
 	// TypeDigest because 0x0A was assigned to digests before source-cache
 	// replay was extracted onto the current keyspace.
 	TypeSourceCache byte = 0x0B
-	TypeEngineMeta  byte = 0xFF
+	// A ledger row is staged only into the same RecordBatch as its page's
+	// records (StageLedgerRow).
+	TypeLedger     byte = 0x0C
+	TypeEngineMeta byte = 0xFF
 )
 
 // Index-discriminator bytes (second byte after TypeIndex). One byte
@@ -281,6 +284,66 @@ func SourceCachePoisonBounds() ([]byte, []byte) {
 func SourceCacheFamilyBounds() ([]byte, []byte) {
 	lo := []byte{VersionV3, TypeSourceCache}
 	return lo, UpperBound(lo)
+}
+
+// The ledger family (v3 | TypeLedger) is split by a sub-kind byte:
+//
+//	0x00  page rows        (LedgerKeyPrefix; tuple-encoded identity tail)
+//	0x01  fact keys        (LedgerFactPrefix; tuple(name) → 1 byte)
+//	0x02  counter buckets  (LedgerCounterPrefix; tuple(run) | sep | worker → LedgerCounterBucket;
+//	                        worker 0xFFFFFFFF is the run's reserved run-level stats bucket)
+//	0x03  frontier         (LedgerFrontierKey; single key → LedgerFrontier)
+//
+// All ride the RecordBatch and are wiped with the sync (scopedRanges
+// covers the family). Row readers bound themselves to 0x00
+// (LedgerRowBounds); the family-wide bound is for wipe and purge.
+const (
+	ledgerKindRow      byte = 0x00
+	ledgerKindFact     byte = 0x01
+	ledgerKindCounter  byte = 0x02
+	ledgerKindFrontier byte = 0x03
+)
+
+func LedgerKeyPrefix() []byte {
+	return []byte{VersionV3, TypeLedger, ledgerKindRow}
+}
+
+func LedgerRowBounds() ([]byte, []byte) {
+	lo := LedgerKeyPrefix()
+	return lo, UpperBound(lo)
+}
+
+func LedgerFactPrefix() []byte {
+	return []byte{VersionV3, TypeLedger, ledgerKindFact}
+}
+
+func LedgerFactBounds() ([]byte, []byte) {
+	lo := LedgerFactPrefix()
+	return lo, UpperBound(lo)
+}
+
+func LedgerCounterPrefix() []byte {
+	return []byte{VersionV3, TypeLedger, ledgerKindCounter}
+}
+
+func LedgerCounterBounds() ([]byte, []byte) {
+	lo := LedgerCounterPrefix()
+	return lo, UpperBound(lo)
+}
+
+func LedgerFrontierKey() []byte {
+	return []byte{VersionV3, TypeLedger, ledgerKindFrontier}
+}
+
+func LedgerBounds() ([]byte, []byte) {
+	lo := []byte{VersionV3, TypeLedger}
+	return lo, UpperBound(lo)
+}
+
+// Duplicates the engine's encodeSyncRunKey so the takeover can stage it with
+// a family assert.
+func SyncRunKey() []byte {
+	return []byte{VersionV3, TypeSyncRun}
 }
 
 // RowKindForRecordType maps a primary record type byte to the row-kind
