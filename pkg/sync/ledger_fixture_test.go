@@ -36,9 +36,10 @@ type ledgerWriteEvent struct {
 }
 
 type ledgerWriteAudit struct {
-	mu     native_sync.Mutex
-	phase  ledgerWritePhase
-	events []ledgerWriteEvent
+	writers int
+	mu      native_sync.Mutex
+	phase   ledgerWritePhase
+	events  []ledgerWriteEvent
 }
 
 func (a *ledgerWriteAudit) enter(phase ledgerWritePhase) {
@@ -66,7 +67,16 @@ func (a *ledgerWriteAudit) hook(ctx context.Context, event c1zstore.WriteHookEve
 }
 
 type ledgerGuardedStore struct {
+	EntitlementGraphStore
+	c1zstore.GrantGenerationDigestReader
+	dotc1z.IngestInvariantStore
+	connectorstore.DBSizeProvider
+	grantPrincipalKeyLister
+	principalSortedGrantLister
 	c1zstore.Store
+	c1zstore.PageLedgerStore
+	c1zstore.WriteHookStore
+	caps  storeCaps
 	audit *ledgerWriteAudit
 }
 
@@ -136,9 +146,13 @@ type ledgerFixture struct {
 
 func newLedgerFixture(t *testing.T) *ledgerFixture {
 	t.Helper()
+	return newLedgerFixtureAt(t, filepath.Join(t.TempDir(), "ledger.c1z"))
+}
+
+func newLedgerFixtureAt(t *testing.T, path string) *ledgerFixture {
+	t.Helper()
 	ctx := t.Context()
-	path := filepath.Join(t.TempDir(), "ledger.c1z")
-	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
+	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithTmpDir(filepath.Dir(path)))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, store.Close(context.Background())) })
 	caps := resolveStoreCaps(store)
@@ -150,7 +164,20 @@ func newLedgerFixture(t *testing.T) *ledgerFixture {
 	caps.writeHook.SetWriteHook(audit.hook)
 	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	return &ledgerFixture{path: path, store: &ledgerGuardedStore{Store: store, audit: audit}, ledger: caps.pageLedger, engine: raw, audit: audit}
+	guarded := &ledgerGuardedStore{
+		Store: store, PageLedgerStore: caps.pageLedger, WriteHookStore: caps.writeHook,
+		caps: caps, audit: audit, EntitlementGraphStore: caps.entitlementGraph,
+		GrantGenerationDigestReader: caps.grantDigest, IngestInvariantStore: caps.ingestFacts,
+		DBSizeProvider: caps.dbSize, grantPrincipalKeyLister: caps.grantPrincipalKeys,
+		principalSortedGrantLister: caps.principalSortedGrants,
+	}
+	f := &ledgerFixture{path: path, store: guarded, ledger: guarded, engine: raw, audit: audit}
+	t.Cleanup(func() {
+		audit.mu.Lock()
+		defer audit.mu.Unlock()
+		require.Zero(t, audit.writers, "page writer not committed or discarded")
+	})
+	return f
 }
 
 type ledgerKV struct {

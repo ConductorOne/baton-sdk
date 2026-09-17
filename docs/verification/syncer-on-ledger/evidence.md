@@ -535,3 +535,43 @@ GOTOOLCHAIN=go1.26.0 golangci-lint run ./pkg/sync/...
 Lint returned zero issues after adding the package-name suppression already
 used elsewhere in pkg/sync to artifact_retention.go. No executable body in
 that file changed. No pkg/dotc1z changes are included in K1a.
+
+## K1b instrument execution
+
+Revision: the commit introducing ledger_guard_test.go,
+ledger_guard_coverage_test.go, ledger_canonical_test.go and
+ledger_crash_process_test.go (the commit containing this entry).
+
+- TestLedgerGuardMutationSurface probes every mutating method of Writer,
+  PageLedgerStore, SessionStore, GrantStore, SyncMeta, FileOps and the
+  page-reachable optional mutation capabilities. Read methods and the two
+  memory-only PageLedger methods are explicitly classified. Probe arguments
+  are deliberately minimal: guard rejection must precede input validation.
+- TestLedgerGuardPreservesPebbleCapabilities found the wrapper had omitted
+  WriteHookStore. Adding its forwarding fixed the test. All resolved Pebble
+  capabilities are retained; no test silently loses the engine fast paths.
+- TestLedgerSessionWriteGuard uses a real bound session and a seeded value.
+  Removing the Set guard allowed the overwrite and failed the expected-error
+  assertion. Restoring the guard passes with complete key/value equality.
+  An earlier minimal-argument probe also failed on the mutant, but only
+  reached session input validation; it is not the mutation premise evidence.
+- Tracked page writers must commit successfully or be discarded before
+  fixture cleanup; a page Commit during the walk is refused.
+- TestLedgerCanonicalRowNormalization normalizes only row attempt/time and
+  the permitted page timing fields. A changed written count or next cursor
+  still differs. TestLedgerCanonicalRetainsOtherFamilies leaves every other
+  record family unchanged and refuses unreadable row/frontier bytes. Full
+  cross-attempt bucket folding and final sidecar comparison remain K2/K8 work.
+- TestLedgerCrashProcess starts a fresh test process, stages a page, and exits
+  with a distinctive status without Close, after staging or after Commit.
+  The parent verifies the cut marker and reopens the leftover database with
+  a new engine. Records, row, fact and bucket agree; staged-only is absent.
+  This tests process death, not machine power loss. It does not claim sampled
+  unsynced-WAL-loss coverage or final Sync resume equivalence.
+
+Commands: `GOTOOLCHAIN=go1.26.0 go test -mod=vendor ./pkg/sync -run
+'^TestLedger' -count=1 -timeout 30m`, the same expression under `-race
+-count=3`, `go vet -mod=vendor ./pkg/sync ./pkg/synccompactor`, and
+`golangci-lint run ./pkg/sync/...` pass with the stated toolchain. Lint
+reports zero issues. No production code changes or pkg/dotc1z changes in K1b.
+All criterion statuses remain as recorded; instrumentation is not product closure.

@@ -1,0 +1,76 @@
+package sync //nolint:revive,nolintlint // Backwards-compatible package name.
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	engine "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
+	"github.com/stretchr/testify/require"
+)
+
+func TestLedgerCrashProcess(t *testing.T) {
+	cut := os.Getenv("BATON_LEDGER_CRASH_CUT")
+	id := c1zstore.LedgerActionIdentity{Op: "list-resource-types", PageToken: "crash-page"}
+	if cut != "" {
+		path := os.Getenv("BATON_LEDGER_CRASH_FILE")
+		require.NotEmpty(t, path)
+		f := newLedgerFixtureAt(t, path)
+		f.audit.enter(ledgerHandler)
+		ctx := c1zstore.WithOpenPage(t.Context())
+		page := f.ledger.BeginPage()
+		require.NoError(t, page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "crash-type"}.Build()))
+		require.NoError(t, page.SetFact("crash-fact"))
+		require.NoError(t, page.SetCounterBucket("crash-run", 0, c1zstore.LedgerCounters{Counters: map[string]uint64{"pages": 1}}))
+		if cut == "committed" {
+			require.NoError(t, page.Commit(ctx, id, &c1zstore.LedgerRow{Identity: id}))
+		}
+		require.Contains(t, []string{"staged", "committed"}, cut)
+		require.NoError(t, os.WriteFile(path+".cut", []byte(cut), 0600))
+		os.Exit(73)
+	}
+	for _, cut := range []string{"staged", "committed"} {
+		t.Run(cut, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "crash.c1z")
+			executable, err := os.Executable()
+			require.NoError(t, err)
+			command := exec.CommandContext(t.Context(), executable, "-test.run=^TestLedgerCrashProcess$")
+			command.Env = append(os.Environ(), "BATON_LEDGER_CRASH_CUT="+cut, "BATON_LEDGER_CRASH_FILE="+path)
+			output, err := command.CombinedOutput()
+			var exit *exec.ExitError
+			require.ErrorAs(t, err, &exit, string(output))
+			require.Equal(t, 73, exit.ExitCode(), string(output))
+			marker, err := os.ReadFile(path + ".cut")
+			require.NoError(t, err)
+			require.Equal(t, cut, string(marker))
+			dirs, err := filepath.Glob(filepath.Join(filepath.Dir(path), "c1z-pebble*", "db"))
+			require.NoError(t, err)
+			require.Len(t, dirs, 1)
+			recovered, err := engine.Open(t.Context(), dirs[0])
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, recovered.Close()) })
+			row, found, err := recovered.Ledger().GetRow(t.Context(), id)
+			require.NoError(t, err)
+			facts, err := recovered.Ledger().Facts(t.Context())
+			require.NoError(t, err)
+			counters, err := recovered.Ledger().Counters(t.Context())
+			require.NoError(t, err)
+			types, err := recovered.ListResourceTypes(context.Background(), &v2.ResourceTypesServiceListResourceTypesRequest{})
+			require.NoError(t, err)
+			_, hasFact := facts["crash-fact"]
+			require.Equal(t, found, hasFact)
+			require.Equal(t, found, counters.Counters["pages"] == 1)
+			require.Equal(t, found, len(types.GetList()) == 1)
+			if cut == "staged" {
+				require.False(t, found)
+			}
+			if found {
+				require.Equal(t, id, row.Identity)
+			}
+		})
+	}
+}

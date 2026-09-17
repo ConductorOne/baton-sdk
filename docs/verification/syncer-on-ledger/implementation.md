@@ -419,3 +419,11 @@ K2. This changes commit granularity, not required coverage or the order of
 production handler work. The two capability fields are resolved in
 store_caps.go in K1a so test fixtures obey the capability-resolution rule;
 no execution path selects the ledger yet.
+
+K1b supplies the mutation-surface recorder, page-writer ownership checks,
+row/frontier canonicalization and process-crash database recovery fixtures.
+Existing versioned token/artifact fixtures remain the migration inputs; they
+are not regenerated. Instrument expansion that requires the runtime's
+accounting and scheduling semantics happens with K2, and remains incomplete
+in the evidence until exercised. The physical WAL-loss sweep and full
+canonical accounting comparison are explicitly still required.
