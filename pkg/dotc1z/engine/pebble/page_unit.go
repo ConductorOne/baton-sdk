@@ -275,8 +275,8 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		row.SetNextPageTokenHash(ledgerTokenHash(row.GetNextPageToken()))
 	}
 	for _, c := range row.GetChildren() {
-		if len(c.GetPageTokenHash()) == 0 {
-			c.SetPageTokenHash(ledgerTokenHash(c.GetPageToken()))
+		if id := c.GetIdentity(); len(id.GetPageTokenHash()) == 0 {
+			id.SetPageTokenHash(ledgerTokenHash(id.GetPageToken()))
 		}
 	}
 	if len(u.grantDeletes) > 0 && len(u.grants) > 0 {

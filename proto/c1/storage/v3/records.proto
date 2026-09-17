@@ -427,10 +427,14 @@ message LedgerActionIdentity {
   // identity compare uses it when the verbatim token is absent.
   bytes page_token_hash = 7;
   bool type_scoped = 8;
-  // The action was admitted as a spawned cursor (connector-enqueued
-  // page token) rather than pushed by the walk. Not part of the key;
-  // carried so a child recorded in a row can be re-pushed faithfully.
-  bool spawned = 9;
+}
+
+// LedgerChild is an action a page pushed. spawned is the syncer's
+// accounting flag for a connector-enqueued sibling cursor; it is not
+// part of the child's identity.
+message LedgerChild {
+  LedgerActionIdentity identity = 1;
+  bool spawned = 2;
 }
 
 // LedgerRow records one COMMITTED page: the action's transition and
@@ -453,7 +457,7 @@ message LedgerRow {
   bytes next_page_token_hash = 3;
   // Actions this page pushed (children carry full identity so the
   // walk can push them without a lookup).
-  repeated LedgerActionIdentity children = 4;
+  repeated LedgerChild children = 4;
   // Attempt that committed the page (the syncer's attempt epoch) and
   // when.
   string attempt = 5;
@@ -479,6 +483,8 @@ message LedgerRow {
   uint64 page_ms = 14;
   uint64 connector_ms = 15;
   uint64 wait_ms = 16;
+  // The page's own action was a spawned cursor (see LedgerChild).
+  bool spawned = 17;
 }
 
 // LedgerCounterBucket is one (run, worker) bucket of sync-level

@@ -277,8 +277,6 @@ func (e *Engine) PersistSyncStats(ctx context.Context, syncID string) error {
 	return e.writeSyncStats(ctx, rec)
 }
 
-// A Pebble sync never has a token; the token here is a converted SQLite
-// sync's, whose stats live nowhere else.
 func (e *Engine) applySyncerStats(ctx context.Context, syncID string, rec *v3.SyncStatsRecord) {
 	// Token first, overlay per field on top.
 	if sr, err := e.GetSyncRunRecord(ctx, syncID); err == nil && sr != nil {

@@ -2358,8 +2358,6 @@ func (m *LedgerActionIdentity) validate(all bool) error {
 
 	// no validation rules for TypeScoped
 
-	// no validation rules for Spawned
-
 	if len(errors) > 0 {
 		return LedgerActionIdentityMultiError(errors)
 	}
@@ -2439,6 +2437,136 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = LedgerActionIdentityValidationError{}
+
+// Validate checks the field values on LedgerChild with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *LedgerChild) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on LedgerChild with the rules defined in
+// the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in LedgerChildMultiError, or
+// nil if none found.
+func (m *LedgerChild) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *LedgerChild) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetIdentity()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, LedgerChildValidationError{
+					field:  "Identity",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, LedgerChildValidationError{
+					field:  "Identity",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetIdentity()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return LedgerChildValidationError{
+				field:  "Identity",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for Spawned
+
+	if len(errors) > 0 {
+		return LedgerChildMultiError(errors)
+	}
+
+	return nil
+}
+
+// LedgerChildMultiError is an error wrapping multiple validation errors
+// returned by LedgerChild.ValidateAll() if the designated constraints aren't met.
+type LedgerChildMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m LedgerChildMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m LedgerChildMultiError) AllErrors() []error { return m }
+
+// LedgerChildValidationError is the validation error returned by
+// LedgerChild.Validate if the designated constraints aren't met.
+type LedgerChildValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e LedgerChildValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e LedgerChildValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e LedgerChildValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e LedgerChildValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e LedgerChildValidationError) ErrorName() string { return "LedgerChildValidationError" }
+
+// Error satisfies the builtin error interface
+func (e LedgerChildValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sLedgerChild.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = LedgerChildValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = LedgerChildValidationError{}
 
 // Validate checks the field values on LedgerRow with the rules defined in the
 // proto definition for this message. If any rules are violated, the first
@@ -2579,6 +2707,8 @@ func (m *LedgerRow) validate(all bool) error {
 	// no validation rules for ConnectorMs
 
 	// no validation rules for WaitMs
+
+	// no validation rules for Spawned
 
 	if len(errors) > 0 {
 		return LedgerRowMultiError(errors)

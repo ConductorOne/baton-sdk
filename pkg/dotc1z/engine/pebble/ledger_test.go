@@ -97,8 +97,9 @@ func TestPageUnitCommitIsOneFact(t *testing.T) {
 
 	row := v3.LedgerRow_builder{
 		NextPageToken: "p2",
-		Children:      []*v3.LedgerActionIdentity{ledgerIdentityToProto(child)},
+		Children:      []*v3.LedgerChild{v3.LedgerChild_builder{Identity: ledgerIdentityToProto(child), Spawned: true}.Build()},
 		Attempt:       "attempt-1",
+		Spawned:       true,
 	}.Build()
 	require.NoError(t, u.Commit(ctx, id, row))
 
@@ -123,8 +124,15 @@ func TestPageUnitCommitIsOneFact(t *testing.T) {
 	require.Equal(t, "p2", got.GetNextPageToken())
 	require.Equal(t, ledgerTokenHash("p2"), got.GetNextPageTokenHash())
 	require.Len(t, got.GetChildren(), 1)
-	require.Equal(t, child, ledgerIdentityFromProto(got.GetChildren()[0]))
-	require.Equal(t, ledgerTokenHash("spawn-7"), got.GetChildren()[0].GetPageTokenHash())
+	require.Equal(t, child, ledgerIdentityFromProto(got.GetChildren()[0].GetIdentity()))
+	require.Equal(t, ledgerTokenHash("spawn-7"), got.GetChildren()[0].GetIdentity().GetPageTokenHash())
+	require.True(t, got.GetChildren()[0].GetSpawned())
+	require.True(t, got.GetSpawned())
+	viaStore, found, err := e.ledger.GetRow(ctx, id)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.True(t, viaStore.Spawned)
+	require.Equal(t, c1zstore.LedgerChild{Identity: child, Spawned: true}, viaStore.Children[0])
 	require.Equal(t, "attempt-1", got.GetAttempt())
 	require.NotNil(t, got.GetCommittedAt())
 	require.EqualValues(t, 1, got.GetResourceTypesWritten())
@@ -290,7 +298,7 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 			require.NoError(t, u.StageResources(ledgerTestResource("user", fmt.Sprintf("u%d", i))))
 			row := v3.LedgerRow_builder{
 				NextPageToken: next,
-				Children:      []*v3.LedgerActionIdentity{ledgerIdentityToProto(grantsPageIdentity("child", "child-"+tok))},
+				Children:      []*v3.LedgerChild{v3.LedgerChild_builder{Identity: ledgerIdentityToProto(grantsPageIdentity("child", "child-"+tok))}.Build()},
 			}.Build()
 			require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", tok), row))
 		}
@@ -328,8 +336,8 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 			require.Empty(t, r.GetNextPageToken())
 			require.Len(t, r.GetNextPageTokenHash(), ledgerTokenHashLen)
 			for _, c := range r.GetChildren() {
-				require.Empty(t, c.GetPageToken())
-				require.Len(t, c.GetPageTokenHash(), ledgerTokenHashLen)
+				require.Empty(t, c.GetIdentity().GetPageToken())
+				require.Len(t, c.GetIdentity().GetPageTokenHash(), ledgerTokenHashLen)
 			}
 			return true
 		}))
@@ -782,7 +790,7 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 			require.NoError(t, u.StageResources(ledgerTestResource("user", fmt.Sprintf("u%d", i))))
 			row := v3.LedgerRow_builder{
 				NextPageToken: next,
-				Children:      []*v3.LedgerActionIdentity{ledgerIdentityToProto(grantsPageIdentity("child", "child-"+tok))},
+				Children:      []*v3.LedgerChild{v3.LedgerChild_builder{Identity: ledgerIdentityToProto(grantsPageIdentity("child", "child-"+tok))}.Build()},
 			}.Build()
 			require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", tok), row))
 		}

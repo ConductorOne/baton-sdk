@@ -46,7 +46,6 @@ func encodeLedgerKey(id c1zstore.LedgerActionIdentity) []byte {
 		id.ParentResourceTypeID, id.ParentResourceID)
 	buf = codec.AppendTupleSeparator(buf)
 	buf = codec.AppendTupleBool(buf, id.TypeScoped)
-	buf = codec.AppendTupleBool(buf, id.Spawned)
 	buf = codec.AppendTupleSeparator(buf)
 	return codec.AppendTupleBytes(buf, ledgerTokenHash(id.PageToken))
 }
@@ -64,7 +63,6 @@ func ledgerIdentityToProto(id c1zstore.LedgerActionIdentity) *v3.LedgerActionIde
 		PageToken:            id.PageToken,
 		PageTokenHash:        ledgerTokenHash(id.PageToken),
 		TypeScoped:           id.TypeScoped,
-		Spawned:              id.Spawned,
 	}.Build()
 }
 
@@ -77,7 +75,6 @@ func ledgerIdentityFromProto(p *v3.LedgerActionIdentity) c1zstore.LedgerActionId
 		ParentResourceID:     p.GetParentResourceId(),
 		PageToken:            p.GetPageToken(),
 		TypeScoped:           p.GetTypeScoped(),
-		Spawned:              p.GetSpawned(),
 	}
 }
 
@@ -89,8 +86,7 @@ func ledgerIdentityMatches(want c1zstore.LedgerActionIdentity, got *v3.LedgerAct
 		got.GetResourceId() != want.ResourceID ||
 		got.GetParentResourceTypeId() != want.ParentResourceTypeID ||
 		got.GetParentResourceId() != want.ParentResourceID ||
-		got.GetTypeScoped() != want.TypeScoped ||
-		got.GetSpawned() != want.Spawned {
+		got.GetTypeScoped() != want.TypeScoped {
 		return false
 	}
 	if !scrubbed {
@@ -169,10 +165,11 @@ func scrubLedgerRow(row *v3.LedgerRow) bool {
 	}
 	row.SetNextPageToken("")
 	for _, c := range row.GetChildren() {
-		if len(c.GetPageTokenHash()) == 0 {
-			c.SetPageTokenHash(ledgerTokenHash(c.GetPageToken()))
+		id := c.GetIdentity()
+		if len(id.GetPageTokenHash()) == 0 {
+			id.SetPageTokenHash(ledgerTokenHash(id.GetPageToken()))
 		}
-		c.SetPageToken("")
+		id.SetPageToken("")
 	}
 	row.SetScrubbed(true)
 	return true

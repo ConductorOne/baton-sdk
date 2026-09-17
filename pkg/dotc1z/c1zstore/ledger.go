@@ -21,14 +21,21 @@ type LedgerActionIdentity struct {
 	ParentResourceID     string
 	PageToken            string
 	TypeScoped           bool
-	Spawned              bool
+}
+
+// LedgerChild is an action a page pushed. Spawned is the syncer's
+// accounting flag for a connector-enqueued sibling cursor, not part of the
+// child's identity.
+type LedgerChild struct {
+	Identity LedgerActionIdentity
+	Spawned  bool
 }
 
 type LedgerRow struct {
 	Identity LedgerActionIdentity
 	// Empty when the action finished, and after a scrub (Scrubbed).
 	NextPageToken string
-	Children      []LedgerActionIdentity
+	Children      []LedgerChild
 	Attempt       string
 	CommittedAt   time.Time
 
@@ -42,6 +49,8 @@ type LedgerRow struct {
 	// Scrubbed: tokens replaced by hashes at seal; Identity.PageToken,
 	// NextPageToken and the children's tokens are empty.
 	Scrubbed bool
+	// Spawned: the page's own action was a spawned cursor (see LedgerChild).
+	Spawned bool
 
 	PageDuration      time.Duration
 	ConnectorDuration time.Duration

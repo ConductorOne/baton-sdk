@@ -211,9 +211,9 @@ func ledgerRowToProto(row *c1zstore.LedgerRow) *v3.LedgerRow {
 	if row == nil {
 		return nil
 	}
-	children := make([]*v3.LedgerActionIdentity, 0, len(row.Children))
+	children := make([]*v3.LedgerChild, 0, len(row.Children))
 	for _, c := range row.Children {
-		children = append(children, ledgerIdentityToProto(c))
+		children = append(children, v3.LedgerChild_builder{Identity: ledgerIdentityToProto(c.Identity), Spawned: c.Spawned}.Build())
 	}
 	b := v3.LedgerRow_builder{
 		NextPageToken:     row.NextPageToken,
@@ -221,6 +221,7 @@ func ledgerRowToProto(row *c1zstore.LedgerRow) *v3.LedgerRow {
 		Attempt:           row.Attempt,
 		Replayed:          row.Replayed,
 		TypeScopedPlanned: row.TypeScopedPlanned,
+		Spawned:           row.Spawned,
 		PageMs:            uint64(max(row.PageDuration.Milliseconds(), 0)),
 		ConnectorMs:       uint64(max(row.ConnectorDuration.Milliseconds(), 0)),
 		WaitMs:            uint64(max(row.WaitDuration.Milliseconds(), 0)),
@@ -232,9 +233,9 @@ func ledgerRowToProto(row *c1zstore.LedgerRow) *v3.LedgerRow {
 }
 
 func ledgerRowFromProto(p *v3.LedgerRow) *c1zstore.LedgerRow {
-	children := make([]c1zstore.LedgerActionIdentity, 0, len(p.GetChildren()))
+	children := make([]c1zstore.LedgerChild, 0, len(p.GetChildren()))
 	for _, c := range p.GetChildren() {
-		children = append(children, ledgerIdentityFromProto(c))
+		children = append(children, c1zstore.LedgerChild{Identity: ledgerIdentityFromProto(c.GetIdentity()), Spawned: c.GetSpawned()})
 	}
 	row := &c1zstore.LedgerRow{
 		Identity:             ledgerIdentityFromProto(p.GetIdentity()),
@@ -248,6 +249,7 @@ func ledgerRowFromProto(p *v3.LedgerRow) *c1zstore.LedgerRow {
 		Replayed:             p.GetReplayed(),
 		TypeScopedPlanned:    p.GetTypeScopedPlanned(),
 		Scrubbed:             p.GetScrubbed(),
+		Spawned:              p.GetSpawned(),
 		PageDuration:         msToDuration(p.GetPageMs()),
 		ConnectorDuration:    msToDuration(p.GetConnectorMs()),
 		WaitDuration:         msToDuration(p.GetWaitMs()),
