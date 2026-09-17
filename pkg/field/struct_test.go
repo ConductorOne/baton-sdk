@@ -185,14 +185,15 @@ func TestMultiline(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, v1_conf.StringFieldType_STRING_FIELD_TYPE_MULTILINE, v1.GetStringField().GetType())
 	require.True(t, v1.GetIsSecret())
-}
 
-func TestMultilineDefaultsOff(t *testing.T) {
+	// Contrast: a plain StringField has no type-selecting constructor applied,
+	// so it stays the TEXT_UNSPECIFIED default -- MultilineField above is what
+	// selects the type, not an option toggled on top of StringField.
 	plain := StringField("pem")
 
-	v1, err := schemaFieldToV1(plain)
+	v1Plain, err := schemaFieldToV1(plain)
 	require.NoError(t, err)
-	require.Equal(t, v1_conf.StringFieldType_STRING_FIELD_TYPE_TEXT_UNSPECIFIED, v1.GetStringField().GetType())
+	require.Equal(t, v1_conf.StringFieldType_STRING_FIELD_TYPE_TEXT_UNSPECIFIED, v1Plain.GetStringField().GetType())
 }
 
 func TestSuggestedValuePrecedence(t *testing.T) {
