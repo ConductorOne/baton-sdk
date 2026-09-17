@@ -228,7 +228,12 @@ func TestCompactionStatsWithAndWithoutExpansion(t *testing.T) {
 					require.True(t, ok)
 					sr, err := eng.GetSyncRunRecord(ctx, entry.SyncID)
 					require.NoError(t, err)
-					sr.SetSyncToken(`{"version":1,"step_durations_ms":{"list-grants":90000},"connector_call_stats":{"ListGrants":{"count":1,"total_ms":100,"max_ms":100}},"session_store_stats":{"Get":{"count":1,"total_ms":10,"max_ms":10}},"ingest_quality":{"source_cache_replay_blocked":false}}`)
+					sr.SetSyncToken(`{
+"version":1,
+"step_durations_ms":{"list-grants":90000},
+"connector_call_stats":{"ListGrants":{"count":1,"total_ms":100,"max_ms":100}},
+"session_store_stats":{"Get":{"count":1,"total_ms":10,"max_ms":10}},
+"ingest_quality":{"source_cache_replay_blocked":false}}`)
 					require.NoError(t, eng.PutSyncRunRecord(ctx, sr))
 					require.NoError(t, eng.PersistSyncStats(ctx, entry.SyncID))
 					require.True(t, enginepkg.MarkStoreDirty(w))

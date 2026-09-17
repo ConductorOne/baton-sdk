@@ -7,6 +7,8 @@ import (
 	"fmt"
 
 	"github.com/cockroachdb/pebble/v2"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -275,7 +277,8 @@ func (e *Engine) PersistSyncStats(ctx context.Context, syncID string) error {
 	}
 	previous, err := e.readSyncStats(ctx, syncID)
 	if err != nil {
-		return err
+		ctxzap.Extract(ctx).Warn("pebble: previous sync stats unreadable; replacing with current counts",
+			zap.String("sync_id", syncID), zap.Error(err))
 	}
 	if rec.GetCompaction() == nil && previous != nil {
 		rec.SetCompaction(previous.GetCompaction())
@@ -363,7 +366,8 @@ func (e *Engine) takeStashedSyncStats(syncID string) *v3.SyncStatsRecord {
 // PersistComputedSyncStats writes a caller-computed stats record —
 // e.g. one accumulated while the synccompactor wrote merge winners —
 // without re-scanning the keyspaces. SyncId and WrittenAt are set
-// here; compacted runs omit collection statistics and ingestion quality.
+// here on the supplied record; compacted runs also clear its collection
+// statistics and ingestion quality.
 // Durability matches PersistSyncStats (pebble.Sync via writeSyncStats).
 func (e *Engine) PersistComputedSyncStats(ctx context.Context, syncID string, rec *v3.SyncStatsRecord) error {
 	if rec == nil {
