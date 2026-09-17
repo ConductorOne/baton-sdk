@@ -114,3 +114,22 @@ func TestLedgerSealReadyBypassesScrubbedFrontier(t *testing.T) {
 	require.Empty(t, pending)
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 }
+
+func TestLedgerSealCostConsumer(t *testing.T) {
+	for _, retain := range []bool{false, true} {
+		f := newLedgerFixture(t)
+		f.ledger.SetRetainLedgerTokens(retain)
+		runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
+		require.NoError(t, err)
+		require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{}))
+		require.NoError(t, runtime.seal(t.Context()))
+		cost := f.engine.LastSealCost()
+		if retain {
+			require.Zero(t, cost.LedgerScrub)
+			require.Zero(t, cost.LedgerPurge)
+		} else {
+			require.Positive(t, cost.LedgerScrub)
+			require.Positive(t, cost.LedgerPurge)
+		}
+	}
+}

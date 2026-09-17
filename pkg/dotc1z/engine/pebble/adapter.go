@@ -336,6 +336,8 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 // Runs with the engine SEALED (see EndSync) — every write below goes
 // through an AllowSealed path. Split out so EndSync can unseal on failure.
 func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord) error {
+	cost := &SealCost{}
+	defer func() { e.sealCost.Store(cost) }()
 	// Build the deferred by_principal index BEFORE stamping ended_at (an
 	// interrupted build must leave the sync visibly unfinished so a resume
 	// re-runs EndSync and the rebuild — the pending marker is durable, see
@@ -393,11 +395,17 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 			return fmt.Errorf("EndSync: read retain-tokens fact: %w", err)
 		}
 		if scrub {
-			if err := e.ledger.scrubTokens(ctx); err != nil {
+			started := time.Now()
+			err := e.ledger.scrubTokens(ctx)
+			cost.LedgerScrub = time.Since(started)
+			if err != nil {
 				return fmt.Errorf("EndSync: scrub ledger tokens: %w", err)
 			}
 			if !e.test.skipLedgerResiduePurge {
-				if err := e.ledger.purgeResidue(ctx); err != nil {
+				started := time.Now()
+				err := e.ledger.purgeResidue(ctx)
+				cost.LedgerPurge = time.Since(started)
+				if err != nil {
 					return fmt.Errorf("EndSync: purge ledger residue after scrub: %w", err)
 				}
 			}

@@ -723,3 +723,26 @@ GOTOOLCHAIN=go1.26.0 go test -mod=vendor ./pkg/dotc1z/engine/pebble/ -run '^(Tes
 This targeted run includes the executable bound-write NoSync premise and
 storage takeover crash images. It does not replace the full engine suite
 required before landing.
+
+## K3b seal phase observation
+
+C49 remains evidence incomplete. Engine.LastSealCost exposes ledger scrub
+and purge durations from the last returned finalize attempt, including an
+attempt that fails. This is observational pkg/dotc1z code: it does not
+change the store contract, durable keys, write order or page durability.
+The retain path reports zero for phases it skips.
+
+TestSealCostIncludesFailedFinalize and TestLedgerSealCostConsumer both
+failed when publication of the completed measurement was removed: each
+observed zero scrub duration where positive duration was required. Restoring
+the publication made both pass. The engine fixture injects the existing
+end-stamp failure after scrub and purge; the consumer covers retain on/off
+with the strict write recorder. These checks establish observation, not
+C49 cost acceptance or new crash consistency coverage.
+
+The full Pebble suite passed in 10.082 seconds with Go 1.26.0 and vendored
+dependencies. The broader requested lint command reports six G115 findings:
+three duration conversions in adapter_page.go and three integer conversions
+in ledger_cost_bench_test.go. All six expressions exist at eb63f1b5; none is
+introduced by this change. The final zero-issue lint requirement remains
+open; this run is not reported as passing.

@@ -495,3 +495,27 @@ are still required. The private handler combines init and resource-type
 collection and does not model all production control phases; its output
 cannot establish the final public Sync overhead. K5/K6 remain behind the
 required first table and its boundary dispositions.
+
+## 12. K3 phase measurements and interleaved runs
+
+The resumed smoke arm stops after one committed data page, closes/reopens,
+walks its recorded frontier, and runs the remaining pages. It is explicitly
+named NoSync to match the source. I/O totals include both engine openings;
+the first is flushed before its metrics snapshot so close-time
+materialization is counted. This measurement flush occurs after workers
+join, outside any page or walk. It does not introduce a checkpoint token.
+
+The interleaving runner rotates token/fresh/resumed order, launches a fresh
+process per sample, verifies input/output dimensions, captures each child's
+peak RSS and binary digest, and keeps raw logs plus JSON and Markdown
+median/ratio tables. Missing metrics are N/A. Its outputs remain smoke
+results while C49's instrumentation, machine qualification and contract
+disposition are incomplete.
+
+The first storage instrumentation change adds an immutable snapshot of the
+last entered EndSync finalize attempt's ledger scrub and purge durations.
+The getter reports the two phases separately, including a finalize attempt
+that fails after entering either phase. The observation changes no write
+ordering, error handling, durability or stored data. A consumer test checks
+scrub versus retain; an engine test checks failed-finalize reporting. This
+serves C49's decomposition and does not settle the resumed durability gap.
