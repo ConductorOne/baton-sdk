@@ -529,6 +529,14 @@ All six need boundary settlement before affected implementation choices or
 closure. The plan can freeze while naming them; none is settled by assuming
 that the unavailable implementation chose correctly.
 
+
+### Calibration dispositions at 01931d8b
+
+OQ-1 and OQ-3 are dispositioned by CO-004; OQ-2 by CO-005;
+OQ-4 by CO-006; OQ-6 by CO-007. OQ-5 remains open and gains
+CO-002's split stored/staged delete cell. These references record the
+calibration return without replacing the frozen questions or decisions.
+
 ## 11. Change-order log
 
 No change orders at freeze. Calibration entries will be appended as CO-001
@@ -537,3 +545,250 @@ onward, without revising §§0–10. Each records source, classification
 contract delta, owning boundary, affected criteria, verification delta, risk
 routing and PR placement. Candidate tests supplied for an existing cell are
 listed as candidates, not reported as measured evidence or missing claims.
+
+## CO-001 — trust in a row is identity, readability, and not-scrubbed
+
+- **Classification:** clarification
+- **Source:** calibration
+- **Claim:** Trust in a ledger row is exactly: identity matches on all
+  seven fields, the row is readable, and it is not scrubbed. `Attempt` is
+  not a trust input. The engine's single-sync contract
+  (`pkg/dotc1z/engine/pebble/adapter.go:101–117`: every `startNewSync`,
+  full or partial, wipes the keyspace when a prior sync-run exists) plus
+  `DropLedger` on finished rebind (your C33) means no row under the open
+  sync's identity can belong to another sync. `CloneSync` carries the
+  sync ID into the clone.
+- **Motivation:** S2 says "trustworthy rows" without defining trust;
+  C12 rules `Attempt` out of identity without saying whether it bears on
+  trust. Left undefined, an implementer may add an attempt check that
+  guards against an unreachable case.
+- **Contract delta:** none.
+- **Owning boundary:** `pkg/sync` resume walk.
+- **Affected criteria:** C09, C12. No new J case.
+- **Verification delta:** none. Do not add an attempt check or a test for
+  one.
+- **Risk routing:** unchanged.
+- **PR placement:** this PR.
+
+## CO-002 — a bare-ID delete split across stored and staged rows
+
+- **Classification:** extension
+- **Source:** calibration
+- **Claim:** A delete by bare external ID whose candidates are split — one
+  identity already stored, one staged in the open page — is rejected as
+  ambiguous and deletes neither. Or: the plan shows the case unreachable
+  because every in-page delete carries full identity.
+- **Motivation:** Each half's ambiguity check sees one match; together
+  they can delete two identities where the checkpoint path, with
+  everything stored, rejects the ID. In scope: `syncer.go:3727` deletes a
+  grant by `GetId()` inside the external-resources phase, which becomes a
+  page. The store-side `DeleteGrantRecord` (`grants.go:922`) checks stored
+  rows only; a same-ID grant staged in the same page is invisible to it.
+  `PageWriter.DeleteGrants` takes `*v2.Grant` and resolves by identity, and
+  the handler already holds the grant. Keeping a bare-ID delete as a
+  registered bypass does not satisfy this CO.
+- **Contract delta:** none in `pkg/sync`. The same defect exists
+  storage-side in `PageWriter.DropStagedSourceCacheRows`
+  (`page_unit.go:236`, `:310`, staged half only); that is out of your
+  scope and is being fixed separately by the requester.
+- **Owning boundary:** external-resources page handler; Q axis.
+- **Affected criteria:** C08 (add the split cell to Q's grant-delete
+  targets: staged + existing under one ID), C38, C42, OQ-5.
+- **Verification delta:** one fixture: one stored grant and one staged
+  grant sharing an external ID; a delete of that ID inside the page; assert
+  rejection and both present after commit — or, under the unreachable
+  reading, an O8 inventory showing no bare-ID delete inside any page.
+- **Risk routing:** HIGH, unchanged.
+- **PR placement:** this PR.
+
+## CO-003 — a handler that succeeds without transitioning
+
+- **Classification:** extension to C47
+- **Source:** calibration
+- **Claim:** A page handler that returns success without having
+  transitioned its action fails the page; nothing of it is durable. It
+  does not return success leaving staged records no commit will take.
+- **Motivation:** C05 states the positive ("success publishes one
+  transition") but no mutant plants the defect. Silent loss of a page's
+  writes has no single-run signal.
+- **Contract delta:** none.
+- **Owning boundary:** page wrapper in `pkg/sync`.
+- **Affected criteria:** C05, C47.
+- **Verification delta:** add to the I1 mutant list; include a
+  no-connector action among the fixtures.
+- **Risk routing:** unchanged.
+- **PR placement:** this PR.
+
+## CO-004 — scope of "the walk writes nothing"; L3 recovery domain
+
+- **Classification:** clarification. Settles OQ-1 and OQ-3.
+- **Source:** requester
+- **Claim:** "The walk writes nothing" is scoped to the walk: from the
+  first row lookup to the first handler that runs. Lifecycle writes outside
+  it are permitted and are their own cells: the takeover (C25–C27),
+  `DropLedger` on a finished rebind (C33–C34), the run-level bucket on stop
+  (C22–C23), and the seal (C31). A durable seal-ready marker is such a
+  lifecycle write. If it needs a store method the contract lacks, propose
+  it as a `pkg/dotc1z` change with its own consumer test and failure cuts.
+  The existing fact surface through a terminal page is acceptable if you
+  show the terminal page is itself atomic under the F cuts.
+  OQ-3's recovery domain: no ledgered syncer has shipped, so no unproven L3
+  file exists anywhere. Refusing unproven L3 with a diagnostic and no
+  writes is the accepted answer.
+- **Motivation:** OQ-1 and OQ-3 asked.
+- **Contract delta:** none unless you propose the store method.
+- **Owning boundary:** `pkg/sync` lifecycle; `pkg/dotc1z` only if
+  proposed.
+- **Affected criteria:** C10, C11, C25, C31; P7.
+- **Verification delta:** C10's write-free assertion is bounded to the walk
+  as defined; the lifecycle writes are asserted under their own criteria.
+- **Risk routing:** unchanged.
+- **PR placement:** this PR; a store method, if proposed, in its own
+  commit with its own test.
+
+## CO-005 — equality and durability strength
+
+- **Classification:** clarification. Settles OQ-2.
+- **Source:** requester
+- **Claim:** Equality in O4/C16 is complete logical data — every record
+  family, secondary indexes, digest, facts, completion, and committed
+  accounting — not bytes. Permitted normalizations, to be listed
+  explicitly in the evidence: `Attempt`, `CommittedAt`, `TakenOverAt`,
+  page/connector/wait durations, retry counts and waits. The raw artifact
+  digest is recorded beside the canonical comparison and never reported as
+  equality. "Committed" means present in the durable crash image. A fresh
+  page's NoSync loss after `Commit` returned is the storage contract
+  (page-ledger plan CO-002, C11); the differential must hold at every image
+  without requiring that page to be present.
+- **Motivation:** OQ-2 asked.
+- **Contract delta:** none. No engine durability change.
+- **Owning boundary:** O4, O5 in `pkg/sync` tests.
+- **Affected criteria:** C04, C16, C23 close at this wording.
+- **Verification delta:** the normalization list is a required artifact
+  in `evidence.md`.
+- **Risk routing:** unchanged.
+- **PR placement:** this PR.
+
+## CO-006 — rollback boundary
+
+- **Classification:** clarification. Settles OQ-4.
+- **Source:** requester
+- **Claim:** `cmd/baton/rollback_expansion.go` operates on the SQLite
+  `C1File` today and is frozen with the rest of the SQLite path. C36 is
+  verified through the syncer entry (`WithConnectorStore` + `WithSyncID` +
+  `WithOnlyExpandGrants`) only. No Pebble CLI rollback is added or claimed.
+- **Motivation:** OQ-4 asked.
+- **Contract delta:** none.
+- **Owning boundary:** `pkg/sync`.
+- **Affected criteria:** C36.
+- **Verification delta:** none beyond C36 as stated.
+- **Risk routing:** unchanged.
+- **PR placement:** this PR.
+
+## CO-007 — compaction provenance and the stats sidecar
+
+- **Classification:** clarification. Settles OQ-6.
+- **Source:** requester
+- **Claim:** Compaction provenance is owned by the compactor's sidecar
+  write (`pkg/synccompactor/provenance.go`). The token's compaction section
+  is stale provenance of a prior artifact and is already stripped on the
+  checkpoint path (`compactor_pebble.go:786`, `:1302` via
+  `ClearCompactionSection`); takeover drops it the same way. `SyncStats`
+  gets no compaction field. A `PersistSyncStats` failure at seal is the
+  engine's documented degradation (`engine/pebble/adapter.go:438–447`:
+  warn, drop the overlay, seal succeeds, `Stats()` falls back to
+  iteration), not a failed seal.
+- **Motivation:** OQ-6 asked.
+- **Contract delta:** none.
+- **Owning boundary:** `pkg/sync` seal path; `pkg/synccompactor` unchanged.
+- **Affected criteria:** C24, C30, C31, C43, C32.
+- **Verification delta:** C31/C43 assert the handover through
+  `EndSyncWithStats`; a missing sidecar under an injected
+  `PersistSyncStats` fault is not a C31 failure. C32's "inherit a failed
+  seal's stats overlay" is covered storage-side (page-ledger C27) and needs
+  only a consumer-level check here.
+- **Risk routing:** unchanged.
+- **PR placement:** this PR.
+
+## CO-008 — the empty-engine cell
+
+- **Classification:** clarification. E axis.
+- **Source:** requester
+- **Claim:** `Metadata().Engine` is never empty for either supported store:
+  `C1File.Metadata` normalizes unset to SQLite (`c1file.go:1512–1519`) and
+  `pebbleStore.Metadata` reports from the engine. An empty engine
+  therefore identifies a third-party store and takes the same refusal arm
+  as an unknown engine. It is not a SQLite alias.
+- **Motivation:** the E axis lists "empty engine" without an expected
+  outcome.
+- **Contract delta:** none.
+- **Owning boundary:** `setStore`.
+- **Affected criteria:** C01; P3 keeps the cell with this expected outcome.
+- **Verification delta:** none beyond the P3 cell.
+- **Risk routing:** unchanged.
+- **PR placement:** this PR.
+
+## CO-009 — end-to-end sync overhead against the token path
+
+- **Classification:** extension (new criterion, S8)
+- **Source:** requester
+- **Claim:** The cost of a full Pebble sync on the ledger, relative to the
+  same sync on the token path at `eb63f1b5`, is measured and reported
+  before this lands — not bounded by an a-priori threshold, but known. The
+  deliverable is a table and an estimate, and a decomposition of where the
+  overhead goes.
+- **Motivation:** S8/O9/C46 cover the walk's scaling shape. Nothing covers
+  the hot path: a fresh sync now commits a row, a bucket and facts with
+  every page, and the seal scrubs and folds O(rows). The storage side's
+  cost criterion (page-ledger C30) is unassessed — its five benchmarks were
+  never run and there is no `Put*Records` baseline at matched page sizes.
+  This change is the one that puts that cost on every production sync. We
+  need to know it is not a disaster, or have a decent estimate of what it
+  is.
+- **Contract delta:** none.
+- **Owning boundary:** `pkg/sync`; the harness is yours. Baseline is
+  `eb63f1b5`'s Pebble token path, measured in the same run on the same
+  machine, interleaved with the ledger arm.
+- **Affected criteria:** new criterion under S8 (C49 or your numbering);
+  C46 stays as the walk's half.
+- **Verification delta:**
+  - Fixture: a deterministic zero-latency connector so store cost is not
+    hidden behind connector time. Pages 10³, 10⁴, 10⁵; records per page
+    100, 1,000, 10,000; workers 1 and 4. The 10⁵ × 1,000 cell is the
+    production-shaped estimate.
+  - Arms: (a) token path at `eb63f1b5`; (b) ledger, fresh sync (NoSync
+    pages per the storage contract); (c) ledger, sync resumed at page 1
+    and run to completion (Sync per page — the worst case, and a real one
+    after any crash).
+  - Metrics per cell: wall time; time inside page `Commit` vs handler;
+    Pebble bytes written (WAL, flush, compaction) from the engine's
+    metrics; final c1z size; peak RSS; seal time split into scrub and
+    fold; resume-walk time vs rows for (c).
+  - Report: the ratio (b)/(a) and (c)/(a) per metric per cell, and the
+    decomposition — bytes per page attributable to row + bucket + facts
+    versus record bytes; scrub and fold as a function of rows.
+  - Tripwire, not acceptance: any cell where (b)/(a) exceeds 1.10 on wall
+    or 1.25 on bytes written, or where seal time grows faster than linearly
+    in rows, is explained in the implementation brief before code lands.
+    The requester decides acceptance from the numbers.
+  - Candidates: `BenchmarkLedgerPageCommit`, `BenchmarkLedgerPageCommitSync`,
+    `BenchmarkLedgerResumeWalk`, `BenchmarkLedgerSealCost`,
+    `BenchmarkLedgerSealCostNoGrantIndex` in `pkg/dotc1z/engine/pebble`
+    exist and are unrun; they are component-level and do not substitute for
+    the end-to-end arms.
+  - Machine: unloaded, recorded (model, cores, disk). A loaded-machine run
+    is a smoke check, not evidence.
+- **Risk routing:** cost pass, per §0's seven passes.
+- **PR placement:** the harness and the first measured table land before
+  the handler commits, so the numbers exist while the design can still
+  move. The final table is re-run at the PR's last revision.
+
+### CO-009 criterion assignment
+
+**C49 (S8, O9; sampled cost evidence).** Measure and report every CO-009
+fixture/arm/metric cell, with its specified baseline, ratios, decomposition,
+production-shaped estimate and machine record. Explain each tripwire in
+implementation.md and obtain requester acceptance of the numbers before
+landing the change. The harness and first measured table precede handler
+commits; the final revision gets a new table. Initial status: not assessed.
+There are now 49 criteria; the frozen §4 count describes the baseline.
