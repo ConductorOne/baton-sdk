@@ -151,7 +151,7 @@ type PageWriter interface {
 
 	// Removes buffered rows a same-page source-cache tombstone names; rows
 	// already in the store are the store tombstone's business.
-	DropStagedSourceCacheRows(kind sourcecache.RowKind, scopeKey string, canonicalIDs, principalIDs []string) (int, error)
+	DropStagedSourceCacheRows(ctx context.Context, kind sourcecache.RowKind, scopeKey string, canonicalIDs, principalIDs []string) (int, error)
 
 	SetFact(name string) error
 	// Last writer wins.

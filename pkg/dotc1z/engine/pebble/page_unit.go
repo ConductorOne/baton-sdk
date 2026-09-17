@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/conductorone/baton-sdk/pkg/bid"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -168,7 +169,7 @@ func (u *pageUnit) StageGrantDeletes(records ...*v3.GrantRecord) error {
 
 // The buffer half of a same-page tombstone: the store-side tombstone cannot
 // see a buffered put.
-func (u *pageUnit) DropStagedRows(kind string, scopeKey string, canonicalIDs, principalIDs []string) (int, error) {
+func (u *pageUnit) DropStagedRows(ctx context.Context, kind string, scopeKey string, canonicalIDs, principalIDs []string) (int, error) {
 	if u.done {
 		return 0, ErrPageUnitCommitted
 	}
@@ -187,12 +188,35 @@ func (u *pageUnit) DropStagedRows(kind string, scopeKey string, canonicalIDs, pr
 		if err != nil {
 			return 0, err
 		}
-		if err := requireUniqueTombstoneIDs(current, canonical, publicGrantRecordID); err != nil {
-			return 0, err
+		staged := make(map[grantIdentity]*v3.GrantRecord, len(current))
+		for _, g := range current {
+			id, err := grantIdentityFromRecord(g)
+			if err != nil {
+				return 0, err
+			}
+			staged[id] = g
+		}
+		doomed := make(map[grantIdentity]struct{}, len(canonical))
+		for externalID := range canonical {
+			id, err := resolveGrantIdentityCandidates(ctx, externalID, u.entitlementIdentities, func(id grantIdentity) (string, error) {
+				g, ok := staged[id]
+				if !ok {
+					return "", pebble.ErrNotFound
+				}
+				return g.GetExternalId(), nil
+			})
+			if errors.Is(err, pebble.ErrNotFound) {
+				continue
+			}
+			if err != nil {
+				return 0, err
+			}
+			doomed[id] = struct{}{}
 		}
 		kept := u.grants[:0]
 		for _, g := range current {
-			_, byID := canonical[publicGrantRecordID(g)]
+			id, _ := grantIdentityFromRecord(g)
+			_, byID := doomed[id]
 			_, byPrincipal := principals[g.GetPrincipal().GetResourceId()]
 			if byID || (byPrincipal && g.GetSourceScopeKey() == scopeKey) {
 				dropped++
@@ -331,6 +355,29 @@ func (u *pageUnit) entitlementRecord(ctx context.Context, externalID string) (*v
 			ErrAmbiguousExternalID, externalID, len(matches))
 	}
 	return latest, nil
+}
+
+func (u *pageUnit) entitlementIdentities(ctx context.Context, externalID string) ([]entitlementIdentity, error) {
+	stored, err := u.l.e.entitlementIdentitiesForExternalID(ctx, externalID)
+	if err != nil {
+		return nil, err
+	}
+	matches := make(map[entitlementIdentity]struct{}, len(stored))
+	for _, id := range stored {
+		matches[id] = struct{}{}
+	}
+	for _, i := range u.entitlementIdx[externalID] {
+		id, err := entitlementIdentityFromRecord(u.entitlements[i])
+		if err != nil {
+			return nil, err
+		}
+		matches[id] = struct{}{}
+	}
+	ids := make([]entitlementIdentity, 0, len(matches))
+	for id := range matches {
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 // On failure the unit stays usable for a retry.

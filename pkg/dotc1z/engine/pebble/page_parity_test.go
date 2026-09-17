@@ -87,23 +87,28 @@ func TestPageCanonicalTombstonesRejectAmbiguousIDs(t *testing.T) {
 			}
 			u := paged.ledger.newPageUnit()
 			var directErr error
+			externalID := "shared"
 			switch kind {
 			case "grants":
+				externalID = "member:user:alice"
+				ents := []*v3.EntitlementRecord{lookupTestEnt("group", "eng", "member"), lookupTestEnt("group", "sales", "member")}
+				require.NoError(t, direct.PutEntitlementRecords(ctx, ents...))
+				require.NoError(t, u.StageEntitlements(ents...))
 				records := []*v3.GrantRecord{
-					lookupTestGrant("shared", "group", "eng", "member", "user", "alice"),
-					lookupTestGrant("shared", "group", "sales", "member", "user", "alice"),
+					lookupTestGrant(externalID, "group", "eng", "member", "user", "alice"),
+					lookupTestGrant(externalID, "group", "sales", "member", "user", "alice"),
 				}
 				require.NoError(t, direct.PutGrantRecords(ctx, records...))
 				require.NoError(t, u.StageGrants(records...))
-				directErr = direct.DeleteGrantRecordsBounded(ctx, []string{"shared"}, "scope")
+				directErr = direct.DeleteGrantRecordsBounded(ctx, []string{externalID}, "scope")
 			case "entitlements":
 				records := []*v3.EntitlementRecord{lookupTestEnt("group", "eng", "shared"), lookupTestEnt("group", "sales", "shared")}
 				require.NoError(t, direct.PutEntitlementRecords(ctx, records...))
 				require.NoError(t, u.StageEntitlements(records...))
-				directErr = direct.DeleteEntitlementRecords(ctx, []string{"shared"}, "scope")
+				directErr = direct.DeleteEntitlementRecords(ctx, []string{externalID}, "scope")
 			}
 			require.ErrorIs(t, directErr, ErrAmbiguousExternalID)
-			n, err := u.DropStagedRows(kind, "scope", []string{"shared"}, nil)
+			n, err := u.DropStagedRows(ctx, kind, "scope", []string{externalID}, nil)
 			require.ErrorIs(t, err, ErrAmbiguousExternalID)
 			require.Zero(t, n)
 			require.NoError(t, u.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "Sync"}, nil))
@@ -132,7 +137,7 @@ func TestPageScopedTombstonesUseLatestRecord(t *testing.T) {
 				u := paged.ledger.newPageUnit()
 				for _, version := range []string{"old", "new"} {
 					if kind == "grants" {
-						r := lookupTestGrant("grant", "group", "eng", "member", "user", "alice")
+						r := lookupTestGrant("group:eng:member:user:alice", "group", "eng", "group:eng:member", "user", "alice")
 						r.SetSourceScopeKey(version)
 						require.NoError(t, direct.PutGrantRecords(ctx, r))
 						require.NoError(t, u.StageGrants(r))
@@ -151,7 +156,7 @@ func TestPageScopedTombstonesUseLatestRecord(t *testing.T) {
 					want, err = direct.DeleteResourcesByIDsInScope(ctx, scope, ids)
 				}
 				require.NoError(t, err)
-				got, err := u.DropStagedRows(kind, scope, nil, []string{"alice"})
+				got, err := u.DropStagedRows(ctx, kind, scope, nil, []string{"alice"})
 				require.NoError(t, err)
 				require.EqualValues(t, want, got)
 				require.NoError(t, u.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "Sync"}, nil))
@@ -195,7 +200,7 @@ func TestPageCanonicalTombstoneOverwritesAndLookupRebuild(t *testing.T) {
 	removed := lookupTestEnt("group", "eng", "removed")
 	kept := lookupTestEnt("group", "sales", "kept")
 	require.NoError(t, u.StageEntitlements(removed, kept, removed, kept))
-	n, err := u.DropStagedRows("entitlements", "scope", []string{"removed"}, nil)
+	n, err := u.DropStagedRows(ctx, "entitlements", "scope", []string{"removed"}, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 	_, err = u.entitlementRecord(ctx, "removed")
@@ -203,9 +208,9 @@ func TestPageCanonicalTombstoneOverwritesAndLookupRebuild(t *testing.T) {
 	got, err := u.entitlementRecord(ctx, "kept")
 	require.NoError(t, err)
 	require.True(t, proto.Equal(kept, got))
-	g := lookupTestGrant("grant", "group", "eng", "member", "user", "alice")
+	g := lookupTestGrant("group:eng:member:user:alice", "group", "eng", "group:eng:member", "user", "alice")
 	require.NoError(t, u.StageGrants(g, g))
-	n, err = u.DropStagedRows("grants", "scope", []string{"grant"}, nil)
+	n, err = u.DropStagedRows(ctx, "grants", "scope", []string{"group:eng:member:user:alice"}, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 	require.NoError(t, u.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "Sync"}, nil))
@@ -219,7 +224,7 @@ func TestPageGrantDeleteValidationDoesNotStagePartialRequest(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	g := lookupTestGrant("grant", "group", "eng", "member", "user", "alice")
+	g := lookupTestGrant("group:eng:member:user:alice", "group", "eng", "group:eng:member", "user", "alice")
 	require.NoError(t, e.PutGrantRecords(ctx, g))
 	u := e.ledger.newPageUnit()
 	require.Error(t, u.StageGrantDeletes(g, nil))
@@ -227,4 +232,45 @@ func TestPageGrantDeleteValidationDoesNotStagePartialRequest(t *testing.T) {
 	var count int
 	require.NoError(t, e.IterateGrants(ctx, func(*v3.GrantRecord) bool { count++; return true }))
 	require.Equal(t, 1, count)
+}
+
+func TestPageGrantTombstoneCandidateParity(t *testing.T) {
+	for _, tc := range []struct {
+		name, externalID, entitlementID, query string
+		entitlementStored                      bool
+		remaining                              int
+	}{
+		{"custom ID", "custom", "member", "custom", true, 1},
+		{"opaque entitlement absent", "member:user:alice", "member", "member:user:alice", false, 1},
+		{"opaque entitlement stored", "member:user:alice", "member", "member:user:alice", true, 0},
+		{"stripped entitlement absent", "group:eng:member:user:alice", "group:eng:member", "group:eng:member:user:alice", false, 0},
+		{"stored ID differs", "custom", "group:eng:member", "group:eng:member:user:alice", false, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			direct, _ := newTestEngine(t)
+			paged, _ := newTestEngine(t)
+			for _, e := range []*Engine{direct, paged} {
+				_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+				require.NoError(t, err)
+				if tc.entitlementStored {
+					require.NoError(t, e.PutEntitlementRecords(ctx, lookupTestEnt("group", "eng", tc.entitlementID)))
+				}
+			}
+			g := lookupTestGrant(tc.externalID, "group", "eng", tc.entitlementID, "user", "alice")
+			require.NoError(t, direct.PutGrantRecords(ctx, g))
+			u := paged.ledger.newPageUnit()
+			require.NoError(t, u.StageGrants(g))
+			require.NoError(t, direct.DeleteGrantRecordsBounded(ctx, []string{tc.query}, "scope"))
+			n, err := u.DropStagedRows(ctx, "grants", "scope", []string{tc.query}, nil)
+			require.NoError(t, err)
+			require.Equal(t, 1-tc.remaining, n)
+			require.NoError(t, u.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "Sync"}, nil))
+			for _, e := range []*Engine{direct, paged} {
+				count := 0
+				require.NoError(t, e.IterateGrants(ctx, func(*v3.GrantRecord) bool { count++; return true }))
+				require.Equal(t, tc.remaining, count)
+			}
+		})
+	}
 }

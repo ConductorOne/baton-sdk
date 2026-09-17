@@ -91,14 +91,14 @@ func (w *pageWriter) DeleteGrants(ctx context.Context, grants ...*v2.Grant) erro
 	return w.unit.StageGrantDeletes(recs...)
 }
 
-func (w *pageWriter) DropStagedSourceCacheRows(kind sourcecache.RowKind, scopeKey string, canonicalIDs, principalIDs []string) (int, error) {
+func (w *pageWriter) DropStagedSourceCacheRows(ctx context.Context, kind sourcecache.RowKind, scopeKey string, canonicalIDs, principalIDs []string) (int, error) {
 	if err := sourcecache.ValidateRowKind(kind); err != nil {
 		return 0, err
 	}
 	if err := sourcecache.ValidateScopeKey(scopeKey); err != nil {
 		return 0, err
 	}
-	return w.unit.DropStagedRows(string(kind), scopeKey, canonicalIDs, principalIDs)
+	return w.unit.DropStagedRows(ctx, string(kind), scopeKey, canonicalIDs, principalIDs)
 }
 
 func (w *pageWriter) SetFact(name string) error { return w.unit.StageFact(name) }
