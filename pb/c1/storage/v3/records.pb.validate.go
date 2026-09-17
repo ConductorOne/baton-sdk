@@ -1956,8 +1956,6 @@ func (m *CompactionProvenance) validate(all bool) error {
 
 	// no validation rules for Mode
 
-	// no validation rules for StatsSyncId
-
 	// no validation rules for BaseSyncId
 
 	// no validation rules for PartialCount

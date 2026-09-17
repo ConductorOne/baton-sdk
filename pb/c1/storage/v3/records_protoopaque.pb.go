@@ -1948,8 +1948,7 @@ type SyncStatsRecord_builder struct {
 	// at EndSync (the fold of every LedgerCounterBucket); token-only
 	// syncs still have them lifted from the syncer token. Mirror of
 	// c1.reader.v2.SyncStats fields 9–11 (storage cannot import reader
-	// protos; CallStat is duplicated below). Compacted syncs fold partial
-	// timings into these maps at compaction time.
+	// protos; CallStat is duplicated below). Compacted outputs omit these maps.
 	StepDurationsMs    map[string]int64
 	ConnectorCallStats map[string]*CallStat
 	SessionStoreStats  map[string]*CallStat
@@ -1990,7 +1989,6 @@ func (b0 SyncStatsRecord_builder) Build() *SyncStatsRecord {
 type CompactionProvenance struct {
 	state                     protoimpl.MessageState             `protogen:"opaque.v1"`
 	xxx_hidden_Mode           string                             `protobuf:"bytes,1,opt,name=mode,proto3"`
-	xxx_hidden_StatsSyncId    string                             `protobuf:"bytes,2,opt,name=stats_sync_id,json=statsSyncId,proto3"`
 	xxx_hidden_BaseSyncId     string                             `protobuf:"bytes,3,opt,name=base_sync_id,json=baseSyncId,proto3"`
 	xxx_hidden_PartialSyncIds []string                           `protobuf:"bytes,4,rep,name=partial_sync_ids,json=partialSyncIds,proto3"`
 	xxx_hidden_PartialCount   int64                              `protobuf:"varint,5,opt,name=partial_count,json=partialCount,proto3"`
@@ -2031,13 +2029,6 @@ func (x *CompactionProvenance) GetMode() string {
 	return ""
 }
 
-func (x *CompactionProvenance) GetStatsSyncId() string {
-	if x != nil {
-		return x.xxx_hidden_StatsSyncId
-	}
-	return ""
-}
-
 func (x *CompactionProvenance) GetBaseSyncId() string {
 	if x != nil {
 		return x.xxx_hidden_BaseSyncId
@@ -2070,10 +2061,6 @@ func (x *CompactionProvenance) SetMode(v string) {
 	x.xxx_hidden_Mode = v
 }
 
-func (x *CompactionProvenance) SetStatsSyncId(v string) {
-	x.xxx_hidden_StatsSyncId = v
-}
-
 func (x *CompactionProvenance) SetBaseSyncId(v string) {
 	x.xxx_hidden_BaseSyncId = v
 }
@@ -2094,15 +2081,12 @@ type CompactionProvenance_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	// Compactor mode (fold, kway, overlay).
-	Mode string
-	// The sync whose collection run the timing stats describe (the base
-	// sync for fold, "" for rebuild modes which have no single origin).
-	StatsSyncId    string
+	Mode           string
 	BaseSyncId     string
 	PartialSyncIds []string
 	PartialCount   int64
-	// Per record-type counts (resource_types, resources, entitlements,
-	// grants): output totals, plus added/replaced/carried attribution when
+	// Counts at merge completion, before any subsequent grant expansion.
+	// Per record-type output totals, plus added/replaced/carried attribution when
 	// the mode can tell (fold).
 	RecordCounts map[string]*CompactionRecordCounts
 }
@@ -2112,7 +2096,6 @@ func (b0 CompactionProvenance_builder) Build() *CompactionProvenance {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_Mode = b.Mode
-	x.xxx_hidden_StatsSyncId = b.StatsSyncId
 	x.xxx_hidden_BaseSyncId = b.BaseSyncId
 	x.xxx_hidden_PartialSyncIds = b.PartialSyncIds
 	x.xxx_hidden_PartialCount = b.PartialCount
@@ -3908,10 +3891,9 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\v2\x17.c1.storage.v3.CallStatR\x05value:\x028\x01\x1a]\n" +
 	"\x16SessionStoreStatsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12-\n" +
-	"\x05value\x18\x02 \x01(\v2\x17.c1.storage.v3.CallStatR\x05value:\x028\x01\"\x83\x03\n" +
+	"\x05value\x18\x02 \x01(\v2\x17.c1.storage.v3.CallStatR\x05value:\x028\x01\"\xf4\x02\n" +
 	"\x14CompactionProvenance\x12\x12\n" +
-	"\x04mode\x18\x01 \x01(\tR\x04mode\x12\"\n" +
-	"\rstats_sync_id\x18\x02 \x01(\tR\vstatsSyncId\x12 \n" +
+	"\x04mode\x18\x01 \x01(\tR\x04mode\x12 \n" +
 	"\fbase_sync_id\x18\x03 \x01(\tR\n" +
 	"baseSyncId\x12(\n" +
 	"\x10partial_sync_ids\x18\x04 \x03(\tR\x0epartialSyncIds\x12#\n" +
@@ -3919,7 +3901,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\rrecord_counts\x18\x06 \x03(\v25.c1.storage.v3.CompactionProvenance.RecordCountsEntryR\frecordCounts\x1af\n" +
 	"\x11RecordCountsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12;\n" +
-	"\x05value\x18\x02 \x01(\v2%.c1.storage.v3.CompactionRecordCountsR\x05value:\x028\x01\"|\n" +
+	"\x05value\x18\x02 \x01(\v2%.c1.storage.v3.CompactionRecordCountsR\x05value:\x028\x01J\x04\b\x02\x10\x03R\rstats_sync_id\"|\n" +
 	"\x16CompactionRecordCounts\x12\x16\n" +
 	"\x06output\x18\x01 \x01(\x03R\x06output\x12\x14\n" +
 	"\x05added\x18\x02 \x01(\x03R\x05added\x12\x1a\n" +

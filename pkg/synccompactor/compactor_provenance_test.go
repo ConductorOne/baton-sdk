@@ -2,6 +2,7 @@ package synccompactor
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepkg "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	sdksync "github.com/conductorone/baton-sdk/pkg/sync"
 )
@@ -61,11 +63,6 @@ func readSyncToken(t *testing.T, ctx context.Context, path, syncID string) strin
 	return rec.GetSyncToken()
 }
 
-// TestCompactPebbleFoldWritesProvenance pins the fold output's stats
-// sidecar: the base sync's timing stats survive re-attributed via
-// stats_sync_id, partial timings are folded into the maps, per-type record
-// counts carry added/replaced/carried provenance, and no token is written
-// to carry any of it.
 func TestCompactPebbleFoldWritesProvenance(t *testing.T) {
 	ctx := context.Background()
 	inDir := t.TempDir()
@@ -85,17 +82,11 @@ func TestCompactPebbleFoldWritesProvenance(t *testing.T) {
 	)
 
 	stats := readSyncStats(t, ctx, out.FilePath, out.SyncID)
-	require.EqualValues(t, 95_000, stats.GetStepDurationsMs()["list-grants"])
-	calls := stats.GetConnectorCallStats()["list-grants"]
-	require.NotNil(t, calls)
-	require.EqualValues(t, 3, calls.GetCount())
-	require.EqualValues(t, 3_000, calls.GetTotalMs())
-	require.EqualValues(t, 2_000, calls.GetMaxMs())
+	assertCompactedCollectionStatsEmpty(t, stats)
 
 	comp := stats.GetCompaction()
 	require.NotNil(t, comp, "fold output must carry compaction provenance")
 	require.Equal(t, "fold", comp.GetMode())
-	require.Equal(t, baseSyncID, comp.GetStatsSyncId())
 	require.Equal(t, baseSyncID, comp.GetBaseSyncId())
 	require.Equal(t, []string{partialSyncID}, comp.GetPartialSyncIds())
 	require.EqualValues(t, 1, comp.GetPartialCount())
@@ -117,9 +108,6 @@ func TestCompactPebbleFoldWritesProvenance(t *testing.T) {
 		"provenance lives on the stats sidecar; the compactor writes no token")
 }
 
-// TestCompactPebbleChainedFoldAccumulatesProvenance pins chained-fold
-// semantics: the original collection sync stays the stats attribution, and
-// partial counts / timings accumulate across folds.
 func TestCompactPebbleChainedFoldAccumulatesProvenance(t *testing.T) {
 	ctx := context.Background()
 	inDir := t.TempDir()
@@ -146,11 +134,10 @@ func TestCompactPebbleChainedFoldAccumulatesProvenance(t *testing.T) {
 	)
 
 	stats := readSyncStats(t, ctx, second.FilePath, second.SyncID)
-	require.EqualValues(t, 98_000, stats.GetStepDurationsMs()["list-grants"])
+	assertCompactedCollectionStatsEmpty(t, stats)
 
 	comp := stats.GetCompaction()
 	require.NotNil(t, comp)
-	require.Equal(t, baseSyncID, comp.GetStatsSyncId(), "chained folds must keep the original attribution")
 	require.Equal(t, first.SyncID, comp.GetBaseSyncId(), "the immediate base is the first fold's output")
 	require.Equal(t, []string{p1SyncID, p2SyncID}, comp.GetPartialSyncIds())
 	require.EqualValues(t, 2, comp.GetPartialCount())
@@ -176,7 +163,7 @@ func TestCompactPebbleRebuildWritesProvenance(t *testing.T) {
 	)
 
 	stats := readSyncStats(t, ctx, out.FilePath, out.SyncID)
-	require.Empty(t, stats.GetStepDurationsMs(), "rebuild outputs carry no inherited timing stats")
+	assertCompactedCollectionStatsEmpty(t, stats)
 
 	comp := stats.GetCompaction()
 	require.NotNil(t, comp, "rebuild output must carry compaction provenance")
@@ -207,12 +194,10 @@ func TestProvenanceFromTokenSectionChains(t *testing.T) {
 
 	prior := provenanceFromTokenSection(context.Background(), tok)
 	require.NotNil(t, prior)
-	require.Equal(t, "base-0", prior.GetStatsSyncId())
 	require.EqualValues(t, 2, prior.GetPartialCount())
 	require.EqualValues(t, 7, prior.GetRecordCounts()["grants"].GetOutput())
 
 	next := buildCompactionProvenance(prior, "fold", "base-1", []string{"p3"}, nil)
-	require.Equal(t, "base-0", next.GetStatsSyncId(), "the root stats sync survives the SDK boundary")
 	require.EqualValues(t, 3, next.GetPartialCount())
 	require.Equal(t, []string{"p1", "p2", "p3"}, next.GetPartialSyncIds())
 
@@ -220,4 +205,94 @@ func TestProvenanceFromTokenSectionChains(t *testing.T) {
 	stripped, err := sdksync.ClearCompactionSection(tok)
 	require.NoError(t, err)
 	require.Nil(t, provenanceFromTokenSection(context.Background(), stripped))
+}
+
+func assertCompactedCollectionStatsEmpty(t *testing.T, stats *v3.SyncStatsRecord) {
+	t.Helper()
+	require.Empty(t, stats.GetStepDurationsMs())
+	require.Empty(t, stats.GetConnectorCallStats())
+	require.Empty(t, stats.GetSessionStoreStats())
+	require.False(t, stats.HasIngestQuality())
+}
+
+func TestCompactionStatsWithAndWithoutExpansion(t *testing.T) {
+	for _, mode := range []PebbleCompactorMode{PebbleCompactorModeFold, PebbleCompactorModeOverlay, PebbleCompactorModeKWay} {
+		for _, expand := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/expand=%t", mode, expand), func(t *testing.T) {
+				ctx := context.Background()
+				entries := buildIncrementalFixtures(t, ctx, t.TempDir())
+				for _, entry := range entries {
+					w, err := dotc1z.NewStore(ctx, entry.FilePath, dotc1z.WithTmpDir(t.TempDir()))
+					require.NoError(t, err)
+					eng, ok := enginepkg.AsEngine(w)
+					require.True(t, ok)
+					sr, err := eng.GetSyncRunRecord(ctx, entry.SyncID)
+					require.NoError(t, err)
+					sr.SetSyncToken(`{"version":1,"step_durations_ms":{"list-grants":90000},"connector_call_stats":{"ListGrants":{"count":1,"total_ms":100,"max_ms":100}},"session_store_stats":{"Get":{"count":1,"total_ms":10,"max_ms":10}},"ingest_quality":{"source_cache_replay_blocked":false}}`)
+					require.NoError(t, eng.PutSyncRunRecord(ctx, sr))
+					require.NoError(t, eng.PersistSyncStats(ctx, entry.SyncID))
+					require.True(t, enginepkg.MarkStoreDirty(w))
+					require.NoError(t, w.Close(ctx))
+				}
+				opts := []Option{WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble), WithPebbleCompactorMode(mode)}
+				if !expand {
+					opts = append(opts, WithSkipGrantExpansion())
+				}
+				c, cleanup, err := NewCompactor(ctx, t.TempDir(), entries, opts...)
+				require.NoError(t, err)
+				defer func() { require.NoError(t, cleanup()) }()
+				out, err := c.Compact(ctx)
+				require.NoError(t, err)
+				stats := readSyncStats(t, ctx, out.FilePath, out.SyncID)
+				assertCompactedCollectionStatsEmpty(t, stats)
+				require.EqualValues(t, 2, stats.GetResourceTypes())
+				require.EqualValues(t, 5, stats.GetResources())
+				require.EqualValues(t, 3, stats.GetEntitlements())
+				require.Equal(t, map[string]int64{"group": 3, "user": 2}, stats.GetResourcesByResourceType())
+				require.Equal(t, map[string]int64{"group": 3}, stats.GetEntitlementsByResourceType())
+				grants := grantOutcome(t, ctx, out.FilePath, out.SyncID)
+				require.EqualValues(t, len(grants), stats.GetGrants())
+				require.EqualValues(t, len(grants), stats.GetGrantsByEntitlementResourceType()["group"])
+				if expand {
+					require.Greater(t, len(grants), 5)
+					hasGrant(t, grants, "ent-c|user|sam")
+				} else {
+					require.Len(t, grants, 5)
+				}
+				comp := stats.GetCompaction()
+				require.NotNil(t, comp)
+				require.Equal(t, string(mode), comp.GetMode())
+				require.Equal(t, entries[0].SyncID, comp.GetBaseSyncId())
+				require.Equal(t, []string{entries[1].SyncID}, comp.GetPartialSyncIds())
+				require.EqualValues(t, 1, comp.GetPartialCount())
+				require.EqualValues(t, 5, comp.GetRecordCounts()["grants"].GetOutput())
+				original := readSyncStats(t, ctx, entries[0].FilePath, entries[0].SyncID)
+				require.NotEmpty(t, original.GetStepDurationsMs())
+				require.NotEmpty(t, original.GetConnectorCallStats())
+				require.NotEmpty(t, original.GetSessionStoreStats())
+				require.True(t, original.HasIngestQuality())
+				if mode == PebbleCompactorModeFold && !expand {
+					w, err := dotc1z.NewStore(ctx, out.FilePath, dotc1z.WithTmpDir(t.TempDir()))
+					require.NoError(t, err)
+					eng, ok := enginepkg.AsEngine(w)
+					require.True(t, ok)
+					stats.ClearCompaction()
+					stats.SetStepDurationsMs(original.GetStepDurationsMs())
+					stats.SetConnectorCallStats(original.GetConnectorCallStats())
+					stats.SetSessionStoreStats(original.GetSessionStoreStats())
+					stats.SetIngestQuality(original.GetIngestQuality())
+					require.NoError(t, eng.PersistComputedSyncStats(ctx, out.SyncID, stats))
+					assertCompactedCollectionStatsEmpty(t, stats)
+					require.NoError(t, eng.PersistSyncStats(ctx, out.SyncID))
+					recomputed, err := enginepkg.ReadSyncStatsRecord(ctx, eng, out.SyncID)
+					require.NoError(t, err)
+					assertCompactedCollectionStatsEmpty(t, recomputed)
+					require.Nil(t, recomputed.GetCompaction())
+					require.Equal(t, stats.GetGrants(), recomputed.GetGrants())
+					require.True(t, enginepkg.MarkStoreDirty(w))
+					require.NoError(t, w.Close(ctx))
+				}
+			})
+		}
+	}
 }

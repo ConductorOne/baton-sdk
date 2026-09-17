@@ -9,7 +9,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	sdksync "github.com/conductorone/baton-sdk/pkg/sync"
 )
 
@@ -26,10 +25,7 @@ func TestCompactPebbleFoldLegacyProvenance(t *testing.T) {
 	partial := &CompactableSync{FilePath: partialPath, SyncID: ids["next_partial_id"]}
 	oldStats := readSyncStats(t, ctx, basePath, base.SyncID)
 	require.Nil(t, oldStats.GetCompaction())
-	require.EqualValues(t, 90000, oldStats.GetStepDurationsMs()["list-grants"])
 	token := readSyncToken(t, ctx, basePath, base.SyncID)
-	c1zstore.ApplySyncTokenStatsRecord(oldStats, token)
-	require.EqualValues(t, 95000, oldStats.GetStepDurationsMs()["list-grants"])
 	prior, err := sdksync.CompactionStatsFromToken(token)
 	require.NoError(t, err)
 	require.NotNil(t, prior)
@@ -38,19 +34,9 @@ func TestCompactPebbleFoldLegacyProvenance(t *testing.T) {
 	t.Setenv("BATON_EXPERIMENTAL_PEBBLE_COMPACTOR", "fold")
 	first := compactPairOnce(t, ctx, base, partial)
 	stats := readSyncStats(t, ctx, first.FilePath, first.SyncID)
-	require.EqualValues(t, 98000, stats.GetStepDurationsMs()["list-grants"])
-	require.EqualValues(t, 4, stats.GetConnectorCallStats()["list-grants"].GetCount())
-	require.EqualValues(t, 3500, stats.GetConnectorCallStats()["list-grants"].GetTotalMs())
-	require.EqualValues(t, 2000, stats.GetConnectorCallStats()["list-grants"].GetMaxMs())
-	session := stats.GetSessionStoreStats()["Get"]
-	require.EqualValues(t, 4, session.GetCount())
-	require.EqualValues(t, 3500, session.GetTotalMs())
-	require.EqualValues(t, 2000, session.GetMaxMs())
-	require.EqualValues(t, 3, session.GetErrors())
-	require.EqualValues(t, 3, session.GetTimeouts())
+	assertCompactedCollectionStatsEmpty(t, stats)
 	comp := stats.GetCompaction()
 	require.NotNil(t, comp)
-	require.Equal(t, ids["base_id"], comp.GetStatsSyncId())
 	require.Equal(t, base.SyncID, comp.GetBaseSyncId())
 	require.Equal(t, []string{ids["first_partial_id"], partial.SyncID}, comp.GetPartialSyncIds())
 	require.EqualValues(t, 2, comp.GetPartialCount())
@@ -62,10 +48,6 @@ func TestCompactPebbleFoldLegacyProvenance(t *testing.T) {
 
 	second := compactPairOnce(t, ctx, first, partial)
 	stats = readSyncStats(t, ctx, second.FilePath, second.SyncID)
-	require.EqualValues(t, 101000, stats.GetStepDurationsMs()["list-grants"])
-	require.EqualValues(t, 5, stats.GetConnectorCallStats()["list-grants"].GetCount())
-	require.EqualValues(t, 5, stats.GetSessionStoreStats()["Get"].GetCount())
-	require.EqualValues(t, 4, stats.GetSessionStoreStats()["Get"].GetErrors())
-	require.Equal(t, ids["base_id"], stats.GetCompaction().GetStatsSyncId())
+	assertCompactedCollectionStatsEmpty(t, stats)
 	require.EqualValues(t, 3, stats.GetCompaction().GetPartialCount())
 }

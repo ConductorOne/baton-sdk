@@ -506,7 +506,6 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// applications take precedence on ties.
 	var foldStats mergepkg.FoldStats
 	var partialSyncIDs []string
-	var partialStats []*v3.SyncStatsRecord
 	// SQLite/v1 partials are converted to Pebble in the tmp dir before being
 	// folded in; their converted copies are removed when this run completes.
 	var convertedInputs []string
@@ -567,7 +566,6 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 			}
 		}
 		partialSyncIDs = append(partialSyncIDs, srcSyncID)
-		partialStats = append(partialStats, readSourceSyncStats(ctx, srcEng, srcSyncID))
 
 		var mergeOpts []mergepkg.MergeOption
 		if c.incrementalExpansion {
@@ -774,7 +772,10 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	if !maxEnded.IsZero() {
 		baseRec.SetEndedAt(timestamppb.New(maxEnded))
 	}
-	baseStats := readSourceSyncStats(ctx, destEng, baseSyncID)
+	baseStats, err := enginepkg.ReadSyncStatsRecord(ctx, destEng, baseSyncID)
+	if err != nil {
+		l.Warn("compactPebbleFold: could not read base provenance", zap.Error(err))
+	}
 	// An older SDK wrote provenance into the token. It is the base's ancestry
 	// when the sidecar has none, so read it before stripping it; left in the
 	// token it would read as this artifact's provenance.
@@ -809,10 +810,6 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	case outputStats == nil:
 		l.Warn("compactPebbleFold: output stats missing; provenance not recorded")
 	default:
-		overlayTimingStats(outputStats, baseStats)
-		for _, partial := range partialStats {
-			foldPartialTimings(outputStats, partial)
-		}
 		outputStats.SetCompaction(buildCompactionProvenance(
 			priorProvenance,
 			string(PebbleCompactorModeFold),
@@ -915,29 +912,6 @@ func (c *Compactor) runPebbleRebuild(ctx context.Context, runCtx context.Context
 		return "", err
 	}
 	return newSyncId, nil
-}
-
-// Legacy folds wrote accumulated timings to the token after persisting the
-// sidecar, so for an input without sidecar provenance the token is fresher.
-func readSourceSyncStats(ctx context.Context, eng *enginepkg.Engine, syncID string) *v3.SyncStatsRecord {
-	rec, err := enginepkg.ReadSyncStatsRecord(ctx, eng, syncID)
-	if err != nil {
-		return nil
-	}
-	if rec.GetCompaction() != nil {
-		return rec
-	}
-	sr, err := eng.GetSyncRunRecord(ctx, syncID)
-	if err != nil {
-		return rec
-	}
-	legacy := &v3.SyncStatsRecord{}
-	c1zstore.ApplySyncTokenStatsRecord(legacy, sr.GetSyncToken())
-	if rec == nil {
-		rec = &v3.SyncStatsRecord{}
-	}
-	overlayTimingStats(rec, legacy)
-	return rec
 }
 
 // copyFileForFold copies the base input to the dest path so the fold
@@ -1325,6 +1299,14 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 	if !maxEnded.IsZero() {
 		rec.SetEndedAt(timestamppb.New(maxEnded))
 	}
+	if tok, err := sdksync.ClearCompactionSection(rec.GetSyncToken()); err != nil {
+		l.Warn("compactPebble: could not strip an inherited compaction token section", zap.Error(err))
+	} else {
+		rec.SetSyncToken(tok)
+	}
+	if err := destEng.PutSyncRunRecord(ctx, rec); err != nil {
+		return fmt.Errorf("compactPebble: persist dest sync_run: %w", err)
+	}
 	// The merge accumulated the dest stats while writing winners, so
 	// persist those instead of re-scanning the freshly written output.
 	if statsRec == nil {
@@ -1352,13 +1334,6 @@ func (c *Compactor) compactPebble(ctx context.Context, newSyncId string) error {
 			return fmt.Errorf("compactPebble: persist stats: %w", err)
 		}
 	}
-	if tok, err := sdksync.ClearCompactionSection(rec.GetSyncToken()); err != nil {
-		l.Warn("compactPebble: could not strip an inherited compaction token section", zap.Error(err))
-	} else {
-		rec.SetSyncToken(tok)
-	}
-	if err := destEng.PutSyncRunRecord(ctx, rec); err != nil {
-		return fmt.Errorf("compactPebble: persist dest sync_run: %w", err)
-	}
+
 	return nil
 }

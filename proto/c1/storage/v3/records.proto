@@ -343,8 +343,7 @@ message SyncStatsRecord {
   // at EndSync (the fold of every LedgerCounterBucket); token-only
   // syncs still have them lifted from the syncer token. Mirror of
   // c1.reader.v2.SyncStats fields 9–11 (storage cannot import reader
-  // protos; CallStat is duplicated below). Compacted syncs fold partial
-  // timings into these maps at compaction time.
+  // protos; CallStat is duplicated below). Compacted outputs omit these maps.
   map<string, int64> step_durations_ms = 10;
   map<string, CallStat> connector_call_stats = 11;
   map<string, CallStat> session_store_stats = 12;
@@ -364,14 +363,13 @@ message SyncStatsRecord {
 message CompactionProvenance {
   // Compactor mode (fold, kway, overlay).
   string mode = 1;
-  // The sync whose collection run the timing stats describe (the base
-  // sync for fold, "" for rebuild modes which have no single origin).
-  string stats_sync_id = 2;
+  reserved 2;
+  reserved "stats_sync_id";
   string base_sync_id = 3;
   repeated string partial_sync_ids = 4;
   int64 partial_count = 5;
-  // Per record-type counts (resource_types, resources, entitlements,
-  // grants): output totals, plus added/replaced/carried attribution when
+  // Counts at merge completion, before any subsequent grant expansion.
+  // Per record-type output totals, plus added/replaced/carried attribution when
   // the mode can tell (fold).
   map<string, CompactionRecordCounts> record_counts = 6;
 }
