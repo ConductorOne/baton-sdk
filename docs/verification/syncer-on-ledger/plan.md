@@ -792,3 +792,29 @@ implementation.md and obtain requester acceptance of the numbers before
 landing the change. The harness and first measured table precede handler
 commits; the final revision gets a new table. Initial status: not assessed.
 There are now 49 criteria; the frozen §4 count describes the baseline.
+
+
+## CO-010 — preserve baseline lifecycle behavior
+
+- **Classification:** correction
+- **Source:** requester; lifecycle preservation instruction after caller review.
+- **Claim:** This change preserves the baseline's sync lifecycle behavior.
+  Selecting an existing finished sync with WithSyncID does not itself start
+  a new collection run, reset the sync record, or erase completion state.
+  Requested processing of existing data, including deferred expansion, keeps
+  the existing sync identity and baseline lifecycle semantics.
+- **Motivation:** The finished-run reset proposal inferred lifecycle meaning
+  from ended_at alone. Baseline callers also use finished artifacts as inputs
+  to further processing under the same sync ID.
+- **Contract delta:** withdraw the proposed completion-record reset. Any
+  ledger-specific processing state must preserve existing caller behavior.
+- **Owning boundary:** pkg/sync lifecycle and ledger reconstruction.
+- **Affected criteria:** C15, C24, C30–C36; S5's new-run interpretation is
+  superseded where it conflicts with this preservation requirement.
+- **Verification delta:** compare baseline and ledger behavior for a finished
+  collection with deferred expansion, same-ID processing, interruption and
+  subsequent invocation. Assert identity, completion metadata, carried facts
+  and accounting, requested work and preserved input data. The synthetic
+  reset candidate alone cannot establish the required behavior.
+- **Risk routing:** HIGH, unchanged.
+- **PR placement:** this PR.

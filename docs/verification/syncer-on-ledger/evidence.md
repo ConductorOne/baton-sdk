@@ -319,21 +319,21 @@ closure of C10, C37, C38 or C47.
 
 ### C33
 
-- Status: failed.
-- Candidate: TestLedgerFinishedRebindDropsCompletionOnly; TestLedgerInterruptedFinishedRebindResumesNewRun.
-- Required coverage: plan C33 and applicable calibration entries.
-- Planted defect: interrupted finished rebind fails against current storage contract; no planted defect needed; disabled pending implementation.md section 9 boundary disposition.
-- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
-- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
+- Status: evidence incomplete.
+- Candidate: TestLedgerFinishedRebindDropsCompletionOnly; TestLedgerInterruptedFinishedRebindResumesNewRun. Both require reassessment under CO-010.
+- Required coverage: baseline caller lifecycle equivalence under CO-010, including same-ID deferred expansion and interruption.
+- Planted defect: the synthetic interrupted-rebind candidate exposed the private runtime's reset assumption; it does not justify changing the storage lifecycle.
+- Green command/revision: none for CO-010; the disabled candidate is not green evidence.
+- Not covered: baseline caller comparison, public routing, persisted lifecycle/fact/accounting equivalence and crash products.
 
 ### C34
 
-- Status: failed.
-- Candidate: TestLedgerFinishedRebindDropsCompletionOnly; TestLedgerInterruptedFinishedRebindResumesNewRun.
-- Required coverage: plan C34 and applicable calibration entries.
-- Planted defect: same actual lifecycle failure as C33; not closed.
-- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
-- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
+- Status: evidence incomplete.
+- Candidate: TestLedgerFinishedRebindDropsCompletionOnly; TestLedgerInterruptedFinishedRebindResumesNewRun. Both require reassessment under CO-010.
+- Required coverage: baseline caller lifecycle equivalence under CO-010, including same-ID deferred expansion and interruption.
+- Planted defect: the synthetic interrupted-rebind candidate exposed the private runtime's reset assumption; it does not justify changing the storage lifecycle.
+- Green command/revision: none for CO-010; the disabled candidate is not green evidence.
+- Not covered: baseline caller comparison, public routing, persisted lifecycle/fact/accounting equivalence and crash products.
 
 ### C35
 
@@ -774,3 +774,14 @@ The full synccompactor suite also passed in 15.724 seconds with Go 1.26.0.
 The concrete Ledger.Drop compactor consumer was inspected while narrowing
 the pending reset proposal (implementation.md §13). No reset behavior was
 changed, and the interrupted-finished-rebind candidate remains disabled.
+
+## CO-010 lifecycle correction
+
+The requester requires baseline lifecycle behavior, superseding the proposed
+completion reset. C33/C34 are evidence incomplete under that requirement;
+the earlier execution entries remain as history of the incorrect reset
+model. No completed metadata reset was implemented. The private runtime's
+finished branch still needs correction before public integration. Storage
+LastSealCost remains the only new production storage behavior and is solely
+observational. The frozen plan body is unchanged; CO-010 records the changed
+requirement in the change-order log.

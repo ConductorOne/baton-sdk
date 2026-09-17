@@ -536,3 +536,30 @@ marker still have to survive failure cuts. The required tests compare both
 consumers: interrupted syncer rebind remains unfinished and resumable, while
 compactor ledger removal preserves completion. This narrows §9's proposal;
 it is not an implemented contract change or a resolved C33/C34 claim.
+
+
+## 14. CO-010 supersedes the lifecycle reset proposal
+
+Sections 9 and 13's atomic completion reset proposal is withdrawn. Their
+claim that the storage contract must change is not an accepted conclusion.
+The requester requires the baseline lifecycle behavior to remain intact.
+
+The SDK service-mode task honors SkipExpandGrants with DontExpandGrants,
+seals its collection and uploads it. An existing finished artifact can then
+be selected with WithSyncID for expansion over its existing records. The
+baseline startOrResumeSync returns newSync=false for an explicit ID. It
+loads the recorded state and stats; selecting the ID does not clear ended_at.
+The expansion-only option controls the requested work. The compactor is
+another existing consumer of same-ID expansion over stored data.
+
+The private beginLedgerRuntime's unconditional finished-ledger drop and
+fresh Init are not approved production integration. Before replacing that
+behavior, tests must compare the actual baseline caller sequence and its
+persisted metadata, facts and counters through interruption. The ledger
+must distinguish completed collection from the progress of subsequently
+requested processing without redefining the sync lifecycle. The earlier
+synthetic test exposes the private runtime's assumption; it does not prove
+that changing storage completion semantics is the correct fix.
+
+This correction leaves CO-009's durability wording unresolved. No code or
+storage lifecycle behavior changes in this documentation commit.
