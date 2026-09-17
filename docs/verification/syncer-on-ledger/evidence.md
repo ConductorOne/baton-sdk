@@ -139,21 +139,25 @@ closure of C10, C37, C38 or C47.
 
 ### C13
 
-- Status: not assessed.
+- Status: failed.
 - Candidate: implementation.md §5; not yet executed for this criterion.
 - Required coverage: plan C13 and applicable calibration entries.
 - Planted defect: not run for this criterion.
 - Green command/revision: none.
 - Not covered: all required cells until an explicit execution entry is added.
 
+- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. No restored-pass guard exists yet.
+
 ### C14
 
-- Status: not assessed.
+- Status: failed.
 - Candidate: implementation.md §5; not yet executed for this criterion.
 - Required coverage: plan C14 and applicable calibration entries.
 - Planted defect: not run for this criterion.
 - Green command/revision: none.
 - Not covered: all required cells until an explicit execution entry is added.
+
+- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. No restored-pass guard exists yet.
 
 ### C15
 
@@ -193,21 +197,25 @@ closure of C10, C37, C38 or C47.
 
 ### C19
 
-- Status: not assessed.
+- Status: failed.
 - Candidate: implementation.md §5; not yet executed for this criterion.
 - Required coverage: plan C19 and applicable calibration entries.
 - Planted defect: not run for this criterion.
 - Green command/revision: none.
 - Not covered: all required cells until an explicit execution entry is added.
 
+- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. No restored-pass guard exists yet.
+
 ### C20
 
-- Status: evidence incomplete.
+- Status: failed.
 - Candidate: TestLedgerPageCumulativeWorkersAndAttempts; TestLedgerScheduleStopsAndJoinsOnError.
 - Required coverage: plan C20 and applicable calibration entries.
 - Planted defect: not run for this criterion; green mechanism tests only.
 - Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
 - Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
+
+- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. No restored-pass guard exists yet.
 
 ### C21
 
@@ -229,12 +237,14 @@ closure of C10, C37, C38 or C47.
 
 ### C23
 
-- Status: not assessed.
+- Status: failed.
 - Candidate: implementation.md §5; not yet executed for this criterion.
 - Required coverage: plan C23 and applicable calibration entries.
 - Planted defect: not run for this criterion.
 - Green command/revision: none.
 - Not covered: all required cells until an explicit execution entry is added.
+
+- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. No restored-pass guard exists yet.
 
 ### C24
 
@@ -292,12 +302,14 @@ closure of C10, C37, C38 or C47.
 
 ### C30
 
-- Status: evidence incomplete.
+- Status: failed.
 - Candidate: TestLedgerTakeoverIngestQuality; TestLedgerTakeoverLegacyFixtures.
 - Required coverage: plan C30 and applicable calibration entries.
 - Planted defect: not run for this criterion; green mechanism tests only.
 - Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
 - Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
+
+- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. No restored-pass guard exists yet.
 
 ### C31
 
@@ -374,12 +386,14 @@ closure of C10, C37, C38 or C47.
 
 ### C39
 
-- Status: evidence incomplete.
+- Status: failed.
 - Candidate: TestLedgerScheduleStopsAndJoinsOnError; TestLedgerPageFailureDiscardsStagedObservations.
 - Required coverage: plan C39 and applicable calibration entries.
 - Planted defect: not run for this criterion; green joined-worker and writer-release checks only.
 - Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
 - Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
+
+- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. No restored-pass guard exists yet.
 
 ### C40
 
@@ -785,3 +799,13 @@ finished branch still needs correction before public integration. Storage
 LastSealCost remains the only new production storage behavior and is solely
 observational. The frozen plan body is unchanged; CO-010 records the changed
 requirement in the change-order log.
+
+## Baseline contract audit
+
+Five deliberately failing comparisons reproduce operation-order, spawned
+completion-count, duplicate-child, unknown-quality and sibling-error
+mismatches. They fail in the ordinary opt-in run and all three race
+repetitions. The tests skip unless BATON_LEDGER_BASELINE_AUDIT=1, so normal
+suite success cannot be cited as closure. The exact scope, baseline source,
+consequences and remaining integration checks are in baseline-audit.md.
+No production implementation fixes are included in this audit commit.

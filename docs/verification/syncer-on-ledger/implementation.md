@@ -563,3 +563,28 @@ that changing storage completion semantics is the correct fix.
 
 This correction leaves CO-009's durability wording unresolved. No code or
 storage lifecycle behavior changes in this documentation commit.
+
+
+## 15. Baseline contract audit changes the integration design
+
+The [baseline audit](baseline-audit.md) records five reproduced private-runtime
+differences and the unchanged main behavior each must preserve. These are
+implementation defects against existing criteria, not requests to change
+main's behavior. No ledger scheduling or lifecycle integration is approved
+by the earlier generic graph description alone.
+
+Preserve the baseline operation stack and batch eligibility rules. The
+ledger executor must not dispatch all restored operations together. Preserve
+completion counts for spawned actions separately from per-resource progress.
+Validate same-response duplicate cursors before committing their page;
+across-response admission history remains a separate check. Preserve unknown
+quality at seal and conservative legacy restoration. Retain independent
+worker errors while draining. Public stop, warning, retry and callback
+behavior must match the baseline caller contracts listed in the audit.
+
+K2 is not complete, and K3's private smoke measurements do not establish the
+cost of the corrected scheduler. Add baseline comparisons to K2 before
+claiming runtime equivalence, then repeat the cost measurements after those
+corrections. Tests comparing two ledger runs remain useful for crashes but
+are not an oracle for unchanged caller behavior. No production guards are
+changed in the audit commit; the five diagnostic comparisons remain red.
