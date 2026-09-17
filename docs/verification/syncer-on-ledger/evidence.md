@@ -809,3 +809,12 @@ repetitions. The tests skip unless BATON_LEDGER_BASELINE_AUDIT=1, so normal
 suite success cannot be cited as closure. The exact scope, baseline source,
 consequences and remaining integration checks are in baseline-audit.md.
 No production implementation fixes are included in this audit commit.
+
+## CO-011 scheduling scope correction
+
+The replacement ledger executor will not be integrated or copied from the
+baseline scheduler. The existing scheduler remains in use, with small shared
+changes permitted for page persistence and restoration. The five audit
+failures remain recorded; no replacement-executor fix or production-equivalence
+pass is claimed. SQLite behavioral preservation is still required, while an
+absolute prohibition on shared-path edits is superseded by CO-011.

@@ -1,5 +1,11 @@
 # Syncer on the page ledger: implementation brief
 
+Current design correction: CO-010 and CO-011 supersede the finished-run
+reset, replacement executor, scheduler-copy and absolute shared-path-freeze
+proposals below. Reuse the existing scheduler and preserve lifecycle
+behavior. Section 16 records the revised integration constraints; earlier
+sections retain the history of the committed brief.
+
 CXE-1358. Behavioral baseline: plan.md at `01931d8b`, with CO-001–CO-009
 appended after calibration. This document is the step-3 deliverable. It is
 committed alone before code. It describes planned work, not verified behavior.
@@ -588,3 +594,32 @@ claiming runtime equivalence, then repeat the cost measurements after those
 corrections. Tests comparing two ledger runs remain useful for crashes but
 are not an oracle for unchanged caller behavior. No production guards are
 changed in the audit commit; the five diagnostic comparisons remain red.
+
+
+## 16. Existing scheduler, engine-specific persistence
+
+CO-011 permits small shared integration changes. The existing parallelSync,
+syncParallel, parallelActionQueue and syncOneAction remain the scheduling
+implementation. Do not copy them or repair the generic ledger executor into
+a second implementation. Existing operation order, batch admission, retries,
+warnings, error aggregation and caller callbacks remain authoritative.
+
+The ledger integration belongs at page execution, transition commit and
+resume restoration. A page stages its records, facts and accounting; its
+validated transition becomes visible only after the page commits. The
+existing scheduler then publishes and executes that transition using its
+existing eligibility rules. Restoration must provide the action state that
+scheduler expects, rather than passing a flattened stack to another queue.
+
+Use small shared changes where those boundaries require them. Preserve
+SQLite's existing checkpoint and write behavior; do not extend it, refactor
+it for the ledger, or create abstractions solely to avoid an inert branch.
+The requester has authorized these ordinary shared integration changes;
+they do not require another exception request merely because SQLite reaches
+the same function.
+
+The private ledgerRuntime.execute implementation is rejected for production
+integration. Its tests remain useful as recorded failures and fixtures, but
+the integration tests and cost driver must move to the existing scheduler.
+K2 and subsequent sequence details must be revised around these boundaries
+before claiming completion. This clarification changes no production code.

@@ -818,3 +818,30 @@ There are now 49 criteria; the frozen §4 count describes the baseline.
   reset candidate alone cannot establish the required behavior.
 - **Risk routing:** HIGH, unchanged.
 - **PR placement:** this PR.
+
+
+## CO-011 — reuse existing scheduling and allow small shared changes
+
+- **Classification:** clarification and correction
+- **Source:** requester; clarification of the SQLite constraint.
+- **Claim:** Existing scheduling and lifecycle behavior remain in use. The
+  SQLite constraint prevents wasted SQLite write work and new behavioral
+  risk; it does not prohibit small, non-invasive shared changes needed for
+  ledger integration. SQLite checkpoint/write behavior remains unchanged.
+  Neither a replacement scheduler nor a copied scheduler is required.
+- **Motivation:** Literal avoidance of every SQLite-executed line led to an
+  unnecessary executor with different scheduling behavior.
+- **Contract delta:** no store contract change. Supersedes structural claims
+  that forbid all edits to shared executed paths or require scheduler copies.
+- **Owning boundary:** pkg/sync page execution, transition publication,
+  restoration and engine-specific persistence.
+- **Affected criteria:** C03,C13–C16,C39,C40,C44,C45. Source-diff checks must
+  accept justified shared integration edits; behavioral preservation remains
+  required. No criterion is closed by this clarification.
+- **Verification delta:** exercise ledger pages through the existing
+  scheduler; retain its batch, duplicate-cursor, retry, warning, stop and
+  error behavior. Check SQLite behavior at shared integration points. Do not
+  spend effort extending SQLite writes or duplicating scheduling to avoid
+  those points.
+- **Risk routing:** HIGH, unchanged.
+- **PR placement:** this PR.
