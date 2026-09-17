@@ -685,3 +685,41 @@ The storage durability discrepancy in implementation.md §10 also remains
 open: the source commits resumed pages NoSync, whereas storage-plan C11 and
 calibration CO-009 describe Sync. No pkg/dotc1z code was changed to disguise
 that discrepancy. C49 has no measured acceptance table yet.
+
+## K3a cost-driver smoke
+
+The opt-in TestLedgerCostRuntime used four workers, ten data pages and
+100 resources/page. It verified 1,000 resources and twelve ledger commits
+(init + ten data pages + terminal). One smoke invocation reported 8,920,670
+ns Sync time, 3,057,073 ns inside Commit, 915,589 ns in handlers, 4,163,003 ns
+seal time, 37,261 ns counter-fold time, 91,280 WAL bytes, 19,206 flush bytes,
+zero compaction bytes before close and a 37,649-byte final artifact. These
+are instrument sanity values on an unqualified machine, not a performance
+claim, matched comparison, or completed C49 cell. Scrub time is null.
+
+The machine snapshot reports sixteen visible CPUs but a four-CPU cgroup
+quota and 32 GiB memory limit. The recorder now includes those limits.
+An unloaded run must be demonstrated over the measurement interval; neither
+this snapshot nor the smoke invocation establishes that condition.
+
+Command:
+
+```
+BATON_LEDGER_COST=1 BATON_LEDGER_COST_WORKERS=4 GOTOOLCHAIN=go1.26.0 go test -mod=vendor ./pkg/sync -run '^TestLedgerCostRuntime$' -count=1 -timeout 5m -v
+```
+
+The runtime driver is unselected by default. C49 remains evidence incomplete;
+there is no resumed Sync-per-page arm, separate scrub timer, full matrix,
+production-shaped estimate or requester acceptance yet.
+
+K3a build/vet and pkg/sync lint pass; lint reports zero issues. The smoke
+also passes with one worker. The unchanged Pebble consumer prerequisites
+passed with Go 1.26.0:
+
+```
+GOTOOLCHAIN=go1.26.0 go test -mod=vendor ./pkg/dotc1z/engine/pebble/ -run '^(TestBoundSyncRecordWritesDoNotSyncTheWAL|TestPageUnitCrashImageStoreEqualsLedger|TestLedgerTakeoverCrashImages)$' -count=1 -timeout 20m
+```
+
+This targeted run includes the executable bound-write NoSync premise and
+storage takeover crash images. It does not replace the full engine suite
+required before landing.

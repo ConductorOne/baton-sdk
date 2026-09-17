@@ -23,6 +23,9 @@ print(json.dumps({
     "logical_cpus": os.cpu_count(),
     "available_cpus": len(os.sched_getaffinity(0)),
     "load_average": os.getloadavg(),
+    "cgroup_limits": {name: Path("/sys/fs/cgroup", name).read_text().strip()
+                      for name in ("cpu.max", "memory.max", "memory.swap.max")
+                      if Path("/sys/fs/cgroup", name).exists()},
     "memory": {line.split(":", 1)[0]: line.split(":", 1)[1].strip()
                for line in Path("/proc/meminfo").read_text().splitlines()
                if line.startswith(("MemTotal:", "MemAvailable:", "SwapTotal:"))},

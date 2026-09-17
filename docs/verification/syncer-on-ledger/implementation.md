@@ -476,3 +476,22 @@ storage contract change. It must not be labeled the existing production
 resume path. CO-005 says no engine durability change, so this PR does not
 silently change recordWriteOpts to satisfy the table label. Requester
 boundary disposition is pending; C49 remains evidence incomplete.
+
+## 11. K3 harness increment
+
+K3a adds an opt-in fresh private-runtime cost driver beside the pinned
+baseline executable. It uses the same deterministic resource generator and
+verifies all generated resources plus init/data/terminal commit counts.
+Timers separate handler execution, page commits, counter fold and total
+seal. WAL/flush/compaction bytes and final artifact size are reported.
+Scrub timing is explicitly unavailable, rather than inferred by subtracting
+unrelated seal phases. The machine recorder includes CPU and memory cgroup
+limits; host CPU count alone overstates this environment's available budget.
+
+This increment is smoke instrumentation, not the first C49 acceptance table.
+The actual resumed arm, any hypothetical Sync arm, phase observation inside
+the engine, process RSS, interleaving driver and unloaded-machine evidence
+are still required. The private handler combines init and resource-type
+collection and does not model all production control phases; its output
+cannot establish the final public Sync overhead. K5/K6 remain behind the
+required first table and its boundary dispositions.
