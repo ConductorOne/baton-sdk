@@ -2,7 +2,6 @@ package pebble
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -117,51 +116,6 @@ func (w *pageWriter) Commit(ctx context.Context, id c1zstore.LedgerActionIdentit
 }
 
 func (w *pageWriter) Discard() { w.unit.Discard() }
-
-// Absent and identity-mismatch both read as not found.
-func (l *Ledger) GetRow(ctx context.Context, id c1zstore.LedgerActionIdentity) (*c1zstore.LedgerRow, bool, error) {
-	row, err := l.getRowRecord(ctx, id)
-	switch {
-	case err == nil:
-		return ledgerRowFromProto(row), true, nil
-	case errors.Is(err, pebble.ErrNotFound), errors.Is(err, errLedgerIdentityMismatch):
-		return nil, false, nil
-	default:
-		return nil, false, err
-	}
-}
-
-func (l *Ledger) Counters(ctx context.Context) (c1zstore.LedgerCounters, error) {
-	sum, err := l.sumCounters(ctx)
-	if err != nil {
-		return c1zstore.LedgerCounters{}, err
-	}
-	return ledgerCountersFromProto(sum), nil
-}
-
-func (l *Ledger) Frontier(ctx context.Context) (*c1zstore.LedgerFrontier, bool, error) {
-	f, found, err := l.getFrontier(ctx)
-	if err != nil || !found {
-		return nil, found, err
-	}
-	out := &c1zstore.LedgerFrontier{State: f.GetState(), Attempt: f.GetAttempt()}
-	if ts := f.GetTakenOverAt(); ts != nil {
-		out.TakenOverAt = ts.AsTime()
-	}
-	return out, true, nil
-}
-
-func (l *Ledger) Takeover(ctx context.Context, runID string, facts []string, counters c1zstore.LedgerCounters) (string, error) {
-	var bucket *v3.LedgerCounterBucket
-	if !counters.IsZero() {
-		bucket = ledgerCountersToProto(counters)
-	}
-	return l.takeoverRecord(ctx, runID, facts, bucket)
-}
-
-func (l *Ledger) PutCounterBucket(ctx context.Context, runID string, worker uint32, counters c1zstore.LedgerCounters) error {
-	return l.putCounterBucketRecord(ctx, runID, worker, ledgerCountersToProto(counters))
-}
 
 func syncStatsOverlay(stats c1zstore.SyncStats) *v3.SyncStatsRecord {
 	overlay := v3.SyncStatsRecord_builder{

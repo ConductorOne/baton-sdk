@@ -86,7 +86,7 @@ func TestPageUnitCommitIsOneFact(t *testing.T) {
 	id := grantsPageIdentity("github", "p1")
 	child := c1zstore.LedgerActionIdentity{Op: "SyncGrants", ResourceTypeID: "app", ResourceID: "github", PageToken: "spawn-7", TypeScoped: true}
 
-	_, err = e.ledger.getRowRecord(ctx, id)
+	_, err = readLedgerRowRaw(e, id)
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 
 	u := e.ledger.newPageUnit()
@@ -116,7 +116,7 @@ func TestPageUnitCommitIsOneFact(t *testing.T) {
 	require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", "alice", func(*v3.GrantRecord) bool { n++; return true }))
 	require.Equal(t, 1, n, "inline by_principal index must serve the unit's grant")
 
-	got, err := e.ledger.getRowRecord(ctx, id)
+	got, err := readLedgerRowRaw(e, id)
 	require.NoError(t, err)
 	require.Equal(t, id, ledgerIdentityFromProto(got.GetIdentity()))
 	require.Equal(t, ledgerTokenHash("p1"), got.GetIdentity().GetPageTokenHash())
@@ -134,16 +134,16 @@ func TestPageUnitCommitIsOneFact(t *testing.T) {
 	require.False(t, got.GetScrubbed())
 
 	row.SetAttempt("mutated-after-commit")
-	got, err = e.ledger.getRowRecord(ctx, id)
+	got, err = readLedgerRowRaw(e, id)
 	require.NoError(t, err)
 	require.Equal(t, "attempt-1", got.GetAttempt())
 
-	_, err = e.ledger.getRowRecord(ctx, grantsPageIdentity("github", "p2"))
+	_, err = readLedgerRowRaw(e, grantsPageIdentity("github", "p2"))
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 
 	empty := e.ledger.newPageUnit()
 	require.NoError(t, empty.Commit(ctx, grantsPageIdentity("github", "p2"), nil))
-	got, err = e.ledger.getRowRecord(ctx, grantsPageIdentity("github", "p2"))
+	got, err = readLedgerRowRaw(e, grantsPageIdentity("github", "p2"))
 	require.NoError(t, err)
 	require.Zero(t, got.GetGrantsWritten())
 	require.Empty(t, got.GetNextPageToken(), "bare completion: action finished")
@@ -179,7 +179,7 @@ func TestPageUnitFailedCommitLandsNothing(t *testing.T) {
 
 	_, err = e.GetResourceRecord(ctx, "user", "alice")
 	require.ErrorIs(t, err, pebble.ErrNotFound, "no record from a failed page")
-	_, err = e.ledger.getRowRecord(ctx, id)
+	_, err = readLedgerRowRaw(e, id)
 	require.ErrorIs(t, err, pebble.ErrNotFound, "no row from a failed page")
 	n := 0
 	require.NoError(t, e.IterateGrantsByPrincipal(ctx, "user", "alice", func(*v3.GrantRecord) bool { n++; return true }))
@@ -189,7 +189,7 @@ func TestPageUnitFailedCommitLandsNothing(t *testing.T) {
 	require.NoError(t, u.Commit(ctx, id, nil), "the unit is reusable after a failed commit")
 	_, err = e.GetResourceRecord(ctx, "user", "alice")
 	require.NoError(t, err)
-	_, err = e.ledger.getRowRecord(ctx, id)
+	_, err = readLedgerRowRaw(e, id)
 	require.NoError(t, err)
 
 	d := e.ledger.newPageUnit()
@@ -255,21 +255,24 @@ func TestLedgerIdentityMismatchReadsAsAbsent(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, e.db.UnsafeForTesting().Set(encodeLedgerKey(y), val, pebble.Sync))
 
-	_, err = e.ledger.getRowRecord(ctx, y)
-	require.ErrorIs(t, err, errLedgerIdentityMismatch)
+	_, found, err := e.ledger.GetRow(ctx, y)
+	require.NoError(t, err)
+	require.False(t, found, "a row echoing another identity reads as absent")
 	require.EqualValues(t, 1, e.ledger.mismatchCount())
 
 	rowX2 := v3.LedgerRow_builder{Identity: ledgerIdentityToProto(grantsPageIdentity("github", "other"))}.Build()
 	val, err = marshalRecord(rowX2)
 	require.NoError(t, err)
 	require.NoError(t, e.db.UnsafeForTesting().Set(encodeLedgerKey(x), val, pebble.Sync))
-	_, err = e.ledger.getRowRecord(ctx, x)
-	require.ErrorIs(t, err, errLedgerIdentityMismatch)
+	_, found, err = e.ledger.GetRow(ctx, x)
+	require.NoError(t, err)
+	require.False(t, found)
 	require.EqualValues(t, 2, e.ledger.mismatchCount())
 
 	require.NoError(t, e.ledger.newPageUnit().Commit(ctx, x, nil))
-	_, err = e.ledger.getRowRecord(ctx, x)
+	_, found, err = e.ledger.GetRow(ctx, x)
 	require.NoError(t, err)
+	require.True(t, found)
 	require.EqualValues(t, 2, e.ledger.mismatchCount())
 }
 
@@ -332,10 +335,10 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 		}))
 		require.Equal(t, len(tokens), n)
 
-		got, err := e.ledger.getRowRecord(ctx, grantsPageIdentity("github", tokens[1]))
+		got, err := readLedgerRowRaw(e, grantsPageIdentity("github", tokens[1]))
 		require.NoError(t, err)
 		require.Equal(t, ledgerTokenHash(tokens[2]), got.GetNextPageTokenHash())
-		_, err = e.ledger.getRowRecord(ctx, grantsPageIdentity("github", "not-a-real-token"))
+		_, err = readLedgerRowRaw(e, grantsPageIdentity("github", "not-a-real-token"))
 		require.ErrorIs(t, err, pebble.ErrNotFound)
 
 		require.NoError(t, e.ledger.scrubTokens(ctx))
@@ -445,7 +448,7 @@ func TestPageUnitCrashImageStoreEqualsLedger(t *testing.T) {
 
 		survivors := 0
 		for p := 0; p < pages; p++ {
-			_, rowErr := re.ledger.getRowRecord(ctx, pageID(p))
+			_, rowErr := readLedgerRowRaw(re, pageID(p))
 			rowPresent := rowErr == nil
 			if !rowPresent {
 				require.ErrorIs(t, rowErr, pebble.ErrNotFound, label)

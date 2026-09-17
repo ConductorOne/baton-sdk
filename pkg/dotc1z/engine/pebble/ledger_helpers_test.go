@@ -7,6 +7,7 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
@@ -93,3 +94,17 @@ func (l *Ledger) rowCount(ctx context.Context) (uint64, error) {
 
 // retainTokensFlag reports the flag.
 func (l *Ledger) retainTokensFlag() bool { return l.retainTokens.Load() }
+
+// readLedgerRowRaw reads the stored row without the identity compare.
+func readLedgerRowRaw(e *Engine, id c1zstore.LedgerActionIdentity) (*v3.LedgerRow, error) {
+	val, closer, err := e.db.Get(encodeLedgerKey(id))
+	if err != nil {
+		return nil, err
+	}
+	defer closer.Close()
+	row := &v3.LedgerRow{}
+	if err := unmarshalRecord(val, row); err != nil {
+		return nil, err
+	}
+	return row, nil
+}

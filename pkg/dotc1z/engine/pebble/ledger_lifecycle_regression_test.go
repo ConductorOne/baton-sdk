@@ -38,19 +38,19 @@ func TestLedgerScrubReachesTheTakeoverFrontier(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, state, moved, "the resume gets the stack verbatim; that part is intended")
 
-	f, found, err := e.ledger.getFrontier(ctx)
+	f, found, err := e.ledger.Frontier(ctx)
 	require.NoError(t, err)
 	require.True(t, found)
-	require.Contains(t, f.GetState(), marker, "before the seal the frontier holds the stack")
+	require.Contains(t, f.State, marker, "before the seal the frontier holds the stack")
 
 	require.NoError(t, e.ledger.scrubTokens(ctx))
 
-	f, found, err = e.ledger.getFrontier(ctx)
+	f, found, err = e.ledger.Frontier(ctx)
 	require.NoError(t, err)
 	require.True(t, found, "the takeover record survives as an audit trail")
-	require.Empty(t, f.GetState(), "the verbatim stack does not")
-	require.NotEmpty(t, f.GetAttempt(), "attempt and taken_over_at are the audit fact and stay")
-	require.False(t, strings.Contains(f.GetState(), marker))
+	require.Empty(t, f.State, "the verbatim stack does not")
+	require.NotEmpty(t, f.Attempt, "attempt and taken_over_at are the audit fact and stay")
+	require.False(t, strings.Contains(f.State, marker))
 }
 
 // A sync with ledger rows must be refused a checkpoint token even when
@@ -136,11 +136,11 @@ func TestTakeoverPersistsStatsOnlyCounters(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, n, "the takeover's stats survive it")
 
-	sum, err := e.ledger.sumCounters(ctx)
+	sum, err := e.ledger.Counters(ctx)
 	require.NoError(t, err)
-	require.Equal(t, int64(100), sum.GetStepDurationsMs()["list-grants"])
-	require.Equal(t, int64(2), sum.GetConnectorCalls()["ListGrants"].GetCount())
-	require.Equal(t, int64(5), sum.GetSessionCalls()["Get"].GetCount())
+	require.Equal(t, int64(100), sum.StepDurationsMs["list-grants"])
+	require.Equal(t, int64(2), sum.ConnectorCalls["ListGrants"].Count)
+	require.Equal(t, int64(5), sum.SessionCalls["Get"].Count)
 
 	e2, _ := newTestEngine(t)
 	_, err = e2.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -271,9 +271,9 @@ func TestTakeoverBucketSurvivesWorkerZerosPage(t *testing.T) {
 	require.NoError(t, u.StageCounterBucket("run-1", 0, bucket(0, "completed_actions", uint64(2))))
 	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
 
-	sum, err := e.ledger.sumCounters(ctx)
+	sum, err := e.ledger.Counters(ctx)
 	require.NoError(t, err)
-	require.Equal(t, uint64(7), sum.GetCounters()["completed_actions"],
+	require.Equal(t, uint64(7), sum.Counters["completed_actions"],
 		"5 migrated by the takeover plus 2 from worker 0; a shared key would report only 2")
 
 	n, err := e.ledger.counterBucketCount(ctx)
@@ -391,7 +391,7 @@ func TestPageUnitCommitRefusesAForeignSync(t *testing.T) {
 
 		_, err = e.GetResourceRecord(ctx, "user", "u1")
 		require.ErrorIs(t, err, pebble.ErrNotFound, "A's buffered rows must not land in B")
-		_, err = e.ledger.getRowRecord(ctx, id)
+		_, err = readLedgerRowRaw(e, id)
 		require.ErrorIs(t, err, pebble.ErrNotFound, "and B's ledger must not claim a page A ran")
 		require.False(t, e.ledger.inFlight.Load(),
 			"a refused commit must not leave B stamped in flight")
@@ -428,7 +428,7 @@ func TestDropLedgerWipesEveryLedgerSubFamily(t *testing.T) {
 	n, err := e.ledger.counterBucketCount(ctx)
 	require.NoError(t, err)
 	require.Zero(t, n, "buckets")
-	_, found, err := e.ledger.getFrontier(ctx)
+	_, found, err := e.ledger.Frontier(ctx)
 	require.NoError(t, err)
 	require.False(t, found, "frontier")
 }

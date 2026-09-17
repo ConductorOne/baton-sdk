@@ -56,11 +56,11 @@ var commitPointRegistry = map[string][]string{
 	// TestPageUnitFailedCommitLandsNothing and
 	// TestLedgerScrubAtSealForSensitiveTokens/"failed scrub" execute
 	// the seam.
-	"page_unit.go:Commit":      {"SetRecordCommitTestHook"},
-	"adapter_page.go:Commit":   {"SetRecordCommitTestHook"}, // v2 wrapper delegating to pageUnit.Commit
-	"ledger.go:scrubTokens":    {"SetRecordCommitTestHook"},
-	"ledger.go:takeoverRecord": {"SetRecordCommitTestHook"}, // RecordBatch: frontier + facts + bucket + token clear, one unit
-	"ledger.go:putCounterBucketRecord": {
+	"page_unit.go:Commit":    {"SetRecordCommitTestHook"},
+	"adapter_page.go:Commit": {"SetRecordCommitTestHook"}, // v2 wrapper delegating to pageUnit.Commit
+	"ledger.go:scrubTokens":  {"SetRecordCommitTestHook"},
+	"ledger.go:Takeover":     {"SetRecordCommitTestHook"}, // RecordBatch: frontier + facts + bucket + token clear, one unit
+	"ledger.go:PutCounterBucket": {
 		"excluded: single-key blind write of one bucket's whole value (the run's stats bucket); no cross-family obligation and " +
 			"idempotent on retry (the next forced point rewrites the same key); best-effort at the caller; errorfs covers write failure",
 	},
