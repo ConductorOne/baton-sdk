@@ -107,9 +107,9 @@ func TestPageWriterMatchesSingleCallAdapters(t *testing.T) {
 	require.False(t, found)
 	other := id
 	other.ParentResourceID = "acme"
-	val, err := marshalRecord(v3.LedgerRow_builder{Identity: ledgerIdentityToProto(ledgerIdentityFromStore(id))}.Build())
+	val, err := marshalRecord(v3.LedgerRow_builder{Identity: ledgerIdentityToProto(id)}.Build())
 	require.NoError(t, err)
-	require.NoError(t, paged.db.UnsafeForTesting().Set(encodeLedgerKey(ledgerIdentityFromStore(other)), val, pebble.Sync))
+	require.NoError(t, paged.db.UnsafeForTesting().Set(encodeLedgerKey(other), val, pebble.Sync))
 	_, found, err = store.GetRow(ctx, other)
 	require.NoError(t, err)
 	require.False(t, found, "a colliding row is not this page's row")

@@ -31,8 +31,8 @@ func ledgerTestEntitlement(rt, rid, ent string) *v3.EntitlementRecord {
 	}.Build()
 }
 
-func grantsPageIdentity(rid, token string) ledgerIdentity {
-	return ledgerIdentity{Op: "SyncGrants", ResourceTypeID: "app", ResourceID: rid, PageToken: token}
+func grantsPageIdentity(rid, token string) c1zstore.LedgerActionIdentity {
+	return c1zstore.LedgerActionIdentity{Op: "SyncGrants", ResourceTypeID: "app", ResourceID: rid, PageToken: token}
 }
 
 func TestLedgerKeyEncoding(t *testing.T) {
@@ -40,7 +40,7 @@ func TestLedgerKeyEncoding(t *testing.T) {
 
 	require.Equal(t, encodeLedgerKey(base), encodeLedgerKey(base), "identity ⇒ key is a function")
 
-	variants := []ledgerIdentity{
+	variants := []c1zstore.LedgerActionIdentity{
 		{Op: "SyncEntitlements", ResourceTypeID: "app", ResourceID: "github", PageToken: "p1"},
 		{Op: "SyncGrants", ResourceTypeID: "group", ResourceID: "github", PageToken: "p1"},
 		{Op: "SyncGrants", ResourceTypeID: "app", ResourceID: "gitlab", PageToken: "p1"},
@@ -50,7 +50,7 @@ func TestLedgerKeyEncoding(t *testing.T) {
 		{Op: "SyncGrants", ResourceTypeID: "app", ResourceID: "github", PageToken: "p1", TypeScoped: true},
 		{Op: "SyncGrants", ResourceTypeID: "app", ResourceID: "github", PageToken: ""},
 	}
-	seen := map[string]ledgerIdentity{string(encodeLedgerKey(base)): base}
+	seen := map[string]c1zstore.LedgerActionIdentity{string(encodeLedgerKey(base)): base}
 	for _, v := range variants {
 		k := string(encodeLedgerKey(v))
 		prev, dup := seen[k]
@@ -58,7 +58,7 @@ func TestLedgerKeyEncoding(t *testing.T) {
 		seen[k] = v
 	}
 
-	forged := ledgerIdentity{Op: "SyncGrants", ResourceTypeID: "app\x00github", ResourceID: "", PageToken: "p1"}
+	forged := c1zstore.LedgerActionIdentity{Op: "SyncGrants", ResourceTypeID: "app\x00github", ResourceID: "", PageToken: "p1"}
 	require.NotEqual(t, encodeLedgerKey(forged), encodeLedgerKey(base))
 
 	byOp := encodeLedgerPrefixOp("SyncGrants")
@@ -84,7 +84,7 @@ func TestPageUnitCommitIsOneFact(t *testing.T) {
 	require.NoError(t, err)
 
 	id := grantsPageIdentity("github", "p1")
-	child := ledgerIdentity{Op: "SyncGrants", ResourceTypeID: "app", ResourceID: "github", PageToken: "spawn-7", TypeScoped: true}
+	child := c1zstore.LedgerActionIdentity{Op: "SyncGrants", ResourceTypeID: "app", ResourceID: "github", PageToken: "spawn-7", TypeScoped: true}
 
 	_, err = e.ledger.getRowRecord(ctx, id)
 	require.ErrorIs(t, err, pebble.ErrNotFound)
@@ -94,7 +94,6 @@ func TestPageUnitCommitIsOneFact(t *testing.T) {
 	require.NoError(t, u.StageResources(ledgerTestResource("app", "github"), ledgerTestResource("user", "alice")))
 	require.NoError(t, u.StageEntitlements(ledgerTestEntitlement("app", "github", "ent-A")))
 	require.NoError(t, u.StageGrants(testGrantRecord("ent-A", "alice")))
-	require.False(t, u.Empty())
 
 	row := v3.LedgerRow_builder{
 		NextPageToken: "p2",
@@ -143,7 +142,6 @@ func TestPageUnitCommitIsOneFact(t *testing.T) {
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 
 	empty := e.ledger.newPageUnit()
-	require.True(t, empty.Empty())
 	require.NoError(t, empty.Commit(ctx, grantsPageIdentity("github", "p2"), nil))
 	got, err = e.ledger.getRowRecord(ctx, grantsPageIdentity("github", "p2"))
 	require.NoError(t, err)
@@ -429,7 +427,9 @@ func TestPageUnitCrashImageStoreEqualsLedger(t *testing.T) {
 	require.NoError(t, err)
 
 	pageRT := func(p int) string { return fmt.Sprintf("t%03d", p) }
-	pageID := func(p int) ledgerIdentity { return grantsPageIdentity("github", fmt.Sprintf("page-%03d", p)) }
+	pageID := func(p int) c1zstore.LedgerActionIdentity {
+		return grantsPageIdentity("github", fmt.Sprintf("page-%03d", p))
+	}
 	for p := 0; p < pages; p++ {
 		u := e.ledger.newPageUnit()
 		for i := 0; i < perPage; i++ {

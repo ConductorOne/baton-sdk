@@ -397,7 +397,6 @@ func TestPageUnitCommitRefusesAForeignSync(t *testing.T) {
 			"a refused commit must not leave B stamped in flight")
 
 		require.ErrorIs(t, u.Commit(ctx, id, nil), ErrPageUnitForeignSync)
-		require.False(t, u.Empty())
 	})
 }
 

@@ -21,9 +21,7 @@ type LedgerActionIdentity struct {
 	ParentResourceID     string
 	PageToken            string
 	TypeScoped           bool
-	// Spawned is carried for faithful child re-push; it is compared but
-	// does not participate in the ledger key.
-	Spawned bool
+	Spawned              bool
 }
 
 type LedgerRow struct {
@@ -59,6 +57,11 @@ type LedgerCounters struct {
 	// Run-level, carried by the run's RunBucketWorker bucket only.
 	StepDurationsMs map[string]int64
 	SessionCalls    map[string]CallStat
+}
+
+func (c LedgerCounters) IsZero() bool {
+	return len(c.Counters) == 0 && c.Flags == 0 &&
+		len(c.ConnectorCalls) == 0 && len(c.StepDurationsMs) == 0 && len(c.SessionCalls) == 0
 }
 
 // Reserved index of the run-level stats bucket; page buckets use real worker

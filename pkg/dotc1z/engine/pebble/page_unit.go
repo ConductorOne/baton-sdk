@@ -257,17 +257,8 @@ func (u *pageUnit) entitlementRecord(ctx context.Context, externalID string) (*v
 	return u.l.e.GetEntitlementRecord(ctx, externalID)
 }
 
-// A page that wrote nothing still commits; its ledger row is the fact that
-// it ran.
-func (u *pageUnit) Empty() bool {
-	return len(u.resourceTypes) == 0 && len(u.resources) == 0 &&
-		len(u.entitlements) == 0 && len(u.grants) == 0 &&
-		len(u.grantDeletes) == 0 && len(u.facts) == 0 &&
-		u.bucketValue == nil
-}
-
 // On failure the unit stays usable for a retry.
-func (u *pageUnit) Commit(ctx context.Context, id ledgerIdentity, row *v3.LedgerRow) error {
+func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity, row *v3.LedgerRow) error {
 	if u.done {
 		return ErrPageUnitCommitted
 	}
@@ -311,10 +302,8 @@ func (u *pageUnit) Commit(ctx context.Context, id ledgerIdentity, row *v3.Ledger
 		if err := l.e.requireCurrentSync(); err != nil {
 			return err
 		}
-		// A page begun under a previous sync would land its records in the
-		// replacement; sync_id is not in the keys, so nothing later could tell.
-		if now := l.e.CurrentSyncID(); u.syncID != "" && now != u.syncID {
-			return fmt.Errorf("%w: begun under %s, now %s", ErrPageUnitForeignSync, u.syncID, now)
+		if err := u.requireSameSync(); err != nil {
+			return err
 		}
 		if err := l.markInFlightLocked(); err != nil {
 			return err
@@ -401,4 +390,13 @@ func (u *pageUnit) release() {
 	u.grantDeletes = nil
 	u.facts = nil
 	u.bucketKey, u.bucketValue = nil, nil
+}
+
+// sync_id is not in the keys, so a page begun under a previous sync would
+// land its records in the replacement with nothing to tell them apart.
+func (u *pageUnit) requireSameSync() error {
+	if now := u.l.e.CurrentSyncID(); u.syncID != "" && now != u.syncID {
+		return fmt.Errorf("%w: begun under %s, now %s", ErrPageUnitForeignSync, u.syncID, now)
+	}
+	return nil
 }

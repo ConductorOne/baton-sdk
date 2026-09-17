@@ -30,18 +30,6 @@ type Ledger struct {
 
 func (e *Engine) Ledger() *Ledger { return &e.ledger }
 
-type ledgerIdentity struct {
-	Op                   string
-	ResourceTypeID       string
-	ResourceID           string
-	ParentResourceTypeID string
-	ParentResourceID     string
-	PageToken            string
-	TypeScoped           bool
-	// Spawned rides in the value and the compare, not the key.
-	Spawned bool
-}
-
 // 128 bits: a collision costs a re-run (the identity compare fails), never a skip.
 const ledgerTokenHashLen = 16
 
@@ -50,7 +38,7 @@ func ledgerTokenHash(token string) []byte {
 	return sum[:ledgerTokenHashLen]
 }
 
-func encodeLedgerKey(id ledgerIdentity) []byte {
+func encodeLedgerKey(id c1zstore.LedgerActionIdentity) []byte {
 	buf := make([]byte, 0, 64+len(id.Op)+len(id.ResourceTypeID)+len(id.ResourceID)+
 		len(id.ParentResourceTypeID)+len(id.ParentResourceID))
 	buf = append(buf, rawdb.LedgerKeyPrefix()...)
@@ -58,6 +46,7 @@ func encodeLedgerKey(id ledgerIdentity) []byte {
 		id.ParentResourceTypeID, id.ParentResourceID)
 	buf = codec.AppendTupleSeparator(buf)
 	buf = codec.AppendTupleBool(buf, id.TypeScoped)
+	buf = codec.AppendTupleBool(buf, id.Spawned)
 	buf = codec.AppendTupleSeparator(buf)
 	return codec.AppendTupleBytes(buf, ledgerTokenHash(id.PageToken))
 }
@@ -65,7 +54,7 @@ func encodeLedgerKey(id ledgerIdentity) []byte {
 func ledgerLowerBound() []byte { lo, _ := rawdb.LedgerBounds(); return lo }
 func ledgerUpperBound() []byte { _, hi := rawdb.LedgerBounds(); return hi }
 
-func ledgerIdentityToProto(id ledgerIdentity) *v3.LedgerActionIdentity {
+func ledgerIdentityToProto(id c1zstore.LedgerActionIdentity) *v3.LedgerActionIdentity {
 	return v3.LedgerActionIdentity_builder{
 		Op:                   id.Op,
 		ResourceTypeId:       id.ResourceTypeID,
@@ -79,8 +68,8 @@ func ledgerIdentityToProto(id ledgerIdentity) *v3.LedgerActionIdentity {
 	}.Build()
 }
 
-func ledgerIdentityFromProto(p *v3.LedgerActionIdentity) ledgerIdentity {
-	return ledgerIdentity{
+func ledgerIdentityFromProto(p *v3.LedgerActionIdentity) c1zstore.LedgerActionIdentity {
+	return c1zstore.LedgerActionIdentity{
 		Op:                   p.GetOp(),
 		ResourceTypeID:       p.GetResourceTypeId(),
 		ResourceID:           p.GetResourceId(),
@@ -94,7 +83,7 @@ func ledgerIdentityFromProto(p *v3.LedgerActionIdentity) ledgerIdentity {
 
 // A row failing this compare is treated as absent: a key collision costs a
 // re-run, never a skip. After a scrub the token compares by hash.
-func ledgerIdentityMatches(want ledgerIdentity, got *v3.LedgerActionIdentity, scrubbed bool) bool {
+func ledgerIdentityMatches(want c1zstore.LedgerActionIdentity, got *v3.LedgerActionIdentity, scrubbed bool) bool {
 	if got.GetOp() != want.Op ||
 		got.GetResourceTypeId() != want.ResourceTypeID ||
 		got.GetResourceId() != want.ResourceID ||
@@ -114,7 +103,7 @@ var errLedgerIdentityMismatch = errors.New("pebble ledger: row at key echoes a d
 
 // errLedgerIdentityMismatch: a row exists at id's key for another identity;
 // callers treat it as no row.
-func (l *Ledger) getRowRecord(ctx context.Context, id ledgerIdentity) (*v3.LedgerRow, error) {
+func (l *Ledger) getRowRecord(ctx context.Context, id c1zstore.LedgerActionIdentity) (*v3.LedgerRow, error) {
 	key := encodeLedgerKey(id)
 	val, closer, err := l.e.db.Get(key)
 	if err != nil {
@@ -379,10 +368,8 @@ func (l *Ledger) scrubTokens(ctx context.Context) error {
 		defer iter.Close()
 
 		batch := l.e.db.NewRecordBatch()
-		// Closure, not `defer batch.Close()`: commit re-mints the batch,
-		// and a direct defer would bind the first one.
 		defer func() { _ = batch.Close() }()
-		commit := func() error {
+		flush := func() error {
 			if batch.Empty() {
 				return nil
 			}
@@ -415,7 +402,7 @@ func (l *Ledger) scrubTokens(ctx context.Context) error {
 				return err
 			}
 			if batch.Len() >= ledgerScrubBatchBytes {
-				if err := commit(); err != nil {
+				if err := flush(); err != nil {
 					return err
 				}
 			}
@@ -426,7 +413,7 @@ func (l *Ledger) scrubTokens(ctx context.Context) error {
 		if err := l.scrubFrontierLocked(ctx, batch); err != nil {
 			return err
 		}
-		return commit()
+		return flush()
 	})
 }
 

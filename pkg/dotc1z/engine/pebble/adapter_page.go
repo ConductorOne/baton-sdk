@@ -110,7 +110,7 @@ func (w *pageWriter) Commit(ctx context.Context, id c1zstore.LedgerActionIdentit
 	if err := w.requireSync(); err != nil {
 		return err
 	}
-	if err := w.unit.Commit(ctx, ledgerIdentityFromStore(id), ledgerRowToProto(row)); err != nil {
+	if err := w.unit.Commit(ctx, id, ledgerRowToProto(row)); err != nil {
 		return fmt.Errorf("page commit: %w", err)
 	}
 	return nil
@@ -120,7 +120,7 @@ func (w *pageWriter) Discard() { w.unit.Discard() }
 
 // Absent and identity-mismatch both read as not found.
 func (l *Ledger) GetRow(ctx context.Context, id c1zstore.LedgerActionIdentity) (*c1zstore.LedgerRow, bool, error) {
-	row, err := l.getRowRecord(ctx, ledgerIdentityFromStore(id))
+	row, err := l.getRowRecord(ctx, id)
 	switch {
 	case err == nil:
 		return ledgerRowFromProto(row), true, nil
@@ -153,17 +153,10 @@ func (l *Ledger) Frontier(ctx context.Context) (*c1zstore.LedgerFrontier, bool, 
 
 func (l *Ledger) Takeover(ctx context.Context, runID string, facts []string, counters c1zstore.LedgerCounters) (string, error) {
 	var bucket *v3.LedgerCounterBucket
-	if !ledgerCountersEmpty(counters) {
+	if !counters.IsZero() {
 		bucket = ledgerCountersToProto(counters)
 	}
 	return l.takeoverRecord(ctx, runID, facts, bucket)
-}
-
-// All five fields: the token being taken over may carry only timings or
-// call stats, and the takeover clears that token in the same batch.
-func ledgerCountersEmpty(c c1zstore.LedgerCounters) bool {
-	return len(c.Counters) == 0 && c.Flags == 0 &&
-		len(c.ConnectorCalls) == 0 && len(c.StepDurationsMs) == 0 && len(c.SessionCalls) == 0
 }
 
 func (l *Ledger) PutCounterBucket(ctx context.Context, runID string, worker uint32, counters c1zstore.LedgerCounters) error {
@@ -260,21 +253,13 @@ func ledgerCountersFromProto(b *v3.LedgerCounterBucket) c1zstore.LedgerCounters 
 	return out
 }
 
-func ledgerIdentityFromStore(id c1zstore.LedgerActionIdentity) ledgerIdentity {
-	return ledgerIdentity(id)
-}
-
-func ledgerIdentityToStore(id ledgerIdentity) c1zstore.LedgerActionIdentity {
-	return c1zstore.LedgerActionIdentity(id)
-}
-
 func ledgerRowToProto(row *c1zstore.LedgerRow) *v3.LedgerRow {
 	if row == nil {
 		return nil
 	}
 	children := make([]*v3.LedgerActionIdentity, 0, len(row.Children))
 	for _, c := range row.Children {
-		children = append(children, ledgerIdentityToProto(ledgerIdentityFromStore(c)))
+		children = append(children, ledgerIdentityToProto(c))
 	}
 	b := v3.LedgerRow_builder{
 		NextPageToken:     row.NextPageToken,
@@ -295,10 +280,10 @@ func ledgerRowToProto(row *c1zstore.LedgerRow) *v3.LedgerRow {
 func ledgerRowFromProto(p *v3.LedgerRow) *c1zstore.LedgerRow {
 	children := make([]c1zstore.LedgerActionIdentity, 0, len(p.GetChildren()))
 	for _, c := range p.GetChildren() {
-		children = append(children, ledgerIdentityToStore(ledgerIdentityFromProto(c)))
+		children = append(children, ledgerIdentityFromProto(c))
 	}
 	row := &c1zstore.LedgerRow{
-		Identity:             ledgerIdentityToStore(ledgerIdentityFromProto(p.GetIdentity())),
+		Identity:             ledgerIdentityFromProto(p.GetIdentity()),
 		NextPageToken:        p.GetNextPageToken(),
 		Children:             children,
 		Attempt:              p.GetAttempt(),
