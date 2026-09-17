@@ -102,8 +102,6 @@ func TestClearCompactionSection(t *testing.T) {
 	require.EqualValues(t, 1, parts.stats.connectorCallStats()["list-grants"].Count)
 
 	t.Run("empty stays empty", func(t *testing.T) {
-		// Not a round-trip: Unmarshal("") seeds an InitOp action, which a
-		// finished compacted output must never carry.
 		out, err := ClearCompactionSection("")
 		require.NoError(t, err)
 		require.Empty(t, out)

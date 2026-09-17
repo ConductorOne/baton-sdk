@@ -89,9 +89,6 @@ func TestWriteMuHolders(t *testing.T) {
 			if !ok || fd.Body == nil {
 				continue
 			}
-			// Engine, Ledger and pageUnit methods, plus plain functions (Open
-			// builds the engine as a local e and calls its methods before
-			// publishing it).
 			if fd.Recv == nil || (len(fd.Recv.List) == 1 && checkedReceivers[receiverTypeName(fd.Recv.List[0].Type)]) {
 				_, dup := methods[fd.Name.Name]
 				require.False(t, dup, "%s declared on two checked types; the checker keys by name", fd.Name.Name)

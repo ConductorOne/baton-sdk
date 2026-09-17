@@ -22,9 +22,7 @@ var foldLedgerPageID = c1zstore.LedgerActionIdentity{
 }
 
 const (
-	foldLedgerRunID = "base-run"
-	// foldLedgerCounterKey is distinctive so a non-zero reading on the
-	// fold output can only have come from the base's bucket.
+	foldLedgerRunID      = "base-run"
 	foldLedgerCounterKey = "fold-ledger-fixture-grants"
 )
 
@@ -75,8 +73,6 @@ func buildLedgeredPebbleInput(t *testing.T, ctx context.Context, path string, st
 	}.Build()
 	require.NoError(t, w.PutEntitlements(ctx, member))
 
-	// The grants ride a page, so the commit stages the ledger row and the
-	// counter bucket in the same batch as the records.
 	page := ledger.BeginPage()
 	for _, id := range grantIDs {
 		user := usersByGrantID[id]
@@ -121,8 +117,6 @@ func TestCompactPebbleFoldDropsInheritedBaseLedger(t *testing.T) {
 	partialSyncID := buildPebbleInput(t, ctx, partialPath, connectorstore.SyncTypePartial, "g-shared", "g-partial-only")
 	markFoldInputVerified(t, ctx, basePath, baseSyncID)
 
-	// The base really does carry a ledger into the fold; without this the
-	// drop below could pass against a file that never had one.
 	requireLedgerRow(t, ctx, basePath, true, "the fold's base input")
 	requireLedgerCounter(t, ctx, basePath, 2, "the fold's base input")
 
@@ -139,8 +133,6 @@ func TestCompactPebbleFoldDropsInheritedBaseLedger(t *testing.T) {
 	require.NotNil(t, out)
 	require.NotEqual(t, baseSyncID, out.SyncID)
 
-	// The records survive the fold; only the ledger describing how they
-	// were collected is gone.
 	count, _ := verifyCompacted(t, ctx, out.FilePath, out.SyncID)
 	require.Equal(t, 3, count, "the fold must keep the union of grants")
 
@@ -157,9 +149,6 @@ func TestCompactPebbleFoldDropsInheritedBaseLedger(t *testing.T) {
 	require.Zero(t, counters.Counters[foldLedgerCounterKey],
 		"the fold output reports the base ingest's counter totals as its own")
 
-	// The consequence that bites in production: a rebound sync must be
-	// able to write a checkpoint token. An inherited ledger makes
-	// Ledger.active true and this fails with ErrLedgeredSyncWritesNoToken.
 	require.NoError(t, store.SetCurrentSync(ctx, out.SyncID))
 	require.NoError(t, store.CheckpointSync(ctx, "token-after-fold"),
 		"an inherited ledger blocks the fold output from checkpointing a later sync")

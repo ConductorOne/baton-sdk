@@ -36,7 +36,6 @@ func TestLedgerFactsAndBucketsRideThePageUnit(t *testing.T) {
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	// Failed commit: nothing.
 	u := e.ledger.newPageUnit()
 	require.NoError(t, u.StageFact("needs_expansion"))
 	require.NoError(t, u.StageCounterBucket("run-1", 0, bucket(0b1, "grants_dropped", uint64(3))))
@@ -51,21 +50,17 @@ func TestLedgerFactsAndBucketsRideThePageUnit(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, sum.GetCounters())
 
-	// Retry: both land with the row.
 	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
 	facts, err = e.ledger.Facts(ctx)
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"needs_expansion": ""}, facts)
 
-	// Same fact again, another worker's bucket in the same run, then a
-	// second run with one worker (fewer workers on resume).
 	u2 := e.ledger.newPageUnit()
 	require.NoError(t, u2.StageFact("needs_expansion"))
 	require.NoError(t, u2.StageFact("has_external_resource_grants"))
 	require.NoError(t, u2.StageCounterBucket("run-1", 3, bucket(0b10, "grants_dropped", uint64(2), "entitlements_dropped", uint64(1))))
 	require.NoError(t, u2.Commit(ctx, grantsPageIdentity("github", "p2"), nil))
 	u3 := e.ledger.newPageUnit()
-	// The worker's cumulative total (5), not a delta: blind overwrite.
 	require.NoError(t, u3.StageCounterBucket("run-1", 0, bucket(0b1, "grants_dropped", uint64(5))))
 	require.NoError(t, u3.Commit(ctx, grantsPageIdentity("github", "p3"), nil))
 	u4 := e.ledger.newPageUnit()
@@ -84,12 +79,10 @@ func TestLedgerFactsAndBucketsRideThePageUnit(t *testing.T) {
 	require.EqualValues(t, 1, sum.GetCounters()["entitlements_dropped"])
 	require.EqualValues(t, 0b11, sum.GetFlags())
 
-	// Rows are unaffected by the siblings: the row iterators see rows only.
 	rows, err := e.ledger.rowCount(ctx)
 	require.NoError(t, err)
 	require.EqualValues(t, 4, rows)
 
-	// The whole family goes with the sync.
 	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 	_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -137,7 +130,6 @@ func TestLedgerTakeoverIsOneUnit(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, n)
 
-	// Success: all four.
 	moved, err := e.ledger.Takeover(ctx, "run-1", []string{"needs_expansion"}, counters)
 	require.NoError(t, err)
 	require.Equal(t, legacyState, moved)
@@ -156,12 +148,10 @@ func TestLedgerTakeoverIsOneUnit(t *testing.T) {
 	got, err := e.ledger.Counters(ctx)
 	require.NoError(t, err)
 	require.Equal(t, counters, got)
-	// The takeover marks the file in flight like a page commit would.
 	v, err := e.keyspaceVersionStamp()
 	require.NoError(t, err)
 	require.Equal(t, keyspaceVersionLedgerInFlight, v)
 
-	// Nothing to take over now: a no-op that leaves the frontier alone.
 	moved, err = e.ledger.Takeover(ctx, "run-2", nil, c1zstore.LedgerCounters{})
 	require.NoError(t, err)
 	require.Empty(t, moved)
@@ -169,14 +159,12 @@ func TestLedgerTakeoverIsOneUnit(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 
-	// Sync-run metadata other than the token is preserved by the takeover.
 	rec, err := e.GetSyncRunRecord(ctx, e.CurrentSyncID())
 	require.NoError(t, err)
 	require.Equal(t, v3.SyncType_SYNC_TYPE_FULL, rec.GetType())
 	require.NotNil(t, rec.GetStartedAt())
 	require.Nil(t, rec.GetEndedAt())
 
-	// The frontier is readable through the store-facing interface too.
 	sf, found, err := e.ledger.Frontier(ctx)
 	require.NoError(t, err)
 	require.True(t, found)
@@ -246,8 +234,6 @@ func TestLedgerTakeoverCrashImages(t *testing.T) {
 	require.Equal(t, legacyState, moved)
 	require.NotNil(t, mid, "the hook ran")
 
-	// Stamp ahead of the batch. A token-only SDK refuses a file it could
-	// have resumed; this SDK sees a token-only sync and takes over again.
 	withTokenOnlySDK(func() {
 		_, err := Open(ctx, "takeover-crash-db", WithVFS(mid), WithReadOnly(true))
 		require.Error(t, err, "mid: token-only SDK refuses the in-flight stamp")
@@ -286,7 +272,6 @@ func TestLedgerTakeoverRequiresOpenSync(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.ledger.Takeover(ctx, "run", nil, c1zstore.LedgerCounters{})
 	require.Error(t, err)
-	// And with a sync but no token: no-op, no frontier.
 	_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	moved, err := e.ledger.Takeover(ctx, "run", nil, c1zstore.LedgerCounters{})
@@ -309,8 +294,6 @@ func TestLedgeredSyncSealsOnlyWithStats(t *testing.T) {
 	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	// Two runs' buckets (a page bucket and a run-level bucket each); the
-	// fold adds counts and durations and takes the max latency.
 	require.NoError(t, e.ledger.PutCounterBucket(ctx, "run-1", 0, c1zstore.LedgerCounters{
 		Counters:       map[string]uint64{"completed_actions": 3},
 		ConnectorCalls: map[string]c1zstore.CallStat{"ListGrants": {Count: 2, TotalMs: 40, MaxMs: 30}},
@@ -325,7 +308,6 @@ func TestLedgeredSyncSealsOnlyWithStats(t *testing.T) {
 	require.NoError(t, e.ledger.PutCounterBucket(ctx, "run-2", c1zstore.RunBucketWorker, c1zstore.LedgerCounters{
 		StepDurationsMs: map[string]int64{"list-grants": 50},
 	}))
-	// Rewriting a bucket supersedes it (a total, not a delta).
 	require.NoError(t, e.ledger.PutCounterBucket(ctx, "run-2", 0, c1zstore.LedgerCounters{
 		Counters:       map[string]uint64{"completed_actions": 2},
 		ConnectorCalls: map[string]c1zstore.CallStat{"ListGrants": {Count: 2, TotalMs: 20, MaxMs: 12}},
@@ -371,7 +353,6 @@ func TestLedgeredSyncSealsOnlyWithStats(t *testing.T) {
 	require.Empty(t, sealed.GetSyncToken())
 	require.NotNil(t, sealed.GetEndedAt())
 
-	// Token-only: no ledger writes, plain EndSync still seals.
 	e2, _ := newTestEngine(t)
 	_, err = e2.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)

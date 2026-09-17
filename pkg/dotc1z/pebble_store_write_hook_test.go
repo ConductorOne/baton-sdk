@@ -53,16 +53,12 @@ func TestWriteHookOutcomes(t *testing.T) {
 		return store, &seen
 	}
 
-	// A direct store write, the thing the hook guards. PutGrants is one of
-	// the methods a page would otherwise route through its PageWriter.
 	directWrite := func(ctx context.Context, store c1zstore.Store) error {
 		return store.PutGrants(ctx, mkV2Grant("g1", "ent", "user", "alice"))
 	}
 
 	t.Run("no hook: write proceeds", func(t *testing.T) {
 		store, seen := newHookStore(t, false)
-		// Inside a page, which is what makes this the interesting cell:
-		// with no hook the hook must not consult PageOpen at all.
 		require.NoError(t, directWrite(c1zstore.WithOpenPage(ctx), store))
 		require.Empty(t, *seen)
 	})
@@ -118,7 +114,6 @@ func TestWriteHookContextHelpers(t *testing.T) {
 	_, ok = c1zstore.PageWriteBypass(c1zstore.WithPageWriteBypass(ctx, ""))
 	require.False(t, ok, "an empty reason must not count as a registration")
 
-	// strictWriteHook tolerates a nil recorder.
 	require.NoError(t, strictWriteHook(nil)(ctx, c1zstore.WriteHookEvent{Method: "M", Bypass: "r"}))
 	require.ErrorIs(t,
 		strictWriteHook(nil)(ctx, c1zstore.WriteHookEvent{Method: "M"}),

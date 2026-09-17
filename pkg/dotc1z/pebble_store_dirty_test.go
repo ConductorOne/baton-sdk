@@ -69,7 +69,6 @@ func TestPebbleStorePageCommitMarksDirty(t *testing.T) {
 	require.NoError(t, err)
 	require.NotZero(t, fi.Size(), "c1z size = 0; pebble store didn't flush after a page commit")
 
-	// The row survives the save/reopen round trip as part of the file.
 	reopened, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, reopened.Close(ctx)) }()
@@ -94,7 +93,6 @@ func TestPebbleStoreDropLedgerMarksDirty(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "reset-ledger-dirty.c1z")
 	id := c1zstore.LedgerActionIdentity{Op: "SyncGrants", ResourceTypeID: "app", ResourceID: "github"}
 
-	// A sealed sync whose ledger is retained in the artifact.
 	store, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -105,7 +103,6 @@ func TestPebbleStoreDropLedgerMarksDirty(t *testing.T) {
 	require.NoError(t, store.(c1zstore.PageLedgerStore).EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 	require.NoError(t, store.Close(ctx))
 
-	// Reopen CLEAN and make the drop the only write of the session.
 	store, err = NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	ledger, ok := store.(c1zstore.PageLedgerStore)
@@ -116,7 +113,6 @@ func TestPebbleStoreDropLedgerMarksDirty(t *testing.T) {
 	require.NoError(t, ledger.DropLedger(ctx))
 	require.NoError(t, store.Close(ctx))
 
-	// The drop has to be in the saved file, not just the discarded temp DB.
 	store, err = NewStore(ctx, path, WithEngine(c1zstore.EnginePebble), WithReadOnly(true))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, store.Close(ctx)) }()

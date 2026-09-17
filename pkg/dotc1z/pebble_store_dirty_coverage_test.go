@@ -27,13 +27,8 @@ import (
 type dirtyKind int
 
 const (
-	// dirtyWrite mutates the keyspace, so pebbleStore must declare it and
-	// mark the store dirty.
 	dirtyWrite dirtyKind = iota
-	// dirtyRead touches no key, so promotion from the embedded engine is
-	// correct and an override would be noise.
 	dirtyRead
-	// dirtyDeferred returns a writer whose own commit carries the mark.
 	dirtyDeferred
 )
 
@@ -43,7 +38,6 @@ var capabilityMethods = map[string]struct {
 	kind dirtyKind
 	why  string
 }{
-	// PageLedgerStore
 	"BeginPage":             {dirtyDeferred, "returns a PageWriter; the staging calls write nothing until Commit, and dirtyPageWriter.Commit carries the mark for the whole batch"},
 	"GetLedgerRow":          {dirtyRead, "read"},
 	"SetRetainLedgerTokens": {dirtyRead, "sets an in-memory flag; the durable retain fact is written by a later page commit, which marks dirty itself"},
@@ -56,7 +50,6 @@ var capabilityMethods = map[string]struct {
 	"PutCounterBucket":      {dirtyWrite, "blind-writes the bucket"},
 	"EndSyncWithStats":      {dirtyWrite, "the seal: scrub, purge, stamp, ended_at, stats sidecar"},
 
-	// pebbleStoreGrantLayerStorer
 	"BeginExpandedGrantLayer":            {dirtyRead, "allocates an in-memory session; the first Add is what touches the file"},
 	"AddExpandedGrantLayerContributions": {dirtyWrite, "ingests a filled segment into the live keyspace and arms the deferred by_principal rebuild, both before Finish"},
 	"FinishExpandedGrantLayer":           {dirtyWrite, "publishes the layer"},
@@ -116,9 +109,6 @@ func TestPebbleStoreDirtyCoverage(t *testing.T) {
 	declared := pebbleStoreMethods(t)
 
 	var unclassified []string
-	// recv is the type whose method carries the mark for that interface: the
-	// page ledger capability is satisfied by *pebbleStore itself, the layer
-	// session by the value Grants() returns.
 	for _, capability := range []struct {
 		iface reflect.Type
 		recv  string
@@ -153,7 +143,6 @@ func TestPebbleStoreDirtyCoverage(t *testing.T) {
 				require.Truef(t, found && marks,
 					"%s.%s defers its write (%s), so dirtyPageWriter.Commit must carry the mark", iface.String(), name, spec.why)
 			case dirtyRead:
-				// Promotion is correct; nothing to assert.
 			}
 		}
 	}

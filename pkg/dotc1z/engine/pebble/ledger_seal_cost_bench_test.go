@@ -76,9 +76,6 @@ func sealBenchSizes(b *testing.B, e *Engine) (uint64, uint64) {
 
 func benchmarkSealCost(b *testing.B, pages, grants int, op string, grantIndex bool) {
 	ctx := context.Background()
-	// Summed across iterations and divided by b.N below. Reporting the
-	// last iteration's values instead would describe one run out of b.N,
-	// and silently so at any -benchtime above the default.
 	var ledgerBytes, dbBytes uint64
 	var compactions int64
 	var compactMS float64
@@ -135,8 +132,6 @@ func benchmarkSealCost(b *testing.B, pages, grants int, op string, grantIndex bo
 // default: seal minus seal-retain is what every sync now pays.
 func BenchmarkLedgerSealCost(b *testing.B) {
 	type shape struct{ pages, grants int }
-	// Page counts span a small sync to one checkpointing every page of a
-	// large one; grant volume is what puts unrelated SSTs near the bounds.
 	shapes := []shape{
 		// pages=0 is every sync in the fleet until the syncer moves onto
 		// the ledger, and the shape the scrub default would otherwise have

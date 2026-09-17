@@ -1,10 +1,7 @@
 package pebble
 
-// Regression tests for six lifecycle defects found reviewing the ledger
-// storage port. Each fails on the code as it stood before its fix; the
-// comment on each names the mechanism, so a future change that
-// reintroduces one gets told which contract it broke rather than just
-// which assertion moved.
+// Each test here fails on the code as it stood before its fix; the comment
+// names the mechanism.
 
 import (
 	"context"
@@ -20,8 +17,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-// The seal must not leave a verbatim page token in the frontier.
-//
 // Ledger.takeoverRecord stores the taken-over sync token JSON verbatim, and every
 // Action in that JSON carries a page_token. Ledger.scrubTokens iterates
 // LedgerRowBounds, which is kind 0x00 only; the frontier is kind 0x03, so
@@ -33,8 +28,6 @@ func TestLedgerScrubReachesTheTakeoverFrontier(t *testing.T) {
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	// Stands in for a page token that carries a credential, which is the
-	// case the seal's scrub exists for.
 	const marker = "opaque-cursor-9f3a"
 	state := `{"v":1,"actions":[{"op":"list-grants","page_token":"` + marker + `"}]}`
 	require.NoError(t, e.CheckpointSync(ctx, state))
@@ -79,9 +72,6 @@ func TestCheckpointRefusedWhileLedgerRowsExistWithoutTheStamp(t *testing.T) {
 	require.True(t, e.ledger.inFlight.Load(), "committing a page stamps in flight")
 	require.ErrorIs(t, e.CheckpointSync(ctx, "tok"), ErrLedgeredSyncWritesNoToken)
 
-	// Exactly the state the seal's clear leaves behind, and the state a
-	// reopen after a crash in that window reconstructs: stamp gone, rows
-	// still there.
 	require.NoError(t, e.withWriteAllowSealed(e.ledger.clearInFlightLocked))
 	require.False(t, e.ledger.inFlight.Load())
 
@@ -91,8 +81,6 @@ func TestCheckpointRefusedWhileLedgerRowsExistWithoutTheStamp(t *testing.T) {
 		"the same applies to sealing without stats")
 }
 
-// StartNewSync must not leave a stamp describing a ledger it deleted.
-//
 // ResetForNewSync excises the ledger family but the keyspace stamp lives
 // in the preserved engine-meta range, so the in-flight classification
 // outlived the rows. The replacement sync was then refused a token by
@@ -112,11 +100,9 @@ func TestResetForNewSyncClearsTheInFlightStamp(t *testing.T) {
 	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
 	require.True(t, e.ledger.inFlight.Load(), "committing a page stamps in flight")
 
-	// The crash: no seal, so the stamp stays on disk.
 	e = reopenEngine(t, e, dir)
 	require.True(t, e.ledger.inFlight.Load(), "reopen reads the stamp back")
 
-	// StartNewSync wipes the ledger family. The stamp has to go with it.
 	_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	rows, err := e.ledger.rowCount(ctx)
@@ -124,14 +110,10 @@ func TestResetForNewSyncClearsTheInFlightStamp(t *testing.T) {
 	require.Zero(t, rows, "the wipe took the rows")
 	require.False(t, e.ledger.inFlight.Load(), "and the stamp that described them")
 
-	// Both protocols work again on a file with no ledger. Before the fix
-	// the replacement sync could use neither.
 	require.NoError(t, e.CheckpointSync(ctx, "tok"))
 	require.NoError(t, e.EndSync(ctx))
 }
 
-// A takeover carrying only run-level stats must still write its bucket.
-//
 // The gate tested Counters and Flags but LedgerCounters has five fields.
 // A token whose phases had run without completing a page produced no
 // bucket, and takeover clears that token in the same batch, so the
@@ -143,7 +125,6 @@ func TestTakeoverPersistsStatsOnlyCounters(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, e.CheckpointSync(ctx, `{"v":1,"actions":[{"op":"list-grants"}]}`))
 
-	// No Counters, no Flags: only the three fields the old gate ignored.
 	_, err = e.ledger.Takeover(ctx, "run-1", nil, c1zstore.LedgerCounters{
 		ConnectorCalls:  map[string]c1zstore.CallStat{"ListGrants": {Count: 2, TotalMs: 40, MaxMs: 30}},
 		StepDurationsMs: map[string]int64{"list-grants": 100},
@@ -161,9 +142,6 @@ func TestTakeoverPersistsStatsOnlyCounters(t *testing.T) {
 	require.Equal(t, int64(2), sum.GetConnectorCalls()["ListGrants"].GetCount())
 	require.Equal(t, int64(5), sum.GetSessionCalls()["Get"].GetCount())
 
-	// An entirely empty struct still writes nothing. Its own engine: the
-	// takeover above left a frontier, and CheckpointSync is refused once
-	// the ledger holds anything, so this cannot be set up on that file.
 	e2, _ := newTestEngine(t)
 	_, err = e2.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -175,8 +153,6 @@ func TestTakeoverPersistsStatsOnlyCounters(t *testing.T) {
 	require.Zero(t, n, "nothing to record, so no bucket")
 }
 
-// A spent pageUnit must answer both page-scoped reads the same way.
-//
 // release nilled resourceIdx but not entitlementIdx, and neither getter
 // checked done. GetResourceRecord therefore fell through to the DB while
 // GetEntitlementRecord indexed a nil slice and panicked, so the two
@@ -198,7 +174,6 @@ func TestPageUnitReadsAfterCommitAreRefusedNotPanics(t *testing.T) {
 				ResourceTypeId: "user", ResourceId: "u1",
 			}.Build()))
 
-			// Staged, so both reads come from the buffer.
 			gotEnt, err := u.entitlementRecord(ctx, "ent-1")
 			require.NoError(t, err)
 			require.Equal(t, "ent-1", gotEnt.GetExternalId())
@@ -212,8 +187,6 @@ func TestPageUnitReadsAfterCommitAreRefusedNotPanics(t *testing.T) {
 				u.Discard()
 			}
 
-			// The staged ids are the dangerous ones: they are what the
-			// surviving index still pointed at.
 			_, err = u.entitlementRecord(ctx, "ent-1")
 			require.ErrorIs(t, err, ErrPageUnitCommitted)
 			_, err = u.resourceRecord(ctx, "user", "u1")
@@ -222,8 +195,6 @@ func TestPageUnitReadsAfterCommitAreRefusedNotPanics(t *testing.T) {
 	}
 }
 
-// The retain opt-out must survive a crash, and its absence must scrub.
-//
 // The declaration is made by the process that starts the sync while the
 // seal runs wherever the sync finishes, which after a crash is a
 // different process holding a zero-valued flag. An in-memory flag alone
@@ -238,8 +209,6 @@ func TestRetainDeclarationSurvivesCrashAndItsAbsenceScrubs(t *testing.T) {
 	ctx := context.Background()
 	const marker = "opaque-cursor-7c1b"
 
-	// A page, a crash, and a resume in a process that never declared
-	// anything. Returns the sealed engine's rows.
 	sealAfterCrash := func(t *testing.T, declare func(e *Engine)) []*v3.LedgerRow {
 		t.Helper()
 		e, dir := newTestEngine(t)
@@ -281,8 +250,6 @@ func TestRetainDeclarationSurvivesCrashAndItsAbsenceScrubs(t *testing.T) {
 	})
 }
 
-// A takeover's migrated counters must survive worker 0's first page.
-//
 // Buckets are blind-written whole totals keyed by (run, worker) and the
 // fold sums across them, so the takeover writing at (runID, 0) put it on
 // a key a real page worker also owns: worker 0's first commit in the
@@ -300,7 +267,6 @@ func TestTakeoverBucketSurvivesWorkerZerosPage(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Worker 0's page, same run, staging its own whole total.
 	u := e.ledger.newPageUnit()
 	require.NoError(t, u.StageCounterBucket("run-1", 0, bucket(0, "completed_actions", uint64(2))))
 	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
@@ -315,8 +281,6 @@ func TestTakeoverBucketSurvivesWorkerZerosPage(t *testing.T) {
 	require.Equal(t, 2, n, "two distinct buckets, not one overwritten")
 }
 
-// Dropping the ledger must drop the stamp that describes it.
-//
 // DropLedger removed the rows and left both the on-disk stamp and the
 // in-memory flag set, so a drop before the seal left a file with no
 // ledger that still refused CheckpointSync and still refused a plain
@@ -341,13 +305,10 @@ func TestDropLedgerClearsTheInFlightStamp(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, keyspaceVersion, stamp, "and on disk, so an older SDK can read the file")
 
-	// The sync is token-only again, which is what the drop made true.
 	require.NoError(t, e.CheckpointSync(ctx, "tok"))
 	require.NoError(t, e.EndSync(ctx))
 }
 
-// A failed seal must not leave its stats overlay behind.
-//
 // endSync stashes the overlay before GetSyncRunRecord and endSyncFinalize
 // can fail, and only PersistSyncStats consumes it. A failed seal leaves
 // the sync bound for a retry with the entry still keyed by syncID, where
@@ -360,8 +321,6 @@ func TestFailedSealDropsItsStatsOverlay(t *testing.T) {
 	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	// Fail the ended_at stamp, which is before the stats sidecar write,
-	// so the overlay is stashed but never consumed.
 	boom := errors.New("injected")
 	e.test.endSyncStampHook = func() error { return boom }
 	require.ErrorIs(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{
@@ -372,7 +331,6 @@ func TestFailedSealDropsItsStatsOverlay(t *testing.T) {
 	require.NotContains(t, e.syncStatsOverlay, syncID,
 		"a failed seal's stats must not be waiting for the next seal of this id")
 
-	// The retry supplies its own stats, and those are what get persisted.
 	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{
 		Run: c1zstore.RunStats{StepDurationsMs: map[string]int64{"list-grants": 9}},
 	}))
@@ -382,8 +340,6 @@ func TestFailedSealDropsItsStatsOverlay(t *testing.T) {
 		"the retry's stats, not the failed attempt's")
 }
 
-// A page begun under one sync must not commit into another.
-//
 // BeginPage captures the sync open at the time; Commit's
 // requireCurrentSync only asserts that SOME sync is open. A page lives
 // for seconds to minutes, long enough to straddle an EndSync followed by
@@ -396,8 +352,6 @@ func TestFailedSealDropsItsStatsOverlay(t *testing.T) {
 func TestPageUnitCommitRefusesAForeignSync(t *testing.T) {
 	ctx := context.Background()
 
-	// The page's staged content, identical in both arms, so the arms
-	// differ only in whether the sync was replaced under the unit.
 	stage := func(t *testing.T, u *pageUnit) {
 		t.Helper()
 		require.NoError(t, u.StageResources(ledgerTestResource("user", "u1")))
@@ -424,9 +378,6 @@ func TestPageUnitCommitRefusesAForeignSync(t *testing.T) {
 		u := e.ledger.newPageUnit()
 		stage(t, u)
 
-		// A finishes and B replaces it while the page is still buffering.
-		// Plain EndSync is available because the page has not committed,
-		// so A never became ledgered.
 		require.NoError(t, e.EndSync(ctx))
 		syncB, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
@@ -438,7 +389,6 @@ func TestPageUnitCommitRefusesAForeignSync(t *testing.T) {
 		require.Contains(t, err.Error(), syncA, "the error names the sync the page was begun under")
 		require.Contains(t, err.Error(), syncB, "and the one open now")
 
-		// A refused commit is a page that never ran: no records, no row.
 		_, err = e.GetResourceRecord(ctx, "user", "u1")
 		require.ErrorIs(t, err, pebble.ErrNotFound, "A's buffered rows must not land in B")
 		_, err = e.ledger.getRowRecord(ctx, id)
@@ -446,8 +396,6 @@ func TestPageUnitCommitRefusesAForeignSync(t *testing.T) {
 		require.False(t, e.ledger.inFlight.Load(),
 			"a refused commit must not leave B stamped in flight")
 
-		// The unit is not spent: the refusal is the same on a retry, and
-		// the buffer is still there to be retried with.
 		require.ErrorIs(t, u.Commit(ctx, id, nil), ErrPageUnitForeignSync)
 		require.False(t, u.Empty())
 	})

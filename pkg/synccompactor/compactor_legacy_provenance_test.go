@@ -60,7 +60,6 @@ func TestCompactPebbleFoldLegacyProvenance(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, stripped)
 
-	// The new sidecar includes the first fold's partial; the inherited token does not.
 	second := compactPairOnce(t, ctx, first, partial)
 	stats = readSyncStats(t, ctx, second.FilePath, second.SyncID)
 	require.EqualValues(t, 101000, stats.GetStepDurationsMs()["list-grants"])

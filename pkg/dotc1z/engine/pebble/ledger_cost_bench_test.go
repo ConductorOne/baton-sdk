@@ -109,7 +109,6 @@ func openBenchRawDB(b *testing.B) (*Engine, *pebble.DB) {
 }
 
 func benchSyncIDBytes() []byte {
-	// 20 raw bytes; the value does not matter for cost.
 	return []byte("01234567890123456789")
 }
 
@@ -117,7 +116,6 @@ func benchmarkLedgerPageCommit(b *testing.B, rows int, indexed bool, wo *pebble.
 	e, db := openBenchRawDB(b)
 	defer func() { require.NoError(b, e.Close()) }()
 	syncID := benchSyncIDBytes()
-	// Pre-generate values so the timer measures the batch, not the fill.
 	vals := make([][]byte, rows)
 	for i := range vals {
 		vals[i] = recordValue(i)

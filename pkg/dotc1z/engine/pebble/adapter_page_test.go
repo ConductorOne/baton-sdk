@@ -76,9 +76,6 @@ func TestPageWriterMatchesSingleCallAdapters(t *testing.T) {
 	require.NoError(t, w.Commit(ctx, id, &c1zstore.LedgerRow{NextPageToken: "p2", Attempt: "a1", Replayed: true}))
 
 	s, p := snapshot(t, single), snapshot(t, paged)
-	// discovered_at is stamped with "now" at translate time on both
-	// sides; ignore it and compare everything else exactly (source
-	// scope key included).
 	ignoreTS := protocmp.IgnoreFields(&v3.ResourceTypeRecord{}, "discovered_at")
 	ignoreTSr := protocmp.IgnoreFields(&v3.ResourceRecord{}, "discovered_at")
 	ignoreTSe := protocmp.IgnoreFields(&v3.EntitlementRecord{}, "discovered_at")
@@ -91,7 +88,6 @@ func TestPageWriterMatchesSingleCallAdapters(t *testing.T) {
 	require.Equal(t, "scope-1", p.gs[0].GetSourceScopeKey())
 	require.NotNil(t, p.rts[0].GetDiscoveredAt(), "discovered_at defaulted on the paged path")
 
-	// The row, through the c1zstore view.
 	row, found, err := store.GetRow(ctx, id)
 	require.NoError(t, err)
 	require.True(t, found)
@@ -119,7 +115,6 @@ func TestPageWriterMatchesSingleCallAdapters(t *testing.T) {
 	require.False(t, found, "a colliding row is not this page's row")
 	require.EqualValues(t, 1, paged.ledger.mismatchCount())
 
-	// The single-call engine has no ledger at all.
 	cnt, err := single.ledger.rowCount(ctx)
 	require.NoError(t, err)
 	require.Zero(t, cnt)
