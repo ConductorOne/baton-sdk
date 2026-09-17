@@ -623,3 +623,38 @@ integration. Its tests remain useful as recorded failures and fixtures, but
 the integration tests and cost driver must move to the existing scheduler.
 K2 and subsequent sequence details must be revised around these boundaries
 before claiming completion. This clarification changes no production code.
+
+## 17. Shared scheduler integration commits
+
+K2c adds a page invocation function used by the existing parallelSync and
+syncOneAction call sites. The SQLite invocation delegates directly to the
+same handler. The ledger invocation stages a page and its proposed
+transition, then submits that transition to the existing transitioner.
+parallelActionQueue keeps its validation and dispatch behavior. Inside its
+existing transitionActionState callback, the page commits before runState
+publishes the transition. No new queue or batch-selection loop is added.
+Worker indexes travel in the ledger invocation context; sequential phases
+use worker zero after the prior batch has drained.
+
+Warning pages commit terminal page/accounting state, then return the original
+warning for main's existing finishActionWithWarning path. Other handler
+errors discard the page and flow to main's retry and error handling. Both
+normal and spawned actions contribute completion counts. The queue rejects
+same-response duplicates before its callback reaches the page commit.
+
+K2c tests invoke the real scheduler with test handlers declared in
+syncTestHooks. The first increment does not enable store attachment routing,
+implement production record handlers, or claim Init/resume/finished-artifact
+integration complete. Its acceptance is the existing scheduler's ordering,
+warning/accounting behavior, transition atomicity and independent errors
+with real page writers. The rejected generic executor is retained only as
+a test fixture until its historical tests and cost driver are migrated; it
+must no longer be compiled into production.
+
+K2d restores the ledger frontier into the existing action stack, handles
+Init's page boundary using shared planning, and preserves the baseline
+same-ID post-processing lifecycle. K2e moves cost and recovery callers to
+that integration and removes the historical executor fixture. Run the full
+sync suite, ledger race repetitions, build/vet and applicable lint at each
+completed increment. Record any diagnostic still aimed at the historical
+fixture as such; it is not a regression guard for the integrated scheduler.
