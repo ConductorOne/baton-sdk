@@ -92,6 +92,12 @@ func (w *pageWriter) DeleteGrants(ctx context.Context, grants ...*v2.Grant) erro
 }
 
 func (w *pageWriter) DropStagedSourceCacheRows(kind sourcecache.RowKind, scopeKey string, canonicalIDs, principalIDs []string) (int, error) {
+	if err := sourcecache.ValidateRowKind(kind); err != nil {
+		return 0, err
+	}
+	if err := sourcecache.ValidateScopeKey(scopeKey); err != nil {
+		return 0, err
+	}
 	return w.unit.DropStagedRows(string(kind), scopeKey, canonicalIDs, principalIDs)
 }
 

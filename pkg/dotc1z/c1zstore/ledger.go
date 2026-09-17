@@ -141,8 +141,8 @@ type PageWriter interface {
 	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
 	PutGrants(ctx context.Context, grants ...*v2.Grant) error
 
-	// GetResource and GetEntitlement read the page's own staged record first,
-	// then the store.
+	// Reads include staged writes; repeated writes to the same identity use
+	// the latest value. GetEntitlement rejects IDs shared by distinct identities.
 	GetResource(ctx context.Context, resourceTypeID, resourceID string) (*v2.Resource, error)
 	GetEntitlement(ctx context.Context, entitlementID string) (*v2.Entitlement, error)
 

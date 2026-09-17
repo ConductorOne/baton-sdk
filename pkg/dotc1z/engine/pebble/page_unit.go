@@ -29,7 +29,7 @@ type pageUnit struct {
 	resources      []*v3.ResourceRecord
 	resourceIdx    map[resourceBufKey]int
 	entitlements   []*v3.EntitlementRecord
-	entitlementIdx map[string]int
+	entitlementIdx map[string][]int
 	grants         []*v3.GrantRecord
 	// Applied at Commit after the puts, in the same batch; a buffered put of the
 	// same identity is dropped, as when the two are separate store calls.
@@ -117,9 +117,9 @@ func (u *pageUnit) StageEntitlements(records ...*v3.EntitlementRecord) error {
 			continue
 		}
 		if u.entitlementIdx == nil {
-			u.entitlementIdx = make(map[string]int)
+			u.entitlementIdx = make(map[string][]int)
 		}
-		u.entitlementIdx[r.GetExternalId()] = len(u.entitlements)
+		u.entitlementIdx[r.GetExternalId()] = append(u.entitlementIdx[r.GetExternalId()], len(u.entitlements))
 		u.entitlements = append(u.entitlements, r)
 	}
 	return nil
@@ -154,16 +154,15 @@ func (u *pageUnit) StageGrantDeletes(records ...*v3.GrantRecord) error {
 	if u.done {
 		return ErrPageUnitCommitted
 	}
+	ids := make([]grantIdentity, 0, len(records))
 	for _, r := range records {
-		if r == nil {
-			continue
-		}
 		id, err := grantIdentityFromRecord(r)
 		if err != nil {
 			return fmt.Errorf("page grant delete: grant %q: %w", r.GetExternalId(), err)
 		}
-		u.grantDeletes = append(u.grantDeletes, id)
+		ids = append(ids, id)
 	}
+	u.grantDeletes = append(u.grantDeletes, ids...)
 	return nil
 }
 
@@ -184,9 +183,16 @@ func (u *pageUnit) DropStagedRows(kind string, scopeKey string, canonicalIDs, pr
 	dropped := 0
 	switch kind {
 	case "grants":
+		current, err := latestStagedRecords(u.grants, grantIdentityFromRecord)
+		if err != nil {
+			return 0, err
+		}
+		if err := requireUniqueTombstoneIDs(current, canonical, publicGrantRecordID); err != nil {
+			return 0, err
+		}
 		kept := u.grants[:0]
-		for _, g := range u.grants {
-			_, byID := canonical[g.GetExternalId()]
+		for _, g := range current {
+			_, byID := canonical[publicGrantRecordID(g)]
 			_, byPrincipal := principals[g.GetPrincipal().GetResourceId()]
 			if byID || (byPrincipal && g.GetSourceScopeKey() == scopeKey) {
 				dropped++
@@ -196,8 +202,18 @@ func (u *pageUnit) DropStagedRows(kind string, scopeKey string, canonicalIDs, pr
 		}
 		u.grants = kept
 	case "entitlements":
+		if len(principals) > 0 {
+			return 0, errors.New("source cache scoped delete: not supported for entitlements")
+		}
+		current, err := latestStagedRecords(u.entitlements, entitlementIdentityFromRecord)
+		if err != nil {
+			return 0, err
+		}
+		if err := requireUniqueTombstoneIDs(current, canonical, (*v3.EntitlementRecord).GetExternalId); err != nil {
+			return 0, err
+		}
 		kept := u.entitlements[:0]
-		for _, r := range u.entitlements {
+		for _, r := range current {
 			if _, hit := canonical[r.GetExternalId()]; hit {
 				dropped++
 				continue
@@ -208,9 +224,9 @@ func (u *pageUnit) DropStagedRows(kind string, scopeKey string, canonicalIDs, pr
 		u.entitlementIdx = nil
 		for i, r := range u.entitlements {
 			if u.entitlementIdx == nil {
-				u.entitlementIdx = make(map[string]int)
+				u.entitlementIdx = make(map[string][]int)
 			}
-			u.entitlementIdx[r.GetExternalId()] = i
+			u.entitlementIdx[r.GetExternalId()] = append(u.entitlementIdx[r.GetExternalId()], i)
 		}
 	case "resources":
 		refs := make(map[resourceBufKey]struct{}, len(canonicalIDs))
@@ -222,7 +238,10 @@ func (u *pageUnit) DropStagedRows(kind string, scopeKey string, canonicalIDs, pr
 			refs[resourceBufKey{r.GetId().GetResourceType(), r.GetId().GetResource()}] = struct{}{}
 		}
 		kept := u.resources[:0]
-		for _, r := range u.resources {
+		for i, r := range u.resources {
+			if u.resourceIdx[resourceBufKey{r.GetResourceTypeId(), r.GetResourceId()}] != i {
+				continue
+			}
 			_, byRef := refs[resourceBufKey{r.GetResourceTypeId(), r.GetResourceId()}]
 			_, byID := principals[r.GetResourceId()]
 			if byRef || (byID && r.GetSourceScopeKey() == scopeKey) {
@@ -245,16 +264,73 @@ func (u *pageUnit) DropStagedRows(kind string, scopeKey string, canonicalIDs, pr
 	return dropped, nil
 }
 
+func latestStagedRecords[T any, K comparable](records []T, identity func(T) (K, error)) ([]T, error) {
+	last := make(map[K]int, len(records))
+	for i, r := range records {
+		id, err := identity(r)
+		if err != nil {
+			return nil, err
+		}
+		last[id] = i
+	}
+	current := make([]T, 0, len(last))
+	for i, r := range records {
+		id, _ := identity(r)
+		if last[id] == i {
+			current = append(current, r)
+		}
+	}
+	return current, nil
+}
+
+func requireUniqueTombstoneIDs[T any](records []T, requested map[string]struct{}, externalID func(T) string) error {
+	seen := make(map[string]struct{}, len(requested))
+	for _, r := range records {
+		id := externalID(r)
+		if _, ok := requested[id]; !ok {
+			continue
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return fmt.Errorf("%w: tombstone id %q matches multiple staged records", ErrAmbiguousExternalID, id)
+		}
+		seen[id] = struct{}{}
+	}
+	return nil
+}
+
 // Guarded on done: release clears the buffer, so a read of a staged id
 // after Commit or Discard would index a nil slice.
 func (u *pageUnit) entitlementRecord(ctx context.Context, externalID string) (*v3.EntitlementRecord, error) {
 	if u.done {
 		return nil, ErrPageUnitCommitted
 	}
-	if i, ok := u.entitlementIdx[externalID]; ok {
-		return u.entitlements[i], nil
+	indices := u.entitlementIdx[externalID]
+	if len(indices) == 0 {
+		return u.l.e.GetEntitlementRecord(ctx, externalID)
 	}
-	return u.l.e.GetEntitlementRecord(ctx, externalID)
+	stored, err := u.l.e.entitlementIdentitiesForExternalID(ctx, externalID)
+	if err != nil {
+		return nil, err
+	}
+	matches := make(map[entitlementIdentity]struct{}, len(stored)+len(indices))
+	for _, id := range stored {
+		matches[id] = struct{}{}
+	}
+	var latest *v3.EntitlementRecord
+	for _, i := range indices {
+		r := u.entitlements[i]
+		id, err := entitlementIdentityFromRecord(r)
+		if err != nil {
+			return nil, err
+		}
+		matches[id] = struct{}{}
+		latest = r
+	}
+	if len(matches) > 1 {
+		return nil, fmt.Errorf("%w: entitlement id %q matches %d records on different resources",
+			ErrAmbiguousExternalID, externalID, len(matches))
+	}
+	return latest, nil
 }
 
 // On failure the unit stays usable for a retry.
