@@ -20,6 +20,32 @@ func toPascalCase(input string) string {
 	return strings.Join(words, "") // Join without spaces
 }
 
+// goTypeForField returns the Go type the generated config struct uses for f,
+// as a string suitable for the struct template. Every WebFieldType a
+// StringVariant field can carry -- Multiline, Randomize, OAuth2, plain Text --
+// falls to "string" except FileUpload, which is the one type whose value
+// arrives as raw bytes rather than text. An unrecognized Variant returns "",
+// matching the zero-value behavior of the switch this replaced.
+func goTypeForField(f field.SchemaField) string {
+	switch f.Variant {
+	case field.StringVariant:
+		if f.ConnectorConfig.FieldType == field.FileUpload {
+			return "[]byte"
+		}
+		return "string"
+	case field.BoolVariant:
+		return "bool"
+	case field.IntVariant:
+		return "int"
+	case field.StringSliceVariant:
+		return "[]string"
+	case field.StringMapVariant:
+		return "map[string]any"
+	default:
+		return ""
+	}
+}
+
 func Generate(name string, schema field.Configuration) {
 	if name == "" {
 		panic("name cannot be empty")
@@ -76,23 +102,8 @@ func Generate(name string, schema field.Configuration) {
 
 		nf := FieldInfo{
 			FieldName: fieldName,
+			FieldType: goTypeForField(f),
 			Tag:       f.FieldName,
-		}
-		switch f.Variant {
-		case field.StringVariant:
-			if f.ConnectorConfig.FieldType == field.FileUpload {
-				nf.FieldType = "[]byte"
-			} else {
-				nf.FieldType = "string"
-			}
-		case field.BoolVariant:
-			nf.FieldType = "bool"
-		case field.IntVariant:
-			nf.FieldType = "int"
-		case field.StringSliceVariant:
-			nf.FieldType = "[]string"
-		case field.StringMapVariant:
-			nf.FieldType = "map[string]any"
 		}
 		data.Fields = append(data.Fields, nf)
 	}

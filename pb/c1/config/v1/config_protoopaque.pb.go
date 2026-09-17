@@ -81,6 +81,9 @@ const (
 	StringFieldType_STRING_FIELD_TYPE_OAUTH2                    StringFieldType = 2
 	StringFieldType_STRING_FIELD_TYPE_CONNECTOR_DERIVED_OPTIONS StringFieldType = 3
 	StringFieldType_STRING_FIELD_TYPE_FILE_UPLOAD               StringFieldType = 4
+	// A text field rendered as a multiline textarea, for values that span lines
+	// such as a PEM-encoded key. Composes with Field.is_secret.
+	StringFieldType_STRING_FIELD_TYPE_MULTILINE StringFieldType = 5
 )
 
 // Enum value maps for StringFieldType.
@@ -91,6 +94,7 @@ var (
 		2: "STRING_FIELD_TYPE_OAUTH2",
 		3: "STRING_FIELD_TYPE_CONNECTOR_DERIVED_OPTIONS",
 		4: "STRING_FIELD_TYPE_FILE_UPLOAD",
+		5: "STRING_FIELD_TYPE_MULTILINE",
 	}
 	StringFieldType_value = map[string]int32{
 		"STRING_FIELD_TYPE_TEXT_UNSPECIFIED":          0,
@@ -98,6 +102,7 @@ var (
 		"STRING_FIELD_TYPE_OAUTH2":                    2,
 		"STRING_FIELD_TYPE_CONNECTOR_DERIVED_OPTIONS": 3,
 		"STRING_FIELD_TYPE_FILE_UPLOAD":               4,
+		"STRING_FIELD_TYPE_MULTILINE":                 5,
 	}
 )
 
@@ -2931,13 +2936,14 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"!CONSTRAINT_KIND_REQUIRED_TOGETHER\x10\x01\x12 \n" +
 	"\x1cCONSTRAINT_KIND_AT_LEAST_ONE\x10\x02\x12&\n" +
 	"\"CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE\x10\x03\x12 \n" +
-	"\x1cCONSTRAINT_KIND_DEPENDENT_ON\x10\x04*\xc9\x01\n" +
+	"\x1cCONSTRAINT_KIND_DEPENDENT_ON\x10\x04*\xea\x01\n" +
 	"\x0fStringFieldType\x12&\n" +
 	"\"STRING_FIELD_TYPE_TEXT_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18STRING_FIELD_TYPE_RANDOM\x10\x01\x12\x1c\n" +
 	"\x18STRING_FIELD_TYPE_OAUTH2\x10\x02\x12/\n" +
 	"+STRING_FIELD_TYPE_CONNECTOR_DERIVED_OPTIONS\x10\x03\x12!\n" +
-	"\x1dSTRING_FIELD_TYPE_FILE_UPLOAD\x10\x04B3Z1github.com/conductorone/baton-sdk/pb/c1/config/v1b\x06proto3"
+	"\x1dSTRING_FIELD_TYPE_FILE_UPLOAD\x10\x04\x12\x1f\n" +
+	"\x1bSTRING_FIELD_TYPE_MULTILINE\x10\x05B3Z1github.com/conductorone/baton-sdk/pb/c1/config/v1b\x06proto3"
 
 var file_c1_config_v1_config_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_c1_config_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 23)

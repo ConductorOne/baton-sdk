@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	v1_conf "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 )
 
 func normalizeJSON(jsonStr string) (string, error) {
@@ -172,6 +174,26 @@ func TestDefaultValueOnlyExport(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"runtime"}, v1.GetStringSliceField().GetDefaultValue())
 	require.Empty(t, v1.GetStringSliceField().GetSuggestedValue(), "suggested_value must be empty for a default-only field")
+}
+
+func TestMultiline(t *testing.T) {
+	// Multiline is its own field type rather than a modifier, but is_secret lives
+	// on Field, so a secret field can still be multiline.
+	multiline := MultilineField("pem", WithIsSecret(true))
+
+	v1, err := schemaFieldToV1(multiline)
+	require.NoError(t, err)
+	require.Equal(t, v1_conf.StringFieldType_STRING_FIELD_TYPE_MULTILINE, v1.GetStringField().GetType())
+	require.True(t, v1.GetIsSecret())
+
+	// Contrast: a plain StringField has no type-selecting constructor applied,
+	// so it stays the TEXT_UNSPECIFIED default -- MultilineField above is what
+	// selects the type, not an option toggled on top of StringField.
+	plain := StringField("pem")
+
+	v1Plain, err := schemaFieldToV1(plain)
+	require.NoError(t, err)
+	require.Equal(t, v1_conf.StringFieldType_STRING_FIELD_TYPE_TEXT_UNSPECIFIED, v1Plain.GetStringField().GetType())
 }
 
 func TestSuggestedValuePrecedence(t *testing.T) {

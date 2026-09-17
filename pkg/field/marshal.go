@@ -274,6 +274,8 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 		case FileUpload:
 			stringField.SetType(v1_conf.StringFieldType_STRING_FIELD_TYPE_FILE_UPLOAD)
 			stringField.SetAllowedExtensions(f.ConnectorConfig.BonusStrings)
+		case Multiline:
+			stringField.SetType(v1_conf.StringFieldType_STRING_FIELD_TYPE_MULTILINE)
 		default:
 			return nil, fmt.Errorf("invalid field type: '%s'", f.ConnectorConfig.FieldType)
 		}
