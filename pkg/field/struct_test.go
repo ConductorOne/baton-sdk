@@ -177,17 +177,14 @@ func TestDefaultValueOnlyExport(t *testing.T) {
 }
 
 func TestMultiline(t *testing.T) {
-	// WithMultiline is a GUI render hint, orthogonal to both the field type and
-	// WithIsSecret, so a secret field can also be multiline.
-	multiline := StringField("pem", WithMultiline(true), WithIsSecret(true))
+	// Multiline is its own field type rather than a modifier, but is_secret lives
+	// on Field, so a secret field can still be multiline.
+	multiline := MultilineField("pem", WithIsSecret(true))
 
 	v1, err := schemaFieldToV1(multiline)
 	require.NoError(t, err)
-	require.True(t, v1.GetStringField().GetMultiline())
+	require.Equal(t, v1_conf.StringFieldType_STRING_FIELD_TYPE_MULTILINE, v1.GetStringField().GetType())
 	require.True(t, v1.GetIsSecret())
-	// The render hint must not change the field's type away from plain text,
-	// which is what keeps the generated config struct a string.
-	require.Equal(t, v1_conf.StringFieldType_STRING_FIELD_TYPE_TEXT_UNSPECIFIED, v1.GetStringField().GetType())
 }
 
 func TestMultilineDefaultsOff(t *testing.T) {
@@ -195,7 +192,7 @@ func TestMultilineDefaultsOff(t *testing.T) {
 
 	v1, err := schemaFieldToV1(plain)
 	require.NoError(t, err)
-	require.False(t, v1.GetStringField().GetMultiline())
+	require.Equal(t, v1_conf.StringFieldType_STRING_FIELD_TYPE_TEXT_UNSPECIFIED, v1.GetStringField().GetType())
 }
 
 func TestSuggestedValuePrecedence(t *testing.T) {

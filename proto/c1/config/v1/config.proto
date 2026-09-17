@@ -172,6 +172,9 @@ enum StringFieldType {
   STRING_FIELD_TYPE_OAUTH2 = 2;
   STRING_FIELD_TYPE_CONNECTOR_DERIVED_OPTIONS = 3;
   STRING_FIELD_TYPE_FILE_UPLOAD = 4;
+  // A text field rendered as a multiline textarea, for values that span lines
+  // such as a PEM-encoded key. Composes with Field.is_secret.
+  STRING_FIELD_TYPE_MULTILINE = 5;
 }
 
 message StringFieldOption {
@@ -189,8 +192,4 @@ message StringField {
   repeated string allowed_extensions = 4;
   repeated StringFieldOption options = 5;
   string suggested_value = 6;
-
-  // Render the input as a multiline textarea. Orthogonal to type and to
-  // Field.is_secret, so a secret field can also be multiline.
-  bool multiline = 7;
 }

@@ -184,16 +184,6 @@ func WithPlaceholder(value string) fieldOption {
 	}
 }
 
-// WithMultiline renders the field as a multiline textarea in the GUI, for values
-// that span lines such as a PEM-encoded key. Composes with WithIsSecret.
-func WithMultiline(value bool) fieldOption {
-	return func(o SchemaField) SchemaField {
-		o.ConnectorConfig.Multiline = value
-
-		return o
-	}
-}
-
 type intRuleMaker func(r *IntRuler)
 
 func WithInt(f intRuleMaker) fieldOption {

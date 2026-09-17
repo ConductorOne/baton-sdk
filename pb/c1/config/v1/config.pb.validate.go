@@ -3370,8 +3370,6 @@ func (m *StringField) validate(all bool) error {
 
 	// no validation rules for SuggestedValue
 
-	// no validation rules for Multiline
-
 	if m.Rules != nil {
 
 		if all {

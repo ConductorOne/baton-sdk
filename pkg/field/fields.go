@@ -33,6 +33,7 @@ const (
 	OAuth2                  WebFieldType = "OAUTH2"
 	ConnectorDerivedOptions WebFieldType = "CONNECTOR_DERIVED_OPTIONS"
 	FileUpload              WebFieldType = "FILE_UPLOAD"
+	Multiline               WebFieldType = "MULTILINE"
 )
 
 type FieldRule struct {
@@ -57,7 +58,6 @@ type connectorConfig struct {
 	FieldType   WebFieldType
 	// Only used by file uploads atm.
 	BonusStrings []string
-	Multiline    bool
 }
 
 type SchemaField struct {
@@ -258,6 +258,27 @@ func FileUploadField(name string, bonusStrings []string, optional ...fieldOption
 			FieldType:    FileUpload,
 			BonusStrings: bonusStrings,
 		},
+	}
+
+	for _, o := range optional {
+		field = o(field)
+	}
+
+	return field
+}
+
+// MultilineField is a string field rendered as a multiline textarea, for values
+// that span lines such as a PEM-encoded key. Compose with WithIsSecret to get a
+// masked textarea.
+func MultilineField(name string, optional ...fieldOption) SchemaField {
+	field := SchemaField{
+		FieldName:       name,
+		Variant:         StringVariant,
+		DefaultValue:    "",
+		ExportTarget:    ExportTargetGUI,
+		Rules:           FieldRule{},
+		SyncerConfig:    syncerConfig{},
+		ConnectorConfig: connectorConfig{FieldType: Multiline},
 	}
 
 	for _, o := range optional {
