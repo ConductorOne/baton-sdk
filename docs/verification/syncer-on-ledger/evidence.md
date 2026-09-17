@@ -67,12 +67,12 @@ closure of C10, C37, C38 or C47.
 
 ### C05
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
+- Status: evidence incomplete.
+- Candidate: TestLedgerPageRequiresTransition; TestLedgerPageRejectsDuplicateTransition.
 - Required coverage: plan C05 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Planted defect: removed the exactly-one-transition guard: Init and list-resources fixtures failed; guard restored.
+- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
+- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
 ### C06
 
@@ -103,12 +103,12 @@ closure of C10, C37, C38 or C47.
 
 ### C09
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
+- Status: evidence incomplete.
+- Candidate: TestLedgerWalkIdentityFields; TestLedgerScheduleWalksNewlyDiscoveredChild.
 - Required coverage: plan C09 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Planted defect: scheduler dispatched a newly discovered committed child without looking up its row; fixture failed, then passed with incremental walk.
+- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
+- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
 ### C10
 
@@ -121,12 +121,12 @@ closure of C10, C37, C38 or C47.
 
 ### C11
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
+- Status: evidence incomplete.
+- Candidate: TestLedgerWalkRefusesScrubbedPaginationWithoutWrites; TestLedgerTerminalFailureDoesNotPublishProof.
 - Required coverage: plan C11 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Planted defect: identity comparison before scrub check treated a scrubbed paginated row as missing; diagnostic assertion failed, then passed with scrub check first.
+- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
+- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
 ### C12
 
@@ -175,12 +175,12 @@ closure of C10, C37, C38 or C47.
 
 ### C17
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
+- Status: evidence incomplete.
+- Candidate: TestLedgerPageFailureDoesNotPublish; TestLedgerPageFactValueReadYourWrites; TestLedgerPageFailureDiscardsStagedObservations.
 - Required coverage: plan C17 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Planted defect: not run for this criterion; green mechanism tests only.
+- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
+- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
 ### C18
 
@@ -202,12 +202,12 @@ closure of C10, C37, C38 or C47.
 
 ### C20
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
+- Status: evidence incomplete.
+- Candidate: TestLedgerPageCumulativeWorkersAndAttempts; TestLedgerScheduleStopsAndJoinsOnError.
 - Required coverage: plan C20 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Planted defect: not run for this criterion; green mechanism tests only.
+- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
+- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
 ### C21
 
@@ -238,12 +238,12 @@ closure of C10, C37, C38 or C47.
 
 ### C24
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
+- Status: evidence incomplete.
+- Candidate: TestLedgerTakeoverLegacyFixtures; TestLedgerTakeoverV0CursorAndParentIdentity.
 - Required coverage: plan C24 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Planted defect: not run for full C24; fixture decoding and migration are green, crash/reopen matrix remains.
+- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
+- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
 ### C25
 
@@ -256,12 +256,12 @@ closure of C10, C37, C38 or C47.
 
 ### C26
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
+- Status: evidence incomplete.
+- Candidate: TestLedgerTakeoverLegacyFixtures.
 - Required coverage: plan C26 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Planted defect: replaced the saved frontier state with empty input on resume; legacy fixture family failed with Init replacing saved actions; restored.
+- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
+- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
 ### C27
 
@@ -274,39 +274,39 @@ closure of C10, C37, C38 or C47.
 
 ### C28
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
+- Status: evidence incomplete.
+- Candidate: TestLedgerTakeoverCountersImportedOnlyWhenAbsent.
 - Required coverage: plan C28 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Planted defect: disabled existing-counter guard; migration added historical totals to an existing bucket set; exact-fold assertion failed; restored.
+- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
+- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
 ### C29
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
+- Status: evidence incomplete.
+- Candidate: TestLedgerTakeoverRejectsInvalidStateBeforeConsumption; TestLedgerTakeoverRejectsConflictingAndEmptyFrontier.
 - Required coverage: plan C29 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Planted defect: not run for this criterion; green validation/unchanged-key fixtures only.
+- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
+- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
 ### C30
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
+- Status: evidence incomplete.
+- Candidate: TestLedgerTakeoverIngestQuality; TestLedgerTakeoverLegacyFixtures.
 - Required coverage: plan C30 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Planted defect: not run for this criterion; green mechanism tests only.
+- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
+- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
 ### C31
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
+- Status: evidence incomplete.
+- Candidate: TestLedgerSealRequiresTerminalPage; TestLedgerTerminalPageAndSealStats; TestLedgerTerminalFailureDoesNotPublishProof.
 - Required coverage: plan C31 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Planted defect: not run for this criterion; terminal staging-failure fixtures and public stats-reader checks are green.
+- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
+- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
 ### C32
 
@@ -319,21 +319,21 @@ closure of C10, C37, C38 or C47.
 
 ### C33
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
+- Status: failed.
+- Candidate: TestLedgerFinishedRebindDropsCompletionOnly; TestLedgerInterruptedFinishedRebindResumesNewRun.
 - Required coverage: plan C33 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Planted defect: interrupted finished rebind fails against current storage contract; no planted defect needed; disabled pending implementation.md section 9 boundary disposition.
+- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
+- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
 ### C34
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
+- Status: failed.
+- Candidate: TestLedgerFinishedRebindDropsCompletionOnly; TestLedgerInterruptedFinishedRebindResumesNewRun.
 - Required coverage: plan C34 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Planted defect: same actual lifecycle failure as C33; not closed.
+- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
+- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
 ### C35
 
@@ -374,12 +374,12 @@ closure of C10, C37, C38 or C47.
 
 ### C39
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
+- Status: evidence incomplete.
+- Candidate: TestLedgerScheduleStopsAndJoinsOnError; TestLedgerPageFailureDiscardsStagedObservations.
 - Required coverage: plan C39 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Planted defect: not run for this criterion; green joined-worker and writer-release checks only.
+- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
+- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
 ### C40
 
@@ -575,3 +575,66 @@ Commands: `GOTOOLCHAIN=go1.26.0 go test -mod=vendor ./pkg/sync -run
 `golangci-lint run ./pkg/sync/...` pass with the stated toolchain. Lint
 reports zero issues. No production code changes or pkg/dotc1z changes in K1b.
 All criterion statuses remain as recorded; instrumentation is not product closure.
+
+## K2a runtime execution
+
+Revision: the commit introducing ledger_page.go, ledger_walk.go,
+ledger_takeover.go, ledger_schedule.go and ledger_seal.go. The runtime is
+private and not selected by any public sync path. SQLite bodies, token
+parsing/encoding, old handlers, and pkg/dotc1z are unchanged.
+
+Mechanism fixtures pass for: exactly-one transition, failed observation
+isolation, cumulative buckets across workers/attempts, all-seven-field row
+identity, scrubbed-row refusal, next/child reconstruction, diamond/cycle
+drain, newly discovered committed children, worker stop/join, one-time
+V0/V1/V2 takeover, conservative missing ingest quality, malformed-state
+refusal, terminal staging failures, retain/scrub, and stats-reader step/call
+handover. Every Pebble fixture uses the strict write hook and companion
+recorder. Fault wrappers preserve the underlying tracked writer and discard
+on non-commit exits. Staging failures before Commit do not simulate the
+engine's first-commit stamp or physical failure inside its batch.
+
+Red/green checks executed:
+
+- Missing transition guard: Init and list-resources handlers returned
+  success with staged records; both failed the expected-error assertion.
+- Frontier replaced by empty input: legacy migration fixtures returned Init
+  on later resumes; all affected action/graph expectations rejected it.
+- Existing-counter guard disabled: migration inflated existing accounting;
+  the exact-fold check rejected it.
+- Scrub check after plain identity comparison: a scrubbed paginated row was
+  returned as pending instead of refused; the diagnostic assertion failed.
+- Newly discovered child dispatched without row lookup: a recorded child
+  ran again; the fixture rejected the second handler invocation.
+
+Each defect was removed and the focused ledger suite passed. These results
+cover only the listed mechanisms, not every criterion that shares a test.
+C47 remains incomplete. No runtime-dependent criterion is fully verified.
+
+Actual failure retained: TestLedgerInterruptedFinishedRebindResumesNewRun
+expects the new run's committed next page after a further binding. It gets
+Init because ended_at was never cleared and DropLedger runs again. The test
+is explicitly skipped pending the storage boundary in implementation.md §9;
+its observed failure makes C33/C34 failed, not verified or silently omitted.
+
+The initial race sweep passed three repetitions. Build and vet passed for
+pkg/sync and pkg/synccompactor with Go 1.26.0 and vendored dependencies.
+The final K2a gate results are recorded below after the last edits. Full
+public Sync/race products, storage/compactor suites and final cost matrix
+remain K2b–K8 work. The existing package-name lint suppression was added to
+pebble_resync_same_file_test.go after revive reported its unchanged package
+name; its executable test body did not change.
+
+Final K2a gates passed:
+
+```
+GOTOOLCHAIN=go1.26.0 go test -mod=vendor ./pkg/sync -run '^TestLedger' -count=1 -timeout 30m
+GOTOOLCHAIN=go1.26.0 go test -mod=vendor -race ./pkg/sync -run '^TestLedger' -count=3 -timeout 30m
+GOTOOLCHAIN=go1.26.0 go build -mod=vendor ./pkg/sync ./pkg/synccompactor
+GOTOOLCHAIN=go1.26.0 go vet -mod=vendor ./pkg/sync ./pkg/synccompactor
+GOTOOLCHAIN=go1.26.0 golangci-lint run ./pkg/sync/...
+git diff --check
+```
+
+The ledger-suite result includes the explicit interrupted-rebind skip named
+above. Lint reports zero issues. No test result here closes that boundary.

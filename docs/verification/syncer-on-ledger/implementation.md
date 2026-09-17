@@ -427,3 +427,34 @@ are not regenerated. Instrument expansion that requires the runtime's
 accounting and scheduling semantics happens with K2, and remains incomplete
 in the evidence until exercised. The physical WAL-loss sweep and full
 canonical accounting comparison are explicitly still required.
+
+## 9. K2 execution and interrupted finished rebind
+
+K2 is split into K2a (private page/walk/takeover/scheduling/terminal runtime)
+and K2b (remaining lifecycle failure cuts and crash/differential instruments).
+Neither enables public routing. The pre-handler cost table still follows K2.
+
+The interrupted finished-rebind fixture found a storage contract gap:
+SetCurrentSync unseals the engine, but preserves ended_at; DropLedger removes
+the ledger and preserves ended_at too. A new page can commit over the old
+records. On the next process's binding, BoundSyncFinished is still true,
+so the required finished-rebind branch drops that new page and restarts Init.
+A process without an explicit sync ID can instead overlook this run entirely
+because its old completion timestamp remains present.
+
+Proposed boundary disposition: extend DropLedger's finished-bound-run case
+to atomically remove the old ledger and reopen the same sync-run record by
+clearing ended_at and the old token. Invalidate stale stats and completion
+provenance in that same lifecycle operation; retain the record data and sync
+identity. On a non-finished binding, retain the existing DropLedger contract.
+The syncer still refuses to drop an unfinished run. The storage commit must
+cover failure cuts before/after reset, preserve data/indexes, and prove that
+an interrupted new run is discoverable as unfinished. This is additional to
+§3's PageWriter proposal and must be resolved before public integration.
+
+Candidate TestLedgerInterruptedFinishedRebindResumesNewRun fails against
+the current contract: the expected next token is `remaining`, but the actual
+pending action is Init with an empty token after a second ledger reset. It
+is retained as an explicitly disabled boundary candidate until that storage
+change exists; it is not passing evidence for C33/C34. Ordinary finished
+rebind and uninterrupted completion tests do not cover this failure.
