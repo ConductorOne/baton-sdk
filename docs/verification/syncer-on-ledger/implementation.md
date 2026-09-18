@@ -782,3 +782,22 @@ after clearing and another after committing a page. Old completion markers
 must not suppress requested work; new progress must not be discarded.
 Physical crash images and byte-residue checks remain explicit evidence
 requirements; successful in-process fault checks alone do not close them.
+
+## 22. Cost measurements through the retained scheduler
+
+Repeat the interleaved token/fresh/resumed samples after deleting the alternate
+executor. Record the token source (`eb63f1b5`) and ledger source (`fafa4f74`),
+binary hashes, all samples and spread. Start with 1,000 and 10,000 pages,
+100 resources/page, one/four workers, three repetitions. These synthetic
+page handlers exercise the existing scheduler but omit production filtering
+and control phases; wall ratios cannot establish production improvement.
+Both ledger arms use the engine's actual NoSync writes. The required larger
+cells, byte decomposition and final public Sync comparison remain open.
+
+The machine recorder must identify the test artifact filesystem as well as
+the checkout filesystem: Go tests use the process temporary directory.
+C49's instrument check rejects output missing that separate observation;
+record the failure before adding it. This is measurement code only. A
+snapshot taken after samples is labeled with its collection time and cannot
+retroactively establish unloaded-machine qualification. The new table keeps
+that limitation and does not authorize K5/K6.
