@@ -32,11 +32,11 @@ func TestLedgerDeterministicTimeFixture(t *testing.T) {
 			runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
 			require.NoError(t, err)
 			f.audit.enter(ledgerHandler)
-			require.NoError(t, runtime.execute(t.Context(), ledgerInitialActions(), 1, func(ctx context.Context, _ ledgerAction, page *ledgerPage) error {
+			require.NoError(t, runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), 1, func(ctx context.Context, s *syncer, action *Action, page *ledgerPage) error {
 				if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()); err != nil {
 					return err
 				}
-				return page.transition("")
+				return ledgerFixtureTransition(ctx, s, action, "")
 			}))
 			f.audit.enter(ledgerLifecycle)
 			require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{}))
@@ -72,24 +72,24 @@ func TestLedgerResumeLogicalDifferential(t *testing.T) {
 				require.NoError(t, err)
 				failed := false
 				stopped := fmt.Errorf("injected before commit of page %d", cut)
-				handler := func(ctx context.Context, action ledgerAction, page *ledgerPage) error {
-					if action.identity.Op == "init" {
+				handler := func(ctx context.Context, s *syncer, action *Action, page *ledgerPage) error {
+					if action.Op == SyncResourceTypesOp {
 						if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()); err != nil {
 							return err
 						}
-						return page.transition("",
+						return ledgerFixtureTransition(ctx, s, action, "",
 							c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-resources", ResourceTypeID: "type", ResourceID: "stream-0"}},
 							c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-resources", ResourceTypeID: "type", ResourceID: "stream-1"}})
 					}
 					index := 0
-					if action.identity.PageToken != "" {
+					if action.PageToken != "" {
 						var err error
-						index, err = strconv.Atoi(action.identity.PageToken)
+						index, err = strconv.Atoi(action.PageToken)
 						if err != nil {
 							return err
 						}
 					}
-					name := fmt.Sprintf("%s-record-%d", action.identity.ResourceID, index)
+					name := fmt.Sprintf("%s-record-%d", action.ResourceID, index)
 					resource := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "type", Resource: name}.Build(), DisplayName: name}.Build()
 					entitlement := v2.Entitlement_builder{Id: "ent-" + name, Resource: resource, DisplayName: name}.Build()
 					grant := v2.Grant_builder{Id: "grant-" + name, Entitlement: entitlement, Principal: resource}.Build()
@@ -106,7 +106,7 @@ func TestLedgerResumeLogicalDifferential(t *testing.T) {
 						return err
 					}
 					page.observations.Counters = map[string]uint64{"records": 3}
-					if action.identity.ResourceID == "stream-0" && index == cut && !failed {
+					if action.ResourceID == "stream-0" && index == cut && !failed {
 						failed = true
 						return stopped
 					}
@@ -114,10 +114,10 @@ func TestLedgerResumeLogicalDifferential(t *testing.T) {
 					if index < 2 {
 						next = strconv.Itoa(index + 1)
 					}
-					return page.transition(next)
+					return ledgerFixtureTransition(ctx, s, action, next)
 				}
 				f.audit.enter(ledgerHandler)
-				err = runtime.execute(t.Context(), ledgerInitialActions(), workers, handler)
+				err = runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), workers, handler)
 				f.audit.enter(ledgerLifecycle)
 				if cut >= 0 {
 					require.ErrorIs(t, err, stopped)
@@ -127,7 +127,7 @@ func TestLedgerResumeLogicalDifferential(t *testing.T) {
 					runtime, err = newLedgerRuntime(t.Context(), f.ledger, "resumed")
 					require.NoError(t, err)
 					f.audit.enter(ledgerHandler)
-					err = runtime.execute(t.Context(), ledgerInitialActions(), workers, handler)
+					err = runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), workers, handler)
 					f.audit.enter(ledgerLifecycle)
 				}
 				require.NoError(t, err)

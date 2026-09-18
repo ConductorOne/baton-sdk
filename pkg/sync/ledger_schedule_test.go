@@ -20,22 +20,22 @@ func TestLedgerScheduleDrainsDiamondAndCycle(t *testing.T) {
 			require.NoError(t, err)
 			var calls atomic.Int64
 			id := func(name string) c1zstore.LedgerActionIdentity {
-				return c1zstore.LedgerActionIdentity{Op: "init", ResourceID: name}
+				return c1zstore.LedgerActionIdentity{Op: "list-resources", ResourceID: name}
 			}
 			graph := map[string][]string{"root": {"left", "right"}, "left": {"shared"}, "right": {"shared"}, "shared": {"root"}}
-			handler := func(ctx context.Context, action ledgerAction, page *ledgerPage) error {
+			handler := func(ctx context.Context, s *syncer, action *Action, page *ledgerPage) error {
 				calls.Add(1)
-				if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.identity.ResourceID}.Build()); err != nil {
+				if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
 					return err
 				}
 				var children []c1zstore.LedgerChild
-				for _, name := range graph[action.identity.ResourceID] {
-					children = append(children, c1zstore.LedgerChild{Identity: id(name)})
+				for _, name := range graph[action.ResourceID] {
+					children = append(children, c1zstore.LedgerChild{Identity: id(name), Spawned: true})
 				}
-				return page.transition("", children...)
+				return ledgerFixtureTransition(ctx, s, action, "", children...)
 			}
 			f.audit.enter(ledgerHandler)
-			require.NoError(t, runtime.execute(t.Context(), []ledgerAction{{identity: id("root")}}, workers, handler))
+			require.NoError(t, runLedgerSchedulerFixture(t, runtime, []ledgerAction{{identity: id("root"), spawned: true}}, workers, handler))
 			f.audit.enter(ledgerLifecycle)
 			require.Equal(t, int64(4), calls.Load())
 			counters, err := f.ledger.LedgerCounters(t.Context())
@@ -45,7 +45,7 @@ func TestLedgerScheduleDrainsDiamondAndCycle(t *testing.T) {
 			resumed, err := newLedgerRuntime(t.Context(), f.ledger, "resume")
 			require.NoError(t, err)
 			f.audit.enter(ledgerWalk)
-			require.NoError(t, resumed.execute(t.Context(), []ledgerAction{{identity: id("root")}}, workers, handler))
+			require.NoError(t, runLedgerSchedulerFixture(t, resumed, []ledgerAction{{identity: id("root"), spawned: true}}, workers, handler))
 			f.audit.enter(ledgerLifecycle)
 			require.Equal(t, int64(4), calls.Load())
 			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
@@ -61,14 +61,14 @@ func TestLedgerScheduleStopsAndJoinsOnError(t *testing.T) {
 	var active atomic.Int64
 	roots := []ledgerAction{}
 	for i := range 8 {
-		roots = append(roots, ledgerAction{identity: c1zstore.LedgerActionIdentity{Op: "init", ResourceID: fmt.Sprint(i)}})
+		roots = append(roots, ledgerAction{identity: c1zstore.LedgerActionIdentity{Op: "list-resources", ResourceID: fmt.Sprint(i)}})
 	}
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerHandler)
-	err = runtime.execute(t.Context(), roots, 4, func(ctx context.Context, action ledgerAction, page *ledgerPage) error {
+	err = runLedgerSchedulerFixture(t, runtime, roots, 4, func(ctx context.Context, s *syncer, action *Action, page *ledgerPage) error {
 		active.Add(1)
 		defer active.Add(-1)
-		if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.identity.ResourceID}.Build()); err != nil {
+		if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: action.ResourceID}.Build()); err != nil {
 			return err
 		}
 		return injected
@@ -86,36 +86,6 @@ func TestLedgerScheduleStopsAndJoinsOnError(t *testing.T) {
 	require.Equal(t, int64(2), counters.SessionCalls["get"].Count)
 }
 
-func TestLedgerFinishedRebindDropsCompletionOnly(t *testing.T) {
-	f := newLedgerFixture(t)
-	syncID := f.engine.CurrentSyncID()
-	runtime, resume, err := beginLedgerRuntime(t.Context(), f.store, f.ledger, "first")
-	require.NoError(t, err)
-	var calls int
-	handler := func(ctx context.Context, _ ledgerAction, page *ledgerPage) error {
-		calls++
-		if err := page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "preserved"}.Build()); err != nil {
-			return err
-		}
-		return page.transition("")
-	}
-	require.NoError(t, runtime.execute(t.Context(), resume.actions, 1, handler))
-	require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{}))
-	require.NoError(t, runtime.seal(t.Context()))
-	require.NoError(t, f.store.SetCurrentSync(t.Context(), syncID))
-	runtime, resume, err = beginLedgerRuntime(t.Context(), f.store, f.ledger, "second")
-	require.NoError(t, err)
-	require.Equal(t, ledgerInitialActions(), resume.actions)
-	facts, err := f.ledger.LedgerFacts(t.Context())
-	require.NoError(t, err)
-	require.Empty(t, facts)
-	require.NoError(t, runtime.execute(t.Context(), resume.actions, 1, handler))
-	require.Equal(t, 2, calls)
-	counters, err := f.ledger.LedgerCounters(t.Context())
-	require.NoError(t, err)
-	require.Equal(t, uint64(1), counters.Counters[ledgerCompletedActions])
-}
-
 func TestLedgerScheduleWalksNewlyDiscoveredChild(t *testing.T) {
 	f := newLedgerFixture(t)
 	runtime, err := newLedgerRuntime(t.Context(), f.ledger, "first")
@@ -126,37 +96,13 @@ func TestLedgerScheduleWalksNewlyDiscoveredChild(t *testing.T) {
 	runtime, err = newLedgerRuntime(t.Context(), f.ledger, "resumed")
 	require.NoError(t, err)
 	calls := 0
-	err = runtime.execute(t.Context(), ledgerInitialActions(), 1, func(_ context.Context, action ledgerAction, page *ledgerPage) error {
+	err = runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), 1, func(ctx context.Context, s *syncer, action *Action, page *ledgerPage) error {
 		calls++
-		if action.identity == child {
+		if ledgerIdentity(action) == child {
 			return errors.New("committed child ran again")
 		}
-		return page.transition("", c1zstore.LedgerChild{Identity: child})
+		return ledgerFixtureTransition(ctx, s, action, "", c1zstore.LedgerChild{Identity: child})
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, calls)
-}
-
-func TestLedgerInterruptedFinishedRebindResumesNewRun(t *testing.T) {
-	t.Skip("requires finished-run lifecycle reset: implementation.md section 9; candidate fails against current DropLedger contract")
-	f := newLedgerFixture(t)
-	syncID := f.engine.CurrentSyncID()
-	runtime, _, err := beginLedgerRuntime(t.Context(), f.store, f.ledger, "first")
-	require.NoError(t, err)
-	require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{}))
-	require.NoError(t, runtime.seal(t.Context()))
-	require.NoError(t, f.store.SetCurrentSync(t.Context(), syncID))
-	runtime, _, err = beginLedgerRuntime(t.Context(), f.store, f.ledger, "rebound")
-	require.NoError(t, err)
-	id := c1zstore.LedgerActionIdentity{Op: "init"}
-	_, err = runtime.runPage(t.Context(), 0, id, func(_ context.Context, page *ledgerPage) error { return page.transition("remaining") })
-	require.NoError(t, err)
-	runtime, resume, err := beginLedgerRuntime(t.Context(), f.store, f.ledger, "resume-rebound")
-	require.NoError(t, err)
-	f.audit.enter(ledgerWalk)
-	pending, err := runtime.walk(t.Context(), resume.actions)
-	f.audit.enter(ledgerLifecycle)
-	require.NoError(t, err)
-	id.PageToken = "remaining"
-	require.Equal(t, []ledgerAction{{identity: id}}, pending)
 }

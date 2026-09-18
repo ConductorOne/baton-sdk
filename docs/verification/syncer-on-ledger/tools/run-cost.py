@@ -41,7 +41,7 @@ def run_arm(binary, arm, pages, records, workers, output, timeout):
     if process.returncode:
         raise RuntimeError(f"{arm} exited {process.returncode}; see {output}")
     result = json.loads(result_path.read_text())
-    expected = "token-path" if arm == "token" else f"ledger-private-{arm}-no-sync"
+    expected = "token-path" if arm == "token" else f"ledger-scheduler-{arm}-no-sync"
     if result["arm"] != expected:
         raise ValueError(f"expected {expected}, got {result['arm']}")
     for key, value in (("pages", pages), ("records_per_page", records), ("workers", workers),

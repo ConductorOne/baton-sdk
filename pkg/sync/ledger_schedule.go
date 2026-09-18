@@ -18,7 +18,3 @@ func (r *ledgerRuntime) flushRunCounters(ctx context.Context, counters c1zstore.
 	}
 	return r.store.PutCounterBucket(ctx, r.runID, c1zstore.RunBucketWorker, counters)
 }
-
-func ledgerInitialActions() []ledgerAction {
-	return []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}
-}

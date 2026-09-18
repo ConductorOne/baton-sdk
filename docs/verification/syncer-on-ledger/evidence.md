@@ -146,7 +146,7 @@ closure of C10, C37, C38 or C47.
 - Green command/revision: none.
 - Not covered: all required cells until an explicit execution entry is added.
 
-- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. No restored-pass guard exists yet.
+- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. K2c added restored-pass adapter guards; see the K2c table below.
 
 ### C14
 
@@ -157,7 +157,7 @@ closure of C10, C37, C38 or C47.
 - Green command/revision: none.
 - Not covered: all required cells until an explicit execution entry is added.
 
-- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. No restored-pass guard exists yet.
+- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. K2c added restored-pass adapter guards; see the K2c table below.
 
 ### C15
 
@@ -204,7 +204,7 @@ closure of C10, C37, C38 or C47.
 - Green command/revision: none.
 - Not covered: all required cells until an explicit execution entry is added.
 
-- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. No restored-pass guard exists yet.
+- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. K2c added restored-pass adapter guards; see the K2c table below.
 
 ### C20
 
@@ -215,7 +215,7 @@ closure of C10, C37, C38 or C47.
 - Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
 - Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
-- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. No restored-pass guard exists yet.
+- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. K2c added restored-pass adapter guards; see the K2c table below.
 
 ### C21
 
@@ -244,7 +244,7 @@ closure of C10, C37, C38 or C47.
 - Green command/revision: none.
 - Not covered: all required cells until an explicit execution entry is added.
 
-- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. No restored-pass guard exists yet.
+- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. K2c added restored-pass adapter guards; see the K2c table below.
 
 ### C24
 
@@ -309,7 +309,7 @@ closure of C10, C37, C38 or C47.
 - Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
 - Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
-- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. No restored-pass guard exists yet.
+- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. K2c added restored-pass adapter guards; see the K2c table below.
 
 ### C31
 
@@ -393,7 +393,7 @@ closure of C10, C37, C38 or C47.
 - Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
 - Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
-- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. No restored-pass guard exists yet.
+- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. K2c added restored-pass adapter guards; see the K2c table below.
 
 ### C40
 
@@ -860,3 +860,48 @@ pkg/sync lint reported zero issues. Go 1.26.0 and vendored dependencies were
 used. The six previously recorded storage lint findings remain outside this
 increment. These checks apply to the final K2c code, including the warning
 classification and assigned-child guards.
+
+
+## Executor fixture removal
+
+ledger_executor_fixture_test.go is deleted. All former callers now seed
+runState and invoke parallelSync using real page writers and test handlers.
+The fixture helper has no dispatch loop, worker goroutine, queue, retry or
+error aggregation implementation. Its only work is the initial ledger walk,
+action conversion, handler injection and the call to the existing scheduler.
+Synthetic listing roots now identify list-resource-types instead of Init.
+The spawned diamond/cycle case uses list-resources and main's admission
+rules. Six process-exit cuts and the logical crash differential are retained.
+
+TestLedgerScheduleWalksNewlyDiscoveredChild failed after migration because
+the adapter reran a committed child. Page invocation now resolves its row
+before opening a writer; the test passes. TestLedgerExistingSchedulerReplaysRowWithoutWrites
+checks that this path also passes the write-free instrument and leaves raw
+keys unchanged. The latter is an additional assertion, not separate planted
+defect evidence. C09/C10/C12 remain incomplete for their full required products.
+
+The two old finished-binding tests were removed because they assert the
+reset rejected by CO-010 (one was skipped). Removing those tests does not
+close C33/C34. Their historical results above are superseded requirements,
+not evidence for preserved lifecycle behavior.
+
+The cost fixture now reports ledger-scheduler arms. Fresh and resumed smoke
+runs with one and four workers each verified 1,000 resource records from ten
+data pages and 12 committed rows including listing and terminal pages.
+Previously committed cost tables remain historical results from the deleted
+executor and cannot support acceptance of this implementation. C49 is open.
+
+The now-unused beginLedgerRuntime and ledgerInitialActions were deleted too;
+this removes the unconditional finished-binding DropLedger behavior itself,
+not just the tests asserting it. loadLedgerResume remains available for
+unfinished takeover; finished-artifact integration is still pending. The
+cost runner validates the new arm names. One existing test file receives the
+same package-name lint directive used elsewhere in pkg/sync; its tests are
+unchanged.
+
+Migration validation: full pkg/sync passed in 74.760 seconds; ledger race
+suite passed three repetitions in 11.691 seconds; vet passed. After deleting
+the unused reset helper and adding the read-only replay assertion, ledger
+tests passed again in 0.907 seconds and pkg/sync lint reported zero issues.
+Go 1.26.0 with vendored dependencies was used. A source search finds no
+ledgerRuntime.execute, ledgerPageResult or ledgerPageHandler remaining.

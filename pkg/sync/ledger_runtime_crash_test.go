@@ -78,7 +78,9 @@ func TestLedgerRuntimeCrashProcess(t *testing.T) {
 			crash()
 		}
 		f.audit.enter(ledgerHandler)
-		require.NoError(t, runtime.execute(t.Context(), []ledgerAction{{identity: id}}, 1, func(_ context.Context, _ ledgerAction, page *ledgerPage) error { return page.transition("") }))
+		require.NoError(t, runLedgerSchedulerFixture(t, runtime, []ledgerAction{{identity: id}}, 1, func(ctx context.Context, s *syncer, action *Action, _ *ledgerPage) error {
+			return s.nextPageOrFinishAction(ctx, action, "")
+		}))
 		f.audit.enter(ledgerLifecycle)
 		require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{StepDurationsMs: map[string]int64{"run": 17}}))
 		if cut == "terminal-committed" {

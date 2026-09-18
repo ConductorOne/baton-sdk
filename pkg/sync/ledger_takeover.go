@@ -177,24 +177,3 @@ func ledgerIngestCounters(q *IngestQualityCheckpoint) c1zstore.LedgerCounters {
 	}
 	return c1zstore.LedgerCounters{Counters: counters, Flags: q.ReasonFlags}
 }
-
-func beginLedgerRuntime(ctx context.Context, store c1zstore.Store, ledger c1zstore.PageLedgerStore, runID string) (*ledgerRuntime, ledgerResume, error) {
-	finished, err := ledger.BoundSyncFinished(ctx)
-	if err != nil {
-		return nil, ledgerResume{}, err
-	}
-	var resume ledgerResume
-	if finished {
-		if err := ledger.DropLedger(ctx); err != nil {
-			return nil, ledgerResume{}, err
-		}
-		resume.actions = ledgerInitialActions()
-	} else {
-		resume, err = loadLedgerResume(ctx, store, ledger, runID)
-		if err != nil {
-			return nil, ledgerResume{}, err
-		}
-	}
-	runtime, err := newLedgerRuntime(ctx, ledger, runID)
-	return runtime, resume, err
-}

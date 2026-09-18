@@ -69,6 +69,25 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 	if s.ledger == nil {
 		return errors.New("ledger runtime is not initialized")
 	}
+	row, found, err := s.ledger.store.GetLedgerRow(ctx, ledgerIdentity(action))
+	if err != nil {
+		return ledgerPageWriteError{cause: err}
+	}
+	if found && row != nil && row.Identity == ledgerIdentity(action) {
+		if row.Scrubbed {
+			return errLedgerScrubbedUnfinished
+		}
+		children := make([]Action, 0, len(row.Children))
+		for _, recorded := range row.Children {
+			child := ledgerActionFromIdentity(recorded.Identity)
+			if child.Op == UnknownOp {
+				return errors.New("ledger row contains an unknown child operation")
+			}
+			child.Spawned = recorded.Spawned
+			children = append(children, child)
+		}
+		return s.nextPageOrFinishAction(ctx, action, row.NextPageToken, children...)
+	}
 	worker, _ := ctx.Value(ledgerWorkerKey{}).(int)
 	if worker < 0 || worker >= int(c1zstore.TakeoverBucketWorker) {
 		return errors.New("invalid ledger worker index")
@@ -76,7 +95,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 	invocation := &ledgerInvocation{action: action}
 	var warning error
 	var handlerFailure error
-	_, err := s.ledger.runPageWithCommit(ctx, uint32(worker), ledgerIdentity(action), func(pageCtx context.Context, page *ledgerPage) error {
+	_, err = s.ledger.runPageWithCommit(ctx, uint32(worker), ledgerIdentity(action), func(pageCtx context.Context, page *ledgerPage) error {
 		invocation.page = page
 		page.row.Spawned = action.Spawned
 		page.row.TypeScopedPlanned = action.TypeScopedPlanned
@@ -129,4 +148,9 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		return err
 	}
 	return warning
+}
+
+func ledgerActionFromIdentity(id c1zstore.LedgerActionIdentity) Action {
+	return Action{Op: newActionOp(id.Op), ResourceTypeID: id.ResourceTypeID, ResourceID: id.ResourceID,
+		ParentResourceTypeID: id.ParentResourceTypeID, ParentResourceID: id.ParentResourceID, PageToken: id.PageToken, TypeScoped: id.TypeScoped}
 }

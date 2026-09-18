@@ -267,3 +267,19 @@ func TestLedgerExistingSchedulerRejectsAssignedChildBeforeCommit(t *testing.T) {
 	require.Equal(t, action, s.run.current())
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 }
+
+func TestLedgerExistingSchedulerReplaysRowWithoutWrites(t *testing.T) {
+	s, f := newLedgerSchedulerFixture(t, 1)
+	action := s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "type"})
+	_, err := s.ledger.runPage(t.Context(), 0, ledgerIdentity(action), func(_ context.Context, page *ledgerPage) error { return page.transition("") })
+	require.NoError(t, err)
+	s.testHooks.ledgerHandler = func(context.Context, *Action, *ledgerPage) error { return errors.New("committed page ran again") }
+	before := ledgerRawSnapshot(t, f.engine)
+	f.audit.enter(ledgerWalk)
+	_, err = runLedgerSchedulerBatch(t, s, SyncResourcesOp)
+	f.audit.enter(ledgerLifecycle)
+	require.NoError(t, err)
+	require.Nil(t, s.run.current())
+	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
+	require.Zero(t, f.audit.writers)
+}

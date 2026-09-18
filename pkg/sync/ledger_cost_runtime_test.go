@@ -61,7 +61,7 @@ func (w ledgerCostPage) Commit(ctx context.Context, id c1zstore.LedgerActionIden
 
 func TestLedgerCostRuntime(t *testing.T) {
 	if os.Getenv("BATON_LEDGER_COST") != "1" {
-		t.Skip("opt-in private-runtime cost smoke; not C49 evidence")
+		t.Skip("opt-in scheduler-adapter cost smoke; not C49 evidence")
 	}
 	arm := os.Getenv("BATON_LEDGER_COST_ARM")
 	if arm == "" {
@@ -94,14 +94,14 @@ func TestLedgerCostRuntime(t *testing.T) {
 	require.NoError(t, err)
 	runtime, err := newLedgerRuntime(t.Context(), source, "cost-attempt")
 	require.NoError(t, err)
-	handler := func(ctx context.Context, action ledgerAction, page *ledgerPage) error {
+	handler := func(ctx context.Context, s *syncer, action *Action, page *ledgerPage) error {
 		start := time.Now()
 		defer func() {
 			duration := time.Since(start)
 			measurements.handlerNs.Add(duration.Nanoseconds())
 			page.row.PageDuration = duration
 		}()
-		if action.identity.Op == "init" {
+		if action.Op == SyncResourceTypesOp {
 			response, err := connector.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{})
 			if err != nil {
 				return err
@@ -113,10 +113,10 @@ func TestLedgerCostRuntime(t *testing.T) {
 			for _, resourceType := range response.GetList() {
 				children = append(children, c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-resources", ResourceTypeID: resourceType.GetId()}})
 			}
-			return page.transition("", children...)
+			return ledgerFixtureTransition(ctx, s, action, "", children...)
 		}
 		called := time.Now()
-		response, err := connector.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{ResourceTypeId: action.identity.ResourceTypeID, PageToken: action.identity.PageToken}.Build())
+		response, err := connector.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{ResourceTypeId: action.ResourceTypeID, PageToken: action.PageToken}.Build())
 		page.row.ConnectorDuration = time.Since(called)
 		if err != nil {
 			return err
@@ -127,18 +127,18 @@ func TestLedgerCostRuntime(t *testing.T) {
 		if err := page.writer.PutResources(ctx, response.GetList()...); err != nil {
 			return err
 		}
-		return page.transition(response.GetNextPageToken())
+		return ledgerFixtureTransition(ctx, s, action, response.GetNextPageToken())
 	}
 	var reopenNs, walkNs int64
 	var priorWAL, priorFlushed, priorCompacted uint64
 	if arm == "resume" {
 		stopped := errors.New("cost fixture: one data page committed")
 		f.audit.enter(ledgerHandler)
-		err := runtime.execute(t.Context(), ledgerInitialActions(), 1, func(ctx context.Context, action ledgerAction, page *ledgerPage) error {
+		err := runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), 1, func(ctx context.Context, s *syncer, action *Action, page *ledgerPage) error {
 			if connector.calls.Load() == 1 {
 				return stopped
 			}
-			return handler(ctx, action, page)
+			return handler(ctx, s, action, page)
 		})
 		f.audit.enter(ledgerLifecycle)
 		require.ErrorIs(t, err, stopped)
@@ -162,11 +162,11 @@ func TestLedgerCostRuntime(t *testing.T) {
 	}
 	f.audit.enter(ledgerWalk)
 	walkStart := time.Now()
-	roots, err := runtime.walk(t.Context(), ledgerInitialActions())
+	roots, err := runtime.walk(t.Context(), ledgerListingFixtureRoots())
 	require.NoError(t, err)
 	walkNs = time.Since(walkStart).Nanoseconds()
 	f.audit.enter(ledgerHandler)
-	require.NoError(t, runtime.execute(t.Context(), roots, workerCount, handler))
+	require.NoError(t, runLedgerSchedulerFixture(t, runtime, roots, workerCount, handler))
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{}))
 	sealStart := time.Now()
@@ -199,13 +199,13 @@ func TestLedgerCostRuntime(t *testing.T) {
 	info, err := os.Stat(path)
 	require.NoError(t, err)
 	result := map[string]any{
-		"arm":       "ledger-private-" + arm + "-no-sync",
+		"arm":       "ledger-scheduler-" + arm + "-no-sync",
 		"reopen_ns": reopenNs, "resume_walk_ns": walkNs, "pages": pages, "records_per_page": records, "workers": workers,
 		"sync_wall_ns": elapsed.Nanoseconds(), "page_commit_ns": measurements.commitNs.Load(), "handler_ns": measurements.handlerNs.Load(),
 		"seal_ns": sealElapsed.Nanoseconds(), "seal_fold_ns": measurements.foldNs.Load(), "seal_scrub_ns": sealCost.LedgerScrub.Nanoseconds(), "seal_purge_ns": sealCost.LedgerPurge.Nanoseconds(),
 		"wal_bytes_before_close": priorWAL + metrics.WAL.BytesWritten, "flush_bytes_before_close": flushed, "compaction_bytes_before_close": compacted,
 		"c1z_bytes": info.Size(), "resources_verified": count, "ledger_commits": measurements.commits.Load(),
-		"scope": "private-runtime smoke; not C49 measurement evidence",
+		"scope": "scheduler adapter with synthetic handlers; not C49 measurement evidence",
 	}
 	encoded, err := json.Marshal(result)
 	require.NoError(t, err)

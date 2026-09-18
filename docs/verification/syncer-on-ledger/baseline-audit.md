@@ -100,8 +100,9 @@ scheduler's page integration:
 | A4 | TestLedgerSealPreservesUnknownIngestQuality | Absent quality stays nil; known clean and blocked states remain represented. |
 | A5 | TestLedgerExistingSchedulerPreservesIndependentErrors | Both concurrent causes remain reachable through errors.Is. |
 
-The rejected executor is compiled only as a test fixture for historical
-runtime, crash and cost tests. It is not a second production scheduler.
+The rejected executor was removed from production in K2c and is now deleted
+from tests too. Runtime, crash and cost fixtures invoke parallelSync through
+the same page adapter. No alternate worker or dispatch loop remains.
 These replacement guards cover the adapter with injected handlers. Public
 attachment, production handlers, Init and lifecycle restoration remain
 unimplemented; passing them does not establish full caller equivalence.
