@@ -786,6 +786,9 @@ func (s *syncer) transitionActionState(
 	childActions []Action,
 ) ([]*Action, error) {
 	if s.ledgered {
+		if replay, _ := ctx.Value(ledgerReplayKey{}).(bool); replay {
+			return s.run.transitionActionWithCompletion(ctx, action, nextPageToken, childActions, false)
+		}
 		if pending, ok := ctx.Value(ledgerCommitKey{}).(ledgerTransitionCommit); ok {
 			if err := pending.commit(); err != nil {
 				return nil, err

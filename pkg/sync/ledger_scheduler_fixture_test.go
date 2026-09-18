@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
-	"github.com/stretchr/testify/require"
 )
 
 func ledgerListingFixtureRoots() []ledgerAction {
@@ -16,22 +15,14 @@ func runLedgerSchedulerFixture(t *testing.T, runtime *ledgerRuntime, roots []led
 	handler func(context.Context, *syncer, *Action, *ledgerPage) error,
 ) error {
 	t.Helper()
-	pending, err := runtime.walk(t.Context(), roots)
-	if err != nil {
-		return err
-	}
 	s := &syncer{ledgered: true, ledger: runtime, run: newRunState(), stats: newRunStats(), cfg: syncConfig{workerCount: int(workers)}}
-	for _, pendingAction := range pending {
-		action := ledgerActionFromIdentity(pendingAction.identity)
-		action.Spawned = pendingAction.spawned
-		action.TypeScopedPlanned = pendingAction.typeScopedPlanned
-		require.NotEqual(t, UnknownOp, action.Op)
-		s.run.pushAction(t.Context(), action)
+	if err := s.restoreLedgerState(t.Context(), ledgerResume{actions: roots}, false); err != nil {
+		return err
 	}
 	s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, page *ledgerPage) error {
 		return handler(ctx, s, action, page)
 	}
-	_, err = s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := s.parallelSync(t.Context(), t.Context(), nil)
 	return err
 }
 

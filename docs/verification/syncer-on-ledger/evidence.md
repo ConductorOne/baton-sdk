@@ -944,3 +944,32 @@ After lint-only formatting and equivalent switch cleanup, Init tests passed
 again in 0.158 seconds and pkg/sync lint reported zero issues. Go 1.26.0 and
 vendored dependencies were used. No further production behavior changed
 after those suite runs.
+
+## K2d read-only state restoration
+
+restoreLedgerState now supplies the existing scheduler's runState, runStats,
+inline legacy graph and ingestion-quality state from the ledger. The test
+fixture calls this production restoration path rather than constructing an
+incomplete substitute state. It does not decide whether to begin another
+requested pass and does not modify sync completion metadata.
+
+| Criteria | Test | Failure established before guard / scope |
+| --- | --- | --- |
+| C17,C19,C20,C24–C30 | TestLedgerRestoreCheckpointFixtures | The old fixture-style restoration lost facts/counts/stats. Nine legacy fixtures failed against independent unmarshalToken expectations, then passed after restoration. No expected values are derived from decodeLedgerCheckpoint. |
+| C33,C34 under CO-010 | TestLedgerRestoreFinishedCheckpointPreservesLifecycle | Empty and pending finished tokens lost the prior 17 completions. Both now retain history through takeover and repeated restoration; the entire sync-run record equals its prior value except the consumed token. This covers token-started artifacts, not yet a second pass over a sealed ledger. |
+| C09,C10,C20,C41 | TestLedgerRestoreRunsOnlyPendingContinuation | Checks one committed page is skipped, only its remaining continuation runs, prior facts/calls/counts are visible to the handler, and the current-process completion threshold starts at zero. Candidate assertions; no separate planted defect claimed. |
+| C20,C23,C39 | TestLedgerRestoreReplayedChildDoesNotCountAgain | Actual integration failure: three in-memory completions versus two committed completions. Replaying a recorded transition now drains the action without counting the old completion again. |
+| C10,C40 | TestLedgerRestoreFailureDoesNotPublishState | Injected counter-read failure leaves the original in-memory state and raw keys unchanged. Candidate assertion, not separate mutation evidence. |
+
+Every restoration test uses the write-free instrument around restoration;
+the pending-page execution uses strict page-write auditing. The shared
+runState transition still records completions by default. Only ledger row
+replay disables completion accounting, and replay also preserves the row's
+type-scoped planning flag on a continuation. Public attachment and production
+connector handlers remain disabled. No storage changes in this increment.
+
+Restoration validation before the separate storage continuation change:
+full pkg/sync passed in 73.787 seconds, ledger race tests passed three
+repetitions in 11.414 seconds, full synccompactor passed in 14.968 seconds,
+vet passed, and pkg/sync lint reported zero issues. These include the shared
+completion-accounting flag and replay regression. Go 1.26.0, vendored deps.

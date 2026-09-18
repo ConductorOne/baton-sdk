@@ -23,6 +23,7 @@ func (e ledgerPageWriteError) GRPCStatus() *status.Status {
 type ledgerWorkerKey struct{}
 type ledgerInvocationKey struct{}
 type ledgerCommitKey struct{}
+type ledgerReplayKey struct{}
 
 type ledgerInvocation struct {
 	action   *Action
@@ -86,7 +87,10 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 			child.Spawned = recorded.Spawned
 			children = append(children, child)
 		}
-		return s.nextPageOrFinishAction(ctx, action, row.NextPageToken, children...)
+		if row.TypeScopedPlanned {
+			s.run.markTypeScopedPlanned(action.ID)
+		}
+		return s.nextPageOrFinishAction(context.WithValue(ctx, ledgerReplayKey{}, true), action, row.NextPageToken, children...)
 	}
 	worker, _ := ctx.Value(ledgerWorkerKey{}).(int)
 	if worker < 0 || worker >= int(c1zstore.TakeoverBucketWorker) {
