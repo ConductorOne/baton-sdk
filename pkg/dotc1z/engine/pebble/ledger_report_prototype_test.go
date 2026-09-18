@@ -16,15 +16,19 @@ import (
 )
 
 type reportPrototypeCollection struct {
-	Scope                                               c1zstore.LedgerActionIdentity
-	Pages, Written, ZeroWritePages, TerminalPages       uint64
-	PageMs, ConnectorMs, ReportedWaitMs, MaxConnectorMs uint64
-	MissingContinuations, MissingChildren               uint64
-	Outcome                                             string
+	Scope                                                c1zstore.LedgerActionIdentity
+	Pages, Written, ZeroWritePages, TerminalPages        uint64
+	PageMs, ConnectorMs, ReportedWaitMs, MaxConnectorMs  uint64
+	MissingContinuations, MissingChildren                uint64
+	Outcome                                              string
+	ConnectorPageMedian, ConnectorPageP95                reportPrototypeInterval
+	WrittenPerPage                                       float64
+	PagesPerThousandWrites, ConnectorMsPerThousandWrites *float64
 }
 
 type reportPrototypeSummary struct {
 	GrantsRequest                         string
+	Written, ConnectorMs, ReportedWaitMs  uint64
 	Pages, Collections, ReferenceChecks   uint64
 	MissingContinuations, MissingChildren uint64
 	Top                                   []reportPrototypeCollection
@@ -44,6 +48,7 @@ func reportPrototype(ctx context.Context, e *Engine, emit func(reportPrototypeCo
 		result.GrantsRequest = "disabled with entitlements by saved sync flag"
 	}
 	var current *reportPrototypeCollection
+	var latency reportPrototypeHistogram
 	var scanErr error
 	flush := func() {
 		if current == nil {
@@ -53,6 +58,15 @@ func reportPrototype(ctx context.Context, e *Engine, emit func(reportPrototypeCo
 		if current.MissingContinuations > 0 || current.MissingChildren > 0 {
 			current.Outcome = "recorded work has no matching completion"
 		}
+		current.ConnectorPageMedian = latency.quantile(50)
+		current.ConnectorPageP95 = latency.quantile(95)
+		current.WrittenPerPage = float64(current.Written) / float64(current.Pages)
+		if current.Written > 0 {
+			pages := float64(current.Pages) * 1000 / float64(current.Written)
+			ms := float64(current.ConnectorMs) * 1000 / float64(current.Written)
+			current.PagesPerThousandWrites = &pages
+			current.ConnectorMsPerThousandWrites = &ms
+		}
 		result.Collections++
 		result.MissingContinuations += current.MissingContinuations
 		result.MissingChildren += current.MissingChildren
@@ -60,7 +74,7 @@ func reportPrototype(ctx context.Context, e *Engine, emit func(reportPrototypeCo
 			emit(*current)
 		}
 		result.Top = append(result.Top, *current)
-		sort.Slice(result.Top, func(i, j int) bool { return result.Top[i].ConnectorMs > result.Top[j].ConnectorMs })
+		sort.Slice(result.Top, func(i, j int) bool { return reportPrototypeRankBefore(result.Top[i], result.Top[j]) })
 		if len(result.Top) > 10 {
 			result.Top = result.Top[:10]
 		}
@@ -91,16 +105,21 @@ func reportPrototype(ctx context.Context, e *Engine, emit func(reportPrototypeCo
 		if current == nil || current.Scope != scope {
 			flush()
 			current = &reportPrototypeCollection{Scope: scope}
+			latency = reportPrototypeHistogram{}
 		}
 		result.Pages++
 		current.Pages++
 		written := row.GetResourceTypesWritten() + row.GetResourcesWritten() + row.GetEntitlementsWritten() + row.GetGrantsWritten()
 		current.Written += written
+		result.Written += written
 		if written == 0 {
 			current.ZeroWritePages++
 		}
 		current.PageMs += row.GetPageMs()
 		current.ConnectorMs += row.GetConnectorMs()
+		result.ConnectorMs += row.GetConnectorMs()
+		result.ReportedWaitMs += row.GetWaitMs()
+		latency.add(row.GetConnectorMs())
 		current.ReportedWaitMs += row.GetWaitMs()
 		current.MaxConnectorMs = max(current.MaxConnectorMs, row.GetConnectorMs())
 		if row.GetNextPageToken() == "" {
@@ -160,11 +179,23 @@ func TestLedgerReportPrototype(t *testing.T) {
 	require.Equal(t, "team-a", report.Top[0].Scope.ResourceID)
 	require.EqualValues(t, 5, report.Top[0].Written)
 	require.EqualValues(t, 3000, report.Top[0].ReportedWaitMs)
+	require.EqualValues(t, 4850, report.ConnectorMs)
+	require.EqualValues(t, 6, report.Written)
+	require.Equal(t, "86.60%", reportPrototypeShare(report.Top[0].ConnectorMs, report.ConnectorMs))
+	require.Equal(t, reportPrototypeInterval{128, 255, true}, report.Top[0].ConnectorPageMedian)
+	require.Equal(t, reportPrototypeInterval{2048, 4095, true}, report.Top[0].ConnectorPageP95)
+	require.Equal(t, 2.5, report.Top[0].WrittenPerPage)
+	require.Equal(t, 400.0, *report.Top[0].PagesPerThousandWrites)
+	require.Equal(t, 840000.0, *report.Top[0].ConnectorMsPerThousandWrites)
+	require.Nil(t, collections[1].ConnectorMsPerThousandWrites)
+	require.Nil(t, collections[1].PagesPerThousandWrites)
 	require.Contains(t, collections[1].Outcome, "endpoint outcome unavailable")
 	require.EqualValues(t, 1, collections[1].ZeroWritePages)
 	encoded, err := json.MarshalIndent(collections, "", "  ")
 	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "p2")
 	t.Log(string(encoded))
+	require.NoError(t, exportReportPrototype(report))
 }
 
 func TestLedgerReportPrototypeScope(t *testing.T) {
@@ -246,8 +277,31 @@ func BenchmarkLedgerReportPrototype(b *testing.B) {
 					require.NoError(b, err)
 					require.EqualValues(b, pages, report.Pages)
 					require.Zero(b, report.MissingContinuations)
+					html, err := renderReportPrototype(report)
+					require.NoError(b, err)
+					b.ReportMetric(float64(len(html)), "report-bytes")
 				}
 			})
 		}
 	}
+}
+
+func TestLedgerReportTopLimit(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	for n := 10; n >= 0; n-- {
+		id := grantsPageIdentity(fmt.Sprintf("team-%02d", n), "")
+		row := v3.LedgerRow_builder{ConnectorMs: 100}.Build()
+		require.NoError(t, e.ledger.newPageUnit().Commit(ctx, id, row))
+	}
+	report, err := reportPrototype(ctx, e, nil)
+	require.NoError(t, err)
+	require.Len(t, report.Top, 10)
+	require.EqualValues(t, 11, report.Collections)
+	require.EqualValues(t, 1100, report.ConnectorMs)
+	require.Equal(t, "team-00", report.Top[0].Scope.ResourceID)
+	require.Equal(t, "team-09", report.Top[9].Scope.ResourceID)
+	require.Equal(t, "9.09%", reportPrototypeShare(report.Top[0].ConnectorMs, report.ConnectorMs))
 }

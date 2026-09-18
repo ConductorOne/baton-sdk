@@ -1661,3 +1661,31 @@ Engine-package lint reports the same six G115 findings in adapter_page.go and
 ledger_cost_bench_test.go; none refer to the prototype. git diff --check passes.
 The broader public-path migration remains uncommitted and is not validated by
 these engine tests. C50 is not closed by this experiment.
+
+## Mechanical timing artifact extension (C50)
+
+Brief commit: 83455685. C50 remains evidence incomplete. No production code or
+storage contract changed. The test-only Go generator emits HTML and JSON from
+rows/facts; authored analysis is not used as report data.
+
+TestLedgerReportPrototype now asserts total connector time, collection share,
+median/p95 histogram intervals, writes per page and rates per 1,000 writes,
+including undefined rates at zero writes. TestLedgerReportHistogram covers empty
+input, zero, powers-of-two boundaries, nearest-rank rounding and uint64 maximum.
+TestLedgerReportRendering checks repeatable bytes, HTML escaping, token omission,
+undefined zero-output rates and a denominator larger than the displayed group.
+TestLedgerReportRank checks descending timing and full-scope deterministic ties.
+TestLedgerReportTopLimit checks eleven equal-time collections retain the first
+ten by scope while the denominator still includes all eleven.
+
+Planted defects, removed after assertion failures: floor percentile rank instead
+of ceiling (Histogram); collection time as its own percentage denominator
+(Rendering); ascending time ranking (Rank). The restored targeted tests pass
+(0.046s). The combined tests/benchmark run before the final rendering whitespace
+change passed in 3.404s. Cost results and limitations are in report-experiment.md.
+
+The generated HTML was opened in headless Chromium and visually inspected. The
+local HTTP response was compared with the generated file. HTML and JSON copies
+are published as task artifacts. The original analysis artifact is not the
+mechanical report. Engine lint retains six preexisting G115 findings; no new
+report findings remain after wrapping the HTML template to the line limit.

@@ -83,7 +83,7 @@ It does not hold a map of every resource. Reference validation uses point reads
 for each advertised continuation or child. That costs additional reads; this is
 not merely a single sequential scan. It performs no record-family scans or writes.
 
-Final prototype smoke measurements on Linux arm64, Go 1.26.0, GOMAXPROCS 4. The environment
+Coverage-only prototype smoke measurements (before timing sections) on Linux arm64, Go 1.26.0, GOMAXPROCS 4. The environment
 reports 16 logical CPUs; it is not an unloaded-machine qualification. Each fixture
 was flushed to SSTs, then the report was measured three times. Caches were not
 cleared. There are no adjacent grant records or large child lists in this cost
@@ -104,9 +104,8 @@ allocation proportional to rows despite bounded retained aggregation state.
 
 These numbers support continuing the experiment. They do not establish final
 report cost: measure large fan-out, mixed record/ledger SSTs, cold reads, full
-output generation and peak RSS. Latency distributions are not yet implemented;
-the prototype reports total and maximum connector time. A bounded histogram can
-add approximate quantiles, with explicit bucket bounds rather than false precision.
+output generation and peak RSS. The initial prototype reported total and maximum connector time only. The timing
+extension below adds bounded histogram quantiles and generated HTML/JSON.
 
 ## Decision so far
 
@@ -120,3 +119,50 @@ continuation currently clears collection rows; a durable collection report must
 survive that lifecycle if it is to explain the original collection. Whether to
 keep individual rows or only their report remains a separate decision after
 agreeing on the useful drill-down.
+
+## Mechanically generated timing artifact
+
+The Go prototype now emits standalone report.html and report.json directly from
+the aggregate result. The HTML is a fixed escaped template, with no generated
+analysis text. It includes coverage evidence and the ten largest collections by
+recorded connector time, ordered deterministically across equal totals.
+
+Reproduce the synthetic artifact:
+
+```sh
+LEDGER_REPORT_OUTPUT_DIR=/tmp/ledger-generated-report GOTOOLCHAIN=go1.26.0 \
+  go test -mod=vendor ./pkg/dotc1z/engine/pebble -run '^TestLedgerReportPrototype$' -count=1
+```
+
+The timing table includes share of all recorded connector time, reported waits,
+maximum connector milliseconds per page, median/p95 intervals, writes per page,
+and pages/connector milliseconds per 1,000 writes. Quantiles use nearest rank in
+65 integer histogram buckets; only the current group's histogram is retained.
+No list of individual page latencies is kept. Pages are not labeled API calls.
+Rates for zero writes are unavailable. The JSON contains no page-token values.
+
+In the generated fixture team-a has 86.60% of the 4,850 recorded connector
+milliseconds, 3,000 reported wait milliseconds, 2.5 writes per page and 400 pages
+per 1,000 writes. Its median falls in 128–255ms and p95 in 2,048–4,095ms; its
+exact maximum is 4,000ms. Those intervals are intentionally not printed as exact
+percentiles. These are fixture measurements, not real connector performance.
+
+The final cost run includes scanning, reference checks, histogram/rate aggregation,
+top-ten selection and HTML rendering. It excludes output file writes and JSON
+serialization. Same warm-cache synthetic conditions as above; three iterations:
+
+| Pages | Pages per resource | Mean time including HTML | Cumulative allocation | HTML size |
+| ---: | ---: | ---: | ---: | ---: |
+| 1,000 | 1 | 2.22ms | 1.23MB | 8.2KB |
+| 1,000 | 100 | 3.95ms | 1.12MB | 8.3KB |
+| 10,000 | 1 | 15.74ms | 11.11MB | 8.2KB |
+| 10,000 | 100 | 34.78ms | 9.94MB | 8.3KB |
+| 100,000 | 1 | 151.58ms | 109.76MB | 8.2KB |
+| 100,000 | 100 | 341.32ms | 98.09MB | 8.3KB |
+
+HTML whitespace was subsequently wrapped to meet repository line limits; that
+format-only change was tested but not re-benchmarked. Sizes are from the measured
+revision. This remains a feasibility result, not C49 qualification. The prototype
+is still test-only and has no command for an arbitrary customer artifact. Full
+resource drill-down, effective-request metadata, outcome/skip reasons, cold reads,
+large fan-out and peak RSS remain outstanding.
