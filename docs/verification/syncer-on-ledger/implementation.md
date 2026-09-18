@@ -666,3 +666,24 @@ their cause for errors.Is but cannot enter the connector-warning branch.
 New child IDs are checked before commit because runState otherwise rejects
 them after the durable write. Page facts become visible in runState only
 after the page commits, before the existing transition is published.
+
+## 18. Remove the historical executor before further integration
+
+The requester requires immediate migration of all remaining test and cost
+callers and deletion of ledger_executor_fixture_test.go. Fixtures will seed
+the existing runState and invoke parallelSync; they will not implement a
+queue or worker loop. Synthetic listing fixtures use listing operations,
+not Init as a substitute for a connector call. Their transitions use
+nextPageOrFinishAction. Diamond/cycle fixtures use main's spawned-action
+admission rules, including registration of the root as spawned.
+
+A committed child discovered by an uncommitted parent is resolved at page
+invocation through the ledger row before any writer is opened. Identity and
+scrub checks apply there as in the initial walk. This serves C09/C10/C12;
+a regression guard must reject running that child's handler. The removed
+finished-binding reset tests asserted superseded behavior and do not count
+as lifecycle evidence. CO-010 lifecycle verification remains outstanding.
+
+After migration, K2d proceeds with atomic Init planning and restoration
+through the existing scheduler. No cost result from the deleted executor
+will be presented as evidence for that integration.
