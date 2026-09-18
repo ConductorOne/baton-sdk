@@ -5,13 +5,16 @@ import (
 	"errors"
 	"maps"
 	"strings"
+
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 func (s *syncer) restoreLedgerState(ctx context.Context, resume ledgerResume, newSync bool) error {
 	if s.ledger == nil {
 		return errors.New("ledger runtime is not initialized")
 	}
-	pending, err := s.ledger.walk(ctx, resume.actions)
+	seen := make(map[c1zstore.LedgerActionIdentity]bool)
+	pending, err := s.ledger.walkWithSeen(ctx, resume.actions, seen)
 	if err != nil {
 		return err
 	}
@@ -73,6 +76,15 @@ func (s *syncer) restoreLedgerState(ctx context.Context, resume ledgerResume, ne
 	}
 	graph := newExpansionGraph()
 	graph.restore(resume.graph)
+	scheduledChildren := make(map[string]struct{})
+	for identity := range seen {
+		if identity.Op == SyncResourcesOp.String() && identity.ResourceTypeID != "" && identity.ParentResourceTypeID != "" && identity.ParentResourceID != "" {
+			scheduledChildren[childScheduleKey(identity.ResourceTypeID, identity.ParentResourceTypeID, identity.ParentResourceID)] = struct{}{}
+		}
+	}
+	s.childSchedule.mu.Lock()
+	s.childSchedule.m = scheduledChildren
+	s.childSchedule.mu.Unlock()
 	s.run = run
 	s.stats = stats
 	s.graph = graph

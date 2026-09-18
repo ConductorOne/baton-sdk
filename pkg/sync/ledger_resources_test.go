@@ -334,3 +334,51 @@ func TestLedgerResourceReadFailure(t *testing.T) {
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 	require.Empty(t, s.stats.connectorCallStats())
 }
+
+func TestLedgerResourcePendingChildRestore(t *testing.T) {
+	for _, check := range []string{"mark", "transition"} {
+		t.Run(check, func(t *testing.T) {
+			s, f, c := resourcePageFixture(t, 1)
+			root := ledgerIdentity(s.run.current())
+			f.audit.enter(ledgerHandler)
+			require.NoError(t, s.invokeActionPage(t.Context(), s.run.current(), s.SyncResources, false))
+			f.audit.enter(ledgerLifecycle)
+			require.Len(t, c.requests, 1)
+			require.NoError(t, f.store.Close(t.Context()))
+			f = openLedgerFixtureAt(t, f.path, false)
+			s.store, s.caps = f.store, resolveStoreCaps(f.store)
+			var err error
+			s.ledger, err = newLedgerRuntime(t.Context(), f.ledger, "pending-child-resume")
+			require.NoError(t, err)
+			s.childSchedule = childScheduleSet{}
+			before := ledgerRawSnapshot(t, f.engine)
+			f.audit.enter(ledgerWalk)
+			require.NoError(t, s.restoreLedgerState(t.Context(), ledgerResume{actions: []ledgerAction{{identity: root}}}, false))
+			f.audit.enter(ledgerLifecycle)
+			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
+			if check == "mark" {
+				require.True(t, s.childSchedule.has("child", "parent", "one"))
+			}
+			f.audit.enter(ledgerHandler)
+			_, err = s.parallelSync(t.Context(), t.Context(), nil)
+			require.NoError(t, err)
+			f.audit.enter(ledgerLifecycle)
+			require.Len(t, c.requests, 3)
+			root.PageToken = "next"
+			row, found, err := f.ledger.GetLedgerRow(t.Context(), root)
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Empty(t, row.Children)
+			baseline, baselineFile, _ := resourcePageFixture(t, 1)
+			baselineFile.audit.enter(ledgerHandler)
+			_, err = baseline.parallelSync(t.Context(), t.Context(), nil)
+			require.NoError(t, err)
+			baselineFile.audit.enter(ledgerLifecycle)
+			uninterrupted, found, err := baselineFile.ledger.GetLedgerRow(t.Context(), root)
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Equal(t, uninterrupted.Children, row.Children)
+			require.Equal(t, uninterrupted.ResourcesWritten, row.ResourcesWritten)
+		})
+	}
+}

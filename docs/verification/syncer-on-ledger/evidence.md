@@ -1424,3 +1424,29 @@ K5d checks (Go 1.26.0, vendored dependencies): full sync suite passed
 (79.848s); grant/entitlement/resource/targeted/existing-scheduler race tests
 passed three repetitions (6.451s). Vet passed, sync lint reports zero issues,
 and git diff --check passes. Storage and compactor code remain unchanged.
+
+## Pending resource children during restoration
+
+Brief commit: af2e4131. TestLedgerResourcePendingChildRestore failed against
+K5d in two independent subcases: restored childSchedule lacked the pending
+child, and the resumed continuation durably recorded the child a second time.
+This was a defect in state restoration, not a missing storage capability.
+
+restoreLedgerState now uses the walk's existing seen-identity map to rebuild
+child scheduling marks, including children whose pages are still absent.
+It publishes the map only after all state reads succeed. No extra scan,
+store write, lifecycle change or queue implementation was added.
+
+The corrected test commits one real resource page, closes/reopens, restores
+from its root and runs its pending child and continuation. Restore changes no
+raw keys, exactly one child connector call occurs, and the continuation's
+children and written-resource count equal uninterrupted execution.
+TestLedgerRestoreFailureDoesNotPublishState now also checks that a failed
+counter read preserves prior child scheduling marks. Other restore fixtures
+continue to pass. C09/C10/C15/C16/C42 gain this stopped-subtree case; complete
+sealed-file crash equality remains evidence incomplete.
+
+Checks (Go 1.26.0, vendored dependencies): restore and stopped-child tests
+passed (0.267s); restore, replay and existing-scheduler race tests passed three
+repetitions (4.756s). Vet and sync lint passed (zero issues). The last full
+sync run remains K5d's 79.848s; storage and compactor are unchanged.

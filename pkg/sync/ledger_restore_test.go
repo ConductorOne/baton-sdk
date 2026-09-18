@@ -175,6 +175,7 @@ func TestLedgerRestoreFailureDoesNotPublishState(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
 	originalRun, originalStats := s.run, s.stats
 	s.run.setFact("old-state")
+	s.childSchedule.recordIfNew("old-child", "old-parent", "one")
 	injected := errors.New("counter read failed")
 	s.ledger.store = ledgerRestoreReadFault{PageLedgerStore: f.ledger, err: injected}
 	before := ledgerRawSnapshot(t, f.engine)
@@ -185,6 +186,7 @@ func TestLedgerRestoreFailureDoesNotPublishState(t *testing.T) {
 	require.Same(t, originalRun, s.run)
 	require.Same(t, originalStats, s.stats)
 	require.True(t, s.run.hasFact("old-state"))
+	require.True(t, s.childSchedule.has("old-child", "old-parent", "one"))
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 }
 
