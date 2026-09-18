@@ -221,63 +221,9 @@ func (s *syncer) parallelSync(
 
 		switch stateAction.Op {
 		case InitOp:
-			s.finishAction(ctx, stateAction)
-
-			if s.cfg.skipEntitlementsAndGrants {
-				s.run.setFact(factShouldSkipEntitlementsAndGrants)
-			}
-			if s.cfg.skipGrants {
-				s.run.setFact(factShouldSkipGrants)
-			}
-			if len(targetedResources) > 0 {
-				for _, r := range targetedResources {
-					s.run.pushAction(ctx, Action{
-						Op:                   SyncTargetedResourceOp,
-						ResourceID:           r.GetId().GetResource(),
-						ResourceTypeID:       r.GetId().GetResourceType(),
-						ParentResourceID:     r.GetParentResourceId().GetResource(),
-						ParentResourceTypeID: r.GetParentResourceId().GetResourceType(),
-					})
-				}
-				s.run.setFact(factShouldFetchRelatedResources)
-				s.run.pushAction(ctx, Action{Op: SyncResourceTypesOp})
-				err = s.Checkpoint(ctx, true)
-				if err != nil {
-					return warnings, err
-				}
-				// Don't do grant expansion or external resources in partial syncs, as we likely lack related resources/entitlements/grants
-				continue
-			}
-
-			// FIXME(jirwin): Disabling syncing assets for now
-			// s.run.pushAction(ctx, Action{Op: SyncAssetsOp})
-			if !s.run.hasFact(factShouldSkipEntitlementsAndGrants) {
-				s.run.pushAction(ctx, Action{Op: SyncGrantExpansionOp})
-			}
-			if s.externalResourceReader != nil {
-				s.run.pushAction(ctx, Action{Op: SyncExternalResourcesOp})
-			}
-			if s.cfg.onlyExpandGrants {
-				s.run.setFact(factNeedsExpansion)
-				err = s.Checkpoint(ctx, true)
-				if err != nil {
-					return warnings, err
-				}
-				continue
-			}
-			if !s.run.hasFact(factShouldSkipEntitlementsAndGrants) {
-				if !s.run.hasFact(factShouldSkipGrants) {
-					s.run.pushAction(ctx, Action{Op: SyncGrantsOp})
-				}
-
-				s.run.pushAction(ctx, Action{Op: SyncEntitlementsOp})
-
-				s.run.pushAction(ctx, Action{Op: SyncStaticEntitlementsOp})
-			}
-			s.run.pushAction(ctx, Action{Op: SyncResourcesOp})
-			s.run.pushAction(ctx, Action{Op: SyncResourceTypesOp})
-
-			err = s.Checkpoint(ctx, true)
+			err = s.invokeActionPage(ctx, stateAction, func(pageCtx context.Context, action *Action) error {
+				return s.initializeAction(pageCtx, action, targetedResources)
+			}, false)
 			if err != nil {
 				return warnings, err
 			}

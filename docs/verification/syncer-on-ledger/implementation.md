@@ -618,9 +618,9 @@ The requester has authorized these ordinary shared integration changes;
 they do not require another exception request merely because SQLite reaches
 the same function.
 
-The private ledgerRuntime.execute implementation is rejected for production
-integration. Its tests remain useful as recorded failures and fixtures, but
-the integration tests and cost driver must move to the existing scheduler.
+The private ledgerRuntime.execute implementation is rejected. Commit a42c8a32
+deletes it from tests as well as production. Recovery fixtures and the cost
+driver now call the existing scheduler; no alternate executor is retained.
 K2 and subsequent sequence details must be revised around these boundaries
 before claiming completion. This clarification changes no production code.
 
@@ -647,14 +647,15 @@ syncTestHooks. The first increment does not enable store attachment routing,
 implement production record handlers, or claim Init/resume/finished-artifact
 integration complete. Its acceptance is the existing scheduler's ordering,
 warning/accounting behavior, transition atomicity and independent errors
-with real page writers. The rejected generic executor is retained only as
-a test fixture until its historical tests and cost driver are migrated; it
-must no longer be compiled into production.
+with real page writers. The rejected generic executor was briefly retained as a test fixture, then
+deleted in a42c8a32. Its historical tests and cost driver now call the existing
+scheduler. Do not reintroduce a ledger-specific dispatch or worker loop in
+production or test code.
 
 K2d restores the ledger frontier into the existing action stack, handles
 Init's page boundary using shared planning, and preserves the baseline
-same-ID post-processing lifecycle. K2e moves cost and recovery callers to
-that integration and removes the historical executor fixture. Run the full
+same-ID post-processing lifecycle. The fixture-removal portion of K2e is complete in a42c8a32; its cost and
+recovery callers must continue onto the completed lifecycle integration. Run the full
 sync suite, ledger race repetitions, build/vet and applicable lint at each
 completed increment. Record any diagnostic still aimed at the historical
 fixture as such; it is not a regression guard for the integrated scheduler.

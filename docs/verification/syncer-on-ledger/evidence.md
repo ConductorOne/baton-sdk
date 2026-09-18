@@ -905,3 +905,42 @@ the unused reset helper and adding the read-only replay assertion, ledger
 tests passed again in 0.907 seconds and pkg/sync lint reported zero issues.
 Go 1.26.0 with vendored dependencies was used. A source search finds no
 ledgerRuntime.execute, ledgerPageResult or ledgerPageHandler remaining.
+
+
+## K2d atomic Init
+
+Init now uses one store-free action/fact plan for both persistence paths.
+The checkpoint path keeps its forced checkpoint; the ledger path commits
+its ordered children, facts and completion bucket together before publishing
+them into runState. No production connector listing handler or public
+attachment route is enabled by this increment. No storage code changes.
+
+TestInitialActionBaseline passed against the original Init body before the
+extraction and against the shared planner afterward. Its eight cases assert
+ordered operations, facts, parent identity and one Init completion. The
+expected operation lists are explicit baseline expectations, not computed by
+the planner under test. TestLedgerInitialActionMatchesBaseline checks those
+same expectations and the durable row, fact set and cumulative accounting.
+
+TestLedgerInitialActionCommitFailureIsAtomic initially failed because Init
+advanced without a page commit and reached the next unimplemented handler.
+It now passes for fact staging, counter staging and commit failures: Init
+remains pending, no new fact is visible, completion remains zero and raw keys
+are unchanged. A planted early publication of the skip-grants fact makes
+that test fail. A planted reversal of resources/resource-types in the common
+planner makes TestInitialActionBaseline fail even though both persistence
+paths share the same faulty planner. Both planted edits were restored.
+
+This supplies bounded adapter evidence for C05/C17 and baseline option
+preservation. It does not close their crash products, finished-artifact
+processing or full public Sync integration. Restoring the ledger action
+history and facts into the existing scheduler remains the next integration
+boundary; the removed finished-binding reset must not return.
+
+K2d Init validation: full pkg/sync passed in 74.115 seconds; ledger and Init
+baseline race tests passed three repetitions in 10.919 seconds; full
+synccompactor passed in 15.050 seconds. Vet passed for sync and synccompactor.
+After lint-only formatting and equivalent switch cleanup, Init tests passed
+again in 0.158 seconds and pkg/sync lint reported zero issues. Go 1.26.0 and
+vendored dependencies were used. No further production behavior changed
+after those suite runs.

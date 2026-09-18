@@ -100,10 +100,15 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		page.row.Spawned = action.Spawned
 		page.row.TypeScopedPlanned = action.TypeScopedPlanned
 		pageCtx = context.WithValue(pageCtx, ledgerInvocationKey{}, invocation)
-		if s.testHooks.ledgerHandler == nil {
+		var err error
+		switch {
+		case s.testHooks.ledgerHandler != nil:
+			err = s.testHooks.ledgerHandler(pageCtx, action, page)
+		case action.Op == InitOp:
+			err = handler(pageCtx, action)
+		default:
 			return errors.New("ledger production handlers are not integrated")
 		}
-		err := s.testHooks.ledgerHandler(pageCtx, action, page)
 		if err != nil {
 			if !allowWarning || !isWarning(pageCtx, err) {
 				handlerFailure = err
