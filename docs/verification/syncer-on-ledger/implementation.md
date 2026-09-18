@@ -816,3 +816,25 @@ The larger pages test whether row and bucket overhead diminishes relative
 to record work. Synthetic handlers and incomplete machine qualification
 still prevent acceptance claims. Preserve all samples, including tripwire
 results; explain observed regressions without inventing a cause from ratios.
+
+## 24. Preserve initial ingestion-quality knowledge
+
+Restoration currently initializes a fresh run's in-memory ingestion quality
+as known clean, but Init does not commit that knowledge. A restart after
+Init therefore restores unknown prior quality. C17/C18 require the initial
+fact to survive with the page that establishes it; C24/C30 require the
+restored state to distinguish fresh known quality from unknown legacy data.
+
+Store fresh known quality in the restored runStats snapshot as well as the
+existing ingestFilterStats state. Init stages the known-quality fact when
+that snapshot exists. Unknown resumed input leaves the snapshot absent and
+must not acquire a known-clean declaration. This does not add source-cache
+replay behavior or change the checkpoint path.
+
+Before the fix, add a fresh-versus-unknown Init/close/reopen test: the fresh
+case must fail when its durable known-quality fact is absent. Add page-stage
+failure cases asserting no fact or Init row becomes durable. After the fix,
+run restoration/Init/continuation tests and their race cases, then the sync
+suite and lint. Do not overlap compilation or test execution with the cost
+samples. The measured executable stays pinned to fafa4f74; these changes
+require a later cost executable revision.
