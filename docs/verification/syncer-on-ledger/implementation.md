@@ -1331,3 +1331,72 @@ flushes with active pages. Plant a bucket initialized from restored stats and
 page session usage copied into it; assertions must fail before evidence is
 closed. Commit this brief alone before implementation. Public routing and
 seal wiring follow separately, using this tested accumulator.
+
+## 39. Mandatory engine attachment and public lifecycle
+
+At setStore, resolve capabilities once and validate Metadata().Engine. Pebble
+requires PageLedgerStore; SQLite rejects it; empty/unknown engines fail.
+Store the decision only in ledgered. SyncOpt cannot return an error, so retain
+an attach error for NewSyncer to return after options; loadStore returns it
+for path-based attachment. No option or environment variable selects a Pebble
+checkpoint path. WithRetainLedgerTokens is a SyncOpt for token retention only,
+default false, forwarded to the store before page commits. A prior durable
+retention declaration continues to govern the same sync after reopening.
+
+Keep Sync's existing validation, targeted-resource selection and
+startOrResumeSync binding decisions. Fork before token-state restoration and
+prior-verification clearing into a new ledger lifecycle function. It creates
+a fresh attempt identity, calls prepareLedgerState, then runs the existing
+scheduler. Neither SyncID nor ended_at is reset for a finished binding.
+prepareLedgerState's tested ClearLedgerRows handling allows another requested
+pass and keeps same-ID data/history/accounting intact. SkipSync gets a ledger
+fork after its existing store load and connector validation; it retains main's
+new-empty-full-sync behavior and seals through EndSyncWithStats.
+
+A resume walk must not clear an ingestion verification marker. Invalidate it
+once at the first executing page before records can change, under a registered
+bypass whose reason is that removing verification cannot make an unfinished
+page appear committed. Serialize that one-time preparation across workers and
+retry a failed invalidation. A refused unproven scrubbed file reaches no
+invalidation or other write. This preserves main's rule that old verification
+cannot survive into a record-changing window, while keeping replay read-only.
+The marker remains absent after a refused first page; existing data is safe
+but conservatively unverified. Tests must assert this file state.
+
+After work drains, retain main's ingestion-invariant checks and halt hook,
+cleanup/error behavior, graph preservation, verification publication and
+connector cleanup. Only after all fallible pre-seal work succeeds does the
+terminal page commit seal-ready and the current attempt's run bucket. Seal
+through EndSyncWithStats. A resumed seal-ready file skips collection and can
+finish the seal even if rows were scrubbed. A missing stats sidecar under the
+engine's documented persistence failure remains a successful seal. Preserve
+main's post-seal log-only handling of graph/verification/connector cleanup
+failures; they cannot turn a completed artifact into a failed sync.
+
+When graph preservation is requested and replay skipped completed expansion,
+rebuild the graph read-only from stored annotations and mark its edges complete
+only with proof that expansion finished. Strip transient state as main does,
+then bind the sidecar to the sealed grant digest. Do not rerun expansion output
+to reconstruct an optional sidecar. Missing/incomplete proof must not invent a
+completed graph. No source-cache replay orchestration or new source-cache
+facts are included.
+
+Session-store writes during a connector page are auxiliary session state,
+not sync records or resume progress. Where loadStore already installs the
+session store, wrap its four mutation methods with a registered reason before
+instrumentation; reads stay delegated. Do not add a new session-store setup
+path for callers that main leaves responsible for configuring their store.
+
+C01–C03/C10/C11/C19–C36/C38/C41/C43 candidates use the public constructor and
+Sync: attach mismatch/empty engine errors; fresh paginated Pebble output and
+sealed empty token; stop/reopen without committed connector calls repeating;
+legacy takeover through accepted token fixtures; finished same-ID expansion;
+new-empty SkipSync; retention across reopening; stats handover; seal failure
+and scrubbed-proof recovery; unproven scrubbed refusal with raw-image equality;
+verification invalidation before first mutation; graph sidecar after skipped
+expansion; session writes with strict hooks. Migrate tests that specifically
+assert Pebble checkpoint tokens to ledger outcomes; retain SQLite/token golden
+coverage. Plant a missing engine refusal, plain EndSync/token write, repeated
+page and missing stats handover. Record any incomplete products honestly.
+Commit this amendment alone; public routing and lifecycle must build and pass
+together before the code commit. No temporary public engine switch is added.
