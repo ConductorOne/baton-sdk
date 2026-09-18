@@ -652,3 +652,24 @@ func (b *FoldBatch) Set(key, val []byte) error {
 	}
 	return b.batch.Set(key, val)
 }
+
+func (rb *RecordBatch) StageLedgerClearRows(factKeys [][]byte) error {
+	for _, key := range factKeys {
+		if err := assertFamily("StageLedgerClearRows", key, LedgerFactPrefix()); err != nil {
+			return err
+		}
+	}
+	lo, hi := LedgerRowBounds()
+	if err := rb.core.DeleteRange(lo, hi); err != nil {
+		return err
+	}
+	if err := rb.core.Delete(LedgerFrontierKey()); err != nil {
+		return err
+	}
+	for _, key := range factKeys {
+		if err := rb.core.Delete(key); err != nil {
+			return err
+		}
+	}
+	return nil
+}

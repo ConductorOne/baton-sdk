@@ -58,6 +58,7 @@ var commitPointRegistry = map[string][]string{
 	// the seam.
 	"page_unit.go:Commit":    {"SetRecordCommitTestHook"},
 	"adapter_page.go:Commit": {"SetRecordCommitTestHook"}, // v2 wrapper delegating to pageUnit.Commit
+	"ledger.go:ClearRows":    {"ledgerClearRowsHook", "SetRecordCommitTestHook"},
 	"ledger.go:scrubTokens":  {"SetRecordCommitTestHook"},
 	"ledger.go:Takeover":     {"SetRecordCommitTestHook"}, // RecordBatch: frontier + facts + bucket + token clear, one unit
 	"ledger.go:PutCounterBucket": {

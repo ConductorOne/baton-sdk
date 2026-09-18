@@ -318,3 +318,10 @@ func (w *ledgerTrackedWriter) Discard() {
 	w.PageWriter.Discard()
 	w.release()
 }
+
+func (s *ledgerGuardedStore) ClearLedgerRows(ctx context.Context, facts []string) error {
+	if err := s.audit.record(ctx, "ClearLedgerRows"); err != nil {
+		return err
+	}
+	return s.PageLedgerStore.ClearLedgerRows(ctx, facts)
+}

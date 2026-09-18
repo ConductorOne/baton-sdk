@@ -973,3 +973,34 @@ full pkg/sync passed in 73.787 seconds, ledger race tests passed three
 repetitions in 11.414 seconds, full synccompactor passed in 14.968 seconds,
 vet passed, and pkg/sync lint reported zero issues. These include the shared
 completion-accounting flag and replay regression. Go 1.26.0, vendored deps.
+
+## Storage operation for finished-ledger continuation
+
+PageLedgerStore.ClearLedgerRows is a new contract method. On a bound finished
+sync it atomically removes page rows, the takeover frontier and named facts,
+while retaining counter buckets, other facts, records and sync metadata.
+It uses the existing ledger stamp, residue marker and purge path. The wrapper
+marks dirty even if a later operation fails. This is the only additional
+production storage behavior beyond the previously recorded seal timing.
+
+TestLedgerClearRowsPreservesHistory failed with a planted DropLedger
+implementation: the retained history fact disappeared. The rows-only batch
+passes that test, including unchanged sync metadata, record preservation,
+counter preservation and refusal of subsequent checkpoint writes.
+TestLedgerClearRowsRefusesUnfinishedSync covers the guard's refusal arm.
+TestLedgerClearRowsFailureCuts checks stamped, staged and committed cuts;
+TestLedgerClearRowsCrashImages reopens zero-unsynced-byte crashable-VFS images
+at those same cuts and checks coupled row/fact presence plus retained history.
+Those crash images cover these three cuts, not arbitrary hardware failures.
+
+TestPebbleStoreClearRowsMarksDirty closes and reopens the artifact after its
+only requested mutation is clearing rows. Removing MarkDirty made the old
+row survive the reopen; restoring it passes. The write-audit fixture and
+storage mutation/commit registries include the new method and its failure
+hook. Physical crash coverage of this storage batch does not by itself
+establish the complete syncer continuation protocol.
+
+The full Pebble engine suite passed in 6.927 seconds after registering the
+new commit/failure hook. Store dirty/contract checks passed in 0.082 seconds.
+Vet passed for dotc1z and sync. The broad lint run reports only the same six
+pre-existing G115 conversions already recorded above; no new lint findings.
