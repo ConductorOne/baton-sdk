@@ -148,6 +148,10 @@ type PageWriter interface {
 	GetResource(ctx context.Context, resourceTypeID, resourceID string) (*v2.Resource, error)
 	GetEntitlement(ctx context.Context, entitlementID string) (*v2.Entitlement, error)
 
+	// Applied after all page puts, without cascading. Reads ignore pending deletes.
+	DeleteResources(ctx context.Context, resources ...*v2.Resource) error
+	DeleteEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
+
 	// Applied in the commit after the page's puts.
 	DeleteGrants(ctx context.Context, grants ...*v2.Grant) error
 

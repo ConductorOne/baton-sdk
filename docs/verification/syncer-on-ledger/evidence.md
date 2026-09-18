@@ -1165,3 +1165,39 @@ passed (0.636s); vet passed. Sync lint reports zero issues. Broader lint has
 only the same six baseline G115 conversions (three adapter durations, three
 benchmark integers); no new findings. The temporary no-op, direct-write and
 aliased-buffer mutations are removed. `git diff --check` passes.
+
+## K4b: page-staged resource and entitlement deletion
+
+Brief commit: e09ea022. PageWriter.DeleteResources/DeleteEntitlements take
+full identities and defer deletion until after page puts. Direct delete
+methods, handlers, scheduling and SQLite bodies are unchanged. The engine
+uses its existing typed deletion operations, preserving parent-index and
+source-scope cleanup. Page counts include distinct puts even when their
+records are deleted in the same page. Entitlement lookup invalidation also
+runs after delete-only commits. External PageWriter implementers need the
+two new methods.
+
+| Candidate | Planted defect or injected fault | Result and limit |
+| --- | --- | --- |
+| TestLedgerDeletePageSurvivesReopen | Temporary no-op deletion methods | Failed: committed row existed but target resource remained after reopen. Passes with staging. Strict write hook and raw snapshot assert no pre-commit write; discard/reopen keeps the original image. Same-ID entitlement on another resource survives. |
+| TestPageDeleteMatchesDirectIndexCleanup | Delete using only stored values | Failed: staged-only target survived; stored-plus-staged target left a parent-index key. Restored implementation passes. Stored/staged/both/missing cases compare with direct put-then-delete, checking absence of primary, parent and source-scope keys and matching scope-poison state. |
+| TestPageDeleteFailureRetryInvalidatesEntitlementLookup | Omit invalidation for delete-only page | Failed: lookup still reported two identities after one was deleted. Restored implementation passes. |
+| TestPageDeleteFailureRetryInvalidatesEntitlementLookup | Existing record-commit hook returns an error | Original records and indexes survive, row absent; retry commits deletes and preserves the other identity. No separate error-after-commit fault here. |
+| TestPageDeleteValidatesWholeRequest | Invalid final object after a valid target | Request refused without staging the earlier deletion; committing leaves both records present. No separate mutant. |
+| TestPageDeleteRefusesReplacementSync | Finish then explicitly start a different sync before commit | Old page refused; replacement records remain. No new lifecycle behavior. |
+| TestPageDeleteDoesNotCascade | Delete resource, then entitlement in separate pages | Entitlement survives resource deletion; grant survives both. Discarded writer rejects new deletes. No separate mutant. |
+
+No new rawdb operation, failure hook, commit site or registered bypass was
+added. Public consumer checks begin from a clean reopened artifact, so the
+page's dirty marking is required to persist the changes. The three temporary
+defects are removed. These tests add storage coverage for C04/C07/C08/C38/C42;
+all five remain evidence incomplete against the full plan. Deletion-specific
+process-crash products, the external-resources handler inventory and CO-002's
+grant-delete case are not claimed by this increment. OQ-5's deletion API
+portion is implemented; expansion-preserving writes remain outstanding.
+
+K4b validation (Go 1.26.0, vendored dependencies): full sync suite passed
+(75.918s), full Pebble suite passed (7.582s), and full synccompactor suite
+passed (22.541s). Deletion race tests passed three repetitions in sync
+(1.403s) and Pebble (1.456s). Vet passed. Broad lint reports the same six
+baseline G115 conversions, with no new findings. `git diff --check` passes.

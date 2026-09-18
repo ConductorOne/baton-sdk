@@ -26,13 +26,15 @@ type pageUnit struct {
 	l      *Ledger
 	syncID string
 
-	resourceTypes  []*v3.ResourceTypeRecord
-	resources      []*v3.ResourceRecord
-	resourceIdx    map[resourceBufKey]int
-	entitlements   []*v3.EntitlementRecord
-	entitlementIdx map[string][]int
-	grants         []*v3.GrantRecord
-	assets         []*v3.AssetRecord
+	resourceTypes      []*v3.ResourceTypeRecord
+	resources          []*v3.ResourceRecord
+	resourceIdx        map[resourceBufKey]int
+	entitlements       []*v3.EntitlementRecord
+	entitlementIdx     map[string][]int
+	grants             []*v3.GrantRecord
+	assets             []*v3.AssetRecord
+	resourceDeletes    []resourceBufKey
+	entitlementDeletes []entitlementIdentity
 	// Applied at Commit after the puts, in the same batch; a buffered put of the
 	// same identity is dropped, as when the two are separate store calls.
 	grantDeletes []grantIdentity
@@ -471,6 +473,9 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 				return err
 			}
 		}
+		if err := u.stageRecordDeletes(batch); err != nil {
+			return err
+		}
 		for _, id := range u.grantDeletes {
 			if _, err := l.e.stageGrantDeleteIfPresentLocked(batch, id); err != nil {
 				return err
@@ -513,7 +518,7 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		if err := batch.Commit(recordWriteOpts); err != nil {
 			return err
 		}
-		if len(u.entitlements) > 0 {
+		if len(u.entitlements) > 0 || len(u.entitlementDeletes) > 0 {
 			l.e.noteEntitlementKeyspaceWrite()
 		}
 		return nil
@@ -533,6 +538,7 @@ func (u *pageUnit) release() {
 	u.assets = nil
 	u.resourceIdx, u.entitlementIdx = nil, nil
 	u.grantDeletes = nil
+	u.resourceDeletes, u.entitlementDeletes = nil, nil
 	u.facts = nil
 	u.bucketKey, u.bucketValue = nil, nil
 }

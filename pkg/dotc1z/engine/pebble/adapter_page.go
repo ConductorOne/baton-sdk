@@ -283,3 +283,33 @@ func ledgerRowFromProto(p *v3.LedgerRow) *c1zstore.LedgerRow {
 	}
 	return row
 }
+
+func (w *pageWriter) DeleteResources(ctx context.Context, resources ...*v2.Resource) error {
+	if err := w.requireSync(); err != nil {
+		return err
+	}
+	ids := make([]resourceBufKey, 0, len(resources))
+	for _, r := range resources {
+		id := r.GetId()
+		if id.GetResourceType() == "" || id.GetResource() == "" {
+			return errors.New("page resource delete: missing resource identity")
+		}
+		ids = append(ids, resourceBufKey{id.GetResourceType(), id.GetResource()})
+	}
+	return w.unit.stageResourceDeletes(ids)
+}
+
+func (w *pageWriter) DeleteEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error {
+	if err := w.requireSync(); err != nil {
+		return err
+	}
+	ids := make([]entitlementIdentity, 0, len(entitlements))
+	for _, ent := range entitlements {
+		id, err := entitlementIdentityFromRecord(V2EntitlementToV3(w.syncID, ent))
+		if err != nil {
+			return fmt.Errorf("page entitlement delete: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return w.unit.stageEntitlementDeletes(ids)
+}
