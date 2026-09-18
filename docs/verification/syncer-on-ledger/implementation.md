@@ -1472,3 +1472,14 @@ artifacts. Repeated generation must produce identical bytes. Add checks for
 histogram boundaries, empty distributions, zero-output rates, ranking/shares,
 HTML escaping and token omission. Plant percentile, denominator and ranking
 defects before claiming those checks. Rerun cost measurements after the additions.
+
+## 43. Stats-only log payload
+
+Requester correction: output is structured log stats, not an HTML report or
+narrative findings. Remove the HTML renderer and interpretation strings. Emit a
+single deterministic JSON object with numeric counters/timings, top-ten collection
+identifiers, histogram percentile bounds and numeric rates. Undefined rates and
+unrecorded skip flags are null, not an inferred verdict. Scope uses an explicit
+allowlist that excludes page tokens. Keep definitions in development documentation,
+not the payload. This remains the report feasibility prototype; production log
+integration follows the still-open scope/outcome design and public-path work.
