@@ -990,3 +990,39 @@ counter/progress publication to fail a commit-failure check. These fixtures
 use the existing scheduler; no executor or scheduler is added. Other handlers
 remain refused until individually integrated. C49's pre-handler smoke table
 exists; final public-handler cost and full coverage remain required.
+
+## 30. K5b: resources and targeted resource pages
+
+Keep main's resource-type enumeration, parent identities, resource validation,
+latest-observation writes, raw response progress counts and targeted follow-up
+order. Resource pages stage their records and discovered child actions in one
+transition. Targeted requests keep NotFound/Unimplemented as successful empty
+results and keep whole-type entitlement/grant enumeration out of targeted
+follow-ups. Reuse read-only trait and annotation helpers.
+
+Child scheduling is part of page publication. Collect candidates without
+changing childSchedule. Immediately before passing the transition to the
+existing scheduler, hold childSchedule's lock, remove previously committed
+candidates and duplicate candidates within this page, and rebuild the row's
+children to match. Hold that lock through commit and queue publication, then
+record admitted child identities only on success. Connector calls remain
+concurrent. Replay restores these marks from recorded resource children before
+publishing their transition. This preserves main's per-process child dedupe
+without failed pages consuming its marks; it adds no scheduler.
+
+Invalid-resource observations, connector/session/wait accounting and progress
+publish after commit; the durable counter bucket carries those observations
+with the records. Connector accounting must add multiple responses rather
+than overwrite prior observations, for subsequent handlers that make related
+resource requests. Resource-type behavior remains unchanged.
+
+C04/C05/C07/C09/C15/C17/C20/C38/C42 candidates exercise real resource handlers
+through the existing scheduler: pagination, duplicate resource observations,
+child annotation duplicates, parent propagation, targeted follow-up order,
+missing targets, invalid records, connector/read/commit failures and replay.
+Before implementation, the production-handler refusal must fail these tests.
+Plant early writes and early child marks: commit-failure snapshots and retry
+must detect them. Concurrent pages discovering the same child must admit it
+once; different parent identities must remain distinct. Record the tested
+subset, not the entire crash product, in evidence. Commit this brief alone,
+then implement and validate the resource increment before other handlers.
