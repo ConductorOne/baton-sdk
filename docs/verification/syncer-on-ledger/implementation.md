@@ -1093,3 +1093,32 @@ filter deltas; snapshot/fact/retry tests must detect each. A same-page repeated
 related resource must trigger one GetResource request, and per-type call stats
 must name that related type. Keep strict page/walk instruments. Commit the
 brief alone, then the tested grant increment. pkg/dotc1z needs no new method.
+
+## 33. Restore child scheduling from the read-only walk
+
+A resource page may commit its child identity and continuation, then stop
+before either runs. On resume, restoreLedgerState currently rebuilds pending
+actions without restoring childSchedule. If the continuation rediscovers the
+same parent resource, it can record the pending child again. This changes the
+recorded transitions from the uninterrupted run and can admit duplicate
+in-flight work. The explicit invokeActionPage replay test does not cover the
+restoration path, which consumes committed rows before scheduler dispatch.
+
+Use the walk's existing seen-identity map when restoring state. After all
+reads succeed, rebuild childSchedule from visited SyncResources identities
+with complete parent identities, including pending children. These are already
+scheduled actions, whether their page is recorded yet or not. Publish the
+map with the restored run state; no additional row scans, store writes or
+scheduler changes. Failed restoration must leave prior in-memory state intact.
+The seen set continues to use complete page identities; only the existing
+childSchedule key intentionally omits pagination, matching main's dedupe rule.
+
+C09/C10/C15/C16/C42 candidate: commit one real resource page, stop before its
+child and next page, reopen, restore from the root and run both remaining
+actions. Assert a write-free restore, one child call, and no duplicate child
+in the continuation's durable row. Before the fix, require the missing
+restored scheduling mark and duplicate recorded-child assertions to fail.
+Compare the resulting transition with uninterrupted execution. Add a failing
+read check that retains prior scheduling state. Commit this appendix alone,
+then the tested correction. This is a resource restoration correction, not
+a new work queue or a change to lifecycle selection.
