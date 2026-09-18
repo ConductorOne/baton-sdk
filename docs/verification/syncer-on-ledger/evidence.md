@@ -1487,3 +1487,47 @@ Checks (Go 1.26.0, vendored dependencies): full sync suite passed (81.055s).
 Static/asset/stopped-child/existing-scheduler race tests passed three
 repetitions (5.480s). Vet passed, sync lint reports zero issues, and git diff
 --check passes. Storage and compactor remain unchanged in this increment.
+
+## External import and matching handlers
+
+Brief commits: 385a0239 and 0b373423. Import and matching are sequential pages
+of the existing external-resources action. The import commits records, stale
+full-identity deletes, ordered principal identities and the matching cursor
+as one unit. Matching reads those committed records; a cold continuation does
+not reopen the external source. Filtered principal ordering is deterministic.
+Main's selection maps, trait defaults, annotations and matching rules remain.
+
+| Candidate | Planted defect/fault and observed result | Limits |
+| --- | --- | --- |
+| TestLedgerExternalPagesMatchTokenHandler, TestLedgerExternalSelectionMatchesTokenHandler | Final resource types, resources, entitlements and grants equal the existing checkpoint handler for full/filtered import, configured traits, type/resource/grant skips and present/missing profile matches. | Small fixtures; these parity cases have no separate planted defect. |
+| TestLedgerExternalImportCommitFailure | Registered direct resource import survives commit refusal and fails raw-image equality. Mutant removed. | In-process commit refusal. |
+| TestLedgerExternalImportedGrantIsMatched | Moving matching before import commit leaves an imported placeholder unprocessed; principal assertion fails. Mutant removed. | One imported external-match grant. |
+| TestLedgerExternalStaleGrantReimport | Deleting an exact stale identity after its reimport loses the grant; survivor assertion fails. Mutant removed. | One stale resource and reimported grant. |
+| TestLedgerExternalMatchingFailureAndResume | Lost principal fact contents produce no match after reopen; count assertion fails. Corrected case refuses matching commit without changing keys, closes the source and destination, restores without writes, and completes without a source reader. | Explicit action root, not public Sync entry. |
+| TestLedgerExternalFilteredPrincipalState | Reversing the saved principal identities fails the exact ordered-fact assertion. Mutant removed. | Two filtered principals. |
+| TestLedgerExternalPrincipalStateErrors | Absent, malformed, null and incomplete saved identities return errors and leave raw keys unchanged. | Four bad-state fixtures. |
+| TestLedgerExternalDeleteFullIdentity | Bare-ID deletion returns an ambiguity error for two stored identities and fails the success assertion. Corrected full-identity delete keeps the unrelated identity. | CO-002 uses the no-bare-ID inventory below, not a claimed split-ambiguity implementation. |
+| TestLedgerExternalExpansionRemap | Imported membership identity replaces the external placeholder's expansion source. | MatchID and one expansion source; graph execution is separate. |
+
+O8/CO-002 delete inventory: collectLedgerStaleExternalPrincipals only reads.
+stageLedgerStaleExternal uses PageWriter.DeleteResources with resource IDs,
+DeleteEntitlements with complete entitlements and DeleteGrants with complete
+grants. Matching uses PageWriter.DeleteGrants with its collected original
+grants. Its shared matchProfileAndExpand helper reads entitlements and builds
+output records; it performs no delete. There is no bare-ID deletion or direct
+write bypass inside either external page. This makes the split stored/staged
+bare-ID deletion case unreachable on this handler path. The engine's separate
+source-cache deletion issue is not changed here.
+
+Every page/walk fixture installs the strict write hook and companion audit.
+All six planted mutants failed their intended assertions and were removed.
+C04/C07/C08/C09/C15/C16/C17/C38/C42 gain the cases above and remain incomplete
+to their full products. Imported and matched grant buffering is not a measured
+production memory bound. No pkg/dotc1z changes were made in this increment.
+
+Checks (Go 1.26.0, vendored dependencies): full sync suite passed (77.800s),
+external/existing-scheduler race tests passed three repetitions (4.849s),
+and the added selection parity cases passed with all external tests (0.557s).
+Vet passed. The final external race run including selection parity passed
+three repetitions (6.273s). Sync lint reports zero issues after removing an
+extra blank line in the parity helper; git diff --check passes.
