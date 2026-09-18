@@ -913,3 +913,40 @@ invalidation must fail their targeted tests. The existing page batch remains
 the only commit; no new rawdb operation or failure hook is needed. These
 interface additions affect external PageWriter implementers. Process-crash
 coverage and handler integration remain separate obligations.
+
+## 28. K4c: preserve grant state during page expansion writes
+
+Add PageWriter.StoreExpandedGrants. Use the existing store-free expansion
+translation, which strips consumed expansion annotations and gives new
+derived grants no source scope. At commit, under the engine write barrier,
+preserve Expansion, NeedsExpansion, DiscoveredAt and SourceScopeKey from
+the prior full identity. Backfill a missing discovery timestamp. The payload
+comes from the last staged write. Ordinary PutGrants followed by expansion
+in the same page preserves that staged ordinary write's state; a later
+ordinary PutGrants replaces it. Repeated expansion writes preserve the same
+state. Deletes retain their existing after-put semantics.
+
+Track expanded records in the existing grant buffer rather than introducing
+another executor or changing callers. Pages without expansion writes keep
+the existing grant stager. For expansion pages, resolve the last occurrence
+and preceding ordinary put for each identity. Read the stored prior value
+once per final expanded identity, using it for both preservation (unless a
+staged ordinary put supplies that state) and typed deferred-index cleanup.
+Use StageGrantPutDeferred, as main does, including the rebuild marker,
+needs-expansion index, digest invalidation and source-scope obligations.
+Do not mutate buffers during preservation: a failed commit can be retried
+against the then-current stored state. Count distinct surviving puts in the
+row and retain the engine's diagnostic expansion-write counters.
+
+C04/C07/C08/C38/C42 candidates cover existing/new grants, same external ID
+on distinct identities, nil discovery timestamps, staged ordinary/expanded
+write order, last payload, deletes, discard, failed commit/retry, a prior
+row changed between staging and commit, completed/stale writers and invalid
+identities. Public consumer fixtures use the strict write hook and clean
+reopen to check invisibility and artifact persistence. Compare preservation
+with the direct expansion API and inspect pending-expansion results and
+index-rebuild state. First use an ordinary PutGrants delegation as a planted
+defect: the preservation test must fail before the implementation exists.
+After implementation, omit the prior-state merge and separately omit the
+deferred index operation; targeted tests must fail. No production expansion
+handler, graph replay, lifecycle change or SQLite change is included here.
