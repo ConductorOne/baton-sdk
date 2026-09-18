@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -145,6 +146,80 @@ func TestLedgerInitialActionMatchesBaseline(t *testing.T) {
 			counters, err := f.ledger.LedgerCounters(t.Context())
 			require.NoError(t, err)
 			require.EqualValues(t, 1, counters.Counters[ledgerCompletedActions])
+		})
+	}
+}
+
+func TestLedgerInitialQualitySurvivesResume(t *testing.T) {
+	for _, fresh := range []bool{true, false} {
+		t.Run(map[bool]string{true: "fresh", false: "unknown-prior"}[fresh], func(t *testing.T) {
+			s, f := newLedgerSchedulerFixture(t, 1)
+			roots := []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}
+			require.NoError(t, s.restoreLedgerState(t.Context(), ledgerResume{actions: roots}, fresh))
+			before := ledgerRawSnapshot(t, f.engine)
+			action := s.run.current()
+			f.audit.enter(ledgerHandler)
+			err := s.invokeActionPage(t.Context(), action, func(ctx context.Context, action *Action) error {
+				return s.initializeAction(ctx, action, nil)
+			}, false)
+			f.audit.enter(ledgerLifecycle)
+			require.NoError(t, err)
+			require.False(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
+			require.NoError(t, f.store.Close(t.Context()))
+			f = openLedgerFixtureAt(t, f.path, false)
+			facts, err := f.ledger.LedgerFacts(t.Context())
+			require.NoError(t, err)
+			_, known := facts[ledgerFactIngestKnown]
+			require.Equal(t, fresh, known)
+			_, found, err := f.ledger.GetLedgerRow(t.Context(), ledgerIdentity(action))
+			require.NoError(t, err)
+			require.True(t, found)
+			runtime, err := newLedgerRuntime(t.Context(), f.ledger, "quality-resume")
+			require.NoError(t, err)
+			resumed := &syncer{ledgered: true, ledger: runtime}
+			before = ledgerRawSnapshot(t, f.engine)
+			f.audit.enter(ledgerWalk)
+			err = resumed.restoreLedgerState(t.Context(), ledgerResume{actions: roots}, false)
+			f.audit.enter(ledgerLifecycle)
+			require.NoError(t, err)
+			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
+			quality := resumed.stats.ingestQuality()
+			filterQuality := resumed.ingestFilterStats.snapshot()
+			require.NotNil(t, filterQuality)
+			require.Equal(t, !fresh, filterQuality.SourceCacheReplayBlocked)
+			if fresh {
+				require.Equal(t, &IngestQualityCheckpoint{}, quality)
+			} else {
+				require.Nil(t, quality)
+				require.Equal(t, ingestQualityReasonUnknownPriorCheckpoint, filterQuality.ReasonFlags)
+			}
+		})
+	}
+}
+
+func TestLedgerInitialQualityCommitFailure(t *testing.T) {
+	for _, stage := range []string{"fact", "counter", "commit"} {
+		t.Run(stage, func(t *testing.T) {
+			s, f := newLedgerSchedulerFixture(t, 1)
+			roots := []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}
+			require.NoError(t, s.restoreLedgerState(t.Context(), ledgerResume{actions: roots}, true))
+			s.ledger.store = ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: stage}
+			before := ledgerRawSnapshot(t, f.engine)
+			f.audit.enter(ledgerHandler)
+			_, err := s.parallelSync(t.Context(), t.Context(), nil)
+			f.audit.enter(ledgerLifecycle)
+			require.ErrorIs(t, err, errLedgerInjectedPage)
+			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
+			require.False(t, s.run.hasFact(ledgerFactIngestKnown))
+			require.Equal(t, InitOp, s.run.current().Op)
+			require.NoError(t, f.store.Close(t.Context()))
+			f = openLedgerFixtureAt(t, f.path, false)
+			facts, err := f.ledger.LedgerFacts(t.Context())
+			require.NoError(t, err)
+			require.NotContains(t, facts, ledgerFactIngestKnown)
+			_, found, err := f.ledger.GetLedgerRow(t.Context(), roots[0].identity)
+			require.NoError(t, err)
+			require.False(t, found)
 		})
 	}
 }

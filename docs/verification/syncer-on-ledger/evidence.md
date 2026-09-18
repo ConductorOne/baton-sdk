@@ -180,11 +180,12 @@ closure of C10, C37, C38 or C47.
 ### C17
 
 - Status: evidence incomplete.
-- Candidate: TestLedgerPageFailureDoesNotPublish; TestLedgerPageFactValueReadYourWrites; TestLedgerPageFailureDiscardsStagedObservations.
+- Candidate: TestLedgerInitialQualitySurvivesResume; TestLedgerInitialQualityCommitFailure; TestLedgerPageFailureDoesNotPublish;
+  TestLedgerPageFactValueReadYourWrites; TestLedgerPageFailureDiscardsStagedObservations.
 - Required coverage: plan C17 and applicable calibration entries.
-- Planted defect: not run for this criterion; green mechanism tests only.
-- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
-- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
+- Defect evidence: Fresh quality was absent after Init/reopen; the new test failed before staging the fact. Fact/counter/commit failure cases pass without durable publication.
+- Green command/revision: initial-quality execution entry below and earlier restoration entries.
+- Not covered: public Sync routing, full mechanical products, all page-failure/crash images and final differential closure.
 
 ### C18
 
@@ -197,14 +198,12 @@ closure of C10, C37, C38 or C47.
 
 ### C19
 
-- Status: failed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
+- Status: evidence incomplete.
+- Candidate: TestLedgerInitialQualitySurvivesResume; TestLedgerSealPreservesUnknownIngestQuality; TestLedgerRestoreCheckpointFixtures.
 - Required coverage: plan C19 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
-
-- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. K2c added restored-pass adapter guards; see the K2c table below.
+- Defect evidence: Missing fresh quality failed after reopen. An unconditional known-quality declaration failed the unknown-prior case; the mutation was removed.
+- Green command/revision: initial-quality execution entry below and earlier restoration entries.
+- Not covered: public Sync routing, full mechanical products, all page-failure/crash images and final differential closure.
 
 ### C20
 
@@ -302,14 +301,13 @@ closure of C10, C37, C38 or C47.
 
 ### C30
 
-- Status: failed.
-- Candidate: TestLedgerTakeoverIngestQuality; TestLedgerTakeoverLegacyFixtures.
+- Status: evidence incomplete.
+- Candidate: TestLedgerInitialQualitySurvivesResume/unknown-prior; TestLedgerRestoreCheckpointFixtures;
+  TestLedgerTakeoverIngestQuality; TestLedgerTakeoverLegacyFixtures.
 - Required coverage: plan C30 and applicable calibration entries.
-- Planted defect: not run for this criterion; green mechanism tests only.
-- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
-- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
-
-- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. K2c added restored-pass adapter guards; see the K2c table below.
+- Defect evidence: An unconditional known-quality declaration changed unknown prior state and was rejected. Earlier restoration defects and their tests are recorded below.
+- Green command/revision: initial-quality execution entry below and earlier restoration entries.
+- Not covered: public Sync routing, full mechanical products, all page-failure/crash images and final differential closure.
 
 ### C31
 
@@ -1097,3 +1095,38 @@ is not isolated. The table's synthetic handlers, machine qualification,
 coverage and instrumentation limits remain explicit. Eight of eighteen
 workload configurations now have smoke samples, not acceptance evidence.
 No canonical normalization was applied; count checks are not O4 equality.
+
+## Initial ingestion quality (C17, C19, C30)
+
+The new `TestLedgerInitialQualitySurvivesResume` failed against the prior
+implementation: a fresh run's Init row survived close/reopen, but its
+known-quality fact did not. `TestLedgerInitialQualityCommitFailure/fact`
+also failed because Init never staged that fact. Fresh restoration now
+keeps the known snapshot in runStats, and Init stages its declaration in
+the page. Unknown prior input keeps its absent snapshot.
+
+Both tests pass after the fix. The close/reopen cases assert the Init row,
+the known/unknown distinction, conservative blocking and unknown-prior
+reason, and a write-free restoration. Fact/counter/commit injection cases
+assert unchanged durable keys and absence of the fact and Init row after
+reopen. The strict write recorder remains installed. A planted unconditional
+known-quality declaration failed the unknown-prior case; the guard was
+restored before the final tests.
+
+These are bounded initialization checks. They do not close the full fact
+products, overlapping page updates, physical crash cuts, cold-process public
+Sync behavior, or failures before Init commits. No SQLite persistence path,
+engine behavior, source-cache replay orchestration, or scheduler policy was
+changed. The ingestion-stat writes in later production handlers remain to
+be integrated. C17/C19/C30 stay evidence incomplete; C19/C30's old failed
+status referred to defects superseded by the recorded passing regressions.
+
+Final checks for this increment (Go 1.26.0, vendored dependencies):
+
+- Targeted Init/restoration/continuation suite: passed (0.447s).
+- Same selection with `-race -count=3`: passed (4.668s).
+- `go test ./pkg/sync -count=1 -timeout=30m`: passed (74.165s).
+- `go vet ./pkg/sync/...`: passed.
+- `golangci-lint run ./pkg/sync/...`: zero issues after removing one redundant
+  test-only conversion. No other lint findings in this scope.
+- `git diff --check`: passed.

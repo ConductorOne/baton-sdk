@@ -67,6 +67,7 @@ func (s *syncer) restoreLedgerState(ctx context.Context, resume ledgerResume, ne
 	quality := stats.ingestQuality()
 	if newSync {
 		quality = &IngestQualityCheckpoint{}
+		stats.setIngestQuality(quality)
 	} else if quality == nil {
 		quality = &IngestQualityCheckpoint{SourceCacheReplayBlocked: true, ReasonFlags: ingestQualityReasonUnknownPriorCheckpoint}
 	}

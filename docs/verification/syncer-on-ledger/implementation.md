@@ -821,7 +821,7 @@ results; explain observed regressions without inventing a cause from ratios.
 
 Restoration currently initializes a fresh run's in-memory ingestion quality
 as known clean, but Init does not commit that knowledge. A restart after
-Init therefore restores unknown prior quality. C17/C18 require the initial
+Init therefore restores unknown prior quality. C17/C19 require the initial
 fact to survive with the page that establishes it; C24/C30 require the
 restored state to distinguish fresh known quality from unknown legacy data.
 

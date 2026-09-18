@@ -55,6 +55,11 @@ func (s *syncer) initializeAction(ctx context.Context, action *Action, targetedR
 		if !ok {
 			return errors.New("ledger Init requires an open page")
 		}
+		if s.stats.ingestQuality() != nil {
+			if err := invocation.page.setFact(ledgerFactIngestKnown); err != nil {
+				return err
+			}
+		}
 		for _, fact := range facts {
 			if err := invocation.page.setFact(fact); err != nil {
 				return err
