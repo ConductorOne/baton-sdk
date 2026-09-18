@@ -84,7 +84,7 @@ func (b *batch) Close() error {
 //
 // The primary record keyspaces plus their inline-maintained index
 // families, the digest-invalidation markers a record mutation owes,
-// and the page ledger (TypeLedger), whose rows are meaningful only
+// page-staged assets, and the page ledger (TypeLedger), whose rows are meaningful only
 // alongside the records they vouch for and so ride this batch.
 // Clients: the Put*Records paths, the page unit, the
 // expanded/synthesized grant writers, and delete paths.

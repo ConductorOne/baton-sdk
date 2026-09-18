@@ -1,7 +1,9 @@
 package pebble
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -62,6 +64,22 @@ func (w *pageWriter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 		return err
 	}
 	return w.unit.StageGrants(translateGrantsForPut(ctx, w.syncID, grants)...)
+}
+
+func (w *pageWriter) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error {
+	if err := w.requireSync(); err != nil {
+		return err
+	}
+	if assetRef == nil {
+		return errors.New("PutAsset: nil assetRef")
+	}
+	if assetRef.GetId() == "" {
+		return errors.New("PutAsset: empty assetRef.Id")
+	}
+	return w.unit.StageAsset(v3.AssetRecord_builder{
+		SyncId: w.syncID, ExternalId: assetRef.GetId(), ContentType: contentType,
+		Data: bytes.Clone(data), DiscoveredAt: timestamppb.Now(),
+	}.Build())
 }
 
 func (w *pageWriter) GetResource(ctx context.Context, resourceTypeID, resourceID string) (*v2.Resource, error) {

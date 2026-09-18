@@ -49,8 +49,16 @@ var (
 	resourcePrimaryPrefix     = []byte{VersionV3, TypeResource}
 	entitlementPrimaryPrefix  = []byte{VersionV3, TypeEntitlement}
 	resourceTypePrimaryPrefix = []byte{VersionV3, TypeResourceType}
+	assetPrimaryPrefix        = []byte{VersionV3, TypeAsset}
 	ledgerRowPrefix           = []byte{VersionV3, TypeLedger, ledgerKindRow}
 )
+
+func (rb *RecordBatch) StageAssetPut(key, val []byte) error {
+	if err := assertFamily("StageAssetPut", key, assetPrimaryPrefix); err != nil {
+		return err
+	}
+	return rb.core.Set(key, val)
+}
 
 // On RecordBatch, not its own batch: the row means "the records staged
 // alongside me landed", so there is no standalone ledger writer.

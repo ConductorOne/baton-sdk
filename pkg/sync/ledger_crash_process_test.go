@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/cockroachdb/pebble/v2"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	engine "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
@@ -24,6 +25,7 @@ func TestLedgerCrashProcess(t *testing.T) {
 		ctx := c1zstore.WithOpenPage(t.Context())
 		page := f.ledger.BeginPage()
 		require.NoError(t, page.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "crash-type"}.Build()))
+		require.NoError(t, page.PutAsset(ctx, v2.AssetRef_builder{Id: "crash-asset"}.Build(), "image/png", []byte("asset bytes")))
 		require.NoError(t, page.SetFact("crash-fact"))
 		require.NoError(t, page.SetCounterBucket("crash-run", 0, c1zstore.LedgerCounters{Counters: map[string]uint64{"pages": 1}}))
 		if cut == "committed" {
@@ -65,6 +67,14 @@ func TestLedgerCrashProcess(t *testing.T) {
 			require.Equal(t, found, hasFact)
 			require.Equal(t, found, counters.Counters["pages"] == 1)
 			require.Equal(t, found, len(types.GetList()) == 1)
+			asset, err := recovered.GetAssetRecord(t.Context(), "crash-asset")
+			if found {
+				require.NoError(t, err)
+				require.Equal(t, []byte("asset bytes"), asset.GetData())
+				require.Equal(t, "image/png", asset.GetContentType())
+			} else {
+				require.ErrorIs(t, err, pebble.ErrNotFound)
+			}
 			if cut == "staged" {
 				require.False(t, found)
 			}

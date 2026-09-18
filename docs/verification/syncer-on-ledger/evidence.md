@@ -85,12 +85,11 @@ closure of C10, C37, C38 or C47.
 
 ### C07
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
-- Required coverage: plan C07 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Status: evidence incomplete.
+- Candidate: TestPageWriterAssetCommitFailureAndRetry; TestLedgerAssetPageDiscardKeepsPriorValue; TestLedgerAssetPageSurvivesReopen.
+- Bounded evidence: K4a asset overwrite/discard and input-buffer snapshot checks below.
+- Planted defect: retaining the caller's asset buffer changed committed bytes; the consumer test failed, then passed after restoration.
+- Not covered: the criterion's full resource/entitlement staged-read and secondary-index products; assets have no secondary indexes.
 
 ### C08
 
@@ -375,12 +374,11 @@ closure of C10, C37, C38 or C47.
 
 ### C38
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
-- Required coverage: plan C38 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Status: evidence incomplete.
+- Candidate: TestLedgerAssetPageSurvivesReopen; TestLedgerCrashProcess with an asset in the page.
+- Bounded evidence: K4a uses no asset bypass; the asset and row share the batch.
+- Planted defect: direct Engine.PutAsset inside the page failed staged invisibility; the mutation was removed.
+- Not covered: the inventory and before/after crash products for every retained auxiliary bypass; production handler integration.
 
 ### C39
 
@@ -1130,3 +1128,40 @@ Final checks for this increment (Go 1.26.0, vendored dependencies):
 - `golangci-lint run ./pkg/sync/...`: zero issues after removing one redundant
   test-only conversion. No other lint findings in this scope.
 - `git diff --check`: passed.
+
+## K4a asset staging (C04, C07, C38; prerequisite for C42)
+
+Storage now accepts PageWriter.PutAsset. The page snapshots the supplied
+bytes and stages the asset in its existing RecordBatch, alongside the row,
+facts and bucket. Asset identity/validation follows the direct Store method;
+repeated IDs use the last staged value. Direct asset writes and SQLite
+remain unchanged. This widens PageWriter for external implementers.
+
+| Candidate | Defect or fault exercised | Result and limit |
+| --- | --- | --- |
+| TestLedgerAssetPageSurvivesReopen | Temporary no-op PutAsset stub | Failed on missing asset after successful page commit and reopen; passes with staging. Starts from a clean reopened artifact to exercise page dirty marking. |
+| TestLedgerAssetPageSurvivesReopen | Direct Engine.PutAsset inside the page | Failed because the asset was visible before commit. Mutant removed. |
+| TestLedgerAssetPageSurvivesReopen | Retain the caller's byte slice without copying | Failed on changed asset bytes after reopen. Mutant removed. |
+| TestLedgerAssetPageDiscardKeepsPriorValue | Discard a staged overwrite | Original value and raw keys unchanged through reopen. No separate mutation for this test. |
+| TestPageWriterAssetCommitFailureAndRetry | Existing record-commit error hook | Failed batch preserves old asset and absent row; retry commits last staged value and row. |
+| TestPageWriterAssetValidationAndDiscard | Unbound sync, nil/empty references, discarded writer | Refused; discarded data remains absent. |
+| TestPageWriterAssetRefusesReplacementSync | Finish original sync, then explicitly start another before old page commits | Old page refused; replacement contains neither asset nor row. This does not change same-ID processing semantics. |
+| TestPageAssetStageRejectsOtherKeyFamilies | Supply a ledger key to the typed asset operation | Rejected with the batch still empty. |
+| TestLedgerCrashProcess | Exit child process after staging or commit; reopen its DB | Asset, type, fact, bucket and row are present together or absent together. No physical unsynced-WAL loss is simulated. |
+
+The public page fixtures install the strict write hook and companion
+recorder. No bypass reason is needed: asset data is part of the batch.
+Engine tests use the existing record-commit injection point; no new hook or
+commit site was added. Buffers are released on commit/discard. The consumer
+and engine tests are storage support, not proof of production SyncAssets:
+C42's handler inventory and full crash products remain open. C04/C07/C38
+remain evidence incomplete to the plan's full coverage.
+
+K4a final checks (Go 1.26.0, vendored dependencies): full sync suite passed
+(74.686s); full Pebble engine suite passed (9.480s); full synccompactor suite
+passed (16.306s). Asset/process-crash race selection passed three repetitions
+in sync (1.676s) and Pebble (1.168s). Store dirty-marking/capability checks
+passed (0.636s); vet passed. Sync lint reports zero issues. Broader lint has
+only the same six baseline G115 conversions (three adapter durations, three
+benchmark integers); no new findings. The temporary no-op, direct-write and
+aliased-buffer mutations are removed. `git diff --check` passes.

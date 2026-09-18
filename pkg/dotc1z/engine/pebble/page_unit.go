@@ -32,6 +32,7 @@ type pageUnit struct {
 	entitlements   []*v3.EntitlementRecord
 	entitlementIdx map[string][]int
 	grants         []*v3.GrantRecord
+	assets         []*v3.AssetRecord
 	// Applied at Commit after the puts, in the same batch; a buffered put of the
 	// same identity is dropped, as when the two are separate store calls.
 	grantDeletes []grantIdentity
@@ -135,6 +136,17 @@ func (u *pageUnit) StageGrants(records ...*v3.GrantRecord) error {
 			u.grants = append(u.grants, r)
 		}
 	}
+	return nil
+}
+
+func (u *pageUnit) StageAsset(record *v3.AssetRecord) error {
+	if u.done {
+		return ErrPageUnitCommitted
+	}
+	if record == nil {
+		return errors.New("StageAsset: nil record")
+	}
+	u.assets = append(u.assets, record)
 	return nil
 }
 
@@ -450,6 +462,15 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		if err != nil {
 			return err
 		}
+		for _, asset := range u.assets {
+			value, err := marshalRecord(asset)
+			if err != nil {
+				return err
+			}
+			if err := batch.StageAssetPut(encodeAssetKey(asset.GetExternalId()), value); err != nil {
+				return err
+			}
+		}
 		for _, id := range u.grantDeletes {
 			if _, err := l.e.stageGrantDeleteIfPresentLocked(batch, id); err != nil {
 				return err
@@ -509,6 +530,7 @@ func (u *pageUnit) Discard() { u.release() }
 func (u *pageUnit) release() {
 	u.done = true
 	u.resourceTypes, u.resources, u.entitlements, u.grants = nil, nil, nil, nil
+	u.assets = nil
 	u.resourceIdx, u.entitlementIdx = nil, nil
 	u.grantDeletes = nil
 	u.facts = nil
