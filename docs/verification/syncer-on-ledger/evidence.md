@@ -483,7 +483,7 @@ closure of C10, C37, C38 or C47.
 - Candidate runs: TestLedgerCostBaseline at eb63f1b5; TestLedgerCostRuntime at fafa4f74, through the existing scheduler.
 - Coverage: 36 interleaved samples in cost-scheduler-smoke; see the execution entry below for dimensions and limitations.
 - Planted defect: the machine recorder omitted the artifact filesystem; the missing-field assertion failed before the fix and the filesystem comparison passed after it.
-- Not covered: full matrix, production handlers, unloaded-machine qualification, baseline phase timing, encoded-byte decomposition, durability disposition and acceptance.
+- Not covered: full matrix, production handlers, unloaded-machine qualification, baseline phase timing, encoded-byte decomposition and acceptance. CO-012 settles the durability premise.
 
 ## K1 instrument execution
 
@@ -1078,3 +1078,22 @@ row/bucket/fact decomposition, baseline phase timings, production handlers,
 unloaded-machine evidence and the resumed-durability disposition. Its
 coverage status and the K5/K6 prerequisite are unchanged. No pkg/dotc1z
 behavior changed in this increment.
+
+## Larger-page cost samples and CO-012
+
+C49 remains **evidence incomplete**. CO-012 settles the resumed-arm premise:
+measure actual NoSync commits; production durability is unchanged.
+`cost-large-pages-smoke/` retains 36 additional interleaved samples at 1,000
+pages × 1,000/10,000 resources/page × one/four workers, three repetitions
+per arm. The sources remain eb63f1b5 and fafa4f74. Every resource-count and
+ledger-commit-count assertion passed. No compilation or other test runs
+overlapped these samples. The separate known-quality fix is not included in
+the measured binary and requires a future revision rerun.
+
+Fresh write-byte median ratios were 1.021–1.146; resumed ratios were
+1.059–1.142. No median wall/byte tripwire fired. Source inspection identifies
+forced compaction at ledger seal, but its exact contribution to write bytes
+is not isolated. The table's synthetic handlers, machine qualification,
+coverage and instrumentation limits remain explicit. Eight of eighteen
+workload configurations now have smoke samples, not acceptance evidence.
+No canonical normalization was applied; count checks are not O4 equality.

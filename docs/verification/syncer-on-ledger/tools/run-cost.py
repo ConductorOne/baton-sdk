@@ -112,7 +112,7 @@ def main():
                                      medians=medians, ratios=ratios))
     (args.output / "table.json").write_text(json.dumps(rows, indent=2) + "\n")
     lines = ["# Interleaved cost smoke", "",
-             "Existing scheduler with synthetic page handlers; actual resumed NoSync. Not the CO-009 Sync arm or an acceptance table.", "",
+             "Existing scheduler with synthetic page handlers; actual resumed NoSync. CO-012 actual resume behavior; not an acceptance table.", "",
              "| Pages | Records/page | Workers | Metric | Token | Fresh | Resumed | Fresh/token | Resumed/token |",
              "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     render = lambda value: "N/A" if value is None else f"{value:.4g}"

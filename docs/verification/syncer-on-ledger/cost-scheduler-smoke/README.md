@@ -37,8 +37,8 @@ an unloaded machine for the duration of the run.
 
 C49 remains incomplete. Missing: the full matrix and production-shaped
 estimate, row/bucket/fact byte decomposition, baseline phase timings, actual
-production handlers, unloaded-machine qualification, and disposition of
-CO-009’s assumed resumed Sync behavior. These results do not authorize K5/K6.
+production handlers, unloaded-machine qualification. CO-012 subsequently settled the resumed
+durability premise: the actual NoSync arm is the required comparison. These results do not authorize K5/K6.
 No production or storage behavior changed in this measurement increment.
 
 Reproduce after building the two executables:
