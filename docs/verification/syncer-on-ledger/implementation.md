@@ -1157,3 +1157,50 @@ production refusal, then plant direct writes and a missing transition to
 prove atomicity and completion checks. Compare resulting records with main's
 handlers where both are executable. Commit this appendix alone, then tested
 handler code. No scheduler or lifecycle policy changes are planned.
+
+## 35. External import and matching pages
+
+Preserve main's ordering: choose/copy external types, reconcile stale imported
+principals, copy current principals/entitlements/grants, then match connector
+grants against the resulting store. Matching scans imported grants too and
+can read newly imported entitlements. PageWriter offers point reads, not a
+merged grant iterator. Running both phases against one uncommitted writer
+would silently hide imported rows from matching.
+
+Use two sequential pages of the existing SyncExternalResources action. The
+empty cursor performs import; an internal matching cursor performs matching.
+No new queue, worker policy or action operation is introduced. The import
+page stages an ordered list of current principal identities as a fact value,
+with its records and continuation. Matching rebuilds principals by full
+identity from the committed store. This retains the import's ordering and
+selection across a stop without re-reading a potentially changed source or
+inventing a second selection rule. An absent/unreadable matching fact fails
+before writes. Main's trait selection, entitlement filter, skip annotations,
+BatonID marking and matching rules remain. Legacy external actions start at
+the empty cursor. The fact is external import state, not source-cache replay
+or a checkpoint token.
+
+Import collects main's same record sets using its read-only external readers.
+Stale resources/entitlements/grants use full-identity page deletes. Since the
+writer applies deletes after puts, remove any stale-grant deletion whose full
+identity is being re-imported: main deletes first and then its put survives.
+Keep same-ID/different-identity deletes distinct. Matching uses the existing
+read-only profile/expansion helper and the same principal indexes; stage its
+new grants and delete unmatched originals by full identity. Do not retain any
+bare-ID deletion or a direct-write bypass. The import and matching phases are
+individually atomic; a stop between them resumes matching from the stored
+principal list. Bulk buffering, already present for principals and matched
+grants in main, now includes imported grant batches; production-size memory
+cost is not established by small correctness fixtures.
+
+C04/C07/C08/C09/C15/C16/C17/C38/C42 and CO-002 candidates compare final records
+with main for both import modes, profile/ID/all matches, trait/skip rules,
+stale cleanup and expansion-ID remapping. Include an imported external-match
+grant to prove matching sees newly committed input, and a stale grant also
+re-imported to detect after-put deletion loss. Exercise failure/retry of both
+pages, close/reopen between phases, corrupt/missing principal fact, full-ID
+collisions and strict write hooks. First fail real handlers at the production
+refusal. Plant direct writes, a bare-ID delete, stored-only matching before
+import commit, and lost principal order/state; record which candidates detect
+each. Inventory every in-page delete for CO-002's unreachable-bare-ID reading.
+Commit this brief alone before handler code. No storage method is proposed.
