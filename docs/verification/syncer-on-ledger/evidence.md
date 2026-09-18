@@ -1689,3 +1689,18 @@ local HTTP response was compared with the generated file. HTML and JSON copies
 are published as task artifacts. The original analysis artifact is not the
 mechanical report. Engine lint retains six preexisting G115 findings; no new
 report findings remain after wrapping the HTML template to the line limit.
+
+## Stats-only serialization correction (C50)
+
+Brief commit: e08fa808. Removed the HTML template and narrative outcome fields.
+The prototype emits one JSON stats object with explicit identifier fields, numeric
+rates/shares, percentile bounds and tri-state saved skip flags. No token field is
+part of the serialized scope. TestLedgerReportRendering now decodes that object
+and checks numeric share, null unknown flags/rates/quantiles, identifier round-trip,
+deterministic bytes and absence of token fields/values. Existing coverage and
+histogram tests remain; the former prose assertions were replaced by typed checks.
+
+Targeted tests plus six JSON-output benchmark cases pass (3.315s). At 100,000 pages,
+147.50ms and 340.97ms include aggregation, reference checks and JSON serialization.
+Engine lint still has six preexisting G115 findings and no findings in these files.
+Production logging integration and full C50 coverage remain incomplete.

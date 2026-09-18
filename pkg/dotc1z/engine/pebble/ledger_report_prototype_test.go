@@ -20,14 +20,13 @@ type reportPrototypeCollection struct {
 	Pages, Written, ZeroWritePages, TerminalPages        uint64
 	PageMs, ConnectorMs, ReportedWaitMs, MaxConnectorMs  uint64
 	MissingContinuations, MissingChildren                uint64
-	Outcome                                              string
 	ConnectorPageMedian, ConnectorPageP95                reportPrototypeInterval
 	WrittenPerPage                                       float64
 	PagesPerThousandWrites, ConnectorMsPerThousandWrites *float64
 }
 
 type reportPrototypeSummary struct {
-	GrantsRequest                         string
+	GrantsDisabled, EntitlementsDisabled  *bool
 	Written, ConnectorMs, ReportedWaitMs  uint64
 	Pages, Collections, ReferenceChecks   uint64
 	MissingContinuations, MissingChildren uint64
@@ -40,12 +39,14 @@ func reportPrototype(ctx context.Context, e *Engine, emit func(reportPrototypeCo
 	if err != nil {
 		return result, err
 	}
-	result.GrantsRequest = "request not recorded"
 	if _, ok := facts["should_skip_grants"]; ok {
-		result.GrantsRequest = "disabled by saved sync flag"
+		disabled := true
+		result.GrantsDisabled = &disabled
 	}
 	if _, ok := facts["should_skip_entitlements_and_grants"]; ok {
-		result.GrantsRequest = "disabled with entitlements by saved sync flag"
+		disabled := true
+		result.GrantsDisabled = &disabled
+		result.EntitlementsDisabled = &disabled
 	}
 	var current *reportPrototypeCollection
 	var latency reportPrototypeHistogram
@@ -53,10 +54,6 @@ func reportPrototype(ctx context.Context, e *Engine, emit func(reportPrototypeCo
 	flush := func() {
 		if current == nil {
 			return
-		}
-		current.Outcome = "all recorded references resolve; endpoint outcome unavailable"
-		if current.MissingContinuations > 0 || current.MissingChildren > 0 {
-			current.Outcome = "recorded work has no matching completion"
 		}
 		current.ConnectorPageMedian = latency.quantile(50)
 		current.ConnectorPageP95 = latency.quantile(95)
@@ -181,7 +178,7 @@ func TestLedgerReportPrototype(t *testing.T) {
 	require.EqualValues(t, 3000, report.Top[0].ReportedWaitMs)
 	require.EqualValues(t, 4850, report.ConnectorMs)
 	require.EqualValues(t, 6, report.Written)
-	require.Equal(t, "86.60%", reportPrototypeShare(report.Top[0].ConnectorMs, report.ConnectorMs))
+	require.InDelta(t, 86.597938, *reportPrototypeShare(report.Top[0].ConnectorMs, report.ConnectorMs), 0.000001)
 	require.Equal(t, reportPrototypeInterval{128, 255, true}, report.Top[0].ConnectorPageMedian)
 	require.Equal(t, reportPrototypeInterval{2048, 4095, true}, report.Top[0].ConnectorPageP95)
 	require.Equal(t, 2.5, report.Top[0].WrittenPerPage)
@@ -189,7 +186,6 @@ func TestLedgerReportPrototype(t *testing.T) {
 	require.Equal(t, 840000.0, *report.Top[0].ConnectorMsPerThousandWrites)
 	require.Nil(t, collections[1].ConnectorMsPerThousandWrites)
 	require.Nil(t, collections[1].PagesPerThousandWrites)
-	require.Contains(t, collections[1].Outcome, "endpoint outcome unavailable")
 	require.EqualValues(t, 1, collections[1].ZeroWritePages)
 	encoded, err := json.MarshalIndent(collections, "", "  ")
 	require.NoError(t, err)
@@ -213,12 +209,13 @@ func TestLedgerReportPrototypeScope(t *testing.T) {
 			report, err := reportPrototype(ctx, e, nil)
 			require.NoError(t, err)
 			if fact == "" {
-				require.Equal(t, "request not recorded", report.GrantsRequest)
+				require.Nil(t, report.GrantsDisabled)
 			} else {
-				require.Contains(t, report.GrantsRequest, "disabled")
+				require.NotNil(t, report.GrantsDisabled)
+				require.True(t, *report.GrantsDisabled)
 			}
 			require.Zero(t, report.MissingChildren)
-			t.Log(report.GrantsRequest)
+			t.Log(report.GrantsDisabled)
 		})
 	}
 }
@@ -303,5 +300,5 @@ func TestLedgerReportTopLimit(t *testing.T) {
 	require.EqualValues(t, 1100, report.ConnectorMs)
 	require.Equal(t, "team-00", report.Top[0].Scope.ResourceID)
 	require.Equal(t, "team-09", report.Top[9].Scope.ResourceID)
-	require.Equal(t, "9.09%", reportPrototypeShare(report.Top[0].ConnectorMs, report.ConnectorMs))
+	require.InDelta(t, 9.090909, *reportPrototypeShare(report.Top[0].ConnectorMs, report.ConnectorMs), 0.000001)
 }

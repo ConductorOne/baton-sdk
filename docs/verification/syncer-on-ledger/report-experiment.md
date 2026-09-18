@@ -166,3 +166,19 @@ revision. This remains a feasibility result, not C49 qualification. The prototyp
 is still test-only and has no command for an arbitrary customer artifact. Full
 resource drill-down, effective-request metadata, outcome/skip reasons, cold reads,
 large fan-out and peak RSS remain outstanding.
+
+## Current output: stats for logging
+
+Requester correction supersedes the HTML artifact above. The generator now emits
+stats.json: one JSON object containing numeric counters, timing aggregates,
+percentile bounds, rates, collection identifiers and saved skip flags. It emits
+no interpretation strings, warnings, prose or HTML. The top collection list is
+limited to ten; the total payload size still depends on identifier lengths.
+Unknown skip flags and undefined zero-write rates are JSON null.
+
+The same export command now writes stats.json. The benchmark includes JSON
+serialization rather than HTML rendering. The latest three-iteration smoke run
+takes 147.50ms for 100,000 one-page scopes, and 340.97ms for 100,000 pages arranged
+in 100-page chains with 99,000 reference checks. Payloads with ten fixture scopes
+are 7.3–7.4KB. All previous qualification limits still apply. This is a prototype
+of the log fields; it is not yet emitted by the production sync logger.
