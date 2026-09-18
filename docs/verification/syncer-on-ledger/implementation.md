@@ -1122,3 +1122,38 @@ Compare the resulting transition with uninterrupted execution. Add a failing
 read check that retains prior scheduling state. Commit this appendix alone,
 then the tested correction. This is a resource restoration correction, not
 a new work queue or a change to lifecycle selection.
+
+## 34. Static entitlement and asset pages
+
+Preserve main's static-entitlement planning: its zero-record control action
+re-enumerates connector resource types completely before publishing children,
+including types outside the collection filter. Do not substitute the stored
+type set or interleave leaf execution with planner enumeration. Record those
+ancillary connector calls and invalid-type observations in the control page.
+Each leaf stages the concrete entitlements produced from one static connector
+response across all stored resources of that type. Preserve fallback display
+name/description, exclusion-group scoping, slug, purpose and grantable types.
+The legacy lambda prefixError remains a successful empty transition. A failed
+reader page or commit discards all synthesized entitlements in that action.
+This buffering can grow with static fan-out; small fixtures do not establish
+its production memory cost, which remains a reported limitation.
+
+Asset control pages retain main's stored-resource enumeration. Resource leaves
+read the same icon/app-logo references and stream their bytes and metadata
+before staging PutAsset. All assets of the resource action share its commit;
+missing metadata or a later stream failure discards earlier staged assets.
+Retain main's nil-stream compatibility behavior. Successful leaves use the
+normal transition instead of finishing runState directly, so the page wrapper
+can commit and replay them. Init's disabled asset scheduling is unchanged;
+these handlers still need to support restored actions. Stream call accounting
+publishes only after commit. No SQLite writes or storage methods are changed.
+
+C04/C05/C07/C09/C15/C17/C20/C38/C42 candidates: static planning over two type
+pages, two resources with scoped exclusion groups, connector pagination,
+prefixError, commit refusal/retry and replay; asset byte/content-type reopen,
+multiple refs, missing metadata, stream failure, nil stream and failed commit.
+Use strict hooks in each page/walk fixture. First fail real handlers at the
+production refusal, then plant direct writes and a missing transition to
+prove atomicity and completion checks. Compare resulting records with main's
+handlers where both are executable. Commit this appendix alone, then tested
+handler code. No scheduler or lifecycle policy changes are planned.
