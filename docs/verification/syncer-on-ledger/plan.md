@@ -863,3 +863,28 @@ There are now 49 criteria; the frozen §4 count describes the baseline.
   no hypothetical arm is required to close this discrepancy.
 - **Risk routing:** cost pass, unchanged.
 - **PR placement:** this PR.
+
+## CO-013 — inexpensive collection report
+
+- **Classification:** extension
+- **Source:** requester
+- **Claim:** One customer- and connector-author-facing report identifies the
+  most expensive collections, page counts, written records per page, latency
+  distribution and reported rate-limit waits, with drill-down to individual
+  resources. Producing it must be relatively cheap; measured time and memory
+  cost accompany the implementation. Raw ledger retention after recovery is
+  no longer needed must have a demonstrated diagnostic use.
+- **Motivation:** Aggregate sync totals do not explain which collections or
+  resources consumed collection time. Retaining all rows without a usable
+  report does not justify their artifact cost.
+- **Contract delta:** not yet selected. Do not drop recovery state before
+  completion is durable. Report storage, access and post-seal ledger removal
+  require a design decision; this entry does not authorize early deletion.
+- **Owning boundary:** ledger diagnostic reader/report and artifact lifecycle.
+- **Affected criteria:** new C50; C49 includes report production cost.
+- **Verification delta:** compare report aggregates and ranked collections
+  against known page fixtures, including token-scrubbed rows and parallel
+  work; label overlapping durations and written-record counts accurately.
+  Measure report time, peak memory and artifact size as row counts grow.
+- **Risk routing:** correctness, cost and operability passes.
+- **PR placement:** high-priority deliverable in this PR; design before code.

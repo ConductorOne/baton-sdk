@@ -1400,3 +1400,49 @@ coverage. Plant a missing engine refusal, plain EndSync/token write, repeated
 page and missing stats handover. Record any incomplete products honestly.
 Commit this amendment alone; public routing and lifecycle must build and pass
 together before the code commit. No temporary public engine switch is added.
+
+## 40. Collection report priority (CO-013, C50)
+
+After public lifecycle integration, design and implement one report for
+customers and connector authors: expensive collections ranked by recorded
+connector/handler time, page counts, written records per page, latency
+summaries and reported rate-limit waits, with individual-resource drill-down.
+This precedes final performance qualification and PR completion. It is not
+implemented or verified yet.
+
+Design for one sequential row pass, no connector calls or record-family scans,
+and bounded memory for ranking and latency summaries. Resolve how full
+resource drill-down is served without an unbounded in-memory group map.
+Prefer sharing an existing seal scan if it can preserve failure semantics;
+do not require another full scan merely for logging. Measure actual cost
+rather than calling the report cheap based only on algorithmic complexity.
+
+Before code, specify the report access surface, durable format, grouping and
+ranking, exact versus approximate latency statistics, and behavior after
+scrubbing. Do not require page tokens or assume scrubbed rows preserve page
+order. Separate cumulative worker time from elapsed time, and written-record
+counts from source response counts. Decide whether retained rows provide
+additional drill-down value after the report exists or can be removed after
+completion is durable. No ledger deletion timing changes are authorized by
+this docket entry alone. Add the candidate defects and failure cuts once
+that design is concrete.
+
+## 41. Report viability experiment before remaining integration
+
+Requester priority: investigate report value before lifecycle completion or
+retention mechanics. Use a test-only prototype over actual Pebble ledger rows;
+no production contract or retention change in this experiment. Report requested
+scope separately from observed work. Current rows cannot distinguish a tolerated
+warning from successful zero-output collection; never label those rows as proof
+of an empty endpoint. Current config is not a complete durable request manifest.
+
+Exercise completed pagination, zero-write terminal pages, missing continuations,
+missing child work, grants explicitly disabled and unknown request options.
+Group by full action scope excluding the page token. Stream groups in ledger key
+order, retaining only a bounded top list for timing; emit full resource summaries
+incrementally. Check referenced identities with point reads rather than retaining
+all pages in memory. Measure the scan plus reference checks, including allocations,
+at increasing page counts. Synthetic timing values demonstrate presentation, not
+production latency. Prototype checks cover incorrect empty-endpoint attribution,
+missing-edge detection and scope collisions. The full report design, metadata
+additions and retention decision follow the experiment.
