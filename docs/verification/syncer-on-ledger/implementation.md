@@ -876,3 +876,40 @@ external PageWriter implementers; engine selection still has no fallback.
 This commit adds storage support only, not SyncAssets integration. Other
 record families, process-crash products and the complete handler inventory
 remain open.
+
+## 27. K4b: resource and entitlement deletion in a page
+
+Add PageWriter.DeleteResources and DeleteEntitlements, taking full v2
+objects. Validate the complete request before appending identities; reject
+missing resource identities. Entitlement identity uses the same conversion
+as the exact-reference store delete. Missing rows are no-ops; duplicate
+deletes are harmless. Deletions apply after all page puts, irrespective of
+call order, and do not cascade. Reads inside the page continue to expose
+puts until commit, as the existing deferred DeleteGrants contract does.
+
+Keep the resource and entitlement puts in the batch. For each deletion,
+use the latest staged value if present, otherwise the stored value, and
+invoke the existing typed RecordBatch deletion operation. This removes
+both the old and replacement parent indexes and retains source-scope
+cleanup/poison behavior for put-then-delete. Dropping buffered puts would
+skip those obligations. Counts record distinct puts, including records
+subsequently deleted in the page; deletion is not a negative put. Invalidate
+the entitlement lookup cache after a successful delete-only commit too.
+Do not change direct deletion methods, handlers, or SQLite.
+
+C04/C07/C08/C38/C42 candidates compare committed records and raw index keys
+with direct put-then-delete behavior. Include stored-only, staged-only and
+stored-plus-staged targets; a changed parent and source scope; two
+entitlements sharing an external ID on different resources; duplicate and
+missing targets; delete-before-put; and invalid requests. Public consumer
+checks use the strict write hook, start from a clean reopened store, and
+verify invisibility before commit, discard, and durable deletion plus row
+after reopen. Engine checks inject record-batch failure then retry, verify
+delete-only lookup cache invalidation, and check completed/stale writers.
+
+First run the consumer test with temporary no-op methods and record its
+failure. Mutants that delete using only stored values or omit lookup cache
+invalidation must fail their targeted tests. The existing page batch remains
+the only commit; no new rawdb operation or failure hook is needed. These
+interface additions affect external PageWriter implementers. Process-crash
+coverage and handler integration remain separate obligations.
