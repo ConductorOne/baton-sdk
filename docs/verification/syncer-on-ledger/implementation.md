@@ -1204,3 +1204,13 @@ refusal. Plant direct writes, a bare-ID delete, stored-only matching before
 import commit, and lost principal order/state; record which candidates detect
 each. Inventory every in-page delete for CO-002's unreachable-bare-ID reading.
 Commit this brief alone before handler code. No storage method is proposed.
+
+The entitlement-filter import uses main's bare-ID selection map, whose
+iteration order is unspecified. Visit that map's keys in sorted order on the
+ledger path before recording principal identities. The selected members stay
+the same (one per map key), while the new durable fact becomes deterministic
+across processes. The full trait-selected import retains the external reader's
+order, including its existing handling of equal IDs across resource types.
+This is needed for C16's fact equality; it does not change the selection map
+or matching predicates. Test multiple filtered principals and plant reversed
+recorded order to check the deterministic-fact assertion.
