@@ -740,3 +740,43 @@ well as rows. That lifecycle operation is separate from restoration and
 must preserve the sync-run record and atomically retain history. It will be
 specified and tested as its own storage change before public integration;
 no ended_at reset or fallback checkpoint write is allowed.
+
+Restored counts exposed a replay accounting defect: a committed child found
+later by a newly executed parent was counted a second time when its recorded
+transition removed it from runState. The shared transition implementation
+will take an explicit completion-accounting flag, with its existing entry
+always passing true. Only the ledger row-replay entry passes false. It still
+removes the action and drains spawned work, but neither increments historical
+counts nor the current-process list-resource threshold. The regression test
+first observes three in-memory completions against two committed completions.
+
+## 21. Finished ledger continuation without a lifecycle reset
+
+Add PageLedgerStore.ClearLedgerRows(ctx, clearFacts). It requires a bound
+finished sync and atomically deletes only page rows, the old takeover
+frontier and the explicitly named facts. All counter buckets, other facts,
+record families and the complete sync-run record remain unchanged. The
+syncer clears only its seal-ready fact. This provides the storage operation
+missing from DropLedger under CO-010; it does not write a checkpoint token
+or create another sync-run record. The operation stamps the file ledgered
+and commits with Sync. Deleted token residue uses the existing durable purge
+marker and purge path. The store wrapper marks dirty even on a post-commit
+purge failure so Close cannot discard a committed deletion.
+
+The syncer uses it only for a finished ledger with seal-ready proof, or a
+finished legacy frontier with an empty action stack after takeover. It then
+starts at Init while preserving all history. After the atomic clear, the
+absence of seal-ready proof and the fresh Init row chain describe pending
+processing despite the unchanged ended_at. A later resume walks that chain;
+it does not clear it again. A legacy frontier with pending actions is never
+cleared. Restoration stays read-only; this operation is lifecycle work
+before the first row lookup. Sealed-token scrubbing remains the default.
+
+Commit the storage contract and implementation independently, with engine
+consumer tests for preserved facts/counters/records/sync metadata, refusal
+on an unfinished sync, and staged/committed failure cuts. Then commit the
+syncer consumer with same-ID stop/reopen/resume tests, including a stop just
+after clearing and another after committing a page. Old completion markers
+must not suppress requested work; new progress must not be discarded.
+Physical crash images and byte-residue checks remain explicit evidence
+requirements; successful in-process fault checks alone do not close them.
