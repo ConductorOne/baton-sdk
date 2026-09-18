@@ -1,0 +1,4 @@
+=== RUN   TestLedgerCostRuntime
+    ledger_cost_runtime_test.go:215: {"arm":"ledger-scheduler-resume-no-sync","c1z_bytes":6697098,"compaction_bytes_before_close":149063280,"flush_bytes_before_close":199991853,"handler_ns":5047843199,"ledger_commits":1002,"page_commit_ns":41316197403,"pages":1000,"records_per_page":10000,"reopen_ns":11749623,"resources_verified":10000000,"resume_walk_ns":17964,"scope":"scheduler adapter with synthetic handlers; not C49 measurement evidence","seal_fold_ns":194007,"seal_ns":1675079593,"seal_purge_ns":701078265,"seal_scrub_ns":1837529,"sync_wall_ns":48109519115,"wal_bytes_before_close":848221888,"workers":1}
+--- PASS: TestLedgerCostRuntime (54.69s)
+PASS

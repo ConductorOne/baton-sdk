@@ -1,7 +1,9 @@
 package pebble
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -62,6 +64,22 @@ func (w *pageWriter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 		return err
 	}
 	return w.unit.StageGrants(translateGrantsForPut(ctx, w.syncID, grants)...)
+}
+
+func (w *pageWriter) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error {
+	if err := w.requireSync(); err != nil {
+		return err
+	}
+	if assetRef == nil {
+		return errors.New("PutAsset: nil assetRef")
+	}
+	if assetRef.GetId() == "" {
+		return errors.New("PutAsset: empty assetRef.Id")
+	}
+	return w.unit.StageAsset(v3.AssetRecord_builder{
+		SyncId: w.syncID, ExternalId: assetRef.GetId(), ContentType: contentType,
+		Data: bytes.Clone(data), DiscoveredAt: timestamppb.Now(),
+	}.Build())
 }
 
 func (w *pageWriter) GetResource(ctx context.Context, resourceTypeID, resourceID string) (*v2.Resource, error) {
@@ -264,4 +282,41 @@ func ledgerRowFromProto(p *v3.LedgerRow) *c1zstore.LedgerRow {
 		row.CommittedAt = ts.AsTime()
 	}
 	return row
+}
+
+func (w *pageWriter) DeleteResources(ctx context.Context, resources ...*v2.Resource) error {
+	if err := w.requireSync(); err != nil {
+		return err
+	}
+	ids := make([]resourceBufKey, 0, len(resources))
+	for _, r := range resources {
+		id := r.GetId()
+		if id.GetResourceType() == "" || id.GetResource() == "" {
+			return errors.New("page resource delete: missing resource identity")
+		}
+		ids = append(ids, resourceBufKey{id.GetResourceType(), id.GetResource()})
+	}
+	return w.unit.stageResourceDeletes(ids)
+}
+
+func (w *pageWriter) DeleteEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error {
+	if err := w.requireSync(); err != nil {
+		return err
+	}
+	ids := make([]entitlementIdentity, 0, len(entitlements))
+	for _, ent := range entitlements {
+		id, err := entitlementIdentityFromRecord(V2EntitlementToV3(w.syncID, ent))
+		if err != nil {
+			return fmt.Errorf("page entitlement delete: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return w.unit.stageEntitlementDeletes(ids)
+}
+
+func (w *pageWriter) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	if err := w.requireSync(); err != nil {
+		return err
+	}
+	return w.unit.stageExpandedGrants((pebbleGrantStore{e: w.e}).translateExpanded(w.syncID, grants))
 }

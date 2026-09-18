@@ -140,11 +140,19 @@ type PageWriter interface {
 	PutResources(ctx context.Context, resources ...*v2.Resource) error
 	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
 	PutGrants(ctx context.Context, grants ...*v2.Grant) error
+	// Preserves prior expansion state, discovery time and source scope by full identity.
+	StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error
+	// Snapshots data; repeated asset IDs use the last staged value.
+	PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error
 
 	// Reads include staged writes; repeated writes to the same identity use
 	// the latest value. GetEntitlement rejects IDs shared by distinct identities.
 	GetResource(ctx context.Context, resourceTypeID, resourceID string) (*v2.Resource, error)
 	GetEntitlement(ctx context.Context, entitlementID string) (*v2.Entitlement, error)
+
+	// Applied after all page puts, without cascading. Reads ignore pending deletes.
+	DeleteResources(ctx context.Context, resources ...*v2.Resource) error
+	DeleteEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
 
 	// Applied in the commit after the page's puts.
 	DeleteGrants(ctx context.Context, grants ...*v2.Grant) error
@@ -186,6 +194,10 @@ type PageLedgerStore interface {
 	// The syncer calls it when rebinding a FINISHED sync: trusting the old rows
 	// would make every action look complete.
 	DropLedger(ctx context.Context) error
+	// Clears page rows, the takeover frontier and named facts in one synced
+	// batch. Requires a finished bound sync; retains counters, all other facts,
+	// records and sync metadata for further processing under the same sync ID.
+	ClearLedgerRows(ctx context.Context, clearFacts []string) error
 	// Blind-writes the run's whole cumulative bucket; a later write supersedes.
 	PutCounterBucket(ctx context.Context, runID string, worker uint32, counters LedgerCounters) error
 	// The only way a ledgered sync seals; plain EndSync refuses one.

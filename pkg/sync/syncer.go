@@ -146,6 +146,9 @@ func (sm *syncMap[K, V]) Store(key K, val V) {
 
 // syncer orchestrates a connector sync and stores the results using the provided datasource.Writer.
 type syncer struct {
+	ledgered        bool
+	ledger          *ledgerRuntime
+	ledgerExpansion *ledgerExpansionStream
 	// cfg is the caller's request: every value set by a With* option and
 	// nothing else, immutable once NewSyncer returns (see config.go).
 	cfg   syncConfig
@@ -472,6 +475,9 @@ const minCheckpointInterval = 10 * time.Second
 
 // Checkpoint marshals the current state and stores it.
 func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
+	if s.ledgered {
+		return nil
+	}
 	if !force && !s.lastCheckPointTime.IsZero() && time.Since(s.lastCheckPointTime) < s.checkpointInterval {
 		return nil
 	}
@@ -508,7 +514,7 @@ func (s *syncer) timedStep(op ActionOp, f func() error) error {
 	}
 	start := time.Now()
 	err := f()
-	s.stats.addStepDuration(op.String(), time.Since(start))
+	s.recordRunStepDuration(op.String(), time.Since(start))
 	return err
 }
 
@@ -641,6 +647,9 @@ func (s *syncer) recordSessionOp(op string, elapsed time.Duration, opErr error) 
 		return
 	}
 	s.stats.recordSessionOp("store."+op, elapsed, opErr, session.IsDeadlineExceeded(opErr))
+	if s.ledgered && s.ledger != nil {
+		s.ledger.runObservations.recordSessionOp("store."+op, elapsed, opErr, session.IsDeadlineExceeded(opErr))
+	}
 }
 
 // recordSessionUsage folds a connector-reported SessionStoreUsage response
@@ -758,6 +767,11 @@ const maxEntitlementsPerExclusionGroup = 50
 // It also pushes any child actions before updating/finishing the action.
 // This is useful for pagination, and for actions that create other actions.
 func (s *syncer) nextPageOrFinishAction(ctx context.Context, action *Action, nextPageToken string, childActions ...Action) error {
+	if s.ledgered {
+		if invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation); ok {
+			return invocation.stage(action, nextPageToken, childActions)
+		}
+	}
 	s.parallelTransitionMu.RLock()
 	transitioner := s.parallelActionTransitioner
 	s.parallelTransitionMu.RUnlock()
@@ -775,6 +789,19 @@ func (s *syncer) transitionActionState(
 	nextPageToken string,
 	childActions []Action,
 ) ([]*Action, error) {
+	if s.ledgered {
+		if replay, _ := ctx.Value(ledgerReplayKey{}).(bool); replay {
+			return s.run.transitionActionWithCompletion(ctx, action, nextPageToken, childActions, false)
+		}
+		if pending, ok := ctx.Value(ledgerCommitKey{}).(ledgerTransitionCommit); ok {
+			if err := pending.commit(); err != nil {
+				return nil, err
+			}
+			if pending.warning {
+				return nil, nil
+			}
+		}
+	}
 	pushed, err := s.run.transitionAction(ctx, action, nextPageToken, childActions)
 	if err == nil && nextPageToken == "" {
 		s.recordListResourceCompletedThisRun(action)
@@ -1264,6 +1291,9 @@ func (s *syncer) listAllResourceTypes(ctx context.Context) iter.Seq2[[]*v2.Resou
 
 // SyncResourceTypes calls the ListResourceType() connector endpoint and persists the results in to the datasource.
 func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
+	if s.ledgered {
+		return s.syncLedgerResourceTypes(ctx, action)
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncResourceTypes")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
@@ -1315,35 +1345,12 @@ func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
 	if resp.GetNextPageToken() == "" {
 		s.counts.LogResourceTypesProgress(ctx)
 
-		if len(s.cfg.syncResourceTypes) > 0 {
-			validResourceTypesResp, err := s.store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
-				PageToken:    action.PageToken,
-				ActiveSyncId: s.getActiveSyncID(),
-			}.Build())
-			if err != nil {
-				return err
-			}
-			err = validateSyncResourceTypesFilter(s.cfg.syncResourceTypes, validResourceTypesResp.GetList())
-			if err != nil {
-				return err
-			}
+		if err := s.validateSelectedResourceTypes(ctx, resourceTypes); err != nil {
+			return err
 		}
 	}
 
 	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
-}
-
-func validateSyncResourceTypesFilter(resourceTypesFilter []string, validResourceTypes []*v2.ResourceType) error {
-	validResourceTypesMap := make(map[string]bool)
-	for _, rt := range validResourceTypes {
-		validResourceTypesMap[rt.GetId()] = true
-	}
-	for _, rt := range resourceTypesFilter {
-		if _, ok := validResourceTypesMap[rt]; !ok {
-			return fmt.Errorf("invalid resource type '%s' in filter", rt)
-		}
-	}
-	return nil
 }
 
 func (s *syncer) hasChildResources(resource *v2.Resource) bool {
@@ -1476,6 +1483,9 @@ func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.Re
 }
 
 func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error {
+	if s.ledgered {
+		return s.syncLedgerTargetedResource(ctx, action)
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncTargetedResource")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
@@ -1591,6 +1601,9 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 // SyncResources handles fetching all of the resources from the connector given the provided resource types. For each
 // resource, we gather any child resource types it may emit, and traverse the resource tree.
 func (s *syncer) SyncResources(ctx context.Context, action *Action) error {
+	if s.ledgered {
+		return s.syncLedgerResources(ctx, action)
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncResources")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
@@ -2013,6 +2026,9 @@ func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bo
 // SyncEntitlements fetches entitlements. Annotated resource types receive one
 // type-scoped action instead of a per-resource fan-out.
 func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
+	if s.ledgered {
+		return s.syncLedgerEntitlements(ctx, action)
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncEntitlements")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
@@ -2166,6 +2182,9 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 }
 
 func (s *syncer) SyncStaticEntitlements(ctx context.Context, action *Action) error {
+	if s.ledgered {
+		return s.syncLedgerStaticEntitlements(ctx, action)
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncStaticEntitlements")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
@@ -2391,6 +2410,9 @@ func (s *syncer) syncAssetsForResource(ctx context.Context, action *Action) erro
 
 // SyncAssets iterates each resource in the data store, and adds an action to fetch all of the assets for that resource.
 func (s *syncer) SyncAssets(ctx context.Context, action *Action) error {
+	if s.ledgered {
+		return s.syncLedgerAssets(ctx, action)
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncAssets")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
@@ -2430,6 +2452,9 @@ func (s *syncer) SyncAssets(ctx context.Context, action *Action) error {
 // SyncGrantExpansion handles the grant expansion phase of sync.
 // It first loads the entitlement graph from grants, fixes any cycles, then runs expansion.
 func (s *syncer) SyncGrantExpansion(ctx context.Context, action *Action) error {
+	if s.ledgered {
+		return s.syncLedgerExpansion(ctx, action)
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncGrantExpansion")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
@@ -2577,6 +2602,9 @@ func (s *syncer) fixEntitlementGraphCycles(ctx context.Context, graph *expand.En
 // SyncGrants fetches grants. Annotated resource types receive one type-scoped
 // action instead of a per-resource fan-out.
 func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
+	if s.ledgered {
+		return s.syncLedgerGrants(ctx, action)
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncGrants")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
@@ -2847,6 +2875,9 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 }
 
 func (s *syncer) SyncExternalResources(ctx context.Context, action *Action) error {
+	if s.ledgered {
+		return s.syncLedgerExternalResources(ctx, action)
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncExternalResources")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
@@ -3906,6 +3937,9 @@ func (s *syncer) wireCountsDBSizeProvider() {
 // indefinitely. A new-root span linked to syncer.Close keeps the finalize
 // subtree from inflating very long sync traces.
 func (s *syncer) Close(ctx context.Context) error {
+	if s.ledgered {
+		s.stopLedgerExpansion()
+	}
 	ctx, span := tracer.Start(ctx, "syncer.Close")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()

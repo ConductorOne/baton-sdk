@@ -26,12 +26,16 @@ type pageUnit struct {
 	l      *Ledger
 	syncID string
 
-	resourceTypes  []*v3.ResourceTypeRecord
-	resources      []*v3.ResourceRecord
-	resourceIdx    map[resourceBufKey]int
-	entitlements   []*v3.EntitlementRecord
-	entitlementIdx map[string][]int
-	grants         []*v3.GrantRecord
+	resourceTypes      []*v3.ResourceTypeRecord
+	resources          []*v3.ResourceRecord
+	resourceIdx        map[resourceBufKey]int
+	entitlements       []*v3.EntitlementRecord
+	entitlementIdx     map[string][]int
+	grants             []*v3.GrantRecord
+	expandedGrants     map[*v3.GrantRecord]struct{}
+	assets             []*v3.AssetRecord
+	resourceDeletes    []resourceBufKey
+	entitlementDeletes []entitlementIdentity
 	// Applied at Commit after the puts, in the same batch; a buffered put of the
 	// same identity is dropped, as when the two are separate store calls.
 	grantDeletes []grantIdentity
@@ -135,6 +139,17 @@ func (u *pageUnit) StageGrants(records ...*v3.GrantRecord) error {
 			u.grants = append(u.grants, r)
 		}
 	}
+	return nil
+}
+
+func (u *pageUnit) StageAsset(record *v3.AssetRecord) error {
+	if u.done {
+		return ErrPageUnitCommitted
+	}
+	if record == nil {
+		return errors.New("StageAsset: nil record")
+	}
+	u.assets = append(u.assets, record)
 	return nil
 }
 
@@ -446,8 +461,20 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		if err != nil {
 			return err
 		}
-		grants, err := l.e.stageGrantRecords(batch, u.grants)
+		grants, err := u.stagePageGrantRecords(batch)
 		if err != nil {
+			return err
+		}
+		for _, asset := range u.assets {
+			value, err := marshalRecord(asset)
+			if err != nil {
+				return err
+			}
+			if err := batch.StageAssetPut(encodeAssetKey(asset.GetExternalId()), value); err != nil {
+				return err
+			}
+		}
+		if err := u.stageRecordDeletes(batch); err != nil {
 			return err
 		}
 		for _, id := range u.grantDeletes {
@@ -492,7 +519,7 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		if err := batch.Commit(recordWriteOpts); err != nil {
 			return err
 		}
-		if len(u.entitlements) > 0 {
+		if len(u.entitlements) > 0 || len(u.entitlementDeletes) > 0 {
 			l.e.noteEntitlementKeyspaceWrite()
 		}
 		return nil
@@ -509,8 +536,11 @@ func (u *pageUnit) Discard() { u.release() }
 func (u *pageUnit) release() {
 	u.done = true
 	u.resourceTypes, u.resources, u.entitlements, u.grants = nil, nil, nil, nil
+	u.assets = nil
+	u.expandedGrants = nil
 	u.resourceIdx, u.entitlementIdx = nil, nil
 	u.grantDeletes = nil
+	u.resourceDeletes, u.entitlementDeletes = nil, nil
 	u.facts = nil
 	u.bucketKey, u.bucketValue = nil, nil
 }

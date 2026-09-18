@@ -969,3 +969,11 @@ func (s *pebbleStore) save(ctx context.Context) error {
 	success = true
 	return nil
 }
+
+func (s *pebbleStore) ClearLedgerRows(ctx context.Context, clearFacts []string) error {
+	if err := s.writeHook(ctx, "ClearLedgerRows"); err != nil {
+		return err
+	}
+	s.MarkDirty()
+	return s.Engine.Ledger().ClearRows(ctx, clearFacts)
+}

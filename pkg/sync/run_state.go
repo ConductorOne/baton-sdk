@@ -382,6 +382,16 @@ func (r *runState) transitionAction(
 	nextPageToken string,
 	childActions []Action,
 ) ([]*Action, error) {
+	return r.transitionActionWithCompletion(ctx, parent, nextPageToken, childActions, true)
+}
+
+func (r *runState) transitionActionWithCompletion(
+	ctx context.Context,
+	parent *Action,
+	nextPageToken string,
+	childActions []Action,
+	recordCompletion bool,
+) ([]*Action, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if parent == nil {
@@ -436,7 +446,7 @@ func (r *runState) transitionAction(
 		return pushed, nil
 	}
 
-	r.finishActionLocked(ctx, parent, false)
+	r.finishActionLocked(ctx, parent, false, recordCompletion)
 	return pushed, nil
 }
 
@@ -444,7 +454,7 @@ func (r *runState) transitionAction(
 func (r *runState) finishAction(ctx context.Context, action *Action) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.finishActionLocked(ctx, action, false)
+	r.finishActionLocked(ctx, action, false, true)
 }
 
 // finishActionWithWarning finishes an action that ended in a warning, which
@@ -452,11 +462,11 @@ func (r *runState) finishAction(ctx context.Context, action *Action) {
 func (r *runState) finishActionWithWarning(ctx context.Context, action *Action) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.finishActionLocked(ctx, action, true)
+	r.finishActionLocked(ctx, action, true, true)
 }
 
 // finishActionLocked requires mu to be held.
-func (r *runState) finishActionLocked(ctx context.Context, action *Action, isWarning bool) {
+func (r *runState) finishActionLocked(ctx context.Context, action *Action, isWarning, recordCompletion bool) {
 	if action == nil {
 		panic("action cannot be nil")
 	}
@@ -472,13 +482,15 @@ func (r *runState) finishActionLocked(ctx context.Context, action *Action, isWar
 	r.actionOrder = slices.Delete(r.actionOrder, index, index+1)
 	delete(r.actions, action.ID)
 	delete(r.spawnedInFlight, action.ID)
-	r.completedActions++
-	actionCount := r.actionCounts[action.Op.String()]
-	actionCount.CompletedCount++
-	if isWarning {
-		actionCount.WarningCount++
+	if recordCompletion {
+		r.completedActions++
+		actionCount := r.actionCounts[action.Op.String()]
+		actionCount.CompletedCount++
+		if isWarning {
+			actionCount.WarningCount++
+		}
+		r.actionCounts[action.Op.String()] = actionCount
 	}
-	r.actionCounts[action.Op.String()] = actionCount
 	ctxzap.Extract(ctx).Debug("finishing action", zap.Any("action", action))
 }
 

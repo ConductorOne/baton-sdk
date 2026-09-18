@@ -604,3 +604,62 @@ func (l *Ledger) PutCounterBucket(ctx context.Context, runID string, worker uint
 		return batch.Commit(pebble.Sync)
 	})
 }
+
+func (l *Ledger) ClearRows(ctx context.Context, clearFacts []string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	l.e.lifecycleMu.Lock()
+	defer l.e.lifecycleMu.Unlock()
+	syncID := l.e.CurrentSyncID()
+	if syncID == "" {
+		return errors.New("ClearRows: no bound sync")
+	}
+	record, err := l.e.GetSyncRunRecord(ctx, syncID)
+	if err != nil {
+		return err
+	}
+	if record.GetEndedAt() == nil {
+		return errors.New("ClearRows: bound sync is unfinished")
+	}
+	keys := make([][]byte, 0, len(clearFacts))
+	for _, fact := range clearFacts {
+		keys = append(keys, encodeLedgerFactKey(fact))
+	}
+	if err := l.markResiduePending(); err != nil {
+		return err
+	}
+	if err := l.e.withWrite(func() error {
+		if err := l.markInFlightLocked(); err != nil {
+			return err
+		}
+		if hook := l.e.test.ledgerClearRowsHook; hook != nil {
+			if err := hook("stamped"); err != nil {
+				return err
+			}
+		}
+		batch := l.e.db.NewRecordBatch()
+		defer batch.Close()
+		if err := batch.StageLedgerClearRows(keys); err != nil {
+			return err
+		}
+		if hook := l.e.test.ledgerClearRowsHook; hook != nil {
+			if err := hook("staged"); err != nil {
+				return err
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := batch.Commit(pebble.Sync); err != nil {
+			return err
+		}
+		if hook := l.e.test.ledgerClearRowsHook; hook != nil {
+			return hook("committed")
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return l.purgeMarkedResidue(ctx)
+}
