@@ -1446,3 +1446,29 @@ at increasing page counts. Synthetic timing values demonstrate presentation, not
 production latency. Prototype checks cover incorrect empty-endpoint attribution,
 missing-edge detection and scope collisions. The full report design, metadata
 additions and retention decision follow the experiment.
+
+## 42. Mechanical timing report experiment
+
+Add the requested timing sections to the existing test-only report generator.
+The artifact must be emitted by Go from rows and saved facts, not assembled by
+an agent. Include page connector-time total, share of all recorded connector
+time, maximum, approximate median/p95, reported rate-limit waits, writes per
+page, and connector milliseconds plus pages per 1,000 writes. Call counts are
+not recorded per row, so never describe pages as API calls. Zero-output rates
+are undefined and rendered unavailable. Wait time is inside connector time;
+worker totals do not represent elapsed time or the critical path.
+
+Use a fixed 65-bucket integer histogram for connector milliseconds per page.
+Return quantile intervals, not exact percentiles. Retain one group and top ten
+ranked groups, with deterministic full-scope tie ordering. No unbounded list of
+page latencies. Add sum totals while scanning so collection shares use all
+rows, not only the top ten. The prototype remains a diagnostic experiment;
+zero-duration rows do not establish whether connector timing was enabled.
+
+A standalone HTML report and JSON are generated from the same result. HTML
+uses escaped templates; no page tokens, next tokens, raw error text or arbitrary
+arguments are emitted. An explicit test export directory requests the fixture
+artifacts. Repeated generation must produce identical bytes. Add checks for
+histogram boundaries, empty distributions, zero-output rates, ranking/shares,
+HTML escaping and token omission. Plant percentile, denominator and ranking
+defects before claiming those checks. Rerun cost measurements after the additions.
