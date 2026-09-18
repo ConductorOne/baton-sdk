@@ -1296,3 +1296,38 @@ are candidates until the defects fail. Commit this amendment alone, then
 implementation with its evidence. Cost from disabling the direct contribution
 and SST layer paths must be reported before landing; no speed claim follows
 from the small qualification fixtures.
+
+## 38. Run-level accounting before public routing
+
+Keep committed-page statistics separate from current-process observations.
+The ledger runtime owns a fresh runStats accumulator for elapsed operation
+time, retry/gate waits, rate-limit wall time and store.* session calls. It
+starts empty on every attempt. Existing global stats remain the diagnostic
+view restored from durable history plus current observations. Do not derive
+run buckets by subtracting cumulative maxima or serialize the whole diagnostic
+view: either approach can misattribute history or duplicate page accounting.
+
+At the existing timedStep, retry wait, rate-limit wall and store-session
+observation points, route a ledgered sync's observation into both its diagnostic
+view and its current-attempt accumulator. Connector-reported wait/session
+annotations stay page-owned and are mirrored diagnostically only after commit.
+No connector.* or connector-call counts enter the run bucket. SQLite keeps its
+existing recording behavior. Share only a store-free duration-recording helper
+where needed; the approved small shared changes do not introduce another
+scheduler or change retry policy.
+
+checkpointOnStop gets one ledger fork: after workers have stopped, use the
+existing bounded detached context to blind-write the entire attempt's run
+bucket. Loop-top Checkpoint remains a ledger no-op, so neither a resume walk
+nor an active worker flush writes run accounting. The public seal integration
+will place the same cumulative snapshot in its terminal page. Repeated flushes
+supersede; another attempt adds a new bucket. This serves C19/C20/C22/C23/C31.
+
+Candidates: mix committed page call/session/wait observations with run-level
+observations; flush twice; reopen under a new attempt; record lower-latency
+session calls and flush again. Assert sums, maxima and absence of duplicate
+page counts in durable counters. Exercise canceled stop contexts and reject
+flushes with active pages. Plant a bucket initialized from restored stats and
+page session usage copied into it; assertions must fail before evidence is
+closed. Commit this brief alone before implementation. Public routing and
+seal wiring follow separately, using this tested accumulator.
