@@ -514,7 +514,7 @@ func (s *syncer) timedStep(op ActionOp, f func() error) error {
 	}
 	start := time.Now()
 	err := f()
-	s.stats.addStepDuration(op.String(), time.Since(start))
+	s.recordRunStepDuration(op.String(), time.Since(start))
 	return err
 }
 
@@ -647,6 +647,9 @@ func (s *syncer) recordSessionOp(op string, elapsed time.Duration, opErr error) 
 		return
 	}
 	s.stats.recordSessionOp("store."+op, elapsed, opErr, session.IsDeadlineExceeded(opErr))
+	if s.ledgered && s.ledger != nil {
+		s.ledger.runObservations.recordSessionOp("store."+op, elapsed, opErr, session.IsDeadlineExceeded(opErr))
+	}
 }
 
 // recordSessionUsage folds a connector-reported SessionStoreUsage response

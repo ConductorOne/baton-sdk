@@ -1589,3 +1589,41 @@ Checks (Go 1.26.0, vendored dependencies): full sync suite passed (77.618s);
 expansion/external/existing-scheduler race tests passed three repetitions
 (8.161s). Vet passed, sync lint reports zero issues, and git diff --check
 passes. Storage and compactor production code remain unchanged.
+
+## Run-level accounting
+
+Brief commit: 74fd70ca. Each ledger runtime now owns an empty current-attempt
+stats accumulator, separate from restored diagnostic stats and committed page
+buckets. Operation time, retry/gate waits, rate-limit wall time and store.*
+session calls enter it at their existing observation points. Connector calls,
+connector.* session reports and connector-reported waits remain page-owned.
+The ledger stop branch writes the whole run snapshot on the existing bounded
+detached context. Loop-top Checkpoint still writes nothing.
+
+TestLedgerRunAccountingAcrossAttempts initially failed because no store-session
+observation reached the ledger. It now combines a committed connector-call and
+connector-session page with run-level session calls and retry waits; stops
+twice using an already-canceled context; closes/reopens; restores history into
+a new attempt; adds a lower-latency failed session call; and stops again. Durable
+counts sum once, session maxima remain correct, the timeout/error survives and
+page counts do not duplicate. Initializing the run accumulator from restored
+diagnostic stats fails the aggregate assertion. Copying page session reports
+into it fails the connector-session count (four instead of two). Both mutants
+were removed. Existing runtime tests separately refuse active-page flushes.
+
+C19/C20/C22/C23 gain this coverage and remain incomplete to full crash products.
+There is no claim that unflushed process observations survive process death.
+Public Sync will put the same snapshot into its terminal page; that handover
+is not yet integrated by this commit. No storage or token encoding change.
+
+Review of the run-duration exits found two paths that call Checkpoint directly
+instead of checkpointOnStop. TestLedgerRunAccountingDurationStop failed on both:
+between actions and after an operation, stored run-session count was zero.
+Both ledger exits now flush the run bucket on a bounded detached context and
+retain ErrSyncNotComplete. Their checkpoint-path bodies are unchanged. This
+is an observed omission found before public routing, not a planted defect.
+
+Final checks (Go 1.26.0, vendored dependencies), including both run-duration
+exits: full sync suite passed (77.995s); run-accounting, expansion, external,
+existing-scheduler and counter race tests passed three repetitions (8.573s).
+Vet passed, sync lint reports zero issues, and git diff --check passes.

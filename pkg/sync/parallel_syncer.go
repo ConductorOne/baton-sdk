@@ -45,9 +45,9 @@ func (s *syncer) recordRetryWait(ctx context.Context, wait time.Duration, rateLi
 	if rateLimited {
 		bucket = "rate_limit_wait"
 	}
-	s.stats.addStepDuration(bucket, wait)
+	s.recordRunStepDuration(bucket, wait)
 	if label, ok := ratelimit.WaitLabelFromContext(ctx); ok {
-		s.stats.addStepDuration(bucket+":"+label, wait)
+		s.recordRunStepDuration(bucket+":"+label, wait)
 	}
 	if rateLimited {
 		s.recordRateLimitWallInterval(wait)
@@ -102,7 +102,7 @@ func (s *syncer) recordRateLimitWallInterval(wait time.Duration) {
 	// lock from nesting the stats mutex.
 	s.rlWallMu.Unlock()
 	if whole > 0 {
-		s.stats.addStepDuration("rate_limit_wait_wall", whole)
+		s.recordRunStepDuration("rate_limit_wait_wall", whole)
 	}
 }
 
@@ -205,6 +205,10 @@ func (s *syncer) parallelSync(
 					l.Info("sync run duration has expired, exiting sync early", s.syncSummaryFields(trace.SpanFromContext(ctx))...)
 				} else {
 					l.Info("sync run duration has expired, exiting sync early", zap.String("sync_id", s.syncID))
+				}
+				if s.ledgered {
+					s.checkpointLedgerOnStop(ctx)
+					return warnings, ErrSyncNotComplete
 				}
 				// It would be nice to remove this once we're more confident in the checkpointing logic.
 				checkpointErr := s.Checkpoint(ctx, true)
@@ -434,6 +438,10 @@ func (s *syncer) handleOperationError(
 			zap.Error(batchErr),
 		)
 	}
+	if s.ledgered {
+		s.checkpointLedgerOnStop(ctx)
+		return warnings, ErrSyncNotComplete
+	}
 	checkpointErr := s.Checkpoint(ctx, true)
 	return warnings, errors.Join(checkpointErr, ErrSyncNotComplete)
 }
@@ -453,6 +461,10 @@ const stopCheckpointTimeout = time.Minute
 // lands inside that one write, the stale token costs at most one checkpoint
 // interval of idempotent re-work on resume — accepted.
 func (s *syncer) checkpointOnStop(ctx context.Context) {
+	if s.ledgered {
+		s.checkpointLedgerOnStop(ctx)
+		return
+	}
 	checkpointCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopCheckpointTimeout)
 	defer cancel()
 	if err := s.Checkpoint(checkpointCtx, true); err != nil {
