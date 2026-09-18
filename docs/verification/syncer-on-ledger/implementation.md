@@ -1059,3 +1059,37 @@ direct entitlement write and early drop publication to prove atomicity tests;
 omit the blocked fact to prove durable behavioral state is checked. Record
 remaining product gaps. Commit this appendix alone after K5b, then the tested
 implementation. No pkg/dotc1z change is planned for this increment.
+
+## 32. K5d: grant collection pages
+
+Keep main's grant control planner, type-scoped request markers, skip rules,
+continuation/sibling cursors and progress rules. Grant records, discovered or
+fetched resources, expansion/external-match facts and accounting commit as
+one page. Read related resources through the page writer, so an earlier fetch
+in the same page prevents duplicate fetches just as main's direct put does.
+Preserve the existing ordering: collect InsertResourceGrants resources before
+filtering grants, resolve related resources, then put discovered resources
+and grants. Staged reads do not change full resource identities.
+
+Reuse fresh-grant filtering by adding an explicit ingestFilterStats parameter
+to its internal helpers. Existing entry methods pass the same global stats
+object they use today; the ledger handler passes a page-local object. This
+small shared change leaves all filter predicates, read failures, annotation
+rewrites and SQLite writes unchanged. It avoids copying the expansion-type
+and external-match rules. Stage the local drop counts/reasons and monotone
+known/blocked facts with the page, then add deltas/OR flags to global stats
+after commit. Invalid discovered resources follow main's existing validator.
+Related GetResource accounting uses the requested resource identity, even
+when it differs from the listing action's type, and accumulates across calls.
+No scheduling or lifecycle policy changes are planned.
+
+C04/C05/C07/C09/C15/C17/C19/C20/C38/C42 candidates cover ordinary/type-scoped
+pages, filtering and expansion-annotation rewriting, InsertResourceGrants
+payload preservation, a valid discovered resource from a dropped grant,
+related-resource staged reads, commit failure/retry/replay, full-identity
+collisions, and expansion/external facts. First fail real-handler fixtures at
+the production refusal. Plant early grant writes, premature facts and global
+filter deltas; snapshot/fact/retry tests must detect each. A same-page repeated
+related resource must trigger one GetResource request, and per-type call stats
+must name that related type. Keep strict page/walk instruments. Commit the
+brief alone, then the tested grant increment. pkg/dotc1z needs no new method.
