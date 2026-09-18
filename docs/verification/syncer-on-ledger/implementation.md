@@ -1026,3 +1026,36 @@ must detect them. Concurrent pages discovering the same child must admit it
 once; different parent identities must remain distinct. Record the tested
 subset, not the entire crash product, in evidence. Commit this brief alone,
 then implement and validate the resource increment before other handlers.
+
+## 31. K5c: entitlement pages
+
+Preserve the existing entitlement planner, per-resource versus type-scoped
+requests, skip annotations, selected sync identity, connector sibling cursors
+and progress semantics. The control page records TypeScopedPlanned with its
+children; successful commit publishes that state before the existing
+scheduler exposes its continuation. Replay already restores it from rows.
+No planner or queue is replaced.
+
+A leaf page reads its resource (or constructs the existing type-scoped stub),
+calls ListEntitlements once and stages accepted records, its next cursor and
+spawned actions. Reuse the store-free validator and sibling-token parser.
+Apply the same full-sync disabled-type filter, including the existing future
+external-resource exception, using read-only scheduledResourceTypeExists.
+Collect invalid observations and drops in the page, not global atomics.
+A drop stages sync.ingest_known and sync.ingest_blocked facts, a drop counter
+and the corresponding reason flag in the worker bucket. These are monotone
+facts; concurrent pages cannot clear another page's block. Publish global
+counter deltas and OR reason flags only after commit, never replace a shared
+snapshot. This serves C17/C19/C20 without adding source-cache orchestration.
+
+C04/C05/C07/C09/C15/C17/C19/C20/C42 candidates cover per-resource pagination,
+type-scoped request markers and sibling cursors, duplicate-cursor rejection,
+disabled-type drops, partial-sync retention, malformed records, resource/type
+read errors, failed commit/retry and reopened replay. A control-page fixture
+checks that failure does not advance TypeScopedPlanned, while commit/replay
+preserve it across reader pages. Strict page/walk hooks remain installed.
+First run real-handler tests against the production-handler refusal. Plant a
+direct entitlement write and early drop publication to prove atomicity tests;
+omit the blocked fact to prove durable behavioral state is checked. Record
+remaining product gaps. Commit this appendix alone after K5b, then the tested
+implementation. No pkg/dotc1z change is planned for this increment.
