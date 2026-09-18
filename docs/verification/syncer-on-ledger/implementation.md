@@ -1247,3 +1247,52 @@ expansion, SQLite behavior, engine durability or store capability changes are
 part of the qualification commit. Its scope is deliberately narrower than
 closing C41: public-entry cold reconstruction and ledger failure cuts remain
 required for integration.
+
+## 37. Expansion pages through the existing projection evaluator
+
+Use the existing projection evaluator through a pull iterator over its bounded
+StoreExpandedGrants batches. The adapter embeds only the read/store interface,
+not the optional direct-write or SST-layer capabilities. Its write method
+yields one batch and returns only when the next handler resumes evaluation,
+after the prior page has committed. The evaluator's temporary projection thus
+observes that output after commit and descendants read committed predecessors.
+No alternate work queue, topological implementation or SQLite adapter changes
+are needed. The existing scheduler executes each continuation normally.
+
+Each handler stages one yielded batch with PageWriter.StoreExpandedGrants and
+records the next numbered expansion cursor. A final empty page records the
+terminal transition; only its successful commit publishes the completed graph
+and drop report. On any page failure, stop the suspended iterator and discard
+its graph/projection. Stop it also when the enclosing scheduler exits or the
+syncer closes. This bounds retained output to an existing evaluator batch,
+plus its existing read/projection buffers; it does not buffer an entire graph's
+output. Runtime pull state is process-local and is never a checkpoint token.
+
+Cold execution rebuilds the graph read-only from PendingExpansionPage starting
+at the beginning, validates source/resource relationships as main does, fixes
+cycles, then runs the same projection over committed grants. A remembered
+load cursor cannot suppress this reconstruction. Preserve an accepted loaded
+legacy graph by cloning it; incomplete legacy graphs are rebuilt. Existing
+StoreExpandedGrants preserves the annotation side-state needed for rebuilding.
+The 33-cut qualification supports numbering the remaining flushes after the
+last committed cursor: already applied contributions generate no dirty writes.
+Additional real-store tests must compare rows/accounting as well as records;
+any divergence blocks integration rather than being normalized away.
+
+Main's supports_diff marker remains in the existing scheduler at its current
+lifecycle boundary and keeps its fresh/resume predicate. Skip-expansion paths
+must record an empty page instead of directly finishing the action. The marker
+is outside an open page and means collection completed, not expansion completed.
+Do not move it into the handler or change finished-sync binding semantics.
+
+C04/C05/C09/C15/C16/C19/C36/C38/C41 candidates: chain output through multiple
+pages; strict write hooks; commit refusal after a prior output page; reopen
+with empty graph and replay walk; raw equality on refusal; full expanded grant
+and row/count equality with uninterrupted execution; empty/skip paths; source
+lookup errors; failed terminal commit; iterator cleanup on stop/error. Plant
+direct expansion writes, rebuilding from the saved cursor and premature graph
+publication. Compare actual grants with main's projection output. These tests
+are candidates until the defects fail. Commit this amendment alone, then
+implementation with its evidence. Cost from disabling the direct contribution
+and SST layer paths must be reported before landing; no speed claim follows
+from the small qualification fixtures.
