@@ -40,8 +40,10 @@ CO-010 withdraws the proposed reset of ended_at and stale sync metadata.
 WithSyncID selects the existing sync; main returns newSync=false, retains
 its metadata, and loads its checkpointed facts and stats. Further requested
 processing of a finished collection is not permission to discard that
-history. The private beginLedgerRuntime still drops ledger state and seeds
-Init for every finished binding. That code is not ready for integration.
+history. The private beginLedgerRuntime that dropped all ledger state was
+deleted in a42c8a32. The replacement lifecycle preparation preserves facts,
+accounting and sync metadata; ClearLedgerRows removes only old page rows,
+frontier and seal-ready proof when beginning another requested pass.
 
 The public SDK's service-mode task deliberately supports deferred expansion:
 SkipExpandGrants becomes WithDontExpandGrants, after which the collection is
@@ -104,8 +106,10 @@ The rejected executor was removed from production in K2c and is now deleted
 from tests too. Runtime, crash and cost fixtures invoke parallelSync through
 the same page adapter. No alternate worker or dispatch loop remains.
 These replacement guards cover the adapter with injected handlers. Public
-attachment, production handlers, Init and lifecycle restoration remain
-unimplemented; passing them does not establish full caller equivalence.
+attachment and production handlers remain unimplemented. Init and ledger
+restoration now have baseline comparisons; finished continuation is tested
+with injected page handlers and stop/reopen/resume. This does not establish
+full caller equivalence or actual expansion-graph reconstruction.
 
 The audit read all new production runtime files, capability resolution,
 storage timing changes and the implementation brief, and compared them with

@@ -1004,3 +1004,44 @@ The full Pebble engine suite passed in 6.927 seconds after registering the
 new commit/failure hook. Store dirty/contract checks passed in 0.082 seconds.
 Vet passed for dotc1z and sync. The broad lint run reports only the same six
 pre-existing G115 conversions already recorded above; no new lint findings.
+
+
+## Syncer consumer of finished-ledger continuation
+
+prepareLedgerState loads the old frontier, clears old page rows only when a
+finished pass has seal-ready proof or an empty legacy frontier, and restores
+history plus pending actions. The empty-frontier case starts at Init, as
+main does. A finished file with a pending frontier is resumed. An unfinished
+file with seal-ready proof remains ready to seal and does not start another
+pass. No completion timestamp is reset and no checkpoint token is written.
+
+TestLedgerFinishedProcessingResumesWithoutReset failed with the old
+finished-means-clear rule: both stop positions attempted ClearLedgerRows
+again during the next read-only resume. The corrected rule passes after
+artifact close/reopen, both immediately after clearing and after a committed
+processing page. History remains at 17 before new work, then reaches 19 for
+one Init and one completed processing action. The prior completion timestamp
+is unchanged while processing is interrupted. The test uses the actual
+scheduler and real page writers, but injects an expansion action handler;
+it does not implement or verify production expansion-graph reconstruction.
+
+TestLedgerFinishedLegacyFrontierKeepsPendingWork covers empty and pending
+finished legacy frontiers through the same preparation method, preserving
+all sync metadata except the consumed token, prior facts and 17 completions.
+TestLedgerSealReadyUnfinishedDoesNotStartAnotherPass guards seal recovery.
+Those are additional passing assertions, not separate planted-defect closure.
+The second preparation in each continuation fixture is under the write-free
+instrument, so clearing again is a visible failure rather than silent lost
+progress. Page writes remain covered by the installed strict write hook.
+
+C33/C34 now have bounded continuation protocol evidence. They remain evidence
+incomplete for the full process/crash products and public WithConnectorStore,
+WithSyncID and WithOnlyExpandGrants entry coverage. C36 still needs actual
+production expansion behavior. Public attachment, connector handlers and
+C49's required performance matrix remain outstanding.
+
+Consumer validation: full pkg/sync passed in 73.911 seconds; ledger race
+suites passed three repetitions in sync (12.781 seconds) and Pebble (2.870
+seconds); synccompactor passed in 15.230 seconds. Vet passed for sync and
+dotc1z. pkg/sync lint reported zero issues. The separately recorded broader
+lint findings remain unchanged. Go 1.26.0 with vendored dependencies.

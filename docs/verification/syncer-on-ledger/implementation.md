@@ -3,13 +3,15 @@
 Current design correction: CO-010 and CO-011 supersede the finished-run
 reset, replacement executor, scheduler-copy and absolute shared-path-freeze
 proposals below. Reuse the existing scheduler and preserve lifecycle
-behavior. Section 16 records the revised integration constraints; earlier
-sections retain the history of the committed brief.
+behavior. Sections 16–21 record the revised integration, restoration and
+history-preserving continuation constraints; earlier sections retain the
+history of the committed brief. The alternate executor is deleted entirely.
 
 CXE-1358. Behavioral baseline: plan.md at `01931d8b`, with CO-001–CO-009
 appended after calibration. This document is the step-3 deliverable. It is
 committed alone before code. It describes planned work, not verified behavior.
-There are 49 criteria; none has new executable evidence yet.
+There were 49 criteria and no implementation evidence when the initial brief
+was committed. Current evidence and remaining gaps are in evidence.md.
 
 ## 1. Result and constraints
 
