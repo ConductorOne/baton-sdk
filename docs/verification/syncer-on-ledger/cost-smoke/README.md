@@ -1,5 +1,9 @@
 # Private runtime cost smoke
 
+Historical results from the executor deleted in `a42c8a32`. These numbers
+do not measure the current implementation. See `../cost-scheduler-smoke/`
+for the subsequent measurements through the existing scheduler.
+
 These 18 samples exercise the measurement instruments. They do not close
 C49 or authorize handler implementation. Three repetitions rotate arm order
 at 1,000 pages, 100 records/page, and one/four workers. The token executable

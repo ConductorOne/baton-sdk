@@ -480,12 +480,10 @@ closure of C10, C37, C38 or C47.
 ### C49
 
 - Status: evidence incomplete.
-- Candidate run: TestLedgerCostBaseline in a detached eb63f1b5 test executable.
-- Premise: 10 pages × 100 resources, 4 streams; all 1,000 resources verified
-  and checkpoint calls observed. This is a smoke check only.
-- Planted defect: no C49 metric/arm mutant run yet.
-- Not covered: full matrix, unloaded-machine qualification, ledger arms,
-  before/after-close byte accounting, timing decomposition and acceptance.
+- Candidate runs: TestLedgerCostBaseline at eb63f1b5; TestLedgerCostRuntime at fafa4f74, through the existing scheduler.
+- Coverage: 36 interleaved samples in cost-scheduler-smoke; see the execution entry below for dimensions and limitations.
+- Planted defect: the machine recorder omitted the artifact filesystem; the missing-field assertion failed before the fix and the filesystem comparison passed after it.
+- Not covered: full matrix, production handlers, unloaded-machine qualification, baseline phase timing, encoded-byte decomposition, durability disposition and acceptance.
 
 ## K1 instrument execution
 
@@ -1045,3 +1043,38 @@ suites passed three repetitions in sync (12.781 seconds) and Pebble (2.870
 seconds); synccompactor passed in 15.230 seconds. Vet passed for sync and
 dotc1z. pkg/sync lint reported zero issues. The separately recorded broader
 lint findings remain unchanged. Go 1.26.0 with vendored dependencies.
+
+## Existing-scheduler cost rerun (C49, after fafa4f74)
+
+Status remains **evidence incomplete**. `cost-scheduler-smoke/` contains 36
+interleaved samples: 1,000/10,000 pages × 100 resources/page × one/four
+workers × token/fresh/resumed × three repetitions. The pinned token source
+is eb63f1b5; the ledger source is fafa4f74, using the existing scheduler.
+Both independently compiled executables passed their fixture assertions in
+every sample. Resource counts were 100,000 or 1,000,000; ledger commits were
+pages + 2. Samples, complete process logs, binary hashes and machine snapshots
+are retained. No record/equality normalization was used for this cost run;
+resource counts are not the O4 canonical differential oracle.
+
+Fresh ledger/token write-byte medians range from 1.034 to 1.122; resumed
+medians range from 1.172 to 1.187. Synthetic ledger handlers omit production
+work, so their smaller wall times do not establish production improvement.
+The README and full table state the observation limits. The old
+`cost-smoke/` directory is explicitly marked as historical deleted-executor
+data. No acceptance is inferred from either set.
+
+Instrument defect: machine.py identified the checkout filesystem but omitted
+the temporary directory used by Go test artifacts. The pre-fix output failed
+`assert 'artifact_filesystem' in m` with the diagnostic “test artifacts use
+the temporary directory, not the checkout.” After adding that observation,
+comparison against `stat -f` for Python's process temporary directory passed:
+artifacts use ZFS; the checkout reports ext2/ext3. The corrected snapshot has
+its own collection timestamp and is retained as machine-after.json, not
+substituted for the original pre-run snapshot. This check does not qualify
+the machine as unloaded or identify the ZFS backing device.
+
+C49 still lacks the full matrix, production-shaped estimate, encoded
+row/bucket/fact decomposition, baseline phase timings, production handlers,
+unloaded-machine evidence and the resumed-durability disposition. Its
+coverage status and the K5/K6 prerequisite are unchanged. No pkg/dotc1z
+behavior changed in this increment.
