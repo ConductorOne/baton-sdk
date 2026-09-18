@@ -950,3 +950,43 @@ defect: the preservation test must fail before the implementation exists.
 After implementation, omit the prior-state merge and separately omit the
 deferred index operation; targeted tests must fail. No production expansion
 handler, graph replay, lifecycle change or SQLite change is included here.
+
+## 29. K5a: resource-type pages and final engine routing
+
+Pebble's final public path is always the ledger, selected once from engine
+metadata at attach. There is no SyncOpt, feature flag, checkpoint fallback or
+runtime choice for Pebble. The existing internal ledgered boolean records
+that engine decision; SQLite retains checkpoint persistence. Public routing
+is activated with the complete handler/lifecycle path, not offered as an
+optional mode. C01/C02/C03 public-entry tests must prove these refusals and
+selection before the PR lands.
+
+Integrate SyncResourceTypes through the existing page invocation and
+scheduler. Its ledger handler calls the connector once, uses the same record
+validator and configured type selection, and stages records, next token,
+connector timing/wait accounting and invalid-record counters together.
+Publish progress and in-memory counters only after successful commit, outside
+the scheduler's transition lock. Failed pages keep their action and publish
+no counters or progress; committed rows skip connector invocation on replay.
+The checkpoint handler keeps its connector/write flow.
+
+Replace its terminal filter validation with exact resource-type ID probes,
+shared with the ledger handler through a store-read helper taking this page's
+selected records. The current handler feeds its connector cursor into the
+store's ListResourceTypes and checks only one reader page; neither establishes
+whether the requested types exist. First reproduce rejection of a valid
+multi-page connector result. The helper checks staged selected IDs first,
+then GetResourceType for earlier committed IDs; NotFound returns the existing
+invalid-filter diagnostic and other read errors propagate. This is an
+intentional correction to cursor coupling, not a change to filter selection.
+It is a small shared change under the requester's relaxed token-path rule.
+
+C04/C07/C15/C17/C20/C42 candidates cover two connector pages, missing and
+selected types across the page boundary, nil/invalid records, connector and
+commit failures, retry without double counting, committed-row replay and
+close/reopen. Use real production handlers with the strict write hook. Plant
+a direct resource-type write to fail pre-commit invisibility, and premature
+counter/progress publication to fail a commit-failure check. These fixtures
+use the existing scheduler; no executor or scheduler is added. Other handlers
+remain refused until individually integrated. C49's pre-handler smoke table
+exists; final public-handler cost and full coverage remain required.
