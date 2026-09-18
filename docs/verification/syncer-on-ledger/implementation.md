@@ -710,3 +710,33 @@ no new facts or durable rows. The passing ledger cases compare the committed
 row's children and facts against the same baseline expectations. This is
 bounded C05/C17 coverage; physical crash cuts and lifecycle restoration stay
 open.
+
+## 20. Restore ledger state into the existing scheduler
+
+K2d restores the pending identities from the read-only walk into runState,
+then loads the ledger's folded completion counts, per-operation warning
+counts, facts and runStats. Restored history must not count as list-resource
+completions in this process. Unknown ingest provenance receives the same
+conservative in-memory treatment as a checkpoint resume. Inline legacy
+graph state is restored; compaction provenance is not imported. Publication
+of the restored state happens only after all reads and validation succeed.
+The restoration method itself writes nothing and does not initialize new
+work merely because the stack is empty or the sync has ended.
+
+Tests compare restoration against independent unmarshalToken results for
+all accepted fixture versions. Finished token artifacts with pending work
+must preserve both that work and ended_at through takeover and repeated
+resume. Empty finished frontiers retain their accounting and facts, leaving
+main's existing empty-stack decision to request Init. An interrupted ledger
+case checks that the actual scheduler runs only the uncommitted continuation
+and finishes with prior counts plus new completions. Faulted reads must not
+publish partial state. Fixtures will use this production restoration method
+instead of rebuilding a reduced runState for tests.
+
+A finished ledger with scrubbed rows also needs the old completion rows
+replaced before another requested pass can record the same page identities.
+DropLedger cannot implement this safely: it deletes facts and accounting as
+well as rows. That lifecycle operation is separate from restoration and
+must preserve the sync-run record and atomically retain history. It will be
+specified and tested as its own storage change before public integration;
+no ended_at reset or fallback checkpoint write is allowed.
