@@ -313,3 +313,10 @@ func (w *pageWriter) DeleteEntitlements(ctx context.Context, entitlements ...*v2
 	}
 	return w.unit.stageEntitlementDeletes(ids)
 }
+
+func (w *pageWriter) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	if err := w.requireSync(); err != nil {
+		return err
+	}
+	return w.unit.stageExpandedGrants((pebbleGrantStore{e: w.e}).translateExpanded(w.syncID, grants))
+}

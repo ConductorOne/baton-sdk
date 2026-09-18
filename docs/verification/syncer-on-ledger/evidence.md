@@ -1201,3 +1201,47 @@ K4b validation (Go 1.26.0, vendored dependencies): full sync suite passed
 passed (22.541s). Deletion race tests passed three repetitions in sync
 (1.403s) and Pebble (1.456s). Vet passed. Broad lint reports the same six
 baseline G115 conversions, with no new findings. `git diff --check` passes.
+
+## K4c: page-staged expansion grants
+
+Brief commit: 7e89d73f. PageWriter.StoreExpandedGrants uses the existing
+expansion translation and preserves expansion state, discovery timestamp
+and source scope by structured identity at commit. Same-page ordinary puts
+supply the preserved state when present; otherwise the stored prior value
+is read under the write barrier. That read also supplies deferred-index
+cleanup. New derived grants have no expansion state or source scope, and
+missing discovery timestamps are filled. Distinct final puts contribute to
+the row count. The ordinary-only page stager is unchanged. Direct expansion
+methods, the scheduler, production handlers and SQLite are unchanged.
+
+| Candidate | Planted defect or fault | Result and limit |
+| --- | --- | --- |
+| TestLedgerExpandedPagePreservesStateAfterReopen | Temporarily delegate to ordinary PutGrants | Failed: NeedsExpansion was cleared after commit/reopen. Passes with preservation. Strict page write hook, raw pre-commit snapshot and clean artifact reopen cover invisibility, persistence and discard. PendingExpansion still returns the original grant. |
+| TestPageExpandedMatchesDirectPreservation | Omit the prior-state merge | Failed for existing and missing-timestamp records. Restored code matches the direct API's complete grant record; only newly assigned discovery timestamps are normalized in new/missing-time cases. Existing timestamps compare exactly. |
+| TestPageExpandedMatchesDirectPreservation | Replace deferred grant staging with inline staging | Failed on the missing deferred-index marker in all three cases. Restored code also verifies needs-expansion/source-scope key counts, no source poisoning, seal clearing the marker, and principal lookup after seal. |
+| TestPageExpandedWriteOrder | Ordinary then expanded, expanded then ordinary, repeated expanded payload, delete before expansion | Passes with expected state and distinct row counts; last payload wins and deletes apply after puts. No separate order mutant. |
+| TestPageExpandedFailureRetryUsesCurrentPrior | Existing record-commit hook refuses the page; another write changes prior state before retry | Failed batch leaves the original record and no row. Retry preserves the newer timestamp and cleared expansion state, with no needs-expansion index left. No separate retry mutant. |
+| TestPageExpandedFullIdentityAndWriterLifetime | Same external ID on a second principal, invalid identity, unbound/completed/discarded/stale writer | Existing grant compares equal; second identity is stored without inheriting its state. Invalid commit and invalid writer lifetimes are refused. No separate identity/lifetime mutant. |
+
+Preservation operates on a copy, so failed attempts do not alter the buffered
+input. An expansion page consumes the engine's empty-grant-keyspace proof,
+forcing later ordinary puts to check prior records. The same typed deferred
+operation used by main handles digest/index obligations; this increment does
+not add another rawdb operation, commit site, failure hook or page bypass.
+The initial full engine run found a helper-name collision in TestWriteMuHolders;
+the helper was renamed and the checker and full engine suite passed.
+
+These candidates add storage evidence for C04/C07/C08/C38/C42; those criteria
+remain evidence incomplete against the full plan. No expansion-specific
+process-crash matrix, cold-process graph reconstruction or production
+SyncGrantExpansion behavior is established here. OQ-5's three proposed API
+additions (assets, full-identity deletions and preserving expansion writes)
+are implemented, but its complete in-page write inventory still needs the
+handler work. PageWriter's new method affects external implementers. All
+three temporary defects are removed.
+
+K4c validation (Go 1.26.0, vendored dependencies): full sync suite passed
+(91.404s), full Pebble suite passed (10.221s after the helper rename), and
+full synccompactor suite passed (35.559s). Expansion race tests passed three
+repetitions in sync (1.595s) and Pebble (2.349s). Vet passed. Broad lint has
+only the same six baseline G115 findings; `git diff --check` passes.

@@ -32,6 +32,7 @@ type pageUnit struct {
 	entitlements       []*v3.EntitlementRecord
 	entitlementIdx     map[string][]int
 	grants             []*v3.GrantRecord
+	expandedGrants     map[*v3.GrantRecord]struct{}
 	assets             []*v3.AssetRecord
 	resourceDeletes    []resourceBufKey
 	entitlementDeletes []entitlementIdentity
@@ -460,7 +461,7 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		if err != nil {
 			return err
 		}
-		grants, err := l.e.stageGrantRecords(batch, u.grants)
+		grants, err := u.stagePageGrantRecords(batch)
 		if err != nil {
 			return err
 		}
@@ -536,6 +537,7 @@ func (u *pageUnit) release() {
 	u.done = true
 	u.resourceTypes, u.resources, u.entitlements, u.grants = nil, nil, nil, nil
 	u.assets = nil
+	u.expandedGrants = nil
 	u.resourceIdx, u.entitlementIdx = nil, nil
 	u.grantDeletes = nil
 	u.resourceDeletes, u.entitlementDeletes = nil, nil

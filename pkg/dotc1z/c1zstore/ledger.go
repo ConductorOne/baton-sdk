@@ -140,6 +140,8 @@ type PageWriter interface {
 	PutResources(ctx context.Context, resources ...*v2.Resource) error
 	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
 	PutGrants(ctx context.Context, grants ...*v2.Grant) error
+	// Preserves prior expansion state, discovery time and source scope by full identity.
+	StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error
 	// Snapshots data; repeated asset IDs use the last staged value.
 	PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error
 
