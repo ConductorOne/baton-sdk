@@ -26,9 +26,10 @@ type ledgerCommitKey struct{}
 type ledgerReplayKey struct{}
 
 type ledgerInvocation struct {
-	action   *Action
-	page     *ledgerPage
-	children []Action
+	action      *Action
+	page        *ledgerPage
+	children    []Action
+	afterCommit []func()
 }
 
 type ledgerTransitionCommit struct {
@@ -108,7 +109,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		switch {
 		case s.testHooks.ledgerHandler != nil:
 			err = s.testHooks.ledgerHandler(pageCtx, action, page)
-		case action.Op == InitOp:
+		case action.Op == InitOp || action.Op == SyncResourceTypesOp:
 			err = handler(pageCtx, action)
 		default:
 			return errors.New("ledger production handlers are not integrated")
@@ -155,6 +156,9 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 			return ledgerPageWriteError{cause: err}
 		}
 		return err
+	}
+	for _, publish := range invocation.afterCommit {
+		publish()
 	}
 	return warning
 }

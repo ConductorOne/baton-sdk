@@ -1245,3 +1245,61 @@ K4c validation (Go 1.26.0, vendored dependencies): full sync suite passed
 full synccompactor suite passed (35.559s). Expansion race tests passed three
 repetitions in sync (1.595s) and Pebble (2.349s). Vet passed. Broad lint has
 only the same six baseline G115 findings; `git diff --check` passes.
+
+## K5a: production resource-type pages
+
+Brief commit: 0f27ceb1. SyncResourceTypes now has a ledger handler reached
+through the existing parallelSync resource-type dispatch. It stages selected
+records, invalid-record observations, connector call/wait accounting and the
+next cursor in one page. Progress and diagnostic counters publish only after
+commit, outside the scheduler transition lock. Init and resource types are
+integrated; the other production handlers remain refused. No scheduler,
+public persistence option or fallback is added.
+
+The final engine rule remains mandatory: Pebble always uses the ledger;
+SQLite uses checkpoints. The internal ledgered boolean is the attach-time
+engine decision, not a user preference. Public attach/routing activation and
+its C01/C02/C03 tests remain outstanding while handlers are being completed.
+
+The terminal type-filter check is a deliberate shared correction. Before the
+change, TestResourceTypeFilterAcrossConnectorPages failed on main's handler
+with `invalid page token: cursor does not belong to this keyspace`: the
+connector's continuation cursor was sent to the store reader. The check now
+uses exact type IDs, considering the current page's staged selected records
+and earlier stored records. Selection itself uses the same ID membership
+rule as main. NotFound retains the existing invalid-filter diagnostic; other
+read errors propagate. The unused list-validation helper is removed. This
+small shared change follows the requester's relaxed token-path rule; no
+SQLite write code is added.
+
+| Candidate | Defect/fault and observed result | Limits |
+| --- | --- | --- |
+| TestResourceTypeFilterAcrossConnectorPages | Pre-fix handler rejects a valid second connector page with its foreign cursor; corrected handler passes. | Controlled token-path baseline fixture, not public attach selection. |
+| TestLedgerResourceTypePages | Before integration, production-handler refusal fails the test. With integration, two connector pages commit their rows, call/wait accounting and invalid-record count; selected records survive artifact reopen. | Real handler and existing scheduler; no final sync seal. |
+| TestLedgerResourceTypeFailureRetryAndReplay | Direct store write with a deliberately registered test bypass leaves raw data after refused page commit; assertion fails. Mutant removed. | In-process commit refusal, not a storage crash image. |
+| TestLedgerResourceTypeFailureRetryAndReplay | Publish invalid-record counter before commit; zero-counter assertion fails. Publish progress before commit; empty-progress assertion fails. Both mutants removed. | Progress means the record-progress callback; main's initial-step notification still occurs before the connector call. |
+| TestLedgerResourceTypeFailureRetryAndReplay | Failed page keeps its action, records/counters/progress absent. Retry commits each page once. Reopen and use a new runtime/run state: replay invokes no connector or progress callback and changes no raw keys. | Reconstructs resource-type actions explicitly; full public resume lifecycle remains separate. |
+| TestLedgerResourceTypeErrors | Connector failure commits nothing; missing selected type rejects the final page while preserving the earlier committed page. | One non-retryable connector fault; retry policy remains the existing scheduler's. |
+| TestLedgerResourceTypeReadFailure | Exact-ID reader error rejects the final page and leaves its row absent. | One read failure, not the full storage error matrix. |
+| TestLedgerResourceTypeSelection | Unfiltered, earlier-page-only and terminal-page-only selections preserve records and progress counts; disabled stats stay absent. | Other handler families are not covered. |
+
+Every Pebble page/replay fixture has the strict write hook and companion
+write audit. The direct-write mutant deliberately supplied a bypass reason
+so the raw-image assertion, rather than only hook rejection, caught it.
+No production bypass was added. C04/C07/C15/C17/C20/C42 gain this coverage and
+remain evidence incomplete to the full plan. pkg/dotc1z is unchanged in this
+increment. Final handler cost measurements and complete crash products remain
+outstanding; the earlier table still measures synthetic handlers.
+
+TestLedgerResourceTypeSelectedSync found an omitted sync-selection annotation
+in the initial exact-ID helper: the reader saw an empty sync ID when the
+caller selected one. The test failed before the correction and passes with
+the SyncDetails annotation carried over from main's previous reader request.
+This preserves the selected-sync boundary; no binding lifecycle changes.
+
+K5a final checks (Go 1.26.0, vendored dependencies): full sync suite passed
+(87.595s). Resource-type, existing-scheduler and Init race tests passed three
+repetitions (4.508s). Vet passed; sync lint reports zero issues. Storage and
+compactor code are unchanged in this increment; their last full passing runs
+are recorded under K4c. `git diff --check` passes. The direct-write,
+early-counter and early-progress mutations are removed.

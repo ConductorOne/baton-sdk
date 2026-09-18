@@ -1287,6 +1287,9 @@ func (s *syncer) listAllResourceTypes(ctx context.Context) iter.Seq2[[]*v2.Resou
 
 // SyncResourceTypes calls the ListResourceType() connector endpoint and persists the results in to the datasource.
 func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
+	if s.ledgered {
+		return s.syncLedgerResourceTypes(ctx, action)
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncResourceTypes")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
@@ -1338,35 +1341,12 @@ func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
 	if resp.GetNextPageToken() == "" {
 		s.counts.LogResourceTypesProgress(ctx)
 
-		if len(s.cfg.syncResourceTypes) > 0 {
-			validResourceTypesResp, err := s.store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
-				PageToken:    action.PageToken,
-				ActiveSyncId: s.getActiveSyncID(),
-			}.Build())
-			if err != nil {
-				return err
-			}
-			err = validateSyncResourceTypesFilter(s.cfg.syncResourceTypes, validResourceTypesResp.GetList())
-			if err != nil {
-				return err
-			}
+		if err := s.validateSelectedResourceTypes(ctx, resourceTypes); err != nil {
+			return err
 		}
 	}
 
 	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
-}
-
-func validateSyncResourceTypesFilter(resourceTypesFilter []string, validResourceTypes []*v2.ResourceType) error {
-	validResourceTypesMap := make(map[string]bool)
-	for _, rt := range validResourceTypes {
-		validResourceTypesMap[rt.GetId()] = true
-	}
-	for _, rt := range resourceTypesFilter {
-		if _, ok := validResourceTypesMap[rt]; !ok {
-			return fmt.Errorf("invalid resource type '%s' in filter", rt)
-		}
-	}
-	return nil
 }
 
 func (s *syncer) hasChildResources(resource *v2.Resource) bool {
