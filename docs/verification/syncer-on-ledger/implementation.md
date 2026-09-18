@@ -849,3 +849,30 @@ in §3, with their own public-consumer tests and failure cuts. It activates no
 handler or public routing. Do not treat an incomplete performance matrix as
 a reason to stop this independent work. Full C49 evidence and its final
 revision rerun remain requirements before landing.
+
+## 26. K4a: assets in a page
+
+Add PageWriter.PutAsset with Store.PutAsset's argument types and validation
+(nil/empty reference is an error). The page copies asset bytes when staged,
+keeps the bound sync ID and discovery timestamp, and writes the asset through
+a typed RecordBatch.StageAssetPut in the same batch as its row. Repeated
+asset IDs use the last staged value. Assets have no secondary indexes. Direct
+PutAsset/PutAssetRecord and SQLite bodies stay unchanged. Discard releases
+the buffer; an old-sync page cannot write into a replacement sync.
+
+C04/C07/C38/C42 candidates cover: staged invisibility, committed asset plus
+row after reopen, overwrite/discard, same-ID last write, input-buffer reuse,
+invalid references, failed record-batch commit followed by retry, discarded
+writer refusal and stale-sync refusal. The public-store consumer uses the
+strict page write hook and begins from a clean reopened artifact, so a
+missing dirty mark cannot be masked by StartNewSync. Engine tests inject
+the existing record-commit failure hook; no new failure hook is needed.
+
+Before implementation, a temporary no-op PutAsset stub makes the new
+consumer test compile and fail on the missing asset. A direct-write mutant
+must fail the staged-invisibility assertion. Neither stub nor mutant is
+committed. The interface addition is a source-compatibility change for
+external PageWriter implementers; engine selection still has no fallback.
+This commit adds storage support only, not SyncAssets integration. Other
+record families, process-crash products and the complete handler inventory
+remain open.
