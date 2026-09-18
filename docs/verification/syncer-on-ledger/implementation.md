@@ -1214,3 +1214,36 @@ order, including its existing handling of equal IDs across resource types.
 This is needed for C16's fact equality; it does not change the selection map
 or matching predicates. Test multiple filtered principals and plant reversed
 recorded order to check the deterministic-fact assertion.
+
+## 36. Expansion write-boundary qualification
+
+The production Pebble RunSingleStep invokes the complete topological
+projection evaluator. It already limits output flushes, uses a disk-backed
+source projection and has partial-interruption data-parity tests. One ledger
+page around that call would instead retain the entire expansion output until
+commit. Do not introduce that memory behavior or replace the evaluator.
+
+Before integrating expansion, qualify the existing output flush boundary
+against C16/C19/C41: does restart from partially written data produce only the
+remaining output, with the same total write accounting and batch identities?
+Final-grant idempotence alone does not establish either. Add a read/write
+recording wrapper in the existing expansion test package, using its chain,
+diamond and cycle fixtures, and compare uninterrupted output with output from
+an interrupted pass plus a fresh-graph resumed pass at each batch cut. Record
+both full output identities and write totals. Keep this qualification separate
+from production integration; a failed accounting or boundary comparison is
+an observed design constraint, not a reason to relax C16 or to label an
+idempotent direct write as atomic.
+
+If boundaries change on resume, the implementation must expose a stable unit
+of evaluated graph work rather than number the surviving dirty flushes.
+Retain the existing projection, merge rules and scheduler. Any added boundary
+must bound staged output, let descendants read committed predecessor output,
+and advance only with its ledger row. The next brief amendment will specify
+the boundary using these observations before production code changes.
+
+Commit this qualification brief alone, then its tests/evidence. No production
+expansion, SQLite behavior, engine durability or store capability changes are
+part of the qualification commit. Its scope is deliberately narrower than
+closing C41: public-entry cold reconstruction and ledger failure cuts remain
+required for integration.
