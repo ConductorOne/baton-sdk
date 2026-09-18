@@ -1550,3 +1550,42 @@ C16/C19/C41, not closure: cold graph reconstruction from durable annotations,
 actual page commits, iterator cleanup, process death and production-scale
 memory/cost are not exercised. The normal run passed (0.849s); race passed
 three repetitions (5.785s), and expansion lint reports zero issues.
+
+## Expansion handler and cold reconstruction
+
+Brief commit: 2b7b7e03. The ledger handler consumes bounded output batches from
+the existing topological projection evaluator through a pull iterator. The
+adapter exposes no direct-write or SST-layer capability. A yielded batch is
+staged with StoreExpandedGrants; evaluation resumes after its commit. The
+terminal page publishes the completed graph only after committing. Failures,
+scheduler exits and Close stop the iterator and release its projection.
+
+| Candidate | Planted defect/fault and observed result | Limits |
+| --- | --- | --- |
+| TestLedgerExpansionHandlerResume | Initially fails at production handler refusal. Direct output with a registered bypass fails raw-image equality after refused commits. Starting cold graph loading at the saved expansion cursor fails resumed execution. Early graph publication fails the failed-page graph assertion. Omitting failed-stream cleanup fails the nil-iterator assertion. All four mutants removed. | Three page cuts on one chain; in-process refusal followed by artifact reopen, not process death. |
+| TestLedgerExpansionMatchesMainProjection | Final grant protos equal the existing adapter's projection output. | One chain, including inherited group principals. |
+| TestLedgerExpansionSkipRecordsTransition | Disabled expansion and absent expansion fact each record an empty terminal row. | Direct handler entry. |
+| TestLedgerExpansionReadFailure | A source-entitlement read error leaves the raw file unchanged, graph unpublished and no iterator retained. | One read failure. |
+| TestLedgerExpansionSchedulerCleanup | Normal scheduler completion and cancellation after one committed batch release the iterator. Main's supports_diff marker stays outside the page at its existing lifecycle point. | Existing scheduler entry; public Sync wiring remains pending. |
+
+The resumed chain rebuilds its graph from stored expansion metadata in a new
+graph holder. Its restore walk changes no keys. After completion, grant protos,
+worker counter sums and every expansion row equal uninterrupted execution.
+The row comparison normalizes only Attempt, CommittedAt and PageDuration;
+there are no connector calls or retry waits in this fixture. Every page/walk
+fixture installs the strict write hook and companion audit. No store capability
+or expansion evaluator implementation changed in this increment.
+
+C04/C05/C09/C15/C16/C19/C36/C38/C41 gain the stated cases and remain incomplete
+to full products. The loaded legacy graph is cloned rather than published
+while running; partial graph state is rebuilt from the beginning. Full legacy
+version products and public finished-file expansion still need integration
+checks. Preserving a graph sidecar when resume skips already-complete expansion
+also remains a lifecycle obligation. Disabling direct contributions and SST
+layers has an unmeasured cost; this is not covered by earlier synthetic C49
+samples and must be measured before landing.
+
+Checks (Go 1.26.0, vendored dependencies): full sync suite passed (77.618s);
+expansion/external/existing-scheduler race tests passed three repetitions
+(8.161s). Vet passed, sync lint reports zero issues, and git diff --check
+passes. Storage and compactor production code remain unchanged.

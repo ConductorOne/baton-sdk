@@ -146,8 +146,9 @@ func (sm *syncMap[K, V]) Store(key K, val V) {
 
 // syncer orchestrates a connector sync and stores the results using the provided datasource.Writer.
 type syncer struct {
-	ledgered bool
-	ledger   *ledgerRuntime
+	ledgered        bool
+	ledger          *ledgerRuntime
+	ledgerExpansion *ledgerExpansionStream
 	// cfg is the caller's request: every value set by a With* option and
 	// nothing else, immutable once NewSyncer returns (see config.go).
 	cfg   syncConfig
@@ -2448,6 +2449,9 @@ func (s *syncer) SyncAssets(ctx context.Context, action *Action) error {
 // SyncGrantExpansion handles the grant expansion phase of sync.
 // It first loads the entitlement graph from grants, fixes any cycles, then runs expansion.
 func (s *syncer) SyncGrantExpansion(ctx context.Context, action *Action) error {
+	if s.ledgered {
+		return s.syncLedgerExpansion(ctx, action)
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncGrantExpansion")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
@@ -3930,6 +3934,9 @@ func (s *syncer) wireCountsDBSizeProvider() {
 // indefinitely. A new-root span linked to syncer.Close keeps the finalize
 // subtree from inflating very long sync traces.
 func (s *syncer) Close(ctx context.Context) error {
+	if s.ledgered {
+		s.stopLedgerExpansion()
+	}
 	ctx, span := tracer.Start(ctx, "syncer.Close")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()

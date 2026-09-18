@@ -136,6 +136,9 @@ func (s *syncer) parallelSync(
 	runCtx context.Context,
 	targetedResources []*v2.Resource,
 ) ([]error, error) {
+	if s.ledgered {
+		defer s.stopLedgerExpansion()
+	}
 	l := ctxzap.Extract(ctx)
 	workerCtx, cancelWorkers := context.WithCancelCause(ctx)
 	stopWorkers := context.AfterFunc(runCtx, func() {
@@ -379,6 +382,13 @@ func (s *syncer) parallelSync(
 			}
 
 			if s.cfg.dontExpandGrants || !s.run.hasFact(factNeedsExpansion) {
+				if s.ledgered {
+					err = s.invokeActionPage(workerCtx, stateAction, s.SyncGrantExpansion, false)
+					if err != nil {
+						return s.handleOperationError(ctx, runCtx, warnings, err)
+					}
+					continue
+				}
 				l.Debug("skipping grant expansion, no grants to expand")
 				s.finishAction(ctx, stateAction)
 				continue
