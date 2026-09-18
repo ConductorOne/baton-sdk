@@ -1450,3 +1450,40 @@ Checks (Go 1.26.0, vendored dependencies): restore and stopped-child tests
 passed (0.267s); restore, replay and existing-scheduler race tests passed three
 repetitions (4.756s). Vet and sync lint passed (zero issues). The last full
 sync run remains K5d's 79.848s; storage and compactor are unchanged.
+
+## Static entitlement and asset handlers
+
+Brief commit: c585cf60. Static control actions retain main's complete connector
+type enumeration before publishing children, including types outside the
+collection filter. Leaf pages synthesize the same entitlement records from
+one static response. Asset control actions retain stored-resource enumeration;
+leaves stage icon/logo bytes and metadata together. Asset scheduling in Init
+remains disabled as on main; restored asset actions are supported. Successful
+empty and compatibility paths now record normal page transitions.
+
+| Candidate | Defect/fault and observed result | Limits |
+| --- | --- | --- |
+| TestLedgerStaticEntitlementPages | Before integration, real handler refusal fails the test. Corrected pages preserve fallback names/descriptions and independently scoped exclusion groups across two resources and connector pagination. | Small fan-out, not a memory bound. |
+| TestLedgerStaticEntitlementPlanner | Two connector type pages produce the same unfiltered child order and account for both calls plus an invalid type. | One zero-record control action with ancillary enumeration calls. |
+| TestLedgerStaticEntitlementsMatchTokenHandler | Complete returned entitlement protos equal main's checkpoint handler output on the same input. | Controlled fixture; no final seal. |
+| TestLedgerStaticEntitlementCommitFailure | Direct PutEntitlements with a registered test bypass changes the refused-page snapshot; assertion fails. Mutant removed. | In-process commit refusal. |
+| TestLedgerStaticEntitlementReplay | Close/reopen and read-only state restoration make no new connector calls or raw writes. | Explicit root action. |
+| TestLedgerStaticEntitlementLegacyPrefixError | Old lambda prefixError commits an empty terminal transition, preserving main's compatibility behavior. | Exact legacy diagnostic fixture. |
+| TestLedgerAssetHandlerReopen | Before integration, handler refusal fails. Corrected page retains byte payload and content type after close/reopen. | One stream/ref. |
+| TestLedgerAssetHandlerCommitFailure | Direct PutAsset with registered test bypass changes the refused-page snapshot; assertion fails. Mutant removed. | In-process commit refusal. |
+| TestLedgerAssetHandlerErrors | Missing metadata/stream failure discard the action; nil stream retains main's successful-empty behavior. | One stream error cut. |
+| TestLedgerAssetHandlerMultipleReferences | Second-stream failure discards the first staged asset. Retry commits both refs and only successful-page call counts. | Icon plus app logo. |
+| TestLedgerAssetHandlerReplay | Reopen/restore/replay changes no keys and makes no additional asset requests. | Explicit root action. |
+| TestLedgerAssetHandlerNoReferences | Planted success-without-transition fails with the page transition error. Corrected no-connector action records its terminal row. | CO-003 no-connector case; mutant removed. |
+
+Every Pebble page/walk fixture uses the strict hook and companion audit. No
+production bypass or pkg/dotc1z change was added. C04/C05/C07/C09/C15/C17/C20/
+C38/C42/C47 gain this coverage and remain incomplete to the full products.
+Static fan-out buffering and imported-data scale still need cost evidence;
+small fixture success is not a production memory claim. External matching,
+expansion/graph reconstruction and public routing remain incomplete.
+
+Checks (Go 1.26.0, vendored dependencies): full sync suite passed (81.055s).
+Static/asset/stopped-child/existing-scheduler race tests passed three
+repetitions (5.480s). Vet passed, sync lint reports zero issues, and git diff
+--check passes. Storage and compactor remain unchanged in this increment.

@@ -2178,6 +2178,9 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 }
 
 func (s *syncer) SyncStaticEntitlements(ctx context.Context, action *Action) error {
+	if s.ledgered {
+		return s.syncLedgerStaticEntitlements(ctx, action)
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncStaticEntitlements")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
@@ -2403,6 +2406,9 @@ func (s *syncer) syncAssetsForResource(ctx context.Context, action *Action) erro
 
 // SyncAssets iterates each resource in the data store, and adds an action to fetch all of the assets for that resource.
 func (s *syncer) SyncAssets(ctx context.Context, action *Action) error {
+	if s.ledgered {
+		return s.syncLedgerAssets(ctx, action)
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncAssets")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
