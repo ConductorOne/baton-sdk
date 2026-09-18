@@ -2589,6 +2589,9 @@ func (s *syncer) fixEntitlementGraphCycles(ctx context.Context, graph *expand.En
 // SyncGrants fetches grants. Annotated resource types receive one type-scoped
 // action instead of a per-resource fan-out.
 func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
+	if s.ledgered {
+		return s.syncLedgerGrants(ctx, action)
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncGrants")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error

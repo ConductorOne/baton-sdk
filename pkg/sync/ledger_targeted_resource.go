@@ -27,7 +27,9 @@ func (s *syncer) getLedgerResourceFromConnector(ctx context.Context, resourceID 
 		}.Build(),
 	)
 	invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
-	s.recordLedgerConnectorResponse(ctx, invocation, "get-resource", time.Since(start), resourceResp.GetAnnotations())
+	callAction := *invocation.action
+	callAction.ResourceTypeID, callAction.ResourceID = resourceID.GetResourceType(), resourceID.GetResource()
+	s.recordLedgerConnectorResponseForAction(ctx, invocation, &callAction, "get-resource", time.Since(start), resourceResp.GetAnnotations())
 	if err == nil {
 		return resourceResp.GetResource(), nil
 	}

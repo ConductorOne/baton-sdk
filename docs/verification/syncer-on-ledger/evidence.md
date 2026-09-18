@@ -1383,3 +1383,44 @@ K5c checks (Go 1.26.0, vendored dependencies): full sync suite passed
 three repetitions (6.271s), vet passed and sync lint reports zero issues.
 The strengthened post-reopen bucket equality assertion passed separately
 (0.059s). git diff --check passes. Storage and compactor remain unchanged.
+
+## K5d: production grant pages
+
+Brief commit: 4c97f538. Grant control/leaf handlers now stage records,
+discovered/fetched resources, expansion/external facts, counters and action
+transitions together. The existing planner, skip rules, type-scoped requests,
+filter ordering and progress rules remain. The fresh-grant filter now takes
+an explicit stats destination internally: existing callers supply their same
+global object; pages supply a local object. No filter predicates or store
+writes changed on the checkpoint path. Local observations publish as additive
+counters and OR'd reasons after commit. Related-resource reads use staged
+records and attribute connector calls to the requested resource's type.
+
+| Candidate | Defect/fault and observed result | Limits |
+| --- | --- | --- |
+| TestLedgerGrantPages | Before integration, handlers fail at the refusal. Corrected handlers retain discovered resources even when their grant is dropped, preserve InsertResourceGrants, filter expansion type IDs and persist facts/counts with per-resource/type-scoped pages. | Controlled two-page connector. Expansion payload checked through PendingExpansionPage; fixture includes a source entitlement ID required by storage. |
+| TestLedgerGrantCommitFailureRetry | Planted direct PutGrants with registered test bypass changes the failed-page snapshot; assertion fails. Mutant removed. | In-process commit refusal. |
+| TestLedgerGrantCommitFailureRetry | Premature factNeedsExpansion changes run state after failed commit; assertion fails. Passing global filter stats into the page changes its replay block before commit; assertion fails. Both mutants removed. | Not every fact/counter mutated independently. |
+| TestLedgerGrantRelatedResourceReadThrough | Replacing PageWriter.GetResource with stored-only lookup makes two connector fetches; one-fetch assertion fails. Corrected code records one call under get-resource:related, not the listing type. | Two grants sharing one related resource in a partial sync. |
+| TestLedgerGrantExternalMatchFact | External placeholder principal remains accepted and establishes the external-grants fact without a disabled-type drop. | One ExternalResourceMatchAll annotation. |
+| TestLedgerGrantRemovedExpansion | Filtering away every expansion type removes expansion work rather than widening it; no needs-expansion fact, one expansion-drop counter and a blocked fact. | One absent type. |
+| TestLedgerGrantReplay | Reopen, restore through the read-only walk and execute remaining state: no new calls or raw writes; expansion fact and ingest quality restore. | Root specified explicitly; public Sync lifecycle remains separate. |
+| TestLedgerGrantFullIdentities | Two grants sharing the external ID but naming different entitlement resources both persist and count as two writes. | Two full identities in one page. |
+| TestLedgerGrantPlanner | Failed control-page commit leaves planning unset; successful continuation plans the type-scoped action once. | Controlled two-page reader. |
+
+Every fixture installs the strict write hook and companion audit. The four
+planted defects are removed. C04/C05/C07/C09/C15/C17/C19/C20/C38/C42 gain this
+coverage and remain evidence incomplete to the full products. pkg/dotc1z is
+unchanged. Static entitlements, assets, external matching, expansion/graph
+reconstruction, public routing and final cost/crash evidence remain pending.
+
+During review, the restoreLedgerState walk was found to omit child scheduling
+marks even though invokeActionPage's replay restores them. A committed parent
+page with an unfinished child and continuation needs a real-handler stop/reopen
+fixture before public routing: a rediscovered parent must not record that
+pending child twice. This is not covered by the completed-subtree replay tests.
+
+K5d checks (Go 1.26.0, vendored dependencies): full sync suite passed
+(79.848s); grant/entitlement/resource/targeted/existing-scheduler race tests
+passed three repetitions (6.451s). Vet passed, sync lint reports zero issues,
+and git diff --check passes. Storage and compactor code remain unchanged.
