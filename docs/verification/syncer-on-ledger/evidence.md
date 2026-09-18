@@ -1346,3 +1346,40 @@ K5b checks (Go 1.26.0, vendored dependencies): full sync suite passed
 passed three repetitions (4.498s). Vet passed, sync lint reports zero issues,
 and git diff --check passed. Storage and compactor are unchanged; their last
 full runs remain K4c's. No additional process-crash coverage is claimed.
+
+## K5c: production entitlement pages
+
+Brief commit: f3f6300d. The existing control planner and leaf dispatch now
+stage entitlement pages. TypeScopedPlanned publishes after commit and before
+continuation admission. Per-resource/type-scoped requests, skip rules, sibling
+cursor parsing, selected sync identity and progress calculations follow main.
+Full-sync filtering uses the existing scheduled-type reader (including its
+external-resource exception); partial sync retains references to absent types.
+Drops set monotone ingest-known/blocked facts and page bucket reasons/counts.
+Only committed pages publish in-memory drop and invalid-record deltas.
+
+| Candidate | Defect/fault and observed result | Limits |
+| --- | --- | --- |
+| TestLedgerEntitlementPages | Before integration, real handlers fail at the refusal. After integration, per-resource pagination and type-scoped pagination/sibling cursors commit accepted records and page accounting. Reopen retains drop counts, reason flags and blocked/known facts. | Controlled connector, no public Sync seal. |
+| TestLedgerEntitlementCommitFailureRetry | Planted direct entitlement write with a registered test bypass changes the failed-page image; snapshot assertion fails. Mutant removed. | In-process commit refusal. |
+| TestLedgerEntitlementCommitFailureRetry | Early global drop publication fails the zero-count assertion. Retry with corrected code publishes one drop and two successful connector calls. | Not every atomic counter is mutated independently. |
+| TestLedgerEntitlementPages | Omitting sync.ingest_blocked leaves counters present but behavioral fact absent after reopen; assertion fails. Mutant removed. | Does not execute source-cache orchestration, which is out of scope. |
+| TestLedgerEntitlementPlannerCommitAndReplay | Failed commit leaves planning flag unset; successful control-page continuation carries the flag and emits no second type-scoped action. Read-only replay restores it. | Controlled two-page resource reader. |
+| TestLedgerEntitlementReplay | Reopen with a new runtime/run state: no connector calls or raw-key changes while replaying normal and sibling cursors. | Entry actions reconstructed explicitly. |
+| TestLedgerEntitlementPartialRetention | Partial sync retains the disabled-type reference that full sync drops. | One absent type. |
+| TestLedgerEntitlementDuplicateCursor | Existing scheduler rejects a sibling identical to the continuation; records, facts and global block remain absent. | One duplicate shape; parser's prior tests cover token format limits. |
+| TestLedgerEntitlementReadFailures | Resource and scheduled-type read faults propagate without writes or global replay-block changes. | Two read boundaries. |
+
+Nil and missing-resource entitlements are rejected by the existing validator;
+observations are counted with the committed page. Every page/walk fixture has
+the strict hook and companion audit. C04/C05/C07/C09/C15/C17/C19/C20/C42 gain
+these checks and remain evidence incomplete to the full plan. The three
+planted defects are removed. No pkg/dotc1z changes or new scheduler are part
+of this increment. Public entry, remaining handlers, full crash products and
+final real-handler cost evidence remain outstanding.
+
+K5c checks (Go 1.26.0, vendored dependencies): full sync suite passed
+(85.256s), entitlement/resource/targeted/existing-scheduler race checks passed
+three repetitions (6.271s), vet passed and sync lint reports zero issues.
+The strengthened post-reopen bucket equality assertion passed separately
+(0.059s). git diff --check passes. Storage and compactor remain unchanged.

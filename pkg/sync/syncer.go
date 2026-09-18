@@ -2022,6 +2022,9 @@ func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bo
 // SyncEntitlements fetches entitlements. Annotated resource types receive one
 // type-scoped action instead of a per-resource fan-out.
 func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
+	if s.ledgered {
+		return s.syncLedgerEntitlements(ctx, action)
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncEntitlements")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
