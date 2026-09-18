@@ -1531,3 +1531,22 @@ and the added selection parity cases passed with all external tests (0.557s).
 Vet passed. The final external race run including selection parity passed
 three repetitions (6.273s). Sync lint reports zero issues after removing an
 extra blank line in the parity helper; git diff --check passes.
+
+## Expansion flush qualification
+
+Brief commit: b1eafd09. TestLedgerExpansionFlushQualification compares the
+existing projection evaluator's complete output batches against an interrupted
+pass plus a fresh-graph resumed pass. All 33 cuts pass across the existing
+chain, diamond, directness, filtering, existing-destination and cycle fixtures,
+plus a seven-principal chain forced into two-record flushes. Comparison checks
+full grant protos in batch order and batch sizes, in addition to final records.
+A no-op-write mutant in mergeContributionIntoExistingGrant leaves final grants
+unchanged but fails the flush-count assertion after resume. The mutant was
+removed. This demonstrates why final-grant equality alone is insufficient.
+
+This is pre-integration qualification using the existing direct expander API,
+not a ledger-page or crash-image test. It provides candidate evidence for
+C16/C19/C41, not closure: cold graph reconstruction from durable annotations,
+actual page commits, iterator cleanup, process death and production-scale
+memory/cost are not exercised. The normal run passed (0.849s); race passed
+three repetitions (5.785s), and expansion lint reports zero issues.
