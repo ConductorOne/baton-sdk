@@ -888,3 +888,26 @@ There are now 49 criteria; the frozen §4 count describes the baseline.
   Measure report time, peak memory and artifact size as row counts grow.
 - **Risk routing:** correctness, cost and operability passes.
 - **PR placement:** high-priority deliverable in this PR; design before code.
+
+## CO-014 — report value includes correctness and requested scope
+
+- **Classification:** clarification and priority change
+- **Source:** requester
+- **Claim:** Assess useful information from the ledger before continuing the
+  remaining implementation. The report is not limited to slowness: explore
+  collection coverage and correctness evidence, requested arguments/flags,
+  intentional exclusions, and timing. Missing work must not be confused with
+  an empty endpoint or collection disabled by flags. Establish report value
+  before deciding retention or token-scrubbing mechanics.
+- **Motivation:** Retained page history needs a useful consumer; its value
+  determines subsequent work.
+- **Contract delta:** none in the experiment. Any additional scope/outcome
+  metadata requires a subsequent design and verification amendment.
+- **Owning boundary:** report experiment and effective-request provenance.
+- **Affected criteria:** C50; C49 still requires measured cost.
+- **Verification delta:** examples and tests distinguish missing references,
+  zero writes with unknown outcome, explicitly disabled grants and unknown
+  request scope. Do not assert source completeness from resolved references.
+- **Risk routing:** correctness, cost and operability passes.
+- **PR placement:** feasibility experiment first; supersedes the ordering in
+  implementation section 40. No retention change is implied.

@@ -1627,3 +1627,37 @@ Final checks (Go 1.26.0, vendored dependencies), including both run-duration
 exits: full sync suite passed (77.995s); run-accounting, expansion, external,
 existing-scheduler and counter race tests passed three repetitions (8.573s).
 Vet passed, sync lint reports zero issues, and git diff --check passes.
+
+## Collection report feasibility (CO-013, CO-014, C50)
+
+Status: evidence incomplete. The report is a test-only prototype, not a public
+reader, durable report or complete correctness check. The experiment and sample
+output are in report-experiment.md. No production storage methods, metadata,
+retention policy or scrub behavior changed.
+
+TestLedgerReportPrototype commits real page units with synthetic data and timing:
+complete two-page collection, zero-write terminal, absent continuation and absent
+child. It checks counts, timing rank and missing references. A mutant ignoring
+missing continuations fails. A mutant describing terminal rows as successfully
+empty endpoints fails the required unknown-outcome assertion.
+
+TestLedgerReportPrototypeScope checks both existing saved skip flags and unknown
+request scope. A mutant ignoring should_skip_grants fails. This does not claim a
+complete request manifest exists. TestLedgerReportPrototypeFullScope verifies
+parent and type-scoped identities remain separate. Erasing the parent resource
+from grouping fails. All four planted mutants failed assertions and were removed.
+
+The restored tests pass. BenchmarkLedgerReportPrototype measures six cases from
+1,000 to 100,000 pages, one or 100 pages per resource, three iterations each. The
+final tests and benchmarks completed in 3.030s. At 100,000 pages the report takes
+100.35ms without reference reads and 329.05ms with 99,000 continuation checks.
+Cumulative allocation is about 92–98MB, not peak resident memory. Retained
+aggregation is one current group plus ten ranked groups. This is warm-cache
+synthetic smoke evidence; no final C49 cost claim. Output serialization, peak
+RSS, cold reads, large fan-out, mixed data, distributions and production-scale
+scope/outcome metadata remain unmeasured or unimplemented.
+
+Engine-package lint reports the same six G115 findings in adapter_page.go and
+ledger_cost_bench_test.go; none refer to the prototype. git diff --check passes.
+The broader public-path migration remains uncommitted and is not validated by
+these engine tests. C50 is not closed by this experiment.
