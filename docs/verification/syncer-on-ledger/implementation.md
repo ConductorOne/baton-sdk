@@ -838,3 +838,14 @@ run restoration/Init/continuation tests and their race cases, then the sync
 suite and lint. Do not overlap compilation or test execution with the cost
 samples. The measured executable stays pinned to fafa4f74; these changes
 require a later cost executable revision.
+
+## 25. Continue storage work while completing cost evidence
+
+K4 may proceed while K3's measurement coverage remains incomplete. CO-009
+places the first measured table before handler commits; it does not require
+the entire cost criterion to close before independent storage work. K4 adds
+the page-staged asset, deletion and expansion-preservation operations proposed
+in §3, with their own public-consumer tests and failure cuts. It activates no
+handler or public routing. Do not treat an incomplete performance matrix as
+a reason to stop this independent work. Full C49 evidence and its final
+revision rerun remain requirements before landing.
