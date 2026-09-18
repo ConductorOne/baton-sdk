@@ -1479,6 +1479,9 @@ func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.Re
 }
 
 func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error {
+	if s.ledgered {
+		return s.syncLedgerTargetedResource(ctx, action)
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncTargetedResource")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
@@ -1594,6 +1597,9 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error
 // SyncResources handles fetching all of the resources from the connector given the provided resource types. For each
 // resource, we gather any child resource types it may emit, and traverse the resource tree.
 func (s *syncer) SyncResources(ctx context.Context, action *Action) error {
+	if s.ledgered {
+		return s.syncLedgerResources(ctx, action)
+	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncResources")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error

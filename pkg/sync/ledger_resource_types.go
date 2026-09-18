@@ -119,21 +119,32 @@ func (s *syncer) collectLedgerResourceTypes(ctx context.Context, action *Action)
 func (s *syncer) recordLedgerConnectorResponse(ctx context.Context, invocation *ledgerInvocation, method string, elapsed time.Duration, annos []*anypb.Any) {
 	page, action := invocation.page, invocation.action
 	if s.recordStats {
-		page.row.ConnectorDuration = elapsed
+		page.row.ConnectorDuration += elapsed
 		stat := c1zstore.CallStat{Count: 1, TotalMs: elapsed.Milliseconds(), MaxMs: elapsed.Milliseconds()}
-		page.observations.ConnectorCalls = map[string]c1zstore.CallStat{method: stat}
+		if page.observations.ConnectorCalls == nil {
+			page.observations.ConnectorCalls = make(map[string]c1zstore.CallStat)
+		}
+		previous := page.observations.ConnectorCalls[method]
+		previous.Add(stat)
+		page.observations.ConnectorCalls[method] = previous
 		if action.ResourceTypeID != "" {
-			page.observations.ConnectorCalls[method+":"+action.ResourceTypeID] = stat
+			key := method + ":" + action.ResourceTypeID
+			previous := page.observations.ConnectorCalls[key]
+			previous.Add(stat)
+			page.observations.ConnectorCalls[key] = previous
 		}
 		report := &v2.RateLimitWaitReport{}
 		responseAnnotations := annotations.Annotations(annos)
 		found, err := responseAnnotations.Pick(report)
 		if err == nil && found && report.GetWaitMs() > 0 {
 			waitMs := min(report.GetWaitMs(), int64(24*time.Hour/time.Millisecond))
-			page.row.WaitDuration = time.Duration(waitMs) * time.Millisecond
-			page.observations.StepDurationsMs = map[string]int64{"rate_limit_wait": waitMs}
+			page.row.WaitDuration += time.Duration(waitMs) * time.Millisecond
+			if page.observations.StepDurationsMs == nil {
+				page.observations.StepDurationsMs = make(map[string]int64)
+			}
+			page.observations.StepDurationsMs["rate_limit_wait"] += waitMs
 			if action.ResourceTypeID != "" {
-				page.observations.StepDurationsMs["rate_limit_wait:"+action.ResourceTypeID] = waitMs
+				page.observations.StepDurationsMs["rate_limit_wait:"+action.ResourceTypeID] += waitMs
 			}
 		}
 	}
@@ -151,4 +162,29 @@ func (s *syncer) recordLedgerConnectorResponse(ctx context.Context, invocation *
 			s.recordConnectorWaitReport(annos, progressAction.ResourceTypeID)
 		}
 	})
+}
+
+func (s *syncer) recordLedgerSessionUsage(invocation *ledgerInvocation, annos []*anypb.Any) {
+	if !s.recordStats {
+		return
+	}
+	usage := &v2.SessionStoreUsage{}
+	responseAnnotations := annotations.Annotations(annos)
+	found, err := responseAnnotations.Pick(usage)
+	if err != nil || !found {
+		return
+	}
+	if invocation.page.observations.SessionCalls == nil {
+		invocation.page.observations.SessionCalls = make(map[string]c1zstore.CallStat)
+	}
+	for _, op := range usage.GetOps() {
+		if op.GetOp() == "" {
+			continue
+		}
+		key := "connector." + op.GetOp()
+		stat := invocation.page.observations.SessionCalls[key]
+		stat.Add(c1zstore.CallStat{Count: op.GetCount(), Errors: op.GetErrors(), Timeouts: op.GetTimeouts(), TotalMs: op.GetTotalMs(), MaxMs: op.GetMaxMs()})
+		invocation.page.observations.SessionCalls[key] = stat
+	}
+	invocation.afterCommit = append(invocation.afterCommit, func() { s.recordSessionUsage(annos) })
 }

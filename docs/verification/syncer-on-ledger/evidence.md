@@ -1303,3 +1303,46 @@ repetitions (4.508s). Vet passed; sync lint reports zero issues. Storage and
 compactor code are unchanged in this increment; their last full passing runs
 are recorded under K4c. `git diff --check` passes. The direct-write,
 early-counter and early-progress mutations are removed.
+
+## K5b: production resource and targeted-resource pages
+
+Brief commit: f90461d4. The handlers use main's existing dispatch and worker
+queue. Resource writes, next cursors, child identities and page accounting
+commit together. Child discovery checks the existing scheduling set again
+under its lock immediately before transition, holds it through commit and
+queue publication, and records marks only after successful commit. Connector
+calls remain concurrent. Recorded children restore the marks during replay.
+
+Main's resource-type reader pagination, full parent identities, trait checks,
+latest resource payload, configured child-type selection and raw response
+progress counts are retained. Targeted requests retain NotFound and
+Unimplemented as empty successful results. Their follow-ups retain the order
+that executes children before entitlements before grants; type-scoped types
+get no whole-type replacement action. No lifecycle or engine selection change
+is included. pkg/dotc1z is unchanged.
+
+| Candidate | Defect/fault and observed result | Limits |
+| --- | --- | --- |
+| TestLedgerResourcePages | Fails before integration at the production-handler refusal. With integration, two parent pages and one deduplicated child commit the latest payload and accounting with one/four workers. | Controlled connector, no public Sync seal. |
+| TestLedgerResourceCommitFailureRetry | Direct PutResources with an explicit test bypass changes the failed-page raw image; snapshot assertion fails. Early child marks fail the unchanged scheduling-set assertion. Both mutants removed. | In-process commit refusal, not process/power failure. |
+| TestLedgerResourceCommitFailureRetry | Retry preserves child work, counters and raw response progress; failed page publishes no progress or invalid-resource observations. | Initial-step notification retains main's pre-call behavior. |
+| TestLedgerConcurrentChildDiscovery | A barrier forces two connector calls to overlap. Same discovered parent admits one child; distinct parent identities admit both. | Two simultaneous discoveries, not arbitrary concurrent histories. |
+| TestLedgerResourceReplay | Reopen, new runtime/action state, strict walk audit: zero additional connector calls, unchanged raw keys, restored child marks. | Resource subtree reconstructed explicitly; public resume remains separate. |
+| TestLedgerTargetedResourcePage | Fails before integration. Commit refusal preserves records and child marks; retry records grants/entitlements/children in main's order and carries the full requested parent. | Follow-up handlers are not executed by this fixture. |
+| TestLedgerTargetedResourceEmptyAndFailure | Empty/NotFound/Unimplemented results commit empty transitions; Internal failure keeps action and raw image unchanged. | Does not cover all connector error codes. |
+| TestLedgerTargetedTypeScoped | Type-scoped grants and entitlements do not create targeted whole-type follow-ups. | Both annotations present in one fixture. |
+| TestLedgerResourceControlPage | Failed type-enumeration page does not publish resources-phase evidence; successful page retains both parent fields on children. | Two stored types fit in one reader page. |
+| TestLedgerResourceReadFailure | Existing-resource read failure propagates with no page or connector counters committed. | One read-error boundary. |
+| TestLedgerConnectorObservationsAccumulate | Overwrite instead of add loses the first call and fails Count/TotalMs assertions. Restored code sums calls, waits and session observations and keeps max latency. | Accounting instrument uses a test handler making two reports. |
+
+All page and replay fixtures install the strict hook and companion audit.
+C04/C05/C07/C09/C15/C17/C20/C38/C42 gain the coverage above and remain evidence
+incomplete to their full products. The three planted defects are removed.
+Remaining handler families, public entry, full crash differentials and C49's
+final real-handler measurements are not established by this increment.
+
+K5b checks (Go 1.26.0, vendored dependencies): full sync suite passed
+(78.486s); resource, targeted, accounting and existing-scheduler race tests
+passed three repetitions (4.498s). Vet passed, sync lint reports zero issues,
+and git diff --check passed. Storage and compactor are unchanged; their last
+full runs remain K4c's. No additional process-crash coverage is claimed.

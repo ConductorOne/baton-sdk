@@ -26,10 +26,11 @@ type ledgerCommitKey struct{}
 type ledgerReplayKey struct{}
 
 type ledgerInvocation struct {
-	action      *Action
-	page        *ledgerPage
-	children    []Action
-	afterCommit []func()
+	action           *Action
+	page             *ledgerPage
+	children         []Action
+	afterCommit      []func()
+	resourceChildren bool
 }
 
 type ledgerTransitionCommit struct {
@@ -86,6 +87,9 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 				return errors.New("ledger row contains an unknown child operation")
 			}
 			child.Spawned = recorded.Spawned
+			if child.Op == SyncResourcesOp && child.ParentResourceTypeID != "" && child.ParentResourceID != "" {
+				s.childSchedule.recordIfNew(child.ResourceTypeID, child.ParentResourceTypeID, child.ParentResourceID)
+			}
 			children = append(children, child)
 		}
 		if row.TypeScopedPlanned {
@@ -109,7 +113,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		switch {
 		case s.testHooks.ledgerHandler != nil:
 			err = s.testHooks.ledgerHandler(pageCtx, action, page)
-		case action.Op == InitOp || action.Op == SyncResourceTypesOp:
+		case action.Op == InitOp || action.Op == SyncResourceTypesOp || action.Op == SyncResourcesOp || action.Op == SyncTargetedResourceOp:
 			err = handler(pageCtx, action)
 		default:
 			return errors.New("ledger production handlers are not integrated")
@@ -139,9 +143,38 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		}
 		return nil
 	}, func(page *ledgerPage, commit func() error) error {
+		if invocation.resourceChildren {
+			s.childSchedule.mu.Lock()
+			defer s.childSchedule.mu.Unlock()
+			seen := make(map[string]bool)
+			children := make([]Action, 0, len(invocation.children))
+			rows := make([]c1zstore.LedgerChild, 0, len(invocation.children))
+			for _, child := range invocation.children {
+				key := childScheduleKey(child.ResourceTypeID, child.ParentResourceTypeID, child.ParentResourceID)
+				if child.Op == SyncResourcesOp {
+					if _, exists := s.childSchedule.m[key]; exists || seen[key] {
+						continue
+					}
+					seen[key] = true
+				}
+				children = append(children, child)
+				rows = append(rows, c1zstore.LedgerChild{Identity: ledgerIdentity(&child), Spawned: child.Spawned})
+			}
+			invocation.children, page.row.Children = children, rows
+		}
 		publish := func() error {
 			if err := commit(); err != nil {
 				return err
+			}
+			if invocation.resourceChildren {
+				if s.childSchedule.m == nil {
+					s.childSchedule.m = make(map[string]struct{})
+				}
+				for _, child := range invocation.children {
+					if child.Op == SyncResourcesOp {
+						s.childSchedule.m[childScheduleKey(child.ResourceTypeID, child.ParentResourceTypeID, child.ParentResourceID)] = struct{}{}
+					}
+				}
 			}
 			for fact := range page.facts {
 				s.run.setFact(fact)
