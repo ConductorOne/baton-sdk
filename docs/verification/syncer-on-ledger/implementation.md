@@ -801,3 +801,18 @@ record the failure before adding it. This is measurement code only. A
 snapshot taken after samples is labeled with its collection time and cannot
 retroactively establish unloaded-machine qualification. The new table keeps
 that limitation and does not authorize K5/K6.
+
+## 23. Actual resume cost and larger pages
+
+CO-012 settles §10's durability discrepancy. Continue with the existing
+fresh/resumed NoSync arms; no engine behavior changes or hypothetical arm
+are needed. CO-009's other measurement obligations remain. Earlier pending
+durability statements record the state before this disposition.
+
+Extend the existing interleaved smoke to 1,000 pages × 1,000/10,000
+resources/page × one/four workers, three repetitions per arm. Keep samples
+separate from §22's data, with their own machine snapshot and binary hashes.
+The larger pages test whether row and bucket overhead diminishes relative
+to record work. Synthetic handlers and incomplete machine qualification
+still prevent acceptance claims. Preserve all samples, including tripwire
+results; explain observed regressions without inventing a cause from ratios.

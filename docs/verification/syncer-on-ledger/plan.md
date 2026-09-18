@@ -845,3 +845,21 @@ There are now 49 criteria; the frozen §4 count describes the baseline.
   those points.
 - **Risk routing:** HIGH, unchanged.
 - **PR placement:** this PR.
+
+## CO-012 — measure actual resume durability
+
+- **Classification:** correction
+- **Source:** requester; accepted explanation of the baseline's actual writes.
+- **Claim:** C49's resumed arm measures the existing NoSync page commits,
+  matching main. A hypothetical forced-disk-write comparison, if included,
+  is labeled separately and is not the production resume arm. Production
+  durability remains unchanged.
+- **Motivation:** CO-009 described resumed pages as Sync, but eb63f1b5 uses
+  recordWriteOpts (NoSync) for fresh and resumed pages alike.
+- **Contract delta:** none; corrects the measurement premise in CO-009.
+- **Owning boundary:** C49 cost harness and report.
+- **Affected criteria:** C49. Other coverage and acceptance requirements remain.
+- **Verification delta:** report the actual fresh and resumed write options;
+  no hypothetical arm is required to close this discrepancy.
+- **Risk routing:** cost pass, unchanged.
+- **PR placement:** this PR.
