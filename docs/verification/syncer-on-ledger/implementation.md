@@ -687,3 +687,25 @@ as lifecycle evidence. CO-010 lifecycle verification remains outstanding.
 After migration, K2d proceeds with atomic Init planning and restoration
 through the existing scheduler. No cost result from the deleted executor
 will be presented as evidence for that integration.
+
+## 19. Atomic Init using the existing operation plan
+
+K2d first extracts Init's store-free decision into one plan of child actions
+and facts. Both persistence paths consume that plan. The checkpoint path
+still finishes Init, establishes its facts, pushes children in the same
+order and forces its checkpoint. The ledger path stages those same facts
+and children in its Init page and publishes them through the existing
+transition callback only after commit. The scheduler retains its Init case;
+no alternate loop is introduced. Listing handlers remain unavailable until
+their planned integration and cost prerequisite.
+
+TestInitialActionBaseline records eight observable cases against the old
+Init body before extraction: full collection, both skip modes, expansion
+only, external processing, inherited skip state, targeted resources and
+deferred expansion. It checks ordered actions, facts, parent identity and
+completion counts. The ledger failure test must first expose the current
+non-atomic Init behavior, then prove failed commit leaves Init pending with
+no new facts or durable rows. The passing ledger cases compare the committed
+row's children and facts against the same baseline expectations. This is
+bounded C05/C17 coverage; physical crash cuts and lifecycle restoration stay
+open.
