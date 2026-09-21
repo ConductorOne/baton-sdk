@@ -75,6 +75,7 @@ func (s *syncer) collectLedgerResources(ctx context.Context, action *Action) err
 	start := time.Now()
 	resp, err := s.connector.ListResources(ctx, req)
 	s.recordLedgerConnectorResponse(ctx, invocation, "list-resources", time.Since(start), resp.GetAnnotations())
+	recordLedgerConnectorError(invocation, err)
 	s.recordLedgerSessionUsage(invocation, resp.GetAnnotations())
 	if err != nil {
 		return err

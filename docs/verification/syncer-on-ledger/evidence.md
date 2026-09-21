@@ -1769,3 +1769,14 @@ remain marked unobserved. It failed before adapter conversion existed and with a
 planted omission of ConnectorAttempts. The defect was removed. The full Pebble
 suite passes (10.443s). This check does not cover process-crash images or report
 serialization of these new fields.
+
+### CO-017: retry observations on successful pages
+
+Status: evidence incomplete for the full criterion. The worker scheduler test
+TestLedgerRetryObservationsAcrossPages verifies two failed connector calls then
+success, actual retry waits, separately observed rate-limit waits and reset on
+pagination. TestLedgerExhaustedRetryHasNoRow verifies exhausted retries leave no
+row. The tests reject planted reset-on-each-attempt, omitted-error and omitted-wait
+mutants. All ledger sync tests pass (4.538s); race detection passes three runs
+(37.338s). Cancellation during a retry wait, coordinator-only retries, restart
+loss and concurrent connector wait callbacks still need targeted checks.

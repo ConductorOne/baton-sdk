@@ -61,6 +61,7 @@ func (s *syncer) collectLedgerStaticEntitlements(ctx context.Context, action *Ac
 		ActiveSyncId:   s.getActiveSyncID(),
 	}.Build())
 	s.recordLedgerConnectorResponse(ctx, invocation, "list-static-entitlements", time.Since(start), resp.GetAnnotations())
+	recordLedgerConnectorError(invocation, err)
 	s.recordLedgerSessionUsage(invocation, resp.GetAnnotations())
 	if err != nil {
 		if strings.Contains(err.Error(), `unable to resolve \"type.googleapis.com/c1.connector.v2.EntitlementsServiceListStaticEntitlementsRequest\": \"not found\"","errorType":"prefixError"`) {
@@ -145,6 +146,7 @@ func (s *syncer) listLedgerStaticResourceTypes(ctx context.Context, invocation *
 			start := time.Now()
 			resp, err := s.connector.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{PageToken: token, ActiveSyncId: s.getActiveSyncID()}.Build())
 			s.recordLedgerConnectorResponse(ctx, invocation, "list-resource-types", time.Since(start), resp.GetAnnotations())
+			recordLedgerConnectorError(invocation, err)
 			if err != nil {
 				yield(nil, err)
 				return

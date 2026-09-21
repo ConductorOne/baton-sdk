@@ -26,6 +26,7 @@ type ledgerCommitKey struct{}
 type ledgerReplayKey struct{}
 
 type ledgerInvocation struct {
+	attempts         *ledgerAttempts
 	action           *Action
 	page             *ledgerPage
 	children         []Action
@@ -101,10 +102,16 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 	if worker < 0 || worker >= int(c1zstore.TakeoverBucketWorker) {
 		return errors.New("invalid ledger worker index")
 	}
-	invocation := &ledgerInvocation{action: action}
+	workerIndex := uint32(worker) //nolint:gosec // worker is below the reserved uint32 indexes.
+	attempts, _ := ctx.Value(ledgerAttemptsKey{}).(*ledgerAttempts)
+	if attempts == nil {
+		attempts = &ledgerAttempts{}
+	}
+	attempts.selectPage(ledgerIdentity(action))
+	invocation := &ledgerInvocation{action: action, attempts: attempts}
 	var warning error
 	var handlerFailure error
-	_, err = s.ledger.runPageWithCommit(ctx, uint32(worker), ledgerIdentity(action), func(pageCtx context.Context, page *ledgerPage) error {
+	_, err = s.ledger.runPageWithCommit(ctx, workerIndex, ledgerIdentity(action), func(pageCtx context.Context, page *ledgerPage) error {
 		invocation.page = page
 		page.row.Spawned = action.Spawned
 		page.row.TypeScopedPlanned = action.TypeScopedPlanned
@@ -142,6 +149,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 				page.observations.Counters[ledgerWarningsPrefix+action.Op.String()]++
 			}
 		}
+		attempts.snapshot(&page.row)
 		return nil
 	}, func(page *ledgerPage, commit func() error) error {
 		if invocation.resourceChildren {
@@ -167,6 +175,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 			if err := commit(); err != nil {
 				return err
 			}
+			attempts.committed()
 			if invocation.resourceChildren {
 				if s.childSchedule.m == nil {
 					s.childSchedule.m = make(map[string]struct{})

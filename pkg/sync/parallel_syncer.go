@@ -128,6 +128,9 @@ func (s *syncer) withRateLimitWaitObserver(ctx context.Context) context.Context 
 			return
 		}
 		s.recordRetryWait(ctx, ev.Duration, !ev.Retry)
+		if attempts, ok := ctx.Value(ledgerAttemptsKey{}).(*ledgerAttempts); ok {
+			attempts.recordWait(ev)
+		}
 	})
 }
 
@@ -141,6 +144,9 @@ func (s *syncer) parallelSync(
 	}
 	l := ctxzap.Extract(ctx)
 	workerCtx, cancelWorkers := context.WithCancelCause(ctx)
+	if s.ledgered {
+		workerCtx = withLedgerAttempts(workerCtx)
+	}
 	stopWorkers := context.AfterFunc(runCtx, func() {
 		cancelWorkers(context.Cause(runCtx))
 	})
@@ -772,7 +778,7 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 		wg.Go(func() {
 			workerCtx := ctx
 			if s.ledgered {
-				workerCtx = context.WithValue(ctx, ledgerWorkerKey{}, i)
+				workerCtx = withLedgerAttempts(context.WithValue(ctx, ledgerWorkerKey{}, i))
 			}
 			for {
 				action, ok := queue.next()

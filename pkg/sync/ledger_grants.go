@@ -130,6 +130,7 @@ func (s *syncer) collectLedgerGrants(ctx context.Context, action *Action) error 
 		Annotations:  reqAnnos,
 	}.Build())
 	s.recordLedgerConnectorResponse(ctx, invocation, "list-grants", time.Since(start), resp.GetAnnotations())
+	recordLedgerConnectorError(invocation, err)
 	s.recordLedgerSessionUsage(invocation, resp.GetAnnotations())
 	if err != nil {
 		return fmt.Errorf("sync-grants-for-resource: error listing grants: %w", err)

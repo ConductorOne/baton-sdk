@@ -126,6 +126,7 @@ func (s *syncer) collectLedgerEntitlements(ctx context.Context, action *Action) 
 		Annotations:  reqAnnos,
 	}.Build())
 	s.recordLedgerConnectorResponse(ctx, invocation, "list-entitlements", time.Since(start), resp.GetAnnotations())
+	recordLedgerConnectorError(invocation, err)
 	s.recordLedgerSessionUsage(invocation, resp.GetAnnotations())
 	if err != nil {
 		return err

@@ -72,6 +72,7 @@ func (s *syncer) collectLedgerResourceTypes(ctx context.Context, action *Action)
 	}.Build())
 	elapsed := time.Since(start)
 	s.recordLedgerConnectorResponse(ctx, invocation, "list-resource-types", elapsed, resp.GetAnnotations())
+	recordLedgerConnectorError(invocation, err)
 	if err != nil {
 		return err
 	}
@@ -124,6 +125,9 @@ func (s *syncer) recordLedgerConnectorResponseForAction(
 	ctx context.Context, invocation *ledgerInvocation, action *Action, method string, elapsed time.Duration, annos []*anypb.Any,
 ) {
 	page := invocation.page
+	if invocation.attempts != nil {
+		invocation.attempts.recordCall()
+	}
 	if s.recordStats {
 		page.row.ConnectorDuration += elapsed
 		stat := c1zstore.CallStat{Count: 1, TotalMs: elapsed.Milliseconds(), MaxMs: elapsed.Milliseconds()}

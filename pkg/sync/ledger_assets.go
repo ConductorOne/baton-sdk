@@ -60,6 +60,7 @@ func (s *syncer) collectLedgerAssets(ctx context.Context, action *Action) error 
 			defer func() { s.recordLedgerConnectorResponse(ctx, invocation, "get-asset", time.Since(start), nil) }()
 
 			resp, err := s.connector.GetAsset(ctx, v2.AssetServiceGetAssetRequest_builder{Asset: assetRef}.Build())
+			recordLedgerConnectorError(invocation, err)
 			if err != nil {
 				return err
 			}
@@ -79,6 +80,7 @@ func (s *syncer) collectLedgerAssets(ctx context.Context, action *Action) error 
 					if errors.Is(recvErr, io.EOF) {
 						continue
 					}
+					recordLedgerConnectorError(invocation, recvErr)
 					l.Error("error fetching asset", zap.Error(recvErr))
 					return recvErr
 				}
