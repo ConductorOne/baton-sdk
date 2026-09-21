@@ -1846,3 +1846,17 @@ wide-row repeated-fan-in fixture asserting each source row is checked once.
 Retain missing/valid reference, scrub and token-nondisclosure checks. A mutation
 reading target values must fail the iterator consumer test. The earlier small
 fan-in count test alone was insufficient evidence of bounded work.
+
+### 52. Do not write empty stop accounting before resumed work
+
+C40 requires cancellation before any new page to avoid a counter write. The stop
+helper currently writes an empty run bucket after the read-only restore finishes.
+Capture the run snapshot once and return when every counter field is empty. Keep
+writes for real run-level observations, including duration/session observations
+made outside a page. Do not change cancellation errors, the scheduler or SQLite.
+
+A public resumed-sync fixture cancels immediately after the walk, compares all
+keys and checks the write recorder saw no attempted write. It must fail on the
+existing empty-bucket write before the guard is added. Existing run-accounting
+fixtures continue to verify that repeated nonempty flushes replace, rather than
+add to, the same attempt's bucket.
