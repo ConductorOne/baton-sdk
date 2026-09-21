@@ -1,34 +1,6 @@
 package sync //nolint:revive,nolintlint // backwards-compatible package name
 
-// Checkpoint-cut enumeration harness (Option B of the verification plan).
-//
-// The crash-cut contract — from ANY durable checkpoint plus whatever store
-// state exists, a cold resume completes to exactly the right sealed store —
-// was previously tested at a handful of hand-picked cut points. This
-// harness mechanizes the sweep over a stated space:
-//
-//   - CHECKPOINT cuts: the sync is killed immediately after its Nth durable
-//     checkpoint, for every N the sync produces (checkpointInterval is
-//     zeroed so every loop-top checkpoint commits — each one is a cut
-//     point). These are quiet-point crashes: token and store agree.
-//   - RESPONSE cuts: the sync is killed right after the Mth connector
-//     response, for every M — mid-batch, workers in flight, store writes
-//     landed PAST the last checkpointed token. These are the adversarial
-//     crashes: the resumer must tolerate a store ahead of its token and
-//     redo in-flight fan-out work exactly once.
-//
-// Each cut is followed by a cold resume (fresh store handle, fresh syncer —
-// the distributed-execution assumption) under a DIFFERENT worker count than
-// the generator, and every third cut gets a double-cut: the first resume is
-// itself killed at its first checkpoint before a second resume completes,
-// exercising the restored-state re-checkpoint path. The oracle is derived
-// ground truth: the topology makes the exact entitlement/grant sets
-// computable, so any lost, duplicated, or misrouted cursor is a set
-// mismatch. Every attempt also runs the queue-contract audit
-// (verifyQueueAudit).
-//
-// The default sweep is strided to cap runtime; BATON_CUT_SWEEP=full covers
-// every cut point.
+// Page-commit and connector-response cuts, followed by cold resume with a different worker count.
 
 import (
 	"context"
@@ -36,8 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	native_sync "sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -314,26 +286,15 @@ func buildCutFixture(t *testing.T) (*soakConnector, map[string]struct{}, string)
 
 type cutAttemptResult struct {
 	completed       bool
-	checkpoints     int
+	commits         int
 	responses       int
 	grantsResponses int
-	// spawnedTokens counts durable checkpoint tokens that carried a
-	// spawned in-flight action — the state shape resume bugs hide in.
-	// The sweep meta-asserts it reaches that shape at least once, so the
-	// harness cannot silently degrade into sweeping only trivial cuts.
-	spawnedTokens int
+	pendingSpawned  int
 }
 
-// cutSpec configures one attempt: which cut trigger fires (checkpoint
-// count, total response count, or grants-phase response count; zero =
-// disabled) and the crash flavor. cause selects a hard cut
-// (errInjectedCut — nothing further is written) or an expiry
-// (errInjectedExpiry — the syncer's deadline path force-checkpoints the
-// mid-batch stack before exiting). cause must be non-nil even for no-cut
-// attempts so a genuine failure can never be mistaken for an injected one.
 type cutSpec struct {
 	workers        int
-	checkpoint     int
+	commit         int
 	response       int
 	grantsResponse int
 	cause          error
@@ -376,22 +337,34 @@ func runCutAttempt(
 	require.NoError(t, err)
 	sc, ok := s.(*syncer)
 	require.True(t, ok)
-	// Every loop-top checkpoint commits durably: each one is a cut point.
-	sc.checkpointInterval = 0
-	checkpoints := 0
-	spawnedTokens := 0
-	sc.testHooks.checkpointHook = func(token string) {
-		checkpoints++
-		if strings.Contains(token, `"spawned":true`) {
-			spawnedTokens++
+	require.NotNil(t, sc.caps.writeHook)
+	sc.caps.writeHook.SetWriteHook(func(_ context.Context, event c1zstore.WriteHookEvent) error {
+		if event.Bypass == "" {
+			return fmt.Errorf("unregistered page write: %s", event.Method)
 		}
-		if spec.checkpoint > 0 && checkpoints == spec.checkpoint {
+		return nil
+	})
+	var commits atomic.Int64
+	sc.testHooks.checkpointHook = func(string) { t.Error("Pebble wrote a checkpoint token") }
+	sc.testHooks.ledgerCommitted = func(c1zstore.LedgerRow) {
+		n := commits.Add(1)
+		if spec.commit > 0 && n == int64(spec.commit) {
 			cancel(spec.cause)
 		}
 	}
 	audit := attachQueueAudit(t, s)
 
 	syncErr := s.Sync(ctx)
+	pendingSpawned := 0
+	if syncErr != nil && sc.ledger != nil {
+		pending, walkErr := sc.ledger.walk(context.Background(), []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}})
+		require.NoError(t, walkErr)
+		for _, action := range pending {
+			if action.spawned {
+				pendingSpawned++
+			}
+		}
+	}
 	require.NoError(t, s.Close(context.Background()))
 	verifyQueueAudit(t, audit)
 
@@ -403,10 +376,10 @@ func runCutAttempt(
 	}
 	return cutAttemptResult{
 		completed:       syncErr == nil,
-		checkpoints:     checkpoints,
+		commits:         int(commits.Load()),
 		responses:       connector.responseCount(),
 		grantsResponses: connector.grantsResponseCount(),
-		spawnedTokens:   spawnedTokens,
+		pendingSpawned:  pendingSpawned,
 	}
 }
 
@@ -487,51 +460,43 @@ func enumerateCutPoints(total, limit int) []int {
 	return out
 }
 
-func TestCheckpointCutEnumeration(t *testing.T) {
+func TestLedgerCommitCutEnumeration(t *testing.T) {
 	testtier.RequireExtra(t)
 	tmpDir := t.TempDir()
 	base, expectedEntIDs, userID := buildCutFixture(t)
 
 	// Baseline: an uninterrupted run measures the cut space (K durable
-	// checkpoints, M connector responses) and sanity-checks the oracle.
+	// commits, M connector responses) and sanity-checks the oracle.
 	baselinePath := filepath.Join(tmpDir, "baseline.c1z")
 	baseline := runCutAttempt(t, base, baselinePath, tmpDir, cutSpec{workers: 4, cause: errInjectedCut})
 	require.True(t, baseline.completed, "baseline sync must complete")
 	verifyCutStore(t, baselinePath, tmpDir, expectedEntIDs, userID)
-	t.Logf("cut space: %d durable checkpoints, %d connector responses (BATON_CUT_SWEEP=full for the whole space)",
-		baseline.checkpoints, baseline.responses)
+	t.Logf("cut space: %d page commits, %d connector responses (BATON_CUT_SWEEP=full for the whole space)",
+		baseline.commits, baseline.responses)
 
 	type cut struct {
-		name       string
-		checkpoint int
-		response   int
-		cause      error
+		name     string
+		commit   int
+		response int
+		cause    error
 	}
 	var cuts []cut
-	for _, n := range enumerateCutPoints(baseline.checkpoints, 16) {
-		cuts = append(cuts, cut{name: fmt.Sprintf("checkpoint-%02d", n), checkpoint: n, cause: errInjectedCut})
+	for _, n := range enumerateCutPoints(baseline.commits, 16) {
+		cuts = append(cuts, cut{name: fmt.Sprintf("commit-%02d", n), commit: n, cause: errInjectedCut})
 	}
 	for _, m := range enumerateCutPoints(baseline.responses, 16) {
 		cuts = append(cuts, cut{name: fmt.Sprintf("response-%02d", m), response: m, cause: errInjectedCut})
 	}
-	// Expiry cuts take the run-duration deadline path, which force-writes
-	// a checkpoint of the MID-BATCH stack (spawned cursors in flight)
-	// before exiting — the token shape hard cuts never persist, and the
-	// one resume bugs have historically hidden in.
 	for _, m := range enumerateCutPoints(baseline.responses, 12) {
 		cuts = append(cuts, cut{name: fmt.Sprintf("expire-%02d", m), response: m, cause: errInjectedExpiry})
 	}
 
-	// midBatchTokens counts, across the sweep, the durable tokens that
-	// carried spawned in-flight actions. If it stays zero the sweep never
-	// reached the state shape the expire mode exists for, and the harness
-	// is vacuous — fail loudly instead of passing quietly.
-	midBatchTokens := 0
+	pendingAcrossCuts := 0
 	for i, c := range cuts {
 		t.Run(c.name, func(t *testing.T) {
 			path := filepath.Join(tmpDir, fmt.Sprintf("cut-%s.c1z", c.name))
-			r := runCutAttempt(t, base, path, tmpDir, cutSpec{workers: 4, checkpoint: c.checkpoint, response: c.response, cause: c.cause})
-			midBatchTokens += r.spawnedTokens
+			r := runCutAttempt(t, base, path, tmpDir, cutSpec{workers: 4, commit: c.commit, response: c.response, cause: c.cause})
+			pendingAcrossCuts += r.pendingSpawned
 			if r.completed {
 				// The cut landed past the end of this run's schedule
 				// (parallel timing varies run to run); the completed
@@ -546,7 +511,7 @@ func TestCheckpointCutEnumeration(t *testing.T) {
 			// restored-state re-checkpoint path before a final resume.
 			resumeWorkers := []int{1, 7}[i%2]
 			if i%3 == 0 {
-				rr := runCutAttempt(t, base, path, tmpDir, cutSpec{workers: resumeWorkers, checkpoint: 1, cause: errInjectedCut})
+				rr := runCutAttempt(t, base, path, tmpDir, cutSpec{workers: resumeWorkers, commit: 1, cause: errInjectedCut})
 				if rr.completed {
 					verifyCutStore(t, path, tmpDir, expectedEntIDs, userID)
 					return
@@ -554,12 +519,12 @@ func TestCheckpointCutEnumeration(t *testing.T) {
 			}
 			final := runCutAttempt(t, base, path, tmpDir, cutSpec{workers: resumeWorkers, cause: errInjectedCut})
 			require.True(t, final.completed, "resume after cut %s did not complete", c.name)
-			midBatchTokens += final.spawnedTokens
+			pendingAcrossCuts += final.pendingSpawned
 			verifyCutStore(t, path, tmpDir, expectedEntIDs, userID)
 		})
 	}
 
-	require.Positive(t, midBatchTokens,
-		"no durable token in the whole sweep carried a spawned in-flight action; the expire mode is not reaching mid-batch state and the harness has gone vacuous")
+	require.Positive(t, pendingAcrossCuts,
+		"no interrupted ledger walk returned pending spawned work")
 	require.Zero(t, base.perResourceCalls, "type-scoped types must never receive per-resource calls")
 }

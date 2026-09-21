@@ -1,6 +1,10 @@
 package sync //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
 
-import "context"
+import (
+	"context"
+
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+)
 
 // syncTestHooks is the syncer's set of test seams: observation and
 // fault-injection points the verification harnesses attach to in order to
@@ -15,7 +19,10 @@ import "context"
 // carry no `test` prefix of their own — any `test`-prefixed field elsewhere
 // in the package is a seam that escaped this struct.
 type syncTestHooks struct {
-	ledgerHandler func(context.Context, *Action, *ledgerPage) error
+	ledgerCommitted func(c1zstore.LedgerRow)
+	ledgerStop      func(context.Context)
+	ledgerWalk      func(bool)
+	ledgerHandler   func(context.Context, *Action, *ledgerPage) error
 	// ingestHaltHook, when non-nil, fires at named seams of the
 	// ingestion-invariant pass (see ingestInvariantHaltStages);
 	// returning an error fails the sync at exactly that boundary. The

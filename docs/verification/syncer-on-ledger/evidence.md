@@ -1865,3 +1865,29 @@ unexplained ID mismatches refuse it. A new sync removes the archive.
 summary through repeated expansion-only passes without recursive report history.
 These checks do not yet establish default syncer disposal, debug reference checks,
 archive I/O crash images, or the final end-to-end cost table.
+
+### Public Pebble routing and existing-corpus migration
+
+Full `go test ./pkg/sync -count=1 -timeout 30m` passes (80.020s). Pebble tests
+pass (11.897s); synccompactor passes (35.622s). Focused ledger, changed-answer
+resume and session-stat tests pass under race detection three times (35.595s).
+Chaos tests pass with strict page-write hooks (45.641s). These are local runs,
+not unloaded-machine cost evidence and not the full physical-crash product.
+
+The public path always selects ledger for Pebble and refuses engine/capability
+mismatches. SQLite keeps its token path. Existing Pebble tests now read sealed
+stats rather than decoding an empty token. The cut harness cuts actual page
+commits, counts pending spawned work from the ledger walk, and rejects any token
+write; it no longer silently sweeps zero checkpoint cuts. Test-only stores state
+the engine and page capability they represent.
+
+The warn-retain lifecycle corpus failed before terminal ingest facts and flags
+were saved with seal readiness; it passes with that correction. Duplicate page
+arrivals in the changed-answer sweep failed with a busy-page error before the
+identity claim. `TestLedgerDuplicatePageWaitsForCommittedRow` fails when the claim
+is removed and passes with one handler execution; cancelled waits release cleanly.
+No alternative scheduler was introduced. Final-data comparison for conflicting
+sibling writes uses an uninterrupted run with the same commit order.
+
+Default report publication/deletion is not enabled by this increment. Public
+retention tests still exercise retained ledger rows until the next lifecycle step.

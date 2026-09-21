@@ -149,6 +149,7 @@ type syncer struct {
 	ledgered        bool
 	ledger          *ledgerRuntime
 	ledgerExpansion *ledgerExpansionStream
+	storeAttachErr  error
 	// cfg is the caller's request: every value set by a With* option and
 	// nothing else, immutable once NewSyncer returns (see config.go).
 	cfg   syncConfig
@@ -1010,6 +1011,10 @@ func (s *syncer) Sync(ctx context.Context) error {
 		l.Debug("resuming previous sync", zap.String("sync_id", syncID))
 	}
 
+	if s.ledgered {
+		return s.syncLedger(ctx, runCtx, span, newSync, targetedResources)
+	}
+
 	// Every run that reaches collection rewrites sync-scoped data, so no
 	// prior verification may survive into the window where the store is
 	// being mutated. New syncs carry no marker (no-op); the case that
@@ -1235,6 +1240,10 @@ func (s *syncer) SkipSync(ctx context.Context) (err error) {
 	_, err = s.connector.Validate(runCtx, &v2.ConnectorServiceValidateRequest{})
 	if err != nil {
 		return err
+	}
+
+	if s.ledgered {
+		return s.skipLedgerSync(runCtx)
 	}
 
 	// TODO: Create a new sync type for empty syncs.
@@ -3877,7 +3886,7 @@ func (s *syncer) loadStore(ctx context.Context) error {
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if s.store != nil {
-		return nil
+		return s.storeAttachErr
 	}
 
 	storeOpts := []dotc1z.C1ZOption{dotc1z.WithTmpDir(s.cfg.tmpDir)}
@@ -3889,15 +3898,23 @@ func (s *syncer) loadStore(ctx context.Context) error {
 		return err
 	}
 
+	s.setStore(store)
+	if s.storeAttachErr != nil {
+		_ = store.Close(ctx)
+		return s.storeAttachErr
+	}
 	if s.cfg.setSessionStore != nil {
 		// Instrumented so session-store cost is attributable in the sync
 		// stats instead of vanishing into inflated connector-call latency
 		// (e.g. a broken backend whose every request times out before the
 		// connector falls back to real work).
 		kind := "c1z_" + store.Metadata().Engine
-		s.cfg.setSessionStore.SetSessionStore(ctx, session.NewInstrumentedSessionStore(store.SessionStore(), kind, "", s.recordSessionOp))
+		sessionStore := store.SessionStore()
+		if s.ledgered {
+			sessionStore = ledgerSessionStore{SessionStore: sessionStore}
+		}
+		s.cfg.setSessionStore.SetSessionStore(ctx, session.NewInstrumentedSessionStore(sessionStore, kind, "", s.recordSessionOp))
 	}
-	s.setStore(store)
 
 	// Now that s.store is populated, wire the expand progress log's size
 	// provider. NewSyncer could not do this when the caller used
@@ -3915,6 +3932,26 @@ func (s *syncer) loadStore(ctx context.Context) error {
 func (s *syncer) setStore(store c1zstore.Store) {
 	s.store = store
 	s.caps = resolveStoreCaps(store)
+	s.ledgered = false
+	s.storeAttachErr = nil
+	if store == nil {
+		s.storeAttachErr = errors.New("sync store is nil")
+		return
+	}
+	switch c1zstore.Engine(store.Metadata().Engine) {
+	case c1zstore.EnginePebble:
+		if s.caps.pageLedger == nil {
+			s.storeAttachErr = errors.New("pebble sync store requires PageLedgerStore")
+			return
+		}
+		s.ledgered = true
+	case c1zstore.EngineSQLite:
+		if s.caps.pageLedger != nil {
+			s.storeAttachErr = errors.New("SQLite sync store must not implement PageLedgerStore")
+		}
+	default:
+		s.storeAttachErr = fmt.Errorf("unsupported sync store engine %q", store.Metadata().Engine)
+	}
 }
 
 // wireCountsDBSizeProvider attaches the store's DBSizeProvider capability
@@ -4314,6 +4351,9 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 		o(s)
 	}
 
+	if s.storeAttachErr != nil {
+		return nil, s.storeAttachErr
+	}
 	if s.store == nil && s.cfg.c1zPath == "" {
 		return nil, errors.New("a connector store writer or a db path must be provided")
 	}

@@ -73,6 +73,11 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 	if s.ledger == nil {
 		return errors.New("ledger runtime is not initialized")
 	}
+	release, err := s.ledger.claimPage(ctx, ledgerIdentity(action))
+	if err != nil {
+		return err
+	}
+	defer release()
 	row, found, err := s.ledger.store.GetLedgerRow(ctx, ledgerIdentity(action))
 	if err != nil {
 		return ledgerPageWriteError{cause: err}
@@ -117,6 +122,9 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		page.row.Spawned = action.Spawned
 		page.row.TypeScopedPlanned = action.TypeScopedPlanned
 		pageCtx = context.WithValue(pageCtx, ledgerInvocationKey{}, invocation)
+		if err := s.ledger.preparePage(pageCtx); err != nil {
+			return err
+		}
 		var err error
 		switch {
 		case s.testHooks.ledgerHandler != nil:
@@ -180,6 +188,9 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 				return err
 			}
 			attempts.committed()
+			if s.testHooks.ledgerCommitted != nil {
+				s.testHooks.ledgerCommitted(page.row)
+			}
 			if invocation.resourceChildren {
 				if s.childSchedule.m == nil {
 					s.childSchedule.m = make(map[string]struct{})

@@ -10,6 +10,10 @@ import (
 )
 
 func (s *syncer) restoreLedgerState(ctx context.Context, resume ledgerResume, newSync bool) error {
+	if s.testHooks.ledgerWalk != nil {
+		s.testHooks.ledgerWalk(true)
+		defer s.testHooks.ledgerWalk(false)
+	}
 	if s.ledger == nil {
 		return errors.New("ledger runtime is not initialized")
 	}

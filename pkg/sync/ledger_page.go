@@ -19,6 +19,9 @@ var (
 type ledgerRuntime struct {
 	store           c1zstore.PageLedgerStore
 	runObservations *runStats
+	prepareMu       native_sync.Mutex
+	beforePage      func(context.Context) error
+	prepared        bool
 	runID           string
 	mu              native_sync.Mutex
 	commitMu        native_sync.Mutex
@@ -28,6 +31,7 @@ type ledgerRuntime struct {
 	workers         map[uint32]c1zstore.LedgerCounters
 	active          map[uint32]bool
 	pages           map[c1zstore.LedgerActionIdentity]bool
+	claims          map[c1zstore.LedgerActionIdentity]chan struct{}
 }
 
 func newLedgerRuntime(ctx context.Context, store c1zstore.PageLedgerStore, runID string) (*ledgerRuntime, error) {

@@ -32,5 +32,9 @@ func (s *syncer) checkpointLedgerOnStop(ctx context.Context) {
 	defer cancel()
 	if err := s.ledger.flushRunCounters(ctx, s.ledger.runCounterSnapshot()); err != nil {
 		ctxzap.Extract(ctx).Error("error persisting run accounting while stopping sync", zap.Error(err))
+		return
+	}
+	if s.testHooks.ledgerStop != nil {
+		s.testHooks.ledgerStop(ctx)
 	}
 }

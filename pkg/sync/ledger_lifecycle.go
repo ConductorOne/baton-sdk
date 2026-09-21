@@ -21,7 +21,7 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 		return false, err
 	}
 	if finished && (resume.sealReady || len(resume.actions) == 0) {
-		if err := ledger.ClearLedgerRows(ctx, []string{ledgerFactSealReady}); err != nil {
+		if err := ledger.ClearLedgerRows(ctx, []string{ledgerFactSealReady, ledgerFactExpansionComplete}); err != nil {
 			return false, err
 		}
 		resume.actions = []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}

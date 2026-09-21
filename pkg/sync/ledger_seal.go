@@ -10,7 +10,7 @@ import (
 
 const ledgerTerminalOp = "sync-terminal-v1"
 
-func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.LedgerCounters) error {
+func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.LedgerCounters, facts ...string) error {
 	r.mu.Lock()
 	if len(r.active) != 0 {
 		r.mu.Unlock()
@@ -24,6 +24,11 @@ func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.Le
 	}
 	page := r.store.BeginPage()
 	defer page.Discard()
+	for _, fact := range facts {
+		if err := page.SetFact(fact); err != nil {
+			return err
+		}
+	}
 	if err := page.SetFact(ledgerFactSealReady); err != nil {
 		return err
 	}

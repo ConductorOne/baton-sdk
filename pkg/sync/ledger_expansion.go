@@ -12,6 +12,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 )
 
+const ledgerFactExpansionComplete = "sync.expansion_complete"
+
 const ledgerExpansionCursorPrefix = "ledger-expansion:"
 
 var errLedgerExpansionStopped = errors.New("ledger expansion stopped")
@@ -84,6 +86,9 @@ func (s *syncer) syncLedgerExpansion(ctx context.Context, action *Action) error 
 		return err
 	}
 	if !more {
+		if err := invocation.page.setFact(ledgerFactExpansionComplete); err != nil {
+			return err
+		}
 		invocation.afterCommit = append(invocation.afterCommit, func() {
 			s.graph.restore(stream.graph)
 			s.expandDropStats = stream.drops

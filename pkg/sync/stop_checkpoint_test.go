@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
@@ -100,4 +101,8 @@ func TestPeriodicCheckpointFailureWithLiveCallerIsNotRetried(t *testing.T) {
 		"the store failure must reach the caller unchanged")
 	require.Len(t, store.outcomes, 1,
 		"a genuine store failure with a live caller must not be retried on a detached context")
+}
+
+func (s *checkpointOutcomeStore) Metadata() connectorstore.StoreMetadata {
+	return connectorstore.StoreMetadata{Engine: string(c1zstore.EngineSQLite)}
 }

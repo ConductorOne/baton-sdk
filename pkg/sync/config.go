@@ -24,6 +24,7 @@ import (
 // resumes across process boundaries: mutable run state has to survive in
 // the store, config only has to be passed again.
 type syncConfig struct {
+	retainLedgerTokens                  bool
 	c1zPath                             string
 	externalResourceC1ZPath             string
 	externalResourceEntitlementIdFilter string
