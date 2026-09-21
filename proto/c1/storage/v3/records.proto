@@ -488,6 +488,24 @@ message LedgerRow {
   uint64 connector_errors = 20;
   uint64 sdk_retry_wait_ms = 21;
   uint64 sdk_rate_limit_wait_ms = 22;
+  LedgerCollectionStats collection = 23;
+}
+
+message LedgerCollectionStats {
+  uint64 list_responses = 1;
+  uint64 empty_list_responses = 2;
+  uint64 empty_list_responses_with_continuation = 3;
+  uint64 resource_types_received = 4;
+  uint64 resources_received = 5;
+  uint64 entitlements_received = 6;
+  uint64 grants_received = 7;
+  uint64 resource_types_excluded_by_selection = 8;
+  uint64 entitlements_excluded_by_type = 9;
+  uint64 grants_excluded_by_type = 10;
+  uint64 derived_resources_excluded_by_type = 11;
+  uint64 resource_types_excluded_invalid = 12;
+  uint64 resources_excluded_invalid = 13;
+  uint64 entitlements_excluded_invalid = 14;
 }
 
 // LedgerCounterBucket is one (run, worker) bucket of sync-level

@@ -240,6 +240,7 @@ func ledgerRowToProto(row *c1zstore.LedgerRow) *v3.LedgerRow {
 		children = append(children, v3.LedgerChild_builder{Identity: ledgerIdentityToProto(c.Identity), Spawned: c.Spawned}.Build())
 	}
 	b := v3.LedgerRow_builder{
+		Collection:           ledgerCollectionToProto(row.Collection),
 		ObservationsRecorded: row.ObservationsRecorded,
 		ConnectorAttempts:    row.ConnectorAttempts,
 		ConnectorErrors:      row.ConnectorErrors,
@@ -267,6 +268,7 @@ func ledgerRowFromProto(p *v3.LedgerRow) *c1zstore.LedgerRow {
 		children = append(children, c1zstore.LedgerChild{Identity: ledgerIdentityFromProto(c.GetIdentity()), Spawned: c.GetSpawned()})
 	}
 	row := &c1zstore.LedgerRow{
+		Collection:               ledgerCollectionFromProto(p.GetCollection()),
 		ObservationsRecorded:     p.GetObservationsRecorded(),
 		ConnectorAttempts:        p.GetConnectorAttempts(),
 		ConnectorErrors:          p.GetConnectorErrors(),
@@ -336,4 +338,47 @@ func ledgerDurationMS(d time.Duration) uint64 {
 		return 0
 	}
 	return uint64(d) / uint64(time.Millisecond) //nolint:gosec // d is positive after the guard above.
+}
+
+func ledgerCollectionToProto(c *c1zstore.LedgerCollectionStats) *v3.LedgerCollectionStats {
+	if c == nil {
+		return nil
+	}
+	return v3.LedgerCollectionStats_builder{
+		ListResponses:                      c.ListResponses,
+		EmptyListResponses:                 c.EmptyListResponses,
+		EmptyListResponsesWithContinuation: c.EmptyListResponsesWithContinuation,
+		ResourceTypesReceived:              c.ResourceTypesReceived,
+		ResourcesReceived:                  c.ResourcesReceived,
+		EntitlementsReceived:               c.EntitlementsReceived,
+		GrantsReceived:                     c.GrantsReceived,
+		ResourceTypesExcludedBySelection:   c.ResourceTypesExcludedBySelection,
+		EntitlementsExcludedByType:         c.EntitlementsExcludedByType,
+		GrantsExcludedByType:               c.GrantsExcludedByType,
+		DerivedResourcesExcludedByType:     c.DerivedResourcesExcludedByType,
+		ResourceTypesExcludedInvalid:       c.ResourceTypesExcludedInvalid,
+		ResourcesExcludedInvalid:           c.ResourcesExcludedInvalid,
+		EntitlementsExcludedInvalid:        c.EntitlementsExcludedInvalid,
+	}.Build()
+}
+func ledgerCollectionFromProto(c *v3.LedgerCollectionStats) *c1zstore.LedgerCollectionStats {
+	if c == nil {
+		return nil
+	}
+	return &c1zstore.LedgerCollectionStats{
+		ListResponses:                      c.GetListResponses(),
+		EmptyListResponses:                 c.GetEmptyListResponses(),
+		EmptyListResponsesWithContinuation: c.GetEmptyListResponsesWithContinuation(),
+		ResourceTypesReceived:              c.GetResourceTypesReceived(),
+		ResourcesReceived:                  c.GetResourcesReceived(),
+		EntitlementsReceived:               c.GetEntitlementsReceived(),
+		GrantsReceived:                     c.GetGrantsReceived(),
+		ResourceTypesExcludedBySelection:   c.GetResourceTypesExcludedBySelection(),
+		EntitlementsExcludedByType:         c.GetEntitlementsExcludedByType(),
+		GrantsExcludedByType:               c.GetGrantsExcludedByType(),
+		DerivedResourcesExcludedByType:     c.GetDerivedResourcesExcludedByType(),
+		ResourceTypesExcludedInvalid:       c.GetResourceTypesExcludedInvalid(),
+		ResourcesExcludedInvalid:           c.GetResourcesExcludedInvalid(),
+		EntitlementsExcludedInvalid:        c.GetEntitlementsExcludedInvalid(),
+	}
 }

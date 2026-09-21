@@ -31,8 +31,26 @@ type LedgerChild struct {
 	Spawned  bool
 }
 
+type LedgerCollectionStats struct {
+	ListResponses                      uint64 `json:"list_responses"`
+	EmptyListResponses                 uint64 `json:"empty_list_responses"`
+	EmptyListResponsesWithContinuation uint64 `json:"empty_list_responses_with_continuation"`
+	ResourceTypesReceived              uint64 `json:"resource_types_received"`
+	ResourcesReceived                  uint64 `json:"resources_received"`
+	EntitlementsReceived               uint64 `json:"entitlements_received"`
+	GrantsReceived                     uint64 `json:"grants_received"`
+	ResourceTypesExcludedBySelection   uint64 `json:"resource_types_excluded_by_selection"`
+	EntitlementsExcludedByType         uint64 `json:"entitlements_excluded_by_type"`
+	GrantsExcludedByType               uint64 `json:"grants_excluded_by_type"`
+	DerivedResourcesExcludedByType     uint64 `json:"derived_resources_excluded_by_type"`
+	ResourceTypesExcludedInvalid       uint64 `json:"resource_types_excluded_invalid"`
+	ResourcesExcludedInvalid           uint64 `json:"resources_excluded_invalid"`
+	EntitlementsExcludedInvalid        uint64 `json:"entitlements_excluded_invalid"`
+}
+
 type LedgerRow struct {
-	Identity LedgerActionIdentity
+	Collection *LedgerCollectionStats
+	Identity   LedgerActionIdentity
 	// Empty when the action finished, and after a scrub (Scrubbed).
 	NextPageToken string
 	Children      []LedgerChild
