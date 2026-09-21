@@ -1555,3 +1555,22 @@ worker sums and offline time. Full seal elapsed time is logged after seal; it
 must not be invented in an artifact finalized beforehand. Final persistence and
 disposal ordering will be detailed before their lifecycle implementation, with
 failure cuts proving report/options retention and resumability.
+
+### 45.1 Retry observation storage and ownership
+
+Add optional numeric row fields for connector attempts/errors, actual SDK retry
+backoff and actual SDK rate-limit waits, plus an observation-presence bit. Keep
+connector-reported wait time in its existing field. Old rows have unknown attempt
+coverage, not asserted zero attempts. No token/identity or durability changes.
+Round-trip through PageWriter and GetLedgerRow must retain values, including after
+seal scrubbing. Plant adapter field omission before closing that consumer check.
+
+The coordinator and each scheduler worker own a separate retry accumulator on
+context. Select the page by its full identity; changing identity clears the
+accumulator. Connector observations increment it, and the existing wait observer
+adds actual sleeps. A successful page copies a snapshot before commit and clears
+the accumulator only after commit. Failed staging is discarded normally. Keep
+access synchronized because connector wait callbacks can execute concurrently.
+No per-resource map. A missing accumulator in direct handler tests uses a local
+single-attempt accumulator. Do not classify an action/store error as a connector
+error. Streaming asset errors must be observed at their connector boundary.
