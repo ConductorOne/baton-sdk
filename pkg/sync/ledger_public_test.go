@@ -5,16 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest/observer"
 	"path/filepath"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 type ledgerMetadataStore struct {
@@ -130,6 +130,10 @@ func TestLedgerPublicStopResume(t *testing.T) {
 	counts, err := f.ledger.LedgerCounters(t.Context())
 	require.NoError(t, err)
 	require.EqualValues(t, 2, counts.ConnectorCalls["list-resource-types"].Count)
+	options, err := f.ledger.GetArchivedLedgerOptions(t.Context(), "")
+	require.NoError(t, err)
+	require.False(t, options.Requested.RetainLedgerTokens)
+	require.True(t, options.EffectiveRetainLedgerTokens)
 	resources, err := f.store.ListResourceTypes(t.Context(), &v2.ResourceTypesServiceListResourceTypesRequest{})
 	require.NoError(t, err)
 	require.Len(t, resources.GetList(), 3)

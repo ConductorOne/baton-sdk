@@ -18,11 +18,13 @@ func (s *syncer) stageLedgerReportOptions(invocation *ledgerInvocation) error {
 	cfg := s.cfg
 	options := c1zstore.LedgerReportOptions{
 		Attempt:                            s.ledger.runID,
+		EffectiveLedgerDebug:               s.ledgerDebug,
+		EffectiveRetainLedgerTokens:        cfg.retainLedgerTokens || hasFact(c1zstore.LedgerFactRetainTokens),
 		EffectiveSkipGrants:                hasFact(factShouldSkipGrants),
 		EffectiveSkipEntitlementsAndGrants: hasFact(factShouldSkipEntitlementsAndGrants),
 		Requested: c1zstore.LedgerRequestedOptions{
 			SyncType: string(cfg.syncType), ResourceTypes: cfg.syncResourceTypes, WorkerCount: cfg.workerCount, RunDurationMs: cfg.runDuration.Milliseconds(),
-			LedgerDebug: s.ledgerDebug, RetainLedgerTokens: cfg.retainLedgerTokens,
+			LedgerDebug: cfg.ledgerDebug, RetainLedgerTokens: cfg.retainLedgerTokens,
 			SkipFullSync: cfg.skipFullSync, SkipGrants: cfg.skipGrants, SkipEntitlementsAndGrants: cfg.skipEntitlementsAndGrants,
 			OnlyExpandGrants: cfg.onlyExpandGrants, DontExpandGrants: cfg.dontExpandGrants, PreserveEntitlementGraph: cfg.preserveEntitlementGraph,
 			FailFastInvariants: cfg.failFastInvariants, ExternalSourceConfigured: s.externalResourceReader != nil,

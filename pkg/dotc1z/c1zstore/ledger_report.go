@@ -13,6 +13,8 @@ type LedgerReportTarget struct {
 }
 
 type LedgerReportOptions struct {
+	EffectiveLedgerDebug               bool                   `json:"effective_ledger_debug"`
+	EffectiveRetainLedgerTokens        bool                   `json:"effective_retain_ledger_tokens"`
 	Attempt                            string                 `json:"attempt"`
 	Requested                          LedgerRequestedOptions `json:"requested"`
 	EffectiveSkipGrants                bool                   `json:"effective_skip_grants"`

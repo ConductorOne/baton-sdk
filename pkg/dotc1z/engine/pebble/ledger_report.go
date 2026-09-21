@@ -210,7 +210,7 @@ func (e *Engine) GenerateLedgerReport(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if report.Options != nil && report.Options.Requested.LedgerDebug {
+	if report.Options != nil && (report.Options.EffectiveLedgerDebug || report.Options.Requested.LedgerDebug) {
 		report.References, err = e.validateLedgerReferences(ctx)
 		if err != nil {
 			return nil, err

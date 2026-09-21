@@ -138,7 +138,7 @@ closure of C10, C37, C38 or C47.
 
 ### C13
 
-- Status: failed.
+- Status: evidence incomplete.
 - Candidate: implementation.md §5; not yet executed for this criterion.
 - Required coverage: plan C13 and applicable calibration entries.
 - Planted defect: not run for this criterion.
@@ -147,9 +147,11 @@ closure of C10, C37, C38 or C47.
 
 - Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. K2c added restored-pass adapter guards; see the K2c table below.
 
+- Current disposition: the failed private executor was removed. The shared-scheduler regression suite and public sync suite pass; see the public-routing entry. The remaining product cells and physical crash coverage are not closed by that passing suite.
+
 ### C14
 
-- Status: failed.
+- Status: evidence incomplete.
 - Candidate: implementation.md §5; not yet executed for this criterion.
 - Required coverage: plan C14 and applicable calibration entries.
 - Planted defect: not run for this criterion.
@@ -157,6 +159,8 @@ closure of C10, C37, C38 or C47.
 - Not covered: all required cells until an explicit execution entry is added.
 
 - Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. K2c added restored-pass adapter guards; see the K2c table below.
+
+- Current disposition: the failed private executor was removed. The shared-scheduler regression suite and public sync suite pass; see the public-routing entry. The remaining product cells and physical crash coverage are not closed by that passing suite.
 
 ### C15
 
@@ -206,7 +210,7 @@ closure of C10, C37, C38 or C47.
 
 ### C20
 
-- Status: failed.
+- Status: evidence incomplete.
 - Candidate: TestLedgerPageCumulativeWorkersAndAttempts; TestLedgerScheduleStopsAndJoinsOnError.
 - Required coverage: plan C20 and applicable calibration entries.
 - Planted defect: not run for this criterion; green mechanism tests only.
@@ -214,6 +218,8 @@ closure of C10, C37, C38 or C47.
 - Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
 
 - Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. K2c added restored-pass adapter guards; see the K2c table below.
+
+- Current disposition: the failed private executor was removed. The shared-scheduler regression suite and public sync suite pass; see the public-routing entry. The remaining product cells and physical crash coverage are not closed by that passing suite.
 
 ### C21
 
@@ -235,7 +241,7 @@ closure of C10, C37, C38 or C47.
 
 ### C23
 
-- Status: failed.
+- Status: evidence incomplete.
 - Candidate: implementation.md §5; not yet executed for this criterion.
 - Required coverage: plan C23 and applicable calibration entries.
 - Planted defect: not run for this criterion.
@@ -243,6 +249,8 @@ closure of C10, C37, C38 or C47.
 - Not covered: all required cells until an explicit execution entry is added.
 
 - Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. K2c added restored-pass adapter guards; see the K2c table below.
+
+- Current disposition: the failed private executor was removed. The shared-scheduler regression suite and public sync suite pass; see the public-routing entry. The remaining product cells and physical crash coverage are not closed by that passing suite.
 
 ### C24
 
@@ -1924,3 +1932,22 @@ close physical crash images or the C49 unloaded-machine cost matrix. The default
 currently scrubs at seal before disposal; the additional scrub/purge work must
 be included in the final cost report. No claim of a scrub-free disposal path is
 made.
+
+### Archive crash images and effective retention options
+
+`TestLedgerArchiveDurableCrashImages` opens five durable-only crash images:
+sealed before archive, archived before disposal, disposed, restore stamp before
+batch, and restored. The report survives once archived; archived facts/counters
+restore once after disposal; a failed restore before its batch can retry. Sync
+completion and empty token remain intact. Replacing the archive's synced metadata
+write with NoSync makes the archived crash image lose the report and fail. The
+mutation is removed. This adds physical durability evidence for these five cuts;
+it does not cover every archive I/O error or all P7 cells.
+
+Saved requested debug/retention values remain the caller's options. Separate
+effective fields record debug logging and a prior durable retain-token declaration.
+The public resume test verifies an inherited declaration remains effective even
+when the resumed invocation does not request it again. Resolved debug policy does
+not mutate syncConfig. Focused policy tests pass (0.311s) and lint reports zero
+issues. `TestLedgerPublicLogsSavedStats` checks the log's structured JSON equals
+the saved artifact.
