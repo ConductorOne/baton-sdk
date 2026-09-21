@@ -406,7 +406,7 @@ infer the plan from commit titles.
   shows no regression on the primary metric of any later commit.
 - **SQLite sentinel bound:** `sqlite_writepack_1k_ms` regresses ≤5%
   vs the immediately-prior commit's measurement.
-- Lint clean against the pinned `golangci-lint v2.12.2`.
+- Lint clean against the pinned `golangci-lint v2.13.2`.
 - `make lint/pre-push` (or equivalent in this repo: `make lint`)
   clean.
 - For S1 specifically: a new envelope_test.go test case for each
