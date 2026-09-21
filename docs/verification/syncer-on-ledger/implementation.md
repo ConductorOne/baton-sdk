@@ -1807,3 +1807,21 @@ The breakdown does not yet isolate metadata bytes from record bytes or compare
 token versus ledger handler CPU. No acceptance conclusion follows from it. Keep
 C49 open and use profiling and the remaining matrix to distinguish added work,
 existing-store effects and measurement variability before proposing an optimization.
+
+### 50. Expose existing recorded phase elapsed time
+
+C50's elapsed-phase field uses the coordinator's existing StepDurationsMs buckets,
+not the sum of page durations. Project field 4 from counter buckets during the
+report's existing ledger-family walk. Keep only the finite supported collection
+operation names; omit retry-label maps and unknown keys. This bounds retained
+memory independently of label cardinality. Values fold across persisted attempts,
+including an archived/restored earlier pass. Name the field recorded_sync_phase_elapsed_ms
+to distinguish it from the current report's page set. Missing entries remain
+absent; expansion, validation, report and seal time are not invented from page
+sums. Abruptly lost run-level observations cannot be recovered from these buckets.
+
+Tests compare an explicit two-attempt phase model, include thousands of unknown
+labels without enlarging output, reject malformed/overflow duration values and
+show committed page duration cannot substitute for coordinator elapsed time.
+A mutation dropping the bucket projection must fail the model check. This changes
+report projection only; scheduler timing and SQLite execution stay unchanged.
