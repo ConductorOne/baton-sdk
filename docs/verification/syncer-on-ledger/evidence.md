@@ -1951,3 +1951,14 @@ when the resumed invocation does not request it again. Resolved debug policy doe
 not mutate syncConfig. Focused policy tests pass (0.311s) and lint reports zero
 issues. `TestLedgerPublicLogsSavedStats` checks the log's structured JSON equals
 the saved artifact.
+
+### Public-Sync cost smoke (C49)
+
+Status remains evidence incomplete. `cost-public-smoke/` contains 36 interleaved
+samples against eb63f1b5 with actual production handlers, default report/disposal,
+verified output counts, binary hashes and machine inputs. Fresh wall ratios range
+0.941–1.199 and resumed ratios 1.400–1.673 in these four small-page configurations.
+Report generation/archive is 1.7–10.6 ms; the resume walk is below 0.1 ms. Separate
+CPU samples locate most of the resumed increase in storage reads. Tripwires and
+limitations are recorded in implementation.md §49.1 and the table README. No
+unloaded-machine, full-matrix or production-size acceptance claim is made.

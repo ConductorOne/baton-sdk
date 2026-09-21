@@ -1,0 +1,962 @@
+[
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 1,
+    "metric": "sync_wall_ns",
+    "medians": {
+      "token": 656472963,
+      "fresh": 787315471,
+      "resume": 1018556050
+    },
+    "ratios": {
+      "fresh": 1.1993113431542801,
+      "resume": 1.5515582627277218
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 1,
+    "metric": "pebble_bytes_written",
+    "medians": {
+      "token": 10478514,
+      "fresh": 12739049,
+      "resume": 13957304
+    },
+    "ratios": {
+      "fresh": 1.215730493846742,
+      "resume": 1.3319926852223511
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 1,
+    "metric": "wal_bytes_before_close",
+    "medians": {
+      "token": 8500999,
+      "fresh": 9262895,
+      "resume": 9044095
+    },
+    "ratios": {
+      "fresh": 1.0896242900393236,
+      "resume": 1.0638861385585388
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 1,
+    "metric": "flush_bytes_before_close",
+    "medians": {
+      "token": 1977515,
+      "fresh": 2060977,
+      "resume": 2059023
+    },
+    "ratios": {
+      "fresh": 1.0422054952806932,
+      "resume": 1.0412173864673593
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 1,
+    "metric": "compaction_bytes_before_close",
+    "medians": {
+      "token": 0,
+      "fresh": 1415177,
+      "resume": 2861807
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 1,
+    "metric": "c1z_bytes",
+    "medians": {
+      "token": 371396,
+      "fresh": 111407,
+      "resume": 114247
+    },
+    "ratios": {
+      "fresh": 0.29996822798306927,
+      "resume": 0.3076150523969025
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 1,
+    "metric": "peak_rss_kib",
+    "medians": {
+      "token": 47112,
+      "fresh": 50552,
+      "resume": 51464
+    },
+    "ratios": {
+      "fresh": 1.0730174902360332,
+      "resume": 1.0923756155544235
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 1,
+    "metric": "page_commit_ns",
+    "medians": {
+      "token": null,
+      "fresh": 233169532,
+      "resume": 326555170
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 1,
+    "metric": "handler_ns",
+    "medians": {
+      "token": null,
+      "fresh": 455405086,
+      "resume": 549096268
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 1,
+    "metric": "seal_ns",
+    "medians": {
+      "token": null,
+      "fresh": 48122031,
+      "resume": 75378599
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 1,
+    "metric": "seal_fold_ns",
+    "medians": {
+      "token": null,
+      "fresh": 162453,
+      "resume": 177950
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 1,
+    "metric": "seal_scrub_ns",
+    "medians": {
+      "token": null,
+      "fresh": 2196763,
+      "resume": 2215886
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 1,
+    "metric": "seal_purge_ns",
+    "medians": {
+      "token": null,
+      "fresh": 29677224,
+      "resume": 58800943
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 1,
+    "metric": "resume_walk_ns",
+    "medians": {
+      "token": null,
+      "fresh": 15173,
+      "resume": 84028
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 1,
+    "metric": "report_ns",
+    "medians": {
+      "token": null,
+      "fresh": 1749347,
+      "resume": 1787964
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 1,
+    "metric": "disposal_ns",
+    "medians": {
+      "token": null,
+      "fresh": 30136656,
+      "resume": 29676576
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 4,
+    "metric": "sync_wall_ns",
+    "medians": {
+      "token": 484793942,
+      "fresh": 581029621,
+      "resume": 760871741
+    },
+    "ratios": {
+      "fresh": 1.1985084190676623,
+      "resume": 1.5694745232604412
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 4,
+    "metric": "pebble_bytes_written",
+    "medians": {
+      "token": 10502177,
+      "fresh": 12469349,
+      "resume": 13865655
+    },
+    "ratios": {
+      "fresh": 1.187310878496906,
+      "resume": 1.3202648365191332
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 4,
+    "metric": "wal_bytes_before_close",
+    "medians": {
+      "token": 8544000,
+      "fresh": 9074956,
+      "resume": 9046502
+    },
+    "ratios": {
+      "fresh": 1.0621437265917604,
+      "resume": 1.058813436329588
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 4,
+    "metric": "flush_bytes_before_close",
+    "medians": {
+      "token": 1958177,
+      "fresh": 2041257,
+      "resume": 2032215
+    },
+    "ratios": {
+      "fresh": 1.0424272167429196,
+      "resume": 1.0378096566347168
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 4,
+    "metric": "compaction_bytes_before_close",
+    "medians": {
+      "token": 0,
+      "fresh": 1347230,
+      "resume": 2771019
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 4,
+    "metric": "c1z_bytes",
+    "medians": {
+      "token": 400420,
+      "fresh": 127831,
+      "resume": 131747
+    },
+    "ratios": {
+      "fresh": 0.3192422955896309,
+      "resume": 0.3290220268717846
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 4,
+    "metric": "peak_rss_kib",
+    "medians": {
+      "token": 48592,
+      "fresh": 51236,
+      "resume": 52004
+    },
+    "ratios": {
+      "fresh": 1.054412248929865,
+      "resume": 1.0702173197234113
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 4,
+    "metric": "page_commit_ns",
+    "medians": {
+      "token": null,
+      "fresh": 289952566,
+      "resume": 432785854
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 4,
+    "metric": "handler_ns",
+    "medians": {
+      "token": null,
+      "fresh": 514901237,
+      "resume": 661897786
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 4,
+    "metric": "seal_ns",
+    "medians": {
+      "token": null,
+      "fresh": 47740448,
+      "resume": 75515665
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 4,
+    "metric": "seal_fold_ns",
+    "medians": {
+      "token": null,
+      "fresh": 233435,
+      "resume": 242886
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 4,
+    "metric": "seal_scrub_ns",
+    "medians": {
+      "token": null,
+      "fresh": 2297109,
+      "resume": 2274049
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 4,
+    "metric": "seal_purge_ns",
+    "medians": {
+      "token": null,
+      "fresh": 29184268,
+      "resume": 59138723
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 4,
+    "metric": "resume_walk_ns",
+    "medians": {
+      "token": null,
+      "fresh": 15175,
+      "resume": 95232
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 4,
+    "metric": "report_ns",
+    "medians": {
+      "token": null,
+      "fresh": 2296742,
+      "resume": 1748062
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 1000,
+    "records": 100,
+    "workers": 4,
+    "metric": "disposal_ns",
+    "medians": {
+      "token": null,
+      "fresh": 29738763,
+      "resume": 29944217
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 1,
+    "metric": "sync_wall_ns",
+    "medians": {
+      "token": 7570405530,
+      "fresh": 8518993027,
+      "resume": 10598056001
+    },
+    "ratios": {
+      "fresh": 1.125302071763651,
+      "resume": 1.3999324024323436
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 1,
+    "metric": "pebble_bytes_written",
+    "medians": {
+      "token": 104886497,
+      "fresh": 123492453,
+      "resume": 127693908
+    },
+    "ratios": {
+      "fresh": 1.1773913376094542,
+      "resume": 1.2174484957772973
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 1,
+    "metric": "wal_bytes_before_close",
+    "medians": {
+      "token": 85100485,
+      "fresh": 92229038,
+      "resume": 90096038
+    },
+    "ratios": {
+      "fresh": 1.083766302859496,
+      "resume": 1.0587018158592163
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 1,
+    "metric": "flush_bytes_before_close",
+    "medians": {
+      "token": 19799578,
+      "fresh": 21160250,
+      "resume": 21223611
+    },
+    "ratios": {
+      "fresh": 1.0687222727676318,
+      "resume": 1.0719223914772325
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 1,
+    "metric": "compaction_bytes_before_close",
+    "medians": {
+      "token": 0,
+      "fresh": 10081706,
+      "resume": 16433419
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 1,
+    "metric": "c1z_bytes",
+    "medians": {
+      "token": 3513906,
+      "fresh": 2114818,
+      "resume": 656959
+    },
+    "ratios": {
+      "fresh": 0.6018425080238344,
+      "resume": 0.18695975361890727
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 1,
+    "metric": "peak_rss_kib",
+    "medians": {
+      "token": 163436,
+      "fresh": 185964,
+      "resume": 189156
+    },
+    "ratios": {
+      "fresh": 1.1378398883966814,
+      "resume": 1.1573704691744782
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 1,
+    "metric": "page_commit_ns",
+    "medians": {
+      "token": null,
+      "fresh": 2770318628,
+      "resume": 3748827354
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 1,
+    "metric": "handler_ns",
+    "medians": {
+      "token": null,
+      "fresh": 5084243684,
+      "resume": 6012206601
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 1,
+    "metric": "seal_ns",
+    "medians": {
+      "token": null,
+      "fresh": 395615328,
+      "resume": 549165193
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 1,
+    "metric": "seal_fold_ns",
+    "medians": {
+      "token": null,
+      "fresh": 563462,
+      "resume": 548672
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 1,
+    "metric": "seal_scrub_ns",
+    "medians": {
+      "token": null,
+      "fresh": 22868164,
+      "resume": 22869741
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 1,
+    "metric": "seal_purge_ns",
+    "medians": {
+      "token": null,
+      "fresh": 274420977,
+      "resume": 419461380
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 1,
+    "metric": "resume_walk_ns",
+    "medians": {
+      "token": null,
+      "fresh": 14593,
+      "resume": 82948
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 1,
+    "metric": "report_ns",
+    "medians": {
+      "token": null,
+      "fresh": 7332989,
+      "resume": 8085886
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 1,
+    "metric": "disposal_ns",
+    "medians": {
+      "token": null,
+      "fresh": 55265464,
+      "resume": 33531287
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 4,
+    "metric": "sync_wall_ns",
+    "medians": {
+      "token": 6289210713,
+      "fresh": 5917997685,
+      "resume": 10519384024
+    },
+    "ratios": {
+      "fresh": 0.9409762138780482,
+      "resume": 1.6726079796080129
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 4,
+    "metric": "pebble_bytes_written",
+    "medians": {
+      "token": 104715928,
+      "fresh": 115626985,
+      "resume": 126285841
+    },
+    "ratios": {
+      "fresh": 1.1041967273593756,
+      "resume": 1.2059850245513748
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 4,
+    "metric": "wal_bytes_before_close",
+    "medians": {
+      "token": 85089790,
+      "fresh": 90635679,
+      "resume": 90184575
+    },
+    "ratios": {
+      "fresh": 1.0651769031278606,
+      "resume": 1.0598753975065633
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 4,
+    "metric": "flush_bytes_before_close",
+    "medians": {
+      "token": 19628239,
+      "fresh": 20960892,
+      "resume": 20915054
+    },
+    "ratios": {
+      "fresh": 1.0678946797010165,
+      "resume": 1.0655593708635809
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 4,
+    "metric": "compaction_bytes_before_close",
+    "medians": {
+      "token": 0,
+      "fresh": 3979053,
+      "resume": 15283950
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 4,
+    "metric": "c1z_bytes",
+    "medians": {
+      "token": 3811121,
+      "fresh": 3450262,
+      "resume": 780296
+    },
+    "ratios": {
+      "fresh": 0.905314210700736,
+      "resume": 0.20474185941616652
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 4,
+    "metric": "peak_rss_kib",
+    "medians": {
+      "token": 167624,
+      "fresh": 179092,
+      "resume": 201340
+    },
+    "ratios": {
+      "fresh": 1.0684150241015606,
+      "resume": 1.2011406481172147
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 4,
+    "metric": "page_commit_ns",
+    "medians": {
+      "token": null,
+      "fresh": 3503662189,
+      "resume": 5683795824
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 4,
+    "metric": "handler_ns",
+    "medians": {
+      "token": null,
+      "fresh": 5805435353,
+      "resume": 9917006276
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 4,
+    "metric": "seal_ns",
+    "medians": {
+      "token": null,
+      "fresh": 293349113,
+      "resume": 715680763
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 4,
+    "metric": "seal_fold_ns",
+    "medians": {
+      "token": null,
+      "fresh": 1032249,
+      "resume": 1053912
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 4,
+    "metric": "seal_scrub_ns",
+    "medians": {
+      "token": null,
+      "fresh": 22575339,
+      "resume": 33308304
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 4,
+    "metric": "seal_purge_ns",
+    "medians": {
+      "token": null,
+      "fresh": 168458615,
+      "resume": 551072861
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 4,
+    "metric": "resume_walk_ns",
+    "medians": {
+      "token": null,
+      "fresh": 16426,
+      "resume": 92659
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 4,
+    "metric": "report_ns",
+    "medians": {
+      "token": null,
+      "fresh": 7642358,
+      "resume": 10561960
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  },
+  {
+    "pages": 10000,
+    "records": 100,
+    "workers": 4,
+    "metric": "disposal_ns",
+    "medians": {
+      "token": null,
+      "fresh": 36551868,
+      "resume": 35975579
+    },
+    "ratios": {
+      "fresh": null,
+      "resume": null
+    }
+  }
+]

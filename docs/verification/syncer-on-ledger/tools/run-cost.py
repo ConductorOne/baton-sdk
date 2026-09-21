@@ -16,12 +16,12 @@ def digest(path):
         return hashlib.file_digest(source, "sha256").hexdigest()
 
 
-def run_arm(binary, arm, pages, records, workers, output, timeout):
+def run_arm(binary, arm, pages, records, workers, output, timeout, public):
     result_path = output.with_suffix(".json")
     env = dict(os.environ, BATON_LEDGER_COST="1", BATON_LEDGER_COST_PAGES=str(pages),
                BATON_LEDGER_COST_RECORDS=str(records), BATON_LEDGER_COST_WORKERS=str(workers),
                BATON_LEDGER_COST_OUTPUT=str(result_path), BATON_LEDGER_COST_ARM=arm)
-    test = "TestLedgerCostBaseline" if arm == "token" else "TestLedgerCostRuntime"
+    test = "TestLedgerCostBaseline" if arm == "token" else ("TestLedgerCostPublic" if public else "TestLedgerCostRuntime")
     start = time.monotonic()
     with output.open("wb") as log:
         process = subprocess.Popen([str(binary), f"-test.run=^{test}$", "-test.v", f"-test.timeout={timeout}s"],
@@ -41,7 +41,8 @@ def run_arm(binary, arm, pages, records, workers, output, timeout):
     if process.returncode:
         raise RuntimeError(f"{arm} exited {process.returncode}; see {output}")
     result = json.loads(result_path.read_text())
-    expected = "token-path" if arm == "token" else f"ledger-scheduler-{arm}-no-sync"
+    path = "public" if public else "scheduler"
+    expected = "token-path" if arm == "token" else f"ledger-{path}-{arm}-no-sync"
     if result["arm"] != expected:
         raise ValueError(f"expected {expected}, got {result['arm']}")
     for key, value in (("pages", pages), ("records_per_page", records), ("workers", workers),
@@ -58,6 +59,7 @@ def run_arm(binary, arm, pages, records, workers, output, timeout):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--public", action="store_true", help="measure public Sync including report and default disposal")
     parser.add_argument("--baseline", required=True, type=Path)
     parser.add_argument("--ledger", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
@@ -84,7 +86,7 @@ def main():
     rows = []
     metrics = ["sync_wall_ns", "pebble_bytes_written", "wal_bytes_before_close", "flush_bytes_before_close",
                "compaction_bytes_before_close", "c1z_bytes", "peak_rss_kib",
-               "page_commit_ns", "handler_ns", "seal_ns", "seal_fold_ns", "seal_scrub_ns", "seal_purge_ns", "resume_walk_ns"]
+               "page_commit_ns", "handler_ns", "seal_ns", "seal_fold_ns", "seal_scrub_ns", "seal_purge_ns", "resume_walk_ns", "report_ns", "disposal_ns"]
     for pages in args.pages:
         for records in args.records:
             for workers in args.workers:
@@ -95,7 +97,7 @@ def main():
                     for arm in arms[offset:] + arms[:offset]:
                         name = f"p{pages}-r{records}-w{workers}-rep{repetition}-{arm}"
                         sample = run_arm(binaries[arm], arm, pages, records, workers,
-                                         args.output / (name + ".log"), args.timeout)
+                                         args.output / (name + ".log"), args.timeout, args.public)
                         cell[arm].append(sample)
                         samples.append(sample)
                         (args.output / "samples.json").write_text(json.dumps(samples, indent=2) + "\n")
@@ -112,7 +114,8 @@ def main():
                                      medians=medians, ratios=ratios))
     (args.output / "table.json").write_text(json.dumps(rows, indent=2) + "\n")
     lines = ["# Interleaved cost smoke", "",
-             "Existing scheduler with synthetic page handlers; actual resumed NoSync. CO-012 actual resume behavior; not an acceptance table.", "",
+             ("Public Sync including report archival and default disposal; actual resumed NoSync. Not an acceptance table." if args.public else
+              "Existing scheduler with synthetic page handlers; actual resumed NoSync. Not an acceptance table."), "",
              "| Pages | Records/page | Workers | Metric | Token | Fresh | Resumed | Fresh/token | Resumed/token |",
              "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     render = lambda value: "N/A" if value is None else f"{value:.4g}"

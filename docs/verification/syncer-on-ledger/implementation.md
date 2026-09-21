@@ -1793,3 +1793,17 @@ resource counts, machine limits and load qualification. Start with a bounded
 smoke to validate the public harness. Neither a smoke run nor estimated large
 cells closes the required unloaded-machine matrix. Preserve that distinction in
 the table and in criterion status.
+
+#### 49.1 Public smoke tripwires
+
+The public 36-sample smoke in cost-public-smoke triggers the fresh wall tripwire
+in three of four configurations and the resumed wall tripwire in all four.
+The two 1,000-page resumed configurations also exceed 1.25 in write bytes.
+The report costs 1.7–10.6 ms across 1,000–10,000 pages; it is not the dominant
+cost. At 10,000 pages/one worker, handler and commit time account for most measured
+work, and resumed growth is in both categories, not the sub-millisecond walk.
+Sealing still scrubs and purges before deletion; that work is included, not hidden.
+The breakdown does not yet isolate metadata bytes from record bytes or compare
+token versus ledger handler CPU. No acceptance conclusion follows from it. Keep
+C49 open and use profiling and the remaining matrix to distinguish added work,
+existing-store effects and measurement variability before proposing an optimization.

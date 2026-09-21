@@ -1,0 +1,29 @@
+File: syncer-ledger-token.test
+Build ID: cb6b32058091c21a88dd94e69f532cc23d74c61c
+Type: cpu
+Time: 2026-09-21 21:15:02 UTC
+Duration: 8.61s, Total samples = 8770ms (101.85%)
+Showing nodes accounting for 3820ms, 43.56% of 8770ms total
+Dropped 418 nodes (cum <= 43.85ms)
+Showing top 20 nodes out of 295
+      flat  flat%   sum%        cum   cum%
+     590ms  6.73%  6.73%     1240ms 14.14%  github.com/cockroachdb/pebble/v2/internal/arenaskl.(*Skiplist).findSpliceForLevel
+     350ms  3.99% 10.72%      350ms  3.99%  cmpbody
+     270ms  3.08% 13.80%     3170ms 36.15%  github.com/cockroachdb/pebble/v2.(*DB).getInternal
+     230ms  2.62% 16.42%      290ms  3.31%  runtime.tryDeferToSpanScan
+     230ms  2.62% 19.04%      230ms  2.62%  sync/atomic.(*Int32).Add (inline)
+     220ms  2.51% 21.55%      340ms  3.88%  runtime.scanObjectsSmall
+     180ms  2.05% 23.60%      240ms  2.74%  github.com/cockroachdb/pebble/v2.(*Iterator).Close
+     180ms  2.05% 25.66%      180ms  2.05%  internal/runtime/syscall/linux.Syscall6
+     160ms  1.82% 27.48%      160ms  1.82%  runtime.memclrNoHeapPointers
+     150ms  1.71% 29.19%      500ms  5.70%  bytes.Compare (partial-inline)
+     150ms  1.71% 30.90%      150ms  1.71%  github.com/segmentio/ksuid.fastEncodeBase62
+     140ms  1.60% 32.50%      490ms  5.59%  google.golang.org/protobuf/internal/impl.(*MessageInfo).unmarshalPointerEager
+     140ms  1.60% 34.09%      840ms  9.58%  runtime.mallocgcSmallScanNoHeader
+     140ms  1.60% 35.69%      140ms  1.60%  runtime.nextFreeFast (inline)
+     130ms  1.48% 37.17%      280ms  3.19%  regexp.(*Regexp).tryBacktrack
+     130ms  1.48% 38.65%      130ms  1.48%  runtime.futex
+     120ms  1.37% 40.02%      180ms  2.05%  github.com/cockroachdb/pebble/v2/internal/arenaskl.(*Skiplist).getNext (inline)
+     110ms  1.25% 41.28%      780ms  8.89%  github.com/cockroachdb/pebble/v2.(*getIter).initializeNextIterator
+     110ms  1.25% 42.53%      110ms  1.25%  runtime.(*mspan).writeHeapBitsSmall
+      90ms  1.03% 43.56%       90ms  1.03%  internal/runtime/atomic.(*Uint64).Add (inline)
