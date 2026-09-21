@@ -1904,3 +1904,10 @@ recorded, the report exists and the default ledger is absent. Finished cuts must
 not recollect. Plant a missing-row-as-complete walk defect and show the fixture
 fails before restoring it. This bounded fixture does not close the other handler
 families, physical-loss cuts or complete logical/index differential criteria.
+
+For the sealed/archived/disposed cuts, use WithOnlyExpandGrants when continuing
+under the same sync ID, matching the host's deferred-processing request. Reusing
+collection options requests collection through baseline initial action planning;
+that is not a valid fixture for the no-recollection assertion. Unfinished cuts
+retain their original collection options. No production lifecycle change follows
+from this fixture correction.
