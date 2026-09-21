@@ -1860,3 +1860,13 @@ keys and checks the write recorder saw no attempted write. It must fail on the
 existing empty-bucket write before the guard is added. Existing run-accounting
 fixtures continue to verify that repeated nonempty flushes replace, rather than
 add to, the same attempt's bucket.
+
+## 53. Current-machine cost measurements (CO-019)
+
+The requester accepts the current environment for C49. Record CPU, storage,
+container limits and observed load; do not require another benchmark runner.
+Keep builds and test suites outside timed runs and interleave the pinned token
+baseline with fresh/resumed public Sync. Report the existing fresh-token versus
+resumed-ledger comparison accurately: it includes reopening and existing-store
+cost, not only ledger overhead. Rebuild the current ledger binary before the
+next measurements; retain earlier results with their original revision labels.

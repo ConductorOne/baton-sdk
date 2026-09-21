@@ -1006,3 +1006,20 @@ There are now 49 criteria; the frozen §4 count describes the baseline.
   changed skip flags remain unequal; unreadable option values fail comparison.
 - **Risk routing:** correctness and operability passes.
 - **PR placement:** this PR.
+
+## CO-019 — use the current benchmark machine
+
+- **Classification:** clarification
+- **Source:** requester
+- **Claim:** Run the remaining C49 measurements on the current environment;
+  a dedicated or independently qualified unloaded machine is not required.
+  Record the observed machine and load conditions with the results.
+- **Motivation:** The requester accepts this machine for performance evaluation.
+- **Contract delta:** measurement environment only; no durability or runtime change.
+- **Owning boundary:** C49 cost harness and evidence.
+- **Affected criteria:** C49.
+- **Verification delta:** preserve interleaved baseline/ledger comparisons and
+  metric definitions; describe observed host conditions without claiming isolation.
+  This does not waive the remaining matrix, decomposition or tripwire explanation.
+- **Risk routing:** cost pass.
+- **PR placement:** this PR.
