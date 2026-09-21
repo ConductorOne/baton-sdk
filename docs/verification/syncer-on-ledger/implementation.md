@@ -1825,3 +1825,24 @@ labels without enlarging output, reject malformed/overflow duration values and
 show committed page duration cannot substitute for coordinator elapsed time.
 A mutation dropping the bucket projection must fail the model check. This changes
 report projection only; scheduler timing and SQLite execution stay unchanged.
+
+### 51. Bound debug reference validation by rows and edges
+
+The first target projection in §48 still visited every repeated child field to
+find the target's scrub flag. For R references to a target containing C children,
+that is O(R*C) protobuf field visits even without decoding child identities. This
+violates the report's required complexity bound and must not remain.
+
+Validate each stored row's key/identity echo once in the sequential row scan.
+For child and continuation references, reuse a separate indexed iterator and
+compare only the sought key with the returned key. Never request the target's
+value. Identity mismatches count malformed stored rows, not incoming references;
+lookup/missing counts remain per edge. Memory remains one source row and sixteen
+examples. Work is O(rows + encoded source bytes + indexed edge lookups), without
+repeated target-value parsing. Pebble owns the index/block lookup cost.
+
+Add an instrumented key-only iterator that fails if Value is requested, and a
+wide-row repeated-fan-in fixture asserting each source row is checked once.
+Retain missing/valid reference, scrub and token-nondisclosure checks. A mutation
+reading target values must fail the iterator consumer test. The earlier small
+fan-in count test alone was insufficient evidence of bounded work.
