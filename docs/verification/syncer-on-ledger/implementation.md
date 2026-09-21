@@ -1919,3 +1919,22 @@ state before exiting. Require an Init row in those images, at least one resource
 row after resource commit, and all six resource rows at terminal boundaries.
 The explicit-flush arm tests recovery with known surviving history; it does not
 change production NoSync durability or require unflushed pages to survive.
+
+## 55. Public legacy takeover crash cases (C25–C27)
+
+Extend the public process fixture with token versions 0, 1 and 2. Seed the first
+page of each of two resource listings using the token-path store writes, then
+checkpoint a stack whose two actions begin at page token 1. Flush this starting
+image. Crash before takeover, after takeover, or after the first subsequent
+resource-page commit, with one/four workers. Preserve these fixture tokens as
+explicit JSON rather than deriving expected cursors through unmarshalToken.
+
+Before recovery runs, assert token presence before takeover and token absence plus
+an exact frontier afterward. Treat the seeded legacy pages as completed even
+though they have no ledger rows; their records must remain and the connector must
+not receive those cursors. Missing post-token pages must run once, committed
+post-token pages must not repeat, and the normal public completion assertions
+still apply. Plant loss of the legacy page token during restoration and require
+failure on the connector's pre-token-page guard. This covers cursor migration in
+three accepted versions; parent/type-scoped identity and every other token field
+remain the existing separate fixture obligations.
