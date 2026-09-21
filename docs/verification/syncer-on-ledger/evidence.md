@@ -61,11 +61,11 @@ of C10, C37, C38 or C47 over all required cells.
 ### C04
 
 - Status: evidence incomplete.
-- Candidate: TestLedgerRuntimeCrashProcess.
-- Required coverage: plan C04 and calibration CO-005.
-- Planted defect: no separate torn-write mutant; six process-exit boundaries pass.
-- Green command/revision: K2b execution entry below.
-- Not covered: physical WAL-loss cuts, all handler families, public Sync entry, complete mechanical products.
+- Tests run: TestLedgerRuntimeCrashProcess; TestLedgerPublicCrashResume.
+- Coverage: runtime process cuts plus public resource-page/terminal cuts with one/four workers, ordinary WAL recovery and explicitly flushed committed history. Public recovery compares transported raw keys and exact final resource identities/payloads.
+- Planted defect: missing-resource-action walk mutation fails the public fixture; this is not a separate torn-record/index mutation.
+- Green command/revision: K2b and public process-recovery entries below.
+- Not covered: physical WAL-loss cuts, the other handler families, complete logical/index differentials and full P1/P6 products.
 
 ### C05
 
@@ -292,11 +292,11 @@ of C10, C37, C38 or C47 over all required cells.
 ### C28
 
 - Status: evidence incomplete.
-- Candidate: TestLedgerTakeoverCountersImportedOnlyWhenAbsent.
-- Required coverage: plan C28 and applicable calibration entries.
+- Tests run: TestLedgerTakeoverCountersImportedOnlyWhenAbsent; TestLedgerPublicCrashResume.
+- Coverage: existing-bucket import guard, plus exact public completed-action totals across V0/V1/V2 takeover and post-token process recovery.
 - Planted defect: disabled existing-counter guard; migration added historical totals to an existing bucket set; exact-fold assertion failed; restored.
 - Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
-- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
+- Not covered: every counter family across P4 × K × N, physical WAL-loss images and final differential closure.
 
 ### C29
 
@@ -2147,3 +2147,19 @@ zero compactions and read amplification 2. Cache hit rates are 99.9% in both.
 The report is not the source of this increase. Table overlap/negative lookup
 cost is the current hypothesis, not a proven exclusive cause. Optional metric
 capture is test-only; both profile runs verify ten million records. Lint passes.
+
+### Isolated filter experiment (C49)
+
+The candidate and matched control each verify ten million resources. Filtered
+fresh Sync takes 104.057 s versus 111.504 s unfiltered, while final artifact size
+rises from 6.4 MB to 19.0 MB on the compressible fixture. Physical bytes written
+rise 2.2%. The patch, hashes, metrics and explicit limitations are saved under
+cost-current-machine-10million/bloom-experiment. The candidate is not adopted;
+production settings remain unchanged. This experiment does not close C49 or
+establish filter compatibility. No new correctness test or planted defect is
+claimed for an unadopted production change.
+
+The adjacent token control takes 80.989 s, making the unfiltered
+ledger/token ratio 1.377 and filtered ratio 1.285. Both ledger arms exceed
+the fresh-wall tripwire in this repeat. This is reported for requester acceptance,
+not silently treated as an acceptable regression. All three processes pass.
