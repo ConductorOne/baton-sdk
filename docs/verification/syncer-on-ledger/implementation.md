@@ -1612,3 +1612,30 @@ Options, phase timing and durable report publication precede default disposal.
 Keep the existing iterator/projection and mutation tests on the production code;
 retain fixture exporters and benchmarks in test files. Do not add a second report
 implementation or materialize all rows to cross the package boundary.
+
+Retry timing follow-up: the committed row's connector duration and reported waits
+also include failed attempts preceding success in that worker. Otherwise attempts
+would include those calls while the timing silently omitted them. The successful
+page's record/exclusion observations remain separate from discarded results.
+
+### 45.4 Safe option snapshots
+
+Snapshot a typed allowlist of caller options with the first committed page of
+an attempt. Preserve the snapshot under an attempt-specific fact and a latest
+snapshot fact. No writes during restoration; failed pages leave no snapshot.
+Include selected type IDs, target identities, collection/expansion flags, worker
+count, run limit, graph/invariant settings, external-source presence/traits/filter
+and previous-source presence/optional behavior. Exclude paths, callbacks, session
+stores, credentials, arbitrary resource annotations and sync identity metadata.
+
+Label caller values as requested options. Record the saved effective skip facts
+separately: a new flag supplied while resuming does not retroactively re-plan
+already-recorded work. Report generation decodes the latest snapshot into the
+same allowlisted type; unknown JSON fields are not forwarded. Count historical
+snapshot keys without loading all their values. History remains available in the
+ledger; the eventual disposal step must preserve option snapshots separately.
+
+Checks: first-page failure leaves no option facts; retry saves them with the page;
+resume does not overwrite the earlier attempt's snapshot; inherited skip facts
+can differ from requested flags; secrets in omitted config/resource fields never
+appear. Plant omitted snapshot staging and direct raw-JSON forwarding defects.
