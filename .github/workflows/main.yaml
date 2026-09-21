@@ -34,7 +34,8 @@ jobs:
           # Pinned. See ci.yaml note: a `latest` golangci-lint version
           # bump can retroactively break PRs and main when new rules
           # land. Update deliberately and fix new findings in the same PR.
-          version: v2.12.2
+          # v2.13.2 is also the floor for a go1.27 module; see ci.yaml.
+          version: v2.13.2
           args: --timeout=3m
   go-test:
     strategy:

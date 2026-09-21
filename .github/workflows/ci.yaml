@@ -19,7 +19,12 @@ jobs:
           # in v2.10+, breaking PRs that were clean against earlier
           # versions. Bump deliberately, fixing any new findings in the
           # same PR.
-          version: v2.12.2
+          #
+          # v2.13.2 is the floor: its binaries are built with go1.27, and a
+          # release built with an older Go refuses to load the config at all
+          # ("the Go language version used to build golangci-lint is lower
+          # than the targeted Go version").
+          version: v2.13.2
           args: --timeout=3m
   go-test:
     strategy:

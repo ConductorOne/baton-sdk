@@ -571,7 +571,7 @@ func (ie *IncrementalExpander) forEachGrant(ctx context.Context, entitlement *v2
 	for {
 		resp, err := ie.store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 			Entitlement:              entitlement,
-			PrincipalResourceTypeIds: resourceTypeIDs,
+			PrincipalResourceTypeIds: resourceTypeIDs, //nolint:staticcheck // deprecated with no replacement named in the proto; the filter is still required
 			PageToken:                pageToken,
 		}.Build())
 		if err != nil {

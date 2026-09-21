@@ -194,7 +194,7 @@ func (c *actionStatusTaskHandler) HandleTask(ctx context.Context) error {
 	}
 
 	resp, err := cc.GetActionStatus(ctx, v2.GetActionStatusRequest_builder{
-		Name:        t.GetName(),
+		Name:        t.GetName(), //nolint:staticcheck // deprecated for Id below, still sent because a connector may read either
 		Id:          t.GetId(),
 		Annotations: t.GetAnnotations(),
 	}.Build())

@@ -615,8 +615,6 @@ var ErrReadOnly = errors.New("c1z: read only mode")
 // cannot truncate the c1z mid-finalize; the new-root finalize span links
 // back to the caller's trace for navigability without bloating the
 // parent trace.
-//
-//nolint:nonamedreturns // named return required so the deferred span captures all early-return error paths
 func (c *C1File) Close(ctx context.Context) (retErr error) {
 	ctx, span := tracer.Start(ctx, "C1File.Close")
 	defer func() { uotel.EndSpanWithError(span, retErr) }()
