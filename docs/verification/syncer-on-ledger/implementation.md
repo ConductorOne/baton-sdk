@@ -1574,3 +1574,25 @@ access synchronized because connector wait callbacks can execute concurrently.
 No per-resource map. A missing accumulator in direct handler tests uses a local
 single-attempt accumulator. Do not classify an action/store error as a connector
 error. Streaming asset errors must be observed at their connector boundary.
+
+### 45.2 Received and excluded records
+
+Store optional collection observations on a page: response counts (successful
+list, empty list, empty list with continuation), received records by four families,
+selected-type exclusions by affected family, and invalid records actually omitted
+by the existing resource/type/entitlement validators. Use fixed numeric fields,
+not per-record maps or raw validation strings. Nil observations mean unmeasured.
+Planning actions have a measured zero-response observation, not an empty response.
+
+Observe typed list results only after a successful connector return, before SDK
+filtering. Internal store lists never count as connector responses. Counts describe
+the successful execution that committed; discarded attempts contribute only the
+separate attempt/error/wait observations. Grant-derived resource exclusions are
+separate from received resource counts. Removing an expansion annotation or an
+entry within it is not dropping a record; keep those existing diagnostics distinct.
+
+Storage consumer tests must preserve unequal counters through commit and scrub.
+Handler tests cover empty with continuation, all-filtered nonempty input, selected
+resource types and mixed grant-derived content. Plant zero-writes-as-empty and
+omitted-selection-counter defects. Aggregation reads the new fixed fields in the
+existing projection and does not add record lookups.
