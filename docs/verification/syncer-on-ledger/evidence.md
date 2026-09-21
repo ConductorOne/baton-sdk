@@ -35,10 +35,10 @@ of C10, C37, C38 or C47 over all required cells.
 
 - Status: evidence incomplete.
 - Tests run: TestLedgerPublicEngineAttachment; TestStoreCapsEngineMatrix.
-- Coverage: eight injected engine/capability combinations, including empty-engine refusal; public real-store attachment in the full suite.
-- Planted defect: not yet run against the attachment guard.
+- Coverage: eight injected engine/capability combinations, including empty-engine refusal, unchanged key snapshots and zero attempted writes; explicit path attachment for both real engines.
+- Planted defect: removing the Pebble capability requirement makes the missing-capability case return success and fail the test; restored.
 - Green revision: 6c8e2209 full sync and ledger race runs.
-- Not covered: explicit P3 cell accounting for path attachment and all early-write/call observations.
+- Not covered: formal P3 reachability accounting for engine/capability combinations that the built-in file factory cannot produce; explicit connector-call instrumentation at attachment.
 
 ### C02
 
@@ -403,12 +403,12 @@ of C10, C37, C38 or C47 over all required cells.
 
 ### C40
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
-- Required coverage: plan C40 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Status: evidence incomplete.
+- Tests run: TestLedgerPublicStopResume; TestLedgerPublicCancelledAfterWalkWritesNothing; TestLedgerRunAccountingDurationStop; page cancellation and scheduler error fixtures.
+- Defect evidence: cancelling a public resume immediately after the walk attempted an empty counter-bucket write. The write-recorder assertion failed before the empty-snapshot guard; it passes after the guard.
+- Coverage: no page calls or attempted store writes on that cancellation boundary; raw key/value equality; real duration/session accounting still flushes and repeated flushes do not double-count.
+- Green command: focused public/run-accounting tests and race three times (4.122s); broad lint zero issues.
+- Not covered: all retry/deadline/fatal outcomes across the complete worker/process product.
 
 ### C41
 
@@ -2018,3 +2018,20 @@ and fails the test. The mutation is removed. Identity mismatches count stored
 rows once, independently of incoming edge count; a ten-reference malformed-target
 fixture verifies that rule. Missing-reference, scrub and token-free-example checks
 still pass. Focused tests pass (0.058s), and broad lint reports zero issues.
+
+### Attachment and empty-stop consumer checks (C01, C40)
+
+TestLedgerPublicEngineAttachment compares every key/value and write-recorder
+length before/after all eight engine/capability combinations. Removing the
+Pebble capability guard fails the refusal case; the mutation is removed.
+TestLedgerPublicPathAttachment loads both real engines through WithC1ZPath and
+checks the selected path. The public cancellation-after-walk test failed on an
+attempted empty run-bucket write before the IsZero guard. Nonempty observations
+remain durable under the existing repeated-flush tests. Focused checks pass;
+public/run-accounting race checks pass three times (4.122s), lint has zero issues.
+The repository-wide build and Baton command tests also pass (0.923s for commands).
+
+After the empty-stop guard, the full sync suite passes (81.140s). The latest
+storage projection/reference revision passed full Pebble (9.086s), targeted
+storage race checks three times (1.618s), and the preceding full sync run
+(82.627s). No mutation remains in the working tree.

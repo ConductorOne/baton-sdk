@@ -47,7 +47,16 @@ func TestLedgerPublicEngineAttachment(t *testing.T) {
 				if capability {
 					store = ledgerMetadataCapabilityStore{ledgerMetadataStore: metadataStore, PageLedgerStore: f.ledger}
 				}
+				before := ledgerRawSnapshot(t, f.engine)
+				f.audit.mu.Lock()
+				writes := len(f.audit.events)
+				f.audit.mu.Unlock()
 				created, err := NewSyncer(t.Context(), newMockConnector(), WithConnectorStore(store))
+				require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
+				f.audit.mu.Lock()
+				afterWrites := len(f.audit.events)
+				f.audit.mu.Unlock()
+				require.Equal(t, writes, afterWrites)
 				valid := engine == "pebble" && capability || engine == "sqlite" && !capability
 				if !valid {
 					require.Error(t, err)
@@ -269,4 +278,60 @@ func TestLedgerDebugLoggingPreservesRequestedConfig(t *testing.T) {
 	require.NoError(t, s.configureLedgerReport(ctx))
 	require.True(t, s.ledgerDebug)
 	require.False(t, s.cfg.ledgerDebug)
+}
+
+func TestLedgerPublicPathAttachment(t *testing.T) {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble, c1zstore.EngineSQLite} {
+		t.Run(string(engine), func(t *testing.T) {
+			created, err := NewSyncer(t.Context(), newMockConnector(), WithC1ZPath(filepath.Join(t.TempDir(), "attach.c1z")), WithStorageEngine(engine))
+			require.NoError(t, err)
+			s := created.(*syncer)
+			require.NoError(t, s.loadStore(t.Context()))
+			require.Equal(t, engine == c1zstore.EnginePebble, s.ledgered)
+			require.NoError(t, s.Close(t.Context()))
+		})
+	}
+}
+
+func TestLedgerPublicCancelledAfterWalkWritesNothing(t *testing.T) {
+	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "cancel-walk.c1z"), false)
+	connector := &ledgerTypesConnector{mockConnector: newMockConnector()}
+	ctx, cancel := context.WithCancel(t.Context())
+	first, err := NewSyncer(t.Context(), connector, WithConnectorStore(f.store), WithSkipEntitlementsAndGrants(true), WithProgressHandler(func(*Progress) {
+		if len(connector.calls) == 1 {
+			cancel()
+		}
+	}))
+	require.NoError(t, err)
+	require.ErrorIs(t, first.Sync(ctx), context.Canceled)
+	cancel()
+	require.NoError(t, f.store.Close(t.Context()))
+	f = openLedgerFixtureAt(t, f.path, false)
+	connector = &ledgerTypesConnector{mockConnector: newMockConnector()}
+	resumed, err := NewSyncer(t.Context(), connector, WithConnectorStore(f.store), WithSkipEntitlementsAndGrants(true))
+	require.NoError(t, err)
+	ctx, cancel = context.WithCancel(t.Context())
+	defer cancel()
+	var before []ledgerKV
+	var writes int
+	resumed.(*syncer).testHooks.ledgerWalk = func(entering bool) {
+		if !entering {
+			before = ledgerRawSnapshot(t, f.engine)
+			f.audit.mu.Lock()
+			writes = len(f.audit.events)
+			f.audit.mu.Unlock()
+			f.audit.enter(ledgerWalk)
+			cancel()
+		}
+	}
+	err = resumed.Sync(ctx)
+	f.audit.enter(ledgerLifecycle)
+	require.ErrorIs(t, err, context.Canceled)
+	require.NotNil(t, before)
+	require.Empty(t, connector.calls)
+	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
+	f.audit.mu.Lock()
+	afterWrites := len(f.audit.events)
+	f.audit.mu.Unlock()
+	require.Equal(t, writes, afterWrites)
 }
