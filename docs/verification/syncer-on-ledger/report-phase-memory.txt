@@ -1,0 +1,8 @@
+goos: linux
+goarch: arm64
+pkg: github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble
+BenchmarkLedgerReportPrototype/pages=1000000/many-resources-4         	       3	 706127869 ns/op	   2004800 heap-after-gc-B	   4437056 heap-sampled-peak-B	   2145544 heap-start-B	       424.0 memory-samples	     17680 report-bytes	 287694848 rss-sampled-peak-B	 259735552 rss-start-B	49419858 B/op	 4011161 allocs/op
+BenchmarkLedgerReportPrototype/pages=1000000/single-chain-4           	       3	 622016446 ns/op	   2059456 heap-after-gc-B	   4398680 heap-sampled-peak-B	   2150712 heap-start-B	       374.0 memory-samples	      4511 report-bytes	 349532160 rss-sampled-peak-B	 343220224 rss-start-B	33197570 B/op	 3009572 allocs/op
+BenchmarkLedgerReportPrototype/pages=1000000/many-types-4             	       3	 864758780 ns/op	   2014128 heap-after-gc-B	   4813816 heap-sampled-peak-B	   2171128 heap-start-B	       518.0 memory-samples	     30874 report-bytes	 384503808 rss-sampled-peak-B	 369881088 rss-start-B	73788333 B/op	 5014309 allocs/op
+PASS
+ok  	github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble	27.802s

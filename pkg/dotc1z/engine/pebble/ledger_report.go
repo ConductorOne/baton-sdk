@@ -58,6 +58,7 @@ type ledgerReportCollection struct {
 }
 
 type ledgerReportSummary struct {
+	PhaseElapsedMs                                        map[string]uint64
 	References                                            *ledgerReferenceStats
 	Options                                               *ledgerReportOptionSummary
 	OptionSnapshots                                       uint64
@@ -173,7 +174,8 @@ func renderLedgerReport(report ledgerReportSummary) ([]byte, error) {
 		return top
 	}
 	return json.Marshal(map[string]any{
-		"latest_attempt_options": report.Options, "option_snapshots": report.OptionSnapshots,
+		"recorded_sync_phase_elapsed_ms": report.PhaseElapsedMs,
+		"latest_attempt_options":         report.Options, "option_snapshots": report.OptionSnapshots,
 		"schema_version": 2, "grants_disabled": report.GrantsDisabled, "entitlements_disabled": report.EntitlementsDisabled,
 		"pages": report.Pages, "collections": report.Collections, "record_writes": report.Written, "record_writes_by_family": report.Writes,
 		"attempt_observations":    report.Attempts,

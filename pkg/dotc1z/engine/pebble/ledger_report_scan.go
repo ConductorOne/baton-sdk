@@ -295,6 +295,7 @@ func ledgerReportScan(ctx context.Context, iter ledgerReportIterator,
 		}
 		return nil
 	}
+	counterPrefix := rawdb.LedgerCounterPrefix()
 	rowPrefix := rawdb.LedgerKeyPrefix()
 	optionsKey := encodeLedgerFactKey(c1zstore.LedgerFactReportOptions)
 	optionPrefix := encodeLedgerFactKey(c1zstore.LedgerFactReportOptionsPrefix)
@@ -307,6 +308,10 @@ func ledgerReportScan(ctx context.Context, iter ledgerReportIterator,
 		result.LedgerKeysScanned++
 		key := iter.Key()
 		switch {
+		case bytes.HasPrefix(key, counterPrefix):
+			if err := result.addPhaseDurations(iter.Value()); err != nil {
+				return result, err
+			}
 		case bytes.Equal(key, optionsKey):
 			var options ledgerReportOptionSummary
 			if err := json.Unmarshal([]byte(rawdb.DecodeLedgerFactValue(iter.Value())), &options); err != nil {

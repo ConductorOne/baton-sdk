@@ -2,7 +2,9 @@
 
 Plan frozen at `01931d8b`; calibration `d9277866`; implementation brief
 `644c26cf`. Execution is in progress. Candidate names in the brief are not
-passing evidence. No criterion is closed by this initial record.
+passing evidence. The per-criterion index remains conservative: passing mechanism
+tests do not close unexecuted coverage-product cells. Dated/revisioned execution
+entries below preserve earlier results, including superseded implementations.
 
 ## Equality normalizations (CO-005)
 
@@ -20,23 +22,23 @@ required cells, not executed cells. P4's repeated resumes are mandatory
 subcases. Additional feature crosses specified by individual criteria still
 need fixtures; the generated products are not the entire coverage model.
 
-The initial strict fixture observes direct puts, grant deletion, assets,
-checkpoint and EndSync. Sub-store/session writes and other lifecycle methods
-are not yet covered by its companion recorder. Raw snapshots include every
-key/value and have a close/reopen test. Process-crash images and canonical
-normalization instruments remain to be built. Do not treat their absence as
-closure of C10, C37, C38 or C47.
+The strict fixture and companion capability recorder cover page writes, lifecycle
+mutators and session writes. Public chaos fixtures install the engine write hook.
+Raw snapshots, logical canonical comparisons, process-crash tests and durable-only
+VFS crash images have executed; their bounded coverage is recorded below. The
+full product-to-executed-test manifest remains incomplete. This is not closure
+of C10, C37, C38 or C47 over all required cells.
 
 ## Per-criterion record
 
 ### C01
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
-- Required coverage: plan C01 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Status: evidence incomplete.
+- Tests run: TestLedgerPublicEngineAttachment; TestStoreCapsEngineMatrix.
+- Coverage: eight injected engine/capability combinations, including empty-engine refusal; public real-store attachment in the full suite.
+- Planted defect: not yet run against the attachment guard.
+- Green revision: 6c8e2209 full sync and ledger race runs.
+- Not covered: explicit P3 cell accounting for path attachment and all early-write/call observations.
 
 ### C02
 
@@ -319,11 +321,11 @@ closure of C10, C37, C38 or C47.
 ### C31
 
 - Status: evidence incomplete.
-- Candidate: TestLedgerSealRequiresTerminalPage; TestLedgerTerminalPageAndSealStats; TestLedgerTerminalFailureDoesNotPublishProof.
-- Required coverage: plan C31 and applicable calibration entries.
-- Planted defect: not run for this criterion; terminal staging-failure fixtures and public stats-reader checks are green.
-- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
-- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
+- Tests run: TestLedgerSealRequiresTerminalPage; TestLedgerTerminalPageAndSealStats; TestLedgerTerminalFailureDoesNotPublishProof; TestLedgerPublicSyncSealsWithoutToken; TestLedgerPublicSkipSync; TestLedgerPublicStopResume.
+- Coverage: terminal proof, public sealing/stats, empty token, default archive/drop, and debug retention.
+- Planted defects: no disposal and archive-error fallthrough fail public tests; unsynced archive fails the durable crash-image test. Terminal error cuts also pass.
+- Green revision: 6c8e2209; detailed execution entries below.
+- Not covered: complete P7 fault/crash product and final differential closure.
 
 ### C32
 
@@ -337,29 +339,29 @@ closure of C10, C37, C38 or C47.
 ### C33
 
 - Status: evidence incomplete.
-- Candidate: TestLedgerFinishedRebindDropsCompletionOnly; TestLedgerInterruptedFinishedRebindResumesNewRun. Both require reassessment under CO-010.
-- Required coverage: baseline caller lifecycle equivalence under CO-010, including same-ID deferred expansion and interruption.
-- Planted defect: the synthetic interrupted-rebind candidate exposed the private runtime's reset assumption; it does not justify changing the storage lifecycle.
-- Green command/revision: none for CO-010; the disabled candidate is not green evidence.
-- Not covered: baseline caller comparison, public routing, persisted lifecycle/fact/accounting equivalence and crash products.
+- Tests run: TestLedgerFinishedProcessingResumesWithoutReset; TestLedgerFinishedLegacyFrontierKeepsPendingWork; TestLedgerPublicFinishedContinuationAfterDisposal.
+- Coverage: CO-010 lifecycle, retained/restored history, preserved binding timestamps, pending legacy work and public expansion-only entry after disposal/reopen.
+- Defect evidence: earlier private-runtime reset assumption was rejected and removed; missing archive restore fails its storage consumer. No new public-entry mutant is claimed.
+- Green revision: 6c8e2209 full suite and focused lifecycle race runs.
+- Not covered: all baseline caller modes and crash products.
 
 ### C34
 
 - Status: evidence incomplete.
-- Candidate: TestLedgerFinishedRebindDropsCompletionOnly; TestLedgerInterruptedFinishedRebindResumesNewRun. Both require reassessment under CO-010.
-- Required coverage: baseline caller lifecycle equivalence under CO-010, including same-ID deferred expansion and interruption.
-- Planted defect: the synthetic interrupted-rebind candidate exposed the private runtime's reset assumption; it does not justify changing the storage lifecycle.
-- Green command/revision: none for CO-010; the disabled candidate is not green evidence.
-- Not covered: baseline caller comparison, public routing, persisted lifecycle/fact/accounting equivalence and crash products.
+- Tests run: TestLedgerFinishedProcessingResumesWithoutReset; TestLedgerSealReadyUnfinishedDoesNotStartAnotherPass; TestLedgerArchiveDurableCrashImages (storage).
+- Coverage: stop/reopen after clearing prior rows and after a later committed page; later progress is not reset; archive restore is atomic and idempotent across durable crash images.
+- Planted defect: unsynced archive metadata fails its crash-image check. This does not replace the remaining reset-boundary mutants.
+- Green revision: 6c8e2209 and the archive durability execution entry.
+- Not covered: full before/during/after-reset product across every process identity.
 
 ### C35
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
-- Required coverage: plan C35 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Status: evidence incomplete.
+- Tests run: TestLedgerPublicDebugRetention; TestLedgerPublicStopResume; TestLedgerPublicTokenRetentionRequiresDebug; TestLedgerDebugReferenceChecksSurviveScrub (storage).
+- Coverage: default disposal, debug scrub, explicit no-scrub, inherited durable retain declaration and token-free debug report examples.
+- Planted defect: disabled reference validation fails the debug report check; this is not a scrub-erasure mutant.
+- Green revision: 6c8e2209 and the effective-retention follow-up tests.
+- Not covered: the syncer consumer's full four-location credential-needle crash product; storage-side erasure coverage remains separately recorded.
 
 ### C36
 
@@ -484,10 +486,19 @@ closure of C10, C37, C38 or C47.
 ### C49
 
 - Status: evidence incomplete.
-- Candidate runs: TestLedgerCostBaseline at eb63f1b5; TestLedgerCostRuntime at fafa4f74, through the existing scheduler.
-- Coverage: 36 interleaved samples in cost-scheduler-smoke; see the execution entry below for dimensions and limitations.
-- Planted defect: the machine recorder omitted the artifact filesystem; the missing-field assertion failed before the fix and the filesystem comparison passed after it.
-- Not covered: full matrix, production handlers, unloaded-machine qualification, baseline phase timing, encoded-byte decomposition and acceptance. CO-012 settles the durability premise.
+- Runs: TestLedgerCostBaseline at eb63f1b5; TestLedgerCostPublic with production handlers/default disposal; earlier synthetic scheduler samples remain historical.
+- Coverage: 36 public-path interleaved samples, four configurations, three repetitions per arm; table, machine inputs, binary hashes and separate CPU profiles in cost-public-smoke/.
+- Defect evidence: the original machine recorder omitted artifact filesystem; its assertion failed before correction. Public samples assert output resource counts, archive presence and ledger disposal.
+- Not covered: full matrix, unloaded-machine qualification, baseline phase timing, encoded-byte decomposition, production-shaped estimate and acceptance. CO-012 settles actual NoSync resume.
+
+### C50
+
+- Status: evidence incomplete.
+- Tests run: ledger report projection/scale/observations/options suites; TestLedgerPublicLogsSavedStats; TestLedgerPublicArchiveFailurePreservesRows; archive reopen/crash tests; debug reference tests.
+- Coverage: mechanical saved/logged JSON, bounded groups/examples, requested/effective options, observations, default disposal and debug retention. The phase-duration projection is the current increment.
+- Planted defects: disabled debug checks, omitted disposal, archive-error fallthrough and unsynced archive all fail their claimed checks; prior report mutations are recorded below.
+- Green revision: 6c8e2209 for policy/report suites; subsequent projection results are recorded separately.
+- Not covered: final-revision million-row memory/time rerun including new fields, full C49 cost matrix, complete failure-product closure.
 
 ## K1 instrument execution
 
@@ -1971,3 +1982,22 @@ three times (35.158s); broad sync/dotc1z lint reports zero issues. A public-Sync
 fixture exports the saved JSON artifact after verifying 1,000 resources and an
 empty ledger. The optional export is test-only. These checks do not change the
 remaining coverage/product and cost qualifications stated above.
+
+### Recorded phase elapsed projection (C50)
+
+`TestLedgerReportRecordedPhaseElapsed` checks persisted coordinator durations
+across two attempts, repeated bucket overwrite, a five-second page duration that
+must not replace 150 ms of coordinator time, and 2,000 excluded retry labels.
+Disabling the counter-bucket projection makes the expected phase map absent and
+fails the test; the mutation is removed. Malformed, negative and overflowing
+values are rejected. The report retains only eight supported collection phase
+names. No scheduler timing, SQLite path or additional dataset walk is introduced.
+Unrecorded abrupt-crash time and untimed stages remain absent, not invented.
+
+The one-million-row, three-iteration component check in report-phase-memory.txt
+measures 0.706s for many resources, 0.622s for one chain and 0.865s for many types.
+Sampled Go heap peaks are 4.40–4.81 MB; process RSS peaks are 288–385 MB including
+Pebble and its cache. Cumulative allocations are 33–74 MB per report, not retained
+heap. These are warm-cache local component results, not C49 end-to-end evidence.
+The full Pebble suite passes (8.785s) and broad lint reports zero issues for the
+phase projection increment.
