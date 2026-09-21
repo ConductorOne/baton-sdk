@@ -2,6 +2,7 @@ package c1zstore
 
 import (
 	"context"
+	"iter"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/sourcecache"
@@ -164,6 +165,8 @@ type PageWriter interface {
 	PutResources(ctx context.Context, resources ...*v2.Resource) error
 	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
 	PutGrants(ctx context.Context, grants ...*v2.Grant) error
+	// Ordered stored/staged merge, with pending deletes omitted. Staging is captured when iteration starts.
+	ListGrantsWithAnnotations(ctx context.Context) iter.Seq2[GrantAnnotation, error]
 	// Preserves prior expansion state, discovery time and source scope by full identity.
 	StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error
 	// Snapshots data; repeated asset IDs use the last staged value.

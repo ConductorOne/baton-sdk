@@ -1828,3 +1828,13 @@ Focused ledger tests pass in sync, Pebble and dotc1z. Retry timing now includes
 failed calls preceding success; concurrent wait callbacks remain worker-local.
 Automatic publication, option-history preservation across disposal, phase timing,
 debug reference validation and default disposal are not closed by these tests.
+
+### External-page grant overlay (C08, C38, C42)
+
+`TestPageGrantIteratorMatchesCommittedSelection` passes for ordered insertion,
+replacement (last staged identity wins), stored and staged deletion, and expansion
+annotation round-trip. A stored-only iterator mutant fails on the first expected
+principal. The mutant is removed. Full Pebble tests pass (10.757s).
+The iterator uses the engine's primary identity encoding and keeps staged rows
+plus one stored page in memory. Broader iterator scaling and every expansion-state
+combination are not established by this consumer fixture.
