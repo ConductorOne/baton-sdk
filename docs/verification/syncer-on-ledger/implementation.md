@@ -1767,3 +1767,29 @@ no-scrub; rejected no-scrub without retention; archive failure preserving rows;
 finished continuation after disposal preserving prior flags/accounting; debug
 missing/valid references before and after scrub, large repeated fan-in, bounded
 examples, and no token disclosure. Skip-full-sync also saves its requested options.
+
+### 49. Measure the public completion path
+
+C49's prior scheduler measurements used synthetic handlers. Add a separate
+public-Sync cost driver using the same deterministic connector and resource
+verification as the pinned token baseline. Keep the old measurements labeled
+synthetic; never relabel them as production-path evidence. The public driver
+includes ingestion checks, report archival and default disposal in wall time and
+engine write metrics. Record report and disposal durations separately from seal.
+Use page-writer timing for Commit and the committed row's handler duration for
+summed worker time; these overlap across workers and are not wall-time shares.
+
+The resumed arm stops after its first resource page with one worker, closes and
+reopens the file, then completes with the requested worker count. Assert exactly
+one resource page ran before the stop, all requested resources exist afterward,
+and no connector page is fetched twice. Both arms use production NoSync. Capture
+engine write metrics across both processes' engine instances. The resume walk
+hook measures only the walk. Report fold/scrub/purge separately where instrumented;
+leave unsupported baseline breakdowns absent, never zero-filled.
+
+Build the token executable from eb63f1b5 with only the baseline test added.
+Interleave the three executables/arms on one machine with recorded binary hashes,
+resource counts, machine limits and load qualification. Start with a bounded
+smoke to validate the public harness. Neither a smoke run nor estimated large
+cells closes the required unloaded-machine matrix. Preserve that distinction in
+the table and in criterion status.
