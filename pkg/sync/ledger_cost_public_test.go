@@ -118,6 +118,9 @@ func TestLedgerCostPublic(t *testing.T) {
 	report, err := f.ledger.GetArchivedLedgerReport(t.Context())
 	require.NoError(t, err)
 	require.NotEmpty(t, report)
+	if output := os.Getenv("BATON_LEDGER_COST_REPORT"); output != "" {
+		require.NoError(t, os.WriteFile(output, append(report, '\n'), 0600))
+	}
 	facts, err := f.ledger.LedgerFacts(t.Context())
 	require.NoError(t, err)
 	require.Empty(t, facts, "default public completion must drop the ledger")

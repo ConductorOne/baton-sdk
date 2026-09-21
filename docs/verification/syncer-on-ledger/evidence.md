@@ -1962,3 +1962,12 @@ Report generation/archive is 1.7–10.6 ms; the resume walk is below 0.1 ms. Sep
 CPU samples locate most of the resumed increase in storage reads. Tripwires and
 limitations are recorded in implementation.md §49.1 and the table README. No
 unloaded-machine, full-matrix or production-size acceptance claim is made.
+
+### Final disposal increment checks
+
+At 6c8e2209, the full sync suite passes (88.146s), full Pebble passes (9.641s),
+and synccompactor passes (19.790s). All TestLedger tests pass under race detection
+three times (35.158s); broad sync/dotc1z lint reports zero issues. A public-Sync
+fixture exports the saved JSON artifact after verifying 1,000 resources and an
+empty ledger. The optional export is test-only. These checks do not change the
+remaining coverage/product and cost qualifications stated above.
