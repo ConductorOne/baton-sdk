@@ -72,6 +72,7 @@ func TestLedgerCostPublic(t *testing.T) {
 		created, err := NewSyncer(t.Context(), connector, WithConnectorStore(f.store), WithWorkerCount(workerCount), WithDontExpandGrants())
 		require.NoError(t, err)
 		s := created.(*syncer)
+		s.testHooks.ingestHaltHook = ledgerCostMetricsHook(func() string { return f.engine.Metrics().String() })
 		s.caps.pageLedger = source
 		s.testHooks.checkpointHook = func(string) { t.Error("Pebble public path wrote a checkpoint") }
 		s.testHooks.ledgerWalk = func(entering bool) {

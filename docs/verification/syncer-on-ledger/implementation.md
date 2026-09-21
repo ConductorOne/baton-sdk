@@ -1954,3 +1954,15 @@ or behavior changes. Run separate CPU profiles with matched inputs, keeping
 profiled timings out of the unprofiled comparison table. Inspect storage lookup
 and allocation costs and the pre-seal table/cache metrics. Profiles include the
 fixture's final count verification; distinguish that call path from Sync work.
+
+## 57. Isolated Bloom-filter experiment (C49)
+
+The larger CPU profiles put about 28 of 33 additional sampled CPU seconds in
+Pebble point lookups. Current Pebble options explicitly leave Bloom filters
+unconfigured. In an isolated checkout, enable the vendored standard 10-bit
+Bloom policy and repeat the same fresh ten-million-record fixture. Keep this
+candidate out of production commits until its time, bytes and artifact-size
+tradeoffs are measured and compatibility/correctness are qualified. The
+experiment changes neither page atomicity nor NoSync durability. Record the
+patch and source revision with its results; do not silently replace baseline
+samples or treat a profiled run as an unprofiled comparison.

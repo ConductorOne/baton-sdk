@@ -2135,3 +2135,15 @@ wall is 1.541 and resumed/token 1.490; four-worker ratios are 1.055 and 1.098.
 Report generation is below 11 ms. The single-worker increase is a tripwire,
 not accepted overhead. The README and metric table preserve the per-arm
 decomposition and one-sample limitation. The full matrix remains incomplete.
+
+### Larger-run lookup profiles (C49)
+
+The matched one-worker CPU profiles and pre-seal metrics are saved under
+cost-current-machine-10million/profiles. Ledger samples total 122.46 CPU seconds
+versus token 88.98; Pebble getInternal accounts for 60.26 versus 32.22 seconds.
+Both existing-resource checks and record staging spend more time in lookups.
+Before seal, ledger has four compactions and read amplification 3; token has
+zero compactions and read amplification 2. Cache hit rates are 99.9% in both.
+The report is not the source of this increase. Table overlap/negative lookup
+cost is the current hypothesis, not a proven exclusive cause. Optional metric
+capture is test-only; both profile runs verify ten million records. Lint passes.

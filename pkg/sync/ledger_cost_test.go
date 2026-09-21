@@ -95,6 +95,7 @@ func TestLedgerCostBaseline(t *testing.T) {
 	require.NoError(t, err)
 	var checkpoints atomic.Int64
 	runner.(*syncer).testHooks.checkpointHook = func(string) { checkpoints.Add(1) }
+	runner.(*syncer).testHooks.ingestHaltHook = ledgerCostMetricsHook(func() string { return raw.Metrics().String() })
 	started := time.Now()
 	require.NoError(t, runner.Sync(ctx))
 	elapsed := time.Since(started)
@@ -133,4 +134,17 @@ func TestLedgerCostBaseline(t *testing.T) {
 		require.NoError(t, os.WriteFile(output, append(encoded, '\n'), 0600))
 	}
 	t.Log(string(encoded))
+}
+
+func ledgerCostMetricsHook(metrics func() string) func(string) error {
+	path := os.Getenv("BATON_LEDGER_COST_PRESEAL_METRICS")
+	if path == "" {
+		return nil
+	}
+	return func(stage string) error {
+		if stage != haltStageInvariantsComplete {
+			return nil
+		}
+		return os.WriteFile(path, []byte(metrics()), 0600)
+	}
 }
