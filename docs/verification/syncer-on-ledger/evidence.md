@@ -1788,3 +1788,24 @@ uncommitted attempts/waits are absent. These are in-process tests, not process
 crash evidence. Report projection/collection/type/global/JSON checks now include
 attempt observations and explicit measured-page coverage; a planted omitted-call
 projection fails. Report race checks pass three runs (1.902s).
+
+### CO-017: collection response and exclusion observations
+
+Status: verified to stated coverage for collection counters; C50 remains evidence
+incomplete. PageWriter consumer round-trip checks all fourteen unequal fields
+before/after scrub and distinguishes absent observations on older rows. It failed
+before read conversion existed. TestLedgerCollectionReceivedAndExcluded covers
+resources, entitlements, explicit type selection and invalid omissions.
+TestLedgerEmptyResponseDiffersFromFilteredResponse distinguishes empty pagination
+from nonempty all-filtered input. TestLedgerCollectionGrantDerivedExclusions
+separates received grants from derived-resource exclusions. Projection/group/global
+JSON checks preserve all counters and measured-page coverage. Planted omitted
+received counts, inverted empty-response classification, omitted selection count
+and omitted exclusion projection each fail their owning tests. Defects removed.
+Focused sync race checks pass three runs (2.143s). Full Pebble tests pass (11.034s)
+and ledger sync tests pass (5.831s). Sync and Pebble lint pass with zero issues;
+three preexisting benchmark conversion warnings now state their numeric bounds.
+
+These counters cover the named branches, not all connector-internal filtering or
+all SDK annotation transformations. Full-sync overhead, production emission and
+safe report/options persistence before ledger disposal are not yet verified.

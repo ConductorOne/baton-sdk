@@ -190,6 +190,24 @@ func TestLedgerReportWriteFamilies(t *testing.T) {
 		row := v3.LedgerRow_builder{Identity: ledgerIdentityToProto(id), ResourceTypesWritten: 1,
 			ResourcesWritten: 2, EntitlementsWritten: 3, GrantsWritten: 4,
 			ObservationsRecorded: token == "", ConnectorAttempts: 3, ConnectorErrors: 2, SdkRetryWaitMs: 7, SdkRateLimitWaitMs: 11}.Build()
+		if token == "" {
+			row.SetCollection(v3.LedgerCollectionStats_builder{
+				ListResponses:                      1,
+				EmptyListResponses:                 2,
+				EmptyListResponsesWithContinuation: 3,
+				ResourceTypesReceived:              4,
+				ResourcesReceived:                  5,
+				EntitlementsReceived:               6,
+				GrantsReceived:                     7,
+				ResourceTypesExcludedBySelection:   8,
+				EntitlementsExcludedByType:         9,
+				GrantsExcludedByType:               10,
+				DerivedResourcesExcludedByType:     11,
+				ResourceTypesExcludedInvalid:       12,
+				ResourcesExcludedInvalid:           13,
+				EntitlementsExcludedInvalid:        14,
+			}.Build())
+		}
 		if token != "" {
 			row.SetConnectorAttempts(0)
 			row.SetConnectorErrors(0)
@@ -220,6 +238,29 @@ func TestLedgerReportWriteFamilies(t *testing.T) {
 	require.Equal(t, wantAttempts, payload["attempt_observations"])
 	for _, key := range []string{"top_collections_by_connector_ms", "top_operation_types_by_connector_ms"} {
 		require.Equal(t, wantAttempts, payload[key].([]any)[0].(map[string]any)["attempt_observations"])
+	}
+	wantCollection := map[string]any{
+		"list_responses":                         float64(1),
+		"empty_list_responses":                   float64(2),
+		"empty_list_responses_with_continuation": float64(3),
+		"resource_types_received":                float64(4),
+		"resources_received":                     float64(5),
+		"entitlements_received":                  float64(6),
+		"grants_received":                        float64(7),
+		"resource_types_excluded_by_selection":   float64(8),
+		"entitlements_excluded_by_type":          float64(9),
+		"grants_excluded_by_type":                float64(10),
+		"derived_resources_excluded_by_type":     float64(11),
+		"resource_types_excluded_invalid":        float64(12),
+		"resources_excluded_invalid":             float64(13),
+		"entitlements_excluded_invalid":          float64(14),
+	}
+	require.Equal(t, wantCollection, payload["collection_observations"])
+	require.EqualValues(t, 1, payload["pages_with_collection_observations"])
+	for _, key := range []string{"top_collections_by_connector_ms", "top_operation_types_by_connector_ms"} {
+		group := payload[key].([]any)[0].(map[string]any)
+		require.Equal(t, wantCollection, group["collection_observations"])
+		require.EqualValues(t, 1, group["pages_with_collection_observations"])
 	}
 	require.EqualValues(t, 20, report.Written)
 	require.Equal(t, 1, iter.walks)

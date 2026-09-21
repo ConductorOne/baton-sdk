@@ -248,3 +248,24 @@ just its Go heap. There is no new cache in the aggregator.
 Production log/summary persistence, readable complete request metadata, outcome
 and skip reasons, and safe default ledger disposal remain separate unfinished
 work. The report experiment does not change sync execution or store durability.
+
+### Collection observations and retry totals
+
+The report now includes write families, page attempt/error totals, SDK-observed
+waits, received records, named SDK exclusion counters and true empty-list counts.
+Measured-page counts distinguish absent observations in older rows. Projection
+still skips child bodies and token contents and uses one iterator walk.
+
+A follow-up warm-cache synthetic run populated the new page observations instead
+of benchmarking legacy rows. Go 1.26.0, linux/arm64, GOMAXPROCS=4, three timed
+iterations; no task builds/tests ran concurrently. These are report-only smoke
+measurements, not C49 full-sync or unloaded-machine acceptance evidence.
+
+| Rows | Shape | Scan + JSON | JSON bytes | Cumulative allocation/op |
+| --- | --- | --- | --- | --- |
+| 1,000,000 | many resources | 796.5 ms | 17,638 | 48.2 MB |
+| 1,000,000 | single chain | 713.7 ms | 4,469 | 32.1 MB |
+| 1,000,000 | many types | 1,066.1 ms | 30,832 | 72.3 MB |
+
+Allocation totals are not peak memory. The new counters add fixed aggregation
+state; peak sampling and the final full-sync cost table remain separate checks.

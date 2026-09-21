@@ -45,6 +45,8 @@ func (w *reportPrototypeWrites) add(other reportPrototypeWrites) {
 }
 
 type reportPrototypeCollection struct {
+	Collection                                                   c1zstore.LedgerCollectionStats
+	CollectionPages                                              uint64
 	Attempts                                                     reportPrototypeAttempts
 	Writes                                                       reportPrototypeWrites
 	Scope                                                        c1zstore.LedgerActionIdentity
@@ -57,6 +59,8 @@ type reportPrototypeCollection struct {
 }
 
 type reportPrototypeSummary struct {
+	Collection                                            c1zstore.LedgerCollectionStats
+	CollectionPages                                       uint64
 	Attempts                                              reportPrototypeAttempts
 	Writes                                                reportPrototypeWrites
 	GrantsDisabled, EntitlementsDisabled                  *bool
@@ -82,13 +86,21 @@ func TestLedgerReportPrototype(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	put := func(resource, token, next string, records int, ms, wait uint64, children ...c1zstore.LedgerActionIdentity) {
+	put := func(resource, token, next string, records uint64, ms, wait uint64, children ...c1zstore.LedgerActionIdentity) {
 		t.Helper()
 		unit := e.ledger.newPageUnit()
-		for n := 0; n < records; n++ {
+		for n := uint64(0); n < records; n++ {
 			require.NoError(t, unit.StageGrants(testGrantRecord(resource, fmt.Sprintf("member-%s-%d", token, n))))
 		}
-		row := v3.LedgerRow_builder{NextPageToken: next, PageMs: ms + 10, ConnectorMs: ms, WaitMs: wait}.Build()
+		collection := v3.LedgerCollectionStats_builder{ListResponses: 1, GrantsReceived: records}.Build()
+		if records == 0 {
+			collection.SetEmptyListResponses(1)
+		}
+		if records == 0 && next != "" {
+			collection.SetEmptyListResponsesWithContinuation(1)
+		}
+		row := v3.LedgerRow_builder{NextPageToken: next, PageMs: ms + 10, ConnectorMs: ms, WaitMs: wait,
+			ObservationsRecorded: true, ConnectorAttempts: 1, Collection: collection}.Build()
 		for _, child := range children {
 			row.SetChildren(append(row.GetChildren(), v3.LedgerChild_builder{Identity: ledgerIdentityToProto(child)}.Build()))
 		}
@@ -195,7 +207,10 @@ func BenchmarkLedgerReportPrototype(b *testing.B) {
 						id.ResourceTypeID = id.ResourceID
 						id.ResourceID = "resource"
 					}
-					row := v3.LedgerRow_builder{Identity: ledgerIdentityToProto(id), GrantsWritten: 100, PageMs: 110, ConnectorMs: 100, WaitMs: 25}.Build()
+					row := v3.LedgerRow_builder{Identity: ledgerIdentityToProto(id), GrantsWritten: 100, PageMs: 110, ConnectorMs: 100, WaitMs: 25,
+						ObservationsRecorded: true, ConnectorAttempts: 1,
+						Collection: v3.LedgerCollectionStats_builder{ListResponses: 1, GrantsReceived: 102, GrantsExcludedByType: 2}.Build(),
+					}.Build()
 					if n%perResource+1 < perResource {
 						row.SetNextPageToken(fmt.Sprint(n%perResource + 1))
 					}
@@ -248,4 +263,21 @@ func TestLedgerReportTopLimit(t *testing.T) {
 	require.Equal(t, "team-00", report.Top[0].Scope.ResourceID)
 	require.Equal(t, "team-09", report.Top[9].Scope.ResourceID)
 	require.InDelta(t, 9.090909, *reportPrototypeShare(report.Top[0].ConnectorMs, report.ConnectorMs), 0.000001)
+}
+
+func addReportCollection(dst *c1zstore.LedgerCollectionStats, src c1zstore.LedgerCollectionStats) {
+	dst.ListResponses += src.ListResponses
+	dst.EmptyListResponses += src.EmptyListResponses
+	dst.EmptyListResponsesWithContinuation += src.EmptyListResponsesWithContinuation
+	dst.ResourceTypesReceived += src.ResourceTypesReceived
+	dst.ResourcesReceived += src.ResourcesReceived
+	dst.EntitlementsReceived += src.EntitlementsReceived
+	dst.GrantsReceived += src.GrantsReceived
+	dst.ResourceTypesExcludedBySelection += src.ResourceTypesExcludedBySelection
+	dst.EntitlementsExcludedByType += src.EntitlementsExcludedByType
+	dst.GrantsExcludedByType += src.GrantsExcludedByType
+	dst.DerivedResourcesExcludedByType += src.DerivedResourcesExcludedByType
+	dst.ResourceTypesExcludedInvalid += src.ResourceTypesExcludedInvalid
+	dst.ResourcesExcludedInvalid += src.ResourcesExcludedInvalid
+	dst.EntitlementsExcludedInvalid += src.EntitlementsExcludedInvalid
 }

@@ -22,6 +22,8 @@ type reportPrototypeIterator interface {
 }
 
 type reportPrototypeProjected struct {
+	collection                                     c1zstore.LedgerCollectionStats
+	collectionPages                                uint64
 	attempts                                       reportPrototypeAttempts
 	writes                                         reportPrototypeWrites
 	scope                                          c1zstore.LedgerActionIdentity
@@ -55,6 +57,52 @@ func reportPrototypeProject(data []byte) (reportPrototypeProjected, error) {
 	emptyHash := ledgerTokenHash("")
 	err := reportPrototypeFields(data, func(number protowire.Number, typ protowire.Type, value []byte) error {
 		switch int32(number) {
+		case 23:
+			if typ != protowire.BytesType {
+				return errors.New("invalid report collection stats")
+			}
+			value, _ = protowire.ConsumeBytes(value)
+			row.collectionPages = 1
+			return reportPrototypeFields(value, func(field protowire.Number, kind protowire.Type, v []byte) error {
+				if field < 1 || field > 14 {
+					return nil
+				}
+				if kind != protowire.VarintType {
+					return errors.New("invalid report collection counter")
+				}
+				n, _ := protowire.ConsumeVarint(v)
+				switch int32(field) {
+				case 1:
+					row.collection.ListResponses = n
+				case 2:
+					row.collection.EmptyListResponses = n
+				case 3:
+					row.collection.EmptyListResponsesWithContinuation = n
+				case 4:
+					row.collection.ResourceTypesReceived = n
+				case 5:
+					row.collection.ResourcesReceived = n
+				case 6:
+					row.collection.EntitlementsReceived = n
+				case 7:
+					row.collection.GrantsReceived = n
+				case 8:
+					row.collection.ResourceTypesExcludedBySelection = n
+				case 9:
+					row.collection.EntitlementsExcludedByType = n
+				case 10:
+					row.collection.GrantsExcludedByType = n
+				case 11:
+					row.collection.DerivedResourcesExcludedByType = n
+				case 12:
+					row.collection.ResourceTypesExcludedInvalid = n
+				case 13:
+					row.collection.ResourcesExcludedInvalid = n
+				case 14:
+					row.collection.EntitlementsExcludedInvalid = n
+				}
+				return nil
+			})
 		case 1, 2, 3, 4:
 			if typ != protowire.BytesType {
 				return errors.New("invalid report row bytes field")
@@ -165,6 +213,8 @@ func (g *reportPrototypeGroup) add(row reportPrototypeProjected) {
 	c.Written += row.written
 	c.Writes.add(row.writes)
 	c.Attempts.add(row.attempts)
+	addReportCollection(&c.Collection, row.collection)
+	c.CollectionPages += row.collectionPages
 	if row.written == 0 {
 		c.ZeroWritePages++
 	}
@@ -284,6 +334,8 @@ func reportPrototypeScan(ctx context.Context, iter reportPrototypeIterator,
 			result.Written += row.written
 			result.Writes.add(row.writes)
 			result.Attempts.add(row.attempts)
+			addReportCollection(&result.Collection, row.collection)
+			result.CollectionPages += row.collectionPages
 			result.ConnectorMs += row.connectorMS
 			result.ReportedWaitMs += row.waitMS
 			result.Children += row.children
