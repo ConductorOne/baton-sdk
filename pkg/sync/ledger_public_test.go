@@ -11,11 +11,16 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
+
+type ledgerAttachmentConnector struct {
+	types.ConnectorClient
+}
 
 type ledgerMetadataStore struct {
 	c1zstore.Store
@@ -51,7 +56,7 @@ func TestLedgerPublicEngineAttachment(t *testing.T) {
 				f.audit.mu.Lock()
 				writes := len(f.audit.events)
 				f.audit.mu.Unlock()
-				created, err := NewSyncer(t.Context(), newMockConnector(), WithConnectorStore(store))
+				created, err := NewSyncer(t.Context(), ledgerAttachmentConnector{}, WithConnectorStore(store))
 				require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 				f.audit.mu.Lock()
 				afterWrites := len(f.audit.events)
@@ -283,7 +288,7 @@ func TestLedgerDebugLoggingPreservesRequestedConfig(t *testing.T) {
 func TestLedgerPublicPathAttachment(t *testing.T) {
 	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble, c1zstore.EngineSQLite} {
 		t.Run(string(engine), func(t *testing.T) {
-			created, err := NewSyncer(t.Context(), newMockConnector(), WithC1ZPath(filepath.Join(t.TempDir(), "attach.c1z")), WithStorageEngine(engine))
+			created, err := NewSyncer(t.Context(), ledgerAttachmentConnector{}, WithC1ZPath(filepath.Join(t.TempDir(), "attach.c1z")), WithStorageEngine(engine))
 			require.NoError(t, err)
 			s := created.(*syncer)
 			require.NoError(t, s.loadStore(t.Context()))

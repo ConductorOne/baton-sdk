@@ -33,12 +33,13 @@ of C10, C37, C38 or C47 over all required cells.
 
 ### C01
 
-- Status: evidence incomplete.
-- Tests run: TestLedgerPublicEngineAttachment; TestStoreCapsEngineMatrix.
-- Coverage: eight injected engine/capability combinations, including empty-engine refusal, unchanged key snapshots and zero attempted writes; explicit path attachment for both real engines.
-- Planted defect: removing the Pebble capability requirement makes the missing-capability case return success and fail the test; restored.
-- Green revision: 6c8e2209 full sync and ledger race runs.
-- Not covered: formal P3 reachability accounting for engine/capability combinations that the built-in file factory cannot produce; explicit connector-call instrumentation at attachment.
+- Status: verified to stated coverage.
+- Tests run: TestLedgerPublicEngineAttachment; TestLedgerPublicRegisteredPathAttachment; TestLedgerPublicPathAttachment; TestStoreCapsEngineMatrix.
+- Coverage: all 16 P3 engine/capability × injected/path cells, including empty metadata refusal. Both entry routes assert unchanged raw keys, zero attempted writes and no connector calls. Refused path attachment closes the returned store once. The two built-in drivers are also exercised directly.
+- Planted defects: removing the Pebble capability requirement fails both injected and registered path cases. Adding a connector Validate call during construction fails injected, built-in path and registered path fixtures. All mutations are removed.
+- Cell inventory: attachment-coverage.json. Third-party driver selection uses the public registry; no built-in driver is replaced and no fixture store is retained in global registration state.
+- Green command/revision: attachment execution entry below.
+- Not covered: subsequent Sync entry/resume/stop decisions belong to C02; this closure is attachment only.
 
 ### C02
 
@@ -2163,3 +2164,22 @@ The adjacent token control takes 80.989 s, making the unfiltered
 ledger/token ratio 1.377 and filtered ratio 1.285. Both ledger arms exceed
 the fresh-wall tripwire in this repeat. This is reported for requester acceptance,
 not silently treated as an acceptable regression. All three processes pass.
+
+### Attachment coverage closure (C01)
+
+attachment-coverage.json lists all 16 P3 cells. Injected stores and a registered
+path driver return each metadata/capability pair, including empty metadata.
+Snapshots and the strict write recorder remain unchanged during attachment.
+A non-nil connector with a nil embedded client makes every connector method an
+error in the fixture; an injected Validate call fails all three entry fixtures.
+Removing the Pebble capability refusal fails injected and registered-path cases.
+Mutations are removed. The registered driver retains no store in process-global
+state and does not replace either built-in driver. Invalid path attachment closes
+the returned store once; the fixture keeps the underlying engine open for the
+post-error key comparison and closes it through normal cleanup afterward.
+
+Focused tests pass (0.209s), race detection passes three times (2.502s), and broad
+sync/dotc1z lint reports zero issues. This closes C01 at attachment coverage only;
+it does not close C02's page/resume/stop behavior or other criteria.
+
+Full sync suite after attachment coverage passes: 83.856s.
