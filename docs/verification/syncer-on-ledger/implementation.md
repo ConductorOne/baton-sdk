@@ -1483,3 +1483,39 @@ unrecorded skip flags are null, not an inferred verdict. Scope uses an explicit
 allowlist that excludes page tokens. Keep definitions in development documentation,
 not the payload. This remains the report feasibility prototype; production log
 integration follows the still-open scope/outcome design and public-path work.
+
+## 44. One-pass, bounded-memory stats
+
+Requester constraints supersede the prototype's reference lookups: one forward
+iterator over the ledger family, no per-page point reads, no record-family scans,
+no page-count-sized maps or latency arrays. Read the two saved skip flags by key
+while visiting the same ledger iterator; do not load all fact values (an external
+principal fact can be large). Ignore counter/frontier values for this experiment.
+
+Rows are ordered by operation, resource type, resource, parent scope, type-scoped
+flag and token hash. Keep current full-scope and current operation/type aggregates
+with fixed histograms, plus bounded top-ten lists. Emit complete operation/type
+summaries through a caller sink as groups finish. The sink must stream; collecting
+its output into memory is outside the aggregator's bound. Log top-type summaries
+with counts indicating truncation.
+
+Count recorded continuations and children but do not claim missing references.
+Exact graph validation needs state or access that this pass does not have.
+Serialize its availability as false and missing-reference counts as null. No
+subtraction of advertised actions from completed rows establishes completeness.
+
+Decode only identity scope, counts, next-token presence/hash and timing fields.
+Skip child bodies and token bytes without building child objects or token strings.
+Protobuf field definitions remain the source for the projection; test against
+normal protobuf decoding, including unknown fields and malformed input. A
+scrubbed next-token hash can identify terminal pages without retaining tokens.
+Working memory is bounded in row count, not in arbitrary input byte length: the
+Pebble iterator still exposes a whole encoded row, and selected identifiers have
+variable lengths. Measure large fan-out separately and report this bound honestly.
+
+Verify no point reads through an iterator-only aggregation input. Test one walk,
+group totals and truncation, scope separation, unknown reference validity,
+cancellation, writer/iterator errors and large child lists. Run increasing row
+counts through one million with long pagination and many distinct scopes. Report
+wall time, cumulative allocations and peak live heap/RSS separately; do not call
+B/op a peak-memory measurement. Commit the design before the implementation.
