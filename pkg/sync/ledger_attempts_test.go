@@ -79,3 +79,72 @@ func TestLedgerExhaustedRetryHasNoRow(t *testing.T) {
 		require.False(t, found)
 	})
 }
+
+func TestLedgerCoordinatorRetryObservations(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, f := newLedgerSchedulerFixture(t, 1)
+		s.recordStats = true
+		action := s.run.pushAction(t.Context(), Action{Op: SyncResourceTypesOp})
+		id := ledgerIdentity(action)
+		calls := 0
+		s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
+			calls++
+			invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
+			s.recordLedgerConnectorResponse(ctx, invocation, "list-resource-types", time.Millisecond, nil)
+			if calls == 1 {
+				err := status.Error(codes.Unavailable, "retry")
+				recordLedgerConnectorError(invocation, err)
+				return err
+			}
+			return s.nextPageOrFinishAction(ctx, action, "")
+		}
+		ctx := s.withRateLimitWaitObserver(t.Context())
+		warnings, err := s.parallelSync(ctx, ctx, nil)
+		require.NoError(t, err)
+		require.Empty(t, warnings)
+		row, found, err := f.ledger.GetLedgerRow(ctx, id)
+		require.NoError(t, err)
+		require.True(t, found)
+		require.EqualValues(t, 2, row.ConnectorAttempts)
+		require.EqualValues(t, 1, row.ConnectorErrors)
+		require.Equal(t, time.Second, row.SDKRetryWaitDuration)
+	})
+}
+
+func TestLedgerCancelledRetryDoesNotSurviveNewWorker(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		s, f := newLedgerSchedulerFixture(t, 1)
+		s.recordStats = true
+		action := s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "type"})
+		id := ledgerIdentity(action)
+		ctx, cancel := context.WithCancel(s.withRateLimitWaitObserver(t.Context()))
+		defer cancel()
+		s.testHooks.ledgerHandler = func(ctx context.Context, _ *Action, _ *ledgerPage) error {
+			invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
+			s.recordLedgerConnectorResponse(ctx, invocation, "list-resources", time.Millisecond, nil)
+			err := status.Error(codes.Unavailable, "retry")
+			recordLedgerConnectorError(invocation, err)
+			time.AfterFunc(5*time.Millisecond, cancel)
+			return err
+		}
+		r := retry.NewRetryer(ctx, retry.RetryConfig{MaxAttempts: 4, InitialDelay: time.Second, MaxDelay: time.Second})
+		_, err := s.syncParallel(ctx, r, s.run.peekMatchingActions(ctx, SyncResourcesOp), s.SyncResources)
+		require.Error(t, err)
+		_, found, err := f.ledger.GetLedgerRow(t.Context(), id)
+		require.NoError(t, err)
+		require.False(t, found)
+		s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
+			invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
+			s.recordLedgerConnectorResponse(ctx, invocation, "list-resources", time.Millisecond, nil)
+			return s.nextPageOrFinishAction(ctx, action, "")
+		}
+		_, err = runLedgerSchedulerBatch(t, s, SyncResourcesOp)
+		require.NoError(t, err)
+		row, found, err := f.ledger.GetLedgerRow(t.Context(), id)
+		require.NoError(t, err)
+		require.True(t, found)
+		require.EqualValues(t, 1, row.ConnectorAttempts)
+		require.Zero(t, row.ConnectorErrors)
+		require.Zero(t, row.SDKRetryWaitDuration)
+	})
+}

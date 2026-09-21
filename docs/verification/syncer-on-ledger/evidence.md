@@ -1780,3 +1780,11 @@ row. The tests reject planted reset-on-each-attempt, omitted-error and omitted-w
 mutants. All ledger sync tests pass (4.538s); race detection passes three runs
 (37.338s). Cancellation during a retry wait, coordinator-only retries, restart
 loss and concurrent connector wait callbacks still need targeted checks.
+
+Retry follow-up: TestLedgerCoordinatorRetryObservations passes through the
+coordinator's retry path. TestLedgerCancelledRetryDoesNotSurviveNewWorker cancels
+backoff, verifies no row, then completes using a new worker and verifies that
+uncommitted attempts/waits are absent. These are in-process tests, not process
+crash evidence. Report projection/collection/type/global/JSON checks now include
+attempt observations and explicit measured-page coverage; a planted omitted-call
+projection fails. Report race checks pass three runs (1.902s).

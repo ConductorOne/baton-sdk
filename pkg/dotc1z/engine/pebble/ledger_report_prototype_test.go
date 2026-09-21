@@ -14,6 +14,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type reportPrototypeAttempts struct {
+	Pages           uint64 `json:"pages_with_observations"`
+	Calls           uint64 `json:"connector_attempts"`
+	Errors          uint64 `json:"connector_errors"`
+	RetryWaitMs     uint64 `json:"sdk_retry_wait_sum_ms"`
+	RateLimitWaitMs uint64 `json:"sdk_rate_limit_wait_sum_ms"`
+}
+
+func (a *reportPrototypeAttempts) add(other reportPrototypeAttempts) {
+	a.Pages += other.Pages
+	a.Calls += other.Calls
+	a.Errors += other.Errors
+	a.RetryWaitMs += other.RetryWaitMs
+	a.RateLimitWaitMs += other.RateLimitWaitMs
+}
+
 type reportPrototypeWrites struct {
 	ResourceTypes uint64 `json:"resource_types"`
 	Resources     uint64 `json:"resources"`
@@ -29,6 +45,7 @@ func (w *reportPrototypeWrites) add(other reportPrototypeWrites) {
 }
 
 type reportPrototypeCollection struct {
+	Attempts                                                     reportPrototypeAttempts
 	Writes                                                       reportPrototypeWrites
 	Scope                                                        c1zstore.LedgerActionIdentity
 	Pages, Written, ZeroWritePages, TerminalPages                uint64
@@ -40,6 +57,7 @@ type reportPrototypeCollection struct {
 }
 
 type reportPrototypeSummary struct {
+	Attempts                                              reportPrototypeAttempts
 	Writes                                                reportPrototypeWrites
 	GrantsDisabled, EntitlementsDisabled                  *bool
 	Written, ConnectorMs, ReportedWaitMs                  uint64

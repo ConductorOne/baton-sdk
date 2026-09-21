@@ -188,7 +188,15 @@ func TestLedgerReportWriteFamilies(t *testing.T) {
 	for _, token := range []string{"", "next"} {
 		id := grantsPageIdentity("group", token)
 		row := v3.LedgerRow_builder{Identity: ledgerIdentityToProto(id), ResourceTypesWritten: 1,
-			ResourcesWritten: 2, EntitlementsWritten: 3, GrantsWritten: 4}.Build()
+			ResourcesWritten: 2, EntitlementsWritten: 3, GrantsWritten: 4,
+			ObservationsRecorded: token == "", ConnectorAttempts: 3, ConnectorErrors: 2, SdkRetryWaitMs: 7, SdkRateLimitWaitMs: 11}.Build()
+		if token != "" {
+			row.SetConnectorAttempts(0)
+			row.SetConnectorErrors(0)
+			row.SetSdkRetryWaitMs(0)
+			row.SetSdkRateLimitWaitMs(0)
+		}
+
 		data, err := marshalRecord(row)
 		require.NoError(t, err)
 		iter.keys = append(iter.keys, encodeLedgerKey(id))
@@ -206,6 +214,12 @@ func TestLedgerReportWriteFamilies(t *testing.T) {
 		groups := payload[key].([]any)
 		require.Len(t, groups, 1)
 		require.Equal(t, want, groups[0].(map[string]any)["record_writes_by_family"])
+	}
+	wantAttempts := map[string]any{"pages_with_observations": float64(1), "connector_attempts": float64(3), "connector_errors": float64(2),
+		"sdk_retry_wait_sum_ms": float64(7), "sdk_rate_limit_wait_sum_ms": float64(11)}
+	require.Equal(t, wantAttempts, payload["attempt_observations"])
+	for _, key := range []string{"top_collections_by_connector_ms", "top_operation_types_by_connector_ms"} {
+		require.Equal(t, wantAttempts, payload[key].([]any)[0].(map[string]any)["attempt_observations"])
 	}
 	require.EqualValues(t, 20, report.Written)
 	require.Equal(t, 1, iter.walks)

@@ -22,6 +22,7 @@ type reportPrototypeIterator interface {
 }
 
 type reportPrototypeProjected struct {
+	attempts                                       reportPrototypeAttempts
 	writes                                         reportPrototypeWrites
 	scope                                          c1zstore.LedgerActionIdentity
 	written, pageMS, connectorMS, waitMS, children uint64
@@ -101,7 +102,7 @@ func reportPrototypeProject(data []byte) (reportPrototypeProjected, error) {
 			case 4:
 				row.children++
 			}
-		case 7, 8, 9, 10, 13, 14, 15, 16:
+		case 7, 8, 9, 10, 13, 14, 15, 16, 18, 19, 20, 21, 22:
 			if typ != protowire.VarintType {
 				return errors.New("invalid report row numeric field")
 			}
@@ -117,6 +118,20 @@ func reportPrototypeProject(data []byte) (reportPrototypeProjected, error) {
 				row.connectorMS = n
 			case 16:
 				row.waitMS = n
+			case 18:
+				if n != 0 {
+					row.attempts.Pages = 1
+				} else {
+					row.attempts.Pages = 0
+				}
+			case 19:
+				row.attempts.Calls = n
+			case 20:
+				row.attempts.Errors = n
+			case 21:
+				row.attempts.RetryWaitMs = n
+			case 22:
+				row.attempts.RateLimitWaitMs = n
 			}
 		}
 		return nil
@@ -149,6 +164,7 @@ func (g *reportPrototypeGroup) add(row reportPrototypeProjected) {
 	c.Pages++
 	c.Written += row.written
 	c.Writes.add(row.writes)
+	c.Attempts.add(row.attempts)
 	if row.written == 0 {
 		c.ZeroWritePages++
 	}
@@ -267,6 +283,7 @@ func reportPrototypeScan(ctx context.Context, iter reportPrototypeIterator,
 			result.Pages++
 			result.Written += row.written
 			result.Writes.add(row.writes)
+			result.Attempts.add(row.attempts)
 			result.ConnectorMs += row.connectorMS
 			result.ReportedWaitMs += row.waitMS
 			result.Children += row.children
