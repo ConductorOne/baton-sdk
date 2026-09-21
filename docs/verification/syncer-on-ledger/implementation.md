@@ -1881,3 +1881,26 @@ explain that increase; handler, commit and seal timing are retained in table.jso
 Resumed/fresh-token wall ratios are 1.422 and 1.472, still including existing-store
 and reopen costs. These results do not establish a matched resumed-token penalty.
 No performance acceptance or production-scale extrapolation is inferred.
+
+## 54. Public process-crash recovery (C04, C09, C10, C31, C33, C50)
+
+Add a subprocess fixture using public NewSyncer/Sync and real paginated resource
+handlers. Exit without deferred cleanup immediately before/after a resource-page
+commit, before/after the terminal commit, after seal, after report archival and
+after ledger disposal. Cross these cuts with one/four workers. Record the reached
+cut and sync ID outside the store so a setup failure cannot masquerade as a crash.
+
+Recover the surviving Pebble directory, inspect whole-page records against rows,
+then checkpoint that recovered image into a new envelope and resume through the
+public store API with the same sync ID. This is process-exit/WAL recovery, not a
+physical-loss simulation or recovery from an envelope that was never saved. The
+transport helper must preserve every recovered key/value. Install strict write
+hooks in both processes and assert the resume walk leaves all keys unchanged.
+
+The connector rejects calls for resource pages already present in the recovered
+image. Assert every missing page is called exactly once, final deterministic
+resource identities/payloads are complete, the token is empty, completion is
+recorded, the report exists and the default ledger is absent. Finished cuts must
+not recollect. Plant a missing-row-as-complete walk defect and show the fixture
+fails before restoring it. This bounded fixture does not close the other handler
+families, physical-loss cuts or complete logical/index differential criteria.
