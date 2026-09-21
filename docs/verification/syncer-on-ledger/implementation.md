@@ -1699,3 +1699,30 @@ The changed-answer sweep fails before this guard. Add a deterministic two-worker
 same-identity fixture and a cancelled-wait fixture; verify one connector execution,
 one committed row, and no leaked claims. Keep the runtime's direct overlapping
 worker/page rejection for callers that bypass the invocation wrapper.
+
+### 47. Preserve finished-sync state before ledger disposal
+
+Default disposal must not erase the facts and committed accounting used when a
+finished sync is processed again. Save a compact archive outside the ledger
+keyspace: the bounded report, sync-level facts (including full option snapshots)
+and folded counters. Never copy rows, children, frontier state or page tokens.
+The archive is a synced metadata write after successful seal; a failed archive
+write leaves the ledger intact. Drop only after that write succeeds. Retained
+ledger mode saves the same archive and keeps the rows.
+
+Before processing a finished sync whose ledger keyspace is empty, restore the
+archived facts and one reserved accounting bucket in one synced batch. This is
+finished-sync lifecycle work, before the read-only walk. A nonempty ledger wins:
+it may contain an interrupted later processing pass. Restore must not change
+sync ID, started_at or ended_at. Absence of an archive remains compatible with
+older artifacts. An unreadable archive refuses restoration without writes.
+
+Consumer checks: report/options survive drop and reopen; failed archive leaves
+all ledger data; unfinished sync cannot archive; restore reproduces facts and
+folded counters exactly once; interrupted later processing is not replaced by
+an older archive; a new sync removes the archive. Plant archive-before-durability
+failure, missing restore and duplicate-counter restore defects. Keep the archive
+consumer/API increment separate from enabling default disposal. The report's
+aggregation remains bounded by groups; the compact state size depends on facts
+and option history, not page/record count. Full option-history size is not claimed
+to be bounded independently of supplied scope lists and attempt count.
