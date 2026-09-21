@@ -16,6 +16,17 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 	if err != nil {
 		return false, err
 	}
+	if finished {
+		facts, err := ledger.LedgerFacts(ctx)
+		if err != nil {
+			return false, err
+		}
+		if len(facts) == 0 {
+			if err := ledger.RestoreLedgerArchive(ctx); err != nil {
+				return false, err
+			}
+		}
+	}
 	resume, err := loadLedgerResume(ctx, s.store, ledger, runID)
 	if err != nil {
 		return false, err

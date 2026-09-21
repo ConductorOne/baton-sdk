@@ -1891,3 +1891,36 @@ sibling writes uses an uninterrupted run with the same commit order.
 
 Default report publication/deletion is not enabled by this increment. Public
 retention tests still exercise retained ledger rows until the next lifecycle step.
+
+### Default report disposal and debug checks (CO-017, C31, C50)
+
+Default public Sync saves a compact archive, logs the same structured JSON and
+then drops the ledger. Skip-full-sync saves its options as well. Debug retains
+rows and performs explicit child/continuation reference checks; tokens are
+scrubbed unless retention is explicitly requested in debug mode. Reference
+examples are limited to sixteen and contain no cursor or cursor hash. No
+inference about absent upstream data is made from an empty collection.
+
+`TestLedgerDebugReferenceChecksSurviveScrub` fails with debug validation disabled
+and passes after restoration. It checks missing children and a missing next page,
+a valid reference, bounded examples and token nondisclosure before/after scrub.
+`TestLedgerDefaultReportDoesNotCheckReferences` verifies the default omits indexed
+lookups. `TestLedgerReferenceTargetSkipsChildPayload` checks a thousand references
+to a row containing a thousand children; target decoding projects only identity
+and scrub state. This is a structural complexity check, not a scale benchmark.
+
+`TestLedgerPublicSyncSealsWithoutToken` fails when disposal is disabled.
+`TestLedgerPublicArchiveFailurePreservesRows` fails when archive-error handling
+falls through to disposal. Both mutations are removed. Public debug/no-scrub and
+rejected-no-scrub tests pass. Finished continuation after disposal/reopen restores
+prior skip facts without collecting again; binding preserves the original start
+and end stamps, while the later successful seal updates ended_at as on main.
+The preceding collection summary remains in the saved artifact.
+
+Full sync tests pass (81.795s); focused public/finished/seal-ready tests pass
+(0.743s), and race detection passes those tests three times (4.985s). The full
+Pebble suite passes (17.237s). Lint reports zero issues. These local results do not
+close physical crash images or the C49 unloaded-machine cost matrix. The default
+currently scrubs at seal before disposal; the additional scrub/purge work must
+be included in the final cost report. No claim of a scrub-free disposal path is
+made.

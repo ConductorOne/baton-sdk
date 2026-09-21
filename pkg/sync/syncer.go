@@ -934,6 +934,11 @@ func (s *syncer) Sync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if s.ledgered {
+		if err := s.configureLedgerReport(ctx); err != nil {
+			return err
+		}
+	}
 	s.recordStats = s.store.Metadata().Engine == string(c1zstore.EnginePebble)
 
 	resp, err := s.connector.Validate(ctx, &v2.ConnectorServiceValidateRequest{})
@@ -1243,6 +1248,9 @@ func (s *syncer) SkipSync(ctx context.Context) (err error) {
 	}
 
 	if s.ledgered {
+		if err := s.configureLedgerReport(runCtx); err != nil {
+			return err
+		}
 		return s.skipLedgerSync(runCtx)
 	}
 

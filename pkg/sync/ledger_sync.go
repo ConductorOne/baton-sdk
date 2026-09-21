@@ -113,6 +113,7 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 		l.Warn("failed to persist ingest invariant verification; the sealed sync remains unverified", zap.Error(err))
 	}
 
+	s.finishLedgerReport(ctx)
 	if s.recordStats {
 		l.Info("Sync complete.", s.syncSummaryFields(span)...)
 	} else {
@@ -150,11 +151,24 @@ func (s *syncer) skipLedgerSync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	_, err = s.ledger.runPage(ctx, 0, c1zstore.LedgerActionIdentity{Op: InitOp.String()}, func(_ context.Context, page *ledgerPage) error {
+		if err := s.stageLedgerReportOptions(&ledgerInvocation{page: page}); err != nil {
+			return err
+		}
+		return page.transition("")
+	})
+	if err != nil {
+		return err
+	}
 	if err := s.ledger.prepareSeal(ctx, c1zstore.LedgerCounters{}); err != nil {
 		return err
 	}
 	if err := s.ledger.seal(ctx); err != nil {
 		return err
 	}
-	return s.store.Cleanup(ctx)
+	if err := s.store.Cleanup(ctx); err != nil {
+		return err
+	}
+	s.finishLedgerReport(ctx)
+	return nil
 }

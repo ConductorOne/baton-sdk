@@ -12,13 +12,17 @@ func (s *syncer) stageLedgerReportOptions(invocation *ledgerInvocation) error {
 	if page.hasFact(key) {
 		return nil
 	}
+	hasFact := func(fact string) bool {
+		return page.hasFact(fact) || s.run != nil && s.run.hasFact(fact)
+	}
 	cfg := s.cfg
 	options := c1zstore.LedgerReportOptions{
 		Attempt:                            s.ledger.runID,
-		EffectiveSkipGrants:                page.hasFact(factShouldSkipGrants) || s.run.hasFact(factShouldSkipGrants),
-		EffectiveSkipEntitlementsAndGrants: page.hasFact(factShouldSkipEntitlementsAndGrants) || s.run.hasFact(factShouldSkipEntitlementsAndGrants),
+		EffectiveSkipGrants:                hasFact(factShouldSkipGrants),
+		EffectiveSkipEntitlementsAndGrants: hasFact(factShouldSkipEntitlementsAndGrants),
 		Requested: c1zstore.LedgerRequestedOptions{
 			SyncType: string(cfg.syncType), ResourceTypes: cfg.syncResourceTypes, WorkerCount: cfg.workerCount, RunDurationMs: cfg.runDuration.Milliseconds(),
+			LedgerDebug: cfg.ledgerDebug, RetainLedgerTokens: cfg.retainLedgerTokens,
 			SkipFullSync: cfg.skipFullSync, SkipGrants: cfg.skipGrants, SkipEntitlementsAndGrants: cfg.skipEntitlementsAndGrants,
 			OnlyExpandGrants: cfg.onlyExpandGrants, DontExpandGrants: cfg.dontExpandGrants, PreserveEntitlementGraph: cfg.preserveEntitlementGraph,
 			FailFastInvariants: cfg.failFastInvariants, ExternalSourceConfigured: s.externalResourceReader != nil,

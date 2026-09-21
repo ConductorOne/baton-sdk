@@ -25,6 +25,7 @@ import (
 // the store, config only has to be passed again.
 type syncConfig struct {
 	retainLedgerTokens                  bool
+	ledgerDebug                         bool
 	c1zPath                             string
 	externalResourceC1ZPath             string
 	externalResourceEntitlementIdFilter string

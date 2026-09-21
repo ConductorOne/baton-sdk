@@ -2,6 +2,12 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 	"path/filepath"
 	"testing"
 
@@ -70,13 +76,16 @@ func TestLedgerPublicSyncSealsWithoutToken(t *testing.T) {
 	finished, err := f.ledger.BoundSyncFinished(t.Context())
 	require.NoError(t, err)
 	require.True(t, finished)
-	row, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: InitOp.String()})
+	_, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: InitOp.String()})
 	require.NoError(t, err)
-	require.True(t, found)
-	require.True(t, row.Scrubbed)
-	counters, err := f.ledger.LedgerCounters(t.Context())
+	require.False(t, found)
+	report, err := f.ledger.GetArchivedLedgerReport(t.Context())
 	require.NoError(t, err)
-	require.Positive(t, counters.Counters[ledgerCompletedActions])
+	require.NotEmpty(t, report)
+	options, err := f.ledger.GetArchivedLedgerOptions(t.Context(), "")
+	require.NoError(t, err)
+	require.NotNil(t, options)
+	require.False(t, options.Requested.LedgerDebug)
 }
 
 func TestLedgerPublicStopResume(t *testing.T) {
@@ -84,7 +93,7 @@ func TestLedgerPublicStopResume(t *testing.T) {
 	c := &ledgerTypesConnector{mockConnector: newMockConnector()}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	first, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithSkipEntitlementsAndGrants(true), WithRetainLedgerTokens(true), WithProgressHandler(func(*Progress) {
+	first, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithSkipEntitlementsAndGrants(true), WithLedgerDebug(true), WithRetainLedgerTokens(true), WithProgressHandler(func(*Progress) {
 		if len(c.calls) == 1 {
 			cancel()
 		}
@@ -95,7 +104,7 @@ func TestLedgerPublicStopResume(t *testing.T) {
 	require.NoError(t, f.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
 	c = &ledgerTypesConnector{mockConnector: newMockConnector()}
-	resumed, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithSkipEntitlementsAndGrants(true))
+	resumed, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithSkipEntitlementsAndGrants(true), WithLedgerDebug(true))
 	require.NoError(t, err)
 	walked := false
 	var before []ledgerKV
@@ -140,5 +149,111 @@ func TestLedgerPublicSkipSync(t *testing.T) {
 	require.Empty(t, state)
 	facts, err := f.ledger.LedgerFacts(t.Context())
 	require.NoError(t, err)
-	require.Contains(t, facts, ledgerFactSealReady)
+	require.Empty(t, facts)
+	options, err := f.ledger.GetArchivedLedgerOptions(t.Context(), "")
+	require.NoError(t, err)
+	require.True(t, options.Requested.SkipFullSync)
+}
+
+func TestLedgerPublicDebugRetention(t *testing.T) {
+	for _, retainTokens := range []bool{false, true} {
+		t.Run(fmt.Sprint(retainTokens), func(t *testing.T) {
+			f := newLedgerFixture(t)
+			created, err := NewSyncer(t.Context(), newMockConnector(), WithConnectorStore(f.store), WithLedgerDebug(true), WithRetainLedgerTokens(retainTokens))
+			require.NoError(t, err)
+			require.NoError(t, created.Sync(t.Context()))
+			row, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: InitOp.String()})
+			require.NoError(t, err)
+			require.True(t, found)
+			require.Equal(t, !retainTokens, row.Scrubbed)
+			options, err := f.ledger.GetArchivedLedgerOptions(t.Context(), "")
+			require.NoError(t, err)
+			require.True(t, options.Requested.LedgerDebug)
+			require.Equal(t, retainTokens, options.Requested.RetainLedgerTokens)
+			report, err := f.ledger.GetArchivedLedgerReport(t.Context())
+			require.NoError(t, err)
+			require.Contains(t, string(report), `"reference_validation_performed":true`)
+		})
+	}
+}
+
+func TestLedgerPublicTokenRetentionRequiresDebug(t *testing.T) {
+	f := newLedgerFixture(t)
+	before := ledgerRawSnapshot(t, f.engine)
+	created, err := NewSyncer(t.Context(), newMockConnector(), WithConnectorStore(f.store), WithRetainLedgerTokens(true))
+	require.NoError(t, err)
+	require.ErrorContains(t, created.Sync(t.Context()), "requires ledger debug")
+	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
+}
+
+type ledgerArchiveFailureStore struct {
+	c1zstore.PageLedgerStore
+}
+
+func (s ledgerArchiveFailureStore) ArchiveLedgerReport(context.Context) ([]byte, error) {
+	return nil, errors.New("archive write failed")
+}
+
+func TestLedgerPublicArchiveFailurePreservesRows(t *testing.T) {
+	f := newLedgerFixture(t)
+	created, err := NewSyncer(t.Context(), newMockConnector(), WithConnectorStore(f.store))
+	require.NoError(t, err)
+	created.(*syncer).caps.pageLedger = ledgerArchiveFailureStore{f.ledger}
+	require.NoError(t, created.Sync(t.Context()))
+	_, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: InitOp.String()})
+	require.NoError(t, err)
+	require.True(t, found)
+	report, err := f.ledger.GetArchivedLedgerReport(t.Context())
+	require.NoError(t, err)
+	require.Empty(t, report)
+}
+
+func TestLedgerPublicFinishedContinuationAfterDisposal(t *testing.T) {
+	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "continuation.c1z"), false)
+	connector := &ledgerTypesConnector{mockConnector: newMockConnector()}
+	first, err := NewSyncer(t.Context(), connector, WithConnectorStore(f.store), WithSkipEntitlementsAndGrants(true))
+	require.NoError(t, err)
+	require.NoError(t, first.Sync(t.Context()))
+	syncID := first.(*syncer).syncID
+	before, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
+	require.NoError(t, err)
+	require.NoError(t, f.store.Close(t.Context()))
+	f = openLedgerFixtureAt(t, f.path, false)
+	connector = &ledgerTypesConnector{mockConnector: newMockConnector()}
+	next, err := NewSyncer(t.Context(), connector, WithConnectorStore(f.store), WithSyncID(syncID), WithOnlyExpandGrants())
+	require.NoError(t, err)
+	next.(*syncer).testHooks.ledgerWalk = func(entering bool) {
+		if entering {
+			bound, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
+			require.NoError(t, err)
+			require.Equal(t, before.GetStartedAt(), bound.GetStartedAt())
+			require.Equal(t, before.GetEndedAt(), bound.GetEndedAt())
+		}
+	}
+	require.NoError(t, next.Sync(t.Context()))
+	require.Empty(t, connector.calls)
+	require.True(t, next.(*syncer).run.hasFact(factShouldSkipEntitlementsAndGrants))
+	after, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
+	require.NoError(t, err)
+	require.Equal(t, before.GetStartedAt(), after.GetStartedAt())
+	require.NotNil(t, after.GetEndedAt())
+	report, err := f.ledger.GetArchivedLedgerReport(t.Context())
+	require.NoError(t, err)
+	require.Contains(t, string(report), `"preceding_collection"`)
+}
+
+func TestLedgerPublicLogsSavedStats(t *testing.T) {
+	f := newLedgerFixture(t)
+	core, observed := observer.New(zap.InfoLevel)
+	ctx := ctxzap.ToContext(t.Context(), zap.New(core))
+	created, err := NewSyncer(ctx, newMockConnector(), WithConnectorStore(f.store))
+	require.NoError(t, err)
+	require.NoError(t, created.Sync(ctx))
+	entries := observed.FilterMessage("sync ledger stats").All()
+	require.Len(t, entries, 1)
+	logged, ok := entries[0].ContextMap()["ledger_stats"].(json.RawMessage)
+	require.True(t, ok)
+	saved, err := f.ledger.GetArchivedLedgerReport(ctx)
+	require.NoError(t, err)
+	require.JSONEq(t, string(saved), string(logged))
 }
