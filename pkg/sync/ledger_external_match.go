@@ -4,7 +4,6 @@ import (
 	"context"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
@@ -71,7 +70,7 @@ func (s *syncer) processLedgerGrantsWithExternalPrincipals(ctx context.Context, 
 	expandedGrants := make([]*v2.Grant, 0)
 	grantsScanned := 0
 
-	for ga, err := range s.store.Grants().ListWithAnnotations(ctx) {
+	for ga, err := range invocation.page.writer.ListGrantsWithAnnotations(ctx) {
 		if err != nil {
 			return err
 		}
@@ -153,7 +152,7 @@ func (s *syncer) processLedgerGrantsWithExternalPrincipals(ctx context.Context, 
 					principalEntitlementSlugs := expandableEntitlementsResourceMap[groupPrincipalBID]
 					for _, slug := range principalEntitlementSlugs {
 						newExpandableEntId := entitlement.NewEntitlementID(principal, slug)
-						_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
+						_, err := invocation.page.writer.GetEntitlement(ctx, newExpandableEntId)
 						if err != nil {
 							if status.Code(err) == codes.NotFound {
 								l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))

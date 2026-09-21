@@ -1838,3 +1838,14 @@ principal. The mutant is removed. Full Pebble tests pass (10.757s).
 The iterator uses the engine's primary identity encoding and keeps staged rows
 plus one stored page in memory. Broader iterator scaling and every expansion-state
 combination are not established by this consumer fixture.
+
+### External import/matching atomicity correction
+
+The public `TestChaosConnectorExternalPrincipalResumeUsesCurrentExternalAnswer`
+failed against the two-page implementation: matching reused imported principals
+from the earlier attempt instead of refreshing the changed external source.
+Import and matching now share one page. Matching uses the staged grant iterator
+and staged entitlement reads. Existing external parity, imported-carrier, stale
+re-import and full-identity-delete tests pass; the public changed-source corpus
+passes after migration to staged delete faults. The previous two-page design is
+the planted defect. No changed-source expectation was removed.

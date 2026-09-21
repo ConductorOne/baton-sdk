@@ -2,13 +2,11 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/bid"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/sync/progresslog"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -161,9 +159,7 @@ func TestLedgerExternalMatchingFailureAndResume(t *testing.T) {
 	s, f, source := externalPageFixture(t, true)
 	root := ledgerIdentity(s.run.current())
 	f.audit.enter(ledgerHandler)
-	require.NoError(t, s.invokeActionPage(t.Context(), s.run.current(), s.SyncExternalResources, false))
 	f.audit.enter(ledgerLifecycle)
-	require.Equal(t, ledgerExternalMatchCursor, s.run.current().PageToken)
 	before := ledgerRawSnapshot(t, f.engine)
 	s.ledger.store = ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: "commit"}
 	f.audit.enter(ledgerHandler)
@@ -171,13 +167,12 @@ func TestLedgerExternalMatchingFailureAndResume(t *testing.T) {
 	f.audit.enter(ledgerLifecycle)
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 	require.NoError(t, f.store.Close(t.Context()))
-	require.NoError(t, source.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
 	s.store, s.caps = f.store, resolveStoreCaps(f.store)
 	var err error
 	s.ledger, err = newLedgerRuntime(t.Context(), f.ledger, "external-resume")
 	require.NoError(t, err)
-	s.externalResourceReader = nil
+	s.externalResourceReader = source.store
 	before = ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerWalk)
 	require.NoError(t, s.restoreLedgerState(t.Context(), ledgerResume{actions: []ledgerAction{{identity: root}}}, false))
@@ -205,40 +200,20 @@ func TestLedgerExternalFilteredPrincipalState(t *testing.T) {
 	_, err := s.parallelSync(t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
-	facts, err := f.ledger.LedgerFacts(t.Context())
-	require.NoError(t, err)
-	var identities []ledgerExternalPrincipal
-	require.NoError(t, json.Unmarshal([]byte(facts[ledgerFactExternalPrincipals]), &identities))
-	require.Equal(t, []ledgerExternalPrincipal{{ResourceTypeID: "user", ResourceID: "fresh"}, {ResourceTypeID: "user", ResourceID: "zebra"}}, identities)
 	grants, err := f.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
 	require.NoError(t, err)
 	require.Len(t, grants.GetList(), 4)
 }
 
-func TestLedgerExternalPrincipalStateErrors(t *testing.T) {
-	for _, value := range []string{"", "{", "null", `[{}]`} {
-		t.Run(value, func(t *testing.T) {
-			s, f, _ := externalPageFixture(t, true)
-			if value != "" {
-				f.audit.enter(ledgerHandler)
-				_, err := s.ledger.runPage(t.Context(), 0, c1zstore.LedgerActionIdentity{Op: "bad-principals"}, func(_ context.Context, page *ledgerPage) error {
-					if err := page.setFactValue(ledgerFactExternalPrincipals, value); err != nil {
-						return err
-					}
-					return page.transition("")
-				})
-				require.NoError(t, err)
-				f.audit.enter(ledgerLifecycle)
-			}
-			s.run = newRunState()
-			s.run.pushAction(t.Context(), Action{Op: SyncExternalResourcesOp, PageToken: ledgerExternalMatchCursor})
-			before := ledgerRawSnapshot(t, f.engine)
-			f.audit.enter(ledgerHandler)
-			require.Error(t, s.invokeActionPage(t.Context(), s.run.current(), s.SyncExternalResources, false))
-			f.audit.enter(ledgerLifecycle)
-			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
-		})
-	}
+func TestLedgerExternalUnknownCursor(t *testing.T) {
+	s, f, _ := externalPageFixture(t, true)
+	s.run = newRunState()
+	s.run.pushAction(t.Context(), Action{Op: SyncExternalResourcesOp, PageToken: "unknown"})
+	before := ledgerRawSnapshot(t, f.engine)
+	f.audit.enter(ledgerHandler)
+	require.Error(t, s.invokeActionPage(t.Context(), s.run.current(), s.SyncExternalResources, false))
+	f.audit.enter(ledgerLifecycle)
+	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 }
 
 func TestLedgerExternalDeleteFullIdentity(t *testing.T) {

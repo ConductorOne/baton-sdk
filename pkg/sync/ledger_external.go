@@ -2,9 +2,7 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"maps"
 	"slices"
 	"time"
@@ -20,87 +18,33 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const ledgerExternalMatchCursor = "ledger-external-match"
-const ledgerFactExternalPrincipals = "sync.external_principals"
-
-type ledgerExternalPrincipal struct {
-	ResourceTypeID string `json:"resource_type_id"`
-	ResourceID     string `json:"resource_id"`
-}
-
 func (s *syncer) syncLedgerExternalResources(ctx context.Context, action *Action) error {
 	invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
 	if !ok {
 		return errors.New("external resource ledger handler requires an open page")
 	}
-	start := time.Now()
-	defer func() { invocation.page.row.PageDuration = time.Since(start) }()
-	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncExternalResources")
-	uotel.SetSyncIdentityAttrs(ctx, span)
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
-	switch action.PageToken {
-	case "":
-		if s.externalResourceReader == nil {
-			return errors.New("external resource reader is not configured")
-		}
-		var principals []*v2.Resource
-		if s.cfg.externalResourceEntitlementIdFilter != "" {
-			principals, err = s.importLedgerExternalForEntitlement(ctx, invocation, s.cfg.externalResourceEntitlementIdFilter)
-		} else {
-			principals, err = s.importLedgerExternalUsersAndGroups(ctx, invocation)
-		}
-		if err != nil {
-			return err
-		}
-		identities := make([]ledgerExternalPrincipal, 0, len(principals))
-		for _, principal := range principals {
-			identities = append(identities, ledgerExternalPrincipal{ResourceTypeID: principal.GetId().GetResourceType(), ResourceID: principal.GetId().GetResource()})
-		}
-		value, err := json.Marshal(identities)
-		if err != nil {
-			return err
-		}
-		if err := invocation.page.setFactValue(ledgerFactExternalPrincipals, string(value)); err != nil {
-			return err
-		}
-		return s.nextPageOrFinishAction(ctx, action, ledgerExternalMatchCursor)
-	case ledgerExternalMatchCursor:
-		facts, err := s.ledger.store.LedgerFacts(ctx)
-		if err != nil {
-			return err
-		}
-		value, found := facts[ledgerFactExternalPrincipals]
-		if !found {
-			return errors.New("external matching has no committed principal identities")
-		}
-		var identities []ledgerExternalPrincipal
-		if err := json.Unmarshal([]byte(value), &identities); err != nil {
-			return fmt.Errorf("decode external principal identities: %w", err)
-		}
-		if identities == nil {
-			return errors.New("external matching principal identities are null")
-		}
-		principals := make([]*v2.Resource, 0, len(identities))
-		for _, identity := range identities {
-			if identity.ResourceTypeID == "" || identity.ResourceID == "" {
-				return errors.New("external matching principal has an incomplete identity")
-			}
-			response, err := s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
-				ResourceId: v2.ResourceId_builder{ResourceType: identity.ResourceTypeID, Resource: identity.ResourceID}.Build(),
-			}.Build())
-			if err != nil {
-				return err
-			}
-			principals = append(principals, response.GetResource())
-		}
-		if err := s.processLedgerGrantsWithExternalPrincipals(ctx, invocation, principals); err != nil {
-			return err
-		}
-		return s.nextPageOrFinishAction(ctx, action, "")
-	default:
+	if action.PageToken != "" {
 		return errors.New("unknown external resource ledger cursor")
 	}
+	if s.externalResourceReader == nil {
+		return errors.New("external resource reader is not configured")
+	}
+	start := time.Now()
+	defer func() { invocation.page.row.PageDuration = time.Since(start) }()
+	var principals []*v2.Resource
+	var err error
+	if s.cfg.externalResourceEntitlementIdFilter != "" {
+		principals, err = s.importLedgerExternalForEntitlement(ctx, invocation, s.cfg.externalResourceEntitlementIdFilter)
+	} else {
+		principals, err = s.importLedgerExternalUsersAndGroups(ctx, invocation)
+	}
+	if err != nil {
+		return err
+	}
+	if err := s.processLedgerGrantsWithExternalPrincipals(ctx, invocation, principals); err != nil {
+		return err
+	}
+	return s.nextPageOrFinishAction(ctx, action, "")
 }
 
 func (s *syncer) importLedgerExternalForEntitlement(ctx context.Context, invocation *ledgerInvocation, entitlementId string) ([]*v2.Resource, error) {
