@@ -8,8 +8,6 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
-	"google.golang.org/protobuf/encoding/protowire"
-	"google.golang.org/protobuf/proto"
 )
 
 type ledgerReferenceExample struct {
@@ -19,6 +17,7 @@ type ledgerReferenceExample struct {
 	ResourceID     string `json:"resource_id,omitempty"`
 }
 type ledgerReferenceStats struct {
+	RowsChecked          uint64                   `json:"rows_checked"`
 	Lookups              uint64                   `json:"lookups"`
 	MissingChildren      uint64                   `json:"missing_child_references"`
 	MissingContinuations uint64                   `json:"missing_continuation_references"`
@@ -44,30 +43,14 @@ func ledgerReferenceKey(id *v3.LedgerActionIdentity, hash []byte, scrubbed bool)
 	}
 	return encodeLedgerKeyWithHash(ledgerIdentityFromProto(id), hash), true
 }
-func ledgerReferenceTargetIdentity(value []byte) (*v3.LedgerActionIdentity, bool, error) {
-	var id *v3.LedgerActionIdentity
-	var scrubbed bool
-	err := ledgerReportFields(value, func(number protowire.Number, kind protowire.Type, value []byte) error {
-		switch int(number) {
-		case 1:
-			if kind != protowire.BytesType {
-				return errors.New("invalid reference identity")
-			}
-			encoded, _ := protowire.ConsumeBytes(value)
-			id = &v3.LedgerActionIdentity{}
-			return proto.Unmarshal(encoded, id)
-		case 13:
-			if kind != protowire.VarintType {
-				return errors.New("invalid reference scrub flag")
-			}
-			flag, _ := protowire.ConsumeVarint(value)
-			scrubbed = flag != 0
-		}
-		return nil
-	})
-	return id, scrubbed, err
+
+type ledgerReferenceLookup interface {
+	SeekGE([]byte) bool
+	Key() []byte
+	Error() error
 }
-func (e *Engine) validateLedgerReferences(ctx context.Context) (*ledgerReferenceStats, error) {
+
+func scanLedgerReferences(ctx context.Context, iterator ledgerReportIterator, references ledgerReferenceLookup) (*ledgerReferenceStats, error) {
 	stats := &ledgerReferenceStats{}
 	check := func(id *v3.LedgerActionIdentity, hash []byte, scrubbed, child bool) error {
 		if err := ctx.Err(); err != nil {
@@ -80,8 +63,11 @@ func (e *Engine) validateLedgerReferences(ctx context.Context) (*ledgerReference
 			return nil
 		}
 		stats.Lookups++
-		value, closer, err := e.db.Get(key)
-		if errors.Is(err, pebble.ErrNotFound) {
+		found := references.SeekGE(key)
+		if err := references.Error(); err != nil {
+			return err
+		}
+		if !found || !bytes.Equal(key, references.Key()) {
 			if child {
 				stats.MissingChildren++
 				stats.example("missing_child", id)
@@ -89,30 +75,12 @@ func (e *Engine) validateLedgerReferences(ctx context.Context) (*ledgerReference
 				stats.MissingContinuations++
 				stats.example("missing_continuation", id)
 			}
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		got, gotScrubbed, err := ledgerReferenceTargetIdentity(value)
-		closeErr := closer.Close()
-		if err != nil || closeErr != nil {
-			return errors.Join(err, closeErr)
-		}
-		gotKey, ok := ledgerReferenceKey(got, got.GetPageTokenHash(), gotScrubbed)
-		if !ok || !bytes.Equal(key, gotKey) {
-			stats.IdentityMismatches++
-			stats.example("identity_mismatch", id)
 		}
 		return nil
 	}
-	lo := rawdb.LedgerKeyPrefix()
-	iterator, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: upperBoundOf(lo)})
-	if err != nil {
-		return nil, err
-	}
 	scan := func() error {
-		for valid := iterator.First(); valid; valid = iterator.Next() {
+		for iterator.First(); iterator.Valid(); iterator.Next() {
+			stats.RowsChecked++
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -144,6 +112,20 @@ func (e *Engine) validateLedgerReferences(ctx context.Context) (*ledgerReference
 		}
 		return iterator.Error()
 	}
-	err = errors.Join(scan(), iterator.Close())
-	return stats, err
+	return stats, scan()
+}
+
+func (e *Engine) validateLedgerReferences(ctx context.Context) (*ledgerReferenceStats, error) {
+	lo := rawdb.LedgerKeyPrefix()
+	bounds := &pebble.IterOptions{LowerBound: lo, UpperBound: upperBoundOf(lo)}
+	iterator, err := e.db.NewIter(bounds)
+	if err != nil {
+		return nil, err
+	}
+	references, err := e.db.NewIter(bounds)
+	if err != nil {
+		return nil, errors.Join(err, iterator.Close())
+	}
+	stats, err := scanLedgerReferences(ctx, iterator, references)
+	return stats, errors.Join(err, iterator.Close(), references.Close())
 }

@@ -2001,3 +2001,20 @@ Pebble and its cache. Cumulative allocations are 33–74 MB per report, not reta
 heap. These are warm-cache local component results, not C49 end-to-end evidence.
 The full Pebble suite passes (8.785s) and broad lint reports zero issues for the
 phase projection increment.
+
+### Debug reference lookup complexity correction (C50)
+
+The first target-identity projection was insufficient: its field walker revisited
+all repeated child fields for every incoming reference. This allowed O(references
+× target children) work. The small fan-in fixture's counts did not detect it.
+The corrected scanner validates each stored row's identity once and gives reference
+lookups an interface with SeekGE, Key and Error only. Target values are unavailable
+through that interface. A separate counted source iterator verifies one Value read
+per stored row. Pebble's indexed key/block lookup cost remains in the debug path.
+
+`TestLedgerReferenceFanInReadsEachRowOnce` observes 1,001 source-value reads and
+2,000 indexed seeks. Planting a per-reference value reread produces 3,001 reads
+and fails the test. The mutation is removed. Identity mismatches count stored
+rows once, independently of incoming edge count; a ten-reference malformed-target
+fixture verifies that rule. Missing-reference, scrub and token-free-example checks
+still pass. Focused tests pass (0.058s), and broad lint reports zero issues.
