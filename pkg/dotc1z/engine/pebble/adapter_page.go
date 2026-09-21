@@ -243,17 +243,17 @@ func ledgerRowToProto(row *c1zstore.LedgerRow) *v3.LedgerRow {
 		ObservationsRecorded: row.ObservationsRecorded,
 		ConnectorAttempts:    row.ConnectorAttempts,
 		ConnectorErrors:      row.ConnectorErrors,
-		SdkRetryWaitMs:       uint64(max(row.SDKRetryWaitDuration.Milliseconds(), 0)),
-		SdkRateLimitWaitMs:   uint64(max(row.SDKRateLimitWaitDuration.Milliseconds(), 0)),
+		SdkRetryWaitMs:       ledgerDurationMS(row.SDKRetryWaitDuration),
+		SdkRateLimitWaitMs:   ledgerDurationMS(row.SDKRateLimitWaitDuration),
 		NextPageToken:        row.NextPageToken,
 		Children:             children,
 		Attempt:              row.Attempt,
 		Replayed:             row.Replayed,
 		TypeScopedPlanned:    row.TypeScopedPlanned,
 		Spawned:              row.Spawned,
-		PageMs:               uint64(max(row.PageDuration.Milliseconds(), 0)),
-		ConnectorMs:          uint64(max(row.ConnectorDuration.Milliseconds(), 0)),
-		WaitMs:               uint64(max(row.WaitDuration.Milliseconds(), 0)),
+		PageMs:               ledgerDurationMS(row.PageDuration),
+		ConnectorMs:          ledgerDurationMS(row.ConnectorDuration),
+		WaitMs:               ledgerDurationMS(row.WaitDuration),
 	}
 	if !row.CommittedAt.IsZero() {
 		b.CommittedAt = timestamppb.New(row.CommittedAt)
@@ -329,4 +329,11 @@ func (w *pageWriter) StoreExpandedGrants(ctx context.Context, grants ...*v2.Gran
 		return err
 	}
 	return w.unit.stageExpandedGrants((pebbleGrantStore{e: w.e}).translateExpanded(w.syncID, grants))
+}
+
+func ledgerDurationMS(d time.Duration) uint64 {
+	if d <= 0 {
+		return 0
+	}
+	return uint64(d) / uint64(time.Millisecond) //nolint:gosec // d is positive after the guard above.
 }
