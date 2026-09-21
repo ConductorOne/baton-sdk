@@ -10,15 +10,15 @@ import (
 	"time"
 )
 
-type reportPrototypeMemory struct {
+type ledgerReportMemory struct {
 	heapStart, heapPeak, rssStart, rssPeak uint64
 	samples                                uint64
 }
 
-func sampleReportPrototypeMemory() *reportPrototypeMemory {
+func sampleReportPrototypeMemory() *ledgerReportMemory {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	out := &reportPrototypeMemory{heapStart: m.HeapAlloc, heapPeak: m.HeapAlloc, samples: 1}
+	out := &ledgerReportMemory{heapStart: m.HeapAlloc, heapPeak: m.HeapAlloc, samples: 1}
 	data, err := os.ReadFile("/proc/self/status")
 	if err == nil {
 		for _, line := range strings.Split(string(data), "\n") {

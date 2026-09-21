@@ -3,6 +3,7 @@ package pebble
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
-type reportPrototypeIterator interface {
+type ledgerReportIterator interface {
 	First() bool
 	Valid() bool
 	Next() bool
@@ -21,17 +22,17 @@ type reportPrototypeIterator interface {
 	Error() error
 }
 
-type reportPrototypeProjected struct {
+type ledgerReportProjected struct {
 	collection                                     c1zstore.LedgerCollectionStats
 	collectionPages                                uint64
-	attempts                                       reportPrototypeAttempts
-	writes                                         reportPrototypeWrites
+	attempts                                       ledgerReportAttempts
+	writes                                         ledgerReportWrites
 	scope                                          c1zstore.LedgerActionIdentity
 	written, pageMS, connectorMS, waitMS, children uint64
 	terminal, paginationKnown                      bool
 }
 
-func reportPrototypeFields(data []byte, visit func(protowire.Number, protowire.Type, []byte) error) error {
+func ledgerReportFields(data []byte, visit func(protowire.Number, protowire.Type, []byte) error) error {
 	for len(data) > 0 {
 		number, typ, n := protowire.ConsumeTag(data)
 		if n < 0 {
@@ -50,12 +51,12 @@ func reportPrototypeFields(data []byte, visit func(protowire.Number, protowire.T
 	return nil
 }
 
-func reportPrototypeProject(data []byte) (reportPrototypeProjected, error) {
-	var row reportPrototypeProjected
+func ledgerReportProject(data []byte) (ledgerReportProjected, error) {
+	var row ledgerReportProjected
 	var counts [4]uint64
 	var hasIdentity, hasNext, scrubbed, hashPresent, hashEmpty bool
 	emptyHash := ledgerTokenHash("")
-	err := reportPrototypeFields(data, func(number protowire.Number, typ protowire.Type, value []byte) error {
+	err := ledgerReportFields(data, func(number protowire.Number, typ protowire.Type, value []byte) error {
 		switch int32(number) {
 		case 23:
 			if typ != protowire.BytesType {
@@ -63,7 +64,7 @@ func reportPrototypeProject(data []byte) (reportPrototypeProjected, error) {
 			}
 			value, _ = protowire.ConsumeBytes(value)
 			row.collectionPages = 1
-			return reportPrototypeFields(value, func(field protowire.Number, kind protowire.Type, v []byte) error {
+			return ledgerReportFields(value, func(field protowire.Number, kind protowire.Type, v []byte) error {
 				if field < 1 || field > 14 {
 					return nil
 				}
@@ -111,7 +112,7 @@ func reportPrototypeProject(data []byte) (reportPrototypeProjected, error) {
 			switch int32(number) {
 			case 1:
 				hasIdentity = true
-				return reportPrototypeFields(value, func(field protowire.Number, kind protowire.Type, v []byte) error {
+				return ledgerReportFields(value, func(field protowire.Number, kind protowire.Type, v []byte) error {
 					switch int32(field) {
 					case 1, 2, 3, 4, 5:
 						if kind != protowire.BytesType {
@@ -193,7 +194,7 @@ func reportPrototypeProject(data []byte) (reportPrototypeProjected, error) {
 	for _, count := range counts {
 		row.written += count
 	}
-	row.writes = reportPrototypeWrites{ResourceTypes: counts[0], Resources: counts[1], Entitlements: counts[2], Grants: counts[3]}
+	row.writes = ledgerReportWrites{ResourceTypes: counts[0], Resources: counts[1], Entitlements: counts[2], Grants: counts[3]}
 	row.paginationKnown = !scrubbed || hashPresent
 	row.terminal = !hasNext
 	if scrubbed {
@@ -202,12 +203,12 @@ func reportPrototypeProject(data []byte) (reportPrototypeProjected, error) {
 	return row, nil
 }
 
-type reportPrototypeGroup struct {
-	stats   reportPrototypeCollection
-	latency reportPrototypeHistogram
+type ledgerReportGroup struct {
+	stats   ledgerReportCollection
+	latency ledgerReportHistogram
 }
 
-func (g *reportPrototypeGroup) add(row reportPrototypeProjected) {
+func (g *ledgerReportGroup) add(row ledgerReportProjected) {
 	c := &g.stats
 	c.Pages++
 	c.Written += row.written
@@ -234,7 +235,7 @@ func (g *reportPrototypeGroup) add(row reportPrototypeProjected) {
 	g.latency.add(row.connectorMS)
 }
 
-func (g *reportPrototypeGroup) finish() reportPrototypeCollection {
+func (g *ledgerReportGroup) finish() ledgerReportCollection {
 	c := g.stats
 	c.ConnectorPageMedian = g.latency.quantile(50)
 	c.ConnectorPageP95 = g.latency.quantile(95)
@@ -248,9 +249,9 @@ func (g *reportPrototypeGroup) finish() reportPrototypeCollection {
 	return c
 }
 
-func reportPrototypeTop(top []reportPrototypeCollection, c reportPrototypeCollection) []reportPrototypeCollection {
+func ledgerReportTop(top []ledgerReportCollection, c ledgerReportCollection) []ledgerReportCollection {
 	pos := len(top)
-	for pos > 0 && reportPrototypeRankBefore(c, top[pos-1]) {
+	for pos > 0 && ledgerReportRankBefore(c, top[pos-1]) {
 		pos--
 	}
 	if pos >= 10 {
@@ -264,11 +265,11 @@ func reportPrototypeTop(top []reportPrototypeCollection, c reportPrototypeCollec
 	return top
 }
 
-func reportPrototypeScan(ctx context.Context, iter reportPrototypeIterator,
-	emitCollection func(reportPrototypeCollection), emitType func(reportPrototypeCollection) error,
-) (reportPrototypeSummary, error) {
-	var result reportPrototypeSummary
-	var collection, group reportPrototypeGroup
+func ledgerReportScan(ctx context.Context, iter ledgerReportIterator,
+	emitCollection func(ledgerReportCollection), emitType func(ledgerReportCollection) error,
+) (ledgerReportSummary, error) {
+	var result ledgerReportSummary
+	var collection, group ledgerReportGroup
 	flushCollection := func() {
 		if collection.stats.Pages == 0 {
 			return
@@ -280,7 +281,7 @@ func reportPrototypeScan(ctx context.Context, iter reportPrototypeIterator,
 		if emitCollection != nil {
 			emitCollection(c)
 		}
-		result.Top = reportPrototypeTop(result.Top, c)
+		result.Top = ledgerReportTop(result.Top, c)
 	}
 	flushType := func() error {
 		if group.stats.Pages == 0 {
@@ -288,13 +289,15 @@ func reportPrototypeScan(ctx context.Context, iter reportPrototypeIterator,
 		}
 		c := group.finish()
 		result.OperationTypes++
-		result.TopOperationTypes = reportPrototypeTop(result.TopOperationTypes, c)
+		result.TopOperationTypes = ledgerReportTop(result.TopOperationTypes, c)
 		if emitType != nil {
 			return emitType(c)
 		}
 		return nil
 	}
 	rowPrefix := rawdb.LedgerKeyPrefix()
+	optionsKey := encodeLedgerFactKey(c1zstore.LedgerFactReportOptions)
+	optionPrefix := encodeLedgerFactKey(c1zstore.LedgerFactReportOptionsPrefix)
 	skipGrants := encodeLedgerFactKey("should_skip_grants")
 	skipBoth := encodeLedgerFactKey("should_skip_entitlements_and_grants")
 	for iter.First(); iter.Valid(); iter.Next() {
@@ -304,6 +307,14 @@ func reportPrototypeScan(ctx context.Context, iter reportPrototypeIterator,
 		result.LedgerKeysScanned++
 		key := iter.Key()
 		switch {
+		case bytes.Equal(key, optionsKey):
+			var options ledgerReportOptionSummary
+			if err := json.Unmarshal([]byte(rawdb.DecodeLedgerFactValue(iter.Value())), &options); err != nil {
+				return result, fmt.Errorf("decode ledger report options: %w", err)
+			}
+			result.Options = &options
+		case bytes.HasPrefix(key, optionPrefix):
+			result.OptionSnapshots++
 		case bytes.Equal(key, skipGrants):
 			disabled := true
 			result.GrantsDisabled = &disabled
@@ -312,19 +323,19 @@ func reportPrototypeScan(ctx context.Context, iter reportPrototypeIterator,
 			result.GrantsDisabled = &disabled
 			result.EntitlementsDisabled = &disabled
 		case bytes.HasPrefix(key, rowPrefix):
-			row, err := reportPrototypeProject(iter.Value())
+			row, err := ledgerReportProject(iter.Value())
 			if err != nil {
 				return result, fmt.Errorf("project ledger stats row: %w", err)
 			}
 			if collection.stats.Pages > 0 && collection.stats.Scope != row.scope {
 				flushCollection()
-				collection = reportPrototypeGroup{}
+				collection = ledgerReportGroup{}
 			}
 			if group.stats.Pages > 0 && (group.stats.Scope.Op != row.scope.Op || group.stats.Scope.ResourceTypeID != row.scope.ResourceTypeID) {
 				if err := flushType(); err != nil {
 					return result, err
 				}
-				group = reportPrototypeGroup{}
+				group = ledgerReportGroup{}
 			}
 			collection.stats.Scope = row.scope
 			group.stats.Scope = c1zstore.LedgerActionIdentity{Op: row.scope.Op, ResourceTypeID: row.scope.ResourceTypeID}

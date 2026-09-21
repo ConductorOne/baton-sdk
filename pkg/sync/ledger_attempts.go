@@ -12,10 +12,11 @@ import (
 type ledgerAttemptsKey struct{}
 
 type ledgerAttempts struct {
-	mu                       native_sync.Mutex
-	identity                 c1zstore.LedgerActionIdentity
-	attempts, errors         uint64
-	retryWait, rateLimitWait time.Duration
+	mu                          native_sync.Mutex
+	identity                    c1zstore.LedgerActionIdentity
+	attempts, errors            uint64
+	retryWait, rateLimitWait    time.Duration
+	connectorTime, reportedWait time.Duration
 }
 
 func withLedgerAttempts(ctx context.Context) context.Context {
@@ -28,13 +29,21 @@ func (a *ledgerAttempts) selectPage(id c1zstore.LedgerActionIdentity) {
 	if a.identity != id {
 		a.identity = id
 		a.attempts, a.errors, a.retryWait, a.rateLimitWait = 0, 0, 0, 0
+		a.connectorTime, a.reportedWait = 0, 0
 	}
 }
 
-func (a *ledgerAttempts) recordCall() {
+func (a *ledgerAttempts) recordCall(elapsed time.Duration) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.attempts++
+	a.connectorTime += elapsed
+}
+
+func (a *ledgerAttempts) recordReportedWait(wait time.Duration) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.reportedWait += wait
 }
 
 func (a *ledgerAttempts) recordError(err error) {
@@ -60,6 +69,9 @@ func (a *ledgerAttempts) snapshot(row *c1zstore.LedgerRow) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	row.ObservationsRecorded = true
+	if a.attempts > 0 {
+		row.ConnectorDuration, row.WaitDuration = a.connectorTime, a.reportedWait
+	}
 	row.ConnectorAttempts, row.ConnectorErrors = a.attempts, a.errors
 	row.SDKRetryWaitDuration, row.SDKRateLimitWaitDuration = a.retryWait, a.rateLimitWait
 }
@@ -68,6 +80,7 @@ func (a *ledgerAttempts) committed() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.attempts, a.errors, a.retryWait, a.rateLimitWait = 0, 0, 0, 0
+	a.connectorTime, a.reportedWait = 0, 0
 }
 
 func recordLedgerConnectorError(invocation *ledgerInvocation, err error) {

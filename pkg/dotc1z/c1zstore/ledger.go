@@ -200,6 +200,7 @@ type PageWriter interface {
 }
 
 type PageLedgerStore interface {
+	GenerateLedgerReport(ctx context.Context) ([]byte, error)
 	BeginPage() PageWriter
 	// found is false when no row exists and when a row echoes a different
 	// identity; either way the page must run.

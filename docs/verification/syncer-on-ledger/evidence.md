@@ -1809,3 +1809,22 @@ three preexisting benchmark conversion warnings now state their numeric bounds.
 These counters cover the named branches, not all connector-internal filtering or
 all SDK annotation transformations. Full-sync overhead, production emission and
 safe report/options persistence before ledger disposal are not yet verified.
+
+### Report reader and option snapshots (CO-017, CO-018)
+
+Status: evidence incomplete for C50 as a whole. The production report reader
+is verified for read-only generation, commit/reopen/scrub stability, and fixed
+scope previews. `TestLedgerReportOptionsBoundedProjection` projects 100,000
+selected types to sixteen examples and a total; unknown fields are not emitted.
+`TestLedgerReportOptionsCommitWithPage` proves a failed page leaves no snapshot,
+and the committed retry saves requested flags separately from effective facts.
+Omitting snapshot staging makes that test fail. Returning an empty generated
+report makes the store consumer test fail. Both defects were removed.
+`TestLedgerCanonicalOptionsPreserveFlags` permits duplicate attempt snapshots
+but rejects equivalence when a skip flag changes, and rejects unreadable JSON.
+The differential uses an uninterrupted reference with matching worker options.
+
+Focused ledger tests pass in sync, Pebble and dotc1z. Retry timing now includes
+failed calls preceding success; concurrent wait callbacks remain worker-local.
+Automatic publication, option-history preservation across disposal, phase timing,
+debug reference validation and default disposal are not closed by these tests.

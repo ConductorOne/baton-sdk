@@ -1,6 +1,7 @@
 # Additional report fields: code study
 
-This is a design study, not report output or evidence that the fields are
+Later decisions in CO-017 narrow retry statistics to successfully committed
+pages and omit resume-reuse counts. This is a design study, not report output or evidence that the fields are
 implemented. Inspected the existing scheduler, current ledger handlers, retryer,
 run accounting and report prototype. No execution behavior changes in this study.
 

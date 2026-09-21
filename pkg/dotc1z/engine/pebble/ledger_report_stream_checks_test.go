@@ -15,22 +15,22 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
-type reportPrototypeTestIter struct {
+type ledgerReportTestIter struct {
 	keys, values        [][]byte
 	index, walks, reads int
 	err                 error
 }
 
-func (i *reportPrototypeTestIter) First() bool   { i.walks++; i.index = 0; return i.Valid() }
-func (i *reportPrototypeTestIter) Valid() bool   { return i.index < len(i.keys) }
-func (i *reportPrototypeTestIter) Next() bool    { i.index++; return i.Valid() }
-func (i *reportPrototypeTestIter) Key() []byte   { return i.keys[i.index] }
-func (i *reportPrototypeTestIter) Value() []byte { i.reads++; return i.values[i.index] }
-func (i *reportPrototypeTestIter) Error() error  { return i.err }
+func (i *ledgerReportTestIter) First() bool   { i.walks++; i.index = 0; return i.Valid() }
+func (i *ledgerReportTestIter) Valid() bool   { return i.index < len(i.keys) }
+func (i *ledgerReportTestIter) Next() bool    { i.index++; return i.Valid() }
+func (i *ledgerReportTestIter) Key() []byte   { return i.keys[i.index] }
+func (i *ledgerReportTestIter) Value() []byte { i.reads++; return i.values[i.index] }
+func (i *ledgerReportTestIter) Error() error  { return i.err }
 
-func reportPrototypeTestRows(t *testing.T, types int) *reportPrototypeTestIter {
+func ledgerReportTestRows(t *testing.T, types int) *ledgerReportTestIter {
 	t.Helper()
-	i := &reportPrototypeTestIter{}
+	i := &ledgerReportTestIter{}
 	for ty := 0; ty < types; ty++ {
 		for resource := 0; resource < 2; resource++ {
 			for page := 0; page < 2; page++ {
@@ -63,14 +63,14 @@ func reportPrototypeTestRows(t *testing.T, types int) *reportPrototypeTestIter {
 }
 
 func TestLedgerReportSingleWalk(t *testing.T) {
-	i := reportPrototypeTestRows(t, 12)
+	i := ledgerReportTestRows(t, 12)
 	i.keys = append(i.keys, encodeLedgerFactKey("should_skip_grants"))
 	i.values = append(i.values, []byte("ignored fact payload"))
 	groups, collections := 0, 0
-	r, err := reportPrototypeScan(context.Background(), i, func(c reportPrototypeCollection) {
+	r, err := ledgerReportScan(context.Background(), i, func(c ledgerReportCollection) {
 		collections++
 		require.EqualValues(t, 2, c.Pages)
-	}, func(c reportPrototypeCollection) error {
+	}, func(c ledgerReportCollection) error {
 		groups++
 		require.EqualValues(t, 4, c.Pages)
 		require.EqualValues(t, 2, c.Collections)
@@ -88,7 +88,7 @@ func TestLedgerReportSingleWalk(t *testing.T) {
 	require.Len(t, r.TopOperationTypes, 10)
 	require.EqualValues(t, 24, r.Continuations)
 	require.True(t, *r.GrantsDisabled)
-	data, err := renderReportPrototype(r)
+	data, err := renderLedgerReport(r)
 	require.NoError(t, err)
 	var decoded map[string]any
 	require.NoError(t, json.Unmarshal(data, &decoded))
@@ -99,22 +99,22 @@ func TestLedgerReportSingleWalk(t *testing.T) {
 
 func TestLedgerReportStreamErrors(t *testing.T) {
 	boom := errors.New("iterator or sink failed")
-	i := reportPrototypeTestRows(t, 1)
+	i := ledgerReportTestRows(t, 1)
 	i.err = boom
-	_, err := reportPrototypeScan(context.Background(), i, nil, nil)
+	_, err := ledgerReportScan(context.Background(), i, nil, nil)
 	require.ErrorIs(t, err, boom)
-	i = reportPrototypeTestRows(t, 1)
-	_, err = reportPrototypeScan(context.Background(), i, nil, func(reportPrototypeCollection) error { return boom })
+	i = ledgerReportTestRows(t, 1)
+	_, err = ledgerReportScan(context.Background(), i, nil, func(ledgerReportCollection) error { return boom })
 	require.ErrorIs(t, err, boom)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	i = reportPrototypeTestRows(t, 1)
-	_, err = reportPrototypeScan(ctx, i, nil, nil)
+	i = ledgerReportTestRows(t, 1)
+	_, err = ledgerReportScan(ctx, i, nil, nil)
 	require.ErrorIs(t, err, context.Canceled)
 	require.Zero(t, i.reads)
-	i = reportPrototypeTestRows(t, 1)
+	i = ledgerReportTestRows(t, 1)
 	i.values[0] = []byte{0xff}
-	_, err = reportPrototypeScan(context.Background(), i, nil, nil)
+	_, err = ledgerReportScan(context.Background(), i, nil, nil)
 	require.Error(t, err)
 }
 
@@ -136,7 +136,7 @@ func TestLedgerReportProjection(t *testing.T) {
 			require.NoError(t, err)
 			data = protowire.AppendTag(data, 100, protowire.BytesType)
 			data = protowire.AppendBytes(data, []byte("unknown"))
-			got, err := reportPrototypeProject(data)
+			got, err := ledgerReportProject(data)
 			require.NoError(t, err)
 			scope := id
 			scope.PageToken = ""
@@ -150,7 +150,7 @@ func TestLedgerReportProjection(t *testing.T) {
 			require.Equal(t, next == "", got.terminal)
 			data = protowire.AppendTag(data, 10, protowire.VarintType)
 			data = protowire.AppendVarint(data, 5)
-			got, err = reportPrototypeProject(data)
+			got, err = ledgerReportProject(data)
 			require.NoError(t, err)
 			require.EqualValues(t, 11, got.written)
 		}
@@ -158,10 +158,10 @@ func TestLedgerReportProjection(t *testing.T) {
 	row := v3.LedgerRow_builder{Identity: ledgerIdentityToProto(id), Scrubbed: true}.Build()
 	data, err := marshalRecord(row)
 	require.NoError(t, err)
-	got, err := reportPrototypeProject(data)
+	got, err := ledgerReportProject(data)
 	require.NoError(t, err)
 	require.False(t, got.paginationKnown)
-	_, err = reportPrototypeProject(nil)
+	_, err = ledgerReportProject(nil)
 	require.Error(t, err)
 }
 
@@ -173,10 +173,10 @@ func TestLedgerReportWidePageAllocations(t *testing.T) {
 	require.NoError(t, err)
 	field := protowire.AppendTag(nil, 4, protowire.BytesType)
 	field = protowire.AppendBytes(field, child)
-	var got reportPrototypeProjected
-	narrow := testing.AllocsPerRun(5, func() { got, err = reportPrototypeProject(data) })
+	var got ledgerReportProjected
+	narrow := testing.AllocsPerRun(5, func() { got, err = ledgerReportProject(data) })
 	wide := append(bytes.Clone(data), bytes.Repeat(field, 100000)...)
-	wideAllocs := testing.AllocsPerRun(5, func() { got, err = reportPrototypeProject(wide) })
+	wideAllocs := testing.AllocsPerRun(5, func() { got, err = ledgerReportProject(wide) })
 	require.NoError(t, err)
 	require.EqualValues(t, 100000, got.children)
 	require.LessOrEqual(t, wideAllocs, narrow)
@@ -184,7 +184,7 @@ func TestLedgerReportWidePageAllocations(t *testing.T) {
 }
 
 func TestLedgerReportWriteFamilies(t *testing.T) {
-	iter := &reportPrototypeTestIter{}
+	iter := &ledgerReportTestIter{}
 	for _, token := range []string{"", "next"} {
 		id := grantsPageIdentity("group", token)
 		row := v3.LedgerRow_builder{Identity: ledgerIdentityToProto(id), ResourceTypesWritten: 1,
@@ -220,9 +220,9 @@ func TestLedgerReportWriteFamilies(t *testing.T) {
 		iter.keys = append(iter.keys, encodeLedgerKey(id))
 		iter.values = append(iter.values, data)
 	}
-	report, err := reportPrototypeScan(context.Background(), iter, nil, nil)
+	report, err := ledgerReportScan(context.Background(), iter, nil, nil)
 	require.NoError(t, err)
-	data, err := renderReportPrototype(report)
+	data, err := renderLedgerReport(report)
 	require.NoError(t, err)
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(data, &payload))

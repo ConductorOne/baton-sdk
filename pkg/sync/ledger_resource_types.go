@@ -131,7 +131,11 @@ func (s *syncer) recordLedgerConnectorResponseForAction(
 ) {
 	page := invocation.page
 	if invocation.attempts != nil {
-		invocation.attempts.recordCall()
+		measured := elapsed
+		if !s.recordStats {
+			measured = 0
+		}
+		invocation.attempts.recordCall(measured)
 	}
 	if s.recordStats {
 		page.row.ConnectorDuration += elapsed
@@ -154,6 +158,9 @@ func (s *syncer) recordLedgerConnectorResponseForAction(
 		if err == nil && found && report.GetWaitMs() > 0 {
 			waitMs := min(report.GetWaitMs(), int64(24*time.Hour/time.Millisecond))
 			page.row.WaitDuration += time.Duration(waitMs) * time.Millisecond
+			if invocation.attempts != nil {
+				invocation.attempts.recordReportedWait(time.Duration(waitMs) * time.Millisecond)
+			}
 			if page.observations.StepDurationsMs == nil {
 				page.observations.StepDurationsMs = make(map[string]int64)
 			}

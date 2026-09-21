@@ -39,6 +39,7 @@ var capabilityMethods = map[string]struct {
 	why  string
 }{
 	"BeginPage":             {dirtyDeferred, "returns a PageWriter; the staging calls write nothing until Commit, and dirtyPageWriter.Commit carries the mark for the whole batch"},
+	"GenerateLedgerReport":  {dirtyRead, "read-only ledger scan"},
 	"GetLedgerRow":          {dirtyRead, "read"},
 	"SetRetainLedgerTokens": {dirtyRead, "sets an in-memory flag; the durable retain fact is written by a later page commit, which marks dirty itself"},
 	"LedgerFacts":           {dirtyRead, "read"},

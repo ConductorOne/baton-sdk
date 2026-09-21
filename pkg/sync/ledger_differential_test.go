@@ -61,7 +61,7 @@ func TestLedgerResumeLogicalDifferential(t *testing.T) {
 	})
 	seed, err := os.ReadFile(seedPath)
 	require.NoError(t, err)
-	var reference []ledgerKV
+	reference := make(map[uint32][]ledgerKV)
 	for _, cut := range []int{-1, 0, 1, 2} {
 		for _, workers := range []uint32{1, 4} {
 			path := filepath.Join(t.TempDir(), fmt.Sprintf("cut-%d-workers-%d.c1z", cut, workers))
@@ -135,10 +135,10 @@ func TestLedgerResumeLogicalDifferential(t *testing.T) {
 				require.NoError(t, runtime.seal(t.Context()))
 				canonical, err := canonicalLedgerSnapshot(ledgerRawSnapshot(t, f.engine))
 				require.NoError(t, err)
-				if reference == nil {
-					reference = canonical
+				if reference[workers] == nil {
+					reference[workers] = canonical
 				} else {
-					require.Equal(t, reference, canonical)
+					require.Equal(t, reference[workers], canonical)
 				}
 				require.NoError(t, f.store.Close(t.Context()))
 				artifact, err := os.ReadFile(path)

@@ -150,6 +150,9 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 				page.observations.Counters[ledgerWarningsPrefix+action.Op.String()]++
 			}
 		}
+		if err := s.stageLedgerReportOptions(invocation); err != nil {
+			return err
+		}
 		attempts.snapshot(&page.row)
 		return nil
 	}, func(page *ledgerPage, commit func() error) error {

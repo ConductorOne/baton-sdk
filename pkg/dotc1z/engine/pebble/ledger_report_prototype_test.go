@@ -10,76 +10,8 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 	"github.com/stretchr/testify/require"
 )
-
-type reportPrototypeAttempts struct {
-	Pages           uint64 `json:"pages_with_observations"`
-	Calls           uint64 `json:"connector_attempts"`
-	Errors          uint64 `json:"connector_errors"`
-	RetryWaitMs     uint64 `json:"sdk_retry_wait_sum_ms"`
-	RateLimitWaitMs uint64 `json:"sdk_rate_limit_wait_sum_ms"`
-}
-
-func (a *reportPrototypeAttempts) add(other reportPrototypeAttempts) {
-	a.Pages += other.Pages
-	a.Calls += other.Calls
-	a.Errors += other.Errors
-	a.RetryWaitMs += other.RetryWaitMs
-	a.RateLimitWaitMs += other.RateLimitWaitMs
-}
-
-type reportPrototypeWrites struct {
-	ResourceTypes uint64 `json:"resource_types"`
-	Resources     uint64 `json:"resources"`
-	Entitlements  uint64 `json:"entitlements"`
-	Grants        uint64 `json:"grants"`
-}
-
-func (w *reportPrototypeWrites) add(other reportPrototypeWrites) {
-	w.ResourceTypes += other.ResourceTypes
-	w.Resources += other.Resources
-	w.Entitlements += other.Entitlements
-	w.Grants += other.Grants
-}
-
-type reportPrototypeCollection struct {
-	Collection                                                   c1zstore.LedgerCollectionStats
-	CollectionPages                                              uint64
-	Attempts                                                     reportPrototypeAttempts
-	Writes                                                       reportPrototypeWrites
-	Scope                                                        c1zstore.LedgerActionIdentity
-	Pages, Written, ZeroWritePages, TerminalPages                uint64
-	PageMs, ConnectorMs, ReportedWaitMs, MaxConnectorMs          uint64
-	Continuations, Children, PaginationUnknownPages, Collections uint64
-	ConnectorPageMedian, ConnectorPageP95                        reportPrototypeInterval
-	WrittenPerPage                                               float64
-	PagesPerThousandWrites, ConnectorMsPerThousandWrites         *float64
-}
-
-type reportPrototypeSummary struct {
-	Collection                                            c1zstore.LedgerCollectionStats
-	CollectionPages                                       uint64
-	Attempts                                              reportPrototypeAttempts
-	Writes                                                reportPrototypeWrites
-	GrantsDisabled, EntitlementsDisabled                  *bool
-	Written, ConnectorMs, ReportedWaitMs                  uint64
-	Pages, Collections, LedgerKeysScanned, OperationTypes uint64
-	Continuations, Children, PaginationUnknownPages       uint64
-	TopOperationTypes                                     []reportPrototypeCollection
-	Top                                                   []reportPrototypeCollection
-}
-
-func reportPrototype(ctx context.Context, e *Engine, emit func(reportPrototypeCollection)) (reportPrototypeSummary, error) {
-	lo, hi := rawdb.LedgerBounds()
-	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
-	if err != nil {
-		return reportPrototypeSummary{}, err
-	}
-	defer iter.Close()
-	return reportPrototypeScan(ctx, iter, emit, nil)
-}
 
 func TestLedgerReportPrototype(t *testing.T) {
 	ctx := context.Background()
@@ -111,8 +43,8 @@ func TestLedgerReportPrototype(t *testing.T) {
 	put("team-b", "", "", 0, 100, 0)
 	put("team-c", "", "p2", 1, 500, 0)
 	put("team-d", "", "", 0, 50, 0, grantsPageIdentity("team-e", ""))
-	var collections []reportPrototypeCollection
-	report, err := reportPrototype(ctx, e, func(c reportPrototypeCollection) { collections = append(collections, c) })
+	var collections []ledgerReportCollection
+	report, err := ledgerReport(ctx, e, func(c ledgerReportCollection) { collections = append(collections, c) })
 	require.NoError(t, err)
 	require.EqualValues(t, 5, report.Pages)
 	require.EqualValues(t, 4, report.Collections)
@@ -123,9 +55,9 @@ func TestLedgerReportPrototype(t *testing.T) {
 	require.EqualValues(t, 3000, report.Top[0].ReportedWaitMs)
 	require.EqualValues(t, 4850, report.ConnectorMs)
 	require.EqualValues(t, 6, report.Written)
-	require.InDelta(t, 86.597938, *reportPrototypeShare(report.Top[0].ConnectorMs, report.ConnectorMs), 0.000001)
-	require.Equal(t, reportPrototypeInterval{128, 255, true}, report.Top[0].ConnectorPageMedian)
-	require.Equal(t, reportPrototypeInterval{2048, 4095, true}, report.Top[0].ConnectorPageP95)
+	require.InDelta(t, 86.597938, *ledgerReportShare(report.Top[0].ConnectorMs, report.ConnectorMs), 0.000001)
+	require.Equal(t, ledgerReportInterval{128, 255, true}, report.Top[0].ConnectorPageMedian)
+	require.Equal(t, ledgerReportInterval{2048, 4095, true}, report.Top[0].ConnectorPageP95)
 	require.Equal(t, 2.5, report.Top[0].WrittenPerPage)
 	require.Equal(t, 400.0, *report.Top[0].PagesPerThousandWrites)
 	require.Equal(t, 840000.0, *report.Top[0].ConnectorMsPerThousandWrites)
@@ -151,7 +83,7 @@ func TestLedgerReportPrototypeScope(t *testing.T) {
 				require.NoError(t, unit.StageFact(fact))
 			}
 			require.NoError(t, unit.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "init"}, nil))
-			report, err := reportPrototype(ctx, e, nil)
+			report, err := ledgerReport(ctx, e, nil)
 			require.NoError(t, err)
 			if fact == "" {
 				require.Nil(t, report.GrantsDisabled)
@@ -178,7 +110,7 @@ func TestLedgerReportPrototypeFullScope(t *testing.T) {
 	for _, id := range variants {
 		require.NoError(t, e.ledger.newPageUnit().Commit(ctx, id, nil))
 	}
-	report, err := reportPrototype(ctx, e, nil)
+	report, err := ledgerReport(ctx, e, nil)
 	require.NoError(t, err)
 	require.EqualValues(t, 4, report.Collections)
 }
@@ -230,11 +162,11 @@ func BenchmarkLedgerReportPrototype(b *testing.B) {
 				stopMemory := startReportPrototypeMemory(b)
 				b.ResetTimer()
 				for n := 0; n < b.N; n++ {
-					report, err := reportPrototype(ctx, e, nil)
+					report, err := ledgerReport(ctx, e, nil)
 					require.NoError(b, err)
 					require.EqualValues(b, pages, report.Pages)
 					require.EqualValues(b, pages/perResource, report.Collections)
-					payload, err := renderReportPrototype(report)
+					payload, err := renderLedgerReport(report)
 					require.NoError(b, err)
 					b.ReportMetric(float64(len(payload)), "report-bytes")
 				}
@@ -255,29 +187,25 @@ func TestLedgerReportTopLimit(t *testing.T) {
 		row := v3.LedgerRow_builder{ConnectorMs: 100}.Build()
 		require.NoError(t, e.ledger.newPageUnit().Commit(ctx, id, row))
 	}
-	report, err := reportPrototype(ctx, e, nil)
+	report, err := ledgerReport(ctx, e, nil)
 	require.NoError(t, err)
 	require.Len(t, report.Top, 10)
 	require.EqualValues(t, 11, report.Collections)
 	require.EqualValues(t, 1100, report.ConnectorMs)
 	require.Equal(t, "team-00", report.Top[0].Scope.ResourceID)
 	require.Equal(t, "team-09", report.Top[9].Scope.ResourceID)
-	require.InDelta(t, 9.090909, *reportPrototypeShare(report.Top[0].ConnectorMs, report.ConnectorMs), 0.000001)
+	require.InDelta(t, 9.090909, *ledgerReportShare(report.Top[0].ConnectorMs, report.ConnectorMs), 0.000001)
 }
 
-func addReportCollection(dst *c1zstore.LedgerCollectionStats, src c1zstore.LedgerCollectionStats) {
-	dst.ListResponses += src.ListResponses
-	dst.EmptyListResponses += src.EmptyListResponses
-	dst.EmptyListResponsesWithContinuation += src.EmptyListResponsesWithContinuation
-	dst.ResourceTypesReceived += src.ResourceTypesReceived
-	dst.ResourcesReceived += src.ResourcesReceived
-	dst.EntitlementsReceived += src.EntitlementsReceived
-	dst.GrantsReceived += src.GrantsReceived
-	dst.ResourceTypesExcludedBySelection += src.ResourceTypesExcludedBySelection
-	dst.EntitlementsExcludedByType += src.EntitlementsExcludedByType
-	dst.GrantsExcludedByType += src.GrantsExcludedByType
-	dst.DerivedResourcesExcludedByType += src.DerivedResourcesExcludedByType
-	dst.ResourceTypesExcludedInvalid += src.ResourceTypesExcludedInvalid
-	dst.ResourcesExcludedInvalid += src.ResourcesExcludedInvalid
-	dst.EntitlementsExcludedInvalid += src.EntitlementsExcludedInvalid
+func TestLedgerReportGenerationDoesNotWrite(t *testing.T) {
+	e, _ := newTestEngine(t)
+	ctx := t.Context()
+	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, e.Ledger().BeginPage().Commit(ctx, grantsPageIdentity("group", "secret"), &c1zstore.LedgerRow{ConnectorAttempts: 1}))
+	before := dumpKeyRange(t, e, nil, nil)
+	data, err := e.GenerateLedgerReport(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, data)
+	require.Equal(t, before, dumpKeyRange(t, e, nil, nil))
 }

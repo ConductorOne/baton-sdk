@@ -977,3 +977,7 @@ func (s *pebbleStore) ClearLedgerRows(ctx context.Context, clearFacts []string) 
 	s.MarkDirty()
 	return s.Engine.Ledger().ClearRows(ctx, clearFacts)
 }
+
+func (s *pebbleStore) GenerateLedgerReport(ctx context.Context) ([]byte, error) {
+	return s.Engine.GenerateLedgerReport(ctx)
+}

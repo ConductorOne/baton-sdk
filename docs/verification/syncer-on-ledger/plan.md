@@ -986,3 +986,23 @@ There are now 49 criteria; the frozen §4 count describes the baseline.
   filtered or internal work. Saved report survives disposal and reopen.
 - **Risk routing:** correctness, cost and operability passes.
 - **PR placement:** this PR.
+
+## CO-018 — option metadata in differential comparisons
+
+- **Classification:** clarification derived from CO-017
+- **Source:** requester (record sync arguments); implementation consequence
+- **Claim:** Attempt option snapshots are diagnostic history. Canonical comparison
+  removes only their attempt identity and collapses identical option snapshots;
+  it retains all flag values. Worker configurations have their own uninterrupted
+  references because their recorded worker-count arguments intentionally differ.
+  Record/index/digest/completion/accounting comparison remains intact. Raw
+  artifacts and raw option history are retained as separate evidence.
+- **Motivation:** Recording arguments must not force a four-worker artifact to
+  falsely claim one worker, or hide changed behavior flags to satisfy equality.
+- **Contract delta:** diagnostic metadata only; no execution behavior change.
+- **Owning boundary:** canonical test oracle and option snapshot tests.
+- **Affected criteria:** C16, C50.
+- **Verification delta:** duplicate attempt-only snapshots normalize equally;
+  changed skip flags remain unequal; unreadable option values fail comparison.
+- **Risk routing:** correctness and operability passes.
+- **PR placement:** this PR.

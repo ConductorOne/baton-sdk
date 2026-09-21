@@ -1639,3 +1639,10 @@ Checks: first-page failure leaves no option facts; retry saves them with the pag
 resume does not overwrite the earlier attempt's snapshot; inherited skip facts
 can differ from requested flags; secrets in omitted config/resource fields never
 appear. Plant omitted snapshot staging and direct raw-JSON forwarding defects.
+
+Option scope lists are preserved in the attempt facts but projected to at most
+sixteen values plus a total count in the bounded log summary. Streaming JSON
+array decoding avoids materializing every target/type in aggregation state.
+Scalar flags remain complete. Report memory includes the iterator's largest input
+value and bounded scope previews; full option-history preservation at disposal
+is still a separate obligation.

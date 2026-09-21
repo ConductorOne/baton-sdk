@@ -2,11 +2,14 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -15,6 +18,7 @@ import (
 func canonicalLedgerSnapshot(rows []ledgerKV) ([]ledgerKV, error) {
 	out := make([]ledgerKV, 0, len(rows))
 	var buckets []*v3.LedgerCounterBucket
+	options := make(map[string]bool)
 	for _, row := range rows {
 		copyRow := ledgerKV{key: bytes.Clone(row.key), value: bytes.Clone(row.value)}
 		if len(row.key) >= 3 && row.key[0] == 0x03 && row.key[1] == 0x0c {
@@ -31,6 +35,24 @@ func canonicalLedgerSnapshot(rows []ledgerKV) ([]ledgerKV, error) {
 				value.SetConnectorMs(0)
 				value.SetWaitMs(0)
 				normalized = value
+			case 1:
+				name := string(row.key[3:])
+				if name == c1zstore.LedgerFactReportOptions || strings.HasPrefix(name, c1zstore.LedgerFactReportOptionsPrefix) {
+					if len(row.value) < 2 || row.value[0] != 2 {
+						return nil, fmt.Errorf("invalid option fact")
+					}
+					var snapshot map[string]json.RawMessage
+					if err := json.Unmarshal(row.value[1:], &snapshot); err != nil {
+						return nil, err
+					}
+					delete(snapshot, "attempt")
+					encoded, err := json.Marshal(snapshot)
+					if err != nil {
+						return nil, err
+					}
+					options[string(encoded)] = true
+					continue
+				}
 			case 2:
 				value := &v3.LedgerCounterBucket{}
 				if err := proto.Unmarshal(row.value, value); err != nil {
@@ -56,6 +78,9 @@ func canonicalLedgerSnapshot(rows []ledgerKV) ([]ledgerKV, error) {
 			}
 		}
 		out = append(out, copyRow)
+	}
+	for option := range options {
+		out = append(out, ledgerKV{key: append([]byte{3, 12, 1}, []byte("canonical-options:"+option)...), value: []byte(option)})
 	}
 	if len(buckets) != 0 {
 		encoded, err := proto.MarshalOptions{Deterministic: true}.Marshal(foldCanonicalLedgerBuckets(buckets))
