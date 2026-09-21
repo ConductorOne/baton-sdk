@@ -954,3 +954,35 @@ There are now 49 criteria; the frozen §4 count describes the baseline.
   and RSS separated from post-GC retained heap and allocation totals.
 - **Risk routing:** cost and correctness passes.
 - **PR placement:** qualify before production report integration.
+
+## CO-017 — default report scope and debug retention
+
+- **Classification:** clarification and extension
+- **Source:** requester
+- **Claim:** Default stats preserve effective non-secret sync options, committed
+  pages and writes by family/operation/resource type, SDK exclusions by known
+  reason with connector-returned counts for context, empty responses and
+  pagination, collection latency, observed waits, elapsed phase times, and
+  connector attempts/errors across retries of a successfully committed page.
+  Resume-reuse counts are omitted. Returned counts describe the connector
+  interface, never upstream completeness. Retry observations survive individual
+  discarded attempts but are committed only with the successful page; exhausted
+  retries abort and uncommitted observations can be lost on crash.
+  Preserve the report and options before safe default ledger disposal. Debug
+  retains a scrubbed ledger and enables reference validation with bounded
+  examples. Explicit no-scrub requires retention and warns about credentials.
+  Validation inconsistencies warn and preserve evidence. Indexed debug checks
+  may use O(N log N) work; one walk is preferred, not mandatory. Quadratic work
+  and unbounded aggregation memory remain forbidden.
+- **Motivation:** Explain SDK decisions and collection cost without claiming
+  source completeness or building a durable history of failed attempts.
+- **Contract delta:** additive page observations and saved report/options;
+  lifecycle disposal requires crash-safe ordering and consumer tests.
+- **Owning boundary:** sync page execution, report generation and seal lifecycle.
+- **Affected criteria:** C31, C35, C49, C50.
+- **Verification delta:** retry counters persist across discarded attempts and
+  reset after each committed page; no row on exhausted retries; family counts
+  survive projection/aggregation/serialization; empty response is distinct from
+  filtered or internal work. Saved report survives disposal and reopen.
+- **Risk routing:** correctness, cost and operability passes.
+- **PR placement:** this PR.

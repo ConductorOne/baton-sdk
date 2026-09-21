@@ -1519,3 +1519,39 @@ cancellation, writer/iterator errors and large child lists. Run increasing row
 counts through one million with long pagination and many distinct scopes. Report
 wall time, cumulative allocations and peak live heap/RSS separately; do not call
 B/op a peak-memory measurement. Commit the design before the implementation.
+
+## 45. Default report observations (CO-017)
+
+Implement in independently tested increments: existing family counts in the
+report; additive page observation storage; observations in collection/retry
+execution; effective options and phase intervals; production report persistence
+and safe disposal; debug validation/retention. Resume-reuse counters and general
+failed-call history are excluded. Do not change scheduling or retry decisions.
+
+First retain all four existing write counters through the projection, group,
+summary and JSON. A mixed-family fixture must distinguish counters even when
+totals match: plant a resources/entitlements swap, and omission of group or global
+accumulation. No new store data or scan is needed. These remain write counts,
+not distinct final records.
+
+For retry accounting, one accumulator belongs to the executing page across
+attempts; discard staged records on an error without discarding this accumulator.
+Reset after commit before the next page. Observe calls at the connector boundary
+rather than counting storage errors as connector errors. Actual retry waits join
+that accumulator, distinguishing rate-limit waits. Commit it on success only.
+Tests must exercise two errors then success, pagination reset, exhaustion,
+cancellation and crash loss. Plant reset-on-retry and leak-into-next-page defects.
+
+Capture returned counts from typed connector results before SDK filtering, and
+reuse exclusion observations at existing branches. Explicit successful-response
+classification distinguishes an empty response from planning or warning actions.
+No upstream transport/request/completeness claims and no raw error messages.
+Test mixed valid/invalid/out-of-scope responses and derived grants. Plant a
+zero-writes-is-empty defect and missing exclusion-reason attribution.
+
+Options use an explicit non-secret allowlist, not serialized argv/config. Phase
+intervals use existing lifecycle boundaries and distinguish active time from
+worker sums and offline time. Full seal elapsed time is logged after seal; it
+must not be invented in an artifact finalized beforehand. Final persistence and
+disposal ordering will be detailed before their lifecycle implementation, with
+failure cuts proving report/options retention and resumability.
