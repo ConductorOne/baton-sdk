@@ -1748,3 +1748,14 @@ Uncovered: production summary/log publication, complete scope/outcome metadata,
 record-family-sized adjacent SSTs, cold-cache qualification, whole-file lifecycle
 failure cuts and default disposal. Exact arbitrary graph-reference validation is
 excluded by the one-pass implementation rather than asserted from aggregate counts.
+
+### CO-017 / C50: write-family report counters
+
+Status: verified to stated coverage for the family-count slice; C50 overall
+remains evidence incomplete. TestLedgerReportWriteFamilies checks two rows with
+unequal family counts through projection, collection/type/global aggregation and
+JSON, with one iterator walk and one value read per row. It fails on the prior
+output (missing breakdown), a resources/entitlements swap, omitted group addition
+and omitted global addition. All three planted defects were removed. Report tests
+pass normally and with race detection, three runs. This does not verify production
+emission, new page observations, disposal, or the remaining CO-017 fields.

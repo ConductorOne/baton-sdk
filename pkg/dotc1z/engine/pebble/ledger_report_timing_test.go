@@ -88,7 +88,7 @@ func renderReportPrototype(report reportPrototypeSummary) ([]byte, error) {
 					"operation": c.Scope.Op, "resource_type_id": c.Scope.ResourceTypeID, "resource_id": c.Scope.ResourceID,
 					"parent_resource_type_id": c.Scope.ParentResourceTypeID, "parent_resource_id": c.Scope.ParentResourceID, "type_scoped": c.Scope.TypeScoped,
 				},
-				"pages": c.Pages, "record_writes": c.Written, "zero_write_pages": c.ZeroWritePages, "terminal_pages": c.TerminalPages,
+				"pages": c.Pages, "record_writes": c.Written, "record_writes_by_family": c.Writes, "zero_write_pages": c.ZeroWritePages, "terminal_pages": c.TerminalPages,
 				"recorded_continuations": c.Continuations, "recorded_children": c.Children, "pagination_unknown_pages": c.PaginationUnknownPages, "collections": c.Collections,
 				"page_duration_sum_ms": c.PageMs, "connector_duration_sum_ms": c.ConnectorMs, "connector_duration_share_pct": reportPrototypeShare(c.ConnectorMs, report.ConnectorMs),
 				"reported_rate_limit_wait_sum_ms": c.ReportedWaitMs, "connector_page_duration_max_ms": c.MaxConnectorMs,
@@ -101,7 +101,7 @@ func renderReportPrototype(report reportPrototypeSummary) ([]byte, error) {
 	}
 	return json.Marshal(map[string]any{
 		"schema_version": 2, "grants_disabled": report.GrantsDisabled, "entitlements_disabled": report.EntitlementsDisabled,
-		"pages": report.Pages, "collections": report.Collections, "record_writes": report.Written, "ledger_keys_scanned": report.LedgerKeysScanned,
+		"pages": report.Pages, "collections": report.Collections, "record_writes": report.Written, "record_writes_by_family": report.Writes, "ledger_keys_scanned": report.LedgerKeysScanned,
 		"reference_validation_performed": false, "missing_continuation_references": nil, "missing_child_references": nil,
 		"recorded_continuations": report.Continuations, "recorded_children": report.Children, "pagination_unknown_pages": report.PaginationUnknownPages,
 		"connector_duration_sum_ms": report.ConnectorMs, "reported_rate_limit_wait_sum_ms": report.ReportedWaitMs,

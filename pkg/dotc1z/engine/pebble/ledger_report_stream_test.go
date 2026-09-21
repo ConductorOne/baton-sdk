@@ -22,6 +22,7 @@ type reportPrototypeIterator interface {
 }
 
 type reportPrototypeProjected struct {
+	writes                                         reportPrototypeWrites
 	scope                                          c1zstore.LedgerActionIdentity
 	written, pageMS, connectorMS, waitMS, children uint64
 	terminal, paginationKnown                      bool
@@ -129,6 +130,7 @@ func reportPrototypeProject(data []byte) (reportPrototypeProjected, error) {
 	for _, count := range counts {
 		row.written += count
 	}
+	row.writes = reportPrototypeWrites{ResourceTypes: counts[0], Resources: counts[1], Entitlements: counts[2], Grants: counts[3]}
 	row.paginationKnown = !scrubbed || hashPresent
 	row.terminal = !hasNext
 	if scrubbed {
@@ -146,6 +148,7 @@ func (g *reportPrototypeGroup) add(row reportPrototypeProjected) {
 	c := &g.stats
 	c.Pages++
 	c.Written += row.written
+	c.Writes.add(row.writes)
 	if row.written == 0 {
 		c.ZeroWritePages++
 	}
@@ -263,6 +266,7 @@ func reportPrototypeScan(ctx context.Context, iter reportPrototypeIterator,
 			group.add(row)
 			result.Pages++
 			result.Written += row.written
+			result.Writes.add(row.writes)
 			result.ConnectorMs += row.connectorMS
 			result.ReportedWaitMs += row.waitMS
 			result.Children += row.children

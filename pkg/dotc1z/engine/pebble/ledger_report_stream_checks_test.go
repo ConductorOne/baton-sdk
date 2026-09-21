@@ -182,3 +182,32 @@ func TestLedgerReportWidePageAllocations(t *testing.T) {
 	require.LessOrEqual(t, wideAllocs, narrow)
 	t.Logf("100000 children: encoded_bytes=%d narrow_allocs=%g wide_allocs=%g", len(wide), narrow, wideAllocs)
 }
+
+func TestLedgerReportWriteFamilies(t *testing.T) {
+	iter := &reportPrototypeTestIter{}
+	for _, token := range []string{"", "next"} {
+		id := grantsPageIdentity("group", token)
+		row := v3.LedgerRow_builder{Identity: ledgerIdentityToProto(id), ResourceTypesWritten: 1,
+			ResourcesWritten: 2, EntitlementsWritten: 3, GrantsWritten: 4}.Build()
+		data, err := marshalRecord(row)
+		require.NoError(t, err)
+		iter.keys = append(iter.keys, encodeLedgerKey(id))
+		iter.values = append(iter.values, data)
+	}
+	report, err := reportPrototypeScan(context.Background(), iter, nil, nil)
+	require.NoError(t, err)
+	data, err := renderReportPrototype(report)
+	require.NoError(t, err)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(data, &payload))
+	want := map[string]any{"resource_types": float64(2), "resources": float64(4), "entitlements": float64(6), "grants": float64(8)}
+	require.Equal(t, want, payload["record_writes_by_family"])
+	for _, key := range []string{"top_collections_by_connector_ms", "top_operation_types_by_connector_ms"} {
+		groups := payload[key].([]any)
+		require.Len(t, groups, 1)
+		require.Equal(t, want, groups[0].(map[string]any)["record_writes_by_family"])
+	}
+	require.EqualValues(t, 20, report.Written)
+	require.Equal(t, 1, iter.walks)
+	require.Equal(t, 2, iter.reads)
+}

@@ -14,7 +14,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type reportPrototypeWrites struct {
+	ResourceTypes uint64 `json:"resource_types"`
+	Resources     uint64 `json:"resources"`
+	Entitlements  uint64 `json:"entitlements"`
+	Grants        uint64 `json:"grants"`
+}
+
+func (w *reportPrototypeWrites) add(other reportPrototypeWrites) {
+	w.ResourceTypes += other.ResourceTypes
+	w.Resources += other.Resources
+	w.Entitlements += other.Entitlements
+	w.Grants += other.Grants
+}
+
 type reportPrototypeCollection struct {
+	Writes                                                       reportPrototypeWrites
 	Scope                                                        c1zstore.LedgerActionIdentity
 	Pages, Written, ZeroWritePages, TerminalPages                uint64
 	PageMs, ConnectorMs, ReportedWaitMs, MaxConnectorMs          uint64
@@ -25,6 +40,7 @@ type reportPrototypeCollection struct {
 }
 
 type reportPrototypeSummary struct {
+	Writes                                                reportPrototypeWrites
 	GrantsDisabled, EntitlementsDisabled                  *bool
 	Written, ConnectorMs, ReportedWaitMs                  uint64
 	Pages, Collections, LedgerKeysScanned, OperationTypes uint64
