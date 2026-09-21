@@ -1726,3 +1726,17 @@ consumer/API increment separate from enabling default disposal. The report's
 aggregation remains bounded by groups; the compact state size depends on facts
 and option history, not page/record count. Full option-history size is not claimed
 to be bounded independently of supplied scope lists and attempt count.
+
+Compactor fold copies the base keyspace, drops its ledger and assigns a new sync
+ID; it historically retains the base token's state. A saved archive is the same
+base state: allow restoration under a renamed record marked compacted. Keep the
+archive's source sync ID as provenance. An unexplained ID mismatch still fails.
+The rebuild compaction path starts an empty keyspace and has no inherited archive.
+Verify the rename case without changing compactor scheduling or provenance code.
+
+Keep the most recent collection report when a later expansion-only pass writes
+its own report. The archived/logged artifact has a latest-pass summary and, when
+different, the preceding collection summary with its source sync ID. Store at
+most these two bounded summaries, not an ever-growing array. This preserves the
+collection diagnostics through deferred expansion without adding old page counts
+to the new pass or pretending the new pass performed connector calls.

@@ -981,3 +981,24 @@ func (s *pebbleStore) ClearLedgerRows(ctx context.Context, clearFacts []string) 
 func (s *pebbleStore) GenerateLedgerReport(ctx context.Context) ([]byte, error) {
 	return s.Engine.GenerateLedgerReport(ctx)
 }
+
+func (s *pebbleStore) ArchiveLedgerReport(ctx context.Context) ([]byte, error) {
+	if err := s.writeHook(ctx, "ArchiveLedgerReport"); err != nil {
+		return nil, err
+	}
+	s.MarkDirty()
+	return s.Engine.ArchiveLedgerReport(ctx)
+}
+func (s *pebbleStore) RestoreLedgerArchive(ctx context.Context) error {
+	if err := s.writeHook(ctx, "RestoreLedgerArchive"); err != nil {
+		return err
+	}
+	s.MarkDirty()
+	return s.Engine.RestoreLedgerArchive(ctx)
+}
+func (s *pebbleStore) GetArchivedLedgerReport(ctx context.Context) ([]byte, error) {
+	return s.Engine.GetArchivedLedgerReport(ctx)
+}
+func (s *pebbleStore) GetArchivedLedgerOptions(ctx context.Context, attempt string) (*c1zstore.LedgerReportOptions, error) {
+	return s.Engine.GetArchivedLedgerOptions(ctx, attempt)
+}

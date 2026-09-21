@@ -14,6 +14,7 @@ import "sync/atomic"
 // the tag to compile the hook sites).
 type testSeams struct {
 	ledgerClearRowsHook func(stage string) error
+	ledgerArchiveHook   func(stage string) error
 	// digestBuildHook fires at named points inside
 	// buildGrantDigestsFromSpill (grant_digest_build_crash_test.go);
 	// digestNodeFlushBytes overrides the digest fold's batch

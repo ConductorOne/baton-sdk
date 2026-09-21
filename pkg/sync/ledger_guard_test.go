@@ -325,3 +325,16 @@ func (s *ledgerGuardedStore) ClearLedgerRows(ctx context.Context, facts []string
 	}
 	return s.PageLedgerStore.ClearLedgerRows(ctx, facts)
 }
+
+func (s *ledgerGuardedStore) ArchiveLedgerReport(ctx context.Context) ([]byte, error) {
+	if err := s.audit.record(ctx, "ArchiveLedgerReport"); err != nil {
+		return nil, err
+	}
+	return s.PageLedgerStore.ArchiveLedgerReport(ctx)
+}
+func (s *ledgerGuardedStore) RestoreLedgerArchive(ctx context.Context) error {
+	if err := s.audit.record(ctx, "RestoreLedgerArchive"); err != nil {
+		return err
+	}
+	return s.PageLedgerStore.RestoreLedgerArchive(ctx)
+}

@@ -38,6 +38,7 @@ import (
 // and non-func knobs are out of scope: they inject observation points,
 // not failures. Enforced by TestFailureSeamsAreExercised.
 var seamFailureCases = map[string][]string{
+	"ledgerArchiveHook":           {"TestLedgerArchiveFailureCuts"},
 	"ledgerClearRowsHook":         {"TestLedgerClearRowsFailureCuts", "TestLedgerClearRowsCrashImages"},
 	"digestBuildHook":             {"TestGrantDigestBuildCrashMidMerge", "TestGrantDigestBuildCrashPostFinish"},
 	"recordCommitHook":            {"TestFailedMutationPathsFireObligations"},

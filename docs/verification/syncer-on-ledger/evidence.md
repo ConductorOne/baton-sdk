@@ -1849,3 +1849,19 @@ and staged entitlement reads. Existing external parity, imported-carrier, stale
 re-import and full-identity-delete tests pass; the public changed-source corpus
 passes after migration to staged delete faults. The previous two-page design is
 the planted defect. No changed-source expectation was removed.
+
+### Compact archive before disposal (CO-017, C31, C50)
+
+Status: evidence incomplete for the full disposal lifecycle. The archive API's
+consumer tests pass: report and complete options survive drop, Close and reopen;
+restoration reproduces facts and counters once, preserves timestamps, and leaves
+a nonempty later ledger unchanged. Missing restoration makes
+`TestLedgerArchivePreservesFinishedState` fail. The defect is removed.
+`TestLedgerArchiveFailureCuts` refuses before/after the archive write without
+deleting ledger rows, and injects a failed restore batch before successful retry.
+Unreadable archives do not write. Compacted base renames retain prior state;
+unexplained ID mismatches refuse it. A new sync removes the archive.
+`TestLedgerArchiveKeepsCollectionAcrossProcessing` preserves one prior collection
+summary through repeated expansion-only passes without recursive report history.
+These checks do not yet establish default syncer disposal, debug reference checks,
+archive I/O crash images, or the final end-to-end cost table.
