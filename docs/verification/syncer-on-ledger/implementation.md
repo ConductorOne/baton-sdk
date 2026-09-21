@@ -1966,3 +1966,21 @@ tradeoffs are measured and compatibility/correctness are qualified. The
 experiment changes neither page atomicity nor NoSync durability. Record the
 patch and source revision with its results; do not silently replace baseline
 samples or treat a profiled run as an unprofiled comparison.
+
+## 58. Attachment call guard and path reachability (C01)
+
+Replace the permissive mock connector in attachment-only fixtures with a
+non-nil client whose embedded ConnectorClient is nil: any attempted connector
+method panics and fails the test. Apply this to injected engine/capability
+pairs and real path attachment. Plant an actual connector call at attachment
+and require failure before restoring production source. Keep the existing
+capability-refusal mutant evidence separate.
+
+Record the P3 path reachability limits explicitly. Built-in drivers produce
+Pebble with the ledger capability and SQLite without it; they cannot produce
+mismatched capability pairs or empty metadata. An unset requested engine selects
+a real driver and is not empty Metadata().Engine. Third-party registered drivers
+are possible through RegisterEngine; do not label their unknown-engine path
+cells unreachable just because only two drivers ship. Those path cases remain
+unassessed until exercised. This increment strengthens C01 without claiming
+closure of all 16 cells or changing store selection.
