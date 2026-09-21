@@ -1683,3 +1683,19 @@ must fail. External tests retain imported matching-grant parity and same-identit
 stale re-import; commit failure leaves the whole external action absent. Resume
 then re-reads the current external source. This is an additive pkg/dotc1z consumer
 contract change, with its own commit before the handler change.
+
+### 46.2 Duplicate page arrivals during changed-answer resume
+
+The migrated response/commit sweep reaches two queued actions converging on one
+page identity (a continuation and a spawned cursor). Main permits that topology.
+Keep the shared scheduler and its queues. The ledger invocation acquires a
+context-cancellable claim for the full page identity before its row lookup.
+Concurrent arrivals wait; after the first releases its claim, the next reads the
+committed row or runs the absent page after a failed first attempt. Claim entries
+are removed on release, bounding memory by active workers. Distinct pages remain
+concurrent. No connector retry is spent on an internal busy-page error.
+
+The changed-answer sweep fails before this guard. Add a deterministic two-worker
+same-identity fixture and a cancelled-wait fixture; verify one connector execution,
+one committed row, and no leaked claims. Keep the runtime's direct overlapping
+worker/page rejection for callers that bypass the invocation wrapper.
