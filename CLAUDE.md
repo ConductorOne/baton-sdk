@@ -81,7 +81,7 @@ applicable sections of `docs/BUG_CATCHING.md` and follow its step-up process.
 
 ## Dependencies & Tooling
 
-- **Go 1.25.2** with vendored dependencies (`vendor/`)
+- **Go 1.27.1** with vendored dependencies (`vendor/`)
 - **Nix flake** for dev environment (`.envrc` + `flake.nix`)
 - **golangci-lint v2** with 26+ linters; line length limit of 200 chars
 - **Buf** for protobuf generation and linting
