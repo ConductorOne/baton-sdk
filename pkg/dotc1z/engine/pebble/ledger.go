@@ -39,6 +39,10 @@ func ledgerTokenHash(token string) []byte {
 }
 
 func encodeLedgerKey(id c1zstore.LedgerActionIdentity) []byte {
+	return encodeLedgerKeyWithHash(id, ledgerTokenHash(id.PageToken))
+}
+
+func encodeLedgerKeyWithHash(id c1zstore.LedgerActionIdentity, hash []byte) []byte {
 	buf := make([]byte, 0, 64+len(id.Op)+len(id.ResourceTypeID)+len(id.ResourceID)+
 		len(id.ParentResourceTypeID)+len(id.ParentResourceID))
 	buf = append(buf, rawdb.LedgerKeyPrefix()...)
@@ -47,7 +51,7 @@ func encodeLedgerKey(id c1zstore.LedgerActionIdentity) []byte {
 	buf = codec.AppendTupleSeparator(buf)
 	buf = codec.AppendTupleBool(buf, id.TypeScoped)
 	buf = codec.AppendTupleSeparator(buf)
-	return codec.AppendTupleBytes(buf, ledgerTokenHash(id.PageToken))
+	return codec.AppendTupleBytes(buf, hash)
 }
 
 func ledgerLowerBound() []byte { lo, _ := rawdb.LedgerBounds(); return lo }

@@ -58,6 +58,7 @@ type ledgerReportCollection struct {
 }
 
 type ledgerReportSummary struct {
+	References                                            *ledgerReferenceStats
 	Options                                               *ledgerReportOptionSummary
 	OptionSnapshots                                       uint64
 	Collection                                            c1zstore.LedgerCollectionStats
@@ -177,7 +178,7 @@ func renderLedgerReport(report ledgerReportSummary) ([]byte, error) {
 		"pages": report.Pages, "collections": report.Collections, "record_writes": report.Written, "record_writes_by_family": report.Writes,
 		"attempt_observations":    report.Attempts,
 		"collection_observations": report.Collection, "pages_with_collection_observations": report.CollectionPages, "ledger_keys_scanned": report.LedgerKeysScanned,
-		"reference_validation_performed": false, "missing_continuation_references": nil, "missing_child_references": nil,
+		"reference_validation_performed": report.References != nil, "reference_checks": report.References,
 		"recorded_continuations": report.Continuations, "recorded_children": report.Children, "pagination_unknown_pages": report.PaginationUnknownPages,
 		"connector_duration_sum_ms": report.ConnectorMs, "reported_rate_limit_wait_sum_ms": report.ReportedWaitMs,
 		"top_collections_by_connector_ms": convert(report.Top),
@@ -208,6 +209,12 @@ func (e *Engine) GenerateLedgerReport(ctx context.Context) ([]byte, error) {
 	report, err := ledgerReport(ctx, e, nil)
 	if err != nil {
 		return nil, err
+	}
+	if report.Options != nil && report.Options.Requested.LedgerDebug {
+		report.References, err = e.validateLedgerReferences(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return renderLedgerReport(report)
 }

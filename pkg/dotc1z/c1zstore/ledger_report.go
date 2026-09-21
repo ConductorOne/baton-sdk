@@ -20,6 +20,8 @@ type LedgerReportOptions struct {
 }
 
 type LedgerRequestedOptions struct {
+	LedgerDebug                 bool                 `json:"ledger_debug"`
+	RetainLedgerTokens          bool                 `json:"retain_ledger_tokens"`
 	SyncType                    string               `json:"sync_type"`
 	ResourceTypes               []string             `json:"resource_types"`
 	Targets                     []LedgerReportTarget `json:"targets"`
