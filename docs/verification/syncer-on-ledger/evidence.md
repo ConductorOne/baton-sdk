@@ -95,12 +95,11 @@ of C10, C37, C38 or C47 over all required cells.
 
 ### C08
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
-- Required coverage: plan C08 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Status: evidence incomplete.
+- Tests run: TestLedgerExternalDeleteFullIdentity and the page grant-deletion fixtures recorded below.
+- Coverage: full-identity external deletion preserves an unrelated grant with the same external ID. The O8 inventory finds only PageWriter.DeleteGrants calls in the ledger external handlers; the CO-002 bare-ID split case is unreachable on these paths.
+- Planted defect: replacing full-identity deletion with bare-ID deletion fails the external fixture; restored, as recorded in the handler increment.
+- Not covered: complete P6 put/delete-order and failure products; the source-cache storage deletion issue is outside this change.
 
 ### C09
 
@@ -392,14 +391,12 @@ of C10, C37, C38 or C47 over all required cells.
 
 ### C39
 
-- Status: failed.
-- Candidate: TestLedgerScheduleStopsAndJoinsOnError; TestLedgerPageFailureDiscardsStagedObservations.
-- Required coverage: plan C39 and applicable calibration entries.
-- Planted defect: not run for this criterion; green joined-worker and writer-release checks only.
-- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
-- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
-
-- Baseline audit: reproduced private-runtime contract difference; see baseline-audit.md and TestLedgerBaselineContractAudit. K2c added restored-pass adapter guards; see the K2c table below.
+- Status: evidence incomplete.
+- Tests run: TestLedgerScheduleStopsAndJoinsOnError; TestLedgerPageFailureDiscardsStagedObservations; TestLedgerExistingSchedulerPreservesIndependentErrors.
+- Coverage: joined workers, writer release, discarded observations and independent sibling errors through the retained scheduler; full sync and focused race suites pass.
+- Historical failure: the private executor's independent-error handling differed from main. That executor was deleted; its failed audit remains historical evidence, not an outstanding failure in the current implementation.
+- Planted defect: no new per-product mutation claim for the complete C39 matrix.
+- Not covered: full error/process/crash products and final differential closure.
 
 ### C40
 
@@ -439,21 +436,19 @@ of C10, C37, C38 or C47 over all required cells.
 
 ### C44
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
-- Required coverage: plan C44 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Status: evidence incomplete.
+- Audit: source-inventory.md at a3863c3d covers attachment, capability assertions, path predicates, immutable requested config and hook placement.
+- Tests run: TestLedgerPublicEngineAttachment, TestLedgerDebugLoggingPreservesRequestedConfig, TestLedgerCanonicalOptionsPreserveFlags and capability/guard tests.
+- Planted defect: the attachment guard and requested-config mutation evidence are recorded in their earlier increments; the source inventory itself has no omission mutant.
+- Not covered: complete changed-branch inventory and independent final structural review.
 
 ### C45
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
-- Required coverage: plan C45 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Status: evidence incomplete under CO-011's revised shared-change boundary.
+- Audit: source-inventory.md records the shared Init, scheduler, completion-accounting and filter-observation changes. token.go and run_stats.go have no baseline diff; Checkpoint retains its token body after the ledger fork.
+- Tests run: initial-action baseline, existing scheduler, token corpus and full sync suite.
+- Planted defects: prior Init ordering, duplicate transition, replay accounting and scheduler warning/commit tests are recorded below; no claim of unchanged SQLite-executed source lines is made.
+- Not covered: complete reachable call-graph audit and final independent review.
 
 ### C46
 
@@ -476,20 +471,19 @@ of C10, C37, C38 or C47 over all required cells.
 
 ### C48
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
-- Required coverage: plan C48 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Status: evidence incomplete.
+- Instrument run: tools/coverage-summary.py; executed-coverage-d891604d.json records full sync/Pebble tests and uncovered statement ranges in changed files.
+- Instrument qualification: independent covered/uncovered profile fixture and rejection of incomplete result streams; this does not qualify branch or product coverage.
+- Additional evidence: public crash and legacy takeover cases below, each with a rejected planted resume defect.
+- Not covered: full changed-branch-to-criterion mapping, complete mechanical-cell execution manifest, final independent audit and seeded soak. Statement coverage is not closure of those obligations.
 
 ### C49
 
 - Status: evidence incomplete.
 - Runs: TestLedgerCostBaseline at eb63f1b5; TestLedgerCostPublic with production handlers/default disposal; earlier synthetic scheduler samples remain historical.
-- Coverage: 36 public-path interleaved samples, four configurations, three repetitions per arm; table, machine inputs, binary hashes and separate CPU profiles in cost-public-smoke/.
+- Coverage: 60 public-path interleaved samples across eight configurations; three repetitions per arm in six configurations and one in the two ten-million-record configurations; tables, machine inputs and binary hashes in cost-public-smoke/, cost-current-machine-r1000/ and cost-current-machine-10million/. Separate CPU profiles accompany the first set.
 - Defect evidence: the original machine recorder omitted artifact filesystem; its assertion failed before correction. Public samples assert output resource counts, archive presence and ledger disposal.
-- Not covered: full matrix, unloaded-machine qualification, baseline phase timing, encoded-byte decomposition, production-shaped estimate and acceptance. CO-012 settles actual NoSync resume.
+- Not covered: full matrix, baseline phase timing, encoded-byte decomposition, production-shaped estimate and acceptance. CO-012 settles actual NoSync resume; CO-019 accepts the current shared machine.
 
 ### C50
 
@@ -498,7 +492,7 @@ of C10, C37, C38 or C47 over all required cells.
 - Coverage: mechanical saved/logged JSON, bounded groups/examples, requested/effective options, observations, default disposal and debug retention. The phase-duration projection is the current increment.
 - Planted defects: disabled debug checks, omitted disposal, archive-error fallthrough and unsynced archive all fail their claimed checks; prior report mutations are recorded below.
 - Green revision: 6c8e2209 for policy/report suites; subsequent projection results are recorded separately.
-- Not covered: final-revision million-row memory/time rerun including new fields, full C49 cost matrix, complete failure-product closure.
+- Not covered: full C49 cost matrix and complete failure-product closure. The million-row run including phase projection is recorded below in report-phase-memory.txt; it measures the default report, not debug lookups or the whole sync.
 
 ## K1 instrument execution
 
@@ -2133,3 +2127,11 @@ combination, every counter family or physical-loss products. C25/C26 remain
 incomplete at their full stated coverage.
 
 Full sync suite after the takeover increment passes (82.714s).
+
+### Ten-million-record cost extension (C49)
+
+Six samples at a3863c3d verify ten million records each. Single-worker fresh/token
+wall is 1.541 and resumed/token 1.490; four-worker ratios are 1.055 and 1.098.
+Report generation is below 11 ms. The single-worker increase is a tripwire,
+not accepted overhead. The README and metric table preserve the per-arm
+decomposition and one-sample limitation. The full matrix remains incomplete.

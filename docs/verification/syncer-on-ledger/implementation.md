@@ -1938,3 +1938,19 @@ still apply. Plant loss of the legacy page token during restoration and require
 failure on the connector's pre-token-page guard. This covers cursor migration in
 three accepted versions; parent/type-scoped identity and every other token field
 remain the existing separate fixture obligations.
+
+## 56. Investigate the large single-worker cost result (C49)
+
+The ten-million-record samples at a3863c3d show 54% fresh and 49% resumed wall
+increases over fresh token with one worker, but 5%/10% with four workers. Report
+work is below 11 ms; single-worker time is mostly handlers and page commits.
+Do not attribute this to the ledger's encoded row bytes or to shared-host noise
+without evidence. Keep the observed tripwire in the report before code lands.
+
+Add optional test-driver capture of Pebble metrics at the existing invariants-
+complete hook, before seal/disposal can compact away the collection layout.
+Capture through the same hook in baseline and ledger drivers; no production hook
+or behavior changes. Run separate CPU profiles with matched inputs, keeping
+profiled timings out of the unprofiled comparison table. Inspect storage lookup
+and allocation costs and the pre-seal table/cache metrics. Profiles include the
+fixture's final count verification; distinguish that call path from Sync work.
