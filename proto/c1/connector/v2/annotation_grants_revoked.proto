@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "c1/connector/v2/resource.proto";
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// GrantsRevoked is attached by a connector to a Revoke response when the
+// operation removed grants on additional resources for the same principal.
+//
+// Each resource id names a resource whose grants for that principal are gone.
+// ConductorOne revokes those bindings without dispatching a separate Revoke
+// RPC. The resources themselves are not deleted. An empty list means the
+// revoke had no additional grant side effects.
+//
+// Typical use: a role-revoke API replaces the principal's role set, so
+// revoking one role also removes other roles. The connector reports those
+// resources so ConductorOne can drop the extra grants immediately.
+message GrantsRevoked {
+  // Resources whose grants for the revoke principal were removed.
+  repeated ResourceId resource_ids = 1 [(validate.rules).repeated = {
+    items: {
+      message: {required: true}
+    }
+  }];
+}
