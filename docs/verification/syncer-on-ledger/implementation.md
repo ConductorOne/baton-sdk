@@ -1740,3 +1740,30 @@ different, the preceding collection summary with its source sync ID. Store at
 most these two bounded summaries, not an ever-growing array. This preserves the
 collection diagnostics through deferred expansion without adding old page counts
 to the new pass or pretending the new pass performed connector calls.
+
+### 48. Default disposal and debug retention
+
+Resolve the retention setting before sync lifecycle writes. Debug logging or
+WithLedgerDebug(true) enables retained history and exact reference checks.
+WithRetainLedgerTokens(true) requires debug retention and warns that tokens can
+contain credentials. Record both effective settings in the option snapshot.
+Normal completion archives the report/state after seal, logs the structured
+artifact, then drops the ledger. Archive failure warns and keeps the ledger;
+disposal failure warns with the saved report available. Neither diagnostic
+failure converts successfully collected/sealed data into a failed collection.
+
+Debug validation uses a second ledger-row walk and indexed lookups for explicit
+child and continuation references. It makes no completeness inference from an
+empty endpoint. Reconstruct keys from identity plus preserved token hash after
+scrub. Inspect only a target row's identity when checking its echo; do not decode
+its potentially large child list once per incoming edge. Memory is one decoded
+source row, one lookup value and sixteen warning examples; no per-row set. Work
+is linear in stored input plus indexed reference lookups. Missing references,
+identity mismatches and uncheckable old scrubbed references are counts, with
+bounded token-free examples. Debug always retains the underlying evidence.
+
+Tests cover default archive/drop/reopen; debug retention with scrub; explicit
+no-scrub; rejected no-scrub without retention; archive failure preserving rows;
+finished continuation after disposal preserving prior flags/accounting; debug
+missing/valid references before and after scrub, large repeated fan-in, bounded
+examples, and no token disclosure. Skip-full-sync also saves its requested options.
