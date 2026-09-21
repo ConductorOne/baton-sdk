@@ -1911,3 +1911,11 @@ collection options requests collection through baseline initial action planning;
 that is not a valid fixture for the no-recollection assertion. Unfinished cuts
 retain their original collection options. No production lifecycle change follows
 from this fixture correction.
+
+Qualify resource cuts with a nonempty resource-type identity so they reach actual
+connector pages, not the scheduler's same-operation planning page. Alongside the
+14 ordinary process-exit cases, add eight pre-seal cases that flush committed
+state before exiting. Require an Init row in those images, at least one resource
+row after resource commit, and all six resource rows at terminal boundaries.
+The explicit-flush arm tests recovery with known surviving history; it does not
+change production NoSync durability or require unflushed pages to survive.

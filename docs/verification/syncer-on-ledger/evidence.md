@@ -2080,3 +2080,31 @@ ratios are 1.422/1.472. The latter include reopening/existing-store effects.
 Report generation remains below 3 ms at these sizes. The full C49 matrix, byte
 attribution and production-shaped estimate remain incomplete; no acceptance is
 claimed. The host concession does not waive those obligations.
+
+### Public Sync process-crash recovery (C04, C09, C10, C31, C33, C50)
+
+TestLedgerPublicCrashResume executes 22 cases: seven process-exit cuts with one
+and four workers, plus four pre-seal cuts with explicitly flushed history for
+both worker counts. Cuts are before/after an actual resource page, before/after
+the terminal page, after sealing, after report archival and after disposal.
+Each child proves its cut with an exit code and marker. Recovery transports the
+surviving Pebble directory into a new envelope and asserts all keys unchanged.
+Public Sync resumes the same ID with strict write hooks and a key-equal read-only
+walk. Every missing resource page runs once; surviving pages must not reach the
+connector. Final resource identities/payloads, completion, empty token, saved
+report and empty ledger facts are checked. Finished cases request expansion-only
+processing; they do not change baseline lifecycle semantics.
+
+The first fixture hit the generic resource-planning page, not a connector page.
+A missing-resource-work mutant survived that weaker fixture. The corrected cut
+requires a resource-type identity, and the flushed arm requires committed history
+in the recovered image. Suppressing absent resource actions now fails with zero
+connector calls where six are required. The mutant is removed. No production code
+was changed. Full sync passes (87.621s); the final expansion-only fixture passes
+focused tests (1.052s), race three times (12.796s) and broad lint (zero issues).
+
+These are process-exit and explicit-flush images, not physical WAL-loss injection.
+The connector fixture covers resource types and resources, not all record families.
+It checks deterministic records and transport equality, not complete uninterrupted
+versus resumed logical/index/report equality. Legacy takeover and the rest of the
+mechanical products remain incomplete. These results do not close C04/C16/C48.
