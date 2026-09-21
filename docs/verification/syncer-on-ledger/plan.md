@@ -911,3 +911,46 @@ There are now 49 criteria; the frozen §4 count describes the baseline.
 - **Risk routing:** correctness, cost and operability passes.
 - **PR placement:** feasibility experiment first; supersedes the ordering in
   implementation section 40. No retention change is implied.
+
+## CO-015 — structured stats and default ledger disposal
+
+- **Classification:** clarification and lifecycle direction
+- **Source:** requester
+- **Claim:** The report is mechanically generated structured stats for logging,
+  not prose or HTML. Keep effective sync options readable and preserve a compact
+  stats artifact. The default direction is to drop detailed ledger rows once
+  completion is durable and recovery no longer needs them; explicit diagnostic
+  retention may preserve rows, with tokens scrubbed by default.
+- **Motivation:** A 10–15 percent artifact-size increase needs demonstrated value;
+  aggregate diagnostics do not by themselves require permanent page history.
+- **Contract delta:** none in the prototype. Production summary persistence,
+  disposal ordering, failure behavior and diagnostic retention require their own
+  design and failure cuts before changing the store lifecycle.
+- **Owning boundary:** stats format, readable request metadata and seal lifecycle.
+- **Affected criteria:** C31, C35, C50; C49 measures generation/disposal cost.
+- **Verification delta:** typed values, deterministic output, no token leakage;
+  persisted summary/options survive later processing and ledger disposal.
+- **Risk routing:** correctness, cost and operability passes.
+- **PR placement:** this PR; lifecycle changes follow report qualification.
+
+## CO-016 — one ledger walk and bounded report state
+
+- **Classification:** constraint
+- **Source:** requester
+- **Claim:** Stats generation must not do quadratic work. Use one sequential
+  ledger walk, bounded aggregation state and no per-page record/ledger lookups.
+  Do not retain a map or latency list proportional to pages, resources or types.
+  Stream larger complete breakdowns to an output sink. Measurements include
+  million-row cases and memory, not just cumulative allocations.
+- **Motivation:** The report must remain inexpensive on artifacts with millions
+  of rows.
+- **Contract delta:** no production store change in the experiment. Exact missing
+  reference validation is unavailable under this pass; its fields must remain
+  unknown rather than infer completeness from counts.
+- **Owning boundary:** report iterator, aggregation and serialization.
+- **Affected criteria:** C49, C50.
+- **Verification delta:** iterator-only input; exactly one walk; no extra reads;
+  long chains, broad resource/type counts and large child lists; sampled heap
+  and RSS separated from post-GC retained heap and allocation totals.
+- **Risk routing:** cost and correctness passes.
+- **PR placement:** qualify before production report integration.

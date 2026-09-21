@@ -1704,3 +1704,47 @@ Targeted tests plus six JSON-output benchmark cases pass (3.315s). At 100,000 pa
 147.50ms and 340.97ms include aggregation, reference checks and JSON serialization.
 Engine lint still has six preexisting G115 findings and no findings in these files.
 Production logging integration and full C50 coverage remain incomplete.
+
+## Single-walk stats and memory qualification (CO-016, C50)
+
+Brief commit: 66e03d5c. C50 remains evidence incomplete for production integration.
+The test-only aggregator now accepts only a forward iterator. One ledger-family
+walk replaces page/child point reads and the all-facts map. The row projection
+reads selected scalar/scope fields and skips child bodies and token strings.
+Per-type aggregates stream to an optional error-returning sink; bounded log lists
+carry omitted-group counts. Exact reference validity is unavailable, not zero.
+
+TestLedgerReportSingleWalk supplies 48 pages across 12 types and 24 collections,
+plus a flag fact. It requires one First call, 48 Value calls, 49 scanned keys,
+correct collection/type aggregates, bounded top lists and unknown missing-reference
+fields. The input has no point-read method. TestLedgerReportStreamErrors checks
+iterator errors, sink errors, cancellation and malformed page bytes. Projection
+checks normal/scrubbed records against known fields, unknown protobuf fields,
+last-value semantics for repeated scalar fields and absent scrubbed hash evidence.
+TestLedgerReportWidePageAllocations measures three allocations for both a narrow
+row and a 5.4MB encoded row with 100,000 children.
+
+Planted defects removed after failures: a second First call (SingleWalk); reading
+the flag value (SingleWalk); treating absent scrubbed hash evidence as known
+pagination (Projection); full protobuf decoding including all children
+(WidePageAllocations). Existing timing/rank/rate tests continue to pass.
+
+The restored targeted tests passed, including a final lint-only switch cleanup
+(0.089s). Race checks passed three repetitions (1.880s). Engine lint has only the
+six previously recorded G115 findings, with no new report findings. Diff checks
+pass. No production pkg/dotc1z file changed in this step.
+
+Benchmarks at 10,000 / 100,000 / 1,000,000 rows cover many resources, 100-page
+collections, one long chain and many resource types. Final three-iteration timing
+run passed in 36.113s. Million-row report times are 449–861ms. A separate sampled
+memory run passed in 14.637s; million-row sampled heap peaks were 4.37–4.67MB,
+post-GC heap 1.94–1.97MB, and total-process sampled RSS 226–280MB. This includes
+Pebble's existing cache; during-scan RSS increases were 8.6–41.5MB. Timing runs
+had no concurrent test/build workload from this task. The memory sampler was
+only enabled in the separate memory run. Full numbers and limits are recorded
+in report-experiment.md; these are synthetic smoke results, not C49 closure.
+
+Uncovered: production summary/log publication, complete scope/outcome metadata,
+record-family-sized adjacent SSTs, cold-cache qualification, whole-file lifecycle
+failure cuts and default disposal. Exact arbitrary graph-reference validation is
+excluded by the one-pass implementation rather than asserted from aggregate counts.

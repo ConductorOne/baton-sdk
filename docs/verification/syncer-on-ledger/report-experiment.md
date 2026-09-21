@@ -182,3 +182,69 @@ takes 147.50ms for 100,000 one-page scopes, and 340.97ms for 100,000 pages arran
 in 100-page chains with 99,000 reference checks. Payloads with ten fixture scopes
 are 7.3–7.4KB. All previous qualification limits still apply. This is a prototype
 of the log fields; it is not yet emitted by the production sync logger.
+
+## Current implementation: one forward ledger walk
+
+CO-016 supersedes the earlier reference-checking prototype. The aggregator now
+accepts an iterator-only input: it has no engine or point-read capability. One
+iterator visits the ledger family. Only page values are projected; known flag
+facts are recognized by key and unrelated fact/counter/frontier values are not
+decoded. It does not visit resource/grant families.
+
+The key order groups pages by operation, resource type and full resource scope.
+Aggregation retains two current groups, two 65-bucket histograms and two top-ten
+lists. Full operation/type summaries can stream to a sink as groups end. The
+JSON log payload contains the top ten collections, top ten operation/type groups,
+totals and explicit omitted-group counts. Top-list insertion examines at most ten
+entries; it no longer allocates a reflective sorter for each completed group.
+
+The projection skips child bodies and page tokens. A row with 100,000 children
+is 5,400,052 encoded bytes and incurs the same three projection allocations as
+the narrow row. The Pebble iterator still owns an encoded value buffer; selected
+identifiers also have variable size. The bound is independent of row count, not
+an absolute byte cap on arbitrary input: memory includes the largest current
+encoded value and a fixed number of retained scope identifiers. The caller's
+streaming sink must not accumulate all summaries.
+
+Work is linear in visited ledger bytes plus a fixed amount per row/group. Exact
+reference validation is not performed. Schema version 2 reports recorded child
+and continuation counts, reference_validation_performed=false and null missing
+reference counts. Counts are not used as a proxy for completeness. Scrubbed
+next-token hashes distinguish terminal pages; missing hash evidence yields
+pagination_unknown_pages rather than a terminal-page claim.
+
+Measured Go 1.26.0, Linux arm64, four-CPU quota/GOMAXPROCS 4, 32GiB memory limit.
+Synthetic rows were flushed to SSTs; each cell has three report iterations.
+Numbers include projection, aggregation and JSON serialization, not fixture
+population, disk output or complete streamed operation/type output. This is a
+warm-cache smoke measurement, not unloaded-machine C49 qualification.
+
+| Pages | One page per resource | 100-page collections | One long chain | One page per resource type |
+| ---: | ---: | ---: | ---: | ---: |
+| 10,000 | 5.84ms | 4.33ms | 5.37ms | 7.59ms |
+| 100,000 | 57.61ms | 43.33ms | 43.31ms | 72.02ms |
+| 1,000,000 | 572.27ms | 449.50ms | 494.83ms | 860.90ms |
+
+At one million rows, cumulative allocation is 32–72MB depending on shape. The
+largest log payload in these fixed-identifier fixtures is 15.2KB. Neither figure
+is a worst-case byte bound on arbitrary identifier lengths.
+
+A separate instrumented run sampled heap and RSS every 5ms, after a GC before the
+report and another after it. These samples can miss short-lived peaks; HeapAlloc
+includes garbage pending collection and is not the post-GC live heap. RSS includes
+the entire process, fixture setup and Pebble's existing 256MiB cache. Cells ran
+sequentially in one process, so allocator/cache history affects their baselines.
+
+| Million-row shape | Heap at start | Sampled heap peak | Heap after GC | RSS at start | Sampled RSS peak |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Many resources | 2.05MB | 4.37MB | 1.94MB | 184.32MB | 225.79MB |
+| One long chain | 2.08MB | 4.53MB | 1.97MB | 242.75MB | 259.21MB |
+| Many resource types | 2.11MB | 4.67MB | 1.95MB | 270.99MB | 279.55MB |
+
+The post-GC heap is about 1.9MB at 10,000 and 100,000 rows too. Observed RSS growth
+during the million-row scans is 8.6–41.5MB; report memory must not be described as
+just its Go heap. There is no new cache in the aggregator.
+
+Production log/summary persistence, readable complete request metadata, outcome
+and skip reasons, and safe default ledger disposal remain separate unfinished
+work. The report experiment does not change sync execution or store durability.

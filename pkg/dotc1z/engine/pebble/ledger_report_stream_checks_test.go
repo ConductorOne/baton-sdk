@@ -1,0 +1,184 @@
+package pebble
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+	"testing"
+
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protowire"
+)
+
+type reportPrototypeTestIter struct {
+	keys, values        [][]byte
+	index, walks, reads int
+	err                 error
+}
+
+func (i *reportPrototypeTestIter) First() bool   { i.walks++; i.index = 0; return i.Valid() }
+func (i *reportPrototypeTestIter) Valid() bool   { return i.index < len(i.keys) }
+func (i *reportPrototypeTestIter) Next() bool    { i.index++; return i.Valid() }
+func (i *reportPrototypeTestIter) Key() []byte   { return i.keys[i.index] }
+func (i *reportPrototypeTestIter) Value() []byte { i.reads++; return i.values[i.index] }
+func (i *reportPrototypeTestIter) Error() error  { return i.err }
+
+func reportPrototypeTestRows(t *testing.T, types int) *reportPrototypeTestIter {
+	t.Helper()
+	i := &reportPrototypeTestIter{}
+	for ty := 0; ty < types; ty++ {
+		for resource := 0; resource < 2; resource++ {
+			for page := 0; page < 2; page++ {
+				id := c1zstore.LedgerActionIdentity{Op: "grants", ResourceTypeID: fmt.Sprintf("type-%02d", ty), ResourceID: fmt.Sprint(resource), PageToken: fmt.Sprint(page)}
+				row := v3.LedgerRow_builder{Identity: ledgerIdentityToProto(id), ConnectorMs: 10, GrantsWritten: 2}.Build()
+				if page == 0 {
+					row.SetNextPageToken("1")
+				}
+				data, err := marshalRecord(row)
+				require.NoError(t, err)
+				i.keys = append(i.keys, encodeLedgerKey(id))
+				i.values = append(i.values, data)
+			}
+		}
+	}
+	order := make([]int, len(i.keys))
+	for n := range order {
+		order[n] = n
+	}
+	sort.Slice(order, func(a, b int) bool { return bytes.Compare(i.keys[order[a]], i.keys[order[b]]) < 0 })
+	keys := make([][]byte, 0, len(order))
+	values := make([][]byte, 0, len(order))
+	for _, n := range order {
+		keys = append(keys, i.keys[n])
+		values = append(values, i.values[n])
+	}
+	i.keys = keys
+	i.values = values
+	return i
+}
+
+func TestLedgerReportSingleWalk(t *testing.T) {
+	i := reportPrototypeTestRows(t, 12)
+	i.keys = append(i.keys, encodeLedgerFactKey("should_skip_grants"))
+	i.values = append(i.values, []byte("ignored fact payload"))
+	groups, collections := 0, 0
+	r, err := reportPrototypeScan(context.Background(), i, func(c reportPrototypeCollection) {
+		collections++
+		require.EqualValues(t, 2, c.Pages)
+	}, func(c reportPrototypeCollection) error {
+		groups++
+		require.EqualValues(t, 4, c.Pages)
+		require.EqualValues(t, 2, c.Collections)
+		require.EqualValues(t, 40, c.ConnectorMs)
+		require.EqualValues(t, 8, c.Written)
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, i.walks)
+	require.Equal(t, 48, i.reads)
+	require.EqualValues(t, 49, r.LedgerKeysScanned)
+	require.Equal(t, 12, groups)
+	require.Equal(t, 24, collections)
+	require.Len(t, r.Top, 10)
+	require.Len(t, r.TopOperationTypes, 10)
+	require.EqualValues(t, 24, r.Continuations)
+	require.True(t, *r.GrantsDisabled)
+	data, err := renderReportPrototype(r)
+	require.NoError(t, err)
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(data, &decoded))
+	require.Equal(t, false, decoded["reference_validation_performed"])
+	require.Nil(t, decoded["missing_continuation_references"])
+	require.Nil(t, decoded["missing_child_references"])
+}
+
+func TestLedgerReportStreamErrors(t *testing.T) {
+	boom := errors.New("iterator or sink failed")
+	i := reportPrototypeTestRows(t, 1)
+	i.err = boom
+	_, err := reportPrototypeScan(context.Background(), i, nil, nil)
+	require.ErrorIs(t, err, boom)
+	i = reportPrototypeTestRows(t, 1)
+	_, err = reportPrototypeScan(context.Background(), i, nil, func(reportPrototypeCollection) error { return boom })
+	require.ErrorIs(t, err, boom)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	i = reportPrototypeTestRows(t, 1)
+	_, err = reportPrototypeScan(ctx, i, nil, nil)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Zero(t, i.reads)
+	i = reportPrototypeTestRows(t, 1)
+	i.values[0] = []byte{0xff}
+	_, err = reportPrototypeScan(context.Background(), i, nil, nil)
+	require.Error(t, err)
+}
+
+func TestLedgerReportProjection(t *testing.T) {
+	id := grantsPageIdentity("group-a", "credential-token")
+	id.ParentResourceTypeID = "org"
+	id.ParentResourceID = "parent"
+	id.TypeScoped = true
+	for _, next := range []string{"", "next-token"} {
+		for _, scrub := range []bool{false, true} {
+			row := v3.LedgerRow_builder{Identity: ledgerIdentityToProto(id), NextPageToken: next,
+				ResourceTypesWritten: 1, ResourcesWritten: 2, EntitlementsWritten: 3, GrantsWritten: 4, PageMs: 100, ConnectorMs: 80, WaitMs: 30,
+				Children: []*v3.LedgerChild{v3.LedgerChild_builder{Identity: ledgerIdentityToProto(id)}.Build()},
+			}.Build()
+			if scrub {
+				scrubLedgerRow(row)
+			}
+			data, err := marshalRecord(row)
+			require.NoError(t, err)
+			data = protowire.AppendTag(data, 100, protowire.BytesType)
+			data = protowire.AppendBytes(data, []byte("unknown"))
+			got, err := reportPrototypeProject(data)
+			require.NoError(t, err)
+			scope := id
+			scope.PageToken = ""
+			require.Equal(t, scope, got.scope)
+			require.EqualValues(t, 10, got.written)
+			require.EqualValues(t, 100, got.pageMS)
+			require.EqualValues(t, 80, got.connectorMS)
+			require.EqualValues(t, 30, got.waitMS)
+			require.EqualValues(t, 1, got.children)
+			require.True(t, got.paginationKnown)
+			require.Equal(t, next == "", got.terminal)
+			data = protowire.AppendTag(data, 10, protowire.VarintType)
+			data = protowire.AppendVarint(data, 5)
+			got, err = reportPrototypeProject(data)
+			require.NoError(t, err)
+			require.EqualValues(t, 11, got.written)
+		}
+	}
+	row := v3.LedgerRow_builder{Identity: ledgerIdentityToProto(id), Scrubbed: true}.Build()
+	data, err := marshalRecord(row)
+	require.NoError(t, err)
+	got, err := reportPrototypeProject(data)
+	require.NoError(t, err)
+	require.False(t, got.paginationKnown)
+	_, err = reportPrototypeProject(nil)
+	require.Error(t, err)
+}
+
+func TestLedgerReportWidePageAllocations(t *testing.T) {
+	row := v3.LedgerRow_builder{Identity: ledgerIdentityToProto(grantsPageIdentity("group", "secret"))}.Build()
+	data, err := marshalRecord(row)
+	require.NoError(t, err)
+	child, err := marshalRecord(v3.LedgerChild_builder{Identity: row.GetIdentity()}.Build())
+	require.NoError(t, err)
+	field := protowire.AppendTag(nil, 4, protowire.BytesType)
+	field = protowire.AppendBytes(field, child)
+	var got reportPrototypeProjected
+	narrow := testing.AllocsPerRun(5, func() { got, err = reportPrototypeProject(data) })
+	wide := append(bytes.Clone(data), bytes.Repeat(field, 100000)...)
+	wideAllocs := testing.AllocsPerRun(5, func() { got, err = reportPrototypeProject(wide) })
+	require.NoError(t, err)
+	require.EqualValues(t, 100000, got.children)
+	require.LessOrEqual(t, wideAllocs, narrow)
+	t.Logf("100000 children: encoded_bytes=%d narrow_allocs=%g wide_allocs=%g", len(wide), narrow, wideAllocs)
+}

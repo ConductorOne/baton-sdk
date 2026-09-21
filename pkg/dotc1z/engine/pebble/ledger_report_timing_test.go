@@ -80,28 +80,35 @@ func renderReportPrototype(report reportPrototypeSummary) ([]byte, error) {
 		}
 		return map[string]uint64{"lower_ms": v.LowerMs, "upper_ms": v.UpperMs}
 	}
-	top := make([]map[string]any, 0, len(report.Top))
-	for _, c := range report.Top {
-		top = append(top, map[string]any{
-			"scope": map[string]any{
-				"operation": c.Scope.Op, "resource_type_id": c.Scope.ResourceTypeID, "resource_id": c.Scope.ResourceID,
-				"parent_resource_type_id": c.Scope.ParentResourceTypeID, "parent_resource_id": c.Scope.ParentResourceID, "type_scoped": c.Scope.TypeScoped,
-			},
-			"pages": c.Pages, "record_writes": c.Written, "zero_write_pages": c.ZeroWritePages, "terminal_pages": c.TerminalPages,
-			"missing_continuation_references": c.MissingContinuations, "missing_child_references": c.MissingChildren,
-			"page_duration_sum_ms": c.PageMs, "connector_duration_sum_ms": c.ConnectorMs, "connector_duration_share_pct": reportPrototypeShare(c.ConnectorMs, report.ConnectorMs),
-			"reported_rate_limit_wait_sum_ms": c.ReportedWaitMs, "connector_page_duration_max_ms": c.MaxConnectorMs,
-			"connector_page_duration_p50": interval(c.ConnectorPageMedian), "connector_page_duration_p95": interval(c.ConnectorPageP95),
-			"record_writes_per_page": c.WrittenPerPage, "pages_per_1000_record_writes": c.PagesPerThousandWrites,
-			"connector_ms_per_1000_record_writes": c.ConnectorMsPerThousandWrites,
-		})
+	convert := func(collections []reportPrototypeCollection) []map[string]any {
+		top := make([]map[string]any, 0, len(collections))
+		for _, c := range collections {
+			top = append(top, map[string]any{
+				"scope": map[string]any{
+					"operation": c.Scope.Op, "resource_type_id": c.Scope.ResourceTypeID, "resource_id": c.Scope.ResourceID,
+					"parent_resource_type_id": c.Scope.ParentResourceTypeID, "parent_resource_id": c.Scope.ParentResourceID, "type_scoped": c.Scope.TypeScoped,
+				},
+				"pages": c.Pages, "record_writes": c.Written, "zero_write_pages": c.ZeroWritePages, "terminal_pages": c.TerminalPages,
+				"recorded_continuations": c.Continuations, "recorded_children": c.Children, "pagination_unknown_pages": c.PaginationUnknownPages, "collections": c.Collections,
+				"page_duration_sum_ms": c.PageMs, "connector_duration_sum_ms": c.ConnectorMs, "connector_duration_share_pct": reportPrototypeShare(c.ConnectorMs, report.ConnectorMs),
+				"reported_rate_limit_wait_sum_ms": c.ReportedWaitMs, "connector_page_duration_max_ms": c.MaxConnectorMs,
+				"connector_page_duration_p50": interval(c.ConnectorPageMedian), "connector_page_duration_p95": interval(c.ConnectorPageP95),
+				"record_writes_per_page": c.WrittenPerPage, "pages_per_1000_record_writes": c.PagesPerThousandWrites,
+				"connector_ms_per_1000_record_writes": c.ConnectorMsPerThousandWrites,
+			})
+		}
+		return top
 	}
 	return json.Marshal(map[string]any{
-		"schema_version": 1, "grants_disabled": report.GrantsDisabled, "entitlements_disabled": report.EntitlementsDisabled,
-		"pages": report.Pages, "collections": report.Collections, "record_writes": report.Written, "reference_checks": report.ReferenceChecks,
-		"missing_continuation_references": report.MissingContinuations, "missing_child_references": report.MissingChildren,
+		"schema_version": 2, "grants_disabled": report.GrantsDisabled, "entitlements_disabled": report.EntitlementsDisabled,
+		"pages": report.Pages, "collections": report.Collections, "record_writes": report.Written, "ledger_keys_scanned": report.LedgerKeysScanned,
+		"reference_validation_performed": false, "missing_continuation_references": nil, "missing_child_references": nil,
+		"recorded_continuations": report.Continuations, "recorded_children": report.Children, "pagination_unknown_pages": report.PaginationUnknownPages,
 		"connector_duration_sum_ms": report.ConnectorMs, "reported_rate_limit_wait_sum_ms": report.ReportedWaitMs,
-		"top_collections_by_connector_ms": top,
+		"top_collections_by_connector_ms": convert(report.Top),
+		"operation_type_groups":           report.OperationTypes, "top_operation_types_by_connector_ms": convert(report.TopOperationTypes),
+		"collections_omitted_from_top":           report.Collections - min(report.Collections, uint64(len(report.Top))),
+		"operation_type_groups_omitted_from_top": report.OperationTypes - min(report.OperationTypes, uint64(len(report.TopOperationTypes))),
 	})
 }
 
