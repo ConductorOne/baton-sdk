@@ -483,6 +483,11 @@ message LedgerRow {
   uint64 wait_ms = 16;
   // The page's own action was a spawned cursor (see LedgerChild).
   bool spawned = 17;
+  bool observations_recorded = 18;
+  uint64 connector_attempts = 19;
+  uint64 connector_errors = 20;
+  uint64 sdk_retry_wait_ms = 21;
+  uint64 sdk_rate_limit_wait_ms = 22;
 }
 
 // LedgerCounterBucket is one (run, worker) bucket of sync-level

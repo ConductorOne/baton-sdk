@@ -240,15 +240,20 @@ func ledgerRowToProto(row *c1zstore.LedgerRow) *v3.LedgerRow {
 		children = append(children, v3.LedgerChild_builder{Identity: ledgerIdentityToProto(c.Identity), Spawned: c.Spawned}.Build())
 	}
 	b := v3.LedgerRow_builder{
-		NextPageToken:     row.NextPageToken,
-		Children:          children,
-		Attempt:           row.Attempt,
-		Replayed:          row.Replayed,
-		TypeScopedPlanned: row.TypeScopedPlanned,
-		Spawned:           row.Spawned,
-		PageMs:            uint64(max(row.PageDuration.Milliseconds(), 0)),
-		ConnectorMs:       uint64(max(row.ConnectorDuration.Milliseconds(), 0)),
-		WaitMs:            uint64(max(row.WaitDuration.Milliseconds(), 0)),
+		ObservationsRecorded: row.ObservationsRecorded,
+		ConnectorAttempts:    row.ConnectorAttempts,
+		ConnectorErrors:      row.ConnectorErrors,
+		SdkRetryWaitMs:       uint64(max(row.SDKRetryWaitDuration.Milliseconds(), 0)),
+		SdkRateLimitWaitMs:   uint64(max(row.SDKRateLimitWaitDuration.Milliseconds(), 0)),
+		NextPageToken:        row.NextPageToken,
+		Children:             children,
+		Attempt:              row.Attempt,
+		Replayed:             row.Replayed,
+		TypeScopedPlanned:    row.TypeScopedPlanned,
+		Spawned:              row.Spawned,
+		PageMs:               uint64(max(row.PageDuration.Milliseconds(), 0)),
+		ConnectorMs:          uint64(max(row.ConnectorDuration.Milliseconds(), 0)),
+		WaitMs:               uint64(max(row.WaitDuration.Milliseconds(), 0)),
 	}
 	if !row.CommittedAt.IsZero() {
 		b.CommittedAt = timestamppb.New(row.CommittedAt)
@@ -262,21 +267,26 @@ func ledgerRowFromProto(p *v3.LedgerRow) *c1zstore.LedgerRow {
 		children = append(children, c1zstore.LedgerChild{Identity: ledgerIdentityFromProto(c.GetIdentity()), Spawned: c.GetSpawned()})
 	}
 	row := &c1zstore.LedgerRow{
-		Identity:             ledgerIdentityFromProto(p.GetIdentity()),
-		NextPageToken:        p.GetNextPageToken(),
-		Children:             children,
-		Attempt:              p.GetAttempt(),
-		ResourceTypesWritten: p.GetResourceTypesWritten(),
-		ResourcesWritten:     p.GetResourcesWritten(),
-		EntitlementsWritten:  p.GetEntitlementsWritten(),
-		GrantsWritten:        p.GetGrantsWritten(),
-		Replayed:             p.GetReplayed(),
-		TypeScopedPlanned:    p.GetTypeScopedPlanned(),
-		Scrubbed:             p.GetScrubbed(),
-		Spawned:              p.GetSpawned(),
-		PageDuration:         msToDuration(p.GetPageMs()),
-		ConnectorDuration:    msToDuration(p.GetConnectorMs()),
-		WaitDuration:         msToDuration(p.GetWaitMs()),
+		ObservationsRecorded:     p.GetObservationsRecorded(),
+		ConnectorAttempts:        p.GetConnectorAttempts(),
+		ConnectorErrors:          p.GetConnectorErrors(),
+		SDKRetryWaitDuration:     msToDuration(p.GetSdkRetryWaitMs()),
+		SDKRateLimitWaitDuration: msToDuration(p.GetSdkRateLimitWaitMs()),
+		Identity:                 ledgerIdentityFromProto(p.GetIdentity()),
+		NextPageToken:            p.GetNextPageToken(),
+		Children:                 children,
+		Attempt:                  p.GetAttempt(),
+		ResourceTypesWritten:     p.GetResourceTypesWritten(),
+		ResourcesWritten:         p.GetResourcesWritten(),
+		EntitlementsWritten:      p.GetEntitlementsWritten(),
+		GrantsWritten:            p.GetGrantsWritten(),
+		Replayed:                 p.GetReplayed(),
+		TypeScopedPlanned:        p.GetTypeScopedPlanned(),
+		Scrubbed:                 p.GetScrubbed(),
+		Spawned:                  p.GetSpawned(),
+		PageDuration:             msToDuration(p.GetPageMs()),
+		ConnectorDuration:        msToDuration(p.GetConnectorMs()),
+		WaitDuration:             msToDuration(p.GetWaitMs()),
 	}
 	if ts := p.GetCommittedAt(); ts != nil {
 		row.CommittedAt = ts.AsTime()

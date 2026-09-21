@@ -2676,6 +2676,11 @@ type LedgerRow struct {
 	xxx_hidden_ConnectorMs          uint64                 `protobuf:"varint,15,opt,name=connector_ms,json=connectorMs,proto3"`
 	xxx_hidden_WaitMs               uint64                 `protobuf:"varint,16,opt,name=wait_ms,json=waitMs,proto3"`
 	xxx_hidden_Spawned              bool                   `protobuf:"varint,17,opt,name=spawned,proto3"`
+	xxx_hidden_ObservationsRecorded bool                   `protobuf:"varint,18,opt,name=observations_recorded,json=observationsRecorded,proto3"`
+	xxx_hidden_ConnectorAttempts    uint64                 `protobuf:"varint,19,opt,name=connector_attempts,json=connectorAttempts,proto3"`
+	xxx_hidden_ConnectorErrors      uint64                 `protobuf:"varint,20,opt,name=connector_errors,json=connectorErrors,proto3"`
+	xxx_hidden_SdkRetryWaitMs       uint64                 `protobuf:"varint,21,opt,name=sdk_retry_wait_ms,json=sdkRetryWaitMs,proto3"`
+	xxx_hidden_SdkRateLimitWaitMs   uint64                 `protobuf:"varint,22,opt,name=sdk_rate_limit_wait_ms,json=sdkRateLimitWaitMs,proto3"`
 	unknownFields                   protoimpl.UnknownFields
 	sizeCache                       protoimpl.SizeCache
 }
@@ -2826,6 +2831,41 @@ func (x *LedgerRow) GetSpawned() bool {
 	return false
 }
 
+func (x *LedgerRow) GetObservationsRecorded() bool {
+	if x != nil {
+		return x.xxx_hidden_ObservationsRecorded
+	}
+	return false
+}
+
+func (x *LedgerRow) GetConnectorAttempts() uint64 {
+	if x != nil {
+		return x.xxx_hidden_ConnectorAttempts
+	}
+	return 0
+}
+
+func (x *LedgerRow) GetConnectorErrors() uint64 {
+	if x != nil {
+		return x.xxx_hidden_ConnectorErrors
+	}
+	return 0
+}
+
+func (x *LedgerRow) GetSdkRetryWaitMs() uint64 {
+	if x != nil {
+		return x.xxx_hidden_SdkRetryWaitMs
+	}
+	return 0
+}
+
+func (x *LedgerRow) GetSdkRateLimitWaitMs() uint64 {
+	if x != nil {
+		return x.xxx_hidden_SdkRateLimitWaitMs
+	}
+	return 0
+}
+
 func (x *LedgerRow) SetIdentity(v *LedgerActionIdentity) {
 	x.xxx_hidden_Identity = v
 }
@@ -2897,6 +2937,26 @@ func (x *LedgerRow) SetSpawned(v bool) {
 	x.xxx_hidden_Spawned = v
 }
 
+func (x *LedgerRow) SetObservationsRecorded(v bool) {
+	x.xxx_hidden_ObservationsRecorded = v
+}
+
+func (x *LedgerRow) SetConnectorAttempts(v uint64) {
+	x.xxx_hidden_ConnectorAttempts = v
+}
+
+func (x *LedgerRow) SetConnectorErrors(v uint64) {
+	x.xxx_hidden_ConnectorErrors = v
+}
+
+func (x *LedgerRow) SetSdkRetryWaitMs(v uint64) {
+	x.xxx_hidden_SdkRetryWaitMs = v
+}
+
+func (x *LedgerRow) SetSdkRateLimitWaitMs(v uint64) {
+	x.xxx_hidden_SdkRateLimitWaitMs = v
+}
+
 func (x *LedgerRow) HasIdentity() bool {
 	if x == nil {
 		return false
@@ -2961,7 +3021,12 @@ type LedgerRow_builder struct {
 	ConnectorMs uint64
 	WaitMs      uint64
 	// The page's own action was a spawned cursor (see LedgerChild).
-	Spawned bool
+	Spawned              bool
+	ObservationsRecorded bool
+	ConnectorAttempts    uint64
+	ConnectorErrors      uint64
+	SdkRetryWaitMs       uint64
+	SdkRateLimitWaitMs   uint64
 }
 
 func (b0 LedgerRow_builder) Build() *LedgerRow {
@@ -2985,6 +3050,11 @@ func (b0 LedgerRow_builder) Build() *LedgerRow {
 	x.xxx_hidden_ConnectorMs = b.ConnectorMs
 	x.xxx_hidden_WaitMs = b.WaitMs
 	x.xxx_hidden_Spawned = b.Spawned
+	x.xxx_hidden_ObservationsRecorded = b.ObservationsRecorded
+	x.xxx_hidden_ConnectorAttempts = b.ConnectorAttempts
+	x.xxx_hidden_ConnectorErrors = b.ConnectorErrors
+	x.xxx_hidden_SdkRetryWaitMs = b.SdkRetryWaitMs
+	x.xxx_hidden_SdkRateLimitWaitMs = b.SdkRateLimitWaitMs
 	return m0
 }
 
@@ -3933,7 +4003,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"typeScoped\"h\n" +
 	"\vLedgerChild\x12?\n" +
 	"\bidentity\x18\x01 \x01(\v2#.c1.storage.v3.LedgerActionIdentityR\bidentity\x12\x18\n" +
-	"\aspawned\x18\x02 \x01(\bR\aspawned\"\xca\x05\n" +
+	"\aspawned\x18\x02 \x01(\bR\aspawned\"\xb8\a\n" +
 	"\tLedgerRow\x12?\n" +
 	"\bidentity\x18\x01 \x01(\v2#.c1.storage.v3.LedgerActionIdentityR\bidentity\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12/\n" +
@@ -3952,7 +4022,12 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\apage_ms\x18\x0e \x01(\x04R\x06pageMs\x12!\n" +
 	"\fconnector_ms\x18\x0f \x01(\x04R\vconnectorMs\x12\x17\n" +
 	"\await_ms\x18\x10 \x01(\x04R\x06waitMs\x12\x18\n" +
-	"\aspawned\x18\x11 \x01(\bR\aspawned\"\xd1\x05\n" +
+	"\aspawned\x18\x11 \x01(\bR\aspawned\x123\n" +
+	"\x15observations_recorded\x18\x12 \x01(\bR\x14observationsRecorded\x12-\n" +
+	"\x12connector_attempts\x18\x13 \x01(\x04R\x11connectorAttempts\x12)\n" +
+	"\x10connector_errors\x18\x14 \x01(\x04R\x0fconnectorErrors\x12)\n" +
+	"\x11sdk_retry_wait_ms\x18\x15 \x01(\x04R\x0esdkRetryWaitMs\x122\n" +
+	"\x16sdk_rate_limit_wait_ms\x18\x16 \x01(\x04R\x12sdkRateLimitWaitMs\"\xd1\x05\n" +
 	"\x13LedgerCounterBucket\x12L\n" +
 	"\bcounters\x18\x01 \x03(\v20.c1.storage.v3.LedgerCounterBucket.CountersEntryR\bcounters\x12\x14\n" +
 	"\x05flags\x18\x02 \x01(\x04R\x05flags\x12_\n" +

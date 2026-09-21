@@ -1759,3 +1759,13 @@ output (missing breakdown), a resources/entitlements swap, omitted group additio
 and omitted global addition. All three planted defects were removed. Report tests
 pass normally and with race detection, three runs. This does not verify production
 emission, new page observations, disposal, or the remaining CO-017 fields.
+
+### CO-017: retry observation storage
+
+Status: verified to stated coverage for the storage fields, not full retry/report
+integration. TestLedgerPageRetryObservations writes through PageWriter, reads the
+row before and after token scrubbing, and checks that rows without the fields
+remain marked unobserved. It failed before adapter conversion existed and with a
+planted omission of ConnectorAttempts. The defect was removed. The full Pebble
+suite passes (10.443s). This check does not cover process-crash images or report
+serialization of these new fields.

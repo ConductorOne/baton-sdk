@@ -52,6 +52,12 @@ type LedgerRow struct {
 	// Spawned: the page's own action was a spawned cursor (see LedgerChild).
 	Spawned bool
 
+	ObservationsRecorded     bool
+	ConnectorAttempts        uint64
+	ConnectorErrors          uint64
+	SDKRetryWaitDuration     time.Duration
+	SDKRateLimitWaitDuration time.Duration
+
 	PageDuration      time.Duration
 	ConnectorDuration time.Duration
 	WaitDuration      time.Duration

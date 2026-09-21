@@ -2708,6 +2708,16 @@ func (m *LedgerRow) validate(all bool) error {
 
 	// no validation rules for Spawned
 
+	// no validation rules for ObservationsRecorded
+
+	// no validation rules for ConnectorAttempts
+
+	// no validation rules for ConnectorErrors
+
+	// no validation rules for SdkRetryWaitMs
+
+	// no validation rules for SdkRateLimitWaitMs
+
 	if len(errors) > 0 {
 		return LedgerRowMultiError(errors)
 	}
