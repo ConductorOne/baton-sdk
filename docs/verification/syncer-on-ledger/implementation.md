@@ -1870,3 +1870,14 @@ baseline with fresh/resumed public Sync. Report the existing fresh-token versus
 resumed-ledger comparison accurately: it includes reopening and existing-store
 cost, not only ledger overhead. Rebuild the current ledger binary before the
 next measurements; retain earlier results with their original revision labels.
+
+### 53.1 Current-machine results and tripwires
+
+The 1,000-page × 1,000-record current-revision measurements are recorded in
+cost-current-machine-r1000. Fresh public Sync adds 9.3% wall time with one worker
+and 17.9% with four; bytes written increase 10.0% and 4.3%. The four-worker wall
+result exceeds the 1.10 tripwire. Report generation is 1.9–2.7 ms and cannot
+explain that increase; handler, commit and seal timing are retained in table.json.
+Resumed/fresh-token wall ratios are 1.422 and 1.472, still including existing-store
+and reopen costs. These results do not establish a matched resumed-token penalty.
+No performance acceptance or production-scale extrapolation is inferred.

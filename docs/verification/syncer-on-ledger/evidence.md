@@ -2067,3 +2067,16 @@ This covers handler failure plus orderly close/reopen. It does not claim abrupt
 process-death or physical-loss coverage for sessions, or prove the public
 loadStore wiring. Those C38 products remain incomplete. Production code is
 unchanged by this verification increment.
+
+### Current environment accepted for C49 (CO-019)
+
+The requester accepts this machine; unloaded-machine qualification is no longer
+a blocker. At 0618510e, 18 interleaved public-Sync samples cover 1,000 pages ×
+1,000 records with one/four workers and three repetitions. All verify one million
+resources and, for ledger arms, saved report plus default disposal. Results,
+executable hashes, machine snapshot and metric ratios are committed under
+cost-current-machine-r1000. Fresh wall ratios are 1.093/1.179; resumed/fresh-token
+ratios are 1.422/1.472. The latter include reopening/existing-store effects.
+Report generation remains below 3 ms at these sizes. The full C49 matrix, byte
+attribution and production-shaped estimate remain incomplete; no acceptance is
+claimed. The host concession does not waive those obligations.
