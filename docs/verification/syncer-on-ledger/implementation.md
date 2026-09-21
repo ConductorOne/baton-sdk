@@ -1920,7 +1920,7 @@ row after resource commit, and all six resource rows at terminal boundaries.
 The explicit-flush arm tests recovery with known surviving history; it does not
 change production NoSync durability or require unflushed pages to survive.
 
-## 55. Public legacy takeover crash cases (C25–C27)
+## 55. Public legacy takeover crash cases (C24–C26, C28)
 
 Extend the public process fixture with token versions 0, 1 and 2. Seed the first
 page of each of two resource listings using the token-path store writes, then

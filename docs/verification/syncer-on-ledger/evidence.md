@@ -265,21 +265,21 @@ of C10, C37, C38 or C47 over all required cells.
 
 ### C25
 
-- Status: not assessed.
-- Candidate: implementation.md §5; not yet executed for this criterion.
-- Required coverage: plan C25 and applicable calibration entries.
-- Planted defect: not run for this criterion.
-- Green command/revision: none.
-- Not covered: all required cells until an explicit execution entry is added.
+- Status: evidence incomplete.
+- Tests run: TestLedgerPublicCrashResume, legacy versions 0/1/2 × one/four workers × before/after takeover and first post-token commit.
+- Coverage: before takeover the exact token remains and the frontier is absent; after takeover the token is empty and the exact frontier survives process exit and transport into a new envelope.
+- Planted defect: loss of restored page token fails all three versions on a forbidden pre-token connector call; this does not independently qualify the storage batch's atomicity.
+- Green command/revision: public legacy takeover execution entry below.
+- Not covered: internal stamp/batch I/O failure cuts, every fact/counter family and complete P4 products.
 
 ### C26
 
 - Status: evidence incomplete.
-- Candidate: TestLedgerTakeoverLegacyFixtures.
-- Required coverage: plan C26 and applicable calibration entries.
-- Planted defect: replaced the saved frontier state with empty input on resume; legacy fixture family failed with Init replacing saved actions; restored.
-- Green command/revision: K2a execution entry below; disabled candidate is not green evidence.
-- Not covered: public Sync routing, full mechanical products, physical WAL-loss images and final differential closure.
+- Tests run: TestLedgerTakeoverLegacyFixtures; TestLedgerPublicCrashResume.
+- Coverage: saved frontier re-decoding plus public process recovery after takeover with zero page rows, in versions 0/1/2 with one/four workers. Completed legacy pages are never requested again; post-token committed pages also cannot repeat.
+- Planted defects: empty frontier restoration in the earlier fixture; erased restored page token in the public fixture. Both fail and are removed.
+- Green command/revision: K2a entry and public legacy takeover entry below.
+- Not covered: full repeated-resume/process/retention products, physical-loss images and complete differential closure.
 
 ### C27
 
@@ -2108,3 +2108,28 @@ The connector fixture covers resource types and resources, not all record famili
 It checks deterministic records and transport equality, not complete uninterrupted
 versus resumed logical/index/report equality. Legacy takeover and the rest of the
 mechanical products remain incomplete. These results do not close C04/C16/C48.
+
+### Public legacy takeover process recovery (C24–C26, C28)
+
+The public crash fixture now has 40 cases, including 18 takeover cases:
+V0/V1/V2 × one/four workers × before takeover, after takeover and after the
+first post-token resource commit. Explicit fixture JSON describes two pending
+resource actions at token 1. Four pre-token resource records are seeded through
+token-path writes. Before takeover the token is intact with no frontier; after
+takeover it is empty and the frontier contains the exact original JSON after
+process exit and envelope transport. Seeded pages have no ledger row and cannot
+be fetched again. Post-token committed pages also cannot repeat; missing pages
+run once. Final accounting is four completed actions: two imported and two newly
+completed actions, including when a post-token page survived the crash.
+
+Erasing PageToken in decodeLedgerCheckpoint fails each of V0/V1/V2 after-takeover
+cases on an attempted pre-token resource call. The mutation is removed. Focused
+tests pass (1.762s), race detection passes three runs (21.012s), and broad lint
+reports zero issues. No production code changes were needed.
+
+This adds public cursor migration and accounting evidence; it does not cover
+storage's internal stamp-only cut (C27), every parent/type-scoped/graph/fact
+combination, every counter family or physical-loss products. C25/C26 remain
+incomplete at their full stated coverage.
+
+Full sync suite after the takeover increment passes (82.714s).
