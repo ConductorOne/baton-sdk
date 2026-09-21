@@ -1984,3 +1984,14 @@ are possible through RegisterEngine; do not label their unknown-engine path
 cells unreachable just because only two drivers ship. Those path cases remain
 unassessed until exercised. This increment strengthens C01 without claiming
 closure of all 16 cells or changing store selection.
+
+Exercise the six remaining P3 path cells through one test-only registered driver.
+The driver receives its returned Store through the test context, so registration
+keeps no fixture stores alive and does not replace either built-in driver. Its
+fixture wrapper records Close without closing the underlying engine, allowing
+raw-key/write-attempt comparisons after a refused attachment; normal fixture
+cleanup still closes the real store. Include both accepted combinations through
+this same path. Keep requested driver selection distinct from returned store
+metadata. Assert invalid attachments close the supplied store once, return an
+error and never call the connector. Plant the missing-capability refusal defect
+against this path as well as the existing connector-call defect.
