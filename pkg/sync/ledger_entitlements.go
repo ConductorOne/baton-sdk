@@ -131,6 +131,8 @@ func (s *syncer) collectLedgerEntitlements(ctx context.Context, action *Action) 
 	if err != nil {
 		return err
 	}
+	collection := ledgerCollection(invocation)
+	recordLedgerList(collection, &collection.EntitlementsReceived, len(resp.GetList()), resp.GetNextPageToken())
 	entitlements, err := s.filterLedgerEntitlements(ctx, invocation, resp.GetList())
 	if err != nil {
 		return fmt.Errorf("sync-entitlements: filtering disabled-type references: %w", err)
@@ -184,6 +186,9 @@ func (s *syncer) filterLedgerEntitlements(ctx context.Context, invocation *ledge
 		kept = append(kept, value)
 	}
 	page := invocation.page
+	collection := ledgerCollection(invocation)
+	collection.EntitlementsExcludedByType += dropped
+	collection.EntitlementsExcludedInvalid += invalid
 	if page.observations.Counters == nil {
 		page.observations.Counters = make(map[string]uint64)
 	}

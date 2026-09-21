@@ -102,7 +102,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 	if worker < 0 || worker >= int(c1zstore.TakeoverBucketWorker) {
 		return errors.New("invalid ledger worker index")
 	}
-	workerIndex := uint32(worker) //nolint:gosec // worker is below the reserved uint32 indexes.
+	workerIndex := uint32(worker)
 	attempts, _ := ctx.Value(ledgerAttemptsKey{}).(*ledgerAttempts)
 	if attempts == nil {
 		attempts = &ledgerAttempts{}
@@ -113,6 +113,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 	var handlerFailure error
 	_, err = s.ledger.runPageWithCommit(ctx, workerIndex, ledgerIdentity(action), func(pageCtx context.Context, page *ledgerPage) error {
 		invocation.page = page
+		ledgerCollection(invocation)
 		page.row.Spawned = action.Spawned
 		page.row.TypeScopedPlanned = action.TypeScopedPlanned
 		pageCtx = context.WithValue(pageCtx, ledgerInvocationKey{}, invocation)

@@ -136,6 +136,8 @@ func (s *syncer) collectLedgerGrants(ctx context.Context, action *Action) error 
 		return fmt.Errorf("sync-grants-for-resource: error listing grants: %w", err)
 	}
 
+	collection := ledgerCollection(invocation)
+	recordLedgerList(collection, &collection.GrantsReceived, len(resp.GetList()), resp.GetNextPageToken())
 	grants := resp.GetList()
 
 	l := ctxzap.Extract(ctx)
@@ -302,6 +304,9 @@ func (s *syncer) stageLedgerFilterStats(invocation *ledgerInvocation, stats *ing
 			return err
 		}
 	}
+	collection := ledgerCollection(invocation)
+	collection.GrantsExcludedByType += q.GrantsDropped
+	collection.DerivedResourcesExcludedByType += q.GrantResourcesDropped
 	invocation.page.observations = addLedgerCounters(invocation.page.observations, ledgerIngestCounters(q))
 	invocation.afterCommit = append(invocation.afterCommit, func() {
 		s.ingestFilterStats.entitlementsDropped.Add(q.EntitlementsDropped)

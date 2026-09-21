@@ -73,6 +73,8 @@ func (s *syncer) collectLedgerStaticEntitlements(ctx context.Context, action *Ac
 		return err
 	}
 
+	collection := ledgerCollection(invocation)
+	recordLedgerList(collection, &collection.EntitlementsReceived, len(resp.GetList()), resp.GetNextPageToken())
 	for _, ent := range resp.GetList() {
 		resourcePageToken := ""
 		for {
@@ -151,6 +153,8 @@ func (s *syncer) listLedgerStaticResourceTypes(ctx context.Context, invocation *
 				yield(nil, err)
 				return
 			}
+			collection := ledgerCollection(invocation)
+			recordLedgerList(collection, &collection.ResourceTypesReceived, len(resp.GetList()), resp.GetNextPageToken())
 			var types []*v2.ResourceType
 			var invalid uint64
 			for _, rt := range resp.GetList() {
@@ -168,6 +172,7 @@ func (s *syncer) listLedgerStaticResourceTypes(ctx context.Context, invocation *
 			if invocation.page.observations.Counters == nil {
 				invocation.page.observations.Counters = make(map[string]uint64)
 			}
+			collection.ResourceTypesExcludedInvalid += invalid
 			invocation.page.observations.Counters["ingest.invalid_resource_types_observed"] += invalid
 			invocation.afterCommit = append(invocation.afterCommit, func() { s.ingestFilterStats.invalidResourceTypesObserved.Add(invalid) })
 			if len(types) > 0 && !yield(types, nil) {

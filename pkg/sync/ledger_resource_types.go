@@ -76,6 +76,8 @@ func (s *syncer) collectLedgerResourceTypes(ctx context.Context, action *Action)
 	if err != nil {
 		return err
 	}
+	collection := ledgerCollection(invocation)
+	recordLedgerList(collection, &collection.ResourceTypesReceived, len(resp.GetList()), resp.GetNextPageToken())
 	selection := make(map[string]bool, len(s.cfg.syncResourceTypes))
 	for _, id := range s.cfg.syncResourceTypes {
 		selection[id] = true
@@ -93,6 +95,8 @@ func (s *syncer) collectLedgerResourceTypes(ctx context.Context, action *Action)
 		}
 		if len(selection) == 0 || selection[rt.GetId()] {
 			selected = append(selected, rt)
+		} else {
+			collection.ResourceTypesExcludedBySelection++
 		}
 	}
 	if err := page.writer.PutResourceTypes(ctx, selected...); err != nil {
@@ -103,6 +107,7 @@ func (s *syncer) collectLedgerResourceTypes(ctx context.Context, action *Action)
 			return err
 		}
 	}
+	collection.ResourceTypesExcludedInvalid += invalid
 	page.observations.Counters = map[string]uint64{"ingest.invalid_resource_types_observed": invalid}
 
 	progressAction := *action

@@ -81,6 +81,8 @@ func (s *syncer) collectLedgerResources(ctx context.Context, action *Action) err
 		return err
 	}
 
+	collection := ledgerCollection(invocation)
+	recordLedgerList(collection, &collection.ResourcesReceived, len(resp.GetList()), resp.GetNextPageToken())
 	resources, err := s.filterLedgerResources(invocation, resp.GetList())
 	if err != nil {
 		return err
@@ -161,6 +163,7 @@ func (s *syncer) filterLedgerResources(invocation *ledgerInvocation, values []*v
 	if invocation.page.observations.Counters == nil {
 		invocation.page.observations.Counters = make(map[string]uint64)
 	}
+	ledgerCollection(invocation).ResourcesExcludedInvalid += invalid
 	invocation.page.observations.Counters["ingest.invalid_resources_observed"] += invalid
 	invocation.afterCommit = append(invocation.afterCommit, func() { s.ingestFilterStats.invalidResourcesObserved.Add(invalid) })
 	return kept, nil

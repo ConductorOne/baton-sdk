@@ -32,6 +32,9 @@ func (s *syncer) getLedgerResourceFromConnector(ctx context.Context, resourceID 
 	s.recordLedgerConnectorResponseForAction(ctx, invocation, &callAction, "get-resource", time.Since(start), resourceResp.GetAnnotations())
 	recordLedgerConnectorError(invocation, err)
 	if err == nil {
+		if resourceResp.GetResource() != nil {
+			ledgerCollection(invocation).ResourcesReceived++
+		}
 		return resourceResp.GetResource(), nil
 	}
 	l := ctxzap.Extract(ctx)
