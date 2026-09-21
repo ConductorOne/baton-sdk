@@ -1646,3 +1646,40 @@ array decoding avoids materializing every target/type in aggregation state.
 Scalar flags remain complete. Report memory includes the iterator's largest input
 value and bounded scope previews; full option-history preservation at disposal
 is still a separate obligation.
+
+### 46. Public-path completion checks
+
+Run the existing sync corpus with Pebble selected by engine. Test stores that
+represent SQLite report SQLite explicitly. Pebble fault wrappers expose the page
+capability and inject staged-delete faults through PageWriter. Cancellation
+asserts persisted run accounting and no checkpoint token; resumed committed
+siblings must not call the connector again. Keep final logical-data comparisons.
+
+The invariant pass runs after collection pages. Its retained-invalid warning is
+therefore a terminal-page fact and an OR'd run-bucket flag, not another copy of
+page ingest counters. Preserve that result atomically with seal readiness. The
+existing warn-retain lifecycle corpus is the failing regression before this fix.
+
+### 46.1 External import and matching share one commit
+
+The public current-answer resume corpus fails against §35's two-page design:
+import commits, matching fails, and resume trusts the old external answer. Main
+re-imports before matching. Replace that design with one external action page.
+Remove the internal matching cursor and saved-principal fact; no released ledger
+SDK has produced either. Keep the public corpus's changed-source assertion.
+
+Matching must see imported grants in the same order and with the same expansion
+metadata as a stored scan. Add PageWriter.ListGrantsWithAnnotations: an ordered
+merge of stored grants and staged grants, last staged identity wins, pending
+deletes omitted. Capture the staged selection when iteration starts, so writes
+produced while matching are not recursively matched. Use storage's existing
+identity/key encoding and V3 conversion, not another encoding in pkg/sync.
+Memory is proportional to staged grants/deletes plus one stored page, never all
+stored grants; time is O(S log S + N) for staged S and stored N.
+
+Storage consumer tests compare the iterator with the post-commit iterator for
+replacement, deletion, insertion and expansion annotation. A stored-only mutant
+must fail. External tests retain imported matching-grant parity and same-identity
+stale re-import; commit failure leaves the whole external action absent. Resume
+then re-reads the current external source. This is an additive pkg/dotc1z consumer
+contract change, with its own commit before the handler change.
