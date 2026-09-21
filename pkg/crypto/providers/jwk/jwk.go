@@ -125,7 +125,7 @@ func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, conf *v2.Encryption
 
 	return v2.EncryptedData_builder{
 		Provider:       EncryptionProviderJwk,
-		KeyId:          tp,
+		KeyId:          tp, //nolint:staticcheck // deprecated for KeyIds below, still sent because a consumer may read either
 		Name:           plainText.GetName(),
 		Description:    plainText.GetDescription(),
 		Schema:         plainText.GetSchema(),

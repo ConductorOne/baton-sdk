@@ -64,11 +64,11 @@ when run together.)
 
 Requires the sibling engine checkout at `../occult` (the go.mod
 `replace` points there) and a Go 1.26 toolchain: the engine's own
-go.mod pins `go 1.26.0`, so the host module pins it too —
-deliberately ahead of the SDK root's 1.25.2 (a 1.25 toolchain with
-auto-switching, `GOTOOLCHAIN=auto`, fetches 1.26 on its own). The
-pure `.occult` sources carry no Go dependency; baton-sdk's public
-module does not require the engine repo.
+go.mod pins `go 1.26.0`, so the host module pins it too. That sits
+below the SDK root's 1.27.1, so a toolchain that builds the root
+builds this module as well. The pure `.occult` sources carry no Go
+dependency; baton-sdk's public module does not require the engine
+repo.
 
 ## Deliverable status
 
