@@ -147,6 +147,7 @@ func (sm *syncMap[K, V]) Store(key K, val V) {
 // syncer orchestrates a connector sync and stores the results using the provided datasource.Writer.
 type syncer struct {
 	ledgered        bool
+	ledgerDebug     bool
 	ledger          *ledgerRuntime
 	ledgerExpansion *ledgerExpansionStream
 	storeAttachErr  error

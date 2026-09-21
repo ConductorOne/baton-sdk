@@ -257,3 +257,12 @@ func TestLedgerPublicLogsSavedStats(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, string(saved), string(logged))
 }
+
+func TestLedgerDebugLoggingPreservesRequestedConfig(t *testing.T) {
+	core, _ := observer.New(zap.DebugLevel)
+	ctx := ctxzap.ToContext(t.Context(), zap.New(core))
+	s := &syncer{}
+	require.NoError(t, s.configureLedgerReport(ctx))
+	require.True(t, s.ledgerDebug)
+	require.False(t, s.cfg.ledgerDebug)
+}

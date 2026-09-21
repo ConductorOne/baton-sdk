@@ -22,7 +22,7 @@ func (s *syncer) stageLedgerReportOptions(invocation *ledgerInvocation) error {
 		EffectiveSkipEntitlementsAndGrants: hasFact(factShouldSkipEntitlementsAndGrants),
 		Requested: c1zstore.LedgerRequestedOptions{
 			SyncType: string(cfg.syncType), ResourceTypes: cfg.syncResourceTypes, WorkerCount: cfg.workerCount, RunDurationMs: cfg.runDuration.Milliseconds(),
-			LedgerDebug: cfg.ledgerDebug, RetainLedgerTokens: cfg.retainLedgerTokens,
+			LedgerDebug: s.ledgerDebug, RetainLedgerTokens: cfg.retainLedgerTokens,
 			SkipFullSync: cfg.skipFullSync, SkipGrants: cfg.skipGrants, SkipEntitlementsAndGrants: cfg.skipEntitlementsAndGrants,
 			OnlyExpandGrants: cfg.onlyExpandGrants, DontExpandGrants: cfg.dontExpandGrants, PreserveEntitlementGraph: cfg.preserveEntitlementGraph,
 			FailFastInvariants: cfg.failFastInvariants, ExternalSourceConfigured: s.externalResourceReader != nil,

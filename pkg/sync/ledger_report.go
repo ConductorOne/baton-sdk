@@ -15,11 +15,11 @@ func WithLedgerDebug(enabled bool) SyncOpt {
 
 func (s *syncer) configureLedgerReport(ctx context.Context) error {
 	logger := ctxzap.Extract(ctx)
-	s.cfg.ledgerDebug = s.cfg.ledgerDebug || logger.Core().Enabled(zap.DebugLevel)
-	if s.cfg.retainLedgerTokens && !s.cfg.ledgerDebug {
+	s.ledgerDebug = s.cfg.ledgerDebug || logger.Core().Enabled(zap.DebugLevel)
+	if s.cfg.retainLedgerTokens && !s.ledgerDebug {
 		return errors.New("retaining ledger tokens requires ledger debug mode")
 	}
-	if s.cfg.ledgerDebug {
+	if s.ledgerDebug {
 		logger.Warn("ledger debug mode retains page history and performs additional reference lookups")
 	}
 	if s.cfg.retainLedgerTokens {
@@ -36,7 +36,7 @@ func (s *syncer) finishLedgerReport(ctx context.Context) {
 		return
 	}
 	logger.Info("sync ledger stats", zap.Reflect("ledger_stats", json.RawMessage(report)))
-	if s.cfg.ledgerDebug {
+	if s.ledgerDebug {
 		var summary struct {
 			Latest struct {
 				References struct {
