@@ -1596,3 +1596,19 @@ Handler tests cover empty with continuation, all-filtered nonempty input, select
 resource types and mixed grant-derived content. Plant zero-writes-as-empty and
 omitted-selection-counter defects. Aggregation reads the new fixed fields in the
 existing projection and does not add record lookups.
+
+### 45.3 Production report reader
+
+Move the qualified iterator, fixed aggregates and JSON renderer out of test-only
+files. Add GenerateLedgerReport(ctx) to PageLedgerStore, implemented by the Pebble
+store through its engine. It reads one ledger iterator and returns the bounded
+summary; it writes nothing and does not dispose of the ledger. Existing exhaustive
+store-method coverage must classify it as read-only. The consumer test compares
+parsed counters after page commit, verifies repeatability and checks unchanged
+store contents. Plant an empty-report return before closing the consumer check.
+
+This increment does not enable automatic publication or change seal ordering.
+Options, phase timing and durable report publication precede default disposal.
+Keep the existing iterator/projection and mutation tests on the production code;
+retain fixture exporters and benchmarks in test files. Do not add a second report
+implementation or materialize all rows to cross the package boundary.
