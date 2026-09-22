@@ -145,3 +145,47 @@ func TestSealValueRejectsEntropyFailure(t *testing.T) {
 	require.ErrorIs(t, err, io.EOF)
 	require.Nil(t, result)
 }
+
+func TestCapsuleAuthenticatesEveryPreparationField(t *testing.T) {
+	conf, privateKey := testConfig(t)
+	encrypted, err := (&EncryptionProviderImpl{}).Encrypt(context.Background(), conf,
+		v2.PlaintextData_builder{Name: "key", Bytes: []byte("value")}.Build())
+	require.NoError(t, err)
+	envelope := &v2.FullKnowledgeCredentialEnvelope{}
+	require.NoError(t, proto.Unmarshal(encrypted.GetEncryptedBytes(), envelope))
+	digest := sha256.Sum256(envelope.GetValueCiphertext())
+	cases := map[string]func(*v2.FullKnowledgeVaultConfig){
+		"protocol":      func(c *v2.FullKnowledgeVaultConfig) { c.SetProtocolVersion(2) },
+		"tenant":        func(c *v2.FullKnowledgeVaultConfig) { c.SetTenantId("other") },
+		"ticket":        func(c *v2.FullKnowledgeVaultConfig) { c.SetTicketId("other") },
+		"vault":         func(c *v2.FullKnowledgeVaultConfig) { c.SetVaultId("other") },
+		"boundary":      func(c *v2.FullKnowledgeVaultConfig) { c.SetVaultBoundaryId("other") },
+		"secret":        func(c *v2.FullKnowledgeVaultConfig) { c.SetSecretId("other") },
+		"version":       func(c *v2.FullKnowledgeVaultConfig) { c.SetVersionId("other") },
+		"content":       func(c *v2.FullKnowledgeVaultConfig) { c.SetContentType("password") },
+		"preparation":   func(c *v2.FullKnowledgeVaultConfig) { c.SetPreparationId("other") },
+		"key id":        func(c *v2.FullKnowledgeVaultConfig) { c.SetKeyId("other") },
+		"capsule suite": func(c *v2.FullKnowledgeVaultConfig) { c.SetKeyCapsuleSuite(2) },
+		"public key":    func(c *v2.FullKnowledgeVaultConfig) { c.GetKeyCapsulePublicKey()[0] ^= 1 },
+		"value suite":   func(c *v2.FullKnowledgeVaultConfig) { c.SetValueSuite(2) },
+	}
+	open := func(c *v2.FullKnowledgeVaultConfig, digest [32]byte) error {
+		binding := capsuleContext(c, digest)
+		r, err := hpke.NewRecipient(envelope.GetEncapsulatedKey(), privateKey, hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), binding)
+		if err != nil {
+			return err
+		}
+		_, err = r.Open(binding, envelope.GetKeyCapsuleCiphertext())
+		return err
+	}
+	require.NoError(t, open(conf.GetFullKnowledgeVaultConfig(), digest))
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := proto.Clone(conf.GetFullKnowledgeVaultConfig()).(*v2.FullKnowledgeVaultConfig)
+			mutate(c)
+			require.Error(t, open(c, digest))
+		})
+	}
+	digest[0] ^= 1
+	require.Error(t, open(conf.GetFullKnowledgeVaultConfig(), digest))
+}
