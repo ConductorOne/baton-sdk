@@ -114,3 +114,29 @@ source inventory records targeted review, not an independent final review.
 
 This cleanup does not change the persistence contract or promote any incomplete
 criterion. It removes review noise and an obsolete measurement path.
+
+## Expansion correction (CO-021)
+
+First add a regression proving the current wrapper hides layer capabilities and
+creates expansion rows. Restore the existing scheduler's direct expansion call
+and the unchanged SyncGrantExpansion body. Delete the iterator wrapper, synthetic
+expansion cursors and PageWriter expanded-grant extension, together with tests
+whose only requirement was that extension. Retain main's bulk-write tests.
+
+Collection rows remain the authority for collected work. Expansion stays pending
+in that frontier until terminal completion, so any stop before terminal proof
+rebuilds/replays it. No expansion completion counter is persisted on stop; count
+its in-memory completion once in the terminal run bucket, relative to restored
+prior accounting. Timing still uses run accounting. Preserve optional graph
+reconstruction after a terminal-proof restart solely for the graph sidecar.
+
+Replace lifecycle fixtures that fake expansion pages with ordinary pending
+collection work, and add actual public expansion-only interruption/reopen cases.
+Assert layer Begin/Add/Finish reach the original adapter, no expansion ledger row
+exists, collection is not called on replay, final grants equal a clean run and
+completed-action accounting does not grow on an interrupted pass. Include skip,
+read failure and optional preserved-graph paths. Reject the old wrapper on the
+new fixture before deleting it; plant skipped replay and terminal double-count
+errors against the final checks. Run sync/expander/storage/compactor suites,
+focused ledger race checks and broad lint. Production and test removal land in
+one building commit; evidence records limits without inflating coverage claims.

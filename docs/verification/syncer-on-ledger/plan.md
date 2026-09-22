@@ -1023,3 +1023,45 @@ There are now 49 criteria; the frozen §4 count describes the baseline.
   This does not waive the remaining matrix, decomposition or tripwire explanation.
 - **Risk routing:** cost pass.
 - **PR placement:** this PR.
+
+## CO-020 — accept collection performance with observed connector waits
+
+- **Classification:** boundary decision.
+- **Source:** requester.
+- **Claim:** Collection performance is accepted given the reported local latency
+  run: nine arms each verified one million resources; median sync time was about
+  109 seconds, fresh/token 1.004 and resumed/token 0.998 with approximately 300ms
+  per-page waits. The zero-latency regression alone does not block collection.
+- **Motivation:** Representative waiting dominated completion time.
+- **Contract delta:** performance acceptance only; no durability change.
+- **Owning boundary:** collection cost acceptance.
+- **Affected criteria:** C49.
+- **Verification delta:** retain the measured zero-latency results and label the
+  latency result requester-reported; raw local results have not been imported.
+  Do not claim expansion was measured or that the original full matrix ran.
+- **Risk routing:** cost pass.
+- **PR placement:** this PR.
+
+## CO-021 — deterministic expansion stays outside page-ledger execution
+
+- **Classification:** scope correction.
+- **Source:** requester.
+- **Claim:** Page ledgers preserve collected sync data, not expansion batches.
+  Expansion uses main's evaluator, store capabilities and whole-phase replay.
+  An interruption may leave expansion output in the store; rerunning over the
+  same collected input must converge to the clean result without extra grants.
+  Collection pages already committed must not be fetched again. No expansion
+  batch row or expansion page cursor is required. Final completion still follows
+  successful processing; timing and completed-action accounting remain accurate.
+- **Motivation:** Expansion is fast deterministic work with its own replay model.
+  Adapting it to page transactions disabled existing Pebble optimizations.
+- **Contract delta:** expansion is excluded from page atomicity/identity products;
+  collection and terminal lifecycle proofs retain their requirements.
+- **Owning boundary:** syncer expansion dispatch and existing expansion storage.
+- **Affected criteria:** C04–C09, C13–C16, C20–C23, C31–C36, C39–C45, C48–C50.
+- **Verification delta:** replace expansion-page fixtures with capability-use,
+  no-expansion-row, interruption/reopen/replay and seal-accounting checks. Keep
+  existing expander replay/segment tests. Extra output after replay is an
+  expander defect, not a justification for adding ledger checkpoints.
+- **Risk routing:** HIGH for the phase handoff; expansion algorithm unchanged.
+- **PR placement:** this PR.
