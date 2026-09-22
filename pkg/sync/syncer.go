@@ -2887,9 +2887,6 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 }
 
 func (s *syncer) SyncExternalResources(ctx context.Context, action *Action) error {
-	if s.ledgered {
-		return s.syncLedgerExternalResources(ctx, action)
-	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncExternalResources")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error

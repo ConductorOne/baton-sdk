@@ -71,3 +71,8 @@ executed Go tests/profiles. Neither converts passing samples into full coverage.
 Expansion uses main's deterministic whole-phase replay and optimized adapter,
 without page rows or batch checkpoints (CO-021). Existing collection rows prevent
 refetching collected data; terminal accounting records completed expansion once.
+
+External import/matching also uses main's ordinary writes, without a whole-import
+ledger transaction (CO-023). Imported grant pages reach the store before the next
+page is fetched. Main's pre-existing expansion-annotation replay bug is a separate
+fix; this PR does not attempt to mask it with buffering.

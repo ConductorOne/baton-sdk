@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Emit finite coverage products with accepted change orders (CO-021 excludes expansion pages)."""
+"""Emit finite coverage products with accepted change orders (CO-021/023 exclude local processing phases)."""
 
 import argparse
 import itertools
@@ -8,7 +8,7 @@ import sys
 
 ACTIONS = (
     "init", "resource-types", "resources", "resources-for-entitlements",
-    "entitlements", "grants", "external-resources", "assets",
+    "entitlements", "grants", "assets",
     "targeted-resource", "static-entitlements",
 )
 REOPENS = ("new-syncer", "new-process-c1z", "cold-crash-image")
@@ -46,7 +46,7 @@ PRODUCTS = {
     "C49": {"pages": (1000, 10000, 100000), "records": (100, 1000, 10000), "workers": (1, 4),
             "arm": ("baseline", "ledger-fresh", "ledger-resumed")},
 }
-EXPECTED = {"P1": 5400, "P2": 330, "P3": 16, "P4": 108, "P5": 288, "P6-put": 180,
+EXPECTED = {"P1": 4860, "P2": 297, "P3": 16, "P4": 108, "P5": 288, "P6-put": 180,
             "P6-delete": 27, "P7": 48, "P8": 81, "P9": 42, "P10": 60, "CO-002": 1, "C49": 54}
 
 

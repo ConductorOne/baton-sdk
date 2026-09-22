@@ -352,7 +352,7 @@ func (s *syncer) parallelSync(
 
 		case SyncExternalResourcesOp:
 			err = s.timedStep(SyncExternalResourcesOp, func() error {
-				return s.invokeActionPage(workerCtx, stateAction, s.SyncExternalResources, false)
+				return s.SyncExternalResources(workerCtx, stateAction)
 			})
 			if !s.timedShouldWaitAndRetry(workerCtx, SyncExternalResourcesOp, stateAction.ResourceTypeID, retryer, err) {
 				return s.handleOperationError(ctx, runCtx, warnings, err)

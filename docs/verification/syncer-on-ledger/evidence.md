@@ -19,8 +19,8 @@ byte equality. A returned fresh NoSync commit need not survive a crash.
 
 ## Instrument coverage and gaps
 
-`tools/cells.py` emits stable cell IDs for P1–P10, CO-002 and C49. CO-021 removes
-expansion from the page products: P1 now has 5,400 cells and P2 has 330. It records
+`tools/cells.py` emits stable cell IDs for P1–P10, CO-002 and C49. CO-021/023 remove
+local processing phases from page products: P1 has 4,860 cells and P2 has 297. It records
 required cells, not executed cells. P4's repeated resumes are mandatory
 subcases. Additional feature crosses specified by individual criteria still
 need fixtures; the generated products are not the entire coverage model.
@@ -523,3 +523,17 @@ from page-row lookup. The consumer asserts reference validation actually ran,
 while existing missing-child/continuation and fan-in checks stay enabled.
 Focused sync/report race checks pass three times (6.715s / 2.193s); broad
 lint reports zero issues after this correction.
+
+## External transaction removal (CO-023)
+
+TestLedgerExternalImportsPagesDirectly fails on the old transaction because the
+destination is still empty when the next source grant page is requested. With
+main's handler restored, each import page is stored first and no external action
+row is created. Matching/deletion one-pass comparisons remain; transaction-only
+fixtures and the unused staged iterator/deletion APIs are removed. Chaos faults
+again intercept direct store writes. Local-phase completion joins expansion in
+the terminal run bucket. The independently reproduced upstream replay defect is
+not fixed or hidden by this change; its investigation fixture is outside this PR.
+Validation after external transaction removal: full sync 96.346s, Pebble
+23.082s and compactor 42.091s pass; focused external/chaos race checks pass
+three times in 10.442s.

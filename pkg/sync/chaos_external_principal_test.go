@@ -884,36 +884,3 @@ func chaosExternalCutConnectorStore(s *chaosExternalPrincipalCutStore) c1zstore.
 	}
 	return &chaosExternalLedgerCutStore{chaosExternalPrincipalCutStore: s, PageLedgerStore: ledger, WriteHookStore: resolveStoreCaps(s.Store).writeHook}
 }
-func (s *chaosExternalLedgerCutStore) BeginPage() c1zstore.PageWriter {
-	return &chaosExternalCutPage{PageWriter: s.PageLedgerStore.BeginPage(), cut: s.chaosExternalPrincipalCutStore}
-}
-
-type chaosExternalCutPage struct {
-	c1zstore.PageWriter
-	cut *chaosExternalPrincipalCutStore
-}
-
-func (p *chaosExternalCutPage) DeleteGrants(ctx context.Context, grants ...*v2.Grant) error {
-	for range grants {
-		if p.cut.deleteCalls.Add(1) == p.cut.failDeleteAt {
-			return errChaosExternalPrincipalCut
-		}
-	}
-	return p.PageWriter.DeleteGrants(ctx, grants...)
-}
-func (p *chaosExternalCutPage) DeleteEntitlements(ctx context.Context, values ...*v2.Entitlement) error {
-	for range values {
-		if p.cut.entitlementCalls.Add(1) == p.cut.failEntitlementAt {
-			return errChaosExternalPrincipalCut
-		}
-	}
-	return p.PageWriter.DeleteEntitlements(ctx, values...)
-}
-func (p *chaosExternalCutPage) DeleteResources(ctx context.Context, values ...*v2.Resource) error {
-	for range values {
-		if p.cut.resourceCalls.Add(1) == p.cut.failResourceAt {
-			return errChaosExternalPrincipalCut
-		}
-	}
-	return p.PageWriter.DeleteResources(ctx, values...)
-}

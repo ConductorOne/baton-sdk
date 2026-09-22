@@ -105,8 +105,8 @@ func scanLedgerReferences(ctx context.Context, iterator ledgerReportIterator, re
 			}
 			for _, child := range row.GetChildren() {
 				id := child.GetIdentity()
-				// Expansion's frontier entry names a replayable phase, not a page row.
-				if id.GetOp() == "grant-expansion" {
+				// Local processing phases have frontier entries, not collection page rows.
+				if id.GetOp() == "grant-expansion" || id.GetOp() == "list-external-resources" {
 					continue
 				}
 				if err := check(id, id.GetPageTokenHash(), row.GetScrubbed(), true); err != nil {

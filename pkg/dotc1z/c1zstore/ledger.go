@@ -2,7 +2,6 @@ package c1zstore
 
 import (
 	"context"
-	"iter"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/sourcecache"
@@ -165,8 +164,6 @@ type PageWriter interface {
 	PutResources(ctx context.Context, resources ...*v2.Resource) error
 	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
 	PutGrants(ctx context.Context, grants ...*v2.Grant) error
-	// Ordered stored/staged merge, with pending deletes omitted. Staging is captured when iteration starts.
-	ListGrantsWithAnnotations(ctx context.Context) iter.Seq2[GrantAnnotation, error]
 	// Snapshots data; repeated asset IDs use the last staged value.
 	PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error
 
@@ -174,10 +171,6 @@ type PageWriter interface {
 	// the latest value. GetEntitlement rejects IDs shared by distinct identities.
 	GetResource(ctx context.Context, resourceTypeID, resourceID string) (*v2.Resource, error)
 	GetEntitlement(ctx context.Context, entitlementID string) (*v2.Entitlement, error)
-
-	// Applied after all page puts, without cascading. Reads ignore pending deletes.
-	DeleteResources(ctx context.Context, resources ...*v2.Resource) error
-	DeleteEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
 
 	// Applied in the commit after the page's puts.
 	DeleteGrants(ctx context.Context, grants ...*v2.Grant) error

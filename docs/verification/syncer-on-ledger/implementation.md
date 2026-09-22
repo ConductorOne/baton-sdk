@@ -27,8 +27,8 @@ adapter also calls that implementation.
 
 Collection handler copies use PageWriter for records, assets and full-identity
 deletes. Expansion uses the normal evaluator and store adapter outside pages. Read-through/staged-grant support lives in the storage page
-implementation. External import and matching share a page so failure does not
-preserve a stale external-source answer. Pure planning/filtering helpers are
+implementation. External import and matching use main's normal batches outside page execution
+(CO-023); the known main replay defect is a separate fix. Pure planning/filtering helpers are
 shared where allowed by CO-011; the SQLite token writer is retained for CXE-1311.
 
 ## Contract decisions

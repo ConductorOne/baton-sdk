@@ -63,7 +63,7 @@ func equalProtoLists[T proto.Message](t *testing.T, want, got []T) {
 		require.Truef(t, proto.Equal(want[i], got[i]), "record %d differs: expected %v, got %v", i, want[i], got[i])
 	}
 }
-func TestLedgerExternalPagesMatchTokenHandler(t *testing.T) {
+func TestLedgerExternalUsesMainHandler(t *testing.T) {
 	testLedgerExternalParity(t, nil)
 }
 
@@ -75,7 +75,7 @@ func testLedgerExternalParity(t *testing.T, configure func(*syncer, *ledgerFixtu
 		configure(s, f, source)
 		configure(baseline, b, baselineSource)
 	}
-	f.audit.enter(ledgerHandler)
+	f.audit.enter(ledgerLifecycle)
 	_, err := s.parallelSync(t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
@@ -101,23 +101,13 @@ func testLedgerExternalParity(t *testing.T, configure func(*syncer, *ledgerFixtu
 	require.NoError(t, err)
 	equalProtoLists(t, wantGrants.GetList(), gotGrants.GetList())
 }
-func TestLedgerExternalImportCommitFailure(t *testing.T) {
-	s, f, _ := externalPageFixture(t, true)
-	before := ledgerRawSnapshot(t, f.engine)
-	s.ledger.store = ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: "commit"}
-	f.audit.enter(ledgerHandler)
-	require.ErrorIs(t, s.invokeActionPage(t.Context(), s.run.current(), s.SyncExternalResources, false), errLedgerInjectedPage)
-	f.audit.enter(ledgerLifecycle)
-	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
-}
-
 func TestLedgerExternalImportedGrantIsMatched(t *testing.T) {
 	s, f, source := externalPageFixture(t, true)
 	principal := externalMatchPrincipal(t, "fresh", nil)
 	imported := gt.NewGrant(principal, "member", v2.ResourceId_builder{ResourceType: "user", Resource: "placeholder"}.Build(),
 		gt.WithAnnotation(v2.ExternalResourceMatchAll_builder{ResourceType: v2.ResourceType_TRAIT_USER}.Build()))
 	require.NoError(t, source.store.PutGrants(t.Context(), imported))
-	f.audit.enter(ledgerHandler)
+	f.audit.enter(ledgerLifecycle)
 	_, err := s.parallelSync(t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
@@ -138,7 +128,7 @@ func TestLedgerExternalStaleGrantReimport(t *testing.T) {
 	require.NoError(t, f.store.PutEntitlements(t.Context(), et.NewAssignmentEntitlement(stale, "member")))
 	require.NoError(t, f.store.PutGrants(t.Context(), imported))
 	require.NoError(t, source.store.PutGrants(t.Context(), imported))
-	f.audit.enter(ledgerHandler)
+	f.audit.enter(ledgerLifecycle)
 	_, err := s.parallelSync(t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
@@ -155,39 +145,6 @@ func TestLedgerExternalStaleGrantReimport(t *testing.T) {
 	require.True(t, found, "main deletes stale grants before reimport; the reimported identity must survive")
 }
 
-func TestLedgerExternalMatchingFailureAndResume(t *testing.T) {
-	s, f, source := externalPageFixture(t, true)
-	root := ledgerIdentity(s.run.current())
-	f.audit.enter(ledgerHandler)
-	f.audit.enter(ledgerLifecycle)
-	before := ledgerRawSnapshot(t, f.engine)
-	s.ledger.store = ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: "commit"}
-	f.audit.enter(ledgerHandler)
-	require.ErrorIs(t, s.invokeActionPage(t.Context(), s.run.current(), s.SyncExternalResources, false), errLedgerInjectedPage)
-	f.audit.enter(ledgerLifecycle)
-	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
-	require.NoError(t, f.store.Close(t.Context()))
-	f = openLedgerFixtureAt(t, f.path, false)
-	s.store, s.caps = f.store, resolveStoreCaps(f.store)
-	var err error
-	s.ledger, err = newLedgerRuntime(t.Context(), f.ledger, "external-resume")
-	require.NoError(t, err)
-	s.externalResourceReader = source.store
-	before = ledgerRawSnapshot(t, f.engine)
-	f.audit.enter(ledgerWalk)
-	require.NoError(t, s.restoreLedgerState(t.Context(), ledgerResume{actions: []ledgerAction{{identity: root}}}, false))
-	f.audit.enter(ledgerLifecycle)
-	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
-	f.audit.enter(ledgerHandler)
-	_, err = s.parallelSync(t.Context(), t.Context(), nil)
-	require.NoError(t, err)
-	f.audit.enter(ledgerLifecycle)
-	grants, err := f.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
-	require.NoError(t, err)
-	require.Len(t, grants.GetList(), 1)
-	require.Equal(t, "fresh", grants.GetList()[0].GetPrincipal().GetId().GetResource())
-}
-
 func TestLedgerExternalFilteredPrincipalState(t *testing.T) {
 	s, f, source := externalPageFixture(t, true)
 	fresh := externalMatchPrincipal(t, "fresh", nil)
@@ -196,24 +153,13 @@ func TestLedgerExternalFilteredPrincipalState(t *testing.T) {
 	filter := et.NewAssignmentEntitlement(fresh, "member")
 	require.NoError(t, source.store.PutGrants(t.Context(), gt.NewGrant(fresh, "member", zebra.GetId()), gt.NewGrant(fresh, "member", fresh.GetId())))
 	s.cfg.externalResourceEntitlementIdFilter = filter.GetId()
-	f.audit.enter(ledgerHandler)
+	f.audit.enter(ledgerLifecycle)
 	_, err := s.parallelSync(t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	grants, err := f.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
 	require.NoError(t, err)
 	require.Len(t, grants.GetList(), 4)
-}
-
-func TestLedgerExternalUnknownCursor(t *testing.T) {
-	s, f, _ := externalPageFixture(t, true)
-	s.run = newRunState()
-	s.run.pushAction(t.Context(), Action{Op: SyncExternalResourcesOp, PageToken: "unknown"})
-	before := ledgerRawSnapshot(t, f.engine)
-	f.audit.enter(ledgerHandler)
-	require.Error(t, s.invokeActionPage(t.Context(), s.run.current(), s.SyncExternalResources, false))
-	f.audit.enter(ledgerLifecycle)
-	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 }
 
 func TestLedgerExternalDeleteFullIdentity(t *testing.T) {
@@ -224,7 +170,7 @@ func TestLedgerExternalDeleteFullIdentity(t *testing.T) {
 	carrier.SetId("shared")
 	ordinary := ledgerGrant("shared", "group", "unrelated", "user")
 	require.NoError(t, f.store.PutGrants(t.Context(), carrier, ordinary))
-	f.audit.enter(ledgerHandler)
+	f.audit.enter(ledgerLifecycle)
 	_, err = s.parallelSync(t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
@@ -253,7 +199,7 @@ func TestLedgerExternalExpansionRemap(t *testing.T) {
 	require.NoError(t, err)
 	carrier.SetAnnotations([]*anypb.Any{match, expansion})
 	require.NoError(t, f.store.PutGrants(t.Context(), carrier))
-	f.audit.enter(ledgerHandler)
+	f.audit.enter(ledgerLifecycle)
 	_, err = s.parallelSync(t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
