@@ -475,3 +475,11 @@ not accepted implicitly. Current results and artifact links are in README.md.
 
 The size cleanup relocates output and removes an obsolete benchmark, not tests
 or coverage obligations. The frozen plan and criterion statuses are unchanged.
+
+Cleanup validation: full sync passes (110.150s); broad lint reports zero
+issues. Both benchmark binaries build. The revised runner verifies all six
+small token/fresh/resumed × one/four-worker cases, including populated public
+timing fields; the removed synthetic benchmark is absent from the binary.
+These are harness checks, not new performance-acceptance measurements.
+The archive download, original document blobs, unchanged frozen plan and all
+50 criterion statuses were checked. Production Go has no diff from 0d87cd4c.

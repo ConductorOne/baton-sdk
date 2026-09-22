@@ -16,9 +16,36 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type ledgerCostObservations struct {
+	commitNs  atomic.Int64
+	commits   atomic.Int64
+	handlerNs atomic.Int64
+	foldNs    atomic.Int64
+}
+
+type ledgerCostPage struct {
+	c1zstore.PageWriter
+	observations *ledgerCostObservations
+}
+
+func (w ledgerCostPage) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity, row *c1zstore.LedgerRow) error {
+	start := time.Now()
+	err := w.PageWriter.Commit(ctx, id, row)
+	w.observations.commitNs.Add(time.Since(start).Nanoseconds())
+	if err == nil {
+		w.observations.commits.Add(1)
+	}
+	return err
+}
+
 type ledgerPublicCostStore struct {
-	ledgerCostStore
+	c1zstore.PageLedgerStore
+	observations             *ledgerCostObservations
 	sealNs, reportNs, dropNs atomic.Int64
+}
+
+func (s *ledgerPublicCostStore) BeginPage() c1zstore.PageWriter {
+	return ledgerCostPage{PageWriter: s.PageLedgerStore.BeginPage(), observations: s.observations}
 }
 
 func (s *ledgerPublicCostStore) LedgerCounters(ctx context.Context) (c1zstore.LedgerCounters, error) {
@@ -67,7 +94,7 @@ func TestLedgerCostPublic(t *testing.T) {
 	observations := &ledgerCostObservations{}
 	var walkNs atomic.Int64
 	var walkStart time.Time
-	source := &ledgerPublicCostStore{ledgerCostStore: ledgerCostStore{PageLedgerStore: f.ledger, observations: observations}}
+	source := &ledgerPublicCostStore{PageLedgerStore: f.ledger, observations: observations}
 	makeRunner := func(workerCount int) *syncer {
 		created, err := NewSyncer(t.Context(), connector, WithConnectorStore(f.store), WithWorkerCount(workerCount), WithDontExpandGrants())
 		require.NoError(t, err)

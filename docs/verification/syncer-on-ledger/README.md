@@ -53,10 +53,10 @@ adopted. Full C49 matrix, byte attribution and performance acceptance remain ope
 From the repository root, with Go 1.26 and vendored dependencies:
 
 ```sh
-docs/verification/syncer-on-ledger/tools/build-baseline.sh /tmp/ledger-token.test
+bash docs/verification/syncer-on-ledger/tools/build-baseline.sh /tmp/ledger-token.test
 GOTOOLCHAIN=go1.26.0 go test -mod=vendor -c ./pkg/sync -o /tmp/ledger-current.test
 python3 docs/verification/syncer-on-ledger/tools/run-cost.py \
-  --public --baseline /tmp/ledger-token.test --ledger /tmp/ledger-current.test \
+  --baseline /tmp/ledger-token.test --ledger /tmp/ledger-current.test \
   --output /tmp/ledger-cost-output --pages 10 --records 10 --workers 1 4 \
   --repetitions 1
 ```

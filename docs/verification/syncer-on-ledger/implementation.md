@@ -3,6 +3,7 @@
 This brief describes the current design. The original brief at `644c26cf` and
 all subsequent design notes through `0d87cd4c` are preserved in the
 [historical brief](https://github.com/ConductorOne/baton-sdk/blob/3b35887e02365b3b3f84ed1a54d2be8b622a0d4f/docs/verification/syncer-on-ledger/implementation.md).
+Numbered sections cited by the frozen plan refer to that historical brief.
 The frozen [plan](plan.md), including its change orders, is unchanged.
 [evidence.md](evidence.md) records criterion status; implementation is not proof.
 

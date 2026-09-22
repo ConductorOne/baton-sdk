@@ -25,3 +25,36 @@ retention options affect report policy, not whether Pebble uses the ledger.
 Remaining structural work: a complete changed-branch-to-criterion inventory,
 qualification of that inventory against planted omissions, and final independent
 audit/soak. C44/C45/C48 remain evidence incomplete.
+
+## PR-size audit at 0d87cd4c
+
+The baseline-to-PR production additions are 6,981 lines in 61 Go files:
+
+| Area | Added lines | Disposition |
+| --- | ---: | --- |
+| Generated protobufs | 1,064 | Generated from the 23 added proto lines; retained with the schema |
+| Sync handlers and planning | 2,405 | Live PageWriter handlers plus shared initial planning; their token counterparts remain for SQLite |
+| Sync persistence, lifecycle and integration | 1,687 | Atomic page publication, resume, takeover, accounting and existing-scheduler integration |
+| Storage report and archive | 1,133 | Report projection, debug reference checks and state needed after default disposal |
+| Storage page/support | 692 | Atomic assets, deletion/expanded-grant support, capability methods and seal measurement |
+
+Inspected ledger_scheduler, ledger_page, ledger_sync, ledger_walk, lifecycle and
+handler entry points. Production ledger code calls the existing parallelSync;
+it creates no worker goroutines. The channel in ledger_claim serializes duplicate
+page identities and does not dispatch work. ledger_schedule contains the live
+run-counter flush guard, not another scheduler. The retained test adapter also
+calls parallelSync; it is used by correctness/crash fixtures.
+
+Removed the obsolete TestLedgerCostRuntime synthetic measurement path and its
+alternate runner mode. The public benchmark retains its commit observer directly;
+the unused sealing flag and intermediate measurement-store wrapper are removed.
+Historical driver source/results are available in the pinned evidence artifact.
+No correctness fixture or production behavior is removed by this cleanup.
+
+The handler copies are the largest handwritten category. Their writes and
+post-commit publication differ from the token handlers; deleting them now would
+require another persistence refactor or removal of SQLite writes. The latter is
+CXE-1311. Existing shared planning/filter helpers remain shared under CO-011.
+This audit did not find another independent executor or an unused production
+integration path to delete; it does not establish that every remaining line is
+minimal. The remaining structural/coverage obligations above are still open.
