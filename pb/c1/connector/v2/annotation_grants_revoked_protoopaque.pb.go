@@ -25,17 +25,6 @@ const (
 
 // GrantsRevoked is attached by a connector to a Revoke response when the
 // operation removed additional grants for the same principal.
-//
-// Each entitlement id names one entitlement whose grant for that principal is
-// gone. An entitlement id has the form "{resource_type}:{resource_id}:{slug}".
-// ConductorOne revokes that binding without dispatching a separate Revoke RPC.
-// Other entitlements on the same resource are left alone. An empty list means
-// the revoke had no additional grant side effects.
-//
-// Typical use: a role-revoke API replaces the principal's role set, so
-// revoking one role also removes other role entitlements. The connector
-// reports those entitlement ids so ConductorOne can drop the extra grants
-// immediately.
 type GrantsRevoked struct {
 	state                     protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_EntitlementIds []string               `protobuf:"bytes,1,rep,name=entitlement_ids,json=entitlementIds,proto3"`
@@ -82,7 +71,6 @@ func (x *GrantsRevoked) SetEntitlementIds(v []string) {
 type GrantsRevoked_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	// Entitlements whose grants for the revoke principal were removed.
 	EntitlementIds []string
 }
 

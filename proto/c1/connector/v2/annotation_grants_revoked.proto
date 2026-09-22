@@ -8,19 +8,7 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
 // GrantsRevoked is attached by a connector to a Revoke response when the
 // operation removed additional grants for the same principal.
-//
-// Each entitlement id names one entitlement whose grant for that principal is
-// gone. An entitlement id has the form "{resource_type}:{resource_id}:{slug}".
-// ConductorOne revokes that binding without dispatching a separate Revoke RPC.
-// Other entitlements on the same resource are left alone. An empty list means
-// the revoke had no additional grant side effects.
-//
-// Typical use: a role-revoke API replaces the principal's role set, so
-// revoking one role also removes other role entitlements. The connector
-// reports those entitlement ids so ConductorOne can drop the extra grants
-// immediately.
 message GrantsRevoked {
-  // Entitlements whose grants for the revoke principal were removed.
   repeated string entitlement_ids = 1 [(validate.rules).repeated = {
     items: {
       string: {min_bytes: 1}
