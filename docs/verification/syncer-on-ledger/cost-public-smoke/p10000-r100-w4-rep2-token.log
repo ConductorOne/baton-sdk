@@ -1,4 +1,0 @@
-=== RUN   TestLedgerCostBaseline
-    ledger_cost_test.go:135: {"arm":"token-path","c1z_bytes":3803300,"compaction_bytes_before_close":0,"flush_bytes_before_close":19597867,"pages":10000,"records_per_page":100,"resources_verified":1000000,"scope":"baseline smoke; not C49 measurement evidence","sync_wall_ns":6289210713,"wal_bytes_before_close":85089790,"workers":4}
---- PASS: TestLedgerCostBaseline (7.24s)
-PASS

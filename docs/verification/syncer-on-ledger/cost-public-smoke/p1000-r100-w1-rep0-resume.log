@@ -1,4 +1,0 @@
-=== RUN   TestLedgerCostPublic
-    ledger_cost_public_test.go:157: {"arm":"ledger-public-resume-no-sync","c1z_bytes":109297,"compaction_bytes_before_close":2961696,"disposal_ns":30931463,"flush_bytes_before_close":2065173,"handler_ns":558531014,"ledger_commits":1029,"page_commit_ns":330633908,"pages":1000,"records_per_page":100,"reopen_ns":12292371,"report_ns":1750299,"resources_verified":100000,"resume_walk_ns":88401,"scope":"public Sync with default disposal; machine qualification and full matrix required for C49","seal_fold_ns":144986,"seal_ns":76790337,"seal_purge_ns":60424084,"seal_scrub_ns":2241604,"sync_wall_ns":1033271049,"wal_bytes_before_close":9069319,"workers":1}
---- PASS: TestLedgerCostPublic (1.13s)
-PASS
