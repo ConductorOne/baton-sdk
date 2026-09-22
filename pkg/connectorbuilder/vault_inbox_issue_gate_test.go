@@ -71,12 +71,12 @@ const gateJWKAlg = "HPKE-Base-X-Wing-Draft06-HKDF-SHA256-ChaCha20Poly1305"
 
 // gateRecipient mints a synthetic recipient the way a reader would: only the
 // public JWK and thumbprint cross into the SDK config.
-func gateRecipient(t *testing.T, seed byte) (jwk string, thumbprint string) {
+func gateRecipient(t *testing.T, seed byte) (string, string) {
 	t.Helper()
 	key, err := hpke.MLKEM768X25519().NewPrivateKey(bytes.Repeat([]byte{seed}, 32))
 	require.NoError(t, err)
 	pub := base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes())
-	jwk = `{"kty":"AKP","alg":"` + gateJWKAlg + `","pub":"` + pub + `"}`
+	jwk := `{"kty":"AKP","alg":"` + gateJWKAlg + `","pub":"` + pub + `"}`
 	digest := sha256.Sum256([]byte(`{"alg":"` + gateJWKAlg + `","kty":"AKP","pub":"` + pub + `"}`))
 	return jwk, base64.RawURLEncoding.EncodeToString(digest[:])
 }
