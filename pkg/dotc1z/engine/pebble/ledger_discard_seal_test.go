@@ -66,6 +66,9 @@ func TestLedgerDiscardArchiveFailureRetainsScrubbedRows(t *testing.T) {
 	require.True(t, row.Scrubbed)
 	require.EqualValues(t, 1, e.test.ledgerResiduePurges.Load())
 	require.Zero(t, checkpointNeedleHits(t, e, []byte("private-token")))
+	facts, err := e.Ledger().Facts(t.Context())
+	require.NoError(t, err)
+	require.NotContains(t, facts, c1zstore.LedgerFactDiscardOnSeal)
 	e.test.ledgerArchiveHook = nil
 	report, err := e.ArchiveLedgerReport(t.Context())
 	require.NoError(t, err)

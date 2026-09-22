@@ -644,7 +644,7 @@ func (l *Ledger) ClearRows(ctx context.Context, clearFacts []string) error {
 	if err := l.markResiduePending(); err != nil {
 		return err
 	}
-	if err := l.e.withWrite(func() error {
+	return l.e.withWrite(func() error {
 		if err := l.markInFlightLocked(); err != nil {
 			return err
 		}
@@ -673,8 +673,5 @@ func (l *Ledger) ClearRows(ctx context.Context, clearFacts []string) error {
 			return hook("committed")
 		}
 		return nil
-	}); err != nil {
-		return err
-	}
-	return l.purgeMarkedResidue(ctx)
+	})
 }

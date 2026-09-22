@@ -216,3 +216,10 @@ it does not replace the remaining targeted-resource, asset or takeover products.
 Reconcile lifecycle/deletion tests with their current branches, and inspect shared
 scheduler/lifecycle diffs against main. Record executed checks and remaining gaps
 separately; do not promote an entire product from one passing fixture.
+
+The finished-continuation audit also checks the single-purge requirement across
+ClearRows and the following seal. ClearRows keeps its synced deletion and durable
+pending-cleanup marker, but defers physical compaction to seal. The old immediate
+purge must fail a test that expects no purge before seal and one purge afterward;
+the saved checkpoint must contain neither the old nor the new page token. Existing
+ClearRows durable crash images must retain the pending marker until a later seal.
