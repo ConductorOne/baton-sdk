@@ -29,7 +29,7 @@ synthetic native secret or version id at delivery time.
 - `crates/latchkey-client-sdk/src/client.rs` —
   `open_vault_submission_secret_payload`, `accept_vault_submission_as_secret`.
 
-## Delivery lifecycle (end state)
+## Delivery lifecycle
 
 1. An approved ticket fixes an FK vault destination. C1 gets or creates **one
    durable prepared inbox submission** per (tenant, ticket) *before*
@@ -37,22 +37,34 @@ synthetic native secret or version id at delivery time.
    `profile_id`, `inbox_key_id`, `key_generation`, payload scheme, and crypto
    suite on the operation.
 2. C1 sends the frozen coordinates plus the inbox public key to the connector in
-   an `EncryptionConfig.vault_inbox_recipient_config`.
-3. The connector validates the config before minting, mints the credential
-   once, serializes the exact `SecretSubmissionPayloadV3` container the inbox
-   reader expects, seals it with the existing X-Wing HPKE profile, and returns
-   the envelope as `EncryptedData.encrypted_bytes`.
+   an `EncryptionConfig.vault_inbox_recipient_config`. That config is C1's
+   authority: it comes from the authenticated action transport for an approved
+   ticket, and the connector does not and cannot elect a destination itself.
+3. The connector validates the config **before minting** (see §6), mints the
+   credential once, serializes the exact `SecretSubmissionPayloadV3` container
+   the inbox reader expects, seals it with the existing X-Wing HPKE profile, and
+   returns the envelope as `EncryptedData.encrypted_bytes`.
 4. C1 durably records that exact result as `RESULT_ENCRYPTED`, then uploads and
-   registers those exact bytes against the prepared submission. The operation
-   becomes `DELIVERED` only after durable registration.
+   registers those exact bytes against the prepared submission. The submission
+   reaches `PENDING_REVIEW`.
 
-**Delivery ends at the durable inbox submission.** There is no C1-side decrypt,
-reseed, ingestion daemon, sharing, or native-secret creation during delivery.
+**Registration is intermediate, not completion.** `PENDING_REVIEW` means the
+ciphertext is durably stored and reviewable; it is **not** `DELIVERED`, and it is
+not a native secret. The transport is keyless: between the connector's output and
+the registered submission the ciphertext is copied **byte-identically** and is
+never decrypted, resealed, or re-encoded.
 
-5. Later, an authorized active vault member uses the existing
-   `accept_vault_submission_as_secret` flow: open, create a native secret through
-   the ordinary secret path, and record acceptance. Ingestion automation and
-   sharing remain out of scope.
+5. A **separate** authorized slice performs member ingestion: an authorized C1
+   vault member decrypts the submission, creates a **native secret** through the
+   ordinary secret path, and records acceptance. Only that durable native
+   creation plus the recorded acceptance makes the credential `DELIVERED`, and
+   only then are the destination's full-knowledge delivery instance
+   `secret_id`/`version_id` populated.
+
+Ordinary authorized reveal is a **mandatory acceptance test** for that ingestion
+slice — it is how the created native secret is proven to be readable — not a
+production prerequisite of delivery. Secret sharing is a separate concern again
+and is not part of this contract.
 
 ## 1. HPKE instance
 
@@ -145,45 +157,92 @@ order):
 | `encrypted_bytes` | the submission envelope JSON above |
 
 `key_ids` names the **inbox key id**, not the JWK thumbprint. C1 compares it
-against the submission's active inbox key id; the thumbprint is separately bound
-inside the HPKE binding (via the attested key) and inside the attestation. The
-two identifiers must agree with what C1 already stores on the
-`LatchkeyVaultSubmission` row.
+against the submission's active inbox key id.
 
-## 6. Validation split (pre-mint)
+`public_key_thumbprint` is **JWK validation, not an independent HPKE binding**: it
+is re-derived from `public_jwk_json` and compared against the recipient JWK, so a
+config cannot claim a thumbprint that does not belong to the key it names. It is
+**not** carried as a separate field in the HPKE `info`/AAD — the AAD binds
+`inbox_key_id` and `key_generation` (see §2), not the thumbprint. Treating a
+thumbprint match as proof of anything beyond JWK integrity would overstate it.
+Likewise `submission_id` and `content_type` are authenticated by being **inside
+the sealed payload** (§4), not by any outer field.
 
-The connector validates everything it can without a trust anchor, before the
-provider runs:
+## 6. Validation split: pre-mint vs post-mint
 
-- profile/config version and suite are the supported ones;
+The distinction matters because only the pre-mint half can refuse an issuance
+**before** a provider credential exists. Nothing in the post-mint half prevents a
+mint; it refuses to hand back a usable result after one.
+
+### 6.1 Pre-mint — refused before the provider runs (issuer calls = 0)
+
+Config shape and capability, all evaluated before the provider is invoked:
+
+- config version and suite are the supported ones;
 - every binding identifier is non-empty, bounded, and free of control
   characters; `key_generation` is non-zero;
+- `payload_scheme` is exactly the one scheme this provider emits;
 - the public JWK is exactly one public AKP JWK, `alg` exactly the suite string,
   no `priv`, `pub` exactly 1216 bytes, parsing as an X-Wing key, and the X25519
   component is not a low-order point;
-- `public_key_thumbprint` re-derives from `public_jwk_json` as
-  `base64url(SHA-256({"alg":…,"kty":…,"pub":…}))`;
-- the vault-inbox recipient is the only encryption config, and the issuance
-  yields exactly one plaintext value.
+- `public_key_thumbprint` re-derives from `public_jwk_json` (§5);
+- the selected descriptor **advertises** the requested vault-inbox profile;
+- the vault-inbox recipient is the **only** encryption config — a mixed or
+  duplicate recipient set is refused before anything is minted.
 
-**Attestation signature verification stays where it is.** The inbox public key is
+### 6.2 Post-mint — refused after the provider has already minted
+
+Output cardinality and size, evaluated once the connector has produced values:
+
+- the issuance yields exactly one plaintext value; zero or several is refused
+  rather than sealed, and the caller must not issue a second mint to recover;
+- the display name and description are within the submission row's limits;
+- the sealed envelope is within the inbox's 2 MiB cap.
+
+An overlength or wrong-cardinality failure is therefore **post-mint** by
+construction: the provider credential exists, and the failure surfaces so C1 can
+compensate (see §7) instead of silently delivering a partial or unusable
+submission.
+
+### 6.3 What the SDK does not verify
+
+**Attestation signature verification is not here.** The inbox public key is
 authenticated by an owner-device composite ML-DSA-65 + Ed25519 attestation that
 only the member's Latchkey client can verify against its registered device key;
-C1 already validates the stored attestation structurally when it serves the
-profile. The connector must not treat a JWK as self-authenticating and does not
-invent, re-sign, or substitute keys. This is the same trust root as the existing
-inbox submission flow, unchanged.
+C1 validates the stored attestation structurally when it serves the profile. The
+connector does not verify attestation signatures, does not treat a JWK as
+self-authenticating, and does not invent, re-sign, or substitute keys. This is
+the same trust root as the existing inbox submission flow, unchanged.
 
-## 7. What is explicitly out of scope
+## 7. Failure compensation
+
+Delivery failures are handled by **exact, bounded** actions, never by a blanket
+cleanup and never by re-minting:
+
+- The provider credential the issuance created is revoked **exactly** — the
+  specific credential, not a sibling, and not anything in a shared vault.
+- The **exact** inbox submission prepared for this ticket is cleaned up. When the
+  native version already exists, that exact native version is cleaned up too.
+- Sibling submissions, sibling credentials, and other vault members' data are
+  left untouched.
+- No replacement credential is minted to cover the failure. C1 does not re-mint
+  once a live provider key exists; a failed credential stays revoked-or-flagged
+  rather than quietly replaced, so a live key is never orphaned.
+- Revocation failures stay visible and retryable rather than being swallowed.
+
+## 8. What is explicitly out of scope
 
 - No Rust production code or artifact changes; the reader is unmodified.
-- No C1-side decrypt/reseal, ingestion daemon, sharing, or native-secret
-  creation at delivery.
+- No C1-side decrypt/reseal in the transport. Member ingestion (§5) is a separate
+  authorized slice, and sharing is separate again.
 - No age profile change, no Paper fallback, no remint after a live key exists.
 - No requester-selected destination: the destination is the admin-approved
   vault frozen on the approved ticket.
+- **The wire profile is unchanged by any of this.** The corrections here are to
+  the contract's description and to the SDK's tests; the bytes, field numbers,
+  suite, framing, and envelope stay exactly as specified in §§1–5.
 
-## 8. Pinned interop fixture
+## 9. Pinned interop fixture
 
 `pkg/crypto/providers/vaultinbox/testdata/vault-inbox-submission-vector.json`
 holds a submission sealed by `filippo.io/hpke` under the fixed `0x42` X-Wing

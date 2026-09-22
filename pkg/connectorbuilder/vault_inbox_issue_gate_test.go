@@ -1,0 +1,247 @@
+package connectorbuilder
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"testing"
+
+	"filippo.io/hpke"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers/vaultinbox"
+	resource "github.com/conductorone/baton-sdk/pkg/types/resource"
+	"github.com/stretchr/testify/require"
+)
+
+// vaultInboxIssuer is a fake provider with a counted mint. The count is the
+// point: the gate rules below are only meaningful if a refused issuance left the
+// count at zero and a post-mint failure left it at exactly one.
+type vaultInboxIssuer struct {
+	ResourceSyncer
+	issueCalls int
+	values     []*v2.PlaintextData
+	details    *v2.CredentialDetailsCredentialIssue
+}
+
+func newVaultInboxIssuer(values []*v2.PlaintextData, profiles []v2.VaultInboxSuite) *vaultInboxIssuer {
+	return &vaultInboxIssuer{
+		ResourceSyncer: newTestResourceSyncer("service_account"),
+		values:         values,
+		details: v2.CredentialDetailsCredentialIssue_builder{
+			Options: []*v2.CredentialIssueOptionDescriptor{
+				v2.CredentialIssueOptionDescriptor_builder{
+					Option:               v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+					Scopes:               []string{"read", "write"},
+					ResourceMode:         v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_DISCOVERABLE,
+					SecretResourceTypeId: "secret",
+					VaultInboxProfiles:   profiles,
+				}.Build(),
+			},
+			PreferredOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+		}.Build(),
+	}
+}
+
+func (i *vaultInboxIssuer) Issue(_ context.Context, input *CredentialIssueInput) (*CredentialIssueOutput, error) {
+	i.issueCalls++
+	secret, err := resource.NewSecretResource(
+		"Issued key for "+input.IdentityID.GetResource(),
+		v2.ResourceType_builder{Id: "secret"}.Build(),
+		"issued-key-1",
+		[]resource.SecretTraitOption{resource.WithSecretIdentityID(input.IdentityID)},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &CredentialIssueOutput{
+		Secret:        secret,
+		PlaintextData: i.values,
+		ResourceMode:  v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_DISCOVERABLE,
+	}, nil
+}
+
+func (i *vaultInboxIssuer) IssueCapabilityDetails(context.Context) (*v2.CredentialDetailsCredentialIssue, annotations.Annotations, error) {
+	return i.details, annotations.Annotations{}, nil
+}
+
+const gateScheme = "latchkey.vault_submission.secret.v1"
+const gateJWKAlg = "HPKE-Base-X-Wing-Draft06-HKDF-SHA256-ChaCha20Poly1305"
+
+// gateRecipient mints a synthetic recipient the way a reader would: only the
+// public JWK and thumbprint cross into the SDK config.
+func gateRecipient(t *testing.T, seed byte) (jwk string, thumbprint string) {
+	t.Helper()
+	key, err := hpke.MLKEM768X25519().NewPrivateKey(bytes.Repeat([]byte{seed}, 32))
+	require.NoError(t, err)
+	pub := base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes())
+	jwk = `{"kty":"AKP","alg":"` + gateJWKAlg + `","pub":"` + pub + `"}`
+	digest := sha256.Sum256([]byte(`{"alg":"` + gateJWKAlg + `","kty":"AKP","pub":"` + pub + `"}`))
+	return jwk, base64.RawURLEncoding.EncodeToString(digest[:])
+}
+
+func gateConfig(t *testing.T, mutate func(*v2.VaultInboxRecipientConfig)) *v2.EncryptionConfig {
+	t.Helper()
+	jwk, thumbprint := gateRecipient(t, 0x42)
+	config := v2.VaultInboxRecipientConfig_builder{
+		ConfigVersion:       v2.VaultInboxConfigVersion_VAULT_INBOX_CONFIG_VERSION_V1,
+		Suite:               v2.VaultInboxSuite_VAULT_INBOX_SUITE_XWING_MLKEM768_X25519_HKDF_SHA256_CHACHA20POLY1305_V1,
+		TenantId:            "tenant-1",
+		VaultBoundaryId:     "vault-1",
+		InboxKeyId:          "inbox-key-1",
+		KeyGeneration:       1,
+		PayloadScheme:       gateScheme,
+		SubmissionId:        "submission-1",
+		PublicJwkJson:       jwk,
+		PublicKeyThumbprint: thumbprint,
+	}.Build()
+	if mutate != nil {
+		mutate(config)
+	}
+	return v2.EncryptionConfig_builder{
+		Provider:                  vaultinbox.EncryptionProvider,
+		VaultInboxRecipientConfig: config,
+	}.Build()
+}
+
+func gateValue(name string, value []byte) *v2.PlaintextData {
+	return v2.PlaintextData_builder{Name: name, Bytes: value}.Build()
+}
+
+func gateRequest(configs []*v2.EncryptionConfig) *v2.IssueCredentialRequest {
+	return v2.IssueCredentialRequest_builder{
+		IdentityId: v2.ResourceId_builder{ResourceType: "service_account", Resource: "sa-1"}.Build(),
+		CredentialOptions: v2.CredentialIssueOptions_builder{
+			SecretResourceTypeId: "secret",
+			ApiKey:               &v2.CredentialIssueOptions_ApiKey{},
+		}.Build(),
+		EncryptionConfigs: configs,
+		RequestId:         "request-1",
+	}.Build()
+}
+
+func gateConnector(t *testing.T, issuer *vaultInboxIssuer) *builder {
+	t.Helper()
+	connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{issuer, newTestCredentialSecretDeleter()}))
+	require.NoError(t, err)
+	return connector.(*builder)
+}
+
+// TestVaultInboxIssueCredentialMintsOnceAndSeals is the happy path through the
+// real builder: one mint, one sealed result, and no plaintext in the response.
+func TestVaultInboxIssueCredentialMintsOnceAndSeals(t *testing.T) {
+	t.Parallel()
+	value := []byte("super-secret-key-material")
+	issuer := newVaultInboxIssuer(
+		[]*v2.PlaintextData{gateValue("api_key", value)},
+		[]v2.VaultInboxSuite{v2.VaultInboxSuite_VAULT_INBOX_SUITE_XWING_MLKEM768_X25519_HKDF_SHA256_CHACHA20POLY1305_V1},
+	)
+
+	resp, err := gateConnector(t, issuer).IssueCredential(context.Background(), gateRequest([]*v2.EncryptionConfig{gateConfig(t, nil)}))
+	require.NoError(t, err)
+	require.Equal(t, 1, issuer.issueCalls, "the provider must be minted exactly once")
+	require.Len(t, resp.GetEncryptedData(), 1)
+	require.Equal(t, vaultinbox.EncryptionProvider, resp.GetEncryptedData()[0].GetProvider())
+	require.Equal(t, []string{"inbox-key-1"}, resp.GetEncryptedData()[0].GetKeyIds())
+	require.NotEmpty(t, resp.GetEncryptedData()[0].GetEncryptedBytes())
+
+	// The response carries ciphertext, never the minted value.
+	require.NotContains(t, string(resp.GetEncryptedData()[0].GetEncryptedBytes()), string(value))
+	require.NotContains(t, resp.String(), string(value), "no plaintext may appear anywhere in the response")
+	require.Equal(t, 1, issuer.issueCalls, "a successful issuance must not mint a second credential")
+}
+
+// TestVaultInboxIssueCredentialRefusesBeforeMinting pins the boundary between
+// the pre-mint gates and the mint itself: each of these configs must be refused
+// with the provider untouched.
+//
+// Regression sensitivity: with the exclusivity, advertisement, or config gates
+// removed, the corresponding case would reach the provider and the call count
+// would be 1 instead of 0, so this test fails rather than silently passing.
+func TestVaultInboxIssueCredentialRefusesBeforeMinting(t *testing.T) {
+	t.Parallel()
+	advertised := []v2.VaultInboxSuite{v2.VaultInboxSuite_VAULT_INBOX_SUITE_XWING_MLKEM768_X25519_HKDF_SHA256_CHACHA20POLY1305_V1}
+	noProfiles := []v2.VaultInboxSuite{}
+
+	cases := map[string]struct {
+		configs  []*v2.EncryptionConfig
+		profiles []v2.VaultInboxSuite
+	}{
+		"unknown config version": {configs: []*v2.EncryptionConfig{gateConfig(t, func(c *v2.VaultInboxRecipientConfig) {
+			c.ConfigVersion = v2.VaultInboxConfigVersion_VAULT_INBOX_CONFIG_VERSION_UNSPECIFIED
+		})}, profiles: advertised},
+		"unknown suite": {configs: []*v2.EncryptionConfig{gateConfig(t, func(c *v2.VaultInboxRecipientConfig) {
+			c.Suite = v2.VaultInboxSuite_VAULT_INBOX_SUITE_UNSPECIFIED
+		})}, profiles: advertised},
+		"unsupported payload scheme": {configs: []*v2.EncryptionConfig{gateConfig(t, func(c *v2.VaultInboxRecipientConfig) {
+			c.PayloadScheme = "latchkey.vault_submission.secret.v2"
+		})}, profiles: advertised},
+		"unknown inner field": {configs: []*v2.EncryptionConfig{gateConfig(t, func(c *v2.VaultInboxRecipientConfig) {
+			c.ProtoReflect().SetUnknown([]byte{0x80, 0x7c, 0x01})
+		})}, profiles: advertised},
+		"mismatched provider": {configs: []*v2.EncryptionConfig{func() *v2.EncryptionConfig {
+			config := gateConfig(t, nil)
+			config.SetProvider("baton/age/v1")
+			return config
+		}()}, profiles: advertised},
+		"mismatched thumbprint": {configs: []*v2.EncryptionConfig{gateConfig(t, func(c *v2.VaultInboxRecipientConfig) {
+			c.PublicKeyThumbprint = "not-the-thumbprint"
+		})}, profiles: advertised},
+		"unadvertised profile": {configs: []*v2.EncryptionConfig{gateConfig(t, nil)}, profiles: noProfiles},
+		"mixed recipient configs": {configs: []*v2.EncryptionConfig{gateConfig(t, nil), v2.EncryptionConfig_builder{
+			AgeRecipientConfig: v2.EncryptionConfig_AgeRecipientConfig_builder{Recipient: "age1placeholder"}.Build(),
+		}.Build()}, profiles: advertised},
+		"duplicate recipient configs": {configs: []*v2.EncryptionConfig{
+			gateConfig(t, nil), gateConfig(t, nil),
+		}, profiles: advertised},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			issuer := newVaultInboxIssuer([]*v2.PlaintextData{gateValue("api_key", []byte("v"))}, tc.profiles)
+			resp, err := gateConnector(t, issuer).IssueCredential(context.Background(), gateRequest(tc.configs))
+			require.Error(t, err)
+			require.Nil(t, resp)
+			require.Zero(t, issuer.issueCalls, "a refused config must not mint anything")
+		})
+	}
+}
+
+// TestVaultInboxIssueCredentialFailsAfterOneMint pins the post-mint half: the
+// provider has already minted, so the failure is a refusal to return a usable
+// result, and the SDK must not mint again to recover.
+//
+// Regression sensitivity: without the cardinality and value gates these cases
+// would return a successful response with zero or several envelopes (or an
+// oversized one), so the assertions on the error and the call count fail.
+func TestVaultInboxIssueCredentialFailsAfterOneMint(t *testing.T) {
+	t.Parallel()
+	advertised := []v2.VaultInboxSuite{v2.VaultInboxSuite_VAULT_INBOX_SUITE_XWING_MLKEM768_X25519_HKDF_SHA256_CHACHA20POLY1305_V1}
+
+	cases := map[string][]*v2.PlaintextData{
+		"zero values": {},
+		"multiple values": {
+			gateValue("api_key", []byte("v")),
+			gateValue("api_key_id", []byte("id")),
+		},
+		"unusable value": {
+			v2.PlaintextData_builder{Bytes: []byte("v")}.Build(),
+		},
+		"oversized value": {
+			gateValue("api_key", bytes.Repeat([]byte("a"), vaultinbox.MaxPlaintextBytes+1)),
+		},
+	}
+
+	for name, values := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			issuer := newVaultInboxIssuer(values, advertised)
+			resp, err := gateConnector(t, issuer).IssueCredential(context.Background(), gateRequest([]*v2.EncryptionConfig{gateConfig(t, nil)}))
+			require.Error(t, err, "the issuance must not report success")
+			require.Nil(t, resp, "no partial result may be returned")
+			require.Equal(t, 1, issuer.issueCalls, "a post-mint failure must not trigger a second mint")
+		})
+	}
+}

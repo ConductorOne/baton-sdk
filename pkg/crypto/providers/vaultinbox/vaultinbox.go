@@ -20,10 +20,26 @@
 //
 // EncryptedData carries the JSON VaultInboxSubmissionEnvelope, and key_ids
 // carries exactly the inbox key id so C1 can reject a ciphertext sealed to
-// anything else. Nothing here mints a key, signs anything, or invents a
-// profile: the trust root for the recipient key stays with the owner-device
-// attestation the Latchkey client verifies, and C1 remains the authority that
-// the vended key is the active one for the destination vault.
+// anything else.
+//
+// What this package does not do, stated so a caller does not assume it:
+//
+//   - It does not authenticate the recipient key. The owner-device attestation
+//     is verified by the member's Latchkey client against its registered device
+//     key; this provider never verifies an attestation signature and never treats
+//     a JWK as self-authenticating. C1 supplies the vended key as the active one
+//     for the destination vault.
+//   - The thumbprint it checks is a JWK-integrity check against the recipient
+//     JWK, not an independent HPKE binding. The AAD binds the inbox key id and
+//     generation; submission_id and content_type are authenticated by living
+//     inside the sealed payload.
+//   - It does not decide the destination. The config is C1 authority carried on
+//     the authenticated action transport for an approved ticket.
+//
+// Producing this ciphertext is intermediate, not completion: the bytes are
+// registered as a vault-inbox submission for review, and a separate authorized
+// C1 member-ingestion slice decrypts, creates the native secret, and records
+// acceptance before anything is delivered.
 package vaultinbox
 
 import (
@@ -74,8 +90,9 @@ const (
 	jwkAlg = "HPKE-Base-X-Wing-Draft06-HKDF-SHA256-ChaCha20Poly1305"
 
 	// PayloadSchemeSecretV1 is the only payload scheme this provider emits, and
-	// the label the Latchkey client SDK binds into the HPKE AAD.
-	PayloadSchemeSecretV1 = "latchkey.vault_submission.secret.v1"
+	// the label the Latchkey client SDK binds into the HPKE AAD. It is a protocol
+	// identifier, not a credential.
+	PayloadSchemeSecretV1 = "latchkey.vault_submission.secret.v1" //nolint:gosec // G101: a protocol scheme label, not a secret
 
 	// infoPrefix is the HPKE info/AAD domain label.
 	infoPrefix = "latchkey/v1/vault-inbox-submission/info"

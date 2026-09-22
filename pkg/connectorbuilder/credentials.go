@@ -235,10 +235,11 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, status.Errorf(codes.Internal, "connector returned invalid credential issuance output: %v", err)
 	}
+	// Post-mint cardinality check: the provider call above already happened, so
+	// this refuses to hand back a usable result rather than preventing a mint.
 	// A vault-inbox recipient carries the entire submission payload, so exactly
-	// one plaintext value may be sealed to it. Refusing anything else here means
-	// a cardinality surprise fails the issuance instead of depositing a partial
-	// or mislabeled submission.
+	// one plaintext value may be sealed to it; zero or several values fail rather
+	// than depositing a partial or mislabeled submission.
 	if err := pkem.ValidatePlaintextCardinality(output.PlaintextData); err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
@@ -265,9 +266,9 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 }
 
 // validateVaultInboxProfileAdvertised refuses a vault-inbox recipient whose
-// profile the selected descriptor does not advertise. Without this the
-// capability advertisement would be documentation rather than a gate, and a
-// connector that never declared the profile could still be handed one.
+// profile the selected descriptor does not advertise. This is a pre-mint gate:
+// it runs before the provider call, so a connector that never declared the
+// profile is never asked to mint anything.
 func validateVaultInboxProfileAdvertised(configs []*v2.EncryptionConfig, descriptor *v2.CredentialIssueOptionDescriptor) error {
 	for _, config := range configs {
 		if !providers.IsVaultInboxConfig(config) {
