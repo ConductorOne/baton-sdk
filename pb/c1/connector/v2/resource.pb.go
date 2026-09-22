@@ -3331,7 +3331,8 @@ type EncryptedData struct {
 	// Provider-specific ciphertext. Consumers must select decoding and
 	// decryption using provider; they must not infer the encoding from schema or
 	// whether these bytes are valid text. baton/jwk/v1 stores standard-base64
-	// text, while baton/age/v1 stores a standard binary age file. If schema is
+	// text, while baton/age/v1 stores a standard binary age file and
+	// baton/full-knowledge-vault/v1 stores FullKnowledgeCredentialEnvelope. If schema is
 	// set, it describes the plaintext represented after decryption.
 	EncryptedBytes []byte `protobuf:"bytes,6,opt,name=encrypted_bytes,json=encryptedBytes,proto3" json:"encrypted_bytes,omitempty"`
 	// Provider-specific identifiers for correlating ciphertext with its
@@ -3460,7 +3461,8 @@ type EncryptedData_builder struct {
 	// Provider-specific ciphertext. Consumers must select decoding and
 	// decryption using provider; they must not infer the encoding from schema or
 	// whether these bytes are valid text. baton/jwk/v1 stores standard-base64
-	// text, while baton/age/v1 stores a standard binary age file. If schema is
+	// text, while baton/age/v1 stores a standard binary age file and
+	// baton/full-knowledge-vault/v1 stores FullKnowledgeCredentialEnvelope. If schema is
 	// set, it describes the plaintext represented after decryption.
 	EncryptedBytes []byte
 	// Provider-specific identifiers for correlating ciphertext with its
