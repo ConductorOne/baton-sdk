@@ -19,7 +19,8 @@ byte equality. A returned fresh NoSync commit need not survive a crash.
 
 ## Instrument coverage and gaps
 
-`tools/cells.py` emits stable cell IDs for P1–P10, CO-002 and C49. It records
+`tools/cells.py` emits stable cell IDs for P1–P10, CO-002 and C49. CO-021 removes
+expansion from the page products: P1 now has 5,400 cells and P2 has 330. It records
 required cells, not executed cells. P4's repeated resumes are mandatory
 subcases. Additional feature crosses specified by individual criteria still
 need fixtures; the generated products are not the entire coverage model.
@@ -339,10 +340,14 @@ of C10, C37, C38 or C47 over all required cells.
 
 ### C36
 
-- Status: not assessed.
-- No criterion-specific mutant/green execution is recorded. All required
-  C36 cells and applicable calibration entries remain open; candidates are in
-  the archived brief §5.
+- Status: evidence incomplete.
+- Tests run: TestLedgerExpansionFinishedReplay; TestLedgerExpansionPublicReplay.
+- Coverage: nonempty expansion-only processing over the same finished sync ID,
+  after retained/disposed ledger reopen; graph preservation and replay without
+  connector collection calls. No CLI change (CO-006).
+- Defect evidence: the former page wrapper fails the layer-capability guard;
+  skipping replay fails the public resumed-layer fixture. Both are removed.
+- Not covered: every option/caller combination and abrupt process-loss cuts.
 
 ### C37
 
@@ -445,10 +450,11 @@ of C10, C37, C38 or C47 over all required cells.
 ### C49
 
 - Status: evidence incomplete.
-- Runs: TestLedgerCostBaseline at eb63f1b5; TestLedgerCostPublic with production handlers/default disposal; earlier synthetic scheduler samples remain historical.
+- Runs: TestLedgerCostBaseline at eb63f1b5; TestLedgerCostPublic with production collection handlers/default disposal; earlier synthetic scheduler samples remain historical.
 - Coverage: 60 public-path interleaved samples across eight configurations; three repetitions per arm in six configurations and one in the two ten-million-record configurations; tables, machine inputs and binary hashes in cost-public-smoke/, cost-current-machine-r1000/ and cost-current-machine-10million/. Separate CPU profiles accompany the first set.
 - Defect evidence: the original machine recorder omitted artifact filesystem; its assertion failed before correction. Public samples assert output resource counts, archive presence and ledger disposal.
-- Not covered: full matrix, baseline phase timing, encoded-byte decomposition, production-shaped estimate and acceptance. CO-012 settles actual NoSync resume; CO-019 accepts the current shared machine.
+- Not covered: full matrix, baseline phase timing, encoded-byte decomposition, production-shaped estimate. Collection performance is accepted under CO-020;
+  the latency measurements are requester-reported, not independently rerun here. CO-012 settles actual NoSync resume; CO-019 accepts the current shared machine.
 
 ### C50
 
@@ -461,17 +467,18 @@ of C10, C37, C38 or C47 over all required cells.
 
 ## Latest validation
 
-| Check | Result at 0d87cd4c or its test increment |
+| Check | Result after CO-021; older checks labeled |
 | --- | --- |
-| Full sync suite | Pass, 83.856s |
+| Full sync suite | Pass, 81.728s |
 | Attachment race checks, three runs | Pass, 2.502s |
-| Public crash/takeover race checks, three runs | Pass, 21.012s; 40 cases |
+| Public/expansion/lifecycle race checks, three runs | Pass, 33.683s |
+| Final expansion race checks, three runs | Pass, 5.324s |
 | Broad sync/dotc1z lint | Zero issues |
-| Earlier unchanged-storage gates | Pebble 9.086s; compactor 19.790s; dotc1z 33.489s |
+| Full expansion / Pebble / compactor suites | Pass, 26.225s / 21.345s / 37.392s |
 
 C49's repeated ten-million-record single-worker comparison is 111.5s ledger
 versus 81.0s token. The report took about 12ms; the measured storage overhead is
-not accepted implicitly. Current results and artifact links are in README.md.
+accepted for collection under CO-020. Current results and artifact links are in README.md.
 
 The size cleanup relocates output and removes an obsolete benchmark, not tests
 or coverage obligations. The frozen plan and criterion statuses are unchanged.
@@ -483,3 +490,29 @@ timing fields; the removed synthetic benchmark is absent from the binary.
 These are harness checks, not new performance-acceptance measurements.
 The archive download, original document blobs, unchanged frozen plan and all
 50 criterion statuses were checked. Production Go has no diff from 0d87cd4c.
+
+## Expansion boundary correction (CO-021)
+
+The original wrapper fails TestLedgerExpansionUsesMainModel because the layer
+capability is never called. The corrected dispatch uses main's handler and
+adapter; the expander and original grant-storage implementation have no diff
+from eb63f1b5. Expansion creates no page rows. Graph-less recovery replays the
+phase; no token is written. Removed the PageWriter expanded-grant API and its
+private staging/iterator implementation, along with obsolete batch-row fixtures.
+
+TestLedgerExpansionPublicReplay leaves actual derived grants after an injected
+layer failure, reopens the file, and compares the full returned grant protos
+against a clean run. It also cuts before terminal proof and after terminal proof
+but before seal. Counters include one expansion completion, only at terminal
+proof. Graph preservation survives the seal restart. Skipped replay and an extra
+completion-counter increment each fail the corresponding test; mutants removed.
+TestLedgerExpansionFinishedReplay covers retained and disposed ledgers over a
+finished sync, preserving binding metadata and making no collection calls.
+Skip/read-error fixtures create no expansion page. Strict page hooks remain on.
+
+These are error-injection and orderly close/reopen tests, not a new physical
+power-loss matrix. Existing main replay/layer tests and full suites also pass; repository-wide
+`go build ./...` passes.
+The original expansion-page products are excluded by CO-021; other criteria's
+unexecuted products remain incomplete. No new expansion performance percentage
+is claimed: capability-use checks establish restoration of the optimized path.

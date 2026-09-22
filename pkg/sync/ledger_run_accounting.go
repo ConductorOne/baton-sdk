@@ -42,3 +42,14 @@ func (s *syncer) checkpointLedgerOnStop(ctx context.Context) {
 		s.testHooks.ledgerStop(ctx)
 	}
 }
+
+func (s *syncer) terminalLedgerCounters() c1zstore.LedgerCounters {
+	counters := s.ledger.runCounterSnapshot()
+	key := ledgerCompletedPrefix + SyncGrantExpansionOp.String()
+	completed := s.run.getActionCount(SyncGrantExpansionOp).CompletedCount
+	prior := s.ledger.prior.Counters[key]
+	if completed > prior {
+		counters.Counters = map[string]uint64{ledgerCompletedActions: completed - prior, key: completed - prior}
+	}
+	return counters
+}

@@ -67,8 +67,8 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 
 	var graphToPersist *expand.EntitlementGraph
 	if s.cfg.preserveEntitlementGraph {
-		if s.graph.peek() == nil && s.run.hasFact(ledgerFactExpansionComplete) {
-			graph, _, graphErr := s.buildLedgerExpansionGraph(ctx)
+		if s.graph.peek() == nil && s.run.hasFact(ledgerFactSealReady) && s.run.hasFact(factNeedsExpansion) && !s.cfg.dontExpandGrants {
+			graph, _, graphErr := s.rebuildLedgerPreservedGraph(ctx)
 			if graphErr != nil {
 				return s.returnSyncError(l, span, graphErr)
 			}
@@ -91,7 +91,7 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 		return s.returnSyncError(l, span, err)
 	}
 
-	counters := s.ledger.runCounterSnapshot()
+	counters := s.terminalLedgerCounters()
 	counters.Flags |= s.ingestFilterStats.reasonFlags.Load()
 	var terminalFacts []string
 	if s.ingestFilterStats.known.Load() {

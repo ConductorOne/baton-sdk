@@ -46,7 +46,9 @@ accepts the current shared machine. Single samples are not confidence intervals.
 Report generation took roughly 9–12ms in these samples. Profiles locate much of
 the extra CPU in Pebble point lookups. The isolated Bloom-filter candidate took
 104.1s but enlarged the compressible fixture file from 6.4MB to 19.0MB; it is not
-adopted. Full C49 matrix, byte attribution and performance acceptance remain open.
+adopted. Collection performance is accepted under CO-020 based on the requester-reported
+latency run (fresh/token 1.004, resumed/token 0.998). Raw local samples have not
+been imported. The original full C49 matrix and byte attribution remain incomplete.
 
 ## Reproduce a small public-path comparison
 
@@ -65,3 +67,7 @@ The output directory must not already exist. Keep new raw results outside the
 PR; publish them as another pinned artifact and update the measured summary.
 `tools/cells.py` emits required products; `tools/coverage-summary.py` summarizes
 executed Go tests/profiles. Neither converts passing samples into full coverage.
+
+Expansion uses main's deterministic whole-phase replay and optimized adapter,
+without page rows or batch checkpoints (CO-021). Existing collection rows prevent
+refetching collected data; terminal accounting records completed expansion once.

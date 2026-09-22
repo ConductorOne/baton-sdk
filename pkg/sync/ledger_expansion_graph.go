@@ -12,20 +12,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func (s *syncer) buildLedgerExpansionGraph(ctx context.Context) (*expand.EntitlementGraph, *expand.DroppedEdgeStats, error) {
+func (s *syncer) rebuildLedgerPreservedGraph(ctx context.Context) (*expand.EntitlementGraph, *expand.DroppedEdgeStats, error) {
 	drops := &expand.DroppedEdgeStats{}
-	if old := s.graph.peek(); old != nil && old.Loaded {
-		graph, err := old.Clone()
-		if err != nil {
-			return nil, nil, err
-		}
-		if !graph.HasNoCycles {
-			if err := s.fixEntitlementGraphCycles(ctx, graph); err != nil {
-				return nil, nil, err
-			}
-		}
-		return graph, drops, nil
-	}
 	graph := expand.NewEntitlementGraph(ctx)
 	l := ctxzap.Extract(ctx)
 	cursor := ""

@@ -167,8 +167,6 @@ type PageWriter interface {
 	PutGrants(ctx context.Context, grants ...*v2.Grant) error
 	// Ordered stored/staged merge, with pending deletes omitted. Staging is captured when iteration starts.
 	ListGrantsWithAnnotations(ctx context.Context) iter.Seq2[GrantAnnotation, error]
-	// Preserves prior expansion state, discovery time and source scope by full identity.
-	StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error
 	// Snapshots data; repeated asset IDs use the last staged value.
 	PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error
 

@@ -25,8 +25,8 @@ The syncer's `ledgerRuntime` owns transactions and accounting, not a second work
 queue or worker pool. Production entry uses `s.parallelSync`. The test scheduler
 adapter also calls that implementation.
 
-Handler copies use PageWriter for records, assets, full-identity deletes and
-expanded grants. Read-through/staged-grant support lives in the storage page
+Collection handler copies use PageWriter for records, assets and full-identity
+deletes. Expansion uses the normal evaluator and store adapter outside pages. Read-through/staged-grant support lives in the storage page
 implementation. External import and matching share a page so failure does not
 preserve a stale external-source answer. Pure planning/filtering helpers are
 shared where allowed by CO-011; the SQLite token writer is retained for CXE-1311.
@@ -74,8 +74,8 @@ The public benchmark uses deterministic zero-latency connector responses and
 compares baseline `eb63f1b5` against fresh/resumed ledger Sync. CO-019 accepts the
 current machine. At ten million records, the latest single-worker repeat is
 111.5s ledger versus 81.0s token. Earlier four-worker samples were 58.5s versus
-55.4s. These are individual samples; the full C49 matrix and acceptance remain
-open. Profiles locate extra work in storage point lookups. A Bloom-filter
+55.4s. These are individual samples. Collection performance is accepted under CO-020;
+the original full C49 measurement matrix has not been completed. Profiles locate extra work in storage point lookups. A Bloom-filter
 experiment reduced the repeated ledger sample to 104.1s but enlarged its final
 file from 6.4MB to 19.0MB; it is not adopted. The report itself took about 12ms.
 

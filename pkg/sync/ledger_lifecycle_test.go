@@ -49,9 +49,9 @@ func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
 				stopped := errors.New("stop after processing page")
 				s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
 					if action.Op == InitOp {
-						return s.initializeAction(ctx, action, nil)
+						return s.nextPageOrFinishAction(ctx, action, "", Action{Op: SyncResourcesOp, ResourceTypeID: "type"})
 					}
-					require.Equal(t, SyncGrantExpansionOp, action.Op)
+					require.Equal(t, SyncResourcesOp, action.Op)
 					if action.PageToken != "" {
 						return stopped
 					}
@@ -76,7 +76,7 @@ func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
 			require.False(t, ready)
 			require.True(t, equalLedgerSnapshot(snapshot, ledgerRawSnapshot(t, f.engine)))
 			if cut == "after-page" {
-				require.Equal(t, SyncGrantExpansionOp, s.run.current().Op)
+				require.Equal(t, SyncResourcesOp, s.run.current().Op)
 				require.Equal(t, "remaining", s.run.current().PageToken)
 				require.EqualValues(t, 18, s.run.completedActionsCount())
 			} else {
@@ -85,9 +85,9 @@ func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
 			calls := 0
 			s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
 				if action.Op == InitOp {
-					return s.initializeAction(ctx, action, nil)
+					return s.nextPageOrFinishAction(ctx, action, "", Action{Op: SyncResourcesOp, ResourceTypeID: "type"})
 				}
-				require.Equal(t, SyncGrantExpansionOp, action.Op)
+				require.Equal(t, SyncResourcesOp, action.Op)
 				if cut == "after-page" {
 					require.Equal(t, "remaining", action.PageToken)
 				}

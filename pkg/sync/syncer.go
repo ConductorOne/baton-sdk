@@ -146,11 +146,10 @@ func (sm *syncMap[K, V]) Store(key K, val V) {
 
 // syncer orchestrates a connector sync and stores the results using the provided datasource.Writer.
 type syncer struct {
-	ledgered        bool
-	ledgerDebug     bool
-	ledger          *ledgerRuntime
-	ledgerExpansion *ledgerExpansionStream
-	storeAttachErr  error
+	ledgered       bool
+	ledgerDebug    bool
+	ledger         *ledgerRuntime
+	storeAttachErr error
 	// cfg is the caller's request: every value set by a With* option and
 	// nothing else, immutable once NewSyncer returns (see config.go).
 	cfg   syncConfig
@@ -2470,9 +2469,6 @@ func (s *syncer) SyncAssets(ctx context.Context, action *Action) error {
 // SyncGrantExpansion handles the grant expansion phase of sync.
 // It first loads the entitlement graph from grants, fixes any cycles, then runs expansion.
 func (s *syncer) SyncGrantExpansion(ctx context.Context, action *Action) error {
-	if s.ledgered {
-		return s.syncLedgerExpansion(ctx, action)
-	}
 	ctx, span := uotel.StartWithLink(ctx, tracer, "syncer.SyncGrantExpansion")
 	uotel.SetSyncIdentityAttrs(ctx, span)
 	var err error
@@ -2515,9 +2511,7 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, action *Action, graph
 		s.handleInitialActionForStep(ctx, *action)
 	}
 
-	// Read expansion metadata directly from SQL columns, avoiding the
-	// cost of unmarshalling full grant protos. One page per action step
-	// so the action state machine can checkpoint progress.
+	// Graph-less resumes rebuild from the first page; no partial graph is persisted.
 	page, nextPageToken, err := s.store.Grants().PendingExpansionPage(ctx, action.PageToken)
 	if err != nil {
 		return err
@@ -3983,9 +3977,6 @@ func (s *syncer) wireCountsDBSizeProvider() {
 // indefinitely. A new-root span linked to syncer.Close keeps the finalize
 // subtree from inflating very long sync traces.
 func (s *syncer) Close(ctx context.Context) error {
-	if s.ledgered {
-		s.stopLedgerExpansion()
-	}
 	ctx, span := tracer.Start(ctx, "syncer.Close")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
