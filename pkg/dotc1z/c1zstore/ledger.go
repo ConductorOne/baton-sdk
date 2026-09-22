@@ -10,8 +10,8 @@ import (
 )
 
 // A store implementing PageLedgerStore commits one syncer page and its ledger
-// row as one unit. Stores that cannot (SQLite) do not implement it; the
-// syncer type-asserts and falls back to the token-only path.
+// row as one unit. The syncer requires this capability for Pebble and rejects
+// it for SQLite; engine selection happens when the store is attached.
 
 type LedgerActionIdentity struct {
 	Op                   string
@@ -105,6 +105,9 @@ const RunBucketWorker uint32 = 0xFFFFFFFF
 // seal honors it in whatever process finishes the sync.
 const LedgerFactRetainTokens = "c1z.retain_tokens" //nolint:gosec // Ledger fact name, not a credential value.
 
+// Terminal disposal declaration, cleared when seal completes; no token data is stored in it.
+const LedgerFactDiscardOnSeal = "c1z.discard_ledger_on_seal"
+
 // Reserved index for the takeover's migrated counters. Buckets are blind-written
 // whole totals, so sharing worker 0 or RunBucketWorker would overwrite them.
 const TakeoverBucketWorker uint32 = 0xFFFFFFFE
@@ -195,9 +198,11 @@ type PageWriter interface {
 
 type PageLedgerStore interface {
 	GenerateLedgerReport(ctx context.Context) ([]byte, error)
+	// Saves retained history or returns the report already archived during disposal.
 	ArchiveLedgerReport(ctx context.Context) ([]byte, error)
 	GetArchivedLedgerReport(ctx context.Context) ([]byte, error)
 	GetArchivedLedgerOptions(ctx context.Context, attempt string) (*LedgerReportOptions, error)
+	// Restores an empty finished ledger, or matching unfinished discard recovery state.
 	RestoreLedgerArchive(ctx context.Context) error
 	BeginPage() PageWriter
 	// found is false when no row exists and when a row echoes a different
@@ -214,8 +219,8 @@ type PageLedgerStore interface {
 	// "" when there was no token.
 	TakeoverToken(ctx context.Context, runID string, facts []string, counters LedgerCounters) (state string, err error)
 	BoundSyncFinished(ctx context.Context) (bool, error)
-	// The syncer calls it when rebinding a FINISHED sync: trusting the old rows
-	// would make every action look complete.
+	// Removes ledger history without resetting the bound sync. Finished processing
+	// uses ClearLedgerRows when it must preserve facts and counters.
 	DropLedger(ctx context.Context) error
 	// Clears page rows, the takeover frontier and named facts in one synced
 	// batch. Requires a finished bound sync; retains counters, all other facts,
@@ -224,5 +229,7 @@ type PageLedgerStore interface {
 	// Blind-writes the run's whole cumulative bucket; a later write supersedes.
 	PutCounterBucket(ctx context.Context, runID string, worker uint32, counters LedgerCounters) error
 	// The only way a ledgered sync seals; plain EndSync refuses one.
+	// LedgerFactDiscardOnSeal archives then discards the ledger before finishing.
+	// If archival fails, sealing retains the ledger under the normal scrub policy.
 	EndSyncWithStats(ctx context.Context, stats SyncStats) error
 }

@@ -204,26 +204,26 @@ func TestLedgerPublicTokenRetentionRequiresDebug(t *testing.T) {
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 }
 
-type ledgerArchiveFailureStore struct {
+type ledgerArchiveAccessFailureStore struct {
 	c1zstore.PageLedgerStore
 }
 
-func (s ledgerArchiveFailureStore) ArchiveLedgerReport(context.Context) ([]byte, error) {
-	return nil, errors.New("archive write failed")
+func (s ledgerArchiveAccessFailureStore) ArchiveLedgerReport(context.Context) ([]byte, error) {
+	return nil, errors.New("archive access failed")
 }
 
-func TestLedgerPublicArchiveFailurePreservesRows(t *testing.T) {
+func TestLedgerPublicReportAccessFailureKeepsSavedReport(t *testing.T) {
 	f := newLedgerFixture(t)
 	created, err := NewSyncer(t.Context(), newMockConnector(), WithConnectorStore(f.store))
 	require.NoError(t, err)
-	created.(*syncer).caps.pageLedger = ledgerArchiveFailureStore{f.ledger}
+	created.(*syncer).caps.pageLedger = ledgerArchiveAccessFailureStore{f.ledger}
 	require.NoError(t, created.Sync(t.Context()))
 	_, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: InitOp.String()})
 	require.NoError(t, err)
-	require.True(t, found)
+	require.False(t, found)
 	report, err := f.ledger.GetArchivedLedgerReport(t.Context())
 	require.NoError(t, err)
-	require.Empty(t, report)
+	require.NotEmpty(t, report)
 }
 
 func TestLedgerPublicFinishedContinuationAfterDisposal(t *testing.T) {

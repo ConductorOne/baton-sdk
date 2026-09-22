@@ -19,7 +19,7 @@ The frozen [plan](plan.md), including its change orders, is unchanged.
 | Preserve legacy progress | `ledger_takeover` decodes accepted V0/V1/V2 state before migration; empty token plus frontier reuses that frontier; counters import only when absent | C24–C30 |
 | Seal only after terminal proof | An atomic terminal page stores seal-ready facts and final run accounting; durable counters/facts supply EndSyncWithStats | C11, C22, C31–C32 |
 | Preserve finished-sync lifecycle | Binding keeps sync identity and completion metadata; requested processing restores archived facts/accounting and clears old page rows without starting a new sync | C33–C36 |
-| Save useful stats before disposal | `ledger_report` archives and logs mechanical JSON; default completion drops rows after archival; archival failure warns and retains them | C31, C35, C50 |
+| Save useful stats before disposal | engine seal archives mechanical JSON, discards rows and purges once; the syncer logs the saved report; archival failure retains scrubbed history | C31, C35, C50 |
 
 The syncer's `ledgerRuntime` owns transactions and accounting, not a second work
 queue or worker pool. Production entry uses `s.parallelSync`. The test scheduler
@@ -193,3 +193,9 @@ Migrate parity and chaos tests to direct store writes, remove transaction-only
 fixtures, and keep comparisons with main's normal one-pass behavior. Run the sync,
 Pebble, compactor and focused race suites plus lint before committing this removal.
 Then implement the previously specified single-purge disposal change separately.
+
+The token-free discard declaration stays live through finalization, then is
+deleted without another purge. It keeps the token/plain-EndSync gates closed and
+marks a pending seal even when the sync record still has a prior finished
+processing timestamp. Recovery restores the archive when only this declaration
+remains. Unreadable archives cannot remove that live recovery declaration.

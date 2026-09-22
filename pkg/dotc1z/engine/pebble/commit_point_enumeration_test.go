@@ -33,6 +33,7 @@ import (
 )
 
 var commitPointRegistry = map[string][]string{
+	"adapter.go:endSyncFinalize":             {"SetRecordCommitTestHook"},
 	"ledger_archive.go:RestoreLedgerArchive": {"SetRecordCommitTestHook"},
 	// Typed record mutations: every site commits a rawdb.RecordBatch,
 	// whose Commit passes the record-commit choke-point hook.

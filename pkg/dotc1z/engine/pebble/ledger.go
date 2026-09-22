@@ -154,6 +154,17 @@ func (l *Ledger) sealScrubsTokens() (bool, error) {
 	return false, nil
 }
 
+func (l *Ledger) sealDiscardsRows() (bool, error) {
+	_, closer, err := l.e.db.Get(encodeLedgerFactKey(c1zstore.LedgerFactDiscardOnSeal))
+	if errors.Is(err, pebble.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, closer.Close()
+}
+
 func scrubLedgerRow(row *v3.LedgerRow) bool {
 	if row.GetScrubbed() {
 		return false

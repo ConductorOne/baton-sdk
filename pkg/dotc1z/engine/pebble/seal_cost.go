@@ -3,8 +3,10 @@ package pebble
 import "time"
 
 type SealCost struct {
-	LedgerScrub time.Duration
-	LedgerPurge time.Duration
+	LedgerDiscard time.Duration
+	LedgerArchive time.Duration
+	LedgerScrub   time.Duration
+	LedgerPurge   time.Duration
 }
 
 // LastSealCost reports the last finalize attempt that returned, including failures.

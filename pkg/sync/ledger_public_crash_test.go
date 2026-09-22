@@ -78,13 +78,6 @@ func (s ledgerPublicCrashStore) ArchiveLedgerReport(ctx context.Context) ([]byte
 	}
 	return report, err
 }
-func (s ledgerPublicCrashStore) DropLedger(ctx context.Context) error {
-	if err := s.PageLedgerStore.DropLedger(ctx); err != nil {
-		return err
-	}
-	s.cut("dropped")
-	return nil
-}
 
 type ledgerPublicCrashWriter struct {
 	c1zstore.PageWriter
@@ -174,12 +167,12 @@ func TestLedgerPublicCrashResume(t *testing.T) {
 				continue
 			}
 			for _, workers := range []int{1, 4} {
-				cuts := []string{"resource-before", "resource-after", "terminal-before", "terminal-after", "sealed", "archived", "dropped"}
+				cuts := []string{"resource-before", "resource-after", "terminal-before", "terminal-after", "sealed", "archived"}
 				if version >= 0 {
 					cuts = []string{"takeover-before", "takeover-after", "resource-after"}
 				}
 				for _, cut := range cuts {
-					if image == "flushed" && (cut == "sealed" || cut == "archived" || cut == "dropped") {
+					if image == "flushed" && (cut == "sealed" || cut == "archived") {
 						continue
 					}
 					t.Run(fmt.Sprintf("version-%d/%s/workers-%d/%s", version, image, workers, cut), func(t *testing.T) {

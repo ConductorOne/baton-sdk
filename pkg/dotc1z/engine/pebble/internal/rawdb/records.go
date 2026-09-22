@@ -681,3 +681,21 @@ func (rb *RecordBatch) StageLedgerClearRows(factKeys [][]byte) error {
 	}
 	return nil
 }
+
+func (rb *RecordBatch) StageLedgerDiscard(keepFact []byte) error {
+	if err := assertFamily("StageLedgerDiscard", keepFact, LedgerFactPrefix()); err != nil {
+		return err
+	}
+	lo, hi := LedgerBounds()
+	if err := rb.core.DeleteRange(lo, keepFact); err != nil {
+		return err
+	}
+	return rb.core.DeleteRange(append(append([]byte(nil), keepFact...), 0), hi)
+}
+
+func (rb *RecordBatch) StageLedgerFactDelete(key []byte) error {
+	if err := assertFamily("StageLedgerFactDelete", key, LedgerFactPrefix()); err != nil {
+		return err
+	}
+	return rb.core.Delete(key)
+}

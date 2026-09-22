@@ -95,7 +95,7 @@ of C10, C37, C38 or C47 over all required cells.
 
 - Status: evidence incomplete.
 - Tests run: TestLedgerExternalDeleteFullIdentity and the page grant-deletion fixtures recorded in the archived execution log.
-- Coverage: full-identity external deletion preserves an unrelated grant with the same external ID. The O8 inventory finds only PageWriter.DeleteGrants calls in the ledger external handlers; the CO-002 bare-ID split case is unreachable on these paths.
+- Coverage: full-identity external deletion preserves an unrelated grant with the same external ID. CO-023 restores main's full-identity batch deletion outside pages; the CO-002 staged/stored split is no longer an external-import page case.
 - Planted defect: replacing full-identity deletion with bare-ID deletion fails the external fixture; restored, as recorded in the handler increment.
 - Not covered: complete P6 put/delete-order and failure products; the source-cache storage deletion issue is outside this change.
 
@@ -459,7 +459,7 @@ of C10, C37, C38 or C47 over all required cells.
 ### C50
 
 - Status: evidence incomplete.
-- Tests run: ledger report projection/scale/observations/options suites; TestLedgerPublicLogsSavedStats; TestLedgerPublicArchiveFailurePreservesRows; archive reopen/crash tests; debug reference tests.
+- Tests run: ledger report projection/scale/observations/options suites; TestLedgerPublicLogsSavedStats; TestLedgerPublicReportAccessFailureKeepsSavedReport; archive reopen/crash tests; debug reference tests.
 - Coverage: mechanical saved/logged JSON, bounded groups/examples, requested/effective options, observations, default disposal and debug retention. The phase-duration projection is the current increment.
 - Planted defects: disabled debug checks, omitted disposal, archive-error fallthrough and unsynced archive all fail their claimed checks; prior report mutations are recorded in the archived execution log.
 - Green revision: 6c8e2209 for policy/report suites; subsequent projection results are recorded separately.
@@ -537,3 +537,39 @@ not fixed or hidden by this change; its investigation fixture is outside this PR
 Validation after external transaction removal: full sync 96.346s, Pebble
 23.082s and compactor 42.091s pass; focused external/chaos race checks pass
 three times in 10.442s.
+
+## Single-purge disposal (CO-022)
+
+The old default sequence fails TestLedgerDiscardSealPurgesOnce with two purge
+invocations. The new sequence archives before deletion and purges once; zero
+scrub time, one archive write, empty final ledger and physical token erasure are
+asserted. Later report access reuses the saved report. Archive-write failure
+retains scrubbed rows and does not add a second purge.
+
+TestLedgerDiscardDurableSealCuts captures eight durable-only VFS cuts for both fresh
+and finished bindings: before/after archive write, deletion, purge, before
+ended_at, before/after declaration removal and final completion.
+Records/report/counters survive and retry preserves the nonempty report. Purge
+cancellation, finished-stamp failure and declaration-removal failure are separately
+retried. An unfinished
+foreign archive cannot donate completion facts. Before-ended recovery initially
+allowed a checkpoint token because both rows and the in-flight flag were gone.
+Keeping the token-free discard declaration until finalization completes closes
+that gap and prevents finished-binding retries from starting another pass.
+
+The public consumer constructs a matching post-disposal/pre-ended file, reopens
+it and seals without connector collection calls. This consumer fixture is not a
+new physical process cut; the storage VFS cases exercise those durable images.
+Skipping archive restoration, restarting a pending finished-binding pass, and
+replacing the cached report with an empty projection each fail their tests; the
+mutants are removed. Both finalization batches also have direct commit-failure
+tests registered in the mechanical commit-point inventory. The public process
+suite now has 38 cases: the separate post-Drop cut was removed because disposal
+occurs inside seal. Its existing post-seal cut now sees an archived, disposed file.
+
+Validation: full sync 101.792s, Pebble 15.778s and compactor 44.028s pass.
+Broad recovery race checks pass three times (47.707s / 6.248s); final disposal
+race checks pass three times (2.651s / 3.650s). Broad lint has zero issues and
+repository-wide build passes. Four small public benchmark cases verify records, zero scrub and
+nonzero report/disposal timing. These are harness checks, not new performance
+acceptance measurements. Other unexecuted criteria remain incomplete.

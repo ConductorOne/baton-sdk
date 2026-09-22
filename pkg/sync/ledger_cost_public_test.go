@@ -40,8 +40,8 @@ func (w ledgerCostPage) Commit(ctx context.Context, id c1zstore.LedgerActionIden
 
 type ledgerPublicCostStore struct {
 	c1zstore.PageLedgerStore
-	observations             *ledgerCostObservations
-	sealNs, reportNs, dropNs atomic.Int64
+	observations     *ledgerCostObservations
+	sealNs, reportNs atomic.Int64
 }
 
 func (s *ledgerPublicCostStore) BeginPage() c1zstore.PageWriter {
@@ -66,13 +66,6 @@ func (s *ledgerPublicCostStore) ArchiveLedgerReport(ctx context.Context) ([]byte
 	s.reportNs.Add(time.Since(start).Nanoseconds())
 	return report, err
 }
-func (s *ledgerPublicCostStore) DropLedger(ctx context.Context) error {
-	start := time.Now()
-	err := s.PageLedgerStore.DropLedger(ctx)
-	s.dropNs.Add(time.Since(start).Nanoseconds())
-	return err
-}
-
 func TestLedgerCostPublic(t *testing.T) {
 	if os.Getenv("BATON_LEDGER_COST") != "1" {
 		t.Skip("opt-in public sync cost driver")
@@ -177,7 +170,7 @@ func TestLedgerCostPublic(t *testing.T) {
 		"arm": "ledger-public-" + arm + "-no-sync", "pages": pages, "records_per_page": records, "workers": workers,
 		"sync_wall_ns": elapsed.Nanoseconds(), "page_commit_ns": observations.commitNs.Load(), "handler_ns": observations.handlerNs.Load(),
 		"seal_ns": source.sealNs.Load(), "seal_fold_ns": observations.foldNs.Load(), "seal_scrub_ns": sealCost.LedgerScrub.Nanoseconds(), "seal_purge_ns": sealCost.LedgerPurge.Nanoseconds(),
-		"report_ns": source.reportNs.Load(), "disposal_ns": source.dropNs.Load(), "resume_walk_ns": walkNs.Load(), "reopen_ns": reopenNs,
+		"report_ns": source.reportNs.Load() + sealCost.LedgerArchive.Nanoseconds(), "disposal_ns": sealCost.LedgerDiscard.Nanoseconds(), "resume_walk_ns": walkNs.Load(), "reopen_ns": reopenNs,
 		"wal_bytes_before_close": priorWAL + metrics.WAL.BytesWritten, "flush_bytes_before_close": flushed, "compaction_bytes_before_close": compacted,
 		"c1z_bytes": info.Size(), "resources_verified": count, "ledger_commits": observations.commits.Load(),
 		"scope": "public Sync with default disposal; machine qualification and full matrix required for C49",

@@ -32,7 +32,7 @@ func (s *syncer) finishLedgerReport(ctx context.Context) {
 	logger := ctxzap.Extract(ctx)
 	report, err := s.caps.pageLedger.ArchiveLedgerReport(ctx)
 	if err != nil {
-		logger.Warn("failed to save ledger report; retaining page history", zap.Error(err))
+		logger.Warn("failed to access ledger report", zap.Error(err))
 		return
 	}
 	logger.Info("sync ledger stats", zap.Reflect("ledger_stats", json.RawMessage(report)))
@@ -56,8 +56,5 @@ func (s *syncer) finishLedgerReport(ctx context.Context) {
 			logger.Warn("ledger reference checks found unresolved references; retaining page history", zap.Any("reference_checks", checks))
 		}
 		return
-	}
-	if err := s.caps.pageLedger.DropLedger(ctx); err != nil {
-		logger.Warn("failed to delete page history; saved ledger report remains available", zap.Error(err))
 	}
 }

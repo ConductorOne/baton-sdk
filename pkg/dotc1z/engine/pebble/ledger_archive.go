@@ -28,7 +28,7 @@ func ledgerArchiveKey() []byte {
 }
 
 func (e *Engine) ArchiveLedgerReport(ctx context.Context) ([]byte, error) {
-	var report, result []byte
+	var result []byte
 	err := e.withWriteAllowSealed(func() error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -43,63 +43,84 @@ func (e *Engine) ArchiveLedgerReport(ctx context.Context) ([]byte, error) {
 		if record == nil {
 			return errors.New("ledger archive requires a finished sync")
 		}
-		report, err = e.GenerateLedgerReport(ctx)
-		if err != nil {
-			return err
-		}
-		facts, err := e.Ledger().Facts(ctx)
-		if err != nil {
-			return err
-		}
-		counters, err := e.Ledger().Counters(ctx)
-		if err != nil {
-			return err
-		}
-		archive := ledgerArchive{Version: 1, SyncID: record.GetSyncId(), Report: report, Facts: facts, Counters: counters}
-		var options c1zstore.LedgerReportOptions
-		if value := facts[c1zstore.LedgerFactReportOptions]; value != "" {
-			if err := json.Unmarshal([]byte(value), &options); err != nil {
-				return err
-			}
-		}
-		if options.Requested.OnlyExpandGrants {
-			prior, err := e.readLedgerArchive(ctx)
-			if err != nil {
-				return err
-			}
-			if prior != nil {
-				archive.CollectionReport, archive.CollectionSyncID = prior.CollectionReport, prior.CollectionSyncID
-				if len(archive.CollectionReport) == 0 {
-					archive.CollectionReport, archive.CollectionSyncID = prior.Report, prior.SyncID
-				}
-			}
-		}
-		result, err = renderLedgerArchive(&archive)
-		if err != nil {
-			return err
-		}
-		value, err := json.Marshal(archive)
-		if err != nil {
-			return err
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if hook := e.test.ledgerArchiveHook; hook != nil {
-			if err := hook("before-write"); err != nil {
-				return err
-			}
-		}
-		if err := e.db.MetaSet(ledgerArchiveKey(), value, pebble.Sync); err != nil {
-			return err
-		}
-		if hook := e.test.ledgerArchiveHook; hook != nil {
-			return hook("after-write")
-		}
-		return nil
+		result, err = e.archiveLedgerReportLocked(ctx, record.GetSyncId())
+		return err
 	})
+	return result, err
+}
+
+func (e *Engine) archiveLedgerReportLocked(ctx context.Context, syncID string) ([]byte, error) {
+	lo, hi := rawdb.LedgerRowBounds()
+	rows, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
 	if err != nil {
 		return nil, err
+	}
+	present := rows.First()
+	err = errors.Join(rows.Error(), rows.Close())
+	if err != nil {
+		return nil, err
+	}
+	if !present {
+		prior, err := e.readLedgerArchive(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if prior != nil && prior.SyncID == syncID {
+			return renderLedgerArchive(prior)
+		}
+	}
+	report, err := e.GenerateLedgerReport(ctx)
+	if err != nil {
+		return nil, err
+	}
+	facts, err := e.Ledger().Facts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	counters, err := e.Ledger().Counters(ctx)
+	if err != nil {
+		return nil, err
+	}
+	archive := ledgerArchive{Version: 1, SyncID: syncID, Report: report, Facts: facts, Counters: counters}
+	var options c1zstore.LedgerReportOptions
+	if value := facts[c1zstore.LedgerFactReportOptions]; value != "" {
+		if err := json.Unmarshal([]byte(value), &options); err != nil {
+			return nil, err
+		}
+	}
+	if options.Requested.OnlyExpandGrants {
+		prior, err := e.readLedgerArchive(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if prior != nil {
+			archive.CollectionReport, archive.CollectionSyncID = prior.CollectionReport, prior.CollectionSyncID
+			if len(archive.CollectionReport) == 0 && prior.Facts[c1zstore.LedgerFactReportOptions] != facts[c1zstore.LedgerFactReportOptions] {
+				archive.CollectionReport, archive.CollectionSyncID = prior.Report, prior.SyncID
+			}
+		}
+	}
+	result, err := renderLedgerArchive(&archive)
+	if err != nil {
+		return nil, err
+	}
+	value, err := json.Marshal(archive)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if hook := e.test.ledgerArchiveHook; hook != nil {
+		if err := hook("before-write"); err != nil {
+			return nil, err
+		}
+	}
+	if err := e.db.MetaSet(ledgerArchiveKey(), value, pebble.Sync); err != nil {
+		return nil, err
+	}
+	if hook := e.test.ledgerArchiveHook; hook != nil {
+		return result, hook("after-write")
 	}
 	return result, nil
 }
@@ -173,15 +194,16 @@ func (e *Engine) RestoreLedgerArchive(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		if !finished {
-			return errors.New("ledger archive restore requires a finished sync")
-		}
 		lo, hi := rawdb.LedgerBounds()
 		iterator, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
 		if err != nil {
 			return err
 		}
 		present := iterator.First()
+		pendingOnly := present && bytes.Equal(iterator.Key(), encodeLedgerFactKey(c1zstore.LedgerFactDiscardOnSeal))
+		if pendingOnly {
+			present = iterator.Next()
+		}
 		err = errors.Join(iterator.Error(), iterator.Close())
 		if err != nil {
 			return err
@@ -189,9 +211,18 @@ func (e *Engine) RestoreLedgerArchive(ctx context.Context) error {
 		if present {
 			return nil
 		}
+		if pendingOnly {
+			finished = false
+		}
 		archive, err := e.readLedgerArchive(ctx)
 		if err != nil || archive == nil {
 			return err
+		}
+		if !finished {
+			_, pendingDiscard := archive.Facts[c1zstore.LedgerFactDiscardOnSeal]
+			if archive.SyncID != e.CurrentSyncID() || !pendingDiscard {
+				return nil
+			}
 		}
 		if archive.SyncID != e.CurrentSyncID() {
 			record, err := e.GetSyncRunRecord(ctx, e.CurrentSyncID())

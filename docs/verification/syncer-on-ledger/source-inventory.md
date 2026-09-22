@@ -64,3 +64,9 @@ PageWriter expansion method and dedicated expanded-record staging are removed.
 Expansion calls the original handler/store adapter directly. Only terminal
 completion accounting and optional preserved-graph recovery interact with ledger
 lifecycle state; collection write atomicity remains unchanged.
+
+CO-023 restores external import/matching to main's direct store batches and removes
+the staged grant merge and staged resource/entitlement deletion APIs. CO-022 moves
+default archival/disposal into seal, eliminating the scrub-then-drop sequence.
+The matching unfinished archive remains recovery authority after row deletion;
+retained/debug ledgers still use the existing scrub policy.

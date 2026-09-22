@@ -76,3 +76,11 @@ External import/matching also uses main's ordinary writes, without a whole-impor
 ledger transaction (CO-023). Imported grant pages reach the store before the next
 page is fetched. Main's pre-existing expansion-annotation replay bug is a separate
 fix; this PR does not attempt to mask it with buffering.
+
+Default finalization archives the report and recovery state, discards the ledger
+and purges residue once before the finished stamp (CO-022). It does not scrub
+rows destined for deletion. Debug retention still scrubs unless explicitly
+retaining tokens. Archive-write failure retains scrubbed history. Report access
+after disposal reuses the archive rather than scanning an empty ledger.
+The current benchmark's report/disposal timings are included in seal time; they
+must not be added to seal time as disjoint phases.

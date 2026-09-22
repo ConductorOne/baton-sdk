@@ -1108,3 +1108,11 @@ There are now 49 criteria; the frozen §4 count describes the baseline.
   Debug references must not demand an external-processing page row.
 - **Risk routing:** HIGH integration change; main's matching algorithm unchanged.
 - **PR placement:** this PR, before CO-022 implementation.
+
+### CO-022 implementation clarification
+
+The purge removes history while retaining one token-free disposal declaration.
+It is removed after finalization succeeds, without a second purge. This keeps a
+failed seal distinguishable from a new request over an already-finished binding;
+it does not reset the sync record's prior completion timestamp. Successful
+completion has no live ledger keys. The declaration carries no page token.

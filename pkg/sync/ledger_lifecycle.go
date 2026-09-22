@@ -16,12 +16,20 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 	if err != nil {
 		return false, err
 	}
-	if finished {
-		facts, err := ledger.LedgerFacts(ctx)
+	facts, err := ledger.LedgerFacts(ctx)
+	if err != nil {
+		return false, err
+	}
+	_, discardPending := facts[c1zstore.LedgerFactDiscardOnSeal]
+	if discardPending {
+		finished = false
+	}
+	if len(facts) == 0 || len(facts) == 1 && discardPending {
+		archive, err := ledger.GetArchivedLedgerReport(ctx)
 		if err != nil {
 			return false, err
 		}
-		if len(facts) == 0 {
+		if len(archive) > 0 {
 			if err := ledger.RestoreLedgerArchive(ctx); err != nil {
 				return false, err
 			}
@@ -32,7 +40,7 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 		return false, err
 	}
 	if finished && (resume.sealReady || len(resume.actions) == 0) {
-		if err := ledger.ClearLedgerRows(ctx, []string{ledgerFactSealReady}); err != nil {
+		if err := ledger.ClearLedgerRows(ctx, []string{ledgerFactSealReady, c1zstore.LedgerFactDiscardOnSeal}); err != nil {
 			return false, err
 		}
 		resume.actions = []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}

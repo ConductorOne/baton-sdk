@@ -94,6 +94,9 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 	counters := s.terminalLedgerCounters()
 	counters.Flags |= s.ingestFilterStats.reasonFlags.Load()
 	var terminalFacts []string
+	if !s.ledgerDebug {
+		terminalFacts = append(terminalFacts, c1zstore.LedgerFactDiscardOnSeal)
+	}
 	if s.ingestFilterStats.known.Load() {
 		terminalFacts = append(terminalFacts, ledgerFactIngestKnown)
 	}
@@ -160,7 +163,11 @@ func (s *syncer) skipLedgerSync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := s.ledger.prepareSeal(ctx, c1zstore.LedgerCounters{}); err != nil {
+	var terminalFacts []string
+	if !s.ledgerDebug {
+		terminalFacts = append(terminalFacts, c1zstore.LedgerFactDiscardOnSeal)
+	}
+	if err := s.ledger.prepareSeal(ctx, c1zstore.LedgerCounters{}, terminalFacts...); err != nil {
 		return err
 	}
 	if err := s.ledger.seal(ctx); err != nil {
