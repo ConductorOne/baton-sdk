@@ -1065,3 +1065,25 @@ There are now 49 criteria; the frozen §4 count describes the baseline.
   expander defect, not a justification for adding ledger checkpoints.
 - **Risk routing:** HIGH for the phase handoff; expansion algorithm unchanged.
 - **PR placement:** this PR.
+
+## CO-022 — discard once instead of scrubbing and then discarding
+
+- **Classification:** correction.
+- **Source:** requester.
+- **Claim:** Default ledger disposal saves its report and recovery state, deletes
+  the ledger and purges its residue once before the finished stamp. It does not
+  scrub rows that will be deleted. Debug retention keeps the existing scrub
+  policy. A report-write failure retains scrubbed history rather than losing it.
+- **Motivation:** Scrub/purge followed by drop/purge repeats compaction work.
+- **Contract delta:** EndSyncWithStats honors a durable discard-on-seal declaration;
+  the archive can preserve terminal recovery state before ended_at is durable.
+- **Owning boundary:** Pebble sealing, report archival and syncer recovery.
+- **Affected criteria:** C11, C25, C31–C35, C43, C49–C50.
+- **Verification delta:** assert one residue-purge invocation and zero scrub time
+  for default disposal; assert report/counters survive failures around archival,
+  deletion, purge and the finished stamp. Recovery must not restart collection
+  from an empty ledger or overwrite its archived report with an empty report.
+  Retained/debug modes and report-write failure remain separate cases.
+- **Risk routing:** HIGH lifecycle change; existing credential-erasure obligations
+  still apply before the finished stamp.
+- **PR placement:** this PR.

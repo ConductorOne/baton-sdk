@@ -147,3 +147,31 @@ produces no missing-child diagnostic; first demonstrate it fails after removing
 expansion pages. Exempt only expansion children from row lookup, retaining checks
 for collection children and continuations. Run the existing missing-reference and
 fan-in tests to guard against accidentally disabling the checker.
+
+## One disposal purge (CO-022)
+
+The terminal page declares discard-on-seal for default completion. During
+EndSyncWithStats, archive the current bound run before deleting its ledger,
+keep the in-flight version stamp until normal seal completion, then purge the
+marked residue once. Debug retention continues to scrub/purge. On archival error,
+warn and retain scrubbed rows; post-seal report access may retry archival but
+must not trigger another disposal purge. Reuse a matching archive when rows
+were already deleted so a seal retry cannot overwrite it with an empty report.
+
+Restore a matching discard archive for an unfinished run when its ledger is
+empty. Reject restoration of a different run's archive into an unfinished sync.
+Finished continuation still retains its existing archive rules. Clear the discard
+declaration when starting requested processing over a finished binding. Keep the
+post-seal ArchiveLedgerReport API for report access; it returns the saved report
+after default disposal. Add failure cuts through the existing archive test hook.
+
+First demonstrate a counted default-completion fixture sees two purge invocations
+on the current path. Then change seal/disposal together with consumer fixtures.
+Test retained/debug/token-retention modes, archive-write failure, durable crash
+images before/after archive and deletion, purge failure and ended-at failure.
+No shortcut may leave credential-bearing SST residue in a finished artifact.
+
+External import is investigated separately: compare repeated main-path execution
+against one clean run with fixed source data and matching options. Preserve
+matching annotations, import-before-match and replacement-before-delete ordering.
+No external runtime change is part of the disposal correction.
