@@ -183,7 +183,7 @@ func TestLedgerStaticEntitlementPlanner(t *testing.T) {
 	f.audit.enter(ledgerHandler)
 	require.NoError(t, s.invokeActionPage(t.Context(), action, s.SyncStaticEntitlements, false))
 	f.audit.enter(ledgerLifecycle)
-	require.Equal(t, []string{"", "connector-cursor"}, c.ledgerTypesConnector.calls)
+	require.Equal(t, []string{"", "page-2"}, c.ledgerTypesConnector.calls)
 	row, found, err := f.ledger.GetLedgerRow(t.Context(), ledgerIdentity(action))
 	require.NoError(t, err)
 	require.True(t, found)

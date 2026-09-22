@@ -74,7 +74,7 @@ func (s *syncer) collectLedgerStaticEntitlements(ctx context.Context, action *Ac
 	}
 
 	collection := ledgerCollection(invocation)
-	recordLedgerList(collection, &collection.EntitlementsReceived, len(resp.GetList()), resp.GetNextPageToken())
+	recordLedgerList(collection, &collection.EntitlementsReceived, resp.GetList(), resp.GetNextPageToken())
 	for _, ent := range resp.GetList() {
 		resourcePageToken := ""
 		for {
@@ -154,7 +154,7 @@ func (s *syncer) listLedgerStaticResourceTypes(ctx context.Context, invocation *
 				return
 			}
 			collection := ledgerCollection(invocation)
-			recordLedgerList(collection, &collection.ResourceTypesReceived, len(resp.GetList()), resp.GetNextPageToken())
+			recordLedgerList(collection, &collection.ResourceTypesReceived, resp.GetList(), resp.GetNextPageToken())
 			var types []*v2.ResourceType
 			var invalid uint64
 			for _, rt := range resp.GetList() {

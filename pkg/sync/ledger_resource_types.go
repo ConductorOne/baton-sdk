@@ -77,7 +77,7 @@ func (s *syncer) collectLedgerResourceTypes(ctx context.Context, action *Action)
 		return err
 	}
 	collection := ledgerCollection(invocation)
-	recordLedgerList(collection, &collection.ResourceTypesReceived, len(resp.GetList()), resp.GetNextPageToken())
+	recordLedgerList(collection, &collection.ResourceTypesReceived, resp.GetList(), resp.GetNextPageToken())
 	selection := make(map[string]bool, len(s.cfg.syncResourceTypes))
 	for _, id := range s.cfg.syncResourceTypes {
 		selection[id] = true

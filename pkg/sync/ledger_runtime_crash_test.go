@@ -50,7 +50,7 @@ func TestLedgerRuntimeCrashProcess(t *testing.T) {
 		crash := func() {
 			marker, err := json.Marshal(ledgerCrashMarker{Cut: cut, SyncID: f.engine.CurrentSyncID()})
 			require.NoError(t, err)
-			require.NoError(t, os.WriteFile(path+".cut", marker, 0600))
+			require.NoError(t, writeLedgerTestFile(path+".cut", marker, 0600))
 			os.Exit(74)
 		}
 		source := f.ledger
@@ -91,7 +91,7 @@ func TestLedgerRuntimeCrashProcess(t *testing.T) {
 		require.NoError(t, runtime.seal(t.Context()))
 		marker, err := json.Marshal(ledgerCrashMarker{Cut: cut, SyncID: syncID})
 		require.NoError(t, err)
-		require.NoError(t, os.WriteFile(path+".cut", marker, 0600))
+		require.NoError(t, writeLedgerTestFile(path+".cut", marker, 0600))
 		os.Exit(74)
 	}
 	for _, cut := range []string{"page-handler", "page-staged", "page-committed", "terminal-staged", "terminal-committed", "sealed"} {

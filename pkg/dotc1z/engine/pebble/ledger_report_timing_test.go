@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"math"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -15,14 +14,19 @@ func exportReportPrototype(report ledgerReportSummary) error {
 	if dir == "" {
 		return nil
 	}
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil { // #nosec G703 -- The test runner selects the export directory.
 		return err
 	}
 	data, err := renderLedgerReport(report)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "stats.json"), append(data, '\n'), 0o600)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return root.WriteFile("stats.json", append(data, '\n'), 0o600)
 }
 
 func TestLedgerReportHistogram(t *testing.T) {

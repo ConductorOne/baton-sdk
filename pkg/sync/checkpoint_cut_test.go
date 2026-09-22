@@ -1,7 +1,5 @@
 package sync //nolint:revive,nolintlint // backwards-compatible package name
 
-// Page-commit and connector-response cuts, followed by cold resume with a different worker count.
-
 import (
 	"context"
 	"errors"
@@ -465,8 +463,6 @@ func TestLedgerCommitCutEnumeration(t *testing.T) {
 	tmpDir := t.TempDir()
 	base, expectedEntIDs, userID := buildCutFixture(t)
 
-	// Baseline: an uninterrupted run measures the cut space (K durable
-	// commits, M connector responses) and sanity-checks the oracle.
 	baselinePath := filepath.Join(tmpDir, "baseline.c1z")
 	baseline := runCutAttempt(t, base, baselinePath, tmpDir, cutSpec{workers: 4, cause: errInjectedCut})
 	require.True(t, baseline.completed, "baseline sync must complete")

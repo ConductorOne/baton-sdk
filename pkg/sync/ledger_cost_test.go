@@ -131,7 +131,7 @@ func TestLedgerCostBaseline(t *testing.T) {
 	encoded, err := json.Marshal(result)
 	require.NoError(t, err)
 	if output := os.Getenv("BATON_LEDGER_COST_OUTPUT"); output != "" {
-		require.NoError(t, os.WriteFile(output, append(encoded, '\n'), 0600))
+		require.NoError(t, writeLedgerTestFile(output, append(encoded, '\n'), 0600))
 	}
 	t.Log(string(encoded))
 }
@@ -145,6 +145,15 @@ func ledgerCostMetricsHook(metrics func() string) func(string) error {
 		if stage != haltStageInvariantsComplete {
 			return nil
 		}
-		return os.WriteFile(path, []byte(metrics()), 0600)
+		return writeLedgerTestFile(path, []byte(metrics()), 0600)
 	}
+}
+
+func writeLedgerTestFile(path string, data []byte, mode os.FileMode) error {
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	return root.WriteFile(filepath.Base(path), data, mode)
 }

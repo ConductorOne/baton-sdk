@@ -85,7 +85,7 @@ func (s ledgerRowReadOverride) GetLedgerRow(context.Context, c1zstore.LedgerActi
 
 func TestLedgerWalkRefusesScrubbedPaginationWithoutWrites(t *testing.T) {
 	f := newLedgerFixture(t)
-	id := c1zstore.LedgerActionIdentity{Op: "list-resources", PageToken: "credential-bearing-page"}
+	id := c1zstore.LedgerActionIdentity{Op: "list-resources", PageToken: "page-1"}
 	scrubbed := id
 	scrubbed.PageToken = ""
 	source := ledgerRowReadOverride{PageLedgerStore: f.ledger, row: &c1zstore.LedgerRow{Identity: scrubbed, Scrubbed: true}}

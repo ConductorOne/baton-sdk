@@ -47,7 +47,7 @@ func TestLedgerCollectionReceivedAndExcluded(t *testing.T) {
 		require.NotNil(t, row.Collection)
 		require.EqualValues(t, 2, row.Collection.ResourceTypesReceived)
 		require.EqualValues(t, 1, row.Collection.ResourceTypesExcludedInvalid)
-		id.PageToken = "connector-cursor"
+		id.PageToken = "page-2"
 		row, found, err = f.ledger.GetLedgerRow(t.Context(), id)
 		require.NoError(t, err)
 		require.True(t, found)

@@ -331,10 +331,7 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 	return nil
 }
 
-// endSyncFinalize runs the sealed tail of EndSync: the deferred index
-// build, ledger archival/disposal, the ended_at stamp, stats and durability flush.
-// Runs with the engine SEALED (see EndSync) — every write below goes
-// through an AllowSealed path. Split out so EndSync can unseal on failure.
+// Requires a sealed engine; EndSync unseals it if finalization fails.
 func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord) error {
 	cost := &SealCost{}
 	defer func() { e.sealCost.Store(cost) }()
@@ -454,9 +451,6 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 				err = e.ledger.purgeResidue(ctx)
 			}
 			cost.LedgerPurge = time.Since(started)
-			if discarded {
-				cost.LedgerDiscard += cost.LedgerPurge
-			}
 			if err != nil {
 				return fmt.Errorf("EndSync: purge ledger residue: %w", err)
 			}

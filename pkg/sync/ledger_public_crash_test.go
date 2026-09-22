@@ -155,7 +155,7 @@ func TestLedgerPublicCrashResume(t *testing.T) {
 			}
 			marker, err := json.Marshal(ledgerCrashMarker{Cut: cut, SyncID: s.syncID})
 			require.NoError(t, err)
-			require.NoError(t, os.WriteFile(path+".cut", marker, 0600))
+			require.NoError(t, writeLedgerTestFile(path+".cut", marker, 0600))
 			os.Exit(75)
 		}}
 		require.NoError(t, s.Sync(t.Context()))

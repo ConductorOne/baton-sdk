@@ -48,13 +48,12 @@ func (s *syncer) finishLedgerReport(ctx context.Context) {
 			} `json:"latest"`
 		}
 		if err := json.Unmarshal(report, &summary); err != nil {
-			logger.Warn("failed to read saved ledger reference checks; retaining page history", zap.Error(err))
+			logger.Warn("failed to read saved ledger reference checks", zap.Error(err))
 			return
 		}
 		checks := summary.Latest.References
 		if checks.MissingChildren+checks.MissingContinuations+checks.IdentityMismatches+checks.Uncheckable != 0 {
-			logger.Warn("ledger reference checks found unresolved references; retaining page history", zap.Any("reference_checks", checks))
+			logger.Warn("ledger reference checks found unresolved references", zap.Any("reference_checks", checks))
 		}
-		return
 	}
 }

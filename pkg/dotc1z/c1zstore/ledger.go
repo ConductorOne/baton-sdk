@@ -9,10 +9,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
-// A store implementing PageLedgerStore commits one syncer page and its ledger
-// row as one unit. The syncer requires this capability for Pebble and rejects
-// it for SQLite; engine selection happens when the store is attached.
-
 type LedgerActionIdentity struct {
 	Op                   string
 	ResourceTypeID       string
@@ -105,7 +101,6 @@ const RunBucketWorker uint32 = 0xFFFFFFFF
 // seal honors it in whatever process finishes the sync.
 const LedgerFactRetainTokens = "c1z.retain_tokens" //nolint:gosec // Ledger fact name, not a credential value.
 
-// Terminal disposal declaration, cleared when seal completes; no token data is stored in it.
 const LedgerFactDiscardOnSeal = "c1z.discard_ledger_on_seal"
 
 // Reserved index for the takeover's migrated counters. Buckets are blind-written
@@ -219,8 +214,7 @@ type PageLedgerStore interface {
 	// "" when there was no token.
 	TakeoverToken(ctx context.Context, runID string, facts []string, counters LedgerCounters) (state string, err error)
 	BoundSyncFinished(ctx context.Context) (bool, error)
-	// Removes ledger history without resetting the bound sync. Finished processing
-	// uses ClearLedgerRows when it must preserve facts and counters.
+	// Preserves records and sync metadata; removes ledger rows, facts and counters.
 	DropLedger(ctx context.Context) error
 	// Clears page rows, the takeover frontier and named facts in one synced
 	// batch. Requires a finished bound sync; retains counters, all other facts,

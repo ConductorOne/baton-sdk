@@ -26,7 +26,7 @@ func TestLedgerDeterministicTimeFixture(t *testing.T) {
 	var snapshots [][]ledgerKV
 	for i := range 2 {
 		path := filepath.Join(t.TempDir(), fmt.Sprintf("arm-%d.c1z", i))
-		require.NoError(t, os.WriteFile(path, seed, 0600))
+		require.NoError(t, writeLedgerTestFile(path, seed, 0600))
 		synctest.Test(t, func(t *testing.T) {
 			f := openLedgerFixtureAt(t, path, false)
 			runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
@@ -65,7 +65,7 @@ func TestLedgerResumeLogicalDifferential(t *testing.T) {
 	for _, cut := range []int{-1, 0, 1, 2} {
 		for _, workers := range []uint32{1, 4} {
 			path := filepath.Join(t.TempDir(), fmt.Sprintf("cut-%d-workers-%d.c1z", cut, workers))
-			require.NoError(t, os.WriteFile(path, seed, 0600))
+			require.NoError(t, writeLedgerTestFile(path, seed, 0600))
 			synctest.Test(t, func(t *testing.T) {
 				f := openLedgerFixtureAt(t, path, false)
 				runtime, err := newLedgerRuntime(t.Context(), f.ledger, "first")

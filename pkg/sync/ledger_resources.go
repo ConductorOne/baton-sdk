@@ -82,7 +82,7 @@ func (s *syncer) collectLedgerResources(ctx context.Context, action *Action) err
 	}
 
 	collection := ledgerCollection(invocation)
-	recordLedgerList(collection, &collection.ResourcesReceived, len(resp.GetList()), resp.GetNextPageToken())
+	recordLedgerList(collection, &collection.ResourcesReceived, resp.GetList(), resp.GetNextPageToken())
 	resources, err := s.filterLedgerResources(invocation, resp.GetList())
 	if err != nil {
 		return err

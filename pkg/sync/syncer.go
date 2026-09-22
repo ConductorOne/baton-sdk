@@ -2511,7 +2511,6 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, action *Action, graph
 		s.handleInitialActionForStep(ctx, *action)
 	}
 
-	// Graph-less resumes rebuild from the first page; no partial graph is persisted.
 	page, nextPageToken, err := s.store.Grants().PendingExpansionPage(ctx, action.PageToken)
 	if err != nil {
 		return err

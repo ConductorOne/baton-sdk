@@ -32,7 +32,7 @@ func TestLedgerCrashProcess(t *testing.T) {
 			require.NoError(t, page.Commit(ctx, id, &c1zstore.LedgerRow{Identity: id}))
 		}
 		require.Contains(t, []string{"staged", "committed"}, cut)
-		require.NoError(t, os.WriteFile(path+".cut", []byte(cut), 0600))
+		require.NoError(t, writeLedgerTestFile(path+".cut", []byte(cut), 0600))
 		os.Exit(73)
 	}
 	for _, cut := range []string{"staged", "committed"} {

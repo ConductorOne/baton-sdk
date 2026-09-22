@@ -300,7 +300,7 @@ func ledgerDurationMS(d time.Duration) uint64 {
 	if d <= 0 {
 		return 0
 	}
-	return uint64(d) / uint64(time.Millisecond) //nolint:gosec // d is positive after the guard above.
+	return uint64(d) / uint64(time.Millisecond)
 }
 
 func ledgerCollectionToProto(c *c1zstore.LedgerCollectionStats) *v3.LedgerCollectionStats {

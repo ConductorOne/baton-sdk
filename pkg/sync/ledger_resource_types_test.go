@@ -32,7 +32,7 @@ func (c *ledgerTypesConnector) ListResourceTypes(
 		return nil, c.failure
 	}
 	if req.GetPageToken() == "" {
-		return v2.ResourceTypesServiceListResourceTypesResponse_builder{List: []*v2.ResourceType{nil, {Id: "first"}}, NextPageToken: "connector-cursor", Annotations: []*anypb.Any{report}}.Build(), nil
+		return v2.ResourceTypesServiceListResourceTypesResponse_builder{List: []*v2.ResourceType{nil, {Id: "first"}}, NextPageToken: "page-2", Annotations: []*anypb.Any{report}}.Build(), nil
 	}
 	return v2.ResourceTypesServiceListResourceTypesResponse_builder{List: []*v2.ResourceType{{Id: "second"}, {Id: "excluded"}}, Annotations: []*anypb.Any{report}}.Build(), nil
 }
@@ -59,7 +59,7 @@ func runResourceTypePages(t *testing.T, s *syncer) error {
 func TestResourceTypeFilterAcrossConnectorPages(t *testing.T) {
 	s, _, c := resourceTypePageFixture(t, false)
 	require.NoError(t, runResourceTypePages(t, s))
-	require.Equal(t, []string{"", "connector-cursor"}, c.calls)
+	require.Equal(t, []string{"", "page-2"}, c.calls)
 	require.Nil(t, s.run.current())
 }
 
@@ -68,7 +68,7 @@ func TestLedgerResourceTypePages(t *testing.T) {
 	f.audit.enter(ledgerHandler)
 	require.NoError(t, runResourceTypePages(t, s))
 	f.audit.enter(ledgerLifecycle)
-	require.Equal(t, []string{"", "connector-cursor"}, c.calls)
+	require.Equal(t, []string{"", "page-2"}, c.calls)
 	require.Nil(t, s.run.current())
 	counters, err := f.ledger.LedgerCounters(t.Context())
 	require.NoError(t, err)
@@ -105,7 +105,7 @@ func TestLedgerResourceTypeFailureRetryAndReplay(t *testing.T) {
 	require.NoError(t, runResourceTypePages(t, s))
 	f.audit.enter(ledgerLifecycle)
 	require.Len(t, progressTokens, 2)
-	require.Equal(t, []string{"", "", "connector-cursor"}, c.calls)
+	require.Equal(t, []string{"", "", "page-2"}, c.calls)
 	require.EqualValues(t, 1, s.ingestFilterStats.invalidResourceTypesObserved.Load())
 	counters, err := f.ledger.LedgerCounters(t.Context())
 	require.NoError(t, err)
@@ -145,7 +145,7 @@ func TestLedgerResourceTypeErrors(t *testing.T) {
 		f.audit.enter(ledgerHandler)
 		require.ErrorContains(t, runResourceTypePages(t, s), "invalid resource type 'missing' in filter")
 		f.audit.enter(ledgerLifecycle)
-		require.Equal(t, "connector-cursor", s.run.current().PageToken)
+		require.Equal(t, "page-2", s.run.current().PageToken)
 		response, err := f.store.ListResourceTypes(t.Context(), &v2.ResourceTypesServiceListResourceTypesRequest{})
 		require.NoError(t, err)
 		require.Len(t, response.GetList(), 1)
@@ -165,8 +165,8 @@ func TestLedgerResourceTypeReadFailure(t *testing.T) {
 	f.audit.enter(ledgerHandler)
 	require.ErrorIs(t, runResourceTypePages(t, s), errLedgerInjectedPage)
 	f.audit.enter(ledgerLifecycle)
-	require.Equal(t, "connector-cursor", s.run.current().PageToken)
-	_, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: SyncResourceTypesOp.String(), PageToken: "connector-cursor"})
+	require.Equal(t, "page-2", s.run.current().PageToken)
+	_, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: SyncResourceTypesOp.String(), PageToken: "page-2"})
 	require.NoError(t, err)
 	require.False(t, found)
 }

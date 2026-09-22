@@ -92,7 +92,7 @@ func recordKey(syncID []byte, page, i int) []byte {
 // is batch/commit mechanics, not compressibility.
 func recordValue(seed int) []byte {
 	v := make([]byte, 300)
-	x := uint32(seed&0xFFFFFFFF)*2654435761 + 1 //nolint:gosec // Hash uses the low 32 bits.
+	x := uint32(seed&0xFFFFFFFF)*2654435761 + 1
 	for i := range v {
 		x = x*1664525 + 1013904223
 		v[i] = byte(x >> 24)
@@ -135,7 +135,7 @@ func benchmarkLedgerPageCommit(b *testing.B, rows int, indexed bool, wo *pebble.
 		for i := 0; i < rows; i++ {
 			require.NoError(b, batch.Set(recordKey(syncID, n, i), vals[i], nil))
 		}
-		require.NoError(b, batch.Set(ledgerRowKey(syncID, uint64(n)), ledgerVal, nil)) //nolint:gosec // n is a nonnegative loop index.
+		require.NoError(b, batch.Set(ledgerRowKey(syncID, uint64(n)), ledgerVal, nil))
 		batchBytes = batch.Len()
 		require.NoError(b, batch.Commit(wo))
 		require.NoError(b, batch.Close())
@@ -204,7 +204,7 @@ func BenchmarkLedgerResumeWalk(b *testing.B) {
 				if i%50 == 0 {
 					children = 2
 				}
-				require.NoError(b, batch.Set(ledgerRowKey(syncID, uint64(i)), ledgerRowValue(uint64(i+1), children), nil)) //nolint:gosec // i is a nonnegative loop index.
+				require.NoError(b, batch.Set(ledgerRowKey(syncID, uint64(i)), ledgerRowValue(uint64(i+1), children), nil))
 				require.NoError(b, batch.Commit(pebble.NoSync))
 				require.NoError(b, batch.Close())
 			}

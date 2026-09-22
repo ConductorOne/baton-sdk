@@ -137,7 +137,7 @@ func (s *syncer) collectLedgerGrants(ctx context.Context, action *Action) error 
 	}
 
 	collection := ledgerCollection(invocation)
-	recordLedgerList(collection, &collection.GrantsReceived, len(resp.GetList()), resp.GetNextPageToken())
+	recordLedgerList(collection, &collection.GrantsReceived, resp.GetList(), resp.GetNextPageToken())
 	grants := resp.GetList()
 
 	l := ctxzap.Extract(ctx)

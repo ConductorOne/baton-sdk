@@ -140,7 +140,7 @@ func TestLedgerCostPublic(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, report)
 	if output := os.Getenv("BATON_LEDGER_COST_REPORT"); output != "" {
-		require.NoError(t, os.WriteFile(output, append(report, '\n'), 0600))
+		require.NoError(t, writeLedgerTestFile(output, append(report, '\n'), 0600))
 	}
 	facts, err := f.ledger.LedgerFacts(t.Context())
 	require.NoError(t, err)
@@ -178,7 +178,7 @@ func TestLedgerCostPublic(t *testing.T) {
 	encoded, err := json.Marshal(result)
 	require.NoError(t, err)
 	if output := os.Getenv("BATON_LEDGER_COST_OUTPUT"); output != "" {
-		require.NoError(t, os.WriteFile(output, append(encoded, '\n'), 0600))
+		require.NoError(t, writeLedgerTestFile(output, append(encoded, '\n'), 0600))
 	}
 	t.Log(string(encoded))
 }

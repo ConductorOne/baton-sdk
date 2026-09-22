@@ -573,3 +573,51 @@ race checks pass three times (2.651s / 3.650s). Broad lint has zero issues and
 repository-wide build passes. Four small public benchmark cases verify records, zero scrub and
 nonzero report/disposal timing. These are harness checks, not new performance
 acceptance measurements. Other unexecuted criteria remain incomplete.
+
+
+## Review cleanup and comment audit
+
+The comment audit covers hand-written comment additions against `eb63f1b5`,
+including changed blocks in existing files, Go tests, proto sources and harness
+scripts. Generated protobuf comments are generator output, not edited separately.
+The starting inventory has 98 comment-bearing added lines: 68 package lint
+directives, five interpreter directives, five numeric lint suppressions and
+20 lines of prose. After cleanup, 13 added prose lines remain.
+
+| Category | Disposition |
+| --- | --- |
+| Test narration and call-site explanations | Delete the checkpoint-cut overview, baseline narration and graph-resume reminder; test names/assertions and the token restore code carry these facts. |
+| Repeated contracts and implementation descriptions | Delete the file-level ledger introduction and disposal-constant description; the commit and seal method contracts own these facts. Remove the finalization step list. |
+| Public behavior not expressed by signatures | Keep asset snapshot/overwrite semantics, archived-report reuse, archive restoration conditions, ClearLedgerRows atomicity/preservation, and seal archival-failure behavior. Shorten DropLedger to what it preserves/removes. |
+| Non-obvious internal constraints | Keep the record-batch membership constraint, local-phase reference exclusion and failed-attempt scope of LastSealCost. Reduce finalization's comment to its required sealed state and error recovery. |
+| Tooling directives | Keep interpreter and package-name directives. Delete four unused numeric suppressions. Replace the fifth's signed-count assumption with a helper that takes the response list and derives its length. |
+
+No new scheduler, storage abstraction or lifecycle rewrite is justified by these
+comments. The small list-helper change makes a previously documented assumption
+structural. Historical baseline comments outside changed blocks remain untouched.
+
+`LedgerDiscard` now measures deletion batches only, including the final declaration
+removal; `LedgerPurge` measures compaction separately. `disposal_ns` and
+`seal_purge_ns` follow those meanings. They can be added without double-counting,
+although both remain components of the enclosing `seal_ns` measurement. Debug
+warnings state the report/reference failure without implying it controls retention.
+
+CI used golangci-lint 2.13.2, while the earlier local zero-issue results used 2.9.0.
+The newer findings were test-path taint checks, dummy cursor strings classified as
+credentials, and unused suppressions. Test file writes now use directory-scoped
+`os.Root` operations; the report exporter has one targeted G703 exemption for
+creating the directory explicitly selected by the test runner. No production
+security checks or repository-wide lint rules were disabled.
+
+Validation for this cleanup: full sync suite passes (210.017s), full Pebble suite
+passes (17.088s), and affected collection/resume race tests pass three repetitions
+(16.855s). Public cost-driver and report-export smoke tests pass. The baseline
+harness builds against `eb63f1b5`; baseline and ledger smoke arms each verify 100
+resources and write their output files. These are functional harness checks, not
+new performance measurements.
+
+Repository-wide lint passes with zero issues using golangci-lint 2.13.2 and Go
+1.27.1 on GitHub's merged PR tree (`6dd330e7`) plus this cleanup. Running that
+linter against the unmerged historical branch instead reports six findings in
+unchanged baseline files; those files are not modified to accommodate the newer
+linter. The merged-tree check matches CI's source and toolchain configuration.

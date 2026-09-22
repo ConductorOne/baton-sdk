@@ -9,10 +9,10 @@ func ledgerCollection(invocation *ledgerInvocation) *c1zstore.LedgerCollectionSt
 	return invocation.page.row.Collection
 }
 
-func recordLedgerList(c *c1zstore.LedgerCollectionStats, received *uint64, count int, next string) {
-	*received += uint64(count) //nolint:gosec // count is the length of a connector response list.
+func recordLedgerList[T any](c *c1zstore.LedgerCollectionStats, received *uint64, records []T, next string) {
+	*received += uint64(len(records))
 	c.ListResponses++
-	if count == 0 {
+	if len(records) == 0 {
 		c.EmptyListResponses++
 		if next != "" {
 			c.EmptyListResponsesWithContinuation++
