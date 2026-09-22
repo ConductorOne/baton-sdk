@@ -4528,6 +4528,47 @@ func (m *EncryptionConfig) validate(all bool) error {
 			}
 		}
 
+	case *EncryptionConfig_FullKnowledgeVaultConfig:
+		if v == nil {
+			err := EncryptionConfigValidationError{
+				field:  "Config",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetFullKnowledgeVaultConfig()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, EncryptionConfigValidationError{
+						field:  "FullKnowledgeVaultConfig",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, EncryptionConfigValidationError{
+						field:  "FullKnowledgeVaultConfig",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetFullKnowledgeVaultConfig()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return EncryptionConfigValidationError{
+					field:  "FullKnowledgeVaultConfig",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
 	default:
 		_ = v // ensures v is used
 	}
@@ -4609,6 +4650,383 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = EncryptionConfigValidationError{}
+
+// Validate checks the field values on FullKnowledgeVaultConfig with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *FullKnowledgeVaultConfig) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on FullKnowledgeVaultConfig with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// FullKnowledgeVaultConfigMultiError, or nil if none found.
+func (m *FullKnowledgeVaultConfig) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *FullKnowledgeVaultConfig) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for ProtocolVersion
+
+	// no validation rules for TenantId
+
+	// no validation rules for TicketId
+
+	// no validation rules for VaultId
+
+	// no validation rules for VaultBoundaryId
+
+	// no validation rules for SecretId
+
+	// no validation rules for VersionId
+
+	// no validation rules for ContentType
+
+	// no validation rules for PreparationId
+
+	// no validation rules for KeyId
+
+	// no validation rules for KeyCapsuleSuite
+
+	// no validation rules for KeyCapsulePublicKey
+
+	// no validation rules for ValueSuite
+
+	if len(errors) > 0 {
+		return FullKnowledgeVaultConfigMultiError(errors)
+	}
+
+	return nil
+}
+
+// FullKnowledgeVaultConfigMultiError is an error wrapping multiple validation
+// errors returned by FullKnowledgeVaultConfig.ValidateAll() if the designated
+// constraints aren't met.
+type FullKnowledgeVaultConfigMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m FullKnowledgeVaultConfigMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m FullKnowledgeVaultConfigMultiError) AllErrors() []error { return m }
+
+// FullKnowledgeVaultConfigValidationError is the validation error returned by
+// FullKnowledgeVaultConfig.Validate if the designated constraints aren't met.
+type FullKnowledgeVaultConfigValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e FullKnowledgeVaultConfigValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e FullKnowledgeVaultConfigValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e FullKnowledgeVaultConfigValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e FullKnowledgeVaultConfigValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e FullKnowledgeVaultConfigValidationError) ErrorName() string {
+	return "FullKnowledgeVaultConfigValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e FullKnowledgeVaultConfigValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sFullKnowledgeVaultConfig.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = FullKnowledgeVaultConfigValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = FullKnowledgeVaultConfigValidationError{}
+
+// Validate checks the field values on FullKnowledgeCredentialEnvelope with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *FullKnowledgeCredentialEnvelope) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on FullKnowledgeCredentialEnvelope with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// FullKnowledgeCredentialEnvelopeMultiError, or nil if none found.
+func (m *FullKnowledgeCredentialEnvelope) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *FullKnowledgeCredentialEnvelope) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for EnvelopeVersion
+
+	if all {
+		switch v := interface{}(m.GetConfig()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, FullKnowledgeCredentialEnvelopeValidationError{
+					field:  "Config",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, FullKnowledgeCredentialEnvelopeValidationError{
+					field:  "Config",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetConfig()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return FullKnowledgeCredentialEnvelopeValidationError{
+				field:  "Config",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for ValueCiphertext
+
+	// no validation rules for EncapsulatedKey
+
+	// no validation rules for KeyCapsuleCiphertext
+
+	if len(errors) > 0 {
+		return FullKnowledgeCredentialEnvelopeMultiError(errors)
+	}
+
+	return nil
+}
+
+// FullKnowledgeCredentialEnvelopeMultiError is an error wrapping multiple
+// validation errors returned by FullKnowledgeCredentialEnvelope.ValidateAll()
+// if the designated constraints aren't met.
+type FullKnowledgeCredentialEnvelopeMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m FullKnowledgeCredentialEnvelopeMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m FullKnowledgeCredentialEnvelopeMultiError) AllErrors() []error { return m }
+
+// FullKnowledgeCredentialEnvelopeValidationError is the validation error
+// returned by FullKnowledgeCredentialEnvelope.Validate if the designated
+// constraints aren't met.
+type FullKnowledgeCredentialEnvelopeValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e FullKnowledgeCredentialEnvelopeValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e FullKnowledgeCredentialEnvelopeValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e FullKnowledgeCredentialEnvelopeValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e FullKnowledgeCredentialEnvelopeValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e FullKnowledgeCredentialEnvelopeValidationError) ErrorName() string {
+	return "FullKnowledgeCredentialEnvelopeValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e FullKnowledgeCredentialEnvelopeValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sFullKnowledgeCredentialEnvelope.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = FullKnowledgeCredentialEnvelopeValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = FullKnowledgeCredentialEnvelopeValidationError{}
+
+// Validate checks the field values on FullKnowledgeSecretPayloadV2 with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *FullKnowledgeSecretPayloadV2) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on FullKnowledgeSecretPayloadV2 with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// FullKnowledgeSecretPayloadV2MultiError, or nil if none found.
+func (m *FullKnowledgeSecretPayloadV2) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *FullKnowledgeSecretPayloadV2) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for EnvelopeVersion
+
+	// no validation rules for ContentType
+
+	// no validation rules for Value
+
+	if len(errors) > 0 {
+		return FullKnowledgeSecretPayloadV2MultiError(errors)
+	}
+
+	return nil
+}
+
+// FullKnowledgeSecretPayloadV2MultiError is an error wrapping multiple
+// validation errors returned by FullKnowledgeSecretPayloadV2.ValidateAll() if
+// the designated constraints aren't met.
+type FullKnowledgeSecretPayloadV2MultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m FullKnowledgeSecretPayloadV2MultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m FullKnowledgeSecretPayloadV2MultiError) AllErrors() []error { return m }
+
+// FullKnowledgeSecretPayloadV2ValidationError is the validation error returned
+// by FullKnowledgeSecretPayloadV2.Validate if the designated constraints
+// aren't met.
+type FullKnowledgeSecretPayloadV2ValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e FullKnowledgeSecretPayloadV2ValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e FullKnowledgeSecretPayloadV2ValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e FullKnowledgeSecretPayloadV2ValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e FullKnowledgeSecretPayloadV2ValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e FullKnowledgeSecretPayloadV2ValidationError) ErrorName() string {
+	return "FullKnowledgeSecretPayloadV2ValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e FullKnowledgeSecretPayloadV2ValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sFullKnowledgeSecretPayloadV2.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = FullKnowledgeSecretPayloadV2ValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = FullKnowledgeSecretPayloadV2ValidationError{}
 
 // Validate checks the field values on ResourceId with the rules defined in the
 // proto definition for this message. If any rules are violated, the first
