@@ -1,0 +1,29 @@
+File: syncer-ledger-public.test
+Build ID: 8ba775318910f0128d3790c530641575dcf63271
+Type: cpu
+Time: 2026-09-21 21:15:10 UTC
+Duration: 9.26s, Total samples = 9.33s (100.75%)
+Showing nodes accounting for 3.54s, 37.94% of 9.33s total
+Dropped 563 nodes (cum <= 0.05s)
+Showing top 20 nodes out of 325
+      flat  flat%   sum%        cum   cum%
+     0.42s  4.50%  4.50%      0.42s  4.50%  cmpbody
+     0.40s  4.29%  8.79%      1.08s 11.58%  github.com/cockroachdb/pebble/v2/internal/arenaskl.(*Skiplist).findSpliceForLevel
+     0.27s  2.89% 11.68%      3.09s 33.12%  github.com/cockroachdb/pebble/v2.(*DB).getInternal
+     0.26s  2.79% 14.47%      0.37s  3.97%  runtime.tryDeferToSpanScan
+     0.22s  2.36% 16.83%      0.23s  2.47%  runtime.nextFreeFast (inline)
+     0.20s  2.14% 18.97%      0.52s  5.57%  google.golang.org/protobuf/internal/impl.(*MessageInfo).unmarshalPointerEager
+     0.19s  2.04% 21.01%      0.19s  2.04%  github.com/segmentio/ksuid.fastEncodeBase62
+     0.18s  1.93% 22.94%      0.18s  1.93%  internal/runtime/syscall/linux.Syscall6
+     0.18s  1.93% 24.87%      0.18s  1.93%  sync/atomic.(*Int32).Add (inline)
+     0.17s  1.82% 26.69%      0.83s  8.90%  github.com/cockroachdb/pebble/v2.(*getIter).initializeNextIterator
+     0.14s  1.50% 28.19%      0.59s  6.32%  bytes.Compare
+     0.13s  1.39% 29.58%      0.85s  9.11%  runtime.mallocgcSmallScanNoHeader
+     0.13s  1.39% 30.98%      0.13s  1.39%  runtime.memmove
+     0.12s  1.29% 32.26%      1.27s 13.61%  runtime.mallocgc
+     0.10s  1.07% 33.33%      0.23s  2.47%  github.com/cockroachdb/pebble/v2.(*Iterator).Close
+     0.09s  0.96% 34.30%      0.09s  0.96%  internal/runtime/atomic.(*Uint64).Add (inline)
+     0.09s  0.96% 35.26%      0.10s  1.07%  runtime.(*mspan).writeHeapBitsSmall
+     0.09s  0.96% 36.23%      0.27s  2.89%  runtime.scanObjectsSmall
+     0.08s  0.86% 37.08%      2.48s 26.58%  github.com/cockroachdb/pebble/v2.(*getIter).Next
+     0.08s  0.86% 37.94%      0.13s  1.39%  internal/sync.(*HashTrieMap[go.shape.interface {},go.shape.interface {}]).Load

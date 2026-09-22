@@ -1,0 +1,18 @@
+{
+  "arm": "token-path",
+  "binary_sha256": "a59e621cb63d884828b8ae837b7957b2067c9c4924f59187e46175f42366c59e",
+  "c1z_bytes": 3775268,
+  "classification": "smoke; C49 metrics and boundary dispositions incomplete",
+  "compaction_bytes_before_close": 0,
+  "flush_bytes_before_close": 19823113,
+  "pages": 1000,
+  "peak_rss_kib": 164344,
+  "pebble_bytes_written": 104638561,
+  "process_wall_seconds": 5.819197502918541,
+  "records_per_page": 1000,
+  "resources_verified": 1000000,
+  "scope": "baseline smoke; not C49 measurement evidence",
+  "sync_wall_ns": 4950019897,
+  "wal_bytes_before_close": 84815448,
+  "workers": 4
+}

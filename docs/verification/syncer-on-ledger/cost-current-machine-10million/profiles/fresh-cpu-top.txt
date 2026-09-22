@@ -1,0 +1,49 @@
+File: ledger-current-profile.test
+Build ID: a64e5b5e549ab264ec15c769bfebe5045f32752a
+Type: cpu
+Time: 2026-09-21 23:25:51 UTC
+Duration: 116.26s, Total samples = 122.46s (105.33%)
+Showing nodes accounting for 6.67s, 5.45% of 122.46s total
+Dropped 1188 nodes (cum <= 0.61s)
+Showing top 40 nodes out of 328
+      flat  flat%   sum%        cum   cum%
+         0     0%     0%     97.19s 79.36%  github.com/conductorone/baton-sdk/pkg/sync.(*syncer).invokeActionPage
+     0.01s 0.0082% 0.0082%     97.07s 79.27%  github.com/conductorone/baton-sdk/pkg/sync.(*ledgerRuntime).runPageWithCommit
+         0     0% 0.0082%     82.67s 67.51%  github.com/conductorone/baton-sdk/pkg/sync.(*syncer).syncOneAction
+         0     0% 0.0082%     82.67s 67.51%  github.com/conductorone/baton-sdk/pkg/sync.(*syncer).syncParallel.func3
+         0     0% 0.0082%     82.67s 67.51%  sync.(*WaitGroup).Go.func1
+     0.03s 0.024% 0.033%     60.30s 49.24%  github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb.(*DB).Get
+     0.01s 0.0082% 0.041%     60.27s 49.22%  github.com/cockroachdb/pebble/v2.(*DB).Get (inline)
+     2.48s  2.03%  2.07%     60.26s 49.21%  github.com/cockroachdb/pebble/v2.(*DB).getInternal
+         0     0%  2.07%     59.27s 48.40%  github.com/conductorone/baton-sdk/pkg/sync.(*syncer).invokeActionPage.func1
+     0.04s 0.033%  2.10%     54.47s 44.48%  github.com/cockroachdb/pebble/v2.(*Iterator).First
+     0.15s  0.12%  2.22%     54.30s 44.34%  github.com/cockroachdb/pebble/v2.(*Iterator).iterFirstWithinBounds
+     0.01s 0.0082%  2.23%     54.07s 44.15%  github.com/cockroachdb/pebble/v2.(*getIter).First
+     0.78s  0.64%  2.87%     54.06s 44.15%  github.com/cockroachdb/pebble/v2.(*getIter).Next
+         0     0%  2.87%     45.02s 36.76%  github.com/conductorone/baton-sdk/pkg/sync.(*syncer).SyncResources
+         0     0%  2.87%     45.02s 36.76%  github.com/conductorone/baton-sdk/pkg/sync.(*syncer).syncLedgerResources
+     0.37s   0.3%  3.17%     45.01s 36.75%  github.com/conductorone/baton-sdk/pkg/sync.(*syncer).collectLedgerResources
+         0     0%  3.17%     37.62s 30.72%  github.com/conductorone/baton-sdk/pkg/sync.(*syncer).invokeActionPage.func2
+         0     0%  3.17%     37.62s 30.72%  github.com/conductorone/baton-sdk/pkg/sync.(*syncer).nextPageOrFinishAction
+         0     0%  3.17%     37.60s 30.70%  github.com/conductorone/baton-sdk/pkg/sync.(*syncer).transitionActionState
+     0.01s 0.0082%  3.18%     37.58s 30.69%  github.com/conductorone/baton-sdk/pkg/sync.(*syncer).invokeActionPage.func2.1
+     0.01s 0.0082%  3.18%     37.57s 30.68%  github.com/conductorone/baton-sdk/pkg/dotc1z.(*dirtyPageWriter).Commit
+         0     0%  3.18%     37.57s 30.68%  github.com/conductorone/baton-sdk/pkg/sync.(*ledgerRuntime).runPageWithCommit.func2
+         0     0%  3.18%     37.57s 30.68%  github.com/conductorone/baton-sdk/pkg/sync.(*ledgerTrackedWriter).Commit
+         0     0%  3.18%     37.57s 30.68%  github.com/conductorone/baton-sdk/pkg/sync.ledgerCostPage.Commit
+         0     0%  3.18%     37.56s 30.67%  github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble.(*pageWriter).Commit
+         0     0%  3.18%     37.54s 30.65%  github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble.(*pageUnit).Commit
+         0     0%  3.18%     37.45s 30.58%  github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble.(*Engine).withWrite
+     0.01s 0.0082%  3.19%     37.44s 30.57%  github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble.(*pageUnit).Commit.func1
+         0     0%  3.19%     37.43s 30.57%  github.com/conductorone/baton-sdk/pkg/sync.(*parallelActionQueue).transition
+         0     0%  3.19%     37.43s 30.57%  github.com/conductorone/baton-sdk/pkg/sync.(*syncer).syncParallel.func2
+         0     0%  3.19%     37.41s 30.55%  github.com/conductorone/baton-sdk/pkg/sync.(*syncer).syncParallel.func2.1
+     0.15s  0.12%  3.32%     35.77s 29.21%  github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble.(*Engine).stageResourceRecords
+     0.01s 0.0082%  3.32%     33.58s 27.42%  github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble.(*Engine).GetResource
+     0.03s 0.024%  3.35%     30.78s 25.13%  github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble.(*Engine).GetResourceRecord
+     0.89s  0.73%  4.07%     27.34s 22.33%  github.com/cockroachdb/pebble/v2.(*getIter).initializeNextIterator
+     0.91s  0.74%  4.82%     24.84s 20.28%  github.com/cockroachdb/pebble/v2.(*getIter).getSSTableIterators
+     0.01s 0.0082%  4.83%     21.54s 17.59%  github.com/conductorone/baton-sdk/pkg/sync.TestLedgerCostPublic
+         0     0%  4.83%     21.54s 17.59%  testing.tRunner
+     0.68s  0.56%  5.38%     20.58s 16.81%  github.com/cockroachdb/pebble/v2.(*fileCacheHandle).newIters
+     0.08s 0.065%  5.45%     18.07s 14.76%  github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble.(*Engine).ListResources
