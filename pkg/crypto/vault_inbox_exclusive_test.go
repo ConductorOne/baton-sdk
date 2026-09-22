@@ -66,4 +66,14 @@ func TestVaultInboxRecipientMustBeTheOnlyRecipient(t *testing.T) {
 	// A list without a vault-inbox recipient keeps its existing behavior.
 	require.NoError(t, ValidateEncryptionConfigs([]*v2.EncryptionConfig{validAgeConfig(t)}))
 	require.Error(t, ValidateEncryptionConfigs([]*v2.EncryptionConfig{validAgeConfig(t), nil}))
+
+	// The manager constructor enforces the same rule, because RotateCredential
+	// and CreateAccount build a manager without ever calling
+	// ValidateEncryptionConfigs.
+	_, err := NewEncryptionManager(nil, []*v2.EncryptionConfig{validVaultInboxConfig(t), validAgeConfig(t)})
+	require.Error(t, err)
+	_, err = NewEncryptionManager(nil, []*v2.EncryptionConfig{validVaultInboxConfig(t)})
+	require.NoError(t, err)
+	_, err = NewEncryptionManager(nil, []*v2.EncryptionConfig{validAgeConfig(t)})
+	require.NoError(t, err)
 }

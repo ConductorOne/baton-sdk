@@ -55,6 +55,13 @@ func (pkem *EncryptionManager) Encrypt(ctx context.Context, cred *v2.PlaintextDa
 }
 
 func NewEncryptionManager(co *v2.CredentialOptions, ec []*v2.EncryptionConfig) (*EncryptionManager, error) {
+	// Enforced here as well as in ValidateEncryptionConfigs because that helper
+	// is called by the issuance and action paths only: RotateCredential and
+	// CreateAccount build the manager directly, and a vault-inbox recipient must
+	// not be able to arrive on those paths either.
+	if err := validateVaultInboxConfigExclusivity(ec); err != nil {
+		return nil, err
+	}
 	em := &EncryptionManager{
 		opts:    co,
 		configs: ec,
@@ -62,16 +69,66 @@ func NewEncryptionManager(co *v2.CredentialOptions, ec []*v2.EncryptionConfig) (
 	return em, nil
 }
 
+// ValidatePlaintextCardinality enforces the vault-inbox recipient's
+// one-value rule against this manager's configured recipients. Every path that
+// fans a plaintext list across the recipients must call it before encrypting,
+// or a multi-value result would produce several complete submission envelopes
+// all bound to the same submission id.
+func (pkem *EncryptionManager) ValidatePlaintextCardinality(plaintexts []*v2.PlaintextData) error {
+	return ValidateVaultInboxPlaintextCardinality(pkem.configs, plaintexts)
+}
+
+// ValidateVaultInboxPlaintextCardinality enforces that a vault-inbox recipient
+// receives exactly one plaintext value. The submission payload holds one value;
+// several would have to be merged or silently dropped, and a zero value would
+// seal an empty submission. Both are reconciliation-required errors rather than
+// a successful issuance with missing data.
+//
+// It is exported because every path that encrypts for a vault-inbox recipient
+// must call it: the issuance builder and the registered-action path both fan a
+// connector's plaintext list across the configured recipients.
+func ValidateVaultInboxPlaintextCardinality(configs []*v2.EncryptionConfig, plaintexts []*v2.PlaintextData) error {
+	hasVaultInbox := false
+	for _, config := range configs {
+		if providers.IsVaultInboxConfig(config) {
+			hasVaultInbox = true
+			break
+		}
+	}
+	if !hasVaultInbox {
+		return nil
+	}
+	if len(plaintexts) != 1 {
+		return status.Errorf(codes.FailedPrecondition,
+			"vault inbox issuance requires exactly one plaintext value, got %d", len(plaintexts))
+	}
+	return nil
+}
+
+// validateVaultInboxConfigExclusivity refuses a vault-inbox recipient that is
+// not the only configured recipient. The ciphertext it produces is the whole
+// submission payload, so it cannot be one recipient among several: the extra
+// encryptions would never be read and their recipients never revoked.
+func validateVaultInboxConfigExclusivity(ec []*v2.EncryptionConfig) error {
+	vaultInboxConfigs := 0
+	for _, config := range ec {
+		if providers.IsVaultInboxConfig(config) {
+			vaultInboxConfigs++
+		}
+	}
+	if vaultInboxConfigs > 1 || (vaultInboxConfigs == 1 && len(ec) != 1) {
+		return status.Error(codes.InvalidArgument,
+			"vault inbox encryption config must be the only encryption config")
+	}
+	return nil
+}
+
 // ValidateEncryptionConfigs validates recipients before an irreversible
 // credential issuance without changing create/rotate compatibility.
 func ValidateEncryptionConfigs(ec []*v2.EncryptionConfig) error {
-	vaultInboxConfigs := 0
 	for i, config := range ec {
 		if config == nil {
 			return status.Errorf(codes.InvalidArgument, "encryption config %d is empty", i)
-		}
-		if providers.IsVaultInboxConfig(config) {
-			vaultInboxConfigs++
 		}
 		provider, err := providers.GetEncryptorForConfig(context.Background(), config)
 		if err != nil {
@@ -83,15 +140,7 @@ func ValidateEncryptionConfigs(ec []*v2.EncryptionConfig) error {
 			}
 		}
 	}
-	// A vault-inbox recipient IS the destination: the ciphertext it produces is
-	// the whole submission payload, so it cannot be one recipient among several.
-	// Refusing the mix here keeps an issuance from committing a delivery whose
-	// extra encryptions nothing will ever read or revoke.
-	if vaultInboxConfigs > 1 || (vaultInboxConfigs == 1 && len(ec) != 1) {
-		return status.Error(codes.InvalidArgument,
-			"vault inbox encryption config must be the only encryption config")
-	}
-	return nil
+	return validateVaultInboxConfigExclusivity(ec)
 }
 
 func decryptPassword(ctx context.Context, encryptedPassword *v2.EncryptedData, decryptionConfig *providers.DecryptionConfig) (string, error) {

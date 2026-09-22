@@ -3,6 +3,7 @@ package connectorbuilder
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -215,6 +216,13 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, status.Errorf(codes.InvalidArgument, "invalid credential issuance request: %v", err)
 	}
+	// The advertised capability is the contract: a descriptor that does not list
+	// the requested vault-inbox profile must not be sealed to, the same way an
+	// unadvertised key profile is refused.
+	if err := validateVaultInboxProfileAdvertised(request.GetEncryptionConfigs(), descriptor); err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
 
 	output, err := issuer.Issue(ctx, input)
 	if err != nil {
@@ -231,7 +239,7 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 	// one plaintext value may be sealed to it. Refusing anything else here means
 	// a cardinality surprise fails the issuance instead of depositing a partial
 	// or mislabeled submission.
-	if err := validateVaultInboxPlaintextCardinality(request.GetEncryptionConfigs(), output.PlaintextData); err != nil {
+	if err := pkem.ValidatePlaintextCardinality(output.PlaintextData); err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -256,25 +264,21 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 	}.Build(), nil
 }
 
-// validateVaultInboxPlaintextCardinality enforces that a vault-inbox recipient
-// receives exactly one plaintext value. The vault inbox submission payload holds
-// one value; several values would have to be merged or silently dropped, and a
-// zero value would seal an empty submission. Both are reconciliation-required
-// errors rather than a successful issuance with missing data.
-func validateVaultInboxPlaintextCardinality(configs []*v2.EncryptionConfig, plaintexts []*v2.PlaintextData) error {
-	hasVaultInbox := false
+// validateVaultInboxProfileAdvertised refuses a vault-inbox recipient whose
+// profile the selected descriptor does not advertise. Without this the
+// capability advertisement would be documentation rather than a gate, and a
+// connector that never declared the profile could still be handed one.
+func validateVaultInboxProfileAdvertised(configs []*v2.EncryptionConfig, descriptor *v2.CredentialIssueOptionDescriptor) error {
 	for _, config := range configs {
-		if providers.IsVaultInboxConfig(config) {
-			hasVaultInbox = true
-			break
+		if !providers.IsVaultInboxConfig(config) {
+			continue
 		}
-	}
-	if !hasVaultInbox {
-		return nil
-	}
-	if len(plaintexts) != 1 {
-		return status.Errorf(codes.FailedPrecondition,
-			"vault inbox issuance requires exactly one plaintext value, got %d", len(plaintexts))
+		profile := config.GetVaultInboxRecipientConfig().GetSuite()
+		if profile == v2.VaultInboxSuite_VAULT_INBOX_SUITE_UNSPECIFIED ||
+			!slices.Contains(descriptor.GetVaultInboxProfiles(), profile) {
+			return status.Error(codes.InvalidArgument,
+				"vault inbox profile is not advertised by connector")
+		}
 	}
 	return nil
 }

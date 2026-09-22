@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ecdh"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -190,7 +191,13 @@ func TestValidateConfigRejectsUnsupportedProfiles(t *testing.T) {
 	})
 
 	unknownFields := configFor(t, nil)
-	unknownFields.ProtoReflect().SetUnknown([]byte{0x80, 0x7c, 0x01})
+	// Unknown fields on the inner config are refused: its contents are frozen
+	// into the HPKE binding.
+	unknownFields.GetVaultInboxRecipientConfig().ProtoReflect().SetUnknown([]byte{0x80, 0x7c, 0x01})
+	// Unknown fields on the shared EncryptionConfig are tolerated so the message
+	// stays additive for every other provider.
+	extensibleConfig := configFor(t, nil)
+	extensibleConfig.ProtoReflect().SetUnknown([]byte{0x80, 0x7c, 0x01})
 
 	cases := map[string]*v2.EncryptionConfig{
 		"nil config":     nil,
@@ -205,6 +212,7 @@ func TestValidateConfigRejectsUnsupportedProfiles(t *testing.T) {
 		"inbox key empty":       configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.InboxKeyId = "" }),
 		"generation zero":       configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.KeyGeneration = 0 }),
 		"scheme empty":          configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.PayloadScheme = "" }),
+		"unsupported scheme":    configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.PayloadScheme = "latchkey.vault_submission.secret.v2" }),
 		"submission id empty":   configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.SubmissionId = "" }),
 		"thumbprint empty":      configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.PublicKeyThumbprint = "" }),
 		"thumbprint mismatch":   configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.PublicKeyThumbprint = "not-the-thumbprint" }),
@@ -218,6 +226,7 @@ func TestValidateConfigRejectsUnsupportedProfiles(t *testing.T) {
 		})
 	}
 	require.NoError(t, NewProvider().ValidateConfig(context.Background(), vectorConfig(t)))
+	require.NoError(t, NewProvider().ValidateConfig(context.Background(), extensibleConfig))
 }
 
 func withProvider(t *testing.T, name string) *v2.EncryptionConfig {
@@ -275,6 +284,15 @@ func TestEncryptRejectsUnusablePlaintext(t *testing.T) {
 			Name:  "api_key",
 			Bytes: bytes.Repeat([]byte("a"), MaxPlaintextBytes+1),
 		}.Build(),
+		"oversized name": v2.PlaintextData_builder{
+			Name:  strings.Repeat("n", maxNameBytes+1),
+			Bytes: []byte("v"),
+		}.Build(),
+		"oversized description": v2.PlaintextData_builder{
+			Name:        "api_key",
+			Description: strings.Repeat("d", maxDescriptionBytes+1),
+			Bytes:       []byte("v"),
+		}.Build(),
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := NewProvider().Encrypt(ctx, config, plaintext)
@@ -301,6 +319,29 @@ func TestLowOrderX25519PublicKeyFailsTheEcdhProbe(t *testing.T) {
 	require.NoError(t, err)
 	_, err = probe.ECDH(x25519)
 	require.Error(t, err)
+}
+
+// pinnedBindingHex is the binding this profile must produce, transcribed from
+// the Latchkey source (`binding_bytes` over `framed` with INFO_PREFIX, version 2,
+// the suite string, tenant, vault, inbox key id, the ASCII-decimal generation,
+// and the payload scheme) rather than read back out of this package. It fails if
+// the framing or the field order drifts in a way `Encrypt` and the local opener
+// would otherwise agree on.
+const pinnedBindingHex = "000000276c617463686b65792f76312f7661756c742d696e626f782d7375626d697373696f6e2f696e666f" +
+	"0000000102" +
+	"0000003548504b452d426173652d582d57696e672d447261667430362d484b44462d5348413235362d4368614368613230506f6c7931333035" +
+	"0000000d74656e616e742d766563746f72" +
+	"0000000c7661756c742d766563746f72" +
+	"00000010696e626f782d6b65792d766563746f72" +
+	"0000000137" +
+	"000000236c617463686b65792e7661756c745f7375626d697373696f6e2e7365637265742e7631"
+
+// TestBindingBytesMatchTheLatchkeyFraming pins the AAD bytes themselves. The
+// cross-language proof lives in the Rust repo (see docs/vault-inbox-delivery.md);
+// this is the in-repo guard that the framing cannot drift unnoticed.
+func TestBindingBytesMatchTheLatchkeyFraming(t *testing.T) {
+	config := vectorConfig(t)
+	require.Equal(t, pinnedBindingHex, hex.EncodeToString(bindingBytes(config.GetVaultInboxRecipientConfig())))
 }
 
 func openVectorEnvelope(t *testing.T, config *v2.EncryptionConfig, enc, ciphertext string) []byte {

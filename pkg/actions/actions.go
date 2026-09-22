@@ -1088,6 +1088,12 @@ func prepareActionResult(
 		}
 	}
 
+	// Checked after the plaintext list is known and before any encryption, so a
+	// vault-inbox recipient cannot receive two whole submission envelopes.
+	if err := encryptionManager.ValidatePlaintextCardinality(plaintextData); err != nil {
+		return nil, err
+	}
+
 	var encryptedData []*v2.EncryptedData
 	for _, plaintext := range plaintextData {
 		encrypted, err := encryptPlaintext(ctx, encryptionManager, plaintext)

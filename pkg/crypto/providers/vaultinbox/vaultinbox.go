@@ -52,14 +52,30 @@ const (
 	// PublicKeyBytes is the encoded X-Wing encapsulation key: the ML-KEM-768
 	// encapsulation key (1184) followed by the X25519 public key (32).
 	PublicKeyBytes = 1216
-	// MaxPlaintextBytes mirrors VAULT_INBOX_SUBMISSION_SIZE_LIMIT_BYTES in the
-	// Rust client. The sealed envelope must still fit the inbox size limit, so
-	// the plaintext bound is strictly below it.
+	// MaxPlaintextBytes bounds the credential value before any expansion.
+	// VAULT_INBOX_SUBMISSION_SIZE_LIMIT_BYTES caps the *sealed envelope* at 2 MiB,
+	// and both the value and the ciphertext are base64url-expanded (4/3) on the
+	// way, so a value near that ceiling would build an envelope the inbox cannot
+	// accept. The post-seal envelope check below is the authoritative bound; this
+	// one only rejects absurd inputs before any crypto runs.
 	MaxPlaintextBytes = 1 << 20
+	// MaxSubmissionEnvelopeBytes mirrors the Latchkey inbox's
+	// VAULT_INBOX_SUBMISSION_SIZE_LIMIT_BYTES, the hard cap on the bytes that are
+	// actually uploaded.
+	MaxSubmissionEnvelopeBytes = 2 * 1024 * 1024
+	// maxNameBytes and maxDescriptionBytes mirror the submission row's
+	// safe_display_name / safe_description limits, so an oversized connector
+	// string cannot mint a credential whose submission is rejected later.
+	maxNameBytes        = 255
+	maxDescriptionBytes = 1024
 
 	jwkKtyAKP = "AKP"
 	// jwkAlg is the exact `alg` the Latchkey inbox JWK header must carry.
 	jwkAlg = "HPKE-Base-X-Wing-Draft06-HKDF-SHA256-ChaCha20Poly1305"
+
+	// PayloadSchemeSecretV1 is the only payload scheme this provider emits, and
+	// the label the Latchkey client SDK binds into the HPKE AAD.
+	PayloadSchemeSecretV1 = "latchkey.vault_submission.secret.v1"
 
 	// infoPrefix is the HPKE info/AAD domain label.
 	infoPrefix = "latchkey/v1/vault-inbox-submission/info"
@@ -105,6 +121,16 @@ func (p *Provider) Encrypt(ctx context.Context, conf *v2.EncryptionConfig, plain
 	if plaintext == nil || strings.TrimSpace(plaintext.GetName()) == "" {
 		return nil, invalid("plaintext value must have a name")
 	}
+	// The display name and description are sealed into the submission payload, so
+	// they count against the upload limit exactly like the value does. Refusing
+	// them here keeps an oversized string from minting a credential whose
+	// submission could never be uploaded.
+	if len(plaintext.GetName()) > maxNameBytes {
+		return nil, invalid(fmt.Sprintf("plaintext name must be at most %d bytes", maxNameBytes))
+	}
+	if len(plaintext.GetDescription()) > maxDescriptionBytes {
+		return nil, invalid(fmt.Sprintf("plaintext description must be at most %d bytes", maxDescriptionBytes))
+	}
 	value := plaintext.GetBytes()
 	if len(value) == 0 || len(value) > MaxPlaintextBytes {
 		return nil, invalid("credential value must contain 1..1048576 bytes")
@@ -149,6 +175,15 @@ func (p *Provider) Encrypt(ctx context.Context, conf *v2.EncryptionConfig, plain
 	if err != nil {
 		return nil, fmt.Errorf("vault inbox: encode submission envelope: %w", err)
 	}
+	// The envelope, not the plaintext, is what gets uploaded: this is the bound
+	// that decides whether the inbox will accept the submission at all. Failing
+	// here keeps the issuance from recording a result that can never be
+	// delivered.
+	if len(envelope) > MaxSubmissionEnvelopeBytes {
+		return nil, invalid(fmt.Sprintf(
+			"sealed submission envelope must be at most %d bytes, got %d",
+			MaxSubmissionEnvelopeBytes, len(envelope)))
+	}
 
 	return v2.EncryptedData_builder{
 		Provider:       EncryptionProvider,
@@ -176,7 +211,11 @@ func recipientFromConfig(conf *v2.EncryptionConfig) (*v2.VaultInboxRecipientConf
 	if name := strings.ToLower(strings.TrimSpace(conf.GetProvider())); name != "" && name != EncryptionProvider {
 		return nil, nil, invalid("provider does not match vault inbox config")
 	}
-	if len(conf.ProtoReflect().GetUnknown()) != 0 || len(config.ProtoReflect().GetUnknown()) != 0 {
+	// Only the inner config's unknown fields are refused: its contents are frozen
+	// into the HPKE binding, so an unrecognised field there means a producer and
+	// consumer disagree about what is authenticated. EncryptionConfig itself is
+	// shared with every other provider and must stay additive.
+	if len(config.ProtoReflect().GetUnknown()) != 0 {
 		return nil, nil, invalid("unknown config fields")
 	}
 	if config.GetConfigVersion() != v2.VaultInboxConfigVersion_VAULT_INBOX_CONFIG_VERSION_V1 {
@@ -189,13 +228,19 @@ func recipientFromConfig(conf *v2.EncryptionConfig) (*v2.VaultInboxRecipientConf
 		{"tenant_id", config.GetTenantId()},
 		{"vault_boundary_id", config.GetVaultBoundaryId()},
 		{"inbox_key_id", config.GetInboxKeyId()},
-		{"payload_scheme", config.GetPayloadScheme()},
 		{"submission_id", config.GetSubmissionId()},
 		{"public_key_thumbprint", config.GetPublicKeyThumbprint()},
 	} {
 		if err := validateIdentifier(field.name, field.value); err != nil {
 			return nil, nil, err
 		}
+	}
+	// This provider only ever emits SecretSubmissionPayloadV3, the container for
+	// this one scheme label. The scheme is bound into the HPKE AAD, so accepting
+	// a different label would seal a payload the reader would then attribute to a
+	// scheme it does not carry; pin it the way config_version and suite are.
+	if config.GetPayloadScheme() != PayloadSchemeSecretV1 {
+		return nil, nil, invalid("unsupported payload_scheme")
 	}
 	if config.GetKeyGeneration() == 0 {
 		return nil, nil, invalid("key_generation must be non-zero")
