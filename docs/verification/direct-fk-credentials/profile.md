@@ -93,5 +93,5 @@ requiring compensation/reconciliation; it is never a reason to remint.
 ## Acceptance status
 
 This document defines the implementation target. Cross-language capsule,
-native value and Model-B vectors are still required before C1 consumers or
+native value and Model-B verification is required before C1 consumers or
 admission can be enabled. A successful Go self-round-trip is insufficient.

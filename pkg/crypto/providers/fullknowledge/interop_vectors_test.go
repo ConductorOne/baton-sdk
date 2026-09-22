@@ -17,10 +17,8 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Fixed cross-language vectors. Every key here is synthetic: a literal seed,
-// nothing derived from a real vault, tenant or credential. The Rust harness in
-// docs/verification/direct-fk-credentials/rust-interop consumes the same
-// fixture against multipass value_crypto.rs and hpke-rs.
+// All fixture keys are synthetic. The shared Latchkey Rust implementation
+// consumes the same fixture for native value and HPKE interoperability tests.
 const interopVectorPath = "testdata/direct-fk-vectors.json"
 const interopVectorEnv = "FK_INTEROP_WRITE"
 
