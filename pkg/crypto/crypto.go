@@ -3,9 +3,11 @@ package crypto //nolint:revive,nolintlint // we can't change the package name fo
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers/fullknowledge"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -110,7 +112,7 @@ func decryptPassword(ctx context.Context, encryptedPassword *v2.EncryptedData, d
 func ConvertCredentialOptions(ctx context.Context, clientSecret *jose.JSONWebKey, opts *v2.CredentialOptions, encryptionConfigs []*v2.EncryptionConfig) (*v2.LocalCredentialOptions, error) {
 	l := ctxzap.Extract(ctx)
 	for _, config := range encryptionConfigs {
-		if config.GetFullKnowledgeVaultConfig() != nil {
+		if config.GetFullKnowledgeVaultConfig() != nil || strings.EqualFold(strings.TrimSpace(config.GetProvider()), fullknowledge.EncryptionProvider) {
 			return nil, status.Error(codes.InvalidArgument, "full knowledge encryption is supported only for credential issuance")
 		}
 	}
