@@ -199,3 +199,20 @@ deleted without another purge. It keeps the token/plain-EndSync gates closed and
 marks a pending seal even when the sync record still has a prior finished
 processing timestamp. Recovery restores the archive when only this declaration
 remains. Unreadable archives cannot remove that live recovery declaration.
+
+## Final recovery audit
+
+Extend public process-crash coverage beyond resources: paginate resource types,
+resources, static entitlements, entitlements and grants; terminate before and
+after a populated continuation-page commit, with one/four workers and WAL/flushed
+images. Compare primary records, secondary indexes and digests against an
+uninterrupted public Sync, using deterministic time rather than discarding record
+timestamps. Check committed completion/connector accounting at the seal consumer,
+and verify that default disposal leaves the saved report and no live ledger.
+Qualify the comparison by deleting a recovered grant or index entry in the test
+image; the comparison must reject each mutation. This extends C04/C16/C31 evidence;
+it does not replace the remaining targeted-resource, asset or takeover products.
+
+Reconcile lifecycle/deletion tests with their current branches, and inspect shared
+scheduler/lifecycle diffs against main. Record executed checks and remaining gaps
+separately; do not promote an entire product from one passing fixture.
