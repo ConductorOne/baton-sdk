@@ -80,6 +80,31 @@ func (pkem *EncryptionManager) ValidatePlaintextCardinality(plaintexts []*v2.Pla
 	return ValidateVaultInboxPlaintextCardinality(pkem.configs, plaintexts)
 }
 
+// ValidatePlaintextCardinalityAtMostOne is the variant for callers that may
+// legally produce no plaintext, such as CreateAccount's non-success results.
+func (pkem *EncryptionManager) ValidatePlaintextCardinalityAtMostOne(plaintexts []*v2.PlaintextData) error {
+	return ValidateVaultInboxPlaintextCardinalityAtMostOne(pkem.configs, plaintexts)
+}
+
+// ValidateVaultInboxPlaintextCardinalityAtMostOne enforces only the upper bound
+// of the vault-inbox rule: zero values is a legitimate outcome (nothing to seal),
+// one is the expected shape, and more than one would seal several complete
+// submission envelopes bound to a single submission id.
+//
+// Use this where a caller can legally produce no plaintext — CreateAccount's
+// AlreadyExists, ActionRequired, and InProgress results all carry none — and
+// [ValidatePlaintextCardinality] where the contract requires a value.
+func ValidateVaultInboxPlaintextCardinalityAtMostOne(configs []*v2.EncryptionConfig, plaintexts []*v2.PlaintextData) error {
+	if !hasVaultInboxConfig(configs) {
+		return nil
+	}
+	if len(plaintexts) > 1 {
+		return status.Errorf(codes.FailedPrecondition,
+			"vault inbox issuance accepts at most one plaintext value, got %d", len(plaintexts))
+	}
+	return nil
+}
+
 // ValidateVaultInboxPlaintextCardinality enforces that a vault-inbox recipient
 // receives exactly one plaintext value. The submission payload holds one value;
 // several would have to be merged or silently dropped, and a zero value would
@@ -90,14 +115,7 @@ func (pkem *EncryptionManager) ValidatePlaintextCardinality(plaintexts []*v2.Pla
 // must call it: the issuance builder and the registered-action path both fan a
 // connector's plaintext list across the configured recipients.
 func ValidateVaultInboxPlaintextCardinality(configs []*v2.EncryptionConfig, plaintexts []*v2.PlaintextData) error {
-	hasVaultInbox := false
-	for _, config := range configs {
-		if providers.IsVaultInboxConfig(config) {
-			hasVaultInbox = true
-			break
-		}
-	}
-	if !hasVaultInbox {
+	if !hasVaultInboxConfig(configs) {
 		return nil
 	}
 	if len(plaintexts) != 1 {
@@ -105,6 +123,15 @@ func ValidateVaultInboxPlaintextCardinality(configs []*v2.EncryptionConfig, plai
 			"vault inbox issuance requires exactly one plaintext value, got %d", len(plaintexts))
 	}
 	return nil
+}
+
+func hasVaultInboxConfig(configs []*v2.EncryptionConfig) bool {
+	for _, config := range configs {
+		if providers.IsVaultInboxConfig(config) {
+			return true
+		}
+	}
+	return false
 }
 
 // validateVaultInboxConfigExclusivity refuses a vault-inbox recipient that is

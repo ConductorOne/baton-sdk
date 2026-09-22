@@ -122,10 +122,12 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
 	}
 
-	// Post-mint cardinality check, same rule as issuance: a vault-inbox recipient
-	// carries the whole submission payload, so two account plaintexts would seal
-	// two complete envelopes bound to one submission id.
-	if err := pkem.ValidatePlaintextCardinality(plaintexts); err != nil {
+	// Upper-bound only: CreateAccount's AlreadyExists, ActionRequired, and
+	// InProgress results legitimately carry no plaintext, and demanding one here
+	// would turn "the account already exists" into a hard failure. More than one
+	// is still refused, because it would seal several complete envelopes bound to
+	// one submission id.
+	if err := pkem.ValidatePlaintextCardinalityAtMostOne(plaintexts); err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}

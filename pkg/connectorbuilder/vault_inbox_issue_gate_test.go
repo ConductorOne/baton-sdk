@@ -131,6 +131,83 @@ func TestVaultInboxProviderRefusesAForeignProviderName(t *testing.T) {
 		"a config naming another provider must not be sealed by this one")
 }
 
+// gateAccountManager lets a test choose the CreateAccount result, so the
+// cardinality rule can be exercised against the non-success outcomes that
+// legitimately carry no plaintext.
+type gateAccountManager struct {
+	ResourceSyncer
+	result      CreateAccountResponse
+	plaintexts  []*v2.PlaintextData
+	createCalls int
+}
+
+func (m *gateAccountManager) CreateAccount(
+	context.Context,
+	*v2.AccountInfo,
+	*v2.LocalCredentialOptions,
+) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error) {
+	m.createCalls++
+	return m.result, m.plaintexts, annotations.Annotations{}, nil
+}
+
+func (m *gateAccountManager) CreateAccountCapabilityDetails(context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error) {
+	return v2.CredentialDetailsAccountProvisioning_builder{}.Build(), annotations.Annotations{}, nil
+}
+
+func gateCreateAccountRequest(t *testing.T) *v2.CreateAccountRequest {
+	t.Helper()
+	return v2.CreateAccountRequest_builder{
+		ResourceTypeId: "service_account",
+		AccountInfo:    &v2.AccountInfo{},
+		CredentialOptions: v2.CredentialOptions_builder{
+			RandomPassword: v2.CredentialOptions_RandomPassword_builder{Length: 12}.Build(),
+		}.Build(),
+		EncryptionConfigs: []*v2.EncryptionConfig{gateConfig(t, nil)},
+	}.Build()
+}
+
+// TestVaultInboxCreateAccountKeepsStructuredResults pins the width of the
+// cardinality rule on this path. CreateAccount's non-success outcomes carry no
+// plaintext by contract, so demanding one would replace "the account already
+// exists" with a hard failure; only more than one value is refused.
+func TestVaultInboxCreateAccountKeepsStructuredResults(t *testing.T) {
+	t.Parallel()
+
+	t.Run("non-success result with no plaintext still returns its structure", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateAccountManager{
+			ResourceSyncer: newTestResourceSyncer("service_account"),
+			result:         &v2.CreateAccountResponse_AlreadyExistsResult{IsCreateAccountResult: true},
+		}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		resp, err := connector.CreateAccount(context.Background(), gateCreateAccountRequest(t))
+		require.NoError(t, err, "an outcome that carries no credential must not be turned into a failure")
+		require.NotNil(t, resp.GetAlreadyExists(), "the structured result must survive")
+		require.Empty(t, resp.GetEncryptedData())
+		require.Equal(t, 1, manager.createCalls)
+	})
+
+	t.Run("more than one plaintext is still refused", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateAccountManager{
+			ResourceSyncer: newTestResourceSyncer("service_account"),
+			result:         &v2.CreateAccountResponse_SuccessResult{IsCreateAccountResult: true},
+			plaintexts: []*v2.PlaintextData{
+				gateValue("api_key", []byte("v")),
+				gateValue("api_key_id", []byte("id")),
+			},
+		}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		_, err = connector.CreateAccount(context.Background(), gateCreateAccountRequest(t))
+		require.Error(t, err, "two values would seal two envelopes bound to one submission id")
+		require.Equal(t, 1, manager.createCalls, "the account manager must not be re-invoked")
+	})
+}
+
 func gateValue(name string, value []byte) *v2.PlaintextData {
 	return v2.PlaintextData_builder{Name: name, Bytes: value}.Build()
 }
