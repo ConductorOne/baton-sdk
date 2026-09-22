@@ -24,21 +24,23 @@ const (
 )
 
 // GrantsRevoked is attached by a connector to a Revoke response when the
-// operation removed grants on additional resources for the same principal.
+// operation removed additional grants for the same principal.
 //
-// Each resource id names a resource whose grants for that principal are gone.
-// ConductorOne revokes those bindings without dispatching a separate Revoke
-// RPC. The resources themselves are not deleted. An empty list means the
-// revoke had no additional grant side effects.
+// Each entitlement id names one entitlement whose grant for that principal is
+// gone. An entitlement id has the form "{resource_type}:{resource_id}:{slug}".
+// ConductorOne revokes that binding without dispatching a separate Revoke RPC.
+// Other entitlements on the same resource are left alone. An empty list means
+// the revoke had no additional grant side effects.
 //
 // Typical use: a role-revoke API replaces the principal's role set, so
-// revoking one role also removes other roles. The connector reports those
-// resources so ConductorOne can drop the extra grants immediately.
+// revoking one role also removes other role entitlements. The connector
+// reports those entitlement ids so ConductorOne can drop the extra grants
+// immediately.
 type GrantsRevoked struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_ResourceIds *[]*ResourceId         `protobuf:"bytes,1,rep,name=resource_ids,json=resourceIds,proto3"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state                     protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_EntitlementIds []string               `protobuf:"bytes,1,rep,name=entitlement_ids,json=entitlementIds,proto3"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *GrantsRevoked) Reset() {
@@ -66,31 +68,29 @@ func (x *GrantsRevoked) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *GrantsRevoked) GetResourceIds() []*ResourceId {
+func (x *GrantsRevoked) GetEntitlementIds() []string {
 	if x != nil {
-		if x.xxx_hidden_ResourceIds != nil {
-			return *x.xxx_hidden_ResourceIds
-		}
+		return x.xxx_hidden_EntitlementIds
 	}
 	return nil
 }
 
-func (x *GrantsRevoked) SetResourceIds(v []*ResourceId) {
-	x.xxx_hidden_ResourceIds = &v
+func (x *GrantsRevoked) SetEntitlementIds(v []string) {
+	x.xxx_hidden_EntitlementIds = v
 }
 
 type GrantsRevoked_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	// Resources whose grants for the revoke principal were removed.
-	ResourceIds []*ResourceId
+	// Entitlements whose grants for the revoke principal were removed.
+	EntitlementIds []string
 }
 
 func (b0 GrantsRevoked_builder) Build() *GrantsRevoked {
 	m0 := &GrantsRevoked{}
 	b, x := &b0, m0
 	_, _ = b, x
-	x.xxx_hidden_ResourceIds = &b.ResourceIds
+	x.xxx_hidden_EntitlementIds = b.EntitlementIds
 	return m0
 }
 
@@ -98,23 +98,20 @@ var File_c1_connector_v2_annotation_grants_revoked_proto protoreflect.FileDescri
 
 const file_c1_connector_v2_annotation_grants_revoked_proto_rawDesc = "" +
 	"\n" +
-	"/c1/connector/v2/annotation_grants_revoked.proto\x12\x0fc1.connector.v2\x1a\x1ec1/connector/v2/resource.proto\x1a\x17validate/validate.proto\"^\n" +
-	"\rGrantsRevoked\x12M\n" +
-	"\fresource_ids\x18\x01 \x03(\v2\x1b.c1.connector.v2.ResourceIdB\r\xfaB\n" +
-	"\x92\x01\a\"\x05\x8a\x01\x02\x10\x01R\vresourceIdsB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"/c1/connector/v2/annotation_grants_revoked.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"F\n" +
+	"\rGrantsRevoked\x125\n" +
+	"\x0fentitlement_ids\x18\x01 \x03(\tB\f\xfaB\t\x92\x01\x06\"\x04r\x02 \x01R\x0eentitlementIdsB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_annotation_grants_revoked_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_c1_connector_v2_annotation_grants_revoked_proto_goTypes = []any{
 	(*GrantsRevoked)(nil), // 0: c1.connector.v2.GrantsRevoked
-	(*ResourceId)(nil),    // 1: c1.connector.v2.ResourceId
 }
 var file_c1_connector_v2_annotation_grants_revoked_proto_depIdxs = []int32{
-	1, // 0: c1.connector.v2.GrantsRevoked.resource_ids:type_name -> c1.connector.v2.ResourceId
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	0, // [0:0] is the sub-list for method output_type
+	0, // [0:0] is the sub-list for method input_type
+	0, // [0:0] is the sub-list for extension type_name
+	0, // [0:0] is the sub-list for extension extendee
+	0, // [0:0] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_annotation_grants_revoked_proto_init() }
@@ -122,7 +119,6 @@ func file_c1_connector_v2_annotation_grants_revoked_proto_init() {
 	if File_c1_connector_v2_annotation_grants_revoked_proto != nil {
 		return
 	}
-	file_c1_connector_v2_resource_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

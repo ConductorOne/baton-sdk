@@ -57,47 +57,18 @@ func (m *GrantsRevoked) validate(all bool) error {
 
 	var errors []error
 
-	for idx, item := range m.GetResourceIds() {
+	for idx, item := range m.GetEntitlementIds() {
 		_, _ = idx, item
 
-		if item == nil {
+		if len(item) < 1 {
 			err := GrantsRevokedValidationError{
-				field:  fmt.Sprintf("ResourceIds[%v]", idx),
-				reason: "value is required",
+				field:  fmt.Sprintf("EntitlementIds[%v]", idx),
+				reason: "value length must be at least 1 bytes",
 			}
 			if !all {
 				return err
 			}
 			errors = append(errors, err)
-		}
-
-		if all {
-			switch v := interface{}(item).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, GrantsRevokedValidationError{
-						field:  fmt.Sprintf("ResourceIds[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, GrantsRevokedValidationError{
-						field:  fmt.Sprintf("ResourceIds[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return GrantsRevokedValidationError{
-					field:  fmt.Sprintf("ResourceIds[%v]", idx),
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
 		}
 
 	}

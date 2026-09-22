@@ -9,22 +9,18 @@ import (
 )
 
 func TestNewGrantsRevoked(t *testing.T) {
-	roleID := &v2.ResourceId{ResourceType: "role", Resource: "role-2"}
-	got := NewGrantsRevoked(roleID)
+	got := NewGrantsRevoked("role:role-2:member")
 	require.NotNil(t, got)
-	require.Equal(t, []*v2.ResourceId{roleID}, got.GetResourceIds())
+	require.Equal(t, []string{"role:role-2:member"}, got.GetEntitlementIds())
 }
 
 func TestAppendGrantsRevoked(t *testing.T) {
-	roleID := &v2.ResourceId{ResourceType: "role", Resource: "role-2"}
 	annos := annotations.Annotations{}
-	annos = AppendGrantsRevoked(annos, roleID)
+	annos = AppendGrantsRevoked(annos, "role:role-2:member")
 
 	got := &v2.GrantsRevoked{}
 	found, err := annos.Pick(got)
 	require.NoError(t, err)
 	require.True(t, found)
-	require.Len(t, got.GetResourceIds(), 1)
-	require.Equal(t, "role", got.GetResourceIds()[0].GetResourceType())
-	require.Equal(t, "role-2", got.GetResourceIds()[0].GetResource())
+	require.Equal(t, []string{"role:role-2:member"}, got.GetEntitlementIds())
 }
