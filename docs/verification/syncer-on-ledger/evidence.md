@@ -516,3 +516,10 @@ power-loss matrix. Existing main replay/layer tests and full suites also pass; r
 The original expansion-page products are excluded by CO-021; other criteria's
 unexecuted products remain incomplete. No new expansion performance percentage
 is claimed: capability-use checks establish restoration of the optimized path.
+
+Debug-report follow-up: the public archived-report check initially reported one
+missing child for expansion. It now excludes expansion's phase-frontier entry
+from page-row lookup. The consumer asserts reference validation actually ran,
+while existing missing-child/continuation and fan-in checks stay enabled.
+Focused sync/report race checks pass three times (6.715s / 2.193s); broad
+lint reports zero issues after this correction.

@@ -2,6 +2,7 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -121,6 +122,19 @@ func TestLedgerExpansionPublicReplay(t *testing.T) {
 			_, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: SyncGrantExpansionOp.String()})
 			require.NoError(t, err)
 			require.False(t, found)
+			report, err := f.ledger.GetArchivedLedgerReport(t.Context())
+			require.NoError(t, err)
+			var decoded struct {
+				Latest struct {
+					Performed bool `json:"reference_validation_performed"`
+					Checks    struct {
+						MissingChildren uint64 `json:"missing_child_references"`
+					} `json:"reference_checks"`
+				} `json:"latest"`
+			}
+			require.NoError(t, json.Unmarshal(report, &decoded))
+			require.True(t, decoded.Latest.Performed)
+			require.Zero(t, decoded.Latest.Checks.MissingChildren, "expansion is a phase, not a missing collection page")
 			graph, err := GraphFromStore(t.Context(), f.store, resumed.syncID)
 			require.NoError(t, err)
 			require.NotNil(t, graph, "preserved graph must survive terminal recovery")
