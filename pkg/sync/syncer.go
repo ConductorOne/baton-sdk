@@ -2161,6 +2161,27 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		putChunk = *s.testHooks.externalMatchGrantPutChunk
 	}
 
+	fromPreviouslyProcessedRow := make([]bool, len(externalMatchGrants))
+	previouslyProcessedRowIDs := mapset.NewSet[string]()
+	for i, ga := range externalMatchGrants {
+		annos := annotations.Annotations(ga.Grant.GetAnnotations())
+		matchAll, err := GetExternalResourceMatchAllAnnotation(annos)
+		if err != nil {
+			return err
+		}
+		if matchAll != nil {
+			continue
+		}
+		previouslyProcessed, err := s.isPreviouslyProcessedRow(ctx, ga.Grant, ga.Annotation)
+		if err != nil {
+			return err
+		}
+		fromPreviouslyProcessedRow[i] = previouslyProcessed
+		if previouslyProcessed {
+			previouslyProcessedRowIDs.Add(ga.Grant.GetId())
+		}
+	}
+
 	grantsToDelete := make([]*v2.Grant, 0, len(externalMatchGrants))
 	newGrantIDs := mapset.NewSet[string]()
 	expandedBuf := make([]*v2.Grant, 0, putChunk)
@@ -2179,8 +2200,15 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		expandedBuf = nil
 		return nil
 	}
-	addExpanded := func(g *v2.Grant) error {
+	addExpanded := func(g *v2.Grant, fromPreviouslyProcessed bool) error {
 		newGrantIDs.Add(g.GetId())
+		// A rerun of this step reads back the rows an earlier run wrote,
+		// whose plain entitlement ids the remap cannot read. A grant built from
+		// such a row is not written over an existing row; its id still counts as
+		// re-issued, so that row is not deleted either.
+		if fromPreviouslyProcessed && previouslyProcessedRowIDs.ContainsOne(g.GetId()) {
+			return nil
+		}
 		expandedBuf = append(expandedBuf, g)
 		expandedCount++
 		if expandedCount%externalMatchProgressLogInterval == 0 {
@@ -2196,7 +2224,8 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		return flushExpanded()
 	}
 
-	for _, ga := range externalMatchGrants {
+	for i, ga := range externalMatchGrants {
+		fromPreviouslyProcessed := fromPreviouslyProcessedRow[i]
 		grant := ga.Grant
 		annos := annotations.Annotations(grant.GetAnnotations())
 
@@ -2212,7 +2241,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			}
 			for _, principal := range principalsByTrait[trait] {
 				newGrant := newGrantForExternalPrincipal(grant, principal)
-				if err := addExpanded(newGrant); err != nil {
+				if err := addExpanded(newGrant, false); err != nil {
 					return err
 				}
 			}
@@ -2286,7 +2315,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					newGrantAnnos.Update(newExpandableAnno)
 					newGrant.SetAnnotations(newGrantAnnos)
 				}
-				if err := addExpanded(newGrant); err != nil {
+				if err := addExpanded(newGrant, fromPreviouslyProcessed); err != nil {
 					return err
 				}
 			}
@@ -2326,7 +2355,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				}
 				for _, i := range positions {
 					newGrant := newGrantForExternalPrincipal(grant, idx.principalAt(i))
-					if err := addExpanded(newGrant); err != nil {
+					if err := addExpanded(newGrant, fromPreviouslyProcessed); err != nil {
 						return err
 					}
 				}
@@ -2352,7 +2381,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						return err
 					}
 					if newGrant != nil {
-						if err := addExpanded(newGrant); err != nil {
+						if err := addExpanded(newGrant, fromPreviouslyProcessed); err != nil {
 							return err
 						}
 					}
@@ -2447,6 +2476,40 @@ func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.G
 		Annotations: grant.GetAnnotations(),
 	}.Build()
 	return newGrant
+}
+
+// isPreviouslyProcessedRow reports whether a match-annotated grant was written
+// by an earlier run of processGrantsWithExternalPrincipals: every
+// GrantExpandable entry is entitlement.NewEntitlementID(principal, slug) and
+// names exactly one stored entitlement, on the grant's own principal. A
+// connector's carrier names its placeholder's entitlements by BID. These are
+// the checks loadEntitlementGraph applies to each entry.
+func (s *syncer) isPreviouslyProcessedRow(ctx context.Context, grant *v2.Grant, expandableAnno *v2.GrantExpandable) (bool, error) {
+	ids := expandableAnno.GetEntitlementIds()
+	if len(ids) == 0 {
+		return false, nil
+	}
+	principalID := grant.GetPrincipal().GetId()
+	prefix := entitlement.NewEntitlementID(grant.GetPrincipal(), "")
+	for _, id := range ids {
+		if slug, ok := strings.CutPrefix(id, prefix); !ok || slug == "" {
+			return false, nil
+		}
+	}
+	for _, id := range ids {
+		resp, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: id}.Build())
+		switch {
+		case status.Code(err) == codes.NotFound, errors.Is(err, enginepkg.ErrAmbiguousExternalID):
+			return false, nil
+		case err != nil:
+			return false, err
+		}
+		resourceID := resp.GetEntitlement().GetResource().GetId()
+		if resourceID.GetResourceType() != principalID.GetResourceType() || resourceID.GetResource() != principalID.GetResource() {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func GetExternalResourceMatchAllAnnotation(annos annotations.Annotations) (*v2.ExternalResourceMatchAll, error) {
