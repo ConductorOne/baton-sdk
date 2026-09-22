@@ -56,10 +56,11 @@ never decrypted, resealed, or re-encoded.
 
 5. A **separate** authorized slice performs member ingestion: an authorized C1
    vault member decrypts the submission, creates a **native secret** through the
-   ordinary secret path, and records acceptance. Only that durable native
-   creation plus the recorded acceptance makes the credential `DELIVERED`, and
-   only then are the destination's full-knowledge delivery instance
-   `secret_id`/`version_id` populated.
+   ordinary secret path, and records acceptance. Before marking the operation
+   `DELIVERED`, C1 must durably create the native secret, record acceptance, and
+   populate the existing full-knowledge delivery instance's `secret_id` and
+   `version_id` with the accepted secret and version IDs. Inbox registration or
+   allocated IDs alone do not satisfy these requirements.
 
 Ordinary authorized reveal is a **mandatory acceptance test** for that ingestion
 slice — it is how the created native secret is proven to be readable — not a
@@ -201,8 +202,8 @@ Output cardinality and size, evaluated once the connector has produced values:
 
 An overlength or wrong-cardinality failure is therefore **post-mint** by
 construction: the provider credential exists, and the failure surfaces so C1 can
-compensate (see §7) instead of silently delivering a partial or unusable
-submission.
+revoke that provider credential and clean up its submission (see §7) instead of
+silently delivering a partial or unusable submission.
 
 ### 6.3 What the SDK does not verify
 
@@ -214,7 +215,7 @@ connector does not verify attestation signatures, does not treat a JWK as
 self-authenticating, and does not invent, re-sign, or substitute keys. This is
 the same trust root as the existing inbox submission flow, unchanged.
 
-## 7. Failure compensation
+## 7. Provider revocation and submission cleanup
 
 Delivery failures are handled by **exact, bounded** actions, never by a blanket
 cleanup and never by re-minting:
