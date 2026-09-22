@@ -141,9 +141,8 @@ func recoverLedgerFamilyFile(t *testing.T, path string) string {
 }
 
 type ledgerFamilyResult struct {
-	data                []ledgerKV
-	stats               c1zstore.SyncStats
-	initialQualityKnown bool
+	data  []ledgerKV
+	stats c1zstore.SyncStats
 }
 
 func runLedgerFamilySync(t *testing.T, path string, workers int, cut func(*ledgerFixture, c1zstore.LedgerActionIdentity, bool)) ledgerFamilyResult {
@@ -151,9 +150,6 @@ func runLedgerFamilySync(t *testing.T, path string, workers int, cut func(*ledge
 	var result ledgerFamilyResult
 	synctest.Test(t, func(t *testing.T) {
 		f := openLedgerFixtureAt(t, path, false)
-		priorFacts, err := f.ledger.LedgerFacts(t.Context())
-		require.NoError(t, err)
-		_, result.initialQualityKnown = priorFacts[ledgerFactIngestKnown]
 		source := &ledgerFamilyStore{PageLedgerStore: f.ledger}
 		if cut != nil {
 			source.cut = func(id c1zstore.LedgerActionIdentity, after bool) { cut(f, id, after) }
@@ -285,12 +281,7 @@ func TestLedgerPublicFamilyCrashDifferential(t *testing.T) {
 						result := runLedgerFamilySync(t, recoverLedgerFamilyFile(t, path), 5-workers, nil)
 						require.Equal(t, baseline.data, result.data)
 						require.Equal(t, baseline.stats.Run, result.stats.Run)
-						if result.initialQualityKnown {
-							require.Equal(t, baseline.stats.IngestQuality, result.stats.IngestQuality)
-						} else {
-							require.Equal(t, &c1zstore.IngestQuality{SourceCacheReplayBlocked: true, ReasonFlags: ingestQualityReasonUnknownPriorCheckpoint}, result.stats.IngestQuality)
-							t.Log("known difference from uninterrupted sync: lost initial quality selects main's unknown-prior policy")
-						}
+						require.Equal(t, baseline.stats.IngestQuality, result.stats.IngestQuality)
 					})
 				}
 			}

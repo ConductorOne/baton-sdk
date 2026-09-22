@@ -53,7 +53,14 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 	if err != nil {
 		return false, err
 	}
-	if err := s.restoreLedgerState(ctx, resume, newSync); err != nil {
+	knownEmpty := newSync
+	if !knownEmpty && !finished && !discardPending && len(s.ledger.facts) == 0 && s.ledger.prior.IsZero() {
+		knownEmpty, err = ledger.BoundSyncUnstarted(ctx)
+		if err != nil {
+			return false, err
+		}
+	}
+	if err := s.restoreLedgerState(ctx, resume, knownEmpty); err != nil {
 		return false, err
 	}
 	return resume.sealReady, nil

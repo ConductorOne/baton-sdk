@@ -164,10 +164,10 @@ of C10, C37, C38 or C47 over all required cells.
 
 ### C16
 
-- Status: failed.
+- Status: evidence incomplete.
 - Tests run: TestLedgerResumeLogicalDifferential; TestLedgerPublicFamilyCrashDifferential.
 - The public fixture compares exact primary-record, index, counter and digest key/value bytes across process death and resumed Sync, including save/reopen. It paginates resource types, resources, static entitlements, entitlements and grants; crosses before/after a populated continuation commit, WAL/flushed recovery, and one/four workers (40 cells). Resume switches worker count. Committed action and connector-call accounting also agree.
-- Strict equality fails for ingest quality when the initial known-quality fact is lost with all unflushed pages. Resume marks SourceCacheReplayBlocked and UnknownPriorCheckpoint; uninterrupted Sync does not. This matches the existing token path's conservative fallback. The new test explicitly asserts and logs that behavior; its passing result does not close strict C16 equality. A requester disposition is pending. No production recovery behavior was changed for this finding.
+- The original public test exposed an ingest-quality mismatch after all initial pages were lost. CO-024 fixes it with read-only detection of an unfinished sync without surviving collection history. The test now requires exact ingest-quality equality in all 40 cells; its temporary unknown-quality exception is removed. Existing records, legacy token/frontier, archived history and finished runs cannot use the empty-start exception.
 - Only duration fields are normalized in the public accounting comparison. Primary record timestamps are held equal by deterministic test time, not stripped. Raw artifact hashes are logged without claiming byte equality. Runtime-generated metadata, report options and report rankings are not part of this raw-family comparison.
 - Planted defect: suppressing PutGrants in the production collection handler causes the independent expected-grant assertion to fail (expected 4, actual 0); restored. The earlier resumed-worker accounting mutation remains recorded in the archive.
 - Not covered: targeted resources, assets, all feature combinations, simulated power-loss images for these public handlers, and the full mechanical product. The public process test does not turn ordinary WAL recovery into a power-loss claim.
@@ -653,9 +653,9 @@ quality fact disappeared with the initial pages; the normal fallback marked the
 prior quality unknown and blocked source-cache replay. The token path on baseline
 has the same fallback. The test now explicitly asserts that current behavior when
 the recovered known-quality fact is absent, and exact quality equality when it is
-present. This is an exposed contract difference, not an allowed normalization or
-a claim of C16 closure. The choice between preserving main and adding durable
-clean-start provenance is awaiting requester disposition.
+present. This exposed a contract difference, not an allowed normalization. CO-024 below
+resolves it through read-only empty-state detection; it adds no durable provenance
+marker. The temporary test exception described here has been removed.
 
 The full opt-in cut sweep (`BATON_TEST_NIGHTLY=1 BATON_CUT_SWEEP=full`) runs
 52 commit cuts, 45 response cuts and 45 expiry cuts, including repeated cuts and
@@ -683,4 +683,49 @@ Post-deferral validation: full sync (124.875s), Pebble (30.865s) and compactor
 three repetitions (sync 5.974s; storage 10.032s). The final public family test
 passes with verbose artifact-digest output (3.301s); its subprocess output is also
 checked for race-detector warnings. CI-equivalent repository lint with Go 1.27.1
-and golangci-lint 2.13.2 reports zero issues. C16 remains unresolved as above.
+and golangci-lint 2.13.2 reports zero issues. The then-open C16 quality mismatch is
+resolved by CO-024 below.
+
+
+## Empty-start quality recovery (CO-024)
+
+The strict public quality comparison fails before the fix: the resumed artifact
+has SourceCacheReplayBlocked=true and UnknownPriorCheckpoint while the
+uninterrupted artifact does not. The temporary equality exception is removed.
+All 40 process-crash cells now compare quality exactly, in addition to records,
+indexes, digests and committed accounting.
+
+BoundSyncUnstarted holds the binding/write locks while reading the sync record,
+checking archive absence and seeking three collection-state key ranges. It does
+not iterate collection rows or write anything. Normal fresh starts and resumes with existing
+facts/accounting do not need the query. An empty resumed run establishes clean
+quality in memory; Init saves that fact atomically as before. Session state and
+the compatibility stamp alone do not imply prior collection.
+
+TestBoundSyncUnstarted covers every primary family, indexes, counters, sessions,
+digests, source-cache and ledger state; legacy token and migrated frontier;
+archive presence; finished/no binding; stamp-only state; cancellation, corrupt
+sync metadata and a closed engine. TestLedgerEmptyStartQuality exercises the
+public store capability through restoration, including existing resource/grant
+records, token/frontier, known clean/blocked quality, finished state and a query
+error. Read-only cases compare raw snapshots under the rejecting write recorder.
+The clean fact is absent before Init and survives save/reopen after Init.
+
+An omission mutant removed the primary-record range from the query. Five storage
+family cases and the consumer's surviving-resource case reject it. The mutation
+was run in an isolated checkout and removed. The read capability and lock-holder
+inventories include the new method; the structural lock test caught its initially
+missing registry entry. No schema, durable marker, token parser, or SQLite path
+change is made.
+
+Validation: full sync 118.552s, Pebble 19.336s and compactor 36.538s pass. Focused
+empty-start/legacy/finished/public-crash race checks pass three repetitions
+(sync 84.638s, storage 2.635s). Final query/consumer/structural checks pass
+(0.474s / 0.578s). CI-equivalent Go 1.27.1 / golangci-lint 2.13.2 lint has zero
+issues. C16's broader unexecuted products remain evidence incomplete; this closes
+the specific quality mismatch found by the public family fixture.
+
+The storage-query commit `5be2f4b8` builds independently in a detached checkout;
+its storage-query and public capability-inventory checks pass (0.194s / 0.091s).
+The final verbose public differential passes in 7.298s and records raw artifact
+hashes; these hashes are not used as an equality claim.

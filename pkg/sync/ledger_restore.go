@@ -9,7 +9,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-func (s *syncer) restoreLedgerState(ctx context.Context, resume ledgerResume, newSync bool) error {
+func (s *syncer) restoreLedgerState(ctx context.Context, resume ledgerResume, knownEmpty bool) error {
 	if s.testHooks.ledgerWalk != nil {
 		s.testHooks.ledgerWalk(true)
 		defer s.testHooks.ledgerWalk(false)
@@ -72,7 +72,7 @@ func (s *syncer) restoreLedgerState(ctx context.Context, resume ledgerResume, ne
 		stats.setIngestQuality(&converted)
 	}
 	quality := stats.ingestQuality()
-	if newSync {
+	if knownEmpty {
 		quality = &IngestQualityCheckpoint{}
 		stats.setIngestQuality(quality)
 	} else if quality == nil {
