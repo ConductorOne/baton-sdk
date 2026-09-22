@@ -70,3 +70,26 @@ the staged grant merge and staged resource/entitlement deletion APIs. CO-022 mov
 default archival/disposal into seal, eliminating the scrub-then-drop sequence.
 The matching unfinished archive remains recovery authority after row deletion;
 retained/debug ledgers still use the existing scrub policy.
+
+
+## Final recovery boundary audit after 38b87b01
+
+This is a direct source inspection and targeted execution, not an independent
+review by another reviewer or closure of every coverage product.
+
+| Boundary | Current behavior and test evidence |
+| --- | --- |
+| Page publication | `invokeActionPage` stages the transition and observations; `runPageWithCommit` publishes only after the batch succeeds. Handler failures discard; storage errors cannot become connector NotFound warnings. ExistingScheduler commit-failure, warning, independent-error and fact-publication tests exercise these distinctions. |
+| Resume walk | Public family crash fixtures bracket the walk with the write recorder and exact raw snapshots. The walk returns pending work to the existing scheduler; it has no replacement worker pool. Recorded completion is not incremented again. |
+| Fresh sync without surviving Init | The known-quality fact is part of Init. If all initial pages disappear, restore uses the same UnknownPriorCheckpoint fallback as the token path. This changes the sealed quality flags relative to uninterrupted execution; C16 records the unresolved equality claim. |
+| Finished continuation | `startOrResumeSync` is unchanged from baseline. `prepareLedgerState` restores archived facts/accounting and clears rows only for finished processing without pending legacy work. The timestamp-based engine BoundSyncFinished API is unchanged. FinishedProcessingResumesWithoutReset, FinishedLegacyFrontierKeepsPendingWork and PublicFinishedContinuationAfterDisposal cover these branches. |
+| ClearRows | Synced row/frontier/selected-fact deletion preserves records, counters and sync metadata. ClearRowsFailureCuts and ClearRowsCrashImages cover stamped/staged/committed boundaries; the latter uses durable-only VFS images. Physical purge is deferred to seal, with the cleanup marker retained across those images. |
+| Archive and disposal | The archive is saved before history deletion. A token-free pending declaration survives through finalization, including retries over an older finished timestamp. DiscardDurableSealCuts covers eight cuts for fresh/finished bindings; batch failure and purge/stamp/marker retry tests cover error returns. |
+| Archive failure | Sealing retains and scrubs history. Successful finalization still removes the disposal declaration; the fallback test now asserts this so later requested processing is not mistaken for a pending seal. |
+| Stats overlay | FailedSealDropsItsStatsOverlay verifies that the next seal uses its own stats. Terminal consumer tests separately assert folded ledger facts/counters reach EndSyncWithStats. |
+| Shared scheduler | The existing phase switch, queue, retry policy and worker dispatch remain. Ledger context and invocation wrapping are conditional; the token arm calls the original handler. InitialActionsBaseline and ExistingScheduler tests cover ordering, spawned completion, duplicate claims, warnings and independently failing workers. |
+| Expansion/external processing | Both call main's ordinary handlers outside page transactions. Expansion's timing wrapper records elapsed time; it does not replace graph construction, write interfaces or retry behavior. External import retains its separately documented upstream replay limitation. |
+
+The final audit runs the complete cut-enumeration fixture and the six fixed-seed
+scheduler soaks explicitly; those tests are opt-in and a normal package-test pass
+does not establish that they ran. Per-run results are recorded in evidence.md.

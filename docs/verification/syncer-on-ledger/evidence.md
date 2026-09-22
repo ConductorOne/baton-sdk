@@ -61,11 +61,12 @@ of C10, C37, C38 or C47 over all required cells.
 ### C04
 
 - Status: evidence incomplete.
-- Tests run: TestLedgerRuntimeCrashProcess; TestLedgerPublicCrashResume.
+- Tests run: TestLedgerRuntimeCrashProcess; TestLedgerPublicCrashResume; TestLedgerPublicFamilyCrashDifferential.
 - Coverage: runtime process cuts plus public resource-page/terminal cuts with one/four workers, ordinary WAL recovery and explicitly flushed committed history. Public recovery compares transported raw keys and exact final resource identities/payloads.
 - Planted defect: missing-resource-action walk mutation fails the public fixture; this is not a separate torn-record/index mutation.
 - Green command/revision: K2b and public process-recovery entries in the archived execution log.
-- Not covered: physical WAL-loss cuts, the other handler families, complete logical/index differentials and full P1/P6 products.
+- New coverage: 40 public process cuts across five populated collection families, WAL/flushed images and changed worker counts; exact record/index/digest comparisons after save/reopen.
+- Not covered: simulated power-loss cuts for those handlers, targeted/asset process cuts, and the full P1/P6 products.
 
 ### C05
 
@@ -110,10 +111,11 @@ of C10, C37, C38 or C47 over all required cells.
 
 ### C10
 
-- Status: not assessed.
-- No criterion-specific mutant/green execution is recorded. All required
-  C10 cells and applicable calibration entries remain open; candidates are in
-  the archived brief §5.
+- Status: evidence incomplete.
+- Tests run: TestLedgerPublicFamilyCrashDifferential; TestLedgerPublicCrashResume; TestLedgerPublicCancelledAfterWalkWritesNothing; TestLedgerWriteInstrument.
+- Coverage: public process resumes bracket the walk with a rejecting write recorder and exact key/value snapshots, including 40 multi-family cases and changed worker counts. Lifecycle writes outside the walk remain separate under CO-004.
+- Planted defect: the existing write-instrument mutation removes the walk prohibition and is rejected; the stop-before-page counter-write defect is recorded under C40. No new walk mutant was added in this audit.
+- Not covered: early stop after every visited row in P8 and every session/bypass combination.
 
 ### C11
 
@@ -162,12 +164,13 @@ of C10, C37, C38 or C47 over all required cells.
 
 ### C16
 
-- Status: evidence incomplete.
-- Candidate: TestLedgerResumeLogicalDifferential.
-- Required coverage: plan C16 and calibration CO-005.
-- Planted defect: subtracted one record observation from resumed worker candidates; canonical accounting comparison failed; defect removed.
-- Green command/revision: K2b execution entry in the archived execution log.
-- Not covered: physical WAL-loss cuts, all handler families, public Sync entry, complete mechanical products.
+- Status: failed.
+- Tests run: TestLedgerResumeLogicalDifferential; TestLedgerPublicFamilyCrashDifferential.
+- The public fixture compares exact primary-record, index, counter and digest key/value bytes across process death and resumed Sync, including save/reopen. It paginates resource types, resources, static entitlements, entitlements and grants; crosses before/after a populated continuation commit, WAL/flushed recovery, and one/four workers (40 cells). Resume switches worker count. Committed action and connector-call accounting also agree.
+- Strict equality fails for ingest quality when the initial known-quality fact is lost with all unflushed pages. Resume marks SourceCacheReplayBlocked and UnknownPriorCheckpoint; uninterrupted Sync does not. This matches the existing token path's conservative fallback. The new test explicitly asserts and logs that behavior; its passing result does not close strict C16 equality. A requester disposition is pending. No production recovery behavior was changed for this finding.
+- Only duration fields are normalized in the public accounting comparison. Primary record timestamps are held equal by deterministic test time, not stripped. Raw artifact hashes are logged without claiming byte equality. Runtime-generated metadata, report options and report rankings are not part of this raw-family comparison.
+- Planted defect: suppressing PutGrants in the production collection handler causes the independent expected-grant assertion to fail (expected 4, actual 0); restored. The earlier resumed-worker accounting mutation remains recorded in the archive.
+- Not covered: targeted resources, assets, all feature combinations, simulated power-loss images for these public handlers, and the full mechanical product. The public process test does not turn ordinary WAL recovery into a power-loss claim.
 
 ### C17
 
@@ -210,10 +213,11 @@ of C10, C37, C38 or C47 over all required cells.
 
 ### C21
 
-- Status: not assessed.
-- No criterion-specific mutant/green execution is recorded. All required
-  C21 cells and applicable calibration entries remain open; candidates are in
-  the archived brief §5.
+- Status: evidence incomplete.
+- Tests run: TestLedgerPublicFamilyCrashDifferential; TestLedgerTakeoverCountersImportedOnlyWhenAbsent; TestLedgerCanonicalFoldsCommittedBuckets.
+- Coverage: exact completed-action and connector-call totals across one-to-four and four-to-one worker process recovery; takeover import suppression and bucket folding have separate fixtures.
+- Planted defect: the existing disabled takeover-counter guard duplicates historical totals and is rejected. The new process matrix adds no separate bucket-index mutant.
+- Not covered: all P5 fields and combinations, particularly nonzero errors/timeouts and latency maxima during these public process cuts.
 
 ### C22
 
@@ -262,10 +266,11 @@ of C10, C37, C38 or C47 over all required cells.
 
 ### C27
 
-- Status: not assessed.
-- No criterion-specific mutant/green execution is recorded. All required
-  C27 cells and applicable calibration entries remain open; candidates are in
-  the archived brief §5.
+- Status: evidence incomplete.
+- Tests run: TestLedgerTakeoverCrashImages; TestLedgerTakeoverIsOneUnit; TestLedgerPublicCrashResume; TestLedgerTakeoverLegacyFixtures.
+- Coverage: durable-only pre-stamp, post-stamp/pre-batch and post-batch images preserve the original token or the complete frontier/facts/counters. A stamped token-only image retries takeover; an old SDK refuses its layout. Public V0/V1/V2 cases kill the process before/after takeover and after a subsequent resource commit, with one/four workers. Repeated reads of the migrated frontier leave keys unchanged.
+- Failure evidence: injected takeover-batch failure leaves the token intact. No new independent token-clear mutant was run in this audit.
+- Not covered: the full version × process identity × retention product at the intermediate stamped boundary in the public syncer fixture. Storage crash images and public version tests cover complementary parts of that product.
 
 ### C28
 
@@ -306,10 +311,11 @@ of C10, C37, C38 or C47 over all required cells.
 
 ### C32
 
-- Status: not assessed.
-- No criterion-specific mutant/green execution is recorded. All required
-  C32 cells and applicable calibration entries remain open; candidates are in
-  the archived brief §5.
+- Status: evidence incomplete.
+- Tests run: TestLedgerDiscardFailureRetriesSeal; TestLedgerDiscardBatchFailure; TestLedgerDiscardDurableSealCuts; TestLedgerDiscardUnfinishedArchiveResumesWithoutCollection; TestLedgerDiscardPendingFinishedBindingDoesNotRestartProcessing; TestFailedSealDropsItsStatsOverlay.
+- Coverage: archive/discard/purge/stamp/final-marker errors and recovery, including old finished timestamps; a later engine seal consumes its own stats rather than the failed attempt's overlay. Consumer recovery forbids recollection/restarted processing.
+- Planted defects: earlier pending-seal restart and empty-report replacement mutations are rejected, as recorded in the disposal entry. The new fallback assertion requires successful archive-failure sealing to clear its pending declaration.
+- Not covered: the complete invariant/cleanup/seal P7 cross-product and a public consumer injection into the engine stats-overlay failure itself.
 
 ### C33
 
@@ -445,7 +451,7 @@ of C10, C37, C38 or C47 over all required cells.
 - Instrument run: tools/coverage-summary.py; [statement-coverage output](https://github.com/ConductorOne/baton-sdk/blob/3b35887e02365b3b3f84ed1a54d2be8b622a0d4f/docs/verification/syncer-on-ledger/executed-coverage-d891604d.json) records full sync/Pebble tests and uncovered statement ranges in changed files.
 - Instrument qualification: independent covered/uncovered profile fixture and rejection of incomplete result streams; this does not qualify branch or product coverage.
 - Additional evidence: public crash and legacy takeover cases in the archived execution log, each with a rejected planted resume defect.
-- Not covered: full changed-branch-to-criterion mapping, complete mechanical-cell execution manifest, final independent audit and seeded soak. Statement coverage is not closure of those obligations.
+- Not covered: full changed-branch-to-criterion mapping, complete mechanical-cell execution manifest and final independent audit. The six-seed scheduler soak and full cut enumeration have now run; see the final recovery audit entry. Statement coverage is not closure of those obligations.
 
 ### C49
 
@@ -621,3 +627,60 @@ Repository-wide lint passes with zero issues using golangci-lint 2.13.2 and Go
 linter against the unmerged historical branch instead reports six findings in
 unchanged baseline files; those files are not modified to accommodate the newer
 linter. The merged-tree check matches CI's source and toolchain configuration.
+
+
+## Final recovery audit execution
+
+The public family fixture executes 40 process-crash cases. It uses populated
+continuation pages, both sides of commit, WAL/flushed images, and resumes with the
+opposite worker count (one/four). Exact primary record bytes include discovered
+at timestamps; deterministic time holds those equal. The comparison also includes
+all secondary-index, record-counter and digest bytes present in this fixture,
+checks them after artifact save/reopen, and compares the stats passed to
+EndSyncWithStats with duration fields normalized. Every fixture installs the
+write hook and rejects writes during the resume walk.
+
+The fixture independently requires two resource types, four resources, twelve
+entitlements, four grants, four principal-index entries, four grant-content-hash
+index entries, and a nonempty digest. Suppressing production PutGrants fails that
+check (expected four, observed zero). Deleting an index entry from the recovered
+comparison image fails the byte comparison; that is qualification of the
+comparison, not a separately induced on-disk index corruption. Both temporary
+mutations are removed.
+
+Strict ingest-quality equality initially failed in all 20 unflushed cases. The
+quality fact disappeared with the initial pages; the normal fallback marked the
+prior quality unknown and blocked source-cache replay. The token path on baseline
+has the same fallback. The test now explicitly asserts that current behavior when
+the recovered known-quality fact is absent, and exact quality equality when it is
+present. This is an exposed contract difference, not an allowed normalization or
+a claim of C16 closure. The choice between preserving main and adding durable
+clean-start provenance is awaiting requester disposition.
+
+The full opt-in cut sweep (`BATON_TEST_NIGHTLY=1 BATON_CUT_SWEEP=full`) runs
+52 commit cuts, 45 response cuts and 45 expiry cuts, including repeated cuts and
+worker-count changes. It passes in 15.60s. The six fixed-seed scheduler soaks pass
+in 0.87s. These fixtures supplement process death; their cancellation/expiry cuts
+are not relabeled as power-loss tests.
+
+The audit also found an immediate purge in ClearRows followed by another purge
+at seal. ClearRows now leaves its durable pending-cleanup marker for seal rather
+than compacting immediately. TestLedgerClearRowsDefersPurgeUntilSeal fails before
+this change (one premature purge), then passes with zero purges at clear, one at
+seal, and neither old nor new token bytes in the saved checkpoint. The three
+ClearRows durable crash images now assert that the marker survives and is consumed
+by a later seal. Archive-failure fallback separately asserts that successful
+finalization removes its pending disposal declaration.
+
+Before the purge deferral, lifecycle/scheduler/takeover/disposal race checks pass
+three repetitions (sync 16.607s; storage 5.568s). The new family crash matrix and
+archive/clear/overlay checks also pass three race repetitions (sync 52.648s;
+storage 3.974s). Post-deferral validation is recorded below.
+
+
+Post-deferral validation: full sync (124.875s), Pebble (30.865s) and compactor
+(73.078s) suites pass. Finished-continuation/archive/disposal race checks pass
+three repetitions (sync 5.974s; storage 10.032s). The final public family test
+passes with verbose artifact-digest output (3.301s); its subprocess output is also
+checked for race-detector warnings. CI-equivalent repository lint with Go 1.27.1
+and golangci-lint 2.13.2 reports zero issues. C16 remains unresolved as above.
