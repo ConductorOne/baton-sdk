@@ -80,6 +80,14 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
 	}
 
+	// Post-mint cardinality check, same rule as issuance: a vault-inbox recipient
+	// carries the whole submission payload, so two rotated plaintexts would seal
+	// two complete envelopes bound to one submission id.
+	if err := pkem.ValidatePlaintextCardinality(plaintexts); err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
+
 	var encryptedDatas []*v2.EncryptedData
 	for _, plaintextCredential := range plaintexts {
 		var encryptedData []*v2.EncryptedData

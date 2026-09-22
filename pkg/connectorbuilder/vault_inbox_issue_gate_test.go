@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"testing"
 
+	filippoage "filippo.io/age"
 	"filippo.io/hpke"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -105,6 +106,31 @@ func gateConfig(t *testing.T, mutate func(*v2.VaultInboxRecipientConfig)) *v2.En
 	}.Build()
 }
 
+// validAgeConfig is a *valid* age recipient, so a mixed config is refused by the
+// vault-inbox exclusivity gate rather than by the age validator.
+func validAgeConfig(t *testing.T) *v2.EncryptionConfig {
+	t.Helper()
+	identity, err := filippoage.GenerateHybridIdentity()
+	require.NoError(t, err)
+	return v2.EncryptionConfig_builder{
+		AgeRecipientConfig: v2.EncryptionConfig_AgeRecipientConfig_builder{
+			Recipient: identity.Recipient().String(),
+		}.Build(),
+	}.Build()
+}
+
+// TestVaultInboxProviderRefusesAForeignProviderName pins the provider's own
+// mismatch branch directly. Routing a vault-inbox config through the request
+// path with another provider name selects *that* provider, so this branch is
+// only reachable at the provider boundary.
+func TestVaultInboxProviderRefusesAForeignProviderName(t *testing.T) {
+	t.Parallel()
+	config := gateConfig(t, nil)
+	config.SetProvider("baton/age/v1")
+	require.Error(t, vaultinbox.NewProvider().ValidateConfig(context.Background(), config),
+		"a config naming another provider must not be sealed by this one")
+}
+
 func gateValue(name string, value []byte) *v2.PlaintextData {
 	return v2.PlaintextData_builder{Name: name, Bytes: value}.Build()
 }
@@ -180,18 +206,13 @@ func TestVaultInboxIssueCredentialRefusesBeforeMinting(t *testing.T) {
 		"unknown inner field": {configs: []*v2.EncryptionConfig{gateConfig(t, func(c *v2.VaultInboxRecipientConfig) {
 			c.ProtoReflect().SetUnknown([]byte{0x80, 0x7c, 0x01})
 		})}, profiles: advertised},
-		"mismatched provider": {configs: []*v2.EncryptionConfig{func() *v2.EncryptionConfig {
-			config := gateConfig(t, nil)
-			config.SetProvider("baton/age/v1")
-			return config
-		}()}, profiles: advertised},
 		"mismatched thumbprint": {configs: []*v2.EncryptionConfig{gateConfig(t, func(c *v2.VaultInboxRecipientConfig) {
 			c.PublicKeyThumbprint = "not-the-thumbprint"
 		})}, profiles: advertised},
 		"unadvertised profile": {configs: []*v2.EncryptionConfig{gateConfig(t, nil)}, profiles: noProfiles},
-		"mixed recipient configs": {configs: []*v2.EncryptionConfig{gateConfig(t, nil), v2.EncryptionConfig_builder{
-			AgeRecipientConfig: v2.EncryptionConfig_AgeRecipientConfig_builder{Recipient: "age1placeholder"}.Build(),
-		}.Build()}, profiles: advertised},
+		// A real age recipient, so the age validator accepts it and
+		// validateVaultInboxConfigExclusivity is the gate that refuses.
+		"mixed recipient configs": {configs: []*v2.EncryptionConfig{gateConfig(t, nil), validAgeConfig(t)}, profiles: advertised},
 		"duplicate recipient configs": {configs: []*v2.EncryptionConfig{
 			gateConfig(t, nil), gateConfig(t, nil),
 		}, profiles: advertised},

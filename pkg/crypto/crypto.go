@@ -57,8 +57,10 @@ func (pkem *EncryptionManager) Encrypt(ctx context.Context, cred *v2.PlaintextDa
 func NewEncryptionManager(co *v2.CredentialOptions, ec []*v2.EncryptionConfig) (*EncryptionManager, error) {
 	// Enforced here as well as in ValidateEncryptionConfigs because that helper
 	// is called by the issuance and action paths only: RotateCredential and
-	// CreateAccount build the manager directly, and a vault-inbox recipient must
-	// not be able to arrive on those paths either.
+	// CreateAccount build the manager directly, so a vault-inbox recipient must
+	// not arrive on those paths *mixed with another recipient*. A lone vault-inbox
+	// config is legal here, and those two callers now apply the one-value rule
+	// themselves via ValidatePlaintextCardinality before they fan plaintext out.
 	if err := validateVaultInboxConfigExclusivity(ec); err != nil {
 		return nil, err
 	}

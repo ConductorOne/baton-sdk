@@ -169,10 +169,13 @@ func (p *Provider) Encrypt(ctx context.Context, conf *v2.EncryptionConfig, plain
 	func() {
 		defer clear(payload)
 		defer clear(binding)
-		info := hpke.HKDFSHA256()
+		kdf := hpke.HKDFSHA256()
 		aead := hpke.ChaCha20Poly1305()
 		var sender *hpke.Sender
-		enc, sender, err = hpke.NewSender(publicKey, info, aead, binding)
+		// The KDF and AEAD are the suite; the fourth argument is the *info*, which
+		// here is the binding — as is the AAD passed to Seal. Naming the local
+		// `kdf` keeps that call site readable against the spec.
+		enc, sender, err = hpke.NewSender(publicKey, kdf, aead, binding)
 		if err != nil {
 			return
 		}
@@ -209,8 +212,9 @@ func (p *Provider) Encrypt(ctx context.Context, conf *v2.EncryptionConfig, plain
 		Schema:         plaintext.GetSchema(),
 		EncryptedBytes: envelope,
 		// The inbox key id, not the JWK thumbprint: C1 compares this against the
-		// submission's active key id, and the thumbprint is already bound inside
-		// the sealed binding and the attestation.
+		// submission's active key id. The thumbprint is a JWK re-derivation check
+		// performed above, and is not an independent HPKE binding — the AEAD binds
+		// the key id and generation, not the thumbprint.
 		KeyIds: []string{config.GetInboxKeyId()},
 	}.Build(), nil
 }

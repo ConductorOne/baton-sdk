@@ -61,12 +61,6 @@ func IsVaultInboxConfig(conf *v2.EncryptionConfig) bool {
 	return conf != nil && conf.GetVaultInboxRecipientConfig() != nil
 }
 
-// IsVaultInboxProvider reports whether a provider name identifies the
-// vault-inbox recipient profile.
-func IsVaultInboxProvider(name string) bool {
-	return normalizeProviderName(name) == normalizeProviderName(vaultinbox.EncryptionProvider)
-}
-
 func normalizeProviderName(name string) string {
 	return strings.TrimSpace(strings.ToLower(name))
 }
