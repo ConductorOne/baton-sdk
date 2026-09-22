@@ -214,6 +214,9 @@ type PageLedgerStore interface {
 	// "" when there was no token.
 	TakeoverToken(ctx context.Context, runID string, facts []string, counters LedgerCounters) (state string, err error)
 	BoundSyncFinished(ctx context.Context) (bool, error)
+	// True only for an unfinished binding without checkpoint, archive, records or collection/replay state.
+	// Read-only; session state does not count.
+	BoundSyncUnstarted(ctx context.Context) (bool, error)
 	// Preserves records and sync metadata; removes ledger rows, facts and counters.
 	DropLedger(ctx context.Context) error
 	// Clears page rows, the takeover frontier and named facts in one synced
