@@ -55,14 +55,77 @@ func repoRoot(t *testing.T) string {
 	return root
 }
 
+// buildHarness compiles the harness inside tree with the Go that tree's own
+// go.mod declares. The pinned old release is checked out into a worktree and
+// built by the same process as HEAD, so without this both trees would use the
+// ambient toolchain — HEAD's. A tree pinned below that vendors modules whose
+// build tags exclude newer Go (cockroachdb/swiss stops at !go1.27) and fails
+// to compile before a single compatibility cell runs.
 func buildHarness(t *testing.T, tree, out string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "build", "-tags", "compatharness", "-o", out, "./cmd/baton-compat-harness")
 	cmd.Dir = tree
+	if tc := goToolchainFor(t, tree); tc != "" {
+		cmd.Env = append(os.Environ(), "GOTOOLCHAIN="+tc)
+	}
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "build harness in %s:\n%s", tree, output)
+}
+
+func goToolchainFor(t *testing.T, tree string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(tree, "go.mod"))
+	require.NoError(t, err)
+	return goToolchainFromModFile(string(data))
+}
+
+// goToolchainFromModFile returns the GOTOOLCHAIN value for a go.mod: its
+// toolchain directive when one is set, otherwise the go directive as a
+// toolchain name. A go directive with no patch component names a language
+// version, not a release, so ".0" is appended to make it one. Empty when
+// the file pins nothing, which leaves the ambient toolchain in place.
+func goToolchainFromModFile(modFile string) string {
+	var goVersion string
+	for _, line := range strings.Split(modFile, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		switch fields[0] {
+		case "toolchain":
+			if fields[1] != "default" {
+				return fields[1]
+			}
+		case "go":
+			goVersion = fields[1]
+		}
+	}
+	if goVersion == "" {
+		return ""
+	}
+	if strings.Count(goVersion, ".") == 1 {
+		goVersion += ".0"
+	}
+	return "go" + goVersion
+}
+
+func TestGoToolchainFromModFile(t *testing.T) {
+	cases := []struct {
+		name, modFile, want string
+	}{
+		{"go directive with patch", "module x\n\ngo 1.25.2\n", "go1.25.2"},
+		{"go directive without patch", "module x\n\ngo 1.21\n", "go1.21.0"},
+		{"toolchain directive wins", "module x\n\ngo 1.25.2\n\ntoolchain go1.25.13\n", "go1.25.13"},
+		{"toolchain default is not a pin", "module x\n\ngo 1.25.2\n\ntoolchain default\n", "go1.25.2"},
+		{"no go directive", "module x\n", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, goToolchainFromModFile(tc.modFile))
+		})
+	}
 }
 
 // TestCompatHarnessBuildsAgainstHead is the ungated compile gate: the
