@@ -152,13 +152,16 @@ func (p *EncryptionProviderImpl) Encrypt(ctx context.Context, conf *v2.Encryptio
 }
 
 func capsuleContext(c *v2.FullKnowledgeVaultConfig, digest [32]byte) []byte {
+	// #nosec G115 -- recipientFromConfig accepts only the positive V1 enum values before this call.
 	b := binary.BigEndian.AppendUint32([]byte(contextDomain), uint32(c.GetProtocolVersion()))
 	for _, field := range []string{c.GetTenantId(), c.GetTicketId(), c.GetVaultId(), c.GetVaultBoundaryId(),
 		c.GetSecretId(), c.GetVersionId(), c.GetContentType(), c.GetPreparationId(), c.GetKeyId()} {
 		b = appendField(b, []byte(field))
 	}
+	// #nosec G115 -- recipientFromConfig accepts only capsule suite 1.
 	b = binary.BigEndian.AppendUint32(b, uint32(c.GetKeyCapsuleSuite()))
 	b = appendField(b, c.GetKeyCapsulePublicKey())
+	// #nosec G115 -- recipientFromConfig accepts only value suite 1.
 	b = binary.BigEndian.AppendUint32(b, uint32(c.GetValueSuite()))
 	return append(b, digest[:]...)
 }
@@ -191,6 +194,7 @@ func sealValue(c *v2.FullKnowledgeVaultConfig, cek, payload []byte, randomness i
 }
 
 func appendField(dst, field []byte) []byte {
+	// #nosec G115 -- fields are validated identifiers (<=1024), a 1216-byte key, or their bounded context.
 	dst = binary.BigEndian.AppendUint32(dst, uint32(len(field)))
 	return append(dst, field...)
 }

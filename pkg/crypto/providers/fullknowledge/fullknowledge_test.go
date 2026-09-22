@@ -86,7 +86,7 @@ func TestEnvelopeOpensCapsuleAndNativePayload(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, EncryptionProvider, encrypted.GetProvider())
 	require.Equal(t, []string{c.GetKeyId()}, encrypted.GetKeyIds())
-	require.Empty(t, encrypted.GetKeyId()) //nolint:staticcheck // The FK carrier must leave the deprecated field empty.
+	require.Empty(t, encrypted.GetKeyId())
 	envelope := &v2.FullKnowledgeCredentialEnvelope{}
 	require.NoError(t, proto.Unmarshal(encrypted.GetEncryptedBytes(), envelope))
 	require.Equal(t, uint32(1), envelope.GetEnvelopeVersion())
@@ -98,7 +98,7 @@ func TestEnvelopeOpensCapsuleAndNativePayload(t *testing.T) {
 	capsule, err := recipient.Open(binding, envelope.GetKeyCapsuleCiphertext())
 	require.NoError(t, err)
 	require.Equal(t, uint32(1), binary.BigEndian.Uint32(capsule[:4]))
-	require.Equal(t, uint32(len(binding)), binary.BigEndian.Uint32(capsule[4:8]))
+	require.EqualValues(t, len(binding), binary.BigEndian.Uint32(capsule[4:8]))
 	require.Equal(t, binding, capsule[8:8+len(binding)])
 	require.Len(t, capsule, 8+len(binding)+32)
 	cek := capsule[len(capsule)-32:]
