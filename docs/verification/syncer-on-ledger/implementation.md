@@ -223,3 +223,21 @@ pending-cleanup marker, but defers physical compaction to seal. The old immediat
 purge must fail a test that expects no purge before seal and one purge afterward;
 the saved checkpoint must contain neither the old nor the new page token. Existing
 ClearRows durable crash images must retain the pending marker until a later seal.
+
+## Empty-start quality recovery (CO-024)
+
+Add BoundSyncUnstarted to the ledger capability. Pebble checks the bound sync
+record (unfinished, empty checkpoint), absence of an archive, and emptiness of
+three key ranges covering primary records/assets, indexes/counters, and
+digests/source-cache/ledger state. Session records and format metadata do not
+count as collection progress. The query seeks once per range, does not iterate
+records, and writes nothing. Missing bindings or read errors cannot establish a
+clean start.
+
+When restore has no facts or accounting and the bound sync is unfinished, use
+that query to recognize an empty start. Quality starts clean in memory and is
+saved with Init as before. Token migration, known/blocked quality and finished
+processing retain their existing paths. No checkpoint parsing or schema change
+is needed. First restore the strict quality assertion in the public crash test
+and observe its failure; verify the storage query independently, then connect
+it to restore and run the differential and legacy/finished-state guards.

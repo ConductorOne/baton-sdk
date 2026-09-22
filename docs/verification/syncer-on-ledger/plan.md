@@ -1116,3 +1116,16 @@ It is removed after finalization succeeds, without a second purge. This keeps a
 failed seal distinguishable from a new request over an already-finished binding;
 it does not reset the sync record's prior completion timestamp. Successful
 completion has no live ledger keys. The declaration carries no page token.
+
+### CO-024 — recover known quality for an empty unfinished sync
+
+- Classification: clarification following final verification.
+- Source: requester (fix the conflation of lost initial pages with unknown legacy collection).
+- Claim: an unfinished bound sync with no surviving checkpoint, collection records or collection/replay state starts quality accounting cleanly when collection runs again. Surviving legacy progress without quality information remains unknown. This decision must require no store writes or new durable marker.
+- Motivation: the public crash differential found that losing all initial pages incorrectly made the finished file ineligible for source-cache replay even after complete recollection.
+- Contract delta: add a read-only bounded store query for an unstarted bound sync; session state alone is not collection progress. Errors cannot establish clean quality.
+- Owning boundary: syncer restoration and Pebble bound-state inspection.
+- Affected criteria: C10, C16, C17, C19, C30.
+- Verification delta: restore exact quality equality in the 40-case public crash differential; test each surviving record/state family, legacy token/frontier, finished binding, session-only state and read failure. Assert unchanged raw keys and no writes.
+- Risk routing: HIGH, unchanged.
+- PR placement: this PR.
