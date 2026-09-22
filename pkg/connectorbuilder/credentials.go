@@ -8,6 +8,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -226,6 +227,14 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, status.Errorf(codes.Internal, "connector returned invalid credential issuance output: %v", err)
 	}
+	// A vault-inbox recipient carries the entire submission payload, so exactly
+	// one plaintext value may be sealed to it. Refusing anything else here means
+	// a cardinality surprise fails the issuance instead of depositing a partial
+	// or mislabeled submission.
+	if err := validateVaultInboxPlaintextCardinality(request.GetEncryptionConfigs(), output.PlaintextData); err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
 
 	var encryptedDatas []*v2.EncryptedData
 	for _, plaintextCredential := range output.PlaintextData {
@@ -237,7 +246,6 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		}
 		encryptedDatas = append(encryptedDatas, encryptedData...)
 	}
-
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return v2.IssueCredentialResponse_builder{
 		Secret:        output.Secret,
@@ -246,6 +254,29 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		ResourceMode:  output.ResourceMode,
 		RequestId:     request.GetRequestId(),
 	}.Build(), nil
+}
+
+// validateVaultInboxPlaintextCardinality enforces that a vault-inbox recipient
+// receives exactly one plaintext value. The vault inbox submission payload holds
+// one value; several values would have to be merged or silently dropped, and a
+// zero value would seal an empty submission. Both are reconciliation-required
+// errors rather than a successful issuance with missing data.
+func validateVaultInboxPlaintextCardinality(configs []*v2.EncryptionConfig, plaintexts []*v2.PlaintextData) error {
+	hasVaultInbox := false
+	for _, config := range configs {
+		if providers.IsVaultInboxConfig(config) {
+			hasVaultInbox = true
+			break
+		}
+	}
+	if !hasVaultInbox {
+		return nil
+	}
+	if len(plaintexts) != 1 {
+		return status.Errorf(codes.FailedPrecondition,
+			"vault inbox issuance requires exactly one plaintext value, got %d", len(plaintexts))
+	}
+	return nil
 }
 
 func validateCredentialIssueOutput(identityID *v2.ResourceId, requestedExpiresAt *timestamppb.Timestamp, output *CredentialIssueOutput, descriptor *v2.CredentialIssueOptionDescriptor) error {

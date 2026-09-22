@@ -65,9 +65,13 @@ func NewEncryptionManager(co *v2.CredentialOptions, ec []*v2.EncryptionConfig) (
 // ValidateEncryptionConfigs validates recipients before an irreversible
 // credential issuance without changing create/rotate compatibility.
 func ValidateEncryptionConfigs(ec []*v2.EncryptionConfig) error {
+	vaultInboxConfigs := 0
 	for i, config := range ec {
 		if config == nil {
 			return status.Errorf(codes.InvalidArgument, "encryption config %d is empty", i)
+		}
+		if providers.IsVaultInboxConfig(config) {
+			vaultInboxConfigs++
 		}
 		provider, err := providers.GetEncryptorForConfig(context.Background(), config)
 		if err != nil {
@@ -78,6 +82,14 @@ func ValidateEncryptionConfigs(ec []*v2.EncryptionConfig) error {
 				return status.Errorf(codes.InvalidArgument, "invalid encryption config %d: %v", i, err)
 			}
 		}
+	}
+	// A vault-inbox recipient IS the destination: the ciphertext it produces is
+	// the whole submission payload, so it cannot be one recipient among several.
+	// Refusing the mix here keeps an issuance from committing a delivery whose
+	// extra encryptions nothing will ever read or revoke.
+	if vaultInboxConfigs > 1 || (vaultInboxConfigs == 1 && len(ec) != 1) {
+		return status.Error(codes.InvalidArgument,
+			"vault inbox encryption config must be the only encryption config")
 	}
 	return nil
 }

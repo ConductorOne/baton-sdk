@@ -141,6 +141,11 @@ message CredentialIssueOptionDescriptor {
   // declaration order would not be stable. It selects nothing at issue time --
   // CredentialIssueOptions.secret_resource_type_id is still required.
   bool preferred = 10;
+  // Vault-inbox recipient profiles this descriptor can seal to. Empty means the
+  // connector cannot accept a VaultInboxRecipientConfig for this descriptor, and
+  // C1 must not dispatch one. Each advertised profile requires exactly one
+  // plaintext output value.
+  repeated c1.connector.v2.VaultInboxSuite vault_inbox_profiles = 11;
 }
 
 message IssuanceExpiryCapability {

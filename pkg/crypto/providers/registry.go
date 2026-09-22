@@ -10,6 +10,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	ageprovider "github.com/conductorone/baton-sdk/pkg/crypto/providers/age"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers/vaultinbox"
 )
 
 var ErrEncryptionProviderNotRegistered = fmt.Errorf("crypto/providers: encryption provider not registered")
@@ -49,6 +50,21 @@ var encryptorRegistry = map[string]Encryptor{
 	normalizeProviderName(ageprovider.EncryptionProviderAge): &ageprovider.RecipientEncryptionProvider{},
 	normalizeProviderName(jwk.EncryptionProviderJwk):         &jwk.JWKEncryptionProvider{},
 	normalizeProviderName(jwk.EncryptionProviderJwkPrivate):  &jwk.JWKEncryptionProvider{},
+	normalizeProviderName(vaultinbox.EncryptionProvider):     vaultinbox.NewProvider(),
+}
+
+// IsVaultInboxConfig reports whether conf selects the vault-inbox recipient
+// profile. The vault-inbox profile is exclusive: a caller must not fan an
+// issuance out to it alongside any other recipient, because the delivered
+// ciphertext is the submission's entire payload.
+func IsVaultInboxConfig(conf *v2.EncryptionConfig) bool {
+	return conf != nil && conf.GetVaultInboxRecipientConfig() != nil
+}
+
+// IsVaultInboxProvider reports whether a provider name identifies the
+// vault-inbox recipient profile.
+func IsVaultInboxProvider(name string) bool {
+	return normalizeProviderName(name) == normalizeProviderName(vaultinbox.EncryptionProvider)
 }
 
 func normalizeProviderName(name string) string {
@@ -77,6 +93,8 @@ func GetEncryptorForConfig(ctx context.Context, conf *v2.EncryptionConfig) (Encr
 	providerName := normalizeProviderName(conf.GetProvider())
 	if providerName == "" {
 		switch {
+		case conf.GetVaultInboxRecipientConfig() != nil:
+			providerName = vaultinbox.EncryptionProvider
 		case conf.GetAgeRecipientConfig() != nil:
 			providerName = ageprovider.EncryptionProviderAge
 		case conf.GetJwkPublicKeyConfig() != nil:
