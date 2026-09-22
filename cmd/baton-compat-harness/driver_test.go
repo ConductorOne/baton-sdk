@@ -55,13 +55,15 @@ func repoRoot(t *testing.T) string {
 	return root
 }
 
+const ambientToolchain = ""
+
 func buildHarness(t *testing.T, tree, out, toolchain string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "build", "-tags", "compatharness", "-o", out, "./cmd/baton-compat-harness")
 	cmd.Dir = tree
-	if toolchain != "" {
+	if toolchain != ambientToolchain {
 		cmd.Env = append(os.Environ(), "GOTOOLCHAIN="+toolchain)
 	}
 	output, err := cmd.CombinedOutput()
@@ -127,7 +129,7 @@ func TestGoToolchainFromModFile(t *testing.T) {
 // TestCompatHarnessBuildsAgainstHead is the ungated compile gate: the
 // harness source must always build against the current tree.
 func TestCompatHarnessBuildsAgainstHead(t *testing.T) {
-	buildHarness(t, repoRoot(t), filepath.Join(t.TempDir(), "harness"), "")
+	buildHarness(t, repoRoot(t), filepath.Join(t.TempDir(), "harness"), ambientToolchain)
 }
 
 func runHarness(t *testing.T, bin, mode, c1zPath string) compatDriverResult {
@@ -212,7 +214,7 @@ func TestDefaultPathPerformanceAgainstPinnedMain(t *testing.T) {
 
 	candidateBin := filepath.Join(tmp, "candidate")
 	mainBin := filepath.Join(tmp, "main")
-	buildHarness(t, root, candidateBin, "")
+	buildHarness(t, root, candidateBin, ambientToolchain)
 	buildHarness(t, mainTree, mainBin, goToolchainFor(t, mainTree))
 	base := filepath.Join(tmp, "base.c1z")
 	baseResult := runHarness(t, mainBin, "resume", base)
@@ -311,7 +313,7 @@ func TestCheckpointCompatAcrossSDKVersions(t *testing.T) {
 
 	newBin := filepath.Join(tmp, "harness-new")
 	oldBin := filepath.Join(tmp, "harness-old")
-	buildHarness(t, root, newBin, "")
+	buildHarness(t, root, newBin, ambientToolchain)
 	buildHarness(t, oldTree, oldBin, goToolchainFor(t, oldTree))
 
 	cells := []struct {
@@ -386,7 +388,7 @@ func TestGraphReuseCompatAcrossSDKVersions(t *testing.T) {
 
 	newBin := filepath.Join(tmp, "graph-harness-new")
 	oldBin := filepath.Join(tmp, "graph-harness-old")
-	buildHarness(t, root, newBin, "")
+	buildHarness(t, root, newBin, ambientToolchain)
 	buildHarness(t, oldTree, oldBin, goToolchainFor(t, oldTree))
 
 	requireComplete := func(t *testing.T, result compatDriverResult) {
