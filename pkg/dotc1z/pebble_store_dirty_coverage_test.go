@@ -51,6 +51,7 @@ var capabilityMethods = map[string]struct {
 	"LedgerFrontier":           {dirtyRead, "read"},
 	"TakeoverToken":            {dirtyWrite, "one batch: frontier, facts, bucket, token cleared"},
 	"BoundSyncFinished":        {dirtyRead, "read"},
+	"BoundSyncUnstarted":       {dirtyRead, "checks binding and existing collection state without modifying the file"},
 	"ClearLedgerRows":          {dirtyWrite, "atomic row/frontier/fact deletion; preserves counters and marks dirty even on post-commit failure"},
 	"DropLedger":               {dirtyWrite, "a delete is a write; without the mark the wipe never reaches the c1z"},
 	"PutCounterBucket":         {dirtyWrite, "blind-writes the bucket"},

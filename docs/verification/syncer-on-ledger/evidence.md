@@ -729,3 +729,11 @@ The storage-query commit `5be2f4b8` builds independently in a detached checkout;
 its storage-query and public capability-inventory checks pass (0.194s / 0.091s).
 The final verbose public differential passes in 7.298s and records raw artifact
 hashes; these hashes are not used as an equality claim.
+
+CI follow-up: TestPebbleStoreDirtyCoverage in the parent pkg/dotc1z package
+rejected the unclassified BoundSyncUnstarted capability. The earlier engine-only
+storage command did not execute that adapter audit. The method is now classified
+as read-only. The complete `go test ./pkg/dotc1z/... -count=1 -timeout 20m` tree
+passes (parent 40.017s; Pebble 17.358s), and the adapter checks pass with CI's
+Go 1.27.1 and baton_lambda_support tag (0.178s). Windows was canceled by the
+matrix's fail-fast policy, not a separately diagnosed Windows failure.
