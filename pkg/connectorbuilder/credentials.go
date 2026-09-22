@@ -3,6 +3,7 @@ package connectorbuilder
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -214,12 +215,23 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, status.Errorf(codes.InvalidArgument, "invalid credential issuance request: %v", err)
 	}
+	fk := request.GetEncryptionConfigs()[0].GetFullKnowledgeVaultConfig()
+	if fk != nil && !slices.Contains(descriptor.GetFullKnowledgeVaultProfiles(), fk.GetProtocolVersion()) {
+		err = status.Error(codes.InvalidArgument, "full knowledge profile is not advertised for this credential option")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
 
 	output, err := issuer.Issue(ctx, input)
 	if err != nil {
 		l.Error("error: issue credential for identity failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: issue credential for identity failed: %w", err)
+	}
+	if fk != nil && (output == nil || len(output.PlaintextData) != 1) {
+		err = status.Error(codes.Internal, "full knowledge issuance returned an unexpected value count; reconciliation is required")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
 	}
 	err = validateCredentialIssueOutput(request.GetIdentityId(), request.GetExpiresAt(), output, descriptor)
 	if err != nil {

@@ -141,6 +141,8 @@ message CredentialIssueOptionDescriptor {
   // declaration order would not be stable. It selects nothing at issue time --
   // CredentialIssueOptions.secret_resource_type_id is still required.
   bool preferred = 10;
+  // Each advertised FK profile requires exactly one plaintext output value.
+  repeated FullKnowledgeVaultConfig.ProtocolVersion full_knowledge_vault_profiles = 11;
 }
 
 message IssuanceExpiryCapability {

@@ -410,7 +410,53 @@ message EncryptionConfig {
   oneof config {
     JWKPublicKeyConfig jwk_public_key_config = 100;
     AgeRecipientConfig age_recipient_config = 101;
+    FullKnowledgeVaultConfig full_knowledge_vault_config = 102;
   }
+}
+
+// Wire profile: docs/verification/direct-fk-credentials/profile.md.
+message FullKnowledgeVaultConfig {
+  enum ProtocolVersion {
+    PROTOCOL_VERSION_UNSPECIFIED = 0;
+    PROTOCOL_VERSION_V1 = 1;
+  }
+  enum KeyCapsuleSuite {
+    KEY_CAPSULE_SUITE_UNSPECIFIED = 0;
+    KEY_CAPSULE_SUITE_XWING_HKDF_SHA256_CHACHA20_POLY1305_V1 = 1;
+  }
+  enum ValueSuite {
+    VALUE_SUITE_UNSPECIFIED = 0;
+    VALUE_SUITE_NATIVE_ITEM_VALUE_V1 = 1;
+  }
+  ProtocolVersion protocol_version = 1;
+  string tenant_id = 2;
+  string ticket_id = 3;
+  string vault_id = 4;
+  string vault_boundary_id = 5;
+  string secret_id = 6;
+  string version_id = 7;
+  string content_type = 8;
+  string preparation_id = 9;
+  string key_id = 10;
+  KeyCapsuleSuite key_capsule_suite = 11;
+  bytes key_capsule_public_key = 12;
+  ValueSuite value_suite = 13;
+}
+
+// EncryptedData.key_ids contains the preparation key_id for this envelope.
+message FullKnowledgeCredentialEnvelope {
+  uint32 envelope_version = 1;
+  FullKnowledgeVaultConfig config = 2;
+  bytes value_ciphertext = 3;
+  bytes encapsulated_key = 4;
+  bytes key_capsule_ciphertext = 5;
+}
+
+// Wire-compatible with native SecretPayloadV2; not an authenticated context encoding.
+message FullKnowledgeSecretPayloadV2 {
+  uint32 envelope_version = 1;
+  string content_type = 2;
+  bytes value = 3;
 }
 
 message ResourceId {

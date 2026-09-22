@@ -69,6 +69,9 @@ func ValidateEncryptionConfigs(ec []*v2.EncryptionConfig) error {
 		if config == nil {
 			return status.Errorf(codes.InvalidArgument, "encryption config %d is empty", i)
 		}
+		if config.GetFullKnowledgeVaultConfig() != nil && len(ec) != 1 {
+			return status.Error(codes.InvalidArgument, "full knowledge issuance requires exactly one encryption config")
+		}
 		provider, err := providers.GetEncryptorForConfig(context.Background(), config)
 		if err != nil {
 			return status.Errorf(codes.InvalidArgument, "invalid encryption config %d: %v", i, err)
@@ -106,6 +109,11 @@ func decryptPassword(ctx context.Context, encryptedPassword *v2.EncryptedData, d
 
 func ConvertCredentialOptions(ctx context.Context, clientSecret *jose.JSONWebKey, opts *v2.CredentialOptions, encryptionConfigs []*v2.EncryptionConfig) (*v2.LocalCredentialOptions, error) {
 	l := ctxzap.Extract(ctx)
+	for _, config := range encryptionConfigs {
+		if config.GetFullKnowledgeVaultConfig() != nil {
+			return nil, status.Error(codes.InvalidArgument, "full knowledge encryption is supported only for credential issuance")
+		}
+	}
 	if opts == nil {
 		return nil, nil
 	}

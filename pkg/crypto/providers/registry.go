@@ -9,6 +9,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	ageprovider "github.com/conductorone/baton-sdk/pkg/crypto/providers/age"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers/fullknowledge"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 )
 
@@ -46,6 +47,7 @@ var providerRegistry = map[string]EncryptionProvider{
 }
 
 var encryptorRegistry = map[string]Encryptor{
+	fullknowledge.EncryptionProvider:                         &fullknowledge.EncryptionProviderImpl{},
 	normalizeProviderName(ageprovider.EncryptionProviderAge): &ageprovider.RecipientEncryptionProvider{},
 	normalizeProviderName(jwk.EncryptionProviderJwk):         &jwk.JWKEncryptionProvider{},
 	normalizeProviderName(jwk.EncryptionProviderJwkPrivate):  &jwk.JWKEncryptionProvider{},
@@ -74,6 +76,13 @@ func GetEncryptor(name string) (Encryptor, error) {
 
 // GetEncryptorForConfig resolves an encryption-capable provider from an EncryptionConfig.
 func GetEncryptorForConfig(ctx context.Context, conf *v2.EncryptionConfig) (Encryptor, error) {
+	if conf.GetFullKnowledgeVaultConfig() != nil {
+		provider := &fullknowledge.EncryptionProviderImpl{}
+		if err := provider.ValidateConfig(ctx, conf); err != nil {
+			return nil, err
+		}
+		return provider, nil
+	}
 	providerName := normalizeProviderName(conf.GetProvider())
 	if providerName == "" {
 		switch {
