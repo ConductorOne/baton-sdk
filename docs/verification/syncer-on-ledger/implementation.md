@@ -175,3 +175,21 @@ External import is investigated separately: compare repeated main-path execution
 against one clean run with fixed source data and matching options. Preserve
 matching annotations, import-before-match and replacement-before-delete ordering.
 No external runtime change is part of the disposal correction.
+
+## External processing correction (CO-023)
+
+Dispatch SyncExternalResources directly, remove its ledger fork and copied
+import/matching/deletion handlers. Remove the staged grant iterator and staged
+resource/entitlement deletion extensions that only served this transaction.
+Keep original bulk deletion and matching code intact. Generalize terminal local-
+phase accounting to external processing and expansion; stop accounting must not
+claim either phase completed durably. Debug reference checks exclude both phase
+entries. Their work may rerun before terminal completion, as requested; the
+pre-existing expansion-annotation replay defect is being fixed independently.
+
+A source-reader probe checks that the first imported grant page is already in the
+destination before the second is requested. It must fail on the transaction path.
+Migrate parity and chaos tests to direct store writes, remove transaction-only
+fixtures, and keep comparisons with main's normal one-pass behavior. Run the sync,
+Pebble, compactor and focused race suites plus lint before committing this removal.
+Then implement the previously specified single-purge disposal change separately.

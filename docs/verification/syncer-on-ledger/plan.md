@@ -1087,3 +1087,24 @@ There are now 49 criteria; the frozen §4 count describes the baseline.
 - **Risk routing:** HIGH lifecycle change; existing credential-erasure obligations
   still apply before the finished stamp.
 - **PR placement:** this PR.
+
+## CO-023 — remove the external-import transaction now
+
+- **Classification:** scope correction.
+- **Source:** requester.
+- **Claim:** External-resource import and matching use main's ordinary store
+  writes, batching and deletion behavior. They are not accumulated in one ledger
+  transaction. Removal does not wait for the independently reproduced replay bug
+  in main, and this PR does not claim to fix that bug.
+- **Motivation:** Buffering all imported and matched records is not viable and
+  was introduced by this implementation, not required by main's behavior.
+- **Contract delta:** external processing joins expansion outside page execution;
+  completed local-phase accounting is recorded at terminal completion.
+- **Owning boundary:** syncer external dispatch; remove its unused page APIs.
+- **Affected criteria:** C04–C09, C16, C20–C23, C31–C36, C38–C45, C48–C50.
+- **Verification delta:** prove main's writes occur before fetching the next
+  external grant page; preserve its matching/deletion checks and migrate fault
+  wrappers back to direct-store boundaries. No all-or-nothing import assertion.
+  Debug references must not demand an external-processing page row.
+- **Risk routing:** HIGH integration change; main's matching algorithm unchanged.
+- **PR placement:** this PR, before CO-022 implementation.
