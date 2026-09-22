@@ -140,3 +140,10 @@ new fixture before deleting it; plant skipped replay and terminal double-count
 errors against the final checks. Run sync/expander/storage/compactor suites,
 focused ledger race checks and broad lint. Production and test removal land in
 one building commit; evidence records limits without inflating coverage claims.
+
+Debug reference checks must distinguish expansion's phase-frontier entry from a
+collection-page reference. Add a public archived-report assertion that expansion
+produces no missing-child diagnostic; first demonstrate it fails after removing
+expansion pages. Exempt only expansion children from row lookup, retaining checks
+for collection children and continuations. Run the existing missing-reference and
+fan-in tests to guard against accidentally disabling the checker.
