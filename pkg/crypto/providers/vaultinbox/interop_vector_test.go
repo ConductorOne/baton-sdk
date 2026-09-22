@@ -57,8 +57,11 @@ func buildVector(t *testing.T) interopVector {
 	privateJWK := privateJWKJSON(t)
 	binding := bindingBytes(config.GetVaultInboxRecipientConfig())
 	return interopVector{
-		Profile:             "latchkey.vault-inbox.submission.v1",
-		Note:                "Produced by filippo.io/hpke in baton-sdk with the fixed 0x42 X-Wing seed. Must open with the unmodified Latchkey crate: latchkey_mls_core::vault_inbox::open_vault_submission, then latchkey_client_sdk::vault_inbox::decode_secret_submission_payload_for_open.",
+		Profile: "latchkey.vault-inbox.submission.v1",
+		Note: "Produced by filippo.io/hpke in baton-sdk with the fixed 0x42 X-Wing seed. " +
+			"Must open with the unmodified Latchkey crate: " +
+			"latchkey_mls_core::vault_inbox::open_vault_submission, then " +
+			"latchkey_client_sdk::vault_inbox::decode_secret_submission_payload_for_open.",
 		PrivateJWKJSON:      privateJWK,
 		PublicJWKJSON:       jwk,
 		PublicKeyThumbprint: thumbprint,
@@ -96,7 +99,7 @@ func TestCommittedInteropVectorMatchesProvider(t *testing.T) {
 		encoded, err := json.MarshalIndent(regenerated, "", "  ")
 		require.NoError(t, err)
 		require.NoError(t, os.MkdirAll(filepath.Dir(vectorPath), 0o755))
-		require.NoError(t, os.WriteFile(vectorPath, append(encoded, '\n'), 0o644))
+		require.NoError(t, os.WriteFile(vectorPath, append(encoded, '\n'), 0o600))
 	}
 
 	raw, err := os.ReadFile(vectorPath)
