@@ -112,7 +112,8 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 	// be refused before the account exists: a success carrying no credential would
 	// otherwise fail after the irreversible create, and a retry would then only
 	// see AlreadyExists.
-	if err := crypto.ValidateVaultInboxCredentialOptions(request.GetEncryptionConfigs(), request.GetCredentialOptions()); err != nil {
+	err = crypto.ValidateVaultInboxCredentialOptions(request.GetEncryptionConfigs(), request.GetCredentialOptions())
+	if err != nil {
 		l.Error("error: vault inbox recipient paired with credential options that produce no value", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
@@ -138,16 +139,15 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 	// carry no plaintext by contract, so they take the upper bound only, and more
 	// than one is refused on either path because it would seal several complete
 	// envelopes bound to a single submission id.
-	var cardinalityErr error
 	switch result.(type) {
 	case *v2.CreateAccountResponse_SuccessResult:
-		cardinalityErr = pkem.ValidatePlaintextCardinality(plaintexts)
+		err = pkem.ValidatePlaintextCardinality(plaintexts)
 	default:
-		cardinalityErr = pkem.ValidatePlaintextCardinalityAtMostOne(plaintexts)
+		err = pkem.ValidatePlaintextCardinalityAtMostOne(plaintexts)
 	}
-	if cardinalityErr != nil {
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), cardinalityErr)
-		return nil, cardinalityErr
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
 	}
 
 	var encryptedDatas []*v2.EncryptedData

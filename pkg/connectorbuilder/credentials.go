@@ -66,6 +66,16 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
 	}
 
+	// Refused before the rotation: a vault-inbox recipient needs an option that
+	// produces a value, and rotating first would invalidate the prior credential
+	// with nothing delivered in its place.
+	err = crypto.ValidateVaultInboxCredentialOptions(request.GetEncryptionConfigs(), request.GetCredentialOptions())
+	if err != nil {
+		l.Error("error: vault inbox recipient paired with credential options that produce no value", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
+
 	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), opts)
 	if err != nil {
 		l.Error("error: rotate credentials on resource failed", zap.Error(err))
@@ -83,7 +93,8 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 	// Post-mint cardinality check, same rule as issuance: a vault-inbox recipient
 	// carries the whole submission payload, so two rotated plaintexts would seal
 	// two complete envelopes bound to one submission id.
-	if err := pkem.ValidatePlaintextCardinality(plaintexts); err != nil {
+	err = pkem.ValidatePlaintextCardinality(plaintexts)
+	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}

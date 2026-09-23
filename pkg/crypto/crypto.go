@@ -127,23 +127,26 @@ func ValidateVaultInboxPlaintextCardinality(configs []*v2.EncryptionConfig, plai
 }
 
 // ValidateVaultInboxCredentialOptions refuses a vault-inbox recipient paired with
-// credential options that produce no credential.
+// credential options that do not ask the connector to produce a value.
 //
-// The profile exists to deliver a value, so NoPassword and Sso are a
-// misconfiguration. It is checked before the account is created, because after
-// that the only outcomes are a failed CreateAccount for an account that really
-// exists, and a retry that returns AlreadyExists.
+// Only RandomPassword asks for one. NoPassword and Sso create an account with no
+// credential at all, and EncryptedPassword carries material the caller already
+// holds rather than something the connector mints — with an empty list it leaves
+// LocalCredentialOptions unset and yields no plaintext, which is the post-create
+// failure this gate exists to prevent.
+//
+// It is checked before the account or the rotation is created, because after that
+// the only outcomes are a failed call for something that really happened, and a
+// retry that hits AlreadyExists.
 func ValidateVaultInboxCredentialOptions(configs []*v2.EncryptionConfig, opts *v2.CredentialOptions) error {
 	if !hasVaultInboxConfig(configs) {
 		return nil
 	}
-	switch opts.WhichOptions() {
-	case v2.CredentialOptions_RandomPassword_case, v2.CredentialOptions_EncryptedPassword_case:
-		return nil
-	default:
+	if opts.WhichOptions() != v2.CredentialOptions_RandomPassword_case {
 		return status.Error(codes.InvalidArgument,
 			"a vault inbox recipient requires credential options that produce a value")
 	}
+	return nil
 }
 
 func hasVaultInboxConfig(configs []*v2.EncryptionConfig) bool {

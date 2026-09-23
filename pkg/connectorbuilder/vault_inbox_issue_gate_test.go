@@ -242,6 +242,88 @@ func TestVaultInboxCreateAccountKeepsStructuredResults(t *testing.T) {
 	})
 }
 
+// gateCredentialManager lets a test observe whether a rotation reached the
+// provider, which is the only way to tell a pre-mint refusal from a post-mint one.
+type gateCredentialManager struct {
+	ResourceSyncer
+	rotateCalls int
+	plaintexts  []*v2.PlaintextData
+}
+
+func (m *gateCredentialManager) Rotate(
+	context.Context,
+	*v2.ResourceId,
+	*v2.LocalCredentialOptions,
+) ([]*v2.PlaintextData, annotations.Annotations, error) {
+	m.rotateCalls++
+	return m.plaintexts, annotations.Annotations{}, nil
+}
+
+func (m *gateCredentialManager) RotateCapabilityDetails(context.Context) (*v2.CredentialDetailsCredentialRotation, annotations.Annotations, error) {
+	return v2.CredentialDetailsCredentialRotation_builder{}.Build(), annotations.Annotations{}, nil
+}
+
+func gateRotateRequest(t *testing.T, options *v2.CredentialOptions) *v2.RotateCredentialRequest {
+	t.Helper()
+	return v2.RotateCredentialRequest_builder{
+		ResourceId:        v2.ResourceId_builder{ResourceType: "service_account", Resource: "sa-1"}.Build(),
+		CredentialOptions: options,
+		EncryptionConfigs: []*v2.EncryptionConfig{gateConfig(t, nil)},
+	}.Build()
+}
+
+// TestVaultInboxRotateRefusesBeforeMinting pins the same pre-mint refusal on the
+// rotation path. Rotating first is worse than creating first: the prior
+// credential may already be invalidated with nothing delivered in its place.
+func TestVaultInboxRotateRefusesBeforeMinting(t *testing.T) {
+	t.Parallel()
+
+	randomPassword := v2.CredentialOptions_builder{
+		RandomPassword: v2.CredentialOptions_RandomPassword_builder{Length: 12}.Build(),
+	}.Build()
+	noPassword := v2.CredentialOptions_builder{NoPassword: &v2.CredentialOptions_NoPassword{}}.Build()
+	// EncryptedPassword carries material the caller already holds, so it never
+	// asks the connector to mint a value either.
+	encryptedPassword := v2.CredentialOptions_builder{
+		EncryptedPassword: v2.CredentialOptions_EncryptedPassword_builder{}.Build(),
+	}.Build()
+
+	cases := map[string]*v2.CredentialOptions{
+		"no password":         noPassword,
+		"sso":                 v2.CredentialOptions_builder{Sso: v2.CredentialOptions_SSO_builder{}.Build()}.Build(),
+		"encrypted password":  encryptedPassword,
+		"unspecified options": v2.CredentialOptions_builder{}.Build(),
+	}
+	for name, options := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			manager := &gateCredentialManager{ResourceSyncer: newTestResourceSyncer("service_account")}
+			connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+			require.NoError(t, err)
+
+			_, err = connector.RotateCredential(context.Background(), gateRotateRequest(t, options))
+			require.Error(t, err)
+			require.Zero(t, manager.rotateCalls, "the rotation must be refused before the provider is touched")
+		})
+	}
+
+	t.Run("a password-producing option still rotates", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateCredentialManager{
+			ResourceSyncer: newTestResourceSyncer("service_account"),
+			plaintexts:     []*v2.PlaintextData{gateValue("api_key", []byte("v"))},
+		}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		resp, err := connector.RotateCredential(context.Background(), gateRotateRequest(t, randomPassword))
+		require.NoError(t, err)
+		require.Equal(t, 1, manager.rotateCalls)
+		require.Len(t, resp.GetEncryptedData(), 1)
+		require.Equal(t, vaultinbox.EncryptionProvider, resp.GetEncryptedData()[0].GetProvider())
+	})
+}
+
 func gateValue(name string, value []byte) *v2.PlaintextData {
 	return v2.PlaintextData_builder{Name: name, Bytes: value}.Build()
 }
