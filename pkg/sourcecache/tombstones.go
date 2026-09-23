@@ -8,7 +8,6 @@ import (
 )
 
 // ErrIncompleteTombstone is returned for a reference missing a component.
-// The store never guesses a delete from a partial identity.
 var ErrIncompleteTombstone = errors.New("source cache tombstone: incomplete reference")
 
 type ResourceRef struct {
@@ -40,53 +39,33 @@ func (t Tombstones) Empty() bool {
 	return len(t.Resources) == 0 && len(t.Entitlements) == 0 && len(t.Grants) == 0 && len(t.Principals) == 0
 }
 
-// TombstonesFromProto validates every reference and that only the fields
-// for kind are set.
 func TombstonesFromProto(kind RowKind, p *v2.SourceCacheTombstones) (Tombstones, error) {
 	var t Tombstones
-	if p == nil {
-		return t, nil
+	for _, r := range p.GetResources() {
+		t.Resources = append(t.Resources, resourceRefFromProto(r))
 	}
-	for i, r := range p.GetResources() {
-		ref, err := resourceRefFromProto(r)
-		if err != nil {
-			return Tombstones{}, fmt.Errorf("resources[%d]: %w", i, err)
-		}
-		t.Resources = append(t.Resources, ref)
+	for _, e := range p.GetEntitlements() {
+		t.Entitlements = append(t.Entitlements, entitlementRefFromProto(e))
 	}
-	for i, e := range p.GetEntitlements() {
-		ref, err := entitlementRefFromProto(e)
-		if err != nil {
-			return Tombstones{}, fmt.Errorf("entitlements[%d]: %w", i, err)
-		}
-		t.Entitlements = append(t.Entitlements, ref)
+	for _, g := range p.GetGrants() {
+		t.Grants = append(t.Grants, GrantRef{
+			Entitlement: entitlementRefFromProto(g.GetEntitlement()),
+			Principal:   resourceRefFromProto(g.GetPrincipal()),
+		})
 	}
-	for i, g := range p.GetGrants() {
-		ent, err := entitlementRefFromProto(g.GetEntitlement())
-		if err != nil {
-			return Tombstones{}, fmt.Errorf("grants[%d].entitlement: %w", i, err)
-		}
-		principal, err := resourceRefFromProto(g.GetPrincipal())
-		if err != nil {
-			return Tombstones{}, fmt.Errorf("grants[%d].principal: %w", i, err)
-		}
-		t.Grants = append(t.Grants, GrantRef{Entitlement: ent, Principal: principal})
+	for _, r := range p.GetPrincipals() {
+		t.Principals = append(t.Principals, resourceRefFromProto(r))
 	}
-	for i, r := range p.GetPrincipals() {
-		ref, err := resourceRefFromProto(r)
-		if err != nil {
-			return Tombstones{}, fmt.Errorf("principals[%d]: %w", i, err)
-		}
-		t.Principals = append(t.Principals, ref)
-	}
-	if err := t.ValidateKind(kind); err != nil {
+	if err := t.Validate(kind); err != nil {
 		return Tombstones{}, err
 	}
 	return t, nil
 }
 
-// ValidateKind rejects fields that do not belong to kind's pages.
-func (t Tombstones) ValidateKind(kind RowKind) error {
+// Validate rejects fields that do not belong to kind's pages and any
+// reference missing a component. Every delete path calls it, so an
+// incomplete ref never reaches the engine as a no-op.
+func (t Tombstones) Validate(kind RowKind) error {
 	if err := ValidateRowKind(kind); err != nil {
 		return err
 	}
@@ -104,23 +83,53 @@ func (t Tombstones) ValidateKind(kind RowKind) error {
 			return fmt.Errorf("source cache tombstone: only grants and principals may be deleted from a %s page", kind)
 		}
 	}
+	for i, r := range t.Resources {
+		if err := r.validate(); err != nil {
+			return fmt.Errorf("resources[%d]: %w", i, err)
+		}
+	}
+	for i, e := range t.Entitlements {
+		if err := e.validate(); err != nil {
+			return fmt.Errorf("entitlements[%d]: %w", i, err)
+		}
+	}
+	for i, g := range t.Grants {
+		if err := g.Entitlement.validate(); err != nil {
+			return fmt.Errorf("grants[%d].entitlement: %w", i, err)
+		}
+		if err := g.Principal.validate(); err != nil {
+			return fmt.Errorf("grants[%d].principal: %w", i, err)
+		}
+	}
+	for i, p := range t.Principals {
+		if err := p.validate(); err != nil {
+			return fmt.Errorf("principals[%d]: %w", i, err)
+		}
+	}
 	return nil
 }
 
-func resourceRefFromProto(r *v2.ResourceId) (ResourceRef, error) {
-	if r.GetResourceType() == "" || r.GetResource() == "" {
-		return ResourceRef{}, fmt.Errorf("%w: resource_type=%q resource=%q", ErrIncompleteTombstone, r.GetResourceType(), r.GetResource())
+func (r ResourceRef) validate() error {
+	if r.ResourceTypeID == "" || r.ResourceID == "" {
+		return fmt.Errorf("%w: resource_type=%q resource=%q", ErrIncompleteTombstone, r.ResourceTypeID, r.ResourceID)
 	}
-	return ResourceRef{ResourceTypeID: r.GetResourceType(), ResourceID: r.GetResource()}, nil
+	return nil
 }
 
-func entitlementRefFromProto(e *v2.SourceCacheEntitlementRef) (EntitlementRef, error) {
-	res, err := resourceRefFromProto(e.GetResource())
-	if err != nil {
-		return EntitlementRef{}, err
+func (e EntitlementRef) validate() error {
+	if err := e.Resource.validate(); err != nil {
+		return err
 	}
-	if e.GetEntitlementId() == "" {
-		return EntitlementRef{}, fmt.Errorf("%w: empty entitlement_id", ErrIncompleteTombstone)
+	if e.EntitlementID == "" {
+		return fmt.Errorf("%w: empty entitlement_id", ErrIncompleteTombstone)
 	}
-	return EntitlementRef{Resource: res, EntitlementID: e.GetEntitlementId()}, nil
+	return nil
+}
+
+func resourceRefFromProto(r *v2.ResourceId) ResourceRef {
+	return ResourceRef{ResourceTypeID: r.GetResourceType(), ResourceID: r.GetResource()}
+}
+
+func entitlementRefFromProto(e *v2.SourceCacheEntitlementRef) EntitlementRef {
+	return EntitlementRef{Resource: resourceRefFromProto(e.GetResource()), EntitlementID: e.GetEntitlementId()}
 }

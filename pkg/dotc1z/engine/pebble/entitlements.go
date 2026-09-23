@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/conductorone/baton-sdk/pkg/sourcecache"
-
 	"github.com/cockroachdb/pebble/v2"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -222,54 +220,6 @@ func (e *Engine) DeleteEntitlementRecordByIdentity(
 		e.noteEntitlementKeyspaceWrite()
 		return nil
 	})
-}
-
-// DeleteEntitlementRecordsByRef deletes the named entitlements in bounded
-// chunks, acting for actingScope (see DeleteGrantRecordsByRef). Absent
-// refs are no-ops.
-func (e *Engine) DeleteEntitlementRecordsByRef(ctx context.Context, refs []sourcecache.EntitlementRef, actingScope string) (int64, error) {
-	if len(refs) == 0 {
-		return 0, nil
-	}
-	var deleted int64
-	err := e.withWrite(func() error {
-		deletes := newSourceCacheDeleteBatch(e, "entitlements-canonical", actingScope, writeOpts(e.opts.durability))
-		defer deletes.close()
-		defer func() { deleted = deletes.committedDeleted }()
-		// The bare-id lookup map must observe every chunk as it lands: a
-		// concurrent lookup between a mid-loop commit and this function's
-		// return would otherwise serve rows already deleted on disk.
-		deletes.onCommit = e.noteEntitlementKeyspaceWrite
-		seen := make(map[entitlementIdentity]struct{}, len(refs))
-		for _, ref := range refs {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			id := entitlementIdentityFromRef(ref)
-			if _, dup := seen[id]; dup {
-				continue
-			}
-			seen[id] = struct{}{}
-			key := encodeEntitlementIdentityKey(id)
-			oldVal, closer, err := e.db.Get(key)
-			if errors.Is(err, pebble.ErrNotFound) {
-				continue
-			}
-			if err != nil {
-				return err
-			}
-			if err := deletes.batch.StageEntitlementDelete(key, oldVal); err != nil {
-				_ = closer.Close()
-				return err
-			}
-			_ = closer.Close()
-			if err := deletes.staged(true); err != nil {
-				return err
-			}
-		}
-		return deletes.commit(true)
-	})
-	return deleted, err
 }
 
 func (e *Engine) IterateEntitlements(ctx context.Context, yield func(*v3.EntitlementRecord) bool) error {

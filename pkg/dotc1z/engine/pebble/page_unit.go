@@ -1,17 +1,15 @@
 package pebble
 
 import (
-	"fmt"
-
-	"github.com/conductorone/baton-sdk/pkg/sourcecache"
-
 	"context"
 	"errors"
+	"fmt"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 )
 
 var ErrPageUnitCommitted = errors.New("pebble page unit: already committed or discarded")
@@ -172,7 +170,7 @@ func (u *pageUnit) DropStagedRows(kind sourcecache.RowKind, scopeKey string, t s
 	if u.done {
 		return 0, ErrPageUnitCommitted
 	}
-	if err := t.ValidateKind(kind); err != nil {
+	if err := t.Validate(kind); err != nil {
 		return 0, err
 	}
 	dropped := 0

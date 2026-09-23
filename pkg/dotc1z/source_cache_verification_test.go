@@ -816,8 +816,7 @@ func TestVerificationReplayRejectsInvalidScope(t *testing.T) {
 }
 
 // Two rows sharing an external id are distinct identities; a ref deletes
-// exactly the one it names. Refs for another kind are rejected before any
-// mutation.
+// exactly the one it names.
 func TestVerificationTombstoneRefsNameExactlyOneOfTwins(t *testing.T) {
 	t.Run("entitlements", func(t *testing.T) {
 		s := newSourceCacheVerificationStore(t)
@@ -869,15 +868,32 @@ func TestVerificationTombstoneRefsNameExactlyOneOfTwins(t *testing.T) {
 		}))
 		require.Equal(t, []string{"blue"}, survivors, "the twin the ref did not name must survive")
 	})
+}
 
-	t.Run("principal selector on entitlements", func(t *testing.T) {
-		s := newSourceCacheVerificationStore(t)
-		putSourceCacheVerificationRows(t, s, sourcecache.RowKindEntitlements, "scope-a", 1, "destination")
-		before := sourceCacheVerificationEngineDigest(t, s.engine)
-		_, err := s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindEntitlements, "scope-a", tombPrincipals(userRef("alice")))
-		require.Error(t, err)
-		require.Equal(t, before, sourceCacheVerificationEngineDigest(t, s.engine))
-	})
+// The store validates the whole request before any mutation, so a Go
+// caller cannot slip an incomplete or wrong-kind ref past the proto gate.
+func TestVerificationTombstoneValidationPrecedesMutation(t *testing.T) {
+	cases := map[string]struct {
+		kind sourcecache.RowKind
+		tomb sourcecache.Tombstones
+	}{
+		"principal selector on entitlements": {sourcecache.RowKindEntitlements, tombPrincipals(userRef("alice"))},
+		"resource ref without type":          {sourcecache.RowKindResources, tombResources(sourcecache.ResourceRef{ResourceID: "destination-0"})},
+		"grant ref without principal type": {sourcecache.RowKindGrants, tombGrants(sourcecache.GrantRef{
+			Entitlement: verifEntitlementRef("destination", 0), Principal: sourcecache.ResourceRef{ResourceID: "destination-principal-0"},
+		})},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := newSourceCacheVerificationStore(t)
+			putSourceCacheVerificationRows(t, s, tc.kind, "scope-a", 1, "destination")
+			before := sourceCacheVerificationEngineDigest(t, s.engine)
+			deleted, err := s.cache.DeleteSourceCacheRows(t.Context(), tc.kind, "scope-a", tc.tomb)
+			require.Error(t, err)
+			require.Zero(t, deleted)
+			require.Equal(t, before, sourceCacheVerificationEngineDigest(t, s.engine))
+		})
+	}
 }
 
 // C43: source and destination aliasing is an invalid state. The capability
@@ -1507,7 +1523,7 @@ func TestVerificationHostileIDEncodingCorpus(t *testing.T) {
 			prev := newSourceCacheVerificationStore(t)
 			ids := append([]string{""}, hostileIDs...)
 			var tombs []sourcecache.Tombstones
-			canonicalRowIDs := make([]string, 0, len(ids))
+			rowIDs := make([]string, 0, len(ids))
 			switch kind {
 			case sourcecache.RowKindResources:
 				var rows []*v2.Resource
@@ -1520,7 +1536,7 @@ func TestVerificationHostileIDEncodingCorpus(t *testing.T) {
 						continue
 					}
 					tombs = append(tombs, tombResources(refOfResource(row)))
-					canonicalRowIDs = append(canonicalRowIDs, id)
+					rowIDs = append(rowIDs, id)
 				}
 				require.NoError(t, prev.store.PutResources(sourcecache.WithScope(t.Context(), "scope-a"), rows...))
 			case sourcecache.RowKindEntitlements:
@@ -1536,8 +1552,11 @@ func TestVerificationHostileIDEncodingCorpus(t *testing.T) {
 						}.Build(),
 					}.Build()
 					rows = append(rows, row)
+					if id == "" {
+						continue
+					}
 					tombs = append(tombs, tombEntitlements(refOfEntitlement(row)))
-					canonicalRowIDs = append(canonicalRowIDs, id)
+					rowIDs = append(rowIDs, id)
 				}
 				require.NoError(t, prev.store.PutEntitlements(sourcecache.WithScope(t.Context(), "scope-a"), rows...))
 			case sourcecache.RowKindGrants:
@@ -1546,7 +1565,7 @@ func TestVerificationHostileIDEncodingCorpus(t *testing.T) {
 					row := mkV2Grant("", id, "user", fmt.Sprintf("principal-%d", i))
 					rows = append(rows, row)
 					tombs = append(tombs, tombGrants(refOfGrant(row)))
-					canonicalRowIDs = append(canonicalRowIDs, row.GetId())
+					rowIDs = append(rowIDs, row.GetId())
 				}
 				require.NoError(t, prev.store.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), rows...))
 			}
@@ -1568,19 +1587,24 @@ func TestVerificationHostileIDEncodingCorpus(t *testing.T) {
 				for j := i + 1; j < len(tombs); j++ {
 					switch kind {
 					case sourcecache.RowKindResources:
-						_, err = cur.engine.GetResourceRecord(t.Context(), "hostile", canonicalRowIDs[j])
+						_, err = cur.engine.GetResourceRecord(t.Context(), "hostile", rowIDs[j])
 					case sourcecache.RowKindEntitlements:
-						_, err = cur.engine.GetEntitlementRecord(t.Context(), canonicalRowIDs[j])
+						_, err = cur.engine.GetEntitlementRecord(t.Context(), rowIDs[j])
 					case sourcecache.RowKindGrants:
-						_, err = cur.engine.GetGrantRecord(t.Context(), canonicalRowIDs[j])
+						_, err = cur.engine.GetGrantRecord(t.Context(), rowIDs[j])
 					}
 					require.NoError(t, err, "tombstone for hostile ID %q removed neighbor %q",
-						canonicalRowIDs[i], canonicalRowIDs[j])
+						rowIDs[i], rowIDs[j])
 				}
 			}
-			if kind == sourcecache.RowKindResources {
+			switch kind {
+			case sourcecache.RowKindResources:
 				_, err = cur.engine.GetResourceRecord(t.Context(), "hostile", "")
 				require.NoError(t, err, "the empty-id resource has no complete ref and must survive")
+			case sourcecache.RowKindEntitlements:
+				_, err = cur.engine.GetEntitlementRecord(t.Context(), "")
+				require.NoError(t, err, "the empty-id entitlement has no complete ref and must survive")
+			case sourcecache.RowKindGrants:
 			}
 		})
 	}
@@ -1685,9 +1709,8 @@ func TestVerificationClonePreservesReplaySource(t *testing.T) {
 	}
 }
 
-// C15/C17: ref tombstones delete the named row and remain harmless when
-// duplicated, repeated, or aimed at an absent identity.
-func TestVerificationCanonicalTombstoneIdempotencyMatrix(t *testing.T) {
+// C15/C17.
+func TestVerificationRefTombstoneIdempotencyMatrix(t *testing.T) {
 	t.Run("resources", func(t *testing.T) {
 		s := newSourceCacheVerificationStore(t)
 		target := v2.Resource_builder{
@@ -1754,26 +1777,23 @@ func TestVerificationCanonicalTombstoneIdempotencyMatrix(t *testing.T) {
 	})
 }
 
-// C36 storage-composition evidence only: when the caller applies canonical
-// then principal tombstones, overlapping selectors delete one identity once
-// and principal-only matches still delete. Page ordering itself belongs to the
-// deferred orchestration owner; this test does not claim C29 closure.
+// C36: a grant named by ref and also matched by principal in the same page
+// counts once.
 func TestVerificationGrantOverlayTombstoneOrderingModel(t *testing.T) {
 	s := newSourceCacheVerificationStore(t)
-	canonicalTarget := putVerificationGrant(t, s, "scope-a", "canonical", "bob")
-	principalTarget := putVerificationGrant(t, s, "scope-a", "principal", "bob")
+	refTarget := putVerificationGrant(t, s, "scope-a", "by-ref", "bob")
+	principalTarget := putVerificationGrant(t, s, "scope-a", "by-principal", "bob")
 	survivor := putVerificationGrant(t, s, "scope-a", "survivor", "carol")
 	scopeDecoy := putVerificationGrant(t, s, "scope-b", "scope-decoy", "bob")
 
-	// Same-page model: overlay first, then canonical + principal tombstones.
-	require.NoError(t, s.store.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), canonicalTarget))
-	_, err := s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindGrants, "scope-a", tombGrants(refOfGrant(canonicalTarget)))
+	require.NoError(t, s.store.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), refTarget))
+	deleted, err := s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindGrants, "scope-a", sourcecache.Tombstones{
+		Grants:     []sourcecache.GrantRef{refOfGrant(refTarget)},
+		Principals: []sourcecache.ResourceRef{userRef("bob")},
+	})
 	require.NoError(t, err)
-	deleted, err := s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindGrants, "scope-a", tombPrincipals(userRef("bob")))
-	require.NoError(t, err)
-	require.Equal(t, int64(1), deleted,
-		"the overlapping canonical target was already absent; only the principal-only row remains to delete")
-	_, err = s.engine.GetGrantRecord(t.Context(), canonicalTarget.GetId())
+	require.Equal(t, int64(2), deleted, "refTarget once, principalTarget once")
+	_, err = s.engine.GetGrantRecord(t.Context(), refTarget.GetId())
 	require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
 	_, err = s.engine.GetGrantRecord(t.Context(), principalTarget.GetId())
 	require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
@@ -1783,14 +1803,14 @@ func TestVerificationGrantOverlayTombstoneOrderingModel(t *testing.T) {
 	require.NoError(t, err)
 
 	// A later page may re-add a tombstoned identity.
-	require.NoError(t, s.store.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), canonicalTarget))
-	_, err = s.engine.GetGrantRecord(t.Context(), canonicalTarget.GetId())
+	require.NoError(t, s.store.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), refTarget))
+	_, err = s.engine.GetGrantRecord(t.Context(), refTarget.GetId())
 	require.NoError(t, err)
 
 	// A still-later tombstone wins again.
-	_, err = s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindGrants, "scope-a", tombGrants(refOfGrant(canonicalTarget)))
+	_, err = s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindGrants, "scope-a", tombGrants(refOfGrant(refTarget)))
 	require.NoError(t, err)
-	_, err = s.engine.GetGrantRecord(t.Context(), canonicalTarget.GetId())
+	_, err = s.engine.GetGrantRecord(t.Context(), refTarget.GetId())
 	require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
 	_, err = s.engine.GetGrantRecord(t.Context(), survivor.GetId())
 	require.NoError(t, err)
@@ -1798,8 +1818,7 @@ func TestVerificationGrantOverlayTombstoneOrderingModel(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// C36: a repeated resource ref is not double counted and a same-id resource
-// of another type is not touched.
+// C36.
 func TestVerificationResourceCombinedTombstoneComposition(t *testing.T) {
 	s := newSourceCacheVerificationStore(t)
 	build := func(id string) *v2.Resource {
@@ -1825,8 +1844,7 @@ func TestVerificationResourceCombinedTombstoneComposition(t *testing.T) {
 	deleted, err := s.cache.DeleteSourceCacheRows(t.Context(), sourcecache.RowKindResources, "scope-a",
 		tombResources(refOfResource(overlap), refOfResource(selectorOnly), refOfResource(selectorOnly)))
 	require.NoError(t, err)
-	require.Equal(t, int64(1), deleted,
-		"the overlapping ref was already absent; only the remaining named row is deleted")
+	require.Equal(t, int64(1), deleted)
 	_, err = s.engine.GetResourceRecord(t.Context(), "user", "alice")
 	require.ErrorIs(t, err, cockroachpebble.ErrNotFound)
 	_, err = s.engine.GetResourceRecord(t.Context(), "user", "bob")
@@ -2138,9 +2156,6 @@ func TestVerificationReplayOverwriteCleansForeignScopeIndex(t *testing.T) {
 	}
 }
 
-// A regression that ignored the ref set and swept the scope would pass a
-// suite whose tombstones always named every row. Rows not named must
-// remain, and the count reports only real deletions.
 func TestVerificationGrantRefDeletePreservesUnnamedRows(t *testing.T) {
 	s := newSourceCacheVerificationStore(t)
 	doomed := putVerificationGrant(t, s, "scope-a", "ent-doomed", "alice")

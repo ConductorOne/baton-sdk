@@ -203,12 +203,12 @@ func TestVerificationPoisonAllKindRestampAndUnscopedDelete(t *testing.T) {
 	}
 }
 
-// TestVerificationPoisonCrossScopeCanonicalTombstone pins the acting-scope
+// TestVerificationPoisonCrossScopeRefTombstone pins the acting-scope
 // contract on the canonical-ID tombstone path: the same bounded delete
 // poisons the row's scope when acting for a DIFFERENT scope and never
 // self-poisons when acting for the row's own scope. This is the store-level
 // DeleteSourceCacheRows shape with the acting scope threaded through.
-func TestVerificationPoisonCrossScopeCanonicalTombstone(t *testing.T) {
+func TestVerificationPoisonCrossScopeRefTombstone(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		actingScope string
@@ -279,7 +279,7 @@ func TestVerificationPoisonScopedTombstonesDoNotSelfPoison(t *testing.T) {
 		u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
 		u2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u2"}.Build()}.Build()
 		require.NoError(t, prev.PutResources(sourcecache.WithScope(ctx, "scope-a"), u1, u2))
-		deleted, err := prev.PebbleEngine().DeleteResourceRecordsBounded(ctx, []sourcecache.ResourceRef{{ResourceTypeID: "user", ResourceID: "u1"}}, "scope-a")
+		deleted, err := prev.PebbleEngine().DeleteResourceRecordsByRef(ctx, []sourcecache.ResourceRef{{ResourceTypeID: "user", ResourceID: "u1"}}, "scope-a")
 		require.NoError(t, err)
 		require.Equal(t, int64(1), deleted)
 		sealReplaySource(ctx, t, prev.PebbleEngine(), sourcecache.RowKindResources, "scope-a")

@@ -418,42 +418,98 @@ func (e *Engine) InvalidateSourceCacheReplayState(ctx context.Context, dropScope
 	})
 }
 
-// DeleteGrantRecordsByRef deletes the named grants in bounded chunks;
-// absent refs are no-ops. actingScope is the scope on whose behalf the
-// tombstones act: deleting its own rows stages no poison, deleting a row
-// stamped with any other scope poisons that scope (CO-015).
+// DeleteGrantRecordsByRef deletes the named grants; absent refs are
+// no-ops. actingScope is the scope on whose behalf the tombstones act:
+// deleting its own rows stages no poison, deleting a row stamped with any
+// other scope poisons that scope (CO-015).
 func (e *Engine) DeleteGrantRecordsByRef(ctx context.Context, refs []sourcecache.GrantRef, actingScope string) (int64, error) {
-	if len(refs) == 0 {
+	seen := make(map[grantIdentity]struct{}, len(refs))
+	targets := make([]deleteTarget, 0, len(refs))
+	for _, ref := range refs {
+		id := grantIdentityFromRef(ref)
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		key := encodeGrantIdentityKey(id)
+		targets = append(targets, deleteTarget{key: key, stage: func(b *rawdb.RecordBatch, oldVal []byte) error {
+			return b.StageGrantDelete(key, oldVal)
+		}})
+	}
+	return e.deleteRecords(ctx, "grants-ref", actingScope, targets, nil)
+}
+
+// DeleteEntitlementRecordsByRef: see DeleteGrantRecordsByRef.
+func (e *Engine) DeleteEntitlementRecordsByRef(ctx context.Context, refs []sourcecache.EntitlementRef, actingScope string) (int64, error) {
+	seen := make(map[entitlementIdentity]struct{}, len(refs))
+	targets := make([]deleteTarget, 0, len(refs))
+	for _, ref := range refs {
+		id := entitlementIdentityFromRef(ref)
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		key := encodeEntitlementIdentityKey(id)
+		targets = append(targets, deleteTarget{key: key, stage: func(b *rawdb.RecordBatch, oldVal []byte) error {
+			return b.StageEntitlementDelete(key, oldVal)
+		}})
+	}
+	return e.deleteRecords(ctx, "entitlements-ref", actingScope, targets, e.noteEntitlementKeyspaceWrite)
+}
+
+// DeleteResourceRecordsByRef: see DeleteGrantRecordsByRef.
+func (e *Engine) DeleteResourceRecordsByRef(ctx context.Context, refs []sourcecache.ResourceRef, actingScope string) (int64, error) {
+	seen := make(map[sourcecache.ResourceRef]struct{}, len(refs))
+	targets := make([]deleteTarget, 0, len(refs))
+	for _, ref := range refs {
+		if _, dup := seen[ref]; dup {
+			continue
+		}
+		seen[ref] = struct{}{}
+		key := encodeResourceKey(ref.ResourceTypeID, ref.ResourceID)
+		targets = append(targets, deleteTarget{key: key, stage: func(b *rawdb.RecordBatch, oldVal []byte) error {
+			return b.StageResourceDelete(key, oldVal, ref.ResourceTypeID, ref.ResourceID)
+		}})
+	}
+	return e.deleteRecords(ctx, "resources-ref", actingScope, targets, nil)
+}
+
+type deleteTarget struct {
+	key   []byte
+	stage func(b *rawdb.RecordBatch, oldVal []byte) error
+}
+
+// deleteRecords point-reads each target and stages its delete, committing
+// in bounded chunks. Returns the rows landed, on error too.
+func (e *Engine) deleteRecords(ctx context.Context, kind, actingScope string, targets []deleteTarget, onCommit func()) (int64, error) {
+	if len(targets) == 0 {
 		return 0, nil
 	}
 	var deleted int64
 	err := e.withWrite(func() error {
-		deletes := newSourceCacheDeleteBatch(e, "grants-canonical", actingScope, writeOpts(e.opts.durability))
+		if err := e.requireCurrentSync(); err != nil {
+			return err
+		}
+		deletes := newSourceCacheDeleteBatch(e, kind, actingScope, recordWriteOpts)
 		defer deletes.close()
 		defer func() { deleted = deletes.committedDeleted }()
-		seen := make(map[grantIdentity]struct{}, len(refs))
-		for _, ref := range refs {
+		deletes.onCommit = onCommit
+		for _, target := range targets {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			id := grantIdentityFromRef(ref)
-			if _, dup := seen[id]; dup {
-				continue
-			}
-			seen[id] = struct{}{}
-			key := encodeGrantIdentityKey(id)
-			oldVal, closer, err := e.db.Get(key)
+			oldVal, closer, err := e.db.Get(target.key)
 			if errors.Is(err, pebble.ErrNotFound) {
 				continue
 			}
 			if err != nil {
 				return err
 			}
-			if err := deletes.batch.StageGrantDelete(key, oldVal); err != nil {
-				_ = closer.Close()
+			err = target.stage(deletes.batch, oldVal)
+			_ = closer.Close()
+			if err != nil {
 				return err
 			}
-			_ = closer.Close()
 			if err := deletes.staged(true); err != nil {
 				return err
 			}
@@ -473,49 +529,6 @@ func grantIdentityFromRef(ref sourcecache.GrantRef) grantIdentity {
 
 func entitlementIdentityFromRef(ref sourcecache.EntitlementRef) entitlementIdentity {
 	return entitlementIdentityFromParts(ref.Resource.ResourceTypeID, ref.Resource.ResourceID, ref.EntitlementID)
-}
-
-// DeleteResourceRecordsBounded deletes the named resources in bounded
-// chunks, acting for actingScope (see DeleteGrantRecordsByRef). Absent
-// refs are no-ops.
-func (e *Engine) DeleteResourceRecordsBounded(ctx context.Context, refs []sourcecache.ResourceRef, actingScope string) (int64, error) {
-	if len(refs) == 0 {
-		return 0, nil
-	}
-	var deleted int64
-	err := e.withWrite(func() error {
-		deletes := newSourceCacheDeleteBatch(e, "resources-canonical", actingScope, writeOpts(e.opts.durability))
-		defer deletes.close()
-		defer func() { deleted = deletes.committedDeleted }()
-		seen := make(map[sourcecache.ResourceRef]struct{}, len(refs))
-		for _, ref := range refs {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if _, dup := seen[ref]; dup {
-				continue
-			}
-			seen[ref] = struct{}{}
-			key := encodeResourceKey(ref.ResourceTypeID, ref.ResourceID)
-			oldVal, closer, err := e.db.Get(key)
-			if errors.Is(err, pebble.ErrNotFound) {
-				continue
-			}
-			if err != nil {
-				return err
-			}
-			if err := deletes.batch.StageResourceDelete(key, oldVal, ref.ResourceTypeID, ref.ResourceID); err != nil {
-				_ = closer.Close()
-				return err
-			}
-			_ = closer.Close()
-			if err := deletes.staged(true); err != nil {
-				return err
-			}
-		}
-		return deletes.commit(true)
-	})
-	return deleted, err
 }
 
 type sourceCacheDeleteBatch struct {
@@ -607,7 +620,8 @@ func (b *sourceCacheDeleteBatch) close() {
 
 // DeleteGrantsByPrincipalsInScope deletes every grant row in the CURRENT
 // store stamped with scopeKey whose principal (type, id) is in principals —
-// the engine side of SourceCacheTombstones.principals.
+// the engine side of SourceCacheTombstones.principals. A scope-index entry
+// whose primary row is gone is deleted too, without counting.
 //
 // One prefix scan of the scope's by_source_scope index resolves
 // everything: the index tail IS the grant identity, so the primary key

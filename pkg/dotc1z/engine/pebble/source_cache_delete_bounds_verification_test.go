@@ -15,7 +15,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 )
 
-type scopedDeleteVerificationCase struct {
+type deleteVerificationCase struct {
 	name          string
 	commitKind    string
 	primaryPrefix []byte
@@ -23,12 +23,12 @@ type scopedDeleteVerificationCase struct {
 	prepare       func(*testing.T, *Adapter) func(context.Context) (int64, error)
 }
 
-// C10/C12/C15/C16: scoped tombstones commit in bounded chunks. If a later
+// C10/C12/C15/C16: tombstone deletes commit in bounded chunks. If a later
 // chunk fails, the method reports only rows whose deletes landed, preserves
 // primary/index agreement, and the exact retry converges.
-func TestVerificationScopedDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
+func TestVerificationDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
 	const rows = 5
-	cases := []scopedDeleteVerificationCase{
+	cases := []deleteVerificationCase{
 		{
 			name:          "grant-principals",
 			commitKind:    "grant-principals",
@@ -51,7 +51,7 @@ func TestVerificationScopedDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
 		},
 		{
 			name:          "grant-refs",
-			commitKind:    "grants-canonical",
+			commitKind:    "grants-ref",
 			primaryPrefix: encodeGrantPrefix(),
 			indexPrefix:   GrantBySourceScopeLowerBound(),
 			prepare: func(t *testing.T, a *Adapter) func(context.Context) (int64, error) {
@@ -76,7 +76,7 @@ func TestVerificationScopedDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
 		},
 		{
 			name:          "resources",
-			commitKind:    "resources-canonical",
+			commitKind:    "resources-ref",
 			primaryPrefix: encodeResourcePrefix(),
 			indexPrefix:   ResourceBySourceScopeLowerBound(),
 			prepare: func(t *testing.T, a *Adapter) func(context.Context) (int64, error) {
@@ -92,7 +92,7 @@ func TestVerificationScopedDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
 				}
 				require.NoError(t, a.PebbleEngine().PutResourceRecords(t.Context(), records...))
 				return func(ctx context.Context) (int64, error) {
-					return a.PebbleEngine().DeleteResourceRecordsBounded(ctx, refs, "scope-a")
+					return a.PebbleEngine().DeleteResourceRecordsByRef(ctx, refs, "scope-a")
 				}
 			},
 		},
@@ -178,7 +178,7 @@ func TestVerificationEntitlementDeleteBumpsLookupGenPerChunk(t *testing.T) {
 	commitCalls := 0
 	sawMidLoopBump := false
 	e.test.sourceCacheDeleteCommitHook = func(kind string, _ int, _ bool) error {
-		require.Equal(t, "entitlements-canonical", kind)
+		require.Equal(t, "entitlements-ref", kind)
 		commitCalls++
 		if commitCalls == 2 {
 			sawMidLoopBump = e.entIDLookupGen.Load() > genBefore

@@ -281,7 +281,7 @@ func (s *pebbleStore) DeleteSourceCacheRows(ctx context.Context, kind sourcecach
 	if err := s.writeHook(ctx, "DeleteSourceCacheRows"); err != nil {
 		return 0, err
 	}
-	if err := t.ValidateKind(kind); err != nil {
+	if err := t.Validate(kind); err != nil {
 		return 0, err
 	}
 	if err := sourcecache.ValidateScopeKey(scopeKey); err != nil {
@@ -297,7 +297,7 @@ func (s *pebbleStore) DeleteSourceCacheRows(ctx context.Context, kind sourcecach
 	defer done()
 	switch kind {
 	case sourcecache.RowKindResources:
-		n, err := s.DeleteResourceRecordsBounded(ctx, t.Resources, scopeKey)
+		n, err := s.DeleteResourceRecordsByRef(ctx, t.Resources, scopeKey)
 		if err != nil {
 			return n, fmt.Errorf("source cache delete resources for scope %q: %w", scopeKey, err)
 		}
@@ -313,8 +313,6 @@ func (s *pebbleStore) DeleteSourceCacheRows(ctx context.Context, kind sourcecach
 		if err != nil {
 			return byRef, fmt.Errorf("source cache delete grants for scope %q: %w", scopeKey, err)
 		}
-		// A matching orphan scope index is a durable mutation even though
-		// no primary row contributes to the returned count.
 		byPrincipal, err := s.DeleteGrantsByPrincipalsInScope(ctx, scopeKey, t.Principals)
 		if err != nil {
 			return byRef + byPrincipal, fmt.Errorf("source cache delete grants by principal for scope %q: %w", scopeKey, err)

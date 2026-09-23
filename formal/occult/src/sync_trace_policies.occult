@@ -45,7 +45,7 @@ syntax("standard");
 ∃ ev_seal;
 
 # ev_delete(s) is a committed tombstone application for scope s (the
-# delta protocol's delete leg: DeletedIds / DeletedPrincipalIds applied
+# delta protocol's delete leg: SourceCacheTombstones applied
 # by the store after the page's rows, before the validator publish —
 # B3's within-page order). A delete is a WRITE: it needs grounding like
 # an upsert (a tombstone against an un-regrounded base is the same bug

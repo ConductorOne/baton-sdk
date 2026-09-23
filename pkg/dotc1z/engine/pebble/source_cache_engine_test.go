@@ -378,7 +378,7 @@ func TestDeleteGrantsByPrincipalsInScope(t *testing.T) {
 	require.Zero(t, res.Rows)
 }
 
-func TestDeleteResourceRecordsBounded(t *testing.T) {
+func TestDeleteResourceRecordsByRef(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -390,7 +390,7 @@ func TestDeleteResourceRecordsBounded(t *testing.T) {
 	u3 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u3"}.Build(), DisplayName: "U3"}.Build()
 	require.NoError(t, a.PutResources(sourcecache.WithScope(ctx, scopeB), u3))
 
-	deleted, err := a.PebbleEngine().DeleteResourceRecordsBounded(ctx, []sourcecache.ResourceRef{
+	deleted, err := a.PebbleEngine().DeleteResourceRecordsByRef(ctx, []sourcecache.ResourceRef{
 		{ResourceTypeID: "user", ResourceID: "u1"},
 		{ResourceTypeID: "user", ResourceID: "u1"},    // repeated ref counts once
 		{ResourceTypeID: "user", ResourceID: "ghost"}, // never synced — no-op

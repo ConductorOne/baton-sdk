@@ -71,7 +71,7 @@ type testSeams struct {
 	// by publication of the final staged rows.
 	sourceCacheReplayIteratorErrorHook func(kind string) error
 
-	// sourceCacheDeleteCommitHook runs before each bounded scoped-tombstone
+	// sourceCacheDeleteCommitHook runs before each bounded tombstone
 	// commit. sourceCacheDeleteBatchRows lowers the production batch limit so
 	// tests can exercise interrupted multi-batch retry without whale fixtures.
 	sourceCacheDeleteCommitHook func(kind string, rows int, final bool) error
