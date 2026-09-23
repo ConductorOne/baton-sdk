@@ -139,3 +139,19 @@ The [review guide](README.md#pending-work-revision-cost) records current cost
 medians and limitations. The original full C49 matrix, byte attribution and full
 product-to-test mapping remain incomplete. Passing sampled tests and bounded
 reviews do not establish complete original plan-product closure.
+
+## Code-quality trim
+
+The pre-trim snapshot remains pinned at fda24282. The frozen plan is unchanged;
+all50 criterion dispositions and their detailed test/mutant records remain linked.
+An independent sync-side quality review and a storage/comment audit led to shared
+operation-specific root planners, removal of three redundant read wrappers, direct
+page-based report-option staging, and moving a test-only seal helper into tests.
+Prototype export scaffolding is removed; report assertions and memory benchmarks
+remain. Write wrappers retain dirty tracking and write-hook enforcement.
+
+Full sync tests pass (88.561s), the storage tree passes (parent26.434s/Pebble10.614s),
+and focused planning tests pass three race repetitions (31.764s). This mechanical
+cleanup does not promote coverage statuses or alter durability policy.
+Report-option/seal/retention checks also pass three race repetitions (5.046s);
+CI merge-checkout lint reports zero issues after the final cleanup.

@@ -6,6 +6,7 @@ Baseline: eb63f1b5. Historical audits and file-size snapshots are preserved in t
 | Boundary | Current owner | Reason for the boundary |
 | --- | --- | --- |
 | Engine selection | syncer.setStore, store_caps | Resolve capabilities once; reject engine/capability disagreement |
+| Root grants/entitlements planning | root_planning | Shared read/filter/order logic; each caller owns transition and completion marking |
 | Phase ordering and workers | parallel_syncer | Retain the existing scheduler, retry and warning policy |
 | Pending execution | ledger_pending, ledger_restore | Bounded stack/refill reads; work IDs distinguish repeated arguments |
 | Page transaction | ledger_scheduler, ledger_page, Pebble page_unit | Publish records, facts, counts and pending transition together |
