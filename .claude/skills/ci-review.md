@@ -191,8 +191,10 @@ These constrain what you emit. They apply to every finding, whatever it is about
   documents a surprise the code should have removed, and the finding is the rename, type,
   or split, not the comment. It documents nothing a reader could not glean from the code,
   and the finding is delete. Anything else about a comment is silent: stale, imprecise,
-  too long, restating the diff. Never request a comment, and never propose replacement
-  text longer than one line.
+  too long, restating the diff. Do not request a comment where a rename or a split would
+  do, and never propose replacement text longer than one line. A comment finding blocks
+  only when the comment is false in a way that would lead a reader to write wrong code.
+  See `docs/COMMENTS.md`, Reviewing.
 - A non-blocking wording finding is unsaid unless the wording would change what a reader
   does. Still-imprecise is not a finding.
 - One round per location. A second thread is for a fix that introduced something new that

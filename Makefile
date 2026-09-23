@@ -378,6 +378,7 @@ EXPORTCHECK_SCOPE := ./pkg/dotc1z/...,./pkg/synccompactor/...,./pkg/sync/...
 
 .PHONY: exportcheck
 exportcheck: ## Fail on new unreferenced exports or grown oversized types in the storage packages (see .exportcheck-baseline)
+	go test -C tools/exportcheck .
 	go run -C tools/exportcheck . -dir ../.. -scope $(EXPORTCHECK_SCOPE) -baseline ../../.exportcheck-baseline
 
 .PHONY: exportcheck-update

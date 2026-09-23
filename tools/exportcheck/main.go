@@ -49,14 +49,10 @@ func main() {
 	if packages.PrintErrors(all) > 0 {
 		os.Exit(2)
 	}
-	scoped, err := packages.Load(&packages.Config{Dir: *dir, Mode: packages.NeedName, Tests: false}, strings.Split(*scope, ",")...)
+	inScope, err := loadScope(*dir, *scope)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "exportcheck:", err)
 		os.Exit(2)
-	}
-	inScope := map[string]bool{}
-	for _, p := range scoped {
-		inScope[p.PkgPath] = true
 	}
 
 	unused := findUnreferenced(all, inScope)
@@ -109,9 +105,11 @@ const (
 )
 
 // oversizedTypes returns "size pkgpath.Type methods=N fields=M" for every
-// hand-written named type in scope over a limit. Generated types track
-// their schema and are skipped; so is the field count of a struct with no
-// methods, which is a record, not an abstraction.
+// hand-written named type in scope over a limit. A struct's method count
+// is the method set of *T, including methods promoted from embedded
+// fields. Generated types track their schema and are skipped; so is the
+// field count of a struct with no methods, which is a record, not an
+// abstraction.
 func oversizedTypes(all []*packages.Package, inScope map[string]bool) []string {
 	var out []string
 	for _, p := range all {
@@ -135,7 +133,7 @@ func oversizedTypes(all []*packages.Package, inScope map[string]bool) []string {
 				methods = u.NumMethods()
 				over = methods > maxInterfaceMethods
 			case *types.Struct:
-				methods = named.NumMethods()
+				methods = types.NewMethodSet(types.NewPointer(named)).Len()
 				fields = u.NumFields()
 				over = methods > maxStructMethods || (methods > 0 && fields > maxStructFields)
 			default:
@@ -163,7 +161,42 @@ func parseSizeLine(l string) (typeSize, bool) {
 	if _, err := fmt.Sscanf(l, "size %s methods=%d fields=%d", &s.name, &s.methods, &s.fields); err != nil {
 		return typeSize{}, false
 	}
+	if sizeLine(s.name, s.methods, s.fields) != l {
+		return typeSize{}, false
+	}
 	return s, true
+}
+
+// loadScope maps each package pattern to the packages it matched. A
+// pattern that matches nothing is an error: go list only warns, and an
+// empty scope would otherwise pass with nothing checked.
+func loadScope(dir, scope string) (map[string]bool, error) {
+	inScope := map[string]bool{}
+	for _, pattern := range strings.Split(scope, ",") {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			return nil, fmt.Errorf("empty scope pattern")
+		}
+		matched, err := packages.Load(&packages.Config{Dir: dir, Mode: packages.NeedName, Tests: false}, pattern)
+		if err != nil {
+			return nil, err
+		}
+		if packages.PrintErrors(matched) > 0 {
+			return nil, fmt.Errorf("scope %q failed to load", pattern)
+		}
+		n := 0
+		for _, p := range matched {
+			if p.PkgPath == "" {
+				continue
+			}
+			inScope[p.PkgPath] = true
+			n++
+		}
+		if n == 0 {
+			return nil, fmt.Errorf("scope %q matched no packages", pattern)
+		}
+	}
+	return inScope, nil
 }
 
 // sizeShrank reports whether the baseline pins name at a size no smaller
@@ -223,9 +256,6 @@ func findUnreferenced(all []*packages.Package, inScope map[string]bool) []string
 
 	implementsAny := func(t types.Type, method string) bool {
 		for _, it := range ifaces {
-			if it.Method(0) == nil {
-				continue
-			}
 			has := false
 			for i := 0; i < it.NumMethods(); i++ {
 				if it.Method(i).Name() == method {

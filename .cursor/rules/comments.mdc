@@ -23,4 +23,7 @@ When writing:
 When reviewing: a comment finding is that the comment is false, that it
 documents a surprise the code should have removed (the finding is the
 rename, type, or split, not the comment), or that it documents nothing
-surprising (the finding is delete). Never request a comment.
+surprising (the finding is delete). Do not request a comment where a
+rename or a split would do. A comment finding blocks only when the
+comment is false in a way that would lead a reader to write wrong code.
+See `docs/COMMENTS.md`, Reviewing.

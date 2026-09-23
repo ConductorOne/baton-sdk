@@ -405,7 +405,7 @@ github.com/conductorone/baton-sdk/pkg/synccompactor/pebble.NewCompactor
 github.com/conductorone/baton-sdk/pkg/synccompactor/pebble.WithFanIn
 github.com/conductorone/baton-sdk/pkg/synccompactor/pebble.WithOverlayFanIn
 size github.com/conductorone/baton-sdk/pkg/dotc1z.C1File methods=129 fields=28
-size github.com/conductorone/baton-sdk/pkg/dotc1z.pebbleStore methods=49 fields=13
+size github.com/conductorone/baton-sdk/pkg/dotc1z.pebbleStore methods=324 fields=13
 size github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore.Store methods=39 fields=0
 size github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble.BulkSyncImport methods=13 fields=20
 size github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble.Engine methods=305 fields=37
