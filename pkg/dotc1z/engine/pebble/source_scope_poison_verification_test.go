@@ -203,11 +203,6 @@ func TestVerificationPoisonAllKindRestampAndUnscopedDelete(t *testing.T) {
 	}
 }
 
-// TestVerificationPoisonCrossScopeRefTombstone pins the acting-scope
-// contract on the canonical-ID tombstone path: the same bounded delete
-// poisons the row's scope when acting for a DIFFERENT scope and never
-// self-poisons when acting for the row's own scope. This is the store-level
-// DeleteSourceCacheRows shape with the acting scope threaded through.
 func TestVerificationPoisonCrossScopeRefTombstone(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -225,7 +220,7 @@ func TestVerificationPoisonCrossScopeRefTombstone(t *testing.T) {
 			doomed := scGrant("member", "alice", false)
 			kept := scGrant("member", "bob", false)
 			require.NoError(t, prev.PutGrants(sourcecache.WithScope(ctx, "scope-a"), doomed, kept))
-			_, err = prev.PebbleEngine().DeleteGrantRecordsByRef(ctx, []sourcecache.GrantRef{sourcecache.GrantRef{
+			_, err = prev.PebbleEngine().DeleteGrantRecordsByRef(ctx, []sourcecache.GrantRef{{
 				Entitlement: sourcecache.EntitlementRef{Resource: sourcecache.ResourceRef{ResourceTypeID: "group", ResourceID: "g1"}, EntitlementID: "group:g1:member"},
 				Principal:   sourcecache.ResourceRef{ResourceTypeID: "user", ResourceID: "alice"},
 			}}, tc.actingScope)

@@ -419,13 +419,16 @@ func (e *Engine) InvalidateSourceCacheReplayState(ctx context.Context, dropScope
 }
 
 // DeleteGrantRecordsByRef deletes the named grants; absent refs are
-// no-ops. actingScope is the scope on whose behalf the tombstones act:
-// deleting its own rows stages no poison, deleting a row stamped with any
-// other scope poisons that scope (CO-015).
+// no-ops. actingScope is the scope on whose behalf the tombstones act;
+// see RecordBatch.SetActingSourceScope for what deleting another scope's
+// row does.
 func (e *Engine) DeleteGrantRecordsByRef(ctx context.Context, refs []sourcecache.GrantRef, actingScope string) (int64, error) {
 	seen := make(map[grantIdentity]struct{}, len(refs))
 	targets := make([]deleteTarget, 0, len(refs))
 	for _, ref := range refs {
+		if err := ref.Validate(); err != nil {
+			return 0, err
+		}
 		id := grantIdentityFromRef(ref)
 		if _, dup := seen[id]; dup {
 			continue
@@ -444,6 +447,9 @@ func (e *Engine) DeleteEntitlementRecordsByRef(ctx context.Context, refs []sourc
 	seen := make(map[entitlementIdentity]struct{}, len(refs))
 	targets := make([]deleteTarget, 0, len(refs))
 	for _, ref := range refs {
+		if err := ref.Validate(); err != nil {
+			return 0, err
+		}
 		id := entitlementIdentityFromRef(ref)
 		if _, dup := seen[id]; dup {
 			continue
@@ -462,6 +468,9 @@ func (e *Engine) DeleteResourceRecordsByRef(ctx context.Context, refs []sourceca
 	seen := make(map[sourcecache.ResourceRef]struct{}, len(refs))
 	targets := make([]deleteTarget, 0, len(refs))
 	for _, ref := range refs {
+		if err := ref.Validate(); err != nil {
+			return 0, err
+		}
 		if _, dup := seen[ref]; dup {
 			continue
 		}
@@ -479,9 +488,8 @@ type deleteTarget struct {
 	stage func(b *rawdb.RecordBatch, oldVal []byte) error
 }
 
-// deleteRecords point-reads each target and stages its delete, committing
-// in bounded chunks. Returns the rows landed, on error too.
-func (e *Engine) deleteRecords(ctx context.Context, kind, actingScope string, targets []deleteTarget, onCommit func()) (int64, error) {
+// deleteRecords returns the rows landed, on error too.
+func (e *Engine) deleteRecords(ctx context.Context, batchKind, actingScope string, targets []deleteTarget, onCommit func()) (int64, error) {
 	if len(targets) == 0 {
 		return 0, nil
 	}
@@ -490,7 +498,7 @@ func (e *Engine) deleteRecords(ctx context.Context, kind, actingScope string, ta
 		if err := e.requireCurrentSync(); err != nil {
 			return err
 		}
-		deletes := newSourceCacheDeleteBatch(e, kind, actingScope, recordWriteOpts)
+		deletes := newSourceCacheDeleteBatch(e, batchKind, actingScope, recordWriteOpts)
 		defer deletes.close()
 		defer func() { deleted = deletes.committedDeleted }()
 		deletes.onCommit = onCommit
@@ -642,6 +650,9 @@ func (e *Engine) DeleteGrantsByPrincipalsInScope(ctx context.Context, scopeKey s
 	}
 	want := make(map[sourcecache.ResourceRef]struct{}, len(principals))
 	for _, p := range principals {
+		if err := p.Validate(); err != nil {
+			return 0, err
+		}
 		want[p] = struct{}{}
 	}
 	prefix := encodeGrantBySourceScopePrefix(scopeKey)

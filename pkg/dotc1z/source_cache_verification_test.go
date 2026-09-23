@@ -217,37 +217,19 @@ func putSourceCacheVerificationRows(
 	case sourcecache.RowKindResources:
 		rows := make([]*v2.Resource, 0, count)
 		for i := range count {
-			rows = append(rows, v2.Resource_builder{
-				Id: v2.ResourceId_builder{
-					ResourceType: "user",
-					Resource:     fmt.Sprintf("%s-%d", prefix, i),
-				}.Build(),
-			}.Build())
+			rows = append(rows, verifResource(prefix, i))
 		}
 		require.NoError(t, s.store.PutResources(ctx, rows...))
 	case sourcecache.RowKindEntitlements:
 		rows := make([]*v2.Entitlement, 0, count)
 		for i := range count {
-			rows = append(rows, v2.Entitlement_builder{
-				Id: fmt.Sprintf("%s-%d", prefix, i),
-				Resource: v2.Resource_builder{
-					Id: v2.ResourceId_builder{
-						ResourceType: "group",
-						Resource:     fmt.Sprintf("%s-group-%d", prefix, i),
-					}.Build(),
-				}.Build(),
-			}.Build())
+			rows = append(rows, verifEntitlement(prefix, i))
 		}
 		require.NoError(t, s.store.PutEntitlements(ctx, rows...))
 	case sourcecache.RowKindGrants:
 		rows := make([]*v2.Grant, 0, count)
 		for i := range count {
-			rows = append(rows, mkV2Grant(
-				"",
-				fmt.Sprintf("%s-%d", prefix, i),
-				"user",
-				fmt.Sprintf("%s-principal-%d", prefix, i),
-			))
+			rows = append(rows, verifGrant(prefix, i))
 		}
 		require.NoError(t, s.store.PutGrants(ctx, rows...))
 	default:
@@ -815,8 +797,6 @@ func TestVerificationReplayRejectsInvalidScope(t *testing.T) {
 	require.NoError(t, validateSourceCacheDigest(before, sourceCacheVerificationEngineDigest(t, s.engine)))
 }
 
-// Two rows sharing an external id are distinct identities; a ref deletes
-// exactly the one it names.
 func TestVerificationTombstoneRefsNameExactlyOneOfTwins(t *testing.T) {
 	t.Run("entitlements", func(t *testing.T) {
 		s := newSourceCacheVerificationStore(t)
@@ -870,28 +850,39 @@ func TestVerificationTombstoneRefsNameExactlyOneOfTwins(t *testing.T) {
 	})
 }
 
-// The store validates the whole request before any mutation, so a Go
-// caller cannot slip an incomplete or wrong-kind ref past the proto gate.
+// Each case pairs a valid, present ref with an invalid one: the present
+// row must survive, so validation happens before any element applies.
 func TestVerificationTombstoneValidationPrecedesMutation(t *testing.T) {
 	cases := map[string]struct {
 		kind sourcecache.RowKind
 		tomb sourcecache.Tombstones
 	}{
-		"principal selector on entitlements": {sourcecache.RowKindEntitlements, tombPrincipals(userRef("alice"))},
-		"resource ref without type":          {sourcecache.RowKindResources, tombResources(sourcecache.ResourceRef{ResourceID: "destination-0"})},
-		"grant ref without principal type": {sourcecache.RowKindGrants, tombGrants(sourcecache.GrantRef{
-			Entitlement: verifEntitlementRef("destination", 0), Principal: sourcecache.ResourceRef{ResourceID: "destination-principal-0"},
-		})},
+		"principal selector on entitlements": {sourcecache.RowKindEntitlements, sourcecache.Tombstones{
+			Entitlements: []sourcecache.EntitlementRef{verifEntitlementRef("destination", 0)},
+			Principals:   []sourcecache.ResourceRef{userRef("alice")},
+		}},
+		"resource ref without type": {sourcecache.RowKindResources, tombResources(
+			verifResourceRef("destination", 0), sourcecache.ResourceRef{ResourceID: "destination-1"},
+		)},
+		"grant ref without principal type": {sourcecache.RowKindGrants, tombGrants(
+			verifGrantRef("destination", 0),
+			sourcecache.GrantRef{Entitlement: verifEntitlementRef("destination", 1), Principal: sourcecache.ResourceRef{ResourceID: "destination-principal-1"}},
+		)},
+		"principal without type": {sourcecache.RowKindGrants, sourcecache.Tombstones{
+			Grants:     []sourcecache.GrantRef{verifGrantRef("destination", 0)},
+			Principals: []sourcecache.ResourceRef{{ResourceID: "destination-principal-1"}},
+		}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			s := newSourceCacheVerificationStore(t)
-			putSourceCacheVerificationRows(t, s, tc.kind, "scope-a", 1, "destination")
+			putSourceCacheVerificationRows(t, s, tc.kind, "scope-a", 2, "destination")
 			before := sourceCacheVerificationEngineDigest(t, s.engine)
 			deleted, err := s.cache.DeleteSourceCacheRows(t.Context(), tc.kind, "scope-a", tc.tomb)
 			require.Error(t, err)
 			require.Zero(t, deleted)
 			require.Equal(t, before, sourceCacheVerificationEngineDigest(t, s.engine))
+			require.Equal(t, 2, countSourceCacheVerificationRowsInScope(t, s.engine, tc.kind, "scope-a"))
 		})
 	}
 }

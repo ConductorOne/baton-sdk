@@ -143,6 +143,32 @@ func TestPageWriterGetResourceAndDiscard(t *testing.T) {
 	require.ErrorIs(t, err, pebble.ErrNotFound, "a discarded page never ran")
 }
 
+func TestPageWriterDropStagedSourceCacheRows(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	_, res, _, _ := pageTestV2Fixtures()
+
+	w := e.ledger.BeginPage()
+	require.NoError(t, w.PutResources(ctx, res...))
+	alice := sourcecache.Tombstones{Resources: []sourcecache.ResourceRef{{ResourceTypeID: "user", ResourceID: "alice"}}}
+
+	_, err = w.DropStagedSourceCacheRows(sourcecache.RowKindResources, "", alice)
+	require.Error(t, err, "the writer validates the scope key")
+	_, err = w.DropStagedSourceCacheRows(sourcecache.RowKindResources, "scope", sourcecache.Tombstones{Resources: []sourcecache.ResourceRef{{ResourceID: "alice"}}})
+	require.ErrorIs(t, err, sourcecache.ErrIncompleteTombstone)
+
+	n, err := w.DropStagedSourceCacheRows(sourcecache.RowKindResources, "scope", alice)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	require.NoError(t, w.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "SyncResources"}, nil))
+	_, err = e.GetResourceRecord(ctx, "user", "alice")
+	require.ErrorIs(t, err, pebble.ErrNotFound)
+	_, err = e.GetResourceRecord(ctx, "app", "github")
+	require.NoError(t, err)
+}
+
 // A writer begun with no sync bound refuses to stage or commit, the
 // same way the single-call adapters do.
 func TestPageWriterRequiresSync(t *testing.T) {

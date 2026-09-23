@@ -75,6 +75,31 @@ func TestVerificationDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
 			},
 		},
 		{
+			name:          "entitlement-refs",
+			commitKind:    "entitlements-ref",
+			primaryPrefix: encodeEntitlementPrefix(),
+			indexPrefix:   EntitlementBySourceScopeLowerBound(),
+			prepare: func(t *testing.T, a *Adapter) func(context.Context) (int64, error) {
+				records := make([]*v3.EntitlementRecord, 0, rows)
+				refs := make([]sourcecache.EntitlementRef, 0, rows)
+				for i := range rows {
+					records = append(records, v3.EntitlementRecord_builder{
+						ExternalId:     fmt.Sprintf("ent-%d", i),
+						Resource:       v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "g1"}.Build(),
+						SourceScopeKey: "scope-a",
+					}.Build())
+					refs = append(refs, sourcecache.EntitlementRef{
+						Resource:      sourcecache.ResourceRef{ResourceTypeID: "group", ResourceID: "g1"},
+						EntitlementID: fmt.Sprintf("ent-%d", i),
+					})
+				}
+				require.NoError(t, a.PebbleEngine().PutEntitlementRecords(t.Context(), records...))
+				return func(ctx context.Context) (int64, error) {
+					return a.PebbleEngine().DeleteEntitlementRecordsByRef(ctx, refs, "scope-a")
+				}
+			},
+		},
+		{
 			name:          "resources",
 			commitKind:    "resources-ref",
 			primaryPrefix: encodeResourcePrefix(),

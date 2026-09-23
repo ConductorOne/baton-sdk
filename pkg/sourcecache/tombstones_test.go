@@ -99,8 +99,6 @@ func TestTombstonesFromProto(t *testing.T) {
 	})
 }
 
-// Validate is the gate for tombstones built in Go, not only decoded from
-// the wire.
 func TestTombstonesValidateRejectsIncompleteStructs(t *testing.T) {
 	cases := map[string]struct {
 		kind RowKind

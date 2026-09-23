@@ -87,24 +87,40 @@ func userRef(id string) sourcecache.ResourceRef {
 	return sourcecache.ResourceRef{ResourceTypeID: "user", ResourceID: id}
 }
 
-// Refs for the rows putSourceCacheVerificationRows writes.
+// The rows putSourceCacheVerificationRows writes, and refs to them.
+func verifResource(prefix string, i int) *v2.Resource {
+	return v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "user", Resource: fmt.Sprintf("%s-%d", prefix, i)}.Build(),
+	}.Build()
+}
+
+func verifEntitlement(prefix string, i int) *v2.Entitlement {
+	return v2.Entitlement_builder{
+		Id: fmt.Sprintf("%s-%d", prefix, i),
+		Resource: v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: "group", Resource: fmt.Sprintf("%s-group-%d", prefix, i)}.Build(),
+		}.Build(),
+	}.Build()
+}
+
+func verifGrant(prefix string, i int) *v2.Grant {
+	return mkV2Grant("", fmt.Sprintf("%s-%d", prefix, i), "user", fmt.Sprintf("%s-principal-%d", prefix, i))
+}
+
 func verifResourceRef(prefix string, i int) sourcecache.ResourceRef {
-	return userRef(fmt.Sprintf("%s-%d", prefix, i))
+	return refOfResource(verifResource(prefix, i))
 }
 
 func verifEntitlementRef(prefix string, i int) sourcecache.EntitlementRef {
-	return sourcecache.EntitlementRef{
-		Resource:      sourcecache.ResourceRef{ResourceTypeID: "group", ResourceID: fmt.Sprintf("%s-group-%d", prefix, i)},
-		EntitlementID: fmt.Sprintf("%s-%d", prefix, i),
-	}
+	return refOfEntitlement(verifEntitlement(prefix, i))
 }
 
 func verifGrantRef(prefix string, i int) sourcecache.GrantRef {
-	return refOfGrant(mkV2Grant("", fmt.Sprintf("%s-%d", prefix, i), "user", fmt.Sprintf("%s-principal-%d", prefix, i)))
+	return refOfGrant(verifGrant(prefix, i))
 }
 
 func verifPrincipalRef(prefix string, i int) sourcecache.ResourceRef {
-	return userRef(fmt.Sprintf("%s-principal-%d", prefix, i))
+	return refOfResource(verifGrant(prefix, i).GetPrincipal())
 }
 
 func verifTombstone(kind sourcecache.RowKind, prefix string, i int) sourcecache.Tombstones {
