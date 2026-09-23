@@ -120,8 +120,6 @@ func (l *Ledger) InitializePendingWork(ctx context.Context, actions []c1zstore.L
 	})
 }
 
-// Reads newest IDs first, strictly below beforeID when nonzero. The boolean
-// distinguishes an initialized empty queue from absent queue state.
 func (l *Ledger) PendingWork(ctx context.Context, beforeID uint64, limit int) ([]c1zstore.LedgerWork, bool, error) {
 	return l.readPendingWork(ctx, beforeID, 0, limit, false)
 }

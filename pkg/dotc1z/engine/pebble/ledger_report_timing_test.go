@@ -3,31 +3,10 @@ package pebble
 import (
 	"encoding/json"
 	"math"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
-
-func exportReportPrototype(report ledgerReportSummary) error {
-	dir := os.Getenv("LEDGER_REPORT_OUTPUT_DIR")
-	if dir == "" {
-		return nil
-	}
-	if err := os.MkdirAll(dir, 0o750); err != nil { // #nosec G703 -- The test runner selects the export directory.
-		return err
-	}
-	data, err := renderLedgerReport(report)
-	if err != nil {
-		return err
-	}
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-	return root.WriteFile("stats.json", append(data, '\n'), 0o600)
-}
 
 func TestLedgerReportHistogram(t *testing.T) {
 	var h ledgerReportHistogram

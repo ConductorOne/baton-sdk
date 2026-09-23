@@ -1,7 +1,6 @@
 package c1zstore
 
 // ID identifies a scheduled action; Revision identifies one execution of it.
-// Equal request arguments do not identify equal work.
 type LedgerWork struct {
 	SyncID            string      `json:"sync_id"`
 	ID                uint64      `json:"id"`

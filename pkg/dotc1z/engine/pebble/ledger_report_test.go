@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLedgerReportPrototype(t *testing.T) {
+func TestLedgerReport(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -68,10 +68,9 @@ func TestLedgerReportPrototype(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "p2")
 	t.Log(string(encoded))
-	require.NoError(t, exportReportPrototype(report))
 }
 
-func TestLedgerReportPrototypeScope(t *testing.T) {
+func TestLedgerReportScope(t *testing.T) {
 	for _, fact := range []string{"", "should_skip_grants", "should_skip_entitlements_and_grants"} {
 		t.Run(fact, func(t *testing.T) {
 			ctx := context.Background()
@@ -97,7 +96,7 @@ func TestLedgerReportPrototypeScope(t *testing.T) {
 	}
 }
 
-func TestLedgerReportPrototypeFullScope(t *testing.T) {
+func TestLedgerReportFullScope(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -115,7 +114,7 @@ func TestLedgerReportPrototypeFullScope(t *testing.T) {
 	require.EqualValues(t, 4, report.Collections)
 }
 
-func BenchmarkLedgerReportPrototype(b *testing.B) {
+func BenchmarkLedgerReport(b *testing.B) {
 	for _, pages := range []int{10000, 100000, 1000000} {
 		for _, shape := range []struct {
 			name          string
@@ -159,7 +158,7 @@ func BenchmarkLedgerReportPrototype(b *testing.B) {
 				require.NoError(b, batch.Close())
 				require.NoError(b, e.db.FlushMemtables())
 				b.ReportAllocs()
-				stopMemory := startReportPrototypeMemory(b)
+				stopMemory := startReportMemory(b)
 				b.ResetTimer()
 				for n := 0; n < b.N; n++ {
 					report, err := ledgerReport(ctx, e, nil)

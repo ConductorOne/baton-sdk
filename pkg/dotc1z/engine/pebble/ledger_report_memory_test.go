@@ -15,7 +15,7 @@ type ledgerReportMemory struct {
 	samples                                uint64
 }
 
-func sampleReportPrototypeMemory() *ledgerReportMemory {
+func sampleReportMemory() *ledgerReportMemory {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	out := &ledgerReportMemory{heapStart: m.HeapAlloc, heapPeak: m.HeapAlloc, samples: 1}
@@ -35,13 +35,13 @@ func sampleReportPrototypeMemory() *ledgerReportMemory {
 	return out
 }
 
-func startReportPrototypeMemory(b *testing.B) func() {
+func startReportMemory(b *testing.B) func() {
 	b.Helper()
 	if os.Getenv("LEDGER_REPORT_MEMORY") != "1" {
 		return func() {}
 	}
 	runtime.GC()
-	peak := sampleReportPrototypeMemory()
+	peak := sampleReportMemory()
 	stop := make(chan struct{})
 	var done sync.WaitGroup
 	done.Add(1)
@@ -54,7 +54,7 @@ func startReportPrototypeMemory(b *testing.B) func() {
 			case <-stop:
 				return
 			case <-ticker.C:
-				m := sampleReportPrototypeMemory()
+				m := sampleReportMemory()
 				peak.heapPeak = max(peak.heapPeak, m.heapPeak)
 				peak.rssPeak = max(peak.rssPeak, m.rssPeak)
 				peak.samples++
@@ -64,11 +64,11 @@ func startReportPrototypeMemory(b *testing.B) func() {
 	return func() {
 		close(stop)
 		done.Wait()
-		end := sampleReportPrototypeMemory()
+		end := sampleReportMemory()
 		peak.heapPeak = max(peak.heapPeak, end.heapPeak)
 		peak.rssPeak = max(peak.rssPeak, end.rssPeak)
 		runtime.GC()
-		afterGC := sampleReportPrototypeMemory()
+		afterGC := sampleReportMemory()
 		b.ReportMetric(float64(peak.heapStart), "heap-start-B")
 		b.ReportMetric(float64(peak.heapPeak), "heap-sampled-peak-B")
 		b.ReportMetric(float64(afterGC.heapStart), "heap-after-gc-B")

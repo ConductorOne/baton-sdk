@@ -978,10 +978,6 @@ func (s *pebbleStore) ClearLedgerRows(ctx context.Context, clearFacts []string) 
 	return s.Engine.Ledger().ClearRows(ctx, clearFacts)
 }
 
-func (s *pebbleStore) GenerateLedgerReport(ctx context.Context) ([]byte, error) {
-	return s.Engine.GenerateLedgerReport(ctx)
-}
-
 func (s *pebbleStore) ArchiveLedgerReport(ctx context.Context) ([]byte, error) {
 	if err := s.writeHook(ctx, "ArchiveLedgerReport"); err != nil {
 		return nil, err
@@ -995,12 +991,6 @@ func (s *pebbleStore) RestoreLedgerArchive(ctx context.Context) error {
 	}
 	s.MarkDirty()
 	return s.Engine.RestoreLedgerArchive(ctx)
-}
-func (s *pebbleStore) GetArchivedLedgerReport(ctx context.Context) ([]byte, error) {
-	return s.Engine.GetArchivedLedgerReport(ctx)
-}
-func (s *pebbleStore) GetArchivedLedgerOptions(ctx context.Context, attempt string) (*c1zstore.LedgerReportOptions, error) {
-	return s.Engine.GetArchivedLedgerOptions(ctx, attempt)
 }
 
 func (s *pebbleStore) PendingWork(ctx context.Context, beforeID uint64, limit int) ([]c1zstore.LedgerWork, bool, error) {

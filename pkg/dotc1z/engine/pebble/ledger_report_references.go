@@ -124,7 +124,7 @@ func scanLedgerReferences(ctx context.Context, iterator ledgerReportIterator, re
 			}
 			for _, child := range row.GetChildren() {
 				id := child.GetIdentity()
-				// Local processing phases have frontier entries, not collection page rows.
+				// Local phases complete without collection history.
 				if id.GetOp() == "grant-expansion" || id.GetOp() == "list-external-resources" {
 					continue
 				}
