@@ -37,7 +37,7 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 	l := ctxzap.Extract(ctx)
 	syncID := s.syncID
 	s.caps.pageLedger.SetRetainLedgerTokens(s.cfg.retainLedgerTokens)
-	if _, err := s.prepareLedgerState(ctx, rand.Text(), newSync); err != nil {
+	if err := s.prepareLedgerState(ctx, rand.Text(), newSync); err != nil {
 		return s.returnSyncError(l, span, err)
 	}
 	if s.run.hasFact(c1zstore.LedgerFactRetainTokens) && !s.ledgerDebug {

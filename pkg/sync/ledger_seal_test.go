@@ -106,7 +106,7 @@ func TestLedgerSealReadyBypassesScrubbedFrontier(t *testing.T) {
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerWalk)
 	source := ledgerFrontierReadOverride{PageLedgerStore: f.ledger, frontier: &c1zstore.LedgerFrontier{}, found: true}
-	resume, err := loadLedgerResume(t.Context(), f.store, source, "resumed")
+	resume, err := loadTestLedgerResume(t.Context(), f.store, source, "resumed")
 	require.NoError(t, err)
 	require.True(t, resume.sealReady)
 	require.Empty(t, resume.actions)

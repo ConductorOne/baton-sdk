@@ -30,7 +30,7 @@ type ledgerResume struct {
 	sealReady   bool
 }
 
-func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore.PageLedgerStore, runID string) (ledgerResume, error) {
+func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore.PageLedgerStore, runID string, facts map[string]string) (ledgerResume, error) {
 	if runID == "" {
 		return ledgerResume{}, errors.New("ledger takeover requires an attempt id")
 	}
@@ -41,10 +41,6 @@ func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore
 	state, err := store.CurrentSyncStep(ctx)
 	if err != nil {
 		return ledgerResume{}, fmt.Errorf("read legacy checkpoint: %w", err)
-	}
-	facts, err := ledger.LedgerFacts(ctx)
-	if err != nil {
-		return ledgerResume{}, err
 	}
 	_, ready := facts[ledgerFactSealReady]
 	if initialized {

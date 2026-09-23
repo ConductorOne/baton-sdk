@@ -13,14 +13,18 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
+type ledgerRecoveryState struct {
+	Facts    map[string]string       `json:"facts"`
+	Counters c1zstore.LedgerCounters `json:"counters"`
+}
+
 type ledgerArchive struct {
-	Version          int                     `json:"version"`
-	SyncID           string                  `json:"sync_id"`
-	CollectionReport json.RawMessage         `json:"collection_report,omitempty"`
-	CollectionSyncID string                  `json:"collection_sync_id,omitempty"`
-	Report           json.RawMessage         `json:"report"`
-	Facts            map[string]string       `json:"facts"`
-	Counters         c1zstore.LedgerCounters `json:"counters"`
+	Version          int             `json:"version"`
+	SyncID           string          `json:"sync_id"`
+	CollectionReport json.RawMessage `json:"collection_report,omitempty"`
+	CollectionSyncID string          `json:"collection_sync_id,omitempty"`
+	Report           json.RawMessage `json:"report"`
+	ledgerRecoveryState
 }
 
 func ledgerArchiveKey() []byte {
@@ -81,7 +85,7 @@ func (e *Engine) archiveLedgerReportLocked(ctx context.Context, syncID string) (
 	if err != nil {
 		return nil, err
 	}
-	archive := ledgerArchive{Version: 1, SyncID: syncID, Report: report, Facts: facts, Counters: counters}
+	archive := ledgerArchive{Version: 1, SyncID: syncID, Report: report, ledgerRecoveryState: ledgerRecoveryState{Facts: facts, Counters: counters}}
 	var options c1zstore.LedgerReportOptions
 	if value := facts[c1zstore.LedgerFactReportOptions]; value != "" {
 		if err := json.Unmarshal([]byte(value), &options); err != nil {

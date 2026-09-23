@@ -191,3 +191,16 @@ func TestLedgerArchiveKeepsCollectionAcrossProcessing(t *testing.T) {
 		require.NoError(t, e.Ledger().Drop(t.Context()))
 	}
 }
+
+func TestLedgerArchiveRecoveryEncodingCompatibility(t *testing.T) {
+	legacy := `{"version":1,"sync_id":"saved","report":{"pages":3},"facts":{"should_skip_grants":""},` +
+		`"counters":{"Counters":{"completed":7},"Flags":0,"ConnectorCalls":null,"StepDurationsMs":null,"SessionCalls":null}}`
+	var archive ledgerArchive
+	require.NoError(t, json.Unmarshal([]byte(legacy), &archive))
+	require.Equal(t, "saved", archive.SyncID)
+	require.Contains(t, archive.Facts, "should_skip_grants")
+	require.EqualValues(t, 7, archive.Counters.Counters["completed"])
+	encoded, err := json.Marshal(archive)
+	require.NoError(t, err)
+	require.JSONEq(t, legacy, string(encoded))
+}

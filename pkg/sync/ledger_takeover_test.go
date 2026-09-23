@@ -24,7 +24,7 @@ func TestLedgerTakeoverLegacyFixtures(t *testing.T) {
 			require.NoError(t, err)
 			f := newLedgerFixture(t)
 			require.NoError(t, f.store.CheckpointSync(t.Context(), state))
-			got, err := loadLedgerResume(t.Context(), f.store, f.ledger, "takeover-attempt")
+			got, err := loadTestLedgerResume(t.Context(), f.store, f.ledger, "takeover-attempt")
 			require.NoError(t, err)
 			require.True(t, got.initialized)
 			assertPendingCheckpointActions(t, f.ledger, expected.actions)
@@ -46,7 +46,7 @@ func TestLedgerTakeoverLegacyFixtures(t *testing.T) {
 			before := ledgerRawSnapshot(t, f.engine)
 			f.audit.enter(ledgerWalk)
 			for i := 0; i < 3; i++ {
-				resumed, err := loadLedgerResume(t.Context(), f.store, f.ledger, "new-attempt")
+				resumed, err := loadTestLedgerResume(t.Context(), f.store, f.ledger, "new-attempt")
 				require.NoError(t, err)
 				require.True(t, resumed.initialized)
 				assertPendingCheckpointActions(t, f.ledger, expected.actions)
@@ -67,7 +67,7 @@ func TestLedgerTakeoverRejectsInvalidStateBeforeConsumption(t *testing.T) {
 			f := newLedgerFixture(t)
 			require.NoError(t, f.store.CheckpointSync(t.Context(), state))
 			before := ledgerRawSnapshot(t, f.engine)
-			_, err := loadLedgerResume(t.Context(), f.store, f.ledger, "attempt")
+			_, err := loadTestLedgerResume(t.Context(), f.store, f.ledger, "attempt")
 			require.ErrorContains(t, err, "invalid ledger resume")
 			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 		})
@@ -88,7 +88,7 @@ func TestLedgerTakeoverCountersImportedOnlyWhenAbsent(t *testing.T) {
 		if !prior.IsZero() {
 			require.NoError(t, f.ledger.PutCounterBucket(t.Context(), "prior", 2, prior))
 		}
-		_, err := loadLedgerResume(t.Context(), f.store, f.ledger, "import")
+		_, err := loadTestLedgerResume(t.Context(), f.store, f.ledger, "import")
 		require.NoError(t, err)
 		imported, err := f.ledger.LedgerCounters(t.Context())
 		require.NoError(t, err)
@@ -106,7 +106,7 @@ func TestLedgerTakeoverCountersImportedOnlyWhenAbsent(t *testing.T) {
 		})
 		require.NoError(t, err)
 		for i := 0; i < 3; i++ {
-			_, err = loadLedgerResume(t.Context(), f.store, f.ledger, "again")
+			_, err = loadTestLedgerResume(t.Context(), f.store, f.ledger, "again")
 			require.NoError(t, err)
 		}
 		after, err := f.ledger.LedgerCounters(t.Context())
@@ -127,7 +127,7 @@ func TestLedgerTakeoverIngestQuality(t *testing.T) {
 	} {
 		f := newLedgerFixture(t)
 		require.NoError(t, f.store.CheckpointSync(t.Context(), `{"version":1`+test.quality+`}`))
-		_, err := loadLedgerResume(t.Context(), f.store, f.ledger, "attempt")
+		_, err := loadTestLedgerResume(t.Context(), f.store, f.ledger, "attempt")
 		require.NoError(t, err)
 		facts, err := f.ledger.LedgerFacts(t.Context())
 		require.NoError(t, err)
@@ -163,7 +163,7 @@ func TestLedgerTakeoverRejectsConflictingAndEmptyFrontier(t *testing.T) {
 		}
 		source := ledgerFrontierReadOverride{PageLedgerStore: f.ledger, frontier: &c1zstore.LedgerFrontier{}, found: true}
 		before := ledgerRawSnapshot(t, f.engine)
-		_, err := loadLedgerResume(t.Context(), f.store, source, "attempt")
+		_, err := loadTestLedgerResume(t.Context(), f.store, source, "attempt")
 		require.Error(t, err)
 		require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 	}
@@ -174,7 +174,7 @@ func TestLedgerTakeoverV0CursorAndParentIdentity(t *testing.T) {
 	require.NoError(t, err)
 	f := newLedgerFixture(t)
 	require.NoError(t, f.store.CheckpointSync(t.Context(), string(data)))
-	resume, err := loadLedgerResume(t.Context(), f.store, f.ledger, "attempt")
+	resume, err := loadTestLedgerResume(t.Context(), f.store, f.ledger, "attempt")
 	require.NoError(t, err)
 	require.True(t, resume.initialized)
 	assertPendingCheckpointActions(t, f.ledger, []ledgerAction{

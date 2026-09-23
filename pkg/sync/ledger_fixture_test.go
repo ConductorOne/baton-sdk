@@ -294,3 +294,11 @@ func newTestLedgerRuntime(ctx context.Context, store c1zstore.PageLedgerStore, r
 	}
 	return newLedgerRuntime(store, runID, facts)
 }
+
+func loadTestLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore.PageLedgerStore, runID string) (ledgerResume, error) {
+	facts, err := ledger.LedgerFacts(ctx)
+	if err != nil {
+		return ledgerResume{}, err
+	}
+	return loadLedgerResume(ctx, store, ledger, runID, facts)
+}

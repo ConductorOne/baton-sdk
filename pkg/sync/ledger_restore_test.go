@@ -60,7 +60,7 @@ func TestLedgerRestoreCheckpointFixtures(t *testing.T) {
 			require.NoError(t, err)
 			s, f := newLedgerSchedulerFixture(t, 1)
 			require.NoError(t, f.store.CheckpointSync(t.Context(), string(data)))
-			resume, err := loadLedgerResume(t.Context(), f.store, f.ledger, "takeover")
+			resume, err := loadTestLedgerResume(t.Context(), f.store, f.ledger, "takeover")
 			require.NoError(t, err)
 			s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "resumed")
 			require.NoError(t, err)
@@ -100,7 +100,7 @@ func TestLedgerRestoreFinishedCheckpointPreservesLifecycle(t *testing.T) {
 			expected, err := unmarshalToken(state)
 			require.NoError(t, err)
 			for attempt := range 2 {
-				resume, err := loadLedgerResume(t.Context(), f.store, f.ledger, "resume")
+				resume, err := loadTestLedgerResume(t.Context(), f.store, f.ledger, "resume")
 				require.NoError(t, err)
 				s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "resumed")
 				require.NoError(t, err)
@@ -266,7 +266,13 @@ func TestLedgerRestoreRepeatedChildIsNewWork(t *testing.T) {
 
 type ledgerCountedCounterReads struct {
 	c1zstore.PageLedgerStore
-	reads int
+	reads     int
+	factReads int
+}
+
+func (s *ledgerCountedCounterReads) LedgerFacts(ctx context.Context) (map[string]string, error) {
+	s.factReads++
+	return s.PageLedgerStore.LedgerFacts(ctx)
 }
 
 func (s *ledgerCountedCounterReads) LedgerCounters(ctx context.Context) (c1zstore.LedgerCounters, error) {
@@ -280,10 +286,11 @@ func TestLedgerStartupLoadsCountersOnce(t *testing.T) {
 	counted := &ledgerCountedCounterReads{PageLedgerStore: f.ledger}
 	s.caps.pageLedger = counted
 	f.audit.enter(ledgerWalk)
-	_, err := s.prepareLedgerState(t.Context(), "resume-once", false)
+	err := s.prepareLedgerState(t.Context(), "resume-once", false)
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, err)
 	require.Equal(t, 1, counted.reads)
+	require.Equal(t, 2, counted.factReads)
 	require.Contains(t, s.ledger.facts, ledgerFactIngestKnown)
 	require.True(t, s.run.hasFact(ledgerFactIngestKnown))
 }

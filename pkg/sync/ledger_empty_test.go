@@ -32,7 +32,7 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 			case "legacy-token", "legacy-frontier":
 				require.NoError(t, f.store.CheckpointSync(ctx, `{"version":1,"actions":[]}`))
 				if kind == "legacy-frontier" {
-					_, err := loadLedgerResume(ctx, f.store, f.ledger, "takeover")
+					_, err := loadTestLedgerResume(ctx, f.store, f.ledger, "takeover")
 					require.NoError(t, err)
 				}
 			case "known-clean", "known-blocked":
@@ -61,7 +61,7 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 					require.True(t, equalLedgerSnapshot(walkBefore, ledgerRawSnapshot(t, f.engine)))
 				}
 			}
-			_, err := s.prepareLedgerState(ctx, "resume", false)
+			err := s.prepareLedgerState(ctx, "resume", false)
 			f.audit.enter(ledgerLifecycle)
 			if kind == "read-error" {
 				require.ErrorIs(t, err, errLedgerInjectedPage)
@@ -99,7 +99,7 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 				restored := ledgerContinuationSyncer(f)
 				before = ledgerRawSnapshot(t, f.engine)
 				f.audit.enter(ledgerWalk)
-				_, err = restored.prepareLedgerState(ctx, "after-init", false)
+				err = restored.prepareLedgerState(ctx, "after-init", false)
 				f.audit.enter(ledgerLifecycle)
 				require.NoError(t, err)
 				require.Equal(t, before, ledgerRawSnapshot(t, f.engine))
