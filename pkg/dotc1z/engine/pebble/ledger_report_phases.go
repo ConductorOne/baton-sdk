@@ -10,7 +10,7 @@ import (
 func ledgerReportPhase(name string) bool {
 	switch name {
 	case "list-resource-types", "list-resources", "targeted-resource-sync", "list-static-entitlements",
-		"list-entitlements", "list-grants", "list-external-resources", "fetch-assets":
+		"list-entitlements", "list-grants", "list-external-resources", "fetch-assets", "materialize-static-entitlements":
 		return true
 	default:
 		return false

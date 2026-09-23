@@ -2,17 +2,18 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"iter"
 	"strings"
 	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 )
 
 func (s *syncer) syncLedgerStaticEntitlements(ctx context.Context, action *Action) error {
@@ -75,70 +76,29 @@ func (s *syncer) collectLedgerStaticEntitlements(ctx context.Context, action *Ac
 
 	collection := ledgerCollection(invocation)
 	recordLedgerList(collection, &collection.EntitlementsReceived, resp.GetList(), resp.GetNextPageToken())
-	for _, ent := range resp.GetList() {
-		resourcePageToken := ""
-		for {
-			resourcesResp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
-				ResourceTypeId: action.ResourceTypeID,
-				PageToken:      resourcePageToken,
-				ActiveSyncId:   s.getActiveSyncID(),
-			}.Build())
-			if err != nil {
-				return err
-			}
-
-			annos := annotations.Annotations(ent.GetAnnotations())
-			exclusionGroup := &v2.EntitlementExclusionGroup{}
-			hasExclusionGroup, err := annos.Pick(exclusionGroup)
-			if err != nil {
-				return err
-			}
-			baseExclusionGroupID := exclusionGroup.GetExclusionGroupId()
-
-			entitlements := []*v2.Entitlement{}
-			for _, resource := range resourcesResp.GetList() {
-				displayName := ent.GetDisplayName()
-				if displayName == "" {
-					displayName = resource.GetDisplayName()
-				}
-				description := ent.GetDescription()
-				if description == "" {
-					description = resource.GetDescription()
-				}
-
-				if hasExclusionGroup && exclusionGroup.GetScopeToResource() {
-					exclusionGroup.SetExclusionGroupId(baseExclusionGroupID + "-" + resource.GetId().GetResource())
-					annos.Update(exclusionGroup)
-				}
-
-				entID := entitlement.NewEntitlementID(resource, ent.GetSlug())
-
-				entitlements = append(entitlements, &v2.Entitlement{
-					Resource:    resource,
-					Id:          entID,
-					DisplayName: displayName,
-					Description: description,
-					GrantableTo: ent.GetGrantableTo(),
-					Annotations: annos,
-					Slug:        ent.GetSlug(),
-					Purpose:     ent.GetPurpose(),
-				})
-			}
-			err = invocation.page.writer.PutEntitlements(ctx, entitlements...)
-			if err != nil {
-				return err
-			}
-			resourcePageToken = resourcesResp.GetNextPageToken()
-			if resourcePageToken == "" {
-				break
-			}
+	identity, err := json.Marshal(ledgerIdentity(action))
+	if err != nil {
+		return err
+	}
+	origin := sha256.Sum256(identity)
+	children := make([]Action, 0, len(resp.GetList()))
+	for ordinal := len(resp.GetList()) - 1; ordinal >= 0; ordinal-- {
+		template, err := proto.MarshalOptions{Deterministic: true}.Marshal(resp.GetList()[ordinal])
+		if err != nil {
+			return err
 		}
+		cursor := staticMaterializationCursor{Version: 1, Origin: origin[:], Ordinal: ordinal, Template: template}
+		token, err := cursor.encode()
+		if err != nil {
+			return err
+		}
+		children = append(children, Action{Op: MaterializeStaticEntitlementsOp, ResourceTypeID: action.ResourceTypeID, PageToken: token})
 	}
 
 	progressAction := *action
 	invocation.afterCommit = append(invocation.afterCommit, func() { s.handleProgress(ctx, &progressAction, len(resp.GetList())) })
 
-	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
+	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), children...)
 }
 
 func (s *syncer) listLedgerStaticResourceTypes(ctx context.Context, invocation *ledgerInvocation) iter.Seq2[[]*v2.ResourceType, error] {

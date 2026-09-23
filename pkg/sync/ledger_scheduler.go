@@ -130,7 +130,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		case s.testHooks.ledgerHandler != nil:
 			err = s.testHooks.ledgerHandler(pageCtx, action, page)
 		case action.Op == InitOp || action.Op == SyncResourceTypesOp || action.Op == SyncResourcesOp || action.Op == SyncTargetedResourceOp || action.Op == SyncEntitlementsOp ||
-			action.Op == SyncGrantsOp || action.Op == SyncStaticEntitlementsOp || action.Op == SyncAssetsOp:
+			action.Op == SyncGrantsOp || action.Op == SyncStaticEntitlementsOp || action.Op == SyncAssetsOp || action.Op == MaterializeStaticEntitlementsOp:
 			err = handler(pageCtx, action)
 		default:
 			return errors.New("ledger production handlers are not integrated")

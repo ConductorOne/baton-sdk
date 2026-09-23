@@ -41,6 +41,8 @@ func (s ActionOp) String() string {
 		return "targeted-resource-sync"
 	case SyncStaticEntitlementsOp:
 		return "list-static-entitlements"
+	case MaterializeStaticEntitlementsOp:
+		return "materialize-static-entitlements"
 	default:
 		return "unknown"
 	}
@@ -86,6 +88,8 @@ func newActionOp(str string) ActionOp {
 		return SyncTargetedResourceOp
 	case SyncStaticEntitlementsOp.String():
 		return SyncStaticEntitlementsOp
+	case MaterializeStaticEntitlementsOp.String():
+		return MaterializeStaticEntitlementsOp
 	case ListResourcesForEntitlementsOp.String():
 		return ListResourcesForEntitlementsOp
 	default:
@@ -108,6 +112,7 @@ const (
 	SyncGrantExpansionOp
 	SyncTargetedResourceOp
 	SyncStaticEntitlementsOp
+	MaterializeStaticEntitlementsOp
 )
 
 // Action stores the current operation, page token, and optional fields for which resource is being worked with.

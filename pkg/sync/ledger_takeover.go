@@ -100,7 +100,7 @@ func decodeLedgerCheckpoint(state string) (ledgerResume, []string, c1zstore.Ledg
 	resume := ledgerResume{graph: parts.graph}
 	for _, key := range parts.run.actionOrder {
 		action, found := parts.run.actions[key]
-		if !found || action.Op == UnknownOp {
+		if !found || action.Op == UnknownOp || action.Op == MaterializeStaticEntitlementsOp {
 			return ledgerResume{}, nil, c1zstore.LedgerCounters{}, fmt.Errorf("invalid ledger resume action %q", key)
 		}
 		resume.actions = append(resume.actions, ledgerAction{

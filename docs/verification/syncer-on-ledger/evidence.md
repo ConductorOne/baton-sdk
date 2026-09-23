@@ -788,3 +788,40 @@ The final focused race rerun passes three times (dotc1z 25.093s; sync 1.179s),
 and the final merged-tree lint rerun has zero issues. Independent reviewers will
 start from the committed revision containing these checks, without seeing each
 other's findings.
+
+## CO-025: bounded static entitlement materialization
+
+The independent review at `91017ff0` confirmed that one static template staged
+all resources of its type before commit. A counting-writer probe grew from 102
+to 21,002 staged entitlements; the baseline wrote the latter in three batches
+with a maximum of 10,000. The correction caps each materialization page at
+10,000 resources. The same probe now peaks at 10,000 staged entitlements.
+This measures staged records, not peak RSS or an absolute byte bound.
+
+`TestLedgerStaticMaterializationBounded` fails before the correction (two staged
+records against a forced one-record resource page) and passes afterward.
+`TestLedgerStaticMaterializationOrderAndResume` compares final records with
+the token handler, exercises identical templates within/across remote pages,
+and resumes after a failed second local commit without refetching committed
+definitions. Reversing the child ordering incorrectly makes this test fail
+(expected middle, got first); adding a connector refetch to materialization
+also fails its exact call assertion. Both planted defects were removed.
+
+Cursor/version and invalid resource-page tests reject malformed state, oversized
+responses and nonadvancing cursors without durable changes. The retained-ledger
+seal/save/reopen test verifies internal template tokens are scrubbed. Public
+durable crash images and process-exit cases now include materialization, with
+records, indexes, digests and accounting compared to uninterrupted output.
+
+The parent page records connector calls and received templates. Local children
+record generated writes and local duration. Completed-action accounting includes
+these children; it does not claim to equal the checkpoint path's logical action
+count. Memory still includes an arbitrary connector response and one resource
+page plus generated entitlements. Template bytes repeat in continuation tokens;
+this correction does not claim a fixed byte budget for oversized templates.
+
+Full suites pass: sync 83.236s, dotc1z 26.491s, Pebble 9.463s, compactor 18.691s.
+Focused race checks pass three repetitions (sync 2.558s, dotc1z 44.675s).
+CI-equivalent lint has zero issues. The independent design review is complete;
+review of the implementation correction is still pending. These checks close
+the identified staging regression, not every original coverage product.

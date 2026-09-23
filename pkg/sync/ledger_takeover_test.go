@@ -58,6 +58,7 @@ func TestLedgerTakeoverLegacyFixtures(t *testing.T) {
 func TestLedgerTakeoverRejectsInvalidStateBeforeConsumption(t *testing.T) {
 	for _, state := range []string{
 		"{", `{"version":1,"action_order":["missing"]}`,
+		`{"version":1,"actions_map":{"a":{"operation":"materialize-static-entitlements"}},"action_order":["a"]}`,
 		`{"version":1,"actions_map":{"a":{"operation":"not-supported"}},"action_order":["a"]}`,
 	} {
 		t.Run(state, func(t *testing.T) {

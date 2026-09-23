@@ -294,7 +294,7 @@ func TestPublicLedgerDurableCrashImages(t *testing.T) {
 				} else {
 					require.EqualValues(t, 1, baseline.stats.GetResources())
 				}
-				ops := []string{"list-resource-types", "list-resources", "list-static-entitlements", "list-entitlements", "list-grants"}
+				ops := []string{"list-resource-types", "list-resources", "list-static-entitlements", "materialize-static-entitlements", "list-entitlements", "list-grants"}
 				if mode == "targeted" {
 					ops = []string{"targeted-resource-sync"}
 				}
@@ -339,10 +339,13 @@ func TestPublicLedgerTargetAssetProcessCrashes(t *testing.T) {
 		if mode == "assets" {
 			op = "fetch-assets"
 		}
+		if mode == "static" {
+			op = "materialize-static-entitlements"
+		}
 		runDurableSync(t, vfs.Default, os.Getenv("BATON_SPECIAL_CRASH_DIR"), mode, workers, op, os.Getenv("BATON_SPECIAL_CRASH_AFTER") == "true", os.Getenv("BATON_SPECIAL_CRASH_PREFIX") == "true")
 		t.Fatal("process cut not reached")
 	}
-	for _, mode := range []string{"targeted", "assets"} {
+	for _, mode := range []string{"targeted", "assets", "static"} {
 		for _, workers := range []int{1, 4} {
 			baseline, _ := runDurableSync(t, vfs.Default, filepath.Join(t.TempDir(), "db"), mode, workers, "", false, false)
 			for _, after := range []bool{false, true} {

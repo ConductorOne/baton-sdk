@@ -17,7 +17,7 @@ func TestLedgerReportRecordedPhaseElapsed(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	first := map[string]int64{"list-resources": 100, "list-grants": 20}
+	first := map[string]int64{"list-resources": 100, "list-grants": 20, "materialize-static-entitlements": 30}
 	for n := range 2000 {
 		first[fmt.Sprintf("retry_wait:label-%d", n)] = 999
 	}
@@ -33,7 +33,7 @@ func TestLedgerReportRecordedPhaseElapsed(t *testing.T) {
 		Phases map[string]uint64 `json:"recorded_sync_phase_elapsed_ms"`
 	}
 	require.NoError(t, json.Unmarshal(report, &result))
-	require.Equal(t, map[string]uint64{"list-resources": 150, "list-grants": 20}, result.Phases)
+	require.Equal(t, map[string]uint64{"list-resources": 150, "list-grants": 20, "materialize-static-entitlements": 30}, result.Phases)
 	require.NotContains(t, string(report), "label-")
 }
 

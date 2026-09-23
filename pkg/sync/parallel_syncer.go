@@ -281,6 +281,15 @@ func (s *syncer) parallelSync(
 			}
 			continue
 
+		case MaterializeStaticEntitlementsOp:
+			err = s.timedStep(MaterializeStaticEntitlementsOp, func() error {
+				return s.invokeActionPage(workerCtx, stateAction, s.materializeLedgerStaticEntitlements, false)
+			})
+			if !s.timedShouldWaitAndRetry(workerCtx, MaterializeStaticEntitlementsOp, stateAction.ResourceTypeID, retryer, err) {
+				return s.handleOperationError(ctx, runCtx, warnings, err)
+			}
+			continue
+
 		case SyncStaticEntitlementsOp:
 			err = s.timedStep(SyncStaticEntitlementsOp, func() error {
 				return s.invokeActionPage(workerCtx, stateAction, s.SyncStaticEntitlements, true)
