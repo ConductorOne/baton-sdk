@@ -107,6 +107,9 @@ const (
 
 	maxIDBytes      = 1024
 	maxContentBytes = 128
+	// maxJWKBytes bounds the one config field handled by raw JSON parsing. A
+	// canonical AKP JWK for a 1216-byte key is about 1.7 KB.
+	maxJWKBytes = 16 * 1024
 )
 
 var base64URL = base64.RawURLEncoding
@@ -167,6 +170,13 @@ func (p *Provider) Encrypt(ctx context.Context, conf *v2.EncryptionConfig, plain
 	binding := bindingBytes(config)
 	var enc, ciphertext []byte
 	func() {
+		// Best-effort scrub of the copies this function owns. It is NOT a
+		// guarantee that no plaintext-derived bytes survive: encoding/json builds
+		// into a pooled encodeState and returns a copy, so an equal buffer holding
+		// value_b64 goes back into that pool un-zeroed, and
+		// base64URL.EncodeToString produced an immutable string copy that cannot be
+		// cleared at all. The container is transit-only and never persisted or
+		// logged; this only limits how long our own copy lives.
 		defer clear(payload)
 		defer clear(binding)
 		kdf := hpke.HKDFSHA256()
@@ -269,6 +279,12 @@ func recipientFromConfig(conf *v2.EncryptionConfig) (*v2.VaultInboxRecipientConf
 	if len(config.GetContentType()) > maxContentBytes || strings.ContainsFunc(config.GetContentType(), unicode.IsControl) {
 		return nil, nil, invalid("invalid content_type")
 	}
+	// The one field with no other bound: it is handed to two JSON parses, and a
+	// valid AKP JWK is about 1.7 KB. Bounding it here keeps this gate uniformly
+	// bounded rather than relying on the gRPC message cap.
+	if len(config.GetPublicJwkJson()) > maxJWKBytes {
+		return nil, nil, invalid(fmt.Sprintf("public_jwk_json must be at most %d bytes", maxJWKBytes))
+	}
 
 	thumbprint, err := publicKeyThumbprint(config.GetPublicJwkJson())
 	if err != nil {
@@ -340,6 +356,18 @@ func parsePublicKey(jwkJSON string) (hpke.PublicKey, error) {
 	return publicKey, nil
 }
 
+// canonicalInboxJWK is the exact object the thumbprint is taken over. Marshalling
+// it rather than interpolating the fields keeps the canonical bytes valid JSON for
+// any input: a `pub` carrying a quote, a backslash, or a control character would
+// otherwise be hashed in a form that is not the one the Latchkey side derives. For
+// a legitimate base64url `pub` the bytes are identical to that side's `format!`
+// output, which TestPublicKeyThumbprintMatchesLatchkeyVector pins.
+type canonicalInboxJWK struct {
+	Alg string `json:"alg"`
+	Kty string `json:"kty"`
+	Pub string `json:"pub"`
+}
+
 // publicKeyThumbprint re-derives the profile thumbprint exactly as the Latchkey
 // core does: base64url(SHA-256(`{"alg":..,"kty":..,"pub":..}`)).
 func publicKeyThumbprint(jwkJSON string) (string, error) {
@@ -355,8 +383,11 @@ func publicKeyThumbprint(jwkJSON string) (string, error) {
 	if jwk.Alg != jwkAlg || jwk.Kty != jwkKtyAKP || jwk.Pub == "" {
 		return "", invalid("public_jwk_json does not describe a vault inbox key")
 	}
-	canonical := fmt.Sprintf(`{"alg":"%s","kty":"%s","pub":"%s"}`, jwkAlg, jwkKtyAKP, jwk.Pub)
-	digest := sha256.Sum256([]byte(canonical))
+	canonical, err := json.Marshal(canonicalInboxJWK{Alg: jwk.Alg, Kty: jwk.Kty, Pub: jwk.Pub})
+	if err != nil {
+		return "", invalid("public_jwk_json cannot be canonicalized")
+	}
+	digest := sha256.Sum256(canonical)
 	return base64URL.EncodeToString(digest[:]), nil
 }
 

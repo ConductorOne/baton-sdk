@@ -213,6 +213,7 @@ func TestValidateConfigRejectsUnsupportedProfiles(t *testing.T) {
 		"generation zero":       configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.KeyGeneration = 0 }),
 		"scheme empty":          configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.PayloadScheme = "" }),
 		"unsupported scheme":    configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.PayloadScheme = "latchkey.vault_submission.secret.v2" }),
+		"oversized jwk":         configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.PublicJwkJson = strings.Repeat("a", maxJWKBytes+1) }),
 		"submission id empty":   configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.SubmissionId = "" }),
 		"thumbprint empty":      configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.PublicKeyThumbprint = "" }),
 		"thumbprint mismatch":   configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.PublicKeyThumbprint = "not-the-thumbprint" }),
