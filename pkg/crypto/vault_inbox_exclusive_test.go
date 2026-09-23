@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base64"
+	"strconv"
 	"testing"
 
 	filippoage "filippo.io/age"
@@ -21,22 +22,18 @@ func validVaultInboxConfig(t *testing.T) *v2.EncryptionConfig {
 	require.NoError(t, err)
 	pub := base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes())
 	const alg = "HPKE-Base-X-Wing-Draft06-HKDF-SHA256-ChaCha20Poly1305"
-	jwk := `{"kty":"AKP","alg":"` + alg + `","pub":"` + pub + `"}`
-	canonical := `{"alg":"` + alg + `","kty":"AKP","pub":"` + pub + `"}`
-	digest := sha256.Sum256([]byte(canonical))
+	digest := sha256.Sum256([]byte(`{"alg":"` + alg + `","kty":"AKP","pub":"` + pub + `"}`))
+	thumbprint := base64.RawURLEncoding.EncodeToString(digest[:])
+	jwk := `{"kty":"AKP","alg":"` + alg + `","pub":"` + pub + `","` + vaultinbox.JWKExtensionMember + `":{` +
+		`"version":` + strconv.Itoa(vaultinbox.JWKExtensionVersion) + `,"suite":"` + alg + `",` +
+		`"tenant_id":"tenant-1","vault_boundary_id":"vault-1","key_generation":1,` +
+		`"payload_scheme":"` + vaultinbox.PayloadSchemeSecretV1 + `","submission_id":"submission-1",` +
+		`"public_key_thumbprint":"` + thumbprint + `"}}`
 	return v2.EncryptionConfig_builder{
 		Provider: vaultinbox.EncryptionProvider,
-		VaultInboxRecipientConfig: v2.VaultInboxRecipientConfig_builder{
-			ConfigVersion:       v2.VaultInboxConfigVersion_VAULT_INBOX_CONFIG_VERSION_V1,
-			Suite:               v2.VaultInboxSuite_VAULT_INBOX_SUITE_XWING_MLKEM768_X25519_HKDF_SHA256_CHACHA20POLY1305_V1,
-			TenantId:            "tenant-1",
-			VaultBoundaryId:     "vault-1",
-			InboxKeyId:          "inbox-key-1",
-			KeyGeneration:       1,
-			PayloadScheme:       "latchkey.vault_submission.secret.v1",
-			SubmissionId:        "submission-1",
-			PublicJwkJson:       jwk,
-			PublicKeyThumbprint: base64.RawURLEncoding.EncodeToString(digest[:]),
+		KeyId:    "inbox-key-1",
+		JwkPublicKeyConfig: v2.EncryptionConfig_JWKPublicKeyConfig_builder{
+			PubKey: []byte(jwk),
 		}.Build(),
 	}.Build()
 }

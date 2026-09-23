@@ -9,13 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// vaultInboxTestConfig is recognized by provider name alone, which is what the
+// capability and cardinality gates key on; they do not read the recipient body.
 func vaultInboxTestConfig() *v2.EncryptionConfig {
 	return v2.EncryptionConfig_builder{
 		Provider: vaultinbox.EncryptionProvider,
-		VaultInboxRecipientConfig: v2.VaultInboxRecipientConfig_builder{
-			Suite:        v2.VaultInboxSuite_VAULT_INBOX_SUITE_XWING_MLKEM768_X25519_HKDF_SHA256_CHACHA20POLY1305_V1,
-			SubmissionId: "submission-1",
-		}.Build(),
 	}.Build()
 }
 

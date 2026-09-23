@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,15 +46,14 @@ type interopBinding struct {
 // envelope always matches the committed private key.
 func buildVector(t *testing.T) interopVector {
 	t.Helper()
-	jwk, thumbprint := vectorPublicJWK(t)
-	config := configFor(t, func(c *v2.VaultInboxRecipientConfig) {
-		c.PublicJwkJson = jwk
-		c.PublicKeyThumbprint = thumbprint
-	})
+	params := vectorParams(t)
+	config := vectorConfig(t)
 	encrypted, err := NewProvider().Encrypt(context.Background(), config, vectorPlaintext())
 	require.NoError(t, err)
+	rec, _, err := recipientFromConfig(config)
+	require.NoError(t, err)
 	privateJWK := privateJWKJSON(t)
-	binding := bindingBytes(config.GetVaultInboxRecipientConfig())
+	binding := bindingBytes(rec)
 	return interopVector{
 		Profile: "latchkey.vault-inbox.submission.v1",
 		Note: "Produced by filippo.io/hpke in baton-sdk with the fixed 0x42 X-Wing seed. " +
@@ -63,8 +61,8 @@ func buildVector(t *testing.T) interopVector {
 			"latchkey_mls_core::vault_inbox::open_vault_submission, then " +
 			"latchkey_client_sdk::vault_inbox::decode_secret_submission_payload_for_open.",
 		PrivateJWKJSON:      privateJWK,
-		PublicJWKJSON:       jwk,
-		PublicKeyThumbprint: thumbprint,
+		PublicJWKJSON:       publicJWKFor(vectorPrivateKey(t)),
+		PublicKeyThumbprint: params.PublicKeyThumbprint,
 		EnvelopeJSON:        string(encrypted.GetEncryptedBytes()),
 		BindingHex:          hex.EncodeToString(binding),
 		Binding: interopBinding{
@@ -108,13 +106,14 @@ func TestCommittedInteropVectorMatchesProvider(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &vector))
 
 	// The committed coordinates are the ones the provider binds, byte for byte.
-	config := configFor(t, func(c *v2.VaultInboxRecipientConfig) {
-		c.PublicJwkJson = vector.PublicJWKJSON
-		c.PublicKeyThumbprint = vector.PublicKeyThumbprint
-	})
-	require.Equal(t, vector.BindingHex, hex.EncodeToString(bindingBytes(config.GetVaultInboxRecipientConfig())))
+	config := vectorConfig(t)
+	rec, _, err := recipientFromConfig(config)
+	require.NoError(t, err)
+	require.Equal(t, vector.BindingHex, hex.EncodeToString(bindingBytes(rec)))
 
-	thumbprint, err := publicKeyThumbprint(vector.PublicJWKJSON)
+	// The committed public JWK and thumbprint are the ones this config seals to.
+	require.Equal(t, jwkPub(t, vector.PublicJWKJSON), vectorParams(t).Pub)
+	thumbprint, err := canonicalThumbprint(jwkAlg, jwkKtyAKP, jwkPub(t, vector.PublicJWKJSON))
 	require.NoError(t, err)
 	require.Equal(t, thumbprint, vector.PublicKeyThumbprint)
 

@@ -74,6 +74,7 @@ type jwkDocument struct {
 	Alg string
 	Kty string
 	Pub string
+	Kid string
 	Ext jwkExtension
 }
 
@@ -90,12 +91,16 @@ func recipientFromConfig(conf *v2.EncryptionConfig) (*recipient, hpke.PublicKey,
 	if name := strings.ToLower(strings.TrimSpace(conf.GetProvider())); name != EncryptionProvider {
 		return nil, nil, invalid("provider does not match vault inbox config")
 	}
-	if len(conf.ProtoReflect().GetUnknown()) != 0 {
-		return nil, nil, invalid("unknown config fields")
-	}
 	jwkConfig := conf.GetJwkPublicKeyConfig()
 	if jwkConfig == nil {
 		return nil, nil, invalid("vault inbox recipient requires a jwk public key config")
+	}
+	// Unknown fields on the provider-specific config are refused: its contents
+	// are frozen into the HPKE binding. Unknown fields on the shared
+	// EncryptionConfig stay tolerated so that message remains additive for every
+	// other provider.
+	if len(jwkConfig.ProtoReflect().GetUnknown()) != 0 {
+		return nil, nil, invalid("unknown config fields")
 	}
 	if err := validateIdentifier("key_id", conf.GetKeyId()); err != nil {
 		return nil, nil, err
@@ -108,6 +113,13 @@ func recipientFromConfig(conf *v2.EncryptionConfig) (*recipient, hpke.PublicKey,
 	document, err := parseJWKDocument(pubKeyJSON)
 	if err != nil {
 		return nil, nil, err
+	}
+	// key_id is the single authoritative inbox key id. A JWK that names a
+	// different key in its `kid` is refused rather than silently overridden,
+	// because two sources for that value could disagree about which key a
+	// ciphertext is bound to.
+	if document.Kid != "" && document.Kid != conf.GetKeyId() {
+		return nil, nil, invalid("public_jwk_json kid does not match key_id")
 	}
 	publicKey, err := publicKeyFromRaw(document.Pub)
 	if err != nil {
@@ -191,6 +203,12 @@ func parseJWKDocument(jwkJSON string) (*jwkDocument, error) {
 		return nil, err
 	}
 	if err := unmarshalStrictMember(fields, "pub", &document.Pub); err != nil {
+		return nil, err
+	}
+	// `kid` is an ordinary optional JOSE member. It is read only so a later
+	// check can reject a value that disagrees with the authoritative key_id;
+	// the binding never consumes it.
+	if err := unmarshalStrictMember(fields, "kid", &document.Kid); err != nil {
 		return nil, err
 	}
 	// Private material is refused explicitly rather than ignored. A `priv`

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"strconv"
 	"testing"
 
 	filippoage "filippo.io/age"
@@ -67,40 +68,54 @@ func (i *vaultInboxIssuer) IssueCapabilityDetails(context.Context) (*v2.Credenti
 const gateScheme = "latchkey.vault_submission.secret.v1"
 const gateJWKAlg = "HPKE-Base-X-Wing-Draft06-HKDF-SHA256-ChaCha20Poly1305"
 
-// gateRecipient mints a synthetic recipient the way a reader would: only the
-// public JWK and thumbprint cross into the SDK config.
-func gateRecipient(t *testing.T, seed byte) (string, string) {
-	t.Helper()
-	key, err := hpke.MLKEM768X25519().NewPrivateKey(bytes.Repeat([]byte{seed}, 32))
-	require.NoError(t, err)
-	pub := base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes())
-	jwk := `{"kty":"AKP","alg":"` + gateJWKAlg + `","pub":"` + pub + `"}`
-	digest := sha256.Sum256([]byte(`{"alg":"` + gateJWKAlg + `","kty":"AKP","pub":"` + pub + `"}`))
-	return jwk, base64.RawURLEncoding.EncodeToString(digest[:])
+// gateParams are the JWK extension members a refusal case changes one at a time.
+type gateParams struct {
+	Version             int
+	Suite               string
+	PayloadScheme       string
+	PublicKeyThumbprint string
 }
 
-func gateConfig(t *testing.T, mutate func(*v2.VaultInboxRecipientConfig)) *v2.EncryptionConfig {
+// gateConfig mints a synthetic recipient the way a reader would: the public JWK
+// and its baton_vault_inbox extension carry everything except the authoritative
+// key_id, which stays on the EncryptionConfig.
+func gateConfig(t *testing.T, mutate func(*gateParams)) *v2.EncryptionConfig {
 	t.Helper()
-	jwk, thumbprint := gateRecipient(t, 0x42)
-	config := v2.VaultInboxRecipientConfig_builder{
-		ConfigVersion:       v2.VaultInboxConfigVersion_VAULT_INBOX_CONFIG_VERSION_V1,
-		Suite:               v2.VaultInboxSuite_VAULT_INBOX_SUITE_XWING_MLKEM768_X25519_HKDF_SHA256_CHACHA20POLY1305_V1,
-		TenantId:            "tenant-1",
-		VaultBoundaryId:     "vault-1",
-		InboxKeyId:          "inbox-key-1",
-		KeyGeneration:       1,
+	key, err := hpke.MLKEM768X25519().NewPrivateKey(bytes.Repeat([]byte{0x42}, 32))
+	require.NoError(t, err)
+	pub := base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes())
+	digest := sha256.Sum256([]byte(`{"alg":"` + gateJWKAlg + `","kty":"AKP","pub":"` + pub + `"}`))
+	params := gateParams{
+		Version:             vaultinbox.JWKExtensionVersion,
+		Suite:               gateJWKAlg,
 		PayloadScheme:       gateScheme,
-		SubmissionId:        "submission-1",
-		PublicJwkJson:       jwk,
-		PublicKeyThumbprint: thumbprint,
-	}.Build()
-	if mutate != nil {
-		mutate(config)
+		PublicKeyThumbprint: base64.RawURLEncoding.EncodeToString(digest[:]),
 	}
+	if mutate != nil {
+		mutate(&params)
+	}
+	jwk := `{"kty":"AKP","alg":"` + gateJWKAlg + `","pub":"` + pub + `","` + vaultinbox.JWKExtensionMember + `":{` +
+		`"version":` + strconv.Itoa(params.Version) + `,"suite":"` + params.Suite + `",` +
+		`"tenant_id":"tenant-1","vault_boundary_id":"vault-1","key_generation":1,` +
+		`"payload_scheme":"` + params.PayloadScheme + `","submission_id":"submission-1",` +
+		`"public_key_thumbprint":"` + params.PublicKeyThumbprint + `"}}`
 	return v2.EncryptionConfig_builder{
-		Provider:                  vaultinbox.EncryptionProvider,
-		VaultInboxRecipientConfig: config,
+		Provider: vaultinbox.EncryptionProvider,
+		KeyId:    "inbox-key-1",
+		JwkPublicKeyConfig: v2.EncryptionConfig_JWKPublicKeyConfig_builder{
+			PubKey: []byte(jwk),
+		}.Build(),
 	}.Build()
+}
+
+// gateConfigWithUnknownField marks the provider-specific JWK config with a field
+// the parser does not know, which must be refused because its contents are
+// frozen into the binding.
+func gateConfigWithUnknownField(t *testing.T) *v2.EncryptionConfig {
+	t.Helper()
+	config := gateConfig(t, nil)
+	config.GetJwkPublicKeyConfig().ProtoReflect().SetUnknown([]byte{0x80, 0x7c, 0x01})
+	return config
 }
 
 // validAgeConfig is a *valid* age recipient, so a mixed config is refused by the
@@ -455,20 +470,18 @@ func TestVaultInboxIssueCredentialRefusesBeforeMinting(t *testing.T) {
 		configs  []*v2.EncryptionConfig
 		profiles []v2.VaultInboxSuite
 	}{
-		"unknown config version": {configs: []*v2.EncryptionConfig{gateConfig(t, func(c *v2.VaultInboxRecipientConfig) {
-			c.ConfigVersion = v2.VaultInboxConfigVersion_VAULT_INBOX_CONFIG_VERSION_UNSPECIFIED
+		"unknown config version": {configs: []*v2.EncryptionConfig{gateConfig(t, func(p *gateParams) {
+			p.Version = 0
 		})}, profiles: advertised},
-		"unknown suite": {configs: []*v2.EncryptionConfig{gateConfig(t, func(c *v2.VaultInboxRecipientConfig) {
-			c.Suite = v2.VaultInboxSuite_VAULT_INBOX_SUITE_UNSPECIFIED
+		"unknown suite": {configs: []*v2.EncryptionConfig{gateConfig(t, func(p *gateParams) {
+			p.Suite = ""
 		})}, profiles: advertised},
-		"unsupported payload scheme": {configs: []*v2.EncryptionConfig{gateConfig(t, func(c *v2.VaultInboxRecipientConfig) {
-			c.PayloadScheme = "latchkey.vault_submission.secret.v2"
+		"unsupported payload scheme": {configs: []*v2.EncryptionConfig{gateConfig(t, func(p *gateParams) {
+			p.PayloadScheme = "latchkey.vault_submission.secret.v2"
 		})}, profiles: advertised},
-		"unknown inner field": {configs: []*v2.EncryptionConfig{gateConfig(t, func(c *v2.VaultInboxRecipientConfig) {
-			c.ProtoReflect().SetUnknown([]byte{0x80, 0x7c, 0x01})
-		})}, profiles: advertised},
-		"mismatched thumbprint": {configs: []*v2.EncryptionConfig{gateConfig(t, func(c *v2.VaultInboxRecipientConfig) {
-			c.PublicKeyThumbprint = "not-the-thumbprint"
+		"unknown inner field": {configs: []*v2.EncryptionConfig{gateConfigWithUnknownField(t)}, profiles: advertised},
+		"mismatched thumbprint": {configs: []*v2.EncryptionConfig{gateConfig(t, func(p *gateParams) {
+			p.PublicKeyThumbprint = "not-the-thumbprint"
 		})}, profiles: advertised},
 		"unadvertised profile": {configs: []*v2.EncryptionConfig{gateConfig(t, nil)}, profiles: noProfiles},
 		// A real age recipient, so the age validator accepts it and
