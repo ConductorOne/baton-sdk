@@ -66,9 +66,6 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
 	}
 
-	// Refused before the rotation: a vault-inbox recipient needs an option that
-	// produces a value, and rotating first would invalidate the prior credential
-	// with nothing delivered in its place.
 	err = crypto.ValidateVaultInboxRotateCredentialOptions(request.GetEncryptionConfigs(), request.GetCredentialOptions())
 	if err != nil {
 		l.Error("error: vault inbox recipient paired with credential options that produce no value", zap.Error(err))
@@ -76,11 +73,7 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 		return nil, err
 	}
 
-	// Scoped to a vault-inbox recipient: without this an unsupported config
-	// version, suite, scheme, thumbprint, or JWK is first checked during
-	// encryption, after the rotation has already invalidated the prior
-	// credential. Other recipient types keep their existing behaviour, where an
-	// unresolvable config only surfaces if there is something to encrypt.
+	// Validate before invalidating the old credential; preserve other recipients' validation timing.
 	if crypto.HasVaultInboxConfig(request.GetEncryptionConfigs()) {
 		err = crypto.ValidateEncryptionConfigs(request.GetEncryptionConfigs())
 		if err != nil {
@@ -104,9 +97,6 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
 	}
 
-	// Post-mint cardinality check, same rule as issuance: a vault-inbox recipient
-	// carries the whole submission payload, so two rotated plaintexts would seal
-	// two complete envelopes bound to one submission id.
 	err = pkem.ValidatePlaintextCardinality(plaintexts)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
@@ -249,9 +239,6 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, status.Errorf(codes.InvalidArgument, "invalid credential issuance request: %v", err)
 	}
-	// The advertised capability is the contract: a descriptor that does not list
-	// the requested vault-inbox profile must not be sealed to, the same way an
-	// unadvertised key profile is refused.
 	err = validateVaultInboxProfileAdvertised(request.GetEncryptionConfigs(), descriptor)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
@@ -269,11 +256,6 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, status.Errorf(codes.Internal, "connector returned invalid credential issuance output: %v", err)
 	}
-	// Post-mint cardinality check: the provider call above already happened, so
-	// this refuses to hand back a usable result rather than preventing a mint.
-	// A vault-inbox recipient carries the entire submission payload, so exactly
-	// one plaintext value may be sealed to it; zero or several values fail rather
-	// than depositing a partial or mislabeled submission.
 	err = pkem.ValidatePlaintextCardinality(output.PlaintextData)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
@@ -300,10 +282,6 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 	}.Build(), nil
 }
 
-// validateVaultInboxProfileAdvertised refuses a vault-inbox recipient whose
-// profile the selected descriptor does not advertise. This is a pre-mint gate:
-// it runs before the provider call, so a connector that never declared the
-// profile is never asked to mint anything.
 func validateVaultInboxProfileAdvertised(configs []*v2.EncryptionConfig, descriptor *v2.CredentialIssueOptionDescriptor) error {
 	for _, config := range configs {
 		if !providers.IsVaultInboxConfig(config) {

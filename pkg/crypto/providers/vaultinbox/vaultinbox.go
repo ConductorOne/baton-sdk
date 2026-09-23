@@ -1,45 +1,8 @@
-// Package vaultinbox seals a connector's plaintext credential into an existing
-// C1 vault-inbox submission.
-//
-// This provider is the connector-side half of the full-knowledge vault-inbox
-// delivery transport. C1 chooses the destination vault and the binding
-// coordinates from the approved ticket and the live inbox profile, hands them
-// over in a VaultInboxRecipientConfig, and the connector produces the exact
-// ciphertext the shipped Latchkey inbox reader already opens:
-//
-//   - the plaintext is a SecretSubmissionPayloadV3 JSON container, the only
-//     payload shape `decode_secret_submission_payload_for_open` accepts, with
-//     the server-allocated submission id bound inside it;
-//   - the HPKE instance is Base / X-Wing (ML-KEM-768 + X25519) / HKDF-SHA256 /
-//     ChaCha20-Poly1305, the one suite `vault_inbox_hpke` constructs; and
-//   - the HPKE info and AEAD AAD are the same bytes: the Latchkey injective
-//     `u32-be(len) || field` framing of the domain label followed by the
-//     envelope version, suite id, tenant, vault, inbox key id, key generation,
-//     and payload scheme (see crates/latchkey-mls-core/src/vault_inbox.rs
-//     `binding_bytes` and src/framing.rs `framed`).
-//
-// EncryptedData carries the JSON VaultInboxSubmissionEnvelope, and key_ids
-// carries exactly the inbox key id so C1 can reject a ciphertext sealed to
-// anything else.
-//
-// What this package does not do, stated so a caller does not assume it:
-//
-//   - It does not authenticate the recipient key. The owner-device attestation
-//     is verified by the member's Latchkey client against its registered device
-//     key; this provider never verifies an attestation signature and never treats
-//     a JWK as self-authenticating. C1 supplies the vended key as the active one
-//     for the destination vault.
-//   - The thumbprint it checks is a JWK-integrity check against the recipient
-//     JWK, not an independent HPKE binding. The AAD binds the inbox key id and
-//     generation; submission_id and content_type are authenticated by living
-//     inside the sealed payload.
-//   - It does not decide the destination. The config is C1 authority carried on
-//     the authenticated action transport for an approved ticket.
-//
-// Producing this ciphertext is intermediate, not completion: the bytes are
-// registered as a vault-inbox submission for review, and a separate authorized
-// C1 member-ingestion slice decrypts, creates the native secret, and records
-// acceptance before anything is delivered.
+// Package vaultinbox encrypts credentials using the Latchkey inbox wire format.
+// It trusts recipient configuration from the authenticated C1 action transport;
+// it does not verify recipient attestation signatures. C1's authorized member
+// runtime ingests the ciphertext as a native full-knowledge vault secret.
+// See docs/vault-inbox-delivery.md for the wire contract and trust boundaries.
 package vaultinbox
 
 import (
@@ -141,10 +104,6 @@ func (p *Provider) Encrypt(ctx context.Context, conf *v2.EncryptionConfig, plain
 	if plaintext == nil || strings.TrimSpace(plaintext.GetName()) == "" {
 		return nil, invalid("plaintext value must have a name")
 	}
-	// The display name and description are sealed into the submission payload, so
-	// they count against the upload limit exactly like the value does. Refusing
-	// them here keeps an oversized string from minting a credential whose
-	// submission could never be uploaded.
 	if len(plaintext.GetName()) > maxNameBytes {
 		return nil, invalid(fmt.Sprintf("plaintext name must be at most %d bytes", maxNameBytes))
 	}
@@ -170,21 +129,13 @@ func (p *Provider) Encrypt(ctx context.Context, conf *v2.EncryptionConfig, plain
 	binding := bindingBytes(config)
 	var enc, ciphertext []byte
 	func() {
-		// Best-effort scrub of the copies this function owns. It is NOT a
-		// guarantee that no plaintext-derived bytes survive: encoding/json builds
-		// into a pooled encodeState and returns a copy, so an equal buffer holding
-		// value_b64 goes back into that pool un-zeroed, and
-		// base64URL.EncodeToString produced an immutable string copy that cannot be
-		// cleared at all. The container is transit-only and never persisted or
-		// logged; this only limits how long our own copy lives.
+		// Best-effort clearing; JSON and base64 encoding may retain plaintext copies.
 		defer clear(payload)
 		defer clear(binding)
 		kdf := hpke.HKDFSHA256()
 		aead := hpke.ChaCha20Poly1305()
 		var sender *hpke.Sender
-		// The KDF and AEAD are the suite; the fourth argument is the *info*, which
-		// here is the binding — as is the AAD passed to Seal. Naming the local
-		// `kdf` keeps that call site readable against the spec.
+		// Latchkey uses the same binding for HPKE info and AEAD AAD.
 		enc, sender, err = hpke.NewSender(publicKey, kdf, aead, binding)
 		if err != nil {
 			return
@@ -205,10 +156,7 @@ func (p *Provider) Encrypt(ctx context.Context, conf *v2.EncryptionConfig, plain
 	if err != nil {
 		return nil, fmt.Errorf("vault inbox: encode submission envelope: %w", err)
 	}
-	// The envelope, not the plaintext, is what gets uploaded: this is the bound
-	// that decides whether the inbox will accept the submission at all. Failing
-	// here keeps the issuance from recording a result that can never be
-	// delivered.
+	// Enforce the transport limit on the encoded envelope, not just the value.
 	if len(envelope) > MaxSubmissionEnvelopeBytes {
 		return nil, invalid(fmt.Sprintf(
 			"sealed submission envelope must be at most %d bytes, got %d",
@@ -221,10 +169,7 @@ func (p *Provider) Encrypt(ctx context.Context, conf *v2.EncryptionConfig, plain
 		Description:    plaintext.GetDescription(),
 		Schema:         plaintext.GetSchema(),
 		EncryptedBytes: envelope,
-		// The inbox key id, not the JWK thumbprint: C1 compares this against the
-		// submission's active key id. The thumbprint is a JWK re-derivation check
-		// performed above, and is not an independent HPKE binding — the AEAD binds
-		// the key id and generation, not the thumbprint.
+		// The inbox key ID, not the JWK thumbprint.
 		KeyIds: []string{config.GetInboxKeyId()},
 	}.Build(), nil
 }
@@ -242,10 +187,8 @@ func recipientFromConfig(conf *v2.EncryptionConfig) (*v2.VaultInboxRecipientConf
 	if name := strings.ToLower(strings.TrimSpace(conf.GetProvider())); name != "" && name != EncryptionProvider {
 		return nil, nil, invalid("provider does not match vault inbox config")
 	}
-	// Only the inner config's unknown fields are refused: its contents are frozen
-	// into the HPKE binding, so an unrecognised field there means a producer and
-	// consumer disagree about what is authenticated. EncryptionConfig itself is
-	// shared with every other provider and must stay additive.
+	// Unknown profile fields may change authenticated semantics; outer config
+	// fields remain additive for compatibility with other providers.
 	if len(config.ProtoReflect().GetUnknown()) != 0 {
 		return nil, nil, invalid("unknown config fields")
 	}
@@ -266,10 +209,7 @@ func recipientFromConfig(conf *v2.EncryptionConfig) (*v2.VaultInboxRecipientConf
 			return nil, nil, err
 		}
 	}
-	// This provider only ever emits SecretSubmissionPayloadV3, the container for
-	// this one scheme label. The scheme is bound into the HPKE AAD, so accepting
-	// a different label would seal a payload the reader would then attribute to a
-	// scheme it does not carry; pin it the way config_version and suite are.
+	// The authenticated scheme must match the payload this provider emits.
 	if config.GetPayloadScheme() != PayloadSchemeSecretV1 {
 		return nil, nil, invalid("unsupported payload_scheme")
 	}
@@ -279,9 +219,6 @@ func recipientFromConfig(conf *v2.EncryptionConfig) (*v2.VaultInboxRecipientConf
 	if len(config.GetContentType()) > maxContentBytes || strings.ContainsFunc(config.GetContentType(), unicode.IsControl) {
 		return nil, nil, invalid("invalid content_type")
 	}
-	// The one field with no other bound: it is handed to two JSON parses, and a
-	// valid AKP JWK is about 1.7 KB. Bounding it here keeps this gate uniformly
-	// bounded rather than relying on the gRPC message cap.
 	if len(config.GetPublicJwkJson()) > maxJWKBytes {
 		return nil, nil, invalid(fmt.Sprintf("public_jwk_json must be at most %d bytes", maxJWKBytes))
 	}
@@ -302,11 +239,7 @@ func recipientFromConfig(conf *v2.EncryptionConfig) (*v2.VaultInboxRecipientConf
 
 // parsePublicKey accepts exactly one public AKP JWK holding an X-Wing key.
 //
-// It deliberately does not use DisallowUnknownFields: the thumbprint check next
-// to it canonicalizes over exactly {alg, kty, pub} and therefore tolerates extra
-// members, so refusing them here would reject a served JWK that carries an
-// ordinary JOSE member such as kid, use, or key_ops while its thumbprint already
-// matched. Private material is rejected explicitly below.
+// Extra JOSE members are allowed; the thumbprint covers only alg, kty, and pub.
 func parsePublicKey(jwkJSON string) (hpke.PublicKey, error) {
 	var jwk struct {
 		Kty  string `json:"kty"`
@@ -356,12 +289,7 @@ func parsePublicKey(jwkJSON string) (hpke.PublicKey, error) {
 	return publicKey, nil
 }
 
-// canonicalInboxJWK is the exact object the thumbprint is taken over. Marshalling
-// it rather than interpolating the fields keeps the canonical bytes valid JSON for
-// any input: a `pub` carrying a quote, a backslash, or a control character would
-// otherwise be hashed in a form that is not the one the Latchkey side derives. For
-// a legitimate base64url `pub` the bytes are identical to that side's `format!`
-// output, which TestPublicKeyThumbprintMatchesLatchkeyVector pins.
+// Field order matches Latchkey's thumbprint encoding.
 type canonicalInboxJWK struct {
 	Alg string `json:"alg"`
 	Kty string `json:"kty"`
@@ -392,7 +320,7 @@ func publicKeyThumbprint(jwkJSON string) (string, error) {
 }
 
 // bindingBytes reproduces the Latchkey injective framing used as both the HPKE
-// info and the AEAD AAD. Field order is load-bearing: domain label, envelope
+// info and the AEAD AAD. Field order is fixed: domain label, envelope
 // version (one byte), suite id, tenant, vault, inbox key id, key generation as
 // ASCII decimal, payload scheme.
 func bindingBytes(config *v2.VaultInboxRecipientConfig) []byte {

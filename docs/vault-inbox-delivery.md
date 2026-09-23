@@ -1,25 +1,42 @@
-# Vault-inbox credential delivery: frozen wire contract
+# Vault-inbox credential delivery contract
 
-This document freezes the mapping between the connector-side encryption profile
-(`baton/vault-inbox/v1`) and the shipped Latchkey vault-inbox reader. It is the
-compatibility contract both halves of the delivery transport are written
-against. Nothing here is a new format: every byte is produced by an existing
-primitive, and the reader at the other end is unmodified.
+This document describes the current contract between the connector-side
+encryption profile (`baton/vault-inbox/v1`) and C1 full-knowledge credential
+delivery, as of 2026-09-23. It describes the wire format, validation rules, and
+responsibilities of the SDK and the related C1 and Latchkey changes below; it
+does not establish that those changes are deployed.
 
-## What this replaces
+## Definitions
 
-Earlier drafts (`baton/full-knowledge-vault/v1`, `FullKnowledgeVaultConfig`,
-`FullKnowledgeCredentialEnvelope`, `FullKnowledgeSecretPayloadV2`, and the
-age-to-FK / native-CEK-import designs) are **superseded and not implemented
-here**. They introduced a new envelope and a native item-value payload that the
-shipped inbox reader does not know. This contract deliberately does none of
-that: no new cryptographic envelope, no CEK import, no ABI or embedded WASM
-artifact, no age format or profile extension, no classical ECDH fallback, and no
-synthetic native secret or version id at delivery time.
+- **Full-knowledge (FK) vault:** a vault in which C1 is an authorized full member
+  (`C1_FULL_MEMBER`). C1 can ingest and decrypt secrets through its member
+  runtime, subject to vault authorization. Full knowledge does not grant access
+  to every C1 worker or bypass authorization for reads.
+- **Latchkey / Multipass:** the shared vault cryptography and client
+  implementation in the Multipass repository. C1 embeds its member runtime as
+  WebAssembly (WASM).
+- **Inbox recipient:** the vault's public encryption key and its identifying
+  coordinates. A connector can encrypt to it without holding vault membership
+  or any vault private keys.
+- **Submission envelope:** the encrypted message produced by the SDK using the
+  existing inbox wire format. FK delivery uses this format without creating a
+  Vault Submission row or requiring external review. Its `submission_id` field
+  carries the prepared FK delivery ID.
+- **Native secret / Model-B item:** a secret stored in the vault's normal value
+  and key-wrapper format, with a secret ID and version ID, readable through the
+  ordinary authorized vault APIs. An inbox envelope is not yet a native secret.
+- **JWK:** JSON Web Key, the JSON representation of the recipient public key.
+  This profile uses the algorithm-key-pair (`AKP`) representation.
+- **Attestation:** a signed statement binding an inbox public key to its vault
+  and key coordinates.
+- **HPKE:** Hybrid Public Key Encryption. Its key encapsulation mechanism (KEM),
+  key derivation function (KDF), and authenticated encryption algorithm (AEAD)
+  are specified below. Additional authenticated data (AAD) is authenticated but
+  not encrypted; HPKE `info` binds the encryption context.
 
-## Authoritative reader
+## Implementation references
 
-`multipass@3350d549`, unchanged:
+The wire-format reference was inspected at `multipass@3350d549`:
 
 - `crates/latchkey-mls-core/src/vault_inbox.rs` — `seal_vault_submission`,
   `open_vault_submission`, `binding_bytes`, `vault_inbox_hpke`.
@@ -29,11 +46,25 @@ synthetic native secret or version id at delivery time.
 - `crates/latchkey-client-sdk/src/client.rs` —
   `open_vault_submission_secret_payload`, `accept_vault_submission_as_secret`.
 
+FK delivery also requires these related changes:
+
+- [Multipass #823](https://github.com/ductone/multipass/pull/823) adds member-WASM
+  exports to create and attest an inbox key (`latchkey_create_vault_inbox_key`)
+  and ingest a submission (`latchkey_seal_vault_submission`). The public key can
+  be handed to the connector; the private key remains sealed outside the module.
+  Ingestion opens the envelope and seals a native Model-B item inside the module.
+- [C1 #26059](https://github.com/ductone/c1/pull/26059) defines recipient lookup
+  and persisted delivery coordinates.
+- [C1 #26060](https://github.com/ductone/c1/pull/26060) adds vault-service ingress,
+  host bindings, and the updated embedded WASM artifact.
+- [C1 #26061](https://github.com/ductone/c1/pull/26061) connects issuance dispatch,
+  native-secret persistence, and delivery completion.
+
 ## Delivery lifecycle
 
-1. An approved ticket fixes an FK vault destination. C1 gets or creates **one
-   durable prepared inbox submission** per (tenant, ticket) *before*
-   `ClaimDispatch`, and freezes the destination vault, submission id,
+1. An approved ticket fixes an FK vault destination. C1 persists **one prepared
+   FK recipient and delivery ID** per (tenant, ticket) *before*
+   `ClaimDispatch`, and fixes the destination vault, delivery ID,
    `profile_id`, `inbox_key_id`, `key_generation`, payload scheme, and crypto
    suite on the operation.
 2. C1 sends the frozen coordinates plus the inbox public key to the connector in
@@ -44,26 +75,23 @@ synthetic native secret or version id at delivery time.
    credential once, serializes the exact `SecretSubmissionPayloadV3` container
    the inbox reader expects, seals it with the existing X-Wing HPKE profile, and
    returns the envelope as `EncryptedData.encrypted_bytes`.
-4. C1 durably records that exact result as `RESULT_ENCRYPTED`, then uploads and
-   registers those exact bytes against the prepared submission. The submission
-   reaches `PENDING_REVIEW`.
-
-**Registration is intermediate, not completion.** `PENDING_REVIEW` means the
-ciphertext is durably stored and reviewable; it is **not** `DELIVERED`, and it is
-not a native secret. The transport is keyless: between the connector's output and
-the registered submission the ciphertext is copied **byte-identically** and is
-never decrypted, resealed, or re-encoded.
-
-5. A **separate** authorized slice performs member ingestion: an authorized C1
-   vault member decrypts the submission, creates a **native secret** through the
-   ordinary secret path, and records acceptance. Before marking the operation
+4. C1 durably records that exact result as `RESULT_ENCRYPTED` and sends those
+   bytes to the vault service's authorized FK ingress. The transport worker has
+   no decryption keys and preserves the ciphertext byte-for-byte. This path
+   creates no Vault Submission row and has no `PENDING_REVIEW` or external review
+   step. Recording or transporting the ciphertext is not delivery completion.
+5. The authorized C1 full member accepts the envelope automatically. Inside the
+   member WASM, it opens the sealed inbox private key, decrypts the submission,
+   checks its bindings, and seals the value as a native secret. Neither the
+   credential plaintext nor the unsealed private key leaves the module. Before
+   marking the operation
    `DELIVERED`, C1 must durably create the native secret, record acceptance, and
    populate the existing full-knowledge delivery instance's `secret_id` and
-   `version_id` with the accepted secret and version IDs. Inbox registration or
+   `version_id` with the accepted secret and version IDs. Stored ciphertext or
    allocated IDs alone do not satisfy these requirements.
 
 Ordinary authorized reveal is a **mandatory acceptance test** for that ingestion
-slice — it is how the created native secret is proven to be readable — not a
+path — it is how the created native secret is proven to be readable — not a
 production prerequisite of delivery. Secret sharing is a separate concern again
 and is not part of this contract.
 
@@ -142,7 +170,7 @@ order):
 - `version` is `3`. The open path accepts **only** v3; the legacy v1/v2 plaintext
   carried no submission-id binding and is rejected with
   `VAULT_SUBMISSION_PAYLOAD_UNSUPPORTED`.
-- `submission_id` is the C1-allocated submission, bound inside the sealed
+- `submission_id` carries the C1-allocated FK delivery ID, bound inside the sealed
   plaintext so a server cannot relabel one same-vault submission as another.
 - `content_type` normalizes empty ⇒ `generic` (`content_type_or_generic`).
 - `value_b64` is URL-safe base64 **without** padding.
@@ -243,13 +271,20 @@ silently delivering a partial or unusable submission.
 
 ### 6.3 What the SDK does not verify
 
-**Attestation signature verification is not here.** The inbox public key is
-authenticated by an owner-device composite ML-DSA-65 + Ed25519 attestation that
-only the member's Latchkey client can verify against its registered device key;
-C1 validates the stored attestation structurally when it serves the profile. The
-connector does not verify attestation signatures, does not treat a JWK as
-self-authenticating, and does not invent, re-sign, or substitute keys. This is
-the same trust root as the existing inbox submission flow, unchanged.
+The SDK currently trusts the recipient configuration supplied through the
+authenticated C1 action transport. It checks the JWK and thumbprint but does not
+verify attestation signatures. A JWK or matching thumbprint alone does not
+authenticate the destination.
+
+For device-free FK vaults, Multipass #823 lets the C1 full member create the
+inbox key and attest it with its existing MLS leaf signing key, using composite
+ML-DSA-65 + Ed25519. This does not require an owner device.
+
+Connector-side attestation verification can be added later: the connector could
+verify the recipient public key's attestation chain against a known, trusted
+Multipass/Latchkey root key. That extension would need the trust anchor and
+chain-validation rules, including the binding to the member signing key; it is
+not implemented by this SDK profile.
 
 ## 7. Provider revocation and submission cleanup
 
@@ -258,8 +293,9 @@ cleanup and never by re-minting:
 
 - The provider credential the issuance created is revoked **exactly** — the
   specific credential, not a sibling, and not anything in a shared vault.
-- The **exact** inbox submission prepared for this ticket is cleaned up. When the
-  native version already exists, that exact native version is cleaned up too.
+- This ticket's exact delivery ciphertext and associated submission material are
+  cleaned up; FK delivery has no Vault Submission row. When the native version
+  already exists, cleanup targets that exact version too.
 - Sibling submissions, sibling credentials, and other vault members' data are
   left untouched.
 - No replacement credential is minted to cover the failure. C1 does not re-mint
@@ -269,15 +305,13 @@ cleanup and never by re-minting:
 
 ## 8. What is explicitly out of scope
 
-- No Rust production code or artifact changes; the reader is unmodified.
-- No C1-side decrypt/reseal in the transport. Member ingestion (§5) is a separate
-  authorized slice, and sharing is separate again.
+- No new inbox cryptographic wire format. Rust member-runtime exports and an
+  updated C1 WASM artifact are required, as described in Implementation references.
+- No C1-side decrypt/reseal in the transport worker. The authorized member WASM
+  performs ingestion; secret sharing is separate.
 - No age profile change, no Paper fallback, no remint after a live key exists.
 - No requester-selected destination: the destination is the admin-approved
   vault frozen on the approved ticket.
-- **The wire profile is unchanged by any of this.** The corrections here are to
-  the contract's description and to the SDK's tests; the bytes, field numbers,
-  suite, framing, and envelope stay exactly as specified in §§1–5.
 
 ## 9. Pinned interop fixture
 

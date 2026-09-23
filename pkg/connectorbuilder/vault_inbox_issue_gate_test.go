@@ -16,9 +16,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// vaultInboxIssuer is a fake provider with a counted mint. The count is the
-// point: the gate rules below are only meaningful if a refused issuance left the
-// count at zero and a post-mint failure left it at exactly one.
 type vaultInboxIssuer struct {
 	ResourceSyncer
 	issueCalls int
@@ -131,9 +128,6 @@ func TestVaultInboxProviderRefusesAForeignProviderName(t *testing.T) {
 		"a config naming another provider must not be sealed by this one")
 }
 
-// gateAccountManager lets a test choose the CreateAccount result, so the
-// cardinality rule can be exercised against the non-success outcomes that
-// legitimately carry no plaintext.
 type gateAccountManager struct {
 	ResourceSyncer
 	result      CreateAccountResponse
@@ -166,10 +160,6 @@ func gateCreateAccountRequest(t *testing.T) *v2.CreateAccountRequest {
 	}.Build()
 }
 
-// TestVaultInboxCreateAccountKeepsStructuredResults pins the width of the
-// cardinality rule on this path. CreateAccount's non-success outcomes carry no
-// plaintext by contract, so demanding one would replace "the account already
-// exists" with a hard failure; only more than one value is refused.
 func TestVaultInboxCreateAccountKeepsStructuredResults(t *testing.T) {
 	t.Parallel()
 
@@ -223,9 +213,6 @@ func TestVaultInboxCreateAccountKeepsStructuredResults(t *testing.T) {
 		require.Zero(t, manager.createCalls, "the account must not be created for a refusal we can make up front")
 	})
 
-	// The upper bound of the non-success rule: these results are allowed to carry
-	// no plaintext, but two is still refused, because they would seal two complete
-	// envelopes bound to one submission id.
 	t.Run("a non-success result with two values is refused", func(t *testing.T) {
 		t.Parallel()
 		manager := &gateAccountManager{
@@ -264,8 +251,6 @@ func TestVaultInboxCreateAccountKeepsStructuredResults(t *testing.T) {
 	})
 }
 
-// gateCredentialManager lets a test observe whether a rotation reached the
-// provider, which is the only way to tell a pre-mint refusal from a post-mint one.
 type gateCredentialManager struct {
 	ResourceSyncer
 	rotateCalls int
@@ -294,9 +279,6 @@ func gateRotateRequest(t *testing.T, options *v2.CredentialOptions) *v2.RotateCr
 	}.Build()
 }
 
-// TestVaultInboxRotateRefusesBeforeMinting pins the same pre-mint refusal on the
-// rotation path. Rotating first is worse than creating first: the prior
-// credential may already be invalidated with nothing delivered in its place.
 func TestVaultInboxRotateRefusesBeforeMinting(t *testing.T) {
 	t.Parallel()
 
@@ -364,9 +346,6 @@ func TestVaultInboxRotateRefusesBeforeMinting(t *testing.T) {
 		require.Equal(t, vaultinbox.EncryptionProvider, resp.GetEncryptedData()[0].GetProvider())
 	})
 
-	// Post-mint on this path: the rotation has happened, so the refusal must be
-	// the cardinality rule rather than anything earlier, and the rotation must not
-	// be attempted a second time.
 	t.Run("two values are refused after exactly one rotation", func(t *testing.T) {
 		t.Parallel()
 		manager := &gateCredentialManager{
@@ -386,12 +365,6 @@ func TestVaultInboxRotateRefusesBeforeMinting(t *testing.T) {
 	})
 }
 
-// TestVaultInboxGateMatchesProviderNameOnlyConfig pins the provider-name branch of
-// IsVaultInboxConfig. Every other fixture in the suite sets both the provider and
-// the inner message, so without this case that branch could be deleted with the
-// suite still green — and the config would then reach the provider, fail at
-// Encrypt, and do so after the rotation had already invalidated the prior
-// credential.
 func TestVaultInboxGateMatchesProviderNameOnlyConfig(t *testing.T) {
 	t.Parallel()
 	providerNameOnly := v2.EncryptionConfig_builder{
@@ -452,8 +425,6 @@ func gateConnector(t *testing.T, issuer *vaultInboxIssuer) *builder {
 	return connector.(*builder)
 }
 
-// TestVaultInboxIssueCredentialMintsOnceAndSeals is the happy path through the
-// real builder: one mint, one sealed result, and no plaintext in the response.
 func TestVaultInboxIssueCredentialMintsOnceAndSeals(t *testing.T) {
 	t.Parallel()
 	value := []byte("super-secret-key-material")
@@ -470,19 +441,11 @@ func TestVaultInboxIssueCredentialMintsOnceAndSeals(t *testing.T) {
 	require.Equal(t, []string{"inbox-key-1"}, resp.GetEncryptedData()[0].GetKeyIds())
 	require.NotEmpty(t, resp.GetEncryptedData()[0].GetEncryptedBytes())
 
-	// The response carries ciphertext, never the minted value.
 	require.NotContains(t, string(resp.GetEncryptedData()[0].GetEncryptedBytes()), string(value))
 	require.NotContains(t, resp.String(), string(value), "no plaintext may appear anywhere in the response")
 	require.Equal(t, 1, issuer.issueCalls, "a successful issuance must not mint a second credential")
 }
 
-// TestVaultInboxIssueCredentialRefusesBeforeMinting pins the boundary between
-// the pre-mint gates and the mint itself: each of these configs must be refused
-// with the provider untouched.
-//
-// Regression sensitivity: with the exclusivity, advertisement, or config gates
-// removed, the corresponding case would reach the provider and the call count
-// would be 1 instead of 0, so this test fails rather than silently passing.
 func TestVaultInboxIssueCredentialRefusesBeforeMinting(t *testing.T) {
 	t.Parallel()
 	advertised := []v2.VaultInboxSuite{v2.VaultInboxSuite_VAULT_INBOX_SUITE_XWING_MLKEM768_X25519_HKDF_SHA256_CHACHA20POLY1305_V1}
@@ -528,13 +491,6 @@ func TestVaultInboxIssueCredentialRefusesBeforeMinting(t *testing.T) {
 	}
 }
 
-// TestVaultInboxIssueCredentialFailsAfterOneMint pins the post-mint half: the
-// provider has already minted, so the failure is a refusal to return a usable
-// result, and the SDK must not mint again to recover.
-//
-// Regression sensitivity: without the cardinality and value gates these cases
-// would return a successful response with zero or several envelopes (or an
-// oversized one), so the assertions on the error and the call count fail.
 func TestVaultInboxIssueCredentialFailsAfterOneMint(t *testing.T) {
 	t.Parallel()
 	advertised := []v2.VaultInboxSuite{v2.VaultInboxSuite_VAULT_INBOX_SUITE_XWING_MLKEM768_X25519_HKDF_SHA256_CHACHA20POLY1305_V1}

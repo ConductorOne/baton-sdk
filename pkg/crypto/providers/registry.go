@@ -53,16 +53,8 @@ var encryptorRegistry = map[string]Encryptor{
 	normalizeProviderName(vaultinbox.EncryptionProvider):     vaultinbox.NewProvider(),
 }
 
-// IsVaultInboxConfig reports whether conf selects the vault-inbox recipient
-// profile. The vault-inbox profile is exclusive: a caller must not fan an
-// issuance out to it alongside any other recipient, because the delivered
-// ciphertext is the submission's entire payload.
-//
-// The provider name counts as well as the inner message. Routing keys on
-// `provider` first, so a config that names this provider with the inner message
-// left unset still reaches this provider and fails there; treating it as
-// vault-inbox here makes the pre-mint gates refuse it before an irreversible
-// create or rotate instead of after one.
+// IsVaultInboxConfig recognizes the config arm or provider name, including a
+// provider-only config that must be rejected before a create or rotation.
 func IsVaultInboxConfig(conf *v2.EncryptionConfig) bool {
 	if conf == nil {
 		return false

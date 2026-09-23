@@ -108,10 +108,6 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
 	}
 
-	// A vault-inbox recipient needs an option that produces a value, and this must
-	// be refused before the account exists: a success carrying no credential would
-	// otherwise fail after the irreversible create, and a retry would then only
-	// see AlreadyExists.
 	err = crypto.ValidateVaultInboxCredentialOptions(request.GetEncryptionConfigs(), request.GetCredentialOptions())
 	if err != nil {
 		l.Error("error: vault inbox recipient paired with credential options that produce no value", zap.Error(err))
@@ -119,10 +115,7 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 		return nil, err
 	}
 
-	// Scoped to a vault-inbox recipient: an unsupported version, suite, scheme,
-	// thumbprint, or JWK must be refused before the account is created, while
-	// other recipient types keep their existing behaviour, where an unresolvable
-	// config only surfaced if the connector returned something to encrypt.
+	// Validate before creating the account; preserve other recipients' validation timing.
 	if crypto.HasVaultInboxConfig(request.GetEncryptionConfigs()) {
 		err = crypto.ValidateEncryptionConfigs(request.GetEncryptionConfigs())
 		if err != nil {
@@ -146,12 +139,6 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
 	}
 
-	// Only a success result is expected to carry a credential, so only a success
-	// result requires one: a vault-inbox recipient with nothing to seal would
-	// silently produce no submission and report success. The non-success results
-	// carry no plaintext by contract, so they take the upper bound only, and more
-	// than one is refused on either path because it would seal several complete
-	// envelopes bound to a single submission id.
 	switch result.(type) {
 	case *v2.CreateAccountResponse_SuccessResult:
 		err = pkem.ValidatePlaintextCardinality(plaintexts)

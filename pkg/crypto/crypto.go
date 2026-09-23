@@ -55,12 +55,6 @@ func (pkem *EncryptionManager) Encrypt(ctx context.Context, cred *v2.PlaintextDa
 }
 
 func NewEncryptionManager(co *v2.CredentialOptions, ec []*v2.EncryptionConfig) (*EncryptionManager, error) {
-	// Enforced here as well as in ValidateEncryptionConfigs because that helper
-	// is called by the issuance and action paths only: RotateCredential and
-	// CreateAccount build the manager directly, so a vault-inbox recipient must
-	// not arrive on those paths *mixed with another recipient*. A lone vault-inbox
-	// config is legal here, and those two callers now apply the one-value rule
-	// themselves via ValidatePlaintextCardinality before they fan plaintext out.
 	if err := validateVaultInboxConfigExclusivity(ec); err != nil {
 		return nil, err
 	}
@@ -71,11 +65,8 @@ func NewEncryptionManager(co *v2.CredentialOptions, ec []*v2.EncryptionConfig) (
 	return em, nil
 }
 
-// ValidatePlaintextCardinality enforces the vault-inbox recipient's
-// one-value rule against this manager's configured recipients. Every path that
-// fans a plaintext list across the recipients must call it before encrypting,
-// or a multi-value result would produce several complete submission envelopes
-// all bound to the same submission id.
+// ValidatePlaintextCardinality applies [ValidateVaultInboxPlaintextCardinality]
+// to this manager's recipients before a caller encrypts a list of values.
 func (pkem *EncryptionManager) ValidatePlaintextCardinality(plaintexts []*v2.PlaintextData) error {
 	return ValidateVaultInboxPlaintextCardinality(pkem.configs, plaintexts)
 }
@@ -86,15 +77,8 @@ func (pkem *EncryptionManager) ValidatePlaintextCardinalityAtMostOne(plaintexts 
 	return ValidateVaultInboxPlaintextCardinalityAtMostOne(pkem.configs, plaintexts)
 }
 
-// ValidateVaultInboxPlaintextCardinalityAtMostOne enforces only the upper bound
-// of the vault-inbox rule: zero values is a legitimate outcome (nothing to seal),
-// one is the expected shape, and more than one would seal several complete
-// submission envelopes bound to a single submission id.
-//
-// This is the rule for a caller whose contract permits no credential at all —
-// CreateAccount's AlreadyExists, ActionRequired, and InProgress results. A caller
-// whose contract requires a value must use
-// [ValidatePlaintextCardinality] instead, or a missing value passes silently.
+// ValidateVaultInboxPlaintextCardinalityAtMostOne permits an absent credential,
+// as required by CreateAccount's non-success results. Other recipient types are unaffected.
 func ValidateVaultInboxPlaintextCardinalityAtMostOne(configs []*v2.EncryptionConfig, plaintexts []*v2.PlaintextData) error {
 	if !hasVaultInboxConfig(configs) {
 		return nil
@@ -106,15 +90,9 @@ func ValidateVaultInboxPlaintextCardinalityAtMostOne(configs []*v2.EncryptionCon
 	return nil
 }
 
-// ValidateVaultInboxPlaintextCardinality enforces that a vault-inbox recipient
-// receives exactly one plaintext value. The submission payload holds one value;
-// several would have to be merged or silently dropped, and a zero value would
-// seal an empty submission. Both are reconciliation-required errors rather than
-// a successful issuance with missing data.
-//
-// It is exported because every path that encrypts for a vault-inbox recipient
-// must call it: the issuance builder and the registered-action path both fan a
-// connector's plaintext list across the configured recipients.
+// ValidateVaultInboxPlaintextCardinality requires one value for an inbox recipient:
+// multiple values would produce envelopes sharing a delivery ID. Other recipient
+// types are unaffected. This checks provider output, so failure may follow minting.
 func ValidateVaultInboxPlaintextCardinality(configs []*v2.EncryptionConfig, plaintexts []*v2.PlaintextData) error {
 	if !hasVaultInboxConfig(configs) {
 		return nil
@@ -126,16 +104,8 @@ func ValidateVaultInboxPlaintextCardinality(configs []*v2.EncryptionConfig, plai
 	return nil
 }
 
-// ValidateVaultInboxCredentialOptions refuses a vault-inbox recipient paired with
-// credential options that do not ask the connector to produce a value, on the
-// create path.
-//
-// Only RandomPassword asks for one. NoPassword and Sso create an account with no
-// credential at all, and EncryptedPassword carries material the caller already
-// holds rather than something the connector mints — with an empty list it leaves
-// LocalCredentialOptions unset and yields no plaintext.
-//
-// Callers: CreateAccount, before the account is created.
+// ValidateVaultInboxCredentialOptions requires RandomPassword for inbox delivery
+// before account creation. Other recipient types are unaffected.
 func ValidateVaultInboxCredentialOptions(configs []*v2.EncryptionConfig, opts *v2.CredentialOptions) error {
 	if !hasVaultInboxConfig(configs) {
 		return nil
@@ -147,12 +117,9 @@ func ValidateVaultInboxCredentialOptions(configs []*v2.EncryptionConfig, opts *v
 	return nil
 }
 
-// ValidateVaultInboxRotateCredentialOptions is the rotate-path rule. A rotation
-// with no options set is a supported shape — the connector mints its own
-// replacement — and it produces exactly one value, so unset is accepted here
-// while the options that can produce nothing are still refused.
-//
-// Callers: RotateCredential, before the provider is given the rotation.
+// ValidateVaultInboxRotateCredentialOptions allows random-password or unset options
+// before rotation; unset lets the connector choose its replacement credential.
+// Other recipient types are unaffected.
 func ValidateVaultInboxRotateCredentialOptions(configs []*v2.EncryptionConfig, opts *v2.CredentialOptions) error {
 	if !hasVaultInboxConfig(configs) {
 		return nil
@@ -166,9 +133,6 @@ func ValidateVaultInboxRotateCredentialOptions(configs []*v2.EncryptionConfig, o
 	}
 }
 
-// HasVaultInboxConfig reports whether any config selects the vault-inbox
-// recipient profile. Callers use it to scope a vault-inbox-only check so other
-// recipient types keep their existing behaviour.
 func HasVaultInboxConfig(configs []*v2.EncryptionConfig) bool {
 	return hasVaultInboxConfig(configs)
 }
@@ -182,10 +146,6 @@ func hasVaultInboxConfig(configs []*v2.EncryptionConfig) bool {
 	return false
 }
 
-// validateVaultInboxConfigExclusivity refuses a vault-inbox recipient that is
-// not the only configured recipient. The ciphertext it produces is the whole
-// submission payload, so it cannot be one recipient among several: the extra
-// encryptions would never be read and their recipients never revoked.
 func validateVaultInboxConfigExclusivity(ec []*v2.EncryptionConfig) error {
 	vaultInboxConfigs := 0
 	for _, config := range ec {
