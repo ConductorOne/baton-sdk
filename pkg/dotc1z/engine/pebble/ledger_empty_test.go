@@ -74,3 +74,24 @@ func TestBoundSyncUnstarted(t *testing.T) {
 		})
 	}
 }
+
+func TestBoundSyncUnstartedMissingRecord(t *testing.T) {
+	for _, mismatched := range []bool{false, true} {
+		for _, populated := range []bool{false, true} {
+			t.Run(fmt.Sprintf("mismatched-%t/populated-%t", mismatched, populated), func(t *testing.T) {
+				e, _ := newTestEngine(t)
+				if mismatched {
+					_, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "000000000000000000000000002")
+					require.NoError(t, err)
+				}
+				if populated {
+					require.NoError(t, e.db.UnsafeForTesting().Set([]byte{rawdb.VersionV3, rawdb.TypeResource, 0x20}, []byte("saved"), pebble.Sync))
+				}
+				require.NoError(t, e.SetCurrentSync(t.Context(), "000000000000000000000000001"))
+				empty, err := e.BoundSyncUnstarted(t.Context())
+				require.NoError(t, err)
+				require.Equal(t, !populated, empty)
+			})
+		}
+	}
+}
