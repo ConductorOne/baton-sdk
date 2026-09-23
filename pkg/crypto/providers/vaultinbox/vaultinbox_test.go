@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -424,6 +425,46 @@ func TestValidateConfigRejectsMalformedJWK(t *testing.T) {
 	}
 }
 
+func TestValidateConfigRejectsEveryPrivMember(t *testing.T) {
+	for _, value := range []string{`null`, `""`, `" "`, `"AAAA"`, `42`, `true`, `[]`, `{}`} {
+		t.Run(value, func(t *testing.T) {
+			config := configFor(t, func(p *recipientParams) {
+				p.OuterExtra = map[string]any{"priv": json.RawMessage(value)}
+			})
+			require.ErrorContains(t, NewProvider().ValidateConfig(context.Background(), config), "priv member")
+		})
+	}
+}
+
+func TestValidateConfigRequiresNonNullExtensionMembers(t *testing.T) {
+	params := vectorParams(t)
+	require.NoError(t, NewProvider().ValidateConfig(context.Background(), params.config()))
+	for name := range extensionMembers {
+		for _, absent := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/absent=%t", name, absent), func(t *testing.T) {
+				var document map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal([]byte(params.jwk()), &document))
+				var extension map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(document[JWKExtensionMember], &extension))
+				if absent {
+					delete(extension, name)
+				} else {
+					extension[name] = json.RawMessage(`null`)
+				}
+				var err error
+				document[JWKExtensionMember], err = json.Marshal(extension)
+				require.NoError(t, err)
+				raw, err := json.Marshal(document)
+				require.NoError(t, err)
+				config := configFor(t, func(p *recipientParams) { p.RawJWK = string(raw) })
+				require.ErrorContains(t, NewProvider().ValidateConfig(context.Background(), config), "requires a non-null "+name)
+			})
+		}
+	}
+	params.ContentType = ""
+	require.NoError(t, NewProvider().ValidateConfig(context.Background(), params.config()))
+}
+
 // TestValidateConfigRejectsMalformedExtension covers the extension as a protocol
 // surface: an absent, malformed, ambiguous, unknown-membered, wrong-version, or
 // incomplete extension is refused before any provider work.
@@ -432,7 +473,7 @@ func TestValidateConfigRejectsMalformedExtension(t *testing.T) {
 	extensionJSON := `{"version":` + strconv.Itoa(JWKExtensionVersion) + `,"suite":"` + SuiteLabel +
 		`","tenant_id":"` + vectorTenant + `","vault_boundary_id":"` + vectorVault +
 		`","key_generation":` + strconv.Itoa(vectorGeneration) + `,"payload_scheme":"` + vectorScheme +
-		`","submission_id":"` + vectorSubmission + `","public_key_thumbprint":"` + params.PublicKeyThumbprint + `"}`
+		`","submission_id":"` + vectorSubmission + `","public_key_thumbprint":"` + params.PublicKeyThumbprint + `","content_type":"generic"}`
 	outer := func(body string) string {
 		return `{"kty":"` + jwkKtyAKP + `","alg":"` + jwkAlg + `","pub":"` + params.Pub + `",` + body + `}`
 	}
@@ -449,7 +490,7 @@ func TestValidateConfigRejectsMalformedExtension(t *testing.T) {
 	duplicateExtension.RawJWK = outer(`"` + JWKExtensionMember + `":{"version":1,"version":1,"suite":"` +
 		SuiteLabel + `","tenant_id":"` + vectorTenant + `","vault_boundary_id":"` + vectorVault +
 		`","key_generation":7,"payload_scheme":"` + vectorScheme + `","submission_id":"` + vectorSubmission +
-		`","public_key_thumbprint":"` + params.PublicKeyThumbprint + `"}`)
+		`","public_key_thumbprint":"` + params.PublicKeyThumbprint + `","content_type":"generic"}`)
 
 	// A second value after the object could carry context the parser did not read.
 	trailingOuter := params

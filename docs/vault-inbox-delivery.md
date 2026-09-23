@@ -224,9 +224,9 @@ binding context in a namespaced extension member, `baton_vault_inbox`:
 | `payload_scheme` | `latchkey.vault_submission.secret.v1` |
 | `submission_id` | the C1-allocated FK delivery id |
 | `public_key_thumbprint` | base64url(SHA-256 of the canonical `{alg,kty,pub}`) |
-| `content_type` | optional; empty normalizes to `generic` |
+| `content_type` | required string; explicit empty string normalizes to `generic` |
 
-Every extension member is required except `content_type`. The extension
+Every extension member is required and must be non-null. The extension
 deliberately does **not** carry the inbox key id: `key_id` is the single source,
 so two values cannot disagree about which key a ciphertext is bound to. A JWK
 `kid` that disagrees with `key_id` is refused rather than silently overridden.
@@ -234,7 +234,7 @@ so two values cannot disagree about which key a ciphertext is bound to. A JWK
 Parsing is strict because the extension is a protocol surface. A member the
 extension does not define, a member repeated in the outer JWK or the extension,
 trailing content after either object, a wrong version or suite, a non-string or
-null JWK member, and private material are all refused before any provider work.
+null protocol member, and any `priv` member (regardless of value) are all refused before any provider work.
 Ordinary optional JOSE metadata (`use`, `key_ops`, and a `kid` that agrees) is
 still accepted, so the strictness is scoped to the protocol extension rather than
 to all of JOSE. Unknown fields on the shared `EncryptionConfig` stay tolerated, so

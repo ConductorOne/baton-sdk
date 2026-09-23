@@ -211,13 +211,8 @@ func parseJWKDocument(jwkJSON string) (*jwkDocument, error) {
 	if err := unmarshalStrictMember(fields, "kid", &document.Kid); err != nil {
 		return nil, err
 	}
-	// Private material is refused explicitly rather than ignored. A `priv`
-	// member could carry material the caller believes is being used.
-	if rawPrivate, present := fields["priv"]; present {
-		var probe string
-		if err := json.Unmarshal(rawPrivate, &probe); err == nil && strings.TrimSpace(probe) != "" {
-			return nil, invalid("public_jwk_json must not carry private material")
-		}
+	if _, present := fields["priv"]; present {
+		return nil, invalid("public_jwk_json must not carry a priv member")
 	}
 
 	if document.Kty != jwkKtyAKP {
@@ -258,6 +253,16 @@ func parseExtension(raw json.RawMessage) (*jwkExtension, error) {
 	for _, name := range names {
 		if !extensionMembers[name] {
 			return nil, invalid("the " + JWKExtensionMember + " extension has an unknown member " + name)
+		}
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, invalid("the " + JWKExtensionMember + " extension is malformed")
+	}
+	for name := range extensionMembers {
+		value, present := fields[name]
+		if !present || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return nil, invalid("the " + JWKExtensionMember + " extension requires a non-null " + name)
 		}
 	}
 

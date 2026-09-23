@@ -5,6 +5,13 @@ claimed before it is run.
 
 ## Branch and commits
 
+Review follow-up: reject every `priv` member and require all extension members
+to be present and non-null. An explicit empty `content_type` remains valid and
+normalizes to `generic`. Added regression tests for each field's absence/null
+and for private-member value types. These follow-up tests have not been run
+locally; the earlier results below do not verify this revision. CI must run
+tests and lint on the updated draft PR.
+
 Worktree `/data/squire/src/baton-sdk-jwk-alt`, branch
 `highb/IGA-4417/fk-inbox-jwk-alternative`.
 
