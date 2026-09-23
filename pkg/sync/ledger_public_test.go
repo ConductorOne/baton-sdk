@@ -103,54 +103,65 @@ func TestLedgerPublicSyncSealsWithoutToken(t *testing.T) {
 }
 
 func TestLedgerPublicStopResume(t *testing.T) {
-	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "resume.c1z"), false)
-	c := &ledgerTypesConnector{mockConnector: newMockConnector()}
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	first, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithSkipEntitlementsAndGrants(true), WithLedgerDebug(true), WithRetainLedgerTokens(true), WithProgressHandler(func(*Progress) {
-		if len(c.calls) == 1 {
-			cancel()
+	for _, debug := range []bool{false, true} {
+		name := "default"
+		if debug {
+			name = "debug"
 		}
-	}))
-	require.NoError(t, err)
-	require.ErrorIs(t, first.Sync(ctx), context.Canceled)
-	require.Equal(t, []string{""}, c.calls)
-	require.NoError(t, f.store.Close(t.Context()))
-	f = openLedgerFixtureAt(t, f.path, false)
-	c = &ledgerTypesConnector{mockConnector: newMockConnector()}
-	resumed, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithSkipEntitlementsAndGrants(true), WithLedgerDebug(true))
-	require.NoError(t, err)
-	walked := false
-	var before []ledgerKV
-	resumed.(*syncer).testHooks.ledgerWalk = func(entering bool) {
-		if entering {
-			walked = true
-			before = ledgerRawSnapshot(t, f.engine)
-			f.audit.enter(ledgerWalk)
-		} else {
-			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
-			f.audit.enter(ledgerLifecycle)
-		}
+		t.Run(name, func(t *testing.T) {
+			f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "resume.c1z"), false)
+			c := &ledgerTypesConnector{mockConnector: newMockConnector()}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			first, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithSkipEntitlementsAndGrants(true),
+				WithLedgerDebug(true), WithRetainLedgerTokens(true), WithProgressHandler(func(*Progress) {
+					if len(c.calls) == 1 {
+						cancel()
+					}
+				}))
+			require.NoError(t, err)
+			require.ErrorIs(t, first.Sync(ctx), context.Canceled)
+			require.Equal(t, []string{""}, c.calls)
+			require.NoError(t, f.store.Close(t.Context()))
+			f = openLedgerFixtureAt(t, f.path, false)
+			c = &ledgerTypesConnector{mockConnector: newMockConnector()}
+			resumed, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithSkipEntitlementsAndGrants(true), WithLedgerDebug(debug))
+			require.NoError(t, err)
+			walked := false
+			var before []ledgerKV
+			resumed.(*syncer).testHooks.ledgerWalk = func(entering bool) {
+				if entering {
+					walked = true
+					before = ledgerRawSnapshot(t, f.engine)
+					f.audit.enter(ledgerWalk)
+				} else {
+					require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
+					f.audit.enter(ledgerLifecycle)
+				}
+			}
+			require.NoError(t, resumed.Sync(t.Context()))
+			require.True(t, walked)
+			require.Equal(t, []string{"page-2"}, c.calls)
+			require.NoError(t, f.store.SetCurrentSync(t.Context(), resumed.(*syncer).syncID))
+			row, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: SyncResourceTypesOp.String()})
+			require.NoError(t, err)
+			require.True(t, found)
+			require.False(t, row.Scrubbed)
+			require.Equal(t, "page-2", row.NextPageToken)
+			counts, err := f.ledger.LedgerCounters(t.Context())
+			require.NoError(t, err)
+			require.EqualValues(t, 2, counts.ConnectorCalls["list-resource-types"].Count)
+			options, err := f.ledger.GetArchivedLedgerOptions(t.Context(), "")
+			require.NoError(t, err)
+			require.False(t, options.Requested.RetainLedgerTokens)
+			require.True(t, options.EffectiveRetainLedgerTokens)
+			require.True(t, options.EffectiveLedgerDebug)
+			require.Equal(t, debug, options.Requested.LedgerDebug)
+			resources, err := f.store.ListResourceTypes(t.Context(), &v2.ResourceTypesServiceListResourceTypesRequest{})
+			require.NoError(t, err)
+			require.Len(t, resources.GetList(), 3)
+		})
 	}
-	require.NoError(t, resumed.Sync(t.Context()))
-	require.True(t, walked)
-	require.Equal(t, []string{"page-2"}, c.calls)
-	require.NoError(t, f.store.SetCurrentSync(t.Context(), resumed.(*syncer).syncID))
-	row, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: SyncResourceTypesOp.String()})
-	require.NoError(t, err)
-	require.True(t, found)
-	require.False(t, row.Scrubbed)
-	require.Equal(t, "page-2", row.NextPageToken)
-	counts, err := f.ledger.LedgerCounters(t.Context())
-	require.NoError(t, err)
-	require.EqualValues(t, 2, counts.ConnectorCalls["list-resource-types"].Count)
-	options, err := f.ledger.GetArchivedLedgerOptions(t.Context(), "")
-	require.NoError(t, err)
-	require.False(t, options.Requested.RetainLedgerTokens)
-	require.True(t, options.EffectiveRetainLedgerTokens)
-	resources, err := f.store.ListResourceTypes(t.Context(), &v2.ResourceTypesServiceListResourceTypesRequest{})
-	require.NoError(t, err)
-	require.Len(t, resources.GetList(), 3)
 }
 
 func TestLedgerPublicSkipSync(t *testing.T) {

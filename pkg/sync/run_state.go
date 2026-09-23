@@ -11,6 +11,7 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // ActionOp represents a sync operation.
@@ -137,6 +138,19 @@ type Action struct {
 	// already scheduled whole-type collection. Legacy checkpoints omit it,
 	// causing an upgraded syncer to plan type-scoped work once on resume.
 	TypeScopedPlanned bool `json:"type_scoped_planned,omitempty"`
+}
+
+func (a Action) MarshalLogObject(enc zapcore.ObjectEncoder) error {
+	enc.AddString("id", a.ID)
+	enc.AddString("operation", a.Op.String())
+	enc.AddString("resource_type_id", a.ResourceTypeID)
+	enc.AddString("resource_id", a.ResourceID)
+	enc.AddString("parent_resource_type_id", a.ParentResourceTypeID)
+	enc.AddString("parent_resource_id", a.ParentResourceID)
+	enc.AddBool("spawned", a.Spawned)
+	enc.AddBool("type_scoped", a.TypeScoped)
+	enc.AddBool("type_scoped_planned", a.TypeScopedPlanned)
+	return nil
 }
 
 // ActionCount is the per-op tally runState keeps and the token carries: how

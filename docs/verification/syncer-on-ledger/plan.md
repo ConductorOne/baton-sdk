@@ -1143,3 +1143,16 @@ completion has no live ledger keys. The declaration carries no page token.
 - Accounting: completed-action totals include materialization actions. Remote received counts, connector observations and progress remain on the remote action; generated writes and local duration belong to materialization rows. The report names the new operation and does not label it a connector call.
 - Risk routing: HIGH, unchanged.
 - PR placement: this PR, with follow-up independent review.
+
+### CO-026 — preserve retention and account for local materialization
+
+- Classification: corrections from independent implementation review.
+- Source: independent reviewers and local reproductions.
+- Claim: a durable request to retain tokens also prevents a later default resumer from discarding that history. Archived effective options describe the resulting artifact. Materialization time participates in named operation totals. Action log objects omit page tokens, including captured template payloads, without changing checkpoint serialization.
+- Motivation: a default resumer discarded retained history; the static correction omitted its new operation from timing summaries and exposed encoded template bytes through debug action logs.
+- Contract delta: none; honor durable retention and the existing timing/accounting contract.
+- Owning boundary: syncer lifecycle, action logging and operation timing.
+- Affected criteria: C16, C20–C24, C31, C37, C43, C50.
+- Verification delta: public stop/reopen/resume with and without debug; debug admission/completion and pointer-action error logs with distinct payload markers; ordinary JSON token round-trip; summary total and named duration reconciliation. Each reproduction fails before its correction.
+- Risk routing: HIGH, unchanged.
+- PR placement: this PR.

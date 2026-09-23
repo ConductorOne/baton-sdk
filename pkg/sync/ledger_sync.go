@@ -40,6 +40,10 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 	if _, err := s.prepareLedgerState(ctx, rand.Text(), newSync); err != nil {
 		return s.returnSyncError(l, span, err)
 	}
+	if s.run.hasFact(c1zstore.LedgerFactRetainTokens) && !s.ledgerDebug {
+		s.ledgerDebug = true
+		l.Warn("resuming with durably retained ledger history and tokens; tokens may contain credentials")
+	}
 	if writer := s.caps.ingestVerification; writer != nil {
 		s.ledger.beforePage = func(pageCtx context.Context) error {
 			pageCtx = c1zstore.WithPageWriteBypass(pageCtx, "invalidate prior verification before changing records; absence cannot attest an uncommitted page")

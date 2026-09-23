@@ -59,6 +59,7 @@ var timedSyncOps = []ActionOp{
 	SyncResourcesOp,
 	SyncTargetedResourceOp,
 	SyncStaticEntitlementsOp,
+	MaterializeStaticEntitlementsOp,
 	SyncEntitlementsOp,
 	SyncGrantsOp,
 	SyncExternalResourcesOp,

@@ -285,3 +285,14 @@ reader page. Then test duplicate template identities and overwrite order, cold
 resume after a later materialization commit failure, no refetch of committed
 remote pages, internal-cursor validation, and existing handler output parity.
 Extend public crash images and credential scrub fixtures to the new child operation.
+
+## CO-026 review corrections
+
+Use the restored durable retain-tokens fact to enable effective ledger debug
+retention before the first resumed handler or seal. Leave requested options
+unchanged and warn when this inherited policy overrides the process default.
+Add materialization to the operation timing list so the summary and span
+attributes include its existing bucket. Give Action a logging projection that
+omits PageToken; preserve JSON marshaling for tokens and ledger identities.
+Verify all three regressions before guards, then focused race tests, the sync
+suite and lint. No storage change is required.

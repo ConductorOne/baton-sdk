@@ -825,3 +825,31 @@ Focused race checks pass three repetitions (sync 2.558s, dotc1z 44.675s).
 CI-equivalent lint has zero issues. The independent design review is complete;
 review of the implementation correction is still pending. These checks close
 the identified staging regression, not every original coverage product.
+
+## CO-026: independent review corrections
+
+The implementation follow-up at `7b1e85b7` found missing materialization time
+in sync summary totals and encoded template payloads in debug action logs.
+A separate isolated review at `91017ff0` reproduced default-resumer deletion
+of durably retained history; it independently reproduced the static staging
+regression too. Its requested model/provider could not be confirmed from the
+worker's supplied runtime context, so these are independent review sessions,
+not an attested cross-provider review.
+
+`TestStaticMaterializationSummaryTiming` fails before correction with zero
+operation time rather than 2,000ms. `TestActionLogsOmitPagePayload` fails before
+correction with connector tokens and encoded template data in admission,
+completion and pointer-action error logs. The corrected log projection omits
+PageToken while the same test verifies ordinary JSON round-trips it unchanged.
+This is coverage of action-object logging, not every possible diagnostic path.
+
+The public stop/reopen/resume reproduction fails before correction because the
+retained row is gone. `TestLedgerPublicStopResume` now covers default and debug
+resumers, retained tokens, exact connector continuation, a write-free walk,
+and requested versus effective archived flags. The restored retention fact
+enables effective debug retention before execution and seal, with a warning.
+No storage schema, engine write or checkpoint serialization changes are needed.
+
+All three regressions pass after their fixes. Focused race checks pass three
+repetitions (2.666s); merged-tree lint reports zero issues. The full sync suite passes (84.120s). Independent follow-up review of these
+corrections remains pending.
