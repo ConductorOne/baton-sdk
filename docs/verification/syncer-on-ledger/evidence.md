@@ -1036,3 +1036,25 @@ Initial test-fixture attempts canceled on an empty planning page or checked
 writer-populated counts through the pre-serialization observer. Those failures
 were fixture errors; the recorded regression uses the connector call count at
 commit, matching the independently failing public cost driver.
+
+### Pending-work public cost rerun
+
+Three interleaved repetitions per arm cover100,000 and1,000,000 records,100 per
+page, with1/4 workers. Fresh one-million-record medians: previous8.290s/6.853s,
+pending8.688s/7.479s. Written bytes increase3.7–3.8%. Resumed one-million-record
+medians including stop/reopen: previous11.761s/7.637s, pending12.853s/8.061s;
+written bytes increase2.4%. Every timing sample verifies all records. Candidate
+fresh84811dfb and resumed6ca6a0ac compare against prior consumer c9ff02ce, not the
+token baseline. The existing shared16-core ARM Neoverse-V2/EBS machine was used;
+concurrent compilation and sample spread prevent a precise small-regression claim.
+Raw outputs and driver are retained outside the PR. No production durability,
+compaction policy or Bloom-filter setting changed. Original C49 remains incomplete.
+
+Final correction validation: full sync suite passes87.646s and CI merge-checkout
+lint reports zero issues. Sol independently retracts the skipped-sync finding
+and passes both regressions three times ordinarily and under race at6ca6a0ac.
+The second lifecycle reviewer also accepts the narrow cancellation correction.
+No concrete review finding remains open for this revision. Sol's runtime is
+reported as openai/gpt-6-sol; the second delegation was explicitly configured
+as gpt-5.5 (its original generic self-label is not runtime attestation).
+These bounded reviews and passing checks are not complete plan-product closure.

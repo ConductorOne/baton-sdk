@@ -1,7 +1,8 @@
 # Syncer ledger review guide
 
 - [Frozen behavioral plan and change orders](plan.md)
-- [Current implementation](implementation.md)
+- [Implementation history](implementation.md)
+- [Current pending-work design](pending-work.md)
 - [Per-criterion evidence and remaining gaps](evidence.md)
 - [Targeted source audit](source-inventory.md)
 
@@ -31,7 +32,7 @@ Within the downloaded `docs/verification/syncer-on-ledger/` directory:
 | `baseline-audit.md`, `source-inventory.md` | Historical lifecycle/scheduler findings and targeted source audit |
 | `tools/` and archived `pkg/sync/ledger_cost*.go` | Exact earlier drivers for reproducing historical measurements |
 
-## Current performance finding
+## Earlier collection performance finding
 
 All samples use a deterministic zero-latency connector. They expose SDK/storage
 cost rather than predicting a connector's network-dominated wall time. CO-019
@@ -69,8 +70,8 @@ PR; publish them as another pinned artifact and update the measured summary.
 executed Go tests/profiles. Neither converts passing samples into full coverage.
 
 Expansion uses main's deterministic whole-phase replay and optimized adapter,
-without page rows or batch checkpoints (CO-021). Existing collection rows prevent
-refetching collected data; terminal accounting records completed expansion once.
+without page rows or batch checkpoints (CO-021). Completed collection work is removed from the pending queue, preventing
+refetching collected data; whole-phase accounting records completed expansion once.
 
 External import/matching also uses main's ordinary writes, without a whole-import
 ledger transaction (CO-023). Imported grant pages reach the store before the next
@@ -84,3 +85,24 @@ retaining tokens. Archive-write failure retains scrubbed history. Report access
 after disposal reuses the archive rather than scanning an empty ledger.
 The current benchmark's report/disposal timings are included in seal time; they
 must not be added to seal time as disjoint phases.
+
+## Pending-work revision cost
+
+The public SDK comparison against c9ff02ce uses three interleaved repetitions,
+100 records/page, zero connector latency, and default history disposal. All
+samples verified their complete record counts. Fresh samples use84811dfb;
+resumed samples use6ca6a0ac (the cancellation guard). This shared machine is
+accepted by CO-019; concurrent compilation makes small differences uncertain.
+
+| One million records | Previous ledger | Pending work | Extra wall time | Written-byte ratio |
+| --- | --- | --- | --- | --- |
+| Fresh,1 worker | 8.290s | 8.688s | 0.398s | 1.037 |
+| Fresh,4 workers | 6.853s | 7.479s | 0.625s | 1.038 |
+| Resumed,1 worker | 11.761s | 12.853s | 1.093s | 1.024 |
+| Resumed,4 workers | 7.637s | 8.061s | 0.424s | 1.024 |
+
+Medians are not confidence intervals. Resumed wall time includes stop/save/reopen;
+its one-worker candidate samples ranged11.95–19.91s. Written bytes sum WAL,
+flush and compaction counters before close. The completed-history prototype's
+faster pending lookup and bounded memory claim are separate from these ingestion
+measurements. This table does not complete the original C49 matrix.
