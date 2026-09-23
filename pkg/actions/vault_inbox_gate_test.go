@@ -39,10 +39,11 @@ func gateVaultInboxConfig(t *testing.T) *v2.EncryptionConfig {
 }
 
 func gateActionValues(n int) []*v2.PlaintextData {
+	names := []string{"api_key", "api_key_id"}
 	out := make([]*v2.PlaintextData, 0, n)
 	for i := 0; i < n; i++ {
 		out = append(out, v2.PlaintextData_builder{
-			Name:  "api_key",
+			Name:  names[i%len(names)],
 			Bytes: []byte("v"),
 		}.Build())
 	}
@@ -80,13 +81,19 @@ func TestRegisteredActionVaultInboxCardinality(t *testing.T) {
 			require.NoError(t, err)
 
 			_, err = prepareActionResult(context.Background(), gateHandler(), manager, encryptForAction, nil, gateActionValues(count), true)
-			require.Error(t, err, "a vault inbox recipient takes exactly one value")
+			require.ErrorContains(t, err, "exactly one plaintext value",
+				"the cardinality gate must be what refuses this, not an earlier check")
 		})
 	}
 }
 
 func gateHandler() registeredActionHandler {
-	return registeredActionHandler{secretReturnNames: map[string]struct{}{"api_key": {}}}
+	// Both names are declared so the two-value case reaches the cardinality gate
+	// rather than the duplicate-name or undeclared-name checks.
+	return registeredActionHandler{secretReturnNames: map[string]struct{}{
+		"api_key":    {},
+		"api_key_id": {},
+	}}
 }
 
 func encryptForAction(ctx context.Context, manager *crypto.EncryptionManager, plaintext *v2.PlaintextData) ([]*v2.EncryptedData, error) {

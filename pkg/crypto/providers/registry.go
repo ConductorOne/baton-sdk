@@ -57,8 +57,20 @@ var encryptorRegistry = map[string]Encryptor{
 // profile. The vault-inbox profile is exclusive: a caller must not fan an
 // issuance out to it alongside any other recipient, because the delivered
 // ciphertext is the submission's entire payload.
+//
+// The provider name counts as well as the inner message. Routing keys on
+// `provider` first, so a config that names this provider with the inner message
+// left unset still reaches this provider and fails there; treating it as
+// vault-inbox here makes the pre-mint gates refuse it before an irreversible
+// create or rotate instead of after one.
 func IsVaultInboxConfig(conf *v2.EncryptionConfig) bool {
-	return conf != nil && conf.GetVaultInboxRecipientConfig() != nil
+	if conf == nil {
+		return false
+	}
+	if conf.GetVaultInboxRecipientConfig() != nil {
+		return true
+	}
+	return normalizeProviderName(conf.GetProvider()) == normalizeProviderName(vaultinbox.EncryptionProvider)
 }
 
 func normalizeProviderName(name string) string {
