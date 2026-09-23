@@ -10,6 +10,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers/vaultinbox"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
