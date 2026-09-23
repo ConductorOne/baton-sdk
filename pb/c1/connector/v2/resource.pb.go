@@ -3833,11 +3833,9 @@ func (*EncryptionConfig_AgeRecipientConfig_) isEncryptionConfig_Config() {}
 
 func (*EncryptionConfig_VaultInboxRecipientConfig) isEncryptionConfig_Config() {}
 
-// VaultInboxRecipientConfig seals the connector's plaintext credential into an
-// existing C1 vault-inbox submission. Every routing coordinate below is chosen
-// by C1 from the approved destination and the live inbox profile; a connector
-// can neither select nor widen the destination, and the provider refuses a
-// config whose values it cannot reproduce byte-for-byte in the HPKE binding.
+// VaultInboxRecipientConfig selects the recipient and authenticated context for
+// a Latchkey inbox envelope. C1 supplies these coordinates from the approved
+// destination; FK delivery does not require a Vault Submission row.
 //
 // EncryptedData.encrypted_bytes holds the vault-inbox submission envelope (the
 // JSON `VaultInboxSubmissionEnvelope` the Latchkey inbox reader consumes) --
@@ -3857,8 +3855,7 @@ type VaultInboxRecipientConfig struct {
 	// Payload-scheme label bound into the binding (e.g.
 	// "latchkey.vault_submission.secret.v1").
 	PayloadScheme string `protobuf:"bytes,7,opt,name=payload_scheme,json=payloadScheme,proto3" json:"payload_scheme,omitempty"`
-	// The C1-allocated submission this ciphertext is for. It is bound inside the
-	// sealed plaintext so the inbox reader refuses a relabelled submission.
+	// Authenticated inside the payload. Carries the prepared delivery ID for FK delivery.
 	SubmissionId string `protobuf:"bytes,8,opt,name=submission_id,json=submissionId,proto3" json:"submission_id,omitempty"`
 	// Public recipient AKP JWK. The corresponding private key never appears in a
 	// config, request, or response.
@@ -3866,8 +3863,7 @@ type VaultInboxRecipientConfig struct {
 	// The profile's SHA-256 thumbprint of the public JWK, re-derived and compared
 	// by the provider before it seals.
 	PublicKeyThumbprint string `protobuf:"bytes,10,opt,name=public_key_thumbprint,json=publicKeyThumbprint,proto3" json:"public_key_thumbprint,omitempty"`
-	// Advisory submission metadata promoted into the accepted secret. Length
-	// only; not part of the cryptographic binding.
+	// Authenticated inside the payload and checked by FK ingestion before native sealing.
 	ContentType   string `protobuf:"bytes,11,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -4034,8 +4030,7 @@ type VaultInboxRecipientConfig_builder struct {
 	// Payload-scheme label bound into the binding (e.g.
 	// "latchkey.vault_submission.secret.v1").
 	PayloadScheme string
-	// The C1-allocated submission this ciphertext is for. It is bound inside the
-	// sealed plaintext so the inbox reader refuses a relabelled submission.
+	// Authenticated inside the payload. Carries the prepared delivery ID for FK delivery.
 	SubmissionId string
 	// Public recipient AKP JWK. The corresponding private key never appears in a
 	// config, request, or response.
@@ -4043,8 +4038,7 @@ type VaultInboxRecipientConfig_builder struct {
 	// The profile's SHA-256 thumbprint of the public JWK, re-derived and compared
 	// by the provider before it seals.
 	PublicKeyThumbprint string
-	// Advisory submission metadata promoted into the accepted secret. Length
-	// only; not part of the cryptographic binding.
+	// Authenticated inside the payload and checked by FK ingestion before native sealing.
 	ContentType string
 }
 
