@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package c1.connector.v2;
 
+import "c1/connector/v2/resource.proto";
 import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
@@ -139,36 +140,57 @@ message SourceCacheRecord {
   // A 200 response with zero rows still persists the entry.
   string cache_validator = 2;
 
-  // Tombstones applied after this page's rows commit. Lets every page of
-  // a multi-page delta round carry its own deletions as the provider
-  // delivers them, instead of buffering a whole round onto the first
-  // (replay-annotated) page. Same formats as SourceCacheReplay.
+  // Public-id-string tombstones. Removed: the SDK never resolves an id
+  // string to a row on the sync path.
+  reserved 3, 4;
+  reserved "deleted_ids", "deleted_principal_ids";
+
+  // Tombstones applied after this page's rows commit, so every page of a
+  // multi-page delta round carries its own deletions. Same fields and
+  // semantics as SourceCacheReplay.
   //
   // PRECONDITION for tombstones anywhere in a round: the provider's delta
   // must be coalesced — at most one add-or-tombstone per object per round
   // (Microsoft Graph guarantees this by returning final object state).
-  // With interleaved add/remove events for one object, per-page ordering
-  // is deterministic (a page's rows upsert before its deletions apply)
-  // but cross-page re-adds after a tombstone are the connector's
-  // responsibility to order.
-  repeated string deleted_ids = 3;
+  // Within a page, rows upsert before deletions apply; re-adds after a
+  // tombstone on a later page are the connector's to order.
+  SourceCacheTombstones tombstones = 5;
+}
 
-  // Principal-scoped grant tombstones: for RowKindGrants pages, each
-  // entry deletes EVERY grant row stamped with this scope whose principal
-  // id equals the entry — no principal resource type and no canonical
-  // grant-id reconstruction required (delta tombstones usually carry only
-  // a bare object id, and the object may no longer exist to look up).
+// SourceCacheTombstones names rows to delete from the current sync by
+// structured identity. Every reference is complete: a ResourceId carries
+// both resource_type and resource; an entitlement ref carries its
+// resource and its entitlement id; a grant ref carries both. The SDK
+// rejects the page on an incomplete reference rather than guess. Only the
+// fields for the page's row kind may be set: resources on a resources
+// page, entitlements on an entitlements page, grants and principals on a
+// grants page.
+message SourceCacheTombstones {
+  repeated ResourceId resources = 1;
+  repeated SourceCacheEntitlementRef entitlements = 2;
+  repeated SourceCacheGrantRef grants = 3;
+  // Each entry deletes EVERY grant row stamped with this scope whose
+  // principal is the given (resource_type, resource).
   //
   // PRECONDITION: the scope must be partitioned so that "principal
   // removed from scope" means every grant they have in the scope is gone
   // — one scope per navigation with independent removal semantics (e.g.
   // members and owners of a group are separate scopes, or membership
   // removal would take the owner grant with it).
-  //
-  // For RowKindResources pages, each entry deletes the resource row(s)
-  // stamped with this scope whose resource id equals the entry, any
-  // resource type.
-  repeated string deleted_principal_ids = 4;
+  repeated ResourceId principals = 4;
+}
+
+// SourceCacheEntitlementRef identifies an entitlement by the resource it
+// belongs to and the id the connector gave it.
+message SourceCacheEntitlementRef {
+  ResourceId resource = 1;
+  string entitlement_id = 2;
+}
+
+// SourceCacheGrantRef identifies a grant by its entitlement and principal.
+message SourceCacheGrantRef {
+  SourceCacheEntitlementRef entitlement = 1;
+  ResourceId principal = 2;
 }
 
 // SourceCacheReplay is attached to a list-response page to tell the SDK to
@@ -204,17 +226,16 @@ message SourceCacheReplay {
   // propagate).
   bool overlay = 3;
 
-  // Public canonical IDs (grant/entitlement IDs, or resource BIDs for
-  // RowKindResources) to delete from the current sync after the replay
-  // copy and this page's upserts. Used for delta-query tombstones (e.g.
-  // Microsoft Graph @removed entries). Subsequent pages of the round
-  // carry their tombstones on SourceCacheRecord.deleted_ids.
-  repeated string deleted_ids = 4;
+  // Public-id-string tombstones. Removed: the SDK never resolves an id
+  // string to a row on the sync path.
+  reserved 4, 5;
+  reserved "deleted_ids", "deleted_principal_ids";
 
-  // Principal-scoped tombstones for this page; see
-  // SourceCacheRecord.deleted_principal_ids for semantics and
-  // preconditions.
-  repeated string deleted_principal_ids = 5;
+  // Rows to delete from the current sync after the replay copy and this
+  // page's upserts (delta-query tombstones, e.g. Microsoft Graph @removed
+  // entries). Later pages of the round carry theirs on
+  // SourceCacheRecord.tombstones.
+  SourceCacheTombstones tombstones = 6;
 }
 
 // -----------------------------------------------------------------------

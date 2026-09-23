@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
+
 	"github.com/cockroachdb/pebble/v2"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -222,49 +224,32 @@ func (e *Engine) DeleteEntitlementRecordByIdentity(
 	})
 }
 
-// DeleteEntitlementRecords validates every public id before staging any
-// tombstone, then commits the resolved deletes in bounded chunks (deletion
-// is idempotent; a mid-way error retries convergently). Missing ids are
-// no-ops; an ambiguous id rejects the entire request. actingScope is the
-// scope on whose behalf the tombstones act: deleting that scope's own rows
-// stages no poison, while deleting a row stamped with any OTHER scope
-// poisons it (CO-015); "" acts unscoped and poisons any stamped delete.
-func (e *Engine) DeleteEntitlementRecords(ctx context.Context, externalIDs []string, actingScope string) error {
-	return e.withWrite(func() error {
-		identities := make([]entitlementIdentity, 0, len(externalIDs))
-		seen := make(map[entitlementIdentity]struct{}, len(externalIDs))
-		for _, externalID := range externalIDs {
+// DeleteEntitlementRecordsByRef deletes the named entitlements in bounded
+// chunks, acting for actingScope (see DeleteGrantRecordsByRef). Absent
+// refs are no-ops.
+func (e *Engine) DeleteEntitlementRecordsByRef(ctx context.Context, refs []sourcecache.EntitlementRef, actingScope string) (int64, error) {
+	if len(refs) == 0 {
+		return 0, nil
+	}
+	var deleted int64
+	err := e.withWrite(func() error {
+		deletes := newSourceCacheDeleteBatch(e, "entitlements-canonical", actingScope, writeOpts(e.opts.durability))
+		defer deletes.close()
+		defer func() { deleted = deletes.committedDeleted }()
+		// The bare-id lookup map must observe every chunk as it lands: a
+		// concurrent lookup between a mid-loop commit and this function's
+		// return would otherwise serve rows already deleted on disk.
+		deletes.onCommit = e.noteEntitlementKeyspaceWrite
+		seen := make(map[entitlementIdentity]struct{}, len(refs))
+		for _, ref := range refs {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			id, err := e.resolveEntitlementIdentityByExternalID(ctx, externalID)
-			if err != nil {
-				if errors.Is(err, pebble.ErrNotFound) {
-					continue
-				}
-				return err
-			}
-			if _, ok := seen[id]; ok {
+			id := entitlementIdentityFromRef(ref)
+			if _, dup := seen[id]; dup {
 				continue
 			}
 			seen[id] = struct{}{}
-			identities = append(identities, id)
-		}
-		if len(identities) == 0 {
-			return nil
-		}
-
-		deletes := newSourceCacheDeleteBatch(e, "entitlements-canonical", actingScope, writeOpts(e.opts.durability))
-		defer deletes.close()
-		// The bare-id lookup map must observe every chunk AS it lands,
-		// not on function exit: entitlementIdentitiesForExternalID takes
-		// only entIDLookupMu, so a concurrent lookup between a mid-loop
-		// chunk commit and this function's return would serve a cached
-		// map listing rows already deleted on disk. The per-commit hook
-		// (an atomic add) closes that window and covers the
-		// error-after-intermediate-commit case for free.
-		deletes.onCommit = e.noteEntitlementKeyspaceWrite
-		for _, id := range identities {
 			key := encodeEntitlementIdentityKey(id)
 			oldVal, closer, err := e.db.Get(key)
 			if errors.Is(err, pebble.ErrNotFound) {
@@ -284,6 +269,7 @@ func (e *Engine) DeleteEntitlementRecords(ctx context.Context, externalIDs []str
 		}
 		return deletes.commit(true)
 	})
+	return deleted, err
 }
 
 func (e *Engine) IterateEntitlements(ctx context.Context, yield func(*v3.EntitlementRecord) bool) error {

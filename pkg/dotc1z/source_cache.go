@@ -10,7 +10,6 @@ import (
 	cdbpebble "github.com/cockroachdb/pebble/v2"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
-	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/sourcecache"
@@ -66,42 +65,21 @@ type SourceCacheStore interface {
 	// add-only.
 	ReplaySourceCache(ctx context.Context, prev connectorstore.Reader, kind sourcecache.RowKind, scopeKey string) (SourceCacheReplayResult, error)
 
-	// DeleteSourceCacheRows removes rows by public canonical ID from the
-	// current sync, after replay + overlay (delta-query tombstones).
-	// ID formats per kind: grants and entitlements use their canonical
-	// IDs; resources use Baton resource BIDs ("bid:r:...").
+	// DeleteSourceCacheRows removes rows from the current sync after replay
+	// and this page's upserts (delta-query tombstones), by structured
+	// identity. Absent refs are no-ops. Returns the rows deleted.
 	//
-	// scopeKey is the scope whose delta reported the tombstones. The
-	// deletes act FOR that scope: removing its own rows is the
-	// legitimate shrink flow and stages no poison, while removing a row
-	// stamped with any OTHER scope is a row-partition violation that
-	// durably poisons the stamped scope (CO-015 — it becomes a lookup
-	// miss and is refused as a replay source).
+	// scopeKey is the scope whose delta reported the tombstones. Removing
+	// its own rows is the legitimate shrink flow; removing a row stamped
+	// with any OTHER scope is a row-partition violation that durably
+	// poisons the stamped scope (CO-015 — it becomes a lookup miss and is
+	// refused as a replay source).
 	//
-	// Grant resolution is BOUNDED: candidate probing only, never the
-	// O(all grants) stored-external-id scan. Grants stored under
-	// connector-custom ids are unreachable here (delete no-ops); such
-	// connectors use DeleteSourceCacheRowsInScope instead. Deletes commit
-	// in bounded chunks; deletion is idempotent, so retry converges.
-	DeleteSourceCacheRows(ctx context.Context, kind sourcecache.RowKind, scopeKey string, ids []string) error
-
-	// DeleteSourceCacheRowsInScope removes rows stamped with scopeKey by
-	// bare object id — grants by principal id (no principal type, no
-	// canonical-id reconstruction), resources by resource id (any type).
-	// One index scan of the scope per call; a page's tombstones are
-	// batched into one call. Deletes commit in bounded chunks; on error,
-	// the returned count reports rows already committed and retry converges.
-	// Ids with no matching rows are no-ops.
-	// Not supported for entitlements.
-	DeleteSourceCacheRowsInScope(ctx context.Context, kind sourcecache.RowKind, scopeKey string, ids []string) (int64, error)
-
-	// DeleteSourceCacheGrantsByIDInScope removes grant rows stamped with
-	// scopeKey whose STORED grant id is in ids — works for
-	// connector-custom grant-id shapes that the global bounded delete
-	// cannot resolve, and stays bounded by the scope's row count. Ids with
-	// no matching rows are no-ops. Deletes commit in bounded chunks; on
-	// error, the returned count reports rows already committed.
-	DeleteSourceCacheGrantsByIDInScope(ctx context.Context, scopeKey string, ids []string) (int64, error)
+	// Principals delete every grant in the scope whose principal matches:
+	// one index scan of the scope per call. Deletes commit in bounded
+	// chunks; deletion is idempotent, so on error the returned count
+	// reports rows already committed and retry converges.
+	DeleteSourceCacheRows(ctx context.Context, kind sourcecache.RowKind, scopeKey string, t sourcecache.Tombstones) (int64, error)
 }
 
 var _ SourceCacheStore = (*pebbleStore)(nil)
@@ -299,134 +277,49 @@ func (s *pebbleStore) ReplaySourceCache(ctx context.Context, prev connectorstore
 	return res, nil
 }
 
-// DeleteSourceCacheRows deletes delta tombstones by public id string.
-//
-// NOTE on the bare-id lookup safety contract (engine/pebble/lookup.go):
-// sync paths normally must not resolve grants by string. This path is a
-// deliberate, narrow exception: tombstone ids are strings the connector
-// itself emitted for these rows, volumes are delta-sized (not O(rows)),
-// and resolution keeps the exactly-one rule — an ambiguous id fails the
-// sync loudly rather than guessing a delete, which matches the
-// source-cache replay-phase error policy.
-func (s *pebbleStore) DeleteSourceCacheRows(ctx context.Context, kind sourcecache.RowKind, scopeKey string, ids []string) error {
+func (s *pebbleStore) DeleteSourceCacheRows(ctx context.Context, kind sourcecache.RowKind, scopeKey string, t sourcecache.Tombstones) (int64, error) {
 	if err := s.writeHook(ctx, "DeleteSourceCacheRows"); err != nil {
-		return err
+		return 0, err
 	}
-	if err := sourcecache.ValidateRowKind(kind); err != nil {
-		return err
+	if err := t.ValidateKind(kind); err != nil {
+		return 0, err
 	}
 	if err := sourcecache.ValidateScopeKey(scopeKey); err != nil {
-		return err
+		return 0, err
 	}
-	if len(ids) == 0 {
-		return nil
+	if t.Empty() {
+		return 0, nil
 	}
-	if kind == sourcecache.RowKindResources {
-		refs := make([]pebble.ResourceRef, len(ids))
-		for i, id := range ids {
-			r, err := bid.ParseResourceBid(id)
-			if err != nil {
-				return fmt.Errorf("source cache delete resource: invalid resource bid %q: %w", id, err)
-			}
-			refs[i] = pebble.ResourceRef{
-				ResourceTypeID: r.GetId().GetResourceType(),
-				ResourceID:     r.GetId().GetResource(),
-			}
-		}
-		done, err := s.beginSourceCacheMutation()
+	done, err := s.beginSourceCacheMutation()
+	if err != nil {
+		return 0, err
+	}
+	defer done()
+	switch kind {
+	case sourcecache.RowKindResources:
+		n, err := s.DeleteResourceRecordsBounded(ctx, t.Resources, scopeKey)
 		if err != nil {
-			return err
+			return n, fmt.Errorf("source cache delete resources for scope %q: %w", scopeKey, err)
 		}
-		defer done()
-		if err := s.DeleteResourceRecordsBounded(ctx, refs, scopeKey); err != nil {
-			return fmt.Errorf("source cache delete resources for scope %q: %w", scopeKey, err)
-		}
-		return nil
-	}
-	done, err := s.beginSourceCacheMutation()
-	if err != nil {
-		return err
-	}
-	defer done()
-	switch kind {
-	case sourcecache.RowKindGrants:
-		if err := s.DeleteGrantRecordsBounded(ctx, ids, scopeKey); err != nil {
-			return fmt.Errorf("source cache delete grants: %w", err)
-		}
+		return n, nil
 	case sourcecache.RowKindEntitlements:
-		if err := s.DeleteEntitlementRecords(ctx, ids, scopeKey); err != nil {
-			return fmt.Errorf("source cache delete entitlements: %w", err)
+		n, err := s.DeleteEntitlementRecordsByRef(ctx, t.Entitlements, scopeKey)
+		if err != nil {
+			return n, fmt.Errorf("source cache delete entitlements for scope %q: %w", scopeKey, err)
 		}
-	case sourcecache.RowKindResources:
-		return errors.New("source cache delete resource: internal dispatch error")
-	}
-	return nil
-}
-
-func (s *pebbleStore) DeleteSourceCacheGrantsByIDInScope(ctx context.Context, scopeKey string, ids []string) (int64, error) {
-	if err := s.writeHook(ctx, "DeleteSourceCacheGrantsByIDInScope"); err != nil {
-		return 0, err
-	}
-	if err := sourcecache.ValidateScopeKey(scopeKey); err != nil {
-		return 0, err
-	}
-	if len(ids) == 0 {
-		return 0, nil
-	}
-	idSet := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		idSet[id] = struct{}{}
-	}
-	done, err := s.beginSourceCacheMutation()
-	if err != nil {
-		return 0, err
-	}
-	defer done()
-	deleted, err := s.DeleteGrantsByExternalIDsInScope(ctx, scopeKey, idSet)
-	if err != nil {
-		return deleted, fmt.Errorf("source cache grant-id delete for scope %q: %w", scopeKey, err)
-	}
-	return deleted, nil
-}
-
-func (s *pebbleStore) DeleteSourceCacheRowsInScope(ctx context.Context, kind sourcecache.RowKind, scopeKey string, ids []string) (int64, error) {
-	if err := s.writeHook(ctx, "DeleteSourceCacheRowsInScope"); err != nil {
-		return 0, err
-	}
-	if err := sourcecache.ValidateRowKind(kind); err != nil {
-		return 0, err
-	}
-	if err := sourcecache.ValidateScopeKey(scopeKey); err != nil {
-		return 0, err
-	}
-	if len(ids) == 0 {
-		return 0, nil
-	}
-	idSet := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		idSet[id] = struct{}{}
-	}
-	if kind == sourcecache.RowKindEntitlements {
-		return 0, fmt.Errorf("source cache scoped delete: not supported for entitlements")
-	}
-	done, err := s.beginSourceCacheMutation()
-	if err != nil {
-		return 0, err
-	}
-	defer done()
-	var deleted int64
-	// A matching orphan scope index is a durable mutation even though no
-	// primary row contributes to the returned deletion count.
-	switch kind {
+		return n, nil
 	case sourcecache.RowKindGrants:
-		deleted, err = s.DeleteGrantsByPrincipalsInScope(ctx, scopeKey, idSet)
-	case sourcecache.RowKindResources:
-		deleted, err = s.DeleteResourcesByIDsInScope(ctx, scopeKey, idSet)
-	case sourcecache.RowKindEntitlements:
-		return 0, fmt.Errorf("source cache scoped delete: not supported for entitlements")
+		byRef, err := s.DeleteGrantRecordsByRef(ctx, t.Grants, scopeKey)
+		if err != nil {
+			return byRef, fmt.Errorf("source cache delete grants for scope %q: %w", scopeKey, err)
+		}
+		// A matching orphan scope index is a durable mutation even though
+		// no primary row contributes to the returned count.
+		byPrincipal, err := s.DeleteGrantsByPrincipalsInScope(ctx, scopeKey, t.Principals)
+		if err != nil {
+			return byRef + byPrincipal, fmt.Errorf("source cache delete grants by principal for scope %q: %w", scopeKey, err)
+		}
+		return byRef + byPrincipal, nil
 	}
-	if err != nil {
-		return deleted, fmt.Errorf("source cache scoped delete for scope %q: %w", scopeKey, err)
-	}
-	return deleted, nil
+	return 0, fmt.Errorf("source cache delete: unknown row kind %q", kind)
 }

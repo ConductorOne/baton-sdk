@@ -195,6 +195,35 @@ func (m *SourceCacheRecord) validate(all bool) error {
 
 	// no validation rules for CacheValidator
 
+	if all {
+		switch v := interface{}(m.GetTombstones()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, SourceCacheRecordValidationError{
+					field:  "Tombstones",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, SourceCacheRecordValidationError{
+					field:  "Tombstones",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetTombstones()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return SourceCacheRecordValidationError{
+				field:  "Tombstones",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
 	if len(errors) > 0 {
 		return SourceCacheRecordMultiError(errors)
 	}
@@ -275,6 +304,537 @@ var _ interface {
 	ErrorName() string
 } = SourceCacheRecordValidationError{}
 
+// Validate checks the field values on SourceCacheTombstones with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *SourceCacheTombstones) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on SourceCacheTombstones with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// SourceCacheTombstonesMultiError, or nil if none found.
+func (m *SourceCacheTombstones) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *SourceCacheTombstones) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetResources() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, SourceCacheTombstonesValidationError{
+						field:  fmt.Sprintf("Resources[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, SourceCacheTombstonesValidationError{
+						field:  fmt.Sprintf("Resources[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return SourceCacheTombstonesValidationError{
+					field:  fmt.Sprintf("Resources[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	for idx, item := range m.GetEntitlements() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, SourceCacheTombstonesValidationError{
+						field:  fmt.Sprintf("Entitlements[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, SourceCacheTombstonesValidationError{
+						field:  fmt.Sprintf("Entitlements[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return SourceCacheTombstonesValidationError{
+					field:  fmt.Sprintf("Entitlements[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	for idx, item := range m.GetGrants() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, SourceCacheTombstonesValidationError{
+						field:  fmt.Sprintf("Grants[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, SourceCacheTombstonesValidationError{
+						field:  fmt.Sprintf("Grants[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return SourceCacheTombstonesValidationError{
+					field:  fmt.Sprintf("Grants[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	for idx, item := range m.GetPrincipals() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, SourceCacheTombstonesValidationError{
+						field:  fmt.Sprintf("Principals[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, SourceCacheTombstonesValidationError{
+						field:  fmt.Sprintf("Principals[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return SourceCacheTombstonesValidationError{
+					field:  fmt.Sprintf("Principals[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return SourceCacheTombstonesMultiError(errors)
+	}
+
+	return nil
+}
+
+// SourceCacheTombstonesMultiError is an error wrapping multiple validation
+// errors returned by SourceCacheTombstones.ValidateAll() if the designated
+// constraints aren't met.
+type SourceCacheTombstonesMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m SourceCacheTombstonesMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m SourceCacheTombstonesMultiError) AllErrors() []error { return m }
+
+// SourceCacheTombstonesValidationError is the validation error returned by
+// SourceCacheTombstones.Validate if the designated constraints aren't met.
+type SourceCacheTombstonesValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e SourceCacheTombstonesValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e SourceCacheTombstonesValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e SourceCacheTombstonesValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e SourceCacheTombstonesValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e SourceCacheTombstonesValidationError) ErrorName() string {
+	return "SourceCacheTombstonesValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e SourceCacheTombstonesValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sSourceCacheTombstones.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = SourceCacheTombstonesValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = SourceCacheTombstonesValidationError{}
+
+// Validate checks the field values on SourceCacheEntitlementRef with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *SourceCacheEntitlementRef) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on SourceCacheEntitlementRef with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// SourceCacheEntitlementRefMultiError, or nil if none found.
+func (m *SourceCacheEntitlementRef) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *SourceCacheEntitlementRef) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetResource()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, SourceCacheEntitlementRefValidationError{
+					field:  "Resource",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, SourceCacheEntitlementRefValidationError{
+					field:  "Resource",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetResource()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return SourceCacheEntitlementRefValidationError{
+				field:  "Resource",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for EntitlementId
+
+	if len(errors) > 0 {
+		return SourceCacheEntitlementRefMultiError(errors)
+	}
+
+	return nil
+}
+
+// SourceCacheEntitlementRefMultiError is an error wrapping multiple validation
+// errors returned by SourceCacheEntitlementRef.ValidateAll() if the
+// designated constraints aren't met.
+type SourceCacheEntitlementRefMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m SourceCacheEntitlementRefMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m SourceCacheEntitlementRefMultiError) AllErrors() []error { return m }
+
+// SourceCacheEntitlementRefValidationError is the validation error returned by
+// SourceCacheEntitlementRef.Validate if the designated constraints aren't met.
+type SourceCacheEntitlementRefValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e SourceCacheEntitlementRefValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e SourceCacheEntitlementRefValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e SourceCacheEntitlementRefValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e SourceCacheEntitlementRefValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e SourceCacheEntitlementRefValidationError) ErrorName() string {
+	return "SourceCacheEntitlementRefValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e SourceCacheEntitlementRefValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sSourceCacheEntitlementRef.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = SourceCacheEntitlementRefValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = SourceCacheEntitlementRefValidationError{}
+
+// Validate checks the field values on SourceCacheGrantRef with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *SourceCacheGrantRef) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on SourceCacheGrantRef with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// SourceCacheGrantRefMultiError, or nil if none found.
+func (m *SourceCacheGrantRef) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *SourceCacheGrantRef) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetEntitlement()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, SourceCacheGrantRefValidationError{
+					field:  "Entitlement",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, SourceCacheGrantRefValidationError{
+					field:  "Entitlement",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetEntitlement()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return SourceCacheGrantRefValidationError{
+				field:  "Entitlement",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetPrincipal()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, SourceCacheGrantRefValidationError{
+					field:  "Principal",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, SourceCacheGrantRefValidationError{
+					field:  "Principal",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetPrincipal()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return SourceCacheGrantRefValidationError{
+				field:  "Principal",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return SourceCacheGrantRefMultiError(errors)
+	}
+
+	return nil
+}
+
+// SourceCacheGrantRefMultiError is an error wrapping multiple validation
+// errors returned by SourceCacheGrantRef.ValidateAll() if the designated
+// constraints aren't met.
+type SourceCacheGrantRefMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m SourceCacheGrantRefMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m SourceCacheGrantRefMultiError) AllErrors() []error { return m }
+
+// SourceCacheGrantRefValidationError is the validation error returned by
+// SourceCacheGrantRef.Validate if the designated constraints aren't met.
+type SourceCacheGrantRefValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e SourceCacheGrantRefValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e SourceCacheGrantRefValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e SourceCacheGrantRefValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e SourceCacheGrantRefValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e SourceCacheGrantRefValidationError) ErrorName() string {
+	return "SourceCacheGrantRefValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e SourceCacheGrantRefValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sSourceCacheGrantRef.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = SourceCacheGrantRefValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = SourceCacheGrantRefValidationError{}
+
 // Validate checks the field values on SourceCacheReplay with the rules defined
 // in the proto definition for this message. If any rules are violated, the
 // first error encountered is returned, or nil if there are no violations.
@@ -302,6 +862,35 @@ func (m *SourceCacheReplay) validate(all bool) error {
 	// no validation rules for CacheValidator
 
 	// no validation rules for Overlay
+
+	if all {
+		switch v := interface{}(m.GetTombstones()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, SourceCacheReplayValidationError{
+					field:  "Tombstones",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, SourceCacheReplayValidationError{
+					field:  "Tombstones",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetTombstones()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return SourceCacheReplayValidationError{
+				field:  "Tombstones",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
 
 	if len(errors) > 0 {
 		return SourceCacheReplayMultiError(errors)

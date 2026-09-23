@@ -268,13 +268,6 @@ func (e *Engine) resolveGrantIdentityByExternalID(ctx context.Context, grantID s
 	return e.resolveGrantIdentity(ctx, grantID, true)
 }
 
-// resolveGrantIdentityByCandidates is the bounded variant used by
-// source-cache tombstones. It never falls back to an O(all grants) scan for
-// connector-custom stored ids.
-func (e *Engine) resolveGrantIdentityByCandidates(ctx context.Context, grantID string) (grantIdentity, error) {
-	return e.resolveGrantIdentity(ctx, grantID, false)
-}
-
 func (e *Engine) resolveGrantIdentity(ctx context.Context, grantID string, allowStoredIDScan bool) (grantIdentity, error) {
 	id, err := resolveGrantIdentityCandidates(ctx, grantID, e.entitlementIdentitiesForExternalID, func(id grantIdentity) (string, error) {
 		val, closer, err := e.db.Get(encodeGrantIdentityKey(id))

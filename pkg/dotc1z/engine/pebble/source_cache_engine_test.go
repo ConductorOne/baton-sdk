@@ -335,11 +335,10 @@ func replayTestGrantScopeIndexKey(t *testing.T, scopeKey string, rec *v3.GrantRe
 	return encodeGrantBySourceScopeIndexKey(scopeKey, id)
 }
 
-// TestDeleteGrantsByPrincipalsInScope pins the principal-scoped tombstone
-// path: bare principal ids kill exactly their rows within the scope —
-// other scopes' rows for the same principal survive, unknown principals
-// no-op, and the deleted rows' index entries (including the scope index)
-// go with them.
+// TestDeleteGrantsByPrincipalsInScope: a principal (type, id) kills exactly
+// its rows within the scope — other scopes' rows for the same principal
+// survive, unknown principals no-op, and the deleted rows' index entries
+// (including the scope index) go with them.
 func TestDeleteGrantsByPrincipalsInScope(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
@@ -353,10 +352,10 @@ func TestDeleteGrantsByPrincipalsInScope(t *testing.T) {
 	gAliceOther := scGrant("owner", "alice", false)
 	require.NoError(t, a.PutGrants(sourcecache.WithScope(ctx, scopeB), gAliceOther))
 
-	deleted, err := a.PebbleEngine().DeleteGrantsByPrincipalsInScope(ctx, scopeA, map[string]struct{}{
-		"alice":   {},
-		"bob":     {},
-		"unknown": {}, // tombstone for a principal never synced — no-op
+	deleted, err := a.PebbleEngine().DeleteGrantsByPrincipalsInScope(ctx, scopeA, []sourcecache.ResourceRef{
+		{ResourceTypeID: "user", ResourceID: "alice"},
+		{ResourceTypeID: "user", ResourceID: "bob"},
+		{ResourceTypeID: "user", ResourceID: "unknown"}, // never synced — no-op
 	})
 	require.NoError(t, err)
 	require.Equal(t, int64(2), deleted)
@@ -379,9 +378,7 @@ func TestDeleteGrantsByPrincipalsInScope(t *testing.T) {
 	require.Zero(t, res.Rows)
 }
 
-// TestDeleteResourcesByIDsInScope pins the resources analog: bare object
-// ids, any resource type, scope-relative.
-func TestDeleteResourcesByIDsInScope(t *testing.T) {
+func TestDeleteResourceRecordsBounded(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -393,9 +390,11 @@ func TestDeleteResourcesByIDsInScope(t *testing.T) {
 	u3 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u3"}.Build(), DisplayName: "U3"}.Build()
 	require.NoError(t, a.PutResources(sourcecache.WithScope(ctx, scopeB), u3))
 
-	deleted, err := a.PebbleEngine().DeleteResourcesByIDsInScope(ctx, scopeA, map[string]struct{}{
-		"u1": {}, "u3": {}, // u3 is in scope B — must not die from an A-scoped tombstone
-	})
+	deleted, err := a.PebbleEngine().DeleteResourceRecordsBounded(ctx, []sourcecache.ResourceRef{
+		{ResourceTypeID: "user", ResourceID: "u1"},
+		{ResourceTypeID: "user", ResourceID: "u1"},    // repeated ref counts once
+		{ResourceTypeID: "user", ResourceID: "ghost"}, // never synced — no-op
+	}, scopeA)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), deleted)
 
@@ -404,30 +403,7 @@ func TestDeleteResourcesByIDsInScope(t *testing.T) {
 	_, err = a.PebbleEngine().GetResourceRecord(ctx, "user", "u2")
 	require.NoError(t, err)
 	_, err = a.PebbleEngine().GetResourceRecord(ctx, "user", "u3")
-	require.NoError(t, err, "tombstone must be scope-relative")
-}
-
-// TestDeleteGrantRecordBounded pins the no-scan contract: SDK-shaped ids
-// resolve and delete; absent ids no-op without error (and without the
-// O(all grants) fallback scan, by construction).
-func TestDeleteGrantRecordBounded(t *testing.T) {
-	ctx := context.Background()
-	a := newAdapter(t)
-	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-
-	g := scGrant("member", "alice", false)
-	require.NoError(t, a.PutGrants(ctx, g))
-
-	// Absent id (well-formed, no row): no-op, no error.
-	require.NoError(t, a.PebbleEngine().DeleteGrantRecordBounded(ctx, "group:g1:custom:member:user:ghost"))
-	_, err = a.PebbleEngine().GetGrantRecord(ctx, g.GetId())
-	require.NoError(t, err)
-
-	// Present id: deleted.
-	require.NoError(t, a.PebbleEngine().DeleteGrantRecordBounded(ctx, g.GetId()))
-	_, err = a.PebbleEngine().GetGrantRecord(ctx, g.GetId())
-	require.ErrorIs(t, err, pebble.ErrNotFound)
 }
 
 func TestSourceCacheReplayResourcesAndEntitlements(t *testing.T) {
