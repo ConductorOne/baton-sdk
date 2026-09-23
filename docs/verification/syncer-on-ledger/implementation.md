@@ -241,3 +241,23 @@ processing retain their existing paths. No checkpoint parsing or schema change
 is needed. First restore the strict quality assertion in the public crash test
 and observe its failure; verify the storage query independently, then connect
 it to restore and run the differential and legacy/finished-state guards.
+
+## Final verification and independent review
+
+Treat missing bound-run records as a normal absence in the empty-state query;
+exercise absent/mismatched records with empty/populated files. Verify public Sync
+still rejects invalid bindings without collection or key changes, against the
+baseline as well as the ledger branch.
+
+Add a test-only constructor for the existing Pebble store adapter over a supplied
+engine. External tests can then run the public syncer on CrashableMem without a
+production option or replacement store implementation. Capture durable-only images
+before/after collection commits, both with an entirely unflushed run and with a
+flushed prefix. Include targeted and asset work, then check recovered records,
+indexes, digests, stats consumers and report/disposal state against uninterrupted
+runs. Ordinary-process cuts remain a separate test axis.
+
+After these checks and evidence reconciliation, request separate final-code reviews
+from different model families. Reviewers receive the contract, current change
+orders and code, but not each other's findings. Reproduce findings before fixes;
+run affected checks again and obtain follow-up review where behavior changes.
