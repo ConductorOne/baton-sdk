@@ -204,11 +204,11 @@ func TestPendingLocalCompletionFailureAndStopAccounting(t *testing.T) {
 	action := s.run.pushAction(t.Context(), Action{Op: SyncGrantExpansionOp})
 	seedLedgerTestRun(t, s, action)
 	complete := func() error { s.finishAction(t.Context(), action); return nil }
-	s.caps.pageLedger = pendingLocalFailure{f.ledger}
+	s.ledger.store = pendingLocalFailure{f.ledger}
 	require.ErrorIs(t, s.runPendingLocalStep(t.Context(), action, complete), errLedgerInjectedPage)
 	require.Equal(t, action, s.run.current())
 	require.Zero(t, s.run.completedActionsCount())
-	s.caps.pageLedger = f.ledger
+	s.ledger.store = f.ledger
 	require.NoError(t, s.runPendingLocalStep(t.Context(), action, complete))
 	require.EqualValues(t, 1, s.run.completedActionsCount())
 	s.checkpointLedgerOnStop(t.Context())

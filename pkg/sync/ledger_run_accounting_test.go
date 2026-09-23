@@ -51,7 +51,7 @@ func TestLedgerRunAccountingAcrossAttempts(t *testing.T) {
 	require.NoError(t, s.restoreLedgerState(t.Context(), s.ledger.store, s.ledger.runID, false))
 	f.audit.enter(ledgerLifecycle)
 	s.recordSessionOp("get", 2*time.Millisecond, context.DeadlineExceeded)
-	require.EqualValues(t, 2, s.ledger.runCounterSnapshot().SessionCalls["store.get"].MaxMs)
+	require.EqualValues(t, 2, s.ledger.accounting.snapshot().SessionCalls["store.get"].MaxMs)
 	s.recordRetryWait(t.Context(), time.Millisecond, false)
 	s.checkpointOnStop(ctx)
 	counts, err = f.ledger.LedgerCounters(t.Context())
@@ -84,4 +84,32 @@ func TestLedgerRunAccountingDurationStop(t *testing.T) {
 			require.EqualValues(t, 1, counters.SessionCalls["store.get"].Count)
 		})
 	}
+}
+
+func TestLedgerResponseObservationsAreCapturedBeforeCommit(t *testing.T) {
+	s, f := newLedgerSchedulerFixture(t, 1)
+	s.recordStats = true
+	s.run.pushAction(t.Context(), Action{Op: SyncResourceTypesOp})
+	wait, err := anypb.New(v2.RateLimitWaitReport_builder{WaitMs: 7}.Build())
+	require.NoError(t, err)
+	usage, err := anypb.New(v2.SessionStoreUsage_builder{Ops: []*v2.SessionStoreUsage_OpStats{
+		v2.SessionStoreUsage_OpStats_builder{Op: "get", Count: 2, TotalMs: 5, MaxMs: 4}.Build(),
+	}}.Build())
+	require.NoError(t, err)
+	annos := []*anypb.Any{wait, usage}
+	s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
+		invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
+		s.recordLedgerConnectorResponse(ctx, invocation, "list-resource-types", time.Millisecond, annos)
+		s.recordLedgerSessionUsage(invocation, annos)
+		wait.Value = nil
+		usage.Value = nil
+		return s.nextPageOrFinishAction(ctx, action, "")
+	}
+	require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), s.run.current(), nil, false))
+	stored, err := f.ledger.LedgerCounters(t.Context())
+	require.NoError(t, err)
+	require.EqualValues(t, 7, stored.StepDurationsMs["rate_limit_wait"])
+	require.Equal(t, stored.StepDurationsMs["rate_limit_wait"], s.stats.stepDurations()["rate_limit_wait"])
+	require.EqualValues(t, 2, stored.SessionCalls["connector.get"].Count)
+	require.Equal(t, stored.SessionCalls["connector.get"].Count, s.stats.sessionStoreStats()["connector.get"].Count)
 }

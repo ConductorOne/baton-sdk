@@ -2,7 +2,7 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
 	"context"
-	"maps"
+	"sync"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
@@ -13,26 +13,70 @@ import (
 func (s *syncer) recordRunStepDuration(bucket string, duration time.Duration) {
 	s.stats.addStepDuration(bucket, duration)
 	if s.ledgered && s.ledger != nil {
-		s.ledger.runObservations.addStepDuration(bucket, duration)
+		s.ledger.accounting.addStepDuration(bucket, duration)
 	}
 }
 
-func (r *ledgerRuntime) runCounterSnapshot() c1zstore.LedgerCounters {
-	r.mu.Lock()
-	localCompleted := maps.Clone(r.localCompleted)
-	r.mu.Unlock()
-	counters := c1zstore.LedgerCounters{Counters: localCompleted, StepDurationsMs: r.runObservations.stepDurations(), SessionCalls: make(map[string]c1zstore.CallStat)}
-	for method, stat := range r.runObservations.sessionStoreStats() {
-		counters.SessionCalls[method] = c1zstore.CallStat{Count: stat.Count, TotalMs: stat.TotalMs, MaxMs: stat.MaxMs, Errors: stat.Errors, Timeouts: stat.Timeouts}
+type ledgerRunAccounting struct {
+	mu       sync.Mutex
+	counters c1zstore.LedgerCounters
+}
+
+func (a *ledgerRunAccounting) addStepDuration(bucket string, duration time.Duration) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.counters.StepDurationsMs == nil {
+		a.counters.StepDurationsMs = make(map[string]int64)
 	}
-	return counters
+	a.counters.StepDurationsMs[bucket] += duration.Milliseconds()
+}
+
+func (a *ledgerRunAccounting) recordSessionOp(op string, elapsed time.Duration, opErr error, timedOut bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.counters.SessionCalls == nil {
+		a.counters.SessionCalls = make(map[string]c1zstore.CallStat)
+	}
+	add := c1zstore.CallStat{Count: 1, TotalMs: elapsed.Milliseconds(), MaxMs: elapsed.Milliseconds()}
+	if opErr != nil {
+		add.Errors = 1
+		if timedOut {
+			add.Timeouts = 1
+		}
+	}
+	stat := a.counters.SessionCalls[op]
+	stat.Add(add)
+	a.counters.SessionCalls[op] = stat
+}
+
+func (a *ledgerRunAccounting) snapshot() c1zstore.LedgerCounters {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return cloneLedgerCounters(a.counters)
+}
+
+func (r *ledgerRuntime) completeLocalWork(ctx context.Context, work c1zstore.LedgerWork, op ActionOp) error {
+	a := &r.accounting
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	candidate := cloneLedgerCounters(a.counters)
+	if candidate.Counters == nil {
+		candidate.Counters = make(map[string]uint64)
+	}
+	candidate.Counters[ledgerCompletedActions]++
+	candidate.Counters[ledgerCompletedPrefix+op.String()]++
+	if err := r.store.CompletePendingWork(ctx, work, r.runID, candidate); err != nil {
+		return err
+	}
+	a.counters.Counters = candidate.Counters
+	return nil
 }
 
 func (s *syncer) checkpointLedgerOnStop(ctx context.Context) {
 	if s.ledger == nil {
 		return
 	}
-	counters := s.ledger.runCounterSnapshot()
+	counters := s.ledger.accounting.snapshot()
 	if counters.IsZero() {
 		return
 	}
@@ -45,8 +89,4 @@ func (s *syncer) checkpointLedgerOnStop(ctx context.Context) {
 	if s.testHooks.ledgerStop != nil {
 		s.testHooks.ledgerStop(ctx)
 	}
-}
-
-func (s *syncer) terminalLedgerCounters() c1zstore.LedgerCounters {
-	return s.ledger.runCounterSnapshot()
 }

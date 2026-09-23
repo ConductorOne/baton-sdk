@@ -17,19 +17,18 @@ var (
 )
 
 type ledgerRuntime struct {
-	localCompleted  map[string]uint64
-	store           c1zstore.PageLedgerStore
-	runObservations *runStats
-	prepareMu       native_sync.Mutex
-	beforePage      func(context.Context) error
-	prepared        bool
-	runID           string
-	mu              native_sync.Mutex
-	commitMu        native_sync.Mutex
-	closing         bool
-	facts           map[string]string
-	workers         map[uint32]c1zstore.LedgerCounters
-	active          map[uint32]bool
+	store      c1zstore.PageLedgerStore
+	accounting ledgerRunAccounting
+	prepareMu  native_sync.Mutex
+	beforePage func(context.Context) error
+	prepared   bool
+	runID      string
+	mu         native_sync.Mutex
+	commitMu   native_sync.Mutex
+	closing    bool
+	facts      map[string]string
+	workers    map[uint32]c1zstore.LedgerCounters
+	active     map[uint32]bool
 }
 
 func newLedgerRuntime(store c1zstore.PageLedgerStore, runID string, facts map[string]string) (*ledgerRuntime, error) {
@@ -40,7 +39,7 @@ func newLedgerRuntime(store c1zstore.PageLedgerStore, runID string, facts map[st
 		facts = make(map[string]string)
 	}
 	return &ledgerRuntime{
-		store: store, runID: runID, runObservations: newRunStats(), facts: maps.Clone(facts),
+		store: store, runID: runID, facts: maps.Clone(facts),
 		workers: make(map[uint32]c1zstore.LedgerCounters), active: make(map[uint32]bool),
 	}, nil
 }

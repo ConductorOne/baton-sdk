@@ -48,7 +48,7 @@ func TestLedgerExternalImportsPagesDirectly(t *testing.T) {
 	_, found, err := f.ledger.GetLedgerRow(t.Context(), ledgerIdentity(&Action{Op: SyncExternalResourcesOp}))
 	require.NoError(t, err)
 	require.False(t, found)
-	require.EqualValues(t, 1, s.terminalLedgerCounters().Counters[ledgerCompletedPrefix+SyncExternalResourcesOp.String()])
+	require.EqualValues(t, 1, s.ledger.accounting.snapshot().Counters[ledgerCompletedPrefix+SyncExternalResourcesOp.String()])
 }
 
 func ledgerGrantIdentity(grant *v2.Grant) [6]string {

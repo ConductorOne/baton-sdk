@@ -188,8 +188,8 @@ func TestLedgerExpansionSkipHasNoPage(t *testing.T) {
 			_, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: SyncGrantExpansionOp.String()})
 			require.NoError(t, err)
 			require.False(t, found)
-			require.EqualValues(t, 1, s.terminalLedgerCounters().Counters[ledgerCompletedActions])
-			require.EqualValues(t, 1, s.ledger.runCounterSnapshot().Counters[ledgerCompletedActions], "stop accounting preserves completed local work")
+			require.EqualValues(t, 1, s.ledger.accounting.snapshot().Counters[ledgerCompletedActions])
+			require.EqualValues(t, 1, s.ledger.accounting.snapshot().Counters[ledgerCompletedActions], "stop accounting preserves completed local work")
 		})
 	}
 }

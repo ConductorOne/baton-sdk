@@ -650,7 +650,7 @@ func (s *syncer) recordSessionOp(op string, elapsed time.Duration, opErr error) 
 	}
 	s.stats.recordSessionOp("store."+op, elapsed, opErr, session.IsDeadlineExceeded(opErr))
 	if s.ledgered && s.ledger != nil {
-		s.ledger.runObservations.recordSessionOp("store."+op, elapsed, opErr, session.IsDeadlineExceeded(opErr))
+		s.ledger.accounting.recordSessionOp("store."+op, elapsed, opErr, session.IsDeadlineExceeded(opErr))
 	}
 }
 
@@ -669,6 +669,13 @@ func (s *syncer) recordSessionUsage(annos []*anypb.Any) {
 	respAnnos := annotations.Annotations(annos)
 	ok, err := respAnnos.Pick(usage)
 	if err != nil || !ok {
+		return
+	}
+	s.recordSessionUsageStats(usage)
+}
+
+func (s *syncer) recordSessionUsageStats(usage *v2.SessionStoreUsage) {
+	if !s.recordStats || s.stats == nil {
 		return
 	}
 	for _, op := range usage.GetOps() {
@@ -695,24 +702,25 @@ func (s *syncer) recordConnectorWaitReport(annos []*anypb.Any, resourceTypeID st
 	if !s.recordStats || len(annos) == 0 || s.stats == nil {
 		return
 	}
+	s.recordConnectorWait(connectorReportedWait(annos), resourceTypeID)
+}
+
+func connectorReportedWait(annos []*anypb.Any) time.Duration {
 	report := &v2.RateLimitWaitReport{}
 	respAnnos := annotations.Annotations(annos)
 	ok, err := respAnnos.Pick(report)
-	if err != nil || !ok {
+	if err != nil || !ok || report.GetWaitMs() <= 0 {
+		return 0
+	}
+	// Clamp connector input before converting milliseconds to time.Duration.
+	waitMs := min(report.GetWaitMs(), int64(24*time.Hour/time.Millisecond))
+	return time.Duration(waitMs) * time.Millisecond
+}
+
+func (s *syncer) recordConnectorWait(wait time.Duration, resourceTypeID string) {
+	if !s.recordStats || s.stats == nil || wait <= 0 {
 		return
 	}
-	waitMs := report.GetWaitMs()
-	if waitMs <= 0 {
-		return
-	}
-	// The report crosses a process boundary; a buggy connector can send
-	// anything. Clamp to a day per response so a garbage value can't
-	// overflow time.Duration and subtract from the buckets.
-	const maxWaitReportMs = int64(24 * time.Hour / time.Millisecond)
-	if waitMs > maxWaitReportMs {
-		waitMs = maxWaitReportMs
-	}
-	wait := time.Duration(waitMs) * time.Millisecond
 	s.stats.addStepDuration("rate_limit_wait", wait)
 	if resourceTypeID != "" {
 		s.stats.addStepDuration("rate_limit_wait:"+resourceTypeID, wait)

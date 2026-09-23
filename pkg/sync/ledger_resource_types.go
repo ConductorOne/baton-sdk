@@ -130,6 +130,7 @@ func (s *syncer) recordLedgerConnectorResponseForAction(
 	ctx context.Context, invocation *ledgerInvocation, action *Action, method string, elapsed time.Duration, annos []*anypb.Any,
 ) {
 	page := invocation.page
+	var reportedWait time.Duration
 	if invocation.attempts != nil {
 		measured := elapsed
 		if !s.recordStats {
@@ -152,14 +153,12 @@ func (s *syncer) recordLedgerConnectorResponseForAction(
 			previous.Add(stat)
 			page.observations.ConnectorCalls[key] = previous
 		}
-		report := &v2.RateLimitWaitReport{}
-		responseAnnotations := annotations.Annotations(annos)
-		found, err := responseAnnotations.Pick(report)
-		if err == nil && found && report.GetWaitMs() > 0 {
-			waitMs := min(report.GetWaitMs(), int64(24*time.Hour/time.Millisecond))
-			page.row.WaitDuration += time.Duration(waitMs) * time.Millisecond
+		reportedWait = connectorReportedWait(annos)
+		if reportedWait > 0 {
+			waitMs := reportedWait.Milliseconds()
+			page.row.WaitDuration += reportedWait
 			if invocation.attempts != nil {
-				invocation.attempts.recordReportedWait(time.Duration(waitMs) * time.Millisecond)
+				invocation.attempts.recordReportedWait(reportedWait)
 			}
 			if page.observations.StepDurationsMs == nil {
 				page.observations.StepDurationsMs = make(map[string]int64)
@@ -181,7 +180,7 @@ func (s *syncer) recordLedgerConnectorResponseForAction(
 				ctxzap.Extract(ctx).Warn("slow connector call", zap.String("method", method),
 					zap.String("resource_type_id", progressAction.ResourceTypeID), zap.String("resource_id", progressAction.ResourceID), zap.Duration("elapsed", elapsed))
 			}
-			s.recordConnectorWaitReport(annos, progressAction.ResourceTypeID)
+			s.recordConnectorWait(reportedWait, progressAction.ResourceTypeID)
 		}
 	})
 }
@@ -208,5 +207,5 @@ func (s *syncer) recordLedgerSessionUsage(invocation *ledgerInvocation, annos []
 		stat.Add(c1zstore.CallStat{Count: op.GetCount(), Errors: op.GetErrors(), Timeouts: op.GetTimeouts(), TotalMs: op.GetTotalMs(), MaxMs: op.GetMaxMs()})
 		invocation.page.observations.SessionCalls[key] = stat
 	}
-	invocation.afterCommit = append(invocation.afterCommit, func() { s.recordSessionUsage(annos) })
+	invocation.afterCommit = append(invocation.afterCommit, func() { s.recordSessionUsageStats(usage) })
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
@@ -180,13 +179,7 @@ func (s *syncer) runPendingLocalStep(ctx context.Context, action *Action, handle
 	if s.run.getAction(action.ID) != nil {
 		return nil
 	}
-	counters := s.ledger.runCounterSnapshot()
-	if counters.Counters == nil {
-		counters.Counters = make(map[string]uint64)
-	}
-	counters.Counters[ledgerCompletedActions]++
-	counters.Counters[ledgerCompletedPrefix+action.Op.String()]++
-	if err := s.caps.pageLedger.CompletePendingWork(ctx, s.pendingForAction(action), s.ledger.runID, counters); err != nil {
+	if err := s.ledger.completeLocalWork(ctx, s.pendingForAction(action), action.Op); err != nil {
 		s.run.mu.Lock()
 		s.run.completedActions = beforeTotal
 		s.run.actionCounts[action.Op.String()] = beforeCount
@@ -199,8 +192,5 @@ func (s *syncer) runPendingLocalStep(ctx context.Context, action *Action, handle
 		s.run.mu.Unlock()
 		return err
 	}
-	s.ledger.mu.Lock()
-	s.ledger.localCompleted = maps.Clone(counters.Counters)
-	s.ledger.mu.Unlock()
 	return nil
 }
