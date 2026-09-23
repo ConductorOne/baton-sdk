@@ -875,3 +875,25 @@ The second review harness stream identifies GPT-6 Astra despite its requested
 Claude task label. Its independent findings remain useful, but it is not a
 Claude review. Later build attempts during overlapping checkout changes in that
 review worktree are excluded from evidence; the affected reviewer is paused.
+
+### Independent review disposition at 1126cf70
+
+The independent follow-up accepts the finished-binding retention correction and
+finds no new defect in that bounded diff. It verifies the default/debug/explicit
+retention cases, unfinished and pending-seal behavior, and existing ClearRows
+failure/crash tests, including a focused race run. Earlier timing, action-log,
+static-staging and unfinished-retention findings are corrected to their stated
+review coverage. This is not full migration signoff.
+
+The finished-binding fixture does not directly assert all requested option fields
+or inject a retain-fact-specific ClearRows failure; the latter relies on the
+existing atomic batch and failure tests. Physical deletion remains deferred to
+seal. The second review's stable focused checks support the static working-set
+and unfinished-retention fixes, but its interrupted public crash builds are
+excluded. A parent rerun of both complete public durable-image and targeted,
+asset/static process-crash suites passes at a fixed 1126cf70 checkout (1.650s).
+
+Independent review used separate GPT-6 Sol and GPT-6 Astra contexts. The requested
+Claude label did not match execution metadata. No Claude or cross-provider review
+is claimed. Original unexecuted coverage products remain incomplete; neither
+these reviews nor passing CI convert them into verified criteria.
