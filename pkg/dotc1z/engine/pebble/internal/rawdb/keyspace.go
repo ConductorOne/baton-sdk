@@ -293,6 +293,9 @@ func SourceCacheFamilyBounds() ([]byte, []byte) {
 //	0x02  counter buckets  (LedgerCounterPrefix; tuple(run) | sep | worker → LedgerCounterBucket;
 //	                        worker 0xFFFFFFFF is the run's reserved run-level stats bucket)
 //	0x03  frontier         (LedgerFrontierKey; single key → LedgerFrontier)
+//	0x04  pending work     (ordered work IDs)
+//	0x05  work state       (format and allocator)
+//	0x06  scheduling       (child-resource relations)
 //
 // All ride the RecordBatch and are wiped with the sync (scopedRanges
 // covers the family). Row readers bound themselves to 0x00
@@ -604,4 +607,8 @@ func LedgerPendingBounds() ([]byte, []byte) {
 
 func LedgerWorkStateKey() []byte {
 	return []byte{VersionV3, TypeLedger, 0x05}
+}
+
+func LedgerSchedulingPrefix() []byte {
+	return []byte{VersionV3, TypeLedger, 0x06}
 }

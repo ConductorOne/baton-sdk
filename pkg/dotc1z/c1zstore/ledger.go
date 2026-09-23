@@ -159,8 +159,10 @@ type SyncStats struct {
 // Not safe for concurrent use.
 type PageWriter interface {
 	// Commit checks this revision and atomically applies the row's continuation
-	// and children to pending work alongside records and accounting.
-	SetPendingWork(work LedgerWork) error
+	// and children to pending work alongside records and accounting. Optional
+	// childKeys align with row.Children; nonempty keys claim unique scheduling
+	// relations in that batch, independently of pagination request identity.
+	SetPendingWork(work LedgerWork, childKeys ...string) error
 
 	PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error
 	PutResources(ctx context.Context, resources ...*v2.Resource) error
@@ -200,7 +202,12 @@ type PageLedgerStore interface {
 	// is exclusive when nonzero. limit is 1–100. initialized distinguishes absent from empty state.
 	PendingWork(ctx context.Context, beforeID uint64, limit int) (work []LedgerWork, initialized bool, err error)
 	// Seeds an absent queue in stack order; an initialized queue is unchanged.
-	InitializePendingWork(ctx context.Context, work []LedgerWork) error
+	InitializePendingWork(ctx context.Context, work []LedgerWork, facts ...string) error
+	PendingWorkAfter(ctx context.Context, afterID uint64, limit int) ([]LedgerWork, bool, error)
+	HasScheduledWork(ctx context.Context, key string) (bool, error)
+	// Removes a completed local phase and records cumulative run accounting;
+	// no completed-page row or transaction around that phase's writes is added.
+	CompletePendingWork(ctx context.Context, work LedgerWork, runID string, counters LedgerCounters) error
 	// Consumes the matching checkpoint and seeds pending work in the same batch.
 	TakeoverPendingWork(ctx context.Context, runID, expectedToken string, facts []string, counters LedgerCounters, work []LedgerWork) (string, error)
 

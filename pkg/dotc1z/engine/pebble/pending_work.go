@@ -55,7 +55,7 @@ func stagePendingWork(batch *rawdb.RecordBatch, work c1zstore.LedgerWork) error 
 	return batch.StagePendingWork(pendingWorkKey(work.ID), data)
 }
 
-func (l *Ledger) InitializePendingWork(ctx context.Context, actions []c1zstore.LedgerWork) error {
+func (l *Ledger) InitializePendingWork(ctx context.Context, actions []c1zstore.LedgerWork, facts ...string) error {
 	return l.e.withWrite(func() error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -100,8 +100,13 @@ func (l *Ledger) InitializePendingWork(ctx context.Context, actions []c1zstore.L
 		}
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
-		if err := stageInitialWork(batch, actions); err != nil {
+		if err := stageInitialWork(batch, l.e.CurrentSyncID(), actions); err != nil {
 			return err
+		}
+		for _, fact := range facts {
+			if err := batch.StageLedgerFact(encodeLedgerFactKey(fact)); err != nil {
+				return err
+			}
 		}
 		return batch.Commit(pebble.Sync)
 	})
@@ -110,6 +115,14 @@ func (l *Ledger) InitializePendingWork(ctx context.Context, actions []c1zstore.L
 // Reads newest IDs first, strictly below beforeID when nonzero. The boolean
 // distinguishes an initialized empty queue from absent queue state.
 func (l *Ledger) PendingWork(ctx context.Context, beforeID uint64, limit int) ([]c1zstore.LedgerWork, bool, error) {
+	return l.readPendingWork(ctx, beforeID, 0, limit, false)
+}
+
+func (l *Ledger) PendingWorkAfter(ctx context.Context, afterID uint64, limit int) ([]c1zstore.LedgerWork, bool, error) {
+	return l.readPendingWork(ctx, 0, afterID, limit, true)
+}
+
+func (l *Ledger) readPendingWork(ctx context.Context, beforeID, afterID uint64, limit int, ascending bool) ([]c1zstore.LedgerWork, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, false, err
 	}
@@ -124,13 +137,23 @@ func (l *Ledger) PendingWork(ctx context.Context, beforeID uint64, limit int) ([
 	if beforeID != 0 {
 		hi = pendingWorkKey(beforeID)
 	}
+	if ascending && afterID == math.MaxUint64 {
+		return nil, true, nil
+	}
+	if ascending {
+		lo = pendingWorkKey(afterID + 1)
+	}
 	it, err := l.e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
 	if err != nil {
 		return nil, true, err
 	}
 	defer it.Close()
 	result := make([]c1zstore.LedgerWork, 0, limit)
-	for valid := it.Last(); valid && len(result) < limit; valid = it.Prev() {
+	first, step := it.Last, it.Prev
+	if ascending {
+		first, step = it.First, it.Next
+	}
+	for valid := first(); valid && len(result) < limit; valid = step() {
 		if err := ctx.Err(); err != nil {
 			return nil, true, err
 		}
@@ -138,7 +161,7 @@ func (l *Ledger) PendingWork(ctx context.Context, beforeID uint64, limit int) ([
 		if err := json.Unmarshal(it.Value(), &work); err != nil {
 			return nil, true, err
 		}
-		if len(it.Key()) != len(lo)+8 || work.ID == 0 || binary.BigEndian.Uint64(it.Key()[len(lo):]) != work.ID {
+		if len(it.Key()) != len(rawdb.LedgerPendingPrefix())+8 || work.ID == 0 || binary.BigEndian.Uint64(it.Key()[len(rawdb.LedgerPendingPrefix()):]) != work.ID {
 			return nil, true, errors.New("invalid pending-work identity")
 		}
 		result = append(result, work)
@@ -146,7 +169,7 @@ func (l *Ledger) PendingWork(ctx context.Context, beforeID uint64, limit int) ([
 	return result, true, it.Error()
 }
 
-func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBatch, expected c1zstore.LedgerWork, id c1zstore.LedgerActionIdentity, row *v3.LedgerRow) error {
+func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBatch, expected c1zstore.LedgerWork, id c1zstore.LedgerActionIdentity, row *v3.LedgerRow, childKeys []string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -166,8 +189,39 @@ func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBat
 	if closeErr != nil {
 		return closeErr
 	}
-	if current.ID != expected.ID || current.Revision != expected.Revision || current.Action.Identity != id {
+	if current.SyncID != l.e.CurrentSyncID() || current.SyncID != expected.SyncID || current.ID != expected.ID || current.Revision != expected.Revision || current.Action.Identity != id {
 		return ErrStaleLedgerWork
+	}
+	if len(childKeys) != 0 && len(childKeys) != len(row.GetChildren()) {
+		return errors.New("child scheduling keys do not match transition")
+	}
+	if len(childKeys) > 0 {
+		seen := make(map[string]bool)
+		children := make([]*v3.LedgerChild, 0, len(row.GetChildren()))
+		keptKeys := make([]string, 0, len(childKeys))
+		for i, child := range row.GetChildren() {
+			key := childKeys[i]
+			if key != "" {
+				if seen[key] {
+					continue
+				}
+				scheduled, err := l.HasScheduledWork(ctx, key)
+				if err != nil {
+					return err
+				}
+				if scheduled {
+					continue
+				}
+				seen[key] = true
+				if err := batch.StageLedgerScheduling(schedulingWorkKey(key)); err != nil {
+					return err
+				}
+			}
+			children = append(children, child)
+			keptKeys = append(keptKeys, key)
+		}
+		row.SetChildren(children)
+		childKeys = keptKeys
 	}
 	last, initialized, err := l.workState()
 	if err != nil {
@@ -194,12 +248,15 @@ func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBat
 			return err
 		}
 	}
-	for _, child := range row.GetChildren() {
+	for index, child := range row.GetChildren() {
 		if child == nil || child.GetIdentity() == nil {
 			return fmt.Errorf("invalid child of work %d", current.ID)
 		}
 		last++
-		work := c1zstore.LedgerWork{ID: last, Action: c1zstore.LedgerChild{Identity: ledgerIdentityFromProto(child.GetIdentity()), Spawned: child.GetSpawned()}}
+		work := c1zstore.LedgerWork{ID: last, SyncID: current.SyncID, Action: c1zstore.LedgerChild{Identity: ledgerIdentityFromProto(child.GetIdentity()), Spawned: child.GetSpawned()}}
+		if len(childKeys) > 0 {
+			work.SchedulingKey = childKeys[index]
+		}
 		if err := stagePendingWork(batch, work); err != nil {
 			return err
 		}
@@ -210,12 +267,18 @@ func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBat
 	return nil
 }
 
-func stageInitialWork(batch *rawdb.RecordBatch, actions []c1zstore.LedgerWork) error {
+func stageInitialWork(batch *rawdb.RecordBatch, syncID string, actions []c1zstore.LedgerWork) error {
 	for i, action := range actions {
 		if action.ID != 0 || action.Revision != 0 {
 			return errors.New("initial work must not have assigned IDs or revisions")
 		}
 		action.ID = uint64(i) + 1
+		action.SyncID = syncID
+		if action.SchedulingKey != "" {
+			if err := batch.StageLedgerScheduling(schedulingWorkKey(action.SchedulingKey)); err != nil {
+				return err
+			}
+		}
 		if err := stagePendingWork(batch, action); err != nil {
 			return err
 		}
@@ -233,4 +296,46 @@ func (l *Ledger) TakeoverPendingWork(ctx context.Context, runID, expectedToken s
 		return "", errors.New("pending-work takeover requires a decoded checkpoint")
 	}
 	return l.takeover(ctx, runID, facts, counters, &pendingWorkSeed{token: expectedToken, work: work})
+}
+
+func (l *Ledger) CompletePendingWork(ctx context.Context, work c1zstore.LedgerWork, runID string, counters c1zstore.LedgerCounters) error {
+	if runID == "" {
+		return errors.New("local work completion requires an attempt ID")
+	}
+	return l.e.withWrite(func() error {
+		if err := l.e.requireCurrentSync(); err != nil {
+			return err
+		}
+		batch := l.e.db.NewRecordBatch()
+		defer batch.Close()
+		if err := l.stageWorkTransition(ctx, batch, work, work.Action.Identity, v3.LedgerRow_builder{}.Build(), nil); err != nil {
+			return err
+		}
+		value, err := marshalRecord(ledgerCountersToProto(counters))
+		if err != nil {
+			return err
+		}
+		if err := batch.StageLedgerCounterBucket(encodeLedgerCounterKey(runID, c1zstore.RunBucketWorker), value); err != nil {
+			return err
+		}
+		return batch.Commit(recordWriteOpts)
+	})
+}
+
+func schedulingWorkKey(key string) []byte {
+	return append(rawdb.LedgerSchedulingPrefix(), []byte(key)...)
+}
+
+func (l *Ledger) HasScheduledWork(ctx context.Context, key string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	_, closer, err := l.e.db.Get(schedulingWorkKey(key))
+	if errors.Is(err, pebble.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, closer.Close()
 }

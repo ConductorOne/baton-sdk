@@ -199,7 +199,7 @@ func TestPendingWorkSealAndFinishedClear(t *testing.T) {
 	require.NoError(t, e.SetCurrentSync(t.Context(), syncID))
 	_, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
-	require.True(t, initialized)
+	require.False(t, initialized)
 	require.NoError(t, e.Ledger().ClearRows(t.Context(), nil))
 	_, initialized, err = e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
@@ -235,17 +235,20 @@ func TestPendingWorkInitializationFailureAndRetry(t *testing.T) {
 	require.NoError(t, err)
 	injected := errors.New("seed failure")
 	e.db.SetRecordCommitTestHook(func() error { return injected })
-	require.ErrorIs(t, e.Ledger().InitializePendingWork(t.Context(), nil), injected)
+	require.ErrorIs(t, e.Ledger().InitializePendingWork(t.Context(), nil, "clean-start"), injected)
 	e.db.SetRecordCommitTestHook(nil)
 	items, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
 	require.False(t, initialized)
 	require.Empty(t, items)
-	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
+	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil, "clean-start"))
 	items, initialized, err = e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
 	require.True(t, initialized)
 	require.Empty(t, items)
+	facts, err := e.Ledger().Facts(t.Context())
+	require.NoError(t, err)
+	require.Contains(t, facts, "clean-start")
 }
 
 func TestPendingWorkTakeoverIsOneUnit(t *testing.T) {
@@ -387,4 +390,111 @@ func TestPendingWorkInitializationRefusesCheckpoint(t *testing.T) {
 	_, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
 	require.False(t, initialized)
+}
+
+func TestPendingWorkAdmissionOrderAndLocalCompletion(t *testing.T) {
+	e, _ := newTestEngine(t)
+	work := pendingTestSeed(t, e)
+	require.NoError(t, pendingTestCommit(t, e, work, "", work.Action, work.Action, work.Action))
+	children, initialized, err := e.Ledger().PendingWorkAfter(t.Context(), work.ID, 2)
+	require.NoError(t, err)
+	require.True(t, initialized)
+	require.Len(t, children, 2)
+	require.EqualValues(t, 2, children[0].ID)
+	require.EqualValues(t, 3, children[1].ID)
+	next, _, err := e.Ledger().PendingWorkAfter(t.Context(), children[1].ID, 2)
+	require.NoError(t, err)
+	require.Len(t, next, 1)
+	require.EqualValues(t, 4, next[0].ID)
+	injected := errors.New("local completion failed")
+	e.db.SetRecordCommitTestHook(func() error { return injected })
+	counters := c1zstore.LedgerCounters{Counters: map[string]uint64{"local": 1}}
+	require.ErrorIs(t, e.Ledger().CompletePendingWork(t.Context(), children[0], "attempt", counters), injected)
+	e.db.SetRecordCommitTestHook(nil)
+	require.NoError(t, e.Ledger().CompletePendingWork(t.Context(), children[0], "attempt", counters))
+	remaining, _, err := e.Ledger().PendingWorkAfter(t.Context(), work.ID, 100)
+	require.NoError(t, err)
+	require.Len(t, remaining, 2)
+	require.Equal(t, children[1], remaining[0])
+	require.Equal(t, next[0], remaining[1])
+	_, _, err = e.db.Get(encodeWorkHistoryKey(children[0].Action.Identity, children[0].ID, 0))
+	require.ErrorIs(t, err, pebble.ErrNotFound)
+	totals, err := e.Ledger().Counters(t.Context())
+	require.NoError(t, err)
+	require.EqualValues(t, 1, totals.Counters["local"])
+	foreign := children[1]
+	foreign.SyncID = "another-sync"
+	require.ErrorIs(t, e.Ledger().CompletePendingWork(t.Context(), foreign, "attempt", counters), ErrStaleLedgerWork)
+}
+
+func TestPendingWorkChildSchedulingIsAtomic(t *testing.T) {
+	e, _ := newTestEngine(t)
+	work := pendingTestSeed(t, e)
+	commit := func() error {
+		writer := e.Ledger().BeginPage()
+		defer writer.Discard()
+		require.NoError(t, writer.SetPendingWork(work, "parent-child", "parent-child", ""))
+		return writer.Commit(t.Context(), work.Action.Identity, &c1zstore.LedgerRow{NextPageToken: "A", Children: []c1zstore.LedgerChild{work.Action, work.Action, work.Action}})
+	}
+	injected := errors.New("child scheduling failed")
+	e.db.SetRecordCommitTestHook(func() error { return injected })
+	require.ErrorIs(t, commit(), injected)
+	e.db.SetRecordCommitTestHook(nil)
+	found, err := e.Ledger().HasScheduledWork(t.Context(), "parent-child")
+	require.NoError(t, err)
+	require.False(t, found)
+	require.NoError(t, commit())
+	found, err = e.Ledger().HasScheduledWork(t.Context(), "parent-child")
+	require.NoError(t, err)
+	require.True(t, found)
+	pending, _, err := e.Ledger().PendingWork(t.Context(), 0, 100)
+	require.NoError(t, err)
+	require.Len(t, pending, 3)
+	work = pending[2]
+	require.NoError(t, commit())
+	pending, _, err = e.Ledger().PendingWork(t.Context(), 0, 100)
+	require.NoError(t, err)
+	require.Len(t, pending, 4)
+}
+
+func TestPendingWorkCompletionMarkerSurvivesFailedSeal(t *testing.T) {
+	e, _ := newTestEngine(t)
+	work := pendingTestSeed(t, e)
+	syncID := e.CurrentSyncID()
+	require.NoError(t, pendingTestCommit(t, e, work, ""))
+	injected := errors.New("final marker clear failed")
+	e.test.ledgerArchiveHook = func(stage string) error {
+		if stage == "before-marker-clear" {
+			return injected
+		}
+		return nil
+	}
+	require.ErrorIs(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}), injected)
+	items, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
+	require.NoError(t, err)
+	require.True(t, initialized)
+	require.Empty(t, items)
+	require.NoError(t, e.SetCurrentSync(t.Context(), syncID))
+	e.test.ledgerArchiveHook = nil
+	require.NoError(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}))
+	_, initialized, err = e.Ledger().PendingWork(t.Context(), 0, 64)
+	require.NoError(t, err)
+	require.False(t, initialized)
+}
+
+func TestPendingWorkClearRefusesUnfinishedProcessing(t *testing.T) {
+	e, _ := newTestEngine(t)
+	work := pendingTestSeed(t, e)
+	syncID := e.CurrentSyncID()
+	require.NoError(t, pendingTestCommit(t, e, work, ""))
+	require.NoError(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}))
+	require.NoError(t, e.SetCurrentSync(t.Context(), syncID))
+	require.NoError(t, e.Ledger().ClearRows(t.Context(), nil))
+	seed := c1zstore.LedgerWork{Action: work.Action}
+	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), []c1zstore.LedgerWork{seed}))
+	require.ErrorContains(t, e.Ledger().ClearRows(t.Context(), nil), "unfinished")
+	pending, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
+	require.NoError(t, err)
+	require.True(t, initialized)
+	require.Len(t, pending, 1)
 }

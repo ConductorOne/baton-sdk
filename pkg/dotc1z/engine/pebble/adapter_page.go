@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/sourcecache"
@@ -346,7 +347,7 @@ func ledgerCollectionFromProto(c *v3.LedgerCollectionStats) *c1zstore.LedgerColl
 	}
 }
 
-func (w *pageWriter) SetPendingWork(work c1zstore.LedgerWork) error {
+func (w *pageWriter) SetPendingWork(work c1zstore.LedgerWork, childKeys ...string) error {
 	if w.unit.done {
 		return ErrPageUnitCommitted
 	}
@@ -354,5 +355,6 @@ func (w *pageWriter) SetPendingWork(work c1zstore.LedgerWork) error {
 		return errors.New("pending work requires a nonzero ID")
 	}
 	w.unit.work = &work
+	w.unit.childWorkKeys = slices.Clone(childKeys)
 	return nil
 }

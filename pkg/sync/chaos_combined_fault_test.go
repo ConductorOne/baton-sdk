@@ -349,3 +349,26 @@ func (s *chaosPebbleStore) DropLedger(ctx context.Context) error { return s.Ledg
 func (s *chaosPebbleStore) ClearLedgerRows(ctx context.Context, facts []string) error {
 	return s.Ledger().ClearRows(ctx, facts)
 }
+
+var _ c1zstore.PageLedgerStore = (*chaosPebbleStore)(nil)
+
+func (s *chaosPebbleStore) PendingWork(ctx context.Context, before uint64, limit int) ([]c1zstore.LedgerWork, bool, error) {
+	return s.Ledger().PendingWork(ctx, before, limit)
+}
+func (s *chaosPebbleStore) PendingWorkAfter(ctx context.Context, after uint64, limit int) ([]c1zstore.LedgerWork, bool, error) {
+	return s.Ledger().PendingWorkAfter(ctx, after, limit)
+}
+func (s *chaosPebbleStore) InitializePendingWork(ctx context.Context, work []c1zstore.LedgerWork, facts ...string) error {
+	return s.Ledger().InitializePendingWork(ctx, work, facts...)
+}
+func (s *chaosPebbleStore) TakeoverPendingWork(
+	ctx context.Context, run, token string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork,
+) (string, error) {
+	return s.Ledger().TakeoverPendingWork(ctx, run, token, facts, counters, work)
+}
+func (s *chaosPebbleStore) CompletePendingWork(ctx context.Context, work c1zstore.LedgerWork, run string, counters c1zstore.LedgerCounters) error {
+	return s.Ledger().CompletePendingWork(ctx, work, run, counters)
+}
+func (s *chaosPebbleStore) HasScheduledWork(ctx context.Context, key string) (bool, error) {
+	return s.Ledger().HasScheduledWork(ctx, key)
+}

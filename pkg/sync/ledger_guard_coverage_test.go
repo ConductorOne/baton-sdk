@@ -27,8 +27,8 @@ func TestLedgerGuardMutationSurface(t *testing.T) {
 	}{
 		{"writer", reflect.TypeFor[connectorstore.Writer](), f.store, reads},
 		{"ledger", reflect.TypeFor[c1zstore.PageLedgerStore](), f.store, map[string]bool{
-			"PendingWork": true,
-			"BeginPage":   true, "GetLedgerRow": true, "GenerateLedgerReport": true, "GetArchivedLedgerReport": true, "GetArchivedLedgerOptions": true, "SetRetainLedgerTokens": true,
+			"HasScheduledWork": true, "PendingWorkAfter": true, "PendingWork": true,
+			"BeginPage": true, "GetLedgerRow": true, "GenerateLedgerReport": true, "GetArchivedLedgerReport": true, "GetArchivedLedgerOptions": true, "SetRetainLedgerTokens": true,
 			"LedgerFacts": true, "LedgerCounters": true, "LedgerFrontier": true, "BoundSyncFinished": true, "BoundSyncUnstarted": true,
 		}},
 		{"sessions", reflect.TypeFor[sessions.SessionStore](), f.store.SessionStore(), map[string]bool{

@@ -91,3 +91,23 @@ to an indexed durable relation written with the page that schedules that child.
 Its read supplies the existing ingestion invariant without rebuilding the map.
 It is cleared with finished page history. This relation enforces the existing
 parent/child scheduling rule; it is not a pagination-token cycle detector.
+
+The queue initialization/allocator declaration also identifies an unfinished
+processing pass when an older ended-at timestamp remains on the bound sync.
+Successful seal clears that declaration in the final synced cleanup transaction;
+a failed seal retains it. Thus unfinished same-ID processing does not get mistaken
+for a new request over a completed file. Default disposal's existing pending
+marker remains authoritative when history and queue state have already been purged.
+
+A completed expansion/external phase removes only its pending entry and updates
+cumulative run accounting; it emits no completed collection row and does not
+wrap local writes in a page transaction. Failed completion commits must restore
+in-memory completion counts before retry, and subsequent stop/seal bucket writes
+must retain already committed local-phase counts rather than overwrite them with
+durations alone. Those are consumer tests, not properties inferred from the store.
+
+Legacy collection cursors continue unchanged. Deterministic local expansion may
+restart, as CO-021 permits; do not retain or repeatedly decode the old checkpoint's
+entire action stack merely to recover an inline expansion graph. Normalize that
+local expansion cursor to a full rebuild if abandoning its inline graph. This
+must be explicit in legacy fixtures and preserve final data/accounting.

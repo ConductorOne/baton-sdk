@@ -517,8 +517,15 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 		return err
 	}
 	pending, err := e.ledger.sealDiscardsRows()
-	if err != nil || !pending {
+	if err != nil {
 		return err
+	}
+	_, workOpen, err := e.ledger.workState()
+	if err != nil {
+		return err
+	}
+	if !pending && !workOpen {
+		return nil
 	}
 	if hook := e.test.ledgerArchiveHook; hook != nil {
 		if err := hook("before-marker-clear"); err != nil {
@@ -529,8 +536,15 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	err = e.withWriteAllowSealed(func() error {
 		batch := e.db.NewRecordBatch()
 		defer batch.Close()
-		if err := batch.StageLedgerFactDelete(encodeLedgerFactKey(c1zstore.LedgerFactDiscardOnSeal)); err != nil {
-			return err
+		if pending {
+			if err := batch.StageLedgerFactDelete(encodeLedgerFactKey(c1zstore.LedgerFactDiscardOnSeal)); err != nil {
+				return err
+			}
+		}
+		if workOpen {
+			if err := batch.StageLedgerWorkFinished(); err != nil {
+				return err
+			}
 		}
 		return batch.Commit(pebble.Sync)
 	})

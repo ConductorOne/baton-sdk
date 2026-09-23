@@ -942,3 +942,36 @@ wrong token would be consumed). The comparison is restored. Takeover durable-ima
 and failure tests pass three race repetitions (1.201s); initialization additionally
 refuses a still-live checkpoint. Focused storage/adapter/guard checks pass, and
 merged-tree lint reports zero issues for the takeover change.
+
+### Bounded admission storage support
+
+Ascending reads expose newly allocated children in the existing parallel queue's
+append order. A local-phase completion deletes its pending entry and replaces
+run accounting in one batch without creating a completed-page row. Work entries
+carry their sync identity as well as ID/revision; a completion from another binding
+is refused. Optional child scheduling keys record the existing resource-child
+uniqueness relation in the page transaction, so recovery need not rebuild a
+completed-history set. Queue initialization can establish clean-start facts in
+its seed transaction, covering a crash before the first collection page.
+
+Focused tests exercise ascending windows, local completion batch failure, foreign
+binding refusal, atomic relation registration and duplicate relation suppression.
+The empty-key control remains separately scheduled despite identical arguments.
+These are storage tests; scheduler integration is still pending.
+
+The initial finished-marker assertion failed before final seal cleared the open
+queue declaration. It now passes. An unfinished processing pass with an older
+ended-at timestamp is also refused by ClearRows; its test failed before this guard.
+Three storage race repetitions pass (1.861s), including failed final-marker cleanup.
+
+Full storage-tree tests pass (parent28.611s, Pebble12.413s), and the sync suite
+passes (83.627s) with the expanded test-store capability surface. Focused lifecycle
+checks pass (0.176s). The new public capability additions required updating the
+chaos test adapter; it now has a compile-time PageLedgerStore assertion so future
+capability omissions fail at build time. No runtime scheduler switch is included
+in this storage-support step.
+
+Final bounded-admission storage checks pass (storage0.357s, guard0.072s), and
+merged-tree lint reports zero issues. Page discard also releases the staged work
+and relation keys. The syncer's pending-work integration has not been enabled by
+this storage-support commit.

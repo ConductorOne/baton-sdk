@@ -339,11 +339,11 @@ func (s *ledgerGuardedStore) RestoreLedgerArchive(ctx context.Context) error {
 	return s.PageLedgerStore.RestoreLedgerArchive(ctx)
 }
 
-func (s *ledgerGuardedStore) InitializePendingWork(ctx context.Context, work []c1zstore.LedgerWork) error {
+func (s *ledgerGuardedStore) InitializePendingWork(ctx context.Context, work []c1zstore.LedgerWork, facts ...string) error {
 	if err := s.audit.record(ctx, "InitializePendingWork"); err != nil {
 		return err
 	}
-	return s.PageLedgerStore.InitializePendingWork(ctx, work)
+	return s.PageLedgerStore.InitializePendingWork(ctx, work, facts...)
 }
 
 func (s *ledgerGuardedStore) TakeoverPendingWork(
@@ -353,4 +353,11 @@ func (s *ledgerGuardedStore) TakeoverPendingWork(
 		return "", err
 	}
 	return s.PageLedgerStore.TakeoverPendingWork(ctx, runID, token, facts, counters, work)
+}
+
+func (s *ledgerGuardedStore) CompletePendingWork(ctx context.Context, work c1zstore.LedgerWork, runID string, counters c1zstore.LedgerCounters) error {
+	if err := s.audit.record(ctx, "CompletePendingWork"); err != nil {
+		return err
+	}
+	return s.PageLedgerStore.CompletePendingWork(ctx, work, runID, counters)
 }

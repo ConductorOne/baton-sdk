@@ -675,6 +675,10 @@ func (rb *RecordBatch) StageLedgerClearRows(factKeys [][]byte) error {
 	if err := rb.core.DeleteRange(pendingLo, pendingHi); err != nil {
 		return err
 	}
+	scheduled := LedgerSchedulingPrefix()
+	if err := rb.core.DeleteRange(scheduled, UpperBound(scheduled)); err != nil {
+		return err
+	}
 	if err := rb.core.Delete(LedgerWorkStateKey()); err != nil {
 		return err
 	}
@@ -723,4 +727,15 @@ func (rb *RecordBatch) StagePendingWorkDelete(key []byte) error {
 
 func (rb *RecordBatch) StageLedgerWorkState(value []byte) error {
 	return rb.core.Set(LedgerWorkStateKey(), value)
+}
+
+func (rb *RecordBatch) StageLedgerScheduling(key []byte) error {
+	if err := assertFamily("StageLedgerScheduling", key, LedgerSchedulingPrefix()); err != nil {
+		return err
+	}
+	return rb.core.Set(key, []byte{1})
+}
+
+func (rb *RecordBatch) StageLedgerWorkFinished() error {
+	return rb.core.Delete(LedgerWorkStateKey())
 }

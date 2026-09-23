@@ -1007,11 +1007,11 @@ func (s *pebbleStore) PendingWork(ctx context.Context, beforeID uint64, limit in
 	return s.Engine.Ledger().PendingWork(ctx, beforeID, limit)
 }
 
-func (s *pebbleStore) InitializePendingWork(ctx context.Context, work []c1zstore.LedgerWork) error {
+func (s *pebbleStore) InitializePendingWork(ctx context.Context, work []c1zstore.LedgerWork, facts ...string) error {
 	if err := s.writeHook(ctx, "InitializePendingWork"); err != nil {
 		return err
 	}
-	return s.markDirty(s.Engine.Ledger().InitializePendingWork(ctx, work))
+	return s.markDirty(s.Engine.Ledger().InitializePendingWork(ctx, work, facts...))
 }
 
 func (s *pebbleStore) TakeoverPendingWork(
@@ -1022,4 +1022,19 @@ func (s *pebbleStore) TakeoverPendingWork(
 	}
 	state, err := s.Engine.Ledger().TakeoverPendingWork(ctx, runID, expectedToken, facts, counters, work)
 	return state, s.markDirty(err)
+}
+
+func (s *pebbleStore) PendingWorkAfter(ctx context.Context, afterID uint64, limit int) ([]c1zstore.LedgerWork, bool, error) {
+	return s.Engine.Ledger().PendingWorkAfter(ctx, afterID, limit)
+}
+
+func (s *pebbleStore) CompletePendingWork(ctx context.Context, work c1zstore.LedgerWork, runID string, counters c1zstore.LedgerCounters) error {
+	if err := s.writeHook(ctx, "CompletePendingWork"); err != nil {
+		return err
+	}
+	return s.markDirty(s.Engine.Ledger().CompletePendingWork(ctx, work, runID, counters))
+}
+
+func (s *pebbleStore) HasScheduledWork(ctx context.Context, key string) (bool, error) {
+	return s.Engine.Ledger().HasScheduledWork(ctx, key)
 }

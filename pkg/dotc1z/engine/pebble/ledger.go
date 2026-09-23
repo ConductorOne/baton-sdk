@@ -587,7 +587,7 @@ func (l *Ledger) takeover(ctx context.Context, runID string, facts []string, cou
 			if initialized {
 				return errors.New("checkpoint conflicts with initialized pending work")
 			}
-			if err := stageInitialWork(batch, seed.work); err != nil {
+			if err := stageInitialWork(batch, syncID, seed.work); err != nil {
 				return err
 			}
 		}
@@ -655,6 +655,13 @@ func (l *Ledger) ClearRows(ctx context.Context, clearFacts []string) error {
 	}
 	if record.GetEndedAt() == nil {
 		return errors.New("ClearRows: bound sync is unfinished")
+	}
+	_, workOpen, err := l.workState()
+	if err != nil {
+		return err
+	}
+	if workOpen {
+		return errors.New("ClearRows: processing pass is unfinished")
 	}
 	keys := make([][]byte, 0, len(clearFacts))
 	for _, fact := range clearFacts {

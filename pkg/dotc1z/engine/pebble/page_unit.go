@@ -42,8 +42,9 @@ type pageUnit struct {
 	bucketKey   []byte
 	bucketValue *v3.LedgerCounterBucket
 
-	work *c1zstore.LedgerWork
-	done bool
+	work          *c1zstore.LedgerWork
+	childWorkKeys []string
+	done          bool
 }
 
 type ledgerFact struct {
@@ -448,7 +449,7 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		defer batch.Close()
 
 		if u.work != nil {
-			if err := l.stageWorkTransition(ctx, batch, *u.work, id, row); err != nil {
+			if err := l.stageWorkTransition(ctx, batch, *u.work, id, row, u.childWorkKeys); err != nil {
 				return err
 			}
 			key = encodeWorkHistoryKey(id, u.work.ID, u.work.Revision)
@@ -542,6 +543,7 @@ func (u *pageUnit) release() {
 	u.grantDeletes = nil
 	u.facts = nil
 	u.bucketKey, u.bucketValue = nil, nil
+	u.work, u.childWorkKeys = nil, nil
 }
 
 // sync_id is not in the keys, so a page begun under a previous sync would

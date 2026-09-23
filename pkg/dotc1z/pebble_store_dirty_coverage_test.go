@@ -38,6 +38,9 @@ var capabilityMethods = map[string]struct {
 	kind dirtyKind
 	why  string
 }{
+	"HasScheduledWork":         {dirtyRead, "indexed scheduling relation lookup"},
+	"PendingWorkAfter":         {dirtyRead, "bounded child admission scan"},
+	"CompletePendingWork":      {dirtyWrite, "remove local work and replace run accounting"},
 	"PendingWork":              {dirtyRead, "bounded pending-work scan"},
 	"TakeoverPendingWork":      {dirtyWrite, "consume checkpoint and seed pending queue atomically"},
 	"InitializePendingWork":    {dirtyWrite, "atomic initial queue and allocator"},
