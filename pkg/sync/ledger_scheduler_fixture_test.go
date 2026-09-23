@@ -48,6 +48,8 @@ func runLedgerSchedulerFixture(t *testing.T, runtime *ledgerRuntime, roots []led
 	if err := s.restoreLedgerState(t.Context(), s.ledger.store, s.ledger.runID, false); err != nil {
 		return err
 	}
+	// Continue the supplied attempt, including its already committed worker buckets.
+	s.ledger = runtime
 	s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, page *ledgerPage) error {
 		return handler(ctx, s, action, page)
 	}

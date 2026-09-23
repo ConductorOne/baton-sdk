@@ -56,10 +56,7 @@ func (a *ledgerRunAccounting) snapshot() c1zstore.LedgerCounters {
 }
 
 func (r *ledgerRuntime) completeLocalWork(ctx context.Context, work c1zstore.LedgerWork, op ActionOp) error {
-	a := &r.accounting
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	candidate := cloneLedgerCounters(a.counters)
+	candidate := r.accounting.snapshot()
 	if candidate.Counters == nil {
 		candidate.Counters = make(map[string]uint64)
 	}
@@ -68,7 +65,9 @@ func (r *ledgerRuntime) completeLocalWork(ctx context.Context, work c1zstore.Led
 	if err := r.store.CompletePendingWork(ctx, work, r.runID, candidate); err != nil {
 		return err
 	}
-	a.counters.Counters = candidate.Counters
+	r.accounting.mu.Lock()
+	r.accounting.counters.Counters = candidate.Counters
+	r.accounting.mu.Unlock()
 	return nil
 }
 

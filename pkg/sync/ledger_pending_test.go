@@ -286,3 +286,37 @@ func TestPendingSyncCancellationBeforeContinuation(t *testing.T) {
 	require.NoError(t, resumed.Sync(t.Context()))
 	require.EqualValues(t, 3, connector.calls.Load())
 }
+
+type pendingLocalObserver struct {
+	c1zstore.PageLedgerStore
+	observe func()
+}
+
+func (s pendingLocalObserver) CompletePendingWork(ctx context.Context, work c1zstore.LedgerWork, runID string, counters c1zstore.LedgerCounters) error {
+	s.observe()
+	return s.PageLedgerStore.CompletePendingWork(ctx, work, runID, counters)
+}
+
+func TestPendingLocalCompletionAllowsAccountingObserver(t *testing.T) {
+	s, f := newLedgerSchedulerFixture(t, 1)
+	action := s.run.pushAction(t.Context(), Action{Op: SyncGrantExpansionOp})
+	seedLedgerTestRun(t, s, action)
+	s.ledger.store = pendingLocalObserver{PageLedgerStore: f.ledger, observe: func() {
+		s.recordRunStepDuration("completion-observer", time.Millisecond)
+	}}
+	done := make(chan error, 1)
+	go func() {
+		done <- s.runPendingLocalStep(t.Context(), action, func() error { s.finishAction(t.Context(), action); return nil })
+	}()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("store completion deadlocked while recording its observation")
+	}
+	s.checkpointLedgerOnStop(t.Context())
+	totals, err := f.ledger.LedgerCounters(t.Context())
+	require.NoError(t, err)
+	require.EqualValues(t, 1, totals.Counters[ledgerCompletedActions])
+	require.EqualValues(t, 1, totals.StepDurationsMs["completion-observer"])
+}
