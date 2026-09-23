@@ -68,9 +68,12 @@ FK delivery also requires these related changes:
    `profile_id`, `inbox_key_id`, `key_generation`, payload scheme, and crypto
    suite on the operation.
 2. C1 sends the frozen coordinates plus the inbox public key to the connector in
-   an `EncryptionConfig.vault_inbox_recipient_config`. That config is C1's
-   authority: it comes from the authenticated action transport for an approved
-   ticket, and the connector does not and cannot elect a destination itself.
+   an `EncryptionConfig` that selects inbox mode by naming the
+   `baton/vault-inbox/v1` provider, carries the inbox key id on `key_id`, and
+   puts the recipient JWK on `jwk_public_key_config.pub_key` (see §5.1). That
+   config is C1's authority: it comes from the authenticated action transport for
+   an approved ticket, and the connector does not and cannot elect a destination
+   itself.
 3. The connector validates the config **before minting** (see §6), mints the
    credential once, serializes the exact `SecretSubmissionPayloadV3` container
    the inbox reader expects, seals it with the existing X-Wing HPKE profile, and
@@ -189,13 +192,74 @@ order):
 against the submission's active inbox key id.
 
 `public_key_thumbprint` is **JWK validation, not an independent HPKE binding**: it
-is re-derived from `public_jwk_json` and compared against the recipient JWK, so a
-config cannot claim a thumbprint that does not belong to the key it names. It is
-**not** carried as a separate field in the HPKE `info`/AAD — the AAD binds
-`inbox_key_id` and `key_generation` (see §2), not the thumbprint. Treating a
-thumbprint match as proof of anything beyond JWK integrity would overstate it.
-Likewise `submission_id` and `content_type` are authenticated by being **inside
-the sealed payload** (§4), not by any outer field.
+is re-derived from the recipient JWK's `alg`/`kty`/`pub` (§5.1) and compared
+against the value the JWK claims, so a config cannot claim a thumbprint that does
+not belong to the key it names. It is **not** carried as a separate field in the
+HPKE `info`/AAD — the AAD binds `inbox_key_id` and `key_generation` (see §2), not
+the thumbprint. Treating a thumbprint match as proof of anything beyond JWK
+integrity would overstate it. Likewise `submission_id` and `content_type` are
+authenticated by being **inside the sealed payload** (§4), not by any outer field.
+
+## 5.1 Recipient config surface
+
+The recipient coordinates reach the connector on the shared `EncryptionConfig`,
+not in a dedicated vault-inbox message:
+
+| Field | Value |
+|---|---|
+| `provider` | `baton/vault-inbox/v1` — the only selector for inbox mode |
+| `key_id` | the inbox key id; the single authoritative key id |
+| `jwk_public_key_config.pub_key` | the recipient JWK JSON, carrying the extension below |
+
+The JWK holds the public key in its ordinary members (`kty`, `alg`, `pub`) and the
+binding context in a namespaced extension member, `baton_vault_inbox`:
+
+| Extension member | Value |
+|---|---|
+| `version` | `1` |
+| `suite` | the suite string; must equal the JWK `alg` |
+| `tenant_id` | C1 tenant id |
+| `vault_boundary_id` | approved destination vault |
+| `key_generation` | non-zero integer |
+| `payload_scheme` | `latchkey.vault_submission.secret.v1` |
+| `submission_id` | the C1-allocated FK delivery id |
+| `public_key_thumbprint` | base64url(SHA-256 of the canonical `{alg,kty,pub}`) |
+| `content_type` | optional; empty normalizes to `generic` |
+
+Every extension member is required except `content_type`. The extension
+deliberately does **not** carry the inbox key id: `key_id` is the single source,
+so two values cannot disagree about which key a ciphertext is bound to. A JWK
+`kid` that disagrees with `key_id` is refused rather than silently overridden.
+
+Parsing is strict because the extension is a protocol surface. A member the
+extension does not define, a member repeated in the outer JWK or the extension,
+trailing content after either object, a wrong version or suite, a non-string or
+null JWK member, and private material are all refused before any provider work.
+Ordinary optional JOSE metadata (`use`, `key_ops`, and a `kid` that agrees) is
+still accepted, so the strictness is scoped to the protocol extension rather than
+to all of JOSE. Unknown fields on the shared `EncryptionConfig` stay tolerated, so
+that message remains additive for every other provider; unknown fields on the
+provider-specific JWK config are refused.
+
+Tradeoffs, relative to carrying the coordinates in a dedicated config message:
+
+- **Additive, no new message.** The recipient rides on an existing shared message,
+  so no new proto message or config-version enum is introduced and the classical
+  `baton/jwk/v1` and `age` paths keep their current bytes. The inbox wire format
+  (§2–§4) is unchanged, so a reader cannot tell which config surface produced an
+  envelope.
+- **Strictness moves into the SDK.** The binding context is now JSON the connector
+  parses and validates itself rather than typed protobuf. The parser refuses
+  ambiguity — repeated members, unknown members, trailing content — instead of
+  resolving it.
+- **Inbox mode is selected by the provider name alone.** A JWK public key config
+  without this provider is ordinary classical encryption; inbox mode is never
+  inferred from the key type, and a config that names this provider but is
+  malformed is refused rather than downgraded.
+- **`kid` is coupled to `key_id`.** A serving JWKS whose `kid` differs from the
+  inbox key id is refused rather than silently overridden. A producer that emits
+  an unrelated `kid` must either match `key_id` or omit it.
+- **Attestation is still not verified.** See §6.3.
 
 ## 6. Validation split: pre-mint vs post-mint
 
@@ -207,14 +271,16 @@ mint; it refuses to hand back a usable result after one.
 
 Config shape and capability, all evaluated before the provider is invoked:
 
-- config version and suite are the supported ones;
+- the JWK extension's version and suite are the supported ones, and a JWK `kid`,
+  if present, agrees with `key_id`;
 - every binding identifier is non-empty, bounded, and free of control
   characters; `key_generation` is non-zero;
 - `payload_scheme` is exactly the one scheme this provider emits;
 - the public JWK is exactly one public AKP JWK, `alg` exactly the suite string,
   no `priv`, `pub` exactly 1216 bytes, parsing as an X-Wing key, and the X25519
   component is not a low-order point;
-- `public_key_thumbprint` re-derives from `public_jwk_json` (§5);
+- the extension's `public_key_thumbprint` re-derives from the JWK's
+  `alg`/`kty`/`pub` (§5.1);
 - the selected descriptor **advertises** the requested vault-inbox profile;
 - the vault-inbox recipient is the **only** encryption config — a mixed or
   duplicate recipient set is refused before anything is minted.
@@ -228,10 +294,9 @@ Which of those run on which path:
 | `CreateAccount` | config shape when a vault-inbox recipient is present, plus the credential-option rule below |
 | `RotateCredential` | the same config-shape check, plus the rotate credential-option rule below |
 
-The config-shape check is scoped to a recipient that selects this profile — by
-the inner message **or** by the provider name, since routing keys on the provider
-name first — so every other recipient type keeps its existing create/rotate
-behaviour.
+The config-shape check is scoped to a recipient that names this provider, since
+routing keys on the provider name, so every other recipient type keeps its
+existing create/rotate behaviour.
 
 **Credential options.** A vault-inbox recipient must be paired with options that
 actually produce a value, and this is refused before the account or the rotation

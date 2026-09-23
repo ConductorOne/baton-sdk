@@ -232,6 +232,21 @@ func TestEncryptProducesTheVaultInboxEnvelope(t *testing.T) {
 	require.Equal(t, vectorValue, string(mustDecodeB64(t, payload.ValueB64)))
 }
 
+// TestTwoSealsDiffer pins that the encapsulation is randomized: the same
+// plaintext sealed twice to the same recipient must not produce the same
+// ciphertext, or an observer could tell two identical submissions apart.
+func TestTwoSealsDiffer(t *testing.T) {
+	ctx := context.Background()
+	config := vectorConfig(t)
+	first, err := NewProvider().Encrypt(ctx, config, vectorPlaintext())
+	require.NoError(t, err)
+	second, err := NewProvider().Encrypt(ctx, config, vectorPlaintext())
+	require.NoError(t, err)
+	require.NotEqual(t, first.GetEncryptedBytes(), second.GetEncryptedBytes())
+	require.Equal(t, expectedPayloadJSON, string(openVectorEnvelope(t, config,
+		mustEnvelope(t, first).Enc, mustEnvelope(t, first).Ciphertext)))
+}
+
 // TestEveryBindingFieldIsAuthenticated flips one AAD field at a time. Each
 // mismatch must fail the AEAD open, which is what stops a server from moving a
 // ciphertext to another tenant, vault, inbox key, generation, or scheme.
@@ -344,6 +359,26 @@ func TestPublicJWKAcceptsOrdinaryJoseMembers(t *testing.T) {
 	})))
 }
 
+// TestThumbprintIgnoresTheExtension pins C3: the inbox thumbprint is the canonical
+// {alg,kty,pub} digest, so changing the binding context inside the extension
+// cannot move it. A config whose coordinates differ but whose thumbprint is the
+// canonical one still validates; if the thumbprint covered the extension, the
+// change would have made it stale and refused.
+func TestThumbprintIgnoresTheExtension(t *testing.T) {
+	t.Parallel()
+	params := vectorParams(t)
+	thumbprint, err := canonicalThumbprint(params.Alg, params.Kty, params.Pub)
+	require.NoError(t, err)
+	require.Equal(t, params.PublicKeyThumbprint, thumbprint)
+
+	require.NoError(t, NewProvider().ValidateConfig(context.Background(), configFor(t, func(p *recipientParams) {
+		p.TenantID = "tenant-different"
+		p.VaultBoundaryID = "vault-different"
+		p.SubmissionID = "submission-different"
+		p.KeyGeneration = 99
+	})))
+}
+
 // TestValidateConfigRefusesAConflictingKid pins C7: key_id is the single
 // authoritative inbox key id, so a JWK whose kid names a different key is
 // refused rather than silently overridden.
@@ -403,13 +438,15 @@ func TestValidateConfigRejectsMalformedExtension(t *testing.T) {
 	}
 
 	// Two members with the same name: Go's decoder keeps the last one, so two
-	// readers of the same bytes could disagree about which value it meant.
+	// readers of the same bytes could disagree about which value it meant. Both
+	// values are individually valid, so duplicate detection is the only guard
+	// that can refuse these.
 	duplicateOuter := params
 	duplicateOuter.RawJWK = `{"kty":"` + jwkKtyAKP + `","alg":"` + jwkAlg + `","pub":"` + params.Pub +
-		`","kty":"EC","` + JWKExtensionMember + `":` + extensionJSON + `}`
+		`","kty":"` + jwkKtyAKP + `","` + JWKExtensionMember + `":` + extensionJSON + `}`
 
 	duplicateExtension := params
-	duplicateExtension.RawJWK = outer(`"` + JWKExtensionMember + `":{"version":1,"version":2,"suite":"` +
+	duplicateExtension.RawJWK = outer(`"` + JWKExtensionMember + `":{"version":1,"version":1,"suite":"` +
 		SuiteLabel + `","tenant_id":"` + vectorTenant + `","vault_boundary_id":"` + vectorVault +
 		`","key_generation":7,"payload_scheme":"` + vectorScheme + `","submission_id":"` + vectorSubmission +
 		`","public_key_thumbprint":"` + params.PublicKeyThumbprint + `"}`)
@@ -443,6 +480,10 @@ func TestValidateConfigRejectsMalformedExtension(t *testing.T) {
 		"null tenant":             configFor(t, func(p *recipientParams) { p.ExtensionExtra = map[string]any{"tenant_id": nil} }),
 		"non-string alg":          configFor(t, func(p *recipientParams) { p.OuterExtra = map[string]any{"alg": 1} }),
 		"null pub":                configFor(t, func(p *recipientParams) { p.OuterExtra = map[string]any{"pub": nil} }),
+		// A null kid is refused by the explicit null guard; every other null
+		// member would also be refused downstream by its empty-value check, so
+		// this is the case that isolates the guard.
+		"null kid": configFor(t, func(p *recipientParams) { p.OuterExtra = map[string]any{"kid": nil} }),
 	}
 	for name, config := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -570,6 +611,14 @@ func mustDecodeB64(t *testing.T, value string) []byte {
 	raw, err := base64.RawURLEncoding.DecodeString(value)
 	require.NoError(t, err)
 	return raw
+}
+
+// mustEnvelope decodes the sealed submission envelope out of an EncryptedData.
+func mustEnvelope(t *testing.T, encrypted *v2.EncryptedData) submissionEnvelope {
+	t.Helper()
+	var envelope submissionEnvelope
+	require.NoError(t, json.Unmarshal(encrypted.GetEncryptedBytes(), &envelope))
+	return envelope
 }
 
 func jwkPub(t *testing.T, jwkJSON string) string {

@@ -2,6 +2,7 @@ package crypto //nolint:revive,nolintlint // we can't change the package name fo
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"strconv"
@@ -47,6 +48,24 @@ func validAgeConfig(t *testing.T) *v2.EncryptionConfig {
 			Recipient: identity.Recipient().String(),
 		}.Build(),
 	}.Build()
+}
+
+// TestExtendedJWKWithoutTheProviderDoesNotDowngrade pins C5. A recipient JWK that
+// carries the vault-inbox extension but does not name the provider is not inbox
+// mode, so it is routed to the classical JWK provider, which must refuse the AKP
+// X-Wing key rather than seal it under a profile the caller did not select.
+func TestExtendedJWKWithoutTheProviderDoesNotDowngrade(t *testing.T) {
+	config := validVaultInboxConfig(t)
+	config.SetProvider("")
+
+	manager, err := NewEncryptionManager(nil, []*v2.EncryptionConfig{config})
+	require.NoError(t, err, "the exclusivity rule does not apply to an unrecognized config")
+	encrypted, err := manager.Encrypt(context.Background(), v2.PlaintextData_builder{
+		Name:  "api_key",
+		Bytes: []byte("v"),
+	}.Build())
+	require.Error(t, err, "an extended JWK without the provider must not be sealed under another profile")
+	require.Empty(t, encrypted)
 }
 
 // TestVaultInboxRecipientMustBeTheOnlyRecipient pins the rule that the

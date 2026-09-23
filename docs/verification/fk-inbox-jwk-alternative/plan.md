@@ -146,5 +146,32 @@ the rule requires.
 
 ## Change orders
 
-None yet. Change orders are added here, with their affected criteria, as
-implementation inspection or review surfaces them.
+Change orders are added here, with their affected criteria, as implementation
+inspection or review surfaces them.
+
+### CO-1 — unknown-field refusal is scoped to the provider-specific JWK config
+
+Affects C4, C6.
+
+The first implementation refused unknown fields on the shared
+`EncryptionConfig`. The arm-102 test asserted the opposite — that the shared
+message stays additive — and the plan's contract requires `baton/jwk/v1` and
+`age` to be unaffected. Refusing unknown fields on a message shared with every
+other provider would make a future field a breaking change for this profile.
+
+The refusal now applies to the provider-specific `JWKPublicKeyConfig` only, which
+is where the contents are frozen into the binding. An unknown field on
+`EncryptionConfig` with this provider is tolerated, as before.
+
+### CO-2 — a JWK `kid` that disagrees with `key_id` is refused
+
+Affects C7.
+
+C7 requires that "a JWK `kid` that disagrees [with `key_id`] is refused". The
+first implementation read no `kid` at all. The parser now reads an optional `kid`
+and refuses a non-empty value that differs from `key_id`; a matching or absent
+`kid` is accepted.
+
+This is a producer-facing change: a JWK that carries a `kid` unrelated to the
+inbox key id is now refused rather than ignored. It is recorded in §5.1 of
+`docs/vault-inbox-delivery.md`.
