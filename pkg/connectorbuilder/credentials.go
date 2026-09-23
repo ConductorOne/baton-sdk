@@ -76,6 +76,17 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 		return nil, err
 	}
 
+	// The recipient config is validated here too, not only inside the provider.
+	// Without this an unsupported config version, suite, scheme, thumbprint, or
+	// JWK is first checked during encryption, after the rotation has already
+	// invalidated the prior credential.
+	err = crypto.ValidateEncryptionConfigs(request.GetEncryptionConfigs())
+	if err != nil {
+		l.Error("error: invalid encryption configuration", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
+
 	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), opts)
 	if err != nil {
 		l.Error("error: rotate credentials on resource failed", zap.Error(err))
@@ -238,7 +249,8 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 	// The advertised capability is the contract: a descriptor that does not list
 	// the requested vault-inbox profile must not be sealed to, the same way an
 	// unadvertised key profile is refused.
-	if err := validateVaultInboxProfileAdvertised(request.GetEncryptionConfigs(), descriptor); err != nil {
+	err = validateVaultInboxProfileAdvertised(request.GetEncryptionConfigs(), descriptor)
+	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -259,7 +271,8 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 	// A vault-inbox recipient carries the entire submission payload, so exactly
 	// one plaintext value may be sealed to it; zero or several values fail rather
 	// than depositing a partial or mislabeled submission.
-	if err := pkem.ValidatePlaintextCardinality(output.PlaintextData); err != nil {
+	err = pkem.ValidatePlaintextCardinality(output.PlaintextData)
+	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}

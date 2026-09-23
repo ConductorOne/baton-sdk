@@ -229,6 +229,27 @@ func TestValidateConfigRejectsUnsupportedProfiles(t *testing.T) {
 	require.NoError(t, NewProvider().ValidateConfig(context.Background(), extensibleConfig))
 }
 
+// TestPublicJWKAcceptsOrdinaryJoseMembers pins that the parse is no stricter than
+// the thumbprint contract beside it: a served JWK carrying kid, use, or key_ops
+// re-derives the same thumbprint and must be accepted rather than refused as
+// "not a public AKP JWK".
+func TestPublicJWKAcceptsOrdinaryJoseMembers(t *testing.T) {
+	t.Parallel()
+	jwk, thumbprint := vectorPublicJWK(t)
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal([]byte(jwk), &parsed))
+	parsed["kid"] = "key-1"
+	parsed["use"] = "enc"
+	parsed["key_ops"] = []string{"deriveKey"}
+	withMembers, err := json.Marshal(parsed)
+	require.NoError(t, err)
+
+	require.NoError(t, NewProvider().ValidateConfig(context.Background(), configFor(t, func(c *v2.VaultInboxRecipientConfig) {
+		c.PublicJwkJson = string(withMembers)
+		c.PublicKeyThumbprint = thumbprint
+	})))
+}
+
 func withProvider(t *testing.T, name string) *v2.EncryptionConfig {
 	t.Helper()
 	config := vectorConfig(t)
@@ -256,15 +277,14 @@ func TestValidateConfigRejectsMalformedJWK(t *testing.T) {
 		}.Build()
 	}
 	cases := map[string]string{
-		"not json":          "not-json",
-		"wrong kty":         `{"kty":"EC","alg":"` + jwkAlg + `","pub":"AAAA"}`,
-		"wrong alg":         `{"kty":"` + jwkKtyAKP + `","alg":"HPKE-Base-X-Wing-Draft06Obsolete","pub":"AAAA"}`,
-		"private present":   `{"kty":"` + jwkKtyAKP + `","alg":"` + jwkAlg + `","pub":"AAAA","priv":"AAAA"}`,
-		"unknown jwk field": `{"kty":"` + jwkKtyAKP + `","alg":"` + jwkAlg + `","pub":"AAAA","kid":"x"}`,
-		"pub empty":         `{"kty":"` + jwkKtyAKP + `","alg":"` + jwkAlg + `","pub":""}`,
-		"pub short":         `{"kty":"` + jwkKtyAKP + `","alg":"` + jwkAlg + `","pub":"` + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{7}, 100)) + `"}`,
-		"pub oversized":     `{"kty":"` + jwkKtyAKP + `","alg":"` + jwkAlg + `","pub":"` + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{7}, PublicKeyBytes+1)) + `"}`,
-		"pub not base64":    `{"kty":"` + jwkKtyAKP + `","alg":"` + jwkAlg + `","pub":"!!!!"}`,
+		"not json":        "not-json",
+		"wrong kty":       `{"kty":"EC","alg":"` + jwkAlg + `","pub":"AAAA"}`,
+		"wrong alg":       `{"kty":"` + jwkKtyAKP + `","alg":"HPKE-Base-X-Wing-Draft06Obsolete","pub":"AAAA"}`,
+		"private present": `{"kty":"` + jwkKtyAKP + `","alg":"` + jwkAlg + `","pub":"AAAA","priv":"AAAA"}`,
+		"pub empty":       `{"kty":"` + jwkKtyAKP + `","alg":"` + jwkAlg + `","pub":""}`,
+		"pub short":       `{"kty":"` + jwkKtyAKP + `","alg":"` + jwkAlg + `","pub":"` + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{7}, 100)) + `"}`,
+		"pub oversized":   `{"kty":"` + jwkKtyAKP + `","alg":"` + jwkAlg + `","pub":"` + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{7}, PublicKeyBytes+1)) + `"}`,
+		"pub not base64":  `{"kty":"` + jwkKtyAKP + `","alg":"` + jwkAlg + `","pub":"!!!!"}`,
 	}
 	for name, jwk := range cases {
 		t.Run(name, func(t *testing.T) {

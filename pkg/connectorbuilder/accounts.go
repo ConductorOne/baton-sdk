@@ -119,6 +119,16 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 		return nil, err
 	}
 
+	// The recipient config is validated here too, not only inside the provider,
+	// so an unsupported version, suite, scheme, thumbprint, or JWK is refused
+	// before the account is created.
+	err = crypto.ValidateEncryptionConfigs(request.GetEncryptionConfigs())
+	if err != nil {
+		l.Error("error: invalid encryption configuration", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
+
 	result, plaintexts, annos, err := accountManager.CreateAccount(ctx, request.GetAccountInfo(), opts)
 	if err != nil {
 		l.Error("error: create account failed", zap.Error(err))

@@ -285,6 +285,12 @@ func recipientFromConfig(conf *v2.EncryptionConfig) (*v2.VaultInboxRecipientConf
 }
 
 // parsePublicKey accepts exactly one public AKP JWK holding an X-Wing key.
+//
+// It deliberately does not use DisallowUnknownFields: the thumbprint check next
+// to it canonicalizes over exactly {alg, kty, pub} and therefore tolerates extra
+// members, so refusing them here would reject a served JWK that carries an
+// ordinary JOSE member such as kid, use, or key_ops while its thumbprint already
+// matched. Private material is rejected explicitly below.
 func parsePublicKey(jwkJSON string) (hpke.PublicKey, error) {
 	var jwk struct {
 		Kty  string `json:"kty"`
@@ -292,9 +298,7 @@ func parsePublicKey(jwkJSON string) (hpke.PublicKey, error) {
 		Pub  string `json:"pub"`
 		Priv string `json:"priv"`
 	}
-	decoder := json.NewDecoder(strings.NewReader(jwkJSON))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&jwk); err != nil {
+	if err := json.Unmarshal([]byte(jwkJSON), &jwk); err != nil {
 		return nil, invalid("public_jwk_json is not a public AKP JWK")
 	}
 	if jwk.Kty != jwkKtyAKP {
