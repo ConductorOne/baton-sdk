@@ -19,6 +19,15 @@ Pending work has independent IDs/revisions. Equal request arguments are distinct
 executions. Resume loads at most100 stack entries; the existing worker queue admits
 new children in windows of64. Completed history is not traversed for recovery.
 Resource-child scheduling relations live in an index rather than a growing map.
+Startup constructs the runtime and scheduler from the same final read after any
+required migration or seed. Prior counter folds and legacy graph payloads are
+not retained in the runtime. Lifecycle preparation classifies the next operation
+once; the engine still independently checks its mutation preconditions.
+
+Attempt accounting owns cumulative run-level observations and local-phase counts.
+Live stats retain historical totals for logging; they are never written as a new
+attempt bucket. Response annotations are decoded before commit and the captured
+values feed post-commit live updates.
 
 Legacy V0/V1/V2 tokens are parsed before the store atomically clears the token,
 saves migration provenance and seeds pending actions/facts/counters. Pending work

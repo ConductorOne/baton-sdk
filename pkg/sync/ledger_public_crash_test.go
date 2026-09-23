@@ -178,7 +178,8 @@ func TestLedgerPublicCrashResume(t *testing.T) {
 					}
 					t.Run(fmt.Sprintf("version-%d/%s/workers-%d/%s", version, image, workers, cut), func(t *testing.T) {
 						path := filepath.Join(t.TempDir(), "crash.c1z")
-						runLedgerCrashChild(t, "^TestLedgerPublicCrashResume$", 75, "BATON_LEDGER_PUBLIC_CRASH_VERSION="+strconv.Itoa(version), "BATON_LEDGER_PUBLIC_CRASH_IMAGE="+image, "BATON_LEDGER_PUBLIC_CRASH_CUT="+cut,
+						runLedgerCrashChild(t, "^TestLedgerPublicCrashResume$", 75,
+							"BATON_LEDGER_PUBLIC_CRASH_VERSION="+strconv.Itoa(version), "BATON_LEDGER_PUBLIC_CRASH_IMAGE="+image, "BATON_LEDGER_PUBLIC_CRASH_CUT="+cut,
 							"BATON_LEDGER_PUBLIC_CRASH_FILE="+path, "BATON_LEDGER_PUBLIC_CRASH_WORKERS="+strconv.Itoa(workers))
 						data, err := os.ReadFile(path + ".cut")
 						require.NoError(t, err)

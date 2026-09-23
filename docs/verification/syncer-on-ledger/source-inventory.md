@@ -9,6 +9,7 @@ Baseline: eb63f1b5. Historical audits and file-size snapshots are preserved in t
 | Root grants/entitlements planning | root_planning | Shared read/filter/order logic; each caller owns transition and completion marking |
 | Phase ordering and workers | parallel_syncer | Retain the existing scheduler, retry and warning policy |
 | Pending execution | ledger_pending, ledger_restore | Bounded stack/refill reads; work IDs distinguish repeated arguments |
+| Attempt accounting | ledger_run_accounting | One accumulator for run observations and committed local completion; historical live totals stay separate |
 | Page transaction | ledger_scheduler, ledger_page, Pebble page_unit | Publish records, facts, counts and pending transition together |
 | Legacy takeover | ledger_takeover, Pebble pending_work/ledger | Parse before atomic token consumption and queue seed |
 | Local expansion/import | Existing syncer handlers | Whole-phase replay; no page transaction around local writes |

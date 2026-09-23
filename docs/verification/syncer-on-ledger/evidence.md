@@ -155,3 +155,29 @@ and focused planning tests pass three race repetitions (31.764s). This mechanica
 cleanup does not promote coverage statuses or alter durability policy.
 Report-option/seal/retention checks also pass three race repetitions (5.046s);
 CI merge-checkout lint reports zero issues after the final cleanup.
+
+## State ownership refactor
+
+Startup now constructs runtime and scheduler from the same final reads; the
+historical counter cache and unused legacy graph payload are removed. An initialized
+resume folds counters once and reads facts twice (preflight and final restore).
+Attempt accounting owns its cumulative bucket, while live historical totals stay
+separate. Captured response observations feed both durable and post-commit live
+stats. Lifecycle preparation selects one operation; archived recovery fields keep
+the existing flat JSON format, checked by a legacy-layout round trip.
+
+The observation regression rejects a reintroduced post-commit annotation decode
+(stored wait7ms versus live0ms). Independent accounting review found a reentrant
+store callback deadlock; the new observer test reproduces it before the fix and
+passes afterward. Completion persists outside the observation lock and publishes
+only completed counters on success. A scheduler fixture now preserves its supplied
+same-attempt worker buckets; the full suite caught that fixture's earlier reset.
+The lock-order meta test passes without relaxing its resolver or exclusions.
+
+Final full sync passes83.064s; storage tree passes (parent55.702s/Pebble26.595s),
+and compactor passes45.037s. Corrected accounting, process-crash and lock-order
+checks pass three race repetitions (49.732s). All142 commit/response/expiration
+cuts and six fixed-seed scheduler soaks pass (7.113s). CI merge-checkout lint is
+clean. Independent lifecycle review found no confirmed defect; accounting review
+accepted the callback correction. Shared subprocess setup retains every crash
+scenario and assertion. These changes do not close unexecuted original products.
