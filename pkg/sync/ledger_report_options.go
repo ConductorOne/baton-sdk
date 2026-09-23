@@ -6,8 +6,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-func (s *syncer) stageLedgerReportOptions(invocation *ledgerInvocation) error {
-	page := invocation.page
+func (s *syncer) stageLedgerReportOptions(page *ledgerPage) error {
 	key := c1zstore.LedgerFactReportOptionsPrefix + s.ledger.runID
 	if page.hasFact(key) {
 		return nil

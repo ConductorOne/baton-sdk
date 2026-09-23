@@ -173,7 +173,7 @@ func (s *syncer) skipLedgerSync(ctx context.Context) error {
 		if err := page.writer.SetPendingWork(work[0]); err != nil {
 			return err
 		}
-		if err := s.stageLedgerReportOptions(&ledgerInvocation{page: page}); err != nil {
+		if err := s.stageLedgerReportOptions(page); err != nil {
 			return err
 		}
 		return page.transition("")

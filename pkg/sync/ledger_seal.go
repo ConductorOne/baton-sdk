@@ -11,12 +11,8 @@ import (
 const ledgerTerminalOp = "sync-terminal-v1"
 const ledgerFactSealReady = "sync.seal_ready"
 
-func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.LedgerCounters, facts ...string) error {
-	return r.prepareSealWithOptions(ctx, runCounters, nil, facts...)
-}
-
 func (s *syncer) prepareLedgerSeal(ctx context.Context, counters c1zstore.LedgerCounters, facts ...string) error {
-	return s.ledger.prepareSealWithOptions(ctx, counters, func(page *ledgerPage) error { return s.stageLedgerReportOptions(&ledgerInvocation{page: page}) }, facts...)
+	return s.ledger.prepareSealWithOptions(ctx, counters, s.stageLedgerReportOptions, facts...)
 }
 
 func (r *ledgerRuntime) prepareSealWithOptions(ctx context.Context, runCounters c1zstore.LedgerCounters, options func(*ledgerPage) error, facts ...string) error {

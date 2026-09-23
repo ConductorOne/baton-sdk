@@ -282,3 +282,7 @@ func TestLedgerSnapshotAfterReopen(t *testing.T) {
 	require.True(t, ok)
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, raw)))
 }
+
+func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.LedgerCounters, facts ...string) error {
+	return r.prepareSealWithOptions(ctx, runCounters, nil, facts...)
+}
