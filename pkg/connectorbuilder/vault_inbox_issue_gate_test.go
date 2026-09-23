@@ -223,6 +223,28 @@ func TestVaultInboxCreateAccountKeepsStructuredResults(t *testing.T) {
 		require.Zero(t, manager.createCalls, "the account must not be created for a refusal we can make up front")
 	})
 
+	// The upper bound of the non-success rule: these results are allowed to carry
+	// no plaintext, but two is still refused, because they would seal two complete
+	// envelopes bound to one submission id.
+	t.Run("a non-success result with two values is refused", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateAccountManager{
+			ResourceSyncer: newTestResourceSyncer("service_account"),
+			result:         &v2.CreateAccountResponse_AlreadyExistsResult{IsCreateAccountResult: true},
+			plaintexts: []*v2.PlaintextData{
+				gateValue("api_key", []byte("v")),
+				gateValue("api_key_id", []byte("id")),
+			},
+		}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		_, err = connector.CreateAccount(context.Background(), gateCreateAccountRequest(t))
+		require.ErrorContains(t, err, "at most one plaintext value",
+			"the at-most-one rule must be what refuses this, not the exactly-one rule")
+		require.Equal(t, 1, manager.createCalls, "the account manager must not be re-invoked")
+	})
+
 	t.Run("more than one plaintext is still refused", func(t *testing.T) {
 		t.Parallel()
 		manager := &gateAccountManager{
