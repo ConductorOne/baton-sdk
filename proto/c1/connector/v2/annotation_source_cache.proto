@@ -163,6 +163,8 @@ message SourceCacheRecord {
 // fields for the page's row kind may be set: resources on a resources
 // page, entitlements on an entitlements page, grants and principals on a
 // grants page.
+//
+// The syncer does not read this field yet; setting it deletes nothing.
 message SourceCacheTombstones {
   repeated ResourceId resources = 1;
   repeated SourceCacheEntitlementRef entitlements = 2;
