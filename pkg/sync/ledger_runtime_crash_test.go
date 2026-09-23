@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -101,14 +100,7 @@ func TestLedgerRuntimeCrashProcess(t *testing.T) {
 	for _, cut := range []string{"page-handler", "page-staged", "page-committed", "terminal-staged", "terminal-committed", "sealed"} {
 		t.Run(cut, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "runtime.c1z")
-			executable, err := os.Executable()
-			require.NoError(t, err)
-			cmd := exec.CommandContext(t.Context(), executable, "-test.run=^TestLedgerRuntimeCrashProcess$")
-			cmd.Env = append(os.Environ(), "BATON_LEDGER_RUNTIME_CUT="+cut, "BATON_LEDGER_RUNTIME_FILE="+path)
-			output, err := cmd.CombinedOutput()
-			var exited *exec.ExitError
-			require.ErrorAs(t, err, &exited, string(output))
-			require.Equal(t, 74, exited.ExitCode(), string(output))
+			runLedgerCrashChild(t, "^TestLedgerRuntimeCrashProcess$", 74, "BATON_LEDGER_RUNTIME_CUT="+cut, "BATON_LEDGER_RUNTIME_FILE="+path)
 			markerData, err := os.ReadFile(path + ".cut")
 			require.NoError(t, err)
 			var marker ledgerCrashMarker

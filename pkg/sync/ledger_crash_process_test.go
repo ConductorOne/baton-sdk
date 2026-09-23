@@ -38,14 +38,7 @@ func TestLedgerCrashProcess(t *testing.T) {
 	for _, cut := range []string{"staged", "committed"} {
 		t.Run(cut, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "crash.c1z")
-			executable, err := os.Executable()
-			require.NoError(t, err)
-			command := exec.CommandContext(t.Context(), executable, "-test.run=^TestLedgerCrashProcess$")
-			command.Env = append(os.Environ(), "BATON_LEDGER_CRASH_CUT="+cut, "BATON_LEDGER_CRASH_FILE="+path)
-			output, err := command.CombinedOutput()
-			var exit *exec.ExitError
-			require.ErrorAs(t, err, &exit, string(output))
-			require.Equal(t, 73, exit.ExitCode(), string(output))
+			runLedgerCrashChild(t, "^TestLedgerCrashProcess$", 73, "BATON_LEDGER_CRASH_CUT="+cut, "BATON_LEDGER_CRASH_FILE="+path)
 			marker, err := os.ReadFile(path + ".cut")
 			require.NoError(t, err)
 			require.Equal(t, cut, string(marker))
@@ -83,4 +76,17 @@ func TestLedgerCrashProcess(t *testing.T) {
 			}
 		})
 	}
+}
+
+func runLedgerCrashChild(t *testing.T, pattern string, exitCode int, env ...string) []byte {
+	t.Helper()
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	command := exec.CommandContext(t.Context(), executable, "-test.run="+pattern)
+	command.Env = append(os.Environ(), env...)
+	output, err := command.CombinedOutput()
+	var exited *exec.ExitError
+	require.ErrorAs(t, err, &exited, string(output))
+	require.Equal(t, exitCode, exited.ExitCode(), string(output))
+	return output
 }

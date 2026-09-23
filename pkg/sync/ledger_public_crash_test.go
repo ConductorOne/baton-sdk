@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	stdsync "sync"
@@ -179,16 +178,8 @@ func TestLedgerPublicCrashResume(t *testing.T) {
 					}
 					t.Run(fmt.Sprintf("version-%d/%s/workers-%d/%s", version, image, workers, cut), func(t *testing.T) {
 						path := filepath.Join(t.TempDir(), "crash.c1z")
-						executable, err := os.Executable()
-						require.NoError(t, err)
-						cmd := exec.CommandContext(t.Context(), executable, "-test.run=^TestLedgerPublicCrashResume$")
-						cmd.Env = append(os.Environ(),
-							"BATON_LEDGER_PUBLIC_CRASH_VERSION="+strconv.Itoa(version), "BATON_LEDGER_PUBLIC_CRASH_IMAGE="+image, "BATON_LEDGER_PUBLIC_CRASH_CUT="+cut,
+						runLedgerCrashChild(t, "^TestLedgerPublicCrashResume$", 75, "BATON_LEDGER_PUBLIC_CRASH_VERSION="+strconv.Itoa(version), "BATON_LEDGER_PUBLIC_CRASH_IMAGE="+image, "BATON_LEDGER_PUBLIC_CRASH_CUT="+cut,
 							"BATON_LEDGER_PUBLIC_CRASH_FILE="+path, "BATON_LEDGER_PUBLIC_CRASH_WORKERS="+strconv.Itoa(workers))
-						output, err := cmd.CombinedOutput()
-						var exited *exec.ExitError
-						require.ErrorAs(t, err, &exited, string(output))
-						require.Equal(t, 75, exited.ExitCode(), string(output))
 						data, err := os.ReadFile(path + ".cut")
 						require.NoError(t, err)
 						var marker ledgerCrashMarker

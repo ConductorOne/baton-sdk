@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -264,16 +263,8 @@ func TestLedgerPublicFamilyCrashDifferential(t *testing.T) {
 				for _, image := range []string{"wal", "flushed"} {
 					t.Run(fmt.Sprintf("workers-%d/%s/after-%t/%s", workers, op, after, image), func(t *testing.T) {
 						path := filepath.Join(t.TempDir(), "crash.c1z")
-						executable, err := os.Executable()
-						require.NoError(t, err)
-						cmd := exec.CommandContext(t.Context(), executable, "-test.run=^TestLedgerPublicFamilyCrashDifferential$")
-						cmd.Env = append(os.Environ(),
-							"BATON_LEDGER_FAMILY_OP="+op.String(), "BATON_LEDGER_FAMILY_WORKERS="+strconv.Itoa(workers),
+						output := runLedgerCrashChild(t, "^TestLedgerPublicFamilyCrashDifferential$", 76, "BATON_LEDGER_FAMILY_OP="+op.String(), "BATON_LEDGER_FAMILY_WORKERS="+strconv.Itoa(workers),
 							"BATON_LEDGER_FAMILY_FILE="+path, "BATON_LEDGER_FAMILY_AFTER="+strconv.FormatBool(after), "BATON_LEDGER_FAMILY_IMAGE="+image)
-						output, err := cmd.CombinedOutput()
-						var exit *exec.ExitError
-						require.ErrorAs(t, err, &exit, string(output))
-						require.Equal(t, 76, exit.ExitCode(), string(output))
 						require.NotContains(t, string(output), "WARNING: DATA RACE")
 						marker, err := os.ReadFile(path + ".cut")
 						require.NoError(t, err)
