@@ -213,7 +213,6 @@ func TestValidateConfigRejectsUnsupportedProfiles(t *testing.T) {
 		"generation zero":       configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.KeyGeneration = 0 }),
 		"scheme empty":          configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.PayloadScheme = "" }),
 		"unsupported scheme":    configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.PayloadScheme = "latchkey.vault_submission.secret.v2" }),
-		"oversized jwk":         configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.PublicJwkJson = strings.Repeat("a", maxJWKBytes+1) }),
 		"submission id empty":   configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.SubmissionId = "" }),
 		"thumbprint empty":      configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.PublicKeyThumbprint = "" }),
 		"thumbprint mismatch":   configFor(t, func(c *v2.VaultInboxRecipientConfig) { c.PublicKeyThumbprint = "not-the-thumbprint" }),
@@ -292,6 +291,30 @@ func TestValidateConfigRejectsMalformedJWK(t *testing.T) {
 			require.Error(t, NewProvider().ValidateConfig(context.Background(), build(jwk)))
 		})
 	}
+}
+
+// TestOversizedPublicJWKIsRejected pins the size bound with a JWK that is valid
+// in every other respect. A non-JSON string would be refused by the parse
+// regardless of the bound, so this padding is an extra member on a real key: the
+// thumbprint still matches and the key still parses, leaving the bound as the
+// only thing that can refuse it.
+func TestOversizedPublicJWKIsRejected(t *testing.T) {
+	t.Parallel()
+	jwk, _ := vectorPublicJWK(t)
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal([]byte(jwk), &parsed))
+	parsed["padding"] = strings.Repeat("p", maxJWKBytes)
+	padded, err := json.Marshal(parsed)
+	require.NoError(t, err)
+	require.Greater(t, len(padded), maxJWKBytes)
+
+	require.Error(t, NewProvider().ValidateConfig(context.Background(), configFor(t, func(c *v2.VaultInboxRecipientConfig) {
+		c.PublicJwkJson = string(padded)
+	})), "a JWK over the bound must be refused even when it is otherwise valid")
+
+	// The same key at the bound is accepted, so the refusal is the size and not
+	// the padding member.
+	require.NoError(t, NewProvider().ValidateConfig(context.Background(), vectorConfig(t)))
 }
 
 func TestEncryptRejectsUnusablePlaintext(t *testing.T) {
