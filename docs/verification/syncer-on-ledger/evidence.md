@@ -1012,3 +1012,27 @@ The storage-only independent review at c9ff02ce found the missing-declaration
 seal issue above. This integration has not yet received independent signoff.
 Previous review outcomes do not establish the new consumer's correctness. The
 public cost rerun and final integrated review remain pending at this commit.
+
+### Consumer follow-up: cancellation and independent review
+
+Full sync rerun at84811dfb passed in87.095s. Independent Sol review reported a
+possible missing execution ID on a skipped full sync. The store already assigns
+WorkID/revision from SetPendingWork before serialization (page_unit.go); the new
+TestLedgerPublicSkipSyncDebugReferences passes without a production correction,
+asserting stored ID1/revision0 and zero archived identity/reference mismatches.
+The review's inference is therefore not a reproduced defect. A separate bounded
+lifecycle review found no concrete bug; focused takeover/restore/seal/local-phase
+tests passed. Neither review establishes complete original coverage products.
+
+The resumed cost driver found a real consumer regression: after cancellation at
+a committed resource page, the next connector request could still run. Removing
+the history lookup had removed its context-error check. The canceled extra page
+never committed, but its request was unnecessary. TestPendingSyncCancellationBeforeContinuation
+reproduces two connector calls before the correction, then one before close and
+three total after cold resume with the guard. Three race repetitions pass1.381s.
+The guard is an explicit context check at the ledger page entry; SQLite is unchanged.
+
+Initial test-fixture attempts canceled on an empty planning page or checked
+writer-populated counts through the pre-serialization observer. Those failures
+were fixture errors; the recorded regression uses the connector call count at
+commit, matching the independently failing public cost driver.

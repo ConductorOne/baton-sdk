@@ -261,3 +261,28 @@ func TestPendingRefillFailureLeavesChildrenForColdResume(t *testing.T) {
 	require.NoError(t, resumed.Sync(t.Context()))
 	require.Equal(t, 1, calls)
 }
+
+func TestPendingSyncCancellationBeforeContinuation(t *testing.T) {
+	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "cancel.c1z"), false)
+	connector := &ledgerCostConnector{mockConnector: newMockConnector(), pages: 3, records: 1, streams: 1}
+	connector.rtDB = []*v2.ResourceType{v2.ResourceType_builder{Id: "cost-0", DisplayName: "Cost resources"}.Build()}
+	created, err := NewSyncer(t.Context(), connector, WithConnectorStore(f.store), WithWorkerCount(1),
+		WithSkipEntitlementsAndGrants(true), WithDontExpandGrants())
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	created.(*syncer).testHooks.ledgerCommitted = func(row c1zstore.LedgerRow) {
+		if row.Identity.Op == SyncResourcesOp.String() && connector.calls.Load() == 1 {
+			cancel()
+		}
+	}
+	require.ErrorIs(t, created.Sync(ctx), context.Canceled)
+	require.EqualValues(t, 1, connector.calls.Load())
+	require.NoError(t, f.store.Close(t.Context()))
+	f = openLedgerFixtureAt(t, f.path, false)
+	resumed, err := NewSyncer(t.Context(), connector, WithConnectorStore(f.store), WithWorkerCount(1),
+		WithSkipEntitlementsAndGrants(true), WithDontExpandGrants())
+	require.NoError(t, err)
+	require.NoError(t, resumed.Sync(t.Context()))
+	require.EqualValues(t, 3, connector.calls.Load())
+}

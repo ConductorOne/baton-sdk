@@ -82,6 +82,9 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 	if !s.ledgered {
 		return handler(ctx, action)
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if s.ledger == nil {
 		return errors.New("ledger runtime is not initialized")
 	}

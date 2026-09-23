@@ -393,3 +393,33 @@ func TestLedgerFinishedRetentionUsesCurrentOptions(t *testing.T) {
 		})
 	}
 }
+
+func TestLedgerPublicSkipSyncDebugReferences(t *testing.T) {
+	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "skip-debug.c1z"), false)
+	s, err := NewSyncer(t.Context(), newMockConnector(), WithConnectorStore(f.store), WithSkipFullSync(), WithLedgerDebug(true))
+	require.NoError(t, err)
+	require.NoError(t, s.Sync(t.Context()))
+	row, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: InitOp.String()})
+	require.NoError(t, err)
+	require.True(t, found)
+	require.EqualValues(t, 1, row.WorkID)
+	require.Zero(t, row.WorkRevision)
+	report, err := f.ledger.GetArchivedLedgerReport(t.Context())
+	require.NoError(t, err)
+	var performed bool
+	var payload map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(report, &payload))
+	latest := payload["latest"]
+	require.NoError(t, json.Unmarshal(latest, &payload))
+	require.NoError(t, json.Unmarshal(payload["reference_validation_performed"], &performed))
+	var checks struct {
+		IdentityMismatches   uint64 `json:"identity_mismatches"`
+		MissingChildren      uint64 `json:"missing_child_references"`
+		MissingContinuations uint64 `json:"missing_continuation_references"`
+	}
+	require.NoError(t, json.Unmarshal(payload["reference_checks"], &checks))
+	require.True(t, performed)
+	require.Zero(t, checks.IdentityMismatches)
+	require.Zero(t, checks.MissingChildren)
+	require.Zero(t, checks.MissingContinuations)
+}
