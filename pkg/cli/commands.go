@@ -304,11 +304,12 @@ func MakeMainCommand[T field.Configurable](
 				}
 				opts = append(opts,
 					connectorrunner.WithActionsEnabled(),
-					connectorrunner.WithOnDemandInvokeAction(
+					connectorrunner.WithOnDemandInvokeActionWithCredentialPrinting(
 						v.GetString("file"),
 						v.GetString("invoke-action"),
 						v.GetString("invoke-action-resource-type"), // Optional resource type for resource-scoped actions
 						invokeActionArgsStruct,
+						v.GetBool("print-credentials"),
 					))
 			case v.GetBool("list-action-schemas"):
 				opts = append(opts,

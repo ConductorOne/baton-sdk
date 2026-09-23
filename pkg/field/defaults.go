@@ -181,6 +181,12 @@ var (
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
 	)
+	printCredentialsField = BoolField("print-credentials",
+		WithHidden(true),
+		WithDescription("Print decrypted credentials returned by local operations"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
 
 	listActionSchemasField = BoolField("list-action-schemas",
 		WithHidden(true),
@@ -427,6 +433,7 @@ var DefaultFields = append([]SchemaField{
 	invokeActionField,
 	invokeActionArgsField,
 	invokeActionResourceTypeField,
+	printCredentialsField,
 	listActionSchemasField,
 	listActionSchemasResourceTypeField,
 	listResourceActionsField,

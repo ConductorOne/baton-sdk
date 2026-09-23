@@ -363,6 +363,7 @@ type invokeActionConfig struct {
 	resourceTypeID    string // Optional: if set, invokes a resource-scoped action
 	args              *structpb.Struct
 	encryptionConfigs []*v2.EncryptionConfig
+	printCredentials  bool
 }
 
 type listActionSchemasConfig struct {
@@ -568,7 +569,18 @@ func WithOnDemandCreateAccount(c1zPath string, login string, email string, profi
 // WithOnDemandInvokeAction creates an option for invoking an action.
 // If resourceTypeID is provided, it invokes a resource-scoped action.
 func WithOnDemandInvokeAction(c1zPath string, action string, resourceTypeID string, args *structpb.Struct) Option {
-	return WithOnDemandInvokeActionWithEncryption(c1zPath, action, resourceTypeID, args, nil)
+	return withOnDemandInvokeAction(c1zPath, action, resourceTypeID, args, nil, false)
+}
+
+// WithOnDemandInvokeActionWithCredentialPrinting logs decrypted action credentials when printCredentials is true.
+func WithOnDemandInvokeActionWithCredentialPrinting(
+	c1zPath string,
+	action string,
+	resourceTypeID string,
+	args *structpb.Struct,
+	printCredentials bool,
+) Option {
+	return withOnDemandInvokeAction(c1zPath, action, resourceTypeID, args, nil, printCredentials)
 }
 
 // WithOnDemandInvokeActionWithEncryption creates an option for invoking an
@@ -580,6 +592,17 @@ func WithOnDemandInvokeActionWithEncryption(
 	args *structpb.Struct,
 	encryptionConfigs []*v2.EncryptionConfig,
 ) Option {
+	return withOnDemandInvokeAction(c1zPath, action, resourceTypeID, args, encryptionConfigs, false)
+}
+
+func withOnDemandInvokeAction(
+	c1zPath string,
+	action string,
+	resourceTypeID string,
+	args *structpb.Struct,
+	encryptionConfigs []*v2.EncryptionConfig,
+	printCredentials bool,
+) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
 		cfg.c1zPath = c1zPath
@@ -588,6 +611,7 @@ func WithOnDemandInvokeActionWithEncryption(
 			resourceTypeID:    resourceTypeID,
 			args:              args,
 			encryptionConfigs: encryptionConfigs,
+			printCredentials:  printCredentials,
 		}
 		return nil
 	}
@@ -1054,14 +1078,24 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewCreateAccountManager(ctx, cfg.c1zPath, cfg.createAccountConfig.login, cfg.createAccountConfig.email, cfg.createAccountConfig.profile, cfg.createAccountConfig.resourceTypeID)
 
 		case cfg.invokeActionConfig != nil:
-			tm = local.NewActionInvokerWithEncryption(
-				ctx,
-				cfg.c1zPath,
-				cfg.invokeActionConfig.action,
-				cfg.invokeActionConfig.resourceTypeID,
-				cfg.invokeActionConfig.args,
-				cfg.invokeActionConfig.encryptionConfigs,
-			)
+			if cfg.invokeActionConfig.printCredentials {
+				tm = local.NewActionInvokerWithCredentialPrinting(
+					ctx,
+					cfg.c1zPath,
+					cfg.invokeActionConfig.action,
+					cfg.invokeActionConfig.resourceTypeID,
+					cfg.invokeActionConfig.args,
+				)
+			} else {
+				tm = local.NewActionInvokerWithEncryption(
+					ctx,
+					cfg.c1zPath,
+					cfg.invokeActionConfig.action,
+					cfg.invokeActionConfig.resourceTypeID,
+					cfg.invokeActionConfig.args,
+					cfg.invokeActionConfig.encryptionConfigs,
+				)
+			}
 
 		case cfg.listActionSchemasConfig != nil:
 			tm = local.NewListActionSchemas(ctx, cfg.listActionSchemasConfig.resourceTypeID)
