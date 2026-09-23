@@ -1166,3 +1166,16 @@ process's current options choose discard, scrubbed debug retention or explicit
 token retention for subsequent pages. This does not reset stored data, counters,
 sync identity or lifecycle metadata. Unfinished recovery still inherits the
 durable declaration; a pending seal is not a fresh policy boundary.
+
+### CO-027 — durable pending work is the recovery authority
+
+- Classification: architectural correction.
+- Source: requester, following review of cumulative resume memory and repeated request semantics.
+- Claim: each work instance has an ID and page revision independent of its request arguments. A page commits records, accounting, completion observations and pending-work updates atomically. Resume reads pending work directly in bounded windows, without traversing or remembering completed pages. Repeated request arguments may execute again, including an empty terminal response. No new cycle rejection or warning work is required for this change.
+- Contract delta: separate pending-work and queue-metadata key ranges within the existing Pebble ledger family; an atomic page transition validates the expected work revision, replaces/deletes its pending entry and inserts children. The allocator advances in that batch. Completed rows are report input, not recovery input. Initial work and legacy takeover seed the queue atomically with their initialization/migration declaration. Finished processing preserves data and lifecycle metadata while clearing completed history and applying current retention options.
+- Owning boundary: storage page batch, lifecycle/takeover and existing scheduler integration. SQLite remains on its existing path. No replacement worker pool.
+- Affected criteria: C04–C16, C20–C36, C39–C50. Earlier history-walk and request-identity deduplication wording is superseded where incompatible.
+- Verification delta: before/after durable page images include pending/record/history/fact/counter state; stale revisions and batch failures leave all unchanged; repeated-token then empty-terminal fixture; unique child instances for equal request arguments; checkpoint versions and takeover cuts; serial ordering/parallel phase barriers; bounded decoded work for growing completed history and pending backlog; default/debug disposal includes new ranges. Prototype artifacts establish feasibility, not integration closure.
+- Cost evidence: raw Pebble prototype, 1m completed pages/10 pending entries resumed in approximately0.18ms;100k pending entries decoded in windows of64. Extra queue writes cost approximately1.6s per1m one-record pages; requester accepts this scale of overhead. Actual scheduler integration still needs comparison.
+- Risk routing: HIGH; no production queue migration until the transaction and bounded-loader checks exist.
+- PR placement: replace current recovery algorithm in this PR. No shipped ledgered syncer exists; incompatible unfinished experimental history-only artifacts must be diagnosed rather than silently treated as empty.
