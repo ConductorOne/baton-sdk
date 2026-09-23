@@ -196,7 +196,7 @@ Which of those run on which path:
 | Path | Pre-mint gates |
 |---|---|
 | `IssueCredential` | all of the above, unconditionally |
-| registered actions | config shape, plus the cardinality rule in §6.2 |
+| registered actions | config shape only — the cardinality rule is post-mint (§6.2) |
 | `CreateAccount` | config shape when a vault-inbox recipient is present, plus the credential-option rule below |
 | `RotateCredential` | the same config-shape check, plus the rotate credential-option rule below |
 
