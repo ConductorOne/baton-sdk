@@ -91,9 +91,10 @@ func (pkem *EncryptionManager) ValidatePlaintextCardinalityAtMostOne(plaintexts 
 // one is the expected shape, and more than one would seal several complete
 // submission envelopes bound to a single submission id.
 //
-// Use this where a caller can legally produce no plaintext — CreateAccount's
-// AlreadyExists, ActionRequired, and InProgress results all carry none — and
-// [ValidatePlaintextCardinality] where the contract requires a value.
+// This is the rule for a caller whose contract permits no credential at all —
+// CreateAccount's AlreadyExists, ActionRequired, and InProgress results. A caller
+// whose contract requires a value must use
+// [ValidatePlaintextCardinality] instead, or a missing value passes silently.
 func ValidateVaultInboxPlaintextCardinalityAtMostOne(configs []*v2.EncryptionConfig, plaintexts []*v2.PlaintextData) error {
 	if !hasVaultInboxConfig(configs) {
 		return nil

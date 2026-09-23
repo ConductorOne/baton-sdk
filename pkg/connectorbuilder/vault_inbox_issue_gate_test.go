@@ -189,6 +189,19 @@ func TestVaultInboxCreateAccountKeepsStructuredResults(t *testing.T) {
 		require.Equal(t, 1, manager.createCalls)
 	})
 
+	t.Run("a success result with no value is still a failure", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateAccountManager{
+			ResourceSyncer: newTestResourceSyncer("service_account"),
+			result:         &v2.CreateAccountResponse_SuccessResult{IsCreateAccountResult: true},
+		}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		_, err = connector.CreateAccount(context.Background(), gateCreateAccountRequest(t))
+		require.Error(t, err, "a success with no credential would seal no submission and report success")
+	})
+
 	t.Run("more than one plaintext is still refused", func(t *testing.T) {
 		t.Parallel()
 		manager := &gateAccountManager{

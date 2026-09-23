@@ -122,14 +122,22 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
 	}
 
-	// Upper-bound only: CreateAccount's AlreadyExists, ActionRequired, and
-	// InProgress results legitimately carry no plaintext, and demanding one here
-	// would turn "the account already exists" into a hard failure. More than one
-	// is still refused, because it would seal several complete envelopes bound to
-	// one submission id.
-	if err := pkem.ValidatePlaintextCardinalityAtMostOne(plaintexts); err != nil {
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, err
+	// Only a success result is expected to carry a credential, so only a success
+	// result requires one: a vault-inbox recipient with nothing to seal would
+	// silently produce no submission and report success. The non-success results
+	// carry no plaintext by contract, so they take the upper bound only, and more
+	// than one is refused on either path because it would seal several complete
+	// envelopes bound to a single submission id.
+	var cardinalityErr error
+	switch result.(type) {
+	case *v2.CreateAccountResponse_SuccessResult:
+		cardinalityErr = pkem.ValidatePlaintextCardinality(plaintexts)
+	default:
+		cardinalityErr = pkem.ValidatePlaintextCardinalityAtMostOne(plaintexts)
+	}
+	if cardinalityErr != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), cardinalityErr)
+		return nil, cardinalityErr
 	}
 
 	var encryptedDatas []*v2.EncryptedData
