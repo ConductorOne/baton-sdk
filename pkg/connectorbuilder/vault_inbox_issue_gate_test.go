@@ -341,6 +341,70 @@ func TestVaultInboxRotateRefusesBeforeMinting(t *testing.T) {
 		require.Len(t, resp.GetEncryptedData(), 1)
 		require.Equal(t, vaultinbox.EncryptionProvider, resp.GetEncryptedData()[0].GetProvider())
 	})
+
+	// Post-mint on this path: the rotation has happened, so the refusal must be
+	// the cardinality rule rather than anything earlier, and the rotation must not
+	// be attempted a second time.
+	t.Run("two values are refused after exactly one rotation", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateCredentialManager{
+			ResourceSyncer: newTestResourceSyncer("service_account"),
+			plaintexts: []*v2.PlaintextData{
+				gateValue("api_key", []byte("v")),
+				gateValue("api_key_id", []byte("id")),
+			},
+		}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		_, err = connector.RotateCredential(context.Background(), gateRotateRequest(t, randomPassword))
+		require.ErrorContains(t, err, "exactly one plaintext value",
+			"the cardinality rule must be what refuses this, not an earlier check")
+		require.Equal(t, 1, manager.rotateCalls, "the rotation must not be retried")
+	})
+}
+
+// TestVaultInboxGateMatchesProviderNameOnlyConfig pins the provider-name branch of
+// IsVaultInboxConfig. Every other fixture in the suite sets both the provider and
+// the inner message, so without this case that branch could be deleted with the
+// suite still green — and the config would then reach the provider, fail at
+// Encrypt, and do so after the rotation had already invalidated the prior
+// credential.
+func TestVaultInboxGateMatchesProviderNameOnlyConfig(t *testing.T) {
+	t.Parallel()
+	providerNameOnly := v2.EncryptionConfig_builder{
+		Provider: vaultinbox.EncryptionProvider,
+	}.Build()
+
+	t.Run("rotate refuses before the provider is touched", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateCredentialManager{ResourceSyncer: newTestResourceSyncer("service_account")}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		request := gateRotateRequest(t, v2.CredentialOptions_builder{
+			RandomPassword: v2.CredentialOptions_RandomPassword_builder{Length: 12}.Build(),
+		}.Build())
+		request.SetEncryptionConfigs([]*v2.EncryptionConfig{providerNameOnly})
+
+		_, err = connector.RotateCredential(context.Background(), request)
+		require.Error(t, err)
+		require.Zero(t, manager.rotateCalls, "the config must be refused before the rotation reaches the provider")
+	})
+
+	t.Run("create refuses before the account is created", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateAccountManager{ResourceSyncer: newTestResourceSyncer("service_account")}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		request := gateCreateAccountRequest(t)
+		request.SetEncryptionConfigs([]*v2.EncryptionConfig{providerNameOnly})
+
+		_, err = connector.CreateAccount(context.Background(), request)
+		require.Error(t, err)
+		require.Zero(t, manager.createCalls, "the config must be refused before the account is created")
+	})
 }
 
 func gateValue(name string, value []byte) *v2.PlaintextData {
