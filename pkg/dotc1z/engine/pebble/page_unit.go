@@ -3,11 +3,10 @@ package pebble
 import (
 	"fmt"
 
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
+
 	"context"
 	"errors"
-
-	"github.com/cockroachdb/pebble/v2"
-	"github.com/conductorone/baton-sdk/pkg/bid"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -169,76 +168,59 @@ func (u *pageUnit) StageGrantDeletes(records ...*v3.GrantRecord) error {
 
 // The buffer half of a same-page tombstone: the store-side tombstone cannot
 // see a buffered put.
-func (u *pageUnit) DropStagedRows(ctx context.Context, kind string, scopeKey string, canonicalIDs, principalIDs []string) (int, error) {
+func (u *pageUnit) DropStagedRows(kind sourcecache.RowKind, scopeKey string, t sourcecache.Tombstones) (int, error) {
 	if u.done {
 		return 0, ErrPageUnitCommitted
 	}
-	canonical := make(map[string]struct{}, len(canonicalIDs))
-	for _, id := range canonicalIDs {
-		canonical[id] = struct{}{}
-	}
-	principals := make(map[string]struct{}, len(principalIDs))
-	for _, id := range principalIDs {
-		principals[id] = struct{}{}
+	if err := t.ValidateKind(kind); err != nil {
+		return 0, err
 	}
 	dropped := 0
 	switch kind {
-	case "grants":
+	case sourcecache.RowKindGrants:
 		current, err := latestStagedRecords(u.grants, grantIdentityFromRecord)
 		if err != nil {
 			return 0, err
 		}
-		staged := make(map[grantIdentity]*v3.GrantRecord, len(current))
+		doomed := make(map[grantIdentity]struct{}, len(t.Grants))
+		for _, ref := range t.Grants {
+			doomed[grantIdentityFromRef(ref)] = struct{}{}
+		}
+		principals := make(map[sourcecache.ResourceRef]struct{}, len(t.Principals))
+		for _, p := range t.Principals {
+			principals[p] = struct{}{}
+		}
+		kept := u.grants[:0]
 		for _, g := range current {
 			id, err := grantIdentityFromRecord(g)
 			if err != nil {
 				return 0, err
 			}
-			staged[id] = g
-		}
-		doomed := make(map[grantIdentity]struct{}, len(canonical))
-		for externalID := range canonical {
-			id, err := resolveGrantIdentityCandidates(ctx, externalID, u.entitlementIdentities, func(id grantIdentity) (string, error) {
-				g, ok := staged[id]
-				if !ok {
-					return "", pebble.ErrNotFound
-				}
-				return g.GetExternalId(), nil
-			})
-			if errors.Is(err, pebble.ErrNotFound) {
-				continue
-			}
-			if err != nil {
-				return 0, err
-			}
-			doomed[id] = struct{}{}
-		}
-		kept := u.grants[:0]
-		for _, g := range current {
-			id, _ := grantIdentityFromRecord(g)
-			_, byID := doomed[id]
-			_, byPrincipal := principals[g.GetPrincipal().GetResourceId()]
-			if byID || (byPrincipal && g.GetSourceScopeKey() == scopeKey) {
+			_, byRef := doomed[id]
+			_, byPrincipal := principals[sourcecache.ResourceRef{ResourceTypeID: id.principalTypeID, ResourceID: id.principalID}]
+			if byRef || (byPrincipal && g.GetSourceScopeKey() == scopeKey) {
 				dropped++
 				continue
 			}
 			kept = append(kept, g)
 		}
 		u.grants = kept
-	case "entitlements":
-		if len(principals) > 0 {
-			return 0, errors.New("source cache scoped delete: not supported for entitlements")
-		}
+	case sourcecache.RowKindEntitlements:
 		current, err := latestStagedRecords(u.entitlements, entitlementIdentityFromRecord)
 		if err != nil {
 			return 0, err
 		}
-		if err := requireUniqueTombstoneIDs(current, canonical, (*v3.EntitlementRecord).GetExternalId); err != nil {
-			return 0, err
+		doomed := make(map[entitlementIdentity]struct{}, len(t.Entitlements))
+		for _, ref := range t.Entitlements {
+			doomed[entitlementIdentityFromRef(ref)] = struct{}{}
 		}
 		kept := u.entitlements[:0]
 		for _, r := range current {
-			if _, hit := canonical[r.GetExternalId()]; hit {
+			id, err := entitlementIdentityFromRecord(r)
+			if err != nil {
+				return 0, err
+			}
+			if _, hit := doomed[id]; hit {
 				dropped++
 				continue
 			}
@@ -252,23 +234,18 @@ func (u *pageUnit) DropStagedRows(ctx context.Context, kind string, scopeKey str
 			}
 			u.entitlementIdx[r.GetExternalId()] = append(u.entitlementIdx[r.GetExternalId()], i)
 		}
-	case "resources":
-		refs := make(map[resourceBufKey]struct{}, len(canonicalIDs))
-		for _, id := range canonicalIDs {
-			r, err := bid.ParseResourceBid(id)
-			if err != nil {
-				return 0, fmt.Errorf("page tombstone: invalid resource bid %q: %w", id, err)
-			}
-			refs[resourceBufKey{r.GetId().GetResourceType(), r.GetId().GetResource()}] = struct{}{}
+	case sourcecache.RowKindResources:
+		doomed := make(map[resourceBufKey]struct{}, len(t.Resources))
+		for _, ref := range t.Resources {
+			doomed[resourceBufKey{ref.ResourceTypeID, ref.ResourceID}] = struct{}{}
 		}
 		kept := u.resources[:0]
 		for i, r := range u.resources {
-			if u.resourceIdx[resourceBufKey{r.GetResourceTypeId(), r.GetResourceId()}] != i {
+			key := resourceBufKey{r.GetResourceTypeId(), r.GetResourceId()}
+			if u.resourceIdx[key] != i {
 				continue
 			}
-			_, byRef := refs[resourceBufKey{r.GetResourceTypeId(), r.GetResourceId()}]
-			_, byID := principals[r.GetResourceId()]
-			if byRef || (byID && r.GetSourceScopeKey() == scopeKey) {
+			if _, hit := doomed[key]; hit {
 				dropped++
 				continue
 			}
@@ -282,8 +259,6 @@ func (u *pageUnit) DropStagedRows(ctx context.Context, kind string, scopeKey str
 			}
 			u.resourceIdx[resourceBufKey{r.GetResourceTypeId(), r.GetResourceId()}] = i
 		}
-	default:
-		return 0, fmt.Errorf("page tombstone: unknown row kind %q", kind)
 	}
 	return dropped, nil
 }
@@ -305,21 +280,6 @@ func latestStagedRecords[T any, K comparable](records []T, identity func(T) (K, 
 		}
 	}
 	return current, nil
-}
-
-func requireUniqueTombstoneIDs[T any](records []T, requested map[string]struct{}, externalID func(T) string) error {
-	seen := make(map[string]struct{}, len(requested))
-	for _, r := range records {
-		id := externalID(r)
-		if _, ok := requested[id]; !ok {
-			continue
-		}
-		if _, duplicate := seen[id]; duplicate {
-			return fmt.Errorf("%w: tombstone id %q matches multiple staged records", ErrAmbiguousExternalID, id)
-		}
-		seen[id] = struct{}{}
-	}
-	return nil
 }
 
 // Guarded on done: release clears the buffer, so a read of a staged id
@@ -355,29 +315,6 @@ func (u *pageUnit) entitlementRecord(ctx context.Context, externalID string) (*v
 			ErrAmbiguousExternalID, externalID, len(matches))
 	}
 	return latest, nil
-}
-
-func (u *pageUnit) entitlementIdentities(ctx context.Context, externalID string) ([]entitlementIdentity, error) {
-	stored, err := u.l.e.entitlementIdentitiesForExternalID(ctx, externalID)
-	if err != nil {
-		return nil, err
-	}
-	matches := make(map[entitlementIdentity]struct{}, len(stored))
-	for _, id := range stored {
-		matches[id] = struct{}{}
-	}
-	for _, i := range u.entitlementIdx[externalID] {
-		id, err := entitlementIdentityFromRecord(u.entitlements[i])
-		if err != nil {
-			return nil, err
-		}
-		matches[id] = struct{}{}
-	}
-	ids := make([]entitlementIdentity, 0, len(matches))
-	for id := range matches {
-		ids = append(ids, id)
-	}
-	return ids, nil
 }
 
 // On failure the unit stays usable for a retry.

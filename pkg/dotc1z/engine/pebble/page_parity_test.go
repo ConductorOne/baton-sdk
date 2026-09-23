@@ -1,8 +1,9 @@
 package pebble
 
 import (
-	"errors"
 	"testing"
+
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/stretchr/testify/require"
@@ -75,9 +76,12 @@ func TestPageEntitlementLookupMatchesDirectWrites(t *testing.T) {
 	}
 }
 
-func TestPageCanonicalTombstonesRejectAmbiguousIDs(t *testing.T) {
-	for _, kind := range []string{"grants", "entitlements"} {
-		t.Run(kind, func(t *testing.T) {
+// Two records sharing an external id are two identities; a structured ref
+// names one. The direct writer and the page agree, whether the twin is
+// stored or staged.
+func TestPageCanonicalTombstonesDeleteExactlyTheNamedIdentity(t *testing.T) {
+	for _, kind := range []sourcecache.RowKind{sourcecache.RowKindGrants, sourcecache.RowKindEntitlements} {
+		t.Run(string(kind), func(t *testing.T) {
 			ctx := t.Context()
 			direct, _ := newTestEngine(t)
 			paged, _ := newTestEngine(t)
@@ -86,98 +90,140 @@ func TestPageCanonicalTombstonesRejectAmbiguousIDs(t *testing.T) {
 				require.NoError(t, err)
 			}
 			u := paged.ledger.newPageUnit()
-			var directErr error
-			externalID := "shared"
+			eng := sourcecache.ResourceRef{ResourceTypeID: "group", ResourceID: "eng"}
+			var tomb sourcecache.Tombstones
 			switch kind {
-			case "grants":
-				externalID = "member:user:alice"
+			case sourcecache.RowKindGrants:
 				ents := []*v3.EntitlementRecord{lookupTestEnt("group", "eng", "member"), lookupTestEnt("group", "sales", "member")}
 				require.NoError(t, direct.PutEntitlementRecords(ctx, ents...))
 				require.NoError(t, u.StageEntitlements(ents...))
 				records := []*v3.GrantRecord{
-					lookupTestGrant(externalID, "group", "eng", "member", "user", "alice"),
-					lookupTestGrant(externalID, "group", "sales", "member", "user", "alice"),
+					lookupTestGrant("member:user:alice", "group", "eng", "member", "user", "alice"),
+					lookupTestGrant("member:user:alice", "group", "sales", "member", "user", "alice"),
 				}
 				require.NoError(t, direct.PutGrantRecords(ctx, records...))
 				require.NoError(t, u.StageGrants(records...))
-				directErr = direct.DeleteGrantRecordsBounded(ctx, []string{externalID}, "scope")
-			case "entitlements":
+				tomb.Grants = []sourcecache.GrantRef{{
+					Entitlement: sourcecache.EntitlementRef{Resource: eng, EntitlementID: "member"},
+					Principal:   sourcecache.ResourceRef{ResourceTypeID: "user", ResourceID: "alice"},
+				}}
+				_, err := direct.DeleteGrantRecordsByRef(ctx, tomb.Grants, "scope")
+				require.NoError(t, err)
+			case sourcecache.RowKindEntitlements:
 				records := []*v3.EntitlementRecord{lookupTestEnt("group", "eng", "shared"), lookupTestEnt("group", "sales", "shared")}
 				require.NoError(t, direct.PutEntitlementRecords(ctx, records...))
 				require.NoError(t, u.StageEntitlements(records...))
-				directErr = direct.DeleteEntitlementRecords(ctx, []string{externalID}, "scope")
+				tomb.Entitlements = []sourcecache.EntitlementRef{{Resource: eng, EntitlementID: "shared"}}
+				_, err := direct.DeleteEntitlementRecordsByRef(ctx, tomb.Entitlements, "scope")
+				require.NoError(t, err)
+			default:
+				t.Fatalf("resources have no same-id twins; kind %q not in this test", kind)
 			}
-			require.ErrorIs(t, directErr, ErrAmbiguousExternalID)
-			n, err := u.DropStagedRows(ctx, kind, "scope", []string{externalID}, nil)
-			require.ErrorIs(t, err, ErrAmbiguousExternalID)
-			require.Zero(t, n)
+			n, err := u.DropStagedRows(kind, "scope", tomb)
+			require.NoError(t, err)
+			require.Equal(t, 1, n)
 			require.NoError(t, u.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "Sync"}, nil))
-			var count int
-			if kind == "grants" {
-				require.NoError(t, paged.IterateGrants(ctx, func(*v3.GrantRecord) bool { count++; return true }))
-			} else {
-				require.NoError(t, paged.IterateEntitlements(ctx, func(*v3.EntitlementRecord) bool { count++; return true }))
+			for _, e := range []*Engine{direct, paged} {
+				var remaining []string
+				if kind == sourcecache.RowKindGrants {
+					require.NoError(t, e.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
+						remaining = append(remaining, g.GetEntitlement().GetResourceId())
+						return true
+					}))
+				} else {
+					require.NoError(t, e.IterateEntitlements(ctx, func(r *v3.EntitlementRecord) bool {
+						remaining = append(remaining, r.GetResource().GetResourceId())
+						return true
+					}))
+				}
+				require.Equal(t, []string{"sales"}, remaining)
 			}
-			require.Equal(t, 2, count)
 		})
 	}
 }
 
+// The twin is stored while the target is staged, and the other way round.
+// A ref reaches exactly the row it names on either side.
+func TestPageTombstoneNamesOneOfStoredAndStagedTwins(t *testing.T) {
+	ctx := t.Context()
+	e, _ := newTestEngine(t)
+	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	stored := lookupTestEnt("group", "eng", "shared")
+	staged := lookupTestEnt("group", "sales", "shared")
+	require.NoError(t, e.PutEntitlementRecords(ctx, stored))
+	u := e.ledger.newPageUnit()
+	require.NoError(t, u.StageEntitlements(staged))
+
+	forStaged := sourcecache.Tombstones{Entitlements: []sourcecache.EntitlementRef{{
+		Resource: sourcecache.ResourceRef{ResourceTypeID: "group", ResourceID: "sales"}, EntitlementID: "shared",
+	}}}
+	n, err := u.DropStagedRows(sourcecache.RowKindEntitlements, "scope", forStaged)
+	require.NoError(t, err)
+	require.Equal(t, 1, n)
+	_, err = e.DeleteEntitlementRecordsByRef(ctx, forStaged.Entitlements, "scope")
+	require.NoError(t, err)
+	require.NoError(t, u.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "Sync"}, nil))
+	got, err := e.GetEntitlementRecord(ctx, "shared")
+	require.NoError(t, err)
+	require.Equal(t, "eng", got.GetResource().GetResourceId(), "the stored twin survives a delete naming the staged one")
+}
+
 func TestPageScopedTombstonesUseLatestRecord(t *testing.T) {
-	for _, kind := range []string{"grants", "resources"} {
-		for _, scope := range []string{"old", "new"} {
-			t.Run(kind+"/"+scope, func(t *testing.T) {
-				ctx := t.Context()
-				direct, _ := newTestEngine(t)
-				paged, _ := newTestEngine(t)
-				for _, e := range []*Engine{direct, paged} {
-					_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-					require.NoError(t, err)
-				}
-				u := paged.ledger.newPageUnit()
-				for _, version := range []string{"old", "new"} {
-					if kind == "grants" {
-						r := lookupTestGrant("group:eng:member:user:alice", "group", "eng", "group:eng:member", "user", "alice")
-						r.SetSourceScopeKey(version)
-						require.NoError(t, direct.PutGrantRecords(ctx, r))
-						require.NoError(t, u.StageGrants(r))
-					} else {
-						r := v3.ResourceRecord_builder{ResourceTypeId: "user", ResourceId: "alice", SourceScopeKey: version}.Build()
-						require.NoError(t, direct.PutResourceRecords(ctx, r))
-						require.NoError(t, u.StageResources(r))
-					}
-				}
-				ids := map[string]struct{}{"alice": {}}
-				var want int64
-				var err error
-				if kind == "grants" {
-					want, err = direct.DeleteGrantsByPrincipalsInScope(ctx, scope, ids)
-				} else {
-					want, err = direct.DeleteResourcesByIDsInScope(ctx, scope, ids)
-				}
+	for _, scope := range []string{"old", "new"} {
+		t.Run(scope, func(t *testing.T) {
+			ctx := t.Context()
+			direct, _ := newTestEngine(t)
+			paged, _ := newTestEngine(t)
+			for _, e := range []*Engine{direct, paged} {
+				_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 				require.NoError(t, err)
-				got, err := u.DropStagedRows(ctx, kind, scope, nil, []string{"alice"})
-				require.NoError(t, err)
-				require.EqualValues(t, want, got)
-				require.NoError(t, u.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "Sync"}, nil))
-				if kind == "grants" {
-					var remaining []*v3.GrantRecord
-					require.NoError(t, paged.IterateGrants(ctx, func(r *v3.GrantRecord) bool { remaining = append(remaining, r); return true }))
-					require.Len(t, remaining, 1-int(want))
-					if len(remaining) > 0 {
-						require.Equal(t, "new", remaining[0].GetSourceScopeKey())
-					}
-				} else {
-					r, err := paged.GetResourceRecord(ctx, "user", "alice")
-					require.Equal(t, want == 1, errors.Is(err, pebble.ErrNotFound))
-					if want == 0 {
-						require.NoError(t, err)
-						require.Equal(t, "new", r.GetSourceScopeKey())
-					}
-				}
-			})
-		}
+			}
+			u := paged.ledger.newPageUnit()
+			for _, version := range []string{"old", "new"} {
+				r := lookupTestGrant("group:eng:member:user:alice", "group", "eng", "group:eng:member", "user", "alice")
+				r.SetSourceScopeKey(version)
+				require.NoError(t, direct.PutGrantRecords(ctx, r))
+				require.NoError(t, u.StageGrants(r))
+			}
+			alice := []sourcecache.ResourceRef{{ResourceTypeID: "user", ResourceID: "alice"}}
+			want, err := direct.DeleteGrantsByPrincipalsInScope(ctx, scope, alice)
+			require.NoError(t, err)
+			got, err := u.DropStagedRows(sourcecache.RowKindGrants, scope, sourcecache.Tombstones{Principals: alice})
+			require.NoError(t, err)
+			require.EqualValues(t, want, got)
+			require.NoError(t, u.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "Sync"}, nil))
+			var remaining []*v3.GrantRecord
+			require.NoError(t, paged.IterateGrants(ctx, func(r *v3.GrantRecord) bool { remaining = append(remaining, r); return true }))
+			require.Len(t, remaining, 1-int(want))
+			if len(remaining) > 0 {
+				require.Equal(t, "new", remaining[0].GetSourceScopeKey())
+			}
+		})
 	}
+}
+
+// A principal tombstone matches (type, id), not the id alone.
+func TestPagePrincipalTombstoneRequiresTheType(t *testing.T) {
+	ctx := t.Context()
+	e, _ := newTestEngine(t)
+	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	user := lookupTestGrant("group:eng:member:user:alice", "group", "eng", "group:eng:member", "user", "alice")
+	group := lookupTestGrant("group:eng:member:group:alice", "group", "eng", "group:eng:member", "group", "alice")
+	for _, g := range []*v3.GrantRecord{user, group} {
+		g.SetSourceScopeKey("scope")
+	}
+	require.NoError(t, e.PutGrantRecords(ctx, user, group))
+	n, err := e.DeleteGrantsByPrincipalsInScope(ctx, "scope", []sourcecache.ResourceRef{{ResourceTypeID: "group", ResourceID: "alice"}})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n)
+	var remaining []string
+	require.NoError(t, e.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
+		remaining = append(remaining, g.GetPrincipal().GetResourceTypeId())
+		return true
+	}))
+	require.Equal(t, []string{"user"}, remaining)
 }
 
 func TestPageDeleteGrantsRejectsNilLikeDirectWriter(t *testing.T) {
@@ -200,7 +246,9 @@ func TestPageCanonicalTombstoneOverwritesAndLookupRebuild(t *testing.T) {
 	removed := lookupTestEnt("group", "eng", "removed")
 	kept := lookupTestEnt("group", "sales", "kept")
 	require.NoError(t, u.StageEntitlements(removed, kept, removed, kept))
-	n, err := u.DropStagedRows(ctx, "entitlements", "scope", []string{"removed"}, nil)
+	n, err := u.DropStagedRows(sourcecache.RowKindEntitlements, "scope", sourcecache.Tombstones{Entitlements: []sourcecache.EntitlementRef{{
+		Resource: sourcecache.ResourceRef{ResourceTypeID: "group", ResourceID: "eng"}, EntitlementID: "removed",
+	}}})
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 	_, err = u.entitlementRecord(ctx, "removed")
@@ -210,7 +258,10 @@ func TestPageCanonicalTombstoneOverwritesAndLookupRebuild(t *testing.T) {
 	require.True(t, proto.Equal(kept, got))
 	g := lookupTestGrant("group:eng:member:user:alice", "group", "eng", "group:eng:member", "user", "alice")
 	require.NoError(t, u.StageGrants(g, g))
-	n, err = u.DropStagedRows(ctx, "grants", "scope", []string{"group:eng:member:user:alice"}, nil)
+	n, err = u.DropStagedRows(sourcecache.RowKindGrants, "scope", sourcecache.Tombstones{Grants: []sourcecache.GrantRef{{
+		Entitlement: sourcecache.EntitlementRef{Resource: sourcecache.ResourceRef{ResourceTypeID: "group", ResourceID: "eng"}, EntitlementID: "group:eng:member"},
+		Principal:   sourcecache.ResourceRef{ResourceTypeID: "user", ResourceID: "alice"},
+	}}})
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 	require.NoError(t, u.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "Sync"}, nil))
@@ -232,45 +283,4 @@ func TestPageGrantDeleteValidationDoesNotStagePartialRequest(t *testing.T) {
 	var count int
 	require.NoError(t, e.IterateGrants(ctx, func(*v3.GrantRecord) bool { count++; return true }))
 	require.Equal(t, 1, count)
-}
-
-func TestPageGrantTombstoneCandidateParity(t *testing.T) {
-	for _, tc := range []struct {
-		name, externalID, entitlementID, query string
-		entitlementStored                      bool
-		remaining                              int
-	}{
-		{"custom ID", "custom", "member", "custom", true, 1},
-		{"opaque entitlement absent", "member:user:alice", "member", "member:user:alice", false, 1},
-		{"opaque entitlement stored", "member:user:alice", "member", "member:user:alice", true, 0},
-		{"stripped entitlement absent", "group:eng:member:user:alice", "group:eng:member", "group:eng:member:user:alice", false, 0},
-		{"stored ID differs", "custom", "group:eng:member", "group:eng:member:user:alice", false, 1},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := t.Context()
-			direct, _ := newTestEngine(t)
-			paged, _ := newTestEngine(t)
-			for _, e := range []*Engine{direct, paged} {
-				_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-				require.NoError(t, err)
-				if tc.entitlementStored {
-					require.NoError(t, e.PutEntitlementRecords(ctx, lookupTestEnt("group", "eng", tc.entitlementID)))
-				}
-			}
-			g := lookupTestGrant(tc.externalID, "group", "eng", tc.entitlementID, "user", "alice")
-			require.NoError(t, direct.PutGrantRecords(ctx, g))
-			u := paged.ledger.newPageUnit()
-			require.NoError(t, u.StageGrants(g))
-			require.NoError(t, direct.DeleteGrantRecordsBounded(ctx, []string{tc.query}, "scope"))
-			n, err := u.DropStagedRows(ctx, "grants", "scope", []string{tc.query}, nil)
-			require.NoError(t, err)
-			require.Equal(t, 1-tc.remaining, n)
-			require.NoError(t, u.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "Sync"}, nil))
-			for _, e := range []*Engine{direct, paged} {
-				count := 0
-				require.NoError(t, e.IterateGrants(ctx, func(*v3.GrantRecord) bool { count++; return true }))
-				require.Equal(t, tc.remaining, count)
-			}
-		})
-	}
 }

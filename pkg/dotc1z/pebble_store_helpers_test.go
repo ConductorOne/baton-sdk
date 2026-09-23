@@ -1,7 +1,10 @@
 package dotc1z
 
 import (
+	"fmt"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
@@ -50,4 +53,68 @@ func mkV2GrantID(entID, principalRT, principalID string) string {
 			}.Build(),
 		}.Build(),
 	)
+}
+
+func refOfResource(r *v2.Resource) sourcecache.ResourceRef {
+	return sourcecache.ResourceRef{ResourceTypeID: r.GetId().GetResourceType(), ResourceID: r.GetId().GetResource()}
+}
+
+func refOfEntitlement(e *v2.Entitlement) sourcecache.EntitlementRef {
+	return sourcecache.EntitlementRef{Resource: refOfResource(e.GetResource()), EntitlementID: e.GetId()}
+}
+
+func refOfGrant(g *v2.Grant) sourcecache.GrantRef {
+	return sourcecache.GrantRef{Entitlement: refOfEntitlement(g.GetEntitlement()), Principal: refOfResource(g.GetPrincipal())}
+}
+
+func tombResources(refs ...sourcecache.ResourceRef) sourcecache.Tombstones {
+	return sourcecache.Tombstones{Resources: refs}
+}
+
+func tombEntitlements(refs ...sourcecache.EntitlementRef) sourcecache.Tombstones {
+	return sourcecache.Tombstones{Entitlements: refs}
+}
+
+func tombGrants(refs ...sourcecache.GrantRef) sourcecache.Tombstones {
+	return sourcecache.Tombstones{Grants: refs}
+}
+
+func tombPrincipals(refs ...sourcecache.ResourceRef) sourcecache.Tombstones {
+	return sourcecache.Tombstones{Principals: refs}
+}
+
+func userRef(id string) sourcecache.ResourceRef {
+	return sourcecache.ResourceRef{ResourceTypeID: "user", ResourceID: id}
+}
+
+// Refs for the rows putSourceCacheVerificationRows writes.
+func verifResourceRef(prefix string, i int) sourcecache.ResourceRef {
+	return userRef(fmt.Sprintf("%s-%d", prefix, i))
+}
+
+func verifEntitlementRef(prefix string, i int) sourcecache.EntitlementRef {
+	return sourcecache.EntitlementRef{
+		Resource:      sourcecache.ResourceRef{ResourceTypeID: "group", ResourceID: fmt.Sprintf("%s-group-%d", prefix, i)},
+		EntitlementID: fmt.Sprintf("%s-%d", prefix, i),
+	}
+}
+
+func verifGrantRef(prefix string, i int) sourcecache.GrantRef {
+	return refOfGrant(mkV2Grant("", fmt.Sprintf("%s-%d", prefix, i), "user", fmt.Sprintf("%s-principal-%d", prefix, i)))
+}
+
+func verifPrincipalRef(prefix string, i int) sourcecache.ResourceRef {
+	return userRef(fmt.Sprintf("%s-principal-%d", prefix, i))
+}
+
+func verifTombstone(kind sourcecache.RowKind, prefix string, i int) sourcecache.Tombstones {
+	switch kind {
+	case sourcecache.RowKindResources:
+		return tombResources(verifResourceRef(prefix, i))
+	case sourcecache.RowKindEntitlements:
+		return tombEntitlements(verifEntitlementRef(prefix, i))
+	case sourcecache.RowKindGrants:
+		return tombGrants(verifGrantRef(prefix, i))
+	}
+	panic("unsupported row kind " + string(kind))
 }

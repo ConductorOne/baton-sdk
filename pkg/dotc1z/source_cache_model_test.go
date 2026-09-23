@@ -29,7 +29,6 @@ import (
 	"github.com/conductorone/baton-sdk/internal/testtier"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
-	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	enginepebble "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
@@ -49,13 +48,11 @@ var sourceCacheModelScopes = []string{"scope-a", "scope-ab", "scope-b"}
 
 const sourceCacheModelBleedScope = "scope-c"
 
-// modelRow carries every identity a later operation may address the
-// row by: the comparison key, the canonical tombstone id, and the
-// bare scoped-delete id (resource id or grant principal id).
 type modelRow struct {
 	key         string
-	canonicalID string
-	bareID      string
+	resource    sourcecache.ResourceRef
+	entitlement sourcecache.EntitlementRef
+	grant       sourcecache.GrantRef
 }
 
 type sourceCacheModelState struct {
@@ -139,12 +136,9 @@ func (h *sourceCacheModelHarness) buildRows(
 				}.Build(),
 			}.Build()
 			rows = append(rows, res)
-			resBID, err := bid.MakeResourceBid(res)
-			require.NoError(h.t, err)
 			out = append(out, modelRow{
-				key:         "user|" + res.GetId().GetResource(),
-				canonicalID: resBID,
-				bareID:      res.GetId().GetResource(),
+				key:      "user|" + res.GetId().GetResource(),
+				resource: sourcecache.ResourceRef{ResourceTypeID: "user", ResourceID: res.GetId().GetResource()},
 			})
 		}
 		require.NoError(h.t, store.PutResources(ctx, rows...))
@@ -161,7 +155,10 @@ func (h *sourceCacheModelHarness) buildRows(
 				}.Build(),
 			}.Build()
 			rows = append(rows, ent)
-			out = append(out, modelRow{key: ent.GetId(), canonicalID: ent.GetId()})
+			out = append(out, modelRow{key: ent.GetId(), entitlement: sourcecache.EntitlementRef{
+				Resource:      sourcecache.ResourceRef{ResourceTypeID: "group", ResourceID: ent.GetResource().GetId().GetResource()},
+				EntitlementID: ent.GetId(),
+			}})
 		}
 		require.NoError(h.t, store.PutEntitlements(ctx, rows...))
 	case sourcecache.RowKindGrants:
@@ -171,9 +168,14 @@ func (h *sourceCacheModelHarness) buildRows(
 			grant := mkV2Grant("", fmt.Sprintf("%s-%d", prefix, i), "user", principal)
 			rows = append(rows, grant)
 			out = append(out, modelRow{
-				key:         grant.GetId(),
-				canonicalID: grant.GetId(),
-				bareID:      principal,
+				key: grant.GetId(),
+				grant: sourcecache.GrantRef{
+					Entitlement: sourcecache.EntitlementRef{
+						Resource:      sourcecache.ResourceRef{ResourceTypeID: "app", ResourceID: "github"},
+						EntitlementID: grant.GetEntitlement().GetId(),
+					},
+					Principal: sourcecache.ResourceRef{ResourceTypeID: "user", ResourceID: principal},
+				},
 			})
 		}
 		require.NoError(h.t, store.PutGrants(ctx, rows...))
@@ -384,52 +386,49 @@ func runSourceCacheModelSeed(t *testing.T, seed int64) {
 		case v < 57: // replay without a source manifest: rejected, no mutation
 			_, err := h.cache.ReplaySourceCache(ctx, h.src.store, kind, sourceCacheModelBleedScope)
 			require.Error(t, err, "%s: replay without source manifest must fail", when)
-		case v < 69: // canonical tombstones (valid ids, present and absent)
-			ids := make([]string, 0, 3)
+		case v < 74: // tombstones by ref (present and absent)
 			doomed := pickRows(kind, scope, 2)
-			for _, row := range doomed {
-				ids = append(ids, row.canonicalID)
+			var tomb sourcecache.Tombstones
+			switch kind {
+			case sourcecache.RowKindResources:
+				tomb.Resources = append(tomb.Resources, sourcecache.ResourceRef{ResourceTypeID: "user", ResourceID: "ghost"})
+				for _, row := range doomed {
+					tomb.Resources = append(tomb.Resources, row.resource)
+				}
+			case sourcecache.RowKindEntitlements:
+				tomb.Entitlements = append(tomb.Entitlements, sourcecache.EntitlementRef{
+					Resource: sourcecache.ResourceRef{ResourceTypeID: "group", ResourceID: "ghost"}, EntitlementID: "never-there",
+				})
+				for _, row := range doomed {
+					tomb.Entitlements = append(tomb.Entitlements, row.entitlement)
+				}
+			case sourcecache.RowKindGrants:
+				tomb.Grants = append(tomb.Grants, sourcecache.GrantRef{
+					Entitlement: sourcecache.EntitlementRef{Resource: sourcecache.ResourceRef{ResourceTypeID: "app", ResourceID: "github"}, EntitlementID: "app:github:never"},
+					Principal:   sourcecache.ResourceRef{ResourceTypeID: "user", ResourceID: "ghost"},
+				})
+				for _, row := range doomed {
+					tomb.Grants = append(tomb.Grants, row.grant)
+				}
 			}
-			if kind == sourcecache.RowKindResources {
-				ghost := v2.Resource_builder{
-					Id: v2.ResourceId_builder{ResourceType: "user", Resource: "ghost"}.Build(),
-				}.Build()
-				ghostBID, err := bid.MakeResourceBid(ghost)
-				require.NoError(t, err)
-				ids = append(ids, ghostBID)
-			} else {
-				ids = append(ids, "never-there")
-			}
-			require.NoError(t, h.cache.DeleteSourceCacheRows(ctx, kind, scope, ids), when)
+			deleted, err := h.cache.DeleteSourceCacheRows(ctx, kind, scope, tomb)
+			require.NoError(t, err, when)
+			require.Equal(t, int64(len(doomed)), deleted, "%s: ref delete count", when)
 			for _, row := range doomed {
 				delete(h.model.scopeRows(kind, scope), row.key)
 			}
-		case v < 79: // scoped bare-id deletes (resources by id, grants by principal)
-			if kind == sourcecache.RowKindEntitlements {
-				kind = sourcecache.RowKindGrants
-			}
+		case v < 86: // grants by principal in scope
+			kind = sourcecache.RowKindGrants
 			doomed := pickRows(kind, scope, 2)
-			ids := []string{"absent-bare-id"}
+			principals := []sourcecache.ResourceRef{{ResourceTypeID: "user", ResourceID: "absent-principal"}}
 			for _, row := range doomed {
-				ids = append(ids, row.bareID)
+				principals = append(principals, row.grant.Principal)
 			}
-			deleted, err := h.cache.DeleteSourceCacheRowsInScope(ctx, kind, scope, ids)
+			deleted, err := h.cache.DeleteSourceCacheRows(ctx, kind, scope, sourcecache.Tombstones{Principals: principals})
 			require.NoError(t, err, when)
-			require.Equal(t, int64(len(doomed)), deleted, "%s: scoped delete count", when)
+			require.Equal(t, int64(len(doomed)), deleted, "%s: principal delete count", when)
 			for _, row := range doomed {
 				delete(h.model.scopeRows(kind, scope), row.key)
-			}
-		case v < 86: // grant tombstones by external id in scope
-			doomed := pickRows(sourcecache.RowKindGrants, scope, 2)
-			ids := []string{"absent-grant-id"}
-			for _, row := range doomed {
-				ids = append(ids, row.canonicalID)
-			}
-			deleted, err := h.cache.DeleteSourceCacheGrantsByIDInScope(ctx, scope, ids)
-			require.NoError(t, err, when)
-			require.Equal(t, int64(len(doomed)), deleted, "%s: grant id delete count", when)
-			for _, row := range doomed {
-				delete(h.model.scopeRows(sourcecache.RowKindGrants, scope), row.key)
 			}
 		default: // durability cut
 			h.closeReopen()
