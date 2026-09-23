@@ -55,20 +55,81 @@ func repoRoot(t *testing.T) string {
 	return root
 }
 
-func buildHarness(t *testing.T, tree, out string) {
+const ambientToolchain = ""
+
+func buildHarness(t *testing.T, tree, out, toolchain string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "build", "-tags", "compatharness", "-o", out, "./cmd/baton-compat-harness")
 	cmd.Dir = tree
+	if toolchain != ambientToolchain {
+		cmd.Env = append(os.Environ(), "GOTOOLCHAIN="+toolchain)
+	}
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "build harness in %s:\n%s", tree, output)
+}
+
+func goToolchainFor(t *testing.T, tree string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(tree, "go.mod"))
+	require.NoError(t, err)
+	return goToolchainFromModFile(string(data))
+}
+
+// goToolchainFromModFile returns the GOTOOLCHAIN value for a go.mod: its
+// toolchain directive when one is set, otherwise the go directive as a
+// toolchain name. A go directive with no patch component names a language
+// version, not a release, so ".0" is appended to make it one. Empty when
+// the file pins nothing or specifies toolchain default, preserving the environment.
+func goToolchainFromModFile(modFile string) string {
+	var goVersion string
+	for _, line := range strings.Split(modFile, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		switch fields[0] {
+		case "toolchain":
+			if fields[1] == "default" {
+				return ""
+			}
+			return fields[1]
+		case "go":
+			goVersion = fields[1]
+		}
+	}
+	if goVersion == "" {
+		return ""
+	}
+	if strings.Count(goVersion, ".") == 1 {
+		goVersion += ".0"
+	}
+	return "go" + goVersion
+}
+
+func TestGoToolchainFromModFile(t *testing.T) {
+	cases := []struct {
+		name, modFile, want string
+	}{
+		{"go directive with patch", "module x\n\ngo 1.25.2\n", "go1.25.2"},
+		{"go directive without patch", "module x\n\ngo 1.21\n", "go1.21.0"},
+		{"toolchain directive wins", "module x\n\ngo 1.25.2\n\ntoolchain go1.25.13\n", "go1.25.13"},
+		{"toolchain default is not a pin", "module x\n\ngo 1.25.2\n\ntoolchain default\n", ""},
+		{"toolchain default before go directive", "module x\n\ntoolchain default\n\ngo 1.25.2\n", ""},
+		{"no go directive", "module x\n", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, goToolchainFromModFile(tc.modFile))
+		})
+	}
 }
 
 // TestCompatHarnessBuildsAgainstHead is the ungated compile gate: the
 // harness source must always build against the current tree.
 func TestCompatHarnessBuildsAgainstHead(t *testing.T) {
-	buildHarness(t, repoRoot(t), filepath.Join(t.TempDir(), "harness"))
+	buildHarness(t, repoRoot(t), filepath.Join(t.TempDir(), "harness"), ambientToolchain)
 }
 
 func runHarness(t *testing.T, bin, mode, c1zPath string) compatDriverResult {
@@ -153,8 +214,8 @@ func TestDefaultPathPerformanceAgainstPinnedMain(t *testing.T) {
 
 	candidateBin := filepath.Join(tmp, "candidate")
 	mainBin := filepath.Join(tmp, "main")
-	buildHarness(t, root, candidateBin)
-	buildHarness(t, mainTree, mainBin)
+	buildHarness(t, root, candidateBin, ambientToolchain)
+	buildHarness(t, mainTree, mainBin, goToolchainFor(t, mainTree))
 	base := filepath.Join(tmp, "base.c1z")
 	baseResult := runHarness(t, mainBin, "resume", base)
 	require.Empty(t, baseResult.SyncErr)
@@ -192,6 +253,8 @@ func TestDefaultPathPerformanceAgainstPinnedMain(t *testing.T) {
 	candidateAlloc, candidateDigest := measure(t, candidateBin, "candidate")
 	require.Equal(t, mainDigest, candidateDigest,
 		"flag-off compaction must preserve exact logical resources, entitlements, and grants")
+	// The pinned tree and candidate can use different Go releases; runtime and
+	// standard-library allocation changes also count toward this threshold.
 	require.LessOrEqual(t, candidateAlloc, mainAlloc*110/100,
 		"default compaction allocation regression: candidate=%d main=%d", candidateAlloc, mainAlloc)
 }
@@ -250,8 +313,8 @@ func TestCheckpointCompatAcrossSDKVersions(t *testing.T) {
 
 	newBin := filepath.Join(tmp, "harness-new")
 	oldBin := filepath.Join(tmp, "harness-old")
-	buildHarness(t, root, newBin)
-	buildHarness(t, oldTree, oldBin)
+	buildHarness(t, root, newBin, ambientToolchain)
+	buildHarness(t, oldTree, oldBin, goToolchainFor(t, oldTree))
 
 	cells := []struct {
 		name       string
@@ -325,8 +388,8 @@ func TestGraphReuseCompatAcrossSDKVersions(t *testing.T) {
 
 	newBin := filepath.Join(tmp, "graph-harness-new")
 	oldBin := filepath.Join(tmp, "graph-harness-old")
-	buildHarness(t, root, newBin)
-	buildHarness(t, oldTree, oldBin)
+	buildHarness(t, root, newBin, ambientToolchain)
+	buildHarness(t, oldTree, oldBin, goToolchainFor(t, oldTree))
 
 	requireComplete := func(t *testing.T, result compatDriverResult) {
 		t.Helper()

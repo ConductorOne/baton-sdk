@@ -62,7 +62,8 @@ test: ## Run the Go test suite used by CI.
 #
 # The timeout has to clear the sum of this test's own sub-budgets rather than
 # just its expected runtime: a worktree checkout at 5m, two harness builds at 5m
-# each, and eight gen/resume runs at 3m come to about 39m of ceilings. Below that
+# each (including any toolchain download), and eight gen/resume runs at 3m come
+# to about 39m of ceilings. Below that
 # sum — and Go's 10m default is far below it — a slow-but-healthy run dies as
 # "test timed out" and says nothing about which step was slow, which is the whole
 # failure mode this value exists to avoid. A genuine hang is caught by the step's
@@ -71,8 +72,8 @@ test: ## Run the Go test suite used by CI.
 #
 # For scale: the whole target takes about a minute on a warm developer machine,
 # where the four exchange cells are 2-3s each and the two builds are nearly all
-# of it. The ceiling is a backstop for a cold runner compiling two dependency
-# sets, not a number this is expected to approach.
+# of it. The ceiling is a backstop for a cold runner downloading the pinned
+# toolchain and compiling two dependency sets, not a number this is expected to approach.
 .PHONY: compat-check
 compat-check: ## Exchange checkpoints with a pinned older SDK.
 	go test -count=1 -run 'Test(EntitlementGraphTokenCompatibilityMatrix|GraphFromStore)' ./pkg/sync
