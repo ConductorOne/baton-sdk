@@ -301,10 +301,13 @@ func SourceCacheFamilyBounds() ([]byte, []byte) {
 // covers the family). Row readers bound themselves to 0x00
 // (LedgerRowBounds); the family-wide bound is for wipe and purge.
 const (
-	ledgerKindRow      byte = 0x00
-	ledgerKindFact     byte = 0x01
-	ledgerKindCounter  byte = 0x02
-	ledgerKindFrontier byte = 0x03
+	ledgerKindRow        byte = 0x00
+	ledgerKindFact       byte = 0x01
+	ledgerKindCounter    byte = 0x02
+	ledgerKindFrontier   byte = 0x03
+	ledgerKindPending    byte = 0x04
+	ledgerKindWorkState  byte = 0x05
+	ledgerKindScheduling byte = 0x06
 )
 
 func LedgerKeyPrefix() []byte {
@@ -597,7 +600,7 @@ func DigestNodeKeyspaceBounds() ([]byte, []byte) {
 }
 
 func LedgerPendingPrefix() []byte {
-	return []byte{VersionV3, TypeLedger, 0x04}
+	return []byte{VersionV3, TypeLedger, ledgerKindPending}
 }
 
 func LedgerPendingBounds() ([]byte, []byte) {
@@ -606,9 +609,9 @@ func LedgerPendingBounds() ([]byte, []byte) {
 }
 
 func LedgerWorkStateKey() []byte {
-	return []byte{VersionV3, TypeLedger, 0x05}
+	return []byte{VersionV3, TypeLedger, ledgerKindWorkState}
 }
 
 func LedgerSchedulingPrefix() []byte {
-	return []byte{VersionV3, TypeLedger, 0x06}
+	return []byte{VersionV3, TypeLedger, ledgerKindScheduling}
 }
