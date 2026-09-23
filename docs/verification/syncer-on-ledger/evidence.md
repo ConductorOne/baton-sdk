@@ -853,3 +853,25 @@ No storage schema, engine write or checkpoint serialization changes are needed.
 All three regressions pass after their fixes. Focused race checks pass three
 repetitions (2.666s); merged-tree lint reports zero issues. The full sync suite passes (84.120s). Independent follow-up review of these
 corrections remains pending.
+
+### Finished-binding retention follow-up
+
+Review of `ff3d713a` identified that the restored retention policy also survived
+clearing completed page history. `TestLedgerFinishedRetentionUsesCurrentOptions`
+reproduced both failures: the default invocation retained rows, and debug without
+explicit token retention kept unsanitized tokens. The explicit-retain control
+passed. An initial fixture incorrectly pre-started a sync and failed before the
+case under test; it was corrected before recording the regression result.
+
+Clearing completed history now clears its retain-token declaration in the same
+existing atomic batch. All three modes pass after correction, including exact
+remote continuation, preserved start metadata and archived effective options.
+Unfinished public resume, finished-processing crash recovery and pending-seal
+guards pass alongside it (0.305s); three race repetitions pass (3.979s), and
+merged-tree lint reports zero issues. No engine method, schema or lifecycle-reset
+behavior changed.
+
+The second review harness stream identifies GPT-6 Astra despite its requested
+Claude task label. Its independent findings remain useful, but it is not a
+Claude review. Later build attempts during overlapping checkout changes in that
+review worktree are excluded from evidence; the affected reviewer is paused.

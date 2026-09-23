@@ -351,3 +351,45 @@ func TestLedgerPublicCancelledAfterWalkWritesNothing(t *testing.T) {
 	f.audit.mu.Unlock()
 	require.Equal(t, writes, afterWrites)
 }
+
+func TestLedgerFinishedRetentionUsesCurrentOptions(t *testing.T) {
+	for _, mode := range []string{"default", "debug", "retain"} {
+		t.Run(mode, func(t *testing.T) {
+			f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "finished.c1z"), false)
+			first, err := NewSyncer(t.Context(), &ledgerTypesConnector{mockConnector: newMockConnector()}, WithConnectorStore(f.store),
+				WithSkipEntitlementsAndGrants(true), WithLedgerDebug(true), WithRetainLedgerTokens(true))
+			require.NoError(t, err)
+			require.NoError(t, first.Sync(t.Context()))
+			syncID := first.(*syncer).syncID
+			before, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
+			require.NoError(t, err)
+			require.NoError(t, f.store.Close(t.Context()))
+			f = openLedgerFixtureAt(t, f.path, false)
+			c := &ledgerTypesConnector{mockConnector: newMockConnector()}
+			next, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithSyncID(syncID), WithSkipEntitlementsAndGrants(true),
+				WithLedgerDebug(mode != "default"), WithRetainLedgerTokens(mode == "retain"))
+			require.NoError(t, err)
+			require.NoError(t, next.Sync(t.Context()))
+			require.Equal(t, []string{"", "page-2"}, c.calls)
+			after, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
+			require.NoError(t, err)
+			require.Equal(t, before.GetStartedAt(), after.GetStartedAt())
+			require.NotNil(t, after.GetEndedAt())
+			row, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: SyncResourceTypesOp.String()})
+			require.NoError(t, err)
+			require.Equal(t, mode != "default", found)
+			if found {
+				require.Equal(t, mode != "retain", row.Scrubbed)
+				if mode == "retain" {
+					require.Equal(t, "page-2", row.NextPageToken)
+				} else {
+					require.Empty(t, row.NextPageToken)
+				}
+			}
+			options, err := f.ledger.GetArchivedLedgerOptions(t.Context(), "")
+			require.NoError(t, err)
+			require.Equal(t, mode != "default", options.EffectiveLedgerDebug)
+			require.Equal(t, mode == "retain", options.EffectiveRetainLedgerTokens)
+		})
+	}
+}

@@ -1156,3 +1156,13 @@ completion has no live ledger keys. The declaration carries no page token.
 - Verification delta: public stop/reopen/resume with and without debug; debug admission/completion and pointer-action error logs with distinct payload markers; ordinary JSON token round-trip; summary total and named duration reconciliation. Each reproduction fails before its correction.
 - Risk routing: HIGH, unchanged.
 - PR placement: this PR.
+
+### CO-026 finished-binding boundary
+
+A retention declaration governs completion and retries of the current collection.
+Once finished page history is cleared for further same-ID processing, its old
+retain-token declaration is cleared atomically with that history. The invoking
+process's current options choose discard, scrubbed debug retention or explicit
+token retention for subsequent pages. This does not reset stored data, counters,
+sync identity or lifecycle metadata. Unfinished recovery still inherits the
+durable declaration; a pending seal is not a fresh policy boundary.
