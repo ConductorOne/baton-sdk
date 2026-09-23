@@ -303,8 +303,7 @@ func (b0 SourceCacheRecord_builder) Build() *SourceCacheRecord {
 // grants page.
 //
 // The syncer does not read this field yet; setting it deletes nothing.
-// Consumption lands with the source-cache orchestration phase of
-// docs/tasks/sound-syncs-landing-plan.md; delete this note then.
+// Delete this note when it does.
 type SourceCacheTombstones struct {
 	state                   protoimpl.MessageState        `protogen:"opaque.v1"`
 	xxx_hidden_Resources    *[]*ResourceId                `protobuf:"bytes,1,rep,name=resources,proto3"`
