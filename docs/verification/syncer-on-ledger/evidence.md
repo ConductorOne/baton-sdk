@@ -66,7 +66,8 @@ of C10, C37, C38 or C47 over all required cells.
 - Planted defect: missing-resource-action walk mutation fails the public fixture; this is not a separate torn-record/index mutation.
 - Green command/revision: K2b and public process-recovery entries in the archived execution log.
 - New coverage: 40 public process cuts across five populated collection families, WAL/flushed images and changed worker counts; exact record/index/digest comparisons after save/reopen.
-- Not covered: simulated power-loss cuts for those handlers, targeted/asset process cuts, and the full P1/P6 products.
+- Added final verification: TestPublicLedgerDurableCrashImages covers 80 durable-only images across full, targeted and asset work plus terminal proof; TestPublicLedgerTargetAssetProcessCrashes adds 16 real process exits.
+- Not covered: every P1/P6 feature cross and every in-batch I/O failure through the public entry. MemFS power-loss simulations run on Unix; real-filesystem process tests also run on Windows.
 
 ### C05
 
@@ -170,7 +171,8 @@ of C10, C37, C38 or C47 over all required cells.
 - The original public test exposed an ingest-quality mismatch after all initial pages were lost. CO-024 fixes it with read-only detection of an unfinished sync without surviving collection history. The test now requires exact ingest-quality equality in all 40 cells; its temporary unknown-quality exception is removed. Existing records, legacy token/frontier, archived history and finished runs cannot use the empty-start exception.
 - Only duration fields are normalized in the public accounting comparison. Primary record timestamps are held equal by deterministic test time, not stripped. Raw artifact hashes are logged without claiming byte equality. Runtime-generated metadata, report options and report rankings are not part of this raw-family comparison.
 - Planted defect: suppressing PutGrants in the production collection handler causes the independent expected-grant assertion to fail (expected 4, actual 0); restored. The earlier resumed-worker accounting mutation remains recorded in the archive.
-- Not covered: targeted resources, assets, all feature combinations, simulated power-loss images for these public handlers, and the full mechanical product. The public process test does not turn ordinary WAL recovery into a power-loss claim.
+- Added final verification: targeted/asset process exits and durable-only images now compare complete primary/index/digest bytes and structured stats through the real adapter. The older 40-case fixture still supplies exact ingest-quality comparison.
+- Not covered: all feature combinations and the full mechanical product; the different crash instruments are not interchangeable.
 
 ### C17
 
@@ -400,17 +402,18 @@ of C10, C37, C38 or C47 over all required cells.
 
 ### C42
 
-- Status: not assessed.
-- No criterion-specific mutant/green execution is recorded. All required
-  C42 cells and applicable calibration entries remain open; candidates are in
-  the archived brief §5.
+- Status: evidence incomplete.
+- Tests run: TestPublicLedgerDurableCrashImages; TestPublicLedgerTargetAssetProcessCrashes; handler failure/read-through tests.
+- Coverage: targeted resource and asset actions through public Sync with the production store adapter; before/after commits, lost unsynced state or flushed prefixes, and one/four workers exchanged at recovery. Assets are reached through a legacy pending action because normal Init does not enable asset collection.
+- Outcome: exact record/index/digest bytes and structured stats match uninterrupted runs. Report presence and default ledger disposal are checked. The hook rejects unregistered direct page writes.
+- Not covered: every parent/scope/feature combination. External import remains outside pages under CO-023; its known baseline replay limitation remains separately documented.
 
 ### C43
 
-- Status: not assessed.
-- No criterion-specific mutant/green execution is recorded. All required
-  C43 cells and applicable calibration entries remain open; candidates are in
-  the archived brief §5.
+- Status: evidence incomplete.
+- Tests run: TestPublicLedgerDisposedFilesCompact; TestPublicLedgerArchiveFailureKeepsDataAndStats; TestPublicLedgerDurableCrashImages.
+- Coverage: real saved full/partial SDK artifacts after default disposal feed both overlay and fold compaction. Output record counts, primary/index/digest bytes agree. Structured stats readers also agree after public crash recovery and after archival failure retains scrubbed history.
+- Not covered: the complete scrubbed/retained/debug × compactor strategy product and injected stats-sidecar I/O degradation in this public fixture. Storage-side sidecar degradation tests remain separate.
 
 ### C44
 
@@ -737,3 +740,51 @@ as read-only. The complete `go test ./pkg/dotc1z/... -count=1 -timeout 20m` tree
 passes (parent 40.017s; Pebble 17.358s), and the adapter checks pass with CI's
 Go 1.27.1 and baton_lambda_support tag (0.178s). Windows was canceled by the
 matrix's fail-fast policy, not a separately diagnosed Windows failure.
+
+
+## Verification before independent model review
+
+The reported missing-record issue is fixed in BoundSyncUnstarted: absence or a
+different stored sync ID falls through to history inspection, while other read
+errors still propagate. The public invalid-binding check was run on both
+`eb63f1b5` and this branch. Both reject Sync before collecting anything and leave
+all keys unchanged; allowing a read-only binding is not a promise that Sync can
+finish without a run record. The new query tests distinguish empty/populated files
+for both missing-record cases.
+
+A test-only adapter constructor wraps the actual pebbleStore and decorates its
+PageWriter, preserving its optional interfaces. It does not introduce a production
+option or a replacement scheduler/store. The public syncer runs against
+CrashableMem and captures 80 durable-only images, covering five collection families,
+targeted resources, assets and terminal proof, both sides of commit, with/without
+flushed prefixes and one/four workers. The image probe observes 60 absent target
+rows and 20 durable target rows; flushed after-commit rows must be present and
+before-commit rows absent. Recovered records, indexes, digests and structured
+stats equal uninterrupted output. No live ledger family survives default seal.
+
+Sixteen additional real-filesystem process exits cover targeted/assets. The
+subprocess must exit at the requested cut and its output must contain no race
+warning. MemFS engine staging uses Unix path separators, so only the simulated
+power-loss fixture skips Windows; real process, archive fallback and compactor
+checks remain enabled there.
+
+The archive-failure test makes report metadata unreadable at terminal commit.
+Public Sync succeeds under the documented fallback: records and stats match the
+normal run, history remains scrubbed, no pending disposal declaration remains,
+and no report is falsely claimed saved. This is a report-generation failure,
+not an injected disk-write failure. Existing storage failure cuts cover the latter.
+Two real public SDK artifacts, full and targeted partial, are then consumed by
+both compactor strategies. Primary records, indexes and digests agree, and stats
+readers report the expected records.
+
+Full pre-review suites pass: sync 84.616s; dotc1z 29.226s; Pebble 12.054s;
+compactor 21.164s; other dotc1z subpackages pass. Focused public-adapter race tests
+pass three repetitions (27.726s). CI-equivalent Go 1.27.1 / golangci-lint 2.13.2
+lint has zero issues. Final fixture refinements are checked again before freezing
+the reviewer revision. These tests do not claim the entire original mechanical
+product has executed; that remaining scope is provided to the independent reviewers.
+
+The final focused race rerun passes three times (dotc1z 25.093s; sync 1.179s),
+and the final merged-tree lint rerun has zero issues. Independent reviewers will
+start from the committed revision containing these checks, without seeing each
+other's findings.

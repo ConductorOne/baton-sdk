@@ -93,3 +93,15 @@ review by another reviewer or closure of every coverage product.
 The final audit runs the complete cut-enumeration fixture and the six fixed-seed
 scheduler soaks explicitly; those tests are opt-in and a normal package-test pass
 does not establish that they ran. Per-run results are recorded in evidence.md.
+
+
+## Public durable-image and downstream checks
+
+TestPublicLedgerDurableCrashImages runs the public SDK and real store adapter on
+CrashableMem. TestPublicLedgerTargetAssetProcessCrashes adds real-filesystem exits.
+They extend the earlier resource-only process instrumentation to targeted/assets
+and terminal proof. TestPublicLedgerArchiveFailureKeepsDataAndStats checks the
+public retained-history fallback; TestPublicLedgerDisposedFilesCompact checks
+saved public SDK outputs through overlay and fold. The adapter constructor and
+writer decoration exist only in test files, preserving the real optional
+capability surface. Full matrix limits remain listed in evidence.md.
