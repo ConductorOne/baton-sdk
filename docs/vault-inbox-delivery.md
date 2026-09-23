@@ -191,12 +191,48 @@ Config shape and capability, all evaluated before the provider is invoked:
 - the vault-inbox recipient is the **only** encryption config — a mixed or
   duplicate recipient set is refused before anything is minted.
 
+Which of those run on which path:
+
+| Path | Pre-mint gates |
+|---|---|
+| `IssueCredential` | all of the above, unconditionally |
+| registered actions | config shape, plus the cardinality rule in §6.2 |
+| `CreateAccount` | config shape when a vault-inbox recipient is present, plus the credential-option rule below |
+| `RotateCredential` | the same config-shape check, plus the rotate credential-option rule below |
+
+The config-shape check is scoped to a recipient that selects this profile — by
+the inner message **or** by the provider name, since routing keys on the provider
+name first — so every other recipient type keeps its existing create/rotate
+behaviour.
+
+**Credential options.** A vault-inbox recipient must be paired with options that
+actually produce a value, and this is refused before the account or the rotation
+happens, because afterwards the only outcomes are a failed call for something
+that really happened and a retry that returns `AlreadyExists`:
+
+- `CreateAccount` requires `RandomPassword`. `NoPassword` and `Sso` create an
+  account with no credential at all, and `EncryptedPassword` carries material the
+  caller already holds rather than something the connector mints.
+- `RotateCredential` accepts `RandomPassword` or no options at all — a rotation
+  with nothing set is a supported shape where the connector mints its own
+  replacement — and refuses the same three.
+
 ### 6.2 Post-mint — refused after the provider has already minted
 
-Output cardinality and size, evaluated once the connector has produced values:
+Output cardinality and size, evaluated once the connector has produced values.
+The cardinality rule differs by path because the contracts differ:
 
-- the issuance yields exactly one plaintext value; zero or several is refused
-  rather than sealed, and the caller must not issue a second mint to recover;
+| Path | Rule | A zero-value result |
+|---|---|---|
+| `IssueCredential`, registered actions | exactly one plaintext value | refused |
+| `CreateAccount`, `SuccessResult` | exactly one plaintext value | refused — a success with no credential would seal no submission and report success |
+| `CreateAccount`, non-success results | at most one plaintext value | **allowed** — `AlreadyExists`, `ActionRequired`, and `InProgress` carry none by contract, and the structured result is preserved |
+| `RotateCredential` | exactly one plaintext value | refused |
+
+Two or more values are refused on every path, because they would seal several
+complete submission envelopes bound to a single submission id. Size is checked on
+all of them:
+
 - the display name and description are within the submission row's limits;
 - the sealed envelope is within the inbox's 2 MiB cap.
 
