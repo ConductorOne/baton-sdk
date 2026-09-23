@@ -53,14 +53,18 @@ var encryptorRegistry = map[string]Encryptor{
 	normalizeProviderName(vaultinbox.EncryptionProvider):     vaultinbox.NewProvider(),
 }
 
-// IsVaultInboxConfig recognizes the config arm or provider name, including a
+// IsVaultInboxConfig recognizes the provider by name only, including a
 // provider-only config that must be rejected before a create or rotation.
+//
+// It deliberately does not look at the config arm. Inbox mode is selected by the
+// explicit provider and never inferred from the key type, so a JWK public key
+// config without this provider is ordinary classical JWK encryption and must not
+// be classified here. Recognition by name also means a config that is present but
+// malformed is still recognized, so it is rejected as a bad vault-inbox config
+// rather than silently treated as something else.
 func IsVaultInboxConfig(conf *v2.EncryptionConfig) bool {
 	if conf == nil {
 		return false
-	}
-	if conf.GetVaultInboxRecipientConfig() != nil {
-		return true
 	}
 	return normalizeProviderName(conf.GetProvider()) == normalizeProviderName(vaultinbox.EncryptionProvider)
 }
@@ -91,8 +95,6 @@ func GetEncryptorForConfig(ctx context.Context, conf *v2.EncryptionConfig) (Encr
 	providerName := normalizeProviderName(conf.GetProvider())
 	if providerName == "" {
 		switch {
-		case conf.GetVaultInboxRecipientConfig() != nil:
-			providerName = vaultinbox.EncryptionProvider
 		case conf.GetAgeRecipientConfig() != nil:
 			providerName = ageprovider.EncryptionProviderAge
 		case conf.GetJwkPublicKeyConfig() != nil:

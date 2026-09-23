@@ -7,8 +7,6 @@ package vaultinbox
 
 import (
 	"context"
-	"crypto/ecdh"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -116,10 +114,10 @@ func (p *Provider) Encrypt(ctx context.Context, conf *v2.EncryptionConfig, plain
 	}
 
 	payload, err := encodeSecretSubmissionPayloadV3(
-		config.GetSubmissionId(),
+		config.SubmissionID,
 		plaintext.GetName(),
 		plaintext.GetDescription(),
-		config.GetContentType(),
+		config.ContentType,
 		value,
 	)
 	if err != nil {
@@ -170,123 +168,8 @@ func (p *Provider) Encrypt(ctx context.Context, conf *v2.EncryptionConfig, plain
 		Schema:         plaintext.GetSchema(),
 		EncryptedBytes: envelope,
 		// The inbox key ID, not the JWK thumbprint.
-		KeyIds: []string{config.GetInboxKeyId()},
+		KeyIds: []string{config.InboxKeyID},
 	}.Build(), nil
-}
-
-// recipientFromConfig validates every field the provider depends on and returns
-// both the config and the parsed HPKE recipient.
-func recipientFromConfig(conf *v2.EncryptionConfig) (*v2.VaultInboxRecipientConfig, hpke.PublicKey, error) {
-	if conf == nil {
-		return nil, nil, invalid("encryption config is required")
-	}
-	config := conf.GetVaultInboxRecipientConfig()
-	if config == nil {
-		return nil, nil, invalid("vault inbox recipient config is required")
-	}
-	if name := strings.ToLower(strings.TrimSpace(conf.GetProvider())); name != "" && name != EncryptionProvider {
-		return nil, nil, invalid("provider does not match vault inbox config")
-	}
-	// Unknown profile fields may change authenticated semantics; outer config
-	// fields remain additive for compatibility with other providers.
-	if len(config.ProtoReflect().GetUnknown()) != 0 {
-		return nil, nil, invalid("unknown config fields")
-	}
-	if config.GetConfigVersion() != v2.VaultInboxConfigVersion_VAULT_INBOX_CONFIG_VERSION_V1 {
-		return nil, nil, invalid("unsupported config version")
-	}
-	if config.GetSuite() != v2.VaultInboxSuite_VAULT_INBOX_SUITE_XWING_MLKEM768_X25519_HKDF_SHA256_CHACHA20POLY1305_V1 {
-		return nil, nil, invalid("unsupported vault inbox suite")
-	}
-	for _, field := range []struct{ name, value string }{
-		{"tenant_id", config.GetTenantId()},
-		{"vault_boundary_id", config.GetVaultBoundaryId()},
-		{"inbox_key_id", config.GetInboxKeyId()},
-		{"submission_id", config.GetSubmissionId()},
-		{"public_key_thumbprint", config.GetPublicKeyThumbprint()},
-	} {
-		if err := validateIdentifier(field.name, field.value); err != nil {
-			return nil, nil, err
-		}
-	}
-	// The authenticated scheme must match the payload this provider emits.
-	if config.GetPayloadScheme() != PayloadSchemeSecretV1 {
-		return nil, nil, invalid("unsupported payload_scheme")
-	}
-	if config.GetKeyGeneration() == 0 {
-		return nil, nil, invalid("key_generation must be non-zero")
-	}
-	if len(config.GetContentType()) > maxContentBytes || strings.ContainsFunc(config.GetContentType(), unicode.IsControl) {
-		return nil, nil, invalid("invalid content_type")
-	}
-	if len(config.GetPublicJwkJson()) > maxJWKBytes {
-		return nil, nil, invalid(fmt.Sprintf("public_jwk_json must be at most %d bytes", maxJWKBytes))
-	}
-
-	thumbprint, err := publicKeyThumbprint(config.GetPublicJwkJson())
-	if err != nil {
-		return nil, nil, err
-	}
-	if config.GetPublicKeyThumbprint() != thumbprint {
-		return nil, nil, invalid("public_key_thumbprint does not match public_jwk_json")
-	}
-	publicKey, err := parsePublicKey(config.GetPublicJwkJson())
-	if err != nil {
-		return nil, nil, err
-	}
-	return config, publicKey, nil
-}
-
-// parsePublicKey accepts exactly one public AKP JWK holding an X-Wing key.
-//
-// Extra JOSE members are allowed; the thumbprint covers only alg, kty, and pub.
-func parsePublicKey(jwkJSON string) (hpke.PublicKey, error) {
-	var jwk struct {
-		Kty  string `json:"kty"`
-		Alg  string `json:"alg"`
-		Pub  string `json:"pub"`
-		Priv string `json:"priv"`
-	}
-	if err := json.Unmarshal([]byte(jwkJSON), &jwk); err != nil {
-		return nil, invalid("public_jwk_json is not a public AKP JWK")
-	}
-	if jwk.Kty != jwkKtyAKP {
-		return nil, invalid("public_jwk_json kty is not AKP")
-	}
-	if jwk.Alg != jwkAlg {
-		return nil, invalid("public_jwk_json alg is not the vault inbox suite")
-	}
-	if jwk.Priv != "" {
-		return nil, invalid("public_jwk_json must not carry private material")
-	}
-	if jwk.Pub == "" {
-		return nil, invalid("public_jwk_json pub is required")
-	}
-	raw, err := base64URL.DecodeString(jwk.Pub)
-	if err != nil {
-		return nil, invalid("public_jwk_json pub is not base64url")
-	}
-	if len(raw) != PublicKeyBytes {
-		return nil, invalid(fmt.Sprintf("public key must be exactly %d bytes", PublicKeyBytes))
-	}
-	publicKey, err := hpke.MLKEM768X25519().NewPublicKey(raw)
-	if err != nil {
-		return nil, invalid("public_jwk_json pub is not an X-Wing key")
-	}
-	// Parsing alone accepts low-order X25519 points, which would collapse the
-	// hybrid secret. Probe the X25519 component before the key is used.
-	probe, err := ecdh.X25519().NewPrivateKey(make([]byte, 32))
-	if err != nil {
-		return nil, invalid("cannot validate public key")
-	}
-	x25519, err := ecdh.X25519().NewPublicKey(raw[len(raw)-32:])
-	if err != nil {
-		return nil, invalid("public_jwk_json pub is not an X-Wing key")
-	}
-	if _, err := probe.ECDH(x25519); err != nil {
-		return nil, invalid("public_jwk_json pub is not a valid X-Wing key")
-	}
-	return publicKey, nil
 }
 
 // Field order matches Latchkey's thumbprint encoding.
@@ -294,47 +177,6 @@ type canonicalInboxJWK struct {
 	Alg string `json:"alg"`
 	Kty string `json:"kty"`
 	Pub string `json:"pub"`
-}
-
-// publicKeyThumbprint re-derives the profile thumbprint exactly as the Latchkey
-// core does: base64url(SHA-256(`{"alg":..,"kty":..,"pub":..}`)).
-func publicKeyThumbprint(jwkJSON string) (string, error) {
-	var jwk struct {
-		Alg string `json:"alg"`
-		Kty string `json:"kty"`
-		Pub string `json:"pub"`
-	}
-	decoder := json.NewDecoder(strings.NewReader(jwkJSON))
-	if err := decoder.Decode(&jwk); err != nil {
-		return "", invalid("public_jwk_json is not a JWK")
-	}
-	if jwk.Alg != jwkAlg || jwk.Kty != jwkKtyAKP || jwk.Pub == "" {
-		return "", invalid("public_jwk_json does not describe a vault inbox key")
-	}
-	canonical, err := json.Marshal(canonicalInboxJWK{Alg: jwk.Alg, Kty: jwk.Kty, Pub: jwk.Pub})
-	if err != nil {
-		return "", invalid("public_jwk_json cannot be canonicalized")
-	}
-	digest := sha256.Sum256(canonical)
-	return base64URL.EncodeToString(digest[:]), nil
-}
-
-// bindingBytes reproduces the Latchkey injective framing used as both the HPKE
-// info and the AEAD AAD. Field order is fixed: domain label, envelope
-// version (one byte), suite id, tenant, vault, inbox key id, key generation as
-// ASCII decimal, payload scheme.
-func bindingBytes(config *v2.VaultInboxRecipientConfig) []byte {
-	version := []byte{envelopeVersion}
-	generation := []byte(fmt.Sprintf("%d", config.GetKeyGeneration()))
-	return framed(infoPrefix, [][]byte{
-		version,
-		[]byte(jwkAlg),
-		[]byte(config.GetTenantId()),
-		[]byte(config.GetVaultBoundaryId()),
-		[]byte(config.GetInboxKeyId()),
-		generation,
-		[]byte(config.GetPayloadScheme()),
-	})
 }
 
 // framed writes u32-be(len) || bytes for the domain label and then each field,

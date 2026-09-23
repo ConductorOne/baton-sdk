@@ -287,9 +287,10 @@ func validateVaultInboxProfileAdvertised(configs []*v2.EncryptionConfig, descrip
 		if !providers.IsVaultInboxConfig(config) {
 			continue
 		}
-		profile := config.GetVaultInboxRecipientConfig().GetSuite()
-		if profile == v2.VaultInboxSuite_VAULT_INBOX_SUITE_UNSPECIFIED ||
-			!slices.Contains(descriptor.GetVaultInboxProfiles(), profile) {
+		// The suite is no longer carried as a config field: the provider is the
+		// selector and the profile it corresponds to is fixed, so the check is
+		// whether the descriptor advertises that one profile.
+		if !slices.Contains(descriptor.GetVaultInboxProfiles(), vaultinbox.AdvertisedSuite) {
 			return status.Error(codes.InvalidArgument,
 				"vault inbox profile is not advertised by connector")
 		}
