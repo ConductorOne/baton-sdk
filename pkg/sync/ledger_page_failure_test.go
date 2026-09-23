@@ -52,7 +52,7 @@ func TestLedgerPageFailureDiscardsStagedObservations(t *testing.T) {
 		t.Run(stage, func(t *testing.T) {
 			f := newLedgerFixture(t)
 			source := ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: stage}
-			runtime, err := newLedgerRuntime(t.Context(), source, "attempt")
+			runtime, err := newTestLedgerRuntime(t.Context(), source, "attempt")
 			require.NoError(t, err)
 			before := ledgerRawSnapshot(t, f.engine)
 			f.audit.enter(ledgerHandler)
@@ -83,14 +83,14 @@ func TestLedgerTerminalFailureDoesNotPublishProof(t *testing.T) {
 			f := newLedgerFixture(t)
 			require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
 			source := ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: stage}
-			runtime, err := newLedgerRuntime(t.Context(), source, "attempt")
+			runtime, err := newTestLedgerRuntime(t.Context(), source, "attempt")
 			require.NoError(t, err)
 			before := ledgerRawSnapshot(t, f.engine)
 			require.ErrorIs(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{StepDurationsMs: map[string]int64{"run": 7}}), errLedgerInjectedPage)
 			require.NotContains(t, runtime.facts, ledgerFactSealReady)
 			require.Zero(t, f.audit.writers)
 			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
-			recovered, err := newLedgerRuntime(t.Context(), f.ledger, "retry")
+			recovered, err := newTestLedgerRuntime(t.Context(), f.ledger, "retry")
 			require.NoError(t, err)
 			require.NoError(t, recovered.prepareSeal(t.Context(), c1zstore.LedgerCounters{StepDurationsMs: map[string]int64{"run": 7}}))
 			counters, err := f.ledger.LedgerCounters(t.Context())

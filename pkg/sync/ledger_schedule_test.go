@@ -16,7 +16,7 @@ func TestLedgerScheduleDrainsDiamondAndCycle(t *testing.T) {
 	for _, workers := range []uint32{1, 4} {
 		t.Run(fmt.Sprint(workers), func(t *testing.T) {
 			f := newLedgerFixture(t)
-			runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
+			runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "attempt")
 			require.NoError(t, err)
 			var calls atomic.Int64
 			id := func(name string) c1zstore.LedgerActionIdentity {
@@ -42,7 +42,7 @@ func TestLedgerScheduleDrainsDiamondAndCycle(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, uint64(4), counters.Counters[ledgerCompletedActions])
 			before := ledgerRawSnapshot(t, f.engine)
-			resumed, err := newLedgerRuntime(t.Context(), f.ledger, "resume")
+			resumed, err := newTestLedgerRuntime(t.Context(), f.ledger, "resume")
 			require.NoError(t, err)
 			f.audit.enter(ledgerWalk)
 			require.NoError(t, runLedgerSchedulerFixture(t, resumed, []ledgerAction{{identity: id("root"), spawned: true}}, workers, handler))
@@ -55,7 +55,7 @@ func TestLedgerScheduleDrainsDiamondAndCycle(t *testing.T) {
 
 func TestLedgerScheduleStopsAndJoinsOnError(t *testing.T) {
 	f := newLedgerFixture(t)
-	runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
+	runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "attempt")
 	require.NoError(t, err)
 	injected := errors.New("connector error")
 	var active atomic.Int64
@@ -89,7 +89,7 @@ func TestLedgerScheduleStopsAndJoinsOnError(t *testing.T) {
 
 func TestLedgerScheduleRunsNewlyDiscoveredWork(t *testing.T) {
 	f := newLedgerFixture(t)
-	runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
+	runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "attempt")
 	require.NoError(t, err)
 	child := c1zstore.LedgerActionIdentity{Op: SyncResourcesOp.String(), ResourceTypeID: "type"}
 	calls := 0

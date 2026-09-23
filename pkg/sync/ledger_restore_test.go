@@ -62,7 +62,7 @@ func TestLedgerRestoreCheckpointFixtures(t *testing.T) {
 			require.NoError(t, f.store.CheckpointSync(t.Context(), string(data)))
 			resume, err := loadLedgerResume(t.Context(), f.store, f.ledger, "takeover")
 			require.NoError(t, err)
-			s.ledger, err = newLedgerRuntime(t.Context(), f.ledger, "resumed")
+			s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "resumed")
 			require.NoError(t, err)
 			before := ledgerRawSnapshot(t, f.engine)
 			s.listResourceActionsCompletedThisRun.Store(23)
@@ -102,7 +102,7 @@ func TestLedgerRestoreFinishedCheckpointPreservesLifecycle(t *testing.T) {
 			for attempt := range 2 {
 				resume, err := loadLedgerResume(t.Context(), f.store, f.ledger, "resume")
 				require.NoError(t, err)
-				s.ledger, err = newLedgerRuntime(t.Context(), f.ledger, "resumed")
+				s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "resumed")
 				require.NoError(t, err)
 				snapshot := ledgerRawSnapshot(t, f.engine)
 				f.audit.enter(ledgerWalk)
@@ -142,7 +142,7 @@ func TestLedgerRestoreRunsOnlyPendingContinuation(t *testing.T) {
 		return page.transition("remaining")
 	})
 	require.NoError(t, err)
-	s.ledger, err = newLedgerRuntime(t.Context(), f.ledger, "resumed")
+	s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "resumed")
 	require.NoError(t, err)
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerWalk)
@@ -203,7 +203,7 @@ func TestLedgerRestoreFailureDoesNotPublishState(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			s, f := newLedgerSchedulerFixture(t, 1)
-			originalRun, originalStats := s.run, s.stats
+			originalRun, originalStats, originalRuntime := s.run, s.stats, s.ledger
 			s.run.setFact("old-state")
 			s.childSchedule.recordIfNew("old-child", "old-parent", "one")
 			injected := errors.New("restore read failed")
@@ -216,6 +216,7 @@ func TestLedgerRestoreFailureDoesNotPublishState(t *testing.T) {
 			require.ErrorIs(t, err, injected)
 			require.Same(t, originalRun, s.run)
 			require.Same(t, originalStats, s.stats)
+			require.Same(t, originalRuntime, s.ledger)
 			require.True(t, s.run.hasFact("old-state"))
 			require.True(t, s.childSchedule.has("old-child", "old-parent", "one"))
 			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
@@ -238,10 +239,10 @@ func TestLedgerRestoreRepeatedChildIsNewWork(t *testing.T) {
 		return page.transition("")
 	})
 	require.NoError(t, err)
-	s.ledger, err = newLedgerRuntime(t.Context(), f.ledger, "resumed")
+	s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "resumed")
 	require.NoError(t, err)
 	f.audit.enter(ledgerWalk)
-	err = s.restoreLedgerState(t.Context(), ledgerResume{initialized: true}, false)
+	err = s.restoreLedgerState(t.Context(), s.ledger.store, s.ledger.runID, false)
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, err)
 	calls := 0
@@ -261,4 +262,28 @@ func TestLedgerRestoreRepeatedChildIsNewWork(t *testing.T) {
 	require.Equal(t, counts.Counters[ledgerCompletedActions], s.run.completedActionsCount())
 	require.EqualValues(t, 2, s.run.getActionCount(SyncResourcesOp).CompletedCount)
 	require.EqualValues(t, 1, s.listResourceActionsCompletedThisRun.Load())
+}
+
+type ledgerCountedCounterReads struct {
+	c1zstore.PageLedgerStore
+	reads int
+}
+
+func (s *ledgerCountedCounterReads) LedgerCounters(ctx context.Context) (c1zstore.LedgerCounters, error) {
+	s.reads++
+	return s.PageLedgerStore.LedgerCounters(ctx)
+}
+
+func TestLedgerStartupLoadsCountersOnce(t *testing.T) {
+	s, f := newLedgerSchedulerFixture(t, 1)
+	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), pendingSeeds(ledgerListingFixtureRoots()), ledgerFactIngestKnown))
+	counted := &ledgerCountedCounterReads{PageLedgerStore: f.ledger}
+	s.caps.pageLedger = counted
+	f.audit.enter(ledgerWalk)
+	_, err := s.prepareLedgerState(t.Context(), "resume-once", false)
+	f.audit.enter(ledgerLifecycle)
+	require.NoError(t, err)
+	require.Equal(t, 1, counted.reads)
+	require.Contains(t, s.ledger.facts, ledgerFactIngestKnown)
+	require.True(t, s.run.hasFact(ledgerFactIngestKnown))
 }

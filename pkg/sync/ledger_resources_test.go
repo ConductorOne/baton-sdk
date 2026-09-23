@@ -200,7 +200,7 @@ func TestLedgerResourceReplay(t *testing.T) {
 	require.NoError(t, f.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
 	s.store, s.caps = f.store, resolveStoreCaps(f.store)
-	s.ledger, err = newLedgerRuntime(t.Context(), f.ledger, "reopened-resources")
+	s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "reopened-resources")
 	require.NoError(t, err)
 	s.run = newRunState()
 	s.childSchedule = childScheduleSet{}
@@ -353,13 +353,13 @@ func TestLedgerResourcePendingChildRestore(t *testing.T) {
 			f = openLedgerFixtureAt(t, f.path, false)
 			s.store, s.caps = f.store, resolveStoreCaps(f.store)
 			var err error
-			s.ledger, err = newLedgerRuntime(t.Context(), f.ledger, "pending-child-resume")
+			s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "pending-child-resume")
 			require.NoError(t, err)
 			s.childSchedule = childScheduleSet{}
 			seedLedgerTestRun(t, s, nil)
 			before := ledgerRawSnapshot(t, f.engine)
 			f.audit.enter(ledgerWalk)
-			require.NoError(t, s.restoreLedgerState(t.Context(), ledgerResume{actions: []ledgerAction{{identity: root}}}, false))
+			require.NoError(t, s.restoreLedgerState(t.Context(), s.ledger.store, s.ledger.runID, false))
 			f.audit.enter(ledgerLifecycle)
 			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 			if check == "mark" {

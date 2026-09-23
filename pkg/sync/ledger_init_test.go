@@ -176,7 +176,7 @@ func TestLedgerInitialQualitySurvivesResume(t *testing.T) {
 			_, found, err := f.ledger.GetLedgerRow(t.Context(), ledgerIdentity(action))
 			require.NoError(t, err)
 			require.True(t, found)
-			runtime, err := newLedgerRuntime(t.Context(), f.ledger, "quality-resume")
+			runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "quality-resume")
 			require.NoError(t, err)
 			resumed := &syncer{ledgered: true, ledger: runtime}
 			before = ledgerRawSnapshot(t, f.engine)

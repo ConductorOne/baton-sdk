@@ -20,7 +20,7 @@ func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
 			f := newLedgerFixture(t)
 			syncID := f.engine.CurrentSyncID()
 			require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
-			runtime, err := newLedgerRuntime(t.Context(), f.ledger, "collection")
+			runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "collection")
 			require.NoError(t, err)
 			_, err = runtime.runPage(t.Context(), 0, c1zstore.LedgerActionIdentity{Op: InitOp.String()}, func(_ context.Context, page *ledgerPage) error {
 				if err := page.setFact(factNeedsExpansion); err != nil {
@@ -158,7 +158,7 @@ func TestLedgerFinishedLegacyFrontierKeepsPendingWork(t *testing.T) {
 func TestLedgerSealReadyUnfinishedDoesNotStartAnotherPass(t *testing.T) {
 	f := newLedgerFixture(t)
 	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
-	runtime, err := newLedgerRuntime(t.Context(), f.ledger, "old")
+	runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "old")
 	require.NoError(t, err)
 	require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{Counters: map[string]uint64{ledgerCompletedActions: 17}}))
 	s := ledgerContinuationSyncer(f)

@@ -45,7 +45,7 @@ func runLedgerSchedulerFixture(t *testing.T, runtime *ledgerRuntime, roots []led
 	if len(pending) > 0 {
 		s.syncID = pending[0].SyncID
 	}
-	if err := s.restoreLedgerState(t.Context(), ledgerResume{actions: roots}, false); err != nil {
+	if err := s.restoreLedgerState(t.Context(), s.ledger.store, s.ledger.runID, false); err != nil {
 		return err
 	}
 	s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, page *ledgerPage) error {

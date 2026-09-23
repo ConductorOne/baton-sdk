@@ -18,7 +18,7 @@ import (
 func newLedgerSchedulerFixture(t *testing.T, workers int) (*syncer, *ledgerFixture) {
 	t.Helper()
 	f := newLedgerFixture(t)
-	runtime, err := newLedgerRuntime(t.Context(), f.ledger, "scheduler-attempt")
+	runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "scheduler-attempt")
 	require.NoError(t, err)
 	s := &syncer{syncID: f.engine.CurrentSyncID(), ledgered: true, ledger: runtime, store: f.store, caps: resolveStoreCaps(f.store),
 		run: newRunState(), stats: newRunStats(), cfg: syncConfig{workerCount: workers}}
@@ -293,7 +293,7 @@ func TestLedgerExistingSchedulerCompletedWorkDoesNotRunAgain(t *testing.T) {
 	s.testHooks.ledgerHandler = func(context.Context, *Action, *ledgerPage) error { return errors.New("completed work ran again") }
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerWalk)
-	require.NoError(t, s.restoreLedgerState(t.Context(), ledgerResume{initialized: true}, false))
+	require.NoError(t, s.restoreLedgerState(t.Context(), s.ledger.store, s.ledger.runID, false))
 	_, err = s.parallelSync(t.Context(), t.Context(), nil)
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, err)

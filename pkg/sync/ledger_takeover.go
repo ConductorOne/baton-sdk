@@ -8,7 +8,6 @@ import (
 	"slices"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
-	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 )
 
 const (
@@ -28,7 +27,6 @@ type ledgerAction struct {
 type ledgerResume struct {
 	initialized bool
 	actions     []ledgerAction
-	graph       *expand.EntitlementGraph
 	sealReady   bool
 }
 
@@ -79,7 +77,6 @@ func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore
 			state = frontier.State
 		}
 		resume, _, _, err := decodeLedgerCheckpoint(state)
-		resume.graph = nil
 		return resume, err
 	}
 	resume, importedFacts, counters, err := decodeLedgerCheckpoint(state)
@@ -118,7 +115,7 @@ func decodeLedgerCheckpoint(state string) (ledgerResume, []string, c1zstore.Ledg
 	if err != nil {
 		return ledgerResume{}, nil, c1zstore.LedgerCounters{}, fmt.Errorf("invalid ledger resume state: %w", err)
 	}
-	resume := ledgerResume{graph: parts.graph}
+	resume := ledgerResume{}
 	for _, key := range parts.run.actionOrder {
 		action, found := parts.run.actions[key]
 		if !found || action.Op == UnknownOp || action.Op == MaterializeStaticEntitlementsOp {

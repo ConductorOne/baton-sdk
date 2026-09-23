@@ -98,7 +98,7 @@ func TestLedgerTakeoverCountersImportedOnlyWhenAbsent(t *testing.T) {
 		} else {
 			require.Equal(t, addLedgerCounters(c1zstore.LedgerCounters{}, prior), addLedgerCounters(c1zstore.LedgerCounters{}, imported))
 		}
-		runtime, err := newLedgerRuntime(t.Context(), f.ledger, "worker-attempt")
+		runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "worker-attempt")
 		require.NoError(t, err)
 		_, err = runtime.runPage(t.Context(), 0, c1zstore.LedgerActionIdentity{Op: "init"}, func(_ context.Context, page *ledgerPage) error {
 			page.observations.Counters = map[string]uint64{ledgerCompletedActions: 1}

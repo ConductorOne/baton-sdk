@@ -9,23 +9,23 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-func (s *syncer) restoreLedgerState(ctx context.Context, resume ledgerResume, knownEmpty bool) error {
+func (s *syncer) restoreLedgerState(ctx context.Context, store c1zstore.PageLedgerStore, runID string, knownEmpty bool) error {
 	if s.testHooks.ledgerWalk != nil {
 		s.testHooks.ledgerWalk(true)
 		defer s.testHooks.ledgerWalk(false)
 	}
-	if s.ledger == nil {
-		return errors.New("ledger runtime is not initialized")
+	if store == nil {
+		return errors.New("ledger store is not initialized")
 	}
-	facts, err := s.ledger.store.LedgerFacts(ctx)
+	facts, err := store.LedgerFacts(ctx)
 	if err != nil {
 		return err
 	}
-	counters, err := s.ledger.store.LedgerCounters(ctx)
+	counters, err := store.LedgerCounters(ctx)
 	if err != nil {
 		return err
 	}
-	work, initialized, err := s.ledger.store.PendingWork(ctx, 0, maxPeekActionsCount)
+	work, initialized, err := store.PendingWork(ctx, 0, maxPeekActionsCount)
 	if err != nil {
 		return err
 	}
@@ -87,11 +87,14 @@ func (s *syncer) restoreLedgerState(ctx context.Context, resume ledgerResume, kn
 	} else if quality == nil {
 		quality = &IngestQualityCheckpoint{SourceCacheReplayBlocked: true, ReasonFlags: ingestQualityReasonUnknownPriorCheckpoint}
 	}
-	graph := newExpansionGraph()
-	graph.restore(resume.graph)
+	runtime, err := newLedgerRuntime(store, runID, facts)
+	if err != nil {
+		return err
+	}
+	s.ledger = runtime
 	s.run = run
 	s.stats = stats
-	s.graph = graph
+	s.graph = newExpansionGraph()
 	s.ingestFilterStats.restore(quality)
 	s.listResourceActionsCompletedThisRun.Store(0)
 	return nil

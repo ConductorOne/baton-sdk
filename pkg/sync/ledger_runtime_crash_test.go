@@ -63,7 +63,7 @@ func TestLedgerRuntimeCrashProcess(t *testing.T) {
 		if cut == "terminal-staged" {
 			source = ledgerCrashBeforeCommitStore{PageLedgerStore: f.ledger, op: ledgerTerminalOp, exit: crash}
 		}
-		runtime, err := newLedgerRuntime(t.Context(), source, "runtime-attempt")
+		runtime, err := newTestLedgerRuntime(t.Context(), source, "runtime-attempt")
 		require.NoError(t, err)
 		f.audit.enter(ledgerHandler)
 		_, err = runtime.runPage(t.Context(), 0, id, func(ctx context.Context, page *ledgerPage) error {

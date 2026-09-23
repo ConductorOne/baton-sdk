@@ -208,7 +208,6 @@ func TestLedgerGrantRemovedExpansion(t *testing.T) {
 
 func TestLedgerGrantReplay(t *testing.T) {
 	s, f, c := grantPageFixture(t, true)
-	action := s.run.current()
 	f.audit.enter(ledgerHandler)
 	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
@@ -216,12 +215,12 @@ func TestLedgerGrantReplay(t *testing.T) {
 	require.NoError(t, f.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
 	s.store, s.caps = f.store, resolveStoreCaps(f.store)
-	s.ledger, err = newLedgerRuntime(t.Context(), f.ledger, "reopened-grants")
+	s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "reopened-grants")
 	require.NoError(t, err)
 	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerWalk)
-	require.NoError(t, s.restoreLedgerState(t.Context(), ledgerResume{actions: []ledgerAction{{identity: ledgerIdentity(action)}}}, false))
+	require.NoError(t, s.restoreLedgerState(t.Context(), s.ledger.store, s.ledger.runID, false))
 	_, err = runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)

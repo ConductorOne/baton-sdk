@@ -165,7 +165,7 @@ func (s *syncer) skipLedgerSync(ctx context.Context) error {
 	if len(work) != 1 {
 		return errors.New("skip sync has no initial pending work")
 	}
-	s.ledger, err = newLedgerRuntime(ctx, s.caps.pageLedger, rand.Text())
+	s.ledger, err = newLedgerRuntime(s.caps.pageLedger, rand.Text(), nil)
 	if err != nil {
 		return err
 	}

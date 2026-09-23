@@ -15,7 +15,7 @@ func TestLedgerPageRequiresTransition(t *testing.T) {
 	for _, op := range []string{"init", "list-resources"} {
 		t.Run(op, func(t *testing.T) {
 			f := newLedgerFixture(t)
-			runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
+			runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "attempt")
 			require.NoError(t, err)
 			before := ledgerRawSnapshot(t, f.engine)
 			f.audit.enter(ledgerHandler)
@@ -31,7 +31,7 @@ func TestLedgerPageRequiresTransition(t *testing.T) {
 
 func TestLedgerPageFailureDoesNotPublish(t *testing.T) {
 	f := newLedgerFixture(t)
-	runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
+	runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "attempt")
 	require.NoError(t, err)
 	injected := errors.New("handler failed")
 	id := c1zstore.LedgerActionIdentity{Op: "list-resource-types"}
@@ -67,7 +67,7 @@ func TestLedgerPageFailureDoesNotPublish(t *testing.T) {
 
 func TestLedgerPageRejectsDuplicateTransition(t *testing.T) {
 	f := newLedgerFixture(t)
-	runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
+	runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "attempt")
 	require.NoError(t, err)
 	before := ledgerRawSnapshot(t, f.engine)
 	_, err = runtime.runPage(t.Context(), 0, c1zstore.LedgerActionIdentity{Op: "init"}, func(_ context.Context, page *ledgerPage) error {
@@ -81,7 +81,7 @@ func TestLedgerPageRejectsDuplicateTransition(t *testing.T) {
 
 func TestLedgerPageCancellationDoesNotCommit(t *testing.T) {
 	f := newLedgerFixture(t)
-	runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
+	runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "attempt")
 	require.NoError(t, err)
 	before := ledgerRawSnapshot(t, f.engine)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -97,7 +97,7 @@ func TestLedgerPageCancellationDoesNotCommit(t *testing.T) {
 func TestLedgerPageCumulativeWorkersAndAttempts(t *testing.T) {
 	f := newLedgerFixture(t)
 	for attemptIndex, attempt := range []string{"first", "second"} {
-		runtime, err := newLedgerRuntime(t.Context(), f.ledger, attempt)
+		runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, attempt)
 		require.NoError(t, err)
 		for worker := range uint32(2) {
 			for pageIndex := range 2 {
@@ -122,7 +122,7 @@ func TestLedgerPageCumulativeWorkersAndAttempts(t *testing.T) {
 
 func TestLedgerPageFactValueReadYourWrites(t *testing.T) {
 	f := newLedgerFixture(t)
-	runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
+	runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "attempt")
 	require.NoError(t, err)
 	f.audit.enter(ledgerHandler)
 	_, err = runtime.runPage(t.Context(), 0, c1zstore.LedgerActionIdentity{Op: "init"}, func(_ context.Context, page *ledgerPage) error {

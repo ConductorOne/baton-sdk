@@ -49,12 +49,8 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 	if !resume.initialized && len(resume.actions) == 0 && !resume.sealReady {
 		resume.actions = []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}
 	}
-	s.ledger, err = newLedgerRuntime(ctx, ledger, runID)
-	if err != nil {
-		return false, err
-	}
 	knownEmpty := newSync
-	if !knownEmpty && !finished && !discardPending && len(s.ledger.facts) == 0 && s.ledger.prior.IsZero() {
+	if !knownEmpty && !finished && !discardPending && !resume.initialized && !resume.sealReady {
 		knownEmpty, err = ledger.BoundSyncUnstarted(ctx)
 		if err != nil {
 			return false, err
@@ -69,7 +65,7 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 			return false, err
 		}
 	}
-	if err := s.restoreLedgerState(ctx, resume, knownEmpty); err != nil {
+	if err := s.restoreLedgerState(ctx, ledger, runID, knownEmpty); err != nil {
 		return false, err
 	}
 	return resume.sealReady, nil

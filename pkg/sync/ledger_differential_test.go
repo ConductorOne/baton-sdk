@@ -29,7 +29,7 @@ func TestLedgerDeterministicTimeFixture(t *testing.T) {
 		require.NoError(t, writeLedgerTestFile(path, seed, 0600))
 		synctest.Test(t, func(t *testing.T) {
 			f := openLedgerFixtureAt(t, path, false)
-			runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
+			runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "attempt")
 			require.NoError(t, err)
 			f.audit.enter(ledgerHandler)
 			require.NoError(t, runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), 1, func(ctx context.Context, s *syncer, action *Action, page *ledgerPage) error {
@@ -68,7 +68,7 @@ func TestLedgerResumeLogicalDifferential(t *testing.T) {
 			require.NoError(t, writeLedgerTestFile(path, seed, 0600))
 			synctest.Test(t, func(t *testing.T) {
 				f := openLedgerFixtureAt(t, path, false)
-				runtime, err := newLedgerRuntime(t.Context(), f.ledger, "first")
+				runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "first")
 				require.NoError(t, err)
 				failed := false
 				stopped := fmt.Errorf("injected before commit of page %d", cut)
@@ -124,7 +124,7 @@ func TestLedgerResumeLogicalDifferential(t *testing.T) {
 					require.True(t, failed)
 					require.NoError(t, f.store.Close(t.Context()))
 					f = openLedgerFixtureAt(t, path, false)
-					runtime, err = newLedgerRuntime(t.Context(), f.ledger, "resumed")
+					runtime, err = newTestLedgerRuntime(t.Context(), f.ledger, "resumed")
 					require.NoError(t, err)
 					f.audit.enter(ledgerHandler)
 					err = runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), workers, handler)

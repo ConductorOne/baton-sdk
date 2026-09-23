@@ -111,5 +111,5 @@ func restoreLedgerTestState(t *testing.T, s *syncer, ctx context.Context, resume
 	if len(pending) > 0 {
 		s.syncID = pending[0].SyncID
 	}
-	return s.restoreLedgerState(ctx, resume, knownEmpty)
+	return s.restoreLedgerState(ctx, s.ledger.store, s.ledger.runID, knownEmpty)
 }

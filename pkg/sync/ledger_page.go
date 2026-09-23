@@ -28,28 +28,19 @@ type ledgerRuntime struct {
 	commitMu        native_sync.Mutex
 	closing         bool
 	facts           map[string]string
-	prior           c1zstore.LedgerCounters
 	workers         map[uint32]c1zstore.LedgerCounters
 	active          map[uint32]bool
 }
 
-func newLedgerRuntime(ctx context.Context, store c1zstore.PageLedgerStore, runID string) (*ledgerRuntime, error) {
+func newLedgerRuntime(store c1zstore.PageLedgerStore, runID string, facts map[string]string) (*ledgerRuntime, error) {
 	if store == nil || runID == "" {
 		return nil, errors.New("ledger runtime requires a store and attempt id")
-	}
-	facts, err := store.LedgerFacts(ctx)
-	if err != nil {
-		return nil, err
-	}
-	prior, err := store.LedgerCounters(ctx)
-	if err != nil {
-		return nil, err
 	}
 	if facts == nil {
 		facts = make(map[string]string)
 	}
 	return &ledgerRuntime{
-		store: store, runID: runID, runObservations: newRunStats(), facts: maps.Clone(facts), prior: cloneLedgerCounters(prior),
+		store: store, runID: runID, runObservations: newRunStats(), facts: maps.Clone(facts),
 		workers: make(map[uint32]c1zstore.LedgerCounters), active: make(map[uint32]bool),
 	}, nil
 }

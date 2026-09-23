@@ -144,12 +144,12 @@ func TestLedgerStaticMaterializationOrderAndResume(t *testing.T) {
 				require.NoError(t, f.store.SetCurrentSync(t.Context(), syncID))
 				s.store = staticResourcePageStore{Store: f.store}
 				s.caps = resolveStoreCaps(f.store)
-				s.ledger, err = newLedgerRuntime(t.Context(), f.ledger, "static-resume")
+				s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "static-resume")
 				require.NoError(t, err)
 				seedLedgerTestRun(t, s, nil)
 				before := ledgerRawSnapshot(t, f.engine)
 				f.audit.enter(ledgerWalk)
-				require.NoError(t, s.restoreLedgerState(t.Context(), ledgerResume{actions: []ledgerAction{{identity: root}}}, false))
+				require.NoError(t, s.restoreLedgerState(t.Context(), s.ledger.store, s.ledger.runID, false))
 				require.Equal(t, before, ledgerRawSnapshot(t, f.engine))
 				f.audit.enter(ledgerHandler)
 				connector.forbidFirst = true

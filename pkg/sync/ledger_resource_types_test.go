@@ -115,7 +115,7 @@ func TestLedgerResourceTypeFailureRetryAndReplay(t *testing.T) {
 	require.NoError(t, f.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
 	s.store, s.caps = f.store, resolveStoreCaps(f.store)
-	s.ledger, err = newLedgerRuntime(t.Context(), f.ledger, "reopened-attempt")
+	s.ledger, err = newTestLedgerRuntime(t.Context(), f.ledger, "reopened-attempt")
 	require.NoError(t, err)
 	s.run = newRunState()
 	before = ledgerRawSnapshot(t, f.engine)

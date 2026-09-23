@@ -21,7 +21,7 @@ func TestLedgerSessionMutationsSurviveFailedPage(t *testing.T) {
 			session := ledgerSessionStore{SessionStore: f.store.SessionStore()}
 			require.NoError(t, session.Set(t.Context(), "seed", []byte("before"), opts...))
 			require.NoError(t, session.Set(t.Context(), "seed", []byte("untouched"), other...))
-			runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
+			runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "attempt")
 			require.NoError(t, err)
 			failed := errors.New("connector failed after session mutation")
 			id := c1zstore.LedgerActionIdentity{Op: SyncResourceTypesOp.String()}
