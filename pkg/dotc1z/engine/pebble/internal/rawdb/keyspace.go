@@ -592,3 +592,16 @@ func GrantDigestABIStampKey() []byte {
 func DigestNodeKeyspaceBounds() ([]byte, []byte) {
 	return []byte{VersionV3, TypeDigest}, []byte{VersionV3, TypeDigest, DigestMetaIndexID}
 }
+
+func LedgerPendingPrefix() []byte {
+	return []byte{VersionV3, TypeLedger, 0x04}
+}
+
+func LedgerPendingBounds() ([]byte, []byte) {
+	lo := LedgerPendingPrefix()
+	return lo, UpperBound(lo)
+}
+
+func LedgerWorkStateKey() []byte {
+	return []byte{VersionV3, TypeLedger, 0x05}
+}

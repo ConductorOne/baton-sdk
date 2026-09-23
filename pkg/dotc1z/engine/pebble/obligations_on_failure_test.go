@@ -66,6 +66,8 @@ var rawdbHookFailureCases = map[string][]string{
 		"TestDeferredMarkerClearFailureKeepsAgreement",
 	},
 	"SetRecordCommitTestHook": {
+		"TestPendingWorkCommitFailureKeepsRevisionAndAllocator",
+		"TestPendingWorkInitializationFailureAndRetry",
 		"TestVerificationSourceScopeMutationAtomicity",
 		"TestInvalidateSourceCacheReplayStateCommitFailureIsAtomic",
 	},

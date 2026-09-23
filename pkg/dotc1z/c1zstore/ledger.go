@@ -158,6 +158,10 @@ type SyncStats struct {
 
 // Not safe for concurrent use.
 type PageWriter interface {
+	// Commit checks this revision and atomically applies the row's continuation
+	// and children to pending work alongside records and accounting.
+	SetPendingWork(work LedgerWork) error
+
 	PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error
 	PutResources(ctx context.Context, resources ...*v2.Resource) error
 	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
@@ -192,6 +196,12 @@ type PageWriter interface {
 }
 
 type PageLedgerStore interface {
+	// PendingWork returns at most limit entries in descending ID order; beforeID
+	// is exclusive when nonzero. limit is 1–100. initialized distinguishes absent from empty state.
+	PendingWork(ctx context.Context, beforeID uint64, limit int) (work []LedgerWork, initialized bool, err error)
+	// Seeds an absent queue in stack order; an initialized queue is unchanged.
+	InitializePendingWork(ctx context.Context, work []LedgerWork) error
+
 	GenerateLedgerReport(ctx context.Context) ([]byte, error)
 	// Saves retained history or returns the report already archived during disposal.
 	ArchiveLedgerReport(ctx context.Context) ([]byte, error)

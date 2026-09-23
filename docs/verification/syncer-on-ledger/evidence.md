@@ -897,3 +897,32 @@ Independent review used separate GPT-6 Sol and GPT-6 Astra contexts. The request
 Claude label did not match execution metadata. No Claude or cross-provider review
 is claimed. Original unexecuted coverage products remain incomplete; neither
 these reviews nor passing CI convert them into verified criteria.
+
+## CO-027 storage transaction, before syncer integration
+
+The storage step introduces separate pending and allocator ranges, a bounded
+100-entry descending-ID read, action revisions, and page-batch queue transitions.
+It does not enable the new recovery path in the syncer yet. Completed history
+keys append work ID/revision, so repeated request arguments keep distinct rows.
+
+Tests cover repeated arguments/children, empty completion, 1,001 pending entries
+read in windows of64, stale revisions, three durable-image cuts, failed seed and
+page batches, allocator preservation, unfinished seal refusal and finished clear.
+The public store close/reopen test verifies queue initialization is marked dirty.
+The existing write-hook mutation inventory now includes queue initialization.
+
+Qualification: removing page-batch pending transitions causes the flushed-image
+check to fail. Before the seal guard, the unfinished-seal test fails because seal
+succeeds. Both defects are absent in the passing tree. Batch failure injection
+uses the existing RecordBatch failure hook. Focused storage race checks pass
+three repetitions (1.560s). Full dotc1z passes (parent40.012s, Pebble13.321s),
+after registering the added initialization commit point. The newly added public
+adapter case passes separately (0.082s). Initial compile used the wrong rawdb
+flush method name and was corrected; it is not counted as test execution.
+
+This is storage evidence only: takeover, scheduler refill/order, report references,
+and removal of the old history walk remain implementation work under CO-027.
+
+Final storage surface checks pass (adapter0.108s, storage0.189s, sync guard0.064s)
+and merged-tree lint reports zero issues. No production sync has switched to the
+pending-work reader in this commit.

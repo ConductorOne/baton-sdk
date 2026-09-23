@@ -38,6 +38,8 @@ var capabilityMethods = map[string]struct {
 	kind dirtyKind
 	why  string
 }{
+	"PendingWork":              {dirtyRead, "bounded pending-work scan"},
+	"InitializePendingWork":    {dirtyWrite, "atomic initial queue and allocator"},
 	"BeginPage":                {dirtyDeferred, "returns a PageWriter; the staging calls write nothing until Commit, and dirtyPageWriter.Commit carries the mark for the whole batch"},
 	"GetArchivedLedgerReport":  {dirtyRead, "read archived report"},
 	"GetArchivedLedgerOptions": {dirtyRead, "read archived options"},

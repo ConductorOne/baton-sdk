@@ -1002,3 +1002,14 @@ func (s *pebbleStore) GetArchivedLedgerReport(ctx context.Context) ([]byte, erro
 func (s *pebbleStore) GetArchivedLedgerOptions(ctx context.Context, attempt string) (*c1zstore.LedgerReportOptions, error) {
 	return s.Engine.GetArchivedLedgerOptions(ctx, attempt)
 }
+
+func (s *pebbleStore) PendingWork(ctx context.Context, beforeID uint64, limit int) ([]c1zstore.LedgerWork, bool, error) {
+	return s.Engine.Ledger().PendingWork(ctx, beforeID, limit)
+}
+
+func (s *pebbleStore) InitializePendingWork(ctx context.Context, work []c1zstore.LedgerWork) error {
+	if err := s.writeHook(ctx, "InitializePendingWork"); err != nil {
+		return err
+	}
+	return s.markDirty(s.Engine.Ledger().InitializePendingWork(ctx, work))
+}

@@ -292,6 +292,13 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 			return ErrLedgeredSyncNeedsStats
 		}
 	}
+	pending, _, err := e.ledger.PendingWork(ctx, 0, 1)
+	if err != nil {
+		return err
+	}
+	if len(pending) != 0 {
+		return errors.New("EndSync: pending work remains")
+	}
 	existing, err := e.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return err

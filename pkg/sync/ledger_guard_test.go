@@ -338,3 +338,10 @@ func (s *ledgerGuardedStore) RestoreLedgerArchive(ctx context.Context) error {
 	}
 	return s.PageLedgerStore.RestoreLedgerArchive(ctx)
 }
+
+func (s *ledgerGuardedStore) InitializePendingWork(ctx context.Context, work []c1zstore.LedgerWork) error {
+	if err := s.audit.record(ctx, "InitializePendingWork"); err != nil {
+		return err
+	}
+	return s.PageLedgerStore.InitializePendingWork(ctx, work)
+}

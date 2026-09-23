@@ -206,3 +206,29 @@ func TestPebbleStoreClearRowsMarksDirty(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 3, counters.Counters["completed"])
 }
+
+func TestPebbleStorePendingWorkSurvivesClose(t *testing.T) {
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "pending.c1z")
+	store, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, store.Close(ctx))
+	store, err = NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	require.NoError(t, store.SetCurrentSync(ctx, syncID))
+	ledger := store.(c1zstore.PageLedgerStore)
+	work := c1zstore.LedgerWork{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-resources", PageToken: "first"}}}
+	require.NoError(t, ledger.InitializePendingWork(ctx, []c1zstore.LedgerWork{work}))
+	require.NoError(t, store.Close(ctx))
+	store, err = NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	defer store.Close(ctx)
+	ledger = store.(c1zstore.PageLedgerStore)
+	pending, initialized, err := ledger.PendingWork(ctx, 0, 64)
+	require.NoError(t, err)
+	require.True(t, initialized)
+	require.Len(t, pending, 1)
+	require.Equal(t, work.Action, pending[0].Action)
+}

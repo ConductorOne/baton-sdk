@@ -345,3 +345,14 @@ func ledgerCollectionFromProto(c *v3.LedgerCollectionStats) *c1zstore.LedgerColl
 		EntitlementsExcludedInvalid:        c.GetEntitlementsExcludedInvalid(),
 	}
 }
+
+func (w *pageWriter) SetPendingWork(work c1zstore.LedgerWork) error {
+	if w.unit.done {
+		return ErrPageUnitCommitted
+	}
+	if work.ID == 0 {
+		return errors.New("pending work requires a nonzero ID")
+	}
+	w.unit.work = &work
+	return nil
+}

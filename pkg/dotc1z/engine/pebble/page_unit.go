@@ -42,6 +42,7 @@ type pageUnit struct {
 	bucketKey   []byte
 	bucketValue *v3.LedgerCounterBucket
 
+	work *c1zstore.LedgerWork
 	done bool
 }
 
@@ -446,6 +447,12 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
 
+		if u.work != nil {
+			if err := l.stageWorkTransition(ctx, batch, *u.work, id, row); err != nil {
+				return err
+			}
+			key = encodeWorkHistoryKey(id, u.work.ID, u.work.Revision)
+		}
 		resourceTypes, err := stageResourceTypeRecords(batch, u.resourceTypes)
 		if err != nil {
 			return err

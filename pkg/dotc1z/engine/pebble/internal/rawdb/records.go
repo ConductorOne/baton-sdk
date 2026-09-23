@@ -671,6 +671,13 @@ func (rb *RecordBatch) StageLedgerClearRows(factKeys [][]byte) error {
 	if err := rb.core.DeleteRange(lo, hi); err != nil {
 		return err
 	}
+	pendingLo, pendingHi := LedgerPendingBounds()
+	if err := rb.core.DeleteRange(pendingLo, pendingHi); err != nil {
+		return err
+	}
+	if err := rb.core.Delete(LedgerWorkStateKey()); err != nil {
+		return err
+	}
 	if err := rb.core.Delete(LedgerFrontierKey()); err != nil {
 		return err
 	}
@@ -698,4 +705,22 @@ func (rb *RecordBatch) StageLedgerFactDelete(key []byte) error {
 		return err
 	}
 	return rb.core.Delete(key)
+}
+
+func (rb *RecordBatch) StagePendingWork(key, value []byte) error {
+	if err := assertFamily("StagePendingWork", key, LedgerPendingPrefix()); err != nil {
+		return err
+	}
+	return rb.core.Set(key, value)
+}
+
+func (rb *RecordBatch) StagePendingWorkDelete(key []byte) error {
+	if err := assertFamily("StagePendingWorkDelete", key, LedgerPendingPrefix()); err != nil {
+		return err
+	}
+	return rb.core.Delete(key)
+}
+
+func (rb *RecordBatch) StageLedgerWorkState(value []byte) error {
+	return rb.core.Set(LedgerWorkStateKey(), value)
 }
