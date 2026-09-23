@@ -32,56 +32,14 @@ func (s *syncer) syncLedgerGrants(ctx context.Context, action *Action) error {
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if action.ResourceTypeID == "" && action.ResourceID == "" {
-		actions := make([]Action, 0)
-		plannedTypeScoped := false
-		if action.PageToken == "" {
-			ctxzap.Extract(ctx).Info("Syncing grants...")
-			s.handleInitialActionForStep(ctx, *action)
-		}
-
-		if !action.TypeScopedPlanned {
-			typeScoped, typeScopedErr := s.typeScopedGrantsResourceTypes(ctx)
-			if typeScopedErr != nil {
-				err = fmt.Errorf("sync-grants: error listing type-scoped resource types: %w", typeScopedErr)
-				return err
-			}
-			for _, rtID := range typeScoped {
-				actions = append(actions, Action{Op: SyncGrantsOp, ResourceTypeID: rtID, TypeScoped: true})
-			}
-			plannedTypeScoped = true
-		}
-
-		resp, listResourcesErr := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
-			PageToken:    action.PageToken,
-			ActiveSyncId: s.getActiveSyncID(),
-		}.Build())
-		if listResourcesErr != nil {
-			err = fmt.Errorf("sync-grants: error listing resources: %w", listResourcesErr)
+		var actions []Action
+		var nextPageToken string
+		var plannedTypeScoped bool
+		actions, nextPageToken, plannedTypeScoped, err = s.planRootGrantActions(ctx, action)
+		if err != nil {
 			return err
 		}
-
-		for _, r := range resp.GetList() {
-			shouldSkip, shouldSkipErr := s.shouldSkipGrants(ctx, r)
-			if shouldSkipErr != nil {
-				err = shouldSkipErr
-				return err
-			}
-
-			if shouldSkip {
-				continue
-			}
-			typeScoped, typeScopedErr := s.resourceTypeHasTypeScopedGrants(ctx, r.GetId().GetResourceType())
-			if typeScopedErr != nil {
-				err = typeScopedErr
-				return err
-			}
-			if typeScoped {
-				continue
-			}
-			actions = append(actions, Action{Op: SyncGrantsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
-		}
-
-		if nextPageErr := s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...); nextPageErr != nil {
+		if nextPageErr := s.nextPageOrFinishAction(ctx, action, nextPageToken, actions...); nextPageErr != nil {
 			err = nextPageErr
 			return err
 		}
