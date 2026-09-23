@@ -108,6 +108,16 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
 	}
 
+	// A vault-inbox recipient needs an option that produces a value, and this must
+	// be refused before the account exists: a success carrying no credential would
+	// otherwise fail after the irreversible create, and a retry would then only
+	// see AlreadyExists.
+	if err := crypto.ValidateVaultInboxCredentialOptions(request.GetEncryptionConfigs(), request.GetCredentialOptions()); err != nil {
+		l.Error("error: vault inbox recipient paired with credential options that produce no value", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
+
 	result, plaintexts, annos, err := accountManager.CreateAccount(ctx, request.GetAccountInfo(), opts)
 	if err != nil {
 		l.Error("error: create account failed", zap.Error(err))

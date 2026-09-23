@@ -200,6 +200,27 @@ func TestVaultInboxCreateAccountKeepsStructuredResults(t *testing.T) {
 
 		_, err = connector.CreateAccount(context.Background(), gateCreateAccountRequest(t))
 		require.Error(t, err, "a success with no credential would seal no submission and report success")
+		require.Equal(t, 1, manager.createCalls,
+			"the option asked for a value, so the connector's empty success is refused after the create")
+	})
+
+	t.Run("an option that yields no credential is refused before the create", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateAccountManager{
+			ResourceSyncer: newTestResourceSyncer("service_account"),
+			result:         &v2.CreateAccountResponse_SuccessResult{IsCreateAccountResult: true},
+		}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		request := gateCreateAccountRequest(t)
+		request.SetCredentialOptions(v2.CredentialOptions_builder{
+			NoPassword: &v2.CredentialOptions_NoPassword{},
+		}.Build())
+
+		_, err = connector.CreateAccount(context.Background(), request)
+		require.Error(t, err, "a vault inbox recipient with nothing to deliver is a misconfiguration")
+		require.Zero(t, manager.createCalls, "the account must not be created for a refusal we can make up front")
 	})
 
 	t.Run("more than one plaintext is still refused", func(t *testing.T) {
