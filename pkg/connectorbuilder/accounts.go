@@ -119,14 +119,17 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 		return nil, err
 	}
 
-	// The recipient config is validated here too, not only inside the provider,
-	// so an unsupported version, suite, scheme, thumbprint, or JWK is refused
-	// before the account is created.
-	err = crypto.ValidateEncryptionConfigs(request.GetEncryptionConfigs())
-	if err != nil {
-		l.Error("error: invalid encryption configuration", zap.Error(err))
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, err
+	// Scoped to a vault-inbox recipient: an unsupported version, suite, scheme,
+	// thumbprint, or JWK must be refused before the account is created, while
+	// other recipient types keep their existing behaviour, where an unresolvable
+	// config only surfaced if the connector returned something to encrypt.
+	if crypto.HasVaultInboxConfig(request.GetEncryptionConfigs()) {
+		err = crypto.ValidateEncryptionConfigs(request.GetEncryptionConfigs())
+		if err != nil {
+			l.Error("error: invalid vault inbox encryption configuration", zap.Error(err))
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+			return nil, err
+		}
 	}
 
 	result, plaintexts, annos, err := accountManager.CreateAccount(ctx, request.GetAccountInfo(), opts)

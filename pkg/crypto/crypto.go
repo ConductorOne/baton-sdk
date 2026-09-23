@@ -127,17 +127,15 @@ func ValidateVaultInboxPlaintextCardinality(configs []*v2.EncryptionConfig, plai
 }
 
 // ValidateVaultInboxCredentialOptions refuses a vault-inbox recipient paired with
-// credential options that do not ask the connector to produce a value.
+// credential options that do not ask the connector to produce a value, on the
+// create path.
 //
 // Only RandomPassword asks for one. NoPassword and Sso create an account with no
 // credential at all, and EncryptedPassword carries material the caller already
 // holds rather than something the connector mints — with an empty list it leaves
-// LocalCredentialOptions unset and yields no plaintext, which is the post-create
-// failure this gate exists to prevent.
+// LocalCredentialOptions unset and yields no plaintext.
 //
-// It is checked before the account or the rotation is created, because after that
-// the only outcomes are a failed call for something that really happened, and a
-// retry that hits AlreadyExists.
+// Callers: CreateAccount, before the account is created.
 func ValidateVaultInboxCredentialOptions(configs []*v2.EncryptionConfig, opts *v2.CredentialOptions) error {
 	if !hasVaultInboxConfig(configs) {
 		return nil
@@ -147,6 +145,32 @@ func ValidateVaultInboxCredentialOptions(configs []*v2.EncryptionConfig, opts *v
 			"a vault inbox recipient requires credential options that produce a value")
 	}
 	return nil
+}
+
+// ValidateVaultInboxRotateCredentialOptions is the rotate-path rule. A rotation
+// with no options set is a supported shape — the connector mints its own
+// replacement — and it produces exactly one value, so unset is accepted here
+// while the options that can produce nothing are still refused.
+//
+// Callers: RotateCredential, before the provider is given the rotation.
+func ValidateVaultInboxRotateCredentialOptions(configs []*v2.EncryptionConfig, opts *v2.CredentialOptions) error {
+	if !hasVaultInboxConfig(configs) {
+		return nil
+	}
+	switch opts.WhichOptions() {
+	case v2.CredentialOptions_RandomPassword_case, v2.CredentialOptions_Options_not_set_case:
+		return nil
+	default:
+		return status.Error(codes.InvalidArgument,
+			"a vault inbox recipient requires a rotation that produces a value")
+	}
+}
+
+// HasVaultInboxConfig reports whether any config selects the vault-inbox
+// recipient profile. Callers use it to scope a vault-inbox-only check so other
+// recipient types keep their existing behaviour.
+func HasVaultInboxConfig(configs []*v2.EncryptionConfig) bool {
+	return hasVaultInboxConfig(configs)
 }
 
 func hasVaultInboxConfig(configs []*v2.EncryptionConfig) bool {
@@ -178,6 +202,11 @@ func validateVaultInboxConfigExclusivity(ec []*v2.EncryptionConfig) error {
 
 // ValidateEncryptionConfigs validates recipients before an irreversible
 // credential issuance without changing create/rotate compatibility.
+//
+// Issuance and the registered-action path call this unconditionally. CreateAccount
+// and RotateCredential call it only when a vault-inbox recipient is present
+// (see [HasVaultInboxConfig]), so every other recipient type keeps its existing
+// create/rotate behaviour.
 func ValidateEncryptionConfigs(ec []*v2.EncryptionConfig) error {
 	for i, config := range ec {
 		if config == nil {

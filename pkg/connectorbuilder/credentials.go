@@ -69,22 +69,25 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 	// Refused before the rotation: a vault-inbox recipient needs an option that
 	// produces a value, and rotating first would invalidate the prior credential
 	// with nothing delivered in its place.
-	err = crypto.ValidateVaultInboxCredentialOptions(request.GetEncryptionConfigs(), request.GetCredentialOptions())
+	err = crypto.ValidateVaultInboxRotateCredentialOptions(request.GetEncryptionConfigs(), request.GetCredentialOptions())
 	if err != nil {
 		l.Error("error: vault inbox recipient paired with credential options that produce no value", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
 
-	// The recipient config is validated here too, not only inside the provider.
-	// Without this an unsupported config version, suite, scheme, thumbprint, or
-	// JWK is first checked during encryption, after the rotation has already
-	// invalidated the prior credential.
-	err = crypto.ValidateEncryptionConfigs(request.GetEncryptionConfigs())
-	if err != nil {
-		l.Error("error: invalid encryption configuration", zap.Error(err))
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, err
+	// Scoped to a vault-inbox recipient: without this an unsupported config
+	// version, suite, scheme, thumbprint, or JWK is first checked during
+	// encryption, after the rotation has already invalidated the prior
+	// credential. Other recipient types keep their existing behaviour, where an
+	// unresolvable config only surfaces if there is something to encrypt.
+	if crypto.HasVaultInboxConfig(request.GetEncryptionConfigs()) {
+		err = crypto.ValidateEncryptionConfigs(request.GetEncryptionConfigs())
+		if err != nil {
+			l.Error("error: invalid vault inbox encryption configuration", zap.Error(err))
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+			return nil, err
+		}
 	}
 
 	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), opts)

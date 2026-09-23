@@ -289,10 +289,9 @@ func TestVaultInboxRotateRefusesBeforeMinting(t *testing.T) {
 	}.Build()
 
 	cases := map[string]*v2.CredentialOptions{
-		"no password":         noPassword,
-		"sso":                 v2.CredentialOptions_builder{Sso: v2.CredentialOptions_SSO_builder{}.Build()}.Build(),
-		"encrypted password":  encryptedPassword,
-		"unspecified options": v2.CredentialOptions_builder{}.Build(),
+		"no password":        noPassword,
+		"sso":                v2.CredentialOptions_builder{Sso: v2.CredentialOptions_SSO_builder{}.Build()}.Build(),
+		"encrypted password": encryptedPassword,
 	}
 	for name, options := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -306,6 +305,26 @@ func TestVaultInboxRotateRefusesBeforeMinting(t *testing.T) {
 			require.Zero(t, manager.rotateCalls, "the rotation must be refused before the provider is touched")
 		})
 	}
+
+	// A rotation with no options at all is a supported shape: ConvertCredentialOptions
+	// returns (nil, nil) for a nil options pointer and the connector mints its own
+	// replacement, which is exactly one value, so the vault-inbox rule must not
+	// refuse it. An *empty* options message is a different thing and is already
+	// refused by the option conversion.
+	t.Run("unset options still rotate", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateCredentialManager{
+			ResourceSyncer: newTestResourceSyncer("service_account"),
+			plaintexts:     []*v2.PlaintextData{gateValue("api_key", []byte("v"))},
+		}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		resp, err := connector.RotateCredential(context.Background(), gateRotateRequest(t, nil))
+		require.NoError(t, err)
+		require.Equal(t, 1, manager.rotateCalls)
+		require.Len(t, resp.GetEncryptedData(), 1)
+	})
 
 	t.Run("a password-producing option still rotates", func(t *testing.T) {
 		t.Parallel()
