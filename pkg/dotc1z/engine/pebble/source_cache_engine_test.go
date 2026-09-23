@@ -335,10 +335,6 @@ func replayTestGrantScopeIndexKey(t *testing.T, scopeKey string, rec *v3.GrantRe
 	return encodeGrantBySourceScopeIndexKey(scopeKey, id)
 }
 
-// TestDeleteGrantsByPrincipalsInScope: a principal (type, id) kills exactly
-// its rows within the scope — other scopes' rows for the same principal
-// survive, unknown principals no-op, and the deleted rows' index entries
-// (including the scope index) go with them.
 func TestDeleteGrantsByPrincipalsInScope(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
@@ -376,6 +372,27 @@ func TestDeleteGrantsByPrincipalsInScope(t *testing.T) {
 	res, err := cur.PebbleEngine().ReplaySourceCacheGrants(ctx, a.PebbleEngine(), scopeA)
 	require.NoError(t, err)
 	require.Zero(t, res.Rows)
+}
+
+func TestEngineDeletesRejectIncompleteRefs(t *testing.T) {
+	ctx := context.Background()
+	a := newAdapter(t)
+	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	e := a.PebbleEngine()
+	group := sourcecache.ResourceRef{ResourceTypeID: "group", ResourceID: "g1"}
+
+	_, err = e.DeleteResourceRecordsByRef(ctx, []sourcecache.ResourceRef{{ResourceID: "alice"}}, scopeA)
+	require.ErrorIs(t, err, sourcecache.ErrIncompleteTombstone)
+	_, err = e.DeleteEntitlementRecordsByRef(ctx, []sourcecache.EntitlementRef{{Resource: group}}, scopeA)
+	require.ErrorIs(t, err, sourcecache.ErrIncompleteTombstone)
+	_, err = e.DeleteGrantRecordsByRef(ctx, []sourcecache.GrantRef{{
+		Entitlement: sourcecache.EntitlementRef{Resource: group, EntitlementID: "member"},
+		Principal:   sourcecache.ResourceRef{ResourceID: "alice"},
+	}}, scopeA)
+	require.ErrorIs(t, err, sourcecache.ErrIncompleteTombstone)
+	_, err = e.DeleteGrantsByPrincipalsInScope(ctx, scopeA, []sourcecache.ResourceRef{{ResourceTypeID: "user"}})
+	require.ErrorIs(t, err, sourcecache.ErrIncompleteTombstone)
 }
 
 func TestDeleteResourceRecordsByRef(t *testing.T) {

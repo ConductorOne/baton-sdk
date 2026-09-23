@@ -7,7 +7,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
-// ErrIncompleteTombstone is returned for a reference missing a component.
 var ErrIncompleteTombstone = errors.New("source cache tombstone: incomplete reference")
 
 type ResourceRef struct {
@@ -25,9 +24,7 @@ type GrantRef struct {
 	Principal   ResourceRef
 }
 
-// Tombstones are the rows a page deletes from the current sync, by
-// structured identity. Principals delete every grant in the scope whose
-// principal matches.
+// Tombstones are SourceCacheTombstones decoded and validated.
 type Tombstones struct {
 	Resources    []ResourceRef
 	Entitlements []EntitlementRef
@@ -63,8 +60,7 @@ func TombstonesFromProto(kind RowKind, p *v2.SourceCacheTombstones) (Tombstones,
 }
 
 // Validate rejects fields that do not belong to kind's pages and any
-// reference missing a component. Every delete path calls it, so an
-// incomplete ref never reaches the engine as a no-op.
+// reference missing a component.
 func (t Tombstones) Validate(kind RowKind) error {
 	if err := ValidateRowKind(kind); err != nil {
 		return err
@@ -84,44 +80,51 @@ func (t Tombstones) Validate(kind RowKind) error {
 		}
 	}
 	for i, r := range t.Resources {
-		if err := r.validate(); err != nil {
+		if err := r.Validate(); err != nil {
 			return fmt.Errorf("resources[%d]: %w", i, err)
 		}
 	}
 	for i, e := range t.Entitlements {
-		if err := e.validate(); err != nil {
+		if err := e.Validate(); err != nil {
 			return fmt.Errorf("entitlements[%d]: %w", i, err)
 		}
 	}
 	for i, g := range t.Grants {
-		if err := g.Entitlement.validate(); err != nil {
-			return fmt.Errorf("grants[%d].entitlement: %w", i, err)
-		}
-		if err := g.Principal.validate(); err != nil {
-			return fmt.Errorf("grants[%d].principal: %w", i, err)
+		if err := g.Validate(); err != nil {
+			return fmt.Errorf("grants[%d]: %w", i, err)
 		}
 	}
 	for i, p := range t.Principals {
-		if err := p.validate(); err != nil {
+		if err := p.Validate(); err != nil {
 			return fmt.Errorf("principals[%d]: %w", i, err)
 		}
 	}
 	return nil
 }
 
-func (r ResourceRef) validate() error {
+func (r ResourceRef) Validate() error {
 	if r.ResourceTypeID == "" || r.ResourceID == "" {
 		return fmt.Errorf("%w: resource_type=%q resource=%q", ErrIncompleteTombstone, r.ResourceTypeID, r.ResourceID)
 	}
 	return nil
 }
 
-func (e EntitlementRef) validate() error {
-	if err := e.Resource.validate(); err != nil {
+func (e EntitlementRef) Validate() error {
+	if err := e.Resource.Validate(); err != nil {
 		return err
 	}
 	if e.EntitlementID == "" {
 		return fmt.Errorf("%w: empty entitlement_id", ErrIncompleteTombstone)
+	}
+	return nil
+}
+
+func (g GrantRef) Validate() error {
+	if err := g.Entitlement.Validate(); err != nil {
+		return fmt.Errorf("entitlement: %w", err)
+	}
+	if err := g.Principal.Validate(); err != nil {
+		return fmt.Errorf("principal: %w", err)
 	}
 	return nil
 }

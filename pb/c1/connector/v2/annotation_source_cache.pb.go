@@ -342,6 +342,8 @@ func (b0 SourceCacheRecord_builder) Build() *SourceCacheRecord {
 // grants page.
 //
 // The syncer does not read this field yet; setting it deletes nothing.
+// Consumption lands with the source-cache orchestration phase of
+// docs/tasks/sound-syncs-landing-plan.md; delete this note then.
 type SourceCacheTombstones struct {
 	state        protoimpl.MessageState       `protogen:"hybrid.v1"`
 	Resources    []*ResourceId                `protobuf:"bytes,1,rep,name=resources,proto3" json:"resources,omitempty"`
@@ -541,7 +543,6 @@ func (b0 SourceCacheEntitlementRef_builder) Build() *SourceCacheEntitlementRef {
 	return m0
 }
 
-// SourceCacheGrantRef identifies a grant by its entitlement and principal.
 type SourceCacheGrantRef struct {
 	state         protoimpl.MessageState     `protogen:"hybrid.v1"`
 	Entitlement   *SourceCacheEntitlementRef `protobuf:"bytes,1,opt,name=entitlement,proto3" json:"entitlement,omitempty"`

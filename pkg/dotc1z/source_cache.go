@@ -75,10 +75,9 @@ type SourceCacheStore interface {
 	// poisons the stamped scope (CO-015 — it becomes a lookup miss and is
 	// refused as a replay source).
 	//
-	// Principals delete every grant in the scope whose principal matches:
-	// one index scan of the scope per call. Deletes commit in bounded
-	// chunks; deletion is idempotent, so on error the returned count
-	// reports rows already committed and retry converges.
+	// Principals cost one index scan of the scope per call. Deletes commit
+	// in bounded chunks; deletion is idempotent, so on error the returned
+	// count reports rows already committed and retry converges.
 	DeleteSourceCacheRows(ctx context.Context, kind sourcecache.RowKind, scopeKey string, t sourcecache.Tombstones) (int64, error)
 }
 

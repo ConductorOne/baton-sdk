@@ -165,6 +165,8 @@ message SourceCacheRecord {
 // grants page.
 //
 // The syncer does not read this field yet; setting it deletes nothing.
+// Consumption lands with the source-cache orchestration phase of
+// docs/tasks/sound-syncs-landing-plan.md; delete this note then.
 message SourceCacheTombstones {
   repeated ResourceId resources = 1;
   repeated SourceCacheEntitlementRef entitlements = 2;
@@ -187,7 +189,6 @@ message SourceCacheEntitlementRef {
   string entitlement_id = 2;
 }
 
-// SourceCacheGrantRef identifies a grant by its entitlement and principal.
 message SourceCacheGrantRef {
   SourceCacheEntitlementRef entitlement = 1;
   ResourceId principal = 2;
