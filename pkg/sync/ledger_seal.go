@@ -9,8 +9,34 @@ import (
 )
 
 const ledgerTerminalOp = "sync-terminal-v1"
+const ledgerFactSealReady = "sync.seal_ready"
 
 func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.LedgerCounters, facts ...string) error {
+	return r.prepareSealWithOptions(ctx, runCounters, nil, facts...)
+}
+
+func (s *syncer) prepareLedgerSeal(ctx context.Context, counters c1zstore.LedgerCounters, facts ...string) error {
+	return s.ledger.prepareSealWithOptions(ctx, counters, func(page *ledgerPage) error { return s.stageLedgerReportOptions(&ledgerInvocation{page: page}) }, facts...)
+}
+
+func (r *ledgerRuntime) prepareSealWithOptions(ctx context.Context, runCounters c1zstore.LedgerCounters, options func(*ledgerPage) error, facts ...string) error {
+	pending, initialized, err := r.store.PendingWork(ctx, 0, 1)
+	if err != nil {
+		return err
+	}
+	if len(pending) > 0 {
+		return errors.New("cannot prepare seal with pending work")
+	}
+	if !initialized {
+		r.mu.Lock()
+		_, discarding := r.facts[c1zstore.LedgerFactDiscardOnSeal]
+		_, ready := r.facts[ledgerFactSealReady]
+		r.mu.Unlock()
+		if !discarding || !ready {
+			return errors.New("cannot prepare seal without pending-work declaration")
+		}
+	}
+
 	r.mu.Lock()
 	if len(r.active) != 0 {
 		r.mu.Unlock()
@@ -24,6 +50,11 @@ func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.Le
 	}
 	page := r.store.BeginPage()
 	defer page.Discard()
+	if options != nil {
+		if err := options(&ledgerPage{writer: page, runtime: r, facts: make(map[string]string)}); err != nil {
+			return err
+		}
+	}
 	for _, fact := range facts {
 		if err := page.SetFact(fact); err != nil {
 			return err

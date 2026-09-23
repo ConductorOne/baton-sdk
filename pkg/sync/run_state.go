@@ -118,6 +118,9 @@ const (
 
 // Action stores the current operation, page token, and optional fields for which resource is being worked with.
 type Action struct {
+	WorkPageToken        string   `json:"-"`
+	WorkID               uint64   `json:"-"`
+	WorkRevision         uint64   `json:"-"`
 	ID                   string   `json:"id,omitempty"`
 	Op                   ActionOp `json:"operation,omitempty"`
 	PageToken            string   `json:"page_token,omitempty"`

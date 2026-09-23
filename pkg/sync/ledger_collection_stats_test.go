@@ -13,7 +13,7 @@ func TestLedgerCollectionReceivedAndExcluded(t *testing.T) {
 	t.Run("resources", func(t *testing.T) {
 		s, f, _ := resourcePageFixture(t, 1)
 		id := ledgerIdentity(s.run.current())
-		_, err := s.parallelSync(t.Context(), t.Context(), nil)
+		_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 		require.NoError(t, err)
 		row, found, err := f.ledger.GetLedgerRow(t.Context(), id)
 		require.NoError(t, err)
@@ -27,7 +27,7 @@ func TestLedgerCollectionReceivedAndExcluded(t *testing.T) {
 	t.Run("entitlements", func(t *testing.T) {
 		s, f, _ := entitlementPageFixture(t, false)
 		id := ledgerIdentity(s.run.current())
-		_, err := s.parallelSync(t.Context(), t.Context(), nil)
+		_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 		require.NoError(t, err)
 		row, found, err := f.ledger.GetLedgerRow(t.Context(), id)
 		require.NoError(t, err)
@@ -70,7 +70,7 @@ func TestLedgerEmptyResponseDiffersFromFilteredResponse(t *testing.T) {
 	s, f, _ := resourcePageFixture(t, 1)
 	s.connector = &ledgerEmptyThenInvalidConnector{mockConnector: &mockConnector{}}
 	id := ledgerIdentity(s.run.current())
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	first, found, err := f.ledger.GetLedgerRow(t.Context(), id)
 	require.NoError(t, err)
@@ -95,7 +95,7 @@ func TestLedgerCollectionGrantDerivedExclusions(t *testing.T) {
 	s, f, c := grantPageFixture(t, false)
 	c.grants = append(c.grants, ledgerGrant("excluded-resource", "disabled", "two", "selected"))
 	id := ledgerIdentity(s.run.current())
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	row, found, err := f.ledger.GetLedgerRow(t.Context(), id)
 	require.NoError(t, err)

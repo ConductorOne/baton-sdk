@@ -15,9 +15,15 @@ import (
 
 func assertRestoredCheckpoint(t *testing.T, expected tokenParts, s *syncer) {
 	t.Helper()
+	if len(expected.run.actionOrder) == 0 {
+		expected.run.pushAction(t.Context(), Action{Op: InitOp})
+	}
 	require.Len(t, s.run.actionOrder, len(expected.run.actionOrder))
 	for i, key := range expected.run.actionOrder {
 		before := expected.run.actions[key]
+		if before.Op == SyncGrantExpansionOp {
+			before.PageToken = ""
+		}
 		after := s.run.actions[s.run.actionOrder[i]]
 		require.Equal(t, ledgerIdentity(&before), ledgerIdentity(&after))
 		require.Equal(t, before.Spawned, after.Spawned)
@@ -37,7 +43,7 @@ func assertRestoredCheckpoint(t *testing.T, expected tokenParts, s *syncer) {
 	}
 	require.Equal(t, quality, s.ingestFilterStats.snapshot())
 	require.Nil(t, s.stats.compactionStats())
-	require.Equal(t, expected.graph, s.graph.peek())
+	require.Nil(t, s.graph.peek())
 	require.Zero(t, s.listResourceActionsCompletedThisRun.Load())
 }
 
@@ -61,7 +67,7 @@ func TestLedgerRestoreCheckpointFixtures(t *testing.T) {
 			before := ledgerRawSnapshot(t, f.engine)
 			s.listResourceActionsCompletedThisRun.Store(23)
 			f.audit.enter(ledgerWalk)
-			err = s.restoreLedgerState(t.Context(), resume, false)
+			err = restoreLedgerTestState(t, s, t.Context(), resume, false)
 			f.audit.enter(ledgerLifecycle)
 			require.NoError(t, err)
 			assertRestoredCheckpoint(t, expected, s)
@@ -100,7 +106,7 @@ func TestLedgerRestoreFinishedCheckpointPreservesLifecycle(t *testing.T) {
 				require.NoError(t, err)
 				snapshot := ledgerRawSnapshot(t, f.engine)
 				f.audit.enter(ledgerWalk)
-				err = s.restoreLedgerState(t.Context(), resume, false)
+				err = restoreLedgerTestState(t, s, t.Context(), resume, false)
 				f.audit.enter(ledgerLifecycle)
 				require.NoError(t, err)
 				assertRestoredCheckpoint(t, expected, s)
@@ -122,7 +128,13 @@ func TestLedgerRestoreRunsOnlyPendingContinuation(t *testing.T) {
 		ConnectorCalls: map[string]c1zstore.CallStat{"ListResources": {Count: 2, TotalMs: 17, MaxMs: 11}},
 	}))
 	root := c1zstore.LedgerActionIdentity{Op: SyncResourcesOp.String(), ResourceTypeID: "type"}
-	_, err := s.ledger.runPage(t.Context(), 0, root, func(_ context.Context, page *ledgerPage) error {
+	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), []c1zstore.LedgerWork{{Action: c1zstore.LedgerChild{Identity: root}}}))
+	work, _, err := f.ledger.PendingWork(t.Context(), 0, 1)
+	require.NoError(t, err)
+	_, err = s.ledger.runPage(t.Context(), 0, root, func(_ context.Context, page *ledgerPage) error {
+		if err := page.writer.SetPendingWork(work[0]); err != nil {
+			return err
+		}
 		if err := page.setFact(factNeedsExpansion); err != nil {
 			return err
 		}
@@ -134,7 +146,7 @@ func TestLedgerRestoreRunsOnlyPendingContinuation(t *testing.T) {
 	require.NoError(t, err)
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerWalk)
-	err = s.restoreLedgerState(t.Context(), ledgerResume{actions: []ledgerAction{{identity: root}}}, false)
+	err = restoreLedgerTestState(t, s, t.Context(), ledgerResume{actions: []ledgerAction{{identity: root}}}, false)
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, err)
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
@@ -150,7 +162,7 @@ func TestLedgerRestoreRunsOnlyPendingContinuation(t *testing.T) {
 		return s.nextPageOrFinishAction(ctx, action, "")
 	}
 	f.audit.enter(ledgerHandler)
-	_, err = s.parallelSync(t.Context(), t.Context(), nil)
+	_, err = runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, err)
 	require.Equal(t, 1, calls)
@@ -171,29 +183,57 @@ func (s ledgerRestoreReadFault) LedgerCounters(context.Context) (c1zstore.Ledger
 	return c1zstore.LedgerCounters{}, s.err
 }
 
-func TestLedgerRestoreFailureDoesNotPublishState(t *testing.T) {
-	s, f := newLedgerSchedulerFixture(t, 1)
-	originalRun, originalStats := s.run, s.stats
-	s.run.setFact("old-state")
-	s.childSchedule.recordIfNew("old-child", "old-parent", "one")
-	injected := errors.New("counter read failed")
-	s.ledger.store = ledgerRestoreReadFault{PageLedgerStore: f.ledger, err: injected}
-	before := ledgerRawSnapshot(t, f.engine)
-	f.audit.enter(ledgerWalk)
-	err := s.restoreLedgerState(t.Context(), ledgerResume{actions: ledgerListingFixtureRoots()}, false)
-	f.audit.enter(ledgerLifecycle)
-	require.ErrorIs(t, err, injected)
-	require.Same(t, originalRun, s.run)
-	require.Same(t, originalStats, s.stats)
-	require.True(t, s.run.hasFact("old-state"))
-	require.True(t, s.childSchedule.has("old-child", "old-parent", "one"))
-	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
+type ledgerRestorePendingFault struct {
+	c1zstore.PageLedgerStore
+	err error
 }
 
-func TestLedgerRestoreReplayedChildDoesNotCountAgain(t *testing.T) {
+func (s ledgerRestorePendingFault) PendingWork(context.Context, uint64, int) ([]c1zstore.LedgerWork, bool, error) {
+	return nil, false, s.err
+}
+
+func TestLedgerRestoreFailureDoesNotPublishState(t *testing.T) {
+	for name, fault := range map[string]func(c1zstore.PageLedgerStore, error) c1zstore.PageLedgerStore{
+		"counters": func(store c1zstore.PageLedgerStore, err error) c1zstore.PageLedgerStore {
+			return ledgerRestoreReadFault{PageLedgerStore: store, err: err}
+		},
+		"pending": func(store c1zstore.PageLedgerStore, err error) c1zstore.PageLedgerStore {
+			return ledgerRestorePendingFault{PageLedgerStore: store, err: err}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, f := newLedgerSchedulerFixture(t, 1)
+			originalRun, originalStats := s.run, s.stats
+			s.run.setFact("old-state")
+			s.childSchedule.recordIfNew("old-child", "old-parent", "one")
+			injected := errors.New("restore read failed")
+			s.ledger.store = fault(f.ledger, injected)
+			require.NoError(t, f.ledger.InitializePendingWork(t.Context(), pendingSeeds(ledgerListingFixtureRoots())))
+			before := ledgerRawSnapshot(t, f.engine)
+			f.audit.enter(ledgerWalk)
+			err := restoreLedgerTestState(t, s, t.Context(), ledgerResume{actions: ledgerListingFixtureRoots()}, false)
+			f.audit.enter(ledgerLifecycle)
+			require.ErrorIs(t, err, injected)
+			require.Same(t, originalRun, s.run)
+			require.Same(t, originalStats, s.stats)
+			require.True(t, s.run.hasFact("old-state"))
+			require.True(t, s.childSchedule.has("old-child", "old-parent", "one"))
+			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
+		})
+	}
+}
+
+func TestLedgerRestoreRepeatedChildIsNewWork(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
 	child := c1zstore.LedgerActionIdentity{Op: SyncResourcesOp.String(), ResourceTypeID: "type"}
-	_, err := s.ledger.runPage(t.Context(), 0, child, func(_ context.Context, page *ledgerPage) error {
+	seeds := []c1zstore.LedgerWork{{Action: c1zstore.LedgerChild{Identity: ledgerListingFixtureRoots()[0].identity}}, {Action: c1zstore.LedgerChild{Identity: child}}}
+	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), seeds))
+	work, _, err := f.ledger.PendingWork(t.Context(), 0, 1)
+	require.NoError(t, err)
+	_, err = s.ledger.runPage(t.Context(), 0, child, func(_ context.Context, page *ledgerPage) error {
+		if err := page.writer.SetPendingWork(work[0]); err != nil {
+			return err
+		}
 		page.observations.Counters = map[string]uint64{ledgerCompletedActions: 1, ledgerCompletedPrefix + SyncResourcesOp.String(): 1}
 		return page.transition("")
 	})
@@ -201,21 +241,24 @@ func TestLedgerRestoreReplayedChildDoesNotCountAgain(t *testing.T) {
 	s.ledger, err = newLedgerRuntime(t.Context(), f.ledger, "resumed")
 	require.NoError(t, err)
 	f.audit.enter(ledgerWalk)
-	err = s.restoreLedgerState(t.Context(), ledgerResume{actions: ledgerListingFixtureRoots()}, false)
+	err = s.restoreLedgerState(t.Context(), ledgerResume{initialized: true}, false)
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, err)
+	calls := 0
 	s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
-		require.Equal(t, SyncResourceTypesOp, action.Op)
-		return s.nextPageOrFinishAction(ctx, action, "", ledgerActionFromIdentity(child))
+		if action.Op == SyncResourceTypesOp {
+			return s.nextPageOrFinishAction(ctx, action, "", ledgerActionFromIdentity(child))
+		}
+		calls++
+		return s.nextPageOrFinishAction(ctx, action, "")
 	}
-	f.audit.enter(ledgerHandler)
 	_, err = s.parallelSync(t.Context(), t.Context(), nil)
-	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, err)
-	counters, err := f.ledger.LedgerCounters(t.Context())
+	require.Equal(t, 1, calls)
+	counts, err := f.ledger.LedgerCounters(t.Context())
 	require.NoError(t, err)
-	require.EqualValues(t, 2, counters.Counters[ledgerCompletedActions])
-	require.Equal(t, counters.Counters[ledgerCompletedActions], s.run.completedActionsCount())
-	require.EqualValues(t, 1, s.run.getActionCount(SyncResourcesOp).CompletedCount)
-	require.Zero(t, s.listResourceActionsCompletedThisRun.Load())
+	require.EqualValues(t, 3, counts.Counters[ledgerCompletedActions])
+	require.Equal(t, counts.Counters[ledgerCompletedActions], s.run.completedActionsCount())
+	require.EqualValues(t, 2, s.run.getActionCount(SyncResourcesOp).CompletedCount)
+	require.EqualValues(t, 1, s.listResourceActionsCompletedThisRun.Load())
 }

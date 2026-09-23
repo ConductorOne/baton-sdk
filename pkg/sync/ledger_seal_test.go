@@ -12,6 +12,7 @@ import (
 
 func TestLedgerSealRequiresTerminalPage(t *testing.T) {
 	f := newLedgerFixture(t)
+	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
 	runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
 	require.NoError(t, err)
 	before := ledgerRawSnapshot(t, f.engine)
@@ -24,6 +25,7 @@ func TestLedgerTerminalPageAndSealStats(t *testing.T) {
 		f := newLedgerFixture(t)
 		syncID := f.engine.CurrentSyncID()
 		f.ledger.SetRetainLedgerTokens(retain)
+		require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
 		runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
 		require.NoError(t, err)
 		id := c1zstore.LedgerActionIdentity{Op: "list-resource-types", PageToken: "first-page"}
@@ -78,6 +80,7 @@ func TestLedgerTerminalPageAndSealStats(t *testing.T) {
 
 func TestLedgerTerminalRejectsActivePage(t *testing.T) {
 	f := newLedgerFixture(t)
+	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
 	runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
 	require.NoError(t, err)
 	_, err = runtime.runPage(t.Context(), 0, c1zstore.LedgerActionIdentity{Op: "init"}, func(ctx context.Context, page *ledgerPage) error {
@@ -95,9 +98,8 @@ func TestLedgerTerminalRejectsActivePage(t *testing.T) {
 
 func TestLedgerSealReadyBypassesScrubbedFrontier(t *testing.T) {
 	f := newLedgerFixture(t)
-	require.NoError(t, f.store.CheckpointSync(t.Context(), `{"version":1}`))
-	_, err := loadLedgerResume(t.Context(), f.store, f.ledger, "takeover")
-	require.NoError(t, err)
+	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
+	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
 	runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
 	require.NoError(t, err)
 	require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{}))
@@ -108,7 +110,7 @@ func TestLedgerSealReadyBypassesScrubbedFrontier(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, resume.sealReady)
 	require.Empty(t, resume.actions)
-	pending, err := runtime.walk(t.Context(), []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: "init"}}})
+	pending, _, err := f.ledger.PendingWork(t.Context(), 0, 64)
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, err)
 	require.Empty(t, pending)
@@ -119,6 +121,7 @@ func TestLedgerSealCostConsumer(t *testing.T) {
 	for _, retain := range []bool{false, true} {
 		f := newLedgerFixture(t)
 		f.ledger.SetRetainLedgerTokens(retain)
+		require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
 		runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
 		require.NoError(t, err)
 		require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{}))

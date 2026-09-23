@@ -42,7 +42,7 @@ func TestLedgerExternalImportsPagesDirectly(t *testing.T) {
 	}
 	probe := &externalStreamingProbe{Reader: source.store, destination: f.store, t: t}
 	s.externalResourceReader = probe
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	require.Greater(t, probe.pages, 1)
 	_, found, err := f.ledger.GetLedgerRow(t.Context(), ledgerIdentity(&Action{Op: SyncExternalResourcesOp}))

@@ -162,6 +162,11 @@ func (s *syncer) parallelSync(
 
 	var warnings []error
 	for {
+		if s.ledgered {
+			if err := s.refreshPendingWindow(ctx); err != nil {
+				return warnings, err
+			}
+		}
 		stateAction := s.run.current()
 		if stateAction == nil {
 			break
@@ -361,7 +366,7 @@ func (s *syncer) parallelSync(
 
 		case SyncExternalResourcesOp:
 			err = s.timedStep(SyncExternalResourcesOp, func() error {
-				return s.SyncExternalResources(workerCtx, stateAction)
+				return s.runPendingLocalStep(workerCtx, stateAction, func() error { return s.SyncExternalResources(workerCtx, stateAction) })
 			})
 			if !s.timedShouldWaitAndRetry(workerCtx, SyncExternalResourcesOp, stateAction.ResourceTypeID, retryer, err) {
 				return s.handleOperationError(ctx, runCtx, warnings, err)
@@ -399,11 +404,15 @@ func (s *syncer) parallelSync(
 
 			if s.cfg.dontExpandGrants || !s.run.hasFact(factNeedsExpansion) {
 				l.Debug("skipping grant expansion, no grants to expand")
-				s.finishAction(ctx, stateAction)
+				if err := s.runPendingLocalStep(ctx, stateAction, func() error { s.finishAction(ctx, stateAction); return nil }); err != nil {
+					return warnings, err
+				}
 				continue
 			}
 
-			err = s.timedStep(SyncGrantExpansionOp, func() error { return s.SyncGrantExpansion(workerCtx, stateAction) })
+			err = s.timedStep(SyncGrantExpansionOp, func() error {
+				return s.runPendingLocalStep(workerCtx, stateAction, func() error { return s.SyncGrantExpansion(workerCtx, stateAction) })
+			})
 			if !retryer.ShouldWaitAndRetry(ratelimit.WithWaitLabel(workerCtx, stateAction.ResourceTypeID), err) {
 				return s.handleOperationError(ctx, runCtx, warnings, err)
 			}
@@ -513,6 +522,8 @@ type parallelActionQueue struct {
 	head        int
 	outstanding int
 	aborted     bool
+	refill      func() ([]*Action, error)
+	refillErr   error
 	// The queue keeps NO cursor identity history (RFC 0007 phase 1
 	// restored the pre-identity-machinery posture that prod ran on for
 	// years): no batch-lifetime seen set, no cap, no cross-commit dedup,
@@ -674,7 +685,32 @@ func (q *parallelActionQueue) transition(
 func (q *parallelActionQueue) next() (*Action, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	for !q.aborted && q.head == len(q.actions) && q.outstanding > 0 {
+	for !q.aborted && q.head == len(q.actions) {
+		if q.refill != nil {
+			loaded, err := q.refill()
+			if err != nil {
+				q.refillErr = err
+				q.aborted = true
+				q.cond.Broadcast()
+				break
+			}
+			if len(loaded) > 0 {
+				q.actions = loaded
+				q.head = 0
+				q.outstanding += len(loaded)
+				if q.audit != nil {
+					event := queueAuditEvent{kind: auditAdmit, batch: q.auditBatch}
+					for _, action := range loaded {
+						event.actionIDs = append(event.actionIDs, action.ID)
+					}
+					q.audit.record(event)
+				}
+				break
+			}
+		}
+		if q.outstanding == 0 {
+			break
+		}
 		q.cond.Wait()
 	}
 	if q.aborted || q.outstanding == 0 {
@@ -753,6 +789,20 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	defer cancel(nil)
 
 	queue := newParallelActionQueue(actions)
+	if s.ledgered {
+		var after uint64
+		for _, action := range actions {
+			after = max(after, action.WorkID)
+		}
+		queue.refill = func() ([]*Action, error) {
+			loaded, err := s.pendingRefill(ctx, batchOp, &after)
+			if err != nil {
+				cancel(err)
+			}
+			return loaded, err
+		}
+	}
+
 	if s.testHooks.queueAudit != nil {
 		queue.attachAudit(s.testHooks.queueAudit, batchOp, s.testHooks.queueAudit.newBatch())
 	}
@@ -817,6 +867,9 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	}
 
 	wg.Wait()
+	if queue.refillErr != nil {
+		errs = append(errs, queue.refillErr)
+	}
 
 	batchErr = errors.Join(errs...)
 	if s.testHooks.queueAudit != nil {

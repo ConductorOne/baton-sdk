@@ -148,6 +148,5 @@ func (s *syncer) syncLedgerTargetedResource(ctx context.Context, action *Action)
 	childActions := s.pendingChildResourceActions(childTypeIDs, resourceTypeID, resourceID)
 	followupActions = append(followupActions, childActions...)
 
-	invocation.resourceChildren = true
 	return s.nextPageOrFinishAction(ctx, action, "", followupActions...)
 }

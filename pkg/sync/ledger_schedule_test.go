@@ -63,6 +63,7 @@ func TestLedgerScheduleStopsAndJoinsOnError(t *testing.T) {
 	for i := range 8 {
 		roots = append(roots, ledgerAction{identity: c1zstore.LedgerActionIdentity{Op: "list-resources", ResourceID: fmt.Sprint(i)}})
 	}
+	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), pendingSeeds(roots)))
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerHandler)
 	err = runLedgerSchedulerFixture(t, runtime, roots, 4, func(ctx context.Context, s *syncer, action *Action, page *ledgerPage) error {
@@ -86,23 +87,19 @@ func TestLedgerScheduleStopsAndJoinsOnError(t *testing.T) {
 	require.Equal(t, int64(2), counters.SessionCalls["get"].Count)
 }
 
-func TestLedgerScheduleWalksNewlyDiscoveredChild(t *testing.T) {
+func TestLedgerScheduleRunsNewlyDiscoveredWork(t *testing.T) {
 	f := newLedgerFixture(t)
-	runtime, err := newLedgerRuntime(t.Context(), f.ledger, "first")
+	runtime, err := newLedgerRuntime(t.Context(), f.ledger, "attempt")
 	require.NoError(t, err)
-	child := c1zstore.LedgerActionIdentity{Op: "list-resources", ResourceTypeID: "type"}
-	_, err = runtime.runPage(t.Context(), 0, child, func(_ context.Context, page *ledgerPage) error { return page.transition("") })
-	require.NoError(t, err)
-	runtime, err = newLedgerRuntime(t.Context(), f.ledger, "resumed")
-	require.NoError(t, err)
+	child := c1zstore.LedgerActionIdentity{Op: SyncResourcesOp.String(), ResourceTypeID: "type"}
 	calls := 0
-	err = runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), 1, func(ctx context.Context, s *syncer, action *Action, page *ledgerPage) error {
+	err = runLedgerSchedulerFixture(t, runtime, ledgerListingFixtureRoots(), 1, func(ctx context.Context, s *syncer, action *Action, _ *ledgerPage) error {
 		calls++
-		if ledgerIdentity(action) == child {
-			return errors.New("committed child ran again")
+		if action.Op == SyncResourcesOp {
+			return s.nextPageOrFinishAction(ctx, action, "")
 		}
 		return ledgerFixtureTransition(ctx, s, action, "", c1zstore.LedgerChild{Identity: child})
 	})
 	require.NoError(t, err)
-	require.Equal(t, 1, calls)
+	require.Equal(t, 2, calls)
 }

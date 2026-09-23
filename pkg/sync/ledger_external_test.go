@@ -1,7 +1,6 @@
 package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
-	"context"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -35,22 +34,7 @@ func externalPageFixture(t *testing.T, ledger bool) (*syncer, *ledgerFixture, *l
 	require.NoError(t, f.store.PutEntitlements(t.Context(), et.NewAssignmentEntitlement(target, "member")))
 	carrier := gt.NewGrant(target, "member", v2.ResourceId_builder{ResourceType: "user", Resource: "placeholder"}.Build(),
 		gt.WithAnnotation(v2.ExternalResourceMatchAll_builder{ResourceType: v2.ResourceType_TRAIT_USER}.Build()))
-	if ledger {
-		f.audit.enter(ledgerHandler)
-		_, err := s.ledger.runPage(t.Context(), 0, ledgerIdentity(&Action{Op: SyncGrantsOp, ResourceTypeID: "fixture"}), func(ctx context.Context, page *ledgerPage) error {
-			if err := page.writer.PutGrants(ctx, carrier); err != nil {
-				return err
-			}
-			if err := page.setFact(factHasExternalResourceGrants); err != nil {
-				return err
-			}
-			return page.transition("")
-		})
-		require.NoError(t, err)
-		f.audit.enter(ledgerLifecycle)
-	} else {
-		require.NoError(t, f.store.PutGrants(t.Context(), carrier))
-	}
+	require.NoError(t, f.store.PutGrants(t.Context(), carrier))
 	s.run.setFact(factHasExternalResourceGrants)
 	s.externalResourceReader = source.store
 	s.run.pushAction(t.Context(), Action{Op: SyncExternalResourcesOp})
@@ -76,7 +60,7 @@ func testLedgerExternalParity(t *testing.T, configure func(*syncer, *ledgerFixtu
 		configure(baseline, b, baselineSource)
 	}
 	f.audit.enter(ledgerLifecycle)
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, baseline.SyncExternalResources(t.Context(), baseline.run.current()))
@@ -108,7 +92,7 @@ func TestLedgerExternalImportedGrantIsMatched(t *testing.T) {
 		gt.WithAnnotation(v2.ExternalResourceMatchAll_builder{ResourceType: v2.ResourceType_TRAIT_USER}.Build()))
 	require.NoError(t, source.store.PutGrants(t.Context(), imported))
 	f.audit.enter(ledgerLifecycle)
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	grants, err := f.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
@@ -129,7 +113,7 @@ func TestLedgerExternalStaleGrantReimport(t *testing.T) {
 	require.NoError(t, f.store.PutGrants(t.Context(), imported))
 	require.NoError(t, source.store.PutGrants(t.Context(), imported))
 	f.audit.enter(ledgerLifecycle)
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	_, err = f.store.GetResource(t.Context(), reader_v2.ResourcesReaderServiceGetResourceRequest_builder{ResourceId: stale.GetId()}.Build())
@@ -154,7 +138,7 @@ func TestLedgerExternalFilteredPrincipalState(t *testing.T) {
 	require.NoError(t, source.store.PutGrants(t.Context(), gt.NewGrant(fresh, "member", zebra.GetId()), gt.NewGrant(fresh, "member", fresh.GetId())))
 	s.cfg.externalResourceEntitlementIdFilter = filter.GetId()
 	f.audit.enter(ledgerLifecycle)
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	grants, err := f.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
@@ -171,7 +155,7 @@ func TestLedgerExternalDeleteFullIdentity(t *testing.T) {
 	ordinary := ledgerGrant("shared", "group", "unrelated", "user")
 	require.NoError(t, f.store.PutGrants(t.Context(), carrier, ordinary))
 	f.audit.enter(ledgerLifecycle)
-	_, err = s.parallelSync(t.Context(), t.Context(), nil)
+	_, err = runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	grants, err = f.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
@@ -200,7 +184,7 @@ func TestLedgerExternalExpansionRemap(t *testing.T) {
 	carrier.SetAnnotations([]*anypb.Any{match, expansion})
 	require.NoError(t, f.store.PutGrants(t.Context(), carrier))
 	f.audit.enter(ledgerLifecycle)
-	_, err = s.parallelSync(t.Context(), t.Context(), nil)
+	_, err = runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	pending, _, err := f.store.Grants().PendingExpansionPage(t.Context(), "")

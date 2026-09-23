@@ -15,14 +15,43 @@ func runLedgerSchedulerFixture(t *testing.T, runtime *ledgerRuntime, roots []led
 	handler func(context.Context, *syncer, *Action, *ledgerPage) error,
 ) error {
 	t.Helper()
-	s := &syncer{ledgered: true, ledger: runtime, run: newRunState(), stats: newRunStats(), cfg: syncConfig{workerCount: int(workers)}}
+	s := &syncer{caps: storeCaps{pageLedger: runtime.store}, ledgered: true, ledger: runtime, run: newRunState(), stats: newRunStats(), cfg: syncConfig{workerCount: int(workers)}}
+	pending, initialized, err := runtime.store.PendingWork(t.Context(), 0, 100)
+	if err != nil {
+		return err
+	}
+	if !initialized {
+		err := func() error {
+			if guarded, ok := runtime.store.(*ledgerGuardedStore); ok {
+				guarded.audit.mu.Lock()
+				phase := guarded.audit.phase
+				guarded.audit.mu.Unlock()
+				if phase == ledgerWalk {
+					return errLedgerFixtureWrite
+				}
+				guarded.audit.enter(ledgerLifecycle)
+				defer guarded.audit.enter(phase)
+			}
+			return runtime.store.InitializePendingWork(t.Context(), pendingSeeds(roots))
+		}()
+		if err != nil {
+			return err
+		}
+		pending, _, err = runtime.store.PendingWork(t.Context(), 0, 100)
+		if err != nil {
+			return err
+		}
+	}
+	if len(pending) > 0 {
+		s.syncID = pending[0].SyncID
+	}
 	if err := s.restoreLedgerState(t.Context(), ledgerResume{actions: roots}, false); err != nil {
 		return err
 	}
 	s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, page *ledgerPage) error {
 		return handler(ctx, s, action, page)
 	}
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err = s.parallelSync(t.Context(), t.Context(), nil)
 	return err
 }
 

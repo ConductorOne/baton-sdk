@@ -355,12 +355,19 @@ func runCutAttempt(
 	syncErr := s.Sync(ctx)
 	pendingSpawned := 0
 	if syncErr != nil && sc.ledger != nil {
-		pending, walkErr := sc.ledger.walk(context.Background(), []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}})
-		require.NoError(t, walkErr)
-		for _, action := range pending {
-			if action.spawned {
-				pendingSpawned++
+		var before uint64
+		for {
+			pending, _, readErr := sc.caps.pageLedger.PendingWork(context.Background(), before, 64)
+			require.NoError(t, readErr)
+			if len(pending) == 0 {
+				break
 			}
+			for _, work := range pending {
+				if work.Action.Spawned {
+					pendingSpawned++
+				}
+			}
+			before = pending[len(pending)-1].ID
 		}
 	}
 	require.NoError(t, s.Close(context.Background()))

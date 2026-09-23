@@ -142,7 +142,6 @@ func (s *syncer) collectLedgerResources(ctx context.Context, action *Action) err
 			s.counts.LogResourcesProgress(ctx, action.ResourceTypeID)
 		}
 	})
-	invocation.resourceChildren = true
 	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), children...)
 }
 

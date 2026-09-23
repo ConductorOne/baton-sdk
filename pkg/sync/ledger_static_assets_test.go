@@ -58,7 +58,7 @@ func staticPageFixture(t *testing.T) (*syncer, *ledgerFixture, *ledgerStaticConn
 func TestLedgerStaticEntitlementPages(t *testing.T) {
 	s, f, c := staticPageFixture(t)
 	f.audit.enter(ledgerHandler)
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	require.Equal(t, []string{"", "next"}, c.calls)
@@ -79,10 +79,11 @@ func TestLedgerStaticEntitlementPages(t *testing.T) {
 }
 func TestLedgerStaticEntitlementCommitFailure(t *testing.T) {
 	s, f, _ := staticPageFixture(t)
+	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
 	s.ledger.store = ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: "commit"}
 	f.audit.enter(ledgerHandler)
-	require.ErrorIs(t, s.invokeActionPage(t.Context(), s.run.current(), s.SyncStaticEntitlements, false), errLedgerInjectedPage)
+	require.ErrorIs(t, invokeLedgerTestPage(t, s, t.Context(), s.run.current(), s.SyncStaticEntitlements, false), errLedgerInjectedPage)
 	f.audit.enter(ledgerLifecycle)
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 	require.Empty(t, s.stats.connectorCallStats())
@@ -152,7 +153,7 @@ func assetPageFixture(t *testing.T) (*syncer, *ledgerFixture, *ledgerAssetConnec
 func TestLedgerAssetHandlerReopen(t *testing.T) {
 	s, f, c := assetPageFixture(t)
 	f.audit.enter(ledgerHandler)
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	require.Equal(t, []string{"icon"}, c.calls)
@@ -165,10 +166,11 @@ func TestLedgerAssetHandlerReopen(t *testing.T) {
 }
 func TestLedgerAssetHandlerCommitFailure(t *testing.T) {
 	s, f, _ := assetPageFixture(t)
+	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
 	s.ledger.store = ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: "commit"}
 	f.audit.enter(ledgerHandler)
-	require.ErrorIs(t, s.invokeActionPage(t.Context(), s.run.current(), s.SyncAssets, false), errLedgerInjectedPage)
+	require.ErrorIs(t, invokeLedgerTestPage(t, s, t.Context(), s.run.current(), s.SyncAssets, false), errLedgerInjectedPage)
 	f.audit.enter(ledgerLifecycle)
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 	require.Empty(t, s.stats.connectorCallStats())
@@ -181,7 +183,7 @@ func TestLedgerStaticEntitlementPlanner(t *testing.T) {
 	s.run.pushAction(t.Context(), Action{Op: SyncStaticEntitlementsOp})
 	action := s.run.current()
 	f.audit.enter(ledgerHandler)
-	require.NoError(t, s.invokeActionPage(t.Context(), action, s.SyncStaticEntitlements, false))
+	require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), action, s.SyncStaticEntitlements, false))
 	f.audit.enter(ledgerLifecycle)
 	require.Equal(t, []string{"", "page-2"}, c.ledgerTypesConnector.calls)
 	row, found, err := f.ledger.GetLedgerRow(t.Context(), ledgerIdentity(action))
@@ -203,10 +205,10 @@ func TestLedgerStaticEntitlementsMatchTokenHandler(t *testing.T) {
 	baseline, b, _ := staticPageFixture(t)
 	baseline.ledgered = false
 	f.audit.enter(ledgerHandler)
-	_, err := ledger.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, ledger, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
-	_, err = baseline.parallelSync(t.Context(), t.Context(), nil)
+	_, err = runLedgerTestSync(t, baseline, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	got, err := f.store.ListEntitlements(t.Context(), &v2.EntitlementsServiceListEntitlementsRequest{})
 	require.NoError(t, err)
@@ -222,7 +224,7 @@ func TestLedgerStaticEntitlementReplay(t *testing.T) {
 	s, f, c := staticPageFixture(t)
 	action := s.run.current()
 	f.audit.enter(ledgerHandler)
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, f.store.Close(t.Context()))
@@ -230,10 +232,11 @@ func TestLedgerStaticEntitlementReplay(t *testing.T) {
 	s.store, s.caps = f.store, resolveStoreCaps(f.store)
 	s.ledger, err = newLedgerRuntime(t.Context(), f.ledger, "static-resume")
 	require.NoError(t, err)
+	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerWalk)
 	require.NoError(t, s.restoreLedgerState(t.Context(), ledgerResume{actions: []ledgerAction{{identity: ledgerIdentity(action)}}}, false))
-	_, err = s.parallelSync(t.Context(), t.Context(), nil)
+	_, err = runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	require.Len(t, c.calls, 2)
@@ -244,6 +247,7 @@ func TestLedgerAssetHandlerErrors(t *testing.T) {
 	for _, kind := range []string{"metadata", "stream", "nil"} {
 		t.Run(kind, func(t *testing.T) {
 			s, f, c := assetPageFixture(t)
+			seedLedgerTestRun(t, s, nil)
 			before := ledgerRawSnapshot(t, f.engine)
 			switch kind {
 			case "metadata":
@@ -254,7 +258,7 @@ func TestLedgerAssetHandlerErrors(t *testing.T) {
 				c.nilStream = true
 			}
 			f.audit.enter(ledgerHandler)
-			err := s.invokeActionPage(t.Context(), s.run.current(), s.SyncAssets, false)
+			err := invokeLedgerTestPage(t, s, t.Context(), s.run.current(), s.SyncAssets, false)
 			f.audit.enter(ledgerLifecycle)
 			if kind == "nil" {
 				require.NoError(t, err)
@@ -277,15 +281,16 @@ func TestLedgerAssetHandlerMultipleReferences(t *testing.T) {
 	}.Build()))
 	c.failure = errors.New("second stream failed")
 	c.failAsset = "logo"
+	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
 	action := s.run.current()
 	f.audit.enter(ledgerHandler)
-	require.ErrorIs(t, s.invokeActionPage(t.Context(), action, s.SyncAssets, false), c.failure)
+	require.ErrorIs(t, invokeLedgerTestPage(t, s, t.Context(), action, s.SyncAssets, false), c.failure)
 	f.audit.enter(ledgerLifecycle)
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 	c.failure = nil
 	f.audit.enter(ledgerHandler)
-	require.NoError(t, s.invokeActionPage(t.Context(), action, s.SyncAssets, false))
+	require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), action, s.SyncAssets, false))
 	f.audit.enter(ledgerLifecycle)
 	require.Equal(t, []string{"icon", "logo", "icon", "logo"}, c.calls)
 	for _, id := range []string{"icon", "logo"} {
@@ -302,7 +307,7 @@ func TestLedgerStaticEntitlementLegacyPrefixError(t *testing.T) {
 	s, f, c := staticPageFixture(t)
 	c.failure = errors.New(`unable to resolve \"type.googleapis.com/c1.connector.v2.EntitlementsServiceListStaticEntitlementsRequest\": \"not found\"","errorType":"prefixError"`)
 	f.audit.enter(ledgerHandler)
-	require.NoError(t, s.invokeActionPage(t.Context(), s.run.current(), s.SyncStaticEntitlements, false))
+	require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), s.run.current(), s.SyncStaticEntitlements, false))
 	f.audit.enter(ledgerLifecycle)
 	require.Nil(t, s.run.current())
 }
@@ -311,7 +316,7 @@ func TestLedgerAssetHandlerReplay(t *testing.T) {
 	s, f, c := assetPageFixture(t)
 	root := ledgerIdentity(s.run.current())
 	f.audit.enter(ledgerHandler)
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, f.store.Close(t.Context()))
@@ -319,10 +324,11 @@ func TestLedgerAssetHandlerReplay(t *testing.T) {
 	s.store, s.caps = f.store, resolveStoreCaps(f.store)
 	s.ledger, err = newLedgerRuntime(t.Context(), f.ledger, "asset-resume")
 	require.NoError(t, err)
+	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerWalk)
 	require.NoError(t, s.restoreLedgerState(t.Context(), ledgerResume{actions: []ledgerAction{{identity: root}}}, false))
-	_, err = s.parallelSync(t.Context(), t.Context(), nil)
+	_, err = runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	require.Len(t, c.calls, 1)
@@ -336,7 +342,7 @@ func TestLedgerAssetHandlerNoReferences(t *testing.T) {
 	}.Build()))
 	action := s.run.current()
 	f.audit.enter(ledgerHandler)
-	require.NoError(t, s.invokeActionPage(t.Context(), action, s.SyncAssets, false))
+	require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), action, s.SyncAssets, false))
 	f.audit.enter(ledgerLifecycle)
 	require.Empty(t, c.calls)
 	require.Nil(t, s.run.current())

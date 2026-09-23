@@ -44,7 +44,7 @@ func TestLedgerExpansionUsesMainModel(t *testing.T) {
 	observer := &ledgerExpansionLayerObserver{expandedGrantLayerStorer: s.caps.expandedGrantLayer}
 	require.NotNil(t, observer.expandedGrantLayerStorer)
 	s.caps.expandedGrantLayer = observer
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	require.Positive(t, observer.begins, "expansion must reach Pebble's layer capability")
 	require.Positive(t, observer.finishes)
@@ -93,7 +93,7 @@ func TestLedgerExpansionPublicReplay(t *testing.T) {
 			counters, err := f.ledger.LedgerCounters(t.Context())
 			require.NoError(t, err)
 			expected := uint64(0)
-			if cut == "after-terminal" {
+			if cut != "layer" {
 				expected = 1
 			}
 			require.Equal(t, expected, counters.Counters[ledgerCompletedPrefix+SyncGrantExpansionOp.String()])
@@ -105,7 +105,7 @@ func TestLedgerExpansionPublicReplay(t *testing.T) {
 			healthy := &ledgerExpansionLayerObserver{expandedGrantLayerStorer: resumed.caps.expandedGrantLayer}
 			resumed.caps.expandedGrantLayer = healthy
 			require.NoError(t, resumed.Sync(t.Context()))
-			if cut == "after-terminal" {
+			if cut != "layer" {
 				require.Zero(t, healthy.begins)
 			} else {
 				require.Positive(t, healthy.begins)
@@ -182,14 +182,14 @@ func TestLedgerExpansionSkipHasNoPage(t *testing.T) {
 			}
 			observer := &ledgerExpansionLayerObserver{expandedGrantLayerStorer: s.caps.expandedGrantLayer}
 			s.caps.expandedGrantLayer = observer
-			_, err := s.parallelSync(t.Context(), t.Context(), nil)
+			_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 			require.NoError(t, err)
 			require.Zero(t, observer.begins)
 			_, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: SyncGrantExpansionOp.String()})
 			require.NoError(t, err)
 			require.False(t, found)
 			require.EqualValues(t, 1, s.terminalLedgerCounters().Counters[ledgerCompletedActions])
-			require.Zero(t, s.ledger.runCounterSnapshot().Counters[ledgerCompletedActions], "stop accounting must not persist replayable completion")
+			require.EqualValues(t, 1, s.ledger.runCounterSnapshot().Counters[ledgerCompletedActions], "stop accounting preserves completed local work")
 		})
 	}
 }

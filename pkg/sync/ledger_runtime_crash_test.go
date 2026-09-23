@@ -53,6 +53,9 @@ func TestLedgerRuntimeCrashProcess(t *testing.T) {
 			require.NoError(t, writeLedgerTestFile(path+".cut", marker, 0600))
 			os.Exit(74)
 		}
+		require.NoError(t, f.ledger.InitializePendingWork(t.Context(), []c1zstore.LedgerWork{{Action: c1zstore.LedgerChild{Identity: id}}}))
+		work, _, err := f.ledger.PendingWork(t.Context(), 0, 1)
+		require.NoError(t, err)
 		source := f.ledger
 		if cut == "page-staged" {
 			source = ledgerCrashBeforeCommitStore{PageLedgerStore: f.ledger, op: id.Op, exit: crash}
@@ -64,6 +67,7 @@ func TestLedgerRuntimeCrashProcess(t *testing.T) {
 		require.NoError(t, err)
 		f.audit.enter(ledgerHandler)
 		_, err = runtime.runPage(t.Context(), 0, id, func(ctx context.Context, page *ledgerPage) error {
+			require.NoError(t, page.writer.SetPendingWork(work[0]))
 			require.NoError(t, page.writer.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "type"}.Build()))
 			require.NoError(t, page.setFact("runtime-fact"))
 			page.observations.Counters = map[string]uint64{"pages": 1}

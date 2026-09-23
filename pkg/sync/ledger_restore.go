@@ -17,11 +17,6 @@ func (s *syncer) restoreLedgerState(ctx context.Context, resume ledgerResume, kn
 	if s.ledger == nil {
 		return errors.New("ledger runtime is not initialized")
 	}
-	seen := make(map[c1zstore.LedgerActionIdentity]bool)
-	pending, err := s.ledger.walkWithSeen(ctx, resume.actions, seen)
-	if err != nil {
-		return err
-	}
 	facts, err := s.ledger.store.LedgerFacts(ctx)
 	if err != nil {
 		return err
@@ -30,16 +25,30 @@ func (s *syncer) restoreLedgerState(ctx context.Context, resume ledgerResume, kn
 	if err != nil {
 		return err
 	}
-	run := newRunState()
-	for _, pendingAction := range pending {
-		action := ledgerActionFromIdentity(pendingAction.identity)
-		if action.Op == UnknownOp {
-			return errors.New("ledger frontier contains an unknown operation")
-		}
-		action.Spawned = pendingAction.spawned
-		action.TypeScopedPlanned = pendingAction.typeScopedPlanned
-		run.pushAction(ctx, action)
+	work, initialized, err := s.ledger.store.PendingWork(ctx, 0, maxPeekActionsCount)
+	if err != nil {
+		return err
 	}
+	if !initialized {
+		_, ready := facts[ledgerFactSealReady]
+		_, discarding := facts[c1zstore.LedgerFactDiscardOnSeal]
+		if !ready || !discarding {
+			return errors.New("pending work is not initialized")
+		}
+	}
+	run := newRunState()
+	for i := len(work) - 1; i >= 0; i-- {
+		action, err := s.actionFromPending(work[i])
+		if err != nil {
+			return err
+		}
+		run.actions[action.ID] = action
+		run.actionOrder = append(run.actionOrder, action.ID)
+		if action.Spawned {
+			run.spawnedInFlight[action.ID] = action
+		}
+	}
+
 	for fact := range facts {
 		run.setFact(fact)
 	}
@@ -80,15 +89,6 @@ func (s *syncer) restoreLedgerState(ctx context.Context, resume ledgerResume, kn
 	}
 	graph := newExpansionGraph()
 	graph.restore(resume.graph)
-	scheduledChildren := make(map[string]struct{})
-	for identity := range seen {
-		if identity.Op == SyncResourcesOp.String() && identity.ResourceTypeID != "" && identity.ParentResourceTypeID != "" && identity.ParentResourceID != "" {
-			scheduledChildren[childScheduleKey(identity.ResourceTypeID, identity.ParentResourceTypeID, identity.ParentResourceID)] = struct{}{}
-		}
-	}
-	s.childSchedule.mu.Lock()
-	s.childSchedule.m = scheduledChildren
-	s.childSchedule.mu.Unlock()
 	s.run = run
 	s.stats = stats
 	s.graph = graph

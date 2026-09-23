@@ -17,6 +17,7 @@ var (
 )
 
 type ledgerRuntime struct {
+	localCompleted  map[string]uint64
 	store           c1zstore.PageLedgerStore
 	runObservations *runStats
 	prepareMu       native_sync.Mutex
@@ -30,8 +31,6 @@ type ledgerRuntime struct {
 	prior           c1zstore.LedgerCounters
 	workers         map[uint32]c1zstore.LedgerCounters
 	active          map[uint32]bool
-	pages           map[c1zstore.LedgerActionIdentity]bool
-	claims          map[c1zstore.LedgerActionIdentity]chan struct{}
 }
 
 func newLedgerRuntime(ctx context.Context, store c1zstore.PageLedgerStore, runID string) (*ledgerRuntime, error) {
@@ -52,7 +51,6 @@ func newLedgerRuntime(ctx context.Context, store c1zstore.PageLedgerStore, runID
 	return &ledgerRuntime{
 		store: store, runID: runID, runObservations: newRunStats(), facts: maps.Clone(facts), prior: cloneLedgerCounters(prior),
 		workers: make(map[uint32]c1zstore.LedgerCounters), active: make(map[uint32]bool),
-		pages: make(map[c1zstore.LedgerActionIdentity]bool),
 	}, nil
 }
 
@@ -124,18 +122,16 @@ func (r *ledgerRuntime) runPageWithCommit(
 		return nil, errors.New("ledger page handler is nil")
 	}
 	r.mu.Lock()
-	if r.closing || r.active[worker] || r.pages[id] {
+	if r.closing || r.active[worker] {
 		r.mu.Unlock()
 		return nil, errLedgerWorkerBusy
 	}
 	r.active[worker] = true
-	r.pages[id] = true
 	previous := cloneLedgerCounters(r.workers[worker])
 	r.mu.Unlock()
 	defer func() {
 		r.mu.Lock()
 		delete(r.active, worker)
-		delete(r.pages, id)
 		r.mu.Unlock()
 	}()
 	page := &ledgerPage{

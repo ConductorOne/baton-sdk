@@ -448,10 +448,20 @@ func (l *Ledger) GetRow(ctx context.Context, id c1zstore.LedgerActionIdentity) (
 	key := encodeLedgerKey(id)
 	val, closer, err := l.e.db.Get(key)
 	if err != nil {
-		if errors.Is(err, pebble.ErrNotFound) {
-			return nil, false, nil
+		if !errors.Is(err, pebble.ErrNotFound) {
+			return nil, false, err
 		}
-		return nil, false, err
+		iter, iterErr := l.e.db.NewIter(&pebble.IterOptions{LowerBound: key, UpperBound: rawdb.UpperBound(key)})
+		if iterErr != nil {
+			return nil, false, iterErr
+		}
+		if !iter.First() {
+			return nil, false, errors.Join(iter.Error(), iter.Close())
+		}
+		if len(iter.Key()) != len(key) && len(iter.Key()) != len(key)+16 {
+			return nil, false, iter.Close()
+		}
+		val, closer = iter.Value(), iter
 	}
 	defer closer.Close()
 	row := &v3.LedgerRow{}
@@ -460,7 +470,7 @@ func (l *Ledger) GetRow(ctx context.Context, id c1zstore.LedgerActionIdentity) (
 	}
 	if !ledgerIdentityMatches(id, row.GetIdentity(), row.GetScrubbed()) {
 		l.mismatches.Add(1)
-		ctxzap.Extract(ctx).Warn("pebble ledger: identity mismatch at key; treating page as not committed",
+		ctxzap.Extract(ctx).Warn("pebble ledger: identity mismatch at requested key",
 			zap.String("op", id.Op),
 			zap.String("resource_type_id", id.ResourceTypeID),
 			zap.String("resource_id", id.ResourceID),

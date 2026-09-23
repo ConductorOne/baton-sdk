@@ -3,7 +3,9 @@ package pebble
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
+	"math"
 
 	"github.com/cockroachdb/pebble/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -52,7 +54,7 @@ type ledgerReferenceLookup interface {
 
 func scanLedgerReferences(ctx context.Context, iterator ledgerReportIterator, references ledgerReferenceLookup) (*ledgerReferenceStats, error) {
 	stats := &ledgerReferenceStats{}
-	check := func(id *v3.LedgerActionIdentity, hash []byte, scrubbed, child bool) error {
+	check := func(id *v3.LedgerActionIdentity, hash []byte, scrubbed, child bool, workID, revision uint64) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -61,6 +63,10 @@ func scanLedgerReferences(ctx context.Context, iterator ledgerReportIterator, re
 			stats.Uncheckable++
 			stats.example("uncheckable", id)
 			return nil
+		}
+		if workID != 0 {
+			key = binary.BigEndian.AppendUint64(key, workID)
+			key = binary.BigEndian.AppendUint64(key, revision)
 		}
 		stats.Lookups++
 		found := references.SeekGE(key)
@@ -90,6 +96,10 @@ func scanLedgerReferences(ctx context.Context, iterator ledgerReportIterator, re
 			}
 			id := row.GetIdentity()
 			key, ok := ledgerReferenceKey(id, id.GetPageTokenHash(), row.GetScrubbed())
+			if ok && row.GetWorkId() != 0 {
+				key = binary.BigEndian.AppendUint64(key, row.GetWorkId())
+				key = binary.BigEndian.AppendUint64(key, row.GetWorkRevision())
+			}
 			if !ok || !bytes.Equal(key, iterator.Key()) {
 				stats.IdentityMismatches++
 				stats.example("identity_mismatch", id)
@@ -99,7 +109,16 @@ func scanLedgerReferences(ctx context.Context, iterator ledgerReportIterator, re
 				hash = ledgerTokenHash(row.GetNextPageToken())
 			}
 			if !bytes.Equal(hash, ledgerTokenHash("")) {
-				if err := check(id, hash, true, false); err != nil {
+				revision := uint64(0)
+				if row.GetWorkId() != 0 {
+					if row.GetWorkRevision() == math.MaxUint64 {
+						stats.Uncheckable++
+						stats.example("invalid_continuation", id)
+						continue
+					}
+					revision = row.GetWorkRevision() + 1
+				}
+				if err := check(id, hash, true, false, row.GetWorkId(), revision); err != nil {
 					return err
 				}
 			}
@@ -109,7 +128,7 @@ func scanLedgerReferences(ctx context.Context, iterator ledgerReportIterator, re
 				if id.GetOp() == "grant-expansion" || id.GetOp() == "list-external-resources" {
 					continue
 				}
-				if err := check(id, id.GetPageTokenHash(), row.GetScrubbed(), true); err != nil {
+				if err := check(id, id.GetPageTokenHash(), row.GetScrubbed() || row.GetWorkId() != 0, true, child.GetWorkId(), 0); err != nil {
 					return err
 				}
 			}

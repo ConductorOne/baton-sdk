@@ -35,6 +35,7 @@ func TestLedgerFactsAndBucketsRideThePageUnit(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
+	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 
 	u := e.ledger.newPageUnit()
 	require.NoError(t, u.StageFact("needs_expansion"))
@@ -293,6 +294,7 @@ func TestLedgeredSyncSealsOnlyWithStats(t *testing.T) {
 	e, _ := newTestEngine(t)
 	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
+	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 
 	require.NoError(t, e.ledger.PutCounterBucket(ctx, "run-1", 0, c1zstore.LedgerCounters{
 		Counters:       map[string]uint64{"completed_actions": 3},

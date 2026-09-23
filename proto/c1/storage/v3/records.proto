@@ -433,28 +433,18 @@ message LedgerActionIdentity {
 message LedgerChild {
   LedgerActionIdentity identity = 1;
   bool spawned = 2;
+  uint64 work_id = 3;
 }
 
-// LedgerRow records one COMMITTED page: the action's transition and
-// everything it spawned, written in the same pebble batch as the
-// page's record rows, so "the rows landed" and "the page is done" are
-// one fact (brief §3.1). Stored under the engine's ledger keyspace
-// (TypeLedger); the key is derived from identity. Rows persist after
-// the sync seals as its execution trace (§3.12); the resume walk
-// (§3.3) reads them and never writes.
+// Completion observations committed with records and pending-work updates.
 message LedgerRow {
-  // Echo of the key's identity, verbatim. The read-side compare
-  // against the action being resolved is what makes a key collision
-  // (an identity omission or key-function bug) a re-run instead of a
-  // silent skip.
+  // Request arguments; work_id and work_revision distinguish executions.
   LedgerActionIdentity identity = 1;
   // Cursor for the action's next page; empty means the action
   // finished on this page. Scrubbed to empty with next_page_token_hash
   // retained when scrubbed is set.
   string next_page_token = 2;
   bytes next_page_token_hash = 3;
-  // Actions this page pushed (children carry full identity so the
-  // walk can push them without a lookup).
   repeated LedgerChild children = 4;
   // Attempt that committed the page (the syncer's attempt epoch) and
   // when.
@@ -489,6 +479,8 @@ message LedgerRow {
   uint64 sdk_retry_wait_ms = 21;
   uint64 sdk_rate_limit_wait_ms = 22;
   LedgerCollectionStats collection = 23;
+  uint64 work_id = 24;
+  uint64 work_revision = 25;
 }
 
 message LedgerCollectionStats {

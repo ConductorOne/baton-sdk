@@ -975,3 +975,40 @@ Final bounded-admission storage checks pass (storage0.357s, guard0.072s), and
 merged-tree lint reports zero issues. Page discard also releases the staged work
 and relation keys. The syncer's pending-work integration has not been enabled by
 this storage-support commit.
+
+## CO-027 consumer integration
+
+The SDK now resumes from bounded pending reads, not completed-history traversal.
+The prior walker and page-identity claim map are removed. The existing parallel
+scheduler owns continuations and admits committed children in bounded FIFO
+windows. Ledger resource-child scheduling evidence lives in an indexed durable
+relation. SQLite keeps its existing checkpoint path.
+
+| Claim | Status | Test and defect evidence | Limit |
+| --- | --- | --- | --- |
+| Resume does not consult completed history | verified to stated coverage | TestPendingSyncResumesWithoutHistoryReads rejects every GetLedgerRow call; failed on prior implementation, passes on pending consumer | Public fixture, not every connector topology |
+| Equal request arguments remain separate executions | verified to stated coverage | TestPendingSyncRepeatedTokenReachesEmptyTerminalPage failed on prior consumer; repeated A requests now reach the empty terminal response | No cycle detection or connector termination guarantee |
+| Execution memory does not accumulate completed identities or all pending actions | verified to stated coverage | TestPendingSyncBoundsExecutionWindow exercises1001 actions; TestPendingSyncSpilledChildrenKeepOrder exercises800 children with1/4 workers and bounded windows | Count bound, not arbitrary response/token bytes; not an RSS proof |
+| Missing queue declaration cannot finish unfinished history | verified to stated coverage | TestPendingWorkSealRejectsMissingDeclaration reproduced successful unsafe seal before guard; public refusal test also passes | Already-finished low-level reseal and durable disposal recovery remain allowed |
+| Pending serialization preserves request arguments | verified to stated coverage | TestPendingWorkRejectsInvalidChildToken failed before UTF8 rejection; now invalid input leaves no committed page | Valid UTF8 JSON representation; no alternate byte-token encoding |
+| Read failures preserve recovery position | verified to stated coverage | TestPendingRefillFailureLeavesChildrenForColdResume and TestLedgerRestoreFailureDoesNotPublishState cover refill, counter and initial queue reads | Failure injection, no independent mutation qualification for each read |
+| Local processing stays outside collection transactions | verified to stated coverage | TestPendingSyncCompletesLocalPhaseWithoutPageHistory and TestPendingLocalCompletionFailureAndStopAccounting cover whole-phase completion and failed completion retry | Existing external-import replay limitation remains outside this change |
+| Debug references name exact executions | verified to stated coverage | TestPendingWorkReferencesDistinguishRepeatedArguments removes one child and one continuation while equal-argument rows remain; detects both before/after scrub | Direct missing-row injection; no production deletion path implied |
+
+The full sync suite passed in84.497s. Three repetitions of the focused integrated
+race suite passed (sync83.227s, Pebble2.566s, public storage38.912s). Full storage
+tree and compactor suites passed (parent28.146s, Pebble11.927s, compactor21.455s).
+The opt-in full cut sweep exercised52 commit cuts,45 response cuts and45 token
+expiration cuts: all142 passed in8.871s. Six fixed-seed randomized scheduler
+runs passed under race in7.503s. Added restore/reference checks passed separately
+(sync0.054s, Pebble0.029s). CI merge-checkout lint reports zero issues.
+
+The pre/post-seal report comparison excludes only ledger_keys_scanned after
+asserting its exact2-to1 change: final seal removes the queue declaration. Every
+other decoded report field still compares equal, and read-only reopen leaves the
+artifact bytes unchanged. The report data does not include pending entries.
+
+The storage-only independent review at c9ff02ce found the missing-declaration
+seal issue above. This integration has not yet received independent signoff.
+Previous review outcomes do not establish the new consumer's correctness. The
+public cost rerun and final integrated review remain pending at this commit.

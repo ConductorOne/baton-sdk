@@ -105,3 +105,25 @@ public retained-history fallback; TestPublicLedgerDisposedFilesCompact checks
 saved public SDK outputs through overlay and fold. The adapter constructor and
 writer decoration exist only in test files, preserving the real optional
 capability surface. Full matrix limits remain listed in evidence.md.
+
+## CO-027 pending-work consumer audit
+
+The prior inventory above describes the historical revision named in its title.
+The current consumer removes ledger_walk.go and ledger_claim.go: no completed
+identity traversal or per-identity serialization map remains. ledger_pending.go
+loads at most100 initial actions and64 newly allocated children per refill into
+the existing parallel queue. Its store-backed resource-child relation replaces
+the cumulative in-memory child map on the ledger path. The checkpoint path keeps
+its existing map and scheduler behavior.
+
+GetLedgerRow remains diagnostic; execution is bound to pending ID/revision.
+History rows append those values to their grouping keys. Child report references
+carry allocated IDs and hashes; full child arguments live in pending values.
+Debug checks perform indexed exact-execution lookups, with bounded examples.
+
+Local expansion/import handlers retain their original writes and capabilities.
+Their queue entry records only whole-phase completion; expansion's transient
+in-process cursor survives a window refresh and cold restart rebuilds it.
+Compactor production code is unchanged; its raw-ledger fixture now declares an
+empty queue before sealing. Storage/archive/dirty tests declare queue lifecycle
+explicitly rather than treating a missing declaration as completion.

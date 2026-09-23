@@ -26,7 +26,8 @@ func TestLedgerTakeoverLegacyFixtures(t *testing.T) {
 			require.NoError(t, f.store.CheckpointSync(t.Context(), state))
 			got, err := loadLedgerResume(t.Context(), f.store, f.ledger, "takeover-attempt")
 			require.NoError(t, err)
-			require.Equal(t, expected, got)
+			require.True(t, got.initialized)
+			assertPendingCheckpointActions(t, f.ledger, expected.actions)
 			token, err := f.store.CurrentSyncStep(t.Context())
 			require.NoError(t, err)
 			require.Empty(t, token)
@@ -47,7 +48,8 @@ func TestLedgerTakeoverLegacyFixtures(t *testing.T) {
 			for i := 0; i < 3; i++ {
 				resumed, err := loadLedgerResume(t.Context(), f.store, f.ledger, "new-attempt")
 				require.NoError(t, err)
-				require.Equal(t, expected, resumed)
+				require.True(t, resumed.initialized)
+				assertPendingCheckpointActions(t, f.ledger, expected.actions)
 			}
 			f.audit.enter(ledgerLifecycle)
 			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
@@ -174,9 +176,31 @@ func TestLedgerTakeoverV0CursorAndParentIdentity(t *testing.T) {
 	require.NoError(t, f.store.CheckpointSync(t.Context(), string(data)))
 	resume, err := loadLedgerResume(t.Context(), f.store, f.ledger, "attempt")
 	require.NoError(t, err)
-	require.Equal(t, []ledgerAction{
+	require.True(t, resume.initialized)
+	assertPendingCheckpointActions(t, f.ledger, []ledgerAction{
 		{identity: c1zstore.LedgerActionIdentity{Op: "list-resource-types"}},
 		{identity: c1zstore.LedgerActionIdentity{Op: "list-resources", ResourceTypeID: "group", PageToken: "p2"}},
 		{identity: c1zstore.LedgerActionIdentity{Op: "list-grants", ResourceTypeID: "group", ResourceID: "grp-1", ParentResourceTypeID: "org", ParentResourceID: "org-1", PageToken: "g7"}},
-	}, resume.actions)
+	})
+}
+
+func assertPendingCheckpointActions(t *testing.T, store c1zstore.PageLedgerStore, expected []ledgerAction) {
+	t.Helper()
+	if len(expected) == 0 {
+		expected = []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}
+	}
+	pending, initialized, err := store.PendingWork(t.Context(), 0, 100)
+	require.NoError(t, err)
+	require.True(t, initialized)
+	require.Len(t, pending, len(expected))
+	for i, before := range expected {
+		after := pending[len(pending)-1-i]
+		if before.identity.Op == SyncGrantExpansionOp.String() {
+			before.identity.PageToken = ""
+		}
+		require.Equal(t, before.identity, after.Action.Identity)
+		require.Equal(t, before.spawned, after.Action.Spawned)
+		require.Equal(t, before.typeScopedPlanned, after.TypeScopedPlanned)
+		require.EqualValues(t, i+1, after.ID)
+	}
 }

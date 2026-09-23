@@ -85,7 +85,7 @@ func TestInitialActionBaseline(t *testing.T) {
 					cancel()
 				}
 			}
-			_, err := s.parallelSync(t.Context(), runCtx, targeted)
+			_, err := runLedgerTestSync(t, s, t.Context(), runCtx, targeted)
 			if len(tc.ops) > 0 {
 				require.ErrorIs(t, err, context.Canceled)
 			} else {
@@ -102,9 +102,10 @@ func TestLedgerInitialActionCommitFailureIsAtomic(t *testing.T) {
 			s, f := newLedgerSchedulerFixture(t, 1)
 			configureInitialActionCase(t, s, f, initialActionCase{cfg: syncConfig{skipGrants: true}})
 			s.ledger.store = ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: stage}
+			seedLedgerTestRun(t, s, nil)
 			before := ledgerRawSnapshot(t, f.engine)
 			f.audit.enter(ledgerHandler)
-			_, err := s.parallelSync(t.Context(), t.Context(), nil)
+			_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 			f.audit.enter(ledgerLifecycle)
 			require.ErrorIs(t, err, errLedgerInjectedPage)
 			require.Equal(t, InitOp, s.run.current().Op)
@@ -123,7 +124,7 @@ func TestLedgerInitialActionMatchesBaseline(t *testing.T) {
 			targeted := configureInitialActionCase(t, s, f, tc)
 			action := s.run.current()
 			f.audit.enter(ledgerHandler)
-			err := s.invokeActionPage(t.Context(), action, func(ctx context.Context, action *Action) error {
+			err := invokeLedgerTestPage(t, s, t.Context(), action, func(ctx context.Context, action *Action) error {
 				return s.initializeAction(ctx, action, targeted)
 			}, false)
 			f.audit.enter(ledgerLifecycle)
@@ -155,11 +156,12 @@ func TestLedgerInitialQualitySurvivesResume(t *testing.T) {
 		t.Run(map[bool]string{true: "fresh", false: "unknown-prior"}[fresh], func(t *testing.T) {
 			s, f := newLedgerSchedulerFixture(t, 1)
 			roots := []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}
-			require.NoError(t, s.restoreLedgerState(t.Context(), ledgerResume{actions: roots}, fresh))
+			require.NoError(t, restoreLedgerTestState(t, s, t.Context(), ledgerResume{actions: roots}, fresh))
+			seedLedgerTestRun(t, s, nil)
 			before := ledgerRawSnapshot(t, f.engine)
 			action := s.run.current()
 			f.audit.enter(ledgerHandler)
-			err := s.invokeActionPage(t.Context(), action, func(ctx context.Context, action *Action) error {
+			err := invokeLedgerTestPage(t, s, t.Context(), action, func(ctx context.Context, action *Action) error {
 				return s.initializeAction(ctx, action, nil)
 			}, false)
 			f.audit.enter(ledgerLifecycle)
@@ -179,7 +181,7 @@ func TestLedgerInitialQualitySurvivesResume(t *testing.T) {
 			resumed := &syncer{ledgered: true, ledger: runtime}
 			before = ledgerRawSnapshot(t, f.engine)
 			f.audit.enter(ledgerWalk)
-			err = resumed.restoreLedgerState(t.Context(), ledgerResume{actions: roots}, false)
+			err = restoreLedgerTestState(t, resumed, t.Context(), ledgerResume{actions: roots}, false)
 			f.audit.enter(ledgerLifecycle)
 			require.NoError(t, err)
 			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
@@ -202,11 +204,12 @@ func TestLedgerInitialQualityCommitFailure(t *testing.T) {
 		t.Run(stage, func(t *testing.T) {
 			s, f := newLedgerSchedulerFixture(t, 1)
 			roots := []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}
-			require.NoError(t, s.restoreLedgerState(t.Context(), ledgerResume{actions: roots}, true))
+			require.NoError(t, restoreLedgerTestState(t, s, t.Context(), ledgerResume{actions: roots}, true))
 			s.ledger.store = ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: stage}
+			seedLedgerTestRun(t, s, nil)
 			before := ledgerRawSnapshot(t, f.engine)
 			f.audit.enter(ledgerHandler)
-			_, err := s.parallelSync(t.Context(), t.Context(), nil)
+			_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 			f.audit.enter(ledgerLifecycle)
 			require.ErrorIs(t, err, errLedgerInjectedPage)
 			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))

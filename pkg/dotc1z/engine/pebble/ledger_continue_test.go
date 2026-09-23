@@ -19,6 +19,7 @@ func TestLedgerClearRowsPreservesHistory(t *testing.T) {
 	e, _ := newTestEngine(t)
 	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
+	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 	id := c1zstore.LedgerActionIdentity{Op: "list-resource-types"}
 	page := e.Ledger().BeginPage()
 	defer page.Discard()
@@ -79,6 +80,7 @@ func TestLedgerClearRowsFailureCuts(t *testing.T) {
 			require.NoError(t, e.CheckpointSync(ctx, "legacy"))
 			_, err = e.Ledger().Takeover(ctx, "old", []string{"finished", "history"}, c1zstore.LedgerCounters{Counters: map[string]uint64{"completed": 9}})
 			require.NoError(t, err)
+			require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 			id := c1zstore.LedgerActionIdentity{Op: "old-page"}
 			page := e.Ledger().BeginPage()
 			defer page.Discard()
@@ -131,6 +133,7 @@ func TestLedgerClearRowsCrashImages(t *testing.T) {
 			defer func() { require.NoError(t, e.Close()) }()
 			syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 			require.NoError(t, err)
+			require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 			id := c1zstore.LedgerActionIdentity{Op: "completed"}
 			page := e.Ledger().BeginPage()
 			defer page.Discard()
@@ -186,6 +189,7 @@ func TestLedgerClearRowsDefersPurgeUntilSeal(t *testing.T) {
 	e, _ := newTestEngine(t)
 	id, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
+	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 	e.Ledger().SetRetainTokens(true)
 	page := e.Ledger().BeginPage()
 	require.NoError(t, page.Commit(t.Context(), grantsPageIdentity("group", "old-secret"), nil))

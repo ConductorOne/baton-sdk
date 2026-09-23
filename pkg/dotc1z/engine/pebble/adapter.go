@@ -283,22 +283,36 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 	if syncID == "" {
 		return errors.New("EndSync: no open sync")
 	}
-	if overlay == nil {
-		ledgered, err := e.ledger.active()
-		if err != nil {
-			return err
-		}
-		if ledgered {
-			return ErrLedgeredSyncNeedsStats
-		}
+	ledgered, err := e.ledger.active()
+	if err != nil {
+		return err
 	}
-	pending, _, err := e.ledger.PendingWork(ctx, 0, 1)
+	if overlay == nil && ledgered {
+		return ErrLedgeredSyncNeedsStats
+	}
+	pending, initialized, err := e.ledger.PendingWork(ctx, 0, 1)
 	if err != nil {
 		return err
 	}
 	if len(pending) != 0 {
 		return errors.New("EndSync: pending work remains")
 	}
+	if ledgered && !initialized {
+		discarding, err := e.ledger.sealDiscardsRows()
+		if err != nil {
+			return err
+		}
+		if !discarding {
+			record, err := e.GetSyncRunRecord(ctx, syncID)
+			if err != nil {
+				return err
+			}
+			if record.GetEndedAt() == nil {
+				return errors.New("EndSync: missing pending-work declaration")
+			}
+		}
+	}
+
 	existing, err := e.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return err

@@ -1,6 +1,7 @@
 package pebble
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -139,4 +140,39 @@ func TestLedgerReferenceIdentityCheckedOncePerStoredRow(t *testing.T) {
 	require.EqualValues(t, 10, stats.Lookups)
 	require.EqualValues(t, 1, stats.IdentityMismatches)
 	require.Zero(t, stats.MissingChildren)
+}
+
+func TestPendingWorkReferencesDistinguishRepeatedArguments(t *testing.T) {
+	e, _ := newTestEngine(t)
+	work := pendingTestSeed(t, e)
+	require.NoError(t, pendingTestCommit(t, e, work, "A", work.Action, work.Action))
+	items, _, err := e.Ledger().PendingWork(t.Context(), 0, 100)
+	require.NoError(t, err)
+	require.Len(t, items, 3)
+	for _, item := range items {
+		require.NoError(t, pendingTestCommit(t, e, item, ""))
+	}
+	stats, err := e.validateLedgerReferences(t.Context())
+	require.NoError(t, err)
+	require.EqualValues(t, 4, stats.RowsChecked)
+	require.EqualValues(t, 3, stats.Lookups)
+	require.Zero(t, stats.MissingChildren)
+	require.Zero(t, stats.MissingContinuations)
+	for _, item := range []c1zstore.LedgerWork{items[0], items[2]} {
+		key := encodeLedgerKey(item.Action.Identity)
+		key = binary.BigEndian.AppendUint64(key, item.ID)
+		key = binary.BigEndian.AppendUint64(key, item.Revision)
+		require.NoError(t, e.db.UnsafeForTesting().Delete(key, pebble.Sync))
+	}
+	for _, scrub := range []bool{false, true} {
+		if scrub {
+			require.NoError(t, e.Ledger().scrubTokens(t.Context()))
+		}
+		stats, err = e.validateLedgerReferences(t.Context())
+		require.NoError(t, err)
+		require.EqualValues(t, 1, stats.MissingChildren)
+		require.EqualValues(t, 1, stats.MissingContinuations)
+		require.Zero(t, stats.IdentityMismatches)
+		require.Zero(t, stats.Uncheckable)
+	}
 }

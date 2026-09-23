@@ -2572,6 +2572,7 @@ type LedgerChild struct {
 	state               protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_Identity *LedgerActionIdentity  `protobuf:"bytes,1,opt,name=identity,proto3"`
 	xxx_hidden_Spawned  bool                   `protobuf:"varint,2,opt,name=spawned,proto3"`
+	xxx_hidden_WorkId   uint64                 `protobuf:"varint,3,opt,name=work_id,json=workId,proto3"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -2615,12 +2616,23 @@ func (x *LedgerChild) GetSpawned() bool {
 	return false
 }
 
+func (x *LedgerChild) GetWorkId() uint64 {
+	if x != nil {
+		return x.xxx_hidden_WorkId
+	}
+	return 0
+}
+
 func (x *LedgerChild) SetIdentity(v *LedgerActionIdentity) {
 	x.xxx_hidden_Identity = v
 }
 
 func (x *LedgerChild) SetSpawned(v bool) {
 	x.xxx_hidden_Spawned = v
+}
+
+func (x *LedgerChild) SetWorkId(v uint64) {
+	x.xxx_hidden_WorkId = v
 }
 
 func (x *LedgerChild) HasIdentity() bool {
@@ -2639,6 +2651,7 @@ type LedgerChild_builder struct {
 
 	Identity *LedgerActionIdentity
 	Spawned  bool
+	WorkId   uint64
 }
 
 func (b0 LedgerChild_builder) Build() *LedgerChild {
@@ -2647,16 +2660,11 @@ func (b0 LedgerChild_builder) Build() *LedgerChild {
 	_, _ = b, x
 	x.xxx_hidden_Identity = b.Identity
 	x.xxx_hidden_Spawned = b.Spawned
+	x.xxx_hidden_WorkId = b.WorkId
 	return m0
 }
 
-// LedgerRow records one COMMITTED page: the action's transition and
-// everything it spawned, written in the same pebble batch as the
-// page's record rows, so "the rows landed" and "the page is done" are
-// one fact (brief §3.1). Stored under the engine's ledger keyspace
-// (TypeLedger); the key is derived from identity. Rows persist after
-// the sync seals as its execution trace (§3.12); the resume walk
-// (§3.3) reads them and never writes.
+// Completion observations committed with records and pending-work updates.
 type LedgerRow struct {
 	state                           protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_Identity             *LedgerActionIdentity  `protobuf:"bytes,1,opt,name=identity,proto3"`
@@ -2682,6 +2690,8 @@ type LedgerRow struct {
 	xxx_hidden_SdkRetryWaitMs       uint64                 `protobuf:"varint,21,opt,name=sdk_retry_wait_ms,json=sdkRetryWaitMs,proto3"`
 	xxx_hidden_SdkRateLimitWaitMs   uint64                 `protobuf:"varint,22,opt,name=sdk_rate_limit_wait_ms,json=sdkRateLimitWaitMs,proto3"`
 	xxx_hidden_Collection           *LedgerCollectionStats `protobuf:"bytes,23,opt,name=collection,proto3"`
+	xxx_hidden_WorkId               uint64                 `protobuf:"varint,24,opt,name=work_id,json=workId,proto3"`
+	xxx_hidden_WorkRevision         uint64                 `protobuf:"varint,25,opt,name=work_revision,json=workRevision,proto3"`
 	unknownFields                   protoimpl.UnknownFields
 	sizeCache                       protoimpl.SizeCache
 }
@@ -2874,6 +2884,20 @@ func (x *LedgerRow) GetCollection() *LedgerCollectionStats {
 	return nil
 }
 
+func (x *LedgerRow) GetWorkId() uint64 {
+	if x != nil {
+		return x.xxx_hidden_WorkId
+	}
+	return 0
+}
+
+func (x *LedgerRow) GetWorkRevision() uint64 {
+	if x != nil {
+		return x.xxx_hidden_WorkRevision
+	}
+	return 0
+}
+
 func (x *LedgerRow) SetIdentity(v *LedgerActionIdentity) {
 	x.xxx_hidden_Identity = v
 }
@@ -2969,6 +2993,14 @@ func (x *LedgerRow) SetCollection(v *LedgerCollectionStats) {
 	x.xxx_hidden_Collection = v
 }
 
+func (x *LedgerRow) SetWorkId(v uint64) {
+	x.xxx_hidden_WorkId = v
+}
+
+func (x *LedgerRow) SetWorkRevision(v uint64) {
+	x.xxx_hidden_WorkRevision = v
+}
+
 func (x *LedgerRow) HasIdentity() bool {
 	if x == nil {
 		return false
@@ -3005,19 +3037,14 @@ func (x *LedgerRow) ClearCollection() {
 type LedgerRow_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	// Echo of the key's identity, verbatim. The read-side compare
-	// against the action being resolved is what makes a key collision
-	// (an identity omission or key-function bug) a re-run instead of a
-	// silent skip.
+	// Request arguments; work_id and work_revision distinguish executions.
 	Identity *LedgerActionIdentity
 	// Cursor for the action's next page; empty means the action
 	// finished on this page. Scrubbed to empty with next_page_token_hash
 	// retained when scrubbed is set.
 	NextPageToken     string
 	NextPageTokenHash []byte
-	// Actions this page pushed (children carry full identity so the
-	// walk can push them without a lookup).
-	Children []*LedgerChild
+	Children          []*LedgerChild
 	// Attempt that committed the page (the syncer's attempt epoch) and
 	// when.
 	Attempt     string
@@ -3051,6 +3078,8 @@ type LedgerRow_builder struct {
 	SdkRetryWaitMs       uint64
 	SdkRateLimitWaitMs   uint64
 	Collection           *LedgerCollectionStats
+	WorkId               uint64
+	WorkRevision         uint64
 }
 
 func (b0 LedgerRow_builder) Build() *LedgerRow {
@@ -3080,6 +3109,8 @@ func (b0 LedgerRow_builder) Build() *LedgerRow {
 	x.xxx_hidden_SdkRetryWaitMs = b.SdkRetryWaitMs
 	x.xxx_hidden_SdkRateLimitWaitMs = b.SdkRateLimitWaitMs
 	x.xxx_hidden_Collection = b.Collection
+	x.xxx_hidden_WorkId = b.WorkId
+	x.xxx_hidden_WorkRevision = b.WorkRevision
 	return m0
 }
 
@@ -4264,10 +4295,11 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"page_token\x18\x06 \x01(\tR\tpageToken\x12&\n" +
 	"\x0fpage_token_hash\x18\a \x01(\fR\rpageTokenHash\x12\x1f\n" +
 	"\vtype_scoped\x18\b \x01(\bR\n" +
-	"typeScoped\"h\n" +
+	"typeScoped\"\x81\x01\n" +
 	"\vLedgerChild\x12?\n" +
 	"\bidentity\x18\x01 \x01(\v2#.c1.storage.v3.LedgerActionIdentityR\bidentity\x12\x18\n" +
-	"\aspawned\x18\x02 \x01(\bR\aspawned\"\xfe\a\n" +
+	"\aspawned\x18\x02 \x01(\bR\aspawned\x12\x17\n" +
+	"\awork_id\x18\x03 \x01(\x04R\x06workId\"\xbc\b\n" +
 	"\tLedgerRow\x12?\n" +
 	"\bidentity\x18\x01 \x01(\v2#.c1.storage.v3.LedgerActionIdentityR\bidentity\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12/\n" +
@@ -4294,7 +4326,9 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\x16sdk_rate_limit_wait_ms\x18\x16 \x01(\x04R\x12sdkRateLimitWaitMs\x12D\n" +
 	"\n" +
 	"collection\x18\x17 \x01(\v2$.c1.storage.v3.LedgerCollectionStatsR\n" +
-	"collection\"\xe8\x06\n" +
+	"collection\x12\x17\n" +
+	"\awork_id\x18\x18 \x01(\x04R\x06workId\x12#\n" +
+	"\rwork_revision\x18\x19 \x01(\x04R\fworkRevision\"\xe8\x06\n" +
 	"\x15LedgerCollectionStats\x12%\n" +
 	"\x0elist_responses\x18\x01 \x01(\x04R\rlistResponses\x120\n" +
 	"\x14empty_list_responses\x18\x02 \x01(\x04R\x12emptyListResponses\x12R\n" +

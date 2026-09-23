@@ -36,13 +36,12 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 					require.NoError(t, err)
 				}
 			case "known-clean", "known-blocked":
-				page := f.ledger.BeginPage()
-				require.NoError(t, page.SetFact(ledgerFactIngestKnown))
+				facts := []string{ledgerFactIngestKnown}
 				if kind == "known-blocked" {
-					require.NoError(t, page.SetFact(ledgerFactIngestBlocked))
-					require.NoError(t, page.SetCounterBucket("prior", 0, c1zstore.LedgerCounters{Flags: ingestQualityReasonGrantDropped}))
+					facts = append(facts, ledgerFactIngestBlocked)
+					require.NoError(t, f.ledger.PutCounterBucket(ctx, "prior", 0, c1zstore.LedgerCounters{Flags: ingestQualityReasonGrantDropped}))
 				}
-				require.NoError(t, page.Commit(ctx, c1zstore.LedgerActionIdentity{Op: InitOp.String()}, nil))
+				require.NoError(t, f.ledger.InitializePendingWork(ctx, pendingSeeds([]ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}), facts...))
 			case "finished":
 				require.NoError(t, f.store.EndSync(ctx))
 				require.NoError(t, f.store.SetCurrentSync(ctx, id))
@@ -52,8 +51,15 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 				s.caps.pageLedger = ledgerUnstartedFailure{PageLedgerStore: f.ledger}
 			}
 			before := ledgerRawSnapshot(t, f.engine)
-			if kind != "legacy-token" && kind != "finished" {
-				f.audit.enter(ledgerWalk)
+			var walkBefore []ledgerKV
+			s.testHooks.ledgerWalk = func(entering bool) {
+				if entering {
+					walkBefore = ledgerRawSnapshot(t, f.engine)
+					f.audit.enter(ledgerWalk)
+				} else {
+					f.audit.enter(ledgerLifecycle)
+					require.True(t, equalLedgerSnapshot(walkBefore, ledgerRawSnapshot(t, f.engine)))
+				}
 			}
 			_, err := s.prepareLedgerState(ctx, "resume", false)
 			f.audit.enter(ledgerLifecycle)
@@ -74,13 +80,13 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 			default:
 				require.Equal(t, ingestQualityReasonUnknownPriorCheckpoint, s.ingestFilterStats.snapshot().ReasonFlags)
 			}
-			if kind != "legacy-token" && kind != "finished" {
+			if kind == "read-error" || kind == "legacy-frontier" || kind == "known-clean" || kind == "known-blocked" {
 				require.Equal(t, before, ledgerRawSnapshot(t, f.engine))
 			}
 			if kind == "empty" || kind == "session" {
 				require.NotContains(t, s.ledger.facts, ledgerFactIngestKnown)
 				action := s.run.current()
-				require.NoError(t, s.invokeActionPage(ctx, action, func(ctx context.Context, a *Action) error { return s.initializeAction(ctx, a, nil) }, false))
+				require.NoError(t, invokeLedgerTestPage(t, s, ctx, action, func(ctx context.Context, a *Action) error { return s.initializeAction(ctx, a, nil) }, false))
 				facts, err := f.ledger.LedgerFacts(ctx)
 				require.NoError(t, err)
 				require.Contains(t, facts, ledgerFactIngestKnown)

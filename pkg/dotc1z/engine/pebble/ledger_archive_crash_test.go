@@ -17,6 +17,7 @@ func TestLedgerArchiveDurableCrashImages(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, e.Close()) })
 	syncID, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
+	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 	page := e.Ledger().BeginPage()
 	require.NoError(t, page.SetFact("skip-grants"))
 	require.NoError(t, page.SetCounterBucket("attempt", 0, c1zstore.LedgerCounters{Counters: map[string]uint64{"completed": 7}}))

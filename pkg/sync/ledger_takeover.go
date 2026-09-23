@@ -19,36 +19,57 @@ const (
 	ledgerWarningsPrefix    = "actions.warnings."
 )
 
+type ledgerAction struct {
+	identity          c1zstore.LedgerActionIdentity
+	spawned           bool
+	typeScopedPlanned bool
+}
+
 type ledgerResume struct {
-	actions   []ledgerAction
-	graph     *expand.EntitlementGraph
-	sealReady bool
+	initialized bool
+	actions     []ledgerAction
+	graph       *expand.EntitlementGraph
+	sealReady   bool
 }
 
 func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore.PageLedgerStore, runID string) (ledgerResume, error) {
 	if runID == "" {
 		return ledgerResume{}, errors.New("ledger takeover requires an attempt id")
 	}
+	pending, initialized, err := ledger.PendingWork(ctx, 0, 1)
+	if err != nil {
+		return ledgerResume{}, err
+	}
 	state, err := store.CurrentSyncStep(ctx)
 	if err != nil {
 		return ledgerResume{}, fmt.Errorf("read legacy checkpoint: %w", err)
-	}
-	frontier, found, err := ledger.LedgerFrontier(ctx)
-	if err != nil {
-		return ledgerResume{}, fmt.Errorf("read ledger frontier: %w", err)
-	}
-	if state != "" && found {
-		return ledgerResume{}, errors.New("legacy checkpoint conflicts with ledger frontier")
 	}
 	facts, err := ledger.LedgerFacts(ctx)
 	if err != nil {
 		return ledgerResume{}, err
 	}
-	if _, ready := facts[ledgerFactSealReady]; ready {
+	_, ready := facts[ledgerFactSealReady]
+	if initialized {
+		if state != "" {
+			return ledgerResume{}, errors.New("legacy checkpoint conflicts with pending work")
+		}
+		if ready && len(pending) != 0 {
+			return ledgerResume{}, errors.New("seal-ready ledger has pending work")
+		}
+		return ledgerResume{initialized: true, sealReady: ready}, nil
+	}
+	if ready {
 		if state != "" {
 			return ledgerResume{}, errors.New("legacy checkpoint conflicts with seal-ready ledger")
 		}
 		return ledgerResume{sealReady: true}, nil
+	}
+	frontier, found, err := ledger.LedgerFrontier(ctx)
+	if err != nil {
+		return ledgerResume{}, err
+	}
+	if state != "" && found {
+		return ledgerResume{}, errors.New("legacy checkpoint conflicts with ledger frontier")
 	}
 	if state == "" {
 		if found {
@@ -58,11 +79,15 @@ func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore
 			state = frontier.State
 		}
 		resume, _, _, err := decodeLedgerCheckpoint(state)
+		resume.graph = nil
 		return resume, err
 	}
 	resume, importedFacts, counters, err := decodeLedgerCheckpoint(state)
 	if err != nil {
 		return ledgerResume{}, err
+	}
+	if len(resume.actions) == 0 {
+		resume.actions = []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}
 	}
 	prior, err := ledger.LedgerCounters(ctx)
 	if err != nil {
@@ -71,25 +96,21 @@ func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore
 	if !prior.IsZero() {
 		counters = c1zstore.LedgerCounters{}
 	}
-	moved, err := ledger.TakeoverToken(ctx, runID, importedFacts, counters)
+	moved, err := ledger.TakeoverPendingWork(ctx, runID, state, importedFacts, counters, pendingSeeds(resume.actions))
 	if err != nil {
 		return ledgerResume{}, fmt.Errorf("take over legacy checkpoint: %w", err)
 	}
-	if moved == "" {
-		frontier, found, err := ledger.LedgerFrontier(ctx)
-		if err != nil {
-			return ledgerResume{}, err
-		}
-		if !found || frontier == nil || frontier.State == "" {
-			return ledgerResume{}, errors.New("takeover returned no state and no frontier")
-		}
-		resumed, _, _, err := decodeLedgerCheckpoint(frontier.State)
-		return resumed, err
-	}
-	if moved != state {
+	if moved != "" && moved != state {
 		return ledgerResume{}, errors.New("legacy checkpoint changed during takeover")
 	}
-	return resume, nil
+	_, initialized, err = ledger.PendingWork(ctx, 0, 1)
+	if err != nil {
+		return ledgerResume{}, err
+	}
+	if !initialized {
+		return ledgerResume{}, errors.New("takeover returned without pending work state")
+	}
+	return ledgerResume{initialized: true}, nil
 }
 
 func decodeLedgerCheckpoint(state string) (ledgerResume, []string, c1zstore.LedgerCounters, error) {

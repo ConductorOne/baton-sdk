@@ -58,7 +58,7 @@ func TestLedgerStaticMaterializationBounded(t *testing.T) {
 	s.store = staticResourcePageStore{Store: f.store}
 	counted := &staticBoundStore{PageLedgerStore: f.ledger}
 	s.ledger.store = counted
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, counted.peak)
 	result, err := f.store.ListEntitlements(t.Context(), &v2.EntitlementsServiceListEntitlementsRequest{})
@@ -101,7 +101,7 @@ func TestLedgerStaticMaterializationOrderAndResume(t *testing.T) {
 	baseline.ledgered = false
 	baseline.store = staticResourcePageStore{Store: baseStore.store}
 	baseline.connector = &staticOrderConnector{mockConnector: newMockConnector()}
-	_, err := baseline.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, baseline, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	expected, err := baseStore.store.ListEntitlements(t.Context(), &v2.EntitlementsServiceListEntitlementsRequest{})
 	require.NoError(t, err)
@@ -131,7 +131,7 @@ func TestLedgerStaticMaterializationOrderAndResume(t *testing.T) {
 			}
 			s.ledger.store = counted
 			f.audit.enter(ledgerHandler)
-			_, err := s.parallelSync(t.Context(), t.Context(), nil)
+			_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 			f.audit.enter(ledgerLifecycle)
 			if interrupted {
 				require.ErrorIs(t, err, errLedgerInjectedPage)
@@ -146,13 +146,14 @@ func TestLedgerStaticMaterializationOrderAndResume(t *testing.T) {
 				s.caps = resolveStoreCaps(f.store)
 				s.ledger, err = newLedgerRuntime(t.Context(), f.ledger, "static-resume")
 				require.NoError(t, err)
+				seedLedgerTestRun(t, s, nil)
 				before := ledgerRawSnapshot(t, f.engine)
 				f.audit.enter(ledgerWalk)
 				require.NoError(t, s.restoreLedgerState(t.Context(), ledgerResume{actions: []ledgerAction{{identity: root}}}, false))
 				require.Equal(t, before, ledgerRawSnapshot(t, f.engine))
 				f.audit.enter(ledgerHandler)
 				connector.forbidFirst = true
-				_, err = s.parallelSync(t.Context(), t.Context(), nil)
+				_, err = runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 				f.audit.enter(ledgerLifecycle)
 				require.NoError(t, err)
 			} else {
@@ -173,14 +174,14 @@ func TestLedgerStaticMaterializationOrderAndResume(t *testing.T) {
 			require.NoError(t, err)
 			require.True(t, found)
 			require.Len(t, first.Children, 3)
-			require.NotEqual(t, first.Children[1].Identity, first.Children[2].Identity)
+			require.NotEqual(t, first.Children[1].WorkID, first.Children[2].WorkID)
 			next := root
 			next.PageToken = "second"
 			second, found, err := f.ledger.GetLedgerRow(t.Context(), next)
 			require.NoError(t, err)
 			require.True(t, found)
 			require.Len(t, second.Children, 2)
-			require.NotEqual(t, first.Children[2].Identity, second.Children[1].Identity)
+			require.NotEqual(t, first.Children[2].WorkID, second.Children[1].WorkID)
 			counters, err := f.ledger.LedgerCounters(t.Context())
 			require.NoError(t, err)
 			require.EqualValues(t, 5, counters.Counters[ledgerCompletedPrefix+MaterializeStaticEntitlementsOp.String()])
@@ -195,8 +196,9 @@ func TestLedgerStaticMaterializationRejectsInvalidCursor(t *testing.T) {
 		s, f, c := staticPageFixture(t)
 		s.run = newRunState()
 		action := s.run.pushAction(t.Context(), Action{Op: MaterializeStaticEntitlementsOp, ResourceTypeID: "first", PageToken: token})
+		seedLedgerTestRun(t, s, nil)
 		before := ledgerRawSnapshot(t, f.engine)
-		require.Error(t, s.invokeActionPage(t.Context(), action, s.materializeLedgerStaticEntitlements, false))
+		require.Error(t, invokeLedgerTestPage(t, s, t.Context(), action, s.materializeLedgerStaticEntitlements, false))
 		require.Empty(t, c.calls)
 		require.Equal(t, before, ledgerRawSnapshot(t, f.engine))
 	}
@@ -206,13 +208,19 @@ func TestLedgerStaticMaterializationTokensScrub(t *testing.T) {
 	s, f, _ := staticPageFixture(t)
 	s.store = staticResourcePageStore{Store: f.store}
 	root := ledgerIdentity(s.run.current())
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	var child c1zstore.LedgerActionIdentity
+	s.testHooks.ledgerCommitted = func(row c1zstore.LedgerRow) {
+		if row.Identity.Op == MaterializeStaticEntitlementsOp.String() {
+			child = row.Identity
+		}
+	}
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	parent, found, err := f.ledger.GetLedgerRow(t.Context(), root)
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Len(t, parent.Children, 1)
-	child := parent.Children[0].Identity
+	require.NotEmpty(t, child.PageToken)
 	contains := func(rows []ledgerKV) bool {
 		for _, row := range rows {
 			if bytes.Contains(row.value, []byte(child.PageToken)) {
@@ -259,8 +267,9 @@ func TestLedgerStaticMaterializationRejectsInvalidResourcePage(t *testing.T) {
 		require.NoError(t, err)
 		s.run = newRunState()
 		action := s.run.pushAction(t.Context(), Action{Op: MaterializeStaticEntitlementsOp, ResourceTypeID: "first", PageToken: token})
+		seedLedgerTestRun(t, s, nil)
 		before := ledgerRawSnapshot(t, f.engine)
-		require.Error(t, s.invokeActionPage(t.Context(), action, s.materializeLedgerStaticEntitlements, false))
+		require.Error(t, invokeLedgerTestPage(t, s, t.Context(), action, s.materializeLedgerStaticEntitlements, false))
 		require.Equal(t, before, ledgerRawSnapshot(t, f.engine))
 	}
 }

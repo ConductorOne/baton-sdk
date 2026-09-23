@@ -80,7 +80,7 @@ func TestLedgerEntitlementPages(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			s, f, c := entitlementPageFixture(t, scoped)
 			f.audit.enter(ledgerHandler)
-			_, err := s.parallelSync(t.Context(), t.Context(), nil)
+			_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 			require.NoError(t, err)
 			f.audit.enter(ledgerLifecycle)
 			expected := 2
@@ -115,11 +115,12 @@ func TestLedgerEntitlementPages(t *testing.T) {
 }
 func TestLedgerEntitlementCommitFailureRetry(t *testing.T) {
 	s, f, c := entitlementPageFixture(t, false)
+	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
 	s.ledger.store = ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: "commit"}
 	action := s.run.current()
 	f.audit.enter(ledgerHandler)
-	require.ErrorIs(t, s.invokeActionPage(t.Context(), action, s.SyncEntitlements, false), errLedgerInjectedPage)
+	require.ErrorIs(t, invokeLedgerTestPage(t, s, t.Context(), action, s.SyncEntitlements, false), errLedgerInjectedPage)
 	f.audit.enter(ledgerLifecycle)
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 	require.Zero(t, s.ingestFilterStats.entitlementsDropped.Load())
@@ -127,7 +128,7 @@ func TestLedgerEntitlementCommitFailureRetry(t *testing.T) {
 	require.Empty(t, s.stats.connectorCallStats())
 	s.ledger.store = f.ledger
 	f.audit.enter(ledgerHandler)
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	require.Len(t, c.requests, 3)
@@ -158,38 +159,37 @@ func TestLedgerEntitlementPlannerCommitAndReplay(t *testing.T) {
 	action := s.run.current()
 	s.ledger.store = ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: "commit"}
 	f.audit.enter(ledgerHandler)
-	require.ErrorIs(t, s.invokeActionPage(t.Context(), action, s.SyncEntitlements, false), errLedgerInjectedPage)
+	require.ErrorIs(t, invokeLedgerTestPage(t, s, t.Context(), action, s.SyncEntitlements, false), errLedgerInjectedPage)
 	f.audit.enter(ledgerLifecycle)
 	require.False(t, s.run.getAction(action.ID).TypeScopedPlanned)
 	s.ledger.store = f.ledger
 	f.audit.enter(ledgerHandler)
-	require.NoError(t, s.invokeActionPage(t.Context(), action, s.SyncEntitlements, false))
+	require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), action, s.SyncEntitlements, false))
 	f.audit.enter(ledgerLifecycle)
 	continued := s.run.getAction(action.ID)
 	require.True(t, continued.TypeScopedPlanned)
 	require.Equal(t, "store-next", continued.PageToken)
 	f.audit.enter(ledgerHandler)
-	require.NoError(t, s.invokeActionPage(t.Context(), continued, s.SyncEntitlements, false))
+	require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), continued, s.SyncEntitlements, false))
 	f.audit.enter(ledgerLifecycle)
 	row, found, err := f.ledger.GetLedgerRow(t.Context(), ledgerIdentity(continued))
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Empty(t, row.Children)
 	s.run = newRunState()
-	s.run.pushAction(t.Context(), Action{Op: SyncEntitlementsOp})
-	action = s.run.current()
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerWalk)
-	require.NoError(t, s.invokeActionPage(t.Context(), action, s.SyncEntitlements, false))
+	require.NoError(t, s.restoreLedgerState(t.Context(), ledgerResume{initialized: true}, false))
 	f.audit.enter(ledgerLifecycle)
-	require.True(t, s.run.getAction(action.ID).TypeScopedPlanned)
+	require.Nil(t, s.run.getAction(action.ID))
+	require.True(t, s.run.current().TypeScoped)
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 }
 
 func TestLedgerEntitlementReplay(t *testing.T) {
 	s, f, c := entitlementPageFixture(t, true)
 	f.audit.enter(ledgerHandler)
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, f.store.Close(t.Context()))
@@ -199,9 +199,10 @@ func TestLedgerEntitlementReplay(t *testing.T) {
 	require.NoError(t, err)
 	s.run = newRunState()
 	s.run.pushAction(t.Context(), Action{Op: SyncEntitlementsOp, ResourceTypeID: "selected", TypeScoped: true})
+	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerWalk)
-	_, err = s.parallelSync(t.Context(), t.Context(), nil)
+	_, err = runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	require.Len(t, c.requests, 3)
@@ -212,7 +213,7 @@ func TestLedgerEntitlementPartialRetention(t *testing.T) {
 	s, f, _ := entitlementPageFixture(t, false)
 	s.cfg.syncType = connectorstore.SyncTypePartial
 	f.audit.enter(ledgerHandler)
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	resp, err := f.store.ListEntitlements(t.Context(), &v2.EntitlementsServiceListEntitlementsRequest{})
@@ -229,9 +230,10 @@ func TestLedgerEntitlementPartialRetention(t *testing.T) {
 func TestLedgerEntitlementDuplicateCursor(t *testing.T) {
 	s, f, c := entitlementPageFixture(t, true)
 	c.duplicate = true
+	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerHandler)
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.ErrorContains(t, err, "duplicate or cyclic spawned cursor")
 	f.audit.enter(ledgerLifecycle)
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
@@ -247,9 +249,10 @@ func TestLedgerEntitlementReadFailures(t *testing.T) {
 			} else {
 				s.store = ledgerTypeReadFailure{Store: f.store}
 			}
+			seedLedgerTestRun(t, s, nil)
 			before := ledgerRawSnapshot(t, f.engine)
 			f.audit.enter(ledgerHandler)
-			require.ErrorIs(t, s.invokeActionPage(t.Context(), s.run.current(), s.SyncEntitlements, false), errLedgerInjectedPage)
+			require.ErrorIs(t, invokeLedgerTestPage(t, s, t.Context(), s.run.current(), s.SyncEntitlements, false), errLedgerInjectedPage)
 			f.audit.enter(ledgerLifecycle)
 			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 			require.False(t, s.ingestFilterStats.replayBlocked.Load())

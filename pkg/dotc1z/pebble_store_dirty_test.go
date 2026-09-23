@@ -52,9 +52,15 @@ func TestPebbleStorePageCommitMarksDirty(t *testing.T) {
 	require.NoError(t, err)
 	ledger, ok := store.(c1zstore.PageLedgerStore)
 	require.True(t, ok, "the pebble store implements the page ledger")
-	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
+	require.NoError(t, ledger.InitializePendingWork(ctx, nil))
+	require.NoError(t, store.Close(ctx))
+	store, err = NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	require.NoError(t, store.SetCurrentSync(ctx, syncID))
+	ledger = store.(c1zstore.PageLedgerStore)
 	w := ledger.BeginPage()
 	require.NoError(t, w.PutGrants(ctx, mkV2Grant("g1", "ent", "user", "alice")))
 	id := c1zstore.LedgerActionIdentity{Op: "SyncGrants", ResourceTypeID: "app", ResourceID: "github"}
@@ -63,7 +69,6 @@ func TestPebbleStorePageCommitMarksDirty(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, found)
 
-	require.NoError(t, ledger.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 	require.NoError(t, store.Close(ctx))
 	fi, err := os.Stat(path)
 	require.NoError(t, err)
@@ -97,6 +102,7 @@ func TestPebbleStoreDropLedgerMarksDirty(t *testing.T) {
 	require.NoError(t, err)
 	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
+	require.NoError(t, store.(c1zstore.PageLedgerStore).InitializePendingWork(ctx, nil))
 	w := store.(c1zstore.PageLedgerStore).BeginPage()
 	require.NoError(t, w.PutGrants(ctx, mkV2Grant("g1", "ent", "user", "alice")))
 	require.NoError(t, w.Commit(ctx, id, nil))
@@ -179,6 +185,7 @@ func TestPebbleStoreClearRowsMarksDirty(t *testing.T) {
 	require.NoError(t, err)
 	ledger := store.(c1zstore.PageLedgerStore)
 	id := c1zstore.LedgerActionIdentity{Op: "completed"}
+	require.NoError(t, ledger.InitializePendingWork(ctx, nil))
 	page := ledger.BeginPage()
 	require.NoError(t, page.SetFact("finished"))
 	require.NoError(t, page.SetFact("history"))

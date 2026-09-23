@@ -238,9 +238,9 @@ func ledgerRowToProto(row *c1zstore.LedgerRow) *v3.LedgerRow {
 	}
 	children := make([]*v3.LedgerChild, 0, len(row.Children))
 	for _, c := range row.Children {
-		children = append(children, v3.LedgerChild_builder{Identity: ledgerIdentityToProto(c.Identity), Spawned: c.Spawned}.Build())
+		children = append(children, v3.LedgerChild_builder{Identity: ledgerIdentityToProto(c.Identity), Spawned: c.Spawned, WorkId: c.WorkID}.Build())
 	}
-	b := v3.LedgerRow_builder{
+	b := v3.LedgerRow_builder{WorkId: row.WorkID, WorkRevision: row.WorkRevision,
 		Collection:           ledgerCollectionToProto(row.Collection),
 		ObservationsRecorded: row.ObservationsRecorded,
 		ConnectorAttempts:    row.ConnectorAttempts,
@@ -266,9 +266,9 @@ func ledgerRowToProto(row *c1zstore.LedgerRow) *v3.LedgerRow {
 func ledgerRowFromProto(p *v3.LedgerRow) *c1zstore.LedgerRow {
 	children := make([]c1zstore.LedgerChild, 0, len(p.GetChildren()))
 	for _, c := range p.GetChildren() {
-		children = append(children, c1zstore.LedgerChild{Identity: ledgerIdentityFromProto(c.GetIdentity()), Spawned: c.GetSpawned()})
+		children = append(children, c1zstore.LedgerChild{Identity: ledgerIdentityFromProto(c.GetIdentity()), Spawned: c.GetSpawned(), WorkID: c.GetWorkId()})
 	}
-	row := &c1zstore.LedgerRow{
+	row := &c1zstore.LedgerRow{WorkID: p.GetWorkId(), WorkRevision: p.GetWorkRevision(),
 		Collection:               ledgerCollectionFromProto(p.GetCollection()),
 		ObservationsRecorded:     p.GetObservationsRecorded(),
 		ConnectorAttempts:        p.GetConnectorAttempts(),

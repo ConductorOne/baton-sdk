@@ -27,9 +27,11 @@ type ledgerPublicCrashStore struct {
 	cut func(string)
 }
 
-func (s ledgerPublicCrashStore) TakeoverToken(ctx context.Context, runID string, facts []string, counters c1zstore.LedgerCounters) (string, error) {
+func (s ledgerPublicCrashStore) TakeoverPendingWork(
+	ctx context.Context, runID, expected string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork,
+) (string, error) {
 	s.cut("takeover-before")
-	token, err := s.PageLedgerStore.TakeoverToken(ctx, runID, facts, counters)
+	token, err := s.PageLedgerStore.TakeoverPendingWork(ctx, runID, expected, facts, counters, work)
 	if err == nil {
 		s.cut("takeover-after")
 	}

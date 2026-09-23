@@ -2,6 +2,7 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
 	"context"
+	"maps"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
@@ -17,7 +18,10 @@ func (s *syncer) recordRunStepDuration(bucket string, duration time.Duration) {
 }
 
 func (r *ledgerRuntime) runCounterSnapshot() c1zstore.LedgerCounters {
-	counters := c1zstore.LedgerCounters{StepDurationsMs: r.runObservations.stepDurations(), SessionCalls: make(map[string]c1zstore.CallStat)}
+	r.mu.Lock()
+	localCompleted := maps.Clone(r.localCompleted)
+	r.mu.Unlock()
+	counters := c1zstore.LedgerCounters{Counters: localCompleted, StepDurationsMs: r.runObservations.stepDurations(), SessionCalls: make(map[string]c1zstore.CallStat)}
 	for method, stat := range r.runObservations.sessionStoreStats() {
 		counters.SessionCalls[method] = c1zstore.CallStat{Count: stat.Count, TotalMs: stat.TotalMs, MaxMs: stat.MaxMs, Errors: stat.Errors, Timeouts: stat.Timeouts}
 	}
@@ -44,18 +48,5 @@ func (s *syncer) checkpointLedgerOnStop(ctx context.Context) {
 }
 
 func (s *syncer) terminalLedgerCounters() c1zstore.LedgerCounters {
-	counters := s.ledger.runCounterSnapshot()
-	for _, op := range []ActionOp{SyncGrantExpansionOp, SyncExternalResourcesOp} {
-		key := ledgerCompletedPrefix + op.String()
-		completed := s.run.getActionCount(op).CompletedCount
-		prior := s.ledger.prior.Counters[key]
-		if completed > prior {
-			if counters.Counters == nil {
-				counters.Counters = make(map[string]uint64)
-			}
-			counters.Counters[ledgerCompletedActions] += completed - prior
-			counters.Counters[key] = completed - prior
-		}
-	}
-	return counters
+	return s.ledger.runCounterSnapshot()
 }

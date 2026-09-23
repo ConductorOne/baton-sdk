@@ -69,7 +69,7 @@ func TestLedgerResourcePages(t *testing.T) {
 		t.Run(strconv.Itoa(workers), func(t *testing.T) {
 			s, f, c := resourcePageFixture(t, workers)
 			f.audit.enter(ledgerHandler)
-			_, err := s.parallelSync(t.Context(), t.Context(), nil)
+			_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 			require.NoError(t, err)
 			f.audit.enter(ledgerLifecycle)
 			require.Nil(t, s.run.current())
@@ -100,25 +100,26 @@ func TestLedgerResourceCommitFailureRetry(t *testing.T) {
 	s, f, c := resourcePageFixture(t, 1)
 	var progress []uint32
 	s.cfg.progressHandler = func(p *Progress) { progress = append(progress, p.Count) }
+	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
 	s.ledger.store = ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: "commit"}
 	f.audit.enter(ledgerHandler)
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.ErrorIs(t, err, errLedgerInjectedPage)
 	f.audit.enter(ledgerLifecycle)
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
-	require.False(t, s.childSchedule.has("child", "parent", "one"))
+	require.False(t, hasLedgerScheduledChild(t, s, "child", "parent", "one"))
 	require.Empty(t, progress)
 	require.Zero(t, s.ingestFilterStats.invalidResourcesObserved.Load())
 	require.Empty(t, s.stats.connectorCallStats())
 	s.ledger.store = f.ledger
 	f.audit.enter(ledgerHandler)
-	_, err = s.parallelSync(t.Context(), t.Context(), nil)
+	_, err = runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	require.Len(t, c.requests, 4)
 	require.ElementsMatch(t, []uint32{3, 1, 0}, progress)
-	require.True(t, s.childSchedule.has("child", "parent", "one"))
+	require.True(t, hasLedgerScheduledChild(t, s, "child", "parent", "one"))
 }
 
 type ledgerTargetConnector struct {
@@ -145,16 +146,17 @@ func TestLedgerTargetedResourcePage(t *testing.T) {
 	s.run = newRunState()
 	s.run.pushAction(t.Context(), Action{Op: SyncTargetedResourceOp, ResourceTypeID: "parent", ResourceID: "one", ParentResourceTypeID: "root", ParentResourceID: "two"})
 	action := s.run.current()
+	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
 	s.ledger.store = ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: "commit"}
 	f.audit.enter(ledgerHandler)
-	require.ErrorIs(t, s.invokeActionPage(t.Context(), action, s.SyncTargetedResource, false), errLedgerInjectedPage)
+	require.ErrorIs(t, invokeLedgerTestPage(t, s, t.Context(), action, s.SyncTargetedResource, false), errLedgerInjectedPage)
 	f.audit.enter(ledgerLifecycle)
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
-	require.False(t, s.childSchedule.has("child", "parent", "one"))
+	require.False(t, hasLedgerScheduledChild(t, s, "child", "parent", "one"))
 	s.ledger.store = f.ledger
 	f.audit.enter(ledgerHandler)
-	require.NoError(t, s.invokeActionPage(t.Context(), action, s.SyncTargetedResource, false))
+	require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), action, s.SyncTargetedResource, false))
 	f.audit.enter(ledgerLifecycle)
 	require.Equal(t, "root", c.request.GetParentResourceId().GetResourceType())
 	require.Equal(t, "two", c.request.GetParentResourceId().GetResource())
@@ -177,7 +179,7 @@ func TestLedgerConcurrentChildDiscovery(t *testing.T) {
 			c.distinct = distinct
 			s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "another"})
 			f.audit.enter(ledgerHandler)
-			_, err := s.parallelSync(t.Context(), t.Context(), nil)
+			_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 			require.NoError(t, err)
 			f.audit.enter(ledgerLifecycle)
 			expected := 5
@@ -192,7 +194,7 @@ func TestLedgerConcurrentChildDiscovery(t *testing.T) {
 func TestLedgerResourceReplay(t *testing.T) {
 	s, f, c := resourcePageFixture(t, 4)
 	f.audit.enter(ledgerHandler)
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, f.store.Close(t.Context()))
@@ -203,14 +205,15 @@ func TestLedgerResourceReplay(t *testing.T) {
 	s.run = newRunState()
 	s.childSchedule = childScheduleSet{}
 	s.run.pushAction(t.Context(), Action{Op: SyncResourcesOp, ResourceTypeID: "parent"})
+	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerWalk)
-	_, err = s.parallelSync(t.Context(), t.Context(), nil)
+	_, err = runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
 	require.Len(t, c.requests, 3)
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
-	require.True(t, s.childSchedule.has("child", "parent", "one"))
+	require.True(t, hasLedgerScheduledChild(t, s, "child", "parent", "one"))
 }
 
 func TestLedgerTargetedResourceEmptyAndFailure(t *testing.T) {
@@ -222,9 +225,10 @@ func TestLedgerTargetedResourceEmptyAndFailure(t *testing.T) {
 			s.run = newRunState()
 			s.run.pushAction(t.Context(), Action{Op: SyncTargetedResourceOp, ResourceTypeID: "parent", ResourceID: "one"})
 			action := s.run.current()
+			seedLedgerTestRun(t, s, nil)
 			before := ledgerRawSnapshot(t, f.engine)
 			f.audit.enter(ledgerHandler)
-			err := s.invokeActionPage(t.Context(), action, s.SyncTargetedResource, false)
+			err := invokeLedgerTestPage(t, s, t.Context(), action, s.SyncTargetedResource, false)
 			f.audit.enter(ledgerLifecycle)
 			if code == codes.Internal {
 				require.ErrorIs(t, err, c.failure)
@@ -263,7 +267,7 @@ func TestLedgerConnectorObservationsAccumulate(t *testing.T) {
 		return s.nextPageOrFinishAction(ctx, action, "")
 	}
 	f.audit.enter(ledgerHandler)
-	require.NoError(t, s.invokeActionPage(t.Context(), s.run.current(), s.SyncResources, false))
+	require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), s.run.current(), s.SyncResources, false))
 	f.audit.enter(ledgerLifecycle)
 	counters, err := f.ledger.LedgerCounters(t.Context())
 	require.NoError(t, err)
@@ -280,12 +284,12 @@ func TestLedgerResourceControlPage(t *testing.T) {
 	action := s.run.current()
 	s.ledger.store = ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: "commit"}
 	f.audit.enter(ledgerHandler)
-	require.ErrorIs(t, s.invokeActionPage(t.Context(), action, s.SyncResources, false), errLedgerInjectedPage)
+	require.ErrorIs(t, invokeLedgerTestPage(t, s, t.Context(), action, s.SyncResources, false), errLedgerInjectedPage)
 	f.audit.enter(ledgerLifecycle)
 	require.False(t, s.resourcesPhaseRanHere)
 	s.ledger.store = f.ledger
 	f.audit.enter(ledgerHandler)
-	require.NoError(t, s.invokeActionPage(t.Context(), action, s.SyncResources, false))
+	require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), action, s.SyncResources, false))
 	f.audit.enter(ledgerLifecycle)
 	require.True(t, s.resourcesPhaseRanHere)
 	row, found, err := f.ledger.GetLedgerRow(t.Context(), ledgerIdentity(action))
@@ -311,7 +315,7 @@ func TestLedgerTargetedTypeScoped(t *testing.T) {
 	s.run.pushAction(t.Context(), Action{Op: SyncTargetedResourceOp, ResourceTypeID: "parent", ResourceID: "one"})
 	action := s.run.current()
 	f.audit.enter(ledgerHandler)
-	require.NoError(t, s.invokeActionPage(t.Context(), action, s.SyncTargetedResource, false))
+	require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), action, s.SyncTargetedResource, false))
 	f.audit.enter(ledgerLifecycle)
 	row, found, err := f.ledger.GetLedgerRow(t.Context(), ledgerIdentity(action))
 	require.NoError(t, err)
@@ -327,9 +331,10 @@ func (s ledgerResourceReadFailure) GetResource(context.Context, *reader_v2.Resou
 func TestLedgerResourceReadFailure(t *testing.T) {
 	s, f, _ := resourcePageFixture(t, 1)
 	s.store = ledgerResourceReadFailure{Store: f.store}
+	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerHandler)
-	require.ErrorIs(t, s.invokeActionPage(t.Context(), s.run.current(), s.SyncResources, false), errLedgerInjectedPage)
+	require.ErrorIs(t, invokeLedgerTestPage(t, s, t.Context(), s.run.current(), s.SyncResources, false), errLedgerInjectedPage)
 	f.audit.enter(ledgerLifecycle)
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 	require.Empty(t, s.stats.connectorCallStats())
@@ -341,7 +346,7 @@ func TestLedgerResourcePendingChildRestore(t *testing.T) {
 			s, f, c := resourcePageFixture(t, 1)
 			root := ledgerIdentity(s.run.current())
 			f.audit.enter(ledgerHandler)
-			require.NoError(t, s.invokeActionPage(t.Context(), s.run.current(), s.SyncResources, false))
+			require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), s.run.current(), s.SyncResources, false))
 			f.audit.enter(ledgerLifecycle)
 			require.Len(t, c.requests, 1)
 			require.NoError(t, f.store.Close(t.Context()))
@@ -351,16 +356,17 @@ func TestLedgerResourcePendingChildRestore(t *testing.T) {
 			s.ledger, err = newLedgerRuntime(t.Context(), f.ledger, "pending-child-resume")
 			require.NoError(t, err)
 			s.childSchedule = childScheduleSet{}
+			seedLedgerTestRun(t, s, nil)
 			before := ledgerRawSnapshot(t, f.engine)
 			f.audit.enter(ledgerWalk)
 			require.NoError(t, s.restoreLedgerState(t.Context(), ledgerResume{actions: []ledgerAction{{identity: root}}}, false))
 			f.audit.enter(ledgerLifecycle)
 			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 			if check == "mark" {
-				require.True(t, s.childSchedule.has("child", "parent", "one"))
+				require.True(t, hasLedgerScheduledChild(t, s, "child", "parent", "one"))
 			}
 			f.audit.enter(ledgerHandler)
-			_, err = s.parallelSync(t.Context(), t.Context(), nil)
+			_, err = runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 			require.NoError(t, err)
 			f.audit.enter(ledgerLifecycle)
 			require.Len(t, c.requests, 3)
@@ -371,7 +377,7 @@ func TestLedgerResourcePendingChildRestore(t *testing.T) {
 			require.Empty(t, row.Children)
 			baseline, baselineFile, _ := resourcePageFixture(t, 1)
 			baselineFile.audit.enter(ledgerHandler)
-			_, err = baseline.parallelSync(t.Context(), t.Context(), nil)
+			_, err = runLedgerTestSync(t, baseline, t.Context(), t.Context(), nil)
 			require.NoError(t, err)
 			baselineFile.audit.enter(ledgerLifecycle)
 			uninterrupted, found, err := baselineFile.ledger.GetLedgerRow(t.Context(), root)

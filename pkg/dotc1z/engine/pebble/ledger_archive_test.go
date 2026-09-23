@@ -16,6 +16,7 @@ func TestLedgerArchivePreservesFinishedState(t *testing.T) {
 	e, _ := newTestEngine(t)
 	id, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
+	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 	_, err = e.ArchiveLedgerReport(t.Context())
 	require.Error(t, err)
 	writer := e.Ledger().BeginPage()
@@ -91,6 +92,7 @@ func TestLedgerArchiveFailureCuts(t *testing.T) {
 			e, _ := newTestEngine(t)
 			id, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 			require.NoError(t, err)
+			require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 			page := grantsPageIdentity("group", "cursor")
 			writer := e.Ledger().BeginPage()
 			require.NoError(t, writer.SetFact("known"))
@@ -131,6 +133,7 @@ func TestLedgerArchiveFollowsCompactedBaseRename(t *testing.T) {
 	e, _ := newTestEngine(t)
 	id, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
+	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 	writer := e.Ledger().BeginPage()
 	require.NoError(t, writer.SetFact("base_skip_grants"))
 	require.NoError(t, writer.Commit(t.Context(), grantsPageIdentity("group", ""), &c1zstore.LedgerRow{}))
@@ -157,6 +160,7 @@ func TestLedgerArchiveKeepsCollectionAcrossProcessing(t *testing.T) {
 	e, _ := newTestEngine(t)
 	id, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
+	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 	for pass := range 3 {
 		if pass > 0 {
 			require.NoError(t, e.SetCurrentSync(t.Context(), id))

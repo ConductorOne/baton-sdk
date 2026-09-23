@@ -19,6 +19,7 @@ func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
 		t.Run(cut, func(t *testing.T) {
 			f := newLedgerFixture(t)
 			syncID := f.engine.CurrentSyncID()
+			require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
 			runtime, err := newLedgerRuntime(t.Context(), f.ledger, "collection")
 			require.NoError(t, err)
 			_, err = runtime.runPage(t.Context(), 0, c1zstore.LedgerActionIdentity{Op: InitOp.String()}, func(_ context.Context, page *ledgerPage) error {
@@ -57,7 +58,7 @@ func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
 					}
 					return s.nextPageOrFinishAction(ctx, action, "remaining")
 				}
-				_, err = s.parallelSync(t.Context(), t.Context(), nil)
+				_, err = runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 				require.ErrorIs(t, err, stopped)
 			}
 			middle, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
@@ -94,7 +95,7 @@ func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
 				calls++
 				return s.nextPageOrFinishAction(ctx, action, "")
 			}
-			_, err = s.parallelSync(t.Context(), t.Context(), nil)
+			_, err = runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 			require.NoError(t, err)
 			require.Equal(t, 1, calls)
 			require.EqualValues(t, 19, s.run.completedActionsCount())
@@ -156,6 +157,7 @@ func TestLedgerFinishedLegacyFrontierKeepsPendingWork(t *testing.T) {
 
 func TestLedgerSealReadyUnfinishedDoesNotStartAnotherPass(t *testing.T) {
 	f := newLedgerFixture(t)
+	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
 	runtime, err := newLedgerRuntime(t.Context(), f.ledger, "old")
 	require.NoError(t, err)
 	require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{Counters: map[string]uint64{ledgerCompletedActions: 17}}))

@@ -81,6 +81,7 @@ func TestLedgerTerminalFailureDoesNotPublishProof(t *testing.T) {
 	for _, stage := range []string{"fact", "counter", "commit"} {
 		t.Run(stage, func(t *testing.T) {
 			f := newLedgerFixture(t)
+			require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
 			source := ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: stage}
 			runtime, err := newLedgerRuntime(t.Context(), source, "attempt")
 			require.NoError(t, err)

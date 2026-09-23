@@ -405,6 +405,8 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		row = cloneLedgerRow(row)
 	}
 	row.SetIdentity(ledgerIdentityToProto(id))
+	row.SetWorkId(0)
+	row.SetWorkRevision(0)
 	if row.GetCommittedAt() == nil {
 		row.SetCommittedAt(timestamppb.Now())
 	}
@@ -412,6 +414,7 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		row.SetNextPageTokenHash(ledgerTokenHash(row.GetNextPageToken()))
 	}
 	for _, c := range row.GetChildren() {
+		c.SetWorkId(0)
 		if id := c.GetIdentity(); len(id.GetPageTokenHash()) == 0 {
 			id.SetPageTokenHash(ledgerTokenHash(id.GetPageToken()))
 		}
@@ -453,6 +456,8 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 				return err
 			}
 			key = encodeWorkHistoryKey(id, u.work.ID, u.work.Revision)
+			row.SetWorkId(u.work.ID)
+			row.SetWorkRevision(u.work.Revision)
 		}
 		resourceTypes, err := stageResourceTypeRecords(batch, u.resourceTypes)
 		if err != nil {

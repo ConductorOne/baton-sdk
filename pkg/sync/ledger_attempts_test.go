@@ -40,6 +40,7 @@ func TestLedgerRetryObservationsAcrossPages(t *testing.T) {
 		}
 		ctx := s.withRateLimitWaitObserver(t.Context())
 		r := retry.NewRetryer(ctx, retry.RetryConfig{MaxAttempts: 4, InitialDelay: time.Millisecond, MaxDelay: time.Millisecond})
+		seedLedgerTestRun(t, s, nil)
 		warnings, err := s.syncParallel(ctx, r, s.run.peekMatchingActions(ctx, SyncResourcesOp), s.SyncResources)
 		require.NoError(t, err)
 		require.Empty(t, warnings)
@@ -103,7 +104,7 @@ func TestLedgerCoordinatorRetryObservations(t *testing.T) {
 			return s.nextPageOrFinishAction(ctx, action, "")
 		}
 		ctx := s.withRateLimitWaitObserver(t.Context())
-		warnings, err := s.parallelSync(ctx, ctx, nil)
+		warnings, err := runLedgerTestSync(t, s, ctx, ctx, nil)
 		require.NoError(t, err)
 		require.Empty(t, warnings)
 		row, found, err := f.ledger.GetLedgerRow(ctx, id)
@@ -132,6 +133,7 @@ func TestLedgerCancelledRetryDoesNotSurviveNewWorker(t *testing.T) {
 			return err
 		}
 		r := retry.NewRetryer(ctx, retry.RetryConfig{MaxAttempts: 4, InitialDelay: time.Second, MaxDelay: time.Second})
+		seedLedgerTestRun(t, s, nil)
 		_, err := s.syncParallel(ctx, r, s.run.peekMatchingActions(ctx, SyncResourcesOp), s.SyncResources)
 		require.Error(t, err)
 		_, found, err := f.ledger.GetLedgerRow(t.Context(), id)
@@ -177,6 +179,7 @@ func TestLedgerConcurrentWaitObservationsStayWithWorker(t *testing.T) {
 	}
 	ctx := s.withRateLimitWaitObserver(t.Context())
 	r := retry.NewRetryer(ctx, retry.RetryConfig{MaxAttempts: 1})
+	seedLedgerTestRun(t, s, nil)
 	_, err := s.syncParallel(ctx, r, s.run.peekMatchingActions(ctx, SyncResourcesOp), s.SyncResources)
 	require.NoError(t, err)
 	for _, id := range ids {

@@ -39,7 +39,8 @@ Seal/discard/drop/reset and raw capability inventories must cover new subranges.
 
 Retain parallelSync, its worker pool, retry handling, warning policy and phase
 switch. The ledger's runState action map becomes a bounded execution window,
-refilled from durable pending order while no workers are active. Continuations
+refilled from durable pending order at phase boundaries and through bounded
+worker admission described below. Continuations
 already owned by a worker may remain in that window; children persist at commit
 and are admitted under a bounded policy. Do not load all pending items or retain
 an all-completed child-scheduling map. Resource-child scheduling uniqueness must
@@ -111,3 +112,31 @@ restart, as CO-021 permits; do not retain or repeatedly decode the old checkpoin
 entire action stack merely to recover an inline expansion graph. Normalize that
 local expansion cursor to a full rebuild if abandoning its inline graph. This
 must be explicit in legacy fixtures and preserve final data/accounting.
+
+## Consumer implementation and compatibility
+
+The consumer no longer calls GetLedgerRow to decide whether to run work. That
+method remains a diagnostic lookup by request arguments; repeated executions can
+have identical arguments. Completed rows and child references carry work IDs,
+and continuation references include the next revision. Debug reference checks
+use those exact execution keys before and after scrubbing.
+
+Pending entries hold child arguments. A completed parent's child reference keeps
+the argument hash and allocated ID, but not another copy of the raw token or
+static template payload. Its own request token follows existing retention policy.
+
+Local expansion and external import still execute their existing handlers.
+Their pending item is removed only when the whole local phase completes; no page
+transaction encloses their record writes. Expansion's in-process graph-loading
+cursor survives execution-window refresh; a cold resume rebuilds local expansion
+state. Legacy inline expansion graphs are not imported.
+
+The SDK refuses an unfinished history-only file without a pending declaration.
+Low-level storage permits an already-finished file to be resealed, or a seal with
+a durable disposal marker to finish cleanup. Neither is permission for the SDK
+to infer an empty queue for an unfinished collection.
+
+The execution window is bounded in action count, not arbitrary response bytes.
+A connector response, token or captured static template can still be large.
+No completed-history identity set or cumulative resource-child map is retained
+in the ledger consumer; resource-child scheduling relations live in Pebble.

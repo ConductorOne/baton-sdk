@@ -2489,6 +2489,8 @@ func (m *LedgerChild) validate(all bool) error {
 
 	// no validation rules for Spawned
 
+	// no validation rules for WorkId
+
 	if len(errors) > 0 {
 		return LedgerChildMultiError(errors)
 	}
@@ -2746,6 +2748,10 @@ func (m *LedgerRow) validate(all bool) error {
 			}
 		}
 	}
+
+	// no validation rules for WorkId
+
+	// no validation rules for WorkRevision
 
 	if len(errors) > 0 {
 		return LedgerRowMultiError(errors)

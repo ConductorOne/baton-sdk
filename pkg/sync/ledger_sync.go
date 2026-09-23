@@ -71,7 +71,7 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 
 	var graphToPersist *expand.EntitlementGraph
 	if s.cfg.preserveEntitlementGraph {
-		if s.graph.peek() == nil && s.run.hasFact(ledgerFactSealReady) && s.run.hasFact(factNeedsExpansion) && !s.cfg.dontExpandGrants {
+		if s.graph.peek() == nil && s.run.getActionCount(SyncGrantExpansionOp).CompletedCount > 0 && s.run.hasFact(factNeedsExpansion) && !s.cfg.dontExpandGrants {
 			graph, _, graphErr := s.rebuildLedgerPreservedGraph(ctx)
 			if graphErr != nil {
 				return s.returnSyncError(l, span, graphErr)
@@ -107,7 +107,7 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 	if s.ingestFilterStats.replayBlocked.Load() {
 		terminalFacts = append(terminalFacts, ledgerFactIngestBlocked)
 	}
-	if err := s.ledger.prepareSeal(ctx, counters, terminalFacts...); err != nil {
+	if err := s.prepareLedgerSeal(ctx, counters, terminalFacts...); err != nil {
 		return s.returnSyncError(l, span, err)
 	}
 	err = s.ledger.seal(ctx)
@@ -154,11 +154,25 @@ func (s *syncer) skipLedgerSync(ctx context.Context) error {
 	}
 	s.syncID = syncID
 	s.caps.pageLedger.SetRetainLedgerTokens(s.cfg.retainLedgerTokens)
+	seed := c1zstore.LedgerWork{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}
+	if err := s.caps.pageLedger.InitializePendingWork(ctx, []c1zstore.LedgerWork{seed}); err != nil {
+		return err
+	}
+	work, _, err := s.caps.pageLedger.PendingWork(ctx, 0, 1)
+	if err != nil {
+		return err
+	}
+	if len(work) != 1 {
+		return errors.New("skip sync has no initial pending work")
+	}
 	s.ledger, err = newLedgerRuntime(ctx, s.caps.pageLedger, rand.Text())
 	if err != nil {
 		return err
 	}
 	_, err = s.ledger.runPage(ctx, 0, c1zstore.LedgerActionIdentity{Op: InitOp.String()}, func(_ context.Context, page *ledgerPage) error {
+		if err := page.writer.SetPendingWork(work[0]); err != nil {
+			return err
+		}
 		if err := s.stageLedgerReportOptions(&ledgerInvocation{page: page}); err != nil {
 			return err
 		}
@@ -171,7 +185,7 @@ func (s *syncer) skipLedgerSync(ctx context.Context) error {
 	if !s.ledgerDebug {
 		terminalFacts = append(terminalFacts, c1zstore.LedgerFactDiscardOnSeal)
 	}
-	if err := s.ledger.prepareSeal(ctx, c1zstore.LedgerCounters{}, terminalFacts...); err != nil {
+	if err := s.prepareLedgerSeal(ctx, c1zstore.LedgerCounters{}, terminalFacts...); err != nil {
 		return err
 	}
 	if err := s.ledger.seal(ctx); err != nil {

@@ -39,14 +39,14 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 	if err != nil {
 		return false, err
 	}
-	if finished && (resume.sealReady || len(resume.actions) == 0) {
+	if finished && !resume.initialized && (resume.sealReady || len(resume.actions) == 0) {
 		if err := ledger.ClearLedgerRows(ctx, []string{ledgerFactSealReady, c1zstore.LedgerFactDiscardOnSeal, c1zstore.LedgerFactRetainTokens}); err != nil {
 			return false, err
 		}
 		resume.actions = []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}
 		resume.sealReady = false
 	}
-	if len(resume.actions) == 0 && !resume.sealReady {
+	if !resume.initialized && len(resume.actions) == 0 && !resume.sealReady {
 		resume.actions = []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}
 	}
 	s.ledger, err = newLedgerRuntime(ctx, ledger, runID)
@@ -57,6 +57,15 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 	if !knownEmpty && !finished && !discardPending && len(s.ledger.facts) == 0 && s.ledger.prior.IsZero() {
 		knownEmpty, err = ledger.BoundSyncUnstarted(ctx)
 		if err != nil {
+			return false, err
+		}
+	}
+	if !resume.initialized && !resume.sealReady {
+		var seedFacts []string
+		if knownEmpty {
+			seedFacts = append(seedFacts, ledgerFactIngestKnown)
+		}
+		if err := ledger.InitializePendingWork(ctx, pendingSeeds(resume.actions), seedFacts...); err != nil {
 			return false, err
 		}
 	}

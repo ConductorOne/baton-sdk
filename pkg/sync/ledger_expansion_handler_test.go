@@ -1,7 +1,6 @@
 package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
-	"context"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -35,16 +34,9 @@ func ledgerExpansionFixture(t *testing.T) (*syncer, *ledgerFixture) {
 		grants = append(grants, gt.NewGrant(resources[i], "member", resources[i-1].GetId(), gt.WithAnnotation(annotation)))
 	}
 	require.NoError(t, f.store.PutGrants(t.Context(), grants...))
-	f.audit.enter(ledgerHandler)
-	_, err := s.ledger.runPage(t.Context(), 0, c1zstore.LedgerActionIdentity{Op: "expansion-fixture"}, func(_ context.Context, page *ledgerPage) error {
-		if err := page.setFact(factNeedsExpansion); err != nil {
-			return err
-		}
-		return page.transition("")
-	})
-	require.NoError(t, err)
-	f.audit.enter(ledgerLifecycle)
+	seed := c1zstore.LedgerWork{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: SyncGrantExpansionOp.String()}}}
+	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), []c1zstore.LedgerWork{seed}, factNeedsExpansion, ledgerFactIngestKnown))
 	s.run.setFact(factNeedsExpansion)
-	s.run.pushAction(t.Context(), Action{Op: SyncGrantExpansionOp})
+	require.NoError(t, s.refreshPendingWindow(t.Context()))
 	return s, f
 }

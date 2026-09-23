@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -497,4 +498,37 @@ func TestPendingWorkClearRefusesUnfinishedProcessing(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, initialized)
 	require.Len(t, pending, 1)
+}
+
+func TestPendingWorkRejectsInvalidChildToken(t *testing.T) {
+	e, _ := newTestEngine(t)
+	work := pendingTestSeed(t, e)
+	child := work.Action
+	child.Identity.PageToken = string([]byte{0xff})
+	require.ErrorContains(t, pendingTestCommit(t, e, work, "", child), "UTF-8")
+	pending, _, err := e.Ledger().PendingWork(t.Context(), 0, 64)
+	require.NoError(t, err)
+	require.Equal(t, []c1zstore.LedgerWork{work}, pending)
+}
+
+func TestPendingWorkSealRejectsMissingDeclaration(t *testing.T) {
+	e, path := newTestEngine(t)
+	syncID, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	writer := e.Ledger().BeginPage()
+	id := c1zstore.LedgerActionIdentity{Op: "list-resources"}
+	require.NoError(t, writer.Commit(t.Context(), id, &c1zstore.LedgerRow{NextPageToken: "unfinished"}))
+	writer.Discard()
+	require.NoError(t, e.Close())
+	reopened, err := Open(t.Context(), filepath.Join(path, "db"))
+	require.NoError(t, err)
+	defer reopened.Close()
+	require.NoError(t, reopened.SetCurrentSync(t.Context(), syncID))
+	require.ErrorContains(t, reopened.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}), "pending-work declaration")
+	_, found, err := reopened.Ledger().GetRow(t.Context(), id)
+	require.NoError(t, err)
+	require.True(t, found)
+	record, err := reopened.GetSyncRunRecord(t.Context(), syncID)
+	require.NoError(t, err)
+	require.Nil(t, record.GetEndedAt())
 }

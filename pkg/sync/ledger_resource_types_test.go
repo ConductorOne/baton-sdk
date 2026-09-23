@@ -52,7 +52,7 @@ func resourceTypePageFixture(t *testing.T, ledger bool) (*syncer, *ledgerFixture
 
 func runResourceTypePages(t *testing.T, s *syncer) error {
 	t.Helper()
-	_, err := s.parallelSync(t.Context(), t.Context(), nil)
+	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	return err
 }
 
@@ -90,6 +90,7 @@ func TestLedgerResourceTypeFailureRetryAndReplay(t *testing.T) {
 	s, f, c := resourceTypePageFixture(t, true)
 	var progressTokens []string
 	s.cfg.progressHandler = func(p *Progress) { progressTokens = append(progressTokens, "progress") }
+	seedLedgerTestRun(t, s, nil)
 	before := ledgerRawSnapshot(t, f.engine)
 	s.ledger.store = ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: "commit"}
 	f.audit.enter(ledgerHandler)
@@ -131,6 +132,7 @@ func TestLedgerResourceTypeErrors(t *testing.T) {
 	t.Run("connector", func(t *testing.T) {
 		s, f, c := resourceTypePageFixture(t, true)
 		c.failure = errLedgerInjectedPage
+		seedLedgerTestRun(t, s, nil)
 		before := ledgerRawSnapshot(t, f.engine)
 		f.audit.enter(ledgerHandler)
 		require.ErrorIs(t, runResourceTypePages(t, s), errLedgerInjectedPage)

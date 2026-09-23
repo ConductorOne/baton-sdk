@@ -289,6 +289,7 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 	tokens := []string{"", "https://x/?sig=SECRET1", "https://x/?sig=SECRET2"}
 
 	commitPages := func(t *testing.T, e *Engine) {
+		require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 		for i, tok := range tokens {
 			next := ""
 			if i+1 < len(tokens) {
@@ -308,6 +309,7 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 		e, _ := newTestEngine(t)
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
+		require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 		e.ledger.SetRetainTokens(true)
 		commitPages(t, e)
 		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
@@ -395,6 +397,7 @@ func TestLedgerWipedWithItsSync(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
+	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 	require.NoError(t, e.ledger.newPageUnit().Commit(ctx, grantsPageIdentity("github", "p1"), nil))
 	require.NoError(t, e.ledger.newPageUnit().Commit(ctx, grantsPageIdentity("github", "p2"), nil))
 	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
@@ -549,10 +552,11 @@ func TestLedgerInFlightStampGatesTokenOnlyReaders(t *testing.T) {
 		require.NoError(t, old.Close())
 	})
 
+	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 	u := e.ledger.newPageUnit()
 	require.NoError(t, u.StageResources(ledgerTestResource("t", "r1")))
 	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
-	require.Equal(t, keyspaceVersionLedgerInFlight, stamp(e), "first row flips the stamp")
+	require.Equal(t, keyspaceVersionLedgerInFlight, stamp(e), "ledger initialization flips the stamp")
 
 	rng := rand.New(rand.NewPCG(7, 7)) //nolint:gosec // deterministic
 	for pct := 0; pct <= 100; pct += 25 {
@@ -668,6 +672,7 @@ func TestLedgerFreeSealSkipsResiduePurge(t *testing.T) {
 		e, _ := newTestEngine(t)
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
+		require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 		require.NoError(t, e.ledger.newPageUnit().Commit(ctx, grantsPageIdentity("github", "p1"), nil))
 		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 		require.EqualValues(t, 1, e.test.ledgerResiduePurges.Load(),
@@ -781,6 +786,7 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 	tokens := []string{"", "https://x/?" + needleText + "-1", "https://x/?" + needleText + "-2"}
 
 	commitPages := func(t *testing.T, e *Engine) {
+		require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 		for i, tok := range tokens {
 			next := ""
 			if i+1 < len(tokens) {
@@ -801,6 +807,7 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 		e, _ := newTestEngine(t)
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
+		require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 		e.ledger.SetRetainTokens(true)
 		commitPages(t, e)
 		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
@@ -831,6 +838,7 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 		}
 		_, err := e.ledger.Takeover(ctx, "run-1", nil, c1zstore.LedgerCounters{})
 		require.NoError(t, err)
+		require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 		require.NoError(t, e.Flush(ctx))
 	}
 

@@ -26,7 +26,7 @@ func TestLedgerRunAccountingAcrossAttempts(t *testing.T) {
 		return s.nextPageOrFinishAction(ctx, action, "")
 	}
 	f.audit.enter(ledgerHandler)
-	require.NoError(t, s.invokeActionPage(t.Context(), s.run.current(), nil, false))
+	require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), s.run.current(), nil, false))
 	f.audit.enter(ledgerLifecycle)
 	s.recordSessionOp("get", 9*time.Millisecond, nil)
 	s.recordRetryWait(ratelimit.WithWaitLabel(t.Context(), "user"), 3*time.Millisecond, false)
@@ -76,7 +76,7 @@ func TestLedgerRunAccountingDurationStop(t *testing.T) {
 			if inOperation {
 				_, err = s.handleOperationError(t.Context(), runCtx, nil, context.DeadlineExceeded)
 			} else {
-				_, err = s.parallelSync(t.Context(), runCtx, nil)
+				_, err = runLedgerTestSync(t, s, t.Context(), runCtx, nil)
 			}
 			require.ErrorIs(t, err, ErrSyncNotComplete)
 			counters, err := f.ledger.LedgerCounters(t.Context())

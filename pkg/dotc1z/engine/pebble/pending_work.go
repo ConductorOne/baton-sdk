@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"unicode/utf8"
 
 	"github.com/cockroachdb/pebble/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -48,6 +49,13 @@ func stageWorkState(batch *rawdb.RecordBatch, id uint64) error {
 }
 
 func stagePendingWork(batch *rawdb.RecordBatch, work c1zstore.LedgerWork) error {
+	id := work.Action.Identity
+	for _, value := range []string{id.Op, id.ResourceTypeID, id.ResourceID, id.ParentResourceTypeID, id.ParentResourceID, id.PageToken, work.SchedulingKey} {
+		if !utf8.ValidString(value) {
+			return errors.New("pending work contains invalid UTF-8")
+		}
+	}
+
 	data, err := json.Marshal(work)
 	if err != nil {
 		return err
@@ -158,6 +166,9 @@ func (l *Ledger) readPendingWork(ctx context.Context, beforeID, afterID uint64, 
 			return nil, true, err
 		}
 		var work c1zstore.LedgerWork
+		if !utf8.Valid(it.Value()) {
+			return nil, true, errors.New("pending work contains invalid UTF-8")
+		}
 		if err := json.Unmarshal(it.Value(), &work); err != nil {
 			return nil, true, err
 		}
@@ -260,6 +271,8 @@ func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBat
 		if err := stagePendingWork(batch, work); err != nil {
 			return err
 		}
+		child.SetWorkId(last)
+		child.GetIdentity().SetPageToken("")
 	}
 	if len(row.GetChildren()) > 0 {
 		return stageWorkState(batch, last)

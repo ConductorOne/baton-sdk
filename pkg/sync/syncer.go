@@ -792,16 +792,12 @@ func (s *syncer) transitionActionState(
 	childActions []Action,
 ) ([]*Action, error) {
 	if s.ledgered {
-		if replay, _ := ctx.Value(ledgerReplayKey{}).(bool); replay {
-			return s.run.transitionActionWithCompletion(ctx, action, nextPageToken, childActions, false)
-		}
 		if pending, ok := ctx.Value(ledgerCommitKey{}).(ledgerTransitionCommit); ok {
 			if err := pending.commit(); err != nil {
 				return nil, err
 			}
-			if pending.warning {
-				return nil, nil
-			}
+			s.publishPendingTransition(ctx, action, nextPageToken, pending.warning)
+			return nil, nil
 		}
 	}
 	pushed, err := s.run.transitionAction(ctx, action, nextPageToken, childActions)
@@ -1455,9 +1451,6 @@ func (s *syncer) pendingChildResourceActions(childTypeIDs []string, parentTypeID
 	var actions []Action
 	for _, childTypeID := range childTypeIDs {
 		if len(s.cfg.syncResourceTypes) > 0 && !slices.Contains(s.cfg.syncResourceTypes, childTypeID) {
-			continue
-		}
-		if s.childSchedule.has(childTypeID, parentTypeID, parentID) {
 			continue
 		}
 		actions = append(actions, Action{

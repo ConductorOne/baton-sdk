@@ -9,6 +9,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
+// Request arguments, not an execution ID; distinct work may share them.
 type LedgerActionIdentity struct {
 	Op                   string
 	ResourceTypeID       string
@@ -23,6 +24,7 @@ type LedgerActionIdentity struct {
 // accounting flag for a connector-enqueued sibling cursor, not part of the
 // child's identity.
 type LedgerChild struct {
+	WorkID   uint64 `json:"work_id,omitempty"`
 	Identity LedgerActionIdentity
 	Spawned  bool
 }
@@ -45,8 +47,10 @@ type LedgerCollectionStats struct {
 }
 
 type LedgerRow struct {
-	Collection *LedgerCollectionStats
-	Identity   LedgerActionIdentity
+	WorkID       uint64
+	WorkRevision uint64
+	Collection   *LedgerCollectionStats
+	Identity     LedgerActionIdentity
 	// Empty when the action finished, and after a scrub (Scrubbed).
 	NextPageToken string
 	Children      []LedgerChild
@@ -219,8 +223,8 @@ type PageLedgerStore interface {
 	// Restores an empty finished ledger, or matching unfinished discard recovery state.
 	RestoreLedgerArchive(ctx context.Context) error
 	BeginPage() PageWriter
-	// found is false when no row exists and when a row echoes a different
-	// identity; either way the page must run.
+	// Diagnostic lookup by request arguments; multiple work instances may match.
+	// PendingWork is the recovery authority.
 	GetLedgerRow(ctx context.Context, id LedgerActionIdentity) (row *LedgerRow, found bool, err error)
 	// Keeps verbatim page tokens in the sealed artifact. The default scrubs them:
 	// a page token can carry a credential.
