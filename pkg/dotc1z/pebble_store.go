@@ -1013,3 +1013,13 @@ func (s *pebbleStore) InitializePendingWork(ctx context.Context, work []c1zstore
 	}
 	return s.markDirty(s.Engine.Ledger().InitializePendingWork(ctx, work))
 }
+
+func (s *pebbleStore) TakeoverPendingWork(
+	ctx context.Context, runID, expectedToken string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork,
+) (string, error) {
+	if err := s.writeHook(ctx, "TakeoverPendingWork"); err != nil {
+		return "", err
+	}
+	state, err := s.Engine.Ledger().TakeoverPendingWork(ctx, runID, expectedToken, facts, counters, work)
+	return state, s.markDirty(err)
+}

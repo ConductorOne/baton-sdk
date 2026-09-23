@@ -535,6 +535,10 @@ func (l *Ledger) Frontier(ctx context.Context) (*c1zstore.LedgerFrontier, bool, 
 // endSync that snapshotted the record first would write the pre-takeover token
 // back beside a live frontier.
 func (l *Ledger) Takeover(ctx context.Context, runID string, facts []string, counters c1zstore.LedgerCounters) (string, error) {
+	return l.takeover(ctx, runID, facts, counters, nil)
+}
+
+func (l *Ledger) takeover(ctx context.Context, runID string, facts []string, counters c1zstore.LedgerCounters, seed *pendingWorkSeed) (string, error) {
 	l.e.lifecycleMu.Lock()
 	defer l.e.lifecycleMu.Unlock()
 	syncID := l.e.CurrentSyncID()
@@ -548,6 +552,9 @@ func (l *Ledger) Takeover(ctx context.Context, runID string, facts []string, cou
 	state := rec.GetSyncToken()
 	if state == "" {
 		return "", nil
+	}
+	if seed != nil && state != seed.token {
+		return "", errors.New("checkpoint changed before pending-work takeover")
 	}
 	frontier := v3.LedgerFrontier_builder{State: state, Attempt: syncID, TakenOverAt: timestamppb.Now()}.Build()
 	fv, err := marshalRecord(frontier)
@@ -572,6 +579,18 @@ func (l *Ledger) Takeover(ctx context.Context, runID string, facts []string, cou
 		}
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
+		if seed != nil {
+			_, initialized, err := l.workState()
+			if err != nil {
+				return err
+			}
+			if initialized {
+				return errors.New("checkpoint conflicts with initialized pending work")
+			}
+			if err := stageInitialWork(batch, seed.work); err != nil {
+				return err
+			}
+		}
 		if err := batch.StageLedgerTakeover(fv, rv); err != nil {
 			return err
 		}

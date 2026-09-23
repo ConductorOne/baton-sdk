@@ -345,3 +345,12 @@ func (s *ledgerGuardedStore) InitializePendingWork(ctx context.Context, work []c
 	}
 	return s.PageLedgerStore.InitializePendingWork(ctx, work)
 }
+
+func (s *ledgerGuardedStore) TakeoverPendingWork(
+	ctx context.Context, runID, token string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork,
+) (string, error) {
+	if err := s.audit.record(ctx, "TakeoverPendingWork"); err != nil {
+		return "", err
+	}
+	return s.PageLedgerStore.TakeoverPendingWork(ctx, runID, token, facts, counters, work)
+}

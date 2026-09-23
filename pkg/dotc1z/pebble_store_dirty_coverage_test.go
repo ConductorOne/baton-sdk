@@ -39,6 +39,7 @@ var capabilityMethods = map[string]struct {
 	why  string
 }{
 	"PendingWork":              {dirtyRead, "bounded pending-work scan"},
+	"TakeoverPendingWork":      {dirtyWrite, "consume checkpoint and seed pending queue atomically"},
 	"InitializePendingWork":    {dirtyWrite, "atomic initial queue and allocator"},
 	"BeginPage":                {dirtyDeferred, "returns a PageWriter; the staging calls write nothing until Commit, and dirtyPageWriter.Commit carries the mark for the whole batch"},
 	"GetArchivedLedgerReport":  {dirtyRead, "read archived report"},

@@ -63,6 +63,13 @@ func (l *Ledger) InitializePendingWork(ctx context.Context, actions []c1zstore.L
 		if err := l.e.requireCurrentSync(); err != nil {
 			return err
 		}
+		record, err := l.e.GetSyncRunRecord(ctx, l.e.CurrentSyncID())
+		if err != nil {
+			return err
+		}
+		if record.GetSyncToken() != "" {
+			return errors.New("checkpoint must be consumed through pending-work takeover")
+		}
 		_, initialized, err := l.workState()
 		if err != nil {
 			return err
@@ -93,13 +100,7 @@ func (l *Ledger) InitializePendingWork(ctx context.Context, actions []c1zstore.L
 		}
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
-		for i, action := range actions {
-			action.ID = uint64(i) + 1
-			if err := stagePendingWork(batch, action); err != nil {
-				return err
-			}
-		}
-		if err := stageWorkState(batch, uint64(len(actions))); err != nil {
+		if err := stageInitialWork(batch, actions); err != nil {
 			return err
 		}
 		return batch.Commit(pebble.Sync)
@@ -207,4 +208,29 @@ func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBat
 		return stageWorkState(batch, last)
 	}
 	return nil
+}
+
+func stageInitialWork(batch *rawdb.RecordBatch, actions []c1zstore.LedgerWork) error {
+	for i, action := range actions {
+		if action.ID != 0 || action.Revision != 0 {
+			return errors.New("initial work must not have assigned IDs or revisions")
+		}
+		action.ID = uint64(i) + 1
+		if err := stagePendingWork(batch, action); err != nil {
+			return err
+		}
+	}
+	return stageWorkState(batch, uint64(len(actions)))
+}
+
+type pendingWorkSeed struct {
+	token string
+	work  []c1zstore.LedgerWork
+}
+
+func (l *Ledger) TakeoverPendingWork(ctx context.Context, runID, expectedToken string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork) (string, error) {
+	if expectedToken == "" {
+		return "", errors.New("pending-work takeover requires a decoded checkpoint")
+	}
+	return l.takeover(ctx, runID, facts, counters, &pendingWorkSeed{token: expectedToken, work: work})
 }

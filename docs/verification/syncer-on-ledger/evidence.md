@@ -926,3 +926,19 @@ and removal of the old history walk remain implementation work under CO-027.
 Final storage surface checks pass (adapter0.108s, storage0.189s, sync guard0.064s)
 and merged-tree lint reports zero issues. No production sync has switched to the
 pending-work reader in this commit.
+
+### Pending-work takeover storage boundary
+
+The pending-work takeover validates the checkpoint string under the existing
+lifecycle lock before consuming it, then seeds queue/allocator in the same synced
+batch as token removal, frontier, facts and imported counters. The prior token-only
+storage takeover remains available for its existing consumers; the syncer switch
+is a later integration step. Tests cover changed-token refusal without consumption,
+commit failure preserving the complete old state, successful/repeated takeover,
+and before/after durable-only images containing token or queue, never a gap.
+
+Removing the expected-token comparison makes the changed-token test fail (the
+wrong token would be consumed). The comparison is restored. Takeover durable-image
+and failure tests pass three race repetitions (1.201s); initialization additionally
+refuses a still-live checkpoint. Focused storage/adapter/guard checks pass, and
+merged-tree lint reports zero issues for the takeover change.

@@ -72,3 +72,22 @@ No separate Bloom-filter policy, forced queue compaction, cycle detector or
 replacement scheduler is part of this change. The static-template local-work
 representation remains a separate decision; this revision does not silently
 change it or claim its replay properties from the storage prototype.
+
+### Bounded admission detail
+
+Keep the existing parallel queue's FIFO semantics within a batch. Start from the
+same maximum100 stack actions main selects. Page commits persist children instead
+of accumulating all of them in runState/queue memory. When the in-memory queue
+empties, its existing workers refill a bounded window of newly created same-op
+children in ascending allocated-ID order (the old append order). The read cursor
+starts above the batch's initial stack high-water mark and advances monotonically;
+it does not scan completed history or admit older actions across a phase barrier.
+Current worker continuations remain owned in memory and update their durable slot.
+Read errors cancel the batch and leave uncommitted work pending. Serial dispatch
+continues to select the highest pending ID, preserving child/template order.
+
+Child-resource scheduling evidence moves from the reconstructed all-history map
+to an indexed durable relation written with the page that schedules that child.
+Its read supplies the existing ingestion invariant without rebuilding the map.
+It is cleared with finished page history. This relation enforces the existing
+parent/child scheduling rule; it is not a pagination-token cycle detector.

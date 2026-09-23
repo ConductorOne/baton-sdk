@@ -3,6 +3,7 @@ package pebble
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -245,4 +246,145 @@ func TestPendingWorkInitializationFailureAndRetry(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, initialized)
 	require.Empty(t, items)
+}
+
+func TestPendingWorkTakeoverIsOneUnit(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprint(fail), func(t *testing.T) {
+			e, _ := newTestEngine(t)
+			syncID, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
+			require.NoError(t, err)
+			require.NoError(t, e.CheckpointSync(t.Context(), "legacy-state"))
+			work := []c1zstore.LedgerWork{{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-resources", PageToken: "second"}}, TypeScopedPlanned: true}}
+			counters := c1zstore.LedgerCounters{Counters: map[string]uint64{"pages": 9}}
+			injected := errors.New("takeover commit failure")
+			if fail {
+				e.db.SetRecordCommitTestHook(func() error { return injected })
+			}
+			moved, err := e.Ledger().TakeoverPendingWork(t.Context(), "attempt", "legacy-state", []string{"imported"}, counters, work)
+			e.db.SetRecordCommitTestHook(nil)
+			if fail {
+				require.ErrorIs(t, err, injected)
+				require.Empty(t, moved)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, "legacy-state", moved)
+			}
+			rec, err := e.GetSyncRunRecord(t.Context(), syncID)
+			require.NoError(t, err)
+			pending, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
+			require.NoError(t, err)
+			_, frontier, err := e.Ledger().Frontier(t.Context())
+			require.NoError(t, err)
+			facts, err := e.Ledger().Facts(t.Context())
+			require.NoError(t, err)
+			totals, err := e.Ledger().Counters(t.Context())
+			require.NoError(t, err)
+			if fail {
+				require.Equal(t, "legacy-state", rec.GetSyncToken())
+				require.False(t, initialized)
+				require.False(t, frontier)
+				require.Empty(t, pending)
+				require.Empty(t, facts)
+				require.True(t, totals.IsZero())
+			} else {
+				require.Empty(t, rec.GetSyncToken())
+				require.True(t, initialized)
+				require.True(t, frontier)
+				require.Len(t, pending, 1)
+				require.True(t, pending[0].TypeScopedPlanned)
+				require.Equal(t, work[0].Action, pending[0].Action)
+				require.Contains(t, facts, "imported")
+				require.Equal(t, counters.Counters, totals.Counters)
+				moved, err = e.Ledger().TakeoverPendingWork(t.Context(), "another", "legacy-state", []string{"wrong"}, counters, nil)
+				require.NoError(t, err)
+				require.Empty(t, moved)
+				still, _, err := e.Ledger().PendingWork(t.Context(), 0, 64)
+				require.NoError(t, err)
+				require.Equal(t, pending, still)
+			}
+		})
+	}
+}
+
+func TestPendingWorkTakeoverRejectsChangedToken(t *testing.T) {
+	e, _ := newTestEngine(t)
+	syncID, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, e.CheckpointSync(t.Context(), "new-state"))
+	_, err = e.Ledger().TakeoverPendingWork(t.Context(), "attempt", "old-state", nil, c1zstore.LedgerCounters{}, nil)
+	require.ErrorContains(t, err, "changed")
+	rec, err := e.GetSyncRunRecord(t.Context(), syncID)
+	require.NoError(t, err)
+	require.Equal(t, "new-state", rec.GetSyncToken())
+	_, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
+	require.NoError(t, err)
+	require.False(t, initialized)
+}
+
+func TestPendingWorkTakeoverDurableImages(t *testing.T) {
+	skipOnWindowsMemFS(t)
+	for _, before := range []bool{false, true} {
+		t.Run(fmt.Sprint(before), func(t *testing.T) {
+			fs := vfs.NewCrashableMem()
+			cache := pebble.NewCache(8 << 20)
+			defer cache.Unref()
+			e, err := Open(t.Context(), "takeover-work", WithVFS(fs), WithSharedCache(cache), withPanicOnFatalLogger())
+			require.NoError(t, err)
+			defer e.Close()
+			syncID, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
+			require.NoError(t, err)
+			require.NoError(t, e.CheckpointSync(t.Context(), "checkpoint"))
+			require.NoError(t, e.db.FlushMemtables())
+			var image *vfs.MemFS
+			injected := errors.New("before takeover commit")
+			if before {
+				e.db.SetRecordCommitTestHook(func() error { image = fs.CrashClone(vfs.CrashCloneCfg{}); return injected })
+			}
+			seed := []c1zstore.LedgerWork{{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-resources", PageToken: "remaining"}}}}
+			_, err = e.Ledger().TakeoverPendingWork(t.Context(), "attempt", "checkpoint", []string{"imported"}, c1zstore.LedgerCounters{}, seed)
+			e.db.SetRecordCommitTestHook(nil)
+			if before {
+				require.ErrorIs(t, err, injected)
+			} else {
+				require.NoError(t, err)
+				image = fs.CrashClone(vfs.CrashCloneCfg{})
+			}
+			recovered, err := Open(t.Context(), "takeover-work", WithVFS(image), WithSharedCache(cache), withPanicOnFatalLogger())
+			require.NoError(t, err)
+			defer recovered.Close()
+			rec, err := recovered.GetSyncRunRecord(t.Context(), syncID)
+			require.NoError(t, err)
+			work, initialized, err := recovered.Ledger().PendingWork(t.Context(), 0, 64)
+			require.NoError(t, err)
+			_, frontier, err := recovered.Ledger().Frontier(t.Context())
+			require.NoError(t, err)
+			if before {
+				require.Equal(t, "checkpoint", rec.GetSyncToken())
+				require.False(t, initialized)
+				require.False(t, frontier)
+				require.Empty(t, work)
+			} else {
+				require.Empty(t, rec.GetSyncToken())
+				require.True(t, initialized)
+				require.True(t, frontier)
+				require.Len(t, work, 1)
+				require.Equal(t, seed[0].Action, work[0].Action)
+			}
+		})
+	}
+}
+
+func TestPendingWorkInitializationRefusesCheckpoint(t *testing.T) {
+	e, _ := newTestEngine(t)
+	syncID, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, e.CheckpointSync(t.Context(), "unconsumed"))
+	require.ErrorContains(t, e.Ledger().InitializePendingWork(t.Context(), nil), "takeover")
+	rec, err := e.GetSyncRunRecord(t.Context(), syncID)
+	require.NoError(t, err)
+	require.Equal(t, "unconsumed", rec.GetSyncToken())
+	_, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
+	require.NoError(t, err)
+	require.False(t, initialized)
 }

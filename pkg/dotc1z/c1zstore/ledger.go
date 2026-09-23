@@ -201,6 +201,8 @@ type PageLedgerStore interface {
 	PendingWork(ctx context.Context, beforeID uint64, limit int) (work []LedgerWork, initialized bool, err error)
 	// Seeds an absent queue in stack order; an initialized queue is unchanged.
 	InitializePendingWork(ctx context.Context, work []LedgerWork) error
+	// Consumes the matching checkpoint and seeds pending work in the same batch.
+	TakeoverPendingWork(ctx context.Context, runID, expectedToken string, facts []string, counters LedgerCounters, work []LedgerWork) (string, error)
 
 	GenerateLedgerReport(ctx context.Context) ([]byte, error)
 	// Saves retained history or returns the report already archived during disposal.
