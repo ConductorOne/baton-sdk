@@ -1240,7 +1240,7 @@ func TestVerificationReplayStatsCoherence(t *testing.T) {
 	require.NoError(t, cur.PutGrants(sourcecache.WithScope(ctx, "scope-a"), scGrant("member", "bob", false)))
 	assertStats(cur.PebbleEngine(), "after overlay", 2)
 
-	deleted, err := cur.PebbleEngine().DeleteResourceRecordsBounded(
+	deleted, err := cur.PebbleEngine().DeleteResourceRecordsByRef(
 		ctx,
 		[]sourcecache.ResourceRef{{ResourceTypeID: "user", ResourceID: "bob"}},
 		"scope-a",

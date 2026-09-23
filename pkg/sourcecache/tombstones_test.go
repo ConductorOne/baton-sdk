@@ -67,15 +67,21 @@ func TestTombstonesFromProto(t *testing.T) {
 		})
 	}
 
+	res := []*v2.ResourceId{rid("user", "alice")}
+	ents := []*v2.SourceCacheEntitlementRef{entRef("group", "eng", "member")}
+	grants := []*v2.SourceCacheGrantRef{v2.SourceCacheGrantRef_builder{Entitlement: entRef("group", "eng", "member"), Principal: rid("user", "alice")}.Build()}
 	wrongKind := map[string]struct {
 		kind RowKind
 		p    *v2.SourceCacheTombstones
 	}{
-		"principals on resources":    {RowKindResources, v2.SourceCacheTombstones_builder{Principals: []*v2.ResourceId{rid("user", "alice")}}.Build()},
-		"principals on entitlements": {RowKindEntitlements, v2.SourceCacheTombstones_builder{Principals: []*v2.ResourceId{rid("user", "alice")}}.Build()},
-		"resources on grants":        {RowKindGrants, v2.SourceCacheTombstones_builder{Resources: []*v2.ResourceId{rid("user", "alice")}}.Build()},
-		"entitlements on resources": {RowKindResources, v2.SourceCacheTombstones_builder{
-			Entitlements: []*v2.SourceCacheEntitlementRef{entRef("group", "eng", "member")}}.Build()},
+		"entitlements on resources":  {RowKindResources, v2.SourceCacheTombstones_builder{Entitlements: ents}.Build()},
+		"grants on resources":        {RowKindResources, v2.SourceCacheTombstones_builder{Grants: grants}.Build()},
+		"principals on resources":    {RowKindResources, v2.SourceCacheTombstones_builder{Principals: res}.Build()},
+		"resources on entitlements":  {RowKindEntitlements, v2.SourceCacheTombstones_builder{Resources: res}.Build()},
+		"grants on entitlements":     {RowKindEntitlements, v2.SourceCacheTombstones_builder{Grants: grants}.Build()},
+		"principals on entitlements": {RowKindEntitlements, v2.SourceCacheTombstones_builder{Principals: res}.Build()},
+		"resources on grants":        {RowKindGrants, v2.SourceCacheTombstones_builder{Resources: res}.Build()},
+		"entitlements on grants":     {RowKindGrants, v2.SourceCacheTombstones_builder{Entitlements: ents}.Build()},
 	}
 	for name, tc := range wrongKind {
 		t.Run(name, func(t *testing.T) {
@@ -88,5 +94,30 @@ func TestTombstonesFromProto(t *testing.T) {
 	t.Run("unknown kind", func(t *testing.T) {
 		_, err := TombstonesFromProto(RowKind("unknown"), &v2.SourceCacheTombstones{})
 		require.Error(t, err)
+		_, err = TombstonesFromProto(RowKind("unknown"), nil)
+		require.Error(t, err, "a nil message does not excuse the kind")
 	})
+}
+
+// Validate is the gate for tombstones built in Go, not only decoded from
+// the wire.
+func TestTombstonesValidateRejectsIncompleteStructs(t *testing.T) {
+	cases := map[string]struct {
+		kind RowKind
+		t    Tombstones
+	}{
+		"resource":  {RowKindResources, Tombstones{Resources: []ResourceRef{{ResourceID: "alice"}}}},
+		"principal": {RowKindGrants, Tombstones{Principals: []ResourceRef{{ResourceTypeID: "user"}}}},
+		"entitlement": {RowKindEntitlements, Tombstones{Entitlements: []EntitlementRef{{
+			Resource: ResourceRef{ResourceTypeID: "group", ResourceID: "eng"}}}}},
+		"grant": {RowKindGrants, Tombstones{Grants: []GrantRef{{
+			Entitlement: EntitlementRef{Resource: ResourceRef{ResourceTypeID: "group", ResourceID: "eng"}, EntitlementID: "member"},
+			Principal:   ResourceRef{ResourceID: "alice"}}}}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			require.ErrorIs(t, tc.t.Validate(tc.kind), ErrIncompleteTombstone)
+		})
+	}
+	require.NoError(t, Tombstones{}.Validate(RowKindGrants))
 }

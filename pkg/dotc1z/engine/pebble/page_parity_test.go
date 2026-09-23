@@ -3,8 +3,6 @@ package pebble
 import (
 	"testing"
 
-	"github.com/conductorone/baton-sdk/pkg/sourcecache"
-
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
@@ -13,6 +11,7 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 )
 
 func TestPageEntitlementLookupMatchesDirectWrites(t *testing.T) {
@@ -76,11 +75,8 @@ func TestPageEntitlementLookupMatchesDirectWrites(t *testing.T) {
 	}
 }
 
-// Two records sharing an external id are two identities; a structured ref
-// names one. The direct writer and the page agree, whether the twin is
-// stored or staged.
-func TestPageCanonicalTombstonesDeleteExactlyTheNamedIdentity(t *testing.T) {
-	for _, kind := range []sourcecache.RowKind{sourcecache.RowKindGrants, sourcecache.RowKindEntitlements} {
+func TestPageRefTombstonesDeleteExactlyTheNamedIdentity(t *testing.T) {
+	for _, kind := range []sourcecache.RowKind{sourcecache.RowKindResources, sourcecache.RowKindEntitlements, sourcecache.RowKindGrants} {
 		t.Run(string(kind), func(t *testing.T) {
 			ctx := t.Context()
 			direct, _ := newTestEngine(t)
@@ -92,11 +88,42 @@ func TestPageCanonicalTombstonesDeleteExactlyTheNamedIdentity(t *testing.T) {
 			u := paged.ledger.newPageUnit()
 			eng := sourcecache.ResourceRef{ResourceTypeID: "group", ResourceID: "eng"}
 			var tomb sourcecache.Tombstones
+			var remaining func(e *Engine) []string
 			switch kind {
+			case sourcecache.RowKindResources:
+				records := []*v3.ResourceRecord{
+					v3.ResourceRecord_builder{ResourceTypeId: "user", ResourceId: "alice"}.Build(),
+					v3.ResourceRecord_builder{ResourceTypeId: "group", ResourceId: "alice"}.Build(),
+				}
+				require.NoError(t, direct.PutResourceRecords(ctx, records...))
+				require.NoError(t, u.StageResources(records...))
+				tomb.Resources = []sourcecache.ResourceRef{{ResourceTypeID: "user", ResourceID: "alice"}}
+				_, err := direct.DeleteResourceRecordsByRef(ctx, tomb.Resources, "scope")
+				require.NoError(t, err)
+				remaining = func(e *Engine) []string {
+					var out []string
+					require.NoError(t, e.IterateResources(ctx, func(r *v3.ResourceRecord) bool {
+						out = append(out, r.GetResourceTypeId())
+						return true
+					}))
+					return out
+				}
+			case sourcecache.RowKindEntitlements:
+				records := []*v3.EntitlementRecord{lookupTestEnt("group", "eng", "shared"), lookupTestEnt("group", "sales", "shared")}
+				require.NoError(t, direct.PutEntitlementRecords(ctx, records...))
+				require.NoError(t, u.StageEntitlements(records...))
+				tomb.Entitlements = []sourcecache.EntitlementRef{{Resource: eng, EntitlementID: "shared"}}
+				_, err := direct.DeleteEntitlementRecordsByRef(ctx, tomb.Entitlements, "scope")
+				require.NoError(t, err)
+				remaining = func(e *Engine) []string {
+					var out []string
+					require.NoError(t, e.IterateEntitlements(ctx, func(r *v3.EntitlementRecord) bool {
+						out = append(out, r.GetResource().GetResourceId())
+						return true
+					}))
+					return out
+				}
 			case sourcecache.RowKindGrants:
-				ents := []*v3.EntitlementRecord{lookupTestEnt("group", "eng", "member"), lookupTestEnt("group", "sales", "member")}
-				require.NoError(t, direct.PutEntitlementRecords(ctx, ents...))
-				require.NoError(t, u.StageEntitlements(ents...))
 				records := []*v3.GrantRecord{
 					lookupTestGrant("member:user:alice", "group", "eng", "member", "user", "alice"),
 					lookupTestGrant("member:user:alice", "group", "sales", "member", "user", "alice"),
@@ -109,64 +136,79 @@ func TestPageCanonicalTombstonesDeleteExactlyTheNamedIdentity(t *testing.T) {
 				}}
 				_, err := direct.DeleteGrantRecordsByRef(ctx, tomb.Grants, "scope")
 				require.NoError(t, err)
-			case sourcecache.RowKindEntitlements:
-				records := []*v3.EntitlementRecord{lookupTestEnt("group", "eng", "shared"), lookupTestEnt("group", "sales", "shared")}
-				require.NoError(t, direct.PutEntitlementRecords(ctx, records...))
-				require.NoError(t, u.StageEntitlements(records...))
-				tomb.Entitlements = []sourcecache.EntitlementRef{{Resource: eng, EntitlementID: "shared"}}
-				_, err := direct.DeleteEntitlementRecordsByRef(ctx, tomb.Entitlements, "scope")
-				require.NoError(t, err)
+				remaining = func(e *Engine) []string {
+					var out []string
+					require.NoError(t, e.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
+						out = append(out, g.GetEntitlement().GetResourceId())
+						return true
+					}))
+					return out
+				}
 			default:
-				t.Fatalf("resources have no same-id twins; kind %q not in this test", kind)
+				t.Fatalf("unexpected kind %q", kind)
 			}
 			n, err := u.DropStagedRows(kind, "scope", tomb)
 			require.NoError(t, err)
 			require.Equal(t, 1, n)
 			require.NoError(t, u.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "Sync"}, nil))
+			want := []string{"sales"}
+			if kind == sourcecache.RowKindResources {
+				want = []string{"group"}
+			}
 			for _, e := range []*Engine{direct, paged} {
-				var remaining []string
-				if kind == sourcecache.RowKindGrants {
-					require.NoError(t, e.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
-						remaining = append(remaining, g.GetEntitlement().GetResourceId())
-						return true
-					}))
-				} else {
-					require.NoError(t, e.IterateEntitlements(ctx, func(r *v3.EntitlementRecord) bool {
-						remaining = append(remaining, r.GetResource().GetResourceId())
-						return true
-					}))
-				}
-				require.Equal(t, []string{"sales"}, remaining)
+				require.Equal(t, want, remaining(e))
 			}
 		})
 	}
 }
 
-// The twin is stored while the target is staged, and the other way round.
-// A ref reaches exactly the row it names on either side.
 func TestPageTombstoneNamesOneOfStoredAndStagedTwins(t *testing.T) {
-	ctx := t.Context()
-	e, _ := newTestEngine(t)
-	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-	stored := lookupTestEnt("group", "eng", "shared")
-	staged := lookupTestEnt("group", "sales", "shared")
-	require.NoError(t, e.PutEntitlementRecords(ctx, stored))
-	u := e.ledger.newPageUnit()
-	require.NoError(t, u.StageEntitlements(staged))
+	eng := lookupTestEnt("group", "eng", "shared")
+	sales := lookupTestEnt("group", "sales", "shared")
+	ref := func(r *v3.EntitlementRecord) sourcecache.EntitlementRef {
+		return sourcecache.EntitlementRef{
+			Resource:      sourcecache.ResourceRef{ResourceTypeID: r.GetResource().GetResourceTypeId(), ResourceID: r.GetResource().GetResourceId()},
+			EntitlementID: r.GetExternalId(),
+		}
+	}
+	cases := map[string]struct {
+		stored, staged, target *v3.EntitlementRecord
+		droppedFromPage        int
+	}{
+		"target staged, twin stored": {stored: eng, staged: sales, target: sales, droppedFromPage: 1},
+		"target stored, twin staged": {stored: eng, staged: sales, target: eng, droppedFromPage: 0},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			e, _ := newTestEngine(t)
+			_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+			require.NoError(t, err)
+			require.NoError(t, e.PutEntitlementRecords(ctx, tc.stored))
+			u := e.ledger.newPageUnit()
+			require.NoError(t, u.StageEntitlements(tc.staged))
 
-	forStaged := sourcecache.Tombstones{Entitlements: []sourcecache.EntitlementRef{{
-		Resource: sourcecache.ResourceRef{ResourceTypeID: "group", ResourceID: "sales"}, EntitlementID: "shared",
-	}}}
-	n, err := u.DropStagedRows(sourcecache.RowKindEntitlements, "scope", forStaged)
-	require.NoError(t, err)
-	require.Equal(t, 1, n)
-	_, err = e.DeleteEntitlementRecordsByRef(ctx, forStaged.Entitlements, "scope")
-	require.NoError(t, err)
-	require.NoError(t, u.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "Sync"}, nil))
-	got, err := e.GetEntitlementRecord(ctx, "shared")
-	require.NoError(t, err)
-	require.Equal(t, "eng", got.GetResource().GetResourceId(), "the stored twin survives a delete naming the staged one")
+			tomb := sourcecache.Tombstones{Entitlements: []sourcecache.EntitlementRef{ref(tc.target)}}
+			n, err := u.DropStagedRows(sourcecache.RowKindEntitlements, "scope", tomb)
+			require.NoError(t, err)
+			require.Equal(t, tc.droppedFromPage, n)
+			deleted, err := e.DeleteEntitlementRecordsByRef(ctx, tomb.Entitlements, "scope")
+			require.NoError(t, err)
+			require.EqualValues(t, 1-tc.droppedFromPage, deleted, "the target is deleted from exactly one side")
+			require.NoError(t, u.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "Sync"}, nil))
+
+			var survivors []string
+			require.NoError(t, e.IterateEntitlements(ctx, func(r *v3.EntitlementRecord) bool {
+				survivors = append(survivors, r.GetResource().GetResourceId())
+				return true
+			}))
+			twin := tc.stored
+			if tc.target == tc.stored {
+				twin = tc.staged
+			}
+			require.Equal(t, []string{twin.GetResource().GetResourceId()}, survivors)
+		})
+	}
 }
 
 func TestPageScopedTombstonesUseLatestRecord(t *testing.T) {
@@ -203,27 +245,40 @@ func TestPageScopedTombstonesUseLatestRecord(t *testing.T) {
 	}
 }
 
-// A principal tombstone matches (type, id), not the id alone.
 func TestPagePrincipalTombstoneRequiresTheType(t *testing.T) {
 	ctx := t.Context()
-	e, _ := newTestEngine(t)
-	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
+	direct, _ := newTestEngine(t)
+	paged, _ := newTestEngine(t)
+	for _, e := range []*Engine{direct, paged} {
+		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+	}
 	user := lookupTestGrant("group:eng:member:user:alice", "group", "eng", "group:eng:member", "user", "alice")
 	group := lookupTestGrant("group:eng:member:group:alice", "group", "eng", "group:eng:member", "group", "alice")
 	for _, g := range []*v3.GrantRecord{user, group} {
 		g.SetSourceScopeKey("scope")
 	}
-	require.NoError(t, e.PutGrantRecords(ctx, user, group))
-	n, err := e.DeleteGrantsByPrincipalsInScope(ctx, "scope", []sourcecache.ResourceRef{{ResourceTypeID: "group", ResourceID: "alice"}})
+	require.NoError(t, direct.PutGrantRecords(ctx, user, group))
+	u := paged.ledger.newPageUnit()
+	require.NoError(t, u.StageGrants(user, group))
+
+	groupAlice := []sourcecache.ResourceRef{{ResourceTypeID: "group", ResourceID: "alice"}}
+	n, err := direct.DeleteGrantsByPrincipalsInScope(ctx, "scope", groupAlice)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, n)
-	var remaining []string
-	require.NoError(t, e.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
-		remaining = append(remaining, g.GetPrincipal().GetResourceTypeId())
-		return true
-	}))
-	require.Equal(t, []string{"user"}, remaining)
+	dropped, err := u.DropStagedRows(sourcecache.RowKindGrants, "scope", sourcecache.Tombstones{Principals: groupAlice})
+	require.NoError(t, err)
+	require.Equal(t, 1, dropped)
+	require.NoError(t, u.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "Sync"}, nil))
+
+	for _, e := range []*Engine{direct, paged} {
+		var remaining []string
+		require.NoError(t, e.IterateGrants(ctx, func(g *v3.GrantRecord) bool {
+			remaining = append(remaining, g.GetPrincipal().GetResourceTypeId())
+			return true
+		}))
+		require.Equal(t, []string{"user"}, remaining)
+	}
 }
 
 func TestPageDeleteGrantsRejectsNilLikeDirectWriter(t *testing.T) {
@@ -237,7 +292,7 @@ func TestPageDeleteGrantsRejectsNilLikeDirectWriter(t *testing.T) {
 	require.ErrorContains(t, pageErr, "grant identity: nil record")
 }
 
-func TestPageCanonicalTombstoneOverwritesAndLookupRebuild(t *testing.T) {
+func TestPageRefTombstoneOverwritesAndLookupRebuild(t *testing.T) {
 	ctx := t.Context()
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")

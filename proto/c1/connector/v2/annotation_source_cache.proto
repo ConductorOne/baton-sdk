@@ -140,8 +140,6 @@ message SourceCacheRecord {
   // A 200 response with zero rows still persists the entry.
   string cache_validator = 2;
 
-  // Public-id-string tombstones. Removed: the SDK never resolves an id
-  // string to a row on the sync path.
   reserved 3, 4;
   reserved "deleted_ids", "deleted_principal_ids";
 
@@ -226,8 +224,6 @@ message SourceCacheReplay {
   // propagate).
   bool overlay = 3;
 
-  // Public-id-string tombstones. Removed: the SDK never resolves an id
-  // string to a row on the sync path.
   reserved 4, 5;
   reserved "deleted_ids", "deleted_principal_ids";
 

@@ -8,7 +8,7 @@ package dotc1z
 // that every successful public mutation must survive Close + reopen.
 // Randomized operation sequences interleave typed puts, manifest
 // publication, replay (occupied, zero-row, and missing-manifest),
-// canonical and scoped tombstones, and Close/reopen cuts, comparing
+// ref and principal tombstones, and Close/reopen cuts, comparing
 // the store against the model after every operation.
 //
 // This machine-explores the interleavings the directed verification
