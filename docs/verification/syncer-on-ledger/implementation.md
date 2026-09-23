@@ -261,3 +261,27 @@ After these checks and evidence reconciliation, request separate final-code revi
 from different model families. Reviewers receive the contract, current change
 orders and code, but not each other's findings. Reproduce findings before fixes;
 run affected checks again and obtain follow-up review where behavior changes.
+
+## Bounded static materialization (CO-025)
+
+Append a ledger-only materialization operation. The remote static handler records
+one child per returned template. Its internal cursor contains a version, a hash
+of the full parent identity, the template ordinal, deterministic protobuf bytes,
+and a stored-resource cursor. Identity distinguishes identical templates within
+and across remote pages. This token is never passed to a connector and remains
+under normal token scrubbing/disposal. No template facts or storage fields are added.
+
+Reverse the children for the existing stack and execute materialization serially:
+all resource chunks of template zero precede template one, and all children precede
+the parent's next remote page. A materialization page reads one resource page,
+generates its entitlements using the existing transformation, and atomically
+records its next cursor. Its completion counts as an action; only the parent
+records remote received/attempt/wait metrics. Add the finite operation to phase
+reporting. Reject materialization operations in legacy checkpoint tokens because
+this SDK can only persist them through ledger rows.
+
+First plant the staging-bound regression using two resources and a one-resource
+reader page. Then test duplicate template identities and overwrite order, cold
+resume after a later materialization commit failure, no refetch of committed
+remote pages, internal-cursor validation, and existing handler output parity.
+Extend public crash images and credential scrub fixtures to the new child operation.

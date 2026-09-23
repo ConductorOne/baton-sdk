@@ -1129,3 +1129,17 @@ completion has no live ledger keys. The declaration carries no page token.
 - Verification delta: restore exact quality equality in the 40-case public crash differential; test each surviving record/state family, legacy token/frontier, finished binding, session-only state and read failure. Assert unchanged raw keys and no writes.
 - Risk routing: HIGH, unchanged.
 - PR placement: this PR.
+
+### CO-025 — bound static-entitlement materialization
+
+- Classification: extension following independent review and reproduction.
+- Source: independent review and parent verification.
+- Claim: static-entitlement generation must not retain a resource type's entire population in one page writer. Each generated resource chunk commits records, continuation and counters atomically; recovery uses the already recorded template and preserves template order, including duplicate slugs and identical templates.
+- Motivation: 21,002 resources produced 21,002 simultaneously staged entitlements; main wrote three batches capped at 10,000.
+- Contract delta: a ledger-only materialization action represents each template's local work. The remote response commits its complete child list and remote continuation first. Memory is bounded by a remote definition response plus one stored-resource page and its generated records, not by a fixed byte cap on arbitrary connector replies.
+- Owning boundary: static collection/materialization and existing scheduler dispatch. No new scheduler or storage schema.
+- Affected criteria: C04–C09, C16–C23, C42, C46, C50.
+- Verification delta: staged-count bound; duplicate/order comparison with token handler; failed local commit plus cold resume without repeated remote calls; process/durable cuts for parent and child; internal-cursor rejection; scrub/disposal coverage.
+- Accounting: completed-action totals include materialization actions. Remote received counts, connector observations and progress remain on the remote action; generated writes and local duration belong to materialization rows. The report names the new operation and does not label it a connector call.
+- Risk routing: HIGH, unchanged.
+- PR placement: this PR, with follow-up independent review.
