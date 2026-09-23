@@ -871,7 +871,7 @@ type CredentialIssueOptionDescriptor struct {
 	// CredentialIssueOptions.secret_resource_type_id is still required.
 	Preferred bool `protobuf:"varint,10,opt,name=preferred,proto3" json:"preferred,omitempty"`
 	// Vault-inbox recipient profiles this descriptor can seal to. Empty means the
-	// connector cannot accept a VaultInboxRecipientConfig for this descriptor, and
+	// connector cannot accept a vault-inbox recipient for this descriptor, and
 	// C1 must not dispatch one. Enforced before the provider runs, so an
 	// unadvertised profile never reaches a mint. Each advertised profile requires
 	// exactly one plaintext output value, which is checked after the mint.
@@ -1061,7 +1061,7 @@ type CredentialIssueOptionDescriptor_builder struct {
 	// CredentialIssueOptions.secret_resource_type_id is still required.
 	Preferred bool
 	// Vault-inbox recipient profiles this descriptor can seal to. Empty means the
-	// connector cannot accept a VaultInboxRecipientConfig for this descriptor, and
+	// connector cannot accept a vault-inbox recipient for this descriptor, and
 	// C1 must not dispatch one. Enforced before the provider runs, so an
 	// unadvertised profile never reaches a mint. Each advertised profile requires
 	// exactly one plaintext output value, which is checked after the mint.
