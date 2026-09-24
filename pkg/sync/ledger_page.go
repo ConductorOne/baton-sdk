@@ -17,18 +17,19 @@ var (
 )
 
 type ledgerRuntime struct {
-	store      c1zstore.PageLedgerStore
-	accounting ledgerRunAccounting
-	prepareMu  native_sync.Mutex
-	beforePage func(context.Context) error
-	prepared   bool
-	runID      string
-	mu         native_sync.Mutex
-	commitMu   native_sync.Mutex
-	closing    bool
-	facts      map[string]string
-	workers    map[uint32]c1zstore.LedgerCounters
-	active     map[uint32]bool
+	store           c1zstore.PageLedgerStore
+	accounting      ledgerRunAccounting
+	prepareMu       native_sync.Mutex
+	beforePage      func(context.Context) error
+	prepared        bool
+	optionsRecorded bool
+	runID           string
+	mu              native_sync.Mutex
+	commitMu        native_sync.Mutex
+	closing         bool
+	facts           map[string]string
+	workers         map[uint32]c1zstore.LedgerCounters
+	active          map[uint32]bool
 }
 
 func newLedgerRuntime(store c1zstore.PageLedgerStore, runID string, facts map[string]string) (*ledgerRuntime, error) {
@@ -45,12 +46,13 @@ func newLedgerRuntime(store c1zstore.PageLedgerStore, runID string, facts map[st
 }
 
 type ledgerPage struct {
-	writer       c1zstore.PageWriter
-	runtime      *ledgerRuntime
-	row          c1zstore.LedgerRow
-	transitions  int
-	facts        map[string]string
-	observations c1zstore.LedgerCounters
+	writer        c1zstore.PageWriter
+	runtime       *ledgerRuntime
+	row           c1zstore.LedgerRow
+	transitions   int
+	facts         map[string]string
+	observations  c1zstore.LedgerCounters
+	reportOptions func(*ledgerPage) error
 }
 
 func (p *ledgerPage) transition(next string, children ...c1zstore.LedgerChild) error {
@@ -150,12 +152,20 @@ func (r *ledgerRuntime) runPageWithCommit(
 		}
 		r.commitMu.Lock()
 		defer r.commitMu.Unlock()
+		if page.reportOptions != nil {
+			if err := page.reportOptions(page); err != nil {
+				return err
+			}
+		}
 		if err := page.writer.Commit(ctx, id, &page.row); err != nil {
 			return fmt.Errorf("commit ledger page: %w", err)
 		}
 		r.mu.Lock()
 		r.workers[worker] = candidate
 		maps.Copy(r.facts, page.facts)
+		if _, saved := page.facts[c1zstore.LedgerFactReportOptions]; saved {
+			r.optionsRecorded = true
+		}
 		r.mu.Unlock()
 		committed = true
 		return nil

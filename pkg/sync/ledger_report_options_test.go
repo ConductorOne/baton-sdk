@@ -37,7 +37,7 @@ func TestLedgerReportOptionsCommitWithPage(t *testing.T) {
 	require.True(t, options.EffectiveSkipGrants)
 	require.False(t, options.Requested.SkipGrants)
 	require.True(t, options.Requested.PreviousSourceConfigured)
-	require.Equal(t, encoded, facts[c1zstore.LedgerFactReportOptionsPrefix+options.Attempt])
+	require.Equal(t, encoded, facts[c1zstore.LedgerFactFirstReportOptions])
 	_, found, err := f.ledger.GetLedgerRow(t.Context(), ledgerIdentity(action))
 	require.NoError(t, err)
 	require.True(t, found)
@@ -45,8 +45,12 @@ func TestLedgerReportOptionsCommitWithPage(t *testing.T) {
 
 func TestLedgerCanonicalOptionsPreserveFlags(t *testing.T) {
 	row := func(attempt, flag string) ledgerKV {
+		key := c1zstore.LedgerFactReportOptions
+		if attempt == "one" {
+			key = c1zstore.LedgerFactFirstReportOptions
+		}
 		return ledgerKV{
-			key:   append([]byte{3, 12, 1}, c1zstore.LedgerFactReportOptionsPrefix+attempt...),
+			key:   append([]byte{3, 12, 1}, key...),
 			value: append([]byte{2}, []byte(`{"attempt":"`+attempt+`","requested":{"skip_grants":`+flag+`}}`)...)}
 	}
 	baseline, err := canonicalLedgerSnapshot([]ledgerKV{row("one", "false")})

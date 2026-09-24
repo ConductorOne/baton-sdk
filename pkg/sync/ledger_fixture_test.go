@@ -302,3 +302,25 @@ func loadTestLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zs
 	}
 	return loadLedgerResume(ctx, store, ledger, runID, facts)
 }
+
+func (s *ledgerGuardedStore) FoldLedgerCounters(ctx context.Context, runID string) error {
+	if err := s.audit.record(ctx, "FoldLedgerCounters"); err != nil {
+		return err
+	}
+	return s.PageLedgerStore.FoldLedgerCounters(ctx, runID)
+}
+
+func observeLedgerRestore(t *testing.T, s *syncer, f *ledgerFixture) {
+	t.Helper()
+	var before []ledgerKV
+	f.audit.enter(ledgerLifecycle)
+	s.testHooks.ledgerWalk = func(entering bool) {
+		if entering {
+			before = ledgerRawSnapshot(t, f.engine)
+			f.audit.enter(ledgerWalk)
+		} else {
+			f.audit.enter(ledgerLifecycle)
+			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
+		}
+	}
+}

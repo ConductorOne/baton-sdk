@@ -24,7 +24,7 @@ func TestLedgerArchivePreservesFinishedState(t *testing.T) {
 	encoded, err := json.Marshal(options)
 	require.NoError(t, err)
 	require.NoError(t, writer.SetFactValue(c1zstore.LedgerFactReportOptions, string(encoded)))
-	require.NoError(t, writer.SetFactValue(c1zstore.LedgerFactReportOptionsPrefix+"attempt", string(encoded)))
+	require.NoError(t, writer.SetFactValue(c1zstore.LedgerFactFirstReportOptions, string(encoded)))
 	require.NoError(t, writer.SetFact("skip-grants"))
 	counters := c1zstore.LedgerCounters{Counters: map[string]uint64{"completed": 7}, Flags: 2}
 	require.NoError(t, writer.SetCounterBucket("attempt", 0, counters))

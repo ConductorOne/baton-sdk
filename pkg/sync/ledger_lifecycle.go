@@ -90,5 +90,8 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 		}
 	case ledgerContinuePending, ledgerFinishSeal:
 	}
+	if err := ledger.FoldLedgerCounters(ctx, runID); err != nil {
+		return err
+	}
 	return s.restoreLedgerState(ctx, ledger, runID, knownEmpty)
 }

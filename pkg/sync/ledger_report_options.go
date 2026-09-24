@@ -7,8 +7,10 @@ import (
 )
 
 func (s *syncer) stageLedgerReportOptions(page *ledgerPage) error {
-	key := c1zstore.LedgerFactReportOptionsPrefix + s.ledger.runID
-	if page.hasFact(key) {
+	page.runtime.mu.Lock()
+	recorded := page.runtime.optionsRecorded
+	page.runtime.mu.Unlock()
+	if recorded {
 		return nil
 	}
 	hasFact := func(fact string) bool {
@@ -44,8 +46,10 @@ func (s *syncer) stageLedgerReportOptions(page *ledgerPage) error {
 	if err != nil {
 		return err
 	}
-	if err := page.setFactValue(key, string(data)); err != nil {
-		return err
+	if !page.hasFact(c1zstore.LedgerFactFirstReportOptions) {
+		if err := page.setFactValue(c1zstore.LedgerFactFirstReportOptions, string(data)); err != nil {
+			return err
+		}
 	}
 	return page.setFactValue(c1zstore.LedgerFactReportOptions, string(data))
 }

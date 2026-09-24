@@ -602,6 +602,13 @@ func (s *pebbleStore) LedgerFacts(ctx context.Context) (map[string]string, error
 	return s.Engine.Ledger().Facts(ctx)
 }
 
+func (s *pebbleStore) FoldLedgerCounters(ctx context.Context, currentRunID string) error {
+	if err := s.writeHook(ctx, "FoldLedgerCounters"); err != nil {
+		return err
+	}
+	return s.markDirty(s.Engine.Ledger().FoldCounters(ctx, currentRunID))
+}
+
 func (s *pebbleStore) LedgerCounters(ctx context.Context) (c1zstore.LedgerCounters, error) {
 	return s.Engine.Ledger().Counters(ctx)
 }

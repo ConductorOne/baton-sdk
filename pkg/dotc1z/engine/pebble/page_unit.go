@@ -68,6 +68,9 @@ func (u *pageUnit) StageFact(name string) error {
 }
 
 func (u *pageUnit) StageCounterBucket(runID string, worker uint32, bucket *v3.LedgerCounterBucket) error {
+	if runID == "" {
+		return errors.New("StageCounterBucket: empty attempt ID")
+	}
 	if u.done {
 		return ErrPageUnitCommitted
 	}

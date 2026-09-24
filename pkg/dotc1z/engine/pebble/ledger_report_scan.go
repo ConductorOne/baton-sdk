@@ -298,7 +298,7 @@ func ledgerReportScan(ctx context.Context, iter ledgerReportIterator,
 	counterPrefix := rawdb.LedgerCounterPrefix()
 	rowPrefix := rawdb.LedgerKeyPrefix()
 	optionsKey := encodeLedgerFactKey(c1zstore.LedgerFactReportOptions)
-	optionPrefix := encodeLedgerFactKey(c1zstore.LedgerFactReportOptionsPrefix)
+	firstOptionsKey := encodeLedgerFactKey(c1zstore.LedgerFactFirstReportOptions)
 	skipGrants := encodeLedgerFactKey("should_skip_grants")
 	skipBoth := encodeLedgerFactKey("should_skip_entitlements_and_grants")
 	for iter.First(); iter.Valid(); iter.Next() {
@@ -312,13 +312,16 @@ func ledgerReportScan(ctx context.Context, iter ledgerReportIterator,
 			if err := result.addPhaseDurations(iter.Value()); err != nil {
 				return result, err
 			}
-		case bytes.Equal(key, optionsKey):
+		case bytes.Equal(key, optionsKey), bytes.Equal(key, firstOptionsKey):
 			var options ledgerReportOptionSummary
 			if err := json.Unmarshal([]byte(rawdb.DecodeLedgerFactValue(iter.Value())), &options); err != nil {
 				return result, fmt.Errorf("decode ledger report options: %w", err)
 			}
-			result.Options = &options
-		case bytes.HasPrefix(key, optionPrefix):
+			if bytes.Equal(key, optionsKey) {
+				result.Options = &options
+			} else {
+				result.FirstOptions = &options
+			}
 			result.OptionSnapshots++
 		case bytes.Equal(key, skipGrants):
 			disabled := true

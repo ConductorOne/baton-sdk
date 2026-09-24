@@ -285,7 +285,7 @@ func TestLedgerStartupLoadsCountersOnce(t *testing.T) {
 	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), pendingSeeds(ledgerListingFixtureRoots()), ledgerFactIngestKnown))
 	counted := &ledgerCountedCounterReads{PageLedgerStore: f.ledger}
 	s.caps.pageLedger = counted
-	f.audit.enter(ledgerWalk)
+	f.audit.enter(ledgerLifecycle)
 	err := s.prepareLedgerState(t.Context(), "resume-once", false)
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, err)

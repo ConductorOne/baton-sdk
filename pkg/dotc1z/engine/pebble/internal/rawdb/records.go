@@ -739,3 +739,10 @@ func (rb *RecordBatch) StageLedgerScheduling(key []byte) error {
 func (rb *RecordBatch) StageLedgerWorkFinished() error {
 	return rb.core.Delete(LedgerWorkStateKey())
 }
+
+func (rb *RecordBatch) StageLedgerCounterDelete(key []byte) error {
+	if err := assertFamily("StageLedgerCounterDelete", key, LedgerCounterPrefix()); err != nil {
+		return err
+	}
+	return rb.core.Delete(key)
+}

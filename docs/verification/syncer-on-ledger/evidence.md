@@ -196,5 +196,48 @@ logging-coupled implementation before the predicate changed. Durable token reten
 from an unfinished sync still applies on resume; the change only removes log-level
 selection of ledger debug mode.
 Focused debug/retention and unfinished-resume checks pass three times under race;
-CI-merge-checkout sync lint reports zero issues. Per-attempt option snapshots and
-worker buckets still accumulate on unfinished syncs; bounding them is outstanding.
+CI-merge-checkout sync lint reports zero issues. CO-030 below replaces per-attempt option snapshots and folds prior worker buckets.
+
+
+## Bounded attempt metadata (CO-030)
+
+First/latest option facts replace per-attempt snapshots. First is preserved across
+finished same-ID processing; latest is published with the first successful page of
+each runtime attempt. Only those two attempts can be queried from the archive.
+Prior worker/run buckets fold into one total before the read-only restore; current
+attempt buckets are preserved. This bounds live keys by workers and counter labels,
+not retry count. Scope-list sizes and completed page history are not bounded by this
+change. Exact point deletes and the replacement total share one synced batch.
+
+- `TestLedgerCounterFoldBoundsAttempts`: 1,000 attempts, three buckets each; at most
+  four live buckets, exact sums/maxima/flags. The no-op implementation failed the
+  key bound at attempt two. Point deletes reduced the fold/lock test run from tens
+  of seconds with overlapping range tombstones to 0.474s on this machine.
+- `TestLedgerCounterFoldKeepsCurrentCumulativeBuckets`: repeat folding then overwrite
+  current totals; prior totals are not lost and current values are counted once.
+- `TestLedgerCounterFoldFailureAndCrash`: cancellation, precommit error and synced
+  before/after crash images; retry preserves exact accounting and bucket count.
+- `TestLedgerCounterFoldNoOpAndReservedBucket` and
+  `TestLedgerCounterFoldUnreadableBucketDoesNotDelete`: no repeated commit, rejected
+  accumulator collisions and unreadable old buckets left intact.
+- `TestLedgerAttemptMetadataBoundedAcrossResumes`: 128 preparations/page commits,
+  first/latest values, bounded facts/buckets, seal and saved-file reopen. The
+  stale-latest mutation failed at attempt one.
+- `TestLedgerFirstOptionsFollowCommitOrder` and
+  `TestLedgerFailedOptionsCommitRetries`: overlapping workers with different page
+  facts, and failed commit/retry. Publishing the saved-options flag before commit
+  failed the latter test.
+- `TestLedgerFinishedRetentionUsesCurrentOptions`: original first options remain
+  queryable after same-ID processing with different current diagnostic settings.
+
+Independent bounded review found no blocking issue in atomic folding, exact-key
+deletion, current-bucket preservation, or options publication under the commit
+mutex. The reviewer independently ran the final counter tests (0.484s). This does
+not claim exhaustive failure-combination coverage beyond the listed checks.
+
+Final validation: sync 101.366s, public dotc1z 50.834s, Pebble 25.328s,
+compactor 42.279s. Focused race checks passed three repetitions (sync 14.861s,
+Pebble 41.222s). CI-merge-checkout lint: zero issues. The baseline SDK artifact
+consumer also passed. The superseded range-delete race run was stopped; it is not
+counted as passing evidence. First/latest mutation checks ran in the isolated CI
+checkout and both failed at the intended assertions; production files were restored.

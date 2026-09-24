@@ -406,6 +406,12 @@ func TestLedgerFinishedRetentionUsesCurrentOptions(t *testing.T) {
 					require.Empty(t, row.NextPageToken)
 				}
 			}
+			originalOptions, err := f.ledger.GetArchivedLedgerOptions(t.Context(), first.(*syncer).ledger.runID)
+			require.NoError(t, err)
+			require.NotNil(t, originalOptions)
+			require.True(t, originalOptions.Requested.RetainLedgerTokens)
+			require.True(t, originalOptions.Requested.LedgerDebug)
+
 			options, err := f.ledger.GetArchivedLedgerOptions(t.Context(), "")
 			require.NoError(t, err)
 			require.Equal(t, mode != "default", options.EffectiveLedgerDebug)

@@ -148,9 +148,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 				page.observations.Counters[ledgerWarningsPrefix+action.Op.String()]++
 			}
 		}
-		if err := s.stageLedgerReportOptions(page); err != nil {
-			return err
-		}
+		page.reportOptions = s.stageLedgerReportOptions
 		childKeys := make([]string, len(invocation.children))
 		for i, child := range invocation.children {
 			childKeys[i] = ledgerSchedulingKey(child)

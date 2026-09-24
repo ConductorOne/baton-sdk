@@ -346,7 +346,7 @@ func TestPendingInvalidDescriptorDoesNotPublishOrWrite(t *testing.T) {
 			s.caps.pageLedger = pendingInvalidDescriptor{PageLedgerStore: f.ledger, kind: kind}
 			before := ledgerRawSnapshot(t, f.engine)
 			priorRun, priorStats, priorRuntime := s.run, s.stats, s.ledger
-			f.audit.enter(ledgerWalk)
+			observeLedgerRestore(t, s, f)
 			err := s.prepareLedgerState(t.Context(), "invalid-descriptor", false)
 			f.audit.enter(ledgerLifecycle)
 			require.ErrorContains(t, err, diagnostic)

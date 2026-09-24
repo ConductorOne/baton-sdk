@@ -333,6 +333,9 @@ func (s *chaosPebbleStore) SetRetainLedgerTokens(retain bool) { s.Ledger().SetRe
 func (s *chaosPebbleStore) LedgerFacts(ctx context.Context) (map[string]string, error) {
 	return s.Ledger().Facts(ctx)
 }
+func (s *chaosPebbleStore) FoldLedgerCounters(ctx context.Context, currentRunID string) error {
+	return s.Ledger().FoldCounters(ctx, currentRunID)
+}
 func (s *chaosPebbleStore) LedgerCounters(ctx context.Context) (c1zstore.LedgerCounters, error) {
 	return s.Ledger().Counters(ctx)
 }

@@ -219,6 +219,7 @@ type PageLedgerStore interface {
 	// Saves retained history or returns the report already archived during disposal.
 	ArchiveLedgerReport(ctx context.Context) ([]byte, error)
 	GetArchivedLedgerReport(ctx context.Context) ([]byte, error)
+	// Empty attempt selects latest; only the first and latest snapshots are retained.
 	GetArchivedLedgerOptions(ctx context.Context, attempt string) (*LedgerReportOptions, error)
 	// Restores an empty finished ledger, or matching unfinished discard recovery state.
 	RestoreLedgerArchive(ctx context.Context) error
@@ -231,6 +232,9 @@ type PageLedgerStore interface {
 	SetRetainLedgerTokens(retain bool)
 
 	LedgerFacts(ctx context.Context) (map[string]string, error)
+	// Before an attempt starts writing, atomically fold older buckets into one total.
+	// Prior-attempt writers must be stopped. Current buckets are preserved; repeated calls are idempotent.
+	FoldLedgerCounters(ctx context.Context, currentRunID string) error
 	LedgerCounters(ctx context.Context) (LedgerCounters, error)
 	LedgerFrontier(ctx context.Context) (frontier *LedgerFrontier, found bool, err error)
 	// Migrates the open sync's checkpoint token into the ledger in one unit;
@@ -250,6 +254,6 @@ type PageLedgerStore interface {
 	PutCounterBucket(ctx context.Context, runID string, worker uint32, counters LedgerCounters) error
 	// The only way a ledgered sync seals; plain EndSync refuses one.
 	// LedgerFactDiscardOnSeal archives then discards the ledger before finishing.
-	// If archival fails, sealing retains the ledger under the normal scrub policy.
+	// Report-generation failure still discards history; recovery-state write failure prevents seal.
 	EndSyncWithStats(ctx context.Context, stats SyncStats) error
 }

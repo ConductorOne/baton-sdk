@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
 	"testing"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	engine "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -37,7 +37,7 @@ func canonicalLedgerSnapshot(rows []ledgerKV) ([]ledgerKV, error) {
 				normalized = value
 			case 1:
 				name := string(row.key[3:])
-				if name == c1zstore.LedgerFactReportOptions || strings.HasPrefix(name, c1zstore.LedgerFactReportOptionsPrefix) {
+				if name == c1zstore.LedgerFactReportOptions || name == c1zstore.LedgerFactFirstReportOptions {
 					if len(row.value) < 2 || row.value[0] != 2 {
 						return nil, fmt.Errorf("invalid option fact")
 					}
@@ -91,6 +91,28 @@ func canonicalLedgerSnapshot(rows []ledgerKV) ([]ledgerKV, error) {
 	}
 	slices.SortFunc(out, func(a, b ledgerKV) int { return bytes.Compare(a.key, b.key) })
 	return out, nil
+}
+
+func ledgerSnapshotWithFoldedCounters(t *testing.T, e *engine.Engine) []ledgerKV {
+	t.Helper()
+	var rows []ledgerKV
+	var buckets []*v3.LedgerCounterBucket
+	for _, row := range ledgerRawSnapshot(t, e) {
+		if bytes.HasPrefix(row.key, []byte{3, 12, 2}) {
+			bucket := &v3.LedgerCounterBucket{}
+			require.NoError(t, proto.Unmarshal(row.value, bucket))
+			buckets = append(buckets, bucket)
+		} else {
+			rows = append(rows, row)
+		}
+	}
+	if len(buckets) != 0 {
+		value, err := proto.MarshalOptions{Deterministic: true}.Marshal(foldCanonicalLedgerBuckets(buckets))
+		require.NoError(t, err)
+		rows = append(rows, ledgerKV{key: []byte{3, 12, 2}, value: value})
+	}
+	slices.SortFunc(rows, func(a, b ledgerKV) int { return bytes.Compare(a.key, b.key) })
+	return rows
 }
 
 func TestLedgerCanonicalRowNormalization(t *testing.T) {

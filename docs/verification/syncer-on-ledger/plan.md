@@ -1205,3 +1205,15 @@ durable declaration; a pending seal is not a fresh policy boundary.
 - Verification delta: public sync crosses info/debug logging with explicit ledger debug enabled/disabled, checking effective saved options and actual row retention. Debug logging alone does not authorize token retention.
 - Risk routing: unchanged.
 - PR placement: this PR.
+
+### CO-030 — bound metadata across attempts
+
+- Classification: correction.
+- Source: requester; preserve first and latest options rather than every attempt.
+- Claim: an unfinished sync retains at most two option snapshots and one folded prior-attempt counter bucket plus current-attempt buckets. Increasing retry count alone does not increase live metadata keys or the amount loaded on resume. First options remain unchanged; latest options change only with a committed page. Folding preserves sums, maxima and OR flags across success, cancellation, repeated preparation and crash.
+- Contract delta: `FoldLedgerCounters(ctx, currentRunID)` is a lifecycle write before the read-only restore. It atomically replaces older buckets with their folded total while preserving current-attempt buckets. A repeated call is idempotent. Page history and records are unchanged.
+- Owning boundary: Pebble counter storage; sync lifecycle and report options.
+- Affected criteria: C10, C18, C22–C28, C32, C33, C46, C50.
+- Verification delta: thousands of attempts with fixed worker count have a fixed live bucket bound and exact folded totals; before/after synced-fold crash images, precommit failure, cancellation and repeated calls preserve accounting. A current bucket may be overwritten after fold without counting its prior value twice. Public resume preserves first/latest options through seal and saved-file reopen; intermediate attempts are not retained. Existing migration, quality, seal and lifecycle tests remain required.
+- Risk routing: HIGH. Counter deletion and replacement are one batch, never separate writes.
+- PR placement: this PR.

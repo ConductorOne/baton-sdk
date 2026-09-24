@@ -484,21 +484,35 @@ func (l *Ledger) GetRow(ctx context.Context, id c1zstore.LedgerActionIdentity) (
 }
 
 func (l *Ledger) Counters(ctx context.Context) (c1zstore.LedgerCounters, error) {
+	counters, _, err := l.countersExcept(ctx, nil, nil)
+	return counters, err
+}
+
+func (l *Ledger) countersExcept(ctx context.Context, currentPrefix []byte, deleteBucket func([]byte) error) (c1zstore.LedgerCounters, bool, error) {
 	lo, hi := rawdb.LedgerCounterBounds()
 	iter, err := l.e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
 	if err != nil {
-		return c1zstore.LedgerCounters{}, err
+		return c1zstore.LedgerCounters{}, false, err
 	}
 	defer iter.Close()
+	needsFold := false
+	foldedKey := foldedLedgerCounterKey()
 	sum := map[string]uint64{}
 	var flags uint64
 	calls := map[string]*v3.CallStat{}
 	sessions := map[string]*v3.CallStat{}
 	durations := map[string]int64{}
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return c1zstore.LedgerCounters{}, false, err
+		}
+		if len(currentPrefix) > 0 && bytes.HasPrefix(iter.Key(), currentPrefix) {
+			continue
+		}
+		needsFold = needsFold || !bytes.Equal(iter.Key(), foldedKey)
 		b := &v3.LedgerCounterBucket{}
 		if err := unmarshalRecord(iter.Value(), b); err != nil {
-			return c1zstore.LedgerCounters{}, fmt.Errorf("ledger counters: unmarshal %x: %w", iter.Key(), err)
+			return c1zstore.LedgerCounters{}, false, fmt.Errorf("ledger counters: unmarshal %x: %w", iter.Key(), err)
 		}
 		for k, v := range b.GetCounters() {
 			sum[k] += v
@@ -507,9 +521,14 @@ func (l *Ledger) Counters(ctx context.Context) (c1zstore.LedgerCounters, error) 
 		calls = c1zstore.FoldCallStats(calls, b.GetConnectorCalls())
 		sessions = c1zstore.FoldCallStats(sessions, b.GetSessionCalls())
 		durations = c1zstore.FoldDurations(durations, b.GetStepDurationsMs())
+		if deleteBucket != nil {
+			if err := deleteBucket(iter.Key()); err != nil {
+				return c1zstore.LedgerCounters{}, false, err
+			}
+		}
 	}
 	if err := iter.Error(); err != nil {
-		return c1zstore.LedgerCounters{}, err
+		return c1zstore.LedgerCounters{}, false, err
 	}
 	return ledgerCountersFromProto(v3.LedgerCounterBucket_builder{
 		Counters:        sum,
@@ -517,7 +536,7 @@ func (l *Ledger) Counters(ctx context.Context) (c1zstore.LedgerCounters, error) 
 		ConnectorCalls:  calls,
 		SessionCalls:    sessions,
 		StepDurationsMs: durations,
-	}.Build()), nil
+	}.Build()), needsFold, nil
 }
 
 func (l *Ledger) Frontier(ctx context.Context) (*c1zstore.LedgerFrontier, bool, error) {

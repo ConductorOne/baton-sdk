@@ -169,7 +169,7 @@ func runDurableSync(t *testing.T, fs vfs.FS, dir, mode string, workers int, cutO
 					if err := w.SetFactValue(c1zstore.LedgerFactReportOptions, "invalid-json"); err != nil {
 						return err
 					}
-					if err := w.SetFactValue(c1zstore.LedgerFactReportOptionsPrefix+row.Attempt, "invalid-json"); err != nil {
+					if err := w.SetFactValue(c1zstore.LedgerFactFirstReportOptions, "invalid-json"); err != nil {
 						return err
 					}
 				}
@@ -473,7 +473,7 @@ func createPublicLedgerCompactorInput(t *testing.T, ctx context.Context, root st
 					if err := w.SetFactValue(c1zstore.LedgerFactReportOptions, "invalid-json"); err != nil {
 						return err
 					}
-					if err := w.SetFactValue(c1zstore.LedgerFactReportOptionsPrefix+row.Attempt, "invalid-json"); err != nil {
+					if err := w.SetFactValue(c1zstore.LedgerFactFirstReportOptions, "invalid-json"); err != nil {
 						return err
 					}
 				}

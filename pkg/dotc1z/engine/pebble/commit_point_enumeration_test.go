@@ -62,6 +62,7 @@ var commitPointRegistry = map[string][]string{
 	"adapter_page.go:Commit":                {"SetRecordCommitTestHook"}, // v2 wrapper delegating to pageUnit.Commit
 	"pending_work.go:CompletePendingWork":   {"SetRecordCommitTestHook"},
 	"pending_work.go:InitializePendingWork": {"SetRecordCommitTestHook"},
+	"ledger_counter_fold.go:FoldCounters":   {"SetRecordCommitTestHook"},
 	"ledger.go:ClearRows":                   {"ledgerClearRowsHook", "SetRecordCommitTestHook"},
 	"ledger.go:scrubTokens":                 {"SetRecordCommitTestHook"},
 	"ledger.go:takeover":                    {"SetRecordCommitTestHook"}, // RecordBatch: frontier + facts + bucket + token clear, one unit

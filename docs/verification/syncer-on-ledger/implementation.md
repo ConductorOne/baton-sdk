@@ -77,3 +77,24 @@ status, with links to preserved tests/mutants and uncovered cells. The write hoo
 rejects unexplained writes during pages and writes during pending-state restore;
 explicit session-state bypasses and lifecycle writes have their own checks.
 [README.md](README.md) contains performance results and reproduction commands.
+
+## Bounded attempt metadata (CO-030)
+
+Before constructing the resumed runtime, fold old counter buckets into one fixed
+bucket in a synced batch. Delete only the folded keys; broad overlapping range
+tombstones made repeated preparation unnecessarily expensive. The current attempt's buckets remain untouched, including
+on a repeated preparation call. Skip the write when only the folded bucket and
+current attempt are present. This preserves cumulative worker replacement (C22,
+C28) and bounds future resume work by workers and counter labels, not attempts
+(C46). Classification of previously empty state precedes this lifecycle write.
+
+Store first/latest options at two fixed fact keys, preserving first across finished
+same-ID processing. Stage them under the existing page-commit mutex so concurrent
+workers cannot replace first. Publish a runtime flag only
+after the page with latest options commits, so failed pages cannot suppress their
+retry's options. Reports and option lookup expose only these two snapshots (C50).
+
+Implement storage with failure/crash/scale tests first, then connect the syncer and
+replace attempt-indexed option snapshots. Check the migration, cold-resume,
+quality and disposal suites before publishing. This does not bound connector
+response sizes, selected scope lists or completed diagnostic history.

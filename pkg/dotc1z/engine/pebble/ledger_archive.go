@@ -180,19 +180,20 @@ func (e *Engine) GetArchivedLedgerOptions(ctx context.Context, attempt string) (
 	if err != nil || archive == nil {
 		return nil, err
 	}
-	key := c1zstore.LedgerFactReportOptions
-	if attempt != "" {
-		key = c1zstore.LedgerFactReportOptionsPrefix + attempt
+	for _, key := range []string{c1zstore.LedgerFactReportOptions, c1zstore.LedgerFactFirstReportOptions} {
+		value, found := archive.Facts[key]
+		if !found {
+			continue
+		}
+		var options c1zstore.LedgerReportOptions
+		if err := json.Unmarshal([]byte(value), &options); err != nil {
+			return nil, err
+		}
+		if attempt == "" || options.Attempt == attempt {
+			return &options, nil
+		}
 	}
-	value, found := archive.Facts[key]
-	if !found {
-		return nil, nil
-	}
-	var options c1zstore.LedgerReportOptions
-	if err := json.Unmarshal([]byte(value), &options); err != nil {
-		return nil, err
-	}
-	return &options, nil
+	return nil, nil
 }
 
 func (e *Engine) RestoreLedgerArchive(ctx context.Context) error {

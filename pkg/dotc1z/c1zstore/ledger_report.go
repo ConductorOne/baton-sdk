@@ -1,8 +1,8 @@
 package c1zstore
 
 const (
-	LedgerFactReportOptions       = "c1z.report.latest_options"
-	LedgerFactReportOptionsPrefix = "c1z.report.options."
+	LedgerFactReportOptions      = "c1z.report.latest_options"
+	LedgerFactFirstReportOptions = "c1z.report.first_options"
 )
 
 type LedgerReportTarget struct {

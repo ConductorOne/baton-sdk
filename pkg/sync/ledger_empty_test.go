@@ -79,7 +79,7 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 			if kind == "read-error" {
 				s.caps.pageLedger = ledgerUnstartedFailure{PageLedgerStore: f.ledger}
 			}
-			before := ledgerRawSnapshot(t, f.engine)
+			before := ledgerSnapshotWithFoldedCounters(t, f.engine)
 			var walkBefore []ledgerKV
 			s.testHooks.ledgerWalk = func(entering bool) {
 				if entering {
@@ -95,7 +95,7 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 			if kind == "read-error" {
 				require.ErrorIs(t, err, errLedgerInjectedPage)
 				require.Nil(t, s.stats)
-				require.Equal(t, before, ledgerRawSnapshot(t, f.engine))
+				require.Equal(t, before, ledgerSnapshotWithFoldedCounters(t, f.engine))
 				return
 			}
 			require.NoError(t, err)
@@ -112,7 +112,7 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 				require.Equal(t, ingestQualityReasonUnknownPriorCheckpoint, s.ingestFilterStats.snapshot().ReasonFlags)
 			}
 			if kind == "read-error" || kind == "legacy-frontier" || kind == "known-clean" || kind == "known-blocked" {
-				require.Equal(t, before, ledgerRawSnapshot(t, f.engine))
+				require.Equal(t, before, ledgerSnapshotWithFoldedCounters(t, f.engine))
 			}
 			if uninitializedQuality {
 				storedCounters, err := f.ledger.LedgerCounters(ctx)
@@ -148,12 +148,12 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 				f = openLedgerFixtureAt(t, f.path, false)
 				require.NoError(t, f.store.SetCurrentSync(ctx, id))
 				restored := ledgerContinuationSyncer(f)
-				before = ledgerRawSnapshot(t, f.engine)
-				f.audit.enter(ledgerWalk)
+				before = ledgerSnapshotWithFoldedCounters(t, f.engine)
+				observeLedgerRestore(t, restored, f)
 				err = restored.prepareLedgerState(ctx, "after-init", false)
 				f.audit.enter(ledgerLifecycle)
 				require.NoError(t, err)
-				require.Equal(t, before, ledgerRawSnapshot(t, f.engine))
+				require.Equal(t, before, ledgerSnapshotWithFoldedCounters(t, f.engine))
 				require.Equal(t, &IngestQualityCheckpoint{}, restored.stats.ingestQuality())
 			}
 		})
