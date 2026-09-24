@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"filippo.io/hpke"
@@ -289,6 +290,31 @@ func TestIssueCredentialRejectsInvalidEncryptionConfigBeforeIssuerCall(t *testin
 			require.NotContains(t, err.Error(), jweIssuedSecretMarker)
 		})
 	}
+}
+
+// TestIssueCredentialRejectsOversizedProtectedHeaderBeforeIssuerCall covers the
+// protected-header limit end to end. A key id inside the key-id limit can still
+// serialize past the decoded-header cap once JSON escaping is applied; that must
+// fail before the connector mints anything.
+func TestIssueCredentialRejectsOversizedProtectedHeaderBeforeIssuerCall(t *testing.T) {
+	ctx := context.Background()
+	issuer := newScriptedCredentialIssuer("service_account")
+	issuer.plaintexts = []*v2.PlaintextData{
+		v2.PlaintextData_builder{Name: "api_key", Bytes: []byte(jweIssuedSecretMarker)}.Build(),
+	}
+	connector, err := NewConnector(ctx, newJWETestConnector(t, issuer))
+	require.NoError(t, err)
+
+	config := validJWEConfig(t)
+	config.SetKeyId(strings.Repeat("<", 1024))
+
+	response, err := connector.IssueCredential(ctx, issueRequest(config))
+	require.Error(t, err)
+	require.Equal(t, codes.InvalidArgument, status.Code(err), "want InvalidArgument, got %v", err)
+	require.Zero(t, issuer.calls, "an oversized protected header must fail before minting")
+	require.Nil(t, response)
+	require.NotContains(t, err.Error(), "<")
+	require.NotContains(t, err.Error(), jweIssuedSecretMarker)
 }
 
 // TestIssueCredentialRejectsUnsupportedAuthenticatedData covers the shared

@@ -24,6 +24,12 @@ const (
 	MaxPlaintextBytes                   = 1024 * 1024
 )
 
+// MaxProtectedHeaderBytes bounds the decoded protected header JSON, matching
+// the limit the consuming reader enforces. It is measured on the serialized
+// header rather than on the key id, because JSON escaping can inflate a key id
+// well past its own length.
+const MaxProtectedHeaderBytes = 4096
+
 type Provider struct{}
 
 func (*Provider) ValidateConfig(_ context.Context, config *v2.EncryptionConfig) error {
