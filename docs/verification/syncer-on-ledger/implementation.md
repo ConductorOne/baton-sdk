@@ -51,7 +51,7 @@ an unfinished processing declaration prevents a failed seal being mistaken for
 another finished binding. Missing queue state is not an empty queue.
 
 Default sealing saves the mechanical report/options, drops history and purges
-its physical token residue once. Debug mode retains scrubbed history and enables
+its physical token residue once. Explicit ledger debug mode (independent of logging verbosity) retains scrubbed history and enables
 indexed reference checks; explicit token retention requires debug mode and warns.
 Unfinished resumes honor durable retention. Report-generation failure saves an unavailable result and still discards
 history. Recovery-archive write failure prevents sealing and remains retryable. Final cleanup removes the token-free completion declaration only after

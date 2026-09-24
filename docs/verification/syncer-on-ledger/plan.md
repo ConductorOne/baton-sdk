@@ -1192,3 +1192,16 @@ durable declaration; a pending seal is not a fresh policy boundary.
 - Verification delta: report-generation failure through public full/partial sync and overlay/fold compaction asserts history absent and data/stats preserved; recovery-archive write failure asserts unfinished state and successful disposal on retry. Existing disposal crash cuts remain required.
 - Risk routing: HIGH, unchanged.
 - PR placement: this PR.
+
+
+### CO-029 — diagnostic retention is independent of logging
+
+- Classification: correction.
+- Source: requester.
+- Claim: log verbosity never enables ledger history retention or extra reference checks. Those require the explicit ledger debug option; durable token-retention policy on unfinished recovery remains honored.
+- Contract delta: none.
+- Owning boundary: sync configuration.
+- Affected criteria: C37, C50.
+- Verification delta: public sync crosses info/debug logging with explicit ledger debug enabled/disabled, checking effective saved options and actual row retention. Debug logging alone does not authorize token retention.
+- Risk routing: unchanged.
+- PR placement: this PR.

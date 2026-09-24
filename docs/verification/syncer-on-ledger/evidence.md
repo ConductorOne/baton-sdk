@@ -184,3 +184,17 @@ disposal/report/compactor tests passed three times under the race detector.
 The full sync suite passed after removing the test-only Pebble checkpoint mode;
 the existing ledger fixture covers the same multi-page filter assertion.
 CI-merge-checkout lint reported zero issues.
+
+
+## Explicit ledger debug selection
+
+`TestLedgerDebugRetentionRequiresExplicitOption` exercises public sync with info/debug
+logging crossed with the explicit ledger debug option, asserting saved effective
+options and actual history retention. `TestLedgerDebugLoggingDoesNotAuthorizeTokenRetention`
+asserts debug logging does not permit raw-token retention. Both tests failed on the
+logging-coupled implementation before the predicate changed. Durable token retention
+from an unfinished sync still applies on resume; the change only removes log-level
+selection of ledger debug mode.
+Focused debug/retention and unfinished-resume checks pass three times under race;
+CI-merge-checkout sync lint reports zero issues. Per-attempt option snapshots and
+worker buckets still accumulate on unfinished syncs; bounding them is outstanding.

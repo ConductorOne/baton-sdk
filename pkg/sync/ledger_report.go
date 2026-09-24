@@ -15,7 +15,7 @@ func WithLedgerDebug(enabled bool) SyncOpt {
 
 func (s *syncer) configureLedgerReport(ctx context.Context) error {
 	logger := ctxzap.Extract(ctx)
-	s.ledgerDebug = s.cfg.ledgerDebug || logger.Core().Enabled(zap.DebugLevel)
+	s.ledgerDebug = s.cfg.ledgerDebug
 	if s.cfg.retainLedgerTokens && !s.ledgerDebug {
 		return errors.New("retaining ledger tokens requires ledger debug mode")
 	}

@@ -287,13 +287,33 @@ func TestLedgerPublicLogsSavedStats(t *testing.T) {
 	require.JSONEq(t, string(saved), string(logged))
 }
 
-func TestLedgerDebugLoggingPreservesRequestedConfig(t *testing.T) {
+func TestLedgerDebugRetentionRequiresExplicitOption(t *testing.T) {
+	for _, level := range []zap.AtomicLevel{zap.NewAtomicLevelAt(zap.InfoLevel), zap.NewAtomicLevelAt(zap.DebugLevel)} {
+		for _, debug := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/ledger-debug-%t", level, debug), func(t *testing.T) {
+				f := newLedgerFixture(t)
+				core, _ := observer.New(level)
+				ctx := ctxzap.ToContext(t.Context(), zap.New(core))
+				created, err := NewSyncer(ctx, newMockConnector(), WithConnectorStore(f.store), WithLedgerDebug(debug))
+				require.NoError(t, err)
+				require.NoError(t, created.Sync(ctx))
+				options, err := f.ledger.GetArchivedLedgerOptions(ctx, "")
+				require.NoError(t, err)
+				require.Equal(t, debug, options.EffectiveLedgerDebug)
+				require.Equal(t, debug, options.Requested.LedgerDebug)
+				_, found, err := f.ledger.GetLedgerRow(ctx, c1zstore.LedgerActionIdentity{Op: SyncResourceTypesOp.String()})
+				require.NoError(t, err)
+				require.Equal(t, debug, found)
+			})
+		}
+	}
+}
+
+func TestLedgerDebugLoggingDoesNotAuthorizeTokenRetention(t *testing.T) {
 	core, _ := observer.New(zap.DebugLevel)
 	ctx := ctxzap.ToContext(t.Context(), zap.New(core))
-	s := &syncer{}
-	require.NoError(t, s.configureLedgerReport(ctx))
-	require.True(t, s.ledgerDebug)
-	require.False(t, s.cfg.ledgerDebug)
+	s := &syncer{cfg: syncConfig{retainLedgerTokens: true}}
+	require.ErrorContains(t, s.configureLedgerReport(ctx), "requires ledger debug mode")
 }
 
 func TestLedgerPublicPathAttachment(t *testing.T) {
