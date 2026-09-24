@@ -11,6 +11,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
 type ledgerRecoveryState struct {
@@ -75,7 +77,11 @@ func (e *Engine) archiveLedgerReportLocked(ctx context.Context, syncID string) (
 	}
 	report, err := e.GenerateLedgerReport(ctx)
 	if err != nil {
-		return nil, err
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		ctxzap.Extract(ctx).Warn("failed to generate ledger report; saving unavailable status", zap.Error(err))
+		report = []byte(`{"status":"unavailable","reason":"report_generation_failed"}`)
 	}
 	facts, err := e.Ledger().Facts(ctx)
 	if err != nil {
@@ -89,7 +95,7 @@ func (e *Engine) archiveLedgerReportLocked(ctx context.Context, syncID string) (
 	var options c1zstore.LedgerReportOptions
 	if value := facts[c1zstore.LedgerFactReportOptions]; value != "" {
 		if err := json.Unmarshal([]byte(value), &options); err != nil {
-			return nil, err
+			options = c1zstore.LedgerReportOptions{}
 		}
 	}
 	if options.Requested.OnlyExpandGrants {

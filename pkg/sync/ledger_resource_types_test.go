@@ -37,10 +37,9 @@ func (c *ledgerTypesConnector) ListResourceTypes(
 	return v2.ResourceTypesServiceListResourceTypesResponse_builder{List: []*v2.ResourceType{{Id: "second"}, {Id: "excluded"}}, Annotations: []*anypb.Any{report}}.Build(), nil
 }
 
-func resourceTypePageFixture(t *testing.T, ledger bool) (*syncer, *ledgerFixture, *ledgerTypesConnector) {
+func resourceTypePageFixture(t *testing.T) (*syncer, *ledgerFixture, *ledgerTypesConnector) {
 	t.Helper()
 	s, f := newLedgerSchedulerFixture(t, 1)
-	s.ledgered = ledger
 	s.recordStats = true
 	s.counts = progresslog.NewProgressCounts(t.Context())
 	s.cfg.syncResourceTypes = []string{"first", "second"}
@@ -56,15 +55,8 @@ func runResourceTypePages(t *testing.T, s *syncer) error {
 	return err
 }
 
-func TestResourceTypeFilterAcrossConnectorPages(t *testing.T) {
-	s, _, c := resourceTypePageFixture(t, false)
-	require.NoError(t, runResourceTypePages(t, s))
-	require.Equal(t, []string{"", "page-2"}, c.calls)
-	require.Nil(t, s.run.current())
-}
-
 func TestLedgerResourceTypePages(t *testing.T) {
-	s, f, c := resourceTypePageFixture(t, true)
+	s, f, c := resourceTypePageFixture(t)
 	f.audit.enter(ledgerHandler)
 	require.NoError(t, runResourceTypePages(t, s))
 	f.audit.enter(ledgerLifecycle)
@@ -87,7 +79,7 @@ func TestLedgerResourceTypePages(t *testing.T) {
 }
 
 func TestLedgerResourceTypeFailureRetryAndReplay(t *testing.T) {
-	s, f, c := resourceTypePageFixture(t, true)
+	s, f, c := resourceTypePageFixture(t)
 	var progressTokens []string
 	s.cfg.progressHandler = func(p *Progress) { progressTokens = append(progressTokens, "progress") }
 	seedLedgerTestRun(t, s, nil)
@@ -130,7 +122,7 @@ func TestLedgerResourceTypeFailureRetryAndReplay(t *testing.T) {
 
 func TestLedgerResourceTypeErrors(t *testing.T) {
 	t.Run("connector", func(t *testing.T) {
-		s, f, c := resourceTypePageFixture(t, true)
+		s, f, c := resourceTypePageFixture(t)
 		c.failure = errLedgerInjectedPage
 		seedLedgerTestRun(t, s, nil)
 		before := ledgerRawSnapshot(t, f.engine)
@@ -142,7 +134,7 @@ func TestLedgerResourceTypeErrors(t *testing.T) {
 		require.NotNil(t, s.run.current())
 	})
 	t.Run("missing-filter", func(t *testing.T) {
-		s, f, _ := resourceTypePageFixture(t, true)
+		s, f, _ := resourceTypePageFixture(t)
 		s.cfg.syncResourceTypes = append(s.cfg.syncResourceTypes, "missing")
 		f.audit.enter(ledgerHandler)
 		require.ErrorContains(t, runResourceTypePages(t, s), "invalid resource type 'missing' in filter")
@@ -162,7 +154,7 @@ func (s ledgerTypeReadFailure) GetResourceType(context.Context, *reader_v2.Resou
 }
 
 func TestLedgerResourceTypeReadFailure(t *testing.T) {
-	s, f, _ := resourceTypePageFixture(t, true)
+	s, f, _ := resourceTypePageFixture(t)
 	s.store = ledgerTypeReadFailure{Store: f.store}
 	f.audit.enter(ledgerHandler)
 	require.ErrorIs(t, runResourceTypePages(t, s), errLedgerInjectedPage)
@@ -184,7 +176,7 @@ func TestLedgerResourceTypeSelection(t *testing.T) {
 		{name: "terminal-page", selection: []string{"second"}, want: []string{"second"}, progress: []uint32{0, 1}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s, f, _ := resourceTypePageFixture(t, true)
+			s, f, _ := resourceTypePageFixture(t)
 			s.cfg.syncResourceTypes = tc.selection
 			s.recordStats = false
 			var progress []uint32
@@ -225,7 +217,7 @@ func (s *ledgerTypeReadAudit) GetResourceType(
 }
 
 func TestLedgerResourceTypeSelectedSync(t *testing.T) {
-	s, f, _ := resourceTypePageFixture(t, true)
+	s, f, _ := resourceTypePageFixture(t)
 	s.injectSyncIDAnnotation = true
 	s.syncID = f.engine.CurrentSyncID()
 	reader := &ledgerTypeReadAudit{Store: f.store}

@@ -263,13 +263,11 @@ func runDurableSync(t *testing.T, fs vfs.FS, dir, mode string, workers int, cutO
 		report, err := ledger.GetArchivedLedgerReport(ctx)
 		require.NoError(t, err)
 		if mode == "archive-failure" {
-			require.NotEmpty(t, facts)
-			require.NotContains(t, facts, c1zstore.LedgerFactDiscardOnSeal)
-			require.Empty(t, report)
-			row, found, err := ledger.GetLedgerRow(ctx, c1zstore.LedgerActionIdentity{Op: "list-resource-types"})
+			require.Empty(t, facts)
+			require.Contains(t, string(report), `"status":"unavailable"`)
+			_, found, err := ledger.GetLedgerRow(ctx, c1zstore.LedgerActionIdentity{Op: "list-resource-types"})
 			require.NoError(t, err)
-			require.True(t, found)
-			require.True(t, row.Scrubbed)
+			require.False(t, found)
 		} else {
 			require.Empty(t, facts)
 			require.NotEmpty(t, report)
@@ -533,12 +531,10 @@ func createPublicLedgerCompactorInput(t *testing.T, ctx context.Context, root st
 			require.Equal(t, "private-type-cursor", row.NextPageToken, input.label())
 		}
 	case "archive-generation-failure":
-		require.NotEmpty(t, facts, input.label())
-		require.NotContains(t, facts, c1zstore.LedgerFactDiscardOnSeal, input.label())
+		require.Empty(t, facts, input.label())
 		require.NoError(t, err)
-		require.Empty(t, report, input.label())
-		require.True(t, found, input.label())
-		require.True(t, row.Scrubbed, input.label())
+		require.Contains(t, string(report), `"status":"unavailable"`, input.label())
+		require.False(t, found, input.label())
 	}
 	require.NoError(t, store.Close(ctx))
 	return &synccompactor.CompactableSync{FilePath: path, SyncID: run.ID}

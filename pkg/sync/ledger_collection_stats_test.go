@@ -38,7 +38,7 @@ func TestLedgerCollectionReceivedAndExcluded(t *testing.T) {
 		require.EqualValues(t, 2, row.Collection.EntitlementsExcludedInvalid)
 	})
 	t.Run("selected-types", func(t *testing.T) {
-		s, f, _ := resourceTypePageFixture(t, true)
+		s, f, _ := resourceTypePageFixture(t)
 		id := ledgerIdentity(s.run.current())
 		require.NoError(t, runResourceTypePages(t, s))
 		row, found, err := f.ledger.GetLedgerRow(t.Context(), id)

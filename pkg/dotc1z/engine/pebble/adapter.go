@@ -418,7 +418,7 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 			archiveErr := e.withWriteAllowSealed(func() error { _, err := e.archiveLedgerReportLocked(ctx, existing.GetSyncId()); return err })
 			cost.LedgerArchive = time.Since(archiveStarted)
 			if archiveErr != nil {
-				ctxzap.Extract(ctx).Warn("failed to archive ledger report before seal; retaining page history", zap.Error(archiveErr))
+				return fmt.Errorf("EndSync: save ledger recovery state: %w", archiveErr)
 			} else {
 				discardStarted := time.Now()
 				if err := e.ledger.markResiduePending(); err != nil {

@@ -167,3 +167,20 @@ unexecuted combinations, individually unforced lower-level errors, incomplete
 original cost dimensions, and incomplete exhaustive mutation/branch closure.
 The bounded review/test evidence supports a merge recommendation; it does not
 satisfy the original exhaustive products in full or waive their recorded limits.
+
+
+## Default disposal correction (CO-028)
+
+Report-generation failure now saves an explicit unavailable report and still drops
+history. Public full/partial fixtures verify absent history, preserved data/stats,
+and overlay/fold compaction. Recovery-archive write failure prevents seal; its
+retry test verifies eventual deletion and physical token purge. The existing
+8-stage fresh/finished disposal crash images remain covered by the focused run.
+SQLite resource-type validation and targeted child deduplication are restored to
+the baseline implementation; shared planning and accounting helpers remain.
+
+Validation: affected Pebble, public dotc1z and compactor suites passed; focused
+disposal/report/compactor tests passed three times under the race detector.
+The full sync suite passed after removing the test-only Pebble checkpoint mode;
+the existing ledger fixture covers the same multi-page filter assertion.
+CI-merge-checkout lint reported zero issues.

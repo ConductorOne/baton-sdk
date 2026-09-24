@@ -45,7 +45,7 @@ func TestLedgerDiscardSealPurgesOnce(t *testing.T) {
 	require.Equal(t, 1, writes, "post-seal report access must reuse the archive")
 }
 
-func TestLedgerDiscardArchiveFailureRetainsScrubbedRows(t *testing.T) {
+func TestLedgerDiscardArchiveWriteFailureRetries(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -59,21 +59,20 @@ func TestLedgerDiscardArchiveFailureRetainsScrubbedRows(t *testing.T) {
 		}
 		return nil
 	}
-	require.NoError(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}))
-	row, found, err := e.Ledger().GetRow(t.Context(), id)
+	require.ErrorContains(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}), "archive unavailable")
+	finished, err := e.BoundSyncFinished(t.Context())
+	require.NoError(t, err)
+	require.False(t, finished)
+	_, found, err := e.Ledger().GetRow(t.Context(), id)
 	require.NoError(t, err)
 	require.True(t, found)
-	require.True(t, row.Scrubbed)
+	e.test.ledgerArchiveHook = nil
+	require.NoError(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}))
+	_, found, err = e.Ledger().GetRow(t.Context(), id)
+	require.NoError(t, err)
+	require.False(t, found)
 	require.EqualValues(t, 1, e.test.ledgerResiduePurges.Load())
 	require.Zero(t, checkpointNeedleHits(t, e, []byte("private-token")))
-	facts, err := e.Ledger().Facts(t.Context())
-	require.NoError(t, err)
-	require.NotContains(t, facts, c1zstore.LedgerFactDiscardOnSeal)
-	e.test.ledgerArchiveHook = nil
-	report, err := e.ArchiveLedgerReport(t.Context())
-	require.NoError(t, err)
-	require.NotEmpty(t, report)
-	require.EqualValues(t, 1, e.test.ledgerResiduePurges.Load())
 }
 
 func TestLedgerDiscardDurableSealCuts(t *testing.T) {

@@ -1179,3 +1179,16 @@ durable declaration; a pending seal is not a fresh policy boundary.
 - Cost evidence: raw Pebble prototype, 1m completed pages/10 pending entries resumed in approximately0.18ms;100k pending entries decoded in windows of64. Extra queue writes cost approximately1.6s per1m one-record pages; requester accepts this scale of overhead. Actual scheduler integration still needs comparison.
 - Risk routing: HIGH; no production queue migration until the transaction and bounded-loader checks exist.
 - PR placement: replace current recovery algorithm in this PR. No shipped ledgered syncer exists; incompatible unfinished experimental history-only artifacts must be diagnosed rather than silently treated as empty.
+
+
+### CO-028 — default disposal also applies when reporting fails
+
+- Classification: correction.
+- Source: requester.
+- Claim: a successfully sealed default-mode artifact contains no completed ledger history, including when report generation fails. Report failure is recorded as unavailable; it does not implicitly enable retention. Failure to persist recovery state prevents seal and remains retryable.
+- Contract delta: none.
+- Owning boundary: Pebble archive and seal.
+- Affected criteria: C31, C32, C43, C50.
+- Verification delta: report-generation failure through public full/partial sync and overlay/fold compaction asserts history absent and data/stats preserved; recovery-archive write failure asserts unfinished state and successful disposal on retry. Existing disposal crash cuts remain required.
+- Risk routing: HIGH, unchanged.
+- PR placement: this PR.

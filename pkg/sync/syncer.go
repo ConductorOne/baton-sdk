@@ -1367,12 +1367,35 @@ func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
 	if resp.GetNextPageToken() == "" {
 		s.counts.LogResourceTypesProgress(ctx)
 
-		if err := s.validateSelectedResourceTypes(ctx, resourceTypes); err != nil {
-			return err
+		if len(s.cfg.syncResourceTypes) > 0 {
+			validResourceTypesResp, err := s.store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
+				PageToken:    action.PageToken,
+				ActiveSyncId: s.getActiveSyncID(),
+			}.Build())
+			if err != nil {
+				return err
+			}
+			err = validateSyncResourceTypesFilter(s.cfg.syncResourceTypes, validResourceTypesResp.GetList())
+			if err != nil {
+				return err
+			}
 		}
 	}
 
 	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
+}
+
+func validateSyncResourceTypesFilter(resourceTypesFilter []string, validResourceTypes []*v2.ResourceType) error {
+	validResourceTypesMap := make(map[string]bool)
+	for _, rt := range validResourceTypes {
+		validResourceTypesMap[rt.GetId()] = true
+	}
+	for _, rt := range resourceTypesFilter {
+		if _, ok := validResourceTypesMap[rt]; !ok {
+			return fmt.Errorf("invalid resource type '%s' in filter", rt)
+		}
+	}
+	return nil
 }
 
 func (s *syncer) hasChildResources(resource *v2.Resource) bool {
@@ -1459,6 +1482,9 @@ func (s *syncer) pendingChildResourceActions(childTypeIDs []string, parentTypeID
 	var actions []Action
 	for _, childTypeID := range childTypeIDs {
 		if len(s.cfg.syncResourceTypes) > 0 && !slices.Contains(s.cfg.syncResourceTypes, childTypeID) {
+			continue
+		}
+		if s.childSchedule.has(childTypeID, parentTypeID, parentID) {
 			continue
 		}
 		actions = append(actions, Action{

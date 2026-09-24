@@ -53,8 +53,8 @@ another finished binding. Missing queue state is not an empty queue.
 Default sealing saves the mechanical report/options, drops history and purges
 its physical token residue once. Debug mode retains scrubbed history and enables
 indexed reference checks; explicit token retention requires debug mode and warns.
-Unfinished resumes honor durable retention. Archive-write failure keeps scrubbed
-history. Final cleanup removes the token-free completion declaration only after
+Unfinished resumes honor durable retention. Report-generation failure saves an unavailable result and still discards
+history. Recovery-archive write failure prevents sealing and remains retryable. Final cleanup removes the token-free completion declaration only after
 seal succeeds. Already-finished low-level reseal and durable disposal recovery
 are separate from permission to finish an uninitialized collection.
 
