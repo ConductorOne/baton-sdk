@@ -213,3 +213,15 @@ func TestSuggestedValuePrecedence(t *testing.T) {
 	require.Equal(t, []string{"runtime"}, v1.GetStringSliceField().GetDefaultValue())
 	require.Equal(t, []string{"suggested"}, v1.GetStringSliceField().GetSuggestedValue())
 }
+
+func TestMultiSelectField(t *testing.T) {
+	// MultiSelectField marshals to the same StringSliceField proto as
+	// StringSliceField, with the option set folded into Rules.ItemRules.In --
+	// the multi-value counterpart of SelectField's StringRules.In.
+	options := []string{"a", "b", "c"}
+	f := MultiSelectField("letters", options)
+
+	v1, err := schemaFieldToV1(f)
+	require.NoError(t, err)
+	require.Equal(t, options, v1.GetStringSliceField().GetRules().GetItemRules().GetIn())
+}

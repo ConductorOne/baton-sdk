@@ -240,6 +240,20 @@ func TestValidate(t *testing.T) {
 	})
 }
 
+func TestValidateMultiSelectField(t *testing.T) {
+	letters := MultiSelectField("letters", []string{"a", "b", "c"})
+	carrier := Configuration{Fields: []SchemaField{letters}}
+
+	t.Run("value in the option set", func(t *testing.T) {
+		AssertOutcome(t, carrier, map[string]string{"letters": "a"}, "")
+	})
+
+	t.Run("value outside the option set", func(t *testing.T) {
+		AssertOutcome(t, carrier, map[string]string{"letters": "z"},
+			"errors found:\nfield letters invalid item at field 0: value must be one of [a b c] but got 'z'")
+	})
+}
+
 func sP(s string) *string {
 	return &s
 }
