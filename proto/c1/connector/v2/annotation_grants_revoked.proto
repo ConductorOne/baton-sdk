@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// GrantsRevoked is attached by a connector to a Revoke response when the
+// operation removed additional grants for the same principal.
+message GrantsRevoked {
+  repeated string entitlement_ids = 1 [(validate.rules).repeated = {
+    items: {
+      string: {min_bytes: 1}
+    }
+  }];
+}
