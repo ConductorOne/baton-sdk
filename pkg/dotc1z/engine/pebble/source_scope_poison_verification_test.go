@@ -203,12 +203,7 @@ func TestVerificationPoisonAllKindRestampAndUnscopedDelete(t *testing.T) {
 	}
 }
 
-// TestVerificationPoisonCrossScopeCanonicalTombstone pins the acting-scope
-// contract on the canonical-ID tombstone path: the same bounded delete
-// poisons the row's scope when acting for a DIFFERENT scope and never
-// self-poisons when acting for the row's own scope. This is the store-level
-// DeleteSourceCacheRows shape with the acting scope threaded through.
-func TestVerificationPoisonCrossScopeCanonicalTombstone(t *testing.T) {
+func TestVerificationPoisonCrossScopeRefTombstone(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		actingScope string
@@ -225,7 +220,11 @@ func TestVerificationPoisonCrossScopeCanonicalTombstone(t *testing.T) {
 			doomed := scGrant("member", "alice", false)
 			kept := scGrant("member", "bob", false)
 			require.NoError(t, prev.PutGrants(sourcecache.WithScope(ctx, "scope-a"), doomed, kept))
-			require.NoError(t, prev.PebbleEngine().DeleteGrantRecordsBounded(ctx, []string{doomed.GetId()}, tc.actingScope))
+			_, err = prev.PebbleEngine().DeleteGrantRecordsByRef(ctx, []sourcecache.GrantRef{{
+				Entitlement: sourcecache.EntitlementRef{Resource: sourcecache.ResourceRef{ResourceTypeID: "group", ResourceID: "g1"}, EntitlementID: "group:g1:member"},
+				Principal:   sourcecache.ResourceRef{ResourceTypeID: "user", ResourceID: "alice"},
+			}}, tc.actingScope)
+			require.NoError(t, err)
 			sealReplaySource(ctx, t, prev.PebbleEngine(), sourcecache.RowKindGrants, "scope-a")
 
 			dst := newAdapter(t)
@@ -255,7 +254,7 @@ func TestVerificationPoisonScopedTombstonesDoNotSelfPoison(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, prev.PutGrants(sourcecache.WithScope(ctx, "scope-a"),
 			scGrant("member", "alice", false), scGrant("member", "bob", false)))
-		deleted, err := prev.PebbleEngine().DeleteGrantsByPrincipalsInScope(ctx, "scope-a", map[string]struct{}{"alice": {}})
+		deleted, err := prev.PebbleEngine().DeleteGrantsByPrincipalsInScope(ctx, "scope-a", []sourcecache.ResourceRef{{ResourceTypeID: "user", ResourceID: "alice"}})
 		require.NoError(t, err)
 		require.Equal(t, int64(1), deleted)
 		sealReplaySource(ctx, t, prev.PebbleEngine(), sourcecache.RowKindGrants, "scope-a")
@@ -275,7 +274,7 @@ func TestVerificationPoisonScopedTombstonesDoNotSelfPoison(t *testing.T) {
 		u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
 		u2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u2"}.Build()}.Build()
 		require.NoError(t, prev.PutResources(sourcecache.WithScope(ctx, "scope-a"), u1, u2))
-		deleted, err := prev.PebbleEngine().DeleteResourcesByIDsInScope(ctx, "scope-a", map[string]struct{}{"u1": {}})
+		deleted, err := prev.PebbleEngine().DeleteResourceRecordsByRef(ctx, []sourcecache.ResourceRef{{ResourceTypeID: "user", ResourceID: "u1"}}, "scope-a")
 		require.NoError(t, err)
 		require.Equal(t, int64(1), deleted)
 		sealReplaySource(ctx, t, prev.PebbleEngine(), sourcecache.RowKindResources, "scope-a")
