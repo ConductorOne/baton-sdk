@@ -335,8 +335,9 @@ func (b0 SourceCacheRecord_builder) Build() *SourceCacheRecord {
 // SourceCacheTombstones names rows to delete from the current sync by
 // structured identity. Every reference is complete: a ResourceId carries
 // both resource_type and resource; an entitlement ref carries its
-// resource and its entitlement id; a grant ref carries both. The SDK
-// rejects the page on an incomplete reference rather than guess. Only the
+// resource and its entitlement id; a grant ref carries both. The decoder
+// (sourcecache.TombstonesFromProto) rejects an incomplete reference rather
+// than guess. Only the
 // fields for the page's row kind may be set: resources on a resources
 // page, entitlements on an entitlements page, grants and principals on a
 // grants page.
