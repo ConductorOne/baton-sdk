@@ -11,6 +11,8 @@ import (
 
 	"filippo.io/hpke"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -340,6 +342,19 @@ func TestEncryptRejectsPlaintextOutsideSizeLimit(t *testing.T) {
 		requireInvalidArgument(t, err)
 		require.Nil(t, encrypted)
 	})
+}
+
+// TestEncryptHonoursCancelledContext pins that a cancelled context surfaces as
+// a cancellation rather than a generic failure or a silently produced message.
+func TestEncryptHonoursCancelledContext(t *testing.T) {
+	recipient := newTestRecipient(t, "recipient-1", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	encrypted, err := (&Provider{}).Encrypt(ctx, recipient.config, v2.PlaintextData_builder{Name: "m", Bytes: []byte("payload")}.Build())
+	require.Error(t, err)
+	require.Equal(t, codes.Canceled, status.Code(err), "want Canceled, got %v", err)
+	require.Nil(t, encrypted)
 }
 
 // TestEncryptRejectsNonCanonicalPublicKeyEncoding pins the base64url rule: the

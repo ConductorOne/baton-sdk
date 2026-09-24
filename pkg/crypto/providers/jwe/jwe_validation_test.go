@@ -75,6 +75,28 @@ func padJWKToSize(t *testing.T, publicKey []byte, total int) []byte {
 	}
 }
 
+// TestPublicJWKFieldsStructuralMalformation drives the byte-level object shapes
+// the decoder can reach: trailing commas, mismatched or missing delimiters, and
+// a bare separator. Each must be refused rather than parsed into fields.
+func TestPublicJWKFieldsStructuralMalformation(t *testing.T) {
+	for _, input := range []string{
+		`{"kty":"AKP",}`,
+		`{"kty":"AKP"]`,
+		`{"kty":"AKP"`,
+		`{`,
+		`{"kty"}`,
+		`{"kty":"AKP",,"alg":"x"}`,
+		`{"kty":"AKP"} {}`,
+		`{"kty":"AKP"} trailing`,
+	} {
+		t.Run(input, func(t *testing.T) {
+			fields, err := publicJWKFields([]byte(input))
+			requireInvalidArgument(t, err)
+			require.Nil(t, fields)
+		})
+	}
+}
+
 // TestPublicKeyRejectionsUseDistinctMechanisms proves each unusable X-Wing
 // public key is refused by the layer that is supposed to refuse it. The
 // provider reports every public-key failure as one message, so the error text
