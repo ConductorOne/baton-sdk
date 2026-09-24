@@ -64,6 +64,15 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
 	}
 
+	// Validate recipients before asking the connector to mutate the provider.
+	// Encryption failures surface after Rotate has already replaced the
+	// credential on the upstream resource.
+	if err := crypto.ValidateEncryptionConfigs(request.GetEncryptionConfigs()); err != nil {
+		l.Error("error: validating encryption configs failed", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, fmt.Errorf("error: validating encryption configs failed: %w", err)
+	}
+
 	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), opts)
 	if err != nil {
 		l.Error("error: rotate credentials on resource failed", zap.Error(err))
