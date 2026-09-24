@@ -51,3 +51,34 @@ SDKs must be excluded by capability selection before dispatch.
   unchanged (J6/J9).
 - The legacy JWK provider and shared resolver reject unsupported AAD; callers
   invoking either provider directly must receive the same rejection (J5).
+
+## Change orders
+
+Post-freeze changes to the baseline above. Each is re-routed through the risk
+model and carries its own instrument.
+
+### CO-1: recipient preflight on create and rotate (2026-09-24)
+
+Registering `baton/jwe/v1` made it reachable from `CreateAccount` and
+`RotateCredential`, which encrypted only after the connector had mutated the
+upstream provider. Both paths now call `crypto.ValidateEncryptionConfigs` after
+option conversion and before the connector call (J3/J4). Instrument: side-effect
+counts asserting zero connector invocations for a malformed JWE recipient, a
+legacy JWK recipient carrying authenticated data, and JWE fan-out, plus
+compatibility cases pinning that an empty config list and a legacy no-AAD JWK
+recipient still reach the connector.
+
+### CO-2: protected-header limit aligned with the consuming reader
+(2026-09-24)
+
+The consuming reader caps the decoded protected header at 4096 bytes, while the
+provider bounded only the raw `key_id`. `json.Marshal` escapes HTML characters
+to six wire bytes each, so a `key_id` inside its own 1024-byte limit could
+serialize past 4096 and be rejected by the reader after the credential had been
+minted. `MaxProtectedHeaderBytes` now bounds the serialized header, and one
+shared serializer feeds both `recipient` preflight and `Encrypt` (J2/J3/J4). The
+1024-byte `key_id` limit is unchanged. This narrows accepted input to match the
+consumer; it does not change the wire format. Instrument: boundary tests at 4095
+/ 4096 / 4097 serialized bytes, an accepting ordinary 1024-byte key id, a
+refusing 1024-byte escaped key id, no-echo assertions, and a real
+`IssueCredential` case proving zero provider calls.

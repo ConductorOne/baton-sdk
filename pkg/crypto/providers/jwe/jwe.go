@@ -33,12 +33,12 @@ const MaxProtectedHeaderBytes = 4096
 type Provider struct{}
 
 func (*Provider) ValidateConfig(_ context.Context, config *v2.EncryptionConfig) error {
-	_, err := recipient(config)
+	_, _, err := recipient(config)
 	return err
 }
 
 func (*Provider) Encrypt(ctx context.Context, config *v2.EncryptionConfig, plaintext *v2.PlaintextData) (*v2.EncryptedData, error) {
-	key, err := recipient(config)
+	key, header, err := recipient(config)
 	if err != nil {
 		return nil, err
 	}
@@ -47,13 +47,6 @@ func (*Provider) Encrypt(ctx context.Context, config *v2.EncryptionConfig, plain
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, status.FromContextError(err).Err()
-	}
-	header, err := json.Marshal(struct {
-		Algorithm string `json:"alg"`
-		KeyID     string `json:"kid"`
-	}{Algorithm, config.GetKeyId()})
-	if err != nil {
-		return nil, status.Error(codes.Internal, "jwe: encode protected header")
 	}
 	encodedHeader := base64.RawURLEncoding.EncodeToString(header)
 	encodedAAD := base64.RawURLEncoding.EncodeToString(config.GetJwkPublicKeyConfig().GetAdditionalAuthenticatedData())
@@ -92,69 +85,91 @@ func (*Provider) Encrypt(ctx context.Context, config *v2.EncryptionConfig, plain
 	}.Build(), nil
 }
 
-func recipient(config *v2.EncryptionConfig) (hpke.PublicKey, error) {
+// protectedHeader is the only member set this profile permits on the wire.
+type protectedHeader struct {
+	Algorithm string `json:"alg"`
+	KeyID     string `json:"kid"`
+}
+
+// encodeProtectedHeader serializes the protected header exactly as it appears on
+// the wire. Validation and encryption share it, so the size limit applies to the
+// serialized bytes a reader decodes rather than to the key id's own length:
+// json.Marshal escapes HTML characters, so a key id can serialize to several
+// times its own size. Marshalling two strings cannot fail.
+func encodeProtectedHeader(keyID string) []byte {
+	header, _ := json.Marshal(protectedHeader{Algorithm: Algorithm, KeyID: keyID})
+	return header
+}
+
+// recipient resolves and validates the configured recipient, returning the HPKE
+// public key and the serialized protected header for the wire.
+func recipient(config *v2.EncryptionConfig) (hpke.PublicKey, []byte, error) {
 	if config == nil || strings.ToLower(strings.TrimSpace(config.GetProvider())) != EncryptionProvider || config.GetJwkPublicKeyConfig() == nil {
-		return nil, invalid("explicit JWE provider and JWK config are required")
+		return nil, nil, invalid("explicit JWE provider and JWK config are required")
 	}
 	kid := config.GetKeyId()
 	if kid == "" || len(kid) > 1024 || !utf8.ValidString(kid) || strings.TrimSpace(kid) != kid {
-		return nil, invalid("invalid key id")
+		return nil, nil, invalid("invalid key id")
+	}
+	header := encodeProtectedHeader(kid)
+	if len(header) > MaxProtectedHeaderBytes {
+		return nil, nil, invalid("protected header exceeds size limit")
 	}
 	jwkConfig := config.GetJwkPublicKeyConfig()
 	if len(jwkConfig.GetAdditionalAuthenticatedData()) > MaxAdditionalAuthenticatedDataBytes {
-		return nil, invalid("authenticated data exceeds size limit")
+		return nil, nil, invalid("authenticated data exceeds size limit")
 	}
 	fields, err := publicJWKFields(jwkConfig.GetPubKey())
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var kty, alg, pub string
 	if json.Unmarshal(fields["kty"], &kty) != nil || kty != "AKP" ||
 		json.Unmarshal(fields["alg"], &alg) != nil || alg != Algorithm ||
 		json.Unmarshal(fields["pub"], &pub) != nil || pub == "" {
-		return nil, invalid("unsupported or incomplete public JWK")
+		return nil, nil, invalid("unsupported or incomplete public JWK")
 	}
 	for _, name := range []string{"priv", "d", "k"} {
 		if _, exists := fields[name]; exists {
-			return nil, invalid("private key material is not permitted")
+			return nil, nil, invalid("private key material is not permitted")
 		}
 	}
 	for name, expected := range map[string]string{"kid": kid, "use": "enc"} {
 		if raw, exists := fields[name]; exists {
 			var value string
 			if json.Unmarshal(raw, &value) != nil || value != expected {
-				return nil, invalid("inconsistent JWK key id or use")
+				return nil, nil, invalid("inconsistent JWK key id or use")
 			}
 		}
 	}
 	if raw, exists := fields["key_ops"]; exists {
 		var operations []string
 		if json.Unmarshal(raw, &operations) != nil || len(operations) != 1 || operations[0] != "encrypt" {
-			return nil, invalid("unsupported JWK key operations")
+			return nil, nil, invalid("unsupported JWK key operations")
 		}
 	}
 	keyBytes, err := base64.RawURLEncoding.Strict().DecodeString(pub)
 	if err != nil || base64.RawURLEncoding.EncodeToString(keyBytes) != pub {
-		return nil, invalid("invalid public key encoding")
+		return nil, nil, invalid("invalid public key encoding")
 	}
 	key, err := hpke.MLKEM768X25519().NewPublicKey(keyBytes)
 	if err != nil {
-		return nil, invalid("invalid X-Wing public key")
+		return nil, nil, invalid("invalid X-Wing public key")
 	}
 	// Parsing alone accepts low-order X25519 points; reject before issuance.
 	scalar := [32]byte{1}
 	probe, err := ecdh.X25519().NewPrivateKey(scalar[:])
 	if err != nil {
-		return nil, status.Error(codes.Internal, "jwe: initialize key validation")
+		return nil, nil, status.Error(codes.Internal, "jwe: initialize key validation")
 	}
 	x25519Key, err := ecdh.X25519().NewPublicKey(keyBytes[len(keyBytes)-32:])
 	if err != nil {
-		return nil, invalid("invalid X25519 public key")
+		return nil, nil, invalid("invalid X25519 public key")
 	}
 	if _, err := probe.ECDH(x25519Key); err != nil {
-		return nil, invalid("invalid X25519 public key")
+		return nil, nil, invalid("invalid X25519 public key")
 	}
-	return key, nil
+	return key, header, nil
 }
 
 func publicJWKFields(data []byte) (map[string]json.RawMessage, error) {

@@ -1,0 +1,35 @@
+{
+  "description": "Synthetic X-Wing JWE produced by the baton-sdk JWE credential provider. The private key is a public throwaway and must never be used outside tests.",
+  "profile": {
+    "provider": "baton/jwe/v1",
+    "alg": "https://conductorone.com/alg/hpke-xwing-hkdf-sha256-chacha20poly1305/v1",
+    "kem": "MLKEM768-X25519 (X-Wing)",
+    "kem_id": 25722,
+    "kdf": "HKDF-SHA256",
+    "kdf_id": 1,
+    "aead": "ChaCha20-Poly1305",
+    "aead_id": 3,
+    "framing": "flattened JWE JSON, integrated base mode (draft-ietf-jose-hpke-encrypt-22 section 5)",
+    "hpke_info": "empty",
+    "hpke_aad": "ASCII(protected + \".\" + aad), always including an empty context",
+    "jwe_iv_and_tag": "both empty; the HPKE authentication tag is the last 16 bytes of ciphertext"
+  },
+  "provenance": {
+    "producer": "baton-sdk pkg/crypto/providers/jwe",
+    "hpke_library": "filippo.io/hpke",
+    "hpke_version": "v0.4.0",
+    "go_version": "go1.27.1",
+    "generator": "TestRegenerateXWingJWEFixture (internal test, JWE_FIXTURE_REGENERATE=1)",
+    "generated_utc": "2026-09-24T23:51:40Z"
+  },
+  "key_id": "fixture-recipient-1",
+  "private_key_seed": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+  "public_key": "b1QJigoOZBFGYUtpYLpg2GA9YvRH-atJm0e9aQbMQLBh2GNKPoiQbyhJWOdEHKbHJcu5cJW3ZxpGK2aByeZYC7yNYLFJ-mAmEEOvu6UvIFpgKDhIUVlq3zcavqmNM0c4PSu2c0OPZ4NhK_hwFPe5Gol0AmU0XfZ5NARz0cTBdohuXim48Fi7fHNTFmhs_1w764wmHLAJcKacGvzFS5TLhuHOY7pjbjlcpFEB4hx70EwxPqGa8kFB79KtREFqJbpPZZEO99iAnDCT8EqvAOPNluNcSqPIAsGK1vOdpLS42YyL15Atg6B7pFOWZ0pgJDyrk-gP2bHId3N2qcwNb6EV4mOTgLnGvnhIvRNYjGRwOgU10ZoPgWM6l2oKEFtm7ihdD9JV6CwDMZJfQ4O278dh72CZI1oLmHJjWKqdAbi4llGfkhR0u3wUuyIlK1wvENQSRsmyPnZEhJNn9UGhX2O8koo5u3vHPwe2ZcSWu2VYyPRUiacuxLrNNOnFlMM4cbcj8DSV6ItDkasm5DBD3rYRezkZ5FxMGxarKOR93XI2Y4VHZhkvwYBspwq7eGy9swky5oyKNwvPsHmDoBLDJmuT76YmV_S4ODdMsLuV4OwGVBsHZdmc8VO8a5YTXKeApVs2R3ieMZFeRig8-ce7boRT-2aCEFFB8dwNANhe7XA7bGyWH3nIRSdrQkiUnAZ4LlE-spkbldlgQuOMvto1JEmytQhOvaUiamIGQAeJEwowlkSYSLYp_upKLCp0PEoN3Jyz89Z2_FY3MbJsShpm3IRZFwBW1XaX8UQ7gamjRBK7e_BfMydXWlkR3TAdYFOGfzwwgHEfG_EVh7C7KYQnayaF53ViEOSz-JVThCMeVYxvUQyR4PxWtdGIX_KUnpWka8G-4fpx9QJ-EMRDsOkdD9dED0Z6JyISEuiPXGumQpbK4NIHv8YPiMfPtcRaoYOdGMs3xFhD5UJqSpDIArZCj5U8NZxKwGA0UvrAtzYeL9NdzIhakhRdT8oBWPG31wtLzRGOSipBVEON8xDESpobmepBWQcmeoiwYkJBV5wXIvRu1hwuPspUXJlwUXF1OZuADbJdo5WT0GSQ1xQsAOiNLbBH6YmL23rLftkH9uMEFswN5UokLAohJjAvXVTIW8Zqwvg8eXlFtQZ8qkK9LgwZypdQblB6sKXJ9WM3CEmcGfJK7FE705A6XXO27EmR98cuuZHBw3iJgFyx6jigzAIXayfFjWOM5aMmaEV8-bm-AnygIUBXlxcl1UEC6JlnFusq2CNFO2BbhVNwsbIbOTLN7UFgqplzx-uuWsR2TZTPfMlQbwd7rXMBLbtKyBQKOHRkEuszyVFFliBfcHY1hiIX2bYJGMYmjZNEkVuEeiR2waJw8VSlyEI0FlrPyGk5hwLOqemgfnsOmeqb3LeEH-nA-iXIM4CSVho-3dxwAfR4rWV4GmAkqtFl2baXmtrESKRGL1ZGhVJ_diQ0_ppCWoRDe0VzkuyoDJE1BhUeOhMjnzQvynZVtuquhFoiHOs-Z_VjnGGT9v3u9X45m4CLfzqitXQKre2QFj3F13XJ-vfx-9B12rNE6dfRRmRygfu6ezxWyv1YM7epMOxCBufDptd2T-gdeg",
+  "plaintext": "c3ludGhldGljLWp3ZS1maXh0dXJlLXBsYWludGV4dA",
+  "additional_authenticated_data": "dGVuYW50PXN5bnRoZXRpYztyZWNvcmQ9MQ",
+  "expected": {
+    "encrypted_key_bytes": 1120,
+    "ciphertext_bytes": 47,
+    "jwe_json": "{\"protected\":\"eyJhbGciOiJodHRwczovL2NvbmR1Y3Rvcm9uZS5jb20vYWxnL2hwa2UteHdpbmctaGtkZi1zaGEyNTYtY2hhY2hhMjBwb2x5MTMwNS92MSIsImtpZCI6ImZpeHR1cmUtcmVjaXBpZW50LTEifQ\",\"encrypted_key\":\"ln9G2sek0YwJXpd60jYwq7EtyZZ2e21VJVL6Br_PvdQHG_q1Q8ojQ6-FDKum3U9OWRSlnJjrT6E8towIAeVWLolpGq6O_ls92KegrbhsPES-oOciEhD3xHvfWIJaRR72Ic-9Fww0YNi4sZvzERlmQXSYzAKV0_Z5SOPGZlrxssft6K-Vs6H61VXNx54nCEqlKWYNOG_Btgp0L82KrbHuYF6xC6GgerQ2dNfze_7tlP1drKpVp1PHbKKHHjpAywP_i2BCWmX7NXsdPFSad3klooi1dEGTwFOZKUWxLB0L1Kh6sIMyqJ2Sq9hgI9t6Ui_3vJyarN7c0Z339u_4u0wW9C1sLGCIkkMiHO8aROqlGnJiOvMG5BaSvh6mJwGsf3W9wwE1dT2oCpGnB-PhbnhkDPVUul10VCvocaLqy1EiXMrFkFTShq1u2Y_IiHHeh74l96cluYEF5zgcEKDTmbcyVEvfUw3-xC0o2-JnmPFpp8wfS-Wmlm7pejW3xFZIXH3zEq9yBs3W_8XLSxXnpoTPCn8R_q3764O_M1DUgc5svoEysxv1bm-Wd0YxCmwwmT4RbrtgUj8xEQh5KoleRTWfc31LezULgszOu_E8Ya9iGfaAxqPzqtsEJVucNfh7NTi0piOdm-LSNiS3hS9fL93sQXyrgE4KvYDeV08X46-rIfJtKrQOPE3MKP3meWY7DSYbIZAXFhfP3u1OdbwTW7K5AbDNlBJI4TtXtZoMttohdVGlf_G-6eGx6ih-EZhQ9nHK5pce1hSDKFQ1TyDKklrat45JOKVuZv19oRB7j-2MI7jmp9LKIRbwU8hC-7SbkZ_AmPkHIJyueZjRWuXJceYPMPxv7Oe9oIYC6-KRGZpXKVk8slr8n-qrwvXJ8zPDGxpmWMZA8jtSteeZ4ayGivD7YO_ogKk6s7rGaCOBpCMDio4MxrxdUxVn7PY6WXrwQJvZuonfppIPUpe8tlZTmeq5_yM_ZSM5tmRK_J5DQs4N9S348Ue9FtyILAGnfEmDGWSrw6ZG4J_l70UVkEXFBo8S0YR1MpmLOxO9rPSqnFQhpEDx9KD8s8C8mx153VB8opSz5SlBWYwVWKd1BvnOb_JOcZCs4g5J0Lri9fHGsu7hDDMA4aQAo4olU4-Gj8l3bqAa8x4SqaL55rK9kt7rRK-PSUnJK-jUQHVqHamOZgSZ-Z5VvcId7HlZU__8bduKRLX4N-yXYp-4HzhGNTiz6IebSJAN9iWvBApGQ3eqKPC6WUpFfKTZ9CnhoHYf7rvkudvfYb9IktfIbnG9d6NKUF5AIf629IxiWmcb1JsRK_I0eu929ACmZ5a7hJsuX9QqvhlKns5eb-TaIKvyHLjmnNBKT4bIU_RkO9LRVosc7gYTVUm8vUV7B1lRXL2_yVPPbH4OoB2i-sVSCegCsWgaR6WGDdycjxRCB7zNepgCjxPePLlgHw6AI6N85XktBo8h4uFlxKFR5mMJq3lkI5Nsz65LYw\",\"aad\":\"dGVuYW50PXN5bnRoZXRpYztyZWNvcmQ9MQ\",\"iv\":\"\",\"ciphertext\":\"Ru3rCPxTSTCrBkcU0Cx4V5S7T5Hg2aRNKxipwuU1J98DJESkOQXe02LywDySRis\",\"tag\":\"\"}"
+  }
+}
