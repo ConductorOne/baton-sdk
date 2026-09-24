@@ -106,3 +106,16 @@ its one-worker candidate samples ranged11.95–19.91s. Written bytes sum WAL,
 flush and compaction counters before close. The completed-history prototype's
 faster pending lookup and bounded memory claim are separate from these ingestion
 measurements. This table does not complete the original C49 matrix.
+
+## Reproduce old-SDK artifact migration
+
+The producer builds at eb63f1b5 and stops after one committed resource page,
+leaving ten records and a real checkpoint token. The consumer copies that file,
+migrates it, fetches exactly the remaining three pages and verifies all forty
+records after sealing and reopening. The output path must not already exist.
+
+```sh
+bash docs/verification/syncer-on-ledger/tools/build-legacy-artifact.sh /tmp/legacy-sdk.c1z
+BATON_LEGACY_SDK_ARTIFACT=/tmp/legacy-sdk.c1z GOTOOLCHAIN=go1.26.0 \
+  go test ./pkg/sync -run '^TestLedgerLegacySDKArtifact$' -count=1
+```

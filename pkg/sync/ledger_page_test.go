@@ -139,3 +139,72 @@ func TestLedgerPageFactValueReadYourWrites(t *testing.T) {
 	require.Equal(t, "last", facts["value"])
 	require.Equal(t, facts, runtime.facts)
 }
+
+func TestLedgerConcurrentFactsFollowCommitOrder(t *testing.T) {
+	f := newLedgerFixture(t)
+	runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "overlap")
+	require.NoError(t, err)
+	staged, release := make(chan struct{}), make(chan struct{})
+	done := make(chan error, 1)
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+	f.audit.enter(ledgerHandler)
+	go func() {
+		_, err := runtime.runPage(t.Context(), 0, c1zstore.LedgerActionIdentity{Op: "first"}, func(_ context.Context, page *ledgerPage) error {
+			for _, fact := range []string{factNeedsExpansion, factShouldSkipGrants, factShouldFetchRelatedResources} {
+				if err := page.setFact(fact); err != nil {
+					return err
+				}
+			}
+			if err := page.setFactValue("selection", "first"); err != nil {
+				return err
+			}
+			close(staged)
+			<-release
+			return page.transition("")
+		})
+		done <- err
+	}()
+	select {
+	case <-staged:
+	case err := <-done:
+		t.Fatalf("first page finished before release: %v", err)
+	}
+	_, err = runtime.runPage(t.Context(), 1, c1zstore.LedgerActionIdentity{Op: "second"}, func(_ context.Context, page *ledgerPage) error {
+		for _, fact := range []string{factHasExternalResourceGrants, factShouldSkipEntitlementsAndGrants} {
+			if err := page.setFact(fact); err != nil {
+				return err
+			}
+		}
+		if err := page.setFactValue("selection", "second"); err != nil {
+			return err
+		}
+		return page.transition("")
+	})
+	require.NoError(t, err)
+	beforeFirst, err := f.ledger.LedgerFacts(t.Context())
+	require.NoError(t, err)
+	require.NotContains(t, beforeFirst, factNeedsExpansion)
+	require.Equal(t, "second", beforeFirst["selection"])
+	close(release)
+	require.NoError(t, <-done)
+	f.audit.enter(ledgerLifecycle)
+	expected := map[string]string{
+		factNeedsExpansion: "", factShouldSkipGrants: "", factShouldFetchRelatedResources: "",
+		factHasExternalResourceGrants: "", factShouldSkipEntitlementsAndGrants: "", "selection": "first",
+	}
+	facts, err := f.ledger.LedgerFacts(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, expected, facts)
+	require.Equal(t, expected, runtime.facts)
+	require.NoError(t, f.store.Close(t.Context()))
+	f = openLedgerFixtureAt(t, f.path, false)
+	facts, err = f.ledger.LedgerFacts(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, expected, facts)
+}

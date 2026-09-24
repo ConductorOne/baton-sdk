@@ -6,6 +6,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	engine "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/stretchr/testify/require"
 )
@@ -17,11 +18,13 @@ func (ledgerUnstartedFailure) BoundSyncUnstarted(context.Context) (bool, error) 
 }
 
 func TestLedgerEmptyStartQuality(t *testing.T) {
-	for _, kind := range []string{"empty", "session", "resource", "grant", "legacy-token", "legacy-frontier", "known-clean", "known-blocked", "finished", "read-error"} {
+	for _, kind := range []string{"empty", "session", "resource", "grant", "legacy-token", "legacy-frontier", "known-clean", "known-blocked", "finished", "read-error",
+		"counter-only", "counter-flags", "uninitialized-fact", "uninitialized-blocked"} {
 		t.Run(kind, func(t *testing.T) {
 			f := newLedgerFixture(t)
 			ctx := t.Context()
 			id := f.engine.CurrentSyncID()
+			uninitializedQuality := kind == "counter-only" || kind == "counter-flags" || kind == "uninitialized-fact" || kind == "uninitialized-blocked"
 			switch kind {
 			case "session":
 				require.NoError(t, f.store.SessionStore().Set(ctx, "session", []byte("value"), sessions.WithSyncID(id)))
@@ -42,10 +45,36 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 					require.NoError(t, f.ledger.PutCounterBucket(ctx, "prior", 0, c1zstore.LedgerCounters{Flags: ingestQualityReasonGrantDropped}))
 				}
 				require.NoError(t, f.ledger.InitializePendingWork(ctx, pendingSeeds([]ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}), facts...))
+			case "counter-only", "counter-flags":
+				prior := c1zstore.LedgerCounters{Counters: map[string]uint64{"ingest.grants_dropped": 3}}
+				if kind == "counter-flags" {
+					prior.Flags = ingestQualityReasonGrantDropped
+				}
+				require.NoError(t, f.ledger.PutCounterBucket(ctx, "prior", 0, prior))
+			case "uninitialized-fact", "uninitialized-blocked":
+				require.NoError(t, f.store.CheckpointSync(ctx, `{"version":1,"actions":[]}`))
+				facts := []string{ledgerFactIngestBlocked}
+				prior := c1zstore.LedgerCounters{}
+				if kind == "uninitialized-blocked" {
+					facts = append(facts, ledgerFactIngestKnown)
+					prior = c1zstore.LedgerCounters{Counters: map[string]uint64{"ingest.grants_dropped": 3}, Flags: ingestQualityReasonGrantDropped}
+				}
+				_, err := f.ledger.TakeoverToken(ctx, "prior", facts, prior)
+				require.NoError(t, err)
 			case "finished":
 				require.NoError(t, f.store.EndSync(ctx))
 				require.NoError(t, f.store.SetCurrentSync(ctx, id))
 			}
+			if uninitializedQuality {
+				_, initialized, err := f.ledger.PendingWork(ctx, 0, 1)
+				require.NoError(t, err)
+				require.False(t, initialized)
+				require.NoError(t, f.store.Close(ctx))
+				f = openLedgerFixtureAt(t, f.path, false)
+				require.NoError(t, f.store.SetCurrentSync(ctx, id))
+			}
+			priorCounters, err := f.ledger.LedgerCounters(ctx)
+			require.NoError(t, err)
 			s := ledgerContinuationSyncer(f)
 			if kind == "read-error" {
 				s.caps.pageLedger = ledgerUnstartedFailure{PageLedgerStore: f.ledger}
@@ -61,7 +90,7 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 					require.True(t, equalLedgerSnapshot(walkBefore, ledgerRawSnapshot(t, f.engine)))
 				}
 			}
-			err := s.prepareLedgerState(ctx, "resume", false)
+			err = s.prepareLedgerState(ctx, "resume", false)
 			f.audit.enter(ledgerLifecycle)
 			if kind == "read-error" {
 				require.ErrorIs(t, err, errLedgerInjectedPage)
@@ -75,13 +104,35 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 			switch {
 			case clean:
 				require.Equal(t, &IngestQualityCheckpoint{}, s.stats.ingestQuality())
-			case kind == "known-blocked":
+			case kind == "known-blocked" || kind == "uninitialized-blocked":
 				require.Equal(t, ingestQualityReasonGrantDropped, s.ingestFilterStats.snapshot().ReasonFlags)
+			case kind == "uninitialized-fact":
+				require.Zero(t, s.ingestFilterStats.snapshot().ReasonFlags)
 			default:
 				require.Equal(t, ingestQualityReasonUnknownPriorCheckpoint, s.ingestFilterStats.snapshot().ReasonFlags)
 			}
 			if kind == "read-error" || kind == "legacy-frontier" || kind == "known-clean" || kind == "known-blocked" {
 				require.Equal(t, before, ledgerRawSnapshot(t, f.engine))
+			}
+			if uninitializedQuality {
+				storedCounters, err := f.ledger.LedgerCounters(ctx)
+				require.NoError(t, err)
+				require.Equal(t, priorCounters, storedCounters)
+				if kind != "uninitialized-blocked" {
+					require.False(t, s.run.hasFact(ledgerFactIngestKnown))
+				}
+				require.NoError(t, f.store.Close(ctx))
+				f = openLedgerFixtureAt(t, f.path, false)
+				resumed, err := NewSyncer(ctx, newMockConnector(), WithConnectorStore(f.store), WithSyncID(id), WithSkipEntitlementsAndGrants(true))
+				require.NoError(t, err)
+				require.NoError(t, resumed.Sync(ctx))
+				require.NoError(t, f.store.Close(ctx))
+				f = openLedgerFixtureAt(t, f.path, false)
+				stats, err := engine.ReadSyncStatsRecord(ctx, f.engine, id)
+				require.NoError(t, err)
+				require.True(t, stats.GetIngestQuality().GetSourceCacheReplayBlocked())
+				require.Equal(t, priorCounters.Flags, stats.GetIngestQuality().GetReasonFlags()&priorCounters.Flags)
+				require.Equal(t, priorCounters.Counters["ingest.grants_dropped"], stats.GetIngestQuality().GetGrantsDropped())
 			}
 			if kind == "empty" || kind == "session" {
 				factsBeforePage, err := f.ledger.LedgerFacts(ctx)

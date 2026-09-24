@@ -38,6 +38,7 @@ type crashCollectionConnector struct {
 	types.ConnectorClient
 	skipStatic bool
 	cleanupErr error
+	onCleanup  func()
 }
 
 func crashResource() *v2.Resource {
@@ -53,6 +54,9 @@ func (crashCollectionConnector) GetMetadata(context.Context, *v2.ConnectorServic
 	return &v2.ConnectorServiceGetMetadataResponse{}, nil
 }
 func (c crashCollectionConnector) Cleanup(context.Context, *v2.ConnectorServiceCleanupRequest, ...grpc.CallOption) (*v2.ConnectorServiceCleanupResponse, error) {
+	if c.onCleanup != nil {
+		c.onCleanup()
+	}
 	if c.cleanupErr != nil {
 		return nil, c.cleanupErr
 	}
@@ -399,9 +403,17 @@ func TestPublicLedgerCleanupErrorAfterSealKeepsFinishedArtifact(t *testing.T) {
 		}
 		return nil
 	})
-	runner, err := sdk.NewSyncer(ctx, crashCollectionConnector{cleanupErr: errPublicLedgerCleanup}, sdk.WithConnectorStore(store), sdk.WithDontExpandGrants())
+	cleanupCalled := false
+	connector := crashCollectionConnector{cleanupErr: errPublicLedgerCleanup, onCleanup: func() {
+		cleanupCalled = true
+		finished, err := store.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, finished, "cleanup error must be injected after seal")
+	}}
+	runner, err := sdk.NewSyncer(ctx, connector, sdk.WithConnectorStore(store), sdk.WithDontExpandGrants())
 	require.NoError(t, err)
 	require.NoError(t, runner.Sync(ctx))
+	require.True(t, cleanupCalled)
 	run, err := store.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, run)
