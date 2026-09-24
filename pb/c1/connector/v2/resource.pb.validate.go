@@ -8314,6 +8314,8 @@ func (m *EncryptionConfig_JWKPublicKeyConfig) validate(all bool) error {
 
 	// no validation rules for PubKey
 
+	// no validation rules for AdditionalAuthenticatedData
+
 	if len(errors) > 0 {
 		return EncryptionConfig_JWKPublicKeyConfigMultiError(errors)
 	}

@@ -46,6 +46,8 @@ const (
 	// The connector can mint new credentials for an existing identity via
 	// CredentialManagerService.IssueCredential.
 	Capability_CAPABILITY_CREDENTIAL_ISSUE Capability = 14
+	// IssueCredential supports baton/jwe/v1 with one config and one plaintext value.
+	Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_JWE Capability = 16
 )
 
 // Enum value maps for Capability.
@@ -66,6 +68,7 @@ var (
 		12: "CAPABILITY_EVENT_FEED_V2",
 		13: "CAPABILITY_SERVICE_MODE_TARGETED_SYNC",
 		14: "CAPABILITY_CREDENTIAL_ISSUE",
+		16: "CAPABILITY_CREDENTIAL_ENCRYPTION_JWE",
 	}
 	Capability_value = map[string]int32{
 		"CAPABILITY_UNSPECIFIED":                0,
@@ -83,6 +86,7 @@ var (
 		"CAPABILITY_EVENT_FEED_V2":              12,
 		"CAPABILITY_SERVICE_MODE_TARGETED_SYNC": 13,
 		"CAPABILITY_CREDENTIAL_ISSUE":           14,
+		"CAPABILITY_CREDENTIAL_ENCRYPTION_JWE":  16,
 	}
 )
 
@@ -2808,7 +2812,7 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\rdefault_value\x18\x01 \x03(\v2J.c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntryR\fdefaultValue\x1av\n" +
 	"\x11DefaultValueEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12K\n" +
-	"\x05value\x18\x02 \x01(\v25.c1.connector.v2.ConnectorAccountCreationSchema.FieldR\x05value:\x028\x01*\xd2\x03\n" +
+	"\x05value\x18\x02 \x01(\v25.c1.connector.v2.ConnectorAccountCreationSchema.FieldR\x05value:\x028\x01*\xfc\x03\n" +
 	"\n" +
 	"Capability\x12\x1a\n" +
 	"\x16CAPABILITY_UNSPECIFIED\x10\x00\x12\x18\n" +
@@ -2826,7 +2830,8 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x18CAPABILITY_TARGETED_SYNC\x10\v\x12\x1c\n" +
 	"\x18CAPABILITY_EVENT_FEED_V2\x10\f\x12)\n" +
 	"%CAPABILITY_SERVICE_MODE_TARGETED_SYNC\x10\r\x12\x1f\n" +
-	"\x1bCAPABILITY_CREDENTIAL_ISSUE\x10\x0e*\xf6\x03\n" +
+	"\x1bCAPABILITY_CREDENTIAL_ISSUE\x10\x0e\x12(\n" +
+	"$CAPABILITY_CREDENTIAL_ENCRYPTION_JWE\x10\x10*\xf6\x03\n" +
 	" CapabilityDetailCredentialOption\x123\n" +
 	"/CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED\x10\x00\x123\n" +
 	"/CAPABILITY_DETAIL_CREDENTIAL_OPTION_NO_PASSWORD\x10\x01\x127\n" +
