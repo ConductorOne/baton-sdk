@@ -6,6 +6,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwe"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -73,10 +74,26 @@ func ValidateEncryptionConfigs(ec []*v2.EncryptionConfig) error {
 		if err != nil {
 			return status.Errorf(codes.InvalidArgument, "invalid encryption config %d: %v", i, err)
 		}
+		if _, ok := provider.(*jwe.Provider); ok && len(ec) != 1 {
+			return status.Error(codes.InvalidArgument, "JWE credential issuance requires exactly one encryption config")
+		}
 		if validator, ok := provider.(providers.EncryptionConfigValidator); ok {
 			if err := validator.ValidateConfig(context.Background(), config); err != nil {
 				return status.Errorf(codes.InvalidArgument, "invalid encryption config %d: %v", i, err)
 			}
+		}
+	}
+	return nil
+}
+
+func ValidateCredentialOutputCardinality(ec []*v2.EncryptionConfig, count int) error {
+	for _, config := range ec {
+		provider, err := providers.GetEncryptorForConfig(context.Background(), config)
+		if err != nil {
+			return err
+		}
+		if _, ok := provider.(*jwe.Provider); ok && count != 1 {
+			return status.Error(codes.Internal, "JWE issuance returned an unexpected value count; reconcile the issued credential without retrying issuance")
 		}
 	}
 	return nil

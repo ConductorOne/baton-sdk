@@ -419,7 +419,7 @@ func (b *builder) GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 		}
 
 		if _, exists := b.credentialIssuers[resourceTypeID]; exists {
-			caps = append(caps, v2.Capability_CAPABILITY_CREDENTIAL_ISSUE)
+			caps = append(caps, v2.Capability_CAPABILITY_CREDENTIAL_ISSUE, v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_JWE)
 		}
 
 		// Extend the capabilities with the resource type specificcapabilities

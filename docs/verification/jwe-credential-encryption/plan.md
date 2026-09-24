@@ -32,3 +32,22 @@ replay receipts and provider revocation are deferred to the C1 stage.
 Design constraints: use existing HPKE primitives; no key schedule implementation,
 vault-field parsing, JWS, decryption service, fallback, or new dependencies. Old
 SDKs must be excluded by capability selection before dispatch.
+
+## Implementation-obligation addendum
+
+- JWK parsing is bounded before JSON allocation, rejects duplicate top-level
+  members and private material, and does not echo parser input in errors (J3/J8).
+- HPKE public-key parsing alone does not reject low-order X25519 points. A fixed
+  public validation probe checks ECDH before minting; test both zero and one
+  low-order encodings (J3).
+- The provider always emits external AAD, even empty. Reader tests must construct
+  `protected + "." + aad` independently and retain the HPKE tag in ciphertext (J2/J7).
+- Each call owns one HPKE sender; no cached encryption state, closers, locks or
+  durable writes. Encryption does not mutate caller-owned inputs (J1/J7).
+- The builder checks JWE cardinality before general output validation so malformed
+  multi-value output cannot leak field names through unrelated validation errors (J4/J8).
+- Capability value 16 avoids the value used by the separate, unmerged
+  vault-specific encryption proposal. The existing oneof and its tag numbers stay
+  unchanged (J6/J9).
+- The legacy JWK provider and shared resolver reject unsupported AAD; callers
+  invoking either provider directly must receive the same rejection (J5).

@@ -43,6 +43,9 @@ func (j *JWKEncryptionProvider) ValidateConfig(_ context.Context, conf *v2.Encry
 	if conf == nil || conf.GetJwkPublicKeyConfig() == nil {
 		return status.Error(codes.InvalidArgument, "jwk: public key configuration is required")
 	}
+	if len(conf.GetJwkPublicKeyConfig().GetAdditionalAuthenticatedData()) != 0 {
+		return status.Error(codes.InvalidArgument, "jwk: authenticated data is not supported")
+	}
 	key, err := unmarshalJWK(conf.GetJwkPublicKeyConfig().GetPubKey())
 	if err != nil {
 		return err
@@ -90,6 +93,9 @@ func (j *JWKEncryptionProvider) marshalKey(ctx context.Context, privKeyJWK *jose
 }
 
 func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, conf *v2.EncryptionConfig, plainText *v2.PlaintextData) (*v2.EncryptedData, error) {
+	if len(conf.GetJwkPublicKeyConfig().GetAdditionalAuthenticatedData()) != 0 {
+		return nil, status.Error(codes.InvalidArgument, "jwk: authenticated data is not supported")
+	}
 	jwk, err := unmarshalJWK(conf.GetJwkPublicKeyConfig().GetPubKey())
 	if err != nil {
 		return nil, err

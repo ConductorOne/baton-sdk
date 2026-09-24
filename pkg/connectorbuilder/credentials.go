@@ -221,6 +221,13 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: issue credential for identity failed: %w", err)
 	}
+	if output != nil {
+		err = crypto.ValidateCredentialOutputCardinality(request.GetEncryptionConfigs(), len(output.PlaintextData))
+		if err != nil {
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+			return nil, err
+		}
+	}
 	err = validateCredentialIssueOutput(request.GetIdentityId(), request.GetExpiresAt(), output, descriptor)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)

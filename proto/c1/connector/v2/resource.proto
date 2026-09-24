@@ -387,6 +387,9 @@ message EncryptionConfig {
 
   message JWKPublicKeyConfig {
     bytes pub_key = 1;
+    // Opaque bytes authenticated by a supporting provider, not encrypted.
+    // Providers without AAD support reject nonempty values.
+    bytes additional_authenticated_data = 2;
   }
 
   // AgeRecipientConfig encrypts data directly to a standard age recipient.
