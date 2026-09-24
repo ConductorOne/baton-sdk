@@ -320,3 +320,40 @@ func TestPendingLocalCompletionAllowsAccountingObserver(t *testing.T) {
 	require.EqualValues(t, 1, totals.Counters[ledgerCompletedActions])
 	require.EqualValues(t, 1, totals.StepDurationsMs["completion-observer"])
 }
+
+type pendingInvalidDescriptor struct {
+	c1zstore.PageLedgerStore
+	kind string
+}
+
+func (s pendingInvalidDescriptor) PendingWork(ctx context.Context, before uint64, limit int) ([]c1zstore.LedgerWork, bool, error) {
+	work, initialized, err := s.PageLedgerStore.PendingWork(ctx, before, limit)
+	if err == nil && len(work) > 0 {
+		if s.kind == "sync" {
+			work[0].SyncID = "another-sync"
+		} else {
+			work[0].Action.Identity.Op = "unknown-operation"
+		}
+	}
+	return work, initialized, err
+}
+
+func TestPendingInvalidDescriptorDoesNotPublishOrWrite(t *testing.T) {
+	for kind, diagnostic := range map[string]string{"sync": "another sync", "operation": "unknown operation"} {
+		t.Run(kind, func(t *testing.T) {
+			s, f := newLedgerSchedulerFixture(t, 1)
+			require.NoError(t, f.ledger.InitializePendingWork(t.Context(), pendingSeeds(ledgerListingFixtureRoots()), ledgerFactIngestKnown))
+			s.caps.pageLedger = pendingInvalidDescriptor{PageLedgerStore: f.ledger, kind: kind}
+			before := ledgerRawSnapshot(t, f.engine)
+			priorRun, priorStats, priorRuntime := s.run, s.stats, s.ledger
+			f.audit.enter(ledgerWalk)
+			err := s.prepareLedgerState(t.Context(), "invalid-descriptor", false)
+			f.audit.enter(ledgerLifecycle)
+			require.ErrorContains(t, err, diagnostic)
+			require.Equal(t, before, ledgerRawSnapshot(t, f.engine))
+			require.Same(t, priorRun, s.run)
+			require.Same(t, priorStats, s.stats)
+			require.Same(t, priorRuntime, s.ledger)
+		})
+	}
+}

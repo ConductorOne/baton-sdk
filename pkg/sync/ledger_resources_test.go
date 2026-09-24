@@ -2,6 +2,7 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
 	"context"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"testing"
@@ -385,6 +386,63 @@ func TestLedgerResourcePendingChildRestore(t *testing.T) {
 			require.True(t, found)
 			require.Equal(t, uninterrupted.Children, row.Children)
 			require.Equal(t, uninterrupted.ResourcesWritten, row.ResourcesWritten)
+		})
+	}
+}
+
+type ledgerSchedulingLookup struct {
+	c1zstore.PageLedgerStore
+	calls int
+	mode  string
+}
+
+func (s *ledgerSchedulingLookup) HasScheduledWork(ctx context.Context, key string) (bool, error) {
+	s.calls++
+	switch s.mode {
+	case "missing":
+		return false, nil
+	case "error":
+		return false, errLedgerInjectedPage
+	default:
+		return s.PageLedgerStore.HasScheduledWork(ctx, key)
+	}
+}
+
+func TestLedgerFailFastUsesDurableChildScheduling(t *testing.T) {
+	for _, mode := range []string{"stored", "missing", "error"} {
+		t.Run(mode, func(t *testing.T) {
+			f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "child-check.c1z"), false)
+			connector := &ledgerResourcesConnector{mockConnector: newMockConnector()}
+			skip, err := anypb.New(&v2.SkipEntitlementsAndGrants{})
+			require.NoError(t, err)
+			connector.rtDB = []*v2.ResourceType{{Id: "parent", Annotations: []*anypb.Any{skip}}, {Id: "child", Annotations: []*anypb.Any{skip}}}
+			created, err := NewSyncer(t.Context(), connector, WithConnectorStore(f.store), WithDontExpandGrants(), WithFailFastInvariants())
+			require.NoError(t, err)
+			s := created.(*syncer)
+			lookup := &ledgerSchedulingLookup{PageLedgerStore: f.ledger, mode: mode}
+			s.caps.pageLedger = lookup
+			err = s.Sync(t.Context())
+			require.Positive(t, lookup.calls, "sync error: %v; resource phase: %t; fail-fast: %t", err, s.resourcesPhaseRanHere, s.cfg.failFastInvariants)
+			switch mode {
+			case "stored":
+				require.NoError(t, err)
+			case "missing":
+				require.ErrorContains(t, err, "I4 violated")
+			case "error":
+				require.ErrorIs(t, err, errLedgerInjectedPage)
+			}
+			scopedEmptyCalls := 0
+			for _, request := range connector.requests {
+				if request.GetResourceTypeId() == "child" && request.GetParentResourceId() != nil {
+					scopedEmptyCalls++
+				}
+			}
+			require.Equal(t, 1, scopedEmptyCalls)
+			if mode != "stored" {
+				finished, err := f.ledger.BoundSyncFinished(t.Context())
+				require.NoError(t, err)
+				require.False(t, finished)
+			}
 		})
 	}
 }

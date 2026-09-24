@@ -2,6 +2,7 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 
@@ -280,4 +281,32 @@ func TestLedgerGrantPlanner(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Empty(t, row.Children)
+}
+
+func TestLedgerGrantInsertionKeepsValidRecordsAfterInvalid(t *testing.T) {
+	for _, order := range [][]string{{"invalid", "disabled", "good"}, {"good", "invalid", "disabled"}, {"disabled", "invalid", "good"}} {
+		t.Run(strings.Join(order, "/"), func(t *testing.T) {
+			s, f, connector := grantPageFixture(t, false)
+			values := map[string]*v2.Grant{
+				"invalid":  ledgerGrant("invalid", "selected", "", "selected"),
+				"disabled": ledgerGrant("disabled", "disabled", "other", "selected"),
+				"good":     ledgerGrant("good", "selected", "found-good", "selected"),
+			}
+			connector.grants = nil
+			for _, key := range order {
+				connector.grants = append(connector.grants, values[key])
+			}
+			_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
+			require.NoError(t, err)
+			grants, err := f.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
+			require.NoError(t, err)
+			require.Len(t, grants.GetList(), 1)
+			require.Equal(t, "good", grants.GetList()[0].GetId())
+			counters, err := f.ledger.LedgerCounters(t.Context())
+			require.NoError(t, err)
+			require.EqualValues(t, 1, counters.Counters["ingest.invalid_resources_observed"])
+			require.EqualValues(t, 1, counters.Counters["ingest.grants_dropped"])
+			require.EqualValues(t, 1, counters.Counters["ingest.grant_resources_dropped"])
+		})
+	}
 }

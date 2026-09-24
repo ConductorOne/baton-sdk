@@ -47,6 +47,7 @@ def main():
         lines = path.read_text().splitlines()
         if not lines or lines[0] not in ("mode: set", "mode: count", "mode: atomic"):
             raise ValueError(f"{path}: invalid coverage header")
+        blocks = {}
         for line in lines[1:]:
             location, statements, hits = line.rsplit(maxsplit=2)
             name, span = location.rsplit(":", 1)
@@ -55,11 +56,19 @@ def main():
                 continue
             if name in profiled_files:
                 raise ValueError(f"{name}: overlapping coverage profiles")
+            key = (name, span)
+            count, executions = int(statements), int(hits)
+            if key in blocks:
+                prior_count, prior_hits = blocks[key]
+                if prior_count != count:
+                    raise ValueError(f"{name}:{span}: inconsistent statement counts")
+                executions += prior_hits
+            blocks[key] = (count, executions)
+        for (name, span), (count, hits) in blocks.items():
             current_files.add(name)
             entry = files.setdefault(name, {"statements": 0, "covered_statements": 0, "uncovered_ranges": []})
-            count = int(statements)
             entry["statements"] += count
-            if int(hits) > 0:
+            if hits > 0:
                 entry["covered_statements"] += count
             else:
                 entry["uncovered_ranges"].append(span)
