@@ -10,6 +10,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	ageprovider "github.com/conductorone/baton-sdk/pkg/crypto/providers/age"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers/vaultinbox"
 )
 
 var ErrEncryptionProviderNotRegistered = fmt.Errorf("crypto/providers: encryption provider not registered")
@@ -49,6 +50,23 @@ var encryptorRegistry = map[string]Encryptor{
 	normalizeProviderName(ageprovider.EncryptionProviderAge): &ageprovider.RecipientEncryptionProvider{},
 	normalizeProviderName(jwk.EncryptionProviderJwk):         &jwk.JWKEncryptionProvider{},
 	normalizeProviderName(jwk.EncryptionProviderJwkPrivate):  &jwk.JWKEncryptionProvider{},
+	normalizeProviderName(vaultinbox.EncryptionProvider):     vaultinbox.NewProvider(),
+}
+
+// IsVaultInboxConfig recognizes the provider by name only, including a
+// provider-only config that must be rejected before a create or rotation.
+//
+// It deliberately does not look at the config arm. Inbox mode is selected by the
+// explicit provider and never inferred from the key type, so a JWK public key
+// config without this provider is ordinary classical JWK encryption and must not
+// be classified here. Recognition by name also means a config that is present but
+// malformed is still recognized, so it is rejected as a bad vault-inbox config
+// rather than silently treated as something else.
+func IsVaultInboxConfig(conf *v2.EncryptionConfig) bool {
+	if conf == nil {
+		return false
+	}
+	return normalizeProviderName(conf.GetProvider()) == normalizeProviderName(vaultinbox.EncryptionProvider)
 }
 
 func normalizeProviderName(name string) string {

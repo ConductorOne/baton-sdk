@@ -1,0 +1,535 @@
+package connectorbuilder
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"strconv"
+	"testing"
+
+	filippoage "filippo.io/age"
+	"filippo.io/hpke"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers/vaultinbox"
+	resource "github.com/conductorone/baton-sdk/pkg/types/resource"
+	"github.com/stretchr/testify/require"
+)
+
+type vaultInboxIssuer struct {
+	ResourceSyncer
+	issueCalls int
+	values     []*v2.PlaintextData
+	details    *v2.CredentialDetailsCredentialIssue
+}
+
+func newVaultInboxIssuer(values []*v2.PlaintextData, profiles []v2.VaultInboxSuite) *vaultInboxIssuer {
+	return &vaultInboxIssuer{
+		ResourceSyncer: newTestResourceSyncer("service_account"),
+		values:         values,
+		details: v2.CredentialDetailsCredentialIssue_builder{
+			Options: []*v2.CredentialIssueOptionDescriptor{
+				v2.CredentialIssueOptionDescriptor_builder{
+					Option:               v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+					Scopes:               []string{"read", "write"},
+					ResourceMode:         v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_DISCOVERABLE,
+					SecretResourceTypeId: "secret",
+					VaultInboxProfiles:   profiles,
+				}.Build(),
+			},
+			PreferredOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+		}.Build(),
+	}
+}
+
+func (i *vaultInboxIssuer) Issue(_ context.Context, input *CredentialIssueInput) (*CredentialIssueOutput, error) {
+	i.issueCalls++
+	secret, err := resource.NewSecretResource(
+		"Issued key for "+input.IdentityID.GetResource(),
+		v2.ResourceType_builder{Id: "secret"}.Build(),
+		"issued-key-1",
+		[]resource.SecretTraitOption{resource.WithSecretIdentityID(input.IdentityID)},
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &CredentialIssueOutput{
+		Secret:        secret,
+		PlaintextData: i.values,
+		ResourceMode:  v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_DISCOVERABLE,
+	}, nil
+}
+
+func (i *vaultInboxIssuer) IssueCapabilityDetails(context.Context) (*v2.CredentialDetailsCredentialIssue, annotations.Annotations, error) {
+	return i.details, annotations.Annotations{}, nil
+}
+
+const gateScheme = "latchkey.vault_submission.secret.v1"
+const gateJWKAlg = "HPKE-Base-X-Wing-Draft06-HKDF-SHA256-ChaCha20Poly1305"
+
+// gateParams are the JWK extension members a refusal case changes one at a time.
+type gateParams struct {
+	Version             int
+	Suite               string
+	PayloadScheme       string
+	PublicKeyThumbprint string
+}
+
+// gateConfig mints a synthetic recipient the way a reader would: the public JWK
+// and its baton_vault_inbox extension carry everything except the authoritative
+// key_id, which stays on the EncryptionConfig.
+func gateConfig(t *testing.T, mutate func(*gateParams)) *v2.EncryptionConfig {
+	t.Helper()
+	key, err := hpke.MLKEM768X25519().NewPrivateKey(bytes.Repeat([]byte{0x42}, 32))
+	require.NoError(t, err)
+	pub := base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes())
+	digest := sha256.Sum256([]byte(`{"alg":"` + gateJWKAlg + `","kty":"AKP","pub":"` + pub + `"}`))
+	params := gateParams{
+		Version:             vaultinbox.JWKExtensionVersion,
+		Suite:               gateJWKAlg,
+		PayloadScheme:       gateScheme,
+		PublicKeyThumbprint: base64.RawURLEncoding.EncodeToString(digest[:]),
+	}
+	if mutate != nil {
+		mutate(&params)
+	}
+	jwk := `{"kty":"AKP","alg":"` + gateJWKAlg + `","pub":"` + pub + `","` + vaultinbox.JWKExtensionMember + `":{` +
+		`"version":` + strconv.Itoa(params.Version) + `,"suite":"` + params.Suite + `",` +
+		`"tenant_id":"tenant-1","vault_boundary_id":"vault-1","key_generation":1,` +
+		`"payload_scheme":"` + params.PayloadScheme + `","submission_id":"submission-1",` +
+		`"public_key_thumbprint":"` + params.PublicKeyThumbprint + `"}}`
+	return v2.EncryptionConfig_builder{
+		Provider: vaultinbox.EncryptionProvider,
+		KeyId:    "inbox-key-1",
+		JwkPublicKeyConfig: v2.EncryptionConfig_JWKPublicKeyConfig_builder{
+			PubKey: []byte(jwk),
+		}.Build(),
+	}.Build()
+}
+
+// gateConfigWithUnknownField marks the provider-specific JWK config with a field
+// the parser does not know, which must be refused because its contents are
+// frozen into the binding.
+func gateConfigWithUnknownField(t *testing.T) *v2.EncryptionConfig {
+	t.Helper()
+	config := gateConfig(t, nil)
+	config.GetJwkPublicKeyConfig().ProtoReflect().SetUnknown([]byte{0x80, 0x7c, 0x01})
+	return config
+}
+
+// validAgeConfig is a *valid* age recipient, so a mixed config is refused by the
+// vault-inbox exclusivity gate rather than by the age validator.
+func validAgeConfig(t *testing.T) *v2.EncryptionConfig {
+	t.Helper()
+	identity, err := filippoage.GenerateHybridIdentity()
+	require.NoError(t, err)
+	return v2.EncryptionConfig_builder{
+		AgeRecipientConfig: v2.EncryptionConfig_AgeRecipientConfig_builder{
+			Recipient: identity.Recipient().String(),
+		}.Build(),
+	}.Build()
+}
+
+// TestVaultInboxProviderRefusesAForeignProviderName pins the provider's own
+// mismatch branch directly. Routing a vault-inbox config through the request
+// path with another provider name selects *that* provider, so this branch is
+// only reachable at the provider boundary.
+func TestVaultInboxProviderRefusesAForeignProviderName(t *testing.T) {
+	t.Parallel()
+	config := gateConfig(t, nil)
+	config.SetProvider("baton/age/v1")
+	require.Error(t, vaultinbox.NewProvider().ValidateConfig(context.Background(), config),
+		"a config naming another provider must not be sealed by this one")
+}
+
+type gateAccountManager struct {
+	ResourceSyncer
+	result      CreateAccountResponse
+	plaintexts  []*v2.PlaintextData
+	createCalls int
+}
+
+func (m *gateAccountManager) CreateAccount(
+	context.Context,
+	*v2.AccountInfo,
+	*v2.LocalCredentialOptions,
+) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error) {
+	m.createCalls++
+	return m.result, m.plaintexts, annotations.Annotations{}, nil
+}
+
+func (m *gateAccountManager) CreateAccountCapabilityDetails(context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error) {
+	return v2.CredentialDetailsAccountProvisioning_builder{}.Build(), annotations.Annotations{}, nil
+}
+
+func gateCreateAccountRequest(t *testing.T) *v2.CreateAccountRequest {
+	t.Helper()
+	return v2.CreateAccountRequest_builder{
+		ResourceTypeId: "service_account",
+		AccountInfo:    &v2.AccountInfo{},
+		CredentialOptions: v2.CredentialOptions_builder{
+			RandomPassword: v2.CredentialOptions_RandomPassword_builder{Length: 12}.Build(),
+		}.Build(),
+		EncryptionConfigs: []*v2.EncryptionConfig{gateConfig(t, nil)},
+	}.Build()
+}
+
+func TestVaultInboxCreateAccountKeepsStructuredResults(t *testing.T) {
+	t.Parallel()
+
+	t.Run("non-success result with no plaintext still returns its structure", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateAccountManager{
+			ResourceSyncer: newTestResourceSyncer("service_account"),
+			result:         &v2.CreateAccountResponse_AlreadyExistsResult{IsCreateAccountResult: true},
+		}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		resp, err := connector.CreateAccount(context.Background(), gateCreateAccountRequest(t))
+		require.NoError(t, err, "an outcome that carries no credential must not be turned into a failure")
+		require.NotNil(t, resp.GetAlreadyExists(), "the structured result must survive")
+		require.Empty(t, resp.GetEncryptedData())
+		require.Equal(t, 1, manager.createCalls)
+	})
+
+	t.Run("a success result with no value is still a failure", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateAccountManager{
+			ResourceSyncer: newTestResourceSyncer("service_account"),
+			result:         &v2.CreateAccountResponse_SuccessResult{IsCreateAccountResult: true},
+		}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		_, err = connector.CreateAccount(context.Background(), gateCreateAccountRequest(t))
+		require.Error(t, err, "a success with no credential would seal no submission and report success")
+		require.Equal(t, 1, manager.createCalls,
+			"the option asked for a value, so the connector's empty success is refused after the create")
+	})
+
+	t.Run("an option that yields no credential is refused before the create", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateAccountManager{
+			ResourceSyncer: newTestResourceSyncer("service_account"),
+			result:         &v2.CreateAccountResponse_SuccessResult{IsCreateAccountResult: true},
+		}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		request := gateCreateAccountRequest(t)
+		request.SetCredentialOptions(v2.CredentialOptions_builder{
+			NoPassword: &v2.CredentialOptions_NoPassword{},
+		}.Build())
+
+		_, err = connector.CreateAccount(context.Background(), request)
+		require.Error(t, err, "a vault inbox recipient with nothing to deliver is a misconfiguration")
+		require.Zero(t, manager.createCalls, "the account must not be created for a refusal we can make up front")
+	})
+
+	t.Run("a non-success result with two values is refused", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateAccountManager{
+			ResourceSyncer: newTestResourceSyncer("service_account"),
+			result:         &v2.CreateAccountResponse_AlreadyExistsResult{IsCreateAccountResult: true},
+			plaintexts: []*v2.PlaintextData{
+				gateValue("api_key", []byte("v")),
+				gateValue("api_key_id", []byte("id")),
+			},
+		}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		_, err = connector.CreateAccount(context.Background(), gateCreateAccountRequest(t))
+		require.ErrorContains(t, err, "at most one plaintext value",
+			"the at-most-one rule must be what refuses this, not the exactly-one rule")
+		require.Equal(t, 1, manager.createCalls, "the account manager must not be re-invoked")
+	})
+
+	t.Run("more than one plaintext is still refused", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateAccountManager{
+			ResourceSyncer: newTestResourceSyncer("service_account"),
+			result:         &v2.CreateAccountResponse_SuccessResult{IsCreateAccountResult: true},
+			plaintexts: []*v2.PlaintextData{
+				gateValue("api_key", []byte("v")),
+				gateValue("api_key_id", []byte("id")),
+			},
+		}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		_, err = connector.CreateAccount(context.Background(), gateCreateAccountRequest(t))
+		require.Error(t, err, "two values would seal two envelopes bound to one submission id")
+		require.Equal(t, 1, manager.createCalls, "the account manager must not be re-invoked")
+	})
+}
+
+type gateCredentialManager struct {
+	ResourceSyncer
+	rotateCalls int
+	plaintexts  []*v2.PlaintextData
+}
+
+func (m *gateCredentialManager) Rotate(
+	context.Context,
+	*v2.ResourceId,
+	*v2.LocalCredentialOptions,
+) ([]*v2.PlaintextData, annotations.Annotations, error) {
+	m.rotateCalls++
+	return m.plaintexts, annotations.Annotations{}, nil
+}
+
+func (m *gateCredentialManager) RotateCapabilityDetails(context.Context) (*v2.CredentialDetailsCredentialRotation, annotations.Annotations, error) {
+	return v2.CredentialDetailsCredentialRotation_builder{}.Build(), annotations.Annotations{}, nil
+}
+
+func gateRotateRequest(t *testing.T, options *v2.CredentialOptions) *v2.RotateCredentialRequest {
+	t.Helper()
+	return v2.RotateCredentialRequest_builder{
+		ResourceId:        v2.ResourceId_builder{ResourceType: "service_account", Resource: "sa-1"}.Build(),
+		CredentialOptions: options,
+		EncryptionConfigs: []*v2.EncryptionConfig{gateConfig(t, nil)},
+	}.Build()
+}
+
+func TestVaultInboxRotateRefusesBeforeMinting(t *testing.T) {
+	t.Parallel()
+
+	randomPassword := v2.CredentialOptions_builder{
+		RandomPassword: v2.CredentialOptions_RandomPassword_builder{Length: 12}.Build(),
+	}.Build()
+	noPassword := v2.CredentialOptions_builder{NoPassword: &v2.CredentialOptions_NoPassword{}}.Build()
+	// EncryptedPassword carries material the caller already holds, so it never
+	// asks the connector to mint a value either.
+	encryptedPassword := v2.CredentialOptions_builder{
+		EncryptedPassword: v2.CredentialOptions_EncryptedPassword_builder{}.Build(),
+	}.Build()
+
+	cases := map[string]*v2.CredentialOptions{
+		"no password":        noPassword,
+		"sso":                v2.CredentialOptions_builder{Sso: v2.CredentialOptions_SSO_builder{}.Build()}.Build(),
+		"encrypted password": encryptedPassword,
+	}
+	for name, options := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			manager := &gateCredentialManager{ResourceSyncer: newTestResourceSyncer("service_account")}
+			connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+			require.NoError(t, err)
+
+			_, err = connector.RotateCredential(context.Background(), gateRotateRequest(t, options))
+			require.Error(t, err)
+			require.Zero(t, manager.rotateCalls, "the rotation must be refused before the provider is touched")
+		})
+	}
+
+	// A rotation with no options at all is a supported shape: ConvertCredentialOptions
+	// returns (nil, nil) for a nil options pointer and the connector mints its own
+	// replacement, which is exactly one value, so the vault-inbox rule must not
+	// refuse it. An *empty* options message is a different thing and is already
+	// refused by the option conversion.
+	t.Run("unset options still rotate", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateCredentialManager{
+			ResourceSyncer: newTestResourceSyncer("service_account"),
+			plaintexts:     []*v2.PlaintextData{gateValue("api_key", []byte("v"))},
+		}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		resp, err := connector.RotateCredential(context.Background(), gateRotateRequest(t, nil))
+		require.NoError(t, err)
+		require.Equal(t, 1, manager.rotateCalls)
+		require.Len(t, resp.GetEncryptedData(), 1)
+	})
+
+	t.Run("a password-producing option still rotates", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateCredentialManager{
+			ResourceSyncer: newTestResourceSyncer("service_account"),
+			plaintexts:     []*v2.PlaintextData{gateValue("api_key", []byte("v"))},
+		}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		resp, err := connector.RotateCredential(context.Background(), gateRotateRequest(t, randomPassword))
+		require.NoError(t, err)
+		require.Equal(t, 1, manager.rotateCalls)
+		require.Len(t, resp.GetEncryptedData(), 1)
+		require.Equal(t, vaultinbox.EncryptionProvider, resp.GetEncryptedData()[0].GetProvider())
+	})
+
+	t.Run("two values are refused after exactly one rotation", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateCredentialManager{
+			ResourceSyncer: newTestResourceSyncer("service_account"),
+			plaintexts: []*v2.PlaintextData{
+				gateValue("api_key", []byte("v")),
+				gateValue("api_key_id", []byte("id")),
+			},
+		}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		_, err = connector.RotateCredential(context.Background(), gateRotateRequest(t, randomPassword))
+		require.ErrorContains(t, err, "exactly one plaintext value",
+			"the cardinality rule must be what refuses this, not an earlier check")
+		require.Equal(t, 1, manager.rotateCalls, "the rotation must not be retried")
+	})
+}
+
+func TestVaultInboxGateMatchesProviderNameOnlyConfig(t *testing.T) {
+	t.Parallel()
+	providerNameOnly := v2.EncryptionConfig_builder{
+		Provider: vaultinbox.EncryptionProvider,
+	}.Build()
+
+	t.Run("rotate refuses before the provider is touched", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateCredentialManager{ResourceSyncer: newTestResourceSyncer("service_account")}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		request := gateRotateRequest(t, v2.CredentialOptions_builder{
+			RandomPassword: v2.CredentialOptions_RandomPassword_builder{Length: 12}.Build(),
+		}.Build())
+		request.SetEncryptionConfigs([]*v2.EncryptionConfig{providerNameOnly})
+
+		_, err = connector.RotateCredential(context.Background(), request)
+		require.Error(t, err)
+		require.Zero(t, manager.rotateCalls, "the config must be refused before the rotation reaches the provider")
+	})
+
+	t.Run("create refuses before the account is created", func(t *testing.T) {
+		t.Parallel()
+		manager := &gateAccountManager{ResourceSyncer: newTestResourceSyncer("service_account")}
+		connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{manager}))
+		require.NoError(t, err)
+
+		request := gateCreateAccountRequest(t)
+		request.SetEncryptionConfigs([]*v2.EncryptionConfig{providerNameOnly})
+
+		_, err = connector.CreateAccount(context.Background(), request)
+		require.Error(t, err)
+		require.Zero(t, manager.createCalls, "the config must be refused before the account is created")
+	})
+}
+
+func gateValue(name string, value []byte) *v2.PlaintextData {
+	return v2.PlaintextData_builder{Name: name, Bytes: value}.Build()
+}
+
+func gateRequest(configs []*v2.EncryptionConfig) *v2.IssueCredentialRequest {
+	return v2.IssueCredentialRequest_builder{
+		IdentityId: v2.ResourceId_builder{ResourceType: "service_account", Resource: "sa-1"}.Build(),
+		CredentialOptions: v2.CredentialIssueOptions_builder{
+			SecretResourceTypeId: "secret",
+			ApiKey:               &v2.CredentialIssueOptions_ApiKey{},
+		}.Build(),
+		EncryptionConfigs: configs,
+		RequestId:         "request-1",
+	}.Build()
+}
+
+func gateConnector(t *testing.T, issuer *vaultInboxIssuer) *builder {
+	t.Helper()
+	connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{issuer, newTestCredentialSecretDeleter()}))
+	require.NoError(t, err)
+	return connector.(*builder)
+}
+
+func TestVaultInboxIssueCredentialMintsOnceAndSeals(t *testing.T) {
+	t.Parallel()
+	value := []byte("super-secret-key-material")
+	issuer := newVaultInboxIssuer(
+		[]*v2.PlaintextData{gateValue("api_key", value)},
+		[]v2.VaultInboxSuite{v2.VaultInboxSuite_VAULT_INBOX_SUITE_XWING_MLKEM768_X25519_HKDF_SHA256_CHACHA20POLY1305_V1},
+	)
+
+	resp, err := gateConnector(t, issuer).IssueCredential(context.Background(), gateRequest([]*v2.EncryptionConfig{gateConfig(t, nil)}))
+	require.NoError(t, err)
+	require.Equal(t, 1, issuer.issueCalls, "the provider must be minted exactly once")
+	require.Len(t, resp.GetEncryptedData(), 1)
+	require.Equal(t, vaultinbox.EncryptionProvider, resp.GetEncryptedData()[0].GetProvider())
+	require.Equal(t, []string{"inbox-key-1"}, resp.GetEncryptedData()[0].GetKeyIds())
+	require.NotEmpty(t, resp.GetEncryptedData()[0].GetEncryptedBytes())
+
+	require.NotContains(t, string(resp.GetEncryptedData()[0].GetEncryptedBytes()), string(value))
+	require.NotContains(t, resp.String(), string(value), "no plaintext may appear anywhere in the response")
+	require.Equal(t, 1, issuer.issueCalls, "a successful issuance must not mint a second credential")
+}
+
+func TestVaultInboxIssueCredentialRefusesBeforeMinting(t *testing.T) {
+	t.Parallel()
+	advertised := []v2.VaultInboxSuite{v2.VaultInboxSuite_VAULT_INBOX_SUITE_XWING_MLKEM768_X25519_HKDF_SHA256_CHACHA20POLY1305_V1}
+	noProfiles := []v2.VaultInboxSuite{}
+
+	cases := map[string]struct {
+		configs  []*v2.EncryptionConfig
+		profiles []v2.VaultInboxSuite
+	}{
+		"unknown config version": {configs: []*v2.EncryptionConfig{gateConfig(t, func(p *gateParams) {
+			p.Version = 0
+		})}, profiles: advertised},
+		"unknown suite": {configs: []*v2.EncryptionConfig{gateConfig(t, func(p *gateParams) {
+			p.Suite = ""
+		})}, profiles: advertised},
+		"unsupported payload scheme": {configs: []*v2.EncryptionConfig{gateConfig(t, func(p *gateParams) {
+			p.PayloadScheme = "latchkey.vault_submission.secret.v2"
+		})}, profiles: advertised},
+		"unknown inner field": {configs: []*v2.EncryptionConfig{gateConfigWithUnknownField(t)}, profiles: advertised},
+		"mismatched thumbprint": {configs: []*v2.EncryptionConfig{gateConfig(t, func(p *gateParams) {
+			p.PublicKeyThumbprint = "not-the-thumbprint"
+		})}, profiles: advertised},
+		"unadvertised profile": {configs: []*v2.EncryptionConfig{gateConfig(t, nil)}, profiles: noProfiles},
+		// A real age recipient, so the age validator accepts it and
+		// validateVaultInboxConfigExclusivity is the gate that refuses.
+		"mixed recipient configs": {configs: []*v2.EncryptionConfig{gateConfig(t, nil), validAgeConfig(t)}, profiles: advertised},
+		"duplicate recipient configs": {configs: []*v2.EncryptionConfig{
+			gateConfig(t, nil), gateConfig(t, nil),
+		}, profiles: advertised},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			issuer := newVaultInboxIssuer([]*v2.PlaintextData{gateValue("api_key", []byte("v"))}, tc.profiles)
+			resp, err := gateConnector(t, issuer).IssueCredential(context.Background(), gateRequest(tc.configs))
+			require.Error(t, err)
+			require.Nil(t, resp)
+			require.Zero(t, issuer.issueCalls, "a refused config must not mint anything")
+		})
+	}
+}
+
+func TestVaultInboxIssueCredentialFailsAfterOneMint(t *testing.T) {
+	t.Parallel()
+	advertised := []v2.VaultInboxSuite{v2.VaultInboxSuite_VAULT_INBOX_SUITE_XWING_MLKEM768_X25519_HKDF_SHA256_CHACHA20POLY1305_V1}
+
+	cases := map[string][]*v2.PlaintextData{
+		"zero values": {},
+		"multiple values": {
+			gateValue("api_key", []byte("v")),
+			gateValue("api_key_id", []byte("id")),
+		},
+		"unusable value": {
+			v2.PlaintextData_builder{Bytes: []byte("v")}.Build(),
+		},
+		"oversized value": {
+			gateValue("api_key", bytes.Repeat([]byte("a"), vaultinbox.MaxPlaintextBytes+1)),
+		},
+	}
+
+	for name, values := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			issuer := newVaultInboxIssuer(values, advertised)
+			resp, err := gateConnector(t, issuer).IssueCredential(context.Background(), gateRequest([]*v2.EncryptionConfig{gateConfig(t, nil)}))
+			require.Error(t, err, "the issuance must not report success")
+			require.Nil(t, resp, "no partial result may be returned")
+			require.Equal(t, 1, issuer.issueCalls, "a post-mint failure must not trigger a second mint")
+		})
+	}
+}

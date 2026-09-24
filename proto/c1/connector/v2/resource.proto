@@ -365,7 +365,9 @@ message EncryptedData {
   // Provider-specific ciphertext. Consumers must select decoding and
   // decryption using provider; they must not infer the encoding from schema or
   // whether these bytes are valid text. baton/jwk/v1 stores standard-base64
-  // text, while baton/age/v1 stores a standard binary age file. If schema is
+  // text, baton/age/v1 stores a standard binary age file, and
+  // baton/vault-inbox/v1 stores a UTF-8 JSON vault-inbox submission envelope
+  // (version, alg, enc, ciphertext). If schema is
   // set, it describes the plaintext represented after decryption.
   bytes encrypted_bytes = 6;
   // Provider-specific identifiers for correlating ciphertext with its
@@ -411,6 +413,26 @@ message EncryptionConfig {
     JWKPublicKeyConfig jwk_public_key_config = 100;
     AgeRecipientConfig age_recipient_config = 101;
   }
+
+  // 102 held VaultInboxRecipientConfig. This alternative carries the inbox
+  // binding context in a typed extension member on the recipient JWK instead, so
+  // the arm is removed and its number and name stay reserved rather than being
+  // reused or silently dropped. Inbox mode is selected by the provider name on
+  // this message, never inferred from the key type.
+  reserved 102;
+  reserved "vault_inbox_recipient_config";
+}
+
+// VaultInboxSuite names the one HPKE suite the vault inbox admits. It is the
+// suite the Latchkey inbox reader reconstructs into its AAD, so a ciphertext
+// sealed under any other suite fails the AEAD at open, not a plaintext compare.
+//
+// This enum stays: capability advertisement on CredentialIssueOptionDescriptor
+// still needs it. Only the config message that used to carry a suite field is
+// removed by this alternative.
+enum VaultInboxSuite {
+  VAULT_INBOX_SUITE_UNSPECIFIED = 0;
+  VAULT_INBOX_SUITE_XWING_MLKEM768_X25519_HKDF_SHA256_CHACHA20POLY1305_V1 = 1;
 }
 
 message ResourceId {

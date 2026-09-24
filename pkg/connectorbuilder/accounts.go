@@ -108,6 +108,23 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
 	}
 
+	err = crypto.ValidateVaultInboxCredentialOptions(request.GetEncryptionConfigs(), request.GetCredentialOptions())
+	if err != nil {
+		l.Error("error: vault inbox recipient paired with credential options that produce no value", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
+
+	// Validate before creating the account; preserve other recipients' validation timing.
+	if crypto.HasVaultInboxConfig(request.GetEncryptionConfigs()) {
+		err = crypto.ValidateEncryptionConfigs(request.GetEncryptionConfigs())
+		if err != nil {
+			l.Error("error: invalid vault inbox encryption configuration", zap.Error(err))
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+			return nil, err
+		}
+	}
+
 	result, plaintexts, annos, err := accountManager.CreateAccount(ctx, request.GetAccountInfo(), opts)
 	if err != nil {
 		l.Error("error: create account failed", zap.Error(err))
@@ -120,6 +137,17 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 		l.Error("error: creating encryption manager failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
+	}
+
+	switch result.(type) {
+	case *v2.CreateAccountResponse_SuccessResult:
+		err = pkem.ValidatePlaintextCardinality(plaintexts)
+	default:
+		err = pkem.ValidatePlaintextCardinalityAtMostOne(plaintexts)
+	}
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
 	}
 
 	var encryptedDatas []*v2.EncryptedData
