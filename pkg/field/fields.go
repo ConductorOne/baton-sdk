@@ -380,6 +380,32 @@ func SelectField(name string, options []string, optional ...fieldOption) SchemaF
 	return field
 }
 
+// MultiSelectField is StringSliceField constrained to options. The frontend
+// renders it identically to StringSliceField until it adds a fixed-options
+// view for this variant; validation rejects a value outside options either
+// way.
+func MultiSelectField(name string, options []string, optional ...fieldOption) SchemaField {
+	field := SchemaField{
+		FieldName:    name,
+		Variant:      StringSliceVariant,
+		DefaultValue: []string{},
+		ExportTarget: ExportTargetGUI,
+		Rules: FieldRule{
+			ss: v1_conf.RepeatedStringRules_builder{
+				ItemRules: v1_conf.StringRules_builder{In: options}.Build(),
+			}.Build(),
+		},
+		SyncerConfig:    syncerConfig{},
+		ConnectorConfig: connectorConfig{},
+	}
+
+	for _, o := range optional {
+		field = o(field)
+	}
+
+	return field
+}
+
 func Oauth2Field(name string, optional ...fieldOption) SchemaField {
 	field := SchemaField{
 		FieldName:       name,
