@@ -10,6 +10,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	ageprovider "github.com/conductorone/baton-sdk/pkg/crypto/providers/age"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers/vaultinbox"
 )
 
 var ErrEncryptionProviderNotRegistered = fmt.Errorf("crypto/providers: encryption provider not registered")
@@ -49,6 +50,19 @@ var encryptorRegistry = map[string]Encryptor{
 	normalizeProviderName(ageprovider.EncryptionProviderAge): &ageprovider.RecipientEncryptionProvider{},
 	normalizeProviderName(jwk.EncryptionProviderJwk):         &jwk.JWKEncryptionProvider{},
 	normalizeProviderName(jwk.EncryptionProviderJwkPrivate):  &jwk.JWKEncryptionProvider{},
+	normalizeProviderName(vaultinbox.EncryptionProvider):     vaultinbox.NewProvider(),
+}
+
+// IsVaultInboxConfig recognizes the config arm or provider name, including a
+// provider-only config that must be rejected before a create or rotation.
+func IsVaultInboxConfig(conf *v2.EncryptionConfig) bool {
+	if conf == nil {
+		return false
+	}
+	if conf.GetVaultInboxRecipientConfig() != nil {
+		return true
+	}
+	return normalizeProviderName(conf.GetProvider()) == normalizeProviderName(vaultinbox.EncryptionProvider)
 }
 
 func normalizeProviderName(name string) string {
@@ -77,6 +91,8 @@ func GetEncryptorForConfig(ctx context.Context, conf *v2.EncryptionConfig) (Encr
 	providerName := normalizeProviderName(conf.GetProvider())
 	if providerName == "" {
 		switch {
+		case conf.GetVaultInboxRecipientConfig() != nil:
+			providerName = vaultinbox.EncryptionProvider
 		case conf.GetAgeRecipientConfig() != nil:
 			providerName = ageprovider.EncryptionProviderAge
 		case conf.GetJwkPublicKeyConfig() != nil:

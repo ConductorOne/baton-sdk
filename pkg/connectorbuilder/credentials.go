@@ -3,11 +3,13 @@ package connectorbuilder
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -64,6 +66,23 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
 	}
 
+	err = crypto.ValidateVaultInboxRotateCredentialOptions(request.GetEncryptionConfigs(), request.GetCredentialOptions())
+	if err != nil {
+		l.Error("error: vault inbox recipient paired with credential options that produce no value", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
+
+	// Validate before invalidating the old credential; preserve other recipients' validation timing.
+	if crypto.HasVaultInboxConfig(request.GetEncryptionConfigs()) {
+		err = crypto.ValidateEncryptionConfigs(request.GetEncryptionConfigs())
+		if err != nil {
+			l.Error("error: invalid vault inbox encryption configuration", zap.Error(err))
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+			return nil, err
+		}
+	}
+
 	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), opts)
 	if err != nil {
 		l.Error("error: rotate credentials on resource failed", zap.Error(err))
@@ -76,6 +95,12 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 		l.Error("error: creating encryption manager failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
+	}
+
+	err = pkem.ValidatePlaintextCardinality(plaintexts)
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
 	}
 
 	var encryptedDatas []*v2.EncryptedData
@@ -214,6 +239,11 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, status.Errorf(codes.InvalidArgument, "invalid credential issuance request: %v", err)
 	}
+	err = validateVaultInboxProfileAdvertised(request.GetEncryptionConfigs(), descriptor)
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
 
 	output, err := issuer.Issue(ctx, input)
 	if err != nil {
@@ -226,6 +256,11 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, status.Errorf(codes.Internal, "connector returned invalid credential issuance output: %v", err)
 	}
+	err = pkem.ValidatePlaintextCardinality(output.PlaintextData)
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
 
 	var encryptedDatas []*v2.EncryptedData
 	for _, plaintextCredential := range output.PlaintextData {
@@ -237,7 +272,6 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		}
 		encryptedDatas = append(encryptedDatas, encryptedData...)
 	}
-
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return v2.IssueCredentialResponse_builder{
 		Secret:        output.Secret,
@@ -246,6 +280,21 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		ResourceMode:  output.ResourceMode,
 		RequestId:     request.GetRequestId(),
 	}.Build(), nil
+}
+
+func validateVaultInboxProfileAdvertised(configs []*v2.EncryptionConfig, descriptor *v2.CredentialIssueOptionDescriptor) error {
+	for _, config := range configs {
+		if !providers.IsVaultInboxConfig(config) {
+			continue
+		}
+		profile := config.GetVaultInboxRecipientConfig().GetSuite()
+		if profile == v2.VaultInboxSuite_VAULT_INBOX_SUITE_UNSPECIFIED ||
+			!slices.Contains(descriptor.GetVaultInboxProfiles(), profile) {
+			return status.Error(codes.InvalidArgument,
+				"vault inbox profile is not advertised by connector")
+		}
+	}
+	return nil
 }
 
 func validateCredentialIssueOutput(identityID *v2.ResourceId, requestedExpiresAt *timestamppb.Timestamp, output *CredentialIssueOutput, descriptor *v2.CredentialIssueOptionDescriptor) error {

@@ -55,6 +55,9 @@ func (pkem *EncryptionManager) Encrypt(ctx context.Context, cred *v2.PlaintextDa
 }
 
 func NewEncryptionManager(co *v2.CredentialOptions, ec []*v2.EncryptionConfig) (*EncryptionManager, error) {
+	if err := validateVaultInboxConfigExclusivity(ec); err != nil {
+		return nil, err
+	}
 	em := &EncryptionManager{
 		opts:    co,
 		configs: ec,
@@ -62,8 +65,108 @@ func NewEncryptionManager(co *v2.CredentialOptions, ec []*v2.EncryptionConfig) (
 	return em, nil
 }
 
+// ValidatePlaintextCardinality applies [ValidateVaultInboxPlaintextCardinality]
+// to this manager's recipients before a caller encrypts a list of values.
+func (pkem *EncryptionManager) ValidatePlaintextCardinality(plaintexts []*v2.PlaintextData) error {
+	return ValidateVaultInboxPlaintextCardinality(pkem.configs, plaintexts)
+}
+
+// ValidatePlaintextCardinalityAtMostOne is the variant for callers that may
+// legally produce no plaintext, such as CreateAccount's non-success results.
+func (pkem *EncryptionManager) ValidatePlaintextCardinalityAtMostOne(plaintexts []*v2.PlaintextData) error {
+	return ValidateVaultInboxPlaintextCardinalityAtMostOne(pkem.configs, plaintexts)
+}
+
+// ValidateVaultInboxPlaintextCardinalityAtMostOne permits an absent credential,
+// as required by CreateAccount's non-success results. Other recipient types are unaffected.
+func ValidateVaultInboxPlaintextCardinalityAtMostOne(configs []*v2.EncryptionConfig, plaintexts []*v2.PlaintextData) error {
+	if !hasVaultInboxConfig(configs) {
+		return nil
+	}
+	if len(plaintexts) > 1 {
+		return status.Errorf(codes.FailedPrecondition,
+			"vault inbox issuance accepts at most one plaintext value, got %d", len(plaintexts))
+	}
+	return nil
+}
+
+// ValidateVaultInboxPlaintextCardinality requires one value for an inbox recipient:
+// multiple values would produce envelopes sharing a delivery ID. Other recipient
+// types are unaffected. This checks provider output, so failure may follow minting.
+func ValidateVaultInboxPlaintextCardinality(configs []*v2.EncryptionConfig, plaintexts []*v2.PlaintextData) error {
+	if !hasVaultInboxConfig(configs) {
+		return nil
+	}
+	if len(plaintexts) != 1 {
+		return status.Errorf(codes.FailedPrecondition,
+			"vault inbox issuance requires exactly one plaintext value, got %d", len(plaintexts))
+	}
+	return nil
+}
+
+// ValidateVaultInboxCredentialOptions requires RandomPassword for inbox delivery
+// before account creation. Other recipient types are unaffected.
+func ValidateVaultInboxCredentialOptions(configs []*v2.EncryptionConfig, opts *v2.CredentialOptions) error {
+	if !hasVaultInboxConfig(configs) {
+		return nil
+	}
+	if opts.WhichOptions() != v2.CredentialOptions_RandomPassword_case {
+		return status.Error(codes.InvalidArgument,
+			"a vault inbox recipient requires credential options that produce a value")
+	}
+	return nil
+}
+
+// ValidateVaultInboxRotateCredentialOptions allows random-password or unset options
+// before rotation; unset lets the connector choose its replacement credential.
+// Other recipient types are unaffected.
+func ValidateVaultInboxRotateCredentialOptions(configs []*v2.EncryptionConfig, opts *v2.CredentialOptions) error {
+	if !hasVaultInboxConfig(configs) {
+		return nil
+	}
+	switch opts.WhichOptions() {
+	case v2.CredentialOptions_RandomPassword_case, v2.CredentialOptions_Options_not_set_case:
+		return nil
+	default:
+		return status.Error(codes.InvalidArgument,
+			"a vault inbox recipient requires a rotation that produces a value")
+	}
+}
+
+func HasVaultInboxConfig(configs []*v2.EncryptionConfig) bool {
+	return hasVaultInboxConfig(configs)
+}
+
+func hasVaultInboxConfig(configs []*v2.EncryptionConfig) bool {
+	for _, config := range configs {
+		if providers.IsVaultInboxConfig(config) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateVaultInboxConfigExclusivity(ec []*v2.EncryptionConfig) error {
+	vaultInboxConfigs := 0
+	for _, config := range ec {
+		if providers.IsVaultInboxConfig(config) {
+			vaultInboxConfigs++
+		}
+	}
+	if vaultInboxConfigs > 1 || (vaultInboxConfigs == 1 && len(ec) != 1) {
+		return status.Error(codes.InvalidArgument,
+			"vault inbox encryption config must be the only encryption config")
+	}
+	return nil
+}
+
 // ValidateEncryptionConfigs validates recipients before an irreversible
 // credential issuance without changing create/rotate compatibility.
+//
+// Issuance and the registered-action path call this unconditionally. CreateAccount
+// and RotateCredential call it only when a vault-inbox recipient is present
+// (see [HasVaultInboxConfig]), so every other recipient type keeps its existing
+// create/rotate behaviour.
 func ValidateEncryptionConfigs(ec []*v2.EncryptionConfig) error {
 	for i, config := range ec {
 		if config == nil {
@@ -79,7 +182,7 @@ func ValidateEncryptionConfigs(ec []*v2.EncryptionConfig) error {
 			}
 		}
 	}
-	return nil
+	return validateVaultInboxConfigExclusivity(ec)
 }
 
 func decryptPassword(ctx context.Context, encryptedPassword *v2.EncryptedData, decryptionConfig *providers.DecryptionConfig) (string, error) {

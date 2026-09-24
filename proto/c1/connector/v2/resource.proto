@@ -365,7 +365,9 @@ message EncryptedData {
   // Provider-specific ciphertext. Consumers must select decoding and
   // decryption using provider; they must not infer the encoding from schema or
   // whether these bytes are valid text. baton/jwk/v1 stores standard-base64
-  // text, while baton/age/v1 stores a standard binary age file. If schema is
+  // text, baton/age/v1 stores a standard binary age file, and
+  // baton/vault-inbox/v1 stores a UTF-8 JSON vault-inbox submission envelope
+  // (version, alg, enc, ciphertext). If schema is
   // set, it describes the plaintext represented after decryption.
   bytes encrypted_bytes = 6;
   // Provider-specific identifiers for correlating ciphertext with its
@@ -410,7 +412,57 @@ message EncryptionConfig {
   oneof config {
     JWKPublicKeyConfig jwk_public_key_config = 100;
     AgeRecipientConfig age_recipient_config = 101;
+    VaultInboxRecipientConfig vault_inbox_recipient_config = 102;
   }
+}
+
+// VaultInboxConfigVersion pins the shape of a VaultInboxRecipientConfig. A
+// version the provider does not implement is refused before the provider runs,
+// so an older connector never silently seals a newer profile.
+enum VaultInboxConfigVersion {
+  VAULT_INBOX_CONFIG_VERSION_UNSPECIFIED = 0;
+  VAULT_INBOX_CONFIG_VERSION_V1 = 1;
+}
+
+// VaultInboxSuite names the one HPKE suite the vault inbox admits. It is the
+// suite the Latchkey inbox reader reconstructs into its AAD, so a ciphertext
+// sealed under any other suite fails the AEAD at open, not a plaintext compare.
+enum VaultInboxSuite {
+  VAULT_INBOX_SUITE_UNSPECIFIED = 0;
+  VAULT_INBOX_SUITE_XWING_MLKEM768_X25519_HKDF_SHA256_CHACHA20POLY1305_V1 = 1;
+}
+
+// VaultInboxRecipientConfig selects the recipient and authenticated context for
+// a Latchkey inbox envelope. C1 supplies these coordinates from the approved
+// destination; FK delivery does not require a Vault Submission row.
+//
+// EncryptedData.encrypted_bytes holds the vault-inbox submission envelope (the
+// JSON `VaultInboxSubmissionEnvelope` the Latchkey inbox reader consumes) --
+// not a bare HPKE ciphertext. EncryptedData.key_ids holds exactly
+// `inbox_key_id`; C1 rejects any other value.
+message VaultInboxRecipientConfig {
+  VaultInboxConfigVersion config_version = 1;
+  VaultInboxSuite suite = 2;
+  // Trusted routing coordinates, echoed into both the HPKE info and the AEAD
+  // AAD, so a ciphertext cannot be replayed under another tenant, vault, inbox
+  // key, generation, or payload scheme.
+  string tenant_id = 3;
+  string vault_boundary_id = 4;
+  string inbox_key_id = 5;
+  uint64 key_generation = 6;
+  // Payload-scheme label bound into the binding (e.g.
+  // "latchkey.vault_submission.secret.v1").
+  string payload_scheme = 7;
+  // Authenticated inside the payload. Carries the prepared delivery ID for FK delivery.
+  string submission_id = 8;
+  // Public recipient AKP JWK. The corresponding private key never appears in a
+  // config, request, or response.
+  string public_jwk_json = 9;
+  // The profile's SHA-256 thumbprint of the public JWK, re-derived and compared
+  // by the provider before it seals.
+  string public_key_thumbprint = 10;
+  // Authenticated inside the payload and checked by FK ingestion before native sealing.
+  string content_type = 11;
 }
 
 message ResourceId {
