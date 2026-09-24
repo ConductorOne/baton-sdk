@@ -37,6 +37,7 @@ var errPublicLedgerCut = errors.New("public ledger durable cut")
 type crashCollectionConnector struct {
 	types.ConnectorClient
 	skipStatic bool
+	cleanupErr error
 }
 
 func crashResource() *v2.Resource {
@@ -51,7 +52,10 @@ func (crashCollectionConnector) Validate(context.Context, *v2.ConnectorServiceVa
 func (crashCollectionConnector) GetMetadata(context.Context, *v2.ConnectorServiceGetMetadataRequest, ...grpc.CallOption) (*v2.ConnectorServiceGetMetadataResponse, error) {
 	return &v2.ConnectorServiceGetMetadataResponse{}, nil
 }
-func (crashCollectionConnector) Cleanup(context.Context, *v2.ConnectorServiceCleanupRequest, ...grpc.CallOption) (*v2.ConnectorServiceCleanupResponse, error) {
+func (c crashCollectionConnector) Cleanup(context.Context, *v2.ConnectorServiceCleanupRequest, ...grpc.CallOption) (*v2.ConnectorServiceCleanupResponse, error) {
+	if c.cleanupErr != nil {
+		return nil, c.cleanupErr
+	}
 	return &v2.ConnectorServiceCleanupResponse{}, nil
 }
 
@@ -382,37 +386,167 @@ func TestPublicLedgerArchiveFailureKeepsDataAndStats(t *testing.T) {
 	require.True(t, proto.Equal(baseline.stats, retained.stats))
 }
 
+var errPublicLedgerCleanup = errors.New("public ledger cleanup failed after seal")
+
+func TestPublicLedgerCleanupErrorAfterSealKeepsFinishedArtifact(t *testing.T) {
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "cleanup-error.c1z")
+	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	store.(c1zstore.WriteHookStore).SetWriteHook(func(_ context.Context, event c1zstore.WriteHookEvent) error {
+		if event.Bypass == "" {
+			return fmt.Errorf("unregistered page write: %s", event.Method)
+		}
+		return nil
+	})
+	runner, err := sdk.NewSyncer(ctx, crashCollectionConnector{cleanupErr: errPublicLedgerCleanup}, sdk.WithConnectorStore(store), sdk.WithDontExpandGrants())
+	require.NoError(t, err)
+	require.NoError(t, runner.Sync(ctx))
+	run, err := store.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, run)
+	token, err := store.CurrentSyncStep(ctx)
+	require.NoError(t, err)
+	require.Empty(t, token)
+	facts, err := store.(c1zstore.PageLedgerStore).LedgerFacts(ctx)
+	require.NoError(t, err)
+	require.Empty(t, facts)
+	report, err := store.(c1zstore.PageLedgerStore).GetArchivedLedgerReport(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, report)
+	response, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{})
+	require.NoError(t, err)
+	require.Len(t, response.GetList(), 1)
+	require.NoError(t, store.Close(ctx))
+
+	reopened, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble), dotc1z.WithReadOnly(true))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, reopened.Close(ctx)) }()
+	stats, err := reopened.SyncMeta().StatsV2(ctx, connectorstore.SyncTypeFull, run.ID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, stats.GetResourceTypes())
+	require.EqualValues(t, 1, stats.GetResources())
+	token, err = reopened.CurrentSyncStep(ctx)
+	require.NoError(t, err)
+	require.Empty(t, token)
+	finished, err := reopened.(c1zstore.PageLedgerStore).BoundSyncFinished(ctx)
+	require.NoError(t, err)
+	require.True(t, finished)
+}
+
+type publicLedgerCompactorInput struct {
+	name           string
+	partial        bool
+	debug          bool
+	retainTokens   bool
+	archiveFailure bool
+}
+
+func (i publicLedgerCompactorInput) label() string {
+	shape := "full"
+	if i.partial {
+		shape = "partial"
+	}
+	return i.name + "/" + shape
+}
+
+func createPublicLedgerCompactorInput(t *testing.T, ctx context.Context, root string, input publicLedgerCompactorInput) *synccompactor.CompactableSync {
+	t.Helper()
+	path := filepath.Join(root, fmt.Sprintf("%s-partial-%t.c1z", input.name, input.partial))
+	baseStore, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	store := baseStore
+	if input.archiveFailure {
+		store = dotc1z.WrapPebbleStoreForTesting(baseStore, func(w c1zstore.PageWriter) c1zstore.PageWriter {
+			return crashPageWriter{PageWriter: w, commit: func(ctx context.Context, id c1zstore.LedgerActionIdentity, row *c1zstore.LedgerRow, commit func() error) error {
+				if id.Op == "sync-terminal-v1" {
+					if err := w.SetFactValue(c1zstore.LedgerFactReportOptions, "invalid-json"); err != nil {
+						return err
+					}
+					if err := w.SetFactValue(c1zstore.LedgerFactReportOptionsPrefix+row.Attempt, "invalid-json"); err != nil {
+						return err
+					}
+				}
+				return commit()
+			}}
+		})
+	}
+	store.(c1zstore.WriteHookStore).SetWriteHook(func(_ context.Context, event c1zstore.WriteHookEvent) error {
+		if event.Bypass == "" {
+			return fmt.Errorf("unregistered page write: %s", event.Method)
+		}
+		return nil
+	})
+	opts := []sdk.SyncOpt{sdk.WithConnectorStore(store), sdk.WithDontExpandGrants(), sdk.WithLedgerDebug(input.debug), sdk.WithRetainLedgerTokens(input.retainTokens)}
+	if input.partial {
+		opts = append(opts, sdk.WithTargetedSyncResources([]*v2.Resource{crashResource()}))
+	}
+	runner, err := sdk.NewSyncer(ctx, crashCollectionConnector{skipStatic: true}, opts...)
+	require.NoError(t, err)
+	require.NoError(t, runner.Sync(ctx))
+	run, err := store.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, run)
+	ledger := store.(c1zstore.PageLedgerStore)
+	facts, err := ledger.LedgerFacts(ctx)
+	require.NoError(t, err)
+	report, err := ledger.GetArchivedLedgerReport(ctx)
+	rowID := c1zstore.LedgerActionIdentity{Op: "list-resource-types"}
+	if input.partial {
+		rowID = c1zstore.LedgerActionIdentity{Op: "targeted-resource-sync", ResourceTypeID: "type", ResourceID: "one"}
+	}
+	row, found, rowErr := ledger.GetLedgerRow(ctx, rowID)
+	require.NoError(t, rowErr)
+	switch input.name {
+	case "disposed":
+		require.Empty(t, facts, input.label())
+		require.NoError(t, err)
+		require.NotEmpty(t, report, input.label())
+		require.False(t, found, input.label())
+	case "debug-scrubbed":
+		require.NotContains(t, facts, c1zstore.LedgerFactDiscardOnSeal, input.label())
+		require.NotContains(t, facts, c1zstore.LedgerFactRetainTokens, input.label())
+		require.NoError(t, err)
+		require.NotEmpty(t, report, input.label())
+		require.True(t, found, input.label())
+		require.True(t, row.Scrubbed, input.label())
+		require.Empty(t, row.NextPageToken, input.label())
+	case "debug-retain-tokens":
+		require.Contains(t, facts, c1zstore.LedgerFactRetainTokens, input.label())
+		require.NoError(t, err)
+		require.NotEmpty(t, report, input.label())
+		require.True(t, found, input.label())
+		require.False(t, row.Scrubbed, input.label())
+		if !input.partial {
+			require.Equal(t, "private-type-cursor", row.NextPageToken, input.label())
+		}
+	case "archive-generation-failure":
+		require.NotEmpty(t, facts, input.label())
+		require.NotContains(t, facts, c1zstore.LedgerFactDiscardOnSeal, input.label())
+		require.NoError(t, err)
+		require.Empty(t, report, input.label())
+		require.True(t, found, input.label())
+		require.True(t, row.Scrubbed, input.label())
+	}
+	require.NoError(t, store.Close(ctx))
+	return &synccompactor.CompactableSync{FilePath: path, SyncID: run.ID}
+}
+
 func TestPublicLedgerDisposedFilesCompact(t *testing.T) {
 	ctx := t.Context()
+	root := t.TempDir()
 	var inputs []*synccompactor.CompactableSync
-	for _, partial := range []bool{false, true} {
-		path := filepath.Join(t.TempDir(), "input.c1z")
-		store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
-		require.NoError(t, err)
-		store.(c1zstore.WriteHookStore).SetWriteHook(func(_ context.Context, event c1zstore.WriteHookEvent) error {
-			if event.Bypass == "" {
-				return fmt.Errorf("unregistered page write: %s", event.Method)
-			}
-			return nil
-		})
-		opts := []sdk.SyncOpt{sdk.WithConnectorStore(store), sdk.WithDontExpandGrants()}
-		if partial {
-			opts = append(opts, sdk.WithTargetedSyncResources([]*v2.Resource{crashResource()}))
-		}
-		runner, err := sdk.NewSyncer(ctx, crashCollectionConnector{skipStatic: true}, opts...)
-		require.NoError(t, err)
-		require.NoError(t, runner.Sync(ctx))
-		run, err := store.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
-		require.NoError(t, err)
-		require.NotNil(t, run)
-		inputs = append(inputs, &synccompactor.CompactableSync{FilePath: path, SyncID: run.ID})
-		facts, err := store.(c1zstore.PageLedgerStore).LedgerFacts(ctx)
-		require.NoError(t, err)
-		require.Empty(t, facts)
-		report, err := store.(c1zstore.PageLedgerStore).GetArchivedLedgerReport(ctx)
-		require.NoError(t, err)
-		require.NotEmpty(t, report)
-		require.NoError(t, store.Close(ctx))
+	for _, input := range []publicLedgerCompactorInput{
+		{name: "disposed"},
+		{name: "disposed", partial: true},
+		{name: "debug-scrubbed", debug: true},
+		{name: "debug-scrubbed", partial: true, debug: true},
+		{name: "debug-retain-tokens", debug: true, retainTokens: true},
+		{name: "debug-retain-tokens", partial: true, debug: true, retainTokens: true},
+		{name: "archive-generation-failure", archiveFailure: true},
+		{name: "archive-generation-failure", partial: true, archiveFailure: true},
+	} {
+		inputs = append(inputs, createPublicLedgerCompactorInput(t, ctx, root, input))
 	}
 	var expected map[string]string
 	for _, mode := range []synccompactor.PebbleCompactorMode{synccompactor.PebbleCompactorModeOverlay, synccompactor.PebbleCompactorModeFold} {
@@ -439,7 +573,7 @@ func TestPublicLedgerDisposedFilesCompact(t *testing.T) {
 			require.NoError(t, err)
 			for it.First(); it.Valid(); it.Next() {
 				key := it.Key()
-				if len(key) > 1 && (key[1] >= 1 && key[1] <= 5 || key[1] == 7 || key[1] == 10) {
+				if len(key) > 1 && (key[1] >= 1 && key[1] <= 5 || key[1] == 7 || key[1] == 8 || key[1] == 10) {
 					data[string(key)] = string(it.Value())
 				}
 			}

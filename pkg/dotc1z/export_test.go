@@ -32,3 +32,7 @@ func (s *wrappedPageTestStore) BeginPage() c1zstore.PageWriter {
 func PebbleStoreForTesting(e *pebble.Engine, wrap func(c1zstore.PageWriter) c1zstore.PageWriter) c1zstore.Store {
 	return &wrappedPageTestStore{pebbleStore: &pebbleStore{Engine: e}, wrap: wrap}
 }
+
+func WrapPebbleStoreForTesting(store c1zstore.Store, wrap func(c1zstore.PageWriter) c1zstore.PageWriter) c1zstore.Store {
+	return &wrappedPageTestStore{pebbleStore: store.(*pebbleStore), wrap: wrap}
+}
