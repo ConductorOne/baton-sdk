@@ -30,65 +30,14 @@ VFS crash images have executed; their bounded coverage is recorded in the archiv
 full product-to-executed-test manifest remains incomplete. This is not closure
 of C10, C37, C38 or C47 over all required cells.
 
-## Criterion index
+## Current criterion reconciliation
 
-These are the existing conservative coverage dispositions, not a claim that every
-historical test still describes the current implementation. CO-027 replaces the
-history walk and request-identity claims; its current evidence is below. Each link
-retains the original test/mutant record and uncovered cells.
-
-| Criterion and detailed evidence | Status |
-| --- | --- |
-| [C01](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c01) | verified to stated coverage |
-| [C02](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c02) | not assessed |
-| [C03](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c03) | not assessed |
-| [C04](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c04) | evidence incomplete |
-| [C05](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c05) | evidence incomplete |
-| [C06](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c06) | not assessed |
-| [C07](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c07) | evidence incomplete |
-| [C08](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c08) | evidence incomplete |
-| [C09](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c09) | evidence incomplete |
-| [C10](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c10) | evidence incomplete |
-| [C11](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c11) | evidence incomplete |
-| [C12](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c12) | not assessed |
-| [C13](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c13) | evidence incomplete |
-| [C14](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c14) | evidence incomplete |
-| [C15](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c15) | not assessed |
-| [C16](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c16) | evidence incomplete |
-| [C17](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c17) | evidence incomplete |
-| [C18](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c18) | not assessed |
-| [C19](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c19) | evidence incomplete |
-| [C20](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c20) | evidence incomplete |
-| [C21](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c21) | evidence incomplete |
-| [C22](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c22) | not assessed |
-| [C23](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c23) | evidence incomplete |
-| [C24](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c24) | evidence incomplete |
-| [C25](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c25) | evidence incomplete |
-| [C26](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c26) | evidence incomplete |
-| [C27](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c27) | evidence incomplete |
-| [C28](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c28) | evidence incomplete |
-| [C29](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c29) | evidence incomplete |
-| [C30](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c30) | evidence incomplete |
-| [C31](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c31) | evidence incomplete |
-| [C32](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c32) | evidence incomplete |
-| [C33](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c33) | evidence incomplete |
-| [C34](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c34) | evidence incomplete |
-| [C35](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c35) | evidence incomplete |
-| [C36](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c36) | evidence incomplete |
-| [C37](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c37) | evidence incomplete |
-| [C38](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c38) | evidence incomplete |
-| [C39](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c39) | evidence incomplete |
-| [C40](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c40) | evidence incomplete |
-| [C41](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c41) | not assessed |
-| [C42](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c42) | evidence incomplete |
-| [C43](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c43) | evidence incomplete |
-| [C44](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c44) | evidence incomplete |
-| [C45](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c45) | evidence incomplete under CO-011's revised shared-change boundary |
-| [C46](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c46) | not assessed |
-| [C47](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c47) | evidence incomplete |
-| [C48](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c48) | evidence incomplete |
-| [C49](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c49) | evidence incomplete |
-| [C50](https://github.com/ConductorOne/baton-sdk/blob/fda242827a2e177e7f459d802502fd8f4f8fbe2b/docs/verification/syncer-on-ledger/evidence.md#c50) | evidence incomplete |
+[Current coverage](current-coverage.md) maps all50 criteria to current assertions,
+applicable change orders and precise residual scope. It replaces the historical
+“not assessed” labels. The full old test/mutant record remains linked there.
+C01 retains its verified attachment disposition; C02–C50 remain evidence incomplete
+against the complete original products. Current positive tests are not presented
+as exhaustive closure. No criterion has been silently dropped.
 
 ## CO-027 consumer integration
 
@@ -111,7 +60,7 @@ relation. SQLite keeps its existing checkpoint path.
 
 ## Current validation and review
 
-At production revision6ca6a0ac, the full sync suite passes (87.646s), storage tree
+Historical validation at production revision6ca6a0ac: the full sync suite passes (87.646s), storage tree
 passes (parent28.146s/Pebble11.927s), and compactor passes (21.455s). Three focused
 integrated race repetitions pass. The full142-cut sweep covers52 commits,
 45 connector responses and45 token-expiration cuts; six fixed-seed randomized
@@ -181,3 +130,40 @@ cuts and six fixed-seed scheduler soaks pass (7.113s). CI merge-checkout lint is
 clean. Independent lifecycle review found no confirmed defect; accounting review
 accepted the callback correction. Shared subprocess setup retains every crash
 scenario and assertion. These changes do not close unexecuted original products.
+
+## Current assurance reconciliation
+
+At4a8f3675 the four-package cross-instrumented run completed with3,039 passing
+and42 skipped test/subtest events; no failures. The old-SDK artifact consumer ran
+explicitly in that run. It resumed an actual eb63f1b5 saved checkpoint containing
+ten records, fetched only three remaining pages and reopened forty exact IDs and
+payloads. The producer and opt-in reproduction commands are in README.md.
+
+New cases cover uninitialized quality facts/counters through public completion,
+all-five-fact reverse commit order, V0/V1/V2 accounting across three cold resumes
+and duplicate stop flushes, connector cleanup failure after a confirmed finished
+record, and full/partial artifacts in four ledger-retention/failure modes through
+both compactor strategies. The quality-domain omission, worker0/run-bucket
+collision and lost-fact-merge mutations each fail the corresponding new test.
+No production correction was required.
+
+Statement-range inspection prompted additional cases for durable child-scheduling
+validation (including empty child responses, missing evidence and read errors),
+valid grants following rejected inputs, and invalid pending descriptors. Those
+cases pass, including three race repetitions. The scan lists residual zero-hit
+changed ranges rather than interpreting them as missing whole features. Most
+are individual error/rejection paths; optional asset planning, preserved-graph
+paging and diagnostic variants remain sampled. Immediate process cuts at every
+auxiliary bypass and every public sidecar-I/O failure are not claimed.
+
+The coverage summarizer now aggregates duplicate source blocks emitted by Go's
+cross-package profiles. A zero-hit copy cannot override a positive hit in another
+package. Duplicate-block, inconsistent-block and incomplete-execution-stream
+checks qualify the corrected instrument. Raw profiles, per-range dispositions
+and current execution manifest are retained outside the PR.
+
+The current mapping retains all50 criteria and identifies four residual classes:
+unexecuted combinations, individually unforced lower-level errors, incomplete
+original cost dimensions, and incomplete exhaustive mutation/branch closure.
+The bounded review/test evidence supports a merge recommendation; it does not
+satisfy the original exhaustive products in full or waive their recorded limits.

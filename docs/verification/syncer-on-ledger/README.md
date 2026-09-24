@@ -3,7 +3,8 @@
 - [Frozen behavioral plan and change orders](plan.md)
 - [Implementation history](implementation.md)
 - [Current pending-work design](pending-work.md)
-- [Per-criterion evidence and remaining gaps](evidence.md)
+- [Verification evidence](evidence.md)
+- [Current criterion coverage and precise gaps](current-coverage.md)
 - [Targeted source audit](source-inventory.md)
 
 ## Downloadable verification evidence
