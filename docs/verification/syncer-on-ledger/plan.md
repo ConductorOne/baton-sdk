@@ -1229,3 +1229,15 @@ durable declaration; a pending seal is not a fresh policy boundary.
 - Verification delta: pending pages with tokens and records survive early end, cold reopen and explicit binding; C1's end/cleanup/start sequence works unchanged; pre-stamp failure and durable images around the end stamp preserve recovery and accounting. Existing successful-completion disposal and pending-work rejection tests remain.
 - Risk routing: HIGH. No format relocation or new destructive recovery operation.
 - PR placement: this PR.
+
+### CO-032 — nil connector store preserves path fallback
+
+- Classification: compatibility correction.
+- Source: automated review, under requester's requirement to preserve existing caller behavior.
+- Claim: WithConnectorStore(nil) combined with WithC1ZPath opens the path, independent of option order. With neither a store nor path, construction fails. Engine/capability refusals for non-nil stores remain unchanged.
+- Contract delta: none; restore main's fallback.
+- Owning boundary: syncer store attachment.
+- Affected criteria: C01, C02.
+- Verification delta: public constructor and path attachment across Pebble/SQLite and both option orders; missing-store-and-path refusal.
+- Risk routing: bounded attachment correction; no storage mutation change.
+- PR placement: this PR.
