@@ -85,14 +85,17 @@ Existing JWK and age recipients keep their wire behavior: a valid no-AAD JWK or
 age recipient encrypts exactly as before. Nonempty AAD cannot be routed to a
 provider that does not support it, and there is no fallback between providers.
 
-Supplied encryption configs are validated before a connector is invoked.
-`CreateAccount` and `RotateCredential` reject an unusable config — a nil entry,
-an unknown provider, or a config the provider refuses — before the connector
-runs, including when the connector would return no plaintext credentials. Omit
-configs the caller does not need rather than supplying invalid ones; an empty
-config list is still permitted. A request that supplies an unusable config
-therefore fails earlier than the connector would see it, rather than after
-provider state has changed.
+Supplied encryption configs for issuance are validated before the connector is
+invoked, because issuance always returns a plaintext value to encrypt.
+
+`CreateAccount` and `RotateCredential` validate supplied configs only when the
+connector returns at least one plaintext value. A connector that returns no
+plaintext — an ActionRequired, InProgress or AlreadyExists result, a NoPassword
+flow, or a rotation that does not return the new value — never uses the supplied
+configs, so an unusable one does not fail the operation. When plaintexts are
+returned, an unusable config is refused and no response is sent, because the
+credential could not be encrypted. An empty config list is permitted in every
+case; omit configs the caller does not need rather than supplying invalid ones.
 
 This profile pins draft-22 behavior. A different suite or wire format needs a new
 explicit identifier; a library replacement preserving identical behavior does

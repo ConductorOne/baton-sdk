@@ -161,6 +161,10 @@ go test ./pkg/crypto/... ./pkg/connectorbuilder/ ./pb/... -count=1
      pkg/connectorbuilder, pb/c1/connector/v2
      (after the bounds delegation; 0 FAIL)
 
+go test ./pkg/connectorbuilder/ ./pkg/crypto/... ./pb/... -count=1
+  -> ok at CO-4 (exported envelope, inlined header serialization, zero-output
+     gate); 0 FAIL
+
 go test -race ./pkg/crypto/... ./pkg/connectorbuilder/ -count=1
   -> ok, no data races
 
@@ -221,6 +225,8 @@ clean afterwards (`git status --porcelain` empty, no leftover copies).
 | Remove the low-order X25519 probe | `jwe.go` | validation matrix, mechanism test | matrix FAILS on exactly `X25519 low-order point zero` and `one` |
 | Remove the protected-header bound | `jwe.go` | header limit tests, real issuance case | 4 tests FAIL, including `TestIssueCredentialRejectsOversizedProtectedHeaderBeforeIssuerCall` |
 | Remove the generated-validator delegation (`jwkConfig.Validate()`) | `jwe.go` | declared-bound tests, validation matrix | both at-limit cases still PASS, both over-limit cases FAIL, and the matrix fails on exactly `public JWK over size limit` and `authenticated data over size limit` |
+| Remove the zero-output gate from `RotateCredential` | `credentials.go` | zero-output and returned-plaintext tests | the five zero-output rotate cases FAIL; create cases and both empty-list baselines still PASS |
+| Remove the zero-output gate from `CreateAccount` | `accounts.go` | zero-output test | the five zero-output create cases FAIL; rotate cases and both empty-list baselines still PASS |
 
 Two findings from the plant run worth recording:
 
@@ -243,21 +249,54 @@ constant present, check absent):
 --- FAIL: TestProtectedHeaderLimitErrorsDoNotEchoKeyID
 ```
 
-Pre-fix red evidence for the create/rotate preflight, before `2fa185d6`:
-`TestCreateAccountValidatesEncryptionConfigBeforeMutation` and
-`TestRotateCredentialValidatesEncryptionConfigBeforeMutation` failed with
-connector invocation counts of 1 instead of 0, and the fan-out case returned no
-error at all.
+Pre-fix red evidence for the create/rotate preflight, before `2fa185d6`: the two
+tests then asserted zero connector invocations and failed with counts of 1, and
+the fan-out case returned no error at all. CO-4 reversed that policy, so those
+tests were replaced rather than kept.
 
-Validation does not depend on what the connector would return. With a connector
-configured to mint no plaintext credentials,
-`TestCreateAndRotateValidateConfigsWhenConnectorMintsNothing` shows that a nil
-entry, an unknown provider and a provider-rejected legacy recipient each fail
-with `InvalidArgument` and zero connector invocations on both `CreateAccount` and
-`RotateCredential`, while an empty config list still invokes each connector once
-and returns a response with no encrypted data. Planted removal of the
-pre-invocation check fails all six unusable-config cases and leaves both
-empty-list cases passing.
+Create and rotate now validate supplied configs only when the connector returned
+at least one plaintext value. With a connector configured to mint nothing,
+`TestCreateAndRotateSucceedWithUnusedUnusableConfig` shows a nil entry, an
+unknown provider, a provider-rejected recipient, a malformed JWE recipient and
+JWE fan-out all succeed with one connector invocation and no encrypted data;
+`TestCreateAndRotateRejectUnusableConfigWhenPlaintextReturned` shows the same five
+shapes fail with `InvalidArgument`, one connector invocation and no response once
+the connector does return a plaintext. An empty config list succeeds in both.
+
+Planting the gate's removal fails exactly the zero-output cases on whichever call
+site was planted, and leaves the empty-list baseline passing — so the gate, not
+an unrelated check, is what the test measures.
+
+Issuance keeps its pre-mint validation. `validateCredentialIssueOutput` already
+requires at least one plaintext value, so issuance has no zero-output case to
+preserve, and the pre-mint zero-invocation `IssueCredential` tests are unchanged.
+
+## Envelope type and protected-header ordering
+
+The flattened JWE JSON is the exported `FlattenedJWE` rather than an anonymous
+struct at the point of use, so a reader can decode the wire format without
+declaring it again. go-jose's equivalent, `rawJSONWebEncryption`, is unexported
+and marks every member `omitempty`, so it cannot express this profile's
+always-present empty `iv` and `tag` — the reason a small local type was exported
+instead of reusing the library's. Tests reuse the exported type for the wire
+field names; the reader still derives its own HPKE inputs from the raw wire
+strings, and the framing test asserts the exact member set from raw JSON, so a
+wrong JSON tag cannot pass unnoticed by both sides.
+
+Protected-header member order is not a wire invariant. The HPKE additional data
+is the protected string as transmitted, so
+`TestIndependentReaderAcceptsAnyProtectedHeaderMemberOrder` seals a message with
+`kid` before `alg` — the reverse of the provider's order — and the reader decrypts
+it. The test seals with `hpke` directly, so it does not depend on the provider's
+own serializer. Relabelling the transmitted header without resealing is still
+rejected.
+
+The test is discriminating: a throwaway instrument on a disposable copy showed a
+reader that reconstructs the header from parsed members and re-serializes it
+rejects that same valid message with
+`chacha20poly1305: message authentication failed`. No "never change the order"
+warning is needed, and none was added; the ordering statement lives on the
+`protectedHeader` type instead.
 
 ## Fixture provenance
 
