@@ -48,6 +48,26 @@ generated artifact, and generated protobuf is its own commit.
 Local/CI tool version differences, recorded rather than hidden: buf 1.64.0 here
 vs 1.72.0 in CI; golangci-lint 2.13.2 matched by installing the pinned release.
 
+### Capability naming (CO-5)
+
+The capability was renamed from `CAPABILITY_CREDENTIAL_ENCRYPTION_JWE` to
+`CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1`, because the producer implements
+one suite rather than JWE generally. Renaming a wire-visible enum name is only
+safe while nothing released depends on it, so this was checked first rather than
+assumed:
+
+- The branch head is not an ancestor of `origin/main`, and the pull request is
+  open with `mergedAt: null`.
+- `origin/main`'s `Capability` enum ends at `CAPABILITY_CREDENTIAL_ISSUE = 14`, so
+  values 15 and 16 are both free and the symbol does not exist on `main` at all.
+
+The numeric tag stays 16, so the encoded value does not move. The name does appear
+in `Capability_name`, `Capability_value` and the embedded descriptor, so a
+consumer that names the capability in its own source needs a coordinated rename;
+the producer keeps no alias for the old name. No provider identifier, algorithm
+identifier, cryptographic or framing change: the provider identifier stays
+`baton/jwe/v1`.
+
 ## Declared configuration bounds
 
 `EncryptionConfig.JWKPublicKeyConfig.pub_key` (tag 1) and
@@ -165,6 +185,11 @@ go test ./pkg/crypto/... ./pkg/connectorbuilder/ ./pb/... -count=1
 go test ./pkg/connectorbuilder/ ./pkg/crypto/... ./pb/... -count=1
   -> ok at CO-4 (exported envelope, inlined header serialization, zero-output
      gate); 0 FAIL
+
+go test ./pkg/connectorbuilder/ ./pkg/crypto/... ./pb/... -count=1
+  -> ok at CO-5 (capability rename); 0 FAIL
+make protogen re-run             -> no drift after the rename
+buf lint / format / breaking     -> 0 / 0 / 0
 
 go test -race ./pkg/crypto/... ./pkg/connectorbuilder/ -count=1
   -> ok, no data races
