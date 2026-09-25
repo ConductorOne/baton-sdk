@@ -1253,3 +1253,15 @@ durable declaration; a pending seal is not a fresh policy boundary.
 - Verification delta: actual daemon startup, polling, heartbeat, streaming upload and finish over local TLS/gRPC; replace processes and SDK versions without clearing their directory; verify new-SDK partial ledger premise, old-SDK successful upload contents, retryable failure classification and a subsequent task. Authentication/queue responses are simulated, not production C1 workflow evidence.
 - Risk routing: HIGH compatibility assurance; test-only work, no production change proposed.
 - PR placement: opt-in cross-version test and reproduction tool, with results before any compatibility claim.
+
+### CO-034 — initialize requested work on ended, empty rebind
+
+- Classification: correctness correction.
+- Source: final review reproduction, confirmed by requester as the hosted expansion path for unexpanded connector uploads.
+- Claim: reopening an ended sync with no pending work initializes the current request, including WithOnlyExpandGrants. Reopening with pending work resumes it. An unfinished empty queue completes its seal without restarting collection. The uploaded records, sync identity and accumulated accounting survive the processing boundary.
+- Contract delta: ClearLedgerRows permits an initialized but empty queue on an ended sync; it still refuses unfinished syncs or any pending work. Queue emptiness is checked under the same write lock as the clear.
+- Owning boundary: syncer lifecycle selection and Pebble history-clear precondition.
+- Affected criteria: C16, C31–C36, C43.
+- Verification delta: public collect-without-expansion/save/copy/reopen/expand-only must produce exact inherited grants for normal sealing and premature EndSync, with 1/4 workers and default/debug retention. An unfinished empty queue seals without recollection. Existing pending-resume and clear failure/crash checks remain required.
+- Risk routing: HIGH. Use existing Init planning and atomic history-clear/queue-seed operations; no new scheduler or expansion implementation.
+- PR placement: this PR.
