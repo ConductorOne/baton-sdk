@@ -63,8 +63,11 @@ func NewEncryptionManager(co *v2.CredentialOptions, ec []*v2.EncryptionConfig) (
 	return em, nil
 }
 
-// ValidateEncryptionConfigs validates recipients before an irreversible
-// credential issuance without changing create/rotate compatibility.
+// ValidateEncryptionConfigs checks that every supplied encryption config names a
+// recipient that can be encrypted to. Callers invoke it before a connector is
+// asked to mutate provider state, so a config the provider refuses cannot strand
+// a credential that was already minted. An empty list is valid; a nil entry, an
+// unknown provider, or a config the provider rejects is not.
 func ValidateEncryptionConfigs(ec []*v2.EncryptionConfig) error {
 	for i, config := range ec {
 		if config == nil {

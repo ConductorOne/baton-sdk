@@ -81,8 +81,18 @@ returns an error without a successful encrypted response; the caller must reconc
 and revoke as appropriate, not issue a replacement credential. This SDK does not
 own the caller's durable dispatch/replay lifecycle.
 
-Existing JWK/age no-AAD behavior is unchanged. Nonempty AAD cannot be routed to
-a provider that does not support it. There is no fallback between providers.
+Existing JWK and age recipients keep their wire behavior: a valid no-AAD JWK or
+age recipient encrypts exactly as before. Nonempty AAD cannot be routed to a
+provider that does not support it, and there is no fallback between providers.
+
+Supplied encryption configs are validated before a connector is invoked.
+`CreateAccount` and `RotateCredential` reject an unusable config — a nil entry,
+an unknown provider, or a config the provider refuses — before the connector
+runs, including when the connector would return no plaintext credentials. Omit
+configs the caller does not need rather than supplying invalid ones; an empty
+config list is still permitted. A request that supplies an unusable config
+therefore fails earlier than the connector would see it, rather than after
+provider state has changed.
 
 This profile pins draft-22 behavior. A different suite or wire format needs a new
 explicit identifier; a library replacement preserving identical behavior does
