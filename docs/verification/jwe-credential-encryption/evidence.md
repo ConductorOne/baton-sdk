@@ -55,9 +55,14 @@ vs 1.72.0 in CI; golangci-lint 2.13.2 matched by installing the pinned release.
 changes, no provider or selection semantics change. The bound on `pub_key`
 deliberately covers legacy JWK recipients as well as the JWE X-Wing recipient.
 
-The generated validators enforce it, and the numbers match the provider's
-runtime limits (`MaxJWKBytes` and `MaxAdditionalAuthenticatedDataBytes`, both
-16 KiB), so the two layers agree on what is acceptable.
+The generated validators are the only enforcement point. The provider ran its
+own 16 KiB `pub_key` and authenticated-data checks in parallel with them, which
+was two sources of truth for the same number; `recipient` now calls the generated
+`jwkConfig.Validate()` before parsing and the duplicate constants and checks are
+gone. The failure surfaces as one fixed `InvalidArgument`, so no part of the
+rejected configuration reaches the caller. The nonempty-key, UTF-8, strict JSON
+and key-material checks remain, as do the plaintext and protected-header bounds,
+which no proto field expresses.
 
 Red then green, in the committed history:
 
@@ -75,9 +80,21 @@ ok  github.com/conductorone/baton-sdk/pb/c1/connector/v2
 
 Coverage: each field is measured independently at 16383 / 16384 / 16385, absent
 and empty values are unchanged, the nested `ValidateAll` reports both fields when
-both are over, representative legacy RSA, EC and Ed25519 public JWKs plus the
-X-Wing AKP JWK all fit inside the bound, and `TestRuntimeBoundsMatchDeclaredProtobufBounds`
-pins the runtime constants against the declared bound.
+both are over, and representative legacy RSA, EC and Ed25519 public JWKs plus the
+X-Wing AKP JWK all fit inside the bound.
+
+At the provider boundary,
+`TestDeclaredFieldBoundsEnforcedByBothEntryPoints` drives both exported entry
+points — `ValidateConfig` and `Encrypt` — for each field: a valid padded JWK at
+16384 is accepted and still encrypts to a message the recipient can read, and
+16385 is refused by both. The earlier test that only compared a provider constant
+to the declared number is gone with the constant.
+
+Callers of the parser, inspected rather than assumed: `publicJWKFields` has one
+production caller, `recipient`, which runs the generated validator first, so
+parsing is still bounded before JSON allocation. The two fuzz targets call it
+directly and keep explicit input caps; those caps are per-case cost guards, not
+the declared bound, and the comment on each says so.
 
 ## Algorithm identifier
 
@@ -139,6 +156,11 @@ go test ./pkg/crypto/... ./pb/... ./pkg/connectorbuilder/ -count=1 -v
   -> 129 top-level PASS, 255 subtest PASS, 0 FAIL, 1 SKIP
      (skip = fixture regeneration, gated behind JWE_FIXTURE_REGENERATE=1)
 
+go test ./pkg/crypto/... ./pkg/connectorbuilder/ ./pb/... -count=1
+  -> ok: pkg/crypto, .../providers, .../age, .../jwe, .../jwk,
+     pkg/connectorbuilder, pb/c1/connector/v2
+     (after the bounds delegation; 0 FAIL)
+
 go test -race ./pkg/crypto/... ./pkg/connectorbuilder/ -count=1
   -> ok, no data races
 
@@ -198,6 +220,7 @@ clean afterwards (`git status --porcelain` empty, no leftover copies).
 | Bypass pre-mint validation (`ValidateEncryptionConfigs` returns nil) | `crypto.go` | create/rotate preflight, issuance rejections | 6 tests FAIL, including both zero-invocation create/rotate cases |
 | Remove the low-order X25519 probe | `jwe.go` | validation matrix, mechanism test | matrix FAILS on exactly `X25519 low-order point zero` and `one` |
 | Remove the protected-header bound | `jwe.go` | header limit tests, real issuance case | 4 tests FAIL, including `TestIssueCredentialRejectsOversizedProtectedHeaderBeforeIssuerCall` |
+| Remove the generated-validator delegation (`jwkConfig.Validate()`) | `jwe.go` | declared-bound tests, validation matrix | both at-limit cases still PASS, both over-limit cases FAIL, and the matrix fails on exactly `public JWK over size limit` and `authenticated data over size limit` |
 
 Two findings from the plant run worth recording:
 
