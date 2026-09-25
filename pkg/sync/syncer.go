@@ -3496,6 +3496,12 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 	grantsToDelete := make([]*v2.Grant, 0)
 	expandedGrants := make([]*v2.Grant, 0)
+	fromPreviouslyProcessedRow := make([]bool, 0)
+	previouslyProcessedRowIDs := mapset.NewSet[string]()
+	emit := func(g *v2.Grant, fromPreviouslyProcessed bool) {
+		expandedGrants = append(expandedGrants, g)
+		fromPreviouslyProcessedRow = append(fromPreviouslyProcessedRow, fromPreviouslyProcessed)
+	}
 	grantsScanned := 0
 
 	for ga, err := range s.store.Grants().ListWithAnnotations(ctx) {
@@ -3530,7 +3536,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			}
 			for _, principal := range principalsByTrait[trait] {
 				newGrant := newGrantForExternalPrincipal(grant, principal)
-				expandedGrants = append(expandedGrants, newGrant)
+				emit(newGrant, false)
 			}
 			grantsToDelete = append(grantsToDelete, grant)
 			continue
@@ -3538,6 +3544,13 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 		// Expansion annotation (may be nil for non-expandable grants).
 		expandableAnno := ga.Annotation
+		previouslyProcessed, err := s.isPreviouslyProcessedRow(ctx, grant, expandableAnno)
+		if err != nil {
+			return err
+		}
+		if previouslyProcessed {
+			previouslyProcessedRowIDs.Add(grant.GetId())
+		}
 		expandableEntitlementsResourceMap := make(map[string][]string)
 		if expandableAnno != nil {
 			for _, entId := range expandableAnno.GetEntitlementIds() {
@@ -3602,7 +3615,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					newGrantAnnos.Update(newExpandableAnno)
 					newGrant.SetAnnotations(newGrantAnnos)
 				}
-				expandedGrants = append(expandedGrants, newGrant)
+				emit(newGrant, previouslyProcessed)
 			}
 
 			// We still want to delete the grant even if there are no matches
@@ -3640,7 +3653,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				}
 				for _, i := range positions {
 					newGrant := newGrantForExternalPrincipal(grant, idx.principalAt(i))
-					expandedGrants = append(expandedGrants, newGrant)
+					emit(newGrant, previouslyProcessed)
 				}
 			case matchTraits[trait]:
 				// Generic profile match, shared by TRAIT_GROUP and any
@@ -3664,7 +3677,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						return err
 					}
 					if newGrant != nil {
-						expandedGrants = append(expandedGrants, newGrant)
+						emit(newGrant, previouslyProcessed)
 					}
 				}
 			default:
@@ -3682,12 +3695,21 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		zap.Int("grants_to_delete", len(grantsToDelete)),
 	)
 
+	// A rerun of this step reads back the rows an earlier run wrote,
+	// whose plain entitlement ids the remap cannot read. A grant built from
+	// such a row is not written over an existing row; its id still counts as
+	// re-issued, so that row is not deleted either.
 	newGrantIDs := mapset.NewSet[string]()
-	for _, ng := range expandedGrants {
+	grantsToPut := make([]*v2.Grant, 0, len(expandedGrants))
+	for i, ng := range expandedGrants {
 		newGrantIDs.Add(ng.GetId())
+		if fromPreviouslyProcessedRow[i] && previouslyProcessedRowIDs.ContainsOne(ng.GetId()) {
+			continue
+		}
+		grantsToPut = append(grantsToPut, ng)
 	}
 
-	err = s.store.PutGrants(ctx, expandedGrants...)
+	err = s.store.PutGrants(ctx, grantsToPut...)
 	if err != nil {
 		return err
 	}
@@ -3758,6 +3780,40 @@ func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.G
 		Annotations: grant.GetAnnotations(),
 	}.Build()
 	return newGrant
+}
+
+// isPreviouslyProcessedRow reports whether a match-annotated grant was written
+// by an earlier run of processGrantsWithExternalPrincipals: every
+// GrantExpandable entry is entitlement.NewEntitlementID(principal, slug) and
+// names exactly one stored entitlement, on the grant's own principal. A
+// connector's carrier names its placeholder's entitlements by BID. These are
+// the checks loadEntitlementGraph applies to each entry.
+func (s *syncer) isPreviouslyProcessedRow(ctx context.Context, grant *v2.Grant, expandableAnno *v2.GrantExpandable) (bool, error) {
+	ids := expandableAnno.GetEntitlementIds()
+	if len(ids) == 0 {
+		return false, nil
+	}
+	principalID := grant.GetPrincipal().GetId()
+	prefix := entitlement.NewEntitlementID(grant.GetPrincipal(), "")
+	for _, id := range ids {
+		if slug, ok := strings.CutPrefix(id, prefix); !ok || slug == "" {
+			return false, nil
+		}
+	}
+	for _, id := range ids {
+		resp, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: id}.Build())
+		switch {
+		case status.Code(err) == codes.NotFound, errors.Is(err, enginepkg.ErrAmbiguousExternalID):
+			return false, nil
+		case err != nil:
+			return false, err
+		}
+		resourceID := resp.GetEntitlement().GetResource().GetId()
+		if resourceID.GetResourceType() != principalID.GetResourceType() || resourceID.GetResource() != principalID.GetResource() {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func GetExternalResourceMatchAllAnnotation(annos annotations.Annotations) (*v2.ExternalResourceMatchAll, error) {
