@@ -76,7 +76,7 @@ func (s *syncer) restoreLedgerState(ctx context.Context, store c1zstore.PageLedg
 	for method, stat := range counters.SessionCalls {
 		stats.sessionOps[method] = &SessionStoreStat{Count: stat.Count, TotalMs: stat.TotalMs, MaxMs: stat.MaxMs, Errors: stat.Errors, Timeouts: stat.Timeouts}
 	}
-	if quality := ledgerSyncStats(facts, counters).IngestQuality; quality != nil {
+	if quality := c1zstore.LedgerSyncStats(facts, counters).IngestQuality; quality != nil {
 		converted := IngestQualityCheckpoint(*quality)
 		stats.setIngestQuality(&converted)
 	}

@@ -140,11 +140,11 @@ func TestLedgerSealCostConsumer(t *testing.T) {
 func TestLedgerSealPreservesUnknownIngestQuality(t *testing.T) {
 	var baseline ingestFilterStats
 	require.Nil(t, baseline.snapshot())
-	require.Nil(t, ledgerSyncStats(nil, c1zstore.LedgerCounters{}).IngestQuality)
-	known := ledgerSyncStats(map[string]string{ledgerFactIngestKnown: ""}, c1zstore.LedgerCounters{}).IngestQuality
+	require.Nil(t, c1zstore.LedgerSyncStats(nil, c1zstore.LedgerCounters{}).IngestQuality)
+	known := c1zstore.LedgerSyncStats(map[string]string{ledgerFactIngestKnown: ""}, c1zstore.LedgerCounters{}).IngestQuality
 	require.NotNil(t, known)
 	require.False(t, known.SourceCacheReplayBlocked)
-	blocked := ledgerSyncStats(map[string]string{ledgerFactIngestBlocked: ""}, c1zstore.LedgerCounters{Flags: ingestQualityReasonUnknownPriorCheckpoint}).IngestQuality
+	blocked := c1zstore.LedgerSyncStats(map[string]string{ledgerFactIngestBlocked: ""}, c1zstore.LedgerCounters{Flags: ingestQualityReasonUnknownPriorCheckpoint}).IngestQuality
 	require.NotNil(t, blocked)
 	require.True(t, blocked.SourceCacheReplayBlocked)
 	require.Equal(t, ingestQualityReasonUnknownPriorCheckpoint, blocked.ReasonFlags)

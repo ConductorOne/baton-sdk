@@ -241,3 +241,44 @@ Pebble 41.222s). CI-merge-checkout lint: zero issues. The baseline SDK artifact
 consumer also passed. The superseded range-delete race run was stopped; it is not
 counted as passing evidence. First/latest mutation checks ran in the isolated CI
 checkout and both failed at the intended assertions; production files were restored.
+
+## CO-031 — plain ending preserves recovery
+
+Status: verified to the focused coverage below; the original exhaustive criterion
+products remain evidence incomplete. Applies to C16, C24, C31–C36 and C43.
+
+- `TestLedgerEarlyEndPreservesRecovery` failed on the existing plain-EndSync
+  refusal before implementation. Default, retain-token and discard-fact inputs
+  preserve records, pending identities/revisions/tokens, facts and unscrubbed
+  history across durable images before the end stamp, after it and after flush.
+  Injected stamp failure leaves the binding retryable. Retrying saves ledger
+  durations and ingest quality; cleanup/start-new then follows normal reset.
+- `TestLedgerEarlyEndPublicRecoveryAndReset` stops a real paginated sync, saves
+  and reopens its c1z, selects the unfinished run, ends it, saves/reopens again,
+  and verifies pending work unchanged. Explicit same-ID continuation requests
+  only the remaining page. Force reset starts a different sync and recollects.
+  The fixture requests ResourcesOnly because it disables grants/entitlements;
+  an initial test mistakenly requested Full on reopening and correctly started
+  a different sync. The final fixture matches the original sync type.
+- `TestLedgerEarlyEndAfterInterruptedDisposalKeepsStats` checks archived stats
+  after a successful-completion attempt deleted history but failed before ending.
+- Existing pending-work refusal tests remain on EndSyncWithStats. Existing
+  disposal tests continue asserting physical removal. The full suite caught
+  a skipped retry of an earlier explicit DropLedger purge; plain ending now
+  retains that retry without deleting live recovery state.
+
+Shared ledger-to-SyncStats conversion replaces the syncer's private conversion.
+Plain ending reads it while writers are sealed. It preserves the pending-work
+format declaration; an ended run with recoverable work is not represented as
+compatible with readers that cannot understand that work. No new format or
+SQLite behavior is introduced. The deprecated error symbol remains available
+for source compatibility but is no longer returned.
+
+Validation: full sync 123.167s; Pebble 19.020s; public dotc1z 73.381s;
+compactor 56.186s. New early-end checks pass three race repetitions.
+Changed-code golangci-lint 2.9.0: zero issues. Full lint also reports six
+pre-existing gosec findings with this older linter and three formatting issues
+in the separate uncommitted historical-migration drafts; it is not a clean
+full-lint claim. Independent bounded review found no concrete defect and ran
+both focused lifecycle tests. No full C1 workflow/DB integration test or
+exhaustive derived-index failure product is claimed.

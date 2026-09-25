@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	ledgerFactIngestKnown   = "sync.ingest_known"
-	ledgerFactIngestBlocked = "sync.ingest_blocked"
-	ledgerCompletedActions  = "actions.completed"
+	ledgerFactIngestKnown   = c1zstore.LedgerFactIngestKnown
+	ledgerFactIngestBlocked = c1zstore.LedgerFactIngestBlocked
+	ledgerCompletedActions  = c1zstore.LedgerCompletedActions
 	ledgerCompletedPrefix   = "actions.completed."
 	ledgerWarningsPrefix    = "actions.warnings."
 )

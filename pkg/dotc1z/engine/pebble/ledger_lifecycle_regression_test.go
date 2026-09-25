@@ -77,8 +77,7 @@ func TestCheckpointRefusedWhileLedgerRowsExistWithoutTheStamp(t *testing.T) {
 
 	require.ErrorIs(t, e.CheckpointSync(ctx, "tok"), ErrLedgeredSyncWritesNoToken,
 		"rows outlive the stamp, so rows are what the gate asks about")
-	require.ErrorIs(t, e.EndSync(ctx), ErrLedgeredSyncNeedsStats,
-		"the same applies to sealing without stats")
+	require.NoError(t, e.EndSync(ctx))
 }
 
 // ResetForNewSync excises the ledger family but the keyspace stamp lives

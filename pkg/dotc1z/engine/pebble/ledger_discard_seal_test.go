@@ -120,7 +120,6 @@ func testLedgerDiscardDurableSealCuts(t *testing.T, previouslyFinished bool) {
 			require.Equal(t, previouslyFinished || complete || stage == "before-marker-clear", finished)
 			if !complete {
 				require.ErrorIs(t, reopened.CheckpointSync(t.Context(), "forbidden-token"), ErrLedgeredSyncWritesNoToken)
-				require.ErrorIs(t, reopened.EndSync(t.Context()), ErrLedgeredSyncNeedsStats)
 			}
 
 			facts, err := reopened.Ledger().Facts(t.Context())

@@ -3,7 +3,6 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 import (
 	"context"
 	"errors"
-	"maps"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
@@ -84,32 +83,5 @@ func (r *ledgerRuntime) seal(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return r.store.EndSyncWithStats(ctx, ledgerSyncStats(facts, counters))
-}
-
-func ledgerSyncStats(facts map[string]string, counters c1zstore.LedgerCounters) c1zstore.SyncStats {
-	_, blocked := facts[ledgerFactIngestBlocked]
-	stats := c1zstore.SyncStats{
-		Run: c1zstore.RunStats{
-			CompletedActions:   counters.Counters[ledgerCompletedActions],
-			StepDurationsMs:    maps.Clone(counters.StepDurationsMs),
-			ConnectorCallStats: maps.Clone(counters.ConnectorCalls),
-			SessionStoreStats:  maps.Clone(counters.SessionCalls),
-		},
-		IngestQuality: &c1zstore.IngestQuality{
-			SourceCacheReplayBlocked: blocked, ReasonFlags: counters.Flags,
-			EntitlementsDropped:           counters.Counters["ingest.entitlements_dropped"],
-			GrantsDropped:                 counters.Counters["ingest.grants_dropped"],
-			GrantResourcesDropped:         counters.Counters["ingest.grant_resources_dropped"],
-			ExpansionResourceTypesDropped: counters.Counters["ingest.expansion_resource_types_dropped"],
-			ExpansionsDropped:             counters.Counters["ingest.expansions_dropped"],
-			InvalidResourceTypesObserved:  counters.Counters["ingest.invalid_resource_types_observed"],
-			InvalidResourcesObserved:      counters.Counters["ingest.invalid_resources_observed"],
-			InvalidEntitlementsObserved:   counters.Counters["ingest.invalid_entitlements_observed"],
-		},
-	}
-	if _, known := facts[ledgerFactIngestKnown]; !known && !blocked {
-		stats.IngestQuality = nil
-	}
-	return stats
+	return r.store.EndSyncWithStats(ctx, c1zstore.LedgerSyncStats(facts, counters))
 }

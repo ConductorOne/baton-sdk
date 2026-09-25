@@ -252,7 +252,7 @@ type PageLedgerStore interface {
 	ClearLedgerRows(ctx context.Context, clearFacts []string) error
 	// Blind-writes the run's whole cumulative bucket; a later write supersedes.
 	PutCounterBucket(ctx context.Context, runID string, worker uint32, counters LedgerCounters) error
-	// The only way a ledgered sync seals; plain EndSync refuses one.
+	// Completes collection with no pending work. Plain EndSync preserves recovery state.
 	// LedgerFactDiscardOnSeal archives then discards the ledger before finishing.
 	// Report-generation failure still discards history; recovery-state write failure prevents seal.
 	EndSyncWithStats(ctx context.Context, stats SyncStats) error

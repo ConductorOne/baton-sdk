@@ -26,11 +26,6 @@ const (
 	foldLedgerCounterKey = "fold-ledger-fixture-grants"
 )
 
-// buildLedgeredPebbleInput writes a Pebble c1z whose grants were
-// ingested through BeginPage, so the saved file carries ledger rows and
-// a counter bucket alongside the records. Sealing goes through
-// EndSyncWithStats because a ledgered sync refuses EndSync
-// (ErrLedgeredSyncNeedsStats). Returns the sync id.
 func buildLedgeredPebbleInput(t *testing.T, ctx context.Context, path string, st connectorstore.SyncType, grantIDs ...string) string {
 	t.Helper()
 
