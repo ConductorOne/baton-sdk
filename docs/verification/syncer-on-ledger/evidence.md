@@ -291,3 +291,53 @@ The public constructor and actual path-backed attachment now pass for both
 SQLite and Pebble in both option orders. No store and no path still fails.
 Actual-store engine and capability refusals remain covered by the existing
 attachment matrix; this is not a Pebble checkpoint fallback.
+
+## Combined historical checkpoint and crash recovery
+
+Verified to the stated fixture coverage by
+`TestLedgerHistoricalMigrationCombinedCrashes`. The producer executes eb63f1b5
+itself, retaining two committed grant pages and two pending continuations. A copy
+is completed by that SDK as an independent reference. Current migration must not
+refetch the old completed phases or committed grant pages. It compares record,
+index and digest families plus normalized sync stats with the old completed file;
+all normalized ledger counters are compared with an uninterrupted new migration.
+Only timestamps and durations are normalized here, not call counts or errors.
+
+The product is 1/4 workers × WAL/flush images × six individual takeover/grant/
+terminal cuts and one three-cut chain: 28 cases, 36 process exits per repetition.
+Three ordinary repetitions passed in10.633s; one race repetition passed in12.171s.
+Dropping the imported completed-action count caused expected15 vs actual3; the
+mutation was reverted and the full product rerun. Independent review found no
+blocking flaw in the test or producer. Full sync passed in105.652s. Attachment
+and engine-refusal race checks passed three repetitions in3.041s.
+
+This adds combined evidence to C04, C16, C24–C28 and C31 without closing their
+original exhaustive products. Seal/archive crash cuts remain separate tests.
+The fixture excludes expansion, external import, source-cache replay and session
+records; data equality is logical selected-family equality, not file-byte equality.
+Explicit saved-ID binding avoids the historical producer's test-clock age policy.
+The historical build remains opt-in rather than adding another SDK build to CI.
+
+## Final automated-review dispositions
+
+- Restored nil-store/path fallback (CO-032). Empty/unknown engine and missing
+  Pebble ledger capability refusals are required by C01/CO-008, not fallback bugs.
+- Removed the inaccurate rawdb comment about assets never being batched and the
+  redundant assertion about mutating a returned value copy.
+- `sdk.Version` is maintained by the release workflow. Custom-store capability
+  requirements and the accepted SDK downgrade constraint are release notes in
+  the PR description; no manually chosen SDK version is introduced here.
+- Commit publication stays inside scheduler transition ordering. Moving it out
+  changes concurrency behavior; the measured collection cost is accepted.
+- Context assertions and resource-type counter initialization currently follow
+  their established construction order; no reproduced loss/panic was found.
+  Per-page asset staging is required by atomic page writes. No speculative
+  refactor or new payload-size policy is added.
+- Allocation checks enforce scaling with child count, not an absolute allocation
+  count across Go versions. Cost drivers remain opt-in. Operation-name literals
+  and empty-token hashing remain unchanged; neither review supplied a current
+  incorrect result. Expansion timing remains outside the collection report.
+
+Installed golangci-lint2.9.0 reports six pre-existing G115 findings and no new
+formatting findings; current-PR CI with its configured linter passed at5d35ecd2.
+Final revised-head CI must be checked separately.

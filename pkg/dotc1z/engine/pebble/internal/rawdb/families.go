@@ -184,13 +184,6 @@ func (d *DB) NewSessionBatch() *SessionBatch {
 	return &SessionBatch{batch{b: d.newBatch(), open: &d.acct.session}}
 }
 
-// === engine-meta family ===
-//
-// Single fixed keys: the keyspace/format stamps, index-migration
-// markers, the deferred-index and digest-build crash markers, the
-// sync-run record, the stats sidecar, counters, and asset rows.
-// Always single-key, never batched.
-
 // MetaSet writes one engine-meta / fixed-key row.
 func (d *DB) MetaSet(key, val []byte, o *pebble.WriteOptions) error { return d.set(key, val, o) }
 

@@ -24,6 +24,4 @@ func TestSealCostIncludesFailedFinalize(t *testing.T) {
 	cost := e.LastSealCost()
 	require.Positive(t, cost.LedgerScrub)
 	require.Positive(t, cost.LedgerPurge)
-	cost.LedgerScrub = 0
-	require.Positive(t, e.LastSealCost().LedgerScrub)
 }

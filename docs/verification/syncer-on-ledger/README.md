@@ -120,3 +120,20 @@ bash docs/verification/syncer-on-ledger/tools/build-legacy-artifact.sh /tmp/lega
 BATON_LEGACY_SDK_ARTIFACT=/tmp/legacy-sdk.c1z GOTOOLCHAIN=go1.26.0 \
   go test ./pkg/sync -run '^TestLedgerLegacySDKArtifact$' -count=1
 ```
+
+The combined fixture additionally collects resource types, resources, entitlements
+and grants. It saves an old-SDK checkpoint with two grant pages still pending and
+finishes a copy on the old SDK as an independent reference. The current SDK is
+interrupted before/after takeover, grant commit and terminal commit, including
+three consecutive crashes, with 1/4 workers and WAL/flush recovery images.
+
+```sh
+bash docs/verification/syncer-on-ledger/tools/build-legacy-artifact.sh /tmp/legacy-rich.c1z rich
+BATON_LEGACY_RICH_ARTIFACT=/tmp/legacy-rich.c1z GOTOOLCHAIN=go1.26.0 \
+  go test ./pkg/sync -run '^TestLedgerHistoricalMigrationCombinedCrashes$' -count=1
+```
+
+Both historical-artifact checks are opt-in; ordinary CI does not build another
+SDK checkout. The producer uses a deterministic test clock. The combined consumer
+binds the saved sync ID explicitly, so this does not test age-based automatic
+selection of unfinished syncs.
