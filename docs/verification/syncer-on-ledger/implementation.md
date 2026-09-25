@@ -146,3 +146,16 @@ require a validated upload, successful FinishTask and another accepted task.
 Keep the cross-version build opt-in; no production injection hooks or retry
 policy changes. Results must distinguish SDK daemon behavior from C1 workflow
 redelivery, which the local API controls.
+
+### CO-034 ended-empty rebind
+
+Carry the existing bounded pending lookup's nonempty result into lifecycle
+selection. An ended, empty binding uses the existing finished-processing branch:
+clear prior history and processing policy, then seed Init with current options.
+Pending bindings resume, and unfinished empty bindings proceed to sealing. Change
+ClearLedgerRows to refuse actual pending work rather than any initialization
+marker, checking under the write lock. Its existing synced batch removes the old
+queue declaration with history; existing failure/crash cuts cover that boundary.
+Validate the public unexpanded upload/host expansion sequence before the fix,
+then rerun lifecycle, pending, seal, compactor and race checks. Keep expansion's
+existing handler and storage capabilities unchanged.
