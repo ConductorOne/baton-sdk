@@ -348,3 +348,46 @@ uses the existing directory-scoped `os.OpenRoot` read pattern. On CI's merge
 423bcbb5 plus this correction, Go1.27.1/golangci-lint2.13.2 reports zero issues
 for sync/storage, and the combined migration test passes in4.391s. No production
 code changed in this correction.
+
+## CO-033 — service-mode SDK rollback
+
+Verified to the bounded fixture coverage by `TestLedgerServiceModeRollback`.
+The child uses public NewConnectorRunner in daemon mode, its actual connector
+subprocess wrapper, C1 task manager, heartbeat loop and streaming upload client.
+Only endpoint resource data and C1's OAuth/task API are simulated. Each process
+must authenticate, send Hello, heartbeat, upload usable Pebble data and finish;
+the API's return to polling is awaited before stopping a completed daemon.
+
+Rollback targets bba86699 (v0.30.1) and eb63f1b5 are built with their unchanged
+production sources and the same child fixture. The product is two old SDKs ×
+single/batched polling × spare off/on × process kill/reported error: 16 cases,
+repeated three times. The persistent directory, endpoint, credentials and options
+are unchanged across processes. Each old daemon completes the redelivered task
+and another task without restarting; a new-SDK daemon then completes a roll-forward
+task. Every successful upload is reopened and checked for a finished sync and the
+two expected resource IDs/payloads. Ordinary error cases assert PermissionDenied,
+retryable FinishTask, no upload and partial-file removal. Crash cases assert a
+surviving initialized ledger queue. NoSync resource pages may be absent from that
+crash image; the test does not require durability beyond the storage contract.
+
+All 16 cases pass, including three ordinary repetitions. The current runner/API
+harness passes race checks against v0.30.1 in22.53s; the old binary itself is not
+race-instrumented. Full connectorrunner/c1api suites pass; golangci-lint2.13.2 on
+connectorrunner reports zero issues. Independent review confirmed service-mode
+fidelity and the success oracle; process cleanup was tightened to wait after kill.
+The initial recursive test-subcommand dispatch prototype is excluded from evidence.
+
+Limits: resource-only full sync, one resource type, two resource pages and one
+worker. No grant/entitlement/expansion/external-import, upload-failure or arbitrary
+crash-cut coverage is claimed here. C1's production queue/retry-budget behavior is
+not exercised; the local API performs redelivery. This does not establish arbitrary
+SDK-version compatibility or remove the separate C1 vendored-SDK downgrade
+constraint for hosts reopening unfinished artifacts directly. No production SDK
+behavior changed for this test.
+
+Oracle qualification: in an isolated bba86699 build, suppressing the full-sync
+handler's upload while leaving successful FinishTask intact makes the rollback
+case fail on the missing upload. The mutation is not present in either passing
+rollback binary or production sources. Failed-process cleanup also completed
+without leftover connector subprocesses. The task API rejects the wrong polling
+method, so the single/batched dimension is asserted, not just configured.

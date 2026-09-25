@@ -137,3 +137,26 @@ Both historical-artifact checks are opt-in; ordinary CI does not build another
 SDK checkout. The producer uses a deterministic test clock. The combined consumer
 binds the saved sync ID explicitly, so this does not test age-based automatic
 selection of unfinished syncs.
+
+## Reproduce service-mode SDK rollback
+
+This test starts real daemon runners and their connector subprocesses against a
+local TLS/gRPC C1 API. It preserves the same persistent directory, credentials,
+endpoint and runtime options while replacing SDK versions. Each rollback must
+finish the redelivered task, upload a readable artifact, accept another task in
+the same old daemon, then complete a task after returning to the new SDK.
+
+```sh
+bash docs/verification/syncer-on-ledger/tools/build-service-rollback.sh /tmp/service-old.test bba86699
+BATON_ROLLBACK_OLD_BINARY=/tmp/service-old.test GOTOOLCHAIN=go1.26.0 \
+  go test ./pkg/connectorrunner -run '^TestLedgerServiceModeRollback$' -count=1 -timeout=5m
+```
+
+Repeat with `eb63f1b5` and a different output binary path. The old binary output
+must not already exist. This is an opt-in Unix process test; normal CI skips it.
+It covers single/batched polling, spare retention off/on, a process kill during
+resource collection, and a reported connector error. The fake C1 API controls
+redelivery; it is not a production C1 workflow or retry-budget test. The fixture
+collects one resource type and two resource pages, with grants/entitlements and
+expansion disabled. SDK downgrade of a host reopening a live artifact directly
+remains a separate compatibility constraint.
