@@ -100,3 +100,43 @@ fixture's header and shows the reader reject it (J2/J7/J9).
 
 Interop is not claimable again until the consuming side adopts the identical
 identifier and reads the resealed fixture; see the evidence file.
+
+### CO-4: zero-output create and rotate, envelope type, header ordering
+(2026-09-25)
+
+Review of the draft producer changed four things. Recorded before the code, as a
+change order, because it reverses a compatibility decision CO-1 made.
+
+**Create/rotate validation moves after the connector call.** CO-1 validated
+supplied encryption configs before invoking the connector. That changed the
+default path for every existing connector, not only JWE callers: a request with
+an unusable config used to succeed whenever the connector returned zero
+plaintexts — ActionRequired, InProgress, AlreadyExists and NoPassword flows, and
+CI connectors that rotate a credential without returning it. Create and rotate
+now validate only when the connector returns at least one plaintext value, so a
+zero-output operation succeeds with a config it never uses. A connector that does
+return plaintexts still cannot have them encrypted to an unusable recipient.
+
+**IssueCredential keeps pre-mint validation.** The same review suggested gating
+issuance the same way. It cannot be: `validateCredentialIssueOutput` already
+requires at least one plaintext value, so issuance has no zero-output case to
+preserve, and J4 requires invalid configs and JWE fan-out to fail before `Issue`
+is called. Changing issuance would weaken that contract to serve a case that does
+not exist. Recorded as a declined part of the review, not silently ignored.
+
+**The flattened envelope is an exported type.** The provider declared the JWE
+JSON anonymous at the point of use. go-jose's equivalent, `rawJSONWebEncryption`,
+is unexported and marks every member `omitempty`, so it cannot express this
+profile's always-present empty `iv` and `tag`. `FlattenedJWE` is exported instead,
+and the producer emits it.
+
+**Protected-header member order is not a wire invariant.** The reader
+authenticates the protected string as transmitted, so sealing and reading work
+under any member order; what must not change is the string itself between sealing
+and reading. Instrument: seal and decrypt a message whose protected header lists
+the members in a different order, alongside the existing case that relabels a
+header without resealing and is rejected.
+
+`encodeProtectedHeader` is inlined at its single call site so a marshal failure
+is handled rather than ignored; the serialized header is still the same bytes the
+size bound is measured on.
