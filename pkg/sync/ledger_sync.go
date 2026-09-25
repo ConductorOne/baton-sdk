@@ -40,6 +40,7 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 	if err := s.prepareLedgerState(ctx, rand.Text(), newSync); err != nil {
 		return s.returnSyncError(l, span, err)
 	}
+	finishPreviousRequest := s.cfg.onlyExpandGrants && !s.cfg.dontExpandGrants && s.run.current() == nil
 	if s.run.hasFact(c1zstore.LedgerFactRetainTokens) && !s.ledgerDebug {
 		s.ledgerDebug = true
 		l.Warn("resuming with durably retained ledger history and tokens; tokens may contain credentials")
@@ -70,7 +71,7 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 	}
 
 	var graphToPersist *expand.EntitlementGraph
-	if s.cfg.preserveEntitlementGraph {
+	if s.cfg.preserveEntitlementGraph && !finishPreviousRequest {
 		if s.graph.peek() == nil && s.run.getActionCount(SyncGrantExpansionOp).CompletedCount > 0 && s.run.hasFact(factNeedsExpansion) && !s.cfg.dontExpandGrants {
 			graph, _, graphErr := s.rebuildLedgerPreservedGraph(ctx)
 			if graphErr != nil {
@@ -107,12 +108,24 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 	if s.ingestFilterStats.replayBlocked.Load() {
 		terminalFacts = append(terminalFacts, ledgerFactIngestBlocked)
 	}
-	if err := s.prepareLedgerSeal(ctx, counters, terminalFacts...); err != nil {
+	sealOptions := s.stageLedgerReportOptions
+	if finishPreviousRequest {
+		sealOptions = nil
+	}
+	if err := s.ledger.prepareSealWithOptions(ctx, counters, sealOptions, terminalFacts...); err != nil {
 		return s.returnSyncError(l, span, err)
 	}
 	err = s.ledger.seal(ctx)
 	if err != nil {
 		return s.returnSyncError(l, span, err)
+	}
+	if finishPreviousRequest {
+		s.finishLedgerReport(ctx)
+		if err := s.store.SetCurrentSync(ctx, syncID); err != nil {
+			return s.returnSyncError(l, span, fmt.Errorf("rebind for requested expansion: %w", err))
+		}
+		s.ledgerDebug = s.cfg.ledgerDebug
+		return s.syncLedger(ctx, runCtx, span, false, targetedResources)
 	}
 	s.persistEntitlementGraphToStore(ctx, syncID, graphToPersist)
 

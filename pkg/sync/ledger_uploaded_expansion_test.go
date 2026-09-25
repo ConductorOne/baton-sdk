@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -15,49 +16,33 @@ import (
 func TestLedgerUploadedUnexpandedSync(t *testing.T) {
 	for _, workers := range []int{1, 4} {
 		for _, debug := range []bool{false, true} {
-			for _, ending := range []string{"sealed", "early-end", "unfinished"} {
+			for _, ending := range []string{"sealed", "early-end", "unfinished", "prepared", "prepared-ended", "prepared-resume"} {
 				t.Run(fmt.Sprintf("workers-%d/debug-%t/%s", workers, debug, ending), func(t *testing.T) {
 					ctx := t.Context()
-					source := newMockConnector()
-					source.rtDB = []*v2.ResourceType{userResourceType, groupResourceType}
-					user, err := source.AddUser(ctx, "alice")
-					require.NoError(t, err)
-					groups := make([]*v2.Resource, 3)
-					ents := make([]*v2.Entitlement, 3)
-					for i, name := range []string{"a", "b", "c"} {
-						groups[i], ents[i], err = source.AddGroup(ctx, name)
-						require.NoError(t, err)
-					}
-					source.AddGroupMember(ctx, groups[0], user)
-					source.AddGroupMember(ctx, groups[1], groups[0], ents[0])
-					source.AddGroupMember(ctx, groups[2], groups[1], ents[1])
-					want := []string{
-						gt.NewGrant(groups[0], "member", user).GetId(),
-						gt.NewGrant(groups[1], "member", groups[0]).GetId(),
-						gt.NewGrant(groups[2], "member", groups[1]).GetId(),
-					}
-					expanded := append(append([]string{}, want...),
-						gt.NewGrant(groups[1], "member", user).GetId(),
-						gt.NewGrant(groups[2], "member", user).GetId(),
-						gt.NewGrant(groups[2], "member", groups[0]).GetId())
+					source, want, expanded := ledgerUnexpandedSource(t)
 					f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "connector.c1z"), false)
 					first, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithDontExpandGrants(), WithWorkerCount(workers), WithLedgerDebug(debug))
 					require.NoError(t, err)
 					collecting := first.(*syncer)
 					interrupted := errors.New("interrupted before seal")
 					if ending != "sealed" {
-						collecting.testHooks.ingestHaltHook = func(stage string) error {
-							if stage == haltStageInvariantsComplete {
-								return interrupted
+						if strings.HasPrefix(ending, "prepared") {
+							collecting.caps.pageLedger = ledgerExpansionSealFailure{PageLedgerStore: f.ledger}
+							interrupted = errLedgerInjectedPage
+						} else {
+							collecting.testHooks.ingestHaltHook = func(stage string) error {
+								if stage == haltStageInvariantsComplete {
+									return interrupted
+								}
+								return nil
 							}
-							return nil
 						}
 						require.ErrorIs(t, first.Sync(ctx), interrupted)
 						pending, initialized, err := f.ledger.PendingWork(ctx, 0, 1)
 						require.NoError(t, err)
 						require.True(t, initialized)
 						require.Empty(t, pending)
-						if ending == "early-end" {
+						if ending == "early-end" || ending == "prepared-ended" {
 							require.NoError(t, f.store.EndSync(ctx))
 						}
 					} else {
@@ -81,19 +66,22 @@ func TestLedgerUploadedUnexpandedSync(t *testing.T) {
 					uploaded := filepath.Join(t.TempDir(), "uploaded.c1z")
 					require.NoError(t, writeLedgerTestFile(uploaded, data, 0600))
 					passes := 1
-					if ending == "unfinished" {
+					if ending == "prepared-resume" {
 						passes = 2
 					}
 					for pass := range passes {
 						f = openLedgerFixtureAt(t, uploaded, false)
-						host, err := NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()},
-							WithConnectorStore(f.store), WithSyncID(id), WithOnlyExpandGrants(), WithLedgerDebug(debug))
+						opts := []SyncOpt{WithConnectorStore(f.store), WithSyncID(id), WithLedgerDebug(debug)}
+						if ending != "prepared-resume" || pass > 0 {
+							opts = append(opts, WithOnlyExpandGrants())
+						}
+						host, err := NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()}, opts...)
 						require.NoError(t, err)
 						observeLedgerRestore(t, host.(*syncer), f)
 						require.NoError(t, host.Sync(ctx))
 						expected := expanded
 						expectedCompleted := completed + 1
-						if ending == "unfinished" && pass == 0 {
+						if ending == "prepared-resume" && pass == 0 {
 							expected = want
 							expectedCompleted = completed
 						}
@@ -118,4 +106,33 @@ func TestLedgerUploadedUnexpandedSync(t *testing.T) {
 			}
 		}
 	}
+}
+
+func ledgerUnexpandedSource(t *testing.T) (*mockConnector, []string, []string) {
+	t.Helper()
+	ctx := t.Context()
+	source := newMockConnector()
+	source.rtDB = []*v2.ResourceType{userResourceType, groupResourceType}
+	user, err := source.AddUser(ctx, "alice")
+	require.NoError(t, err)
+	groups := make([]*v2.Resource, 3)
+	ents := make([]*v2.Entitlement, 3)
+	for i, name := range []string{"a", "b", "c"} {
+		groups[i], ents[i], err = source.AddGroup(ctx, name)
+		require.NoError(t, err)
+	}
+	source.AddGroupMember(ctx, groups[0], user)
+	source.AddGroupMember(ctx, groups[1], groups[0], ents[0])
+	source.AddGroupMember(ctx, groups[2], groups[1], ents[1])
+	want := []string{
+		gt.NewGrant(groups[0], "member", user).GetId(),
+		gt.NewGrant(groups[1], "member", groups[0]).GetId(),
+		gt.NewGrant(groups[2], "member", groups[1]).GetId(),
+	}
+	expanded := append(append([]string{}, want...),
+		gt.NewGrant(groups[1], "member", user).GetId(),
+		gt.NewGrant(groups[2], "member", user).GetId(),
+		gt.NewGrant(groups[2], "member", groups[0]).GetId())
+
+	return source, want, expanded
 }

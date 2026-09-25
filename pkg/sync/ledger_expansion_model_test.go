@@ -105,11 +105,7 @@ func TestLedgerExpansionPublicReplay(t *testing.T) {
 			healthy := &ledgerExpansionLayerObserver{expandedGrantLayerStorer: resumed.caps.expandedGrantLayer}
 			resumed.caps.expandedGrantLayer = healthy
 			require.NoError(t, resumed.Sync(t.Context()))
-			if cut != "layer" {
-				require.Zero(t, healthy.begins)
-			} else {
-				require.Positive(t, healthy.begins)
-			}
+			require.Positive(t, healthy.begins)
 			got, err := f.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
 			require.NoError(t, err)
 			equalProtoLists(t, want.GetList(), got.GetList())
@@ -117,8 +113,15 @@ func TestLedgerExpansionPublicReplay(t *testing.T) {
 			require.NoError(t, err)
 			wantCounters, err := reference.ledger.LedgerCounters(t.Context())
 			require.NoError(t, err)
+			expansionPasses := uint64(1)
+			if cut != "layer" {
+				expansionPasses++
+				wantCounters.Counters[ledgerCompletedActions] += 2
+				wantCounters.Counters[ledgerCompletedPrefix+InitOp.String()]++
+				wantCounters.Counters[ledgerCompletedPrefix+SyncGrantExpansionOp.String()]++
+			}
 			require.Equal(t, wantCounters.Counters, counters.Counters)
-			require.EqualValues(t, 1, counters.Counters[ledgerCompletedPrefix+SyncGrantExpansionOp.String()])
+			require.Equal(t, expansionPasses, counters.Counters[ledgerCompletedPrefix+SyncGrantExpansionOp.String()])
 			_, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: SyncGrantExpansionOp.String()})
 			require.NoError(t, err)
 			require.False(t, found)

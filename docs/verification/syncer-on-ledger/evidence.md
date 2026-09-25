@@ -437,3 +437,35 @@ assertions pass race3x in1.900s. CI-merge Go1.27.1/lint2.13.2 reports zero issue
 and the final lifecycle/upload tests pass. Independent follow-up found no new
 issue and passed the focused tests in1.367s. The retry-accounting finding remains
 separate and unfixed by CO-034.
+
+## CO-035 — fulfill expansion after finishing a prior seal
+
+The copied-upload product now includes prepared, prepared-then-ended and ordinary
+prepared-recovery cases, in addition to sealed/early-ended/unfinished inputs:
+24 cases across1/4workers and default/debug retention. The expansion-only call
+must produce all6expected grants in one invocation. An ordinary recovery control
+first seals without expanding; only its subsequent explicit expansion request
+expands. The prepared/unfinished expansion-only cases failed on f8cc8663 before
+the change. No file-level expanded-status flag was introduced.
+
+An empty recovered queue plus an explicit enabled expansion-only request now
+finishes the old seal/report, rebinds the same sync ID, then uses the normal Init
+path with a fresh accounting attempt. The old request's saved options are not
+replaced by the new request while finishing the old seal. No expansion-complete
+graph, final success log or connector cleanup is published for the requested pass
+before it runs. An explicit expansion-only call can redo deterministic expansion
+that completed before interruption; tests account both actual executions rather
+than silently skip the new request to preserve one-pass counts.
+
+`TestLedgerExpansionRequestAcrossSealFailure` checks errors during the old seal
+and during rebind: neither reports success or expands, base grants and retained
+old policy remain, no completed graph is saved, and cold retry produces6grants.
+The successful new pass resets diagnostic retention to its own options and saves
+the completed graph. Ordinary discard recovery remains separately tested without
+WithOnlyExpandGrants; it does not restart processing.
+
+Full sync88.446s and compactor17.283s pass. Focused expansion/lifecycle race checks
+pass3repetitions in30.435s; final boundary/control race checks pass3x in7.350s.
+CI-merge Go1.27.1/golangci-lint2.13.2 reports zero issues; focused tests pass2.897s.
+The scope is saved-artifact/request orchestration, not a new expansion algorithm
+or scheduler. The independent retry-accounting issue remains outstanding.

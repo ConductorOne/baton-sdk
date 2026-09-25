@@ -98,8 +98,10 @@ func TestLedgerDiscardPendingFinishedBindingDoesNotRestartProcessing(t *testing.
 	require.NoError(t, f.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
 	require.NoError(t, f.store.SetCurrentSync(t.Context(), id))
-	next := newLedgerExpansionPublicSyncer(t, f)
-	next.cfg.ledgerDebug = false
+	resumed, err := NewSyncer(t.Context(), ledgerExpansionConnector{mockConnector: newMockConnector()},
+		WithConnectorStore(f.store), WithSyncID(id), WithPreserveEntitlementGraph())
+	require.NoError(t, err)
+	next := resumed.(*syncer)
 	next.testHooks.ledgerHandler = func(context.Context, *Action, *ledgerPage) error {
 		t.Error("pending seal must not restart processing")
 		return errLedgerInjectedPage
