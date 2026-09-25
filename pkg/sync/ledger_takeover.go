@@ -25,9 +25,10 @@ type ledgerAction struct {
 }
 
 type ledgerResume struct {
-	initialized bool
-	actions     []ledgerAction
-	sealReady   bool
+	initialized    bool
+	hasPendingWork bool
+	actions        []ledgerAction
+	sealReady      bool
 }
 
 func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore.PageLedgerStore, runID string, facts map[string]string) (ledgerResume, error) {
@@ -50,7 +51,7 @@ func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore
 		if ready && len(pending) != 0 {
 			return ledgerResume{}, errors.New("seal-ready ledger has pending work")
 		}
-		return ledgerResume{initialized: true, sealReady: ready}, nil
+		return ledgerResume{initialized: true, hasPendingWork: len(pending) != 0, sealReady: ready}, nil
 	}
 	if ready {
 		if state != "" {
@@ -96,14 +97,14 @@ func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore
 	if moved != "" && moved != state {
 		return ledgerResume{}, errors.New("legacy checkpoint changed during takeover")
 	}
-	_, initialized, err = ledger.PendingWork(ctx, 0, 1)
+	pending, initialized, err = ledger.PendingWork(ctx, 0, 1)
 	if err != nil {
 		return ledgerResume{}, err
 	}
 	if !initialized {
 		return ledgerResume{}, errors.New("takeover returned without pending work state")
 	}
-	return ledgerResume{initialized: true}, nil
+	return ledgerResume{initialized: true, hasPendingWork: len(pending) != 0}, nil
 }
 
 func decodeLedgerCheckpoint(state string) (ledgerResume, []string, c1zstore.LedgerCounters, error) {

@@ -247,8 +247,8 @@ type PageLedgerStore interface {
 	// Preserves records and sync metadata; removes ledger rows, facts and counters.
 	DropLedger(ctx context.Context) error
 	// Clears page rows, the takeover frontier and named facts in one synced
-	// batch. Requires a finished bound sync; retains counters, all other facts,
-	// records and sync metadata for further processing under the same sync ID.
+	// batch. Requires an ended bound sync with no pending work; retains counters,
+	// all other facts, records and sync metadata for processing under the same sync ID.
 	ClearLedgerRows(ctx context.Context, clearFacts []string) error
 	// Blind-writes the run's whole cumulative bucket; a later write supersedes.
 	PutCounterBucket(ctx context.Context, runID string, worker uint32, counters LedgerCounters) error

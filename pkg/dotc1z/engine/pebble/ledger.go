@@ -330,12 +330,14 @@ func encodeLedgerResiduePendingKey() []byte {
 }
 
 func (l *Ledger) markResiduePending() error {
-	return l.e.withWriteAllowSealed(func() error {
-		if err := l.e.db.MetaSet(encodeLedgerResiduePendingKey(), []byte{1}, pebble.Sync); err != nil {
-			return fmt.Errorf("arm ledger-residue marker: %w", err)
-		}
-		return nil
-	})
+	return l.e.withWriteAllowSealed(l.markResiduePendingLocked)
+}
+
+func (l *Ledger) markResiduePendingLocked() error {
+	if err := l.e.db.MetaSet(encodeLedgerResiduePendingKey(), []byte{1}, pebble.Sync); err != nil {
+		return fmt.Errorf("arm ledger-residue marker: %w", err)
+	}
+	return nil
 }
 
 func (l *Ledger) residuePending() (bool, error) {
@@ -685,21 +687,21 @@ func (l *Ledger) ClearRows(ctx context.Context, clearFacts []string) error {
 	if record.GetEndedAt() == nil {
 		return errors.New("ClearRows: bound sync is unfinished")
 	}
-	_, workOpen, err := l.workState()
-	if err != nil {
-		return err
-	}
-	if workOpen {
-		return errors.New("ClearRows: processing pass is unfinished")
-	}
 	keys := make([][]byte, 0, len(clearFacts))
 	for _, fact := range clearFacts {
 		keys = append(keys, encodeLedgerFactKey(fact))
 	}
-	if err := l.markResiduePending(); err != nil {
-		return err
-	}
 	return l.e.withWrite(func() error {
+		pending, _, err := l.PendingWork(ctx, 0, 1)
+		if err != nil {
+			return err
+		}
+		if len(pending) != 0 {
+			return errors.New("ClearRows: processing pass is unfinished")
+		}
+		if err := l.markResiduePendingLocked(); err != nil {
+			return err
+		}
 		if err := l.markInFlightLocked(); err != nil {
 			return err
 		}

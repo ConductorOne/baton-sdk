@@ -391,3 +391,34 @@ case fail on the missing upload. The mutation is not present in either passing
 rollback binary or production sources. Failed-process cleanup also completed
 without leftover connector subprocesses. The task API rejects the wrong polling
 method, so the single/batched dimension is asserted, not just configured.
+
+## CO-034 — expand an ended unexpanded upload
+
+`TestLedgerUploadedUnexpandedSync` collects a real three-level group fixture with
+WithDontExpandGrants, closes and copies the saved artifact, then reopens that copy
+with the same sync ID and WithOnlyExpandGrants. It asserts exact base/expanded
+grant IDs after another close/reopen, retained sync identity, and accumulated
+expansion accounting. The host connector rejects recollection. The product is
+1/4 workers × default/debug retention × normal seal/early EndSync/unfinished
+empty queue. All four early-EndSync cases failed before the fix. Normal sealed
+uploads passed already. The unfinished control seals its prior pass without
+recollection and expands on a subsequent finished rebind.
+
+Lifecycle selection now retains the existing bounded lookup's pending/nonempty
+result. Ended-empty bindings initialize current work; pending bindings resume;
+unfinished-empty bindings seal. ClearLedgerRows permits an empty declaration but
+checks for pending work under its write lock. Its existing atomic clear removes
+the old declaration with history, retaining records, facts and counters.
+
+Extended ClearRows failure/crash products cover both normally sealed and early-
+ended empty queues at stamped/staged/committed cuts. Before the fix, early-ended
+cases failed at the old refusal. The tests assert queue declaration and history
+change together while metadata and accounting survive. Pending-work refusal
+remains covered. An intermediate nested-lock implementation was stopped and
+replaced with the marker's locked helper; only subsequent runs count as evidence.
+
+Full sync94.156s, Pebble25.260s, public dotc1z44.581s and compactor37.899s pass.
+Focused lifecycle/expansion/clear race checks pass three repetitions (sync16.607s,
+Pebble4.167s). These verify the stated lifecycle and artifact flow, not every
+connector topology or original plan product. No expansion algorithm or scheduler
+change is included. The separate retry-accounting finding is still outstanding.

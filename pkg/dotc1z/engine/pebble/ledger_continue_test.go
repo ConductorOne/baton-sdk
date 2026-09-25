@@ -71,117 +71,135 @@ func TestLedgerClearRowsRefusesUnfinishedSync(t *testing.T) {
 }
 
 func TestLedgerClearRowsFailureCuts(t *testing.T) {
-	for _, cut := range []string{"stamped", "staged", "committed"} {
-		t.Run(cut, func(t *testing.T) {
-			e, _ := newTestEngine(t)
-			ctx := t.Context()
-			syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-			require.NoError(t, err)
-			require.NoError(t, e.CheckpointSync(ctx, "legacy"))
-			_, err = e.Ledger().Takeover(ctx, "old", []string{"finished", "history"}, c1zstore.LedgerCounters{Counters: map[string]uint64{"completed": 9}})
-			require.NoError(t, err)
-			require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
-			id := c1zstore.LedgerActionIdentity{Op: "old-page"}
-			page := e.Ledger().BeginPage()
-			defer page.Discard()
-			require.NoError(t, page.Commit(ctx, id, nil))
-			require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
-			require.NoError(t, e.SetCurrentSync(ctx, syncID))
-			before, err := e.GetSyncRunRecord(ctx, syncID)
-			require.NoError(t, err)
-			injected := errors.New("interrupted clear")
-			e.test.ledgerClearRowsHook = func(stage string) error {
-				if stage == cut {
-					return injected
+	for _, ending := range []string{"sealed", "early-end"} {
+		for _, cut := range []string{"stamped", "staged", "committed"} {
+			t.Run(ending+"/"+cut, func(t *testing.T) {
+				e, _ := newTestEngine(t)
+				ctx := t.Context()
+				syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+				require.NoError(t, err)
+				require.NoError(t, e.CheckpointSync(ctx, "legacy"))
+				_, err = e.Ledger().Takeover(ctx, "old", []string{"finished", "history"}, c1zstore.LedgerCounters{Counters: map[string]uint64{"completed": 9}})
+				require.NoError(t, err)
+				require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
+				id := c1zstore.LedgerActionIdentity{Op: "old-page"}
+				page := e.Ledger().BeginPage()
+				defer page.Discard()
+				require.NoError(t, page.Commit(ctx, id, nil))
+				if ending == "early-end" {
+					require.NoError(t, e.EndSync(ctx))
+				} else {
+					require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 				}
-				return nil
-			}
-			require.ErrorIs(t, e.Ledger().ClearRows(ctx, []string{"finished"}), injected)
-			e.test.ledgerClearRowsHook = nil
-			after, err := e.GetSyncRunRecord(ctx, syncID)
-			require.NoError(t, err)
-			require.True(t, proto.Equal(before, after))
-			_, found, err := e.Ledger().GetRow(ctx, id)
-			require.NoError(t, err)
-			require.Equal(t, cut != "committed", found)
-			_, frontier, err := e.Ledger().Frontier(ctx)
-			require.NoError(t, err)
-			require.Equal(t, cut != "committed", frontier)
-			facts, err := e.Ledger().Facts(ctx)
-			require.NoError(t, err)
-			_, finished := facts["finished"]
-			require.Equal(t, cut != "committed", finished)
-			require.Contains(t, facts, "history")
-			counters, err := e.Ledger().Counters(ctx)
-			require.NoError(t, err)
-			require.EqualValues(t, 9, counters.Counters["completed"])
-			require.ErrorIs(t, e.CheckpointSync(ctx, "forbidden"), ErrLedgeredSyncWritesNoToken)
-		})
+				require.NoError(t, e.SetCurrentSync(ctx, syncID))
+				before, err := e.GetSyncRunRecord(ctx, syncID)
+				require.NoError(t, err)
+				injected := errors.New("interrupted clear")
+				e.test.ledgerClearRowsHook = func(stage string) error {
+					if stage == cut {
+						return injected
+					}
+					return nil
+				}
+				require.ErrorIs(t, e.Ledger().ClearRows(ctx, []string{"finished"}), injected)
+				e.test.ledgerClearRowsHook = nil
+				after, err := e.GetSyncRunRecord(ctx, syncID)
+				require.NoError(t, err)
+				require.True(t, proto.Equal(before, after))
+				_, found, err := e.Ledger().GetRow(ctx, id)
+				require.NoError(t, err)
+				require.Equal(t, cut != "committed", found)
+				_, initialized, err := e.Ledger().PendingWork(ctx, 0, 1)
+				require.NoError(t, err)
+				require.Equal(t, ending == "early-end" && cut != "committed", initialized)
+				_, frontier, err := e.Ledger().Frontier(ctx)
+				require.NoError(t, err)
+				require.Equal(t, cut != "committed", frontier)
+				facts, err := e.Ledger().Facts(ctx)
+				require.NoError(t, err)
+				_, finished := facts["finished"]
+				require.Equal(t, cut != "committed", finished)
+				require.Contains(t, facts, "history")
+				counters, err := e.Ledger().Counters(ctx)
+				require.NoError(t, err)
+				require.EqualValues(t, 9, counters.Counters["completed"])
+				require.ErrorIs(t, e.CheckpointSync(ctx, "forbidden"), ErrLedgeredSyncWritesNoToken)
+			})
+		}
 	}
 }
 
 func TestLedgerClearRowsCrashImages(t *testing.T) {
 	skipOnWindowsMemFS(t)
-	for _, cut := range []string{"stamped", "staged", "committed"} {
-		t.Run(cut, func(t *testing.T) {
-			ctx := t.Context()
-			fs := vfs.NewCrashableMem()
-			cache := pebble.NewCache(8 << 20)
-			defer cache.Unref()
-			e, err := Open(ctx, "clear-rows", WithVFS(fs), WithSharedCache(cache), withPanicOnFatalLogger())
-			require.NoError(t, err)
-			defer func() { require.NoError(t, e.Close()) }()
-			syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-			require.NoError(t, err)
-			require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
-			id := c1zstore.LedgerActionIdentity{Op: "completed"}
-			page := e.Ledger().BeginPage()
-			defer page.Discard()
-			require.NoError(t, page.SetFact("finished"))
-			require.NoError(t, page.SetFact("history"))
-			require.NoError(t, page.SetCounterBucket("prior", 0, c1zstore.LedgerCounters{Counters: map[string]uint64{"completed": 3}}))
-			require.NoError(t, page.Commit(ctx, id, nil))
-			require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
-			require.NoError(t, e.SetCurrentSync(ctx, syncID))
-			before, err := e.GetSyncRunRecord(ctx, syncID)
-			require.NoError(t, err)
-			var image *vfs.MemFS
-			interrupted := errors.New("crash cut")
-			e.test.ledgerClearRowsHook = func(stage string) error {
-				if stage == cut {
-					image = fs.CrashClone(vfs.CrashCloneCfg{})
-					return interrupted
+	for _, ending := range []string{"sealed", "early-end"} {
+		for _, cut := range []string{"stamped", "staged", "committed"} {
+			t.Run(ending+"/"+cut, func(t *testing.T) {
+				ctx := t.Context()
+				fs := vfs.NewCrashableMem()
+				cache := pebble.NewCache(8 << 20)
+				defer cache.Unref()
+				e, err := Open(ctx, "clear-rows", WithVFS(fs), WithSharedCache(cache), withPanicOnFatalLogger())
+				require.NoError(t, err)
+				defer func() { require.NoError(t, e.Close()) }()
+				syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+				require.NoError(t, err)
+				require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
+				id := c1zstore.LedgerActionIdentity{Op: "completed"}
+				page := e.Ledger().BeginPage()
+				defer page.Discard()
+				require.NoError(t, page.SetFact("finished"))
+				require.NoError(t, page.SetFact("history"))
+				require.NoError(t, page.SetCounterBucket("prior", 0, c1zstore.LedgerCounters{Counters: map[string]uint64{"completed": 3}}))
+				require.NoError(t, page.Commit(ctx, id, nil))
+				if ending == "early-end" {
+					require.NoError(t, e.EndSync(ctx))
+				} else {
+					require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
 				}
-				return nil
-			}
-			require.ErrorIs(t, e.Ledger().ClearRows(ctx, []string{"finished"}), interrupted)
-			require.NotNil(t, image)
-			recovered, err := Open(ctx, "clear-rows", WithVFS(image), WithSharedCache(cache), withPanicOnFatalLogger())
-			require.NoError(t, err)
-			defer func() { require.NoError(t, recovered.Close()) }()
-			after, err := recovered.GetSyncRunRecord(ctx, syncID)
-			require.NoError(t, err)
-			require.True(t, proto.Equal(before, after))
-			_, found, err := recovered.Ledger().GetRow(ctx, id)
-			require.NoError(t, err)
-			require.Equal(t, cut != "committed", found)
-			facts, err := recovered.Ledger().Facts(ctx)
-			require.NoError(t, err)
-			_, finished := facts["finished"]
-			require.Equal(t, found, finished)
-			require.Contains(t, facts, "history")
-			counters, err := recovered.Ledger().Counters(ctx)
-			require.NoError(t, err)
-			require.EqualValues(t, 3, counters.Counters["completed"])
-			pending, err := recovered.Ledger().residuePending()
-			require.NoError(t, err)
-			require.True(t, pending)
-			require.NoError(t, recovered.SetCurrentSync(ctx, syncID))
-			require.NoError(t, recovered.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
-			pending, err = recovered.Ledger().residuePending()
-			require.NoError(t, err)
-			require.False(t, pending)
-		})
+				require.NoError(t, e.SetCurrentSync(ctx, syncID))
+				before, err := e.GetSyncRunRecord(ctx, syncID)
+				require.NoError(t, err)
+				var image *vfs.MemFS
+				interrupted := errors.New("crash cut")
+				e.test.ledgerClearRowsHook = func(stage string) error {
+					if stage == cut {
+						image = fs.CrashClone(vfs.CrashCloneCfg{})
+						return interrupted
+					}
+					return nil
+				}
+				require.ErrorIs(t, e.Ledger().ClearRows(ctx, []string{"finished"}), interrupted)
+				require.NotNil(t, image)
+				recovered, err := Open(ctx, "clear-rows", WithVFS(image), WithSharedCache(cache), withPanicOnFatalLogger())
+				require.NoError(t, err)
+				defer func() { require.NoError(t, recovered.Close()) }()
+				after, err := recovered.GetSyncRunRecord(ctx, syncID)
+				require.NoError(t, err)
+				require.True(t, proto.Equal(before, after))
+				_, found, err := recovered.Ledger().GetRow(ctx, id)
+				require.NoError(t, err)
+				require.Equal(t, cut != "committed", found)
+				_, initialized, err := recovered.Ledger().PendingWork(ctx, 0, 1)
+				require.NoError(t, err)
+				require.Equal(t, ending == "early-end" && cut != "committed", initialized)
+				facts, err := recovered.Ledger().Facts(ctx)
+				require.NoError(t, err)
+				_, finished := facts["finished"]
+				require.Equal(t, found, finished)
+				require.Contains(t, facts, "history")
+				counters, err := recovered.Ledger().Counters(ctx)
+				require.NoError(t, err)
+				require.EqualValues(t, 3, counters.Counters["completed"])
+				pending, err := recovered.Ledger().residuePending()
+				require.NoError(t, err)
+				require.True(t, pending)
+				require.NoError(t, recovered.SetCurrentSync(ctx, syncID))
+				require.NoError(t, recovered.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+				pending, err = recovered.Ledger().residuePending()
+				require.NoError(t, err)
+				require.False(t, pending)
+			})
+		}
 	}
 }
 
