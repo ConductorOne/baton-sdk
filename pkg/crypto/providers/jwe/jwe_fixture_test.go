@@ -108,7 +108,7 @@ func buildFixture(t *testing.T) xwingJWEFixture {
 		Provider: EncryptionProvider,
 		KeyId:    "fixture-recipient-1",
 		JwkPublicKeyConfig: v2.EncryptionConfig_JWKPublicKeyConfig_builder{
-			PubKey:                       akpJWK(t, xwingJWKMembers(t, publicKey)),
+			PubKey:                      akpJWK(t, xwingJWKMembers(t, publicKey)),
 			AdditionalAuthenticatedData: fixtureAAD,
 		}.Build(),
 	}.Build()
@@ -215,6 +215,6 @@ func TestRegenerateXWingJWEFixture(t *testing.T) {
 	require.NoError(t, err)
 	encoded = append(encoded, '\n')
 	require.NoError(t, os.MkdirAll(filepath.Dir(fixturePath), 0o755))
-	require.NoError(t, os.WriteFile(fixturePath, encoded, 0o644))
+	require.NoError(t, os.WriteFile(fixturePath, encoded, 0o600))
 	t.Logf("wrote %s", fixturePath)
 }

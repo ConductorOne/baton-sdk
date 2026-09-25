@@ -46,7 +46,7 @@ func TestIndependentReaderAuthenticatesEverySealedField(t *testing.T) {
 			Provider: EncryptionProvider,
 			KeyId:    "recipient-1",
 			JwkPublicKeyConfig: v2.EncryptionConfig_JWKPublicKeyConfig_builder{
-				PubKey:                       akpJWK(t, xwingJWKMembers(t, privateKey.PublicKey().Bytes())),
+				PubKey:                      akpJWK(t, xwingJWKMembers(t, privateKey.PublicKey().Bytes())),
 				AdditionalAuthenticatedData: []byte("tenant=acme"),
 			}.Build(),
 		}.Build(),

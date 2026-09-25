@@ -22,7 +22,7 @@ import (
 
 // jweIssuedSecretMarker stands in for connector-minted credential bytes. No
 // error returned by the builder may carry it.
-const jweIssuedSecretMarker = "JWE-ISSUED-SECRET-DO-NOT-ECHO"
+const jweIssuedSecretMarker = "JWE-ISSUED-SECRET-DO-NOT-ECHO" //nolint:gosec // Test marker, not a credential value.
 
 const testJWERecipientKeyID = "xwing-recipient-1"
 
@@ -333,7 +333,7 @@ func TestIssueCredentialRejectsUnsupportedAuthenticatedData(t *testing.T) {
 			Provider: ageprovider.EncryptionProviderAge,
 			KeyId:    "age-recipient-1",
 			JwkPublicKeyConfig: v2.EncryptionConfig_JWKPublicKeyConfig_builder{
-				PubKey:                       newIssueEncryptionConfig(t).GetJwkPublicKeyConfig().GetPubKey(),
+				PubKey:                      newIssueEncryptionConfig(t).GetJwkPublicKeyConfig().GetPubKey(),
 				AdditionalAuthenticatedData: []byte("bound-context"),
 			}.Build(),
 		}.Build()},

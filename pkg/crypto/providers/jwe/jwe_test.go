@@ -235,10 +235,10 @@ func TestEncryptPayloadAndAADMatrix(t *testing.T) {
 		"empty payload":  {},
 	}
 	contexts := map[string][]byte{
-		"empty context":  nil,
-		"opaque binary":  {0x00, 0xa0, 0xff, 0x0a},
-		"json context":   []byte(`{"tenant":"acme","purpose":"api-key"}`),
-		"single byte":    {0x01},
+		"empty context": nil,
+		"opaque binary": {0x00, 0xa0, 0xff, 0x0a},
+		"json context":  []byte(`{"tenant":"acme","purpose":"api-key"}`),
+		"single byte":   {0x01},
 	}
 
 	for payloadName, payload := range payloads {
