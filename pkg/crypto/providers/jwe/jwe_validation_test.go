@@ -75,39 +75,69 @@ func padJWKToSize(t *testing.T, publicKey []byte, total int) []byte {
 	}
 }
 
-// TestRuntimeBoundsMatchDeclaredProtobufBounds pins that the provider's runtime
-// limits and the bounds declared on the proto are the same numbers. The bound
-// now lives in two places, so a change to one alone would otherwise let the
-// generated validators and the provider disagree about what is acceptable.
-func TestRuntimeBoundsMatchDeclaredProtobufBounds(t *testing.T) {
-	atLimit := v2.EncryptionConfig_builder{
-		Provider: EncryptionProvider,
-		KeyId:    "recipient-1",
-		JwkPublicKeyConfig: v2.EncryptionConfig_JWKPublicKeyConfig_builder{
-			PubKey:                      make([]byte, MaxJWKBytes),
-			AdditionalAuthenticatedData: make([]byte, MaxAdditionalAuthenticatedDataBytes),
-		}.Build(),
-	}.Build()
-	require.NoError(t, atLimit.Validate(), "both fields at the runtime limit must satisfy the declared bounds")
+// declaredMaxLen mirrors the max_len the proto declares on both
+// EncryptionConfig.JWKPublicKeyConfig.pub_key and
+// .additional_authenticated_data. The proto is the single source of truth: the
+// provider reads the bound through the generated validator instead of repeating
+// it, so tests reference the declared number rather than a provider constant.
+const declaredMaxLen = 16384
 
-	pastPubKey := v2.EncryptionConfig_builder{
-		Provider: EncryptionProvider,
-		KeyId:    "recipient-1",
-		JwkPublicKeyConfig: v2.EncryptionConfig_JWKPublicKeyConfig_builder{
-			PubKey: make([]byte, MaxJWKBytes+1),
-		}.Build(),
-	}.Build()
-	require.Error(t, pastPubKey.Validate(), "past the runtime pub_key limit must also fail the declared bound")
+// TestDeclaredFieldBoundsEnforcedByBothEntryPoints covers each declared bound at
+// its boundary through both exported entry points. ValidateConfig and Encrypt
+// share one recipient preflight, so a direct call to either must refuse the same
+// configurations, and an at-limit configuration must still produce a message
+// that a recipient can read.
+func TestDeclaredFieldBoundsEnforcedByBothEntryPoints(t *testing.T) {
+	privateKey, err := hpke.MLKEM768X25519().GenerateKey()
+	require.NoError(t, err)
+	publicKey := privateKey.PublicKey().Bytes()
+	validJWK := customJWK(t, publicKey, nil)
 
-	pastContext := v2.EncryptionConfig_builder{
-		Provider: EncryptionProvider,
-		KeyId:    "recipient-1",
-		JwkPublicKeyConfig: v2.EncryptionConfig_JWKPublicKeyConfig_builder{
-			PubKey:                      make([]byte, 1),
-			AdditionalAuthenticatedData: make([]byte, MaxAdditionalAuthenticatedDataBytes+1),
-		}.Build(),
-	}.Build()
-	require.Error(t, pastContext.Validate(), "past the runtime context limit must also fail the declared bound")
+	cases := []struct {
+		name    string
+		config  *v2.EncryptionConfig
+		wantErr bool
+	}{
+		{
+			"pub_key at the declared maximum",
+			configForRawJWK("recipient-1", padJWKToSize(t, publicKey, declaredMaxLen), nil),
+			false,
+		},
+		{
+			"pub_key one byte over the declared maximum",
+			configForRawJWK("recipient-1", padJWKToSize(t, publicKey, declaredMaxLen+1), nil),
+			true,
+		},
+		{
+			"authenticated data at the declared maximum",
+			configForRawJWK("recipient-1", validJWK, make([]byte, declaredMaxLen)),
+			false,
+		},
+		{
+			"authenticated data one byte over the declared maximum",
+			configForRawJWK("recipient-1", validJWK, make([]byte, declaredMaxLen+1)),
+			true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			validationErr := (&Provider{}).ValidateConfig(context.Background(), tc.config)
+			encrypted, encryptErr := encryptPayload(t, tc.config)
+
+			if tc.wantErr {
+				requireInvalidArgument(t, validationErr)
+				requireInvalidArgument(t, encryptErr)
+				require.Nil(t, encrypted)
+				return
+			}
+			require.NoError(t, validationErr)
+			require.NoError(t, encryptErr)
+			require.Equal(t, "payload",
+				string(mustIndependentOpen(t, encrypted.GetEncryptedBytes(), privateKey)),
+				"an at-limit configuration must still encrypt to a readable message")
+		})
+	}
 }
 
 // TestPublicJWKFieldsStructuralMalformation drives the byte-level object shapes
@@ -397,7 +427,7 @@ func TestRecipientValidationMatrix(t *testing.T) {
 			return configForRawJWK("recipient-1", customJWK(t, corrupted, nil), nil)
 		}},
 		{"public JWK over size limit", func(t *testing.T) *v2.EncryptionConfig {
-			return configForRawJWK("recipient-1", padJWKToSize(t, publicKey, MaxJWKBytes+1), nil)
+			return configForRawJWK("recipient-1", padJWKToSize(t, publicKey, declaredMaxLen+1), nil)
 		}},
 	}
 
@@ -443,10 +473,10 @@ func TestRecipientValidationMatrix(t *testing.T) {
 			return configForRawJWK(strings.Repeat("k", 1024), customJWK(t, publicKey, nil), nil)
 		}},
 		{"public JWK at size limit", func(t *testing.T) *v2.EncryptionConfig {
-			return configForRawJWK("recipient-1", padJWKToSize(t, publicKey, MaxJWKBytes), nil)
+			return configForRawJWK("recipient-1", padJWKToSize(t, publicKey, declaredMaxLen), nil)
 		}},
 		{"authenticated data at size limit", func(t *testing.T) *v2.EncryptionConfig {
-			return configForRawJWK("recipient-1", customJWK(t, publicKey, nil), make([]byte, MaxAdditionalAuthenticatedDataBytes))
+			return configForRawJWK("recipient-1", customJWK(t, publicKey, nil), make([]byte, declaredMaxLen))
 		}},
 		{"empty authenticated data", func(t *testing.T) *v2.EncryptionConfig {
 			return configForRawJWK("recipient-1", customJWK(t, publicKey, nil), []byte{})
@@ -463,7 +493,7 @@ func TestRecipientValidationMatrix(t *testing.T) {
 	// Authenticated data above the limit is rejected, and it is a config-level
 	// rejection rather than a failure that only appears mid-encryption.
 	t.Run("authenticated data over size limit", func(t *testing.T) {
-		config := configForRawJWK("recipient-1", customJWK(t, publicKey, nil), make([]byte, MaxAdditionalAuthenticatedDataBytes+1))
+		config := configForRawJWK("recipient-1", customJWK(t, publicKey, nil), make([]byte, declaredMaxLen+1))
 		requireInvalidArgument(t, (&Provider{}).ValidateConfig(context.Background(), config))
 		_, err := (&Provider{}).Encrypt(context.Background(), config, v2.PlaintextData_builder{Name: "m", Bytes: []byte("x")}.Build())
 		requireInvalidArgument(t, err)

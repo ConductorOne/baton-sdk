@@ -17,11 +17,9 @@ import (
 )
 
 const (
-	EncryptionProvider                  = "baton/jwe/v1"
-	Algorithm                           = "https://c1.ai/alg/hpke-xwing-hkdf-sha256-chacha20poly1305/v1"
-	MaxJWKBytes                         = 16 * 1024
-	MaxAdditionalAuthenticatedDataBytes = 16 * 1024
-	MaxPlaintextBytes                   = 1024 * 1024
+	EncryptionProvider = "baton/jwe/v1"
+	Algorithm          = "https://c1.ai/alg/hpke-xwing-hkdf-sha256-chacha20poly1305/v1"
+	MaxPlaintextBytes  = 1024 * 1024
 )
 
 // MaxProtectedHeaderBytes bounds the decoded protected header JSON, matching
@@ -116,8 +114,13 @@ func recipient(config *v2.EncryptionConfig) (hpke.PublicKey, []byte, error) {
 		return nil, nil, invalid("protected header exceeds size limit")
 	}
 	jwkConfig := config.GetJwkPublicKeyConfig()
-	if len(jwkConfig.GetAdditionalAuthenticatedData()) > MaxAdditionalAuthenticatedDataBytes {
-		return nil, nil, invalid("authenticated data exceeds size limit")
+	// The declared pub_key and authenticated-data bounds belong to the proto, so
+	// the generated validator owns them. Reading them from one place keeps this
+	// path and a direct caller from disagreeing about what is acceptable. The
+	// failure is reported as one fixed message, so no part of the rejected
+	// configuration reaches the caller.
+	if err := jwkConfig.Validate(); err != nil {
+		return nil, nil, invalid("JWK configuration is invalid")
 	}
 	fields, err := publicJWKFields(jwkConfig.GetPubKey())
 	if err != nil {
@@ -172,9 +175,12 @@ func recipient(config *v2.EncryptionConfig) (hpke.PublicKey, []byte, error) {
 	return key, header, nil
 }
 
+// publicJWKFields decodes the top-level members of a public JWK. The pub_key
+// size bound is enforced by the generated validator in recipient before this
+// runs, so only emptiness and encoding are checked here.
 func publicJWKFields(data []byte) (map[string]json.RawMessage, error) {
-	if len(data) == 0 || len(data) > MaxJWKBytes || !utf8.Valid(data) {
-		return nil, invalid("invalid JWK size or encoding")
+	if len(data) == 0 || !utf8.Valid(data) {
+		return nil, invalid("empty or non-UTF-8 JWK")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	token, err := decoder.Token()

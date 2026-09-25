@@ -32,9 +32,9 @@ func FuzzPublicJWKFields(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, data []byte) {
-		// Bound the input so a fuzz case stays cheap; the size limit itself is
-		// covered by the validation matrix.
-		if len(data) == 0 || len(data) > MaxJWKBytes {
+		// Bound the input so a fuzz case stays cheap. The declared bound itself is
+		// covered by the validation matrix, and the parser no longer enforces size.
+		if len(data) == 0 || len(data) > declaredMaxLen {
 			return
 		}
 
@@ -70,7 +70,7 @@ func FuzzRecipientPreflight(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, jwk []byte) {
-		if len(jwk) > MaxJWKBytes {
+		if len(jwk) > declaredMaxLen {
 			return
 		}
 		config := configForRawJWK("recipient-1", jwk, nil)
