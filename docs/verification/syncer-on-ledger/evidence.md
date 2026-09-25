@@ -282,3 +282,12 @@ in the separate uncommitted historical-migration drafts; it is not a clean
 full-lint claim. Independent bounded review found no concrete defect and ran
 both focused lifecycle tests. No full C1 workflow/DB integration test or
 exhaustive derived-index failure product is claimed.
+
+## CO-032 — nil store option compatibility
+
+Verified to stated coverage: `TestLedgerNilStoreFallsBackToPath` failed on all
+four engine/option-order cases before removing the nil-store attachment error.
+The public constructor and actual path-backed attachment now pass for both
+SQLite and Pebble in both option orders. No store and no path still fails.
+Actual-store engine and capability refusals remain covered by the existing
+attachment matrix; this is not a Pebble checkpoint fallback.

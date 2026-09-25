@@ -3877,7 +3877,6 @@ func (s *syncer) setStore(store c1zstore.Store) {
 	s.ledgered = false
 	s.storeAttachErr = nil
 	if store == nil {
-		s.storeAttachErr = errors.New("sync store is nil")
 		return
 	}
 	switch c1zstore.Engine(store.Metadata().Engine) {

@@ -3,6 +3,7 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -78,4 +79,26 @@ func TestLedgerPublicRegisteredPathAttachment(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestLedgerNilStoreFallsBackToPath(t *testing.T) {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble, c1zstore.EngineSQLite} {
+		for _, nilFirst := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/nil-first-%t", engine, nilFirst), func(t *testing.T) {
+				path := WithC1ZPath(filepath.Join(t.TempDir(), "fallback.c1z"))
+				opts := []SyncOpt{path, WithConnectorStore(nil), WithStorageEngine(engine)}
+				if nilFirst {
+					opts[0], opts[1] = opts[1], opts[0]
+				}
+				created, err := NewSyncer(t.Context(), ledgerAttachmentConnector{}, opts...)
+				require.NoError(t, err)
+				s := created.(*syncer)
+				require.NoError(t, s.loadStore(t.Context()))
+				require.Equal(t, engine == c1zstore.EnginePebble, s.ledgered)
+				require.NoError(t, s.Close(t.Context()))
+			})
+		}
+	}
+	_, err := NewSyncer(t.Context(), ledgerAttachmentConnector{}, WithConnectorStore(nil))
+	require.Error(t, err)
 }
