@@ -45,9 +45,9 @@ func (s *syncer) recordRetryWait(ctx context.Context, wait time.Duration, rateLi
 	if rateLimited {
 		bucket = "rate_limit_wait"
 	}
-	s.stats.addStepDuration(bucket, wait)
+	s.recordRunStepDuration(bucket, wait)
 	if label, ok := ratelimit.WaitLabelFromContext(ctx); ok {
-		s.stats.addStepDuration(bucket+":"+label, wait)
+		s.recordRunStepDuration(bucket+":"+label, wait)
 	}
 	if rateLimited {
 		s.recordRateLimitWallInterval(wait)
@@ -102,7 +102,7 @@ func (s *syncer) recordRateLimitWallInterval(wait time.Duration) {
 	// lock from nesting the stats mutex.
 	s.rlWallMu.Unlock()
 	if whole > 0 {
-		s.stats.addStepDuration("rate_limit_wait_wall", whole)
+		s.recordRunStepDuration("rate_limit_wait_wall", whole)
 	}
 }
 
@@ -128,6 +128,9 @@ func (s *syncer) withRateLimitWaitObserver(ctx context.Context) context.Context 
 			return
 		}
 		s.recordRetryWait(ctx, ev.Duration, !ev.Retry)
+		if attempts, ok := ctx.Value(ledgerAttemptsKey{}).(*ledgerAttempts); ok {
+			attempts.recordWait(ev)
+		}
 	})
 }
 
@@ -138,6 +141,9 @@ func (s *syncer) parallelSync(
 ) ([]error, error) {
 	l := ctxzap.Extract(ctx)
 	workerCtx, cancelWorkers := context.WithCancelCause(ctx)
+	if s.ledgered {
+		workerCtx = withLedgerAttempts(workerCtx)
+	}
 	stopWorkers := context.AfterFunc(runCtx, func() {
 		cancelWorkers(context.Cause(runCtx))
 	})
@@ -156,6 +162,11 @@ func (s *syncer) parallelSync(
 
 	var warnings []error
 	for {
+		if s.ledgered {
+			if err := s.refreshPendingWindow(ctx); err != nil {
+				return warnings, err
+			}
+		}
 		stateAction := s.run.current()
 		if stateAction == nil {
 			break
@@ -203,6 +214,10 @@ func (s *syncer) parallelSync(
 				} else {
 					l.Info("sync run duration has expired, exiting sync early", zap.String("sync_id", s.syncID))
 				}
+				if s.ledgered {
+					s.checkpointLedgerOnStop(ctx)
+					return warnings, ErrSyncNotComplete
+				}
 				// It would be nice to remove this once we're more confident in the checkpointing logic.
 				checkpointErr := s.Checkpoint(ctx, true)
 				if checkpointErr != nil {
@@ -221,63 +236,9 @@ func (s *syncer) parallelSync(
 
 		switch stateAction.Op {
 		case InitOp:
-			s.finishAction(ctx, stateAction)
-
-			if s.cfg.skipEntitlementsAndGrants {
-				s.run.setFact(factShouldSkipEntitlementsAndGrants)
-			}
-			if s.cfg.skipGrants {
-				s.run.setFact(factShouldSkipGrants)
-			}
-			if len(targetedResources) > 0 {
-				for _, r := range targetedResources {
-					s.run.pushAction(ctx, Action{
-						Op:                   SyncTargetedResourceOp,
-						ResourceID:           r.GetId().GetResource(),
-						ResourceTypeID:       r.GetId().GetResourceType(),
-						ParentResourceID:     r.GetParentResourceId().GetResource(),
-						ParentResourceTypeID: r.GetParentResourceId().GetResourceType(),
-					})
-				}
-				s.run.setFact(factShouldFetchRelatedResources)
-				s.run.pushAction(ctx, Action{Op: SyncResourceTypesOp})
-				err = s.Checkpoint(ctx, true)
-				if err != nil {
-					return warnings, err
-				}
-				// Don't do grant expansion or external resources in partial syncs, as we likely lack related resources/entitlements/grants
-				continue
-			}
-
-			// FIXME(jirwin): Disabling syncing assets for now
-			// s.run.pushAction(ctx, Action{Op: SyncAssetsOp})
-			if !s.run.hasFact(factShouldSkipEntitlementsAndGrants) {
-				s.run.pushAction(ctx, Action{Op: SyncGrantExpansionOp})
-			}
-			if s.externalResourceReader != nil {
-				s.run.pushAction(ctx, Action{Op: SyncExternalResourcesOp})
-			}
-			if s.cfg.onlyExpandGrants {
-				s.run.setFact(factNeedsExpansion)
-				err = s.Checkpoint(ctx, true)
-				if err != nil {
-					return warnings, err
-				}
-				continue
-			}
-			if !s.run.hasFact(factShouldSkipEntitlementsAndGrants) {
-				if !s.run.hasFact(factShouldSkipGrants) {
-					s.run.pushAction(ctx, Action{Op: SyncGrantsOp})
-				}
-
-				s.run.pushAction(ctx, Action{Op: SyncEntitlementsOp})
-
-				s.run.pushAction(ctx, Action{Op: SyncStaticEntitlementsOp})
-			}
-			s.run.pushAction(ctx, Action{Op: SyncResourcesOp})
-			s.run.pushAction(ctx, Action{Op: SyncResourceTypesOp})
-
-			err = s.Checkpoint(ctx, true)
+			err = s.invokeActionPage(ctx, stateAction, func(pageCtx context.Context, action *Action) error {
+				return s.initializeAction(pageCtx, action, targetedResources)
+			}, false)
 			if err != nil {
 				return warnings, err
 			}
@@ -285,7 +246,7 @@ func (s *syncer) parallelSync(
 
 		case SyncResourceTypesOp:
 			err = s.timedStep(SyncResourceTypesOp, func() error {
-				return s.SyncResourceTypes(workerCtx, stateAction)
+				return s.invokeActionPage(workerCtx, stateAction, s.SyncResourceTypes, false)
 			})
 			if !s.timedShouldWaitAndRetry(workerCtx, SyncResourceTypesOp, stateAction.ResourceTypeID, retryer, err) {
 				return s.handleOperationError(ctx, runCtx, warnings, err)
@@ -295,7 +256,7 @@ func (s *syncer) parallelSync(
 		case SyncResourcesOp:
 			if stateAction.ResourceTypeID == "" && stateAction.ResourceID == "" {
 				err = s.timedStep(SyncResourcesOp, func() error {
-					return s.SyncResources(workerCtx, stateAction)
+					return s.invokeActionPage(workerCtx, stateAction, s.SyncResources, false)
 				})
 				if !s.timedShouldWaitAndRetry(workerCtx, SyncResourcesOp, stateAction.ResourceTypeID, retryer, err) {
 					return s.handleOperationError(ctx, runCtx, warnings, err)
@@ -325,9 +286,18 @@ func (s *syncer) parallelSync(
 			}
 			continue
 
+		case MaterializeStaticEntitlementsOp:
+			err = s.timedStep(MaterializeStaticEntitlementsOp, func() error {
+				return s.invokeActionPage(workerCtx, stateAction, s.materializeLedgerStaticEntitlements, false)
+			})
+			if !s.timedShouldWaitAndRetry(workerCtx, MaterializeStaticEntitlementsOp, stateAction.ResourceTypeID, retryer, err) {
+				return s.handleOperationError(ctx, runCtx, warnings, err)
+			}
+			continue
+
 		case SyncStaticEntitlementsOp:
 			err = s.timedStep(SyncStaticEntitlementsOp, func() error {
-				return s.SyncStaticEntitlements(workerCtx, stateAction)
+				return s.invokeActionPage(workerCtx, stateAction, s.SyncStaticEntitlements, true)
 			})
 			if isWarning(ctx, err) {
 				l.Warn("skipping sync static entitlements action", zap.Any("stateAction", stateAction), zap.Error(err))
@@ -342,7 +312,7 @@ func (s *syncer) parallelSync(
 		case SyncEntitlementsOp:
 			if stateAction.ResourceTypeID == "" && stateAction.ResourceID == "" {
 				err = s.timedStep(SyncEntitlementsOp, func() error {
-					return s.SyncEntitlements(workerCtx, stateAction)
+					return s.invokeActionPage(workerCtx, stateAction, s.SyncEntitlements, true)
 				})
 				if isWarning(ctx, err) {
 					l.Warn("skipping sync entitlement action", zap.Any("stateAction", stateAction), zap.Error(err))
@@ -369,7 +339,7 @@ func (s *syncer) parallelSync(
 		case SyncGrantsOp:
 			if stateAction.ResourceTypeID == "" && stateAction.ResourceID == "" {
 				err = s.timedStep(SyncGrantsOp, func() error {
-					return s.SyncGrants(workerCtx, stateAction)
+					return s.invokeActionPage(workerCtx, stateAction, s.SyncGrants, true)
 				})
 				if isWarning(ctx, err) {
 					l.Warn("skipping sync grant action", zap.Any("stateAction", stateAction), zap.Error(err))
@@ -396,7 +366,7 @@ func (s *syncer) parallelSync(
 
 		case SyncExternalResourcesOp:
 			err = s.timedStep(SyncExternalResourcesOp, func() error {
-				return s.SyncExternalResources(workerCtx, stateAction)
+				return s.runPendingLocalStep(workerCtx, stateAction, func() error { return s.SyncExternalResources(workerCtx, stateAction) })
 			})
 			if !s.timedShouldWaitAndRetry(workerCtx, SyncExternalResourcesOp, stateAction.ResourceTypeID, retryer, err) {
 				return s.handleOperationError(ctx, runCtx, warnings, err)
@@ -404,7 +374,7 @@ func (s *syncer) parallelSync(
 			continue
 		case SyncAssetsOp:
 			err = s.timedStep(SyncAssetsOp, func() error {
-				return s.SyncAssets(workerCtx, stateAction)
+				return s.invokeActionPage(workerCtx, stateAction, s.SyncAssets, false)
 			})
 			if !s.timedShouldWaitAndRetry(workerCtx, SyncAssetsOp, stateAction.ResourceTypeID, retryer, err) {
 				return s.handleOperationError(ctx, runCtx, warnings, err)
@@ -434,11 +404,15 @@ func (s *syncer) parallelSync(
 
 			if s.cfg.dontExpandGrants || !s.run.hasFact(factNeedsExpansion) {
 				l.Debug("skipping grant expansion, no grants to expand")
-				s.finishAction(ctx, stateAction)
+				if err := s.runPendingLocalStep(ctx, stateAction, func() error { s.finishAction(ctx, stateAction); return nil }); err != nil {
+					return warnings, err
+				}
 				continue
 			}
 
-			err = s.SyncGrantExpansion(workerCtx, stateAction)
+			err = s.timedStep(SyncGrantExpansionOp, func() error {
+				return s.runPendingLocalStep(workerCtx, stateAction, func() error { return s.SyncGrantExpansion(workerCtx, stateAction) })
+			})
 			if !retryer.ShouldWaitAndRetry(ratelimit.WithWaitLabel(workerCtx, stateAction.ResourceTypeID), err) {
 				return s.handleOperationError(ctx, runCtx, warnings, err)
 			}
@@ -478,6 +452,10 @@ func (s *syncer) handleOperationError(
 			zap.Error(batchErr),
 		)
 	}
+	if s.ledgered {
+		s.checkpointLedgerOnStop(ctx)
+		return warnings, ErrSyncNotComplete
+	}
 	checkpointErr := s.Checkpoint(ctx, true)
 	return warnings, errors.Join(checkpointErr, ErrSyncNotComplete)
 }
@@ -497,6 +475,10 @@ const stopCheckpointTimeout = time.Minute
 // lands inside that one write, the stale token costs at most one checkpoint
 // interval of idempotent re-work on resume — accepted.
 func (s *syncer) checkpointOnStop(ctx context.Context) {
+	if s.ledgered {
+		s.checkpointLedgerOnStop(ctx)
+		return
+	}
 	checkpointCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopCheckpointTimeout)
 	defer cancel()
 	if err := s.Checkpoint(checkpointCtx, true); err != nil {
@@ -540,6 +522,8 @@ type parallelActionQueue struct {
 	head        int
 	outstanding int
 	aborted     bool
+	refill      func() ([]*Action, error)
+	refillErr   error
 	// The queue keeps NO cursor identity history (RFC 0007 phase 1
 	// restored the pre-identity-machinery posture that prod ran on for
 	// years): no batch-lifetime seen set, no cap, no cross-commit dedup,
@@ -701,7 +685,32 @@ func (q *parallelActionQueue) transition(
 func (q *parallelActionQueue) next() (*Action, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	for !q.aborted && q.head == len(q.actions) && q.outstanding > 0 {
+	for !q.aborted && q.head == len(q.actions) {
+		if q.refill != nil {
+			loaded, err := q.refill()
+			if err != nil {
+				q.refillErr = err
+				q.aborted = true
+				q.cond.Broadcast()
+				break
+			}
+			if len(loaded) > 0 {
+				q.actions = loaded
+				q.head = 0
+				q.outstanding += len(loaded)
+				if q.audit != nil {
+					event := queueAuditEvent{kind: auditAdmit, batch: q.auditBatch}
+					for _, action := range loaded {
+						event.actionIDs = append(event.actionIDs, action.ID)
+					}
+					q.audit.record(event)
+				}
+				break
+			}
+		}
+		if q.outstanding == 0 {
+			break
+		}
 		q.cond.Wait()
 	}
 	if q.aborted || q.outstanding == 0 {
@@ -780,6 +789,20 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	defer cancel(nil)
 
 	queue := newParallelActionQueue(actions)
+	if s.ledgered {
+		var after uint64
+		for _, action := range actions {
+			after = max(after, action.WorkID)
+		}
+		queue.refill = func() ([]*Action, error) {
+			loaded, err := s.pendingRefill(ctx, batchOp, &after)
+			if err != nil {
+				cancel(err)
+			}
+			return loaded, err
+		}
+	}
+
 	if s.testHooks.queueAudit != nil {
 		queue.attachAudit(s.testHooks.queueAudit, batchOp, s.testHooks.queueAudit.newBatch())
 	}
@@ -802,12 +825,16 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	var wg native_sync.WaitGroup
 	for i := 0; i < s.cfg.workerCount; i++ {
 		wg.Go(func() {
+			workerCtx := ctx
+			if s.ledgered {
+				workerCtx = withLedgerAttempts(context.WithValue(ctx, ledgerWorkerKey{}, i))
+			}
 			for {
 				action, ok := queue.next()
 				if !ok {
 					return
 				}
-				r := s.syncOneAction(ctx, l, retryer, action, f)
+				r := s.syncOneAction(workerCtx, l, retryer, action, f)
 				resultsMu.Lock()
 				if r.warning != nil {
 					warnings = append(warnings, r.warning)
@@ -840,6 +867,9 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	}
 
 	wg.Wait()
+	if queue.refillErr != nil {
+		errs = append(errs, queue.refillErr)
+	}
 
 	batchErr = errors.Join(errs...)
 	if s.testHooks.queueAudit != nil {
@@ -852,7 +882,7 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 // handling pagination by re-reading the action from state after each call.
 func (s *syncer) syncOneAction(ctx context.Context, l *zap.Logger, retryer *retry.Retryer, action *Action, f func(ctx context.Context, action *Action) error) workerResult {
 	for {
-		err := f(ctx, action)
+		err := s.invokeActionPage(ctx, action, f, true)
 		if isWarning(ctx, err) {
 			l.Warn("skipping sync action", zap.Any("action", action), zap.Error(err))
 			s.finishActionWithWarning(ctx, action)

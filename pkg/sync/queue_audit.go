@@ -50,6 +50,8 @@ const (
 	// auditBatchEnd closes a batch segment; carries whether the batch
 	// drained cleanly (no worker error).
 	auditBatchEnd
+	// auditAdmit loads already committed pending children into the worker queue.
+	auditAdmit
 )
 
 type queueAuditEvent struct {

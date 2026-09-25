@@ -99,7 +99,7 @@ func verifyQueueAudit(t *testing.T, audit *queueAudit) {
 			if b.aborted {
 				b.violatef("dequeue of %s after abort", id)
 			}
-		case auditCommit:
+		case auditCommit, auditAdmit:
 			if b.aborted {
 				b.violatef("transition committed after abort (C3)")
 			}

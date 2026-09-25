@@ -39,6 +39,10 @@ func ledgerTokenHash(token string) []byte {
 }
 
 func encodeLedgerKey(id c1zstore.LedgerActionIdentity) []byte {
+	return encodeLedgerKeyWithHash(id, ledgerTokenHash(id.PageToken))
+}
+
+func encodeLedgerKeyWithHash(id c1zstore.LedgerActionIdentity, hash []byte) []byte {
 	buf := make([]byte, 0, 64+len(id.Op)+len(id.ResourceTypeID)+len(id.ResourceID)+
 		len(id.ParentResourceTypeID)+len(id.ParentResourceID))
 	buf = append(buf, rawdb.LedgerKeyPrefix()...)
@@ -47,7 +51,7 @@ func encodeLedgerKey(id c1zstore.LedgerActionIdentity) []byte {
 	buf = codec.AppendTupleSeparator(buf)
 	buf = codec.AppendTupleBool(buf, id.TypeScoped)
 	buf = codec.AppendTupleSeparator(buf)
-	return codec.AppendTupleBytes(buf, ledgerTokenHash(id.PageToken))
+	return codec.AppendTupleBytes(buf, hash)
 }
 
 func ledgerLowerBound() []byte { lo, _ := rawdb.LedgerBounds(); return lo }
@@ -148,6 +152,17 @@ func (l *Ledger) sealScrubsTokens() (bool, error) {
 	}
 	defer closer.Close()
 	return false, nil
+}
+
+func (l *Ledger) sealDiscardsRows() (bool, error) {
+	_, closer, err := l.e.db.Get(encodeLedgerFactKey(c1zstore.LedgerFactDiscardOnSeal))
+	if errors.Is(err, pebble.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, closer.Close()
 }
 
 func scrubLedgerRow(row *v3.LedgerRow) bool {
@@ -315,12 +330,14 @@ func encodeLedgerResiduePendingKey() []byte {
 }
 
 func (l *Ledger) markResiduePending() error {
-	return l.e.withWriteAllowSealed(func() error {
-		if err := l.e.db.MetaSet(encodeLedgerResiduePendingKey(), []byte{1}, pebble.Sync); err != nil {
-			return fmt.Errorf("arm ledger-residue marker: %w", err)
-		}
-		return nil
-	})
+	return l.e.withWriteAllowSealed(l.markResiduePendingLocked)
+}
+
+func (l *Ledger) markResiduePendingLocked() error {
+	if err := l.e.db.MetaSet(encodeLedgerResiduePendingKey(), []byte{1}, pebble.Sync); err != nil {
+		return fmt.Errorf("arm ledger-residue marker: %w", err)
+	}
+	return nil
 }
 
 func (l *Ledger) residuePending() (bool, error) {
@@ -433,10 +450,20 @@ func (l *Ledger) GetRow(ctx context.Context, id c1zstore.LedgerActionIdentity) (
 	key := encodeLedgerKey(id)
 	val, closer, err := l.e.db.Get(key)
 	if err != nil {
-		if errors.Is(err, pebble.ErrNotFound) {
-			return nil, false, nil
+		if !errors.Is(err, pebble.ErrNotFound) {
+			return nil, false, err
 		}
-		return nil, false, err
+		iter, iterErr := l.e.db.NewIter(&pebble.IterOptions{LowerBound: key, UpperBound: rawdb.UpperBound(key)})
+		if iterErr != nil {
+			return nil, false, iterErr
+		}
+		if !iter.First() {
+			return nil, false, errors.Join(iter.Error(), iter.Close())
+		}
+		if len(iter.Key()) != len(key) && len(iter.Key()) != len(key)+16 {
+			return nil, false, iter.Close()
+		}
+		val, closer = iter.Value(), iter
 	}
 	defer closer.Close()
 	row := &v3.LedgerRow{}
@@ -445,7 +472,7 @@ func (l *Ledger) GetRow(ctx context.Context, id c1zstore.LedgerActionIdentity) (
 	}
 	if !ledgerIdentityMatches(id, row.GetIdentity(), row.GetScrubbed()) {
 		l.mismatches.Add(1)
-		ctxzap.Extract(ctx).Warn("pebble ledger: identity mismatch at key; treating page as not committed",
+		ctxzap.Extract(ctx).Warn("pebble ledger: identity mismatch at requested key",
 			zap.String("op", id.Op),
 			zap.String("resource_type_id", id.ResourceTypeID),
 			zap.String("resource_id", id.ResourceID),
@@ -459,21 +486,35 @@ func (l *Ledger) GetRow(ctx context.Context, id c1zstore.LedgerActionIdentity) (
 }
 
 func (l *Ledger) Counters(ctx context.Context) (c1zstore.LedgerCounters, error) {
+	counters, _, err := l.countersExcept(ctx, nil, nil)
+	return counters, err
+}
+
+func (l *Ledger) countersExcept(ctx context.Context, currentPrefix []byte, deleteBucket func([]byte) error) (c1zstore.LedgerCounters, bool, error) {
 	lo, hi := rawdb.LedgerCounterBounds()
 	iter, err := l.e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
 	if err != nil {
-		return c1zstore.LedgerCounters{}, err
+		return c1zstore.LedgerCounters{}, false, err
 	}
 	defer iter.Close()
+	needsFold := false
+	foldedKey := foldedLedgerCounterKey()
 	sum := map[string]uint64{}
 	var flags uint64
 	calls := map[string]*v3.CallStat{}
 	sessions := map[string]*v3.CallStat{}
 	durations := map[string]int64{}
 	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return c1zstore.LedgerCounters{}, false, err
+		}
+		if len(currentPrefix) > 0 && bytes.HasPrefix(iter.Key(), currentPrefix) {
+			continue
+		}
+		needsFold = needsFold || !bytes.Equal(iter.Key(), foldedKey)
 		b := &v3.LedgerCounterBucket{}
 		if err := unmarshalRecord(iter.Value(), b); err != nil {
-			return c1zstore.LedgerCounters{}, fmt.Errorf("ledger counters: unmarshal %x: %w", iter.Key(), err)
+			return c1zstore.LedgerCounters{}, false, fmt.Errorf("ledger counters: unmarshal %x: %w", iter.Key(), err)
 		}
 		for k, v := range b.GetCounters() {
 			sum[k] += v
@@ -482,9 +523,14 @@ func (l *Ledger) Counters(ctx context.Context) (c1zstore.LedgerCounters, error) 
 		calls = c1zstore.FoldCallStats(calls, b.GetConnectorCalls())
 		sessions = c1zstore.FoldCallStats(sessions, b.GetSessionCalls())
 		durations = c1zstore.FoldDurations(durations, b.GetStepDurationsMs())
+		if deleteBucket != nil {
+			if err := deleteBucket(iter.Key()); err != nil {
+				return c1zstore.LedgerCounters{}, false, err
+			}
+		}
 	}
 	if err := iter.Error(); err != nil {
-		return c1zstore.LedgerCounters{}, err
+		return c1zstore.LedgerCounters{}, false, err
 	}
 	return ledgerCountersFromProto(v3.LedgerCounterBucket_builder{
 		Counters:        sum,
@@ -492,7 +538,7 @@ func (l *Ledger) Counters(ctx context.Context) (c1zstore.LedgerCounters, error) 
 		ConnectorCalls:  calls,
 		SessionCalls:    sessions,
 		StepDurationsMs: durations,
-	}.Build()), nil
+	}.Build()), needsFold, nil
 }
 
 func (l *Ledger) Frontier(ctx context.Context) (*c1zstore.LedgerFrontier, bool, error) {
@@ -520,6 +566,10 @@ func (l *Ledger) Frontier(ctx context.Context) (*c1zstore.LedgerFrontier, bool, 
 // endSync that snapshotted the record first would write the pre-takeover token
 // back beside a live frontier.
 func (l *Ledger) Takeover(ctx context.Context, runID string, facts []string, counters c1zstore.LedgerCounters) (string, error) {
+	return l.takeover(ctx, runID, facts, counters, nil)
+}
+
+func (l *Ledger) takeover(ctx context.Context, runID string, facts []string, counters c1zstore.LedgerCounters, seed *pendingWorkSeed) (string, error) {
 	l.e.lifecycleMu.Lock()
 	defer l.e.lifecycleMu.Unlock()
 	syncID := l.e.CurrentSyncID()
@@ -533,6 +583,9 @@ func (l *Ledger) Takeover(ctx context.Context, runID string, facts []string, cou
 	state := rec.GetSyncToken()
 	if state == "" {
 		return "", nil
+	}
+	if seed != nil && state != seed.token {
+		return "", errors.New("checkpoint changed before pending-work takeover")
 	}
 	frontier := v3.LedgerFrontier_builder{State: state, Attempt: syncID, TakenOverAt: timestamppb.Now()}.Build()
 	fv, err := marshalRecord(frontier)
@@ -557,6 +610,18 @@ func (l *Ledger) Takeover(ctx context.Context, runID string, facts []string, cou
 		}
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
+		if seed != nil {
+			_, initialized, err := l.workState()
+			if err != nil {
+				return err
+			}
+			if initialized {
+				return errors.New("checkpoint conflicts with initialized pending work")
+			}
+			if err := stageInitialWork(batch, syncID, seed.work); err != nil {
+				return err
+			}
+		}
 		if err := batch.StageLedgerTakeover(fv, rv); err != nil {
 			return err
 		}
@@ -602,5 +667,68 @@ func (l *Ledger) PutCounterBucket(ctx context.Context, runID string, worker uint
 			return err
 		}
 		return batch.Commit(pebble.Sync)
+	})
+}
+
+func (l *Ledger) ClearRows(ctx context.Context, clearFacts []string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	l.e.lifecycleMu.Lock()
+	defer l.e.lifecycleMu.Unlock()
+	syncID := l.e.CurrentSyncID()
+	if syncID == "" {
+		return errors.New("ClearRows: no bound sync")
+	}
+	record, err := l.e.GetSyncRunRecord(ctx, syncID)
+	if err != nil {
+		return err
+	}
+	if record.GetEndedAt() == nil {
+		return errors.New("ClearRows: bound sync is unfinished")
+	}
+	keys := make([][]byte, 0, len(clearFacts))
+	for _, fact := range clearFacts {
+		keys = append(keys, encodeLedgerFactKey(fact))
+	}
+	return l.e.withWrite(func() error {
+		pending, _, err := l.PendingWork(ctx, 0, 1)
+		if err != nil {
+			return err
+		}
+		if len(pending) != 0 {
+			return errors.New("ClearRows: processing pass is unfinished")
+		}
+		if err := l.markResiduePendingLocked(); err != nil {
+			return err
+		}
+		if err := l.markInFlightLocked(); err != nil {
+			return err
+		}
+		if hook := l.e.test.ledgerClearRowsHook; hook != nil {
+			if err := hook("stamped"); err != nil {
+				return err
+			}
+		}
+		batch := l.e.db.NewRecordBatch()
+		defer batch.Close()
+		if err := batch.StageLedgerClearRows(keys); err != nil {
+			return err
+		}
+		if hook := l.e.test.ledgerClearRowsHook; hook != nil {
+			if err := hook("staged"); err != nil {
+				return err
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := batch.Commit(pebble.Sync); err != nil {
+			return err
+		}
+		if hook := l.e.test.ledgerClearRowsHook; hook != nil {
+			return hook("committed")
+		}
+		return nil
 	})
 }

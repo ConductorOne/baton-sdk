@@ -1,4 +1,4 @@
-package sync
+package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
 	"bytes"

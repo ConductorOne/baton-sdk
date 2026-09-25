@@ -1,10 +1,13 @@
 package pebble
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
+	"slices"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/sourcecache"
@@ -62,6 +65,22 @@ func (w *pageWriter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 		return err
 	}
 	return w.unit.StageGrants(translateGrantsForPut(ctx, w.syncID, grants)...)
+}
+
+func (w *pageWriter) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error {
+	if err := w.requireSync(); err != nil {
+		return err
+	}
+	if assetRef == nil {
+		return errors.New("PutAsset: nil assetRef")
+	}
+	if assetRef.GetId() == "" {
+		return errors.New("PutAsset: empty assetRef.Id")
+	}
+	return w.unit.StageAsset(v3.AssetRecord_builder{
+		SyncId: w.syncID, ExternalId: assetRef.GetId(), ContentType: contentType,
+		Data: bytes.Clone(data), DiscoveredAt: timestamppb.Now(),
+	}.Build())
 }
 
 func (w *pageWriter) GetResource(ctx context.Context, resourceTypeID, resourceID string) (*v2.Resource, error) {
@@ -219,18 +238,24 @@ func ledgerRowToProto(row *c1zstore.LedgerRow) *v3.LedgerRow {
 	}
 	children := make([]*v3.LedgerChild, 0, len(row.Children))
 	for _, c := range row.Children {
-		children = append(children, v3.LedgerChild_builder{Identity: ledgerIdentityToProto(c.Identity), Spawned: c.Spawned}.Build())
+		children = append(children, v3.LedgerChild_builder{Identity: ledgerIdentityToProto(c.Identity), Spawned: c.Spawned, WorkId: c.WorkID}.Build())
 	}
-	b := v3.LedgerRow_builder{
-		NextPageToken:     row.NextPageToken,
-		Children:          children,
-		Attempt:           row.Attempt,
-		Replayed:          row.Replayed,
-		TypeScopedPlanned: row.TypeScopedPlanned,
-		Spawned:           row.Spawned,
-		PageMs:            uint64(max(row.PageDuration.Milliseconds(), 0)),
-		ConnectorMs:       uint64(max(row.ConnectorDuration.Milliseconds(), 0)),
-		WaitMs:            uint64(max(row.WaitDuration.Milliseconds(), 0)),
+	b := v3.LedgerRow_builder{WorkId: row.WorkID, WorkRevision: row.WorkRevision,
+		Collection:           ledgerCollectionToProto(row.Collection),
+		ObservationsRecorded: row.ObservationsRecorded,
+		ConnectorAttempts:    row.ConnectorAttempts,
+		ConnectorErrors:      row.ConnectorErrors,
+		SdkRetryWaitMs:       ledgerDurationMS(row.SDKRetryWaitDuration),
+		SdkRateLimitWaitMs:   ledgerDurationMS(row.SDKRateLimitWaitDuration),
+		NextPageToken:        row.NextPageToken,
+		Children:             children,
+		Attempt:              row.Attempt,
+		Replayed:             row.Replayed,
+		TypeScopedPlanned:    row.TypeScopedPlanned,
+		Spawned:              row.Spawned,
+		PageMs:               ledgerDurationMS(row.PageDuration),
+		ConnectorMs:          ledgerDurationMS(row.ConnectorDuration),
+		WaitMs:               ledgerDurationMS(row.WaitDuration),
 	}
 	if !row.CommittedAt.IsZero() {
 		b.CommittedAt = timestamppb.New(row.CommittedAt)
@@ -241,27 +266,95 @@ func ledgerRowToProto(row *c1zstore.LedgerRow) *v3.LedgerRow {
 func ledgerRowFromProto(p *v3.LedgerRow) *c1zstore.LedgerRow {
 	children := make([]c1zstore.LedgerChild, 0, len(p.GetChildren()))
 	for _, c := range p.GetChildren() {
-		children = append(children, c1zstore.LedgerChild{Identity: ledgerIdentityFromProto(c.GetIdentity()), Spawned: c.GetSpawned()})
+		children = append(children, c1zstore.LedgerChild{Identity: ledgerIdentityFromProto(c.GetIdentity()), Spawned: c.GetSpawned(), WorkID: c.GetWorkId()})
 	}
-	row := &c1zstore.LedgerRow{
-		Identity:             ledgerIdentityFromProto(p.GetIdentity()),
-		NextPageToken:        p.GetNextPageToken(),
-		Children:             children,
-		Attempt:              p.GetAttempt(),
-		ResourceTypesWritten: p.GetResourceTypesWritten(),
-		ResourcesWritten:     p.GetResourcesWritten(),
-		EntitlementsWritten:  p.GetEntitlementsWritten(),
-		GrantsWritten:        p.GetGrantsWritten(),
-		Replayed:             p.GetReplayed(),
-		TypeScopedPlanned:    p.GetTypeScopedPlanned(),
-		Scrubbed:             p.GetScrubbed(),
-		Spawned:              p.GetSpawned(),
-		PageDuration:         msToDuration(p.GetPageMs()),
-		ConnectorDuration:    msToDuration(p.GetConnectorMs()),
-		WaitDuration:         msToDuration(p.GetWaitMs()),
+	row := &c1zstore.LedgerRow{WorkID: p.GetWorkId(), WorkRevision: p.GetWorkRevision(),
+		Collection:               ledgerCollectionFromProto(p.GetCollection()),
+		ObservationsRecorded:     p.GetObservationsRecorded(),
+		ConnectorAttempts:        p.GetConnectorAttempts(),
+		ConnectorErrors:          p.GetConnectorErrors(),
+		SDKRetryWaitDuration:     msToDuration(p.GetSdkRetryWaitMs()),
+		SDKRateLimitWaitDuration: msToDuration(p.GetSdkRateLimitWaitMs()),
+		Identity:                 ledgerIdentityFromProto(p.GetIdentity()),
+		NextPageToken:            p.GetNextPageToken(),
+		Children:                 children,
+		Attempt:                  p.GetAttempt(),
+		ResourceTypesWritten:     p.GetResourceTypesWritten(),
+		ResourcesWritten:         p.GetResourcesWritten(),
+		EntitlementsWritten:      p.GetEntitlementsWritten(),
+		GrantsWritten:            p.GetGrantsWritten(),
+		Replayed:                 p.GetReplayed(),
+		TypeScopedPlanned:        p.GetTypeScopedPlanned(),
+		Scrubbed:                 p.GetScrubbed(),
+		Spawned:                  p.GetSpawned(),
+		PageDuration:             msToDuration(p.GetPageMs()),
+		ConnectorDuration:        msToDuration(p.GetConnectorMs()),
+		WaitDuration:             msToDuration(p.GetWaitMs()),
 	}
 	if ts := p.GetCommittedAt(); ts != nil {
 		row.CommittedAt = ts.AsTime()
 	}
 	return row
+}
+
+func ledgerDurationMS(d time.Duration) uint64 {
+	if d <= 0 {
+		return 0
+	}
+	return uint64(d) / uint64(time.Millisecond)
+}
+
+func ledgerCollectionToProto(c *c1zstore.LedgerCollectionStats) *v3.LedgerCollectionStats {
+	if c == nil {
+		return nil
+	}
+	return v3.LedgerCollectionStats_builder{
+		ListResponses:                      c.ListResponses,
+		EmptyListResponses:                 c.EmptyListResponses,
+		EmptyListResponsesWithContinuation: c.EmptyListResponsesWithContinuation,
+		ResourceTypesReceived:              c.ResourceTypesReceived,
+		ResourcesReceived:                  c.ResourcesReceived,
+		EntitlementsReceived:               c.EntitlementsReceived,
+		GrantsReceived:                     c.GrantsReceived,
+		ResourceTypesExcludedBySelection:   c.ResourceTypesExcludedBySelection,
+		EntitlementsExcludedByType:         c.EntitlementsExcludedByType,
+		GrantsExcludedByType:               c.GrantsExcludedByType,
+		DerivedResourcesExcludedByType:     c.DerivedResourcesExcludedByType,
+		ResourceTypesExcludedInvalid:       c.ResourceTypesExcludedInvalid,
+		ResourcesExcludedInvalid:           c.ResourcesExcludedInvalid,
+		EntitlementsExcludedInvalid:        c.EntitlementsExcludedInvalid,
+	}.Build()
+}
+func ledgerCollectionFromProto(c *v3.LedgerCollectionStats) *c1zstore.LedgerCollectionStats {
+	if c == nil {
+		return nil
+	}
+	return &c1zstore.LedgerCollectionStats{
+		ListResponses:                      c.GetListResponses(),
+		EmptyListResponses:                 c.GetEmptyListResponses(),
+		EmptyListResponsesWithContinuation: c.GetEmptyListResponsesWithContinuation(),
+		ResourceTypesReceived:              c.GetResourceTypesReceived(),
+		ResourcesReceived:                  c.GetResourcesReceived(),
+		EntitlementsReceived:               c.GetEntitlementsReceived(),
+		GrantsReceived:                     c.GetGrantsReceived(),
+		ResourceTypesExcludedBySelection:   c.GetResourceTypesExcludedBySelection(),
+		EntitlementsExcludedByType:         c.GetEntitlementsExcludedByType(),
+		GrantsExcludedByType:               c.GetGrantsExcludedByType(),
+		DerivedResourcesExcludedByType:     c.GetDerivedResourcesExcludedByType(),
+		ResourceTypesExcludedInvalid:       c.GetResourceTypesExcludedInvalid(),
+		ResourcesExcludedInvalid:           c.GetResourcesExcludedInvalid(),
+		EntitlementsExcludedInvalid:        c.GetEntitlementsExcludedInvalid(),
+	}
+}
+
+func (w *pageWriter) SetPendingWork(work c1zstore.LedgerWork, childKeys ...string) error {
+	if w.unit.done {
+		return ErrPageUnitCommitted
+	}
+	if work.ID == 0 {
+		return errors.New("pending work requires a nonzero ID")
+	}
+	w.unit.work = &work
+	w.unit.childWorkKeys = slices.Clone(childKeys)
+	return nil
 }

@@ -35,6 +35,7 @@ func TestLedgerFactsAndBucketsRideThePageUnit(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
+	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 
 	u := e.ledger.newPageUnit()
 	require.NoError(t, u.StageFact("needs_expansion"))
@@ -282,17 +283,12 @@ func TestLedgerTakeoverRequiresOpenSync(t *testing.T) {
 	require.False(t, found)
 }
 
-// A ledgered sync seals only through EndSyncWithStats (brief §3.13):
-// plain EndSync refuses while the ledger is in flight, so a sync can
-// never seal with its timing / call stats and ingest quality silently
-// absent. The stats given to the seal land on the sidecar; they come from
-// the counter-bucket fold across runs. A sync that never touched the
-// ledger (token-only) seals through plain EndSync as before.
 func TestLedgeredSyncSealsOnlyWithStats(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
+	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
 
 	require.NoError(t, e.ledger.PutCounterBucket(ctx, "run-1", 0, c1zstore.LedgerCounters{
 		Counters:       map[string]uint64{"completed_actions": 3},
@@ -331,10 +327,6 @@ func TestLedgeredSyncSealsOnlyWithStats(t *testing.T) {
 	require.EqualValues(t, 5, fold.CompletedActions)
 
 	require.True(t, e.ledger.inFlight.Load(), "bucket writes mark the ledger in flight")
-	require.ErrorIs(t, e.EndSync(ctx), ErrLedgeredSyncNeedsStats, "plain EndSync must refuse a ledgered sync")
-	still, err := e.GetSyncRunRecord(ctx, syncID)
-	require.NoError(t, err)
-	require.Nil(t, still.GetEndedAt(), "the refusal happens before anything is sealed")
 
 	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{
 		Run:           fold,

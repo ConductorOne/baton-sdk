@@ -9,10 +9,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
-// A store implementing PageLedgerStore commits one syncer page and its ledger
-// row as one unit. Stores that cannot (SQLite) do not implement it; the
-// syncer type-asserts and falls back to the token-only path.
-
+// Request arguments, not an execution ID; distinct work may share them.
 type LedgerActionIdentity struct {
 	Op                   string
 	ResourceTypeID       string
@@ -27,12 +24,33 @@ type LedgerActionIdentity struct {
 // accounting flag for a connector-enqueued sibling cursor, not part of the
 // child's identity.
 type LedgerChild struct {
+	WorkID   uint64 `json:"work_id,omitempty"`
 	Identity LedgerActionIdentity
 	Spawned  bool
 }
 
+type LedgerCollectionStats struct {
+	ListResponses                      uint64 `json:"list_responses"`
+	EmptyListResponses                 uint64 `json:"empty_list_responses"`
+	EmptyListResponsesWithContinuation uint64 `json:"empty_list_responses_with_continuation"`
+	ResourceTypesReceived              uint64 `json:"resource_types_received"`
+	ResourcesReceived                  uint64 `json:"resources_received"`
+	EntitlementsReceived               uint64 `json:"entitlements_received"`
+	GrantsReceived                     uint64 `json:"grants_received"`
+	ResourceTypesExcludedBySelection   uint64 `json:"resource_types_excluded_by_selection"`
+	EntitlementsExcludedByType         uint64 `json:"entitlements_excluded_by_type"`
+	GrantsExcludedByType               uint64 `json:"grants_excluded_by_type"`
+	DerivedResourcesExcludedByType     uint64 `json:"derived_resources_excluded_by_type"`
+	ResourceTypesExcludedInvalid       uint64 `json:"resource_types_excluded_invalid"`
+	ResourcesExcludedInvalid           uint64 `json:"resources_excluded_invalid"`
+	EntitlementsExcludedInvalid        uint64 `json:"entitlements_excluded_invalid"`
+}
+
 type LedgerRow struct {
-	Identity LedgerActionIdentity
+	WorkID       uint64
+	WorkRevision uint64
+	Collection   *LedgerCollectionStats
+	Identity     LedgerActionIdentity
 	// Empty when the action finished, and after a scrub (Scrubbed).
 	NextPageToken string
 	Children      []LedgerChild
@@ -51,6 +69,12 @@ type LedgerRow struct {
 	Scrubbed bool
 	// Spawned: the page's own action was a spawned cursor (see LedgerChild).
 	Spawned bool
+
+	ObservationsRecorded     bool
+	ConnectorAttempts        uint64
+	ConnectorErrors          uint64
+	SDKRetryWaitDuration     time.Duration
+	SDKRateLimitWaitDuration time.Duration
 
 	PageDuration      time.Duration
 	ConnectorDuration time.Duration
@@ -80,6 +104,8 @@ const RunBucketWorker uint32 = 0xFFFFFFFF
 // Written by a page batch when SetRetainLedgerTokens was declared, so the
 // seal honors it in whatever process finishes the sync.
 const LedgerFactRetainTokens = "c1z.retain_tokens" //nolint:gosec // Ledger fact name, not a credential value.
+
+const LedgerFactDiscardOnSeal = "c1z.discard_ledger_on_seal"
 
 // Reserved index for the takeover's migrated counters. Buckets are blind-written
 // whole totals, so sharing worker 0 or RunBucketWorker would overwrite them.
@@ -136,10 +162,18 @@ type SyncStats struct {
 
 // Not safe for concurrent use.
 type PageWriter interface {
+	// Commit checks this revision and atomically applies the row's continuation
+	// and children to pending work alongside records and accounting. Optional
+	// childKeys align with row.Children; nonempty keys claim unique scheduling
+	// relations in that batch, independently of pagination request identity.
+	SetPendingWork(work LedgerWork, childKeys ...string) error
+
 	PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error
 	PutResources(ctx context.Context, resources ...*v2.Resource) error
 	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
 	PutGrants(ctx context.Context, grants ...*v2.Grant) error
+	// Snapshots data; repeated asset IDs use the last staged value.
+	PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error
 
 	// Reads include staged writes; repeated writes to the same identity use
 	// the latest value. GetEntitlement rejects IDs shared by distinct identities.
@@ -168,26 +202,58 @@ type PageWriter interface {
 }
 
 type PageLedgerStore interface {
+	// PendingWork returns at most limit entries in descending ID order; beforeID
+	// is exclusive when nonzero. limit is 1–100. initialized distinguishes absent from empty state.
+	PendingWork(ctx context.Context, beforeID uint64, limit int) (work []LedgerWork, initialized bool, err error)
+	// Seeds an absent queue in stack order; an initialized queue is unchanged.
+	InitializePendingWork(ctx context.Context, work []LedgerWork, facts ...string) error
+	PendingWorkAfter(ctx context.Context, afterID uint64, limit int) ([]LedgerWork, bool, error)
+	HasScheduledWork(ctx context.Context, key string) (bool, error)
+	// Removes a completed local phase and records cumulative run accounting;
+	// no completed-page row or transaction around that phase's writes is added.
+	CompletePendingWork(ctx context.Context, work LedgerWork, runID string, counters LedgerCounters) error
+	// Consumes the matching checkpoint and seeds pending work in the same batch.
+	TakeoverPendingWork(ctx context.Context, runID, expectedToken string, facts []string, counters LedgerCounters, work []LedgerWork) (string, error)
+
+	GenerateLedgerReport(ctx context.Context) ([]byte, error)
+	// Saves retained history or returns the report already archived during disposal.
+	ArchiveLedgerReport(ctx context.Context) ([]byte, error)
+	GetArchivedLedgerReport(ctx context.Context) ([]byte, error)
+	// Empty attempt selects latest; only the first and latest snapshots are retained.
+	GetArchivedLedgerOptions(ctx context.Context, attempt string) (*LedgerReportOptions, error)
+	// Restores an empty finished ledger, or matching unfinished discard recovery state.
+	RestoreLedgerArchive(ctx context.Context) error
 	BeginPage() PageWriter
-	// found is false when no row exists and when a row echoes a different
-	// identity; either way the page must run.
+	// Diagnostic lookup by request arguments; multiple work instances may match.
+	// PendingWork is the recovery authority.
 	GetLedgerRow(ctx context.Context, id LedgerActionIdentity) (row *LedgerRow, found bool, err error)
 	// Keeps verbatim page tokens in the sealed artifact. The default scrubs them:
 	// a page token can carry a credential.
 	SetRetainLedgerTokens(retain bool)
 
 	LedgerFacts(ctx context.Context) (map[string]string, error)
+	// Before an attempt starts writing, atomically fold older buckets into one total.
+	// Prior-attempt writers must be stopped. Current buckets are preserved; repeated calls are idempotent.
+	FoldLedgerCounters(ctx context.Context, currentRunID string) error
 	LedgerCounters(ctx context.Context) (LedgerCounters, error)
 	LedgerFrontier(ctx context.Context) (frontier *LedgerFrontier, found bool, err error)
 	// Migrates the open sync's checkpoint token into the ledger in one unit;
 	// "" when there was no token.
 	TakeoverToken(ctx context.Context, runID string, facts []string, counters LedgerCounters) (state string, err error)
 	BoundSyncFinished(ctx context.Context) (bool, error)
-	// The syncer calls it when rebinding a FINISHED sync: trusting the old rows
-	// would make every action look complete.
+	// True only for an unfinished binding without checkpoint, archive, records or collection/replay state.
+	// Read-only; session state does not count.
+	BoundSyncUnstarted(ctx context.Context) (bool, error)
+	// Preserves records and sync metadata; removes ledger rows, facts and counters.
 	DropLedger(ctx context.Context) error
+	// Clears page rows, the takeover frontier and named facts in one synced
+	// batch. Requires an ended bound sync with no pending work; retains counters,
+	// all other facts, records and sync metadata for processing under the same sync ID.
+	ClearLedgerRows(ctx context.Context, clearFacts []string) error
 	// Blind-writes the run's whole cumulative bucket; a later write supersedes.
 	PutCounterBucket(ctx context.Context, runID string, worker uint32, counters LedgerCounters) error
-	// The only way a ledgered sync seals; plain EndSync refuses one.
+	// Completes collection with no pending work. Plain EndSync preserves recovery state.
+	// LedgerFactDiscardOnSeal archives then discards the ledger before finishing.
+	// Report-generation failure still discards history; recovery-state write failure prevents seal.
 	EndSyncWithStats(ctx context.Context, stats SyncStats) error
 }

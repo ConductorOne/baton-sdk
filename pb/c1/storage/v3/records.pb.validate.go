@@ -2489,6 +2489,8 @@ func (m *LedgerChild) validate(all bool) error {
 
 	// no validation rules for Spawned
 
+	// no validation rules for WorkId
+
 	if len(errors) > 0 {
 		return LedgerChildMultiError(errors)
 	}
@@ -2708,6 +2710,49 @@ func (m *LedgerRow) validate(all bool) error {
 
 	// no validation rules for Spawned
 
+	// no validation rules for ObservationsRecorded
+
+	// no validation rules for ConnectorAttempts
+
+	// no validation rules for ConnectorErrors
+
+	// no validation rules for SdkRetryWaitMs
+
+	// no validation rules for SdkRateLimitWaitMs
+
+	if all {
+		switch v := interface{}(m.GetCollection()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, LedgerRowValidationError{
+					field:  "Collection",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, LedgerRowValidationError{
+					field:  "Collection",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetCollection()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return LedgerRowValidationError{
+				field:  "Collection",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for WorkId
+
+	// no validation rules for WorkRevision
+
 	if len(errors) > 0 {
 		return LedgerRowMultiError(errors)
 	}
@@ -2784,6 +2829,136 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = LedgerRowValidationError{}
+
+// Validate checks the field values on LedgerCollectionStats with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *LedgerCollectionStats) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on LedgerCollectionStats with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// LedgerCollectionStatsMultiError, or nil if none found.
+func (m *LedgerCollectionStats) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *LedgerCollectionStats) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for ListResponses
+
+	// no validation rules for EmptyListResponses
+
+	// no validation rules for EmptyListResponsesWithContinuation
+
+	// no validation rules for ResourceTypesReceived
+
+	// no validation rules for ResourcesReceived
+
+	// no validation rules for EntitlementsReceived
+
+	// no validation rules for GrantsReceived
+
+	// no validation rules for ResourceTypesExcludedBySelection
+
+	// no validation rules for EntitlementsExcludedByType
+
+	// no validation rules for GrantsExcludedByType
+
+	// no validation rules for DerivedResourcesExcludedByType
+
+	// no validation rules for ResourceTypesExcludedInvalid
+
+	// no validation rules for ResourcesExcludedInvalid
+
+	// no validation rules for EntitlementsExcludedInvalid
+
+	if len(errors) > 0 {
+		return LedgerCollectionStatsMultiError(errors)
+	}
+
+	return nil
+}
+
+// LedgerCollectionStatsMultiError is an error wrapping multiple validation
+// errors returned by LedgerCollectionStats.ValidateAll() if the designated
+// constraints aren't met.
+type LedgerCollectionStatsMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m LedgerCollectionStatsMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m LedgerCollectionStatsMultiError) AllErrors() []error { return m }
+
+// LedgerCollectionStatsValidationError is the validation error returned by
+// LedgerCollectionStats.Validate if the designated constraints aren't met.
+type LedgerCollectionStatsValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e LedgerCollectionStatsValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e LedgerCollectionStatsValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e LedgerCollectionStatsValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e LedgerCollectionStatsValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e LedgerCollectionStatsValidationError) ErrorName() string {
+	return "LedgerCollectionStatsValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e LedgerCollectionStatsValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sLedgerCollectionStats.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = LedgerCollectionStatsValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = LedgerCollectionStatsValidationError{}
 
 // Validate checks the field values on LedgerCounterBucket with the rules
 // defined in the proto definition for this message. If any rules are

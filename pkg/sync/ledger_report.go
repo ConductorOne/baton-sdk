@@ -1,0 +1,59 @@
+package sync //nolint:revive,nolintlint // Backwards-compatible package name.
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
+)
+
+func WithLedgerDebug(enabled bool) SyncOpt {
+	return func(s *syncer) { s.cfg.ledgerDebug = enabled }
+}
+
+func (s *syncer) configureLedgerReport(ctx context.Context) error {
+	logger := ctxzap.Extract(ctx)
+	s.ledgerDebug = s.cfg.ledgerDebug
+	if s.cfg.retainLedgerTokens && !s.ledgerDebug {
+		return errors.New("retaining ledger tokens requires ledger debug mode")
+	}
+	if s.ledgerDebug {
+		logger.Warn("ledger debug mode retains page history and performs additional reference lookups")
+	}
+	if s.cfg.retainLedgerTokens {
+		logger.Warn("ledger tokens will be retained and may contain credentials")
+	}
+	return nil
+}
+
+func (s *syncer) finishLedgerReport(ctx context.Context) {
+	logger := ctxzap.Extract(ctx)
+	report, err := s.caps.pageLedger.ArchiveLedgerReport(ctx)
+	if err != nil {
+		logger.Warn("failed to access ledger report", zap.Error(err))
+		return
+	}
+	logger.Info("sync ledger stats", zap.Reflect("ledger_stats", json.RawMessage(report)))
+	if s.ledgerDebug {
+		var summary struct {
+			Latest struct {
+				References struct {
+					MissingChildren      uint64 `json:"missing_child_references"`
+					MissingContinuations uint64 `json:"missing_continuation_references"`
+					IdentityMismatches   uint64 `json:"identity_mismatches"`
+					Uncheckable          uint64 `json:"uncheckable_references"`
+				} `json:"reference_checks"`
+			} `json:"latest"`
+		}
+		if err := json.Unmarshal(report, &summary); err != nil {
+			logger.Warn("failed to read saved ledger reference checks", zap.Error(err))
+			return
+		}
+		checks := summary.Latest.References
+		if checks.MissingChildren+checks.MissingContinuations+checks.IdentityMismatches+checks.Uncheckable != 0 {
+			logger.Warn("ledger reference checks found unresolved references", zap.Any("reference_checks", checks))
+		}
+	}
+}

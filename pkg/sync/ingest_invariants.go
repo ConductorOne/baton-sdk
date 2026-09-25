@@ -255,9 +255,8 @@ type IngestInvariantsPolicy struct {
 	// compose through merges.
 	onRetainedInvalid func()
 
-	// I4 evidence: only a process that ran the resources phase can
-	// supply the in-memory scheduled set, so only the syncer sets these.
 	childSchedule     *childScheduleSet
+	scheduledChild    func(context.Context, string, string, string) (bool, error)
 	resourcesPhaseRan bool
 	syncResourceTypes []string
 
@@ -524,7 +523,7 @@ func runIngestInvariants(
 		if inv.failFastOnly && !policy.FailFast {
 			continue
 		}
-		if inv.requiresScheduleEvidence && (!policy.resourcesPhaseRan || policy.childSchedule == nil) {
+		if inv.requiresScheduleEvidence && (!policy.resourcesPhaseRan || (policy.childSchedule == nil && policy.scheduledChild == nil)) {
 			continue
 		}
 		if err := inv.check(pass, ctx); err != nil {
@@ -632,6 +631,11 @@ func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 			s.ingestFilterStats.blockReplay(ingestQualityReasonRetainedInvalid)
 		},
 	}
+	if s.ledgered {
+		policy.scheduledChild = func(ctx context.Context, child, parentType, parent string) (bool, error) {
+			return s.caps.pageLedger.HasScheduledWork(ctx, "resource:"+childScheduleKey(child, parentType, parent))
+		}
+	}
 	// Leaving the predicate nil is how the policy says "no scheduler
 	// evidence, skip I10". The nil check has to be here: a bound method
 	// value on a nil *runState is itself non-nil, so assigning
@@ -639,6 +643,7 @@ func (s *syncer) runIngestionInvariants(ctx context.Context) error {
 	// and dereference the receiver at r.mu.RLock(). Sync assigns s.run
 	// before this pass, so only a hand-assembled syncer takes the false
 	// branch (TestRunIngestionInvariantsI10EvidenceWiring).
+
 	if s.run != nil {
 		policy.undrainedSpawned = s.run.undrainedSpawnedCursors
 	}
@@ -887,19 +892,10 @@ func (pass *ingestInvariantsPass) checkStoredExclusionGroups(ctx context.Context
 	return nil
 }
 
-// checkChildScheduling is invariant I4: every stored resource carrying a
-// ChildResourceType annotation (and passing the resource-type filter)
-// must have had its child action scheduled. Check-only — scheduling
-// cannot be derived after the fact (an executed child action that
-// returned zero rows leaves no store evidence). Fail-fast only (the
-// table gates it): the check costs a full post-collection resource scan
-// (value decode + annotation walk per row) and in default mode a
-// violation was only ever a warning — a bad trade at whale scale.
+// I4 needs scheduling evidence even for empty child responses. Its full
+// resource scan runs only in fail-fast mode.
 func (pass *ingestInvariantsPass) checkChildScheduling(ctx context.Context) error {
-	if !pass.p.resourcesPhaseRan || pass.p.childSchedule == nil {
-		// Resumed past the resources phase (or a caller with no
-		// scheduling evidence at all): the scheduled set from the prior
-		// process is gone; the predicate is unverifiable.
+	if !pass.p.resourcesPhaseRan || (pass.p.childSchedule == nil && pass.p.scheduledChild == nil) {
 		return nil
 	}
 	syncResourceTypeMap := make(map[string]bool, len(pass.p.syncResourceTypes))
@@ -934,7 +930,17 @@ func (pass *ingestInvariantsPass) checkChildScheduling(ctx context.Context) erro
 				if len(pass.p.syncResourceTypes) > 0 && !syncResourceTypeMap[childType] {
 					continue
 				}
-				if !pass.p.childSchedule.has(childType, r.GetId().GetResourceType(), r.GetId().GetResource()) {
+				scheduled := false
+				if pass.p.scheduledChild != nil {
+					var err error
+					scheduled, err = pass.p.scheduledChild(ctx, childType, r.GetId().GetResourceType(), r.GetId().GetResource())
+					if err != nil {
+						return err
+					}
+				} else {
+					scheduled = pass.p.childSchedule.has(childType, r.GetId().GetResourceType(), r.GetId().GetResource())
+				}
+				if !scheduled {
 					violations = append(violations, fmt.Sprintf("%s under %s/%s",
 						childType, r.GetId().GetResourceType(), r.GetId().GetResource()))
 				}

@@ -1,0 +1,60 @@
+package sync
+
+import (
+	"context"
+	"os"
+	"testing"
+
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+)
+
+type legacyArtifactConnector struct {
+	*ledgerCostConnector
+	cancel context.CancelFunc
+}
+
+func (c *legacyArtifactConnector) ListResources(ctx context.Context, req *v2.ResourcesServiceListResourcesRequest, opts ...grpc.CallOption) (*v2.ResourcesServiceListResourcesResponse, error) {
+	if c.calls.Load() == 1 {
+		c.cancel()
+		return nil, context.Canceled
+	}
+	return c.ledgerCostConnector.ListResources(ctx, req, opts...)
+}
+func TestProduceLegacyCheckpointArtifact(t *testing.T) {
+	path := os.Getenv("BATON_LEGACY_ARTIFACT_OUTPUT")
+	require.NotEmpty(t, path)
+	_, err := os.Stat(path)
+	require.ErrorIs(t, err, os.ErrNotExist)
+	store, err := dotc1z.NewStore(t.Context(), path, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	c := &legacyArtifactConnector{ledgerCostConnector: &ledgerCostConnector{mockConnector: newMockConnector(), pages: 4, records: 10, streams: 1}, cancel: cancel}
+	c.rtDB = []*v2.ResourceType{v2.ResourceType_builder{Id: "cost-0", DisplayName: "Cost resources", Annotations: annotations.New(&v2.SkipEntitlementsAndGrants{})}.Build()}
+	runner, err := NewSyncer(t.Context(), c, WithConnectorStore(store), WithWorkerCount(1), WithDontExpandGrants())
+	require.NoError(t, err)
+	require.ErrorIs(t, runner.Sync(ctx), context.Canceled)
+	require.EqualValues(t, 1, c.calls.Load())
+	state, err := store.CurrentSyncStep(t.Context())
+	require.NoError(t, err)
+	require.NotEmpty(t, state)
+	decoded, err := unmarshalToken(state)
+	require.NoError(t, err)
+	found := false
+	for _, action := range decoded.run.actions {
+		if action.Op == SyncResourcesOp && action.ResourceTypeID == "cost-0" {
+			require.Equal(t, "1", action.PageToken)
+			found = true
+		}
+	}
+	require.True(t, found)
+	resources, err := store.ListResources(t.Context(), &v2.ResourcesServiceListResourcesRequest{})
+	require.NoError(t, err)
+	require.Len(t, resources.GetList(), 10)
+	require.NoError(t, store.Close(t.Context()))
+}

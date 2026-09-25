@@ -32,6 +32,7 @@ type pageUnit struct {
 	entitlements   []*v3.EntitlementRecord
 	entitlementIdx map[string][]int
 	grants         []*v3.GrantRecord
+	assets         []*v3.AssetRecord
 	// Applied at Commit after the puts, in the same batch; a buffered put of the
 	// same identity is dropped, as when the two are separate store calls.
 	grantDeletes []grantIdentity
@@ -41,7 +42,9 @@ type pageUnit struct {
 	bucketKey   []byte
 	bucketValue *v3.LedgerCounterBucket
 
-	done bool
+	work          *c1zstore.LedgerWork
+	childWorkKeys []string
+	done          bool
 }
 
 type ledgerFact struct {
@@ -65,6 +68,9 @@ func (u *pageUnit) StageFact(name string) error {
 }
 
 func (u *pageUnit) StageCounterBucket(runID string, worker uint32, bucket *v3.LedgerCounterBucket) error {
+	if runID == "" {
+		return errors.New("StageCounterBucket: empty attempt ID")
+	}
 	if u.done {
 		return ErrPageUnitCommitted
 	}
@@ -135,6 +141,17 @@ func (u *pageUnit) StageGrants(records ...*v3.GrantRecord) error {
 			u.grants = append(u.grants, r)
 		}
 	}
+	return nil
+}
+
+func (u *pageUnit) StageAsset(record *v3.AssetRecord) error {
+	if u.done {
+		return ErrPageUnitCommitted
+	}
+	if record == nil {
+		return errors.New("StageAsset: nil record")
+	}
+	u.assets = append(u.assets, record)
 	return nil
 }
 
@@ -391,6 +408,8 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		row = cloneLedgerRow(row)
 	}
 	row.SetIdentity(ledgerIdentityToProto(id))
+	row.SetWorkId(0)
+	row.SetWorkRevision(0)
 	if row.GetCommittedAt() == nil {
 		row.SetCommittedAt(timestamppb.Now())
 	}
@@ -398,6 +417,7 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		row.SetNextPageTokenHash(ledgerTokenHash(row.GetNextPageToken()))
 	}
 	for _, c := range row.GetChildren() {
+		c.SetWorkId(0)
 		if id := c.GetIdentity(); len(id.GetPageTokenHash()) == 0 {
 			id.SetPageTokenHash(ledgerTokenHash(id.GetPageToken()))
 		}
@@ -434,6 +454,14 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
 
+		if u.work != nil {
+			if err := l.stageWorkTransition(ctx, batch, *u.work, id, row, u.childWorkKeys); err != nil {
+				return err
+			}
+			key = encodeWorkHistoryKey(id, u.work.ID, u.work.Revision)
+			row.SetWorkId(u.work.ID)
+			row.SetWorkRevision(u.work.Revision)
+		}
 		resourceTypes, err := stageResourceTypeRecords(batch, u.resourceTypes)
 		if err != nil {
 			return err
@@ -449,6 +477,15 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		grants, err := l.e.stageGrantRecords(batch, u.grants)
 		if err != nil {
 			return err
+		}
+		for _, asset := range u.assets {
+			value, err := marshalRecord(asset)
+			if err != nil {
+				return err
+			}
+			if err := batch.StageAssetPut(encodeAssetKey(asset.GetExternalId()), value); err != nil {
+				return err
+			}
 		}
 		for _, id := range u.grantDeletes {
 			if _, err := l.e.stageGrantDeleteIfPresentLocked(batch, id); err != nil {
@@ -509,10 +546,12 @@ func (u *pageUnit) Discard() { u.release() }
 func (u *pageUnit) release() {
 	u.done = true
 	u.resourceTypes, u.resources, u.entitlements, u.grants = nil, nil, nil, nil
+	u.assets = nil
 	u.resourceIdx, u.entitlementIdx = nil, nil
 	u.grantDeletes = nil
 	u.facts = nil
 	u.bucketKey, u.bucketValue = nil, nil
+	u.work, u.childWorkKeys = nil, nil
 }
 
 // sync_id is not in the keys, so a page begun under a previous sync would

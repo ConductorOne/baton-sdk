@@ -38,17 +38,31 @@ var capabilityMethods = map[string]struct {
 	kind dirtyKind
 	why  string
 }{
-	"BeginPage":             {dirtyDeferred, "returns a PageWriter; the staging calls write nothing until Commit, and dirtyPageWriter.Commit carries the mark for the whole batch"},
-	"GetLedgerRow":          {dirtyRead, "read"},
-	"SetRetainLedgerTokens": {dirtyRead, "sets an in-memory flag; the durable retain fact is written by a later page commit, which marks dirty itself"},
-	"LedgerFacts":           {dirtyRead, "read"},
-	"LedgerCounters":        {dirtyRead, "read"},
-	"LedgerFrontier":        {dirtyRead, "read"},
-	"TakeoverToken":         {dirtyWrite, "one batch: frontier, facts, bucket, token cleared"},
-	"BoundSyncFinished":     {dirtyRead, "read"},
-	"DropLedger":            {dirtyWrite, "a delete is a write; without the mark the wipe never reaches the c1z"},
-	"PutCounterBucket":      {dirtyWrite, "blind-writes the bucket"},
-	"EndSyncWithStats":      {dirtyWrite, "the seal: scrub, purge, stamp, ended_at, stats sidecar"},
+	"HasScheduledWork":         {dirtyRead, "indexed scheduling relation lookup"},
+	"PendingWorkAfter":         {dirtyRead, "bounded child admission scan"},
+	"CompletePendingWork":      {dirtyWrite, "remove local work and replace run accounting"},
+	"PendingWork":              {dirtyRead, "bounded pending-work scan"},
+	"TakeoverPendingWork":      {dirtyWrite, "consume checkpoint and seed pending queue atomically"},
+	"InitializePendingWork":    {dirtyWrite, "atomic initial queue and allocator"},
+	"BeginPage":                {dirtyDeferred, "returns a PageWriter; the staging calls write nothing until Commit, and dirtyPageWriter.Commit carries the mark for the whole batch"},
+	"GetArchivedLedgerReport":  {dirtyRead, "read archived report"},
+	"GetArchivedLedgerOptions": {dirtyRead, "read archived options"},
+	"ArchiveLedgerReport":      {dirtyWrite, "save report and compact state before disposal"},
+	"RestoreLedgerArchive":     {dirtyWrite, "restore finished-sync facts and accounting"},
+	"GenerateLedgerReport":     {dirtyRead, "read-only ledger scan"},
+	"GetLedgerRow":             {dirtyRead, "read"},
+	"SetRetainLedgerTokens":    {dirtyRead, "sets an in-memory flag; the durable retain fact is written by a later page commit, which marks dirty itself"},
+	"LedgerFacts":              {dirtyRead, "read"},
+	"LedgerCounters":           {dirtyRead, "read"},
+	"LedgerFrontier":           {dirtyRead, "read"},
+	"TakeoverToken":            {dirtyWrite, "one batch: frontier, facts, bucket, token cleared"},
+	"BoundSyncFinished":        {dirtyRead, "read"},
+	"BoundSyncUnstarted":       {dirtyRead, "checks binding and existing collection state without modifying the file"},
+	"ClearLedgerRows":          {dirtyWrite, "atomic row/frontier/fact deletion; preserves counters and marks dirty even on post-commit failure"},
+	"DropLedger":               {dirtyWrite, "a delete is a write; without the mark the wipe never reaches the c1z"},
+	"FoldLedgerCounters":       {dirtyWrite, "replace prior attempt buckets with their folded total"},
+	"PutCounterBucket":         {dirtyWrite, "blind-writes the bucket"},
+	"EndSyncWithStats":         {dirtyWrite, "the seal: scrub, purge, stamp, ended_at, stats sidecar"},
 
 	"BeginExpandedGrantLayer":            {dirtyRead, "allocates an in-memory session; the first Add is what touches the file"},
 	"AddExpandedGrantLayerContributions": {dirtyWrite, "ingests a filled segment into the live keyspace and arms the deferred by_principal rebuild, both before Finish"},
@@ -93,7 +107,7 @@ func pebbleStoreMethods(t *testing.T) map[string]bool {
 				}
 				marks := false
 				ast.Inspect(fn.Body, func(n ast.Node) bool {
-					if id, ok := n.(*ast.Ident); ok && id.Name == "markDirty" {
+					if id, ok := n.(*ast.Ident); ok && (id.Name == "markDirty" || id.Name == "MarkDirty") {
 						marks = true
 					}
 					return !marks
