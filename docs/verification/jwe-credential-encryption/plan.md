@@ -17,7 +17,7 @@ The provider is stateless; each encryption gets a fresh HPKE sender.
 | J7 | Ciphertext, encapsulation components, protected header and AAD are authenticated | Independent-reader tamper matrix and wrong-key tests |
 | J8 | Errors do not contain private-key input or credential bytes | Secret-marker assertions and fuzz parser |
 | J9 | Source and generated protos agree, tags are additive, existing consumers compile | Remote generation, compatibility, lint, targeted/race and regression tests |
-| J10 | Go JWE is ingested and revealed through native Rust/WASM read APIs | Deferred to C1/Multipass integration stage; blocks rollout, not SDK draft review |
+| J10 | Go JWE is ingested and revealed through native Rust/WASM read APIs | Deferred to the consuming-implementation integration stage; blocks rollout, not SDK draft review |
 
 Run all generation/tests/lint remotely. Commit source before generated artifacts.
 Record commands, revisions, coverage gaps and planted-violation results in

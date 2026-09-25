@@ -1,7 +1,7 @@
 # JWE SDK evidence
 
 Stage: SDK implementation and verification. J10 (native Rust ingestion) is
-deferred to the C1/Multipass integration stage.
+deferred to the consuming-implementation integration stage.
 
 Environment: remote, inside the SDK checkout. Go 1.27.1, buf 1.64.0, protobuf
 33.5, golangci-lint v2.13.2 (installed to match the version CI pins; the
@@ -23,7 +23,7 @@ generated artifact, and generated protobuf is its own commit.
 | J7 | verified to stated coverage | Tamper matrix over encapsulation, ciphertext, tag, header, context, and key |
 | J8 | verified to stated coverage | Secret-marker assertions across parser and builder errors |
 | J9 | verified to stated coverage | Remote generation, drift check, buf lint/format/breaking, lint, race, broad suite |
-| J10 | deferred to C1/Multipass integration | Committed fixture is SDK-side evidence, not interop proof |
+| J10 | deferred to consuming-implementation integration | Committed fixture is SDK-side evidence, not interop proof |
 
 ## Generator and tooling
 
@@ -114,14 +114,20 @@ relabelled header rejected with: chacha20poly1305: message authentication failed
 The same property is pinned permanently by the committed tamper matrix case
 `TestIndependentReaderAuthenticatesEverySealedField/protected_header_alg`.
 
-### Consumer-side obligation
+### Consumer requirement
 
-Interoperability is **not** claimable again until the consuming implementation
-adopts the identical `c1.ai` identifier and reads the resealed fixture. The
-registered consumer is Multipass PR #833, which is agent-owned elsewhere; this
-work did not touch that checkout and added no compatibility path that would let
-the two identifiers coexist. The producer revision a consumer should pin is the
-fixture commit `9ca0ed2a`.
+Interoperability is not claimable from this fixture alone. A consuming
+implementation must adopt the identical `c1.ai` algorithm identifier and read
+[the fixture](../../../pkg/crypto/providers/jwe/testdata/fixture.json),
+reproducing the recorded plaintext.
+
+Pin the consumer against a released SDK version that contains this fixture, or
+against an immutable commit on the main branch that contains it. Do not pin a
+branch commit: a branch revision may not stay reachable after a squash merge.
+Record the revision that actually reproduced the fixture, and rerun the interop
+check against it. No compatibility path for the previous identifier exists, so a
+consumer that has not adopted it will fail to decrypt rather than silently
+succeed.
 
 ## Command log
 
@@ -157,7 +163,7 @@ go test ./pkg/crypto/providers/jwe/ -run '^$' -fuzz '^FuzzRecipientPreflight$' -
 go test -tags=baton_lambda_support -count=1 ./...
   -> exit 0; 90 of 90 packages in the module reported,
      66 ok and 24 with no test files, zero failures
-     (re-run at 9ca0ed2a after the identifier change)
+     (re-run at working-branch revision 9ca0ed2a after the identifier change)
 ```
 
 ## Coverage triage
@@ -222,11 +228,12 @@ error at all.
 
 ## Fixture provenance
 
-`pkg/crypto/providers/jwe/testdata/fixture.json`, produced remotely by
-`TestRegenerateXWingJWEFixture` (`JWE_FIXTURE_REGENERATE=1`).
+[`pkg/crypto/providers/jwe/testdata/fixture.json`](../../../pkg/crypto/providers/jwe/testdata/fixture.json),
+produced remotely by `TestRegenerateXWingJWEFixture` (`JWE_FIXTURE_REGENERATE=1`).
 
-Current producer revision: commit `9ca0ed2a` (resealed under the `c1.ai`
-identifier). Pin this revision when consuming the fixture.
+The fixture was resealed under the `c1.ai` identifier. The working-branch
+revision that resealed it, `9ca0ed2a`, is recorded here as provenance of the test
+run. It is not a durable consumer pin; see the consumer requirement above.
 
 Contains only a synthetic public throwaway key and payload: a 32-byte seed, the
 derived 1216-byte X-Wing public key, the plaintext, the AAD, the key id, the
@@ -244,10 +251,8 @@ proof that any Rust implementation interoperates; that is J10.
 ## Gaps and limits of this evidence
 
 - The committed fixture is not interoperability proof and no second
-  implementation was exercised. The registered consumer, Multipass PR #833,
-  must adopt the identical `c1.ai` identifier and read the fixture from producer
-  revision `9ca0ed2a` before interop is claimable again; its checkout is
-  agent-owned elsewhere and was not touched by this work.
+  implementation was exercised; the consumer requirement above is what closes
+  that gap.
 - Draft-vector comparison was not performed: the private suite mapping is not
   HPKE-4 or HPKE-9, so a shared published vector would not apply to this
   algorithm identifier.
