@@ -75,6 +75,41 @@ func padJWKToSize(t *testing.T, publicKey []byte, total int) []byte {
 	}
 }
 
+// TestRuntimeBoundsMatchDeclaredProtobufBounds pins that the provider's runtime
+// limits and the bounds declared on the proto are the same numbers. The bound
+// now lives in two places, so a change to one alone would otherwise let the
+// generated validators and the provider disagree about what is acceptable.
+func TestRuntimeBoundsMatchDeclaredProtobufBounds(t *testing.T) {
+	atLimit := v2.EncryptionConfig_builder{
+		Provider: EncryptionProvider,
+		KeyId:    "recipient-1",
+		JwkPublicKeyConfig: v2.EncryptionConfig_JWKPublicKeyConfig_builder{
+			PubKey:                      make([]byte, MaxJWKBytes),
+			AdditionalAuthenticatedData: make([]byte, MaxAdditionalAuthenticatedDataBytes),
+		}.Build(),
+	}.Build()
+	require.NoError(t, atLimit.Validate(), "both fields at the runtime limit must satisfy the declared bounds")
+
+	pastPubKey := v2.EncryptionConfig_builder{
+		Provider: EncryptionProvider,
+		KeyId:    "recipient-1",
+		JwkPublicKeyConfig: v2.EncryptionConfig_JWKPublicKeyConfig_builder{
+			PubKey: make([]byte, MaxJWKBytes+1),
+		}.Build(),
+	}.Build()
+	require.Error(t, pastPubKey.Validate(), "past the runtime pub_key limit must also fail the declared bound")
+
+	pastContext := v2.EncryptionConfig_builder{
+		Provider: EncryptionProvider,
+		KeyId:    "recipient-1",
+		JwkPublicKeyConfig: v2.EncryptionConfig_JWKPublicKeyConfig_builder{
+			PubKey:                      make([]byte, 1),
+			AdditionalAuthenticatedData: make([]byte, MaxAdditionalAuthenticatedDataBytes+1),
+		}.Build(),
+	}.Build()
+	require.Error(t, pastContext.Validate(), "past the runtime context limit must also fail the declared bound")
+}
+
 // TestPublicJWKFieldsStructuralMalformation drives the byte-level object shapes
 // the decoder can reach: trailing commas, mismatched or missing delimiters, and
 // a bare separator. Each must be refused rather than parsed into fields.

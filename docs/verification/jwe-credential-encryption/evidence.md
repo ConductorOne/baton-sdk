@@ -47,6 +47,38 @@ generated artifact, and generated protobuf is its own commit.
 Local/CI tool version differences, recorded rather than hidden: buf 1.64.0 here
 vs 1.72.0 in CI; golangci-lint 2.13.2 matched by installing the pinned release.
 
+## Declared configuration bounds
+
+`EncryptionConfig.JWKPublicKeyConfig.pub_key` (tag 1) and
+`additional_authenticated_data` (tag 2) now declare
+`[(validate.rules).bytes = {max_len: 16384}]`. Maximum only: no minimums, no tag
+changes, no provider or selection semantics change. The bound on `pub_key`
+deliberately covers legacy JWK recipients as well as the JWE X-Wing recipient.
+
+The generated validators enforce it, and the numbers match the provider's
+runtime limits (`MaxJWKBytes` and `MaxAdditionalAuthenticatedDataBytes`, both
+16 KiB), so the two layers agree on what is acceptable.
+
+Red then green, in the committed history:
+
+```
+# at bddd0216's parent, before the generated update (tests and rule declared, generator not re-run)
+--- FAIL: TestJWKPublicKeyConfigPubKeyBound/one_byte_above_the_bound
+--- FAIL: TestJWKPublicKeyConfigAdditionalAuthenticatedDataBound/one_byte_above_the_bound
+--- FAIL: TestJWKPublicKeyConfigBoundsAreIndependent/only_pub_key_is_over
+--- FAIL: TestJWKPublicKeyConfigBoundsAreIndependent/only_the_context_is_over
+--- FAIL: TestJWKPublicKeyConfigBoundsAreIndependent/both_are_over_and_both_are_reported
+
+# after regenerating
+ok  github.com/conductorone/baton-sdk/pb/c1/connector/v2
+```
+
+Coverage: each field is measured independently at 16383 / 16384 / 16385, absent
+and empty values are unchanged, the nested `ValidateAll` reports both fields when
+both are over, representative legacy RSA, EC and Ed25519 public JWKs plus the
+X-Wing AKP JWK all fit inside the bound, and `TestRuntimeBoundsMatchDeclaredProtobufBounds`
+pins the runtime constants against the declared bound.
+
 ## Command log
 
 ```
@@ -66,6 +98,12 @@ go test ./pkg/crypto/providers/jwe/ -coverprofile=...
 golangci-lint run ./pkg/crypto/... ./pkg/connectorbuilder/   -> 0 issues
 golangci-lint run (whole repo)                               -> 0 issues
 gofmt -l pkg/crypto pkg/connectorbuilder                     -> no output
+
+buf lint                        -> exit 0
+buf format --diff --exit-code   -> exit 0
+buf breaking --against '.git#branch=origin/main'
+                                -> exit 0, no breaking changes
+golangci-lint run (whole repo, pinned v2.13.2) -> 0 issues
 
 go test ./pkg/crypto/providers/jwe/ -run '^$' -fuzz '^FuzzPublicJWKFields$' -fuzztime=60s -parallel=2
   -> PASS, 101,685 execs, 158 interesting corpus entries, 0 failures
