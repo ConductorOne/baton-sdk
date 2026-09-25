@@ -226,6 +226,16 @@ Pre-fix red evidence for the create/rotate preflight, before `2fa185d6`:
 connector invocation counts of 1 instead of 0, and the fan-out case returned no
 error at all.
 
+Validation does not depend on what the connector would return. With a connector
+configured to mint no plaintext credentials,
+`TestCreateAndRotateValidateConfigsWhenConnectorMintsNothing` shows that a nil
+entry, an unknown provider and a provider-rejected legacy recipient each fail
+with `InvalidArgument` and zero connector invocations on both `CreateAccount` and
+`RotateCredential`, while an empty config list still invokes each connector once
+and returns a response with no encrypted data. Planted removal of the
+pre-invocation check fails all six unusable-config cases and leaves both
+empty-list cases passing.
+
 ## Fixture provenance
 
 [`pkg/crypto/providers/jwe/testdata/fixture.json`](../../../pkg/crypto/providers/jwe/testdata/fixture.json),
