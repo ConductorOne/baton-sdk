@@ -98,3 +98,35 @@ Implement storage with failure/crash/scale tests first, then connect the syncer 
 replace attempt-indexed option snapshots. Check the migration, cold-resume,
 quality and disposal suites before publishing. This does not bound connector
 response sizes, selected scope lists or completed diagnostic history.
+
+## Combined historical migration check
+
+Have eb63f1b5 itself collect two resource types, four resources, four entitlements,
+and two of four grants using four workers. Stop only after both grant actions
+reach their second page, then save the real checkpoint. Also produce the complete
+old-SDK artifact as an independent data/index/digest reference. The current SDK
+must finish an uncut migration and process-death cuts before/after takeover,
+before/after a grant page, and before/after the terminal page. Resume with one or
+four workers. Reject any connector call for pre-checkpoint completed phases or
+committed grant pages, and verify the complete saved artifact after reopen.
+
+Compare collected data/indexes/digest with the completed historical artifact;
+compare committed accounting with uncut migration of the same checkpoint and
+explicit imported totals plus remaining work. Normalize durations only for this
+accounting comparison. The old SDK's two deliberately canceled calls are already
+part of the checkpoint and must not be confused with newly committed page calls.
+These cases combine C24–C28 with C04/C16/C31; they do not claim arbitrary storage
+I/O failure or real power-loss coverage. No binary fixture is committed.
+
+### CO-031 implementation obligation
+
+Separate plain ending from checked completion in the existing engine finalizer.
+Plain ending preserves the entire ledger and its format declaration, even if a
+previous completion attempt set disposal facts. It still builds indexes, writes
+ended_at, persists statistics and flushes/detaches. No new durable intent marker
+is needed: before ended_at the unchanged recovery state remains unfinished;
+after it the same recovery state remains available to explicit binding.
+Move the pure ledger-to-SyncStats conversion into c1zstore so the syncer and
+plain engine ending use identical accounting. Preserve completion guards and
+cleanup for EndSyncWithStats. Test the current refusal before removing it, then
+exercise cold reopen, stamp failure/retry and reset. No SQLite path changes.
