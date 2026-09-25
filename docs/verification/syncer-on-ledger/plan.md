@@ -1283,3 +1283,15 @@ ended rebind initializes the new request normally. Source: correction review.
 - Verification delta: copied unexpanded files, prepared seals before/after EndSync, normal recovery control, seal failure/retry and close/reopen must yield exact expanded grants from one expansion-only call. Preserve counters and prior retention through the first seal; apply current options to new work. No recollection, no replacement sync ID, no false success at a failed handoff.
 - Risk routing: HIGH; reuse existing seal, binding and Init operations.
 - PR placement: this PR.
+
+### CO-036 — successful retries retain connector accounting
+
+- Classification: accounting correction.
+- Source: independent review reproduction; requester asks to fix.
+- Claim: a committed page includes connector method calls, session usage and reported waits from every attempt in its successful retry sequence, exactly once. Live totals agree with committed totals. Failed attempts contribute no record, ingest or completion effects. A subsequent page starts a new observation accumulator.
+- Contract delta: none; observations before a process crash remain best-effort.
+- Owning boundary: syncer page retry observations.
+- Affected criteria: C22–C24, C43.
+- Verification delta: fail twice then succeed, assert exact counts/sums/maxima, session errors/timeouts, waits and page isolation; prove failure before correction and run focused race checks.
+- Risk routing: HIGH for silent persisted accounting; bounded method-level aggregation, no per-attempt history or new writes.
+- PR placement: this PR.
