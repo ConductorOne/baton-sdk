@@ -211,8 +211,11 @@ func TestLedgerHistoricalMigrationCombinedCrashes(t *testing.T) {
 	if source == "" {
 		t.Skip("requires the baseline SDK rich checkpoint and completed control")
 	}
-	data, err := os.ReadFile(source)
+	root, err := os.OpenRoot(filepath.Dir(source))
 	require.NoError(t, err)
+	data, err := root.ReadFile(filepath.Base(source))
+	require.NoError(t, err)
+	require.NoError(t, root.Close())
 	copyInput := func() string {
 		path := filepath.Join(t.TempDir(), "legacy.c1z")
 		require.NoError(t, writeLedgerTestFile(path, data, 0600))

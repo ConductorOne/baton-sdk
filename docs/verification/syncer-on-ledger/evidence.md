@@ -341,3 +341,10 @@ The historical build remains opt-in rather than adding another SDK build to CI.
 Installed golangci-lint2.9.0 reports six pre-existing G115 findings and no new
 formatting findings; current-PR CI with its configured linter passed at5d35ecd2.
 Final revised-head CI must be checked separately.
+
+CI follow-up: golangci-lint2.13.2 flagged the historical fixture's environment-
+supplied `os.ReadFile` path (G703), which local2.9.0 did not report. The test now
+uses the existing directory-scoped `os.OpenRoot` read pattern. On CI's merge
+423bcbb5 plus this correction, Go1.27.1/golangci-lint2.13.2 reports zero issues
+for sync/storage, and the combined migration test passes in4.391s. No production
+code changed in this correction.
