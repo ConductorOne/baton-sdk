@@ -159,3 +159,21 @@ queue declaration with history; existing failure/crash cuts cover that boundary.
 Validate the public unexpanded upload/host expansion sequence before the fix,
 then rerun lifecycle, pending, seal, compactor and race checks. Keep expansion's
 existing handler and storage capabilities unchanged.
+
+### CO-035 seal-to-expansion handoff
+
+After recovery preparation, an expansion-only request with no pending actions
+finishes the previous pass before entering the existing finished-rebind path.
+Keep the previous request's option snapshot while preparing that seal; do not
+persist an expansion-complete graph for work this invocation has not performed.
+After successful seal/report archival, rebind the same sync ID, restore the
+current request's retention settings and initialize the requested pass with a
+fresh accounting attempt. A failed old seal never starts new work. A failed
+handoff never returns success. Initialization makes the next pass nonempty, so
+this handoff cannot recurse repeatedly under the store contract. Final cleanup
+and the success log belong to the completed requested pass only.
+
+Explicit expansion-only calls after a drained pass may redo deterministic
+expansion. Tests must count both executed passes honestly rather than suppress
+new work to keep counters equal to a one-call reference. Pending-work recovery
+continues to avoid reseeding while an expansion item is present.
