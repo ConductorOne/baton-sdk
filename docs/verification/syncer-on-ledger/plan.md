@@ -1241,3 +1241,15 @@ durable declaration; a pending seal is not a fresh policy boundary.
 - Verification delta: public constructor and path attachment across Pebble/SQLite and both option orders; missing-store-and-path refusal.
 - Risk routing: bounded attachment correction; no storage mutation change.
 - PR placement: this PR.
+
+### CO-033 — service-mode connector rollback remains usable
+
+- Classification: verification extension.
+- Source: requester; use actual service mode, not a direct syncer invocation.
+- Claim: after a new-SDK daemon is killed during collection or reports a sync error, an older SDK daemon with the same persistent directory and configuration can accept the redelivered task, upload usable data and report success. Redoing work and discarding partial output are acceptable. Check the optional previous-sync spare as well as default operation.
+- Contract delta: none. C1 vendored-SDK artifact downgrade remains a separate accepted constraint.
+- Owning boundary: connector runner, c1api task manager and full-sync handler; simulated C1 API.
+- Affected criteria: C16, C25, C31, C33.
+- Verification delta: actual daemon startup, polling, heartbeat, streaming upload and finish over local TLS/gRPC; replace processes and SDK versions without clearing their directory; verify new-SDK partial ledger premise, old-SDK successful upload contents, retryable failure classification and a subsequent task. Authentication/queue responses are simulated, not production C1 workflow evidence.
+- Risk routing: HIGH compatibility assurance; test-only work, no production change proposed.
+- PR placement: opt-in cross-version test and reproduction tool, with results before any compatibility claim.
