@@ -26,10 +26,8 @@ func markerPlaintexts() []*v2.PlaintextData {
 	}
 }
 
-// countingAccountManager records whether CreateAccount reached the connector.
-// CreateAccount mints the account in the upstream provider, so an invocation
-// that later fails to encrypt has already mutated state that the caller must
-// now reconcile. These tests assert the count is zero.
+// countingAccountManager records whether CreateAccount reached the connector, so
+// a test can pin the ordering between the connector call and config validation.
 type countingAccountManager struct {
 	ResourceSyncer
 	calls int
@@ -62,8 +60,7 @@ func (c *countingAccountManager) CreateAccountCapabilityDetails(context.Context)
 	return nil, annotations.Annotations{}, nil
 }
 
-// countingCredentialManager is the RotateCredential counterpart: Rotate replaces
-// the credential on the upstream resource, so reaching it is a state change.
+// countingCredentialManager is the RotateCredential counterpart.
 type countingCredentialManager struct {
 	ResourceSyncer
 	calls int
@@ -121,62 +118,69 @@ func unknownProviderConfig() *v2.EncryptionConfig {
 	}.Build()
 }
 
-func TestCreateAccountValidatesEncryptionConfigBeforeMutation(t *testing.T) {
-	ctx := context.Background()
-
-	cases := []struct {
-		name   string
-		config func(t *testing.T) *v2.EncryptionConfig
-	}{
-		{"malformed JWE recipient", func(*testing.T) *v2.EncryptionConfig { return invalidJWEConfig() }},
-		{"legacy JWK recipient with authenticated data", jwkConfigWithAAD},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			accountManager := newCountingAccountManager("user")
-			connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{accountManager}))
-			require.NoError(t, err)
-
-			_, err = connector.CreateAccount(ctx, v2.CreateAccountRequest_builder{
-				AccountInfo:       v2.AccountInfo_builder{}.Build(),
-				CredentialOptions: v2.CredentialOptions_builder{NoPassword: &v2.CredentialOptions_NoPassword{}}.Build(),
-				EncryptionConfigs: []*v2.EncryptionConfig{tc.config(t)},
-			}.Build())
-
-			require.Error(t, err)
-			require.Equal(t, codes.InvalidArgument, status.Code(err), "want InvalidArgument, got %v", err)
-			require.Zero(t, accountManager.calls, "CreateAccount must not mutate the provider when its encryption config is invalid")
-			require.NotContains(t, err.Error(), preflightSecretMarker)
-		})
-	}
+// encryptionConfigCase names one encryption-configuration shape a caller can
+// supply, with the configs built per test so each case gets fresh key material.
+type encryptionConfigCase struct {
+	name    string
+	configs func(t *testing.T) []*v2.EncryptionConfig
 }
 
-func TestRotateCredentialValidatesEncryptionConfigBeforeMutation(t *testing.T) {
-	ctx := context.Background()
-
-	cases := []struct {
-		name    string
-		configs func(t *testing.T) []*v2.EncryptionConfig
-	}{
+// unusableEncryptionConfigs are the shapes the shared resolver or a provider
+// refuses. Both the returned-plaintext and the zero-output tests drive these, so
+// the two tests differ only in what the connector returns.
+func unusableEncryptionConfigs() []encryptionConfigCase {
+	return []encryptionConfigCase{
+		{"nil entry", func(*testing.T) []*v2.EncryptionConfig {
+			return []*v2.EncryptionConfig{nil}
+		}},
+		{"unknown provider", func(*testing.T) []*v2.EncryptionConfig {
+			return []*v2.EncryptionConfig{unknownProviderConfig()}
+		}},
+		{"provider-rejected recipient", func(t *testing.T) []*v2.EncryptionConfig {
+			return []*v2.EncryptionConfig{jwkConfigWithAAD(t)}
+		}},
 		{"malformed JWE recipient", func(*testing.T) []*v2.EncryptionConfig {
 			return []*v2.EncryptionConfig{invalidJWEConfig()}
-		}},
-		{"legacy JWK recipient with authenticated data", func(t *testing.T) []*v2.EncryptionConfig {
-			return []*v2.EncryptionConfig{jwkConfigWithAAD(t)}
 		}},
 		{"JWE recipient fan-out", func(t *testing.T) []*v2.EncryptionConfig {
 			return []*v2.EncryptionConfig{validJWEConfig(t), validJWEConfig(t)}
 		}},
 	}
+}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+// TestCreateAndRotateRejectUnusableConfigWhenPlaintextReturned covers the case
+// that still fails: the connector produced a plaintext value, so the supplied
+// config is about to be used and an unusable one must stop the operation.
+// Validation runs after the connector call, so the connector has already run by
+// the time the error is returned; the caller gets the error and no response.
+func TestCreateAndRotateRejectUnusableConfigWhenPlaintextReturned(t *testing.T) {
+	ctx := context.Background()
+
+	for _, tc := range unusableEncryptionConfigs() {
+		t.Run("create account / "+tc.name, func(t *testing.T) {
+			accountManager := newCountingAccountManager("user")
+			connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{accountManager}))
+			require.NoError(t, err)
+
+			response, err := connector.CreateAccount(ctx, v2.CreateAccountRequest_builder{
+				AccountInfo:       v2.AccountInfo_builder{}.Build(),
+				CredentialOptions: v2.CredentialOptions_builder{NoPassword: &v2.CredentialOptions_NoPassword{}}.Build(),
+				EncryptionConfigs: tc.configs(t),
+			}.Build())
+
+			require.Error(t, err)
+			require.Equal(t, codes.InvalidArgument, status.Code(err), "want InvalidArgument, got %v", err)
+			require.Equal(t, 1, accountManager.calls, "the connector runs before the config is checked")
+			require.Nil(t, response, "no response may be returned when the plaintexts could not be encrypted")
+			require.NotContains(t, err.Error(), preflightSecretMarker)
+		})
+
+		t.Run("rotate credential / "+tc.name, func(t *testing.T) {
 			credentialManager := newCountingCredentialManager("user")
 			connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{credentialManager}))
 			require.NoError(t, err)
 
-			_, err = connector.RotateCredential(ctx, v2.RotateCredentialRequest_builder{
+			response, err := connector.RotateCredential(ctx, v2.RotateCredentialRequest_builder{
 				ResourceId:        v2.ResourceId_builder{ResourceType: "user", Resource: "test-user"}.Build(),
 				CredentialOptions: v2.CredentialOptions_builder{NoPassword: &v2.CredentialOptions_NoPassword{}}.Build(),
 				EncryptionConfigs: tc.configs(t),
@@ -184,55 +188,46 @@ func TestRotateCredentialValidatesEncryptionConfigBeforeMutation(t *testing.T) {
 
 			require.Error(t, err)
 			require.Equal(t, codes.InvalidArgument, status.Code(err), "want InvalidArgument, got %v", err)
-			require.Zero(t, credentialManager.calls, "Rotate must not mutate the provider when its encryption config is invalid")
+			require.Equal(t, 1, credentialManager.calls, "the connector runs before the config is checked")
+			require.Nil(t, response, "no response may be returned when the plaintexts could not be encrypted")
 			require.NotContains(t, err.Error(), preflightSecretMarker)
 		})
 	}
 }
 
-// TestCreateAndRotateValidateConfigsWhenConnectorMintsNothing covers the case
-// the compatibility question turns on: a connector that would return no
-// plaintext credentials still must not be invoked when a supplied encryption
-// config is unusable. Config validation is unconditional, so the connector's
-// output cardinality does not decide whether the supplied configs were checked.
+// TestCreateAndRotateSucceedWithUnusedUnusableConfig covers the zero-output case
+// existing connectors depend on: a connector that returns no plaintext never uses
+// the supplied configs, so an unusable one must not turn a completed operation
+// into a failure. ActionRequired, InProgress, AlreadyExists and NoPassword flows
+// reach this, as does a rotation that does not return the new value.
 //
-// An empty config list stays permitted: there is nothing to validate, so the
-// connector runs as before.
-func TestCreateAndRotateValidateConfigsWhenConnectorMintsNothing(t *testing.T) {
+// The empty config list is included as the baseline: it succeeds both here and
+// when the connector does return plaintexts.
+func TestCreateAndRotateSucceedWithUnusedUnusableConfig(t *testing.T) {
 	ctx := context.Background()
 
-	unusable := []struct {
-		name    string
-		configs func(t *testing.T) []*v2.EncryptionConfig
-	}{
-		{"nil entry", func(*testing.T) []*v2.EncryptionConfig {
-			return []*v2.EncryptionConfig{nil}
-		}},
-		{"unknown provider", func(*testing.T) []*v2.EncryptionConfig {
-			return []*v2.EncryptionConfig{unknownProviderConfig()}
-		}},
-		{"invalid legacy recipient", func(t *testing.T) []*v2.EncryptionConfig {
-			return []*v2.EncryptionConfig{jwkConfigWithAAD(t)}
-		}},
-	}
+	cases := append(unusableEncryptionConfigs(), encryptionConfigCase{
+		name:    "empty config list",
+		configs: func(*testing.T) []*v2.EncryptionConfig { return nil },
+	})
 
-	for _, tc := range unusable {
+	for _, tc := range cases {
 		t.Run("create account / "+tc.name, func(t *testing.T) {
 			accountManager := newCountingAccountManager("user")
 			accountManager.plaintexts = nil
 			connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{accountManager}))
 			require.NoError(t, err)
 
-			_, err = connector.CreateAccount(ctx, v2.CreateAccountRequest_builder{
+			response, err := connector.CreateAccount(ctx, v2.CreateAccountRequest_builder{
 				AccountInfo:       v2.AccountInfo_builder{}.Build(),
 				CredentialOptions: v2.CredentialOptions_builder{NoPassword: &v2.CredentialOptions_NoPassword{}}.Build(),
 				EncryptionConfigs: tc.configs(t),
 			}.Build())
 
-			require.Error(t, err)
-			require.Equal(t, codes.InvalidArgument, status.Code(err), "want InvalidArgument, got %v", err)
-			require.Zero(t, accountManager.calls,
-				"an unusable config must fail before the connector runs, even when it would mint no plaintext")
+			require.NoError(t, err, "a config the operation never uses must not fail it")
+			require.Equal(t, 1, accountManager.calls)
+			require.NotNil(t, response.GetSuccess())
+			require.Empty(t, response.GetEncryptedData())
 		})
 
 		t.Run("rotate credential / "+tc.name, func(t *testing.T) {
@@ -241,51 +236,17 @@ func TestCreateAndRotateValidateConfigsWhenConnectorMintsNothing(t *testing.T) {
 			connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{credentialManager}))
 			require.NoError(t, err)
 
-			_, err = connector.RotateCredential(ctx, v2.RotateCredentialRequest_builder{
+			response, err := connector.RotateCredential(ctx, v2.RotateCredentialRequest_builder{
 				ResourceId:        v2.ResourceId_builder{ResourceType: "user", Resource: "test-user"}.Build(),
 				CredentialOptions: v2.CredentialOptions_builder{NoPassword: &v2.CredentialOptions_NoPassword{}}.Build(),
 				EncryptionConfigs: tc.configs(t),
 			}.Build())
 
-			require.Error(t, err)
-			require.Equal(t, codes.InvalidArgument, status.Code(err), "want InvalidArgument, got %v", err)
-			require.Zero(t, credentialManager.calls,
-				"an unusable config must fail before the connector runs, even when it would mint no plaintext")
+			require.NoError(t, err, "a config the operation never uses must not fail it")
+			require.Equal(t, 1, credentialManager.calls)
+			require.Empty(t, response.GetEncryptedData())
 		})
 	}
-
-	t.Run("create account / empty config list still invokes", func(t *testing.T) {
-		accountManager := newCountingAccountManager("user")
-		accountManager.plaintexts = nil
-		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{accountManager}))
-		require.NoError(t, err)
-
-		response, err := connector.CreateAccount(ctx, v2.CreateAccountRequest_builder{
-			AccountInfo:       v2.AccountInfo_builder{}.Build(),
-			CredentialOptions: v2.CredentialOptions_builder{NoPassword: &v2.CredentialOptions_NoPassword{}}.Build(),
-		}.Build())
-
-		require.NoError(t, err)
-		require.Equal(t, 1, accountManager.calls)
-		require.NotNil(t, response.GetSuccess())
-		require.Empty(t, response.GetEncryptedData())
-	})
-
-	t.Run("rotate credential / empty config list still invokes", func(t *testing.T) {
-		credentialManager := newCountingCredentialManager("user")
-		credentialManager.plaintexts = nil
-		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{credentialManager}))
-		require.NoError(t, err)
-
-		response, err := connector.RotateCredential(ctx, v2.RotateCredentialRequest_builder{
-			ResourceId:        v2.ResourceId_builder{ResourceType: "user", Resource: "test-user"}.Build(),
-			CredentialOptions: v2.CredentialOptions_builder{NoPassword: &v2.CredentialOptions_NoPassword{}}.Build(),
-		}.Build())
-
-		require.NoError(t, err)
-		require.Equal(t, 1, credentialManager.calls)
-		require.Empty(t, response.GetEncryptedData())
-	})
 }
 
 // TestCreateAndRotateKeepEmptyAndLegacyConfigBehavior pins the compatibility

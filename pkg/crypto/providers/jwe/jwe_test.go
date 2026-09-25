@@ -34,17 +34,9 @@ const (
 // coefficients x 12 bits).
 const mlkemEncodingBytes = 3 * 256 * 12 / 8
 
-// flattenedJWE is the flattened JSON serialization the provider emits. The
-// independent reader parses these wire fields and derives the HPKE inputs
-// itself; it never calls the provider.
-type flattenedJWE struct {
-	Protected    string `json:"protected"`
-	EncryptedKey string `json:"encrypted_key"`
-	AAD          string `json:"aad"`
-	IV           string `json:"iv"`
-	Ciphertext   string `json:"ciphertext"`
-	Tag          string `json:"tag"`
-}
+// Tests reuse the provider's exported FlattenedJWE for the wire-field names. The
+// independent reader still derives its own HPKE inputs from the raw wire strings;
+// see independentOpen, and the raw member-set assertions in the framing test.
 
 // testRecipient pairs the config the provider consumes with the private key an
 // independent reader needs.
@@ -104,14 +96,14 @@ func decodeRawURL(t *testing.T, value string) []byte {
 	return decoded
 }
 
-func decodeJWE(t *testing.T, raw []byte) flattenedJWE {
+func decodeJWE(t *testing.T, raw []byte) FlattenedJWE {
 	t.Helper()
-	var envelope flattenedJWE
+	var envelope FlattenedJWE
 	require.NoError(t, json.Unmarshal(raw, &envelope))
 	return envelope
 }
 
-func marshalJWE(t *testing.T, envelope flattenedJWE) []byte {
+func marshalJWE(t *testing.T, envelope FlattenedJWE) []byte {
 	t.Helper()
 	encoded, err := json.Marshal(envelope)
 	require.NoError(t, err)
@@ -135,7 +127,7 @@ func jsonMembers(t *testing.T, raw []byte) []string {
 // protected header and aad strings, per draft-ietf-jose-hpke-encrypt-22
 // section 5, rather than calling the provider's own framing code.
 func independentOpen(message []byte, privateKey hpke.PrivateKey, info []byte) ([]byte, error) {
-	var envelope flattenedJWE
+	var envelope FlattenedJWE
 	if err := json.Unmarshal(message, &envelope); err != nil {
 		return nil, err
 	}
@@ -280,7 +272,7 @@ func TestEncryptUsesFreshEncapsulationPerCall(t *testing.T) {
 	require.NotEqual(t, first.Ciphertext, second.Ciphertext)
 	require.NotEqual(t, second.Ciphertext, third.Ciphertext)
 
-	for _, envelope := range []flattenedJWE{first, second, third} {
+	for _, envelope := range []FlattenedJWE{first, second, third} {
 		require.Equal(t, plaintext.GetBytes(), mustIndependentOpen(t, marshalJWE(t, envelope), recipient.privateKey))
 	}
 }

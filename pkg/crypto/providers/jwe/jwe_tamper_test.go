@@ -59,49 +59,49 @@ func TestIndependentReaderAuthenticatesEverySealedField(t *testing.T) {
 	// matrix below would pass on a reader that rejects everything.
 	require.Equal(t, plaintext, mustIndependentOpen(t, message, recipient.privateKey))
 
-	mutations := map[string]func(t *testing.T, envelope *flattenedJWE){
-		"encapsulation first byte": func(t *testing.T, envelope *flattenedJWE) {
+	mutations := map[string]func(t *testing.T, envelope *FlattenedJWE){
+		"encapsulation first byte": func(t *testing.T, envelope *FlattenedJWE) {
 			envelope.EncryptedKey = flipDecodedByte(t, envelope.EncryptedKey, 0)
 		},
-		"encapsulation last byte": func(t *testing.T, envelope *flattenedJWE) {
+		"encapsulation last byte": func(t *testing.T, envelope *FlattenedJWE) {
 			envelope.EncryptedKey = flipDecodedByte(t, envelope.EncryptedKey, xwingEncapsulatedKeyBytes-1)
 		},
-		"encapsulation truncated": func(t *testing.T, envelope *flattenedJWE) {
+		"encapsulation truncated": func(t *testing.T, envelope *FlattenedJWE) {
 			encapsulatedKey := decodeRawURL(t, envelope.EncryptedKey)
 			envelope.EncryptedKey = base64.RawURLEncoding.EncodeToString(encapsulatedKey[:len(encapsulatedKey)-1])
 		},
-		"ciphertext first byte": func(t *testing.T, envelope *flattenedJWE) {
+		"ciphertext first byte": func(t *testing.T, envelope *FlattenedJWE) {
 			envelope.Ciphertext = flipDecodedByte(t, envelope.Ciphertext, 0)
 		},
-		"authentication tag byte": func(t *testing.T, envelope *flattenedJWE) {
+		"authentication tag byte": func(t *testing.T, envelope *FlattenedJWE) {
 			envelope.Ciphertext = flipDecodedByte(t, envelope.Ciphertext, len(decodeRawURL(t, envelope.Ciphertext))-1)
 		},
-		"ciphertext truncated": func(t *testing.T, envelope *flattenedJWE) {
+		"ciphertext truncated": func(t *testing.T, envelope *FlattenedJWE) {
 			ciphertext := decodeRawURL(t, envelope.Ciphertext)
 			envelope.Ciphertext = base64.RawURLEncoding.EncodeToString(ciphertext[:len(ciphertext)-chacha20Poly1305TagBytes])
 		},
-		"protected header alg": func(t *testing.T, envelope *flattenedJWE) {
+		"protected header alg": func(t *testing.T, envelope *FlattenedJWE) {
 			envelope.Protected = retargetProtectedHeader(t, envelope.Protected, "alg", "RSA-OAEP-256")
 		},
-		"protected header kid": func(t *testing.T, envelope *flattenedJWE) {
+		"protected header kid": func(t *testing.T, envelope *FlattenedJWE) {
 			envelope.Protected = retargetProtectedHeader(t, envelope.Protected, "kid", "recipient-2")
 		},
-		"protected header added member": func(t *testing.T, envelope *flattenedJWE) {
+		"protected header added member": func(t *testing.T, envelope *FlattenedJWE) {
 			envelope.Protected = retargetProtectedHeader(t, envelope.Protected, "enc", "A256GCM")
 		},
-		"external context changed": func(t *testing.T, envelope *flattenedJWE) {
+		"external context changed": func(t *testing.T, envelope *FlattenedJWE) {
 			envelope.AAD = base64.RawURLEncoding.EncodeToString([]byte("tenant=other"))
 		},
-		"external context appended": func(t *testing.T, envelope *flattenedJWE) {
+		"external context appended": func(t *testing.T, envelope *FlattenedJWE) {
 			envelope.AAD = base64.RawURLEncoding.EncodeToString(append(decodeRawURL(t, envelope.AAD), 'x'))
 		},
-		"external context emptied": func(t *testing.T, envelope *flattenedJWE) {
+		"external context emptied": func(t *testing.T, envelope *FlattenedJWE) {
 			envelope.AAD = ""
 		},
-		"encrypted_key malformed base64url": func(t *testing.T, envelope *flattenedJWE) {
+		"encrypted_key malformed base64url": func(t *testing.T, envelope *FlattenedJWE) {
 			envelope.EncryptedKey = envelope.EncryptedKey[:len(envelope.EncryptedKey)-1] + "+"
 		},
-		"ciphertext malformed base64url": func(t *testing.T, envelope *flattenedJWE) {
+		"ciphertext malformed base64url": func(t *testing.T, envelope *FlattenedJWE) {
 			envelope.Ciphertext = envelope.Ciphertext[:len(envelope.Ciphertext)-1] + "="
 		},
 	}
@@ -114,6 +114,46 @@ func TestIndependentReaderAuthenticatesEverySealedField(t *testing.T) {
 			require.Error(t, err, "reader must reject a message with a changed %s", name)
 		})
 	}
+}
+
+// TestIndependentReaderAcceptsAnyProtectedHeaderMemberOrder shows member order is
+// not a wire invariant. The HPKE additional data is the protected string as
+// transmitted, so a message sealed with the members in a different order reads
+// back correctly. What a reader rejects is a header changed without resealing.
+//
+// Sealing happens here rather than through the provider, so this does not depend
+// on the provider's own member order.
+func TestIndependentReaderAcceptsAnyProtectedHeaderMemberOrder(t *testing.T) {
+	privateKey, err := hpke.MLKEM768X25519().GenerateKey()
+	require.NoError(t, err)
+	aad := []byte("tenant=acme")
+	plaintext := []byte("super-secret-key-material")
+
+	// kid before alg: the reverse of the order the provider emits.
+	encodedHeader := base64.RawURLEncoding.EncodeToString([]byte(`{"kid":"recipient-1","alg":"` + Algorithm + `"}`))
+	encodedAAD := base64.RawURLEncoding.EncodeToString(aad)
+
+	encapsulatedKey, sender, err := hpke.NewSender(privateKey.PublicKey(), hpke.HKDFSHA256(), hpke.ChaCha20Poly1305(), nil)
+	require.NoError(t, err)
+	ciphertext, err := sender.Seal([]byte(encodedHeader+"."+encodedAAD), plaintext)
+	require.NoError(t, err)
+	message, err := json.Marshal(FlattenedJWE{
+		Protected:    encodedHeader,
+		EncryptedKey: base64.RawURLEncoding.EncodeToString(encapsulatedKey),
+		AAD:          encodedAAD,
+		Ciphertext:   base64.RawURLEncoding.EncodeToString(ciphertext),
+	})
+	require.NoError(t, err)
+
+	recovered, err := independentOpen(message, privateKey, nil)
+	require.NoError(t, err)
+	require.Equal(t, plaintext, recovered)
+
+	// Relabelling the transmitted header, without resealing, is rejected.
+	envelope := decodeJWE(t, message)
+	envelope.Protected = retargetProtectedHeader(t, envelope.Protected, "kid", "recipient-2")
+	_, err = independentOpen(marshalJWE(t, envelope), privateKey, nil)
+	require.Error(t, err)
 }
 
 // TestIndependentReaderRejectsWrongPrivateKey covers the recipient-key

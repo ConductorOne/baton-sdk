@@ -57,14 +57,7 @@ func (*Provider) Encrypt(ctx context.Context, config *v2.EncryptionConfig, plain
 	if err != nil {
 		return nil, status.Error(codes.Internal, "jwe: encrypt plaintext")
 	}
-	message, err := json.Marshal(struct {
-		Protected    string `json:"protected"`
-		EncryptedKey string `json:"encrypted_key"`
-		AAD          string `json:"aad"`
-		IV           string `json:"iv"`
-		Ciphertext   string `json:"ciphertext"`
-		Tag          string `json:"tag"`
-	}{
+	message, err := json.Marshal(FlattenedJWE{
 		Protected:    encodedHeader,
 		EncryptedKey: base64.RawURLEncoding.EncodeToString(enc),
 		AAD:          encodedAAD,
@@ -83,20 +76,28 @@ func (*Provider) Encrypt(ctx context.Context, config *v2.EncryptionConfig, plain
 	}.Build(), nil
 }
 
+// FlattenedJWE is the flattened JWE JSON serialization this profile emits:
+// RFC 7516 section 7.2.2 with the members the profile fixes. IV and Tag are
+// always present and empty because the HPKE authentication tag stays inside
+// Ciphertext. It exists so a reader can decode the wire format without a second
+// declaration of it; go-jose's equivalent is unexported and marks every member
+// omitempty, so it cannot express the empty IV and Tag this profile requires.
+type FlattenedJWE struct {
+	Protected    string `json:"protected"`
+	EncryptedKey string `json:"encrypted_key"`
+	AAD          string `json:"aad"`
+	IV           string `json:"iv"`
+	Ciphertext   string `json:"ciphertext"`
+	Tag          string `json:"tag"`
+}
+
 // protectedHeader is the only member set this profile permits on the wire.
+// Member order carries no meaning: the HPKE additional data is built from the
+// serialized bytes as transmitted, so a reader authenticates the exact string it
+// received rather than a re-serialization of the same members.
 type protectedHeader struct {
 	Algorithm string `json:"alg"`
 	KeyID     string `json:"kid"`
-}
-
-// encodeProtectedHeader serializes the protected header exactly as it appears on
-// the wire. Validation and encryption share it, so the size limit applies to the
-// serialized bytes a reader decodes rather than to the key id's own length:
-// json.Marshal escapes HTML characters, so a key id can serialize to several
-// times its own size. Marshalling two strings cannot fail.
-func encodeProtectedHeader(keyID string) []byte {
-	header, _ := json.Marshal(protectedHeader{Algorithm: Algorithm, KeyID: keyID})
-	return header
 }
 
 // recipient resolves and validates the configured recipient, returning the HPKE
@@ -109,7 +110,14 @@ func recipient(config *v2.EncryptionConfig) (hpke.PublicKey, []byte, error) {
 	if kid == "" || len(kid) > 1024 || !utf8.ValidString(kid) || strings.TrimSpace(kid) != kid {
 		return nil, nil, invalid("invalid key id")
 	}
-	header := encodeProtectedHeader(kid)
+	// The serialized header is bounded rather than the key id, because
+	// json.Marshal escapes HTML characters and a key id can therefore serialize
+	// to several times its own length. The same bytes go on the wire, so a reader
+	// sees exactly what was measured here.
+	header, err := json.Marshal(protectedHeader{Algorithm: Algorithm, KeyID: kid})
+	if err != nil {
+		return nil, nil, status.Error(codes.Internal, "jwe: encode protected header")
+	}
 	if len(header) > MaxProtectedHeaderBytes {
 		return nil, nil, invalid("protected header exceeds size limit")
 	}

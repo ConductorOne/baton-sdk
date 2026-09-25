@@ -81,7 +81,14 @@ func FuzzRecipientPreflight(f *testing.F) {
 			return
 		}
 		require.NotNil(t, key)
-		require.Equal(t, encodeProtectedHeader("recipient-1"), header)
+		// Built here rather than from the provider's own serializer, so the
+		// comparison stays independent of the code under test.
+		expectedHeader, marshalErr := json.Marshal(struct {
+			Algorithm string `json:"alg"`
+			KeyID     string `json:"kid"`
+		}{Algorithm, "recipient-1"})
+		require.NoError(t, marshalErr)
+		require.Equal(t, expectedHeader, header)
 		require.LessOrEqual(t, len(header), MaxProtectedHeaderBytes)
 
 		encrypted, err := (&Provider{}).Encrypt(context.Background(), config, v2.PlaintextData_builder{Name: "m", Bytes: []byte("payload")}.Build())

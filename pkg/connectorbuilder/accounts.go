@@ -108,20 +108,23 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
 	}
 
-	// Validate recipients before asking the connector to mutate the provider.
-	// Encryption failures surface after CreateAccount has already minted the
-	// account, leaving the caller to reconcile it.
-	if err := crypto.ValidateEncryptionConfigs(request.GetEncryptionConfigs()); err != nil {
-		l.Error("error: validating encryption configs failed", zap.Error(err))
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, fmt.Errorf("error: validating encryption configs failed: %w", err)
-	}
-
 	result, plaintexts, annos, err := accountManager.CreateAccount(ctx, request.GetAccountInfo(), opts)
 	if err != nil {
 		l.Error("error: create account failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: create account failed: %w", err)
+	}
+
+	// Validate recipients only when there is something to encrypt. A zero-output
+	// CreateAccount — ActionRequired, InProgress, AlreadyExists or a NoPassword
+	// flow — never uses the supplied configs, so an unusable one must not turn a
+	// successful provisioning into a failure.
+	if len(plaintexts) > 0 {
+		if err := crypto.ValidateEncryptionConfigs(request.GetEncryptionConfigs()); err != nil {
+			l.Error("error: validating encryption configs failed", zap.Error(err))
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+			return nil, fmt.Errorf("error: validating encryption configs failed: %w", err)
+		}
 	}
 
 	pkem, err := crypto.NewEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
