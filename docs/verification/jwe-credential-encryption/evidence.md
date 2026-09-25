@@ -79,15 +79,59 @@ both are over, representative legacy RSA, EC and Ed25519 public JWKs plus the
 X-Wing AKP JWK all fit inside the bound, and `TestRuntimeBoundsMatchDeclaredProtobufBounds`
 pins the runtime constants against the declared bound.
 
+## Algorithm identifier
+
+The profile identifier is `https://c1.ai/alg/hpke-xwing-hkdf-sha256-chacha20poly1305/v1`
+(CO-3). It appears once in production source, as the `Algorithm` constant in
+`pkg/crypto/providers/jwe/jwe.go`.
+
+The identifier is authenticated: it is a member of the protected header, and the
+protected header is bound into the HPKE additional authenticated data. The
+committed fixture therefore had to be **resealed by the provider**, not
+rewritten, and no fallback to the previous identifier exists.
+
+Red and green for the change:
+
+```
+# after the constant changed, before the fixture was resealed
+--- FAIL: TestXWingJWEFixture
+    expected: "https://c1.ai/alg/hpke-xwing-hkdf-sha256-chacha20poly1305/v1"
+    actual  : "https://conductorone.com/alg/hpke-xwing-hkdf-sha256-chacha20poly1305/v1"
+
+# after resealing with JWE_FIXTURE_REGENERATE=1
+ok  github.com/conductorone/baton-sdk/pkg/crypto/providers/jwe
+```
+
+The claim that text substitution is invalid is demonstrated by a throwaway
+instrument on a disposable copy, using the fixture as it stood before the change
+(`git show c6b58b45:`). It relabels the protected header to the new identifier and
+the reader rejects the message:
+
+```
+relabelled header rejected with: chacha20poly1305: message authentication failed
+```
+
+The same property is pinned permanently by the committed tamper matrix case
+`TestIndependentReaderAuthenticatesEverySealedField/protected_header_alg`.
+
+### Consumer-side obligation
+
+Interoperability is **not** claimable again until the consuming implementation
+adopts the identical `c1.ai` identifier and reads the resealed fixture. The
+registered consumer is Multipass PR #833, which is agent-owned elsewhere; this
+work did not touch that checkout and added no compatibility path that would let
+the two identifiers coexist. The producer revision a consumer should pin is the
+fixture commit `9ca0ed2a`.
+
 ## Command log
 
 ```
 go test ./pkg/crypto/... ./pkg/connectorbuilder/ -count=1
   -> ok: pkg/crypto, pkg/crypto/providers, .../age, .../jwe, .../jwk, pkg/connectorbuilder
 
-go test ./pkg/crypto/providers/jwe/ ./pkg/connectorbuilder/ -count=1 -v
-  -> 100 top-level PASS, 214 subtest PASS, 0 FAIL, 1 SKIP
-     (the skip is the fixture regeneration path, gated behind JWE_FIXTURE_REGENERATE=1)
+go test ./pkg/crypto/... ./pb/... ./pkg/connectorbuilder/ -count=1 -v
+  -> 129 top-level PASS, 255 subtest PASS, 0 FAIL, 1 SKIP
+     (skip = fixture regeneration, gated behind JWE_FIXTURE_REGENERATE=1)
 
 go test -race ./pkg/crypto/... ./pkg/connectorbuilder/ -count=1
   -> ok, no data races
@@ -112,7 +156,8 @@ go test ./pkg/crypto/providers/jwe/ -run '^$' -fuzz '^FuzzRecipientPreflight$' -
 
 go test -tags=baton_lambda_support -count=1 ./...
   -> exit 0; 90 of 90 packages in the module reported,
-     65 ok and 25 with no test files, zero failures
+     66 ok and 24 with no test files, zero failures
+     (re-run at 9ca0ed2a after the identifier change)
 ```
 
 ## Coverage triage
@@ -180,6 +225,9 @@ error at all.
 `pkg/crypto/providers/jwe/testdata/fixture.json`, produced remotely by
 `TestRegenerateXWingJWEFixture` (`JWE_FIXTURE_REGENERATE=1`).
 
+Current producer revision: commit `9ca0ed2a` (resealed under the `c1.ai`
+identifier). Pin this revision when consuming the fixture.
+
 Contains only a synthetic public throwaway key and payload: a 32-byte seed, the
 derived 1216-byte X-Wing public key, the plaintext, the AAD, the key id, the
 exact flattened JWE JSON, and the primitive profile with recorded provenance
@@ -196,9 +244,13 @@ proof that any Rust implementation interoperates; that is J10.
 ## Gaps and limits of this evidence
 
 - The committed fixture is not interoperability proof and no second
-  implementation was exercised. Draft-vector comparison was not performed; the
-  private suite mapping is not HPKE-4 or HPKE-9, so a shared published vector
-  would not apply to this algorithm identifier.
+  implementation was exercised. The registered consumer, Multipass PR #833,
+  must adopt the identical `c1.ai` identifier and read the fixture from producer
+  revision `9ca0ed2a` before interop is claimable again; its checkout is
+  agent-owned elsewhere and was not touched by this work.
+- Draft-vector comparison was not performed: the private suite mapping is not
+  HPKE-4 or HPKE-9, so a shared published vector would not apply to this
+  algorithm identifier.
 - Fuzzing was a bounded 60-second soak per target, not an extended run.
 - `JWE iv`/`JWE tag` are not authenticated inputs. The reader ignores them
   because the profile requires them empty and the HPKE tag is inside

@@ -39,6 +39,12 @@ private suite mapping, not HPKE-4 or HPKE-9. No new signing primitive is used.
 X-Wing is hybrid post-quantum; HKDF and ChaCha20-Poly1305 are symmetric/hash
 operations. The X-Wing implementation also uses its specified SHA3 combiner.
 
+The identifier is authenticated: it is a member of the protected header, and the
+protected header is part of the HPKE additional authenticated data. A reader that
+does not recognize this exact identifier must reject the message; relabelling the
+header invalidates the authentication tag. There is no fallback to a previous
+identifier.
+
 Follow integrated base-mode processing from
 [HPKE for JWE draft-22, section 5](https://www.ietf.org/archive/id/draft-ietf-jose-hpke-encrypt-22.html#section-5):
 

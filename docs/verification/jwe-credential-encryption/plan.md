@@ -82,3 +82,21 @@ consumer; it does not change the wire format. Instrument: boundary tests at 4095
 / 4096 / 4097 serialized bytes, an accepting ordinary 1024-byte key id, a
 refusing 1024-byte escaped key id, no-echo assertions, and a real
 `IssueCredential` case proving zero provider calls.
+
+### CO-3: algorithm identifier moved to the c1.ai domain (2026-09-25)
+
+The profile's algorithm identifier changed from
+`https://conductorone.com/alg/hpke-xwing-hkdf-sha256-chacha20poly1305/v1` to
+`https://c1.ai/alg/hpke-xwing-hkdf-sha256-chacha20poly1305/v1`.
+
+This is an authenticated value, not a cosmetic URL: the identifier is a member of
+the protected header, and the protected header is bound into the HPKE additional
+authenticated data. A message sealed under the old identifier cannot be relabelled
+by editing text — the Poly1305 tag stops verifying — so the synthetic fixture is
+resealed by the provider rather than rewritten, and no fallback to the previous
+identifier is added. Instrument: the fixture test pins the profile identifier to
+the provider constant, and a throwaway instrument relabels the pre-change
+fixture's header and shows the reader reject it (J2/J7/J9).
+
+Interop is not claimable again until the consuming side adopts the identical
+identifier and reads the resealed fixture; see the evidence file.
