@@ -8312,9 +8312,27 @@ func (m *EncryptionConfig_JWKPublicKeyConfig) validate(all bool) error {
 
 	var errors []error
 
-	// no validation rules for PubKey
+	if len(m.GetPubKey()) > 16384 {
+		err := EncryptionConfig_JWKPublicKeyConfigValidationError{
+			field:  "PubKey",
+			reason: "value length must be at most 16384 bytes",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
 
-	// no validation rules for AdditionalAuthenticatedData
+	if len(m.GetAdditionalAuthenticatedData()) > 16384 {
+		err := EncryptionConfig_JWKPublicKeyConfigValidationError{
+			field:  "AdditionalAuthenticatedData",
+			reason: "value length must be at most 16384 bytes",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
 
 	if len(errors) > 0 {
 		return EncryptionConfig_JWKPublicKeyConfigMultiError(errors)
