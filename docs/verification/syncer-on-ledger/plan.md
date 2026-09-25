@@ -1217,3 +1217,15 @@ durable declaration; a pending seal is not a fresh policy boundary.
 - Verification delta: thousands of attempts with fixed worker count have a fixed live bucket bound and exact folded totals; before/after synced-fold crash images, precommit failure, cancellation and repeated calls preserve accounting. A current bucket may be overwritten after fold without counting its prior value twice. Public resume preserves first/latest options through seal and saved-file reopen; intermediate attempts are not retained. Existing migration, quality, seal and lifecycle tests remain required.
 - Risk routing: HIGH. Counter deletion and replacement are one batch, never separate writes.
 - PR placement: this PR.
+
+### CO-031 — preserve public EndSync lifecycle semantics
+
+- Classification: compatibility correction.
+- Source: requester; main preserves the checkpoint when ending unfinished collection.
+- Claim: plain EndSync accepts a ledgered run with pending work, stamps its end and detaches it without destroying records, pending work, facts, counters, history or recovery tokens. Close/reopen and explicit binding preserve that recovery position. Starting a new sync retains main's existing reset behavior. Successful syncer completion alone enforces empty pending work and applies report/disposal policy.
+- Contract delta: EndSyncWithStats remains the checked completion path; plain EndSync derives saved statistics from committed ledger accounting and preserves recovery state. The old plain-EndSync refusal requirement is superseded.
+- Owning boundary: Pebble lifecycle and shared accounting conversion; SQLite unchanged.
+- Affected criteria: C16, C24, C31–C36, C43.
+- Verification delta: pending pages with tokens and records survive early end, cold reopen and explicit binding; C1's end/cleanup/start sequence works unchanged; pre-stamp failure and durable images around the end stamp preserve recovery and accounting. Existing successful-completion disposal and pending-work rejection tests remain.
+- Risk routing: HIGH. No format relocation or new destructive recovery operation.
+- PR placement: this PR.
