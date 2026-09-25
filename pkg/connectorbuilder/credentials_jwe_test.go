@@ -357,11 +357,13 @@ func TestIssueCredentialRejectsUnsupportedAuthenticatedData(t *testing.T) {
 	}
 }
 
-// TestJWECapabilityAdvertisedOnlyForCredentialIssuers checks both dimensions:
-// the capability lands on the issuing resource type and, because connector
-// capabilities are the union of resource-type capabilities, on the connector;
-// a resource type that cannot issue must not carry it.
-func TestJWECapabilityAdvertisedOnlyForCredentialIssuers(t *testing.T) {
+// TestJWEXWingCapabilityAdvertisedOnlyForCredentialIssuers checks both
+// dimensions: the capability lands on the issuing resource type and, because
+// connector capabilities are the union of resource-type capabilities, on the
+// connector; a resource type that cannot issue must not carry it. The capability
+// names the X-Wing suite, so it is absent for any connector that does not
+// advertise this producer.
+func TestJWEXWingCapabilityAdvertisedOnlyForCredentialIssuers(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("issuer resource type and connector", func(t *testing.T) {
@@ -370,15 +372,15 @@ func TestJWECapabilityAdvertisedOnlyForCredentialIssuers(t *testing.T) {
 
 		caps, err := connector.(*builder).GetCapabilities(ctx)
 		require.NoError(t, err)
-		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_JWE)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1)
 
 		byType := make(map[string][]v2.Capability)
 		for _, capability := range caps.GetResourceTypeCapabilities() {
 			byType[capability.GetResourceType().GetId()] = capability.GetCapabilities()
 		}
-		require.Contains(t, byType["service_account"], v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_JWE)
-		require.NotContains(t, byType["secret"], v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_JWE,
-			"a resource type that cannot issue credentials must not advertise JWE encryption")
+		require.Contains(t, byType["service_account"], v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1)
+		require.NotContains(t, byType["secret"], v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1,
+			"a resource type that cannot issue credentials must not advertise the JWE X-Wing capability")
 	})
 
 	t.Run("no issuer", func(t *testing.T) {
@@ -387,9 +389,9 @@ func TestJWECapabilityAdvertisedOnlyForCredentialIssuers(t *testing.T) {
 
 		caps, err := connector.(*builder).GetCapabilities(ctx)
 		require.NoError(t, err)
-		require.NotContains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_JWE)
+		require.NotContains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1)
 		for _, capability := range caps.GetResourceTypeCapabilities() {
-			require.NotContains(t, capability.GetCapabilities(), v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_JWE)
+			require.NotContains(t, capability.GetCapabilities(), v2.Capability_CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1)
 		}
 	})
 }

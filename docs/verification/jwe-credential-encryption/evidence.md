@@ -36,9 +36,10 @@ generated artifact, and generated protobuf is its own commit.
   protos.
 - `buf lint` clean. `buf format --diff --exit-code` clean.
 - `buf breaking --against '.git#branch=origin/main'` clean against `3df6fad5`.
-  The proto change is additive only: `CAPABILITY_CREDENTIAL_ENCRYPTION_JWE = 16`
-  (no renumbering; 14 is untouched) and `additional_authenticated_data = 2` on
-  `JWKPublicKeyConfig` (field 1 untouched).
+  The proto change is additive only: `CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1
+  = 16` (no renumbering; 14 is untouched) and `additional_authenticated_data = 2`
+  on `JWKPublicKeyConfig` (field 1 untouched). The capability name is suite
+  specific, so it does not claim arbitrary JWE suites (CO-5).
 - `filippo.io/hpke v0.4.0` was already pinned and vendored but marked `//
   indirect`. `go mod tidy` moved it to the direct block. `go mod vendor`
   produced no vendor or `go.sum` change and `go mod tidy -diff` is empty. No

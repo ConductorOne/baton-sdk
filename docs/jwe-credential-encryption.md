@@ -71,9 +71,11 @@ schema remain carrier metadata, not authenticated JWE context.
 
 ## Issuance and compatibility
 
-Dispatch only to connectors advertising `CAPABILITY_CREDENTIAL_ENCRYPTION_JWE`.
-This capability is advertised with credential issuance support, not inferred
-from generic JWK support. Older SDKs do not support this provider.
+Dispatch only to connectors advertising
+`CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1`. The name covers this one suite
+and does not claim support for JWE generally or for any other suite. The
+capability is advertised with credential issuance support, not inferred from
+generic JWK support. Older SDKs do not support this provider.
 
 For issuance, exactly one encryption config and one plaintext value are supported.
 Config fan-out fails before calling `Issue`. Unexpected provider output cardinality

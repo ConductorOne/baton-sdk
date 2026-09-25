@@ -140,3 +140,29 @@ header without resealing and is rejected.
 `encodeProtectedHeader` is inlined at its single call site so a marshal failure
 is handled rather than ignored; the serialized header is still the same bytes the
 size bound is measured on.
+
+### CO-5: capability renamed to name the X-Wing suite (2026-09-25)
+
+Review noted that `CAPABILITY_CREDENTIAL_ENCRYPTION_JWE` overstates what is
+supported: the producer implements one suite, not JWE generally. Renamed to
+`CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1` with the numeric tag unchanged at
+16. No provider identifier, algorithm identifier, cryptographic, or framing
+change; the provider identifier stays `baton/jwe/v1`.
+
+Checked before renaming, because a rename of a wire-visible enum name is only
+safe while nothing released depends on it:
+
+- Branch head is not an ancestor of `main`, and the PR is open with
+  `mergedAt: null`.
+- `main`'s `Capability` enum ends at `CAPABILITY_CREDENTIAL_ISSUE = 14`, so
+  neither 15 nor 16 is taken and the symbol does not exist on `main` at all.
+
+The enum name is carried in the descriptor as well as the Go identifier, so the
+rename is wire-visible to anything reading `Capability_value` or the descriptor
+by name; renumbering is what would break wire compatibility, and the tag is
+unchanged. A downstream consumer that names the capability in its own source
+needs a coordinated rename; the producer does not alias the old name.
+
+Instrument: the capability advertisement test asserts the new symbol on the
+issuing resource type and on the connector, and its absence for a resource type
+that cannot issue and for a connector with no issuer.
