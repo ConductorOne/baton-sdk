@@ -1265,3 +1265,9 @@ durable declaration; a pending seal is not a fresh policy boundary.
 - Verification delta: public collect-without-expansion/save/copy/reopen/expand-only must produce exact inherited grants for normal sealing and premature EndSync, with 1/4 workers and default/debug retention. An unfinished empty queue seals without recollection. Existing pending-resume and clear failure/crash checks remain required.
 - Risk routing: HIGH. Use existing Init planning and atomic history-clear/queue-seed operations; no new scheduler or expansion implementation.
 - PR placement: this PR.
+
+CO-034 seal-retry clarification: an initialized declaration with seal-ready set
+still has lifecycle work to finish, even if its page queue is empty and ended_at
+is already present. Preserve its terminal marker and retention policy and retry
+the prepared seal. Fully checked completion clears the declaration; a subsequent
+ended rebind initializes the new request normally. Source: correction review.

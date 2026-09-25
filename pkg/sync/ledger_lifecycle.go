@@ -19,6 +19,9 @@ const (
 func (r ledgerResume) preparation(finished bool) ledgerPreparation {
 	switch {
 	case r.initialized:
+		if r.sealReady {
+			return ledgerFinishSeal
+		}
 		if finished && !r.hasPendingWork {
 			return ledgerProcessFinished
 		}

@@ -422,3 +422,18 @@ Focused lifecycle/expansion/clear race checks pass three repetitions (sync16.607
 Pebble4.167s). These verify the stated lifecycle and artifact flow, not every
 connector topology or original plan product. No expansion algorithm or scheduler
 change is included. The separate retry-accounting finding is still outstanding.
+
+Correction review caught the prepared-seal exception: an initialized seal-ready
+queue must retry sealing even if ended_at is present. The new public cold-reopen
+`TestLedgerPreparedSealSurvivesEarlyEnd` failed before adding seal-ready precedence
+and checks terminal facts, retained-token policy, counters and absence of newly
+seeded actions. This does not change the unexpanded-upload regression, which
+halts before the terminal seal page. CI-merge source with Go1.27.1 and
+lint2.13.2 passed the initial correction; the final guard is validated separately.
+
+Final guard validation: full sync89.011s and compactor18.842s pass; focused
+lifecycle/upload race checks pass three repetitions in14.704s; queue-clear crash
+assertions pass race3x in1.900s. CI-merge Go1.27.1/lint2.13.2 reports zero issues
+and the final lifecycle/upload tests pass. Independent follow-up found no new
+issue and passed the focused tests in1.367s. The retry-accounting finding remains
+separate and unfixed by CO-034.

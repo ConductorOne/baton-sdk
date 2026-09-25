@@ -172,3 +172,32 @@ func TestLedgerSealReadyUnfinishedDoesNotStartAnotherPass(t *testing.T) {
 	require.EqualValues(t, 17, s.run.completedActionsCount())
 	require.True(t, equalLedgerSnapshot(before, ledgerSnapshotWithFoldedCounters(t, f.engine)))
 }
+
+func TestLedgerPreparedSealSurvivesEarlyEnd(t *testing.T) {
+	f := newLedgerFixture(t)
+	id := f.engine.CurrentSyncID()
+	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
+	runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "prior")
+	require.NoError(t, err)
+	require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{
+		Counters: map[string]uint64{ledgerCompletedActions: 17},
+	}, c1zstore.LedgerFactRetainTokens))
+	require.NoError(t, f.store.EndSync(t.Context()))
+	require.NoError(t, f.store.Close(t.Context()))
+	f = openLedgerFixtureAt(t, f.path, false)
+	require.NoError(t, f.store.SetCurrentSync(t.Context(), id))
+	before := ledgerSnapshotWithFoldedCounters(t, f.engine)
+	s := ledgerContinuationSyncer(f)
+	observeLedgerRestore(t, s, f)
+	require.NoError(t, s.prepareLedgerState(t.Context(), "retry", false))
+	f.audit.enter(ledgerLifecycle)
+	require.True(t, s.run.hasFact(ledgerFactSealReady))
+	require.True(t, s.run.hasFact(c1zstore.LedgerFactRetainTokens))
+	require.Nil(t, s.run.current())
+	require.EqualValues(t, 17, s.run.completedActionsCount())
+	require.True(t, equalLedgerSnapshot(before, ledgerSnapshotWithFoldedCounters(t, f.engine)))
+	require.NoError(t, s.ledger.seal(t.Context()))
+	facts, err := f.ledger.LedgerFacts(t.Context())
+	require.NoError(t, err)
+	require.Contains(t, facts, c1zstore.LedgerFactRetainTokens)
+}
