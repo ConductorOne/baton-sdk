@@ -130,3 +130,19 @@ Move the pure ledger-to-SyncStats conversion into c1zstore so the syncer and
 plain engine ending use identical accounting. Preserve completion guards and
 cleanup for EndSyncWithStats. Test the current refusal before removing it, then
 exercise cold reopen, stamp failure/retry and reset. No SQLite path changes.
+
+### CO-033 service-mode rollback instrument
+
+Use NewConnectorRunner in daemon mode with its real C1 task manager, authenticated
+local TLS/gRPC client, heartbeat loop, full-sync handler and streaming upload.
+Only C1's token/task API and connector endpoint data are simulated. Compile the
+same child connector fixture on current and historical SDK revisions. The parent
+keeps one API endpoint and persistent directory while replacing child processes.
+Kill after the second resource request proves the first page has returned; inspect
+the surviving current-engine database to establish committed ledger work. Also
+exercise a reported connector error. With spare retention enabled, first finish
+a new-SDK task to seed the spare. Requeue the same task after replacement and
+require a validated upload, successful FinishTask and another accepted task.
+Keep the cross-version build opt-in; no production injection hooks or retry
+policy changes. Results must distinguish SDK daemon behavior from C1 workflow
+redelivery, which the local API controls.
