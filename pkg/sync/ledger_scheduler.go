@@ -26,11 +26,12 @@ type ledgerInvocationKey struct{}
 type ledgerCommitKey struct{}
 
 type ledgerInvocation struct {
-	attempts    *ledgerAttempts
-	action      *Action
-	page        *ledgerPage
-	children    []Action
-	afterCommit []func()
+	attempts              *ledgerAttempts
+	action                *Action
+	page                  *ledgerPage
+	children              []Action
+	afterCommit           []func()
+	connectorObservations c1zstore.LedgerCounters
 }
 
 type ledgerTransitionCommit struct {
@@ -125,6 +126,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		default:
 			return errors.New("ledger production handlers are not integrated")
 		}
+		invocation.connectorObservations = attempts.addObservations(invocation.connectorObservations)
 		if err != nil {
 			if !allowWarning || !isWarning(pageCtx, err) {
 				handlerFailure = err
@@ -156,6 +158,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		if err := page.writer.SetPendingWork(s.pendingForAction(action), childKeys...); err != nil {
 			return err
 		}
+		page.observations = addLedgerCounters(page.observations, invocation.connectorObservations)
 		attempts.snapshot(&page.row)
 		return nil
 	}, func(page *ledgerPage, commit func() error) error {
@@ -184,6 +187,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		}
 		return err
 	}
+	s.publishLedgerConnectorObservations(invocation.connectorObservations)
 	for _, publish := range invocation.afterCommit {
 		publish()
 	}

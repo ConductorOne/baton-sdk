@@ -472,3 +472,15 @@ or scheduler. The independent retry-accounting issue remains outstanding.
 
 The bounded independent review at82c27640 found no confirmed bug, checked error
 propagation and the terminating handoff, and passed focused tests in2.949s.
+
+### CO-036 — retry accounting correction
+
+Status: verified to stated focused coverage (C22–C24/C43 correction, not closure of their full original products).
+
+`TestLedgerConnectorCallTotalsIncludeRetriedCalls` reproduces two unavailable responses followed by success, then two more pages including a repeated request token. It uses the existing scheduler with worker limits 1/4 (one serial page chain), the guarded Pebble fixture and its write hook. Exact assertions cover connector counts/sums/maxima by method and type, session counts/errors/timeouts/sums/maxima, reported waits, ledger row attempts/errors, one completed action, absence of failed-attempt records/facts/ingest counters, and unchanged counters after close/reopen. No per-retry responses or callbacks are retained; aggregate maps are cleared on page commit or identity change.
+
+Planted defect: retain pre-correction page-local observation ownership. The original three-attempt reproduction failed with one saved/live method call rather than three, 4ms rather than 12ms, and two session operations rather than six. The strengthened test also failed against the unmodified CI merge base. It passes with the correction. Failed page effects are still discarded; only connector observations cross a retry boundary. Wall-wait intervals are recorded when observed, while their accounting is published with the successful page.
+
+Validation: full sync suite 107.962s; focused retry/accounting race selection three repetitions 4.549s; final close/reopen test under race three repetitions 1.300s; final test on the PR merge base plus correction, Go 1.27.1, 0.058s; golangci-lint 2.13.2 over sync/dotc1z, zero issues. The only change after the full suite was adding the close/reopen assertions, covered by the final race and merge-base runs. No storage implementation, SQLite path, scheduler ordering or extra durable write changed.
+
+Limits: handler hook supplies deterministic call timings/annotations; this is not a network transport test. The four-worker setting exercises scheduler configuration, not four simultaneous chains. Calls from a page that never commits, or observations lost on process death before commit, remain best-effort and are not claimed as durable accounting. No new independent reviewer was used for this correction; the original independent reproduction supplies the failure oracle.
