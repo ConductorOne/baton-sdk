@@ -30,7 +30,7 @@ headers. Unsupported algorithms and invalid keys fail before issuance.
 The private JOSE algorithm identifier is:
 
 ```text
-https://conductorone.com/alg/hpke-xwing-hkdf-sha256-chacha20poly1305/v1
+https://c1.ai/alg/hpke-xwing-hkdf-sha256-chacha20poly1305/v1
 ```
 
 It selects X-Wing (`0x647a`), HKDF-SHA256 (`0x0001`) and ChaCha20-Poly1305

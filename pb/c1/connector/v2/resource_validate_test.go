@@ -43,14 +43,16 @@ func legacyPublicJWK(t *testing.T, key any) []byte {
 }
 
 // xwingPublicJWK renders the public JWK the JWE provider consumes. The
-// algorithm identifier is the wire value the provider validates against.
+// algorithm identifier must match the provider's Algorithm constant, which is
+// the source of truth; this sample only needs to be byte-realistic for the
+// length bound under test.
 func xwingPublicJWK(t *testing.T) []byte {
 	t.Helper()
 	privateKey, err := hpke.MLKEM768X25519().GenerateKey()
 	require.NoError(t, err)
 	encoded, err := json.Marshal(map[string]string{
 		"kty": "AKP",
-		"alg": "https://conductorone.com/alg/hpke-xwing-hkdf-sha256-chacha20poly1305/v1",
+		"alg": "https://c1.ai/alg/hpke-xwing-hkdf-sha256-chacha20poly1305/v1",
 		"pub": base64.RawURLEncoding.EncodeToString(privateKey.PublicKey().Bytes()),
 	})
 	require.NoError(t, err)

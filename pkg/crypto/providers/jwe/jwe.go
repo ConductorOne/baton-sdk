@@ -18,7 +18,7 @@ import (
 
 const (
 	EncryptionProvider                  = "baton/jwe/v1"
-	Algorithm                           = "https://conductorone.com/alg/hpke-xwing-hkdf-sha256-chacha20poly1305/v1"
+	Algorithm                           = "https://c1.ai/alg/hpke-xwing-hkdf-sha256-chacha20poly1305/v1"
 	MaxJWKBytes                         = 16 * 1024
 	MaxAdditionalAuthenticatedDataBytes = 16 * 1024
 	MaxPlaintextBytes                   = 1024 * 1024
