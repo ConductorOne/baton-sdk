@@ -1271,3 +1271,15 @@ still has lifecycle work to finish, even if its page queue is empty and ended_at
 is already present. Preserve its terminal marker and retention policy and retry
 the prepared seal. Fully checked completion clears the declaration; a subsequent
 ended rebind initializes the new request normally. Source: correction review.
+
+### CO-035 — a prior seal does not fulfill a new expansion request
+
+- Classification: caller-contract correction.
+- Source: requester, following the prepared-seal review finding.
+- Claim: an explicit expansion-only call on an empty recovery queue finishes any prior seal and then performs the requested expansion before returning success. It does not require a second identical call. Pending expansion work still executes directly. Ordinary recovery without a new expansion-only request may finish the prior seal alone. Existing records and sync identity survive the handoff; errors at either phase remain errors.
+- Contract delta: none in storage. This supersedes CO-034's two-call expansion-only behavior. Repeating deterministic expansion for a new explicit request is allowed and is accounted as actual work; no file-level expanded-status flag is added.
+- Owning boundary: syncer orchestration between sealing the prior pass and initializing the requested pass.
+- Affected criteria: C16, C24, C31–C36, C43.
+- Verification delta: copied unexpanded files, prepared seals before/after EndSync, normal recovery control, seal failure/retry and close/reopen must yield exact expanded grants from one expansion-only call. Preserve counters and prior retention through the first seal; apply current options to new work. No recollection, no replacement sync ID, no false success at a failed handoff.
+- Risk routing: HIGH; reuse existing seal, binding and Init operations.
+- PR placement: this PR.
