@@ -177,3 +177,7 @@ Explicit expansion-only calls after a drained pass may redo deterministic
 expansion. Tests must count both executed passes honestly rather than suppress
 new work to keep counters equal to a one-call reference. Pending-work recovery
 continues to avoid reseeding while an expansion item is present.
+
+### CO-036 implementation
+
+Separate connector observations from page effects. Fold each handler attempt's connector/session/wait counters into the existing retry accumulator, then include that aggregate in the successful page bucket and publish the same aggregate to live stats after commit. Keep only aggregate maps, never callbacks or responses per retry. Clear on commit or identity change. Record wall-wait intervals when observed, rather than reconstructing their timestamps at commit. Preserve page-only callbacks for records and ingest effects. Add the independent three-attempt reproducer, strengthen exact field and next-page assertions, demonstrate failure before correction, then run sync and race checks. Commit correction and evidence separately from this brief.
