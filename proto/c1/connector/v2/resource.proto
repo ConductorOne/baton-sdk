@@ -386,10 +386,10 @@ message EncryptionConfig {
   string key_id = 3;
 
   message JWKPublicKeyConfig {
-    bytes pub_key = 1;
+    bytes pub_key = 1 [(validate.rules).bytes = {max_len: 16384}];
     // Opaque bytes authenticated by a supporting provider, not encrypted.
     // Providers without AAD support reject nonempty values.
-    bytes additional_authenticated_data = 2;
+    bytes additional_authenticated_data = 2 [(validate.rules).bytes = {max_len: 16384}];
   }
 
   // AgeRecipientConfig encrypts data directly to a standard age recipient.
