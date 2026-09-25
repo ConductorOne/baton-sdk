@@ -5855,10 +5855,13 @@ func (b0 CreateAccountResponse_InProgressResult_builder) Build() *CreateAccountR
 }
 
 type EncryptionConfig_JWKPublicKeyConfig struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	PubKey        []byte                 `protobuf:"bytes,1,opt,name=pub_key,json=pubKey,proto3" json:"pub_key,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"hybrid.v1"`
+	PubKey []byte                 `protobuf:"bytes,1,opt,name=pub_key,json=pubKey,proto3" json:"pub_key,omitempty"`
+	// Opaque bytes authenticated by a supporting provider, not encrypted.
+	// Providers without AAD support reject nonempty values.
+	AdditionalAuthenticatedData []byte `protobuf:"bytes,2,opt,name=additional_authenticated_data,json=additionalAuthenticatedData,proto3" json:"additional_authenticated_data,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *EncryptionConfig_JWKPublicKeyConfig) Reset() {
@@ -5893,6 +5896,13 @@ func (x *EncryptionConfig_JWKPublicKeyConfig) GetPubKey() []byte {
 	return nil
 }
 
+func (x *EncryptionConfig_JWKPublicKeyConfig) GetAdditionalAuthenticatedData() []byte {
+	if x != nil {
+		return x.AdditionalAuthenticatedData
+	}
+	return nil
+}
+
 func (x *EncryptionConfig_JWKPublicKeyConfig) SetPubKey(v []byte) {
 	if v == nil {
 		v = []byte{}
@@ -5900,10 +5910,20 @@ func (x *EncryptionConfig_JWKPublicKeyConfig) SetPubKey(v []byte) {
 	x.PubKey = v
 }
 
+func (x *EncryptionConfig_JWKPublicKeyConfig) SetAdditionalAuthenticatedData(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.AdditionalAuthenticatedData = v
+}
+
 type EncryptionConfig_JWKPublicKeyConfig_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	PubKey []byte
+	// Opaque bytes authenticated by a supporting provider, not encrypted.
+	// Providers without AAD support reject nonempty values.
+	AdditionalAuthenticatedData []byte
 }
 
 func (b0 EncryptionConfig_JWKPublicKeyConfig_builder) Build() *EncryptionConfig_JWKPublicKeyConfig {
@@ -5911,6 +5931,7 @@ func (b0 EncryptionConfig_JWKPublicKeyConfig_builder) Build() *EncryptionConfig_
 	b, x := &b0, m0
 	_, _ = b, x
 	x.PubKey = b.PubKey
+	x.AdditionalAuthenticatedData = b.AdditionalAuthenticatedData
 	return m0
 }
 
@@ -6178,15 +6199,16 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x16\n" +
 	"\x06schema\x18\x03 \x01(\tR\x06schema\x12\x14\n" +
-	"\x05bytes\x18\x04 \x01(\fR\x05bytes\"\xcc\x03\n" +
+	"\x05bytes\x18\x04 \x01(\fR\x05bytes\"\xa7\x04\n" +
 	"\x10EncryptionConfig\x127\n" +
 	"\tprincipal\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\tprincipal\x12\x1a\n" +
 	"\bprovider\x18\x02 \x01(\tR\bprovider\x12\x15\n" +
 	"\x06key_id\x18\x03 \x01(\tR\x05keyId\x12i\n" +
 	"\x15jwk_public_key_config\x18d \x01(\v24.c1.connector.v2.EncryptionConfig.JWKPublicKeyConfigH\x00R\x12jwkPublicKeyConfig\x12h\n" +
-	"\x14age_recipient_config\x18e \x01(\v24.c1.connector.v2.EncryptionConfig.AgeRecipientConfigH\x00R\x12ageRecipientConfig\x1a-\n" +
-	"\x12JWKPublicKeyConfig\x12\x17\n" +
-	"\apub_key\x18\x01 \x01(\fR\x06pubKey\x1a>\n" +
+	"\x14age_recipient_config\x18e \x01(\v24.c1.connector.v2.EncryptionConfig.AgeRecipientConfigH\x00R\x12ageRecipientConfig\x1a\x87\x01\n" +
+	"\x12JWKPublicKeyConfig\x12\"\n" +
+	"\apub_key\x18\x01 \x01(\fB\t\xfaB\x06z\x04\x18\x80\x80\x01R\x06pubKey\x12M\n" +
+	"\x1dadditional_authenticated_data\x18\x02 \x01(\fB\t\xfaB\x06z\x04\x18\x80\x80\x01R\x1badditionalAuthenticatedData\x1a>\n" +
 	"\x12AgeRecipientConfig\x12(\n" +
 	"\trecipient\x18\x01 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80 R\trecipientB\b\n" +

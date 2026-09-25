@@ -72,6 +72,10 @@ enum Capability {
   // The connector can mint new credentials for an existing identity via
   // CredentialManagerService.IssueCredential.
   CAPABILITY_CREDENTIAL_ISSUE = 14;
+  // IssueCredential supports the baton/jwe/v1 X-Wing recipient with one config
+  // and one plaintext value. This names that one suite, not JWE in general;
+  // another suite needs its own capability value.
+  CAPABILITY_CREDENTIAL_ENCRYPTION_JWE_XWING_V1 = 16;
 }
 
 message CredentialDetails {

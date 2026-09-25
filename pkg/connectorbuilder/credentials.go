@@ -71,6 +71,18 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 		return nil, fmt.Errorf("error: rotate credentials on resource failed: %w", err)
 	}
 
+	// Validate recipients only when there is something to encrypt. A connector
+	// that rotates without returning the new value never uses the supplied
+	// configs, so an unusable one must not turn a completed rotation into a
+	// failure.
+	if len(plaintexts) > 0 {
+		if err := crypto.ValidateEncryptionConfigs(request.GetEncryptionConfigs()); err != nil {
+			l.Error("error: validating encryption configs failed", zap.Error(err))
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+			return nil, fmt.Errorf("error: validating encryption configs failed: %w", err)
+		}
+	}
+
 	pkem, err := crypto.NewEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
 	if err != nil {
 		l.Error("error: creating encryption manager failed", zap.Error(err))
@@ -220,6 +232,13 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		l.Error("error: issue credential for identity failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: issue credential for identity failed: %w", err)
+	}
+	if output != nil {
+		err = crypto.ValidateCredentialOutputCardinality(request.GetEncryptionConfigs(), len(output.PlaintextData))
+		if err != nil {
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+			return nil, err
+		}
 	}
 	err = validateCredentialIssueOutput(request.GetIdentityId(), request.GetExpiresAt(), output, descriptor)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	ageprovider "github.com/conductorone/baton-sdk/pkg/crypto/providers/age"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwe"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 )
 
@@ -46,6 +47,7 @@ var providerRegistry = map[string]EncryptionProvider{
 }
 
 var encryptorRegistry = map[string]Encryptor{
+	normalizeProviderName(jwe.EncryptionProvider):            &jwe.Provider{},
 	normalizeProviderName(ageprovider.EncryptionProviderAge): &ageprovider.RecipientEncryptionProvider{},
 	normalizeProviderName(jwk.EncryptionProviderJwk):         &jwk.JWKEncryptionProvider{},
 	normalizeProviderName(jwk.EncryptionProviderJwkPrivate):  &jwk.JWKEncryptionProvider{},
@@ -75,6 +77,9 @@ func GetEncryptor(name string) (Encryptor, error) {
 // GetEncryptorForConfig resolves an encryption-capable provider from an EncryptionConfig.
 func GetEncryptorForConfig(ctx context.Context, conf *v2.EncryptionConfig) (Encryptor, error) {
 	providerName := normalizeProviderName(conf.GetProvider())
+	if len(conf.GetJwkPublicKeyConfig().GetAdditionalAuthenticatedData()) != 0 && providerName != jwe.EncryptionProvider {
+		return nil, fmt.Errorf("crypto/providers: provider does not support authenticated data")
+	}
 	if providerName == "" {
 		switch {
 		case conf.GetAgeRecipientConfig() != nil:
