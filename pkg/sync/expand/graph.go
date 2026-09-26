@@ -91,6 +91,24 @@ type EntitlementGraph struct {
 	HasNoCycles           bool                      `json:"has_no_cycles"`
 	ExpansionPlan         *EntitlementGraphPlan     `json:"plan,omitempty"`
 	ExpansionMetrics      *EntitlementGraphMetrics  `json:"metrics,omitempty"`
+	// DanglingEntitlementIDs are edge endpoints this expansion skipped because
+	// they had no entitlement row in the store. If a later sync supplies one of
+	// those rows it adds no edge and no grant — the only two things incremental
+	// expansion seeds from — so nothing would seed the walk and the fast path
+	// would miss grants full expansion writes. Persisted so the next compaction
+	// can precheck these ids: any that now resolve seed expansion, while those
+	// still missing remain recorded without seeding a walk.
+	//
+	// Scoped deliberately. Most dangling references are permanent (connector
+	// magic-id bugs, disabled-by-default resource types — see DroppedEdgeStats),
+	// so a graph-wide "something was dangling" flag would re-arm on every full
+	// expansion and disable the fast path forever for those tenants.
+	DanglingEntitlementIDs map[string]struct{} `json:"dangling_entitlement_ids,omitempty"`
+	// DanglingOverflow means the dangling set hit its cap, or an evaluator
+	// dropped the edge outright so seeding cannot recover it. Either way the id
+	// list is no longer a complete description of what was skipped, so the next
+	// compaction must decline rather than seed.
+	DanglingOverflow bool `json:"dangling_overflow,omitempty"`
 }
 
 type EntitlementGraphMetrics struct {
@@ -110,6 +128,43 @@ func NewEntitlementGraph(_ context.Context) *EntitlementGraph {
 		SourcesToDestinations: make(map[int]map[int]int),
 		HasNoCycles:           false,
 	}
+}
+
+// maxDanglingEntitlementIDs caps the persisted dangling set so a pathologically
+// broken connector cannot bloat the sidecar. Past the cap the graph records
+// overflow and the next compaction declines instead of seeding. A var so tests
+// can lower it.
+var maxDanglingEntitlementIDs = 4096
+
+// NoteDanglingReference records that an expansion skipped entitlementID because
+// it has no row in the store. Nil-safe: the legacy expander reaches it through
+// a graph that may not be installed yet.
+func (g *EntitlementGraph) NoteDanglingReference(entitlementID string) {
+	if g == nil || entitlementID == "" {
+		return
+	}
+	if g.DanglingEntitlementIDs == nil {
+		g.DanglingEntitlementIDs = make(map[string]struct{})
+	}
+	if _, ok := g.DanglingEntitlementIDs[entitlementID]; ok {
+		return
+	}
+	if len(g.DanglingEntitlementIDs) >= maxDanglingEntitlementIDs {
+		g.DanglingOverflow = true
+		return
+	}
+	g.DanglingEntitlementIDs[entitlementID] = struct{}{}
+}
+
+// NoteUnrecoverableDangling records a skipped endpoint whose edge was dropped
+// from the graph, so seeding the id on a later run could not reach it. Only the
+// source-batched evaluator deletes edges, and it never runs on Pebble, but the
+// graph must still refuse to be reused if it ever does.
+func (g *EntitlementGraph) NoteUnrecoverableDangling() {
+	if g == nil {
+		return
+	}
+	g.DanglingOverflow = true
 }
 
 // isNodeExpanded - is every outgoing edge from this node Expanded?
