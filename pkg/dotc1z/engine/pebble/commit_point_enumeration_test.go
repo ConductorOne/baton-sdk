@@ -67,8 +67,8 @@ var commitPointRegistry = map[string][]string{
 
 	// Source-cache replay/tombstone loops: dedicated per-loop seams
 	// (each distinct commit loop is its own cut — CO-009's lesson).
-	// The canonical tombstone paths (DeleteGrantRecordsBounded,
-	// DeleteEntitlementRecords, DeleteResourceRecordsBounded) commit
+	// The ref tombstone paths (DeleteGrantRecordsByRef,
+	// DeleteEntitlementRecordsByRef, DeleteResourceRecordsByRef) commit
 	// exclusively through sourceCacheDeleteBatch.commit below.
 	"source_cache.go:ReplaySourceCacheResources":        {"sourceCacheReplayCommitHook"},
 	"source_cache.go:ReplaySourceCacheEntitlements":     {"sourceCacheReplayCommitHook"},

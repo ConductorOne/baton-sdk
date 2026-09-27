@@ -13,10 +13,10 @@ func TestVerificationPhase6aExecutableExclusions(t *testing.T) {
 	})
 	t.Run("C28-invalid-UTF8-protobuf-ID", func(t *testing.T) {
 		t.Skip("protobuf string fields cannot encode invalid UTF-8; the representable hostile-ID corpus covers " +
-			"empty, NUL, normalization neighbors, max/oversized opaque IDs, and malformed resource BIDs")
+			"empty, NUL, normalization neighbors, and max/oversized opaque IDs")
 	})
 	t.Run("C28-empty-resource-BID-tombstone", func(t *testing.T) {
-		t.Skip("an empty opaque resource id can be stored and replayed, but bid.MakeResourceBid rejects it, so no canonical resource tombstone selector can represent that cell")
+		t.Skip("an empty opaque resource id can be stored and replayed, but a ResourceRef with an empty id is incomplete (Tombstones.Validate), so no tombstone can name that cell")
 	})
 	t.Run("C30-compatibility-record-lifecycle", func(t *testing.T) {
 		t.Skip("SourceCacheCompatRecord is schema-only in Phase 6a; no Pebble compatibility-family writer or key exists to exercise without implementing deferred compatibility behavior")

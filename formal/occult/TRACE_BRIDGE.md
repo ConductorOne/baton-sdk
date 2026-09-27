@@ -29,8 +29,8 @@ One trace = one sync attempt's events, in commit order. Constructors
 copied is the un-regrounded class, delete flavor), dirties the
 quiescent-checkpoint flag, and marks the scope active for seal
 obligations. Naming note: these "tombstones" are deletion entries in
-the CONNECTOR RESPONSE (`DeletedIds`/`DeletedPrincipalIds` on the
-replay/record annotations), applied synchronously as plain row
+the CONNECTOR RESPONSE (`SourceCacheTombstones` on the replay/record
+annotations), applied synchronously as plain row
 deletes — nothing deletion-shaped is durably stored.
 
 The multi-attempt extension: a trace is ONE SYNC's events, with

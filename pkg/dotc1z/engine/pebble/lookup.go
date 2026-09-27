@@ -265,17 +265,6 @@ func (e *Engine) grantPrimaryPrefixNonEmpty(prefix []byte) (bool, error) {
 // the row instead of the concat). Exactly one hit wins; zero is
 // pebble.ErrNotFound; several is ErrAmbiguousExternalID.
 func (e *Engine) resolveGrantIdentityByExternalID(ctx context.Context, grantID string) (grantIdentity, error) {
-	return e.resolveGrantIdentity(ctx, grantID, true)
-}
-
-// resolveGrantIdentityByCandidates is the bounded variant used by
-// source-cache tombstones. It never falls back to an O(all grants) scan for
-// connector-custom stored ids.
-func (e *Engine) resolveGrantIdentityByCandidates(ctx context.Context, grantID string) (grantIdentity, error) {
-	return e.resolveGrantIdentity(ctx, grantID, false)
-}
-
-func (e *Engine) resolveGrantIdentity(ctx context.Context, grantID string, allowStoredIDScan bool) (grantIdentity, error) {
 	id, err := resolveGrantIdentityCandidates(ctx, grantID, e.entitlementIdentitiesForExternalID, func(id grantIdentity) (string, error) {
 		val, closer, err := e.db.Get(encodeGrantIdentityKey(id))
 		if err != nil {
@@ -284,7 +273,7 @@ func (e *Engine) resolveGrantIdentity(ctx context.Context, grantID string, allow
 		defer closer.Close()
 		return scanGrantExternalIDRaw(val)
 	})
-	if errors.Is(err, pebble.ErrNotFound) && allowStoredIDScan {
+	if errors.Is(err, pebble.ErrNotFound) {
 		return e.scanGrantIdentityByStoredExternalID(ctx, grantID)
 	}
 	return id, err
