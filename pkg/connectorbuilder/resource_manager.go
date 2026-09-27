@@ -55,6 +55,32 @@ type ResourceDeleter interface {
 	ResourceDeleterLimited
 }
 type ResourceDeleterLimited interface {
+	// Delete removes the resource identified by resourceId at the provider.
+	//
+	// Delete MUST be idempotent: it must be safe to call more than once for the
+	// same resourceId, including after a crash or lost response forces a retry
+	// of a delete that already succeeded.
+	//
+	// If the connector's delete (or a get performed as part of delete)
+	// authoritatively reports that the addressed resource is already absent at
+	// the provider, Delete MUST return a nil error together with a
+	// ResourceDoesNotExist annotation (github.com/conductorone/baton-sdk/pb/c1/connector/v2).
+	// This signals that the desired end state — the resource being absent — already
+	// holds, and is the resource-plane analog of returning GrantAlreadyRevoked
+	// from Revoke: it lets a delete retried after a lost response be treated as
+	// success rather than a failure.
+	//
+	// Delete MUST NOT return ResourceDoesNotExist unless the provider
+	// authoritatively reports the addressed resource absent. A NotFound that
+	// could instead indicate a malformed or wrong resourceId (or tenant) must
+	// be returned as an error so callers can distinguish a real deletion from a
+	// mis-addressed one.
+	//
+	// Connectors participating in this contract should prefer implementing
+	// ResourceDeleterV2 instead of this interface: V1's resourceId alone is not
+	// always enough to unambiguously address a resource, and the V1-to-V2 shim
+	// drops parentResourceID, so V1 deleters cannot rely on it when confirming
+	// absence.
 	Delete(ctx context.Context, resourceId *v2.ResourceId) (annotations.Annotations, error)
 }
 
@@ -68,6 +94,32 @@ type ResourceDeleterV2 interface {
 }
 
 type ResourceDeleterV2Limited interface {
+	// Delete removes the resource identified by resourceId (addressed within
+	// parentResourceID, when set) at the provider.
+	//
+	// Delete MUST be idempotent: it must be safe to call more than once for the
+	// same resourceId/parentResourceID pair, including after a crash or lost
+	// response forces a retry of a delete that already succeeded.
+	//
+	// If the connector's delete (or a get performed as part of delete)
+	// authoritatively reports that the addressed resource is already absent at
+	// the provider, Delete MUST return a nil error together with a
+	// ResourceDoesNotExist annotation (github.com/conductorone/baton-sdk/pb/c1/connector/v2).
+	// This signals that the desired end state — the resource being absent — already
+	// holds, and is the resource-plane analog of returning GrantAlreadyRevoked
+	// from Revoke: it lets a delete retried after a lost response be treated as
+	// success rather than a failure.
+	//
+	// Delete MUST NOT return ResourceDoesNotExist unless the provider
+	// authoritatively reports the addressed resource absent. A NotFound that
+	// could instead indicate a malformed or wrong resourceId, parentResourceID,
+	// or tenant must be returned as an error so callers can distinguish a real
+	// deletion from a mis-addressed one.
+	//
+	// Connectors participating in this contract should implement
+	// ResourceDeleterV2 (this interface), not ResourceDeleter (V1): correctly
+	// confirming absence generally requires parentResourceID to address the
+	// resource, and the V1-to-V2 shim drops parentResourceID entirely.
 	Delete(ctx context.Context, resourceId *v2.ResourceId, parentResourceID *v2.ResourceId) (annotations.Annotations, error)
 }
 
