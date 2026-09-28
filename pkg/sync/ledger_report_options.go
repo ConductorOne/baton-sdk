@@ -1,28 +1,28 @@
 package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-func (s *syncer) stageLedgerReportOptions(page *ledgerPage) error {
-	page.runtime.mu.Lock()
-	recorded := page.runtime.optionsRecorded
-	page.runtime.mu.Unlock()
-	if recorded {
-		return nil
+// putLedgerReportOptions records the attempt's options once, before its first
+// page, as a lifecycle write. Effective skip flags come from the request as
+// well as facts because on a fresh sync Init has not yet turned the request
+// into facts.
+func (s *syncer) putLedgerReportOptions(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	hasFact := func(fact string) bool {
-		return page.hasFact(fact) || s.run != nil && s.run.hasFact(fact)
-	}
+	hasFact := func(fact string) bool { return s.run != nil && s.run.hasFact(fact) }
 	cfg := s.cfg
 	options := c1zstore.LedgerReportOptions{
 		Attempt:                            s.ledger.runID,
 		EffectiveLedgerDebug:               s.ledgerDebug,
 		EffectiveRetainLedgerTokens:        cfg.retainLedgerTokens || hasFact(c1zstore.LedgerFactRetainTokens),
-		EffectiveSkipGrants:                hasFact(factShouldSkipGrants),
-		EffectiveSkipEntitlementsAndGrants: hasFact(factShouldSkipEntitlementsAndGrants),
+		EffectiveSkipGrants:                cfg.skipGrants || hasFact(factShouldSkipGrants),
+		EffectiveSkipEntitlementsAndGrants: cfg.skipEntitlementsAndGrants || hasFact(factShouldSkipEntitlementsAndGrants),
 		Requested: c1zstore.LedgerRequestedOptions{
 			SyncType: string(cfg.syncType), ResourceTypes: cfg.syncResourceTypes, WorkerCount: cfg.workerCount, RunDurationMs: cfg.runDuration.Milliseconds(),
 			LedgerDebug: cfg.ledgerDebug, RetainLedgerTokens: cfg.retainLedgerTokens,
@@ -46,10 +46,9 @@ func (s *syncer) stageLedgerReportOptions(page *ledgerPage) error {
 	if err != nil {
 		return err
 	}
-	if !page.hasFact(c1zstore.LedgerFactFirstReportOptions) {
-		if err := page.setFactValue(c1zstore.LedgerFactFirstReportOptions, string(data)); err != nil {
-			return err
-		}
+	facts := map[string]string{c1zstore.LedgerFactReportOptions: string(data)}
+	if !hasFact(c1zstore.LedgerFactFirstReportOptions) {
+		facts[c1zstore.LedgerFactFirstReportOptions] = string(data)
 	}
-	return page.setFactValue(c1zstore.LedgerFactReportOptions, string(data))
+	return s.caps.pageLedger.PutLedgerFacts(ctx, facts)
 }

@@ -113,9 +113,6 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		page.row.Spawned = action.Spawned
 		page.row.TypeScopedPlanned = action.TypeScopedPlanned
 		pageCtx = context.WithValue(pageCtx, ledgerInvocationKey{}, invocation)
-		if err := s.ledger.preparePage(pageCtx); err != nil {
-			return err
-		}
 		var err error
 		switch {
 		case s.testHooks.ledgerHandler != nil:
@@ -150,7 +147,6 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 				page.observations.Counters[ledgerWarningsPrefix+action.Op.String()]++
 			}
 		}
-		page.reportOptions = s.stageLedgerReportOptions
 		childKeys := make([]string, len(invocation.children))
 		for i, child := range invocation.children {
 			childKeys[i] = ledgerSchedulingKey(child)

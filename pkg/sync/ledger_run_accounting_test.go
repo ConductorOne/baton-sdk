@@ -181,7 +181,7 @@ func TestLedgerMigratedAccountingAcrossColdResumes(t *testing.T) {
 			require.NoError(t, s.prepareLedgerState(ctx, "seal-attempt", false))
 			require.Nil(t, s.run.current())
 			require.EqualValues(t, 8, s.run.completedActionsCount())
-			require.NoError(t, s.prepareLedgerSeal(ctx, s.ledger.accounting.snapshot()))
+			require.NoError(t, s.ledger.prepareSeal(ctx, s.ledger.accounting.snapshot()))
 			require.NoError(t, s.ledger.seal(ctx))
 			require.NoError(t, f.store.Close(ctx))
 			f = openLedgerFixtureAt(t, f.path, false)

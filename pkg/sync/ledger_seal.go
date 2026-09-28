@@ -10,11 +10,7 @@ import (
 const ledgerTerminalOp = "sync-terminal-v1"
 const ledgerFactSealReady = "sync.seal_ready"
 
-func (s *syncer) prepareLedgerSeal(ctx context.Context, counters c1zstore.LedgerCounters, facts ...string) error {
-	return s.ledger.prepareSealWithOptions(ctx, counters, s.stageLedgerReportOptions, facts...)
-}
-
-func (r *ledgerRuntime) prepareSealWithOptions(ctx context.Context, runCounters c1zstore.LedgerCounters, options func(*ledgerPage) error, facts ...string) error {
+func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.LedgerCounters, facts ...string) error {
 	pending, initialized, err := r.store.PendingWork(ctx, 0, 1)
 	if err != nil {
 		return err
@@ -45,11 +41,6 @@ func (r *ledgerRuntime) prepareSealWithOptions(ctx context.Context, runCounters 
 	}
 	page := r.store.BeginPage()
 	defer page.Discard()
-	if options != nil {
-		if err := options(&ledgerPage{writer: page, runtime: r, facts: make(map[string]string)}); err != nil {
-			return err
-		}
-	}
 	for _, fact := range facts {
 		if err := page.SetFact(fact); err != nil {
 			return err

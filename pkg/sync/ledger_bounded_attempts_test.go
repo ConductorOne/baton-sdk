@@ -3,6 +3,7 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -24,6 +25,7 @@ func TestLedgerAttemptMetadataBoundedAcrossResumes(t *testing.T) {
 		s.cfg.workerCount = i%4 + 1
 		f.audit.enter(ledgerLifecycle)
 		require.NoError(t, s.prepareLedgerState(t.Context(), fmt.Sprintf("attempt-%d", i), false))
+		require.NoError(t, s.putLedgerReportOptions(t.Context()))
 		f.audit.enter(ledgerHandler)
 		require.NoError(t, s.invokeActionPage(t.Context(), s.run.current(), nil, false))
 		f.audit.enter(ledgerLifecycle)
@@ -48,7 +50,7 @@ func TestLedgerAttemptMetadataBoundedAcrossResumes(t *testing.T) {
 		}
 	}
 	require.Equal(t, 2, buckets)
-	require.NoError(t, s.prepareLedgerSeal(t.Context(), c1zstore.LedgerCounters{}, c1zstore.LedgerFactDiscardOnSeal))
+	require.NoError(t, s.ledger.prepareSeal(t.Context(), c1zstore.LedgerCounters{}, c1zstore.LedgerFactDiscardOnSeal))
 	require.NoError(t, s.ledger.seal(t.Context()))
 	require.NoError(t, f.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
@@ -80,73 +82,61 @@ func TestLedgerAttemptMetadataBoundedAcrossResumes(t *testing.T) {
 	require.Equal(t, "attempt-127", saved.Latest.Latest.Attempt)
 }
 
-func TestLedgerFirstOptionsFollowCommitOrder(t *testing.T) {
-	s, f := newLedgerSchedulerFixture(t, 2)
-	staged, release := make(chan struct{}), make(chan struct{})
-	done := make(chan error, 1)
-	defer func() {
-		select {
-		case <-release:
-		default:
-			close(release)
-		}
-	}()
-	f.audit.enter(ledgerHandler)
-	go func() {
-		_, err := s.ledger.runPage(t.Context(), 0, c1zstore.LedgerActionIdentity{Op: "later"}, func(_ context.Context, page *ledgerPage) error {
-			page.reportOptions = s.stageLedgerReportOptions
-			if err := page.setFact(factShouldSkipGrants); err != nil {
-				return err
-			}
-			close(staged)
-			<-release
-			return page.transition("")
-		})
-		done <- err
-	}()
-	select {
-	case <-staged:
-	case err := <-done:
-		t.Fatalf("page failed before staging: %v", err)
-	}
-	_, err := s.ledger.runPage(t.Context(), 1, c1zstore.LedgerActionIdentity{Op: "first"}, func(_ context.Context, page *ledgerPage) error {
-		page.reportOptions = s.stageLedgerReportOptions
-		return page.transition("")
-	})
-	require.NoError(t, err)
-	close(release)
-	require.NoError(t, <-done)
+// CO-038: the snapshot precedes the first page and reflects the request, so a
+// fresh sync that disables grants records that before Init has turned the
+// option into a fact; an attempt that commits no page still names itself as
+// latest; first survives.
+func TestLedgerOptionsSnapshotBeforeAnyPage(t *testing.T) {
+	s, f := newLedgerSchedulerFixture(t, 1)
+	s.cfg.skipGrants = true
 	f.audit.enter(ledgerLifecycle)
+	require.NoError(t, s.prepareLedgerState(t.Context(), "attempt-a", true))
+	require.False(t, s.run.hasFact(factShouldSkipGrants), "premise: Init has not run")
+	require.NoError(t, s.putLedgerReportOptions(t.Context()))
 	facts, err := f.ledger.LedgerFacts(t.Context())
 	require.NoError(t, err)
-	for _, key := range []string{c1zstore.LedgerFactFirstReportOptions, c1zstore.LedgerFactReportOptions} {
-		var options c1zstore.LedgerReportOptions
-		require.NoError(t, json.Unmarshal([]byte(facts[key]), &options))
-		require.False(t, options.EffectiveSkipGrants)
-	}
-	require.Contains(t, facts, factShouldSkipGrants)
+	var first, latest c1zstore.LedgerReportOptions
+	require.NoError(t, json.Unmarshal([]byte(facts[c1zstore.LedgerFactFirstReportOptions]), &first))
+	require.NoError(t, json.Unmarshal([]byte(facts[c1zstore.LedgerFactReportOptions]), &latest))
+	require.True(t, first.EffectiveSkipGrants)
+	require.True(t, latest.EffectiveSkipGrants)
+	require.Equal(t, "attempt-a", latest.Attempt)
+
+	s.cfg.skipGrants = false
+	require.NoError(t, s.prepareLedgerState(t.Context(), "attempt-b", false))
+	require.NoError(t, s.putLedgerReportOptions(t.Context()))
+	facts, err = f.ledger.LedgerFacts(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal([]byte(facts[c1zstore.LedgerFactFirstReportOptions]), &first))
+	require.NoError(t, json.Unmarshal([]byte(facts[c1zstore.LedgerFactReportOptions]), &latest))
+	require.Equal(t, "attempt-a", first.Attempt, "first survives a later attempt")
+	require.Equal(t, "attempt-b", latest.Attempt, "an attempt with no page is still the latest")
+	require.False(t, latest.EffectiveSkipGrants)
 }
 
-func TestLedgerFailedOptionsCommitRetries(t *testing.T) {
+type ledgerFailingFactsStore struct {
+	c1zstore.PageLedgerStore
+}
+
+var errLedgerInjectedFacts = errors.New("injected fact write failure")
+
+func (ledgerFailingFactsStore) PutLedgerFacts(context.Context, map[string]string) error {
+	return errLedgerInjectedFacts
+}
+
+func TestLedgerOptionsSnapshotFailureWritesNothing(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
-	s.ledger.store = ledgerFailingPageStore{PageLedgerStore: f.ledger, stage: "commit"}
-	write := func() error {
-		_, err := s.ledger.runPage(t.Context(), 0, c1zstore.LedgerActionIdentity{Op: "first"}, func(_ context.Context, page *ledgerPage) error {
-			page.reportOptions = s.stageLedgerReportOptions
-			return page.transition("")
-		})
-		return err
-	}
-	f.audit.enter(ledgerHandler)
-	require.ErrorIs(t, write(), errLedgerInjectedPage)
-	require.False(t, s.ledger.optionsRecorded)
+	f.audit.enter(ledgerLifecycle)
+	require.NoError(t, s.prepareLedgerState(t.Context(), "attempt-a", true))
+	actual := s.caps.pageLedger
+	s.caps.pageLedger = ledgerFailingFactsStore{PageLedgerStore: actual}
+	require.ErrorIs(t, s.putLedgerReportOptions(t.Context()), errLedgerInjectedFacts)
 	facts, err := f.ledger.LedgerFacts(t.Context())
 	require.NoError(t, err)
-	require.Empty(t, facts)
-	s.ledger.store = f.ledger
-	require.NoError(t, write())
-	f.audit.enter(ledgerLifecycle)
-	require.True(t, s.ledger.optionsRecorded)
+	require.NotContains(t, facts, c1zstore.LedgerFactFirstReportOptions)
+	require.NotContains(t, facts, c1zstore.LedgerFactReportOptions)
+	s.caps.pageLedger = actual
+	require.NoError(t, s.putLedgerReportOptions(t.Context()))
 	facts, err = f.ledger.LedgerFacts(t.Context())
 	require.NoError(t, err)
 	require.NotEmpty(t, facts[c1zstore.LedgerFactFirstReportOptions])

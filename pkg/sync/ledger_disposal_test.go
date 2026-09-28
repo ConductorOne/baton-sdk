@@ -107,9 +107,18 @@ func TestLedgerDiscardPendingFinishedBindingDoesNotRestartProcessing(t *testing.
 		return errLedgerInjectedPage
 	}
 	require.NoError(t, next.Sync(t.Context()))
-	options, err := f.ledger.GetArchivedLedgerOptions(t.Context(), second.ledger.runID)
+	// CO-038: every attempt records its options before its first page, so the
+	// attempt that finished the seal is latest and the original run stays
+	// first; the failed middle attempt is neither.
+	options, err := f.ledger.GetArchivedLedgerOptions(t.Context(), next.ledger.runID)
 	require.NoError(t, err)
 	require.NotNil(t, options)
+	options, err = f.ledger.GetArchivedLedgerOptions(t.Context(), first.ledger.runID)
+	require.NoError(t, err)
+	require.NotNil(t, options)
+	options, err = f.ledger.GetArchivedLedgerOptions(t.Context(), second.ledger.runID)
+	require.NoError(t, err)
+	require.Nil(t, options)
 	require.NoError(t, f.store.SetCurrentSync(t.Context(), id))
 	require.NoError(t, f.ledger.RestoreLedgerArchive(t.Context()))
 	counters, err := f.ledger.LedgerCounters(t.Context())

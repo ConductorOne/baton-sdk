@@ -20,19 +20,6 @@ func WithRetainLedgerTokens(retain bool) SyncOpt {
 	return func(s *syncer) { s.cfg.retainLedgerTokens = retain }
 }
 
-func (r *ledgerRuntime) preparePage(ctx context.Context) error {
-	r.prepareMu.Lock()
-	defer r.prepareMu.Unlock()
-	if r.prepared || r.beforePage == nil {
-		return nil
-	}
-	if err := r.beforePage(ctx); err != nil {
-		return err
-	}
-	r.prepared = true
-	return nil
-}
-
 func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSync bool, targetedResources []*v2.Resource) error {
 	l := ctxzap.Extract(ctx)
 	syncID := s.syncID
@@ -45,13 +32,16 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 		s.ledgerDebug = true
 		l.Warn("resuming with durably retained ledger history and tokens; tokens may contain credentials")
 	}
-	if writer := s.caps.ingestVerification; writer != nil {
-		s.ledger.beforePage = func(pageCtx context.Context) error {
-			pageCtx = c1zstore.WithPageWriteBypass(pageCtx, "invalidate prior verification before changing records; absence cannot attest an uncommitted page")
-			if err := writer.ClearIngestInvariantVerification(pageCtx, syncID); err != nil {
-				return fmt.Errorf("clear prior ingest invariant verification: %w", err)
-			}
-			return nil
+	if !finishPreviousRequest {
+		if err := s.putLedgerReportOptions(ctx); err != nil {
+			return s.returnSyncError(l, span, err)
+		}
+	}
+	// A prior verification cannot outlive the first page that changes records.
+	// An attempt with nothing to run writes nothing.
+	if writer := s.caps.ingestVerification; writer != nil && s.run.current() != nil {
+		if err := writer.ClearIngestInvariantVerification(ctx, syncID); err != nil {
+			return s.returnSyncError(l, span, fmt.Errorf("clear prior ingest invariant verification: %w", err))
 		}
 	}
 	warnings, err := s.parallelSync(ctx, runCtx, targetedResources)
@@ -108,11 +98,7 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 	if s.ingestFilterStats.replayBlocked.Load() {
 		terminalFacts = append(terminalFacts, ledgerFactIngestBlocked)
 	}
-	sealOptions := s.stageLedgerReportOptions
-	if finishPreviousRequest {
-		sealOptions = nil
-	}
-	if err := s.ledger.prepareSealWithOptions(ctx, counters, sealOptions, terminalFacts...); err != nil {
+	if err := s.ledger.prepareSeal(ctx, counters, terminalFacts...); err != nil {
 		return s.returnSyncError(l, span, err)
 	}
 	err = s.ledger.seal(ctx)
@@ -182,11 +168,11 @@ func (s *syncer) skipLedgerSync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := s.putLedgerReportOptions(ctx); err != nil {
+		return err
+	}
 	_, err = s.ledger.runPage(ctx, 0, c1zstore.LedgerActionIdentity{Op: InitOp.String()}, func(_ context.Context, page *ledgerPage) error {
 		if err := page.writer.SetPendingWork(work[0]); err != nil {
-			return err
-		}
-		if err := s.stageLedgerReportOptions(page); err != nil {
 			return err
 		}
 		return page.transition("")
@@ -198,7 +184,7 @@ func (s *syncer) skipLedgerSync(ctx context.Context) error {
 	if !s.ledgerDebug {
 		terminalFacts = append(terminalFacts, c1zstore.LedgerFactDiscardOnSeal)
 	}
-	if err := s.prepareLedgerSeal(ctx, c1zstore.LedgerCounters{}, terminalFacts...); err != nil {
+	if err := s.ledger.prepareSeal(ctx, c1zstore.LedgerCounters{}, terminalFacts...); err != nil {
 		return err
 	}
 	if err := s.ledger.seal(ctx); err != nil {

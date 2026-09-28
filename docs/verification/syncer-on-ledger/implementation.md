@@ -247,7 +247,14 @@ so the snapshot computes them the way `initialActions` does:
 `cfg.skipGrants || hasFact(factShouldSkipGrants)`, likewise for
 entitlements-and-grants. `first_options` is written only when absent, checked
 from `s.run.facts` after `restoreLedgerState`. A write failure fails the attempt
-before any page; the retry rewrites the same values.
+before any page; the retry rewrites the same values. A cancelled context is
+checked before the write, as every other lifecycle write does. Two
+consequences of "every attempt records its options": an attempt that only
+finishes a prepared seal becomes `latest_options`, which is accurate because
+its retention flag decides that seal's disposal; and the CO-035 handoff writes
+its snapshot once, for the requested pass, not for the prior pass it seals
+first, so the prior pass's archive keeps the options that produced it and the
+`preceding_collection` link still resolves.
 
 Call `ClearIngestInvariantVerification` in `syncLedger` before `parallelSync`
 when `s.run.current() != nil`, with the existing bypass reason. Delete
