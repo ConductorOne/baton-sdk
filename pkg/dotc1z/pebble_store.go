@@ -977,6 +977,13 @@ func (s *pebbleStore) save(ctx context.Context) error {
 	return nil
 }
 
+func (s *pebbleStore) PutLedgerFacts(ctx context.Context, facts map[string]string) error {
+	if err := s.writeHook(ctx, "PutLedgerFacts"); err != nil {
+		return err
+	}
+	return s.markDirty(s.Engine.Ledger().PutFacts(ctx, facts))
+}
+
 func (s *pebbleStore) ClearLedgerRows(ctx context.Context, clearFacts []string) error {
 	if err := s.writeHook(ctx, "ClearLedgerRows"); err != nil {
 		return err

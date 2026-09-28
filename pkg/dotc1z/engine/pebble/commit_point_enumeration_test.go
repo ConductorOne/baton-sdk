@@ -66,6 +66,7 @@ var commitPointRegistry = map[string][]string{
 	"ledger.go:ClearRows":                   {"ledgerClearRowsHook", "SetRecordCommitTestHook"},
 	"ledger.go:scrubTokens":                 {"SetRecordCommitTestHook"},
 	"ledger.go:takeover":                    {"SetRecordCommitTestHook"}, // RecordBatch: frontier + facts + bucket + token clear, one unit
+	"ledger.go:PutFacts":                    {"SetRecordCommitTestHook"}, // one synced batch of fact values; TestLedgerPutFactsIsOneUnit
 	"ledger.go:PutCounterBucket": {
 		"excluded: single-key blind write of one bucket's whole value (the run's stats bucket); no cross-family obligation and " +
 			"idempotent on retry (the next forced point rewrites the same key); best-effort at the caller; errorfs covers write failure",

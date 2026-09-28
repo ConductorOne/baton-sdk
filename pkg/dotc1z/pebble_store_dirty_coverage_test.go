@@ -62,6 +62,7 @@ var capabilityMethods = map[string]struct {
 	"DropLedger":               {dirtyWrite, "a delete is a write; without the mark the wipe never reaches the c1z"},
 	"FoldLedgerCounters":       {dirtyWrite, "replace prior attempt buckets with their folded total"},
 	"PutCounterBucket":         {dirtyWrite, "blind-writes the bucket"},
+	"PutLedgerFacts":           {dirtyWrite, "blind-writes named fact values in one synced batch"},
 	"EndSyncWithStats":         {dirtyWrite, "the seal: scrub, purge, stamp, ended_at, stats sidecar"},
 
 	"BeginExpandedGrantLayer":            {dirtyRead, "allocates an in-memory session; the first Add is what touches the file"},

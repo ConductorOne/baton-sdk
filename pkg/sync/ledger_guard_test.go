@@ -81,6 +81,13 @@ func (s *ledgerGuardedStore) PutCounterBucket(ctx context.Context, run string, w
 	return s.PageLedgerStore.PutCounterBucket(ctx, run, worker, counters)
 }
 
+func (s *ledgerGuardedStore) PutLedgerFacts(ctx context.Context, facts map[string]string) error {
+	if err := s.audit.record(ctx, "PutLedgerFacts"); err != nil {
+		return err
+	}
+	return s.PageLedgerStore.PutLedgerFacts(ctx, facts)
+}
+
 type ledgerGuardedGrants struct {
 	caps storeCaps
 	c1zstore.GrantStore

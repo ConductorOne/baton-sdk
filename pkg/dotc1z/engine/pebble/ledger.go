@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"sort"
 	"sync/atomic"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -665,6 +666,39 @@ func (l *Ledger) PutCounterBucket(ctx context.Context, runID string, worker uint
 		defer batch.Close()
 		if err := batch.StageLedgerCounterBucket(encodeLedgerCounterKey(runID, worker), val); err != nil {
 			return err
+		}
+		return batch.Commit(pebble.Sync)
+	})
+}
+
+func (l *Ledger) PutFacts(ctx context.Context, facts map[string]string) error {
+	if len(facts) == 0 {
+		return errors.New("PutFacts: no facts")
+	}
+	names := make([]string, 0, len(facts))
+	for name := range facts {
+		if name == "" {
+			return errors.New("PutFacts: empty fact name")
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return l.e.withWrite(func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := l.e.requireCurrentSync(); err != nil {
+			return err
+		}
+		if err := l.markInFlightLocked(); err != nil {
+			return err
+		}
+		batch := l.e.db.NewRecordBatch()
+		defer batch.Close()
+		for _, name := range names {
+			if err := batch.StageLedgerFactValue(encodeLedgerFactKey(name), facts[name]); err != nil {
+				return err
+			}
 		}
 		return batch.Commit(pebble.Sync)
 	})

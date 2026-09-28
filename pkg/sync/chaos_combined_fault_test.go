@@ -348,6 +348,9 @@ func (s *chaosPebbleStore) TakeoverToken(ctx context.Context, run string, facts 
 func (s *chaosPebbleStore) PutCounterBucket(ctx context.Context, run string, worker uint32, counters c1zstore.LedgerCounters) error {
 	return s.Ledger().PutCounterBucket(ctx, run, worker, counters)
 }
+func (s *chaosPebbleStore) PutLedgerFacts(ctx context.Context, facts map[string]string) error {
+	return s.Ledger().PutFacts(ctx, facts)
+}
 func (s *chaosPebbleStore) DropLedger(ctx context.Context) error { return s.Ledger().Drop(ctx) }
 func (s *chaosPebbleStore) ClearLedgerRows(ctx context.Context, facts []string) error {
 	return s.Ledger().ClearRows(ctx, facts)
