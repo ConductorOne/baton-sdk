@@ -6,10 +6,24 @@ review evaluates an implementation against itself: a correctly held lock on
 single-owner state and a marker read consistently everywhere both pass it.
 This stage asks, for every structural decision, should it exist and is it in
 the right place. It runs twice: on the implementation brief before code, and
-on the final code by a reader independent of the implementer and the
-correctness reviewer. Closure is a table with no open rows.
+on the final code. Closure is a table with no open rows.
+
+## Independence is the instrument
+
+The pass works only if the reader has no prior model of the code to defend or
+explain. That means a new agent session, started for this pass alone, with no
+conversation history, no implementation context, no correctness-review
+context, and no other agent's findings pasted in. The same model in a session
+that already read the code for bugs will explain the code's dependencies
+instead of questioning them; that is what two correctness reviews did on
+CXE-1358, and what a stakeless read found in minutes. Use a model family
+different from the implementer's and the correctness reviewer's when you can.
+Two such runs with their tables diffed are stronger than one, because every row
+carries a file:line and a stated difference and disagreements settle against
+source. Do not give a second run the first run's table until both exist.
 
 Below is the prompt. Fill the angle-bracketed fields; keep everything else.
+Paste it into a fresh session as the first message.
 
 ---
 
@@ -18,6 +32,11 @@ You are performing a structural review of the pull request on branch <branch>
 in <checkout path> (head <SHA>, base <base branch> at <base SHA>). This is a
 quality pass: for every structural decision, should it exist, and is it in the
 right place. It is not a correctness pass.
+
+This must be your first and only task in this session. If this session has
+already read this code for any other purpose, reviewed it for correctness, or
+been shown another reviewer's findings, stop and say so instead of proceeding;
+the pass depends on a reader with nothing to defend and nothing to confirm.
 
 RULE 0 — what is and is not a finding here.
 A structural finding names an owner, a representation, a boundary, or a
@@ -144,12 +163,8 @@ commit. Write the result to /tmp/structural-review.md and return it inline.
 
 ---
 
-Running it: use a model from a different family than the implementer and the
-correctness reviewer, in a fresh session with no conversation history. Two
-runs on models from different families, with the tables diffed, is stronger
-than one; disagreements are cheap to settle because every row carries a
-file:line and a stated difference. Update the head SHA and RULE 1 for every
-run.
+Running it: see "Independence is the instrument" above. Update the head SHA
+and RULE 1 for every run.
 
 What earlier runs taught: without RULE 0 the reviewers drifted into
 correctness and named a lifecycle bug as the top finding; without RULE 1 a

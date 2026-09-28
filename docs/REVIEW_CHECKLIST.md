@@ -35,7 +35,9 @@ review of the brief → instruments → mutation adequacy → execution →
 structural-coverage triage → independent evidence audit → focused
 implementation review → structural review of the code → repository gates →
 signoff. The structural review's prompt and rules are
-`docs/verification/STRUCTURAL_REVIEW.md`; it files no correctness findings.
+`docs/verification/STRUCTURAL_REVIEW.md`; it files no correctness findings and
+runs in a new session that has done nothing else — not the implementer's, not
+the correctness reviewer's, and not one that has seen their output.
 
 Hard rules along the way:
 
