@@ -38,6 +38,14 @@ Hard rules along the way:
 
 - Plan committed and frozen before implementation inspection; post-freeze
   changes are versioned change orders, each re-routed through the risk model.
+- Freeze requires a facts read: every claim the plan or brief makes about
+  existing code is cited `file:line` and checked by a reader independent of
+  the author, who lists each as true, false, or not checkable. False claims
+  become change orders before code starts. Contract-delta statements ("no new
+  method") are checked by grep against the interface, not by recollection.
+- Meta-tests, registries and fences are instruments: each ships with a
+  planted case per covered shape in the same commit, and the planted case
+  fails when the fence is disabled.
 - Criterion states: not assessed / evidence incomplete / verified to stated
   coverage / failed / explicitly excluded / deferred to a named stage.
   "Accounted for" is not closure; never claim closure from sampling.

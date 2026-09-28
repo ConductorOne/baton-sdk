@@ -1010,6 +1010,16 @@ rather than rediscovering them one bug at a time. Every commit call site owes:
   consistently. CXE-1358 shipped five single-owner mutexes and a lifecycle with
   two finished-authorities through a frozen plan, an evidence ledger, and two
   reviews; four short questions about owners and authorities found both.
+- A freeze is a claim set, and claims about existing code are the cheapest
+  thing in the packet to falsify: each is a `file:line` and a grep. Before a
+  plan or addendum is called frozen, a reader independent of its author checks
+  every such claim against source and lists each as true, false, or not
+  checkable; false ones are change orders. The same reader applies §5.10's
+  instrument rule to any fence or registry the change adds: a planted case per
+  covered shape, in the same commit. Evidence: CO-037/CO-038's first frozen
+  text carried four false claims about lifetimes, interfaces and resolution
+  order, and its primitive registry missed an aliased mutex; a stakeless facts
+  read found all five in minutes.
 - Keep the machinery proportional. The full closure packet and independent audit
   are step-up controls, not requirements for a local low-risk fix. Prefer ordinary
   Markdown, table-driven tests, and existing repository commands over a new

@@ -39,6 +39,24 @@ the state inventory `docs/REVIEW_CHECKLIST.md` describes, and the
 registries (`TestSyncPrimitivesRegistered`, `TestEnginePrimitivesRegistered`,
 `commitPointRegistry`) hold the mechanical half.
 
+## Verified or assumed, never remembered
+
+A statement about existing code — a field's lifetime, a method on an
+interface, where a value is resolved, what a path deletes — is either cited
+(`file:line`, read in this session) or marked `assumed`. Memory of code read
+earlier is not a citation. Nothing is called frozen until a reader with no
+stake in it has checked each cited claim against source and listed every
+one as true, false, or not checkable; a false claim is a change order, not
+an edit. CXE-1358's CO-037/CO-038 text carried four false claims of this
+kind past its author; the check that found them was a grep per claim.
+
+A fence, registry, or meta-test is an instrument and follows the instrument
+rule: it ships in the same commit as a planted case it catches, one per
+shape it claims to cover. A fence that has never failed on a planted
+violation has not been shown to see anything. The primitive registry
+shipped without one and missed a mutex behind an import alias in the
+package it was written for.
+
 ## Diction
 
 Name the function, type, hook, or check. State the fact with essential
