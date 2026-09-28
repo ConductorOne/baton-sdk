@@ -204,12 +204,22 @@ sync-run record already has one. Report generation failure still records
 
 `BeginPass(ctx, seeds, clearFacts)` replaces `ClearLedgerRows` and
 `RestoreLedgerArchive`: under `lifecycleMu` and the write lock, require
-`ended_at` and no declaration; read the archive (same sync ID, or `Compacted`
-record); stamp in-flight; one synced batch restores archived facts except
-`clearFacts`, stages the archived counters as the `"archived"` takeover bucket,
-deletes rows, scheduling relations and the frontier, stages the seeds and the
-declaration at phase `collecting`. `InitializePendingWork` keeps its role for
-never-started syncs and refuses when `ended_at` is set. `Ledger.Drop`,
+`ended_at`, no declaration and no legacy token; read the archive if present
+(same sync ID, or `Compacted` record; another sync's archive on a non-compacted
+record is an error); stamp in-flight; one synced batch restores archived facts
+except `clearFacts`, stages the archived counters as the `"archived"` takeover
+bucket, deletes rows, scheduling relations and the frontier, stages the seeds and
+the declaration at phase `collecting`. A missing archive restores nothing.
+`InitializePendingWork` keeps its role for never-started syncs and refuses when
+`ended_at` is set. `takeover` is unchanged and runs before `BeginPass` is
+considered: a finished legacy file with a token is taken over, not begun.
+
+The stamp batch and `BeginPass` are new commit sites: register both in
+`commitPointRegistry` (`adapter.go:endSyncFinalize` already routes through
+`SetRecordCommitTestHook`; `BeginPass` gets its own stage hook in `testSeams`)
+and in `seamFailureCases`, and remove the `RestoreLedgerArchive`, `ClearRows`
+and `ledgerClearRowsHook` entries with their sites. `endSyncStampHook` moves to
+fire before the stamp batch commits. `Ledger.Drop`,
 `ResetForNewSync`, `scopedRanges` and the raw capability inventory are unchanged
 in coverage; the phase byte lives in the existing key.
 
@@ -226,12 +236,16 @@ in effect: it seals the drained pass, rebinds, and the recursive call finds
 absent + `ended_at` and begins the requested pass. `c1z.discard_ledger_on_seal`
 stays in `terminalFacts` as the policy input to finalize.
 
-Tests. Add (a), (b), (c) from the change order as public-API tests using the
-existing crash fixture and raw snapshot helper; record each failing at 0bd0e5fb
-in evidence.md before the fix. Re-run every disposal, seal, rebind, early-end,
-takeover and compactor fold suite. Update tests that assert `seal_ready`, the
-marker hooks, `ClearLedgerRows` or `RestoreLedgerArchive` directly to assert the
-phase and the post-stamp snapshot instead. Extend the legacy-artifact tooling
+Tests. Add (a), (b), (c), (h) from the change order as public-API tests using
+the existing crash fixture and raw snapshot helper; record each failing at
+0bd0e5fb in evidence.md before the fix. Re-run every disposal, seal, rebind,
+early-end, takeover and compactor fold suite. Nineteen test files reference the
+removed markers or methods (`sealReady`, `ClearLedgerRows`,
+`RestoreLedgerArchive`, the marker-clear hook stages, `LedgerFactDiscardOnSeal`
+survival, `StageLedgerWorkFinished`); each is updated to assert the phase and
+the post-stamp snapshot, not deleted, unless its subject no longer exists.
+`ledger_guard_coverage_test.go`'s read-method inventory gains the phase-returning
+reads and loses the removed writes. Extend the legacy-artifact tooling
 with a completed unexpanded baseline artifact for (e); both directions opt-in.
 
 Commit sequence, each building and passing alone: (1) phase byte, terminal
