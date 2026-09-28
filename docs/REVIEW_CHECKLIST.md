@@ -126,12 +126,16 @@ guarding state with one owner or state already held elsewhere. Reject on these,
 not on taste.
 
 - Synchronization primitives are dependencies on the concurrency model and are
-  enumerated like store capabilities: every `sync.*` / `atomic.*` field or
-  local in production code has an entry in `syncPrimitiveRegistry`
-  (`sync_primitives_meta_test.go`) naming the two goroutines that interleave on
-  it, or `remove: <reason>`. `TestSyncPrimitivesRegistered` fails on an
-  unregistered primitive and on a stale entry; the engine has the same fence in
-  `TestEnginePrimitivesRegistered`. The expected count of new primitives per
+  enumerated like store capabilities: every `sync.*` / `atomic.*` declaration
+  in production code — struct field, package or local `var`, or `:=` from
+  `new`/`&T{}`/`T{}`, under whatever name the file imports the package as —
+  has an entry in `syncPrimitiveRegistry` (`sync_primitives_meta_test.go`)
+  naming the two goroutines that interleave on it, or `remove: <reason>`.
+  `TestSyncPrimitivesRegistered` fails on an unregistered primitive and on a
+  stale entry; `TestSyncPrimitiveWalkerCoverage` plants each shape and fails
+  if the walker misses one. The registry checks registration, not the truth
+  of the sentence; that is the ownership-table read. The engine has the same
+  fence in `TestEnginePrimitivesRegistered`. The expected count of new primitives per
   feature is zero: during a batch the shared state is the queue (`q.mu`), the
   engine write path (`writeMu`), `runState` and `runStats`, and a feature that
   needs a fifth thing shared says so in its brief before it says so in code.

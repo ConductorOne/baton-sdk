@@ -188,7 +188,7 @@ write path (`writeMu`), `runState` (`run.mu`) and `runStats` (`stats.mu`).
 
 | State | Owner | Lifetime | Other readers/writers | Primitive |
 |---|---|---|---|---|
-| per-worker cumulative counter bucket | worker | one batch | none (serial steps have their own) | none; local in the worker loop |
+| per-index cumulative counter bucket (`SetCounterBucket` is a blind write of the index's running total, keyed by attempt and index) | whichever goroutine holds worker index i: the batch worker with that index, or the coordinator for index 0 between batches | the attempt; indexes restart at 0 every `syncParallel` batch, so a per-batch counter would overwrite the earlier total | none concurrently: batches do not overlap and serial steps run with no workers alive | none; a slice of `workerCount` slots on the attempt struct, slot i touched only by its current holder |
 | per-worker retry observations (`ledgerAttempts`) | worker | one batch | `ratelimit.ObserveWait` on the same goroutine | none |
 | attempt option snapshot | coordinator | attempt start | none | none (CO-038) |
 | verification-marker clear | coordinator | attempt start | none | none (CO-038) |
@@ -234,22 +234,40 @@ rest each have one writer set and one question.
 
 ### CO-038 implementation
 
-Write the option snapshot in `prepareLedgerState` after `restoreLedgerState`,
-through a store lifecycle write (`SetFactValue` outside a page, the
-`PutCounterBucket` shape), `first_options` only when absent. Call
-`ClearIngestInvariantVerification` in `syncLedger` before `parallelSync` when
-`s.run.current() != nil`, with the existing bypass reason. Delete
+Storage gains one lifecycle write, `PutLedgerFacts(ctx, map[string]string)`:
+a synced `RecordBatch` of `StageLedgerFactValue` under the write lock, the
+`PutCounterBucket` shape. It is the only new contract method. First and latest
+snapshots ride the same batch, so a failure leaves neither.
+
+Write the snapshot in `syncLedger`, after retention is resolved (the
+`retain_tokens` fact may raise `s.ledgerDebug`) and before `parallelSync`, so
+`EffectiveLedgerDebug` is final. The effective skip flags cannot be read from
+facts at that point on a fresh sync — `Init` has not run and has not set them —
+so the snapshot computes them the way `initialActions` does:
+`cfg.skipGrants || hasFact(factShouldSkipGrants)`, likewise for
+entitlements-and-grants. `first_options` is written only when absent, checked
+from `s.run.facts` after `restoreLedgerState`. A write failure fails the attempt
+before any page; the retry rewrites the same values.
+
+Call `ClearIngestInvariantVerification` in `syncLedger` before `parallelSync`
+when `s.run.current() != nil`, with the existing bypass reason. Delete
 `ledgerRuntime.prepareMu/prepared/beforePage/preparePage`, `optionsRecorded`,
 `page.reportOptions`, `commitMu`, and `prepareSealWithOptions`'s options
-parameter. Then the ownership moves: `ledgerAttempts` loses its mutex and the
+parameter.
+
+Then the ownership moves. `ledgerAttempts` loses its mutex and the
 concurrent-callback test at `ledger_attempts_test.go:175` is replaced by the
-ownership assertion; the worker bucket becomes a local in `syncParallel`'s
-worker loop and a local for serial steps; `ledgerRuntime.facts/active/closing/mu`
-go; `ledgerRunAccounting` folds into `runStats` as attempt-scoped maps under
-`stats.mu` with no subtraction for maxima or flags; `Engine.sealCost` moves
-behind `testSeams`. Narrow `q.mu` on the ledger path so the durable commit runs
-outside it, with the three interleaving tests named in the review. Each step
-removes its registry entry in the same commit.
+ownership assertion. The per-index bucket becomes a slice of `workerCount`
+slots on the attempt struct: batch worker i owns slot i for the batch, the
+coordinator owns slot 0 while no workers are alive, and the slot carries its
+running total across batches because `SetCounterBucket` blind-writes the
+index's cumulative value and indexes restart at 0 each batch.
+`ledgerRuntime.facts/active/closing/mu` go. `ledgerRunAccounting` folds into
+`runStats` as attempt-scoped maps under `stats.mu` with no subtraction for
+maxima or flags. `Engine.sealCost` moves behind `testSeams`. Narrow `q.mu` on
+the ledger path so the durable commit runs outside it, with the three
+interleaving tests named in the review. Each step removes its registry entry
+in the same commit.
 
 ### CO-037 implementation
 
@@ -280,9 +298,12 @@ sync-run record already has one. Report generation failure still records
 `ended_at`, no declaration and no legacy token; read the archive if present
 (same sync ID, or `Compacted` record; another sync's archive on a non-compacted
 record is an error); stamp in-flight; one synced batch restores archived facts
-except `clearFacts`, stages the archived counters as the `"archived"` takeover
-bucket, deletes rows, scheduling relations and the frontier, stages the seeds and
-the declaration at phase `collecting`. A missing archive restores nothing.
+for keys not already present and not in `clearFacts`, stages the archived
+counters as the `"archived"` takeover bucket only when the family holds no
+counter bucket (a retained-mode seal keeps its counters in the family and the
+archive holds the same totals; importing both would count the prior pass
+twice), deletes rows, scheduling relations and the frontier, stages the seeds
+and the declaration at phase `collecting`. A missing archive restores nothing.
 `InitializePendingWork` keeps its role for never-started syncs and refuses when
 `ended_at` is set. `takeover` is unchanged and runs before `BeginPass` is
 considered: a finished legacy file with a token is taken over, not begun.
