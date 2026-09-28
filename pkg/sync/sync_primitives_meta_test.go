@@ -28,8 +28,9 @@ import (
 // reviewer's read of the ownership table.
 //
 // Declarations covered, in production files, through whatever local name the
-// file imports "sync" and "sync/atomic" under: struct fields (named types,
-// nested structs, structs declared in function bodies); package-level and
+// file imports "sync" and "sync/atomic" under: struct fields (package-level
+// and function-local named types, nested structs, anonymous struct
+// variables); package-level and
 // function-local `var`s with a primitive type or a primitive value; and `:=`
 // assignments whose value is `new(T)`, `&T{}`, or `T{}` for a primitive T.
 // Types: Mutex, RWMutex, Cond, Once, Map, and every atomic.* type.
@@ -139,8 +140,9 @@ func f() {
 	viaAddr := &stdsync.Once{}
 	viaLit := at.Bool{}
 	var anon struct{ m stdsync.Map }
+	type localType struct{ tm stdsync.Mutex }
 	var wg stdsync.WaitGroup
-	_, _, _, _, _, _ = localMu, viaNew, viaAddr, viaLit, anon, wg
+	_, _, _, _, _, _, _ = localMu, viaNew, viaAddr, viaLit, anon, localType{}, wg
 }
 
 func (h *holder) m() {
@@ -160,6 +162,7 @@ func (h *holder) m() {
 	require.Equal(t, []string{
 		"f.anon.m",
 		"f.localMu",
+		"f.localType.tm",
 		"f.viaAddr",
 		"f.viaLit",
 		"f.viaNew",
@@ -261,8 +264,13 @@ func primitiveDeclarations(fset *token.FileSet, file *ast.File) map[string]strin
 				case *ast.DeclStmt:
 					if gen, ok := node.Decl.(*ast.GenDecl); ok {
 						for _, spec := range gen.Specs {
-							if vs, ok := spec.(*ast.ValueSpec); ok {
-								walkValueSpec(owner, vs)
+							switch s := spec.(type) {
+							case *ast.ValueSpec:
+								walkValueSpec(owner, s)
+							case *ast.TypeSpec:
+								if st, ok := s.Type.(*ast.StructType); ok {
+									walkStruct(owner+"."+s.Name.Name, st)
+								}
 							}
 						}
 					}
