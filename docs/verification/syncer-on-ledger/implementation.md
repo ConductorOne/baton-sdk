@@ -178,6 +178,73 @@ expansion. Tests must count both executed passes honestly rather than suppress
 new work to keep counters equal to a one-call reference. Pending-work recovery
 continues to avoid reseeding while an expansion item is present.
 
+### CO-037 implementation
+
+Storage. The work-state value gains a phase byte: `{version 2, lastID, phase}`,
+phase ∈ {collecting, sealing}. Version-1 values are rejected as invalid; no
+released file carries one. `PendingWork`/`PendingWorkAfter` return
+`LedgerQueuePhase` ∈ {absent, collecting, sealing}. `PageWriter.SetQueueSealing`
+stages the terminal transition; `pageUnit.Commit` validates it under `writeMu`
+before staging anything: phase is `collecting`, the pending range is empty, the
+row has no continuation and no children. The terminal page carries the run
+bucket, terminal facts and the phase in one batch, as today minus `seal_ready`.
+
+`endSync` with stats requires phase `sealing`, or `ended_at` set with no
+declaration (engine-level reseal). Finalize order: deferred indexes and manifest
+counts as today; token-bearing disposal (rows, pending, frontier, scheduling) or
+scrub in retained mode; residue purge; clear the in-flight stamp; then one
+`RecordBatch` with the archive value, deletion of the remaining family (default:
+facts, counters, declaration, policy fact; retained: declaration only), and the
+sync-run record with `ended_at`, committed `pebble.Sync`; then `PersistSyncStats`
+and `FinishSync`. Delete the post-stamp block, `sealDiscardsRows` gating in
+`endSync`, the `pendingOnly` logic, the marker-clear hooks and their `SealCost`
+share. The archive stager is a `RecordBatch` method for the engine-meta key; the
+sync-run record already has one. Report generation failure still records
+`unavailable` in the archive.
+
+`BeginPass(ctx, seeds, clearFacts)` replaces `ClearLedgerRows` and
+`RestoreLedgerArchive`: under `lifecycleMu` and the write lock, require
+`ended_at` and no declaration; read the archive (same sync ID, or `Compacted`
+record); stamp in-flight; one synced batch restores archived facts except
+`clearFacts`, stages the archived counters as the `"archived"` takeover bucket,
+deletes rows, scheduling relations and the frontier, stages the seeds and the
+declaration at phase `collecting`. `InitializePendingWork` keeps its role for
+never-started syncs and refuses when `ended_at` is set. `Ledger.Drop`,
+`ResetForNewSync`, `scopedRanges` and the raw capability inventory are unchanged
+in coverage; the phase byte lives in the existing key.
+
+Syncer. `ledgerResume` carries `phase`, `hasPendingWork` and whether a legacy
+token exists. `preparation` is a switch on phase; `ended_at` is read only in the
+absent case. `prepareLedgerState` loses the fact-count and `discardPending`
+heuristics and the restore call. `loadLedgerResume` takes over a token only when
+the declaration is absent and errors when one is present. `restoreLedgerState`,
+`refreshPendingWindow` and `prepareSealWithOptions` require a non-absent phase and
+drop their `seal_ready`/`discard` special cases; `prepareSealWithOptions` calls
+`SetQueueSealing` on the terminal page and returns early when the phase is already
+`sealing`. `seal` requires phase `sealing`. `finishPreviousRequest` is unchanged
+in effect: it seals the drained pass, rebinds, and the recursive call finds
+absent + `ended_at` and begins the requested pass. `c1z.discard_ledger_on_seal`
+stays in `terminalFacts` as the policy input to finalize.
+
+Tests. Add (a), (b), (c) from the change order as public-API tests using the
+existing crash fixture and raw snapshot helper; record each failing at 0bd0e5fb
+in evidence.md before the fix. Re-run every disposal, seal, rebind, early-end,
+takeover and compactor fold suite. Update tests that assert `seal_ready`, the
+marker hooks, `ClearLedgerRows` or `RestoreLedgerArchive` directly to assert the
+phase and the post-stamp snapshot instead. Extend the legacy-artifact tooling
+with a completed unexpanded baseline artifact for (e); both directions opt-in.
+
+Commit sequence, each building and passing alone: (1) phase byte, terminal
+transition and phase-returning reads, engine tests; (2) single stamp batch and
+removal of the post-stamp block, engine crash cuts and (c); (3) `BeginPass`,
+engine tests; (4) syncer classifier and removals, sync suites, (a) and (b);
+(5) cross-version tooling and (e); (6) evidence and doc updates. Storage commits
+land before any syncer change so the syncer never targets two contracts.
+
+Not changed: page commit and pending-work ID allocation, the scheduler, the
+takeover token format, report content, retained-mode scrubbing, residue purge,
+old-host readability of default-mode sealed files.
+
 ### CO-036 implementation
 
 Separate connector observations from page effects. Fold each handler attempt's connector/session/wait counters into the existing retry accumulator, then include that aggregate in the successful page bucket and publish the same aggregate to live stats after commit. Keep only aggregate maps, never callbacks or responses per retry. Clear on commit or identity change. Record wall-wait intervals when observed, rather than reconstructing their timestamps at commit. Preserve page-only callbacks for records and ingest effects. Add the independent three-attempt reproducer, strengthen exact field and next-page assertions, demonstrate failure before correction, then run sync and race checks. Commit correction and evidence separately from this brief.
