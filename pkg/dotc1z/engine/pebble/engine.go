@@ -178,8 +178,7 @@ type Engine struct {
 	entIDLookup         map[string][]entitlementIdentity
 	entIDLookupBuiltGen uint64
 
-	ledger   Ledger
-	sealCost atomic.Pointer[SealCost]
+	ledger Ledger
 
 	// migratedOnOpen reports that this Open ran the in-place id-index
 	// migration. The store layer uses it to mark a writable store dirty so

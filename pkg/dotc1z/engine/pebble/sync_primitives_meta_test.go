@@ -52,9 +52,7 @@ var enginePrimitiveRegistry = map[string]string{ //nolint:gosec // Field names, 
 	"Open.poisonLogMu":                              "predates the registry; function-local",
 	"testSeams.ledgerResiduePurges":                 "test hook counter; production never reads it",
 
-	// CXE-1358 review: no production reader; LastSealCost is called only from tests.
-	// docs/verification/syncer-on-ledger/implementation.md, CO-038.
-	"Engine.sealCost": "remove: test-only observation point in a production struct; move behind testSeams",
+	"testSeams.sealCost": "test observation: finalize stores the last seal's timings; only tests read it (LastSealCost)",
 }
 
 func TestEnginePrimitivesRegistered(t *testing.T) {

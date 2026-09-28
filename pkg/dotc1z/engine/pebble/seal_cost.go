@@ -9,9 +9,10 @@ type SealCost struct {
 	LedgerPurge   time.Duration
 }
 
-// LastSealCost reports the last finalize attempt that returned, including failures.
+// LastSealCost reports the last finalize attempt that returned, including
+// failures. Test instrumentation: production has no reader.
 func (e *Engine) LastSealCost() SealCost {
-	cost := e.sealCost.Load()
+	cost := e.test.sealCost.Load()
 	if cost == nil {
 		return SealCost{}
 	}

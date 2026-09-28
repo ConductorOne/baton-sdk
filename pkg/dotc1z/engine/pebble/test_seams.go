@@ -104,4 +104,8 @@ type testSeams struct {
 	// Nothing else observes a compaction that did not happen; pebble's own
 	// Compact.Count folds in automatic compactions.
 	ledgerResiduePurges atomic.Int64
+
+	// The last finalize attempt's seal timings, read by BenchmarkLedgerSealCost
+	// and the seal-cost tests through LastSealCost after EndSync returns.
+	sealCost atomic.Pointer[SealCost]
 }

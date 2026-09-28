@@ -357,7 +357,7 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 		}
 	}
 	cost := &SealCost{}
-	defer func() { e.sealCost.Store(cost) }()
+	defer func() { e.test.sealCost.Store(cost) }()
 	// Build the deferred by_principal index BEFORE stamping ended_at (an
 	// interrupted build must leave the sync visibly unfinished so a resume
 	// re-runs EndSync and the rebuild — the pending marker is durable, see
