@@ -235,7 +235,7 @@ func TestPebbleStorePendingWorkSurvivesClose(t *testing.T) {
 	ledger = store.(c1zstore.PageLedgerStore)
 	pending, initialized, err := ledger.PendingWork(ctx, 0, 64)
 	require.NoError(t, err)
-	require.True(t, initialized)
+	require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
 	require.Len(t, pending, 1)
 	require.Equal(t, work.Action, pending[0].Action)
 }

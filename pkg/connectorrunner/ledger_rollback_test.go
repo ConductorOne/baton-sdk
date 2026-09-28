@@ -24,6 +24,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	engine "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/stretchr/testify/require"
@@ -242,9 +243,9 @@ func assertRollbackPartialLedger(t *testing.T, dir string) {
 	for _, db := range dbs {
 		e, err := engine.Open(t.Context(), db, engine.WithReadOnly(true))
 		require.NoError(t, err)
-		pending, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 100)
+		pending, phase, err := e.Ledger().PendingWork(t.Context(), 0, 100)
 		require.NoError(t, err)
-		if initialized && len(pending) > 0 {
+		if phase != c1zstore.LedgerQueueAbsent && len(pending) > 0 {
 			found = true
 		}
 

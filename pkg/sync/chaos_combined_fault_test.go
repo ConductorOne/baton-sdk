@@ -358,10 +358,10 @@ func (s *chaosPebbleStore) ClearLedgerRows(ctx context.Context, facts []string) 
 
 var _ c1zstore.PageLedgerStore = (*chaosPebbleStore)(nil)
 
-func (s *chaosPebbleStore) PendingWork(ctx context.Context, before uint64, limit int) ([]c1zstore.LedgerWork, bool, error) {
+func (s *chaosPebbleStore) PendingWork(ctx context.Context, before uint64, limit int) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {
 	return s.Ledger().PendingWork(ctx, before, limit)
 }
-func (s *chaosPebbleStore) PendingWorkAfter(ctx context.Context, after uint64, limit int) ([]c1zstore.LedgerWork, bool, error) {
+func (s *chaosPebbleStore) PendingWorkAfter(ctx context.Context, after uint64, limit int) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {
 	return s.Ledger().PendingWorkAfter(ctx, after, limit)
 }
 func (s *chaosPebbleStore) InitializePendingWork(ctx context.Context, work []c1zstore.LedgerWork, facts ...string) error {

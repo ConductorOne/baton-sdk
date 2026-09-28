@@ -612,11 +612,11 @@ func (l *Ledger) takeover(ctx context.Context, runID string, facts []string, cou
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
 		if seed != nil {
-			_, initialized, err := l.workState()
+			_, phase, err := l.workState()
 			if err != nil {
 				return err
 			}
-			if initialized {
+			if phase != c1zstore.LedgerQueueAbsent {
 				return errors.New("checkpoint conflicts with initialized pending work")
 			}
 			if err := stageInitialWork(batch, syncID, seed.work); err != nil {

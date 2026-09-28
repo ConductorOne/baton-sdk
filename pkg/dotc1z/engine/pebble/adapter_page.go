@@ -130,6 +130,10 @@ func (w *pageWriter) SetCounterBucket(runID string, worker uint32, counters c1zs
 	return w.unit.StageCounterBucket(runID, worker, ledgerCountersToProto(counters))
 }
 
+func (w *pageWriter) SetQueueSealing() error {
+	return w.unit.StageQueueSealing()
+}
+
 func (w *pageWriter) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity, row *c1zstore.LedgerRow) error {
 	if err := w.requireSync(); err != nil {
 		return err

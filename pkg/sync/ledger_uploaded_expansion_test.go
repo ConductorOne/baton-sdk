@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +41,7 @@ func TestLedgerUploadedUnexpandedSync(t *testing.T) {
 						require.ErrorIs(t, first.Sync(ctx), interrupted)
 						pending, initialized, err := f.ledger.PendingWork(ctx, 0, 1)
 						require.NoError(t, err)
-						require.True(t, initialized)
+						require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
 						require.Empty(t, pending)
 						if ending == "early-end" || ending == "prepared-ended" {
 							require.NoError(t, f.store.EndSync(ctx))

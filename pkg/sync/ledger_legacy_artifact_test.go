@@ -8,6 +8,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -59,7 +60,7 @@ func TestLedgerLegacySDKArtifact(t *testing.T) {
 		require.Equal(t, oldToken, frontier.State)
 		_, initialized, err := f.ledger.PendingWork(ctx, 0, 100)
 		require.NoError(t, err)
-		require.True(t, initialized)
+		require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
 	}
 	require.NoError(t, s.Sync(ctx))
 	require.True(t, observed)

@@ -111,6 +111,28 @@ const LedgerFactDiscardOnSeal = "c1z.discard_ledger_on_seal"
 // whole totals, so sharing worker 0 or RunBucketWorker would overwrite them.
 const TakeoverBucketWorker uint32 = 0xFFFFFFFE
 
+// The pending-work declaration's phase. Absent: no declaration. Collecting:
+// pages may commit. Sealing: the terminal page landed; only the seal follows.
+type LedgerQueuePhase uint8
+
+const (
+	LedgerQueueAbsent LedgerQueuePhase = iota
+	LedgerQueueCollecting
+	LedgerQueueSealing
+)
+
+func (p LedgerQueuePhase) String() string {
+	switch p {
+	case LedgerQueueAbsent:
+		return "absent"
+	case LedgerQueueCollecting:
+		return "collecting"
+	case LedgerQueueSealing:
+		return "sealing"
+	}
+	return "invalid"
+}
+
 type LedgerFrontier struct {
 	State       string
 	Attempt     string
@@ -193,21 +215,27 @@ type PageWriter interface {
 	// The worker's cumulative total for the run, never a delta; last call
 	// before Commit wins.
 	SetCounterBucket(runID string, worker uint32, counters LedgerCounters) error
+	// Commit then moves the declaration from Collecting to Sealing in the
+	// page's batch. Commit refuses unless the phase is Collecting, no pending
+	// work remains, and the row has no continuation, children or work.
+	SetQueueSealing() error
 
 	// On failure nothing of the page lands, but the store is durably stamped
 	// ledgered before the first commit, so a failed first page does not permit
-	// falling back to checkpoint tokens.
+	// falling back to checkpoint tokens. Refused with ErrLedgerQueueSealing
+	// once the declaration is Sealing.
 	Commit(ctx context.Context, id LedgerActionIdentity, row *LedgerRow) error
 	Discard()
 }
 
 type PageLedgerStore interface {
 	// PendingWork returns at most limit entries in descending ID order; beforeID
-	// is exclusive when nonzero. limit is 1–100. initialized distinguishes absent from empty state.
-	PendingWork(ctx context.Context, beforeID uint64, limit int) (work []LedgerWork, initialized bool, err error)
+	// is exclusive when nonzero. limit is 1–100. The phase is read in the same
+	// call so a caller sees one declaration state with the entries.
+	PendingWork(ctx context.Context, beforeID uint64, limit int) (work []LedgerWork, phase LedgerQueuePhase, err error)
 	// Seeds an absent queue in stack order; an initialized queue is unchanged.
 	InitializePendingWork(ctx context.Context, work []LedgerWork, facts ...string) error
-	PendingWorkAfter(ctx context.Context, afterID uint64, limit int) ([]LedgerWork, bool, error)
+	PendingWorkAfter(ctx context.Context, afterID uint64, limit int) ([]LedgerWork, LedgerQueuePhase, error)
 	HasScheduledWork(ctx context.Context, key string) (bool, error)
 	// Removes a completed local phase and records cumulative run accounting;
 	// no completed-page row or transaction around that phase's writes is added.

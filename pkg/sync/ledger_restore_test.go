@@ -188,8 +188,8 @@ type ledgerRestorePendingFault struct {
 	err error
 }
 
-func (s ledgerRestorePendingFault) PendingWork(context.Context, uint64, int) ([]c1zstore.LedgerWork, bool, error) {
-	return nil, false, s.err
+func (s ledgerRestorePendingFault) PendingWork(context.Context, uint64, int) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {
+	return nil, c1zstore.LedgerQueueAbsent, s.err
 }
 
 func TestLedgerRestoreFailureDoesNotPublishState(t *testing.T) {

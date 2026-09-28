@@ -220,7 +220,7 @@ func TestPendingLocalCompletionFailureAndStopAccounting(t *testing.T) {
 
 type pendingRefillFailure struct{ c1zstore.PageLedgerStore }
 
-func (s pendingRefillFailure) PendingWorkAfter(ctx context.Context, after uint64, limit int) ([]c1zstore.LedgerWork, bool, error) {
+func (s pendingRefillFailure) PendingWorkAfter(ctx context.Context, after uint64, limit int) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {
 	work, initialized, err := s.PageLedgerStore.PendingWorkAfter(ctx, after, limit)
 	if err == nil && len(work) > 0 {
 		return nil, initialized, errLedgerInjectedPage
@@ -244,7 +244,7 @@ func TestPendingRefillFailureLeavesChildrenForColdResume(t *testing.T) {
 	require.ErrorIs(t, s.Sync(t.Context()), errLedgerInjectedPage)
 	work, initialized, err := f.ledger.PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
-	require.True(t, initialized)
+	require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
 	require.Len(t, work, 1)
 	require.Equal(t, "child", work[0].Action.Identity.ResourceID)
 	require.NoError(t, f.store.Close(t.Context()))
@@ -326,7 +326,7 @@ type pendingInvalidDescriptor struct {
 	kind string
 }
 
-func (s pendingInvalidDescriptor) PendingWork(ctx context.Context, before uint64, limit int) ([]c1zstore.LedgerWork, bool, error) {
+func (s pendingInvalidDescriptor) PendingWork(ctx context.Context, before uint64, limit int) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {
 	work, initialized, err := s.PageLedgerStore.PendingWork(ctx, before, limit)
 	if err == nil && len(work) > 0 {
 		if s.kind == "sync" {

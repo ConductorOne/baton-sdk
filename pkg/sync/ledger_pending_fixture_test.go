@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -13,9 +14,9 @@ func seedLedgerTestRun(t *testing.T, s *syncer, selected *Action) {
 	if !s.ledgered {
 		return
 	}
-	pending, initialized, err := s.caps.pageLedger.PendingWork(t.Context(), 0, 100)
+	pending, phase, err := s.caps.pageLedger.PendingWork(t.Context(), 0, 100)
 	require.NoError(t, err)
-	if initialized {
+	if phase != c1zstore.LedgerQueueAbsent {
 		if selected != nil && selected.WorkID == 0 {
 			for _, work := range pending {
 				if work.Action.Identity == ledgerIdentity(selected) {
@@ -99,7 +100,7 @@ func restoreLedgerTestState(t *testing.T, s *syncer, ctx context.Context, resume
 	if err != nil {
 		return err
 	}
-	if !initialized {
+	if initialized == c1zstore.LedgerQueueAbsent {
 		if err := s.caps.pageLedger.InitializePendingWork(ctx, pendingSeeds(resume.actions)); err != nil {
 			return err
 		}

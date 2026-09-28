@@ -23,7 +23,7 @@ func pendingTestSeed(t *testing.T, e *Engine) c1zstore.LedgerWork {
 	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), []c1zstore.LedgerWork{seed}))
 	items, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 100)
 	require.NoError(t, err)
-	require.True(t, initialized)
+	require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
 	require.Len(t, items, 1)
 	return items[0]
 }
@@ -44,7 +44,7 @@ func TestPendingWorkRepeatedArgumentsAndCompletion(t *testing.T) {
 	require.NoError(t, pendingTestCommit(t, e, work, "A", work.Action, work.Action))
 	items, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 100)
 	require.NoError(t, err)
-	require.True(t, initialized)
+	require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
 	require.Len(t, items, 3)
 	require.EqualValues(t, 3, items[0].ID)
 	require.EqualValues(t, 2, items[1].ID)
@@ -59,7 +59,7 @@ func TestPendingWorkRepeatedArgumentsAndCompletion(t *testing.T) {
 	}
 	items, initialized, err = e.Ledger().PendingWork(t.Context(), 0, 100)
 	require.NoError(t, err)
-	require.True(t, initialized)
+	require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
 	require.Empty(t, items)
 	lo, hi := rawdb.LedgerRowBounds()
 	it, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
@@ -88,7 +88,7 @@ func TestPendingWorkReadWindows(t *testing.T) {
 	for {
 		items, initialized, err := e.Ledger().PendingWork(t.Context(), before, 64)
 		require.NoError(t, err)
-		require.True(t, initialized)
+		require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
 		require.LessOrEqual(t, len(items), 64)
 		if len(items) == 0 {
 			break
@@ -138,7 +138,7 @@ func TestPendingWorkDurableImages(t *testing.T) {
 			defer recovered.Close()
 			items, initialized, err := recovered.Ledger().PendingWork(t.Context(), 0, 64)
 			require.NoError(t, err)
-			require.True(t, initialized)
+			require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
 			committed := len(items) == 2
 			if cut == "before" {
 				require.False(t, committed)
@@ -200,11 +200,11 @@ func TestPendingWorkSealAndFinishedClear(t *testing.T) {
 	require.NoError(t, e.SetCurrentSync(t.Context(), syncID))
 	_, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
-	require.False(t, initialized)
+	require.Equal(t, c1zstore.LedgerQueueAbsent, initialized)
 	require.NoError(t, e.Ledger().ClearRows(t.Context(), nil))
 	_, initialized, err = e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
-	require.False(t, initialized)
+	require.Equal(t, c1zstore.LedgerQueueAbsent, initialized)
 }
 
 func TestPendingWorkCommitFailureKeepsRevisionAndAllocator(t *testing.T) {
@@ -240,12 +240,12 @@ func TestPendingWorkInitializationFailureAndRetry(t *testing.T) {
 	e.db.SetRecordCommitTestHook(nil)
 	items, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
-	require.False(t, initialized)
+	require.Equal(t, c1zstore.LedgerQueueAbsent, initialized)
 	require.Empty(t, items)
 	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil, "clean-start"))
 	items, initialized, err = e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
-	require.True(t, initialized)
+	require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
 	require.Empty(t, items)
 	facts, err := e.Ledger().Facts(t.Context())
 	require.NoError(t, err)
@@ -286,14 +286,14 @@ func TestPendingWorkTakeoverIsOneUnit(t *testing.T) {
 			require.NoError(t, err)
 			if fail {
 				require.Equal(t, "legacy-state", rec.GetSyncToken())
-				require.False(t, initialized)
+				require.Equal(t, c1zstore.LedgerQueueAbsent, initialized)
 				require.False(t, frontier)
 				require.Empty(t, pending)
 				require.Empty(t, facts)
 				require.True(t, totals.IsZero())
 			} else {
 				require.Empty(t, rec.GetSyncToken())
-				require.True(t, initialized)
+				require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
 				require.True(t, frontier)
 				require.Len(t, pending, 1)
 				require.True(t, pending[0].TypeScopedPlanned)
@@ -323,7 +323,7 @@ func TestPendingWorkTakeoverRejectsChangedToken(t *testing.T) {
 	require.Equal(t, "new-state", rec.GetSyncToken())
 	_, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
-	require.False(t, initialized)
+	require.Equal(t, c1zstore.LedgerQueueAbsent, initialized)
 }
 
 func TestPendingWorkTakeoverDurableImages(t *testing.T) {
@@ -365,12 +365,12 @@ func TestPendingWorkTakeoverDurableImages(t *testing.T) {
 			require.NoError(t, err)
 			if before {
 				require.Equal(t, "checkpoint", rec.GetSyncToken())
-				require.False(t, initialized)
+				require.Equal(t, c1zstore.LedgerQueueAbsent, initialized)
 				require.False(t, frontier)
 				require.Empty(t, work)
 			} else {
 				require.Empty(t, rec.GetSyncToken())
-				require.True(t, initialized)
+				require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
 				require.True(t, frontier)
 				require.Len(t, work, 1)
 				require.Equal(t, seed[0].Action, work[0].Action)
@@ -390,7 +390,7 @@ func TestPendingWorkInitializationRefusesCheckpoint(t *testing.T) {
 	require.Equal(t, "unconsumed", rec.GetSyncToken())
 	_, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
-	require.False(t, initialized)
+	require.Equal(t, c1zstore.LedgerQueueAbsent, initialized)
 }
 
 func TestPendingWorkAdmissionOrderAndLocalCompletion(t *testing.T) {
@@ -399,7 +399,7 @@ func TestPendingWorkAdmissionOrderAndLocalCompletion(t *testing.T) {
 	require.NoError(t, pendingTestCommit(t, e, work, "", work.Action, work.Action, work.Action))
 	children, initialized, err := e.Ledger().PendingWorkAfter(t.Context(), work.ID, 2)
 	require.NoError(t, err)
-	require.True(t, initialized)
+	require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
 	require.Len(t, children, 2)
 	require.EqualValues(t, 2, children[0].ID)
 	require.EqualValues(t, 3, children[1].ID)
@@ -473,14 +473,14 @@ func TestPendingWorkCompletionMarkerSurvivesFailedSeal(t *testing.T) {
 	require.ErrorIs(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}), injected)
 	items, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
-	require.True(t, initialized)
+	require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
 	require.Empty(t, items)
 	require.NoError(t, e.SetCurrentSync(t.Context(), syncID))
 	e.test.ledgerArchiveHook = nil
 	require.NoError(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}))
 	_, initialized, err = e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
-	require.False(t, initialized)
+	require.Equal(t, c1zstore.LedgerQueueAbsent, initialized)
 }
 
 func TestPendingWorkClearRefusesUnfinishedProcessing(t *testing.T) {
@@ -496,7 +496,7 @@ func TestPendingWorkClearRefusesUnfinishedProcessing(t *testing.T) {
 	require.ErrorContains(t, e.Ledger().ClearRows(t.Context(), nil), "unfinished")
 	pending, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
-	require.True(t, initialized)
+	require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
 	require.Len(t, pending, 1)
 }
 

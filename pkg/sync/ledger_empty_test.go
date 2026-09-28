@@ -68,7 +68,7 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 			if uninitializedQuality {
 				_, initialized, err := f.ledger.PendingWork(ctx, 0, 1)
 				require.NoError(t, err)
-				require.False(t, initialized)
+				require.Equal(t, c1zstore.LedgerQueueAbsent, initialized)
 				require.NoError(t, f.store.Close(ctx))
 				f = openLedgerFixtureAt(t, f.path, false)
 				require.NoError(t, f.store.SetCurrentSync(ctx, id))

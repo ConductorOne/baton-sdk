@@ -288,14 +288,14 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 	}
 	preserveRecovery := overlay == nil
 	if !preserveRecovery {
-		pending, initialized, err := e.ledger.PendingWork(ctx, 0, 1)
+		pending, phase, err := e.ledger.PendingWork(ctx, 0, 1)
 		if err != nil {
 			return err
 		}
 		if len(pending) != 0 {
 			return errors.New("EndSync: pending work remains")
 		}
-		if ledgered && !initialized {
+		if ledgered && phase == c1zstore.LedgerQueueAbsent {
 			discarding, err := e.ledger.sealDiscardsRows()
 			if err != nil {
 				return err
@@ -546,10 +546,11 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	if err != nil {
 		return err
 	}
-	_, workOpen, err := e.ledger.workState()
+	_, phase, err := e.ledger.workState()
 	if err != nil {
 		return err
 	}
+	workOpen := phase != c1zstore.LedgerQueueAbsent
 	if !pending && !workOpen {
 		return nil
 	}

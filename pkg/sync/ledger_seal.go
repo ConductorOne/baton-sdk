@@ -11,7 +11,7 @@ const ledgerTerminalOp = "sync-terminal-v1"
 const ledgerFactSealReady = "sync.seal_ready"
 
 func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.LedgerCounters, facts ...string) error {
-	pending, initialized, err := r.store.PendingWork(ctx, 0, 1)
+	pending, phase, err := r.store.PendingWork(ctx, 0, 1)
 	if err != nil {
 		return err
 	}
@@ -23,7 +23,7 @@ func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.Le
 		return err
 	}
 	_, ready := stored[ledgerFactSealReady]
-	if !initialized {
+	if phase == c1zstore.LedgerQueueAbsent {
 		_, discarding := stored[c1zstore.LedgerFactDiscardOnSeal]
 		if !discarding || !ready {
 			return errors.New("cannot prepare seal without pending-work declaration")

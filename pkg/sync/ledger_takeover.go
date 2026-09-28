@@ -35,7 +35,7 @@ func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore
 	if runID == "" {
 		return ledgerResume{}, errors.New("ledger takeover requires an attempt id")
 	}
-	pending, initialized, err := ledger.PendingWork(ctx, 0, 1)
+	pending, phase, err := ledger.PendingWork(ctx, 0, 1)
 	if err != nil {
 		return ledgerResume{}, err
 	}
@@ -44,7 +44,7 @@ func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore
 		return ledgerResume{}, fmt.Errorf("read legacy checkpoint: %w", err)
 	}
 	_, ready := facts[ledgerFactSealReady]
-	if initialized {
+	if phase != c1zstore.LedgerQueueAbsent {
 		if state != "" {
 			return ledgerResume{}, errors.New("legacy checkpoint conflicts with pending work")
 		}
@@ -97,11 +97,11 @@ func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore
 	if moved != "" && moved != state {
 		return ledgerResume{}, errors.New("legacy checkpoint changed during takeover")
 	}
-	pending, initialized, err = ledger.PendingWork(ctx, 0, 1)
+	pending, phase, err = ledger.PendingWork(ctx, 0, 1)
 	if err != nil {
 		return ledgerResume{}, err
 	}
-	if !initialized {
+	if phase == c1zstore.LedgerQueueAbsent {
 		return ledgerResume{}, errors.New("takeover returned without pending work state")
 	}
 	return ledgerResume{initialized: true, hasPendingWork: len(pending) != 0}, nil

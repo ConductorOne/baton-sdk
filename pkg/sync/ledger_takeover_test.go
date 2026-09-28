@@ -191,7 +191,7 @@ func assertPendingCheckpointActions(t *testing.T, store c1zstore.PageLedgerStore
 	}
 	pending, initialized, err := store.PendingWork(t.Context(), 0, 100)
 	require.NoError(t, err)
-	require.True(t, initialized)
+	require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
 	require.Len(t, pending, len(expected))
 	for i, before := range expected {
 		after := pending[len(pending)-1-i]

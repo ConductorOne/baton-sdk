@@ -1007,7 +1007,7 @@ func (s *pebbleStore) RestoreLedgerArchive(ctx context.Context) error {
 	return s.Engine.RestoreLedgerArchive(ctx)
 }
 
-func (s *pebbleStore) PendingWork(ctx context.Context, beforeID uint64, limit int) ([]c1zstore.LedgerWork, bool, error) {
+func (s *pebbleStore) PendingWork(ctx context.Context, beforeID uint64, limit int) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {
 	return s.Engine.Ledger().PendingWork(ctx, beforeID, limit)
 }
 
@@ -1028,7 +1028,7 @@ func (s *pebbleStore) TakeoverPendingWork(
 	return state, s.markDirty(err)
 }
 
-func (s *pebbleStore) PendingWorkAfter(ctx context.Context, afterID uint64, limit int) ([]c1zstore.LedgerWork, bool, error) {
+func (s *pebbleStore) PendingWorkAfter(ctx context.Context, afterID uint64, limit int) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {
 	return s.Engine.Ledger().PendingWorkAfter(ctx, afterID, limit)
 }
 

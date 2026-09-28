@@ -25,11 +25,11 @@ func (s *syncer) restoreLedgerState(ctx context.Context, store c1zstore.PageLedg
 	if err != nil {
 		return err
 	}
-	work, initialized, err := store.PendingWork(ctx, 0, maxPeekActionsCount)
+	work, phase, err := store.PendingWork(ctx, 0, maxPeekActionsCount)
 	if err != nil {
 		return err
 	}
-	if !initialized {
+	if phase == c1zstore.LedgerQueueAbsent {
 		_, ready := facts[ledgerFactSealReady]
 		_, discarding := facts[c1zstore.LedgerFactDiscardOnSeal]
 		if !ready || !discarding {

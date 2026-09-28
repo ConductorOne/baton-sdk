@@ -20,7 +20,7 @@ func runLedgerSchedulerFixture(t *testing.T, runtime *ledgerRuntime, roots []led
 	if err != nil {
 		return err
 	}
-	if !initialized {
+	if initialized == c1zstore.LedgerQueueAbsent {
 		err := func() error {
 			if guarded, ok := runtime.store.(*ledgerGuardedStore); ok {
 				guarded.audit.mu.Lock()

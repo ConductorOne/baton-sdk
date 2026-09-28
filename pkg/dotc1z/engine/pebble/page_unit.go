@@ -13,6 +13,7 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 var ErrPageUnitCommitted = errors.New("pebble page unit: already committed or discarded")
@@ -44,11 +45,49 @@ type pageUnit struct {
 
 	work          *c1zstore.LedgerWork
 	childWorkKeys []string
+	sealing       bool
 	done          bool
 }
 
 type ledgerFact struct {
 	name, value string
+}
+
+func (u *pageUnit) StageQueueSealing() error {
+	if u.done {
+		return ErrPageUnitCommitted
+	}
+	u.sealing = true
+	return nil
+}
+
+// Under the write lock, before anything is staged. Every page checks the
+// phase; the terminal page also checks the queue and its own row.
+func (u *pageUnit) stagePhaseLocked(batch *rawdb.RecordBatch, row *v3.LedgerRow) error {
+	last, phase, err := u.l.workState()
+	if err != nil {
+		return err
+	}
+	if phase == c1zstore.LedgerQueueSealing {
+		return ErrLedgerQueueSealing
+	}
+	if !u.sealing {
+		return nil
+	}
+	if phase != c1zstore.LedgerQueueCollecting {
+		return errors.New("terminal page requires a collecting pending-work declaration")
+	}
+	if u.work != nil || row.GetNextPageToken() != "" || len(row.GetChildren()) != 0 {
+		return errors.New("terminal page must not carry work, a continuation or children")
+	}
+	pending, err := u.l.hasPendingWorkLocked()
+	if err != nil {
+		return err
+	}
+	if pending {
+		return errors.New("terminal page requires an empty pending-work queue")
+	}
+	return stageWorkState(batch, last, c1zstore.LedgerQueueSealing)
 }
 
 func (u *pageUnit) StageFactValue(name, value string) error {
@@ -454,6 +493,9 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
 
+		if err := u.stagePhaseLocked(batch, row); err != nil {
+			return err
+		}
 		if u.work != nil {
 			if err := l.stageWorkTransition(ctx, batch, *u.work, id, row, u.childWorkKeys); err != nil {
 				return err
@@ -552,6 +594,7 @@ func (u *pageUnit) release() {
 	u.facts = nil
 	u.bucketKey, u.bucketValue = nil, nil
 	u.work, u.childWorkKeys = nil, nil
+	u.sealing = false
 }
 
 // sync_id is not in the keys, so a page begun under a previous sync would

@@ -29,23 +29,34 @@ func encodeWorkHistoryKey(id c1zstore.LedgerActionIdentity, workID, revision uin
 	return binary.BigEndian.AppendUint64(key, revision)
 }
 
-func (l *Ledger) workState() (uint64, bool, error) {
+var ErrLedgerQueueSealing = errors.New("pending-work declaration is sealing")
+
+const workStateVersion = 2
+
+// Value: version, last allocated ID, phase. Version 1 had no phase byte and
+// no released file carries it.
+func (l *Ledger) workState() (uint64, c1zstore.LedgerQueuePhase, error) {
 	value, closer, err := l.e.db.Get(rawdb.LedgerWorkStateKey())
 	if errors.Is(err, pebble.ErrNotFound) {
-		return 0, false, nil
+		return 0, c1zstore.LedgerQueueAbsent, nil
 	}
 	if err != nil {
-		return 0, false, err
+		return 0, c1zstore.LedgerQueueAbsent, err
 	}
 	defer closer.Close()
-	if len(value) != 9 || value[0] != 1 {
-		return 0, false, errors.New("invalid pending-work state")
+	if len(value) != 10 || value[0] != workStateVersion {
+		return 0, c1zstore.LedgerQueueAbsent, errors.New("invalid pending-work state")
 	}
-	return binary.BigEndian.Uint64(value[1:]), true, nil
+	phase := c1zstore.LedgerQueuePhase(value[9])
+	if phase != c1zstore.LedgerQueueCollecting && phase != c1zstore.LedgerQueueSealing {
+		return 0, c1zstore.LedgerQueueAbsent, errors.New("invalid pending-work phase")
+	}
+	return binary.BigEndian.Uint64(value[1:9]), phase, nil
 }
 
-func stageWorkState(batch *rawdb.RecordBatch, id uint64) error {
-	return batch.StageLedgerWorkState(binary.BigEndian.AppendUint64([]byte{1}, id))
+func stageWorkState(batch *rawdb.RecordBatch, id uint64, phase c1zstore.LedgerQueuePhase) error {
+	value := binary.BigEndian.AppendUint64([]byte{workStateVersion}, id)
+	return batch.StageLedgerWorkState(append(value, byte(phase)))
 }
 
 func stagePendingWork(batch *rawdb.RecordBatch, work c1zstore.LedgerWork) error {
@@ -78,11 +89,11 @@ func (l *Ledger) InitializePendingWork(ctx context.Context, actions []c1zstore.L
 		if record.GetSyncToken() != "" {
 			return errors.New("checkpoint must be consumed through pending-work takeover")
 		}
-		_, initialized, err := l.workState()
+		_, phase, err := l.workState()
 		if err != nil {
 			return err
 		}
-		if initialized {
+		if phase != c1zstore.LedgerQueueAbsent {
 			return nil
 		}
 		lo, hi := rawdb.LedgerRowBounds()
@@ -120,38 +131,39 @@ func (l *Ledger) InitializePendingWork(ctx context.Context, actions []c1zstore.L
 	})
 }
 
-func (l *Ledger) PendingWork(ctx context.Context, beforeID uint64, limit int) ([]c1zstore.LedgerWork, bool, error) {
+func (l *Ledger) PendingWork(ctx context.Context, beforeID uint64, limit int) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {
 	return l.readPendingWork(ctx, beforeID, 0, limit, false)
 }
 
-func (l *Ledger) PendingWorkAfter(ctx context.Context, afterID uint64, limit int) ([]c1zstore.LedgerWork, bool, error) {
+func (l *Ledger) PendingWorkAfter(ctx context.Context, afterID uint64, limit int) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {
 	return l.readPendingWork(ctx, 0, afterID, limit, true)
 }
 
-func (l *Ledger) readPendingWork(ctx context.Context, beforeID, afterID uint64, limit int, ascending bool) ([]c1zstore.LedgerWork, bool, error) {
+func (l *Ledger) readPendingWork(ctx context.Context, beforeID, afterID uint64, limit int, ascending bool) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {
+	absent := c1zstore.LedgerQueueAbsent
 	if err := ctx.Err(); err != nil {
-		return nil, false, err
+		return nil, absent, err
 	}
 	if limit < 1 || limit > maxPendingWorkRead {
-		return nil, false, errors.New("pending work read limit must be between 1 and 100")
+		return nil, absent, errors.New("pending work read limit must be between 1 and 100")
 	}
-	_, initialized, err := l.workState()
-	if err != nil || !initialized {
-		return nil, initialized, err
+	_, phase, err := l.workState()
+	if err != nil || phase == absent {
+		return nil, phase, err
 	}
 	lo, hi := rawdb.LedgerPendingBounds()
 	if beforeID != 0 {
 		hi = pendingWorkKey(beforeID)
 	}
 	if ascending && afterID == math.MaxUint64 {
-		return nil, true, nil
+		return nil, phase, nil
 	}
 	if ascending {
 		lo = pendingWorkKey(afterID + 1)
 	}
 	it, err := l.e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
 	if err != nil {
-		return nil, true, err
+		return nil, phase, err
 	}
 	defer it.Close()
 	result := make([]c1zstore.LedgerWork, 0, limit)
@@ -161,21 +173,32 @@ func (l *Ledger) readPendingWork(ctx context.Context, beforeID, afterID uint64, 
 	}
 	for valid := first(); valid && len(result) < limit; valid = step() {
 		if err := ctx.Err(); err != nil {
-			return nil, true, err
+			return nil, phase, err
 		}
 		var work c1zstore.LedgerWork
 		if !utf8.Valid(it.Value()) {
-			return nil, true, errors.New("pending work contains invalid UTF-8")
+			return nil, phase, errors.New("pending work contains invalid UTF-8")
 		}
 		if err := json.Unmarshal(it.Value(), &work); err != nil {
-			return nil, true, err
+			return nil, phase, err
 		}
 		if len(it.Key()) != len(rawdb.LedgerPendingPrefix())+8 || work.ID == 0 || binary.BigEndian.Uint64(it.Key()[len(rawdb.LedgerPendingPrefix()):]) != work.ID {
-			return nil, true, errors.New("invalid pending-work identity")
+			return nil, phase, errors.New("invalid pending-work identity")
 		}
 		result = append(result, work)
 	}
-	return result, true, it.Error()
+	return result, phase, it.Error()
+}
+
+// Under the write lock. Only pebble reads.
+func (l *Ledger) hasPendingWorkLocked() (bool, error) {
+	lo, hi := rawdb.LedgerPendingBounds()
+	it, err := l.e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
+	if err != nil {
+		return false, err
+	}
+	found := it.First()
+	return found, errors.Join(it.Error(), it.Close())
 }
 
 func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBatch, expected c1zstore.LedgerWork, id c1zstore.LedgerActionIdentity, row *v3.LedgerRow, childKeys []string) error {
@@ -232,12 +255,16 @@ func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBat
 		row.SetChildren(children)
 		childKeys = keptKeys
 	}
-	last, initialized, err := l.workState()
+	last, phase, err := l.workState()
 	if err != nil {
 		return err
 	}
-	if !initialized {
+	switch phase {
+	case c1zstore.LedgerQueueAbsent:
 		return errors.New("pending work has no allocator state")
+	case c1zstore.LedgerQueueSealing:
+		return ErrLedgerQueueSealing
+	case c1zstore.LedgerQueueCollecting:
 	}
 	if uint64(len(row.GetChildren())) > math.MaxUint64-last {
 		return errors.New("pending work ID overflow")
@@ -273,7 +300,7 @@ func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBat
 		child.GetIdentity().SetPageToken("")
 	}
 	if len(row.GetChildren()) > 0 {
-		return stageWorkState(batch, last)
+		return stageWorkState(batch, last, c1zstore.LedgerQueueCollecting)
 	}
 	return nil
 }
@@ -294,7 +321,7 @@ func stageInitialWork(batch *rawdb.RecordBatch, syncID string, actions []c1zstor
 			return err
 		}
 	}
-	return stageWorkState(batch, uint64(len(actions)))
+	return stageWorkState(batch, uint64(len(actions)), c1zstore.LedgerQueueCollecting)
 }
 
 type pendingWorkSeed struct {

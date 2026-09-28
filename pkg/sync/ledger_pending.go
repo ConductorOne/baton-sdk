@@ -36,11 +36,11 @@ func (s *syncer) pendingForAction(action *Action) c1zstore.LedgerWork {
 }
 
 func (s *syncer) refreshPendingWindow(ctx context.Context) error {
-	work, initialized, err := s.caps.pageLedger.PendingWork(ctx, 0, maxPeekActionsCount)
+	work, phase, err := s.caps.pageLedger.PendingWork(ctx, 0, maxPeekActionsCount)
 	if err != nil {
 		return err
 	}
-	if !initialized && !s.run.hasFact(ledgerFactSealReady) {
+	if phase == c1zstore.LedgerQueueAbsent && !s.run.hasFact(ledgerFactSealReady) {
 		return errors.New("pending work is not initialized")
 	}
 	actions := make([]Action, 0, len(work))
@@ -76,11 +76,11 @@ func (s *syncer) refreshPendingWindow(ctx context.Context) error {
 
 func (s *syncer) pendingRefill(ctx context.Context, op ActionOp, after *uint64) ([]*Action, error) {
 	for {
-		work, initialized, err := s.caps.pageLedger.PendingWorkAfter(ctx, *after, pendingAdmissionWindow)
+		work, phase, err := s.caps.pageLedger.PendingWorkAfter(ctx, *after, pendingAdmissionWindow)
 		if err != nil {
 			return nil, err
 		}
-		if !initialized {
+		if phase == c1zstore.LedgerQueueAbsent {
 			return nil, errors.New("pending queue disappeared during execution")
 		}
 		if len(work) == 0 {

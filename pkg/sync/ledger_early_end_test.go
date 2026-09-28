@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,7 +32,7 @@ func TestLedgerEarlyEndPublicRecoveryAndReset(t *testing.T) {
 			id := f.engine.CurrentSyncID()
 			before, declared, err := f.ledger.PendingWork(ctx, 0, 100)
 			require.NoError(t, err)
-			require.True(t, declared)
+			require.NotEqual(t, c1zstore.LedgerQueueAbsent, declared)
 			require.NotEmpty(t, before)
 			require.NoError(t, f.store.Close(ctx))
 			f = openLedgerFixtureAt(t, f.path, false)
@@ -45,7 +46,7 @@ func TestLedgerEarlyEndPublicRecoveryAndReset(t *testing.T) {
 			require.NoError(t, f.store.SetCurrentSync(ctx, id))
 			after, declared, err := f.ledger.PendingWork(ctx, 0, 100)
 			require.NoError(t, err)
-			require.True(t, declared)
+			require.NotEqual(t, c1zstore.LedgerQueueAbsent, declared)
 			require.Equal(t, before, after)
 			if reset {
 				require.NoError(t, f.store.EndSync(ctx))
