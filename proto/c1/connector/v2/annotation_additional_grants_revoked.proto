@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// AdditionalGrantsRevoked is attached by a connector to a Revoke response when
+// revoking the requested grant required revoking one or more additional grants
+// on the same principal.
+//
+// This signals to ConductorOne that the listed grants should also be marked
+// revoked without dispatching a separate Revoke RPC for each.
+//
+// Typical use: removing a principal's last role requires first flipping a
+// "has access" flag (modeled as its own grant). The connector revokes both the
+// role grant and the flag grant in a single operation and reports the extra
+// grant(s) here so ConductorOne does not dispatch redundant Revokes.
+message AdditionalGrantsRevoked {
+  // The grant IDs that were also revoked as part of servicing the Revoke
+  // request. At least one ID is required.
+  repeated string revoked_grant_ids = 1 [(validate.rules).repeated = {
+    min_items: 1
+    items: {
+      string: {min_bytes: 1}
+    }
+  }];
+}
