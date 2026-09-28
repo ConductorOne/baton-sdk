@@ -96,6 +96,19 @@ func (s *runStats) addStepDuration(bucket string, duration time.Duration) {
 	s.attemptStepDurationsMs[bucket] += duration.Milliseconds()
 }
 
+// mergeStepDuration folds a duration already recorded durably elsewhere (a
+// worker bucket's connector-reported wait) into the cumulative view only. The
+// merge* methods never touch the attempt maps: what they merge is already in
+// another bucket, and the run bucket would count it twice.
+func (s *runStats) mergeStepDuration(bucket string, duration time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stepDurationsMs == nil {
+		s.stepDurationsMs = make(map[string]int64)
+	}
+	s.stepDurationsMs[bucket] += duration.Milliseconds()
+}
+
 func (s *runStats) addAttemptCounter(name string, n uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -98,6 +98,6 @@ func (s *syncer) publishLedgerConnectorObservations(observations c1zstore.Ledger
 		})
 	}
 	for bucket, ms := range observations.StepDurationsMs {
-		s.stats.addStepDuration(bucket, time.Duration(ms)*time.Millisecond)
+		s.stats.mergeStepDuration(bucket, time.Duration(ms)*time.Millisecond)
 	}
 }

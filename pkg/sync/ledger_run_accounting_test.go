@@ -14,6 +14,19 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
+// A wait republished from a worker bucket reaches the cumulative view and
+// nothing else: it is already durable in that bucket, and the run bucket
+// would count it twice. TestRateLimitGateWaitsReachSyncStats caught the
+// double count end to end (625 ms for 325 ms of waits) when the fold first
+// routed republished durations through addStepDuration.
+func TestRunStatsMergedDurationsStayOutOfAttemptBucket(t *testing.T) {
+	stats := newRunStats()
+	stats.addStepDuration("rate_limit_wait", 100*time.Millisecond)
+	stats.mergeStepDuration("rate_limit_wait", 300*time.Millisecond)
+	require.EqualValues(t, 400, stats.stepDurations()["rate_limit_wait"])
+	require.EqualValues(t, 100, stats.attemptLedgerCounters().StepDurationsMs["rate_limit_wait"])
+}
+
 func TestLedgerRunAccountingAcrossAttempts(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
 	s.recordStats = true
