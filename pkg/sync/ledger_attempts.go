@@ -2,7 +2,6 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
 	"context"
-	native_sync "sync"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
@@ -11,8 +10,14 @@ import (
 
 type ledgerAttemptsKey struct{}
 
+// ledgerAttempts is owned by one goroutine: the worker whose context carries
+// it (syncParallel mints one per worker) or the coordinator (parallelSync
+// mints one for serial steps). Every mutator runs on that goroutine, including
+// recordWait, which ratelimit.ObserveWait invokes from the goroutine that
+// slept — retry.Retryer.ShouldWaitAndRetry and the unary client interceptor,
+// neither of which hands the context to another goroutine. No mutex;
+// TestLedgerWaitObservationsStayWithWorker pins the ownership.
 type ledgerAttempts struct {
-	mu                          native_sync.Mutex
 	identity                    c1zstore.LedgerActionIdentity
 	observations                c1zstore.LedgerCounters
 	attempts, errors            uint64
@@ -25,8 +30,6 @@ func withLedgerAttempts(ctx context.Context) context.Context {
 }
 
 func (a *ledgerAttempts) selectPage(id c1zstore.LedgerActionIdentity) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	if a.identity != id {
 		a.identity = id
 		a.attempts, a.errors, a.retryWait, a.rateLimitWait = 0, 0, 0, 0
@@ -36,15 +39,11 @@ func (a *ledgerAttempts) selectPage(id c1zstore.LedgerActionIdentity) {
 }
 
 func (a *ledgerAttempts) recordCall(elapsed time.Duration) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.attempts++
 	a.connectorTime += elapsed
 }
 
 func (a *ledgerAttempts) recordReportedWait(wait time.Duration) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.reportedWait += wait
 }
 
@@ -52,14 +51,10 @@ func (a *ledgerAttempts) recordError(err error) {
 	if err == nil {
 		return
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.errors++
 }
 
 func (a *ledgerAttempts) recordWait(ev ratelimit.WaitEvent) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	if ev.Retry {
 		a.retryWait += ev.Duration
 	} else {
@@ -68,8 +63,6 @@ func (a *ledgerAttempts) recordWait(ev ratelimit.WaitEvent) {
 }
 
 func (a *ledgerAttempts) snapshot(row *c1zstore.LedgerRow) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	row.ObservationsRecorded = true
 	if a.attempts > 0 {
 		row.ConnectorDuration, row.WaitDuration = a.connectorTime, a.reportedWait
@@ -79,8 +72,6 @@ func (a *ledgerAttempts) snapshot(row *c1zstore.LedgerRow) {
 }
 
 func (a *ledgerAttempts) committed() {
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.attempts, a.errors, a.retryWait, a.rateLimitWait = 0, 0, 0, 0
 	a.connectorTime, a.reportedWait = 0, 0
 	a.observations = c1zstore.LedgerCounters{}
@@ -93,8 +84,6 @@ func recordLedgerConnectorError(invocation *ledgerInvocation, err error) {
 }
 
 func (a *ledgerAttempts) addObservations(observations c1zstore.LedgerCounters) c1zstore.LedgerCounters {
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	a.observations = addLedgerCounters(a.observations, observations)
 	return cloneLedgerCounters(a.observations)
 }

@@ -64,7 +64,6 @@ var syncPrimitiveRegistry = map[string]string{
 
 	// Found by the CXE-1358 review to guard nothing two goroutines share.
 	// docs/verification/syncer-on-ledger/implementation.md, CO-038.
-	"ledgerAttempts.mu":      "remove: one owner, the goroutine whose context carries it; ratelimit.ObserveWait runs on the sleeping goroutine",
 	"ledgerRuntime.mu":       "remove: facts duplicate runState.facts; workers and active are per-index slots exclusive to their holder; closing is main-goroutine-only",
 	"ledgerRunAccounting.mu": "remove: records the same observations as runStats under a second lock; becomes an attempt-scoped view inside runStats",
 }

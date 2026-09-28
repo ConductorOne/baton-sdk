@@ -155,7 +155,10 @@ func TestLedgerCancelledRetryDoesNotSurviveNewWorker(t *testing.T) {
 	})
 }
 
-func TestLedgerConcurrentWaitObservationsStayWithWorker(t *testing.T) {
+// Ownership, not synchronization: each worker's context carries its own
+// accumulator, distinct from every other worker's and from the coordinator's,
+// and waits observed on the worker's goroutine land in that worker's row.
+func TestLedgerWaitObservationsStayWithWorker(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 2)
 	s.recordStats = true
 	ids := make([]c1zstore.LedgerActionIdentity, 0, 2)
@@ -165,23 +168,31 @@ func TestLedgerConcurrentWaitObservationsStayWithWorker(t *testing.T) {
 	}
 	var barrier native_sync.WaitGroup
 	barrier.Add(2)
+	var seenMu native_sync.Mutex
+	seen := map[*ledgerAttempts]int{}
 	s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, _ *ledgerPage) error {
 		invocation := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation)
+		attempts := ctx.Value(ledgerAttemptsKey{}).(*ledgerAttempts)
+		seenMu.Lock()
+		seen[attempts] = ctx.Value(ledgerWorkerKey{}).(int)
+		seenMu.Unlock()
 		s.recordLedgerConnectorResponse(ctx, invocation, "list-resources", time.Millisecond, nil)
 		barrier.Done()
 		barrier.Wait()
-		var callbacks native_sync.WaitGroup
 		for range 8 {
-			callbacks.Go(func() { ratelimit.ObserveWait(ctx, ratelimit.WaitEvent{Duration: time.Millisecond}) })
+			ratelimit.ObserveWait(ctx, ratelimit.WaitEvent{Duration: time.Millisecond})
 		}
-		callbacks.Wait()
 		return s.nextPageOrFinishAction(ctx, action, "")
 	}
-	ctx := s.withRateLimitWaitObserver(t.Context())
+	ctx := withLedgerAttempts(s.withRateLimitWaitObserver(t.Context()))
+	coordinator := ctx.Value(ledgerAttemptsKey{}).(*ledgerAttempts)
 	r := retry.NewRetryer(ctx, retry.RetryConfig{MaxAttempts: 1})
 	seedLedgerTestRun(t, s, nil)
 	_, err := s.syncParallel(ctx, r, s.run.peekMatchingActions(ctx, SyncResourcesOp), s.SyncResources)
 	require.NoError(t, err)
+	require.Len(t, seen, 2, "each worker minted its own accumulator")
+	require.NotContains(t, seen, coordinator, "workers do not share the coordinator's accumulator")
+	require.Zero(t, coordinator.rateLimitWait, "worker waits did not reach the coordinator")
 	for _, id := range ids {
 		row, found, err := f.ledger.GetLedgerRow(ctx, id)
 		require.NoError(t, err)
