@@ -82,6 +82,24 @@ D-<file:line of the fan-out site>, E-<Interface>.<Method>, F-<file:line>,
 G-<counter name>, H-<file:line>, I<n>-<concept>. Two reviewers on the same head
 must produce the same IDs.
 
+IMPACT. Quality is not the product; the sync is. A finding earns the report's
+front page only by stating what it costs to leave as is, in one of three forms:
+  bug class:  the state or ordering it makes possible that a single owner or a
+              single representation would make impossible (name the class:
+              divergence of two containers, a write outside the lock's
+              invariant, a stale mirror read after the source changed).
+  change tax: the second place every future change must remember, and what
+              happens when it is forgotten (name the change and the symptom).
+  read cost:  the fact a reader must hold in their head that the code could
+              carry instead, and where they first need it.
+A row with none of these is recorded in the appendix and is not a closure
+item. Comments, names and diction (section H) are appendix-only; they are
+fixed in bulk without discussion and never lead. If two findings share a
+cause, report the cause once and list the sites under it; the four findings
+that mattered on this branch (duplicate run accounting, locks on single-owner
+state, one struct with two owners, an interface with two caller groups) were
+each one cause with several sites.
+
 SECTIONS. For the whole feature diff, not only the latest commits.
 
 A. Fields. Every field added to the core structs the checklist names (for
@@ -136,7 +154,11 @@ I. Abstractions. Each item is a signal; name the concept, count the
    I8. Abstraction the brief forbade, and whether each instance crosses the
        boundary the brief drew. Where waived: "justified: requester waived".
 
-OUTPUT. One table:
+OUTPUT. First, FINDINGS: at most seven, ordered by cost, each as
+  <cause> — <impact form>: <the cost in one sentence> — sites: <row ids>
+  — fix: <one clause>.
+Fewer is fine; zero is a valid result and says so. Then the APPENDIX table,
+complete, for diffing against the next run:
   | id | decision | file:line | concept / owner / authority claimed | verdict | why |
 verdict ∈ {justified, misplaced, duplicate, unexplained, consolidate, split}.
   unexplained: no table, change order, or registry entry states the reason.
@@ -152,9 +174,9 @@ Then three sections:
   - structural decisions the code makes that no table, change order, or
     registry mentions
   - handed to correctness (one line each: file:line and a clause; no analysis)
-Closure is zero rows in misplaced/duplicate/unexplained/consolidate/split.
-Fixes are at most one clause per row; placement and representation fixes
-return to the brief stage.
+Closure is zero FINDINGS. Appendix rows are recorded, not fixed, unless a
+later change touches them. Fixes are at most one clause per finding;
+placement and representation fixes return to the brief stage.
 
 RULES. Cite file:line for every claim about existing code, from a read in this
 session; mark anything unread "not checked". Do not run or change code. Do not
@@ -171,4 +193,7 @@ correctness and named a lifecycle bug as the top finding; without RULE 1 a
 frozen-but-unimplemented change order was read as the current contract and the
 code was reported for not matching it; without the granularity rule two
 reviewers grouped findings at different levels and the tables could not be
-diffed.
+diffed. The first version of this prompt made the table the deliverable and
+zero rows the closure; that rewards volume, and a row costs the requester's
+attention whether or not it costs the product anything. The IMPACT rule and
+the seven-finding cap came from that.

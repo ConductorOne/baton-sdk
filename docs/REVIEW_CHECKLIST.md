@@ -37,7 +37,11 @@ implementation review → structural review of the code → repository gates →
 signoff. The structural review's prompt and rules are
 `docs/verification/STRUCTURAL_REVIEW.md`; it files no correctness findings and
 runs in a new session that has done nothing else — not the implementer's, not
-the correctness reviewer's, and not one that has seen their output.
+the correctness reviewer's, and not one that has seen their output. Its
+closure gate is its findings, each of which states a cost (a bug class, a
+change tax, or a read cost); the full per-declaration table is an appendix
+for diffing runs, not a work list. Quality is a means; the gate is sized to
+what the product pays for.
 
 Hard rules along the way:
 
