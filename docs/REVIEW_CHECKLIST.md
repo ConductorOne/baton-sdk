@@ -64,8 +64,10 @@ Hard rules along the way:
    gate; bypasses are guilty until proven registered.
 6. Performance — per-iteration cost at whale scale, failure-path cost,
    cost-contract deliverable on hot paths.
-7. Concurrency — TOCTOU, duplicate writers, goroutine lifecycle; data races
-   belong to the race detector.
+7. Concurrency — first, every new synchronization primitive names the two
+   goroutines that interleave on its state (the addendum's ownership table);
+   one owner or duplicated state is a design finding. Then TOCTOU, duplicate
+   writers, goroutine lifecycle; data races belong to the race detector.
 
 ## The instruments ladder (§4) — climb as high as proportionate
 
@@ -89,7 +91,30 @@ checkpoint · partial progress accounted and retryable · released exactly once
 Structural rules for `syncer`. They exist because two feature branches grew it
 from 57 fields to 81, from 3 test hooks to 11, and from 13 capability type
 assertions to 54 — each feature got a file, but every function became a method
-on `*syncer` and every value a new field. Reject on these, not on taste.
+on `*syncer` and every value a new field. A third (CXE-1358) satisfied the
+one-struct rule and added five mutexes to that struct's file set, four of them
+guarding state with one owner or state already held elsewhere. Reject on these,
+not on taste.
+
+- Synchronization primitives are dependencies on the concurrency model and are
+  enumerated like store capabilities: every `sync.*` / `atomic.*` field or
+  local in production code has an entry in `syncPrimitiveRegistry`
+  (`sync_primitives_meta_test.go`) naming the two goroutines that interleave on
+  it, or `remove: <reason>`. `TestSyncPrimitivesRegistered` fails on an
+  unregistered primitive and on a stale entry; the engine has the same fence in
+  `TestEnginePrimitivesRegistered`. The expected count of new primitives per
+  feature is zero: during a batch the shared state is the queue (`q.mu`), the
+  engine write path (`writeMu`), `runState` and `runStats`, and a feature that
+  needs a fifth thing shared says so in its brief before it says so in code.
+- State that mirrors state another struct already owns is a finding; extend
+  the owner. The signal is a write that fans out to two containers at one call
+  site (`s.stats.X(...)` beside `s.ledger.accounting.X(...)`); the second
+  container is a view of the first, not state, and it does not get a lock.
+- Ownership before code: the implementation brief carries a table of every new
+  mutable field — owner (goroutine or phase), lifetime, other readers and
+  writers. Per-worker state lives in the worker loop's locals; per-attempt
+  state lives on the attempt's struct; coordinator-only state needs no
+  primitive. A reviewer checks the table, not the locks.
 
 - A feature adds a runtime struct with its own file and its own receiver,
   owned by `syncer` as exactly one field. It does not add fields to `syncer`.

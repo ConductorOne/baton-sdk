@@ -543,6 +543,21 @@ panics recovered in background goroutines (#845), error returns structured so de
 actually run (#854). Remember §2: this pass finds *logic* concurrency bugs; the data
 races are the race detector's job, not yours.
 
+Before any of that, ask of each synchronization primitive the change adds: which
+two goroutines interleave on the state it guards? The implementation-obligation
+addendum answers this in an ownership table — every new mutable field, its owner
+(goroutine or phase), its lifetime, and any other reader or writer. A primitive is
+justified only by a row whose owner is "shared," with the two goroutines named. A
+primitive on a row with one owner, or guarding a copy of state another struct
+already guards, is a design finding, not a locking finding: the state is in the
+wrong place. The evidence: CXE-1358 added five mutexes to `pkg/sync` and a fresh
+review found four guarding single-owner or duplicated state and the fifth
+redundant under an existing lock; the race detector passed throughout, because
+correct locking of state that should not be shared is still correct locking.
+`TestSyncPrimitivesRegistered` and `TestEnginePrimitivesRegistered` enforce the
+table mechanically: each primitive in production code has a registry entry
+naming its interleaving or marking it for removal.
+
 ## 4. The systematic-solutions ladder
 
 When a bug is found, don't just fix it — climb as high on this ladder as is
@@ -1031,7 +1046,8 @@ rather than rediscovering them one bug at a time. Every commit call site owes:
 - Verification does not replace focused implementation review. After instruments
   pass, a reader decorrelated from both the implementer and the instrument author
   reviews the implementation-obligation addendum's material: resource lifetime,
-  error exits, ownership transfer, result/mutation mismatches, derived fast-path
+  error exits, ownership transfer, the ownership table and its synchronization
+  primitives (Pass 7), result/mutation mismatches, derived fast-path
   state (§5.11), and local hazards the behavioral oracle does not observe. Signoff
   requires this read to yield zero new highs. A finding is a cheap falsification
   of the closure claim, not merely a bug: affected criteria return to evidence
