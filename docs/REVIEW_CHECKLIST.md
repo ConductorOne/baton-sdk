@@ -30,9 +30,12 @@ Risk = escape × consequence; score the failure mode, not the subsystem.
 
 For HIGH changes and silent/combinatorial/no-single-run-oracle subsystems:
 
-frozen behavioral plan → implementation-obligation addendum → instruments →
-mutation adequacy → execution → structural-coverage triage → independent
-evidence audit → focused implementation review → repository gates → signoff.
+frozen behavioral plan → implementation-obligation addendum → structural
+review of the brief → instruments → mutation adequacy → execution →
+structural-coverage triage → independent evidence audit → focused
+implementation review → structural review of the code → repository gates →
+signoff. The structural review's prompt and rules are
+`docs/verification/STRUCTURAL_REVIEW.md`; it files no correctness findings.
 
 Hard rules along the way:
 

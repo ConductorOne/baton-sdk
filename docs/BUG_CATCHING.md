@@ -994,9 +994,15 @@ rather than rediscovering them one bug at a time. Every commit call site owes:
   one page. Load it in every review conversation and consult this handbook by
   section (the slice map below). The checklist is derived, never authoritative.
 - For step-up changes, use this sequence: frozen behavioral plan →
-  implementation-obligation addendum → instruments → mutation adequacy → execution
-  → structural-coverage triage → independent evidence audit → focused
-  implementation review → repository gates → signoff.
+  implementation-obligation addendum → structural review of the brief →
+  instruments → mutation adequacy → execution → structural-coverage triage →
+  independent evidence audit → focused implementation review → structural review
+  of the code → repository gates → signoff. The structural review
+  (`docs/verification/STRUCTURAL_REVIEW.md`) reads the ownership table, the state
+  inventory and the code against each other and asks of each structural decision
+  whether it should exist and where; it hands behavioral findings to the
+  correctness pass rather than filing them, because a reviewer that reads code for
+  errors reverts to the mode that misses this class.
 - The behavioral plan is blind to structure by design (change orders carry no
   implementation content), so the addendum owns two tables the plan cannot: the
   ownership table (Pass 7) and the state inventory — every new durable key,
