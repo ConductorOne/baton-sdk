@@ -25,11 +25,20 @@ const (
 
 // GrantsRevoked is attached by a connector to a Revoke response when the
 // operation removed additional grants for the same principal.
+//
+// Each grant names one entitlement binding that is gone. ConductorOne resolves
+// grant.entitlement.id and revokes that principal's binding. It does not parse
+// grant.id. Other entitlements on the same resource are left alone. An empty
+// list means the revoke had no additional grant side effects.
+//
+// Typical use: a role-revoke API replaces the principal's role set, so
+// revoking one role also removes other role entitlements. The connector
+// reports those grants so ConductorOne can drop the extra grants immediately.
 type GrantsRevoked struct {
-	state                     protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_EntitlementIds []string               `protobuf:"bytes,1,rep,name=entitlement_ids,json=entitlementIds,proto3"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	state             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Grants *[]*Grant              `protobuf:"bytes,1,rep,name=grants,proto3"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *GrantsRevoked) Reset() {
@@ -57,28 +66,31 @@ func (x *GrantsRevoked) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *GrantsRevoked) GetEntitlementIds() []string {
+func (x *GrantsRevoked) GetGrants() []*Grant {
 	if x != nil {
-		return x.xxx_hidden_EntitlementIds
+		if x.xxx_hidden_Grants != nil {
+			return *x.xxx_hidden_Grants
+		}
 	}
 	return nil
 }
 
-func (x *GrantsRevoked) SetEntitlementIds(v []string) {
-	x.xxx_hidden_EntitlementIds = v
+func (x *GrantsRevoked) SetGrants(v []*Grant) {
+	x.xxx_hidden_Grants = &v
 }
 
 type GrantsRevoked_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	EntitlementIds []string
+	// Grants removed for the revoke principal.
+	Grants []*Grant
 }
 
 func (b0 GrantsRevoked_builder) Build() *GrantsRevoked {
 	m0 := &GrantsRevoked{}
 	b, x := &b0, m0
 	_, _ = b, x
-	x.xxx_hidden_EntitlementIds = b.EntitlementIds
+	x.xxx_hidden_Grants = &b.Grants
 	return m0
 }
 
@@ -86,20 +98,23 @@ var File_c1_connector_v2_annotation_grants_revoked_proto protoreflect.FileDescri
 
 const file_c1_connector_v2_annotation_grants_revoked_proto_rawDesc = "" +
 	"\n" +
-	"/c1/connector/v2/annotation_grants_revoked.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"F\n" +
-	"\rGrantsRevoked\x125\n" +
-	"\x0fentitlement_ids\x18\x01 \x03(\tB\f\xfaB\t\x92\x01\x06\"\x04r\x02 \x01R\x0eentitlementIdsB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"/c1/connector/v2/annotation_grants_revoked.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/grant.proto\x1a\x17validate/validate.proto\"N\n" +
+	"\rGrantsRevoked\x12=\n" +
+	"\x06grants\x18\x01 \x03(\v2\x16.c1.connector.v2.GrantB\r\xfaB\n" +
+	"\x92\x01\a\"\x05\x8a\x01\x02\x10\x01R\x06grantsB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_annotation_grants_revoked_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_c1_connector_v2_annotation_grants_revoked_proto_goTypes = []any{
 	(*GrantsRevoked)(nil), // 0: c1.connector.v2.GrantsRevoked
+	(*Grant)(nil),         // 1: c1.connector.v2.Grant
 }
 var file_c1_connector_v2_annotation_grants_revoked_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	1, // 0: c1.connector.v2.GrantsRevoked.grants:type_name -> c1.connector.v2.Grant
+	1, // [1:1] is the sub-list for method output_type
+	1, // [1:1] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_annotation_grants_revoked_proto_init() }
@@ -107,6 +122,7 @@ func file_c1_connector_v2_annotation_grants_revoked_proto_init() {
 	if File_c1_connector_v2_annotation_grants_revoked_proto != nil {
 		return
 	}
+	file_c1_connector_v2_grant_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
