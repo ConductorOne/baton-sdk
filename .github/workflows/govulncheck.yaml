@@ -1,0 +1,102 @@
+name: govulncheck
+
+# Weekly scan of this module's own code for reachable vulnerabilities. When a
+# dependency bump fixes one, the run opens a pull request with the bump, or
+# refreshes the one already open on the govulncheck/fixes branch; when a later
+# scan comes back clean while that pull request is still open, the run closes
+# it. Standard-library findings raise the go directive to the fixed release,
+# the floor every dependent inherits when it takes the new SDK; findings
+# without a fix are reported in the step summary and the pull request body
+# only. Merging and releasing stay manual: everything built on this SDK
+# inherits the result.
+#
+# Only members with write access can dispatch this workflow, and nothing here
+# runs on pull requests, so forks never execute it.
+
+on:
+  schedule:
+    # Wednesday 09:00 UTC, clear of the dependents' own Monday and Tuesday
+    # release cycles. A fix merged and released the same day reaches them on
+    # their next dependency update.
+    - cron: "0 9 * * 3"
+  workflow_dispatch:
+
+# The default token stays read-only; the App token below does the writes.
+permissions:
+  contents: read
+
+# Repeated dispatches queue rather than scan in parallel.
+concurrency:
+  group: govulncheck
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Mint baton-ci app token
+        id: ci-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.BATON_CI_CLIENT_ID }}
+          private-key: ${{ secrets.BATON_CI_SECRET_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+
+      # Stubbed go, git and govulncheck; a few seconds. Runs here rather than
+      # on every pull request so the script is checked exactly when it is
+      # about to run, and a broken edit fails the run before it edits go.mod.
+      - name: Test the fix script
+        run: python3 scripts/govulncheck_fix_test.py
+
+      # Built with the same Go that builds the module: govulncheck refuses to
+      # analyze a build made with a different Go version.
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      - name: Scan and apply fixes
+        id: fix
+        env:
+          GOVULN_OUT: ${{ runner.temp }}/govulncheck
+        run: scripts/govulncheck-fix.sh
+
+      - name: Open or refresh the fix pull request
+        if: steps.fix.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ steps.ci-token.outputs.token }}
+          base: main
+          branch: govulncheck/fixes
+          delete-branch: true
+          commit-message: "Bump dependencies for vulnerabilities govulncheck reaches"
+          title: "Bump dependencies for vulnerabilities govulncheck reaches"
+          body-path: ${{ runner.temp }}/govulncheck/pr-body.md
+          add-paths: |
+            go.mod
+            go.sum
+            vendor
+
+      - name: Close a stale fix pull request
+        if: steps.fix.outputs.clean == 'true'
+        env:
+          GH_TOKEN: ${{ steps.ci-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head govulncheck/fixes --state open --json number --jq '.[0].number // empty')
+          if [ -z "$number" ]; then
+            exit 0
+          fi
+          gh pr close "$number" --repo "$GITHUB_REPOSITORY" --delete-branch \
+            --comment "This week's govulncheck scan of main found nothing reachable, so the bumps here are no longer needed. Closed by the workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

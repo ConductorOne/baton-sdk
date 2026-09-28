@@ -43,6 +43,10 @@ update-deps: ## Update and tidy Go dependencies.
 add-dep: ## Tidy Go dependencies after adding one.
 	go mod tidy -v
 
+.PHONY: vulnfix
+vulnfix: ## Bump dependencies for vulnerabilities reachable from this module (what the weekly govulncheck workflow runs).
+	scripts/govulncheck-fix.sh
+
 .PHONY: protogen
 protogen: ## Generate protobuf code.
 	buf generate

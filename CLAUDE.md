@@ -34,6 +34,10 @@ go test -v -run TestName ./path/to/package
 # Update dependencies (updates, tidies, and vendors)
 make update-deps
 
+# Bump only the dependencies with vulnerabilities reachable from this module
+# (what the weekly govulncheck workflow runs before opening its pull request)
+make vulnfix
+
 # Generate protobuf code
 make protogen
 ```
