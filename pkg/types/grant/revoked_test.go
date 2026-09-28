@@ -39,3 +39,29 @@ func TestAppendGrantsRevoked(t *testing.T) {
 	require.Equal(t, "role:role-2:member", got.GetGrants()[0].GetEntitlement().GetId())
 	require.Equal(t, removed.GetId(), got.GetGrants()[0].GetId())
 }
+
+func TestAppendGrantsRevokedMergesIntoExisting(t *testing.T) {
+	member := NewGrant(
+		&v2.Resource{Id: &v2.ResourceId{ResourceType: "role", Resource: "role-2"}},
+		"member",
+		&v2.ResourceId{ResourceType: "user", Resource: "user-1"},
+	)
+	owner := NewGrant(
+		&v2.Resource{Id: &v2.ResourceId{ResourceType: "role", Resource: "role-2"}},
+		"owner",
+		&v2.ResourceId{ResourceType: "user", Resource: "user-1"},
+	)
+
+	annos := annotations.Annotations{}
+	annos = AppendGrantsRevoked(annos, member)
+	annos = AppendGrantsRevoked(annos, owner)
+	require.Len(t, annos, 1)
+
+	got := &v2.GrantsRevoked{}
+	found, err := annos.Pick(got)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Len(t, got.GetGrants(), 2)
+	require.Equal(t, "role:role-2:member", got.GetGrants()[0].GetEntitlement().GetId())
+	require.Equal(t, "role:role-2:owner", got.GetGrants()[1].GetEntitlement().GetId())
+}

@@ -1,6 +1,8 @@
 package grant
 
 import (
+	"fmt"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 )
@@ -13,11 +15,21 @@ func NewGrantsRevoked(grants ...*v2.Grant) *v2.GrantsRevoked {
 	}
 }
 
-// AppendGrantsRevoked appends a GrantsRevoked annotation to the given
-// annotations slice and returns the updated slice. Convenience wrapper around
-// NewGrantsRevoked for the common case where the caller is building a response
-// annotations slice inline.
+// AppendGrantsRevoked adds grants to the GrantsRevoked annotation on annos and
+// returns the updated slice. When annos already contains GrantsRevoked, the
+// grants are appended to that message so a later Pick sees one annotation.
+// Otherwise a new GrantsRevoked is appended.
 func AppendGrantsRevoked(annos annotations.Annotations, grants ...*v2.Grant) annotations.Annotations {
+	existing := &v2.GrantsRevoked{}
+	found, err := annos.Pick(existing)
+	if err != nil {
+		panic(fmt.Errorf("failed to read GrantsRevoked annotation: %w", err))
+	}
+	if found {
+		existing.Grants = append(existing.GetGrants(), grants...)
+		annos.Update(existing)
+		return annos
+	}
 	annos.Append(NewGrantsRevoked(grants...))
 	return annos
 }
