@@ -178,6 +178,49 @@ expansion. Tests must count both executed passes honestly rather than suppress
 new work to keep counters equal to a one-call reference. Pending-work recovery
 continues to avoid reseeding while an expansion item is present.
 
+### Ownership table (Pass 7)
+
+Goroutines during a sync: the coordinator (main loop of `parallelSync`); N
+workers, alive only inside one `syncParallel` batch and joined before it
+returns; connector session-store callbacks, which arrive on the connector's
+goroutines at any time. Shared state is exactly the queue (`q.mu`), the engine
+write path (`writeMu`), `runState` (`run.mu`) and `runStats` (`stats.mu`).
+
+| State | Owner | Lifetime | Other readers/writers | Primitive |
+|---|---|---|---|---|
+| per-worker cumulative counter bucket | worker | one batch | none (serial steps have their own) | none; local in the worker loop |
+| per-worker retry observations (`ledgerAttempts`) | worker | one batch | `ratelimit.ObserveWait` on the same goroutine | none |
+| attempt option snapshot | coordinator | attempt start | none | none (CO-038) |
+| verification-marker clear | coordinator | attempt start | none | none (CO-038) |
+| attempt-scoped run accounting | shared: coordinator, workers, session callbacks | attempt | `timedStep`, `recordRetryWait`, `recordSessionOp` | `stats.mu`, as a second map set in `runStats` |
+| known facts | shared: workers set, coordinator reads | attempt | `publish`, `hasFact` | `run.mu` (already) |
+| seal in progress (`closing`) | coordinator | after `wg.Wait()` | none | none |
+| seal timing (`sealCost`) | tests | one finalize | none in production | none; `testSeams` |
+
+Every `remove:` entry in `syncPrimitiveRegistry` and `enginePrimitiveRegistry`
+maps to a row above whose owner is not "shared". The cleanup that deletes a
+primitive deletes its entry; the table is the reviewable claim, the registry is
+the check that enforces it.
+
+### CO-038 implementation
+
+Write the option snapshot in `prepareLedgerState` after `restoreLedgerState`,
+through a store lifecycle write (`SetFactValue` outside a page, the
+`PutCounterBucket` shape), `first_options` only when absent. Call
+`ClearIngestInvariantVerification` in `syncLedger` before `parallelSync` when
+`s.run.current() != nil`, with the existing bypass reason. Delete
+`ledgerRuntime.prepareMu/prepared/beforePage/preparePage`, `optionsRecorded`,
+`page.reportOptions`, `commitMu`, and `prepareSealWithOptions`'s options
+parameter. Then the ownership moves: `ledgerAttempts` loses its mutex and the
+concurrent-callback test at `ledger_attempts_test.go:175` is replaced by the
+ownership assertion; the worker bucket becomes a local in `syncParallel`'s
+worker loop and a local for serial steps; `ledgerRuntime.facts/active/closing/mu`
+go; `ledgerRunAccounting` folds into `runStats` as attempt-scoped maps under
+`stats.mu` with no subtraction for maxima or flags; `Engine.sealCost` moves
+behind `testSeams`. Narrow `q.mu` on the ledger path so the durable commit runs
+outside it, with the three interleaving tests named in the review. Each step
+removes its registry entry in the same commit.
+
 ### CO-037 implementation
 
 Storage. The work-state value gains a phase byte: `{version 2, lastID, phase}`,

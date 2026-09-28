@@ -1323,3 +1323,20 @@ ended rebind initializes the new request normally. Source: correction review.
 - Risk routing: HIGH; silent + durable (a misclassified pass), version-pair dependence. Frozen by this entry; implementation obligations in implementation.md; instruments are the existing crash-cut harness, the raw-snapshot oracle and the legacy-artifact tooling.
 - SQLite: no change. Every contract change is on `PageLedgerStore`/`PageWriter`, which SQLite must not implement (`setStore` refuses it); every engine change is under `pkg/dotc1z/engine/pebble`; every syncer change is in `ledger_*.go` or behind `s.ledgered`. The acceptance check is `git diff --stat` for this sequence showing no path under `pkg/dotc1z/*.go` other than `pebble_store.go`, and no hunk in `pkg/sync` outside `ledger_*.go` that is not inside an `s.ledgered` fork.
 - PR placement: this PR, as its own commit sequence after CO-036.
+
+### CO-038 — attempt-scoped writes belong to the coordinator
+
+- Classification: lifecycle correction, small.
+- Source: the CXE-1358 synchronization review; requester asks for zero new primitives.
+- Motivation: two once-per-attempt writes were placed on the page path and given locks so concurrent first pages could race for them. Neither has a second owner.
+- Claim, stated on the file:
+  1. The attempt's option snapshot (`c1z.report.latest_options`, and `c1z.report.first_options` when absent) is written once per attempt, before the attempt's first page, by the coordinator. An attempt that commits no page still records its options. `first_options` is preserved across finished same-ID passes as today.
+  2. The prior ingest-invariant verification marker is cleared by the coordinator before the first page or batch of an attempt that has work to run; an attempt with no pending work performs no such write. A clear failure prevents every handler from running.
+  3. No page stages either write; no page-path synchronization exists for them.
+- Contract delta: none in storage (`SetFactValue` outside a page is the existing `PutCounterBucket` shape: a blind lifecycle write under the write lock).
+- Owning boundary: syncer attempt start (`prepareLedgerState` / `syncLedger`).
+- Affected criteria: C31, C33, C50.
+- Supersedes: CO-030's "publish a runtime flag only after the page with latest options commits" — the flag and the page callback are removed; the snapshot is a lifecycle write with no page to fail.
+- Verification delta: attempt commits no page → `latest_options` names that attempt; finished rebind → `first_options` unchanged, `latest_options` new; empty recovery (`current() == nil`) → no verification-clear write, checked by the write hook; injected clear failure → no connector call. `TestSyncPrimitivesRegistered` loses its five `remove:` entries in the same change.
+- Risk routing: bounded; existing options and verification tests plus the write-hook audit.
+- PR placement: this PR, before the CO-037 sequence.
