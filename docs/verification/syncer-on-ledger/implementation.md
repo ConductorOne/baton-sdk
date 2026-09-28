@@ -243,7 +243,10 @@ land before any syncer change so the syncer never targets two contracts.
 
 Not changed: page commit and pending-work ID allocation, the scheduler, the
 takeover token format, report content, retained-mode scrubbing, residue purge,
-old-host readability of default-mode sealed files.
+old-host readability of default-mode sealed files, and the SQLite store and
+token path (no file under `pkg/dotc1z/*.go` except `pebble_store.go`, no hunk in
+`pkg/sync` outside `ledger_*.go` or an `s.ledgered` fork). Test doubles in
+`pkg/sync` that implement `PageLedgerStore` gain the new methods.
 
 ### CO-036 implementation
 
