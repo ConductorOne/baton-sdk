@@ -283,12 +283,12 @@ func TestLedgerSnapshotAfterReopen(t *testing.T) {
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, raw)))
 }
 
-func newTestLedgerRuntime(ctx context.Context, store c1zstore.PageLedgerStore, runID string) (*ledgerRuntime, error) {
-	facts, err := store.LedgerFacts(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return newLedgerRuntime(store, runID, facts)
+// Eight slots covers every worker index the fixtures use; an index past it
+// fails loudly (errLedgerWorkerIndex) rather than sharing a slot.
+const testLedgerWorkerSlots = 8
+
+func newTestLedgerRuntime(_ context.Context, store c1zstore.PageLedgerStore, runID string) (*ledgerRuntime, error) {
+	return newLedgerRuntime(store, runID, testLedgerWorkerSlots)
 }
 
 func loadTestLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore.PageLedgerStore, runID string) (ledgerResume, error) {

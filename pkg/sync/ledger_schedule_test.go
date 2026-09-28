@@ -77,7 +77,6 @@ func TestLedgerScheduleStopsAndJoinsOnError(t *testing.T) {
 	f.audit.enter(ledgerLifecycle)
 	require.ErrorIs(t, err, injected)
 	require.Zero(t, active.Load())
-	require.Empty(t, runtime.active)
 	require.Zero(t, f.audit.writers)
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 	require.NoError(t, runtime.flushRunCounters(t.Context(), c1zstore.LedgerCounters{SessionCalls: map[string]c1zstore.CallStat{"get": {Count: 2, Errors: 1}}}))

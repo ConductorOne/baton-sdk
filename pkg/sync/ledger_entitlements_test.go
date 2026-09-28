@@ -58,7 +58,7 @@ func entitlementPageFixture(t *testing.T, scoped bool) (*syncer, *ledgerFixture,
 	s.recordStats = true
 	s.cfg.syncType = connectorstore.SyncTypeFull
 	s.ingestFilterStats.markKnown()
-	s.ledger.facts[ledgerFactIngestKnown] = ""
+	s.run.setFact(ledgerFactIngestKnown)
 	require.NoError(t, f.store.PutResourceTypes(t.Context(), &v2.ResourceType{Id: "selected"}))
 	resource := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "selected", Resource: "one"}.Build()}.Build()
 	require.NoError(t, f.store.PutResources(t.Context(), resource))

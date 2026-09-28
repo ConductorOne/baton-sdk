@@ -138,7 +138,6 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 				factsBeforePage, err := f.ledger.LedgerFacts(ctx)
 				require.NoError(t, err)
 				require.Contains(t, factsBeforePage, ledgerFactIngestKnown)
-				require.Equal(t, factsBeforePage, s.ledger.facts)
 				action := s.run.current()
 				require.NoError(t, invokeLedgerTestPage(t, s, ctx, action, func(ctx context.Context, a *Action) error { return s.initializeAction(ctx, a, nil) }, false))
 				facts, err := f.ledger.LedgerFacts(ctx)

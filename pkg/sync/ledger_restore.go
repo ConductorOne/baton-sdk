@@ -87,7 +87,7 @@ func (s *syncer) restoreLedgerState(ctx context.Context, store c1zstore.PageLedg
 	} else if quality == nil {
 		quality = &IngestQualityCheckpoint{SourceCacheReplayBlocked: true, ReasonFlags: ingestQualityReasonUnknownPriorCheckpoint}
 	}
-	runtime, err := newLedgerRuntime(store, runID, facts)
+	runtime, err := newLedgerRuntime(store, runID, max(s.cfg.workerCount, 1))
 	if err != nil {
 		return err
 	}

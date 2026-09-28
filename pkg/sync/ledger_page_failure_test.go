@@ -69,9 +69,9 @@ func TestLedgerPageFailureDiscardsStagedObservations(t *testing.T) {
 			f.audit.enter(ledgerLifecycle)
 			require.ErrorIs(t, err, errLedgerInjectedPage)
 			require.Zero(t, f.audit.writers)
-			require.Empty(t, runtime.facts)
-			require.Empty(t, runtime.workers)
-			require.Empty(t, runtime.active)
+			for _, slot := range runtime.workers {
+				require.True(t, slot.IsZero(), "a failed page leaves no worker total")
+			}
 			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 		})
 	}
@@ -87,7 +87,9 @@ func TestLedgerTerminalFailureDoesNotPublishProof(t *testing.T) {
 			require.NoError(t, err)
 			before := ledgerRawSnapshot(t, f.engine)
 			require.ErrorIs(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{StepDurationsMs: map[string]int64{"run": 7}}), errLedgerInjectedPage)
-			require.NotContains(t, runtime.facts, ledgerFactSealReady)
+			stored, err := f.ledger.LedgerFacts(t.Context())
+			require.NoError(t, err)
+			require.NotContains(t, stored, ledgerFactSealReady)
 			require.Zero(t, f.audit.writers)
 			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 			recovered, err := newTestLedgerRuntime(t.Context(), f.ledger, "retry")

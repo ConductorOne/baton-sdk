@@ -287,6 +287,15 @@ before staging anything: phase is `collecting`, the pending range is empty, the
 row has no continuation and no children. The terminal page carries the run
 bucket, terminal facts and the phase in one batch, as today minus `seal_ready`.
 
+The terminal transition's validation (phase `collecting`, empty pending range)
+and the refusal of a page committed after `sealing` replace two in-memory
+guards the syncer runtime carried until the CO-038 ownership moves
+(`ledgerRuntime.active`, `ledgerRuntime.closing`, pinned by the deleted
+`TestLedgerTerminalRejectsActivePage`): an active page's pending entry blocks
+the terminal transition, and a late page fails at commit. Between the two
+change orders neither property is enforced; CO-037 commit 1 restores both at
+the engine with their tests.
+
 `endSync` with stats requires phase `sealing`, or `ended_at` set with no
 declaration (engine-level reseal). Finalize order: deferred indexes and manifest
 counts as today; token-bearing disposal (rows, pending, frontier, scheduling) or

@@ -78,24 +78,6 @@ func TestLedgerTerminalPageAndSealStats(t *testing.T) {
 	}
 }
 
-func TestLedgerTerminalRejectsActivePage(t *testing.T) {
-	f := newLedgerFixture(t)
-	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
-	runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "attempt")
-	require.NoError(t, err)
-	_, err = runtime.runPage(t.Context(), 0, c1zstore.LedgerActionIdentity{Op: "init"}, func(ctx context.Context, page *ledgerPage) error {
-		require.ErrorContains(t, runtime.prepareSeal(ctx, c1zstore.LedgerCounters{}), "active pages")
-		return page.transition("")
-	})
-	require.NoError(t, err)
-	require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{}))
-	_, err = runtime.runPage(t.Context(), 0, c1zstore.LedgerActionIdentity{Op: "late"}, func(_ context.Context, page *ledgerPage) error {
-		t.Fatal("page ran after terminal marker")
-		return nil
-	})
-	require.ErrorIs(t, err, errLedgerWorkerBusy)
-}
-
 func TestLedgerSealReadyBypassesScrubbedFrontier(t *testing.T) {
 	f := newLedgerFixture(t)
 	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))

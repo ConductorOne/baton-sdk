@@ -18,26 +18,24 @@ func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.Le
 	if len(pending) > 0 {
 		return errors.New("cannot prepare seal with pending work")
 	}
+	stored, err := r.store.LedgerFacts(ctx)
+	if err != nil {
+		return err
+	}
+	_, ready := stored[ledgerFactSealReady]
 	if !initialized {
-		r.mu.Lock()
-		_, discarding := r.facts[c1zstore.LedgerFactDiscardOnSeal]
-		_, ready := r.facts[ledgerFactSealReady]
-		r.mu.Unlock()
+		_, discarding := stored[c1zstore.LedgerFactDiscardOnSeal]
 		if !discarding || !ready {
 			return errors.New("cannot prepare seal without pending-work declaration")
 		}
 	}
-
-	r.mu.Lock()
-	if len(r.active) != 0 {
-		r.mu.Unlock()
-		return errors.New("cannot prepare ledger seal with active pages")
-	}
-	r.closing = true
-	_, ready := r.facts[ledgerFactSealReady]
-	r.mu.Unlock()
 	if ready {
-		return nil
+		// The terminal page exists from a prior attempt. This attempt's own
+		// accounting (invariants, cleanup) still has to reach its bucket.
+		if runCounters.IsZero() {
+			return nil
+		}
+		return r.store.PutCounterBucket(ctx, r.runID, c1zstore.RunBucketWorker, runCounters)
 	}
 	page := r.store.BeginPage()
 	defer page.Discard()
@@ -53,13 +51,7 @@ func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.Le
 		return err
 	}
 	id := c1zstore.LedgerActionIdentity{Op: ledgerTerminalOp}
-	if err := page.Commit(c1zstore.WithOpenPage(ctx), id, &c1zstore.LedgerRow{Identity: id, Attempt: r.runID}); err != nil {
-		return err
-	}
-	r.mu.Lock()
-	r.facts[ledgerFactSealReady] = ""
-	r.mu.Unlock()
-	return nil
+	return page.Commit(c1zstore.WithOpenPage(ctx), id, &c1zstore.LedgerRow{Identity: id, Attempt: r.runID})
 }
 
 func (r *ledgerRuntime) seal(ctx context.Context) error {

@@ -291,6 +291,5 @@ func TestLedgerStartupLoadsCountersOnce(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, counted.reads)
 	require.Equal(t, 2, counted.factReads)
-	require.Contains(t, s.ledger.facts, ledgerFactIngestKnown)
 	require.True(t, s.run.hasFact(ledgerFactIngestKnown))
 }

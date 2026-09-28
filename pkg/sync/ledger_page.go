@@ -6,43 +6,40 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	native_sync "sync"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 var (
 	errLedgerPageTransition = errors.New("ledger page must transition exactly once")
-	errLedgerWorkerBusy     = errors.New("ledger worker or page is already active")
+	errLedgerWorkerIndex    = errors.New("ledger worker index outside the attempt's slots")
 )
 
+// ledgerRuntime is one attempt's state. workers[i] is the cumulative counter
+// bucket the store blind-writes for (runID, i); it is touched only by the
+// goroutine currently holding worker index i — a syncParallel worker for the
+// life of its batch, the coordinator for index 0 while no workers are alive —
+// and it keeps its total across batches because indexes restart at 0 in each
+// one. No mutex: batches do not overlap, so no two goroutines hold one index.
 type ledgerRuntime struct {
 	store      c1zstore.PageLedgerStore
 	accounting ledgerRunAccounting
 	runID      string
-	mu         native_sync.Mutex
-	closing    bool
-	facts      map[string]string
-	workers    map[uint32]c1zstore.LedgerCounters
-	active     map[uint32]bool
+	workers    []c1zstore.LedgerCounters
 }
 
-func newLedgerRuntime(store c1zstore.PageLedgerStore, runID string, facts map[string]string) (*ledgerRuntime, error) {
+func newLedgerRuntime(store c1zstore.PageLedgerStore, runID string, workerCount int) (*ledgerRuntime, error) {
 	if store == nil || runID == "" {
 		return nil, errors.New("ledger runtime requires a store and attempt id")
 	}
-	if facts == nil {
-		facts = make(map[string]string)
+	if workerCount < 1 {
+		return nil, errors.New("ledger runtime requires at least one worker slot")
 	}
-	return &ledgerRuntime{
-		store: store, runID: runID, facts: maps.Clone(facts),
-		workers: make(map[uint32]c1zstore.LedgerCounters), active: make(map[uint32]bool),
-	}, nil
+	return &ledgerRuntime{store: store, runID: runID, workers: make([]c1zstore.LedgerCounters, workerCount)}, nil
 }
 
 type ledgerPage struct {
 	writer       c1zstore.PageWriter
-	runtime      *ledgerRuntime
 	row          c1zstore.LedgerRow
 	transitions  int
 	facts        map[string]string
@@ -76,12 +73,7 @@ func (p *ledgerPage) setFactValue(name, value string) error {
 }
 
 func (p *ledgerPage) hasFact(name string) bool {
-	if _, found := p.facts[name]; found {
-		return true
-	}
-	p.runtime.mu.Lock()
-	defer p.runtime.mu.Unlock()
-	_, found := p.runtime.facts[name]
+	_, found := p.facts[name]
 	return found
 }
 
@@ -107,22 +99,13 @@ func (r *ledgerRuntime) runPageWithCommit(
 	if handler == nil {
 		return nil, errors.New("ledger page handler is nil")
 	}
-	r.mu.Lock()
-	if r.closing || r.active[worker] {
-		r.mu.Unlock()
-		return nil, errLedgerWorkerBusy
+	if int(worker) >= len(r.workers) {
+		return nil, fmt.Errorf("%w: %d of %d", errLedgerWorkerIndex, worker, len(r.workers))
 	}
-	r.active[worker] = true
 	previous := cloneLedgerCounters(r.workers[worker])
-	r.mu.Unlock()
-	defer func() {
-		r.mu.Lock()
-		delete(r.active, worker)
-		r.mu.Unlock()
-	}()
 	page := &ledgerPage{
-		writer: r.store.BeginPage(), runtime: r,
-		row: c1zstore.LedgerRow{Identity: id, Attempt: r.runID}, facts: make(map[string]string),
+		writer: r.store.BeginPage(),
+		row:    c1zstore.LedgerRow{Identity: id, Attempt: r.runID}, facts: make(map[string]string),
 	}
 	defer page.writer.Discard()
 	ctx = c1zstore.WithOpenPage(ctx)
@@ -147,10 +130,7 @@ func (r *ledgerRuntime) runPageWithCommit(
 		if err := page.writer.Commit(ctx, id, &page.row); err != nil {
 			return fmt.Errorf("commit ledger page: %w", err)
 		}
-		r.mu.Lock()
 		r.workers[worker] = candidate
-		maps.Copy(r.facts, page.facts)
-		r.mu.Unlock()
 		committed = true
 		return nil
 	}

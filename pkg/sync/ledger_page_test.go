@@ -45,8 +45,9 @@ func TestLedgerPageFailureDoesNotPublish(t *testing.T) {
 		return injected
 	})
 	require.ErrorIs(t, err, injected)
-	require.Empty(t, runtime.facts)
-	require.Empty(t, runtime.workers)
+	for _, slot := range runtime.workers {
+		require.True(t, slot.IsZero())
+	}
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 	_, err = runtime.runPage(t.Context(), 0, id, func(ctx context.Context, page *ledgerPage) error {
 		require.False(t, page.hasFact("uncommitted"))
@@ -128,7 +129,6 @@ func TestLedgerPageFactValueReadYourWrites(t *testing.T) {
 	_, err = runtime.runPage(t.Context(), 0, c1zstore.LedgerActionIdentity{Op: "init"}, func(_ context.Context, page *ledgerPage) error {
 		require.NoError(t, page.setFactValue("value", "first"))
 		require.True(t, page.hasFact("value"))
-		require.NotContains(t, runtime.facts, "value")
 		require.NoError(t, page.setFactValue("value", "last"))
 		return page.transition("")
 	})
@@ -137,7 +137,6 @@ func TestLedgerPageFactValueReadYourWrites(t *testing.T) {
 	facts, err := f.ledger.LedgerFacts(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, "last", facts["value"])
-	require.Equal(t, facts, runtime.facts)
 }
 
 func TestLedgerConcurrentFactsFollowCommitOrder(t *testing.T) {
@@ -201,7 +200,6 @@ func TestLedgerConcurrentFactsFollowCommitOrder(t *testing.T) {
 	facts, err := f.ledger.LedgerFacts(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, expected, facts)
-	require.Equal(t, expected, runtime.facts)
 	require.NoError(t, f.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
 	facts, err = f.ledger.LedgerFacts(t.Context())
