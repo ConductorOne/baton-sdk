@@ -524,6 +524,10 @@ type parallelActionQueue struct {
 	aborted     bool
 	refill      func() ([]*Action, error)
 	refillErr   error
+	// commitUnlocked releases mu around transition's commit callback. Set only
+	// for a ledgered batch, whose commit is a durable store write that needs no
+	// queue state; the token path's in-memory commit stays under the lock.
+	commitUnlocked bool
 	// The queue keeps NO cursor identity history (RFC 0007 phase 1
 	// restored the pre-identity-machinery posture that prod ran on for
 	// years): no batch-lifetime seen set, no cap, no cross-commit dedup,
@@ -662,11 +666,35 @@ func (q *parallelActionQueue) transition(
 		admitted = append(admitted, *child)
 	}
 
+	if q.commitUnlocked {
+		// The ledger commit is a durable batch, not the in-memory transition
+		// the token path performs here. It needs none of the queue's state, and
+		// holding q.mu across it stalls every other worker's next() and done()
+		// for its duration. An abort landing meanwhile does not undo a commit
+		// that has already published, so aborted is not re-read below.
+		q.audit.record(queueAuditEvent{kind: auditCommitBegin, batch: q.auditBatch})
+		q.mu.Unlock()
+		pushed, err := commit(nextPageToken, admitted)
+		q.mu.Lock()
+		if err != nil {
+			q.audit.record(queueAuditEvent{kind: auditReject, batch: q.auditBatch})
+			return err
+		}
+		q.admitLocked(batchOp, pushed)
+		return nil
+	}
 	pushed, err := commit(nextPageToken, admitted)
 	if err != nil {
 		q.audit.record(queueAuditEvent{kind: auditReject, batch: q.auditBatch})
 		return err
 	}
+	q.admitLocked(batchOp, pushed)
+	return nil
+}
+
+// admitLocked appends the same-op children a commit produced and wakes
+// workers blocked in next(). Caller holds q.mu.
+func (q *parallelActionQueue) admitLocked(batchOp ActionOp, pushed []*Action) {
 	commitEv := queueAuditEvent{kind: auditCommit, batch: q.auditBatch}
 	for _, action := range pushed {
 		if action != nil && action.Op == batchOp {
@@ -679,7 +707,6 @@ func (q *parallelActionQueue) transition(
 	}
 	q.audit.record(commitEv)
 	q.cond.Broadcast()
-	return nil
 }
 
 func (q *parallelActionQueue) next() (*Action, bool) {
@@ -790,6 +817,7 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 
 	queue := newParallelActionQueue(actions)
 	if s.ledgered {
+		queue.commitUnlocked = true
 		var after uint64
 		for _, action := range actions {
 			after = max(after, action.WorkID)

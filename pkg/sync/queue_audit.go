@@ -52,6 +52,10 @@ const (
 	auditBatchEnd
 	// auditAdmit loads already committed pending children into the worker queue.
 	auditAdmit
+	// auditCommitBegin: a ledger transition passed its pre-commit checks and
+	// released the queue lock for the durable commit. Recorded so the checker
+	// can tell a commit that began before an abort from one that began after.
+	auditCommitBegin
 )
 
 type queueAuditEvent struct {
