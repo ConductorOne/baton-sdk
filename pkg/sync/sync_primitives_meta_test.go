@@ -64,7 +64,6 @@ var syncPrimitiveRegistry = map[string]string{
 
 	// Found by the CXE-1358 review to guard nothing two goroutines share.
 	// docs/verification/syncer-on-ledger/implementation.md, CO-038.
-	"ledgerRunAccounting.mu": "remove: records the same observations as runStats under a second lock; becomes an attempt-scoped view inside runStats",
 }
 
 func TestSyncPrimitivesRegistered(t *testing.T) {

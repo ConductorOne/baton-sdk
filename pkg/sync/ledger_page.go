@@ -22,10 +22,9 @@ var (
 // and it keeps its total across batches because indexes restart at 0 in each
 // one. No mutex: batches do not overlap, so no two goroutines hold one index.
 type ledgerRuntime struct {
-	store      c1zstore.PageLedgerStore
-	accounting ledgerRunAccounting
-	runID      string
-	workers    []c1zstore.LedgerCounters
+	store   c1zstore.PageLedgerStore
+	runID   string
+	workers []c1zstore.LedgerCounters
 }
 
 func newLedgerRuntime(store c1zstore.PageLedgerStore, runID string, workerCount int) (*ledgerRuntime, error) {

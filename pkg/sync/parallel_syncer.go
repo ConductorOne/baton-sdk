@@ -45,9 +45,9 @@ func (s *syncer) recordRetryWait(ctx context.Context, wait time.Duration, rateLi
 	if rateLimited {
 		bucket = "rate_limit_wait"
 	}
-	s.recordRunStepDuration(bucket, wait)
+	s.stats.addStepDuration(bucket, wait)
 	if label, ok := ratelimit.WaitLabelFromContext(ctx); ok {
-		s.recordRunStepDuration(bucket+":"+label, wait)
+		s.stats.addStepDuration(bucket+":"+label, wait)
 	}
 	if rateLimited {
 		s.recordRateLimitWallInterval(wait)
@@ -102,7 +102,7 @@ func (s *syncer) recordRateLimitWallInterval(wait time.Duration) {
 	// lock from nesting the stats mutex.
 	s.rlWallMu.Unlock()
 	if whole > 0 {
-		s.recordRunStepDuration("rate_limit_wait_wall", whole)
+		s.stats.addStepDuration("rate_limit_wait_wall", whole)
 	}
 }
 

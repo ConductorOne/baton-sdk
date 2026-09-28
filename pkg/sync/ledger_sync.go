@@ -86,7 +86,7 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 		return s.returnSyncError(l, span, err)
 	}
 
-	counters := s.ledger.accounting.snapshot()
+	counters := s.stats.attemptLedgerCounters()
 	counters.Flags |= s.ingestFilterStats.reasonFlags.Load()
 	var terminalFacts []string
 	if !s.ledgerDebug {

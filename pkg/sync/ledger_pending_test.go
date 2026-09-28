@@ -302,7 +302,7 @@ func TestPendingLocalCompletionAllowsAccountingObserver(t *testing.T) {
 	action := s.run.pushAction(t.Context(), Action{Op: SyncGrantExpansionOp})
 	seedLedgerTestRun(t, s, action)
 	s.ledger.store = pendingLocalObserver{PageLedgerStore: f.ledger, observe: func() {
-		s.recordRunStepDuration("completion-observer", time.Millisecond)
+		s.stats.addStepDuration("completion-observer", time.Millisecond)
 	}}
 	done := make(chan error, 1)
 	go func() {
