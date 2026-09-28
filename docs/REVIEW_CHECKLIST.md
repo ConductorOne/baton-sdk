@@ -22,6 +22,9 @@ Risk = escape × consequence; score the failure mode, not the subsystem.
   option-gated.
 - On declared hot paths the cost curve is a correctness property: state the
   big-O delta and point at the enforcing benchmark, or state no-change.
+- A change that adds a durable key, fact, or marker names the question it
+  answers and the record that already answered it (state inventory, below).
+  Two records for one question is HIGH regardless of the other axes.
 
 ## Step-up pipeline (§2 policy, §6)
 
@@ -48,6 +51,32 @@ Hard rules along the way:
 - Review budget: two, at most three rounds; then switch instruments.
 - Failing evidence first for every confirmed bug. A recurrence of a documented
   class ships the §4 ladder climb, not just the patch.
+
+## Briefs and reports (§6) — the layer review does not see
+
+Behavioral plans freeze what the file must look like; they carry no
+implementation content by rule, so structure is never frozen and never
+calibrated. These three artifacts close that gap. Each is short, written
+before the code it governs, and reviewed as a claim rather than a diff.
+
+- **Requester's brief** names the production flows and producer/consumer
+  version pairs the change must serve and what must be unchanged. An agent
+  that cannot fill this from the brief asks before designing.
+- **Implementation brief** carries two tables. Ownership: every new mutable
+  field, its owner (goroutine or phase), lifetime, other readers and writers;
+  a synchronization primitive is justified only by a "shared" row naming the
+  two goroutines. State inventory: every new durable key, fact, or marker, the
+  question it answers, its writer, its readers, and the existing record that
+  already answered the question or `none`; a second answer to one question is
+  a finding (`ended_at` beside a surviving fact, CXE-1358). Every lifecycle
+  surface (reset, fold, seal, discard, drop) that must handle the new state
+  is listed, per §5.4.
+- **Every agent turn that changes code** ends with `Decisions not requested`,
+  the closed-set list `AGENTS.md` defines. Empty is stated, not omitted.
+
+Mechanical half: `syncPrimitiveRegistry`, `enginePrimitiveRegistry`,
+`commitPointRegistry`, and the field/hook/assertion counts recorded under
+"Syncer structure." A HIGH change attaches the count deltas against main.
 
 ## The seven passes (§3) — select by risk, record omissions
 

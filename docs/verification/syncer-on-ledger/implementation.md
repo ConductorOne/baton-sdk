@@ -202,6 +202,36 @@ maps to a row above whose owner is not "shared". The cleanup that deletes a
 primitive deletes its entry; the table is the reviewable claim, the registry is
 the check that enforces it.
 
+### State inventory
+
+Durable state this branch adds, the question each answers, and the record that
+already answered it. Two rows answering one question is the finding CO-037
+corrects. Lifecycle surfaces: R reset (`ResetForNewSync`), F fold, S seal, D
+discard, X drop (`Ledger.Drop`), C clear (`ClearLedgerRows` → `BeginPass`).
+
+| State | Keyspace | Question | Writer | Readers | Prior answer | Surfaces |
+|---|---|---|---|---|---|---|
+| pending-work entries | ledger 0x04 | what work remains, in what order | page commit, seed, takeover, `CompletePendingWork` | `PendingWork*`, seal precheck | legacy token stack (consumed at takeover) | R F S D X C |
+| work declaration (allocator; phase under CO-037) | ledger 0x05 | is the queue initialized; which pass phase | seed, takeover, page commit, terminal page (CO-037) | resume selection, seal precheck | none | R F S D X C |
+| scheduling relations | ledger 0x06 | was this child already scheduled | page commit, seed | `stageWorkTransition`, invariant I4 | in-memory `childScheduleSet` (token path) | R F S D X C |
+| completed rows (work-ID keyed) | ledger 0x00 | diagnostic history | page commit | report, `GetLedgerRow` | none | R F S D X C |
+| `sync.seal_ready` fact | ledger 0x01 | is collection complete | terminal page | resume selection, seal | work declaration + empty queue — **duplicate; removed by CO-037** | R F D X C |
+| `c1z.discard_ledger_on_seal` fact | ledger 0x01 | disposal policy; **and** "disposal in progress" after the discard | terminal page | finalize; resume selection | as policy: none; as progress marker: `ended_at` — **duplicate; CO-037 keeps the policy role only** | R F D X C |
+| `c1z.report.first_options` / `latest_options` | ledger 0x01 | which options ran, first and latest | first page per attempt (CO-038: attempt start) | report, archive | none | R F D X C (first retained) |
+| `sync.ingest_known` / `sync.ingest_blocked` | ledger 0x01 | replay eligibility knowledge | pages, Init, seed | `LedgerSyncStats`, restore | `IngestQualityCheckpoint` in the token (consumed) | R F D X C |
+| `c1z.retain_tokens` fact | ledger 0x01 | keep verbatim tokens at seal | page commit, takeover | finalize | none | R F D X C |
+| counter buckets, folded bucket, `"archived"` bucket | ledger 0x02 | cumulative accounting | page commit, `PutCounterBucket`, `FoldCounters`, `BeginPass` | `LedgerCounters`, stats | token `runStats` (consumed) | R F D X (C retains) |
+| frontier | ledger 0x03 | migration provenance | takeover | diagnostics only | none | R F D X C |
+| `ledger-archive` | engine-meta | report; sealed pass's facts and counters | finalize (CO-037: in the stamp batch) | `BeginPass`, `finishLedgerReport`, plain-`EndSync` stats | none; placement is engine-meta so a baseline-SDK host sees an empty family | R (excise) F (byte-copied) |
+| `ledger-residue-pending` | engine-meta | compaction owed after a drop or discard | drop, discard | finalize | pre-existing | pre-existing |
+| in-flight keyspace stamp | engine-meta | v2 readers must refuse | first ledger write | open | pre-existing | pre-existing |
+| `ended_at` | sync-run record | is the sync finished | finalize | everything | the finished verdict; CO-037 makes it the only one | pre-existing |
+| `AssetRecord` via `PutAsset` | asset 0x05 | staged assets ride the page | page commit | asset readers | direct `PutAsset` (token path) | R F (existing) |
+| proto: `LedgerRow.{work_id, work_revision, collection, observations…}`, `LedgerCollectionStats`, `LedgerChild.work_id` | row values | diagnostics | page commit | report | none | additive proto fields |
+
+Rows marked duplicate are the two lifecycle questions with two answers; the
+rest each have one writer set and one question.
+
 ### CO-038 implementation
 
 Write the option snapshot in `prepareLedgerState` after `restoreLedgerState`,

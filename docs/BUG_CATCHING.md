@@ -997,6 +997,19 @@ rather than rediscovering them one bug at a time. Every commit call site owes:
   implementation-obligation addendum → instruments → mutation adequacy → execution
   → structural-coverage triage → independent evidence audit → focused
   implementation review → repository gates → signoff.
+- The behavioral plan is blind to structure by design (change orders carry no
+  implementation content), so the addendum owns two tables the plan cannot: the
+  ownership table (Pass 7) and the state inventory — every new durable key,
+  fact, or marker with the question it answers and the record that already
+  answered it. Both are claims a requester reads without the diff; both precede
+  code. The requester's brief owes the production flows and version pairs the
+  design serves, and an agent asks for them rather than guessing. Every
+  code-changing turn ends with `Decisions not requested` (`AGENTS.md`). The
+  reason this is process rather than review: review evaluates an implementation
+  against itself and finds every lock held correctly and every marker read
+  consistently. CXE-1358 shipped five single-owner mutexes and a lifecycle with
+  two finished-authorities through a frozen plan, an evidence ledger, and two
+  reviews; four short questions about owners and authorities found both.
 - Keep the machinery proportional. The full closure packet and independent audit
   are step-up controls, not requirements for a local low-risk fix. Prefer ordinary
   Markdown, table-driven tests, and existing repository commands over a new
