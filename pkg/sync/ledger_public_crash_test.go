@@ -147,17 +147,24 @@ func TestLedgerPublicCrashResume(t *testing.T) {
 		created, err := NewSyncer(t.Context(), connector, WithConnectorStore(f.store), WithWorkerCount(workers), WithDontExpandGrants())
 		require.NoError(t, err)
 		s := created.(*syncer)
+		// Commits run outside the queue lock, so two workers can reach the same
+		// cut together; the first writes the marker and exits, the rest wait
+		// for the exit rather than racing the write.
+		var crash stdsync.Once
 		s.caps.pageLedger = ledgerPublicCrashStore{PageLedgerStore: f.ledger, cut: func(reached string) {
 			if reached != cut {
 				return
 			}
-			if os.Getenv("BATON_LEDGER_PUBLIC_CRASH_IMAGE") == "flushed" {
-				require.NoError(t, f.engine.Flush(t.Context()))
-			}
-			marker, err := json.Marshal(ledgerCrashMarker{Cut: cut, SyncID: s.syncID})
-			require.NoError(t, err)
-			require.NoError(t, writeLedgerTestFile(path+".cut", marker, 0600))
-			os.Exit(75)
+			crash.Do(func() {
+				if os.Getenv("BATON_LEDGER_PUBLIC_CRASH_IMAGE") == "flushed" {
+					require.NoError(t, f.engine.Flush(t.Context()))
+				}
+				marker, err := json.Marshal(ledgerCrashMarker{Cut: cut, SyncID: s.syncID})
+				require.NoError(t, err)
+				require.NoError(t, writeLedgerTestFile(path+".cut", marker, 0600))
+				os.Exit(75)
+			})
+			select {}
 		}}
 		require.NoError(t, s.Sync(t.Context()))
 		t.Fatal("crash cut was not reached")
