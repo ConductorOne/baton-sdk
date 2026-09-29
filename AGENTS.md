@@ -10,6 +10,53 @@ Review and verification live in `docs/REVIEW_CHECKLIST.md` and
 lives in `docs/COMMENTS.md`. A comment is worse than nothing until it
 proves otherwise; put intent in names, types, and tests first.
 
+## Surface the decisions review cannot see
+
+Review reads code and finds code that is wrong. Structural decisions are
+never wrong in the code: a lock on state with one owner is locked correctly;
+a fact used as a lifecycle marker is read consistently. Those decisions
+reach the requester only if you write them down as claims, before the code
+and in a form checkable without reading the diff.
+
+Before designing anything that touches durable state, the sync lifecycle,
+or a cross-process contract, write the production flows and the
+producer/consumer version pairs the design depends on. If you are guessing
+at any of them, ask before designing; a flow you did not know was hot
+cannot be ranked.
+
+Every turn that changes code ends with a block titled **Decisions not
+requested**, listing each addition from this closed set: shared state or a
+synchronization primitive; a durable key, fact, or marker; a new authority
+for a lifecycle question; a contract method; a test hook; a field on
+`syncer` or `Engine`; a phase, mode, or flag. One line each: what it is,
+its owner or the record it is authoritative for, and the existing thing
+that already answered the question, or `none`. `Decisions not requested:
+none` is a valid block and must appear. The requester reads this block; it
+is not a summary of the diff.
+
+For step-up work, the implementation brief carries the ownership table and
+the state inventory `docs/REVIEW_CHECKLIST.md` describes, and the
+registries (`TestSyncPrimitivesRegistered`, `TestEnginePrimitivesRegistered`,
+`commitPointRegistry`) hold the mechanical half.
+
+## Verified or assumed, never remembered
+
+A statement about existing code — a field's lifetime, a method on an
+interface, where a value is resolved, what a path deletes — is either cited
+(`file:line`, read in this session) or marked `assumed`. Memory of code read
+earlier is not a citation. Nothing is called frozen until a reader with no
+stake in it has checked each cited claim against source and listed every
+one as true, false, or not checkable; a false claim is a change order, not
+an edit. CXE-1358's CO-037/CO-038 text carried four false claims of this
+kind past its author; the check that found them was a grep per claim.
+
+A fence, registry, or meta-test is an instrument and follows the instrument
+rule: it ships in the same commit as a planted case it catches, one per
+shape it claims to cover. A fence that has never failed on a planted
+violation has not been shown to see anything. The primitive registry
+shipped without one and missed a mutex behind an import alias in the
+package it was written for.
+
 ## Diction
 
 Name the function, type, hook, or check. State the fact with essential

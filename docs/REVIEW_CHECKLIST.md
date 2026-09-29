@@ -22,19 +22,53 @@ Risk = escape × consequence; score the failure mode, not the subsystem.
   option-gated.
 - On declared hot paths the cost curve is a correctness property: state the
   big-O delta and point at the enforcing benchmark, or state no-change.
+- A change that adds a durable key, fact, or marker names the question it
+  answers and the record that already answered it (state inventory, below).
+  Two records for one question is HIGH regardless of the other axes.
 
 ## Step-up pipeline (§2 policy, §6)
 
 For HIGH changes and silent/combinatorial/no-single-run-oracle subsystems:
 
-frozen behavioral plan → implementation-obligation addendum → instruments →
-mutation adequacy → execution → structural-coverage triage → independent
-evidence audit → focused implementation review → repository gates → signoff.
+stated model → frozen behavioral plan → implementation-obligation addendum →
+structural review of the brief → instruments → mutation adequacy → execution →
+structural-coverage triage → independent evidence audit → focused
+implementation review → structural review of the code → repository gates →
+signoff.
+
+The stated model comes first and is not optional. No change order is frozen
+against a subsystem whose model is not written down: for a lifecycle, a state
+table (states, what each accepts, transitions with guards, the batch each
+commits); for shared state, an ownership table; for durable state, an
+inventory that names the one record answering each question. If the subsystem
+has no model document, writing it is the first deliverable and review starts
+there. CXE-1358 reached thirty-nine change orders, each verified against its
+own claim, before its lifecycle was written as a machine; the locks, the
+interface names and the misattributed options were all the same absence.
+
+The structural review's prompt and rules are
+`docs/verification/STRUCTURAL_REVIEW.md`. It reads the production code before
+any document and writes the model it recovers; the review is the difference
+between that and the stated model. It files no correctness findings and runs
+in a new session that has done nothing else. Its closure gate is its
+findings, each with a stated cost (a bug class, a change tax, or a read
+cost), at most seven; the per-declaration table is an appendix for diffing
+runs. A reconstruction with more than three unrecoverable items returns the
+change to the brief stage: the code does not carry its model, and no row fix
+changes that.
 
 Hard rules along the way:
 
 - Plan committed and frozen before implementation inspection; post-freeze
   changes are versioned change orders, each re-routed through the risk model.
+- Freeze requires a facts read: every claim the plan or brief makes about
+  existing code is cited `file:line` and checked by a reader independent of
+  the author, who lists each as true, false, or not checkable. False claims
+  become change orders before code starts. Contract-delta statements ("no new
+  method") are checked by grep against the interface, not by recollection.
+- Meta-tests, registries and fences are instruments: each ships with a
+  planted case per covered shape in the same commit, and the planted case
+  fails when the fence is disabled.
 - Criterion states: not assessed / evidence incomplete / verified to stated
   coverage / failed / explicitly excluded / deferred to a named stage.
   "Accounted for" is not closure; never claim closure from sampling.
@@ -48,6 +82,32 @@ Hard rules along the way:
 - Review budget: two, at most three rounds; then switch instruments.
 - Failing evidence first for every confirmed bug. A recurrence of a documented
   class ships the §4 ladder climb, not just the patch.
+
+## Briefs and reports (§6) — the layer review does not see
+
+Behavioral plans freeze what the file must look like; they carry no
+implementation content by rule, so structure is never frozen and never
+calibrated. These three artifacts close that gap. Each is short, written
+before the code it governs, and reviewed as a claim rather than a diff.
+
+- **Requester's brief** names the production flows and producer/consumer
+  version pairs the change must serve and what must be unchanged. An agent
+  that cannot fill this from the brief asks before designing.
+- **Implementation brief** carries two tables. Ownership: every new mutable
+  field, its owner (goroutine or phase), lifetime, other readers and writers;
+  a synchronization primitive is justified only by a "shared" row naming the
+  two goroutines. State inventory: every new durable key, fact, or marker, the
+  question it answers, its writer, its readers, and the existing record that
+  already answered the question or `none`; a second answer to one question is
+  a finding (`ended_at` beside a surviving fact, CXE-1358). Every lifecycle
+  surface (reset, fold, seal, discard, drop) that must handle the new state
+  is listed, per §5.4.
+- **Every agent turn that changes code** ends with `Decisions not requested`,
+  the closed-set list `AGENTS.md` defines. Empty is stated, not omitted.
+
+Mechanical half: `syncPrimitiveRegistry`, `enginePrimitiveRegistry`,
+`commitPointRegistry`, and the field/hook/assertion counts recorded under
+"Syncer structure." A HIGH change attaches the count deltas against main.
 
 ## The seven passes (§3) — select by risk, record omissions
 
@@ -64,8 +124,10 @@ Hard rules along the way:
    gate; bypasses are guilty until proven registered.
 6. Performance — per-iteration cost at whale scale, failure-path cost,
    cost-contract deliverable on hot paths.
-7. Concurrency — TOCTOU, duplicate writers, goroutine lifecycle; data races
-   belong to the race detector.
+7. Concurrency — first, every new synchronization primitive names the two
+   goroutines that interleave on its state (the addendum's ownership table);
+   one owner or duplicated state is a design finding. Then TOCTOU, duplicate
+   writers, goroutine lifecycle; data races belong to the race detector.
 
 ## The instruments ladder (§4) — climb as high as proportionate
 
@@ -89,7 +151,34 @@ checkpoint · partial progress accounted and retryable · released exactly once
 Structural rules for `syncer`. They exist because two feature branches grew it
 from 57 fields to 81, from 3 test hooks to 11, and from 13 capability type
 assertions to 54 — each feature got a file, but every function became a method
-on `*syncer` and every value a new field. Reject on these, not on taste.
+on `*syncer` and every value a new field. A third (CXE-1358) satisfied the
+one-struct rule and added five mutexes to that struct's file set, four of them
+guarding state with one owner or state already held elsewhere. Reject on these,
+not on taste.
+
+- Synchronization primitives are dependencies on the concurrency model and are
+  enumerated like store capabilities: every `sync.*` / `atomic.*` declaration
+  in production code — struct field, package or local `var`, or `:=` from
+  `new`/`&T{}`/`T{}`, under whatever name the file imports the package as —
+  has an entry in `syncPrimitiveRegistry` (`sync_primitives_meta_test.go`)
+  naming the two goroutines that interleave on it, or `remove: <reason>`.
+  `TestSyncPrimitivesRegistered` fails on an unregistered primitive and on a
+  stale entry; `TestSyncPrimitiveWalkerCoverage` plants each shape and fails
+  if the walker misses one. The registry checks registration, not the truth
+  of the sentence; that is the ownership-table read. The engine has the same
+  fence in `TestEnginePrimitivesRegistered`. The expected count of new primitives per
+  feature is zero: during a batch the shared state is the queue (`q.mu`), the
+  engine write path (`writeMu`), `runState` and `runStats`, and a feature that
+  needs a fifth thing shared says so in its brief before it says so in code.
+- State that mirrors state another struct already owns is a finding; extend
+  the owner. The signal is a write that fans out to two containers at one call
+  site (`s.stats.X(...)` beside `s.ledger.accounting.X(...)`); the second
+  container is a view of the first, not state, and it does not get a lock.
+- Ownership before code: the implementation brief carries a table of every new
+  mutable field — owner (goroutine or phase), lifetime, other readers and
+  writers. Per-worker state lives in the worker loop's locals; per-attempt
+  state lives on the attempt's struct; coordinator-only state needs no
+  primitive. A reviewer checks the table, not the locks.
 
 - A feature adds a runtime struct with its own file and its own receiver,
   owned by `syncer` as exactly one field. It does not add fields to `syncer`.
