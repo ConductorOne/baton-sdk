@@ -98,7 +98,7 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 // The same rule as expansionFlagConflict's Collecting case, read from the
 // token so the refusal precedes the takeover write.
 func (s *syncer) legacyTokenFlagConflict(ctx context.Context, finished bool) error {
-	if !s.cfg.onlyExpandGrants {
+	if !s.cfg.onlyExpandGrants && !s.cfg.dontExpandGrants {
 		return nil
 	}
 	token, err := s.store.CurrentSyncStep(ctx)
@@ -111,6 +111,15 @@ func (s *syncer) legacyTokenFlagConflict(ctx context.Context, finished bool) err
 	resume, _, _, err := decodeLedgerCheckpoint(token)
 	if err != nil {
 		return err
+	}
+	if legacyStackPhase(resume.actions) == c1zstore.LedgerQueueExpanding {
+		if s.cfg.dontExpandGrants {
+			return fmt.Errorf("%w: sync %s is a legacy checkpoint in expansion; resume without dont-expand-grants to finish it", ErrLedgerStateConflict, s.syncID)
+		}
+		return nil
+	}
+	if !s.cfg.onlyExpandGrants {
+		return nil
 	}
 	if len(resume.actions) == 0 {
 		// An empty stack seeds Init, which plans the requested pass; a

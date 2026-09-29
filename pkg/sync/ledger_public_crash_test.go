@@ -26,11 +26,11 @@ type ledgerPublicCrashStore struct {
 	cut func(string)
 }
 
-func (s ledgerPublicCrashStore) BeginCollectingFromToken(
-	ctx context.Context, runID, expected string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork,
+func (s ledgerPublicCrashStore) BeginFromToken(
+	ctx context.Context, runID, expected string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork, phase c1zstore.LedgerQueuePhase,
 ) (string, error) {
 	s.cut("takeover-before")
-	token, err := s.PageLedgerStore.BeginCollectingFromToken(ctx, runID, expected, facts, counters, work)
+	token, err := s.PageLedgerStore.BeginFromToken(ctx, runID, expected, facts, counters, work, phase)
 	if err == nil {
 		s.cut("takeover-after")
 	}

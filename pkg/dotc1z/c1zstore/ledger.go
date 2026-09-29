@@ -250,7 +250,8 @@ type LedgerState struct {
 // state. The Collecting/Expanding → Sealing transition is a page:
 // PageWriter.SetTerminal.
 //
-//	Unstarted  --BeginCollecting / BeginCollectingFromToken-->  Collecting
+//	Unstarted  --BeginCollecting-->                              Collecting
+//	Unstarted+token --BeginFromToken-->                          Collecting | Expanding
 //	Collecting --BeginExpanding-->                               Expanding
 //	Collecting | Expanding --terminal page-->                    Sealing
 //	Sealing    --Seal-->                                         Sealed
@@ -260,9 +261,11 @@ type LedgerLifecycle interface {
 	// Seeds an absent queue in stack order; an initialized queue is unchanged.
 	// Refused on a finished sync: that is BeginPass.
 	BeginCollecting(ctx context.Context, seeds []LedgerWork, facts ...string) error
-	// Consumes the matching checkpoint token and seeds the queue in one batch;
-	// returns the token consumed, "" when there was none.
-	BeginCollectingFromToken(ctx context.Context, runID, expectedToken string, facts []string, counters LedgerCounters, seeds []LedgerWork) (string, error)
+	// Consumes the matching checkpoint token and seeds the queue in one batch at
+	// the phase the token's stack implies: Collecting, or Expanding when the
+	// stack is exactly the expansion step (collection finished; the pass is at
+	// or inside expansion). Returns the token consumed.
+	BeginFromToken(ctx context.Context, runID, expectedToken string, facts []string, counters LedgerCounters, seeds []LedgerWork, phase LedgerQueuePhase) (string, error)
 	// Requires the pending range to hold exactly the expansion entry.
 	BeginExpanding(ctx context.Context) error
 	// One batch: archive, the family's remaining keys, ended_at. Nothing is

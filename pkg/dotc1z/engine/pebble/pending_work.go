@@ -125,7 +125,7 @@ func (l *Ledger) BeginCollecting(ctx context.Context, actions []c1zstore.LedgerW
 		}
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
-		if err := stageInitialWork(batch, l.e.CurrentSyncID(), actions); err != nil {
+		if err := stageInitialWork(batch, l.e.CurrentSyncID(), actions, c1zstore.LedgerQueueCollecting); err != nil {
 			return err
 		}
 		for _, fact := range facts {
@@ -362,7 +362,7 @@ func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBat
 	return nil
 }
 
-func stageInitialWork(batch *rawdb.RecordBatch, syncID string, actions []c1zstore.LedgerWork) error {
+func stageInitialWork(batch *rawdb.RecordBatch, syncID string, actions []c1zstore.LedgerWork, phase c1zstore.LedgerQueuePhase) error {
 	for i, action := range actions {
 		if action.ID != 0 || action.Revision != 0 {
 			return errors.New("initial work must not have assigned IDs or revisions")
@@ -378,19 +378,29 @@ func stageInitialWork(batch *rawdb.RecordBatch, syncID string, actions []c1zstor
 			return err
 		}
 	}
-	return stageWorkState(batch, uint64(len(actions)), c1zstore.LedgerQueueCollecting)
+	return stageWorkState(batch, uint64(len(actions)), phase)
 }
 
 type pendingWorkSeed struct {
 	token string
 	work  []c1zstore.LedgerWork
+	phase c1zstore.LedgerQueuePhase
 }
 
-func (l *Ledger) BeginCollectingFromToken(ctx context.Context, runID, expectedToken string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork) (string, error) {
+func (l *Ledger) BeginFromToken(ctx context.Context, runID, expectedToken string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork, phase c1zstore.LedgerQueuePhase) (string, error) {
 	if expectedToken == "" {
 		return "", errors.New("pending-work takeover requires a decoded checkpoint")
 	}
-	return l.takeover(ctx, runID, facts, counters, &pendingWorkSeed{token: expectedToken, work: work})
+	switch phase {
+	case c1zstore.LedgerQueueCollecting:
+	case c1zstore.LedgerQueueExpanding:
+		if len(work) != 1 || work[0].Action.Identity.Op != ledgerExpansionOp {
+			return "", errors.New("BeginFromToken: expanding requires exactly the expansion entry")
+		}
+	case c1zstore.LedgerQueueAbsent, c1zstore.LedgerQueueSealing:
+		return "", fmt.Errorf("BeginFromToken: cannot seed phase %s", phase)
+	}
+	return l.takeover(ctx, runID, facts, counters, &pendingWorkSeed{token: expectedToken, work: work, phase: phase})
 }
 
 func (l *Ledger) CompletePendingWork(ctx context.Context, work c1zstore.LedgerWork, runID string, counters c1zstore.LedgerCounters) error {

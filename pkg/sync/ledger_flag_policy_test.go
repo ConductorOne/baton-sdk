@@ -189,3 +189,75 @@ func TestLedgerExpansionOnlyRefusesLegacyCheckpointBeforeTakeover(t *testing.T) 
 	require.True(t, state.Token)
 	require.Equal(t, c1zstore.LedgerQueueAbsent, state.Phase)
 }
+
+// A baseline-SDK checkpoint whose stack is the expansion step has finished
+// collecting and is at or inside expansion. It is taken over as Expanding, so
+// a dont-expand resumer is refused before the takeover, and a plain resumer
+// finishes the expansion.
+func TestLedgerLegacyCheckpointInExpansionIsTakenOverAsExpanding(t *testing.T) {
+	build := func(t *testing.T) (*ledgerFixture, string, []string) {
+		ctx := t.Context()
+		f := newLedgerFixture(t)
+		id := f.engine.CurrentSyncID()
+		require.NoError(t, f.store.PutResourceTypes(ctx,
+			v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build(), v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()))
+		alice := v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build()
+		require.NoError(t, f.store.PutResources(ctx, v2.Resource_builder{Id: alice}.Build()))
+		groups := make([]*v2.Resource, 3)
+		for i, name := range []string{"a", "b", "c"} {
+			groups[i] = v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: name}.Build()}.Build()
+		}
+		require.NoError(t, f.store.PutResources(ctx, groups...))
+		for _, g := range groups {
+			require.NoError(t, f.store.PutEntitlements(ctx, et.NewAssignmentEntitlement(g, "member")))
+		}
+		grants := []*v2.Grant{gt.NewGrant(groups[0], "member", alice)}
+		for i := 1; i < len(groups); i++ {
+			annotation := v2.GrantExpandable_builder{EntitlementIds: []string{et.NewEntitlementID(groups[i-1], "member")}}.Build()
+			grants = append(grants, gt.NewGrant(groups[i], "member", groups[i-1].GetId(), gt.WithAnnotation(annotation)))
+		}
+		require.NoError(t, f.store.PutGrants(ctx, grants...))
+		prior := newRunState()
+		prior.setFact(factNeedsExpansion)
+		prior.pushAction(ctx, Action{Op: SyncGrantExpansionOp})
+		token, err := marshalToken(prior, newRunStats())
+		require.NoError(t, err)
+		require.NoError(t, f.store.CheckpointSync(ctx, token))
+		expanded := append(listGrantIDs(t, f),
+			gt.NewGrant(groups[1], "member", alice).GetId(),
+			gt.NewGrant(groups[2], "member", alice).GetId(),
+			gt.NewGrant(groups[2], "member", groups[0].GetId()).GetId())
+		require.NoError(t, f.store.Close(ctx))
+		return openLedgerFixtureAt(t, f.path, false), id, expanded
+	}
+
+	t.Run("dont-expand is refused before takeover", func(t *testing.T) {
+		ctx := t.Context()
+		f, id, _ := build(t)
+		before := ledgerRawSnapshot(t, f.engine)
+		skipper, err := NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()}, WithConnectorStore(f.store), WithSyncID(id), WithDontExpandGrants())
+		require.NoError(t, err)
+		err = skipper.Sync(ctx)
+		require.ErrorIs(t, err, ErrLedgerStateConflict)
+		require.ErrorContains(t, err, "legacy checkpoint in expansion")
+		require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)), "no takeover: the token is still the checkpoint")
+	})
+
+	t.Run("plain resume takes over as expanding and finishes", func(t *testing.T) {
+		ctx := t.Context()
+		f, id, expanded := build(t)
+		s := ledgerContinuationSyncer(f)
+		require.NoError(t, f.store.SetCurrentSync(ctx, id))
+		phase, err := s.prepareLedgerState(ctx, "takeover", false)
+		require.NoError(t, err)
+		require.Equal(t, c1zstore.LedgerQueueExpanding, phase, "taken over at the phase the stack implies")
+		require.Equal(t, c1zstore.LedgerQueueExpanding, ledgerPhase(t, f.ledger))
+		require.NoError(t, f.store.Close(ctx))
+
+		f = openLedgerFixtureAt(t, f.path, false)
+		resumer, err := NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()}, WithConnectorStore(f.store), WithSyncID(id))
+		require.NoError(t, err)
+		require.NoError(t, resumer.Sync(ctx))
+		require.ElementsMatch(t, expanded, listGrantIDs(t, f))
+	})
+}

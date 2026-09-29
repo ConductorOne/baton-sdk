@@ -1022,13 +1022,13 @@ func (s *pebbleStore) BeginCollecting(ctx context.Context, work []c1zstore.Ledge
 	return s.markDirty(s.Engine.Ledger().BeginCollecting(ctx, work, facts...))
 }
 
-func (s *pebbleStore) BeginCollectingFromToken(
-	ctx context.Context, runID, expectedToken string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork,
+func (s *pebbleStore) BeginFromToken(
+	ctx context.Context, runID, expectedToken string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork, phase c1zstore.LedgerQueuePhase,
 ) (string, error) {
-	if err := s.writeHook(ctx, "BeginCollectingFromToken"); err != nil {
+	if err := s.writeHook(ctx, "BeginFromToken"); err != nil {
 		return "", err
 	}
-	state, err := s.Engine.Ledger().BeginCollectingFromToken(ctx, runID, expectedToken, facts, counters, work)
+	state, err := s.Engine.Ledger().BeginFromToken(ctx, runID, expectedToken, facts, counters, work, phase)
 	return state, s.markDirty(err)
 }
 

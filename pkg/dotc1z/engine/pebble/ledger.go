@@ -619,7 +619,7 @@ func (l *Ledger) takeover(ctx context.Context, runID string, facts []string, cou
 			if phase != c1zstore.LedgerQueueAbsent {
 				return errors.New("checkpoint conflicts with initialized pending work")
 			}
-			if err := stageInitialWork(batch, syncID, seed.work); err != nil {
+			if err := stageInitialWork(batch, syncID, seed.work, seed.phase); err != nil {
 				return err
 			}
 		}
@@ -804,7 +804,7 @@ func (l *Ledger) BeginPass(ctx context.Context, seeds []c1zstore.LedgerWork, cle
 		if err := batch.StageLedgerFact(encodeLedgerFactKey(c1zstore.LedgerFactFollowOnPass)); err != nil {
 			return err
 		}
-		if err := stageInitialWork(batch, syncID, seeds); err != nil {
+		if err := stageInitialWork(batch, syncID, seeds, c1zstore.LedgerQueueCollecting); err != nil {
 			return err
 		}
 		if hook := l.e.test.ledgerBeginPassHook; hook != nil {

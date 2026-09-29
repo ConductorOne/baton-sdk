@@ -82,7 +82,7 @@ func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore
 	if !prior.IsZero() {
 		counters = c1zstore.LedgerCounters{}
 	}
-	moved, err := ledger.BeginCollectingFromToken(ctx, runID, state, importedFacts, counters, pendingSeeds(resume.actions))
+	moved, err := ledger.BeginFromToken(ctx, runID, state, importedFacts, counters, pendingSeeds(resume.actions), legacyStackPhase(resume.actions))
 	if err != nil {
 		return ledgerResume{}, fmt.Errorf("take over legacy checkpoint: %w", err)
 	}
@@ -97,6 +97,17 @@ func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore
 		return ledgerResume{}, errors.New("takeover returned without pending work state")
 	}
 	return ledgerResume{phase: phase, hasPendingWork: len(pending) != 0}, nil
+}
+
+// A legacy stack that is exactly the expansion step has finished collecting
+// and is at or inside expansion; the token cannot say which (newer baseline
+// SDKs keep the graph in the store and clear the cursor), so the pass is
+// taken over as Expanding, the commitment already made.
+func legacyStackPhase(actions []ledgerAction) c1zstore.LedgerQueuePhase {
+	if len(actions) == 1 && actions[0].identity.Op == SyncGrantExpansionOp.String() {
+		return c1zstore.LedgerQueueExpanding
+	}
+	return c1zstore.LedgerQueueCollecting
 }
 
 func decodeLedgerCheckpoint(state string) (ledgerResume, []string, c1zstore.LedgerCounters, error) {

@@ -346,13 +346,13 @@ func (s *ledgerGuardedStore) BeginCollecting(ctx context.Context, work []c1zstor
 	return s.PageLedgerStore.BeginCollecting(ctx, work, facts...)
 }
 
-func (s *ledgerGuardedStore) BeginCollectingFromToken(
-	ctx context.Context, runID, token string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork,
+func (s *ledgerGuardedStore) BeginFromToken(
+	ctx context.Context, runID, token string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork, phase c1zstore.LedgerQueuePhase,
 ) (string, error) {
-	if err := s.audit.record(ctx, "BeginCollectingFromToken"); err != nil {
+	if err := s.audit.record(ctx, "BeginFromToken"); err != nil {
 		return "", err
 	}
-	return s.PageLedgerStore.BeginCollectingFromToken(ctx, runID, token, facts, counters, work)
+	return s.PageLedgerStore.BeginFromToken(ctx, runID, token, facts, counters, work, phase)
 }
 
 func (s *ledgerGuardedStore) CompletePendingWork(ctx context.Context, work c1zstore.LedgerWork, runID string, counters c1zstore.LedgerCounters) error {
