@@ -41,7 +41,10 @@ the correctness reviewer's, and not one that has seen their output. Its
 closure gate is its findings, each of which states a cost (a bug class, a
 change tax, or a read cost); the full per-declaration table is an appendix
 for diffing runs, not a work list. Quality is a means; the gate is sized to
-what the product pays for.
+what the product pays for. A brief for a change that adds or moves lifecycle state
+carries a state table — states, what each accepts, transitions with guards —
+and the review compares every interface the change touches against it as a
+whole (STRUCTURAL_REVIEW.md I9), not method by method.
 
 Hard rules along the way:
 

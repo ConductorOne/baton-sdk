@@ -61,8 +61,12 @@ READ FIRST, in this order, before any production code:
 1. AGENTS.md — "Surface the decisions review cannot see", "Verified or assumed".
 2. docs/REVIEW_CHECKLIST.md — "Briefs and reports", "Syncer structure".
 3. docs/COMMENTS.md.
-4. <implementation brief path> — ownership table, state inventory. These are the
-   claims you check the code against.
+4. <implementation brief path> — ownership table, state inventory, and the
+   state table (states, the operations each accepts, transitions with guards).
+   These are the claims you check the code against. A lifecycle-bearing change
+   whose brief has no state table: say so in the report's first line; I9 then
+   compares the interface against the machine you infer from the code, and
+   the missing table is itself a finding with a read cost.
 5. <plan path> §11 — the change orders named in RULE 1.
 6. <requester brief path>, its structural-rules section. If any listed file is
    absent from your checkout, say so in the report's first line and proceed
@@ -153,6 +157,18 @@ I. Abstractions. Each item is a signal; name the concept, count the
        list callers and what each uses.
    I8. Abstraction the brief forbade, and whether each instance crosses the
        boundary the brief drew. Where waived: "justified: requester waived".
+   I9. Legibility of an interface as a whole. For every interface the change
+       adds or extends, before reading its doc comments or the brief: write
+       the lifecycle its method names imply — states, transitions, which
+       method is which edge. Then compare to the brief's state table. Each
+       transition with no method, method that is no transition, state a
+       reader could not name from the interface, or name that implies a
+       different edge is a row. This is one finding per interface, not per
+       method; the per-method rows go under I4 and I7. The reason it exists:
+       the CXE-1358 review filed "overwide PageLedgerStore" as a count and it
+       was closed by removing two methods; the requester's objection was that
+       twenty methods in three naming schemes hid a five-state machine, which
+       no per-method section could say.
 
 OUTPUT. First, FINDINGS: at most seven, ordered by cost, each as
   <cause> — <impact form>: <the cost in one sentence> — sites: <row ids>
