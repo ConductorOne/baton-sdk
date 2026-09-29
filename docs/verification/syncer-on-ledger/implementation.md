@@ -259,15 +259,18 @@ ledgerContinuePending`. At the expansion action's pickup
 (`parallel_syncer.go`, the `SyncGrantExpansionOp` case) "resuming
 expansion" is read from the phase in ledger mode (`expanding`) rather than
 inferred from the loaded graph, which remains the token path's rule; a
-fresh pickup stamps `supports_diff` (still read by `c1zsanitize` and
-`baton rollback-expansion`), then calls `BeginExpanding` before the
-handler runs unless the skip applies; the skip path completes the entry in
+fresh pickup calls `BeginExpanding` before the handler runs unless the skip
+applies (`supports_diff` is no longer stamped for ledger syncs; the token
+path still stamps it for `rollback-expansion`); the skip path completes the entry in
 Collecting as today. `BeginExpanding` is not idempotent: a repeat in
 `expanding` is refused, and the phase-derived condition means the syncer
 never repeats it. `syncLedger` calls
-`putLedgerReportOptions` only when the resume phase is `collecting` or
-`expanding`; `prepareLedgerState` returns the phase so `syncLedger` does not
-read the store twice. The `finishPreviousRequest` gate stays as it is.
+`putLedgerReportOptions` unless the phase `prepareLedgerState` found the pass
+in (before this attempt's own seed or `BeginPass`) is `sealing`, or the
+attempt is the CO-035 handoff that first seals a drained prior pass and then
+begins the requested one — in the handoff the options are written once, for
+the requested pass, in the recursive call. `prepareLedgerState` returns that
+pre-transition phase so `syncLedger` does not read the store twice. The `finishPreviousRequest` gate stays as it is.
 Flag policy (plan §7): `prepareLedgerState` refuses before `BeginPass`,
 `BeginCollecting` or the options write when `onlyExpandGrants` meets
 `collecting` with a collection entry queued (after any token takeover; read

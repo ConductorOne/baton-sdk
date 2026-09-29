@@ -62,3 +62,38 @@ func TestLedgerSealWritesNothingAfterStamp(t *testing.T) {
 		})
 	}
 }
+
+// A retained seal keeps rows, facts and counters. The frontier holds the
+// legacy token verbatim and the scheduling relations belong to the pass; both
+// go with the declaration.
+func TestLedgerRetainedSealDropsFrontierAndScheduling(t *testing.T) {
+	e, _ := newTestEngine(t)
+	ctx := t.Context()
+	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, e.CheckpointSync(ctx, "legacy-secret-token"))
+	seed := c1zstore.LedgerWork{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-resources"}}, SchedulingKey: "resource:root"}
+	_, err = e.Ledger().BeginCollectingFromToken(ctx, "old", "legacy-secret-token", nil, c1zstore.LedgerCounters{}, []c1zstore.LedgerWork{seed})
+	require.NoError(t, err)
+	pending, _, err := e.Ledger().PendingWork(ctx, 0, 1)
+	require.NoError(t, err)
+	require.NoError(t, pendingTestCommit(t, e, pending[0], ""))
+	scheduled, err := e.Ledger().HasScheduledWork(ctx, "resource:root")
+	require.NoError(t, err)
+	require.True(t, scheduled)
+	_, frontier, err := e.Ledger().Frontier(ctx)
+	require.NoError(t, err)
+	require.True(t, frontier)
+
+	require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
+	scheduled, err = e.Ledger().HasScheduledWork(ctx, "resource:root")
+	require.NoError(t, err)
+	require.False(t, scheduled, "scheduling relations belong to the pass")
+	_, frontier, err = e.Ledger().Frontier(ctx)
+	require.NoError(t, err)
+	require.False(t, frontier, "the frontier carried the token verbatim")
+	require.Zero(t, checkpointNeedleHits(t, e, []byte("legacy-secret-token")))
+	facts, err := e.Ledger().Facts(ctx)
+	require.NoError(t, err)
+	require.Contains(t, facts, "work-committed", "retained history keeps its facts")
+}

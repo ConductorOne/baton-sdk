@@ -687,10 +687,18 @@ func (rb *RecordBatch) StageLedgerArchive(archiveKey, archiveVal []byte) error {
 }
 
 // The seal's one durable step: archive, the family's remaining keys, and the
-// sync-run record carrying ended_at. Retained history keeps facts and
-// counters; only the declaration goes.
+// sync-run record carrying ended_at. Retained history keeps rows, facts and
+// counters; the declaration, the scheduling relations and the frontier (which
+// holds a legacy token verbatim) go in both modes.
 func (rb *RecordBatch) StageLedgerSeal(archiveKey, archiveVal, syncRunVal []byte, retained bool) error {
 	if err := rb.StageLedgerArchive(archiveKey, archiveVal); err != nil {
+		return err
+	}
+	scheduled := LedgerSchedulingPrefix()
+	if err := rb.core.DeleteRange(scheduled, UpperBound(scheduled)); err != nil {
+		return err
+	}
+	if err := rb.core.Delete(LedgerFrontierKey()); err != nil {
 		return err
 	}
 	if !retained {
