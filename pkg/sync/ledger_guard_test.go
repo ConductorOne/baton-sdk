@@ -332,6 +332,13 @@ func (s *ledgerGuardedStore) ArchiveLedgerReport(ctx context.Context) ([]byte, e
 	}
 	return s.PageLedgerStore.ArchiveLedgerReport(ctx)
 }
+func (s *ledgerGuardedStore) BeginExpanding(ctx context.Context) error {
+	if err := s.audit.record(ctx, "BeginExpanding"); err != nil {
+		return err
+	}
+	return s.PageLedgerStore.BeginExpanding(ctx)
+}
+
 func (s *ledgerGuardedStore) BeginPass(ctx context.Context, seeds []c1zstore.LedgerWork, clearFacts []string) error {
 	if err := s.audit.record(ctx, "BeginPass"); err != nil {
 		return err

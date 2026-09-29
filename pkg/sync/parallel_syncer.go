@@ -10,6 +10,7 @@ import (
 	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
@@ -387,8 +388,20 @@ func (s *syncer) parallelSync(
 			// only if we're starting fresh. If we're resuming (graph has edges
 			// or a page token), we may be continuing from old code that didn't
 			// have this marker, so we must not set it.
-			entitlementGraph := s.graph.get(ctx)
-			isResumingExpansion := entitlementGraph.Loaded || len(entitlementGraph.Edges) > 0 || stateAction.PageToken != ""
+			// The ledger's phase says whether this pass has entered expansion;
+			// the token path infers it from the graph it has loaded.
+			var isResumingExpansion bool
+			if s.ledgered {
+				_, phase, err := s.caps.pageLedger.PendingWork(ctx, 0, 1)
+				if err != nil {
+					return warnings, err
+				}
+				isResumingExpansion = phase == c1zstore.LedgerQueueExpanding
+			} else {
+				entitlementGraph := s.graph.get(ctx)
+				isResumingExpansion = entitlementGraph.Loaded || len(entitlementGraph.Edges) > 0 || stateAction.PageToken != ""
+			}
+			skipExpansion := s.cfg.dontExpandGrants || !s.run.hasFact(factNeedsExpansion)
 			if !isResumingExpansion {
 				if s.recordStats {
 					l.Info("sync data collection complete", s.syncSummaryFields(trace.SpanFromContext(ctx))...)
@@ -400,9 +413,16 @@ func (s *syncer) parallelSync(
 					l.Error("failed to set supports_diff marker", zap.Error(err))
 					return warnings, err
 				}
+				// Collecting → Expanding, the pass's commitment to expand. A
+				// skipped expansion never enters the phase.
+				if s.ledgered && !skipExpansion {
+					if err := s.caps.pageLedger.BeginExpanding(ctx); err != nil {
+						return warnings, err
+					}
+				}
 			}
 
-			if s.cfg.dontExpandGrants || !s.run.hasFact(factNeedsExpansion) {
+			if skipExpansion {
 				l.Debug("skipping grant expansion, no grants to expand")
 				if err := s.runPendingLocalStep(ctx, stateAction, func() error { s.finishAction(ctx, stateAction); return nil }); err != nil {
 					return warnings, err

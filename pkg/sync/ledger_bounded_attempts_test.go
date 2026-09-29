@@ -24,7 +24,7 @@ func TestLedgerAttemptMetadataBoundedAcrossResumes(t *testing.T) {
 	for i := 0; i < 128; i++ {
 		s.cfg.workerCount = i%4 + 1
 		f.audit.enter(ledgerLifecycle)
-		require.NoError(t, s.prepareLedgerState(t.Context(), fmt.Sprintf("attempt-%d", i), false))
+		prepareLedgerForTest(t, s, fmt.Sprintf("attempt-%d", i), false)
 		require.NoError(t, s.putLedgerReportOptions(t.Context()))
 		f.audit.enter(ledgerHandler)
 		require.NoError(t, s.invokeActionPage(t.Context(), s.run.current(), nil, false))
@@ -90,7 +90,7 @@ func TestLedgerOptionsSnapshotBeforeAnyPage(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
 	s.cfg.skipGrants = true
 	f.audit.enter(ledgerLifecycle)
-	require.NoError(t, s.prepareLedgerState(t.Context(), "attempt-a", true))
+	prepareLedgerForTest(t, s, "attempt-a", true)
 	require.False(t, s.run.hasFact(factShouldSkipGrants), "premise: Init has not run")
 	require.NoError(t, s.putLedgerReportOptions(t.Context()))
 	facts, err := f.ledger.LedgerFacts(t.Context())
@@ -103,7 +103,7 @@ func TestLedgerOptionsSnapshotBeforeAnyPage(t *testing.T) {
 	require.Equal(t, "attempt-a", latest.Attempt)
 
 	s.cfg.skipGrants = false
-	require.NoError(t, s.prepareLedgerState(t.Context(), "attempt-b", false))
+	prepareLedgerForTest(t, s, "attempt-b", false)
 	require.NoError(t, s.putLedgerReportOptions(t.Context()))
 	facts, err = f.ledger.LedgerFacts(t.Context())
 	require.NoError(t, err)
@@ -127,7 +127,7 @@ func (ledgerFailingFactsStore) PutLedgerFacts(context.Context, map[string]string
 func TestLedgerOptionsSnapshotFailureWritesNothing(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
 	f.audit.enter(ledgerLifecycle)
-	require.NoError(t, s.prepareLedgerState(t.Context(), "attempt-a", true))
+	prepareLedgerForTest(t, s, "attempt-a", true)
 	actual := s.caps.pageLedger
 	s.caps.pageLedger = ledgerFailingFactsStore{PageLedgerStore: actual}
 	require.ErrorIs(t, s.putLedgerReportOptions(t.Context()), errLedgerInjectedFacts)

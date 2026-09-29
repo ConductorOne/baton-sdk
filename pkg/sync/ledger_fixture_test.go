@@ -323,3 +323,9 @@ func observeLedgerRestore(t *testing.T, s *syncer, f *ledgerFixture) {
 		}
 	}
 }
+
+func prepareLedgerForTest(t *testing.T, s *syncer, runID string, newSync bool) {
+	t.Helper()
+	_, err := s.prepareLedgerState(t.Context(), runID, newSync)
+	require.NoError(t, err)
+}

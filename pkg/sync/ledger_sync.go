@@ -24,7 +24,8 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 	l := ctxzap.Extract(ctx)
 	syncID := s.syncID
 	s.caps.pageLedger.SetRetainLedgerTokens(s.cfg.retainLedgerTokens)
-	if err := s.prepareLedgerState(ctx, rand.Text(), newSync); err != nil {
+	phase, err := s.prepareLedgerState(ctx, rand.Text(), newSync)
+	if err != nil {
 		return s.returnSyncError(l, span, err)
 	}
 	finishPreviousRequest := s.cfg.onlyExpandGrants && !s.cfg.dontExpandGrants && s.run.current() == nil
@@ -32,7 +33,9 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 		s.ledgerDebug = true
 		l.Warn("resuming with durably retained ledger history and tokens; tokens may contain credentials")
 	}
-	if !finishPreviousRequest {
+	// An attempt that only finishes a seal performs none of this pass's work;
+	// its options are not the pass's options.
+	if !finishPreviousRequest && phase != c1zstore.LedgerQueueSealing {
 		if err := s.putLedgerReportOptions(ctx); err != nil {
 			return s.returnSyncError(l, span, err)
 		}
@@ -44,7 +47,8 @@ func (s *syncer) syncLedger(ctx, runCtx context.Context, span trace.Span, newSyn
 			return s.returnSyncError(l, span, fmt.Errorf("clear prior ingest invariant verification: %w", err))
 		}
 	}
-	warnings, err := s.parallelSync(ctx, runCtx, targetedResources)
+	var warnings []error
+	warnings, err = s.parallelSync(ctx, runCtx, targetedResources)
 	if err != nil {
 		return s.returnSyncError(l, span, err)
 	}

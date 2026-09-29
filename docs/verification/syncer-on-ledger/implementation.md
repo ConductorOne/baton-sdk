@@ -255,20 +255,23 @@ stages `StageLedgerFact(c1z.pass.follow_on)` beside the declaration.
 
 Syncer. `preparation` gains `case LedgerQueueExpanding: return
 ledgerContinuePending`. At the expansion action's pickup
-(`parallel_syncer.go:384`, the `!isResumingExpansion` branch that stamps
-`supports_diff`) the coordinator calls `BeginExpanding` before the handler
-runs; the skip path (`:405`) does not call it and completes the entry in
-Collecting as today. A resume that finds `expanding` calls nothing: the
-handler resumes from the graph store. `syncLedger` calls
+(`parallel_syncer.go`, the `SyncGrantExpansionOp` case) "resuming
+expansion" is read from the phase in ledger mode (`expanding`) rather than
+inferred from the loaded graph, which remains the token path's rule; a
+fresh pickup stamps `supports_diff` (still read by `c1zsanitize` and
+`baton rollback-expansion`), then calls `BeginExpanding` before the
+handler runs unless the skip applies; the skip path completes the entry in
+Collecting as today. `BeginExpanding` is not idempotent: a repeat in
+`expanding` is refused, and the phase-derived condition means the syncer
+never repeats it. `syncLedger` calls
 `putLedgerReportOptions` only when the resume phase is `collecting` or
 `expanding`; `prepareLedgerState` returns the phase so `syncLedger` does not
 read the store twice. The `finishPreviousRequest` gate stays as it is.
 Flag policy (plan §7): `prepareLedgerState` refuses before `BeginPass`,
 `InitializePendingWork` or the options write when `onlyExpandGrants` meets
-`collecting` on an unfinished sync, or `collecting` where collection has
-begun (after any token takeover: the queue holds an entry other than the
-`Init` seed, or a completed row exists for this pass — read through
-`PendingWork` and the row count the fixture already exposes), or meets
+`collecting` with a collection entry queued (after any token takeover; read
+through `PendingWork`: any op other than `Init` or `SyncGrantExpansionOp`),
+or `collecting` on an unfinished sync with the `Init` seed queued, or meets
 `absent` without `ended_at` and without a legacy token under a
 caller-supplied sync ID; and when `dontExpandGrants` meets `expanding`. `ErrLedgerStateConflict`
 carries the state and the sync ID. The expansion pickup's skip test is

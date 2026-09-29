@@ -286,7 +286,7 @@ func TestLedgerStartupLoadsCountersOnce(t *testing.T) {
 	counted := &ledgerCountedCounterReads{PageLedgerStore: f.ledger}
 	s.caps.pageLedger = counted
 	f.audit.enter(ledgerLifecycle)
-	err := s.prepareLedgerState(t.Context(), "resume-once", false)
+	_, err := s.prepareLedgerState(t.Context(), "resume-once", false)
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, err)
 	require.Equal(t, 1, counted.reads)

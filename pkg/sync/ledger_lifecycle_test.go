@@ -11,7 +11,7 @@ import (
 )
 
 func ledgerContinuationSyncer(f *ledgerFixture) *syncer {
-	return &syncer{ledgered: true, syncID: f.engine.CurrentSyncID(), store: f.store, caps: resolveStoreCaps(f.store), cfg: syncConfig{workerCount: 1, onlyExpandGrants: true}}
+	return &syncer{ledgered: true, syncID: f.engine.CurrentSyncID(), store: f.store, caps: resolveStoreCaps(f.store), cfg: syncConfig{workerCount: 1}}
 }
 
 func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
@@ -40,7 +40,7 @@ func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, before.GetEndedAt())
 			s := ledgerContinuationSyncer(f)
-			err = s.prepareLedgerState(t.Context(), "processing", false)
+			_, err = s.prepareLedgerState(t.Context(), "processing", false)
 			require.NoError(t, err)
 			require.Equal(t, c1zstore.LedgerQueueCollecting, ledgerPhase(t, f.ledger))
 			require.Equal(t, InitOp, s.run.current().Op)
@@ -71,7 +71,7 @@ func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
 			snapshot := ledgerSnapshotWithFoldedCounters(t, f.engine)
 			s = ledgerContinuationSyncer(f)
 			observeLedgerRestore(t, s, f)
-			err = s.prepareLedgerState(t.Context(), "resumed", false)
+			_, err = s.prepareLedgerState(t.Context(), "resumed", false)
 			f.audit.enter(ledgerLifecycle)
 			require.NoError(t, err)
 			require.Equal(t, c1zstore.LedgerQueueCollecting, ledgerPhase(t, f.ledger))
@@ -128,7 +128,7 @@ func TestLedgerFinishedLegacyFrontierKeepsPendingWork(t *testing.T) {
 			require.NoError(t, err)
 			before.SetSyncToken("")
 			s := ledgerContinuationSyncer(f)
-			err = s.prepareLedgerState(t.Context(), "first", false)
+			_, err = s.prepareLedgerState(t.Context(), "first", false)
 			require.NoError(t, err)
 			require.EqualValues(t, 17, s.run.completedActionsCount())
 			require.True(t, s.run.hasFact(factNeedsExpansion))
@@ -142,7 +142,7 @@ func TestLedgerFinishedLegacyFrontierKeepsPendingWork(t *testing.T) {
 			require.True(t, proto.Equal(before, after))
 			snapshot := ledgerSnapshotWithFoldedCounters(t, f.engine)
 			observeLedgerRestore(t, s, f)
-			err = s.prepareLedgerState(t.Context(), "second", false)
+			_, err = s.prepareLedgerState(t.Context(), "second", false)
 			f.audit.enter(ledgerLifecycle)
 			require.NoError(t, err)
 			require.True(t, equalLedgerSnapshot(snapshot, ledgerSnapshotWithFoldedCounters(t, f.engine)))
@@ -164,7 +164,7 @@ func TestLedgerSealReadyUnfinishedDoesNotStartAnotherPass(t *testing.T) {
 	s := ledgerContinuationSyncer(f)
 	before := ledgerSnapshotWithFoldedCounters(t, f.engine)
 	observeLedgerRestore(t, s, f)
-	err = s.prepareLedgerState(t.Context(), "resume", false)
+	_, err = s.prepareLedgerState(t.Context(), "resume", false)
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, err)
 	require.Equal(t, c1zstore.LedgerQueueSealing, ledgerPhase(t, f.ledger))
@@ -189,7 +189,7 @@ func TestLedgerPreparedSealSurvivesEarlyEnd(t *testing.T) {
 	before := ledgerSnapshotWithFoldedCounters(t, f.engine)
 	s := ledgerContinuationSyncer(f)
 	observeLedgerRestore(t, s, f)
-	require.NoError(t, s.prepareLedgerState(t.Context(), "retry", false))
+	prepareLedgerForTest(t, s, "retry", false)
 	f.audit.enter(ledgerLifecycle)
 	require.Equal(t, c1zstore.LedgerQueueSealing, ledgerPhase(t, f.ledger))
 	require.True(t, s.run.hasFact(c1zstore.LedgerFactRetainTokens))

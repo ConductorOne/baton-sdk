@@ -90,7 +90,7 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 					require.True(t, equalLedgerSnapshot(walkBefore, ledgerRawSnapshot(t, f.engine)))
 				}
 			}
-			err = s.prepareLedgerState(ctx, "resume", false)
+			_, err = s.prepareLedgerState(ctx, "resume", false)
 			f.audit.enter(ledgerLifecycle)
 			if kind == "read-error" {
 				require.ErrorIs(t, err, errLedgerInjectedPage)
@@ -149,7 +149,7 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 				restored := ledgerContinuationSyncer(f)
 				before = ledgerSnapshotWithFoldedCounters(t, f.engine)
 				observeLedgerRestore(t, restored, f)
-				err = restored.prepareLedgerState(ctx, "after-init", false)
+				_, err = restored.prepareLedgerState(ctx, "after-init", false)
 				f.audit.enter(ledgerLifecycle)
 				require.NoError(t, err)
 				require.Equal(t, before, ledgerSnapshotWithFoldedCounters(t, f.engine))

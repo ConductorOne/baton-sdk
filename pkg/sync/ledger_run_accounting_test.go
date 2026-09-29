@@ -153,7 +153,7 @@ func TestLedgerMigratedAccountingAcrossColdResumes(t *testing.T) {
 				require.NoError(t, f.store.SetCurrentSync(ctx, syncID))
 				s := ledgerContinuationSyncer(f)
 				s.recordStats = true
-				require.NoError(t, s.prepareLedgerState(ctx, fmt.Sprintf("attempt-%d", attempt), false))
+				prepareLedgerForTest(t, s, fmt.Sprintf("attempt-%d", attempt), false)
 				require.EqualValues(t, 7, s.run.completedActionsCount())
 				wantToken := ""
 				if attempt != 0 {
@@ -191,7 +191,7 @@ func TestLedgerMigratedAccountingAcrossColdResumes(t *testing.T) {
 			f = openLedgerFixtureAt(t, f.path, false)
 			require.NoError(t, f.store.SetCurrentSync(ctx, syncID))
 			s := ledgerContinuationSyncer(f)
-			require.NoError(t, s.prepareLedgerState(ctx, "seal-attempt", false))
+			prepareLedgerForTest(t, s, "seal-attempt", false)
 			require.Nil(t, s.run.current())
 			require.EqualValues(t, 8, s.run.completedActionsCount())
 			require.NoError(t, s.ledger.prepareSeal(ctx, s.stats.attemptLedgerCounters()))
