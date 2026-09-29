@@ -287,34 +287,25 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 		return err
 	}
 	preserveRecovery := overlay == nil
-	if !preserveRecovery {
-		pending, phase, err := e.ledger.PendingWork(ctx, 0, 1)
-		if err != nil {
-			return err
-		}
-		if len(pending) != 0 {
-			return errors.New("EndSync: pending work remains")
-		}
-		if ledgered && phase == c1zstore.LedgerQueueAbsent {
-			discarding, err := e.ledger.sealDiscardsRows()
-			if err != nil {
-				return err
-			}
-			if !discarding {
-				record, err := e.GetSyncRunRecord(ctx, syncID)
-				if err != nil {
-					return err
-				}
-				if record.GetEndedAt() == nil {
-					return errors.New("EndSync: missing pending-work declaration")
-				}
-			}
-		}
-	}
-
 	existing, err := e.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return err
+	}
+	if !preserveRecovery && ledgered {
+		// The terminal page moved the declaration to sealing with the queue
+		// empty; a finished sync with no declaration is an engine-level reseal.
+		_, phase, err := e.ledger.PendingWork(ctx, 0, 1)
+		if err != nil {
+			return err
+		}
+		switch {
+		case phase == c1zstore.LedgerQueueSealing:
+		case phase == c1zstore.LedgerQueueAbsent && existing.GetEndedAt() != nil:
+		case phase == c1zstore.LedgerQueueAbsent:
+			return errors.New("EndSync: missing pending-work declaration")
+		default:
+			return errors.New("EndSync: pending-work declaration is still collecting")
+		}
 	}
 	if overlay != nil {
 		e.setSyncStatsOverlay(syncID, overlay)
@@ -400,13 +391,14 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	if err := e.sealSourceCacheRowCounts(ctx); err != nil {
 		return fmt.Errorf("EndSync: seal source cache row counts: %w", err)
 	}
-	discarded := false
+	// Before ended_at: the finished verdict must never be durable over a
+	// verbatim token. Gated on the ledger's presence, not the retain fact: a
+	// ledger-free sync never writes the fact, and the purge's compaction
+	// overlaps SSTs even on a ledger-free file (BenchmarkLedgerSealCost,
+	// pages=0).
+	var archiveValue []byte
+	retained := false
 	if !preserveRecovery {
-		// Before ended_at: the finished verdict must never be durable over a
-		// verbatim token. Gated on the ledger's presence, not the retain fact: a
-		// ledger-free sync never writes the fact, and the purge's compaction
-		// overlaps SSTs even on a ledger-free file (BenchmarkLedgerSealCost,
-		// pages=0).
 		ledgered, err := e.ledger.active()
 		if err != nil {
 			return fmt.Errorf("EndSync: check ledger presence: %w", err)
@@ -417,37 +409,45 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 			if err != nil {
 				return fmt.Errorf("EndSync: read ledger disposal policy: %w", err)
 			}
-			if discard {
-				archiveStarted := time.Now()
-				archiveErr := e.withWriteAllowSealed(func() error { _, err := e.archiveLedgerReportLocked(ctx, existing.GetSyncId()); return err })
-				cost.LedgerArchive = time.Since(archiveStarted)
-				if archiveErr != nil {
-					return fmt.Errorf("EndSync: save ledger recovery state: %w", archiveErr)
-				} else {
-					discardStarted := time.Now()
-					if err := e.ledger.markResiduePending(); err != nil {
-						return err
-					}
-					if err := e.withWriteAllowSealed(func() error {
-						batch := e.db.NewRecordBatch()
-						defer batch.Close()
-						if err := batch.StageLedgerDiscard(encodeLedgerFactKey(c1zstore.LedgerFactDiscardOnSeal)); err != nil {
-							return err
-						}
-						return batch.Commit(pebble.Sync)
-					}); err != nil {
-						return err
-					}
-					cost.LedgerDiscard = time.Since(discardStarted)
-					if hook := e.test.ledgerArchiveHook; hook != nil {
-						if err := hook("after-delete"); err != nil {
-							return err
-						}
-					}
-					ledgered, needsPurge, discarded = false, true, true
-				}
+			retained = !discard
+			archiveStarted := time.Now()
+			archiveErr := e.withWriteAllowSealed(func() error {
+				var err error
+				archiveValue, _, err = e.buildLedgerArchiveLocked(ctx, existing.GetSyncId())
+				return err
+			})
+			cost.LedgerArchive = time.Since(archiveStarted)
+			if archiveErr != nil {
+				return fmt.Errorf("EndSync: build ledger archive: %w", archiveErr)
 			}
-			if ledgered {
+			if discard {
+				// The archive rides this batch too: a crash before the stamp
+				// leaves no rows to regenerate the report from.
+				discardStarted := time.Now()
+				if err := e.ledger.markResiduePending(); err != nil {
+					return err
+				}
+				if err := e.withWriteAllowSealed(func() error {
+					batch := e.db.NewRecordBatch()
+					defer batch.Close()
+					if err := batch.StageLedgerArchive(ledgerArchiveKey(), archiveValue); err != nil {
+						return err
+					}
+					if err := batch.StageLedgerDisposeTokens(); err != nil {
+						return err
+					}
+					return batch.Commit(pebble.Sync)
+				}); err != nil {
+					return err
+				}
+				cost.LedgerDiscard = time.Since(discardStarted)
+				if hook := e.test.ledgerArchiveHook; hook != nil {
+					if err := hook("after-delete"); err != nil {
+						return err
+					}
+				}
+				needsPurge = true
+			} else {
 				scrub, err := e.ledger.sealScrubsTokens()
 				if err != nil {
 					return fmt.Errorf("EndSync: read retain-tokens fact: %w", err)
@@ -479,11 +479,9 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 				if err != nil {
 					return fmt.Errorf("EndSync: purge ledger residue: %w", err)
 				}
-				if discarded {
-					if hook := e.test.ledgerArchiveHook; hook != nil {
-						if err := hook("after-purge"); err != nil {
-							return err
-						}
+				if hook := e.test.ledgerArchiveHook; hook != nil {
+					if err := hook("after-purge"); err != nil {
+						return err
 					}
 				}
 			}
@@ -505,8 +503,27 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 			return err
 		}
 	}
-	if err := e.PutSyncRunRecord(ctx, updated); err != nil {
-		return err
+	if archiveValue == nil {
+		if err := e.PutSyncRunRecord(ctx, updated); err != nil {
+			return err
+		}
+	} else {
+		// One batch: the finished verdict, the archive, and the removal of what
+		// the archive replaces. No ledger write follows FinishSync.
+		runValue, err := marshalRecord(updated)
+		if err != nil {
+			return err
+		}
+		if err := e.withWriteAllowSealed(func() error {
+			batch := e.db.NewRecordBatch()
+			defer batch.Close()
+			if err := batch.StageLedgerSeal(ledgerArchiveKey(), archiveValue, runValue, retained); err != nil {
+				return err
+			}
+			return batch.Commit(pebble.Sync)
+		}); err != nil {
+			return fmt.Errorf("EndSync: seal ledger: %w", err)
+		}
 	}
 	if e.test.endSyncPreFlushHook != nil {
 		e.test.endSyncPreFlushHook()
@@ -536,55 +553,7 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	// TestEndSyncStampWindowImageComplete pins the full workload.
 	// FinishSync's flush and fence are not part of that; they bound
 	// reopen WAL replay.
-	if err := e.FinishSync(ctx); err != nil {
-		return err
-	}
-	if preserveRecovery {
-		return nil
-	}
-	pending, err := e.ledger.sealDiscardsRows()
-	if err != nil {
-		return err
-	}
-	_, phase, err := e.ledger.workState()
-	if err != nil {
-		return err
-	}
-	workOpen := phase != c1zstore.LedgerQueueAbsent
-	if !pending && !workOpen {
-		return nil
-	}
-	if hook := e.test.ledgerArchiveHook; hook != nil {
-		if err := hook("before-marker-clear"); err != nil {
-			return err
-		}
-	}
-	clearStarted := time.Now()
-	err = e.withWriteAllowSealed(func() error {
-		batch := e.db.NewRecordBatch()
-		defer batch.Close()
-		if pending {
-			if err := batch.StageLedgerFactDelete(encodeLedgerFactKey(c1zstore.LedgerFactDiscardOnSeal)); err != nil {
-				return err
-			}
-		}
-		if workOpen {
-			if err := batch.StageLedgerWorkFinished(); err != nil {
-				return err
-			}
-		}
-		return batch.Commit(pebble.Sync)
-	})
-	if discarded {
-		cost.LedgerDiscard += time.Since(clearStarted)
-	}
-	if err != nil {
-		return err
-	}
-	if hook := e.test.ledgerArchiveHook; hook != nil {
-		return hook("after-marker-clear")
-	}
-	return nil
+	return e.FinishSync(ctx)
 }
 
 // === writes ===

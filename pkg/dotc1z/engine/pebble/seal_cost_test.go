@@ -20,7 +20,7 @@ func TestSealCostIncludesFailedFinalize(t *testing.T) {
 	require.NoError(t, page.Commit(t.Context(), c1zstore.LedgerActionIdentity{Op: "init"}, nil))
 	injected := errors.New("stamp failure")
 	e.test.endSyncStampHook = func() error { return injected }
-	require.ErrorIs(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}), injected)
+	require.ErrorIs(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}), injected)
 	cost := e.LastSealCost()
 	require.Positive(t, cost.LedgerScrub)
 	require.Positive(t, cost.LedgerPurge)

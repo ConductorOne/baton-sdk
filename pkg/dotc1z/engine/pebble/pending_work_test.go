@@ -193,10 +193,10 @@ func TestPendingWorkStaleCommitWritesNothing(t *testing.T) {
 func TestPendingWorkSealAndFinishedClear(t *testing.T) {
 	e, _ := newTestEngine(t)
 	work := pendingTestSeed(t, e)
-	require.ErrorContains(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}), "pending work")
+	require.ErrorContains(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}), "still collecting", "the terminal page is refused while work is pending, so the seal is too")
 	require.NoError(t, pendingTestCommit(t, e, work, ""))
 	syncID := e.CurrentSyncID()
-	require.NoError(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}))
+	require.NoError(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}))
 	require.NoError(t, e.SetCurrentSync(t.Context(), syncID))
 	_, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
@@ -463,24 +463,19 @@ func TestPendingWorkCompletionMarkerSurvivesFailedSeal(t *testing.T) {
 	work := pendingTestSeed(t, e)
 	syncID := e.CurrentSyncID()
 	require.NoError(t, pendingTestCommit(t, e, work, ""))
-	injected := errors.New("final marker clear failed")
-	e.test.ledgerArchiveHook = func(stage string) error {
-		if stage == "before-marker-clear" {
-			return injected
-		}
-		return nil
-	}
-	require.ErrorIs(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}), injected)
-	items, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
+	injected := errors.New("stamp failed")
+	e.test.endSyncStampHook = func() error { return injected }
+	require.ErrorIs(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}), injected)
+	items, phase, err := e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
-	require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
+	require.Equal(t, c1zstore.LedgerQueueSealing, phase, "the declaration outlives a failed stamp")
 	require.Empty(t, items)
 	require.NoError(t, e.SetCurrentSync(t.Context(), syncID))
-	e.test.ledgerArchiveHook = nil
-	require.NoError(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}))
-	_, initialized, err = e.Ledger().PendingWork(t.Context(), 0, 64)
+	e.test.endSyncStampHook = nil
+	require.NoError(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}))
+	_, phase, err = e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
-	require.Equal(t, c1zstore.LedgerQueueAbsent, initialized)
+	require.Equal(t, c1zstore.LedgerQueueAbsent, phase)
 }
 
 func TestPendingWorkClearRefusesUnfinishedProcessing(t *testing.T) {
@@ -488,7 +483,7 @@ func TestPendingWorkClearRefusesUnfinishedProcessing(t *testing.T) {
 	work := pendingTestSeed(t, e)
 	syncID := e.CurrentSyncID()
 	require.NoError(t, pendingTestCommit(t, e, work, ""))
-	require.NoError(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}))
+	require.NoError(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}))
 	require.NoError(t, e.SetCurrentSync(t.Context(), syncID))
 	require.NoError(t, e.Ledger().ClearRows(t.Context(), nil))
 	seed := c1zstore.LedgerWork{Action: work.Action}

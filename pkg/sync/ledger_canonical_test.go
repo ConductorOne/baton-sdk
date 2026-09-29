@@ -20,6 +20,12 @@ func canonicalLedgerSnapshot(rows []ledgerKV) ([]ledgerKV, error) {
 	var buckets []*v3.LedgerCounterBucket
 	options := make(map[string]bool)
 	for _, row := range rows {
+		if isLedgerArchiveKey(row.key) {
+			// The seal's report counts keys and attempts; a resumed run and a
+			// straight run differ there by design. The rows it summarizes are
+			// compared directly.
+			continue
+		}
 		copyRow := ledgerKV{key: bytes.Clone(row.key), value: bytes.Clone(row.value)}
 		if len(row.key) >= 3 && row.key[0] == 0x03 && row.key[1] == 0x0c {
 			var normalized proto.Message
@@ -91,6 +97,10 @@ func canonicalLedgerSnapshot(rows []ledgerKV) ([]ledgerKV, error) {
 	}
 	slices.SortFunc(out, func(a, b ledgerKV) int { return bytes.Compare(a.key, b.key) })
 	return out, nil
+}
+
+func isLedgerArchiveKey(key []byte) bool {
+	return len(key) > 2 && key[0] == 0x03 && bytes.HasSuffix(key, []byte("ledger-archive"))
 }
 
 func ledgerSnapshotWithFoldedCounters(t *testing.T, e *engine.Engine) []ledgerKV {

@@ -693,22 +693,52 @@ func (rb *RecordBatch) StageLedgerClearRows(factKeys [][]byte) error {
 	return nil
 }
 
-func (rb *RecordBatch) StageLedgerDiscard(keepFact []byte) error {
-	if err := assertFamily("StageLedgerDiscard", keepFact, LedgerFactPrefix()); err != nil {
+// The token-bearing part of the ledger family: rows, pending work, scheduling
+// relations, frontier. Facts, counters and the declaration stay.
+func (rb *RecordBatch) StageLedgerDisposeTokens() error {
+	lo, hi := LedgerRowBounds()
+	if err := rb.core.DeleteRange(lo, hi); err != nil {
 		return err
 	}
-	lo, hi := LedgerBounds()
-	if err := rb.core.DeleteRange(lo, keepFact); err != nil {
+	pendingLo, pendingHi := LedgerPendingBounds()
+	if err := rb.core.DeleteRange(pendingLo, pendingHi); err != nil {
 		return err
 	}
-	return rb.core.DeleteRange(append(append([]byte(nil), keepFact...), 0), hi)
+	scheduled := LedgerSchedulingPrefix()
+	if err := rb.core.DeleteRange(scheduled, UpperBound(scheduled)); err != nil {
+		return err
+	}
+	return rb.core.Delete(LedgerFrontierKey())
 }
 
-func (rb *RecordBatch) StageLedgerFactDelete(key []byte) error {
-	if err := assertFamily("StageLedgerFactDelete", key, LedgerFactPrefix()); err != nil {
+func (rb *RecordBatch) StageLedgerArchive(archiveKey, archiveVal []byte) error {
+	if err := assertFamily("StageLedgerArchive", archiveKey, []byte{VersionV3, TypeEngineMeta}); err != nil {
 		return err
 	}
-	return rb.core.Delete(key)
+	return rb.core.Set(archiveKey, archiveVal)
+}
+
+// The seal's one durable step: archive, the family's remaining keys, and the
+// sync-run record carrying ended_at. Retained history keeps facts and
+// counters; only the declaration goes.
+func (rb *RecordBatch) StageLedgerSeal(archiveKey, archiveVal, syncRunVal []byte, retained bool) error {
+	if err := rb.StageLedgerArchive(archiveKey, archiveVal); err != nil {
+		return err
+	}
+	if !retained {
+		lo, hi := LedgerFactBounds()
+		if err := rb.core.DeleteRange(lo, hi); err != nil {
+			return err
+		}
+		lo, hi = LedgerCounterBounds()
+		if err := rb.core.DeleteRange(lo, hi); err != nil {
+			return err
+		}
+	}
+	if err := rb.core.Delete(LedgerWorkStateKey()); err != nil {
+		return err
+	}
+	return rb.core.Set(SyncRunKey(), syncRunVal)
 }
 
 func (rb *RecordBatch) StagePendingWork(key, value []byte) error {
@@ -734,10 +764,6 @@ func (rb *RecordBatch) StageLedgerScheduling(key []byte) error {
 		return err
 	}
 	return rb.core.Set(key, []byte{1})
-}
-
-func (rb *RecordBatch) StageLedgerWorkFinished() error {
-	return rb.core.Delete(LedgerWorkStateKey())
 }
 
 func (rb *RecordBatch) StageLedgerCounterDelete(key []byte) error {

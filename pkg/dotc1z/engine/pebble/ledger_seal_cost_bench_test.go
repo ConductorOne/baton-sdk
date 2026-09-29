@@ -107,7 +107,7 @@ func benchmarkSealCost(b *testing.B, pages, grants int, op string, grantIndex bo
 		case "purge":
 			require.NoError(b, e.ledger.purgeResidue(ctx))
 		case "seal", "seal-retain", "seal-scrub-only":
-			require.NoError(b, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+			require.NoError(b, sealWithStats(b, e, ctx, c1zstore.SyncStats{}))
 		default:
 			b.Fatalf("unknown op %q", op)
 		}

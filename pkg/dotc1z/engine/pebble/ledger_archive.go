@@ -56,69 +56,8 @@ func (e *Engine) ArchiveLedgerReport(ctx context.Context) ([]byte, error) {
 }
 
 func (e *Engine) archiveLedgerReportLocked(ctx context.Context, syncID string) ([]byte, error) {
-	lo, hi := rawdb.LedgerRowBounds()
-	rows, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
+	value, rendered, err := e.buildLedgerArchiveLocked(ctx, syncID)
 	if err != nil {
-		return nil, err
-	}
-	present := rows.First()
-	err = errors.Join(rows.Error(), rows.Close())
-	if err != nil {
-		return nil, err
-	}
-	if !present {
-		prior, err := e.readLedgerArchive(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if prior != nil && prior.SyncID == syncID {
-			return renderLedgerArchive(prior)
-		}
-	}
-	report, err := e.GenerateLedgerReport(ctx)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		ctxzap.Extract(ctx).Warn("failed to generate ledger report; saving unavailable status", zap.Error(err))
-		report = []byte(`{"status":"unavailable","reason":"report_generation_failed"}`)
-	}
-	facts, err := e.Ledger().Facts(ctx)
-	if err != nil {
-		return nil, err
-	}
-	counters, err := e.Ledger().Counters(ctx)
-	if err != nil {
-		return nil, err
-	}
-	archive := ledgerArchive{Version: 1, SyncID: syncID, Report: report, ledgerRecoveryState: ledgerRecoveryState{Facts: facts, Counters: counters}}
-	var options c1zstore.LedgerReportOptions
-	if value := facts[c1zstore.LedgerFactReportOptions]; value != "" {
-		if err := json.Unmarshal([]byte(value), &options); err != nil {
-			options = c1zstore.LedgerReportOptions{}
-		}
-	}
-	if options.Requested.OnlyExpandGrants {
-		prior, err := e.readLedgerArchive(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if prior != nil {
-			archive.CollectionReport, archive.CollectionSyncID = prior.CollectionReport, prior.CollectionSyncID
-			if len(archive.CollectionReport) == 0 && prior.Facts[c1zstore.LedgerFactReportOptions] != facts[c1zstore.LedgerFactReportOptions] {
-				archive.CollectionReport, archive.CollectionSyncID = prior.Report, prior.SyncID
-			}
-		}
-	}
-	result, err := renderLedgerArchive(&archive)
-	if err != nil {
-		return nil, err
-	}
-	value, err := json.Marshal(archive)
-	if err != nil {
-		return nil, err
-	}
-	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if hook := e.test.ledgerArchiveHook; hook != nil {
@@ -130,9 +69,86 @@ func (e *Engine) archiveLedgerReportLocked(ctx context.Context, syncID string) (
 		return nil, err
 	}
 	if hook := e.test.ledgerArchiveHook; hook != nil {
-		return result, hook("after-write")
+		return rendered, hook("after-write")
 	}
-	return result, nil
+	return rendered, nil
+}
+
+// Returns the archive value to store and its rendered report. An archive
+// already saved for this sync is reused once the rows are gone, so a seal
+// retried after disposal keeps the report the rows produced.
+func (e *Engine) buildLedgerArchiveLocked(ctx context.Context, syncID string) ([]byte, []byte, error) {
+	lo, hi := rawdb.LedgerRowBounds()
+	rows, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
+	if err != nil {
+		return nil, nil, err
+	}
+	present := rows.First()
+	err = errors.Join(rows.Error(), rows.Close())
+	if err != nil {
+		return nil, nil, err
+	}
+	if !present {
+		prior, err := e.readLedgerArchive(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		if prior != nil && prior.SyncID == syncID {
+			rendered, err := renderLedgerArchive(prior)
+			if err != nil {
+				return nil, nil, err
+			}
+			value, err := json.Marshal(prior)
+			return value, rendered, err
+		}
+	}
+	report, err := e.GenerateLedgerReport(ctx)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, nil, ctx.Err()
+		}
+		ctxzap.Extract(ctx).Warn("failed to generate ledger report; saving unavailable status", zap.Error(err))
+		report = []byte(`{"status":"unavailable","reason":"report_generation_failed"}`)
+	}
+	facts, err := e.Ledger().Facts(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	counters, err := e.Ledger().Counters(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	archive := ledgerArchive{Version: 1, SyncID: syncID, Report: report, ledgerRecoveryState: ledgerRecoveryState{Facts: facts, Counters: counters}}
+	var options c1zstore.LedgerReportOptions
+	if value := facts[c1zstore.LedgerFactReportOptions]; value != "" {
+		if err := json.Unmarshal([]byte(value), &options); err != nil {
+			options = c1zstore.LedgerReportOptions{}
+		}
+	}
+	if options.Requested.OnlyExpandGrants {
+		prior, err := e.readLedgerArchive(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		if prior != nil {
+			archive.CollectionReport, archive.CollectionSyncID = prior.CollectionReport, prior.CollectionSyncID
+			if len(archive.CollectionReport) == 0 && prior.Facts[c1zstore.LedgerFactReportOptions] != facts[c1zstore.LedgerFactReportOptions] {
+				archive.CollectionReport, archive.CollectionSyncID = prior.Report, prior.SyncID
+			}
+		}
+	}
+	rendered, err := renderLedgerArchive(&archive)
+	if err != nil {
+		return nil, nil, err
+	}
+	value, err := json.Marshal(archive)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	return value, rendered, nil
 }
 
 func (e *Engine) readLedgerArchive(ctx context.Context) (*ledgerArchive, error) {

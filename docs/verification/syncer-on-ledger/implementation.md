@@ -358,6 +358,17 @@ the post-stamp snapshot, not deleted, unless its subject no longer exists.
 reads and loses the removed writes. Extend the legacy-artifact tooling
 with a completed unexpanded baseline artifact for (e); both directions opt-in.
 
+Commit 2 landed the stamp batch with one addition to the frozen text: in
+default mode the archive value is staged in the token-bearing disposal batch
+as well as the stamp batch, so a crash between the two leaves a report built
+from the rows rather than from an empty family; a re-seal reuses it
+(`buildLedgerArchiveLocked`). `TestLedgerDiscardUnfinishedArchiveResumesWithoutCollection`
+was deleted: its image (discard fact alone, no declaration, no `ended_at`)
+is unreachable once facts and the declaration survive to the stamp. The
+mid-seal images that replace it (disposal landed, stamp not) are asserted at
+the engine in `TestLedgerDiscardDurableSealCuts`; the syncer-level resume on
+those images is commit 4's test (a).
+
 Commit sequence, each building and passing alone: (1) phase byte, terminal
 transition and phase-returning reads, engine tests; (2) single stamp batch and
 removal of the post-stamp block, engine crash cuts and (c); (3) `BeginPass`,

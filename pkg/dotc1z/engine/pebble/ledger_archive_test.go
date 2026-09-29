@@ -30,7 +30,7 @@ func TestLedgerArchivePreservesFinishedState(t *testing.T) {
 	require.NoError(t, writer.SetCounterBucket("attempt", 0, counters))
 	page := grantsPageIdentity("group", "secret-token")
 	require.NoError(t, writer.Commit(t.Context(), page, &c1zstore.LedgerRow{GrantsWritten: 3}))
-	require.NoError(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}))
+	require.NoError(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}))
 	report, err := e.ArchiveLedgerReport(t.Context())
 	require.NoError(t, err)
 	require.NotContains(t, string(report), "secret-token")
@@ -97,7 +97,7 @@ func TestLedgerArchiveFailureCuts(t *testing.T) {
 			writer := e.Ledger().BeginPage()
 			require.NoError(t, writer.SetFact("known"))
 			require.NoError(t, writer.Commit(t.Context(), page, &c1zstore.LedgerRow{}))
-			require.NoError(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}))
+			require.NoError(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}))
 			injected := errors.New("archive cut")
 			e.test.ledgerArchiveHook = func(stage string) error {
 				if stage == cut {
@@ -137,7 +137,7 @@ func TestLedgerArchiveFollowsCompactedBaseRename(t *testing.T) {
 	writer := e.Ledger().BeginPage()
 	require.NoError(t, writer.SetFact("base_skip_grants"))
 	require.NoError(t, writer.Commit(t.Context(), grantsPageIdentity("group", ""), &c1zstore.LedgerRow{}))
-	require.NoError(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}))
+	require.NoError(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}))
 	_, err = e.ArchiveLedgerReport(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, e.Ledger().Drop(t.Context()))
@@ -172,7 +172,7 @@ func TestLedgerArchiveKeepsCollectionAcrossProcessing(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, writer.SetFactValue(c1zstore.LedgerFactReportOptions, string(options)))
 		require.NoError(t, writer.Commit(t.Context(), grantsPageIdentity("group", ""), &c1zstore.LedgerRow{}))
-		require.NoError(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}))
+		require.NoError(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}))
 		report, err := e.ArchiveLedgerReport(t.Context())
 		require.NoError(t, err)
 		var envelope struct {

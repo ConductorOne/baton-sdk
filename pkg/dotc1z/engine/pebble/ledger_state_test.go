@@ -84,7 +84,7 @@ func TestLedgerFactsAndBucketsRideThePageUnit(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 4, rows)
 
-	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+	require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 	_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	facts, err = e.ledger.Facts(ctx)
@@ -328,7 +328,7 @@ func TestLedgeredSyncSealsOnlyWithStats(t *testing.T) {
 
 	require.True(t, e.ledger.inFlight.Load(), "bucket writes mark the ledger in flight")
 
-	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{
+	require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{
 		Run:           fold,
 		IngestQuality: &c1zstore.IngestQuality{GrantsDropped: 1, SourceCacheReplayBlocked: true, ReasonFlags: 2},
 	}))

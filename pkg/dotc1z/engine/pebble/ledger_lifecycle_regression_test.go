@@ -224,11 +224,13 @@ func TestRetainDeclarationSurvivesCrashAndItsAbsenceScrubs(t *testing.T) {
 		resumed, err := NewAdapter(e).ResumeSync(ctx, connectorstore.SyncTypeFull, syncID)
 		require.NoError(t, err)
 		require.Equal(t, syncID, resumed)
-		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 
 		var rows []*v3.LedgerRow
 		require.NoError(t, e.ledger.iterate(ctx, func(r *v3.LedgerRow) bool {
-			rows = append(rows, r)
+			if r.GetIdentity().GetOp() != "sync-terminal-v1" {
+				rows = append(rows, r)
+			}
 			return true
 		}))
 		require.Len(t, rows, 1)
@@ -323,7 +325,7 @@ func TestFailedSealDropsItsStatsOverlay(t *testing.T) {
 
 	boom := errors.New("injected")
 	e.test.endSyncStampHook = func() error { return boom }
-	require.ErrorIs(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{
+	require.ErrorIs(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{
 		Run: c1zstore.RunStats{StepDurationsMs: map[string]int64{"list-grants": 3}},
 	}), boom)
 	e.test.endSyncStampHook = nil
@@ -331,7 +333,7 @@ func TestFailedSealDropsItsStatsOverlay(t *testing.T) {
 	require.NotContains(t, e.syncStatsOverlay, syncID,
 		"a failed seal's stats must not be waiting for the next seal of this id")
 
-	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{
+	require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{
 		Run: c1zstore.RunStats{StepDurationsMs: map[string]int64{"list-grants": 9}},
 	}))
 	stats, err := e.readSyncStats(ctx, syncID)

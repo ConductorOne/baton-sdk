@@ -115,7 +115,7 @@ func TestLedgerEarlyEndAfterInterruptedDisposalKeepsStats(t *testing.T) {
 		}
 		return nil
 	}
-	require.ErrorContains(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}), "interrupted disposal")
+	require.ErrorContains(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}), "interrupted disposal")
 	e.test.ledgerArchiveHook = nil
 	require.NoError(t, e.EndSync(ctx))
 	stats, err := e.readSyncStats(ctx, id)

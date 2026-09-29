@@ -23,8 +23,11 @@ func TestLedgerArchiveDurableCrashImages(t *testing.T) {
 	require.NoError(t, page.SetCounterBucket("attempt", 0, c1zstore.LedgerCounters{Counters: map[string]uint64{"completed": 7}}))
 	identity := c1zstore.LedgerActionIdentity{Op: "resources", PageToken: "private-cursor"}
 	require.NoError(t, page.Commit(t.Context(), identity, &c1zstore.LedgerRow{}))
-	require.NoError(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}))
+	require.NoError(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}))
 	images := map[string]*vfs.MemFS{"sealed": fs.CrashClone(vfs.CrashCloneCfg{})}
+	sealed, err := e.GetArchivedLedgerReport(t.Context())
+	require.NoError(t, err)
+	require.NotEmpty(t, sealed, "the seal saves the archive")
 	report, err := e.ArchiveLedgerReport(t.Context())
 	require.NoError(t, err)
 	images["archived"] = fs.CrashClone(vfs.CrashCloneCfg{})
@@ -47,7 +50,7 @@ func TestLedgerArchiveDurableCrashImages(t *testing.T) {
 			saved, err := reopened.GetArchivedLedgerReport(t.Context())
 			require.NoError(t, err)
 			if label == "sealed" {
-				require.Empty(t, saved)
+				require.JSONEq(t, string(sealed), string(saved))
 			} else {
 				require.JSONEq(t, string(report), string(saved))
 			}

@@ -87,7 +87,7 @@ func buildLedgeredPebbleInput(t *testing.T, ctx context.Context, path string, st
 	require.True(t, found, "fixture did not record a ledger row")
 
 	require.NoError(t, w.PutAsset(ctx, v2.AssetRef_builder{Id: "asset-1"}.Build(), "text/plain", []byte("payload")))
-	require.NoError(t, ledger.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+	require.NoError(t, sealLedger(t, ctx, ledger, c1zstore.SyncStats{}))
 	require.NoError(t, w.Close(ctx))
 	return syncID
 }

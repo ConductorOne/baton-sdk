@@ -29,7 +29,7 @@ func TestLedgerClearRowsPreservesHistory(t *testing.T) {
 	history := c1zstore.LedgerCounters{Counters: map[string]uint64{"completed": 17}}
 	require.NoError(t, page.SetCounterBucket("prior", 0, history))
 	require.NoError(t, page.Commit(ctx, id, &c1zstore.LedgerRow{}))
-	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+	require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 	require.NoError(t, e.SetCurrentSync(ctx, syncID))
 	before, err := e.GetSyncRunRecord(ctx, syncID)
 	require.NoError(t, err)
@@ -89,7 +89,7 @@ func TestLedgerClearRowsFailureCuts(t *testing.T) {
 				if ending == "early-end" {
 					require.NoError(t, e.EndSync(ctx))
 				} else {
-					require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+					require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 				}
 				require.NoError(t, e.SetCurrentSync(ctx, syncID))
 				before, err := e.GetSyncRunRecord(ctx, syncID)
@@ -154,7 +154,7 @@ func TestLedgerClearRowsCrashImages(t *testing.T) {
 				if ending == "early-end" {
 					require.NoError(t, e.EndSync(ctx))
 				} else {
-					require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+					require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 				}
 				require.NoError(t, e.SetCurrentSync(ctx, syncID))
 				before, err := e.GetSyncRunRecord(ctx, syncID)
@@ -194,7 +194,7 @@ func TestLedgerClearRowsCrashImages(t *testing.T) {
 				require.NoError(t, err)
 				require.True(t, pending)
 				require.NoError(t, recovered.SetCurrentSync(ctx, syncID))
-				require.NoError(t, recovered.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+				require.NoError(t, sealWithStats(t, recovered, ctx, c1zstore.SyncStats{}))
 				pending, err = recovered.Ledger().residuePending()
 				require.NoError(t, err)
 				require.False(t, pending)
@@ -211,7 +211,7 @@ func TestLedgerClearRowsDefersPurgeUntilSeal(t *testing.T) {
 	e.Ledger().SetRetainTokens(true)
 	page := e.Ledger().BeginPage()
 	require.NoError(t, page.Commit(t.Context(), grantsPageIdentity("group", "old-secret"), nil))
-	require.NoError(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}))
+	require.NoError(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}))
 	require.Zero(t, e.test.ledgerResiduePurges.Load())
 	require.Positive(t, checkpointNeedleHits(t, e, []byte("old-secret")))
 	require.NoError(t, e.SetCurrentSync(t.Context(), id))
@@ -224,7 +224,7 @@ func TestLedgerClearRowsDefersPurgeUntilSeal(t *testing.T) {
 	next := e.Ledger().BeginPage()
 	require.NoError(t, next.SetFact(c1zstore.LedgerFactDiscardOnSeal))
 	require.NoError(t, next.Commit(t.Context(), grantsPageIdentity("group", "new-secret"), nil))
-	require.NoError(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}))
+	require.NoError(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}))
 	require.EqualValues(t, 1, e.test.ledgerResiduePurges.Load())
 	require.Zero(t, checkpointNeedleHits(t, e, []byte("old-secret")))
 	require.Zero(t, checkpointNeedleHits(t, e, []byte("new-secret")))

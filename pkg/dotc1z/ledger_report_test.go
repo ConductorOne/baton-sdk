@@ -30,11 +30,12 @@ func TestPebbleStoreGenerateLedgerReport(t *testing.T) {
 	require.NoError(t, page.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "SyncGrants", ResourceTypeID: "group", PageToken: "secret-cursor"},
 		&c1zstore.LedgerRow{ObservationsRecorded: true, ConnectorAttempts: 3, ConnectorErrors: 2,
 			Collection: &c1zstore.LedgerCollectionStats{ListResponses: 1, GrantsReceived: 2, GrantsExcludedByType: 1}}))
+	commitTerminalPage(t, ctx, ledger)
 	before, err := ledger.GenerateLedgerReport(c1zstore.WithOpenPage(ctx))
 	require.NoError(t, err)
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(before, &payload))
-	require.EqualValues(t, 1, payload["pages"])
+	require.EqualValues(t, 2, payload["pages"], "the grants page and the terminal page")
 	require.EqualValues(t, 1, payload["record_writes"])
 	require.EqualValues(t, 3, payload["attempt_observations"].(map[string]any)["connector_attempts"])
 	require.EqualValues(t, 1, payload["collection_observations"].(map[string]any)["grants_excluded_by_type"])
@@ -52,8 +53,8 @@ func TestPebbleStoreGenerateLedgerReport(t *testing.T) {
 	require.NoError(t, err)
 	var sealedPayload map[string]any
 	require.NoError(t, json.Unmarshal(after, &sealedPayload))
-	require.EqualValues(t, 2, payload["ledger_keys_scanned"])
-	require.EqualValues(t, 1, sealedPayload["ledger_keys_scanned"])
+	require.EqualValues(t, 3, payload["ledger_keys_scanned"], "two rows and the declaration")
+	require.EqualValues(t, 2, sealedPayload["ledger_keys_scanned"], "the seal removed the declaration")
 	delete(payload, "ledger_keys_scanned")
 	delete(sealedPayload, "ledger_keys_scanned")
 	require.Equal(t, payload, sealedPayload)
@@ -86,7 +87,7 @@ func TestPebbleStoreArchivedReportSurvivesDropAndReopen(t *testing.T) {
 	require.NoError(t, writer.SetFact("skip_grants"))
 	require.NoError(t, writer.SetCounterBucket("one", 0, c1zstore.LedgerCounters{Counters: map[string]uint64{"completed": 9}}))
 	require.NoError(t, writer.Commit(c1zstore.WithOpenPage(ctx), c1zstore.LedgerActionIdentity{Op: "test"}, &c1zstore.LedgerRow{}))
-	require.NoError(t, ledger.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+	require.NoError(t, sealLedger(t, ctx, ledger, c1zstore.SyncStats{}))
 	report, err := ledger.ArchiveLedgerReport(ctx)
 	require.NoError(t, err)
 	require.NoError(t, ledger.DropLedger(ctx))

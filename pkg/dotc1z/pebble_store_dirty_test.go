@@ -106,7 +106,7 @@ func TestPebbleStoreDropLedgerMarksDirty(t *testing.T) {
 	w := store.(c1zstore.PageLedgerStore).BeginPage()
 	require.NoError(t, w.PutGrants(ctx, mkV2Grant("g1", "ent", "user", "alice")))
 	require.NoError(t, w.Commit(ctx, id, nil))
-	require.NoError(t, store.(c1zstore.PageLedgerStore).EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+	require.NoError(t, sealLedger(t, ctx, store.(c1zstore.PageLedgerStore), c1zstore.SyncStats{}))
 	require.NoError(t, store.Close(ctx))
 
 	store, err = NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
@@ -192,7 +192,7 @@ func TestPebbleStoreClearRowsMarksDirty(t *testing.T) {
 	require.NoError(t, page.SetCounterBucket("prior", 0, c1zstore.LedgerCounters{Counters: map[string]uint64{"completed": 3}}))
 	require.NoError(t, page.Commit(ctx, id, nil))
 	page.Discard()
-	require.NoError(t, ledger.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+	require.NoError(t, sealLedger(t, ctx, ledger, c1zstore.SyncStats{}))
 	require.NoError(t, store.Close(ctx))
 	store, err = NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)

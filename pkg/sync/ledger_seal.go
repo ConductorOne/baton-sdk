@@ -47,6 +47,9 @@ func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.Le
 	if err := page.SetFact(ledgerFactSealReady); err != nil {
 		return err
 	}
+	if err := page.SetQueueSealing(); err != nil {
+		return err
+	}
 	if err := page.SetCounterBucket(r.runID, c1zstore.RunBucketWorker, runCounters); err != nil {
 		return err
 	}
