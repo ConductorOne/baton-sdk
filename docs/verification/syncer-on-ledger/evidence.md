@@ -525,7 +525,7 @@ Limits: no released artifact carries a version-1 work state, so the rejection is
 
 ## CO-039 — the pass is a state machine; writes are transitions
 
-Status: implemented across c6cbecec (test h, red), 6dc063cc (test b, red), 1993c049 (storage + test a), 794476e6 (syncer), 4db3b17d (interface names). Facts read of the draft by a second reader: pending at the time of writing. Full-run verdict: FULLRUN_PENDING.
+Status: implemented across c6cbecec (test h, red), 6dc063cc (test b, red), 1993c049 (storage + test a), 794476e6 (syncer), 4db3b17d (interface names). Facts read of the draft by a second reader: pending at the time of writing. Full run at 4db3b17d: `go test ./...` green in all 64 packages. 9c537f7b (no `supports_diff` stamp on the ledger path, requester's call) followed, covered by the state table and the expansion resume tests.
 
 Tests written first, red at the head before their fix, each with the failure the freeze predicted:
 - (h) `TestLedgerExpansionOnlyRefusesIncompleteCollection`: `main`'s behavior surfaced as "expansion replay must not recollect grants" — collection continued into the refusing connector. `TestLedgerDontExpandRefusesPassInExpansion`: `nil` — the partial expansion sealed. `TestLedgerExpansionOnlyExpandsFinishedBaselineUpload` green before and after: the C1 path (records, empty-stack legacy token, `ended_at`, only-expand through a connector that refuses every list call).
