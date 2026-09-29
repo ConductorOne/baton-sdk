@@ -24,7 +24,7 @@ func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.Le
 			return nil
 		}
 		return r.store.PutCounterBucket(ctx, r.runID, c1zstore.RunBucketWorker, runCounters)
-	case c1zstore.LedgerQueueCollecting:
+	case c1zstore.LedgerQueueCollecting, c1zstore.LedgerQueueExpanding:
 	}
 	if len(pending) > 0 {
 		return errors.New("cannot prepare seal with pending work")

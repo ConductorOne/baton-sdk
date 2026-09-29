@@ -56,6 +56,7 @@ var capabilityMethods = map[string]struct {
 	"BoundSyncFinished":       {dirtyRead, "read"},
 	"BoundSyncUnstarted":      {dirtyRead, "checks binding and existing collection state without modifying the file"},
 	"BeginPass":               {dirtyWrite, "one batch: prior rows, scheduling and frontier out; archived facts and totals in; seeds and a collecting declaration"},
+	"BeginExpanding":          {dirtyWrite, "one synced write: the declaration moves to expanding"},
 	"DropLedger":              {dirtyWrite, "a delete is a write; without the mark the wipe never reaches the c1z"},
 	"FoldLedgerCounters":      {dirtyWrite, "replace prior attempt buckets with their folded total"},
 	"PutCounterBucket":        {dirtyWrite, "blind-writes the bucket"},

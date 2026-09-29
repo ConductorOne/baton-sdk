@@ -119,13 +119,7 @@ func (e *Engine) buildLedgerArchiveLocked(ctx context.Context, syncID string) ([
 		return nil, nil, err
 	}
 	archive := ledgerArchive{Version: 1, SyncID: syncID, Report: report, ledgerRecoveryState: ledgerRecoveryState{Facts: facts, Counters: counters}}
-	var options c1zstore.LedgerReportOptions
-	if value := facts[c1zstore.LedgerFactReportOptions]; value != "" {
-		if err := json.Unmarshal([]byte(value), &options); err != nil {
-			options = c1zstore.LedgerReportOptions{}
-		}
-	}
-	if options.Requested.OnlyExpandGrants {
+	if _, followOn := facts[c1zstore.LedgerFactFollowOnPass]; followOn {
 		prior, err := e.readLedgerArchive(ctx)
 		if err != nil {
 			return nil, nil, err

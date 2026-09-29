@@ -984,6 +984,13 @@ func (s *pebbleStore) PutLedgerFacts(ctx context.Context, facts map[string]strin
 	return s.markDirty(s.Engine.Ledger().PutFacts(ctx, facts))
 }
 
+func (s *pebbleStore) BeginExpanding(ctx context.Context) error {
+	if err := s.writeHook(ctx, "BeginExpanding"); err != nil {
+		return err
+	}
+	return s.markDirty(s.Engine.Ledger().BeginExpanding(ctx))
+}
+
 func (s *pebbleStore) BeginPass(ctx context.Context, seeds []c1zstore.LedgerWork, clearFacts []string) error {
 	if err := s.writeHook(ctx, "BeginPass"); err != nil {
 		return err

@@ -40,6 +40,7 @@ import (
 var seamFailureCases = map[string][]string{
 	"ledgerArchiveHook":           {"TestLedgerArchiveFailureCuts"},
 	"ledgerBeginPassHook":         {"TestLedgerBeginPassFailureCuts", "TestLedgerBeginPassCrashImage"},
+	"ledgerBeginExpandingHook":    {"TestLedgerStateTable"},
 	"digestBuildHook":             {"TestGrantDigestBuildCrashMidMerge", "TestGrantDigestBuildCrashPostFinish"},
 	"recordCommitHook":            {"TestFailedMutationPathsFireObligations"},
 	"sourceCacheReplayCommitHook": {"TestVerificationReplayBatchBoundAndInterruptedRetry"},

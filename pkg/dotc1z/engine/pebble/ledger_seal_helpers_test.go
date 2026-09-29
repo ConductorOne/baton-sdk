@@ -35,7 +35,7 @@ func commitTerminalPage(t testing.TB, e *Engine, ctx context.Context) error {
 			}
 			return batch.Commit(pebble.Sync)
 		}))
-	case c1zstore.LedgerQueueCollecting:
+	case c1zstore.LedgerQueueCollecting, c1zstore.LedgerQueueExpanding:
 	}
 	writer := e.Ledger().BeginPage()
 	defer writer.Discard()

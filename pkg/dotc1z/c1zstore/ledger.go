@@ -111,14 +111,18 @@ const LedgerFactDiscardOnSeal = "c1z.discard_ledger_on_seal"
 // whole totals, so sharing worker 0 or RunBucketWorker would overwrite them.
 const TakeoverBucketWorker uint32 = 0xFFFFFFFE
 
-// The pending-work declaration's phase. Absent: no declaration. Collecting:
-// pages may commit. Sealing: the terminal page landed; only the seal follows.
+// The pending-work declaration's phase: which operations the store accepts.
+// Absent: no declaration. Collecting: pages may commit. Expanding: no pages;
+// the expansion entry completes locally. Sealing: the terminal page landed;
+// only the seal follows.
 type LedgerQueuePhase uint8
 
+// The values are the durable encoding; Expanding was added after Sealing.
 const (
-	LedgerQueueAbsent LedgerQueuePhase = iota
-	LedgerQueueCollecting
-	LedgerQueueSealing
+	LedgerQueueAbsent     LedgerQueuePhase = 0
+	LedgerQueueCollecting LedgerQueuePhase = 1
+	LedgerQueueSealing    LedgerQueuePhase = 2
+	LedgerQueueExpanding  LedgerQueuePhase = 3
 )
 
 func (p LedgerQueuePhase) String() string {
@@ -127,11 +131,17 @@ func (p LedgerQueuePhase) String() string {
 		return "absent"
 	case LedgerQueueCollecting:
 		return "collecting"
+	case LedgerQueueExpanding:
+		return "expanding"
 	case LedgerQueueSealing:
 		return "sealing"
 	}
 	return "invalid"
 }
+
+// Written by BeginPass: this pass began on a sealed sync. The archive links
+// the pass's report to the preceding one when the fact is present.
+const LedgerFactFollowOnPass = "c1z.pass.follow_on"
 
 type LedgerFrontier struct {
 	State       string
@@ -222,8 +232,8 @@ type PageWriter interface {
 
 	// On failure nothing of the page lands, but the store is durably stamped
 	// ledgered before the first commit, so a failed first page does not permit
-	// falling back to checkpoint tokens. Refused with ErrLedgerQueueSealing
-	// once the declaration is Sealing.
+	// falling back to checkpoint tokens. Refused once the declaration is
+	// Expanding or Sealing.
 	Commit(ctx context.Context, id LedgerActionIdentity, row *LedgerRow) error
 	Discard()
 }
@@ -235,6 +245,9 @@ type PageLedgerStore interface {
 	PendingWork(ctx context.Context, beforeID uint64, limit int) (work []LedgerWork, phase LedgerQueuePhase, err error)
 	// Seeds an absent queue in stack order; an initialized queue is unchanged.
 	InitializePendingWork(ctx context.Context, work []LedgerWork, facts ...string) error
+	// Moves a Collecting declaration to Expanding in one synced write. Requires
+	// the pending range to hold exactly the expansion entry. Refused otherwise.
+	BeginExpanding(ctx context.Context) error
 	PendingWorkAfter(ctx context.Context, afterID uint64, limit int) ([]LedgerWork, LedgerQueuePhase, error)
 	HasScheduledWork(ctx context.Context, key string) (bool, error)
 	// Removes a completed local phase and records cumulative run accounting;

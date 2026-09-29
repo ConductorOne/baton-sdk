@@ -208,7 +208,7 @@ func TestPebbleStoreBeginPassMarksDirty(t *testing.T) {
 	require.False(t, found)
 	facts, err := ledger.LedgerFacts(ctx)
 	require.NoError(t, err)
-	require.Equal(t, map[string]string{"history": ""}, facts)
+	require.Equal(t, map[string]string{"history": "", c1zstore.LedgerFactFollowOnPass: ""}, facts)
 	counters, err := ledger.LedgerCounters(ctx)
 	require.NoError(t, err)
 	require.EqualValues(t, 3, counters.Counters["completed"])

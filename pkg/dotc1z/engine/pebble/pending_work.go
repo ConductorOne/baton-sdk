@@ -29,7 +29,8 @@ func encodeWorkHistoryKey(id c1zstore.LedgerActionIdentity, workID, revision uin
 	return binary.BigEndian.AppendUint64(key, revision)
 }
 
-var ErrLedgerQueueSealing = errors.New("pending-work declaration is sealing")
+// A page commit or work transition in a phase that accepts none.
+var ErrLedgerQueuePhase = errors.New("pending-work declaration accepts no pages in this phase")
 
 const workStateVersion = 2
 
@@ -48,7 +49,9 @@ func (l *Ledger) workState() (uint64, c1zstore.LedgerQueuePhase, error) {
 		return 0, c1zstore.LedgerQueueAbsent, errors.New("invalid pending-work state")
 	}
 	phase := c1zstore.LedgerQueuePhase(value[9])
-	if phase != c1zstore.LedgerQueueCollecting && phase != c1zstore.LedgerQueueSealing {
+	switch phase {
+	case c1zstore.LedgerQueueCollecting, c1zstore.LedgerQueueExpanding, c1zstore.LedgerQueueSealing:
+	default:
 		return 0, c1zstore.LedgerQueueAbsent, errors.New("invalid pending-work phase")
 	}
 	return binary.BigEndian.Uint64(value[1:9]), phase, nil
@@ -133,6 +136,51 @@ func (l *Ledger) InitializePendingWork(ctx context.Context, actions []c1zstore.L
 		return batch.Commit(pebble.Sync)
 	})
 }
+
+// BeginExpanding moves a Collecting declaration to Expanding: collection is
+// done, and the only pending entry is the expansion action. No page commits
+// after this; the expansion entry completes through CompletePendingWork.
+func (l *Ledger) BeginExpanding(ctx context.Context) error {
+	return l.e.withWrite(func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := l.e.requireCurrentSync(); err != nil {
+			return err
+		}
+		last, phase, err := l.workState()
+		if err != nil {
+			return err
+		}
+		if phase != c1zstore.LedgerQueueCollecting {
+			return fmt.Errorf("BeginExpanding: pending-work declaration is %s", phase)
+		}
+		pending, _, err := l.readPendingWork(ctx, 0, 0, 2, false)
+		if err != nil {
+			return err
+		}
+		if len(pending) != 1 || pending[0].Action.Identity.Op != ledgerExpansionOp {
+			return errors.New("BeginExpanding: the pending range must hold exactly the expansion entry")
+		}
+		if err := l.markInFlightLocked(); err != nil {
+			return err
+		}
+		batch := l.e.db.NewRecordBatch()
+		defer batch.Close()
+		if err := stageWorkState(batch, last, c1zstore.LedgerQueueExpanding); err != nil {
+			return err
+		}
+		if hook := l.e.test.ledgerBeginExpandingHook; hook != nil {
+			if err := hook(); err != nil {
+				return err
+			}
+		}
+		return batch.Commit(pebble.Sync)
+	})
+}
+
+// The syncer's op string for grant expansion (pkg/sync SyncGrantExpansionOp).
+const ledgerExpansionOp = "grant-expansion"
 
 func (l *Ledger) PendingWork(ctx context.Context, beforeID uint64, limit int) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {
 	return l.readPendingWork(ctx, beforeID, 0, limit, false)
@@ -266,7 +314,13 @@ func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBat
 	case c1zstore.LedgerQueueAbsent:
 		return errors.New("pending work has no allocator state")
 	case c1zstore.LedgerQueueSealing:
-		return ErrLedgerQueueSealing
+		return fmt.Errorf("%w: %s", ErrLedgerQueuePhase, phase)
+	case c1zstore.LedgerQueueExpanding:
+		// Only the expansion entry may complete; it carries no continuation
+		// or children, and pageUnit.Commit refused any page already.
+		if row.GetNextPageToken() != "" || len(row.GetChildren()) != 0 {
+			return fmt.Errorf("%w: %s", ErrLedgerQueuePhase, phase)
+		}
 	case c1zstore.LedgerQueueCollecting:
 	}
 	if uint64(len(row.GetChildren())) > math.MaxUint64-last {

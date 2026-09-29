@@ -304,7 +304,7 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 		case phase == c1zstore.LedgerQueueAbsent:
 			return errors.New("EndSync: missing pending-work declaration")
 		default:
-			return errors.New("EndSync: pending-work declaration is still collecting")
+			return fmt.Errorf("EndSync: pending-work declaration is %s, not sealing", phase)
 		}
 	}
 	if overlay != nil {

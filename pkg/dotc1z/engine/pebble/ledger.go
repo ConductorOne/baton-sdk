@@ -801,6 +801,9 @@ func (l *Ledger) BeginPass(ctx context.Context, seeds []c1zstore.LedgerWork, cle
 		if err := batch.StageLedgerDisposeTokens(); err != nil {
 			return err
 		}
+		if err := batch.StageLedgerFact(encodeLedgerFactKey(c1zstore.LedgerFactFollowOnPass)); err != nil {
+			return err
+		}
 		if err := stageInitialWork(batch, syncID, seeds); err != nil {
 			return err
 		}

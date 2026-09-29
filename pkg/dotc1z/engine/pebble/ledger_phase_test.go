@@ -80,9 +80,9 @@ func TestLedgerSealingRefusesLatePages(t *testing.T) {
 
 	writer := e.Ledger().BeginPage()
 	require.NoError(t, writer.SetFact("late"))
-	require.ErrorIs(t, writer.Commit(t.Context(), c1zstore.LedgerActionIdentity{Op: "late"}, &c1zstore.LedgerRow{}), ErrLedgerQueueSealing)
+	require.ErrorIs(t, writer.Commit(t.Context(), c1zstore.LedgerActionIdentity{Op: "late"}, &c1zstore.LedgerRow{}), ErrLedgerQueuePhase)
 	writer.Discard()
-	require.ErrorIs(t, phaseTestTerminal(t, e, nil), ErrLedgerQueueSealing, "a second terminal page is a late page")
+	require.ErrorIs(t, phaseTestTerminal(t, e, nil), ErrLedgerQueuePhase, "a second terminal page is a late page")
 	require.Error(t, e.Ledger().CompletePendingWork(t.Context(), work, "attempt", c1zstore.LedgerCounters{}))
 	facts, err := e.Ledger().Facts(t.Context())
 	require.NoError(t, err)
@@ -118,7 +118,7 @@ func TestLedgerTerminalTransitionRequiresDeclaration(t *testing.T) {
 	_, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.Equal(t, c1zstore.LedgerQueueAbsent, phaseOf(t, e))
-	require.ErrorContains(t, phaseTestTerminal(t, e, nil), "collecting pending-work declaration")
+	require.ErrorContains(t, phaseTestTerminal(t, e, nil), "requires a pending-work declaration")
 	require.Equal(t, c1zstore.LedgerQueueAbsent, phaseOf(t, e))
 
 	// A page without the transition is unaffected by the absent declaration.

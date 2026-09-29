@@ -25,7 +25,7 @@ func (r ledgerResume) preparation(finished bool) ledgerPreparation {
 	switch r.phase {
 	case c1zstore.LedgerQueueSealing:
 		return ledgerFinishSeal
-	case c1zstore.LedgerQueueCollecting:
+	case c1zstore.LedgerQueueCollecting, c1zstore.LedgerQueueExpanding:
 		return ledgerContinuePending
 	case c1zstore.LedgerQueueAbsent:
 	}

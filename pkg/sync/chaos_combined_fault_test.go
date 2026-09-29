@@ -352,6 +352,9 @@ func (s *chaosPebbleStore) PutLedgerFacts(ctx context.Context, facts map[string]
 	return s.Ledger().PutFacts(ctx, facts)
 }
 func (s *chaosPebbleStore) DropLedger(ctx context.Context) error { return s.Ledger().Drop(ctx) }
+func (s *chaosPebbleStore) BeginExpanding(ctx context.Context) error {
+	return s.Ledger().BeginExpanding(ctx)
+}
 func (s *chaosPebbleStore) BeginPass(ctx context.Context, seeds []c1zstore.LedgerWork, facts []string) error {
 	return s.Ledger().BeginPass(ctx, seeds, facts)
 }

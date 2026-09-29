@@ -208,3 +208,37 @@ func TestLedgerArchiveRecoveryEncodingCompatibility(t *testing.T) {
 	require.NoError(t, err)
 	require.JSONEq(t, legacy, string(encoded))
 }
+
+// CO-039 §4: the link to the preceding collection follows the pass, not the
+// options fact. A plain resumer that seals an expansion pass must not drop
+// it; a first pass whose options claim expansion-only must not gain one.
+func TestLedgerArchiveLinkFollowsThePassNotTheOptions(t *testing.T) {
+	e, _ := newTestEngine(t)
+	id, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), nil))
+	first := e.Ledger().BeginPage()
+	claim, err := json.Marshal(c1zstore.LedgerReportOptions{Requested: c1zstore.LedgerRequestedOptions{OnlyExpandGrants: true}})
+	require.NoError(t, err)
+	require.NoError(t, first.SetFactValue(c1zstore.LedgerFactReportOptions, string(claim)))
+	require.NoError(t, first.Commit(t.Context(), grantsPageIdentity("group", ""), &c1zstore.LedgerRow{}))
+	require.NoError(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}))
+	report, err := e.GetArchivedLedgerReport(t.Context())
+	require.NoError(t, err)
+	require.NotContains(t, string(report), `"preceding_collection"`, "a first pass has nothing to precede it, whatever its options say")
+
+	require.NoError(t, e.SetCurrentSync(t.Context(), id))
+	require.NoError(t, e.Ledger().BeginPass(t.Context(), nil, nil))
+	facts, err := e.Ledger().Facts(t.Context())
+	require.NoError(t, err)
+	require.Contains(t, facts, c1zstore.LedgerFactFollowOnPass)
+	second := e.Ledger().BeginPage()
+	plain, err := json.Marshal(c1zstore.LedgerReportOptions{Requested: c1zstore.LedgerRequestedOptions{OnlyExpandGrants: false}})
+	require.NoError(t, err)
+	require.NoError(t, second.SetFactValue(c1zstore.LedgerFactReportOptions, string(plain)))
+	require.NoError(t, second.Commit(t.Context(), grantsPageIdentity("group", ""), &c1zstore.LedgerRow{}))
+	require.NoError(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}))
+	report, err = e.GetArchivedLedgerReport(t.Context())
+	require.NoError(t, err)
+	require.Contains(t, string(report), `"preceding_collection"`, "a follow-on pass keeps its link even when the latest options say otherwise")
+}

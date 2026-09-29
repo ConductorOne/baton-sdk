@@ -68,14 +68,21 @@ func (u *pageUnit) stagePhaseLocked(batch *rawdb.RecordBatch, row *v3.LedgerRow)
 	if err != nil {
 		return err
 	}
-	if phase == c1zstore.LedgerQueueSealing {
-		return ErrLedgerQueueSealing
+	switch phase {
+	case c1zstore.LedgerQueueSealing:
+		return fmt.Errorf("%w: %s", ErrLedgerQueuePhase, phase)
+	case c1zstore.LedgerQueueExpanding:
+		// The terminal page is the one page Expanding accepts.
+		if !u.sealing {
+			return fmt.Errorf("%w: %s", ErrLedgerQueuePhase, phase)
+		}
+	case c1zstore.LedgerQueueAbsent, c1zstore.LedgerQueueCollecting:
 	}
 	if !u.sealing {
 		return nil
 	}
-	if phase != c1zstore.LedgerQueueCollecting {
-		return errors.New("terminal page requires a collecting pending-work declaration")
+	if phase == c1zstore.LedgerQueueAbsent {
+		return errors.New("terminal page requires a pending-work declaration")
 	}
 	if u.work != nil || row.GetNextPageToken() != "" || len(row.GetChildren()) != 0 {
 		return errors.New("terminal page must not carry work, a continuation or children")

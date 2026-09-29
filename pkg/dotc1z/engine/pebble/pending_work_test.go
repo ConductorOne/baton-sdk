@@ -193,7 +193,7 @@ func TestPendingWorkStaleCommitWritesNothing(t *testing.T) {
 func TestPendingWorkSealThenBeginPass(t *testing.T) {
 	e, _ := newTestEngine(t)
 	work := pendingTestSeed(t, e)
-	require.ErrorContains(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}), "still collecting", "the terminal page is refused while work is pending, so the seal is too")
+	require.ErrorContains(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}), "collecting, not sealing", "the terminal page is refused while work is pending, so the seal is too")
 	require.NoError(t, pendingTestCommit(t, e, work, ""))
 	syncID := e.CurrentSyncID()
 	require.NoError(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}))
