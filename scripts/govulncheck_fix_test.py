@@ -130,6 +130,8 @@ esac
         self.assertEqual(gets, [])
         self.assertEqual(json.loads((root / "gomod.json").read_text())["Go"], "1.27.3")
         self.assertIn("changed=true", (root / "outputs").read_text())
+        # A run that opens or refreshes the fix PR must not also close it.
+        self.assertIn("needed=true", (root / "outputs").read_text())
         self.assertIn("| `go` directive (standard library) | 1.27.1 | 1.27.3 |", (root / "summary").read_text())
 
     def test_stdlib_fix_already_covered_by_go_directive_is_reported_only(self):
@@ -178,6 +180,7 @@ esac
         gets = [line for line in (root / "go-calls").read_text().splitlines() if line.startswith("get ")]
         self.assertEqual(gets, ["get example.com/a@v1.3.0 example.com/b@v1.3.0"])
         self.assertIn("changed=true", (root / "outputs").read_text())
+        self.assertIn("needed=true", (root / "outputs").read_text())
 
     def test_highest_fix_uses_semver_order(self):
         for versions, expected in [
