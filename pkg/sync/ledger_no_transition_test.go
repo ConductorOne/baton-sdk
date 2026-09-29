@@ -39,7 +39,7 @@ func snapshotLedgerPass(t *testing.T, f *ledgerFixture, id string) ledgerPassSna
 
 // Interrupt a retained-mode sync at each lifecycle point. The images are the
 // durable states of CO-039 §1 as a real run reaches them.
-func ledgerInterruptedImage(t *testing.T, image string) (path, id string) {
+func ledgerInterruptedImage(t *testing.T, image string) (string, string) {
 	t.Helper()
 	ctx := t.Context()
 	source, _, _ := ledgerUnexpandedSource(t)
@@ -72,9 +72,8 @@ func ledgerInterruptedImage(t *testing.T, image string) (path, id string) {
 	} else {
 		require.ErrorIs(t, err, errLedgerInjectedPage)
 	}
-	id = s.syncID
 	require.NoError(t, f.store.Close(ctx))
-	return f.path, id
+	return f.path, s.syncID
 }
 
 // CO-039 §5: an attempt writes to the fact family only when it commits a
