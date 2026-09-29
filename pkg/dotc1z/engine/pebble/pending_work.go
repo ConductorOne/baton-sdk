@@ -387,7 +387,9 @@ type pendingWorkSeed struct {
 	phase c1zstore.LedgerQueuePhase
 }
 
-func (l *Ledger) BeginFromToken(ctx context.Context, runID, expectedToken string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork, phase c1zstore.LedgerQueuePhase) (string, error) {
+func (l *Ledger) BeginFromToken(
+	ctx context.Context, runID, expectedToken string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork, phase c1zstore.LedgerQueuePhase,
+) (string, error) {
 	if expectedToken == "" {
 		return "", errors.New("pending-work takeover requires a decoded checkpoint")
 	}
