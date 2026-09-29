@@ -8,34 +8,26 @@ import (
 )
 
 const ledgerTerminalOp = "sync-terminal-v1"
-const ledgerFactSealReady = "sync.seal_ready"
 
 func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.LedgerCounters, facts ...string) error {
 	pending, phase, err := r.store.PendingWork(ctx, 0, 1)
 	if err != nil {
 		return err
 	}
-	if len(pending) > 0 {
-		return errors.New("cannot prepare seal with pending work")
-	}
-	stored, err := r.store.LedgerFacts(ctx)
-	if err != nil {
-		return err
-	}
-	_, ready := stored[ledgerFactSealReady]
-	if phase == c1zstore.LedgerQueueAbsent {
-		_, discarding := stored[c1zstore.LedgerFactDiscardOnSeal]
-		if !discarding || !ready {
-			return errors.New("cannot prepare seal without pending-work declaration")
-		}
-	}
-	if ready {
+	switch phase {
+	case c1zstore.LedgerQueueAbsent:
+		return errors.New("cannot prepare seal without pending-work declaration")
+	case c1zstore.LedgerQueueSealing:
 		// The terminal page exists from a prior attempt. This attempt's own
 		// accounting (invariants, cleanup) still has to reach its bucket.
 		if runCounters.IsZero() {
 			return nil
 		}
 		return r.store.PutCounterBucket(ctx, r.runID, c1zstore.RunBucketWorker, runCounters)
+	case c1zstore.LedgerQueueCollecting:
+	}
+	if len(pending) > 0 {
+		return errors.New("cannot prepare seal with pending work")
 	}
 	page := r.store.BeginPage()
 	defer page.Discard()
@@ -43,9 +35,6 @@ func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.Le
 		if err := page.SetFact(fact); err != nil {
 			return err
 		}
-	}
-	if err := page.SetFact(ledgerFactSealReady); err != nil {
-		return err
 	}
 	if err := page.SetQueueSealing(); err != nil {
 		return err
@@ -58,12 +47,16 @@ func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.Le
 }
 
 func (r *ledgerRuntime) seal(ctx context.Context) error {
-	facts, err := r.store.LedgerFacts(ctx)
+	_, phase, err := r.store.PendingWork(ctx, 0, 1)
 	if err != nil {
 		return err
 	}
-	if _, ready := facts[ledgerFactSealReady]; !ready {
+	if phase != c1zstore.LedgerQueueSealing {
 		return errors.New("ledger seal requires terminal page")
+	}
+	facts, err := r.store.LedgerFacts(ctx)
+	if err != nil {
+		return err
 	}
 	counters, err := r.store.LedgerCounters(ctx)
 	if err != nil {

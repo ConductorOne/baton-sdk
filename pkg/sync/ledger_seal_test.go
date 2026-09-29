@@ -44,9 +44,7 @@ func TestLedgerTerminalPageAndSealStats(t *testing.T) {
 		require.NoError(t, err)
 		runCounters := c1zstore.LedgerCounters{StepDurationsMs: map[string]int64{"collection": 27}, SessionCalls: map[string]c1zstore.CallStat{"get": {Count: 2}}}
 		require.NoError(t, runtime.prepareSeal(t.Context(), runCounters))
-		facts, err := f.ledger.LedgerFacts(t.Context())
-		require.NoError(t, err)
-		require.Contains(t, facts, ledgerFactSealReady)
+		require.Equal(t, c1zstore.LedgerQueueSealing, ledgerPhase(t, f.ledger))
 		row, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: ledgerTerminalOp})
 		require.NoError(t, err)
 		require.True(t, found)
@@ -90,7 +88,7 @@ func TestLedgerSealReadyBypassesScrubbedFrontier(t *testing.T) {
 	source := ledgerFrontierReadOverride{PageLedgerStore: f.ledger, frontier: &c1zstore.LedgerFrontier{}, found: true}
 	resume, err := loadTestLedgerResume(t.Context(), f.store, source, "resumed")
 	require.NoError(t, err)
-	require.True(t, resume.sealReady)
+	require.Equal(t, c1zstore.LedgerQueueSealing, resume.phase)
 	require.Empty(t, resume.actions)
 	pending, _, err := f.ledger.PendingWork(t.Context(), 0, 64)
 	f.audit.enter(ledgerLifecycle)

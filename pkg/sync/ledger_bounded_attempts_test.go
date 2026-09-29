@@ -55,14 +55,14 @@ func TestLedgerAttemptMetadataBoundedAcrossResumes(t *testing.T) {
 	require.NoError(t, f.store.Close(t.Context()))
 	f = openLedgerFixtureAt(t, f.path, false)
 	for _, attempt := range []string{"attempt-0", "attempt-127", ""} {
-		options, err := f.ledger.GetArchivedLedgerOptions(t.Context(), attempt)
+		options, err := f.engine.GetArchivedLedgerOptions(t.Context(), attempt)
 		require.NoError(t, err)
 		require.NotNil(t, options)
 		if attempt != "" {
 			require.Equal(t, attempt, options.Attempt)
 		}
 	}
-	options, err := f.ledger.GetArchivedLedgerOptions(t.Context(), "attempt-64")
+	options, err := f.engine.GetArchivedLedgerOptions(t.Context(), "attempt-64")
 	require.NoError(t, err)
 	require.Nil(t, options)
 	report, err := f.ledger.GetArchivedLedgerReport(t.Context())

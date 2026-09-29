@@ -93,7 +93,7 @@ func TestLedgerExpansionRequestAcrossSealFailure(t *testing.T) {
 			graph, err := GraphFromStore(ctx, f.store, id)
 			require.NoError(t, err)
 			require.NotNil(t, graph)
-			opts, err := f.ledger.GetArchivedLedgerOptions(ctx, "")
+			opts, err := f.engine.GetArchivedLedgerOptions(ctx, "")
 			require.NoError(t, err)
 			require.NotNil(t, opts)
 			require.True(t, opts.Requested.OnlyExpandGrants)

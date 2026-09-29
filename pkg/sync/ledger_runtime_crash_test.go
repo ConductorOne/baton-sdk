@@ -133,8 +133,10 @@ func TestLedgerRuntimeCrashProcess(t *testing.T) {
 			}
 			terminal, terminalFound, err := recovered.Ledger().GetRow(t.Context(), c1zstore.LedgerActionIdentity{Op: ledgerTerminalOp})
 			require.NoError(t, err)
-			_, ready := facts[ledgerFactSealReady]
-			require.Equal(t, terminalFound, ready)
+			_, phase, err := recovered.Ledger().PendingWork(t.Context(), 0, 1)
+			require.NoError(t, err)
+			require.Equal(t, terminalFound && cut != "sealed", phase == c1zstore.LedgerQueueSealing, "the terminal page moves the declaration to sealing; the seal removes it")
+			require.Equal(t, cut == "sealed", phase == c1zstore.LedgerQueueAbsent)
 			require.Equal(t, terminalFound, counters.StepDurationsMs["run"] == 17)
 			if terminalFound {
 				require.True(t, found)

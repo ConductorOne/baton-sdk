@@ -381,6 +381,23 @@ at 111af384 with the connector's recollection refusal and passes here.
 an absent declaration, the `seal_ready` fact and the other syncer removals
 stay in commit 4.
 
+Commit 4 landed the rest of the syncer: `ledgerResume.phase` replaces
+`initialized`/`sealReady`; `preparation` is the switch on phase; the
+`sync.seal_ready` fact is gone (the phase is the answer); `prepareSeal`
+returns early on `sealing`; `restoreLedgerState` and `refreshPendingWindow`
+require a declaration with no fact exception; `prepareLedgerState` reads no
+facts before classifying. Test (a) is covered by composition rather than a
+new syncer test: the classifier's `sealing → FinishSeal` is pinned by
+`TestLedgerPreparedSealSurvivesEarlyEnd` and
+`TestLedgerSealReadyUnfinishedDoesNotStartAnotherPass` on the
+terminal-committed image, and the engine's behavior on the mid-seal image
+(rows gone, stamp not landed) by `TestLedgerDiscardDurableSealCuts`; the two
+images differ only in the rows, which the syncer does not read. Constructing
+the mid-seal image from `pkg/sync` would need an exported seal hook, which
+was not added. The interface trim (`GenerateLedgerReport`,
+`GetArchivedLedgerOptions` off `PageLedgerStore`; both remain `Engine`
+methods for tests and the archive) rides this commit.
+
 Commit sequence, each building and passing alone: (1) phase byte, terminal
 transition and phase-returning reads, engine tests; (2) single stamp batch and
 removal of the post-stamp block, engine crash cuts and (c); (3) `BeginPass`,

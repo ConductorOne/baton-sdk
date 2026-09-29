@@ -291,12 +291,15 @@ func newTestLedgerRuntime(_ context.Context, store c1zstore.PageLedgerStore, run
 	return newLedgerRuntime(store, runID, testLedgerWorkerSlots)
 }
 
+func ledgerPhase(t *testing.T, ledger c1zstore.PageLedgerStore) c1zstore.LedgerQueuePhase {
+	t.Helper()
+	_, phase, err := ledger.PendingWork(t.Context(), 0, 1)
+	require.NoError(t, err)
+	return phase
+}
+
 func loadTestLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore.PageLedgerStore, runID string) (ledgerResume, error) {
-	facts, err := ledger.LedgerFacts(ctx)
-	if err != nil {
-		return ledgerResume{}, err
-	}
-	return loadLedgerResume(ctx, store, ledger, runID, facts)
+	return loadLedgerResume(ctx, store, ledger, runID)
 }
 
 func (s *ledgerGuardedStore) FoldLedgerCounters(ctx context.Context, runID string) error {

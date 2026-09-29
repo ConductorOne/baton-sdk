@@ -26,7 +26,7 @@ func TestLedgerTakeoverLegacyFixtures(t *testing.T) {
 			require.NoError(t, f.store.CheckpointSync(t.Context(), state))
 			got, err := loadTestLedgerResume(t.Context(), f.store, f.ledger, "takeover-attempt")
 			require.NoError(t, err)
-			require.True(t, got.initialized)
+			require.NotEqual(t, c1zstore.LedgerQueueAbsent, got.phase)
 			assertPendingCheckpointActions(t, f.ledger, expected.actions)
 			token, err := f.store.CurrentSyncStep(t.Context())
 			require.NoError(t, err)
@@ -48,7 +48,7 @@ func TestLedgerTakeoverLegacyFixtures(t *testing.T) {
 			for i := 0; i < 3; i++ {
 				resumed, err := loadTestLedgerResume(t.Context(), f.store, f.ledger, "new-attempt")
 				require.NoError(t, err)
-				require.True(t, resumed.initialized)
+				require.NotEqual(t, c1zstore.LedgerQueueAbsent, resumed.phase)
 				assertPendingCheckpointActions(t, f.ledger, expected.actions)
 			}
 			f.audit.enter(ledgerLifecycle)
@@ -176,7 +176,7 @@ func TestLedgerTakeoverV0CursorAndParentIdentity(t *testing.T) {
 	require.NoError(t, f.store.CheckpointSync(t.Context(), string(data)))
 	resume, err := loadTestLedgerResume(t.Context(), f.store, f.ledger, "attempt")
 	require.NoError(t, err)
-	require.True(t, resume.initialized)
+	require.NotEqual(t, c1zstore.LedgerQueueAbsent, resume.phase)
 	assertPendingCheckpointActions(t, f.ledger, []ledgerAction{
 		{identity: c1zstore.LedgerActionIdentity{Op: "list-resource-types"}},
 		{identity: c1zstore.LedgerActionIdentity{Op: "list-resources", ResourceTypeID: "group", PageToken: "p2"}},

@@ -16,25 +16,20 @@ const (
 	ledgerProcessFinished
 )
 
+// The declaration's phase is the pass's state; ended_at is read only when
+// there is no declaration.
 func (r ledgerResume) preparation(finished bool) ledgerPreparation {
-	switch {
-	case r.initialized:
-		// A declaration means a pass is open; ended_at says nothing about it.
-		// Drained work seals; pending work continues.
-		if r.sealReady {
-			return ledgerFinishSeal
-		}
-		return ledgerContinuePending
-	case finished:
-		// No declaration on a finished sync: whatever a legacy state decoded
-		// to, the pass it described is over. The next pass starts from the
-		// archive.
-		return ledgerProcessFinished
-	case r.sealReady:
+	switch r.phase {
+	case c1zstore.LedgerQueueSealing:
 		return ledgerFinishSeal
-	default:
-		return ledgerSeedPending
+	case c1zstore.LedgerQueueCollecting:
+		return ledgerContinuePending
+	case c1zstore.LedgerQueueAbsent:
 	}
+	if finished {
+		return ledgerProcessFinished
+	}
+	return ledgerSeedPending
 }
 
 func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync bool) error {
@@ -46,13 +41,7 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 	if err != nil {
 		return err
 	}
-	facts, err := ledger.LedgerFacts(ctx)
-	if err != nil {
-		return err
-	}
-	_, discardPending := facts[c1zstore.LedgerFactDiscardOnSeal]
-	finished = finished && !discardPending
-	resume, err := loadLedgerResume(ctx, s.store, ledger, runID, facts)
+	resume, err := loadLedgerResume(ctx, s.store, ledger, runID)
 	if err != nil {
 		return err
 	}
@@ -60,14 +49,14 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 	switch resume.preparation(finished) {
 	case ledgerProcessFinished:
 		seeds := pendingSeeds([]ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}})
-		if err := ledger.BeginPass(ctx, seeds, []string{ledgerFactSealReady, c1zstore.LedgerFactDiscardOnSeal, c1zstore.LedgerFactRetainTokens}); err != nil {
+		if err := ledger.BeginPass(ctx, seeds, []string{c1zstore.LedgerFactDiscardOnSeal, c1zstore.LedgerFactRetainTokens}); err != nil {
 			return err
 		}
 	case ledgerSeedPending:
 		if len(resume.actions) == 0 {
 			resume.actions = []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}
 		}
-		if !knownEmpty && !finished && !discardPending {
+		if !knownEmpty {
 			knownEmpty, err = ledger.BoundSyncUnstarted(ctx)
 			if err != nil {
 				return err

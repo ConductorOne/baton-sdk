@@ -31,7 +31,7 @@ func TestPebbleStoreGenerateLedgerReport(t *testing.T) {
 		&c1zstore.LedgerRow{ObservationsRecorded: true, ConnectorAttempts: 3, ConnectorErrors: 2,
 			Collection: &c1zstore.LedgerCollectionStats{ListResponses: 1, GrantsReceived: 2, GrantsExcludedByType: 1}}))
 	commitTerminalPage(t, ctx, ledger)
-	before, err := ledger.GenerateLedgerReport(c1zstore.WithOpenPage(ctx))
+	before, err := store.(*pebbleStore).GenerateLedgerReport(c1zstore.WithOpenPage(ctx))
 	require.NoError(t, err)
 	var payload map[string]any
 	require.NoError(t, json.Unmarshal(before, &payload))
@@ -49,7 +49,7 @@ func TestPebbleStoreGenerateLedgerReport(t *testing.T) {
 	reopened.(c1zstore.WriteHookStore).SetWriteHook(func(_ context.Context, _ c1zstore.WriteHookEvent) error {
 		return errors.New("report attempted a write")
 	})
-	after, err := reopened.(c1zstore.PageLedgerStore).GenerateLedgerReport(c1zstore.WithOpenPage(ctx))
+	after, err := reopened.(*pebbleStore).GenerateLedgerReport(c1zstore.WithOpenPage(ctx))
 	require.NoError(t, err)
 	var sealedPayload map[string]any
 	require.NoError(t, json.Unmarshal(after, &sealedPayload))
@@ -99,7 +99,7 @@ func TestPebbleStoreArchivedReportSurvivesDropAndReopen(t *testing.T) {
 	saved, err := ledger.GetArchivedLedgerReport(ctx)
 	require.NoError(t, err)
 	require.JSONEq(t, string(report), string(saved))
-	savedOptions, err := ledger.GetArchivedLedgerOptions(ctx, "")
+	savedOptions, err := store.(*pebbleStore).GetArchivedLedgerOptions(ctx, "")
 	require.NoError(t, err)
 	require.True(t, savedOptions.Requested.SkipGrants)
 	facts, err := ledger.LedgerFacts(ctx)

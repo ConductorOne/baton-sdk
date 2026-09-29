@@ -40,7 +40,7 @@ func (s *syncer) refreshPendingWindow(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if phase == c1zstore.LedgerQueueAbsent && !s.run.hasFact(ledgerFactSealReady) {
+	if phase == c1zstore.LedgerQueueAbsent {
 		return errors.New("pending work is not initialized")
 	}
 	actions := make([]Action, 0, len(work))

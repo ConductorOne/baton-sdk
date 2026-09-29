@@ -30,11 +30,7 @@ func (s *syncer) restoreLedgerState(ctx context.Context, store c1zstore.PageLedg
 		return err
 	}
 	if phase == c1zstore.LedgerQueueAbsent {
-		_, ready := facts[ledgerFactSealReady]
-		_, discarding := facts[c1zstore.LedgerFactDiscardOnSeal]
-		if !ready || !discarding {
-			return errors.New("pending work is not initialized")
-		}
+		return errors.New("pending work is not initialized")
 	}
 	run := newRunState()
 	for i := len(work) - 1; i >= 0; i-- {

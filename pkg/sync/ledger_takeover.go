@@ -25,13 +25,12 @@ type ledgerAction struct {
 }
 
 type ledgerResume struct {
-	initialized    bool
+	phase          c1zstore.LedgerQueuePhase
 	hasPendingWork bool
 	actions        []ledgerAction
-	sealReady      bool
 }
 
-func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore.PageLedgerStore, runID string, facts map[string]string) (ledgerResume, error) {
+func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore.PageLedgerStore, runID string) (ledgerResume, error) {
 	if runID == "" {
 		return ledgerResume{}, errors.New("ledger takeover requires an attempt id")
 	}
@@ -43,21 +42,14 @@ func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore
 	if err != nil {
 		return ledgerResume{}, fmt.Errorf("read legacy checkpoint: %w", err)
 	}
-	_, ready := facts[ledgerFactSealReady]
 	if phase != c1zstore.LedgerQueueAbsent {
 		if state != "" {
 			return ledgerResume{}, errors.New("legacy checkpoint conflicts with pending work")
 		}
-		if ready && len(pending) != 0 {
-			return ledgerResume{}, errors.New("seal-ready ledger has pending work")
+		if phase == c1zstore.LedgerQueueSealing && len(pending) != 0 {
+			return ledgerResume{}, errors.New("sealing declaration has pending work")
 		}
-		return ledgerResume{initialized: true, hasPendingWork: len(pending) != 0, sealReady: ready}, nil
-	}
-	if ready {
-		if state != "" {
-			return ledgerResume{}, errors.New("legacy checkpoint conflicts with seal-ready ledger")
-		}
-		return ledgerResume{sealReady: true}, nil
+		return ledgerResume{phase: phase, hasPendingWork: len(pending) != 0}, nil
 	}
 	frontier, found, err := ledger.LedgerFrontier(ctx)
 	if err != nil {
@@ -104,7 +96,7 @@ func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore
 	if phase == c1zstore.LedgerQueueAbsent {
 		return ledgerResume{}, errors.New("takeover returned without pending work state")
 	}
-	return ledgerResume{initialized: true, hasPendingWork: len(pending) != 0}, nil
+	return ledgerResume{phase: phase, hasPendingWork: len(pending) != 0}, nil
 }
 
 func decodeLedgerCheckpoint(state string) (ledgerResume, []string, c1zstore.LedgerCounters, error) {

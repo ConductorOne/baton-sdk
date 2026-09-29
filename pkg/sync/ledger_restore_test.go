@@ -290,6 +290,6 @@ func TestLedgerStartupLoadsCountersOnce(t *testing.T) {
 	f.audit.enter(ledgerLifecycle)
 	require.NoError(t, err)
 	require.Equal(t, 1, counted.reads)
-	require.Equal(t, 2, counted.factReads)
+	require.Equal(t, 1, counted.factReads, "classification reads the declaration, not the facts")
 	require.True(t, s.run.hasFact(ledgerFactIngestKnown))
 }

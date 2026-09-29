@@ -243,12 +243,9 @@ type PageLedgerStore interface {
 	// Consumes the matching checkpoint and seeds pending work in the same batch.
 	TakeoverPendingWork(ctx context.Context, runID, expectedToken string, facts []string, counters LedgerCounters, work []LedgerWork) (string, error)
 
-	GenerateLedgerReport(ctx context.Context) ([]byte, error)
 	// Saves retained history or returns the report already archived during disposal.
 	ArchiveLedgerReport(ctx context.Context) ([]byte, error)
 	GetArchivedLedgerReport(ctx context.Context) ([]byte, error)
-	// Empty attempt selects latest; only the first and latest snapshots are retained.
-	GetArchivedLedgerOptions(ctx context.Context, attempt string) (*LedgerReportOptions, error)
 	BeginPage() PageWriter
 	// Diagnostic lookup by request arguments; multiple work instances may match.
 	// PendingWork is the recovery authority.
