@@ -85,7 +85,7 @@ func buildLedgerState(t *testing.T, e *Engine, state ledgerState) (string, c1zst
 	if state == stateUnstarted {
 		return syncID, c1zstore.LedgerWork{}
 	}
-	require.NoError(t, e.Ledger().InitializePendingWork(ctx, []c1zstore.LedgerWork{expansionSeed()}))
+	require.NoError(t, e.Ledger().BeginCollecting(ctx, []c1zstore.LedgerWork{expansionSeed()}))
 	pending, _, err := e.Ledger().PendingWork(ctx, 0, 1)
 	require.NoError(t, err)
 	entry := pending[0]
@@ -136,7 +136,7 @@ func fireLedgerEvent(t *testing.T, e *Engine, event ledgerEvent, entry c1zstore.
 	ctx := t.Context()
 	switch event {
 	case eventSeed:
-		return e.Ledger().InitializePendingWork(ctx, []c1zstore.LedgerWork{expansionSeed()})
+		return e.Ledger().BeginCollecting(ctx, []c1zstore.LedgerWork{expansionSeed()})
 	case eventPage:
 		writer := e.Ledger().BeginPage()
 		defer writer.Discard()
@@ -149,7 +149,7 @@ func fireLedgerEvent(t *testing.T, e *Engine, event ledgerEvent, entry c1zstore.
 	case eventTerminal:
 		writer := e.Ledger().BeginPage()
 		defer writer.Discard()
-		require.NoError(t, writer.SetQueueSealing())
+		require.NoError(t, writer.SetTerminal())
 		return writer.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "sync-terminal-v1"}, &c1zstore.LedgerRow{})
 	case eventStamp:
 		return e.EndSyncWithStats(ctx, c1zstore.SyncStats{})

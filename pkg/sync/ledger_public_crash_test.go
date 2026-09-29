@@ -26,11 +26,11 @@ type ledgerPublicCrashStore struct {
 	cut func(string)
 }
 
-func (s ledgerPublicCrashStore) TakeoverPendingWork(
+func (s ledgerPublicCrashStore) BeginCollectingFromToken(
 	ctx context.Context, runID, expected string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork,
 ) (string, error) {
 	s.cut("takeover-before")
-	token, err := s.PageLedgerStore.TakeoverPendingWork(ctx, runID, expected, facts, counters, work)
+	token, err := s.PageLedgerStore.BeginCollectingFromToken(ctx, runID, expected, facts, counters, work)
 	if err == nil {
 		s.cut("takeover-after")
 	}
@@ -65,8 +65,8 @@ func seedLedgerPublicLegacy(t *testing.T, f *ledgerFixture, c *ledgerPublicCrash
 func (s ledgerPublicCrashStore) BeginPage() c1zstore.PageWriter {
 	return ledgerPublicCrashWriter{PageWriter: s.PageLedgerStore.BeginPage(), cut: s.cut}
 }
-func (s ledgerPublicCrashStore) EndSyncWithStats(ctx context.Context, stats c1zstore.SyncStats) error {
-	if err := s.PageLedgerStore.EndSyncWithStats(ctx, stats); err != nil {
+func (s ledgerPublicCrashStore) Seal(ctx context.Context, stats c1zstore.SyncStats) error {
+	if err := s.PageLedgerStore.Seal(ctx, stats); err != nil {
 		return err
 	}
 	s.cut("sealed")
@@ -216,7 +216,7 @@ func TestLedgerPublicCrashResume(t *testing.T) {
 						require.NoError(t, f.store.SetCurrentSync(t.Context(), marker.SyncID))
 						connector := newLedgerPublicCrashConnector()
 						connector.committed = make(map[c1zstore.LedgerActionIdentity]bool)
-						connector.finished, err = f.ledger.BoundSyncFinished(t.Context())
+						connector.finished, err = f.engine.BoundSyncFinished(t.Context())
 						require.NoError(t, err)
 						if version < 0 && image == "flushed" && !connector.finished {
 							_, initFound, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: InitOp.String()})
@@ -305,7 +305,7 @@ func TestLedgerPublicCrashResume(t *testing.T) {
 						token, err := f.store.CurrentSyncStep(t.Context())
 						require.NoError(t, err)
 						require.Empty(t, token)
-						finished, err := f.ledger.BoundSyncFinished(t.Context())
+						finished, err := f.engine.BoundSyncFinished(t.Context())
 						require.NoError(t, err)
 						require.True(t, finished)
 						response, err := f.store.ListResources(t.Context(), &v2.ResourcesServiceListResourcesRequest{})

@@ -60,18 +60,11 @@ func (s *ledgerGuardedStore) DropLedger(ctx context.Context) error {
 	return s.PageLedgerStore.DropLedger(ctx)
 }
 
-func (s *ledgerGuardedStore) EndSyncWithStats(ctx context.Context, stats c1zstore.SyncStats) error {
-	if err := s.audit.record(ctx, "EndSyncWithStats"); err != nil {
+func (s *ledgerGuardedStore) Seal(ctx context.Context, stats c1zstore.SyncStats) error {
+	if err := s.audit.record(ctx, "Seal"); err != nil {
 		return err
 	}
-	return s.PageLedgerStore.EndSyncWithStats(ctx, stats)
-}
-
-func (s *ledgerGuardedStore) TakeoverToken(ctx context.Context, run string, facts []string, counters c1zstore.LedgerCounters) (string, error) {
-	if err := s.audit.record(ctx, "TakeoverToken"); err != nil {
-		return "", err
-	}
-	return s.PageLedgerStore.TakeoverToken(ctx, run, facts, counters)
+	return s.PageLedgerStore.Seal(ctx, stats)
 }
 
 func (s *ledgerGuardedStore) PutCounterBucket(ctx context.Context, run string, worker uint32, counters c1zstore.LedgerCounters) error {
@@ -346,20 +339,20 @@ func (s *ledgerGuardedStore) BeginPass(ctx context.Context, seeds []c1zstore.Led
 	return s.PageLedgerStore.BeginPass(ctx, seeds, clearFacts)
 }
 
-func (s *ledgerGuardedStore) InitializePendingWork(ctx context.Context, work []c1zstore.LedgerWork, facts ...string) error {
-	if err := s.audit.record(ctx, "InitializePendingWork"); err != nil {
+func (s *ledgerGuardedStore) BeginCollecting(ctx context.Context, work []c1zstore.LedgerWork, facts ...string) error {
+	if err := s.audit.record(ctx, "BeginCollecting"); err != nil {
 		return err
 	}
-	return s.PageLedgerStore.InitializePendingWork(ctx, work, facts...)
+	return s.PageLedgerStore.BeginCollecting(ctx, work, facts...)
 }
 
-func (s *ledgerGuardedStore) TakeoverPendingWork(
+func (s *ledgerGuardedStore) BeginCollectingFromToken(
 	ctx context.Context, runID, token string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork,
 ) (string, error) {
-	if err := s.audit.record(ctx, "TakeoverPendingWork"); err != nil {
+	if err := s.audit.record(ctx, "BeginCollectingFromToken"); err != nil {
 		return "", err
 	}
-	return s.PageLedgerStore.TakeoverPendingWork(ctx, runID, token, facts, counters, work)
+	return s.PageLedgerStore.BeginCollectingFromToken(ctx, runID, token, facts, counters, work)
 }
 
 func (s *ledgerGuardedStore) CompletePendingWork(ctx context.Context, work c1zstore.LedgerWork, runID string, counters c1zstore.LedgerCounters) error {

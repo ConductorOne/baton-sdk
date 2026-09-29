@@ -82,7 +82,7 @@ func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore
 	if !prior.IsZero() {
 		counters = c1zstore.LedgerCounters{}
 	}
-	moved, err := ledger.TakeoverPendingWork(ctx, runID, state, importedFacts, counters, pendingSeeds(resume.actions))
+	moved, err := ledger.BeginCollectingFromToken(ctx, runID, state, importedFacts, counters, pendingSeeds(resume.actions))
 	if err != nil {
 		return ledgerResume{}, fmt.Errorf("take over legacy checkpoint: %w", err)
 	}

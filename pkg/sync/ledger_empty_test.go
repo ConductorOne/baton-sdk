@@ -44,7 +44,7 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 					facts = append(facts, ledgerFactIngestBlocked)
 					require.NoError(t, f.ledger.PutCounterBucket(ctx, "prior", 0, c1zstore.LedgerCounters{Flags: ingestQualityReasonGrantDropped}))
 				}
-				require.NoError(t, f.ledger.InitializePendingWork(ctx, pendingSeeds([]ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}), facts...))
+				require.NoError(t, f.ledger.BeginCollecting(ctx, pendingSeeds([]ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}), facts...))
 			case "counter-only", "counter-flags":
 				prior := c1zstore.LedgerCounters{Counters: map[string]uint64{"ingest.grants_dropped": 3}}
 				if kind == "counter-flags" {
@@ -59,7 +59,7 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 					facts = append(facts, ledgerFactIngestKnown)
 					prior = c1zstore.LedgerCounters{Counters: map[string]uint64{"ingest.grants_dropped": 3}, Flags: ingestQualityReasonGrantDropped}
 				}
-				_, err := f.ledger.TakeoverToken(ctx, "prior", facts, prior)
+				_, err := f.engine.Ledger().Takeover(ctx, "prior", facts, prior)
 				require.NoError(t, err)
 			case "finished":
 				require.NoError(t, f.store.EndSync(ctx))

@@ -77,7 +77,7 @@ func stagePendingWork(batch *rawdb.RecordBatch, work c1zstore.LedgerWork) error 
 	return batch.StagePendingWork(pendingWorkKey(work.ID), data)
 }
 
-func (l *Ledger) InitializePendingWork(ctx context.Context, actions []c1zstore.LedgerWork, facts ...string) error {
+func (l *Ledger) BeginCollecting(ctx context.Context, actions []c1zstore.LedgerWork, facts ...string) error {
 	return l.e.withWrite(func() error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -386,7 +386,7 @@ type pendingWorkSeed struct {
 	work  []c1zstore.LedgerWork
 }
 
-func (l *Ledger) TakeoverPendingWork(ctx context.Context, runID, expectedToken string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork) (string, error) {
+func (l *Ledger) BeginCollectingFromToken(ctx context.Context, runID, expectedToken string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork) (string, error) {
 	if expectedToken == "" {
 		return "", errors.New("pending-work takeover requires a decoded checkpoint")
 	}

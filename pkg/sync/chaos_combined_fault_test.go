@@ -355,6 +355,12 @@ func (s *chaosPebbleStore) DropLedger(ctx context.Context) error { return s.Ledg
 func (s *chaosPebbleStore) BeginExpanding(ctx context.Context) error {
 	return s.Ledger().BeginExpanding(ctx)
 }
+func (s *chaosPebbleStore) Seal(ctx context.Context, stats c1zstore.SyncStats) error {
+	return s.EndSyncWithStats(ctx, stats)
+}
+func (s *chaosPebbleStore) State(ctx context.Context) (c1zstore.LedgerState, error) {
+	return s.LedgerState(ctx)
+}
 func (s *chaosPebbleStore) BeginPass(ctx context.Context, seeds []c1zstore.LedgerWork, facts []string) error {
 	return s.Ledger().BeginPass(ctx, seeds, facts)
 }
@@ -367,13 +373,13 @@ func (s *chaosPebbleStore) PendingWork(ctx context.Context, before uint64, limit
 func (s *chaosPebbleStore) PendingWorkAfter(ctx context.Context, after uint64, limit int) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {
 	return s.Ledger().PendingWorkAfter(ctx, after, limit)
 }
-func (s *chaosPebbleStore) InitializePendingWork(ctx context.Context, work []c1zstore.LedgerWork, facts ...string) error {
-	return s.Ledger().InitializePendingWork(ctx, work, facts...)
+func (s *chaosPebbleStore) BeginCollecting(ctx context.Context, work []c1zstore.LedgerWork, facts ...string) error {
+	return s.Ledger().BeginCollecting(ctx, work, facts...)
 }
-func (s *chaosPebbleStore) TakeoverPendingWork(
+func (s *chaosPebbleStore) BeginCollectingFromToken(
 	ctx context.Context, run, token string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork,
 ) (string, error) {
-	return s.Ledger().TakeoverPendingWork(ctx, run, token, facts, counters, work)
+	return s.Ledger().BeginCollectingFromToken(ctx, run, token, facts, counters, work)
 }
 func (s *chaosPebbleStore) CompletePendingWork(ctx context.Context, work c1zstore.LedgerWork, run string, counters c1zstore.LedgerCounters) error {
 	return s.Ledger().CompletePendingWork(ctx, work, run, counters)

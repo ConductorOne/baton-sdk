@@ -212,7 +212,7 @@ discard, X drop (`Ledger.Drop`), C clear (`ClearLedgerRows` → `BeginPass`).
 | State | Keyspace | Question | Writer | Readers | Prior answer | Surfaces |
 |---|---|---|---|---|---|---|
 | pending-work entries | ledger 0x04 | what work remains, in what order | page commit, seed, takeover, `CompletePendingWork` | `PendingWork*`, seal precheck | legacy token stack (consumed at takeover) | R F S D X C |
-| work declaration `{version 2, lastID, phase}` | ledger 0x05 | is a pass open; collecting or sealing | seed, takeover, `BeginPass`, page commit (children), terminal page (`SetQueueSealing`); deleted by the stamp batch | resume selection, seal precondition, late-page refusal | none | R F S D X C |
+| work declaration `{version 2, lastID, phase}` | ledger 0x05 | is a pass open; collecting or sealing | seed, takeover, `BeginPass`, page commit (children), terminal page (`SetTerminal`); deleted by the stamp batch | resume selection, seal precondition, late-page refusal | none | R F S D X C |
 | scheduling relations | ledger 0x06 | was this child already scheduled | page commit, seed | `stageWorkTransition`, invariant I4 | in-memory `childScheduleSet` (token path) | R F S D X C |
 | completed rows (work-ID keyed) | ledger 0x00 | diagnostic history | page commit | report, `GetLedgerRow` | none | R F S D X C |
 | `c1z.discard_ledger_on_seal` fact | ledger 0x01 | disposal policy | terminal page | finalize | none (the progress-marker role is gone with the post-stamp batch) | R F D X C |
@@ -268,7 +268,7 @@ never repeats it. `syncLedger` calls
 `expanding`; `prepareLedgerState` returns the phase so `syncLedger` does not
 read the store twice. The `finishPreviousRequest` gate stays as it is.
 Flag policy (plan §7): `prepareLedgerState` refuses before `BeginPass`,
-`InitializePendingWork` or the options write when `onlyExpandGrants` meets
+`BeginCollecting` or the options write when `onlyExpandGrants` meets
 `collecting` with a collection entry queued (after any token takeover; read
 through `PendingWork`: any op other than `Init` or `SyncGrantExpansionOp`),
 or `collecting` on an unfinished sync with the `Init` seed queued, or meets
@@ -342,7 +342,7 @@ in the same commit.
 Storage. The work-state value gains a phase byte: `{version 2, lastID, phase}`,
 phase ∈ {collecting, sealing}. Version-1 values are rejected as invalid; no
 released file carries one. `PendingWork`/`PendingWorkAfter` return
-`LedgerQueuePhase` ∈ {absent, collecting, sealing}. `PageWriter.SetQueueSealing`
+`LedgerQueuePhase` ∈ {absent, collecting, sealing}. `PageWriter.SetTerminal`
 stages the terminal transition; `pageUnit.Commit` validates it under `writeMu`
 before staging anything: phase is `collecting`, the pending range is empty, the
 row has no continuation and no children. The terminal page carries the run
@@ -381,7 +381,7 @@ counter bucket (a retained-mode seal keeps its counters in the family and the
 archive holds the same totals; importing both would count the prior pass
 twice), deletes rows, scheduling relations and the frontier, stages the seeds
 and the declaration at phase `collecting`. A missing archive restores nothing.
-`InitializePendingWork` keeps its role for never-started syncs and refuses when
+`BeginCollecting` keeps its role for never-started syncs and refuses when
 `ended_at` is set. `takeover` is unchanged and runs before `BeginPass` is
 considered: a finished legacy file with a token is taken over, not begun.
 
@@ -401,7 +401,7 @@ heuristics and the restore call. `loadLedgerResume` takes over a token only when
 the declaration is absent and errors when one is present. `restoreLedgerState`,
 `refreshPendingWindow` and `prepareSealWithOptions` require a non-absent phase and
 drop their `seal_ready`/`discard` special cases; `prepareSealWithOptions` calls
-`SetQueueSealing` on the terminal page and returns early when the phase is already
+`SetTerminal` on the terminal page and returns early when the phase is already
 `sealing`. `seal` requires phase `sealing`. `finishPreviousRequest` is unchanged
 in effect: it seals the drained pass, rebinds, and the recursive call finds
 absent + `ended_at` and begins the requested pass. `c1z.discard_ledger_on_seal`
@@ -438,7 +438,7 @@ a declaration on a finished sync must continue or seal, never begin a pass
 (the `finished && !hasPendingWork → ProcessFinished` branch is gone). The
 second is defect 2; `TestLedgerDrainedPassSealsWithoutRecollection` fails
 at 111af384 with the connector's recollection refusal and passes here.
-`InitializePendingWork` now refuses a finished sync. `ledgerFinishSeal` for
+`BeginCollecting` now refuses a finished sync. `ledgerFinishSeal` for
 an absent declaration, the `seal_ready` fact and the other syncer removals
 stay in commit 4.
 

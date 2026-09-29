@@ -16,7 +16,7 @@ func phaseTestTerminal(t *testing.T, e *Engine, row *c1zstore.LedgerRow) error {
 	t.Helper()
 	writer := e.Ledger().BeginPage()
 	defer writer.Discard()
-	require.NoError(t, writer.SetQueueSealing())
+	require.NoError(t, writer.SetTerminal())
 	require.NoError(t, writer.SetFact("terminal"))
 	require.NoError(t, writer.SetCounterBucket("attempt", c1zstore.RunBucketWorker, c1zstore.LedgerCounters{Counters: map[string]uint64{"run": 1}}))
 	if row == nil {
@@ -60,7 +60,7 @@ func TestLedgerTerminalTransitionRefusesUntilDrained(t *testing.T) {
 		require.Equal(t, c1zstore.LedgerQueueCollecting, phaseOf(t, e))
 	}
 	writer := e.Ledger().BeginPage()
-	require.NoError(t, writer.SetQueueSealing())
+	require.NoError(t, writer.SetTerminal())
 	require.NoError(t, writer.SetPendingWork(work))
 	require.ErrorContains(t, writer.Commit(t.Context(), work.Action.Identity, &c1zstore.LedgerRow{}), "must not carry")
 	writer.Discard()

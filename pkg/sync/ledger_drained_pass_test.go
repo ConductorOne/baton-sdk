@@ -47,7 +47,7 @@ func TestLedgerDrainedPassSealsWithoutRecollection(t *testing.T) {
 			_, phase, err = f.ledger.PendingWork(ctx, 0, 1)
 			require.NoError(t, err)
 			require.Equal(t, c1zstore.LedgerQueueAbsent, phase, "sealed")
-			finished, err := f.ledger.BoundSyncFinished(ctx)
+			finished, err := f.engine.BoundSyncFinished(ctx)
 			require.NoError(t, err)
 			require.True(t, finished)
 			grants, err := f.store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{})

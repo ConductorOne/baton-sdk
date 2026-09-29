@@ -1270,6 +1270,34 @@ func (r *bytesReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+// LedgerState is the pass's state in one read: the declaration's phase, the
+// sync-run record's ended_at, and whether a legacy token awaits takeover.
+func (e *Engine) LedgerState(ctx context.Context) (c1zstore.LedgerState, error) {
+	var state c1zstore.LedgerState
+	if err := ctx.Err(); err != nil {
+		return state, err
+	}
+	_, phase, err := e.ledger.workState()
+	if err != nil {
+		return state, err
+	}
+	state.Phase = phase
+	syncID := e.CurrentSyncID()
+	if syncID == "" {
+		return state, nil
+	}
+	rec, err := e.GetSyncRunRecord(ctx, syncID)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return state, nil
+		}
+		return state, err
+	}
+	state.Finished = rec.GetEndedAt() != nil
+	state.Token = rec.GetSyncToken() != ""
+	return state, nil
+}
+
 func (e *Engine) BoundSyncFinished(ctx context.Context) (bool, error) {
 	syncID := e.CurrentSyncID()
 	if syncID == "" {

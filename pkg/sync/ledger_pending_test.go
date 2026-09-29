@@ -78,7 +78,7 @@ func TestPendingSyncBoundsExecutionWindow(t *testing.T) {
 	for i := range work {
 		work[i].Action.Identity = c1zstore.LedgerActionIdentity{Op: SyncResourcesOp.String(), ResourceTypeID: "group"}
 	}
-	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), work, ledgerFactIngestKnown))
+	require.NoError(t, f.ledger.BeginCollecting(t.Context(), work, ledgerFactIngestKnown))
 	created, err := NewSyncer(t.Context(), newMockConnector(), WithConnectorStore(f.store), WithSyncID(f.engine.CurrentSyncID()), WithWorkerCount(4), WithSkipEntitlementsAndGrants(true))
 	require.NoError(t, err)
 	s := created.(*syncer)
@@ -120,7 +120,7 @@ func TestPendingSyncSpilledChildrenKeepOrder(t *testing.T) {
 			f := newLedgerFixture(t)
 			const pages, children = 8, 100
 			root := c1zstore.LedgerWork{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: SyncResourcesOp.String(), ResourceTypeID: "group", ResourceID: "root"}}}
-			require.NoError(t, f.ledger.InitializePendingWork(t.Context(), []c1zstore.LedgerWork{root}, ledgerFactIngestKnown))
+			require.NoError(t, f.ledger.BeginCollecting(t.Context(), []c1zstore.LedgerWork{root}, ledgerFactIngestKnown))
 			created, err := NewSyncer(t.Context(), newMockConnector(), WithConnectorStore(f.store), WithSyncID(f.engine.CurrentSyncID()), WithWorkerCount(workers), WithSkipEntitlementsAndGrants(true))
 			require.NoError(t, err)
 			s := created.(*syncer)
@@ -179,7 +179,7 @@ func TestPendingSyncSpilledChildrenKeepOrder(t *testing.T) {
 func TestPendingSyncCompletesLocalPhaseWithoutPageHistory(t *testing.T) {
 	f := newLedgerFixture(t)
 	work := c1zstore.LedgerWork{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: SyncGrantExpansionOp.String()}}}
-	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), []c1zstore.LedgerWork{work}, ledgerFactIngestKnown))
+	require.NoError(t, f.ledger.BeginCollecting(t.Context(), []c1zstore.LedgerWork{work}, ledgerFactIngestKnown))
 	created, err := NewSyncer(t.Context(), newMockConnector(), WithConnectorStore(f.store), WithSyncID(f.engine.CurrentSyncID()), WithLedgerDebug(true))
 	require.NoError(t, err)
 	s := created.(*syncer)
@@ -232,7 +232,7 @@ func TestPendingRefillFailureLeavesChildrenForColdResume(t *testing.T) {
 	f := newLedgerFixture(t)
 	syncID := f.engine.CurrentSyncID()
 	root := c1zstore.LedgerActionIdentity{Op: SyncResourcesOp.String(), ResourceTypeID: "group", ResourceID: "root"}
-	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), []c1zstore.LedgerWork{{Action: c1zstore.LedgerChild{Identity: root}}}, ledgerFactIngestKnown))
+	require.NoError(t, f.ledger.BeginCollecting(t.Context(), []c1zstore.LedgerWork{{Action: c1zstore.LedgerChild{Identity: root}}}, ledgerFactIngestKnown))
 	created, err := NewSyncer(t.Context(), newMockConnector(), WithConnectorStore(f.store), WithSyncID(syncID), WithWorkerCount(4), WithSkipEntitlementsAndGrants(true))
 	require.NoError(t, err)
 	s := created.(*syncer)
@@ -342,7 +342,7 @@ func TestPendingInvalidDescriptorDoesNotPublishOrWrite(t *testing.T) {
 	for kind, diagnostic := range map[string]string{"sync": "another sync", "operation": "unknown operation"} {
 		t.Run(kind, func(t *testing.T) {
 			s, f := newLedgerSchedulerFixture(t, 1)
-			require.NoError(t, f.ledger.InitializePendingWork(t.Context(), pendingSeeds(ledgerListingFixtureRoots()), ledgerFactIngestKnown))
+			require.NoError(t, f.ledger.BeginCollecting(t.Context(), pendingSeeds(ledgerListingFixtureRoots()), ledgerFactIngestKnown))
 			s.caps.pageLedger = pendingInvalidDescriptor{PageLedgerStore: f.ledger, kind: kind}
 			before := ledgerRawSnapshot(t, f.engine)
 			priorRun, priorStats, priorRuntime := s.run, s.stats, s.ledger

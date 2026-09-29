@@ -32,7 +32,7 @@ func runLedgerSchedulerFixture(t *testing.T, runtime *ledgerRuntime, roots []led
 				guarded.audit.enter(ledgerLifecycle)
 				defer guarded.audit.enter(phase)
 			}
-			return runtime.store.InitializePendingWork(t.Context(), pendingSeeds(roots))
+			return runtime.store.BeginCollecting(t.Context(), pendingSeeds(roots))
 		}()
 		if err != nil {
 			return err

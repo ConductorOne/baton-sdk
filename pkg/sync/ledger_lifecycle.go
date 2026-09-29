@@ -43,7 +43,7 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 	if ledger == nil {
 		return absent, errors.New("ledger capability is missing")
 	}
-	finished, err := ledger.BoundSyncFinished(ctx)
+	state, err := ledger.State(ctx)
 	if err != nil {
 		return absent, err
 	}
@@ -51,11 +51,11 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 	if err != nil {
 		return absent, err
 	}
-	if err := s.expansionFlagConflict(ctx, resume, finished, newSync); err != nil {
+	if err := s.expansionFlagConflict(ctx, resume, state.Finished, newSync); err != nil {
 		return absent, err
 	}
 	knownEmpty := newSync
-	switch resume.preparation(finished) {
+	switch resume.preparation(state.Finished) {
 	case ledgerProcessFinished:
 		seeds := pendingSeeds([]ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}})
 		if err := ledger.BeginPass(ctx, seeds, []string{c1zstore.LedgerFactDiscardOnSeal, c1zstore.LedgerFactRetainTokens}); err != nil {
@@ -75,7 +75,7 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 		if knownEmpty {
 			seedFacts = append(seedFacts, ledgerFactIngestKnown)
 		}
-		if err := ledger.InitializePendingWork(ctx, pendingSeeds(resume.actions), seedFacts...); err != nil {
+		if err := ledger.BeginCollecting(ctx, pendingSeeds(resume.actions), seedFacts...); err != nil {
 			return absent, err
 		}
 	case ledgerContinuePending, ledgerFinishSeal:

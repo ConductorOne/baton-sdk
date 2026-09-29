@@ -26,11 +26,11 @@ func (s *ledgerExpansionHandoffFailure) SetCurrentSync(ctx context.Context, id s
 	}
 	return s.Store.SetCurrentSync(ctx, id)
 }
-func (s *ledgerExpansionHandoffFailure) EndSyncWithStats(ctx context.Context, stats c1zstore.SyncStats) error {
+func (s *ledgerExpansionHandoffFailure) Seal(ctx context.Context, stats c1zstore.SyncStats) error {
 	if s.fail == "seal" {
 		return errLedgerInjectedPage
 	}
-	return s.PageLedgerStore.EndSyncWithStats(ctx, stats)
+	return s.PageLedgerStore.Seal(ctx, stats)
 }
 
 func TestLedgerExpansionRequestAcrossSealFailure(t *testing.T) {

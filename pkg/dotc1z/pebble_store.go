@@ -489,6 +489,12 @@ func (s *pebbleStore) EndSync(ctx context.Context) error {
 	return s.markDirty(s.Engine.EndSync(ctx))
 }
 
+// Seal is the ledger lifecycle's Sealing → Sealed transition; EndSyncWithStats
+// is the same call under the store's older name.
+func (s *pebbleStore) Seal(ctx context.Context, stats c1zstore.SyncStats) error {
+	return s.markDirty(s.Engine.EndSyncWithStats(ctx, stats))
+}
+
 func (s *pebbleStore) EndSyncWithStats(ctx context.Context, stats c1zstore.SyncStats) error {
 	return s.markDirty(s.Engine.EndSyncWithStats(ctx, stats))
 }
@@ -626,9 +632,8 @@ func (w *dirtyPageWriter) Commit(ctx context.Context, id c1zstore.LedgerActionId
 	return w.store.markDirty(w.PageWriter.Commit(ctx, id, row))
 }
 
-func (s *pebbleStore) TakeoverToken(ctx context.Context, runID string, facts []string, counters c1zstore.LedgerCounters) (string, error) {
-	state, err := s.Engine.Ledger().Takeover(ctx, runID, facts, counters)
-	return state, s.markDirty(err)
+func (s *pebbleStore) State(ctx context.Context) (c1zstore.LedgerState, error) {
+	return s.LedgerState(ctx)
 }
 
 func (s *pebbleStore) PutCounterBucket(ctx context.Context, runID string, worker uint32, counters c1zstore.LedgerCounters) error {
@@ -1010,20 +1015,20 @@ func (s *pebbleStore) PendingWork(ctx context.Context, beforeID uint64, limit in
 	return s.Engine.Ledger().PendingWork(ctx, beforeID, limit)
 }
 
-func (s *pebbleStore) InitializePendingWork(ctx context.Context, work []c1zstore.LedgerWork, facts ...string) error {
-	if err := s.writeHook(ctx, "InitializePendingWork"); err != nil {
+func (s *pebbleStore) BeginCollecting(ctx context.Context, work []c1zstore.LedgerWork, facts ...string) error {
+	if err := s.writeHook(ctx, "BeginCollecting"); err != nil {
 		return err
 	}
-	return s.markDirty(s.Engine.Ledger().InitializePendingWork(ctx, work, facts...))
+	return s.markDirty(s.Engine.Ledger().BeginCollecting(ctx, work, facts...))
 }
 
-func (s *pebbleStore) TakeoverPendingWork(
+func (s *pebbleStore) BeginCollectingFromToken(
 	ctx context.Context, runID, expectedToken string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork,
 ) (string, error) {
-	if err := s.writeHook(ctx, "TakeoverPendingWork"); err != nil {
+	if err := s.writeHook(ctx, "BeginCollectingFromToken"); err != nil {
 		return "", err
 	}
-	state, err := s.Engine.Ledger().TakeoverPendingWork(ctx, runID, expectedToken, facts, counters, work)
+	state, err := s.Engine.Ledger().BeginCollectingFromToken(ctx, runID, expectedToken, facts, counters, work)
 	return state, s.markDirty(err)
 }
 

@@ -439,7 +439,7 @@ func TestLedgerFailFastUsesDurableChildScheduling(t *testing.T) {
 			}
 			require.Equal(t, 1, scopedEmptyCalls)
 			if mode != "stored" {
-				finished, err := f.ledger.BoundSyncFinished(t.Context())
+				finished, err := f.engine.BoundSyncFinished(t.Context())
 				require.NoError(t, err)
 				require.False(t, finished)
 			}

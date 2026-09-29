@@ -39,7 +39,7 @@ func commitTerminalPage(t testing.TB, e *Engine, ctx context.Context) error {
 	}
 	writer := e.Ledger().BeginPage()
 	defer writer.Discard()
-	require.NoError(t, writer.SetQueueSealing())
+	require.NoError(t, writer.SetTerminal())
 	return writer.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "sync-terminal-v1"}, &c1zstore.LedgerRow{})
 }
 

@@ -36,7 +36,7 @@ func (r *ledgerRuntime) prepareSeal(ctx context.Context, runCounters c1zstore.Le
 			return err
 		}
 	}
-	if err := page.SetQueueSealing(); err != nil {
+	if err := page.SetTerminal(); err != nil {
 		return err
 	}
 	if err := page.SetCounterBucket(r.runID, c1zstore.RunBucketWorker, runCounters); err != nil {
@@ -62,5 +62,5 @@ func (r *ledgerRuntime) seal(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return r.store.EndSyncWithStats(ctx, c1zstore.LedgerSyncStats(facts, counters))
+	return r.store.Seal(ctx, c1zstore.LedgerSyncStats(facts, counters))
 }

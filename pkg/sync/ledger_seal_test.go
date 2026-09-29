@@ -12,7 +12,7 @@ import (
 
 func TestLedgerSealRequiresTerminalPage(t *testing.T) {
 	f := newLedgerFixture(t)
-	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
+	require.NoError(t, f.ledger.BeginCollecting(t.Context(), nil))
 	runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "attempt")
 	require.NoError(t, err)
 	before := ledgerRawSnapshot(t, f.engine)
@@ -25,7 +25,7 @@ func TestLedgerTerminalPageAndSealStats(t *testing.T) {
 		f := newLedgerFixture(t)
 		syncID := f.engine.CurrentSyncID()
 		f.ledger.SetRetainLedgerTokens(retain)
-		require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
+		require.NoError(t, f.ledger.BeginCollecting(t.Context(), nil))
 		runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "attempt")
 		require.NoError(t, err)
 		id := c1zstore.LedgerActionIdentity{Op: "list-resource-types", PageToken: "first-page"}
@@ -70,7 +70,7 @@ func TestLedgerTerminalPageAndSealStats(t *testing.T) {
 		require.Equal(t, int64(9), stats.GetConnectorCallStats()["list"].GetMaxMs())
 		require.Equal(t, int64(2), stats.GetSessionStoreStats()["get"].GetCount())
 		require.NoError(t, f.store.SetCurrentSync(t.Context(), syncID))
-		finished, err := f.ledger.BoundSyncFinished(t.Context())
+		finished, err := f.engine.BoundSyncFinished(t.Context())
 		require.NoError(t, err)
 		require.True(t, finished)
 	}
@@ -78,8 +78,8 @@ func TestLedgerTerminalPageAndSealStats(t *testing.T) {
 
 func TestLedgerSealReadyBypassesScrubbedFrontier(t *testing.T) {
 	f := newLedgerFixture(t)
-	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
-	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
+	require.NoError(t, f.ledger.BeginCollecting(t.Context(), nil))
+	require.NoError(t, f.ledger.BeginCollecting(t.Context(), nil))
 	runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "attempt")
 	require.NoError(t, err)
 	require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{}))
@@ -101,7 +101,7 @@ func TestLedgerSealCostConsumer(t *testing.T) {
 	for _, retain := range []bool{false, true} {
 		f := newLedgerFixture(t)
 		f.ledger.SetRetainLedgerTokens(retain)
-		require.NoError(t, f.ledger.InitializePendingWork(t.Context(), nil))
+		require.NoError(t, f.ledger.BeginCollecting(t.Context(), nil))
 		runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "attempt")
 		require.NoError(t, err)
 		require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{}))

@@ -63,7 +63,7 @@ func TestLedgerScheduleStopsAndJoinsOnError(t *testing.T) {
 	for i := range 8 {
 		roots = append(roots, ledgerAction{identity: c1zstore.LedgerActionIdentity{Op: "list-resources", ResourceID: fmt.Sprint(i)}})
 	}
-	require.NoError(t, f.ledger.InitializePendingWork(t.Context(), pendingSeeds(roots)))
+	require.NoError(t, f.ledger.BeginCollecting(t.Context(), pendingSeeds(roots)))
 	before := ledgerRawSnapshot(t, f.engine)
 	f.audit.enter(ledgerHandler)
 	err = runLedgerSchedulerFixture(t, runtime, roots, 4, func(ctx context.Context, s *syncer, action *Action, page *ledgerPage) error {

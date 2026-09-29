@@ -255,9 +255,9 @@ func runDurableSync(t *testing.T, fs vfs.FS, dir, mode string, workers int, cutO
 		}
 		require.NoError(t, e.SetCurrentSync(ctx, crashSyncID))
 		ledger := store.(c1zstore.PageLedgerStore)
-		finished, err := ledger.BoundSyncFinished(ctx)
+		state, err := ledger.State(ctx)
 		require.NoError(t, err)
-		require.True(t, finished)
+		require.True(t, state.Finished)
 		facts, err := ledger.LedgerFacts(ctx)
 		require.NoError(t, err)
 		report, err := ledger.GetArchivedLedgerReport(ctx)
@@ -439,9 +439,9 @@ func TestPublicLedgerCleanupErrorAfterSealKeepsFinishedArtifact(t *testing.T) {
 	token, err = reopened.CurrentSyncStep(ctx)
 	require.NoError(t, err)
 	require.Empty(t, token)
-	finished, err := reopened.(c1zstore.PageLedgerStore).BoundSyncFinished(ctx)
+	state, err := reopened.(c1zstore.PageLedgerStore).State(ctx)
 	require.NoError(t, err)
-	require.True(t, finished)
+	require.True(t, state.Finished)
 }
 
 type publicLedgerCompactorInput struct {

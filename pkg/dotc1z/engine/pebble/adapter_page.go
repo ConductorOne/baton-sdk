@@ -130,7 +130,7 @@ func (w *pageWriter) SetCounterBucket(runID string, worker uint32, counters c1zs
 	return w.unit.StageCounterBucket(runID, worker, ledgerCountersToProto(counters))
 }
 
-func (w *pageWriter) SetQueueSealing() error {
+func (w *pageWriter) SetTerminal() error {
 	return w.unit.StageQueueSealing()
 }
 

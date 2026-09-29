@@ -55,7 +55,7 @@ func TestLedgerExpansionUsesMainModel(t *testing.T) {
 
 type ledgerExpansionSealFailure struct{ c1zstore.PageLedgerStore }
 
-func (s ledgerExpansionSealFailure) EndSyncWithStats(context.Context, c1zstore.SyncStats) error {
+func (s ledgerExpansionSealFailure) Seal(context.Context, c1zstore.SyncStats) error {
 	return errLedgerInjectedPage
 }
 

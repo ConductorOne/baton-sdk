@@ -1334,7 +1334,7 @@ ended rebind initializes the new request normally. Source: correction review.
   1. States, durable, read from the declaration and the sync-run record:
      | state | declaration | `ended_at` | store accepts |
      |---|---|---|---|
-     | Unstarted | absent | unset | `InitializePendingWork`, `TakeoverPendingWork` |
+     | Unstarted | absent | unset | `BeginCollecting`, `BeginCollectingFromToken` |
      | Collecting | `collecting` | any | page commits; `CompletePendingWork`; the transition to Expanding (`BeginExpanding`) or to Sealing (terminal page) |
      | Expanding | `expanding` | any | `CompletePendingWork` of the expansion entry; `PutCounterBucket`; the transition to Sealing (terminal page). No page commits: in ledger mode expansion writes grants through the store and its progress through the entitlement-graph store (`runPendingLocalStep`, `ledger_pending.go`), not through ledger pages |
      | Sealing | `sealing` | any | `PutCounterBucket`, `PutLedgerFacts`, `EndSyncWithStats` |
@@ -1343,7 +1343,7 @@ ended rebind initializes the new request normally. Source: correction review.
   2. Transitions, each one synced batch, each validated under `writeMu` before staging:
      - Unstarted → Collecting: seed or takeover (as today).
      - Collecting → Expanding: `BeginExpanding(ctx)`, a synced lifecycle write by the coordinator when the expansion action is first picked up (the point that stamps `supports_diff`, `parallel_syncer.go:384–400`); guard under `writeMu`: phase `collecting` and the pending range holds only the expansion action's entry.
-     - Collecting → Sealing and Expanding → Sealing: the terminal page carries `SetQueueSealing`; guard as CO-037.
+     - Collecting → Sealing and Expanding → Sealing: the terminal page carries `SetTerminal`; guard as CO-037.
      - Sealing → Sealed: the stamp batch (CO-037).
      - Sealed → Collecting: `BeginPass`, which also stages the presence fact `c1z.pass.follow_on`.
      Expansion is skipped by never entering Expanding: when `dontExpandGrants` or no grant needs expansion, the expansion action completes through `CompletePendingWork` in Collecting and the terminal page follows.

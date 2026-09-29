@@ -157,7 +157,7 @@ func TestLedgerExpansionOnlyExpandsFinishedBaselineUpload(t *testing.T) {
 	require.ElementsMatch(t, want, listGrantIDs(t, f))
 	require.NoError(t, f.store.SetCurrentSync(ctx, id))
 	require.Equal(t, c1zstore.LedgerQueueAbsent, ledgerPhase(t, f.ledger))
-	finished, err := f.ledger.BoundSyncFinished(ctx)
+	finished, err := f.engine.BoundSyncFinished(ctx)
 	require.NoError(t, err)
 	require.True(t, finished)
 }

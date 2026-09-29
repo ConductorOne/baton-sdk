@@ -225,10 +225,10 @@ type PageWriter interface {
 	// The worker's cumulative total for the run, never a delta; last call
 	// before Commit wins.
 	SetCounterBucket(runID string, worker uint32, counters LedgerCounters) error
-	// Commit then moves the declaration from Collecting to Sealing in the
-	// page's batch. Commit refuses unless the phase is Collecting, no pending
-	// work remains, and the row has no continuation, children or work.
-	SetQueueSealing() error
+	// Commit then moves the declaration to Sealing in the page's batch. Commit
+	// refuses unless the phase is Collecting or Expanding, no pending work
+	// remains, and the row has no continuation, children or work.
+	SetTerminal() error
 
 	// On failure nothing of the page lands, but the store is durably stamped
 	// ledgered before the first commit, so a failed first page does not permit
@@ -238,64 +238,94 @@ type PageWriter interface {
 	Discard()
 }
 
-type PageLedgerStore interface {
-	// PendingWork returns at most limit entries in descending ID order; beforeID
-	// is exclusive when nonzero. limit is 1–100. The phase is read in the same
-	// call so a caller sees one declaration state with the entries.
-	PendingWork(ctx context.Context, beforeID uint64, limit int) (work []LedgerWork, phase LedgerQueuePhase, err error)
+// What state the bound sync's pass is in, in one read.
+type LedgerState struct {
+	Phase    LedgerQueuePhase
+	Finished bool // ended_at is set
+	Token    bool // a legacy checkpoint token awaits takeover
+}
+
+// LedgerLifecycle is the pass's state machine. Each transition is one synced
+// batch validated under the write lock; each is refused outside its source
+// state. The Collecting/Expanding → Sealing transition is a page:
+// PageWriter.SetTerminal.
+//
+//	Unstarted  --BeginCollecting / BeginCollectingFromToken-->  Collecting
+//	Collecting --BeginExpanding-->                               Expanding
+//	Collecting | Expanding --terminal page-->                    Sealing
+//	Sealing    --Seal-->                                         Sealed
+//	Sealed     --BeginPass-->                                    Collecting
+type LedgerLifecycle interface {
+	State(ctx context.Context) (LedgerState, error)
 	// Seeds an absent queue in stack order; an initialized queue is unchanged.
-	InitializePendingWork(ctx context.Context, work []LedgerWork, facts ...string) error
-	// Moves a Collecting declaration to Expanding in one synced write. Requires
-	// the pending range to hold exactly the expansion entry. Refused otherwise.
+	// Refused on a finished sync: that is BeginPass.
+	BeginCollecting(ctx context.Context, seeds []LedgerWork, facts ...string) error
+	// Consumes the matching checkpoint token and seeds the queue in one batch;
+	// returns the token consumed, "" when there was none.
+	BeginCollectingFromToken(ctx context.Context, runID, expectedToken string, facts []string, counters LedgerCounters, seeds []LedgerWork) (string, error)
+	// Requires the pending range to hold exactly the expansion entry.
 	BeginExpanding(ctx context.Context) error
+	// One batch: archive, the family's remaining keys, ended_at. Nothing is
+	// written after it. LedgerFactDiscardOnSeal, read from the terminal page,
+	// selects default disposal; its absence retains history.
+	Seal(ctx context.Context, stats SyncStats) error
+	// Opens a new collection pass on a finished sync with no declaration and
+	// no legacy token, in one batch: prior rows, scheduling relations and
+	// frontier go; archived facts the family lacks return, minus clearFacts;
+	// archived counters return only when the family has no bucket; the seeds,
+	// a Collecting declaration and LedgerFactFollowOnPass are staged.
+	BeginPass(ctx context.Context, seeds []LedgerWork, clearFacts []string) error
+}
+
+// LedgerQueue is the pending work and the pages that consume it.
+type LedgerQueue interface {
+	// At most limit entries in descending ID order; beforeID is exclusive when
+	// nonzero. limit is 1–100. The phase is read in the same call so a caller
+	// sees one declaration state with the entries.
+	PendingWork(ctx context.Context, beforeID uint64, limit int) (work []LedgerWork, phase LedgerQueuePhase, err error)
 	PendingWorkAfter(ctx context.Context, afterID uint64, limit int) ([]LedgerWork, LedgerQueuePhase, error)
 	HasScheduledWork(ctx context.Context, key string) (bool, error)
-	// Removes a completed local phase and records cumulative run accounting;
-	// no completed-page row or transaction around that phase's writes is added.
-	CompletePendingWork(ctx context.Context, work LedgerWork, runID string, counters LedgerCounters) error
-	// Consumes the matching checkpoint and seeds pending work in the same batch.
-	TakeoverPendingWork(ctx context.Context, runID, expectedToken string, facts []string, counters LedgerCounters, work []LedgerWork) (string, error)
-
-	// Saves retained history or returns the report already archived during disposal.
-	ArchiveLedgerReport(ctx context.Context) ([]byte, error)
-	GetArchivedLedgerReport(ctx context.Context) ([]byte, error)
 	BeginPage() PageWriter
+	// Removes a completed local step and records cumulative run accounting;
+	// no page row is added.
+	CompletePendingWork(ctx context.Context, work LedgerWork, runID string, counters LedgerCounters) error
 	// Diagnostic lookup by request arguments; multiple work instances may match.
 	// PendingWork is the recovery authority.
 	GetLedgerRow(ctx context.Context, id LedgerActionIdentity) (row *LedgerRow, found bool, err error)
-	// Keeps verbatim page tokens in the sealed artifact. The default scrubs them:
-	// a page token can carry a credential.
-	SetRetainLedgerTokens(retain bool)
+}
 
+// LedgerAccounting is the attempt-scoped facts and counters.
+type LedgerAccounting interface {
 	LedgerFacts(ctx context.Context) (map[string]string, error)
-	// Before an attempt starts writing, atomically fold older buckets into one total.
-	// Prior-attempt writers must be stopped. Current buckets are preserved; repeated calls are idempotent.
-	FoldLedgerCounters(ctx context.Context, currentRunID string) error
 	LedgerCounters(ctx context.Context) (LedgerCounters, error)
-	LedgerFrontier(ctx context.Context) (frontier *LedgerFrontier, found bool, err error)
-	// Migrates the open sync's checkpoint token into the ledger in one unit;
-	// "" when there was no token.
-	TakeoverToken(ctx context.Context, runID string, facts []string, counters LedgerCounters) (state string, err error)
-	BoundSyncFinished(ctx context.Context) (bool, error)
-	// True only for an unfinished binding without checkpoint, archive, records or collection/replay state.
-	// Read-only; session state does not count.
-	BoundSyncUnstarted(ctx context.Context) (bool, error)
-	// Preserves records and sync metadata; removes ledger rows, facts and counters.
-	DropLedger(ctx context.Context) error
-	// Opens a new collection pass on a finished bound sync with no declaration
-	// and no legacy checkpoint, in one synced batch: prior rows, scheduling
-	// relations and frontier go; archived facts the family lacks return, minus
-	// clearFacts; archived counters return only when the family has no bucket;
-	// seeds and a Collecting declaration are staged. Records and sync metadata
-	// are untouched.
-	BeginPass(ctx context.Context, seeds []LedgerWork, clearFacts []string) error
+	// Before an attempt starts writing, fold older buckets into one total.
+	// Prior-attempt writers must be stopped; repeated calls are idempotent.
+	FoldLedgerCounters(ctx context.Context, currentRunID string) error
 	// Blind-writes the run's whole cumulative bucket; a later write supersedes.
 	PutCounterBucket(ctx context.Context, runID string, worker uint32, counters LedgerCounters) error
 	// Blind-writes named fact values outside any page, all in one synced
 	// batch; a later write supersedes. An empty value records presence.
 	PutLedgerFacts(ctx context.Context, facts map[string]string) error
-	// Completes collection with no pending work. Plain EndSync preserves recovery state.
-	// LedgerFactDiscardOnSeal archives then discards the ledger before finishing.
-	// Report-generation failure still discards history; recovery-state write failure prevents seal.
-	EndSyncWithStats(ctx context.Context, stats SyncStats) error
+}
+
+// LedgerArchive is the sealed pass's report and retention.
+type LedgerArchive interface {
+	// Saves retained history or returns the report already archived at seal.
+	ArchiveLedgerReport(ctx context.Context) ([]byte, error)
+	GetArchivedLedgerReport(ctx context.Context) ([]byte, error)
+	// Keeps verbatim page tokens in the sealed artifact. The default scrubs them:
+	// a page token can carry a credential.
+	SetRetainLedgerTokens(retain bool)
+	// Preserves records and sync metadata; removes ledger rows, facts and counters.
+	DropLedger(ctx context.Context) error
+	LedgerFrontier(ctx context.Context) (frontier *LedgerFrontier, found bool, err error)
+	// True only for an unfinished binding without checkpoint, archive, records or collection/replay state.
+	BoundSyncUnstarted(ctx context.Context) (bool, error)
+}
+
+type PageLedgerStore interface {
+	LedgerLifecycle
+	LedgerQueue
+	LedgerAccounting
+	LedgerArchive
 }

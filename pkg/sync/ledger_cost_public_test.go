@@ -54,9 +54,9 @@ func (s *ledgerPublicCostStore) LedgerCounters(ctx context.Context) (c1zstore.Le
 	s.observations.foldNs.Store(time.Since(start).Nanoseconds())
 	return counters, err
 }
-func (s *ledgerPublicCostStore) EndSyncWithStats(ctx context.Context, stats c1zstore.SyncStats) error {
+func (s *ledgerPublicCostStore) Seal(ctx context.Context, stats c1zstore.SyncStats) error {
 	start := time.Now()
-	err := s.PageLedgerStore.EndSyncWithStats(ctx, stats)
+	err := s.PageLedgerStore.Seal(ctx, stats)
 	s.sealNs.Add(time.Since(start).Nanoseconds())
 	return err
 }

@@ -27,9 +27,9 @@ type ledgerFamilyStore struct {
 func (s *ledgerFamilyStore) BeginPage() c1zstore.PageWriter {
 	return ledgerFamilyWriter{PageWriter: s.PageLedgerStore.BeginPage(), cut: s.cut}
 }
-func (s *ledgerFamilyStore) EndSyncWithStats(ctx context.Context, stats c1zstore.SyncStats) error {
+func (s *ledgerFamilyStore) Seal(ctx context.Context, stats c1zstore.SyncStats) error {
 	s.stats = stats
-	return s.PageLedgerStore.EndSyncWithStats(ctx, stats)
+	return s.PageLedgerStore.Seal(ctx, stats)
 }
 
 type ledgerFamilyWriter struct {
@@ -117,7 +117,7 @@ func runLedgerFamilySync(t *testing.T, path string, workers int, cut func(*ledge
 			result.stats.Run.SessionStoreStats[key] = value
 		}
 		require.NoError(t, f.store.SetCurrentSync(t.Context(), s.syncID))
-		finished, err := f.ledger.BoundSyncFinished(t.Context())
+		finished, err := f.engine.BoundSyncFinished(t.Context())
 		require.NoError(t, err)
 		require.True(t, finished)
 		token, err := f.store.CurrentSyncStep(t.Context())
