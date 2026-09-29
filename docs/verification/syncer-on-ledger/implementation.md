@@ -212,17 +212,16 @@ discard, X drop (`Ledger.Drop`), C clear (`ClearLedgerRows` → `BeginPass`).
 | State | Keyspace | Question | Writer | Readers | Prior answer | Surfaces |
 |---|---|---|---|---|---|---|
 | pending-work entries | ledger 0x04 | what work remains, in what order | page commit, seed, takeover, `CompletePendingWork` | `PendingWork*`, seal precheck | legacy token stack (consumed at takeover) | R F S D X C |
-| work declaration (allocator; phase under CO-037) | ledger 0x05 | is the queue initialized; which pass phase | seed, takeover, page commit, terminal page (CO-037) | resume selection, seal precheck | none | R F S D X C |
+| work declaration `{version 2, lastID, phase}` | ledger 0x05 | is a pass open; collecting or sealing | seed, takeover, `BeginPass`, page commit (children), terminal page (`SetQueueSealing`); deleted by the stamp batch | resume selection, seal precondition, late-page refusal | none | R F S D X C |
 | scheduling relations | ledger 0x06 | was this child already scheduled | page commit, seed | `stageWorkTransition`, invariant I4 | in-memory `childScheduleSet` (token path) | R F S D X C |
 | completed rows (work-ID keyed) | ledger 0x00 | diagnostic history | page commit | report, `GetLedgerRow` | none | R F S D X C |
-| `sync.seal_ready` fact | ledger 0x01 | is collection complete | terminal page | resume selection, seal | work declaration + empty queue — **duplicate; removed by CO-037** | R F D X C |
-| `c1z.discard_ledger_on_seal` fact | ledger 0x01 | disposal policy; **and** "disposal in progress" after the discard | terminal page | finalize; resume selection | as policy: none; as progress marker: `ended_at` — **duplicate; CO-037 keeps the policy role only** | R F D X C |
+| `c1z.discard_ledger_on_seal` fact | ledger 0x01 | disposal policy | terminal page | finalize | none (the progress-marker role is gone with the post-stamp batch) | R F D X C |
 | `c1z.report.first_options` / `latest_options` | ledger 0x01 | which options ran, first and latest | first page per attempt (CO-038: attempt start) | report, archive | none | R F D X C (first retained) |
 | `sync.ingest_known` / `sync.ingest_blocked` | ledger 0x01 | replay eligibility knowledge | pages, Init, seed | `LedgerSyncStats`, restore | `IngestQualityCheckpoint` in the token (consumed) | R F D X C |
 | `c1z.retain_tokens` fact | ledger 0x01 | keep verbatim tokens at seal | page commit, takeover | finalize | none | R F D X C |
 | counter buckets, folded bucket, `"archived"` bucket | ledger 0x02 | cumulative accounting | page commit, `PutCounterBucket`, `FoldCounters`, `BeginPass` | `LedgerCounters`, stats | token `runStats` (consumed) | R F D X (C retains) |
 | frontier | ledger 0x03 | migration provenance | takeover | diagnostics only | none | R F D X C |
-| `ledger-archive` | engine-meta | report; sealed pass's facts and counters | finalize (CO-037: in the stamp batch) | `BeginPass`, `finishLedgerReport`, plain-`EndSync` stats | none; placement is engine-meta so a baseline-SDK host sees an empty family | R (excise) F (byte-copied) |
+| `ledger-archive` | engine-meta | report; sealed pass's facts and counters | finalize: the disposal batch (default mode) and the stamp batch (both modes); `ArchiveLedgerReport` | `BeginPass`, `finishLedgerReport`, plain-`EndSync` stats, re-seal after disposal | none; placement is engine-meta so a baseline-SDK host sees an empty family | R (excise) F (byte-copied) |
 | `ledger-residue-pending` | engine-meta | compaction owed after a drop or discard | drop, discard | finalize | pre-existing | pre-existing |
 | in-flight keyspace stamp | engine-meta | v2 readers must refuse | first ledger write | open | pre-existing | pre-existing |
 | `ended_at` | sync-run record | is the sync finished | finalize | everything | the finished verdict; CO-037 makes it the only one | pre-existing |
@@ -231,6 +230,63 @@ discard, X drop (`Ledger.Drop`), C clear (`ClearLedgerRows` → `BeginPass`).
 
 Rows marked duplicate are the two lifecycle questions with two answers; the
 rest each have one writer set and one question.
+
+### CO-039 implementation
+
+The state table in the plan is the specification; this section is where
+each row lands.
+
+Storage. `LedgerQueueExpanding` between `LedgerQueueCollecting` and
+`LedgerQueueSealing`; `workState` accepts the three. `Ledger.BeginExpanding`
+(`ledger.go`): `withWrite`; `requireCurrentSync`; read the work state;
+require `collecting`; require the pending range to hold exactly one entry
+whose action op is `SyncGrantExpansionOp`; `markInFlightLocked`; one
+`RecordBatch` staging the work state at `expanding`; `pebble.Sync`. Hook
+`ledgerBeginExpandingHook` in `testSeams` before the commit; registered in
+`commitPointRegistry` as `ledger.go:BeginExpanding` with
+`SetRecordCommitTestHook`. `stagePhaseLocked` refuses `expanding` and
+`sealing` with `ErrLedgerQueuePhase` (the phase in the message);
+`ErrLedgerQueueSealing` is removed. `stageWorkTransition` (used by
+`CompletePendingWork`) accepts `collecting` and `expanding`. `BeginPass`
+stages `StageLedgerFact(c1z.pass.follow_on)` beside the declaration.
+`buildLedgerArchiveLocked` attaches the prior archive when `facts` holds
+`c1z.pass.follow_on`, and no longer reads `Requested.OnlyExpandGrants`.
+`endSync`'s precondition and the stamp batch are unchanged.
+
+Syncer. `preparation` gains `case LedgerQueueExpanding: return
+ledgerContinuePending`. At the expansion action's pickup
+(`parallel_syncer.go:384`, the `!isResumingExpansion` branch that stamps
+`supports_diff`) the coordinator calls `BeginExpanding` before the handler
+runs; the skip path (`:405`) does not call it and completes the entry in
+Collecting as today. A resume that finds `expanding` calls nothing: the
+handler resumes from the graph store. `syncLedger` calls
+`putLedgerReportOptions` only when the resume phase is `collecting` or
+`expanding`; `prepareLedgerState` returns the phase so `syncLedger` does not
+read the store twice. The `finishPreviousRequest` gate stays as it is.
+Flag policy (plan §7): `prepareLedgerState` refuses before `BeginPass`,
+`InitializePendingWork` or the options write when `onlyExpandGrants` meets
+`collecting` with `hasPendingWork` (after any token takeover, so a finished
+baseline upload's empty stack is drained, not pending), or meets `absent`
+without `ended_at` and without a legacy token under a caller-supplied sync
+ID; and when `dontExpandGrants` meets `expanding`. `ErrLedgerStateConflict`
+carries the state and the sync ID. The expansion pickup's skip test is
+unchanged; it can no longer see `expanding` with the flag set. C1's
+collection-shaped passes against the empty connector (selective resource
+types, external sources; `sync_baton.go:209`) are unchanged by this rule
+and out of scope.
+
+Tests, written first and red at 10cb8c72: (a) `ledger_state_table_test.go`
+in the engine package — a slice of `{state, event, want}` built from the
+plan's table, one fixture constructor per state, one function per event;
+(b) `ledger_no_transition_test.go` in `pkg/sync` — reuses the public crash
+fixture's cut list, resumes each image with `WithLedgerDebug`,
+`WithOnlyExpandGrants`, `WithSkipGrants`, `WithSkipEntitlementsAndGrants` and
+`WithWorkerCount` each flipped from the original, records page commits
+through the write audit, and compares fact-family snapshots. (c)–(e) as the
+plan. `TestLedgerSealingRefusesLatePages` asserts `ErrLedgerQueuePhase`.
+
+Not changed: the stamp batch, `BeginPass`'s other duties, the scheduler's
+order, `MarkSyncSupportsDiff`, SQLite and the token path.
 
 ### CO-038 implementation
 

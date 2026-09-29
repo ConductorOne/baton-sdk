@@ -1325,6 +1325,50 @@ ended rebind initializes the new request normally. Source: correction review.
 - SQLite: no change. Every contract change is on `PageLedgerStore`/`PageWriter`, which SQLite must not implement (`setStore` refuses it); every engine change is under `pkg/dotc1z/engine/pebble`; every syncer change is in `ledger_*.go` or behind `s.ledgered`. The acceptance check is `git diff --stat` for this sequence showing no path under `pkg/dotc1z/*.go` other than `pebble_store.go`, and no hunk in `pkg/sync` outside `ledger_*.go` that is not inside an `s.ledgered` fork.
 - PR placement: this PR, as its own commit sequence after CO-036.
 
+### CO-039 — the pass is a state machine; writes are transitions
+
+- Classification: lifecycle correction; completes CO-037.
+- Source: requester's model of the sync as a state machine (start → collection complete → expansion, optionally skipped → seal), and a review finding at 10cb8c72: a process resuming a `sealing` declaration rewrites `c1z.report.latest_options` with its own configuration (`ledger_sync.go:35–39`) although it commits no terminal page and no work; `buildLedgerArchiveLocked` then reads `Requested.OnlyExpandGrants` from that fact to decide the archive's `preceding_collection` link, so a plain run resuming an expansion pass's seal drops the link.
+- Motivation: CO-037 made the declaration the one authority for "is a pass open, collecting or sealing". Two questions still have no durable answer and are inferred: "is collection complete" (inferred from the queue's order, stamped into sync metadata as `supports_diff` at `parallel_syncer.go:384–400`) and "what kind of pass is this" (inferred from the options fact). And attempt-start writes are not tied to any transition, so an attempt that performs none still writes.
+- Claim, stated on the file:
+  1. States, durable, read from the declaration and the sync-run record:
+     | state | declaration | `ended_at` | store accepts |
+     |---|---|---|---|
+     | Unstarted | absent | unset | `InitializePendingWork`, `TakeoverPendingWork` |
+     | Collecting | `collecting` | any | page commits; `CompletePendingWork`; the transition to Expanding (`BeginExpanding`) or to Sealing (terminal page) |
+     | Expanding | `expanding` | any | `CompletePendingWork` of the expansion entry; `PutCounterBucket`; the transition to Sealing (terminal page). No page commits: in ledger mode expansion writes grants through the store and its progress through the entitlement-graph store (`runPendingLocalStep`, `ledger_pending.go`), not through ledger pages |
+     | Sealing | `sealing` | any | `PutCounterBucket`, `PutLedgerFacts`, `EndSyncWithStats` |
+     | Sealed | absent | set | `BeginPass`; `EndSyncWithStats` (engine-level reseal) |
+     Collecting and Expanding with an empty queue are "drained"; the syncer reads the queue to tell, the store does not need to.
+  2. Transitions, each one synced batch, each validated under `writeMu` before staging:
+     - Unstarted → Collecting: seed or takeover (as today).
+     - Collecting → Expanding: `BeginExpanding(ctx)`, a synced lifecycle write by the coordinator when the expansion action is first picked up (the point that stamps `supports_diff`, `parallel_syncer.go:384–400`); guard under `writeMu`: phase `collecting` and the pending range holds only the expansion action's entry.
+     - Collecting → Sealing and Expanding → Sealing: the terminal page carries `SetQueueSealing`; guard as CO-037.
+     - Sealing → Sealed: the stamp batch (CO-037).
+     - Sealed → Collecting: `BeginPass`, which also stages the presence fact `c1z.pass.follow_on`.
+     Expansion is skipped by never entering Expanding: when `dontExpandGrants` or no grant needs expansion, the expansion action completes through `CompletePendingWork` in Collecting and the terminal page follows.
+  3. A page commit in Expanding or Sealing is refused (`ErrLedgerQueuePhase`, carrying the phase). Collecting accepts any page. The rule is on the phase, not the op: expansion commits no pages, so an op-level rule would have nothing to distinguish.
+  4. The archive's `preceding_collection` link is decided by `c1z.pass.follow_on`, not by the options fact. A first pass never carries the fact; every `BeginPass` pass does.
+  5. An attempt writes `c1z.report.*_options` only when it will perform a transition of its own: phase `collecting` or `expanding` on entry (it will commit pages, the terminal page, or both). An attempt entering at `sealing` writes its run bucket and nothing else. This is the general rule: no transition, no write to the fact family.
+  6. Resume selection (CO-037 §3) gains one row: `expanding` continues; the queue holds the expansion entry, which the handler resumes from the entitlement-graph store as today. A resumer that finds `expanding` with an empty queue is drained and commits the terminal page.
+  7. A resumer's expansion flags must be consistent with the pass's state; a conflict is refused before any write, with the state and sync ID in the error, and the pass is untouched (requester's ruling; both cells differ from `main`, which continues collecting in the first and seals a partial expansion in the second). `onlyExpandGrants` conflicts with Collecting that has pending work (an incomplete collection; C1 expands through `sdk.NewEmptyConnector`, so continuing would seal a truncated sync as complete) and with Unstarted under a caller-supplied sync ID and no legacy token. It is consistent with Collecting drained (a completed collection without its terminal page — the shape a finished baseline upload takes after token takeover: seal it, then begin the expansion pass, the CO-035 handoff), Expanding (continue), Sealing (finish, then the expansion pass) and Sealed (begin the expansion pass). `dontExpandGrants` conflicts with Expanding; in Collecting it decides at the expansion step's pickup, as on `main`. A resumer with neither flag never conflicts. The migrated-upload case is (e) of CO-037 and (h) here.
+- Contract delta: `LedgerQueuePhase` gains `LedgerQueueExpanding`; `PageLedgerStore` gains `BeginExpanding(ctx) error`, a synced lifecycle write under the write lock with the guard in §2, registered as a commit site with a failure test; `BeginPass` stages `c1z.pass.follow_on`; `ErrLedgerQueuePhase` replaces `ErrLedgerQueueSealing` as the refusal for a page in a phase that accepts none. Nothing else on the interfaces changes. The archive placement, the stamp batch and `BeginPass`'s other duties are as CO-037.
+- Owning boundary: Pebble page commit and pending-work state; syncer attempt start and the expansion action's pickup in `parallelSync`.
+- Affected criteria: C11, C16, C31, C33, C50.
+- Supersedes: CO-038 §1's "an attempt that commits no page still records its options" (now: an attempt that performs no transition records nothing) and the CO-038 implementation note claiming the sealing attempt's retention flag decides disposal (false: the terminal page's facts decide; the sealing attempt writes none). CO-035's "no file-level expanded-status flag" stands: `expanding` says what the store accepts now; `c1z.pass.follow_on` says the pass began on a sealed sync; neither says the grants are expanded.
+- Verification delta, tests before code, red at 10cb8c72:
+  - (a) Engine state × event table: for each state in §1 and each event (seed, takeover, page, `BeginExpanding`, `CompletePendingWork`, terminal page, stamp, `BeginPass`, `PutCounterBucket`, `PutLedgerFacts`), the expected next state or refusal, asserted on the declaration and `ended_at` after the call. One table test; the freeze's §1–§3 are its expected column.
+  - (b) Syncer no-transition-no-write: every existing crash image × a resumer whose configuration differs from the original on debug, expansion-only, skip-grants, skip-entitlements and worker count. If the resumer committed no page and no terminal page, the fact family is byte-identical before and after; its own run bucket is the only allowed delta. Red on the `sealing` image via `latest_options`.
+  - (c) Archive link: an expansion pass sealed by a plain resumer keeps `preceding_collection`; a first pass never has it.
+  - (d) Skip path: `WithDontExpandGrants` seals from Collecting without the declaration ever reading `expanding`; a kill between the expansion action's local completion and the terminal page resumes in Collecting and seals.
+  - (e) Expanding resume: kill after `BeginExpanding` is durable; reopen; the resumer's classification is continue; a page commit is refused if attempted (planted); expanded grants equal the uninterrupted reference.
+  - (f) Mutation adequacy: remove the phase check on page commit and (a)'s refusal rows fail; write options on a sealing resume and (b) fails.
+  - (g) Existing CO-034/CO-035/CO-037 fixtures keep their end states.
+  - (h) Flag policy: kill mid-collection (pending work remains), resume with `onlyExpandGrants` and a connector that refuses every list call: refused, no connector call, fact family and declaration unchanged, a plain resume then completes. Kill after `BeginExpanding`, resume with `dontExpandGrants`: refused, same invariants, a plain resume completes expansion and the expanded grants equal the uninterrupted reference. Finished baseline-SDK upload (legacy token, empty stack) resumed with `onlyExpandGrants` and the refusing connector: taken over, sealed, expanded, no list call — the C1 path. Both refusals red at 10cb8c72 (the first continues collecting; the second seals partially expanded); the takeover row green at 10cb8c72 and must stay so.
+- Risk routing: HIGH; silent + durable (a misattributed pass, a page in the wrong phase). Draft: frozen after a facts read by a reader other than the author; the resumer-flag policy is ruled (§7). Obligations in implementation.md.
+- SQLite: no change; same acceptance check as CO-037. `MarkSyncSupportsDiff` keeps firing where it does; the phase is the ledger's own record of the same event.
+- PR placement: this PR, after CO-037's sequence.
+
 ### CO-038 — attempt-scoped writes belong to the coordinator
 
 - Classification: lifecycle correction, small.
