@@ -1,6 +1,7 @@
 package pebble
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -96,4 +97,33 @@ func TestLedgerRetainedSealDropsFrontierAndScheduling(t *testing.T) {
 	facts, err := e.Ledger().Facts(ctx)
 	require.NoError(t, err)
 	require.Contains(t, facts, "work-committed", "retained history keeps its facts")
+}
+
+// A seal retried after the disposal batch cannot rebuild the report (the rows
+// are gone) but must not freeze the accounting: the retrying attempt's bucket
+// lands in the archive before the stamp deletes the family's counters.
+func TestLedgerSealRetryArchivesTheRetryBucket(t *testing.T) {
+	e, _ := newTestEngine(t)
+	ctx := t.Context()
+	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	w := e.Ledger().BeginPage()
+	require.NoError(t, w.SetFact(c1zstore.LedgerFactDiscardOnSeal))
+	require.NoError(t, w.SetCounterBucket("first", 0, c1zstore.LedgerCounters{Counters: map[string]uint64{"pages": 1}}))
+	require.NoError(t, w.Commit(ctx, grantsPageIdentity("group", "cursor"), nil))
+	require.NoError(t, commitTerminalPage(t, e, ctx))
+	injected := errors.New("stamp failed")
+	e.test.endSyncStampHook = func() error { return injected }
+	require.ErrorIs(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}), injected)
+	e.test.endSyncStampHook = nil
+
+	// The retrying attempt records its own accounting, as prepareSeal does.
+	require.NoError(t, e.Ledger().PutCounterBucket(ctx, "retry", c1zstore.RunBucketWorker, c1zstore.LedgerCounters{Counters: map[string]uint64{"retries": 1}}))
+	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+	require.NoError(t, e.SetCurrentSync(ctx, syncID))
+	archive, err := e.readLedgerArchive(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, archive.Counters.Counters["pages"])
+	require.EqualValues(t, 1, archive.Counters.Counters["retries"], "the retry's bucket is in the archive")
+	require.Contains(t, archive.Facts, c1zstore.LedgerFactDiscardOnSeal)
 }

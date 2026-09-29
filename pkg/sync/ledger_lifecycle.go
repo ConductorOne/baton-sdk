@@ -47,6 +47,14 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 	if err != nil {
 		return absent, err
 	}
+	if state.Token && state.Phase == c1zstore.LedgerQueueAbsent {
+		// Decide on the token's own stack before takeover consumes it: a
+		// refused request must leave the file as it found it, including
+		// resumable by a baseline SDK.
+		if err := s.legacyTokenFlagConflict(ctx, state.Finished); err != nil {
+			return absent, err
+		}
+	}
 	resume, err := loadLedgerResume(ctx, s.store, ledger, runID)
 	if err != nil {
 		return absent, err
@@ -84,6 +92,44 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 		return absent, err
 	}
 	return resume.phase, s.restoreLedgerState(ctx, ledger, runID, knownEmpty)
+}
+
+// A legacy token is the pass's state before takeover: its stack is the queue.
+// The same rule as expansionFlagConflict's Collecting case, read from the
+// token so the refusal precedes the takeover write.
+func (s *syncer) legacyTokenFlagConflict(ctx context.Context, finished bool) error {
+	if !s.cfg.onlyExpandGrants {
+		return nil
+	}
+	token, err := s.store.CurrentSyncStep(ctx)
+	if err != nil {
+		return fmt.Errorf("read legacy checkpoint: %w", err)
+	}
+	if token == "" {
+		return nil
+	}
+	resume, _, _, err := decodeLedgerCheckpoint(token)
+	if err != nil {
+		return err
+	}
+	if len(resume.actions) == 0 {
+		// An empty stack seeds Init, which plans the requested pass; a
+		// finished baseline upload takes this path. Unfinished with nothing
+		// queued is the unstarted case, decided after takeover on the seed.
+		return nil
+	}
+	for _, action := range resume.actions {
+		switch action.identity.Op {
+		case InitOp.String():
+			if !finished {
+				return fmt.Errorf("%w: sync %s is a legacy checkpoint that has not collected; finish it before requesting expansion only", ErrLedgerStateConflict, s.syncID)
+			}
+		case SyncGrantExpansionOp.String():
+		default:
+			return fmt.Errorf("%w: sync %s is a legacy checkpoint mid-collection; finish it before requesting expansion only", ErrLedgerStateConflict, s.syncID)
+		}
+	}
+	return nil
 }
 
 // The phase is the pass's commitment; a resumer's expansion flags are read

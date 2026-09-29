@@ -94,6 +94,19 @@ func (e *Engine) buildLedgerArchiveLocked(ctx context.Context, syncID string) ([
 			return nil, nil, err
 		}
 		if prior != nil && prior.SyncID == syncID {
+			// The rows are gone, so the report cannot be rebuilt; the facts and
+			// counters can, and a retried seal has written its own bucket since.
+			facts, err := e.Ledger().Facts(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			counters, err := e.Ledger().Counters(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			if len(facts) > 0 || !counters.IsZero() {
+				prior.Facts, prior.Counters = facts, counters
+			}
 			rendered, err := renderLedgerArchive(prior)
 			if err != nil {
 				return nil, nil, err

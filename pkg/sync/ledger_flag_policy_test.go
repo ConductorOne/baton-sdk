@@ -161,3 +161,31 @@ func TestLedgerExpansionOnlyExpandsFinishedBaselineUpload(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, finished)
 }
+
+// The refusal must precede the takeover: a legacy checkpoint mid-collection
+// that a baseline SDK could still resume is left exactly as it was found.
+func TestLedgerExpansionOnlyRefusesLegacyCheckpointBeforeTakeover(t *testing.T) {
+	ctx := t.Context()
+	f := newLedgerFixture(t)
+	id := f.engine.CurrentSyncID()
+	prior := newRunState()
+	prior.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "remaining"})
+	token, err := marshalToken(prior, newRunStats())
+	require.NoError(t, err)
+	require.NoError(t, f.store.CheckpointSync(ctx, token))
+	before := ledgerRawSnapshot(t, f.engine)
+	require.NoError(t, f.store.Close(ctx))
+
+	f = openLedgerFixtureAt(t, f.path, false)
+	expander, err := NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()}, WithConnectorStore(f.store), WithSyncID(id), WithOnlyExpandGrants())
+	require.NoError(t, err)
+	err = expander.Sync(ctx)
+	require.ErrorIs(t, err, ErrLedgerStateConflict)
+	require.ErrorContains(t, err, "legacy checkpoint mid-collection")
+	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)), "no takeover: the token is still the checkpoint")
+	require.NoError(t, f.store.SetCurrentSync(ctx, id))
+	state, err := f.ledger.State(ctx)
+	require.NoError(t, err)
+	require.True(t, state.Token)
+	require.Equal(t, c1zstore.LedgerQueueAbsent, state.Phase)
+}
