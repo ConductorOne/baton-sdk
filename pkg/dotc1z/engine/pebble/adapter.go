@@ -110,6 +110,12 @@ func (e *Engine) startNewSync(ctx context.Context, syncType connectorstore.SyncT
 	if existed, err := e.hasSyncRun(); err != nil {
 		return "", err
 	} else if existed {
+		if _, phase, err := e.ledger.workState(); err != nil {
+			return "", err
+		} else if phase != c1zstore.LedgerQueueAbsent {
+			ctxzap.Extract(ctx).Warn("pebble: starting a new sync over an open pass; its progress is discarded",
+				zap.Stringer("abandoned_phase", phase))
+		}
 		if err := e.ResetForNewSync(ctx); err != nil {
 			return "", err
 		}
