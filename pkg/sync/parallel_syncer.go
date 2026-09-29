@@ -406,19 +406,22 @@ func (s *syncer) parallelSync(
 				if s.recordStats {
 					l.Info("sync data collection complete", s.syncSummaryFields(trace.SpanFromContext(ctx))...)
 				}
-				if err := s.store.SyncMeta().MarkSyncSupportsDiff(ctx, s.syncID); err != nil {
+				if s.ledgered {
+					// Collecting → Expanding, the pass's commitment to expand. A
+					// skipped expansion never enters the phase. The phase is this
+					// event's record; the token path's supports_diff column is not
+					// written for ledger syncs.
+					if !skipExpansion {
+						if err := s.caps.pageLedger.BeginExpanding(ctx); err != nil {
+							return warnings, err
+						}
+					}
+				} else if err := s.store.SyncMeta().MarkSyncSupportsDiff(ctx, s.syncID); err != nil {
 					// No detached rescue on this exit (RFC 0009 §4.2): a
 					// metadata-only write, with no progress since the
 					// loop-top checkpoint.
 					l.Error("failed to set supports_diff marker", zap.Error(err))
 					return warnings, err
-				}
-				// Collecting → Expanding, the pass's commitment to expand. A
-				// skipped expansion never enters the phase.
-				if s.ledgered && !skipExpansion {
-					if err := s.caps.pageLedger.BeginExpanding(ctx); err != nil {
-						return warnings, err
-					}
 				}
 			}
 
