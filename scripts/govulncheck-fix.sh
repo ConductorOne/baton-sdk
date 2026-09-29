@@ -16,7 +16,9 @@
 #   govulncheck.json  the raw scan
 #   findings.tsv      kind, module, current, fixed, advisory — one row each
 #   pr-body.md        the pull request body / step summary
-# and, when GITHUB_OUTPUT is set, `changed` and `clean` for the workflow.
+# and, when GITHUB_OUTPUT is set, `changed` (the tree differs and builds, so
+# there is a pull request to open or refresh) and `needed` (some bump was
+# called for; false means an open fix pull request is stale) for the workflow.
 #
 # Run it locally from the repository root: scripts/govulncheck-fix.sh
 set -euo pipefail
@@ -148,17 +150,20 @@ if [ "$build_ok" = true ] && [ "${#targets[@]}" -gt 0 ]; then
   done
 fi
 
+# `needed` is about the bumps, not the findings: a scan that reports only
+# unfixable or already-covered findings still means an open fix pull request
+# has nothing left to deliver.
 changed=false
-clean=false
-if [ ! -s "$findings" ]; then
-  clean=true
+needed=false
+if [ "${#targets[@]}" -gt 0 ] || [ -n "$go_to" ]; then
+  needed=true
 fi
 if [ "$build_ok" = true ] && [ -n "$(git status --porcelain -- go.mod go.sum vendor)" ]; then
   changed=true
 fi
 if [ -n "${GITHUB_OUTPUT:-}" ]; then
   echo "changed=$changed" >> "$GITHUB_OUTPUT"
-  echo "clean=$clean" >> "$GITHUB_OUTPUT"
+  echo "needed=$needed" >> "$GITHUB_OUTPUT"
 fi
 
 # The body doubles as the step summary. Advisories link to the Go
@@ -232,7 +237,7 @@ advisories() {
     echo
   fi
   echo "---"
-  echo "Produced by \`scripts/govulncheck-fix.sh\` (symbol-level findings only). The weekly run refreshes this pull request while findings remain and closes it when the scan comes back clean."
+  echo "Produced by \`scripts/govulncheck-fix.sh\` (symbol-level findings only). The weekly run refreshes this pull request while a dependency or go directive bump is needed and closes it when no bump is needed, even if unfixable findings remain."
 } > "$body"
 
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then

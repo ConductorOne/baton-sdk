@@ -3,8 +3,8 @@ name: govulncheck
 # Weekly scan of this module's own code for reachable vulnerabilities. When a
 # dependency bump fixes one, the run opens a pull request with the bump, or
 # refreshes the one already open on the govulncheck/fixes branch; when a later
-# scan comes back clean while that pull request is still open, the run closes
-# it. Standard-library findings raise the go directive to the fixed release,
+# scan finds nothing left to bump while that pull request is still open, the
+# run closes it. Standard-library findings raise the go directive to the fixed release,
 # the floor every dependent inherits when it takes the new SDK; findings
 # without a fix are reported in the step summary and the pull request body
 # only. Merging and releasing stay manual: everything built on this SDK
@@ -89,7 +89,7 @@ jobs:
             vendor
 
       - name: Close a stale fix pull request
-        if: steps.fix.outputs.clean == 'true'
+        if: steps.fix.outputs.needed == 'false'
         env:
           GH_TOKEN: ${{ steps.ci-token.outputs.token }}
         run: |
@@ -99,4 +99,4 @@ jobs:
             exit 0
           fi
           gh pr close "$number" --repo "$GITHUB_REPOSITORY" --delete-branch \
-            --comment "This week's govulncheck scan of main found nothing reachable, so the bumps here are no longer needed. Closed by the workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            --comment "This week's govulncheck scan of main found nothing that a dependency or go directive bump fixes, so the bumps here are no longer needed. Closed by the workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"

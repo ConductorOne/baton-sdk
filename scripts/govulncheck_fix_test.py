@@ -112,13 +112,15 @@ esac
     def test_clean_scan(self):
         root, result = self.run_fix([])
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("clean=true", (root / "outputs").read_text())
+        self.assertIn("needed=false", (root / "outputs").read_text())
         self.assertIn("changed=false", (root / "outputs").read_text())
 
-    def test_report_only_findings_do_not_close_pr(self):
+    def test_report_only_findings_still_release_a_stale_pr(self):
+        # Nothing to bump means an open fix pull request has nothing left to
+        # deliver, even though the scan is not clean.
         root, result = self.run_fix([finding("example.com/unfixed", "")])
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("clean=false", (root / "outputs").read_text())
+        self.assertIn("needed=false", (root / "outputs").read_text())
         self.assertIn("changed=false", (root / "outputs").read_text())
 
     def test_stdlib_finding_raises_the_go_directive(self):
@@ -135,6 +137,7 @@ esac
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("get ", (root / "go-calls").read_text())
         self.assertIn("changed=false", (root / "outputs").read_text())
+        self.assertIn("needed=false", (root / "outputs").read_text())
         self.assertIn("already covered by the go directive", (root / "summary").read_text())
 
     def test_stdlib_fix_compares_against_the_go_directive(self):
@@ -219,12 +222,12 @@ esac
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("changed=false", (root / "outputs").read_text())
 
-    def test_workflow_scans_main_and_closes_only_clean(self):
+    def test_workflow_scans_main_and_closes_when_nothing_is_needed(self):
         workflow = WORKFLOW.read_text()
         checkout = workflow.split("- name: Checkout code", 1)[1].split("- name:", 1)[0]
         close = workflow.split("- name: Close a stale fix pull request", 1)[1]
         self.assertIn("ref: main", checkout)
-        self.assertIn("if: steps.fix.outputs.clean == 'true'", close)
+        self.assertIn("if: steps.fix.outputs.needed == 'false'", close)
 
 
 if __name__ == "__main__":
