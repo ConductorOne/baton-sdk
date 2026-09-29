@@ -984,12 +984,11 @@ func (s *pebbleStore) PutLedgerFacts(ctx context.Context, facts map[string]strin
 	return s.markDirty(s.Engine.Ledger().PutFacts(ctx, facts))
 }
 
-func (s *pebbleStore) ClearLedgerRows(ctx context.Context, clearFacts []string) error {
-	if err := s.writeHook(ctx, "ClearLedgerRows"); err != nil {
+func (s *pebbleStore) BeginPass(ctx context.Context, seeds []c1zstore.LedgerWork, clearFacts []string) error {
+	if err := s.writeHook(ctx, "BeginPass"); err != nil {
 		return err
 	}
-	s.MarkDirty()
-	return s.Engine.Ledger().ClearRows(ctx, clearFacts)
+	return s.markDirty(s.Engine.Ledger().BeginPass(ctx, seeds, clearFacts))
 }
 
 func (s *pebbleStore) ArchiveLedgerReport(ctx context.Context) ([]byte, error) {
@@ -998,13 +997,6 @@ func (s *pebbleStore) ArchiveLedgerReport(ctx context.Context) ([]byte, error) {
 	}
 	s.MarkDirty()
 	return s.Engine.ArchiveLedgerReport(ctx)
-}
-func (s *pebbleStore) RestoreLedgerArchive(ctx context.Context) error {
-	if err := s.writeHook(ctx, "RestoreLedgerArchive"); err != nil {
-		return err
-	}
-	s.MarkDirty()
-	return s.Engine.RestoreLedgerArchive(ctx)
 }
 
 func (s *pebbleStore) PendingWork(ctx context.Context, beforeID uint64, limit int) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {

@@ -38,7 +38,7 @@ func TestLedgerArchiveDurableCrashImages(t *testing.T) {
 		images["restore-stamped"] = fs.CrashClone(vfs.CrashCloneCfg{})
 		return nil
 	})
-	require.NoError(t, e.RestoreLedgerArchive(t.Context()))
+	require.NoError(t, e.Ledger().BeginPass(t.Context(), nil, nil))
 	e.db.SetRecordCommitTestHook(nil)
 	images["restored"] = fs.CrashClone(vfs.CrashCloneCfg{})
 	require.Len(t, images, 5)
@@ -65,8 +65,12 @@ func TestLedgerArchiveDurableCrashImages(t *testing.T) {
 			} else {
 				require.Contains(t, facts, "skip-grants")
 			}
-			require.NoError(t, reopened.RestoreLedgerArchive(t.Context()))
-			require.NoError(t, reopened.RestoreLedgerArchive(t.Context()))
+			_, phase, err := reopened.Ledger().PendingWork(t.Context(), 0, 1)
+			require.NoError(t, err)
+			require.Equal(t, label == "restored", phase == c1zstore.LedgerQueueCollecting, "the declaration lands with the pass's batch")
+			if phase == c1zstore.LedgerQueueAbsent {
+				require.NoError(t, reopened.Ledger().BeginPass(t.Context(), nil, nil))
+			}
 			facts, err = reopened.Ledger().Facts(t.Context())
 			require.NoError(t, err)
 			require.Contains(t, facts, "skip-grants")

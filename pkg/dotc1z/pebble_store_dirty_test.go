@@ -176,7 +176,7 @@ func TestPebbleStoreSyncMetaMarksDirty(t *testing.T) {
 		"a standalone SyncMeta stamp must survive close/reopen")
 }
 
-func TestPebbleStoreClearRowsMarksDirty(t *testing.T) {
+func TestPebbleStoreBeginPassMarksDirty(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "clear-rows.c1z")
 	store, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
@@ -197,7 +197,7 @@ func TestPebbleStoreClearRowsMarksDirty(t *testing.T) {
 	store, err = NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)
 	require.NoError(t, store.SetCurrentSync(ctx, syncID))
-	require.NoError(t, store.(c1zstore.PageLedgerStore).ClearLedgerRows(ctx, []string{"finished"}))
+	require.NoError(t, store.(c1zstore.PageLedgerStore).BeginPass(ctx, nil, []string{"finished"}))
 	require.NoError(t, store.Close(ctx))
 	store, err = NewStore(ctx, path, WithEngine(c1zstore.EnginePebble))
 	require.NoError(t, err)

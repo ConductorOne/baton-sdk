@@ -137,15 +137,21 @@ func testLedgerDiscardDurableSealCuts(t *testing.T, previouslyFinished bool) {
 			saved, err := reopened.GetArchivedLedgerReport(t.Context())
 			require.NoError(t, err)
 			require.JSONEq(t, string(report), string(saved), "the archive is durable from the disposal batch on")
-			require.NoError(t, reopened.RestoreLedgerArchive(t.Context()))
-			facts, err = reopened.Ledger().Facts(t.Context())
+			_, err = reopened.GetResourceRecord(t.Context(), "type", "one")
 			require.NoError(t, err)
-			require.Contains(t, facts, "sync.seal_ready")
+			if complete {
+				require.NoError(t, reopened.Ledger().BeginPass(t.Context(), nil, nil))
+				facts, err = reopened.Ledger().Facts(t.Context())
+				require.NoError(t, err)
+				require.Contains(t, facts, "sync.seal_ready", "the next pass starts from the archived facts")
+				counters, err := reopened.Ledger().Counters(t.Context())
+				require.NoError(t, err)
+				require.EqualValues(t, 7, counters.Counters["completed"], "and the archived totals")
+				return
+			}
 			counters, err := reopened.Ledger().Counters(t.Context())
 			require.NoError(t, err)
 			require.EqualValues(t, 7, counters.Counters["completed"])
-			_, err = reopened.GetResourceRecord(t.Context(), "type", "one")
-			require.NoError(t, err)
 			require.NoError(t, reopened.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}))
 			saved, err = reopened.GetArchivedLedgerReport(t.Context())
 			require.NoError(t, err)
@@ -217,7 +223,7 @@ func TestLedgerDiscardFailureRetriesSeal(t *testing.T) {
 	}
 }
 
-func TestLedgerDiscardArchiveDoesNotRestoreIntoAnotherUnfinishedRun(t *testing.T) {
+func TestLedgerDiscardArchiveDoesNotBeginPassOnUnfinishedRun(t *testing.T) {
 	e, _ := newTestEngine(t)
 	id, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -234,7 +240,7 @@ func TestLedgerDiscardArchiveDoesNotRestoreIntoAnotherUnfinishedRun(t *testing.T
 	record.SetEndedAt(nil)
 	require.NoError(t, e.PutSyncRunRecord(t.Context(), record))
 	require.NoError(t, e.SetCurrentSync(t.Context(), differentID))
-	require.NoError(t, e.RestoreLedgerArchive(t.Context()))
+	require.ErrorContains(t, e.Ledger().BeginPass(t.Context(), nil, nil), "unfinished")
 	facts, err := e.Ledger().Facts(t.Context())
 	require.NoError(t, err)
 	require.Empty(t, facts)
@@ -272,8 +278,7 @@ func TestLedgerDiscardBatchFailure(t *testing.T) {
 			report, err := e.GetArchivedLedgerReport(t.Context())
 			require.NoError(t, err)
 			require.Equal(t, failAt == 2, len(report) > 0, "the archive lands with the disposal batch")
-			require.NoError(t, e.RestoreLedgerArchive(t.Context()))
-			require.NoError(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}))
+			require.NoError(t, e.EndSyncWithStats(t.Context(), c1zstore.SyncStats{}), "the declaration is still sealing; the retry needs no restore")
 			saved, err := e.GetArchivedLedgerReport(t.Context())
 			require.NoError(t, err)
 			require.NotEmpty(t, saved)

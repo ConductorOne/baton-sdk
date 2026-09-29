@@ -33,8 +33,7 @@ import (
 )
 
 var commitPointRegistry = map[string][]string{
-	"adapter.go:endSyncFinalize":             {"SetRecordCommitTestHook"},
-	"ledger_archive.go:RestoreLedgerArchive": {"SetRecordCommitTestHook"},
+	"adapter.go:endSyncFinalize": {"SetRecordCommitTestHook"},
 	// Typed record mutations: every site commits a rawdb.RecordBatch,
 	// whose Commit passes the record-commit choke-point hook.
 	"entitlements.go:PutEntitlementRecords":             {"SetRecordCommitTestHook"},
@@ -63,7 +62,7 @@ var commitPointRegistry = map[string][]string{
 	"pending_work.go:CompletePendingWork":   {"SetRecordCommitTestHook"},
 	"pending_work.go:InitializePendingWork": {"SetRecordCommitTestHook"},
 	"ledger_counter_fold.go:FoldCounters":   {"SetRecordCommitTestHook"},
-	"ledger.go:ClearRows":                   {"ledgerClearRowsHook", "SetRecordCommitTestHook"},
+	"ledger.go:BeginPass":                   {"ledgerBeginPassHook", "SetRecordCommitTestHook"},
 	"ledger.go:scrubTokens":                 {"SetRecordCommitTestHook"},
 	"ledger.go:takeover":                    {"SetRecordCommitTestHook"}, // RecordBatch: frontier + facts + bucket + token clear, one unit
 	"ledger.go:PutFacts":                    {"SetRecordCommitTestHook"}, // one synced batch of fact values; TestLedgerPutFactsIsOneUnit

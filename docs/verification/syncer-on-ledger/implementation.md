@@ -369,6 +369,18 @@ mid-seal images that replace it (disposal landed, stamp not) are asserted at
 the engine in `TestLedgerDiscardDurableSealCuts`; the syncer-level resume on
 those images is commit 4's test (a).
 
+Commit 3 landed `BeginPass` and moved two classifier lines forward from
+commit 4, because the storage change exposed them: with the archive no
+longer restored before classification, a finished sync with no declaration
+must begin a pass whatever a legacy state decoded to (`case finished`), and
+a declaration on a finished sync must continue or seal, never begin a pass
+(the `finished && !hasPendingWork → ProcessFinished` branch is gone). The
+second is defect 2; `TestLedgerDrainedPassSealsWithoutRecollection` fails
+at 111af384 with the connector's recollection refusal and passes here.
+`InitializePendingWork` now refuses a finished sync. `ledgerFinishSeal` for
+an absent declaration, the `seal_ready` fact and the other syncer removals
+stay in commit 4.
+
 Commit sequence, each building and passing alone: (1) phase byte, terminal
 transition and phase-returning reads, engine tests; (2) single stamp batch and
 removal of the post-stamp block, engine crash cuts and (c); (3) `BeginPass`,

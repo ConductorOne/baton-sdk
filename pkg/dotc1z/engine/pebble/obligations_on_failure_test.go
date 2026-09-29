@@ -39,7 +39,7 @@ import (
 // not failures. Enforced by TestFailureSeamsAreExercised.
 var seamFailureCases = map[string][]string{
 	"ledgerArchiveHook":           {"TestLedgerArchiveFailureCuts"},
-	"ledgerClearRowsHook":         {"TestLedgerClearRowsFailureCuts", "TestLedgerClearRowsCrashImages"},
+	"ledgerBeginPassHook":         {"TestLedgerBeginPassFailureCuts", "TestLedgerBeginPassCrashImage"},
 	"digestBuildHook":             {"TestGrantDigestBuildCrashMidMerge", "TestGrantDigestBuildCrashPostFinish"},
 	"recordCommitHook":            {"TestFailedMutationPathsFireObligations"},
 	"sourceCacheReplayCommitHook": {"TestVerificationReplayBatchBoundAndInterruptedRetry"},

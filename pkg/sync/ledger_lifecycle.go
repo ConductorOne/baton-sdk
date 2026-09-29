@@ -19,14 +19,16 @@ const (
 func (r ledgerResume) preparation(finished bool) ledgerPreparation {
 	switch {
 	case r.initialized:
+		// A declaration means a pass is open; ended_at says nothing about it.
+		// Drained work seals; pending work continues.
 		if r.sealReady {
 			return ledgerFinishSeal
 		}
-		if finished && !r.hasPendingWork {
-			return ledgerProcessFinished
-		}
 		return ledgerContinuePending
-	case finished && (r.sealReady || len(r.actions) == 0):
+	case finished:
+		// No declaration on a finished sync: whatever a legacy state decoded
+		// to, the pass it described is over. The next pass starts from the
+		// archive.
 		return ledgerProcessFinished
 	case r.sealReady:
 		return ledgerFinishSeal
@@ -50,21 +52,6 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 	}
 	_, discardPending := facts[c1zstore.LedgerFactDiscardOnSeal]
 	finished = finished && !discardPending
-	if len(facts) == 0 || len(facts) == 1 && discardPending {
-		archive, err := ledger.GetArchivedLedgerReport(ctx)
-		if err != nil {
-			return err
-		}
-		if len(archive) > 0 {
-			if err := ledger.RestoreLedgerArchive(ctx); err != nil {
-				return err
-			}
-			facts, err = ledger.LedgerFacts(ctx)
-			if err != nil {
-				return err
-			}
-		}
-	}
 	resume, err := loadLedgerResume(ctx, s.store, ledger, runID, facts)
 	if err != nil {
 		return err
@@ -72,11 +59,10 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 	knownEmpty := newSync
 	switch resume.preparation(finished) {
 	case ledgerProcessFinished:
-		if err := ledger.ClearLedgerRows(ctx, []string{ledgerFactSealReady, c1zstore.LedgerFactDiscardOnSeal, c1zstore.LedgerFactRetainTokens}); err != nil {
+		seeds := pendingSeeds([]ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}})
+		if err := ledger.BeginPass(ctx, seeds, []string{ledgerFactSealReady, c1zstore.LedgerFactDiscardOnSeal, c1zstore.LedgerFactRetainTokens}); err != nil {
 			return err
 		}
-		resume.actions = nil
-		fallthrough
 	case ledgerSeedPending:
 		if len(resume.actions) == 0 {
 			resume.actions = []ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}

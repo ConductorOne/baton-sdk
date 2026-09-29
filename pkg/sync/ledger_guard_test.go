@@ -326,24 +326,17 @@ func (w *ledgerTrackedWriter) Discard() {
 	w.release()
 }
 
-func (s *ledgerGuardedStore) ClearLedgerRows(ctx context.Context, facts []string) error {
-	if err := s.audit.record(ctx, "ClearLedgerRows"); err != nil {
-		return err
-	}
-	return s.PageLedgerStore.ClearLedgerRows(ctx, facts)
-}
-
 func (s *ledgerGuardedStore) ArchiveLedgerReport(ctx context.Context) ([]byte, error) {
 	if err := s.audit.record(ctx, "ArchiveLedgerReport"); err != nil {
 		return nil, err
 	}
 	return s.PageLedgerStore.ArchiveLedgerReport(ctx)
 }
-func (s *ledgerGuardedStore) RestoreLedgerArchive(ctx context.Context) error {
-	if err := s.audit.record(ctx, "RestoreLedgerArchive"); err != nil {
+func (s *ledgerGuardedStore) BeginPass(ctx context.Context, seeds []c1zstore.LedgerWork, clearFacts []string) error {
+	if err := s.audit.record(ctx, "BeginPass"); err != nil {
 		return err
 	}
-	return s.PageLedgerStore.RestoreLedgerArchive(ctx)
+	return s.PageLedgerStore.BeginPass(ctx, seeds, clearFacts)
 }
 
 func (s *ledgerGuardedStore) InitializePendingWork(ctx context.Context, work []c1zstore.LedgerWork, facts ...string) error {

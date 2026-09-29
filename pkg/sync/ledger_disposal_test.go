@@ -48,7 +48,7 @@ func TestLedgerDiscardPendingFinishedBindingDoesNotRestartProcessing(t *testing.
 	require.NoError(t, err)
 	require.Nil(t, options)
 	require.NoError(t, f.store.SetCurrentSync(t.Context(), id))
-	require.NoError(t, f.ledger.RestoreLedgerArchive(t.Context()))
+	require.NoError(t, f.ledger.BeginPass(t.Context(), nil, nil))
 	counters, err := f.ledger.LedgerCounters(t.Context())
 	require.NoError(t, err)
 	require.EqualValues(t, 2, counters.Counters[ledgerCompletedPrefix+SyncGrantExpansionOp.String()])

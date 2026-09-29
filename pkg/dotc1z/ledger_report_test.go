@@ -106,7 +106,7 @@ func TestPebbleStoreArchivedReportSurvivesDropAndReopen(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, facts)
 	require.NoError(t, store.SetCurrentSync(ctx, id))
-	require.NoError(t, ledger.RestoreLedgerArchive(ctx))
+	require.NoError(t, ledger.BeginPass(ctx, nil, nil))
 	counters, err := ledger.LedgerCounters(ctx)
 	require.NoError(t, err)
 	require.EqualValues(t, 9, counters.Counters["completed"])

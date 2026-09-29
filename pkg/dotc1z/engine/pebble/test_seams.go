@@ -13,7 +13,7 @@ import "sync/atomic"
 // default `go test ./...` workflow (the package under test would need
 // the tag to compile the hook sites).
 type testSeams struct {
-	ledgerClearRowsHook func(stage string) error
+	ledgerBeginPassHook func() error
 	ledgerArchiveHook   func(stage string) error
 	// digestBuildHook fires at named points inside
 	// buildGrantDigestsFromSpill (grant_digest_build_crash_test.go);

@@ -124,8 +124,7 @@ func TestLedgerEarlyEndAfterInterruptedDisposalKeepsStats(t *testing.T) {
 	require.EqualValues(t, 321, stats.GetStepDurationsMs()["resources"])
 	require.NotNil(t, stats.GetIngestQuality())
 	require.NoError(t, e.SetCurrentSync(ctx, id))
-	require.NoError(t, e.RestoreLedgerArchive(ctx))
 	counters, err := e.Ledger().Counters(ctx)
 	require.NoError(t, err)
-	require.EqualValues(t, 321, counters.StepDurationsMs["resources"])
+	require.EqualValues(t, 321, counters.StepDurationsMs["resources"], "the family keeps its buckets through an interrupted disposal")
 }

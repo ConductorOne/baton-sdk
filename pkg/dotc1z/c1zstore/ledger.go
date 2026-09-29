@@ -249,8 +249,6 @@ type PageLedgerStore interface {
 	GetArchivedLedgerReport(ctx context.Context) ([]byte, error)
 	// Empty attempt selects latest; only the first and latest snapshots are retained.
 	GetArchivedLedgerOptions(ctx context.Context, attempt string) (*LedgerReportOptions, error)
-	// Restores an empty finished ledger, or matching unfinished discard recovery state.
-	RestoreLedgerArchive(ctx context.Context) error
 	BeginPage() PageWriter
 	// Diagnostic lookup by request arguments; multiple work instances may match.
 	// PendingWork is the recovery authority.
@@ -274,10 +272,13 @@ type PageLedgerStore interface {
 	BoundSyncUnstarted(ctx context.Context) (bool, error)
 	// Preserves records and sync metadata; removes ledger rows, facts and counters.
 	DropLedger(ctx context.Context) error
-	// Clears page rows, the takeover frontier and named facts in one synced
-	// batch. Requires an ended bound sync with no pending work; retains counters,
-	// all other facts, records and sync metadata for processing under the same sync ID.
-	ClearLedgerRows(ctx context.Context, clearFacts []string) error
+	// Opens a new collection pass on a finished bound sync with no declaration
+	// and no legacy checkpoint, in one synced batch: prior rows, scheduling
+	// relations and frontier go; archived facts the family lacks return, minus
+	// clearFacts; archived counters return only when the family has no bucket;
+	// seeds and a Collecting declaration are staged. Records and sync metadata
+	// are untouched.
+	BeginPass(ctx context.Context, seeds []LedgerWork, clearFacts []string) error
 	// Blind-writes the run's whole cumulative bucket; a later write supersedes.
 	PutCounterBucket(ctx context.Context, runID string, worker uint32, counters LedgerCounters) error
 	// Blind-writes named fact values outside any page, all in one synced

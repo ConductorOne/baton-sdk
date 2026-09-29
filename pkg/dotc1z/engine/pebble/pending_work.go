@@ -89,6 +89,9 @@ func (l *Ledger) InitializePendingWork(ctx context.Context, actions []c1zstore.L
 		if record.GetSyncToken() != "" {
 			return errors.New("checkpoint must be consumed through pending-work takeover")
 		}
+		if record.GetEndedAt() != nil {
+			return errors.New("a finished sync begins its next pass through BeginPass")
+		}
 		_, phase, err := l.workState()
 		if err != nil {
 			return err

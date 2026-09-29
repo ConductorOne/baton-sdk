@@ -704,34 +704,65 @@ func (l *Ledger) PutFacts(ctx context.Context, facts map[string]string) error {
 	})
 }
 
-func (l *Ledger) ClearRows(ctx context.Context, clearFacts []string) error {
+// BeginPass opens a new collection pass on a finished sync under the same ID.
+// One synced batch: the prior pass's rows, scheduling relations and frontier
+// go; facts the archive holds and the family lacks come back, minus
+// clearFacts; the archived counters come back as the takeover bucket only
+// when the family holds no bucket (a retained seal keeps its buckets, and the
+// archive holds the same totals); the seeds and a collecting declaration are
+// staged. Holds lifecycleMu across the record read and the commit, as
+// takeover does.
+func (l *Ledger) BeginPass(ctx context.Context, seeds []c1zstore.LedgerWork, clearFacts []string) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	for _, seed := range seeds {
+		if seed.ID != 0 || seed.Revision != 0 {
+			return errors.New("BeginPass: seeds must not have assigned IDs or revisions")
+		}
 	}
 	l.e.lifecycleMu.Lock()
 	defer l.e.lifecycleMu.Unlock()
 	syncID := l.e.CurrentSyncID()
 	if syncID == "" {
-		return errors.New("ClearRows: no bound sync")
+		return errors.New("BeginPass: no bound sync")
 	}
 	record, err := l.e.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return err
 	}
 	if record.GetEndedAt() == nil {
-		return errors.New("ClearRows: bound sync is unfinished")
+		return errors.New("BeginPass: bound sync is unfinished")
 	}
-	keys := make([][]byte, 0, len(clearFacts))
+	if record.GetSyncToken() != "" {
+		return errors.New("BeginPass: legacy checkpoint must be taken over first")
+	}
+	cleared := make(map[string]bool, len(clearFacts))
 	for _, fact := range clearFacts {
-		keys = append(keys, encodeLedgerFactKey(fact))
+		cleared[fact] = true
 	}
 	return l.e.withWrite(func() error {
-		pending, _, err := l.PendingWork(ctx, 0, 1)
+		_, phase, err := l.workState()
 		if err != nil {
 			return err
 		}
-		if len(pending) != 0 {
-			return errors.New("ClearRows: processing pass is unfinished")
+		if phase != c1zstore.LedgerQueueAbsent {
+			return fmt.Errorf("BeginPass: pending-work declaration is %s", phase)
+		}
+		archive, err := l.e.readLedgerArchive(ctx)
+		if err != nil {
+			return err
+		}
+		if archive != nil && archive.SyncID != syncID && !record.GetCompacted() {
+			return errors.New("BeginPass: ledger archive belongs to another sync")
+		}
+		present, err := l.Facts(ctx)
+		if err != nil {
+			return err
+		}
+		hasBucket, err := l.hasCounterBucketLocked()
+		if err != nil {
+			return err
 		}
 		if err := l.markResiduePendingLocked(); err != nil {
 			return err
@@ -739,30 +770,58 @@ func (l *Ledger) ClearRows(ctx context.Context, clearFacts []string) error {
 		if err := l.markInFlightLocked(); err != nil {
 			return err
 		}
-		if hook := l.e.test.ledgerClearRowsHook; hook != nil {
-			if err := hook("stamped"); err != nil {
-				return err
-			}
-		}
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
-		if err := batch.StageLedgerClearRows(keys); err != nil {
+		if archive != nil {
+			for name, value := range archive.Facts {
+				if _, has := present[name]; has || cleared[name] {
+					continue
+				}
+				if err := batch.StageLedgerFactValue(encodeLedgerFactKey(name), value); err != nil {
+					return err
+				}
+			}
+			if !hasBucket {
+				counters, err := marshalRecord(ledgerCountersToProto(archive.Counters))
+				if err != nil {
+					return err
+				}
+				if err := batch.StageLedgerCounterBucket(encodeLedgerCounterKey("archived", c1zstore.TakeoverBucketWorker), counters); err != nil {
+					return err
+				}
+			}
+		}
+		for name := range present {
+			if cleared[name] {
+				if err := batch.StageLedgerFactDelete(encodeLedgerFactKey(name)); err != nil {
+					return err
+				}
+			}
+		}
+		if err := batch.StageLedgerDisposeTokens(); err != nil {
 			return err
 		}
-		if hook := l.e.test.ledgerClearRowsHook; hook != nil {
-			if err := hook("staged"); err != nil {
+		if err := stageInitialWork(batch, syncID, seeds); err != nil {
+			return err
+		}
+		if hook := l.e.test.ledgerBeginPassHook; hook != nil {
+			if err := hook(); err != nil {
 				return err
 			}
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := batch.Commit(pebble.Sync); err != nil {
-			return err
-		}
-		if hook := l.e.test.ledgerClearRowsHook; hook != nil {
-			return hook("committed")
-		}
-		return nil
+		return batch.Commit(pebble.Sync)
 	})
+}
+
+func (l *Ledger) hasCounterBucketLocked() (bool, error) {
+	lo, hi := rawdb.LedgerCounterBounds()
+	it, err := l.e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
+	if err != nil {
+		return false, err
+	}
+	found := it.First()
+	return found, errors.Join(it.Error(), it.Close())
 }

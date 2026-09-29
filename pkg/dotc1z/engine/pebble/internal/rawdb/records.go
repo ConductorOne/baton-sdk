@@ -661,38 +661,6 @@ func (b *FoldBatch) Set(key, val []byte) error {
 	return b.batch.Set(key, val)
 }
 
-func (rb *RecordBatch) StageLedgerClearRows(factKeys [][]byte) error {
-	for _, key := range factKeys {
-		if err := assertFamily("StageLedgerClearRows", key, LedgerFactPrefix()); err != nil {
-			return err
-		}
-	}
-	lo, hi := LedgerRowBounds()
-	if err := rb.core.DeleteRange(lo, hi); err != nil {
-		return err
-	}
-	pendingLo, pendingHi := LedgerPendingBounds()
-	if err := rb.core.DeleteRange(pendingLo, pendingHi); err != nil {
-		return err
-	}
-	scheduled := LedgerSchedulingPrefix()
-	if err := rb.core.DeleteRange(scheduled, UpperBound(scheduled)); err != nil {
-		return err
-	}
-	if err := rb.core.Delete(LedgerWorkStateKey()); err != nil {
-		return err
-	}
-	if err := rb.core.Delete(LedgerFrontierKey()); err != nil {
-		return err
-	}
-	for _, key := range factKeys {
-		if err := rb.core.Delete(key); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // The token-bearing part of the ledger family: rows, pending work, scheduling
 // relations, frontier. Facts, counters and the declaration stay.
 func (rb *RecordBatch) StageLedgerDisposeTokens() error {
@@ -739,6 +707,13 @@ func (rb *RecordBatch) StageLedgerSeal(archiveKey, archiveVal, syncRunVal []byte
 		return err
 	}
 	return rb.core.Set(SyncRunKey(), syncRunVal)
+}
+
+func (rb *RecordBatch) StageLedgerFactDelete(key []byte) error {
+	if err := assertFamily("StageLedgerFactDelete", key, LedgerFactPrefix()); err != nil {
+		return err
+	}
+	return rb.core.Delete(key)
 }
 
 func (rb *RecordBatch) StagePendingWork(key, value []byte) error {

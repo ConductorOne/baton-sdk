@@ -190,7 +190,7 @@ func TestPendingWorkStaleCommitWritesNothing(t *testing.T) {
 	require.NotContains(t, facts, "stale")
 }
 
-func TestPendingWorkSealAndFinishedClear(t *testing.T) {
+func TestPendingWorkSealThenBeginPass(t *testing.T) {
 	e, _ := newTestEngine(t)
 	work := pendingTestSeed(t, e)
 	require.ErrorContains(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}), "still collecting", "the terminal page is refused while work is pending, so the seal is too")
@@ -198,13 +198,13 @@ func TestPendingWorkSealAndFinishedClear(t *testing.T) {
 	syncID := e.CurrentSyncID()
 	require.NoError(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}))
 	require.NoError(t, e.SetCurrentSync(t.Context(), syncID))
-	_, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
+	_, phase, err := e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
-	require.Equal(t, c1zstore.LedgerQueueAbsent, initialized)
-	require.NoError(t, e.Ledger().ClearRows(t.Context(), nil))
-	_, initialized, err = e.Ledger().PendingWork(t.Context(), 0, 64)
+	require.Equal(t, c1zstore.LedgerQueueAbsent, phase, "the seal removes the declaration")
+	require.NoError(t, e.Ledger().BeginPass(t.Context(), nil, nil))
+	_, phase, err = e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
-	require.Equal(t, c1zstore.LedgerQueueAbsent, initialized)
+	require.Equal(t, c1zstore.LedgerQueueCollecting, phase, "a new pass declares again")
 }
 
 func TestPendingWorkCommitFailureKeepsRevisionAndAllocator(t *testing.T) {
@@ -478,20 +478,19 @@ func TestPendingWorkCompletionMarkerSurvivesFailedSeal(t *testing.T) {
 	require.Equal(t, c1zstore.LedgerQueueAbsent, phase)
 }
 
-func TestPendingWorkClearRefusesUnfinishedProcessing(t *testing.T) {
+func TestPendingWorkBeginPassRefusesUnfinishedProcessing(t *testing.T) {
 	e, _ := newTestEngine(t)
 	work := pendingTestSeed(t, e)
 	syncID := e.CurrentSyncID()
 	require.NoError(t, pendingTestCommit(t, e, work, ""))
 	require.NoError(t, sealWithStats(t, e, t.Context(), c1zstore.SyncStats{}))
 	require.NoError(t, e.SetCurrentSync(t.Context(), syncID))
-	require.NoError(t, e.Ledger().ClearRows(t.Context(), nil))
 	seed := c1zstore.LedgerWork{Action: work.Action}
-	require.NoError(t, e.Ledger().InitializePendingWork(t.Context(), []c1zstore.LedgerWork{seed}))
-	require.ErrorContains(t, e.Ledger().ClearRows(t.Context(), nil), "unfinished")
-	pending, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
+	require.NoError(t, e.Ledger().BeginPass(t.Context(), []c1zstore.LedgerWork{seed}, nil))
+	require.ErrorContains(t, e.Ledger().BeginPass(t.Context(), nil, nil), "declaration is collecting")
+	pending, phase, err := e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
-	require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
+	require.Equal(t, c1zstore.LedgerQueueCollecting, phase)
 	require.Len(t, pending, 1)
 }
 
