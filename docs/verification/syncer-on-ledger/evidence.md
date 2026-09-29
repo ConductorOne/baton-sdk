@@ -522,3 +522,24 @@ Departures from the frozen text, each recorded in implementation.md: the archive
 Deleted tests whose subject no longer exists: `TestLedgerDiscardUnfinishedArchiveResumesWithoutCollection` (image unreachable), `ledger_continue_test.go` (`ClearRows`; assertions carried into `ledger_begin_pass_test.go`). Test-only helpers `commitTerminalPage`/`sealWithStats` (engine) and `commitTerminalPage`/`sealLedger` (dotc1z, synccompactor) supply the terminal page production commits through `prepareSeal`.
 
 Limits: no released artifact carries a version-1 work state, so the rejection is a guard, not a migration; the cross-version tooling that would exercise old-host reads of new-host files is the deferred commit 5. Retained mode keeps the frontier (with the legacy token's verbatim state) through the seal, as before this change; not in scope.
+
+## CO-039 — the pass is a state machine; writes are transitions
+
+Status: implemented across c6cbecec (test h, red), 6dc063cc (test b, red), 1993c049 (storage + test a), 794476e6 (syncer), 4db3b17d (interface names). Facts read of the draft by a second reader: pending at the time of writing. Full-run verdict: FULLRUN_PENDING.
+
+Tests written first, red at the head before their fix, each with the failure the freeze predicted:
+- (h) `TestLedgerExpansionOnlyRefusesIncompleteCollection`: `main`'s behavior surfaced as "expansion replay must not recollect grants" — collection continued into the refusing connector. `TestLedgerDontExpandRefusesPassInExpansion`: `nil` — the partial expansion sealed. `TestLedgerExpansionOnlyExpandsFinishedBaselineUpload` green before and after: the C1 path (records, empty-stack legacy token, `ended_at`, only-expand through a connector that refuses every list call).
+- (b) `TestLedgerResumeWithoutWorkWritesNoFacts`: five in-process images × seven configurations; red on every `sealing` cell but only-expand (which begins a pass); 34 cells green before. Oracle: a resume that committed no page, completed no action and began no pass leaves the fact family unchanged. The first oracle (phase and row count only) could not see a full pass that ended where it began; completed actions were added.
+- (a) `TestLedgerStateTable`: 45 state × event rows from the plan's table. Removing the Expanding page refusal fails exactly `expanding/page`. `TestLedgerBeginExpandingIsOneUnit`: hook and record-commit failures leave Collecting; the guard refuses a queue holding more than the expansion entry.
+- (c) `TestLedgerArchiveLinkFollowsThePassNotTheOptions`: red on the options-fact rule (a plain resumer's options dropped the link), green on the follow-on fact.
+
+Storage: `LedgerQueueExpanding` (encoded 3, Sealing stays 2). `BeginExpanding` is one synced write under the write lock with the guard "exactly the expansion entry pending"; not idempotent. Page commits refused in Expanding and Sealing with `ErrLedgerQueuePhase`; the terminal page is the one page Expanding accepts. `BeginPass` stages `c1z.pass.follow_on`; the archive links from it. Registered: `pending_work.go:BeginExpanding` with `ledgerBeginExpandingHook`.
+
+Syncer: `prepareLedgerState` returns the resume phase and refuses conflicts first — `dontExpandGrants` into Expanding; `onlyExpandGrants` with a collection entry queued, with `Init` alone on an unfinished sync, or with nothing under a caller-supplied sync ID. Options are written only when the resume phase is not Sealing. At the expansion pickup, ledger mode reads "resuming" from the phase; the token path keeps the graph heuristic. `supports_diff` is still stamped (`rollback-expansion` reads it on the SQLite path; the sanitizer and `ToPebble` copy it).
+
+Interface: `PageLedgerStore` = `LedgerLifecycle` (`State`, `BeginCollecting`, `BeginCollectingFromToken`, `BeginExpanding`, `Seal`, `BeginPass`; `PageWriter.SetTerminal` for the page-borne transition) + `LedgerQueue` + `LedgerAccounting` + `LedgerArchive`. Rename only.
+
+Corrections the facts read of my own draft made before code: expansion commits no ledger pages in ledger mode (`runPendingLocalStep`), so the transition is a lifecycle write, not a page flag; a finished baseline upload's empty token stack seeds `Init`, so "drained" was the wrong consistency condition and "no collection entry queued" replaced it; a fixture with only the expansion entry pending is a completed collection, not an incomplete one. Each would have been a wrong refusal in production.
+
+Limits: the flag rule reads queued ops, not rows; a pass whose collection entries were all completed but whose terminal page never landed is "drained" and consistent with only-expand by design. `ledgerContinuationSyncer` lost an incidental only-expand flag; tests that needed the flag's behavior are (h). No race sweep (requester's call).
+
