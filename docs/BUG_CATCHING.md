@@ -543,21 +543,6 @@ panics recovered in background goroutines (#845), error returns structured so de
 actually run (#854). Remember §2: this pass finds *logic* concurrency bugs; the data
 races are the race detector's job, not yours.
 
-Before any of that, ask of each synchronization primitive the change adds: which
-two goroutines interleave on the state it guards? The implementation-obligation
-addendum answers this in an ownership table — every new mutable field, its owner
-(goroutine or phase), its lifetime, and any other reader or writer. A primitive is
-justified only by a row whose owner is "shared," with the two goroutines named. A
-primitive on a row with one owner, or guarding a copy of state another struct
-already guards, is a design finding, not a locking finding: the state is in the
-wrong place. The evidence: CXE-1358 added five mutexes to `pkg/sync` and a fresh
-review found four guarding single-owner or duplicated state and the fifth
-redundant under an existing lock; the race detector passed throughout, because
-correct locking of state that should not be shared is still correct locking.
-`TestSyncPrimitivesRegistered` and `TestEnginePrimitivesRegistered` enforce the
-table mechanically: each primitive in production code has a registry entry
-naming its interleaving or marking it for removal.
-
 ## 4. The systematic-solutions ladder
 
 When a bug is found, don't just fix it — climb as high on this ladder as is
@@ -993,42 +978,10 @@ rather than rediscovering them one bug at a time. Every commit call site owes:
   the step-up pipeline, the pass and ladder lists, and the principle index on
   one page. Load it in every review conversation and consult this handbook by
   section (the slice map below). The checklist is derived, never authoritative.
-- For step-up changes, use this sequence: stated model → frozen behavioral
-  plan → implementation-obligation addendum → structural review of the brief →
-  instruments → mutation adequacy → execution → structural-coverage triage →
-  independent evidence audit → focused implementation review → structural review
-  of the code → repository gates → signoff. The stated model (state table,
-  ownership table, durable-state inventory) precedes every change order; a
-  subsystem without one gets the model written before anything else. The
-  structural review (`docs/verification/STRUCTURAL_REVIEW.md`) reads the
-  production code with no documents and writes the model a stranger recovers;
-  the review is the difference between that and the stated model. Sectioned
-  checks are its appendix. It hands behavioral findings to the correctness
-  pass rather than filing them, because a reviewer that reads code for errors
-  reverts to the mode that misses this class.
-- The behavioral plan is blind to structure by design (change orders carry no
-  implementation content), so the addendum owns two tables the plan cannot: the
-  ownership table (Pass 7) and the state inventory — every new durable key,
-  fact, or marker with the question it answers and the record that already
-  answered it. Both are claims a requester reads without the diff; both precede
-  code. The requester's brief owes the production flows and version pairs the
-  design serves, and an agent asks for them rather than guessing. Every
-  code-changing turn ends with `Decisions not requested` (`AGENTS.md`). The
-  reason this is process rather than review: review evaluates an implementation
-  against itself and finds every lock held correctly and every marker read
-  consistently. CXE-1358 shipped five single-owner mutexes and a lifecycle with
-  two finished-authorities through a frozen plan, an evidence ledger, and two
-  reviews; four short questions about owners and authorities found both.
-- A freeze is a claim set, and claims about existing code are the cheapest
-  thing in the packet to falsify: each is a `file:line` and a grep. Before a
-  plan or addendum is called frozen, a reader independent of its author checks
-  every such claim against source and lists each as true, false, or not
-  checkable; false ones are change orders. The same reader applies §5.10's
-  instrument rule to any fence or registry the change adds: a planted case per
-  covered shape, in the same commit. Evidence: CO-037/CO-038's first frozen
-  text carried four false claims about lifetimes, interfaces and resolution
-  order, and its primitive registry missed an aliased mutex; a stakeless facts
-  read found all five in minutes.
+- For step-up changes, use this sequence: frozen behavioral plan →
+  implementation-obligation addendum → instruments → mutation adequacy → execution
+  → structural-coverage triage → independent evidence audit → focused
+  implementation review → repository gates → signoff.
 - Keep the machinery proportional. The full closure packet and independent audit
   are step-up controls, not requirements for a local low-risk fix. Prefer ordinary
   Markdown, table-driven tests, and existing repository commands over a new
@@ -1078,8 +1031,7 @@ rather than rediscovering them one bug at a time. Every commit call site owes:
 - Verification does not replace focused implementation review. After instruments
   pass, a reader decorrelated from both the implementer and the instrument author
   reviews the implementation-obligation addendum's material: resource lifetime,
-  error exits, ownership transfer, the ownership table and its synchronization
-  primitives (Pass 7), result/mutation mismatches, derived fast-path
+  error exits, ownership transfer, result/mutation mismatches, derived fast-path
   state (§5.11), and local hazards the behavioral oracle does not observe. Signoff
   requires this read to yield zero new highs. A finding is a cheap falsification
   of the closure claim, not merely a bug: affected criteria return to evidence

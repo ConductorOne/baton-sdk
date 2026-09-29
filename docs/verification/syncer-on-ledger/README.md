@@ -2,7 +2,6 @@
 
 - [Frozen behavioral plan and change orders](plan.md)
 - [Implementation history](implementation.md)
-- [Structural review of the code at 5dd28b62](structural-review.md)
 - [Current pending-work design](pending-work.md)
 - [Verification evidence](evidence.md)
 - [Current criterion coverage and precise gaps](current-coverage.md)
