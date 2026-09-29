@@ -1,0 +1,163 @@
+package sync //nolint:revive,nolintlint // Backwards-compatible package name.
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
+	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
+)
+
+type ledgerPageCommitFailsForOp struct {
+	c1zstore.PageLedgerStore
+	op ActionOp
+}
+
+func (s ledgerPageCommitFailsForOp) BeginPage() c1zstore.PageWriter {
+	return ledgerPageWriterFailsForOp{PageWriter: s.PageLedgerStore.BeginPage(), op: s.op}
+}
+
+type ledgerPageWriterFailsForOp struct {
+	c1zstore.PageWriter
+	op ActionOp
+}
+
+func (w ledgerPageWriterFailsForOp) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity, row *c1zstore.LedgerRow) error {
+	if id.Op == w.op.String() {
+		return errLedgerInjectedPage
+	}
+	return w.PageWriter.Commit(ctx, id, row)
+}
+
+func listGrantIDs(t *testing.T, f *ledgerFixture) []string {
+	t.Helper()
+	grants, err := f.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
+	require.NoError(t, err)
+	var ids []string
+	for _, g := range grants.GetList() {
+		ids = append(ids, g.GetId())
+	}
+	return ids
+}
+
+// CO-039 §7: a resumer whose expansion flags conflict with the pass's state
+// is refused before any write. C1 expands through an empty connector, so
+// the refusing connector here stands in for it: any list call is a failure.
+func TestLedgerExpansionOnlyRefusesIncompleteCollection(t *testing.T) {
+	ctx := t.Context()
+	source, want, _ := ledgerUnexpandedSource(t)
+	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "incomplete.c1z"), false)
+	first, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithDontExpandGrants())
+	require.NoError(t, err)
+	first.(*syncer).caps.pageLedger = ledgerPageCommitFailsForOp{PageLedgerStore: f.ledger, op: SyncGrantsOp}
+	require.ErrorIs(t, first.Sync(ctx), errLedgerInjectedPage)
+	id := first.(*syncer).syncID
+	pending, phase, err := f.ledger.PendingWork(ctx, 0, 10)
+	require.NoError(t, err)
+	require.Equal(t, c1zstore.LedgerQueueCollecting, phase)
+	require.NotEmpty(t, pending, "collection has begun and is not done")
+	before := ledgerRawSnapshot(t, f.engine)
+	require.NoError(t, f.store.Close(ctx))
+
+	f = openLedgerFixtureAt(t, f.path, false)
+	expander, err := NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()}, WithConnectorStore(f.store), WithSyncID(id), WithOnlyExpandGrants())
+	require.NoError(t, err)
+	err = expander.Sync(ctx)
+	require.ErrorIs(t, err, ErrLedgerStateConflict)
+	require.ErrorContains(t, err, "collecting")
+	require.ErrorContains(t, err, id)
+	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)), "a refused resume writes nothing")
+	require.NoError(t, f.store.Close(ctx))
+
+	f = openLedgerFixtureAt(t, f.path, false)
+	plain, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithSyncID(id), WithDontExpandGrants())
+	require.NoError(t, err)
+	require.NoError(t, plain.Sync(ctx))
+	require.ElementsMatch(t, want, listGrantIDs(t, f))
+	require.NoError(t, f.store.SetCurrentSync(ctx, id))
+	require.Equal(t, c1zstore.LedgerQueueAbsent, ledgerPhase(t, f.ledger))
+}
+
+func TestLedgerDontExpandRefusesPassInExpansion(t *testing.T) {
+	t.Setenv("BATON_PEBBLE_SYNTH_LAYER_SEGMENT_ROWS", "1")
+	ctx := t.Context()
+	_, reference := ledgerExpansionFixture(t)
+	require.NoError(t, newLedgerExpansionPublicSyncer(t, reference).Sync(ctx))
+	want := listGrantIDs(t, reference)
+
+	_, f := ledgerExpansionFixture(t)
+	first := newLedgerExpansionPublicSyncer(t, f)
+	observer := &ledgerExpansionLayerObserver{expandedGrantLayerStorer: first.caps.expandedGrantLayer, failFinish: true}
+	first.caps.expandedGrantLayer = observer
+	require.ErrorIs(t, first.Sync(ctx), errLedgerInjectedPage)
+	require.Positive(t, observer.begins, "expansion began")
+	id := first.syncID
+	before := ledgerRawSnapshot(t, f.engine)
+	require.NoError(t, f.store.Close(ctx))
+
+	f = openLedgerFixtureAt(t, f.path, false)
+	skipper, err := NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()}, WithConnectorStore(f.store), WithSyncID(id), WithDontExpandGrants(), WithLedgerDebug(true))
+	require.NoError(t, err)
+	err = skipper.Sync(ctx)
+	require.ErrorIs(t, err, ErrLedgerStateConflict, "the pass committed to expansion; a resumer cannot skip it")
+	require.ErrorContains(t, err, "expanding")
+	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)), "a refused resume writes nothing")
+	require.NoError(t, f.store.Close(ctx))
+
+	f = openLedgerFixtureAt(t, f.path, false)
+	require.NoError(t, f.store.SetCurrentSync(ctx, id))
+	require.NoError(t, newLedgerExpansionPublicSyncer(t, f).Sync(ctx))
+	require.ElementsMatch(t, want, listGrantIDs(t, f))
+}
+
+// A finished baseline-SDK upload: records, a legacy token with an empty
+// stack, ended_at, no ledger family. C1 resumes it with only-expand through
+// an empty connector. Green before CO-039 and must stay green.
+func TestLedgerExpansionOnlyExpandsFinishedBaselineUpload(t *testing.T) {
+	ctx := t.Context()
+	f := newLedgerFixture(t)
+	id := f.engine.CurrentSyncID()
+	require.NoError(t, f.store.PutResourceTypes(ctx,
+		v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build(), v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()))
+	alice := v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build()
+	require.NoError(t, f.store.PutResources(ctx, v2.Resource_builder{Id: alice}.Build()))
+	groups := make([]*v2.Resource, 3)
+	for i, name := range []string{"a", "b", "c"} {
+		groups[i] = v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: name}.Build()}.Build()
+	}
+	require.NoError(t, f.store.PutResources(ctx, groups...))
+	for _, g := range groups {
+		require.NoError(t, f.store.PutEntitlements(ctx, et.NewAssignmentEntitlement(g, "member")))
+	}
+	grants := []*v2.Grant{gt.NewGrant(groups[0], "member", alice)}
+	for i := 1; i < len(groups); i++ {
+		annotation := v2.GrantExpandable_builder{EntitlementIds: []string{et.NewEntitlementID(groups[i-1], "member")}}.Build()
+		grants = append(grants, gt.NewGrant(groups[i], "member", groups[i-1].GetId(), gt.WithAnnotation(annotation)))
+	}
+	require.NoError(t, f.store.PutGrants(ctx, grants...))
+	token, err := marshalToken(newRunState(), newRunStats())
+	require.NoError(t, err)
+	require.NoError(t, f.store.CheckpointSync(ctx, token))
+	require.NoError(t, f.store.EndSync(ctx))
+	want := append(listGrantIDs(t, f),
+		gt.NewGrant(groups[1], "member", alice).GetId(),
+		gt.NewGrant(groups[2], "member", alice).GetId(),
+		gt.NewGrant(groups[2], "member", groups[0].GetId()).GetId())
+	require.NoError(t, f.store.Close(ctx))
+
+	f = openLedgerFixtureAt(t, f.path, false)
+	expander, err := NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()}, WithConnectorStore(f.store), WithSyncID(id), WithOnlyExpandGrants())
+	require.NoError(t, err)
+	require.NoError(t, expander.Sync(ctx), "the C1 path: takeover, Init plans expansion only, seal")
+	require.ElementsMatch(t, want, listGrantIDs(t, f))
+	require.NoError(t, f.store.SetCurrentSync(ctx, id))
+	require.Equal(t, c1zstore.LedgerQueueAbsent, ledgerPhase(t, f.ledger))
+	finished, err := f.ledger.BoundSyncFinished(ctx)
+	require.NoError(t, err)
+	require.True(t, finished)
+}

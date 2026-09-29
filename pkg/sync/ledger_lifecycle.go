@@ -7,6 +7,9 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
+// A resumer's expansion flags conflict with the pass's state (CO-039 §7).
+var ErrLedgerStateConflict = errors.New("sync state conflicts with the requested expansion flags")
+
 type ledgerPreparation uint8
 
 const (

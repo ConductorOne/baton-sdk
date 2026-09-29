@@ -265,10 +265,12 @@ handler resumes from the graph store. `syncLedger` calls
 read the store twice. The `finishPreviousRequest` gate stays as it is.
 Flag policy (plan §7): `prepareLedgerState` refuses before `BeginPass`,
 `InitializePendingWork` or the options write when `onlyExpandGrants` meets
-`collecting` with `hasPendingWork` (after any token takeover, so a finished
-baseline upload's empty stack is drained, not pending), or meets `absent`
-without `ended_at` and without a legacy token under a caller-supplied sync
-ID; and when `dontExpandGrants` meets `expanding`. `ErrLedgerStateConflict`
+`collecting` on an unfinished sync, or `collecting` where collection has
+begun (after any token takeover: the queue holds an entry other than the
+`Init` seed, or a completed row exists for this pass — read through
+`PendingWork` and the row count the fixture already exposes), or meets
+`absent` without `ended_at` and without a legacy token under a
+caller-supplied sync ID; and when `dontExpandGrants` meets `expanding`. `ErrLedgerStateConflict`
 carries the state and the sync ID. The expansion pickup's skip test is
 unchanged; it can no longer see `expanding` with the flag set. C1's
 collection-shaped passes against the empty connector (selective resource
