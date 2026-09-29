@@ -30,21 +30,32 @@ Risk = escape × consequence; score the failure mode, not the subsystem.
 
 For HIGH changes and silent/combinatorial/no-single-run-oracle subsystems:
 
-frozen behavioral plan → implementation-obligation addendum → structural
-review of the brief → instruments → mutation adequacy → execution →
+stated model → frozen behavioral plan → implementation-obligation addendum →
+structural review of the brief → instruments → mutation adequacy → execution →
 structural-coverage triage → independent evidence audit → focused
 implementation review → structural review of the code → repository gates →
-signoff. The structural review's prompt and rules are
-`docs/verification/STRUCTURAL_REVIEW.md`; it files no correctness findings and
-runs in a new session that has done nothing else — not the implementer's, not
-the correctness reviewer's, and not one that has seen their output. Its
-closure gate is its findings, each of which states a cost (a bug class, a
-change tax, or a read cost); the full per-declaration table is an appendix
-for diffing runs, not a work list. Quality is a means; the gate is sized to
-what the product pays for. A brief for a change that adds or moves lifecycle state
-carries a state table — states, what each accepts, transitions with guards —
-and the review compares every interface the change touches against it as a
-whole (STRUCTURAL_REVIEW.md I9), not method by method.
+signoff.
+
+The stated model comes first and is not optional. No change order is frozen
+against a subsystem whose model is not written down: for a lifecycle, a state
+table (states, what each accepts, transitions with guards, the batch each
+commits); for shared state, an ownership table; for durable state, an
+inventory that names the one record answering each question. If the subsystem
+has no model document, writing it is the first deliverable and review starts
+there. CXE-1358 reached thirty-nine change orders, each verified against its
+own claim, before its lifecycle was written as a machine; the locks, the
+interface names and the misattributed options were all the same absence.
+
+The structural review's prompt and rules are
+`docs/verification/STRUCTURAL_REVIEW.md`. It reads the production code before
+any document and writes the model it recovers; the review is the difference
+between that and the stated model. It files no correctness findings and runs
+in a new session that has done nothing else. Its closure gate is its
+findings, each with a stated cost (a bug class, a change tax, or a read
+cost), at most seven; the per-declaration table is an appendix for diffing
+runs. A reconstruction with more than three unrecoverable items returns the
+change to the brief stage: the code does not carry its model, and no row fix
+changes that.
 
 Hard rules along the way:
 

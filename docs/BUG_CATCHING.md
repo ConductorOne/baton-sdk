@@ -993,16 +993,19 @@ rather than rediscovering them one bug at a time. Every commit call site owes:
   the step-up pipeline, the pass and ladder lists, and the principle index on
   one page. Load it in every review conversation and consult this handbook by
   section (the slice map below). The checklist is derived, never authoritative.
-- For step-up changes, use this sequence: frozen behavioral plan →
-  implementation-obligation addendum → structural review of the brief →
+- For step-up changes, use this sequence: stated model → frozen behavioral
+  plan → implementation-obligation addendum → structural review of the brief →
   instruments → mutation adequacy → execution → structural-coverage triage →
   independent evidence audit → focused implementation review → structural review
-  of the code → repository gates → signoff. The structural review
-  (`docs/verification/STRUCTURAL_REVIEW.md`) reads the ownership table, the state
-  inventory and the code against each other and asks of each structural decision
-  whether it should exist and where; it hands behavioral findings to the
-  correctness pass rather than filing them, because a reviewer that reads code for
-  errors reverts to the mode that misses this class.
+  of the code → repository gates → signoff. The stated model (state table,
+  ownership table, durable-state inventory) precedes every change order; a
+  subsystem without one gets the model written before anything else. The
+  structural review (`docs/verification/STRUCTURAL_REVIEW.md`) reads the
+  production code with no documents and writes the model a stranger recovers;
+  the review is the difference between that and the stated model. Sectioned
+  checks are its appendix. It hands behavioral findings to the correctness
+  pass rather than filing them, because a reviewer that reads code for errors
+  reverts to the mode that misses this class.
 - The behavioral plan is blind to structure by design (change orders carry no
   implementation content), so the addendum owns two tables the plan cannot: the
   ownership table (Pass 7) and the state inventory — every new durable key,
