@@ -319,20 +319,31 @@ func TestLedgerCollectionFlagsLockedMidCollection(t *testing.T) {
 	before := ledgerRawSnapshot(t, f.engine)
 	require.NoError(t, f.store.Close(ctx))
 
-	for name, opts := range map[string][]SyncOpt{
-		"skip-entitlements-and-grants": {WithSkipEntitlementsAndGrants(true)},
-		"skip-grants":                  {WithSkipGrants(true)},
-		"resource-types":               {WithSyncResourceTypes([]string{"user"})},
-		"targets":                      {WithTargetedSyncResources([]*v2.Resource{v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "a"}.Build()}.Build()})},
+	external := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "external.c1z"), true)
+	require.NoError(t, external.store.EndSync(ctx))
+	require.NoError(t, external.store.Close(ctx))
+
+	for _, tc := range []struct {
+		name, field string
+		opt         SyncOpt
+	}{
+		{"skip-entitlements-and-grants", "skip_entitlements_and_grants", WithSkipEntitlementsAndGrants(true)},
+		{"skip-grants", "skip_grants", WithSkipGrants(true)},
+		{"resource-types", "resource_types", WithSyncResourceTypes([]string{"user"})},
+		{"targets", "targets", WithTargetedSyncResources([]*v2.Resource{v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "a"}.Build()}.Build()})},
+		{"external-source", "external_source_configured", WithExternalResourceC1ZPath(external.path)},
+		{"external-traits", "external_resource_traits", WithExternalResourceTraits(v2.ResourceType_TRAIT_USER)},
+		{"external-filter", "external_entitlement_id_filter", WithExternalResourceEntitlementIdFilter("group:a:member")},
 	} {
-		t.Run(name, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			f = openLedgerFixtureAt(t, f.path, false)
-			resumer, err := NewSyncer(ctx, source, append([]SyncOpt{WithConnectorStore(f.store), WithSyncID(id), WithDontExpandGrants()}, opts...)...)
+			resumer, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithSyncID(id), WithDontExpandGrants(), tc.opt)
 			require.NoError(t, err)
 			err = resumer.Sync(ctx)
 			require.ErrorIs(t, err, ErrLedgerStateConflict)
 			require.ErrorContains(t, err, "collecting")
 			require.ErrorContains(t, err, id)
+			require.ErrorContains(t, err, tc.field)
 			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)), "a refused resume writes nothing")
 			require.NoError(t, f.store.Close(ctx))
 		})
@@ -370,4 +381,112 @@ func TestLedgerExpansionOnlyIgnoresCollectionFlags(t *testing.T) {
 	require.False(t, run.hasFact(factShouldSkipEntitlementsAndGrants))
 	require.False(t, run.hasFact(factShouldSkipGrants))
 	require.False(t, run.hasFact(factShouldFetchRelatedResources))
+}
+
+// A finished sync whose only queued work is the Init seed has collected and
+// not yet planned its next pass. Only an expansion resumer may plan it, on
+// the ledger declaration and on a legacy checkpoint alike.
+func TestLedgerFinishedSyncAtInitSeedRefusesCollection(t *testing.T) {
+	declaration := func(t *testing.T) (*ledgerFixture, string) {
+		ctx := t.Context()
+		f := newLedgerFixture(t)
+		id := f.engine.CurrentSyncID()
+		require.NoError(t, f.ledger.BeginCollecting(ctx, nil))
+		runtime, err := newTestLedgerRuntime(ctx, f.ledger, "collection")
+		require.NoError(t, err)
+		_, err = runtime.runPage(ctx, 0, c1zstore.LedgerActionIdentity{Op: InitOp.String()}, func(_ context.Context, page *ledgerPage) error {
+			return page.transition("")
+		})
+		require.NoError(t, err)
+		require.NoError(t, runtime.prepareSeal(ctx, c1zstore.LedgerCounters{}))
+		require.NoError(t, runtime.seal(ctx))
+		require.NoError(t, f.store.SetCurrentSync(ctx, id))
+		s := ledgerContinuationSyncer(f)
+		s.cfg.onlyExpandGrants = true
+		_, err = s.prepareLedgerState(ctx, "expansion", false)
+		require.NoError(t, err)
+		require.Equal(t, InitOp, s.run.current().Op)
+		return f, id
+	}
+	legacy := func(stack ...Action) func(t *testing.T) (*ledgerFixture, string) {
+		return func(t *testing.T) (*ledgerFixture, string) {
+			ctx := t.Context()
+			f := newLedgerFixture(t)
+			id := f.engine.CurrentSyncID()
+			prior := newRunState()
+			for _, action := range stack {
+				prior.pushAction(ctx, action)
+			}
+			token, err := marshalToken(prior, newRunStats())
+			require.NoError(t, err)
+			require.NoError(t, f.store.CheckpointSync(ctx, token))
+			require.NoError(t, f.store.EndSync(ctx))
+			return f, id
+		}
+	}
+	for name, build := range map[string]func(t *testing.T) (*ledgerFixture, string){
+		"declaration":  declaration,
+		"legacy-empty": legacy(),
+		"legacy-init":  legacy(Action{Op: InitOp}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
+			f, id := build(t)
+			require.NoError(t, f.store.Close(ctx))
+
+			f = openLedgerFixtureAt(t, f.path, false)
+			require.NoError(t, f.store.SetCurrentSync(ctx, id))
+			before := ledgerRawSnapshot(t, f.engine)
+			collector := ledgerContinuationSyncer(f)
+			_, err := collector.prepareLedgerState(ctx, "collect", false)
+			require.ErrorIs(t, err, ErrLedgerStateConflict)
+			require.ErrorContains(t, err, "finished")
+			require.ErrorContains(t, err, id)
+			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)), "a refused resume writes nothing")
+
+			expander := ledgerContinuationSyncer(f)
+			expander.cfg.onlyExpandGrants = true
+			_, err = expander.prepareLedgerState(ctx, "expand", false)
+			require.NoError(t, err)
+			require.Equal(t, InitOp, expander.run.current().Op)
+		})
+	}
+}
+
+// A legacy checkpoint recorded no options, so the first resumer's collection
+// flags cannot be checked and the takeover continues under them. That
+// attempt records them; the lock holds from the next resume on.
+func TestLedgerLegacyTakeoverArmsCollectionFlagLock(t *testing.T) {
+	ctx := t.Context()
+	f := newLedgerFixture(t)
+	id := f.engine.CurrentSyncID()
+	prior := newRunState()
+	prior.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "remaining"})
+	token, err := marshalToken(prior, newRunStats())
+	require.NoError(t, err)
+	require.NoError(t, f.store.CheckpointSync(ctx, token))
+
+	takeover := ledgerContinuationSyncer(f)
+	takeover.cfg.skipGrants = true
+	_, err = takeover.prepareLedgerState(ctx, "takeover", false)
+	require.NoError(t, err, "nothing recorded to compare against")
+	require.Equal(t, c1zstore.LedgerQueueCollecting, ledgerPhase(t, f.ledger))
+	require.Equal(t, "remaining", takeover.run.current().PageToken)
+	require.NoError(t, takeover.putLedgerReportOptions(ctx))
+	require.NoError(t, f.store.Close(ctx))
+
+	f = openLedgerFixtureAt(t, f.path, false)
+	require.NoError(t, f.store.SetCurrentSync(ctx, id))
+	before := ledgerRawSnapshot(t, f.engine)
+	changed := ledgerContinuationSyncer(f)
+	_, err = changed.prepareLedgerState(ctx, "changed", false)
+	require.ErrorIs(t, err, ErrLedgerStateConflict)
+	require.ErrorContains(t, err, "skip_grants")
+	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)), "a refused resume writes nothing")
+
+	same := ledgerContinuationSyncer(f)
+	same.cfg.skipGrants = true
+	_, err = same.prepareLedgerState(ctx, "same", false)
+	require.NoError(t, err)
+	require.Equal(t, "remaining", same.run.current().PageToken)
 }
