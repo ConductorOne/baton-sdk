@@ -46,9 +46,14 @@ This bounds staged output, not arbitrary connector response or template bytes.
 ## Lifecycle and reporting
 
 Binding a finished sync preserves its identity, data and lifecycle metadata.
-New requested processing clears old history and applies current diagnostic flags;
-an unfinished processing declaration prevents a failed seal being mistaken for
-another finished binding. Missing queue state is not an empty queue.
+The one further pass it accepts is expansion, which reads the collection's facts
+and none of its own collection flags; a collection rebind is refused before any
+write. Collection flags are locked from the pass's first page: a resumer whose
+collection flags differ from the first attempt's recorded options is refused
+while collection work is queued. New requested processing clears old history
+and applies current diagnostic flags; an unfinished processing declaration
+prevents a failed seal being mistaken for another finished binding. Missing
+queue state is not an empty queue.
 
 Default sealing saves the mechanical report/options, drops history and purges
 its physical token residue once. Explicit ledger debug mode (independent of logging verbosity) retains scrubbed history and enables

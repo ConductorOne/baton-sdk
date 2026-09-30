@@ -2,14 +2,16 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-// A resumer's expansion flags conflict with the pass's state (CO-039 §7).
-var ErrLedgerStateConflict = errors.New("sync state conflicts with the requested expansion flags")
+// A resumer's flags conflict with the pass's state (CO-039 §7).
+var ErrLedgerStateConflict = errors.New("sync state conflicts with the requested flags")
 
 type ledgerPreparation uint8
 
@@ -59,12 +61,16 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 	if err != nil {
 		return absent, err
 	}
-	if err := s.expansionFlagConflict(ctx, resume, state.Finished, newSync); err != nil {
+	facts, err := s.flagConflict(ctx, resume, state.Finished, newSync)
+	if err != nil {
 		return absent, err
 	}
 	knownEmpty := newSync
 	switch resume.preparation(state.Finished) {
 	case ledgerProcessFinished:
+		if !s.cfg.onlyExpandGrants {
+			return absent, fmt.Errorf("%w: sync %s is finished; %s", ErrLedgerStateConflict, s.syncID, finishedSyncHint)
+		}
 		seeds := pendingSeeds([]ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}})
 		if err := ledger.BeginPass(ctx, seeds, []string{c1zstore.LedgerFactDiscardOnSeal, c1zstore.LedgerFactRetainTokens}); err != nil {
 			return absent, err
@@ -91,16 +97,15 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 	if err := ledger.FoldLedgerCounters(ctx, runID); err != nil {
 		return absent, err
 	}
-	return resume.phase, s.restoreLedgerState(ctx, ledger, runID, knownEmpty)
+	return resume.phase, s.restoreLedgerStateWithFacts(ctx, ledger, runID, knownEmpty, facts)
 }
 
+const finishedSyncHint = "a finished sync accepts only-expand-grants; start a new sync to collect again"
+
 // A legacy token is the pass's state before takeover: its stack is the queue.
-// The same rule as expansionFlagConflict's Collecting case, read from the
+// The same rules as flagConflict's Collecting case, read from the
 // token so the refusal precedes the takeover write.
 func (s *syncer) legacyTokenFlagConflict(ctx context.Context, finished bool) error {
-	if !s.cfg.onlyExpandGrants && !s.cfg.dontExpandGrants {
-		return nil
-	}
 	token, err := s.store.CurrentSyncStep(ctx)
 	if err != nil {
 		return fmt.Errorf("read legacy checkpoint: %w", err)
@@ -118,69 +123,108 @@ func (s *syncer) legacyTokenFlagConflict(ctx context.Context, finished bool) err
 		}
 		return nil
 	}
-	if !s.cfg.onlyExpandGrants {
-		return nil
-	}
-	if len(resume.actions) == 0 {
-		// An empty stack seeds Init, which plans the requested pass; a
-		// finished baseline upload takes this path. Unfinished with nothing
-		// queued is the unstarted case, decided after takeover on the seed.
-		return nil
-	}
+	// An empty stack seeds Init, which plans the requested pass; on a
+	// finished sync that is a baseline upload, and the pass may only be
+	// expansion. Unfinished with nothing queued is the unstarted case,
+	// decided after takeover on the seed.
+	collectionQueued := false
 	for _, action := range resume.actions {
 		switch action.identity.Op {
 		case InitOp.String():
-			if !finished {
+			if !finished && s.cfg.onlyExpandGrants {
 				return fmt.Errorf("%w: sync %s is a legacy checkpoint that has not collected; finish it before requesting expansion only", ErrLedgerStateConflict, s.syncID)
 			}
 		case SyncGrantExpansionOp.String():
 		default:
-			return fmt.Errorf("%w: sync %s is a legacy checkpoint mid-collection; finish it before requesting expansion only", ErrLedgerStateConflict, s.syncID)
+			collectionQueued = true
 		}
+	}
+	if collectionQueued && s.cfg.onlyExpandGrants {
+		return fmt.Errorf("%w: sync %s is a legacy checkpoint mid-collection; finish it before requesting expansion only", ErrLedgerStateConflict, s.syncID)
+	}
+	if finished && !collectionQueued && !s.cfg.onlyExpandGrants {
+		return fmt.Errorf("%w: sync %s is a finished legacy checkpoint; %s", ErrLedgerStateConflict, s.syncID, finishedSyncHint)
 	}
 	return nil
 }
 
-// The phase is the pass's commitment; a resumer's expansion flags are read
-// against it (plan CO-039 §7). Refused before any write.
-func (s *syncer) expansionFlagConflict(ctx context.Context, resume ledgerResume, finished, newSync bool) error {
+// The phase is the pass's commitment; a resumer's flags are read against it
+// (plan CO-039 §7). Refused before any write. Returns the fact set when the
+// check read it, so the restore that follows does not read it again; the
+// writes between them touch no facts.
+func (s *syncer) flagConflict(ctx context.Context, resume ledgerResume, finished, newSync bool) (map[string]string, error) {
 	conflict := func(state, hint string) error {
 		return fmt.Errorf("%w: sync %s is %s; %s", ErrLedgerStateConflict, s.syncID, state, hint)
 	}
 	switch resume.phase {
 	case c1zstore.LedgerQueueExpanding:
 		if s.cfg.dontExpandGrants {
-			return conflict("expanding", "the pass committed to expansion; resume without dont-expand-grants to finish it")
+			return nil, conflict("expanding", "the pass committed to expansion; resume without dont-expand-grants to finish it")
 		}
 	case c1zstore.LedgerQueueCollecting:
-		if !s.cfg.onlyExpandGrants {
-			return nil
-		}
-		// Collection work still queued is the conflict: C1 expands through an
-		// empty connector, and running those entries against it would seal a
-		// truncated sync. The Init seed alone on an unfinished sync means
-		// nothing was collected. The expansion step alone, or a drained
-		// queue, is a completed collection.
+		// Collection work still queued conflicts with only-expand: C1 expands
+		// through an empty connector, and running those entries against it
+		// would seal a truncated sync. The Init seed alone on an unfinished
+		// sync means nothing was collected; on a finished sync it is an
+		// expansion pass that has not planned yet, and only an expansion
+		// resumer may plan it. The expansion step alone, or a drained queue,
+		// is a completed collection.
 		pending, _, err := s.caps.pageLedger.PendingWork(ctx, 0, maxPeekActionsCount)
 		if err != nil {
-			return err
+			return nil, err
 		}
+		initQueued, collectionQueued := false, false
 		for _, work := range pending {
 			switch work.Action.Identity.Op {
 			case InitOp.String():
-				if !finished {
-					return conflict("unstarted", "nothing has been collected under this sync ID")
+				initQueued = true
+				if !finished && s.cfg.onlyExpandGrants {
+					return nil, conflict("unstarted", "nothing has been collected under this sync ID")
 				}
 			case SyncGrantExpansionOp.String():
 			default:
-				return conflict("collecting", "the collection is incomplete; finish it before requesting expansion only")
+				collectionQueued = true
 			}
+		}
+		if collectionQueued && s.cfg.onlyExpandGrants {
+			return nil, conflict("collecting", "the collection is incomplete; finish it before requesting expansion only")
+		}
+		if initQueued && finished && !collectionQueued && !s.cfg.onlyExpandGrants {
+			return nil, conflict("finished", finishedSyncHint)
+		}
+		if collectionQueued {
+			return s.collectionFlagConflict(ctx)
 		}
 	case c1zstore.LedgerQueueAbsent:
 		if s.cfg.onlyExpandGrants && !finished && !newSync {
-			return conflict("unstarted", "nothing has been collected under this sync ID")
+			return nil, conflict("unstarted", "nothing has been collected under this sync ID")
 		}
 	case c1zstore.LedgerQueueSealing:
 	}
-	return nil
+	return nil, nil
+}
+
+// The collection flags are the pass's from its first page. The first
+// attempt's options are the record; an attempt that finds none (a legacy
+// takeover, or a first attempt that stopped before writing them) has nothing
+// to compare against and continues.
+func (s *syncer) collectionFlagConflict(ctx context.Context) (map[string]string, error) {
+	facts, err := s.caps.pageLedger.LedgerFacts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	recorded, ok := facts[c1zstore.LedgerFactFirstReportOptions]
+	if !ok {
+		return facts, nil
+	}
+	var first c1zstore.LedgerReportOptions
+	if err := json.Unmarshal([]byte(recorded), &first); err != nil {
+		return nil, fmt.Errorf("decode first report options: %w", err)
+	}
+	diffs := collectionFlagDifferences(first.Requested, s.requestedOptions())
+	if len(diffs) == 0 {
+		return facts, nil
+	}
+	return nil, fmt.Errorf("%w: sync %s is collecting under different flags (%s); resume with the flags the collection started with",
+		ErrLedgerStateConflict, s.syncID, strings.Join(diffs, ", "))
 }

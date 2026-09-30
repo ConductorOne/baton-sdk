@@ -26,7 +26,9 @@ func initialActionCases() []initialActionCase {
 		{name: "expand-only", cfg: syncConfig{onlyExpandGrants: true}, ops: []ActionOp{SyncGrantExpansionOp}},
 		{name: "expand-and-external", cfg: syncConfig{onlyExpandGrants: true}, external: true, ops: []ActionOp{SyncGrantExpansionOp, SyncExternalResourcesOp}},
 		{name: "prior-skip", cfg: syncConfig{onlyExpandGrants: true}, priorSkip: true, ops: []ActionOp{}},
-		{name: "targeted", cfg: syncConfig{onlyExpandGrants: true}, external: true, targeted: true, ops: []ActionOp{SyncTargetedResourceOp, SyncResourceTypesOp}},
+		{name: "targeted", external: true, targeted: true, ops: []ActionOp{SyncTargetedResourceOp, SyncResourceTypesOp}},
+		{name: "expand-ignores-targets", cfg: syncConfig{onlyExpandGrants: true}, external: true, targeted: true, ops: []ActionOp{SyncGrantExpansionOp, SyncExternalResourcesOp}},
+		{name: "expand-ignores-skip", cfg: syncConfig{onlyExpandGrants: true, skipEntitlementsAndGrants: true, skipGrants: true}, ops: []ActionOp{SyncGrantExpansionOp}},
 		{name: "deferred-expansion", cfg: syncConfig{dontExpandGrants: true},
 			ops: []ActionOp{SyncGrantExpansionOp, SyncGrantsOp, SyncEntitlementsOp, SyncStaticEntitlementsOp, SyncResourcesOp, SyncResourceTypesOp}},
 	}
@@ -60,11 +62,12 @@ func assertInitialActionCase(t *testing.T, s *syncer, tc initialActionCase) {
 	}
 	require.Equal(t, tc.ops, ops)
 	require.EqualValues(t, 1, s.run.completedActionsCount())
-	require.Equal(t, tc.cfg.skipEntitlementsAndGrants || tc.priorSkip, s.run.hasFact(factShouldSkipEntitlementsAndGrants))
-	require.Equal(t, tc.cfg.skipGrants, s.run.hasFact(factShouldSkipGrants))
-	require.Equal(t, tc.targeted, s.run.hasFact(factShouldFetchRelatedResources))
-	require.Equal(t, tc.cfg.onlyExpandGrants && !tc.targeted, s.run.hasFact(factNeedsExpansion))
-	if tc.targeted {
+	collecting := !tc.cfg.onlyExpandGrants
+	require.Equal(t, tc.cfg.skipEntitlementsAndGrants && collecting || tc.priorSkip, s.run.hasFact(factShouldSkipEntitlementsAndGrants))
+	require.Equal(t, tc.cfg.skipGrants && collecting, s.run.hasFact(factShouldSkipGrants))
+	require.Equal(t, tc.targeted && collecting, s.run.hasFact(factShouldFetchRelatedResources))
+	require.Equal(t, tc.cfg.onlyExpandGrants, s.run.hasFact(factNeedsExpansion))
+	if tc.targeted && collecting {
 		action := s.run.actions[s.run.actionOrder[0]]
 		require.Equal(t, "target", action.ResourceID)
 		require.Equal(t, "parent-type", action.ParentResourceTypeID)

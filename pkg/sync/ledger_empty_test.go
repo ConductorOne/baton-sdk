@@ -79,6 +79,9 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 			if kind == "read-error" {
 				s.caps.pageLedger = ledgerUnstartedFailure{PageLedgerStore: f.ledger}
 			}
+			if kind == "finished" {
+				s.cfg.onlyExpandGrants = true
+			}
 			before := ledgerSnapshotWithFoldedCounters(t, f.engine)
 			var walkBefore []ledgerKV
 			s.testHooks.ledgerWalk = func(entering bool) {

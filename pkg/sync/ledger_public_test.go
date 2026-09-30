@@ -386,25 +386,20 @@ func TestLedgerFinishedRetentionUsesCurrentOptions(t *testing.T) {
 			require.NoError(t, f.store.Close(t.Context()))
 			f = openLedgerFixtureAt(t, f.path, false)
 			c := &ledgerTypesConnector{mockConnector: newMockConnector()}
-			next, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithSyncID(syncID), WithSkipEntitlementsAndGrants(true),
+			next, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithSyncID(syncID), WithOnlyExpandGrants(),
 				WithLedgerDebug(mode != "default"), WithRetainLedgerTokens(mode == "retain"))
 			require.NoError(t, err)
 			require.NoError(t, next.Sync(t.Context()))
-			require.Equal(t, []string{"", "page-2"}, c.calls)
+			require.Empty(t, c.calls, "an expansion pass over a skip collection lists nothing")
 			after, err := f.engine.GetSyncRunRecord(t.Context(), syncID)
 			require.NoError(t, err)
 			require.Equal(t, before.GetStartedAt(), after.GetStartedAt())
 			require.NotNil(t, after.GetEndedAt())
-			row, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: SyncResourceTypesOp.String()})
+			row, found, err := f.ledger.GetLedgerRow(t.Context(), c1zstore.LedgerActionIdentity{Op: InitOp.String()})
 			require.NoError(t, err)
 			require.Equal(t, mode != "default", found)
 			if found {
 				require.Equal(t, mode != "retain", row.Scrubbed)
-				if mode == "retain" {
-					require.Equal(t, "page-2", row.NextPageToken)
-				} else {
-					require.Empty(t, row.NextPageToken)
-				}
 			}
 			originalOptions, err := f.engine.GetArchivedLedgerOptions(t.Context(), first.(*syncer).ledger.runID)
 			require.NoError(t, err)

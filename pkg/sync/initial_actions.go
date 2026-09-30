@@ -7,16 +7,26 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
+// A collection pass plans from its flags and records them as facts. An
+// expansion pass reads the facts of the collection it expands and none of
+// its own collection flags: C1 runs it with no knowledge of how the file
+// was collected.
 func (s *syncer) initialActions(targetedResources []*v2.Resource) ([]Action, []string) {
 	var actions []Action
 	var facts []string
-	skipEntitlements := s.cfg.skipEntitlementsAndGrants || s.run.hasFact(factShouldSkipEntitlementsAndGrants)
-	skipGrants := s.cfg.skipGrants || s.run.hasFact(factShouldSkipGrants)
-	if s.cfg.skipEntitlementsAndGrants {
-		facts = append(facts, factShouldSkipEntitlementsAndGrants)
-	}
-	if s.cfg.skipGrants {
-		facts = append(facts, factShouldSkipGrants)
+	skipEntitlements := s.run.hasFact(factShouldSkipEntitlementsAndGrants)
+	skipGrants := s.run.hasFact(factShouldSkipGrants)
+	if s.cfg.onlyExpandGrants {
+		targetedResources = nil
+	} else {
+		skipEntitlements = skipEntitlements || s.cfg.skipEntitlementsAndGrants
+		skipGrants = skipGrants || s.cfg.skipGrants
+		if s.cfg.skipEntitlementsAndGrants {
+			facts = append(facts, factShouldSkipEntitlementsAndGrants)
+		}
+		if s.cfg.skipGrants {
+			facts = append(facts, factShouldSkipGrants)
+		}
 	}
 	if len(targetedResources) > 0 {
 		for _, r := range targetedResources {

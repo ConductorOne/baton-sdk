@@ -261,3 +261,113 @@ func TestLedgerLegacyCheckpointInExpansionIsTakenOverAsExpanding(t *testing.T) {
 		require.ElementsMatch(t, expanded, listGrantIDs(t, f))
 	})
 }
+
+// Collection happens once per sync ID. A finished sync accepts an
+// expansion-only rebind and refuses every collection rebind, including one
+// that repeats the flags the collection ran with.
+func TestLedgerFinishedSyncRefusesCollection(t *testing.T) {
+	ctx := t.Context()
+	source, _, _ := ledgerUnexpandedSource(t)
+	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "finished.c1z"), false)
+	first, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithSkipEntitlementsAndGrants(true))
+	require.NoError(t, err)
+	require.NoError(t, first.Sync(ctx))
+	id := first.(*syncer).syncID
+	before := ledgerRawSnapshot(t, f.engine)
+	require.NoError(t, f.store.Close(ctx))
+
+	for name, opts := range map[string][]SyncOpt{
+		"full":       nil,
+		"same-flags": {WithSkipEntitlementsAndGrants(true)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f = openLedgerFixtureAt(t, f.path, false)
+			rebind, err := NewSyncer(ctx, source, append([]SyncOpt{WithConnectorStore(f.store), WithSyncID(id)}, opts...)...)
+			require.NoError(t, err)
+			err = rebind.Sync(ctx)
+			require.ErrorIs(t, err, ErrLedgerStateConflict)
+			require.ErrorContains(t, err, "finished")
+			require.ErrorContains(t, err, id)
+			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)), "a refused rebind writes nothing")
+			require.NoError(t, f.store.Close(ctx))
+		})
+	}
+
+	f = openLedgerFixtureAt(t, f.path, false)
+	expander, err := NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()}, WithConnectorStore(f.store), WithSyncID(id), WithOnlyExpandGrants())
+	require.NoError(t, err)
+	require.NoError(t, expander.Sync(ctx), "expansion is the one pass a finished sync accepts")
+	require.Empty(t, listGrantIDs(t, f), "a skip pass has nothing to expand")
+	require.True(t, expander.(*syncer).run.hasFact(factShouldSkipEntitlementsAndGrants), "the expansion pass reads what the collection was")
+}
+
+// Collection flags are the pass's from its first page on. A resumer that
+// changes them is refused before any write; one that repeats them finishes.
+func TestLedgerCollectionFlagsLockedMidCollection(t *testing.T) {
+	ctx := t.Context()
+	source, want, _ := ledgerUnexpandedSource(t)
+	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "locked.c1z"), false)
+	first, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithDontExpandGrants())
+	require.NoError(t, err)
+	first.(*syncer).caps.pageLedger = ledgerPageCommitFailsForOp{PageLedgerStore: f.ledger, op: SyncGrantsOp}
+	require.ErrorIs(t, first.Sync(ctx), errLedgerInjectedPage)
+	id := first.(*syncer).syncID
+	pending, phase, err := f.ledger.PendingWork(ctx, 0, 10)
+	require.NoError(t, err)
+	require.Equal(t, c1zstore.LedgerQueueCollecting, phase)
+	require.NotEmpty(t, pending, "collection has begun and is not done")
+	before := ledgerRawSnapshot(t, f.engine)
+	require.NoError(t, f.store.Close(ctx))
+
+	for name, opts := range map[string][]SyncOpt{
+		"skip-entitlements-and-grants": {WithSkipEntitlementsAndGrants(true)},
+		"skip-grants":                  {WithSkipGrants(true)},
+		"resource-types":               {WithSyncResourceTypes([]string{"user"})},
+		"targets":                      {WithTargetedSyncResources([]*v2.Resource{v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "a"}.Build()}.Build()})},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f = openLedgerFixtureAt(t, f.path, false)
+			resumer, err := NewSyncer(ctx, source, append([]SyncOpt{WithConnectorStore(f.store), WithSyncID(id), WithDontExpandGrants()}, opts...)...)
+			require.NoError(t, err)
+			err = resumer.Sync(ctx)
+			require.ErrorIs(t, err, ErrLedgerStateConflict)
+			require.ErrorContains(t, err, "collecting")
+			require.ErrorContains(t, err, id)
+			require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)), "a refused resume writes nothing")
+			require.NoError(t, f.store.Close(ctx))
+		})
+	}
+
+	f = openLedgerFixtureAt(t, f.path, false)
+	same, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithSyncID(id), WithDontExpandGrants())
+	require.NoError(t, err)
+	require.NoError(t, same.Sync(ctx))
+	require.ElementsMatch(t, want, listGrantIDs(t, f))
+}
+
+// An expansion-only invocation knows nothing about how the file was
+// collected; C1 runs it through an empty connector. Its collection flags are
+// not read: the file's facts say what the data is, and nothing it passes is
+// written back as a fact.
+func TestLedgerExpansionOnlyIgnoresCollectionFlags(t *testing.T) {
+	ctx := t.Context()
+	source, _, expanded := ledgerUnexpandedSource(t)
+	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "expand.c1z"), false)
+	first, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithDontExpandGrants())
+	require.NoError(t, err)
+	require.NoError(t, first.Sync(ctx))
+	id := first.(*syncer).syncID
+	require.NoError(t, f.store.Close(ctx))
+
+	f = openLedgerFixtureAt(t, f.path, false)
+	target := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "a"}.Build()}.Build()
+	expander, err := NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()}, WithConnectorStore(f.store), WithSyncID(id), WithOnlyExpandGrants(),
+		WithSkipEntitlementsAndGrants(true), WithSkipGrants(true), WithSyncResourceTypes([]string{"group"}), WithTargetedSyncResources([]*v2.Resource{target}))
+	require.NoError(t, err)
+	require.NoError(t, expander.Sync(ctx))
+	require.ElementsMatch(t, expanded, listGrantIDs(t, f))
+	run := expander.(*syncer).run
+	require.False(t, run.hasFact(factShouldSkipEntitlementsAndGrants))
+	require.False(t, run.hasFact(factShouldSkipGrants))
+	require.False(t, run.hasFact(factShouldFetchRelatedResources))
+}

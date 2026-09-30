@@ -10,6 +10,12 @@ import (
 )
 
 func (s *syncer) restoreLedgerState(ctx context.Context, store c1zstore.PageLedgerStore, runID string, knownEmpty bool) error {
+	return s.restoreLedgerStateWithFacts(ctx, store, runID, knownEmpty, nil)
+}
+
+// facts is the family's fact set as read by the caller before any write of
+// this attempt, or nil to read it here.
+func (s *syncer) restoreLedgerStateWithFacts(ctx context.Context, store c1zstore.PageLedgerStore, runID string, knownEmpty bool, facts map[string]string) error {
 	if s.testHooks.ledgerWalk != nil {
 		s.testHooks.ledgerWalk(true)
 		defer s.testHooks.ledgerWalk(false)
@@ -17,9 +23,12 @@ func (s *syncer) restoreLedgerState(ctx context.Context, store c1zstore.PageLedg
 	if store == nil {
 		return errors.New("ledger store is not initialized")
 	}
-	facts, err := store.LedgerFacts(ctx)
-	if err != nil {
-		return err
+	if facts == nil {
+		var err error
+		facts, err = store.LedgerFacts(ctx)
+		if err != nil {
+			return err
+		}
 	}
 	counters, err := store.LedgerCounters(ctx)
 	if err != nil {

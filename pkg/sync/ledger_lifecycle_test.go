@@ -14,6 +14,7 @@ func ledgerContinuationSyncer(f *ledgerFixture) *syncer {
 	return &syncer{ledgered: true, syncID: f.engine.CurrentSyncID(), store: f.store, caps: resolveStoreCaps(f.store), cfg: syncConfig{workerCount: 1}}
 }
 
+// A finished sync's one further pass is expansion.
 func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
 	for _, cut := range []string{"after-clear", "after-page"} {
 		t.Run(cut, func(t *testing.T) {
@@ -40,6 +41,7 @@ func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, before.GetEndedAt())
 			s := ledgerContinuationSyncer(f)
+			s.cfg.onlyExpandGrants = true
 			_, err = s.prepareLedgerState(t.Context(), "processing", false)
 			require.NoError(t, err)
 			require.Equal(t, c1zstore.LedgerQueueCollecting, ledgerPhase(t, f.ledger))
@@ -70,6 +72,9 @@ func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
 			require.NoError(t, f.store.SetCurrentSync(t.Context(), syncID))
 			snapshot := ledgerSnapshotWithFoldedCounters(t, f.engine)
 			s = ledgerContinuationSyncer(f)
+			// Before Init has planned, the pass is still the expansion request;
+			// once work is queued, a resumer without flags runs it.
+			s.cfg.onlyExpandGrants = cut == "after-clear"
 			observeLedgerRestore(t, s, f)
 			_, err = s.prepareLedgerState(t.Context(), "resumed", false)
 			f.audit.enter(ledgerLifecycle)
@@ -128,6 +133,10 @@ func TestLedgerFinishedLegacyFrontierKeepsPendingWork(t *testing.T) {
 			require.NoError(t, err)
 			before.SetSyncToken("")
 			s := ledgerContinuationSyncer(f)
+			// A finished upload with an empty stack is collected; only an
+			// expansion resumer may plan its next pass. Pending work is a
+			// pass in progress, continued by a resumer without flags.
+			s.cfg.onlyExpandGrants = !pending
 			_, err = s.prepareLedgerState(t.Context(), "first", false)
 			require.NoError(t, err)
 			require.EqualValues(t, 17, s.run.completedActionsCount())
