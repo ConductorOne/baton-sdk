@@ -26,6 +26,8 @@ jobs:
           # than the targeted Go version").
           version: v2.13.2
           args: --timeout=3m
+      - name: Exported surface check
+        run: make exportcheck
   go-test:
     strategy:
       matrix:
