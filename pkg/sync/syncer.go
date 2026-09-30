@@ -3437,6 +3437,8 @@ func (s *syncer) matchProfileAndExpand(
 // hang.
 const externalMatchProgressLogInterval = 100_000
 
+const externalMatchGrantPutChunk = 100_000
+
 func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, principals []*v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "processGrantsWithExternalPrincipals")
 	var err error
@@ -3494,8 +3496,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		zap.Any("principals_by_trait", principalCounts),
 	)
 
-	grantsToDelete := make([]*v2.Grant, 0)
-	expandedGrants := make([]*v2.Grant, 0)
+	externalMatchGrants := make([]c1zstore.GrantAnnotation, 0)
 	grantsScanned := 0
 
 	for ga, err := range s.store.Grants().ListWithAnnotations(ctx) {
@@ -3507,8 +3508,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		if grantsScanned%externalMatchProgressLogInterval == 0 {
 			l.Debug("matching grants against external principals: progress",
 				zap.Int("grants_scanned", grantsScanned),
-				zap.Int("expanded_grants", len(expandedGrants)),
-				zap.Int("grants_to_delete", len(grantsToDelete)),
+				zap.Int("matched_grants", len(externalMatchGrants)),
 			)
 		}
 
@@ -3517,6 +3517,52 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		if !annos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
 			continue
 		}
+		externalMatchGrants = append(externalMatchGrants, ga)
+	}
+
+	putChunk := externalMatchGrantPutChunk
+	if s.testHooks.externalMatchGrantPutChunk != nil && *s.testHooks.externalMatchGrantPutChunk > 0 {
+		putChunk = *s.testHooks.externalMatchGrantPutChunk
+	}
+
+	grantsToDelete := make([]*v2.Grant, 0, len(externalMatchGrants))
+	newGrantIDs := mapset.NewSet[string]()
+	expandedBuf := make([]*v2.Grant, 0, putChunk)
+	expandedCount := 0
+
+	flushExpanded := func() error {
+		if len(expandedBuf) == 0 {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := s.store.PutGrants(ctx, expandedBuf...); err != nil {
+			return err
+		}
+		expandedBuf = nil
+		return nil
+	}
+	addExpanded := func(g *v2.Grant) error {
+		newGrantIDs.Add(g.GetId())
+		expandedBuf = append(expandedBuf, g)
+		expandedCount++
+		if expandedCount%externalMatchProgressLogInterval == 0 {
+			l.Debug("matching grants against external principals: progress",
+				zap.Int("grants_scanned", grantsScanned),
+				zap.Int("expanded_grants", expandedCount),
+				zap.Int("grants_to_delete", len(grantsToDelete)),
+			)
+		}
+		if len(expandedBuf) < putChunk {
+			return nil
+		}
+		return flushExpanded()
+	}
+
+	for _, ga := range externalMatchGrants {
+		grant := ga.Grant
+		annos := annotations.Annotations(grant.GetAnnotations())
 
 		// Match all
 		matchResourceMatchAllAnno, err := GetExternalResourceMatchAllAnnotation(annos)
@@ -3530,7 +3576,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			}
 			for _, principal := range principalsByTrait[trait] {
 				newGrant := newGrantForExternalPrincipal(grant, principal)
-				expandedGrants = append(expandedGrants, newGrant)
+				if err := addExpanded(newGrant); err != nil {
+					return err
+				}
 			}
 			grantsToDelete = append(grantsToDelete, grant)
 			continue
@@ -3602,7 +3650,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					newGrantAnnos.Update(newExpandableAnno)
 					newGrant.SetAnnotations(newGrantAnnos)
 				}
-				expandedGrants = append(expandedGrants, newGrant)
+				if err := addExpanded(newGrant); err != nil {
+					return err
+				}
 			}
 
 			// We still want to delete the grant even if there are no matches
@@ -3640,7 +3690,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				}
 				for _, i := range positions {
 					newGrant := newGrantForExternalPrincipal(grant, idx.principalAt(i))
-					expandedGrants = append(expandedGrants, newGrant)
+					if err := addExpanded(newGrant); err != nil {
+						return err
+					}
 				}
 			case matchTraits[trait]:
 				// Generic profile match, shared by TRAIT_GROUP and any
@@ -3664,7 +3716,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						return err
 					}
 					if newGrant != nil {
-						expandedGrants = append(expandedGrants, newGrant)
+						if err := addExpanded(newGrant); err != nil {
+							return err
+						}
 					}
 				}
 			default:
@@ -3678,17 +3732,16 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 	l.Debug("matched grants against external principals",
 		zap.Int("grants_scanned", grantsScanned),
-		zap.Int("expanded_grants", len(expandedGrants)),
+		zap.Int("expanded_grants", expandedCount),
 		zap.Int("grants_to_delete", len(grantsToDelete)),
 	)
 
-	newGrantIDs := mapset.NewSet[string]()
-	for _, ng := range expandedGrants {
-		newGrantIDs.Add(ng.GetId())
-	}
-
-	err = s.store.PutGrants(ctx, expandedGrants...)
-	if err != nil {
+	if expandedCount == 0 {
+		err = s.store.PutGrants(ctx)
+		if err != nil {
+			return err
+		}
+	} else if err = flushExpanded(); err != nil {
 		return err
 	}
 

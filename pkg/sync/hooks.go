@@ -27,4 +27,9 @@ type syncTestHooks struct {
 	// event (seed/dequeue/commit/abort/done) for post-hoc verification
 	// of the queue contract.
 	queueAudit *queueAudit
+	// externalMatchGrantPutChunk, when non-nil and positive, replaces
+	// the production flush size. The cut harness sets it under the
+	// fixture's expanded-grant count so a commit between chunks is
+	// reachable; the production size is far above that fixture.
+	externalMatchGrantPutChunk *int
 }
