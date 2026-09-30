@@ -188,6 +188,7 @@ func TestVerificationExternalPrincipalIndexDeduplicatesRepeatedTraitEmail(t *tes
 }
 
 var errVerificationDeleteCut = errors.New("verification: injected delete cut")
+var errVerificationPutCut = errors.New("verification: injected put cut")
 
 // interruptingExternalMatchStore delegates to a real store and injects a
 // process-like stop at a selected delete. Embedding preserves the complete
@@ -197,12 +198,18 @@ var errVerificationDeleteCut = errors.New("verification: injected delete cut")
 type interruptingExternalMatchStore struct {
 	c1zstore.Store
 	failDeleteAt  int64
+	failPutAt     int64
 	deleteCalls   atomic.Int64
+	putCalls      atomic.Int64
 	putBatchSizes []int
 }
 
 func (s *interruptingExternalMatchStore) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
+	call := s.putCalls.Add(1)
 	s.putBatchSizes = append(s.putBatchSizes, len(grants))
+	if s.failPutAt > 0 && call == s.failPutAt {
+		return errVerificationPutCut
+	}
 	return s.Store.PutGrants(ctx, grants...)
 }
 
@@ -423,6 +430,75 @@ func TestVerificationExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T
 	// is the same-checkpoint-twice cell from the guide.
 	require.NoError(t, resumedSyncer.processGrantsWithExternalPrincipals(ctx, principals))
 	require.Equal(t, []int{33, 27}, resumedWrapper.putBatchSizes,
+		"the second replay processes nine stable expanded rows, each matching three principals")
+	finishExternalMatchVerificationSync(t, resumedStore, resumedState)
+
+	require.Equal(t, goldenDigest, grantDigest(t, cutPath, cutSyncID))
+}
+
+// TestVerificationExternalPrincipalMatchPutCutResumesToGolden cuts on the
+// second PutGrants, after the first chunk has committed and before any
+// carrier is deleted. The fixture expands to nine grants and the chunk is
+// forced to four, so that second call is reachable. Resume must converge
+// to the same grant digest as an uninterrupted run.
+func TestVerificationExternalPrincipalMatchPutCutResumesToGolden(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+
+	goldenPath := filepath.Join(tmpDir, "golden.c1z")
+	goldenStore, goldenSyncID, principals := seedExternalMatchVerificationStore(t, goldenPath)
+	goldenState := newRunState()
+	goldenState.setFact(factHasExternalResourceGrants)
+	goldenState.pushAction(ctx, Action{Op: SyncExternalResourcesOp})
+	goldenSyncer := &syncer{run: goldenState, stats: newRunStats(), graph: newExpansionGraph()}
+	goldenSyncer.setStore(goldenStore)
+	require.NoError(t, goldenSyncer.processGrantsWithExternalPrincipals(ctx, principals))
+	finishExternalMatchVerificationSync(t, goldenStore, goldenState)
+	goldenDigest := grantDigest(t, goldenPath, goldenSyncID)
+
+	putChunk := 4
+	cutPath := filepath.Join(tmpDir, "cut.c1z")
+	cutStore, cutSyncID, principals := seedExternalMatchVerificationStore(t, cutPath)
+	cutWrapper := &interruptingExternalMatchStore{
+		Store:     cutStore,
+		failPutAt: 2,
+	}
+	currentToken, err := cutStore.CurrentSyncStep(ctx)
+	require.NoError(t, err)
+	cutState, _, _ := decodeTestRun(t, currentToken)
+	cutSyncer := &syncer{run: cutState, stats: newRunStats(), graph: newExpansionGraph()}
+	cutSyncer.testHooks.externalMatchGrantPutChunk = &putChunk
+	cutSyncer.setStore(cutWrapper)
+	err = cutSyncer.processGrantsWithExternalPrincipals(ctx, principals)
+	require.ErrorIs(t, err, errVerificationPutCut)
+	require.Equal(t, []int{putChunk, putChunk}, cutWrapper.putBatchSizes,
+		"test premise: the cut is the second chunk commit")
+	annotated, err := externalMatchGrantIDs(ctx, cutStore)
+	require.NoError(t, err)
+	require.Len(t, annotated, 7,
+		"test premise: the first chunk of 4 committed and the 3 carriers are still present")
+	require.NoError(t, cutStore.Close(ctx))
+
+	resumedStore, err := dotc1z.NewStore(ctx, cutPath,
+		dotc1z.WithEngine(c1zstore.EnginePebble),
+		dotc1z.WithTmpDir(tmpDir),
+	)
+	require.NoError(t, err)
+	require.NoError(t, resumedStore.SetCurrentSync(ctx, cutSyncID))
+	resumedToken, err := resumedStore.CurrentSyncStep(ctx)
+	require.NoError(t, err)
+	resumedState, _, _ := decodeTestRun(t, resumedToken)
+	require.NotNil(t, resumedState.current(), "unfinished action must survive the cut")
+
+	resumedWrapper := &interruptingExternalMatchStore{Store: resumedStore}
+	resumedSyncer := &syncer{run: resumedState, stats: newRunStats(), graph: newExpansionGraph()}
+	resumedSyncer.setStore(resumedWrapper)
+	require.NoError(t, resumedSyncer.processGrantsWithExternalPrincipals(ctx, principals))
+	require.Equal(t, []int{21}, resumedWrapper.putBatchSizes,
+		"resume scans three carriers plus four expanded grants, each matching three principals")
+
+	require.NoError(t, resumedSyncer.processGrantsWithExternalPrincipals(ctx, principals))
+	require.Equal(t, []int{21, 27}, resumedWrapper.putBatchSizes,
 		"the second replay processes nine stable expanded rows, each matching three principals")
 	finishExternalMatchVerificationSync(t, resumedStore, resumedState)
 

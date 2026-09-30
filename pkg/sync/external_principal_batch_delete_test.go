@@ -24,6 +24,7 @@ type batchDeleteRouteStore struct {
 	refsDeleted    []string
 	byIDDeleted    []string
 	putGrantsSizes []int
+	putGrantIDs    []string
 }
 
 func (s *batchDeleteRouteStore) Grants() c1zstore.GrantStore { return &s.grants }
@@ -34,6 +35,9 @@ func (s *batchDeleteRouteStore) SyncMeta() c1zstore.SyncMeta { return nil }
 
 func (s *batchDeleteRouteStore) PutGrants(_ context.Context, grants ...*v2.Grant) error {
 	s.putGrantsSizes = append(s.putGrantsSizes, len(grants))
+	for _, g := range grants {
+		s.putGrantIDs = append(s.putGrantIDs, g.GetId())
+	}
 	return nil
 }
 
@@ -189,4 +193,51 @@ func TestProcessGrantsWithExternalPrincipalsBatchSkipsReissuedGrants(t *testing.
 	require.Empty(t, base.byIDDeleted)
 	require.Equal(t, []int{1}, base.putGrantsSizes,
 		"test premise: exactly one expanded grant was written, so the filter had something to skip")
+}
+
+// TestProcessGrantsWithExternalPrincipalsPutGrantsChunked pins that a
+// match-all expansion larger than externalMatchGrantPutChunk is written as
+// successive PutGrants calls of at most that size, without dropping a grant.
+func TestProcessGrantsWithExternalPrincipalsPutGrantsChunked(t *testing.T) {
+	ctx := t.Context()
+
+	n := externalMatchGrantPutChunk*2 + 1
+	principals := make([]*v2.Resource, 0, n)
+	for i := 0; i < n; i++ {
+		principals = append(principals, v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: "user",
+				Resource:     fmt.Sprintf("user-%d", i),
+			}.Build(),
+			Annotations: annotations.New(&v2.BatonID{}, &v2.UserTrait{}),
+		}.Build())
+	}
+	carrier := v2.Grant_builder{
+		Id: "grant-match-all",
+		Entitlement: v2.Entitlement_builder{
+			Id: "entitlement-0",
+		}.Build(),
+		Principal: v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: "group",
+				Resource:     "everyone",
+			}.Build(),
+		}.Build(),
+		Annotations: annotations.New(v2.ExternalResourceMatchAll_builder{
+			ResourceType: v2.ResourceType_TRAIT_USER,
+		}.Build()),
+	}.Build()
+
+	base := &batchDeleteRouteStore{}
+	base.grants.rows = append(base.grants.rows, c1zstore.GrantAnnotation{Grant: carrier})
+	store := &batchDeleteStore{batchDeleteRouteStore: base}
+
+	require.NoError(t, newExternalMatchSyncer(store).processGrantsWithExternalPrincipals(ctx, principals))
+
+	require.Equal(t, []int{
+		externalMatchGrantPutChunk,
+		externalMatchGrantPutChunk,
+		1,
+	}, base.putGrantsSizes)
+	require.Len(t, base.putGrantIDs, n)
 }
