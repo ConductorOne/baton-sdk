@@ -65,7 +65,7 @@ func TestLedgerPublicRegisteredPathAttachment(t *testing.T) {
 				afterWrites := len(f.audit.events)
 				f.audit.mu.Unlock()
 				require.Equal(t, writes, afterWrites)
-				valid := engine == "pebble" && capability || engine == "sqlite" && !capability
+				valid := engine == "pebble" && capability || engine != "pebble" && !capability
 				if !valid {
 					require.Error(t, err)
 					require.Equal(t, 1, closeStore.closes)

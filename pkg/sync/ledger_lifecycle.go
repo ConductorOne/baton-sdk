@@ -134,7 +134,7 @@ func (s *syncer) legacyTokenFlagConflict(ctx context.Context, finished bool) err
 			if !finished && s.cfg.onlyExpandGrants {
 				return fmt.Errorf("%w: sync %s is a legacy checkpoint that has not collected; finish it before requesting expansion only", ErrLedgerStateConflict, s.syncID)
 			}
-		case SyncGrantExpansionOp.String():
+		case SyncGrantExpansionOp.String(), SyncExternalResourcesOp.String():
 		default:
 			collectionQueued = true
 		}
@@ -167,8 +167,9 @@ func (s *syncer) flagConflict(ctx context.Context, resume ledgerResume, finished
 		// would seal a truncated sync. The Init seed alone on an unfinished
 		// sync means nothing was collected; on a finished sync it is an
 		// expansion pass that has not planned yet, and only an expansion
-		// resumer may plan it. The expansion step alone, or a drained queue,
-		// is a completed collection.
+		// resumer may plan it. The expansion step and the external import
+		// call no connector, so alone or with a drained queue they are a
+		// completed collection.
 		pending, _, err := s.caps.pageLedger.PendingWork(ctx, 0, maxPeekActionsCount)
 		if err != nil {
 			return nil, err
@@ -181,7 +182,7 @@ func (s *syncer) flagConflict(ctx context.Context, resume ledgerResume, finished
 				if !finished && s.cfg.onlyExpandGrants {
 					return nil, conflict("unstarted", "nothing has been collected under this sync ID")
 				}
-			case SyncGrantExpansionOp.String():
+			case SyncGrantExpansionOp.String(), SyncExternalResourcesOp.String():
 			default:
 				collectionQueued = true
 			}

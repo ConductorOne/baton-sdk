@@ -34,6 +34,20 @@ func (w ledgerPageWriterFailsForOp) Commit(ctx context.Context, id c1zstore.Ledg
 	return w.PageWriter.Commit(ctx, id, row)
 }
 
+// Expansion and the external import complete through CompletePendingWork,
+// not a page commit.
+type ledgerCompleteFailsForOp struct {
+	c1zstore.PageLedgerStore
+	op ActionOp
+}
+
+func (s ledgerCompleteFailsForOp) CompletePendingWork(ctx context.Context, work c1zstore.LedgerWork, runID string, counters c1zstore.LedgerCounters) error {
+	if work.Action.Identity.Op == s.op.String() {
+		return errLedgerInjectedPage
+	}
+	return s.PageLedgerStore.CompletePendingWork(ctx, work, runID, counters)
+}
+
 func listGrantIDs(t *testing.T, f *ledgerFixture) []string {
 	t.Helper()
 	grants, err := f.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
@@ -449,6 +463,55 @@ func TestLedgerFinishedSyncAtInitSeedRefusesCollection(t *testing.T) {
 			_, err = expander.prepareLedgerState(ctx, "expand", false)
 			require.NoError(t, err)
 			require.Equal(t, InitOp, expander.run.current().Op)
+		})
+	}
+}
+
+// An expansion pass plans expansion and, with an external source, the
+// external import; neither calls the connector. A crash inside the import
+// leaves a pass that any expansion resumer finishes: only-expand is not
+// refused as mid-collection, and a resumer without flags is not compared
+// against the collection's recorded flags.
+func TestLedgerExpansionPassWithExternalImportResumes(t *testing.T) {
+	ctx := t.Context()
+	source, _, expanded := ledgerUnexpandedSource(t)
+	external := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "external.c1z"), true)
+	require.NoError(t, external.store.EndSync(ctx))
+	require.NoError(t, external.store.Close(ctx))
+
+	build := func(t *testing.T) (*ledgerFixture, string) {
+		f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "pass.c1z"), false)
+		first, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithDontExpandGrants(), WithSyncResourceTypes([]string{"group", "user"}))
+		require.NoError(t, err)
+		require.NoError(t, first.Sync(ctx))
+		id := first.(*syncer).syncID
+		require.NoError(t, f.store.Close(ctx))
+
+		f = openLedgerFixtureAt(t, f.path, false)
+		expander, err := NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()},
+			WithConnectorStore(f.store), WithSyncID(id), WithOnlyExpandGrants(), WithExternalResourceC1ZPath(external.path))
+		require.NoError(t, err)
+		expander.(*syncer).caps.pageLedger = ledgerCompleteFailsForOp{PageLedgerStore: f.ledger, op: SyncExternalResourcesOp}
+		require.ErrorIs(t, expander.Sync(ctx), errLedgerInjectedPage)
+		pending, phase, err := f.ledger.PendingWork(ctx, 0, 10)
+		require.NoError(t, err)
+		require.Equal(t, c1zstore.LedgerQueueCollecting, phase)
+		require.NotEmpty(t, pending, "the import is still queued")
+		require.NoError(t, f.store.Close(ctx))
+		return openLedgerFixtureAt(t, f.path, false), id
+	}
+
+	for name, opts := range map[string][]SyncOpt{
+		"only-expand": {WithOnlyExpandGrants()},
+		"no-flags":    nil,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, id := build(t)
+			resumer, err := NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()},
+				append([]SyncOpt{WithConnectorStore(f.store), WithSyncID(id), WithExternalResourceC1ZPath(external.path)}, opts...)...)
+			require.NoError(t, err)
+			require.NoError(t, resumer.Sync(ctx))
+			require.ElementsMatch(t, expanded, listGrantIDs(t, f))
 		})
 	}
 }

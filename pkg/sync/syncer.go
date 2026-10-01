@@ -3883,12 +3883,14 @@ func (s *syncer) setStore(store c1zstore.Store) {
 			return
 		}
 		s.ledgered = true
-	case c1zstore.EngineSQLite:
-		if s.caps.pageLedger != nil {
-			s.storeAttachErr = errors.New("SQLite sync store must not implement PageLedgerStore")
-		}
 	default:
-		s.storeAttachErr = fmt.Errorf("unsupported sync store engine %q", store.Metadata().Engine)
+		// connectorstore.StoreMetadata: "" is a store not backed by a c1z
+		// (mocks, in-memory wrappers, gRPC clients), and unknown values are
+		// not to be switched on. Everything but Pebble checkpoints through
+		// the token path, so a ledger on it is a misreported Pebble store.
+		if s.caps.pageLedger != nil {
+			s.storeAttachErr = fmt.Errorf("sync store engine %q must not implement PageLedgerStore", store.Metadata().Engine)
+		}
 	}
 }
 
