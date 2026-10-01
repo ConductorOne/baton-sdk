@@ -126,13 +126,19 @@ jobs:
           name: govulncheck-fix
           path: ${{ runner.temp }}/govulncheck
 
-      # Every path in the patch must be go.mod, go.sum or under vendor/;
-      # anything else fails the run before the tree is touched.
+      # Every path in the patch must be go.mod, go.sum or under vendor/, and
+      # the patch may not rename, copy or create a symlink: `git apply
+      # --numstat` lists only destination paths, so those headers could reach
+      # a file the allowlist never sees. `go mod vendor` produces none of them.
       - name: Apply the fix
         if: needs.scan.outputs.changed == 'true'
         run: |
           set -euo pipefail
           patch="$RUNNER_TEMP/govulncheck/fixes.patch"
+          if grep -Eq '^(rename|copy) (from|to) |^(new file|new) mode 120000' "$patch"; then
+            echo "the patch renames, copies or creates a symlink; refused" >&2
+            exit 1
+          fi
           paths=$(git apply --numstat "$patch" | cut -f3-)
           test -n "$paths"
           if printf '%s\n' "$paths" | grep -Ev '^(go\.mod|go\.sum|vendor/.+)$'; then
