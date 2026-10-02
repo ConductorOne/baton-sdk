@@ -290,7 +290,7 @@ func TestChaosActionErrorStillLogsCancelCause(t *testing.T) {
 	harness := newChaosHarness(t, syncCtx, run, path, tmpDir, chaosTransportDirect, WithWorkerCount(1))
 
 	require.Error(t, harness.Syncer.Sync(syncCtx))
-	require.NotNil(t, findEntry(capturedEntries(), zapcore.ErrorLevel, "cancelling context due to error in action"),
+	require.NotNil(t, findEntry(capturedEntries(), zapcore.WarnLevel, "cancelling context due to error in action"),
 		"a genuine action failure must still log the cancel cause")
 	require.NoError(t, harness.Close(ctx))
 }
@@ -343,7 +343,7 @@ func TestParallelBatchSecondGenuineFailureStillLogs(t *testing.T) {
 
 	logged := 0
 	for _, entry := range capturedEntries() {
-		if entry.level == zapcore.ErrorLevel && contains(entry.message, "cancelling context due to error in action") {
+		if entry.level == zapcore.WarnLevel && contains(entry.message, "cancelling context due to error in action") {
 			logged++
 		}
 	}

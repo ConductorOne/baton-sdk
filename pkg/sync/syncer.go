@@ -714,7 +714,7 @@ func (s *syncer) returnSyncError(l *zap.Logger, span trace.Span, err error) erro
 		return err
 	}
 	fields := append(s.syncSummaryFields(span), zap.Error(err))
-	l.Error("sync stats so far", fields...)
+	l.Info("sync stats so far", fields...)
 	return err
 }
 
@@ -1340,7 +1340,7 @@ func validateSyncResourceTypesFilter(resourceTypesFilter []string, validResource
 	}
 	for _, rt := range resourceTypesFilter {
 		if _, ok := validResourceTypesMap[rt]; !ok {
-			return fmt.Errorf("invalid resource type '%s' in filter", rt)
+			return status.Errorf(codes.InvalidArgument, "invalid resource type '%s' in filter", rt)
 		}
 	}
 	return nil
@@ -1896,7 +1896,7 @@ func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) err
 					zap.String("resource_type_id", r.GetId().GetResourceType()),
 					zap.String("resource_id", r.GetId().GetResource()),
 				)
-				return fmt.Errorf("resource was missing expected trait %s", trait.ProtoReflect().Descriptor().Name())
+				return status.Errorf(codes.InvalidArgument, "resource was missing expected trait %s", trait.ProtoReflect().Descriptor().Name())
 			}
 		}
 	}
@@ -2375,7 +2375,7 @@ func (s *syncer) syncAssetsForResource(ctx context.Context, action *Action) erro
 			}
 
 			if metadata == nil {
-				return fmt.Errorf("no metadata received, unable to store asset")
+				return status.Errorf(codes.Internal, "no metadata received, unable to store asset")
 			}
 
 			return s.store.PutAsset(ctx, assetRef, metadata.GetContentType(), assetBytes.Bytes())
@@ -2515,7 +2515,7 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, action *Action, graph
 
 			sourceEntitlementResourceID := srcEntitlement.GetEntitlement().GetResource().GetId()
 			if sourceEntitlementResourceID == nil {
-				return fmt.Errorf("source entitlement resource id was nil")
+				return status.Errorf(codes.Internal, "source entitlement resource id was nil")
 			}
 			if def.PrincipalResourceTypeID != sourceEntitlementResourceID.GetResourceType() ||
 				def.PrincipalResourceID != sourceEntitlementResourceID.GetResource() {
@@ -2525,7 +2525,7 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, action *Action, graph
 					zap.String("grant_principal_resource_id", def.PrincipalResourceID),
 					zap.String("source_entitlement_resource_id", sourceEntitlementResourceID.String()))
 
-				return fmt.Errorf("source entitlement resource id did not match grant principal id")
+				return status.Errorf(codes.Internal, "source entitlement resource id did not match grant principal id")
 			}
 
 			graph.AddEntitlementID(dstEntitlementID)
