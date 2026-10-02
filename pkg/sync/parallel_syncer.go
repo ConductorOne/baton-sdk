@@ -829,7 +829,7 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 					// must always run — it releases workers blocked in
 					// queue.next().
 					if preBatchCtx.Err() == nil {
-						l.Error("cancelling context due to error in action", zap.Any("action", action), zap.Error(r.err))
+						l.Warn("cancelling context due to error in action", zap.Any("action", action), zap.Error(r.err))
 					}
 					cancel(fmt.Errorf("cancelling context due to error in action %v: %w", action, r.err))
 					queue.abort()
