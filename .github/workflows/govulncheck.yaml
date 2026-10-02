@@ -156,6 +156,12 @@ jobs:
           base: main
           branch: govulncheck/fixes
           delete-branch: true
+          # The action's default author is the actor of the run: the person who
+          # dispatched it, or on the schedule whoever last edited the cron line.
+          # The fix is the app's work, so credit the app's bot account. The
+          # address is the one GitHub itself uses for that account.
+          author: "baton-ci[bot] <280037189+baton-ci[bot]@users.noreply.github.com>"
+          committer: "baton-ci[bot] <280037189+baton-ci[bot]@users.noreply.github.com>"
           commit-message: "Bump dependencies for vulnerabilities govulncheck reaches"
           title: "Bump dependencies for vulnerabilities govulncheck reaches"
           body-path: ${{ runner.temp }}/govulncheck/pr-body.md
