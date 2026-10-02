@@ -1,0 +1,178 @@
+name: govulncheck
+
+# Weekly scan of this module's own code for reachable vulnerabilities. When a
+# dependency bump fixes one, the run opens a pull request with the bump, or
+# refreshes the one already open on the govulncheck/fixes branch; when a later
+# scan finds nothing left to bump while that pull request is still open, the
+# run closes it. Standard-library findings raise the go directive to the fixed release,
+# the floor every dependent inherits when it takes the new SDK; findings
+# without a fix are reported in the step summary and the pull request body
+# only. Merging and releasing stay manual: everything built on this SDK
+# inherits the result.
+#
+# Two jobs on separate runners. `scan` runs govulncheck and the Go toolchain
+# with only the read-only default token and hands over two files: a patch
+# limited to go.mod, go.sum and vendor/, and the pull request body. `publish`
+# holds the App token, applies that patch to a fresh checkout after checking
+# its paths, and opens or closes the pull request. Nothing the scanner ran
+# shares a filesystem, environment or git checkout with the token.
+#
+# Only members with write access can dispatch this workflow, and nothing here
+# runs on pull requests, so forks never execute it.
+
+on:
+  schedule:
+    # Wednesday 09:00 UTC, clear of the dependents' own Monday and Tuesday
+    # release cycles. A fix merged and released the same day reaches them on
+    # their next dependency update.
+    - cron: "0 9 * * 3"
+  workflow_dispatch:
+
+# The default token stays read-only; the App token in `publish` does the writes.
+permissions:
+  contents: read
+
+# Repeated dispatches queue rather than scan in parallel.
+concurrency:
+  group: govulncheck
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      changed: ${{ steps.fix.outputs.changed }}
+      needed: ${{ steps.fix.outputs.needed }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+
+      # Stubbed go, git and govulncheck; a few seconds. Runs here rather than
+      # on every pull request so the script is checked exactly when it is
+      # about to run, and a broken edit fails the run before it edits go.mod.
+      - name: Test the fix script
+        run: python3 scripts/govulncheck_fix_test.py
+
+      # Built with the same Go that builds the module: govulncheck refuses to
+      # analyze a build made with a different Go version. Pinned: bumping the
+      # scanner is a reviewed change, not a side effect of the weekly run.
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
+
+      # Writes its report and the pull request body under $RUNNER_TEMP/govulncheck.
+      - name: Scan and apply fixes
+        id: fix
+        run: scripts/govulncheck-fix.sh
+
+      # The patch and the body are all the publisher receives from this runner.
+      - name: Package the fix for the publisher
+        if: steps.fix.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git add -A -- go.mod go.sum vendor
+          git diff --cached --binary --no-renames -- go.mod go.sum vendor > "$RUNNER_TEMP/govulncheck/fixes.patch"
+          test -s "$RUNNER_TEMP/govulncheck/fixes.patch"
+
+      - name: Upload the fix
+        if: steps.fix.outputs.changed == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: govulncheck-fix
+          path: |
+            ${{ runner.temp }}/govulncheck/fixes.patch
+            ${{ runner.temp }}/govulncheck/pr-body.md
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: scan
+    if: needs.scan.outputs.changed == 'true' || needs.scan.outputs.needed == 'false'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Scoped to what the pull request and close steps do: push and delete
+      # the fix branch, open, update and close its pull request.
+      - name: Mint baton-ci app token
+        id: ci-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.BATON_CI_CLIENT_ID }}
+          private-key: ${{ secrets.BATON_CI_SECRET_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Checkout code
+        if: needs.scan.outputs.changed == 'true'
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Download the fix
+        if: needs.scan.outputs.changed == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: govulncheck-fix
+          path: ${{ runner.temp }}/govulncheck
+
+      # Every path in the patch must be go.mod, go.sum or under vendor/, and
+      # the patch may not rename, copy or create a symlink: `git apply
+      # --numstat` lists only destination paths, so those headers could reach
+      # a file the allowlist never sees. `go mod vendor` produces none of them.
+      - name: Apply the fix
+        if: needs.scan.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          patch="$RUNNER_TEMP/govulncheck/fixes.patch"
+          if grep -Eq '^(rename|copy) (from|to) |^(new file|new) mode 120000' "$patch"; then
+            echo "the patch renames, copies or creates a symlink; refused" >&2
+            exit 1
+          fi
+          paths=$(git apply --numstat "$patch" | cut -f3-)
+          test -n "$paths"
+          if printf '%s\n' "$paths" | grep -Ev '^(go\.mod|go\.sum|vendor/.+)$'; then
+            echo "the patch touches files outside go.mod, go.sum and vendor/" >&2
+            exit 1
+          fi
+          git apply --check "$patch"
+          git apply "$patch"
+
+      - name: Open or refresh the fix pull request
+        if: needs.scan.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7.0.11
+        with:
+          token: ${{ steps.ci-token.outputs.token }}
+          base: main
+          branch: govulncheck/fixes
+          delete-branch: true
+          commit-message: "Bump dependencies for vulnerabilities govulncheck reaches"
+          title: "Bump dependencies for vulnerabilities govulncheck reaches"
+          body-path: ${{ runner.temp }}/govulncheck/pr-body.md
+          add-paths: |
+            go.mod
+            go.sum
+            vendor
+
+      - name: Close a stale fix pull request
+        if: needs.scan.outputs.needed == 'false'
+        env:
+          GH_TOKEN: ${{ steps.ci-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head govulncheck/fixes --state open --json number --jq '.[0].number // empty')
+          if [ -z "$number" ]; then
+            exit 0
+          fi
+          gh pr close "$number" --repo "$GITHUB_REPOSITORY" --delete-branch \
+            --comment "This week's govulncheck scan of main found nothing that a dependency or go directive bump fixes, so the bumps here are no longer needed. Closed by the workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
