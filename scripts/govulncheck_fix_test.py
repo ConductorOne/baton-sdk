@@ -230,7 +230,9 @@ esac
         checkout = workflow.split("- name: Checkout code", 1)[1].split("- name:", 1)[0]
         close = workflow.split("- name: Close a stale fix pull request", 1)[1]
         self.assertIn("ref: main", checkout)
-        self.assertIn("if: steps.fix.outputs.needed == 'false'", close)
+        # The scan and publish jobs run on separate runners; the close step in
+        # publish keys on the scan job's output.
+        self.assertIn("if: needs.scan.outputs.needed == 'false'", close)
 
 
 if __name__ == "__main__":
