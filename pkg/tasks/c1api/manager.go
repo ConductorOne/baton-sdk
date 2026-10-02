@@ -296,11 +296,11 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 func getTasksEnabledFromEnv() bool {
 	raw, ok := os.LookupEnv(getTasksEnv)
 	if !ok {
-		return false
+		return true
 	}
 	enabled, err := strconv.ParseBool(raw)
 	if err != nil {
-		return false
+		return true
 	}
 	return enabled
 }
