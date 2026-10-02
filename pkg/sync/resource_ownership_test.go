@@ -8,6 +8,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
@@ -63,4 +64,8 @@ func TestPutConnectorResourcesRejectsReservedOwnership(t *testing.T) {
 	}.Build()
 	require.NoError(t, syncer.putConnectorResources(t.Context(), clean))
 	require.Equal(t, 1, store.putCalls)
+}
+
+func (s *ownershipGuardStore) Metadata() connectorstore.StoreMetadata {
+	return connectorstore.StoreMetadata{Engine: string(c1zstore.EngineSQLite)}
 }

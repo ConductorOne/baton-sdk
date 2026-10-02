@@ -37,6 +37,7 @@ import (
 )
 
 var writeMuDirectAcquirers = map[string]bool{
+	"BoundSyncUnstarted":         true,
 	"withWrite":                  true,
 	"withWriteAllowSealed":       true,
 	"withWriteMu":                true,

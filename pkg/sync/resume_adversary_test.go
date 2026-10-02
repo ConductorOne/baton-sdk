@@ -236,12 +236,12 @@ func TestResumeAcrossChangedAnswersTerminates(t *testing.T) {
 	require.True(t, baseline.completed, "baseline sync must complete")
 	require.Positive(t, baseline.grantsResponses)
 
-	midBatchTokens := 0
+	pendingAcrossCuts := 0
 	for i, m := range enumerateCutPoints(baseline.grantsResponses, 10) {
 		t.Run(fmt.Sprintf("grants-cut-%02d", m), func(t *testing.T) {
 			path := filepath.Join(tmpDir, fmt.Sprintf("changed-%02d.c1z", m))
 			r := runCutAttempt(t, base, path, tmpDir, cutSpec{workers: 4, grantsResponse: m, cause: errInjectedExpiry})
-			midBatchTokens += r.spawnedTokens
+			pendingAcrossCuts += r.pendingSpawned
 			if r.completed {
 				verifyCutStore(t, path, tmpDir, expectedEntIDs, userID)
 				return
@@ -253,8 +253,8 @@ func TestResumeAcrossChangedAnswersTerminates(t *testing.T) {
 			verifyChangedAnswerStore(t, path, tmpDir, expectedEntIDs, userID)
 		})
 	}
-	require.Positive(t, midBatchTokens,
-		"no expiry checkpoint carried a spawned in-flight cursor; the sweep is not reaching the changed-answer state shape")
+	require.Positive(t, pendingAcrossCuts,
+		"no interrupted ledger walk returned pending spawned work")
 }
 
 // spawnedErrorOnceConnector fails the FIRST type-scoped grants call for one

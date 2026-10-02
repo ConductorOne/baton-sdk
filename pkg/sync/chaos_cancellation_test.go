@@ -190,12 +190,13 @@ func TestChaosExternalCancelStopsQuietlyAndCheckpoints(t *testing.T) {
 	sc, ok := harness.Syncer.(*syncer)
 	require.True(t, ok)
 	var cancelIssued atomic.Bool
-	var checkpointAfterCancel atomic.Bool
-	sc.testHooks.checkpointHook = func(string) {
-		if cancelIssued.Load() {
-			checkpointAfterCancel.Store(true)
+	var accountingAfterCancel atomic.Bool
+	sc.testHooks.ledgerStop = func(ctx context.Context) {
+		if cancelIssued.Load() && ctx.Err() == nil {
+			accountingAfterCancel.Store(true)
 		}
 	}
+	sc.testHooks.checkpointHook = func(string) { t.Error("Pebble wrote a checkpoint token") }
 
 	done := make(chan error, 1)
 	go func() { done <- harness.Syncer.Sync(firstCtx) }()
@@ -235,8 +236,8 @@ func TestChaosExternalCancelStopsQuietlyAndCheckpoints(t *testing.T) {
 
 	require.Nil(t, findEntry(capturedEntries(), zapcore.ErrorLevel, "cancelling context due to error in action"),
 		"workers observing shutdown must not log action-failure errors (RFC 0009 §4.2)")
-	require.True(t, checkpointAfterCancel.Load(),
-		"the detached stop checkpoint must run after an external cancel (RFC 0009 §4.2)")
+	require.True(t, accountingAfterCancel.Load(),
+		"run accounting must persist with a detached context after external cancellation")
 
 	require.NoError(t, harness.Close(ctx))
 	require.NoError(t, run.Runtime().VerifyRequired())
