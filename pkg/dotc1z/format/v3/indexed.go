@@ -560,6 +560,22 @@ func extractIndexedZstd(f *os.File, payloadStart int64, manifestXXH64 uint64, de
 		}
 	}
 	budget := newDecodedBudget(maxDecodedBytes)
+	// Charge the budget for per-entry filesystem overhead so the indexed
+	// encoding bounds extraction cardinality the same way the tar encodings'
+	// 512-byte-per-entry headers do. A hostile index full of raw_size==0
+	// frames would otherwise create unbounded files and directory trees at
+	// zero decoded-byte cost (each entry's only cost is one MkdirAll chain
+	// plus one file create, and an empty frame never bills the budget).
+	const perIndexedEntryOverhead = 512
+	if len(entries) > 0 {
+		overhead := uint64(len(entries)) * perIndexedEntryOverhead
+		if overhead/perIndexedEntryOverhead != uint64(len(entries)) || overhead > maxDecodedBytes {
+			return nil, fmt.Errorf("c1z v3: indexed payload has %d entries; extraction overhead %d exceeds budget %d: %w", len(entries), overhead, maxDecodedBytes, ErrMaxSizeExceeded)
+		}
+		if _, err := budget.take(int(overhead)); err != nil {
+			return nil, err
+		}
+	}
 
 	// Directories first, on one goroutine, so workers never race a
 	// parent-dir creation.

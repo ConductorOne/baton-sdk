@@ -227,20 +227,88 @@ func (e *Engine) repairMissingGrantDigestsAttempt(ctx context.Context) error {
 	// same commit (stageGrantDigestInvalidation, InvalidateGrantDigestPartitions,
 	// the Drop* family — see their doc comments), and the loop below
 	// only ever writes the global root back once it has verified NOTHING
-	// is missing (repaired everything it found, zero failures). So the
-	// root's mere presence certifies every entitlement's digest is
-	// present and correct, without walking the entitlement keyspace at
-	// all: one point Get instead of a scan, for what should be the
-	// overwhelmingly common "nothing to repair" case (e.g. a fold that
-	// invalidated nothing, or a periodic health-check call).
-	if _, ok, err := e.GetGrantDigestGlobalRoot(ctx); err != nil {
+	// is missing (repaired everything it found, zero failures). So for
+	// state the ENGINE itself produced, the root's presence certifies
+	// every entitlement's digest is present and correct.
+	//
+	// That soundness argument does NOT extend to the initial state
+	// delivered by a hostile artifact: every keyspace byte — including
+	// the global root node and the ABI stamp — is attacker-authored
+	// there, and a forged root with zero per-partition roots would be
+	// sealed as present-means-exact over grants the engine never
+	// hashed. Verify rather than trust: the stored global root must
+	// equal the fold of the CURRENTLY STORED per-entitlement roots (a
+	// scan of the small digest ROOT keyspace, bounded by entitlement
+	// count). On mismatch, drop the forged state and fall through to
+	// the scan-and-repair path, which rebuilds honestly from primaries.
+	if stored, ok, err := e.GetGrantDigestGlobalRoot(ctx); err != nil {
 		return err
 	} else if ok {
-		return nil
+		match, err := e.storedGlobalRootMatchesPartitionFold(ctx, stored)
+		if err != nil {
+			return err
+		}
+		if match {
+			return nil
+		}
+		// Forged or divergent state: restore digests-absent so the
+		// scan-and-repair below rebuilds from primaries.
+		ctxzap.Extract(ctx).Warn("grant digest global root does not match the fold of stored partition roots; rebuilding (possible hostile or corrupt keyspace)",
+			zap.Int64("stored_count", stored.Count))
+		if err := e.withWriteAllowSealed(func() error { return e.dropAllGrantDigestStateLocked() }); err != nil {
+			return fmt.Errorf("RepairMissingGrantDigests: drop forged digest state: %w", err)
+		}
 	}
 	return e.withWriteAllowSealed(func() error {
 		return e.repairMissingGrantDigestsLocked(ctx)
 	})
+}
+
+// storedGlobalRootMatchesPartitionFold recomputes the fold of every
+// CURRENTLY STORED per-entitlement grant-digest root (the same fold
+// recomputeGrantDigestGlobalRootLocked performs) and compares it to the
+// stored global root. Read-only; caller holds no lock. Returns
+// (matched, err). An empty partition-root set never matches a present
+// global root (a hostile artifact can plant a root with no partitions).
+func (e *Engine) storedGlobalRootMatchesPartitionFold(ctx context.Context, stored DigestRoot) (bool, error) {
+	var xor [hashLen]byte
+	var total int64
+	partitions := 0
+	iter, err := e.db.NewIter(&pebble.IterOptions{
+		LowerBound: DigestLowerBound(),
+		UpperBound: DigestUpperBound(),
+	})
+	if err != nil {
+		return false, err
+	}
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			_ = iter.Close()
+			return false, err
+		}
+		if !isGrantDigestRootKey(iter.Key()) {
+			continue
+		}
+		_, count, digest, ok := unpackDigestRoot(iter.Value())
+		if !ok {
+			_ = iter.Close()
+			return false, fmt.Errorf("storedGlobalRootMatchesPartitionFold: malformed root at %x", iter.Key())
+		}
+		xorInto(xor[:], digest)
+		total += count
+		partitions++
+	}
+	if err := iter.Error(); err != nil {
+		_ = iter.Close()
+		return false, err
+	}
+	if err := iter.Close(); err != nil {
+		return false, err
+	}
+	if partitions == 0 {
+		return false, nil
+	}
+	return total == stored.Count && bytes.Equal(xor[:], stored.Hash), nil
 }
 
 func (e *Engine) repairMissingGrantDigestsLocked(ctx context.Context) error {

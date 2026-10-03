@@ -262,7 +262,10 @@ func decodeBatchCursor(token string, currentChecksum uint32) (int, string, error
 		return 0, "", errors.New("ListGrantsForEntitlements: cursor missing intra length")
 	}
 	raw = raw[n:]
-	if uint64(len(raw)) < lenU+4 {
+	// Guard each term separately: lenU is attacker-controlled and lenU+4 can
+	// wrap around uint64, which would pass a combined comparison and panic on
+	// the slice below (mirrors engine/pebble/grants_for_entitlements.go).
+	if lenU > uint64(len(raw)) || uint64(len(raw))-lenU < 4 {
 		return 0, "", errors.New("ListGrantsForEntitlements: cursor truncated")
 	}
 	intra := string(raw[:lenU])

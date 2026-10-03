@@ -1067,8 +1067,11 @@ func (c *C1File) InitTables(ctx context.Context) (bool, error) {
 					zap.String("table_name", t.Name()))
 			} else {
 				for _, idxName := range deferrable {
-					// Identifier comes from our own DDL; quote it for hygiene.
-					if _, derr := c.db.ExecContext(ctx, fmt.Sprintf(`DROP INDEX IF EXISTS "%s"`, idxName)); derr != nil {
+					// The name comes from PRAGMA index_list over the opened
+					// file's own schema, which is attacker-controlled in a
+					// hostile .c1z — escape embedded quotes like every other
+					// interpolated identifier (quoteIdentifier).
+					if _, derr := c.db.ExecContext(ctx, fmt.Sprintf(`DROP INDEX IF EXISTS %s`, quoteIdentifier(idxName))); derr != nil {
 						return false, fmt.Errorf("c1file-init-tables: error deferring index %s on %s: %w", idxName, t.Name(), derr)
 					}
 				}
