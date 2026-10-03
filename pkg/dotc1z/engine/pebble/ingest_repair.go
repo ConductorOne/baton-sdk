@@ -64,7 +64,10 @@ func (e *Engine) EnsureGrantIndexes(ctx context.Context) error {
 // op didn't run or didn't match). carrierGrants is the number of grant
 // rows under such a principal, so callers can report per-GRANT totals.
 // Value reads happen only for dangling principals, never on the
-// healthy path.
+// healthy path. The iterator's 4-byte prefix includes the tuple
+// separator, so decoded components re-encode at-or-above the current
+// key — the forward-progress guarantee the ingest_facts.go scans
+// splice raw bytes for (C1Z-SEC-006).
 //
 // A principal whose index entries are ALL orphans (no primary rows) is
 // never visited: it has no grants to judge, so it is healed in place —

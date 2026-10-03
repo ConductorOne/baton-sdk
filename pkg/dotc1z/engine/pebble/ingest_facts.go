@@ -91,7 +91,11 @@ func (e *Engine) ForEachDistinctGrantEntitlementResource(ctx context.Context, vi
 			return err
 		}
 		key := iter.Key()
-		if len(key) <= headerLen {
+		// key[2] must be the tuple separator (0x00): the skip splices
+		// raw component bytes at offsets that assume it, and a key
+		// that re-encodes below itself would spin the loop forever
+		// (C1Z-SEC-006).
+		if len(key) <= headerLen || key[2] != 0 {
 			return fmt.Errorf("distinct ent-resource scan: malformed grant key %x", key)
 		}
 		tail := key[headerLen:]
@@ -99,16 +103,26 @@ func (e *Engine) ForEachDistinctGrantEntitlementResource(ctx context.Context, vi
 		if !ok || next >= len(tail) {
 			return fmt.Errorf("distinct ent-resource scan: malformed grant key tail %x", key)
 		}
-		ridBytes, _, ok := codec.DecodeTupleStringAlias(tail, next+1)
-		if !ok {
+		ridBytes, ridEnd, ok := codec.DecodeTupleStringAlias(tail, next+1)
+		if !ok || ridEnd >= len(tail) {
 			return fmt.Errorf("distinct ent-resource scan: malformed grant key tail %x", key)
 		}
 		rt, rid := string(rtBytes), string(ridBytes)
 		if err := visit(rt, rid); err != nil {
 			return err
 		}
-		// Skip every remaining grant of this entitlement resource.
-		valid = iter.SeekGE(upperBoundOf(encodeGrantPrimaryEntitlementResourcePrefix(rt, rid)))
+		// Skip every remaining grant of this entitlement resource. The
+		// bound splices the current key's raw component bytes — the
+		// header separator is validated above and both components
+		// decoded from these very bytes — so the SeekGE target is
+		// strictly greater than every key sharing this prefix.
+		// Re-encoding the decoded components instead would hang on a
+		// non-canonical key whose re-encoding sorts below itself
+		// (C1Z-SEC-006). ridEnd is the offset of rid's trailing
+		// separator, so the prefix through that separator is
+		// headerLen+ridEnd+1 bytes.
+		skipLen := headerLen + ridEnd + 1
+		valid = iter.SeekGE(upperBoundOf(key[:skipLen:skipLen]))
 	}
 	return iter.Error()
 }
@@ -138,7 +152,11 @@ func (e *Engine) ForEachDistinctEntitlementResource(ctx context.Context, visit f
 			return err
 		}
 		key := iter.Key()
-		if len(key) <= headerLen {
+		// key[2] must be the tuple separator (0x00): the skip splices
+		// raw component bytes at offsets that assume it, and a key
+		// that re-encodes below itself would spin the loop forever
+		// (C1Z-SEC-006).
+		if len(key) <= headerLen || key[2] != 0 {
 			return fmt.Errorf("distinct entitlement-resource scan: malformed entitlement key %x", key)
 		}
 		tail := key[headerLen:]
@@ -146,15 +164,22 @@ func (e *Engine) ForEachDistinctEntitlementResource(ctx context.Context, visit f
 		if !ok || next >= len(tail) {
 			return fmt.Errorf("distinct entitlement-resource scan: malformed entitlement key tail %x", key)
 		}
-		ridBytes, _, ok := codec.DecodeTupleStringAlias(tail, next+1)
-		if !ok {
+		ridBytes, ridEnd, ok := codec.DecodeTupleStringAlias(tail, next+1)
+		if !ok || ridEnd >= len(tail) {
 			return fmt.Errorf("distinct entitlement-resource scan: malformed entitlement key tail %x", key)
 		}
 		rt, rid := string(rtBytes), string(ridBytes)
 		if err := visit(rt, rid); err != nil {
 			return err
 		}
-		valid = iter.SeekGE(upperBoundOf(encodeEntitlementPrimaryResourcePrefix(rt, rid)))
+		// Skip every remaining entitlement of this resource. Same
+		// raw-splice rationale as the grant scan above: ridEnd is the
+		// offset of rid's trailing separator, so the prefix through
+		// that separator is headerLen+ridEnd+1 bytes — strictly greater
+		// than every key sharing it, so the iterator always advances
+		// (C1Z-SEC-006).
+		skipLen := headerLen + ridEnd + 1
+		valid = iter.SeekGE(upperBoundOf(key[:skipLen:skipLen]))
 	}
 	return iter.Error()
 }
@@ -188,7 +213,11 @@ func (e *Engine) ForEachDanglingGrantEntitlement(ctx context.Context, visit func
 			return err
 		}
 		key := iter.Key()
-		if len(key) <= headerLen {
+		// key[2] must be the tuple separator (0x00): the skip splices
+		// raw component bytes at offsets that assume it, and a key
+		// that re-encodes below itself would spin the loop forever
+		// (C1Z-SEC-006).
+		if len(key) <= headerLen || key[2] != 0 {
 			return fmt.Errorf("dangling grant-entitlement scan: malformed grant key %x", key)
 		}
 		tail := key[headerLen:]
@@ -201,6 +230,13 @@ func (e *Engine) ForEachDanglingGrantEntitlement(ctx context.Context, visit func
 			}
 			comps[i] = string(b)
 			off = next + 1
+		}
+		// The flag component must be a canonical "0"/"1" byte. The
+		// skip below splices the raw identity bytes, so any other
+		// value previously re-encoded "0" below the key and spun the
+		// loop forever (C1Z-SEC-006).
+		if comps[2] != idFlagStripped && comps[2] != idFlagOpaque {
+			return fmt.Errorf("dangling grant-entitlement scan: malformed grant key flag %x", key)
 		}
 		id := entitlementIdentity{
 			resourceTypeID: comps[0],
@@ -217,8 +253,24 @@ func (e *Engine) ForEachDanglingGrantEntitlement(ctx context.Context, visit func
 				return err
 			}
 		}
-		// Skip every remaining grant of this entitlement.
-		valid = iter.SeekGE(upperBoundOf(encodeGrantPrimaryEntitlementPrefix(id)))
+		// Skip every remaining grant of this entitlement. The bound
+		// splices the current key's raw identity bytes — header
+		// separator validated above, components decoded from these
+		// very bytes — so the SeekGE target is strictly greater than
+		// every key sharing this identity prefix. Re-encoding the
+		// decoded identity instead would hang on a key whose
+		// re-encoding sorts below itself (C1Z-SEC-006). After the
+		// 4-component loop off is one past comps[3]'s separator, or
+		// len(tail)+1 when comps[3] runs to end-of-key (canonical
+		// keys always carry principal segments after the identity,
+		// so the separator is present; the +1 form skips such a
+		// truncated key too, and the clamp keeps the splice in
+		// range).
+		skipLen := headerLen + off
+		if skipLen > len(key) {
+			skipLen = len(key)
+		}
+		valid = iter.SeekGE(upperBoundOf(key[:skipLen:skipLen]))
 	}
 	return iter.Error()
 }
