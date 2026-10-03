@@ -29,7 +29,7 @@ jobs:
   go-test:
     strategy:
       matrix:
-        platform: [ubuntu-latest, windows-latest]
+        platform: [ubuntu-latest]
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout code
@@ -40,12 +40,7 @@ jobs:
         with:
           go-version-file: "go.mod"
       - name: go tests
-        if: ${{ matrix.platform != 'windows-latest' }}
         run: go test -tags=baton_lambda_support -v -covermode=count -json ./... > test.json
-      - name: go tests
-        if: ${{ matrix.platform == 'windows-latest' }}
-        # Run tests with -short on Windows since its filesystem is very slow, causing CI to time out.
-        run: go test -timeout=30m -tags=baton_lambda_support -short -v -covermode=count -json ./... > test.json
       - name: Print go test results
         if: always()
         run: cat test.json
@@ -54,6 +49,52 @@ jobs:
         uses: guyarb/golang-test-annotations@v0.9.0
         with:
           test-results: test.json
+  windows-tests:
+    name: Windows tests (shard ${{ matrix.shard }})
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+      - name: Install Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: "go.mod"
+      - name: Verify shard omission detection
+        if: matrix.shard == 0
+        run: python -m unittest scripts/windows_test_shard_test.py
+      - name: Run and audit native Windows tests
+        run: python scripts/windows-test-shard.py --shard ${{ matrix.shard }} --count 4
+      - name: Print go test results
+        if: always()
+        run: cat test.json
+      - name: Annotate go tests
+        if: always()
+        uses: guyarb/golang-test-annotations@v0.9.0
+        with:
+          test-results: test.json
+      - name: Upload test timings and inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-tests-${{ matrix.shard }}
+          path: |
+            test.json
+            test-shard.json
+  windows-test-result:
+    name: go-test (windows-latest)
+    needs: windows-tests
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every Windows shard to pass
+        env:
+          RESULT: ${{ needs.windows-tests.result }}
+        run: test "$RESULT" = success
   chaos-check:
     runs-on: ubuntu-latest
     timeout-minutes: 10

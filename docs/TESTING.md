@@ -27,6 +27,33 @@ The named Make targets set these variables. Direct `go test` invocations omit
 both tiers unless the caller explicitly sets the corresponding variable to
 exactly `1`; values such as `0` and `false` leave the tier disabled.
 
+### Native Windows CI
+
+Pull requests and pushes to main run the Windows `-short` suite in four
+concurrent shards. Reproduce a shard with:
+
+```sh
+python scripts/windows-test-shard.py --shard 0 --count 4
+```
+
+The runner discovers tests, examples, and fuzz seed tests from
+`go test -list=. -json ./...` using the same build tag and short-mode flags
+as execution. A stable hash of the top-level name assigns each test to one
+shard; subtests stay with their parent. New tests enter the partition
+automatically. Each shard fails if a selected package/test pair has no
+pass or skip result, or if an unassigned top-level test runs.
+
+Every shard uploads `test.json` (timings and results) and `test-shard.json`
+(the complete inventory and assignments). All four shards must pass the
+existing `go-test (windows-latest)` check. The shard count in both workflow
+matrices must match the runner's `--count` argument.
+
+Windows retains the existing short-mode skips and native disk durability
+settings. No SQLite synchronous pragma or Pebble WAL sync is disabled.
+Coverage counters are collected by the unchanged Linux test command;
+Windows reports test outcomes without the unused coverage instrumentation.
+
+
 ## Bounded checks omitted from CI
 
 `make test-extra` is the memorable pre-merge/pre-release command. It composes:
