@@ -22,9 +22,12 @@ import (
 // whose Pebble checkpoint carries a corrupted SST (flipped interior byte,
 // file sizes kept equal so pebble's open-time MANIFEST-vs-size check passes)
 // must fail the open with an ordinary error on the first read that touches
-// the corrupt block — never route through pebble's default DataCorruption →
-// Logger.Fatalf, which discardPebbleLogger turns into os.Exit(1), killing
-// the whole process (backend compaction workers are shared and multi-tenant).
+// the corrupt block — never route through pebble's DataCorruption →
+// Logger.Fatalf. The engine's DEFAULT installs a DataCorruption handler
+// that logs at ERROR and lets the wrapped corruption error propagate
+// (safe-by-default, no caller opt-in); Fatalf itself is now a panic, never
+// a bare os.Exit, so no library code path can terminate the host process
+// unwitnessed (backend compaction workers are shared and multi-tenant).
 //
 // The child-run shape (re-exec of this test binary via os.Args[0], the
 // package's established subprocess convention — see to_pebble_localtime_test.go)
