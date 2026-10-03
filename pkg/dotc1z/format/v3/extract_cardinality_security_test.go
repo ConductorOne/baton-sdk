@@ -7,9 +7,12 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"google.golang.org/protobuf/encoding/protowire"
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/klauspost/compress/zstd"
@@ -60,18 +63,25 @@ func TestSecurity_IndexedExtractionBudgetBoundsEntryCardinality(t *testing.T) {
 	emptySum := sha256.Sum256(nil)
 
 	// Minimal manifest: engine "pebble3", payload_encoding = INDEXED_ZSTD (5).
-	var manifest bytes.Buffer
-	manifest.Write([]byte{0x0a, byte(len("pebble3"))})
-	_, _ = manifest.WriteString("pebble3")
-	manifest.Write([]byte{0x20, 0x05}) // field 4 varint 5
+	// Built with protowire helpers — no raw tag/length bytes, no
+	// int->uint conversions for the wire framing.
+	var manifest []byte
+	manifest = protowire.AppendTag(manifest, 1, protowire.BytesType)
+	manifest = protowire.AppendString(manifest, "pebble3")
+	manifest = protowire.AppendTag(manifest, 4, protowire.VarintType)
+	manifest = protowire.AppendVarint(manifest, 5)
 
 	// Envelope: 5-byte magic + u32 manifest length + manifest + shared frame.
 	var env bytes.Buffer
 	env.Write([]byte("C1Z3\x00"))
 	mlen := make([]byte, 4)
-	binary.BigEndian.PutUint32(mlen, uint32(manifest.Len())) // #nosec G115 -- manifest is 6 bytes, far below MaxUint32.
+	manifestLen := len(manifest)
+	if manifestLen > math.MaxUint32 {
+		t.Fatalf("manifest too large")
+	}
+	binary.BigEndian.PutUint32(mlen, uint32(manifestLen)) // #nosec G115 -- bounded to MaxUint32 by the check above.
 	env.Write(mlen)
-	env.Write(manifest.Bytes())
+	env.Write(manifest)
 	frameOffset := int64(env.Len())
 	env.Write(frame)
 
@@ -80,43 +90,46 @@ func TestSecurity_IndexedExtractionBudgetBoundsEntryCardinality(t *testing.T) {
 	// raw_size=4(varint), raw_xxh64=5(fixed64), raw_sha256=6(bytes).
 	// All N entries share the one empty frame, raw_size == 0, with the
 	// checksums of the (empty) decoded content.
-	var indexProto bytes.Buffer
+	var indexProto []byte
 	for i := range numEntries {
-		var entry bytes.Buffer
+		var entry []byte
 		name := fmt.Sprintf(entryName, i)
-		entry.WriteByte(0x0a)
-		entry.WriteByte(byte(len(name))) // #nosec G115 -- entryName template yields 26-char names, below 256.
-		_, _ = entry.WriteString(name)
-		entry.WriteByte(0x10)
-		entry.Write(binary.AppendUvarint(nil, uint64(frameOffset))) // #nosec G115 -- frameOffset is a small in-memory buffer position, non-negative.
-		entry.WriteByte(0x18)
-		entry.Write(binary.AppendUvarint(nil, uint64(len(frame))))
-		entry.WriteByte(0x20)
-		entry.Write(binary.AppendUvarint(nil, 0)) // raw_size == 0
-		entry.WriteByte(0x29)                     // field 5, wire type 1 (fixed64)
-		xxh := make([]byte, 8)
-		binary.LittleEndian.PutUint64(xxh, xxhash.Sum64(nil))
-		entry.Write(xxh)
-		entry.WriteByte(0x32) // field 6, wire type 2 (bytes)
-		entry.Write(binary.AppendUvarint(nil, sha256.Size))
-		entry.Write(emptySum[:])
+		entry = protowire.AppendTag(entry, 1, protowire.BytesType)
+		entry = protowire.AppendString(entry, name)
+		entry = protowire.AppendTag(entry, 2, protowire.VarintType)
+		entry = protowire.AppendVarint(entry, uint64(frameOffset)) // #nosec G115 -- frameOffset is a small in-memory buffer position, non-negative.
+		entry = protowire.AppendTag(entry, 3, protowire.VarintType)
+		entry = protowire.AppendVarint(entry, uint64(len(frame)))
+		entry = protowire.AppendTag(entry, 4, protowire.VarintType)
+		entry = protowire.AppendVarint(entry, 0) // raw_size == 0
+		entry = protowire.AppendTag(entry, 5, protowire.Fixed64Type)
+		var xxh [8]byte
+		binary.LittleEndian.PutUint64(xxh[:], xxhash.Sum64(nil))
+		entry = append(entry, xxh[:]...)
+		entry = protowire.AppendTag(entry, 6, protowire.BytesType)
+		entry = protowire.AppendBytes(entry, emptySum[:])
 
-		indexProto.WriteByte(0x0a)                                       // entries field 1
-		indexProto.Write(binary.AppendUvarint(nil, uint64(entry.Len()))) // #nosec G115 -- entry is a short fixed-shape record, tens of bytes.
-		indexProto.Write(entry.Bytes())
+		indexProto = protowire.AppendTag(indexProto, 1, protowire.BytesType)
+		indexProto = protowire.AppendBytes(indexProto, entry)
 	}
-	indexBytes := indexProto.Bytes()
+	indexBytes := indexProto
 
 	// Footer: indexOffset(u64 BE) + indexLen(u32 BE) + xxh64(index)(u64 BE)
 	// + "C1ZIDX1\x00".
 	indexOffset := int64(env.Len())
 	env.Write(indexBytes)
 	footer := make([]byte, 0, 28)
+	if indexOffset < 0 {
+		t.Fatalf("negative index offset")
+	}
 	var off [8]byte
-	binary.BigEndian.PutUint64(off[:], uint64(indexOffset)) // #nosec G115 -- indexOffset is a small in-memory buffer position, non-negative.
+	binary.BigEndian.PutUint64(off[:], uint64(indexOffset)) // #nosec G115 -- bounded non-negative by the check above.
 	footer = append(footer, off[:]...)
+	if len(indexBytes) > math.MaxUint32 {
+		t.Fatalf("index too large")
+	}
 	var ilen [4]byte
-	binary.BigEndian.PutUint32(ilen[:], uint32(len(indexBytes))) // #nosec G115 -- indexBytes is ~90KB, far below MaxUint32.
+	binary.BigEndian.PutUint32(ilen[:], uint32(len(indexBytes))) // #nosec G115 -- bounded to MaxUint32 by the check above.
 	footer = append(footer, ilen[:]...)
 	var ixxh [8]byte
 	binary.BigEndian.PutUint64(ixxh[:], xxhash.Sum64(indexBytes))

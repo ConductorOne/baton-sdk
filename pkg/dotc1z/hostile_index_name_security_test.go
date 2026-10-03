@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite" // sqlite driver for the raw fixture DB
@@ -22,6 +23,12 @@ import (
 func TestSecurity_HostileIndexNameExecutesDDLDuringBulkLoadOpen(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
+
+	// The injected ATTACH writes a marker INSIDE the test's private temp
+	// dir (not a shared global path): a t.TempDir() path may contain
+	// apostrophes, so escape it for the SQL literal too.
+	markerPath := filepath.ToSlash(filepath.Join(dir, "marker.db"))
+	sqlMarker := strings.ReplaceAll(markerPath, "'", "''")
 
 	rawPath := filepath.Join(dir, "raw.db")
 	db, err := sql.Open("sqlite", rawPath)
@@ -67,7 +74,7 @@ func TestSecurity_HostileIndexNameExecutesDDLDuringBulkLoadOpen(t *testing.T) {
 		// interpolates it unescaped, closing the wrapper quote early and
 		// running the attacker's trailing SQL script. The payload here
 		// attaches a marker file to also prove arbitrary-file-write shape.
-		`CREATE INDEX "idx""; ATTACH DATABASE '/tmp/c1z-security-marker.db'` +
+		`CREATE INDEX "idx""; ATTACH DATABASE '` + sqlMarker + `'` +
 			` AS pwn; CREATE TABLE pwn.t (x text); --" ON v1_grants (sync_id)`,
 	} {
 		_, err := db.ExecContext(ctx, q)
@@ -95,9 +102,8 @@ func TestSecurity_HostileIndexNameExecutesDDLDuringBulkLoadOpen(t *testing.T) {
 		WithPragma("journal_mode", "OFF"),
 		WithPragma("synchronous", "OFF"),
 	)
-	if err != nil {
-		t.Logf("open returned error: %v", err)
-	}
+	require.NoError(t, err,
+		"open must succeed: a hostile index NAME alone is data, not executable schema — an open error here would mask the invariant")
 	t.Cleanup(func() {
 		if f != nil {
 			_ = f.Close(ctx)
@@ -115,15 +121,19 @@ func TestSecurity_HostileIndexNameExecutesDDLDuringBulkLoadOpen(t *testing.T) {
 	// interpolated the name unescaped, the trailing script executed via the
 	// vendored driver's multi-statement exec fallback, and
 	// /tmp/c1z-security-marker.db was created by the injected ATTACH.
-	require.NoFileExists(t, "/tmp/c1z-security-marker.db",
-		"attacker SQL executed during open: hostile index name escaped the identifier and created a file outside the c1z temp dir")
+	require.NoFileExists(t, markerPath,
+		"attacker SQL executed during open: hostile index name escaped the identifier and created the marker file")
 
 	// Liveness check: the fix must not break the legitimate deferral path —
 	// the hostile-NAMED index specifically must be gone (dropped as a plain
 	// quoted identifier), while the SDK's own rebuilt indexes may exist.
+	// Assert by exact crafted name (bound parameter), not a LIKE pattern:
+	// the name is the hostile payload, so match it verbatim.
+	craftedName := `idx"; ATTACH DATABASE '` + sqlMarker + `' AS pwn; CREATE TABLE pwn.t (x text); --`
 	var hostileIdxCount int
 	require.NoError(t, f.RawDB().QueryRowContext(ctx,
-		`SELECT count(*) FROM sqlite_master WHERE type='index' AND name LIKE 'idx%"%'`,
+		`SELECT count(*) FROM sqlite_master WHERE type='index' AND name = ?`,
+		craftedName,
 	).Scan(&hostileIdxCount))
 	require.Equal(t, 0, hostileIdxCount,
 		"hostile-named index should be dropped as a plain identifier during bulk-load deferral")

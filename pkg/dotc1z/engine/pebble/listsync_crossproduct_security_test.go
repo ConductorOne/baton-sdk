@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/cockroachdb/pebble/v2"
+	"github.com/stretchr/testify/require"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -23,23 +23,26 @@ import (
 // key. Pre-fix, ListSyncs walked the entire typeSyncRun key RANGE and called
 // syncStatsForRun per row; a hostile LSM planting K extra rows under the
 // prefix (each missing the single stats sidecar) made one ListSyncs RPC cost
-// K x O(N) — K full-keyspace stats scans with K attacker-chosen up to the
-// 10,000-row page cap and N the artifact's row count. The c1 sync worker
-// calls ListSyncs with an empty request after every completed sync, so each
-// hostile upload burned that work inside the shared worker.
+// K x O(N) — K attacker-chosen full-keyspace stats scans with N the
+// artifact's row count. The c1 sync worker calls ListSyncs after every
+// completed sync, so each hostile upload burned that work inside the shared
+// worker.
 //
-// Post-fix, stats computation is gated to the canonical fixed key and runs
-// at most once per RPC, so a hostile call must cost approximately the same
-// as a clean one regardless of planted cardinality.
+// This regression replaced an earlier timing-ratio assertion
+// (hostile/clean < 5x), which was nondeterministic across cold caches,
+// schedulers, and near-zero denominators. The deterministic invariant:
+// stats computation is gated to the canonical fixed key, so the canonical
+// row carries exact stats, every planted noncanonical row reads with NIL
+// stats (no fallback computation), and paging past the canonical key
+// triggers no stats work.
 func TestSecurity_ListSyncsBoundedAgainstHostileSyncRunCardinality(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
 
-	// A real sync with real data rows (N grants).
-	if _, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, ""); err != nil {
-		t.Fatalf("StartNewSync: %v", err)
-	}
-	const grantsN = 5_000
+	// A real sync with real data rows (N grants): known counts.
+	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	const grantsN = 200
 	grants := make([]*v3.GrantRecord, 0, grantsN)
 	for i := range grantsN {
 		grants = append(grants, (&v3.GrantRecord_builder{
@@ -55,11 +58,13 @@ func TestSecurity_ListSyncsBoundedAgainstHostileSyncRunCardinality(t *testing.T)
 			ExternalId: fmt.Sprintf("g-%06d", i),
 		}).Build())
 	}
-	if err := e.PutGrantRecords(ctx, grants...); err != nil {
-		t.Fatalf("PutGrantRecords: %v", err)
-	}
+	require.NoError(t, e.PutGrantRecords(ctx, grants...))
 
 	db := e.db.UnsafeForTesting()
+	// Plant K bogus sync-run rows under the range prefix but NOT at the
+	// canonical fixed key (encodeSyncRunKey). These are the hostile
+	// cardinality: pre-fix each one triggered a full-keyspace stats scan.
+	const bogusK = 20
 	plant := func(k int) {
 		t.Helper()
 		for i := range k {
@@ -68,41 +73,53 @@ func TestSecurity_ListSyncsBoundedAgainstHostileSyncRunCardinality(t *testing.T)
 				Type:   v3.SyncType_SYNC_TYPE_FULL,
 			}).Build()
 			val, err := marshalRecord(rec)
-			if err != nil {
-				t.Fatalf("marshal: %v", err)
-			}
+			require.NoError(t, err)
 			key := append([]byte{versionV3, typeSyncRun, 0x00}, []byte(fmt.Sprintf("%08d", i))...)
-			if err := db.Set(key, val, pebble.NoSync); err != nil {
-				t.Fatalf("plant: %v", err)
-			}
+			require.NoError(t, db.Set(key, val, pebble.NoSync))
 		}
 	}
-
-	// Measure the clean call first (one canonical sync row; at most one
-	// stats computation).
-	cleanStart := time.Now()
-	if _, err := e.ListSyncs(ctx, (&reader_v2.SyncsReaderServiceListSyncsRequest_builder{}).Build()); err != nil {
-		t.Fatalf("ListSyncs clean: %v", err)
-	}
-	cleanDur := time.Since(cleanStart)
-
-	// Plant K hostile rows and re-measure. Pre-fix the hostile call was
-	// ~K times the clean call (measured 19.7x-103.7x at K=20 across
-	// machines); post-fix it must stay within a small constant factor.
-	const bogusK = 20
 	plant(bogusK)
 
-	hostileStart := time.Now()
+	// Deterministic assertions, no wall clock:
 	resp, err := e.ListSyncs(ctx, (&reader_v2.SyncsReaderServiceListSyncsRequest_builder{}).Build())
-	hostileDur := time.Since(hostileStart)
-	if err != nil {
-		t.Fatalf("ListSyncs: %v", err)
-	}
-	ratio := float64(hostileDur) / float64(cleanDur)
-	t.Logf("ListSyncs rows=%d grants=%d bogus=%d clean=%s hostile=%s ratio=%.1fx",
-		len(resp.GetSyncs()), grantsN, bogusK, cleanDur, hostileDur, ratio)
+	require.NoError(t, err)
+	require.Len(t, resp.GetSyncs(), 1+bogusK,
+		"all planted rows must surface (rows are data); the invariant is about their STATS, not their visibility")
 
-	if ratio > 5.0 {
-		t.Fatalf("ListSyncs cost scales with hostile sync-run cardinality: hostile/clean = %.1fx (K=%d planted rows); per-row stats fallback must be gated to the canonical fixed key", ratio, bogusK)
+	var canonical *reader_v2.SyncRun
+	for _, s := range resp.GetSyncs() {
+		if s.GetId() == syncID {
+			canonical = s
+		}
+	}
+	require.NotNil(t, canonical, "the canonical sync row must be present")
+	require.NotNil(t, canonical.GetStats(),
+		"the canonical fixed-key row must carry computed stats")
+	require.EqualValues(t, grantsN, canonical.GetStats().GetGrants(),
+		"canonical stats must reflect the exact seeded grant count")
+
+	// Every noncanonical (bogus) row must read with NIL stats: the
+	// pre-fix fallback computed them via full-keyspace scans, which is
+	// the cross-product being bounded.
+	for _, s := range resp.GetSyncs() {
+		if s.GetId() == syncID {
+			continue
+		}
+		require.Nil(t, s.GetStats(),
+			"noncanonical sync-run row %q must not trigger stats computation (nil stats)", s.GetId())
+	}
+
+	// Page starting AFTER the canonical key: the cursor skips it, so the
+	// page must contain only bogus rows, all with nil stats, and no
+	// stats computation may run for them.
+	paged, err := e.ListSyncs(ctx, (&reader_v2.SyncsReaderServiceListSyncsRequest_builder{
+		PageSize:  10,
+		PageToken: encodeCursor(append([]byte{versionV3, typeSyncRun, 0x00}, []byte("00000000")...)),
+	}).Build())
+	require.NoError(t, err)
+	for _, s := range paged.GetSyncs() {
+		require.NotEqual(t, syncID, s.GetId(), "the page after the canonical key must not re-serve the canonical row")
+		require.Nil(t, s.GetStats(),
+			"paged noncanonical row %q must not trigger stats computation", s.GetId())
 	}
 }
