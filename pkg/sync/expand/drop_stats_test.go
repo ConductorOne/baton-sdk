@@ -78,4 +78,25 @@ func TestTopologicalSourceMissingRecordedOnDropStats(t *testing.T) {
 	defer stats.mu.Unlock()
 	require.Equal(t, int64(1), stats.sourceMissing, "the dropped source edge must land on the aggregate")
 	require.Contains(t, stats.seen, source.GetId())
+	require.Contains(t, graph.DanglingEntitlementIDs, source.GetId(),
+		"the topological entitlement load must record the missing source")
+}
+
+func TestTopologicalDestinationMissingRecordsDanglingID(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+
+	group := makeResource("group", "org")
+	source := makeEntitlement("ent:source", group)
+	dest := makeEntitlement("ent:dest", group)
+	store.AddEntitlement(source)
+
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlementID(source.GetId())
+	graph.AddEntitlementID(dest.GetId())
+	require.NoError(t, graph.AddEdge(ctx, source.GetId(), dest.GetId(), false, nil))
+
+	require.NoError(t, NewExpander(store, graph).RunTopologicalMergeStreaming(ctx))
+	require.Contains(t, graph.DanglingEntitlementIDs, dest.GetId(),
+		"the production topological path must record the missing destination")
 }

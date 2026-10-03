@@ -45,6 +45,13 @@ func (g *EntitlementGraph) Clone() (*EntitlementGraph, error) {
 		Loaded:                g.Loaded,
 		Depth:                 g.Depth,
 		HasNoCycles:           g.HasNoCycles,
+		DanglingOverflow:      g.DanglingOverflow,
+	}
+	if g.DanglingEntitlementIDs != nil {
+		out.DanglingEntitlementIDs = make(map[string]struct{}, len(g.DanglingEntitlementIDs))
+		for id := range g.DanglingEntitlementIDs {
+			out.DanglingEntitlementIDs[id] = struct{}{}
+		}
 	}
 	for id, node := range g.Nodes {
 		node.EntitlementIDs = append([]string(nil), node.EntitlementIDs...)
@@ -110,6 +117,9 @@ func (g *EntitlementGraph) reinitMaps() {
 	if g.Edges == nil {
 		g.Edges = map[int]Edge{}
 	}
+	if g.DanglingEntitlementIDs == nil {
+		g.DanglingEntitlementIDs = map[string]struct{}{}
+	}
 }
 
 // ErrIncrementalFallback means a new edge closed a cycle; the caller should
@@ -126,6 +136,14 @@ var ErrIncrementalRevocationDecline = errors.New("incremental expansion: revocat
 // ErrIncrementalDenseChangeDecline means the affected closure is large enough
 // that normal full expansion is the safer bounded-cost path.
 var ErrIncrementalDenseChangeDecline = errors.New("incremental expansion: dense affected graph, fall back to full expansion")
+
+// ErrIncrementalDanglingReferenceDecline means the base graph can no longer
+// describe what it skipped — the dangling set overflowed its cap, or an
+// evaluator dropped the edges outright — so prechecking the recorded ids cannot
+// make the fast path agree with full expansion. Ordinary dangling references do
+// NOT reach this: still-missing ids remain recorded without seeding a walk, and
+// ids that now resolve seed their affected closure.
+var ErrIncrementalDanglingReferenceDecline = errors.New("incremental expansion: base graph dangling set is not seedable, fall back to full expansion")
 
 const (
 	incrementalDenseGraphMinNodes = 1000
@@ -184,8 +202,35 @@ func NewIncrementalExpander(store ExpanderStore, graph *EntitlementGraph) *Incre
 //
 // The walk reads current membership from the store, so changed members
 // (already merged in) propagate without being passed in. Returns
-// ErrIncrementalFallback if a new edge closes a cycle.
+// ErrIncrementalFallback if a new edge closes a cycle. This method mutates the
+// graph while applying changes and may do so before returning an error; callers
+// that intend to retry must discard or restore the graph first.
 func (ie *IncrementalExpander) ExpandChanges(ctx context.Context, newEdges []NewEdge, changedEntitlementIDs []string) (*IncrementalResult, error) {
+	if ie.graph.DanglingOverflow {
+		return nil, ErrIncrementalDanglingReferenceDecline
+	}
+	resolvedDanglingIDs, err := ie.precheckDanglingEntitlements(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(resolvedDanglingIDs) > 0 {
+		// Keep the exported method from appending into or sorting the caller's
+		// backing array while combining the internally discovered seeds.
+		changedEntitlementIDs = append([]string(nil), changedEntitlementIDs...)
+		seen := make(map[string]struct{}, len(changedEntitlementIDs)+len(resolvedDanglingIDs))
+		for _, id := range changedEntitlementIDs {
+			seen[id] = struct{}{}
+		}
+		for _, id := range resolvedDanglingIDs {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			changedEntitlementIDs = append(changedEntitlementIDs, id)
+		}
+		sort.Strings(changedEntitlementIDs)
+	}
+
 	if len(newEdges) == 0 && len(changedEntitlementIDs) == 0 {
 		return &IncrementalResult{}, nil
 	}
@@ -256,6 +301,45 @@ func (ie *IncrementalExpander) ExpandChanges(ctx context.Context, newEdges []New
 	}
 	ie.graph.MarkExpansionComplete()
 	return result, nil
+}
+
+// precheckDanglingEntitlements separates recorded endpoints that are still
+// missing from those that now resolve. Still-missing ids stay persisted but do
+// not seed the walk, avoiding a useless recomputation of their entire forward
+// closure on every run. Resolved ids become normal changed-entitlement seeds.
+//
+// Build the replacement set locally and publish it only after every lookup
+// succeeds, so a transient store error does not partially mutate the graph.
+func (ie *IncrementalExpander) precheckDanglingEntitlements(ctx context.Context) ([]string, error) {
+	if len(ie.graph.DanglingEntitlementIDs) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]string, 0, len(ie.graph.DanglingEntitlementIDs))
+	for id := range ie.graph.DanglingEntitlementIDs {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	stillMissing := make(map[string]struct{}, len(ids))
+	resolved := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		entitlement, err := ie.getEntitlement(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if entitlement == nil {
+			stillMissing[id] = struct{}{}
+			continue
+		}
+		resolved = append(resolved, id)
+	}
+
+	ie.graph.DanglingEntitlementIDs = stillMissing
+	return resolved, nil
 }
 
 func topologicalAffectedNodeOrder(g *EntitlementGraph, affected map[int]struct{}) ([]int, error) {
@@ -376,7 +460,9 @@ func (ie *IncrementalExpander) recomputeDestination(ctx context.Context, nodeID 
 	}
 	if destEnt == nil {
 		// Dangling ref: skip-with-warn, matching the full evaluator (don't
-		// error into a fallback).
+		// error into a fallback). Record it on the persisted graph so a later
+		// incremental run can precheck it and seed the walk if it resolves.
+		ie.graph.NoteDanglingReference(destEntitlementID)
 		ctxzap.Extract(ctx).Warn("incremental expansion: destination entitlement not in store; skipping",
 			zap.String("entitlement_id", destEntitlementID))
 		return 0, nil
@@ -406,6 +492,7 @@ func (ie *IncrementalExpander) recomputeDestination(ctx context.Context, nodeID 
 				return 0, err
 			}
 			if sourceEnt == nil {
+				ie.graph.NoteDanglingReference(sourceEntitlementID)
 				ctxzap.Extract(ctx).Warn("incremental expansion: source entitlement not in store; skipping",
 					zap.String("entitlement_id", sourceEntitlementID))
 				continue

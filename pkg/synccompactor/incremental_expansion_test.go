@@ -304,6 +304,111 @@ func baseGraphForFixtures(t testing.TB, ctx context.Context) *expand.Entitlement
 	return g
 }
 
+func buildResolvedDanglingFixtures(t *testing.T, ctx context.Context, dir string, missingSource bool) []*CompactableSync {
+	t.Helper()
+
+	sourceGroup, destGroup := grp("source"), grp("dest")
+	alice := usr("alice")
+	sourceEnt, destEnt := ent("ent-source", sourceGroup), ent("ent-dest", destGroup)
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+
+	basePath := filepath.Join(dir, "base-dangling.c1z")
+	base, err := dotc1z.NewStore(ctx, basePath, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	baseSyncID, err := base.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, base.PutResourceTypes(ctx, userRT, groupRT))
+	require.NoError(t, base.PutResources(ctx, sourceGroup, destGroup, alice))
+	if missingSource {
+		require.NoError(t, base.PutEntitlements(ctx, destEnt))
+	} else {
+		require.NoError(t, base.PutEntitlements(ctx, sourceEnt))
+	}
+	require.NoError(t, base.PutGrants(ctx,
+		memberGrant(sourceEnt, alice),
+		ruleGrant(destEnt, sourceGroup, sourceEnt.GetId()),
+	))
+	require.NoError(t, base.EndSync(ctx))
+
+	graph := expand.NewEntitlementGraph(ctx)
+	graph.AddEntitlementID(sourceEnt.GetId())
+	graph.AddEntitlementID(destEnt.GetId())
+	require.NoError(t, graph.AddEdge(ctx, sourceEnt.GetId(), destEnt.GetId(), false, nil))
+	graph.MarkEdgeExpanded(sourceEnt.GetId(), destEnt.GetId())
+	graph.Loaded = true
+	graph.HasNoCycles = true
+	missingID := destEnt.GetId()
+	if missingSource {
+		missingID = sourceEnt.GetId()
+	}
+	graph.NoteDanglingReference(missingID)
+	persistFixtureGraph(t, ctx, base, baseSyncID, graph)
+	require.NoError(t, base.Close(ctx))
+
+	incPath := filepath.Join(dir, "resolved-dangling.c1z")
+	inc, err := dotc1z.NewStore(ctx, incPath, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	incSyncID, err := inc.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
+	require.NoError(t, err)
+	if missingSource {
+		require.NoError(t, inc.PutEntitlements(ctx, sourceEnt))
+	} else {
+		require.NoError(t, inc.PutEntitlements(ctx, destEnt))
+	}
+	require.NoError(t, inc.EndSync(ctx))
+	require.NoError(t, inc.Close(ctx))
+
+	return []*CompactableSync{
+		{FilePath: basePath, SyncID: baseSyncID},
+		{FilePath: incPath, SyncID: incSyncID},
+	}
+}
+
+func TestCompactor_ResolvedDanglingEntitlementSeedsIncrementalWalk(t *testing.T) {
+	tests := []struct {
+		name          string
+		missingSource bool
+		missingID     string
+	}{
+		{name: "destination", missingID: "ent-dest"},
+		{name: "source", missingSource: true, missingID: "ent-source"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			incrementalEntries := buildResolvedDanglingFixtures(t, ctx, t.TempDir(), tc.missingSource)
+			incremental, incrementalCleanup, err := NewCompactor(ctx, t.TempDir(), incrementalEntries,
+				WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble), WithIncrementalExpansion())
+			require.NoError(t, err)
+			defer func() { require.NoError(t, incrementalCleanup()) }()
+
+			incrementalOut, err := incremental.Compact(ctx)
+			require.NoError(t, err)
+			require.True(t, incremental.incrementalExpansionRan,
+				"a row-only dangling resolution must use the incremental path")
+
+			fullEntries := buildResolvedDanglingFixtures(t, ctx, t.TempDir(), tc.missingSource)
+			full, fullCleanup, err := NewCompactor(ctx, t.TempDir(), fullEntries,
+				WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble))
+			require.NoError(t, err)
+			defer func() { require.NoError(t, fullCleanup()) }()
+
+			fullOut, err := full.Compact(ctx)
+			require.NoError(t, err)
+			incrementalGrants := grantOutcome(t, ctx, incrementalOut.FilePath, incrementalOut.SyncID)
+			fullGrants := grantOutcome(t, ctx, fullOut.FilePath, fullOut.SyncID)
+			hasGrant(t, fullGrants, "ent-dest|user|alice")
+			require.Equal(t, fullGrants, incrementalGrants,
+				"incremental grants and provenance must match full expansion")
+
+			graph := artifactGraph(t, ctx, incrementalOut.FilePath, incrementalOut.SyncID)
+			require.NotContains(t, graph.DanglingEntitlementIDs, tc.missingID,
+				"a resolved id must not persist into the next generation")
+		})
+	}
+}
+
 // grantOutcome reads every grant from a compacted c1z and returns the set of
 // full-row keys "entitlement|principalType|principalResource|sources=..." —
 // INCLUDING the sources/provenance map, so the differential also pins that

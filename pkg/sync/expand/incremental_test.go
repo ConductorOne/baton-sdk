@@ -8,6 +8,8 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // buildExpandedChain constructs an already-expanded linear chain
@@ -29,7 +31,7 @@ func buildExpandedChain(t *testing.T, ctx context.Context, store *MockExpanderSt
 	}
 	// Run the real expander so the base carries realistic expanded grants and
 	// provenance (sources maps), not hand-seeded approximations.
-	require.NoError(t, NewExpander(store, g).Run(ctx))
+	require.NoError(t, NewExpander(notFoundExpanderStore{store}, g).Run(ctx))
 	return g
 }
 
@@ -507,4 +509,253 @@ func itoa(i int) string {
 		i /= 10
 	}
 	return string(b)
+}
+
+// TestIncremental_DanglingDestinationRecordsID: skipping an endpoint with no
+// entitlement row must record that endpoint's id on the graph. The sidecar this
+// run persists then prechecks that id on the NEXT run, which is the only place
+// the divergence is catchable — an increment that supplies the missing record
+// changes neither the edge set nor any grant.
+func TestIncremental_DanglingDestinationRecordsID(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+	g := buildExpandedChain(t, ctx, store, "alice", "eng:member", "github:access")
+	require.Empty(t, g.DanglingEntitlementIDs)
+
+	g.AddEntitlementID("missing:ent")
+	require.NoError(t, g.AddEdge(ctx, "github:access", "missing:ent", false, nil))
+
+	ie := NewIncrementalExpander(store, g)
+	res, err := ie.ExpandChanges(ctx, nil, []string{"eng:member"})
+	require.NoError(t, err) // skip-with-warn, not an error
+	require.Equal(t, 0, res.GrantsWritten)
+	require.Contains(t, g.DanglingEntitlementIDs, "missing:ent")
+	require.False(t, g.DanglingOverflow)
+}
+
+// TestIncremental_DanglingSourceRecordsID: same contract for a missing source.
+func TestIncremental_DanglingSourceRecordsID(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+	g := buildExpandedChain(t, ctx, store, "alice", "eng:member", "github:access")
+
+	g.AddEntitlementID("missing:src")
+	require.NoError(t, g.AddEdge(ctx, "missing:src", "github:access", false, nil))
+
+	ie := NewIncrementalExpander(store, g)
+	_, err := ie.ExpandChanges(ctx, nil, []string{"missing:src"})
+	require.NoError(t, err)
+	require.Contains(t, g.DanglingEntitlementIDs, "missing:src")
+}
+
+// TestIncremental_ResolvedDanglingSeedExpands is the whole point of recording
+// ids rather than a graph-wide flag: seeding a previously-dangling endpoint that
+// has since gained an entitlement row must expand it, matching what full
+// expansion would produce.
+func TestIncremental_ResolvedDanglingSeedExpands(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+	g := buildExpandedChain(t, ctx, store, "alice", "eng:member", "github:access")
+
+	// An edge to an entitlement that had no row when the base expanded.
+	g.AddEntitlementID("late:ent")
+	require.NoError(t, g.AddEdge(ctx, "github:access", "late:ent", false, nil))
+	ie := NewIncrementalExpander(store, g)
+	_, err := ie.ExpandChanges(ctx, nil, []string{"eng:member"})
+	require.NoError(t, err)
+	require.Contains(t, g.DanglingEntitlementIDs, "late:ent")
+	require.Empty(t, principalsOn(t, ctx, store, "late:ent"))
+
+	// The row arrives. No new edge, no new grant — seeding the recorded id is
+	// the only thing that can reach it. The caller supplies no changed ids: the
+	// dangling precheck must discover that the row resolved and seed it itself.
+	store.AddEntitlement(makeEntitlement("late:ent", makeResource("group", "late:ent")))
+	ie2 := NewIncrementalExpander(store, g)
+	res, err := ie2.ExpandChanges(ctx, nil, nil)
+	require.NoError(t, err)
+	require.Greater(t, res.GrantsWritten, 0, "the resolved endpoint must expand")
+	require.Contains(t, principalsOn(t, ctx, store, "late:ent"), "alice")
+
+	// And it drops out of the set, so later runs stop re-walking its closure.
+	require.NotContains(t, g.DanglingEntitlementIDs, "late:ent")
+}
+
+func TestIncremental_ResolvedDanglingDoesNotMutateChangedIDs(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+	g := buildExpandedChain(t, ctx, store, "alice", "eng:member", "github:access")
+
+	g.AddEntitlementID("late:ent")
+	require.NoError(t, g.AddEdge(ctx, "github:access", "late:ent", false, nil))
+	g.NoteDanglingReference("late:ent")
+	store.AddEntitlement(makeEntitlement("late:ent", makeResource("group", "late:ent")))
+
+	// Keep a sentinel in the caller's spare capacity. Appending or sorting the
+	// input slice in place would overwrite it or reorder the visible elements.
+	backing := []string{"github:access", "eng:member", "sentinel"}
+	changed := backing[:2]
+	want := append([]string(nil), backing...)
+
+	_, err := NewIncrementalExpander(store, g).ExpandChanges(ctx, nil, changed)
+	require.NoError(t, err)
+	require.Equal(t, want, backing)
+}
+
+func TestIncremental_DanglingPrecheckHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	store := NewMockExpanderStore()
+	g := NewEntitlementGraph(ctx)
+	g.NoteDanglingReference("still:missing")
+
+	_, err := NewIncrementalExpander(store, g).ExpandChanges(ctx, nil, nil)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Contains(t, g.DanglingEntitlementIDs, "still:missing")
+}
+
+func TestIncremental_DanglingOverflowDeclines(t *testing.T) {
+	ctx := context.Background()
+	g := NewEntitlementGraph(ctx)
+	g.NoteUnrecoverableDangling()
+
+	result, err := NewIncrementalExpander(NewMockExpanderStore(), g).ExpandChanges(ctx, nil, nil)
+	require.Nil(t, result)
+	require.ErrorIs(t, err, ErrIncrementalDanglingReferenceDecline)
+}
+
+// TestIncremental_StillMissingDanglingIsPreservedWithoutWalking: a permanent
+// dangling source must cost only its precheck lookup. Seeding it would put its
+// entire forward closure in the affected set before the walk discovers that
+// the source is still missing.
+func TestIncremental_StillMissingDanglingIsPreservedWithoutWalking(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+	g := buildExpandedChain(t, ctx, store, "alice", "eng:member", "github:access")
+	g.AddEntitlementID("missing:src")
+	require.NoError(t, g.AddEdge(ctx, "missing:src", "eng:member", false, nil))
+	g.DanglingEntitlementIDs = map[string]struct{}{"missing:src": {}}
+
+	ie := NewIncrementalExpander(store, g)
+	res, err := ie.ExpandChanges(ctx, nil, nil)
+	require.NoError(t, err)
+	require.Empty(t, res.EntitlementsWalked,
+		"a still-missing seed must not make its descendant closure affected")
+	require.Contains(t, g.DanglingEntitlementIDs, "missing:src",
+		"still-missing ids must survive so a later run can detect resolution")
+}
+
+// TestNoteDanglingReference_OverflowStopsRecording: past the cap the graph stops
+// collecting ids and records overflow instead, so the sidecar cannot be bloated
+// by a pathologically broken connector. Overflow is what makes the compactor
+// decline; ordinary dangling references do not.
+func TestNoteDanglingReference_OverflowStopsRecording(t *testing.T) {
+	ctx := context.Background()
+	g := NewEntitlementGraph(ctx)
+
+	original := maxDanglingEntitlementIDs
+	maxDanglingEntitlementIDs = 3
+	defer func() { maxDanglingEntitlementIDs = original }()
+
+	for _, id := range []string{"a", "b", "c"} {
+		g.NoteDanglingReference(id)
+	}
+	require.Len(t, g.DanglingEntitlementIDs, 3)
+	require.False(t, g.DanglingOverflow)
+
+	g.NoteDanglingReference("d")
+	require.Len(t, g.DanglingEntitlementIDs, 3, "the cap must hold")
+	require.True(t, g.DanglingOverflow)
+	require.NotContains(t, g.DanglingEntitlementIDs, "d")
+
+	// A repeat of an id already recorded must not trip overflow.
+	g2 := NewEntitlementGraph(ctx)
+	g2.NoteDanglingReference("a")
+	g2.NoteDanglingReference("a")
+	require.Len(t, g2.DanglingEntitlementIDs, 1)
+	require.False(t, g2.DanglingOverflow)
+}
+
+// TestClone_PreservesDanglingState: Clone is what the compactor hands the
+// expander, so state lost here would silently change which ids get seeded.
+func TestClone_PreservesDanglingState(t *testing.T) {
+	ctx := context.Background()
+	g := NewEntitlementGraph(ctx)
+	g.AddEntitlementID("a")
+	g.NoteDanglingReference("missing:one")
+	g.NoteUnrecoverableDangling()
+
+	clone, err := g.Clone()
+	require.NoError(t, err)
+	require.Contains(t, clone.DanglingEntitlementIDs, "missing:one")
+	require.True(t, clone.DanglingOverflow)
+
+	// Deep copy: mutating the clone must not reach the original.
+	clone.NoteDanglingReference("missing:two")
+	require.NotContains(t, g.DanglingEntitlementIDs, "missing:two")
+}
+
+// notFoundExpanderStore makes an unknown entitlement return a real NotFound
+// error. MockExpanderStore returns (nil, nil) instead, which the topological
+// evaluator tolerates (fetchEntitlement checks resp == nil) but the
+// source-batched one does not — it only skips on a NotFound code. Real stores
+// return NotFound, so this wrapper is what lets the legacy path be tested at
+// all.
+type notFoundExpanderStore struct {
+	*MockExpanderStore
+}
+
+func (s notFoundExpanderStore) GetEntitlement(
+	ctx context.Context,
+	req *reader_v2.EntitlementsReaderServiceGetEntitlementRequest,
+) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error) {
+	resp, err := s.MockExpanderStore.GetEntitlement(ctx, req)
+	if err == nil && resp == nil {
+		return nil, status.Errorf(codes.NotFound, "entitlement %s not found", req.GetEntitlementId())
+	}
+	return resp, err
+}
+
+// TestLegacyExpander_DanglingSetsOverflow pins the one place the scoped design
+// does not apply. The source-batched evaluator — the path taken when the store
+// cannot guarantee principal-sorted grants — DELETES the edge when an endpoint
+// is missing, so seeding that id on a later run could not reach it. Those sites
+// must set overflow (a hard decline) rather than record a seedable id.
+//
+// Reachable here because MockExpanderStore reports
+// GrantsForEntitlementPrincipalSorted() == false, which is what selects this
+// evaluator; on Pebble the topological one runs instead.
+func TestLegacyExpander_DanglingSetsOverflow(t *testing.T) {
+	t.Run("missing destination", func(t *testing.T) {
+		ctx := context.Background()
+		store := NewMockExpanderStore()
+		g := NewEntitlementGraph(ctx)
+		for _, e := range []string{"eng:member", "missing:dst"} {
+			g.AddEntitlementID(e)
+		}
+		store.AddEntitlement(makeEntitlement("eng:member", makeResource("group", "eng:member")))
+		store.AddGrant(directGrant("eng:member", makeResource("user", "alice")))
+		require.NoError(t, g.AddEdge(ctx, "eng:member", "missing:dst", false, nil))
+
+		require.NoError(t, NewExpander(notFoundExpanderStore{store}, g).Run(ctx))
+		require.True(t, g.DanglingOverflow,
+			"a dropped edge is not recoverable by seeding, so it must decline")
+		require.NotContains(t, g.DanglingEntitlementIDs, "missing:dst",
+			"the id must not be offered as a seed when its edge is gone")
+	})
+
+	t.Run("missing source", func(t *testing.T) {
+		ctx := context.Background()
+		store := NewMockExpanderStore()
+		g := NewEntitlementGraph(ctx)
+		for _, e := range []string{"missing:src", "eng:member"} {
+			g.AddEntitlementID(e)
+		}
+		store.AddEntitlement(makeEntitlement("eng:member", makeResource("group", "eng:member")))
+		require.NoError(t, g.AddEdge(ctx, "missing:src", "eng:member", false, nil))
+
+		require.NoError(t, NewExpander(notFoundExpanderStore{store}, g).Run(ctx))
+		require.True(t, g.DanglingOverflow)
+		require.NotContains(t, g.DanglingEntitlementIDs, "missing:src")
+	})
 }
