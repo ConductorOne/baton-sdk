@@ -28,7 +28,7 @@ func hostileV1Fixture(t *testing.T, name string, ddl ...string) string {
 	db, err := sql.Open("sqlite", rawPath)
 	require.NoError(t, err)
 	for _, q := range ddl {
-		_, err := db.Exec(q)
+		_, err := db.ExecContext(t.Context(), q)
 		require.NoError(t, err, "fixture DDL failed: %s", q)
 	}
 	require.NoError(t, db.Close())
@@ -59,10 +59,14 @@ func hostileV1Fixture(t *testing.T, name string, ddl ...string) string {
 // pre-fix the trigger executes during read-only open.
 var hostileTriggerDDL = []string{
 	`CREATE TABLE v1_resource_types (id integer primary key, external_id text not null, data blob not null, sync_id text not null, discovered_at datetime not null)`,
-	`CREATE TABLE v1_resources (id integer primary key, resource_type_id text not null, external_id text not null, parent_resource_type_id text, parent_resource_id text, data blob not null, sync_id text not null, discovered_at datetime not null)`,
-	`CREATE TABLE v1_entitlements (id integer primary key, resource_type_id text not null, resource_id text not null, external_id text not null, data blob not null, sync_id text not null, discovered_at datetime not null)`,
-	`CREATE TABLE v1_grants (id integer primary key, resource_type_id text not null, resource_id text not null, entitlement_id text not null, principal_resource_type_id text not null, principal_resource_id text not null, external_id text not null, data blob not null, sync_id text not null, discovered_at datetime not null)`,
-	`CREATE TABLE v1_sync_runs (id integer primary key, sync_id text not null, started_at datetime not null, ended_at datetime, sync_token text not null, sync_type text not null default 'full', parent_sync_id text not null default '', supports_diff integer not null default 0, grants_backfilled integer not null default 0, stats text)`,
+	`CREATE TABLE v1_resources (id integer primary key, resource_type_id text not null, external_id text not null, parent_resource_type_id text, parent_resource_id text,` +
+		`data blob not null, sync_id text not null, discovered_at datetime not null)`,
+	`CREATE TABLE v1_entitlements (id integer primary key, resource_type_id text not null, resource_id text not null, external_id text not null, data blob not null,` +
+		`sync_id text not null, discovered_at datetime not null)`,
+	`CREATE TABLE v1_grants (id integer primary key, resource_type_id text not null, resource_id text not null, entitlement_id text not null, principal_resource_type_id text not null,` +
+		`principal_resource_id text not null, external_id text not null, data blob not null, sync_id text not null, discovered_at datetime not null)`,
+	`CREATE TABLE v1_sync_runs (id integer primary key, sync_id text not null, started_at datetime not null, ended_at datetime, sync_token text not null,` +
+		`sync_type text not null default 'full', parent_sync_id text not null default '', supports_diff integer not null default 0, grants_backfilled integer not null default 0, stats text)`,
 	`CREATE TABLE v1_assets (id integer primary key, external_id text not null, content_type text not null, data blob not null, sync_id text not null, discovered_at datetime not null)`,
 	`CREATE TABLE v1_connector_sessions (id integer primary key, sync_id text NOT NULL, key TEXT NOT NULL, value BLOB NOT NULL)`,
 	`INSERT INTO v1_sync_runs (sync_id, started_at, ended_at, sync_token, sync_type, grants_backfilled) VALUES ('hostile-sync', '2024-01-01T00:00:00Z', '2024-01-01T00:01:00Z', 'tok', 'full', 0)`,
@@ -198,7 +202,7 @@ func TestSecurity_HostileTriggerMarkerNeverExecutes(t *testing.T) {
 	rawPath := filepath.Join(dir, "raw.db")
 	db, err := sql.Open("sqlite", rawPath)
 	require.NoError(t, err)
-	_, err = db.Exec(`UPDATE v1_sync_runs SET grants_backfilled = 1 WHERE sync_id = 'hostile-sync'`)
+	_, err = db.ExecContext(ctx, `UPDATE v1_sync_runs SET grants_backfilled = 1 WHERE sync_id = 'hostile-sync'`)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), hostileTriggerMarker,
 		"fixture self-check failed: the trigger is not armed in the raw bytes")

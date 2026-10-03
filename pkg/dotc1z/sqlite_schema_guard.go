@@ -45,27 +45,27 @@ func validateSQLiteSchema(ctx context.Context, q sqlQuerier, schemaName string) 
 	for rows.Next() {
 		var typ, name, tblName string
 		if err := rows.Scan(&typ, &name, &tblName); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return fmt.Errorf("sqlite schema guard: error scanning %s catalog row: %w", schemaName, err)
 		}
 		switch typ {
 		case "trigger":
-			rows.Close()
+			_ = rows.Close()
 			return c1zstore.RejectData(fmt.Errorf(
 				"sqlite schema guard: rejected %s trigger %q on table %q in catalog %q: unsupported executable schema (file-authored SQL is never executed)",
 				schemaName, name, tblName, schemaName))
 		case "view":
-			rows.Close()
+			_ = rows.Close()
 			return c1zstore.RejectData(fmt.Errorf(
 				"sqlite schema guard: rejected %s view %q in catalog %q: unsupported executable schema",
 				schemaName, name, schemaName))
 		}
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return fmt.Errorf("sqlite schema guard: error iterating %s catalog: %w", schemaName, err)
 	}
-	rows.Close()
+	_ = rows.Close()
 
 	// 2. Every PRESENT descriptor-owned table must be an ordinary table.
 	// Missing SDK tables are allowed (fresh files, additive legacy).
@@ -82,21 +82,21 @@ func validateSQLiteSchema(ctx context.Context, q sqlQuerier, schemaName string) 
 		var schema, name, typ string
 		var ncol, wr, r int
 		if err := tlRows.Scan(&schema, &name, &typ, &ncol, &wr, &r); err != nil {
-			tlRows.Close()
+			_ = tlRows.Close()
 			return fmt.Errorf("sqlite schema guard: error scanning %s table_list row: %w", schemaName, err)
 		}
 		// Only rows belonging to the target catalog count.
-		if !strings.EqualFold(schema, schemaName) && !(schemaName == "main" && schema == "") {
-			tlRows.Close()
+		if !strings.EqualFold(schema, schemaName) && (schemaName != "main" || schema != "") {
+			_ = tlRows.Close()
 			return fmt.Errorf("sqlite schema guard: unexpected table_list schema %q in catalog %q", schema, schemaName)
 		}
 		present[strings.ToLower(name)] = typ
 	}
 	if err := tlRows.Err(); err != nil {
-		tlRows.Close()
+		_ = tlRows.Close()
 		return fmt.Errorf("sqlite schema guard: error iterating %s table_list: %w", schemaName, err)
 	}
-	tlRows.Close()
+	_ = tlRows.Close()
 
 	for _, name := range sdkTables {
 		typ, ok := present[strings.ToLower(name)]
@@ -131,26 +131,26 @@ func validateSQLiteSchema(ctx context.Context, q sqlQuerier, schemaName string) 
 			var pk int
 			var hidden int
 			if err := xiRows.Scan(&cid, &colName, &colType, &notNull, &dfltValue, &pk, &hidden); err != nil {
-				xiRows.Close()
+				_ = xiRows.Close()
 				return fmt.Errorf("sqlite schema guard: error scanning %s.%s column row: %w", schemaName, name, err)
 			}
 			if err := validateColumnName(colName); err != nil {
-				xiRows.Close()
+				_ = xiRows.Close()
 				return c1zstore.RejectData(fmt.Errorf(
 					"sqlite schema guard: rejected %s.%s column %q: %w", schemaName, name, colName, err))
 			}
 			if hidden != 0 {
-				xiRows.Close()
+				_ = xiRows.Close()
 				return c1zstore.RejectData(fmt.Errorf(
 					"sqlite schema guard: rejected %s.%s column %q: hidden=%d (virtual-table shadow or generated column); unsupported schema",
 					schemaName, name, colName, hidden))
 			}
 		}
 		if err := xiRows.Err(); err != nil {
-			xiRows.Close()
+			_ = xiRows.Close()
 			return fmt.Errorf("sqlite schema guard: error iterating %s.%s columns: %w", schemaName, name, err)
 		}
-		xiRows.Close()
+		_ = xiRows.Close()
 	}
 
 	return nil
