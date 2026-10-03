@@ -96,9 +96,18 @@ func sqliteDSN(dbPathOrURI string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("c1z sqlite open: resolving path: %w", err)
 	}
+	slashPath := filepath.ToSlash(abs)
+	// url.URL treats a "C:/..." path without a leading slash as a URI
+	// AUTHORITY ("file:C:" parses with host "C"), which the driver
+	// rejects ("invalid uri authority") — the windows-latest path shape.
+	// Forcing the leading slash emits file:///C:/..., where the drive
+	// letter stays in the path. POSIX absolutes already start with "/".
+	if !strings.HasPrefix(slashPath, "/") {
+		slashPath = "/" + slashPath
+	}
 	u := &url.URL{
 		Scheme: "file",
-		Path:   filepath.ToSlash(abs),
+		Path:   slashPath,
 	}
 	q := u.Query()
 	q.Add("_pragma", trustedSchemaOffPragma)
