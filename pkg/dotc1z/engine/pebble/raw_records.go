@@ -96,19 +96,6 @@ func scanGrantEntitlementResourceTypeRaw(value []byte) ([]byte, error) {
 // in grant_digest.go).
 const grantImmutableAnnotationTypeName = "c1.connector.v2.GrantImmutable"
 
-// maxGrantSourceFacts bounds the number of sources-map entries a single
-// stored grant value may contribute to the content-hash fact list. The
-// value's bytes are attacker-authored on an imported c1z, and the digest
-// build/repair/deferred paths hash EVERY grant row under a ctx checked
-// only between rows — an unbounded fact list sized the opener's per-row
-// work and fed a quadratic sort with no cancellation inside the row.
-// Expansion output is a handful of sources per grant (usually 0–4); a
-// value claiming more than this cap is not legitimate expansion state
-// and is rejected at the scan, before any per-fact work. Hostile input
-// is rejected with a typed error, never burned on — same policy as the
-// C1Z-SEC-006 scans.
-const maxGrantSourceFacts = 1 << 16
-
 // scanGrantContentFactsRawBytes extracts the two grant-content facts a
 // marshaled GrantRecord's value carries beyond its primary-key identity,
 // in one raw field scan (no proto unmarshal):
@@ -133,13 +120,8 @@ const maxGrantSourceFacts = 1 << 16
 //
 // Fields 8 and 9 carrying the wrong wire type are skipped as unknown
 // data, matching protobuf-go's decoder rather than erroring.
-//
-// A sources map claiming more than maxGrantSourceFacts entries is
-// rejected: the fact list's length is attacker-chosen on an imported
-// file, and the digest paths' per-row cost must not be.
 func scanGrantContentFactsRawBytes(value []byte, out []grantSourceFact) (bool, []grantSourceFact, error) {
 	isImmutable := false
-	srcCount := 0
 	for len(value) > 0 {
 		num, typ, n := protowire.ConsumeTag(value)
 		if n < 0 {
@@ -231,10 +213,6 @@ func scanGrantContentFactsRawBytes(value []byte, out []grantSourceFact) (bool, [
 					}
 					entry = entry[ren:]
 				}
-			}
-			srcCount++
-			if srcCount > maxGrantSourceFacts {
-				return false, nil, fmt.Errorf("grant content facts: malformed grant value: sources map exceeds maxGrantSourceFacts (%d)", maxGrantSourceFacts)
 			}
 			out = append(out, grantSourceFact{key: key, isDirect: isDirect})
 		default:

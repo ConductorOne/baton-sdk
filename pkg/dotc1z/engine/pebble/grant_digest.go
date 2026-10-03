@@ -6,7 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/cockroachdb/pebble/v2"
@@ -319,17 +319,14 @@ type grantSourceFact struct {
 // by construction before they build the fact list — but they still route
 // through here for one sort implementation.
 //
-// The sort is linearithmic on purpose: the fact list's length AND order
-// come from the stored value, and the digest paths hash every grant row
-// of a file (build/repair/deferred) under a ctx checked only between
-// rows — a quadratic sort pinned an opener on a single crafted row for
-// hours with no cancellation inside it. sort.StableFunc preserves the
-// encounter order of equal keys, so collapsing each run to its last
-// element is still exactly "last write wins". Returns the (possibly
-// shortened) slice, reusing s's backing array — callers must use the
-// returned slice, not their original variable.
+// The fact list's length and order come from the stored value, so the
+// sort must stay O(n log n) on any input order. It is stable, so
+// collapsing each run of equal keys to its last element is exactly "last
+// write wins". Returns the (possibly shortened) slice, reusing s's backing
+// array — callers must use the returned slice, not their original
+// variable.
 func sortGrantSourceFacts(s []grantSourceFact) []grantSourceFact {
-	sort.SliceStable(s, func(i, j int) bool { return bytes.Compare(s[i].key, s[j].key) < 0 })
+	slices.SortStableFunc(s, func(a, b grantSourceFact) int { return bytes.Compare(a.key, b.key) })
 	// Collapse runs of equal keys, keeping the last of each run.
 	out := s[:0]
 	for i := 0; i < len(s); i++ {
