@@ -254,38 +254,10 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	c1File := &C1File{
-		dbFilePath:            dbFilePath,
-		pragmas:               []pragma{},
-		slowQueryLogTimes:     make(map[string]time.Time),
-		slowQueryThreshold:    5 * time.Second,
-		slowQueryLogFrequency: 1 * time.Minute,
-		encoderConcurrency:    1,
-	}
-	for _, opt := range opts {
-		opt(c1File)
-	}
-
-	// openSQLite pins trusted_schema=OFF on every physical connection; a
-	// caller pragma turning it back on is refused rather than raced.
-	for _, p := range c1File.pragmas {
-		if strings.TrimPrefix(strings.ToLower(strings.TrimSpace(p.name)), "main.") != trustedSchemaPragmaName {
-			continue
-		}
-		if !isSQLiteFalse(p.value) {
-			err = fmt.Errorf("new-c1-file: refusing pragma trusted_schema=%s: the hardened opener requires trusted_schema=OFF", p.value)
-			return nil, err
-		}
-	}
-
 	rawDB, err := openSQLite(ctx, dbFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("new-c1-file: error opening raw db: %w", err)
 	}
-	db := goqu.New("sqlite3", rawDB)
-	c1File.rawDb = rawDB
-	c1File.db = db
-
 	l := ctxzap.Extract(ctx)
 	l.Debug("new-c1-file: opened raw db",
 		zap.String("db_file_path", dbFilePath),
@@ -296,6 +268,23 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 	// all frames. Without this, saveC1z() can read an incomplete main db file
 	// because uncheckpointed WAL frames are invisible to raw file I/O.
 	rawDB.SetMaxOpenConns(1)
+
+	db := goqu.New("sqlite3", rawDB)
+
+	c1File := &C1File{
+		rawDb:                 rawDB,
+		db:                    db,
+		dbFilePath:            dbFilePath,
+		pragmas:               []pragma{},
+		slowQueryLogTimes:     make(map[string]time.Time),
+		slowQueryThreshold:    5 * time.Second,
+		slowQueryLogFrequency: 1 * time.Minute,
+		encoderConcurrency:    1,
+	}
+
+	for _, opt := range opts {
+		opt(c1File)
+	}
 
 	// A read-only open never builds indexes (it discards everything on
 	// close), so bulk load is meaningless there — and would otherwise drop

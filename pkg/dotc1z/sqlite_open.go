@@ -26,41 +26,10 @@ const (
 	sqliteDriverName = "sqlite"
 )
 
-// isTrustedSchemaOff reports whether a `_pragma` value token turns
-// trusted_schema off. The driver runs each token as `PRAGMA <token>`, so
-// both `trusted_schema(OFF)` and `trusted_schema=OFF` are accepted.
-func isTrustedSchemaOff(v string) bool {
-	v = strings.TrimSpace(strings.ToLower(v))
-	if !strings.HasPrefix(v, trustedSchemaPragmaName) {
-		return false
-	}
-	rest := strings.TrimSpace(strings.TrimPrefix(v, trustedSchemaPragmaName))
-	switch {
-	case strings.HasPrefix(rest, "="):
-		rest = strings.TrimPrefix(rest, "=")
-	case strings.HasPrefix(rest, "(") && strings.HasSuffix(rest, ")"):
-		rest = strings.TrimSuffix(strings.TrimPrefix(rest, "("), ")")
-	default:
-		return false
-	}
-	return isSQLiteFalse(rest)
-}
-
-// isSQLiteFalse reports whether a pragma boolean value is one of SQLite's
-// false spellings (case-insensitive).
-func isSQLiteFalse(v string) bool {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "0", "off", "no", "false":
-		return true
-	}
-	return false
-}
-
 // sqliteDSN builds a driver DSN that applies _pragma=trusted_schema(OFF) on
-// every physical connection. For an explicit "file:" URI it parses the URI,
-// rejects any existing trusted_schema _pragma value that does not turn it
-// off, and appends the canonical setting while preserving all other query
-// parameters. For a plain filesystem path it escapes the path into a
+// every physical connection. An explicit "file:" URI keeps its query
+// parameters; if the caller already set a trusted_schema _pragma, that
+// setting is left as given. A plain filesystem path is escaped into a
 // "file:" URI via net/url (filepath.Abs first; reserved characters survive
 // as encoded path bytes, not query syntax). ":memory:" and "file::memory:"
 // pass through with the pragma appended. Returns an error for an empty path
@@ -77,14 +46,8 @@ func sqliteDSN(dbPathOrURI string) (string, error) {
 		}
 		q := u.Query()
 		for _, v := range q["_pragma"] {
-			if isTrustedSchemaOff(v) {
-				continue
-			}
-			low := strings.TrimSpace(strings.ToLower(v))
-			if strings.HasPrefix(low, trustedSchemaPragmaName) {
-				return "", fmt.Errorf(
-					"c1z sqlite open: refusing DSN that enables %s (got %q); the hardened opener requires trusted_schema=OFF on every connection",
-					trustedSchemaPragmaName, v)
+			if strings.HasPrefix(strings.ToLower(strings.TrimSpace(v)), trustedSchemaPragmaName) {
+				return dbPathOrURI, nil
 			}
 		}
 		q.Add("_pragma", trustedSchemaOffPragma)

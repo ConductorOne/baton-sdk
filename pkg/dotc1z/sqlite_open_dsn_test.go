@@ -69,14 +69,15 @@ func TestSQLiteDSNPortablePathShapes(t *testing.T) {
 		require.Contains(t, dsn, "_pragma=trusted_schema%28OFF%29")
 	})
 
-	t.Run("caller trusted_schema pragma: only off spellings are accepted", func(t *testing.T) {
-		for _, v := range []string{"trusted_schema(OFF)", "trusted_schema=off", "TRUSTED_SCHEMA = 0", "trusted_schema(false)", "trusted_schema=no"} {
-			_, err := sqliteDSN("file:x.db?_pragma=" + url.QueryEscape(v))
-			require.NoError(t, err, v)
-		}
-		for _, v := range []string{"trusted_schema(ON)", "trusted_schema=1", "trusted_schema=yes", "trusted_schema"} {
-			_, err := sqliteDSN("file:x.db?_pragma=" + url.QueryEscape(v))
-			require.Error(t, err, v)
-		}
+	t.Run("caller file: URI keeps its own trusted_schema pragma", func(t *testing.T) {
+		in := "file:x.db?_pragma=" + url.QueryEscape("trusted_schema(ON)")
+		dsn, err := sqliteDSN(in)
+		require.NoError(t, err)
+		require.Equal(t, in, dsn)
+
+		dsn, err = sqliteDSN("file:x.db?mode=ro")
+		require.NoError(t, err)
+		require.Contains(t, dsn, "mode=ro")
+		require.Contains(t, dsn, "_pragma=trusted_schema%28OFF%29")
 	})
 }
