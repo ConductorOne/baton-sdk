@@ -90,8 +90,7 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 		// Match SQLite read-only semantics: the source c1z is immutable, but the
 		// unpacked temp DB may be migrated so current read paths see the latest
 		// layout. Reopen read-only afterwards so callers that reach the engine
-		// directly still get read-only write barriers. Corruption handling is
-		// the safe-by-default error path (no option needed — C1Z-SEC-005).
+		// directly still get read-only write barriers.
 		migratingEngine, err := pebble.Open(ctx, dbDir)
 		if err != nil {
 			return nil, cleanupOnError(err)
@@ -102,10 +101,6 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	}
 
 	engineOpts := []pebble.Option{pebble.WithReadOnly(opts.ReadOnly)}
-	// No corruption option here by design: the engine's default treats
-	// on-disk corruption as a typed error on every open — imported
-	// artifact or otherwise (C1Z-SEC-005). Callers that own their state
-	// and want fatal semantics opt in explicitly (WithFatalCorruption).
 	if opts.DisableGrantDigestIndex {
 		engineOpts = append(engineOpts, pebble.WithGrantDigestIndex(false))
 	}

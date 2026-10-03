@@ -60,44 +60,17 @@ type Options struct {
 	// pebbleLogger, when non-nil, replaces discardPebbleLogger as the
 	// pebble.Options.Logger. Test-only (unexported, set by in-package
 	// tests via an inline Option): fault-injection tests need a Fatalf
-	// that does NOT os.Exit(1) — pebble treats a failed WAL commit as
-	// fatal (db.go commitWrite), and a process exit would kill the
+	// that does not panic — pebble treats a failed WAL commit as
+	// fatal (db.go commitWrite), and an unrecovered panic would kill the
 	// whole test binary where the intent is to observe the "crash" and
 	// assert on what durably survived it. The sweep installs a gate
 	// that parks the goroutine and signals the harness on injected
 	// engines, and a fail-fast panicking logger on clean ones.
 	pebbleLogger pebble.Logger
-	// fatalCorruption opts INTO pebble's process-fatal corruption
-	// handling (panic — see discardPebbleLogger.Fatalf). The DEFAULT
-	// (zero value, safe-by-default) is error-not-exit: on-disk
-	// corruption discovered by a read is logged at ERROR with the
-	// engine's structured logger and the wrapped corruption error
-	// propagates to the caller. Intended for callers that open state
-	// the process itself wrote and want crash-on-corruption
-	// (e.g. fault-injection harnesses); see WithFatalCorruption.
-	fatalCorruption bool
-
-	// corruptionSink, when set, receives every DataCorruption event the
-	// default (non-fatal) listener logs. The Engine wires it (via
-	// newEngineFromOptions) to record that the keyspace holds
-	// corruption, so save/close boundaries can refuse to persist or
-	// keep a corrupt keyspace the engine now knows about. Unexported.
-	corruptionSink func(pebble.DataCorruptionInfo)
 }
 
 // Option is a functional option passed to Open.
 type Option func(*Options)
-
-// WithFatalCorruption restores pebble's fatal treatment of on-disk
-// corruption: the DataCorruption event is not intercepted, so the
-// default handler runs (Logger.Fatalf — a traced panic, never a bare
-// os.Exit). Opt-in ONLY for callers opening state the process itself
-// wrote and that want to crash rather than surface corruption as
-// errors. The DEFAULT — what every artifact-consuming path uses —
-// treats corruption as bad input: structured ERROR log + typed error.
-func WithFatalCorruption() Option {
-	return func(o *Options) { o.fatalCorruption = true }
-}
 
 // WithSharedCache reuses a single *pebble.Cache across multiple
 // engine instances. Mandatory for any caller that opens >1 engine in
@@ -162,8 +135,9 @@ func WithLogger(logger pebble.Logger) Option {
 
 // newPebbleOptions builds the *pebble.Options for the Engine. The
 // returned struct is consumed once at pebble.Open; the caller does
-// not retain a reference.
-func newPebbleOptions(o *Options) *pebble.Options {
+// not retain a reference. onCorruption receives every on-disk
+// corruption pebble reports, from reads and background compactions.
+func newPebbleOptions(o *Options, onCorruption func(pebble.DataCorruptionInfo)) *pebble.Options {
 	opts := &pebble.Options{
 		FormatMajorVersion:          SDKPebbleFormat,
 		MemTableSize:                64 << 20,
@@ -205,35 +179,18 @@ func newPebbleOptions(o *Options) *pebble.Options {
 	if o.pebbleLogger != nil {
 		opts.Logger = o.pebbleLogger
 	}
-	// Safe-by-default corruption handling (C1Z-SEC-005): on-disk
-	// corruption discovered by a read is BAD INPUT, not a
-	// process-fatal invariant failure. The default intercepts
-	// pebble's DataCorruption event — structured ERROR log via the
-	// GLOBAL logger (zap.L(); pebble calls from its own goroutines,
-	// where no ctx exists — ctxzap.Extract would return a NO-OP
-	// logger for a ctx that carries none, silently discarding the
-	// event), and the wrapped corruption error still propagates from
-	// the read (reportCorruption runs before the error surfaces) — so
-	// Open/the read fails with a typed error instead of Fatalf killing
-	// every co-tenant of the process. The event is ALSO recorded on
-	// the Engine (Open wires o.corruptionSink) so save/close
-	// boundaries can refuse to persist or keep a corrupt keyspace the
-	// engine now knows about. WithFatalCorruption opts back into the
-	// fatal path for callers that own the state.
-	if !o.fatalCorruption {
-		opts.EventListener = &pebble.EventListener{
-			DataCorruption: func(info pebble.DataCorruptionInfo) {
-				zap.L().Error("pebble: on-disk corruption; surfacing as an error to the reader",
-					zap.String("path", info.Path),
-					zap.Bool("remote", info.IsRemote),
-					zap.String("bounds", info.Bounds.String()),
-					zap.NamedError("details", info.Details),
-				)
-				if o.corruptionSink != nil {
-					o.corruptionSink(info)
-				}
-			},
-		}
+	// Without a DataCorruption listener pebble calls Logger.Fatalf on the
+	// first corrupt block it reads; with one, the read returns the
+	// corruption error, so a corrupt .c1z fails its open or read instead.
+	opts.EventListener = &pebble.EventListener{
+		DataCorruption: func(info pebble.DataCorruptionInfo) {
+			zap.L().Error("pebble: on-disk corruption",
+				zap.String("path", info.Path),
+				zap.String("bounds", info.Bounds.String()),
+				zap.Error(info.Details),
+			)
+			onCorruption(info)
+		},
 	}
 	// Pausable variant of pebble's default ConcurrencyLimitScheduler so the
 	// engine can suppress automatic compactions during the EndSync-to-close
@@ -286,35 +243,11 @@ func defaultOptions() *Options {
 	}
 }
 
-// discardPebbleLogger silences Pebble's WAL discovery / compaction
-// chatter on Infof, surfaces Errorf through the GLOBAL structured
-// logger — zap.L(), the logger pkg/logging installs via
-// zap.ReplaceGlobals; a ctx-based extraction would silently discard
-// the event because pebble calls from its own goroutines, where no
-// ctx exists — and panics on Fatalf.
-//
-// Fatalf is a PANIC, never a bare os.Exit (C1Z-SEC-005): a library
-// must not exit the host process unwitnessed. A panic preserves the
-// "cannot be silently swallowed" property the old exit comment wanted
-// — an un-recovered panic still terminates, with a stack trace —
-// while giving every well-formed service the choice at its own
-// recovery boundary: log the trace via the structured pipeline and
-// re-panic/exit deliberately, instead of losing in-flight work and
-// orphaning temp dirs with no trace. The one caller that wants
-// crash-on-corruption semantics for its own state opts in explicitly
-// (WithFatalCorruption); the DataCorruption path itself no longer
-// reaches Fatalf at all by default.
-//
-// CONTRACT for service authors: DO NOT recover() these panics and keep
-// serving. A pebble FATAL means the storage engine's internal
-// invariants have failed mid-write; the DB may be corrupt on disk and
-// every subsequent operation on it is undefined. Recovery middleware
-// that blanket-recovers must re-panic after logging (or terminate the
-// process/worker deliberately) — never resume use of the engine that
-// fataled, and never persist or checkpoint anything from it. This is
-// the trade the design makes on purpose: the process owner chooses HOW
-// to die (trace first, in-flight work drained if it can be), not
-// WHETHER the engine is dead.
+// discardPebbleLogger drops Pebble's WAL discovery / compaction chatter
+// on Infof and sends Errorf and Fatalf to the global zap logger, since
+// pebble.Logger carries no ctx. Fatalf then panics instead of calling
+// os.Exit, so the failure carries a stack trace. A caller that recovers
+// the panic must stop using the engine.
 type discardPebbleLogger struct{}
 
 func (discardPebbleLogger) Infof(format string, args ...interface{}) {}
@@ -323,5 +256,7 @@ func (discardPebbleLogger) Errorf(format string, args ...interface{}) {
 }
 
 func (discardPebbleLogger) Fatalf(format string, args ...interface{}) {
-	panic("pebble FATAL: " + fmt.Sprintf(format, args...))
+	msg := "pebble FATAL: " + fmt.Sprintf(format, args...)
+	zap.L().Error(msg)
+	panic(msg)
 }

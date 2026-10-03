@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	cpebble "github.com/cockroachdb/pebble/v2"
 	"github.com/stretchr/testify/require"
 
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
@@ -18,95 +18,38 @@ import (
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 )
 
-// TestSecurity_CorruptSSTFailsOpenNotProcess guards C1Z-SEC-005: a v3 .c1z
-// whose Pebble checkpoint carries a corrupted SST (flipped interior byte,
-// file sizes kept equal so pebble's open-time MANIFEST-vs-size check passes)
-// must fail the open with an ordinary error on the first read that touches
-// the corrupt block — never route through pebble's DataCorruption →
-// Logger.Fatalf. The engine's DEFAULT installs a DataCorruption handler
-// that logs at ERROR and lets the wrapped corruption error propagate
-// (safe-by-default, no caller opt-in); Fatalf itself is now a panic, never
-// a bare os.Exit, so no library code path can terminate the host process
-// unwitnessed (backend compaction workers are shared and multi-tenant).
-//
-// The child-run shape (re-exec of this test binary via os.Args[0], the
-// package's established subprocess convention — see to_pebble_localtime_test.go)
-// exists because the vulnerable behavior IS process death: an in-process
-// assertion would kill the suite before it could report. Pre-fix, the child
-// exits 1 with "pebble FATAL" on stderr; post-fix, the child prints OPEN_ERR
-// and exits 0, proving the open failed with an error and the process survived.
-func TestSecurity_CorruptSSTFailsOpenNotProcess(t *testing.T) {
-	if os.Getenv("BATON_CORRUPT_SST_CHILD") != "" {
-		corruptSSTChild()
-		return
-	}
-
+// A corrupt SST data block in an untrusted .c1z must fail the open or read
+// with a corruption error. Without the engine's DataCorruption listener,
+// pebble calls Logger.Fatalf on that read, which panics this test.
+func TestSecurity_CorruptSSTFailsWithError(t *testing.T) {
 	ctx := context.Background()
 	c1zPath := buildCorruptSSTC1z(t, ctx)
 
-	// Both open modes must fail the corrupt artifact with an error: the
-	// writable open and the read-only open, whose store-layer path first
-	// performs a WRITABLE migration pre-open (pebble_store.go) before the
-	// real read-only reopen — both surface corruption as an error, never
-	// Fatalf.
-	for _, mode := range []string{"writable", "readonly"} {
-		t.Run(mode, func(t *testing.T) {
-			cmd := exec.CommandContext(ctx, os.Args[0], // #nosec G204,G702 -- this test binary itself; the package's self-exec convention.
-				"-test.run=TestSecurity_CorruptSSTFailsOpenNotProcess",
-				"-test.count=1", "-test.timeout=120s")
-			cmd.Env = append(os.Environ(),
-				"BATON_CORRUPT_SST_CHILD="+c1zPath,
-				"BATON_CORRUPT_SST_MODE="+mode)
-			out, err := cmd.CombinedOutput()
-
-			require.NotContains(t, string(out), "pebble FATAL",
-				"pebble routed artifact corruption to Fatalf: the process-exit vulnerability is live")
-			require.NoError(t, err,
-				"the child process died opening the corrupt artifact; combined output:\n%s", out)
-			require.Contains(t, string(out), "OPEN_ERR:",
-				"the corrupt artifact must fail the open with an error, not open successfully or kill the process; output:\n%s", out)
+	for _, readOnly := range []bool{false, true} {
+		t.Run(fmt.Sprintf("read_only=%t", readOnly), func(t *testing.T) {
+			err := listResourcesFrom(ctx, c1zPath, readOnly)
+			require.Error(t, err)
+			require.True(t, cpebble.IsCorruptionError(err), "want a pebble corruption error, got: %v", err)
 		})
 	}
 }
 
-func corruptSSTChild() {
-	path := os.Getenv("BATON_CORRUPT_SST_CHILD")
-	mode := os.Getenv("BATON_CORRUPT_SST_MODE")
-	ctx := context.Background()
-	var err error
-	var store c1zstore.Store
-	if mode == "readonly" {
-		// The read-only store-layer path: a WRITABLE migration pre-open
-		// runs first (pebble_store.go), then the read-only reopen.
-		store, err = NewStore(ctx, path, WithReadOnly(true))
-	} else {
-		store, err = NewStore(ctx, path)
-	}
+func listResourcesFrom(ctx context.Context, path string, readOnly bool) error {
+	store, err := NewStore(ctx, path, WithReadOnly(readOnly))
 	if err != nil {
-		fmt.Fprintf(os.Stdout, "OPEN_ERR: %v\n", err)
-		os.Exit(0)
+		return err
 	}
-	// The open alone may not touch the corrupt data block: read the
-	// actual resource rows so the corrupt block is exercised.
-	resp, err := store.ListResources(ctx, (&v2.ResourcesServiceListResourcesRequest_builder{}).Build())
-	if err != nil {
-		_ = store.Close(ctx)
-		fmt.Fprintf(os.Stdout, "OPEN_ERR: %v\n", err)
-		os.Exit(0)
-	}
-	_ = resp
-	_ = store.Close(ctx)
-	fmt.Fprint(os.Stdout, "OPEN_OK\n")
-	os.Exit(0)
+	defer func() { _ = store.Close(ctx) }()
+	_, err = store.ListResources(ctx, (&v2.ResourcesServiceListResourcesRequest_builder{}).Build())
+	return err
 }
 
-// buildCorruptSSTC1z produces a v3 .c1z whose unpacked Pebble checkpoint
-// contains one SST with a flipped interior byte (block checksum mismatch on
-// read) while every file keeps its original on-disk size.
+// buildCorruptSSTC1z returns a v3 .c1z whose largest SST has one flipped
+// interior byte, so a block checksum fails on read while every file keeps
+// the size its MANIFEST records.
 func buildCorruptSSTC1z(t *testing.T, ctx context.Context) string {
 	t.Helper()
 
-	// 1. Honest store with real data; EndSync + Close flush SSTs.
 	dir := t.TempDir()
 	honestPath := filepath.Join(dir, "honest.c1z")
 	store, err := NewStore(ctx, honestPath)
@@ -128,19 +71,15 @@ func buildCorruptSSTC1z(t *testing.T, ctx context.Context) string {
 	require.NoError(t, store.EndSync(ctx))
 	require.NoError(t, store.Close(ctx))
 
-	// 2. Unpack the checkpoint (the same unpack OpenStore performs).
 	workDir := t.TempDir()
 	unpackDir := filepath.Join(workDir, "db")
 	require.NoError(t, os.MkdirAll(unpackDir, 0o755))
 	_, _, _, err = unpackExistingPebbleC1Z(honestPath, unpackDir, 0, 0, nil)
 	require.NoError(t, err)
 
-	// 3. Flip one interior byte of the largest SST (data-block region;
-	// footer occupies the trailing ~52 bytes), preserving size.
 	sst := largestSST(t, unpackDir)
-	flipByteInDataBlocks(t, sst)
+	flipMiddleByte(t, sst)
 
-	// 4. Re-frame the corrupted dir as a tar+zstd v3 envelope.
 	outPath := filepath.Join(dir, "corrupt.c1z")
 	f, err := os.Create(outPath)
 	require.NoError(t, err)
@@ -152,21 +91,17 @@ func buildCorruptSSTC1z(t *testing.T, ctx context.Context) string {
 	return outPath
 }
 
-// flipByteInDataBlocks flips one interior byte of the SST, keeping the file
-// size identical. Mid-file is always block data for a table this size; the
-// flip fails the block checksum on read — the corruption class pebble routes
-// to DataCorruption — while open-time checkConsistency (file sizes vs
-// MANIFEST) still passes.
-func flipByteInDataBlocks(t *testing.T, path string) {
+// flipMiddleByte corrupts a data block of the SST at path without changing
+// its size, so pebble's open-time size check still passes.
+func flipMiddleByte(t *testing.T, path string) {
 	t.Helper()
 	raw, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.Greater(t, len(raw), 4096, "sst too small for a deterministic interior flip")
+	require.Greater(t, len(raw), 4096, "sst too small for an interior flip")
 	raw[len(raw)/2] ^= 0xFF
-	require.NoError(t, os.WriteFile(path, raw, 0o600)) // #nosec G703 -- path is a fixture sst inside the test's private temp dir.
+	require.NoError(t, os.WriteFile(path, raw, 0o600)) // #nosec G703 -- fixture sst in the test's temp dir.
 }
 
-// largestSST returns the path of the largest *.sst under dir.
 func largestSST(t *testing.T, dir string) string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
