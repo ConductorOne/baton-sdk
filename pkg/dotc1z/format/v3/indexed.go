@@ -561,8 +561,18 @@ func extractIndexedZstd(f *os.File, payloadStart int64, manifestXXH64 uint64, de
 	if h := idx.GetManifestXxh64(); h != 0 && h != manifestXXH64 {
 		return nil, fmt.Errorf("c1z v3: manifest bytes hash mismatch (index records %016x, head hashes to %016x): corrupt envelope head", h, manifestXXH64)
 	}
+	// Every entry costs a file create plus a MkdirAll chain even when its
+	// frame is empty, so it is charged like a tar header. Without this, an
+	// index of raw_size==0 frames creates unbounded files at zero cost.
+	// len(entries) is bounded by the in-memory trailer, so the product
+	// cannot overflow.
+	const perIndexedEntryOverhead = 512
+	overhead := uint64(len(entries)) * perIndexedEntryOverhead
 	if !disableSizeFailFast {
-		var totalRaw uint64
+		totalRaw := overhead
+		if totalRaw > maxDecodedBytes {
+			return nil, fmt.Errorf("c1z v3: indexed payload exceeds %d bytes: %w", maxDecodedBytes, ErrMaxSizeExceeded)
+		}
 		for _, e := range entries {
 			if e.RawSize < 0 {
 				return nil, fmt.Errorf("c1z v3: indexed entry %q raw size is negative: %d", e.Name, e.RawSize)
@@ -575,21 +585,8 @@ func extractIndexedZstd(f *os.File, payloadStart int64, manifestXXH64 uint64, de
 		}
 	}
 	budget := newDecodedBudget(maxDecodedBytes)
-	// Charge the budget for per-entry filesystem overhead so the indexed
-	// encoding bounds extraction cardinality the same way the tar encodings'
-	// 512-byte-per-entry headers do. A hostile index full of raw_size==0
-	// frames would otherwise create unbounded files and directory trees at
-	// zero decoded-byte cost (each entry's only cost is one MkdirAll chain
-	// plus one file create, and an empty frame never bills the budget).
-	const perIndexedEntryOverhead = 512
-	if len(entries) > 0 {
-		overhead := uint64(len(entries)) * perIndexedEntryOverhead
-		if overhead/perIndexedEntryOverhead != uint64(len(entries)) || overhead > maxDecodedBytes {
-			return nil, fmt.Errorf("c1z v3: indexed payload has %d entries; extraction overhead %d exceeds budget %d: %w", len(entries), overhead, maxDecodedBytes, ErrMaxSizeExceeded)
-		}
-		if _, err := budget.takeU64(overhead); err != nil {
-			return nil, err
-		}
+	if _, err := budget.takeU64(overhead); err != nil {
+		return nil, err
 	}
 
 	// Directories first, on one goroutine, so workers never race a

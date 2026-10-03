@@ -74,30 +74,18 @@ func grantPrimaryEntitlementBoundsFromPartition(partition string) ([]byte, []byt
 // unlike the hash-index key's raw splice — a bare 0x00 there can only
 // be the separator ending it, never embedded partition data.
 func isGrantDigestRootKey(key []byte) bool {
-	_, ok := isGrantDigestRootKeyPartition(key)
-	return ok
-}
-
-// isGrantDigestRootKeyPartition is isGrantDigestRootKey returning the
-// partition region (the TUPLE-ESCAPED bytes between the index header
-// and the level byte). Import validation reports the offending
-// partition in rejection diagnostics.
-func isGrantDigestRootKeyPartition(key []byte) ([]byte, bool) {
 	const headerLen = 3 // versionV3, typeDigest, indexID
 	if len(key) < headerLen+1 || key[0] != versionV3 || key[1] != typeDigest || key[2] != grantDigestSpec.indexID {
-		return nil, false
+		return false
 	}
 	if key[headerLen] != 0 {
-		return nil, false
+		return false
 	}
-	part, afterSep, found := bytes.Cut(key[headerLen+1:], []byte{0})
+	_, afterSep, found := bytes.Cut(key[headerLen+1:], []byte{0})
 	if !found {
-		return nil, false
+		return false
 	}
-	if len(afterSep) != 1 || afterSep[0] != digestLevelRoot {
-		return nil, false
-	}
-	return part, true
+	return len(afterSep) == 1 && afterSep[0] == digestLevelRoot
 }
 
 // InvalidateGrantDigestPartitions drops the digest + hash-index state
@@ -233,17 +221,18 @@ func (e *Engine) RepairMissingGrantDigests(ctx context.Context) error {
 // scan-and-repair. RepairMissingGrantDigests applies the uniform
 // "downgrade to a full drop, log, never fail the caller" policy to
 // whatever this returns.
-//
-// The fast path is one point Get on the global root. That is sound
-// because imported digest state is verified against its grant primaries
-// at open (validateImportedGrantDigestStateLocked), and because every
-// engine path that can make one entitlement's digest go missing drops
-// the global root in the same commit (stageGrantDigestInvalidation,
-// InvalidateGrantDigestPartitions, the Drop* family). A check that the
-// stored roots fold to the global root would not replace either: it
-// only tests attacker bytes against each other, at a full keyspace scan
-// per EndSync.
 func (e *Engine) repairMissingGrantDigestsAttempt(ctx context.Context) error {
+	// Fast path: EVERY code path that can make a single entitlement's
+	// digest go missing also drops the whole-file global root in the
+	// same commit (stageGrantDigestInvalidation, InvalidateGrantDigestPartitions,
+	// the Drop* family — see their doc comments), and the loop below
+	// only ever writes the global root back once it has verified NOTHING
+	// is missing (repaired everything it found, zero failures). So the
+	// root's mere presence certifies every entitlement's digest is
+	// present and correct, without walking the entitlement keyspace at
+	// all: one point Get instead of a scan, for what should be the
+	// overwhelmingly common "nothing to repair" case (e.g. a fold that
+	// invalidated nothing, or a periodic health-check call).
 	if _, ok, err := e.GetGrantDigestGlobalRoot(ctx); err != nil {
 		return err
 	} else if ok {

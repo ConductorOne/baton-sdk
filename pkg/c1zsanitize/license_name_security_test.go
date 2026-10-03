@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-
 package c1zsanitize
 
 import (
@@ -14,24 +12,12 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
-// TestSecurity_SanitizeRewritesLicenseName guards the sanitizer's
-// identity-stripping contract for LicenseProfileTrait.license_name.
-//
-// Finding: pkg/c1zsanitize/handlers.go:handleLicenseProfileTrait:license-name-verbatim-passthrough
-//
-// license_name is the only human-readable free-text field in the handler set
-// that was copied verbatim instead of HMAC-transformed (every sibling —
-// user login/aliases/names, role expression, entitlement display names — is
-// rewritten via s.id()). The package contract (sanitize.go) promises an
-// "identity-stripped copy ... where the original customer data must not
-// appear", and a connector can place up to 1024 bytes of arbitrary
-// tenant-identifying text in the field, shipping it verbatim into artifacts
-// internal developers receive as sanitized.
-//
-// Pre-fix (red): the marker string appears VERBATIM in the sanitized output.
-// Post-fix (green): license_name is HMAC-rewritten — never equal to the
-// original, never empty (a redaction that emptied the field would also break
-// the deterministic-reuse contract; the HMAC preserves determinism).
+// TestSecurity_SanitizeRewritesLicenseName: LicenseProfileTrait.license_name
+// was the only human-readable free-text field the sanitizer copied verbatim
+// (every sibling goes through s.id()), so up to 1024 bytes of
+// tenant-identifying text reached "sanitized" artifacts. It must be
+// HMAC-rewritten: never equal to the original, and never empty, since
+// emptying it would break deterministic reuse.
 func TestSecurity_SanitizeRewritesLicenseName(t *testing.T) {
 	ctx := context.Background()
 	tmp := t.TempDir()

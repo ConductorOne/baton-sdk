@@ -13,28 +13,14 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
-// TestSecurity_ListSyncsBoundedAgainstHostileSyncRunCardinality guards the
-// one-sync-per-file contract on the ListSyncs read path.
-//
-// Finding: pkg/dotc1z/engine/pebble/adapter_reader.go:ListSyncs:syncStatsForRun.computeSyncStats-cross-product
-//
-// The engine's contract (keys.go) is that a v3 pebble c1z holds exactly ONE
-// sync-run record at the 2-byte fixed key; engine writers only ever Set that
-// key. Pre-fix, ListSyncs walked the entire typeSyncRun key RANGE and called
-// syncStatsForRun per row; a hostile LSM planting K extra rows under the
-// prefix (each missing the single stats sidecar) made one ListSyncs RPC cost
-// K x O(N) — K attacker-chosen full-keyspace stats scans with N the
-// artifact's row count. The c1 sync worker calls ListSyncs after every
-// completed sync, so each hostile upload burned that work inside the shared
-// worker.
-//
-// This regression replaced an earlier timing-ratio assertion
-// (hostile/clean < 5x), which was nondeterministic across cold caches,
-// schedulers, and near-zero denominators. The deterministic invariant:
-// stats computation is gated to the canonical fixed key, so the canonical
-// row carries exact stats, every planted noncanonical row reads with NIL
-// stats (no fallback computation), and paging past the canonical key
-// triggers no stats work.
+// TestSecurity_ListSyncsBoundedAgainstHostileSyncRunCardinality: a v3
+// pebble c1z holds exactly one sync-run record, at the fixed key (keys.go).
+// ListSyncs used to walk the whole typeSyncRun range and compute stats per
+// row, so K planted rows (each missing the stats sidecar) turned one RPC
+// into K full-keyspace stats scans; the c1 sync worker calls ListSyncs
+// after every sync. Stats must be computed only for the canonical key: the
+// canonical row carries exact stats, every planted row reads with nil
+// stats, and paging past the canonical key does no stats work.
 func TestSecurity_ListSyncsBoundedAgainstHostileSyncRunCardinality(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)

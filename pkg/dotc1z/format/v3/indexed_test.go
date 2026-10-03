@@ -135,10 +135,12 @@ func TestIndexedDecodedPayloadFailFastKillSwitch(t *testing.T) {
 	f, err := os.Open(envPath)
 	require.NoError(t, err)
 	defer f.Close()
-	_, _, err = ExtractEnvelopePayload(f, t.TempDir(), WithMaxDecodedPayloadBytes(255))
+	// Room for both entries' 512-byte overhead plus 255 decoded bytes: the
+	// header fail-fast is off, so the second 128-byte frame must trip the
+	// decode-time budget.
+	_, _, err = ExtractEnvelopePayload(f, t.TempDir(), WithMaxDecodedPayloadBytes(2*512+255))
 	require.ErrorIs(t, err, ErrMaxSizeExceeded)
-	require.False(t, err != nil && bytes.Contains([]byte(err.Error()), []byte("indexed payload exceeds")),
-		"kill switch should avoid header-size fail-fast error, got %v", err)
+	require.ErrorContains(t, err, "indexed decoded bytes exceed")
 }
 
 func TestIndexedRespectsMaxDecodedPayloadEnv(t *testing.T) {

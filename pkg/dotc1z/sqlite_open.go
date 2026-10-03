@@ -26,36 +26,45 @@ const (
 	sqliteDriverName = "sqlite"
 )
 
-// isTrustedSchemaOff reports whether a `_pragma` value token is a
-// case/whitespace-insensitive spelling of trusted_schema OFF. The driver
-// accepts `name(value)` and `name=value` forms, so compare the
-// parenthesized value token.
+// isTrustedSchemaOff reports whether a `_pragma` value token turns
+// trusted_schema off. The driver runs each token as `PRAGMA <token>`, so
+// both `trusted_schema(OFF)` and `trusted_schema=OFF` are accepted.
 func isTrustedSchemaOff(v string) bool {
 	v = strings.TrimSpace(strings.ToLower(v))
 	if !strings.HasPrefix(v, trustedSchemaPragmaName) {
 		return false
 	}
 	rest := strings.TrimSpace(strings.TrimPrefix(v, trustedSchemaPragmaName))
-	rest = strings.TrimPrefix(rest, "=")
-	if !strings.HasPrefix(rest, "(") {
-		// Bare `trusted_schema` with no value: not an explicit OFF.
+	switch {
+	case strings.HasPrefix(rest, "="):
+		rest = strings.TrimPrefix(rest, "=")
+	case strings.HasPrefix(rest, "(") && strings.HasSuffix(rest, ")"):
+		rest = strings.TrimSuffix(strings.TrimPrefix(rest, "("), ")")
+	default:
 		return false
 	}
-	val := strings.TrimSuffix(strings.TrimPrefix(rest, "("), ")")
-	val = strings.TrimSpace(val)
-	return val == "off" || val == "0"
+	return isSQLiteFalse(rest)
+}
+
+// isSQLiteFalse reports whether a pragma boolean value is one of SQLite's
+// false spellings (case-insensitive).
+func isSQLiteFalse(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "0", "off", "no", "false":
+		return true
+	}
+	return false
 }
 
 // sqliteDSN builds a driver DSN that applies _pragma=trusted_schema(OFF) on
 // every physical connection. For an explicit "file:" URI it parses the URI,
-// rejects any existing trusted_schema _pragma value other than OFF
-// (case/whitespace-insensitive), and appends the canonical setting while
-// preserving all other query parameters. For a plain filesystem path it
-// escapes the path into a "file:" URI via net/url (filepath.Abs first;
-// reserved characters survive as encoded path bytes, not query syntax).
-// ":memory:" and "file::memory:" pass through with the pragma appended.
-// Any other input that is neither a valid path nor a valid file: URI is
-// rejected as a data verdict.
+// rejects any existing trusted_schema _pragma value that does not turn it
+// off, and appends the canonical setting while preserving all other query
+// parameters. For a plain filesystem path it escapes the path into a
+// "file:" URI via net/url (filepath.Abs first; reserved characters survive
+// as encoded path bytes, not query syntax). ":memory:" and "file::memory:"
+// pass through with the pragma appended. Returns an error for an empty path
+// or an unparsable file: URI.
 func sqliteDSN(dbPathOrURI string) (string, error) {
 	if dbPathOrURI == "" {
 		return "", fmt.Errorf("c1z sqlite open: empty database path")

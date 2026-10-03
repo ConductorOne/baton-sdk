@@ -11,18 +11,15 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-// TestSecurity_LegacyOldSchemaAcceptedAndReadsCorrectly is the
-// acceptance control for the schema guard: a fully-specified OLD schema
-// (no expansion/needs_expansion columns, no modern sync_runs metadata
-// columns, real inline GrantExpandable annotation inside grant blobs,
-// ordinary + expandable grants) must keep working end-to-end —
-// read-only open, correct sync metadata, exact grant identities,
-// expansion definitions re-attached, stripped inline annotations,
-// envelope byte-unchanged after Close — because the guard's contract is
-// unsupported-EXECUTABLE-schema rejection, never layout-version rejection.
+// TestSecurity_LegacyOldSchemaAcceptedAndReadsCorrectly is the acceptance
+// control for the schema guard: an old schema (no expansion or
+// needs_expansion columns, no modern sync_runs metadata columns, an inline
+// GrantExpandable annotation inside a grant blob) must open read-only, read
+// correct sync metadata and exact grant identities with the inline
+// annotation stripped, and leave the envelope byte-unchanged. The guard
+// rejects executable schema, never an older layout.
 func TestSecurity_LegacyOldSchemaAcceptedAndReadsCorrectly(t *testing.T) {
 	ctx := context.Background()
 
@@ -152,10 +149,11 @@ func hexEncode(b []byte) string {
 	return string(out)
 }
 
-// TestSecurity_LegacyOldSchemaConvertsClonesIsolates extends the
-// legacy-acceptance control to the derived-output routes: convert, clone,
-// and isolate must preserve the legacy artifact's semantics.
-func TestSecurity_LegacyOldSchemaConvertsClonesIsolates(t *testing.T) {
+// TestSecurity_LegacyOldSchemaConvertsAndIsolates runs the same kind of
+// old-schema artifact through the derived-output routes that reopen its
+// catalog: ToPebble conversion and CopyIsolateSync must both pass the
+// schema guard and preserve the grant identity.
+func TestSecurity_LegacyOldSchemaConvertsAndIsolates(t *testing.T) {
 	ctx := context.Background()
 
 	mustMarshal := func(m proto.Message) []byte {
@@ -199,21 +197,22 @@ func TestSecurity_LegacyOldSchemaConvertsClonesIsolates(t *testing.T) {
 	}
 	path := hostileV1Fixture(t, "legacy.c1z", ddl...)
 
-	// Writable open + ToPebble conversion must succeed and preserve the
-	// grant identity.
 	f, err := NewC1ZFile(ctx, path)
 	require.NoError(t, err, "writable open of the old-schema artifact must succeed")
-	outPath := filepath.Join(t.TempDir(), "legacy.pebble.c1z")
-	_, err = f.ToPebble(ctx, outPath, "2YpKj9CDvFqPHLhMZWB4h0X1YyL")
+	pebblePath := filepath.Join(t.TempDir(), "legacy.pebble.c1z")
+	_, err = f.ToPebble(ctx, pebblePath, "2YpKj9CDvFqPHLhMZWB4h0X1YyL")
 	require.NoError(t, err, "conversion of a legacy artifact must succeed")
+	isoPath := filepath.Join(t.TempDir(), "legacy.iso.c1z")
+	require.NoError(t, f.CopyIsolateSync(ctx, isoPath, ""), "isolating a legacy artifact must pass the schema guard")
 	require.NoError(t, f.Close(ctx))
 
-	converted, err := NewStore(ctx, outPath, WithReadOnly(true), WithEngine(c1zstore.EnginePebble))
-	require.NoError(t, err)
-	defer func() { require.NoError(t, converted.Close(ctx)) }()
-	grantsResp, err := converted.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
-	require.NoError(t, err)
-	require.Len(t, grantsResp.GetList(), 1)
-	require.Equal(t, "grant-legacy", grantsResp.GetList()[0].GetId(),
-		"converted legacy artifact must preserve exact grant identities")
+	for _, out := range []string{pebblePath, isoPath} {
+		s, err := NewStore(ctx, out, WithReadOnly(true))
+		require.NoError(t, err, out)
+		grantsResp, err := s.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+		require.NoError(t, err)
+		require.Len(t, grantsResp.GetList(), 1, out)
+		require.Equal(t, "grant-legacy", grantsResp.GetList()[0].GetId(), out)
+		require.NoError(t, s.Close(ctx))
+	}
 }

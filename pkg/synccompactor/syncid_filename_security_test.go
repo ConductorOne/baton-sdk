@@ -1,8 +1,5 @@
 package synccompactor
 
-// Verifier-V7 independent regression repro (adapted from scratch run, passes red).
-// Run: GOFLAGS=-mod=vendor GOPROXY=off go test ./pkg/synccompactor/ -run TestSecurity -count=1
-
 import (
 	"context"
 	"os"
@@ -60,19 +57,18 @@ func TestSecurityCompactSyncIDFilenameEscapeFold(t *testing.T) {
 		"containment violation: NewCompactor accepted a separator-bearing SyncID that escapes the temp dir")
 	require.Contains(t, err.Error(), "invalid sync id")
 
-	// Nothing may be written outside the compactor's private temp dir: the
-	// pre-fix fold path O_TRUNC-copied the full hostile base .c1z to the
-	// escaped path (and it persisted after cleanup, which removes only
-	// c.tmpDir). Post-fix, no compactor is even constructed.
+	// Before the fix, the fold path O_TRUNC-copied the hostile base .c1z to
+	// the escaped path, where it outlived cleanup (which removes only
+	// c.tmpDir).
 	found := filepath.Join(outerParent, "v7-verify-escape.c1z")
 	_, statErr := os.Stat(found)
 	require.True(t, os.IsNotExist(statErr),
 		"hostile SyncID wrote a file outside the WithTmpDir root")
 }
 
-// Non-fold (overlay) path: the pre-fix behavior created the working store
-// at the escaped path via dotc1z.NewStore (compactor.go). Post-fix, the
-// hostile SyncID is rejected at NewCompactor and nothing is created.
+// Non-fold (overlay) path: before the fix, dotc1z.NewStore created the
+// working store at the escaped path. The hostile SyncID must be rejected at
+// NewCompactor, with nothing created.
 func TestSecurityCompactSyncIDFilenameEscapeOverlay(t *testing.T) {
 	ctx := context.Background()
 	inputDir := t.TempDir()
@@ -108,11 +104,8 @@ func TestSecurityCompactSyncIDFilenameEscapeOverlay(t *testing.T) {
 		"working store created at escaped path via NewStore")
 }
 
-// Table-driven rejection coverage through the public NewCompactor error
-// contract: every hostile SyncID shape must be rejected at construction,
-// before any working-artifact filename is built from it. The cases pin the
-// SDK's own rejection behavior, not stdlib path arithmetic (which is
-// OS-specific and was previously asserted with Unix-only spellings).
+// Every hostile SyncID shape must be rejected at NewCompactor, before any
+// working-artifact filename is built from it.
 func TestSecurityCompactSyncIDRejectionCases(t *testing.T) {
 	validKSUID := "2YpKj9CDvFqPHLhMZWB4h0X1YyL"
 	cases := []struct {
@@ -148,13 +141,14 @@ func TestSecurityCompactSyncIDRejectionCases(t *testing.T) {
 				{FilePath: basePath, SyncID: tc.syncID},
 				{FilePath: badPath, SyncID: "whatever"},
 			}
-			_, _, err = NewCompactor(ctx, outputDir, entries)
+			_, cleanup, err := NewCompactor(ctx, outputDir, entries, WithTmpDir(t.TempDir()))
 			if tc.wantErr {
 				require.Error(t, err, "NewCompactor accepted hostile SyncID %q", tc.syncID)
 				require.Contains(t, err.Error(), "invalid sync id")
 				return
 			}
 			require.NoError(t, err, "NewCompactor rejected benign SyncID %q", tc.syncID)
+			t.Cleanup(func() { _ = cleanup() })
 		})
 	}
 }

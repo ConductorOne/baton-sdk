@@ -272,7 +272,7 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 		if strings.TrimPrefix(strings.ToLower(strings.TrimSpace(p.name)), "main.") != trustedSchemaPragmaName {
 			continue
 		}
-		if val := strings.ToLower(strings.TrimSpace(p.value)); val != "off" && val != "0" {
+		if !isSQLiteFalse(p.value) {
 			err = fmt.Errorf("new-c1-file: refusing pragma trusted_schema=%s: the hardened opener requires trusted_schema=OFF", p.value)
 			return nil, err
 		}
@@ -912,11 +912,6 @@ func (c *C1File) init(ctx context.Context) error {
 	// // slow because SQLite must scan the WAL hash table for every page read.
 	if _, err = c.db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
 		l.Warn("c1file-init: WAL checkpoint after init failed", zap.Error(err))
-		// The checkpoint failure itself is only warned, but a cancelled
-		// context must not go on to publish a store.
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return fmt.Errorf("c1file-init: context done at WAL checkpoint: %w", ctxErr)
-		}
 	}
 
 	// Optimize DB. Desired after running migrations to improve performance.

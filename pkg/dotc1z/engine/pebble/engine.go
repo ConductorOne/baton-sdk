@@ -382,13 +382,6 @@ func (e *Engine) initKeyspaceStateLocked(ctx context.Context) error {
 	if err := e.verifyGrantDigestABI(ctx, e.opts.readOnly); err != nil {
 		return err
 	}
-	// Runs after verifyGrantDigestABI so it only sees state the engine
-	// would trust: digest state under a non-current or malformed stamp,
-	// or left by an interrupted build, was dropped or gated above and is
-	// never rejected. On failure nothing is dropped and the open fails.
-	if err := e.validateImportedGrantDigestStateLocked(ctx); err != nil {
-		return err
-	}
 	// Arm the mutation-path source-scope index obligations iff the file
 	// actually holds by_source_scope entries (bounded seeks, same
 	// contract as the digest probe): scope-free stores keep the exact

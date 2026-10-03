@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-
 package dotc1z
 
 import (
@@ -111,24 +109,15 @@ func TestSecurity_HostileIndexNameExecutesDDLDuringBulkLoadOpen(t *testing.T) {
 	})
 	require.NotNil(t, f, "open must succeed far enough to reach the DROP INDEX")
 
-	// Security check: the hostile index NAME must be treated as DATA, never
-	// as SQL syntax. Post-fix, the DROP INDEX identifier is quote-escaped
-	// (quoteIdentifier), so the embedded `"; ATTACH ...` tail cannot break
-	// out of the identifier: no attacker SQL executes during open, and no
-	// marker file is created outside the c1z temp dir.
-	//
-	// Pre-fix (red): fmt.Sprintf(`DROP INDEX IF EXISTS "%s"`, idxName)
-	// interpolated the name unescaped, the trailing script executed via the
-	// vendored driver's multi-statement exec fallback, and
-	// /tmp/c1z-security-marker.db was created by the injected ATTACH.
+	// The hostile index NAME must be treated as data: unescaped, its
+	// `"; ATTACH ...` tail ran through the driver's multi-statement exec and
+	// created the marker file.
 	require.NoFileExists(t, markerPath,
 		"attacker SQL executed during open: hostile index name escaped the identifier and created the marker file")
 
-	// Liveness check: the fix must not break the legitimate deferral path —
-	// the hostile-NAMED index specifically must be gone (dropped as a plain
-	// quoted identifier), while the SDK's own rebuilt indexes may exist.
-	// Assert by exact crafted name (bound parameter), not a LIKE pattern:
-	// the name is the hostile payload, so match it verbatim.
+	// The hostile-named index itself must still be dropped as a plain
+	// quoted identifier. Match the crafted name exactly, as a bound
+	// parameter.
 	craftedName := `idx"; ATTACH DATABASE '` + sqlMarker + `' AS pwn; CREATE TABLE pwn.t (x text); --`
 	var hostileIdxCount int
 	require.NoError(t, f.RawDB().QueryRowContext(ctx,
@@ -137,5 +126,4 @@ func TestSecurity_HostileIndexNameExecutesDDLDuringBulkLoadOpen(t *testing.T) {
 	).Scan(&hostileIdxCount))
 	require.Equal(t, 0, hostileIdxCount,
 		"hostile-named index should be dropped as a plain identifier during bulk-load deferral")
-	t.Logf("SECURITY INVARIANT HELD: hostile index name treated as data; index dropped without executing attacker SQL")
 }

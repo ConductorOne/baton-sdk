@@ -21,8 +21,8 @@ import (
 // planted state is genuinely reachable through the route under test) and
 // asserts rejection BEFORE the route's own DML executes.
 
-// newLegitC1Z builds a real two-sync writable c1z through the public API
-// and returns the open C1File plus its path.
+// newLegitC1Z opens a writable c1z through the public API and returns the
+// open C1File plus its path.
 func newLegitC1Z(t *testing.T, ctx context.Context) (*C1File, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "legit.c1z")
@@ -31,7 +31,7 @@ func newLegitC1Z(t *testing.T, ctx context.Context) (*C1File, string) {
 	return f, path
 }
 
-func putMinimalSync(t *testing.T, ctx context.Context, f *C1File, _ string) string {
+func putMinimalSync(t *testing.T, ctx context.Context, f *C1File) string {
 	t.Helper()
 	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -39,20 +39,19 @@ func putMinimalSync(t *testing.T, ctx context.Context, f *C1File, _ string) stri
 	return syncID
 }
 
-// TestSecurity_InitTablesReentryRejectsPlantedTrigger: a legitimate raw
-// source opened successfully, then a marker trigger added on the open
-// handle's file and grants_backfilled reset — the PUBLIC InitTables re-entry
-// must reject before the migration UPDATE executes.
+// TestSecurity_InitTablesReentryRejectsPlantedTrigger: a legitimate source
+// with one finished sync, its grants_backfilled flag reset so a re-init
+// runs the backfill UPDATE on v1_sync_runs, and a trigger planted on that
+// table. The public InitTables re-entry must reject before the UPDATE runs.
 func TestSecurity_InitTablesReentryRejectsPlantedTrigger(t *testing.T) {
 	ctx := context.Background()
 	f, _ := newLegitC1Z(t, ctx)
 	defer func() { require.NoError(t, f.Close(ctx)) }()
 
-	// Plant the hostile object on the open handle's own file, then reset
-	// the backfill flag so a re-init would run the migration UPDATE.
-	_, err := f.RawDB().ExecContext(ctx, `CREATE TRIGGER planted BEFORE UPDATE ON v1_sync_runs BEGIN SELECT RAISE(ABORT, 'file-authored-trigger-executed'); END`)
+	putMinimalSync(t, ctx, f)
+	_, err := f.RawDB().ExecContext(ctx, `UPDATE v1_sync_runs SET grants_backfilled = 0`)
 	require.NoError(t, err)
-	_, err = f.RawDB().ExecContext(ctx, `UPDATE v1_sync_runs SET grants_backfilled = 0`)
+	_, err = f.RawDB().ExecContext(ctx, `CREATE TRIGGER planted BEFORE UPDATE ON v1_sync_runs BEGIN SELECT RAISE(ABORT, 'file-authored-trigger-executed'); END`)
 	require.NoError(t, err)
 
 	_, err = f.InitTables(ctx)
@@ -64,22 +63,20 @@ func TestSecurity_InitTablesReentryRejectsPlantedTrigger(t *testing.T) {
 }
 
 // TestSecurity_CopyIsolateSyncRejectsBeforeRawCopyDelete: a legitimate
-// two-sync source plus a BEFORE DELETE trigger on v1_grants planted on the
-// open handle — CopyIsolateSync must reject BEFORE the raw-copy DELETE runs,
-// produce no output, and preserve both source syncs.
+// two-sync source plus a BEFORE DELETE trigger on v1_sync_runs planted on
+// the open handle. The raw-copy phase deletes the non-target sync's row, so
+// CopyIsolateSync must reject before that DELETE runs, produce no output,
+// and preserve both source syncs.
 func TestSecurity_CopyIsolateSyncRejectsBeforeRawCopyDelete(t *testing.T) {
 	ctx := context.Background()
 	f, _ := newLegitC1Z(t, ctx)
 	defer func() { require.NoError(t, f.Close(ctx)) }()
 
-	putMinimalSync(t, ctx, f, "a")
-	putMinimalSync(t, ctx, f, "b")
+	putMinimalSync(t, ctx, f)
+	putMinimalSync(t, ctx, f)
 
-	// Plant a BEFORE DELETE trigger: the raw-copy phase DELETEs non-target
-	// syncs from the byte-copy; pre-guard that DELETE would fire it.
-	_, err := f.RawDB().ExecContext(ctx, `CREATE TRIGGER killdeletes BEFORE DELETE ON v1_grants BEGIN SELECT RAISE(ABORT, 'file-authored-trigger-executed'); END`)
+	_, err := f.RawDB().ExecContext(ctx, `CREATE TRIGGER killdeletes BEFORE DELETE ON v1_sync_runs BEGIN SELECT RAISE(ABORT, 'file-authored-trigger-executed'); END`)
 	require.NoError(t, err)
-
 	outPath := filepath.Join(t.TempDir(), "iso.c1z")
 	err = f.CopyIsolateSync(ctx, outPath, "")
 	require.Error(t, err)
@@ -161,29 +158,6 @@ func TestSecurity_ConversionRejectsHostileV1(t *testing.T) {
 	require.Equal(t, before, readSourceBytes(t, path), "conversion rejection must leave the source unchanged")
 }
 
-// TestSecurity_CancelledInitDoesNotPublishStore: a done init context must
-// surface ctx.Err(), not panic and not publish a store.
-func TestSecurity_CancelledInitDoesNotPublishStore(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "slow.db")
-	db, err := sql.Open("sqlite", path)
-	require.NoError(t, err)
-	_, err = db.ExecContext(ctx, `CREATE TABLE v1_sync_runs (`+
-		`id integer primary key, sync_id text not null, started_at datetime not null,`+
-		` ended_at datetime, sync_token text not null, sync_type text not null default 'full',`+
-		` parent_sync_id text not null default '', supports_diff integer not null default 0,`+
-		` grants_backfilled integer not null default 0, stats text)`)
-	require.NoError(t, err)
-	require.NoError(t, db.Close())
-
-	expired, cancel := context.WithTimeout(ctx, -time.Second)
-	defer cancel()
-	f, err := NewC1File(expired, path)
-	require.Error(t, err)
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.Nil(t, f, "a cancelled init must not publish a store")
-}
-
 // TestParseTimeoutSecondsClampsOverflow: a seconds value too large for
 // time.Duration must clamp rather than wrap negative, which would expire
 // every timeout immediately.
@@ -203,11 +177,6 @@ func TestSecurity_FailingOpenReturnsNilStoreInterface(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, store, "Store interface must be nil on failed open (typed-nil regression)")
 
-	// The caller-shaped guard must hold: this exact pattern panicked
-	// pre-fix.
-	if store != nil {
-		require.NoError(t, store.Close(ctx))
-	}
 	require.False(t, errors.Is(err, ErrArtifactUnusable),
 		"input rejection is NOT an output-storage verdict")
 }

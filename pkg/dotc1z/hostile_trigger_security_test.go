@@ -20,7 +20,7 @@ import (
 // zstd with WithEncoderConcurrency(1)) under t.TempDir(). This is the same
 // framing pattern as hostile_index_name_security_test.go: the fixture must
 // be byte-deterministic so a rejected source can be compared before/after.
-// Returns the c1z path and the raw (uncompressed) bytes digest source.
+// Returns the c1z path.
 func hostileV1Fixture(t *testing.T, name string, ddl ...string) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -83,11 +83,11 @@ func readSourceBytes(t *testing.T, path string) []byte {
 	return b
 }
 
-// TestSecurity_HostileTriggerRejectedOnEveryRoute proves the v1 open-time
-// trigger-execution finding is closed: a read-only v1 open of a catalog
-// carrying a file-authored BEFORE UPDATE trigger on v1_sync_runs must fail
-// with a deterministic data rejection BEFORE any file-authored SQL executes
-// (the marker text must NEVER appear), on every public entry route.
+// TestSecurity_HostileTriggerRejectedOnEveryRoute: a read-only v1 open of a
+// catalog carrying a file-authored BEFORE UPDATE trigger on v1_sync_runs
+// used to run the trigger during the grant-backfill migration. Every public
+// entry route must fail with a schema-guard rejection before any
+// file-authored SQL executes (the marker text must never appear).
 func TestSecurity_HostileTriggerRejectedOnEveryRoute(t *testing.T) {
 	ctx := context.Background()
 

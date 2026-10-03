@@ -2,6 +2,7 @@ package dotc1z
 
 import (
 	"context"
+	"net/url"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -10,12 +11,11 @@ import (
 )
 
 // TestSQLiteDSNPortablePathShapes pins sqliteDSN's path-to-URI escaping on
-// every OS path shape the SDK's callers produce. The windows-latest CI
-// failure this guards: filepath.Abs("db") on Windows yields "C:\...\db",
-// and url.URL{Path: "C:/..."} without a leading slash renders "file:C:/...",
-// which the sqlite driver parses with "C" as a URI AUTHORITY and rejects
-// with "invalid uri authority" (every SQLite open failed on windows-latest).
-// The fix forces the leading slash so the drive letter stays in the path.
+// every OS path shape the SDK's callers produce. On Windows,
+// filepath.Abs("db") yields "C:\...\db", and url.URL{Path: "C:/..."}
+// without a leading slash renders "file:C:/...", which the sqlite driver
+// parses with "C" as a URI authority and rejects. sqliteDSN forces the
+// leading slash so the drive letter stays in the path.
 func TestSQLiteDSNPortablePathShapes(t *testing.T) {
 	ctx := context.Background()
 
@@ -69,14 +69,14 @@ func TestSQLiteDSNPortablePathShapes(t *testing.T) {
 		require.Contains(t, dsn, "_pragma=trusted_schema%28OFF%29")
 	})
 
-	t.Run("hostile trusted_schema pragma value in caller URI is refused", func(t *testing.T) {
-		_, err := sqliteDSN("file:x.db?_pragma=trusted_schema(ON)")
-		require.Error(t, err)
-	})
-
-	t.Run("explicit off pragma in caller URI passes through with canonical appended", func(t *testing.T) {
-		dsn, err := sqliteDSN("file:x.db?_pragma=trusted_schema%28OFF%29")
-		require.NoError(t, err)
-		require.Contains(t, dsn, "trusted_schema")
+	t.Run("caller trusted_schema pragma: only off spellings are accepted", func(t *testing.T) {
+		for _, v := range []string{"trusted_schema(OFF)", "trusted_schema=off", "TRUSTED_SCHEMA = 0", "trusted_schema(false)", "trusted_schema=no"} {
+			_, err := sqliteDSN("file:x.db?_pragma=" + url.QueryEscape(v))
+			require.NoError(t, err, v)
+		}
+		for _, v := range []string{"trusted_schema(ON)", "trusted_schema=1", "trusted_schema=yes", "trusted_schema"} {
+			_, err := sqliteDSN("file:x.db?_pragma=" + url.QueryEscape(v))
+			require.Error(t, err, v)
+		}
 	})
 }

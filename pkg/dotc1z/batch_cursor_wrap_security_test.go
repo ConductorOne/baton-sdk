@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-
 package dotc1z
 
 import (
@@ -9,25 +7,13 @@ import (
 	"testing"
 )
 
-// TestSecurity_DecodeBatchCursorRejectsUint64WrapTokens guards against the
-// uint64 length-wrap panic in the SQLite engine's ListGrantsForEntitlements
-// page-token decoder (decodeBatchCursor).
-//
-// Finding: dotc1z/sqlite-decodeBatchCursor-lenU-uint64-wrap
-//
-// The old guard `uint64(len(raw)) < lenU+4` performed the attacker-controlled
-// + constant addition before comparison: for lenU >= MaxUint64-3 the sum wraps
-// to <=3, the guard passed a short payload, and the subsequent raw[:lenU]
-// slice panicked with a runtime slice-bounds error, crashing any process
-// serving a SQLite-engine c1z through the connectorstore.Reader surface.
-//
-// The Pebble engine's twin decoder (pkg/dotc1z/engine/pebble) already uses the
-// wrap-proof two-term guard; this test pins the same behavior here: every
-// wrap-band token must return a typed error, never a panic.
-//
-// Pre-fix (red): the wrap-band cases panic with
-// "runtime error: slice bounds out of range [:18446744073709551615]".
-// Post-fix (green): typed "cursor truncated" errors.
+// TestSecurity_DecodeBatchCursorRejectsUint64WrapTokens: the SQLite
+// engine's ListGrantsForEntitlements page-token decoder (decodeBatchCursor)
+// guarded with `uint64(len(raw)) < lenU+4`. For lenU >= MaxUint64-3 the sum
+// wraps to <= 3, the guard passed a short payload, and raw[:lenU] panicked,
+// crashing any process serving a SQLite c1z through connectorstore.Reader.
+// Every wrap-band token must return a typed error, as the Pebble twin's
+// two-term guard already does.
 func TestSecurity_DecodeBatchCursorRejectsUint64WrapTokens(t *testing.T) {
 	const maxUint64 = ^uint64(0)
 
