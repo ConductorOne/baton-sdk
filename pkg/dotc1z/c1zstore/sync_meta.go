@@ -2,8 +2,6 @@ package c1zstore
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"time"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -120,40 +118,6 @@ func (v IngestInvariantVerification) IsVerified() bool {
 	default:
 		return false
 	}
-}
-
-// ErrMalformedVerificationClaim classifies a verification marker that is
-// structurally PRESENT but INVALID: a non-empty generation with an
-// unknown verdict mode, empty coverage on a present generation, or
-// malformed persisted bytes. Absent markers (Generation == "") are
-// LEGACY-unverified and must never be classified as malformed — the
-// crash window between seal and marker write is legitimate.
-// ErrMalformedVerificationClaim wraps into ErrDataRejected via RejectData
-// at the store read boundary.
-var ErrMalformedVerificationClaim = errors.New("malformed ingest invariant verification claim")
-
-// ClassifyVerificationClaim validates a verification marker read from
-// persisted bytes. It returns the zero value (unverified — legacy
-// acceptance) for an ABSENT marker; a verified marker as-is; and
-// ErrMalformedVerificationClaim for a present-but-invalid claim. The
-// caller decides whether the malformed case rejects (import/read paths)
-// or degrades (engine-internal paths), so this never wraps the verdict
-// itself.
-func ClassifyVerificationClaim(generation string, coverage []string, mode IngestInvariantVerificationMode) (IngestInvariantVerification, error) {
-	if generation == "" {
-		// Absent: legitimate crash-window shape, unverified legacy.
-		// (A non-empty mode with no generation is also treated as
-		// absent: the SDK never persists one without the other, and
-		// there is no claim to evaluate without a generation.)
-		return IngestInvariantVerification{}, nil
-	}
-	v := IngestInvariantVerification{Generation: generation, Coverage: coverage, Mode: mode}
-	if !v.IsVerified() {
-		return IngestInvariantVerification{}, fmt.Errorf(
-			"%w: generation %q carries unknown mode %q or empty coverage (claim is present but invalid)",
-			ErrMalformedVerificationClaim, generation, string(mode))
-	}
-	return v, nil
 }
 
 type IngestInvariantVerificationMode string

@@ -10,8 +10,6 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
-
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // The SQLite driver applies every `_pragma` query parameter on EVERY new
@@ -60,13 +58,13 @@ func isTrustedSchemaOff(v string) bool {
 // rejected as a data verdict.
 func sqliteDSN(dbPathOrURI string) (string, error) {
 	if dbPathOrURI == "" {
-		return "", c1zstore.RejectData(fmt.Errorf("c1z sqlite open: empty database path"))
+		return "", fmt.Errorf("c1z sqlite open: empty database path")
 	}
 
 	if strings.HasPrefix(dbPathOrURI, "file:") {
 		u, err := url.Parse(dbPathOrURI)
 		if err != nil {
-			return "", c1zstore.RejectData(fmt.Errorf("c1z sqlite open: invalid file: URI: %w", err))
+			return "", fmt.Errorf("c1z sqlite open: invalid file: URI: %w", err)
 		}
 		q := u.Query()
 		for _, v := range q["_pragma"] {
@@ -75,9 +73,9 @@ func sqliteDSN(dbPathOrURI string) (string, error) {
 			}
 			low := strings.TrimSpace(strings.ToLower(v))
 			if strings.HasPrefix(low, trustedSchemaPragmaName) {
-				return "", c1zstore.RejectData(fmt.Errorf(
+				return "", fmt.Errorf(
 					"c1z sqlite open: refusing DSN that enables %s (got %q); the hardened opener requires trusted_schema=OFF on every connection",
-					trustedSchemaPragmaName, v))
+					trustedSchemaPragmaName, v)
 			}
 		}
 		q.Add("_pragma", trustedSchemaOffPragma)
@@ -118,11 +116,6 @@ func sqliteDSN(dbPathOrURI string) (string, error) {
 // openSQLite opens a hardened pool: sql.Open(sqliteDriverName, sqliteDSN(...))
 // followed by PingContext(ctx). Pool sizing/caps are the caller's; the pool
 // is closed on ping failure. Callers own the success-path Close.
-//
-// The driver executes _pragma entries with context.Background() per physical
-// connection, so DSN setup itself is not caller-cancellable; the init
-// timeout (SQLiteInitTimeout) is the ceiling for the whole init phase, which
-// includes this ping.
 //
 // trusted_schema=OFF is defense-in-depth against unsafe schema-expression
 // functions (it is NOT a trigger-disable switch; the metadata-only schema

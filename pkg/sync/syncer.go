@@ -4138,14 +4138,9 @@ func WithPreviousSyncC1ZPath(path string) SyncOpt {
 // instead of failing. Advanced, opt-in functionality like its strict
 // twin — see pkg/sourcecache. Intended for cache-style replay sources the
 // caller maintains automatically (the service-mode previous-sync spare)
-// — a bad cache file must never fail a sync. EXCEPT hostile input: a
-// c1zstore.ErrDataRejected verdict (deterministic, immutable-data
-// defect — hostile schema or forged digest state) propagates and fails
-// the sync even in optional mode, per the strict hostile-input policy;
-// the optional fallback exists for recoverable cache misses, not for
-// rejected files. Callers that name a specific file deliberately should
-// use WithPreviousSyncC1ZPath, which surfaces open, metadata-read, and
-// close failures.
+// — a bad cache file must never fail a sync. Callers that name a
+// specific file deliberately should use WithPreviousSyncC1ZPath, which
+// surfaces open, metadata-read, and close failures.
 func WithOptionalPreviousSyncC1ZPath(path string) SyncOpt {
 	return func(s *syncer) {
 		s.cfg.previousSyncC1ZPath = path
@@ -4421,13 +4416,6 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 				break
 			}
 			s.previousSyncReader = previousSyncStore
-		case errors.Is(err, c1zstore.ErrDataRejected):
-			// Hostile input is a deterministic data verdict: even the
-			// optional spare PROPAGATES it (strict hostile-input
-			// policy) — a corrupt-but-recoverable cache miss is what
-			// the optional fallback exists for, not a rejected file.
-			return nil, fmt.Errorf("previous-sync c1z %q rejected: %w",
-				s.cfg.previousSyncC1ZPath, err)
 		case s.cfg.previousSyncC1ZPathOptional:
 			// Best-effort replay source (see WithOptionalPreviousSyncC1ZPath):
 			// a missing/corrupt/incompatible cache file degrades to a sync

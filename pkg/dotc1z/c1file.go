@@ -102,13 +102,6 @@ type C1File struct {
 	// Pebble-written files. Zero value = PayloadEncodingTarZstd
 	// (default). Ignored by the SQLite engine.
 	payloadEncoding c1zstore.PayloadEncoding
-
-	// initBudget bounds the NewC1File init phase when non-zero;
-	// zero means SQLiteInitTimeout(). The clone path's deferred-index
-	// rebuild passes BulkLoadIndexTimeout() via withInitBudget so the
-	// reopen's InitTables is not cut off by the default init ceiling.
-	// Unexported: the public knob is BATON_C1Z_SQLITE_INIT_TIMEOUT.
-	initBudget time.Duration
 }
 
 // *C1File satisfies connectorstore.Writer (the connector-facing contract),
@@ -251,37 +244,16 @@ func WithC1FV2GrantsWriter(enabled bool) C1FOption {
 	}
 }
 
-// withInitBudget overrides the init-phase ceiling for this open. It is
-// unexported: the public knob is BATON_C1Z_SQLITE_INIT_TIMEOUT, and the only
-// in-repo caller that needs a wider budget is the clone path's
-// deferred-index rebuild (clone_sync.go), which passes
-// BulkLoadIndexTimeout() so the reopen's InitTables is not cut off by the
-// default init ceiling.
-func withInitBudget(d time.Duration) C1FOption {
-	return func(o *C1File) {
-		if d > 0 {
-			o.initBudget = d
-		}
-	}
-}
-
 // Returns a C1File instance for the given db filepath.
 //
-// The whole init phase — open/ping, schema guard, schema DDL + migrations,
-// checkpoint, optimize, caller pragma setup — runs under ONE child context
-// bounded by SQLiteInitTimeout() (or withInitBudget's override). Caller
-// cancellation is a feature and propagates: a cancelled/timed-out init must
-// not publish a store, and ctx.Err() is propagated after the warned
-// checkpoint path so a timed-out checkpoint cannot silently publish either.
-// The raw DB handle is closed fail-closed on every init failure; caller
-// supplied raw paths are never deleted on failure (NewC1ZFile's
-// cleanupDbDir still removes the SDK's own decoded temp dir).
+// The raw DB handle is closed on every init failure; caller-supplied raw
+// paths are never deleted on failure (NewC1ZFile's cleanupDbDir still
+// removes the SDK's own decoded temp dir).
 func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1File")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	budget := SQLiteInitTimeout()
 	c1File := &C1File{
 		dbFilePath:            dbFilePath,
 		pragmas:               []pragma{},
@@ -293,20 +265,23 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 	for _, opt := range opts {
 		opt(c1File)
 	}
-	if c1File.initBudget > 0 {
-		budget = c1File.initBudget
+
+	// openSQLite pins trusted_schema=OFF on every physical connection; a
+	// caller pragma turning it back on is refused rather than raced.
+	for _, p := range c1File.pragmas {
+		if strings.TrimPrefix(strings.ToLower(strings.TrimSpace(p.name)), "main.") != trustedSchemaPragmaName {
+			continue
+		}
+		if val := strings.ToLower(strings.TrimSpace(p.value)); val != "off" && val != "0" {
+			err = fmt.Errorf("new-c1-file: refusing pragma trusted_schema=%s: the hardened opener requires trusted_schema=OFF", p.value)
+			return nil, err
+		}
 	}
 
-	// ONE bounded child for the entire init phase.
-	initCtx, cancel := context.WithTimeout(ctx, budget)
-	defer cancel()
-
-	rawDB, err := openSQLite(initCtx, dbFilePath)
+	rawDB, err := openSQLite(ctx, dbFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("new-c1-file: error opening raw db: %w", err)
 	}
-	// Ownership transfers to c1File only on successful init; until then
-	// this constructor owns the handle and closes it on every failure.
 	db := goqu.New("sqlite3", rawDB)
 	c1File.rawDb = rawDB
 	c1File.db = db
@@ -356,47 +331,20 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 		c1File.engine = c1zstore.EngineSQLite
 	}
 
-	// The hardened opener pins trusted_schema=OFF on every physical
-	// connection (sqlite_open.go). A caller pragma reaching into the
-	// protected set must be rejected, not silently rewritten: the opener
-	// would race the caller's value and the DSN wins anyway, so refusing
-	// keeps intent honest.
-	// The pragma loop below runs after the open, so a rejection needs the
-	// same fail-closed close as every other init failure.
-	for _, p := range c1File.pragmas {
-		name := strings.ToLower(strings.TrimSpace(p.name))
-		name = strings.TrimPrefix(strings.TrimPrefix(name, "main."), "")
-		if name == trustedSchemaPragmaName {
-			val := strings.ToLower(strings.TrimSpace(p.value))
-			if val != "off" && val != "0" {
-				primary := c1zstore.RejectData(fmt.Errorf(
-					"new-c1-file: refusing pragma trusted_schema=%s: the hardened opener requires trusted_schema=OFF", p.value))
-				if closeErr := c1File.closeRawDB(initCtx); closeErr != nil {
-					return nil, errors.Join(primary, fmt.Errorf("new-c1-file: error closing raw db: %w", closeErr))
-				}
-				return nil, primary
-			}
-		}
-	}
-
-	// Fail-closed handle cleanup: any init failure after the open closes
-	// the raw DB before returning, joining the close error with the
-	// primary error. This runs on schema rejection too — rejection is a
-	// routine error path now, and a leaked handle per rejected file is a
-	// DoS vector against the opener.
+	// A rejected file must not leak its handle.
 	initFailed := func(primary error) error {
-		if closeErr := c1File.closeRawDB(initCtx); closeErr != nil {
+		if closeErr := c1File.closeRawDB(ctx); closeErr != nil {
 			return errors.Join(primary, fmt.Errorf("new-c1-file: error closing raw db after failed init: %w", closeErr))
 		}
 		return primary
 	}
 
-	err = c1File.validateDb(initCtx)
+	err = c1File.validateDb(ctx)
 	if err != nil {
 		return nil, initFailed(err)
 	}
 
-	err = c1File.init(initCtx)
+	err = c1File.init(ctx)
 	if err != nil {
 		return nil, initFailed(fmt.Errorf("new-c1-file: error initializing c1file: %w", err))
 	}
@@ -964,13 +912,10 @@ func (c *C1File) init(ctx context.Context) error {
 	// // slow because SQLite must scan the WAL hash table for every page read.
 	if _, err = c.db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
 		l.Warn("c1file-init: WAL checkpoint after init failed", zap.Error(err))
-		// A timed-out or cancelled init context must not publish a store:
-		// the checkpoint is only warned for genuine WAL-business failures,
-		// but a context expiry here means the init budget is gone, so
-		// surface it instead of continuing into pragma setup on a dead
-		// context.
+		// The checkpoint failure itself is only warned, but a cancelled
+		// context must not go on to publish a store.
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			return fmt.Errorf("c1file-init: init context expired at WAL checkpoint: %w", ctxErr)
+			return fmt.Errorf("c1file-init: context done at WAL checkpoint: %w", ctxErr)
 		}
 	}
 
@@ -1158,10 +1103,8 @@ func (c *C1File) InitTables(ctx context.Context) (bool, error) {
 					zap.String("table_name", t.Name()))
 			} else {
 				for _, idxName := range deferrable {
-					// The name comes from PRAGMA index_list over the opened
-					// file's own schema, which is attacker-controlled in a
-					// hostile .c1z — escape embedded quotes like every other
-					// interpolated identifier (quoteIdentifier).
+					// idxName comes from the opened file's own schema
+					// (PRAGMA index_list), so it is untrusted.
 					if _, derr := c.db.ExecContext(ctx, fmt.Sprintf(`DROP INDEX IF EXISTS %s`, quoteIdentifier(idxName))); derr != nil {
 						return false, fmt.Errorf("c1file-init-tables: error deferring index %s on %s: %w", idxName, t.Name(), derr)
 					}
@@ -1662,54 +1605,31 @@ var _ connectorstore.DBSizeProvider = (*C1File)(nil)
 // validates the attached catalog's schema before returning it for use.
 //
 // The ATTACH, the validation, and a rejection-DETACH all run on ONE leased
-// *sql.Conn: validating a different physical connection than the one that
-// attached would be worthless, and attachments are per-connection state.
+// *sql.Conn: attachments are per-connection state, so validating any other
+// connection would prove nothing. If the rejection-DETACH fails, the host
+// connection is closed rather than left holding an unvalidated attachment.
 //
-// This API has no context parameter, so caller cancellation cannot propagate
-// through this signature; the validation runs under a bounded background
-// context, and the rejection-DETACH gets a separate short bounded context so
-// an expired validation context cannot prevent cleanup. If the
-// rejection-DETACH itself fails, the host connection is closed fail-closed
-// (closeRawDB) rather than expose an unvalidated attachment.
-//
-// Attachment durability across physical-connection replacement is not
-// claimed: database/sql may hand later statements to a different pooled
-// connection than the one that attached. Consumers of C1FileAttached run on
-// the single-connection pool (SetMaxOpenConns(1)), where the leased
-// connection IS the pool's only connection.
+// Consumers of C1FileAttached run on the single-connection pool
+// (SetMaxOpenConns(1)), where the leased connection is the pool's only
+// connection, so later statements see the same attachment.
 func (c *C1File) AttachFile(other *C1File, dbName string) (*C1FileAttached, error) {
-	// Bounded background contexts: this signature carries no caller ctx.
-	attachCtx, attachCancel := context.WithTimeout(context.Background(), SQLiteInitTimeout())
-	defer attachCancel()
-	detachCtx, detachCancel := context.WithTimeout(context.Background(), SQLiteInitTimeout())
-	defer detachCancel()
-
-	// Lease the pool's one physical connection for ATTACH + validation +
-	// rejection-DETACH so they observe the same attachment state.
-	conn, err := c.rawDb.Conn(attachCtx)
+	ctx := context.Background()
+	conn, err := c.rawDb.Conn(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("attach-file: error leasing connection: %w", err)
 	}
 	defer func() { _ = conn.Close() }()
 
-	if _, err := conn.ExecContext(attachCtx, "ATTACH DATABASE ? AS ?", other.dbFilePath, dbName); err != nil {
+	if _, err := conn.ExecContext(ctx, "ATTACH DATABASE ? AS ?", other.dbFilePath, dbName); err != nil {
 		return nil, err
 	}
-
-	// Validate the attached catalog before returning it as safe. A
-	// rejection DETACHes the hostile catalog; the host connection itself
-	// remains usable.
-	if err := validateSQLiteSchema(attachCtx, conn, dbName); err != nil {
-		if _, detachErr := conn.ExecContext(detachCtx, "DETACH DATABASE ?", dbName); detachErr != nil {
-			// Fail closed: the attachment is unvalidated and cannot be
-			// removed — close the host's raw DB rather than leave the
-			// hostile catalog attached.
-			closeErr := c.closeRawDB(detachCtx)
-			return nil, errors.Join(err, fmt.Errorf("attach-file: rejection-detach failed; host closed fail-closed: %w", detachErr), closeErr)
+	if err := validateSQLiteSchema(ctx, conn, dbName); err != nil {
+		if _, detachErr := conn.ExecContext(ctx, "DETACH DATABASE ?", dbName); detachErr != nil {
+			closeErr := c.closeRawDB(ctx)
+			return nil, errors.Join(err, fmt.Errorf("attach-file: rejection-detach failed; host closed: %w", detachErr), closeErr)
 		}
 		return nil, err
 	}
-
 	return &C1FileAttached{
 		safe: true,
 		file: c,

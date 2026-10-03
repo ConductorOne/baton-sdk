@@ -601,3 +601,58 @@ func TestGrantDigestABIStaleWithPendingMarker(t *testing.T) {
 	require.EqualValues(t, n, entHashIndexRowCount(t, e2, entID))
 	require.NoError(t, verifyGrantHashIndexAgainstPrimaries(t, e2))
 }
+
+// TestGrantDigestNonCurrentABIStateUntrustedNotRejected pins how Open
+// treats digest state the current ABI did not certify. Its roots are
+// well-formed but are not what the current hashes compute from the same
+// grants, which is what an older SDK's sealed artifact holds once its
+// grants carry sources or GrantImmutable. Whatever the stamp says, Open
+// must neither trust that state nor reject the file: a writable open
+// drops it, and a read-only open reports it never built.
+func TestGrantDigestNonCurrentABIStateUntrustedNotRejected(t *testing.T) {
+	ctx := context.Background()
+	const entID = "ent-A"
+	const n = 5
+
+	stamps := []struct {
+		name  string
+		apply func(t *testing.T, e *Engine)
+	}{
+		{"missing", deleteABIStamp},
+		{"older", func(t *testing.T, e *Engine) { setABIStamp(t, e, grantDigestABIVersionUnstamped) }},
+		{"newer", func(t *testing.T, e *Engine) { setABIStamp(t, e, staleABIVersion) }},
+		{"malformed", func(t *testing.T, e *Engine) {
+			require.NoError(t, e.db.DigestSet(rawdb.GrantDigestABIStampKey(), []byte{0x01, 0x02}, pebble.Sync))
+		}},
+	}
+	for _, stamp := range stamps {
+		for _, readOnly := range []bool{false, true} {
+			t.Run(fmt.Sprintf("stamp=%s/readOnly=%t", stamp.name, readOnly), func(t *testing.T) {
+				e, dbDir, _ := sealedGrantDigestEngine(t, entID, n)
+				var otherHash [hashLen]byte
+				binary.BigEndian.PutUint64(otherHash[:], 0x0badc0de0badc0de)
+				rootKey := append(rawdb.DigestPartitionPrefix(rawdb.IdxGrantByEntitlementPrincipalHash, testEntPartition(entID)), digestLevelRoot)
+				require.NoError(t, e.UnsafeForTesting().Set(rootKey, packDigestRoot(0, n, otherHash[:]), pebble.Sync))
+				require.NoError(t, e.UnsafeForTesting().Set(rawdb.GlobalGrantDigestNodeKey(), packDigestLeaf(n, otherHash[:]), pebble.Sync))
+				stamp.apply(t, e)
+				require.NoError(t, e.Close())
+
+				e2, err := Open(ctx, dbDir, WithReadOnly(readOnly))
+				require.NoError(t, err, "digest state the current ABI did not certify must not fail the open")
+				t.Cleanup(func() { _ = e2.Close() })
+
+				_, ok, err := e2.GetGrantDigestGlobalRoot(ctx)
+				require.NoError(t, err)
+				require.False(t, ok, "global root must not be trusted")
+				_, ok, err = e2.GetEntitlementDigestRoot(ctx, testEntIdentity(entID))
+				require.NoError(t, err)
+				require.False(t, ok, "entitlement root must not be trusted")
+				if readOnly {
+					require.True(t, e2.grantDigestAbiStale.Load())
+				} else {
+					require.Zero(t, digestNodeCount(t, e2), "a writable open must drop the state")
+				}
+			})
+		}
+	}
+}

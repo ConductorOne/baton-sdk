@@ -125,7 +125,7 @@ func (s pebbleSyncMeta) latestFinishedSync(ctx context.Context, typeOK func(v3.S
 	if best == nil {
 		return nil, nil
 	}
-	return syncRunRecordToExported(best)
+	return syncRunRecordToExported(best), nil
 }
 
 // Stats returns a map of record-type → row count for the named sync.
@@ -158,21 +158,17 @@ func (s pebbleSyncMeta) RecalculateStats(ctx context.Context, syncID string) err
 // syncRunRecordToExported translates the Pebble v3.SyncRunRecord
 // proto into the exported c1zstore.SyncRun shape. Mirrors
 // syncRunToExported in pkg/dotc1z but adapted for the v3 proto.
-//
-// A verification marker that is structurally PRESENT but INVALID
-// (unknown mode, empty coverage on a present generation) is a
-// deterministic data defect and returns c1zstore.ErrDataRejected;
-// ABSENT markers stay unverified (legacy acceptance).
-func syncRunRecordToExported(r *v3.SyncRunRecord) (*c1zstore.SyncRun, error) {
+func syncRunRecordToExported(r *v3.SyncRunRecord) *c1zstore.SyncRun {
 	if r == nil {
-		return nil, nil
+		return nil
 	}
-	verification, err := c1zstore.ClassifyVerificationClaim(
-		r.GetIngestInvariantGeneration(),
-		append([]string(nil), r.GetIngestInvariantCoverage()...),
-		c1zstore.IngestInvariantVerificationMode(r.GetIngestInvariantMode()))
-	if err != nil {
-		return nil, c1zstore.RejectData(fmt.Errorf("sync run %s: %w", r.GetSyncId(), err))
+	verification := c1zstore.IngestInvariantVerification{
+		Generation: r.GetIngestInvariantGeneration(),
+		Coverage:   append([]string(nil), r.GetIngestInvariantCoverage()...),
+		Mode:       c1zstore.IngestInvariantVerificationMode(r.GetIngestInvariantMode()),
+	}
+	if !verification.IsVerified() {
+		verification = c1zstore.IngestInvariantVerification{}
 	}
 	out := &c1zstore.SyncRun{
 		ID:                          r.GetSyncId(),
@@ -191,7 +187,7 @@ func syncRunRecordToExported(r *v3.SyncRunRecord) (*c1zstore.SyncRun, error) {
 		tt := t.AsTime()
 		out.EndedAt = &tt
 	}
-	return out, nil
+	return out
 }
 
 // sortedSyncRuns reads every sync_run record into the engine-neutral
@@ -208,15 +204,14 @@ func syncRunRecordToExported(r *v3.SyncRunRecord) (*c1zstore.SyncRun, error) {
 // ListSyncRuns ORDER BY id ASC semantics.
 func (e *Engine) sortedSyncRuns(ctx context.Context) ([]c1zstore.SyncRun, error) {
 	var out []c1zstore.SyncRun
-	var claimErr error
 	err := e.IterateAllSyncRuns(ctx, func(r *v3.SyncRunRecord) bool {
-		verification, cerr := c1zstore.ClassifyVerificationClaim(
-			r.GetIngestInvariantGeneration(),
-			append([]string(nil), r.GetIngestInvariantCoverage()...),
-			c1zstore.IngestInvariantVerificationMode(r.GetIngestInvariantMode()))
-		if cerr != nil {
-			claimErr = c1zstore.RejectData(fmt.Errorf("sync run %s: %w", r.GetSyncId(), cerr))
-			return false
+		verification := c1zstore.IngestInvariantVerification{
+			Generation: r.GetIngestInvariantGeneration(),
+			Coverage:   append([]string(nil), r.GetIngestInvariantCoverage()...),
+			Mode:       c1zstore.IngestInvariantVerificationMode(r.GetIngestInvariantMode()),
+		}
+		if !verification.IsVerified() {
+			verification = c1zstore.IngestInvariantVerification{}
 		}
 		cand := c1zstore.SyncRun{
 			ID:                          r.GetSyncId(),
@@ -238,9 +233,6 @@ func (e *Engine) sortedSyncRuns(ctx context.Context) ([]c1zstore.SyncRun, error)
 		out = append(out, cand)
 		return true
 	})
-	if claimErr != nil {
-		return nil, claimErr
-	}
 	if err != nil {
 		return nil, err
 	}

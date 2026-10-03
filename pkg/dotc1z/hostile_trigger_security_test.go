@@ -101,7 +101,7 @@ func TestSecurity_HostileTriggerRejectedOnEveryRoute(t *testing.T) {
 		path, before := newFixture(t)
 		store, err := NewStore(ctx, path, WithReadOnly(true))
 		require.Error(t, err)
-		require.ErrorIs(t, err, c1zstore.ErrDataRejected)
+		require.ErrorContains(t, err, "sqlite schema guard: rejected")
 		require.NotContains(t, err.Error(), hostileTriggerMarker,
 			"file-authored SQL executed during open: the trigger fired")
 		require.Contains(t, err.Error(), "trigger")
@@ -113,7 +113,7 @@ func TestSecurity_HostileTriggerRejectedOnEveryRoute(t *testing.T) {
 		path, before := newFixture(t)
 		store, err := NewStore(ctx, path, WithReadOnly(true), WithEngine(c1zstore.EnginePebble))
 		require.Error(t, err)
-		require.ErrorIs(t, err, c1zstore.ErrDataRejected)
+		require.ErrorContains(t, err, "sqlite schema guard: rejected")
 		require.NotContains(t, err.Error(), hostileTriggerMarker)
 		require.Nil(t, store)
 		require.Equal(t, before, readSourceBytes(t, path))
@@ -123,7 +123,7 @@ func TestSecurity_HostileTriggerRejectedOnEveryRoute(t *testing.T) {
 		path, before := newFixture(t)
 		f, err := NewC1ZFile(ctx, path, WithReadOnly(true))
 		require.Error(t, err)
-		require.ErrorIs(t, err, c1zstore.ErrDataRejected)
+		require.ErrorContains(t, err, "sqlite schema guard: rejected")
 		require.NotContains(t, err.Error(), hostileTriggerMarker)
 		require.Nil(t, f)
 		require.Equal(t, before, readSourceBytes(t, path))
@@ -133,7 +133,7 @@ func TestSecurity_HostileTriggerRejectedOnEveryRoute(t *testing.T) {
 		path, before := newFixture(t)
 		f, err := NewC1ZFile(ctx, path)
 		require.Error(t, err)
-		require.ErrorIs(t, err, c1zstore.ErrDataRejected)
+		require.ErrorContains(t, err, "sqlite schema guard: rejected")
 		require.NotContains(t, err.Error(), hostileTriggerMarker)
 		require.Nil(t, f)
 		require.Equal(t, before, readSourceBytes(t, path))
@@ -143,7 +143,7 @@ func TestSecurity_HostileTriggerRejectedOnEveryRoute(t *testing.T) {
 		path, before := newFixture(t)
 		f, err := NewC1ZFile(ctx, path, WithBulkLoad(true), WithSkipVacuum(true))
 		require.Error(t, err)
-		require.ErrorIs(t, err, c1zstore.ErrDataRejected)
+		require.ErrorContains(t, err, "sqlite schema guard: rejected")
 		require.NotContains(t, err.Error(), hostileTriggerMarker)
 		require.Nil(t, f)
 		require.Equal(t, before, readSourceBytes(t, path))
@@ -158,7 +158,7 @@ func TestSecurity_HostileTriggerRejectedOnEveryRoute(t *testing.T) {
 		rawPath := decodeV1FixtureToRaw(t, path)
 		f, err := NewC1File(ctx, rawPath, WithC1FReadOnly(true))
 		require.Error(t, err)
-		require.ErrorIs(t, err, c1zstore.ErrDataRejected)
+		require.ErrorContains(t, err, "sqlite schema guard: rejected")
 		require.NotContains(t, err.Error(), hostileTriggerMarker)
 		require.Nil(t, f)
 		require.Equal(t, before, readSourceBytes(t, path), "source envelope must be unchanged")
@@ -188,10 +188,10 @@ func decodeV1FixtureToRaw(t *testing.T, c1zPath string) string {
 	return rawPath
 }
 
-// TestSecurity_HostileTriggerMarkerNeverExecutes is the crisp invariant the
-// handoff demonstrated pre-fix: read the trigger's own marker row out of the
-// raw fixture (proving the trigger IS armed in the bytes), then show the SDK
-// open path never lets it fire — the error names the trigger object instead.
+// TestSecurity_HostileTriggerMarkerNeverExecutes reads the trigger's own
+// marker row out of the raw fixture (proving the trigger IS armed in the
+// bytes), then shows the SDK open path never lets it fire — the error
+// names the trigger object instead.
 func TestSecurity_HostileTriggerMarkerNeverExecutes(t *testing.T) {
 	ctx := context.Background()
 	path := hostileV1Fixture(t, "hostile.c1z", hostileTriggerDDL...)
@@ -211,7 +211,7 @@ func TestSecurity_HostileTriggerMarkerNeverExecutes(t *testing.T) {
 	// The SDK open must reject before the migration UPDATE runs.
 	_, err = NewStore(ctx, path, WithReadOnly(true))
 	require.Error(t, err)
-	require.ErrorIs(t, err, c1zstore.ErrDataRejected)
+	require.ErrorContains(t, err, "sqlite schema guard: rejected")
 	require.NotContains(t, err.Error(), hostileTriggerMarker)
 	require.Contains(t, err.Error(), "file_authored_update",
 		"the rejection must name the offending trigger object")

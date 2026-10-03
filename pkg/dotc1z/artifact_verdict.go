@@ -16,7 +16,7 @@ var ErrArtifactUnusable = errors.New("sync artifact unusable")
 
 // artifactVerdictError carries the sentinel WITHOUT altering the verdict's
 // message (operator-facing text and any error-string assertions stay
-// byte-identical — the same pattern as c1zstore.ErrDataRejected).
+// byte-identical — the same pattern as sync.ErrIngestInvariantViolated).
 type artifactVerdictError struct{ err error }
 
 func (e *artifactVerdictError) Error() string { return e.err.Error() }

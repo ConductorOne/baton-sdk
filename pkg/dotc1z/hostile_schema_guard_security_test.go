@@ -3,20 +3,24 @@ package dotc1z
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
-
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-// schema guard's rejection matrix (triggers anywhere — SDK or non-SDK tables,
-// views, SDK-name views, generated columns, hostile column names) and its
+// schemaRejected reports whether err is a validateSQLiteSchema rejection
+// rather than a query failure.
+func schemaRejected(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "sqlite schema guard: rejected")
+}
+
+// TestSecurity_SchemaGuardRejectionAndAcceptance runs the schema guard's
+// rejection matrix (triggers anywhere — SDK or non-SDK tables, views,
+// SDK-name views, generated columns, hostile column names) and its
 // acceptance controls (ordinary tables/indexes, sqlite_stat1, unrelated
 // tables) directly against validateSQLiteSchema. Route-level coverage
 // (open/isolate/attach/conversion) lives in hostile_trigger_security_test.go
 // and hostile_boundary_security_test.go.
-
 func TestSecurity_SchemaGuardRejectionAndAcceptance(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -52,7 +56,7 @@ func TestSecurity_SchemaGuardRejectionAndAcceptance(t *testing.T) {
 		`CREATE TABLE v1_grants (id integer primary key)`,
 		`CREATE TRIGGER file_authored_update BEFORE UPDATE ON v1_sync_runs BEGIN SELECT RAISE(ABORT, 'file-authored-trigger-executed'); END`,
 	), "main")
-	if !errors.Is(err, c1zstore.ErrDataRejected) {
+	if !schemaRejected(err) {
 		t.Fatalf("trigger not rejected: %v", err)
 	}
 	t.Logf("trigger rejection: %v", err)
@@ -62,7 +66,7 @@ func TestSecurity_SchemaGuardRejectionAndAcceptance(t *testing.T) {
 		`CREATE TABLE other (x text)`,
 		`CREATE TRIGGER t2 BEFORE INSERT ON other BEGIN SELECT RAISE(ABORT, 'x'); END`,
 	), "main")
-	if !errors.Is(err, c1zstore.ErrDataRejected) {
+	if !schemaRejected(err) {
 		t.Fatalf("non-sdk trigger not rejected: %v", err)
 	}
 
@@ -71,7 +75,7 @@ func TestSecurity_SchemaGuardRejectionAndAcceptance(t *testing.T) {
 		`CREATE TABLE t (x text)`,
 		`CREATE VIEW v AS SELECT * FROM t`,
 	), "main")
-	if !errors.Is(err, c1zstore.ErrDataRejected) {
+	if !schemaRejected(err) {
 		t.Fatalf("view not rejected: %v", err)
 	}
 
@@ -80,7 +84,7 @@ func TestSecurity_SchemaGuardRejectionAndAcceptance(t *testing.T) {
 		`CREATE TABLE backing (id integer primary key)`,
 		`CREATE VIEW v1_grants AS SELECT * FROM backing`,
 	), "main")
-	if !errors.Is(err, c1zstore.ErrDataRejected) {
+	if !schemaRejected(err) {
 		t.Fatalf("SDK-name view not rejected: %v", err)
 	}
 
@@ -88,7 +92,7 @@ func TestSecurity_SchemaGuardRejectionAndAcceptance(t *testing.T) {
 	err = validateSQLiteSchema(ctx, mk("gen.db",
 		`CREATE TABLE v1_grants (id integer primary key, sync_id text, gen text GENERATED ALWAYS AS ('x'))`,
 	), "main")
-	if !errors.Is(err, c1zstore.ErrDataRejected) {
+	if !schemaRejected(err) {
 		t.Fatalf("generated column not rejected: %v", err)
 	}
 
@@ -96,7 +100,7 @@ func TestSecurity_SchemaGuardRejectionAndAcceptance(t *testing.T) {
 	err = validateSQLiteSchema(ctx, mk("col.db",
 		`CREATE TABLE v1_grants ("id""; ATTACH x AS y" text)`,
 	), "main")
-	if !errors.Is(err, c1zstore.ErrDataRejected) {
+	if !schemaRejected(err) {
 		t.Fatalf("hostile column name not rejected: %v", err)
 	}
 

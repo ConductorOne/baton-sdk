@@ -10,26 +10,25 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"go.uber.org/zap"
 
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 )
 
 // validateImportedGrantDigestStateLocked verifies the grant-digest
-// keyspace of an IMPORTED artifact against the ACTUAL grant primaries,
-// read-only, before any reader is served.
+// keyspace of an imported artifact against the grant primaries,
+// read-only, before any reader is served. Every digest keyspace byte of
+// an imported .c1z is attacker-authored, so self-consistency of those
+// bytes proves nothing: a forged root plus a global root equal to its
+// fold would seal grants the engine never hashed.
 //
-// Trust model: a .c1z is untrusted-at-import. Every digest keyspace
-// byte — per-entitlement roots, the global root, the ABI stamp — is
-// attacker-authored there; self-consistency of those bytes proves
-// nothing (a hostile artifact can plant a forged root plus a global
-// root equal to its fold, and grants the engine never hashed would
-// still be sealed as exact). Engine-OWNED state (an interrupted-build
-// marker) remains trusted and keeps its existing recovery path in
-// initKeyspaceStateLocked.
+// It checks only state the engine would trust: present digest nodes
+// under the current ABI stamp, with no interrupted-build marker. Older,
+// unstamped, or malformed-stamp state is already untrusted
+// (verifyGrantDigestABI drops it or gates it stale), so it is never
+// rejected here. Absent digest state is the cold case and accepts.
 //
-// What is verified, read-only:
+// What is verified:
 //   - per-partition roots recomputed from the grant primary records
 //     (count + XOR fold of grant content hashes — the same computation
 //     recomputeGrantDigestGlobalRootLocked folds) must match the
@@ -37,55 +36,20 @@ import (
 //     zero-grant entitlements' {count:0} roots;
 //   - no phantom roots (partitions with no grants and no entitlement
 //     record) and no missing grant-bearing roots;
-//   - the global root must equal the fold of the CORRECT roots;
+//   - the global root must equal the fold of the correct roots;
 //   - the by_entitlement_principal_hash index rows the read paths
-//     consume must match the same recomputation — a matching root over
-//     a wrong index still misdirects readers;
-//   - every root value must decode (unpackDigestRoot) and the ABI
-//     stamp, when present over digest nodes, must be well-formed.
+//     consume must match the same recomputation;
+//   - every root value must decode (unpackDigestRoot).
 //
-// Acceptance (never a rejection): wholly ABSENT digest state accepts
-// cold (digests-absent semantics, digest.go); an old-but-well-formed
-// ABI stamp reaches the legacy acceptance path (verifyGrantDigestABI)
-// instead; an honest EMPTY store (zero grants, zero entitlements) with
-// the canonical {count:0, zero-hash} global root accepts without churn.
+// An honest empty store (zero grants, zero entitlements) with the
+// canonical {count:0, zero-hash} global root accepts.
 //
-// Cost contract (thread 4170953216): O(grant primaries + index/digest
-// nodes), paid ONCE at open of an imported artifact — linear in grant
-// count, no sort, no spill, no proto decode. Trusted-seal/EndSync
-// fast paths remain a single point-Get. See BenchmarkImportValidation.
+// Cost: O(grant primaries + index/digest nodes), no sort, no spill, no
+// proto decode; see BenchmarkImportValidation. EndSync's repair fast
+// path stays a single point-Get because this runs at open.
 func (e *Engine) validateImportedGrantDigestStateLocked(ctx context.Context) error {
-	// Only validate state the file ADVERTISES. Absent digest state is
-	// the always-safe cold case (present-means-exact, digest.go).
-	if err := e.db.ProbeGrantDigestsPresent(); err != nil {
-		return err
-	}
-	if !e.db.GrantDigestsPresent() {
+	if !e.db.GrantDigestsPresent() || e.grantDigestStateUntrusted() {
 		return nil
-	}
-
-	// A MALFORMED stamp over PRESENT nodes is a rejection, never a
-	// silent "old ABI" classification: a value that is present but not
-	// 4 bytes decodes as 0, and no real ABI version is 0. A
-	// WELL-FORMED stamp of any version value (older or newer) takes
-	// the legacy acceptance path in verifyGrantDigestABI instead —
-	// drop-and-rebuild at writable open, gated getters at read-only
-	// open — which is the existing supported-ABI contract.
-	stampVal, closer, err := e.db.Get(rawdb.GrantDigestABIStampKey())
-	if err != nil {
-		if err := errorFromPebbleGet(err); err != nil {
-			return err
-		}
-		// No stamp at all over present nodes: the unstamped-legacy
-		// case (pre-stamp SDKs hashed at version 1) — verifyGrantDigestABI
-		// handles it.
-	} else {
-		malformed := len(stampVal) != 4
-		closer.Close()
-		if malformed {
-			return c1zstore.RejectData(fmt.Errorf(
-				"pebble: imported grant digest state carries a malformed ABI stamp (%d bytes; a real stamp is uint32 BE)", len(stampVal)))
-		}
 	}
 
 	// Pass 1: recompute per-partition {count, XOR} folds from the grant
@@ -106,6 +70,8 @@ func (e *Engine) validateImportedGrantDigestStateLocked(ctx context.Context) err
 	var (
 		srcKeys      []grantSourceFact
 		tupleScratch []byte
+		lastRawPart  []byte
+		cur          *recomputed
 	)
 	for giter.First(); giter.Valid(); giter.Next() {
 		if err := ctx.Err(); err != nil {
@@ -120,20 +86,25 @@ func (e *Engine) validateImportedGrantDigestStateLocked(ctx context.Context) err
 			continue
 		}
 		anyGrants = true
-		// The digest keyspace's partition region is the RAW partition
-		// re-encoded through AppendTupleStrings (rawdb.DigestPartitionPrefix):
-		// escape the raw splice so map keys compare equal to the root
-		// node's partition bytes.
-		part := string(codec.AppendTupleStrings(nil, string(giter.Key()[grantPrimaryKeyPrefixLen:sep4])))
-		cur := computed[part]
-		if cur == nil {
-			cur = &recomputed{}
-			computed[part] = cur
+		// Grants iterate partition-contiguously, so the map key is built
+		// once per partition. The digest keyspace's partition region is
+		// the raw partition re-encoded through AppendTupleStrings
+		// (rawdb.DigestPartitionPrefix): escape the raw splice so map keys
+		// compare equal to the root node's partition bytes.
+		rawPart := giter.Key()[grantPrimaryKeyPrefixLen:sep4]
+		if cur == nil || !bytes.Equal(rawPart, lastRawPart) {
+			lastRawPart = append(lastRawPart[:0], rawPart...)
+			part := string(codec.AppendTupleStrings(nil, string(rawPart)))
+			cur = computed[part]
+			if cur == nil {
+				cur = &recomputed{}
+				computed[part] = cur
+			}
 		}
 		isImmutable, srcs, ferr := scanGrantContentFactsRawBytes(giter.Value(), srcKeys[:0])
 		if ferr != nil {
 			_ = giter.Close()
-			return c1zstore.RejectData(fmt.Errorf("pebble: imported grant record failed content-fact scan: %w", ferr))
+			return fmt.Errorf("pebble: imported grant record failed content-fact scan: %w", ferr)
 		}
 		srcKeys = srcs
 		if len(srcs) > 1 {
@@ -189,28 +160,23 @@ func (e *Engine) validateImportedGrantDigestStateLocked(ctx context.Context) err
 		return err
 	}
 
-	// Honest empty store (thread 4170952960): zero grants and zero
-	// entitlements — the canonical {count:0, zero-hash} global root
-	// with zero partition roots is the CORRECT state. Accept it without
-	// warn/drop/rebuild churn. A nonempty store never qualifies.
+	// Honest empty store: zero grants and zero entitlements, with the
+	// canonical {count:0, zero-hash} global root and no partition roots.
 	if !anyGrants && !anyEntitlements {
 		global, ok, gerr := e.readStoredGlobalRoot()
 		if gerr != nil {
 			return gerr
 		}
 		if !ok {
-			// Probed present but no global root at all: fall through to
-			// the phantom-state check below (a partition-root-less,
-			// root-less keyspace can only be malformed residue).
-			return c1zstore.RejectData(fmt.Errorf(
-				"pebble: imported digest state advertises presence over an empty store but carries no whole-file global root"))
+			return fmt.Errorf(
+				"pebble: imported digest state advertises presence over an empty store but carries no whole-file global root")
 		}
 		var zero [hashLen]byte
 		if global.Count == 0 && bytes.Equal(global.Hash, zero[:]) {
 			return nil
 		}
-		return c1zstore.RejectData(fmt.Errorf(
-			"pebble: imported digest state advertises a nonempty global root (count %d) over an empty store", global.Count))
+		return fmt.Errorf(
+			"pebble: imported digest state advertises a nonempty global root (count %d) over an empty store", global.Count)
 	}
 
 	// Pass 2: every STORED per-partition root must match the
@@ -238,14 +204,14 @@ func (e *Engine) validateImportedGrantDigestStateLocked(ctx context.Context) err
 		part, ok := isGrantDigestRootKeyPartition(riter.Key())
 		if !ok {
 			_ = riter.Close()
-			return c1zstore.RejectData(fmt.Errorf(
-				"pebble: imported digest root key does not parse: %x", riter.Key()))
+			return fmt.Errorf(
+				"pebble: imported digest root key does not parse: %x", riter.Key())
 		}
 		_, count, digest, ok := unpackDigestRoot(riter.Value())
 		if !ok {
 			_ = riter.Close()
-			return c1zstore.RejectData(fmt.Errorf(
-				"pebble: imported digest root for entitlement partition %x is malformed", part))
+			return fmt.Errorf(
+				"pebble: imported digest root for entitlement partition %x is malformed", part)
 		}
 		want, hasGrants := computed[string(part)]
 		_, isZeroGrantEnt := zeroGrantEnt[string(part)]
@@ -255,21 +221,21 @@ func (e *Engine) validateImportedGrantDigestStateLocked(ctx context.Context) err
 			binary.BigEndian.PutUint64(wantHash[:], want.xor)
 			if count != want.count || !bytes.Equal(digest, wantHash[:]) {
 				_ = riter.Close()
-				return c1zstore.RejectData(fmt.Errorf(
+				return fmt.Errorf(
 					"pebble: imported digest root for entitlement partition %x does not match its grant primaries (stored count %d, recomputed %d)",
-					part, count, want.count))
+					part, count, want.count)
 			}
 		case isZeroGrantEnt:
 			var zero [hashLen]byte
 			if count != 0 || !bytes.Equal(digest, zero[:]) {
 				_ = riter.Close()
-				return c1zstore.RejectData(fmt.Errorf(
-					"pebble: imported digest root for zero-grant entitlement partition %x is not the canonical {count:0} root (count %d)", part, count))
+				return fmt.Errorf(
+					"pebble: imported digest root for zero-grant entitlement partition %x is not the canonical {count:0} root (count %d)", part, count)
 			}
 		default:
 			_ = riter.Close()
-			return c1zstore.RejectData(fmt.Errorf(
-				"pebble: imported digest state has a phantom root for entitlement partition %x (no grants, no entitlement record)", part))
+			return fmt.Errorf(
+				"pebble: imported digest state has a phantom root for entitlement partition %x (no grants, no entitlement record)", part)
 		}
 		seen[string(part)] = struct{}{}
 		foldXOR ^= binary.BigEndian.Uint64(digest)
@@ -284,8 +250,8 @@ func (e *Engine) validateImportedGrantDigestStateLocked(ctx context.Context) err
 	}
 	for part := range computed {
 		if _, ok := seen[part]; !ok {
-			return c1zstore.RejectData(fmt.Errorf(
-				"pebble: imported digest state is missing a root for grant-bearing entitlement partition %x", []byte(part)))
+			return fmt.Errorf(
+				"pebble: imported digest state is missing a root for grant-bearing entitlement partition %x", []byte(part))
 		}
 	}
 
@@ -315,8 +281,8 @@ func (e *Engine) validateImportedGrantDigestStateLocked(ctx context.Context) err
 		idxPrimScratch = primaryKey
 		if !ok {
 			_ = iiter.Close()
-			return c1zstore.RejectData(fmt.Errorf(
-				"pebble: imported hash-index row key does not parse as a grant entry: %x", iiter.Key()))
+			return fmt.Errorf(
+				"pebble: imported hash-index row key does not parse as a grant entry: %x", iiter.Key())
 		}
 		val, closer, gerr := e.db.Get(primaryKey)
 		if gerr != nil {
@@ -324,15 +290,15 @@ func (e *Engine) validateImportedGrantDigestStateLocked(ctx context.Context) err
 			if err := errorFromPebbleGet(gerr); err != nil {
 				return err
 			}
-			return c1zstore.RejectData(fmt.Errorf(
-				"pebble: imported hash-index row references a grant primary that does not exist: %x", primaryKey))
+			return fmt.Errorf(
+				"pebble: imported hash-index row references a grant primary that does not exist: %x", primaryKey)
 		}
 		isImmutable, srcs, ferr := scanGrantContentFactsRawBytes(val, idxSrcKeys[:0])
 		idxSrcKeys = srcs
 		if ferr != nil {
 			closer.Close()
 			_ = iiter.Close()
-			return c1zstore.RejectData(fmt.Errorf("pebble: imported grant record failed content-fact scan: %w", ferr))
+			return fmt.Errorf("pebble: imported grant record failed content-fact scan: %w", ferr)
 		}
 		if len(srcs) > 1 {
 			srcs = sortGrantSourceFacts(srcs)
@@ -345,8 +311,8 @@ func (e *Engine) validateImportedGrantDigestStateLocked(ctx context.Context) err
 		binary.BigEndian.PutUint64(want[:], ch64)
 		if len(iiter.Value()) != hashLen || !bytes.Equal(iiter.Value(), want[:]) {
 			_ = iiter.Close()
-			return c1zstore.RejectData(fmt.Errorf(
-				"pebble: imported hash-index row value does not match the recomputed grant content hash at %x", iiter.Key()))
+			return fmt.Errorf(
+				"pebble: imported hash-index row value does not match the recomputed grant content hash at %x", iiter.Key())
 		}
 	}
 	if err := iiter.Error(); err != nil {
@@ -363,13 +329,13 @@ func (e *Engine) validateImportedGrantDigestStateLocked(ctx context.Context) err
 		return err
 	}
 	if !ok {
-		return c1zstore.RejectData(fmt.Errorf(
-			"pebble: imported digest state advertises partition roots but no whole-file global root"))
+		return fmt.Errorf(
+			"pebble: imported digest state advertises partition roots but no whole-file global root")
 	}
 	if global.Count != foldCount || !bytesEqualUint64BE(global.Hash, foldXOR) {
-		return c1zstore.RejectData(fmt.Errorf(
+		return fmt.Errorf(
 			"pebble: imported global grant digest root does not equal the fold of its verified partition roots (stored count %d, recomputed %d)",
-			global.Count, foldCount))
+			global.Count, foldCount)
 	}
 
 	ctxzap.Extract(ctx).Debug("pebble: imported grant digest state verified against grant primaries",
@@ -378,10 +344,8 @@ func (e *Engine) validateImportedGrantDigestStateLocked(ctx context.Context) err
 	return nil
 }
 
-// readStoredGlobalRoot reads the whole-file grant digest root node
-// directly, bypassing the grantDigestStateUntrusted gating (validation
-// runs before those flags are finalized and must observe the raw
-// imported bytes).
+// readStoredGlobalRoot reads the whole-file grant digest root node and
+// rejects a value that does not decode.
 func (e *Engine) readStoredGlobalRoot() (DigestRoot, bool, error) {
 	val, closer, err := e.db.Get(rawdb.GlobalGrantDigestNodeKey())
 	if err != nil {
@@ -393,8 +357,8 @@ func (e *Engine) readStoredGlobalRoot() (DigestRoot, bool, error) {
 	defer closer.Close()
 	count, digest, ok := unpackDigestLeaf(val)
 	if !ok {
-		return DigestRoot{}, false, c1zstore.RejectData(fmt.Errorf(
-			"pebble: imported whole-file grant digest root is malformed"))
+		return DigestRoot{}, false, fmt.Errorf(
+			"pebble: imported whole-file grant digest root is malformed")
 	}
 	out := make([]byte, len(digest))
 	copy(out, digest)

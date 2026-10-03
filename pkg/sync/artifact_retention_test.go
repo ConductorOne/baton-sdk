@@ -14,7 +14,6 @@ import (
 
 	"github.com/conductorone/baton-sdk/internal/chaosconnector"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // retentionTaxonomy is the error taxonomy the retention property test runs
@@ -66,7 +65,7 @@ var retentionTaxonomy = []struct {
 	{name: "ErrSyncNotComplete", err: ErrSyncNotComplete, discard: false},
 	{name: "ErrSyncNotComplete joined with checkpoint error (production shape)", err: errors.Join(errors.New("checkpoint failed"), ErrSyncNotComplete), discard: false},
 	{name: "ErrTooManyWarnings production shape", err: fmt.Errorf("%w: warnings: %v completed actions: %d", ErrTooManyWarnings, []error{errors.New("w")}, 5), discard: false},
-	{name: "ErrDataRejected (input rejection must not discard)", err: c1zstore.ErrDataRejected, discard: false},
+	{name: "ErrIngestInvariantViolated", err: ErrIngestInvariantViolated, discard: false},
 	{name: "connector error joined with cancel", err: errors.Join(status.Error(codes.PermissionDenied, "denied"), context.Canceled), discard: false},
 }
 

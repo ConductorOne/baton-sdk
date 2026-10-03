@@ -234,20 +234,15 @@ func (e *Engine) RepairMissingGrantDigests(ctx context.Context) error {
 // "downgrade to a full drop, log, never fail the caller" policy to
 // whatever this returns.
 //
-// Fast-path soundness (finding dotc1z/pebble.digest-global-root-presence-trust):
-// a SINGLE point-Get is sound ONLY because imported artifacts are
-// validated against their grant primaries at open (WithImportValidation,
-// grant_digest_import_validation.go) before any EndSync reaches this —
-// imported advertised-present-but-wrong state is rejected at open and
-// never gets here. For engine-owned state, every code path that can
-// make a single entitlement's digest go missing also drops the
-// whole-file global root in the same commit (stageGrantDigestInvalidation,
-// InvalidateGrantDigestPartitions, the Drop* family), so the root's
-// presence certifies nothing is missing. A fold-consistency check
-// here would be self-consistency of attacker bytes — it proves
-// nothing (thread 4170953115: a forged root plus a global root equal
-// to its fold passes it) and costs a whole keyspace scan on every
-// EndSync (thread 4170953216), so it was removed.
+// The fast path is one point Get on the global root. That is sound
+// because imported digest state is verified against its grant primaries
+// at open (validateImportedGrantDigestStateLocked), and because every
+// engine path that can make one entitlement's digest go missing drops
+// the global root in the same commit (stageGrantDigestInvalidation,
+// InvalidateGrantDigestPartitions, the Drop* family). A check that the
+// stored roots fold to the global root would not replace either: it
+// only tests attacker bytes against each other, at a full keyspace scan
+// per EndSync.
 func (e *Engine) repairMissingGrantDigestsAttempt(ctx context.Context) error {
 	if _, ok, err := e.GetGrantDigestGlobalRoot(ctx); err != nil {
 		return err

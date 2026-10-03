@@ -5,15 +5,13 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // validateSQLiteSchema inspects ONLY catalog metadata (sqlite_schema rows
 // and PRAGMA table_list/table_xinfo) in the named catalog. It executes no
 // file-authored SQL, reads no application rows, drops nothing, and repairs
-// nothing. Hostile/unsupported schema returns a c1zstore.ErrDataRejected
-// verdict. sqlQuerier is the existing interface from c1file_attached.go
+// nothing; hostile or unsupported schema returns an error. sqlQuerier is
+// the existing interface from c1file_attached.go
 // (*sql.DB, *sql.Tx, *sql.Conn all satisfy it).
 //
 // Policy: unsupported-executable-schema rejection. ANY persistent trigger
@@ -51,14 +49,14 @@ func validateSQLiteSchema(ctx context.Context, q sqlQuerier, schemaName string) 
 		switch typ {
 		case "trigger":
 			_ = rows.Close()
-			return c1zstore.RejectData(fmt.Errorf(
+			return fmt.Errorf(
 				"sqlite schema guard: rejected %s trigger %q on table %q in catalog %q: unsupported executable schema (file-authored SQL is never executed)",
-				schemaName, name, tblName, schemaName))
+				schemaName, name, tblName, schemaName)
 		case "view":
 			_ = rows.Close()
-			return c1zstore.RejectData(fmt.Errorf(
+			return fmt.Errorf(
 				"sqlite schema guard: rejected %s view %q in catalog %q: unsupported executable schema",
-				schemaName, name, schemaName))
+				schemaName, name, schemaName)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -104,9 +102,9 @@ func validateSQLiteSchema(ctx context.Context, q sqlQuerier, schemaName string) 
 			continue // missing SDK table: allowed (fresh/additive legacy)
 		}
 		if typ != "table" {
-			return c1zstore.RejectData(fmt.Errorf(
+			return fmt.Errorf(
 				"sqlite schema guard: rejected %s.%s: descriptor-owned name has type %q (want ordinary table); unsupported executable schema",
-				schemaName, name, typ))
+				schemaName, name, typ)
 		}
 	}
 
@@ -136,14 +134,14 @@ func validateSQLiteSchema(ctx context.Context, q sqlQuerier, schemaName string) 
 			}
 			if err := validateColumnName(colName); err != nil {
 				_ = xiRows.Close()
-				return c1zstore.RejectData(fmt.Errorf(
-					"sqlite schema guard: rejected %s.%s column %q: %w", schemaName, name, colName, err))
+				return fmt.Errorf(
+					"sqlite schema guard: rejected %s.%s column %q: %w", schemaName, name, colName, err)
 			}
 			if hidden != 0 {
 				_ = xiRows.Close()
-				return c1zstore.RejectData(fmt.Errorf(
+				return fmt.Errorf(
 					"sqlite schema guard: rejected %s.%s column %q: hidden=%d (virtual-table shadow or generated column); unsupported schema",
-					schemaName, name, colName, hidden))
+					schemaName, name, colName, hidden)
 			}
 		}
 		if err := xiRows.Err(); err != nil {

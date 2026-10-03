@@ -333,25 +333,26 @@ func (e *Engine) initKeyspaceStateLocked(ctx context.Context) error {
 	if err := e.verifyOrStampIDIndexFormat(ctx); err != nil {
 		return err
 	}
+	// Restore the durable deferred-index marker (see
+	// rawdb.DeferredIdxPendingKey): a prior process may have deferred
+	// by_principal writes and been interrupted before the EndSync
+	// rebuild (rawdb owns the marker's crash contract).
+	if err := e.db.RestoreDeferredIdxPending(); err != nil {
+		return err
+	}
 	// Honor the durable digest-build marker (see
-	// encodeGrantDigestBuildPendingKey) FIRST: a prior process was
-	// killed mid-digest-build, after some digest-node commits were
-	// durable but before the hash-index ingest completed. Those nodes
-	// LOOK present while the index beneath them is empty or stale, so
-	// nothing stored may be trusted: drop it all before probing
-	// presence — absent digests are always safe (present-means-exact,
-	// digest.go). A read-only open cannot drop; it keeps the flag set
-	// instead, which makes the digest root getters report "never built".
-	//
-	// The marker is ENGINE-OWNED state: its presence also exempts the
-	// file from imported-artifact validation below (WithImportValidation)
-	// — the recovery path here is the trust decision, and validation
-	// would reject the partial-but-marked keyspace the engine itself
-	// left behind mid-build.
-	buildPendingMarker, markerCloser, err := e.db.Get(encodeGrantDigestBuildPendingKey())
+	// encodeGrantDigestBuildPendingKey): a prior process was killed
+	// mid-digest-build, after some digest-node commits were durable but
+	// before the hash-index ingest completed. Those nodes LOOK present
+	// while the index beneath them is empty or stale, so nothing stored
+	// may be trusted: drop it all before probing presence — absent
+	// digests are always safe (present-means-exact, digest.go). A
+	// read-only open cannot drop; it keeps the flag set instead, which
+	// makes the digest root getters report "never built".
+	_, closer, err := e.db.Get(encodeGrantDigestBuildPendingKey())
 	switch {
 	case err == nil:
-		markerCloser.Close()
+		closer.Close()
 		e.grantDigestBuildPending.Store(true)
 		if !e.opts.readOnly {
 			ctxzap.Extract(ctx).Warn("pebble: interrupted grant digest build detected at open; dropping all digest state — the next EndSync rebuilds it from scratch")
@@ -364,29 +365,6 @@ func (e *Engine) initKeyspaceStateLocked(ctx context.Context) error {
 	default:
 		return err
 	}
-	_ = buildPendingMarker
-
-	// Imported-artifact digest validation (WithImportValidation, the
-	// default): verify the digest keyspace against the ACTUAL grant
-	// primaries before any reader is served. Runs only when the
-	// engine-owned interrupted-build marker is ABSENT — a present
-	// marker means the state is engine-owned partial state whose
-	// recovery path ran above. On validation failure the state is
-	// preserved for diagnosis (no drop) and the error propagates so
-	// the open fails.
-	if e.opts.importValidation && !e.grantDigestBuildPending.Load() {
-		if err := e.validateImportedGrantDigestStateLocked(ctx); err != nil {
-			return err
-		}
-	}
-	// Restore the durable deferred-index marker (see
-	// rawdb.DeferredIdxPendingKey): a prior process may have deferred
-	// by_principal writes and been interrupted before the EndSync
-	// rebuild (rawdb owns the marker's crash contract).
-	if err := e.db.RestoreDeferredIdxPending(); err != nil {
-		return err
-	}
-
 	// Arm the mutation-path digest invalidation iff the file actually
 	// holds digest nodes (one bounded seek; rawdb owns the flag its
 	// record ops gate on).
@@ -402,6 +380,13 @@ func (e *Engine) initKeyspaceStateLocked(ctx context.Context) error {
 	// built". Runs after the probe so it sees post-marker-recovery
 	// presence, and its own drop re-falses the flag.
 	if err := e.verifyGrantDigestABI(ctx, e.opts.readOnly); err != nil {
+		return err
+	}
+	// Runs after verifyGrantDigestABI so it only sees state the engine
+	// would trust: digest state under a non-current or malformed stamp,
+	// or left by an interrupted build, was dropped or gated above and is
+	// never rejected. On failure nothing is dropped and the open fails.
+	if err := e.validateImportedGrantDigestStateLocked(ctx); err != nil {
 		return err
 	}
 	// Arm the mutation-path source-scope index obligations iff the file

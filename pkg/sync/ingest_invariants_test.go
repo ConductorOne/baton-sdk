@@ -14,7 +14,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
@@ -170,7 +169,7 @@ func TestIngestInvariantVerdictTable(t *testing.T) {
 // TestInvariantVerdictsCarryNonRetryableSentinel pins the retry
 // classification (round-4 finding): a DATA VERDICT is deterministic on
 // an immutable dataset — the c1api runner maps it to its non-retryable
-// class via errors.Is(err, c1zstore.ErrDataRejected) — while the
+// class via errors.Is(err, ErrIngestInvariantViolated) — while the
 // pass's IO failures must NOT carry the sentinel (they stay
 // retryable). The wrapper must also leave the operator-facing message
 // untouched.
@@ -193,7 +192,7 @@ func TestInvariantVerdictsCarryNonRetryableSentinel(t *testing.T) {
 		SyncType:     connectorstore.SyncTypeFull,
 	})
 	require.Error(t, err)
-	require.ErrorIs(t, err, c1zstore.ErrDataRejected,
+	require.ErrorIs(t, err, ErrIngestInvariantViolated,
 		"a data verdict must carry the non-retryable sentinel for the runners")
 	require.Contains(t, err.Error(), "ingest invariant I5 violated",
 		"the sentinel wrapper must not alter the operator-facing message")
@@ -201,7 +200,7 @@ func TestInvariantVerdictsCarryNonRetryableSentinel(t *testing.T) {
 	// NOT a verdict: the pass's own config error carries no sentinel.
 	err = RunIngestInvariants(ctx, store, IngestInvariantsPolicy{ActiveSyncID: syncID})
 	require.Error(t, err)
-	require.NotErrorIs(t, err, c1zstore.ErrDataRejected,
+	require.NotErrorIs(t, err, ErrIngestInvariantViolated,
 		"config/IO failures are retryable and must not carry the verdict sentinel")
 
 	// Nil store: loud error, no panic (round-4 finding).
@@ -295,7 +294,7 @@ func TestExclusionGroupTrackerSeesEveryAnnotation(t *testing.T) {
 		})
 		require.Error(t, err, "a new collection must not seal data it could not judge")
 		require.Contains(t, err.Error(), "parsing exclusion group")
-		require.ErrorIs(t, err, c1zstore.ErrDataRejected,
+		require.ErrorIs(t, err, ErrIngestInvariantViolated,
 			"corrupt stored bytes are deterministic; the verdict must carry the non-retryable sentinel")
 
 		store, syncID = buildStore(t)
@@ -605,7 +604,7 @@ func TestIngestInvariantI10SpawnedCursorDrain(t *testing.T) {
 	// naming the lost cursor.
 	err := RunIngestInvariants(ctx, store, policy)
 	require.Error(t, err)
-	require.ErrorIs(t, err, c1zstore.ErrDataRejected)
+	require.ErrorIs(t, err, ErrIngestInvariantViolated)
 	require.Contains(t, err.Error(), "ingest invariant I10 violated")
 	require.Contains(t, err.Error(), "lost-cursor")
 
@@ -643,7 +642,7 @@ func TestSyncerWiresSpawnDrainEvidenceIntoInvariants(t *testing.T) {
 	s.setStore(store)
 	err := s.runIngestionInvariants(ctx)
 	require.Error(t, err)
-	require.ErrorIs(t, err, c1zstore.ErrDataRejected)
+	require.ErrorIs(t, err, ErrIngestInvariantViolated)
 	require.Contains(t, err.Error(), "ingest invariant I10 violated")
 
 	st.finishAction(ctx, st.current())

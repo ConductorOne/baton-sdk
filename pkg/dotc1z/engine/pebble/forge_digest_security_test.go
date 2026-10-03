@@ -3,47 +3,37 @@ package pebble
 import (
 	"context"
 	"encoding/binary"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 // TestSecurity_ForgedDigestStateRejectedAtImport guards the
 // present-means-exact contract against attacker-authored keyspace state.
 //
-// Finding: dotc1z/pebble.digest-global-root-presence-trust
-//
 // A hostile .c1z payload can pre-plant grant-digest state in the
-// extracted LSM. Policy (reject-not-repair): a .c1z is
-// untrusted-at-import — every digest keyspace byte is attacker-authored,
-// so ANY advertised-present-but-incorrect state is REJECTED at open
-// with c1zstore.ErrDataRejected, before any reader is served. No
-// rebuild, no derived output, source bytes unchanged. Wholly absent
-// digest state stays the accepted cold case, and engine-owned
-// interrupted-build recovery keeps its trusted drop path.
-//
-// This rewrite replaces the PR's earlier repair-shaped regression
-// (drop + honest rebuild at EndSync) — hostile input is never repaired.
+// extracted LSM. Digest state stamped with the current ABI is trusted at
+// the next EndSync, so state that does not match the grant primaries
+// fails the open before any reader is served, and nothing is dropped.
+// Absent digest state is the accepted cold case; state under any other
+// stamp is untrusted and never rejected
+// (TestGrantDigestNonCurrentABIStateUntrustedNotRejected).
 func TestSecurity_ForgedDigestStateRejectedAtImport(t *testing.T) {
 	ctx := context.Background()
 
-	forgeRoot := func(xor uint64, count int64) []byte {
-		require.GreaterOrEqual(t, count, int64(0), "forge helper count must be non-negative")
-		val := make([]byte, 0, 16)
-		var c [8]byte
-		binary.BigEndian.PutUint64(c[:], uint64(count)) // #nosec G115 -- count asserted non-negative immediately above.
-		val = append(val, c[:]...)
-		var x [8]byte
-		binary.BigEndian.PutUint64(x[:], xor)
-		return append(val, x[:]...)
+	// Forged values use the production encodings so each case reaches
+	// the content check it names, not the malformed-value check.
+	digestOf := func(xor uint64) []byte {
+		var h [hashLen]byte
+		binary.BigEndian.PutUint64(h[:], xor)
+		return h[:]
 	}
+	forgeGlobalRoot := func(xor uint64, count int64) []byte { return packDigestLeaf(count, digestOf(xor)) }
+	forgePartitionRoot := func(xor uint64, count int64) []byte { return packDigestRoot(0, count, digestOf(xor)) }
 
 	t.Run("zero-partition forged global root", func(t *testing.T) {
 		// Global root + current-ABI stamp, NO per-partition roots, no
@@ -52,7 +42,7 @@ func TestSecurity_ForgedDigestStateRejectedAtImport(t *testing.T) {
 		e, dir, syncID := sealedGrantDigestEngine(t, "ent-A", 3)
 		_ = syncID
 		const forgedXOR = uint64(0x4142434445464748)
-		require.NoError(t, e.UnsafeForTesting().Set(rawdb.GlobalGrantDigestNodeKey(), forgeRoot(forgedXOR, 2), pebble.Sync))
+		require.NoError(t, e.UnsafeForTesting().Set(rawdb.GlobalGrantDigestNodeKey(), forgeGlobalRoot(forgedXOR, 2), pebble.Sync))
 		stamp := make([]byte, 4)
 		binary.BigEndian.PutUint32(stamp, GrantDigestABIVersion)
 		require.NoError(t, e.UnsafeForTesting().Set(rawdb.GrantDigestABIStampKey(), stamp, pebble.Sync))
@@ -60,21 +50,19 @@ func TestSecurity_ForgedDigestStateRejectedAtImport(t *testing.T) {
 		require.NoError(t, e.Close())
 
 		_, err := Open(ctx, dir)
-		require.Error(t, err)
-		require.ErrorIs(t, err, c1zstore.ErrDataRejected,
-			"a forged global root over grants the engine never hashed must reject at import, not seal")
+		require.ErrorContains(t, err, "pebble: imported",
+			"a forged global root over grants the engine never hashed must reject at open, not seal")
 	})
 
 	t.Run("self-consistent forged root pair", func(t *testing.T) {
-		// Thread 4170953115: a forged per-entitlement root PLUS a global
-		// root equal to its fold is self-consistent attacker bytes —
-		// self-consistency proves nothing; the recomputation from
-		// primaries must reject it.
+		// A forged per-entitlement root plus a global root equal to its
+		// fold is self-consistent; only the recomputation from primaries
+		// catches it.
 		e, dir, _ := sealedGrantDigestEngine(t, "ent-A", 2)
 		const forgedXOR = uint64(0xdeadbeefdeadbeef)
 		partKey := rawdb.DigestPartitionPrefix(rawdb.IdxGrantByEntitlementPrincipalHash, testEntPartition("ent-A"))
-		require.NoError(t, e.UnsafeForTesting().Set(append(partKey, digestLevelRoot), forgeRoot(forgedXOR, 99), pebble.Sync))
-		require.NoError(t, e.UnsafeForTesting().Set(rawdb.GlobalGrantDigestNodeKey(), forgeRoot(forgedXOR, 99), pebble.Sync))
+		require.NoError(t, e.UnsafeForTesting().Set(append(partKey, digestLevelRoot), forgePartitionRoot(forgedXOR, 99), pebble.Sync))
+		require.NoError(t, e.UnsafeForTesting().Set(rawdb.GlobalGrantDigestNodeKey(), forgeGlobalRoot(forgedXOR, 99), pebble.Sync))
 		stamp := make([]byte, 4)
 		binary.BigEndian.PutUint32(stamp, GrantDigestABIVersion)
 		require.NoError(t, e.UnsafeForTesting().Set(rawdb.GrantDigestABIStampKey(), stamp, pebble.Sync))
@@ -83,7 +71,7 @@ func TestSecurity_ForgedDigestStateRejectedAtImport(t *testing.T) {
 
 		_, err := Open(ctx, dir)
 		require.Error(t, err)
-		require.ErrorIs(t, err, c1zstore.ErrDataRejected)
+		require.ErrorContains(t, err, "pebble: imported")
 	})
 
 	t.Run("all-partitions-covered-but-wrong-hash", func(t *testing.T) {
@@ -95,29 +83,15 @@ func TestSecurity_ForgedDigestStateRejectedAtImport(t *testing.T) {
 		// the count and the global root's fold arithmetic intact by
 		// also rewriting the global root from the tampered root.
 		partKey := rawdb.DigestPartitionPrefix(rawdb.IdxGrantByEntitlementPrincipalHash, testEntPartition("ent-A"))
-		tampered := forgeRoot(0x0102030405060708, 2)
+		tampered := forgePartitionRoot(0x0102030405060708, 2)
 		require.NoError(t, e.UnsafeForTesting().Set(append(partKey, digestLevelRoot), tampered, pebble.Sync))
-		require.NoError(t, e.UnsafeForTesting().Set(rawdb.GlobalGrantDigestNodeKey(), forgeRoot(0x0102030405060708, 2), pebble.Sync))
+		require.NoError(t, e.UnsafeForTesting().Set(rawdb.GlobalGrantDigestNodeKey(), forgeGlobalRoot(0x0102030405060708, 2), pebble.Sync))
 		e.db.SetGrantDigestsPresent(true)
 		require.NoError(t, e.Close())
 
 		_, err := Open(ctx, dir)
 		require.Error(t, err)
-		require.ErrorIs(t, err, c1zstore.ErrDataRejected)
-	})
-
-	t.Run("malformed ABI stamp bytes", func(t *testing.T) {
-		// A stamp value of the wrong length must reject, never silently
-		// classify as old ABI (readGrantDigestABIStamp maps malformed
-		// to 0 today).
-		e, dir, _ := sealedGrantDigestEngine(t, "ent-A", 2)
-		require.NoError(t, e.UnsafeForTesting().Set(rawdb.GrantDigestABIStampKey(), []byte{0x01, 0x02}, pebble.Sync))
-		e.db.SetGrantDigestsPresent(true)
-		require.NoError(t, e.Close())
-
-		_, err := Open(ctx, dir)
-		require.Error(t, err)
-		require.ErrorIs(t, err, c1zstore.ErrDataRejected)
+		require.ErrorContains(t, err, "pebble: imported")
 	})
 
 	t.Run("phantom root", func(t *testing.T) {
@@ -125,13 +99,13 @@ func TestSecurity_ForgedDigestStateRejectedAtImport(t *testing.T) {
 		// record.
 		e, dir, _ := sealedGrantDigestEngine(t, "ent-A", 2)
 		phantom := rawdb.DigestPartitionPrefix(rawdb.IdxGrantByEntitlementPrincipalHash, testEntPartition("ent-phantom"))
-		require.NoError(t, e.UnsafeForTesting().Set(append(phantom, digestLevelRoot), forgeRoot(0, 0), pebble.Sync))
+		require.NoError(t, e.UnsafeForTesting().Set(append(phantom, digestLevelRoot), forgePartitionRoot(0, 0), pebble.Sync))
 		e.db.SetGrantDigestsPresent(true)
 		require.NoError(t, e.Close())
 
 		_, err := Open(ctx, dir)
 		require.Error(t, err)
-		require.ErrorIs(t, err, c1zstore.ErrDataRejected)
+		require.ErrorContains(t, err, "pebble: imported")
 	})
 
 	t.Run("missing root for grant-bearing partition", func(t *testing.T) {
@@ -145,7 +119,7 @@ func TestSecurity_ForgedDigestStateRejectedAtImport(t *testing.T) {
 
 		_, err := Open(ctx, dir)
 		require.Error(t, err)
-		require.ErrorIs(t, err, c1zstore.ErrDataRejected)
+		require.ErrorContains(t, err, "pebble: imported")
 	})
 
 	t.Run("honest state accepted (control)", func(t *testing.T) {
@@ -188,25 +162,17 @@ func TestSecurity_ForgedDigestStateRejectedAtImport(t *testing.T) {
 		require.False(t, ok, "cold state must read as never-built, not reject")
 	})
 
-	t.Run("source bytes unchanged by rejection", func(t *testing.T) {
-		// The rejection path must not mutate the on-disk state it
-		// rejected: reopenable bytes stay byte-identical (the engine
-		// dir is the "source" at this layer; the c1z envelope layer
-		// is covered by the dotc1z hostile-trigger suite).
+	t.Run("rejection drops nothing", func(t *testing.T) {
+		// If the failed open had dropped the forged state, the reopen
+		// would accept it as the cold case.
 		e, dir, _ := sealedGrantDigestEngine(t, "ent-A", 2)
-		require.NoError(t, e.UnsafeForTesting().Set(rawdb.GrantDigestABIStampKey(), []byte{0x01}, pebble.Sync))
-		e.db.SetGrantDigestsPresent(true)
+		rootKey := append(rawdb.DigestPartitionPrefix(rawdb.IdxGrantByEntitlementPrincipalHash, testEntPartition("ent-A")), digestLevelRoot)
+		require.NoError(t, e.UnsafeForTesting().Set(rootKey, forgePartitionRoot(0x0102030405060708, 2), pebble.Sync))
 		require.NoError(t, e.Close())
 
-		manifest := filepath.Join(dir, "MANIFEST-000001")
-		before, err := os.ReadFile(manifest)
-		if err == nil {
-			_, openErr := Open(ctx, dir)
-			require.Error(t, openErr)
-			require.ErrorIs(t, openErr, c1zstore.ErrDataRejected)
-			after, rerr := os.ReadFile(manifest)
-			require.NoError(t, rerr)
-			require.Equal(t, string(before), string(after), "rejection must not write to the rejected source")
+		for range 2 {
+			_, err := Open(ctx, dir)
+			require.ErrorContains(t, err, "pebble: imported")
 		}
 	})
 }

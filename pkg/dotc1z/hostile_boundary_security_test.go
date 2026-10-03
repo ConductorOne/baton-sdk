@@ -57,7 +57,7 @@ func TestSecurity_InitTablesReentryRejectsPlantedTrigger(t *testing.T) {
 
 	_, err = f.InitTables(ctx)
 	require.Error(t, err)
-	require.ErrorIs(t, err, c1zstore.ErrDataRejected)
+	require.ErrorContains(t, err, "sqlite schema guard: rejected")
 	require.NotContains(t, err.Error(), hostileTriggerMarker,
 		"public InitTables re-entry executed the planted trigger during migrations")
 	require.Contains(t, err.Error(), "planted")
@@ -83,7 +83,7 @@ func TestSecurity_CopyIsolateSyncRejectsBeforeRawCopyDelete(t *testing.T) {
 	outPath := filepath.Join(t.TempDir(), "iso.c1z")
 	err = f.CopyIsolateSync(ctx, outPath, "")
 	require.Error(t, err)
-	require.ErrorIs(t, err, c1zstore.ErrDataRejected)
+	require.ErrorContains(t, err, "sqlite schema guard: rejected")
 	require.NotContains(t, err.Error(), hostileTriggerMarker,
 		"CopyIsolateSync executed the planted trigger during the raw-copy DELETEs")
 	require.NoFileExists(t, outPath, "rejected isolation must produce no output")
@@ -117,8 +117,12 @@ func TestSecurity_AttachFileRejectsHostileAttachment(t *testing.T) {
 
 	_, err = host.AttachFile(other, "hostile")
 	require.Error(t, err)
-	require.ErrorIs(t, err, c1zstore.ErrDataRejected)
+	require.ErrorContains(t, err, "sqlite schema guard: rejected")
 	require.Contains(t, err.Error(), "trigger")
+
+	// Release other's file handle: Windows cannot remove a TempDir file
+	// that a live DB handle still holds.
+	require.NoError(t, other.Close(ctx))
 
 	// Host survives: a legitimate second attachment succeeds.
 	legitPath := filepath.Join(t.TempDir(), "legit-attach.db")
@@ -151,15 +155,15 @@ func TestSecurity_ConversionRejectsHostileV1(t *testing.T) {
 
 	store, err := NewStore(ctx, path, WithEngine(c1zstore.EnginePebble), WithReadOnly(true))
 	require.Error(t, err)
-	require.ErrorIs(t, err, c1zstore.ErrDataRejected)
+	require.ErrorContains(t, err, "sqlite schema guard: rejected")
 	require.Nil(t, store)
 	require.NoFileExists(t, outPath)
 	require.Equal(t, before, readSourceBytes(t, path), "conversion rejection must leave the source unchanged")
 }
 
-// TestSecurity_InitTimeoutCancellationSurfaces: an expiring init context
-// must surface ctx.Err(), not panic and not publish a store.
-func TestSecurity_InitTimeoutCancellationSurfaces(t *testing.T) {
+// TestSecurity_CancelledInitDoesNotPublishStore: a done init context must
+// surface ctx.Err(), not panic and not publish a store.
+func TestSecurity_CancelledInitDoesNotPublishStore(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "slow.db")
 	db, err := sql.Open("sqlite", path)
@@ -177,36 +181,18 @@ func TestSecurity_InitTimeoutCancellationSurfaces(t *testing.T) {
 	f, err := NewC1File(expired, path)
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.Nil(t, f, "a timed-out init must not publish a store")
+	require.Nil(t, f, "a cancelled init must not publish a store")
 }
 
-// TestSecurity_SQLiteInitTimeoutKnobHonored pins the
-// BATON_C1Z_SQLITE_INIT_TIMEOUT knob contract: positive seconds are
-// honored; invalid/empty fall back to the default.
-func TestSecurity_SQLiteInitTimeoutKnobHonored(t *testing.T) {
-	original := sqliteInitTimeout
-	defer func() { sqliteInitTimeout = original }()
-
-	sqliteInitTimeout = parseTimeoutSeconds("90", DefaultSQLiteInitTimeout)
-	require.Equal(t, 90*time.Second, SQLiteInitTimeout())
-
-	sqliteInitTimeout = parseTimeoutSeconds("", DefaultSQLiteInitTimeout)
-	require.Equal(t, DefaultSQLiteInitTimeout, SQLiteInitTimeout())
-
-	sqliteInitTimeout = parseTimeoutSeconds("not-a-number", DefaultSQLiteInitTimeout)
-	require.Equal(t, DefaultSQLiteInitTimeout, SQLiteInitTimeout())
-
-	sqliteInitTimeout = parseTimeoutSeconds("-5", DefaultSQLiteInitTimeout)
-	require.Equal(t, DefaultSQLiteInitTimeout, SQLiteInitTimeout())
-
-	// The overflow clamp: a huge value must stay positive, not wrap
-	// negative through the seconds->Duration multiply.
-	sqliteInitTimeout = parseTimeoutSeconds("9223372036854775807", DefaultSQLiteInitTimeout)
-	require.Greater(t, SQLiteInitTimeout(), time.Duration(0))
+// TestParseTimeoutSecondsClampsOverflow: a seconds value too large for
+// time.Duration must clamp rather than wrap negative, which would expire
+// every timeout immediately.
+func TestParseTimeoutSecondsClampsOverflow(t *testing.T) {
+	require.Greater(t, parseTimeoutSeconds("9223372036854775807", time.Minute), time.Duration(0))
 }
 
-// TestSecurity_FailingOpenReturnsNilStoreInterface is the handoff-observed
-// typed-nil regression: after a failing open, the returned c1zstore.Store
+// TestSecurity_FailingOpenReturnsNilStoreInterface is the typed-nil
+// regression: after a failing open, the returned c1zstore.Store
 // interface must be nil so `if store != nil { store.Close(ctx) }` callers
 // cannot panic.
 func TestSecurity_FailingOpenReturnsNilStoreInterface(t *testing.T) {

@@ -123,16 +123,28 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-// Invariant DATA VERDICTS — the store's content violates an invariant —
-// are deterministic on an immutable dataset: retrying re-fails forever, so
-// runners map them to their non-retryable failure class
-// (pkg/tasks/c1api wraps them with ErrTaskNonRetryable), while IO
-// failures stay retryable. Verdicts are marked with
-// c1zstore.RejectData and classified via
-// errors.Is(err, c1zstore.ErrDataRejected).
+// ErrIngestInvariantViolated classifies DATA VERDICTS — the store's
+// content violates an invariant — as distinct from the pass's own IO
+// failures (listing errors, probe errors, cancellation). A verdict is
+// deterministic on an immutable dataset: retrying it re-fails forever,
+// so runners map it to their non-retryable failure class
+// (pkg/tasks/c1api wraps it with ErrTaskNonRetryable), while IO
+// failures stay retryable. Test with errors.Is.
+var ErrIngestInvariantViolated = errors.New("ingest invariant violated")
+
+// invariantVerdictError carries the sentinel WITHOUT altering the
+// verdict's message (operator-facing text and the error-string
+// assertions in the suites stay byte-identical).
+type invariantVerdictError struct{ err error }
+
+func (e *invariantVerdictError) Error() string { return e.err.Error() }
+
+func (e *invariantVerdictError) Unwrap() []error {
+	return []error{e.err, ErrIngestInvariantViolated}
+}
 
 // invariantVerdict marks err as a data verdict.
-func invariantVerdict(err error) error { return c1zstore.RejectData(err) }
+func invariantVerdict(err error) error { return &invariantVerdictError{err: err} }
 
 // sideEffectAnnotationCoverage is the enumerated coupling between
 // connector annotations that imply syncer side effects and the mechanism

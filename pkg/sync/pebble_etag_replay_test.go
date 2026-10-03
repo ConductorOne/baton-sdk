@@ -2,11 +2,13 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
@@ -325,11 +327,11 @@ func TestPebble_EtagReplay_CarriesPreviousSyncsGrantsForward(t *testing.T) {
 }
 
 // TestOptionalPreviousSyncC1ZPath_SoftFails pins the best-effort
-// contract of WithOptionalPreviousSyncC1ZPath: a missing or corrupt
-// previous-sync c1z (the service-mode spare is a cache the handler
-// maintains automatically) must degrade to a sync without ETag replay,
-// never fail NewSyncer or the sync. The strict WithPreviousSyncC1ZPath
-// keeps surfacing unusable-file failures.
+// contract of WithOptionalPreviousSyncC1ZPath: a missing, corrupt, or
+// rejected-as-hostile previous-sync c1z (the service-mode spare is a
+// cache the handler maintains automatically) must degrade to a sync
+// without ETag replay, never fail NewSyncer or the sync. The strict
+// WithPreviousSyncC1ZPath keeps surfacing unusable-file failures.
 func TestOptionalPreviousSyncC1ZPath_SoftFails(t *testing.T) {
 	ctx := t.Context()
 	ctx, err := logging.Init(ctx)
@@ -347,10 +349,14 @@ func TestOptionalPreviousSyncC1ZPath_SoftFails(t *testing.T) {
 
 	corruptPath := filepath.Join(tempDir, "corrupt-prev.c1z")
 	require.NoError(t, os.WriteFile(corruptPath, []byte("not a c1z"), 0o600))
+	rejectedPath := writeRejectedC1Z(t, tempDir)
+	_, err = dotc1z.NewStore(ctx, rejectedPath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(tempDir))
+	require.ErrorContains(t, err, "sqlite schema guard: rejected", "precondition: the fixture must be rejected at open")
 
 	for name, path := range map[string]string{
-		"missing": filepath.Join(tempDir, "does-not-exist.c1z"),
-		"corrupt": corruptPath,
+		"missing":  filepath.Join(tempDir, "does-not-exist.c1z"),
+		"corrupt":  corruptPath,
+		"rejected": rejectedPath,
 	} {
 		t.Run(name, func(t *testing.T) {
 			mc := newEtagObservingMockConnector("etag-v1")
@@ -371,21 +377,60 @@ func TestOptionalPreviousSyncC1ZPath_SoftFails(t *testing.T) {
 		})
 	}
 
-	// Strict variant: the same corrupt file must fail loudly.
-	mc := newEtagObservingMockConnector("etag-v1")
-	mc.WithData(group, ent, grant)
-	store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "strict.c1z"),
-		dotc1z.WithEngine(c1zstore.EnginePebble),
-		dotc1z.WithTmpDir(tempDir),
-	)
+	// Strict variant: the same unusable files must fail loudly.
+	for name, path := range map[string]string{
+		"corrupt":  corruptPath,
+		"rejected": rejectedPath,
+	} {
+		t.Run("strict/"+name, func(t *testing.T) {
+			mc := newEtagObservingMockConnector("etag-v1")
+			mc.WithData(group, ent, grant)
+			store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "strict.c1z"),
+				dotc1z.WithEngine(c1zstore.EnginePebble),
+				dotc1z.WithTmpDir(tempDir),
+			)
+			require.NoError(t, err)
+			_, err = NewSyncer(ctx, mc,
+				WithConnectorStore(store),
+				WithTmpDir(tempDir),
+				WithPreviousSyncC1ZPath(path),
+			)
+			require.Error(t, err, "explicit previous-sync c1z must surface unusable-file failures")
+			require.NoError(t, store.Close(ctx))
+		})
+	}
+}
+
+// writeRejectedC1Z writes a v1 (SQLite) c1z whose catalog carries a
+// trigger, which every SQLite open rejects.
+func writeRejectedC1Z(t *testing.T, dir string) string {
+	t.Helper()
+	rawPath := filepath.Join(t.TempDir(), "raw.db")
+	db, err := sql.Open("sqlite", rawPath)
 	require.NoError(t, err)
-	_, err = NewSyncer(ctx, mc,
-		WithConnectorStore(store),
-		WithTmpDir(tempDir),
-		WithPreviousSyncC1ZPath(corruptPath),
-	)
-	require.Error(t, err, "explicit previous-sync c1z must surface unusable-file failures")
-	require.NoError(t, store.Close(ctx))
+	for _, q := range []string{
+		`CREATE TABLE t (x INTEGER)`,
+		`CREATE TRIGGER t_ins AFTER INSERT ON t BEGIN SELECT 1; END`,
+	} {
+		_, err := db.ExecContext(t.Context(), q)
+		require.NoError(t, err)
+	}
+	require.NoError(t, db.Close())
+	raw, err := os.ReadFile(rawPath)
+	require.NoError(t, err)
+
+	path := filepath.Join(dir, "rejected-prev.c1z")
+	out, err := os.Create(path)
+	require.NoError(t, err)
+	_, err = out.Write(dotc1z.C1ZFileHeader)
+	require.NoError(t, err)
+	enc, err := zstd.NewWriter(out)
+	require.NoError(t, err)
+	_, err = enc.Write(raw)
+	require.NoError(t, err)
+	require.NoError(t, enc.Close())
+	require.NoError(t, out.Close())
+	return path
 }
 
 func TestPreviousSyncC1ZPathEnforcesReplayEligibility(t *testing.T) {
