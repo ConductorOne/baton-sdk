@@ -4,9 +4,10 @@ package c1zsanitize
 
 import (
 	"context"
-	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"path/filepath"
 	"testing"
+
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/stretchr/testify/require"

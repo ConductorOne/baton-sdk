@@ -108,16 +108,53 @@ func TestSecurityCompactSyncIDFilenameEscapeOverlay(t *testing.T) {
 		"working store created at escaped path via NewStore")
 }
 
-// Pins the stdlib path.Join semantics that make the escape possible:
-// "compacted-" is its own element, so the first "../" only cancels it,
-// and enough "../" reach the filesystem root.
-func TestSecurityCompactSyncIDPathJoinArithmetic(t *testing.T) {
-	require.Equal(t, "/pwned.c1z",
-		filepath.Join("/tmp/x/baton-sync-compactor-123", "compacted-../../../../../pwned.c1z"))
-	require.Equal(t, "/a/b/baton-sync-compactor-1/esc.c1z",
-		filepath.Join("/a/b/baton-sync-compactor-1", "compacted-../../esc.c1z"))
-	require.Equal(t, "/a/b/c/baton-1/compacted-../z.c1z",
-		filepath.Join("/a/b/c/baton-1", "compacted-../z.c1z"))
-	require.Equal(t, "/a/b/z.c1z",
-		filepath.Join("/a/b/c/baton-1", "compacted-../../../../z.c1z"))
+// Table-driven rejection coverage through the public NewCompactor error
+// contract: every hostile SyncID shape must be rejected at construction,
+// before any working-artifact filename is built from it. The cases pin the
+// SDK's own rejection behavior, not stdlib path arithmetic (which is
+// OS-specific and was previously asserted with Unix-only spellings).
+func TestSecurityCompactSyncIDRejectionCases(t *testing.T) {
+	validKSUID := "2YpKj9CDvFqPHLhMZWB4h0X1YyL"
+	cases := []struct {
+		name    string
+		syncID  string
+		wantErr bool
+	}{
+		{"forward slash traversal", "compacted-../../pwned.c1z", true},
+		{"backslash traversal", "..\\..\\pwned.c1z", true},
+		{"drive-style prefix", "C:whatever", true},
+		{"absolute unix path", "/x", true},
+		{"absolute windows path", "\\x", true},
+		{"empty sentinel accepted", "", false},
+		{"valid ksuid accepted", validKSUID, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			inputDir := t.TempDir()
+			outputDir := t.TempDir()
+
+			basePath := filepath.Join(inputDir, "base.c1z")
+			w, err := dotc1z.NewStore(ctx, basePath, dotc1z.WithEngine(c1zstore.EnginePebble))
+			require.NoError(t, err)
+			_, err = w.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+			require.NoError(t, err)
+			require.NoError(t, w.EndSync(ctx))
+			require.NoError(t, w.Close(ctx))
+			badPath := filepath.Join(inputDir, "bad.c1z")
+			require.NoError(t, os.WriteFile(badPath, append([]byte("C1Z3\x00"), []byte("garbage")...), 0o600))
+
+			entries := []*CompactableSync{
+				{FilePath: basePath, SyncID: tc.syncID},
+				{FilePath: badPath, SyncID: "whatever"},
+			}
+			_, _, err = NewCompactor(ctx, outputDir, entries)
+			if tc.wantErr {
+				require.Error(t, err, "NewCompactor accepted hostile SyncID %q", tc.syncID)
+				require.Contains(t, err.Error(), "invalid sync id")
+				return
+			}
+			require.NoError(t, err, "NewCompactor rejected benign SyncID %q", tc.syncID)
+		})
+	}
 }

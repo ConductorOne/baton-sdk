@@ -62,14 +62,14 @@ func TestSecurity_IndexedExtractionBudgetBoundsEntryCardinality(t *testing.T) {
 	// Minimal manifest: engine "pebble3", payload_encoding = INDEXED_ZSTD (5).
 	var manifest bytes.Buffer
 	manifest.Write([]byte{0x0a, byte(len("pebble3"))})
-	manifest.WriteString("pebble3")
+	_, _ = manifest.WriteString("pebble3")
 	manifest.Write([]byte{0x20, 0x05}) // field 4 varint 5
 
 	// Envelope: 5-byte magic + u32 manifest length + manifest + shared frame.
 	var env bytes.Buffer
 	env.Write([]byte("C1Z3\x00"))
 	mlen := make([]byte, 4)
-	binary.BigEndian.PutUint32(mlen, uint32(manifest.Len()))
+	binary.BigEndian.PutUint32(mlen, uint32(manifest.Len())) // #nosec G115 -- manifest is 6 bytes, far below MaxUint32.
 	env.Write(mlen)
 	env.Write(manifest.Bytes())
 	frameOffset := int64(env.Len())
@@ -85,10 +85,10 @@ func TestSecurity_IndexedExtractionBudgetBoundsEntryCardinality(t *testing.T) {
 		var entry bytes.Buffer
 		name := fmt.Sprintf(entryName, i)
 		entry.WriteByte(0x0a)
-		entry.WriteByte(byte(len(name)))
-		entry.WriteString(name)
+		entry.WriteByte(byte(len(name))) // #nosec G115 -- entryName template yields 26-char names, below 256.
+		_, _ = entry.WriteString(name)
 		entry.WriteByte(0x10)
-		entry.Write(binary.AppendUvarint(nil, uint64(frameOffset)))
+		entry.Write(binary.AppendUvarint(nil, uint64(frameOffset))) // #nosec G115 -- frameOffset is a small in-memory buffer position, non-negative.
 		entry.WriteByte(0x18)
 		entry.Write(binary.AppendUvarint(nil, uint64(len(frame))))
 		entry.WriteByte(0x20)
@@ -101,8 +101,8 @@ func TestSecurity_IndexedExtractionBudgetBoundsEntryCardinality(t *testing.T) {
 		entry.Write(binary.AppendUvarint(nil, sha256.Size))
 		entry.Write(emptySum[:])
 
-		indexProto.WriteByte(0x0a) // entries field 1
-		indexProto.Write(binary.AppendUvarint(nil, uint64(entry.Len())))
+		indexProto.WriteByte(0x0a)                                       // entries field 1
+		indexProto.Write(binary.AppendUvarint(nil, uint64(entry.Len()))) // #nosec G115 -- entry is a short fixed-shape record, tens of bytes.
 		indexProto.Write(entry.Bytes())
 	}
 	indexBytes := indexProto.Bytes()
@@ -113,10 +113,10 @@ func TestSecurity_IndexedExtractionBudgetBoundsEntryCardinality(t *testing.T) {
 	env.Write(indexBytes)
 	footer := make([]byte, 0, 28)
 	var off [8]byte
-	binary.BigEndian.PutUint64(off[:], uint64(indexOffset))
+	binary.BigEndian.PutUint64(off[:], uint64(indexOffset)) // #nosec G115 -- indexOffset is a small in-memory buffer position, non-negative.
 	footer = append(footer, off[:]...)
 	var ilen [4]byte
-	binary.BigEndian.PutUint32(ilen[:], uint32(len(indexBytes)))
+	binary.BigEndian.PutUint32(ilen[:], uint32(len(indexBytes))) // #nosec G115 -- indexBytes is ~90KB, far below MaxUint32.
 	footer = append(footer, ilen[:]...)
 	var ixxh [8]byte
 	binary.BigEndian.PutUint64(ixxh[:], xxhash.Sum64(indexBytes))

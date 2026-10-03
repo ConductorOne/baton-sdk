@@ -377,6 +377,21 @@ func (b *decodedBudget) take(n int) (int, error) {
 	return n, nil
 }
 
+// takeU64 charges a caller-computed uint64 byte count. Converting a
+// potentially large uint64 to int (take) would be a lossy narrowing on 32-bit
+// platforms, so the budget keeps a native-uint64 entry point for callers
+// whose byte counts are not slice lengths.
+func (b *decodedBudget) takeU64(n uint64) (uint64, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if n > b.remaining {
+		b.remaining = 0
+		return b.remaining, b.err()
+	}
+	b.remaining -= n
+	return n, nil
+}
+
 func (b *decodedBudget) err() error {
 	return fmt.Errorf("c1z v3: indexed decoded bytes exceed %d bytes: %w", b.limit, ErrMaxSizeExceeded)
 }
@@ -572,7 +587,7 @@ func extractIndexedZstd(f *os.File, payloadStart int64, manifestXXH64 uint64, de
 		if overhead/perIndexedEntryOverhead != uint64(len(entries)) || overhead > maxDecodedBytes {
 			return nil, fmt.Errorf("c1z v3: indexed payload has %d entries; extraction overhead %d exceeds budget %d: %w", len(entries), overhead, maxDecodedBytes, ErrMaxSizeExceeded)
 		}
-		if _, err := budget.take(int(overhead)); err != nil {
+		if _, err := budget.takeU64(overhead); err != nil {
 			return nil, err
 		}
 	}

@@ -49,9 +49,10 @@ func TestSecurity_ForgedDigestRootNotSealedAsExact(t *testing.T) {
 	// framing), ABI stamp naming the current version, and nothing else —
 	// no per-partition roots, no hash index.
 	forgeRoot := func(xor uint64, count int64) []byte {
+		require.GreaterOrEqual(t, count, int64(0), "forge helper count must be non-negative")
 		val := make([]byte, 0, 16)
 		var c [8]byte
-		binary.BigEndian.PutUint64(c[:], uint64(count))
+		binary.BigEndian.PutUint64(c[:], uint64(count)) // #nosec G115 -- count asserted non-negative immediately above.
 		val = append(val, c[:]...)
 		var x [8]byte
 		binary.BigEndian.PutUint64(x[:], xor)

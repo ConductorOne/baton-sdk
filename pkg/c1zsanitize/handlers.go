@@ -289,10 +289,6 @@ func handleLicenseProfileTrait(s *sanitizer, msg proto.Message, _ *assetRefSet) 
 		entIDs = append(entIDs, s.transformID(eid))
 	}
 	return v2.LicenseProfileTrait_builder{
-		// license_name is human-readable vendor text (proto: "Human-readable
-		// license name"), not a schema-like cross-reference token: HMAC it
-		// like every other human-readable field so tenant text cannot ship
-		// verbatim in the sanitized artifact.
 		LicenseName:        s.id(in.GetLicenseName()),
 		PurchasedSeats:     in.GetPurchasedSeats(),
 		ConsumedSeats:      in.GetConsumedSeats(),
