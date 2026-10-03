@@ -50,6 +50,9 @@ func TestC1ZConcurrentClose(t *testing.T) {
 	require.NoError(t, err)
 
 	resources := []*v2.Resource{}
+	entitlements := make([]*v2.Entitlement, 0, resourceCount*entitlementsPerResource)
+	const grantBatchSize = 1000
+	grants := make([]*v2.Grant, 0, grantBatchSize)
 	for i := range resourceCount {
 		resource := v2.Resource_builder{
 			Id: v2.ResourceId_builder{
@@ -58,27 +61,29 @@ func TestC1ZConcurrentClose(t *testing.T) {
 			}.Build(),
 		}.Build()
 		resources = append(resources, resource)
-		entitlements := []*v2.Entitlement{}
 		for j := range entitlementsPerResource {
 			entitlement := v2.Entitlement_builder{
 				Id:       fmt.Sprintf("entitlement-r%07d-%07d", i, j),
 				Resource: resource,
 			}.Build()
 			entitlements = append(entitlements, entitlement)
-			grants := []*v2.Grant{}
 			for k := range grantsPerEntitlement {
 				grants = append(grants, v2.Grant_builder{
 					Id:          fmt.Sprintf("grant-r%07d-%07d-%07d", i, j, k),
 					Principal:   users[k%userCount],
 					Entitlement: entitlement,
 				}.Build())
+				if len(grants) == grantBatchSize {
+					require.NoError(t, f.PutGrants(ctx, grants...))
+					grants = grants[:0]
+				}
 			}
-			err = f.PutGrants(ctx, grants...)
-			require.NoError(t, err)
 		}
-		err = f.PutEntitlements(ctx, entitlements...)
-		require.NoError(t, err)
 	}
+	if len(grants) > 0 {
+		require.NoError(t, f.PutGrants(ctx, grants...))
+	}
+	require.NoError(t, f.PutEntitlements(ctx, entitlements...))
 
 	err = f.PutResources(ctx, resources...)
 	require.NoError(t, err)
@@ -95,6 +100,9 @@ func TestC1ZConcurrentClose(t *testing.T) {
 	for k, v := range expectedGrantStats {
 		require.Equal(t, v, stats[k])
 	}
+	walInfoBeforeClose, err := os.Stat(f.dbFilePath + "-wal")
+	require.NoError(t, err)
+	require.Positive(t, walInfoBeforeClose.Size(), "concurrent close must checkpoint a populated WAL")
 
 	start := time.Now()
 	// Close concurrently with a PutGrants operation.
