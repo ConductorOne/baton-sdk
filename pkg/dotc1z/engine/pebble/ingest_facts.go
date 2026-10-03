@@ -8,6 +8,7 @@ package pebble
 // zero on healthy syncs), never on the bulk path.
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -72,45 +73,9 @@ func grantValueCarriesInsertFact(val []byte) (bool, error) {
 // distinct resource — O(distinct) seeks, never O(grants). Backs the
 // syncer's grant→resource referential invariant (I3).
 func (e *Engine) ForEachDistinctGrantEntitlementResource(ctx context.Context, visit func(resourceTypeID, resourceID string) error) error {
-	if e.db == nil {
-		return ErrEngineClosing
-	}
-	prefix := encodeGrantPrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
-		LowerBound: prefix,
-		UpperBound: upperBoundOf(prefix),
+	return e.forEachKeyGroup(ctx, "distinct ent-resource scan", []byte{versionV3, typeGrant, 0}, 2, func(comps [][]byte) error {
+		return visit(string(comps[0]), string(comps[1]))
 	})
-	if err != nil {
-		return err
-	}
-	defer iter.Close()
-
-	const headerLen = 3 // versionV3, typeGrant, separator
-	for valid := iter.First(); valid; {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		key := iter.Key()
-		if len(key) <= headerLen {
-			return fmt.Errorf("distinct ent-resource scan: malformed grant key %x", key)
-		}
-		tail := key[headerLen:]
-		rtBytes, next, ok := codec.DecodeTupleStringAlias(tail, 0)
-		if !ok || next >= len(tail) {
-			return fmt.Errorf("distinct ent-resource scan: malformed grant key tail %x", key)
-		}
-		ridBytes, _, ok := codec.DecodeTupleStringAlias(tail, next+1)
-		if !ok {
-			return fmt.Errorf("distinct ent-resource scan: malformed grant key tail %x", key)
-		}
-		rt, rid := string(rtBytes), string(ridBytes)
-		if err := visit(rt, rid); err != nil {
-			return err
-		}
-		// Skip every remaining grant of this entitlement resource.
-		valid = iter.SeekGE(upperBoundOf(encodeGrantPrimaryEntitlementResourcePrefix(rt, rid)))
-	}
-	return iter.Error()
 }
 
 // ForEachDistinctEntitlementResource visits each distinct
@@ -119,44 +84,9 @@ func (e *Engine) ForEachDistinctGrantEntitlementResource(ctx context.Context, vi
 // scan: one seek per distinct resource, never O(entitlements). Backs
 // the syncer's entitlement→resource referential invariant (I7).
 func (e *Engine) ForEachDistinctEntitlementResource(ctx context.Context, visit func(resourceTypeID, resourceID string) error) error {
-	if e.db == nil {
-		return ErrEngineClosing
-	}
-	prefix := encodeEntitlementPrefix()
-	iter, err := e.db.NewIter(&pebble.IterOptions{
-		LowerBound: prefix,
-		UpperBound: upperBoundOf(prefix),
+	return e.forEachKeyGroup(ctx, "distinct entitlement-resource scan", []byte{versionV3, typeEntitlement, 0}, 2, func(comps [][]byte) error {
+		return visit(string(comps[0]), string(comps[1]))
 	})
-	if err != nil {
-		return err
-	}
-	defer iter.Close()
-
-	const headerLen = 3 // versionV3, typeEntitlement, separator
-	for valid := iter.First(); valid; {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		key := iter.Key()
-		if len(key) <= headerLen {
-			return fmt.Errorf("distinct entitlement-resource scan: malformed entitlement key %x", key)
-		}
-		tail := key[headerLen:]
-		rtBytes, next, ok := codec.DecodeTupleStringAlias(tail, 0)
-		if !ok || next >= len(tail) {
-			return fmt.Errorf("distinct entitlement-resource scan: malformed entitlement key tail %x", key)
-		}
-		ridBytes, _, ok := codec.DecodeTupleStringAlias(tail, next+1)
-		if !ok {
-			return fmt.Errorf("distinct entitlement-resource scan: malformed entitlement key tail %x", key)
-		}
-		rt, rid := string(rtBytes), string(ridBytes)
-		if err := visit(rt, rid); err != nil {
-			return err
-		}
-		valid = iter.SeekGE(upperBoundOf(encodeEntitlementPrimaryResourcePrefix(rt, rid)))
-	}
-	return iter.Error()
 }
 
 // ForEachDanglingGrantEntitlement visits each distinct entitlement
@@ -169,56 +99,76 @@ func (e *Engine) ForEachDistinctEntitlementResource(ctx context.Context, visit f
 // (see identity.go). Backs the syncer's grant→entitlement referential
 // invariant (I8).
 func (e *Engine) ForEachDanglingGrantEntitlement(ctx context.Context, visit func(entitlementID, resourceTypeID, resourceID string) error) error {
+	const name = "dangling grant-entitlement scan"
+	return e.forEachKeyGroup(ctx, name, []byte{versionV3, typeGrant, 0}, 4, func(comps [][]byte) error {
+		flag := string(comps[2])
+		if flag != idFlagStripped && flag != idFlagOpaque {
+			return fmt.Errorf("%s: malformed identity flag %q", name, flag)
+		}
+		id := entitlementIdentity{
+			resourceTypeID: string(comps[0]),
+			resourceID:     string(comps[1]),
+			stripped:       flag == idFlagStripped,
+			tail:           string(comps[3]),
+		}
+		exists, err := e.hasEntitlementIdentity(id)
+		if err != nil || exists {
+			return err
+		}
+		return visit(id.externalID(), id.resourceTypeID, id.resourceID)
+	})
+}
+
+// forEachKeyGroup visits the keys under header in groups that share their
+// first n tuple components: visit gets the components of each group's first
+// key, then the scan seeks past the group. comps alias the iterator's key and
+// are valid only during visit.
+//
+// The seek target is the upper bound of the visited key's own bytes, so the
+// scan advances on any key. A target re-encoded from the decoded components
+// can sort at or below a non-canonical key, and the scan then revisits that
+// key forever.
+//
+// header is a keyspace prefix ending in the tuple separator. The scan covers
+// the whole family header[:len(header)-1], so a key there that lacks the
+// separator or has fewer than n separator-terminated components fails the
+// scan rather than being skipped.
+func (e *Engine) forEachKeyGroup(ctx context.Context, name string, header []byte, n int, visit func(comps [][]byte) error) error {
 	if e.db == nil {
 		return ErrEngineClosing
 	}
-	prefix := encodeGrantPrefix()
+	family := header[:len(header)-1]
 	iter, err := e.db.NewIter(&pebble.IterOptions{
-		LowerBound: prefix,
-		UpperBound: upperBoundOf(prefix),
+		LowerBound: family,
+		UpperBound: upperBoundOf(family),
 	})
 	if err != nil {
 		return err
 	}
 	defer iter.Close()
 
-	const headerLen = 3 // versionV3, typeGrant, separator
+	comps := make([][]byte, n)
 	for valid := iter.First(); valid; {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		key := iter.Key()
-		if len(key) <= headerLen {
-			return fmt.Errorf("dangling grant-entitlement scan: malformed grant key %x", key)
+		if !bytes.HasPrefix(key, header) {
+			return fmt.Errorf("%s: malformed key %x", name, key)
 		}
-		tail := key[headerLen:]
-		var comps [4]string
-		off := 0
+		off := len(header)
 		for i := range comps {
-			b, next, ok := codec.DecodeTupleStringAlias(tail, off)
-			if !ok || (i < len(comps)-1 && next >= len(tail)) {
-				return fmt.Errorf("dangling grant-entitlement scan: malformed grant key tail %x", key)
+			comp, end, ok := codec.DecodeTupleStringAlias(key, off)
+			if !ok || end == len(key) {
+				return fmt.Errorf("%s: malformed key %x", name, key)
 			}
-			comps[i] = string(b)
-			off = next + 1
+			comps[i] = comp
+			off = end + 1
 		}
-		id := entitlementIdentity{
-			resourceTypeID: comps[0],
-			resourceID:     comps[1],
-			stripped:       comps[2] == idFlagStripped,
-			tail:           comps[3],
-		}
-		exists, err := e.hasEntitlementIdentity(id)
-		if err != nil {
+		if err := visit(comps); err != nil {
 			return err
 		}
-		if !exists {
-			if err := visit(id.externalID(), id.resourceTypeID, id.resourceID); err != nil {
-				return err
-			}
-		}
-		// Skip every remaining grant of this entitlement.
-		valid = iter.SeekGE(upperBoundOf(encodeGrantPrimaryEntitlementPrefix(id)))
+		valid = iter.SeekGE(upperBoundOf(key[:off]))
 	}
 	return iter.Error()
 }
