@@ -64,30 +64,13 @@ func (e *Engine) EnsureGrantIndexes(ctx context.Context) error {
 // op didn't run or didn't match). carrierGrants is the number of grant
 // rows under such a principal, so callers can report per-GRANT totals.
 // Value reads happen only for dangling principals, never on the
-// healthy path. The iterator's 4-byte prefix includes the tuple
-// separator, so decoded components re-encode at-or-above the current
-// key — the forward-progress guarantee the ingest_facts.go scans
-// splice raw bytes for (C1Z-SEC-006).
+// healthy path.
 //
 // A principal whose index entries are ALL orphans (no primary rows) is
 // never visited: it has no grants to judge, so it is healed in place —
 // the orphan index keys are deleted — instead of being vacuously
 // classified as match-annotated-only.
 func (e *Engine) ForEachDanglingGrantPrincipal(ctx context.Context, visit func(principalRT, principalID string, matchAnnotatedOnly bool, carrierGrants int64) error) error {
-	if e.db == nil {
-		return ErrEngineClosing
-	}
-	prefix := []byte{versionV3, typeIndex, idxGrantByPrincipal}
-	prefix = codec.AppendTupleSeparator(prefix)
-	iter, err := e.db.NewIter(&pebble.IterOptions{
-		LowerBound: prefix,
-		UpperBound: upperBoundOf(prefix),
-	})
-	if err != nil {
-		return err
-	}
-	defer iter.Close()
-
 	// Healed-orphan aggregation: one Warn per sweep (the house shape —
 	// never per-principal logs; a systematic writer bug could strand
 	// entries for thousands of principals). Orphans are always a bug
@@ -111,60 +94,40 @@ func (e *Engine) ForEachDanglingGrantPrincipal(ctx context.Context, visit func(p
 		}
 	}()
 
-	for valid := iter.First(); valid; {
-		if err := ctx.Err(); err != nil {
+	err := e.forEachKeyGroup(ctx, "dangling grant-principal scan", []byte{versionV3, typeIndex, idxGrantByPrincipal, 0}, 2, func(comps [][]byte) error {
+		rt, rid := string(comps[0]), string(comps[1])
+		exists, err := e.HasResourceRecord(ctx, rt, rid)
+		if err != nil || exists {
 			return err
 		}
-		key := iter.Key()
-		tail := key[len(prefix):]
-		rtBytes, next, ok := codec.DecodeTupleStringAlias(tail, 0)
-		if !ok || next >= len(tail) {
-			return fmt.Errorf("dangling grant-principal scan: malformed index key %x", key)
-		}
-		ridBytes, _, ok := codec.DecodeTupleStringAlias(tail, next+1)
-		if !ok {
-			return fmt.Errorf("dangling grant-principal scan: malformed index key %x", key)
-		}
-		rt, rid := string(rtBytes), string(ridBytes)
-		exists, err := e.HasResourceRecord(ctx, rt, rid)
+		matchOnly, carrierGrants, err := e.grantsForPrincipalAllMatchAnnotated(ctx, rt, rid)
 		if err != nil {
 			return err
 		}
-		if !exists {
-			matchOnly, carrierGrants, err := e.grantsForPrincipalAllMatchAnnotated(ctx, rt, rid)
-			if err != nil {
-				return err
-			}
-			switch {
-			case matchOnly && carrierGrants == 0:
-				// Every index entry under this principal is an orphan
-				// (no primary row): there are no grants to judge, so
-				// neither the match-carrier exemption nor the warn/fail
-				// arms apply — the "all match-annotated" verdict was
-				// vacuous. Heal the index garbage instead, so a writer
-				// bug that strands by_principal entries is scrubbed
-				// rather than vacuously exempted on every future sweep.
-				healed, err := e.healOrphanPrincipalIndexEntries(ctx, rt, rid)
-				if err != nil {
-					return err
-				}
-				if healed > 0 {
-					healedEntries += healed
-					healedPrincipals++
-					if len(healedExamples) < maxHealedOrphanExamples {
-						healedExamples = append(healedExamples, rt+"/"+rid)
-					}
-				}
-			default:
-				if err := visit(rt, rid, matchOnly, carrierGrants); err != nil {
-					return err
-				}
+		if !matchOnly || carrierGrants != 0 {
+			return visit(rt, rid, matchOnly, carrierGrants)
+		}
+		// Every index entry under this principal is an orphan (no
+		// primary row): there are no grants to judge, so neither the
+		// match-carrier exemption nor the warn/fail arms apply — the
+		// "all match-annotated" verdict was vacuous. Heal the index
+		// garbage instead, so a writer bug that strands by_principal
+		// entries is scrubbed rather than vacuously exempted on every
+		// future sweep.
+		healed, err := e.healOrphanPrincipalIndexEntries(ctx, rt, rid)
+		if err != nil {
+			return err
+		}
+		if healed > 0 {
+			healedEntries += healed
+			healedPrincipals++
+			if len(healedExamples) < maxHealedOrphanExamples {
+				healedExamples = append(healedExamples, rt+"/"+rid)
 			}
 		}
-		// Skip every remaining grant of this principal.
-		valid = iter.SeekGE(upperBoundOf(encodeGrantByPrincipalPrefix(rt, rid)))
-	}
-	if err := iter.Error(); err != nil {
+		return nil
+	})
+	if err != nil {
 		return err
 	}
 	scanComplete = true
