@@ -77,6 +77,11 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 		return nil, cleanupOnError(err)
 	}
 
+	// Imported-payload detection: unpackExistingPebbleC1Z creates dbDir
+	// exactly when it unpacked a payload; a missing/empty source leaves
+	// it absent (fresh create).
+	_, existingPayload := os.Stat(dbDir)
+
 	if opts.ReadOnly {
 		// A read-only open of a missing or empty c1z must fail loudly (as it
 		// does on main via pebble's ErrDBDoesNotExist), not silently create
@@ -91,7 +96,7 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 		// unpacked temp DB may be migrated so current read paths see the latest
 		// layout. Reopen read-only afterwards so callers that reach the engine
 		// directly still get read-only write barriers.
-		migratingEngine, err := pebble.Open(ctx, dbDir)
+		migratingEngine, err := pebble.Open(ctx, dbDir, pebble.WithImportCorruptionHandler())
 		if err != nil {
 			return nil, cleanupOnError(err)
 		}
@@ -101,6 +106,13 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	}
 
 	engineOpts := []pebble.Option{pebble.WithReadOnly(opts.ReadOnly)}
+	if existingPayload == nil {
+		// Imported payload: its SST bytes are attacker-authored. On-disk
+		// corruption discovered by a read must fail this open with an
+		// error — never the default pebble Fatalf, which would
+		// os.Exit(1) the whole process (C1Z-SEC-005).
+		engineOpts = append(engineOpts, pebble.WithImportCorruptionHandler())
+	}
 	if opts.DisableGrantDigestIndex {
 		engineOpts = append(engineOpts, pebble.WithGrantDigestIndex(false))
 	}

@@ -67,10 +67,33 @@ type Options struct {
 	// that parks the goroutine and signals the harness on injected
 	// engines, and a fail-fast panicking logger on clean ones.
 	pebbleLogger pebble.Logger
+
+	// importCorruptionAsError routes pebble's DataCorruption event (a
+	// corrupt SST block/footer hit during a read) to a WARN log + the
+	// wrapped corruption error instead of the default Logger.Fatalf —
+	// which discardPebbleLogger turns into os.Exit(1). Set ONLY for
+	// opens of imported artifacts (state the process did not write):
+	// engine-owned state keeps the process-terminating default, which
+	// is the correct stance for a DB this process is writing (a local
+	// disk disaster must not be intercepted by a recover()). See
+	// WithImportCorruptionHandler.
+	importCorruptionAsError bool
 }
 
 // Option is a functional option passed to Open.
 type Option func(*Options)
+
+// WithImportCorruptionHandler makes pebble treat on-disk corruption
+// found in reads as an ordinary error (WARN log + the wrapped
+// corruption error propagates to the caller) instead of the default
+// Logger.Fatalf — which terminates the whole process via os.Exit(1).
+// For opens of IMPORTED .c1z payloads ONLY: the artifact's SST bytes
+// are attacker-authored, and one flipped byte must fail that open with
+// an error, never kill a shared multi-tenant worker. Engine-owned
+// state (fresh creates, engine-written files) keeps the fatal default.
+func WithImportCorruptionHandler() Option {
+	return func(o *Options) { o.importCorruptionAsError = true }
+}
 
 // WithSharedCache reuses a single *pebble.Cache across multiple
 // engine instances. Mandatory for any caller that opens >1 engine in
@@ -177,6 +200,20 @@ func newPebbleOptions(o *Options) *pebble.Options {
 	}
 	if o.pebbleLogger != nil {
 		opts.Logger = o.pebbleLogger
+	}
+	if o.importCorruptionAsError {
+		// Imported artifact: on-disk corruption is BAD INPUT, not a
+		// process-fatal invariant failure. Record the event and return —
+		// pebble still returns the wrapped corruption error from the
+		// read (reportCorruption runs before the error surfaces), so
+		// Open/the read fails with a typed error instead of Fatalf →
+		// os.Exit(1) killing every co-tenant of this process.
+		opts.EventListener = &pebble.EventListener{
+			DataCorruption: func(info pebble.DataCorruptionInfo) {
+				fmt.Fprintf(os.Stderr, "pebble: corrupt artifact data (path=%s): %s\n",
+					info.Path, info)
+			},
+		}
 	}
 	// Pausable variant of pebble's default ConcurrencyLimitScheduler so the
 	// engine can suppress automatic compactions during the EndSync-to-close
