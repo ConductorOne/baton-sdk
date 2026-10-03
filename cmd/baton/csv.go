@@ -221,18 +221,18 @@ type csvRow struct {
 
 func (c csvRow) Row() []string {
 	return []string{
-		c.rowType,
-		c.lastName,
-		c.firstName,
-		c.userID,
-		c.userStatus,
-		c.emailAddress,
-		c.entitlementDisplayName,
-		c.entitlement,
-		c.resourceType,
-		c.resourceName,
-		c.entitlementDescription,
-		c.entitlementSlug,
+		sanitizeCell(c.rowType),
+		sanitizeCell(c.lastName),
+		sanitizeCell(c.firstName),
+		sanitizeCell(c.userID),
+		sanitizeCell(c.userStatus),
+		sanitizeCell(c.emailAddress),
+		sanitizeCell(c.entitlementDisplayName),
+		sanitizeCell(c.entitlement),
+		sanitizeCell(c.resourceType),
+		sanitizeCell(c.resourceName),
+		sanitizeCell(c.entitlementDescription),
+		sanitizeCell(c.entitlementSlug),
 	}
 }
 
