@@ -177,29 +177,35 @@ func (r *syncRunsTable) Migrations(ctx context.Context, db *goqu.Database) (bool
 	return migrated, nil
 }
 
+// parseIngestInvariantVerification decodes a persisted verification
+// marker. ABSENT markers stay unverified (legacy acceptance — the crash
+// window between seal and marker write is legitimate). A marker that is
+// structurally PRESENT but INVALID (malformed coverage JSON, unknown
+// mode, or empty coverage on a present generation) is a deterministic
+// data defect and returns c1zstore.ErrDataRejected: a current-
+// generation marker never bypasses content validation at import, and a
+// malformed one is hostile input, not an old artifact.
 func parseIngestInvariantVerification(
 	generation string,
 	coverageJSON string,
 	mode string,
-) c1zstore.IngestInvariantVerification {
+) (c1zstore.IngestInvariantVerification, error) {
 	if generation == "" {
-		return c1zstore.IngestInvariantVerification{}
+		return c1zstore.IngestInvariantVerification{}, nil
 	}
 	var coverage []string
 	if err := json.Unmarshal([]byte(coverageJSON), &coverage); err != nil {
-		// Malformed provenance must fail closed: expose it as unverified so a
-		// future compaction consumer cannot trust a partial/corrupt marker.
-		return c1zstore.IngestInvariantVerification{}
+		return c1zstore.IngestInvariantVerification{}, c1zstore.RejectData(fmt.Errorf(
+			"sync run carries a present ingest invariant generation %q with malformed coverage bytes: %w",
+			generation, err))
 	}
-	verification := c1zstore.IngestInvariantVerification{
-		Generation: generation,
-		Coverage:   coverage,
-		Mode:       c1zstore.IngestInvariantVerificationMode(mode),
+	verification, err := c1zstore.ClassifyVerificationClaim(
+		generation, coverage, c1zstore.IngestInvariantVerificationMode(mode))
+	if err != nil {
+		return c1zstore.IngestInvariantVerification{}, c1zstore.RejectData(fmt.Errorf(
+			"sync run %s: %w", "carries an invalid ingest invariant claim", err))
 	}
-	if !verification.IsVerified() {
-		return c1zstore.IngestInvariantVerification{}
-	}
-	return verification
+	return verification, nil
 }
 
 // getCachedViewSyncRun returns the cached sync run for read operations.
@@ -304,7 +310,11 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connector
 	}
 
 	ret.Stats = parseStats(ctx, statsBytes)
-	ret.IngestInvariantVerification = parseIngestInvariantVerification(generation, coverageJSON, mode)
+	verification, err := parseIngestInvariantVerification(generation, coverageJSON, mode)
+	if err != nil {
+		return nil, err
+	}
+	ret.IngestInvariantVerification = verification
 
 	return ret, nil
 }
@@ -368,7 +378,11 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 	}
 
 	ret.Stats = parseStats(ctx, statsBytes)
-	ret.IngestInvariantVerification = parseIngestInvariantVerification(generation, coverageJSON, mode)
+	verification, err := parseIngestInvariantVerification(generation, coverageJSON, mode)
+	if err != nil {
+		return nil, err
+	}
+	ret.IngestInvariantVerification = verification
 
 	return ret, nil
 }
@@ -453,7 +467,11 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize ui
 		}
 
 		data.Stats = parseStats(ctx, statsBytes)
-		data.IngestInvariantVerification = parseIngestInvariantVerification(generation, coverageJSON, mode)
+		verification, err := parseIngestInvariantVerification(generation, coverageJSON, mode)
+		if err != nil {
+			return nil, "", err
+		}
+		data.IngestInvariantVerification = verification
 		lastRow = rowId
 		ret = append(ret, data)
 	}
@@ -570,7 +588,11 @@ func (c *C1File) getSync(ctx context.Context, syncID string) (*c1zstore.SyncRun,
 	}
 
 	ret.Stats = parseStats(ctx, statsBytes)
-	ret.IngestInvariantVerification = parseIngestInvariantVerification(generation, coverageJSON, mode)
+	verification, err := parseIngestInvariantVerification(generation, coverageJSON, mode)
+	if err != nil {
+		return nil, err
+	}
+	ret.IngestInvariantVerification = verification
 
 	return ret, nil
 }

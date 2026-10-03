@@ -425,6 +425,15 @@ func (c *C1File) ToPebble(ctx context.Context, outPath string, syncID string, op
 		// a marker on an unfinished source (impossible through the writer
 		// API, but representable in a hand-edited file) must not convert
 		// into a sealed, verified destination.
+		//
+		// Trust boundary: the marker is provenance-agnostic METADATA,
+		// never trust. A hostile source is rejected at open (schema
+		// guard / digest validation) before conversion runs, and this
+		// propagation only fires on a source that PASSED open
+		// validation — the output carries the marker as data. A
+		// current-generation marker NEVER bypasses content validation
+		// at the converted artifact's next import; conversion does not
+		// reconstruct verification evidence.
 		if sync.IsVerified() {
 			rec.SetIngestInvariantGeneration(sync.Generation)
 			rec.SetIngestInvariantCoverage(append([]string(nil), sync.Coverage...))

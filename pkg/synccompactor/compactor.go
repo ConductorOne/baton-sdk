@@ -1271,6 +1271,14 @@ func (c *Compactor) expandGrants(ctx context.Context, newSyncId string, compacti
 	default:
 		baseGraph, loadErr := c.loadIncrementalBaseGraph(ctx)
 		if loadErr != nil {
+			// A hostile/unsupported base input is a deterministic data
+			// verdict: PROPAGATE it instead of falling back to full
+			// expansion (strict hostile-input policy). Only benign
+			// decline reasons (stale generation, absent binding,
+			// unsupported engine) reach the full-expansion fallback.
+			if errors.Is(loadErr, c1zstore.ErrDataRejected) {
+				return fmt.Errorf("incremental grant expansion: %w", loadErr)
+			}
 			logIncrementalOutcome(ctx, "fell_back", "base_graph_error", zap.Error(loadErr))
 			break
 		}

@@ -212,10 +212,13 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 	// successful upload as the previous-sync replay source. Optional
 	// semantics — a missing/corrupt/stale-format spare degrades to a
 	// plain sync and is replaced by this task's rotation on success,
-	// so a bad spare self-heals and can never fail the sync. Both
-	// branches log: a persistently-absent spare on an opted-in
-	// connector means rotation is broken, and that must be visible
-	// rather than silently disabling etag replay forever.
+	// so a bad spare self-heals and can never fail the sync — EXCEPT a
+	// c1zstore.ErrDataRejected verdict (hostile input), which the
+	// syncer propagates even in optional mode and classifySyncError
+	// marks non-retryable. Both branches log: a persistently-absent
+	// spare on an opted-in connector means rotation is broken, and
+	// that must be visible rather than silently disabling etag replay
+	// forever.
 	if c.previousSyncSparePath != "" {
 		if fileExists(c.previousSyncSparePath) {
 			l.Info("previous-sync spare found; etag replay enabled for this sync",
