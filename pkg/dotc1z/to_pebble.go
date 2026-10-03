@@ -885,7 +885,7 @@ func (c *C1File) convertGrants(ctx context.Context, bi *pebble.BulkSyncImport, s
 			var n int
 			_ = c.rawDb.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master").Scan(&n)
 		}
-		pool, err := sql.Open("sqlite", c.dbFilePath)
+		pool, err := openSQLite(ctx, c.dbFilePath)
 		if err != nil {
 			return fmt.Errorf("open scan pool: %w", err)
 		}

@@ -2,7 +2,6 @@ package dotc1z
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -170,12 +169,23 @@ func (c *C1File) CopyIsolateSync(ctx context.Context, outPath string, syncID str
 	// after recompress, so a crash here only loses the temp file the defer above
 	// already removes.
 	if err = func() error {
-		rawCopy, openErr := sql.Open("sqlite", copyDbPath)
+		rawCopy, openErr := openSQLite(ctx, copyDbPath)
 		if openErr != nil {
 			return fmt.Errorf("error opening copy for pre-migration delete: %w", openErr)
 		}
 		defer func() { _ = rawCopy.Close() }()
 		rawCopy.SetMaxOpenConns(1)
+
+		// Metadata-only schema guard before any DML on the copy: the
+		// copy is a byte-image of the (untrusted) source catalog, so its
+		// schema must be rejected here — before the journal pragmas, the
+		// sync count, and especially the DELETEs below run any
+		// file-authored SQL. The outer temp-dir defer removes the
+		// rejected copy.
+		if guardErr := validateSQLiteSchema(ctx, rawCopy, "main"); guardErr != nil {
+			return fmt.Errorf("schema guard: %w", guardErr)
+		}
+
 		for _, p := range []string{"PRAGMA journal_mode = OFF", "PRAGMA synchronous = OFF"} {
 			if _, perr := rawCopy.ExecContext(ctx, p); perr != nil {
 				return fmt.Errorf("error setting %q on copy: %w", p, perr)

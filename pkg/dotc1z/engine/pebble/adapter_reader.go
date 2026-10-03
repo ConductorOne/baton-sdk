@@ -1,6 +1,7 @@
 package pebble
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -487,6 +488,7 @@ func (e *Engine) ListSyncs(ctx context.Context, req *reader_v2.SyncsReaderServic
 	out := make([]*reader_v2.SyncRun, 0, limit)
 	var lastKey []byte
 	hasMore := false
+	statsComputed := false
 	for iter.First(); iter.Valid(); iter.Next() {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -501,9 +503,20 @@ func (e *Engine) ListSyncs(ctx context.Context, req *reader_v2.SyncsReaderServic
 		}
 		lastKey = append(lastKey[:0], iter.Key()...)
 
-		stats, err := e.syncStatsForRun(ctx, r)
-		if err != nil {
-			return nil, err
+		// A v3 pebble c1z holds exactly ONE sync-run record, at the
+		// canonical fixed key (encodeSyncRunKey, keys.go). Rows under the
+		// range prefix that are NOT that key only exist in a hostile or
+		// corrupt LSM; the stats fallback (computeSyncStats = full
+		// keyspace scans) must never be multiplied by that cardinality.
+		// Gate stats to the canonical row and compute at most once per
+		// RPC so a planted K cannot turn one call into K x O(N) work.
+		var stats *reader_v2.SyncStats
+		if bytes.Equal(iter.Key(), encodeSyncRunKey()) && !statsComputed {
+			stats, err = e.syncStatsForRun(ctx, r)
+			if err != nil {
+				return nil, err
+			}
+			statsComputed = true
 		}
 
 		out = append(out, v3SyncRunToV2(r, stats))

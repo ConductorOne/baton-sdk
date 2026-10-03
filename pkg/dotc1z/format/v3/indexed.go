@@ -377,6 +377,21 @@ func (b *decodedBudget) take(n int) (int, error) {
 	return n, nil
 }
 
+// takeU64 charges a caller-computed uint64 byte count. Converting a
+// potentially large uint64 to int (take) would be a lossy narrowing on 32-bit
+// platforms, so the budget keeps a native-uint64 entry point for callers
+// whose byte counts are not slice lengths.
+func (b *decodedBudget) takeU64(n uint64) (uint64, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if n > b.remaining {
+		b.remaining = 0
+		return b.remaining, b.err()
+	}
+	b.remaining -= n
+	return n, nil
+}
+
 func (b *decodedBudget) err() error {
 	return fmt.Errorf("c1z v3: indexed decoded bytes exceed %d bytes: %w", b.limit, ErrMaxSizeExceeded)
 }
@@ -546,8 +561,18 @@ func extractIndexedZstd(f *os.File, payloadStart int64, manifestXXH64 uint64, de
 	if h := idx.GetManifestXxh64(); h != 0 && h != manifestXXH64 {
 		return nil, fmt.Errorf("c1z v3: manifest bytes hash mismatch (index records %016x, head hashes to %016x): corrupt envelope head", h, manifestXXH64)
 	}
+	// Every entry costs a file create plus a MkdirAll chain even when its
+	// frame is empty, so it is charged like a tar header. Without this, an
+	// index of raw_size==0 frames creates unbounded files at zero cost.
+	// len(entries) is bounded by the in-memory trailer, so the product
+	// cannot overflow.
+	const perIndexedEntryOverhead = 512
+	overhead := uint64(len(entries)) * perIndexedEntryOverhead
 	if !disableSizeFailFast {
-		var totalRaw uint64
+		totalRaw := overhead
+		if totalRaw > maxDecodedBytes {
+			return nil, fmt.Errorf("c1z v3: indexed payload exceeds %d bytes: %w", maxDecodedBytes, ErrMaxSizeExceeded)
+		}
 		for _, e := range entries {
 			if e.RawSize < 0 {
 				return nil, fmt.Errorf("c1z v3: indexed entry %q raw size is negative: %d", e.Name, e.RawSize)
@@ -560,6 +585,9 @@ func extractIndexedZstd(f *os.File, payloadStart int64, manifestXXH64 uint64, de
 		}
 	}
 	budget := newDecodedBudget(maxDecodedBytes)
+	if _, err := budget.takeU64(overhead); err != nil {
+		return nil, err
+	}
 
 	// Directories first, on one goroutine, so workers never race a
 	// parent-dir creation.

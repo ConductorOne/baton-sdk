@@ -1,6 +1,7 @@
 package dotc1z
 
 import (
+	"math"
 	"os"
 	"strconv"
 	"time"
@@ -43,7 +44,8 @@ var bulkLoadIndexTimeout = parseTimeoutSeconds(
 
 // parseTimeoutSeconds parses a whole-seconds duration string, returning def
 // when the value is empty, non-numeric, or non-positive. Shared by the
-// finalize and bulk-load-index timeout knobs.
+// finalize and bulk-load-index timeout knobs. Values too large for
+// time.Duration clamp to the maximum instead of overflowing negative.
 func parseTimeoutSeconds(v string, def time.Duration) time.Duration {
 	if v == "" {
 		return def
@@ -51,6 +53,9 @@ func parseTimeoutSeconds(v string, def time.Duration) time.Duration {
 	secs, err := strconv.ParseInt(v, 10, 64)
 	if err != nil || secs <= 0 {
 		return def
+	}
+	if secs > math.MaxInt64/int64(time.Second) {
+		secs = math.MaxInt64 / int64(time.Second)
 	}
 	return time.Duration(secs) * time.Second
 }

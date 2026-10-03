@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"time"
 
@@ -255,11 +256,29 @@ func WithFailFastInvariants() Option {
 	}
 }
 
+// syncIDPattern bounds a CompactableSync.SyncID to the shape the SDK itself
+// mints (KSUIDs; see dotc1z sync-run id minting). SyncIDs participate in
+// working-artifact filename construction (compacted-%s.c1z), so a
+// separator-bearing id would escape the compactor's private temp dir via
+// path.Join's Clean(). On resume paths the id can originate from a
+// connector-supplied artifact's sync_runs table, so it is untrusted input.
+var syncIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
+
 func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*CompactableSync, opts ...Option) (*Compactor, func() error, error) {
 	if len(compactableSyncs) < 2 {
 		return nil, nil, ErrNotEnoughFilesToCompact
 	}
-
+	for _, e := range compactableSyncs {
+		if e == nil {
+			return nil, nil, fmt.Errorf("synccompactor: nil compactable sync entry")
+		}
+		// An empty SyncID is a valid sentinel meaning "resolve the latest
+		// sync"; every non-empty id must be a plain token so it cannot
+		// carry path separators into working-artifact filename construction.
+		if e.SyncID != "" && !syncIDPattern.MatchString(e.SyncID) {
+			return nil, nil, fmt.Errorf("synccompactor: invalid sync id %q: must match %v", e.SyncID, syncIDPattern)
+		}
+	}
 	c := &Compactor{
 		entries:       compactableSyncs,
 		destDir:       outputDir,

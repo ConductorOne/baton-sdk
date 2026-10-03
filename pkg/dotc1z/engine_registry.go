@@ -374,5 +374,13 @@ func (sqliteDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	if opts.DisableGrantDigestIndex {
 		c1zOpts = append(c1zOpts, WithGrantDigestIndex(false))
 	}
-	return NewC1ZFile(ctx, outputFilePath, c1zOpts...)
+	// Do NOT return NewC1ZFile's result directly: a nil *C1File converted
+	// straight into the c1zstore.Store interface is a non-nil interface
+	// holding a nil pointer, and callers doing `if store != nil` on a
+	// failed open then panic in Close. Keep the interface nil on error.
+	store, err := NewC1ZFile(ctx, outputFilePath, c1zOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return store, nil
 }
