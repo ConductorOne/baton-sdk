@@ -2,10 +2,13 @@ package pebble
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"path/filepath"
-	"sort"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -15,7 +18,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -418,170 +420,173 @@ func advanceMigrationChunk(h *spillChunkHeap, cursors *spillChunkCursors, idx in
 // sort the merged union by (TypeUrl, Value). A new field added here must
 // come with an order-independent merge rule.
 //
-// The fold is single-pass n-ary, never pairwise: a group's length is
-// attacker-chosen on an imported file (a hostile v1 c1z may legally hold
-// unlimited rows with distinct external ids whose refs fold to one
-// identity), and the merge runs inside one resolve call with no ctx
-// check inside the group. The old pairwise loop rebuilt the annotation
-// union and the sources map from scratch on every step — Θ(N²) time in
-// the group's total elements (measured 3.1s at 4096 one-annotation rows,
-// 13.5s at 8192). Collecting each field's contributions once and
-// merging them once is linear in the same total, produces byte-identical
-// output (every rule below is commutative and associative), and no input
-// rejection is needed.
+// The fold is one pass: a group's size comes from the input file, and
+// re-merging every accumulated field per row made a group cost quadratic
+// time.
 func mergeDuplicateGrantValues(values [][]byte) ([]byte, error) {
 	if len(values) == 1 {
 		return values[0], nil
 	}
-	// Accumulator = clone of the FIRST row (its untouched fields —
-	// Entitlement, Principal, SourceScopeKey — are identical across the
-	// group by construction: the group shares one primary key, and the
-	// fold rules below only touch the merged fields). Every merged
-	// field is folded incrementally into dedicated state, then written
-	// once — never re-merged through the pairwise helpers per step.
-	var first v3.GrantRecord
-	if err := unmarshalRecord(values[0], &first); err != nil {
-		return nil, err
-	}
-	out := proto.Clone(&first).(*v3.GrantRecord)
-
-	// Identity winner state (commutative rule: earliest discovered_at,
-	// ties to the smallest external id).
-	winnerExt, winnerDiscovered := first.GetExternalId(), first.GetDiscoveredAt()
-	needsExpansion := first.GetNeedsExpansion()
-
-	// Annotation union, deduped ACROSS the whole fold in one set, sorted
-	// once at the end.
-	annAcc := make([]*anypb.Any, 0, len(values))
-	annSeen := make(map[string]struct{}, len(values))
-	annAcc, annSeen = collectGrantAnnotations(annAcc, annSeen, first.GetAnnotations())
-
-	// Sources union, folded by map key in one map.
-	var sources map[string]*v3.GrantSourceRecord
-	if srcs := first.GetSources(); len(srcs) > 0 {
-		sources = make(map[string]*v3.GrantSourceRecord, len(srcs))
-		for k, v := range srcs {
-			if v == nil {
-				continue
-			}
-			sources[k] = proto.Clone(v).(*v3.GrantSourceRecord)
-		}
-	}
-
-	// Expansion union, folded into sorted set state.
-	expansionIDs := map[string]struct{}{}
-	expansionRTs := map[string]struct{}{}
-	shallowAND := true
-	haveExpansion := false
-	if exp := first.GetExpansion(); exp != nil {
-		haveExpansion = true
-		collectExpansionIDs(expansionIDs, exp.GetEntitlementIds())
-		collectExpansionIDs(expansionRTs, exp.GetResourceTypeIds())
-		shallowAND = exp.GetShallow()
-	}
-
-	for _, value := range values[1:] {
-		var rec v3.GrantRecord
-		if err := unmarshalRecord(value, &rec); err != nil {
+	var f grantRecordFold
+	for _, value := range values {
+		rec := &v3.GrantRecord{}
+		if err := unmarshalRecord(value, rec); err != nil {
 			return nil, err
 		}
-		if recordIdentityInfoWins(rec.GetDiscoveredAt(), rec.GetExternalId(), winnerDiscovered, winnerExt) {
-			winnerExt, winnerDiscovered = rec.GetExternalId(), rec.GetDiscoveredAt()
-		}
-		needsExpansion = needsExpansion || rec.GetNeedsExpansion()
-		annAcc, annSeen = collectGrantAnnotations(annAcc, annSeen, rec.GetAnnotations())
-		for k, v := range rec.GetSources() {
-			if v == nil {
-				continue
-			}
-			if sources == nil {
-				sources = make(map[string]*v3.GrantSourceRecord, len(rec.GetSources()))
-			}
-			if existing, ok := sources[k]; ok {
-				sources[k] = v3.GrantSourceRecord_builder{
-					ResourceTypeId: minNonEmptyString(existing.GetResourceTypeId(), v.GetResourceTypeId()),
-					ResourceId:     minNonEmptyString(existing.GetResourceId(), v.GetResourceId()),
-					EntitlementId:  minNonEmptyString(existing.GetEntitlementId(), v.GetEntitlementId()),
-					IsDirect:       existing.GetIsDirect() || v.GetIsDirect(),
-				}.Build()
-				continue
-			}
-			sources[k] = proto.Clone(v).(*v3.GrantSourceRecord)
-		}
-		if exp := rec.GetExpansion(); exp != nil {
-			haveExpansion = true
-			collectExpansionIDs(expansionIDs, exp.GetEntitlementIds())
-			collectExpansionIDs(expansionRTs, exp.GetResourceTypeIds())
-			shallowAND = shallowAND && exp.GetShallow()
-		}
+		f.add(rec)
 	}
-
-	out.SetExternalId(winnerExt)
-	out.SetDiscoveredAt(winnerDiscovered)
-	out.SetNeedsExpansion(needsExpansion)
-	out.SetAnnotations(sortGrantAnnotationUnion(annAcc))
-	out.SetSources(sources)
-	if haveExpansion {
-		out.SetExpansion(v3.GrantExpandableRecord_builder{
-			EntitlementIds:  sortedStringSet(expansionIDs),
-			ResourceTypeIds: sortedStringSet(expansionRTs),
-			Shallow:         shallowAND,
-		}.Build())
-	} else {
-		out.SetExpansion(nil)
-	}
-	return marshalRecord(out)
+	return marshalRecord(f.result())
 }
 
-// collectGrantAnnotations appends annotations whose (TypeUrl, Value) key is
-// not yet in seen, adding each appended key — mergeGrantAnnotations' dedup
-// rule, split so the n-ary fold tracks ONE set across every row instead of
-// re-deduping the whole union per pairwise step.
-func collectGrantAnnotations(acc []*anypb.Any, seen map[string]struct{}, items []*anypb.Any) ([]*anypb.Any, map[string]struct{}) {
-	for _, item := range items {
-		if item == nil {
+// grantRecordFold accumulates mergeDuplicateGrantValues' field rules over a
+// group, one row at a time. A field that only one row carries keeps that
+// row's value as stored; the rule's union runs only once a second row
+// contributes.
+type grantRecordFold struct {
+	// rec is the first row. The fields the fold does not touch are equal
+	// across the group, which shares one primary key.
+	rec            *v3.GrantRecord
+	externalID     string
+	discoveredAt   *timestamppb.Timestamp
+	needsExpansion bool
+
+	annotations []*anypb.Any
+	// annotationKeys is nil until a second row contributes annotations.
+	annotationKeys map[string]struct{}
+
+	sources map[string]*v3.GrantSourceRecord
+
+	// expansion is the only contributor's, until a second one arrives and
+	// the fold switches to the id sets.
+	expansion        *v3.GrantExpandableRecord
+	expansionIDs     map[string]struct{}
+	expansionRTs     map[string]struct{}
+	expansionShallow bool
+}
+
+func (f *grantRecordFold) add(rec *v3.GrantRecord) {
+	if f.rec == nil || recordIdentityInfoWins(rec.GetDiscoveredAt(), rec.GetExternalId(), f.discoveredAt, f.externalID) {
+		f.externalID, f.discoveredAt = rec.GetExternalId(), rec.GetDiscoveredAt()
+	}
+	if f.rec == nil {
+		f.rec = rec
+	}
+	f.needsExpansion = f.needsExpansion || rec.GetNeedsExpansion()
+	f.addAnnotations(rec.GetAnnotations())
+	f.addSources(rec.GetSources())
+	f.addExpansion(rec.GetExpansion())
+}
+
+// addAnnotations dedupes by (TypeUrl, Value). The union is sorted in result,
+// because rows arrive in heap order, whose chunk tie-break varies run to run.
+func (f *grantRecordFold) addAnnotations(anns []*anypb.Any) {
+	switch {
+	case len(anns) == 0:
+		return
+	case len(f.annotations) == 0:
+		f.annotations, f.annotationKeys = anns, nil
+		return
+	case f.annotationKeys == nil:
+		only := f.annotations
+		f.annotations, f.annotationKeys = nil, make(map[string]struct{}, len(only)+len(anns))
+		f.collectAnnotations(only)
+	}
+	f.collectAnnotations(anns)
+}
+
+func (f *grantRecordFold) collectAnnotations(anns []*anypb.Any) {
+	for _, a := range anns {
+		if a == nil {
 			continue
 		}
-		key := item.GetTypeUrl() + "\x00" + string(item.GetValue())
-		if _, ok := seen[key]; ok {
+		key := a.GetTypeUrl() + "\x00" + string(a.GetValue())
+		if _, ok := f.annotationKeys[key]; ok {
 			continue
 		}
-		seen[key] = struct{}{}
-		acc = append(acc, item)
+		f.annotationKeys[key] = struct{}{}
+		f.annotations = append(f.annotations, a)
 	}
-	return acc, seen
 }
 
-// sortGrantAnnotationUnion sorts by (TypeUrl, Value) — the merged union's
-// reproducible-bytes rule, run once after collection.
-func sortGrantAnnotationUnion(anns []*anypb.Any) []*anypb.Any {
-	sort.Slice(anns, func(i, j int) bool {
-		if anns[i].GetTypeUrl() != anns[j].GetTypeUrl() {
-			return anns[i].GetTypeUrl() < anns[j].GetTypeUrl()
+// addSources merges by map key. Colliding values fold field-wise with
+// commutative, associative rules: IsDirect is an OR, and each ref field
+// takes the smallest non-empty value. Preferring the direct value's fields
+// would not be order-independent, since IsDirect ORs into the accumulator
+// and loses which row was direct.
+func (f *grantRecordFold) addSources(srcs map[string]*v3.GrantSourceRecord) {
+	for key, src := range srcs {
+		if src == nil {
+			continue
 		}
-		return string(anns[i].GetValue()) < string(anns[j].GetValue())
-	})
-	return anns
+		if f.sources == nil {
+			f.sources = make(map[string]*v3.GrantSourceRecord, len(srcs))
+		}
+		cur, ok := f.sources[key]
+		if !ok {
+			f.sources[key] = src
+			continue
+		}
+		f.sources[key] = v3.GrantSourceRecord_builder{
+			ResourceTypeId: minNonEmptyString(cur.GetResourceTypeId(), src.GetResourceTypeId()),
+			ResourceId:     minNonEmptyString(cur.GetResourceId(), src.GetResourceId()),
+			EntitlementId:  minNonEmptyString(cur.GetEntitlementId(), src.GetEntitlementId()),
+			IsDirect:       cur.GetIsDirect() || src.GetIsDirect(),
+		}.Build()
+	}
 }
 
-// collectExpansionIDs adds non-empty ids into set — unionSortedStrings'
-// collection half, split for the n-ary expansion fold.
-func collectExpansionIDs(set map[string]struct{}, ids []string) {
-	for _, id := range ids {
+// addExpansion unions the non-empty ids and ANDs Shallow.
+func (f *grantRecordFold) addExpansion(exp *v3.GrantExpandableRecord) {
+	switch {
+	case exp == nil:
+		return
+	case f.expansion == nil && f.expansionIDs == nil:
+		f.expansion = exp
+		return
+	case f.expansionIDs == nil:
+		only := f.expansion
+		f.expansion = nil
+		f.expansionIDs, f.expansionRTs = map[string]struct{}{}, map[string]struct{}{}
+		f.expansionShallow = only.GetShallow()
+		f.collectExpansion(only)
+	}
+	f.collectExpansion(exp)
+	f.expansionShallow = f.expansionShallow && exp.GetShallow()
+}
+
+func (f *grantRecordFold) collectExpansion(exp *v3.GrantExpandableRecord) {
+	for _, id := range exp.GetEntitlementIds() {
 		if id != "" {
-			set[id] = struct{}{}
+			f.expansionIDs[id] = struct{}{}
+		}
+	}
+	for _, id := range exp.GetResourceTypeIds() {
+		if id != "" {
+			f.expansionRTs[id] = struct{}{}
 		}
 	}
 }
 
-// sortedStringSet returns set's keys sorted — unionSortedStrings' final
-// step.
-func sortedStringSet(set map[string]struct{}) []string {
-	out := make([]string, 0, len(set))
-	for v := range set {
-		out = append(out, v)
+func (f *grantRecordFold) result() *v3.GrantRecord {
+	out := f.rec
+	out.SetExternalId(f.externalID)
+	out.SetDiscoveredAt(f.discoveredAt)
+	out.SetNeedsExpansion(f.needsExpansion)
+	if f.annotationKeys != nil {
+		slices.SortFunc(f.annotations, func(a, b *anypb.Any) int {
+			return cmp.Or(strings.Compare(a.GetTypeUrl(), b.GetTypeUrl()), bytes.Compare(a.GetValue(), b.GetValue()))
+		})
 	}
-	sort.Strings(out)
+	out.SetAnnotations(f.annotations)
+	out.SetSources(f.sources)
+	if f.expansionIDs != nil {
+		f.expansion = v3.GrantExpandableRecord_builder{
+			EntitlementIds:  slices.Sorted(maps.Keys(f.expansionIDs)),
+			ResourceTypeIds: slices.Sorted(maps.Keys(f.expansionRTs)),
+			Shallow:         f.expansionShallow,
+		}.Build()
+	}
+	out.SetExpansion(f.expansion)
 	return out
 }
 

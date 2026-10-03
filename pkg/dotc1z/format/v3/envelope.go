@@ -42,11 +42,14 @@ var ErrEnvelopeTruncated = errors.New("c1z v3: envelope truncated")
 // manifest length.
 const maxManifestBytes = 16 << 20
 
-// Maximum sync-run summaries a manifest may declare. A c1z retains a
-// handful of syncs (the SDK's cleanup default is two), so real manifests
-// carry single-digit runs; the byte cap alone let one 16 MiB manifest
-// materialize ~857 MiB of SyncRunSummary heap per open.
-const maxManifestSyncRuns = 1024
+// maxManifestSyncRunsBytes bounds the encoded sync_runs projection that a
+// header read decodes. Decoding allocates a message per run and a map entry
+// per stats key, so without a bound a manifest under maxManifestBytes could
+// cost a header read many times its size in heap. A projection over the bound
+// is dropped rather than rejected: it is advisory, its readers fall back to
+// the payload when it is absent, and a file that retained more syncs than
+// fit must still open.
+const maxManifestSyncRunsBytes = 1 << 20
 
 // Tar entries larger than this are streamed straight to disk on the
 // reader goroutine instead of being buffered in memory for the writer
@@ -586,11 +589,11 @@ func readEnvelope(r io.Reader, headerOnly bool, pool *DecoderPool) (*Envelope, e
 // pebble_id_index_format (42), and grant_digest_root (43). The
 // descriptor closure (field 10) — by far
 // the largest field — is skipped, which is what makes header reads
-// cheap enough for engine dispatch on every open. Sync run summaries
-// are small and few (bounded by the sync retention limit), so decoding
-// them here costs a handful of allocations.
+// cheap enough for engine dispatch on every open. The sync_runs projection
+// is decoded only while it fits maxManifestSyncRunsBytes.
 func unmarshalManifestHeader(b []byte) (*c1zv3.C1ZManifestV3, error) {
 	out := &c1zv3.C1ZManifestV3{}
+	syncRunsBytes := 0
 	for len(b) > 0 {
 		num, typ, n := protowire.ConsumeTag(b)
 		if n < 0 {
@@ -638,20 +641,21 @@ func unmarshalManifestHeader(b []byte) (*c1zv3.C1ZManifestV3, error) {
 			if typ != protowire.BytesType {
 				return nil, fmt.Errorf("c1z v3: manifest sync_runs has wire type %v", typ)
 			}
-			if len(out.GetSyncRuns()) >= maxManifestSyncRuns {
-				return nil, fmt.Errorf("%w: manifest declares more than %d sync_runs entries; a real file retains a handful of syncs",
-					ErrManifestInvalid, maxManifestSyncRuns)
-			}
 			v, n := protowire.ConsumeBytes(b)
 			if n < 0 {
 				return nil, protowire.ParseError(n)
+			}
+			b = b[n:]
+			syncRunsBytes += len(v)
+			if syncRunsBytes > maxManifestSyncRunsBytes {
+				out.SetSyncRuns(nil)
+				continue
 			}
 			summary := &c1zv3.SyncRunSummary{}
 			if err := proto.Unmarshal(v, summary); err != nil {
 				return nil, fmt.Errorf("%w: sync_runs entry: %w", ErrManifestInvalid, err)
 			}
 			out.SetSyncRuns(append(out.GetSyncRuns(), summary))
-			b = b[n:]
 		case 41:
 			if typ != protowire.VarintType {
 				return nil, fmt.Errorf("c1z v3: manifest fold_dead_bytes has wire type %v", typ)
