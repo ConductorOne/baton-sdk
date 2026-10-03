@@ -42,6 +42,12 @@ var ErrEnvelopeTruncated = errors.New("c1z v3: envelope truncated")
 // manifest length.
 const maxManifestBytes = 16 << 20
 
+// Maximum sync-run summaries a manifest may declare. A c1z retains a
+// handful of syncs (the SDK's cleanup default is two), so real manifests
+// carry single-digit runs; the byte cap alone let one 16 MiB manifest
+// materialize ~857 MiB of SyncRunSummary heap per open.
+const maxManifestSyncRuns = 1024
+
 // Tar entries larger than this are streamed straight to disk on the
 // reader goroutine instead of being buffered in memory for the writer
 // worker pool. Pebble's typical 2 MiB FlushSplitBytes keeps the common
@@ -631,6 +637,10 @@ func unmarshalManifestHeader(b []byte) (*c1zv3.C1ZManifestV3, error) {
 		case 40:
 			if typ != protowire.BytesType {
 				return nil, fmt.Errorf("c1z v3: manifest sync_runs has wire type %v", typ)
+			}
+			if len(out.GetSyncRuns()) >= maxManifestSyncRuns {
+				return nil, fmt.Errorf("%w: manifest declares more than %d sync_runs entries; a real file retains a handful of syncs",
+					ErrManifestInvalid, maxManifestSyncRuns)
 			}
 			v, n := protowire.ConsumeBytes(b)
 			if n < 0 {
