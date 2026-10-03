@@ -56,6 +56,10 @@ type Engine struct {
 	v2pb.UnimplementedGrantsServiceServer
 	reader_v2.UnimplementedSyncsReaderServiceServer
 
+	// corruption is the first on-disk corruption pebble reported for
+	// this engine's files.
+	corruption atomic.Pointer[pebble.DataCorruptionInfo]
+
 	// lifecycleMu serializes the sync-lifecycle transitions
 	// (StartNewSync/ResumeSync/SetCurrentSync/CheckpointSync/EndSync),
 	// whose bodies are read-check-write sequences over the sync-run
@@ -202,7 +206,12 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		opt(o)
 	}
 
-	pebbleOpts := newPebbleOptions(o)
+	// The listener runs on pebble goroutines from rawdb.Open onward, so
+	// the Engine it records into must exist first.
+	e := &Engine{dbDir: dir, opts: o}
+	pebbleOpts := newPebbleOptions(o, func(info pebble.DataCorruptionInfo) {
+		e.corruption.CompareAndSwap(nil, &info)
+	})
 
 	// DELIBERATE ASYMMETRY (do not "fix"): rawdb gets the UNWRAPPED FS
 	// (o.vfs, nil → vfs.Default), while pebble.Open internally wraps
@@ -228,13 +237,9 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 		return nil, fmt.Errorf("pebble.Open: %w", err)
 	}
 
-	e := &Engine{
-		db:         db,
-		dbDir:      dir,
-		opts:       o,
-		pebbleOpts: pebbleOpts,
-		resolvedFS: db.FS(),
-	}
+	e.db = db
+	e.pebbleOpts = pebbleOpts
+	e.resolvedFS = db.FS()
 	e.binding.Store(&syncBinding{})
 	e.ledger.e = e
 	if s, ok := pebbleOpts.Experimental.CompactionScheduler.(*pausableCompactionScheduler); ok {
@@ -918,6 +923,11 @@ func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
 	defer e.writeMu.Unlock()
 	if e.db == nil {
 		return ErrEngineClosing
+	}
+	// A background compaction can find corruption that no caller's read
+	// returned. Refuse rather than ship the corrupt table in a new artifact.
+	if c := e.corruption.Load(); c != nil {
+		return fmt.Errorf("pebble: refusing to checkpoint a keyspace with on-disk corruption: %w", c.Details)
 	}
 
 	if e.opts.readOnly {
