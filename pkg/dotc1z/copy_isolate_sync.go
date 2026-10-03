@@ -2,7 +2,6 @@ package dotc1z
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -128,6 +127,14 @@ func (c *C1File) CopyIsolateSync(ctx context.Context, outPath string, syncID str
 		return status.Errorf(codes.FailedPrecondition, "copy-isolate-sync: sync %s is not ended", syncID)
 	}
 
+	// Bound the raw-copy phase (open/guard/pragmas/count/DELETE) with the
+	// init budget, and pass the SAME bounded context into the subsequent
+	// NewC1File — the phase's statements are init-shaped work on an
+	// untrusted byte-copy, and an unbounded wedge here would hold a worker
+	// indefinitely.
+	copyCtx, copyCancel := context.WithTimeout(ctx, SQLiteInitTimeout())
+	defer copyCancel()
+
 	tmpDir, err := os.MkdirTemp(c.tempDir, "c1zcopyiso")
 	if err != nil {
 		return err
@@ -151,7 +158,7 @@ func (c *C1File) CopyIsolateSync(ctx context.Context, outPath string, syncID str
 	// on the current read-only caller. It is a no-op on a read-only handle
 	// (journal_mode=OFF, no WAL) and relocates no logical data, so the source is
 	// not observably mutated.
-	if _, err = c.db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+	if _, err = c.db.ExecContext(copyCtx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
 		return fmt.Errorf("copy-isolate-sync: error checkpointing source before copy: %w", err)
 	}
 	if err = copyDBFile(c.dbFilePath, copyDbPath); err != nil {
@@ -170,21 +177,32 @@ func (c *C1File) CopyIsolateSync(ctx context.Context, outPath string, syncID str
 	// after recompress, so a crash here only loses the temp file the defer above
 	// already removes.
 	if err = func() error {
-		rawCopy, openErr := sql.Open("sqlite", copyDbPath)
+		rawCopy, openErr := openSQLite(copyCtx, copyDbPath)
 		if openErr != nil {
 			return fmt.Errorf("error opening copy for pre-migration delete: %w", openErr)
 		}
 		defer func() { _ = rawCopy.Close() }()
 		rawCopy.SetMaxOpenConns(1)
+
+		// Metadata-only schema guard before any DML on the copy: the
+		// copy is a byte-image of the (untrusted) source catalog, so its
+		// schema must be rejected here — before the journal pragmas, the
+		// sync count, and especially the DELETEs below run any
+		// file-authored SQL. The outer temp-dir defer removes the
+		// rejected copy.
+		if guardErr := validateSQLiteSchema(copyCtx, rawCopy, "main"); guardErr != nil {
+			return fmt.Errorf("schema guard: %w", guardErr)
+		}
+
 		for _, p := range []string{"PRAGMA journal_mode = OFF", "PRAGMA synchronous = OFF"} {
-			if _, perr := rawCopy.ExecContext(ctx, p); perr != nil {
+			if _, perr := rawCopy.ExecContext(copyCtx, p); perr != nil {
 				return fmt.Errorf("error setting %q on copy: %w", p, perr)
 			}
 		}
 		var syncCount int
 		//nolint:gosec // table name is from the hardcoded syncRuns descriptor; no user input.
 		countQuery := fmt.Sprintf("SELECT COUNT(DISTINCT sync_id) FROM %s", syncRuns.Name())
-		if scanErr := rawCopy.QueryRowContext(ctx, countQuery).Scan(&syncCount); scanErr != nil {
+		if scanErr := rawCopy.QueryRowContext(copyCtx, countQuery).Scan(&syncCount); scanErr != nil {
 			return fmt.Errorf("error counting syncs: %w", scanErr)
 		}
 		if syncCount <= 1 {
@@ -193,7 +211,7 @@ func (c *C1File) CopyIsolateSync(ctx context.Context, outPath string, syncID str
 		for _, t := range allTableDescriptors {
 			//nolint:gosec // table names are from the hardcoded allTableDescriptors list; sync_id is a bound parameter.
 			delQuery := fmt.Sprintf("DELETE FROM %s WHERE sync_id != ?", t.Name())
-			if _, delErr := rawCopy.ExecContext(ctx, delQuery, syncID); delErr != nil {
+			if _, delErr := rawCopy.ExecContext(copyCtx, delQuery, syncID); delErr != nil {
 				return fmt.Errorf("error deleting other syncs from %s: %w", t.Name(), delErr)
 			}
 		}
@@ -214,7 +232,7 @@ func (c *C1File) CopyIsolateSync(ctx context.Context, outPath string, syncID str
 		WithC1FPragma("journal_mode", "OFF"),
 		WithC1FPragma("synchronous", "OFF"),
 	}
-	copyFile, err := NewC1File(ctx, copyDbPath, append(defaultOpts, opts...)...)
+	copyFile, err := NewC1File(copyCtx, copyDbPath, append(defaultOpts, opts...)...)
 	if err != nil {
 		return fmt.Errorf("copy-isolate-sync: error opening copy: %w", err)
 	}

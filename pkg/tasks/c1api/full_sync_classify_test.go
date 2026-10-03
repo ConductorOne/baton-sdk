@@ -7,22 +7,23 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-// TestClassifySyncErrorInvariantVerdictNonRetryable pins the retry
-// classification at the c1api layer (final-round finding: it was only
-// tested at the sync layer). An ingestion-invariant DATA VERDICT is
-// deterministic on the connector's dataset — the task manager must see
-// ErrTaskNonRetryable through every wrap shape the production path
-// produces, or C1 retries a failure that re-fails identically forever.
-func TestClassifySyncErrorInvariantVerdictNonRetryable(t *testing.T) {
-	verdict := fmt.Errorf("ingest invariant I5 violated: %w", sdkSync.ErrIngestInvariantViolated)
+// TestClassifySyncErrorDataRejectedNonRetryable pins the retry classification
+// at the c1api layer (final-round finding: it was only tested at the sync
+// layer). An input DATA VERDICT (c1zstore.ErrDataRejected — invariant verdicts
+// and hostile/unsupported c1z input rejection) is deterministic on the
+// immutable input — the task manager must see ErrTaskNonRetryable through
+// every wrap shape the production path produces, or C1 retries a failure
+// that re-fails identically forever.
+func TestClassifySyncErrorDataRejectedNonRetryable(t *testing.T) {
+	verdict := c1zstore.RejectData(fmt.Errorf("ingest invariant I5 violated: %w", errors.New("entitlement references missing resource")))
 
 	t.Run("bare verdict maps to non-retryable", func(t *testing.T) {
 		got := classifySyncError(verdict)
 		require.ErrorIs(t, got, ErrTaskNonRetryable)
-		require.ErrorIs(t, got, sdkSync.ErrIngestInvariantViolated, "the original verdict must survive the mapping")
+		require.ErrorIs(t, got, c1zstore.ErrDataRejected, "the original verdict must survive the mapping")
 	})
 
 	t.Run("verdict wrapped by sync and joined with a close error still maps", func(t *testing.T) {

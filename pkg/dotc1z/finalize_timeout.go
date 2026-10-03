@@ -1,6 +1,7 @@
 package dotc1z
 
 import (
+	"math"
 	"os"
 	"strconv"
 	"time"
@@ -43,7 +44,9 @@ var bulkLoadIndexTimeout = parseTimeoutSeconds(
 
 // parseTimeoutSeconds parses a whole-seconds duration string, returning def
 // when the value is empty, non-numeric, or non-positive. Shared by the
-// finalize and bulk-load-index timeout knobs.
+// finalize, bulk-load-index, and sqlite-init timeout knobs. The seconds
+// value is clamped before the multiply so a huge accepted int64 cannot
+// overflow time.Duration to negative.
 func parseTimeoutSeconds(v string, def time.Duration) time.Duration {
 	if v == "" {
 		return def
@@ -52,7 +55,32 @@ func parseTimeoutSeconds(v string, def time.Duration) time.Duration {
 	if err != nil || secs <= 0 {
 		return def
 	}
+	if secs > math.MaxInt64/int64(time.Second) {
+		secs = math.MaxInt64 / int64(time.Second)
+	}
 	return time.Duration(secs) * time.Second
+}
+
+// DefaultSQLiteInitTimeout bounds the SQLite initialization phase (open,
+// ping, schema guard, schema DDL + migrations, checkpoint, optimize, caller
+// pragma setup) of NewC1File. One hour is the starting policy: it is a hard
+// ceiling against a wedged init, not an expected duration. Raise via
+// BATON_C1Z_SQLITE_INIT_TIMEOUT (positive seconds) if representative
+// large-legacy-file verification shows it is too tight. The clone-path
+// deferred-index rebuild keeps its own BulkLoadIndexTimeout budget.
+const DefaultSQLiteInitTimeout = 1 * time.Hour
+
+// sqliteInitTimeout holds the resolved value. Set once at package init
+// from BATON_C1Z_SQLITE_INIT_TIMEOUT (seconds); falls back to
+// DefaultSQLiteInitTimeout when unset or invalid.
+var sqliteInitTimeout = parseTimeoutSeconds(
+	os.Getenv("BATON_C1Z_SQLITE_INIT_TIMEOUT"), DefaultSQLiteInitTimeout)
+
+// SQLiteInitTimeout returns the bound for the NewC1File init phase. The
+// clone path overrides it with BulkLoadIndexTimeout via the unexported
+// withInitBudget option.
+func SQLiteInitTimeout() time.Duration {
+	return sqliteInitTimeout
 }
 
 // BulkLoadIndexTimeout returns the bound for the detached context that wraps

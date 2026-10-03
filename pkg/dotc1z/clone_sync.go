@@ -353,7 +353,7 @@ func (c *C1File) cloneCopy(ctx context.Context, outPath string, syncID string, s
 	// Schema() anyway.
 	idxCtx, cancelIdx := context.WithTimeout(context.WithoutCancel(ctx), BulkLoadIndexTimeout())
 	defer cancelIdx()
-	outFile, err := NewC1File(idxCtx, dbPath, append(opts, WithC1FBulkLoad(false))...)
+	outFile, err := NewC1File(idxCtx, dbPath, append(opts, WithC1FBulkLoad(false), withInitBudget(BulkLoadIndexTimeout()))...)
 	if err != nil {
 		return err
 	}
