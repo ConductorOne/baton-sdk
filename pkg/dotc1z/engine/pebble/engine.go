@@ -56,6 +56,17 @@ type Engine struct {
 	v2pb.UnimplementedGrantsServiceServer
 	reader_v2.UnimplementedSyncsReaderServiceServer
 
+	// corruptionRecorded is set by the default DataCorruption listener
+	// (wired in Open via o.corruptionSink) the first time pebble
+	// reports on-disk corruption in this engine's files — including
+	// from BACKGROUND goroutines (a compaction that hits a corrupt
+	// block: the read fails, the compaction aborts, but the corrupt
+	// table stays in the LSM). CheckpointTo and Close refuse to
+	// persist or keep such a keyspace once the engine knows about
+	// it, so a corrupt SST can never ship inside a saved artifact
+	// merely because its reader path was never exercised.
+	corruptionRecorded atomic.Bool
+
 	// lifecycleMu serializes the sync-lifecycle transitions
 	// (StartNewSync/ResumeSync/SetCurrentSync/CheckpointSync/EndSync),
 	// whose bodies are read-check-write sequences over the sync-run
@@ -237,6 +248,14 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 	}
 	e.binding.Store(&syncBinding{})
 	e.ledger.e = e
+	// Wire the DataCorruption sink (safe-by-default listener in
+	// newPebbleOptions): every corruption event — foreground reads AND
+	// background compactions — marks this engine so the save/close
+	// boundaries (CheckpointTo, Close) refuse to persist or keep a
+	// keyspace known to hold corruption.
+	o.corruptionSink = func(pebble.DataCorruptionInfo) {
+		e.corruptionRecorded.Store(true)
+	}
 	if s, ok := pebbleOpts.Experimental.CompactionScheduler.(*pausableCompactionScheduler); ok {
 		e.compactionScheduler = s
 	}
@@ -406,6 +425,7 @@ func (e *Engine) initKeyspaceStateLocked(ctx context.Context) error {
 func (e *Engine) Close() error {
 	e.writeMu.Lock()
 	defer e.writeMu.Unlock()
+	corrupt := e.corruptionRecorded.Load()
 	if e.db == nil {
 		return nil
 	}
@@ -430,6 +450,16 @@ func (e *Engine) Close() error {
 	// Release the cache if we minted it (no shared cache).
 	if e.opts.sharedCache == nil && e.pebbleOpts != nil && e.pebbleOpts.Cache != nil {
 		e.pebbleOpts.Cache.Unref()
+	}
+	// Close still tears down fully (leak oracle above), but a keyspace
+	// known to hold on-disk corruption must not CLOSE cleanly either:
+	// the store layer's save path (CheckpointTo already refuses) and
+	// the caller's retention logic must treat this file as bad, not
+	// merely closed. Append the verdict so a teardown error, if any,
+	// is preserved alongside it.
+	if corrupt {
+		err = errors.Join(err, fmt.Errorf(
+			"pebble: closing a keyspace with recorded on-disk corruption (see earlier ERROR log)"))
 	}
 	return err
 }
@@ -918,6 +948,15 @@ func (e *Engine) CheckpointTo(ctx context.Context, destDir string) error {
 	defer e.writeMu.Unlock()
 	if e.db == nil {
 		return ErrEngineClosing
+	}
+	// A keyspace the engine knows holds on-disk corruption (the
+	// DataCorruption sink recorded an event — foreground read OR
+	// background compaction) must never be persisted into a new
+	// artifact: refuse the checkpoint instead of shipping the corrupt
+	// SST (C1Z-SEC-005 follow-up: background-compaction corruption is
+	// otherwise invisible until a later save bakes it in).
+	if e.corruptionRecorded.Load() {
+		return fmt.Errorf("pebble: refusing to checkpoint: on-disk corruption was detected in this keyspace (see earlier ERROR log)")
 	}
 
 	if e.opts.readOnly {

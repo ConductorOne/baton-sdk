@@ -1,14 +1,12 @@
 package pebble
 
 import (
-	"context"
 	"fmt"
 	"runtime"
 	"time"
 
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/vfs"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 )
 
@@ -78,6 +76,13 @@ type Options struct {
 	// the process itself wrote and want crash-on-corruption
 	// (e.g. fault-injection harnesses); see WithFatalCorruption.
 	fatalCorruption bool
+
+	// corruptionSink, when set, receives every DataCorruption event the
+	// default (non-fatal) listener logs. The Engine wires it (via
+	// newEngineFromOptions) to record that the keyspace holds
+	// corruption, so save/close boundaries can refuse to persist or
+	// keep a corrupt keyspace the engine now knows about. Unexported.
+	corruptionSink func(pebble.DataCorruptionInfo)
 }
 
 // Option is a functional option passed to Open.
@@ -203,23 +208,30 @@ func newPebbleOptions(o *Options) *pebble.Options {
 	// Safe-by-default corruption handling (C1Z-SEC-005): on-disk
 	// corruption discovered by a read is BAD INPUT, not a
 	// process-fatal invariant failure. The default intercepts
-	// pebble's DataCorruption event — structured ERROR log, and the
-	// wrapped corruption error still propagates from the read
-	// (reportCorruption runs before the error surfaces) — so Open/the
-	// read fails with a typed error instead of Fatalf killing every
-	// co-tenant of the process. WithFatalCorruption opts back into
-	// the fatal path for callers that own the state.
+	// pebble's DataCorruption event — structured ERROR log via the
+	// GLOBAL logger (zap.L(); pebble calls from its own goroutines,
+	// where no ctx exists — ctxzap.Extract would return a NO-OP
+	// logger for a ctx that carries none, silently discarding the
+	// event), and the wrapped corruption error still propagates from
+	// the read (reportCorruption runs before the error surfaces) — so
+	// Open/the read fails with a typed error instead of Fatalf killing
+	// every co-tenant of the process. The event is ALSO recorded on
+	// the Engine (Open wires o.corruptionSink) so save/close
+	// boundaries can refuse to persist or keep a corrupt keyspace the
+	// engine now knows about. WithFatalCorruption opts back into the
+	// fatal path for callers that own the state.
 	if !o.fatalCorruption {
 		opts.EventListener = &pebble.EventListener{
 			DataCorruption: func(info pebble.DataCorruptionInfo) {
-				// No ctx here (pebble calls from its own goroutines);
-				// ctxzap.Extract falls back to the global logger.
-				ctxzap.Extract(context.Background()).Error("pebble: on-disk corruption; surfacing as an error to the reader",
+				zap.L().Error("pebble: on-disk corruption; surfacing as an error to the reader",
 					zap.String("path", info.Path),
 					zap.Bool("remote", info.IsRemote),
 					zap.String("bounds", info.Bounds.String()),
 					zap.NamedError("details", info.Details),
 				)
+				if o.corruptionSink != nil {
+					o.corruptionSink(info)
+				}
 			},
 		}
 	}
@@ -275,10 +287,11 @@ func defaultOptions() *Options {
 }
 
 // discardPebbleLogger silences Pebble's WAL discovery / compaction
-// chatter on Infof, surfaces Errorf through the engine's structured
-// logger (compaction errors and WAL recovery warnings are
-// operationally significant — silencing them would hide real
-// problems), and panics on Fatalf.
+// chatter on Infof, surfaces Errorf through the GLOBAL structured
+// logger — zap.L(), the logger pkg/logging installs via
+// zap.ReplaceGlobals; a ctx-based extraction would silently discard
+// the event because pebble calls from its own goroutines, where no
+// ctx exists — and panics on Fatalf.
 //
 // Fatalf is a PANIC, never a bare os.Exit (C1Z-SEC-005): a library
 // must not exit the host process unwitnessed. A panic preserves the
@@ -291,11 +304,22 @@ func defaultOptions() *Options {
 // crash-on-corruption semantics for its own state opts in explicitly
 // (WithFatalCorruption); the DataCorruption path itself no longer
 // reaches Fatalf at all by default.
+//
+// CONTRACT for service authors: DO NOT recover() these panics and keep
+// serving. A pebble FATAL means the storage engine's internal
+// invariants have failed mid-write; the DB may be corrupt on disk and
+// every subsequent operation on it is undefined. Recovery middleware
+// that blanket-recovers must re-panic after logging (or terminate the
+// process/worker deliberately) — never resume use of the engine that
+// fataled, and never persist or checkpoint anything from it. This is
+// the trade the design makes on purpose: the process owner chooses HOW
+// to die (trace first, in-flight work drained if it can be), not
+// WHETHER the engine is dead.
 type discardPebbleLogger struct{}
 
 func (discardPebbleLogger) Infof(format string, args ...interface{}) {}
 func (discardPebbleLogger) Errorf(format string, args ...interface{}) {
-	ctxzap.Extract(context.Background()).Error("pebble: " + fmt.Sprintf(format, args...))
+	zap.L().Error("pebble: " + fmt.Sprintf(format, args...))
 }
 
 func (discardPebbleLogger) Fatalf(format string, args ...interface{}) {

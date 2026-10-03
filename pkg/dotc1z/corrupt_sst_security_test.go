@@ -44,24 +44,44 @@ func TestSecurity_CorruptSSTFailsOpenNotProcess(t *testing.T) {
 	ctx := context.Background()
 	c1zPath := buildCorruptSSTC1z(t, ctx)
 
-	cmd := exec.CommandContext(ctx, os.Args[0], // #nosec G204,G702 -- os.Args[0] is this test binary itself, the package's documented self-exec convention (to_pebble_localtime_test.go).
-		"-test.run=TestSecurity_CorruptSSTFailsOpenNotProcess",
-		"-test.count=1", "-test.timeout=120s")
-	cmd.Env = append(os.Environ(), "BATON_CORRUPT_SST_CHILD="+c1zPath)
-	out, err := cmd.CombinedOutput()
+	// Both open modes must fail the corrupt artifact with an error: the
+	// writable open and the read-only open, whose store-layer path first
+	// performs a WRITABLE migration pre-open (pebble_store.go) before the
+	// real read-only reopen — both surface corruption as an error, never
+	// Fatalf.
+	for _, mode := range []string{"writable", "readonly"} {
+		t.Run(mode, func(t *testing.T) {
+			cmd := exec.CommandContext(ctx, os.Args[0], // #nosec G204,G702 -- this test binary itself; the package's self-exec convention.
+				"-test.run=TestSecurity_CorruptSSTFailsOpenNotProcess",
+				"-test.count=1", "-test.timeout=120s")
+			cmd.Env = append(os.Environ(),
+				"BATON_CORRUPT_SST_CHILD="+c1zPath,
+				"BATON_CORRUPT_SST_MODE="+mode)
+			out, err := cmd.CombinedOutput()
 
-	require.NotContains(t, string(out), "pebble FATAL",
-		"pebble routed artifact corruption to Fatalf: the process-exit vulnerability is live")
-	require.NoError(t, err,
-		"the child process died opening the corrupt artifact; combined output:\n%s", out)
-	require.Contains(t, string(out), "OPEN_ERR:",
-		"the corrupt artifact must fail the open with an error, not open successfully or kill the process; output:\n%s", out)
+			require.NotContains(t, string(out), "pebble FATAL",
+				"pebble routed artifact corruption to Fatalf: the process-exit vulnerability is live")
+			require.NoError(t, err,
+				"the child process died opening the corrupt artifact; combined output:\n%s", out)
+			require.Contains(t, string(out), "OPEN_ERR:",
+				"the corrupt artifact must fail the open with an error, not open successfully or kill the process; output:\n%s", out)
+		})
+	}
 }
 
 func corruptSSTChild() {
 	path := os.Getenv("BATON_CORRUPT_SST_CHILD")
+	mode := os.Getenv("BATON_CORRUPT_SST_MODE")
 	ctx := context.Background()
-	store, err := NewStore(ctx, path)
+	var err error
+	var store c1zstore.Store
+	if mode == "readonly" {
+		// The read-only store-layer path: a WRITABLE migration pre-open
+		// runs first (pebble_store.go), then the read-only reopen.
+		store, err = NewStore(ctx, path, WithReadOnly(true))
+	} else {
+		store, err = NewStore(ctx, path)
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stdout, "OPEN_ERR: %v\n", err)
 		os.Exit(0)
