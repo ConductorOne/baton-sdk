@@ -67,6 +67,14 @@ type Options struct {
 	// that parks the goroutine and signals the harness on injected
 	// engines, and a fail-fast panicking logger on clean ones.
 	pebbleLogger pebble.Logger
+
+	// importValidation, when set on an open of state the caller did not
+	// build in-process, verifies the grant-digest keyspace against the
+	// ACTUAL grant primaries before any reader is served (see
+	// validateImportedGrantDigestStateLocked). The default (zero value)
+	// VALIDATES: safe-by-default. WithoutImportValidation() opts out and
+	// is documented for engine-owned checkpoint-recovery paths only.
+	importValidation bool
 }
 
 // Option is a functional option passed to Open.
@@ -102,6 +110,24 @@ func WithReadOnly(readOnly bool) Option { return func(o *Options) { o.readOnly =
 func WithGrantDigestIndex(enabled bool) Option {
 	return func(o *Options) { o.grantDigestIndex = enabled }
 }
+
+// WithImportValidation verifies the grant-digest keyspace (roots, index
+// rows, ABI stamp, global root) against the actual grant primaries at
+// open, before any reader is served. Advertised-present-but-incorrect
+// state fails the open with c1zstore.ErrDataRejected. This is the
+// default for Open; this option exists for explicitness at
+// imported-artifact open sites.
+func WithImportValidation() Option { return func(o *Options) { o.importValidation = true } }
+
+// WithoutImportValidation disables open-time grant-digest validation.
+// For engine-owned checkpoint-recovery paths ONLY: the fold
+// destination/intermediate state the engine itself wrote and is about
+// to extend, where a validation pass would recompute digests from
+// primaries for no security benefit (the engine produced the bytes).
+// Imported .c1z artifacts MUST keep validation: every keyspace byte is
+// attacker-authored there, and self-consistency of those bytes proves
+// nothing.
+func WithoutImportValidation() Option { return func(o *Options) { o.importValidation = false } }
 
 // WithSlowQueryThreshold overrides the default 5 s threshold for
 // slow-iterator logging.
@@ -226,6 +252,7 @@ func defaultOptions() *Options {
 		durability:         DurabilitySync,
 		slowQueryThreshold: 5 * time.Second,
 		grantDigestIndex:   true,
+		importValidation:   true,
 	}
 }
 

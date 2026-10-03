@@ -77,6 +77,11 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 		return nil, cleanupOnError(err)
 	}
 
+	// Existing-file detection: unpackExistingPebbleC1Z creates dbDir
+	// exactly when it unpacked a payload; a missing/empty source leaves
+	// it absent (fresh create).
+	_, existingPayload := os.Stat(dbDir)
+
 	if opts.ReadOnly {
 		// A read-only open of a missing or empty c1z must fail loudly (as it
 		// does on main via pebble's ErrDBDoesNotExist), not silently create
@@ -101,6 +106,13 @@ func (pebbleDriver) OpenStore(ctx context.Context, outputFilePath string, opts S
 	}
 
 	engineOpts := []pebble.Option{pebble.WithReadOnly(opts.ReadOnly)}
+	if existingPayload == nil {
+		// Imported payload: every digest keyspace byte is
+		// attacker-authored. Validate against the actual grant
+		// primaries before any reader is served (both writable and
+		// read-only opens).
+		engineOpts = append(engineOpts, pebble.WithImportValidation())
+	}
 	if opts.DisableGrantDigestIndex {
 		engineOpts = append(engineOpts, pebble.WithGrantDigestIndex(false))
 	}

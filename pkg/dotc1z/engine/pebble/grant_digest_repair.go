@@ -74,18 +74,30 @@ func grantPrimaryEntitlementBoundsFromPartition(partition string) ([]byte, []byt
 // unlike the hash-index key's raw splice — a bare 0x00 there can only
 // be the separator ending it, never embedded partition data.
 func isGrantDigestRootKey(key []byte) bool {
+	_, ok := isGrantDigestRootKeyPartition(key)
+	return ok
+}
+
+// isGrantDigestRootKeyPartition is isGrantDigestRootKey returning the
+// partition region (the TUPLE-ESCAPED bytes between the index header
+// and the level byte). Import validation reports the offending
+// partition in rejection diagnostics.
+func isGrantDigestRootKeyPartition(key []byte) ([]byte, bool) {
 	const headerLen = 3 // versionV3, typeDigest, indexID
 	if len(key) < headerLen+1 || key[0] != versionV3 || key[1] != typeDigest || key[2] != grantDigestSpec.indexID {
-		return false
+		return nil, false
 	}
 	if key[headerLen] != 0 {
-		return false
+		return nil, false
 	}
-	_, afterSep, found := bytes.Cut(key[headerLen+1:], []byte{0})
+	part, afterSep, found := bytes.Cut(key[headerLen+1:], []byte{0})
 	if !found {
-		return false
+		return nil, false
 	}
-	return len(afterSep) == 1 && afterSep[0] == digestLevelRoot
+	if len(afterSep) != 1 || afterSep[0] != digestLevelRoot {
+		return nil, false
+	}
+	return part, true
 }
 
 // InvalidateGrantDigestPartitions drops the digest + hash-index state
@@ -221,94 +233,30 @@ func (e *Engine) RepairMissingGrantDigests(ctx context.Context) error {
 // scan-and-repair. RepairMissingGrantDigests applies the uniform
 // "downgrade to a full drop, log, never fail the caller" policy to
 // whatever this returns.
+//
+// Fast-path soundness (finding dotc1z/pebble.digest-global-root-presence-trust):
+// a SINGLE point-Get is sound ONLY because imported artifacts are
+// validated against their grant primaries at open (WithImportValidation,
+// grant_digest_import_validation.go) before any EndSync reaches this —
+// imported advertised-present-but-wrong state is rejected at open and
+// never gets here. For engine-owned state, every code path that can
+// make a single entitlement's digest go missing also drops the
+// whole-file global root in the same commit (stageGrantDigestInvalidation,
+// InvalidateGrantDigestPartitions, the Drop* family), so the root's
+// presence certifies nothing is missing. A fold-consistency check
+// here would be self-consistency of attacker bytes — it proves
+// nothing (thread 4170953115: a forged root plus a global root equal
+// to its fold passes it) and costs a whole keyspace scan on every
+// EndSync (thread 4170953216), so it was removed.
 func (e *Engine) repairMissingGrantDigestsAttempt(ctx context.Context) error {
-	// Fast path: EVERY code path that can make a single entitlement's
-	// digest go missing also drops the whole-file global root in the
-	// same commit (stageGrantDigestInvalidation, InvalidateGrantDigestPartitions,
-	// the Drop* family — see their doc comments), and the loop below
-	// only ever writes the global root back once it has verified NOTHING
-	// is missing (repaired everything it found, zero failures). So for
-	// state the ENGINE itself produced, the root's presence certifies
-	// every entitlement's digest is present and correct.
-	//
-	// That soundness argument does NOT extend to the initial state
-	// delivered by a hostile artifact: every keyspace byte — including
-	// the global root node and the ABI stamp — is attacker-authored
-	// there, and a forged root with zero per-partition roots would be
-	// sealed as present-means-exact over grants the engine never
-	// hashed. Verify rather than trust: the stored global root must
-	// equal the fold of the CURRENTLY STORED per-entitlement roots (a
-	// scan of the small digest ROOT keyspace, bounded by entitlement
-	// count). On mismatch, drop the forged state and fall through to
-	// the scan-and-repair path, which rebuilds honestly from primaries.
-	if stored, ok, err := e.GetGrantDigestGlobalRoot(ctx); err != nil {
+	if _, ok, err := e.GetGrantDigestGlobalRoot(ctx); err != nil {
 		return err
 	} else if ok {
-		match, err := e.storedGlobalRootMatchesPartitionFold(ctx, stored)
-		if err != nil {
-			return err
-		}
-		if match {
-			return nil
-		}
-		// Forged or divergent state: restore digests-absent so the
-		// scan-and-repair below rebuilds from primaries.
-		ctxzap.Extract(ctx).Warn("grant digest global root does not match the fold of stored partition roots; rebuilding (possible hostile or corrupt keyspace)",
-			zap.Int64("stored_count", stored.Count))
-		if err := e.withWriteAllowSealed(func() error { return e.dropAllGrantDigestStateLocked() }); err != nil {
-			return fmt.Errorf("RepairMissingGrantDigests: drop forged digest state: %w", err)
-		}
+		return nil
 	}
 	return e.withWriteAllowSealed(func() error {
 		return e.repairMissingGrantDigestsLocked(ctx)
 	})
-}
-
-// storedGlobalRootMatchesPartitionFold recomputes the fold of every
-// CURRENTLY STORED per-entitlement grant-digest root (the same fold
-// recomputeGrantDigestGlobalRootLocked performs) and compares it to the
-// stored global root. Read-only; caller holds no lock. Returns
-// (matched, err). An empty partition-root set never matches a present
-// global root (a hostile artifact can plant a root with no partitions).
-func (e *Engine) storedGlobalRootMatchesPartitionFold(ctx context.Context, stored DigestRoot) (bool, error) {
-	var xor [hashLen]byte
-	var total int64
-	partitions := 0
-	iter, err := e.db.NewIter(&pebble.IterOptions{
-		LowerBound: DigestLowerBound(),
-		UpperBound: DigestUpperBound(),
-	})
-	if err != nil {
-		return false, err
-	}
-	for iter.First(); iter.Valid(); iter.Next() {
-		if err := ctx.Err(); err != nil {
-			_ = iter.Close()
-			return false, err
-		}
-		if !isGrantDigestRootKey(iter.Key()) {
-			continue
-		}
-		_, count, digest, ok := unpackDigestRoot(iter.Value())
-		if !ok {
-			_ = iter.Close()
-			return false, fmt.Errorf("storedGlobalRootMatchesPartitionFold: malformed root at %x", iter.Key())
-		}
-		xorInto(xor[:], digest)
-		total += count
-		partitions++
-	}
-	if err := iter.Error(); err != nil {
-		_ = iter.Close()
-		return false, err
-	}
-	if err := iter.Close(); err != nil {
-		return false, err
-	}
-	if partitions == 0 {
-		return false, nil
-	}
-	return total == stored.Count && bytes.Equal(xor[:], stored.Hash), nil
 }
 
 func (e *Engine) repairMissingGrantDigestsLocked(ctx context.Context) error {
