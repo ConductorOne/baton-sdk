@@ -75,6 +75,9 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
+      - name: Verify shard omission detection
+        if: matrix.shard == 0
+        run: python -m unittest scripts/windows_test_shard_test.py
       - name: Run and audit native Windows tests
         run: python scripts/windows-test-shard.py --shard ${{ matrix.shard }} --count 4
       - name: Print go test results
