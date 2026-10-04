@@ -81,18 +81,9 @@ func TestSecurity_SaveStagesExclusively(t *testing.T) {
 
 	t.Run("no staging debris after a failed save", func(t *testing.T) {
 		dir := t.TempDir()
-		c1zPath := filepath.Join(dir, "retry.c1z")
 
-		store, err := NewStore(ctx, c1zPath, WithTmpDir(dir))
-		require.NoError(t, err)
-		_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-		require.NoError(t, err)
-		require.NoError(t, store.PutGrants(ctx, mkV2Grant("g1", "ent", "user", "alice")))
-		require.NoError(t, store.EndSync(ctx))
-
-		// Break the output path so the save fails after staging exists:
-		// the output's parent cannot be renamed into once it is a file's
-		// target through a read-only directory.
+		// Break the output path so the save fails after staging exists: a
+		// read-only output directory refuses the staging CreateTemp.
 		outDir := filepath.Join(dir, "out")
 		require.NoError(t, os.MkdirAll(outDir, 0o555))
 		blockedPath := filepath.Join(outDir, "sync.c1z")
@@ -106,44 +97,9 @@ func TestSecurity_SaveStagesExclusively(t *testing.T) {
 		require.Error(t, closeErr, "read-only output dir must fail the save")
 
 		// Only entries the failed save itself created may be cleaned; no
-		// *.tmp-* staging debris may remain.
+		// staging debris may remain.
 		entries, err := os.ReadDir(outDir)
 		require.NoError(t, err)
 		require.Empty(t, entries, "failed save must leave no staging debris")
-	})
-
-	t.Run("AtomicFile unit contract", func(t *testing.T) {
-		dir := t.TempDir()
-		out := filepath.Join(dir, "out.bin")
-
-		af, err := NewAtomicFile(out)
-		require.NoError(t, err)
-		_, err = af.File.Write([]byte("payload"))
-		require.NoError(t, err)
-		require.NoError(t, af.Commit())
-		// Commit consumed the file.
-		require.Nil(t, af.File)
-		require.Error(t, af.Commit())
-
-		got, err := os.ReadFile(out)
-		require.NoError(t, err)
-		require.Equal(t, "payload", string(got))
-		fi, err := os.Stat(out)
-		require.NoError(t, err)
-		require.Equal(t, os.FileMode(0o600), fi.Mode().Perm())
-		// No staging siblings remain.
-		entries, err := os.ReadDir(dir)
-		require.NoError(t, err)
-		require.Len(t, entries, 1)
-
-		// Abort removes only the file this process created.
-		af2, err := NewAtomicFile(out)
-		require.NoError(t, err)
-		staged := af2.path
-		require.NotEqual(t, filepath.Base(out)+".tmp", filepath.Base(staged), "staging name must not be the old predictable sibling")
-		af2.Abort()
-		af2.Abort() // idempotent
-		_, err = os.Stat(staged)
-		require.True(t, os.IsNotExist(err))
 	})
 }

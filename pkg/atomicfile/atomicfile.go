@@ -1,4 +1,4 @@
-package dotc1z
+package atomicfile
 
 import (
 	"errors"
@@ -28,7 +28,7 @@ import (
 //
 // Usage:
 //
-//	f, err := dotc1z.NewAtomicFile(outPath)
+//	f, err := atomicfile.New(outPath)
 //	if err != nil { ... }
 //	write(f)                    // or f.File directly
 //	if err := f.Commit(); err != nil { ... } // sync, close, chmod 0600, rename
@@ -43,10 +43,10 @@ type AtomicFile struct {
 	target string // caller's final output path
 }
 
-// NewAtomicFile creates the staging file for target: an exclusively created,
+// New creates the staging file for target: an exclusively created,
 // unpredictable sibling in target's directory, mode 0600. The caller writes
 // to f.File and finishes with Commit (or Abort on any error).
-func NewAtomicFile(target string) (*AtomicFile, error) {
+func New(target string) (*AtomicFile, error) {
 	dir, base := filepath.Split(target)
 	if dir == "" {
 		dir = "."

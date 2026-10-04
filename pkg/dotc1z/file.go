@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/conductorone/baton-sdk/pkg/atomicfile"
 	"github.com/klauspost/compress/zstd"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -126,31 +127,18 @@ func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) e
 	}
 	dbSize := dbStat.Size()
 
-	// Write to a temporary file first to ensure atomic writes.
-	// This prevents file corruption if the process crashes mid-write,
-	// since the original file remains intact until the rename succeeds.
-	tmpPath := outputFilePath + ".tmp"
-	outFile, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	// Stage under an exclusive, unpredictable name (AtomicFile): the
+	// compressed output is the complete sync artifact, so a planted entry at
+	// a predictable "<out>.tmp" must be able to neither block the save nor
+	// receive its bytes, and the published file must stay private (0600)
+	// like the placeholder it replaces. The rename publishes atomically, so
+	// a crash mid-write never corrupts the previous artifact.
+	staged, err := atomicfile.New(outputFilePath)
 	if err != nil {
 		return err
 	}
-
-	// Track whether we successfully completed the write
-	success := false
-	defer func() {
-		if outFile != nil {
-			err = outFile.Close()
-			if err != nil {
-				zap.L().Error("failed to close out file", zap.Error(err))
-			}
-		}
-		// Clean up temp file if we didn't successfully rename it
-		if !success {
-			if removeErr := os.Remove(tmpPath); removeErr != nil && !os.IsNotExist(removeErr) {
-				zap.L().Error("failed to remove temp file", zap.Error(removeErr))
-			}
-		}
-	}()
+	defer staged.Abort()
+	outFile := staged.File
 
 	// Write the magic file header
 	_, err = outFile.Write(C1ZFileHeader)
@@ -219,31 +207,15 @@ func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) e
 		putEncoder(c1z)
 	}
 
-	err = outFile.Sync()
-	if err != nil {
-		return fmt.Errorf("failed to sync out file: %w", err)
+	if err := staged.Commit(); err != nil {
+		return fmt.Errorf("failed to publish c1z: %w", err)
 	}
-
-	err = outFile.Close()
-	if err != nil {
-		return fmt.Errorf("failed to close out file: %w", err)
-	}
-	outFile = nil
 
 	err = dbFile.Close()
 	if err != nil {
 		return fmt.Errorf("failed to close db file: %w", err)
 	}
 	dbFile = nil
-
-	// Atomically replace the original file with the temp file.
-	// This ensures the original file remains intact if there was any
-	// error during the write process.
-	err = os.Rename(tmpPath, outputFilePath)
-	if err != nil {
-		return fmt.Errorf("failed to rename temp file to output file: %w", err)
-	}
-	success = true
 
 	// Record the decompressed and compressed sizes for every saved c1z.
 	// Operators rely on this line to track c1z growth per tenant/connector

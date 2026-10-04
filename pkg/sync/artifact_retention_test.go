@@ -149,11 +149,11 @@ func TestArtifactVerdictSurvivesSyncerClose(t *testing.T) {
 	syncErr := harness.Syncer.Sync(ctx)
 	require.NoError(t, syncErr)
 
-	// Sabotage the atomic save: the engine writes to path+".tmp" before
-	// renaming over the c1z; a directory there fails the save while the
-	// (here: nonexistent) previous artifact stays untouched.
-	tmpTarget := path + ".tmp"
-	require.NoError(t, os.Mkdir(tmpTarget, 0o755))
+	// Sabotage the publish: the engine stages at an unpredictable exclusive
+	// name and renames over the c1z at Close; a directory squatting the
+	// OUTPUT path fails the rename while the (here: nonexistent) previous
+	// artifact stays untouched.
+	require.NoError(t, os.Mkdir(path, 0o755))
 
 	closeErr := harness.Syncer.Close(ctx)
 	require.Error(t, closeErr)
@@ -170,7 +170,7 @@ func TestArtifactVerdictSurvivesSyncerClose(t *testing.T) {
 
 	// Recovery path advertised by the pebble store: fix the condition and
 	// Close again; the retried commit succeeds and carries no verdict.
-	require.NoError(t, os.Remove(tmpTarget))
+	require.NoError(t, os.Remove(path))
 	require.NoError(t, harness.Close(ctx))
 	require.FileExists(t, path)
 }

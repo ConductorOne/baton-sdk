@@ -19,6 +19,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/atomicfile"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
@@ -926,20 +927,15 @@ func (s *pebbleStore) save(ctx context.Context) error {
 	}
 	checkpointDur := time.Since(saveStart)
 
-	tmpPath := s.outputFilePath + ".tmp"
-	out, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
+	// The staged envelope is the complete sync artifact: stage it under an
+	// exclusive, unpredictable name (AtomicFile) so a planted entry beside
+	// the output can neither block the save nor receive its bytes, and the
+	// published file stays private (0600) like the placeholder it replaces.
+	staged, err := atomicfile.New(s.outputFilePath)
 	if err != nil {
 		return err
 	}
-	success := false
-	defer func() {
-		if out != nil {
-			_ = out.Close()
-		}
-		if !success {
-			_ = os.Remove(tmpPath)
-		}
-	}()
+	defer staged.Abort()
 
 	manifest, err := pebble.BuildManifestWithSyncRuns(ctx, s.Engine, s.payloadEncoding)
 	if err != nil {
@@ -949,23 +945,15 @@ func (s *pebbleStore) save(ctx context.Context) error {
 		manifest.SetFoldDeadBytes(s.foldDeadBytes)
 	}
 	encodeStart := time.Now()
-	if _, err := formatv3.WriteEnvelopeWithReuse(out, manifest, checkpointDir, s.payloadReuse); err != nil {
+	if _, err := formatv3.WriteEnvelopeWithReuse(staged.File, manifest, checkpointDir, s.payloadReuse); err != nil {
 		return err
 	}
 	ctxzap.Extract(ctx).Debug("pebble save: envelope written",
 		zap.Duration("checkpoint", checkpointDur),
 		zap.Duration("envelope_encode", time.Since(encodeStart)),
 	)
-	if err := out.Sync(); err != nil {
+	if err := staged.Commit(); err != nil {
 		return err
 	}
-	if err := out.Close(); err != nil {
-		return err
-	}
-	out = nil
-	if err := os.Rename(tmpPath, s.outputFilePath); err != nil {
-		return err
-	}
-	success = true
 	return nil
 }

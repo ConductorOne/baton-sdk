@@ -103,6 +103,10 @@ var commitPointRegistry = map[string][]string{
 	"session_store.go:SessionClear": {
 		"excluded: session batch carries no cross-family obligations; errorfs covers write failure; exact site injection remains follow-up debt",
 	},
+	"adapter_clone_sync.go:cloneSync": {
+		"excluded: AtomicFile.Commit is the envelope-publish fsync/close/chmod/rename seam for the caller-supplied host output path; host IO by contract (see os_io_allowlist_test.go), covered by dotc1z's exclusive-staging tests, not an engine RecordBatch",
+	},
+
 	"synccompactor/pebble/fold_commit.go:commitFoldBatch": {
 		"excluded: single compactor fold choke point accepts an explicit failure argument; overlay primary/index/restart and merge tests execute its exact error path without mutable engine hooks",
 	},

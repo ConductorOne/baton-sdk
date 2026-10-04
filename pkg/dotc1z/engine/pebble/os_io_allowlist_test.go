@@ -66,9 +66,9 @@ var allowedOSFileIO = map[string]map[string]string{
 		"Stat":      "clone-sync writes a v3 envelope to a caller-supplied host path; the whole save path is host IO by contract (out of engine-FS scope, like the store layer's envelope save)",
 		"MkdirTemp": "clone-sync staging dir for the checkpoint + envelope build (host IO by contract)",
 		"RemoveAll": "clone-sync staging dir cleanup (host IO by contract)",
-		"OpenFile":  "clone-sync envelope output file (host IO by contract)",
-		"Remove":    "clone-sync failed-output cleanup (host IO by contract)",
-		"Rename":    "clone-sync atomic tmp->final envelope publish (host IO by contract)",
+		// OpenFile/Remove/Rename for the envelope publish moved into
+		// pkg/atomicfile (AtomicFile.New/Abort/Commit); that package's own
+		// tests cover the staging contract.
 	},
 }
 

@@ -33,25 +33,25 @@ func TestPebbleCloseRetryAfterFailedSave(t *testing.T) {
 	require.NoError(t, store.PutGrants(ctx, mkV2Grant("g1", "ent", "user", "alice")))
 	require.NoError(t, store.EndSync(ctx))
 
-	// Make the envelope write fail AFTER the checkpoint succeeds: a
-	// non-empty DIRECTORY squatting on the staging path makes save()'s
-	// OpenFile(retry.c1z.tmp, O_CREATE) fail on every platform, and its
-	// own failure-path cleanup (os.Remove) can't delete it either.
+	// Make the publish step of the save fail AFTER the checkpoint succeeds:
+	// a non-empty DIRECTORY squatting on the OUTPUT path makes the final
+	// rename fail on every platform (rename refuses a non-empty dir), and
+	// the staging file itself lives at an unpredictable exclusive name, so
+	// squatting the staging path is no longer possible.
 	// (A read-only output dir — chmod 0555 — is NOT a portable injection:
 	// Windows' directory read-only bit doesn't block file creation.)
-	tmpPath := path + ".tmp"
-	require.NoError(t, os.MkdirAll(filepath.Join(tmpPath, "blocker"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(path, "blocker"), 0o755))
 	restored := false
 	restore := func() {
 		if !restored {
 			restored = true
-			require.NoError(t, os.RemoveAll(tmpPath))
+			require.NoError(t, os.RemoveAll(path))
 		}
 	}
 	defer restore()
 
 	err = store.Close(ctx)
-	require.Error(t, err, "Close with a blocked staging path must fail")
+	require.Error(t, err, "Close with a blocked output path must fail")
 
 	// Operator fixes the condition; the retry must succeed despite the
 	// stale checkpoint dir the failed save left behind.

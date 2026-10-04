@@ -916,13 +916,16 @@ func (c *Compactor) runPebbleRebuild(ctx context.Context, runCtx context.Context
 
 // copyFileForFold copies the base input to the dest path so the fold
 // mutates a private working copy; the original input is never touched.
+// The copy is the PII-bearing working base, so it is created exclusively
+// and private (0600) — a pre-existing entry at dst is never written
+// through, and the copy never lands world-readable.
 func copyFileForFold(src, dst string) error {
 	in, err := os.Open(src) // #nosec G703 - src is a caller-provided compaction input path, not untrusted user input.
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
