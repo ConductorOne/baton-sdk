@@ -2,10 +2,13 @@ package pebble
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"path/filepath"
-	"sort"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -15,7 +18,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -417,42 +419,175 @@ func advanceMigrationChunk(h *spillChunkHeap, cursors *spillChunkCursors, idx in
 // OR, sources merge by map key, expansion ids union-sort, and annotations
 // sort the merged union by (TypeUrl, Value). A new field added here must
 // come with an order-independent merge rule.
+//
+// The fold is one pass: a group's size comes from the input file, and
+// re-merging every accumulated field per row made a group cost quadratic
+// time.
 func mergeDuplicateGrantValues(values [][]byte) ([]byte, error) {
 	if len(values) == 1 {
 		return values[0], nil
 	}
-	var out *v3.GrantRecord
+	var f grantRecordFold
 	for _, value := range values {
-		var rec v3.GrantRecord
-		if err := unmarshalRecord(value, &rec); err != nil {
+		rec := &v3.GrantRecord{}
+		if err := unmarshalRecord(value, rec); err != nil {
 			return nil, err
 		}
-		if out == nil {
-			cp := proto.Clone(&rec).(*v3.GrantRecord)
-			out = cp
+		f.add(rec)
+	}
+	return marshalRecord(f.result())
+}
+
+// grantRecordFold accumulates mergeDuplicateGrantValues' field rules over a
+// group, one row at a time. A field that only one row carries keeps that
+// row's value as stored; the rule's union runs only once a second row
+// contributes.
+type grantRecordFold struct {
+	// rec is the first row. The fields the fold does not touch are equal
+	// across the group, which shares one primary key.
+	rec            *v3.GrantRecord
+	externalID     string
+	discoveredAt   *timestamppb.Timestamp
+	needsExpansion bool
+
+	annotations []*anypb.Any
+	// annotationKeys is nil until a second row contributes annotations.
+	annotationKeys map[string]struct{}
+
+	sources map[string]*v3.GrantSourceRecord
+
+	// expansion is the only contributor's, until a second one arrives and
+	// the fold switches to the id sets.
+	expansion        *v3.GrantExpandableRecord
+	expansionIDs     map[string]struct{}
+	expansionRTs     map[string]struct{}
+	expansionShallow bool
+}
+
+func (f *grantRecordFold) add(rec *v3.GrantRecord) {
+	if f.rec == nil || recordIdentityInfoWins(rec.GetDiscoveredAt(), rec.GetExternalId(), f.discoveredAt, f.externalID) {
+		f.externalID, f.discoveredAt = rec.GetExternalId(), rec.GetDiscoveredAt()
+	}
+	if f.rec == nil {
+		f.rec = rec
+	}
+	f.needsExpansion = f.needsExpansion || rec.GetNeedsExpansion()
+	f.addAnnotations(rec.GetAnnotations())
+	f.addSources(rec.GetSources())
+	f.addExpansion(rec.GetExpansion())
+}
+
+// addAnnotations dedupes by (TypeUrl, Value). The union is sorted in result,
+// because rows arrive in heap order, whose chunk tie-break varies run to run.
+func (f *grantRecordFold) addAnnotations(anns []*anypb.Any) {
+	switch {
+	case len(anns) == 0:
+		return
+	case len(f.annotations) == 0:
+		f.annotations, f.annotationKeys = anns, nil
+		return
+	case f.annotationKeys == nil:
+		only := f.annotations
+		f.annotations, f.annotationKeys = nil, make(map[string]struct{}, len(only)+len(anns))
+		f.collectAnnotations(only)
+	}
+	f.collectAnnotations(anns)
+}
+
+func (f *grantRecordFold) collectAnnotations(anns []*anypb.Any) {
+	for _, a := range anns {
+		if a == nil {
 			continue
 		}
-		mergeGrantRecordInto(out, &rec)
+		key := a.GetTypeUrl() + "\x00" + string(a.GetValue())
+		if _, ok := f.annotationKeys[key]; ok {
+			continue
+		}
+		f.annotationKeys[key] = struct{}{}
+		f.annotations = append(f.annotations, a)
 	}
-	return marshalRecord(out)
 }
 
-func mergeGrantRecordInto(dst, src *v3.GrantRecord) {
-	if grantRecordIdentityInfoWins(src, dst) {
-		dst.SetExternalId(src.GetExternalId())
-		dst.SetDiscoveredAt(src.GetDiscoveredAt())
+// addSources merges by map key. Colliding values fold field-wise with
+// commutative, associative rules: IsDirect is an OR, and each ref field
+// takes the smallest non-empty value. Preferring the direct value's fields
+// would not be order-independent, since IsDirect ORs into the accumulator
+// and loses which row was direct.
+func (f *grantRecordFold) addSources(srcs map[string]*v3.GrantSourceRecord) {
+	for key, src := range srcs {
+		if src == nil {
+			continue
+		}
+		if f.sources == nil {
+			f.sources = make(map[string]*v3.GrantSourceRecord, len(srcs))
+		}
+		cur, ok := f.sources[key]
+		if !ok {
+			f.sources[key] = src
+			continue
+		}
+		f.sources[key] = v3.GrantSourceRecord_builder{
+			ResourceTypeId: minNonEmptyString(cur.GetResourceTypeId(), src.GetResourceTypeId()),
+			ResourceId:     minNonEmptyString(cur.GetResourceId(), src.GetResourceId()),
+			EntitlementId:  minNonEmptyString(cur.GetEntitlementId(), src.GetEntitlementId()),
+			IsDirect:       cur.GetIsDirect() || src.GetIsDirect(),
+		}.Build()
 	}
-	dst.SetNeedsExpansion(dst.GetNeedsExpansion() || src.GetNeedsExpansion())
-	dst.SetAnnotations(mergeGrantAnnotations(dst.GetAnnotations(), src.GetAnnotations()))
-	dst.SetSources(mergeGrantSources(dst.GetSources(), src.GetSources()))
-	dst.SetExpansion(mergeGrantExpansion(dst.GetExpansion(), src.GetExpansion()))
 }
 
-func grantRecordIdentityInfoWins(candidate, incumbent *v3.GrantRecord) bool {
-	return recordIdentityInfoWins(
-		candidate.GetDiscoveredAt(), candidate.GetExternalId(),
-		incumbent.GetDiscoveredAt(), incumbent.GetExternalId(),
-	)
+// addExpansion unions the non-empty ids and ANDs Shallow.
+func (f *grantRecordFold) addExpansion(exp *v3.GrantExpandableRecord) {
+	switch {
+	case exp == nil:
+		return
+	case f.expansion == nil && f.expansionIDs == nil:
+		f.expansion = exp
+		return
+	case f.expansionIDs == nil:
+		only := f.expansion
+		f.expansion = nil
+		f.expansionIDs, f.expansionRTs = map[string]struct{}{}, map[string]struct{}{}
+		f.expansionShallow = only.GetShallow()
+		f.collectExpansion(only)
+	}
+	f.collectExpansion(exp)
+	f.expansionShallow = f.expansionShallow && exp.GetShallow()
+}
+
+func (f *grantRecordFold) collectExpansion(exp *v3.GrantExpandableRecord) {
+	for _, id := range exp.GetEntitlementIds() {
+		if id != "" {
+			f.expansionIDs[id] = struct{}{}
+		}
+	}
+	for _, id := range exp.GetResourceTypeIds() {
+		if id != "" {
+			f.expansionRTs[id] = struct{}{}
+		}
+	}
+}
+
+func (f *grantRecordFold) result() *v3.GrantRecord {
+	out := f.rec
+	out.SetExternalId(f.externalID)
+	out.SetDiscoveredAt(f.discoveredAt)
+	out.SetNeedsExpansion(f.needsExpansion)
+	if f.annotationKeys != nil {
+		slices.SortFunc(f.annotations, func(a, b *anypb.Any) int {
+			return cmp.Or(strings.Compare(a.GetTypeUrl(), b.GetTypeUrl()), bytes.Compare(a.GetValue(), b.GetValue()))
+		})
+	}
+	out.SetAnnotations(f.annotations)
+	out.SetSources(f.sources)
+	if f.expansionIDs != nil {
+		f.expansion = v3.GrantExpandableRecord_builder{
+			EntitlementIds:  slices.Sorted(maps.Keys(f.expansionIDs)),
+			ResourceTypeIds: slices.Sorted(maps.Keys(f.expansionRTs)),
+			Shallow:         f.expansionShallow,
+		}.Build()
+	}
+	out.SetExpansion(f.expansion)
+	return out
 }
 
 // recordIdentityInfoWins is the shared winner rule for duplicate-identity
@@ -472,87 +607,6 @@ func recordIdentityInfoWins(candidateDiscovered *timestamppb.Timestamp, candidat
 	return candidateExternalID < incumbentExternalID
 }
 
-func mergeGrantAnnotations(a, b []*anypb.Any) []*anypb.Any {
-	if len(a) == 0 {
-		return b
-	}
-	if len(b) == 0 {
-		return a
-	}
-	out := make([]*anypb.Any, 0, len(a)+len(b))
-	seen := make(map[string]struct{}, len(a)+len(b))
-	add := func(items []*anypb.Any) {
-		for _, item := range items {
-			if item == nil {
-				continue
-			}
-			key := item.GetTypeUrl() + "\x00" + string(item.GetValue())
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			out = append(out, item)
-		}
-	}
-	add(a)
-	add(b)
-	// Sort the UNION (single-side inputs above return as-is, preserving the
-	// winner's stored order): every other merged field is fold-order
-	// independent (recordIdentityInfoWins, map merges, unionSortedStrings),
-	// but duplicate-identity values arrive in heap order — the bulk import's
-	// chunkIdx tie-break reflects spill-chunk creation order, which is not
-	// stable run to run. Without this, the merged artifact bytes would not
-	// be reproducible.
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].GetTypeUrl() != out[j].GetTypeUrl() {
-			return out[i].GetTypeUrl() < out[j].GetTypeUrl()
-		}
-		return string(out[i].GetValue()) < string(out[j].GetValue())
-	})
-	return out
-}
-
-// mergeGrantSources merges by map key; colliding values fold field-wise
-// with commutative+associative rules only (the mergeDuplicateGrantValues
-// invariant): IsDirect is an OR, and each ref field resolves to the
-// lexicographically smallest non-empty value ("" is the identity). A
-// "direct side's fields win" preference would NOT satisfy the invariant:
-// IsDirect ORs into the fold accumulator and loses provenance, so a field
-// donated by a non-direct value would masquerade as direct in later fold
-// steps and different arrival orders could produce different bytes. In
-// practice no writer populates the ref fields today (translate_v2 and the
-// synth encoder set only IsDirect), so any rule is byte-neutral for real
-// inputs — this one stays correct if a writer ever starts setting them.
-func mergeGrantSources(a, b map[string]*v3.GrantSourceRecord) map[string]*v3.GrantSourceRecord {
-	if len(a) == 0 {
-		return b
-	}
-	if len(b) == 0 {
-		return a
-	}
-	out := make(map[string]*v3.GrantSourceRecord, len(a)+len(b))
-	for key, value := range a {
-		out[key] = proto.Clone(value).(*v3.GrantSourceRecord)
-	}
-	for key, value := range b {
-		if value == nil {
-			continue
-		}
-		existing := out[key]
-		if existing == nil {
-			out[key] = proto.Clone(value).(*v3.GrantSourceRecord)
-			continue
-		}
-		out[key] = v3.GrantSourceRecord_builder{
-			ResourceTypeId: minNonEmptyString(existing.GetResourceTypeId(), value.GetResourceTypeId()),
-			ResourceId:     minNonEmptyString(existing.GetResourceId(), value.GetResourceId()),
-			EntitlementId:  minNonEmptyString(existing.GetEntitlementId(), value.GetEntitlementId()),
-			IsDirect:       existing.GetIsDirect() || value.GetIsDirect(),
-		}.Build()
-	}
-	return out
-}
-
 // minNonEmptyString returns the lexicographically smallest non-empty
 // argument, or "" when both are empty. Commutative and associative, with
 // "" as the identity — folding it over N values yields the global smallest
@@ -568,41 +622,4 @@ func minNonEmptyString(a, b string) string {
 	default:
 		return b
 	}
-}
-
-func mergeGrantExpansion(a, b *v3.GrantExpandableRecord) *v3.GrantExpandableRecord {
-	if a == nil {
-		return b
-	}
-	if b == nil {
-		return a
-	}
-	return v3.GrantExpandableRecord_builder{
-		EntitlementIds:  unionSortedStrings(a.GetEntitlementIds(), b.GetEntitlementIds()),
-		ResourceTypeIds: unionSortedStrings(a.GetResourceTypeIds(), b.GetResourceTypeIds()),
-		Shallow:         a.GetShallow() && b.GetShallow(),
-	}.Build()
-}
-
-func unionSortedStrings(a, b []string) []string {
-	if len(a) == 0 && len(b) == 0 {
-		return nil
-	}
-	seen := make(map[string]struct{}, len(a)+len(b))
-	for _, v := range a {
-		if v != "" {
-			seen[v] = struct{}{}
-		}
-	}
-	for _, v := range b {
-		if v != "" {
-			seen[v] = struct{}{}
-		}
-	}
-	out := make([]string, 0, len(seen))
-	for v := range seen {
-		out = append(out, v)
-	}
-	sort.Strings(out)
-	return out
 }
