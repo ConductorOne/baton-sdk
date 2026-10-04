@@ -12,7 +12,9 @@ import (
 
 // File is a staged replacement for a target path. Write to it, then call
 // CloseAtomicallyReplace. Defer Cleanup to remove the staged file on any
-// path that does not reach the replace.
+// path that does not reach the replace. A process that exits before either
+// leaves the staged file in the target's directory, and nothing removes it
+// later.
 type File struct {
 	*os.File
 	target   string
