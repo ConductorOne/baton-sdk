@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/cespare/xxhash/v2"
@@ -821,6 +822,57 @@ func writeTar(w io.Writer, dir string) error {
 	return nil
 }
 
+// maxExtractedDirs bounds the directories one payload extraction creates. A
+// Pebble checkpoint is a flat directory, so an honest payload creates few or
+// none. Entry names choose the rest, and a name of one-byte components
+// creates a directory per component, so the decoded-byte budget, which
+// charges a header the same whatever its name implies, does not bound them.
+const maxExtractedDirs = 1024
+
+// extractDirs creates the directories of one payload extraction under root
+// and refuses, before creating anything, once they would exceed
+// maxExtractedDirs.
+type extractDirs struct {
+	root    string
+	created map[string]struct{}
+}
+
+func newExtractDirs(root string) *extractDirs {
+	return &extractDirs{root: root, created: map[string]struct{}{}}
+}
+
+// mkdirAll is os.MkdirAll for rel, a local path under root. created holds
+// every ancestor of each directory it holds, so the walk up from rel stops
+// at the first created one, or once the cap is reached.
+func (d *extractDirs) mkdirAll(rel string, mode os.FileMode) error {
+	rel = filepath.Clean(rel)
+	var missing []string
+	for dir := rel; dir != "."; {
+		if _, ok := d.created[dir]; ok {
+			break
+		}
+		if len(d.created)+len(missing) == maxExtractedDirs {
+			return fmt.Errorf("c1z v3: payload creates more than %d directories: %w", maxExtractedDirs, ErrMaxSizeExceeded)
+		}
+		missing = append(missing, dir)
+		i := strings.LastIndexByte(dir, filepath.Separator)
+		if i < 0 {
+			break
+		}
+		dir = dir[:i]
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Join(d.root, rel), mode); err != nil {
+		return err
+	}
+	for _, dir := range missing {
+		d.created[dir] = struct{}{}
+	}
+	return nil
+}
+
 // ExtractZstdTar reads a zstd-tar payload stream from r and unpacks
 // it into destDir. destDir must exist. Used by the engine to
 // rematerialize a Pebble directory at open time.
@@ -846,13 +898,15 @@ func writeTar(w io.Writer, dir string) error {
 // Aggregate extraction is bounded too: when r is an Envelope's
 // PayloadReader, the decoded-byte budget (file contents AND tar
 // headers, so entry count as well) fails the extraction with
-// ErrMaxSizeExceeded once exceeded.
+// ErrMaxSizeExceeded once exceeded. Directories are capped separately
+// (extractDirs).
 //
 // Directory creation stays on the main goroutine because tar entries
 // are emitted in walk order — a TypeDir must finish before a TypeReg
 // child can be written.
 func ExtractZstdTar(r io.Reader, destDir string) error {
 	const extractWorkerCount = 4
+	dirs := newExtractDirs(destDir)
 
 	type writeJob struct {
 		target string
@@ -916,7 +970,7 @@ entryLoop:
 				readErr = err
 				break entryLoop
 			}
-			if err := os.MkdirAll(target, mode); err != nil {
+			if err := dirs.mkdirAll(filepath.FromSlash(hdr.Name), mode); err != nil {
 				readErr = err
 				break entryLoop
 			}
@@ -930,7 +984,7 @@ entryLoop:
 				readErr = fmt.Errorf("c1z v3: tar entry %q has negative size %d", hdr.Name, hdr.Size)
 				break entryLoop
 			}
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := dirs.mkdirAll(filepath.Dir(filepath.FromSlash(hdr.Name)), 0o755); err != nil {
 				readErr = err
 				break entryLoop
 			}

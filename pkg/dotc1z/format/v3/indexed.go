@@ -591,15 +591,16 @@ func extractIndexedZstd(f *os.File, payloadStart int64, manifestXXH64 uint64, de
 
 	// Directories first, on one goroutine, so workers never race a
 	// parent-dir creation.
+	dirs := newExtractDirs(destDir)
 	for _, e := range entries {
-		if !filepath.IsLocal(filepath.FromSlash(e.Name)) {
+		name := filepath.FromSlash(e.Name)
+		if !filepath.IsLocal(name) {
 			return nil, fmt.Errorf("c1z v3: unsafe indexed entry path: %q", e.Name)
 		}
-		target := filepath.Join(destDir, filepath.FromSlash(e.Name))
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		if err := dirs.mkdirAll(filepath.Dir(name), 0o755); err != nil {
 			return nil, err
 		}
-		e.ExtractedPath = target
+		e.ExtractedPath = filepath.Join(destDir, name)
 	}
 
 	workers := runtime.GOMAXPROCS(0)
