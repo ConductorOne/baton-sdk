@@ -150,9 +150,16 @@ func (l *Ledger) sealScrubsTokens() (bool, error) {
 	return false, nil
 }
 
-func scrubLedgerRow(row *v3.LedgerRow) bool {
+// scrubLedgerRow replaces any verbatim page token in the row with its hash,
+// returning whether the row changed. Ledger rows are read back from the c1z
+// file as the crash-resume authority, so a row is hostile input: a child
+// without an identity submessage is a well-formed encoding this SDK never
+// writes, and writing through its nil identity would panic in the generated
+// setter. Such a row is rejected with an error naming the problem, per the
+// engine's hostile-input policy — never dereferenced.
+func scrubLedgerRow(row *v3.LedgerRow) (bool, error) {
 	if row.GetScrubbed() {
-		return false
+		return false, nil
 	}
 	if id := row.GetIdentity(); id != nil {
 		if len(id.GetPageTokenHash()) == 0 {
@@ -166,13 +173,16 @@ func scrubLedgerRow(row *v3.LedgerRow) bool {
 	row.SetNextPageToken("")
 	for _, c := range row.GetChildren() {
 		id := c.GetIdentity()
+		if id == nil {
+			return false, fmt.Errorf("ledger row child has no identity: malformed record")
+		}
 		if len(id.GetPageTokenHash()) == 0 {
 			id.SetPageTokenHash(ledgerTokenHash(id.GetPageToken()))
 		}
 		id.SetPageToken("")
 	}
 	row.SetScrubbed(true)
-	return true
+	return true, nil
 }
 
 const ledgerScrubBatchBytes = 16 << 20
@@ -212,7 +222,11 @@ func (l *Ledger) scrubTokens(ctx context.Context) error {
 			if err := unmarshalRecord(iter.Value(), row); err != nil {
 				return fmt.Errorf("scrubTokens: unmarshal: %w", err)
 			}
-			if !scrubLedgerRow(row) {
+			changed, err := scrubLedgerRow(row)
+			if err != nil {
+				return fmt.Errorf("scrubTokens: %w", err)
+			}
+			if !changed {
 				continue
 			}
 			val, err := marshalRecord(row)

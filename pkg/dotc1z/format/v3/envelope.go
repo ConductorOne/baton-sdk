@@ -873,6 +873,19 @@ func (d *extractDirs) mkdirAll(rel string, mode os.FileMode) error {
 	return nil
 }
 
+// tarEntryIsSparse reports whether hdr carries GNU sparse-file records.
+// archive/tar merges the PAX records (GNU.sparse.major/minor/realsize/...)
+// onto hdr transparently for both the 0.1 and 1.0 encodings; the old
+// GNU 'S' typeflag is handled by the caller's switch (never a TypeReg).
+func tarEntryIsSparse(hdr *tar.Header) bool {
+	for k := range hdr.PAXRecords {
+		if strings.HasPrefix(k, "GNU.sparse.") {
+			return true
+		}
+	}
+	return false
+}
+
 // ExtractZstdTar reads a zstd-tar payload stream from r and unpacks
 // it into destDir. destDir must exist. Used by the engine to
 // rematerialize a Pebble directory at open time.
@@ -960,6 +973,19 @@ entryLoop:
 		}
 		if !filepath.IsLocal(hdr.Name) {
 			readErr = fmt.Errorf("c1z v3: unsafe tar entry path: %q", hdr.Name)
+			break
+		}
+		if tarEntryIsSparse(hdr) {
+			// A c1z tar payload is written by archive/tar.Writer, which
+			// never emits GNU sparse records — the payload is zstd
+			// compressed, so sparse encoding buys a legitimate archive
+			// nothing. A sparse entry decouples its logical size (what
+			// extraction writes) from its physical bytes (what the
+			// decoded-byte budget meters): a few hundred bytes of tar
+			// declare a 16 GiB file whose hole bytes never cross the
+			// budget's reader. The one shape where written bytes are
+			// uncharged — rejected, not extracted.
+			readErr = fmt.Errorf("c1z v3: tar entry %q: GNU sparse encoding is not accepted: %w", hdr.Name, ErrMaxSizeExceeded)
 			break
 		}
 		target := filepath.Join(destDir, hdr.Name) //nolint:gosec // hdr.Name is guarded by filepath.IsLocal above.

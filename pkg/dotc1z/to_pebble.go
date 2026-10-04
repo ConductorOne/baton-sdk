@@ -1069,10 +1069,17 @@ func sampleGrantBoundaries(ctx context.Context, db *sql.DB, table, syncID string
 	if lanes <= 1 || maxID <= minID {
 		return nil, nil
 	}
+	// The grants table's id is a plain SQLite integer primary key, so a
+	// hostile file can store any signed 64-bit rowid. Sampling is a pure
+	// optimization (boundaries only balance the lanes), so a rowid range
+	// that overflows int64 — or any other degenerate span — just skips
+	// sampling instead of panicking in rng.Int63n on a wrapped negative.
+	span := maxID - minID + 1
+	if span <= 0 || span > int64(^uint64(0)>>1) {
+		return nil, nil
+	}
 	const samplesPerLane = 32
 	sampleCount := lanes * samplesPerLane
-	span := maxID - minID + 1
-
 	// The table name is the package-internal grants descriptor, not user
 	// input.
 	query := "SELECT external_id FROM " + table + " WHERE id >= ? AND sync_id = ? ORDER BY id LIMIT 1" // #nosec G202
