@@ -873,10 +873,8 @@ func (d *extractDirs) mkdirAll(rel string, mode os.FileMode) error {
 	return nil
 }
 
-// tarEntryIsSparse reports whether hdr carries GNU sparse-file records.
-// archive/tar merges the PAX records (GNU.sparse.major/minor/realsize/...)
-// onto hdr transparently for both the 0.1 and 1.0 encodings; the old
-// GNU 'S' typeflag is handled by the caller's switch (never a TypeReg).
+// tarEntryIsSparse reports whether hdr is a GNU sparse entry. archive/tar
+// keeps the GNU.sparse.* PAX records on the header it returns.
 func tarEntryIsSparse(hdr *tar.Header) bool {
 	for k := range hdr.PAXRecords {
 		if strings.HasPrefix(k, "GNU.sparse.") {
@@ -975,19 +973,6 @@ entryLoop:
 			readErr = fmt.Errorf("c1z v3: unsafe tar entry path: %q", hdr.Name)
 			break
 		}
-		if tarEntryIsSparse(hdr) {
-			// A c1z tar payload is written by archive/tar.Writer, which
-			// never emits GNU sparse records — the payload is zstd
-			// compressed, so sparse encoding buys a legitimate archive
-			// nothing. A sparse entry decouples its logical size (what
-			// extraction writes) from its physical bytes (what the
-			// decoded-byte budget meters): a few hundred bytes of tar
-			// declare a 16 GiB file whose hole bytes never cross the
-			// budget's reader. The one shape where written bytes are
-			// uncharged — rejected, not extracted.
-			readErr = fmt.Errorf("c1z v3: tar entry %q: GNU sparse encoding is not accepted: %w", hdr.Name, ErrMaxSizeExceeded)
-			break
-		}
 		target := filepath.Join(destDir, hdr.Name) //nolint:gosec // hdr.Name is guarded by filepath.IsLocal above.
 		switch hdr.Typeflag {
 		case tar.TypeDir:
@@ -1008,6 +993,13 @@ entryLoop:
 			// straight to disk.
 			if hdr.Size < 0 {
 				readErr = fmt.Errorf("c1z v3: tar entry %q has negative size %d", hdr.Name, hdr.Size)
+				break entryLoop
+			}
+			// archive/tar synthesizes a sparse entry's holes itself, so
+			// those bytes never pass through the budgeted reader: a few KB
+			// of tar could write gigabytes. tar.Writer never writes them.
+			if tarEntryIsSparse(hdr) {
+				readErr = fmt.Errorf("c1z v3: tar entry %q is sparse: %w", hdr.Name, ErrMaxSizeExceeded)
 				break entryLoop
 			}
 			if err := dirs.mkdirAll(filepath.Dir(filepath.FromSlash(hdr.Name)), 0o755); err != nil {

@@ -398,13 +398,7 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		row.SetNextPageTokenHash(ledgerTokenHash(row.GetNextPageToken()))
 	}
 	for _, c := range row.GetChildren() {
-		// Same nil guard as scrubLedgerRow: the row may be read back from
-		// a hostile file, and a child without an identity is malformed.
-		id := c.GetIdentity()
-		if id == nil {
-			continue
-		}
-		if len(id.GetPageTokenHash()) == 0 {
+		if id := c.GetIdentity(); len(id.GetPageTokenHash()) == 0 {
 			id.SetPageTokenHash(ledgerTokenHash(id.GetPageToken()))
 		}
 	}

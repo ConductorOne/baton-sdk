@@ -150,13 +150,9 @@ func (l *Ledger) sealScrubsTokens() (bool, error) {
 	return false, nil
 }
 
-// scrubLedgerRow replaces any verbatim page token in the row with its hash,
-// returning whether the row changed. Ledger rows are read back from the c1z
-// file as the crash-resume authority, so a row is hostile input: a child
-// without an identity submessage is a well-formed encoding this SDK never
-// writes, and writing through its nil identity would panic in the generated
-// setter. Such a row is rejected with an error naming the problem, per the
-// engine's hostile-input policy — never dereferenced.
+// scrubLedgerRow replaces the row's verbatim page tokens with their hashes
+// and reports whether it changed the row. Rows are read back from the file,
+// so a child without an identity, which this SDK never writes, is an error.
 func scrubLedgerRow(row *v3.LedgerRow) (bool, error) {
 	if row.GetScrubbed() {
 		return false, nil
@@ -174,7 +170,7 @@ func scrubLedgerRow(row *v3.LedgerRow) (bool, error) {
 	for _, c := range row.GetChildren() {
 		id := c.GetIdentity()
 		if id == nil {
-			return false, fmt.Errorf("ledger row child has no identity: malformed record")
+			return false, errors.New("ledger row child has no identity")
 		}
 		if len(id.GetPageTokenHash()) == 0 {
 			id.SetPageTokenHash(ledgerTokenHash(id.GetPageToken()))
