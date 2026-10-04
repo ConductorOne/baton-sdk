@@ -76,6 +76,73 @@ func TestSecurity_TarExtractionBudgetBoundsDirectoryFanout(t *testing.T) {
 	require.Less(t, countDirs(t, dest), 2048, "fanout must trip the budget within a few entries")
 }
 
+func TestSecurity_TarFanoutBudgetedEntryControls(t *testing.T) {
+	t.Run("budgeted-entry flat control", func(t *testing.T) {
+		// 128 flat dir entries ("dNNN"): 128 charges x 512 bytes =
+		// 64 KiB against a 1 MiB budget — an honest tree pays only the
+		// fanout charge and extracts fully under a tight budget.
+		const numEntries = 128
+		var tarBuf bytes.Buffer
+		tw := tar.NewWriter(&tarBuf)
+		for i := range numEntries {
+			require.NoError(t, tw.WriteHeader(&tar.Header{
+				Typeflag: tar.TypeDir,
+				Name:     fmt.Sprintf("d%03d", i),
+				Mode:     0o755,
+			}))
+		}
+		require.NoError(t, tw.Close())
+
+		dest := filepath.Join(t.TempDir(), "out")
+		require.NoError(t, ExtractZstdTarBudgeted(bytes.NewReader(tarBuf.Bytes()), dest, NewDecodedBudget(1<<20)))
+		require.Equal(t, numEntries, countDirs(t, dest)-1, "all 128 directories extracted (minus dest itself)")
+	})
+
+	t.Run("budgeted-entry nil budget", func(t *testing.T) {
+		var tarBuf bytes.Buffer
+		tw := tar.NewWriter(&tarBuf)
+		require.NoError(t, tw.WriteHeader(&tar.Header{Typeflag: tar.TypeDir, Name: "d", Mode: 0o755}))
+		require.NoError(t, tw.Close())
+
+		err := ExtractZstdTarBudgeted(bytes.NewReader(tarBuf.Bytes()), t.TempDir(), nil)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "nil budget")
+	})
+
+	t.Run("envelope shares its budget", func(t *testing.T) {
+		// A small flat envelope: ReadEnvelope must expose its budget,
+		// and extracting through the budgeted entry point with that
+		// same object must succeed — the shared-object contract c1's
+		// objectcache snapshot path will rely on at its next bump.
+		var tarBuf bytes.Buffer
+		tw := tar.NewWriter(&tarBuf)
+		require.NoError(t, tw.WriteHeader(&tar.Header{Typeflag: tar.TypeDir, Name: "wal", Mode: 0o755}))
+		require.NoError(t, tw.WriteHeader(&tar.Header{
+			Typeflag: tar.TypeReg, Name: "wal/000001.log", Mode: 0o644, Size: 3,
+		}))
+		_, err := tw.Write([]byte("abc"))
+		require.NoError(t, err)
+		require.NoError(t, tw.Close())
+
+		envBytes := buildTarEnvelope(t, tarBuf.Bytes())
+		envPath := filepath.Join(t.TempDir(), "flat.c1z3")
+		require.NoError(t, os.WriteFile(envPath, envBytes, 0o600))
+		f, err := os.Open(envPath)
+		require.NoError(t, err)
+		defer f.Close()
+		env, err := ReadEnvelope(f)
+		require.NoError(t, err)
+		defer env.Close()
+
+		require.NotNil(t, env.PayloadBudget())
+		dest := filepath.Join(t.TempDir(), "out")
+		require.NoError(t, ExtractZstdTarBudgeted(env.PayloadReader, dest, env.PayloadBudget()))
+		got, err := os.ReadFile(filepath.Join(dest, "wal", "000001.log"))
+		require.NoError(t, err)
+		require.Equal(t, "abc", string(got))
+	})
+}
+
 // buildTarEnvelope wraps raw tar bytes as a minimal PAYLOAD_ENCODING_TAR
 // envelope in memory: C1Z3 magic + u32 BE manifest length + manifest +
 // payload. Mirrors the in-memory fixture pattern of

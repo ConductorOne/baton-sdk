@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/cespare/xxhash/v2"
@@ -212,41 +213,32 @@ func resolvePayloadOptions(opts ...PayloadOption) payloadOptions {
 	return out
 }
 
-// limitedPayloadReader passes through up to limit bytes and then fails
-// with ErrMaxSizeExceeded. Unlike io.LimitReader, exceeding the budget
-// is an error, not a silent EOF — a truncated tar stream must not look
-// like a well-formed short one.
+// limitedPayloadReader passes through up to the budget's limit and
+// then fails with ErrMaxSizeExceeded. Unlike io.LimitReader, exceeding
+// the budget is an error, not a silent EOF — a truncated tar stream
+// must not look like a well-formed short one. The budget object is
+// shared with the extractor, which charges non-byte resource costs
+// (directory fanout) against the same accounting.
 type limitedPayloadReader struct {
-	r     io.Reader
-	read  uint64
-	limit uint64
+	r      io.Reader
+	budget *DecodedBudget
 }
 
 func (l *limitedPayloadReader) Read(p []byte) (int, error) {
-	if l.read > l.limit {
-		return 0, l.limitErr()
-	}
 	n, err := l.r.Read(p)
-	//nolint:gosec // n is always >= 0.
-	l.read += uint64(n)
-	// Clip bytes that crossed the cap in this single Read so callers
-	// never see data past the budget; exactly-limit payloads still
-	// succeed and reach EOF normally.
-	if l.read > l.limit {
-		over := l.read - l.limit
-		//nolint:gosec // over <= n by construction (we just added n and went over).
-		if uint64(n) >= over {
-			n -= int(over)
-		} else {
-			n = 0
-		}
-		return n, l.limitErr()
+	// take clips the returned count at the budget's remaining bytes
+	// (partial fill of p when the budget runs out mid-Read), matching
+	// the previous inline accounting exactly. A zero-byte read (the
+	// source at EOF) is passed through uncharged — an exactly-at-limit
+	// payload must still reach EOF cleanly.
+	if n == 0 {
+		return 0, err
+	}
+	allowed, terr := l.budget.take(n)
+	if terr != nil {
+		return allowed, terr
 	}
 	return n, err
-}
-
-func (l *limitedPayloadReader) limitErr() error {
-	return fmt.Errorf("c1z v3: payload exceeds %d bytes: %w", l.limit, ErrMaxSizeExceeded)
 }
 
 // WriteEnvelope writes a complete v3 envelope to w:
@@ -356,9 +348,18 @@ type Envelope struct {
 	Manifest      *c1zv3.C1ZManifestV3
 	PayloadReader io.Reader
 
-	zstdReader *zstd.Decoder
-	pool       *DecoderPool
+	zstdReader    *zstd.Decoder
+	pool          *DecoderPool
+	payloadBudget *DecodedBudget
 }
+
+// PayloadBudget returns the decoded-byte budget that bounds this
+// envelope's PayloadReader — the same object ExtractZstdTarBudgeted
+// charges directory fanout against. Nil for indexed payloads (no tar
+// stream; use ExtractEnvelopePayload). Pass it when extracting through
+// the budgeted entry point so byte limiting and fanout charges share
+// one accounting.
+func (e *Envelope) PayloadBudget() *DecodedBudget { return e.payloadBudget }
 
 // Close returns the payload decoder to the envelope's DecoderPool (when
 // one was supplied) or destroys it.
@@ -570,9 +571,13 @@ func readEnvelope(r io.Reader, headerOnly bool, pool *DecoderPool) (*Envelope, e
 		}
 		env.zstdReader = zr
 		env.pool = pool
-		env.PayloadReader = &limitedPayloadReader{r: zr, limit: budget}
+		b := NewDecodedBudget(budget)
+		env.PayloadReader = &limitedPayloadReader{r: zr, budget: b}
+		env.payloadBudget = b
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR:
-		env.PayloadReader = &limitedPayloadReader{r: r, limit: budget}
+		b := NewDecodedBudget(budget)
+		env.PayloadReader = &limitedPayloadReader{r: r, budget: b}
+		env.payloadBudget = b
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD:
 		// Indexed payloads are not a tar stream; extraction goes
 		// through ExtractEnvelopePayload (random access over the
@@ -821,7 +826,41 @@ func writeTar(w io.Writer, dir string) error {
 	return nil
 }
 
-// ExtractZstdTar reads a zstd-tar payload stream from r and unpacks
+// tarDirChargeBytes is the budget cost charged per directory a tar
+// entry's name can materialize. The header's own 512 bytes cover the
+// entry; the directories its name fans out into — an inode and a
+// directory block each on ext4 — were free. Mirrors the indexed
+// extractor's perIndexedEntryOverhead.
+const tarDirChargeBytes = 512
+
+// chargeTarDirs charges, against budget, one tarDirChargeBytes per
+// directory the entry's name implies: every path component for a
+// TypeDir entry (MkdirAll(target)), every parent component for a
+// TypeReg entry (MkdirAll(Dir(target))). Counted from the name, never
+// against the filesystem, so shared parents are overcharged — honest
+// trees pay a handful of charges; a fanout name pays per directory.
+func chargeTarDirs(budget *DecodedBudget, name string, isDir bool) error {
+	trimmed := strings.TrimSuffix(filepath.ToSlash(name), "/")
+	dirs := strings.Count(trimmed, "/")
+	if isDir && trimmed != "" {
+		dirs++
+	}
+	return budget.Charge(uint64(dirs) * tarDirChargeBytes) //nolint:gosec // dirs <= len(name), fits uint64 on all platforms.
+}
+
+// ExtractZstdTar unpacks a zstd-tar payload stream from r into destDir
+// under the default decoded-byte budget (BATON_DECODER_MAX_DECODED_SIZE_MB,
+// default 10 GiB): file content, tar headers (so entry count), and one
+// tarDirChargeBytes per directory an entry's name can materialize.
+// Byte limiting beyond that default is the caller's reader's job (an
+// Envelope's PayloadReader is already budget-limited). Callers that
+// hold a specific budget — a file-scaled one from an Envelope — use
+// ExtractZstdTarBudgeted.
+func ExtractZstdTar(r io.Reader, destDir string) error {
+	return ExtractZstdTarBudgeted(r, destDir, NewDecodedBudget(maxDecodedPayloadBytes()))
+}
+
+// ExtractZstdTarBudgeted reads a tar payload stream from r and unpacks
 // it into destDir. destDir must exist. Used by the engine to
 // rematerialize a Pebble directory at open time.
 //
@@ -843,15 +882,21 @@ func writeTar(w io.Writer, dir string) error {
 // nearly every entry takes the parallel path — the per-entry
 // parallelism win compounds at production-scale c1z files (100s GB).
 //
-// Aggregate extraction is bounded too: when r is an Envelope's
-// PayloadReader, the decoded-byte budget (file contents AND tar
-// headers, so entry count as well) fails the extraction with
-// ErrMaxSizeExceeded once exceeded.
+// Aggregate extraction is bounded too: budget is charged for file
+// contents AND tar headers (so entry count) AND one tarDirChargeBytes
+// per directory an entry's name can materialize — extraction fails
+// with ErrMaxSizeExceeded once the budget is exceeded. When r is an
+// Envelope's PayloadReader, pass the Envelope's own budget
+// (Envelope.PayloadBudget) so byte limiting and fanout charges share
+// one accounting.
 //
 // Directory creation stays on the main goroutine because tar entries
 // are emitted in walk order — a TypeDir must finish before a TypeReg
 // child can be written.
-func ExtractZstdTar(r io.Reader, destDir string) error {
+func ExtractZstdTarBudgeted(r io.Reader, destDir string, budget *DecodedBudget) error {
+	if budget == nil {
+		return fmt.Errorf("c1z v3: ExtractZstdTarBudgeted: nil budget")
+	}
 	const extractWorkerCount = 4
 
 	type writeJob struct {
@@ -911,6 +956,10 @@ entryLoop:
 		target := filepath.Join(destDir, hdr.Name) //nolint:gosec // hdr.Name is guarded by filepath.IsLocal above.
 		switch hdr.Typeflag {
 		case tar.TypeDir:
+			if err := chargeTarDirs(budget, hdr.Name, true); err != nil {
+				readErr = fmt.Errorf("c1z v3: tar entry %q: %w", hdr.Name, err)
+				break entryLoop
+			}
 			mode, err := tarFileMode(hdr.Mode, 0o755)
 			if err != nil {
 				readErr = err
@@ -921,6 +970,10 @@ entryLoop:
 				break entryLoop
 			}
 		case tar.TypeReg:
+			if err := chargeTarDirs(budget, hdr.Name, false); err != nil {
+				readErr = fmt.Errorf("c1z v3: tar entry %q: %w", hdr.Name, err)
+				break entryLoop
+			}
 			// No per-entry size cap: a single Pebble SST can legitimately
 			// exceed any fixed bound. Aggregate extraction is bounded by
 			// the caller's decoded-byte budget (limitedPayloadReader), and

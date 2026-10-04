@@ -352,17 +352,21 @@ func (c *countingW) Write(p []byte) (int, error) {
 	return n, err
 }
 
-type decodedBudget struct {
+// DecodedBudget bounds aggregate decode cost for one payload: decoded
+// bytes AND extraction resource charges (the directories a tar
+// entry's name can materialize). It is safe for concurrent use.
+type DecodedBudget struct {
 	mu        sync.Mutex
 	remaining uint64
 	limit     uint64
 }
 
-func newDecodedBudget(limit uint64) *decodedBudget {
-	return &decodedBudget{remaining: limit, limit: limit}
+// NewDecodedBudget returns a budget with limit bytes remaining.
+func NewDecodedBudget(limit uint64) *DecodedBudget {
+	return &DecodedBudget{remaining: limit, limit: limit}
 }
 
-func (b *decodedBudget) take(n int) (int, error) {
+func (b *DecodedBudget) take(n int) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.remaining == 0 {
@@ -381,7 +385,7 @@ func (b *decodedBudget) take(n int) (int, error) {
 // potentially large uint64 to int (take) would be a lossy narrowing on 32-bit
 // platforms, so the budget keeps a native-uint64 entry point for callers
 // whose byte counts are not slice lengths.
-func (b *decodedBudget) takeU64(n uint64) (uint64, error) {
+func (b *DecodedBudget) takeU64(n uint64) (uint64, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if n > b.remaining {
@@ -392,12 +396,28 @@ func (b *decodedBudget) takeU64(n uint64) (uint64, error) {
 	return n, nil
 }
 
-func (b *decodedBudget) err() error {
+// Charge consumes n budget bytes without returning any: extraction
+// charges resource costs that are not literal decoded bytes — every
+// directory a tar entry's name can materialize — against the same
+// budget that bounds content. All-or-nothing: a charge that does not
+// fit whole fails and drains the budget.
+func (b *DecodedBudget) Charge(n uint64) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if n > b.remaining {
+		b.remaining = 0
+		return b.err()
+	}
+	b.remaining -= n
+	return nil
+}
+
+func (b *DecodedBudget) err() error {
 	return fmt.Errorf("c1z v3: indexed decoded bytes exceed %d bytes: %w", b.limit, ErrMaxSizeExceeded)
 }
 
 type budgetedFrameWriter struct {
-	budget *decodedBudget
+	budget *DecodedBudget
 	out    io.Writer
 	hash   io.Writer
 }
@@ -584,7 +604,7 @@ func extractIndexedZstd(f *os.File, payloadStart int64, manifestXXH64 uint64, de
 			totalRaw += raw
 		}
 	}
-	budget := newDecodedBudget(maxDecodedBytes)
+	budget := NewDecodedBudget(maxDecodedBytes)
 	if _, err := budget.takeU64(overhead); err != nil {
 		return nil, err
 	}
@@ -667,7 +687,7 @@ func extractIndexedZstd(f *os.File, payloadStart int64, manifestXXH64 uint64, de
 	return reuse, nil
 }
 
-func extractOneFrame(f *os.File, e *ReuseEntry, dec *zstd.Decoder, budget *decodedBudget) error {
+func extractOneFrame(f *os.File, e *ReuseEntry, dec *zstd.Decoder, budget *DecodedBudget) error {
 	out, err := os.OpenFile(e.ExtractedPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return err
@@ -761,14 +781,16 @@ func ExtractEnvelopePayload(f *os.File, destDir string, opts ...PayloadOption) (
 				zr.Close()
 			}
 		}()
-		limited := &limitedPayloadReader{r: zr, limit: cfg.maxDecodedPayloadBytes}
-		if err := ExtractZstdTar(limited, destDir); err != nil {
+		budget := NewDecodedBudget(cfg.maxDecodedPayloadBytes)
+		limited := &limitedPayloadReader{r: zr, budget: budget}
+		if err := ExtractZstdTarBudgeted(limited, destDir, budget); err != nil {
 			return nil, nil, err
 		}
 		return m, nil, nil
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR:
-		limited := &limitedPayloadReader{r: f, limit: cfg.maxDecodedPayloadBytes}
-		if err := ExtractZstdTar(limited, destDir); err != nil {
+		budget := NewDecodedBudget(cfg.maxDecodedPayloadBytes)
+		limited := &limitedPayloadReader{r: f, budget: budget}
+		if err := ExtractZstdTarBudgeted(limited, destDir, budget); err != nil {
 			return nil, nil, err
 		}
 		return m, nil, nil
