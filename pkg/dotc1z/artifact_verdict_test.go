@@ -38,15 +38,17 @@ func TestArtifactVerdictOnSaveFailure(t *testing.T) {
 				v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build(),
 			))
 
-			// Plant a directory at the atomic-save temp path.
-			tmpTarget := c1zPath + ".tmp"
-			require.NoError(t, os.Mkdir(tmpTarget, 0o755))
+			// Block the publish: squat the OUTPUT path with a directory so
+			// the save's final rename fails on every platform. (The staging
+			// file itself is created exclusively at an unpredictable name,
+			// so the staging path can no longer be squatted.)
+			require.NoError(t, os.Mkdir(c1zPath, 0o755))
 
 			// Unconditional release: a failing require unwinds via FailNow,
 			// and on Windows live engine handles fail t.TempDir()'s cleanup,
 			// burying the real assertion message.
 			t.Cleanup(func() {
-				_ = os.Remove(tmpTarget)
+				_ = os.Remove(c1zPath)
 				_ = store.Close(ctx)
 			})
 
@@ -71,7 +73,7 @@ func TestArtifactVerdictOnSaveFailure(t *testing.T) {
 			// one step. Sqlite needs no retry: it closes its handle before
 			// saving and its finalize removes the working dir even on the
 			// failed-save path, so nothing is held open or recoverable.
-			require.NoError(t, os.Remove(tmpTarget))
+			require.NoError(t, os.Remove(c1zPath))
 			if engine == c1zstore.EnginePebble {
 				require.NoError(t, store.Close(ctx),
 					"pebble advertises recovery: fix the condition and Close again")
@@ -174,19 +176,20 @@ func TestArtifactVerdictClearsOnRetriedClose(t *testing.T) {
 		v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build(),
 	))
 
-	tmpTarget := c1zPath + ".tmp"
-	require.NoError(t, os.Mkdir(tmpTarget, 0o755))
+	// Block the publish (see TestArtifactVerdictOnSaveFailure): squat the
+	// output path with a directory so the save's rename fails.
+	require.NoError(t, os.Mkdir(c1zPath, 0o755))
 	// Same unconditional release as above: if the assertion below fails, the
 	// store stays open and Windows cannot clear t.TempDir().
 	t.Cleanup(func() {
-		_ = os.Remove(tmpTarget)
+		_ = os.Remove(c1zPath)
 		_ = store.Close(ctx)
 	})
 
 	closeErr := store.Close(ctx)
 	require.ErrorIs(t, closeErr, dotc1z.ErrArtifactUnusable)
 
-	require.NoError(t, os.Remove(tmpTarget))
+	require.NoError(t, os.Remove(c1zPath))
 	require.NoError(t, store.Close(ctx))
 	require.FileExists(t, c1zPath)
 }
