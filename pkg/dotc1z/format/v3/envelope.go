@@ -213,32 +213,41 @@ func resolvePayloadOptions(opts ...PayloadOption) payloadOptions {
 	return out
 }
 
-// limitedPayloadReader passes through up to the budget's limit and
-// then fails with ErrMaxSizeExceeded. Unlike io.LimitReader, exceeding
-// the budget is an error, not a silent EOF — a truncated tar stream
-// must not look like a well-formed short one. The budget object is
-// shared with the extractor, which charges non-byte resource costs
-// (directory fanout) against the same accounting.
+// limitedPayloadReader passes through up to limit bytes and then fails
+// with ErrMaxSizeExceeded. Unlike io.LimitReader, exceeding the budget
+// is an error, not a silent EOF — a truncated tar stream must not look
+// like a well-formed short one.
 type limitedPayloadReader struct {
-	r      io.Reader
-	budget *DecodedBudget
+	r     io.Reader
+	read  uint64
+	limit uint64
 }
 
 func (l *limitedPayloadReader) Read(p []byte) (int, error) {
-	n, err := l.r.Read(p)
-	// take clips the returned count at the budget's remaining bytes
-	// (partial fill of p when the budget runs out mid-Read), matching
-	// the previous inline accounting exactly. A zero-byte read (the
-	// source at EOF) is passed through uncharged — an exactly-at-limit
-	// payload must still reach EOF cleanly.
-	if n == 0 {
-		return 0, err
+	if l.read > l.limit {
+		return 0, l.limitErr()
 	}
-	allowed, terr := l.budget.take(n)
-	if terr != nil {
-		return allowed, terr
+	n, err := l.r.Read(p)
+	//nolint:gosec // n is always >= 0.
+	l.read += uint64(n)
+	// Clip bytes that crossed the cap in this single Read so callers
+	// never see data past the budget; exactly-limit payloads still
+	// succeed and reach EOF normally.
+	if l.read > l.limit {
+		over := l.read - l.limit
+		//nolint:gosec // over <= n by construction (we just added n and went over).
+		if uint64(n) >= over {
+			n -= int(over)
+		} else {
+			n = 0
+		}
+		return n, l.limitErr()
 	}
 	return n, err
+}
+
+func (l *limitedPayloadReader) limitErr() error {
+	return fmt.Errorf("c1z v3: payload exceeds %d bytes: %w", l.limit, ErrMaxSizeExceeded)
 }
 
 // WriteEnvelope writes a complete v3 envelope to w:
@@ -348,18 +357,9 @@ type Envelope struct {
 	Manifest      *c1zv3.C1ZManifestV3
 	PayloadReader io.Reader
 
-	zstdReader    *zstd.Decoder
-	pool          *DecoderPool
-	payloadBudget *DecodedBudget
+	zstdReader *zstd.Decoder
+	pool       *DecoderPool
 }
-
-// PayloadBudget returns the decoded-byte budget that bounds this
-// envelope's PayloadReader — the same object ExtractZstdTarBudgeted
-// charges directory fanout against. Nil for indexed payloads (no tar
-// stream; use ExtractEnvelopePayload). Pass it when extracting through
-// the budgeted entry point so byte limiting and fanout charges share
-// one accounting.
-func (e *Envelope) PayloadBudget() *DecodedBudget { return e.payloadBudget }
 
 // Close returns the payload decoder to the envelope's DecoderPool (when
 // one was supplied) or destroys it.
@@ -571,13 +571,9 @@ func readEnvelope(r io.Reader, headerOnly bool, pool *DecoderPool) (*Envelope, e
 		}
 		env.zstdReader = zr
 		env.pool = pool
-		b := NewDecodedBudget(budget)
-		env.PayloadReader = &limitedPayloadReader{r: zr, budget: b}
-		env.payloadBudget = b
+		env.PayloadReader = &limitedPayloadReader{r: zr, limit: budget}
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_TAR:
-		b := NewDecodedBudget(budget)
-		env.PayloadReader = &limitedPayloadReader{r: r, budget: b}
-		env.payloadBudget = b
+		env.PayloadReader = &limitedPayloadReader{r: r, limit: budget}
 	case c1zv3.PayloadEncoding_PAYLOAD_ENCODING_INDEXED_ZSTD:
 		// Indexed payloads are not a tar stream; extraction goes
 		// through ExtractEnvelopePayload (random access over the
@@ -826,41 +822,58 @@ func writeTar(w io.Writer, dir string) error {
 	return nil
 }
 
-// tarDirChargeBytes is the budget cost charged per directory a tar
-// entry's name can materialize. The header's own 512 bytes cover the
-// entry; the directories its name fans out into — an inode and a
-// directory block each on ext4 — were free. Mirrors the indexed
-// extractor's perIndexedEntryOverhead.
-const tarDirChargeBytes = 512
+// maxExtractedDirs bounds the directories one payload extraction creates. A
+// Pebble checkpoint is a flat directory, so an honest payload creates few or
+// none. Entry names choose the rest, and a name of one-byte components
+// creates a directory per component, so the decoded-byte budget, which
+// charges a header the same whatever its name implies, does not bound them.
+const maxExtractedDirs = 1024
 
-// chargeTarDirs charges, against budget, one tarDirChargeBytes per
-// directory the entry's name implies: every path component for a
-// TypeDir entry (MkdirAll(target)), every parent component for a
-// TypeReg entry (MkdirAll(Dir(target))). Counted from the name, never
-// against the filesystem, so shared parents are overcharged — honest
-// trees pay a handful of charges; a fanout name pays per directory.
-func chargeTarDirs(budget *DecodedBudget, name string, isDir bool) error {
-	trimmed := strings.TrimSuffix(filepath.ToSlash(name), "/")
-	dirs := strings.Count(trimmed, "/")
-	if isDir && trimmed != "" {
-		dirs++
+// extractDirs creates the directories of one payload extraction under root
+// and refuses, before creating anything, once they would exceed
+// maxExtractedDirs.
+type extractDirs struct {
+	root    string
+	created map[string]struct{}
+}
+
+func newExtractDirs(root string) *extractDirs {
+	return &extractDirs{root: root, created: map[string]struct{}{}}
+}
+
+// mkdirAll is os.MkdirAll for rel, a local path under root. created holds
+// every ancestor of each directory it holds, so the walk up from rel stops
+// at the first created one, or once the cap is reached.
+func (d *extractDirs) mkdirAll(rel string, mode os.FileMode) error {
+	rel = filepath.Clean(rel)
+	var missing []string
+	for dir := rel; dir != "."; {
+		if _, ok := d.created[dir]; ok {
+			break
+		}
+		if len(d.created)+len(missing) == maxExtractedDirs {
+			return fmt.Errorf("c1z v3: payload creates more than %d directories: %w", maxExtractedDirs, ErrMaxSizeExceeded)
+		}
+		missing = append(missing, dir)
+		i := strings.LastIndexByte(dir, filepath.Separator)
+		if i < 0 {
+			break
+		}
+		dir = dir[:i]
 	}
-	return budget.Charge(uint64(dirs) * tarDirChargeBytes) //nolint:gosec // dirs <= len(name), fits uint64 on all platforms.
+	if len(missing) == 0 {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Join(d.root, rel), mode); err != nil {
+		return err
+	}
+	for _, dir := range missing {
+		d.created[dir] = struct{}{}
+	}
+	return nil
 }
 
-// ExtractZstdTar unpacks a zstd-tar payload stream from r into destDir
-// under the default decoded-byte budget (BATON_DECODER_MAX_DECODED_SIZE_MB,
-// default 10 GiB): file content, tar headers (so entry count), and one
-// tarDirChargeBytes per directory an entry's name can materialize.
-// Byte limiting beyond that default is the caller's reader's job (an
-// Envelope's PayloadReader is already budget-limited). Callers that
-// hold a specific budget — a file-scaled one from an Envelope — use
-// ExtractZstdTarBudgeted.
-func ExtractZstdTar(r io.Reader, destDir string) error {
-	return ExtractZstdTarBudgeted(r, destDir, NewDecodedBudget(maxDecodedPayloadBytes()))
-}
-
-// ExtractZstdTarBudgeted reads a tar payload stream from r and unpacks
+// ExtractZstdTar reads a zstd-tar payload stream from r and unpacks
 // it into destDir. destDir must exist. Used by the engine to
 // rematerialize a Pebble directory at open time.
 //
@@ -882,22 +895,18 @@ func ExtractZstdTar(r io.Reader, destDir string) error {
 // nearly every entry takes the parallel path — the per-entry
 // parallelism win compounds at production-scale c1z files (100s GB).
 //
-// Aggregate extraction is bounded too: budget is charged for file
-// contents AND tar headers (so entry count) AND one tarDirChargeBytes
-// per directory an entry's name can materialize — extraction fails
-// with ErrMaxSizeExceeded once the budget is exceeded. When r is an
-// Envelope's PayloadReader, pass the Envelope's own budget
-// (Envelope.PayloadBudget) so byte limiting and fanout charges share
-// one accounting.
+// Aggregate extraction is bounded too: when r is an Envelope's
+// PayloadReader, the decoded-byte budget (file contents AND tar
+// headers, so entry count as well) fails the extraction with
+// ErrMaxSizeExceeded once exceeded. Directories are capped separately
+// (extractDirs).
 //
 // Directory creation stays on the main goroutine because tar entries
 // are emitted in walk order — a TypeDir must finish before a TypeReg
 // child can be written.
-func ExtractZstdTarBudgeted(r io.Reader, destDir string, budget *DecodedBudget) error {
-	if budget == nil {
-		return fmt.Errorf("c1z v3: ExtractZstdTarBudgeted: nil budget")
-	}
+func ExtractZstdTar(r io.Reader, destDir string) error {
 	const extractWorkerCount = 4
+	dirs := newExtractDirs(destDir)
 
 	type writeJob struct {
 		target string
@@ -956,24 +965,16 @@ entryLoop:
 		target := filepath.Join(destDir, hdr.Name) //nolint:gosec // hdr.Name is guarded by filepath.IsLocal above.
 		switch hdr.Typeflag {
 		case tar.TypeDir:
-			if err := chargeTarDirs(budget, hdr.Name, true); err != nil {
-				readErr = fmt.Errorf("c1z v3: tar entry %q: %w", hdr.Name, err)
-				break entryLoop
-			}
 			mode, err := tarFileMode(hdr.Mode, 0o755)
 			if err != nil {
 				readErr = err
 				break entryLoop
 			}
-			if err := os.MkdirAll(target, mode); err != nil {
+			if err := dirs.mkdirAll(filepath.FromSlash(hdr.Name), mode); err != nil {
 				readErr = err
 				break entryLoop
 			}
 		case tar.TypeReg:
-			if err := chargeTarDirs(budget, hdr.Name, false); err != nil {
-				readErr = fmt.Errorf("c1z v3: tar entry %q: %w", hdr.Name, err)
-				break entryLoop
-			}
 			// No per-entry size cap: a single Pebble SST can legitimately
 			// exceed any fixed bound. Aggregate extraction is bounded by
 			// the caller's decoded-byte budget (limitedPayloadReader), and
@@ -983,7 +984,7 @@ entryLoop:
 				readErr = fmt.Errorf("c1z v3: tar entry %q has negative size %d", hdr.Name, hdr.Size)
 				break entryLoop
 			}
-			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			if err := dirs.mkdirAll(filepath.Dir(filepath.FromSlash(hdr.Name)), 0o755); err != nil {
 				readErr = err
 				break entryLoop
 			}

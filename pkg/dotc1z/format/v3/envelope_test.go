@@ -278,12 +278,12 @@ func TestPayloadBudgetForFileSize(t *testing.T) {
 // TestLimitedPayloadReaderExactLimit verifies a payload of exactly the
 // budget succeeds and reaches EOF — only crossing the budget fails.
 func TestLimitedPayloadReaderExactLimit(t *testing.T) {
-	lr := &limitedPayloadReader{r: bytes.NewReader(make([]byte, 64)), budget: NewDecodedBudget(64)}
+	lr := &limitedPayloadReader{r: bytes.NewReader(make([]byte, 64)), limit: 64}
 	got, err := io.ReadAll(lr)
 	require.NoError(t, err)
 	require.Len(t, got, 64)
 
-	lr = &limitedPayloadReader{r: bytes.NewReader(make([]byte, 65)), budget: NewDecodedBudget(64)}
+	lr = &limitedPayloadReader{r: bytes.NewReader(make([]byte, 65)), limit: 64}
 	got, err = io.ReadAll(lr)
 	require.ErrorIs(t, err, ErrMaxSizeExceeded)
 	require.LessOrEqual(t, len(got), 64)
