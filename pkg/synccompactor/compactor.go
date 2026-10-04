@@ -12,6 +12,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/conductorone/baton-sdk/internal/atomicfile"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -577,35 +578,19 @@ func cpFile(ctx context.Context, sourcePath string, destPath string) error {
 	}
 	defer source.Close()
 
-	destination, err := os.Create(destPath) // #nosec G703 -- the caller intentionally selects the compacted artifact destination.
+	destination, err := atomicfile.Create(destPath)
 	if err != nil {
 		return fmt.Errorf("failed to create destination file: %w", err)
 	}
-	destinationClosed := false
-	defer func() {
-		if !destinationClosed {
-			_ = destination.Close()
-		}
-	}()
+	defer destination.Cleanup()
 
 	_, err = io.Copy(destination, source)
 	if err != nil {
 		return fmt.Errorf("failed to copy file: %w", err)
 	}
-
-	// Sync + Close + err-check so write-back failures (out-of-disk,
-	// IO error, quota exhaustion) surface here rather than being
-	// silently discarded by the deferred Close after the function
-	// has reported success. Required because the compacted file is
-	// the canonical artifact downstream consumers read.
-	if err := destination.Sync(); err != nil {
-		return fmt.Errorf("failed to sync destination file: %w", err)
+	if err := destination.CloseAtomicallyReplace(); err != nil {
+		return fmt.Errorf("failed to write destination file: %w", err)
 	}
-	if err := destination.Close(); err != nil {
-		return fmt.Errorf("failed to close destination file: %w", err)
-	}
-	destinationClosed = true
-
 	return nil
 }
 

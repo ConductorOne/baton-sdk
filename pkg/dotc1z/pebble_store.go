@@ -15,11 +15,11 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/anypb"
 
+	"github.com/conductorone/baton-sdk/internal/atomicfile"
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
-	"github.com/conductorone/baton-sdk/pkg/atomicfile"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
@@ -927,15 +927,11 @@ func (s *pebbleStore) save(ctx context.Context) error {
 	}
 	checkpointDur := time.Since(saveStart)
 
-	// The staged envelope is the complete sync artifact: stage it under an
-	// exclusive, unpredictable name (AtomicFile) so a planted entry beside
-	// the output can neither block the save nor receive its bytes, and the
-	// published file stays private (0600) like the placeholder it replaces.
-	staged, err := atomicfile.New(s.outputFilePath)
+	staged, err := atomicfile.Create(s.outputFilePath)
 	if err != nil {
 		return err
 	}
-	defer staged.Abort()
+	defer staged.Cleanup()
 
 	manifest, err := pebble.BuildManifestWithSyncRuns(ctx, s.Engine, s.payloadEncoding)
 	if err != nil {
@@ -945,15 +941,12 @@ func (s *pebbleStore) save(ctx context.Context) error {
 		manifest.SetFoldDeadBytes(s.foldDeadBytes)
 	}
 	encodeStart := time.Now()
-	if _, err := formatv3.WriteEnvelopeWithReuse(staged.File, manifest, checkpointDir, s.payloadReuse); err != nil {
+	if _, err := formatv3.WriteEnvelopeWithReuse(staged, manifest, checkpointDir, s.payloadReuse); err != nil {
 		return err
 	}
 	ctxzap.Extract(ctx).Debug("pebble save: envelope written",
 		zap.Duration("checkpoint", checkpointDur),
 		zap.Duration("envelope_encode", time.Since(encodeStart)),
 	)
-	if err := staged.Commit(); err != nil {
-		return err
-	}
-	return nil
+	return staged.CloseAtomicallyReplace()
 }

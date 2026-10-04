@@ -14,7 +14,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/conductorone/baton-sdk/pkg/atomicfile"
+	"github.com/conductorone/baton-sdk/internal/atomicfile"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
@@ -120,15 +120,11 @@ func cloneSync(
 		return fmt.Errorf("clone-sync: drop engine-local keyspaces: %w", err)
 	}
 
-	// The staged envelope is the complete cloned artifact: stage it under an
-	// exclusive, unpredictable name so a planted entry beside the output
-	// can neither block the clone nor receive its bytes, and the published
-	// file stays private (0600).
-	staged, err := atomicfile.New(outPath)
+	staged, err := atomicfile.Create(outPath)
 	if err != nil {
 		return err
 	}
-	defer staged.Abort()
+	defer staged.Cleanup()
 
 	manifest, err := BuildManifestWithSyncRuns(ctx, dest, encoding)
 	if err != nil {
@@ -137,8 +133,8 @@ func cloneSync(
 	if err := dest.Close(); err != nil {
 		return err
 	}
-	if err := formatv3.WriteEnvelope(staged.File, manifest, checkpointDir); err != nil {
+	if err := formatv3.WriteEnvelope(staged, manifest, checkpointDir); err != nil {
 		return err
 	}
-	return staged.Commit()
+	return staged.CloseAtomicallyReplace()
 }

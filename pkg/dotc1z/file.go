@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/conductorone/baton-sdk/pkg/atomicfile"
+	"github.com/conductorone/baton-sdk/internal/atomicfile"
 	"github.com/klauspost/compress/zstd"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -127,18 +127,14 @@ func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) e
 	}
 	dbSize := dbStat.Size()
 
-	// Stage under an exclusive, unpredictable name (AtomicFile): the
-	// compressed output is the complete sync artifact, so a planted entry at
-	// a predictable "<out>.tmp" must be able to neither block the save nor
-	// receive its bytes, and the published file must stay private (0600)
-	// like the placeholder it replaces. The rename publishes atomically, so
-	// a crash mid-write never corrupts the previous artifact.
-	staged, err := atomicfile.New(outputFilePath)
+	// Write to a temporary file first to ensure atomic writes.
+	// This prevents file corruption if the process crashes mid-write,
+	// since the original file remains intact until the rename succeeds.
+	outFile, err := atomicfile.Create(outputFilePath)
 	if err != nil {
 		return err
 	}
-	defer staged.Abort()
-	outFile := staged.File
+	defer outFile.Cleanup()
 
 	// Write the magic file header
 	_, err = outFile.Write(C1ZFileHeader)
@@ -207,15 +203,16 @@ func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) e
 		putEncoder(c1z)
 	}
 
-	if err := staged.Commit(); err != nil {
-		return fmt.Errorf("failed to publish c1z: %w", err)
-	}
-
 	err = dbFile.Close()
 	if err != nil {
 		return fmt.Errorf("failed to close db file: %w", err)
 	}
 	dbFile = nil
+
+	err = outFile.CloseAtomicallyReplace()
+	if err != nil {
+		return fmt.Errorf("failed to write output file: %w", err)
+	}
 
 	// Record the decompressed and compressed sizes for every saved c1z.
 	// Operators rely on this line to track c1z growth per tenant/connector
