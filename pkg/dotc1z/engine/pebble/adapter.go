@@ -893,16 +893,13 @@ func (e *Engine) ListResources(ctx context.Context, req *v2.ResourcesServiceList
 		return nil, ErrNoCurrentSync
 	}
 	limit := clampPageSize(req.GetPageSize())
-	var keep func(*v3.ResourceRecord) bool
-	if rt := req.GetResourceTypeId(); rt != "" {
-		keep = func(r *v3.ResourceRecord) bool { return r.GetResourceTypeId() == rt }
-	}
+	rt := req.GetResourceTypeId()
 	var records []*v3.ResourceRecord
 	var next string
 	if parent := req.GetParentResourceId(); parent.GetResource() != "" {
-		records, next, err = e.paginateResourcesByParent(ctx, parent.GetResourceType(), parent.GetResource(), req.GetPageToken(), limit, keep)
+		records, next, err = e.paginateResourcesByParent(ctx, parent.GetResourceType(), parent.GetResource(), rt, req.GetPageToken(), limit)
 	} else {
-		records, next, err = e.paginateResources(ctx, req.GetPageToken(), limit, keep)
+		records, next, err = e.paginateResources(ctx, rt, req.GetPageToken(), limit)
 	}
 	if err != nil {
 		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)

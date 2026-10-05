@@ -90,6 +90,12 @@ func TestSecurity_PageTokensAdvancePastHostileRows(t *testing.T) {
 			}.Build()),
 			resourceIDs,
 		},
+		"ListResources by parent and type": {
+			resources(v2.ResourcesServiceListResourcesRequest_builder{
+				ParentResourceId: v2.ResourceId_builder{ResourceType: "group", Resource: "g"}.Build(), ResourceTypeId: "user", PageSize: 3,
+			}.Build()),
+			resourceIDs,
+		},
 		"ListGrantsForEntitlement":                   {grantsForEntitlement(), principalIDs},
 		"ListGrantsForEntitlement by principal type": {grantsForEntitlement("user"), principalIDs},
 		"ListGrantsForEntitlements": {

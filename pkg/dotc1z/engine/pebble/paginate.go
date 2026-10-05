@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/codec"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
@@ -562,33 +563,40 @@ func (e *Engine) PaginateGrantsByNeedsExpansion(
 func (e *Engine) PaginateResources(
 	ctx context.Context, cursor string, limit int,
 ) ([]*v3.ResourceRecord, string, error) {
-	return e.paginateResources(ctx, cursor, limit, nil)
+	return e.paginateResources(ctx, "", cursor, limit)
 }
 
+// paginateResources pages the resources of resourceTypeID, or all
+// resources when it is empty. The type leads the primary key, so the scan
+// reads only that type's rows.
 func (e *Engine) paginateResources(
-	ctx context.Context, cursor string, limit int, keep func(*v3.ResourceRecord) bool,
+	ctx context.Context, resourceTypeID, cursor string, limit int,
 ) ([]*v3.ResourceRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
 	if err != nil {
 		return nil, "", err
 	}
 	prefix := encodeResourcePrefix()
+	if resourceTypeID != "" {
+		prefix = encodeResourcePrimaryTypePrefix(resourceTypeID)
+	}
 	return iteratePrimaryPageWithKey(ctx, e.db, prefix, cursorBytes, limit, func() *v3.ResourceRecord {
 		return &v3.ResourceRecord{}
-	}, keep)
+	}, nil)
 }
 
 // PaginateResourcesByParent uses the by_parent index.
 func (e *Engine) PaginateResourcesByParent(
 	ctx context.Context, parentRT, parentID, cursor string, limit int,
 ) ([]*v3.ResourceRecord, string, error) {
-	return e.paginateResourcesByParent(ctx, parentRT, parentID, cursor, limit, nil)
+	return e.paginateResourcesByParent(ctx, parentRT, parentID, "", cursor, limit)
 }
 
-// paginateResourcesByParent is PaginateResourcesByParent with
-// iteratePrimaryPageWithKey's keep.
+// paginateResourcesByParent pages the children of (parentRT, parentID),
+// only those of childRT when it is non-empty: the child's type follows the
+// parent in the index key, so the scan reads only those entries.
 func (e *Engine) paginateResourcesByParent(
-	ctx context.Context, parentRT, parentID, cursor string, limit int, keep func(*v3.ResourceRecord) bool,
+	ctx context.Context, parentRT, parentID, childRT, cursor string, limit int,
 ) ([]*v3.ResourceRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
 	if err != nil {
@@ -598,7 +606,11 @@ func (e *Engine) paginateResourcesByParent(
 		limit = DefaultPageSize
 	}
 	indexPrefix := encodeResourceByParentPrefix(parentRT, parentID)
-	lower, upper, err := rangeAfter(indexPrefix, cursorBytes)
+	scanPrefix := indexPrefix
+	if childRT != "" {
+		scanPrefix = codec.AppendTupleSeparator(codec.AppendTupleString(indexPrefix, childRT))
+	}
+	lower, upper, err := rangeAfter(scanPrefix, cursorBytes)
 	if err != nil {
 		return nil, "", err
 	}
@@ -637,9 +649,6 @@ func (e *Engine) paginateResourcesByParent(
 		closer.Close()
 		if err != nil {
 			return nil, "", err
-		}
-		if keep != nil && !keep(r) {
-			continue
 		}
 		lastReturnedKey = append(lastReturnedKey[:0], iter.Key()...)
 		out = append(out, r)

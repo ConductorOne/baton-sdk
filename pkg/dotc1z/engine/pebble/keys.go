@@ -458,6 +458,16 @@ func encodeResourcePrefix() []byte {
 	return []byte{versionV3, typeResource}
 }
 
+// encodeResourcePrimaryTypePrefix is the primary-key prefix of every
+// resource of one type.
+func encodeResourcePrimaryTypePrefix(resourceTypeID string) []byte {
+	buf := make([]byte, 0, 8+len(resourceTypeID))
+	buf = append(buf, versionV3, typeResource)
+	buf = codec.AppendTupleSeparator(buf)
+	buf = codec.AppendTupleString(buf, resourceTypeID)
+	return codec.AppendTupleSeparator(buf)
+}
+
 // encodeResourceByParentPrefix is the by-value prefix for "all
 // children of (parent_rt, parent_id)". Trailing sep is load-bearing.
 func encodeResourceByParentPrefix(parentRT, parentID string) []byte {
