@@ -45,6 +45,9 @@ func fetchResourceTypes(ctx context.Context, store connectorstore.Reader) (map[s
 		if resp.NextPageToken == "" {
 			break
 		}
+		if resp.NextPageToken == pageToken {
+			return nil, fmt.Errorf("baton: page token did not advance; aborting before unbounded output")
+		}
 		pageToken = resp.NextPageToken
 	}
 
@@ -78,6 +81,9 @@ func fetchResources(ctx context.Context, store connectorstore.Reader) (map[strin
 		if resp.NextPageToken == "" {
 			break
 		}
+		if resp.NextPageToken == pageToken {
+			return nil, nil, fmt.Errorf("baton: page token did not advance; aborting before unbounded output")
+		}
 		pageToken = resp.NextPageToken
 	}
 
@@ -110,6 +116,9 @@ func fetchEntitlements(ctx context.Context, store connectorstore.Reader) (map[st
 		if resp.NextPageToken == "" {
 			break
 		}
+		if resp.NextPageToken == pageToken {
+			return nil, nil, fmt.Errorf("baton: page token did not advance; aborting before unbounded output")
+		}
 		pageToken = resp.NextPageToken
 	}
 
@@ -141,6 +150,9 @@ func fetchGrants(ctx context.Context, store connectorstore.Reader) (map[string]*
 
 		if resp.NextPageToken == "" {
 			break
+		}
+		if resp.NextPageToken == pageToken {
+			return nil, nil, fmt.Errorf("baton: page token did not advance; aborting before unbounded output")
 		}
 		pageToken = resp.NextPageToken
 	}

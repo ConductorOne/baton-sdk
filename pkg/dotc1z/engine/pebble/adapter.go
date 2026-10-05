@@ -899,14 +899,19 @@ func (e *Engine) ListResources(ctx context.Context, req *v2.ResourcesServiceList
 	parent := req.GetParentResourceId()
 	useParent := parent != nil && parent.GetResource() != ""
 
-	// cursorFor returns the engine cursor for rec under the path
-	// this call is iterating — primary keyspace for the unfiltered
-	// case, by_parent index for the parent-scoped case. We need
-	// per-record cursors because a post-filter break at len(out) ==
-	// limit may leave matching records unconsumed in the engine
-	// page; emitting the engine's end-of-page cursor would skip
-	// them on the next call.
-	cursorFor := func(rec *v3.ResourceRecord) string {
+	// cursorForKey returns the resume cursor for position i of the engine
+	// page: the record's TRUE iterator key when the engine surfaced it,
+	// falling back to the value-derived key otherwise. We need per-record
+	// cursors because a post-filter break at len(out) == limit may leave
+	// matching records unconsumed in the engine page; emitting the engine's
+	// end-of-page cursor would skip them on the next call. The value ids of
+	// a hostile c1z can disagree with the record's key, so the token must
+	// come from the key — minting it from the value lets a hostile file
+	// re-serve served rows forever (pagination_advance_security_test).
+	cursorForKey := func(pageKeys [][]byte, i int, rec *v3.ResourceRecord) string {
+		if i < len(pageKeys) && pageKeys[i] != nil {
+			return encodeCursor(pageKeys[i])
+		}
 		if useParent {
 			return encodeCursor(rawdb.EncodeResourceByParentIndexKey(
 				parent.GetResourceType(), parent.GetResource(),
@@ -930,19 +935,21 @@ func (e *Engine) ListResources(ctx context.Context, req *v2.ResourcesServiceList
 				fetchLimit = MaxPageSize
 			}
 		}
-		var records []*v3.ResourceRecord
+		var page resourcePage
 		var err error
 		if useParent {
-			records, nextCursor, err = e.PaginateResourcesByParent(ctx,
+			page, err = e.paginateResourcesByParentWithKeys(ctx,
 				parent.GetResourceType(), parent.GetResource(), cursor, fetchLimit)
 		} else {
-			records, nextCursor, err = e.PaginateResources(ctx, cursor, fetchLimit)
+			page, err = e.paginateResourcesWithKeys(ctx, cursor, fetchLimit)
 		}
 		if err != nil {
 			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 		}
+		records, pageKeys := page.records, page.keys
+		nextCursor = page.next
 		brokeEarly := false
-		for _, rec := range records {
+		for i, rec := range records {
 			if rtFilter != "" && rec.GetResourceTypeId() != rtFilter {
 				continue
 			}
@@ -952,7 +959,7 @@ func (e *Engine) ListResources(ctx context.Context, req *v2.ResourcesServiceList
 				// Override the engine's end-of-page cursor with
 				// THIS record's cursor so the next page resumes
 				// strictly after this record.
-				nextCursor = cursorFor(rec)
+				nextCursor = cursorForKey(pageKeys, i, rec)
 				brokeEarly = true
 				break
 			}
