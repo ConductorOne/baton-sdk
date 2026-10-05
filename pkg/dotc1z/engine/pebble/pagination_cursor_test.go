@@ -12,69 +12,65 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
-// TestPostFilterPaginationDoesNotSkip is the regression guard for
-// the "post-filter pagination cursor" bug the PR review flagged.
-//
-// Scenario: ListResources with rtFilter set + a page size of 3.
-// The engine returns up to 12 records per fetch (4× over-fetch).
-// If the inner loop breaks at len(out) == 3 while there are still
-// matching records later in the engine page, the buggy
-// implementation returned the engine's end-of-page cursor — which
-// caused the next page request to skip the remaining matches.
-//
-// We seed 8 "user" resources interleaved with 8 "group" resources
-// so that any honest page-3-at-a-time iteration must return all 8
-// users across multiple pages.
-func TestPostFilterPaginationDoesNotSkip(t *testing.T) {
+// TestListResourcesTypeFilterPagination pages type-filtered listings, with
+// and without a parent, over children of three types under one parent. "us"
+// is a name prefix of "user", so a scan prefix missing its trailing
+// separator would mix the two.
+func TestListResourcesTypeFilterPagination(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoErrorf(t, err, "StartNewSync")
 
+	parent := v2.ResourceId_builder{ResourceType: "group", Resource: "p"}.Build()
 	const total = 8
-	all := make([]*v2.Resource, 0, 2*total)
-	for i := 0; i < total; i++ {
-		all = append(all,
-			v2.Resource_builder{
-				Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u-" + strconv.Itoa(i)}.Build(),
-			}.Build(),
-			v2.Resource_builder{
-				Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g-" + strconv.Itoa(i)}.Build(),
-			}.Build(),
-		)
+	want := map[string][]string{}
+	var all []*v2.Resource
+	for i := range total {
+		for _, rt := range []string{"user", "us", "group"} {
+			id := rt + "-" + strconv.Itoa(i)
+			want[rt] = append(want[rt], id)
+			all = append(all, v2.Resource_builder{
+				Id:               v2.ResourceId_builder{ResourceType: rt, Resource: id}.Build(),
+				ParentResourceId: parent,
+			}.Build())
+		}
 	}
 	require.NoErrorf(t, a.PutResources(ctx, all...), "PutResources")
 
-	seen := make(map[string]bool, total)
-	pageToken := ""
-	pages := 0
-	for {
-		pages++
-		require.LessOrEqual(t, pages, 10, "ListResources did not terminate after %d pages", pages)
-		resp, err := a.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
-			ResourceTypeId: "user",
-			PageSize:       3,
-			PageToken:      pageToken,
-		}.Build())
-		require.NoErrorf(t, err, "ListResources")
-		for _, r := range resp.GetList() {
-			require.Equal(t, "user", r.GetId().GetResourceType(), "got non-user resource in page: %v", r)
-			seen[r.GetId().GetResource()] = true
-		}
-		pageToken = resp.GetNextPageToken()
-		if pageToken == "" {
-			break
+	for _, byParent := range []bool{false, true} {
+		for _, rt := range []string{"user", "us"} {
+			var got []string
+			pageToken := ""
+			for pages := 1; ; pages++ {
+				require.LessOrEqual(t, pages, 10, "ListResources(%q, byParent=%v) did not terminate", rt, byParent)
+				req := v2.ResourcesServiceListResourcesRequest_builder{
+					ResourceTypeId: rt,
+					PageSize:       3,
+					PageToken:      pageToken,
+				}.Build()
+				if byParent {
+					req.SetParentResourceId(parent)
+				}
+				resp, err := a.ListResources(ctx, req)
+				require.NoErrorf(t, err, "ListResources")
+				for _, r := range resp.GetList() {
+					got = append(got, r.GetId().GetResource())
+				}
+				pageToken = resp.GetNextPageToken()
+				if pageToken == "" {
+					break
+				}
+			}
+			require.ElementsMatch(t, want[rt], got, "ListResources(%q, byParent=%v)", rt, byParent)
 		}
 	}
-
-	require.Equal(t, total, len(seen), "post-filter ListResources missed records: got %d users (%v), want %d", len(seen), seen, total)
 }
 
-// TestListGrantsForEntitlementPostFilterDoesNotSkip is the same
-// shape regression for ListGrantsForEntitlement with a principal
-// resource_type_id filter. Seeds grants on entitlement ent-A whose
-// principals are interleaved user/group; the page-3 iteration must
-// still see every user-principal grant.
+// TestListGrantsForEntitlementPostFilterDoesNotSkip pages
+// ListGrantsForEntitlement filtered by principal resource type over
+// grants on ent-A whose principals interleave user/group; the page-3
+// iteration must see every user-principal grant.
 func TestListGrantsForEntitlementPostFilterDoesNotSkip(t *testing.T) {
 	ctx := context.Background()
 	a := newAdapter(t)
