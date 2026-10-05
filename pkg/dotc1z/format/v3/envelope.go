@@ -873,6 +873,17 @@ func (d *extractDirs) mkdirAll(rel string, mode os.FileMode) error {
 	return nil
 }
 
+// tarEntryIsSparse reports whether hdr is a GNU sparse entry. archive/tar
+// keeps the GNU.sparse.* PAX records on the header it returns.
+func tarEntryIsSparse(hdr *tar.Header) bool {
+	for k := range hdr.PAXRecords {
+		if strings.HasPrefix(k, "GNU.sparse.") {
+			return true
+		}
+	}
+	return false
+}
+
 // ExtractZstdTar reads a zstd-tar payload stream from r and unpacks
 // it into destDir. destDir must exist. Used by the engine to
 // rematerialize a Pebble directory at open time.
@@ -982,6 +993,13 @@ entryLoop:
 			// straight to disk.
 			if hdr.Size < 0 {
 				readErr = fmt.Errorf("c1z v3: tar entry %q has negative size %d", hdr.Name, hdr.Size)
+				break entryLoop
+			}
+			// archive/tar synthesizes a sparse entry's holes itself, so
+			// those bytes never pass through the budgeted reader: a few KB
+			// of tar could write gigabytes. tar.Writer never writes them.
+			if tarEntryIsSparse(hdr) {
+				readErr = fmt.Errorf("c1z v3: tar entry %q is sparse: %w", hdr.Name, ErrMaxSizeExceeded)
 				break entryLoop
 			}
 			if err := dirs.mkdirAll(filepath.Dir(filepath.FromSlash(hdr.Name)), 0o755); err != nil {

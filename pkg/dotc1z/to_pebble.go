@@ -1069,10 +1069,14 @@ func sampleGrantBoundaries(ctx context.Context, db *sql.DB, table, syncID string
 	if lanes <= 1 || maxID <= minID {
 		return nil, nil
 	}
+	// A hostile file can hold any int64 rowids, so the span can overflow.
+	// Sampling only balances lanes; skip it.
+	span := maxID - minID + 1
+	if span <= 0 {
+		return nil, nil
+	}
 	const samplesPerLane = 32
 	sampleCount := lanes * samplesPerLane
-	span := maxID - minID + 1
-
 	// The table name is the package-internal grants descriptor, not user
 	// input.
 	query := "SELECT external_id FROM " + table + " WHERE id >= ? AND sync_id = ? ORDER BY id LIMIT 1" // #nosec G202

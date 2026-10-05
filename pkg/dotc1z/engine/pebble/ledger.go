@@ -150,9 +150,12 @@ func (l *Ledger) sealScrubsTokens() (bool, error) {
 	return false, nil
 }
 
-func scrubLedgerRow(row *v3.LedgerRow) bool {
+// scrubLedgerRow replaces the row's verbatim page tokens with their hashes
+// and reports whether it changed the row. Rows are read back from the file,
+// so a child without an identity, which this SDK never writes, is an error.
+func scrubLedgerRow(row *v3.LedgerRow) (bool, error) {
 	if row.GetScrubbed() {
-		return false
+		return false, nil
 	}
 	if id := row.GetIdentity(); id != nil {
 		if len(id.GetPageTokenHash()) == 0 {
@@ -166,13 +169,16 @@ func scrubLedgerRow(row *v3.LedgerRow) bool {
 	row.SetNextPageToken("")
 	for _, c := range row.GetChildren() {
 		id := c.GetIdentity()
+		if id == nil {
+			return false, errors.New("ledger row child has no identity")
+		}
 		if len(id.GetPageTokenHash()) == 0 {
 			id.SetPageTokenHash(ledgerTokenHash(id.GetPageToken()))
 		}
 		id.SetPageToken("")
 	}
 	row.SetScrubbed(true)
-	return true
+	return true, nil
 }
 
 const ledgerScrubBatchBytes = 16 << 20
@@ -212,7 +218,11 @@ func (l *Ledger) scrubTokens(ctx context.Context) error {
 			if err := unmarshalRecord(iter.Value(), row); err != nil {
 				return fmt.Errorf("scrubTokens: unmarshal: %w", err)
 			}
-			if !scrubLedgerRow(row) {
+			changed, err := scrubLedgerRow(row)
+			if err != nil {
+				return fmt.Errorf("scrubTokens: %w", err)
+			}
+			if !changed {
 				continue
 			}
 			val, err := marshalRecord(row)
