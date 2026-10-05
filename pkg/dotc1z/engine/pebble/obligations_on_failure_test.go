@@ -38,6 +38,9 @@ import (
 // and non-func knobs are out of scope: they inject observation points,
 // not failures. Enforced by TestFailureSeamsAreExercised.
 var seamFailureCases = map[string][]string{
+	"ledgerArchiveHook":           {"TestLedgerArchiveFailureCuts"},
+	"ledgerBeginPassHook":         {"TestLedgerBeginPassFailureCuts", "TestLedgerBeginPassCrashImage"},
+	"ledgerBeginExpandingHook":    {"TestLedgerStateTable"},
 	"digestBuildHook":             {"TestGrantDigestBuildCrashMidMerge", "TestGrantDigestBuildCrashPostFinish"},
 	"recordCommitHook":            {"TestFailedMutationPathsFireObligations"},
 	"sourceCacheReplayCommitHook": {"TestVerificationReplayBatchBoundAndInterruptedRetry"},
@@ -64,6 +67,9 @@ var rawdbHookFailureCases = map[string][]string{
 		"TestDeferredMarkerClearFailureKeepsAgreement",
 	},
 	"SetRecordCommitTestHook": {
+		"TestPendingWorkCommitFailureKeepsRevisionAndAllocator",
+		"TestPendingWorkInitializationFailureAndRetry",
+		"TestLedgerPutFactsIsOneUnit",
 		"TestVerificationSourceScopeMutationAtomicity",
 		"TestInvalidateSourceCacheReplayStateCommitFailureIsAtomic",
 	},

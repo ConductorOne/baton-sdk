@@ -10,6 +10,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
@@ -45,6 +46,10 @@ type cleanupScaleStore struct {
 
 // SyncMeta answers the capability resolution setStore performs at attach; see
 // legacyPaginatedCheckpointStore.SyncMeta.
+func (s *cleanupScaleStore) Metadata() connectorstore.StoreMetadata {
+	return connectorstore.StoreMetadata{Engine: string(c1zstore.EngineSQLite)}
+}
+
 func (s *cleanupScaleStore) SyncMeta() c1zstore.SyncMeta { return nil }
 
 func (s *cleanupScaleStore) ListResources(

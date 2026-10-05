@@ -233,6 +233,7 @@ func (s *syncer) filterGrantExpansionTypes(
 	ctx context.Context,
 	grant *v2.Grant,
 	annos annotations.Annotations,
+	stats *ingestFilterStats,
 ) (*v2.Grant, error) {
 	if grant == nil || hasExternalResourceMatch(annos) {
 		return grant, nil
@@ -256,7 +257,7 @@ func (s *syncer) filterGrantExpansionTypes(
 			filtered = append(filtered, resourceTypeID)
 			continue
 		}
-		s.ingestFilterStats.dropExpansionType()
+		stats.dropExpansionType()
 	}
 	if len(filtered) == len(expandable.GetResourceTypeIds()) {
 		return grant, nil
@@ -276,7 +277,7 @@ func (s *syncer) filterGrantExpansionTypes(
 		}
 		rewritten = append(rewritten, encoded)
 	} else {
-		s.ingestFilterStats.dropExpansion()
+		stats.dropExpansion()
 	}
 	filteredGrant := proto.Clone(grant).(*v2.Grant)
 	filteredGrant.SetAnnotations(rewritten)
@@ -284,6 +285,10 @@ func (s *syncer) filterGrantExpansionTypes(
 }
 
 func (s *syncer) filterFreshGrants(ctx context.Context, grants []*v2.Grant) ([]*v2.Grant, error) {
+	return s.filterFreshGrantsWithStats(ctx, grants, &s.ingestFilterStats)
+}
+
+func (s *syncer) filterFreshGrantsWithStats(ctx context.Context, grants []*v2.Grant, stats *ingestFilterStats) ([]*v2.Grant, error) {
 	if s.cfg.syncType != connectorstore.SyncTypeFull || len(grants) == 0 {
 		return grants, nil
 	}
@@ -316,7 +321,7 @@ func (s *syncer) filterFreshGrants(ctx context.Context, grants []*v2.Grant) ([]*
 		// AppEntitlement, or binding is ever created — inserting the
 		// resource row alone does not resurrect the chain.
 		if !entitlementTypeExists {
-			s.ingestFilterStats.dropGrant()
+			stats.dropGrant()
 			continue
 		}
 
@@ -327,11 +332,11 @@ func (s *syncer) filterFreshGrants(ctx context.Context, grants []*v2.Grant) ([]*
 		// External match annotations own placeholder principals. This does
 		// not exempt the entitlement reference checked above.
 		if !principalTypeExists && !hasExternalResourceMatch(annos) {
-			s.ingestFilterStats.dropGrant()
+			stats.dropGrant()
 			continue
 		}
 
-		grant, err = s.filterGrantExpansionTypes(ctx, grant, annos)
+		grant, err = s.filterGrantExpansionTypes(ctx, grant, annos, stats)
 		if err != nil {
 			return nil, err
 		}
@@ -345,6 +350,10 @@ func (s *syncer) filterFreshGrants(ctx context.Context, grants []*v2.Grant) ([]*
 // resources whose type is absent from the sync's resource types, so storing
 // them is dead data even though the resource row itself could be written.
 func (s *syncer) filterFreshGrantResource(ctx context.Context, resource *v2.Resource) (bool, error) {
+	return s.filterFreshGrantResourceWithStats(ctx, resource, &s.ingestFilterStats)
+}
+
+func (s *syncer) filterFreshGrantResourceWithStats(ctx context.Context, resource *v2.Resource, stats *ingestFilterStats) (bool, error) {
 	if s.cfg.syncType != connectorstore.SyncTypeFull || resource.GetId() == nil {
 		return true, nil
 	}
@@ -353,7 +362,7 @@ func (s *syncer) filterFreshGrantResource(ctx context.Context, resource *v2.Reso
 		return false, err
 	}
 	if !exists {
-		s.ingestFilterStats.dropGrantResource()
+		stats.dropGrantResource()
 	}
 	return exists, nil
 }

@@ -82,11 +82,13 @@ func TestPebbleFullSyncThroughSyncer(t *testing.T) {
 
 	token, err := reopen.CurrentSyncStep(ctx)
 	require.NoError(t, err)
-	_, completedState, _ := decodeTestRun(t, token)
-	require.Contains(t, completedState.stepDurations(), SyncResourceTypesOp.String())
-	require.Contains(t, completedState.stepDurations(), SyncResourcesOp.String())
-	require.NotZero(t, completedState.connectorCallStats()["list-resource-types"].Count)
-	require.NotZero(t, completedState.connectorCallStats()["list-resources"].Count)
+	require.Empty(t, token)
+	completedState, err := reopen.SyncMeta().StatsV2(ctx, connectorstore.SyncTypeFull, syncID)
+	require.NoError(t, err)
+	require.Contains(t, completedState.GetStepDurationsMs(), SyncResourceTypesOp.String())
+	require.Contains(t, completedState.GetStepDurationsMs(), SyncResourcesOp.String())
+	require.NotZero(t, completedState.GetConnectorCallStats()["list-resource-types"].GetCount())
+	require.NotZero(t, completedState.GetConnectorCallStats()["list-resources"].GetCount())
 
 	resp, err := reopen.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoError(t, err)

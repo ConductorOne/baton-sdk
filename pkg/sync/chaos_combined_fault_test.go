@@ -15,6 +15,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/internal/chaosconnector"
 	chaosoracle "github.com/conductorone/baton-sdk/internal/chaosconnector/oracle"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
@@ -322,4 +323,67 @@ func newCombinedFaultClient(
 	server, err := builder.Server(ctx)
 	require.NoError(t, err)
 	return chaosconnector.NewDirectClient(ctx, server, run)
+}
+
+func (s *chaosPebbleStore) BeginPage() c1zstore.PageWriter { return s.Ledger().BeginPage() }
+func (s *chaosPebbleStore) GetLedgerRow(ctx context.Context, id c1zstore.LedgerActionIdentity) (*c1zstore.LedgerRow, bool, error) {
+	return s.Ledger().GetRow(ctx, id)
+}
+func (s *chaosPebbleStore) SetRetainLedgerTokens(retain bool) { s.Ledger().SetRetainTokens(retain) }
+func (s *chaosPebbleStore) LedgerFacts(ctx context.Context) (map[string]string, error) {
+	return s.Ledger().Facts(ctx)
+}
+func (s *chaosPebbleStore) FoldLedgerCounters(ctx context.Context, currentRunID string) error {
+	return s.Ledger().FoldCounters(ctx, currentRunID)
+}
+func (s *chaosPebbleStore) LedgerCounters(ctx context.Context) (c1zstore.LedgerCounters, error) {
+	return s.Ledger().Counters(ctx)
+}
+func (s *chaosPebbleStore) LedgerFrontier(ctx context.Context) (*c1zstore.LedgerFrontier, bool, error) {
+	return s.Ledger().Frontier(ctx)
+}
+func (s *chaosPebbleStore) TakeoverToken(ctx context.Context, run string, facts []string, counters c1zstore.LedgerCounters) (string, error) {
+	return s.Ledger().Takeover(ctx, run, facts, counters)
+}
+func (s *chaosPebbleStore) PutCounterBucket(ctx context.Context, run string, worker uint32, counters c1zstore.LedgerCounters) error {
+	return s.Ledger().PutCounterBucket(ctx, run, worker, counters)
+}
+func (s *chaosPebbleStore) PutLedgerFacts(ctx context.Context, facts map[string]string) error {
+	return s.Ledger().PutFacts(ctx, facts)
+}
+func (s *chaosPebbleStore) DropLedger(ctx context.Context) error { return s.Ledger().Drop(ctx) }
+func (s *chaosPebbleStore) BeginExpanding(ctx context.Context) error {
+	return s.Ledger().BeginExpanding(ctx)
+}
+func (s *chaosPebbleStore) Seal(ctx context.Context, stats c1zstore.SyncStats) error {
+	return s.EndSyncWithStats(ctx, stats)
+}
+func (s *chaosPebbleStore) State(ctx context.Context) (c1zstore.LedgerState, error) {
+	return s.LedgerState(ctx)
+}
+func (s *chaosPebbleStore) BeginPass(ctx context.Context, seeds []c1zstore.LedgerWork, facts []string) error {
+	return s.Ledger().BeginPass(ctx, seeds, facts)
+}
+
+var _ c1zstore.PageLedgerStore = (*chaosPebbleStore)(nil)
+
+func (s *chaosPebbleStore) PendingWork(ctx context.Context, before uint64, limit int) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {
+	return s.Ledger().PendingWork(ctx, before, limit)
+}
+func (s *chaosPebbleStore) PendingWorkAfter(ctx context.Context, after uint64, limit int) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {
+	return s.Ledger().PendingWorkAfter(ctx, after, limit)
+}
+func (s *chaosPebbleStore) BeginCollecting(ctx context.Context, work []c1zstore.LedgerWork, facts ...string) error {
+	return s.Ledger().BeginCollecting(ctx, work, facts...)
+}
+func (s *chaosPebbleStore) BeginFromToken(
+	ctx context.Context, run, token string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork, phase c1zstore.LedgerQueuePhase,
+) (string, error) {
+	return s.Ledger().BeginFromToken(ctx, run, token, facts, counters, work, phase)
+}
+func (s *chaosPebbleStore) CompletePendingWork(ctx context.Context, work c1zstore.LedgerWork, run string, counters c1zstore.LedgerCounters) error {
+	return s.Ledger().CompletePendingWork(ctx, work, run, counters)
+}
+func (s *chaosPebbleStore) HasScheduledWork(ctx context.Context, key string) (bool, error) {
+	return s.Ledger().HasScheduledWork(ctx, key)
 }

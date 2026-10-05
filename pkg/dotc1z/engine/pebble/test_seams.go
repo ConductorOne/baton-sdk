@@ -13,6 +13,9 @@ import "sync/atomic"
 // default `go test ./...` workflow (the package under test would need
 // the tag to compile the hook sites).
 type testSeams struct {
+	ledgerBeginPassHook      func() error
+	ledgerBeginExpandingHook func() error
+	ledgerArchiveHook        func(stage string) error
 	// digestBuildHook fires at named points inside
 	// buildGrantDigestsFromSpill (grant_digest_build_crash_test.go);
 	// digestNodeFlushBytes overrides the digest fold's batch
@@ -102,4 +105,8 @@ type testSeams struct {
 	// Nothing else observes a compaction that did not happen; pebble's own
 	// Compact.Count folds in automatic compactions.
 	ledgerResiduePurges atomic.Int64
+
+	// The last finalize attempt's seal timings, read by BenchmarkLedgerSealCost
+	// and the seal-cost tests through LastSealCost after EndSync returns.
+	sealCost atomic.Pointer[SealCost]
 }

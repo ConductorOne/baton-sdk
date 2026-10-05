@@ -26,11 +26,6 @@ const (
 	foldLedgerCounterKey = "fold-ledger-fixture-grants"
 )
 
-// buildLedgeredPebbleInput writes a Pebble c1z whose grants were
-// ingested through BeginPage, so the saved file carries ledger rows and
-// a counter bucket alongside the records. Sealing goes through
-// EndSyncWithStats because a ledgered sync refuses EndSync
-// (ErrLedgeredSyncNeedsStats). Returns the sync id.
 func buildLedgeredPebbleInput(t *testing.T, ctx context.Context, path string, st connectorstore.SyncType, grantIDs ...string) string {
 	t.Helper()
 
@@ -73,6 +68,7 @@ func buildLedgeredPebbleInput(t *testing.T, ctx context.Context, path string, st
 	}.Build()
 	require.NoError(t, w.PutEntitlements(ctx, member))
 
+	require.NoError(t, ledger.BeginCollecting(ctx, nil))
 	page := ledger.BeginPage()
 	for _, id := range grantIDs {
 		user := usersByGrantID[id]
@@ -91,7 +87,7 @@ func buildLedgeredPebbleInput(t *testing.T, ctx context.Context, path string, st
 	require.True(t, found, "fixture did not record a ledger row")
 
 	require.NoError(t, w.PutAsset(ctx, v2.AssetRef_builder{Id: "asset-1"}.Build(), "text/plain", []byte("payload")))
-	require.NoError(t, ledger.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+	require.NoError(t, sealLedger(t, ctx, ledger, c1zstore.SyncStats{}))
 	require.NoError(t, w.Close(ctx))
 	return syncID
 }

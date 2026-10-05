@@ -1,0 +1,108 @@
+package sync
+
+import (
+	"context"
+	"os"
+	"sync/atomic"
+	"testing"
+	"testing/synctest"
+
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+)
+
+type legacyRichProducerConnector struct {
+	*ledgerFamilyConnector
+	cancel        context.CancelFunc
+	continuations atomic.Int32
+}
+
+func (c *legacyRichProducerConnector) ListStaticEntitlements(
+	context.Context, *v2.EntitlementsServiceListStaticEntitlementsRequest, ...grpc.CallOption,
+) (*v2.EntitlementsServiceListStaticEntitlementsResponse, error) {
+	return &v2.EntitlementsServiceListStaticEntitlementsResponse{}, nil
+}
+func (c *legacyRichProducerConnector) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrantsRequest, opts ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
+	if c.cancel != nil && req.GetPageToken() != "" {
+		if c.continuations.Add(1) == 2 {
+			c.cancel()
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return c.ledgerFamilyConnector.ListGrants(ctx, req, opts...)
+}
+
+func TestProduceLegacyRichArtifact(t *testing.T) {
+	path := os.Getenv("BATON_LEGACY_ARTIFACT_OUTPUT")
+	require.NotEmpty(t, path)
+	for _, complete := range []bool{false, true} {
+		t.Run(map[bool]string{false: "checkpoint", true: "complete"}[complete], func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				target := path
+				if complete {
+					target += ".complete.c1z"
+				}
+				_, err := os.Stat(target)
+				require.ErrorIs(t, err, os.ErrNotExist)
+				if complete {
+					data, err := os.ReadFile(path)
+					require.NoError(t, err)
+					output, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+					require.NoError(t, err)
+					_, err = output.Write(data)
+					require.NoError(t, err)
+					require.NoError(t, output.Close())
+				}
+				store, err := dotc1z.NewStore(t.Context(), target, dotc1z.WithEngine(c1zstore.EnginePebble))
+				require.NoError(t, err)
+				ctx, cancel := context.WithCancel(t.Context())
+				defer cancel()
+				c := &legacyRichProducerConnector{ledgerFamilyConnector: newLedgerFamilyConnector(t)}
+				if !complete {
+					c.cancel = cancel
+				}
+				runner, err := NewSyncer(t.Context(), c, WithConnectorStore(store), WithWorkerCount(4), WithDontExpandGrants())
+				require.NoError(t, err)
+				err = runner.Sync(ctx)
+				if complete {
+					require.NoError(t, err)
+				} else {
+					require.ErrorIs(t, err, context.Canceled)
+				}
+				resources, err := store.ListResources(t.Context(), &v2.ResourcesServiceListResourcesRequest{})
+				require.NoError(t, err)
+				require.Len(t, resources.GetList(), 4)
+				ents, err := store.ListEntitlements(t.Context(), &v2.EntitlementsServiceListEntitlementsRequest{})
+				require.NoError(t, err)
+				require.Len(t, ents.GetList(), 4)
+				grants, err := store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
+				require.NoError(t, err)
+				expected := 2
+				if complete {
+					expected = 4
+				}
+				require.Len(t, grants.GetList(), expected)
+				token, err := store.CurrentSyncStep(t.Context())
+				require.NoError(t, err)
+				if !complete {
+					require.NotEmpty(t, token)
+					parts, err := unmarshalToken(token)
+					require.NoError(t, err)
+					pending := 0
+					for _, action := range parts.run.actions {
+						if action.Op == SyncGrantsOp && action.ResourceID != "" {
+							pending++
+							require.Equal(t, "1", action.PageToken)
+						}
+					}
+					require.Equal(t, 2, pending)
+				}
+				require.NoError(t, store.Close(t.Context()))
+			})
+		})
+	}
+}

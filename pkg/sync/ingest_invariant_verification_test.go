@@ -217,10 +217,15 @@ func (c *grantFailingConnector) ListGrants(ctx context.Context, in *v2.GrantsSer
 // TestRebindingSealedSyncClearsStaleVerification pins the rebind
 // hazard: WithSyncID can bind an already-sealed, VERIFIED sync (the
 // compactor's expansion pass does exactly this; a reused syncer can
-// too) and re-collection then rewrites the data the marker vouched
+// too) and the rebound pass then rewrites the data the marker vouched
 // for. The stale proof must be invalidated at sync start, before any
-// collection write — a run that aborts mid-collection must leave the
-// sync unverified, not verified-over-rewritten-data.
+// write — a run that aborts before re-verifying must leave the sync
+// unverified, not verified-over-rewritten-data.
+//
+// The SQLite arm re-collects and aborts at ListGrants. The ledger refuses
+// a collection rebind of a finished sync, so the Pebble arm is the
+// compactor's shape: an expansion-only rebind halted after expansion
+// wrote and before the marker is re-persisted.
 func TestRebindingSealedSyncClearsStaleVerification(t *testing.T) {
 	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
@@ -257,13 +262,27 @@ func TestRebindingSealedSyncClearsStaleVerification(t *testing.T) {
 				return run.ID
 			}()
 
-			// Run 2: rebind the sealed sync and abort mid-collection,
-			// after the store has already been rewritten under the marker.
-			conn.failGrants = true
-			second, err := NewSyncer(ctx, conn,
-				WithC1ZPath(c1zPath), WithTmpDir(tempDir), WithStorageEngine(engine),
-				WithSyncID(sealedID))
-			require.NoError(t, err)
+			// Run 2: rebind the sealed sync and abort after the store has
+			// been rewritten under the marker and before it is re-verified.
+			var second Syncer
+			if engine == c1zstore.EnginePebble {
+				second, err = NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()},
+					WithC1ZPath(c1zPath), WithTmpDir(tempDir), WithStorageEngine(engine),
+					WithSyncID(sealedID), WithOnlyExpandGrants())
+				require.NoError(t, err)
+				second.(*syncer).testHooks.ingestHaltHook = func(stage string) error {
+					if stage == haltStageInvariantsComplete {
+						return errors.New("injected halt before re-verification")
+					}
+					return nil
+				}
+			} else {
+				conn.failGrants = true
+				second, err = NewSyncer(ctx, conn,
+					WithC1ZPath(c1zPath), WithTmpDir(tempDir), WithStorageEngine(engine),
+					WithSyncID(sealedID))
+				require.NoError(t, err)
+			}
 			require.Error(t, second.Sync(ctx), "the rebound run must abort at the injected failure")
 			require.NoError(t, second.Close(ctx))
 

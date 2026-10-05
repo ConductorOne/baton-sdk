@@ -11,6 +11,7 @@ import (
 	"github.com/conductorone/baton-sdk/internal/chaosconnector"
 	chaosoracle "github.com/conductorone/baton-sdk/internal/chaosconnector/oracle"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -369,7 +370,7 @@ func TestChaosConnectorExternalPrincipalCorpusResumesAfterRewriteCut(t *testing.
 				chaosTransportDirect,
 				WithWorkerCount(1),
 				WithExternalResourceC1ZPath(externalPath),
-				WithConnectorStore(cutStore),
+				WithConnectorStore(chaosExternalCutConnectorStore(cutStore)),
 			)
 			require.ErrorIs(t, cutHarness.Syncer.Sync(ctx), errChaosExternalPrincipalCut)
 			require.NoError(t, cutHarness.Close(ctx))
@@ -471,7 +472,7 @@ func TestChaosConnectorExternalPrincipalResumeUsesCurrentExternalAnswer(t *testi
 		chaosTransportDirect,
 		WithWorkerCount(1),
 		WithExternalResourceC1ZPath(firstExternalPath),
-		WithConnectorStore(cutStore),
+		WithConnectorStore(chaosExternalCutConnectorStore(cutStore)),
 	)
 	require.ErrorIs(t, cutHarness.Syncer.Sync(ctx), errChaosExternalPrincipalCut)
 	require.NoError(t, cutHarness.Close(ctx))
@@ -519,12 +520,12 @@ func TestChaosConnectorExternalPrincipalResumeUsesCurrentExternalAnswer(t *testi
 		chaosTransportDirect,
 		WithWorkerCount(1),
 		WithExternalResourceC1ZPath(resumeExternalPath),
-		WithConnectorStore(dependencyCutStore),
+		WithConnectorStore(chaosExternalCutConnectorStore(dependencyCutStore)),
 	)
 	require.ErrorIs(t, resumeHarness.Syncer.Sync(ctx), errChaosExternalPrincipalCut)
 	require.NoError(t, resumeHarness.Close(ctx))
 	require.Equal(t, int64(2), dependencyCutStore.deleteCalls.Load(),
-		"dependency cleanup cut must occur after a committed grant deletion")
+		"dependency cleanup cut must occur after staging one grant deletion")
 	partiallyCleanedRuns := readChaosSyncRuns(t, ctx, internalPath, tmpDir)
 	require.Len(t, partiallyCleanedRuns, 1)
 	require.Equal(t, interruptedSyncID, partiallyCleanedRuns[0].ID)
@@ -535,7 +536,7 @@ func TestChaosConnectorExternalPrincipalResumeUsesCurrentExternalAnswer(t *testi
 		&chaosExternalPrincipalCutStore{failEntitlementAt: 2},
 	)
 	require.Equal(t, int64(2), entitlementCutStore.entitlementCalls.Load(),
-		"entitlement cleanup cut must occur after a committed entitlement deletion")
+		"entitlement cleanup cut must occur after staging one entitlement deletion")
 	resourceCutStore := runExternalPrincipalCleanupCut(
 		t, internalScenario, internalPath, resumeExternalPath, tmpDir,
 		&chaosExternalPrincipalCutStore{failResourceAt: 1},
@@ -616,7 +617,7 @@ func TestChaosConnectorSQLiteExternalPrincipalResumeDegradesWithoutFailure(t *te
 		t, ctx, firstRun, internalPath, tmpDir, chaosTransportDirect,
 		WithWorkerCount(1),
 		WithExternalResourceC1ZPath(firstExternalPath),
-		WithConnectorStore(cutStore),
+		WithConnectorStore(chaosExternalCutConnectorStore(cutStore)),
 	)
 	require.ErrorIs(t, firstHarness.Syncer.Sync(ctx), errChaosExternalPrincipalCut)
 	require.NoError(t, firstHarness.Close(ctx))
@@ -720,7 +721,7 @@ func runExternalPrincipalCleanupCut(
 		chaosTransportDirect,
 		WithWorkerCount(1),
 		WithExternalResourceC1ZPath(externalPath),
-		WithConnectorStore(cutStore),
+		WithConnectorStore(chaosExternalCutConnectorStore(cutStore)),
 	)
 	require.ErrorIs(t, harness.Syncer.Sync(ctx), errChaosExternalPrincipalCut)
 	require.NoError(t, harness.Close(ctx))
@@ -765,6 +766,9 @@ func seedStaleExternalPrincipalDependencies(t *testing.T, path string, tmpDir st
 		Entitlement: secondEntitlement,
 		Principal:   principal,
 	}.Build()
+	require.NoError(t, store.PutResourceTypes(ctx, v2.ResourceType_builder{Id: chaosconnector.ExternalUserTypeID, DisplayName: "External users"}.Build()))
+	principal.SetAnnotations(annotations.New(&v2.BatonID{}))
+	require.NoError(t, store.PutResources(ctx, principal))
 	require.NoError(t, store.PutEntitlements(ctx, staleEntitlement, secondEntitlement))
 	require.NoError(t, store.PutGrants(ctx, staleGrant, secondGrant))
 }
@@ -865,4 +869,18 @@ func readExternalPrincipalObservation(
 	)
 	require.NoError(t, err)
 	return observation
+}
+
+type chaosExternalLedgerCutStore struct {
+	c1zstore.WriteHookStore
+	*chaosExternalPrincipalCutStore
+	c1zstore.PageLedgerStore
+}
+
+func chaosExternalCutConnectorStore(s *chaosExternalPrincipalCutStore) c1zstore.Store {
+	ledger := resolveStoreCaps(s.Store).pageLedger
+	if ledger == nil {
+		return s
+	}
+	return &chaosExternalLedgerCutStore{chaosExternalPrincipalCutStore: s, PageLedgerStore: ledger, WriteHookStore: resolveStoreCaps(s.Store).writeHook}
 }

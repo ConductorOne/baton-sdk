@@ -289,6 +289,7 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 	tokens := []string{"", "https://x/?sig=SECRET1", "https://x/?sig=SECRET2"}
 
 	commitPages := func(t *testing.T, e *Engine) {
+		require.NoError(t, e.Ledger().BeginCollecting(t.Context(), nil))
 		for i, tok := range tokens {
 			next := ""
 			if i+1 < len(tokens) {
@@ -308,9 +309,10 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 		e, _ := newTestEngine(t)
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
+		require.NoError(t, e.Ledger().BeginCollecting(t.Context(), nil))
 		e.ledger.SetRetainTokens(true)
 		commitPages(t, e)
-		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 		require.NoError(t, e.ledger.iterate(ctx, func(r *v3.LedgerRow) bool {
 			require.False(t, r.GetScrubbed())
 			if r.GetIdentity().GetPageToken() != "" {
@@ -325,7 +327,7 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
 		commitPages(t, e)
-		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 
 		n := 0
 		require.NoError(t, e.ledger.iterate(ctx, func(r *v3.LedgerRow) bool {
@@ -341,7 +343,7 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 			}
 			return true
 		}))
-		require.Equal(t, len(tokens), n)
+		require.Equal(t, len(tokens)+1, n, "the pages plus the terminal page")
 
 		got, err := readLedgerRowRaw(e, grantsPageIdentity("github", tokens[1]))
 		require.NoError(t, err)
@@ -352,7 +354,7 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 		require.NoError(t, e.ledger.scrubTokens(ctx))
 		cnt, err := e.ledger.rowCount(ctx)
 		require.NoError(t, err)
-		require.EqualValues(t, len(tokens), cnt)
+		require.EqualValues(t, len(tokens)+1, cnt, "the pages plus the terminal page")
 	})
 
 	// The finished verdict must never be durable over a verbatim
@@ -366,8 +368,9 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 		commitPages(t, e)
 
 		boom := errors.New("injected scrub commit failure")
+		require.NoError(t, commitTerminalPage(t, e, ctx))
 		e.db.SetRecordCommitTestHook(func() error { return boom })
-		require.ErrorIs(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}), boom)
+		require.ErrorIs(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}), boom)
 		e.db.SetRecordCommitTestHook(nil)
 
 		sr, err := e.GetSyncRunRecord(ctx, syncID)
@@ -378,7 +381,7 @@ func TestLedgerScrubAtSealForSensitiveTokens(t *testing.T) {
 			return true
 		}))
 
-		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 		sr, err = e.GetSyncRunRecord(ctx, syncID)
 		require.NoError(t, err)
 		require.NotNil(t, sr.GetEndedAt())
@@ -395,13 +398,14 @@ func TestLedgerWipedWithItsSync(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
+	require.NoError(t, e.Ledger().BeginCollecting(t.Context(), nil))
 	require.NoError(t, e.ledger.newPageUnit().Commit(ctx, grantsPageIdentity("github", "p1"), nil))
 	require.NoError(t, e.ledger.newPageUnit().Commit(ctx, grantsPageIdentity("github", "p2"), nil))
-	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+	require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 
 	cnt, err := e.ledger.rowCount(ctx)
 	require.NoError(t, err)
-	require.EqualValues(t, 2, cnt, "the sealed sync keeps its trace")
+	require.EqualValues(t, 3, cnt, "the sealed sync keeps its trace: two pages and the terminal page")
 
 	_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -549,10 +553,11 @@ func TestLedgerInFlightStampGatesTokenOnlyReaders(t *testing.T) {
 		require.NoError(t, old.Close())
 	})
 
+	require.NoError(t, e.Ledger().BeginCollecting(t.Context(), nil))
 	u := e.ledger.newPageUnit()
 	require.NoError(t, u.StageResources(ledgerTestResource("t", "r1")))
 	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
-	require.Equal(t, keyspaceVersionLedgerInFlight, stamp(e), "first row flips the stamp")
+	require.Equal(t, keyspaceVersionLedgerInFlight, stamp(e), "ledger initialization flips the stamp")
 
 	rng := rand.New(rand.NewPCG(7, 7)) //nolint:gosec // deterministic
 	for pct := 0; pct <= 100; pct += 25 {
@@ -573,11 +578,11 @@ func TestLedgerInFlightStampGatesTokenOnlyReaders(t *testing.T) {
 		require.NoError(t, re.Close())
 	}
 
-	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+	require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 	require.Equal(t, keyspaceVersion, stamp(e), "seal restores the v2 stamp")
 	n, err := e.ledger.rowCount(ctx)
 	require.NoError(t, err)
-	require.EqualValues(t, 1, n, "seal keeps the rows")
+	require.EqualValues(t, 2, n, "seal keeps the rows: the page and the terminal page")
 	sealed := fs.CrashClone(vfs.CrashCloneCfg{UnsyncedDataPercent: 100, RNG: rng})
 	withTokenOnlySDK(func() {
 		old, err := Open(ctx, "ledger-stamp-db", WithVFS(sealed), WithReadOnly(true))
@@ -659,7 +664,7 @@ func TestLedgerFreeSealSkipsResiduePurge(t *testing.T) {
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
 		require.NoError(t, e.PutResourceRecords(ctx, ledgerTestResource("user", "u1")))
-		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 		require.Zero(t, e.test.ledgerResiduePurges.Load(),
 			"a sync with no ledger must not reach Ledger.purgeResidue's db.Compact")
 	})
@@ -668,8 +673,9 @@ func TestLedgerFreeSealSkipsResiduePurge(t *testing.T) {
 		e, _ := newTestEngine(t)
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
+		require.NoError(t, e.Ledger().BeginCollecting(t.Context(), nil))
 		require.NoError(t, e.ledger.newPageUnit().Commit(ctx, grantsPageIdentity("github", "p1"), nil))
-		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 		require.EqualValues(t, 1, e.test.ledgerResiduePurges.Load(),
 			"a ledgered seal must still purge the pre-scrub row versions")
 	})
@@ -781,6 +787,7 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 	tokens := []string{"", "https://x/?" + needleText + "-1", "https://x/?" + needleText + "-2"}
 
 	commitPages := func(t *testing.T, e *Engine) {
+		require.NoError(t, e.Ledger().BeginCollecting(t.Context(), nil))
 		for i, tok := range tokens {
 			next := ""
 			if i+1 < len(tokens) {
@@ -801,9 +808,10 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 		e, _ := newTestEngine(t)
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
+		require.NoError(t, e.Ledger().BeginCollecting(t.Context(), nil))
 		e.ledger.SetRetainTokens(true)
 		commitPages(t, e)
-		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 		require.Positive(t, checkpointNeedleHits(t, e, []byte(needleText)), "oracle must see verbatim tokens when retention is declared")
 	})
 
@@ -812,11 +820,11 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
 		commitPages(t, e)
-		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 		require.Zero(t, checkpointNeedleHits(t, e, []byte(needleText)), "verbatim token bytes survive in the checkpointed SSTs")
 		n, err := e.ledger.rowCount(ctx)
 		require.NoError(t, err)
-		require.EqualValues(t, len(tokens), n)
+		require.EqualValues(t, len(tokens)+1, n, "the pages plus the terminal page")
 	})
 
 	// The takeover leaves superseded sync-run versions carrying tokens at
@@ -831,6 +839,7 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 		}
 		_, err := e.ledger.Takeover(ctx, "run-1", nil, c1zstore.LedgerCounters{})
 		require.NoError(t, err)
+		require.NoError(t, e.Ledger().BeginCollecting(t.Context(), nil))
 		require.NoError(t, e.Flush(ctx))
 	}
 
@@ -840,7 +849,7 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 		require.NoError(t, err)
 		e.ledger.SetRetainTokens(true)
 		takeoverPages(t, e)
-		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 		require.Positive(t, checkpointNeedleHits(t, e, []byte(needleText)),
 			"oracle must see the taken-over token when retention is declared")
 	})
@@ -850,7 +859,7 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
 		takeoverPages(t, e)
-		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 		require.Zero(t, checkpointNeedleHits(t, e, []byte(needleText)),
 			"a superseded sync-run version keeps the pre-takeover token in its SST")
 	})
@@ -861,7 +870,7 @@ func TestLedgerScrubLeavesNoSSTResidue(t *testing.T) {
 		_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
 		commitPages(t, e)
-		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 		require.NoError(t, e.ledger.iterate(ctx, func(r *v3.LedgerRow) bool {
 			require.True(t, r.GetScrubbed())
 			require.Empty(t, r.GetNextPageToken())
