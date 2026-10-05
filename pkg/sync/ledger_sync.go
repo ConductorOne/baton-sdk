@@ -179,6 +179,9 @@ func (s *syncer) skipLedgerSync(ctx context.Context) error {
 		if err := page.writer.SetPendingWork(work[0]); err != nil {
 			return err
 		}
+		if err := s.recordFirstReportOptions(page); err != nil {
+			return err
+		}
 		return page.transition("")
 	})
 	if err != nil {

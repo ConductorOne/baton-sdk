@@ -37,14 +37,15 @@ func TestLedgerDiscardPendingFinishedBindingDoesNotRestartProcessing(t *testing.
 	require.NoError(t, next.Sync(t.Context()))
 	// CO-039 §5: options belong to the attempt that ran the pass. The middle
 	// attempt began the pass and committed its terminal page, so it is
-	// latest; the original run stays first; the attempt that only finished
-	// the seal recorded nothing.
+	// latest; the attempt that only finished the seal recorded nothing. The
+	// fixture seeded the original run's queue past Init, so it planned
+	// nothing and is not first (CO-042); the middle attempt's Init is.
 	options, err := f.engine.GetArchivedLedgerOptions(t.Context(), next.ledger.runID)
 	require.NoError(t, err)
 	require.Nil(t, options, "the sealing attempt did none of the pass's work")
 	options, err = f.engine.GetArchivedLedgerOptions(t.Context(), first.ledger.runID)
 	require.NoError(t, err)
-	require.NotNil(t, options)
+	require.Nil(t, options, "a queue seeded past Init records no plan")
 	options, err = f.engine.GetArchivedLedgerOptions(t.Context(), second.ledger.runID)
 	require.NoError(t, err)
 	require.NotNil(t, options, "the attempt that ran the pass is latest")

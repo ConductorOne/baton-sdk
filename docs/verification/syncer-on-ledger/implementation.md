@@ -221,7 +221,7 @@ discard, X drop (`Ledger.Drop`), C clear (`ClearLedgerRows` → `BeginPass`).
 | scheduling relations | ledger 0x06 | was this child already scheduled | page commit, seed | `stageWorkTransition`, invariant I4 | in-memory `childScheduleSet` (token path) | R F S D X C |
 | completed rows (work-ID keyed) | ledger 0x00 | diagnostic history | page commit | report, `GetLedgerRow` | none | R F S D X C |
 | `c1z.discard_ledger_on_seal` fact | ledger 0x01 | disposal policy | terminal page | finalize | none (the progress-marker role is gone with the post-stamp batch) | R F D X C |
-| `c1z.report.first_options` / `latest_options` | ledger 0x01 | which options ran, first and latest | first page per attempt (CO-038: attempt start) | report, archive | none | R F D X C (first retained) |
+| `c1z.report.first_options` / `latest_options` | ledger 0x01 | which options ran, first and latest | `first_options`: the `Init` page (CO-042); `latest_options`: attempt start (CO-038) | report, archive, `collectionFlagConflict` | none | R F D X C (first retained) |
 | `sync.ingest_known` / `sync.ingest_blocked` | ledger 0x01 | replay eligibility knowledge | pages, Init, seed | `LedgerSyncStats`, restore | `IngestQualityCheckpoint` in the token (consumed) | R F D X C |
 | `c1z.retain_tokens` fact | ledger 0x01 | keep verbatim tokens at seal | page commit, takeover | finalize | none | R F D X C |
 | `c1z.pass.follow_on` fact | ledger 0x01 | this pass began on a sealed sync | `BeginPass` | archive (`preceding_collection` link) | none (the options fact's `only_expand_grants` was the prior answer; removed by CO-039) | R F D X C |
@@ -315,8 +315,10 @@ Write the snapshot in `syncLedger`, after retention is resolved (the
 facts at that point on a fresh sync — `Init` has not run and has not set them —
 so the snapshot computes them the way `initialActions` does:
 `cfg.skipGrants || hasFact(factShouldSkipGrants)`, likewise for
-entitlements-and-grants. `first_options` is written only when absent, checked
-from `s.run.facts` after `restoreLedgerState`. A write failure fails the attempt
+entitlements-and-grants. `first_options` is not part of this write: the `Init`
+page stages it (`recordFirstReportOptions`, CO-042) when neither `s.run.facts`
+nor the page has one, so the record commits with the plan it describes and an
+attempt that dies before `Init` leaves none. A write failure fails the attempt
 before any page; the retry rewrites the same values. A cancelled context is
 checked before the write, as every other lifecycle write does. Two
 consequences of "every attempt records its options": an attempt that only

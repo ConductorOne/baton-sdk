@@ -10,9 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The snapshot is a coordinator write before any page (CO-038): it exists
-// whether pages later fail or succeed, carries no private paths, and reports
-// effective flags from facts as well as the request.
+// The attempt's snapshot is a coordinator write before any page (CO-038): it
+// exists whether pages later fail or succeed, carries no private paths, and
+// reports effective flags from facts as well as the request. The pass's first
+// options are not part of it; they are the Init page's (CO-042).
 func TestLedgerReportOptionsPrecedePages(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
 	s.cfg.previousSyncC1ZPath = "private-path-must-not-appear"
@@ -31,7 +32,7 @@ func TestLedgerReportOptionsPrecedePages(t *testing.T) {
 	require.True(t, options.EffectiveSkipGrants)
 	require.False(t, options.Requested.SkipGrants)
 	require.True(t, options.Requested.PreviousSourceConfigured)
-	require.Equal(t, encoded, facts[c1zstore.LedgerFactFirstReportOptions])
+	require.NotContains(t, facts, c1zstore.LedgerFactFirstReportOptions, "no Init page has run")
 
 	s.testHooks.ledgerHandler = func(context.Context, *Action, *ledgerPage) error { return errors.New("failed page") }
 	_, err = runLedgerSchedulerBatch(t, s, SyncResourcesOp)
@@ -44,7 +45,7 @@ func TestLedgerReportOptionsPrecedePages(t *testing.T) {
 	facts, err = f.ledger.LedgerFacts(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, encoded, facts[c1zstore.LedgerFactReportOptions], "page outcomes do not touch the snapshot")
-	require.Equal(t, encoded, facts[c1zstore.LedgerFactFirstReportOptions])
+	require.NotContains(t, facts, c1zstore.LedgerFactFirstReportOptions, "only the Init page writes the first options")
 	_, found, err := f.ledger.GetLedgerRow(t.Context(), ledgerIdentity(action))
 	require.NoError(t, err)
 	require.True(t, found)

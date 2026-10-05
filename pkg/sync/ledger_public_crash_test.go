@@ -27,7 +27,7 @@ type ledgerPublicCrashStore struct {
 }
 
 func (s ledgerPublicCrashStore) BeginFromToken(
-	ctx context.Context, runID, expected string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork, phase c1zstore.LedgerQueuePhase,
+	ctx context.Context, runID, expected string, facts map[string]string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork, phase c1zstore.LedgerQueuePhase,
 ) (string, error) {
 	s.cut("takeover-before")
 	token, err := s.PageLedgerStore.BeginFromToken(ctx, runID, expected, facts, counters, work, phase)

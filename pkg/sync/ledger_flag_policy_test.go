@@ -2,6 +2,7 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -372,6 +373,53 @@ func TestLedgerCollectionFlagsLockedMidCollection(t *testing.T) {
 	require.ElementsMatch(t, want, listGrantIDs(t, f))
 }
 
+// The recorded collection flags are the Init page's, committed with the plan
+// they describe. An attempt that dies before Init commits leaves no record,
+// so the attempt that does plan the pass is the one later attempts are held
+// to, whatever the first attempt asked for.
+func TestLedgerCollectionFlagsAreThePlanningAttempts(t *testing.T) {
+	ctx := t.Context()
+	source, _, _ := ledgerUnexpandedSource(t)
+	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "planned.c1z"), false)
+	dies, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithDontExpandGrants())
+	require.NoError(t, err)
+	dies.(*syncer).caps.pageLedger = ledgerPageCommitFailsForOp{PageLedgerStore: f.ledger, op: InitOp}
+	require.ErrorIs(t, dies.Sync(ctx), errLedgerInjectedPage)
+	id := dies.(*syncer).syncID
+	facts, err := f.ledger.LedgerFacts(ctx)
+	require.NoError(t, err)
+	require.Contains(t, facts, c1zstore.LedgerFactReportOptions, "the attempt's snapshot precedes its pages")
+	require.NotContains(t, facts, c1zstore.LedgerFactFirstReportOptions, "nothing was planned, so nothing is locked")
+	require.NoError(t, f.store.Close(ctx))
+
+	f = openLedgerFixtureAt(t, f.path, false)
+	plans, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithSyncID(id), WithDontExpandGrants(), WithSkipGrants(true))
+	require.NoError(t, err)
+	plans.(*syncer).caps.pageLedger = ledgerPageCommitFailsForOp{PageLedgerStore: f.ledger, op: SyncResourcesOp}
+	require.ErrorIs(t, plans.Sync(ctx), errLedgerInjectedPage)
+	facts, err = f.ledger.LedgerFacts(ctx)
+	require.NoError(t, err)
+	var first c1zstore.LedgerReportOptions
+	require.NoError(t, json.Unmarshal([]byte(facts[c1zstore.LedgerFactFirstReportOptions]), &first))
+	require.Equal(t, plans.(*syncer).ledger.runID, first.Attempt, "the planning attempt is the record")
+	require.True(t, first.Requested.SkipGrants)
+	require.NoError(t, f.store.Close(ctx))
+
+	f = openLedgerFixtureAt(t, f.path, false)
+	asFirstAsked, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithSyncID(id), WithDontExpandGrants())
+	require.NoError(t, err)
+	err = asFirstAsked.Sync(ctx)
+	require.ErrorIs(t, err, ErrLedgerStateConflict)
+	require.ErrorContains(t, err, "skip_grants")
+	require.NoError(t, f.store.Close(ctx))
+
+	f = openLedgerFixtureAt(t, f.path, false)
+	asPlanned, err := NewSyncer(ctx, source, WithConnectorStore(f.store), WithSyncID(id), WithDontExpandGrants(), WithSkipGrants(true))
+	require.NoError(t, err)
+	require.NoError(t, asPlanned.Sync(ctx))
+	require.Empty(t, listGrantIDs(t, f), "the pass ran as planned: without grants")
+}
+
 // An expansion-only invocation knows nothing about how the file was
 // collected; C1 runs it through an empty connector. Its collection flags are
 // not read: the file's facts say what the data is, and nothing it passes is
@@ -519,8 +567,8 @@ func TestLedgerExpansionPassWithExternalImportResumes(t *testing.T) {
 }
 
 // A legacy checkpoint recorded no options, so the first resumer's collection
-// flags cannot be checked and the takeover continues under them. That
-// attempt records them; the lock holds from the next resume on.
+// flags cannot be checked and the takeover adopts the stack under them. The
+// takeover batch records them; the lock holds from the next resume on.
 func TestLedgerLegacyTakeoverArmsCollectionFlagLock(t *testing.T) {
 	ctx := t.Context()
 	f := newLedgerFixture(t)

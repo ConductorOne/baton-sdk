@@ -9,17 +9,42 @@ import (
 )
 
 // putLedgerReportOptions records the attempt's options once, before its first
-// page, as a lifecycle write. Effective skip flags come from the request as
+// page, as a lifecycle write. The pass's first options are the Init page's
+// (recordFirstReportOptions). Effective skip flags come from the request as
 // well as facts because on a fresh sync Init has not yet turned the request
 // into facts.
 func (s *syncer) putLedgerReportOptions(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	data, err := s.encodeLedgerReportOptions(s.ledger.runID)
+	if err != nil {
+		return err
+	}
+	return s.caps.pageLedger.PutLedgerFacts(ctx, map[string]string{c1zstore.LedgerFactReportOptions: data})
+}
+
+// recordFirstReportOptions stages the pass's options on the Init page, so the
+// record and the plan it describes commit together: an attempt that dies
+// before Init leaves no record for the next attempt to be compared against. A
+// pass that already has them (an expansion pass over a finished collection)
+// keeps the collection's.
+func (s *syncer) recordFirstReportOptions(page *ledgerPage) error {
+	if (s.run != nil && s.run.hasFact(c1zstore.LedgerFactFirstReportOptions)) || page.hasFact(c1zstore.LedgerFactFirstReportOptions) {
+		return nil
+	}
+	data, err := s.encodeLedgerReportOptions(s.ledger.runID)
+	if err != nil {
+		return err
+	}
+	return page.setFactValue(c1zstore.LedgerFactFirstReportOptions, data)
+}
+
+func (s *syncer) encodeLedgerReportOptions(attempt string) (string, error) {
 	hasFact := func(fact string) bool { return s.run != nil && s.run.hasFact(fact) }
 	cfg := s.cfg
 	options := c1zstore.LedgerReportOptions{
-		Attempt:                            s.ledger.runID,
+		Attempt:                            attempt,
 		EffectiveLedgerDebug:               s.ledgerDebug,
 		EffectiveRetainLedgerTokens:        cfg.retainLedgerTokens || hasFact(c1zstore.LedgerFactRetainTokens),
 		EffectiveSkipGrants:                cfg.skipGrants || hasFact(factShouldSkipGrants),
@@ -28,13 +53,9 @@ func (s *syncer) putLedgerReportOptions(ctx context.Context) error {
 	}
 	data, err := json.Marshal(options)
 	if err != nil {
-		return err
+		return "", err
 	}
-	facts := map[string]string{c1zstore.LedgerFactReportOptions: string(data)}
-	if !hasFact(c1zstore.LedgerFactFirstReportOptions) {
-		facts[c1zstore.LedgerFactFirstReportOptions] = string(data)
-	}
-	return s.caps.pageLedger.PutLedgerFacts(ctx, facts)
+	return string(data), nil
 }
 
 func (s *syncer) requestedOptions() c1zstore.LedgerRequestedOptions {

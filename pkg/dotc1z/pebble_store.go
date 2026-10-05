@@ -1004,7 +1004,7 @@ func (s *pebbleStore) BeginCollecting(ctx context.Context, work []c1zstore.Ledge
 }
 
 func (s *pebbleStore) BeginFromToken(
-	ctx context.Context, runID, expectedToken string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork, phase c1zstore.LedgerQueuePhase,
+	ctx context.Context, runID, expectedToken string, facts map[string]string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork, phase c1zstore.LedgerQueuePhase,
 ) (string, error) {
 	if err := s.writeHook(ctx, "BeginFromToken"); err != nil {
 		return "", err

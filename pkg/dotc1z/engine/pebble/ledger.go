@@ -582,10 +582,14 @@ func (l *Ledger) Frontier(ctx context.Context) (*c1zstore.LedgerFrontier, bool, 
 // endSync that snapshotted the record first would write the pre-takeover token
 // back beside a live frontier.
 func (l *Ledger) Takeover(ctx context.Context, runID string, facts []string, counters c1zstore.LedgerCounters) (string, error) {
-	return l.takeover(ctx, runID, facts, counters, nil)
+	bare := make(map[string]string, len(facts))
+	for _, f := range facts {
+		bare[f] = ""
+	}
+	return l.takeover(ctx, runID, bare, counters, nil)
 }
 
-func (l *Ledger) takeover(ctx context.Context, runID string, facts []string, counters c1zstore.LedgerCounters, seed *pendingWorkSeed) (string, error) {
+func (l *Ledger) takeover(ctx context.Context, runID string, facts map[string]string, counters c1zstore.LedgerCounters, seed *pendingWorkSeed) (string, error) {
 	l.e.lifecycleMu.Lock()
 	defer l.e.lifecycleMu.Unlock()
 	syncID := l.e.CurrentSyncID()
@@ -641,8 +645,8 @@ func (l *Ledger) takeover(ctx context.Context, runID string, facts []string, cou
 		if err := batch.StageLedgerTakeover(fv, rv); err != nil {
 			return err
 		}
-		for _, f := range facts {
-			if err := batch.StageLedgerFact(encodeLedgerFactKey(f)); err != nil {
+		for name, value := range facts {
+			if err := batch.StageLedgerFactValue(encodeLedgerFactKey(name), value); err != nil {
 				return err
 			}
 		}

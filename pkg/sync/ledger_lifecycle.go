@@ -57,7 +57,11 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 			return absent, err
 		}
 	}
-	resume, err := loadLedgerResume(ctx, s.store, ledger, runID)
+	firstOptions, err := s.encodeLedgerReportOptions(runID)
+	if err != nil {
+		return absent, err
+	}
+	resume, err := loadLedgerResume(ctx, s.store, ledger, runID, firstOptions)
 	if err != nil {
 		return absent, err
 	}
@@ -199,10 +203,9 @@ func (s *syncer) flagConflict(ctx context.Context, resume ledgerResume, finished
 	return nil, nil
 }
 
-// The collection flags are the pass's from its first page. The first
-// attempt's options are the record; an attempt that finds none (a legacy
-// takeover, or a first attempt that stopped before writing them) has nothing
-// to compare against and continues.
+// The collection flags are the pass's from the commit that planned under
+// them: the Init page, or the takeover that adopted a legacy stack. An
+// attempt that finds none has nothing to compare against and continues.
 func (s *syncer) collectionFlagConflict(ctx context.Context) (map[string]string, error) {
 	facts, err := s.caps.pageLedger.LedgerFacts(ctx)
 	if err != nil {

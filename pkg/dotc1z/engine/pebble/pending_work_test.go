@@ -265,7 +265,7 @@ func TestPendingWorkTakeoverIsOneUnit(t *testing.T) {
 			if fail {
 				e.db.SetRecordCommitTestHook(func() error { return injected })
 			}
-			moved, err := e.Ledger().BeginFromToken(t.Context(), "attempt", "legacy-state", []string{"imported"}, counters, work, c1zstore.LedgerQueueCollecting)
+			moved, err := e.Ledger().BeginFromToken(t.Context(), "attempt", "legacy-state", map[string]string{"imported": ""}, counters, work, c1zstore.LedgerQueueCollecting)
 			e.db.SetRecordCommitTestHook(nil)
 			if fail {
 				require.ErrorIs(t, err, injected)
@@ -300,7 +300,7 @@ func TestPendingWorkTakeoverIsOneUnit(t *testing.T) {
 				require.Equal(t, work[0].Action, pending[0].Action)
 				require.Contains(t, facts, "imported")
 				require.Equal(t, counters.Counters, totals.Counters)
-				moved, err = e.Ledger().BeginFromToken(t.Context(), "another", "legacy-state", []string{"wrong"}, counters, nil, c1zstore.LedgerQueueCollecting)
+				moved, err = e.Ledger().BeginFromToken(t.Context(), "another", "legacy-state", map[string]string{"wrong": ""}, counters, nil, c1zstore.LedgerQueueCollecting)
 				require.NoError(t, err)
 				require.Empty(t, moved)
 				still, _, err := e.Ledger().PendingWork(t.Context(), 0, 64)
@@ -346,7 +346,7 @@ func TestPendingWorkTakeoverDurableImages(t *testing.T) {
 				e.db.SetRecordCommitTestHook(func() error { image = fs.CrashClone(vfs.CrashCloneCfg{}); return injected })
 			}
 			seed := []c1zstore.LedgerWork{{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-resources", PageToken: "remaining"}}}}
-			_, err = e.Ledger().BeginFromToken(t.Context(), "attempt", "checkpoint", []string{"imported"}, c1zstore.LedgerCounters{}, seed, c1zstore.LedgerQueueCollecting)
+			_, err = e.Ledger().BeginFromToken(t.Context(), "attempt", "checkpoint", map[string]string{"imported": ""}, c1zstore.LedgerCounters{}, seed, c1zstore.LedgerQueueCollecting)
 			e.db.SetRecordCommitTestHook(nil)
 			if before {
 				require.ErrorIs(t, err, injected)

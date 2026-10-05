@@ -299,7 +299,7 @@ func ledgerPhase(t *testing.T, ledger c1zstore.PageLedgerStore) c1zstore.LedgerQ
 }
 
 func loadTestLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore.PageLedgerStore, runID string) (ledgerResume, error) {
-	return loadLedgerResume(ctx, store, ledger, runID)
+	return loadLedgerResume(ctx, store, ledger, runID, "")
 }
 
 func (s *ledgerGuardedStore) FoldLedgerCounters(ctx context.Context, runID string) error {

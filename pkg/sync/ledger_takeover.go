@@ -30,7 +30,10 @@ type ledgerResume struct {
 	actions        []ledgerAction
 }
 
-func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore.PageLedgerStore, runID string) (ledgerResume, error) {
+// firstOptions is the attempt's encoded options, recorded as the pass's when
+// the token's stack already carries collection work: the takeover is the
+// commit that adopts that plan, as the Init page is for a plan of its own.
+func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore.PageLedgerStore, runID, firstOptions string) (ledgerResume, error) {
 	if runID == "" {
 		return ledgerResume{}, errors.New("ledger takeover requires an attempt id")
 	}
@@ -82,12 +85,19 @@ func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore
 	if !prior.IsZero() {
 		counters = c1zstore.LedgerCounters{}
 	}
+	facts := make(map[string]string, len(importedFacts)+1)
+	for _, fact := range importedFacts {
+		facts[fact] = ""
+	}
+	if firstOptions != "" && legacyStackHasCollection(resume.actions) {
+		facts[c1zstore.LedgerFactFirstReportOptions] = firstOptions
+	}
 	// Collecting even when the stack is exactly the expansion step: the
 	// token cannot say whether expansion ran (baseline SDKs clear its
 	// cursor and keep no graph), and the baseline resumer treats that
 	// stack as a step still to take, so dont-expand-grants skips it and
 	// seals. Taking it over as Expanding would refuse that resume.
-	moved, err := ledger.BeginFromToken(ctx, runID, state, importedFacts, counters, pendingSeeds(resume.actions), c1zstore.LedgerQueueCollecting)
+	moved, err := ledger.BeginFromToken(ctx, runID, state, facts, counters, pendingSeeds(resume.actions), c1zstore.LedgerQueueCollecting)
 	if err != nil {
 		return ledgerResume{}, fmt.Errorf("take over legacy checkpoint: %w", err)
 	}
@@ -102,6 +112,19 @@ func loadLedgerResume(ctx context.Context, store c1zstore.Store, ledger c1zstore
 		return ledgerResume{}, errors.New("takeover returned without pending work state")
 	}
 	return ledgerResume{phase: phase, hasPendingWork: len(pending) != 0}, nil
+}
+
+// The same reading as flagConflict's collectionQueued: the Init seed, the
+// expansion step and the external import are not collection.
+func legacyStackHasCollection(actions []ledgerAction) bool {
+	for _, action := range actions {
+		switch action.identity.Op {
+		case InitOp.String(), SyncGrantExpansionOp.String(), SyncExternalResourcesOp.String():
+		default:
+			return true
+		}
+	}
+	return false
 }
 
 func decodeLedgerCheckpoint(state string) (ledgerResume, []string, c1zstore.LedgerCounters, error) {

@@ -377,7 +377,7 @@ func (s *chaosPebbleStore) BeginCollecting(ctx context.Context, work []c1zstore.
 	return s.Ledger().BeginCollecting(ctx, work, facts...)
 }
 func (s *chaosPebbleStore) BeginFromToken(
-	ctx context.Context, run, token string, facts []string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork, phase c1zstore.LedgerQueuePhase,
+	ctx context.Context, run, token string, facts map[string]string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork, phase c1zstore.LedgerQueuePhase,
 ) (string, error) {
 	return s.Ledger().BeginFromToken(ctx, run, token, facts, counters, work, phase)
 }

@@ -14,6 +14,9 @@ import (
 func TestLedgerAttemptMetadataBoundedAcrossResumes(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
 	s.testHooks.ledgerHandler = func(ctx context.Context, action *Action, page *ledgerPage) error {
+		if err := s.recordFirstReportOptions(page); err != nil {
+			return err
+		}
 		page.observations.Counters = map[string]uint64{"pages": 1}
 		next := "more"
 		if s.ledger.runID == "attempt-127" {
@@ -82,10 +85,11 @@ func TestLedgerAttemptMetadataBoundedAcrossResumes(t *testing.T) {
 	require.Equal(t, "attempt-127", saved.Latest.Latest.Attempt)
 }
 
-// CO-038: the snapshot precedes the first page and reflects the request, so a
-// fresh sync that disables grants records that before Init has turned the
-// option into a fact; an attempt that commits no page still names itself as
-// latest; first survives.
+// CO-038: the attempt's snapshot precedes the first page and reflects the
+// request, so a fresh sync that disables grants records that before Init has
+// turned the option into a fact; an attempt that commits no page still names
+// itself as latest. CO-042: the pass's first options are written by the Init
+// page and survive later attempts.
 func TestLedgerOptionsSnapshotBeforeAnyPage(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
 	s.cfg.skipGrants = true
@@ -96,13 +100,24 @@ func TestLedgerOptionsSnapshotBeforeAnyPage(t *testing.T) {
 	facts, err := f.ledger.LedgerFacts(t.Context())
 	require.NoError(t, err)
 	var first, latest c1zstore.LedgerReportOptions
-	require.NoError(t, json.Unmarshal([]byte(facts[c1zstore.LedgerFactFirstReportOptions]), &first))
+	require.NotContains(t, facts, c1zstore.LedgerFactFirstReportOptions, "Init has not planned anything to lock")
 	require.NoError(t, json.Unmarshal([]byte(facts[c1zstore.LedgerFactReportOptions]), &latest))
-	require.True(t, first.EffectiveSkipGrants)
 	require.True(t, latest.EffectiveSkipGrants)
 	require.Equal(t, "attempt-a", latest.Attempt)
 
-	s.cfg.skipGrants = false
+	f.audit.enter(ledgerHandler)
+	require.NoError(t, s.invokeActionPage(t.Context(), s.run.current(), func(ctx context.Context, action *Action) error {
+		return s.initializeAction(ctx, action, nil)
+	}, false))
+	f.audit.enter(ledgerLifecycle)
+	facts, err = f.ledger.LedgerFacts(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal([]byte(facts[c1zstore.LedgerFactFirstReportOptions]), &first))
+	require.Equal(t, "attempt-a", first.Attempt)
+	require.True(t, first.EffectiveSkipGrants)
+	require.Equal(t, 1, first.Requested.WorkerCount)
+
+	s.cfg.workerCount = 2
 	prepareLedgerForTest(t, s, "attempt-b", false)
 	require.NoError(t, s.putLedgerReportOptions(t.Context()))
 	facts, err = f.ledger.LedgerFacts(t.Context())
@@ -110,8 +125,9 @@ func TestLedgerOptionsSnapshotBeforeAnyPage(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(facts[c1zstore.LedgerFactFirstReportOptions]), &first))
 	require.NoError(t, json.Unmarshal([]byte(facts[c1zstore.LedgerFactReportOptions]), &latest))
 	require.Equal(t, "attempt-a", first.Attempt, "first survives a later attempt")
+	require.Equal(t, 1, first.Requested.WorkerCount)
 	require.Equal(t, "attempt-b", latest.Attempt, "an attempt with no page is still the latest")
-	require.False(t, latest.EffectiveSkipGrants)
+	require.Equal(t, 2, latest.Requested.WorkerCount)
 }
 
 type ledgerFailingFactsStore struct {
@@ -139,6 +155,6 @@ func TestLedgerOptionsSnapshotFailureWritesNothing(t *testing.T) {
 	require.NoError(t, s.putLedgerReportOptions(t.Context()))
 	facts, err = f.ledger.LedgerFacts(t.Context())
 	require.NoError(t, err)
-	require.NotEmpty(t, facts[c1zstore.LedgerFactFirstReportOptions])
-	require.Equal(t, facts[c1zstore.LedgerFactFirstReportOptions], facts[c1zstore.LedgerFactReportOptions])
+	require.NotEmpty(t, facts[c1zstore.LedgerFactReportOptions])
+	require.NotContains(t, facts, c1zstore.LedgerFactFirstReportOptions)
 }
