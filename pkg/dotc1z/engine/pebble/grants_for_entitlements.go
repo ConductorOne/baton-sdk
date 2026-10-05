@@ -9,8 +9,11 @@ import (
 	"hash/crc32"
 
 	"github.com/cockroachdb/pebble/v2"
+	"google.golang.org/protobuf/types/known/anypb"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
@@ -32,16 +35,40 @@ func (e *Engine) ListGrantsForEntitlements(
 	ctx context.Context,
 	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementsRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementsResponse, error) {
-	syncID, err := e.resolveActiveSyncForReader(ctx, req.GetAnnotations())
+	records, next, err := e.listGrantsForEntitlements(ctx, req)
 	if err != nil {
 		return nil, err
 	}
+	out := make([]*v2.Grant, 0, len(records))
+	for _, rec := range records {
+		out = append(out, V3GrantToV2(rec))
+	}
+	return reader_v2.GrantsReaderServiceListGrantsForEntitlementsResponse_builder{
+		List:          out,
+		NextPageToken: next,
+	}.Build(), nil
+}
+
+// listGrantsForEntitlementsRequest is the request both the reader_v2 and
+// reader_v3 ListGrantsForEntitlements RPCs take.
+type listGrantsForEntitlementsRequest interface {
+	GetAnnotations() []*anypb.Any
+	GetEntitlements() []*v2.Entitlement
+	GetPageSize() uint32
+	GetPageToken() string
+}
+
+func (e *Engine) listGrantsForEntitlements(ctx context.Context, req listGrantsForEntitlementsRequest) ([]*v3.GrantRecord, string, error) {
+	syncID, err := e.resolveActiveSyncForReader(ctx, req.GetAnnotations())
+	if err != nil {
+		return nil, "", err
+	}
 	if syncID == "" {
-		return nil, ErrNoCurrentSync
+		return nil, "", ErrNoCurrentSync
 	}
 	ents := req.GetEntitlements()
 	if len(ents) == 0 {
-		return reader_v2.GrantsReaderServiceListGrantsForEntitlementsResponse_builder{}.Build(), nil
+		return nil, "", nil
 	}
 	limit := int(req.GetPageSize())
 	if limit <= 0 {
@@ -55,10 +82,10 @@ func (e *Engine) ListGrantsForEntitlements(
 
 	startIdx, startIntra, err := decodeBatchCursor(req.GetPageToken(), listChecksum)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
-	out := make([]*v2.Grant, 0, limit)
+	out := make([]*v3.GrantRecord, 0, limit)
 	var nextToken string
 
 EntitlementLoop:
@@ -71,7 +98,7 @@ EntitlementLoop:
 			if errors.Is(err, pebble.ErrNotFound) {
 				continue // unknown entitlement → no grants
 			}
-			return nil, err
+			return nil, "", err
 		}
 		intraCursor := ""
 		if i == startIdx {
@@ -79,33 +106,19 @@ EntitlementLoop:
 		}
 		for len(out) < limit {
 			if err := ctx.Err(); err != nil {
-				return nil, err
+				return nil, "", err
 			}
-			remaining := limit - len(out)
-			records, next, err := e.PaginateGrantsByEntitlement(ctx, entID, intraCursor, remaining)
+			records, next, err := e.PaginateGrantsByEntitlement(ctx, entID, intraCursor, limit-len(out))
 			if err != nil {
-				return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
+				return nil, "", c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 			}
-			brokeEarly := false
-			var lastIntra string
-			for _, rec := range records {
-				out = append(out, V3GrantToV2(rec))
-				if len(out) == limit {
-					id, err := grantIdentityFromRecord(rec)
-					if err != nil {
-						return nil, err
-					}
-					lastIntra = encodeCursor(encodeGrantIdentityKey(id))
-					brokeEarly = true
-					break
-				}
-			}
-			if brokeEarly {
-				nextToken = encodeBatchCursor(i, lastIntra, listChecksum)
-				break EntitlementLoop
-			}
+			out = append(out, records...)
 			if next == "" || len(records) == 0 {
 				break
+			}
+			if len(out) == limit {
+				nextToken = encodeBatchCursor(i, next, listChecksum)
+				break EntitlementLoop
 			}
 			intraCursor = next
 		}
@@ -118,11 +131,7 @@ EntitlementLoop:
 			break
 		}
 	}
-
-	return reader_v2.GrantsReaderServiceListGrantsForEntitlementsResponse_builder{
-		List:          out,
-		NextPageToken: nextToken,
-	}.Build(), nil
+	return out, nextToken, nil
 }
 
 // entitlementListChecksum hashes the entitlement ID list IN REQUEST

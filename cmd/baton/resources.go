@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	v1 "github.com/conductorone/baton-sdk/pb/baton/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -100,9 +99,6 @@ func runResources(cmd *cobra.Command, args []string) error {
 
 		if resp.NextPageToken == "" {
 			break
-		}
-		if resp.NextPageToken == pageToken {
-			return fmt.Errorf("baton: page token did not advance; aborting before unbounded output")
 		}
 
 		pageToken = resp.NextPageToken

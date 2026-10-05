@@ -116,10 +116,6 @@ func bucketResources(ctx context.Context, store c1zstore.Store, oldSyncID string
 			break
 		}
 
-		if resp.NextPageToken == pageToken {
-			return nil, fmt.Errorf("baton: page token did not advance; aborting before unbounded output")
-		}
-
 		pageToken = resp.NextPageToken
 	}
 
@@ -143,10 +139,6 @@ func bucketResources(ctx context.Context, store c1zstore.Store, oldSyncID string
 
 		if resp.NextPageToken == "" {
 			break
-		}
-
-		if resp.NextPageToken == pageToken {
-			return nil, fmt.Errorf("baton: page token did not advance; aborting before unbounded output")
 		}
 
 		pageToken = resp.NextPageToken
@@ -207,10 +199,6 @@ func bucketEntitlements(ctx context.Context, store c1zstore.Store, oldSyncID str
 			break
 		}
 
-		if resp.NextPageToken == pageToken {
-			return nil, fmt.Errorf("baton: page token did not advance; aborting before unbounded output")
-		}
-
 		pageToken = resp.NextPageToken
 	}
 
@@ -234,10 +222,6 @@ func bucketEntitlements(ctx context.Context, store c1zstore.Store, oldSyncID str
 
 		if resp.NextPageToken == "" {
 			break
-		}
-
-		if resp.NextPageToken == pageToken {
-			return nil, fmt.Errorf("baton: page token did not advance; aborting before unbounded output")
 		}
 
 		pageToken = resp.NextPageToken
@@ -293,10 +277,6 @@ func bucketGrants(ctx context.Context, store c1zstore.Store, oldSyncID string, n
 			break
 		}
 
-		if resp.NextPageToken == pageToken {
-			return nil, fmt.Errorf("baton: page token did not advance; aborting before unbounded output")
-		}
-
 		pageToken = resp.NextPageToken
 	}
 
@@ -320,10 +300,6 @@ func bucketGrants(ctx context.Context, store c1zstore.Store, oldSyncID string, n
 
 		if resp.NextPageToken == "" {
 			break
-		}
-
-		if resp.NextPageToken == pageToken {
-			return nil, fmt.Errorf("baton: page token did not advance; aborting before unbounded output")
 		}
 
 		pageToken = resp.NextPageToken

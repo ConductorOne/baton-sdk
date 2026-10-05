@@ -3164,18 +3164,10 @@ func (s *syncer) listExternalResourcesForResourceType(ctx context.Context, resou
 			return nil, err
 		}
 		resources = append(resources, resourceResp.GetList()...)
-		next := resourceResp.GetNextPageToken()
-		if next == "" {
+		pageToken = resourceResp.GetNextPageToken()
+		if pageToken == "" {
 			break
 		}
-		// The external-resource c1z is a foreign file: a next-page token
-		// that does not advance means the reader is re-serving the same
-		// page and this loop would accumulate duplicates without bound.
-		// Fail fast instead (same guard as the compactor's ListSyncRuns).
-		if next == pageToken {
-			return nil, fmt.Errorf("syncer: external-resource page token did not advance; aborting before unbounded growth")
-		}
-		pageToken = next
 	}
 	return resources, nil
 }

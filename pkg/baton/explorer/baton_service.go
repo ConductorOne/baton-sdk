@@ -249,9 +249,6 @@ func (b *BatonService) GetAccess(ctx context.Context, resourceType, resourceID s
 		if resp.NextPageToken == "" {
 			break
 		}
-		if resp.NextPageToken == pageToken {
-			return nil, fmt.Errorf("explorer: page token did not advance; aborting before unbounded growth")
-		}
 		pageToken = resp.NextPageToken
 	}
 
@@ -691,9 +688,6 @@ func (b *BatonService) GetResourcesWithPrincipalCount(
 
 		if resp.NextPageToken == "" {
 			break
-		}
-		if resp.NextPageToken == pageToken {
-			return nil, fmt.Errorf("explorer: page token did not advance; aborting before unbounded growth")
 		}
 
 		pageToken = resp.NextPageToken

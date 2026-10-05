@@ -97,12 +97,18 @@ func rangeAfter(prefix, cursor []byte) ([]byte, []byte, error) {
 // is hit. On the next iter step (limit+1), records hasMore=true and
 // breaks. Feeding the returned cursor back results in the next page
 // starting strictly after the last returned row.
+//
+// keep, when non-nil, skips records it rejects, so the page holds limit
+// kept records. Callers filter here rather than after the call: a
+// cursor built from a record's fields instead of its key can sort before
+// rows already served when the file's values disagree with their keys.
 func iteratePrimaryPageWithKey[T proto.Message](
 	ctx context.Context,
 	db *rawdb.DB,
 	prefix, cursor []byte,
 	limit int,
 	newT func() T,
+	keep func(T) bool,
 ) ([]T, string, error) {
 	if limit <= 0 {
 		limit = DefaultPageSize
@@ -134,113 +140,11 @@ func iteratePrimaryPageWithKey[T proto.Message](
 		if err := unmarshalRecord(iter.Value(), v); err != nil {
 			return nil, "", fmt.Errorf("page unmarshal: %w", err)
 		}
-		lastReturnedKey = append(lastReturnedKey[:0], iter.Key()...)
-		out = append(out, v)
-	}
-	if err := iter.Error(); err != nil {
-		return nil, "", err
-	}
-	var nextCursor string
-	if hasMore {
-		nextCursor = encodeCursor(lastReturnedKey)
-	}
-	return out, nextCursor, nil
-}
-
-// iteratePrimaryPageWithKeys is iteratePrimaryPageWithKey additionally
-// returning each returned record's iterator key alongside the record, so
-// callers that break a page early (post-filtering) can mint the resume
-// token from the record's true position rather than from untrusted value
-// fields.
-func iteratePrimaryPageWithKeys[T proto.Message](
-	ctx context.Context,
-	db *rawdb.DB,
-	prefix, cursor []byte,
-	limit int,
-	newT func() T,
-) (out []T, keys [][]byte, nextCursor string, err error) {
-	if limit <= 0 {
-		limit = DefaultPageSize
-	}
-	lower, upper, rangeErr := rangeAfter(prefix, cursor)
-	if rangeErr != nil {
-		return nil, nil, "", rangeErr
-	}
-	iter, err := db.NewIter(&pebble.IterOptions{
-		LowerBound: lower,
-		UpperBound: upper,
-	})
-	if err != nil {
-		return nil, nil, "", fmt.Errorf("page iter: %w", err)
-	}
-	defer iter.Close()
-	out = make([]T, 0, limit)
-	keys = make([][]byte, 0, limit)
-	var lastReturnedKey []byte
-	hasMore := false
-	for iter.First(); iter.Valid(); iter.Next() {
-		if err := ctx.Err(); err != nil {
-			return nil, nil, "", err
-		}
-		if len(out) == limit {
-			hasMore = true
-			break
-		}
-		v := newT()
-		if err := unmarshalRecord(iter.Value(), v); err != nil {
-			return nil, nil, "", fmt.Errorf("page unmarshal: %w", err)
+		if keep != nil && !keep(v) {
+			continue
 		}
 		lastReturnedKey = append(lastReturnedKey[:0], iter.Key()...)
 		out = append(out, v)
-		keys = append(keys, bytes.Clone(lastReturnedKey))
-	}
-	if err := iter.Error(); err != nil {
-		return nil, nil, "", err
-	}
-	if hasMore {
-		nextCursor = encodeCursor(lastReturnedKey)
-	}
-	return out, keys, nextCursor, nil
-}
-
-func iterateGrantPrimaryPage(
-	ctx context.Context,
-	db *rawdb.DB,
-	prefix, cursor []byte,
-	limit int,
-) ([]*v3.GrantRecord, string, error) {
-	if limit <= 0 {
-		limit = DefaultPageSize
-	}
-	lower, upper, rangeErr := rangeAfter(prefix, cursor)
-	if rangeErr != nil {
-		return nil, "", rangeErr
-	}
-	iter, err := db.NewIter(&pebble.IterOptions{
-		LowerBound: lower,
-		UpperBound: upper,
-	})
-	if err != nil {
-		return nil, "", fmt.Errorf("page iter: %w", err)
-	}
-	defer iter.Close()
-	out := make([]*v3.GrantRecord, 0, limit)
-	var lastReturnedKey []byte
-	hasMore := false
-	for iter.First(); iter.Valid(); iter.Next() {
-		if err := ctx.Err(); err != nil {
-			return nil, "", err
-		}
-		if len(out) == limit {
-			hasMore = true
-			break
-		}
-		r := &v3.GrantRecord{}
-		if err := unmarshalRecord(iter.Value(), r); err != nil {
-			return nil, "", fmt.Errorf("page unmarshal: %w", err)
-		}
-		lastReturnedKey = append(lastReturnedKey[:0], iter.Key()...)
-		out = append(out, r)
 	}
 	if err := iter.Error(); err != nil {
 		return nil, "", err
@@ -298,7 +202,7 @@ func (e *Engine) PaginateGrants(
 		slot := arena.nextSlot(idx)
 		idx++
 		return slot
-	})
+	}, nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -315,12 +219,20 @@ func (e *Engine) PaginateGrants(
 func (e *Engine) PaginateGrantsByEntitlement(
 	ctx context.Context, entID entitlementIdentity, cursor string, limit int,
 ) ([]*v3.GrantRecord, string, error) {
+	return e.paginateGrantsByEntitlement(ctx, entID, cursor, limit, nil)
+}
+
+func (e *Engine) paginateGrantsByEntitlement(
+	ctx context.Context, entID entitlementIdentity, cursor string, limit int, keep func(*v3.GrantRecord) bool,
+) ([]*v3.GrantRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
 	if err != nil {
 		return nil, "", err
 	}
-	return iterateGrantPrimaryPage(ctx, e.db, encodeGrantPrimaryEntitlementPrefix(entID), cursorBytes, limit)
+	return iteratePrimaryPageWithKey(ctx, e.db, encodeGrantPrimaryEntitlementPrefix(entID), cursorBytes, limit, newGrantRecord, keep)
 }
+
+func newGrantRecord() *v3.GrantRecord { return &v3.GrantRecord{} }
 
 // PaginateGrantPrincipalKeysByEntitlement scans the primary grant keyspace under
 // the entitlement identity prefix and returns only principal identity keys for
@@ -495,7 +407,7 @@ func (e *Engine) PaginateGrantsByEntitlementResource(
 	if limit <= 0 {
 		limit = DefaultPageSize
 	}
-	return iterateGrantPrimaryPage(ctx, e.db, encodeGrantPrimaryEntitlementResourcePrefix(entRT, entRID), cursorBytes, limit)
+	return iteratePrimaryPageWithKey(ctx, e.db, encodeGrantPrimaryEntitlementResourcePrefix(entRT, entRID), cursorBytes, limit, newGrantRecord, nil)
 }
 
 // PaginateGrantsByPrincipalResourceType walks the by-principal-RT
@@ -650,6 +562,12 @@ func (e *Engine) PaginateGrantsByNeedsExpansion(
 func (e *Engine) PaginateResources(
 	ctx context.Context, cursor string, limit int,
 ) ([]*v3.ResourceRecord, string, error) {
+	return e.paginateResources(ctx, cursor, limit, nil)
+}
+
+func (e *Engine) paginateResources(
+	ctx context.Context, cursor string, limit int, keep func(*v3.ResourceRecord) bool,
+) ([]*v3.ResourceRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
 	if err != nil {
 		return nil, "", err
@@ -657,49 +575,24 @@ func (e *Engine) PaginateResources(
 	prefix := encodeResourcePrefix()
 	return iteratePrimaryPageWithKey(ctx, e.db, prefix, cursorBytes, limit, func() *v3.ResourceRecord {
 		return &v3.ResourceRecord{}
-	})
+	}, keep)
 }
 
-// resourcePage is one engine page of resource records together with the
-// iterator key each record was actually read under. The key is the
-// authoritative position: page tokens must resume strictly after it, and a
-// record's VALUE ids are untrusted file bytes that can disagree with its
-// key — minting a token from the value lets a hostile c1z re-serve served
-// rows forever (see pagination_advance_security_test).
-type resourcePage struct {
-	records []*v3.ResourceRecord
-	// keys[i] is the raw iterator key of records[i]; nil entries mean the
-	// position is unavailable and callers must fall back to the value ids.
-	keys [][]byte
-	next string
-}
-
-// paginateResourcesWithKeys is PaginateResources additionally returning
-// each record's true iterator key.
-func (e *Engine) paginateResourcesWithKeys(
-	ctx context.Context, cursor string, limit int,
-) (resourcePage, error) {
-	cursorBytes, err := decodeCursor(cursor)
-	if err != nil {
-		return resourcePage{}, err
-	}
-	prefix := encodeResourcePrefix()
-	records, keys, next, err := iteratePrimaryPageWithKeys(ctx, e.db, prefix, cursorBytes, limit,
-		func() *v3.ResourceRecord { return &v3.ResourceRecord{} })
-	if err != nil {
-		return resourcePage{}, err
-	}
-	return resourcePage{records: records, keys: keys, next: next}, nil
-}
-
-// paginateResourcesByParentWithKeys is PaginateResourcesByParent
-// additionally returning each record's true by_parent index key.
-func (e *Engine) paginateResourcesByParentWithKeys(
+// PaginateResourcesByParent uses the by_parent index.
+func (e *Engine) PaginateResourcesByParent(
 	ctx context.Context, parentRT, parentID, cursor string, limit int,
-) (resourcePage, error) {
+) ([]*v3.ResourceRecord, string, error) {
+	return e.paginateResourcesByParent(ctx, parentRT, parentID, cursor, limit, nil)
+}
+
+// paginateResourcesByParent is PaginateResourcesByParent with
+// iteratePrimaryPageWithKey's keep.
+func (e *Engine) paginateResourcesByParent(
+	ctx context.Context, parentRT, parentID, cursor string, limit int, keep func(*v3.ResourceRecord) bool,
+) ([]*v3.ResourceRecord, string, error) {
 	cursorBytes, err := decodeCursor(cursor)
 	if err != nil {
-		return resourcePage{}, err
+		return nil, "", err
 	}
 	if limit <= 0 {
 		limit = DefaultPageSize
@@ -707,23 +600,22 @@ func (e *Engine) paginateResourcesByParentWithKeys(
 	indexPrefix := encodeResourceByParentPrefix(parentRT, parentID)
 	lower, upper, err := rangeAfter(indexPrefix, cursorBytes)
 	if err != nil {
-		return resourcePage{}, err
+		return nil, "", err
 	}
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: lower,
 		UpperBound: upper,
 	})
 	if err != nil {
-		return resourcePage{}, fmt.Errorf("page iter: %w", err)
+		return nil, "", fmt.Errorf("page iter: %w", err)
 	}
 	defer iter.Close()
 	out := make([]*v3.ResourceRecord, 0, limit)
-	keys := make([][]byte, 0, limit)
 	var lastReturnedKey []byte
 	hasMore := false
 	for iter.First(); iter.Valid(); iter.Next() {
 		if err := ctx.Err(); err != nil {
-			return resourcePage{}, err
+			return nil, "", err
 		}
 		if len(out) == limit {
 			hasMore = true
@@ -738,26 +630,28 @@ func (e *Engine) paginateResourcesByParentWithKeys(
 			if errors.Is(getErr, pebble.ErrNotFound) {
 				continue
 			}
-			return resourcePage{}, fmt.Errorf("paginate: get primary: %w", getErr)
+			return nil, "", fmt.Errorf("paginate: get primary: %w", getErr)
 		}
 		r := &v3.ResourceRecord{}
 		err = unmarshalRecord(val, r)
 		closer.Close()
 		if err != nil {
-			return resourcePage{}, err
+			return nil, "", err
+		}
+		if keep != nil && !keep(r) {
+			continue
 		}
 		lastReturnedKey = append(lastReturnedKey[:0], iter.Key()...)
 		out = append(out, r)
-		keys = append(keys, bytes.Clone(lastReturnedKey))
 	}
 	if err := iter.Error(); err != nil {
-		return resourcePage{}, err
+		return nil, "", err
 	}
 	var nextCursor string
 	if hasMore {
 		nextCursor = encodeCursor(lastReturnedKey)
 	}
-	return resourcePage{records: out, keys: keys, next: nextCursor}, nil
+	return out, nextCursor, nil
 }
 
 // PaginateResourceTypesBySync returns a page of resource_types.
@@ -771,7 +665,7 @@ func (e *Engine) PaginateResourceTypes(
 	prefix := encodeResourceTypePrefix()
 	return iteratePrimaryPageWithKey(ctx, e.db, prefix, cursorBytes, limit, func() *v3.ResourceTypeRecord {
 		return &v3.ResourceTypeRecord{}
-	})
+	}, nil)
 }
 
 // PaginateEntitlementsBySync returns a page of entitlements in
@@ -786,7 +680,7 @@ func (e *Engine) PaginateEntitlements(
 	prefix := encodeEntitlementPrefix()
 	return iteratePrimaryPageWithKey(ctx, e.db, prefix, cursorBytes, limit, func() *v3.EntitlementRecord {
 		return &v3.EntitlementRecord{}
-	})
+	}, nil)
 }
 
 // PaginateEntitlementsByResource uses the entitlement primary key prefix.
