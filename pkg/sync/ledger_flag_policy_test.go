@@ -3,6 +3,7 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -204,12 +205,12 @@ func TestLedgerExpansionOnlyRefusesLegacyCheckpointBeforeTakeover(t *testing.T) 
 	require.Equal(t, c1zstore.LedgerQueueAbsent, state.Phase)
 }
 
-// A baseline-SDK checkpoint whose stack is the expansion step has finished
-// collecting and is at or inside expansion. It is taken over as Expanding, so
-// a dont-expand resumer is refused before the takeover, and a plain resumer
-// finishes the expansion.
-func TestLedgerLegacyCheckpointInExpansionIsTakenOverAsExpanding(t *testing.T) {
-	build := func(t *testing.T) (*ledgerFixture, string, []string) {
+// A baseline-SDK checkpoint whose stack is the expansion step is taken over
+// as Collecting with that step queued, as the baseline resumer reads it: a
+// dont-expand resumer skips the step and seals the grants as collected, and
+// a plain resumer expands them.
+func TestLedgerLegacyCheckpointAtExpansionResumesAsBaselineWould(t *testing.T) {
+	build := func(t *testing.T) (*ledgerFixture, string, []string, []string) {
 		ctx := t.Context()
 		f := newLedgerFixture(t)
 		id := f.engine.CurrentSyncID()
@@ -237,35 +238,36 @@ func TestLedgerLegacyCheckpointInExpansionIsTakenOverAsExpanding(t *testing.T) {
 		token, err := marshalToken(prior, newRunStats())
 		require.NoError(t, err)
 		require.NoError(t, f.store.CheckpointSync(ctx, token))
-		expanded := append(listGrantIDs(t, f),
+		collected := listGrantIDs(t, f)
+		expanded := append(slices.Clone(collected),
 			gt.NewGrant(groups[1], "member", alice).GetId(),
 			gt.NewGrant(groups[2], "member", alice).GetId(),
 			gt.NewGrant(groups[2], "member", groups[0].GetId()).GetId())
 		require.NoError(t, f.store.Close(ctx))
-		return openLedgerFixtureAt(t, f.path, false), id, expanded
+		return openLedgerFixtureAt(t, f.path, false), id, collected, expanded
 	}
 
-	t.Run("dont-expand is refused before takeover", func(t *testing.T) {
+	t.Run("dont-expand skips the step and seals", func(t *testing.T) {
 		ctx := t.Context()
-		f, id, _ := build(t)
-		before := ledgerRawSnapshot(t, f.engine)
+		f, id, collected, _ := build(t)
 		skipper, err := NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()}, WithConnectorStore(f.store), WithSyncID(id), WithDontExpandGrants())
 		require.NoError(t, err)
-		err = skipper.Sync(ctx)
-		require.ErrorIs(t, err, ErrLedgerStateConflict)
-		require.ErrorContains(t, err, "legacy checkpoint in expansion")
-		require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)), "no takeover: the token is still the checkpoint")
+		require.NoError(t, skipper.Sync(ctx))
+		require.ElementsMatch(t, collected, listGrantIDs(t, f))
+		run, err := f.engine.GetSyncRunRecord(ctx, id)
+		require.NoError(t, err)
+		require.NotNil(t, run.GetEndedAt())
 	})
 
-	t.Run("plain resume takes over as expanding and finishes", func(t *testing.T) {
+	t.Run("plain resume takes over as collecting and expands", func(t *testing.T) {
 		ctx := t.Context()
-		f, id, expanded := build(t)
+		f, id, _, expanded := build(t)
 		s := ledgerContinuationSyncer(f)
 		require.NoError(t, f.store.SetCurrentSync(ctx, id))
 		phase, err := s.prepareLedgerState(ctx, "takeover", false)
 		require.NoError(t, err)
-		require.Equal(t, c1zstore.LedgerQueueExpanding, phase, "taken over at the phase the stack implies")
-		require.Equal(t, c1zstore.LedgerQueueExpanding, ledgerPhase(t, f.ledger))
+		require.Equal(t, c1zstore.LedgerQueueCollecting, phase, "the expansion step is queued, not entered")
+		require.Equal(t, c1zstore.LedgerQueueCollecting, ledgerPhase(t, f.ledger))
 		require.NoError(t, f.store.Close(ctx))
 
 		f = openLedgerFixtureAt(t, f.path, false)

@@ -2834,6 +2834,10 @@ func (s *syncer) SyncExternalResources(ctx context.Context, action *Action) erro
 	l := ctxzap.Extract(ctx)
 	l.Info("Syncing external resources")
 
+	if s.externalResourceReader == nil {
+		err = fmt.Errorf("sync %s queued an external resource import but this invocation has no external resource source", s.syncID)
+		return err
+	}
 	if s.cfg.externalResourceEntitlementIdFilter != "" {
 		err := s.SyncExternalResourcesWithGrantToEntitlement(ctx, s.cfg.externalResourceEntitlementIdFilter)
 		if err != nil {

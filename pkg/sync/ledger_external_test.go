@@ -51,6 +51,17 @@ func TestLedgerExternalUsesMainHandler(t *testing.T) {
 	testLedgerExternalParity(t, nil)
 }
 
+// A queued import resumed by an invocation without an external source
+// fails the step instead of dereferencing the missing reader.
+func TestExternalImportWithoutSourceFails(t *testing.T) {
+	for _, ledger := range []bool{true, false} {
+		s, _, _ := externalPageFixture(t, ledger)
+		s.externalResourceReader = nil
+		err := s.SyncExternalResources(t.Context(), s.run.current())
+		require.ErrorContains(t, err, "no external resource source")
+	}
+}
+
 func testLedgerExternalParity(t *testing.T, configure func(*syncer, *ledgerFixture, *ledgerFixture)) {
 	t.Helper()
 	s, f, source := externalPageFixture(t, true)

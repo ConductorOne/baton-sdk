@@ -117,12 +117,6 @@ func (s *syncer) legacyTokenFlagConflict(ctx context.Context, finished bool) err
 	if err != nil {
 		return err
 	}
-	if legacyStackPhase(resume.actions) == c1zstore.LedgerQueueExpanding {
-		if s.cfg.dontExpandGrants {
-			return fmt.Errorf("%w: sync %s is a legacy checkpoint in expansion; resume without dont-expand-grants to finish it", ErrLedgerStateConflict, s.syncID)
-		}
-		return nil
-	}
 	// An empty stack seeds Init, which plans the requested pass; on a
 	// finished sync that is a baseline upload, and the pass may only be
 	// expansion. Unfinished with nothing queued is the unstarted case,

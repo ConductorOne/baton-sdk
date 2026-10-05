@@ -29,9 +29,9 @@ const keyspaceVersion uint32 = 2
 
 // The layout is v2 plus the additive ledger family; the stamp exists so a
 // token-only SDK refuses the file at Open instead of resuming a sync whose
-// truth is in a family it cannot read. Written before the first ledger row,
-// restored to keyspaceVersion at seal, so finished files open under v2
-// readers.
+// truth is in a family it cannot read. Staged in the batch that writes the
+// first ledger row and restored to keyspaceVersion in the seal and Drop
+// batches, so finished files open under v2 readers.
 const keyspaceVersionLedgerInFlight uint32 = 3
 
 // A package var so a test can shrink it to an older SDK's set.
