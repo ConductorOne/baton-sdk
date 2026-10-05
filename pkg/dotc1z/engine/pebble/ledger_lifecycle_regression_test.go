@@ -56,11 +56,10 @@ func TestLedgerScrubReachesTheTakeoverFrontier(t *testing.T) {
 // A sync with ledger rows must be refused a checkpoint token even when
 // the in-flight stamp has been cleared.
 //
-// Ledger.clearInFlightLocked drops the durable stamp and the in-memory flag
-// before endSyncFinalize writes ended_at. If the write then fails, or the
-// process crashes and reopens, the flag reads false over rows that are
-// still there, and gating on the flag alone let CheckpointSync write a
-// token beside a live ledger.
+// This SDK clears the stamp only in the batch that removes the rows or
+// writes ended_at. An earlier SDK cleared it on its own before ended_at, so
+// a file it crashed on holds rows with the stamp at v2; gating on the stamp
+// alone let CheckpointSync write a token beside a live ledger.
 func TestCheckpointRefusedWhileLedgerRowsExistWithoutTheStamp(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
@@ -72,8 +71,8 @@ func TestCheckpointRefusedWhileLedgerRowsExistWithoutTheStamp(t *testing.T) {
 	require.True(t, e.ledger.inFlight.Load(), "committing a page stamps in flight")
 	require.ErrorIs(t, e.CheckpointSync(ctx, "tok"), ErrLedgeredSyncWritesNoToken)
 
-	require.NoError(t, e.withWriteAllowSealed(e.ledger.clearInFlightLocked))
-	require.False(t, e.ledger.inFlight.Load())
+	require.NoError(t, e.withWriteAllowSealed(func() error { return e.stampKeyspaceVersionValueLocked(keyspaceVersion) }))
+	e.ledger.inFlight.Store(false)
 
 	require.ErrorIs(t, e.CheckpointSync(ctx, "tok"), ErrLedgeredSyncWritesNoToken,
 		"rows outlive the stamp, so rows are what the gate asks about")
@@ -87,8 +86,8 @@ func TestCheckpointRefusedWhileLedgerRowsExistWithoutTheStamp(t *testing.T) {
 // ledger at all: neither protocol could finish it.
 // The stamp only outlives its rows when the ledgered sync never sealed,
 // so the setup has to abandon one: commit a page, then reopen without
-// EndSync. A seal would call Ledger.clearInFlightLocked itself and the reset
-// would have nothing left to clear.
+// EndSync. A seal clears the stamp in its own batch and the reset would
+// have nothing left to clear.
 func TestResetForNewSyncClearsTheInFlightStamp(t *testing.T) {
 	ctx := context.Background()
 	e, dir := newTestEngine(t)
@@ -309,6 +308,41 @@ func TestDropLedgerClearsTheInFlightStamp(t *testing.T) {
 
 	require.NoError(t, e.CheckpointSync(ctx, "tok"))
 	require.NoError(t, e.EndSync(ctx))
+}
+
+// The rows and the stamp leave in one batch: a failed Drop keeps both, so
+// the file still refuses a token and a retry has the same work to do.
+func TestDropLedgerCommitFailureKeepsRowsAndStamp(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	u := e.ledger.newPageUnit()
+	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
+
+	boom := errors.New("injected")
+	e.db.SetRecordCommitTestHook(func() error { return boom })
+	require.ErrorIs(t, e.ledger.Drop(ctx), boom)
+	e.db.SetRecordCommitTestHook(nil)
+
+	n, err := e.ledger.rowCount(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n, "the row survives the failed drop")
+	stamp, err := e.keyspaceVersionStamp()
+	require.NoError(t, err)
+	require.Equal(t, keyspaceVersionLedgerInFlight, stamp, "and so does the stamp that describes it")
+	require.True(t, e.ledger.inFlight.Load())
+	require.ErrorIs(t, e.CheckpointSync(ctx, "tok"), ErrLedgeredSyncWritesNoToken)
+
+	require.NoError(t, e.ledger.Drop(ctx))
+	n, err = e.ledger.rowCount(ctx)
+	require.NoError(t, err)
+	require.Zero(t, n)
+	stamp, err = e.keyspaceVersionStamp()
+	require.NoError(t, err)
+	require.Equal(t, keyspaceVersion, stamp)
+	require.NoError(t, e.CheckpointSync(ctx, "tok"))
 }
 
 // endSync stashes the overlay before GetSyncRunRecord and endSyncFinalize

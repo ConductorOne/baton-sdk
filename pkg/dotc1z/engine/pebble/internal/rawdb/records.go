@@ -686,6 +686,22 @@ func (rb *RecordBatch) StageLedgerArchive(archiveKey, archiveVal []byte) error {
 	return rb.core.Set(archiveKey, archiveVal)
 }
 
+// StageKeyspaceVersion writes the layout stamp in the same batch as the
+// ledger write it describes: the in-flight stamp must never be durable
+// without the rows, nor the rows without it.
+func (rb *RecordBatch) StageKeyspaceVersion(key, val []byte) error {
+	if err := assertFamily("StageKeyspaceVersion", key, []byte{VersionV3, TypeEngineMeta}); err != nil {
+		return err
+	}
+	return rb.core.Set(key, val)
+}
+
+// StageLedgerDrop removes the whole ledger family.
+func (rb *RecordBatch) StageLedgerDrop() error {
+	lo, hi := LedgerBounds()
+	return rb.core.DeleteRange(lo, hi)
+}
+
 // The seal's one durable step: archive, the family's remaining keys, and the
 // sync-run record carrying ended_at. Retained history keeps rows, facts and
 // counters; the declaration, the scheduling relations and the frontier (which

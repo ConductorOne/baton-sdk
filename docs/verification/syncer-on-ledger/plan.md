@@ -1404,3 +1404,15 @@ ended rebind initializes the new request normally. Source: correction review.
 - Verification delta: `TestLedgerPublicEngineAttachment` and `TestLedgerPublicRegisteredPathAttachment` flip the `""` and `other` without-ledger cells to attach; `TestNewSyncerStoreEngineRouting` attaches a nil-embedded double with the attach-time methods answered, the shape connector repos use.
 - Risk routing: bounded; the token path on such a store is `main`'s behavior.
 - PR placement: this PR.
+
+### CO-041 — the layout stamp rides the batch it describes
+
+- Classification: durability correction, small.
+- Source: requester, on the b6834d01 review of the seal.
+- Motivation: the in-flight stamp was its own synced write on both sides: set before a ledger batch, cleared after the purge and before the seal batch that writes `ended_at`. A crash between the clear and the seal left a v2 stamp over an unfinished sync with no token. A token-only SDK opened that file, seeded `Init` from the empty token, and collected again on top of the sealed records; this SDK then refused the file as a legacy checkpoint beside pending work. The arm side had the inverse image, a v3 stamp over no rows, which a token-only SDK refused although nothing ledgered existed.
+- Claim, stated on the file: no durable image holds the in-flight stamp without a ledger row or pending-work key, and none holds a v2 stamp over an unfinished ledgered sync. The stamp is staged in the batch that writes the first ledger key (`Ledger.stageMarkInFlight`), and in the batch that removes the family or writes `ended_at` (`Ledger.stageClearInFlight`, from `Drop` and the seal).
+- Contract delta: none. `Ledger.active` still reads rows, not the stamp alone: files from a build that cleared early can hold rows under a v2 stamp.
+- Owning boundary: `pageUnit.Commit`, `Ledger.takeover`, `BeginCollecting`, `BeginExpanding`, `BeginPass`, `PutFacts`, `PutCounterBucket`, `Ledger.Drop`, `endSyncFinalize`.
+- Verification delta: `TestLedgerDiscardDurableSealCuts` asserts the stamp at every seal image (v3 on `after-delete`, `after-purge`, `before-ended`; v2 on `ended`); the `before-ended` cell failed before the change. `TestLedgerTakeoverCrashImages` `mid` cell: a token-only SDK opens the image and the stamp is v2. `TestDropLedgerCommitFailureKeepsRowsAndStamp` covers the Drop batch's failure route.
+- Risk routing: bounded; one write moved into an existing batch at each site.
+- PR placement: this PR.

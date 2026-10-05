@@ -103,9 +103,13 @@ func (e *Engine) stampKeyspaceVersion() error {
 }
 
 func (e *Engine) stampKeyspaceVersionValueLocked(v uint32) error {
-	var buf [4]byte
-	binary.BigEndian.PutUint32(buf[:], v)
-	return e.db.MetaSet(encodeKeyspaceVersionKey(), buf[:], pebble.Sync)
+	return e.db.MetaSet(encodeKeyspaceVersionKey(), encodeKeyspaceVersionValue(v), pebble.Sync)
+}
+
+func encodeKeyspaceVersionValue(v uint32) []byte {
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf, v)
+	return buf
 }
 
 // isKeyspaceEmpty reports whether the DB holds any v3 key at all (data,

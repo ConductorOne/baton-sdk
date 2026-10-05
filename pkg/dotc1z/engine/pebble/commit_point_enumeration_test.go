@@ -65,6 +65,7 @@ var commitPointRegistry = map[string][]string{
 	"ledger.go:BeginPass":                 {"ledgerBeginPassHook", "SetRecordCommitTestHook"},
 	"pending_work.go:BeginExpanding":      {"ledgerBeginExpandingHook", "SetRecordCommitTestHook"},
 	"ledger.go:scrubTokens":               {"SetRecordCommitTestHook"},
+	"ledger.go:Drop":                      {"SetRecordCommitTestHook"}, // rows and stamp leave together; TestDropLedgerCommitFailureKeepsRowsAndStamp
 	"ledger.go:takeover":                  {"SetRecordCommitTestHook"}, // RecordBatch: frontier + facts + bucket + token clear, one unit
 	"ledger.go:PutFacts":                  {"SetRecordCommitTestHook"}, // one synced batch of fact values; TestLedgerPutFactsIsOneUnit
 	"ledger.go:PutCounterBucket": {

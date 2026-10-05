@@ -397,13 +397,19 @@ func (l *Ledger) Drop(ctx context.Context) error {
 		}
 	}
 	if err := l.e.withWriteAllowSealed(func() error {
-		lo, hi := rawdb.LedgerBounds()
-		if err := l.e.db.DropKeyRange(lo, hi, writeOpts(l.e.opts.durability)); err != nil {
+		batch := l.e.db.NewRecordBatch()
+		defer batch.Close()
+		if err := batch.StageLedgerDrop(); err != nil {
 			return err
 		}
-		// After the drop: if the clear fails the rows are gone and the file still
-		// refuses a token, the safe way round.
-		return l.clearInFlightLocked()
+		if err := l.stageClearInFlight(batch); err != nil {
+			return err
+		}
+		if err := batch.Commit(writeOpts(l.e.opts.durability)); err != nil {
+			return err
+		}
+		l.inFlight.Store(false)
+		return nil
 	}); err != nil {
 		return err
 	}
@@ -416,33 +422,32 @@ func cloneLedgerRow(row *v3.LedgerRow) *v3.LedgerRow {
 	return proto.Clone(row).(*v3.LedgerRow)
 }
 
-// Stamped before the unit's batch, as its own synced write, so a token-only
-// SDK refuses the file in every image that holds a row.
-func (l *Ledger) markInFlightLocked() error {
+// Staged in the ledger write's own batch, so a token-only SDK refuses the
+// file in every image that holds a row and no image holds the stamp
+// without one. The caller stores true after the commit.
+func (l *Ledger) stageMarkInFlight(batch *rawdb.RecordBatch) error {
 	if l.inFlight.Load() {
 		return nil
 	}
-	if err := l.e.stampKeyspaceVersionValueLocked(keyspaceVersionLedgerInFlight); err != nil {
+	if err := batch.StageKeyspaceVersion(encodeKeyspaceVersionKey(), encodeKeyspaceVersionValue(keyspaceVersionLedgerInFlight)); err != nil {
 		return fmt.Errorf("pebble: stamp ledger in-flight: %w", err)
 	}
-	l.inFlight.Store(true)
 	return nil
 }
 
-func (l *Ledger) clearInFlightLocked() error {
+// Cleared in the batch that removes the rows or writes ended_at, never on
+// its own: a v2 stamp over an unfinished sync lets a token-only SDK resume
+// it from Init on top of the sealed data. The caller stores false after
+// the commit.
+func (l *Ledger) stageClearInFlight(batch *rawdb.RecordBatch) error {
 	if !l.inFlight.Load() {
 		return nil
 	}
-	if err := l.e.stampKeyspaceVersionValueLocked(keyspaceVersion); err != nil {
-		return fmt.Errorf("pebble: clear ledger in-flight stamp: %w", err)
-	}
-	l.inFlight.Store(false)
-	return nil
+	return batch.StageKeyspaceVersion(encodeKeyspaceVersionKey(), encodeKeyspaceVersionValue(keyspaceVersion))
 }
 
-// The stamp alone is not enough: clearInFlightLocked runs before the
-// ended_at stamp, so a failed or crashed finalize leaves rows with the flag
-// false. Rows outlive the stamp, so rows are what the gate asks about.
+// Rows are what the gate asks about, not the stamp alone: a file from an
+// SDK that cleared the stamp before ended_at can hold rows with it false.
 func (l *Ledger) active() (bool, error) {
 	if l.inFlight.Load() {
 		return true, nil
@@ -616,11 +621,11 @@ func (l *Ledger) takeover(ctx context.Context, runID string, facts []string, cou
 		}
 	}
 	err = l.e.withWrite(func() error {
-		if err := l.markInFlightLocked(); err != nil {
-			return err
-		}
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
+		if err := l.stageMarkInFlight(batch); err != nil {
+			return err
+		}
 		if seed != nil {
 			_, phase, err := l.workState()
 			if err != nil {
@@ -652,7 +657,11 @@ func (l *Ledger) takeover(ctx context.Context, runID string, facts []string, cou
 				return err
 			}
 		}
-		return batch.Commit(pebble.Sync)
+		if err := batch.Commit(pebble.Sync); err != nil {
+			return err
+		}
+		l.inFlight.Store(true)
+		return nil
 	})
 	if err != nil {
 		return "", err
@@ -669,15 +678,19 @@ func (l *Ledger) PutCounterBucket(ctx context.Context, runID string, worker uint
 		return err
 	}
 	return l.e.withWrite(func() error {
-		if err := l.markInFlightLocked(); err != nil {
-			return err
-		}
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
+		if err := l.stageMarkInFlight(batch); err != nil {
+			return err
+		}
 		if err := batch.StageLedgerCounterBucket(encodeLedgerCounterKey(runID, worker), val); err != nil {
 			return err
 		}
-		return batch.Commit(pebble.Sync)
+		if err := batch.Commit(pebble.Sync); err != nil {
+			return err
+		}
+		l.inFlight.Store(true)
+		return nil
 	})
 }
 
@@ -700,17 +713,21 @@ func (l *Ledger) PutFacts(ctx context.Context, facts map[string]string) error {
 		if err := l.e.requireCurrentSync(); err != nil {
 			return err
 		}
-		if err := l.markInFlightLocked(); err != nil {
-			return err
-		}
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
+		if err := l.stageMarkInFlight(batch); err != nil {
+			return err
+		}
 		for _, name := range names {
 			if err := batch.StageLedgerFactValue(encodeLedgerFactKey(name), facts[name]); err != nil {
 				return err
 			}
 		}
-		return batch.Commit(pebble.Sync)
+		if err := batch.Commit(pebble.Sync); err != nil {
+			return err
+		}
+		l.inFlight.Store(true)
+		return nil
 	})
 }
 
@@ -777,11 +794,11 @@ func (l *Ledger) BeginPass(ctx context.Context, seeds []c1zstore.LedgerWork, cle
 		if err := l.markResiduePendingLocked(); err != nil {
 			return err
 		}
-		if err := l.markInFlightLocked(); err != nil {
-			return err
-		}
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
+		if err := l.stageMarkInFlight(batch); err != nil {
+			return err
+		}
 		if archive != nil {
 			for name, value := range archive.Facts {
 				if _, has := present[name]; has || cleared[name] {
@@ -825,7 +842,11 @@ func (l *Ledger) BeginPass(ctx context.Context, seeds []c1zstore.LedgerWork, cle
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		return batch.Commit(pebble.Sync)
+		if err := batch.Commit(pebble.Sync); err != nil {
+			return err
+		}
+		l.inFlight.Store(true)
+		return nil
 	})
 }
 

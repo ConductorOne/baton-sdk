@@ -120,11 +120,11 @@ func (l *Ledger) BeginCollecting(ctx context.Context, actions []c1zstore.LedgerW
 				return errors.New("initial work must not have assigned IDs or revisions")
 			}
 		}
-		if err := l.markInFlightLocked(); err != nil {
-			return err
-		}
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
+		if err := l.stageMarkInFlight(batch); err != nil {
+			return err
+		}
 		if err := stageInitialWork(batch, l.e.CurrentSyncID(), actions, c1zstore.LedgerQueueCollecting); err != nil {
 			return err
 		}
@@ -133,7 +133,11 @@ func (l *Ledger) BeginCollecting(ctx context.Context, actions []c1zstore.LedgerW
 				return err
 			}
 		}
-		return batch.Commit(pebble.Sync)
+		if err := batch.Commit(pebble.Sync); err != nil {
+			return err
+		}
+		l.inFlight.Store(true)
+		return nil
 	})
 }
 
@@ -162,11 +166,11 @@ func (l *Ledger) BeginExpanding(ctx context.Context) error {
 		if len(pending) != 1 || pending[0].Action.Identity.Op != ledgerExpansionOp {
 			return errors.New("BeginExpanding: the pending range must hold exactly the expansion entry")
 		}
-		if err := l.markInFlightLocked(); err != nil {
-			return err
-		}
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
+		if err := l.stageMarkInFlight(batch); err != nil {
+			return err
+		}
 		if err := stageWorkState(batch, last, c1zstore.LedgerQueueExpanding); err != nil {
 			return err
 		}
@@ -175,7 +179,11 @@ func (l *Ledger) BeginExpanding(ctx context.Context) error {
 				return err
 			}
 		}
-		return batch.Commit(pebble.Sync)
+		if err := batch.Commit(pebble.Sync); err != nil {
+			return err
+		}
+		l.inFlight.Store(true)
+		return nil
 	})
 }
 

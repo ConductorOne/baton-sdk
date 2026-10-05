@@ -44,7 +44,9 @@ func TestBoundSyncUnstarted(t *testing.T) {
 				_, err = e.Ledger().Takeover(ctx, "attempt", nil, c1zstore.LedgerCounters{})
 				require.NoError(t, err)
 			case "stamp-only":
-				require.NoError(t, e.withWrite(e.Ledger().markInFlightLocked))
+				// An image from a build that stamped before the first batch.
+				require.NoError(t, e.withWrite(func() error { return e.stampKeyspaceVersionValueLocked(keyspaceVersionLedgerInFlight) }))
+				e.ledger.inFlight.Store(true)
 			case "archive":
 				require.NoError(t, e.db.UnsafeForTesting().Set(ledgerArchiveKey(), []byte("unreadable-archive"), pebble.Sync))
 			case "finished":

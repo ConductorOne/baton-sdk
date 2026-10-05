@@ -491,10 +491,6 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 				}
 			}
 		}
-		// Before ended_at: a finished file must open under every v2 reader.
-		if err := e.withWriteAllowSealed(e.ledger.clearInFlightLocked); err != nil {
-			return fmt.Errorf("EndSync: %w", err)
-		}
 	} else if !e.test.skipLedgerResiduePurge {
 		if err := e.ledger.purgeMarkedResidue(ctx); err != nil {
 			return fmt.Errorf("EndSync: purge previously discarded ledger data: %w", err)
@@ -513,8 +509,9 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 			return err
 		}
 	} else {
-		// One batch: the finished verdict, the archive, and the removal of what
-		// the archive replaces. No ledger write follows FinishSync.
+		// One batch: the finished verdict, the archive, the removal of what
+		// the archive replaces, and the stamp a token-only SDK reads. No
+		// ledger write follows FinishSync.
 		runValue, err := marshalRecord(updated)
 		if err != nil {
 			return err
@@ -525,7 +522,14 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 			if err := batch.StageLedgerSeal(ledgerArchiveKey(), archiveValue, runValue, retained); err != nil {
 				return err
 			}
-			return batch.Commit(pebble.Sync)
+			if err := e.ledger.stageClearInFlight(batch); err != nil {
+				return err
+			}
+			if err := batch.Commit(pebble.Sync); err != nil {
+				return err
+			}
+			e.ledger.inFlight.Store(false)
+			return nil
 		}); err != nil {
 			return fmt.Errorf("EndSync: seal ledger: %w", err)
 		}

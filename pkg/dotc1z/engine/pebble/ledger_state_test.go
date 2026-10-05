@@ -236,13 +236,13 @@ func TestLedgerTakeoverCrashImages(t *testing.T) {
 	require.NotNil(t, mid, "the hook ran")
 
 	withTokenOnlySDK(func() {
-		_, err := Open(ctx, "takeover-crash-db", WithVFS(mid), WithReadOnly(true))
-		require.Error(t, err, "mid: token-only SDK refuses the in-flight stamp")
-		require.Contains(t, err.Error(), "unsupported keyspace layout v3")
+		ro, err := Open(ctx, "takeover-crash-db", WithVFS(mid), WithReadOnly(true))
+		require.NoError(t, err, "mid: nothing of the ledger landed, so a token-only SDK still opens the file")
+		require.NoError(t, ro.Close())
 	})
 	m := open(mid, "mid")
 	tokenOnly(m, "mid")
-	require.Equal(t, keyspaceVersionLedgerInFlight, stamp(m), "mid: stamp landed before the batch")
+	require.Equal(t, keyspaceVersion, stamp(m), "mid: the stamp rides the takeover batch")
 	again, err := m.ledger.Takeover(ctx, "run-1", nil, c1zstore.LedgerCounters{})
 	require.NoError(t, err)
 	require.Equal(t, legacyState, again, "mid: the resumed sync takes over again")

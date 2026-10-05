@@ -494,11 +494,11 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		if err := u.requireSameSync(); err != nil {
 			return err
 		}
-		if err := l.markInFlightLocked(); err != nil {
-			return err
-		}
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
+		if err := l.stageMarkInFlight(batch); err != nil {
+			return err
+		}
 
 		if err := u.stagePhaseLocked(batch, row); err != nil {
 			return err
@@ -578,6 +578,7 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		if err := batch.Commit(recordWriteOpts); err != nil {
 			return err
 		}
+		l.inFlight.Store(true)
 		if len(u.entitlements) > 0 {
 			l.e.noteEntitlementKeyspaceWrite()
 		}

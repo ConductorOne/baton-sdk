@@ -118,7 +118,12 @@ func testLedgerDiscardDurableSealCuts(t *testing.T, previouslyFinished bool) {
 			require.NoError(t, err)
 			complete := stage == "ended"
 			require.Equal(t, previouslyFinished || complete, finished, "only the stamp batch carries the verdict")
-			if !complete {
+			stamp, err := reopened.keyspaceVersionStamp()
+			require.NoError(t, err)
+			if complete {
+				require.Equal(t, keyspaceVersion, stamp, "a finished file opens under a token-only SDK")
+			} else {
+				require.Equal(t, keyspaceVersionLedgerInFlight, stamp, "an unfinished file refuses a token-only SDK; it would resume from Init over the sealed data")
 				require.ErrorIs(t, reopened.CheckpointSync(t.Context(), "forbidden-token"), ErrLedgeredSyncWritesNoToken)
 			}
 

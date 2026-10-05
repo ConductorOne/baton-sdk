@@ -70,6 +70,7 @@ var rawdbHookFailureCases = map[string][]string{
 		"TestPendingWorkCommitFailureKeepsRevisionAndAllocator",
 		"TestPendingWorkInitializationFailureAndRetry",
 		"TestLedgerPutFactsIsOneUnit",
+		"TestDropLedgerCommitFailureKeepsRowsAndStamp",
 		"TestVerificationSourceScopeMutationAtomicity",
 		"TestInvalidateSourceCacheReplayStateCommitFailureIsAtomic",
 	},
