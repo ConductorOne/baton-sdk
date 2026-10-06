@@ -1059,6 +1059,13 @@ type CredentialIssueOptionDescriptor_builder struct {
 	// option and the returned bytes must decode as this type under the client
 	// codec. An explicit value the executing implementation cannot produce is
 	// refused before any provider call; it is never downgraded to generic.
+	//
+	// This is NOT secret_resource_type_id. That field names the C1 resource type
+	// the option mints -- the SDK's existing "output type" -- and selects which
+	// descriptor handles a request. This field names the encoding of the
+	// credential's value bytes, which is a separate axis: two options minting the
+	// same resource type can produce different value encodings, and one option
+	// minting two resource types can produce the same one.
 	OutputContentType string
 }
 
