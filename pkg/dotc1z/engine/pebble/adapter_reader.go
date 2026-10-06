@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/cockroachdb/pebble/v2"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -191,110 +192,83 @@ func (e *Engine) ListGrantsForEntitlement(
 	ctx context.Context,
 	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
-	syncID, err := e.resolveActiveSyncForReader(ctx, req.GetAnnotations())
+	records, next, err := e.listGrantsForEntitlement(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	if syncID == "" {
-		return nil, ErrNoCurrentSync
-	}
-	ent := req.GetEntitlement()
-	if ent == nil || ent.GetId() == "" {
-		return nil, errors.New("ListGrantsForEntitlement: missing entitlement id")
-	}
-	entIdentity, err := e.entitlementIdentityForRequest(ctx, ent)
-	if err != nil {
-		if errors.Is(err, pebble.ErrNotFound) {
-			// Unknown entitlement → no grants, matching the legacy
-			// empty-prefix-scan semantics.
-			return reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse_builder{}.Build(), nil
-		}
-		return nil, err
-	}
-	limit := clampPageSize(req.GetPageSize())
-	cursor := req.GetPageToken()
-
-	// Filters: principal_id (single principal) or
-	// principal_resource_type_ids (filter by RT membership).
-	principalID := req.GetPrincipalId()           //nolint:staticcheck // ignore deprecated field
-	rtFilter := req.GetPrincipalResourceTypeIds() //nolint:staticcheck // ignore deprecated field
-	rtSet := make(map[string]struct{}, len(rtFilter))
-	for _, rt := range rtFilter {
-		rtSet[rt] = struct{}{}
-	}
-
-	// cursorFor returns the primary grant key for rec —
-	// needed because a post-filter break at len(out) == limit may
-	// leave matching records unconsumed in the engine page, and
-	// the engine's end-of-page cursor would skip them.
-	cursorFor := func(rec *v3.GrantRecord) (string, error) {
-		id, err := grantIdentityFromRecord(rec)
-		if err != nil {
-			return "", err
-		}
-		return encodeCursor(encodeGrantIdentityKey(id)), nil
-	}
-
-	out := make([]*v2.Grant, 0, limit)
-	var nextCursor string
-	for len(out) < limit {
-		pageLimit := limit - len(out)
-		fetchLimit := pageLimit
-		if len(rtFilter) > 0 {
-			fetchLimit = pageLimit * 4
-			if fetchLimit > MaxPageSize {
-				fetchLimit = MaxPageSize
-			}
-		}
-		var records []*v3.GrantRecord
-		var next string
-		if principalID != nil {
-			records, next, err = e.PaginateGrantsByEntitlementPrincipal(ctx,
-				entIdentity, principalID.GetResourceType(), principalID.GetResource(), cursor, fetchLimit)
-		} else {
-			records, next, err = e.PaginateGrantsByEntitlement(ctx,
-				entIdentity, cursor, fetchLimit)
-		}
-		if err != nil {
-			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
-		}
-		nextCursor = next
-		brokeEarly := false
-		for _, rec := range records {
-			if principalID != nil {
-				p := rec.GetPrincipal()
-				if p.GetResourceTypeId() != principalID.GetResourceType() ||
-					p.GetResourceId() != principalID.GetResource() {
-					continue
-				}
-			}
-			if len(rtSet) > 0 {
-				if _, ok := rtSet[rec.GetPrincipal().GetResourceTypeId()]; !ok {
-					continue
-				}
-			}
-			out = append(out, V3GrantToV2(rec))
-			if len(out) == limit {
-				nextCursor, err = cursorFor(rec)
-				if err != nil {
-					return nil, err
-				}
-				brokeEarly = true
-				break
-			}
-		}
-		if brokeEarly {
-			break
-		}
-		if nextCursor == "" || len(records) == 0 {
-			break
-		}
-		cursor = nextCursor
+	out := make([]*v2.Grant, 0, len(records))
+	for _, rec := range records {
+		out = append(out, V3GrantToV2(rec))
 	}
 	return reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse_builder{
 		List:          out,
-		NextPageToken: nextCursor,
+		NextPageToken: next,
 	}.Build(), nil
+}
+
+// listGrantsForEntitlementRequest is the request both the reader_v2 and
+// reader_v3 ListGrantsForEntitlement RPCs take.
+type listGrantsForEntitlementRequest interface {
+	GetAnnotations() []*anypb.Any
+	GetEntitlement() *v2.Entitlement
+	GetPrincipalId() *v2.ResourceId
+	GetPrincipalResourceTypeIds() []string
+	GetPageSize() uint32
+	GetPageToken() string
+}
+
+func (e *Engine) listGrantsForEntitlement(ctx context.Context, req listGrantsForEntitlementRequest) ([]*v3.GrantRecord, string, error) {
+	syncID, err := e.resolveActiveSyncForReader(ctx, req.GetAnnotations())
+	if err != nil {
+		return nil, "", err
+	}
+	if syncID == "" {
+		return nil, "", ErrNoCurrentSync
+	}
+	ent := req.GetEntitlement()
+	if ent == nil || ent.GetId() == "" {
+		return nil, "", errors.New("ListGrantsForEntitlement: missing entitlement id")
+	}
+	entIdentity, err := e.entitlementIdentityForRequest(ctx, ent)
+	if errors.Is(err, pebble.ErrNotFound) {
+		// Unknown entitlement → no grants, matching the legacy
+		// empty-prefix-scan semantics.
+		return nil, "", nil
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	limit := clampPageSize(req.GetPageSize())
+
+	var keep func(*v3.GrantRecord) bool
+	if rts := req.GetPrincipalResourceTypeIds(); len(rts) > 0 {
+		rtSet := make(map[string]struct{}, len(rts))
+		for _, rt := range rts {
+			rtSet[rt] = struct{}{}
+		}
+		keep = func(r *v3.GrantRecord) bool {
+			_, ok := rtSet[r.GetPrincipal().GetResourceTypeId()]
+			return ok
+		}
+	}
+	p := req.GetPrincipalId()
+	if p == nil {
+		records, next, err := e.paginateGrantsByEntitlement(ctx, entIdentity, req.GetPageToken(), limit, keep)
+		if err != nil {
+			return nil, "", c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
+		}
+		return records, next, nil
+	}
+	records, next, err := e.PaginateGrantsByEntitlementPrincipal(ctx, entIdentity, p.GetResourceType(), p.GetResource(), req.GetPageToken(), limit)
+	if err != nil {
+		return nil, "", c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
+	}
+	records = slices.DeleteFunc(records, func(r *v3.GrantRecord) bool {
+		rp := r.GetPrincipal()
+		return rp.GetResourceTypeId() != p.GetResourceType() || rp.GetResourceId() != p.GetResource() ||
+			(keep != nil && !keep(r))
+	})
+	return records, next, nil
 }
 
 // ListGrantPrincipalKeysForEntitlement returns the compact principal keys used

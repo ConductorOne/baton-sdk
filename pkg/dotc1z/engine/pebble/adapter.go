@@ -22,7 +22,6 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 )
 
@@ -894,80 +893,24 @@ func (e *Engine) ListResources(ctx context.Context, req *v2.ResourcesServiceList
 		return nil, ErrNoCurrentSync
 	}
 	limit := clampPageSize(req.GetPageSize())
-	cursor := req.GetPageToken()
-	rtFilter := req.GetResourceTypeId()
-	parent := req.GetParentResourceId()
-	useParent := parent != nil && parent.GetResource() != ""
-
-	// cursorFor returns the engine cursor for rec under the path
-	// this call is iterating — primary keyspace for the unfiltered
-	// case, by_parent index for the parent-scoped case. We need
-	// per-record cursors because a post-filter break at len(out) ==
-	// limit may leave matching records unconsumed in the engine
-	// page; emitting the engine's end-of-page cursor would skip
-	// them on the next call.
-	cursorFor := func(rec *v3.ResourceRecord) string {
-		if useParent {
-			return encodeCursor(rawdb.EncodeResourceByParentIndexKey(
-				parent.GetResourceType(), parent.GetResource(),
-				rec.GetResourceTypeId(), rec.GetResourceId(),
-			))
-		}
-		return encodeCursor(encodeResourceKey(rec.GetResourceTypeId(), rec.GetResourceId()))
+	rt := req.GetResourceTypeId()
+	var records []*v3.ResourceRecord
+	var next string
+	if parent := req.GetParentResourceId(); parent.GetResource() != "" {
+		records, next, err = e.paginateResourcesByParent(ctx, parent.GetResourceType(), parent.GetResource(), rt, req.GetPageToken(), limit)
+	} else {
+		records, next, err = e.paginateResources(ctx, rt, req.GetPageToken(), limit)
 	}
-
-	out := make([]*v2.Resource, 0, limit)
-	var nextCursor string
-	for len(out) < limit {
-		pageLimit := limit - len(out)
-		// Over-fetch a little when post-filtering so a sparse hit rate
-		// doesn't force a tail of extra round-trips. 4x is the cap; if
-		// rtFilter is empty we skip the over-fetch entirely.
-		fetchLimit := pageLimit
-		if rtFilter != "" {
-			fetchLimit = pageLimit * 4
-			if fetchLimit > MaxPageSize {
-				fetchLimit = MaxPageSize
-			}
-		}
-		var records []*v3.ResourceRecord
-		var err error
-		if useParent {
-			records, nextCursor, err = e.PaginateResourcesByParent(ctx,
-				parent.GetResourceType(), parent.GetResource(), cursor, fetchLimit)
-		} else {
-			records, nextCursor, err = e.PaginateResources(ctx, cursor, fetchLimit)
-		}
-		if err != nil {
-			return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
-		}
-		brokeEarly := false
-		for _, rec := range records {
-			if rtFilter != "" && rec.GetResourceTypeId() != rtFilter {
-				continue
-			}
-
-			out = append(out, V3ResourceToV2(rec))
-			if len(out) == limit {
-				// Override the engine's end-of-page cursor with
-				// THIS record's cursor so the next page resumes
-				// strictly after this record.
-				nextCursor = cursorFor(rec)
-				brokeEarly = true
-				break
-			}
-		}
-		if brokeEarly {
-			break
-		}
-		if nextCursor == "" || len(records) == 0 {
-			break
-		}
-		cursor = nextCursor
+	if err != nil {
+		return nil, c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
+	}
+	out := make([]*v2.Resource, 0, len(records))
+	for _, rec := range records {
+		out = append(out, V3ResourceToV2(rec))
 	}
 	return v2.ResourcesServiceListResourcesResponse_builder{
 		List:          out,
-		NextPageToken: nextCursor,
+		NextPageToken: next,
 	}.Build(), nil
 }
 
