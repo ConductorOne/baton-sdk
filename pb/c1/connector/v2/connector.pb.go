@@ -875,9 +875,17 @@ type CredentialIssueOptionDescriptor struct {
 	// must whenever several descriptors share that option: a default taken from
 	// declaration order would not be stable. It selects nothing at issue time --
 	// CredentialIssueOptions.secret_resource_type_id is still required.
-	Preferred     bool `protobuf:"varint,10,opt,name=preferred,proto3" json:"preferred,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Preferred bool `protobuf:"varint,10,opt,name=preferred,proto3" json:"preferred,omitempty"`
+	// The typed output contract this option's Issue implementation produces, as a
+	// SecretPayloadV2 content type (e.g. api_key_v2). Empty is the legacy
+	// contract: raw bytes and the generic stored type, exactly as before this
+	// field existed. Nonempty means IssueCredentialV2 may be called for this
+	// option and the returned bytes must decode as this type under the client
+	// codec. An explicit value the executing implementation cannot produce is
+	// refused before any provider call; it is never downgraded to generic.
+	OutputContentType string `protobuf:"bytes,11,opt,name=output_content_type,json=outputContentType,proto3" json:"output_content_type,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *CredentialIssueOptionDescriptor) Reset() {
@@ -975,6 +983,13 @@ func (x *CredentialIssueOptionDescriptor) GetPreferred() bool {
 	return false
 }
 
+func (x *CredentialIssueOptionDescriptor) GetOutputContentType() string {
+	if x != nil {
+		return x.OutputContentType
+	}
+	return ""
+}
+
 func (x *CredentialIssueOptionDescriptor) SetOption(v CapabilityDetailCredentialOption) {
 	x.Option = v
 }
@@ -1015,6 +1030,10 @@ func (x *CredentialIssueOptionDescriptor) SetPreferred(v bool) {
 	x.Preferred = v
 }
 
+func (x *CredentialIssueOptionDescriptor) SetOutputContentType(v string) {
+	x.OutputContentType = v
+}
+
 func (x *CredentialIssueOptionDescriptor) HasExpiry() bool {
 	if x == nil {
 		return false
@@ -1049,6 +1068,14 @@ type CredentialIssueOptionDescriptor_builder struct {
 	// declaration order would not be stable. It selects nothing at issue time --
 	// CredentialIssueOptions.secret_resource_type_id is still required.
 	Preferred bool
+	// The typed output contract this option's Issue implementation produces, as a
+	// SecretPayloadV2 content type (e.g. api_key_v2). Empty is the legacy
+	// contract: raw bytes and the generic stored type, exactly as before this
+	// field existed. Nonempty means IssueCredentialV2 may be called for this
+	// option and the returned bytes must decode as this type under the client
+	// codec. An explicit value the executing implementation cannot produce is
+	// refused before any provider call; it is never downgraded to generic.
+	OutputContentType string
 }
 
 func (b0 CredentialIssueOptionDescriptor_builder) Build() *CredentialIssueOptionDescriptor {
@@ -1065,6 +1092,7 @@ func (b0 CredentialIssueOptionDescriptor_builder) Build() *CredentialIssueOption
 	x.ResourceMode = b.ResourceMode
 	x.SecretResourceTypeId = b.SecretResourceTypeId
 	x.Preferred = b.Preferred
+	x.OutputContentType = b.OutputContentType
 	return m0
 }
 
@@ -2722,7 +2750,7 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x1bpreferred_credential_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x19preferredCredentialOption\"\xcc\x01\n" +
 	" CredentialDetailsCredentialIssue\x12J\n" +
 	"\aoptions\x18\x01 \x03(\v20.c1.connector.v2.CredentialIssueOptionDescriptorR\aoptions\x12\\\n" +
-	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption\"\xcc\x04\n" +
+	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption\"\xa7\x05\n" +
 	"\x1fCredentialIssueOptionDescriptor\x12I\n" +
 	"\x06option\x18\x01 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x06option\x12H\n" +
 	"\fkey_profiles\x18\x02 \x03(\v2%.c1.connector.v2.KeyGenerationProfileR\vkeyProfiles\x12A\n" +
@@ -2735,7 +2763,8 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x17secret_resource_type_id\x18\t \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\x14secretResourceTypeId\x12\x1c\n" +
 	"\tpreferred\x18\n" +
-	" \x01(\bR\tpreferred\"t\n" +
+	" \x01(\bR\tpreferred\x12Y\n" +
+	"\x13output_content_type\x18\v \x01(\tB)\xfaB&r$(\x80\x012\x1f^$|^[a-z0-9]+([._-][a-z0-9]+)*$R\x11outputContentType\"t\n" +
 	"\x18IssuanceExpiryCapability\x12+\n" +
 	"\x03min\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x03min\x12+\n" +
 	"\x03max\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03max\"\xa5\x02\n" +

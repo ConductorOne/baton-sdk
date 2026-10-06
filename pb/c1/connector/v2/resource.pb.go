@@ -1247,9 +1247,15 @@ type IssueCredentialRequest struct {
 	RequestId string `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	// Optional absolute expiry requested by the caller. Absolute time avoids
 	// extending a credential merely because an approved task waited in queue.
-	ExpiresAt     *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	// The typed output contract the caller requires, as a SecretPayloadV2 content
+	// type. Empty means the legacy contract. Nonempty is only valid on
+	// IssueCredentialV2; the implementation validates it against the selected
+	// descriptor before calling Issue and refuses a mismatch or an unsupported
+	// type before any provider call.
+	OutputContentType string `protobuf:"bytes,6,opt,name=output_content_type,json=outputContentType,proto3" json:"output_content_type,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *IssueCredentialRequest) Reset() {
@@ -1312,6 +1318,13 @@ func (x *IssueCredentialRequest) GetExpiresAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *IssueCredentialRequest) GetOutputContentType() string {
+	if x != nil {
+		return x.OutputContentType
+	}
+	return ""
+}
+
 func (x *IssueCredentialRequest) SetIdentityId(v *ResourceId) {
 	x.IdentityId = v
 }
@@ -1330,6 +1343,10 @@ func (x *IssueCredentialRequest) SetRequestId(v string) {
 
 func (x *IssueCredentialRequest) SetExpiresAt(v *timestamppb.Timestamp) {
 	x.ExpiresAt = v
+}
+
+func (x *IssueCredentialRequest) SetOutputContentType(v string) {
+	x.OutputContentType = v
 }
 
 func (x *IssueCredentialRequest) HasIdentityId() bool {
@@ -1382,6 +1399,12 @@ type IssueCredentialRequest_builder struct {
 	// Optional absolute expiry requested by the caller. Absolute time avoids
 	// extending a credential merely because an approved task waited in queue.
 	ExpiresAt *timestamppb.Timestamp
+	// The typed output contract the caller requires, as a SecretPayloadV2 content
+	// type. Empty means the legacy contract. Nonempty is only valid on
+	// IssueCredentialV2; the implementation validates it against the selected
+	// descriptor before calling Issue and refuses a mismatch or an unsupported
+	// type before any provider call.
+	OutputContentType string
 }
 
 func (b0 IssueCredentialRequest_builder) Build() *IssueCredentialRequest {
@@ -1393,6 +1416,7 @@ func (b0 IssueCredentialRequest_builder) Build() *IssueCredentialRequest {
 	x.EncryptionConfigs = b.EncryptionConfigs
 	x.RequestId = b.RequestId
 	x.ExpiresAt = b.ExpiresAt
+	x.OutputContentType = b.OutputContentType
 	return m0
 }
 
@@ -6074,7 +6098,7 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x0eencrypted_data\x18\x01 \x03(\v2\x1e.c1.connector.v2.EncryptedDataR\rencryptedData\x12<\n" +
 	"\vresource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\n" +
 	"resourceId\x126\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xf8\x02\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xd3\x03\n" +
 	"\x16IssueCredentialRequest\x12<\n" +
 	"\videntity_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\n" +
 	"identityId\x12V\n" +
@@ -6083,7 +6107,8 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\n" +
 	"request_id\x18\x04 \x01(\tB\x1c\xfaB\x19r\x17 \x01(\x80\x012\x10^[A-Za-z0-9_-]+$R\trequestId\x129\n" +
 	"\n" +
-	"expires_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\xb8\x02\n" +
+	"expires_at\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\x12Y\n" +
+	"\x13output_content_type\x18\x06 \x01(\tB)\xfaB&r$(\x80\x012\x1f^$|^[a-z0-9]+([._-][a-z0-9]+)*$R\x11outputContentType\"\xb8\x02\n" +
 	"\x17IssueCredentialResponse\x121\n" +
 	"\x06secret\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\x06secret\x12E\n" +
 	"\x0eencrypted_data\x18\x02 \x03(\v2\x1e.c1.connector.v2.EncryptedDataR\rencryptedData\x126\n" +
@@ -6297,10 +6322,11 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x0eCreateResource\x12&.c1.connector.v2.CreateResourceRequest\x1a'.c1.connector.v2.CreateResourceResponse\x12a\n" +
 	"\x0eDeleteResource\x12&.c1.connector.v2.DeleteResourceRequest\x1a'.c1.connector.v2.DeleteResourceResponse2\x81\x01\n" +
 	"\x16ResourceDeleterService\x12g\n" +
-	"\x10DeleteResourceV2\x12(.c1.connector.v2.DeleteResourceV2Request\x1a).c1.connector.v2.DeleteResourceV2Response2\xe9\x01\n" +
+	"\x10DeleteResourceV2\x12(.c1.connector.v2.DeleteResourceV2Request\x1a).c1.connector.v2.DeleteResourceV2Response2\xd1\x02\n" +
 	"\x18CredentialManagerService\x12g\n" +
 	"\x10RotateCredential\x12(.c1.connector.v2.RotateCredentialRequest\x1a).c1.connector.v2.RotateCredentialResponse\x12d\n" +
-	"\x0fIssueCredential\x12'.c1.connector.v2.IssueCredentialRequest\x1a(.c1.connector.v2.IssueCredentialResponse2w\n" +
+	"\x0fIssueCredential\x12'.c1.connector.v2.IssueCredentialRequest\x1a(.c1.connector.v2.IssueCredentialResponse\x12f\n" +
+	"\x11IssueCredentialV2\x12'.c1.connector.v2.IssueCredentialRequest\x1a(.c1.connector.v2.IssueCredentialResponse2w\n" +
 	"\x15AccountManagerService\x12^\n" +
 	"\rCreateAccount\x12%.c1.connector.v2.CreateAccountRequest\x1a&.c1.connector.v2.CreateAccountResponseB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
@@ -6460,18 +6486,20 @@ var file_c1_connector_v2_resource_proto_depIdxs = []int32{
 	11, // 89: c1.connector.v2.ResourceDeleterService.DeleteResourceV2:input_type -> c1.connector.v2.DeleteResourceV2Request
 	13, // 90: c1.connector.v2.CredentialManagerService.RotateCredential:input_type -> c1.connector.v2.RotateCredentialRequest
 	15, // 91: c1.connector.v2.CredentialManagerService.IssueCredential:input_type -> c1.connector.v2.IssueCredentialRequest
-	23, // 92: c1.connector.v2.AccountManagerService.CreateAccount:input_type -> c1.connector.v2.CreateAccountRequest
-	6,  // 93: c1.connector.v2.ResourceTypesService.ListResourceTypes:output_type -> c1.connector.v2.ResourceTypesServiceListResourceTypesResponse
-	32, // 94: c1.connector.v2.ResourcesService.ListResources:output_type -> c1.connector.v2.ResourcesServiceListResourcesResponse
-	34, // 95: c1.connector.v2.ResourceGetterService.GetResource:output_type -> c1.connector.v2.ResourceGetterServiceGetResourceResponse
-	8,  // 96: c1.connector.v2.ResourceManagerService.CreateResource:output_type -> c1.connector.v2.CreateResourceResponse
-	10, // 97: c1.connector.v2.ResourceManagerService.DeleteResource:output_type -> c1.connector.v2.DeleteResourceResponse
-	12, // 98: c1.connector.v2.ResourceDeleterService.DeleteResourceV2:output_type -> c1.connector.v2.DeleteResourceV2Response
-	14, // 99: c1.connector.v2.CredentialManagerService.RotateCredential:output_type -> c1.connector.v2.RotateCredentialResponse
-	16, // 100: c1.connector.v2.CredentialManagerService.IssueCredential:output_type -> c1.connector.v2.IssueCredentialResponse
-	24, // 101: c1.connector.v2.AccountManagerService.CreateAccount:output_type -> c1.connector.v2.CreateAccountResponse
-	93, // [93:102] is the sub-list for method output_type
-	84, // [84:93] is the sub-list for method input_type
+	15, // 92: c1.connector.v2.CredentialManagerService.IssueCredentialV2:input_type -> c1.connector.v2.IssueCredentialRequest
+	23, // 93: c1.connector.v2.AccountManagerService.CreateAccount:input_type -> c1.connector.v2.CreateAccountRequest
+	6,  // 94: c1.connector.v2.ResourceTypesService.ListResourceTypes:output_type -> c1.connector.v2.ResourceTypesServiceListResourceTypesResponse
+	32, // 95: c1.connector.v2.ResourcesService.ListResources:output_type -> c1.connector.v2.ResourcesServiceListResourcesResponse
+	34, // 96: c1.connector.v2.ResourceGetterService.GetResource:output_type -> c1.connector.v2.ResourceGetterServiceGetResourceResponse
+	8,  // 97: c1.connector.v2.ResourceManagerService.CreateResource:output_type -> c1.connector.v2.CreateResourceResponse
+	10, // 98: c1.connector.v2.ResourceManagerService.DeleteResource:output_type -> c1.connector.v2.DeleteResourceResponse
+	12, // 99: c1.connector.v2.ResourceDeleterService.DeleteResourceV2:output_type -> c1.connector.v2.DeleteResourceV2Response
+	14, // 100: c1.connector.v2.CredentialManagerService.RotateCredential:output_type -> c1.connector.v2.RotateCredentialResponse
+	16, // 101: c1.connector.v2.CredentialManagerService.IssueCredential:output_type -> c1.connector.v2.IssueCredentialResponse
+	16, // 102: c1.connector.v2.CredentialManagerService.IssueCredentialV2:output_type -> c1.connector.v2.IssueCredentialResponse
+	24, // 103: c1.connector.v2.AccountManagerService.CreateAccount:output_type -> c1.connector.v2.CreateAccountResponse
+	94, // [94:104] is the sub-list for method output_type
+	84, // [84:94] is the sub-list for method input_type
 	84, // [84:84] is the sub-list for extension type_name
 	84, // [84:84] is the sub-list for extension extendee
 	0,  // [0:84] is the sub-list for field type_name
