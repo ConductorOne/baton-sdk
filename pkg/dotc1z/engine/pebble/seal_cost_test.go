@@ -13,7 +13,7 @@ func TestSealCostIncludesFailedFinalize(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, e.Ledger().BeginCollecting(t.Context(), nil))
+	require.NoError(t, e.Ledger().BeginCollecting(t.Context(), nil, nil))
 	require.Equal(t, SealCost{}, e.LastSealCost())
 	page := e.Ledger().BeginPage()
 	defer page.Discard()

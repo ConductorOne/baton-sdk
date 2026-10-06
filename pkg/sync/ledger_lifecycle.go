@@ -89,11 +89,22 @@ func (s *syncer) prepareLedgerState(ctx context.Context, runID string, newSync b
 				return absent, err
 			}
 		}
-		var seedFacts []string
+		seedFacts := map[string]string{}
 		if knownEmpty {
-			seedFacts = append(seedFacts, ledgerFactIngestKnown)
+			seedFacts[ledgerFactIngestKnown] = ""
 		}
-		if err := ledger.BeginCollecting(ctx, pendingSeeds(resume.actions), seedFacts...); err != nil {
+		if legacyStackHasCollection(resume.actions) {
+			// A frontier's stack seeded here is a plan committing now, as at
+			// takeover; a record already on the file is the earlier plan's.
+			existing, err := ledger.LedgerFacts(ctx)
+			if err != nil {
+				return absent, err
+			}
+			if _, recorded := existing[c1zstore.LedgerFactFirstReportOptions]; !recorded {
+				seedFacts[c1zstore.LedgerFactFirstReportOptions] = firstOptions
+			}
+		}
+		if err := ledger.BeginCollecting(ctx, pendingSeeds(resume.actions), seedFacts); err != nil {
 			return absent, err
 		}
 	case ledgerContinuePending, ledgerFinishSeal:

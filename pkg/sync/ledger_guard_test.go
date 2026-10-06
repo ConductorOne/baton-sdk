@@ -339,11 +339,11 @@ func (s *ledgerGuardedStore) BeginPass(ctx context.Context, seeds []c1zstore.Led
 	return s.PageLedgerStore.BeginPass(ctx, seeds, clearFacts)
 }
 
-func (s *ledgerGuardedStore) BeginCollecting(ctx context.Context, work []c1zstore.LedgerWork, facts ...string) error {
+func (s *ledgerGuardedStore) BeginCollecting(ctx context.Context, work []c1zstore.LedgerWork, facts map[string]string) error {
 	if err := s.audit.record(ctx, "BeginCollecting"); err != nil {
 		return err
 	}
-	return s.PageLedgerStore.BeginCollecting(ctx, work, facts...)
+	return s.PageLedgerStore.BeginCollecting(ctx, work, facts)
 }
 
 func (s *ledgerGuardedStore) BeginFromToken(

@@ -373,8 +373,8 @@ func (s *chaosPebbleStore) PendingWork(ctx context.Context, before uint64, limit
 func (s *chaosPebbleStore) PendingWorkAfter(ctx context.Context, after uint64, limit int) ([]c1zstore.LedgerWork, c1zstore.LedgerQueuePhase, error) {
 	return s.Ledger().PendingWorkAfter(ctx, after, limit)
 }
-func (s *chaosPebbleStore) BeginCollecting(ctx context.Context, work []c1zstore.LedgerWork, facts ...string) error {
-	return s.Ledger().BeginCollecting(ctx, work, facts...)
+func (s *chaosPebbleStore) BeginCollecting(ctx context.Context, work []c1zstore.LedgerWork, facts map[string]string) error {
+	return s.Ledger().BeginCollecting(ctx, work, facts)
 }
 func (s *chaosPebbleStore) BeginFromToken(
 	ctx context.Context, run, token string, facts map[string]string, counters c1zstore.LedgerCounters, work []c1zstore.LedgerWork, phase c1zstore.LedgerQueuePhase,

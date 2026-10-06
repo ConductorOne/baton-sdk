@@ -77,7 +77,7 @@ func stagePendingWork(batch *rawdb.RecordBatch, work c1zstore.LedgerWork) error 
 	return batch.StagePendingWork(pendingWorkKey(work.ID), data)
 }
 
-func (l *Ledger) BeginCollecting(ctx context.Context, actions []c1zstore.LedgerWork, facts ...string) error {
+func (l *Ledger) BeginCollecting(ctx context.Context, actions []c1zstore.LedgerWork, facts map[string]string) error {
 	return l.e.withWrite(func() error {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -128,8 +128,8 @@ func (l *Ledger) BeginCollecting(ctx context.Context, actions []c1zstore.LedgerW
 		if err := stageInitialWork(batch, l.e.CurrentSyncID(), actions, c1zstore.LedgerQueueCollecting); err != nil {
 			return err
 		}
-		for _, fact := range facts {
-			if err := batch.StageLedgerFact(encodeLedgerFactKey(fact)); err != nil {
+		for name, value := range facts {
+			if err := batch.StageLedgerFactValue(encodeLedgerFactKey(name), value); err != nil {
 				return err
 			}
 		}

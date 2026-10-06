@@ -455,7 +455,7 @@ func TestLedgerFinishedSyncAtInitSeedRefusesCollection(t *testing.T) {
 		ctx := t.Context()
 		f := newLedgerFixture(t)
 		id := f.engine.CurrentSyncID()
-		require.NoError(t, f.ledger.BeginCollecting(ctx, nil))
+		require.NoError(t, f.ledger.BeginCollecting(ctx, nil, nil))
 		runtime, err := newTestLedgerRuntime(ctx, f.ledger, "collection")
 		require.NoError(t, err)
 		_, err = runtime.runPage(ctx, 0, c1zstore.LedgerActionIdentity{Op: InitOp.String()}, func(_ context.Context, page *ledgerPage) error {
@@ -564,6 +564,46 @@ func TestLedgerExpansionPassWithExternalImportResumes(t *testing.T) {
 			require.ElementsMatch(t, expanded, listGrantIDs(t, f))
 		})
 	}
+}
+
+// A frontier whose stack carries collection work but has no pending-work
+// declaration is seeded by the next attempt; that seed is the plan's commit
+// and records the attempt's flags, so the lock holds from the resume after.
+func TestLedgerFrontierSeedArmsCollectionFlagLock(t *testing.T) {
+	ctx := t.Context()
+	f := newLedgerFixture(t)
+	id := f.engine.CurrentSyncID()
+	prior := newRunState()
+	prior.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "remaining"})
+	token, err := marshalToken(prior, newRunStats())
+	require.NoError(t, err)
+	require.NoError(t, f.store.CheckpointSync(ctx, token))
+	_, err = f.engine.Ledger().Takeover(ctx, "prior", nil, c1zstore.LedgerCounters{})
+	require.NoError(t, err)
+	state, err := f.ledger.State(ctx)
+	require.NoError(t, err)
+	require.False(t, state.Token)
+	require.Equal(t, c1zstore.LedgerQueueAbsent, state.Phase, "premise: frontier without a declaration")
+
+	seeder := ledgerContinuationSyncer(f)
+	seeder.cfg.skipGrants = true
+	_, err = seeder.prepareLedgerState(ctx, "seeder", false)
+	require.NoError(t, err)
+	require.Equal(t, c1zstore.LedgerQueueCollecting, ledgerPhase(t, f.ledger))
+	facts, err := f.ledger.LedgerFacts(ctx)
+	require.NoError(t, err)
+	var first c1zstore.LedgerReportOptions
+	require.NoError(t, json.Unmarshal([]byte(facts[c1zstore.LedgerFactFirstReportOptions]), &first))
+	require.Equal(t, "seeder", first.Attempt)
+	require.True(t, first.Requested.SkipGrants)
+	require.NoError(t, f.store.Close(ctx))
+
+	f = openLedgerFixtureAt(t, f.path, false)
+	require.NoError(t, f.store.SetCurrentSync(ctx, id))
+	changed := ledgerContinuationSyncer(f)
+	_, err = changed.prepareLedgerState(ctx, "changed", false)
+	require.ErrorIs(t, err, ErrLedgerStateConflict)
+	require.ErrorContains(t, err, "skip_grants")
 }
 
 // A legacy checkpoint recorded no options, so the first resumer's collection

@@ -20,7 +20,7 @@ func TestLedgerFinishedProcessingResumesWithoutReset(t *testing.T) {
 		t.Run(cut, func(t *testing.T) {
 			f := newLedgerFixture(t)
 			syncID := f.engine.CurrentSyncID()
-			require.NoError(t, f.ledger.BeginCollecting(t.Context(), nil))
+			require.NoError(t, f.ledger.BeginCollecting(t.Context(), nil, nil))
 			runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "collection")
 			require.NoError(t, err)
 			_, err = runtime.runPage(t.Context(), 0, c1zstore.LedgerActionIdentity{Op: InitOp.String()}, func(_ context.Context, page *ledgerPage) error {
@@ -166,7 +166,7 @@ func TestLedgerFinishedLegacyFrontierKeepsPendingWork(t *testing.T) {
 
 func TestLedgerSealReadyUnfinishedDoesNotStartAnotherPass(t *testing.T) {
 	f := newLedgerFixture(t)
-	require.NoError(t, f.ledger.BeginCollecting(t.Context(), nil))
+	require.NoError(t, f.ledger.BeginCollecting(t.Context(), nil, nil))
 	runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "old")
 	require.NoError(t, err)
 	require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{Counters: map[string]uint64{ledgerCompletedActions: 17}}))
@@ -185,7 +185,7 @@ func TestLedgerSealReadyUnfinishedDoesNotStartAnotherPass(t *testing.T) {
 func TestLedgerPreparedSealSurvivesEarlyEnd(t *testing.T) {
 	f := newLedgerFixture(t)
 	id := f.engine.CurrentSyncID()
-	require.NoError(t, f.ledger.BeginCollecting(t.Context(), nil))
+	require.NoError(t, f.ledger.BeginCollecting(t.Context(), nil, nil))
 	runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "prior")
 	require.NoError(t, err)
 	require.NoError(t, runtime.prepareSeal(t.Context(), c1zstore.LedgerCounters{

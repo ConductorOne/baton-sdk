@@ -52,7 +52,7 @@ func TestLedgerRuntimeCrashProcess(t *testing.T) {
 			require.NoError(t, writeLedgerTestFile(path+".cut", marker, 0600))
 			os.Exit(74)
 		}
-		require.NoError(t, f.ledger.BeginCollecting(t.Context(), []c1zstore.LedgerWork{{Action: c1zstore.LedgerChild{Identity: id}}}))
+		require.NoError(t, f.ledger.BeginCollecting(t.Context(), []c1zstore.LedgerWork{{Action: c1zstore.LedgerChild{Identity: id}}}, nil))
 		work, _, err := f.ledger.PendingWork(t.Context(), 0, 1)
 		require.NoError(t, err)
 		source := f.ledger

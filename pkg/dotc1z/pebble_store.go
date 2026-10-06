@@ -996,11 +996,11 @@ func (s *pebbleStore) PendingWork(ctx context.Context, beforeID uint64, limit in
 	return s.Engine.Ledger().PendingWork(ctx, beforeID, limit)
 }
 
-func (s *pebbleStore) BeginCollecting(ctx context.Context, work []c1zstore.LedgerWork, facts ...string) error {
+func (s *pebbleStore) BeginCollecting(ctx context.Context, work []c1zstore.LedgerWork, facts map[string]string) error {
 	if err := s.writeHook(ctx, "BeginCollecting"); err != nil {
 		return err
 	}
-	return s.markDirty(s.Engine.Ledger().BeginCollecting(ctx, work, facts...))
+	return s.markDirty(s.Engine.Ledger().BeginCollecting(ctx, work, facts))
 }
 
 func (s *pebbleStore) BeginFromToken(

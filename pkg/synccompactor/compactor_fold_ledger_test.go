@@ -68,7 +68,7 @@ func buildLedgeredPebbleInput(t *testing.T, ctx context.Context, path string, st
 	}.Build()
 	require.NoError(t, w.PutEntitlements(ctx, member))
 
-	require.NoError(t, ledger.BeginCollecting(ctx, nil))
+	require.NoError(t, ledger.BeginCollecting(ctx, nil, nil))
 	page := ledger.BeginPage()
 	for _, id := range grantIDs {
 		user := usersByGrantID[id]

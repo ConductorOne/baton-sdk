@@ -24,7 +24,7 @@ func TestPebbleStoreGenerateLedgerReport(t *testing.T) {
 	ledger := store.(c1zstore.PageLedgerStore)
 	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, ledger.BeginCollecting(ctx, nil))
+	require.NoError(t, ledger.BeginCollecting(ctx, nil, nil))
 	page := ledger.BeginPage()
 	require.NoError(t, page.PutGrants(ctx, mkV2Grant("grant", "entitlement", "user", "principal")))
 	require.NoError(t, page.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "SyncGrants", ResourceTypeID: "group", PageToken: "secret-cursor"},
@@ -79,7 +79,7 @@ func TestPebbleStoreArchivedReportSurvivesDropAndReopen(t *testing.T) {
 	})
 	id, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	require.NoError(t, ledger.BeginCollecting(ctx, nil))
+	require.NoError(t, ledger.BeginCollecting(ctx, nil, nil))
 	writer := ledger.BeginPage()
 	options, err := json.Marshal(c1zstore.LedgerReportOptions{Attempt: "one", Requested: c1zstore.LedgerRequestedOptions{SkipGrants: true}})
 	require.NoError(t, err)

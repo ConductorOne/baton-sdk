@@ -49,13 +49,13 @@ func seedLedgerTestRun(t *testing.T, s *syncer, selected *Action) {
 			selectedID = uint64(i) + 1
 		}
 	}
-	var facts []string
+	facts := map[string]string{}
 	for fact, established := range s.run.facts.established {
 		if established {
-			facts = append(facts, fact)
+			facts[fact] = ""
 		}
 	}
-	require.NoError(t, s.caps.pageLedger.BeginCollecting(t.Context(), pendingSeeds(roots), facts...))
+	require.NoError(t, s.caps.pageLedger.BeginCollecting(t.Context(), pendingSeeds(roots), facts))
 	require.NoError(t, s.refreshPendingWindow(t.Context()))
 	if selected != nil {
 		work, _, err := s.caps.pageLedger.PendingWork(t.Context(), selectedID+1, 1)
@@ -101,7 +101,7 @@ func restoreLedgerTestState(t *testing.T, s *syncer, ctx context.Context, resume
 		return err
 	}
 	if initialized == c1zstore.LedgerQueueAbsent {
-		if err := s.caps.pageLedger.BeginCollecting(ctx, pendingSeeds(resume.actions)); err != nil {
+		if err := s.caps.pageLedger.BeginCollecting(ctx, pendingSeeds(resume.actions), nil); err != nil {
 			return err
 		}
 		pending, _, err = s.caps.pageLedger.PendingWork(ctx, 0, 100)

@@ -39,12 +39,12 @@ func TestLedgerEmptyStartQuality(t *testing.T) {
 					require.NoError(t, err)
 				}
 			case "known-clean", "known-blocked":
-				facts := []string{ledgerFactIngestKnown}
+				facts := map[string]string{ledgerFactIngestKnown: ""}
 				if kind == "known-blocked" {
-					facts = append(facts, ledgerFactIngestBlocked)
+					facts[ledgerFactIngestBlocked] = ""
 					require.NoError(t, f.ledger.PutCounterBucket(ctx, "prior", 0, c1zstore.LedgerCounters{Flags: ingestQualityReasonGrantDropped}))
 				}
-				require.NoError(t, f.ledger.BeginCollecting(ctx, pendingSeeds([]ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}), facts...))
+				require.NoError(t, f.ledger.BeginCollecting(ctx, pendingSeeds([]ledgerAction{{identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}), facts))
 			case "counter-only", "counter-flags":
 				prior := c1zstore.LedgerCounters{Counters: map[string]uint64{"ingest.grants_dropped": 3}}
 				if kind == "counter-flags" {

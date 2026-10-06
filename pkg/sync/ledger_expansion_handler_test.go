@@ -35,7 +35,7 @@ func ledgerExpansionFixture(t *testing.T) (*syncer, *ledgerFixture) {
 	}
 	require.NoError(t, f.store.PutGrants(t.Context(), grants...))
 	seed := c1zstore.LedgerWork{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: SyncGrantExpansionOp.String()}}}
-	require.NoError(t, f.ledger.BeginCollecting(t.Context(), []c1zstore.LedgerWork{seed}, factNeedsExpansion, ledgerFactIngestKnown))
+	require.NoError(t, f.ledger.BeginCollecting(t.Context(), []c1zstore.LedgerWork{seed}, map[string]string{factNeedsExpansion: "", ledgerFactIngestKnown: ""}))
 	s.run.setFact(factNeedsExpansion)
 	require.NoError(t, s.refreshPendingWindow(t.Context()))
 	return s, f

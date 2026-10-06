@@ -128,7 +128,7 @@ func TestLedgerRestoreRunsOnlyPendingContinuation(t *testing.T) {
 		ConnectorCalls: map[string]c1zstore.CallStat{"ListResources": {Count: 2, TotalMs: 17, MaxMs: 11}},
 	}))
 	root := c1zstore.LedgerActionIdentity{Op: SyncResourcesOp.String(), ResourceTypeID: "type"}
-	require.NoError(t, f.ledger.BeginCollecting(t.Context(), []c1zstore.LedgerWork{{Action: c1zstore.LedgerChild{Identity: root}}}))
+	require.NoError(t, f.ledger.BeginCollecting(t.Context(), []c1zstore.LedgerWork{{Action: c1zstore.LedgerChild{Identity: root}}}, nil))
 	work, _, err := f.ledger.PendingWork(t.Context(), 0, 1)
 	require.NoError(t, err)
 	_, err = s.ledger.runPage(t.Context(), 0, root, func(_ context.Context, page *ledgerPage) error {
@@ -208,7 +208,7 @@ func TestLedgerRestoreFailureDoesNotPublishState(t *testing.T) {
 			s.childSchedule.recordIfNew("old-child", "old-parent", "one")
 			injected := errors.New("restore read failed")
 			s.ledger.store = fault(f.ledger, injected)
-			require.NoError(t, f.ledger.BeginCollecting(t.Context(), pendingSeeds(ledgerListingFixtureRoots())))
+			require.NoError(t, f.ledger.BeginCollecting(t.Context(), pendingSeeds(ledgerListingFixtureRoots()), nil))
 			before := ledgerRawSnapshot(t, f.engine)
 			f.audit.enter(ledgerWalk)
 			err := restoreLedgerTestState(t, s, t.Context(), ledgerResume{actions: ledgerListingFixtureRoots()}, false)
@@ -228,7 +228,7 @@ func TestLedgerRestoreRepeatedChildIsNewWork(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
 	child := c1zstore.LedgerActionIdentity{Op: SyncResourcesOp.String(), ResourceTypeID: "type"}
 	seeds := []c1zstore.LedgerWork{{Action: c1zstore.LedgerChild{Identity: ledgerListingFixtureRoots()[0].identity}}, {Action: c1zstore.LedgerChild{Identity: child}}}
-	require.NoError(t, f.ledger.BeginCollecting(t.Context(), seeds))
+	require.NoError(t, f.ledger.BeginCollecting(t.Context(), seeds, nil))
 	work, _, err := f.ledger.PendingWork(t.Context(), 0, 1)
 	require.NoError(t, err)
 	_, err = s.ledger.runPage(t.Context(), 0, child, func(_ context.Context, page *ledgerPage) error {
@@ -282,7 +282,7 @@ func (s *ledgerCountedCounterReads) LedgerCounters(ctx context.Context) (c1zstor
 
 func TestLedgerStartupLoadsCountersOnce(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
-	require.NoError(t, f.ledger.BeginCollecting(t.Context(), pendingSeeds(ledgerListingFixtureRoots()), ledgerFactIngestKnown))
+	require.NoError(t, f.ledger.BeginCollecting(t.Context(), pendingSeeds(ledgerListingFixtureRoots()), map[string]string{ledgerFactIngestKnown: ""}))
 	counted := &ledgerCountedCounterReads{PageLedgerStore: f.ledger}
 	s.caps.pageLedger = counted
 	f.audit.enter(ledgerLifecycle)

@@ -20,7 +20,7 @@ func pendingTestSeed(t *testing.T, e *Engine) c1zstore.LedgerWork {
 	_, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	seed := c1zstore.LedgerWork{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-resources", ResourceTypeID: "group", PageToken: "A"}}}
-	require.NoError(t, e.Ledger().BeginCollecting(t.Context(), []c1zstore.LedgerWork{seed}))
+	require.NoError(t, e.Ledger().BeginCollecting(t.Context(), []c1zstore.LedgerWork{seed}, nil))
 	items, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 100)
 	require.NoError(t, err)
 	require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
@@ -81,7 +81,7 @@ func TestPendingWorkReadWindows(t *testing.T) {
 	for i := range seed {
 		seed[i].Action.Identity.Op = "list-resources"
 	}
-	require.NoError(t, e.Ledger().BeginCollecting(t.Context(), seed))
+	require.NoError(t, e.Ledger().BeginCollecting(t.Context(), seed, nil))
 	var before uint64
 	count := 0
 	expected := uint64(len(seed))
@@ -236,13 +236,13 @@ func TestPendingWorkInitializationFailureAndRetry(t *testing.T) {
 	require.NoError(t, err)
 	injected := errors.New("seed failure")
 	e.db.SetRecordCommitTestHook(func() error { return injected })
-	require.ErrorIs(t, e.Ledger().BeginCollecting(t.Context(), nil, "clean-start"), injected)
+	require.ErrorIs(t, e.Ledger().BeginCollecting(t.Context(), nil, map[string]string{"clean-start": ""}), injected)
 	e.db.SetRecordCommitTestHook(nil)
 	items, initialized, err := e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
 	require.Equal(t, c1zstore.LedgerQueueAbsent, initialized)
 	require.Empty(t, items)
-	require.NoError(t, e.Ledger().BeginCollecting(t.Context(), nil, "clean-start"))
+	require.NoError(t, e.Ledger().BeginCollecting(t.Context(), nil, map[string]string{"clean-start": ""}))
 	items, initialized, err = e.Ledger().PendingWork(t.Context(), 0, 64)
 	require.NoError(t, err)
 	require.NotEqual(t, c1zstore.LedgerQueueAbsent, initialized)
@@ -384,7 +384,7 @@ func TestPendingWorkInitializationRefusesCheckpoint(t *testing.T) {
 	syncID, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NoError(t, e.CheckpointSync(t.Context(), "unconsumed"))
-	require.ErrorContains(t, e.Ledger().BeginCollecting(t.Context(), nil), "takeover")
+	require.ErrorContains(t, e.Ledger().BeginCollecting(t.Context(), nil, nil), "takeover")
 	rec, err := e.GetSyncRunRecord(t.Context(), syncID)
 	require.NoError(t, err)
 	require.Equal(t, "unconsumed", rec.GetSyncToken())

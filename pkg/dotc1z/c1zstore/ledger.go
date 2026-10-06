@@ -258,9 +258,10 @@ type LedgerState struct {
 //	Sealed     --BeginPass-->                                    Collecting
 type LedgerLifecycle interface {
 	State(ctx context.Context) (LedgerState, error)
-	// Seeds an absent queue in stack order; an initialized queue is unchanged.
-	// Refused on a finished sync: that is BeginPass.
-	BeginCollecting(ctx context.Context, seeds []LedgerWork, facts ...string) error
+	// Seeds an absent queue in stack order with the facts (a "" value is a
+	// bare fact); an initialized queue is unchanged. Refused on a finished
+	// sync: that is BeginPass.
+	BeginCollecting(ctx context.Context, seeds []LedgerWork, facts map[string]string) error
 	// Consumes the matching checkpoint token and seeds the queue in one batch
 	// at the given phase, with the facts (a "" value is a bare fact). Returns
 	// the token consumed.

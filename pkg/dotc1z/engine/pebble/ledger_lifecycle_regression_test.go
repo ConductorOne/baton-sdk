@@ -212,7 +212,7 @@ func TestRetainDeclarationSurvivesCrashAndItsAbsenceScrubs(t *testing.T) {
 		e, dir := newTestEngine(t)
 		syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		require.NoError(t, e.Ledger().BeginCollecting(t.Context(), nil))
+		require.NoError(t, e.Ledger().BeginCollecting(t.Context(), nil, nil))
 		declare(e)
 		u := e.ledger.newPageUnit()
 		require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"),
