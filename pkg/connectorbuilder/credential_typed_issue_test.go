@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -122,8 +123,10 @@ func (m *undeliverableIssuer) Issue(_ context.Context, input *CredentialIssueInp
 }
 
 // TestPostIssueFailureKeepsTheMintedHandle pins the ambiguity contract: a
-// failure after Issue means the provider object exists, so the error must name
-// it and must not read as a safe retry.
+// failure after Issue means the provider outcome is unresolved, so the error
+// must carry a machine-readable handle and must not read as a safe retry.
+// The assertion is on the structured detail, not on the message text: a caller
+// must never have to parse English to find the object it has to clean up.
 func TestPostIssueFailureKeepsTheMintedHandle(t *testing.T) {
 	issuer := &undeliverableIssuer{ResourceSyncer: newTestResourceSyncer("user"), details: typedDetails(serviceAccountKey, "")}
 	connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{
@@ -134,10 +137,32 @@ func TestPostIssueFailureKeepsTheMintedHandle(t *testing.T) {
 
 	_, err = connector.(*builder).IssueCredential(context.Background(), typedRequest(t, ""))
 	require.Error(t, err)
-	require.Equal(t, codes.Internal, status.Code(err))
-	require.Contains(t, err.Error(), "minted-handle-1",
-		"the error must carry the provider handle so the object can be revoked")
-	require.Contains(t, err.Error(), "must not be retried")
+	st, ok := status.FromError(err)
+	require.True(t, ok)
+	require.Equal(t, codes.Internal, st.Code())
+	require.Contains(t, st.Message(), "must not be retried")
+	require.Contains(t, st.Message(), "unresolved",
+		"the message must not claim a live object, only an unresolved outcome")
+
+	var handle *v2.ResourceId
+	var info *errdetails.ErrorInfo
+	for _, detail := range st.Details() {
+		switch d := detail.(type) {
+		case *v2.ResourceId:
+			handle = d
+		case *errdetails.ErrorInfo:
+			info = d
+		}
+	}
+	require.NotNil(t, handle, "the minted identity must be a structured status detail")
+	require.Equal(t, "minted-handle-1", handle.GetResource())
+	require.Equal(t, serviceAccountKey, handle.GetResourceType())
+	require.NotNil(t, info)
+	require.Equal(t, "CREDENTIAL_ISSUED_BUT_UNDELIVERABLE", info.GetReason())
+	require.Equal(t, "forbidden", info.GetMetadata()["retry"])
+	require.Equal(t, "required", info.GetMetadata()["cleanup"])
+	require.NotContains(t, err.Error(), "material",
+		"no credential material may appear in the error")
 }
 
 // TestIssueCredentialLegacyPathIsUnchanged pins the other direction: the legacy

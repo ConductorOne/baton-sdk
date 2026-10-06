@@ -12,6 +12,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -327,22 +328,35 @@ func (b *builder) issueCredential(ctx context.Context, request *v2.IssueCredenti
 }
 
 // credentialIssuedButUndeliverable builds the error for a failure that happens
-// after Issue returned, so the provider object already exists.
+// after Issue returned, so the provider may already hold an object.
 //
-// The caller has no handle for it unless one is named here, and the failure is
-// not a licence to try again: a second Issue would mint a second credential
-// while the first stays live. The message therefore carries the provider
-// identity so an operator can revoke or clean it up, and says not to retry.
-// This does not add a new discard point -- it makes the existing one
-// recoverable.
+// The caller has no handle for it unless one is carried, and the failure is not
+// a licence to try again: a second Issue would mint a second credential while
+// the first may stay live. The minted identity is therefore attached as a
+// structured gRPC status detail -- a sanitized ResourceId, never a message to be
+// parsed and never any credential material -- so a caller can persist it for
+// cleanup without reading English.
+//
+// When no identity came back the status carries no detail. That is a distinct
+// statement, not a weaker one: the outcome is unresolved and an object may
+// exist. Callers must treat "no detail" as unresolved cleanup, not as proof
+// that nothing was created.
 func credentialIssuedButUndeliverable(output *CredentialIssueOutput, cause error) error {
-	handle := "unknown"
+	st := status.New(codes.Internal,
+		"credential was minted but cannot be delivered; the provider outcome is unresolved and issuance must not be retried")
+	st, _ = st.WithDetails(&errdetails.ErrorInfo{
+		Reason: "CREDENTIAL_ISSUED_BUT_UNDELIVERABLE",
+		Domain: "baton-sdk/credentialbuilder",
+		Metadata: map[string]string{
+			"cause":   cause.Error(),
+			"retry":   "forbidden",
+			"cleanup": "required",
+		},
+	})
 	if output != nil && output.Secret != nil && output.Secret.GetId() != nil {
-		handle = output.Secret.GetId().GetResourceType() + ":" + output.Secret.GetId().GetResource()
+		st, _ = st.WithDetails(output.Secret.GetId())
 	}
-	return status.Errorf(codes.Internal,
-		"credential was minted but cannot be delivered (provider handle %q): %v; the object exists and must be revoked or cleaned up by hand, and issuance must not be retried",
-		handle, cause)
+	return st.Err()
 }
 
 func validateCredentialIssueOutput(identityID *v2.ResourceId, requestedExpiresAt *timestamppb.Timestamp, output *CredentialIssueOutput, descriptor *v2.CredentialIssueOptionDescriptor) error {

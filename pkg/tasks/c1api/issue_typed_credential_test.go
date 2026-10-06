@@ -2,10 +2,13 @@ package c1api
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -37,6 +40,35 @@ func typedIssueCredentialTask(outputContentType string) *v1.Task {
 			OutputContentType: outputContentType,
 		}.Build(),
 	}.Build()
+}
+
+// TestTaskFailureWrappingPreservesStatusDetails proves the minted-handle detail
+// survives the path a real failure takes: the builder's status error is joined
+// with the task's non-retryable marker before FinishTask sees it. If joining
+// dropped the details, C1 would have to parse a message to find the object it
+// must clean up -- or lose it.
+func TestTaskFailureWrappingPreservesStatusDetails(t *testing.T) {
+	minted := v2.ResourceId_builder{ResourceType: "service-account-key", Resource: "key-1"}.Build()
+	st := status.New(codes.Internal, "credential was minted but cannot be delivered")
+	st, err := st.WithDetails(minted)
+	require.NoError(t, err)
+
+	// The exact wrapping the handlers use.
+	wrapped := errors.Join(st.Err(), ErrTaskNonRetryable)
+
+	require.ErrorIs(t, wrapped, ErrTaskNonRetryable, "the non-retryable marker must survive")
+	back, ok := status.FromError(wrapped)
+	require.True(t, ok, "the status must be recoverable from the joined error")
+	require.Equal(t, codes.Internal, back.Code())
+
+	var got *v2.ResourceId
+	for _, detail := range back.Details() {
+		if id, isID := detail.(*v2.ResourceId); isID {
+			got = id
+		}
+	}
+	require.NotNil(t, got, "the minted identity must survive task failure wrapping")
+	require.Equal(t, "key-1", got.GetResource())
 }
 
 // TestIssueTypedCredentialTaskHandler pins the task-backed half of the fence.
