@@ -296,13 +296,13 @@ func (b *builder) issueCredential(ctx context.Context, request *v2.IssueCredenti
 		err = crypto.ValidateCredentialOutputCardinality(request.GetEncryptionConfigs(), len(output.PlaintextData))
 		if err != nil {
 			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-			return nil, err
+			return nil, credentialIssuedButUndeliverable(output, err)
 		}
 	}
 	err = validateCredentialIssueOutput(request.GetIdentityId(), request.GetExpiresAt(), output, descriptor)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, status.Errorf(codes.Internal, "connector returned invalid credential issuance output: %v", err)
+		return nil, credentialIssuedButUndeliverable(output, fmt.Errorf("connector returned invalid credential issuance output: %w", err))
 	}
 
 	var encryptedDatas []*v2.EncryptedData
@@ -311,7 +311,7 @@ func (b *builder) issueCredential(ctx context.Context, request *v2.IssueCredenti
 		encryptedData, err = pkem.Encrypt(ctx, plaintextCredential)
 		if err != nil {
 			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-			return nil, err
+			return nil, credentialIssuedButUndeliverable(output, err)
 		}
 		encryptedDatas = append(encryptedDatas, encryptedData...)
 	}
@@ -324,6 +324,25 @@ func (b *builder) issueCredential(ctx context.Context, request *v2.IssueCredenti
 		ResourceMode:  output.ResourceMode,
 		RequestId:     request.GetRequestId(),
 	}.Build(), nil
+}
+
+// credentialIssuedButUndeliverable builds the error for a failure that happens
+// after Issue returned, so the provider object already exists.
+//
+// The caller has no handle for it unless one is named here, and the failure is
+// not a licence to try again: a second Issue would mint a second credential
+// while the first stays live. The message therefore carries the provider
+// identity so an operator can revoke or clean it up, and says not to retry.
+// This does not add a new discard point -- it makes the existing one
+// recoverable.
+func credentialIssuedButUndeliverable(output *CredentialIssueOutput, cause error) error {
+	handle := "unknown"
+	if output != nil && output.Secret != nil && output.Secret.GetId() != nil {
+		handle = output.Secret.GetId().GetResourceType() + ":" + output.Secret.GetId().GetResource()
+	}
+	return status.Errorf(codes.Internal,
+		"credential was minted but cannot be delivered (provider handle %q): %v; the object exists and must be revoked or cleaned up by hand, and issuance must not be retried",
+		handle, cause)
 }
 
 func validateCredentialIssueOutput(identityID *v2.ResourceId, requestedExpiresAt *timestamppb.Timestamp, output *CredentialIssueOutput, descriptor *v2.CredentialIssueOptionDescriptor) error {

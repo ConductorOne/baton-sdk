@@ -9,6 +9,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/types/resource"
 )
 
 const typedAPIKeyV2 = "api_key_v2"
@@ -87,6 +89,55 @@ func TestIssueCredentialV2RequiresTheDeclaredContract(t *testing.T) {
 		require.Equal(t, codes.InvalidArgument, status.Code(err))
 		require.Nil(t, issuer.lastInput)
 	})
+}
+
+// undeliverableIssuer mints a real provider object and then returns output the
+// builder rejects, which is the shape that used to lose the handle.
+type undeliverableIssuer struct {
+	ResourceSyncer
+	details *v2.CredentialDetailsCredentialIssue
+}
+
+func (m *undeliverableIssuer) IssueCapabilityDetails(context.Context) (*v2.CredentialDetailsCredentialIssue, annotations.Annotations, error) {
+	return m.details, annotations.Annotations{}, nil
+}
+
+func (m *undeliverableIssuer) Issue(_ context.Context, input *CredentialIssueInput) (*CredentialIssueOutput, error) {
+	secret, err := resource.NewSecretResource(
+		"Issued key",
+		v2.ResourceType_builder{Id: serviceAccountKey}.Build(),
+		"minted-handle-1",
+		[]resource.SecretTraitOption{resource.WithSecretIdentityID(input.IdentityID)},
+	)
+	if err != nil {
+		return nil, err
+	}
+	// A live object with no deliverable material: the value was disclosed once
+	// and did not come back.
+	return &CredentialIssueOutput{
+		Secret:        secret,
+		PlaintextData: nil,
+		ResourceMode:  v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_DISCOVERABLE,
+	}, nil
+}
+
+// TestPostIssueFailureKeepsTheMintedHandle pins the ambiguity contract: a
+// failure after Issue means the provider object exists, so the error must name
+// it and must not read as a safe retry.
+func TestPostIssueFailureKeepsTheMintedHandle(t *testing.T) {
+	issuer := &undeliverableIssuer{ResourceSyncer: newTestResourceSyncer("user"), details: typedDetails(serviceAccountKey, "")}
+	connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{
+		issuer,
+		newNamedSecretDeleter(serviceAccountKey),
+	}))
+	require.NoError(t, err)
+
+	_, err = connector.(*builder).IssueCredential(context.Background(), typedRequest(t, ""))
+	require.Error(t, err)
+	require.Equal(t, codes.Internal, status.Code(err))
+	require.Contains(t, err.Error(), "minted-handle-1",
+		"the error must carry the provider handle so the object can be revoked")
+	require.Contains(t, err.Error(), "must not be retried")
 }
 
 // TestIssueCredentialLegacyPathIsUnchanged pins the other direction: the legacy
