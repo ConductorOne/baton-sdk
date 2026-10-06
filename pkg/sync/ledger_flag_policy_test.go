@@ -178,6 +178,57 @@ func TestLedgerExpansionOnlyExpandsFinishedBaselineUpload(t *testing.T) {
 	require.True(t, finished)
 }
 
+// The upload's token is the only record that collection saw external-match
+// grants; the import matches nothing without it. The takeover of a finished
+// token must carry that fact into the expansion pass C1 runs.
+func TestLedgerExpansionOnlyImportsExternalPrincipalsFromFinishedBaselineUpload(t *testing.T) {
+	ctx := t.Context()
+	for _, recorded := range []bool{true, false} {
+		t.Run(map[bool]string{true: "fact-in-token", false: "fact-absent"}[recorded], func(t *testing.T) {
+			source := newLedgerFixture(t)
+			fresh := externalMatchPrincipal(t, "fresh", nil)
+			require.NoError(t, source.store.PutResourceTypes(ctx, userResourceType))
+			require.NoError(t, source.store.PutResources(ctx, fresh))
+			require.NoError(t, source.store.EndSync(ctx))
+			require.NoError(t, source.store.Close(ctx))
+
+			f := newLedgerFixture(t)
+			id := f.engine.CurrentSyncID()
+			target := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "application"}.Build()}.Build()
+			require.NoError(t, f.store.PutResourceTypes(ctx, groupResourceType, userResourceType))
+			require.NoError(t, f.store.PutResources(ctx, target))
+			require.NoError(t, f.store.PutEntitlements(ctx, et.NewAssignmentEntitlement(target, "member")))
+			carrier := gt.NewGrant(target, "member", v2.ResourceId_builder{ResourceType: "user", Resource: "placeholder"}.Build(),
+				gt.WithAnnotation(v2.ExternalResourceMatchAll_builder{ResourceType: v2.ResourceType_TRAIT_USER}.Build()))
+			require.NoError(t, f.store.PutGrants(ctx, carrier))
+			run := newRunState()
+			if recorded {
+				run.setFact(factHasExternalResourceGrants)
+			}
+			token, err := marshalToken(run, newRunStats())
+			require.NoError(t, err)
+			require.NoError(t, f.store.CheckpointSync(ctx, token))
+			require.NoError(t, f.store.EndSync(ctx))
+			require.NoError(t, f.store.Close(ctx))
+
+			f = openLedgerFixtureAt(t, f.path, false)
+			expander, err := NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()},
+				WithConnectorStore(f.store), WithSyncID(id), WithOnlyExpandGrants(), WithExternalResourceC1ZPath(source.path))
+			require.NoError(t, err)
+			require.NoError(t, expander.Sync(ctx))
+			require.NoError(t, f.store.SetCurrentSync(ctx, id))
+			grants, err := f.store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{})
+			require.NoError(t, err)
+			require.Len(t, grants.GetList(), 1)
+			want := "placeholder"
+			if recorded {
+				want = "fresh"
+			}
+			require.Equal(t, want, grants.GetList()[0].GetPrincipal().GetId().GetResource())
+		})
+	}
+}
+
 // The refusal must precede the takeover: a legacy checkpoint mid-collection
 // that a baseline SDK could still resume is left exactly as it was found.
 func TestLedgerExpansionOnlyRefusesLegacyCheckpointBeforeTakeover(t *testing.T) {
