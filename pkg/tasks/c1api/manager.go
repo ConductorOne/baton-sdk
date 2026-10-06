@@ -453,6 +453,8 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		handler = newRotateCredentialsTaskHandler(task, tHelpers)
 	case taskTypes.IssueCredentialType:
 		handler = newIssueCredentialTaskHandler(task, tHelpers)
+	case taskTypes.IssueTypedCredentialType:
+		handler = newIssueTypedCredentialTaskHandler(task, tHelpers)
 	case taskTypes.CreateTicketType:
 		handler = newCreateTicketTaskHandler(task, tHelpers)
 	case taskTypes.ListTicketSchemasType:

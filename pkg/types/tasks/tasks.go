@@ -26,6 +26,8 @@ func (tt TaskType) String() string {
 		return "rotate_credential"
 	case IssueCredentialType:
 		return "issue_credential"
+	case IssueTypedCredentialType:
+		return "issue_typed_credential"
 	case CreateTicketType:
 		return "create_ticket"
 	case ListTicketSchemasType:
@@ -105,4 +107,10 @@ const (
 	_ // was CreateSyncDiff; placeholder pins the ordinals below to their released values
 	ListStaticEntitlementsType
 	IssueCredentialType
+	// IssueTypedCredentialType is the task-backed transport for the typed
+	// issuance contract. It is a distinct type rather than a flag on
+	// IssueCredentialType so a runtime that predates the contract refuses the
+	// task before its Issue implementation runs. Appended to preserve every
+	// released ordinal.
+	IssueTypedCredentialType
 )

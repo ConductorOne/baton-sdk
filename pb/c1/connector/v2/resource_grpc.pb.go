@@ -557,8 +557,9 @@ var ResourceDeleterService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	CredentialManagerService_RotateCredential_FullMethodName = "/c1.connector.v2.CredentialManagerService/RotateCredential"
-	CredentialManagerService_IssueCredential_FullMethodName  = "/c1.connector.v2.CredentialManagerService/IssueCredential"
+	CredentialManagerService_RotateCredential_FullMethodName  = "/c1.connector.v2.CredentialManagerService/RotateCredential"
+	CredentialManagerService_IssueCredential_FullMethodName   = "/c1.connector.v2.CredentialManagerService/IssueCredential"
+	CredentialManagerService_IssueCredentialV2_FullMethodName = "/c1.connector.v2.CredentialManagerService/IssueCredentialV2"
 )
 
 // CredentialManagerServiceClient is the client API for CredentialManagerService service.
@@ -573,6 +574,15 @@ type CredentialManagerServiceClient interface {
 	// additional, distinct secret, so an identity can hold multiple coexisting
 	// keys (e.g. cloud service-account key #1 and #2).
 	IssueCredential(ctx context.Context, in *IssueCredentialRequest, opts ...grpc.CallOption) (*IssueCredentialResponse, error)
+	// IssueCredentialV2 mints a credential whose returned bytes conform to a
+	// requested output content type. It exists as a distinct method rather than a
+	// new field on IssueCredential because protobuf unknown-field tolerance lets
+	// an implementation that predates this contract silently ignore a new field
+	// and mint legacy bytes under a typed request. A runtime without this method
+	// answers Unimplemented before its Issue implementation runs and before any
+	// provider call, so the method's existence is the fence. Callers must never
+	// fall back to IssueCredential on Unimplemented or any other error.
+	IssueCredentialV2(ctx context.Context, in *IssueCredentialRequest, opts ...grpc.CallOption) (*IssueCredentialResponse, error)
 }
 
 type credentialManagerServiceClient struct {
@@ -603,6 +613,16 @@ func (c *credentialManagerServiceClient) IssueCredential(ctx context.Context, in
 	return out, nil
 }
 
+func (c *credentialManagerServiceClient) IssueCredentialV2(ctx context.Context, in *IssueCredentialRequest, opts ...grpc.CallOption) (*IssueCredentialResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(IssueCredentialResponse)
+	err := c.cc.Invoke(ctx, CredentialManagerService_IssueCredentialV2_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CredentialManagerServiceServer is the server API for CredentialManagerService service.
 // All implementations should embed UnimplementedCredentialManagerServiceServer
 // for forward compatibility.
@@ -615,6 +635,15 @@ type CredentialManagerServiceServer interface {
 	// additional, distinct secret, so an identity can hold multiple coexisting
 	// keys (e.g. cloud service-account key #1 and #2).
 	IssueCredential(context.Context, *IssueCredentialRequest) (*IssueCredentialResponse, error)
+	// IssueCredentialV2 mints a credential whose returned bytes conform to a
+	// requested output content type. It exists as a distinct method rather than a
+	// new field on IssueCredential because protobuf unknown-field tolerance lets
+	// an implementation that predates this contract silently ignore a new field
+	// and mint legacy bytes under a typed request. A runtime without this method
+	// answers Unimplemented before its Issue implementation runs and before any
+	// provider call, so the method's existence is the fence. Callers must never
+	// fall back to IssueCredential on Unimplemented or any other error.
+	IssueCredentialV2(context.Context, *IssueCredentialRequest) (*IssueCredentialResponse, error)
 }
 
 // UnimplementedCredentialManagerServiceServer should be embedded to have
@@ -629,6 +658,9 @@ func (UnimplementedCredentialManagerServiceServer) RotateCredential(context.Cont
 }
 func (UnimplementedCredentialManagerServiceServer) IssueCredential(context.Context, *IssueCredentialRequest) (*IssueCredentialResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IssueCredential not implemented")
+}
+func (UnimplementedCredentialManagerServiceServer) IssueCredentialV2(context.Context, *IssueCredentialRequest) (*IssueCredentialResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method IssueCredentialV2 not implemented")
 }
 func (UnimplementedCredentialManagerServiceServer) testEmbeddedByValue() {}
 
@@ -686,6 +718,24 @@ func _CredentialManagerService_IssueCredential_Handler(srv interface{}, ctx cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CredentialManagerService_IssueCredentialV2_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(IssueCredentialRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CredentialManagerServiceServer).IssueCredentialV2(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CredentialManagerService_IssueCredentialV2_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CredentialManagerServiceServer).IssueCredentialV2(ctx, req.(*IssueCredentialRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CredentialManagerService_ServiceDesc is the grpc.ServiceDesc for CredentialManagerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -700,6 +750,10 @@ var CredentialManagerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "IssueCredential",
 			Handler:    _CredentialManagerService_IssueCredential_Handler,
+		},
+		{
+			MethodName: "IssueCredentialV2",
+			Handler:    _CredentialManagerService_IssueCredentialV2_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
