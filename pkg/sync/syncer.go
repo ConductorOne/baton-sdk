@@ -2839,15 +2839,12 @@ func (s *syncer) SyncExternalResources(ctx context.Context, action *Action) erro
 		return err
 	}
 	if s.cfg.externalResourceEntitlementIdFilter != "" {
-		err := s.SyncExternalResourcesWithGrantToEntitlement(ctx, s.cfg.externalResourceEntitlementIdFilter)
-		if err != nil {
-			return err
-		}
+		err = s.SyncExternalResourcesWithGrantToEntitlement(ctx, s.cfg.externalResourceEntitlementIdFilter)
 	} else {
-		err := s.SyncExternalResourcesUsersAndGroups(ctx)
-		if err != nil {
-			return err
-		}
+		err = s.SyncExternalResourcesUsersAndGroups(ctx)
+	}
+	if err != nil {
+		return err
 	}
 	s.run.finishAction(ctx, action)
 	return nil
