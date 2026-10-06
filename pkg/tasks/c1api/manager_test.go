@@ -129,12 +129,13 @@ func newTestManager(sc BatonServiceClient) *c1ApiTaskManager {
 	}
 }
 
-func enableGetTasks(t *testing.T) {
+func disableGetTasks(t *testing.T) {
 	t.Helper()
-	t.Setenv(getTasksEnv, "true")
+	t.Setenv(getTasksEnv, "false")
 }
 
 func TestBootstrapSucceedsOnFirstAttempt(t *testing.T) {
+	disableGetTasks(t)
 	sc := newFakeBatonServiceClient([]error{nil})
 	cc := &fakeConnectorClient{}
 	mgr := newTestManager(sc)
@@ -144,6 +145,7 @@ func TestBootstrapSucceedsOnFirstAttempt(t *testing.T) {
 }
 
 func TestBootstrapRetriesOnTransientFailure(t *testing.T) {
+	disableGetTasks(t)
 	withFastBackoff(t)
 
 	transient := status.Error(codes.Unavailable, "server busy")
@@ -156,6 +158,7 @@ func TestBootstrapRetriesOnTransientFailure(t *testing.T) {
 }
 
 func TestBootstrapStopsOnNonRetryableError(t *testing.T) {
+	disableGetTasks(t)
 	withFastBackoff(t)
 
 	badCreds := status.Error(codes.Unauthenticated, "bad token")
@@ -170,6 +173,7 @@ func TestBootstrapStopsOnNonRetryableError(t *testing.T) {
 }
 
 func TestBootstrapHonorsContextCancellationDuringBackoff(t *testing.T) {
+	disableGetTasks(t)
 	origInitial := initialHelloBackoff
 	origMax := maxHelloBackoff
 	initialHelloBackoff = 200 * time.Millisecond
@@ -199,6 +203,7 @@ func TestBootstrapHonorsContextCancellationDuringBackoff(t *testing.T) {
 }
 
 func TestBootstrapPropagatesGetMetadataError(t *testing.T) {
+	disableGetTasks(t)
 	withFastBackoff(t)
 
 	sc := newFakeBatonServiceClient(nil)
@@ -213,6 +218,7 @@ func TestBootstrapPropagatesGetMetadataError(t *testing.T) {
 }
 
 func TestNextDoesNotSelfQueueHello(t *testing.T) {
+	disableGetTasks(t)
 	// With Bootstrap owning the startup handshake, Next() must no longer
 	// self-enqueue a Hello task. First Next() call should just poll C1.
 	sc := newFakeBatonServiceClient(nil)
@@ -221,12 +227,11 @@ func TestNextDoesNotSelfQueueHello(t *testing.T) {
 	task, _, err := mgr.Next(context.Background())
 	require.NoError(t, err)
 	require.True(t, task == nil || task.GetHello() == nil, "Next must not self-queue a Hello task, got %+v", task)
-	require.Equal(t, 1, sc.getTaskCalls, "expected default path to use GetTask once")
-	require.Empty(t, sc.getTasksReqs, "expected default path not to use GetTasks")
+	require.Equal(t, 1, sc.getTaskCalls, "expected GetTask once with GetTasks disabled")
+	require.Empty(t, sc.getTasksReqs, "expected no GetTasks call with GetTasks disabled")
 }
 
 func TestNextUsesGetTasksAndQueuesBatch(t *testing.T) {
-	enableGetTasks(t)
 	task1 := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
 	task2 := v1.Task_builder{Id: "bbbbbbbbbbbbbbbbbbbbbbbbbbb", Hello: &v1.Task_HelloTask{}}.Build()
 	sc := newFakeBatonServiceClient(nil)
@@ -247,7 +252,6 @@ func TestNextUsesGetTasksAndQueuesBatch(t *testing.T) {
 }
 
 func TestNextSendsKnownTaskIDs(t *testing.T) {
-	enableGetTasks(t)
 	task1 := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
 	task2 := v1.Task_builder{Id: "bbbbbbbbbbbbbbbbbbbbbbbbbbb", Hello: &v1.Task_HelloTask{}}.Build()
 	sc := newFakeBatonServiceClient(nil)
@@ -269,7 +273,6 @@ func TestNextSendsKnownTaskIDs(t *testing.T) {
 }
 
 func TestNextRequestsOnlyEnoughTasksToReachKnownTarget(t *testing.T) {
-	enableGetTasks(t)
 	task1 := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
 	task2 := v1.Task_builder{Id: "bbbbbbbbbbbbbbbbbbbbbbbbbbb", Hello: &v1.Task_HelloTask{}}.Build()
 	sc := newFakeBatonServiceClient(nil)
@@ -290,7 +293,6 @@ func TestNextRequestsOnlyEnoughTasksToReachKnownTarget(t *testing.T) {
 }
 
 func TestNextDoesNotTopUpQueuedTasksBeforeNextPoll(t *testing.T) {
-	enableGetTasks(t)
 	task1 := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
 	task2 := v1.Task_builder{Id: "bbbbbbbbbbbbbbbbbbbbbbbbbbb", Hello: &v1.Task_HelloTask{}}.Build()
 	sc := newFakeBatonServiceClient(nil)
@@ -308,7 +310,6 @@ func TestNextDoesNotTopUpQueuedTasksBeforeNextPoll(t *testing.T) {
 }
 
 func TestNextReturnsWaitWhenBatchIsEmpty(t *testing.T) {
-	enableGetTasks(t)
 	sc := newFakeBatonServiceClient(nil)
 	sc.getTasksResp = v1.BatonServiceGetTasksResponse_builder{
 		NextPoll: durationpb.New(time.Hour),
@@ -322,7 +323,6 @@ func TestNextReturnsWaitWhenBatchIsEmpty(t *testing.T) {
 }
 
 func TestNextWaitsWhenEnoughKnownTasksAreInFlight(t *testing.T) {
-	enableGetTasks(t)
 	sc := newFakeBatonServiceClient(nil)
 	mgr := newTestManager(sc)
 	for _, id := range []string{
@@ -341,7 +341,6 @@ func TestNextWaitsWhenEnoughKnownTasksAreInFlight(t *testing.T) {
 }
 
 func TestNextDoesNotTopUpWhenKnownTasksAtLowWater(t *testing.T) {
-	enableGetTasks(t)
 	task1 := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
 	task2 := v1.Task_builder{Id: "bbbbbbbbbbbbbbbbbbbbbbbbbbb", Hello: &v1.Task_HelloTask{}}.Build()
 	task3 := v1.Task_builder{Id: "ccccccccccccccccccccccccccc", Hello: &v1.Task_HelloTask{}}.Build()
@@ -359,7 +358,6 @@ func TestNextDoesNotTopUpWhenKnownTasksAtLowWater(t *testing.T) {
 }
 
 func TestNextTopsUpQueuedTasksAfterNextPoll(t *testing.T) {
-	enableGetTasks(t)
 	task1 := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
 	task2 := v1.Task_builder{Id: "bbbbbbbbbbbbbbbbbbbbbbbbbbb", Hello: &v1.Task_HelloTask{}}.Build()
 	task3 := v1.Task_builder{Id: "ccccccccccccccccccccccccccc", Hello: &v1.Task_HelloTask{}}.Build()
@@ -380,6 +378,7 @@ func TestNextTopsUpQueuedTasksAfterNextPoll(t *testing.T) {
 }
 
 func TestProcessRemovesKnownTaskID(t *testing.T) {
+	disableGetTasks(t)
 	task := v1.Task_builder{Id: "aaaaaaaaaaaaaaaaaaaaaaaaaaa", Hello: &v1.Task_HelloTask{}}.Build()
 	sc := newFakeBatonServiceClient(nil)
 	mgr := newTestManager(sc)
@@ -391,7 +390,6 @@ func TestProcessRemovesKnownTaskID(t *testing.T) {
 }
 
 func TestNextReturnsGetTasksErrorWhenEnabled(t *testing.T) {
-	enableGetTasks(t)
 	sc := newFakeBatonServiceClient(nil)
 	sc.getTasksErr = status.Error(codes.Unimplemented, "not implemented")
 	mgr := newTestManager(sc)
