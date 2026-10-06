@@ -41,5 +41,5 @@ func TestSecurity_SealRejectsLedgerChildWithoutIdentity(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.Set(key, val, cpebble.Sync))
 
-	require.ErrorContains(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}), "ledger row child has no identity")
+	require.ErrorContains(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}), "ledger row child has no identity")
 }

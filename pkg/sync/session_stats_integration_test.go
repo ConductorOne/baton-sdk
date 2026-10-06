@@ -275,22 +275,23 @@ func TestSessionStatsEndToEndOverGRPC(t *testing.T) {
 	require.NoError(t, store.SetCurrentSync(ctx, syncID))
 	token, err := store.CurrentSyncStep(ctx)
 	require.NoError(t, err)
+	require.Empty(t, token)
+	completedState, err := store.SyncMeta().StatsV2(ctx, connectorstore.SyncTypeFull, syncID)
+	require.NoError(t, err)
 	require.NoError(t, syncer.Close(ctx))
-
-	_, completedState, _ := decodeTestRun(t, token)
 
 	// The grant collection ran once (one repo resource): the connector's
 	// session ops crossed the gRPC hop as a response annotation and were
 	// folded into the token under connector.-prefixed ops.
-	sessionStats := completedState.sessionStoreStats()
-	require.EqualValues(t, 1, sessionStats["connector.set"].Count)
+	sessionStats := completedState.GetSessionStoreStats()
+	require.EqualValues(t, 1, sessionStats["connector.set"].GetCount())
 	// Two gets: the cursor read-back plus the missing-key probe. Misses are
 	// not errors, so both land as clean ops.
-	require.EqualValues(t, 2, sessionStats["connector.get"].Count)
-	require.Zero(t, sessionStats["connector.get"].Errors)
-	require.Zero(t, sessionStats["connector.get"].Timeouts)
+	require.EqualValues(t, 2, sessionStats["connector.get"].GetCount())
+	require.Zero(t, sessionStats["connector.get"].GetErrors())
+	require.Zero(t, sessionStats["connector.get"].GetTimeouts())
 
 	// Ordinary timing stats coexist with the session stats.
-	require.Contains(t, completedState.stepDurations(), SyncGrantsOp.String())
-	require.NotZero(t, completedState.connectorCallStats()["list-grants"].Count)
+	require.Contains(t, completedState.GetStepDurationsMs(), SyncGrantsOp.String())
+	require.NotZero(t, completedState.GetConnectorCallStats()["list-grants"].GetCount())
 }

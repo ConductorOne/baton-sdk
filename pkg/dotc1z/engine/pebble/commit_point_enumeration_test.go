@@ -33,6 +33,7 @@ import (
 )
 
 var commitPointRegistry = map[string][]string{
+	"adapter.go:endSyncFinalize": {"SetRecordCommitTestHook"},
 	// Typed record mutations: every site commits a rawdb.RecordBatch,
 	// whose Commit passes the record-commit choke-point hook.
 	"entitlements.go:PutEntitlementRecords":             {"SetRecordCommitTestHook"},
@@ -56,10 +57,17 @@ var commitPointRegistry = map[string][]string{
 	// TestPageUnitFailedCommitLandsNothing and
 	// TestLedgerScrubAtSealForSensitiveTokens/"failed scrub" execute
 	// the seam.
-	"page_unit.go:Commit":    {"SetRecordCommitTestHook"},
-	"adapter_page.go:Commit": {"SetRecordCommitTestHook"}, // v2 wrapper delegating to pageUnit.Commit
-	"ledger.go:scrubTokens":  {"SetRecordCommitTestHook"},
-	"ledger.go:Takeover":     {"SetRecordCommitTestHook"}, // RecordBatch: frontier + facts + bucket + token clear, one unit
+	"page_unit.go:Commit":                 {"SetRecordCommitTestHook"},
+	"adapter_page.go:Commit":              {"SetRecordCommitTestHook"}, // v2 wrapper delegating to pageUnit.Commit
+	"pending_work.go:CompletePendingWork": {"SetRecordCommitTestHook"},
+	"pending_work.go:BeginCollecting":     {"SetRecordCommitTestHook"},
+	"ledger_counter_fold.go:FoldCounters": {"SetRecordCommitTestHook"},
+	"ledger.go:BeginPass":                 {"ledgerBeginPassHook", "SetRecordCommitTestHook"},
+	"pending_work.go:BeginExpanding":      {"ledgerBeginExpandingHook", "SetRecordCommitTestHook"},
+	"ledger.go:scrubTokens":               {"SetRecordCommitTestHook"},
+	"ledger.go:Drop":                      {"SetRecordCommitTestHook"}, // rows and stamp leave together; TestDropLedgerCommitFailureKeepsRowsAndStamp
+	"ledger.go:takeover":                  {"SetRecordCommitTestHook"}, // RecordBatch: frontier + facts + bucket + token clear, one unit
+	"ledger.go:PutFacts":                  {"SetRecordCommitTestHook"}, // one synced batch of fact values; TestLedgerPutFactsIsOneUnit
 	"ledger.go:PutCounterBucket": {
 		"excluded: single-key blind write of one bucket's whole value (the run's stats bucket); no cross-family obligation and " +
 			"idempotent on retry (the next forced point rewrites the same key); best-effort at the caller; errorfs covers write failure",

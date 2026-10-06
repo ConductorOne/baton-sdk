@@ -84,7 +84,7 @@ func (b *batch) Close() error {
 //
 // The primary record keyspaces plus their inline-maintained index
 // families, the digest-invalidation markers a record mutation owes,
-// and the page ledger (TypeLedger), whose rows are meaningful only
+// page-staged assets, and the page ledger (TypeLedger), whose rows are meaningful only
 // alongside the records they vouch for and so ride this batch.
 // Clients: the Put*Records paths, the page unit, the
 // expanded/synthesized grant writers, and delete paths.
@@ -183,13 +183,6 @@ func (d *DB) NewSessionBatch() *SessionBatch {
 	d.acct.session.Add(1)
 	return &SessionBatch{batch{b: d.newBatch(), open: &d.acct.session}}
 }
-
-// === engine-meta family ===
-//
-// Single fixed keys: the keyspace/format stamps, index-migration
-// markers, the deferred-index and digest-build crash markers, the
-// sync-run record, the stats sidecar, counters, and asset rows.
-// Always single-key, never batched.
 
 // MetaSet writes one engine-meta / fixed-key row.
 func (d *DB) MetaSet(key, val []byte, o *pebble.WriteOptions) error { return d.set(key, val, o) }

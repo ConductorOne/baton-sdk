@@ -231,8 +231,10 @@ func writeOpts(d Durability) *pebble.WriteOptions {
 // finds. An fsync here hardens bytes nothing will read.
 //
 // Writes a crash image must hold do not come through here:
-// PutSyncRunRecord and the keyspace-version stamp say why at their
-// sites. FinishSync flushes and fences the WAL once at EndSync.
+// PutSyncRunRecord says why at its site, and the ledger's in-flight stamp
+// rides the first ledger batch, which BeginCollecting, takeover and
+// BeginPass commit with pebble.Sync before any page. FinishSync flushes
+// and fences the WAL once at EndSync.
 var recordWriteOpts = pebble.NoSync
 
 func defaultOptions() *Options {

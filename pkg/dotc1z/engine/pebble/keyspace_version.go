@@ -29,9 +29,9 @@ const keyspaceVersion uint32 = 2
 
 // The layout is v2 plus the additive ledger family; the stamp exists so a
 // token-only SDK refuses the file at Open instead of resuming a sync whose
-// truth is in a family it cannot read. Written before the first ledger row,
-// restored to keyspaceVersion at seal, so finished files open under v2
-// readers.
+// truth is in a family it cannot read. Staged in the batch that writes the
+// first ledger row and restored to keyspaceVersion in the seal and Drop
+// batches, so finished files open under v2 readers.
 const keyspaceVersionLedgerInFlight uint32 = 3
 
 // A package var so a test can shrink it to an older SDK's set.
@@ -103,9 +103,13 @@ func (e *Engine) stampKeyspaceVersion() error {
 }
 
 func (e *Engine) stampKeyspaceVersionValueLocked(v uint32) error {
-	var buf [4]byte
-	binary.BigEndian.PutUint32(buf[:], v)
-	return e.db.MetaSet(encodeKeyspaceVersionKey(), buf[:], pebble.Sync)
+	return e.db.MetaSet(encodeKeyspaceVersionKey(), encodeKeyspaceVersionValue(v), pebble.Sync)
+}
+
+func encodeKeyspaceVersionValue(v uint32) []byte {
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf, v)
+	return buf
 }
 
 // isKeyspaceEmpty reports whether the DB holds any v3 key at all (data,

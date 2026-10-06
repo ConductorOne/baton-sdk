@@ -9,6 +9,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
@@ -25,6 +26,10 @@ type batchDeleteRouteStore struct {
 	byIDDeleted    []string
 	putGrantsSizes []int
 	putGrantIDs    []string
+}
+
+func (s *batchDeleteRouteStore) Metadata() connectorstore.StoreMetadata {
+	return connectorstore.StoreMetadata{Engine: string(c1zstore.EngineSQLite)}
 }
 
 func (s *batchDeleteRouteStore) Grants() c1zstore.GrantStore { return &s.grants }

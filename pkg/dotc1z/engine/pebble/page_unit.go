@@ -13,6 +13,7 @@ import (
 
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
 var ErrPageUnitCommitted = errors.New("pebble page unit: already committed or discarded")
@@ -32,6 +33,7 @@ type pageUnit struct {
 	entitlements   []*v3.EntitlementRecord
 	entitlementIdx map[string][]int
 	grants         []*v3.GrantRecord
+	assets         []*v3.AssetRecord
 	// Applied at Commit after the puts, in the same batch; a buffered put of the
 	// same identity is dropped, as when the two are separate store calls.
 	grantDeletes []grantIdentity
@@ -41,11 +43,58 @@ type pageUnit struct {
 	bucketKey   []byte
 	bucketValue *v3.LedgerCounterBucket
 
-	done bool
+	work          *c1zstore.LedgerWork
+	childWorkKeys []string
+	sealing       bool
+	done          bool
 }
 
 type ledgerFact struct {
 	name, value string
+}
+
+func (u *pageUnit) StageQueueSealing() error {
+	if u.done {
+		return ErrPageUnitCommitted
+	}
+	u.sealing = true
+	return nil
+}
+
+// Under the write lock, before anything is staged. Every page checks the
+// phase; the terminal page also checks the queue and its own row.
+func (u *pageUnit) stagePhaseLocked(batch *rawdb.RecordBatch, row *v3.LedgerRow) error {
+	last, phase, err := u.l.workState()
+	if err != nil {
+		return err
+	}
+	switch phase {
+	case c1zstore.LedgerQueueSealing:
+		return fmt.Errorf("%w: %s", ErrLedgerQueuePhase, phase)
+	case c1zstore.LedgerQueueExpanding:
+		// The terminal page is the one page Expanding accepts.
+		if !u.sealing {
+			return fmt.Errorf("%w: %s", ErrLedgerQueuePhase, phase)
+		}
+	case c1zstore.LedgerQueueAbsent, c1zstore.LedgerQueueCollecting:
+	}
+	if !u.sealing {
+		return nil
+	}
+	if phase == c1zstore.LedgerQueueAbsent {
+		return errors.New("terminal page requires a pending-work declaration")
+	}
+	if u.work != nil || row.GetNextPageToken() != "" || len(row.GetChildren()) != 0 {
+		return errors.New("terminal page must not carry work, a continuation or children")
+	}
+	pending, err := u.l.hasPendingWorkLocked()
+	if err != nil {
+		return err
+	}
+	if pending {
+		return errors.New("terminal page requires an empty pending-work queue")
+	}
+	return stageWorkState(batch, last, c1zstore.LedgerQueueSealing)
 }
 
 func (u *pageUnit) StageFactValue(name, value string) error {
@@ -65,6 +114,9 @@ func (u *pageUnit) StageFact(name string) error {
 }
 
 func (u *pageUnit) StageCounterBucket(runID string, worker uint32, bucket *v3.LedgerCounterBucket) error {
+	if runID == "" {
+		return errors.New("StageCounterBucket: empty attempt ID")
+	}
 	if u.done {
 		return ErrPageUnitCommitted
 	}
@@ -135,6 +187,17 @@ func (u *pageUnit) StageGrants(records ...*v3.GrantRecord) error {
 			u.grants = append(u.grants, r)
 		}
 	}
+	return nil
+}
+
+func (u *pageUnit) StageAsset(record *v3.AssetRecord) error {
+	if u.done {
+		return ErrPageUnitCommitted
+	}
+	if record == nil {
+		return errors.New("StageAsset: nil record")
+	}
+	u.assets = append(u.assets, record)
 	return nil
 }
 
@@ -391,6 +454,8 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		row = cloneLedgerRow(row)
 	}
 	row.SetIdentity(ledgerIdentityToProto(id))
+	row.SetWorkId(0)
+	row.SetWorkRevision(0)
 	if row.GetCommittedAt() == nil {
 		row.SetCommittedAt(timestamppb.Now())
 	}
@@ -398,6 +463,7 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		row.SetNextPageTokenHash(ledgerTokenHash(row.GetNextPageToken()))
 	}
 	for _, c := range row.GetChildren() {
+		c.SetWorkId(0)
 		if id := c.GetIdentity(); len(id.GetPageTokenHash()) == 0 {
 			id.SetPageTokenHash(ledgerTokenHash(id.GetPageToken()))
 		}
@@ -428,12 +494,23 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		if err := u.requireSameSync(); err != nil {
 			return err
 		}
-		if err := l.markInFlightLocked(); err != nil {
-			return err
-		}
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
+		if err := l.stageMarkInFlight(batch); err != nil {
+			return err
+		}
 
+		if err := u.stagePhaseLocked(batch, row); err != nil {
+			return err
+		}
+		if u.work != nil {
+			if err := l.stageWorkTransition(ctx, batch, *u.work, id, row, u.childWorkKeys); err != nil {
+				return err
+			}
+			key = encodeWorkHistoryKey(id, u.work.ID, u.work.Revision)
+			row.SetWorkId(u.work.ID)
+			row.SetWorkRevision(u.work.Revision)
+		}
 		resourceTypes, err := stageResourceTypeRecords(batch, u.resourceTypes)
 		if err != nil {
 			return err
@@ -449,6 +526,15 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		grants, err := l.e.stageGrantRecords(batch, u.grants)
 		if err != nil {
 			return err
+		}
+		for _, asset := range u.assets {
+			value, err := marshalRecord(asset)
+			if err != nil {
+				return err
+			}
+			if err := batch.StageAssetPut(encodeAssetKey(asset.GetExternalId()), value); err != nil {
+				return err
+			}
 		}
 		for _, id := range u.grantDeletes {
 			if _, err := l.e.stageGrantDeleteIfPresentLocked(batch, id); err != nil {
@@ -492,6 +578,7 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		if err := batch.Commit(recordWriteOpts); err != nil {
 			return err
 		}
+		l.inFlight.Store(true)
 		if len(u.entitlements) > 0 {
 			l.e.noteEntitlementKeyspaceWrite()
 		}
@@ -509,10 +596,13 @@ func (u *pageUnit) Discard() { u.release() }
 func (u *pageUnit) release() {
 	u.done = true
 	u.resourceTypes, u.resources, u.entitlements, u.grants = nil, nil, nil, nil
+	u.assets = nil
 	u.resourceIdx, u.entitlementIdx = nil, nil
 	u.grantDeletes = nil
 	u.facts = nil
 	u.bucketKey, u.bucketValue = nil, nil
+	u.work, u.childWorkKeys = nil, nil
+	u.sealing = false
 }
 
 // sync_id is not in the keys, so a page begun under a previous sync would

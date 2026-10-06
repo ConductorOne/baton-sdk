@@ -49,8 +49,16 @@ var (
 	resourcePrimaryPrefix     = []byte{VersionV3, TypeResource}
 	entitlementPrimaryPrefix  = []byte{VersionV3, TypeEntitlement}
 	resourceTypePrimaryPrefix = []byte{VersionV3, TypeResourceType}
+	assetPrimaryPrefix        = []byte{VersionV3, TypeAsset}
 	ledgerRowPrefix           = []byte{VersionV3, TypeLedger, ledgerKindRow}
 )
+
+func (rb *RecordBatch) StageAssetPut(key, val []byte) error {
+	if err := assertFamily("StageAssetPut", key, assetPrimaryPrefix); err != nil {
+		return err
+	}
+	return rb.core.Set(key, val)
+}
 
 // On RecordBatch, not its own batch: the row means "the records staged
 // alongside me landed", so there is no standalone ledger writer.
@@ -651,4 +659,115 @@ func (b *FoldBatch) Set(key, val []byte) error {
 		}
 	}
 	return b.batch.Set(key, val)
+}
+
+// The token-bearing part of the ledger family: rows, pending work, scheduling
+// relations, frontier. Facts, counters and the declaration stay.
+func (rb *RecordBatch) StageLedgerDisposeTokens() error {
+	lo, hi := LedgerRowBounds()
+	if err := rb.core.DeleteRange(lo, hi); err != nil {
+		return err
+	}
+	pendingLo, pendingHi := LedgerPendingBounds()
+	if err := rb.core.DeleteRange(pendingLo, pendingHi); err != nil {
+		return err
+	}
+	scheduled := LedgerSchedulingPrefix()
+	if err := rb.core.DeleteRange(scheduled, UpperBound(scheduled)); err != nil {
+		return err
+	}
+	return rb.core.Delete(LedgerFrontierKey())
+}
+
+func (rb *RecordBatch) StageLedgerArchive(archiveKey, archiveVal []byte) error {
+	if err := assertFamily("StageLedgerArchive", archiveKey, []byte{VersionV3, TypeEngineMeta}); err != nil {
+		return err
+	}
+	return rb.core.Set(archiveKey, archiveVal)
+}
+
+// StageKeyspaceVersion writes the layout stamp in the same batch as the
+// ledger write it describes: the in-flight stamp must never be durable
+// without the rows, nor the rows without it.
+func (rb *RecordBatch) StageKeyspaceVersion(key, val []byte) error {
+	if err := assertFamily("StageKeyspaceVersion", key, []byte{VersionV3, TypeEngineMeta}); err != nil {
+		return err
+	}
+	return rb.core.Set(key, val)
+}
+
+// StageLedgerDrop removes the whole ledger family.
+func (rb *RecordBatch) StageLedgerDrop() error {
+	lo, hi := LedgerBounds()
+	return rb.core.DeleteRange(lo, hi)
+}
+
+// The seal's one durable step: archive, the family's remaining keys, and the
+// sync-run record carrying ended_at. Retained history keeps rows, facts and
+// counters; the declaration, the scheduling relations and the frontier (which
+// holds a legacy token verbatim) go in both modes.
+func (rb *RecordBatch) StageLedgerSeal(archiveKey, archiveVal, syncRunVal []byte, retained bool) error {
+	if err := rb.StageLedgerArchive(archiveKey, archiveVal); err != nil {
+		return err
+	}
+	scheduled := LedgerSchedulingPrefix()
+	if err := rb.core.DeleteRange(scheduled, UpperBound(scheduled)); err != nil {
+		return err
+	}
+	if err := rb.core.Delete(LedgerFrontierKey()); err != nil {
+		return err
+	}
+	if !retained {
+		lo, hi := LedgerFactBounds()
+		if err := rb.core.DeleteRange(lo, hi); err != nil {
+			return err
+		}
+		lo, hi = LedgerCounterBounds()
+		if err := rb.core.DeleteRange(lo, hi); err != nil {
+			return err
+		}
+	}
+	if err := rb.core.Delete(LedgerWorkStateKey()); err != nil {
+		return err
+	}
+	return rb.core.Set(SyncRunKey(), syncRunVal)
+}
+
+func (rb *RecordBatch) StageLedgerFactDelete(key []byte) error {
+	if err := assertFamily("StageLedgerFactDelete", key, LedgerFactPrefix()); err != nil {
+		return err
+	}
+	return rb.core.Delete(key)
+}
+
+func (rb *RecordBatch) StagePendingWork(key, value []byte) error {
+	if err := assertFamily("StagePendingWork", key, LedgerPendingPrefix()); err != nil {
+		return err
+	}
+	return rb.core.Set(key, value)
+}
+
+func (rb *RecordBatch) StagePendingWorkDelete(key []byte) error {
+	if err := assertFamily("StagePendingWorkDelete", key, LedgerPendingPrefix()); err != nil {
+		return err
+	}
+	return rb.core.Delete(key)
+}
+
+func (rb *RecordBatch) StageLedgerWorkState(value []byte) error {
+	return rb.core.Set(LedgerWorkStateKey(), value)
+}
+
+func (rb *RecordBatch) StageLedgerScheduling(key []byte) error {
+	if err := assertFamily("StageLedgerScheduling", key, LedgerSchedulingPrefix()); err != nil {
+		return err
+	}
+	return rb.core.Set(key, []byte{1})
+}
+
+func (rb *RecordBatch) StageLedgerCounterDelete(key []byte) error {
+	if err := assertFamily("StageLedgerCounterDelete", key, LedgerCounterPrefix()); err != nil {
+		return err
+	}
+	return rb.core.Delete(key)
 }

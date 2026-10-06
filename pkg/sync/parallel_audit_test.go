@@ -14,7 +14,10 @@ package sync //nolint:revive,nolintlint // backwards-compatible package name
 //       once, and — on a clean batch — exactly once (full drain).
 //   C2  admission before execution: nothing is dequeued that was never
 //       seeded or committed.
-//   C3  no commits after abort: an aborted batch admits nothing further.
+//   C3  no admission after abort: an aborted batch admits nothing further,
+//       and no commit begins after the abort. A ledger commit that began
+//       before the abort may complete after it — its durable write is not
+//       undone by an abort — but it admits nothing.
 //   C4  (removed) dedup soundness — "no two actions in one batch share an
 //       identity digest" — was a property of the queue's identity history,
 //       deleted by RFC 0007 phase 1: duplicate identities across commits
@@ -35,10 +38,13 @@ import (
 )
 
 type auditBatchState struct {
-	op        ActionOp
-	admitted  map[string]bool // actionID -> dequeued yet?
-	dequeues  int
-	dones     int
+	op       ActionOp
+	admitted map[string]bool // actionID -> dequeued yet?
+	dequeues int
+	dones    int
+	// begun counts ledger commits that released the lock before the abort
+	// and have not yet recorded their completion.
+	begun     int
 	aborted   bool
 	ended     bool
 	clean     bool
@@ -99,9 +105,25 @@ func verifyQueueAudit(t *testing.T, audit *queueAudit) {
 			if b.aborted {
 				b.violatef("dequeue of %s after abort", id)
 			}
-		case auditCommit:
+		case auditCommitBegin:
 			if b.aborted {
+				b.violatef("commit begun after abort (C3)")
+			}
+			b.begun++
+		case auditCommit:
+			switch {
+			case b.begun > 0:
+				b.begun--
+				if b.aborted && len(ev.actionIDs) > 0 {
+					b.violatef("commit begun before abort admitted %v after it (C3)", ev.actionIDs)
+				}
+			case b.aborted:
 				b.violatef("transition committed after abort (C3)")
+			}
+			admit(b, ev.actionIDs)
+		case auditAdmit:
+			if b.aborted {
+				b.violatef("children admitted after abort (C3)")
 			}
 			admit(b, ev.actionIDs)
 		case auditReject:

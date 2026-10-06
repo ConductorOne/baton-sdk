@@ -11,6 +11,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/stretchr/testify/require"
@@ -30,6 +31,10 @@ type legacyPaginatedCheckpointStore struct {
 // every store for its SyncMeta; a double with a nil embedded interface has to
 // answer rather than panic. nil means the verification capability is absent,
 // which is what this double intends.
+func (s *legacyPaginatedCheckpointStore) Metadata() connectorstore.StoreMetadata {
+	return connectorstore.StoreMetadata{Engine: string(c1zstore.EngineSQLite)}
+}
+
 func (s *legacyPaginatedCheckpointStore) SyncMeta() c1zstore.SyncMeta { return nil }
 
 // Grants reports "no grant sub-store", for the same reason as SyncMeta above:

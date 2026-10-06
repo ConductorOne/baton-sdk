@@ -109,6 +109,12 @@ func (e *Engine) startNewSync(ctx context.Context, syncType connectorstore.SyncT
 	if existed, err := e.hasSyncRun(); err != nil {
 		return "", err
 	} else if existed {
+		if _, phase, err := e.ledger.workState(); err != nil {
+			return "", err
+		} else if phase != c1zstore.LedgerQueueAbsent {
+			ctxzap.Extract(ctx).Warn("pebble: starting a new sync over an open pass; its progress is discarded",
+				zap.Stringer("abandoned_phase", phase))
+		}
 		if err := e.ResetForNewSync(ctx); err != nil {
 			return "", err
 		}
@@ -271,8 +277,7 @@ func (e *Engine) EndSyncWithStats(ctx context.Context, stats c1zstore.SyncStats)
 	return e.endSync(ctx, syncStatsOverlay(stats))
 }
 
-// A ledgered sync writes no token, so only the caller can supply its stats;
-// sealing without them would drop ingest quality, a replay-eligibility input.
+// Deprecated: EndSync accepts ledgered runs and preserves their recovery state.
 var ErrLedgeredSyncNeedsStats = errors.New("EndSync: ledgered sync must seal through EndSyncWithStats")
 
 func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error {
@@ -282,18 +287,30 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 	if syncID == "" {
 		return errors.New("EndSync: no open sync")
 	}
-	if overlay == nil {
-		ledgered, err := e.ledger.active()
-		if err != nil {
-			return err
-		}
-		if ledgered {
-			return ErrLedgeredSyncNeedsStats
-		}
+	ledgered, err := e.ledger.active()
+	if err != nil {
+		return err
 	}
+	preserveRecovery := overlay == nil
 	existing, err := e.GetSyncRunRecord(ctx, syncID)
 	if err != nil {
 		return err
+	}
+	if !preserveRecovery && ledgered {
+		// The terminal page moved the declaration to sealing with the queue
+		// empty; a finished sync with no declaration is an engine-level reseal.
+		_, phase, err := e.ledger.PendingWork(ctx, 0, 1)
+		if err != nil {
+			return err
+		}
+		switch {
+		case phase == c1zstore.LedgerQueueSealing:
+		case phase == c1zstore.LedgerQueueAbsent && existing.GetEndedAt() != nil:
+		case phase == c1zstore.LedgerQueueAbsent:
+			return errors.New("EndSync: missing pending-work declaration")
+		default:
+			return fmt.Errorf("EndSync: pending-work declaration is %s, not sealing", phase)
+		}
 	}
 	if overlay != nil {
 		e.setSyncStatsOverlay(syncID, overlay)
@@ -314,7 +331,7 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 	// on AllowSealed paths; sync-run metadata stamps remain allowed.
 	// Sealing also pauses compactions for the EndSync-to-close window.
 	e.seal()
-	if err := e.endSyncFinalize(ctx, existing); err != nil {
+	if err := e.endSyncFinalize(ctx, existing, preserveRecovery); err != nil {
 		// On failure the sync stays bound and the caller may keep writing
 		// (or retry EndSync later): leave the sealed state and resume
 		// compactions, or L0 would accumulate until pebble stalls writes at
@@ -322,19 +339,21 @@ func (e *Engine) endSync(ctx context.Context, overlay *v3.SyncStatsRecord) error
 		e.unseal()
 		// finalize can fail before PersistSyncStats consumes the stash; left behind,
 		// it would apply to whatever seals this id next.
-		if overlay != nil {
-			e.takeSyncStatsOverlay(syncID)
-		}
+		e.takeSyncStatsOverlay(syncID)
 		return err
 	}
 	return nil
 }
 
-// endSyncFinalize runs the sealed tail of EndSync: the deferred index
-// build, the ended_at stamp, the stats sidecar, and the durability flush.
-// Runs with the engine SEALED (see EndSync) — every write below goes
-// through an AllowSealed path. Split out so EndSync can unseal on failure.
-func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord) error {
+// Requires a sealed engine; EndSync unseals it if finalization fails.
+func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord, preserveRecovery bool) error {
+	if preserveRecovery {
+		if err := e.restoreEndSyncStats(ctx, existing.GetSyncId()); err != nil {
+			return err
+		}
+	}
+	cost := &SealCost{}
+	defer func() { e.test.sealCost.Store(cost) }()
 	// Build the deferred by_principal index BEFORE stamping ended_at (an
 	// interrupted build must leave the sync visibly unfinished so a resume
 	// re-runs EndSync and the rebuild — the pending marker is durable, see
@@ -382,36 +401,100 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 	// ledger-free sync never writes the fact, and the purge's compaction
 	// overlaps SSTs even on a ledger-free file (BenchmarkLedgerSealCost,
 	// pages=0).
-	ledgered, err := e.ledger.active()
-	if err != nil {
-		return fmt.Errorf("EndSync: check ledger presence: %w", err)
-	}
-	if ledgered {
-		scrub, err := e.ledger.sealScrubsTokens()
+	var archiveValue []byte
+	retained := false
+	if !preserveRecovery {
+		ledgered, err := e.ledger.active()
 		if err != nil {
-			return fmt.Errorf("EndSync: read retain-tokens fact: %w", err)
+			return fmt.Errorf("EndSync: check ledger presence: %w", err)
 		}
-		if scrub {
-			if err := e.ledger.scrubTokens(ctx); err != nil {
-				return fmt.Errorf("EndSync: scrub ledger tokens: %w", err)
+		needsPurge := false
+		if ledgered {
+			discard, err := e.ledger.sealDiscardsRows()
+			if err != nil {
+				return fmt.Errorf("EndSync: read ledger disposal policy: %w", err)
 			}
-			if !e.test.skipLedgerResiduePurge {
-				if err := e.ledger.purgeResidue(ctx); err != nil {
-					return fmt.Errorf("EndSync: purge ledger residue after scrub: %w", err)
+			retained = !discard
+			archiveStarted := time.Now()
+			archiveErr := e.withWriteAllowSealed(func() error {
+				var err error
+				archiveValue, _, err = e.buildLedgerArchiveLocked(ctx, existing.GetSyncId())
+				return err
+			})
+			cost.LedgerArchive = time.Since(archiveStarted)
+			if archiveErr != nil {
+				return fmt.Errorf("EndSync: build ledger archive: %w", archiveErr)
+			}
+			if discard {
+				// The archive rides this batch too: a crash before the stamp
+				// leaves no rows to regenerate the report from.
+				discardStarted := time.Now()
+				if err := e.ledger.markResiduePending(); err != nil {
+					return err
+				}
+				if err := e.withWriteAllowSealed(func() error {
+					batch := e.db.NewRecordBatch()
+					defer batch.Close()
+					if err := batch.StageLedgerArchive(ledgerArchiveKey(), archiveValue); err != nil {
+						return err
+					}
+					if err := batch.StageLedgerDisposeTokens(); err != nil {
+						return err
+					}
+					return batch.Commit(pebble.Sync)
+				}); err != nil {
+					return err
+				}
+				cost.LedgerDiscard = time.Since(discardStarted)
+				if hook := e.test.ledgerArchiveHook; hook != nil {
+					if err := hook("after-delete"); err != nil {
+						return err
+					}
+				}
+				needsPurge = true
+			} else {
+				scrub, err := e.ledger.sealScrubsTokens()
+				if err != nil {
+					return fmt.Errorf("EndSync: read retain-tokens fact: %w", err)
+				}
+				if scrub {
+					started := time.Now()
+					err := e.ledger.scrubTokens(ctx)
+					cost.LedgerScrub = time.Since(started)
+					if err != nil {
+						return fmt.Errorf("EndSync: scrub ledger tokens: %w", err)
+					}
+					needsPurge = true
 				}
 			}
 		}
-	}
-	// Not gated on the ledger's presence: this is the residue of a ledger
-	// already dropped, with no rows left to find it by.
-	if !e.test.skipLedgerResiduePurge {
-		if err := e.ledger.purgeMarkedResidue(ctx); err != nil {
-			return fmt.Errorf("EndSync: purge marked ledger residue: %w", err)
+		if !e.test.skipLedgerResiduePurge {
+			pending, err := e.ledger.residuePending()
+			if err != nil {
+				return err
+			}
+			if pending || needsPurge {
+				started := time.Now()
+				if pending {
+					err = e.ledger.purgeMarkedResidue(ctx)
+				} else {
+					err = e.ledger.purgeResidue(ctx)
+				}
+				cost.LedgerPurge = time.Since(started)
+				if err != nil {
+					return fmt.Errorf("EndSync: purge ledger residue: %w", err)
+				}
+				if hook := e.test.ledgerArchiveHook; hook != nil {
+					if err := hook("after-purge"); err != nil {
+						return err
+					}
+				}
+			}
 		}
-	}
-	// Before ended_at: a finished file must open under every v2 reader.
-	if err := e.withWriteAllowSealed(e.ledger.clearInFlightLocked); err != nil {
-		return fmt.Errorf("EndSync: %w", err)
+	} else if !e.test.skipLedgerResiduePurge {
+		if err := e.ledger.purgeMarkedResidue(ctx); err != nil {
+			return fmt.Errorf("EndSync: purge previously discarded ledger data: %w", err)
+		}
 	}
 	// Preserve all provenance fields while adding the lifecycle stamp.
 	updated := proto.Clone(existing).(*v3.SyncRunRecord)
@@ -421,8 +504,35 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 			return err
 		}
 	}
-	if err := e.PutSyncRunRecord(ctx, updated); err != nil {
-		return err
+	if archiveValue == nil {
+		if err := e.PutSyncRunRecord(ctx, updated); err != nil {
+			return err
+		}
+	} else {
+		// One batch: the finished verdict, the archive, the removal of what
+		// the archive replaces, and the stamp a token-only SDK reads. No
+		// ledger write follows FinishSync.
+		runValue, err := marshalRecord(updated)
+		if err != nil {
+			return err
+		}
+		if err := e.withWriteAllowSealed(func() error {
+			batch := e.db.NewRecordBatch()
+			defer batch.Close()
+			if err := batch.StageLedgerSeal(ledgerArchiveKey(), archiveValue, runValue, retained); err != nil {
+				return err
+			}
+			if err := e.ledger.stageClearInFlight(batch); err != nil {
+				return err
+			}
+			if err := batch.Commit(pebble.Sync); err != nil {
+				return err
+			}
+			e.ledger.inFlight.Store(false)
+			return nil
+		}); err != nil {
+			return fmt.Errorf("EndSync: seal ledger: %w", err)
+		}
 	}
 	if e.test.endSyncPreFlushHook != nil {
 		e.test.endSyncPreFlushHook()
@@ -1111,6 +1221,34 @@ func (r *bytesReader) Read(p []byte) (int, error) {
 	n := copy(p, r.b[r.i:])
 	r.i += n
 	return n, nil
+}
+
+// LedgerState is the pass's state in one read: the declaration's phase, the
+// sync-run record's ended_at, and whether a legacy token awaits takeover.
+func (e *Engine) LedgerState(ctx context.Context) (c1zstore.LedgerState, error) {
+	var state c1zstore.LedgerState
+	if err := ctx.Err(); err != nil {
+		return state, err
+	}
+	_, phase, err := e.ledger.workState()
+	if err != nil {
+		return state, err
+	}
+	state.Phase = phase
+	syncID := e.CurrentSyncID()
+	if syncID == "" {
+		return state, nil
+	}
+	rec, err := e.GetSyncRunRecord(ctx, syncID)
+	if err != nil {
+		if errors.Is(err, pebble.ErrNotFound) {
+			return state, nil
+		}
+		return state, err
+	}
+	state.Finished = rec.GetEndedAt() != nil
+	state.Token = rec.GetSyncToken() != ""
+	return state, nil
 }
 
 func (e *Engine) BoundSyncFinished(ctx context.Context) (bool, error) {

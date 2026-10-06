@@ -3,6 +3,7 @@ package sync //nolint:revive,nolintlint // backwards-compatible package name
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -105,6 +106,19 @@ func newChaosHarness(
 	}
 	sdkSyncer, err := NewSyncer(ctx, client, append(baseOpts, opts...)...)
 	require.NoError(t, err)
+	concrete := sdkSyncer.(*syncer)
+	concrete.testHooks.ledgerWalk = func(entering bool) {
+		if !entering {
+			return
+		}
+		require.NotNil(t, concrete.caps.writeHook)
+		concrete.caps.writeHook.SetWriteHook(func(_ context.Context, event c1zstore.WriteHookEvent) error {
+			if event.Bypass == "" {
+				return fmt.Errorf("unregistered page write: %s", event.Method)
+			}
+			return nil
+		})
+	}
 	return &chaosHarness{
 		Syncer:       sdkSyncer,
 		Run:          run,

@@ -237,11 +237,11 @@ func runConcurrentDuplicateResumeCase(t *testing.T, corpusCase chaosconnector.Co
 	require.NoError(t, resumeHarness.Syncer.Sync(ctx))
 	require.NoError(t, resumeHarness.Close(t.Context()))
 	resumedTokens, lastSibling := concurrentReturnedTokens(corpusCase, resumeRun.Trace().Events())
-	require.True(t, resumedTokens["left"], "resume did not replay left sibling")
-	require.True(t, resumedTokens["right"], "resume did not replay right sibling")
+	require.False(t, resumedTokens[corpusCase.FirstToken], "committed sibling must not run again")
+	require.True(t, resumedTokens[corpusCase.BlockedToken], "uncommitted sibling must run")
 	require.NotEmpty(t, lastSibling)
 	require.Equal(t, baselineLastSibling, lastSibling,
-		"single-worker resume order must match an uninterrupted single-worker run")
+		"resume must preserve the same page commit order as the uninterrupted run")
 
 	store, err := dotc1z.NewStore(
 		t.Context(),
@@ -281,12 +281,18 @@ func runConcurrentDuplicateBaseline(
 	baselinePath := filepath.Join(tmpDir, "concurrent-duplicate-baseline.c1z")
 	scenario, err := chaosconnector.NewConcurrentDuplicateScenario(corpusCase.Entity)
 	require.NoError(t, err)
-	run, err := chaosconnector.NewRun(scenario, chaosconnector.NewSchedule())
+	run, err := chaosconnector.NewRun(scenario, corpusCase.Schedule)
 	require.NoError(t, err)
 	harness := newChaosHarness(
-		t, ctx, run, baselinePath, tmpDir, chaosTransportDirect, WithWorkerCount(1),
+		t, ctx, run, baselinePath, tmpDir, chaosTransportDirect, WithWorkerCount(2),
 	)
-	harness.SyncAndClose(t, ctx)
+	done := make(chan error, 1)
+	go func() { done <- harness.Syncer.Sync(ctx) }()
+	waitForConcurrentObservation(t, ctx, harness.Syncer.(*syncer), run, corpusCase, corpusCase.FirstToken)
+	run.Runtime().ReleaseBarrier("release-" + corpusCase.BlockedToken)
+	require.NoError(t, <-done)
+	require.NoError(t, harness.Close(ctx))
+	require.NoError(t, run.Runtime().VerifyRequired())
 
 	returnedTokens, lastSibling := concurrentReturnedTokens(corpusCase, run.Trace().Events())
 	require.True(t, returnedTokens["left"], "baseline did not execute left sibling")

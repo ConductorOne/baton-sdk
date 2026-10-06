@@ -56,11 +56,10 @@ func TestLedgerScrubReachesTheTakeoverFrontier(t *testing.T) {
 // A sync with ledger rows must be refused a checkpoint token even when
 // the in-flight stamp has been cleared.
 //
-// Ledger.clearInFlightLocked drops the durable stamp and the in-memory flag
-// before endSyncFinalize writes ended_at. If the write then fails, or the
-// process crashes and reopens, the flag reads false over rows that are
-// still there, and gating on the flag alone let CheckpointSync write a
-// token beside a live ledger.
+// This SDK clears the stamp only in the batch that removes the rows or
+// writes ended_at. An earlier SDK cleared it on its own before ended_at, so
+// a file it crashed on holds rows with the stamp at v2; gating on the stamp
+// alone let CheckpointSync write a token beside a live ledger.
 func TestCheckpointRefusedWhileLedgerRowsExistWithoutTheStamp(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t)
@@ -72,13 +71,12 @@ func TestCheckpointRefusedWhileLedgerRowsExistWithoutTheStamp(t *testing.T) {
 	require.True(t, e.ledger.inFlight.Load(), "committing a page stamps in flight")
 	require.ErrorIs(t, e.CheckpointSync(ctx, "tok"), ErrLedgeredSyncWritesNoToken)
 
-	require.NoError(t, e.withWriteAllowSealed(e.ledger.clearInFlightLocked))
-	require.False(t, e.ledger.inFlight.Load())
+	require.NoError(t, e.withWriteAllowSealed(func() error { return e.stampKeyspaceVersionValueLocked(keyspaceVersion) }))
+	e.ledger.inFlight.Store(false)
 
 	require.ErrorIs(t, e.CheckpointSync(ctx, "tok"), ErrLedgeredSyncWritesNoToken,
 		"rows outlive the stamp, so rows are what the gate asks about")
-	require.ErrorIs(t, e.EndSync(ctx), ErrLedgeredSyncNeedsStats,
-		"the same applies to sealing without stats")
+	require.NoError(t, e.EndSync(ctx))
 }
 
 // ResetForNewSync excises the ledger family but the keyspace stamp lives
@@ -88,8 +86,8 @@ func TestCheckpointRefusedWhileLedgerRowsExistWithoutTheStamp(t *testing.T) {
 // ledger at all: neither protocol could finish it.
 // The stamp only outlives its rows when the ledgered sync never sealed,
 // so the setup has to abandon one: commit a page, then reopen without
-// EndSync. A seal would call Ledger.clearInFlightLocked itself and the reset
-// would have nothing left to clear.
+// EndSync. A seal clears the stamp in its own batch and the reset would
+// have nothing left to clear.
 func TestResetForNewSyncClearsTheInFlightStamp(t *testing.T) {
 	ctx := context.Background()
 	e, dir := newTestEngine(t)
@@ -214,6 +212,7 @@ func TestRetainDeclarationSurvivesCrashAndItsAbsenceScrubs(t *testing.T) {
 		e, dir := newTestEngine(t)
 		syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
+		require.NoError(t, e.Ledger().BeginCollecting(t.Context(), nil, nil))
 		declare(e)
 		u := e.ledger.newPageUnit()
 		require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"),
@@ -224,11 +223,13 @@ func TestRetainDeclarationSurvivesCrashAndItsAbsenceScrubs(t *testing.T) {
 		resumed, err := NewAdapter(e).ResumeSync(ctx, connectorstore.SyncTypeFull, syncID)
 		require.NoError(t, err)
 		require.Equal(t, syncID, resumed)
-		require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+		require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{}))
 
 		var rows []*v3.LedgerRow
 		require.NoError(t, e.ledger.iterate(ctx, func(r *v3.LedgerRow) bool {
-			rows = append(rows, r)
+			if r.GetIdentity().GetOp() != "sync-terminal-v1" {
+				rows = append(rows, r)
+			}
 			return true
 		}))
 		require.Len(t, rows, 1)
@@ -309,6 +310,41 @@ func TestDropLedgerClearsTheInFlightStamp(t *testing.T) {
 	require.NoError(t, e.EndSync(ctx))
 }
 
+// The rows and the stamp leave in one batch: a failed Drop keeps both, so
+// the file still refuses a token and a retry has the same work to do.
+func TestDropLedgerCommitFailureKeepsRowsAndStamp(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	u := e.ledger.newPageUnit()
+	require.NoError(t, u.Commit(ctx, grantsPageIdentity("github", "p1"), nil))
+
+	boom := errors.New("injected")
+	e.db.SetRecordCommitTestHook(func() error { return boom })
+	require.ErrorIs(t, e.ledger.Drop(ctx), boom)
+	e.db.SetRecordCommitTestHook(nil)
+
+	n, err := e.ledger.rowCount(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, n, "the row survives the failed drop")
+	stamp, err := e.keyspaceVersionStamp()
+	require.NoError(t, err)
+	require.Equal(t, keyspaceVersionLedgerInFlight, stamp, "and so does the stamp that describes it")
+	require.True(t, e.ledger.inFlight.Load())
+	require.ErrorIs(t, e.CheckpointSync(ctx, "tok"), ErrLedgeredSyncWritesNoToken)
+
+	require.NoError(t, e.ledger.Drop(ctx))
+	n, err = e.ledger.rowCount(ctx)
+	require.NoError(t, err)
+	require.Zero(t, n)
+	stamp, err = e.keyspaceVersionStamp()
+	require.NoError(t, err)
+	require.Equal(t, keyspaceVersion, stamp)
+	require.NoError(t, e.CheckpointSync(ctx, "tok"))
+}
+
 // endSync stashes the overlay before GetSyncRunRecord and endSyncFinalize
 // can fail, and only PersistSyncStats consumes it. A failed seal leaves
 // the sync bound for a retry with the entry still keyed by syncID, where
@@ -323,7 +359,7 @@ func TestFailedSealDropsItsStatsOverlay(t *testing.T) {
 
 	boom := errors.New("injected")
 	e.test.endSyncStampHook = func() error { return boom }
-	require.ErrorIs(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{
+	require.ErrorIs(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{
 		Run: c1zstore.RunStats{StepDurationsMs: map[string]int64{"list-grants": 3}},
 	}), boom)
 	e.test.endSyncStampHook = nil
@@ -331,7 +367,7 @@ func TestFailedSealDropsItsStatsOverlay(t *testing.T) {
 	require.NotContains(t, e.syncStatsOverlay, syncID,
 		"a failed seal's stats must not be waiting for the next seal of this id")
 
-	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{
+	require.NoError(t, sealWithStats(t, e, ctx, c1zstore.SyncStats{
 		Run: c1zstore.RunStats{StepDurationsMs: map[string]int64{"list-grants": 9}},
 	}))
 	stats, err := e.readSyncStats(ctx, syncID)
