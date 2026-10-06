@@ -155,10 +155,16 @@ func TestIssueCredentialLegacyPathIsUnchanged(t *testing.T) {
 
 	t.Run("an untyped legacy request still reaches Issue", func(t *testing.T) {
 		connector, issuer := typedIssuer(t, typedAPIKeyV2)
-		_, err := connector.IssueCredential(ctx, typedRequest(t, ""))
+		resp, err := connector.IssueCredential(ctx, typedRequest(t, ""))
 		require.NoError(t, err)
 		require.NotNil(t, issuer.lastInput)
 		require.Empty(t, issuer.lastInput.OutputContentType,
 			"a legacy request must not carry a typed contract to the connector")
+		// An operation prepared under the legacy contract keeps its old raw
+		// material and the connector's own name for it. Upgrading the SDK must
+		// not relabel or re-encode it.
+		require.Len(t, resp.GetEncryptedData(), 1)
+		require.Equal(t, "api_key", resp.GetEncryptedData()[0].GetName())
+		require.NotEmpty(t, resp.GetEncryptedData()[0].GetEncryptedBytes())
 	})
 }
