@@ -91,7 +91,7 @@ most one error and nothing after it (`adapter_streaming.go`). -/
 inductive Yield (α : Type) where
   | record (a : α)
   | error (e : ListError)
-  deriving Repr
+  deriving Repr, DecidableEq
 
 /-- The terminal-error contract: an error, if any, is the last yield. -/
 def ErrorTerminal {α : Type} (ys : List (Yield α)) : Prop :=

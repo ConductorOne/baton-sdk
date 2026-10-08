@@ -8,14 +8,15 @@ with theorems, an oracle family (fixed, random, and `--respond`), and a
 Go replay function. The proposal sections referenced are in the C1
 document "Baton SDK proof contract for c1z snapshots and readers".
 
-The first six families cover resource writes, resource pagination,
-entitlement bare-id lookup, key encoding, and the sync lifecycle. 1.5M
-replayed cases found no engine disagreement there; the two mismatches
-were model errors. The engine paths below are where the implementation
-survey found behavior that a reader could misinterpret, and none of them
-is replayed yet.
+Status: increments 1, 2, 3, 5, and 7 are done (see README's guarantee
+tables); 4 and 6 remain, plus the standing items. The first six
+families cover resource writes, resource pagination, entitlement
+bare-id lookup, key encoding, and the sync lifecycle. 1.5M replayed
+cases found no engine disagreement there; the two mismatches were model
+errors. The engine paths below are where the implementation survey
+found behavior that a reader could misinterpret.
 
-## 1. Grant and entitlement records (proposal §1, §2, §6)
+## 1. Grant and entitlement records (proposal §1, §2, §6) — done
 
 The highest-value gap. Every reconciliation input C1 cares about is a
 grant, and the grant family has the sharpest identity rule: the key is
@@ -47,7 +48,7 @@ has a candidate-split search capped at 64 colons and 4096 candidates and
 a full-scan fallback. That path is where ambiguity classification could
 diverge from `Result.resolveBare`.
 
-## 2. Hidden rows and index-backed readers (proposal §5, §7)
+## 2. Hidden rows and index-backed readers (proposal §5, §7) — done
 
 `Paginate.page` already models `visible`, and `page_next_none_imp_
 exhausted` and the trailing-empty-page witness are proved, but the
@@ -75,7 +76,7 @@ Expected findings: the first case where the engine returns incomplete
 results with a successful status. That is the most important
 non-guarantee for C1 to see demonstrated rather than described.
 
-## 3. Close and reopen (proposal §9)
+## 3. Close and reopen (proposal §9) — done
 
 Every case today writes and reads in one open engine. The read view of
 a finished sync is not stable across `Open`: the id-index migration can
@@ -123,7 +124,7 @@ Expected findings: the schema has to classify "accepted and resumed
 after a key that never existed" as a result, which forces the
 documentation to say it plainly.
 
-## 5. Streams and cancellation (proposal §7)
+## 5. Streams and cancellation (proposal §7) — done
 
 `Result.ErrorTerminal` and `streamEnd` are proved for the consumer's
 side; the engine side is pinned only by existing unit tests. Context
@@ -154,7 +155,7 @@ Cheap, and worth doing alongside any of the above:
   `latest_finished` returns an id more than 3% of the time.
 - `SyncType.unspecified` through the adapter's unknown-string mapping.
 
-## 7. Digests (proposal §8), later
+## 7. Digests (proposal §8) — done
 
 Treat as optimization evidence with an explicit collision assumption.
 Model canonicalization (which fields affect the digest), bucket

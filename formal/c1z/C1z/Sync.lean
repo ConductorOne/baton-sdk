@@ -135,6 +135,20 @@ def endSync (s : FileState) (now : Nat) : EndResult :=
       binding := { bound := none, fresh := false, sealed := true } }
   | _, _ => .noCurrentSync
 
+/-- `Close` then `Open` on a cleanly closed file: the persisted record and
+the data survive; the binding resets to unbound, not fresh, and NOT
+sealed (`Open` stores an empty `syncBinding`; in-process `EndSync` leaves
+`sealed = true`). `Open` on such a file writes no rows and rebuilds no
+index: the id-index layout is already current, the migration registry is
+empty, and the digest-build marker exists only after a crash. -/
+def reopen (s : FileState) : FileState :=
+  { s with binding := { bound := none, fresh := false, sealed := false } }
+
+/-- `PutSyncRunRecord` rewriting `started_at`, the seam a test uses to
+place an unfinished record on either side of the 7-day cutoff. -/
+def setStartedAt (s : FileState) (t : Nat) : FileState :=
+  { s with run := s.run.map fun r => { r with startedAt := t } }
+
 /-- Record a data write (the model does not track record contents here). -/
 def recordWrite (s : FileState) : FileState := { s with hasRecords := true }
 
@@ -284,6 +298,54 @@ theorem hasRecords_startNewSync {s s' : FileState} {id : String} {t : SyncType} 
   · cases h
   · cases h
     rfl
+
+/-! ## Reopen -/
+
+/-- After reopen the engine is unbound: record writes are refused as
+"no current sync" until a rebind. -/
+theorem writeGate_reopen (s : FileState) : writeGate (reopen s) = .noCurrentSync := by
+  rfl
+
+/-- Reopen keeps the record and the data. -/
+theorem run_reopen (s : FileState) : (reopen s).run = s.run := by
+  rfl
+
+theorem hasRecords_reopen (s : FileState) : (reopen s).hasRecords = s.hasRecords := by
+  rfl
+
+/-- A reopened finished sync resolves as the default sync for reads. -/
+theorem resolveActiveSync_reopen_finished {s : FileState} {r : SyncRun} (hr : s.run = some r)
+    (hf : r.endedAt.isSome) (now : Nat) : resolveActiveSync (reopen s) none now = some r.id := by
+  unfold resolveActiveSync latestFinished reopen
+  simp only [hr, SyncRun.finished, hf, Bool.true_and, ↓reduceIte]
+
+/-- A reopened unfinished sync resolves for reads only while its start is
+within the cutoff. -/
+theorem resolveActiveSync_reopen_unfinished {s : FileState} {r : SyncRun} (hr : s.run = some r)
+    (hu : r.endedAt = none) (now : Nat) :
+    resolveActiveSync (reopen s) none now = (if now ≤ r.startedAt + unfinishedCutoffSeconds then some r.id else none) := by
+  unfold resolveActiveSync latestFinished latestUnfinished reopen
+  by_cases hle : now ≤ r.startedAt + unfinishedCutoffSeconds
+  · simp only [hr, SyncRun.finished, hu, Option.isSome_none, Bool.false_and, Bool.false_eq_true,
+      ↓reduceIte, Bool.not_false, Bool.true_and, decide_eq_true_eq, hle, Option.map_some]
+  · simp only [hr, SyncRun.finished, hu, Option.isSome_none, Bool.false_and, Bool.false_eq_true,
+      ↓reduceIte, Bool.not_false, Bool.true_and, decide_eq_true_eq, hle, Option.map_none]
+
+/-- `ResumeSync` after reopen rebinds and allows writes. -/
+theorem writeGate_resumeSync_reopen {s s' : FileState} {r : SyncRun} (hr : s.run = some r)
+    (h : resumeSync (reopen s) r.id = .ok s') : writeGate s' = .allowed := by
+  unfold resumeSync reopen at h
+  simp only [hr, ↓reduceIte, ResumeResult.ok.injEq] at h
+  subst h
+  rfl
+
+/-- Negative result: a reopened binding is never fresh, so `StartNewSync`
+after reopen is accepted even over an unfinished sync, and wipes it. This
+is the path `StartOrResumeSync` takes once an unfinished record ages past
+the cutoff. -/
+theorem startNewSync_reopen (s : FileState) (id : String) (t : SyncType) (now : Nat) :
+    ∃ s', startNewSync (reopen s) id t now = .ok s' ∧ s'.hasRecords = false := by
+  exact ⟨_, rfl, rfl⟩
 
 /-! ## Selection laws -/
 

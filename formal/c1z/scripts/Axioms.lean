@@ -123,3 +123,42 @@ Add every exported theorem here; the golden file is reviewed by a human.
 #print axioms C1z.GrantLookup.opaque_unreachable
 #print axioms C1z.GrantLookup.custom_ext_hides_public
 #print axioms C1z.GrantLookup.empty_query
+#print axioms C1z.IndexedGrants.mem_grantsForPrincipalType
+
+-- Sync (reopen)
+#print axioms C1z.Sync.writeGate_reopen
+#print axioms C1z.Sync.resolveActiveSync_reopen_finished
+#print axioms C1z.Sync.resolveActiveSync_reopen_unfinished
+#print axioms C1z.Sync.writeGate_resumeSync_reopen
+#print axioms C1z.Sync.startNewSync_reopen
+
+-- Stream
+#print axioms C1z.Stream.run_error_terminal
+#print axioms C1z.Stream.run_at_most_one_error
+#print axioms C1z.Stream.run_eq_filter
+#print axioms C1z.Stream.records_run_prefix
+#print axioms C1z.Stream.run_cancelled_empty
+#print axioms C1z.Stream.run_cancelled_nonempty
+#print axioms C1z.Stream.run_break
+#print axioms C1z.Stream.streamEnd_run_patient
+#print axioms C1z.Stream.streamEnd_run_cancelled
+#print axioms C1z.Stream.run_break_eq_patient_at_end
+
+-- Digest
+#print axioms C1z.Digest.fold_append
+#print axioms C1z.Digest.fold_perm
+#print axioms C1z.Digest.canonical_ignores_excluded
+#print axioms C1z.Digest.fold_not_injective
+#print axioms C1z.Digest.chooseWidth_le
+#print axioms C1z.Digest.chooseWidth_spec
+#print axioms C1z.Digest.partitionRoot_count
+#print axioms C1z.Digest.globalRoot_eq_combine
+#print axioms C1z.Digest.partitionRoot_putGrants_externalId
+#print axioms C1z.Digest.build_accurate
+#print axioms C1z.Digest.lookup_invalidate_self
+#print axioms C1z.Digest.lookup_invalidate_of_ne
+#print axioms C1z.Digest.accurate_invalidate
+#print axioms C1z.Digest.repair_eq_build
+#print axioms C1z.Digest.accurate_invalidate_putGrants
+#print axioms C1z.Digest.afterDelete_absent
+#print axioms C1z.Digest.accurate_afterDelete_present

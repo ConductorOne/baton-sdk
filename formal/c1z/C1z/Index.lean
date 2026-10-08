@@ -111,6 +111,28 @@ def grantsForPrincipal (x : IndexedGrants) (prt prid : Bytes) : List GrantRecord
   (x.store.entries.filter fun kv =>
     kv.2.id.prt == prt && kv.2.id.prid == prid && x.index.entries.contains kv.2.id).map (·.2)
 
+/-- The `by_principal` index key tuple of a grant identity
+(`idxGrantByPrincipal`: principal type, principal id, then the
+entitlement components). -/
+def principalIndexTuple (g : GrantId) : List Bytes := [g.prt, g.prid] ++ g.ent.tuple
+
+/-- Insertion sort by `lexLt` on encoded index keys. -/
+def insertByIndexKey (r : GrantRecord) : List GrantRecord → List GrantRecord
+  | [] => [r]
+  | x :: xs =>
+    if lexLt (Codec.encodeTuple (principalIndexTuple r.id)) (Codec.encodeTuple (principalIndexTuple x.id)) then
+      r :: x :: xs
+    else x :: insertByIndexKey r xs
+
+def sortByIndexKey (rs : List GrantRecord) : List GrantRecord := rs.foldr insertByIndexKey []
+
+/-- `ListGrantsForResourceType` and the type-only `StreamGrants`: walk the
+`by_principal` index under a principal type, in index key order, fetching
+each primary row and skipping dangling entries. -/
+def grantsForPrincipalType (x : IndexedGrants) (prt : Bytes) : List GrantRecord :=
+  sortByIndexKey ((x.store.entries.filter fun kv =>
+    kv.2.id.prt == prt && x.index.entries.contains kv.2.id).map (·.2))
+
 /-- The primary view: a full scan filtered by principal. -/
 def grantsForPrincipalPrimary (x : IndexedGrants) (prt prid : Bytes) : List GrantRecord :=
   (x.store.entries.filter fun kv => kv.2.id.prt == prt && kv.2.id.prid == prid).map (·.2)
@@ -138,6 +160,47 @@ private theorem mem_foldl_noteWrite (ix : PrincipalIndex) (rs : List GrantRecord
     rw [ih]
     simp only [PrincipalIndex.noteWrite, List.mem_cons, List.mem_filter, bne_iff_ne, ne_eq]
     by_cases h : g = r.id <;> simp [h]
+
+private theorem mem_insertByIndexKey (x r : GrantRecord) (l : List GrantRecord) :
+    x ∈ insertByIndexKey r l ↔ x = r ∨ x ∈ l := by
+  induction l with
+  | nil => simp only [insertByIndexKey, List.mem_singleton, List.not_mem_nil, or_false]
+  | cons y ys ih =>
+    unfold insertByIndexKey
+    split
+    · exact List.mem_cons
+    · simp only [List.mem_cons, ih]
+      constructor
+      · rintro (h | h | h)
+        · exact Or.inr (Or.inl h)
+        · exact Or.inl h
+        · exact Or.inr (Or.inr h)
+      · rintro (h | h | h)
+        · exact Or.inr (Or.inl h)
+        · exact Or.inl h
+        · exact Or.inr (Or.inr h)
+
+private theorem mem_sortByIndexKey (r : GrantRecord) (rs : List GrantRecord) :
+    r ∈ sortByIndexKey rs ↔ r ∈ rs := by
+  induction rs with
+  | nil => exact Iff.rfl
+  | cons y ys ih =>
+    unfold sortByIndexKey at ih ⊢
+    rw [List.foldr_cons, mem_insertByIndexKey, ih, List.mem_cons]
+
+/-- Membership in the type-only index walk: a stored grant of that
+principal type with an index entry. -/
+theorem mem_grantsForPrincipalType (x : IndexedGrants) (prt : Bytes) (r : GrantRecord) :
+    r ∈ x.grantsForPrincipalType prt ↔ r ∈ x.store.allGrants ∧ r.id.prt = prt ∧ r.id ∈ x.index.entries := by
+  unfold grantsForPrincipalType
+  rw [mem_sortByIndexKey]
+  simp only [GrantStore.allGrants, List.mem_map, List.mem_filter, Bool.and_eq_true, beq_iff_eq,
+    List.contains_iff_mem]
+  constructor
+  · rintro ⟨kv, ⟨hkv, hp, hi⟩, rfl⟩
+    exact ⟨⟨kv, hkv, rfl⟩, hp, hi⟩
+  · rintro ⟨⟨kv, hkv, rfl⟩, hp, hi⟩
+    exact ⟨kv, ⟨hkv, hp, hi⟩, rfl⟩
 
 /-- The index view never returns a row the primary view lacks, dangling
 entries included. -/

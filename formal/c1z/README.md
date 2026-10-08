@@ -38,6 +38,8 @@ C1z.lean, C1z/          the proved core (never `import Lean`)
   Records.lean          grant and entitlement stores under structural keys
   Index.lean            the by_principal index, deferred writes, hidden rows
   GrantLookup.lean      grant lookup by bare external id (two-phase rule)
+  Stream.lean           streaming readers, cancellation, early stop
+  Digest.lean           grant digests: canonicalization, fold, invalidation
 Oracle/                 case generator (tooling; may `import Lean`)
 generated/cases.json    the oracle's output, checked in (see "Trust")
 ORACLE_SCHEMA.md        the JSON contract between oracle and Go test
@@ -108,6 +110,9 @@ model describes.
 | `GrantStore.putGrants`, `grantsForEntitlement` | `grants.go` `PutGrants`; `paginate.go` `paginateGrantsByEntitlement` with `keep` |
 | `IndexedGrants.putGrants`, `putGrantsDeferred`, `endSyncRebuild` | `rawdb` `StageGrantPutInline` / `StageGrantPutDeferred`; `deferred_index.go` `BuildDeferredGrantIndexes` |
 | `GrantLookup.resolve` | `lookup.go` `resolveGrantIdentityByExternalID` (candidates, then scan) |
+| `Sync.reopen`, `setStartedAt` | `engine.go` `Open` (empty binding); `sync_runs.go` `PutSyncRunRecord` |
+| `Stream.run`, `grantRows` | `adapter_streaming.go` `StreamGrants` switch and per-row `ctx.Err()` check |
+| `Digest.canonical`, `fold`, `chooseWidth`, `State.invalidate`, `repair` | `grant_digest.go` `grantContentHash64`; `digest.go` combiner and `chooseDigestWidth`; `rawdb` `stageGrantDigestInvalidation`; `grant_digest_repair.go` |
 
 ## Guarantees
 
@@ -186,6 +191,46 @@ only" means the Lean statement has no Go counterpart yet.
 | The requested sync id is checked against the file | Not enforced | `resolveActiveSync_annotation`: the resolved id is a non-empty gate only. Reads with a mismatched id return the file's records. |
 | Coverage metadata (which kinds or scopes were fully enumerated) | Unsupported | The stats sidecar holds counts only. Absence claims need caller-supplied authority. |
 
+### Close and reopen (proposal §9)
+
+| Statement | Status | Evidence |
+|---|---|---|
+| A clean reopen changes no rows and rebuilds no index; the binding resets to unbound, not fresh, unsealed | Enforced; modeled | `Sync.reopen`, `run_reopen`, `hasRecords_reopen`; `Open` writes stamps only on an empty DB, the id-index layout is current, the migration registry is empty; `reopen` oracle family |
+| After reopen, writes are refused until a rebind; `ResumeSync` rebinds and allows writes | Proved, enforced | `writeGate_reopen`, `writeGate_resumeSync_reopen` |
+| A reopened finished sync is the default sync for reads | Proved, enforced | `resolveActiveSync_reopen_finished` |
+| A reopened unfinished sync is readable only while started within 7 days; past that, reads report no current sync | Proved, enforced | `resolveActiveSync_reopen_unfinished`; replayed by rewriting `started_at` through `PutSyncRunRecord` |
+| An unfinished sync is protected from `StartNewSync` after reopen | False | `startNewSync_reopen`: the reopened binding is not fresh, so it is accepted and wipes the file. This is what `StartOrResumeSync` does once a record ages past the cutoff. |
+| The in-process `sealed` bit survives reopen | False (engine-level only) | after `EndSync` in process the engine is sealed; after reopen it is not. Adapter writes report no-current-sync either way; engine-level record writes differ. |
+| The read view of a finished sync is stable across reopen for a file written by this version | Enforced | the id-index migration and digest drops fire only on legacy or crashed files; out of model scope |
+
+### Streams (proposal §5, §7)
+
+| Statement | Status | Evidence |
+|---|---|---|
+| A patient consumer receives exactly the filtered collection, in the order the paginated reader returns | Proved, enforced | `Stream.run_eq_filter`; `stream` oracle family |
+| At most one error is yielded and it is last; records received are a prefix of the collection | Proved, enforced | `run_error_terminal`, `run_at_most_one_error`, `records_run_prefix` |
+| A cancelled context over an empty keyspace yields nothing, not even an error | Proved (negative), enforced | `run_cancelled_empty`; the check runs per scanned row |
+| A cancelled context over a non-empty keyspace yields the error even when no row matches the filter | Proved, enforced | `run_cancelled_nonempty`; post-filters run after the check |
+| Early stop yields a prefix and no signal; stopping at the last match is indistinguishable from exhaustion | Proved (negative) | `run_break`, `run_break_eq_patient_at_end` |
+| The type-only grant stream walks `by_principal` and shares its deferred-index gap | Enforced; modeled | `grantRows (.principalType _)` uses `grantsForPrincipalType` |
+| A requested non-empty sync id scopes the stream | Not enforced | the argument only skips resolution |
+
+### Digests (proposal §8)
+
+| Statement | Status | Evidence |
+|---|---|---|
+| The hash sees the identity tuple, the `GrantImmutable` flag, and source keys with `is_direct`; not `external_id`, `discovered_at`, `expansion`, `needs_expansion`, `source_scope_key`, other annotations, or source reference fields | Enforced; modeled | `Digest.canonical`, `canonical_ignores_excluded`; `digest` oracle family's accumulator check |
+| Roots are a count and an XOR fold; splitting and reordering do not change them | Proved | `fold_append`, `fold_perm` |
+| A partition root's count is the number of grants under the entitlement; the global root is the combination of partition roots | Proved | `partitionRoot_count`, `globalRoot_eq_combine` |
+| Equal canonical content gives equal roots; grants differing only in `external_id` give equal roots | Proved | `fold_eq_of_content_eq`, `partitionRoot_putGrants_externalId`. Content includes the entitlement identity, so two non-empty partitions in one file never have equal content; the equality that matters is the same entitlement across files or across rewrites, which the accumulator check in the `digest` family pins. |
+| Equal roots imply equal content | False, even with no hash collision among the inputs | `fold_not_injective`: XOR is not injective on sets. Treating equal roots as equal content is a collision assumption; the Go test labels its distinct-content check as exactly that. |
+| Leaf width depends only on the count and is at most 16 | Proved | `chooseWidth_le`, `chooseWidth_spec` |
+| A grant write, or a delete of a stored grant, after sealing drops its entitlement's partition and the global root; other partitions are untouched; the dropped ones read absent, not stale | Proved, enforced | `State.afterPut`, `State.afterDelete`, `lookup_invalidate_self`, `lookup_invalidate_of_ne`, `global_invalidate` |
+| A delete of an absent grant invalidates its partition | False | `afterDelete_absent`: the delete stages nothing, so the roots stay. The live property test caught the model invalidating unconditionally; the engine's behavior won. |
+| A later `EndSync` rebuilds the missing partitions to the fresh values | Proved | `repair_eq_build`, `accurate_invalidate_putGrants` |
+| Absent, never built, option off, and invalidated are distinguishable | Not enforced | all read as `found = false` with no error. A built empty partition is `found = true, count 0`. `ComputeEntitlementBucketDigest` on an invalidated partition returns zeros that look like "no grants". |
+| Roots across ABI versions are comparable | Not enforced | the stamp exists so a mismatch drops or marks the state; the model is ABI v2 only |
+
 ### Errors and exhaustion (proposal §7)
 
 | Statement | Status | Evidence |
@@ -226,7 +271,8 @@ strings, and replays each family against a fresh engine. Families:
 `keys` (byte-exact key encoding), `entitlement_strip`, `writes`,
 `pagination`, `bare_id`, `sync`, and from the second increment
 `grant_writes`, `entitlement_writes`, `grant_list`,
-`grants_by_principal`, `grant_bare_id`.
+`grants_by_principal`, `grant_bare_id`, and from the third increment
+`stream`, `digest`, `reopen`.
 
 The fixed generator deliberately does not produce: rows hidden by
 `visible` (dangling index entries), injected faults, `discovered_at`
@@ -240,9 +286,11 @@ families.
 
 - The toolchain is pinned in `lean-toolchain`; the core imports only
   the Lean prelude and `Init`.
-- Two model errors were caught by replay rather than by review: the
-  write-gate order after `EndSync` (fixed corpus) and the missing
-  `StartNewSync` refusal (live property test). Both are now theorems.
+- Three model errors were caught by replay rather than by review: the
+  write-gate order after `EndSync` (fixed corpus), the missing
+  `StartNewSync` refusal (live property test), and digest invalidation
+  on a delete of an absent grant (live property test). All are now
+  theorems.
   Treat that as the expected failure mode of Joint 1: the model is a
   transcription, and the oracle is what checks it.
 - `scripts/check.sh` fails on any compiler warning (so on any `sorry`),

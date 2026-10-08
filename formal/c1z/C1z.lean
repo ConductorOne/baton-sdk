@@ -9,3 +9,5 @@ import C1z.Sync
 import C1z.Records
 import C1z.Index
 import C1z.GrantLookup
+import C1z.Stream
+import C1z.Digest

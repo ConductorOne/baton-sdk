@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"math/rand/v2"
 	"os"
 	"os/exec"
@@ -26,10 +27,12 @@ import (
 	"github.com/cockroachdb/pebble/v2"
 	"github.com/cockroachdb/pebble/v2/vfs"
 	"github.com/segmentio/ksuid"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
@@ -75,6 +78,10 @@ type formalCases struct {
 	GrantList         []formalGrantListCase         `json:"grant_list"`
 	GrantsByPrincipal []formalGrantsByPrincipalCase `json:"grants_by_principal"`
 	GrantBareID       []formalGrantBareIDCase       `json:"grant_bare_id"`
+
+	Stream []formalStreamCase `json:"stream"`
+	Digest []formalDigestCase `json:"digest"`
+	Reopen []formalReopenCase `json:"reopen"`
 }
 
 type formalKeyCase struct {
@@ -261,6 +268,9 @@ func formalFamilyLens(cases *formalCases) map[string]int {
 		"grant_list":          len(cases.GrantList),
 		"grants_by_principal": len(cases.GrantsByPrincipal),
 		"grant_bare_id":       len(cases.GrantBareID),
+		"stream":              len(cases.Stream),
+		"digest":              len(cases.Digest),
+		"reopen":              len(cases.Reopen),
 	}
 }
 
@@ -489,6 +499,36 @@ func replayFormalCases(t *testing.T, cases *formalCases, onFail formalFailureHoo
 		requireNamesUnique(t, "grant_bare_id", names)
 		for i, c := range cases.GrantBareID {
 			run(t, "grant_bare_id", c.Name, i, func(t *testing.T) { runFormalGrantBareIDCase(t, c) })
+		}
+	})
+	t.Run("stream", func(t *testing.T) {
+		names := make([]string, 0, len(cases.Stream))
+		for _, c := range cases.Stream {
+			names = append(names, c.Name)
+		}
+		requireNamesUnique(t, "stream", names)
+		for i, c := range cases.Stream {
+			run(t, "stream", c.Name, i, func(t *testing.T) { runFormalStreamCase(t, c) })
+		}
+	})
+	t.Run("digest", func(t *testing.T) {
+		names := make([]string, 0, len(cases.Digest))
+		for _, c := range cases.Digest {
+			names = append(names, c.Name)
+		}
+		requireNamesUnique(t, "digest", names)
+		for i, c := range cases.Digest {
+			run(t, "digest", c.Name, i, func(t *testing.T) { runFormalDigestCase(t, c) })
+		}
+	})
+	t.Run("reopen", func(t *testing.T) {
+		names := make([]string, 0, len(cases.Reopen))
+		for _, c := range cases.Reopen {
+			names = append(names, c.Name)
+		}
+		requireNamesUnique(t, "reopen", names)
+		for i, c := range cases.Reopen {
+			run(t, "reopen", c.Name, i, func(t *testing.T) { runFormalReopenCase(t, c) })
 		}
 	})
 }
@@ -849,134 +889,135 @@ func runFormalSyncCase(t *testing.T, c formalSyncCase) {
 		if op.Result == nil {
 			t.Fatalf("op %d (%s): required field \"result\" is absent", i, op.Op)
 		}
-		want := *op.Result
-		requireID := func() string {
-			if op.ID == nil {
-				t.Fatalf("op %d (%s): required field \"id\" is absent", i, op.Op)
-			}
-			return requireProtoString(t, "id", *op.ID)
-		}
-		requireType := func() string {
-			if op.Type == nil {
-				t.Fatalf("op %d (%s): required field \"type\" is absent", i, op.Op)
-			}
-			return *op.Type
-		}
-		requireNoIDOrType := func() {
-			if op.ID != nil || op.Type != nil {
-				t.Fatalf("op %d (%s): \"id\" and \"type\" must be absent", i, op.Op)
-			}
-		}
-		var got string
-		switch op.Op {
-		case "start_new":
-			id := requireID()
-			st := formalSyncType(t, requireType(), false)
-			switch want {
-			case "ok", "sync_in_progress":
-			default:
-				t.Fatalf("op %d: unknown start_new result %q", i, want)
-			}
-			// ResetForNewSync returns an unwrapped error while a sync
-			// started by StartNewSync* is open; the flag is read before
-			// the call.
-			fresh := e.IsFreshSync()
-			engineID, known := ids.candidateID(id)
-			gotID, err := e.StartNewSyncWithID(ctx, st, engineID, "")
-			switch {
-			case err == nil:
-				if gotID != engineID {
-					t.Fatalf("op %d: StartNewSyncWithID returned %q, want %q", i, gotID, engineID)
-				}
-				if !known {
-					ids.bind(id, engineID)
-				}
-				got = "ok"
-			case fresh:
-				got = "sync_in_progress"
-			default:
-				t.Fatalf("op %d: StartNewSyncWithID(%q as %s): %v", i, id, engineID, err)
-			}
-		case "write":
-			requireNoIDOrType()
-			switch want {
-			case "allowed", "no_current_sync", "engine_sealed":
-			default:
-				t.Fatalf("op %d: unknown write result %q", i, want)
-			}
-			err := e.PutResources(ctx, formalResource(t, "user", "u1", "w"))
-			switch {
-			case err == nil:
-				got = "allowed"
-			case errors.Is(err, ErrEngineSealed):
-				got = "engine_sealed"
-			case errors.Is(err, ErrNoCurrentSync):
-				got = "no_current_sync"
-			default:
-				t.Fatalf("op %d: PutResources: unexpected error: %v", i, err)
-			}
-		case "end":
-			requireNoIDOrType()
-			switch want {
-			case "ok", "no_current_sync":
-			default:
-				t.Fatalf("op %d: unknown end result %q", i, want)
-			}
-			// endSync returns an unwrapped error, not ErrNoCurrentSync,
-			// when no sync is bound; the binding is read before the call.
-			unbound := e.CurrentSyncID() == ""
-			err := e.EndSync(ctx)
-			switch {
-			case err == nil:
-				got = "ok"
-			case unbound || errors.Is(err, ErrNoCurrentSync):
-				got = "no_current_sync"
-			default:
-				t.Fatalf("op %d: EndSync: unexpected error: %v", i, err)
-			}
-		case "resume":
-			id := requireID()
-			if op.Type != nil {
-				t.Fatalf("op %d (resume): \"type\" must be absent", i)
-			}
-			switch want {
-			case "ok", "not_found":
-			default:
-				t.Fatalf("op %d: unknown resume result %q", i, want)
-			}
-			_, err := e.ResumeSync(ctx, connectorstore.SyncTypeAny, ids.engineID(id))
-			switch {
-			case err == nil:
-				got = "ok"
-			case errors.Is(err, pebble.ErrNotFound):
-				got = "not_found"
-			default:
-				t.Fatalf("op %d: ResumeSync(%q): unexpected error: %v", i, id, err)
-			}
-		case "latest_finished":
-			if op.ID != nil {
-				t.Fatalf("op %d (latest_finished): \"id\" must be absent", i)
-			}
-			st := formalSyncType(t, requireType(), true)
-			id, err := e.LatestFinishedSyncID(ctx, st)
-			if err != nil {
-				t.Fatalf("op %d: LatestFinishedSyncID: %v", i, err)
-			}
-			switch symbolic, ok := ids.fromEngine[id]; {
-			case id == "":
-				got = "none"
-			case ok:
-				got = symbolic
-			default:
-				t.Fatalf("op %d: LatestFinishedSyncID returned %q, which no start_new or resume op named", i, id)
-			}
-		default:
+		got, ok := formalSyncStep(ctx, t, e, ids, i, op.Op, op.ID, op.Type, *op.Result)
+		if !ok {
 			t.Fatalf("op %d: unknown sync op %q", i, op.Op)
 		}
-		if got != want {
-			t.Fatalf("op %d (%s): got %q, want %q", i, op.Op, got, want)
+		if got != *op.Result {
+			t.Fatalf("op %d (%s): got %q, want %q", i, op.Op, got, *op.Result)
 		}
 	}
+}
+
+// formalSyncStep applies one start_new, write, end, resume, or
+// latest_finished op of the sync and reopen families and returns the
+// observed result string. ok is false for any other op name.
+func formalSyncStep(ctx context.Context, t *testing.T, e *Engine, ids *formalSyncIDs, i int, name string, idField, typeField *string, want string) (string, bool) {
+	t.Helper()
+	requireID := func() string {
+		if idField == nil {
+			t.Fatalf("op %d (%s): required field \"id\" is absent", i, name)
+		}
+		return requireProtoString(t, "id", *idField)
+	}
+	requireType := func() string {
+		if typeField == nil {
+			t.Fatalf("op %d (%s): required field \"type\" is absent", i, name)
+		}
+		return *typeField
+	}
+	requireNoIDOrType := func() {
+		if idField != nil || typeField != nil {
+			t.Fatalf("op %d (%s): \"id\" and \"type\" must be absent", i, name)
+		}
+	}
+	requireWant := func(allowed ...string) {
+		for _, a := range allowed {
+			if want == a {
+				return
+			}
+		}
+		t.Fatalf("op %d: unknown %s result %q", i, name, want)
+	}
+	switch name {
+	case "start_new":
+		id := requireID()
+		st := formalSyncType(t, requireType(), false)
+		requireWant("ok", "sync_in_progress")
+		// ResetForNewSync returns an unwrapped error while a sync
+		// started by StartNewSync* is open; the flag is read before
+		// the call.
+		fresh := e.IsFreshSync()
+		engineID, known := ids.candidateID(id)
+		gotID, err := e.StartNewSyncWithID(ctx, st, engineID, "")
+		switch {
+		case err == nil:
+			if gotID != engineID {
+				t.Fatalf("op %d: StartNewSyncWithID returned %q, want %q", i, gotID, engineID)
+			}
+			if !known {
+				ids.bind(id, engineID)
+			}
+			return "ok", true
+		case fresh:
+			return "sync_in_progress", true
+		default:
+			t.Fatalf("op %d: StartNewSyncWithID(%q as %s): %v", i, id, engineID, err)
+		}
+	case "write":
+		requireNoIDOrType()
+		requireWant("allowed", "no_current_sync", "engine_sealed")
+		err := e.PutResources(ctx, formalResource(t, "user", "u1", "w"))
+		switch {
+		case err == nil:
+			return "allowed", true
+		case errors.Is(err, ErrEngineSealed):
+			return "engine_sealed", true
+		case errors.Is(err, ErrNoCurrentSync):
+			return "no_current_sync", true
+		default:
+			t.Fatalf("op %d: PutResources: unexpected error: %v", i, err)
+		}
+	case "end":
+		requireNoIDOrType()
+		requireWant("ok", "no_current_sync")
+		// endSync returns an unwrapped error, not ErrNoCurrentSync,
+		// when no sync is bound; the binding is read before the call.
+		unbound := e.CurrentSyncID() == ""
+		err := e.EndSync(ctx)
+		switch {
+		case err == nil:
+			return "ok", true
+		case unbound || errors.Is(err, ErrNoCurrentSync):
+			return "no_current_sync", true
+		default:
+			t.Fatalf("op %d: EndSync: unexpected error: %v", i, err)
+		}
+	case "resume":
+		id := requireID()
+		if typeField != nil {
+			t.Fatalf("op %d (resume): \"type\" must be absent", i)
+		}
+		requireWant("ok", "not_found")
+		_, err := e.ResumeSync(ctx, connectorstore.SyncTypeAny, ids.engineID(id))
+		switch {
+		case err == nil:
+			return "ok", true
+		case errors.Is(err, pebble.ErrNotFound):
+			return "not_found", true
+		default:
+			t.Fatalf("op %d: ResumeSync(%q): unexpected error: %v", i, id, err)
+		}
+	case "latest_finished":
+		if idField != nil {
+			t.Fatalf("op %d (latest_finished): \"id\" must be absent", i)
+		}
+		st := formalSyncType(t, requireType(), true)
+		id, err := e.LatestFinishedSyncID(ctx, st)
+		if err != nil {
+			t.Fatalf("op %d: LatestFinishedSyncID: %v", i, err)
+		}
+		symbolic, known := ids.fromEngine[id]
+		switch {
+		case id == "":
+			return "none", true
+		case known:
+			return symbolic, true
+		default:
+			t.Fatalf("op %d: LatestFinishedSyncID returned %q, which no start_new or resume op named", i, id)
+		}
+	}
+	return "", false
 }
 
 // formalGrantParts is a decoded formalGrant: the five identity components
@@ -1487,6 +1528,10 @@ type formalRequest struct {
 	GrantList         []formalGrantListRequest         `json:"grant_list"`
 	GrantsByPrincipal []formalGrantsByPrincipalRequest `json:"grants_by_principal"`
 	GrantBareID       []formalGrantBareIDRequest       `json:"grant_bare_id"`
+
+	Stream []formalStreamRequest `json:"stream"`
+	Digest []formalDigestRequest `json:"digest"`
+	Reopen []formalReopenRequest `json:"reopen"`
 }
 
 // Request byte strings are hex already; nil means the field is absent.
@@ -2062,6 +2107,9 @@ func buildFormalRequest(seed uint64, n int) *formalRequest {
 		req.GrantList = append(req.GrantList, g.grantListCase(i))
 		req.GrantsByPrincipal = append(req.GrantsByPrincipal, g.grantsByPrincipalCase(i))
 		req.GrantBareID = append(req.GrantBareID, g.grantBareIDCase(i))
+		req.Stream = append(req.Stream, g.streamCase(i))
+		req.Digest = append(req.Digest, g.digestCase(i))
+		req.Reopen = append(req.Reopen, g.reopenCase(i))
 	}
 	return req
 }
@@ -2142,6 +2190,12 @@ func requireFormalResponseMatchesRequest(t *testing.T, req *formalRequest, resp 
 		names(len(resp.GrantsByPrincipal), func(i int) string { return resp.GrantsByPrincipal[i].Name }))
 	requireNames("grant_bare_id", names(len(req.GrantBareID), func(i int) string { return req.GrantBareID[i].Name }),
 		names(len(resp.GrantBareID), func(i int) string { return resp.GrantBareID[i].Name }))
+	requireNames("stream", names(len(req.Stream), func(i int) string { return req.Stream[i].Name }),
+		names(len(resp.Stream), func(i int) string { return resp.Stream[i].Name }))
+	requireNames("digest", names(len(req.Digest), func(i int) string { return req.Digest[i].Name }),
+		names(len(resp.Digest), func(i int) string { return resp.Digest[i].Name }))
+	requireNames("reopen", names(len(req.Reopen), func(i int) string { return req.Reopen[i].Name }),
+		names(len(resp.Reopen), func(i int) string { return resp.Reopen[i].Name }))
 	for i, r := range req.EntitlementStrip {
 		c := resp.EntitlementStrip[i]
 		if hexStr(c.RT.b) != r.RT || hexStr(c.RID.b) != r.RID || hexStr(c.Ext.b) != r.Ext {
@@ -2178,6 +2232,12 @@ func formalCaseJSON(req *formalRequest, resp *formalCases, family string, i int)
 		rq, rs = req.GrantsByPrincipal[i], resp.GrantsByPrincipal[i]
 	case "grant_bare_id":
 		rq, rs = req.GrantBareID[i], resp.GrantBareID[i]
+	case "stream":
+		rq, rs = req.Stream[i], resp.Stream[i]
+	case "digest":
+		rq, rs = req.Digest[i], resp.Digest[i]
+	case "reopen":
+		rq, rs = req.Reopen[i], resp.Reopen[i]
 	}
 	a, errA := json.Marshal(rq)
 	b, errB := json.Marshal(rs)
@@ -2220,4 +2280,1036 @@ func TestFormalProperty(t *testing.T) {
 		rq, rs := formalCaseJSON(req, resp, family, i)
 		t.Logf("seed %d, %s[%d]\nrequest:  %s\nresponse: %s", seed, family, i, rq, rs)
 	})
+}
+
+type formalResRef struct {
+	RT  hexField `json:"rt"`
+	RID hexField `json:"rid"`
+}
+
+// formalStreamFilter carries ent_ext, prt, and prid for a grants stream,
+// rt for a resources stream, and nothing for an entitlements stream.
+type formalStreamFilter struct {
+	EntExt hexField `json:"ent_ext"`
+	PRT    hexField `json:"prt"`
+	PRID   hexField `json:"prid"`
+	RT     hexField `json:"rt"`
+}
+
+// formalStreamConsumer counts are null or absent when unset.
+type formalStreamConsumer struct {
+	CancelAfter *int `json:"cancel_after"`
+	BreakAfter  *int `json:"break_after"`
+}
+
+// formalStreamYield has exactly one field set.
+type formalStreamYield struct {
+	Grant       *formalGrant  `json:"grant"`
+	Resource    *formalResRef `json:"resource"`
+	Entitlement *formalEntRef `json:"entitlement"`
+	Error       *string       `json:"error"`
+}
+
+type formalStreamCase struct {
+	Name         string                `json:"name"`
+	Kind         string                `json:"kind"`
+	Entitlements []formalEntRef        `json:"entitlements"`
+	Resources    []formalResRef        `json:"resources"`
+	Grants       []formalGrant         `json:"grants"`
+	Deferred     []formalGrant         `json:"deferred"`
+	Filter       *formalStreamFilter   `json:"filter"`
+	Consumer     *formalStreamConsumer `json:"consumer"`
+	Yields       *[]formalStreamYield  `json:"yields"`
+}
+
+type formalDigestSource struct {
+	Key      hexField `json:"key"`
+	IsDirect *bool    `json:"is_direct"`
+}
+
+type formalDigestGrant struct {
+	Ent       *formalEntRef         `json:"ent"`
+	PRT       hexField              `json:"prt"`
+	PRID      hexField              `json:"prid"`
+	ExtID     hexField              `json:"ext_id"`
+	Immutable *bool                 `json:"immutable"`
+	Sources   *[]formalDigestSource `json:"sources"`
+}
+
+// formalDigestOp is one digest op. Found, Count, and Width are the
+// expected values of a read or read_global.
+type formalDigestOp struct {
+	Op    string               `json:"op"`
+	Ent   *formalEntRef        `json:"ent"`
+	PRT   hexField             `json:"prt"`
+	PRID  hexField             `json:"prid"`
+	Batch *[]formalDigestGrant `json:"batch"`
+	Found *bool                `json:"found"`
+	Count *int64               `json:"count"`
+	Width *int                 `json:"width"`
+}
+
+type formalDigestCase struct {
+	Name            string              `json:"name"`
+	Entitlements    []formalEntRef      `json:"entitlements"`
+	Grants          []formalDigestGrant `json:"grants"`
+	Ops             []formalDigestOp    `json:"ops"`
+	EqualContent    *[][]formalEntRef   `json:"equal_content"`
+	DistinctContent *[][]formalEntRef   `json:"distinct_content"`
+}
+
+// formalReopenOp is one reopen op. Result is the expected result of the
+// sync ops, list_grants, and read_by_principal; Grants is the expected
+// collection of a read that resolves a sync.
+type formalReopenOp struct {
+	Op     string         `json:"op"`
+	ID     *string        `json:"id"`
+	Type   *string        `json:"type"`
+	Result *string        `json:"result"`
+	Batch  *[]formalGrant `json:"batch"`
+	Days   *int           `json:"days"`
+	PRT    hexField       `json:"prt"`
+	PRID   hexField       `json:"prid"`
+	Grants *[]formalGrant `json:"grants"`
+}
+
+type formalReopenCase struct {
+	Name string           `json:"name"`
+	Ops  []formalReopenOp `json:"ops"`
+}
+
+func formalResourceYield(rt, rid string) string { return fmt.Sprintf("resource:(%x,%x)", rt, rid) }
+
+func formalEntitlementYield(rt, rid, ext string) string {
+	return fmt.Sprintf("entitlement:(%x,%x,%x)", rt, rid, ext)
+}
+
+const formalCancelledYield = "error:cancelled"
+
+// consumeFormalStream ranges seq as the case's consumer does and records
+// each yield. cancelAfter of 0 is applied by the caller before the call.
+func consumeFormalStream[T any](t *testing.T, seq iter.Seq2[T, error], cancel context.CancelFunc, cancelAfter, breakAfter *int, describe func(T) string) []string {
+	t.Helper()
+	var got []string
+	records := 0
+	for v, err := range seq {
+		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("stream yielded a non-cancellation error after %v: %v", got, err)
+			}
+			got = append(got, formalCancelledYield)
+			continue
+		}
+		got = append(got, describe(v))
+		records++
+		if cancelAfter != nil && records == *cancelAfter {
+			cancel()
+		}
+		if breakAfter != nil && records == *breakAfter {
+			break
+		}
+	}
+	return got
+}
+
+func runFormalStreamCase(t *testing.T, c formalStreamCase) {
+	if c.Filter == nil || c.Consumer == nil || c.Yields == nil {
+		t.Fatal("stream case requires \"filter\", \"consumer\", and \"yields\"")
+	}
+	cancelAfter, breakAfter := c.Consumer.CancelAfter, c.Consumer.BreakAfter
+	if cancelAfter != nil && *cancelAfter < 0 {
+		t.Fatalf("consumer.cancel_after = %d, want null or >= 0", *cancelAfter)
+	}
+	if breakAfter != nil && *breakAfter < 1 {
+		t.Fatalf("consumer.break_after = %d, want null or >= 1", *breakAfter)
+	}
+	want := make([]string, 0, len(*c.Yields))
+	for i, y := range *c.Yields {
+		field := fmt.Sprintf("yields[%d]", i)
+		set := 0
+		for _, present := range []bool{y.Grant != nil, y.Resource != nil, y.Entitlement != nil, y.Error != nil} {
+			if present {
+				set++
+			}
+		}
+		if set != 1 {
+			t.Fatalf("%s has %d of grant/resource/entitlement/error, want exactly 1", field, set)
+		}
+		switch {
+		case y.Grant != nil:
+			want = append(want, "grant:"+requireFormalGrant(t, field+".grant", *y.Grant).String())
+		case y.Resource != nil:
+			want = append(want, formalResourceYield(requireHex(t, field+".resource.rt", y.Resource.RT), requireHex(t, field+".resource.rid", y.Resource.RID)))
+		case y.Entitlement != nil:
+			want = append(want, formalEntitlementYield(requireFormalEntRef(t, field+".entitlement", y.Entitlement)))
+		default:
+			if *y.Error != "cancelled" {
+				t.Fatalf("%s: unknown error %q", field, *y.Error)
+			}
+			want = append(want, formalCancelledYield)
+		}
+	}
+
+	ctx, e := newFormalEngineWithSync(t)
+	ents := make([]*v2.Entitlement, 0, len(c.Entitlements))
+	for i := range c.Entitlements {
+		ents = append(ents, formalV2Entitlement(requireFormalEntRef(t, fmt.Sprintf("entitlements[%d]", i), &c.Entitlements[i])))
+	}
+	if len(ents) > 0 {
+		if err := e.PutEntitlements(ctx, ents...); err != nil {
+			t.Fatalf("PutEntitlements: %v", err)
+		}
+	}
+	if c.Kind != "resources" && len(c.Resources) > 0 {
+		t.Fatalf("%s stream with \"resources\" rows", c.Kind)
+	}
+	if c.Kind != "grants" && (len(c.Grants) > 0 || len(c.Deferred) > 0) {
+		t.Fatalf("%s stream with \"grants\" or \"deferred\" rows", c.Kind)
+	}
+	if len(c.Resources) > 0 {
+		rs := make([]*v2.Resource, 0, len(c.Resources))
+		for i, r := range c.Resources {
+			field := fmt.Sprintf("resources[%d]", i)
+			rs = append(rs, formalResource(t, requireHex(t, field+".rt", r.RT), requireHex(t, field+".rid", r.RID), "r"))
+		}
+		if err := e.PutResources(ctx, rs...); err != nil {
+			t.Fatalf("PutResources: %v", err)
+		}
+	}
+	formalPutGrants(ctx, t, e, "grants", requireFormalGrants(t, "grants", c.Grants))
+	if deferred := requireFormalGrants(t, "deferred", c.Deferred); len(deferred) > 0 {
+		records := make([]*v3.GrantRecord, 0, len(deferred))
+		for _, p := range deferred {
+			records = append(records, V2GrantToV3(e.CurrentSyncID(), formalV2Grant(p)))
+		}
+		if err := e.PutExpandedGrantRecords(ctx, records); err != nil {
+			t.Fatalf("PutExpandedGrantRecords(%v): %v", deferred, err)
+		}
+	}
+
+	sctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if cancelAfter != nil && *cancelAfter == 0 {
+		cancel()
+	}
+	f := c.Filter
+	var got []string
+	switch c.Kind {
+	case "grants":
+		requireNoHex(t, "filter.rt", f.RT)
+		opts := connectorstore.StreamGrantsOptions{}
+		if f.EntExt.present {
+			opts.EntitlementID = requireProtoString(t, "filter.ent_ext", f.EntExt.b)
+		}
+		if f.PRT.present {
+			opts.PrincipalResourceType = requireProtoString(t, "filter.prt", f.PRT.b)
+		}
+		if f.PRID.present {
+			opts.PrincipalResourceID = requireProtoString(t, "filter.prid", f.PRID.b)
+		}
+		got = consumeFormalStream(t, e.StreamGrants(sctx, "", opts), cancel, cancelAfter, breakAfter, func(g *v2.Grant) string {
+			return "grant:" + formalGotGrant(t, e, g).String()
+		})
+	case "resources":
+		requireNoHex(t, "filter.ent_ext", f.EntExt)
+		requireNoHex(t, "filter.prt", f.PRT)
+		requireNoHex(t, "filter.prid", f.PRID)
+		opts := connectorstore.StreamResourcesOptions{}
+		if f.RT.present {
+			opts.ResourceTypeID = requireProtoString(t, "filter.rt", f.RT.b)
+		}
+		got = consumeFormalStream(t, e.StreamResources(sctx, "", opts), cancel, cancelAfter, breakAfter, func(r *v2.Resource) string {
+			return formalResourceYield(r.GetId().GetResourceType(), r.GetId().GetResource())
+		})
+	case "entitlements":
+		if f.EntExt.present || f.PRT.present || f.PRID.present || f.RT.present {
+			t.Fatal("entitlements stream filter must be {}")
+		}
+		got = consumeFormalStream(t, e.StreamEntitlements(sctx, ""), cancel, cancelAfter, breakAfter, func(en *v2.Entitlement) string {
+			id := en.GetResource().GetId()
+			return formalEntitlementYield(id.GetResourceType(), id.GetResource(), en.GetId())
+		})
+	default:
+		t.Fatalf("unknown stream kind %q", c.Kind)
+	}
+	if !equalStrings(got, want) {
+		t.Fatalf("%s stream yields differ:\n got  %v\n want %v", c.Kind, got, want)
+	}
+}
+
+// formalDigestGrantParts is a decoded formalDigestGrant. sources maps a
+// source key to its is_direct flag.
+type formalDigestGrantParts struct {
+	formalGrantParts
+	immutable bool
+	sources   map[string]bool
+}
+
+func requireFormalDigestGrant(t *testing.T, field string, g formalDigestGrant) formalDigestGrantParts {
+	t.Helper()
+	if g.Immutable == nil || g.Sources == nil {
+		t.Fatalf("%s requires \"immutable\" and \"sources\"", field)
+	}
+	p := formalDigestGrantParts{
+		formalGrantParts: requireFormalGrant(t, field, formalGrant{Ent: g.Ent, PRT: g.PRT, PRID: g.PRID, ExtID: g.ExtID}),
+		immutable:        *g.Immutable,
+		sources:          map[string]bool{},
+	}
+	for j, s := range *g.Sources {
+		sf := fmt.Sprintf("%s.sources[%d]", field, j)
+		key := requireProtoString(t, sf+".key", requireHex(t, sf+".key", s.Key))
+		if s.IsDirect == nil {
+			t.Fatalf("%s requires \"is_direct\"", sf)
+		}
+		if _, dup := p.sources[key]; dup {
+			t.Fatalf("%s: duplicate source key %x; v2 Grant.Sources is a map", sf, key)
+		}
+		p.sources[key] = *s.IsDirect
+	}
+	return p
+}
+
+// formalDigestV2Grant builds the v2 grant for p with Grant.Id set to id,
+// the GrantImmutable annotation when p is immutable, and p's sources.
+func formalDigestV2Grant(p formalDigestGrantParts, id string) *v2.Grant {
+	g := formalV2Grant(p.formalGrantParts)
+	g.SetId(id)
+	if len(p.sources) > 0 {
+		m := make(map[string]*v2.GrantSources_GrantSource, len(p.sources))
+		for k, direct := range p.sources {
+			m[k] = v2.GrantSources_GrantSource_builder{IsDirect: direct}.Build()
+		}
+		g.SetSources(v2.GrantSources_builder{Sources: m}.Build())
+	}
+	if p.immutable {
+		annos := annotations.Annotations(g.GetAnnotations())
+		annos.Update(&v2.GrantImmutable{})
+		g.SetAnnotations(annos)
+	}
+	return g
+}
+
+// formalDigestIgnoredExtID replaces every ext_id in the GrantDigestAccumulator
+// input; the digest excludes external_id, so the roots must still match.
+const formalDigestIgnoredExtID = "formal-ignored"
+
+func formalGrantKey(p formalGrantParts) string { return string(encodeGrantIdentityKey(p.identity())) }
+
+func formalEntKey(rt, rid, ext string) string {
+	return string(encodeEntitlementIdentityKey(entitlementIdentityFromParts(rt, rid, ext)))
+}
+
+func runFormalDigestCase(t *testing.T, c formalDigestCase) {
+	if len(c.Ops) == 0 {
+		t.Fatal("digest case with no ops")
+	}
+	if c.EqualContent == nil || c.DistinctContent == nil {
+		t.Fatal("digest case requires \"equal_content\" and \"distinct_content\"")
+	}
+	type entParts struct{ rt, rid, ext string }
+	requirePairs := func(field string, pairs [][]formalEntRef) [][2]entParts {
+		out := make([][2]entParts, 0, len(pairs))
+		for i, pair := range pairs {
+			if len(pair) != 2 {
+				t.Fatalf("%s[%d] has %d entitlements, want 2", field, i, len(pair))
+			}
+			var ps [2]entParts
+			for j := range pair {
+				rt, rid, ext := requireFormalEntRef(t, fmt.Sprintf("%s[%d][%d]", field, i, j), &pair[j])
+				ps[j] = entParts{rt, rid, ext}
+			}
+			out = append(out, ps)
+		}
+		return out
+	}
+	equalPairs := requirePairs("equal_content", *c.EqualContent)
+	distinctPairs := requirePairs("distinct_content", *c.DistinctContent)
+	lastSeal := -1
+	for i, op := range c.Ops {
+		if op.Op == "seal" {
+			lastSeal = i
+		}
+	}
+	if lastSeal < 0 && (len(equalPairs) > 0 || len(distinctPairs) > 0) {
+		t.Fatal("digest case with content pairs but no seal op")
+	}
+
+	ctx := context.Background()
+	e := newFormalEngine(t)
+	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	if err != nil {
+		t.Fatalf("StartNewSync: %v", err)
+	}
+	ents := make([]*v2.Entitlement, 0, len(c.Entitlements))
+	partitions := map[string]entParts{}
+	for i := range c.Entitlements {
+		rt, rid, ext := requireFormalEntRef(t, fmt.Sprintf("entitlements[%d]", i), &c.Entitlements[i])
+		ents = append(ents, formalV2Entitlement(rt, rid, ext))
+		partitions[formalEntKey(rt, rid, ext)] = entParts{rt, rid, ext}
+	}
+	if len(ents) > 0 {
+		if err := e.PutEntitlements(ctx, ents...); err != nil {
+			t.Fatalf("PutEntitlements: %v", err)
+		}
+	}
+	// stored mirrors the grant rows by identity, so the seal checks can
+	// fold the same content the engine holds.
+	stored := map[string]formalDigestGrantParts{}
+	putGrants := func(what string, gs []formalDigestGrant) {
+		if len(gs) == 0 {
+			return
+		}
+		batch := make([]*v2.Grant, 0, len(gs))
+		for j, g := range gs {
+			p := requireFormalDigestGrant(t, fmt.Sprintf("%s[%d]", what, j), g)
+			batch = append(batch, formalDigestV2Grant(p, p.extID))
+			stored[formalGrantKey(p.formalGrantParts)] = p
+			partitions[formalEntKey(p.rt, p.rid, p.ext)] = entParts{p.rt, p.rid, p.ext}
+		}
+		if err := e.PutGrants(ctx, batch...); err != nil {
+			t.Fatalf("%s: PutGrants: %v", what, err)
+		}
+	}
+	readRoot := func(what string, ep entParts) (DigestRoot, bool) {
+		root, ok, err := e.GetEntitlementDigestRoot(ctx, entitlementIdentityFromParts(ep.rt, ep.rid, ep.ext))
+		if err != nil {
+			t.Fatalf("%s: GetEntitlementDigestRoot(%x, %x, %x): %v", what, ep.rt, ep.rid, ep.ext, err)
+		}
+		return root, ok
+	}
+	checkLastSeal := func(i int) {
+		for key, ep := range partitions {
+			root, ok := readRoot(fmt.Sprintf("op %d seal", i), ep)
+			if !ok {
+				continue
+			}
+			var acc GrantDigestAccumulator
+			for _, p := range stored {
+				if formalEntKey(p.rt, p.rid, p.ext) != key {
+					continue
+				}
+				if err := acc.Add(formalDigestV2Grant(p, formalDigestIgnoredExtID)); err != nil {
+					t.Fatalf("GrantDigestAccumulator.Add(%v): %v", p.formalGrantParts, err)
+				}
+			}
+			want := acc.Root()
+			if !bytes.Equal(root.Hash, want.Hash) || root.Count != want.Count {
+				t.Fatalf("op %d seal: partition (%x, %x, %x) root = (hash %x, count %d), GrantDigestAccumulator over the case's grants with ext_id %q = (hash %x, count %d)",
+					i, ep.rt, ep.rid, ep.ext, root.Hash, root.Count, formalDigestIgnoredExtID, want.Hash, want.Count)
+			}
+		}
+		pairRoots := func(field string, j int, pair [2]entParts) (DigestRoot, DigestRoot) {
+			a, okA := readRoot(fmt.Sprintf("%s[%d][0]", field, j), pair[0])
+			b, okB := readRoot(fmt.Sprintf("%s[%d][1]", field, j), pair[1])
+			if !okA || !okB {
+				t.Fatalf("%s[%d]: root found = (%v, %v) after the last seal, want both found", field, j, okA, okB)
+			}
+			return a, b
+		}
+		for j, pair := range equalPairs {
+			if a, b := pairRoots("equal_content", j, pair); !bytes.Equal(a.Hash, b.Hash) {
+				t.Fatalf("equal_content[%d]: (%x, %x, %x) hash %x != (%x, %x, %x) hash %x",
+					j, pair[0].rt, pair[0].rid, pair[0].ext, a.Hash, pair[1].rt, pair[1].rid, pair[1].ext, b.Hash)
+			}
+		}
+		for j, pair := range distinctPairs {
+			if a, b := pairRoots("distinct_content", j, pair); bytes.Equal(a.Hash, b.Hash) {
+				t.Fatalf("distinct_content[%d]: (%x, %x, %x) and (%x, %x, %x) have equal hash %x; this is the collision-assumption check: "+
+					"the model treats different canonical content as different roots, and an equal xxHash64 fold here is a hash collision, not a model error",
+					j, pair[0].rt, pair[0].rid, pair[0].ext, pair[1].rt, pair[1].rid, pair[1].ext, a.Hash)
+			}
+		}
+	}
+	requireReadFields := func(i int, op formalDigestOp, withWidth bool) bool {
+		if op.Found == nil {
+			t.Fatalf("op %d (%s): required field \"found\" is absent", i, op.Op)
+		}
+		if !withWidth && op.Width != nil {
+			t.Fatalf("op %d (%s): \"width\" must be absent", i, op.Op)
+		}
+		if *op.Found {
+			if op.Count == nil || (withWidth && op.Width == nil) {
+				t.Fatalf("op %d (%s): a found read requires \"count\"%s", i, op.Op, map[bool]string{true: " and \"width\"", false: ""}[withWidth])
+			}
+		} else if (op.Count != nil && *op.Count != 0) || (op.Width != nil && *op.Width != 0) {
+			t.Fatalf("op %d (%s): a not-found read with nonzero \"count\" or \"width\"", i, op.Op)
+		}
+		return *op.Found
+	}
+
+	putGrants("grants", c.Grants)
+	for i, op := range c.Ops {
+		field := fmt.Sprintf("ops[%d]", i)
+		noInputs := op.Ent == nil && !op.PRT.present && !op.PRID.present && op.Batch == nil
+		noExpected := op.Found == nil && op.Count == nil && op.Width == nil
+		switch op.Op {
+		case "seal", "resume":
+			if !noInputs || !noExpected {
+				t.Fatalf("op %d: %s takes no fields", i, op.Op)
+			}
+			if op.Op == "resume" {
+				if _, err := e.ResumeSync(ctx, connectorstore.SyncTypeAny, syncID); err != nil {
+					t.Fatalf("op %d: ResumeSync: %v", i, err)
+				}
+				continue
+			}
+			if err := e.EndSync(ctx); err != nil {
+				t.Fatalf("op %d: EndSync: %v", i, err)
+			}
+			if i == lastSeal {
+				checkLastSeal(i)
+			}
+		case "put":
+			if op.Batch == nil || op.Ent != nil || op.PRT.present || op.PRID.present || !noExpected {
+				t.Fatalf("op %d: put requires \"batch\" and nothing else", i)
+			}
+			putGrants(field+".batch", *op.Batch)
+		case "delete":
+			if op.Batch != nil || !noExpected {
+				t.Fatalf("op %d: delete with \"batch\" or expected fields", i)
+			}
+			p := formalGrantOpIdentity(t, i, formalGrantOp{Ent: op.Ent, PRT: op.PRT, PRID: op.PRID})
+			formalDeleteGrant(ctx, t, e, i, p)
+			delete(stored, formalGrantKey(p))
+		case "read":
+			if op.Batch != nil || op.PRT.present || op.PRID.present {
+				t.Fatalf("op %d: read takes \"ent\" and the expected fields only", i)
+			}
+			rt, rid, ext := requireFormalEntRef(t, field+".ent", op.Ent)
+			wantFound := requireReadFields(i, op, true)
+			root, ok := readRoot(fmt.Sprintf("op %d", i), entParts{rt, rid, ext})
+			if ok != wantFound {
+				t.Fatalf("op %d: GetEntitlementDigestRoot(%x, %x, %x) found = %v (count %d), want %v", i, rt, rid, ext, ok, root.Count, wantFound)
+			}
+			if ok && (root.Count != *op.Count || root.Bits != *op.Width) {
+				t.Fatalf("op %d: GetEntitlementDigestRoot(%x, %x, %x) = (count %d, width %d), want (count %d, width %d)",
+					i, rt, rid, ext, root.Count, root.Bits, *op.Count, *op.Width)
+			}
+		case "read_global":
+			if !noInputs {
+				t.Fatalf("op %d: read_global takes the expected fields only", i)
+			}
+			wantFound := requireReadFields(i, op, false)
+			root, ok, err := e.GetGrantDigestGlobalRoot(ctx)
+			if err != nil {
+				t.Fatalf("op %d: GetGrantDigestGlobalRoot: %v", i, err)
+			}
+			if ok != wantFound {
+				t.Fatalf("op %d: GetGrantDigestGlobalRoot found = %v (count %d), want %v", i, ok, root.Count, wantFound)
+			}
+			if ok && root.Count != *op.Count {
+				t.Fatalf("op %d: GetGrantDigestGlobalRoot count = %d, want %d", i, root.Count, *op.Count)
+			}
+		default:
+			t.Fatalf("op %d: unknown digest op %q", i, op.Op)
+		}
+	}
+}
+
+// formalReopenableEngine is an engine that a reopen op closes and opens
+// again on the same filesystem and directory: Pebble's in-memory
+// filesystem, or a temp dir with C1Z_FORMAL_DISK=1.
+type formalReopenableEngine struct {
+	dir  string
+	opts []Option
+	e    *Engine
+}
+
+func newFormalReopenableEngine(t *testing.T) *formalReopenableEngine {
+	t.Helper()
+	r := &formalReopenableEngine{dir: "formal-db", opts: []Option{WithVFS(vfs.NewMem())}}
+	if os.Getenv("C1Z_FORMAL_DISK") == "1" {
+		r.dir, r.opts = filepath.Join(t.TempDir(), "db"), nil
+	}
+	r.open(t)
+	t.Cleanup(func() {
+		// Close reports leaked iterators and batches; Close of an
+		// already-closed engine is a no-op.
+		if err := r.e.Close(); err != nil {
+			t.Errorf("engine Close: %v", err)
+		}
+	})
+	return r
+}
+
+func (r *formalReopenableEngine) open(t *testing.T) {
+	t.Helper()
+	e, err := Open(context.Background(), r.dir, r.opts...)
+	if err != nil {
+		t.Fatalf("Open(%s): %v", r.dir, err)
+	}
+	r.e = e
+}
+
+func (r *formalReopenableEngine) reopen(t *testing.T) {
+	t.Helper()
+	if err := r.e.Close(); err != nil {
+		t.Fatalf("Close before reopen: %v", err)
+	}
+	r.open(t)
+}
+
+// listFormalGrantsResolving pages list to exhaustion. It returns
+// "no_current_sync" when a page fails with ErrNoCurrentSync and fails
+// the test on any other error.
+func listFormalGrantsResolving(t *testing.T, e *Engine, what string, list func(token string) ([]*v2.Grant, string, error)) ([]formalGrantParts, string) {
+	t.Helper()
+	var out []formalGrantParts
+	token := ""
+	for {
+		gs, next, err := list(token)
+		if errors.Is(err, ErrNoCurrentSync) {
+			return nil, "no_current_sync"
+		}
+		if err != nil {
+			t.Fatalf("%s: %v", what, err)
+		}
+		out = append(out, formalGotGrants(t, e, gs)...)
+		token = next
+		if token == "" {
+			return out, "ok"
+		}
+	}
+}
+
+func runFormalReopenCase(t *testing.T, c formalReopenCase) {
+	if len(c.Ops) == 0 {
+		t.Fatal("reopen case with no ops")
+	}
+	ctx := context.Background()
+	r := newFormalReopenableEngine(t)
+	ids := &formalSyncIDs{toEngine: map[string]string{}, fromEngine: map[string]string{}}
+	// recordID is the engine id of the last accepted start_new: the id the
+	// file's single sync-run record carries.
+	recordID := ""
+	for i, op := range c.Ops {
+		e := r.e
+		field := fmt.Sprintf("ops[%d]", i)
+		noGrantFields := op.Batch == nil && op.Days == nil && !op.PRT.present && !op.PRID.present && op.Grants == nil
+		requireResult := func() string {
+			if op.Result == nil {
+				t.Fatalf("op %d (%s): required field \"result\" is absent", i, op.Op)
+			}
+			return *op.Result
+		}
+		requireNoSyncFields := func() {
+			if op.ID != nil || op.Type != nil || op.Result != nil {
+				t.Fatalf("op %d (%s): \"id\", \"type\", and \"result\" must be absent", i, op.Op)
+			}
+		}
+		switch op.Op {
+		case "start_new", "write", "end", "resume", "latest_finished":
+			if !noGrantFields {
+				t.Fatalf("op %d (%s): grant fields must be absent", i, op.Op)
+			}
+			want := requireResult()
+			got, _ := formalSyncStep(ctx, t, e, ids, i, op.Op, op.ID, op.Type, want)
+			if op.Op == "start_new" && got == "ok" {
+				recordID = ids.toEngine[*op.ID]
+			}
+			if got != want {
+				t.Fatalf("op %d (%s): got %q, want %q", i, op.Op, got, want)
+			}
+		case "put", "put_deferred":
+			requireNoSyncFields()
+			if op.Batch == nil || op.Days != nil || op.PRT.present || op.PRID.present || op.Grants != nil {
+				t.Fatalf("op %d: %s requires \"batch\" and nothing else", i, op.Op)
+			}
+			batch := requireFormalGrants(t, field+".batch", *op.Batch)
+			if op.Op == "put" {
+				formalPutGrants(ctx, t, e, fmt.Sprintf("op %d", i), batch)
+				continue
+			}
+			records := make([]*v3.GrantRecord, 0, len(batch))
+			for _, p := range batch {
+				records = append(records, V2GrantToV3(e.CurrentSyncID(), formalV2Grant(p)))
+			}
+			if err := e.PutExpandedGrantRecords(ctx, records); err != nil {
+				t.Fatalf("op %d: PutExpandedGrantRecords(%v): %v", i, batch, err)
+			}
+		case "reopen":
+			requireNoSyncFields()
+			if !noGrantFields {
+				t.Fatalf("op %d: reopen takes no fields", i)
+			}
+			r.reopen(t)
+		case "age_sync":
+			requireNoSyncFields()
+			if op.Days == nil || op.Batch != nil || op.PRT.present || op.PRID.present || op.Grants != nil {
+				t.Fatalf("op %d: age_sync requires \"days\" and nothing else", i)
+			}
+			if *op.Days < 0 {
+				t.Fatalf("op %d: age_sync days = %d, want >= 0", i, *op.Days)
+			}
+			if recordID == "" {
+				t.Fatalf("op %d: age_sync before any accepted start_new; there is no sync-run record to age", i)
+			}
+			rec, err := e.GetSyncRunRecord(ctx, recordID)
+			if err != nil {
+				t.Fatalf("op %d: GetSyncRunRecord(%s): %v", i, recordID, err)
+			}
+			rec.SetStartedAt(timestamppb.New(time.Now().Add(-time.Duration(*op.Days) * 24 * time.Hour)))
+			if err := e.PutSyncRunRecord(ctx, rec); err != nil {
+				t.Fatalf("op %d: PutSyncRunRecord: %v", i, err)
+			}
+		case "list_grants", "read_by_principal":
+			if op.ID != nil || op.Type != nil || op.Batch != nil || op.Days != nil {
+				t.Fatalf("op %d (%s): only \"result\", \"grants\", and for read_by_principal \"prt\" and \"prid\" are allowed", i, op.Op)
+			}
+			want := requireResult()
+			if want != "ok" && want != "no_current_sync" {
+				t.Fatalf("op %d: unknown %s result %q", i, op.Op, want)
+			}
+			var got []formalGrantParts
+			var result string
+			if op.Op == "list_grants" {
+				requireNoHex(t, field+".prt", op.PRT)
+				requireNoHex(t, field+".prid", op.PRID)
+				got, result = listFormalGrantsResolving(t, e, fmt.Sprintf("op %d: ListGrants", i), func(token string) ([]*v2.Grant, string, error) {
+					resp, err := e.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: MaxPageSize, PageToken: token}.Build())
+					return resp.GetList(), resp.GetNextPageToken(), err
+				})
+			} else {
+				prt := requireProtoString(t, field+".prt", requireHex(t, field+".prt", op.PRT))
+				prid := requireProtoString(t, field+".prid", requireHex(t, field+".prid", op.PRID))
+				got, result = listFormalGrantsResolving(t, e, fmt.Sprintf("op %d: ListGrantsForPrincipal(%x, %x)", i, prt, prid), func(token string) ([]*v2.Grant, string, error) {
+					resp, err := e.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
+						PrincipalId: v2.ResourceId_builder{ResourceType: prt, Resource: prid}.Build(),
+						PageSize:    formalByPrincipalPageSize,
+						PageToken:   token,
+					}.Build())
+					return resp.GetList(), resp.GetNextPageToken(), err
+				})
+			}
+			if result != want {
+				t.Fatalf("op %d (%s): got %q (grants %v), want %q", i, op.Op, result, got, want)
+			}
+			if want == "no_current_sync" {
+				if op.Grants != nil && len(*op.Grants) > 0 {
+					t.Fatalf("op %d (%s): no_current_sync with a non-empty \"grants\"", i, op.Op)
+				}
+				continue
+			}
+			if op.Grants == nil {
+				t.Fatalf("op %d (%s): an ok read requires \"grants\"", i, op.Op)
+			}
+			requireFormalGrantList(t, fmt.Sprintf("op %d %s", i, op.Op), got, requireFormalGrants(t, field+".grants", *op.Grants))
+		default:
+			t.Fatalf("op %d: unknown reopen op %q", i, op.Op)
+		}
+	}
+}
+
+type formalResRefRequest struct {
+	RT  string `json:"rt"`
+	RID string `json:"rid"`
+}
+
+type formalStreamFilterRequest struct {
+	EntExt *string `json:"ent_ext,omitempty"`
+	PRT    *string `json:"prt,omitempty"`
+	PRID   *string `json:"prid,omitempty"`
+	RT     *string `json:"rt,omitempty"`
+}
+
+type formalStreamConsumerRequest struct {
+	CancelAfter *int `json:"cancel_after"`
+	BreakAfter  *int `json:"break_after"`
+}
+
+type formalStreamRequest struct {
+	Name         string                      `json:"name"`
+	Kind         string                      `json:"kind"`
+	Entitlements []formalEntRefRequest       `json:"entitlements"`
+	Resources    []formalResRefRequest       `json:"resources"`
+	Grants       []formalGrantRequest        `json:"grants"`
+	Deferred     []formalGrantRequest        `json:"deferred"`
+	Filter       formalStreamFilterRequest   `json:"filter"`
+	Consumer     formalStreamConsumerRequest `json:"consumer"`
+}
+
+type formalDigestSourceRequest struct {
+	Key      string `json:"key"`
+	IsDirect bool   `json:"is_direct"`
+}
+
+type formalDigestGrantRequest struct {
+	Ent       formalEntRefRequest         `json:"ent"`
+	PRT       string                      `json:"prt"`
+	PRID      string                      `json:"prid"`
+	ExtID     string                      `json:"ext_id"`
+	Immutable bool                        `json:"immutable"`
+	Sources   []formalDigestSourceRequest `json:"sources"`
+}
+
+type formalDigestOpRequest struct {
+	Op    string                     `json:"op"`
+	Ent   *formalEntRefRequest       `json:"ent,omitempty"`
+	PRT   *string                    `json:"prt,omitempty"`
+	PRID  *string                    `json:"prid,omitempty"`
+	Batch []formalDigestGrantRequest `json:"batch,omitempty"`
+}
+
+type formalDigestRequest struct {
+	Name         string                     `json:"name"`
+	Entitlements []formalEntRefRequest      `json:"entitlements"`
+	Grants       []formalDigestGrantRequest `json:"grants"`
+	Ops          []formalDigestOpRequest    `json:"ops"`
+}
+
+type formalReopenOpRequest struct {
+	Op    string               `json:"op"`
+	ID    *string              `json:"id,omitempty"`
+	Type  *string              `json:"type,omitempty"`
+	Batch []formalGrantRequest `json:"batch,omitempty"`
+	Days  *int                 `json:"days,omitempty"`
+	PRT   *string              `json:"prt,omitempty"`
+	PRID  *string              `json:"prid,omitempty"`
+}
+
+type formalReopenRequest struct {
+	Name string                  `json:"name"`
+	Ops  []formalReopenOpRequest `json:"ops"`
+}
+
+func intPtr(n int) *int { return &n }
+
+// uniqueEntRefs returns the distinct entitlements of ids, each kept with
+// probability keepPct/100.
+func (g formalGen) uniqueEntRefs(ids []formalGrantIdentity, keepPct int) []formalEntRefRequest {
+	seen := map[formalEntRefRequest]bool{}
+	out := []formalEntRefRequest{}
+	for _, id := range ids {
+		ent := id.entRef()
+		if seen[ent] {
+			continue
+		}
+		seen[ent] = true
+		if g.r.IntN(100) < keepPct {
+			out = append(out, ent)
+		}
+	}
+	return out
+}
+
+func (g formalGen) streamCase(i int) formalStreamRequest {
+	c := formalStreamRequest{
+		Name:         fmt.Sprintf("property/stream/%d", i),
+		Kind:         []string{"grants", "resources", "entitlements"}[g.r.IntN(3)],
+		Entitlements: []formalEntRefRequest{},
+		Resources:    []formalResRefRequest{},
+		Grants:       []formalGrantRequest{},
+		Deferred:     []formalGrantRequest{},
+	}
+	switch c.Kind {
+	case "grants":
+		pool := g.grantIdentities(g.r.IntN(7))
+		for _, id := range pool {
+			switch g.r.IntN(8) {
+			case 0, 1:
+				c.Deferred = append(c.Deferred, g.grantRequest(id))
+			case 2:
+				c.Grants = append(c.Grants, g.grantRequest(id))
+				c.Deferred = append(c.Deferred, g.grantRequest(id))
+			default:
+				c.Grants = append(c.Grants, g.grantRequest(id))
+			}
+		}
+		c.Entitlements = g.uniqueEntRefs(pool, 70)
+		if g.r.IntN(2) == 0 {
+			// ent_ext must match exactly one entitlement row, or none and
+			// contain no colon, so the engine's bare-id resolution agrees
+			// with the model.
+			extCount := map[string]int{}
+			for _, en := range c.Entitlements {
+				extCount[en.Ext]++
+			}
+			var unique []string
+			for _, en := range c.Entitlements {
+				ext, _ := hex.DecodeString(en.Ext)
+				if extCount[en.Ext] == 1 && !bytes.Contains(ext, []byte(":")) {
+					unique = append(unique, en.Ext)
+				}
+			}
+			if len(unique) > 0 && g.r.IntN(4) != 0 {
+				c.Filter.EntExt = strPtr(unique[g.r.IntN(len(unique))])
+			} else {
+				c.Filter.EntExt = hexPtr("fresh" + []string{"", "x", "é"}[g.r.IntN(3)])
+			}
+		}
+		pick := formalGrantIdentity{prt: "user", prid: "a"}
+		if len(pool) > 0 {
+			pick = pool[g.r.IntN(len(pool))]
+		}
+		if g.r.IntN(2) == 0 {
+			c.Filter.PRT = hexPtr(pick.prt)
+		}
+		if g.r.IntN(3) == 0 {
+			c.Filter.PRID = hexPtr(pick.prid)
+		}
+	case "resources":
+		rts := []string{"user", "group", g.utf8String(1, 2)}
+		seen := map[formalResRefRequest]bool{}
+		for range g.r.IntN(7) {
+			r := formalResRefRequest{RT: hexStr(rts[g.r.IntN(len(rts))]), RID: hexStr(g.utf8String(1, 2))}
+			if !seen[r] {
+				seen[r] = true
+				c.Resources = append(c.Resources, r)
+			}
+		}
+		if g.r.IntN(2) == 0 {
+			rt := rts[g.r.IntN(len(rts))]
+			if g.r.IntN(5) == 0 {
+				rt = "absent"
+			}
+			c.Filter.RT = hexPtr(rt)
+		}
+	default:
+		c.Entitlements = g.uniqueEntRefs(g.grantIdentities(g.r.IntN(7)), 100)
+	}
+	if g.r.IntN(2) == 0 {
+		c.Consumer.CancelAfter = intPtr(g.r.IntN(4))
+	}
+	if g.r.IntN(2) == 0 {
+		c.Consumer.BreakAfter = intPtr(1 + g.r.IntN(3))
+	}
+	return c
+}
+
+func (g formalGen) digestGrant(id formalGrantIdentity) formalDigestGrantRequest {
+	base := g.grantRequest(id)
+	out := formalDigestGrantRequest{
+		Ent: base.Ent, PRT: base.PRT, PRID: base.PRID, ExtID: base.ExtID,
+		Immutable: g.r.IntN(3) == 0,
+		Sources:   []formalDigestSourceRequest{},
+	}
+	for _, key := range []string{"s1", "s2", "é"} {
+		if g.r.IntN(3) == 0 {
+			out.Sources = append(out.Sources, formalDigestSourceRequest{Key: hexStr(key), IsDirect: g.r.IntN(2) == 0})
+		}
+	}
+	return out
+}
+
+func (g formalGen) digestCase(i int) formalDigestRequest {
+	pool := g.grantIdentities(1 + g.r.IntN(4))
+	c := formalDigestRequest{
+		Name:         fmt.Sprintf("property/digest/%d", i),
+		Entitlements: g.uniqueEntRefs(pool, 80),
+		Grants:       []formalDigestGrantRequest{},
+	}
+	for _, id := range pool {
+		if g.r.IntN(5) != 0 {
+			c.Grants = append(c.Grants, g.digestGrant(id))
+		}
+	}
+	readEnts := g.uniqueEntRefs(pool, 100)
+	readEnts = append(readEnts, formalEntRefRequest{RT: hexStr("user"), RID: hexStr("u"), Ext: hexStr("absent")})
+	read := func() formalDigestOpRequest {
+		ent := readEnts[g.r.IntN(len(readEnts))]
+		return formalDigestOpRequest{Op: "read", Ent: &ent}
+	}
+	// bound: a sync is bound, so put, delete, and seal are legal. Reads
+	// need a seal first.
+	bound, sealed := true, false
+	for range 1 + g.r.IntN(6) {
+		var choices []string
+		if bound {
+			choices = append(choices, "put", "delete", "seal")
+		} else {
+			choices = append(choices, "resume")
+		}
+		if sealed {
+			choices = append(choices, "read", "read", "read_global")
+		}
+		switch choices[g.r.IntN(len(choices))] {
+		case "put":
+			batch := make([]formalDigestGrantRequest, 1+g.r.IntN(2))
+			for j := range batch {
+				batch[j] = g.digestGrant(pool[g.r.IntN(len(pool))])
+			}
+			c.Ops = append(c.Ops, formalDigestOpRequest{Op: "put", Batch: batch})
+		case "delete":
+			d := g.grantDeleteOp(pool)
+			c.Ops = append(c.Ops, formalDigestOpRequest{Op: "delete", Ent: d.Ent, PRT: d.PRT, PRID: d.PRID})
+		case "seal":
+			c.Ops = append(c.Ops, formalDigestOpRequest{Op: "seal"})
+			bound, sealed = false, true
+		case "resume":
+			c.Ops = append(c.Ops, formalDigestOpRequest{Op: "resume"})
+			bound = true
+		case "read":
+			c.Ops = append(c.Ops, read())
+		default:
+			c.Ops = append(c.Ops, formalDigestOpRequest{Op: "read_global"})
+		}
+	}
+	if !sealed || (bound && g.r.IntN(2) == 0) {
+		c.Ops = append(c.Ops, formalDigestOpRequest{Op: "seal"})
+	}
+	if g.r.IntN(2) == 0 {
+		c.Ops = append(c.Ops, read(), formalDigestOpRequest{Op: "read_global"})
+	}
+	return c
+}
+
+func (g formalGen) reopenCase(i int) formalReopenRequest {
+	ids := []string{"s1", "s2"}
+	startTypes := []string{"full", "partial", "resources_only"}
+	latestTypes := []string{"any", "full", "partial", "resources_only"}
+	pool := g.grantIdentities(2 + g.r.IntN(3))
+	c := formalReopenRequest{Name: fmt.Sprintf("property/reopen/%d", i)}
+	// bound: put and put_deferred are legal. fresh: a start_new would be
+	// refused. record: the symbolic id the sync-run record carries.
+	bound, fresh, record := false, false, ""
+	for j := range 2 + g.r.IntN(8) {
+		n := g.r.IntN(20)
+		if j == 0 && g.r.IntN(4) != 0 {
+			n = 0
+		}
+		switch {
+		case n < 3:
+			id := ids[g.r.IntN(len(ids))]
+			c.Ops = append(c.Ops, formalReopenOpRequest{Op: "start_new", ID: strPtr(id), Type: strPtr(startTypes[g.r.IntN(len(startTypes))])})
+			if !fresh {
+				record, fresh = id, true
+			}
+			bound = true
+		case n < 8 && bound:
+			op := "put"
+			if g.r.IntN(3) == 0 {
+				op = "put_deferred"
+			}
+			c.Ops = append(c.Ops, formalReopenOpRequest{Op: op, Batch: g.grantBatch(pool)})
+		case n < 9:
+			c.Ops = append(c.Ops, formalReopenOpRequest{Op: "end"})
+			bound, fresh = false, false
+		case n < 12:
+			c.Ops = append(c.Ops, formalReopenOpRequest{Op: "reopen"})
+			bound, fresh = false, false
+			if record != "" && g.r.IntN(3) != 0 {
+				days := []int{0, 1, 6, 8, 30}[g.r.IntN(5)]
+				c.Ops = append(c.Ops, formalReopenOpRequest{Op: "age_sync", Days: intPtr(days)})
+			}
+		case n < 13:
+			c.Ops = append(c.Ops, formalReopenOpRequest{Op: "write"})
+		case n < 15:
+			c.Ops = append(c.Ops, formalReopenOpRequest{Op: "list_grants"})
+		case n < 17:
+			id := pool[g.r.IntN(len(pool))]
+			c.Ops = append(c.Ops, formalReopenOpRequest{Op: "read_by_principal", PRT: hexPtr(id.prt), PRID: hexPtr(id.prid)})
+		case n < 19:
+			id := ids[g.r.IntN(len(ids))]
+			if g.r.IntN(5) == 0 {
+				id = "s9"
+			}
+			c.Ops = append(c.Ops, formalReopenOpRequest{Op: "resume", ID: strPtr(id)})
+			if id == record {
+				bound, fresh = true, false
+			}
+		default:
+			c.Ops = append(c.Ops, formalReopenOpRequest{Op: "latest_finished", Type: strPtr(latestTypes[g.r.IntN(len(latestTypes))])})
+		}
+	}
+	return c
 }

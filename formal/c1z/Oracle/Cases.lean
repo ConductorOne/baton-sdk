@@ -6,6 +6,8 @@ import C1z.Sync
 import C1z.Records
 import C1z.Index
 import C1z.GrantLookup
+import C1z.Stream
+import C1z.Digest
 import Oracle.Json
 
 /-!
@@ -14,7 +16,8 @@ import Oracle.Json
 Each family below is a hand-chosen list of inputs; every expected value
 is computed by running the model (`C1z.Identity`, `C1z.Store`,
 `C1z.Paginate`, `C1z.Result`, `C1z.Sync`, `C1z.Records`, `C1z.Index`,
-`C1z.GrantLookup`). Nothing here writes an expected output by hand. The schema is `ORACLE_SCHEMA.md`.
+`C1z.GrantLookup`, `C1z.Stream`, `C1z.Digest`). Nothing here writes an
+expected output by hand. The schema is `ORACLE_SCHEMA.md`.
 `Oracle.Random` and `Oracle.Request` pass their inputs through the same
 `render`.
 
@@ -26,20 +29,36 @@ against the Pebble engine:
   hidden-row skipping inside `Paginate.page`;
 - the five grant families cover one `PutGrants` per `grant_list` and
   `grant_bare_id` case, never more than one default page, and no
-  principal or entitlement records beyond `grant_bare_id`'s entitlement
-  rows; `IndexedGrants` is only replayed from an empty store;
-- failure injection: I/O, decode, cancellation, and every
-  `Result.ListError` arm; `Paginate.checkCursor` and invalid page tokens;
+  principal or entitlement records beyond `grant_bare_id`'s, `stream`'s,
+  and `digest`'s entitlement rows; `IndexedGrants` is only replayed from
+  an empty store;
+- failure injection: I/O, decode, and every `Result.ListError` arm other
+  than `cancelled` (which `stream` replays); `Paginate.checkCursor` and
+  invalid page tokens;
+- `stream`: `break_after = 0` (rejected), an `ent_ext` that matches two
+  or more entitlement rows or matches none while containing a colon
+  (rejected: the engine's bare-id resolution is not modeled), writes
+  during iteration, and resources or entitlements written by grants;
+- `digest`: hash values (`digestHash` is constant; only `found`, `count`,
+  `width`, and content equality are emitted), bucket leaves, and
+  invalidation of partitions whose content cannot change; distinct
+  non-empty partitions never have equal content, because
+  `Digest.GrantContent` includes the entitlement, so `equal_content`
+  pairs are always two zero-grant partitions;
 - malformed identities: entitlements and grants with an empty owner
   component (`EntitlementId.WellFormed`, `GrantId.WellFormed` fail),
   which the engine rejects; the generator refuses to emit them;
 - page sizes above `Paginate.maxPageSize` (the other `clampPageSize`
   branch) and corpora longer than one default page;
-- time: `discovered_at`, `startedAt`/`endedAt` values, the 7-day
-  `latestUnfinished` fallback, and `resolveActiveSync`;
+- time: `discovered_at` and `endedAt` values; `startedAt`, the 7-day
+  `latestUnfinished` fallback, and `resolveActiveSync` (without an
+  annotation) appear only in `reopen`, at a fixed `reopenNow`, with
+  `age_sync` days from `{1, 6, 8, 30}` in the random corpus (never the
+  7-day boundary, which a wall-clock consumer cannot hit exactly);
 - `SyncType.unspecified`, which has no schema string;
-- `StartNewSync` wiping records written by an earlier sync, and any
-  multi-file behavior (compaction, `CloneSync`).
+- multi-file behavior (compaction, `CloneSync`); `reopen` covers one
+  file closed and reopened, and `StartNewSync` wiping grants written by
+  an earlier sync.
 -/
 
 namespace Oracle
@@ -790,6 +809,508 @@ def grantBareCases : List GrantBareCase := [
     u (String.join (List.replicate 65 ":"))⟩
 ]
 
+/-! ## stream -/
+
+inductive StreamKind where
+  | grants
+  | resources
+  | entitlements
+  deriving DecidableEq
+
+def StreamKind.str : StreamKind → String
+  | .grants => "grants"
+  | .resources => "resources"
+  | .entitlements => "entitlements"
+
+/-- `entExt`, `prt`, `prid` apply to `grants`; `rt` to `resources`. -/
+structure StreamCase where
+  name : String
+  kind : StreamKind
+  ents : List EntitlementId := []
+  resources : List ResourceId := []
+  grants : List GrantRecord := []
+  deferred : List GrantRecord := []
+  entExt : Option Bytes := none
+  prt : Option Bytes := none
+  prid : Option Bytes := none
+  rt : Option Bytes := none
+  cancelAfter : Option Nat := none
+  breakAfter : Option Nat := none
+
+def optNumJ : Option Nat → J
+  | some n => .num n
+  | none => .null
+
+def resJ (r : ResourceId) : Except String J := do
+  pure <| .obj [("rt", ← hexJ r.rt), ("rid", ← hexJ r.rid)]
+
+def yieldsJ {α : Type} (ys : List (Result.Yield α)) (f : α → Except String J) : Except String (List J) :=
+  ys.mapM fun
+    | .record a => f a
+    | .error .cancelled => pure (J.obj [("error", .str "cancelled")])
+    | .error _ => throw "stream yielded an error other than cancelled"
+
+/-- The rows a grant stream scans for the case's filter (`ORACLE_SCHEMA.md`,
+"stream"). An `ent_ext` matching two or more entitlement rows, or none
+while containing a colon, is rejected. -/
+def StreamCase.grantRows (c : StreamCase) (ctx : String) (x : IndexedGrants) : Except String (List GrantRecord) :=
+  match c.entExt with
+  | some ext =>
+    match c.ents.filter (·.ext == ext) with
+    | [e] => pure (Stream.grantRows x (.entitlement e))
+    | [] => if ext.contains 0x3a then throw s!"{ctx}: ent_ext matches no entitlement and contains a colon"
+            else pure []
+    | _ => throw s!"{ctx}: ent_ext matches more than one entitlement"
+  | none =>
+    match c.prt, c.prid with
+    | some t, none => pure (Stream.grantRows x (.principalType t))
+    | _, _ => pure (Stream.grantRows x .primary)
+
+def StreamCase.toJ (c : StreamCase) : Except String J := do
+  let ctx := s!"stream case {c.name}"
+  for e in c.ents do checkEnt ctx e
+  checkDistinctEnts ctx c.ents
+  for r in c.resources do
+    if r.rt.isEmpty || r.rid.isEmpty then throw s!"{ctx}: empty resource component"
+    needUtf8 ctx r.rt
+    needUtf8 ctx r.rid
+  if (c.resources.map (·.key)).eraseDups.length != c.resources.length then throw s!"{ctx}: repeated resource"
+  for r in c.grants ++ c.deferred do checkGrant ctx r
+  for b in [c.entExt, c.prt, c.prid, c.rt] do
+    if let some v := b then
+      if v.isEmpty then throw s!"{ctx}: empty filter component"
+      needUtf8 ctx v
+  if c.breakAfter == some 0 then throw s!"{ctx}: break_after must be at least 1"
+  let consumer : Stream.Consumer := { cancelAfter := c.cancelAfter, breakAfter := c.breakAfter }
+  let opt := fun (k : String) (b : Option Bytes) => do
+    match b with
+    | some v => pure [(k, ← hexJ v)]
+    | none => pure ([] : List (String × J))
+  let (filter, yields) ← match c.kind with
+    | .grants => do
+      if !c.resources.isEmpty || c.rt.isSome then throw s!"{ctx}: resources or rt on a grants stream"
+      let x := (IndexedGrants.empty.putGrants c.grants).putGrantsDeferred c.deferred
+      let rows ← c.grantRows ctx x
+      let keep := fun (r : GrantRecord) => c.prt.all (· == r.id.prt) && c.prid.all (· == r.id.prid)
+      let f := J.obj ((← opt "ent_ext" c.entExt) ++ (← opt "prt" c.prt) ++ (← opt "prid" c.prid))
+      let ys ← yieldsJ (Stream.run rows keep consumer) fun r => do pure (J.obj [("grant", ← grantJ r)])
+      pure (f, ys)
+    | .resources => do
+      if !c.grants.isEmpty || !c.deferred.isEmpty || c.entExt.isSome || c.prt.isSome || c.prid.isSome then
+        throw s!"{ctx}: grant rows or grant filter on a resources stream"
+      let tbl := c.resources.map fun r => (r.key, r)
+      let rows ← (sortKeys (tbl.map (·.1))).mapM (lookupKey tbl)
+      let keep := fun (r : ResourceId) => c.rt.all (· == r.rt)
+      let ys ← yieldsJ (Stream.run rows keep consumer) fun r => do pure (J.obj [("resource", ← resJ r)])
+      pure (J.obj (← opt "rt" c.rt), ys)
+    | .entitlements => do
+      if !c.resources.isEmpty || !c.grants.isEmpty || !c.deferred.isEmpty || c.entExt.isSome || c.prt.isSome ||
+          c.prid.isSome || c.rt.isSome then
+        throw s!"{ctx}: rows or filter other than entitlements on an entitlements stream"
+      let tbl := c.ents.map fun e => (e.key, e)
+      let rows ← (sortKeys (tbl.map (·.1))).mapM (lookupKey tbl)
+      let ys ← yieldsJ (Stream.run rows (fun _ => true) consumer) fun e => do
+        pure (J.obj [("entitlement", ← entJ e)])
+      pure (J.obj [], ys)
+  pure <| .obj [("name", .str c.name), ("kind", .str c.kind.str), ("entitlements", .arr (← c.ents.mapM entJ)),
+    ("resources", .arr (← c.resources.mapM resJ)), ("grants", ← grantsJ c.grants), ("deferred", ← grantsJ c.deferred),
+    ("filter", filter),
+    ("consumer", .obj [("cancel_after", optNumJ c.cancelAfter), ("break_after", optNumJ c.breakAfter)]),
+    ("yields", .arr yields)]
+
+/-- Stripped `group:g1:member` (`eA`) and opaque `admin` on `group/g1`,
+with user, group, and service principals. -/
+def streamGrants : List GrantRecord := [
+  gr "group" "g1" "group:g1:member" "user" "u2",
+  gr "group" "g1" "admin" "user" "u1" "custom",
+  gr "group" "g1" "group:g1:member" "user" "u1",
+  gr "group" "g1" "group:g1:member" "service" "s1",
+  gr "group" "g1" "admin" "group" "g9"
+]
+
+def streamEnts : List EntitlementId := [eA, en "group" "g1" "admin"]
+
+def streamResources : List ResourceId := [⟨u "user", u "u2"⟩, ⟨u "group", u "g1"⟩, ⟨u "user", u "u1"⟩]
+
+def cancelled0 : Option Nat := some 0
+
+def streamCases : List StreamCase := [
+  { name := "grants patient unfiltered", kind := .grants, ents := streamEnts, grants := streamGrants },
+  { name := "grants principal type and id post-filter", kind := .grants, ents := streamEnts, grants := streamGrants,
+    prt := some (u "user"), prid := some (u "u1") },
+  { name := "grants principal id alone is a primary post-filter", kind := .grants, ents := streamEnts,
+    grants := streamGrants, prid := some (u "u1") },
+  { name := "grants entitlement filter stripped", kind := .grants, ents := streamEnts, grants := streamGrants,
+    entExt := some (u "group:g1:member") },
+  { name := "grants entitlement filter opaque", kind := .grants, ents := streamEnts, grants := streamGrants,
+    entExt := some (u "admin") },
+  { name := "grants entitlement filter with principal type post-filter", kind := .grants, ents := streamEnts,
+    grants := streamGrants, entExt := some (u "group:g1:member"), prt := some (u "user") },
+  { name := "grants entitlement filter unknown without colon is empty", kind := .grants, ents := streamEnts,
+    grants := streamGrants, entExt := some (u "owner") },
+  { name := "grants principal type walks the index in index order", kind := .grants, ents := streamEnts,
+    grants := streamGrants ++ [gr "group" "g2" "group:g2:member" "user" "u0"],
+    deferred := [gr "group" "g2" "group:g2:member" "user" "u3"], prt := some (u "user") },
+  { name := "grants cancelled over empty keyspace yields nothing", kind := .grants, cancelAfter := cancelled0 },
+  { name := "grants cancelled over non-empty keyspace with no match yields the error", kind := .grants,
+    ents := streamEnts, grants := streamGrants, prt := some (u "role"), prid := some (u "r1"),
+    cancelAfter := cancelled0 },
+  { name := "grants cancel after one with more rows", kind := .grants, ents := streamEnts, grants := streamGrants,
+    cancelAfter := some 1 },
+  { name := "grants cancel after one at the last row ends cleanly", kind := .grants,
+    grants := [gr "group" "g1" "admin" "user" "u1"], cancelAfter := some 1 },
+  { name := "grants cancel after one with only non-matching rows left", kind := .grants, ents := streamEnts,
+    grants := [gr "group" "g1" "admin" "user" "u1", gr "group" "g1" "admin" "user" "u2"], prt := some (u "user"),
+    prid := some (u "u1"), cancelAfter := some 1 },
+  { name := "grants break after two", kind := .grants, ents := streamEnts, grants := streamGrants,
+    breakAfter := some 2 },
+  { name := "grants break exactly at the last match", kind := .grants, ents := streamEnts, grants := streamGrants,
+    prt := some (u "user"), prid := some (u "u1"), breakAfter := some 2 },
+  { name := "resources type filter patient", kind := .resources, resources := streamResources, rt := some (u "user") },
+  { name := "resources type filter cancelled with other types present", kind := .resources,
+    resources := [⟨u "group", u "g1"⟩, ⟨u "group", u "g2"⟩], rt := some (u "user"), cancelAfter := cancelled0 },
+  { name := "resources unfiltered break after one", kind := .resources, resources := streamResources,
+    breakAfter := some 1 },
+  { name := "entitlements patient", kind := .entitlements,
+    ents := [en "group" "g2" "admin", eA, en "équipe" "日本" "équipe:日本:membre", en "group" "g1" "admin"] },
+  { name := "entitlements cancel after two", kind := .entitlements,
+    ents := [en "group" "g2" "admin", eA, en "group" "g1" "admin"], cancelAfter := some 2 }
+]
+
+/-! ## digest -/
+
+/-- A grant with the fields its content hash reads (`Digest.contentOf`). -/
+structure DGrant where
+  record : GrantRecord
+  immutable : Bool := false
+  sources : List Digest.SourceFact := []
+
+inductive DOp where
+  | seal
+  | read (e : EntitlementId)
+  | readGlobal
+  | resume
+  | put (batch : List DGrant)
+  | delete (g : GrantId)
+
+structure DigestCase where
+  name : String
+  ents : List EntitlementId
+  grants : List DGrant
+  ops : List DOp
+
+/-- Insertion sort of source facts by key (`sortGrantSourceFacts`). -/
+def sortSources (ss : List Digest.SourceFact) : List Digest.SourceFact :=
+  ss.foldl (fun acc s => ins s acc) []
+where
+  ins (s : Digest.SourceFact) : List Digest.SourceFact → List Digest.SourceFact
+    | [] => [s]
+    | x :: xs => if lexLt s.key x.key then s :: x :: xs else x :: ins s xs
+
+/-- Immutability and sources by identity, newest first; unknown
+identities read `(false, [])`. -/
+abbrev Facts := List (GrantId × (Bool × List Digest.SourceFact))
+
+def Facts.fn (fs : Facts) (g : GrantId) : Bool × List Digest.SourceFact :=
+  ((fs.find? (·.1 == g)).map (·.2)).getD (false, [])
+
+/-- Record a batch; a later occurrence of an identity wins. -/
+def Facts.put (fs : Facts) (b : List DGrant) : Facts :=
+  b.foldl (fun acc d => (d.record.id, (d.immutable, sortSources d.sources)) :: acc) fs
+
+/-- The hash is not modeled; only counts and presence are compared. -/
+def digestHash : Digest.GrantContent → Digest.Hash := fun _ => 0
+
+def checkDGrant (ctx : String) (d : DGrant) : Except String Unit := do
+  checkGrant ctx d.record
+  for s in d.sources do needUtf8 ctx s.key
+  if (d.sources.map (·.key)).eraseDups.length != d.sources.length then throw s!"{ctx}: repeated source key"
+
+def dgrantJ (d : DGrant) : Except String J := do
+  let srcs ← d.sources.mapM fun s => do pure (J.obj [("key", ← hexJ s.key), ("is_direct", .bool s.isDirect)])
+  pure <| .obj ((← grantIdFields d.record.id) ++ [("ext_id", ← hexJ d.record.externalId), ("immutable", .bool d.immutable),
+    ("sources", .arr srcs)])
+
+def maxContentPairs : Nat := 20
+
+def DigestCase.toJ (c : DigestCase) : Except String J := do
+  let ctx := s!"digest case {c.name}"
+  for e in c.ents do checkEnt ctx e
+  checkDistinctEnts ctx c.ents
+  for d in c.grants do checkDGrant ctx d
+  let mut store := GrantStore.putGrants Store.empty (c.grants.map (·.record))
+  let mut facts : Facts := Facts.put [] c.grants
+  let mut st : Digest.State := { partitions := [], global := none }
+  let mut sealedOnce := false
+  let mut sealed := false
+  let mut last : Option (GrantStore × Facts × Digest.State) := none
+  let mut out : Array J := #[]
+  for op in c.ops do
+    match op with
+    | .seal =>
+      if sealed then throw s!"{ctx}: seal while sealed"
+      st := if sealedOnce then Digest.repair digestHash facts.fn store c.ents st
+        else Digest.build digestHash facts.fn store c.ents
+      sealedOnce := true
+      sealed := true
+      last := some (store, facts, st)
+      out := out.push (.obj [("op", .str "seal")])
+    | .resume =>
+      unless sealed do throw s!"{ctx}: resume while not sealed"
+      sealed := false
+      out := out.push (.obj [("op", .str "resume")])
+    | .read e =>
+      checkEnt ctx e
+      let (found, count) := match st.lookup e with
+        | some n => (true, n.count)
+        | none => (false, 0)
+      out := out.push (.obj [("op", .str "read"), ("ent", ← entJ e), ("found", .bool found), ("count", .num count),
+        ("width", .num (Digest.chooseWidth count))])
+    | .readGlobal =>
+      let (found, count) := match st.global with
+        | some n => (true, n.count)
+        | none => (false, 0)
+      out := out.push (.obj [("op", .str "read_global"), ("found", .bool found), ("count", .num count)])
+    | .put b =>
+      if sealed then throw s!"{ctx}: put after seal without resume"
+      for d in b do checkDGrant ctx d
+      store := store.putGrants (b.map (·.record))
+      facts := facts.put b
+      for d in b do st := st.afterPut d.record
+      out := out.push (.obj [("op", .str "put"), ("batch", .arr (← b.mapM dgrantJ))])
+    | .delete g =>
+      if sealed then throw s!"{ctx}: delete after seal without resume"
+      checkGrantId ctx g
+      st := st.afterDelete store g
+      store := store.deleteGrant g
+      out := out.push (.obj ([("op", .str "delete")] ++ (← grantIdFields g)))
+  let (eq, ne) : List (EntitlementId × EntitlementId) × List (EntitlementId × EntitlementId) := match last with
+    | none => ([], [])
+    | some (s, fs, st') =>
+      let content := fun (e : EntitlementId) => (s.grantsForEntitlement e).map (Digest.contentOf fs.fn)
+      let es : List EntitlementId := st'.partitions.map (·.1)
+      let pairs := (es.zipIdx).flatMap fun (a, i) => (es.drop (i + 1)).map fun b => (a, b)
+      let eq := pairs.filter fun (a, b) => content a == content b
+      let ne := pairs.filter fun (a, b) => content a != content b
+      (eq.take maxContentPairs, ne.take maxContentPairs)
+  let pairJ := fun (p : EntitlementId × EntitlementId) => do pure (J.arr [← entJ p.1, ← entJ p.2])
+  pure <| .obj [("name", .str c.name), ("entitlements", .arr (← c.ents.mapM entJ)),
+    ("grants", .arr (← c.grants.mapM dgrantJ)), ("ops", .arr out.toList),
+    ("equal_content", .arr (← eq.mapM pairJ)), ("distinct_content", .arr (← ne.mapM pairJ))]
+
+def dg (rt rid ext prt prid : String) (extId : String := "") (immutable : Bool := false)
+    (sources : List (String × Bool) := []) : DGrant :=
+  { record := gr rt rid ext prt prid extId, immutable, sources := sources.map fun (k, d) => ⟨u k, d⟩ }
+
+def dE1 : EntitlementId := eA
+def dE2 : EntitlementId := en "group" "g2" "group:g2:member"
+
+/-- 513 grants under `eA`: `chooseWidth 513 = 1`. -/
+def wideGrants : List DGrant :=
+  (List.range 513).map fun i => dg "group" "g1" "group:g1:member" "user" s!"u{i}"
+
+def digestCases : List DigestCase := [
+  ⟨"same principals on two entitlements with different external ids",
+    [dE1, dE2],
+    [dg "group" "g1" "group:g1:member" "user" "u1" "x", dg "group" "g1" "group:g1:member" "user" "u2" "y",
+     dg "group" "g2" "group:g2:member" "user" "u1" "p", dg "group" "g2" "group:g2:member" "user" "u2"],
+    [.seal, .read dE1, .read dE2, .readGlobal]⟩,
+  ⟨"two zero-grant entitlement records have equal content",
+    [dE1, dE2, en "group" "g1" "admin"],
+    [dg "group" "g1" "admin" "user" "u1"],
+    [.seal, .read dE1, .read dE2, .read (en "group" "g1" "admin"), .readGlobal]⟩,
+  ⟨"different principals are distinct",
+    [dE1, dE2],
+    [dg "group" "g1" "group:g1:member" "user" "u1", dg "group" "g2" "group:g2:member" "user" "u2"],
+    [.seal, .read dE1, .read dE2]⟩,
+  ⟨"immutable flag difference is distinct",
+    [],
+    [dg "group" "g1" "group:g1:member" "user" "u1" (immutable := true),
+     dg "group" "g2" "group:g2:member" "user" "u1"],
+    [.seal, .read dE1, .read dE2]⟩,
+  ⟨"sources difference is distinct",
+    [],
+    [dg "group" "g1" "group:g1:member" "user" "u1" (sources := [("s1", true)]),
+     dg "group" "g2" "group:g2:member" "user" "u1" (sources := [("s1", true), ("s2", false)]),
+     dg "group" "g1" "admin" "user" "u1" (sources := [("s2", false), ("s1", true)])],
+    [.seal, .read dE1, .read dE2, .read (en "group" "g1" "admin")]⟩,
+  ⟨"flipped is_direct on the same source keys is distinct",
+    [],
+    [dg "group" "g1" "group:g1:member" "user" "u1" (sources := [("s1", true)]),
+     dg "group" "g2" "group:g2:member" "user" "u1" (sources := [("s1", false)])],
+    [.seal, .read dE1, .read dE2]⟩,
+  ⟨"zero-grant entitlement record is found with count zero",
+    [en "group" "g3" "admin"], [dg "group" "g1" "group:g1:member" "user" "u1"],
+    [.seal, .read (en "group" "g3" "admin"), .readGlobal]⟩,
+  ⟨"grant without entitlement record still has a partition",
+    [dE2], [dg "role" "nowhere" "role:nowhere:owner" "service" "ghost"],
+    [.seal, .read (en "role" "nowhere" "role:nowhere:owner"), .read dE2, .read dE1, .readGlobal]⟩,
+  ⟨"write after seal invalidates partition and global",
+    [dE1, dE2],
+    [dg "group" "g1" "group:g1:member" "user" "u1", dg "group" "g2" "group:g2:member" "user" "u1"],
+    [.seal, .read dE1, .read dE2, .readGlobal, .resume, .put [dg "group" "g1" "group:g1:member" "user" "u2"],
+     .read dE1, .read dE2, .readGlobal, .seal, .read dE1, .read dE2, .readGlobal]⟩,
+  ⟨"delete of absent grant after seal keeps digests",
+    [dE1, dE2],
+    [dg "group" "g1" "group:g1:member" "user" "u1", dg "group" "g2" "group:g2:member" "user" "u1"],
+    [.seal, .resume, .delete ⟨dE1, u "user", u "absent"⟩, .read dE1, .read dE2, .readGlobal,
+     .delete ⟨dE1, u "user", u "u1"⟩, .read dE1, .read dE2, .readGlobal]⟩,
+  ⟨"delete after seal invalidates partition and global",
+    [dE1, dE2],
+    [dg "group" "g1" "group:g1:member" "user" "u1", dg "group" "g1" "group:g1:member" "user" "u2",
+     dg "group" "g2" "group:g2:member" "user" "u1"],
+    [.seal, .resume, .delete ⟨dE1, u "user", u "u1"⟩, .read dE1, .read dE2, .readGlobal, .seal, .read dE1,
+     .read dE2, .readGlobal]⟩,
+  ⟨"external id rewrite after seal keeps the count",
+    [dE1],
+    [dg "group" "g1" "group:g1:member" "user" "u1" "x"],
+    [.seal, .read dE1, .resume, .put [dg "group" "g1" "group:g1:member" "user" "u1" "y"], .read dE1, .seal, .read dE1,
+     .readGlobal]⟩,
+  ⟨"reads before the first seal are absent",
+    [dE1], [dg "group" "g1" "group:g1:member" "user" "u1"],
+    [.read dE1, .readGlobal, .seal, .read dE1, .readGlobal]⟩,
+  ⟨"513 grants under one entitlement use width one",
+    [dE1], wideGrants, [.seal, .read dE1, .readGlobal]⟩
+]
+
+/-! ## reopen -/
+
+inductive ROp where
+  | startNew (id : String) (t : Sync.SyncType)
+  | put (batch : List GrantRecord)
+  | putDeferred (batch : List GrantRecord)
+  | endSync
+  | reopen
+  | ageSync (days : Nat)
+  | write
+  | listGrants
+  | readByPrincipal (prt prid : Bytes)
+  | resume (id : String)
+  | latestFinished (filter : Option Sync.SyncType)
+
+structure ReopenCase where
+  name : String
+  ops : List ROp
+
+/-- The model clock for the `reopen` family. -/
+def reopenNow : Nat := 1000000000
+
+def secondsPerDay : Nat := 86400
+
+def checkSyncId (ctx id : String) : Except String Unit := do
+  if id.isEmpty || id == "none" then throw s!"{ctx}: sync id must be non-empty and not \"none\""
+
+/-- One op on the model. `afterReopen` is whether the previous op was `reopen`. -/
+def ROp.step (ctx : String) (s : Sync.FileState) (x : IndexedGrants) (afterReopen : Bool) :
+    ROp → Except String (Sync.FileState × IndexedGrants × J)
+  | .startNew id t => do
+    checkSyncId ctx id
+    let ty ← syncTypeStr t
+    let res := fun r => J.obj [("op", .str "start_new"), ("id", .str id), ("type", .str ty), ("result", .str r)]
+    match Sync.startNewSync s id t reopenNow with
+    | .ok s' => pure (s', IndexedGrants.empty, res "ok")
+    | .syncInProgress => pure (s, x, res "sync_in_progress")
+  | .put b => do
+    unless Sync.writeGate s == .allowed do throw s!"{ctx}: put while no sync is bound"
+    for r in b do checkGrant ctx r
+    pure (Sync.recordWrite s, x.putGrants b, .obj [("op", .str "put"), ("batch", ← grantsJ b)])
+  | .putDeferred b => do
+    unless Sync.writeGate s == .allowed do throw s!"{ctx}: put_deferred while no sync is bound"
+    for r in b do checkGrant ctx r
+    pure (Sync.recordWrite s, x.putGrantsDeferred b, .obj [("op", .str "put_deferred"), ("batch", ← grantsJ b)])
+  | .endSync =>
+    let res := fun r => J.obj [("op", .str "end"), ("result", .str r)]
+    match Sync.endSync s reopenNow with
+    | .ok s' => pure (s', x.endSyncRebuild, res "ok")
+    | .noCurrentSync => pure (s, x, res "no_current_sync")
+  | .reopen => pure (Sync.reopen s, x, .obj [("op", .str "reopen")])
+  | .ageSync days => do
+    unless afterReopen do throw s!"{ctx}: age_sync must directly follow reopen"
+    if s.run.isNone then throw s!"{ctx}: age_sync with no sync record"
+    if days * secondsPerDay > reopenNow then throw s!"{ctx}: age_sync days out of range"
+    pure (Sync.setStartedAt s (reopenNow - days * secondsPerDay), x, .obj [("op", .str "age_sync"), ("days", .num days)])
+  | .write =>
+    let res := fun r => J.obj [("op", .str "write"), ("result", .str r)]
+    match Sync.writeGate s with
+    | .allowed => pure (Sync.recordWrite s, x, res "allowed")
+    | .noCurrentSync => pure (s, x, res "no_current_sync")
+    | .engineSealed => pure (s, x, res "engine_sealed")
+  | .listGrants => do
+    match Sync.resolveActiveSync s none reopenNow with
+    | none => pure (s, x, .obj [("op", .str "list_grants"), ("result", .str "no_current_sync"), ("grants", .arr [])])
+    | some _ => pure (s, x, .obj [("op", .str "list_grants"), ("result", .str "ok"), ("grants", ← grantsJ x.store.allGrants)])
+  | .readByPrincipal prt prid => do
+    if prt.isEmpty || prid.isEmpty then throw s!"{ctx}: empty principal component"
+    needUtf8 ctx prt
+    needUtf8 ctx prid
+    let base := [("op", J.str "read_by_principal"), ("prt", ← hexJ prt), ("prid", ← hexJ prid)]
+    match Sync.resolveActiveSync s none reopenNow with
+    | none => pure (s, x, .obj (base ++ [("result", .str "no_current_sync"), ("grants", .arr [])]))
+    | some _ => pure (s, x, .obj (base ++ [("result", .str "ok"), ("grants", ← grantsJ (x.grantsForPrincipal prt prid))]))
+  | .resume id => do
+    checkSyncId ctx id
+    let res := fun r => J.obj [("op", .str "resume"), ("id", .str id), ("result", .str r)]
+    match Sync.resumeSync s id with
+    | .ok s' => pure (s', x, res "ok")
+    | .notFound => pure (s, x, res "not_found")
+  | .latestFinished f => do
+    let ty ← match f with
+      | none => pure "any"
+      | some t => syncTypeStr t
+    let r := match Sync.latestFinished s f with
+      | some run => run.id
+      | none => "none"
+    pure (s, x, .obj [("op", .str "latest_finished"), ("type", .str ty), ("result", .str r)])
+
+def ROp.isReopen : ROp → Bool
+  | .reopen => true
+  | _ => false
+
+def ReopenCase.toJ (c : ReopenCase) : Except String J := do
+  let ctx := s!"reopen case {c.name}"
+  let mut s := Sync.opened none false
+  let mut x := IndexedGrants.empty
+  let mut afterReopen := false
+  let mut out : Array J := #[]
+  for op in c.ops do
+    let (s', x', j) ← op.step ctx s x afterReopen
+    s := s'
+    x := x'
+    afterReopen := op.isReopen
+    out := out.push j
+  pure <| .obj [("name", .str c.name), ("ops", .arr out.toList)]
+
+def rg1 : GrantRecord := pg1
+def rg2 : GrantRecord := gr "group" "g2" "group:g2:member" "user" "u1"
+
+def reopenCases : List ReopenCase := [
+  ⟨"unfinished sync readable after reopen within cutoff",
+    [.startNew "s1" .full, .put [rg1, pg2], .reopen, .listGrants, .write, .resume "s1", .write, .endSync]⟩,
+  ⟨"finished sync readable after reopen and resumable",
+    [.startNew "s1" .full, .put [rg1], .endSync, .reopen, .listGrants, .latestFinished none, .resume "s1", .write,
+     .put [pg2], .listGrants]⟩,
+  ⟨"start new after reopen wipes the keyspace",
+    [.startNew "s1" .full, .put [rg1], .endSync, .reopen, .startNew "s2" .partialSync, .listGrants,
+     .latestFinished none]⟩,
+  ⟨"unfinished sync older than the cutoff does not resolve",
+    [.startNew "s1" .full, .put [rg1], .reopen, .ageSync 8, .listGrants, .readByPrincipal (u "user") (u "u1"),
+     .latestFinished none, .startNew "s2" .full, .listGrants]⟩,
+  ⟨"unfinished sync within the cutoff resolves",
+    [.startNew "s1" .full, .put [rg1], .reopen, .ageSync 6, .listGrants]⟩,
+  ⟨"finished sync resolves whatever its age",
+    [.startNew "s1" .resourcesOnly, .put [rg1], .endSync, .reopen, .ageSync 30, .listGrants,
+     .latestFinished (some .resourcesOnly)]⟩,
+  ⟨"deferred write invisible across reopen until end",
+    [.startNew "s1" .full, .put [rg1], .putDeferred [rg2], .reopen, .readByPrincipal (u "user") (u "u1"),
+     .resume "s1", .endSync, .readByPrincipal (u "user") (u "u1")]⟩,
+  ⟨"reopen on a fresh file has no current sync", [.reopen, .listGrants, .readByPrincipal (u "user") (u "u1"),
+     .write, .latestFinished none]⟩,
+  ⟨"end after reopen without resume", [.startNew "s1" .full, .put [rg1], .reopen, .endSync, .latestFinished none]⟩,
+  ⟨"reopen clears the fresh flag", [.startNew "s1" .full, .reopen, .startNew "s2" .full, .write]⟩,
+  ⟨"reopen after end unseals but stays unbound", [.startNew "s1" .full, .endSync, .write, .reopen, .write,
+     .resume "s1", .write]⟩
+]
+
 /-! ## document -/
 
 /-- The families in schema order, each paired with its field name. -/
@@ -805,17 +1326,22 @@ structure Families where
   grantList : List J := []
   byPrincipal : List J := []
   grantBare : List J := []
+  stream : List J := []
+  digest : List J := []
+  reopen : List J := []
 
 def Families.toList (f : Families) : List (String × List J) :=
   [("keys", f.keys), ("entitlement_strip", f.strip), ("writes", f.writes),
     ("pagination", f.pages), ("bare_id", f.bare), ("sync", f.sync),
     ("grant_writes", f.grantWrites), ("entitlement_writes", f.entWrites), ("grant_list", f.grantList),
-    ("grants_by_principal", f.byPrincipal), ("grant_bare_id", f.grantBare)]
+    ("grants_by_principal", f.byPrincipal), ("grant_bare_id", f.grantBare),
+    ("stream", f.stream), ("digest", f.digest), ("reopen", f.reopen)]
 
 def Families.append (a b : Families) : Families :=
   ⟨a.keys ++ b.keys, a.strip ++ b.strip, a.writes ++ b.writes, a.pages ++ b.pages, a.bare ++ b.bare,
     a.sync ++ b.sync, a.grantWrites ++ b.grantWrites, a.entWrites ++ b.entWrites, a.grantList ++ b.grantList,
-    a.byPrincipal ++ b.byPrincipal, a.grantBare ++ b.grantBare⟩
+    a.byPrincipal ++ b.byPrincipal, a.grantBare ++ b.grantBare, a.stream ++ b.stream, a.digest ++ b.digest,
+    a.reopen ++ b.reopen⟩
 
 /-- `version`, `counts`, then each family, in schema order. -/
 def Families.toDoc (f : Families) : J :=
@@ -835,6 +1361,9 @@ structure Inputs where
   grantList : List GrantListCase := []
   byPrincipal : List ByPrincipalCase := []
   grantBare : List GrantBareCase := []
+  stream : List StreamCase := []
+  digest : List DigestCase := []
+  reopen : List ReopenCase := []
 
 /-- Expected values for every input, computed by the model. -/
 def render (i : Inputs) : Except String Families := do
@@ -842,7 +1371,8 @@ def render (i : Inputs) : Except String Families := do
     ← i.pages.mapM PageCase.toJ, ← i.bare.mapM BareCase.toJ, ← i.sync.mapM SyncCase.toJ,
     ← i.grantWrites.mapM GrantWriteCase.toJ, ← i.entWrites.mapM EntWriteCase.toJ,
     ← i.grantList.mapM GrantListCase.toJ, ← i.byPrincipal.mapM ByPrincipalCase.toJ,
-    ← i.grantBare.mapM GrantBareCase.toJ⟩
+    ← i.grantBare.mapM GrantBareCase.toJ, ← i.stream.mapM StreamCase.toJ, ← i.digest.mapM DigestCase.toJ,
+    ← i.reopen.mapM ReopenCase.toJ⟩
 
 /-- The fixed corpus. Fails if any family is empty. -/
 def fixedInputs : Inputs where
@@ -857,6 +1387,9 @@ def fixedInputs : Inputs where
   grantList := grantListCases
   byPrincipal := byPrincipalCases
   grantBare := grantBareCases
+  stream := streamCases
+  digest := digestCases
+  reopen := reopenCases
 
 def fixedFamilies : Except String Families := do
   let f ← render fixedInputs

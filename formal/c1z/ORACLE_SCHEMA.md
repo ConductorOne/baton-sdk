@@ -19,7 +19,8 @@ recognize which write produced a stored row.
     "keys": 0, "entitlement_strip": 0, "writes": 0,
     "pagination": 0, "bare_id": 0, "sync": 0,
     "grant_writes": 0, "entitlement_writes": 0, "grant_list": 0,
-    "grants_by_principal": 0, "grant_bare_id": 0
+    "grants_by_principal": 0, "grant_bare_id": 0,
+    "stream": 0, "digest": 0, "reopen": 0
   },
   "keys": [ ... ],
   "entitlement_strip": [ ... ],
@@ -31,7 +32,10 @@ recognize which write produced a stored row.
   "entitlement_writes": [ ... ],
   "grant_list": [ ... ],
   "grants_by_principal": [ ... ],
-  "grant_bare_id": [ ... ]
+  "grant_bare_id": [ ... ],
+  "stream": [ ... ],
+  "digest": [ ... ],
+  "reopen": [ ... ]
 }
 ```
 
@@ -290,6 +294,123 @@ cannot distinguish an empty stored id from the rebuilt one).
 `not_found` is `pebble.ErrNotFound` from `GetGrant`; `ambiguous` is
 `ErrAmbiguousExternalID`. Any other error fails the test.
 
+## Increment 3, 5, and 7 families
+
+### stream
+
+Model: `C1z.Stream.run` over `Stream.grantRows` (grants) or the sorted
+primary rows (resources, entitlements). Go: `StreamGrants`,
+`StreamResources`, `StreamEntitlements` with an empty sync id on a
+fresh engine with a started sync.
+
+```json
+{ "name": "cancelled over empty keyspace yields nothing",
+  "kind": "grants" | "resources" | "entitlements",
+  "entitlements": [ { "rt": "hex", "rid": "hex", "ext": "hex" }, ... ],   // rows written first
+  "resources": [ { "rt": "hex", "rid": "hex" }, ... ],                   // resources kind
+  "grants": [ <grant>, ... ],                                            // grants kind, PutGrants
+  "deferred": [ <grant>, ... ],                                          // grants kind, PutExpandedGrantRecords
+  "filter": { "ent_ext": "hex", "prt": "hex", "prid": "hex" }            // grants: each optional
+          | { "rt": "hex" }                                              // resources: optional
+          | {},                                                          // entitlements
+  "consumer": { "cancel_after": 0, "break_after": null },                // each null or a count
+  "yields": [ { "grant": <grant> } | { "resource": {...} } | { "entitlement": {...} }
+            | { "error": "cancelled" }, ... ] }
+```
+
+`cancel_after: 0` means the context is cancelled before the stream
+starts; `cancel_after: k` means the consumer cancels it right after
+receiving the k-th record and keeps ranging. `break_after: k` means the
+consumer stops after the k-th record. The error on the index path is
+wrapped by the engine; the Go test classifies with `errors.Is(err,
+context.Canceled)`. Which rows a grant stream scans: `ent_ext` set →
+that entitlement's prefix (the oracle only emits an `ent_ext` that
+matches exactly one entitlement row, or matches none and contains no
+colon, so the engine's bare-id resolution is unambiguous and the
+no-match case is an empty stream); `prt` alone → the `by_principal`
+index under that type, in index key order, with the deferred-index gap;
+anything else → a full primary scan. `prt` and `prid` are post-filters.
+Resources: full primary scan with `rt` as a post-filter.
+
+### digest
+
+Model: `C1z.Digest`. Go: a fresh engine with the digest option on
+(the default), `PutEntitlements`, `PutGrants` carrying the
+`GrantImmutable` annotation and the sources map, then the ops.
+
+```json
+{ "name": "write after seal invalidates partition and global",
+  "entitlements": [ { "rt": "hex", "rid": "hex", "ext": "hex" }, ... ],
+  "grants": [ { "ent": {...}, "prt": "hex", "prid": "hex", "ext_id": "hex",
+                "immutable": false, "sources": [ { "key": "hex", "is_direct": true }, ... ] }, ... ],
+  "ops": [
+    { "op": "seal" },                                                    // EndSync
+    { "op": "read", "ent": {...}, "found": true, "count": 2, "width": 0 },
+    { "op": "read_global", "found": true, "count": 5 },
+    { "op": "resume" },                                                  // ResumeSync(current id)
+    { "op": "put", "batch": [ <digest grant>, ... ] },
+    { "op": "delete", "ent": {...}, "prt": "hex", "prid": "hex" }
+  ],
+  "equal_content": [ [ {...}, {...} ], ... ],                           // entitlement pairs with equal canonical content
+  "distinct_content": [ [ {...}, {...} ], ... ] }                       // entitlement pairs with different canonical content
+```
+
+`read` expects `found`, `count`, and `width` from
+`GetEntitlementDigestRoot`; `read_global` from `GetGrantDigestGlobalRoot`.
+After `seal`, a `put` or `delete` under an entitlement makes that
+entitlement and the global root read `found: false` while other
+partitions still read `found: true`; a later `seal` makes everything
+found again with the fresh values. `seal` may appear more than once;
+`put`/`delete` need a `resume` after a `seal`.
+
+The hash is not modeled, so hash bytes never appear in the document.
+The Go test checks instead: (1) every pair in `equal_content` has equal
+root hashes after the last `seal`; (2) every pair in `distinct_content`
+has different root hashes, which is the collision assumption made
+explicit (a failure there is an xxHash64 collision, not a model error,
+and the test says so); (3) for every partition, the root equals the
+engine's own `GrantDigestAccumulator` fed v2 grants built from the
+case's grants with `ext_id` replaced by a fixed different string and no
+`discovered_at`, which pins the canonicalization (excluded fields do not
+affect the hash). `width` is `chooseWidth(count)`.
+
+### reopen
+
+Model: `C1z.Sync` with `reopen` and `setStartedAt`, plus
+`C1z.IndexedGrants` for the data. Go: ops on an engine that may be
+closed and reopened on the same in-memory filesystem (or the same
+directory with `C1Z_FORMAL_DISK=1`). The model's clock is fixed at
+`now = 1000000000` seconds; `start_new` stamps `started_at = now`.
+
+```json
+{ "name": "unfinished sync readable after reopen within cutoff",
+  "ops": [
+    { "op": "start_new", "id": "s1", "type": "full", "result": "ok" | "sync_in_progress" },
+    { "op": "put", "batch": [ <grant>, ... ] },
+    { "op": "put_deferred", "batch": [ <grant>, ... ] },
+    { "op": "end", "result": "ok" | "no_current_sync" },
+    { "op": "reopen" },
+    { "op": "age_sync", "days": 8 },                                     // started_at := now - days
+    { "op": "write", "result": "allowed" | "no_current_sync" | "engine_sealed" },
+    { "op": "list_grants", "result": "ok" | "no_current_sync", "grants": [ <grant>, ... ] },
+    { "op": "read_by_principal", "prt": "hex", "prid": "hex",
+      "result": "ok" | "no_current_sync", "grants": [ <grant>, ... ] },
+    { "op": "resume", "id": "s1", "result": "ok" | "not_found" },
+    { "op": "latest_finished", "type": "any", "result": "none" | "<sync id>" }
+  ] }
+```
+
+`age_sync` is `PutSyncRunRecord` with the same id and `started_at =
+time.Now() - days*24h`; it needs an open engine and no bound sync, so
+it appears only right after `reopen`. `list_grants` and
+`read_by_principal` resolve the default sync like the adapter does:
+`no_current_sync` when nothing resolves (no record, or an unfinished
+record older than the cutoff), otherwise the model's collection.
+`put`/`put_deferred` are allowed only while a sync is bound (after
+`start_new` or `resume`). `reopen` is legal in any state; after it the
+engine is unbound and unsealed. Sync ids are symbolic and mapped to
+KSUIDs as in the `sync` family.
+
 ## Oracle modes
 
 `lake exe c1z-oracle` has three modes. Every mode writes a document of
@@ -326,6 +447,9 @@ and emits a complete case document with `version` and `counts`.
 | `grant_list` | `name`, `grants`, `query`, `page_size` | `pages` |
 | `grants_by_principal` | `name`, `ops` (a `read` op carries `prt`, `prid`) | `grants` on every `read` op |
 | `grant_bare_id` | `name`, `entitlements`, `grants`, `lookup` | `expected`, `found` |
+| `stream` | `name`, `kind`, rows, `filter`, `consumer` | `yields` |
+| `digest` | `name`, `entitlements`, `grants`, `ops` with `op` and inputs | `found`, `count`, `width` on reads; `equal_content`, `distinct_content` |
+| `reopen` | `name`, `ops` with `op` and inputs | `result` on every op; `grants` on reads |
 
 A family may be absent or empty in the request; it is then empty in
 the response with count 0. The oracle exits non-zero with a message on

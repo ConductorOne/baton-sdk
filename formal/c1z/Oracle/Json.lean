@@ -16,6 +16,7 @@ inductive J where
   | bool (b : Bool)
   | arr (xs : List J)
   | obj (kvs : List (String × J))
+  | null
   deriving Inhabited
 
 private def hexDigit (n : Nat) : Char :=
@@ -53,6 +54,7 @@ partial def J.render : J → String
   | .bool b => if b then "true" else "false"
   | .arr xs => "[" ++ ",".intercalate (xs.map J.render) ++ "]"
   | .obj kvs => "{" ++ ",".intercalate (kvs.map fun (k, v) => escapeStr k ++ ":" ++ v.render) ++ "}"
+  | .null => "null"
 
 /-- Top-level rendering: one field per line, and one array element per
 line inside top-level arrays, so diffs of the generated file stay local. -/
