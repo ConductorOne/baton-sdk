@@ -40,6 +40,8 @@ C1z.lean, C1z/          the proved core (never `import Lean`)
   GrantLookup.lean      grant lookup by bare external id (two-phase rule)
   Stream.lean           streaming readers, cancellation, early stop
   Digest.lean           grant digests: canonicalization, fold, invalidation
+  Views.lean            one theorem that every read view agrees; bulk reads
+  Container.lean        the .c1z envelope: seal, public open, damage classes
 Oracle/                 case generator (tooling; may `import Lean`)
 generated/cases.json    the oracle's output, checked in (see "Trust")
 ORACLE_SCHEMA.md        the JSON contract between oracle and Go test
@@ -49,7 +51,11 @@ AXIOMS.golden           reviewed axiom sets, one line per theorem
 ROADMAP.md              next increments, ordered by expected yield
 ```
 
-The Go consumer is `pkg/dotc1z/engine/pebble/formal_conformance_test.go`.
+The Go consumers are `pkg/dotc1z/engine/pebble/formal_conformance_test.go`
+(every family that drives the engine directly) and
+`pkg/dotc1z/formal_container_test.go` (the `container` family, which
+goes through the public `NewStore`/`Close` path and so lives in the
+package that owns it).
 
 ## Running
 
@@ -83,7 +89,11 @@ For a long run, `scripts/soak.sh` (or `make formal-c1z-soak
 SOAK_ARGS="-n 1000 -s 1 -e 50 -j 2"`) loops the property test over a
 seed range, one `go test` per seed and `-j` seeds at a time, reporting
 every failing seed with its replay command. Per-seed logs land in
-`.lake/soak-<seed>.log`.
+`.lake/soak-<seed>.log`. The container family is disk-bound because each
+case closes the store (a real checkpoint and envelope write) and reopens
+it by extracting the envelope, so it runs `C1Z_FORMAL_CONTAINER_N` cases
+per seed (default a tenth of `C1Z_FORMAL_PROPERTY_N`); lower that to
+shrink it, or set `C1Z_FORMAL_TMPDIR` to a RAM disk to relocate it.
 
 Cases run as parallel subtests, and each case's engine opens over
 Pebble's in-memory filesystem, so a 200-per-family run takes about a
@@ -113,6 +123,8 @@ model describes.
 | `Sync.reopen`, `setStartedAt` | `engine.go` `Open` (empty binding); `sync_runs.go` `PutSyncRunRecord` |
 | `Stream.run`, `grantRows` | `adapter_streaming.go` `StreamGrants` switch and per-row `ctx.Err()` check |
 | `Digest.canonical`, `fold`, `chooseWidth`, `State.invalidate`, `repair` | `grant_digest.go` `grantContentHash64`; `digest.go` combiner and `chooseDigestWidth`; `rawdb` `stageGrantDigestInvalidation`; `grant_digest_repair.go` |
+| `Views.bulkResources`, `bulkEntitlements` | `adapter_reader.go` `ListResourcesByIds`, `ListEntitlementsByIds` |
+| `Container.sealArtifact`, `openArtifact`, `damage` | `pkg/dotc1z/pebble_store.go` `save`/`OpenStore` (`InitCurrentSync`); `format/v3/envelope.go`, `indexed.go`; `engine_registry.go` `selectStoreDriver` |
 
 ## Guarantees
 
@@ -231,6 +243,32 @@ only" means the Lean statement has no Go counterpart yet.
 | Absent, never built, option off, and invalidated are distinguishable | Not enforced | all read as `found = false` with no error. A built empty partition is `found = true, count 0`. `ComputeEntitlementBucketDigest` on an invalidated partition returns zeros that look like "no grants". |
 | Roots across ABI versions are comparable | Not enforced | the stamp exists so a mismatch drops or marks the state; the model is ABI v2 only |
 
+### Reader agreement (proposal §5)
+
+| Statement | Status | Evidence |
+|---|---|---|
+| Point lookup, full listing, entitlement scan, the patient streams over each, the principal index walk, and the type index walk agree on existence for a store built by the engine's own writes with a complete index | Proved | `Views.views_agree`; `views` oracle family |
+| Without a complete index the index walks disagree with every other view | Proved (negative) | `views_disagree_without_complete_index` |
+| Bulk reads return each record paired with its own id, in request order, repeats kept, nothing invented | Proved, enforced | `bulkResources_assoc`, `bulkResources_sublist`, `mem_bulkResources_iff`; `views` family |
+| Bulk reads mark missing ids | False | `bulkResources_absence_unmarked`: a missing id is skipped silently; the caller must diff request against response |
+| A bulk entitlement read with an ambiguous bare id fails as a whole; a successful one returns only unique matches | Proved, enforced | `bulkEntitlements_none_of_ambiguous`, `bulkEntitlements_some_unique` |
+| Lookup by bare id is a view of the store | False | it is a resolution rule; see `GrantLookup` and the entitlement exactly-one rule |
+| Field agreement beyond identity and `external_id` | Tested, not proved | the Go test compares display fields where both views return them; the v2 projection drops `discovered_at`, `needs_expansion`, `source_scope_key`, and source reference fields |
+
+### Container (proposal §9)
+
+| Statement | Status | Evidence |
+|---|---|---|
+| A sealed `.c1z` reopens to the state that was sealed; save is flush, checkpoint, envelope, with every normalization done by `EndSync` | Proved for the model; enforced | `Container.open_seal`; `container` oracle family through `NewStore`/`Close` |
+| The public open binds the default sync: a finished file reopened writable accepts writes without `ResumeSync`; a read-only open never allows one | Proved, enforced | `writeGate_publicOpen_finished`, `writeGate_publicOpen_readOnly`, `writeGate_publicOpen_readOnly_ne_allowed`; `InitCurrentSync` |
+| A read-only store reports "read only" on every refused write | False | `writeGate_readOnly_unbound`: the adapter checks for a bound sync first, so an unbound read-only store reports "no current sync". The live property test caught the model reporting read-only. |
+| An unfinished file reopened past the 7-day cutoff binds nothing | Proved, enforced | `publicOpen_unfinished_stale` |
+| A truncated header, bad magic, unknown engine, flipped payload byte, or truncated tail fails the open; none opens with fewer records | Proved for the model; enforced for the default indexed encoding | `open_damage_error`, `open_damage_class`; the indexed envelope hashes the manifest and every frame |
+| The `TAR` and `TAR_ZSTD` encodings detect every truncation | Unverified | plain tar has no manifest hash, and a cut between entries is not an archive error; whether the engine then opens is not established. Out of model scope. |
+| The manifest's sync runs, stats, and digest root agree with the keyspace | Not enforced | they are advisory projections never read back; the keyspace is authoritative |
+| `engine_schema_version` is validated at open | Not enforced | written, never checked; version gating is the keyspace stamp |
+| The in-process binding survives the round trip | No | binding and sealed state are in memory; the public open rebinds through resolution |
+
 ### Errors and exhaustion (proposal §7)
 
 | Statement | Status | Evidence |
@@ -272,7 +310,10 @@ strings, and replays each family against a fresh engine. Families:
 `pagination`, `bare_id`, `sync`, and from the second increment
 `grant_writes`, `entitlement_writes`, `grant_list`,
 `grants_by_principal`, `grant_bare_id`, and from the third increment
-`stream`, `digest`, `reopen`.
+`stream`, `digest`, `reopen`, and from the fourth increment `views`
+and `container`. The `container` family is replayed by
+`TestFormalContainer` in `pkg/dotc1z`, since it needs the public store
+API that imports the engine package.
 
 The fixed generator deliberately does not produce: rows hidden by
 `visible` (dangling index entries), injected faults, `discovered_at`
@@ -286,11 +327,13 @@ families.
 
 - The toolchain is pinned in `lean-toolchain`; the core imports only
   the Lean prelude and `Init`.
-- Three model errors were caught by replay rather than by review: the
+- Four model errors were caught by replay rather than by review: the
   write-gate order after `EndSync` (fixed corpus), the missing
-  `StartNewSync` refusal (live property test), and digest invalidation
-  on a delete of an absent grant (live property test). All are now
-  theorems.
+  `StartNewSync` refusal (live property test), digest invalidation on a
+  delete of an absent grant (live property test), and the read-only
+  gate order on the public open path (live property test). All are now
+  theorems. Two of the four were the same mistake, a check order the
+  model guessed, which is worth remembering when modeling any new gate.
   Treat that as the expected failure mode of Joint 1: the model is a
   transcription, and the oracle is what checks it.
 - `scripts/check.sh` fails on any compiler warning (so on any `sorry`),

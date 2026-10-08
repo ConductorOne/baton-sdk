@@ -14,13 +14,23 @@ identity, so a repeated identity would make `resolveBare` count it twice.
 A `grant_list` query with `prid` and no `prt` is rejected. A `stream`
 filter may carry only the keys of its `kind`, and `consumer` must carry
 both `cancel_after` and `break_after` (each `null` or a count); the row
-arrays of a `stream` case may be absent (empty). `WellFormed`,
+arrays of a `stream` case may be absent (empty). The row arrays of a
+`views` case may be absent too; `end_sync` and `queries` may not, and
+each query carries exactly the inputs of its `view`. A `container` op
+is a `reopen` op other than `reopen`, or `save_reopen` with `readonly`
+and `damage` (`null` or one of the five kinds). `WellFormed`,
 the UTF-8 checks on the grant families, the `end_sync` placement rule of
 `grants_by_principal`, and the other per-family input checks run in
 `Oracle.render`: among them the `stream` `ent_ext` resolution rule and
 `break_after ≥ 1`, the `digest` seal/resume order and distinct source
 keys, and the `reopen` rules that `put`/`put_deferred` need a bound
 sync and `age_sync` directly follows `reopen` on a file with a record.
+The `views` and `container` checks also run there: a
+`stream_grants_for_entitlement` entitlement must be the only row with
+its `ext`; bulk-read ids must be non-empty; `save_reopen` needs a file
+(a sync record, or an earlier successful open), nothing may follow an
+`open_error`, and a read-only store accepts only reads, `write`, and
+`save_reopen`.
 -/
 
 namespace Oracle.Request
@@ -402,6 +412,94 @@ def reopenCase (i : Nat) (j : Json) : P ReopenCase := do
   let ops ← indexed (← arrField ctx kvs "ops") fun k x => rop s!"{ctx}.ops[{k}]" x
   pure ⟨← strField ctx kvs "name", ops⟩
 
+/-! ## increment 8 and 9 families -/
+
+def resourceValue (ctx : String) (j : Json) : P (ResourceId × String) := do
+  let kvs ← fields ctx j ["rt", "rid", "value"] []
+  pure (⟨← hexField ctx kvs "rt", ← hexField ctx kvs "rid"⟩, ← strField ctx kvs "value")
+
+def entitlementValue (ctx : String) (j : Json) : P (EntitlementId × String) := do
+  let kvs ← fields ctx j ["rt", "rid", "ext", "value"] []
+  pure (⟨← hexField ctx kvs "rt", ← hexField ctx kvs "rid", ← hexField ctx kvs "ext"⟩, ← strField ctx kvs "value")
+
+def vquery (ctx : String) (j : Json) : P VQuery := do
+  let kvs ← fields ctx j ["view"] ["ent", "prt", "prid", "ids"]
+  let only := fun (ks : List String) => fields ctx j (["view"] ++ ks) []
+  match ← strField ctx kvs "view" with
+  | "list_grants" => do let _ ← only []; pure .listGrants
+  | "stream_grants" => do let _ ← only []; pure .streamGrants
+  | "grants_for_entitlement" => do
+    let kvs ← only ["ent"]
+    pure (.grantsForEnt (← entField ctx kvs "ent"))
+  | "stream_grants_for_entitlement" => do
+    let kvs ← only ["ent"]
+    pure (.streamForEnt (← entField ctx kvs "ent"))
+  | "point_grant" => do
+    let kvs ← only ["ent", "prt", "prid"]
+    pure (.point (← entField ctx kvs "ent") (← hexField ctx kvs "prt") (← hexField ctx kvs "prid"))
+  | "grants_for_principal" => do
+    let kvs ← only ["prt", "prid"]
+    pure (.forPrincipal (← hexField ctx kvs "prt") (← hexField ctx kvs "prid"))
+  | "grants_for_principal_type" => do
+    let kvs ← only ["prt"]
+    pure (.forPrincipalType (← hexField ctx kvs "prt"))
+  | "resources_by_ids" => do
+    let kvs ← only ["ids"]
+    pure (.resourcesByIds (← indexed (← arrField ctx kvs "ids") fun k x => resource s!"{ctx}.ids[{k}]" x))
+  | "entitlements_by_ids" => do
+    let kvs ← only ["ids"]
+    pure (.entsByIds (← indexed (← arrField ctx kvs "ids") fun k x => hex s!"{ctx}.ids[{k}]" x))
+  | v => throw s!"{ctx}: unknown view \"{v}\""
+
+def viewsCase (i : Nat) (j : Json) : P ViewsCase := do
+  let ctx := s!"views[{i}]"
+  let kvs ← fields ctx j ["name", "end_sync", "queries"] ["resources", "entitlements", "grants", "deferred"]
+  let resources ← indexed (← optArr ctx kvs "resources") fun k x => resourceValue s!"{ctx}.resources[{k}]" x
+  let ents ← indexed (← optArr ctx kvs "entitlements") fun k x => entitlementValue s!"{ctx}.entitlements[{k}]" x
+  let grants ← indexed (← optArr ctx kvs "grants") fun k x => grant s!"{ctx}.grants[{k}]" x
+  let deferred ← indexed (← optArr ctx kvs "deferred") fun k x => grant s!"{ctx}.deferred[{k}]" x
+  let queries ← indexed (← arrField ctx kvs "queries") fun k x => vquery s!"{ctx}.queries[{k}]" x
+  pure { name := ← strField ctx kvs "name", resources, ents, grants, deferred,
+         endSync := ← bool s!"{ctx}.end_sync" (← get ctx kvs "end_sync"), queries }
+
+def damageKind (ctx : String) : Json → P (Option Container.Damage)
+  | .null => pure none
+  | .str "truncate_header" => pure (some .truncateHeader)
+  | .str "bad_magic" => pure (some .badMagic)
+  | .str "bad_engine" => pure (some .badEngine)
+  | .str "flip_payload_byte" => pure (some .flipPayloadByte)
+  | .str "truncate_tail" => pure (some .truncateTail)
+  | .str d => throw s!"{ctx}: unknown damage \"{d}\""
+  | _ => throw s!"{ctx}: expected a damage string or null"
+
+def cop (ctx : String) (j : Json) : P COp := do
+  let kvs ← fields ctx j ["op"] ["id", "type", "batch", "days", "prt", "prid", "readonly", "damage"]
+  match ← strField ctx kvs "op" with
+  | "save_reopen" =>
+    let kvs ← fields ctx j ["op", "readonly", "damage"] []
+    pure (.saveReopen (← bool s!"{ctx}.readonly" (← get ctx kvs "readonly"))
+      (← damageKind s!"{ctx}.damage" (← get ctx kvs "damage")))
+  | "reopen" => throw s!"{ctx}: unknown op \"reopen\""
+  | _ =>
+    match ← rop ctx j with
+    | .startNew id t => pure (.startNew id t)
+    | .put b => pure (.put b)
+    | .putDeferred b => pure (.putDeferred b)
+    | .endSync => pure .endSync
+    | .ageSync d => pure (.ageSync d)
+    | .write => pure .write
+    | .listGrants => pure .listGrants
+    | .readByPrincipal prt prid => pure (.readByPrincipal prt prid)
+    | .resume id => pure (.resume id)
+    | .latestFinished f => pure (.latestFinished f)
+    | .reopen => throw s!"{ctx}: unknown op \"reopen\""
+
+def containerCase (i : Nat) (j : Json) : P ContainerCase := do
+  let ctx := s!"container[{i}]"
+  let kvs ← fields ctx j ["name", "ops"] []
+  let ops ← indexed (← arrField ctx kvs "ops") fun k x => cop s!"{ctx}.ops[{k}]" x
+  pure ⟨← strField ctx kvs "name", ops⟩
+
 /-- A family's entries; an absent family is empty. -/
 def family {α : Type} (kvs : List (String × Json)) (k : String) (f : Nat → Json → P α) : P (List α) :=
   match kvs.find? (·.1 == k) with
@@ -416,7 +514,7 @@ def respond (input : String) : P Families := do
   let kvs ← fields "request" j ["version"]
     ["keys", "entitlement_strip", "writes", "pagination", "bare_id", "sync",
      "grant_writes", "entitlement_writes", "grant_list", "grants_by_principal", "grant_bare_id",
-     "stream", "digest", "reopen"]
+     "stream", "digest", "reopen", "views", "container"]
   let v ← nat "request.version" (← get "request" kvs "version")
   unless v == 1 do throw s!"request.version: unsupported version {v}"
   render ⟨← family kvs "keys" keyCase, ← family kvs "entitlement_strip" stripCase,
@@ -425,6 +523,7 @@ def respond (input : String) : P Families := do
     ← family kvs "grant_writes" grantWriteCase, ← family kvs "entitlement_writes" entWriteCase,
     ← family kvs "grant_list" grantListCase, ← family kvs "grants_by_principal" byPrincipalCase,
     ← family kvs "grant_bare_id" grantBareCase, ← family kvs "stream" streamCase,
-    ← family kvs "digest" digestCase, ← family kvs "reopen" reopenCase⟩
+    ← family kvs "digest" digestCase, ← family kvs "reopen" reopenCase,
+    ← family kvs "views" viewsCase, ← family kvs "container" containerCase⟩
 
 end Oracle.Request

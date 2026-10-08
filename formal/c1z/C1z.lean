@@ -11,3 +11,5 @@ import C1z.Index
 import C1z.GrantLookup
 import C1z.Stream
 import C1z.Digest
+import C1z.Views
+import C1z.Container

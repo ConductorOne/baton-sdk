@@ -9,7 +9,8 @@ Go replay function. The proposal sections referenced are in the C1
 document "Baton SDK proof contract for c1z snapshots and readers".
 
 Status: increments 1, 2, 3, 5, and 7 are done (see README's guarantee
-tables); 4 and 6 remain, plus the standing items. The first six
+tables); 4 is deferred; 8 and 9 are done; 6 remains, plus the
+standing items. The first six
 families cover resource writes, resource pagination, entitlement
 bare-id lookup, key encoding, and the sync lifecycle. 1.5M replayed
 cases found no engine disagreement there; the two mismatches were model
@@ -100,7 +101,10 @@ Expected findings: low for well-formed rows; the value is pinning the
 binding reset and the sealed-engine behavior after reopen, which the
 reader's default-sync resolution depends on.
 
-## 4. Page tokens as adversarial input (proposal §3, §7)
+## 4. Page tokens as adversarial input (proposal §3, §7) — deferred
+
+Deferred by decision: the token writers are this repository's own code, so forged tokens are not a consumer risk worth the increment. The reuse cases (a narrower filter's token on a broader scan; the batched `ListGrantsForEntitlements` checksum restart) remain documented non-guarantees.
+
 
 `checkCursor` is proved but never replayed. The engine accepts any
 in-prefix key, including forged ones, and rejects out-of-prefix keys
@@ -163,6 +167,22 @@ partitioning without overlap, and the invalidation side effect that a
 grant write removes its whole entitlement partition plus the global
 root. Out of scope until increments 1 and 2 are in, because digests
 are over grants.
+
+## 8. Container round trip (proposal §9) — done
+
+Seal a store into a `.c1z` through the public writer, reopen it through
+the public reader, and compare every view to the model. Add the
+failure classes at open (truncation, bad magic or version, corrupt
+manifest, corrupt archive member) with the expectation that each is an
+error and never a shorter successful view.
+
+## 9. Reader agreement as one theorem — done
+
+`C1z.Views.views_agree`: point lookup, full listing, entitlement scan,
+patient streams, and the index walk (once complete) agree on existence
+for a store built by the engine's own writes. Bulk-by-id reads are
+added with their characterized semantics. The known exceptions are
+listed beside the theorem.
 
 ## Standing items
 

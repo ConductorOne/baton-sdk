@@ -162,3 +162,26 @@ Add every exported theorem here; the golden file is reviewed by a human.
 #print axioms C1z.Digest.accurate_invalidate_putGrants
 #print axioms C1z.Digest.afterDelete_absent
 #print axioms C1z.Digest.accurate_afterDelete_present
+
+-- Views
+#print axioms C1z.Views.list_point_agree
+#print axioms C1z.Views.stream_list_agree
+#print axioms C1z.Views.index_primary_agree
+#print axioms C1z.Views.views_agree
+#print axioms C1z.Views.views_disagree_without_complete_index
+#print axioms C1z.Views.bulkResources_assoc
+#print axioms C1z.Views.bulkResources_sublist
+#print axioms C1z.Views.mem_bulkResources_iff
+#print axioms C1z.Views.bulkResources_absence_unmarked
+#print axioms C1z.Views.bulkEntitlements_none_of_ambiguous
+#print axioms C1z.Views.bulkEntitlements_some_unique
+
+-- Container
+#print axioms C1z.Container.open_seal
+#print axioms C1z.Container.open_damage_error
+#print axioms C1z.Container.open_damage_class
+#print axioms C1z.Container.writeGate_publicOpen_finished
+#print axioms C1z.Container.writeGate_publicOpen_readOnly
+#print axioms C1z.Container.writeGate_publicOpen_readOnly_ne_allowed
+#print axioms C1z.Container.writeGate_readOnly_unbound
+#print axioms C1z.Container.publicOpen_unfinished_stale

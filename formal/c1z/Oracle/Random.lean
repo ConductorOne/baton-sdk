@@ -69,6 +69,9 @@ Distributions:
   sources (`genDGrant`). Grant counts stay at 0..5 plus 1..3 per `put`.
 - `reopen`: see `genReopen`; ops are drawn against the model's
   `Sync.FileState` so every input satisfies the `render` checks.
+- `views`: see `genViews`. `container`: see `genContainer`; ops are
+  drawn against `CState`, `save_reopen` is read-only 30% and damaged 15%
+  (`genDamage`).
 
 `genUtf8` concatenates fragments that are whole code points or strings
 (ASCII, `:`, U+0000, U+0001, `é`, `ü`, `€`, `日本`, `グ`, U+1D11E), so
@@ -90,6 +93,10 @@ Not covered beyond the fixed corpus's list in `Oracle.Cases`:
   needs a `put` or `delete` then `read_global` before the next `seal`),
   and never reaches width 1 (only the fixed corpus does);
 - `reopen` uses only `s1`/`s2` and never ages a sync more than once;
+- `container` uses only `s1`/`s2`; about 15% of cases at seed 1,
+  `N = 400`, never write a file (no `start_new` succeeds) and so carry
+  no `save_reopen`; at most one `open_error` per case, always last;
+- `views` writes at most 8 grant rows and 4 resources;
 - `sync` never uses an empty or non-ASCII id, and a non-`none`
   `latest_finished` result is rare (about 3% of those ops at seed 1,
   `N = 400`): it needs `end` then a matching filter.
@@ -573,6 +580,152 @@ def genReopen (name : String) : Gen ReopenCase := do
     | _ => pure ()
   pure ⟨name, ops.toList⟩
 
+/-! ## `views`, `container` -/
+
+instance : Inhabited VQuery := ⟨.listGrants⟩
+
+/-- Grant pools as above; 0..4 resources from `genOwner` (distinct,
+values `r<i>`); entitlement rows: each pool entitlement 2/3, plus a fresh
+one 1/3, plus 1/4 a twin of a drawn row (same `ext` under a `genOwner`
+owner, so bare ids are ambiguous more often) (values `e<i>`); 0..6 grants, 1..2 deferred 40%; `end_sync`
+half the time. 3..9 queries uniform over the nine views. Query
+entitlements come from the pool 85%, principals from the pool 75%.
+`stream_grants_for_entitlement` picks a row whose `ext` no other row
+shares, and becomes `grants_for_entitlement` when there is none.
+`resources_by_ids`: 1..4 ids, a stored resource 60% (so repeats are
+common), else a fresh owner. `entitlements_by_ids`: 1..4 ids, a stored
+row's `ext` 60%, a pool entitlement's `ext` 20% (missing when the row
+was not drawn; ambiguous when two rows share it), else `genUtf8`. -/
+def genViews (name : String) : Gen ViewsCase := do
+  let p ← genPools
+  let nr ← below 5
+  let mut res : List (ResourceId × String) := []
+  for i in [0:nr] do
+    let (rt, rid) ← genOwner
+    let r : ResourceId := ⟨rt, rid⟩
+    unless res.any (·.1.key == r.key) do res := res ++ [(r, s!"r{i}")]
+  let mut rows ← p.ents.filterM fun _ => chance 2 3
+  if ← chance 1 3 then
+    let e ← genGrantEnt
+    unless rows.contains e do rows := rows ++ [e]
+  if !rows.isEmpty && (← chance 1 4) then
+    let e ← pick rows
+    let (rt, rid) ← genOwner
+    let twin : EntitlementId := ⟨rt, rid, e.ext⟩
+    unless rows.contains twin do rows := rows ++ [twin]
+  let resources := res
+  let entIds := rows
+  let ents := entIds.zipIdx.map fun (e, i) => (e, s!"e{i}")
+  let ng ← below 7
+  let grants ← (List.range ng).mapM fun _ => genGrant p
+  let deferred ← if ← chance 2 5 then do
+      let nd ← range 1 2
+      (List.range nd).mapM fun _ => genGrant p
+    else pure []
+  let endSync ← chance 1 2
+  let streamable := entIds.filter fun e => entIds.filter (·.ext == e.ext) == [e]
+  let ent : Gen EntitlementId := do if ← chance 17 20 then pick p.ents else genGrantEnt
+  let prin : Gen (Bytes × Bytes) := do if ← chance 3 4 then pick p.prins else genPrincipal
+  let resId : Gen ResourceId := do
+    if (← chance 3 5) && !resources.isEmpty then pure (← pick resources).1
+    else
+      let (rt, rid) ← genOwner
+      pure ⟨rt, rid⟩
+  let entBare : Gen Bytes := do
+    let r ← below 5
+    if r < 3 && !entIds.isEmpty then pure (← pick entIds).ext
+    else if r < 4 then pure (← pick p.ents).ext
+    else genUtf8 1 3
+  let nq ← range 3 9
+  let queries ← (List.range nq).mapM fun _ => do
+    match ← below 9 with
+    | 0 => pure VQuery.listGrants
+    | 1 => pure .streamGrants
+    | 2 => pure (.grantsForEnt (← ent))
+    | 3 => if streamable.isEmpty then pure (.grantsForEnt (← ent)) else pure (.streamForEnt (← pick streamable))
+    | 4 =>
+      let (prt, prid) ← prin
+      pure (.point (← ent) prt prid)
+    | 5 =>
+      let (prt, prid) ← prin
+      pure (.forPrincipal prt prid)
+    | 6 => pure (.forPrincipalType (← prin).1)
+    | 7 =>
+      let k ← range 1 4
+      pure (.resourcesByIds (← (List.range k).mapM fun _ => resId))
+    | _ =>
+      let k ← range 1 4
+      pure (.entsByIds (← (List.range k).mapM fun _ => entBare))
+  pure { name, resources, ents, grants, deferred, endSync, queries }
+
+instance : Inhabited COp := ⟨.listGrants⟩
+
+instance : Inhabited Container.Damage := ⟨.truncateHeader⟩
+
+/-- Damage 15% of the time, uniform over the five kinds. -/
+def genDamage : Gen (Option Container.Damage) := do
+  if ← chance 3 20 then some <$> pick [.truncateHeader, .badMagic, .badEngine, .flipPayloadByte, .truncateTail]
+  else pure none
+
+/-- `save_reopen` read-only 30%, with `genDamage`. -/
+def genSaveReopen : Gen COp := do pure (.saveReopen (← chance 3 10) (← genDamage))
+
+/-- Ops are drawn against the model's `CState` (advanced by `COp.step`)
+so every input satisfies the `render` checks. The first op is
+`start_new` 80% of the time. Then, from `below 20`: `start_new` 2, `put`
+4, `put_deferred` 2, `end` 2, `save_reopen` 3, `write` 1, `age_sync` 1
+(`days` from `{1, 6, 8, 30}`), `list_grants` 1, `read_by_principal` 2,
+and `resume` or `latest_finished` 1 each. An op the state does not allow
+becomes a read: `put`/`put_deferred` while unbound or read-only, and
+`start_new`, `age_sync`, `resume` on a read-only store, become
+`list_grants` (`end` becomes `write`, `resume` becomes
+`latest_finished`); `save_reopen` before any sync record becomes
+`list_grants`. 1..10 drawn ops, stopping at an `open_error`; a case
+with a file and no `save_reopen` gets one appended, then `list_grants`
+when the open succeeds. -/
+def genContainer (name : String) : Gen ContainerCase := do
+  let p ← genPools
+  let ids := ["s1", "s2"]
+  let mut st : CState := {}
+  let mut ops : Array COp := #[]
+  let mut last : Option String := none
+  let mut reopened := false
+  let first : Bool ← chance 4 5
+  let n ← range 1 10
+  for i in [0:n] do
+    if st.failed then break
+    let r ← if i == 0 && first then pure 0 else below 20
+    let ro := st.readOnly
+    let bound := Container.writeGate' { state := st.s, readOnly := ro } == .allowed
+    let op : COp ←
+      if r < 2 then if ro then pure .listGrants else pure (.startNew (← pick ids) (← genSyncType))
+      else if r < 6 then if bound then pure (.put (← genGrantBatch p)) else pure .listGrants
+      else if r < 8 then if bound then pure (.putDeferred (← genGrantBatch p)) else pure .listGrants
+      else if r < 10 then if ro then pure .write else pure .endSync
+      else if r < 13 then if st.hasFile then genSaveReopen else pure .listGrants
+      else if r < 14 then pure .write
+      else if r < 15 then
+        if !ro && st.s.run.isSome then pure (.ageSync (← pick [1, 6, 8, 30])) else pure .listGrants
+      else if r < 16 then pure .listGrants
+      else if r < 18 then do
+        let (prt, prid) ← pick p.prins
+        pure (.readByPrincipal prt prid)
+      else if r < 19 && !ro then
+        match last with
+        | some id => if ← chance 1 2 then pure (.resume id) else pure (.resume (← pick ids))
+        | none => pure (.resume (← pick ids))
+      else pure (.latestFinished (← pick [none, some .full, some .partialSync, some .resourcesOnly]))
+    ops := ops.push op
+    if let .startNew id _ := op then last := some id
+    if let .saveReopen .. := op then reopened := true
+    if let .ok (st', _) := op.step name st then st := st'
+  if !reopened && !st.failed && st.hasFile then
+    let op ← genSaveReopen
+    ops := ops.push op
+    if let .ok (st', _) := op.step name st then st := st'
+    if !st.failed then ops := ops.push .listGrants
+  pure ⟨name, ops.toList⟩
+
 def many {α : Type} (fam : String) (n : Nat) (g : String → Gen α) : Gen (List α) :=
   (List.range n).mapM fun i => g s!"random/{fam}/{i}"
 
@@ -593,8 +746,10 @@ def families (n seed : Nat) : Except String Families :=
     let stream ← many "stream" n genStream
     let digest ← many "digest" n genDigest
     let reopen ← many "reopen" n genReopen
+    let views ← many "views" n genViews
+    let container ← many "container" n genContainer
     pure (render ⟨keys, strip, writes, pages, bare, sync, grantWrites, entWrites, grantList, byPrincipal, grantBare,
-      stream, digest, reopen⟩)
+      stream, digest, reopen, views, container⟩)
   (gen.run' ⟨UInt64.ofNat seed⟩).run
 
 end Oracle.Random

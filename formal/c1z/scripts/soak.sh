@@ -11,6 +11,9 @@
 # exits non-zero if any failed, printing each failing seed's replay
 # command. Per-seed logs: formal/c1z/.lake/soak-<seed>.log. Needs
 # `lake` on PATH (elan).
+#
+# C1Z_FORMAL_CONTAINER_N and C1Z_FORMAL_TMPDIR pass through from the
+# environment (see ORACLE_SCHEMA.md, "Go-side environment").
 set -uo pipefail
 
 n=1000
@@ -26,7 +29,7 @@ while getopts "n:s:e:j:t:h" opt; do
     j) jobs="$OPTARG" ;;
     t) timeout="$OPTARG" ;;
     h|*)
-      sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
       exit 2
       ;;
   esac
@@ -53,7 +56,7 @@ run_seed() {
   if C1Z_FORMAL_ORACLE="$oracle" \
      C1Z_FORMAL_PROPERTY_N="$n" \
      C1Z_FORMAL_PROPERTY_SEED="$seed" \
-     go test -count=1 -timeout "$timeout" -run TestFormalProperty "$root/pkg/dotc1z/engine/pebble/" >"$logdir/soak-$seed.log" 2>&1; then
+     go test -count=1 -timeout "$timeout" -run 'TestFormalProperty|TestFormalContainerProperty' "$root/pkg/dotc1z/engine/pebble/" "$root/pkg/dotc1z/" >"$logdir/soak-$seed.log" 2>&1; then
     echo "soak: seed $seed ok ($((SECONDS - start))s)"
     rm -f "$logdir/soak-$seed.failed"
   else
@@ -73,7 +76,7 @@ if [[ -e "${failed[0]}" ]]; then
   echo "soak: FAILED seeds:" >&2
   for f in "${failed[@]}"; do
     seed="${f##*/soak-}"; seed="${seed%.failed}"
-    echo "  C1Z_FORMAL_ORACLE=\"$oracle\" C1Z_FORMAL_PROPERTY_N=$n C1Z_FORMAL_PROPERTY_SEED=$seed go test -count=1 -timeout $timeout -v -run TestFormalProperty ./pkg/dotc1z/engine/pebble/" >&2
+    echo "  C1Z_FORMAL_ORACLE=\"$oracle\" C1Z_FORMAL_PROPERTY_N=$n C1Z_FORMAL_PROPERTY_SEED=$seed go test -count=1 -timeout $timeout -v -run 'TestFormalProperty|TestFormalContainerProperty' ./pkg/dotc1z/engine/pebble/ ./pkg/dotc1z/" >&2
   done
   exit 1
 fi

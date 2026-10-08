@@ -20,7 +20,8 @@ recognize which write produced a stored row.
     "pagination": 0, "bare_id": 0, "sync": 0,
     "grant_writes": 0, "entitlement_writes": 0, "grant_list": 0,
     "grants_by_principal": 0, "grant_bare_id": 0,
-    "stream": 0, "digest": 0, "reopen": 0
+    "stream": 0, "digest": 0, "reopen": 0,
+    "views": 0, "container": 0
   },
   "keys": [ ... ],
   "entitlement_strip": [ ... ],
@@ -35,7 +36,9 @@ recognize which write produced a stored row.
   "grant_bare_id": [ ... ],
   "stream": [ ... ],
   "digest": [ ... ],
-  "reopen": [ ... ]
+  "reopen": [ ... ],
+  "views": [ ... ],
+  "container": [ ... ]
 }
 ```
 
@@ -411,6 +414,96 @@ record older than the cutoff), otherwise the model's collection.
 engine is unbound and unsealed. Sync ids are symbolic and mapped to
 KSUIDs as in the `sync` family.
 
+## Increment 8 and 9 families
+
+### views
+
+Model: `C1z.Views`. Go: a fresh engine with a started sync; write the
+rows, optionally `EndSync`, then evaluate every query through the named
+public view and compare. One case exercises many views over one store,
+so disagreement between views shows up as two queries with different
+verdicts against the same expectation.
+
+```json
+{ "name": "every view agrees after end sync",
+  "resources": [ { "rt": "hex", "rid": "hex", "value": "r1" }, ... ],
+  "entitlements": [ { "rt": "hex", "rid": "hex", "ext": "hex", "value": "e1" }, ... ],
+  "grants": [ <grant>, ... ],                       // PutGrants
+  "deferred": [ <grant>, ... ],                     // PutExpandedGrantRecords
+  "end_sync": true,
+  "queries": [
+    { "view": "list_grants", "grants": [ <grant>, ... ] },
+    { "view": "stream_grants", "grants": [ <grant>, ... ] },
+    { "view": "grants_for_entitlement", "ent": {...}, "grants": [ <grant>, ... ] },
+    { "view": "stream_grants_for_entitlement", "ent": {...}, "grants": [ <grant>, ... ] },
+    { "view": "point_grant", "ent": {...}, "prt": "hex", "prid": "hex", "found": true, "grant": <grant> },
+    { "view": "grants_for_principal", "prt": "hex", "prid": "hex", "grants": [ <grant>, ... ] },
+    { "view": "grants_for_principal_type", "prt": "hex", "grants": [ <grant>, ... ] },
+    { "view": "resources_by_ids", "ids": [ { "rt": "hex", "rid": "hex" }, ... ],
+      "found": [ { "rt": "hex", "rid": "hex", "value": "r1" }, ... ] },
+    { "view": "entitlements_by_ids", "ids": [ "hex", ... ], "result": "ok" | "ambiguous",
+      "found": [ { "rt": "hex", "rid": "hex", "ext": "hex", "value": "e1" }, ... ] }
+  ] }
+```
+
+View to engine call: `list_grants` is `ListGrants` to exhaustion;
+`stream_grants` is `StreamGrants` with no options; `grants_for_entitlement`
+is `ListGrantsForEntitlement` with the structured entitlement;
+`stream_grants_for_entitlement` is `StreamGrants{EntitlementID}` (the
+oracle emits only entitlement ids that match exactly one stored
+entitlement row); `point_grant` is `ListGrantsForEntitlement` with the
+structured entitlement and `PrincipalId`; `grants_for_principal` is
+`ListGrantsForPrincipal`; `grants_for_principal_type` is
+`ListGrantsForResourceType` (index order); `resources_by_ids` is
+`ListResourcesByIds` (request order, missing skipped, repeats kept);
+`entitlements_by_ids` is `ListEntitlementsByIds` with bare ids (`ambiguous`
+is `ErrAmbiguousExternalID` for the whole call). Expected lists are in
+the order the model gives: primary key order for the primary views,
+index key order for the type walk, request order for bulk reads.
+
+### container
+
+Model: `C1z.Container` over `C1z.Sync` and `C1z.IndexedGrants`. Go: the
+public store API in `pkg/dotc1z` (`NewStore` on a `t.TempDir()` path,
+`Close`), so the engine behind every op is the same one the other
+families drive, but opened through the real envelope. Sync ids are
+symbolic as in `sync`.
+
+```json
+{ "name": "finished file reopened writable accepts writes",
+  "ops": [
+    { "op": "start_new", "id": "s1", "type": "full", "result": "ok" | "sync_in_progress" },
+    { "op": "put", "batch": [ <grant>, ... ] },
+    { "op": "put_deferred", "batch": [ <grant>, ... ] },
+    { "op": "end", "result": "ok" | "no_current_sync" },
+    { "op": "age_sync", "days": 8 },
+    { "op": "save_reopen", "readonly": false, "damage": null | "truncate_header" | "bad_magic"
+                                             | "bad_engine" | "flip_payload_byte" | "truncate_tail",
+      "result": "ok" | "open_error" },
+    { "op": "write", "result": "allowed" | "no_current_sync" | "engine_sealed" | "read_only" },
+    { "op": "list_grants", "result": "ok" | "no_current_sync", "grants": [ <grant>, ... ] },
+    { "op": "read_by_principal", "prt": "hex", "prid": "hex",
+      "result": "ok" | "no_current_sync", "grants": [ <grant>, ... ] },
+    { "op": "resume", "id": "s1", "result": "ok" | "not_found" },
+    { "op": "latest_finished", "type": "any", "result": "none" | "<sync id>" }
+  ] }
+```
+
+`save_reopen` is `Close` (which writes the `.c1z` when the store is
+dirty) followed by `NewStore` on the same path, read-only when asked.
+With `damage`, the Go test mutates the file between the two: truncate
+to 4 bytes; flip a magic byte; rewrite the envelope with engine `bogus`
+(unpack, then `WriteEnvelope` with a modified manifest); flip one byte
+inside the payload; truncate the last 28 bytes. `open_error` means
+`NewStore` returned an error; the case ends there. On `ok`, the model
+state is `openArtifact`: the engine is bound to the default sync if one
+resolves (so a finished file is writable without `resume`), and
+read-only opens refuse writes with `read_only`. A later `save_reopen`
+after a `write` must show the written grant: that is the round trip the
+family exists for. `age_sync` rewrites `started_at` while the store is
+open and writable. Ops after a read-only open may only read. `put`,
+`put_deferred` require a bound sync and a writable store.
+
 ## Oracle modes
 
 `lake exe c1z-oracle` has three modes. Every mode writes a document of
@@ -450,6 +543,8 @@ and emits a complete case document with `version` and `counts`.
 | `stream` | `name`, `kind`, rows, `filter`, `consumer` | `yields` |
 | `digest` | `name`, `entitlements`, `grants`, `ops` with `op` and inputs | `found`, `count`, `width` on reads; `equal_content`, `distinct_content` |
 | `reopen` | `name`, `ops` with `op` and inputs | `result` on every op; `grants` on reads |
+| `views` | `name`, rows, `end_sync`, `queries` with `view` and inputs | `grants`, `found`, `grant`, `result` per query |
+| `container` | `name`, `ops` with `op` and inputs | `result` on every op; `grants` on reads |
 
 A family may be absent or empty in the request; it is then empty in
 the response with count 0. The oracle exits non-zero with a message on
@@ -468,3 +563,5 @@ test failure, never as "no cases".
 | `C1Z_FORMAL_PROPERTY_N` | cases per family for `TestFormalProperty` (default 200) |
 | `C1Z_FORMAL_PROPERTY_SEED` | seed for the Go generator (default: derived from time, printed in the test log so a failure can be replayed) |
 | `C1Z_FORMAL_DISK=1` | open each case's engine on disk (`t.TempDir`) instead of Pebble's in-memory filesystem; about 50x slower because `EndSync` fsyncs serialize at the device |
+| `C1Z_FORMAL_CONTAINER_N` | container cases per seed for `TestFormalContainerProperty` (default `max(1, C1Z_FORMAL_PROPERTY_N / 10)`); the container family writes, checkpoints, and extracts real `.c1z` files, so it is disk-bound |
+| `C1Z_FORMAL_TMPDIR=<dir>` | `TestFormalContainer` and `TestFormalContainerProperty` place each case's `.c1z` file and extraction directory in a fresh `formal-*` subdirectory of `<dir>`, removed when the case ends; point it at a RAM disk on machines that have one (default: `t.TempDir`) |

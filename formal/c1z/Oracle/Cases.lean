@@ -8,6 +8,8 @@ import C1z.Index
 import C1z.GrantLookup
 import C1z.Stream
 import C1z.Digest
+import C1z.Views
+import C1z.Container
 import Oracle.Json
 
 /-!
@@ -16,7 +18,8 @@ import Oracle.Json
 Each family below is a hand-chosen list of inputs; every expected value
 is computed by running the model (`C1z.Identity`, `C1z.Store`,
 `C1z.Paginate`, `C1z.Result`, `C1z.Sync`, `C1z.Records`, `C1z.Index`,
-`C1z.GrantLookup`, `C1z.Stream`, `C1z.Digest`). Nothing here writes an
+`C1z.GrantLookup`, `C1z.Stream`, `C1z.Digest`, `C1z.Views`,
+`C1z.Container`). Nothing here writes an
 expected output by hand. The schema is `ORACLE_SCHEMA.md`.
 `Oracle.Random` and `Oracle.Request` pass their inputs through the same
 `render`.
@@ -58,7 +61,18 @@ against the Pebble engine:
 - `SyncType.unspecified`, which has no schema string;
 - multi-file behavior (compaction, `CloneSync`); `reopen` covers one
   file closed and reopened, and `StartNewSync` wiping grants written by
-  an earlier sync.
+  an earlier sync;
+- `views`: one `PutGrants` and one `PutExpandedGrantRecords` per case,
+  no deletes, and bulk-read ids that are empty;
+  `stream_grants_for_entitlement` only for an entitlement that is the
+  sole row with its `ext`; field agreement beyond identity and
+  `external_id`;
+- `container`: the `TAR` and `TAR_ZSTD` encodings
+  (`unsupportedEncoding`), damage other than the five `Container.Damage`
+  kinds, a `save_reopen` with no file on disk (`Close` writes only a
+  dirty store, so the first `save_reopen` needs a sync record), writes
+  after a read-only open, and ops after an `open_error`; `write`, as in
+  `reopen`, stores no grant, so the round trip is shown by a `put`.
 -/
 
 namespace Oracle
@@ -1311,6 +1325,310 @@ def reopenCases : List ReopenCase := [
      .resume "s1", .write]⟩
 ]
 
+/-! ## views -/
+
+inductive VQuery where
+  | listGrants
+  | streamGrants
+  | grantsForEnt (e : EntitlementId)
+  | streamForEnt (e : EntitlementId)
+  | point (e : EntitlementId) (prt prid : Bytes)
+  | forPrincipal (prt prid : Bytes)
+  | forPrincipalType (prt : Bytes)
+  | resourcesByIds (ids : List ResourceId)
+  | entsByIds (ids : List Bytes)
+
+/-- Rows written to one store, optionally sealed by `EndSync`, then
+queried through each view. Resource and entitlement values are display
+names. -/
+structure ViewsCase where
+  name : String
+  resources : List (ResourceId × String) := []
+  ents : List (EntitlementId × String) := []
+  grants : List GrantRecord := []
+  deferred : List GrantRecord := []
+  endSync : Bool := false
+  queries : List VQuery
+
+def checkPrincipal (ctx : String) (prt prid : Bytes) : Except String Unit := do
+  if prt.isEmpty || prid.isEmpty then throw s!"{ctx}: empty principal component"
+  needUtf8 ctx prt
+  needUtf8 ctx prid
+
+def checkResource (ctx : String) (r : ResourceId) : Except String Unit := do
+  if r.rt.isEmpty || r.rid.isEmpty then throw s!"{ctx}: empty resource component"
+  needUtf8 ctx r.rt
+  needUtf8 ctx r.rid
+
+def valueStr (ctx : String) (v : Bytes) : Except String String :=
+  match utf8? v with
+  | some s => pure s
+  | none => throw s!"{ctx}: value is not UTF-8"
+
+def resValueJ (r : ResourceId) (v : String) : Except String J := do
+  pure <| .obj [("rt", ← hexJ r.rt), ("rid", ← hexJ r.rid), ("value", .str v)]
+
+/-- One query against the store. `ents` are the stored entitlement
+identities and `es` their values. -/
+def VQuery.toJ (ctx : String) (x : IndexedGrants) (rs : Store Bytes) (ents : List EntitlementId)
+    (es : EntitlementStore) : VQuery → Except String J
+  | .listGrants => do
+    pure (.obj [("view", .str "list_grants"), ("grants", ← grantsJ (GrantStore.allGrants x.store))])
+  | .streamGrants => do
+    pure (.obj [("view", .str "stream_grants"),
+      ("grants", ← grantsJ (Views.streamRecords (GrantStore.allGrants x.store)))])
+  | .grantsForEnt e => do
+    checkEnt ctx e
+    pure (.obj [("view", .str "grants_for_entitlement"), ("ent", ← entJ e),
+      ("grants", ← grantsJ (GrantStore.grantsForEntitlement x.store e))])
+  | .streamForEnt e => do
+    checkEnt ctx e
+    unless ents.filter (·.ext == e.ext) == [e] do
+      throw s!"{ctx}: stream_grants_for_entitlement ent must be the only entitlement row with its ext"
+    pure (.obj [("view", .str "stream_grants_for_entitlement"), ("ent", ← entJ e),
+      ("grants", ← grantsJ (Views.streamRecords (GrantStore.grantsForEntitlement x.store e)))])
+  | .point e prt prid => do
+    checkEnt ctx e
+    checkPrincipal ctx prt prid
+    let base := [("view", J.str "point_grant"), ("ent", ← entJ e), ("prt", ← hexJ prt), ("prid", ← hexJ prid)]
+    match GrantStore.getGrant x.store ⟨e, prt, prid⟩ with
+    | some r => pure (.obj (base ++ [("found", .bool true), ("grant", ← grantJ r)]))
+    | none => pure (.obj (base ++ [("found", .bool false)]))
+  | .forPrincipal prt prid => do
+    checkPrincipal ctx prt prid
+    pure (.obj [("view", .str "grants_for_principal"), ("prt", ← hexJ prt), ("prid", ← hexJ prid),
+      ("grants", ← grantsJ (x.grantsForPrincipal prt prid))])
+  | .forPrincipalType prt => do
+    if prt.isEmpty then throw s!"{ctx}: empty principal type"
+    needUtf8 ctx prt
+    pure (.obj [("view", .str "grants_for_principal_type"), ("prt", ← hexJ prt),
+      ("grants", ← grantsJ (x.grantsForPrincipalType prt))])
+  | .resourcesByIds ids => do
+    for r in ids do checkResource ctx r
+    let found ← (Views.bulkResources rs ids).mapM fun (r, v) => do resValueJ r (← valueStr ctx v)
+    pure (.obj [("view", .str "resources_by_ids"), ("ids", .arr (← ids.mapM resJ)), ("found", .arr found)])
+  | .entsByIds ids => do
+    for i in ids do
+      if i.isEmpty then throw s!"{ctx}: empty entitlement id"
+      needUtf8 ctx i
+    let base := [("view", J.str "entitlements_by_ids"), ("ids", .arr (← ids.mapM hexJ))]
+    match Views.bulkEntitlements ents ids with
+    | none => pure (.obj (base ++ [("result", .str "ambiguous"), ("found", .arr [])]))
+    | some found =>
+      let fs ← found.mapM fun e => do
+        let some v := EntitlementStore.getEntitlement es e | throw s!"{ctx}: entitlement without a value"
+        entValueJ e (← valueStr ctx v)
+      pure (.obj (base ++ [("result", .str "ok"), ("found", .arr fs)]))
+
+def ViewsCase.toJ (c : ViewsCase) : Except String J := do
+  let ctx := s!"views case {c.name}"
+  for (r, _) in c.resources do checkResource ctx r
+  if (c.resources.map (·.1.key)).eraseDups.length != c.resources.length then throw s!"{ctx}: repeated resource"
+  let ents := c.ents.map (·.1)
+  for e in ents do checkEnt ctx e
+  checkDistinctEnts ctx ents
+  for r in c.grants ++ c.deferred do checkGrant ctx r
+  let x0 := (IndexedGrants.empty.putGrants c.grants).putGrantsDeferred c.deferred
+  let x := if c.endSync then x0.endSyncRebuild else x0
+  let rs : Store Bytes := Store.empty.putBatch (c.resources.map fun (r, v) => (r.key, u v))
+  let es := EntitlementStore.putEntitlements Store.empty (c.ents.map fun (e, v) => (e, u v))
+  let qs ← c.queries.mapM (VQuery.toJ ctx x rs ents es)
+  pure <| .obj [("name", .str c.name), ("resources", .arr (← c.resources.mapM fun (r, v) => resValueJ r v)),
+    ("entitlements", .arr (← c.ents.mapM fun (e, v) => entValueJ e v)), ("grants", ← grantsJ c.grants),
+    ("deferred", ← grantsJ c.deferred), ("end_sync", .bool c.endSync), ("queries", .arr qs)]
+
+def vEG2 : EntitlementId := en "group" "g2" "group:g2:member"
+def vAdmin : EntitlementId := en "group" "g1" "admin"
+
+def vResources : List (ResourceId × String) :=
+  [(⟨u "user", u "u2"⟩, "r1"), (⟨u "group", u "g1"⟩, "r2"), (⟨u "user", u "u1"⟩, "r3")]
+
+def vEnts : List (EntitlementId × String) := [(eA, "e1"), (vAdmin, "e2"), (vEG2, "e3")]
+
+def vGrants : List GrantRecord := streamGrants ++ [gr "group" "g2" "group:g2:member" "user" "u1"]
+
+/-- A new identity, so a deferred write leaves it out of the `by_principal` index. -/
+def vDeferred : GrantRecord := gr "group" "g2" "group:g2:member" "user" "u3"
+
+/-- Every view kind once or more over the store. -/
+def vAllQueries : List VQuery := [
+  .listGrants, .streamGrants, .grantsForEnt eA, .grantsForEnt vEG2, .streamForEnt eA, .streamForEnt vAdmin,
+  .streamForEnt vEG2, .point eA (u "user") (u "u1"), .point eA (u "user") (u "u9"),
+  .point vEG2 (u "user") (u "u3"), .forPrincipal (u "user") (u "u1"), .forPrincipal (u "user") (u "u3"),
+  .forPrincipalType (u "user"), .forPrincipalType (u "group"),
+  .resourcesByIds [⟨u "user", u "u1"⟩, ⟨u "group", u "g1"⟩],
+  .entsByIds [u "group:g1:member", u "admin"]
+]
+
+def viewsCases : List ViewsCase := [
+  { name := "every view agrees after end sync", resources := vResources, ents := vEnts, grants := vGrants,
+    deferred := [vDeferred], endSync := true, queries := vAllQueries },
+  { name := "deferred grant missing only from the index views before end sync", resources := vResources,
+    ents := vEnts, grants := vGrants, deferred := [vDeferred], queries := vAllQueries },
+  { name := "bulk reads skip missing ids and keep repeats in request order", resources := vResources,
+    ents := vEnts, grants := vGrants, endSync := true,
+    queries := [
+      .resourcesByIds [⟨u "user", u "u2"⟩, ⟨u "user", u "u9"⟩, ⟨u "user", u "u1"⟩, ⟨u "user", u "u2"⟩,
+        ⟨u "role", u "g1"⟩],
+      .entsByIds [u "group:g2:member", u "nomatch", u "admin", u "group:g2:member"],
+      .entsByIds [u "nomatch"]] },
+  { name := "bulk entitlement read with an ambiguous id fails the whole call",
+    ents := [(eA, "e1"), (vAdmin, "e2"), (en "group" "g2" "admin", "e3")], endSync := true,
+    queries := [.entsByIds [u "group:g1:member", u "admin"], .entsByIds [u "admin"],
+      .entsByIds [u "group:g1:member", u "nomatch"]] },
+  { name := "empty store", endSync := true, queries := [
+      .listGrants, .streamGrants, .grantsForEnt eA, .point eA (u "user") (u "u1"),
+      .forPrincipal (u "user") (u "u1"), .forPrincipalType (u "user"),
+      .resourcesByIds [⟨u "user", u "u1"⟩], .entsByIds [u "admin"]] },
+  { name := "empty store without end sync", queries := [.listGrants, .forPrincipalType (u "user")] }
+]
+
+/-! ## container -/
+
+inductive COp where
+  | startNew (id : String) (t : Sync.SyncType)
+  | put (batch : List GrantRecord)
+  | putDeferred (batch : List GrantRecord)
+  | endSync
+  | ageSync (days : Nat)
+  | saveReopen (readOnly : Bool) (dmg : Option Container.Damage)
+  | write
+  | listGrants
+  | readByPrincipal (prt prid : Bytes)
+  | resume (id : String)
+  | latestFinished (filter : Option Sync.SyncType)
+
+structure ContainerCase where
+  name : String
+  ops : List COp
+
+def damageStr : Container.Damage → String
+  | .truncateHeader => "truncate_header"
+  | .badMagic => "bad_magic"
+  | .badEngine => "bad_engine"
+  | .flipPayloadByte => "flip_payload_byte"
+  | .truncateTail => "truncate_tail"
+
+/-- Model state of one `container` case. `saved` is whether a
+`save_reopen` has succeeded, so a file exists on disk; `failed` is
+whether the last `save_reopen` returned `open_error`. -/
+structure CState where
+  s : Sync.FileState := Sync.opened none false
+  x : IndexedGrants := IndexedGrants.empty
+  readOnly : Bool := false
+  saved : Bool := false
+  failed : Bool := false
+
+/-- `Close` writes a file only for a dirty store: before the first
+`save_reopen`, that needs a sync record (every op that can succeed on a
+fresh store follows a `start_new`). -/
+def CState.hasFile (st : CState) : Bool := st.saved || st.s.run.isSome
+
+/-- The ops whose behavior is the `reopen` family's. -/
+def COp.asROp : COp → Option ROp
+  | .startNew id t => some (.startNew id t)
+  | .endSync => some .endSync
+  | .listGrants => some .listGrants
+  | .readByPrincipal prt prid => some (.readByPrincipal prt prid)
+  | .resume id => some (.resume id)
+  | .latestFinished f => some (.latestFinished f)
+  | _ => none
+
+/-- Ops a read-only store refuses to replay: everything but reads,
+`write` (which answers `read_only`), and `save_reopen`. -/
+def COp.mutates : COp → Bool
+  | .startNew .. | .put _ | .putDeferred _ | .endSync | .ageSync _ | .resume _ => true
+  | _ => false
+
+def COp.step (ctx : String) (st : CState) (op : COp) : Except String (CState × J) := do
+  if st.readOnly && op.mutates then throw s!"{ctx}: mutating op on a read-only store"
+  let opened : Container.Opened := { state := st.s, readOnly := st.readOnly }
+  match op with
+  | .put b => do
+    unless Container.writeGate' opened == .allowed do throw s!"{ctx}: put while no sync is bound"
+    for r in b do checkGrant ctx r
+    pure ({ st with s := Sync.recordWrite st.s, x := st.x.putGrants b }, .obj [("op", .str "put"), ("batch", ← grantsJ b)])
+  | .putDeferred b => do
+    unless Container.writeGate' opened == .allowed do throw s!"{ctx}: put_deferred while no sync is bound"
+    for r in b do checkGrant ctx r
+    pure ({ st with s := Sync.recordWrite st.s, x := st.x.putGrantsDeferred b },
+      .obj [("op", .str "put_deferred"), ("batch", ← grantsJ b)])
+  | .ageSync days => do
+    if st.s.run.isNone then throw s!"{ctx}: age_sync with no sync record"
+    if days * secondsPerDay > reopenNow then throw s!"{ctx}: age_sync days out of range"
+    pure ({ st with s := Sync.setStartedAt st.s (reopenNow - days * secondsPerDay) },
+      .obj [("op", .str "age_sync"), ("days", .num days)])
+  | .write =>
+    let res := fun r => J.obj [("op", .str "write"), ("result", .str r)]
+    match Container.writeGate' opened with
+    | .allowed => pure ({ st with s := Sync.recordWrite st.s }, res "allowed")
+    | .noCurrentSync => pure (st, res "no_current_sync")
+    | .engineSealed => pure (st, res "engine_sealed")
+    | .readOnly => pure (st, res "read_only")
+  | .saveReopen ro d => do
+    unless st.hasFile do throw s!"{ctx}: save_reopen before anything was written (Close writes only a dirty store)"
+    let sealed := Container.sealArtifact st.s
+    let a := match d with
+      | some k => Container.damage sealed k
+      | none => sealed
+    let base := [("op", J.str "save_reopen"), ("readonly", .bool ro),
+      ("damage", match d with | some k => .str (damageStr k) | none => .null)]
+    match Container.openArtifact a ro reopenNow with
+    | .error _ => pure ({ st with failed := true }, .obj (base ++ [("result", .str "open_error")]))
+    | .ok o => pure ({ st with s := o.state, readOnly := o.readOnly, saved := true },
+        .obj (base ++ [("result", .str "ok")]))
+  | op =>
+    match op.asROp with
+    | some r => do
+      let (s', x', j) ← r.step ctx st.s st.x false
+      pure ({ st with s := s', x := x' }, j)
+    | none => throw s!"{ctx}: unhandled op"
+
+def ContainerCase.toJ (c : ContainerCase) : Except String J := do
+  let ctx := s!"container case {c.name}"
+  let mut st : CState := {}
+  let mut out : Array J := #[]
+  for op in c.ops do
+    if st.failed then throw s!"{ctx}: op after open_error"
+    let (st', j) ← op.step ctx st
+    st := st'
+    out := out.push j
+  pure <| .obj [("name", .str c.name), ("ops", .arr out.toList)]
+
+/-- A finished file holding `rg1`, sealed with the given damage. -/
+def damagedOpen (d : Container.Damage) (ro : Bool := false) : List COp :=
+  [.startNew "s1" .full, .put [rg1], .endSync, .saveReopen ro (some d)]
+
+def containerCases : List ContainerCase := [
+  ⟨"finished file reopened writable accepts writes and round trips",
+    [.startNew "s1" .full, .put [rg1], .endSync, .saveReopen false none, .write, .put [pg2],
+     .saveReopen false none, .listGrants, .latestFinished none]⟩,
+  ⟨"finished file reopened read only refuses writes",
+    [.startNew "s1" .full, .put [rg1], .endSync, .saveReopen true none, .write, .listGrants,
+     .readByPrincipal (u "user") (u "u1")]⟩,
+  ⟨"read only open then writable open",
+    [.startNew "s1" .full, .put [rg1], .endSync, .saveReopen true none, .write, .saveReopen false none, .write,
+     .put [pg2], .saveReopen false none, .listGrants]⟩,
+  ⟨"unfinished file within cutoff binds the unfinished sync",
+    [.startNew "s1" .full, .put [rg1], .saveReopen false none, .listGrants, .write, .endSync,
+     .latestFinished none]⟩,
+  ⟨"stale unfinished file reopened read only reports no current sync",
+    [.startNew "s1" .full, .put [rg1], .ageSync 8, .saveReopen true none, .write, .listGrants]⟩,
+  ⟨"unfinished file older than cutoff has no current sync",
+    [.startNew "s1" .full, .put [rg1], .ageSync 8, .saveReopen false none, .listGrants, .write,
+     .latestFinished none]⟩,
+  ⟨"deferred grant invisible across reopen until end",
+    [.startNew "s1" .full, .put [rg1], .putDeferred [rg2], .saveReopen false none,
+     .readByPrincipal (u "user") (u "u1"), .endSync, .readByPrincipal (u "user") (u "u1")]⟩,
+  ⟨"truncated header fails the open", damagedOpen .truncateHeader⟩,
+  ⟨"bad magic fails the open", damagedOpen .badMagic⟩,
+  ⟨"unknown engine fails the open", damagedOpen .badEngine⟩,
+  ⟨"flipped payload byte fails the open", damagedOpen .flipPayloadByte⟩,
+  ⟨"truncated tail fails a read only open", damagedOpen .truncateTail true⟩,
+  ⟨"file with only a started sync reopened",
+    [.startNew "s1" .full, .saveReopen false none, .listGrants, .write, .latestFinished none]⟩
+]
+
 /-! ## document -/
 
 /-- The families in schema order, each paired with its field name. -/
@@ -1329,19 +1647,22 @@ structure Families where
   stream : List J := []
   digest : List J := []
   reopen : List J := []
+  views : List J := []
+  container : List J := []
 
 def Families.toList (f : Families) : List (String × List J) :=
   [("keys", f.keys), ("entitlement_strip", f.strip), ("writes", f.writes),
     ("pagination", f.pages), ("bare_id", f.bare), ("sync", f.sync),
     ("grant_writes", f.grantWrites), ("entitlement_writes", f.entWrites), ("grant_list", f.grantList),
     ("grants_by_principal", f.byPrincipal), ("grant_bare_id", f.grantBare),
-    ("stream", f.stream), ("digest", f.digest), ("reopen", f.reopen)]
+    ("stream", f.stream), ("digest", f.digest), ("reopen", f.reopen),
+    ("views", f.views), ("container", f.container)]
 
 def Families.append (a b : Families) : Families :=
   ⟨a.keys ++ b.keys, a.strip ++ b.strip, a.writes ++ b.writes, a.pages ++ b.pages, a.bare ++ b.bare,
     a.sync ++ b.sync, a.grantWrites ++ b.grantWrites, a.entWrites ++ b.entWrites, a.grantList ++ b.grantList,
     a.byPrincipal ++ b.byPrincipal, a.grantBare ++ b.grantBare, a.stream ++ b.stream, a.digest ++ b.digest,
-    a.reopen ++ b.reopen⟩
+    a.reopen ++ b.reopen, a.views ++ b.views, a.container ++ b.container⟩
 
 /-- `version`, `counts`, then each family, in schema order. -/
 def Families.toDoc (f : Families) : J :=
@@ -1364,6 +1685,8 @@ structure Inputs where
   stream : List StreamCase := []
   digest : List DigestCase := []
   reopen : List ReopenCase := []
+  views : List ViewsCase := []
+  container : List ContainerCase := []
 
 /-- Expected values for every input, computed by the model. -/
 def render (i : Inputs) : Except String Families := do
@@ -1372,7 +1695,7 @@ def render (i : Inputs) : Except String Families := do
     ← i.grantWrites.mapM GrantWriteCase.toJ, ← i.entWrites.mapM EntWriteCase.toJ,
     ← i.grantList.mapM GrantListCase.toJ, ← i.byPrincipal.mapM ByPrincipalCase.toJ,
     ← i.grantBare.mapM GrantBareCase.toJ, ← i.stream.mapM StreamCase.toJ, ← i.digest.mapM DigestCase.toJ,
-    ← i.reopen.mapM ReopenCase.toJ⟩
+    ← i.reopen.mapM ReopenCase.toJ, ← i.views.mapM ViewsCase.toJ, ← i.container.mapM ContainerCase.toJ⟩
 
 /-- The fixed corpus. Fails if any family is empty. -/
 def fixedInputs : Inputs where
@@ -1390,6 +1713,8 @@ def fixedInputs : Inputs where
   stream := streamCases
   digest := digestCases
   reopen := reopenCases
+  views := viewsCases
+  container := containerCases
 
 def fixedFamilies : Except String Families := do
   let f ← render fixedInputs

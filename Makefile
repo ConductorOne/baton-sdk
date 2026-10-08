@@ -384,8 +384,8 @@ formal-c1z-oracle: ## Regenerate formal/c1z/generated/cases.json from the Lean m
 	cd formal/c1z && lake build c1z-oracle >/dev/null && lake exe c1z-oracle > generated/cases.json
 
 .PHONY: formal-c1z-conformance
-formal-c1z-conformance: ## Replay the checked-in Lean oracle cases against the Pebble engine.
-	go test -count=1 -run TestFormalConformance ./pkg/dotc1z/engine/pebble/
+formal-c1z-conformance: ## Replay the checked-in Lean oracle cases against the Pebble engine and the public c1z store.
+	go test -count=1 -run 'TestFormalConformance|TestFormalContainer$$' ./pkg/dotc1z/engine/pebble/ ./pkg/dotc1z/
 
 # Larger corpora and the live oracle are opt-in and never run in CI:
 # they need `lake`, and their output is not checked in.
@@ -405,7 +405,7 @@ formal-c1z-oracle-random: ## Generate formal/c1z/generated/cases-random.json: fi
 .PHONY: formal-c1z-conformance-random
 formal-c1z-conformance-random: formal-c1z-oracle-random ## Replay the random corpus against the Pebble engine.
 	C1Z_FORMAL_CASES=$(CURDIR)/formal/c1z/generated/cases-random.json \
-		go test -count=1 -run TestFormalConformance ./pkg/dotc1z/engine/pebble/
+		go test -count=1 -run 'TestFormalConformance|TestFormalContainer$$' ./pkg/dotc1z/engine/pebble/ ./pkg/dotc1z/
 
 .PHONY: formal-c1z-property
 formal-c1z-property: ## Property test: Go generates random inputs, the live Lean oracle answers, the engine is compared (needs lake). C1Z_PROPERTY_N per family; set C1Z_FORMAL_PROPERTY_SEED to replay.
@@ -416,7 +416,7 @@ formal-c1z-property: ## Property test: Go generates random inputs, the live Lean
 	cd formal/c1z && lake build c1z-oracle >/dev/null
 	C1Z_FORMAL_ORACLE=$(CURDIR)/formal/c1z/.lake/build/bin/c1z-oracle \
 	C1Z_FORMAL_PROPERTY_N=$(C1Z_PROPERTY_N) \
-		go test -count=1 -v -run TestFormalProperty ./pkg/dotc1z/engine/pebble/
+		go test -count=1 -v -run 'TestFormalProperty|TestFormalContainerProperty' ./pkg/dotc1z/engine/pebble/ ./pkg/dotc1z/
 
 .PHONY: formal-c1z-soak
 formal-c1z-soak: ## Soak the property test over many seeds (needs lake). Args via SOAK_ARGS, e.g. SOAK_ARGS="-n 1000 -s 1 -e 50".

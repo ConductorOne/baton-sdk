@@ -127,3 +127,22 @@
 'C1z.Digest.accurate_invalidate_putGrants' depends on axioms: [propext, Classical.choice, Quot.sound]
 'C1z.Digest.afterDelete_absent' depends on axioms: [propext, Quot.sound]
 'C1z.Digest.accurate_afterDelete_present' depends on axioms: [propext, Classical.choice, Quot.sound]
+'C1z.Views.list_point_agree' depends on axioms: [propext, Quot.sound]
+'C1z.Views.stream_list_agree' depends on axioms: [propext, Quot.sound]
+'C1z.Views.index_primary_agree' depends on axioms: [propext, Quot.sound]
+'C1z.Views.views_agree' depends on axioms: [propext, Classical.choice, Quot.sound]
+'C1z.Views.views_disagree_without_complete_index' depends on axioms: [propext, Quot.sound]
+'C1z.Views.bulkResources_assoc' depends on axioms: [propext, Quot.sound]
+'C1z.Views.bulkResources_sublist' depends on axioms: [propext]
+'C1z.Views.mem_bulkResources_iff' depends on axioms: [propext, Quot.sound]
+'C1z.Views.bulkResources_absence_unmarked' depends on axioms: [propext]
+'C1z.Views.bulkEntitlements_none_of_ambiguous' depends on axioms: [propext, Quot.sound]
+'C1z.Views.bulkEntitlements_some_unique' depends on axioms: [propext, Quot.sound]
+'C1z.Container.open_seal' does not depend on any axioms
+'C1z.Container.open_damage_error' does not depend on any axioms
+'C1z.Container.open_damage_class' does not depend on any axioms
+'C1z.Container.writeGate_publicOpen_finished' depends on axioms: [propext]
+'C1z.Container.writeGate_publicOpen_readOnly' depends on axioms: [propext]
+'C1z.Container.writeGate_publicOpen_readOnly_ne_allowed' depends on axioms: [propext]
+'C1z.Container.writeGate_readOnly_unbound' depends on axioms: [propext]
+'C1z.Container.publicOpen_unfinished_stale' depends on axioms: [propext]
