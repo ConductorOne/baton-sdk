@@ -45,6 +45,7 @@ type pageUnit struct {
 
 	work          *c1zstore.LedgerWork
 	childWorkKeys []string
+	trustedImport bool
 	sealing       bool
 	done          bool
 }
@@ -58,6 +59,14 @@ func (u *pageUnit) StageQueueSealing() error {
 		return ErrPageUnitCommitted
 	}
 	u.sealing = true
+	return nil
+}
+
+func (u *pageUnit) StageTrustedImport() error {
+	if u.done {
+		return ErrPageUnitCommitted
+	}
+	u.trustedImport = true
 	return nil
 }
 
@@ -515,15 +524,23 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		if err != nil {
 			return err
 		}
-		resources, err := l.e.stageResourceRecords(batch, u.resources)
+		stageResources := l.e.stageResourceRecords
+		stageEntitlements := l.e.stageEntitlementRecords
+		stageGrants := l.e.stageGrantRecords
+		if u.trustedImport {
+			stageResources = stageTrustedResourceRecords
+			stageEntitlements = stageTrustedEntitlementRecords
+			stageGrants = stageTrustedGrantRecords
+		}
+		resources, err := stageResources(batch, u.resources)
 		if err != nil {
 			return err
 		}
-		entitlements, err := l.e.stageEntitlementRecords(batch, u.entitlements)
+		entitlements, err := stageEntitlements(batch, u.entitlements)
 		if err != nil {
 			return err
 		}
-		grants, err := l.e.stageGrantRecords(batch, u.grants)
+		grants, err := stageGrants(batch, u.grants)
 		if err != nil {
 			return err
 		}
@@ -602,6 +619,7 @@ func (u *pageUnit) release() {
 	u.facts = nil
 	u.bucketKey, u.bucketValue = nil, nil
 	u.work, u.childWorkKeys = nil, nil
+	u.trustedImport = false
 	u.sealing = false
 }
 

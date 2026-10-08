@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/conductorone/baton-sdk/pkg/exit"
 	"github.com/spf13/cobra"
@@ -10,7 +13,8 @@ import (
 var version = "dev"
 
 func main() {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	cliCmd := &cobra.Command{
 		Use:     "baton",

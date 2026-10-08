@@ -56,11 +56,11 @@ func TestSecurity_SanitizeRewritesLicenseName(t *testing.T) {
 
 	srcRO := mustOpen(t, ctx, srcPath, true)
 	defer srcRO.Close(ctx)
-	dst := mustOpen(t, ctx, dstPath, false)
+	dst := mustOpenPebbleDestination(t, ctx, dstPath)
 	require.NoError(t, Sanitize(ctx, srcRO, dst, Options{Secret: secret}))
 	require.NoError(t, dst.Close(ctx))
 
-	dstRO := mustOpen(t, ctx, dstPath, true)
+	dstRO := mustOpenReadOnlyStore(t, ctx, dstPath)
 	defer dstRO.Close(ctx)
 
 	rec := collectRecords(t, ctx, dstRO)

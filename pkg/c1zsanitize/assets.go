@@ -1,14 +1,9 @@
 package c1zsanitize
 
 import (
-	"context"
-	"fmt"
 	"io"
 	"strings"
 	"sync"
-
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
 // AssetRecord.data is replaced with a deterministic placeholder
@@ -49,9 +44,7 @@ func placeholderForContentType(contentType string) []byte {
 }
 
 // assetRefSet collects every AssetRef.Id encountered while walking
-// records during a sync. The set is drained after the record walk by
-// copyAssets which fetches each original asset, replaces its payload
-// with a placeholder, and writes the sanitized AssetRef into dst.
+// records in one source page.
 type assetRefSet struct {
 	mu sync.Mutex
 	m  map[string]struct{}
@@ -95,41 +88,4 @@ func closeIfCloser(r io.Reader) error {
 		return c.Close()
 	}
 	return nil
-}
-
-// copyAssets returns the number of assets written, which the pebble bulk
-// path stashes into the sync's stats sidecar (assets ride outside the bulk
-// import, so its ComputedStats cannot count them).
-func (s *sanitizer) copyAssets(
-	ctx context.Context,
-	src connectorstore.Reader,
-	dst connectorstore.Writer,
-	refs *assetRefSet,
-) (int64, error) {
-	var written int64
-	ids := refs.drain()
-	for _, srcID := range ids {
-		req := v2.AssetServiceGetAssetRequest_builder{
-			Asset: v2.AssetRef_builder{Id: srcID}.Build(),
-		}.Build()
-		contentType, r, err := src.GetAsset(ctx, req)
-		if err != nil {
-			// Asset referenced from an annotation but missing from
-			// the asset table. Skip — we don't fabricate placeholder
-			// rows because the cross-reference invariant treats it
-			// as a known dangling pointer in the source. Counted (not
-			// logged per item) and reported once via logDropSummary.
-			s.missingAssets++
-			continue
-		}
-		if err := closeIfCloser(r); err != nil {
-			return 0, fmt.Errorf("close source asset %s: %w", srcID, err)
-		}
-		dstID := s.id(srcID)
-		if err := dst.PutAsset(ctx, v2.AssetRef_builder{Id: dstID}.Build(), contentType, placeholderForContentType(contentType)); err != nil {
-			return 0, fmt.Errorf("put dst asset %s: %w", dstID, err)
-		}
-		written++
-	}
-	return written, nil
 }

@@ -15,6 +15,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // Cross-reference integrity invariant: for every original identifier
@@ -34,14 +35,14 @@ func TestSanitizeCrossReferenceIntegrity(t *testing.T) {
 
 	src := mustOpen(t, ctx, srcPath, true)
 	defer src.Close(ctx)
-	dst := mustOpen(t, ctx, dstPath, false)
+	dst := mustOpenPebbleDestination(t, ctx, dstPath)
 
 	require.NoError(t, Sanitize(ctx, src, dst, Options{
 		Secret: secret,
 	}))
 	require.NoError(t, dst.Close(ctx))
 
-	dstRO := mustOpen(t, ctx, dstPath, true)
+	dstRO := mustOpenReadOnlyStore(t, ctx, dstPath)
 	defer dstRO.Close(ctx)
 
 	srcRecords := collectRecords(t, ctx, src)
@@ -79,11 +80,11 @@ func TestSanitizeGraphIntegrity(t *testing.T) {
 
 	src := mustOpen(t, ctx, srcPath, true)
 	defer src.Close(ctx)
-	dst := mustOpen(t, ctx, dstPath, false)
+	dst := mustOpenPebbleDestination(t, ctx, dstPath)
 	require.NoError(t, Sanitize(ctx, src, dst, Options{Secret: secret}))
 	require.NoError(t, dst.Close(ctx))
 
-	dstRO := mustOpen(t, ctx, dstPath, true)
+	dstRO := mustOpenReadOnlyStore(t, ctx, dstPath)
 	defer dstRO.Close(ctx)
 
 	rec := collectRecords(t, ctx, dstRO)
@@ -161,11 +162,11 @@ func TestSanitizeAnnotationDropsUnknownByDefault(t *testing.T) {
 
 	srcRO := mustOpen(t, ctx, srcPath, true)
 	defer srcRO.Close(ctx)
-	dst := mustOpen(t, ctx, dstPath, false)
+	dst := mustOpenPebbleDestination(t, ctx, dstPath)
 	require.NoError(t, Sanitize(ctx, srcRO, dst, Options{Secret: secret}))
 	require.NoError(t, dst.Close(ctx))
 
-	dstRO := mustOpen(t, ctx, dstPath, true)
+	dstRO := mustOpenReadOnlyStore(t, ctx, dstPath)
 	defer dstRO.Close(ctx)
 
 	rec := collectRecords(t, ctx, dstRO)
@@ -187,6 +188,20 @@ func mustOpen(t *testing.T, ctx context.Context, path string, readOnly bool) *do
 	f, err := dotc1z.NewC1ZFile(ctx, path, opts...)
 	require.NoError(t, err)
 	return f
+}
+
+func mustOpenPebbleDestination(t *testing.T, ctx context.Context, path string) c1zstore.Store {
+	t.Helper()
+	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	return store
+}
+
+func mustOpenReadOnlyStore(t *testing.T, ctx context.Context, path string) c1zstore.Store {
+	t.Helper()
+	store, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
+	require.NoError(t, err)
+	return store
 }
 
 func mustAny(t *testing.T, m proto.Message) *anypb.Any {

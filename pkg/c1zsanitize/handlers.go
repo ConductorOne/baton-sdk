@@ -27,8 +27,8 @@ func (s *sanitizer) sanitizeAssetRef(in *v2.AssetRef, refs *assetRefSet) *v2.Ass
 const redactedURL = "https://redacted.example"
 
 // sanitizeResourceTypeToken rewrites a bare resource-type token the same way
-// transformID treats a type component: a declared resource type (populated
-// during copyResourceTypes) is connector-defined schema and survives verbatim
+// transformID treats a type component: a declared resource type is
+// connector-defined schema and survives verbatim
 // so it stays equal to the separately-sanitized resource-type fields; any
 // other token is HMAC'd. Keeps cross-references coherent for the annotation
 // types that carry resource-type ids (GrantExpandable, ChildResourceType).

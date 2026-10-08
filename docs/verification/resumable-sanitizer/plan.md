@@ -120,3 +120,9 @@ make build
 Before signoff, add the implementation-obligation inventory, disposition every
 uncovered changed branch, validate every oracle with its plant, run an
 independent evidence audit, and rerun affected evidence after the final change.
+
+## Change order 1: risk routing
+
+The overall PR is MODERATE. Sanitizer-only behavior is LOW because sanitization
+is not mission critical. Changes to shared Pebble ledger and seal paths remain
+HIGH and receive the step-up checks in this plan.
