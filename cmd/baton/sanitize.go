@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -34,7 +36,9 @@ func sanitizeCmd() *cobra.Command {
 }
 
 func runSanitize(cmd *cobra.Command, args []string) (retErr error) {
-	ctx, err := logging.Init(cmd.Context(), logging.WithLogFormat("console"), logging.WithLogLevel("info"))
+	signalCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, err := logging.Init(signalCtx, logging.WithLogFormat("console"), logging.WithLogLevel("info"))
 	if err != nil {
 		return fmt.Errorf("init logging: %w", err)
 	}

@@ -66,15 +66,15 @@ func (s *sanitizer) runLedger(
 	if syncType == "" || syncType == connectorstore.SyncTypeAny {
 		syncType = connectorstore.SyncTypeFull
 	}
+	expectedParentSyncID := ""
+	if sourceParent := sourceSync.GetParentSyncId(); sourceParent != "" {
+		expectedParentSyncID = s.id(sourceParent)
+	}
 
 	var destinationSyncID string
 	finished := false
 	if len(runs) == 0 {
-		parent := ""
-		if sourceParent := sourceSync.GetParentSyncId(); sourceParent != "" {
-			parent = s.id(sourceParent)
-		}
-		destinationSyncID, err = dst.StartNewSync(ctx, syncType, parent)
+		destinationSyncID, err = dst.StartNewSync(ctx, syncType, expectedParentSyncID)
 		if err != nil {
 			return "", err
 		}
@@ -101,6 +101,12 @@ func (s *sanitizer) runLedger(
 			}
 			if !empty {
 				return "", errors.New("c1zsanitize: unfinished destination has records without sanitizer ledger state")
+			}
+			if runs[0].Type != syncType {
+				return "", errors.New("c1zsanitize: empty destination has a different sync type")
+			}
+			if runs[0].ParentSyncID != expectedParentSyncID {
+				return "", errors.New("c1zsanitize: empty destination has a different parent sync")
 			}
 			config, err := s.ledgerConfig(sourceSync)
 			if err != nil {
@@ -349,15 +355,19 @@ func (s *sanitizer) processSanitizePage(
 	var next string
 	switch work.Action.Identity.Op {
 	case sanitizeResourceTypesOp:
-		rows, err := s.readAllResourceTypes(ctx, src, syncID)
+		response, err := src.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
+			PageSize: listPageSize, PageToken: work.Action.Identity.PageToken, Annotations: syncIDAnnotations(syncID),
+		}.Build())
 		if err != nil {
 			return err
 		}
+		rows := response.GetList()
 		out := make([]*v2.ResourceType, len(rows))
 		parallelTransform(len(rows), func(i int) { out[i] = s.transformResourceType(rows[i], refs) })
 		if err := writer.PutResourceTypes(ctx, out...); err != nil {
 			return err
 		}
+		next = response.GetNextPageToken()
 	case sanitizeResourcesOp:
 		response, err := src.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 			PageSize: listPageSize, PageToken: work.Action.Identity.PageToken, Annotations: syncIDAnnotations(syncID),
@@ -430,24 +440,6 @@ func nextSanitizeOp(op string) string {
 		return sanitizeGrantsOp
 	default:
 		return ""
-	}
-}
-
-func (s *sanitizer) readAllResourceTypes(ctx context.Context, src connectorstore.Reader, syncID string) ([]*v2.ResourceType, error) {
-	var rows []*v2.ResourceType
-	token := ""
-	for {
-		response, err := src.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{
-			PageSize: listPageSize, PageToken: token, Annotations: syncIDAnnotations(syncID),
-		}.Build())
-		if err != nil {
-			return nil, err
-		}
-		rows = append(rows, response.GetList()...)
-		token = response.GetNextPageToken()
-		if token == "" {
-			return rows, nil
-		}
 	}
 }
 

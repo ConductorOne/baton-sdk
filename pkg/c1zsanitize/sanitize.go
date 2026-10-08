@@ -43,6 +43,10 @@ type syncRunMetadataReader interface {
 	ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*c1zstore.SyncRun, string, error)
 }
 
+type currentSyncSetter interface {
+	SetCurrentSync(ctx context.Context, syncID string) error
+}
+
 // supportsDiffWriter is the optional destination capability for
 // carrying the supports_diff marker over. Despite the name, this has
 // nothing to do with diff syncs (that feature was removed): supports_diff
@@ -113,6 +117,11 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 	}
 	if len(srcSyncs) != 1 {
 		return fmt.Errorf("c1zsanitize: Pebble sanitization requires exactly one source sync, got %d", len(srcSyncs))
+	}
+	if setter, ok := src.(currentSyncSetter); ok {
+		if err := setter.SetCurrentSync(ctx, srcSyncs[0].GetId()); err != nil {
+			return fmt.Errorf("c1zsanitize: select source sync: %w", err)
+		}
 	}
 
 	tMax := findTMax(srcSyncs)

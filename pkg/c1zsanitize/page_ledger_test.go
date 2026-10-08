@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
@@ -85,6 +87,16 @@ func (r assetFailingReader) GetAsset(
 
 type smallPageReader struct {
 	connectorstore.Reader
+}
+
+func (r smallPageReader) ListResourceTypes(
+	ctx context.Context,
+	req *v2.ResourceTypesServiceListResourceTypesRequest,
+) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
+	req = v2.ResourceTypesServiceListResourceTypesRequest_builder{
+		PageSize: 1, PageToken: req.GetPageToken(), Annotations: req.GetAnnotations(),
+	}.Build()
+	return r.Reader.ListResourceTypes(ctx, req)
 }
 
 func (r smallPageReader) ListResources(
@@ -339,6 +351,75 @@ func TestSanitizeLedgerRejectsMissingPolicyWithoutMutation(t *testing.T) {
 	require.Equal(t, before, after)
 }
 
+func TestSanitizeLedgerRejectsEmptyDestinationFromDifferentSecret(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "source.c1z")
+	dstPath := filepath.Join(dir, "destination.c1z")
+	oldSecret := bytes32("old-empty-destination")
+	newSecret := bytes32("new-empty-destination")
+
+	srcStore, err := dotc1z.NewC1ZFile(ctx, srcPath)
+	require.NoError(t, err)
+	_, err = srcStore.StartNewSync(ctx, connectorstore.SyncTypePartial, "source-parent")
+	require.NoError(t, err)
+	require.NoError(t, srcStore.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "user"}.Build()))
+	require.NoError(t, srcStore.EndSync(ctx))
+	require.NoError(t, srcStore.Close(ctx))
+
+	dst, err := dotc1z.NewStore(ctx, dstPath, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	_, err = dst.StartNewSync(ctx, connectorstore.SyncTypePartial, SanitizeID(oldSecret, "source-parent"))
+	require.NoError(t, err)
+	require.NoError(t, dst.Close(ctx))
+
+	src := mustOpen(t, ctx, srcPath, true)
+	dst, err = dotc1z.NewStore(ctx, dstPath, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	err = Sanitize(ctx, src, dst, Options{Secret: newSecret, TimestampAnchor: fixedAnchor})
+	require.ErrorContains(t, err, "different parent sync")
+	require.NoError(t, dst.Close(ctx))
+	require.NoError(t, src.Close(ctx))
+}
+
+func TestSanitizeLedgerReadsAssetsFromOldUnfinishedPebbleSync(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "source.c1z")
+	dstPath := filepath.Join(dir, "destination.c1z")
+
+	src, err := dotc1z.NewStore(ctx, srcPath, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	syncID, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, src.PutResourceTypes(ctx, v2.ResourceType_builder{
+		Id: "user", Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER},
+	}.Build()))
+	require.NoError(t, src.PutAsset(ctx, v2.AssetRef_builder{Id: "icon"}.Build(), "image/png", []byte{1, 2, 3}))
+	require.NoError(t, src.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "user", Resource: "alice"}.Build(),
+		Annotations: []*anypb.Any{anyTB(t, v2.UserTrait_builder{
+			Icon: v2.AssetRef_builder{Id: "icon"}.Build(),
+		}.Build())},
+	}.Build()))
+	engine, ok := pebble.AsEngine(src)
+	require.True(t, ok)
+	require.NoError(t, engine.PutSyncRunRecord(ctx, v3.SyncRunRecord_builder{
+		SyncId: syncID, Type: v3.SyncType_SYNC_TYPE_FULL,
+		StartedAt: timestamppb.New(time.Now().AddDate(0, 0, -8)),
+	}.Build()))
+	require.NoError(t, src.Close(ctx))
+
+	src, err = dotc1z.NewStore(ctx, srcPath, dotc1z.WithReadOnly(true))
+	require.NoError(t, err)
+	dst, err := dotc1z.NewStore(ctx, dstPath, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	err = Sanitize(ctx, src, dst, Options{Secret: bytes32("old-unfinished"), TimestampAnchor: fixedAnchor})
+	require.NoError(t, err)
+	require.NoError(t, dst.Close(ctx))
+	require.NoError(t, src.Close(ctx))
+}
+
 func TestSanitizeLedgerResumeAdoptsImplicitAnchor(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -465,4 +546,38 @@ func TestSanitizeLedgerResumesMultiPageSource(t *testing.T) {
 	require.NoError(t, Sanitize(ctx, smallPageReader{Reader: src}, resume, Options{Secret: secret, TimestampAnchor: fixedAnchor}))
 	require.NoError(t, resume.Close(ctx))
 	require.NoError(t, src.Close(ctx))
+}
+
+func TestSanitizeLedgerResourceTypesAdvanceOnePageAtATime(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "source.c1z")
+	dstPath := filepath.Join(dir, "destination.c1z")
+	secret := bytes32("resource-type-pages")
+	buildSyncFixture(t, ctx, srcPath, 1)
+
+	src := mustOpen(t, ctx, srcPath, true)
+	partial, err := dotc1z.NewStore(ctx, dstPath, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	interrupted := newInterruptingLedgerStore(t, partial, 1)
+	interrupted.failAfter = true
+	err = Sanitize(ctx, smallPageReader{Reader: src}, interrupted, Options{Secret: secret, TimestampAnchor: fixedAnchor})
+	require.ErrorIs(t, err, errSanitizePageInterrupted)
+	require.NoError(t, interrupted.Close(ctx))
+	require.NoError(t, src.Close(ctx))
+
+	partial, err = dotc1z.NewStore(ctx, dstPath, dotc1z.WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	runs, _, err := partial.(syncRunMetadataReader).ListSyncRuns(ctx, "", 2)
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	_, err = partial.ResumeSync(ctx, connectorstore.SyncTypeFull, runs[0].ID)
+	require.NoError(t, err)
+	pending, phase, err := partial.(c1zstore.PageLedgerStore).PendingWork(ctx, 0, 2)
+	require.NoError(t, err)
+	require.Equal(t, c1zstore.LedgerQueueCollecting, phase)
+	require.Len(t, pending, 1)
+	require.Equal(t, sanitizeResourceTypesOp, pending[0].Action.Identity.Op)
+	require.NotEmpty(t, pending[0].Action.Identity.PageToken)
+	require.NoError(t, partial.Close(ctx))
 }
