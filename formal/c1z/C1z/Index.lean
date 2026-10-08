@@ -310,6 +310,16 @@ theorem grantsForPrincipal_deferred_incomplete :
          externalId := [] }],
     [0x75], [0x31], by decide, by decide⟩
 
+/-- The deferred path writes the same primary rows as the plain path, so
+the store invariant holds for it too. -/
+theorem keyed_putGrantsDeferred {x : IndexedGrants} (hk : GrantStore.Keyed x.store) (rs : List GrantRecord) :
+    GrantStore.Keyed (x.putGrantsDeferred rs).store :=
+  GrantStore.keyed_putGrants hk rs
+
+/-- A second `EndSync` without writes changes nothing. -/
+theorem endSyncRebuild_idempotent (x : IndexedGrants) : x.endSyncRebuild.endSyncRebuild = x.endSyncRebuild :=
+  rfl
+
 /-! ## Witnesses -/
 
 private def gD : GrantRecord :=

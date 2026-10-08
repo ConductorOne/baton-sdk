@@ -505,6 +505,16 @@ theorem accurate_invalidate_putGrants {h : GrantContent → Hash} {facts : Grant
     unfold partitionRoot
     rw [grantsForEntitlement_putGrants_of_ne s r hfe]
 
+theorem invalidate_idempotent (st : State) (e : EntitlementId) :
+    (st.invalidate e).invalidate e = st.invalidate e := by
+  simp only [State.invalidate, List.filter_filter, Bool.and_self]
+
+/-- A second `EndSync` without writes rebuilds nothing new. -/
+theorem repair_idempotent (h : GrantContent → Hash) (facts : GrantId → Bool × List SourceFact) (s : GrantStore)
+    (ents : List EntitlementId) {st : State} (ha : st.Accurate h facts s) :
+    repair h facts s ents (repair h facts s ents st) = repair h facts s ents st := by
+  rw [repair_eq_build ents ha, repair_eq_build ents (build_accurate h facts s ents)]
+
 /-! ## Witnesses -/
 
 private def cA : GrantContent :=

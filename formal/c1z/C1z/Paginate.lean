@@ -331,6 +331,72 @@ theorem traverse_flatten_eq_of_pos (visible : Bytes → Bool) (ks : List Bytes) 
       (traverse visible ks m (ks.length + 1) none).flatten := by
   rw [traverse_complete visible ks l hsorted hl, traverse_complete visible ks m hsorted hm]
 
+/-- Drive pages to exhaustion with a possibly different page size on each
+page; `limits` supplies them and the last one repeats. -/
+def traverseWith (visible : Bytes → Bool) (ks : List Bytes) :
+    List Nat → Nat → Option Bytes → List (List Bytes)
+  | _, 0, _ => []
+  | limits, fuel + 1, cursor =>
+    let limit := limits.headD 1
+    let p := page visible ks cursor limit
+    match p.next with
+    | none => [p.items]
+    | some tok => p.items :: traverseWith visible ks (limits.tail.headD limit :: limits.tail.tail) fuel (some tok)
+
+/-- A continuation token preserves position: resuming at any token, minted
+or not, yields exactly the visible keys strictly after it, with no gap
+and no overlap. No membership hypothesis is needed, which is also the
+statement for a forged in-prefix key. -/
+theorem traverse_resume (visible : Bytes → Bool) (ks : List Bytes) (limit : Nat)
+    (hsorted : ks.Pairwise (fun a b => lexLt a b = true)) (hlimit : 0 < limit) (tok : Bytes) :
+    (traverse visible ks limit (ks.length + 1) (some tok)).flatten =
+      (ks.filter fun k => lexLt tok k && visible k) := by
+  have h1 := List.length_filter_le visible (afterCursor ks (some tok))
+  have h2 : (afterCursor ks (some tok)).length ≤ ks.length := List.length_filter_le _ ks
+  rw [traverse_flatten_aux visible ks limit hsorted hlimit (ks.length + 1) (some tok) (by omega)]
+  show (ks.filter (fun k => lexLt tok k)).filter visible = _
+  rw [List.filter_filter]
+  exact List.filter_congr (fun x _ => Bool.and_comm _ _)
+
+private theorem traverseWith_flatten_aux (visible : Bytes → Bool) (ks : List Bytes)
+    (hsorted : ks.Pairwise (fun a b => lexLt a b = true)) :
+    ∀ (fuel : Nat) (limits : List Nat) (cursor : Option Bytes), (∀ l ∈ limits, 0 < l) → limits ≠ [] →
+      ((afterCursor ks cursor).filter visible).length < fuel →
+      (traverseWith visible ks limits fuel cursor).flatten = (afterCursor ks cursor).filter visible := by
+  intro fuel
+  induction fuel with
+  | zero => intro _ _ _ _ h; omega
+  | succ n ih =>
+    intro limits cursor hpos hne hlt
+    obtain ⟨l0, rest, rfl⟩ := List.exists_cons_of_ne_nil hne
+    have hlimit : 0 < l0 := hpos l0 List.mem_cons_self
+    cases hn : (page visible ks cursor l0).next with
+    | none =>
+      simp only [traverseWith, List.headD_cons, hn, List.flatten_cons, List.flatten_nil, List.append_nil]
+      exact page_next_none_imp_exhausted visible ks cursor l0 hsorted hlimit hn
+    | some tok =>
+      obtain ⟨hfull, -, -, -⟩ := (page_next_eq_some_iff visible ks cursor l0 tok).1 hn
+      rw [List.length_take] at hfull
+      have hdrop := afterCursor_next_filter_visible hsorted hn
+      have hpos' : ∀ l ∈ rest.headD l0 :: rest.tail, 0 < l := by
+        cases rest with
+        | nil => simpa only [List.headD_nil, List.tail_nil, List.mem_singleton, forall_eq] using hlimit
+        | cons r rs =>
+          intro l hl
+          simp only [List.headD_cons, List.tail_cons, List.mem_cons] at hl
+          exact hpos l (List.mem_cons_of_mem _ (List.mem_cons.2 hl))
+      simp only [traverseWith, List.headD_cons, List.tail_cons, hn, List.flatten_cons]
+      rw [ih _ (some tok) hpos' (List.cons_ne_nil _ _) (by rw [hdrop, List.length_drop]; omega), hdrop,
+        page_items_eq, List.take_append_drop]
+
+/-- Changing the page size between pages changes the partition only. -/
+theorem traverseWith_complete (visible : Bytes → Bool) (ks : List Bytes) (limits : List Nat)
+    (hsorted : ks.Pairwise (fun a b => lexLt a b = true)) (hpos : ∀ l ∈ limits, 0 < l) (hne : limits ≠ []) :
+    (traverseWith visible ks limits (ks.length + 1) none).flatten = ks.filter visible := by
+  have hle := List.length_filter_le visible ks
+  exact traverseWith_flatten_aux visible ks hsorted (ks.length + 1) limits none hpos hne
+    (by show (ks.filter visible).length < ks.length + 1; omega)
+
 /-- Traversal terminates: the last page has no token. -/
 theorem traverse_terminates (visible : Bytes → Bool) (ks : List Bytes) (limit : Nat)
     (_hsorted : ks.Pairwise (fun a b => lexLt a b = true)) (_hlimit : 0 < limit) :

@@ -183,6 +183,101 @@ private def gMask : GrantRecord := gPublic
 private def gMasked : GrantRecord :=
   { id := { ent := eOpaque, prt := bGroup, prid := bG1 }, externalId := gPublic.id.publicId }
 
+/-! ## Positive result: when the public id does work -/
+
+/-- A rebuilt public id always has at least the two delimiting colons, so
+it never falls under the "fewer than two colons" rule. -/
+theorem two_le_colons_publicId (g : GrantId) : 2 ≤ colons g.publicId := by
+  simp only [colons, GrantId.publicId, List.count_append, List.count_cons_self]
+  omega
+
+private theorem nodup_allGrants_of_keyed {s : GrantStore} (hk : GrantStore.Keyed s) : s.allGrants.Nodup := by
+  have h := Store.keys_nodup s
+  unfold Store.keys List.Nodup at h
+  unfold GrantStore.allGrants List.Nodup
+  rw [List.pairwise_map] at h ⊢
+  refine List.Pairwise.imp_of_mem ?_ h
+  intro a b ha hb hab heq
+  exact hab ((hk a ha).trans (heq ▸ (hk b hb).symm))
+
+/-- A stored grant with an empty `external_id` and a stripped-shaped
+entitlement id is found by its public id whenever it is the only
+candidate: no other stored grant prints the same public id while having
+an empty or equal `external_id` and a reachable entitlement. The scan
+never runs, so stored ids elsewhere do not matter. -/
+theorem found_of_unique_candidate {s : GrantStore} {ents : EntitlementStore} {r : GrantRecord}
+    (hk : GrantStore.Keyed s)
+    (hr : r ∈ s.allGrants) (he : r.externalId = []) (hs : (compressEnt r.id.ent).stripped = true)
+    (hcol : colons r.id.publicId ≤ maxColons)
+    (huniq : ∀ r' ∈ s.allGrants, r'.id.publicId = r.id.publicId →
+      (r'.externalId = [] ∨ r'.externalId = r.id.publicId) → reachable ents r' = true → r' = r) :
+    resolve s ents r.id.publicId = .found r := by
+  have hnd : (candidates s ents r.id.publicId).Nodup := by
+    unfold candidates
+    simp only [Nat.not_lt.mpr (two_le_colons_publicId r.id), ↓reduceIte]
+    exact (nodup_allGrants_of_keyed hk).filter _
+  have hmem : r ∈ candidates s ents r.id.publicId := by
+    unfold candidates
+    simp only [Nat.not_lt.mpr (two_le_colons_publicId r.id), ↓reduceIte, List.mem_filter, Bool.and_eq_true,
+      Bool.or_eq_true, beq_iff_eq, reachable]
+    exact ⟨hr, ⟨trivial, Or.inl he⟩, Or.inl hs⟩
+  have hall : ∀ x ∈ candidates s ents r.id.publicId, x = r := by
+    intro x hx
+    unfold candidates at hx
+    simp only [Nat.not_lt.mpr (two_le_colons_publicId r.id), ↓reduceIte, List.mem_filter, Bool.and_eq_true,
+      Bool.or_eq_true, beq_iff_eq] at hx
+    exact huniq x hx.1 hx.2.1.1 hx.2.1.2 hx.2.2
+  unfold resolve
+  simp only [Nat.not_lt.mpr hcol, ↓reduceIte]
+  match hc : candidates s ents r.id.publicId with
+  | [] => rw [hc] at hmem; exact absurd hmem List.not_mem_nil
+  | [a] =>
+    rw [hc] at hall
+    rw [hall a (List.mem_singleton_self _)]
+  | a :: b :: _ =>
+    rw [hc] at hall hnd
+    have ha := hall a (List.mem_cons_self ..)
+    have hb := hall b (List.mem_cons_of_mem _ (List.mem_cons_self ..))
+    rw [List.nodup_cons] at hnd
+    exact absurd (List.mem_cons_self ..) (ha ▸ hb ▸ hnd.1)
+
+/-- The simpler sufficient condition a consumer can check from a listing:
+no other stored grant prints the same public id at all. -/
+theorem found_of_unique_publicId {s : GrantStore} {ents : EntitlementStore} {r : GrantRecord}
+    (hk : GrantStore.Keyed s)
+    (hr : r ∈ s.allGrants) (he : r.externalId = []) (hs : (compressEnt r.id.ent).stripped = true)
+    (hcol : colons r.id.publicId ≤ maxColons)
+    (huniq : ∀ r' ∈ s.allGrants, r'.id.publicId = r.id.publicId → r' = r) :
+    resolve s ents r.id.publicId = .found r :=
+  found_of_unique_candidate hk hr he hs hcol fun r' hm hp _ _ => huniq r' hm hp
+
+/-- Two stored empty-id grants that print the same public id, both
+reachable, make lookup by that id ambiguous. This is `publicId_not_injective`
+seen through `GetGrant`. -/
+theorem ambiguous_of_two_candidates {s : GrantStore} {ents : EntitlementStore} {r₁ r₂ : GrantRecord}
+    (h₁ : r₁ ∈ s.allGrants) (h₂ : r₂ ∈ s.allGrants) (hne : r₁ ≠ r₂)
+    (e₁ : r₁.externalId = []) (e₂ : r₂.externalId = []) (hp : r₁.id.publicId = r₂.id.publicId)
+    (hr₁ : reachable ents r₁ = true) (hr₂ : reachable ents r₂ = true)
+    (hcol : colons r₁.id.publicId ≤ maxColons) :
+    resolve s ents r₁.id.publicId = .ambiguous := by
+  have hmem : ∀ r ∈ s.allGrants, r.externalId = [] → r.id.publicId = r₁.id.publicId → reachable ents r = true →
+      r ∈ candidates s ents r₁.id.publicId := by
+    intro r hr he hpr hre
+    unfold candidates
+    simp only [Nat.not_lt.mpr (two_le_colons_publicId r₁.id), ↓reduceIte, List.mem_filter, Bool.and_eq_true,
+      Bool.or_eq_true, beq_iff_eq]
+    exact ⟨hr, ⟨⟨hpr, Or.inl he⟩, hre⟩⟩
+  have m₁ := hmem r₁ h₁ e₁ rfl hr₁
+  have m₂ := hmem r₂ h₂ e₂ hp.symm hr₂
+  unfold resolve
+  simp only [Nat.not_lt.mpr hcol, ↓reduceIte]
+  match hc : candidates s ents r₁.id.publicId with
+  | [] => rw [hc] at m₁; exact absurd m₁ List.not_mem_nil
+  | [a] =>
+    rw [hc, List.mem_singleton] at m₁ m₂
+    exact absurd (m₁.trans m₂.symm) hne
+  | _ :: _ :: _ => rfl
+
 /-! ## Negative results, each with a concrete instance -/
 
 /-- Masking: a grant whose stored id equals the query is hidden by a

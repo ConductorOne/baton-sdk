@@ -248,6 +248,31 @@ theorem publicOpen_unfinished_stale {s : FileState} {r : SyncRun} (hr : s.run = 
   rw [hb]
   rfl
 
+/-- A read-only open yields the same engine state as a writable one; only
+the gate differs. -/
+theorem openArtifact_readOnly_state (a : Artifact) (now : Nat) {o o' : Opened}
+    (h : openArtifact a false now = .ok o) (h' : openArtifact a true now = .ok o') : o.state = o'.state := by
+  unfold openArtifact at h h'
+  split at h
+  · cases h
+  rename_i c₁
+  split at h
+  · cases h
+  rename_i c₂
+  split at h
+  · cases h
+  rename_i c₃
+  split at h
+  · cases h
+  rename_i c₄
+  split at h
+  · cases h
+  rename_i c₅
+  simp only [c₁, c₂, c₃, c₄, c₅] at h'
+  cases h
+  cases h'
+  rfl
+
 /-- The sealed artifact's logical state is unchanged by sealing. -/
 theorem state_seal (s : FileState) : (sealArtifact s).state = s := rfl
 

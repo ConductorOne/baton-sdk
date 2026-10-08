@@ -123,6 +123,8 @@ Add every exported theorem here; the golden file is reviewed by a human.
 #print axioms C1z.GrantLookup.opaque_unreachable
 #print axioms C1z.GrantLookup.custom_ext_hides_public
 #print axioms C1z.GrantLookup.empty_query
+#print axioms C1z.GrantLookup.found_of_unique_candidate
+#print axioms C1z.GrantLookup.found_of_unique_publicId
 #print axioms C1z.IndexedGrants.mem_grantsForPrincipalType
 
 -- Sync (reopen)
@@ -185,3 +187,19 @@ Add every exported theorem here; the golden file is reviewed by a human.
 #print axioms C1z.Container.writeGate_publicOpen_readOnly_ne_allowed
 #print axioms C1z.Container.writeGate_readOnly_unbound
 #print axioms C1z.Container.publicOpen_unfinished_stale
+
+-- Consequence batch
+#print axioms C1z.Store.erase_put_self
+#print axioms C1z.Store.put_erase_self
+#print axioms C1z.Store.putBatch_perm
+#print axioms C1z.Paginate.traverse_resume
+#print axioms C1z.Paginate.traverseWith_complete
+#print axioms C1z.Stream.records_run_cancel
+#print axioms C1z.Sync.endSync_resumeSync_endSync
+#print axioms C1z.Sync.latestFinished_startNewSync
+#print axioms C1z.IndexedGrants.keyed_putGrantsDeferred
+#print axioms C1z.IndexedGrants.endSyncRebuild_idempotent
+#print axioms C1z.Digest.invalidate_idempotent
+#print axioms C1z.Digest.repair_idempotent
+#print axioms C1z.GrantLookup.ambiguous_of_two_candidates
+#print axioms C1z.Container.openArtifact_readOnly_state

@@ -299,6 +299,32 @@ theorem hasRecords_startNewSync {s s' : FileState} {id : String} {t : SyncType} 
   · cases h
     rfl
 
+/-- Reseal: `ResumeSync` on a finished record and a second `EndSync`
+overwrite `ended_at`. The record was finished at `t₁`; after the reseal
+it reads as finished at `t₂`, under the same id. -/
+theorem endSync_resumeSync_endSync {s₁ s₂ : FileState} {r : SyncRun} {t₁ t₂ : Nat}
+    (hr : s₁.run = some r) (hf : r.endedAt = some t₁) (h₂ : resumeSync s₁ r.id = .ok s₂) :
+    ∃ s₃ r', endSync s₂ t₂ = .ok s₃ ∧ s₃.run = some r' ∧ r'.endedAt = some t₂ ∧ r'.id = r.id ∧
+      (t₁ ≠ t₂ → r'.endedAt ≠ r.endedAt) := by
+  unfold resumeSync at h₂
+  rw [hr] at h₂
+  simp only [↓reduceIte, ResumeResult.ok.injEq] at h₂
+  subst h₂
+  refine ⟨_, _, rfl, rfl, rfl, rfl, ?_⟩
+  intro hne h
+  rw [hf] at h
+  exact hne (Option.some.inj h).symm
+
+/-- Replacement hides: after `StartNewSync` nothing is finished, whatever
+the previous record was. -/
+theorem latestFinished_startNewSync {s s' : FileState} {id : String} {t : SyncType} {now : Nat}
+    (h : startNewSync s id t now = .ok s') (f : Option SyncType) : latestFinished s' f = none := by
+  unfold startNewSync at h
+  split at h
+  · cases h
+  · cases h
+    rfl
+
 /-! ## Reopen -/
 
 /-- After reopen the engine is unbound: record writes are refused as

@@ -145,7 +145,7 @@ only" means the Lean statement has no Go counterpart yet.
 | A by-value scan prefix matches exactly the keys whose leading components equal the scanned values (`"us"` does not match `"user"`) | Proved | `Codec.encodeScanPrefix_isPrefix_iff`; grants-of-entitlement corollaries `GrantId.key_under_entitlement_prefix`, `ent_eq_of_key_under_prefix` |
 | Primary keys use no hashing | Enforced | research: only `idxGrantByEntitlementPrincipalHash` hashes, and its key still carries the full identity |
 | Grant `external_id` is not part of the key: two grants that differ only there share one row | Proved (negative) | `GrantRecord.key_eq_iff`; `TestBulkImportMergesDuplicateIdentityGrants` |
-| Distinct identities can print the same public id, so bare-id grant lookup can be ambiguous | Proved (negative) | `publicId_not_injective` |
+| Distinct identities can print the same public id, so bare-id grant lookup can be ambiguous | Proved (negative) | `publicId_not_injective`; `GrantLookup.ambiguous_of_two_candidates` shows it through `GetGrant` |
 | Bare-id lookup returns exactly one match or an explicit outcome (`ErrNotFound`, `ErrAmbiguousExternalID`) | Proved for the rule, enforced for entitlements and grants | `Result.resolveBare_found_imp_unique`; `lookup.go`; `bare_id` oracle family. Resources have no bare-id path. |
 | Non-empty components | Enforced for entitlements and grants only | `identity.go`; `EntitlementId.WellFormed`, `GrantId.WellFormed`. Resources and resource types accept empty ids. |
 | Grants of one entitlement are exactly the rows under its scan prefix, disjoint from every other entitlement's | Proved | `GrantStore.grantsForEntitlement_eq_filter`, `grantsForEntitlement_disjoint`; `grant_list` oracle family |
@@ -153,7 +153,7 @@ only" means the Lean statement has no Go counterpart yet.
 | A grant whose entitlement or principal has no record is stored and returned | Enforced; definitional in the model | `get_putGrants_independent_of_entitlements`; `grant_writes` oracle family. Not referential integrity. |
 | Grant bare-id lookup (`GetGrant`) returns only a stored grant whose stored id is the query or whose stored id is empty and public id is the query | Proved | `GrantLookup.found_mem`, `found_matches`; `grant_bare_id` oracle family |
 | Grant bare-id lookup is the exactly-one rule over stored ids | False in general | `GrantLookup.masking`: a public-id hit on one grant hides another grant whose stored id equals the query, with no ambiguity. Exactly-one holds only when no candidate hits (`resolve_eq_resolveBare_scan`). |
-| An empty-id grant is addressable by the public id `ListGrants` shows for it | Conditional | `GrantLookup.opaque_unreachable`: only if its entitlement id is stripped-shaped or an entitlement row with that exact identity exists. `custom_ext_hides_public`: a custom stored id is never reachable by the public id. |
+| An empty-id grant is addressable by the public id `ListGrants` shows for it | Conditional | `GrantLookup.found_of_unique_publicId`: yes, when its entitlement id is stripped-shaped and no other stored grant prints the same public id (the weaker `found_of_unique_candidate` is the exact condition). `opaque_unreachable`: not when the entitlement id is opaque and no entitlement row with that exact identity exists. `custom_ext_hides_public`: a custom stored id is never reachable by the public id. |
 
 ### Writes (proposal §2)
 
@@ -175,7 +175,8 @@ only" means the Lean statement has no Go counterpart yet.
 
 | Statement | Status | Evidence |
 |---|---|---|
-| A complete traversal returns every visible key once, in key order, for any positive page size | Proved | `Paginate.traverse_complete`, `traverse_flatten_eq_of_pos`; `pagination` oracle family |
+| A complete traversal returns every visible key once, in key order, for any positive page size, even when the size changes between pages | Proved | `Paginate.traverse_complete`, `traverse_flatten_eq_of_pos`, `traverseWith_complete`; `pagination` oracle family |
+| A continuation token preserves position: resuming at any minted token yields exactly the visible keys after it | Proved | `traverse_resume` |
 | Every emitted key lies in the scan range, after the cursor | Proved | `page_items_mem` |
 | A token is minted only on a full, non-empty page; the token is the last key | Proved | `page_next_isSome_imp_full`, `page_next_isSome_imp_nonempty`, `page_next_eq_getLast` |
 | A page without a token has emitted every remaining visible key | Proved | `page_next_none_imp_exhausted` |
@@ -197,7 +198,8 @@ only" means the Lean statement has no Go counterpart yet.
 | `StartNewSync` is refused while a sync started by `StartNewSync` is still open; after `EndSync` it is accepted and wipes the file | Proved, enforced | `startNewSync_refused_of_fresh`, `startNewSync_startNewSync`, `startNewSync_endSync`; `ResetForNewSync` guard on `IsFreshSync`. The live property test found the model missing this refusal on its first run. |
 | A sync reopened by `ResumeSync` is protected from `StartNewSync` | False | `startNewSync_resumeSync`: the resumed binding is not fresh, so a following `StartNewSync` wipes it without refusal. |
 | `EndSync` marks the record finished, seals, and unbinds; a write afterwards is refused as "no current sync" because the bound check runs before the sealed check | Proved, enforced | `finished_endSync`, `writeGate_endSync`, `writeGate_engineSealed_iff`; the first oracle run caught the model stating `engineSealed` here, and the engine's order won |
-| A finished sync is immutable | False | `writeGate_resumeSync_finished`: `ResumeSync` reopens it and a later `EndSync` overwrites `ended_at`. |
+| A finished sync is immutable | False | `writeGate_resumeSync_finished`, `endSync_resumeSync_endSync`: `ResumeSync` reopens it and a later `EndSync` overwrites `ended_at`. |
+| After `StartNewSync`, nothing is finished: replacement hides the previous record rather than retaining it | Proved | `latestFinished_startNewSync` |
 | Latest-finished selection returns only a finished record of the requested type | Proved | `latestFinished_spec`, `latestFinished_type`, `latestFinished_none_of_unfinished` |
 | Default sync resolution never invents an id; stale unfinished runs do not resolve | Proved | `resolveActiveSync_source`, `resolveActiveSync_none_of_stale` |
 | The requested sync id is checked against the file | Not enforced | `resolveActiveSync_annotation`: the resolved id is a non-empty gate only. Reads with a mismatched id return the file's records. |
@@ -224,6 +226,7 @@ only" means the Lean statement has no Go counterpart yet.
 | A cancelled context over an empty keyspace yields nothing, not even an error | Proved (negative), enforced | `run_cancelled_empty`; the check runs per scanned row |
 | A cancelled context over a non-empty keyspace yields the error even when no row matches the filter | Proved, enforced | `run_cancelled_nonempty`; post-filters run after the check |
 | Early stop yields a prefix and no signal; stopping at the last match is indistinguishable from exhaustion | Proved (negative) | `run_break`, `run_break_eq_patient_at_end` |
+| Cancelling after `k` records yields exactly the first `k` matches | Proved | `records_run_cancel` |
 | The type-only grant stream walks `by_principal` and shares its deferred-index gap | Enforced; modeled | `grantRows (.principalType _)` uses `grantsForPrincipalType` |
 | A requested non-empty sync id scopes the stream | Not enforced | the argument only skips resolution |
 
@@ -239,7 +242,7 @@ only" means the Lean statement has no Go counterpart yet.
 | Leaf width depends only on the count and is at most 16 | Proved | `chooseWidth_le`, `chooseWidth_spec` |
 | A grant write, or a delete of a stored grant, after sealing drops its entitlement's partition and the global root; other partitions are untouched; the dropped ones read absent, not stale | Proved, enforced | `State.afterPut`, `State.afterDelete`, `lookup_invalidate_self`, `lookup_invalidate_of_ne`, `global_invalidate` |
 | A delete of an absent grant invalidates its partition | False | `afterDelete_absent`: the delete stages nothing, so the roots stay. The live property test caught the model invalidating unconditionally; the engine's behavior won. |
-| A later `EndSync` rebuilds the missing partitions to the fresh values | Proved | `repair_eq_build`, `accurate_invalidate_putGrants` |
+| A later `EndSync` rebuilds the missing partitions to the fresh values; a second one changes nothing | Proved | `repair_eq_build`, `accurate_invalidate_putGrants`, `repair_idempotent`, `invalidate_idempotent` |
 | Absent, never built, option off, and invalidated are distinguishable | Not enforced | all read as `found = false` with no error. A built empty partition is `found = true, count 0`. `ComputeEntitlementBucketDigest` on an invalidated partition returns zeros that look like "no grants". |
 | Roots across ABI versions are comparable | Not enforced | the stamp exists so a mismatch drops or marks the state; the model is ABI v2 only |
 
@@ -260,7 +263,7 @@ only" means the Lean statement has no Go counterpart yet.
 | Statement | Status | Evidence |
 |---|---|---|
 | A sealed `.c1z` reopens to the state that was sealed; save is flush, checkpoint, envelope, with every normalization done by `EndSync` | Proved for the model; enforced | `Container.open_seal`; `container` oracle family through `NewStore`/`Close` |
-| The public open binds the default sync: a finished file reopened writable accepts writes without `ResumeSync`; a read-only open never allows one | Proved, enforced | `writeGate_publicOpen_finished`, `writeGate_publicOpen_readOnly`, `writeGate_publicOpen_readOnly_ne_allowed`; `InitCurrentSync` |
+| The public open binds the default sync: a finished file reopened writable accepts writes without `ResumeSync`; a read-only open never allows one and differs from a writable one only in the gate | Proved, enforced | `writeGate_publicOpen_finished`, `writeGate_publicOpen_readOnly`, `writeGate_publicOpen_readOnly_ne_allowed`, `openArtifact_readOnly_state`; `InitCurrentSync` |
 | A read-only store reports "read only" on every refused write | False | `writeGate_readOnly_unbound`: the adapter checks for a bound sync first, so an unbound read-only store reports "no current sync". The live property test caught the model reporting read-only. |
 | An unfinished file reopened past the 7-day cutoff binds nothing | Proved, enforced | `publicOpen_unfinished_stale` |
 | A truncated header, bad magic, unknown engine, flipped payload byte, or truncated tail fails the open; none opens with fewer records | Proved for the model; enforced for the default indexed encoding | `open_damage_error`, `open_damage_class`; the indexed envelope hashes the manifest and every frame |
@@ -278,7 +281,7 @@ only" means the Lean statement has no Go counterpart yet.
 | Streams yield at most one error and nothing after it | Enforced; model states the consumer's verdict | `ErrorTerminal`, `streamEnd_failed_of_error`; `adapter_streaming.go` |
 | Primary-row decode failures surface as errors | Enforced | `paginate.go` "page unmarshal" |
 | Index-backed reads distinguish a missing or deferred index from an empty result | Not enforced; proved as a negative | `IndexedGrants.grantsForPrincipal_deferred_incomplete`, `not_complete_putGrantsDeferred_of_new`: a `PutExpandedGrantRecords` write of a new identity is invisible to `ListGrantsForPrincipal` until `EndSync`, with success status. `grants_by_principal` oracle family. Dangling index entries are skipped silently. |
-| The index view is a subset of the primary view, and equals it once the index is complete; `EndSync` makes it complete; plain writes and deletes keep it complete | Proved | `grantsForPrincipal_subset`, `grantsForPrincipal_eq_of_complete`, `complete_endSyncRebuild`, `complete_putGrants`, `complete_deleteGrant` |
+| The index view is a subset of the primary view, and equals it once the index is complete; `EndSync` makes it complete; plain writes and deletes keep it complete; a second `EndSync` without writes changes nothing | Proved | `grantsForPrincipal_subset`, `grantsForPrincipal_eq_of_complete`, `complete_endSyncRebuild`, `complete_putGrants`, `complete_deleteGrant`, `endSyncRebuild_idempotent`, `keyed_putGrantsDeferred` |
 | An unknown bare entitlement id in a filtered grant list is an error | Not enforced | It is an empty success. |
 | Context cancellation surfaces on an empty range | Not enforced | The primary-scan streams check `ctx` only per record. |
 

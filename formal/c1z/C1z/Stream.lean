@@ -198,6 +198,36 @@ theorem go_break {α : Type} (keep : α → Bool) (rows : List α) :
     · simp only [hk, Bool.false_eq_true, ↓reduceIte, List.filter_cons_of_neg hk] at hlen ⊢
       exact ih m n hn hlen
 
+theorem records_go_cancelled {α : Type} (keep : α → Bool) (c : Consumer) (rows : List α) (n : Nat) :
+    records (go keep c rows n true) = [] := by
+  cases rows <;> rfl
+
+theorem records_go_cancel {α : Type} (keep : α → Bool) (rows : List α) :
+    ∀ m k, 0 < k → k ≤ (rows.filter keep).length →
+      records (go keep { cancelAfter := some (m + k), breakAfter := none } rows m false) =
+        (rows.filter keep).take k := by
+  induction rows with
+  | nil => intro m k hk hlen; simp only [List.filter_nil, List.length_nil] at hlen; omega
+  | cons r rs ih =>
+    intro m k hk hlen
+    simp only [go, Bool.false_eq_true, ↓reduceIte]
+    by_cases hr : keep r = true
+    · simp only [hr, ↓reduceIte, reduceCtorEq]
+      rw [List.filter_cons_of_pos hr] at hlen ⊢
+      obtain ⟨j, rfl⟩ : ∃ j, k = j + 1 := ⟨k - 1, by omega⟩
+      by_cases hj : j = 0
+      · subst hj
+        simp only [decide_true, records, List.filterMap_cons, List.take_succ_cons, List.take_zero]
+        exact congrArg _ (records_go_cancelled keep _ rs _)
+      · have hne : ¬ (some (m + (j + 1)) = some (m + 1)) := by
+          simp only [Option.some.injEq]; omega
+        have := ih (m + 1) j (by omega) (by simp only [List.length_cons] at hlen; omega)
+        rw [show m + 1 + j = m + (j + 1) by omega] at this
+        simp only [hne, decide_false, List.take_succ_cons]
+        simp only [records, List.filterMap_cons] at this ⊢
+        exact congrArg _ this
+    · simp only [hr, Bool.false_eq_true, ↓reduceIte, List.filter_cons_of_neg hr] at hlen ⊢
+      exact ih m k hk hlen
 
 /-- Every yield list has at most one error, and it is last. -/
 theorem run_error_terminal {α : Type} (rows : List α) (keep : α → Bool) (c : Consumer) :
@@ -257,6 +287,16 @@ theorem run_break {α : Type} (rows : List α) (keep : α → Bool) (n : Nat) (h
   have hb : ¬ (some n = some 0) := by simp only [Option.some.injEq]; omega
   simp only [hb, ↓reduceIte, reduceCtorEq, decide_false]
   simpa only [Nat.zero_add] using go_break keep rows 0 n hn hlen
+
+/-- Cancelling after `k` records yields exactly the first `k` matches, and
+then the error if any row remains to be scanned. -/
+theorem records_run_cancel {α : Type} (rows : List α) (keep : α → Bool) (k : Nat) (hk : 0 < k)
+    (hlen : k ≤ (rows.filter keep).length) :
+    records (run rows keep { cancelAfter := some k, breakAfter := none }) = (rows.filter keep).take k := by
+  unfold run
+  have hc : ¬ (some k = some 0) := by simp only [Option.some.injEq]; omega
+  simp only [reduceCtorEq, ↓reduceIte, hc, decide_false]
+  simpa only [Nat.zero_add] using records_go_cancel keep rows 0 k hk hlen
 
 /-- The consumer's verdict: a patient stream exhausts; a cancelled stream
 over a non-empty keyspace fails. -/

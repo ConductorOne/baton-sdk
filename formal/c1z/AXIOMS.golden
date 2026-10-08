@@ -94,6 +94,8 @@
 'C1z.GrantLookup.opaque_unreachable' depends on axioms: [propext, Quot.sound]
 'C1z.GrantLookup.custom_ext_hides_public' depends on axioms: [propext, Quot.sound]
 'C1z.GrantLookup.empty_query' depends on axioms: [propext, Quot.sound]
+'C1z.GrantLookup.found_of_unique_candidate' depends on axioms: [propext, Quot.sound]
+'C1z.GrantLookup.found_of_unique_publicId' depends on axioms: [propext, Quot.sound]
 'C1z.IndexedGrants.mem_grantsForPrincipalType' depends on axioms: [propext, Quot.sound]
 'C1z.Sync.writeGate_reopen' does not depend on any axioms
 'C1z.Sync.resolveActiveSync_reopen_finished' depends on axioms: [propext]
@@ -146,3 +148,17 @@
 'C1z.Container.writeGate_publicOpen_readOnly_ne_allowed' depends on axioms: [propext]
 'C1z.Container.writeGate_readOnly_unbound' depends on axioms: [propext]
 'C1z.Container.publicOpen_unfinished_stale' depends on axioms: [propext]
+'C1z.Store.erase_put_self' depends on axioms: [propext, Classical.choice, Quot.sound]
+'C1z.Store.put_erase_self' depends on axioms: [propext, Classical.choice, Quot.sound]
+'C1z.Store.putBatch_perm' depends on axioms: [propext, Classical.choice, Quot.sound]
+'C1z.Paginate.traverse_resume' depends on axioms: [propext, Classical.choice, Quot.sound]
+'C1z.Paginate.traverseWith_complete' depends on axioms: [propext, Classical.choice, Quot.sound]
+'C1z.Stream.records_run_cancel' depends on axioms: [propext, Classical.choice, Quot.sound]
+'C1z.Sync.endSync_resumeSync_endSync' depends on axioms: [propext]
+'C1z.Sync.latestFinished_startNewSync' does not depend on any axioms
+'C1z.IndexedGrants.keyed_putGrantsDeferred' depends on axioms: [propext, Quot.sound]
+'C1z.IndexedGrants.endSyncRebuild_idempotent' does not depend on any axioms
+'C1z.Digest.invalidate_idempotent' depends on axioms: [propext, Quot.sound]
+'C1z.Digest.repair_idempotent' depends on axioms: [propext, Quot.sound]
+'C1z.GrantLookup.ambiguous_of_two_candidates' depends on axioms: [propext, Quot.sound]
+'C1z.Container.openArtifact_readOnly_state' does not depend on any axioms

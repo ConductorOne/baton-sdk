@@ -334,6 +334,70 @@ theorem putBatch_dedupLast (s : Store α) (ws : List (Bytes × α)) :
       exact (putBatch_put_of_any s w.1 w.2 ws hany).symm
     · exact ih (s.put w.1 w.2)
 
+/-- With pairwise distinct keys, a key lookup does not depend on order. -/
+theorem find?_perm_of_nodup {l l' : List (Bytes × α)} (hp : l.Perm l') (hnd : (l.map (·.1)).Nodup)
+    (k : Bytes) : l.find? (fun w => w.1 == k) = l'.find? (fun w => w.1 == k) := by
+  have uniq : ∀ a ∈ l, ∀ b ∈ l, a.1 = b.1 → a = b := by
+    clear hp
+    induction l with
+    | nil => simp
+    | cons x xs ih =>
+      rw [List.map_cons, List.nodup_cons] at hnd
+      have hx : ∀ y ∈ xs, y.1 ≠ x.1 := fun y hy hyx => hnd.1 (List.mem_map.mpr ⟨y, hy, hyx⟩)
+      intro a ha b hb hab
+      rcases List.mem_cons.mp ha with hax | ha' <;> rcases List.mem_cons.mp hb with hbx | hb'
+      · rw [hax, hbx]
+      · exact absurd (hax ▸ hab).symm (hx b hb')
+      · exact absurd (hbx ▸ hab) (hx a ha')
+      · exact ih hnd.2 a ha' b hb' hab
+  cases h : l.find? (fun w => w.1 == k) with
+  | none =>
+    refine (List.find?_eq_none.mpr fun x hx => ?_).symm
+    exact List.find?_eq_none.mp h x (hp.mem_iff.mpr hx)
+  | some w =>
+    have hw := List.mem_of_find?_eq_some h
+    have hwk := List.find?_some h
+    cases h' : l'.find? (fun w => w.1 == k) with
+    | none => exact absurd hwk (List.find?_eq_none.mp h' w (hp.mem_iff.mp hw))
+    | some w' =>
+      have hw' := hp.mem_iff.mpr (List.mem_of_find?_eq_some h')
+      have hwk' := List.find?_some h'
+      simp only [beq_iff_eq] at hwk hwk'
+      rw [uniq w hw w' hw' (hwk.trans hwk'.symm)]
+
+/-- Delete after put: the put is cancelled entirely. -/
+theorem erase_put_self (s : Store α) (k : Bytes) (v : α) : (s.put k v).erase k = s.erase k := by
+  apply ext
+  refine list_ext_of_find?_eq ((s.put k v).erase k).sorted (s.erase k).sorted ?_
+  intro j
+  show ((s.put k v).erase k).get j = (s.erase k).get j
+  by_cases hj : j = k
+  · subst hj
+    rw [get_erase_self, get_erase_self]
+  · rw [get_erase_of_ne _ hj, get_erase_of_ne _ hj, get_put_of_ne s v hj]
+
+/-- Put after delete: the delete is undone. -/
+theorem put_erase_self (s : Store α) (k : Bytes) (v : α) : (s.erase k).put k v = s.put k v := by
+  apply ext
+  refine list_ext_of_find?_eq ((s.erase k).put k v).sorted (s.put k v).sorted ?_
+  intro j
+  show ((s.erase k).put k v).get j = (s.put k v).get j
+  by_cases hj : j = k
+  · subst hj
+    rw [get_put_self, get_put_self]
+  · rw [get_put_of_ne _ v hj, get_put_of_ne _ v hj, get_erase_of_ne _ hj]
+
+/-- Insertion order independence: a batch with pairwise distinct keys
+yields the same store in any order. -/
+theorem putBatch_perm (s : Store α) {ws ws' : List (Bytes × α)} (hp : ws.Perm ws')
+    (hnodup : (ws.map (·.1)).Nodup) : s.putBatch ws = s.putBatch ws' := by
+  apply ext
+  refine list_ext_of_find?_eq (s.putBatch ws).sorted (s.putBatch ws').sorted ?_
+  intro j
+  show (s.putBatch ws).get j = (s.putBatch ws').get j
+  rw [get_putBatch, get_putBatch,
+    find?_perm_of_nodup ((List.reverse_perm ws).trans (hp.trans (List.reverse_perm ws').symm)) (by rw [List.map_reverse]; exact (List.reverse_perm _).nodup_iff.mpr hnodup) j]
+
 /-! ## Enumeration -/
 
 /-- Enumeration never emits a key twice. -/
