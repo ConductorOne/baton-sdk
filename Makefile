@@ -371,8 +371,59 @@ formal-occult-check: ## Run the Occult host suite (needs ../occult and Go 1.26).
 	}
 	cd formal/occult/host && go test -timeout $(OCCULT_TEST_TIMEOUT) ./...
 
+.PHONY: formal-c1z-check
+formal-c1z-check: ## Build the Lean c1z model with warnings as errors, audit axioms, check oracle freshness (needs lake).
+	formal/c1z/scripts/check.sh
+
+.PHONY: formal-c1z-oracle
+formal-c1z-oracle: ## Regenerate formal/c1z/generated/cases.json from the Lean model (needs lake).
+	@command -v lake >/dev/null 2>&1 || { \
+		echo "formal-c1z-oracle: 'lake' is not on PATH; install elan and the toolchain in formal/c1z/lean-toolchain (no install target is provided)" >&2; \
+		exit 2; \
+	}
+	cd formal/c1z && lake build c1z-oracle >/dev/null && lake exe c1z-oracle > generated/cases.json
+
+.PHONY: formal-c1z-conformance
+formal-c1z-conformance: ## Replay the checked-in Lean oracle cases against the Pebble engine.
+	go test -count=1 -run TestFormalConformance ./pkg/dotc1z/engine/pebble/
+
+# Larger corpora and the live oracle are opt-in and never run in CI:
+# they need `lake`, and their output is not checked in.
+C1Z_RANDOM_N ?= 500
+C1Z_RANDOM_SEED ?= 1
+C1Z_PROPERTY_N ?= 200
+
+.PHONY: formal-c1z-oracle-random
+formal-c1z-oracle-random: ## Generate formal/c1z/generated/cases-random.json: fixed corpus + C1Z_RANDOM_N random cases per family (needs lake; not checked in).
+	@command -v lake >/dev/null 2>&1 || { \
+		echo "formal-c1z-oracle-random: 'lake' is not on PATH; install elan and the toolchain in formal/c1z/lean-toolchain (no install target is provided)" >&2; \
+		exit 2; \
+	}
+	cd formal/c1z && lake build c1z-oracle >/dev/null && \
+		lake exe c1z-oracle --random $(C1Z_RANDOM_N) --seed $(C1Z_RANDOM_SEED) > generated/cases-random.json
+
+.PHONY: formal-c1z-conformance-random
+formal-c1z-conformance-random: formal-c1z-oracle-random ## Replay the random corpus against the Pebble engine.
+	C1Z_FORMAL_CASES=$(CURDIR)/formal/c1z/generated/cases-random.json \
+		go test -count=1 -run TestFormalConformance ./pkg/dotc1z/engine/pebble/
+
+.PHONY: formal-c1z-property
+formal-c1z-property: ## Property test: Go generates random inputs, the live Lean oracle answers, the engine is compared (needs lake). C1Z_PROPERTY_N per family; set C1Z_FORMAL_PROPERTY_SEED to replay.
+	@command -v lake >/dev/null 2>&1 || { \
+		echo "formal-c1z-property: 'lake' is not on PATH; install elan and the toolchain in formal/c1z/lean-toolchain (no install target is provided)" >&2; \
+		exit 2; \
+	}
+	cd formal/c1z && lake build c1z-oracle >/dev/null
+	C1Z_FORMAL_ORACLE=$(CURDIR)/formal/c1z/.lake/build/bin/c1z-oracle \
+	C1Z_FORMAL_PROPERTY_N=$(C1Z_PROPERTY_N) \
+		go test -count=1 -v -run TestFormalProperty ./pkg/dotc1z/engine/pebble/
+
+.PHONY: formal-c1z-soak
+formal-c1z-soak: ## Soak the property test over many seeds (needs lake). Args via SOAK_ARGS, e.g. SOAK_ARGS="-n 1000 -s 1 -e 50".
+	formal/c1z/scripts/soak.sh $(SOAK_ARGS)
+
 .PHONY: formal-check
-formal-check: formal-walker-sweep formal-graph-sweep formal-graph-bakeoff formal-occult-check ## Run every formal-track sweep and suite.
+formal-check: formal-walker-sweep formal-graph-sweep formal-graph-bakeoff formal-occult-check formal-c1z-check formal-c1z-conformance ## Run every formal-track sweep and suite.
 
 .PHONY: pkg/sdk/version.go
 pkg/sdk/version.go:

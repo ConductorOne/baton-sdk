@@ -1,8 +1,9 @@
-# Formal model of sync scheduling semantics
+# Formal models
 
 This directory holds the P model of baton-sdk's sync scheduling semantics
 and its supporting documents, per
-`docs/tasks/sync-formal-model-brief.md`. This is a public repo: no customer
+`docs/tasks/sync-formal-model-brief.md`, and the Lean 4 contract for v3
+c1z snapshots and readers (`c1z/`). This is a public repo: no customer
 names, tenant IDs, or internal infra in any artifact here, including model
 comments and trace renderings.
 
@@ -53,6 +54,17 @@ comments and trace renderings.
   (`pkg/sync/sync_trace_audit.go`) exported as fixtures and checked by
   the same oracle. See `occult/README.md` for status and
   `occult/LAWS.md` for the law inventory.
+
+- `c1z/` — the Lean 4 contract for v3 (Pebble) c1z snapshots and
+  readers: structural identities and key injectivity, replace-write
+  semantics, complete pagination, the one-sync-per-file lifecycle, and
+  the exhaustion-versus-failure result algebra. The model generates
+  `c1z/generated/cases.json`, which
+  `pkg/dotc1z/engine/pebble/formal_conformance_test.go` replays against
+  the real engine. See `c1z/README.md` for the guarantee table and the
+  non-guarantees the survey found. `make formal-c1z-check` runs the
+  warnings-as-errors build and the axiom audit (needs `lake`);
+  `make formal-c1z-conformance` needs only Go.
 
 ## Toolchain
 

@@ -1,0 +1,17 @@
+name = "c1z"
+version = "0.1.0"
+defaultTargets = ["C1z"]
+
+# No external dependencies on purpose: the proved core must build
+# offline and its import graph must stay small (see README, "Trust").
+
+[[lean_lib]]
+name = "C1z"
+
+# The oracle is tooling, not trusted core: it may `import Lean` for Json.
+[[lean_lib]]
+name = "Oracle"
+
+[[lean_exe]]
+name = "c1z-oracle"
+root = "Oracle.Main"

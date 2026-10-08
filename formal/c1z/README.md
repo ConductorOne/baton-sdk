@@ -1,0 +1,249 @@
+# Formal contract for v3 (Pebble) c1z snapshots and readers
+
+A small Lean 4 package that states, and proves for an executable model,
+what a successful read of a v3 c1z means: how records are addressed,
+what a write does, what a complete paginated traversal returns, when a
+sync is readable, and which results may be taken as exhaustion. The
+model generates test vectors that a Go test replays against the real
+Pebble engine.
+
+This package follows the proof agenda in the C1 proposal "Baton SDK
+proof contract for c1z snapshots and readers". It covers that
+proposal's suggested first deliverable: structural identities, write
+semantics, point lookup plus complete paginated enumeration of one
+finished snapshot, explicit exhaustion versus failure, and a validity
+predicate that states exactly what was established. The SQLite/v1
+engine is out of scope throughout; where the engines differ, this
+package follows Pebble.
+
+Nothing here verifies Go code. The Lean theorems are about the model in
+`C1z/`; the Go test shows the engine agrees with the model on the
+generated cases. Keep "proved for the model" and "the engine passed
+these cases" distinct when citing this package.
+
+## Layout
+
+```
+lean-toolchain          pinned toolchain (elan reads it)
+lakefile.toml           Lake config; no external dependencies
+C1z.lean, C1z/          the proved core (never `import Lean`)
+  Basic.lean            Byte, Bytes
+  Codec.lean            tuple codec, key headers, scan prefixes
+  Order.lean            bytewise lexicographic order
+  Identity.lean         structural identities and their keys
+  Store.lean            one keyspace: replace semantics, enumeration
+  Paginate.lean         page tokens, clamping, complete traversal
+  Sync.lean             one-sync-per-file lifecycle and selection
+  Result.lean           outcome algebra, bare-id resolution
+Oracle/                 case generator (tooling; may `import Lean`)
+generated/cases.json    the oracle's output, checked in (see "Trust")
+ORACLE_SCHEMA.md        the JSON contract between oracle and Go test
+scripts/check.sh        warnings-as-errors build, axiom audit, freshness
+scripts/Axioms.lean     the `#print axioms` list the audit runs
+AXIOMS.golden           reviewed axiom sets, one line per theorem
+```
+
+The Go consumer is `pkg/dotc1z/engine/pebble/formal_conformance_test.go`.
+
+## Running
+
+```bash
+elan toolchain install "$(cat formal/c1z/lean-toolchain)"   # once
+make formal-c1z-check          # build, axiom audit, oracle freshness
+make formal-c1z-oracle         # regenerate generated/cases.json
+make formal-c1z-conformance    # replay cases against the Pebble engine
+```
+
+`formal-c1z-conformance` needs only Go and runs in the ordinary test
+suite; the other two need `lake`.
+
+Two opt-in paths widen the oracle's coverage beyond the hand-chosen
+corpus. Neither runs in CI and neither output is checked in.
+
+```bash
+make formal-c1z-conformance-random   # fixed corpus + C1Z_RANDOM_N random cases per family
+make formal-c1z-property             # Go-generated random inputs answered by the live oracle
+```
+
+The random corpus is a pure function of `C1Z_RANDOM_N` and
+`C1Z_RANDOM_SEED`, generated in Lean and replayed by the same Go test.
+The property test generates inputs in Go, runs `c1z-oracle --respond`
+as a subprocess to obtain the model's expected outputs, and replays
+them; it logs its seed so a failure can be rerun with
+`C1Z_FORMAL_PROPERTY_SEED=<seed>`. See `ORACLE_SCHEMA.md`, "Oracle
+modes", for the request protocol and environment variables.
+
+For a long run, `scripts/soak.sh` (or `make formal-c1z-soak
+SOAK_ARGS="-n 1000 -s 1 -e 50 -j 2"`) loops the property test over a
+seed range, one `go test` per seed and `-j` seeds at a time, reporting
+every failing seed with its replay command. Per-seed logs land in
+`.lake/soak-<seed>.log`.
+
+Cases run as parallel subtests, and each case's engine opens over
+Pebble's in-memory filesystem, so a 200-per-family run takes about a
+second and a 1000-per-family seed a few seconds. Set `C1Z_FORMAL_DISK=1`
+to open engines on disk instead; that path is about 50x slower because
+`EndSync` fsyncs serialize at the device, and it exercises nothing the
+model describes.
+
+## Model-to-implementation map
+
+| Model | Implementation |
+|---|---|
+| `Codec.escape`, `encodeTuple` | `codec/tuple.go` `appendEscaped`, `AppendTupleStrings` |
+| `Codec.encodeKey`, `header` | `keys.go` `encodeResourceKey` family; `internal/rawdb/keyspace.go` bytes |
+| `compressEnt`, `expandEnt` | `identity.go` `entitlementIdentityFromParts`, `externalID` |
+| `GrantId`, `GrantRecord` | `identity.go` `grantIdentity` (no `external_id` in the key) |
+| `lexLt` | Pebble default comparer (`bytes.Compare`) |
+| `Store.put`, `putBatch`, `erase` | `internal/rawdb/records.go` whole-value `Set`; per-call last-occurrence dedup in `grants.go`, `resources.go`, `entitlements.go`, `resource_types.go` |
+| `Paginate.page`, `clampPageSize`, `checkCursor` | `paginate.go` `iteratePrimaryPageWithKey`, `clampPageSize`, `rangeAfter` |
+| `Sync.writeGate`, `startNewSync`, `endSync`, `resumeSync` | `engine.go` `withWrite`, `requireCurrentSync`; `adapter.go`; `cleanup.go` `ResetForNewSync` |
+| `Sync.latestFinished`, `resolveActiveSync` | `sync_runs.go` `LatestFinishedSyncRecord`; `adapter_reader.go` `resolveActiveSyncForReader` |
+| `Result.resolveBare` | `lookup.go` exactly-one rule, `ErrAmbiguousExternalID` |
+| `Result.complete`, `ErrorTerminal` | `pkg/connectorstore/streaming.go` contract; `adapter_streaming.go` |
+
+## Guarantees
+
+Each row names the Lean statement, how the engine relates to it, and
+the evidence. "Enforced" means the engine's code makes it so;
+"required of producers" means the engine does not check it; "model
+only" means the Lean statement has no Go counterpart yet.
+
+### Identity and addressing (proposal §1)
+
+| Statement | Status | Evidence |
+|---|---|---|
+| Resource identity is `(resource_type_id, resource_id)`; resource type is `external_id`; entitlement is owner plus raw external id; grant is entitlement identity plus principal `(type, id)` | Enforced | `Identity.lean` definitions; `keys` oracle family |
+| Distinct identities of one kind never share a primary key | Proved, enforced | `ResourceId.key_injective`, `EntitlementId.key_injective`, `GrantId.key_injective`; `Codec.encodeKey_injective` |
+| Keys of different kinds never collide | Proved | `key_kind_disjoint` |
+| The entitlement strip rule loses nothing | Proved | `expandEnt_compressEnt`, `compressEnt_stripped_iff`; `entitlement_strip` oracle family |
+| Equal raw ids under different owners coexist | Proved | `ResourceId.key_ne_of_rt_ne`, `EntitlementId.key_ne_of_rid_ne` |
+| A by-value scan prefix matches exactly the keys whose leading components equal the scanned values (`"us"` does not match `"user"`) | Proved | `Codec.encodeScanPrefix_isPrefix_iff`; grants-of-entitlement corollaries `GrantId.key_under_entitlement_prefix`, `ent_eq_of_key_under_prefix` |
+| Primary keys use no hashing | Enforced | research: only `idxGrantByEntitlementPrincipalHash` hashes, and its key still carries the full identity |
+| Grant `external_id` is not part of the key: two grants that differ only there share one row | Proved (negative) | `GrantRecord.key_eq_iff`; `TestBulkImportMergesDuplicateIdentityGrants` |
+| Distinct identities can print the same public id, so bare-id grant lookup can be ambiguous | Proved (negative) | `publicId_not_injective` |
+| Bare-id lookup returns exactly one match or an explicit outcome (`ErrNotFound`, `ErrAmbiguousExternalID`) | Proved for the rule, enforced for entitlements and grants | `Result.resolveBare_found_imp_unique`; `lookup.go`; `bare_id` oracle family. Resources have no bare-id path. |
+| Non-empty components | Enforced for entitlements and grants only | `identity.go`; `EntitlementId.WellFormed`, `GrantId.WellFormed`. Resources and resource types accept empty ids. |
+
+### Writes (proposal §2)
+
+| Statement | Status | Evidence |
+|---|---|---|
+| A write replaces the whole value; last write wins; no field merge | Proved for the model, enforced on the normal put paths | `Store.get_put_self`, `put_put_last`; `records.go` `Set`; `writes` oracle family |
+| Writing one key leaves other keys unchanged | Proved | `Store.get_put_of_ne` |
+| Within one call, the last occurrence of a key wins, and pre-deduplicating does not change the result | Proved | `Store.get_putBatch`, `putBatch_dedupLast` |
+| Enumeration never emits a key twice; enumeration and lookup agree on existence | Proved | `Store.keys_nodup`, `mem_keys_iff` |
+| One put call or page commit is atomic | Enforced | `page_unit.go`; not modeled beyond `putBatch` being a pure function |
+| `discovered_at` survives an overwrite | Not on the normal put path | Only `PutExpandedGrantRecords` keeps it. Out of model scope. |
+| Batch deletes are all-or-nothing | Not enforced | `DeleteGrantsByIdentityRefs` commits in chunks of 1000. Out of model scope. |
+| Bulk import and the id-index migration merge duplicate grant values field-wise | Enforced, out of model scope | `mergeDuplicateGrantValues` |
+
+### Enumeration and pagination (proposal §3)
+
+| Statement | Status | Evidence |
+|---|---|---|
+| A complete traversal returns every visible key once, in key order, for any positive page size | Proved | `Paginate.traverse_complete`, `traverse_flatten_eq_of_pos`; `pagination` oracle family |
+| Every emitted key lies in the scan range, after the cursor | Proved | `page_items_mem` |
+| A token is minted only on a full, non-empty page; the token is the last key | Proved | `page_next_isSome_imp_full`, `page_next_isSome_imp_nonempty`, `page_next_eq_getLast` |
+| A page without a token has emitted every remaining visible key | Proved | `page_next_none_imp_exhausted` |
+| End of results is the empty token alone; the final page may be non-empty | Proved, enforced | same; `TestPaginationClampedPageSize` |
+| A full page may be followed by an empty terminal page when trailing raw rows are not emitted | Proved (negative) | `Paginate.lean` witness with `visible` |
+| Page size 0 and oversize requests become 10000; the effective size is in `1..10000` | Proved, enforced at the adapter | `clampPageSize_pos`, `clampPageSize_le`; engine-level `Paginate*` do not clamp above 10000 |
+| A token from another keyspace is rejected | Proved, enforced | `checkCursor_invalid_of_not_prefix`; `TestCrossKeyspaceCursorRejected` |
+| Tokens are bound to the sync, filter, or page size | Not enforced | A token is base64 of the raw key. A narrower filter's token is accepted by a broader scan with the same prefix; a forged in-prefix key is accepted. |
+| Pages are read from one snapshot | Not enforced | Each page opens a fresh iterator; the theorems assume a static keyspace. |
+| `ListGrantsForEntitlements` batched token | Out of scope | Its checksum mismatch silently restarts from the first entitlement. |
+
+### Sync selection (proposal §4)
+
+| Statement | Status | Evidence |
+|---|---|---|
+| A v3 file holds exactly one sync; no data key carries a sync id | Enforced | `keys.go`; `TestEncodersOmitSyncID`; `Sync.lean` models one record |
+| Records from another sync cannot leak into a read | Enforced structurally | one sync per file; `StartNewSync` wipes the keyspace (`hasRecords_startNewSync`) |
+| Record writes need a bound, unsealed engine | Proved, enforced | `writeGate_opened`, `writeGate_endSync`; `withWrite`, `requireCurrentSync`; `sync` oracle family |
+| `StartNewSync` is refused while a sync started by `StartNewSync` is still open; after `EndSync` it is accepted and wipes the file | Proved, enforced | `startNewSync_refused_of_fresh`, `startNewSync_startNewSync`, `startNewSync_endSync`; `ResetForNewSync` guard on `IsFreshSync`. The live property test found the model missing this refusal on its first run. |
+| A sync reopened by `ResumeSync` is protected from `StartNewSync` | False | `startNewSync_resumeSync`: the resumed binding is not fresh, so a following `StartNewSync` wipes it without refusal. |
+| `EndSync` marks the record finished, seals, and unbinds; a write afterwards is refused as "no current sync" because the bound check runs before the sealed check | Proved, enforced | `finished_endSync`, `writeGate_endSync`, `writeGate_engineSealed_iff`; the first oracle run caught the model stating `engineSealed` here, and the engine's order won |
+| A finished sync is immutable | False | `writeGate_resumeSync_finished`: `ResumeSync` reopens it and a later `EndSync` overwrites `ended_at`. |
+| Latest-finished selection returns only a finished record of the requested type | Proved | `latestFinished_spec`, `latestFinished_type`, `latestFinished_none_of_unfinished` |
+| Default sync resolution never invents an id; stale unfinished runs do not resolve | Proved | `resolveActiveSync_source`, `resolveActiveSync_none_of_stale` |
+| The requested sync id is checked against the file | Not enforced | `resolveActiveSync_annotation`: the resolved id is a non-empty gate only. Reads with a mismatched id return the file's records. |
+| Coverage metadata (which kinds or scopes were fully enumerated) | Unsupported | The stats sidecar holds counts only. Absence claims need caller-supplied authority. |
+
+### Errors and exhaustion (proposal §7)
+
+| Statement | Status | Evidence |
+|---|---|---|
+| A failed or abandoned traversal is not complete | Proved (definitional) | `Result.complete_iff`, `not_complete_failed`, `not_complete_abandoned` |
+| A list error returns no partial page | Enforced | `paginate.go` returns `nil, ""` |
+| Streams yield at most one error and nothing after it | Enforced; model states the consumer's verdict | `ErrorTerminal`, `streamEnd_failed_of_error`; `adapter_streaming.go` |
+| Primary-row decode failures surface as errors | Enforced | `paginate.go` "page unmarshal" |
+| Index-backed reads distinguish a missing or deferred index from an empty result | Not enforced | `by_principal` can be deferred until `EndSync`; no reader checks `DeferredIdxPending`. Dangling index entries are skipped silently. |
+| An unknown bare entitlement id in a filtered grant list is an error | Not enforced | It is an empty success. |
+| Context cancellation surfaces on an empty range | Not enforced | The primary-scan streams check `ctx` only per record. |
+
+## Non-guarantees worth repeating
+
+These came out of the implementation survey and are the facts a
+downstream consumer most needs. None is a theorem; each is a boundary.
+
+- The read view of a finished sync is not stable across `Open`: the
+  id-index migration can re-key entitlement and grant rows and drops
+  rows that lack reference fields.
+- `StartOrResumeSync` with an unknown explicit id starts a new sync and
+  wipes the file (`TestStartOrResumeSyncUnknownIDWipesRecords`).
+- Grants whose entitlement or principal is absent from the snapshot
+  are accepted and returned; nothing enforces referential integrity.
+- Equal digests mean equal content only under a collision assumption;
+  digests are outside this package.
+- `EndSync` with no bound sync returns a plain error, not the
+  `ErrNoCurrentSync` sentinel; callers cannot `errors.Is` it.
+- Sync ids must be KSUIDs at the adapter boundary.
+
+## Oracle and conformance
+
+The oracle runs the model to produce `generated/cases.json` (schema in
+`ORACLE_SCHEMA.md`, versioned, with per-family counts). The Go test
+asserts the version and counts, rejects unknown fields and enum
+strings, and replays each family against a fresh engine. Families:
+`keys` (byte-exact key encoding), `entitlement_strip`, `writes`,
+`pagination`, `bare_id`, `sync`.
+
+The fixed generator deliberately does not produce: rows hidden by
+`visible` (dangling index entries), injected faults, `discovered_at`
+behavior, grant-record writes, or the 7-day unfinished fallback (Lean
+witnesses only). Those remain proved-but-not-differentially-tested, or
+out of scope, as marked above. The random and property paths widen the
+input distribution within the same six families; they do not add
+families.
+
+## Trust
+
+- The toolchain is pinned in `lean-toolchain`; the core imports only
+  the Lean prelude and `Init`.
+- Two model errors were caught by replay rather than by review: the
+  write-gate order after `EndSync` (fixed corpus) and the missing
+  `StartNewSync` refusal (live property test). Both are now theorems.
+  Treat that as the expected failure mode of Joint 1: the model is a
+  transcription, and the oracle is what checks it.
+- `scripts/check.sh` fails on any compiler warning (so on any `sorry`),
+  diffs `#print axioms` for every exported theorem against
+  `AXIOMS.golden`, and rejects any axiom other than `propext`,
+  `Classical.choice`, `Quot.sound`. No `native_decide`, `partial`, or
+  custom axiom is used.
+- `generated/cases.json` is checked in, against the usual advice,
+  because the Go CI has no Lean toolchain. `check.sh` fails if the
+  checked-in file differs from a fresh run, so the two cannot drift
+  silently once that gate runs.
+- Assurance level: kernel acceptance plus axiom audit plus human review
+  of statements. `lean4checker` and external checkers are not run; for
+  a first-party model that is the intended stopping point.
+
+## Review checklist for statement changes
+
+Statements carry the meaning; proofs only certify them. When changing
+a theorem: does the name say what the statement says; is any conjunct
+a restated hypothesis; is there a witness that the hypotheses are
+satisfiable; is it true of the type alone (then it is not a domain
+property); and does the oracle generate the part of the domain it
+quantifies over.
