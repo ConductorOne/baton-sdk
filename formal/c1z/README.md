@@ -35,6 +35,9 @@ C1z.lean, C1z/          the proved core (never `import Lean`)
   Paginate.lean         page tokens, clamping, complete traversal
   Sync.lean             one-sync-per-file lifecycle and selection
   Result.lean           outcome algebra, bare-id resolution
+  Records.lean          grant and entitlement stores under structural keys
+  Index.lean            the by_principal index, deferred writes, hidden rows
+  GrantLookup.lean      grant lookup by bare external id (two-phase rule)
 Oracle/                 case generator (tooling; may `import Lean`)
 generated/cases.json    the oracle's output, checked in (see "Trust")
 ORACLE_SCHEMA.md        the JSON contract between oracle and Go test
@@ -102,6 +105,9 @@ model describes.
 | `Sync.latestFinished`, `resolveActiveSync` | `sync_runs.go` `LatestFinishedSyncRecord`; `adapter_reader.go` `resolveActiveSyncForReader` |
 | `Result.resolveBare` | `lookup.go` exactly-one rule, `ErrAmbiguousExternalID` |
 | `Result.complete`, `ErrorTerminal` | `pkg/connectorstore/streaming.go` contract; `adapter_streaming.go` |
+| `GrantStore.putGrants`, `grantsForEntitlement` | `grants.go` `PutGrants`; `paginate.go` `paginateGrantsByEntitlement` with `keep` |
+| `IndexedGrants.putGrants`, `putGrantsDeferred`, `endSyncRebuild` | `rawdb` `StageGrantPutInline` / `StageGrantPutDeferred`; `deferred_index.go` `BuildDeferredGrantIndexes` |
+| `GrantLookup.resolve` | `lookup.go` `resolveGrantIdentityByExternalID` (candidates, then scan) |
 
 ## Guarantees
 
@@ -125,6 +131,12 @@ only" means the Lean statement has no Go counterpart yet.
 | Distinct identities can print the same public id, so bare-id grant lookup can be ambiguous | Proved (negative) | `publicId_not_injective` |
 | Bare-id lookup returns exactly one match or an explicit outcome (`ErrNotFound`, `ErrAmbiguousExternalID`) | Proved for the rule, enforced for entitlements and grants | `Result.resolveBare_found_imp_unique`; `lookup.go`; `bare_id` oracle family. Resources have no bare-id path. |
 | Non-empty components | Enforced for entitlements and grants only | `identity.go`; `EntitlementId.WellFormed`, `GrantId.WellFormed`. Resources and resource types accept empty ids. |
+| Grants of one entitlement are exactly the rows under its scan prefix, disjoint from every other entitlement's | Proved | `GrantStore.grantsForEntitlement_eq_filter`, `grantsForEntitlement_disjoint`; `grant_list` oracle family |
+| The principal-type filter of `ListGrantsForEntitlement` selects exactly that type | Proved | `mem_grantsForEntitlementByPrincipalType` |
+| A grant whose entitlement or principal has no record is stored and returned | Enforced; definitional in the model | `get_putGrants_independent_of_entitlements`; `grant_writes` oracle family. Not referential integrity. |
+| Grant bare-id lookup (`GetGrant`) returns only a stored grant whose stored id is the query or whose stored id is empty and public id is the query | Proved | `GrantLookup.found_mem`, `found_matches`; `grant_bare_id` oracle family |
+| Grant bare-id lookup is the exactly-one rule over stored ids | False in general | `GrantLookup.masking`: a public-id hit on one grant hides another grant whose stored id equals the query, with no ambiguity. Exactly-one holds only when no candidate hits (`resolve_eq_resolveBare_scan`). |
+| An empty-id grant is addressable by the public id `ListGrants` shows for it | Conditional | `GrantLookup.opaque_unreachable`: only if its entitlement id is stripped-shaped or an entitlement row with that exact identity exists. `custom_ext_hides_public`: a custom stored id is never reachable by the public id. |
 
 ### Writes (proposal §2)
 
@@ -138,6 +150,9 @@ only" means the Lean statement has no Go counterpart yet.
 | `discovered_at` survives an overwrite | Not on the normal put path | Only `PutExpandedGrantRecords` keeps it. Out of model scope. |
 | Batch deletes are all-or-nothing | Not enforced | `DeleteGrantsByIdentityRefs` commits in chunks of 1000. Out of model scope. |
 | Bulk import and the id-index migration merge duplicate grant values field-wise | Enforced, out of model scope | `mergeDuplicateGrantValues` |
+| Two grants differing only in `external_id`: one row, the later id; the same id on two structures: two rows | Proved, enforced | `GrantStore.getGrant_putGrants_collapse`, `getGrant_putGrants_distinct`; `grant_writes` oracle family |
+| The same entitlement id on two resources: two rows | Proved, enforced | `EntitlementStore.getEntitlement_putEntitlements_distinct_rid`; `entitlement_writes` oracle family |
+| Deleting an entitlement cascades to its grants | False | `deleteEntitlement_no_cascade` (definitional); the engine has no cascade for any kind |
 
 ### Enumeration and pagination (proposal §3)
 
@@ -179,7 +194,8 @@ only" means the Lean statement has no Go counterpart yet.
 | A list error returns no partial page | Enforced | `paginate.go` returns `nil, ""` |
 | Streams yield at most one error and nothing after it | Enforced; model states the consumer's verdict | `ErrorTerminal`, `streamEnd_failed_of_error`; `adapter_streaming.go` |
 | Primary-row decode failures surface as errors | Enforced | `paginate.go` "page unmarshal" |
-| Index-backed reads distinguish a missing or deferred index from an empty result | Not enforced | `by_principal` can be deferred until `EndSync`; no reader checks `DeferredIdxPending`. Dangling index entries are skipped silently. |
+| Index-backed reads distinguish a missing or deferred index from an empty result | Not enforced; proved as a negative | `IndexedGrants.grantsForPrincipal_deferred_incomplete`, `not_complete_putGrantsDeferred_of_new`: a `PutExpandedGrantRecords` write of a new identity is invisible to `ListGrantsForPrincipal` until `EndSync`, with success status. `grants_by_principal` oracle family. Dangling index entries are skipped silently. |
+| The index view is a subset of the primary view, and equals it once the index is complete; `EndSync` makes it complete; plain writes and deletes keep it complete | Proved | `grantsForPrincipal_subset`, `grantsForPrincipal_eq_of_complete`, `complete_endSyncRebuild`, `complete_putGrants`, `complete_deleteGrant` |
 | An unknown bare entitlement id in a filtered grant list is an error | Not enforced | It is an empty success. |
 | Context cancellation surfaces on an empty range | Not enforced | The primary-scan streams check `ctx` only per record. |
 
@@ -208,7 +224,9 @@ The oracle runs the model to produce `generated/cases.json` (schema in
 asserts the version and counts, rejects unknown fields and enum
 strings, and replays each family against a fresh engine. Families:
 `keys` (byte-exact key encoding), `entitlement_strip`, `writes`,
-`pagination`, `bare_id`, `sync`.
+`pagination`, `bare_id`, `sync`, and from the second increment
+`grant_writes`, `entitlement_writes`, `grant_list`,
+`grants_by_principal`, `grant_bare_id`.
 
 The fixed generator deliberately does not produce: rows hidden by
 `visible` (dangling index entries), injected faults, `discovered_at`

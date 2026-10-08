@@ -29,6 +29,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
@@ -68,6 +69,12 @@ type formalCases struct {
 	Pagination       []formalPaginationCase `json:"pagination"`
 	BareID           []formalBareIDCase     `json:"bare_id"`
 	Sync             []formalSyncCase       `json:"sync"`
+
+	GrantWrites       []formalGrantWritesCase       `json:"grant_writes"`
+	EntitlementWrites []formalEntWritesCase         `json:"entitlement_writes"`
+	GrantList         []formalGrantListCase         `json:"grant_list"`
+	GrantsByPrincipal []formalGrantsByPrincipalCase `json:"grants_by_principal"`
+	GrantBareID       []formalGrantBareIDCase       `json:"grant_bare_id"`
 }
 
 type formalKeyCase struct {
@@ -147,6 +154,86 @@ type formalSyncCase struct {
 	Ops  []formalSyncOp `json:"ops"`
 }
 
+// formalGrant is a grant by structural identity plus its stored
+// external_id, which may be empty.
+type formalGrant struct {
+	Ent   *formalEntRef `json:"ent"`
+	PRT   hexField      `json:"prt"`
+	PRID  hexField      `json:"prid"`
+	ExtID hexField      `json:"ext_id"`
+}
+
+// formalGrantOp is an op of grant_writes and grants_by_principal. Grants
+// is the expected result of a grants_by_principal read.
+type formalGrantOp struct {
+	Op     string         `json:"op"`
+	Batch  *[]formalGrant `json:"batch"`
+	Ent    *formalEntRef  `json:"ent"`
+	PRT    hexField       `json:"prt"`
+	PRID   hexField       `json:"prid"`
+	Grants *[]formalGrant `json:"grants"`
+}
+
+type formalGrantWritesCase struct {
+	Name  string          `json:"name"`
+	Ops   []formalGrantOp `json:"ops"`
+	Final *[]formalGrant  `json:"final"`
+}
+
+type formalEntRecord struct {
+	RT    hexField `json:"rt"`
+	RID   hexField `json:"rid"`
+	Ext   hexField `json:"ext"`
+	Value *string  `json:"value"`
+}
+
+type formalEntWriteOp struct {
+	Op    string             `json:"op"`
+	Batch *[]formalEntRecord `json:"batch"`
+	RT    hexField           `json:"rt"`
+	RID   hexField           `json:"rid"`
+	Ext   hexField           `json:"ext"`
+}
+
+type formalEntWritesCase struct {
+	Name  string             `json:"name"`
+	Ops   []formalEntWriteOp `json:"ops"`
+	Final *[]formalEntRecord `json:"final"`
+}
+
+type formalGrantQuery struct {
+	Ent  *formalEntRef `json:"ent"`
+	PRT  hexField      `json:"prt"`
+	PRID hexField      `json:"prid"`
+}
+
+type formalGrantPage struct {
+	Grants  *[]formalGrant `json:"grants"`
+	HasNext *bool          `json:"has_next"`
+}
+
+type formalGrantListCase struct {
+	Name     string             `json:"name"`
+	Grants   *[]formalGrant     `json:"grants"`
+	Query    *formalGrantQuery  `json:"query"`
+	PageSize *uint32            `json:"page_size"`
+	Pages    *[]formalGrantPage `json:"pages"`
+}
+
+type formalGrantsByPrincipalCase struct {
+	Name string          `json:"name"`
+	Ops  []formalGrantOp `json:"ops"`
+}
+
+type formalGrantBareIDCase struct {
+	Name         string         `json:"name"`
+	Entitlements []formalEntRef `json:"entitlements"`
+	Grants       []formalGrant  `json:"grants"`
+	Lookup       hexField       `json:"lookup"`
+	Expected     string         `json:"expected"`
+	Found        *formalGrant   `json:"found"`
+}
+
 func formalCasesPath(t *testing.T) string {
 	t.Helper()
 	if path := os.Getenv("C1Z_FORMAL_CASES"); path != "" {
@@ -163,12 +250,17 @@ func formalCasesPath(t *testing.T) string {
 // the family's JSON name.
 func formalFamilyLens(cases *formalCases) map[string]int {
 	return map[string]int{
-		"keys":              len(cases.Keys),
-		"entitlement_strip": len(cases.EntitlementStrip),
-		"writes":            len(cases.Writes),
-		"pagination":        len(cases.Pagination),
-		"bare_id":           len(cases.BareID),
-		"sync":              len(cases.Sync),
+		"keys":                len(cases.Keys),
+		"entitlement_strip":   len(cases.EntitlementStrip),
+		"writes":              len(cases.Writes),
+		"pagination":          len(cases.Pagination),
+		"bare_id":             len(cases.BareID),
+		"sync":                len(cases.Sync),
+		"grant_writes":        len(cases.GrantWrites),
+		"entitlement_writes":  len(cases.EntitlementWrites),
+		"grant_list":          len(cases.GrantList),
+		"grants_by_principal": len(cases.GrantsByPrincipal),
+		"grant_bare_id":       len(cases.GrantBareID),
 	}
 }
 
@@ -347,6 +439,56 @@ func replayFormalCases(t *testing.T, cases *formalCases, onFail formalFailureHoo
 		requireNamesUnique(t, "sync", names)
 		for i, c := range cases.Sync {
 			run(t, "sync", c.Name, i, func(t *testing.T) { runFormalSyncCase(t, c) })
+		}
+	})
+	t.Run("grant_writes", func(t *testing.T) {
+		names := make([]string, 0, len(cases.GrantWrites))
+		for _, c := range cases.GrantWrites {
+			names = append(names, c.Name)
+		}
+		requireNamesUnique(t, "grant_writes", names)
+		for i, c := range cases.GrantWrites {
+			run(t, "grant_writes", c.Name, i, func(t *testing.T) { runFormalGrantWritesCase(t, c) })
+		}
+	})
+	t.Run("entitlement_writes", func(t *testing.T) {
+		names := make([]string, 0, len(cases.EntitlementWrites))
+		for _, c := range cases.EntitlementWrites {
+			names = append(names, c.Name)
+		}
+		requireNamesUnique(t, "entitlement_writes", names)
+		for i, c := range cases.EntitlementWrites {
+			run(t, "entitlement_writes", c.Name, i, func(t *testing.T) { runFormalEntWritesCase(t, c) })
+		}
+	})
+	t.Run("grant_list", func(t *testing.T) {
+		names := make([]string, 0, len(cases.GrantList))
+		for _, c := range cases.GrantList {
+			names = append(names, c.Name)
+		}
+		requireNamesUnique(t, "grant_list", names)
+		for i, c := range cases.GrantList {
+			run(t, "grant_list", c.Name, i, func(t *testing.T) { runFormalGrantListCase(t, c) })
+		}
+	})
+	t.Run("grants_by_principal", func(t *testing.T) {
+		names := make([]string, 0, len(cases.GrantsByPrincipal))
+		for _, c := range cases.GrantsByPrincipal {
+			names = append(names, c.Name)
+		}
+		requireNamesUnique(t, "grants_by_principal", names)
+		for i, c := range cases.GrantsByPrincipal {
+			run(t, "grants_by_principal", c.Name, i, func(t *testing.T) { runFormalGrantsByPrincipalCase(t, c) })
+		}
+	})
+	t.Run("grant_bare_id", func(t *testing.T) {
+		names := make([]string, 0, len(cases.GrantBareID))
+		for _, c := range cases.GrantBareID {
+			names = append(names, c.Name)
+		}
+		requireNamesUnique(t, "grant_bare_id", names)
+		for i, c := range cases.GrantBareID {
+			run(t, "grant_bare_id", c.Name, i, func(t *testing.T) { runFormalGrantBareIDCase(t, c) })
 		}
 	})
 }
@@ -837,6 +979,489 @@ func runFormalSyncCase(t *testing.T, c formalSyncCase) {
 	}
 }
 
+// formalGrantParts is a decoded formalGrant: the five identity components
+// and the stored external_id.
+type formalGrantParts struct {
+	rt, rid, ext, prt, prid, extID string
+}
+
+func (p formalGrantParts) String() string {
+	return fmt.Sprintf("(%x,%x,%x)/%x/%x#%x", p.rt, p.rid, p.ext, p.prt, p.prid, p.extID)
+}
+
+func (p formalGrantParts) identity() grantIdentity {
+	return grantIdentity{
+		entitlement:     entitlementIdentityFromParts(p.rt, p.rid, p.ext),
+		principalTypeID: p.prt,
+		principalID:     p.prid,
+	}
+}
+
+// publicID is the id V3GrantToV2 rebuilds when the stored external_id is
+// empty.
+func (p formalGrantParts) publicID() string { return p.ext + ":" + p.prt + ":" + p.prid }
+
+func requireFormalEntRef(t *testing.T, field string, ref *formalEntRef) (string, string, string) {
+	t.Helper()
+	if ref == nil {
+		t.Fatalf("required object %q is absent", field)
+	}
+	return requireProtoString(t, field+".rt", requireHex(t, field+".rt", ref.RT)),
+		requireProtoString(t, field+".rid", requireHex(t, field+".rid", ref.RID)),
+		requireProtoString(t, field+".ext", requireHex(t, field+".ext", ref.Ext))
+}
+
+func requireFormalGrant(t *testing.T, field string, g formalGrant) formalGrantParts {
+	t.Helper()
+	rt, rid, ext := requireFormalEntRef(t, field+".ent", g.Ent)
+	return formalGrantParts{
+		rt: rt, rid: rid, ext: ext,
+		prt:   requireProtoString(t, field+".prt", requireHex(t, field+".prt", g.PRT)),
+		prid:  requireProtoString(t, field+".prid", requireHex(t, field+".prid", g.PRID)),
+		extID: requireProtoString(t, field+".ext_id", requireHex(t, field+".ext_id", g.ExtID)),
+	}
+}
+
+func requireFormalGrants(t *testing.T, field string, gs []formalGrant) []formalGrantParts {
+	t.Helper()
+	out := make([]formalGrantParts, 0, len(gs))
+	for i, g := range gs {
+		out = append(out, requireFormalGrant(t, fmt.Sprintf("%s[%d]", field, i), g))
+	}
+	return out
+}
+
+func formalV2Entitlement(rt, rid, ext string) *v2.Entitlement {
+	return v2.Entitlement_builder{
+		Id: ext,
+		Resource: v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: rt, Resource: rid}.Build(),
+		}.Build(),
+	}.Build()
+}
+
+func formalV2Grant(p formalGrantParts) *v2.Grant {
+	return v2.Grant_builder{
+		Id:          p.extID,
+		Entitlement: formalV2Entitlement(p.rt, p.rid, p.ext),
+		Principal: v2.Resource_builder{
+			Id: v2.ResourceId_builder{ResourceType: p.prt, Resource: p.prid}.Build(),
+		}.Build(),
+	}.Build()
+}
+
+func formalV2Grants(ps []formalGrantParts) []*v2.Grant {
+	out := make([]*v2.Grant, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, formalV2Grant(p))
+	}
+	return out
+}
+
+// formalGotGrant reads a returned v2 grant's identity through its refs and
+// its stored external_id from the v3 record at that identity, since v2
+// Grant.Id is the rebuilt public id when the stored one is empty. It also
+// checks the v2 Grant.Id rule from ORACLE_SCHEMA.md.
+func formalGotGrant(t *testing.T, e *Engine, g *v2.Grant) formalGrantParts {
+	t.Helper()
+	ent := g.GetEntitlement()
+	p := formalGrantParts{
+		rt:   ent.GetResource().GetId().GetResourceType(),
+		rid:  ent.GetResource().GetId().GetResource(),
+		ext:  ent.GetId(),
+		prt:  g.GetPrincipal().GetId().GetResourceType(),
+		prid: g.GetPrincipal().GetId().GetResource(),
+	}
+	rec, err := e.getGrantRecordByIdentity(p.identity())
+	if err != nil {
+		t.Fatalf("getGrantRecordByIdentity(%v) for a returned grant: %v", p, err)
+	}
+	p.extID = rec.GetExternalId()
+	wantID := p.extID
+	if wantID == "" {
+		wantID = p.publicID()
+	}
+	if g.GetId() != wantID {
+		t.Fatalf("returned grant %v has v2 Id %x, want %x", p, g.GetId(), wantID)
+	}
+	return p
+}
+
+func formalGotGrants(t *testing.T, e *Engine, gs []*v2.Grant) []formalGrantParts {
+	t.Helper()
+	out := make([]formalGrantParts, 0, len(gs))
+	for _, g := range gs {
+		out = append(out, formalGotGrant(t, e, g))
+	}
+	return out
+}
+
+func requireFormalGrantList(t *testing.T, what string, got, want []formalGrantParts) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s: got %d grants %v, want %d %v", what, len(got), got, len(want), want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("%s[%d] = %v, want %v\n got  %v\n want %v", what, i, got[i], want[i], got, want)
+		}
+	}
+}
+
+func formalPutGrants(ctx context.Context, t *testing.T, e *Engine, what string, ps []formalGrantParts) {
+	t.Helper()
+	if len(ps) == 0 {
+		return
+	}
+	if err := e.PutGrants(ctx, formalV2Grants(ps)...); err != nil {
+		t.Fatalf("%s: PutGrants(%v): %v", what, ps, err)
+	}
+}
+
+// formalGrantOpIdentity decodes the identity of a delete or read op.
+func formalGrantOpIdentity(t *testing.T, i int, op formalGrantOp) formalGrantParts {
+	t.Helper()
+	field := fmt.Sprintf("ops[%d]", i)
+	rt, rid, ext := requireFormalEntRef(t, field+".ent", op.Ent)
+	return formalGrantParts{
+		rt: rt, rid: rid, ext: ext,
+		prt:  requireProtoString(t, field+".prt", requireHex(t, field+".prt", op.PRT)),
+		prid: requireProtoString(t, field+".prid", requireHex(t, field+".prid", op.PRID)),
+	}
+}
+
+func formalDeleteGrant(ctx context.Context, t *testing.T, e *Engine, i int, p formalGrantParts) {
+	t.Helper()
+	rec := V2GrantToV3(e.CurrentSyncID(), formalV2Grant(p))
+	if err := e.DeleteGrantByIdentityRefs(ctx, rec); err != nil {
+		t.Fatalf("op %d: DeleteGrantByIdentityRefs(%v): %v", i, p, err)
+	}
+}
+
+func listAllFormalGrants(ctx context.Context, t *testing.T, e *Engine) []formalGrantParts {
+	t.Helper()
+	var out []formalGrantParts
+	token := ""
+	for {
+		resp, err := e.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+			PageSize:  MaxPageSize,
+			PageToken: token,
+		}.Build())
+		if err != nil {
+			t.Fatalf("ListGrants: %v", err)
+		}
+		out = append(out, formalGotGrants(t, e, resp.GetList())...)
+		token = resp.GetNextPageToken()
+		if token == "" {
+			return out
+		}
+	}
+}
+
+func runFormalGrantWritesCase(t *testing.T, c formalGrantWritesCase) {
+	if c.Final == nil {
+		t.Fatal("required field \"final\" is absent")
+	}
+	want := requireFormalGrants(t, "final", *c.Final)
+	ctx, e := newFormalEngineWithSync(t)
+	for i, op := range c.Ops {
+		if op.Grants != nil {
+			t.Fatalf("op %d (%s): \"grants\" must be absent", i, op.Op)
+		}
+		switch op.Op {
+		case "put":
+			if op.Batch == nil || op.Ent != nil || op.PRT.present || op.PRID.present {
+				t.Fatalf("op %d: put requires \"batch\" and nothing else", i)
+			}
+			formalPutGrants(ctx, t, e, fmt.Sprintf("op %d", i), requireFormalGrants(t, fmt.Sprintf("ops[%d].batch", i), *op.Batch))
+		case "delete":
+			if op.Batch != nil {
+				t.Fatalf("op %d: delete with \"batch\"", i)
+			}
+			formalDeleteGrant(ctx, t, e, i, formalGrantOpIdentity(t, i, op))
+		default:
+			t.Fatalf("op %d: unknown grant_writes op %q", i, op.Op)
+		}
+	}
+	requireFormalGrantList(t, "final", listAllFormalGrants(ctx, t, e), want)
+}
+
+func listAllFormalEntitlements(ctx context.Context, t *testing.T, e *Engine) []*v2.Entitlement {
+	t.Helper()
+	var out []*v2.Entitlement
+	token := ""
+	for {
+		resp, err := e.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+			PageSize:  MaxPageSize,
+			PageToken: token,
+		}.Build())
+		if err != nil {
+			t.Fatalf("ListEntitlements: %v", err)
+		}
+		out = append(out, resp.GetList()...)
+		token = resp.GetNextPageToken()
+		if token == "" {
+			return out
+		}
+	}
+}
+
+func formalEntitlementSummary(es []*v2.Entitlement) []string {
+	out := make([]string, 0, len(es))
+	for _, en := range es {
+		id := en.GetResource().GetId()
+		out = append(out, fmt.Sprintf("(%x,%x,%x)=%s", id.GetResourceType(), id.GetResource(), en.GetId(), en.GetDisplayName()))
+	}
+	return out
+}
+
+func runFormalEntWritesCase(t *testing.T, c formalEntWritesCase) {
+	if c.Final == nil {
+		t.Fatal("required field \"final\" is absent")
+	}
+	ctx, e := newFormalEngineWithSync(t)
+	for i, op := range c.Ops {
+		switch op.Op {
+		case "put":
+			if op.Batch == nil || op.RT.present || op.RID.present || op.Ext.present {
+				t.Fatalf("op %d: put requires \"batch\" and nothing else", i)
+			}
+			batch := make([]*v2.Entitlement, 0, len(*op.Batch))
+			for j, r := range *op.Batch {
+				field := fmt.Sprintf("ops[%d].batch[%d]", i, j)
+				if r.Value == nil {
+					t.Fatalf("%s without \"value\"", field)
+				}
+				en := formalV2Entitlement(
+					requireProtoString(t, field+".rt", requireHex(t, field+".rt", r.RT)),
+					requireProtoString(t, field+".rid", requireHex(t, field+".rid", r.RID)),
+					requireProtoString(t, field+".ext", requireHex(t, field+".ext", r.Ext)))
+				en.SetDisplayName(requireProtoString(t, field+".value", *r.Value))
+				batch = append(batch, en)
+			}
+			if len(batch) > 0 {
+				if err := e.PutEntitlements(ctx, batch...); err != nil {
+					t.Fatalf("op %d: PutEntitlements: %v", i, err)
+				}
+			}
+		case "delete":
+			if op.Batch != nil {
+				t.Fatalf("op %d: delete with \"batch\"", i)
+			}
+			field := fmt.Sprintf("ops[%d]", i)
+			rt := requireProtoString(t, field+".rt", requireHex(t, field+".rt", op.RT))
+			rid := requireProtoString(t, field+".rid", requireHex(t, field+".rid", op.RID))
+			ext := requireProtoString(t, field+".ext", requireHex(t, field+".ext", op.Ext))
+			if err := e.DeleteEntitlementRecordByIdentity(ctx, rt, rid, ext); err != nil {
+				t.Fatalf("op %d: DeleteEntitlementRecordByIdentity: %v", i, err)
+			}
+		default:
+			t.Fatalf("op %d: unknown entitlement_writes op %q", i, op.Op)
+		}
+	}
+	got := listAllFormalEntitlements(ctx, t, e)
+	want := *c.Final
+	if len(got) != len(want) {
+		t.Fatalf("listed %d entitlements, want %d: got %v", len(got), len(want), formalEntitlementSummary(got))
+	}
+	for i, w := range want {
+		field := fmt.Sprintf("final[%d]", i)
+		if w.Value == nil {
+			t.Fatalf("%s without \"value\"", field)
+		}
+		wantRT, wantRID, wantExt := requireHex(t, field+".rt", w.RT), requireHex(t, field+".rid", w.RID), requireHex(t, field+".ext", w.Ext)
+		g := got[i]
+		id := g.GetResource().GetId()
+		if id.GetResourceType() != wantRT || id.GetResource() != wantRID || g.GetId() != wantExt || g.GetDisplayName() != *w.Value {
+			t.Fatalf("%s = (%x,%x,%x)=%s, want (%x,%x,%x)=%s; full list %v", field,
+				id.GetResourceType(), id.GetResource(), g.GetId(), g.GetDisplayName(), wantRT, wantRID, wantExt, *w.Value,
+				formalEntitlementSummary(got))
+		}
+	}
+}
+
+func runFormalGrantListCase(t *testing.T, c formalGrantListCase) {
+	if c.Grants == nil || c.Query == nil || c.PageSize == nil || c.Pages == nil {
+		t.Fatal("grant_list case requires \"grants\", \"query\", \"page_size\", and \"pages\"")
+	}
+	grants := requireFormalGrants(t, "grants", *c.Grants)
+	rt, rid, ext := requireFormalEntRef(t, "query.ent", c.Query.Ent)
+	req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		Entitlement: formalV2Entitlement(rt, rid, ext),
+		PageSize:    *c.PageSize,
+	}.Build()
+	pointLookup := false
+	switch {
+	case c.Query.PRID.present:
+		prt := requireProtoString(t, "query.prt", requireHex(t, "query.prt", c.Query.PRT))
+		prid := requireProtoString(t, "query.prid", c.Query.PRID.b)
+		req.SetPrincipalId(v2.ResourceId_builder{ResourceType: prt, Resource: prid}.Build())
+		pointLookup = true
+	case c.Query.PRT.present:
+		req.SetPrincipalResourceTypeIds([]string{requireProtoString(t, "query.prt", c.Query.PRT.b)})
+	}
+	if pointLookup && len(*c.Pages) != 1 {
+		t.Fatalf("point lookup case with %d pages, want 1", len(*c.Pages))
+	}
+	ctx, e := newFormalEngineWithSync(t)
+	formalPutGrants(ctx, t, e, "grants", grants)
+	token := ""
+	for i, page := range *c.Pages {
+		if page.Grants == nil || page.HasNext == nil {
+			t.Fatalf("pages[%d] requires \"grants\" and \"has_next\"", i)
+		}
+		want := requireFormalGrants(t, fmt.Sprintf("pages[%d].grants", i), *page.Grants)
+		req.SetPageToken(token)
+		resp, err := e.ListGrantsForEntitlement(ctx, req)
+		if err != nil {
+			t.Fatalf("pages[%d]: ListGrantsForEntitlement: %v", i, err)
+		}
+		requireFormalGrantList(t, fmt.Sprintf("pages[%d]", i), formalGotGrants(t, e, resp.GetList()), want)
+		token = resp.GetNextPageToken()
+		if gotNext := token != ""; gotNext != *page.HasNext {
+			t.Fatalf("pages[%d] has_next = %v, want %v", i, gotNext, *page.HasNext)
+		}
+		if token == "" && i != len(*c.Pages)-1 {
+			t.Fatalf("token ended after page %d, want %d pages", i, len(*c.Pages))
+		}
+	}
+	if token != "" {
+		t.Fatalf("token still set after the last expected page %d", len(*c.Pages)-1)
+	}
+}
+
+// formalByPrincipalPageSize is small so a read crosses page boundaries.
+const formalByPrincipalPageSize = 2
+
+func listAllFormalGrantsForPrincipal(ctx context.Context, t *testing.T, e *Engine, prt, prid string) []formalGrantParts {
+	t.Helper()
+	var out []formalGrantParts
+	token := ""
+	for {
+		resp, err := e.ListGrantsForPrincipal(ctx, reader_v2.GrantsReaderServiceListGrantsForPrincipalRequest_builder{
+			PrincipalId: v2.ResourceId_builder{ResourceType: prt, Resource: prid}.Build(),
+			PageSize:    formalByPrincipalPageSize,
+			PageToken:   token,
+		}.Build())
+		if err != nil {
+			t.Fatalf("ListGrantsForPrincipal(%x, %x): %v", prt, prid, err)
+		}
+		out = append(out, formalGotGrants(t, e, resp.GetList())...)
+		token = resp.GetNextPageToken()
+		if token == "" {
+			return out
+		}
+	}
+}
+
+func runFormalGrantsByPrincipalCase(t *testing.T, c formalGrantsByPrincipalCase) {
+	if len(c.Ops) == 0 {
+		t.Fatal("grants_by_principal case with no ops")
+	}
+	ctx, e := newFormalEngineWithSync(t)
+	ended := false
+	for i, op := range c.Ops {
+		if ended && op.Op != "read" {
+			t.Fatalf("op %d (%s) after end_sync; only a read may follow it", i, op.Op)
+		}
+		switch op.Op {
+		case "put", "put_deferred":
+			if op.Batch == nil || op.Ent != nil || op.PRT.present || op.PRID.present || op.Grants != nil {
+				t.Fatalf("op %d: %s requires \"batch\" and nothing else", i, op.Op)
+			}
+			batch := requireFormalGrants(t, fmt.Sprintf("ops[%d].batch", i), *op.Batch)
+			if op.Op == "put" {
+				formalPutGrants(ctx, t, e, fmt.Sprintf("op %d", i), batch)
+				continue
+			}
+			records := make([]*v3.GrantRecord, 0, len(batch))
+			for _, p := range batch {
+				records = append(records, V2GrantToV3(e.CurrentSyncID(), formalV2Grant(p)))
+			}
+			if err := e.PutExpandedGrantRecords(ctx, records); err != nil {
+				t.Fatalf("op %d: PutExpandedGrantRecords(%v): %v", i, batch, err)
+			}
+		case "delete":
+			if op.Batch != nil || op.Grants != nil {
+				t.Fatalf("op %d: delete with \"batch\" or \"grants\"", i)
+			}
+			formalDeleteGrant(ctx, t, e, i, formalGrantOpIdentity(t, i, op))
+		case "end_sync":
+			if op.Batch != nil || op.Ent != nil || op.PRT.present || op.PRID.present || op.Grants != nil {
+				t.Fatalf("op %d: end_sync takes no fields", i)
+			}
+			if err := e.EndSync(ctx); err != nil {
+				t.Fatalf("op %d: EndSync: %v", i, err)
+			}
+			ended = true
+		case "read":
+			if op.Batch != nil || op.Ent != nil || op.Grants == nil {
+				t.Fatalf("op %d: read requires \"prt\", \"prid\", and \"grants\" only", i)
+			}
+			field := fmt.Sprintf("ops[%d]", i)
+			prt := requireProtoString(t, field+".prt", requireHex(t, field+".prt", op.PRT))
+			prid := requireProtoString(t, field+".prid", requireHex(t, field+".prid", op.PRID))
+			want := requireFormalGrants(t, field+".grants", *op.Grants)
+			requireFormalGrantList(t, fmt.Sprintf("op %d read", i), listAllFormalGrantsForPrincipal(ctx, t, e, prt, prid), want)
+		default:
+			t.Fatalf("op %d: unknown grants_by_principal op %q", i, op.Op)
+		}
+	}
+}
+
+func runFormalGrantBareIDCase(t *testing.T, c formalGrantBareIDCase) {
+	lookup := requireProtoString(t, "lookup", requireHex(t, "lookup", c.Lookup))
+	switch c.Expected {
+	case "not_found", "ambiguous":
+		if c.Found != nil {
+			t.Fatalf("expected %q with a \"found\" object", c.Expected)
+		}
+	case "found":
+		if c.Found == nil {
+			t.Fatal("expected \"found\" without a \"found\" object")
+		}
+	default:
+		t.Fatalf("unknown grant_bare_id expected %q", c.Expected)
+	}
+	ctx, e := newFormalEngineWithSync(t)
+	ents := make([]*v2.Entitlement, 0, len(c.Entitlements))
+	for i := range c.Entitlements {
+		ents = append(ents, formalV2Entitlement(requireFormalEntRef(t, fmt.Sprintf("entitlements[%d]", i), &c.Entitlements[i])))
+	}
+	if len(ents) > 0 {
+		if err := e.PutEntitlements(ctx, ents...); err != nil {
+			t.Fatalf("PutEntitlements: %v", err)
+		}
+	}
+	formalPutGrants(ctx, t, e, "grants", requireFormalGrants(t, "grants", c.Grants))
+	resp, err := e.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{GrantId: lookup}.Build())
+	var got string
+	switch {
+	case err == nil:
+		got = "found"
+	case errors.Is(err, pebble.ErrNotFound):
+		got = "not_found"
+	case errors.Is(err, ErrAmbiguousExternalID):
+		got = "ambiguous"
+	default:
+		t.Fatalf("GetGrant(%x): unexpected error: %v", lookup, err)
+	}
+	if got != c.Expected {
+		detail := ""
+		if got == "found" {
+			detail = formalGotGrant(t, e, resp.GetGrant()).String()
+		}
+		t.Fatalf("GetGrant(%x) = %s %s (err=%v), want %s", lookup, got, detail, err, c.Expected)
+	}
+	if got != "found" {
+		return
+	}
+	want := requireFormalGrant(t, "found", *c.Found)
+	if g := formalGotGrant(t, e, resp.GetGrant()); g != want {
+		t.Fatalf("GetGrant(%x) = %v, want %v", lookup, g, want)
+	}
+}
+
 // MarshalJSON lets a failed property case log its decoded response.
 // An absent field marshals as null.
 func (h hexField) MarshalJSON() ([]byte, error) {
@@ -856,6 +1481,12 @@ type formalRequest struct {
 	Pagination       []formalPaginationRequest `json:"pagination"`
 	BareID           []formalBareIDRequest     `json:"bare_id"`
 	Sync             []formalSyncRequest       `json:"sync"`
+
+	GrantWrites       []formalGrantWritesRequest       `json:"grant_writes"`
+	EntitlementWrites []formalEntWritesRequest         `json:"entitlement_writes"`
+	GrantList         []formalGrantListRequest         `json:"grant_list"`
+	GrantsByPrincipal []formalGrantsByPrincipalRequest `json:"grants_by_principal"`
+	GrantBareID       []formalGrantBareIDRequest       `json:"grant_bare_id"`
 }
 
 // Request byte strings are hex already; nil means the field is absent.
@@ -1126,6 +1757,296 @@ func (g formalGen) syncCase(i int) formalSyncRequest {
 	return c
 }
 
+type formalGrantRequest struct {
+	Ent   formalEntRefRequest `json:"ent"`
+	PRT   string              `json:"prt"`
+	PRID  string              `json:"prid"`
+	ExtID string              `json:"ext_id"`
+}
+
+type formalGrantOpRequest struct {
+	Op    string               `json:"op"`
+	Batch []formalGrantRequest `json:"batch,omitempty"`
+	Ent   *formalEntRefRequest `json:"ent,omitempty"`
+	PRT   *string              `json:"prt,omitempty"`
+	PRID  *string              `json:"prid,omitempty"`
+}
+
+type formalGrantWritesRequest struct {
+	Name string                 `json:"name"`
+	Ops  []formalGrantOpRequest `json:"ops"`
+}
+
+type formalEntRecordRequest struct {
+	RT    string `json:"rt"`
+	RID   string `json:"rid"`
+	Ext   string `json:"ext"`
+	Value string `json:"value"`
+}
+
+type formalEntWriteOpRequest struct {
+	Op    string                   `json:"op"`
+	Batch []formalEntRecordRequest `json:"batch,omitempty"`
+	RT    *string                  `json:"rt,omitempty"`
+	RID   *string                  `json:"rid,omitempty"`
+	Ext   *string                  `json:"ext,omitempty"`
+}
+
+type formalEntWritesRequest struct {
+	Name string                    `json:"name"`
+	Ops  []formalEntWriteOpRequest `json:"ops"`
+}
+
+type formalGrantQueryRequest struct {
+	Ent  formalEntRefRequest `json:"ent"`
+	PRT  *string             `json:"prt,omitempty"`
+	PRID *string             `json:"prid,omitempty"`
+}
+
+type formalGrantListRequest struct {
+	Name     string                  `json:"name"`
+	Grants   []formalGrantRequest    `json:"grants"`
+	Query    formalGrantQueryRequest `json:"query"`
+	PageSize uint32                  `json:"page_size"`
+}
+
+type formalGrantsByPrincipalRequest struct {
+	Name string                 `json:"name"`
+	Ops  []formalGrantOpRequest `json:"ops"`
+}
+
+type formalGrantBareIDRequest struct {
+	Name         string                `json:"name"`
+	Entitlements []formalEntRefRequest `json:"entitlements"`
+	Grants       []formalGrantRequest  `json:"grants"`
+	Lookup       string                `json:"lookup"`
+}
+
+// formalGrantIdentity is a generated grant identity in raw (unhexed) form.
+type formalGrantIdentity struct{ rt, rid, ext, prt, prid string }
+
+func (id formalGrantIdentity) publicID() string { return id.ext + ":" + id.prt + ":" + id.prid }
+
+func (id formalGrantIdentity) entRef() formalEntRefRequest {
+	return formalEntRefRequest{RT: hexStr(id.rt), RID: hexStr(id.rid), Ext: hexStr(id.ext)}
+}
+
+// grantIdentities returns n distinct well-formed identities drawn from small
+// pools, so identities share entitlements and principals. Every component
+// is non-empty valid UTF-8.
+func (g formalGen) grantIdentities(n int) []formalGrantIdentity {
+	type owner struct{ rt, rid string }
+	owners := make([]owner, 1+g.r.IntN(2))
+	for j := range owners {
+		owners[j] = owner{rt: g.utf8String(1, 2), rid: g.utf8String(1, 2)}
+	}
+	extPool := []string{"member", "admin", "é", "日本"}
+	principalTypes := []string{"user", "group", "日本"}
+	principalIDs := []string{"a", "b", "ß", "a:b"}
+	seen := map[formalGrantIdentity]bool{}
+	var out []formalGrantIdentity
+	for attempts := 0; len(out) < n && attempts < 20*n; attempts++ {
+		o := owners[g.r.IntN(len(owners))]
+		id := formalGrantIdentity{
+			rt: o.rt, rid: o.rid,
+			ext:  g.entitlementExt(o.rt, o.rid, 4, func() string { return extPool[g.r.IntN(len(extPool))] }),
+			prt:  principalTypes[g.r.IntN(len(principalTypes))],
+			prid: principalIDs[g.r.IntN(len(principalIDs))],
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+// grantExtID is empty 40% of the time, the public id 10%, and otherwise
+// drawn from a small pool so external ids collide across identities.
+func (g formalGen) grantExtID(id formalGrantIdentity) string {
+	switch n := g.r.IntN(10); {
+	case n < 4:
+		return ""
+	case n < 5:
+		return id.publicID()
+	default:
+		return []string{"g1", "g2", "é", "member"}[g.r.IntN(4)]
+	}
+}
+
+func (g formalGen) grantRequest(id formalGrantIdentity) formalGrantRequest {
+	return formalGrantRequest{Ent: id.entRef(), PRT: hexStr(id.prt), PRID: hexStr(id.prid), ExtID: hexStr(g.grantExtID(id))}
+}
+
+func (g formalGen) grantDeleteOp(pool []formalGrantIdentity) formalGrantOpRequest {
+	id := pool[g.r.IntN(len(pool))]
+	if g.r.IntN(4) == 0 {
+		id.prid = "absent" + g.utf8String(0, 2)
+	}
+	ent := id.entRef()
+	return formalGrantOpRequest{Op: "delete", Ent: &ent, PRT: hexPtr(id.prt), PRID: hexPtr(id.prid)}
+}
+
+func (g formalGen) grantBatch(pool []formalGrantIdentity) []formalGrantRequest {
+	batch := make([]formalGrantRequest, 1+g.r.IntN(4))
+	for j := range batch {
+		batch[j] = g.grantRequest(pool[g.r.IntN(len(pool))])
+	}
+	return batch
+}
+
+func (g formalGen) grantWritesCase(i int) formalGrantWritesRequest {
+	pool := g.grantIdentities(2 + g.r.IntN(4))
+	c := formalGrantWritesRequest{Name: fmt.Sprintf("property/grant_writes/%d", i)}
+	for range 1 + g.r.IntN(6) {
+		if g.r.IntN(3) == 0 {
+			c.Ops = append(c.Ops, g.grantDeleteOp(pool))
+			continue
+		}
+		c.Ops = append(c.Ops, formalGrantOpRequest{Op: "put", Batch: g.grantBatch(pool)})
+	}
+	return c
+}
+
+func (g formalGen) entitlementWritesCase(i int) formalEntWritesRequest {
+	type owner struct{ rt, rid string }
+	owners := make([]owner, 1+g.r.IntN(3))
+	for j := range owners {
+		owners[j] = owner{rt: g.utf8String(1, 2), rid: g.utf8String(1, 2)}
+	}
+	extPool := []string{"member", "admin", "é", "日本"}
+	pick := func() (string, string, string) {
+		o := owners[g.r.IntN(len(owners))]
+		return o.rt, o.rid, g.entitlementExt(o.rt, o.rid, 4, func() string { return extPool[g.r.IntN(len(extPool))] })
+	}
+	c := formalEntWritesRequest{Name: fmt.Sprintf("property/entitlement_writes/%d", i)}
+	value := 0
+	for range 1 + g.r.IntN(6) {
+		if g.r.IntN(3) == 0 {
+			rt, rid, ext := pick()
+			if g.r.IntN(4) == 0 {
+				ext = "absent" + g.utf8String(0, 2)
+			}
+			c.Ops = append(c.Ops, formalEntWriteOpRequest{Op: "delete", RT: hexPtr(rt), RID: hexPtr(rid), Ext: hexPtr(ext)})
+			continue
+		}
+		batch := make([]formalEntRecordRequest, 1+g.r.IntN(4))
+		for j := range batch {
+			value++
+			rt, rid, ext := pick()
+			batch[j] = formalEntRecordRequest{RT: hexStr(rt), RID: hexStr(rid), Ext: hexStr(ext), Value: fmt.Sprintf("v%d", value)}
+		}
+		c.Ops = append(c.Ops, formalEntWriteOpRequest{Op: "put", Batch: batch})
+	}
+	return c
+}
+
+func (g formalGen) grantListCase(i int) formalGrantListRequest {
+	n := g.r.Uint32N(11)
+	pool := g.grantIdentities(int(n))
+	// Moving most grants onto pool[0]'s entitlement makes multi-page and
+	// filtered-tail results common.
+	seen := map[formalGrantIdentity]bool{}
+	kept := pool[:0]
+	for _, id := range pool {
+		if g.r.IntN(3) != 0 {
+			id.rt, id.rid, id.ext = pool[0].rt, pool[0].rid, pool[0].ext
+		}
+		if !seen[id] {
+			seen[id] = true
+			kept = append(kept, id)
+		}
+	}
+	pool = kept
+	c := formalGrantListRequest{Name: fmt.Sprintf("property/grant_list/%d", i), Grants: []formalGrantRequest{}}
+	for _, id := range pool {
+		c.Grants = append(c.Grants, g.grantRequest(id))
+	}
+	var q formalGrantIdentity
+	if len(pool) == 0 || g.r.IntN(6) == 0 {
+		q = formalGrantIdentity{rt: "user", rid: "u", ext: "member", prt: "user", prid: "a"}
+	} else {
+		q = pool[g.r.IntN(len(pool))]
+		if g.r.IntN(5) == 0 {
+			q.prid = "absent"
+		}
+	}
+	c.Query.Ent = q.entRef()
+	switch g.r.IntN(3) {
+	case 0:
+	case 1:
+		c.Query.PRT = hexPtr(q.prt)
+	default:
+		c.Query.PRT, c.Query.PRID = hexPtr(q.prt), hexPtr(q.prid)
+	}
+	sizes := []uint32{0, 1, 2, 3, 5, n, n + 1}
+	c.PageSize = sizes[g.r.IntN(len(sizes))]
+	return c
+}
+
+func (g formalGen) grantsByPrincipalCase(i int) formalGrantsByPrincipalRequest {
+	pool := g.grantIdentities(2 + g.r.IntN(4))
+	c := formalGrantsByPrincipalRequest{Name: fmt.Sprintf("property/grants_by_principal/%d", i)}
+	read := func() formalGrantOpRequest {
+		id := pool[g.r.IntN(len(pool))]
+		return formalGrantOpRequest{Op: "read", PRT: hexPtr(id.prt), PRID: hexPtr(id.prid)}
+	}
+	n := 1 + g.r.IntN(6)
+	for range n {
+		switch g.r.IntN(4) {
+		case 0:
+			c.Ops = append(c.Ops, formalGrantOpRequest{Op: "put", Batch: g.grantBatch(pool)})
+		case 1:
+			c.Ops = append(c.Ops, formalGrantOpRequest{Op: "put_deferred", Batch: g.grantBatch(pool)})
+		case 2:
+			c.Ops = append(c.Ops, g.grantDeleteOp(pool))
+		default:
+			c.Ops = append(c.Ops, read())
+		}
+	}
+	if g.r.IntN(3) == 0 {
+		c.Ops[len(c.Ops)-1] = formalGrantOpRequest{Op: "end_sync"}
+		if g.r.IntN(2) == 0 {
+			c.Ops = append(c.Ops, read())
+		}
+	}
+	return c
+}
+
+func (g formalGen) grantBareIDCase(i int) formalGrantBareIDRequest {
+	pool := g.grantIdentities(1 + g.r.IntN(5))
+	c := formalGrantBareIDRequest{
+		Name:         fmt.Sprintf("property/grant_bare_id/%d", i),
+		Entitlements: []formalEntRefRequest{},
+		Grants:       []formalGrantRequest{},
+	}
+	seenEnt := map[formalEntRefRequest]bool{}
+	var extIDs []string
+	for _, id := range pool {
+		gr := g.grantRequest(id)
+		c.Grants = append(c.Grants, gr)
+		if gr.ExtID != "" {
+			extIDs = append(extIDs, gr.ExtID)
+		}
+		if ent := id.entRef(); !seenEnt[ent] && g.r.IntN(2) == 0 {
+			seenEnt[ent] = true
+			c.Entitlements = append(c.Entitlements, ent)
+		}
+	}
+	switch n := g.r.IntN(8); {
+	case n < 3 && len(extIDs) > 0:
+		c.Lookup = extIDs[g.r.IntN(len(extIDs))]
+	case n < 6:
+		c.Lookup = hexStr(pool[g.r.IntN(len(pool))].publicID())
+	case n < 7:
+		c.Lookup = hexStr("fresh" + g.utf8String(0, 2))
+	default:
+		c.Lookup = ""
+	}
+	return c
+}
+
 func buildFormalRequest(seed uint64, n int) *formalRequest {
 	g := formalGen{r: rand.New(rand.NewPCG(seed, seed))} //nolint:gosec // A seeded generator makes a failing case replayable.
 	req := &formalRequest{Version: formalOracleVersion}
@@ -1136,6 +2057,11 @@ func buildFormalRequest(seed uint64, n int) *formalRequest {
 		req.Pagination = append(req.Pagination, g.paginationCase(i))
 		req.BareID = append(req.BareID, g.bareIDCase(i))
 		req.Sync = append(req.Sync, g.syncCase(i))
+		req.GrantWrites = append(req.GrantWrites, g.grantWritesCase(i))
+		req.EntitlementWrites = append(req.EntitlementWrites, g.entitlementWritesCase(i))
+		req.GrantList = append(req.GrantList, g.grantListCase(i))
+		req.GrantsByPrincipal = append(req.GrantsByPrincipal, g.grantsByPrincipalCase(i))
+		req.GrantBareID = append(req.GrantBareID, g.grantBareIDCase(i))
 	}
 	return req
 }
@@ -1206,6 +2132,16 @@ func requireFormalResponseMatchesRequest(t *testing.T, req *formalRequest, resp 
 		names(len(resp.BareID), func(i int) string { return resp.BareID[i].Name }))
 	requireNames("sync", names(len(req.Sync), func(i int) string { return req.Sync[i].Name }),
 		names(len(resp.Sync), func(i int) string { return resp.Sync[i].Name }))
+	requireNames("grant_writes", names(len(req.GrantWrites), func(i int) string { return req.GrantWrites[i].Name }),
+		names(len(resp.GrantWrites), func(i int) string { return resp.GrantWrites[i].Name }))
+	requireNames("entitlement_writes", names(len(req.EntitlementWrites), func(i int) string { return req.EntitlementWrites[i].Name }),
+		names(len(resp.EntitlementWrites), func(i int) string { return resp.EntitlementWrites[i].Name }))
+	requireNames("grant_list", names(len(req.GrantList), func(i int) string { return req.GrantList[i].Name }),
+		names(len(resp.GrantList), func(i int) string { return resp.GrantList[i].Name }))
+	requireNames("grants_by_principal", names(len(req.GrantsByPrincipal), func(i int) string { return req.GrantsByPrincipal[i].Name }),
+		names(len(resp.GrantsByPrincipal), func(i int) string { return resp.GrantsByPrincipal[i].Name }))
+	requireNames("grant_bare_id", names(len(req.GrantBareID), func(i int) string { return req.GrantBareID[i].Name }),
+		names(len(resp.GrantBareID), func(i int) string { return resp.GrantBareID[i].Name }))
 	for i, r := range req.EntitlementStrip {
 		c := resp.EntitlementStrip[i]
 		if hexStr(c.RT.b) != r.RT || hexStr(c.RID.b) != r.RID || hexStr(c.Ext.b) != r.Ext {
@@ -1232,6 +2168,16 @@ func formalCaseJSON(req *formalRequest, resp *formalCases, family string, i int)
 		rq, rs = req.BareID[i], resp.BareID[i]
 	case "sync":
 		rq, rs = req.Sync[i], resp.Sync[i]
+	case "grant_writes":
+		rq, rs = req.GrantWrites[i], resp.GrantWrites[i]
+	case "entitlement_writes":
+		rq, rs = req.EntitlementWrites[i], resp.EntitlementWrites[i]
+	case "grant_list":
+		rq, rs = req.GrantList[i], resp.GrantList[i]
+	case "grants_by_principal":
+		rq, rs = req.GrantsByPrincipal[i], resp.GrantsByPrincipal[i]
+	case "grant_bare_id":
+		rq, rs = req.GrantBareID[i], resp.GrantBareID[i]
 	}
 	a, errA := json.Marshal(rq)
 	b, errB := json.Marshal(rs)

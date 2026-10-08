@@ -3,6 +3,9 @@ import C1z.Store
 import C1z.Paginate
 import C1z.Result
 import C1z.Sync
+import C1z.Records
+import C1z.Index
+import C1z.GrantLookup
 import Oracle.Json
 
 /-!
@@ -10,16 +13,21 @@ import Oracle.Json
 
 Each family below is a hand-chosen list of inputs; every expected value
 is computed by running the model (`C1z.Identity`, `C1z.Store`,
-`C1z.Paginate`, `C1z.Result`, `C1z.Sync`). Nothing here writes an
-expected output by hand. The schema is `ORACLE_SCHEMA.md`.
+`C1z.Paginate`, `C1z.Result`, `C1z.Sync`, `C1z.Records`, `C1z.Index`,
+`C1z.GrantLookup`). Nothing here writes an expected output by hand. The schema is `ORACLE_SCHEMA.md`.
 `Oracle.Random` and `Oracle.Request` pass their inputs through the same
 `render`.
 
 Deliberately not generated, so proved in Lean but never replayed
 against the Pebble engine:
 
-- `visible = false` rows: pagination always uses `fun _ => true`, so
-  hidden-row skipping inside `Paginate.page` is not differentially tested;
+- `visible = false` rows outside `grant_list`: `pagination` always uses
+  `fun _ => true`; only the `grant_list` principal-type filter exercises
+  hidden-row skipping inside `Paginate.page`;
+- the five grant families cover one `PutGrants` per `grant_list` and
+  `grant_bare_id` case, never more than one default page, and no
+  principal or entitlement records beyond `grant_bare_id`'s entitlement
+  rows; `IndexedGrants` is only replayed from an empty store;
 - failure injection: I/O, decode, cancellation, and every
   `Result.ListError` arm; `Paginate.checkCursor` and invalid page tokens;
 - malformed identities: entitlements and grants with an empty owner
@@ -368,9 +376,423 @@ def syncCases : List SyncCase := [
     [.startNew "s1" .full, .endSync, .resume "s1", .startNew "s2" .partialSync, .latestFinished none]⟩
 ]
 
+/-! ## shared grant and entitlement helpers -/
+
+/-- The bytes as a string when they are valid UTF-8 and every element is
+below 256. -/
+def utf8? (bs : Bytes) : Option String :=
+  if bs.all (· < 256) then String.fromUTF8? (ByteArray.mk (bs.map UInt8.ofNat).toArray) else none
+
+def needUtf8 (ctx : String) (bs : Bytes) : Except String Unit :=
+  if (utf8? bs).isSome then pure () else throw s!"{ctx}: not valid UTF-8"
+
+/-- `EntitlementId.WellFormed` and UTF-8 components. -/
+def checkEnt (ctx : String) (e : EntitlementId) : Except String Unit := do
+  unless decide e.WellFormed do throw s!"{ctx}: entitlement not well formed"
+  for b in [e.rt, e.rid, e.ext] do needUtf8 ctx b
+
+/-- `GrantId.WellFormed` and UTF-8 components. -/
+def checkGrantId (ctx : String) (g : GrantId) : Except String Unit := do
+  unless decide g.WellFormed do throw s!"{ctx}: grant not well formed"
+  for b in [g.ent.rt, g.ent.rid, g.ent.ext, g.prt, g.prid] do needUtf8 ctx b
+
+def checkGrant (ctx : String) (r : GrantRecord) : Except String Unit := do
+  checkGrantId ctx r.id
+  needUtf8 ctx r.externalId
+
+def checkDistinctEnts (ctx : String) (es : List EntitlementId) : Except String Unit := do
+  if es.eraseDups.length != es.length then throw s!"{ctx}: repeated entitlement identity"
+
+def grantIdFields (g : GrantId) : Except String (List (String × J)) := do
+  pure [("ent", ← entJ g.ent), ("prt", ← hexJ g.prt), ("prid", ← hexJ g.prid)]
+
+def grantJ (r : GrantRecord) : Except String J := do
+  pure <| .obj ((← grantIdFields r.id) ++ [("ext_id", ← hexJ r.externalId)])
+
+def grantsJ (rs : List GrantRecord) : Except String J := do pure (.arr (← rs.mapM grantJ))
+
+/-- Grant record from identity parts and an external id. -/
+def gr (rt rid ext prt prid : String) (extId : String := "") : GrantRecord :=
+  ⟨⟨⟨u rt, u rid, u ext⟩, u prt, u prid⟩, u extId⟩
+
+def en (rt rid ext : String) : EntitlementId := ⟨u rt, u rid, u ext⟩
+
+/-! ## grant_writes -/
+
+inductive GWOp where
+  | put (batch : List GrantRecord)
+  | delete (g : GrantId)
+
+structure GrantWriteCase where
+  name : String
+  ops : List GWOp
+
+def GWOp.apply (s : GrantStore) : GWOp → GrantStore
+  | .put b => s.putGrants b
+  | .delete g => s.deleteGrant g
+
+def GWOp.toJ (ctx : String) : GWOp → Except String J
+  | .put b => do
+    for r in b do checkGrant ctx r
+    pure <| .obj [("op", .str "put"), ("batch", ← grantsJ b)]
+  | .delete g => do
+    checkGrantId ctx g
+    pure <| .obj ([("op", .str "delete")] ++ (← grantIdFields g))
+
+def GrantWriteCase.toJ (c : GrantWriteCase) : Except String J := do
+  let ctx := s!"grant_writes case {c.name}"
+  let ops ← c.ops.mapM (GWOp.toJ ctx)
+  let s := c.ops.foldl GWOp.apply Store.empty
+  pure <| .obj [("name", .str c.name), ("ops", .arr ops), ("final", ← grantsJ s.allGrants)]
+
+/-- Stripped `group:g1:member`, opaque `admin` on `group/g1`, stripped on `group/g2`. -/
+def grantWriteCases : List GrantWriteCase := [
+  ⟨"single grant", [.put [gr "group" "g1" "group:g1:member" "user" "u1"]]⟩,
+  ⟨"same identity different external id collapses",
+    [.put [gr "group" "g1" "group:g1:member" "user" "u1" "x"], .put [gr "group" "g1" "group:g1:member" "user" "u1" "y"]]⟩,
+  ⟨"same identity twice in one batch last wins",
+    [.put [gr "group" "g1" "group:g1:member" "user" "u1" "x", gr "group" "g1" "group:g1:member" "user" "u1" ""]]⟩,
+  ⟨"empty external id replaces custom one",
+    [.put [gr "group" "g1" "admin" "user" "u1" "custom"], .put [gr "group" "g1" "admin" "user" "u1"]]⟩,
+  ⟨"same external id on two structures",
+    [.put [gr "group" "g1" "group:g1:member" "user" "u1" "x", gr "group" "g2" "group:g2:member" "user" "u1" "x"]]⟩,
+  ⟨"same external id on two principals",
+    [.put [gr "group" "g1" "admin" "user" "u1" "x"], .put [gr "group" "g1" "admin" "user" "u2" "x"]]⟩,
+  ⟨"dangling grant with no entitlement or principal record",
+    [.put [gr "role" "nowhere" "role:nowhere:owner" "service" "ghost" "dangling"]]⟩,
+  ⟨"delete by identity then re-put",
+    [.put [gr "group" "g1" "group:g1:member" "user" "u1" "x"],
+     .delete ⟨en "group" "g1" "group:g1:member", u "user", u "u1"⟩,
+     .put [gr "group" "g1" "group:g1:member" "user" "u1" "z"]]⟩,
+  ⟨"delete of absent identity is a no-op",
+    [.put [gr "group" "g1" "group:g1:member" "user" "u1"],
+     .delete ⟨en "group" "g1" "group:g1:member", u "user", u "u2"⟩,
+     .delete ⟨en "group" "g1" "member", u "user", u "u1"⟩]⟩,
+  ⟨"delete on empty store", [.delete ⟨en "group" "g1" "admin", u "user", u "u1"⟩]⟩,
+  ⟨"delete leaves other principal types",
+    [.put [gr "group" "g1" "admin" "user" "u1", gr "group" "g1" "admin" "service" "u1"],
+     .delete ⟨en "group" "g1" "admin", u "user", u "u1"⟩]⟩,
+  ⟨"stripped and opaque entitlement with the same tail are distinct",
+    [.put [gr "group" "g1" "group:g1:member" "user" "u1", gr "group" "g1" "member" "user" "u1"]]⟩,
+  ⟨"external id equal to public id",
+    [.put [gr "group" "g1" "group:g1:member" "user" "u1" "group:g1:member:user:u1"]]⟩,
+  ⟨"key order differs from insertion order",
+    [.put [gr "équipe" "日本" "équipe:日本:membre" "usuário" "é", gr "group" "g2" "admin" "user" "u1",
+       gr "group" "g1" "admin" "user" "u2", gr "group" "g1" "admin" "group" "g9",
+       gr "group" "g1" "admin" "user" "u1", gr "app:x" "c:d" "app:x:c:d:e" "p:q" "r:s"]]⟩
+]
+
+/-! ## entitlement_writes -/
+
+inductive EWOp where
+  | put (batch : List (EntitlementId × String))
+  | delete (e : EntitlementId)
+
+structure EntWriteCase where
+  name : String
+  ops : List EWOp
+
+def EWOp.ents : EWOp → List EntitlementId
+  | .put b => b.map (·.1)
+  | .delete e => [e]
+
+def EWOp.apply (s : EntitlementStore) : EWOp → EntitlementStore
+  | .put b => s.putEntitlements (b.map fun (e, v) => (e, u v))
+  | .delete e => s.deleteEntitlement e
+
+def entValueJ (e : EntitlementId) (v : String) : Except String J := do
+  pure <| .obj [("rt", ← hexJ e.rt), ("rid", ← hexJ e.rid), ("ext", ← hexJ e.ext), ("value", .str v)]
+
+def EWOp.toJ (ctx : String) : EWOp → Except String J
+  | .put b => do
+    for (e, _) in b do checkEnt ctx e
+    pure <| .obj [("op", .str "put"), ("batch", .arr (← b.mapM fun (e, v) => entValueJ e v))]
+  | .delete e => do
+    checkEnt ctx e
+    pure <| .obj [("op", .str "delete"), ("rt", ← hexJ e.rt), ("rid", ← hexJ e.rid), ("ext", ← hexJ e.ext)]
+
+def EntWriteCase.toJ (c : EntWriteCase) : Except String J := do
+  let ctx := s!"entitlement_writes case {c.name}"
+  let ops ← c.ops.mapM (EWOp.toJ ctx)
+  let s := c.ops.foldl EWOp.apply Store.empty
+  let tbl := (c.ops.flatMap EWOp.ents).map fun e => (e.key, e)
+  let final ← s.entries.mapM fun (k, v) => do
+    let e ← lookupKey tbl k
+    let some name := utf8? v | throw s!"{ctx}: value is not UTF-8"
+    entValueJ e name
+  pure <| .obj [("name", .str c.name), ("ops", .arr ops), ("final", .arr final)]
+
+def entWriteCases : List EntWriteCase := [
+  ⟨"single put", [.put [(en "group" "g1" "group:g1:member", "v1")]]⟩,
+  ⟨"same external id on two resources", [.put [(en "group" "g1" "admin", "v1"), (en "group" "g2" "admin", "w1")]]⟩,
+  ⟨"same external id on two resource types", [.put [(en "group" "x" "admin", "v1"), (en "role" "x" "admin", "w1")]]⟩,
+  ⟨"last write wins across calls", [.put [(en "group" "g1" "admin", "v1")], .put [(en "group" "g1" "admin", "v2")]]⟩,
+  ⟨"last occurrence wins in one batch",
+    [.put [(en "group" "g1" "admin", "v1"), (en "group" "g1" "member", "w1"), (en "group" "g1" "admin", "v2")]]⟩,
+  ⟨"stripped and opaque with the same tail are two rows",
+    [.put [(en "group" "g1" "group:g1:member", "stripped"), (en "group" "g1" "member", "opaque")]]⟩,
+  ⟨"delete then re-put",
+    [.put [(en "group" "g1" "admin", "v1")], .delete (en "group" "g1" "admin"), .put [(en "group" "g1" "admin", "v3")]]⟩,
+  ⟨"delete of absent identity is a no-op",
+    [.put [(en "group" "g1" "admin", "v1")], .delete (en "group" "g2" "admin"), .delete (en "group" "g1" "group:g1:admin")]⟩,
+  ⟨"delete on empty store", [.delete (en "group" "g1" "admin")]⟩,
+  ⟨"key order differs from insertion order",
+    [.put [(en "équipe" "日本" "équipe:日本:membre", "e-acute"), (en "group" "g2" "admin", "g2"),
+       (en "app:x" "c:d" "app:x:c:d:e", "colon"), (en "group" "g1" "admin", "g1-admin"),
+       (en "group" "g1" "group:g1:member", "g1-member")]]⟩
+]
+
+/-! ## grant_list -/
+
+structure GrantListCase where
+  name : String
+  grants : List GrantRecord
+  ent : EntitlementId
+  prt : Option Bytes := none
+  prid : Option Bytes := none
+  pageSize : Nat
+
+/-- `pagesWithNext` with a visibility predicate. Cross-checked against `traverse`. -/
+def pagesWithNextV (visible : Bytes → Bool) (ks : List Bytes) (limit : Nat) :
+    Except String (List (List Bytes × Bool)) := do
+  let rec go : Nat → Option Bytes → List (List Bytes × Bool)
+    | 0, _ => []
+    | fuel + 1, cursor =>
+      let p := Paginate.page visible ks cursor limit
+      match p.next with
+      | none => [(p.items, false)]
+      | some tok => (p.items, true) :: go fuel (some tok)
+  let fuel := ks.length + 1
+  let ps := go fuel none
+  if ps.map (·.1) != Paginate.traverse visible ks limit fuel none then
+    throw "page chain disagrees with Paginate.traverse"
+  pure ps
+
+def GrantListCase.toJ (c : GrantListCase) : Except String J := do
+  let ctx := s!"grant_list case {c.name}"
+  for r in c.grants do checkGrant ctx r
+  checkEnt ctx c.ent
+  for p in [c.prt, c.prid] do
+    if let some b := p then
+      if b.isEmpty then throw s!"{ctx}: empty principal component"
+      needUtf8 ctx b
+  let s := GrantStore.putGrants Store.empty c.grants
+  let pages : List (List GrantRecord × Bool) ← match c.prt, c.prid with
+    | none, some _ => throw s!"{ctx}: prid without prt"
+    | some prt, some prid => pure [((GrantStore.grantForEntitlementPrincipal s c.ent prt prid).toList, false)]
+    | prt, none => do
+      let tbl := (GrantStore.grantsForEntitlement s c.ent).map fun r => (r.key, r)
+      let visible : Bytes → Bool := match prt with
+        | some t => fun k => match tbl.find? (·.1 == k) with
+          | some (_, r) => r.id.prt == t
+          | none => false
+        | none => fun _ => true
+      let ps ← pagesWithNextV visible (tbl.map (·.1)) (Paginate.clampPageSize c.pageSize)
+      let ps ← ps.mapM fun (items, hn) => do pure (← items.mapM (lookupKey tbl), hn)
+      let want := match prt with
+        | some t => GrantStore.grantsForEntitlementByPrincipalType s c.ent t
+        | none => GrantStore.grantsForEntitlement s c.ent
+      if (ps.flatMap (·.1)).map (·.key) != want.map (·.key) then throw s!"{ctx}: pages disagree with the model listing"
+      pure ps
+  let opt := fun (k : String) (b : Option Bytes) => do
+    match b with
+    | some v => pure [(k, ← hexJ v)]
+    | none => pure ([] : List (String × J))
+  let query := J.obj ([("ent", ← entJ c.ent)] ++ (← opt "prt" c.prt) ++ (← opt "prid" c.prid))
+  let pagesJ ← pages.mapM fun (rs, hn) => do pure (J.obj [("grants", ← grantsJ rs), ("has_next", .bool hn)])
+  pure <| .obj [("name", .str c.name), ("grants", ← grantsJ c.grants), ("query", query),
+    ("page_size", .num c.pageSize), ("pages", .arr pagesJ)]
+
+/-- Grants on stripped `group:g1:member` (`eA`), opaque `admin` (`eB`),
+stripped `group:g2:member` (`eC`), and opaque `member` on `group/g1`
+(`eD`, the same tail as `eA`). Insertion order is unsorted. -/
+def listGrants : List GrantRecord := [
+  gr "group" "g1" "group:g1:member" "user" "u2",
+  gr "group" "g2" "group:g2:member" "user" "u1",
+  gr "group" "g1" "group:g1:member" "group" "g9" "nested",
+  gr "group" "g1" "admin" "user" "u1" "custom",
+  gr "group" "g1" "group:g1:member" "user" "u1",
+  gr "group" "g1" "member" "user" "u1",
+  gr "group" "g1" "group:g1:member" "service" "s1" "group:g1:member:service:s1"
+]
+
+def eA : EntitlementId := en "group" "g1" "group:g1:member"
+
+/-- Two `group` principals sort before one `user` principal. -/
+def trailingGrants : List GrantRecord := [
+  gr "group" "g1" "group:g1:member" "user" "u1",
+  gr "group" "g1" "group:g1:member" "group" "g8",
+  gr "group" "g1" "group:g1:member" "group" "g9"
+]
+
+def grantListCases : List GrantListCase := [
+  { name := "entitlement grants default page size", grants := listGrants, ent := eA, pageSize := 0 },
+  { name := "entitlement grants page size one", grants := listGrants, ent := eA, pageSize := 1 },
+  { name := "entitlement grants page size two", grants := listGrants, ent := eA, pageSize := 2 },
+  { name := "entitlement grants page size four", grants := listGrants, ent := eA, pageSize := 4 },
+  { name := "two entitlements disjoint", grants := listGrants, ent := en "group" "g2" "group:g2:member", pageSize := 2 },
+  { name := "opaque entitlement", grants := listGrants, ent := en "group" "g1" "admin", pageSize := 2 },
+  { name := "opaque entitlement with the stripped tail is separate", grants := listGrants,
+    ent := en "group" "g1" "member", pageSize := 0 },
+  { name := "unknown entitlement", grants := listGrants, ent := en "group" "g3" "group:g3:member", pageSize := 2 },
+  { name := "no grants at all", grants := [], ent := eA, pageSize := 0 },
+  { name := "principal type filter", grants := listGrants, ent := eA, prt := some (u "user"), pageSize := 0 },
+  { name := "principal type filter page size one", grants := listGrants, ent := eA, prt := some (u "user"),
+    pageSize := 1 },
+  { name := "principal type filter no match", grants := listGrants, ent := eA, prt := some (u "role"), pageSize := 2 },
+  { name := "principal type filter trailing empty page", grants := trailingGrants, ent := eA,
+    prt := some (u "group"), pageSize := 2 },
+  { name := "principal type filter last match ends the scan", grants := trailingGrants, ent := eA,
+    prt := some (u "user"), pageSize := 1 },
+  { name := "point lookup hit", grants := listGrants, ent := eA, prt := some (u "user"), prid := some (u "u1"),
+    pageSize := 2 },
+  { name := "point lookup carries custom external id", grants := listGrants, ent := en "group" "g1" "admin",
+    prt := some (u "user"), prid := some (u "u1"), pageSize := 0 },
+  { name := "point lookup miss on principal id", grants := listGrants, ent := eA, prt := some (u "user"),
+    prid := some (u "u9"), pageSize := 2 },
+  { name := "point lookup miss on principal type", grants := listGrants, ent := eA, prt := some (u "service"),
+    prid := some (u "u1"), pageSize := 1 }
+]
+
+/-! ## grants_by_principal -/
+
+inductive POp where
+  | put (batch : List GrantRecord)
+  | putDeferred (batch : List GrantRecord)
+  | delete (g : GrantId)
+  | read (prt prid : Bytes)
+  | endSync
+
+structure ByPrincipalCase where
+  name : String
+  ops : List POp
+
+def POp.isRead : POp → Bool
+  | .read _ _ => true
+  | _ => false
+
+def POp.isEnd : POp → Bool
+  | .endSync => true
+  | _ => false
+
+def POp.step (ctx : String) (x : IndexedGrants) : POp → Except String (IndexedGrants × J)
+  | .put b => do
+    for r in b do checkGrant ctx r
+    pure (x.putGrants b, .obj [("op", .str "put"), ("batch", ← grantsJ b)])
+  | .putDeferred b => do
+    for r in b do checkGrant ctx r
+    pure (x.putGrantsDeferred b, .obj [("op", .str "put_deferred"), ("batch", ← grantsJ b)])
+  | .delete g => do
+    checkGrantId ctx g
+    pure (x.deleteGrant g, .obj ([("op", .str "delete")] ++ (← grantIdFields g)))
+  | .read prt prid => do
+    if prt.isEmpty || prid.isEmpty then throw s!"{ctx}: empty principal component"
+    needUtf8 ctx prt
+    needUtf8 ctx prid
+    pure (x, .obj [("op", .str "read"), ("prt", ← hexJ prt), ("prid", ← hexJ prid),
+      ("grants", ← grantsJ (x.grantsForPrincipal prt prid))])
+  | .endSync => pure (x.endSyncRebuild, .obj [("op", .str "end_sync")])
+
+def ByPrincipalCase.toJ (c : ByPrincipalCase) : Except String J := do
+  let ctx := s!"grants_by_principal case {c.name}"
+  match c.ops.findIdx? POp.isEnd with
+  | none => pure ()
+  | some i =>
+    let after := c.ops.drop (i + 1)
+    unless after.length ≤ 1 && after.all POp.isRead do
+      throw s!"{ctx}: end_sync must be last, optionally followed by one read"
+  let mut x := IndexedGrants.empty
+  let mut out : Array J := #[]
+  for op in c.ops do
+    let (x', j) ← op.step ctx x
+    x := x'
+    out := out.push j
+  pure <| .obj [("name", .str c.name), ("ops", .arr out.toList)]
+
+def pg1 : GrantRecord := gr "group" "g1" "group:g1:member" "user" "u1"
+def pg2 : GrantRecord := gr "group" "g1" "group:g1:member" "user" "u2"
+
+def byPrincipalCases : List ByPrincipalCase := [
+  ⟨"plain put is visible", [.put [pg1], .read (u "user") (u "u1")]⟩,
+  ⟨"deferred write invisible until end sync",
+    [.putDeferred [pg1], .read (u "user") (u "u1"), .endSync, .read (u "user") (u "u1")]⟩,
+  ⟨"deferred overwrite of indexed identity stays visible",
+    [.put [pg1], .putDeferred [{ pg1 with externalId := u "x2" }], .read (u "user") (u "u1")]⟩,
+  ⟨"plain put after deferred put is visible", [.putDeferred [pg1], .put [pg1], .read (u "user") (u "u1")]⟩,
+  ⟨"delete then deferred put is invisible",
+    [.put [pg1], .delete pg1.id, .putDeferred [pg1], .read (u "user") (u "u1")]⟩,
+  ⟨"two principals only one deferred",
+    [.put [pg1], .putDeferred [pg2], .read (u "user") (u "u1"), .read (u "user") (u "u2"), .endSync,
+     .read (u "user") (u "u2")]⟩,
+  ⟨"principal grants across entitlements in key order",
+    [.put [gr "group" "g2" "group:g2:member" "user" "u1", gr "group" "g1" "admin" "user" "u1" "c",
+       pg1, pg2], .read (u "user") (u "u1")]⟩,
+  ⟨"same principal id other principal type excluded",
+    [.put [pg1, gr "group" "g1" "group:g1:member" "service" "u1"], .read (u "user") (u "u1"),
+     .read (u "service") (u "u1")]⟩,
+  ⟨"delete removes the index entry", [.put [pg1, pg2], .delete pg1.id, .read (u "user") (u "u1"),
+     .read (u "user") (u "u2")]⟩,
+  ⟨"end sync rebuild after mixed writes",
+    [.put [pg1], .putDeferred [pg2, gr "group" "g2" "group:g2:member" "user" "u1"], .read (u "user") (u "u1"),
+     .endSync, .read (u "user") (u "u1")]⟩,
+  ⟨"read of unknown principal", [.put [pg1], .read (u "user") (u "u9")]⟩
+]
+
+/-! ## grant_bare_id -/
+
+structure GrantBareCase where
+  name : String
+  ents : List EntitlementId
+  grants : List GrantRecord
+  lookup : Bytes
+
+def GrantBareCase.toJ (c : GrantBareCase) : Except String J := do
+  let ctx := s!"grant_bare_id case {c.name}"
+  for e in c.ents do checkEnt ctx e
+  checkDistinctEnts ctx c.ents
+  for r in c.grants do checkGrant ctx r
+  needUtf8 ctx c.lookup
+  let s := GrantStore.putGrants Store.empty c.grants
+  let es := EntitlementStore.putEntitlements Store.empty (c.ents.map fun e => (e, []))
+  let base := [("name", J.str c.name), ("entitlements", .arr (← c.ents.mapM entJ)), ("grants", ← grantsJ c.grants),
+    ("lookup", ← hexJ c.lookup)]
+  match GrantLookup.resolve s es c.lookup with
+  | .notFound => pure <| .obj (base ++ [("expected", .str "not_found")])
+  | .found r => pure <| .obj (base ++ [("expected", .str "found"), ("found", ← grantJ r)])
+  | .ambiguous => pure <| .obj (base ++ [("expected", .str "ambiguous")])
+
+def bPublic : GrantRecord := pg1
+def bOpaque : GrantRecord := gr "group" "g1" "member" "user" "u1"
+def bCustom : GrantRecord := gr "group" "g1" "group:g1:member" "user" "u1" "c"
+
+def grantBareCases : List GrantBareCase := [
+  ⟨"found by public id with empty external id", [], [bPublic], u "group:g1:member:user:u1"⟩,
+  ⟨"no grants", [], [], u "group:g1:member:user:u1"⟩,
+  ⟨"same stored external id on two structures",
+    [], [gr "group" "g1" "group:g1:member" "user" "u1" "x", gr "group" "g2" "group:g2:member" "user" "u1" "x"], u "x"⟩,
+  ⟨"opaque entitlement unreachable without row", [], [bOpaque], u "member:user:u1"⟩,
+  ⟨"opaque entitlement found with row", [en "group" "g1" "member"], [bOpaque], u "member:user:u1"⟩,
+  ⟨"opaque entitlement row on another resource does not help", [en "group" "g2" "member"], [bOpaque],
+    u "member:user:u1"⟩,
+  ⟨"custom external id hides public id", [], [bCustom], u "group:g1:member:user:u1"⟩,
+  ⟨"custom external id found by custom id", [], [bCustom], u "c"⟩,
+  ⟨"external id equal to public id found",
+    [], [gr "group" "g1" "group:g1:member" "user" "u1" "group:g1:member:user:u1"], u "group:g1:member:user:u1"⟩,
+  ⟨"public id hit masks stored external id on another grant",
+    [], [bPublic, gr "group" "g2" "group:g2:member" "user" "u2" "group:g1:member:user:u1"], u "group:g1:member:user:u1"⟩,
+  ⟨"public id collision across structures",
+    [en "a" "c" "a:b:x"], [gr "a" "b" "a:b:x" "p" "q", gr "a" "c" "a:b:x" "p" "q"], u "a:b:x:p:q"⟩,
+  ⟨"single colon lookup is scan only", [], [gr "group" "g1" "admin" "user" "u1" "x:y"], u "x:y"⟩,
+  ⟨"single colon lookup misses public ids", [], [gr "a" "b" "a:b:x" "p" "q"], u "x:p"⟩,
+  ⟨"empty lookup with one empty external id", [], [bPublic, gr "group" "g2" "admin" "user" "u1" "c"], []⟩,
+  ⟨"empty lookup with two empty external ids", [], [bPublic, pg2], []⟩,
+  ⟨"more than 64 colons is ambiguous", [], [gr "group" "g1" "admin" "user" "u1" (String.join (List.replicate 65 ":"))],
+    u (String.join (List.replicate 65 ":"))⟩
+]
+
 /-! ## document -/
 
-/-- The six families in schema order, each paired with its field name. -/
+/-- The families in schema order, each paired with its field name. -/
 structure Families where
   keys : List J := []
   strip : List J := []
@@ -378,29 +800,66 @@ structure Families where
   pages : List J := []
   bare : List J := []
   sync : List J := []
+  grantWrites : List J := []
+  entWrites : List J := []
+  grantList : List J := []
+  byPrincipal : List J := []
+  grantBare : List J := []
 
 def Families.toList (f : Families) : List (String × List J) :=
   [("keys", f.keys), ("entitlement_strip", f.strip), ("writes", f.writes),
-    ("pagination", f.pages), ("bare_id", f.bare), ("sync", f.sync)]
+    ("pagination", f.pages), ("bare_id", f.bare), ("sync", f.sync),
+    ("grant_writes", f.grantWrites), ("entitlement_writes", f.entWrites), ("grant_list", f.grantList),
+    ("grants_by_principal", f.byPrincipal), ("grant_bare_id", f.grantBare)]
 
 def Families.append (a b : Families) : Families :=
   ⟨a.keys ++ b.keys, a.strip ++ b.strip, a.writes ++ b.writes, a.pages ++ b.pages, a.bare ++ b.bare,
-    a.sync ++ b.sync⟩
+    a.sync ++ b.sync, a.grantWrites ++ b.grantWrites, a.entWrites ++ b.entWrites, a.grantList ++ b.grantList,
+    a.byPrincipal ++ b.byPrincipal, a.grantBare ++ b.grantBare⟩
 
 /-- `version`, `counts`, then each family, in schema order. -/
 def Families.toDoc (f : Families) : J :=
   .obj ([("version", .num 1), ("counts", .obj (f.toList.map fun (n, xs) => (n, .num xs.length)))] ++
     f.toList.map fun (n, xs) => (n, .arr xs))
 
+/-- Generator inputs for every family. -/
+structure Inputs where
+  keys : List KeyCase := []
+  strip : List EntitlementId := []
+  writes : List WriteCase := []
+  pages : List PageCase := []
+  bare : List BareCase := []
+  sync : List SyncCase := []
+  grantWrites : List GrantWriteCase := []
+  entWrites : List EntWriteCase := []
+  grantList : List GrantListCase := []
+  byPrincipal : List ByPrincipalCase := []
+  grantBare : List GrantBareCase := []
+
 /-- Expected values for every input, computed by the model. -/
-def render (keys : List KeyCase) (strip : List EntitlementId) (writes : List WriteCase) (pages : List PageCase)
-    (bare : List BareCase) (sync : List SyncCase) : Except String Families := do
-  pure ⟨← keys.mapM KeyCase.toJ, ← strip.mapM stripToJ, ← writes.mapM WriteCase.toJ,
-    ← pages.mapM PageCase.toJ, ← bare.mapM BareCase.toJ, ← sync.mapM SyncCase.toJ⟩
+def render (i : Inputs) : Except String Families := do
+  pure ⟨← i.keys.mapM KeyCase.toJ, ← i.strip.mapM stripToJ, ← i.writes.mapM WriteCase.toJ,
+    ← i.pages.mapM PageCase.toJ, ← i.bare.mapM BareCase.toJ, ← i.sync.mapM SyncCase.toJ,
+    ← i.grantWrites.mapM GrantWriteCase.toJ, ← i.entWrites.mapM EntWriteCase.toJ,
+    ← i.grantList.mapM GrantListCase.toJ, ← i.byPrincipal.mapM ByPrincipalCase.toJ,
+    ← i.grantBare.mapM GrantBareCase.toJ⟩
 
 /-- The fixed corpus. Fails if any family is empty. -/
+def fixedInputs : Inputs where
+  keys := keyCases
+  strip := stripCases
+  writes := writeCases
+  pages := pageCases
+  bare := bareCases
+  sync := syncCases
+  grantWrites := grantWriteCases
+  entWrites := entWriteCases
+  grantList := grantListCases
+  byPrincipal := byPrincipalCases
+  grantBare := grantBareCases
+
 def fixedFamilies : Except String Families := do
-  let f ← render keyCases stripCases writeCases pageCases bareCases syncCases
+  let f ← render fixedInputs
   for (n, xs) in f.toList do
     if xs.isEmpty then throw s!"family {n} is empty"
   pure f

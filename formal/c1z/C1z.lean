@@ -6,3 +6,6 @@ import C1z.Paginate
 import C1z.Result
 import C1z.Store
 import C1z.Sync
+import C1z.Records
+import C1z.Index
+import C1z.GrantLookup

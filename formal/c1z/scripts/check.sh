@@ -31,7 +31,12 @@ if grep -E '^(warning|error):' "$build_log" >/dev/null; then
 fi
 
 echo "== axiom audit"
-axioms_out="$(lake env lean scripts/Axioms.lean 2>&1)"
+# Lean wraps long `#print axioms` lines; rejoin them so each theorem is
+# one line and the pattern check below can read it.
+axioms_out="$(lake env lean scripts/Axioms.lean 2>&1 | awk '
+  /^\x27/ { if (line != "") print line; line = $0; next }
+  { sub(/^[ \t]+/, " "); line = line $0 }
+  END { if (line != "") print line }')"
 if [[ "${UPDATE_GOLDEN:-}" == "1" ]]; then
   printf '%s\n' "$axioms_out" > AXIOMS.golden
   echo "formal-c1z-check: wrote AXIOMS.golden"

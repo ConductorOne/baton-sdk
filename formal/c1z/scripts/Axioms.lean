@@ -86,3 +86,40 @@ Add every exported theorem here; the golden file is reviewed by a human.
 #print axioms C1z.Result.resolveBare_found_iff
 #print axioms C1z.Result.resolveBare_ambiguous_iff
 #print axioms C1z.Result.resolveBare_found_imp_unique
+
+-- Records
+#print axioms C1z.GrantStore.keyed_putGrants
+#print axioms C1z.GrantStore.keyed_deleteGrant
+#print axioms C1z.GrantStore.getGrant_putGrants_collapse
+#print axioms C1z.GrantStore.getGrant_putGrants_distinct
+#print axioms C1z.GrantStore.getGrant_deleteGrant_of_ne
+#print axioms C1z.GrantStore.grantsForEntitlement_eq_filter
+#print axioms C1z.GrantStore.ent_eq_of_mem_grantsForEntitlement
+#print axioms C1z.GrantStore.mem_grantsForEntitlement_of_get
+#print axioms C1z.GrantStore.grantsForEntitlement_disjoint
+#print axioms C1z.GrantStore.mem_grantsForEntitlementByPrincipalType
+#print axioms C1z.GrantStore.mem_allGrants_iff
+#print axioms C1z.EntitlementStore.getEntitlement_putEntitlements_distinct_rid
+#print axioms C1z.EntitlementStore.getEntitlement_putEntitlements_last
+
+-- Index
+#print axioms C1z.IndexedGrants.grantsForPrincipal_subset
+#print axioms C1z.IndexedGrants.grantsForPrincipal_eq_of_complete
+#print axioms C1z.IndexedGrants.complete_endSyncRebuild
+#print axioms C1z.IndexedGrants.grantsForPrincipal_endSyncRebuild
+#print axioms C1z.IndexedGrants.complete_putGrants
+#print axioms C1z.IndexedGrants.complete_deleteGrant
+#print axioms C1z.IndexedGrants.grantsForPrincipal_deferred_incomplete
+#print axioms C1z.IndexedGrants.entries_putGrantsDeferred
+#print axioms C1z.IndexedGrants.not_complete_putGrantsDeferred_of_new
+#print axioms C1z.IndexedGrants.complete_putGrantsDeferred_of_mem
+
+-- GrantLookup
+#print axioms C1z.GrantLookup.found_mem
+#print axioms C1z.GrantLookup.found_matches
+#print axioms C1z.GrantLookup.resolve_eq_resolveBare_scan
+#print axioms C1z.GrantLookup.ambiguous_of_two_scan
+#print axioms C1z.GrantLookup.masking
+#print axioms C1z.GrantLookup.opaque_unreachable
+#print axioms C1z.GrantLookup.custom_ext_hides_public
+#print axioms C1z.GrantLookup.empty_query
