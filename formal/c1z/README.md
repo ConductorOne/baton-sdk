@@ -41,6 +41,7 @@ ORACLE_SCHEMA.md        the JSON contract between oracle and Go test
 scripts/check.sh        warnings-as-errors build, axiom audit, freshness
 scripts/Axioms.lean     the `#print axioms` list the audit runs
 AXIOMS.golden           reviewed axiom sets, one line per theorem
+ROADMAP.md              next increments, ordered by expected yield
 ```
 
 The Go consumer is `pkg/dotc1z/engine/pebble/formal_conformance_test.go`.
