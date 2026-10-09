@@ -145,6 +145,8 @@ message CredentialIssueOptionDescriptor {
   // declaration order would not be stable. It selects nothing at issue time --
   // CredentialIssueOptions.secret_resource_type_id is still required.
   bool preferred = 10;
+  // Minimum number of distinct requested scopes. Zero permits omission.
+  uint32 min_scopes = 11;
 }
 
 message IssuanceExpiryCapability {

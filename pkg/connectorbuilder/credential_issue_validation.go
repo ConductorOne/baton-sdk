@@ -107,12 +107,12 @@ func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.Crede
 		}
 	}
 	if apiKey := input.CredentialOptions.GetApiKey(); apiKey != nil {
-		if err := validateRequestedValues("scope", apiKey.GetScopes(), descriptor.GetScopes(), descriptor.GetCustomScopesAllowed()); err != nil {
+		if err := validateRequestedScopes(apiKey.GetScopes(), descriptor); err != nil {
 			return nil, err
 		}
 	}
 	if token := input.CredentialOptions.GetToken(); token != nil {
-		if err := validateRequestedValues("scope", token.GetScopes(), descriptor.GetScopes(), descriptor.GetCustomScopesAllowed()); err != nil {
+		if err := validateRequestedScopes(token.GetScopes(), descriptor); err != nil {
 			return nil, err
 		}
 		if err := validateRequestedValues("audience", token.GetAudiences(), descriptor.GetAudiences(), descriptor.GetCustomAudiencesAllowed()); err != nil {
@@ -139,6 +139,13 @@ func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.Crede
 		}
 	}
 	return descriptor, nil
+}
+
+func validateRequestedScopes(requested []string, descriptor *v2.CredentialIssueOptionDescriptor) error {
+	if uint64(len(requested)) < uint64(descriptor.GetMinScopes()) {
+		return fmt.Errorf("at least %d scopes are required", descriptor.GetMinScopes())
+	}
+	return validateRequestedValues("scope", requested, descriptor.GetScopes(), descriptor.GetCustomScopesAllowed())
 }
 
 func validateRequestedValues(kind string, requested []string, advertised []string, customAllowed bool) error {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/go-jose/go-jose/v4"
@@ -611,7 +612,7 @@ func validateCredentialIssuePreference(
 }
 
 func validateCredentialIssueDescriptorShape(descriptor *v2.CredentialIssueOptionDescriptor) error {
-	hasScopes := len(descriptor.GetScopes()) != 0 || descriptor.GetCustomScopesAllowed()
+	hasScopes := len(descriptor.GetScopes()) != 0 || descriptor.GetCustomScopesAllowed() || descriptor.GetMinScopes() != 0
 	hasAudiences := len(descriptor.GetAudiences()) != 0 || descriptor.GetCustomAudiencesAllowed()
 	hasKeyProfiles := len(descriptor.GetKeyProfiles()) != 0
 	switch descriptor.GetOption() {
@@ -636,6 +637,17 @@ func validateCredentialIssueDescriptorShape(descriptor *v2.CredentialIssueOption
 		}
 	default:
 		return fmt.Errorf("unsupported issuance option")
+	}
+	if descriptor.GetMinScopes() != 0 && !descriptor.GetCustomScopesAllowed() {
+		allowed := make(map[string]struct{}, len(descriptor.GetScopes()))
+		for _, scope := range descriptor.GetScopes() {
+			if strings.TrimSpace(scope) != "" {
+				allowed[scope] = struct{}{}
+			}
+		}
+		if uint64(descriptor.GetMinScopes()) > uint64(len(allowed)) {
+			return fmt.Errorf("minimum scopes exceeds the number of distinct nonempty advertised scopes")
+		}
 	}
 	return nil
 }
