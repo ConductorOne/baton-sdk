@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package c1.connector.v2;
 
+import "c1/config/v1/config.proto";
 import "c1/connector/v2/asset.proto";
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
@@ -145,8 +146,11 @@ message CredentialIssueOptionDescriptor {
   // declaration order would not be stable. It selects nothing at issue time --
   // CredentialIssueOptions.secret_resource_type_id is still required.
   bool preferred = 10;
-  // Minimum number of distinct requested scopes. Zero permits omission.
-  uint32 min_scopes = 11;
+  reserved 11;
+  reserved "min_scopes";
+  // Rules for typed issuance inputs. Currently supports scopes as a string slice.
+  // An explicit scopes field replaces scopes/custom_scopes_allowed validation.
+  repeated c1.config.v1.Field input_fields = 12;
 }
 
 message IssuanceExpiryCapability {
