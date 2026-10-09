@@ -21,6 +21,7 @@ func TestResetForNewSyncRederivesKeyspaceFlags(t *testing.T) {
 	require.NoError(t, e.EndSync(ctx))
 
 	require.NoError(t, e.db.ArmDeferredGrantIndex())
+	require.NoError(t, e.db.ArmDeferredNeedsExpansionIndex())
 	e.db.SetGrantDigestsPresent(true)
 	e.db.SetSourceScopeMayExist(true)
 	e.grantDigestBuildPending.Store(true)
@@ -31,12 +32,13 @@ func TestResetForNewSyncRederivesKeyspaceFlags(t *testing.T) {
 	require.NoError(t, err)
 
 	for name, stale := range map[string]bool{
-		"DeferredIdxPending":      e.db.DeferredIdxPending(),
-		"GrantDigestsPresent":     e.db.GrantDigestsPresent(),
-		"SourceScopeMayExist":     e.db.SourceScopeMayExist(),
-		"grantDigestBuildPending": e.grantDigestBuildPending.Load(),
-		"grantDigestAbiStale":     e.grantDigestAbiStale.Load(),
-		"ledgerInFlight":          e.ledger.inFlight.Load(),
+		"DeferredIdxPending":            e.db.DeferredIdxPending(),
+		"DeferredNeedsExpansionPending": e.db.DeferredNeedsExpansionPending(),
+		"GrantDigestsPresent":           e.db.GrantDigestsPresent(),
+		"SourceScopeMayExist":           e.db.SourceScopeMayExist(),
+		"grantDigestBuildPending":       e.grantDigestBuildPending.Load(),
+		"grantDigestAbiStale":           e.grantDigestAbiStale.Load(),
+		"ledgerInFlight":                e.ledger.inFlight.Load(),
 	} {
 		require.False(t, stale, "%s not re-derived by ResetForNewSync", name)
 	}

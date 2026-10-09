@@ -18,7 +18,9 @@ PR as MODERATE and retains HIGH checks for shared Pebble ledger and seal code.
 - SAN-007: covered for secret, anchor, source-sync metadata, policy mismatch,
   missing policy, and implicit-anchor adoption. Content replacement preserving
   all source-sync metadata is not detected.
-- SAN-008: covered for grants across trusted pages and seal-time expansion-index rebuild.
+- SAN-008: covered for grants across trusted pages, durable trusted-import
+  marker restore, seal-time expansion-index rebuild, and no marker on
+  synthesized writes that maintain the index inline.
 - SAN-009: trusted stagers contain no destination reads. Benchmark evidence is
   recorded below; no runtime destination-get counter exists.
 - SAN-010: covered by end-to-end cardinality, stats, expansion, and metadata tests.
@@ -43,6 +45,8 @@ PR as MODERATE and retains HIGH checks for shared Pebble ledger and seal code.
   the last published partial envelope after handled cancellation.
 - Durable writes are `BeginCollecting`, page record/asset/work commits, the
   pre-terminal `supports_diff` update, terminal commit, and `Seal`.
+- Trusted grant pages arm the durable `by_needs_expansion` rebuild marker.
+  Expanded and synthesized grant writes leave it clear.
 
 ## Commands
 

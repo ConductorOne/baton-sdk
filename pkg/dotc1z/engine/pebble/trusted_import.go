@@ -99,7 +99,7 @@ func stageTrustedGrantRecords(batch *rawdb.RecordBatch, records []*v3.GrantRecor
 		if err != nil {
 			return 0, err
 		}
-		if err := batch.StageGrantPutDeferred(encodeGrantIdentityKey(identity), value, nil, record.GetNeedsExpansion()); err != nil {
+		if err := batch.StageGrantPutTrusted(encodeGrantIdentityKey(identity), value, record.GetNeedsExpansion()); err != nil {
 			return 0, err
 		}
 		staged++

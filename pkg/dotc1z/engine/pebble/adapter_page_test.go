@@ -225,12 +225,14 @@ func TestTrustedImportGrantLastWriteWinsAcrossPages(t *testing.T) {
 	require.NoError(t, secondWriter.PutGrants(ctx, second))
 	secondID := work[0].Action.Identity
 	require.NoError(t, secondWriter.Commit(ctx, secondID, &c1zstore.LedgerRow{}))
+	require.True(t, e.db.DeferredNeedsExpansionPending(), "trusted grant imports defer needs_expansion")
 
 	terminal := ledger.BeginPage()
 	require.NoError(t, terminal.SetTerminal())
 	terminalID := c1zstore.LedgerActionIdentity{Op: "sanitize-terminal"}
 	require.NoError(t, terminal.Commit(ctx, terminalID, &c1zstore.LedgerRow{}))
 	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+	require.False(t, e.db.DeferredNeedsExpansionPending())
 
 	grants := 0
 	require.NoError(t, e.IterateGrants(ctx, func(record *v3.GrantRecord) bool {

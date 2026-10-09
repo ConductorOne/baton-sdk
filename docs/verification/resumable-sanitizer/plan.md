@@ -126,3 +126,10 @@ independent evidence audit, and rerun affected evidence after the final change.
 The overall PR is MODERATE. Sanitizer-only behavior is LOW because sanitization
 is not mission critical. Changes to shared Pebble ledger and seal paths remain
 HIGH and receive the step-up checks in this plan.
+
+## Change order 2: trusted-import index obligation
+
+The seal rebuilds `by_needs_expansion` only when trusted grant imports arm a
+durable marker. Expanded and synthesized grant writes maintain that index
+inline and must not pay for its sorter or range replacement. This remains HIGH
+because the marker controls durable derived-index correctness across reopen.

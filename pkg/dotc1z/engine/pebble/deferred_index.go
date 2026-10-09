@@ -32,10 +32,10 @@ import (
 // pairs them with a bounded spillArenaFreeList and a sort semaphore, and
 // a fresh arena's pages commit only as it fills.
 //
-// With the grant digest index enabled the scan feeds by_principal,
-// by_needs_expansion, and by_entitlement_principal_hash sorters. They share
-// the sort semaphore, so at most `sorters` arenas are in background sorts.
-// Each family also owns one filling arena. That stays acceptable
+// Trusted imports add the by_needs_expansion sorter; the grant digest index
+// adds by_entitlement_principal_hash. They share the sort semaphore, so at
+// most `sorters` arenas are in background sorts. Each active family also
+// owns one filling arena. That stays acceptable
 // because the build runs alone at EndSync (the sync's write pipeline
 // and its arenas are already drained) and each family's merge width
 // stays ~50 for whale-scale inputs. Each family gets its own bounded
@@ -327,9 +327,12 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 	// RemoveAll defer so LIFO ordering runs the wait first; abort is a
 	// no-op once finalize has drained the sorter.
 	defer principal.abort()
-	needsExpansion := newSpillSorter(dir, fmt.Sprintf("index-%02x", idxGrantByNeedsExpansion), sem, deferredIndexSpillChunkBytes)
-	needsExpansion.free = newSpillArenaFreeList(deferredIndexSpillChunkBytes, sorters+1)
-	defer needsExpansion.abort()
+	var needsExpansion *spillSorter
+	if e.db.DeferredNeedsExpansionPending() {
+		needsExpansion = newSpillSorter(dir, fmt.Sprintf("index-%02x", idxGrantByNeedsExpansion), sem, deferredIndexSpillChunkBytes)
+		needsExpansion.free = newSpillArenaFreeList(deferredIndexSpillChunkBytes, sorters+1)
+		defer needsExpansion.abort()
+	}
 
 	// Digest sorter family: the by_entitlement_principal_hash rows the
 	// grant digests fold over (valued entries — the 8-byte content
@@ -422,18 +425,20 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 		if err := principal.add(idxKey, nil); err != nil {
 			return err
 		}
-		expandable, err := scanGrantNeedsExpansionRaw(iter.Value())
-		if err != nil {
-			return err
-		}
-		if expandable {
-			key, ok := rawdb.AppendGrantByNeedsExpansionKeyFromPrimary(expansionKeyScratch[:0], iter.Key())
-			expansionKeyScratch = key
-			if !ok {
-				return errors.New("deferred grant index build: grant key cannot produce needs-expansion key")
-			}
-			if err := needsExpansion.add(key, nil); err != nil {
+		if needsExpansion != nil {
+			expandable, err := scanGrantNeedsExpansionRaw(iter.Value())
+			if err != nil {
 				return err
+			}
+			if expandable {
+				key, ok := rawdb.AppendGrantByNeedsExpansionKeyFromPrimary(expansionKeyScratch[:0], iter.Key())
+				expansionKeyScratch = key
+				if !ok {
+					return errors.New("deferred grant index build: grant key cannot produce needs-expansion key")
+				}
+				if err := needsExpansion.add(key, nil); err != nil {
+					return err
+				}
 			}
 		}
 		if hashIdx != nil && hashScanErr == nil {
@@ -577,8 +582,10 @@ func (e *Engine) buildDeferredGrantIndexesLocked(ctx context.Context) error {
 		)
 	}
 
-	if err := e.replaceDeferredIndex(ctx, dir, needsExpansion, idxGrantByNeedsExpansion, GrantByNeedsExpansionLowerBound(), GrantByNeedsExpansionUpperBound()); err != nil {
-		return err
+	if needsExpansion != nil {
+		if err := e.replaceDeferredIndex(ctx, dir, needsExpansion, idxGrantByNeedsExpansion, GrantByNeedsExpansionLowerBound(), GrantByNeedsExpansionUpperBound()); err != nil {
+			return err
+		}
 	}
 
 	// Grant digests + hash index, fused onto the same scan. Non-fatal,
