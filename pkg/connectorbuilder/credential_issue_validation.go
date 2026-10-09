@@ -106,12 +106,14 @@ func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.Crede
 			return nil, fmt.Errorf("requested key generation profile is not advertised by connector")
 		}
 	}
-	if apiKey := input.CredentialOptions.GetApiKey(); apiKey != nil {
+	if descriptor.GetOption() == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY {
+		apiKey := input.CredentialOptions.GetApiKey()
 		if err := validateRequestedScopes(apiKey.GetScopes(), descriptor); err != nil {
 			return nil, err
 		}
 	}
-	if token := input.CredentialOptions.GetToken(); token != nil {
+	if descriptor.GetOption() == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN {
+		token := input.CredentialOptions.GetToken()
 		if err := validateRequestedScopes(token.GetScopes(), descriptor); err != nil {
 			return nil, err
 		}

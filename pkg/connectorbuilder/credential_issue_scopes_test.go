@@ -203,3 +203,44 @@ func TestCredentialIssueMinimumScopesMetadataRoundtrip(t *testing.T) {
 		require.Zero(t, descriptor.GetMinScopes())
 	})
 }
+
+func TestIssueCredentialMinimumScopesNilOptionMessage(t *testing.T) {
+	ctx := context.Background()
+	encryptionConfig := newIssueEncryptionConfig(t)
+	for _, tc := range []struct {
+		option  v2.CapabilityDetailCredentialOption
+		options *v2.CredentialIssueOptions
+	}{
+		{
+			option:  v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+			options: &v2.CredentialIssueOptions{SecretResourceTypeId: "secret", Options: &v2.CredentialIssueOptions_ApiKey_{}},
+		},
+		{
+			option:  v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN,
+			options: &v2.CredentialIssueOptions{SecretResourceTypeId: "secret", Options: &v2.CredentialIssueOptions_Token_{}},
+		},
+	} {
+		t.Run(tc.option.String(), func(t *testing.T) {
+			require.Equal(t, tc.option, credentialIssueOptionKind(tc.options))
+			issuer := newTestCredentialIssuer("user")
+			issuer.capabilityDetails = scopeIssueDetails(tc.option, []string{"read"}, false, 1)
+			connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{issuer, newTestCredentialSecretDeleter()}))
+			require.NoError(t, err)
+			_, err = connector.IssueCredential(ctx, v2.IssueCredentialRequest_builder{
+				IdentityId:        v2.ResourceId_builder{ResourceType: "user", Resource: "1"}.Build(),
+				CredentialOptions: tc.options, RequestId: "request-nil", EncryptionConfigs: []*v2.EncryptionConfig{encryptionConfig},
+			}.Build())
+			require.Nil(t, issuer.lastInput)
+			require.ErrorContains(t, err, "at least 1 scopes")
+			require.Equal(t, codes.InvalidArgument, status.Code(err))
+
+			issuer.capabilityDetails.GetOptions()[0].SetMinScopes(0)
+			_, err = connector.IssueCredential(ctx, v2.IssueCredentialRequest_builder{
+				IdentityId:        v2.ResourceId_builder{ResourceType: "user", Resource: "1"}.Build(),
+				CredentialOptions: tc.options, RequestId: "request-optional", EncryptionConfigs: []*v2.EncryptionConfig{encryptionConfig},
+			}.Build())
+			require.NoError(t, err)
+			require.NotNil(t, issuer.lastInput)
+		})
+	}
+}
