@@ -247,19 +247,9 @@ func BenchmarkTransformGrant(b *testing.B) {
 	})
 }
 
-// TestTransformResourceTypeDoesNotMutateKnownSet is the order-independence guard:
-// transformResourceType must be pure w.r.t. knownResourceTypes. Registration
-// happens only in copyResourceTypes' buffering pre-pass, so an embedded
-// resource type reached during the entitlements phase (GrantableTo ->
-// transformResourceTypeSlice -> transformResourceType) must NOT become
-// "known", or transformID's type-token decision would flip with stream order.
-//
-// With the pre-pass model the set is read-only by construction; this locks
-// that transformResourceType never writes it.
 func TestTransformResourceTypeDoesNotMutateKnownSet(t *testing.T) {
 	s := newTestSanitizer(bytes32("c2-order"))
 
-	// Simulate the pre-pass having declared only "user".
 	s.knownResourceTypes["user"] = struct{}{}
 
 	// Composite id whose TYPE component "etype" is NOT a declared type.

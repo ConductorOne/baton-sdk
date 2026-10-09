@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -24,7 +27,6 @@ func sanitizeCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("out", "", "Path to the sanitized .c1z output file (required)")
-	cmd.Flags().String("out-engine", "", "Storage engine for the output: sqlite or pebble. Defaults to the source c1z's engine.")
 	cmd.Flags().String("secret-file", "", "Path to a per-c1z HMAC secret (>=32 random bytes). If unset, a fresh secret is generated and written next to --out.")
 	cmd.Flags().String("anchor", "", "RFC3339 timestamp the newest source timestamp lands on. Defaults to now.")
 	cmd.Flags().Bool("allow-unknown-annotations", false, "Pass annotations of unknown type through unchanged instead of dropping. Dangerous on real customer data.")
@@ -33,8 +35,10 @@ func sanitizeCmd() *cobra.Command {
 	return cmd
 }
 
-func runSanitize(cmd *cobra.Command, args []string) error {
-	ctx, err := logging.Init(context.Background(), logging.WithLogFormat("console"), logging.WithLogLevel("info"))
+func runSanitize(cmd *cobra.Command, args []string) (retErr error) {
+	signalCtx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, err := logging.Init(signalCtx, logging.WithLogFormat("console"), logging.WithLogLevel("info"))
 	if err != nil {
 		return fmt.Errorf("init logging: %w", err)
 	}
@@ -60,10 +64,6 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	outEngineRaw, err := cmd.Flags().GetString("out-engine")
-	if err != nil {
-		return err
-	}
 	tmpDir, err := cmd.Flags().GetString("tmp-dir")
 	if err != nil {
 		return err
@@ -71,17 +71,6 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 	if outPath == "" {
 		return fmt.Errorf("--out is required")
 	}
-	// An omitted --out-engine (default "") means "follow the source engine".
-	// An explicitly-supplied empty value is a mistake, not a request to default,
-	// so reject it rather than silently following the source.
-	if cmd.Flags().Changed("out-engine") {
-		switch outEngineRaw {
-		case string(c1zstore.EngineSQLite), string(c1zstore.EnginePebble):
-		default:
-			return fmt.Errorf("--out-engine must be %q or %q, got %q", c1zstore.EngineSQLite, c1zstore.EnginePebble, outEngineRaw)
-		}
-	}
-
 	// All input validation happens BEFORE the secret is loaded or
 	// generated: generating first would leave a stray .secret file
 	// next to --out on every failed invocation.
@@ -96,7 +85,18 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("stat --file: %w", err)
 	}
 	if _, err := os.Stat(outPath); err == nil {
-		return fmt.Errorf("--out path %q already exists; refusing to overwrite", outPath)
+		probe, err := dotc1z.NewStore(ctx, outPath, dotc1z.WithReadOnly(true))
+		if err != nil {
+			return fmt.Errorf("open existing --out: %w", err)
+		}
+		engine := probe.Metadata().Engine
+		closeErr := probe.Close(ctx)
+		if closeErr != nil {
+			return fmt.Errorf("close existing --out probe: %w", closeErr)
+		}
+		if engine != string(c1zstore.EnginePebble) {
+			return fmt.Errorf("existing --out must use the Pebble engine, got %q", engine)
+		}
 	}
 
 	secret, generated, err := c1zsanitize.LoadOrGenerateSecret(secretFile, outPath)
@@ -118,49 +118,9 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 	}
 	defer src.Close(ctx)
 
-	// Default the output engine to the source's so `sanitize` round-trips
-	// the engine unless the operator asks otherwise. An empty source engine
-	// (virtual/unknown store) is pinned to SQLite explicitly — this
-	// predates the Pebble default flip and is no longer "the default",
-	// but the behavior is deliberately unchanged.
-	dstEngine := c1zstore.Engine(outEngineRaw)
-	if outEngineRaw == "" {
-		dstEngine = c1zstore.Engine(src.Metadata().Engine)
-		if dstEngine == "" {
-			dstEngine = c1zstore.EngineSQLite
-		}
-	}
-
-	// The dst is a net-new, single-writer intermediate that is discarded
-	// on any failure. The throughput pragmas below are SQLite-only — Pebble
-	// ignores them — so they are applied only for a SQLite destination:
-	//   - journal_mode=OFF + synchronous=OFF: no rollback journal, no fsync
-	//     (the output is rebuilt from source on any failure, not recovered).
-	//   - cache_size=-1048576 (1 GiB) + mmap_size=8 GiB + temp_store=MEMORY:
-	//     keep index pages resident and run the deferred index build in
-	//     memory, cutting page-cache misses on large (multi-million-grant)
-	//     syncs.
-	//   - WithBulkLoad: defer secondary-index creation until after the load
-	//     so per-row random-key B-tree maintenance does not dominate.
-	// These pragmas are scoped to THIS writer instance; normal connector
-	// syncs open their own store and are unaffected.
-	dstOpts := []dotc1z.C1ZOption{dotc1z.WithEngine(dstEngine)}
+	dstOpts := []dotc1z.C1ZOption{dotc1z.WithEngine(c1zstore.EnginePebble)}
 	if tmpDir != "" {
 		dstOpts = append(dstOpts, dotc1z.WithTmpDir(tmpDir))
-	}
-	if dstEngine == c1zstore.EngineSQLite {
-		dstOpts = append(dstOpts,
-			dotc1z.WithPragma("journal_mode", "OFF"),
-			dotc1z.WithPragma("synchronous", "OFF"),
-			dotc1z.WithPragma("cache_size", "-1048576"),
-			dotc1z.WithPragma("mmap_size", "8589934592"),
-			dotc1z.WithPragma("temp_store", "MEMORY"),
-			dotc1z.WithBulkLoad(true),
-			// bulkLoad already implies skip-cleanup; skip VACUUM too — vacuuming
-			// before the deferred indexes are rebuilt at Close is wasted work on
-			// a throwaway artifact.
-			dotc1z.WithSkipVacuum(true),
-		)
 	}
 	dst, err := dotc1z.NewStore(ctx, outPath, dstOpts...)
 	if err != nil {
@@ -169,7 +129,9 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 	dstClosed := false
 	defer func() {
 		if !dstClosed {
-			_ = dst.Close(ctx)
+			closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
+			defer cancel()
+			retErr = errors.Join(retErr, dst.Close(closeCtx))
 		}
 	}()
 
@@ -177,7 +139,6 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 		Secret:                  secret,
 		TimestampAnchor:         anchor,
 		AllowUnknownAnnotations: allowUnknown,
-		TmpDir:                  tmpDir,
 	}
 
 	log.Info("c1zsanitize: starting",
@@ -189,10 +150,6 @@ func runSanitize(cmd *cobra.Command, args []string) error {
 	if err := c1zsanitize.Sanitize(ctx, src, dst, opts); err != nil {
 		return fmt.Errorf("sanitize: %w", err)
 	}
-	// Close on the success path flushes and zstd-compresses the sqlite
-	// output, so a Close failure means the .c1z is incomplete/corrupt —
-	// surface it rather than exit 0 with a broken file. The deferred close
-	// above stays as a safety net for the error-return paths only.
 	dstClosed = true
 	if err := dst.Close(ctx); err != nil {
 		return fmt.Errorf("failed to finalize output c1z: %w", err)

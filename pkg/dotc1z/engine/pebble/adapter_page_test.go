@@ -187,3 +187,65 @@ func TestLedgerRowCountsDistinctKeysNotBufferedRecords(t *testing.T) {
 	require.EqualValues(t, 1, row.EntitlementsWritten)
 	require.EqualValues(t, 1, row.GrantsWritten)
 }
+
+func TestTrustedImportGrantLastWriteWinsAcrossPages(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	ledger := e.Ledger()
+	seed := c1zstore.LedgerWork{Action: c1zstore.LedgerChild{
+		Identity: c1zstore.LedgerActionIdentity{Op: "sanitize-grants"},
+	}}
+	require.NoError(t, ledger.BeginCollecting(ctx, []c1zstore.LedgerWork{seed}, nil))
+
+	work, _, err := ledger.PendingWork(ctx, 0, 1)
+	require.NoError(t, err)
+	require.Len(t, work, 1)
+	first := mkV2Grant("first", "ent-A", "user", "alice")
+	first.SetId("first")
+	firstWriter := ledger.BeginPage().(c1zstore.TrustedImportPageWriter)
+	require.NoError(t, firstWriter.SetTrustedImport())
+	require.NoError(t, firstWriter.SetPendingWork(work[0]))
+	firstRecord := V2GrantToV3(syncID, first)
+	firstRecord.SetNeedsExpansion(true)
+	require.NoError(t, firstWriter.(*pageWriter).unit.StageGrants(firstRecord))
+	firstID := work[0].Action.Identity
+	require.NoError(t, firstWriter.Commit(ctx, firstID, &c1zstore.LedgerRow{NextPageToken: "next"}))
+
+	work, _, err = ledger.PendingWork(ctx, 0, 1)
+	require.NoError(t, err)
+	require.Len(t, work, 1)
+	second := mkV2Grant("second", "ent-A", "user", "alice")
+	second.SetId("second")
+	secondWriter := ledger.BeginPage().(c1zstore.TrustedImportPageWriter)
+	require.NoError(t, secondWriter.SetTrustedImport())
+	require.NoError(t, secondWriter.SetPendingWork(work[0]))
+	require.NoError(t, secondWriter.PutGrants(ctx, second))
+	secondID := work[0].Action.Identity
+	require.NoError(t, secondWriter.Commit(ctx, secondID, &c1zstore.LedgerRow{}))
+	require.True(t, e.db.DeferredNeedsExpansionPending(), "trusted grant imports defer needs_expansion")
+
+	terminal := ledger.BeginPage()
+	require.NoError(t, terminal.SetTerminal())
+	terminalID := c1zstore.LedgerActionIdentity{Op: "sanitize-terminal"}
+	require.NoError(t, terminal.Commit(ctx, terminalID, &c1zstore.LedgerRow{}))
+	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+	require.False(t, e.db.DeferredNeedsExpansionPending())
+
+	grants := 0
+	require.NoError(t, e.IterateGrants(ctx, func(record *v3.GrantRecord) bool {
+		grants++
+		require.Equal(t, "second", record.GetExternalId())
+		require.False(t, record.GetNeedsExpansion())
+		return true
+	}))
+	require.Equal(t, 1, grants)
+	expandable := 0
+	require.NoError(t, e.IterateGrantsByNeedsExpansion(ctx, func(*v3.GrantRecord) bool {
+		expandable++
+		return true
+	}))
+	require.Zero(t, expandable)
+}

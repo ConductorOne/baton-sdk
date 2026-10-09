@@ -1126,22 +1126,13 @@ func grantIndexKeys(r *v3.GrantRecord) [][]byte {
 // marker through the Open-wired RecordDerivers — a caller can no
 // longer stage a grant row and forget what it owes.
 
-// The deferred-marker arm/clear contract (CAS + durable key agreement
-// on both edges) lives on rawdb (ArmDeferredGrantIndex /
-// ClearDeferredGrantIndexMarker): the marker is write-side crash
-// state the typed record ops consume directly.
-
-// clearDeferredIdxPending drops both forms of the marker after a
-// successful rebuild, under the engine write barrier so the clear
-// can't interleave with a concurrent writer's arm (which would leave
-// the atomic flag armed but the durable marker deleted, or vice
-// versa). Ordering and failure semantics live in rawdb's
-// ClearDeferredGrantIndexMarker.
+// clearDeferredIdxPending clears the durable deferred-index obligations after
+// a successful rebuild while the engine remains sealed.
 func (e *Engine) clearDeferredIdxPending() error {
 	// AllowSealed: runs inside EndSync's sealed finalize window, right
 	// after the deferred build (see Adapter.EndSync).
 	return e.withWriteAllowSealed(func() error {
-		return e.db.ClearDeferredGrantIndexMarker()
+		return e.db.ClearDeferredGrantIndexMarkers()
 	})
 }
 

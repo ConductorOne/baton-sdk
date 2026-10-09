@@ -55,6 +55,12 @@ func TestSanitizeCommand(t *testing.T) {
 	require.FileExists(t, outPath)
 	require.FileExists(t, outPath+".secret", "a fresh secret should be written next to --out")
 
+	rerun := &cobra.Command{Use: "baton"}
+	rerun.PersistentFlags().StringP("file", "f", "sync.c1z", "")
+	rerun.AddCommand(sanitizeCmd())
+	rerun.SetArgs([]string{"sanitize", "--file", srcPath, "--out", outPath})
+	require.NoError(t, rerun.ExecuteContext(ctx))
+
 	out, err := dotc1z.NewStore(ctx, outPath, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	defer out.Close(ctx)
@@ -65,10 +71,7 @@ func TestSanitizeCommand(t *testing.T) {
 	require.NotEqual(t, srcGrantID, resp.GetList()[0].GetId(), "grant id must be sanitized, not passed through verbatim")
 }
 
-// TestSanitizeCommandPebbleEngine exercises engine selection end-to-end: a
-// Pebble source defaults the output to Pebble, and the reopened output carries
-// every entity kind plus assets and the needs_expansion index. A second run
-// with --out-engine sqlite forces a SQLite output from the same Pebble source.
+// TestSanitizeCommandPebbleEngine exercises Pebble output end-to-end.
 func TestSanitizeCommandPebbleEngine(t *testing.T) {
 	ctx := context.Background()
 	tmp := t.TempDir()
@@ -117,11 +120,10 @@ func TestSanitizeCommandPebbleEngine(t *testing.T) {
 	require.NoError(t, root.ExecuteContext(ctx))
 	require.FileExists(t, outPath)
 
-	// Default output engine follows the Pebble source.
 	out, err := openReadOnlyC1ZStore(ctx, outPath)
 	require.NoError(t, err)
 	defer out.Close(ctx)
-	require.Equal(t, string(c1zstore.EnginePebble), out.Metadata().Engine, "output engine must default to the source (pebble)")
+	require.Equal(t, string(c1zstore.EnginePebble), out.Metadata().Engine)
 
 	rtResp, err := out.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{PageSize: 100}.Build())
 	require.NoError(t, err)
@@ -155,18 +157,6 @@ func TestSanitizeCommandPebbleEngine(t *testing.T) {
 	}
 	require.Equal(t, "image/png", ct)
 	require.NotEqual(t, srcIcon, assetBytes, "asset payload must be stripped, not the source bytes")
-
-	// --out-engine sqlite forces a SQLite output from the same Pebble source.
-	outSQLite := filepath.Join(tmp, "out-sqlite.c1z")
-	root2 := &cobra.Command{Use: "baton"}
-	root2.PersistentFlags().StringP("file", "f", "sync.c1z", "")
-	root2.AddCommand(sanitizeCmd())
-	root2.SetArgs([]string{"sanitize", "--file", srcPath, "--out", outSQLite, "--secret-file", secretPath, "--out-engine", "sqlite"})
-	require.NoError(t, root2.ExecuteContext(ctx))
-	outS, err := openReadOnlyC1ZStore(ctx, outSQLite)
-	require.NoError(t, err)
-	defer outS.Close(ctx)
-	require.Equal(t, string(c1zstore.EngineSQLite), outS.Metadata().Engine, "--out-engine sqlite must force a sqlite output")
 }
 
 // newSanitizeRoot builds the cobra root the same way main.go wires it:

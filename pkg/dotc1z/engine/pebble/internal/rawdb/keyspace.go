@@ -567,6 +567,14 @@ func DeferredIdxPendingKey() []byte {
 	return codec.AppendTupleStrings(buf, "deferred_grant_idx_pending")
 }
 
+// DeferredNeedsExpansionPendingKey marks trusted grant writes whose
+// by_needs_expansion entries require a seal-time rebuild.
+func DeferredNeedsExpansionPendingKey() []byte {
+	buf := make([]byte, 0, 2+len("deferred_grant_needs_expansion_pending"))
+	buf = append(buf, VersionV3, TypeEngineMeta)
+	return codec.AppendTupleStrings(buf, "deferred_grant_needs_expansion_pending")
+}
+
 // GrantDigestABIStampKey is the durable record of which grant-digest
 // hash ABI (the engine's GrantDigestABIVersion) this file's digest
 // state — hash-index values and digest nodes — was computed under.

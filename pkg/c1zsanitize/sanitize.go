@@ -9,21 +9,14 @@
 // stay coherent; different across c1zs whose secrets differ so an
 // attacker holding multiple sanitized outputs cannot correlate them.
 //
-// Sanitize is engine-agnostic: it reads and writes through
-// connectorstore.Reader / Writer, so a source or destination may be
-// either the v1/v2 sqlite-zstd engine or the v3 Pebble engine. A
-// Pebble destination's record writes are routed through the engine's
-// bulk-import fast path instead of Put upserts (see recordSink). A
-// Pebble c1z holds exactly one sync by contract, so a multi-sync
-// source cannot be sanitized into a Pebble destination; that
-// combination is rejected up front (see Sanitize).
+// Sources may use any readable c1z engine. Sanitized output is Pebble,
+// single-sync, and resumable through the page ledger.
 package c1zsanitize
 
 import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"hash"
@@ -39,7 +32,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 )
 
 // syncRunMetadataReader is the optional source capability for reading
@@ -49,6 +41,10 @@ import (
 // failing the run.
 type syncRunMetadataReader interface {
 	ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*c1zstore.SyncRun, string, error)
+}
+
+type currentSyncSetter interface {
+	SetCurrentSync(ctx context.Context, syncID string) error
 }
 
 // supportsDiffWriter is the optional destination capability for
@@ -91,42 +87,9 @@ type Options struct {
 	// It catches a source that violates the one-object-per-id assumption the
 	// cache relies on. Adds CPU; intended for diagnostics, not production runs.
 	VerifyGrantCache bool
-
-	// Resumable enables checkpointing so an interrupted run continues instead
-	// of restarting. Progress is recorded in each destination sync's
-	// sync_token (a secret fingerprint, the persisted anchor, the source sync
-	// id, the next phase, and the grant page token). On a later run against the
-	// SAME destination file, completed phases are skipped and the grant phase
-	// resumes from its last committed page. A destination carrying checkpoints
-	// from a different Secret is rejected (fail-closed: never mix transforms
-	// from two secrets). The anchor is persisted and adopted on resume when this
-	// run passed a zero TimestampAnchor, so a default-anchor resumable run
-	// resumes cleanly; a resume that passes a DIFFERENT explicit anchor is
-	// rejected. The destination's durability between runs is the caller's
-	// responsibility (Sanitize does not own the file lifecycle); resume only
-	// finds progress that a prior run persisted to disk.
-	//
-	// Resumable requires the sqlite-backed destination (*dotc1z.C1File). A
-	// pebble destination is rejected with a clear error rather than silently
-	// restarting: its single-sync, replace-in-place storage cannot resume a
-	// checkpoint — StartNewSync wipes any prior sync's data before writing.
-	// The rejection is an explicit destination-engine check, so it holds even
-	// though pebble implements ListSyncRuns.
-	Resumable bool
-
-	// TmpDir stages the bulk import's spill files when the destination is
-	// a pebble store ("" = system temp dir). Peak staging usage is ~2x the
-	// destination's record data — at the merge tail the sorted runs and
-	// the SSTs built from them coexist — so point it at a volume sized
-	// accordingly when the system temp dir is small.
-	TmpDir string
 }
 
-// Sanitize copies records from src to dst, transforming identifiers,
-// names, free text, emails, and timestamps under the per-c1z secret.
-// One destination sync is opened per source sync; parent_sync_id
-// linkage is preserved via a srcSyncID → dstSyncID map maintained for
-// the duration of the call.
+// Sanitize transforms the source's single sync into a resumable Pebble sync.
 func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore.Writer, opts Options) error {
 	if src == nil {
 		return errors.New("c1zsanitize: src reader is nil")
@@ -149,18 +112,16 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 		return fmt.Errorf("c1zsanitize: list source syncs: %w", err)
 	}
 
-	// A v3 Pebble c1z holds exactly one sync; StartNewSync replaces any
-	// prior sync in place. Sanitizing a multi-sync source into a Pebble
-	// destination would silently keep only the last sync's records, which
-	// is data corruption. Reject it up front. The engine is read from the
-	// live destination store, not a caller-supplied option, so the guard
-	// cannot be silenced by omitting a field.
-	if dst.Metadata().Engine == string(c1zstore.EnginePebble) && len(srcSyncs) > 1 {
-		return fmt.Errorf(
-			"c1zsanitize: destination engine pebble holds exactly one sync, but the source has %d "+
-				"syncs; sanitize to a sqlite destination or pre-select a single source sync",
-			len(srcSyncs),
-		)
+	if dst.Metadata().Engine != string(c1zstore.EnginePebble) {
+		return errors.New("c1zsanitize: destination must use the Pebble engine")
+	}
+	if len(srcSyncs) != 1 {
+		return fmt.Errorf("c1zsanitize: Pebble sanitization requires exactly one source sync, got %d", len(srcSyncs))
+	}
+	if setter, ok := src.(currentSyncSetter); ok {
+		if err := setter.SetCurrentSync(ctx, srcSyncs[0].GetId()); err != nil {
+			return fmt.Errorf("c1zsanitize: select source sync: %w", err)
+		}
 	}
 
 	tMax := findTMax(srcSyncs)
@@ -180,13 +141,11 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 		droppedAnnotations:     map[string]uint64{},
 		passedAnnotations:      map[string]uint64{},
 		failedAnnotations:      map[string]uint64{},
-		resumable:              opts.Resumable,
 		anchor:                 anchor,
 		anchorExplicit:         anchorExplicit,
 		tMax:                   tMax,
-		tmpDir:                 opts.TmpDir,
 	}
-	s.fingerprint = s.checkpointFingerprint()
+	s.fingerprint = s.secretFingerprint()
 
 	// One structured summary line per run instead of a log line per dropped
 	// annotation / missing asset (which fired tens of millions of times on
@@ -194,32 +153,10 @@ func Sanitize(ctx context.Context, src connectorstore.Reader, dst connectorstore
 	// an error or panic exit — an aborted run's telemetry is valid and wanted.
 	defer s.logDropSummary()
 
-	// When resuming, read whatever progress a prior run committed to the
-	// destination. A destination carrying checkpoints under a different secret
-	// or anchor is rejected here — never mix transforms from two secrets.
-	resume := map[string]*resumeState{}
-	if s.resumable {
-		resume, err = s.loadResumeStates(ctx, dst)
-		if err != nil {
-			return fmt.Errorf("c1zsanitize: load checkpoint: %w", err)
-		}
-	}
-
-	for _, sr := range srcSyncs {
-		rs := resume[sr.GetId()]
-		if rs != nil && rs.ended {
-			// This source sync was fully copied in a prior run; keep its dst
-			// sync id for parent linkage and graph-metadata, skip the work.
-			s.syncIDMap[sr.GetId()] = rs.dstSyncID
-			continue
-		}
-		if err := s.sanitizeSync(ctx, src, dst, sr, rs); err != nil {
-			return fmt.Errorf("c1zsanitize: sanitize sync %s: %w", sr.GetId(), err)
-		}
-	}
-
-	if err := s.preserveSupportsDiffMarkers(ctx, src, dst); err != nil {
-		return fmt.Errorf("c1zsanitize: preserve supports_diff markers: %w", err)
+	sourceSync := srcSyncs[0]
+	_, err = s.runLedger(ctx, src, dst, sourceSync)
+	if err != nil {
+		return fmt.Errorf("c1zsanitize: sanitize sync %s: %w", sourceSync.GetId(), err)
 	}
 
 	s.completed = true
@@ -238,9 +175,7 @@ type sanitizer struct {
 	knownResourceTypes     map[string]struct{}
 
 	// verifyGrantCache turns on the grant sub-cache correctness guard; see
-	// Options.VerifyGrantCache. knownResourceTypes is fully populated by
-	// copyResourceTypes' buffering pre-pass before any transform reads it, so
-	// there is no in-flight phase flag — the set is read-only by construction.
+	// Options.VerifyGrantCache.
 	verifyGrantCache bool
 
 	// warnedUndeclaredTypes dedups the undeclared-resource-type warning so
@@ -270,237 +205,20 @@ type sanitizer struct {
 	// a reader tell a full run from a partial one (partial counts are valid).
 	completed bool
 
-	// resumable enables checkpointing; fingerprint binds a checkpoint to this
-	// run's secret so a destination written under a different secret is never
-	// resumed into. See Options.Resumable.
-	resumable   bool
 	fingerprint string
 
-	// anchor is the timestamp anchor in force for this run; it is persisted in
-	// every checkpoint token. anchorExplicit records whether the caller passed
-	// it (vs. it defaulting): a resume that did not pass an explicit anchor
-	// adopts the persisted one, while a resume that passed a DIFFERENT explicit
-	// anchor is rejected. tMax is the source's newest timestamp, retained so the
-	// shifter can be rebuilt if the anchor is adopted on resume.
 	anchor         time.Time
 	anchorExplicit bool
 	tMax           time.Time
-
-	// sink receives the four record families for the sync currently being
-	// copied. sanitizeSync points it at dst (upserting Put* path) or, for a
-	// pebble destination, at a bulkImportSink over the engine's bulk-import
-	// fast path. Per-sync, not per-run: each destination sync gets its own
-	// import session. tmpDir stages that import's spill files.
-	sink   recordSink
-	tmpDir string
 }
 
-// Checkpoint phases recorded in a destination sync's token. The value names
-// the NEXT phase to run, so resume skips everything before it. resource_types
-// always re-runs (it is cheap and repopulates the known-type set the id
-// transform needs), so it is not a checkpoint phase.
-const (
-	phaseResources    = "resources"
-	phaseEntitlements = "entitlements"
-	phaseGrants       = "grants"
-	// phaseAssets is the terminal phase, written once grants complete. It marks
-	// "all records written; only copyAssets + EndSync remain" so a crash after
-	// grants resumes into copyAssets instead of re-running the whole grant phase
-	// (a phaseGrants token with an empty page is indistinguishable from "grants
-	// not started"). On resume at this phase the resource/entitlement walks still
-	// run read-only to repopulate asset refs before copyAssets.
-	phaseAssets = "assets"
-)
-
-// resumeState is the decoded checkpoint for one source sync's destination sync.
-type resumeState struct {
-	dstSyncID      string
-	ended          bool   // dst sync was EndSync'd in a prior run → fully done
-	phase          string // next phase to run
-	grantPageToken string // resume point within the grant phase
-}
-
-// checkpointToken is the JSON payload stored in a destination sync's
-// sync_token. Fingerprint binds it to the secret; SrcSyncID correlates the
-// destination sync back to its source. Anchor records the timestamp anchor the
-// run used so a later resume that did not pass an explicit anchor can adopt it
-// (the anchor is not secret — it is the visible newest output timestamp — so
-// persisting it is safe and is what makes a default-anchor run resumable).
-type checkpointToken struct {
-	Fingerprint string `json:"fp"`
-	SrcSyncID   string `json:"src"`
-	Phase       string `json:"phase"`
-	GrantPage   string `json:"gpt,omitempty"`
-	Anchor      string `json:"anchor,omitempty"`
-}
-
-// checkpointFingerprint derives a non-reversible binding of the secret. It
-// never stores the secret; a different secret yields a different fingerprint,
-// so loadResumeStates rejects a destination written under a different secret.
-// The anchor is NOT bound here: it is persisted in the token and validated
-// separately (adopt-if-zero, fail-closed on a different explicit anchor), so a
-// run that let the anchor default can still resume.
-func (s *sanitizer) checkpointFingerprint() string {
+func (s *sanitizer) secretFingerprint() string {
 	h := s.hmacPool.Get().(hash.Hash)
 	h.Reset()
-	_, _ = h.Write([]byte("c1zsanitize-ckpt-v2\x00secret-only"))
+	_, _ = h.Write([]byte("c1zsanitize-ledger-v1\x00secret-only"))
 	sum := h.Sum(nil)
 	s.hmacPool.Put(h)
 	return idEncoding.EncodeToString(sum)
-}
-
-// checkpoint records progress on the current destination sync. No-op unless
-// resumable. phase names the next phase to run; gpt is the grant page to
-// resume from (only meaningful for phaseGrants).
-func (s *sanitizer) checkpoint(ctx context.Context, dst connectorstore.Writer, srcSyncID, phase, gpt string) error {
-	if !s.resumable {
-		return nil
-	}
-	tok, err := json.Marshal(checkpointToken{
-		Fingerprint: s.fingerprint,
-		SrcSyncID:   srcSyncID,
-		Phase:       phase,
-		GrantPage:   gpt,
-		Anchor:      s.anchor.UTC().Format(time.RFC3339Nano),
-	})
-	if err != nil {
-		return err
-	}
-	return dst.CheckpointSync(ctx, string(tok))
-}
-
-// dstSyncLister is the destination capability for enumerating sync runs with
-// their persisted sync_token and ended_at WITHOUT mutating the current-sync
-// pointer. *dotc1z.C1File (the sqlite engine) provides it. Reading checkpoints
-// this way avoids the SetCurrentSync+CurrentSyncStep scan, which would leave
-// the destination's current sync pointing at an already-ended sync — a state
-// that previously caused StartNewSync to hand a fresh sync's records to an
-// ended sync.
-type dstSyncLister interface {
-	ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*c1zstore.SyncRun, string, error)
-}
-
-// isResumableDestination reports whether dst can safely back a resumable run,
-// returning a descriptive error when it cannot.
-//
-// The pebble engine is rejected by an EXPLICIT engine check
-// (dst.Metadata().Engine == EnginePebble), deliberately NOT by the dstSyncLister
-// capability assertion. That distinction is load-bearing: pebble now implements
-// ListSyncRuns (for source-side sync-graph-metadata reads), so a capability
-// assertion would SUCCEED for a pebble destination and silently re-admit it.
-// Resume on pebble is unsafe — its single-sync, replace-in-place StartNewSync
-// wipes any prior sync's data before writing, so a "resume" through the
-// sanitize copy path would silently restart and corrupt the destination.
-// Keying on the reported engine cannot be defeated by a future engine
-// adding capability methods. The capability assertion is kept below it as a
-// backstop for any engine that cannot enumerate checkpoints at all.
-func isResumableDestination(dst connectorstore.Writer) error {
-	if dst.Metadata().Engine == string(c1zstore.EnginePebble) {
-		return fmt.Errorf(
-			"resumable runs are not supported with a pebble destination: its " +
-				"single-sync, replace-in-place storage cannot rehydrate a persisted " +
-				"checkpoint, so resume would silently restart; use a sqlite destination")
-	}
-	if _, ok := dst.(dstSyncLister); !ok {
-		return fmt.Errorf(
-			"resumable runs require a destination that can enumerate checkpoints " +
-				"without mutating sync state (sqlite-backed); this destination cannot, " +
-				"so resume would silently restart")
-	}
-	return nil
-}
-
-// loadResumeStates scans the destination's existing syncs for checkpoint
-// tokens written by a prior resumable run, reading them through ListSyncRuns so
-// the destination's current-sync pointer is never mutated. A token whose
-// fingerprint matches this run yields a resumeState; a token whose fingerprint
-// does NOT match means the destination holds output from a different secret,
-// which is rejected (fail-closed). The persisted anchor is adopted when this
-// run did not pass an explicit one, and a different explicit anchor is rejected
-// — so a default-anchor run resumes while a deliberate anchor change cannot
-// silently mix two transforms. Destinations with no tokens yield an empty map
-// and a clean full run.
-//
-// Destinations that cannot safely resume are rejected up front by
-// isResumableDestination.
-func (s *sanitizer) loadResumeStates(ctx context.Context, dst connectorstore.Writer) (map[string]*resumeState, error) {
-	if err := isResumableDestination(dst); err != nil {
-		return nil, err
-	}
-	// Guaranteed by isResumableDestination: a non-pebble destination that
-	// reached here implements dstSyncLister.
-	lister := dst.(dstSyncLister)
-
-	out := map[string]*resumeState{}
-	pageToken := ""
-	for {
-		runs, next, err := lister.ListSyncRuns(ctx, pageToken, 0)
-		if err != nil {
-			return nil, err
-		}
-		for _, ds := range runs {
-			if ds.SyncToken == "" {
-				continue
-			}
-			var ct checkpointToken
-			if json.Unmarshal([]byte(ds.SyncToken), &ct) != nil {
-				continue // not our token shape; ignore
-			}
-			if ct.Fingerprint == "" {
-				continue
-			}
-			if ct.Fingerprint != s.fingerprint {
-				return nil, fmt.Errorf("destination has a checkpoint for a different secret; clear the destination before resuming")
-			}
-			if err := s.reconcileAnchor(ct.Anchor); err != nil {
-				return nil, err
-			}
-			out[ct.SrcSyncID] = &resumeState{
-				dstSyncID:      ds.ID,
-				ended:          ds.EndedAt != nil,
-				phase:          ct.Phase,
-				grantPageToken: ct.GrantPage,
-			}
-		}
-		if next == "" {
-			return out, nil
-		}
-		pageToken = next
-	}
-}
-
-// reconcileAnchor handles the persisted checkpoint anchor. When the caller did
-// not pass an explicit anchor, the persisted one is adopted and the timestamp
-// shifter rebuilt so resumed output lands on the same anchor as the original
-// run (without this, a default-anchor run could never resume — run 2's
-// time.Now() anchor would not match run 1's). When the caller DID pass an
-// explicit anchor, a mismatch is fail-closed: two different anchors must never
-// be mixed into one destination. An empty persisted anchor (older token) is
-// ignored.
-func (s *sanitizer) reconcileAnchor(persisted string) error {
-	if persisted == "" {
-		return nil
-	}
-	pa, err := time.Parse(time.RFC3339Nano, persisted)
-	if err != nil {
-		return fmt.Errorf("checkpoint has an unparseable anchor %q: %w", persisted, err)
-	}
-	pa = pa.UTC()
-	if s.anchorExplicit {
-		if !s.anchor.Equal(pa) {
-			return fmt.Errorf(
-				"destination was checkpointed with anchor %s but this run was given "+
-					"anchor %s; clear the destination or pass the original anchor",
-				pa.Format(time.RFC3339Nano), s.anchor.Format(time.RFC3339Nano))
-		}
-		return nil
-	}
-	if s.anchor.Equal(pa) {
-		return nil
-	}
-	s.anchor = pa
-	s.shifter = newTimestampShifter(pa, s.tMax)
-	return nil
 }
 
 // recordAnnotation increments the per-type-URL counter under statsMu (the
@@ -552,173 +270,6 @@ func (s *sanitizer) id(input string) string {
 // lets concurrent transform workers each hold their own hasher.
 func newHMACPool(secret []byte) *sync.Pool {
 	return &sync.Pool{New: func() any { return hmac.New(sha256.New, secret) }}
-}
-
-func (s *sanitizer) sanitizeSync(ctx context.Context, src connectorstore.Reader, dst connectorstore.Writer, sr *reader_v2.SyncRun, rs *resumeState) error {
-	srcSyncID := sr.GetId()
-	syncType := connectorstore.SyncType(sr.GetSyncType())
-	if syncType == connectorstore.SyncTypeAny || syncType == "" {
-		syncType = connectorstore.SyncTypeFull
-	}
-
-	// Resume an unfinished destination sync from a prior run, or start a new
-	// one. The phase to start at comes from the checkpoint; a fresh sync starts
-	// at phaseResources.
-	startPhase := phaseResources
-	startGrantPage := ""
-	var dstSyncID string
-	if rs != nil {
-		if err := dst.SetCurrentSync(ctx, rs.dstSyncID); err != nil {
-			return fmt.Errorf("resume dst sync: %w", err)
-		}
-		dstSyncID = rs.dstSyncID
-		startPhase = rs.phase
-		startGrantPage = rs.grantPageToken
-	} else {
-		parentDst := ""
-		if parentSrc := sr.GetParentSyncId(); parentSrc != "" {
-			parentDst = s.syncIDMap[parentSrc]
-			if parentDst == "" {
-				// The parent is not a sync in this c1z. HMAC the external
-				// reference instead of dropping it: provenance structure
-				// survives, the raw id does not, and two files sanitized
-				// under the same secret still cross-reference.
-				parentDst = s.id(parentSrc)
-			}
-		}
-		newID, err := dst.StartNewSync(ctx, syncType, parentDst)
-		if err != nil {
-			return fmt.Errorf("start dst sync: %w", err)
-		}
-		dstSyncID = newID
-		// Write an initial checkpoint so an interruption before any phase
-		// completes still correlates this dst sync to its source on resume.
-		if err := s.checkpoint(ctx, dst, srcSyncID, phaseResources, ""); err != nil {
-			return fmt.Errorf("checkpoint: %w", err)
-		}
-	}
-	s.syncIDMap[srcSyncID] = dstSyncID
-
-	// Pick the write path for this sync's records. A pebble destination
-	// routes the four record families through the engine's bulk import
-	// (sorted SST construction + ingest) instead of per-batch Put upserts.
-	// The bulk contract — fresh sync, nothing else writes until Finish —
-	// holds here by construction: StartNewSync above marked the sync fresh
-	// (the resume branch never runs for pebble, since resumable+pebble is
-	// rejected in Sanitize, which also makes every checkpoint call below a
-	// no-op), and assets are copied only after the import is finished.
-	s.sink = dst
-	var bulk *bulkImportSink
-	if eng, ok := pebble.AsEngine(dst); ok {
-		b, err := startBulkImportSink(ctx, eng, dstSyncID, s.tmpDir)
-		if err != nil {
-			return fmt.Errorf("bulk import: %w", err)
-		}
-		bulk = b
-		s.sink = b
-		defer bulk.abort()
-	}
-
-	assetRefs := newAssetRefSet()
-
-	// Per-sync memo cache for the embedded Entitlement/Principal transforms
-	// in the grant loop. Reset each sync so memory is bounded by one sync's
-	// distinct entitlements, not the whole file.
-	grantCache := newGrantSubCache(s.verifyGrantCache)
-
-	// resource_types always runs: it is cheap and repopulates knownResourceTypes
-	// (which the id transform consults), so it must be rebuilt even when its
-	// rows were already written in a prior run. PutResourceTypes upserts, so the
-	// re-write is idempotent.
-	if err := s.copyResourceTypes(ctx, src, srcSyncID, assetRefs); err != nil {
-		return err
-	}
-
-	// Resources and entitlements always walk so their trait icon/logo asset refs
-	// land in assetRefs before copyAssets runs — the in-memory ref set does not
-	// survive a process restart, so on resume the refs collected by a prior run
-	// are gone and must be rebuilt. The WRITE is gated on the phase: a phase a
-	// prior run already completed re-collects refs read-only instead of
-	// re-writing rows that are already durable in the destination. This mirrors
-	// copyResourceTypes, which always runs to rebuild knownResourceTypes.
-	writeResources := phaseAtOrBefore(startPhase, phaseResources)
-	if err := s.copyResources(ctx, src, srcSyncID, assetRefs, writeResources); err != nil {
-		return err
-	}
-	if writeResources {
-		if err := s.checkpoint(ctx, dst, srcSyncID, phaseEntitlements, ""); err != nil {
-			return fmt.Errorf("checkpoint: %w", err)
-		}
-	}
-
-	writeEntitlements := phaseAtOrBefore(startPhase, phaseEntitlements)
-	if err := s.copyEntitlements(ctx, src, srcSyncID, assetRefs, writeEntitlements); err != nil {
-		return err
-	}
-	if writeEntitlements {
-		if err := s.checkpoint(ctx, dst, srcSyncID, phaseGrants, ""); err != nil {
-			return fmt.Errorf("checkpoint: %w", err)
-		}
-		startGrantPage = "" // entitlements just finished; grants start at the top
-	}
-
-	// Grants run unless a prior run already finished them (checkpoint advanced
-	// to the terminal assets phase). copyGrants writes the phaseAssets checkpoint
-	// itself once its final page lands.
-	if phaseAtOrBefore(startPhase, phaseGrants) {
-		if err := s.copyGrants(ctx, src, dst, srcSyncID, assetRefs, grantCache, startGrantPage); err != nil {
-			return err
-		}
-	}
-
-	// All four record families are in. Seal the bulk import before assets:
-	// PutAsset writes through the writer, which the bulk contract forbids
-	// until Finish has ingested.
-	if bulk != nil {
-		if err := bulk.finish(ctx); err != nil {
-			return fmt.Errorf("bulk import finish: %w", err)
-		}
-	}
-
-	assetCount, err := s.copyAssets(ctx, src, dst, assetRefs)
-	if err != nil {
-		return err
-	}
-
-	// The import counted every record it wrote; stash that (plus the asset
-	// count, which rode outside the import) so EndSync persists the stats
-	// sidecar directly instead of re-scanning the ingested keyspaces.
-	if bulk != nil {
-		bulk.stashStats(assetCount)
-	}
-
-	if err := dst.EndSync(ctx); err != nil {
-		return fmt.Errorf("end dst sync: %w", err)
-	}
-	return nil
-}
-
-// phaseAtOrBefore reports whether the run should execute `target`, given the
-// phase it is starting from. Phases are ordered resources < entitlements <
-// grants; a start phase at or before the target means the target still needs
-// to run.
-func phaseAtOrBefore(start, target string) bool {
-	return phaseRank(start) <= phaseRank(target)
-}
-
-func phaseRank(p string) int {
-	switch p {
-	case phaseResources:
-		return 0
-	case phaseEntitlements:
-		return 1
-	case phaseGrants:
-		return 2
-	case phaseAssets:
-		return 3
-	default:
-		return 0 // unknown/empty → treat as the earliest phase (run everything)
-	}
 }
 
 // preserveSupportsDiffMarkers carries the supports_diff marker — the one
