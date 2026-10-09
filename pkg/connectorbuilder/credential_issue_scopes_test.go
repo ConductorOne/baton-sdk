@@ -2,8 +2,12 @@ package connectorbuilder
 
 import (
 	"context"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -354,4 +358,16 @@ func TestCredentialIssueInvalidScopeFieldsBeforeProviderCreate(t *testing.T) {
 
 func scopeRuleField(rules *config.RepeatedStringRules) *config.Field {
 	return config.Field_builder{Name: "scopes", StringSliceField: config.StringSliceField_builder{Rules: rules}.Build()}.Build()
+}
+
+func TestLegacyScopePatternMatchesTrimSpace(t *testing.T) {
+	pattern := regexp.MustCompilePOSIX(nonblankScopePattern)
+	for r := rune(0); r <= utf8.MaxRune; r++ {
+		if unicode.IsSpace(r) {
+			require.False(t, pattern.MatchString(string(r)), "whitespace U+%04X", r)
+		}
+	}
+	for _, value := range []string{"", " \t\n\v\f\r", "\u0085\u00a0\u2003", "read", " read ", "\u00a0read\u2003", "\u200b", "\ufeff", "\x00"} {
+		require.Equal(t, strings.TrimSpace(value) != "", pattern.MatchString(value), "value %q", value)
+	}
 }

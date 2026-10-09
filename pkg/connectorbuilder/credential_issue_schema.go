@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const nonblankScopePattern = `[^[:space:]\x{0085}\x{00A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}]`
+const nonblankScopePattern = "[^\t\n\u000b\f\r \u0085\u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000]"
 
 // CredentialIssueScopeField resolves an explicit scope field or the legacy
 // scopes/custom_scopes_allowed contract into shared field rules. It returns a
