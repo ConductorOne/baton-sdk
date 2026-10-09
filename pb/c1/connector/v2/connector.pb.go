@@ -875,7 +875,9 @@ type CredentialIssueOptionDescriptor struct {
 	// must whenever several descriptors share that option: a default taken from
 	// declaration order would not be stable. It selects nothing at issue time --
 	// CredentialIssueOptions.secret_resource_type_id is still required.
-	Preferred     bool `protobuf:"varint,10,opt,name=preferred,proto3" json:"preferred,omitempty"`
+	Preferred bool `protobuf:"varint,10,opt,name=preferred,proto3" json:"preferred,omitempty"`
+	// Minimum number of distinct requested scopes. Zero permits omission.
+	MinScopes     uint32 `protobuf:"varint,11,opt,name=min_scopes,json=minScopes,proto3" json:"min_scopes,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -975,6 +977,13 @@ func (x *CredentialIssueOptionDescriptor) GetPreferred() bool {
 	return false
 }
 
+func (x *CredentialIssueOptionDescriptor) GetMinScopes() uint32 {
+	if x != nil {
+		return x.MinScopes
+	}
+	return 0
+}
+
 func (x *CredentialIssueOptionDescriptor) SetOption(v CapabilityDetailCredentialOption) {
 	x.Option = v
 }
@@ -1015,6 +1024,10 @@ func (x *CredentialIssueOptionDescriptor) SetPreferred(v bool) {
 	x.Preferred = v
 }
 
+func (x *CredentialIssueOptionDescriptor) SetMinScopes(v uint32) {
+	x.MinScopes = v
+}
+
 func (x *CredentialIssueOptionDescriptor) HasExpiry() bool {
 	if x == nil {
 		return false
@@ -1049,6 +1062,8 @@ type CredentialIssueOptionDescriptor_builder struct {
 	// declaration order would not be stable. It selects nothing at issue time --
 	// CredentialIssueOptions.secret_resource_type_id is still required.
 	Preferred bool
+	// Minimum number of distinct requested scopes. Zero permits omission.
+	MinScopes uint32
 }
 
 func (b0 CredentialIssueOptionDescriptor_builder) Build() *CredentialIssueOptionDescriptor {
@@ -1065,6 +1080,7 @@ func (b0 CredentialIssueOptionDescriptor_builder) Build() *CredentialIssueOption
 	x.ResourceMode = b.ResourceMode
 	x.SecretResourceTypeId = b.SecretResourceTypeId
 	x.Preferred = b.Preferred
+	x.MinScopes = b.MinScopes
 	return m0
 }
 
@@ -2722,7 +2738,7 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x1bpreferred_credential_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x19preferredCredentialOption\"\xcc\x01\n" +
 	" CredentialDetailsCredentialIssue\x12J\n" +
 	"\aoptions\x18\x01 \x03(\v20.c1.connector.v2.CredentialIssueOptionDescriptorR\aoptions\x12\\\n" +
-	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption\"\xcc\x04\n" +
+	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption\"\xeb\x04\n" +
 	"\x1fCredentialIssueOptionDescriptor\x12I\n" +
 	"\x06option\x18\x01 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x06option\x12H\n" +
 	"\fkey_profiles\x18\x02 \x03(\v2%.c1.connector.v2.KeyGenerationProfileR\vkeyProfiles\x12A\n" +
@@ -2735,7 +2751,9 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x17secret_resource_type_id\x18\t \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\x14secretResourceTypeId\x12\x1c\n" +
 	"\tpreferred\x18\n" +
-	" \x01(\bR\tpreferred\"t\n" +
+	" \x01(\bR\tpreferred\x12\x1d\n" +
+	"\n" +
+	"min_scopes\x18\v \x01(\rR\tminScopes\"t\n" +
 	"\x18IssuanceExpiryCapability\x12+\n" +
 	"\x03min\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x03min\x12+\n" +
 	"\x03max\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03max\"\xa5\x02\n" +
