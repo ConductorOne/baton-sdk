@@ -31,7 +31,7 @@ func scopeIssueFields(scopes []string, custom bool, minimum uint64) []*config.Fi
 	}
 	rules := config.RepeatedStringRules_builder{
 		MinItems: proto.Uint64(minimum), ValidateEmpty: true, Unique: true,
-		ItemRules: config.StringRules_builder{ValidateEmpty: true, Pattern: proto.String(credentialIssueNonblankScopePattern)}.Build(),
+		ItemRules: config.StringRules_builder{ValidateEmpty: true, Pattern: proto.String(nonblankScopePattern)}.Build(),
 	}.Build()
 	if !custom {
 		if len(scopes) == 0 {
@@ -164,13 +164,23 @@ func TestIssueCredentialMinimumScopesBeforeProviderCreate(t *testing.T) {
 			issuer.capabilityDetails = scopeIssueDetails(option, []string{"read", "write"}, false, 2)
 			connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{issuer, newTestCredentialSecretDeleter()}))
 			require.NoError(t, err)
-			for _, requested := range [][]string{nil, {"read"}} {
+			for _, tc := range []struct {
+				requested []string
+				wantError string
+			}{
+				{nil, "at least 2 items"},
+				{[]string{"read"}, "at least 2 items"},
+				{[]string{"read", "read"}, "duplicate items"},
+				{[]string{"read", " "}, "must match pattern"},
+				{[]string{"read", "\u00a0\u2003\u0085"}, "must match pattern"},
+				{[]string{"read", "unknown"}, "must be one of"},
+			} {
 				_, err = connector.IssueCredential(ctx, v2.IssueCredentialRequest_builder{
 					IdentityId:        v2.ResourceId_builder{ResourceType: "user", Resource: "1"}.Build(),
-					CredentialOptions: scopeIssueOptions(option, requested),
+					CredentialOptions: scopeIssueOptions(option, tc.requested),
 					RequestId:         "request-1", EncryptionConfigs: []*v2.EncryptionConfig{encryptionConfig},
 				}.Build())
-				require.ErrorContains(t, err, "at least 2 items")
+				require.ErrorContains(t, err, tc.wantError)
 				require.Equal(t, codes.InvalidArgument, status.Code(err))
 				require.Nil(t, issuer.lastInput)
 			}

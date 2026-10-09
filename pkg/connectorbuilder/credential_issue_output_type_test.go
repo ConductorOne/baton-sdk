@@ -300,7 +300,7 @@ func TestSelectedDescriptorGatesTheRequest(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			descriptor, err := validateCredentialIssueInput(input(tc.secretResourceTypeID, tc.scope), details, now)
 			if tc.wantErr {
-				require.ErrorContains(t, err, fmt.Sprintf("scope %q is not advertised by connector", tc.scope))
+				require.ErrorContains(t, err, fmt.Sprintf("but got '%s'", tc.scope))
 				return
 			}
 			require.NoError(t, err)
@@ -329,7 +329,7 @@ func TestIssueCredentialAppliesTheSelectedDescriptorsConstraints(t *testing.T) {
 	}
 
 	_, err = connector.IssueCredential(ctx, request(serviceAccountKey, "read"))
-	require.ErrorContains(t, err, `scope "read" is not advertised by connector`)
+	require.ErrorContains(t, err, "value must be one of [write]")
 	require.Nil(t, issuer.lastInput, "the provider must not be mutated when the selected descriptor rejects the request")
 
 	resp, err := connector.IssueCredential(ctx, request(serviceAccountKey, "write"))

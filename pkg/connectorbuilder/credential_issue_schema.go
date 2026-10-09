@@ -10,7 +10,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const credentialIssueNonblankScopePattern = `[^[:space:]\x{0085}\x{00A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}]`
+const nonblankScopePattern = `[^[:space:]\x{0085}\x{00A0}\x{1680}\x{2000}-\x{200A}\x{2028}\x{2029}\x{202F}\x{205F}\x{3000}]`
 
 // CredentialIssueScopeField resolves an explicit scope field or the legacy
 // scopes/custom_scopes_allowed contract into shared field rules. It returns a
@@ -43,7 +43,7 @@ func CredentialIssueScopeField(descriptor *v2.CredentialIssueOptionDescriptor) (
 	if scopeField == nil {
 		rules := config.RepeatedStringRules_builder{
 			Unique:    true,
-			ItemRules: config.StringRules_builder{ValidateEmpty: true, Pattern: proto.String(credentialIssueNonblankScopePattern)}.Build(),
+			ItemRules: config.StringRules_builder{ValidateEmpty: true, Pattern: proto.String(nonblankScopePattern)}.Build(),
 		}.Build()
 		if !descriptor.GetCustomScopesAllowed() {
 			if len(descriptor.GetScopes()) == 0 {
