@@ -31,6 +31,8 @@ func scopeIssueOptions(option v2.CapabilityDetailCredentialOption, scopes []stri
 		options.SetApiKey(v2.CredentialIssueOptions_ApiKey_builder{Scopes: scopes}.Build())
 	case v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN:
 		options.SetToken(v2.CredentialIssueOptions_Token_builder{Scopes: scopes}.Build())
+	default:
+		panic("unsupported test credential option")
 	}
 	return options
 }
@@ -65,7 +67,10 @@ func TestCredentialIssueRequestedScopes(t *testing.T) {
 				t.Run(tc.name, func(t *testing.T) {
 					details := scopeIssueDetails(option, tc.allowed, tc.custom, tc.minimum)
 					require.NoError(t, validateCredentialIssueCapabilityDetails(details))
-					input := &CredentialIssueInput{IdentityID: v2.ResourceId_builder{ResourceType: "user", Resource: "1"}.Build(), RequestID: "request-1", CredentialOptions: scopeIssueOptions(option, tc.requested)}
+					input := &CredentialIssueInput{
+						IdentityID: v2.ResourceId_builder{ResourceType: "user", Resource: "1"}.Build(),
+						RequestID:  "request-1", CredentialOptions: scopeIssueOptions(option, tc.requested),
+					}
 					descriptor, err := validateCredentialIssueInput(input, details, time.Now())
 					if tc.wantError != "" {
 						require.ErrorContains(t, err, tc.wantError)
@@ -148,6 +153,15 @@ func TestIssueCredentialMinimumScopesBeforeProviderCreate(t *testing.T) {
 				require.Equal(t, codes.InvalidArgument, status.Code(err))
 				require.Nil(t, issuer.lastInput)
 			}
+			requested := []string{"write", "read"}
+			_, err = connector.IssueCredential(ctx, v2.IssueCredentialRequest_builder{
+				IdentityId:        v2.ResourceId_builder{ResourceType: "user", Resource: "1"}.Build(),
+				CredentialOptions: scopeIssueOptions(option, requested),
+				RequestId:         "request-valid", EncryptionConfigs: []*v2.EncryptionConfig{encryptionConfig},
+			}.Build())
+			require.NoError(t, err)
+			require.NotNil(t, issuer.lastInput)
+			require.True(t, proto.Equal(scopeIssueOptions(option, requested), issuer.lastInput.CredentialOptions))
 		})
 	}
 }
@@ -155,7 +169,11 @@ func TestIssueCredentialMinimumScopesBeforeProviderCreate(t *testing.T) {
 func TestCredentialIssueMinimumScopesMetadataRoundtrip(t *testing.T) {
 	details := scopeIssueDetails(v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN, []string{"read"}, true, 2)
 	metadata := v2.ConnectorServiceGetMetadataResponse_builder{Metadata: v2.ConnectorMetadata_builder{
-		Capabilities: v2.ConnectorCapabilities_builder{ResourceTypeCapabilities: []*v2.ResourceTypeCapability{v2.ResourceTypeCapability_builder{ResourceType: v2.ResourceType_builder{Id: "user"}.Build(), CredentialIssue: details}.Build()}}.Build(),
+		Capabilities: v2.ConnectorCapabilities_builder{
+			ResourceTypeCapabilities: []*v2.ResourceTypeCapability{v2.ResourceTypeCapability_builder{
+				ResourceType: v2.ResourceType_builder{Id: "user"}.Build(), CredentialIssue: details,
+			}.Build()},
+		}.Build(),
 	}.Build()}.Build()
 	for _, tc := range []struct {
 		name      string
