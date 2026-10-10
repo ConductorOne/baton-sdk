@@ -371,3 +371,79 @@ func TestLegacyScopePatternMatchesTrimSpace(t *testing.T) {
 		require.Equal(t, strings.TrimSpace(value) != "", pattern.MatchString(value), "value %q", value)
 	}
 }
+
+func TestExplicitScopeRulesRejectBlankBeforeProviderCreate(t *testing.T) {
+	ctx := context.Background()
+	encryptionConfig := newIssueEncryptionConfig(t)
+	for _, option := range []v2.CapabilityDetailCredentialOption{
+		v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+		v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN,
+	} {
+		t.Run(option.String(), func(t *testing.T) {
+			for _, tc := range []struct {
+				name      string
+				itemRules *config.StringRules
+				blank     string
+			}{
+				{"allowed list empty", config.StringRules_builder{In: []string{"read", "write"}}.Build(), ""},
+				{"pattern empty", config.StringRules_builder{Pattern: proto.String(".*")}.Build(), ""},
+				{"pattern ASCII blank", config.StringRules_builder{Pattern: proto.String(".*")}.Build(), " \t"},
+				{"pattern Unicode blank", config.StringRules_builder{Pattern: proto.String(".*")}.Build(), "\u0085\u00a0\u2003"},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					issuer := newTestCredentialIssuer("user")
+					issuer.capabilityDetails = scopeIssueDetails(option, nil, false, 0)
+					issuer.capabilityDetails.GetOptions()[0].SetInputFields([]*config.Field{scopeRuleField(config.RepeatedStringRules_builder{
+						MinItems: proto.Uint64(2), ValidateEmpty: true, ItemRules: tc.itemRules,
+					}.Build())})
+					before := proto.Clone(issuer.capabilityDetails)
+					resolved, err := CredentialIssueScopeField(issuer.capabilityDetails.GetOptions()[0])
+					require.NoError(t, err)
+					require.True(t, resolved.GetStringSliceField().GetRules().GetItemRules().GetIsRequired())
+					require.True(t, resolved.GetStringSliceField().GetRules().GetItemRules().GetValidateEmpty())
+					if tc.itemRules.HasPattern() {
+						require.Equal(t, tc.itemRules.GetPattern(), resolved.GetStringSliceField().GetRules().GetItemRules().GetPattern())
+					}
+					connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{issuer, newTestCredentialSecretDeleter()}))
+					require.NoError(t, err)
+					request := func(scopes []string) *v2.IssueCredentialRequest {
+						return v2.IssueCredentialRequest_builder{
+							IdentityId:        v2.ResourceId_builder{ResourceType: "user", Resource: "1"}.Build(),
+							CredentialOptions: scopeIssueOptions(option, scopes), RequestId: "request-explicit",
+							EncryptionConfigs: []*v2.EncryptionConfig{encryptionConfig},
+						}.Build()
+					}
+					_, err = connector.IssueCredential(ctx, request([]string{tc.blank, "read"}))
+					require.Nil(t, issuer.lastInput)
+					require.Equal(t, codes.InvalidArgument, status.Code(err))
+					_, err = connector.IssueCredential(ctx, request([]string{"read", "write"}))
+					require.NoError(t, err)
+					require.NotNil(t, issuer.lastInput)
+					require.True(t, proto.Equal(before, issuer.capabilityDetails))
+				})
+			}
+		})
+	}
+}
+
+func TestEffectiveScopeFieldPreservesItemContractOnRoundtrip(t *testing.T) {
+	descriptor := scopeIssueDetails(v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY, nil, false, 0).GetOptions()[0]
+	descriptor.SetInputFields([]*config.Field{scopeRuleField(config.RepeatedStringRules_builder{
+		ItemRules: config.StringRules_builder{Pattern: proto.String(".*")}.Build(),
+	}.Build())})
+	resolved, err := CredentialIssueScopeField(descriptor)
+	require.NoError(t, err)
+	data, err := protojson.Marshal(resolved)
+	require.NoError(t, err)
+	decoded := &config.Field{}
+	require.NoError(t, protojson.Unmarshal(data, decoded))
+	rules := decoded.GetStringSliceField().GetRules()
+	require.True(t, rules.GetItemRules().GetIsRequired())
+	require.True(t, rules.GetItemRules().GetValidateEmpty())
+	require.Equal(t, ".*", rules.GetItemRules().GetPattern())
+	require.False(t, rules.GetIsRequired())
+	require.NoError(t, ValidateCredentialIssueScopes(nil, decoded))
+	require.NoError(t, ValidateCredentialIssueScopes([]string{" read "}, decoded))
+	require.Error(t, ValidateCredentialIssueScopes([]string{"\u0085\u00a0\u2003"}, decoded))
+	require.Error(t, ValidateCredentialIssueScopes([]string{""}, decoded))
+}

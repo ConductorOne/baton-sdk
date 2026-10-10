@@ -43,7 +43,7 @@ func CredentialIssueScopeField(descriptor *v2.CredentialIssueOptionDescriptor) (
 	if scopeField == nil {
 		rules := config.RepeatedStringRules_builder{
 			Unique:    true,
-			ItemRules: config.StringRules_builder{ValidateEmpty: true, Pattern: proto.String(nonblankScopePattern)}.Build(),
+			ItemRules: nonblankScopeRules(),
 		}.Build()
 		if !descriptor.GetCustomScopesAllowed() {
 			if len(descriptor.GetScopes()) == 0 {
@@ -64,6 +64,16 @@ func CredentialIssueScopeField(descriptor *v2.CredentialIssueOptionDescriptor) (
 	}
 	if resolved.GetIsRequired() {
 		rules.SetIsRequired(true)
+	}
+	itemRules := rules.GetItemRules()
+	if itemRules == nil {
+		itemRules = &config.StringRules{}
+		rules.SetItemRules(itemRules)
+	}
+	itemRules.SetIsRequired(true)
+	itemRules.SetValidateEmpty(true)
+	if !itemRules.HasPattern() {
+		itemRules.SetPattern(nonblankScopePattern)
 	}
 	if err := validateCredentialIssueScopeRules(rules); err != nil {
 		return nil, fmt.Errorf("invalid credential issue scopes field: %w", err)
@@ -95,7 +105,8 @@ func validateCredentialIssueScopeRules(rules *config.RepeatedStringRules) error 
 	if len(itemRules.GetIn()) != 0 {
 		allowed := make(map[string]struct{}, len(itemRules.GetIn()))
 		for _, value := range itemRules.GetIn() {
-			if field.ValidateStringRules(itemRules, value, "scopes") == nil {
+			if field.ValidateStringRules(nonblankScopeRules(), value, "scopes") == nil &&
+				field.ValidateStringRules(itemRules, value, "scopes") == nil {
 				allowed[value] = struct{}{}
 			}
 		}
@@ -104,4 +115,8 @@ func validateCredentialIssueScopeRules(rules *config.RepeatedStringRules) error 
 		}
 	}
 	return nil
+}
+
+func nonblankScopeRules() *config.StringRules {
+	return config.StringRules_builder{IsRequired: true, ValidateEmpty: true, Pattern: proto.String(nonblankScopePattern)}.Build()
 }

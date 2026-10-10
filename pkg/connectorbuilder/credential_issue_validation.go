@@ -114,13 +114,13 @@ func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.Crede
 	}
 	if descriptor.GetOption() == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY {
 		apiKey := input.CredentialOptions.GetApiKey()
-		if err := validateRequestedScopes(apiKey.GetScopes(), scopeField); err != nil {
+		if err := ValidateCredentialIssueScopes(apiKey.GetScopes(), scopeField); err != nil {
 			return nil, err
 		}
 	}
 	if descriptor.GetOption() == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_TOKEN {
 		token := input.CredentialOptions.GetToken()
-		if err := validateRequestedScopes(token.GetScopes(), scopeField); err != nil {
+		if err := ValidateCredentialIssueScopes(token.GetScopes(), scopeField); err != nil {
 			return nil, err
 		}
 		if err := validateRequestedValues("audience", token.GetAudiences(), descriptor.GetAudiences(), descriptor.GetCustomAudiencesAllowed()); err != nil {
@@ -149,7 +149,16 @@ func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.Crede
 	return descriptor, nil
 }
 
-func validateRequestedScopes(requested []string, scopeField *config.Field) error {
+// ValidateCredentialIssueScopes applies the nonblank scope-item contract and
+// the effective field's declared rules without changing requested values.
+func ValidateCredentialIssueScopes(requested []string, scopeField *config.Field) error {
+	if scopeField.GetName() != "scopes" || scopeField.GetStringSliceField() == nil {
+		return fmt.Errorf("credential issue scopes field must be a named string slice")
+	}
+	baseline := config.RepeatedStringRules_builder{ItemRules: nonblankScopeRules()}.Build()
+	if err := field.ValidateRepeatedStringRules(baseline, requested, "scopes"); err != nil {
+		return err
+	}
 	return field.ValidateRepeatedStringRules(scopeField.GetStringSliceField().GetRules(), requested, "scopes")
 }
 
