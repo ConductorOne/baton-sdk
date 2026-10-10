@@ -879,6 +879,8 @@ type CredentialIssueOptionDescriptor struct {
 	Preferred bool `protobuf:"varint,10,opt,name=preferred,proto3" json:"preferred,omitempty"`
 	// Rules for typed issuance inputs. Currently supports scopes as a string slice.
 	// An explicit scopes field replaces scopes/custom_scopes_allowed validation.
+	// Blank scope items are invalid. min_items alone permits an omitted list;
+	// set validate_empty or is_required to enforce the minimum on omission.
 	InputFields   []*v1.Field `protobuf:"bytes,12,rep,name=input_fields,json=inputFields,proto3" json:"input_fields,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1066,6 +1068,8 @@ type CredentialIssueOptionDescriptor_builder struct {
 	Preferred bool
 	// Rules for typed issuance inputs. Currently supports scopes as a string slice.
 	// An explicit scopes field replaces scopes/custom_scopes_allowed validation.
+	// Blank scope items are invalid. min_items alone permits an omitted list;
+	// set validate_empty or is_required to enforce the minimum on omission.
 	InputFields []*v1.Field
 }
 
