@@ -1,20 +1,15 @@
 package c1zsanitize
 
 import (
-	"context"
-	"fmt"
 	"runtime"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
 // parallelTransform applies fn to each index [0,n) using up to GOMAXPROCS
@@ -22,8 +17,7 @@ import (
 // own index i of a pre-sized output slice, so order is preserved with no
 // channels. The transform is CPU-bound (HMAC + proto marshal/unmarshal) and
 // touches only concurrency-safe shared state (pooled HMAC, mutex-guarded
-// caches), so fanning it out is safe; reads and writes around it stay
-// sequential because SQLite is a single writer.
+// caches), so fanning it out is safe.
 func parallelTransform(n int, fn func(i int)) {
 	workers := runtime.GOMAXPROCS(0)
 	if workers > n {
@@ -68,10 +62,7 @@ func parallelTransform(n int, fn func(i int)) {
 	}
 }
 
-// listPageSize is the source read page, which also bounds how many
-// rows each dst Put batches into one transaction. Larger pages mean
-// fewer commits on large syncs; the dst writer still sub-chunks each
-// statement under SQLite's parameter ceiling, so this stays safe.
+// listPageSize bounds each atomic ledger page.
 const listPageSize = 10000
 
 // transformID rewrites a composite baton identifier one ':'-delimited
@@ -115,251 +106,6 @@ func (s *sanitizer) isKnownResourceType(token string) bool {
 	return ok
 }
 
-func (s *sanitizer) copyResourceTypes(
-	ctx context.Context,
-	src connectorstore.Reader,
-	srcSyncID string,
-	refs *assetRefSet,
-) error {
-	// Two-pass: buffer EVERY resource-type row and register all ids BEFORE
-	// transforming any of them. Resource types number in the tens, so
-	// buffering the whole listing is trivial. This makes knownResourceTypes
-	// complete before transformResourceType (or a ChildResourceType handler)
-	// ever consults it, so a row that references a type declared later in the
-	// listing — or on a later page — resolves against the full set instead of
-	// HMAC-ing a not-yet-seen token. transformResourceType is therefore pure
-	// w.r.t. the set (it never writes it), so its output does not depend on
-	// the order rows arrive in.
-	var rows []*v2.ResourceType
-	readDur := time.Duration(0)
-	pageToken := ""
-	for {
-		req := v2.ResourceTypesServiceListResourceTypesRequest_builder{
-			PageSize:    listPageSize,
-			PageToken:   pageToken,
-			Annotations: syncIDAnnotations(srcSyncID),
-		}.Build()
-		readStart := time.Now()
-		resp, err := src.ListResourceTypes(ctx, req)
-		readDur += time.Since(readStart)
-		if err != nil {
-			return fmt.Errorf("list resource types: %w", err)
-		}
-		for _, rt := range resp.GetList() {
-			if id := rt.GetId(); id != "" {
-				s.knownResourceTypes[id] = struct{}{}
-			}
-			rows = append(rows, rt)
-		}
-		if resp.GetNextPageToken() == "" {
-			break
-		}
-		pageToken = resp.GetNextPageToken()
-	}
-
-	xformStart := time.Now()
-	out := make([]*v2.ResourceType, len(rows))
-	parallelTransform(len(rows), func(i int) { out[i] = s.transformResourceType(rows[i], refs) })
-	xformDur := time.Since(xformStart)
-	// Sort by output id for destination unique-index locality. The bulk
-	// sink requires it: this is the single sorted-by-external-id write
-	// AddResourceTypes' ordered writer needs.
-	sort.Slice(out, func(i, j int) bool { return out[i].GetId() < out[j].GetId() })
-	putStart := time.Now()
-	if len(out) > 0 {
-		if err := s.sink.PutResourceTypes(ctx, out...); err != nil {
-			return fmt.Errorf("put resource types: %w", err)
-		}
-	}
-	s.logPage(srcSyncID, "resource_types", 0, len(out), readDur, xformDur, time.Since(putStart))
-	return nil
-}
-
-// copyResources walks the source resources for srcSyncID, transforming each
-// (which registers its trait icon/logo asset refs into refs). When write is
-// true the transformed rows are written through s.sink; when false the walk
-// runs purely to repopulate refs — the resume path where resources were
-// already written in a prior run but their asset refs (lost with the prior
-// process) must be re-collected before copyAssets, mirroring how
-// copyResourceTypes always runs.
-func (s *sanitizer) copyResources(
-	ctx context.Context,
-	src connectorstore.Reader,
-	srcSyncID string,
-	refs *assetRefSet,
-	write bool,
-) error {
-	pageToken := ""
-	page := 0
-	for {
-		req := v2.ResourcesServiceListResourcesRequest_builder{
-			PageSize:    listPageSize,
-			PageToken:   pageToken,
-			Annotations: syncIDAnnotations(srcSyncID),
-		}.Build()
-		readStart := time.Now()
-		resp, err := src.ListResources(ctx, req)
-		readDur := time.Since(readStart)
-		if err != nil {
-			return fmt.Errorf("list resources: %w", err)
-		}
-		xformStart := time.Now()
-		list := resp.GetList()
-		out := make([]*v2.Resource, len(list))
-		parallelTransform(len(list), func(i int) { out[i] = s.transformResource(list[i], refs) })
-		xformDur := time.Since(xformStart)
-		sortByResourceID(out)
-		putStart := time.Now()
-		if write && len(out) > 0 {
-			if err := s.sink.PutResources(ctx, out...); err != nil {
-				return fmt.Errorf("put resources: %w", err)
-			}
-		}
-		s.logPage(srcSyncID, "resources", page, len(resp.GetList()), readDur, xformDur, time.Since(putStart))
-		if resp.GetNextPageToken() == "" {
-			return nil
-		}
-		pageToken = resp.GetNextPageToken()
-		page++
-	}
-}
-
-// copyEntitlements mirrors copyResources: it always walks (registering any
-// entitlement asset refs into refs) and writes only when write is true, so the
-// resume path re-collects asset refs for an already-written entitlement phase.
-func (s *sanitizer) copyEntitlements(
-	ctx context.Context,
-	src connectorstore.Reader,
-	srcSyncID string,
-	refs *assetRefSet,
-	write bool,
-) error {
-	pageToken := ""
-	page := 0
-	for {
-		req := v2.EntitlementsServiceListEntitlementsRequest_builder{
-			PageSize:    listPageSize,
-			PageToken:   pageToken,
-			Annotations: syncIDAnnotations(srcSyncID),
-		}.Build()
-		readStart := time.Now()
-		resp, err := src.ListEntitlements(ctx, req)
-		readDur := time.Since(readStart)
-		if err != nil {
-			return fmt.Errorf("list entitlements: %w", err)
-		}
-		xformStart := time.Now()
-		list := resp.GetList()
-		out := make([]*v2.Entitlement, len(list))
-		parallelTransform(len(list), func(i int) { out[i] = s.transformEntitlement(list[i], refs) })
-		xformDur := time.Since(xformStart)
-		sort.Slice(out, func(i, j int) bool { return out[i].GetId() < out[j].GetId() })
-		putStart := time.Now()
-		if write && len(out) > 0 {
-			if err := s.sink.PutEntitlements(ctx, out...); err != nil {
-				return fmt.Errorf("put entitlements: %w", err)
-			}
-		}
-		s.logPage(srcSyncID, "entitlements", page, len(resp.GetList()), readDur, xformDur, time.Since(putStart))
-		if resp.GetNextPageToken() == "" {
-			return nil
-		}
-		pageToken = resp.GetNextPageToken()
-		page++
-	}
-}
-
-func (s *sanitizer) copyGrants(
-	ctx context.Context,
-	src connectorstore.Reader,
-	dst connectorstore.Writer,
-	srcSyncID string,
-	refs *assetRefSet,
-	cache *grantSubCache,
-	startPageToken string,
-) error {
-	// Preserve grant-expansion topology end-to-end. Plain ListGrants reads only
-	// the data blob, but the SQLite writer strips GrantExpandable into a side
-	// column — so without the expansion-aware read the sanitizer never sees the
-	// annotation and handleGrantExpandable never fires, silently dropping the
-	// expansion edges. ListGrantsWithExpansion re-attaches it while keeping the
-	// resumable page-cursor semantics this phase's checkpointing relies on
-	// (switching to StreamGrants would change those). Readers without the
-	// capability (already-expanded stores) fall back to plain ListGrants.
-	listGrants := src.ListGrants
-	if exp, ok := src.(connectorstore.ExpansionGrantLister); ok {
-		listGrants = exp.ListGrantsWithExpansion
-	}
-
-	pageToken := startPageToken
-	page := 0
-	for {
-		req := v2.GrantsServiceListGrantsRequest_builder{
-			PageSize:    listPageSize,
-			PageToken:   pageToken,
-			Annotations: syncIDAnnotations(srcSyncID),
-		}.Build()
-		readStart := time.Now()
-		resp, err := listGrants(ctx, req)
-		readDur := time.Since(readStart)
-		if err != nil {
-			return fmt.Errorf("list grants: %w", err)
-		}
-		xformStart := time.Now()
-		list := resp.GetList()
-		out := make([]*v2.Grant, len(list))
-		parallelTransform(len(list), func(i int) { out[i] = s.transformGrant(list[i], refs, cache) })
-		xformDur := time.Since(xformStart)
-		sort.Slice(out, func(i, j int) bool { return out[i].GetId() < out[j].GetId() })
-		putStart := time.Now()
-		if len(out) > 0 {
-			if err := s.sink.PutGrants(ctx, out...); err != nil {
-				return fmt.Errorf("put grants: %w", err)
-			}
-		}
-		s.logPage(srcSyncID, "grants", page, len(resp.GetList()), readDur, xformDur, time.Since(putStart))
-		next := resp.GetNextPageToken()
-		// Record the next grant page as the resume point. The grants already
-		// written this page are durable in the dst sync; on resume the loop
-		// restarts at `next` (PutGrants upserts, so even a re-written boundary
-		// page is idempotent). Keyset pagination on the source rowid makes the
-		// token stable across runs.
-		if err := s.checkpoint(ctx, dst, srcSyncID, phaseGrants, next); err != nil {
-			return fmt.Errorf("checkpoint: %w", err)
-		}
-		if next == "" {
-			// Grants are fully written. Advance the checkpoint to the terminal
-			// assets phase so a crash before EndSync resumes straight into
-			// copyAssets instead of re-running every grant page (an empty
-			// phaseGrants token is indistinguishable from "grants not started").
-			if err := s.checkpoint(ctx, dst, srcSyncID, phaseAssets, ""); err != nil {
-				return fmt.Errorf("checkpoint: %w", err)
-			}
-			if cache != nil {
-				s.log.Info("c1zsanitize: grant sub-cache stats",
-					zap.String("sync_id", srcSyncID),
-					zap.Int("entitlements_cached", len(cache.entitlements)),
-					zap.Int("principals_cached", len(cache.principals)))
-			}
-			return nil
-		}
-		pageToken = next
-		page++
-	}
-}
-
-// sortByResourceID orders resources by output (type, resource) id for
-// destination unique-index locality.
-func sortByResourceID(rs []*v2.Resource) {
-	sort.Slice(rs, func(i, j int) bool {
-		a, b := rs[i].GetId(), rs[j].GetId()
-		if a.GetResourceType() != b.GetResourceType() {
-			return a.GetResourceType() < b.GetResourceType()
-		}
-		return a.GetResource() < b.GetResource()
-	})
-}
-
 // transformResourceType preserves the resource type's id and trait
 // enum but rewrites display name, description, and annotations.
 // resource_type.id is connector-defined (e.g. "user") and treated as
@@ -369,8 +115,8 @@ func (s *sanitizer) transformResourceType(in *v2.ResourceType, refs *assetRefSet
 		return nil
 	}
 	// transformResourceType is pure w.r.t. knownResourceTypes: registration
-	// happens up front in copyResourceTypes' buffering pre-pass, so the set is
-	// complete and read-only by the time any transform consults it. This holds
+	// happens before ledger work starts, so the set is complete and read-only.
+	// This holds
 	// whether the call is for a declared type or an embedded one (an
 	// entitlement's GrantableTo, a grant's slice), which is what makes
 	// transformID's known-type decision order-independent.
@@ -439,7 +185,7 @@ func (s *sanitizer) transformResourceID(in *v2.ResourceId) *v2.ResourceId {
 }
 
 // warnUndeclaredResourceType logs once per resource-type token that appears in
-// a resource id but was never declared in copyResourceTypes. Called from the
+// a resource id but was not declared by the source sync. Called from the
 // concurrent transform workers, so the dedup set is guarded by statsMu; the
 // log fires outside the lock.
 func (s *sanitizer) warnUndeclaredResourceType(rt string) {
@@ -513,9 +259,9 @@ const maxCachedPrincipals = 1_000_000
 // the expensive part. Cached protos are SHARED across many output grants:
 // this is safe ONLY because nothing in this package mutates a message after
 // .Build() and the writer only marshals — mutating a cached message would be
-// a cross-grant data-corruption bug. The cache is per-sync (reset in
-// sanitizeSync) to bound memory; s.id output is secret-scoped, not
-// sync-scoped, so correctness does not depend on the lifetime.
+// a cross-grant data-corruption bug. The cache is process-local to one
+// sanitizer run; s.id output is secret-scoped, not
+// sync-scoped, so correctness does not depend on the process-local lifetime.
 //
 // Assumption: within one sync, every embedded copy of a given entitlement
 // (or principal) id is identical. This holds for SDK-produced c1z files,
@@ -675,21 +421,6 @@ func (s *sanitizer) verifyCachedPrincipal(in *v2.Resource, refs *assetRefSet, ca
 			zap.String("principal_resource_type", in.GetId().GetResourceType()),
 			zap.String("principal_resource_id", in.GetId().GetResource()))
 	}
-}
-
-// logPage emits one Info line per page with read/transform/put timings — the
-// permanent regression canary for the per-record-cost-grows-with-n class of
-// slowdown. One line per 10k rows is cheap.
-func (s *sanitizer) logPage(syncID, phase string, page, rows int, read, transform, put time.Duration) {
-	s.log.Info("c1zsanitize: page",
-		zap.String("sync_id", syncID),
-		zap.String("phase", phase),
-		zap.Int("page", page),
-		zap.Int("rows", rows),
-		zap.Duration("read", read),
-		zap.Duration("transform", transform),
-		zap.Duration("put", put),
-	)
 }
 
 // transformGrantSources rebuilds the sources map with sanitized keys.

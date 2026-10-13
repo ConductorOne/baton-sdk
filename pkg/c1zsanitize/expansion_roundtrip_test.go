@@ -30,8 +30,12 @@ func pickGrantExpandable(t *testing.T, g *v2.Grant) *v2.GrantExpandable {
 // listGrantsWithExpansion reads every grant of r's resolved sync through the
 // expansion-aware paginated path, so the GrantExpandable annotation that the
 // SQLite writer strips into the side column is re-attached.
-func listGrantsWithExpansion(t *testing.T, ctx context.Context, r *dotc1z.C1File) []*v2.Grant {
+func listGrantsWithExpansion(t *testing.T, ctx context.Context, store any) []*v2.Grant {
 	t.Helper()
+	list := store.(connectorstore.Reader).ListGrants
+	if expansion, ok := store.(connectorstore.ExpansionGrantLister); ok {
+		list = expansion.ListGrantsWithExpansion
+	}
 	var out []*v2.Grant
 	pageToken := ""
 	for {
@@ -39,7 +43,7 @@ func listGrantsWithExpansion(t *testing.T, ctx context.Context, r *dotc1z.C1File
 			PageSize:  1000,
 			PageToken: pageToken,
 		}.Build()
-		resp, err := r.ListGrantsWithExpansion(ctx, req)
+		resp, err := list(ctx, req)
 		require.NoError(t, err)
 		out = append(out, resp.GetList()...)
 		if resp.GetNextPageToken() == "" {
@@ -113,7 +117,7 @@ func TestSanitizeGrantExpansionRoundTrip(t *testing.T) {
 				ResourceTypeIds: []string{knownRT, unknownRT},
 			}.Build()),
 		}.Build()
-		plainGrant := v2.Grant_builder{Id: plainID, Entitlement: ent, Principal: user}.Build()
+		plainGrant := v2.Grant_builder{Id: plainID, Entitlement: ent, Principal: role}.Build()
 		require.NoError(t, f.PutGrants(ctx, expandableGrant, plainGrant))
 		require.NoError(t, f.EndSync(ctx))
 		require.NoError(t, f.Close(ctx))
@@ -121,7 +125,7 @@ func TestSanitizeGrantExpansionRoundTrip(t *testing.T) {
 
 	// Sanitize src -> dst.
 	src := mustOpen(t, ctx, srcPath, true)
-	dst := mustOpen(t, ctx, dstPath, false)
+	dst := mustOpenPebbleDestination(t, ctx, dstPath)
 	require.NoError(t, Sanitize(ctx, src, dst, Options{Secret: secret, TimestampAnchor: fixedAnchor}))
 	require.NoError(t, dst.Close(ctx))
 	require.NoError(t, src.Close(ctx))
@@ -134,7 +138,7 @@ func TestSanitizeGrantExpansionRoundTrip(t *testing.T) {
 	ref.knownResourceTypes["role"] = struct{}{}
 
 	// Read the sanitized grants back through the expansion-aware path.
-	dstRO := mustOpen(t, ctx, dstPath, true)
+	dstRO := mustOpenReadOnlyStore(t, ctx, dstPath)
 	defer dstRO.Close(ctx)
 	grants := listGrantsWithExpansion(t, ctx, dstRO)
 	require.Len(t, grants, 2)

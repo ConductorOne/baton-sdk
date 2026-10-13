@@ -54,10 +54,14 @@ type DB struct {
 	// means an in-process EndSync rebuilds while a crash+resume
 	// silently skips the rebuild; cleared flag + present key forces a
 	// spurious rebuild at the next open. ArmDeferredGrantIndex and
-	// ClearDeferredGrantIndexMarker maintain the agreement on both
+	// ClearDeferredGrantIndexMarkers maintain the agreement on both
 	// edges (durable half first; rollback/abort on failure), and
 	// RestoreDeferredIdxPending re-arms from the key at Open.
 	deferredIdxPending atomic.Bool
+	// deferredNeedsExpansionPending is armed only by trusted grant imports,
+	// which cannot clean a prior page's by_needs_expansion entry without a
+	// destination read.
+	deferredNeedsExpansionPending atomic.Bool
 
 	// grantDigestsPresent reports whether the digest keyspace holds
 	// any nodes — the gate for the record ops' digest-invalidation
@@ -212,6 +216,12 @@ func (d *DB) UnsafeForTesting() *pebble.DB {
 // is owed (see the field doc).
 func (d *DB) DeferredIdxPending() bool { return d.deferredIdxPending.Load() }
 
+// DeferredNeedsExpansionPending reports whether trusted imports require a
+// by_needs_expansion rebuild.
+func (d *DB) DeferredNeedsExpansionPending() bool {
+	return d.deferredNeedsExpansionPending.Load()
+}
+
 // ArmDeferredGrantIndex durably arms the deferred-index rebuild
 // marker: CAS on the in-memory flag (repeat calls are one atomic
 // load — the deferred write paths call this per record), then the
@@ -240,15 +250,40 @@ func (d *DB) armDeferredMarkerDurably() error {
 	return d.set(DeferredIdxPendingKey(), nil, pebble.Sync)
 }
 
-// ClearDeferredGrantIndexMarker drops both halves of the marker after
-// a successful rebuild. Durable delete FIRST, flag second — the same
-// agreement contract as the arm side: a failed delete leaves BOTH
-// armed, so the retried EndSync re-runs the (idempotent) rebuild and
-// retries the clear, never the flag-cleared/key-present split that
-// skipped the retry's rebuild and left a stale key forcing a spurious
-// rebuild at the next open. The caller owns the write barrier (the
-// engine runs this inside EndSync's sealed finalize window).
-func (d *DB) ClearDeferredGrantIndexMarker() error {
+// ArmDeferredNeedsExpansionIndex durably records the additional index
+// obligation created by trusted grant imports.
+func (d *DB) ArmDeferredNeedsExpansionIndex() error {
+	if !d.deferredNeedsExpansionPending.CompareAndSwap(false, true) {
+		return nil
+	}
+	if d.testArmDeferredMarkerHook != nil {
+		if err := d.testArmDeferredMarkerHook(); err != nil {
+			d.deferredNeedsExpansionPending.Store(false)
+			return err
+		}
+	}
+	if err := d.set(DeferredNeedsExpansionPendingKey(), nil, pebble.Sync); err != nil {
+		d.deferredNeedsExpansionPending.Store(false)
+		return err
+	}
+	return nil
+}
+
+// ClearDeferredGrantIndexMarkers clears each durable marker before its
+// in-memory flag. The needs-expansion marker is cleared first, so a partial
+// failure can only leave the broader by_principal rebuild pending.
+func (d *DB) ClearDeferredGrantIndexMarkers() error {
+	if d.deferredNeedsExpansionPending.Load() {
+		if d.testClearDeferredMarkerHook != nil {
+			if err := d.testClearDeferredMarkerHook(); err != nil {
+				return err
+			}
+		}
+		if err := d.delete(DeferredNeedsExpansionPendingKey(), pebble.Sync); err != nil {
+			return err
+		}
+		d.deferredNeedsExpansionPending.Store(false)
+	}
 	if d.testClearDeferredMarkerHook != nil {
 		if err := d.testClearDeferredMarkerHook(); err != nil {
 			return err
@@ -271,13 +306,22 @@ func (d *DB) RestoreDeferredIdxPending() error {
 	case err == nil:
 		closer.Close()
 		d.deferredIdxPending.Store(true)
-		return nil
 	case errors.Is(err, pebble.ErrNotFound):
 		d.deferredIdxPending.Store(false)
-		return nil
 	default:
 		return err
 	}
+	_, closer, err = d.db.Get(DeferredNeedsExpansionPendingKey())
+	switch {
+	case err == nil:
+		closer.Close()
+		d.deferredNeedsExpansionPending.Store(true)
+	case errors.Is(err, pebble.ErrNotFound):
+		d.deferredNeedsExpansionPending.Store(false)
+	default:
+		return err
+	}
+	return nil
 }
 
 // GrantDigestsPresent reports whether digest state exists (the record

@@ -238,6 +238,14 @@ type PageWriter interface {
 	Discard()
 }
 
+type TrustedImportPageWriter interface {
+	PageWriter
+	// Each non-grant identity occurs at most once across the sync. Grants use
+	// last-write-wins and rebuild derived indexes at seal. Writes do not read
+	// destination records.
+	SetTrustedImport() error
+}
+
 // What state the bound sync's pass is in, in one read.
 type LedgerState struct {
 	Phase    LedgerQueuePhase

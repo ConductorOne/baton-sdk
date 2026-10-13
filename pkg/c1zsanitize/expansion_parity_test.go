@@ -473,18 +473,7 @@ func readAsset(t *testing.T, ctx context.Context, store c1zstore.Store, assetID 
 	return ct, b
 }
 
-// TestSanitizeCrossEnginePebbleParity sanitizes the same fixture across all
-// four engine combinations (sqlite/pebble source x sqlite/pebble dest) under a
-// single secret, then asserts every sanitized output is identical on the
-// dimensions the intent names: cardinality, structural linkage, expansion-source
-// edges, the full GrantExpandable blob, the needs_expansion enumeration, and the
-// asset identity-strip.
-//
-// The matrix proves RELATIVE parity-to-SQLite; ABSOLUTE correctness of the
-// transform is anchored by the sqlite->sqlite arm together with
-// TestSanitizeGrantExpansionRoundTrip, so a regression uniform across all
-// engines is not invisible.
-func TestSanitizeCrossEnginePebbleParity(t *testing.T) {
+func TestSanitizeSourceEngineParity(t *testing.T) {
 	ctx := context.Background()
 	secret := bytes32("cross-engine-parity")
 
@@ -503,7 +492,6 @@ func TestSanitizeCrossEnginePebbleParity(t *testing.T) {
 	var arms []arm
 
 	for _, srcE := range engines {
-		// Build one source per source-engine, reused for both dest engines.
 		srcPath := filepath.Join(t.TempDir(), "src-"+srcE.name+".c1z")
 		func() {
 			src := newEngineStore(t, ctx, srcPath, srcE.eng)
@@ -511,18 +499,16 @@ func TestSanitizeCrossEnginePebbleParity(t *testing.T) {
 			require.NoError(t, src.Close(ctx))
 		}()
 
-		for _, dstE := range engines {
-			dstPath := filepath.Join(t.TempDir(), "dst-"+srcE.name+"-"+dstE.name+".c1z")
-			src := openEngineStoreRO(t, ctx, srcPath)
-			dst := newEngineStore(t, ctx, dstPath, dstE.eng)
-			require.NoError(t, Sanitize(ctx, src, dst, Options{Secret: secret, TimestampAnchor: fixedAnchor}),
-				"sanitize %s->%s", srcE.name, dstE.name)
-			require.NoError(t, dst.Close(ctx))
-			require.NoError(t, src.Close(ctx))
-			arms = append(arms, arm{name: srcE.name + "->" + dstE.name, path: dstPath})
-		}
+		dstPath := filepath.Join(t.TempDir(), "dst-"+srcE.name+".c1z")
+		src := openEngineStoreRO(t, ctx, srcPath)
+		dst := newEngineStore(t, ctx, dstPath, c1zstore.EnginePebble)
+		require.NoError(t, Sanitize(ctx, src, dst, Options{Secret: secret, TimestampAnchor: fixedAnchor}),
+			"sanitize %s source", srcE.name)
+		require.NoError(t, dst.Close(ctx))
+		require.NoError(t, src.Close(ctx))
+		arms = append(arms, arm{name: srcE.name, path: dstPath})
 	}
-	require.Len(t, arms, 4)
+	require.Len(t, arms, 2)
 
 	// Reference transform (secret-only) to compute expected transformed ids.
 	ref := newTestSanitizer(secret)

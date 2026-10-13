@@ -2,6 +2,7 @@ package c1zsanitize
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"os"
 )
@@ -17,11 +18,8 @@ func SecretPath(flagPath, outPath string) string {
 }
 
 // LoadOrGenerateSecret returns the per-c1z HMAC secret. When flagPath
-// is set it loads and length-checks that file. Otherwise it mints a
-// fresh CSPRNG secret and writes it next to outPath, refusing to
-// clobber an existing one so a prior run's reversible mapping is never
-// silently replaced. generated reports whether a new secret was minted
-// so the caller can tell the operator to archive it.
+// is set it loads and length-checks that file. The default path is reused
+// with an existing output so an unfinished run can resume.
 func LoadOrGenerateSecret(flagPath, outPath string) ([]byte, bool, error) {
 	if flagPath != "" {
 		b, err := os.ReadFile(flagPath)
@@ -34,8 +32,28 @@ func LoadOrGenerateSecret(flagPath, outPath string) ([]byte, bool, error) {
 		return b, false, nil
 	}
 	path := SecretPath(flagPath, outPath)
+	_, outErr := os.Stat(outPath)
+	outputExists := outErr == nil
+	if outErr != nil && !errors.Is(outErr, os.ErrNotExist) {
+		return nil, false, fmt.Errorf("stat output path %q: %w", outPath, outErr)
+	}
 	if _, err := os.Stat(path); err == nil {
-		return nil, false, fmt.Errorf("default secret path %q already exists; pass -secret-file to reuse it", path)
+		if !outputExists {
+			return nil, false, fmt.Errorf("default secret path %q exists without output; pass --secret-file to reuse it", path)
+		}
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return nil, false, fmt.Errorf("read default secret path %q: %w", path, err)
+		}
+		if len(b) < MinSecretBytes {
+			return nil, false, fmt.Errorf("default secret path %q is too short: got %d bytes, want at least %d", path, len(b), MinSecretBytes)
+		}
+		return b, false, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, false, fmt.Errorf("stat default secret path %q: %w", path, err)
+	}
+	if outputExists {
+		return nil, false, fmt.Errorf("default secret path %q is missing for existing output", path)
 	}
 	b := make([]byte, MinSecretBytes)
 	if _, err := rand.Read(b); err != nil {

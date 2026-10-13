@@ -61,7 +61,7 @@ var writeMuMutatingRawdbMethods = map[string]bool{
 	"SourceCacheSet": true, "SourceCacheDelete": true, "SourceCacheSetMulti": true,
 	"DigestSet": true, "DropKeyRange": true,
 	"IngestSSTs": true, "ReplaceRangeWithSSTs": true, "ExciseRange": true,
-	"ArmDeferredGrantIndex": true, "ClearDeferredGrantIndexMarker": true, "RestoreDeferredIdxPending": true,
+	"ArmDeferredGrantIndex": true, "ArmDeferredNeedsExpansionIndex": true, "ClearDeferredGrantIndexMarkers": true, "RestoreDeferredIdxPending": true,
 	"FlushMemtables": true, "Checkpoint": true, "Compact": true, "WALSyncPoint": true,
 	"Close": true,
 }

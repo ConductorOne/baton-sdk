@@ -629,6 +629,14 @@ type dirtyPageWriter struct {
 	store *pebbleStore
 }
 
+func (w *dirtyPageWriter) SetTrustedImport() error {
+	writer, ok := w.PageWriter.(c1zstore.TrustedImportPageWriter)
+	if !ok {
+		return errors.New("pebble page writer does not support trusted import")
+	}
+	return writer.SetTrustedImport()
+}
+
 func (w *dirtyPageWriter) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity, row *c1zstore.LedgerRow) error {
 	return w.store.markDirty(w.PageWriter.Commit(ctx, id, row))
 }

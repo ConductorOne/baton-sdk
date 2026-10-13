@@ -69,6 +69,7 @@ func TestPutSynthesizedGrantRecordsObligations(t *testing.T) {
 		testGrantRecord("ent-A", "bob"),
 	}))
 	require.True(t, e.db.DeferredIdxPending(), "synthesized puts must arm the deferred rebuild marker")
+	require.False(t, e.db.DeferredNeedsExpansionPending(), "synthesized puts maintain needs_expansion inline")
 	require.Equal(t, 0, countKeys(t, e, encodeGrantByNeedsExpansionPrefix()),
 		"synthesized grants are never expandable")
 	require.Zero(t, countKeys(t, e, GrantBySourceScopeLowerBound()),

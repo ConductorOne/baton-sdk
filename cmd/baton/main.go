@@ -10,8 +10,6 @@ import (
 var version = "dev"
 
 func main() {
-	ctx := context.Background()
-
 	cliCmd := &cobra.Command{
 		Use:     "baton",
 		Short:   "baton is a utility for working with the output of a baton-based connector",
@@ -39,7 +37,7 @@ func main() {
 	cliCmd.AddCommand(sanitizeCmd())
 	cliCmd.AddCommand(rollbackExpansionCmd())
 
-	err := cliCmd.ExecuteContext(ctx)
+	err := cliCmd.ExecuteContext(context.Background())
 	if err != nil {
 		exit.LogExit(err)
 	}

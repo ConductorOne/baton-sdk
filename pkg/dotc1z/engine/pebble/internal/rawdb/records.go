@@ -273,6 +273,15 @@ func (rb *RecordBatch) StageGrantPutDeferred(key, val, oldVal []byte, needsExpan
 	return rb.stageGrantDigestInvalidation(key, sep4)
 }
 
+// StageGrantPutTrusted stages a blind grant overwrite and arms the additional
+// by_needs_expansion rebuild required when no prior value was read.
+func (rb *RecordBatch) StageGrantPutTrusted(key, val []byte, needsExpansion bool) error {
+	if err := rb.StageGrantPutDeferred(key, val, nil, needsExpansion); err != nil {
+		return err
+	}
+	return rb.db.ArmDeferredNeedsExpansionIndex()
+}
+
 // StageGrantOrphanIndexHeal stages the removal of ONE orphan
 // by_principal index entry — an index key whose grant primary row does
 // not exist (a stranded write, never legitimate state). It takes the

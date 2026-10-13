@@ -187,3 +187,123 @@ func TestLedgerRowCountsDistinctKeysNotBufferedRecords(t *testing.T) {
 	require.EqualValues(t, 1, row.EntitlementsWritten)
 	require.EqualValues(t, 1, row.GrantsWritten)
 }
+
+func TestTrustedImportGrantLastWriteWinsAcrossPages(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	syncID, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	ledger := e.Ledger()
+	seed := c1zstore.LedgerWork{Action: c1zstore.LedgerChild{
+		Identity: c1zstore.LedgerActionIdentity{Op: "sanitize-grants"},
+	}}
+	require.NoError(t, ledger.BeginCollecting(ctx, []c1zstore.LedgerWork{seed}, nil))
+
+	work, _, err := ledger.PendingWork(ctx, 0, 1)
+	require.NoError(t, err)
+	require.Len(t, work, 1)
+	first := mkV2Grant("first", "ent-A", "user", "alice")
+	first.SetId("first")
+	firstWriter := ledger.BeginPage().(c1zstore.TrustedImportPageWriter)
+	require.NoError(t, firstWriter.SetTrustedImport())
+	require.NoError(t, firstWriter.SetPendingWork(work[0]))
+	firstRecord := V2GrantToV3(syncID, first)
+	firstRecord.SetNeedsExpansion(true)
+	require.NoError(t, firstWriter.(*pageWriter).unit.StageGrants(firstRecord))
+	firstID := work[0].Action.Identity
+	require.NoError(t, firstWriter.Commit(ctx, firstID, &c1zstore.LedgerRow{NextPageToken: "next"}))
+
+	work, _, err = ledger.PendingWork(ctx, 0, 1)
+	require.NoError(t, err)
+	require.Len(t, work, 1)
+	second := mkV2Grant("second", "ent-A", "user", "alice")
+	second.SetId("second")
+	secondWriter := ledger.BeginPage().(c1zstore.TrustedImportPageWriter)
+	require.NoError(t, secondWriter.SetTrustedImport())
+	require.NoError(t, secondWriter.SetPendingWork(work[0]))
+	require.NoError(t, secondWriter.PutGrants(ctx, second))
+	secondID := work[0].Action.Identity
+	require.NoError(t, secondWriter.Commit(ctx, secondID, &c1zstore.LedgerRow{}))
+	require.True(t, e.db.DeferredNeedsExpansionPending(), "trusted grant imports defer needs_expansion")
+
+	terminal := ledger.BeginPage()
+	require.NoError(t, terminal.SetTerminal())
+	terminalID := c1zstore.LedgerActionIdentity{Op: "sanitize-terminal"}
+	require.NoError(t, terminal.Commit(ctx, terminalID, &c1zstore.LedgerRow{}))
+	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+	require.False(t, e.db.DeferredNeedsExpansionPending())
+
+	grants := 0
+	require.NoError(t, e.IterateGrants(ctx, func(record *v3.GrantRecord) bool {
+		grants++
+		require.Equal(t, "second", record.GetExternalId())
+		require.False(t, record.GetNeedsExpansion())
+		return true
+	}))
+	require.Equal(t, 1, grants)
+	expandable := 0
+	require.NoError(t, e.IterateGrantsByNeedsExpansion(ctx, func(*v3.GrantRecord) bool {
+		expandable++
+		return true
+	}))
+	require.Zero(t, expandable)
+}
+
+// A trusted page writes blind, so the plain stager that follows it in the
+// same fresh sync must take its read-before-write path or the by_parent
+// entry from the trusted write survives the overwrite.
+func TestTrustedImportPageConsumesFreshSyncBits(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	ledger := e.Ledger()
+	seed := c1zstore.LedgerWork{Action: c1zstore.LedgerChild{
+		Identity: c1zstore.LedgerActionIdentity{Op: "sanitize-resources"},
+	}}
+	require.NoError(t, ledger.BeginCollecting(ctx, []c1zstore.LedgerWork{seed}, nil))
+
+	underP1 := v3.ResourceRecord_builder{
+		ResourceTypeId: "user", ResourceId: "r",
+		Parent: v3.ResourceRef_builder{ResourceTypeId: "org", ResourceId: "p1"}.Build(),
+	}.Build()
+	underP2 := v3.ResourceRecord_builder{
+		ResourceTypeId: "user", ResourceId: "r",
+		Parent: v3.ResourceRef_builder{ResourceTypeId: "org", ResourceId: "p2"}.Build(),
+	}.Build()
+
+	work, _, err := ledger.PendingWork(ctx, 0, 1)
+	require.NoError(t, err)
+	require.Len(t, work, 1)
+	trusted := ledger.BeginPage().(c1zstore.TrustedImportPageWriter)
+	require.NoError(t, trusted.SetTrustedImport())
+	require.NoError(t, trusted.SetPendingWork(work[0]))
+	require.NoError(t, trusted.(*pageWriter).unit.StageResources(underP1))
+	require.NoError(t, trusted.Commit(ctx, work[0].Action.Identity, &c1zstore.LedgerRow{NextPageToken: "next"}))
+
+	work, _, err = ledger.PendingWork(ctx, 0, 1)
+	require.NoError(t, err)
+	require.Len(t, work, 1)
+	plain := ledger.BeginPage()
+	require.NoError(t, plain.SetPendingWork(work[0]))
+	require.NoError(t, plain.(*pageWriter).unit.StageResources(underP2))
+	require.NoError(t, plain.Commit(ctx, work[0].Action.Identity, &c1zstore.LedgerRow{}))
+
+	terminal := ledger.BeginPage()
+	require.NoError(t, terminal.SetTerminal())
+	require.NoError(t, terminal.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "sanitize-terminal"}, &c1zstore.LedgerRow{}))
+	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+
+	childrenOf := func(parentID string) int {
+		n := 0
+		require.NoError(t, e.IterateResourcesByParent(ctx, "org", parentID, func(*v3.ResourceRecord) bool {
+			n++
+			return true
+		}))
+		return n
+	}
+	require.Zero(t, childrenOf("p1"), "by_parent entry from the trusted write must be removed by the overwrite")
+	require.Equal(t, 1, childrenOf("p2"))
+}

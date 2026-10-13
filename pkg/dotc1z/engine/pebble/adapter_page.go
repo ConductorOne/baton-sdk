@@ -39,6 +39,10 @@ func (w *pageWriter) requireSync() error {
 	return nil
 }
 
+func (w *pageWriter) SetTrustedImport() error {
+	return w.unit.StageTrustedImport()
+}
+
 func (w *pageWriter) PutResourceTypes(ctx context.Context, rts ...*v2.ResourceType) error {
 	if err := w.requireSync(); err != nil {
 		return err
