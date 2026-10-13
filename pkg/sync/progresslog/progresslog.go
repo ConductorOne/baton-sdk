@@ -62,8 +62,9 @@ type ProgressLog struct {
 
 	// Optional OTel metrics handler. Mirrors the fields emitted by
 	// LogExpandProgress so operators don't have to back trends out of log
-	// timestamps. Initialized once in NewProgressCounts (default no-op);
-	// callers wire a real handler via WithMetricsHandler. The expand metrics
+	// timestamps. Initialized once in NewProgressCounts to
+	// metrics.NewDefaultHandler (OTel-backed when uotel installed a global
+	// MeterProvider, no-op otherwise); callers can override via WithMetricsHandler. The expand metrics
 	// are looked up lazily on first emission so the no-op path costs nothing
 	// when expand never runs (e.g. resource-only syncs).
 	metricsHandler         metrics.Handler
@@ -124,7 +125,7 @@ func WithDBSizeProvider(p connectorstore.DBSizeProvider) Option {
 //
 // The handler should be pre-tagged by the caller (e.g. via Handler.WithTags
 // for connector_id / tenant_id) so emitted metrics carry the dimensions
-// operators want to slice by. nil is treated as "no metrics" (default).
+// operators want to slice by. nil keeps the default (metrics.NewDefaultHandler).
 func WithMetricsHandler(h metrics.Handler) Option {
 	return func(p *ProgressLog) {
 		if h != nil {
@@ -157,7 +158,7 @@ func NewProgressCounts(ctx context.Context, opts ...Option) *ProgressLog {
 		l:                     ctxzap.Extract(ctx),
 		maxLogFrequency:       defaultMaxLogFrequency,
 		mu:                    sync.RWMutex{},
-		metricsHandler:        metrics.NewNoOpHandler(ctx),
+		metricsHandler:        metrics.NewDefaultHandler(ctx),
 	}
 	for _, o := range opts {
 		o(p)

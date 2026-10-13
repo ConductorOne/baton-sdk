@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
@@ -521,6 +522,10 @@ func initOtel(ctx context.Context, name string, v *viper.Viper, initialLogFields
 		otelOpts = append(otelOpts, uotel.WithLoggingDisabled())
 	}
 
+	if v.GetBool(field.OtelMetricsDisabledFieldName) {
+		otelOpts = append(otelOpts, uotel.WithMetricsDisabled())
+	}
+
 	otelTLSInsecure := v.GetBool(field.OtelCollectorEndpointTLSInsecureFieldName)
 	if otelTLSInsecure {
 		otelOpts = append(otelOpts, uotel.WithInsecureOtelEndpoint(otelEndpoint))
@@ -564,17 +569,24 @@ func MakeGRPCServerCommand[T field.Configurable](
 		if err != nil {
 			return err
 		}
-		defer func() {
-			if otelShutdown == nil {
-				return
-			}
-			shutdownCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(otelShutdownTimeout))
-			defer cancel()
-			err := otelShutdown(shutdownCtx)
-			if err != nil {
-				zap.L().Error("error shutting down otel", zap.Error(err))
-			}
-		}()
+		// The service usually ends through os.Exit when the parent closes our
+		// stdin (see below), which skips deferred calls, so the flush is shared
+		// between that path and this defer.
+		var flushOtelOnce sync.Once
+		flushOtel := func() {
+			flushOtelOnce.Do(func() {
+				if otelShutdown == nil {
+					return
+				}
+				shutdownCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(otelShutdownTimeout))
+				defer cancel()
+				err := otelShutdown(shutdownCtx)
+				if err != nil {
+					zap.L().Error("error shutting down otel", zap.Error(err))
+				}
+			})
+		}
+		defer flushOtel()
 
 		l := ctxzap.Extract(runCtx)
 		l.Debug("starting grpc server")
@@ -607,11 +619,15 @@ func MakeGRPCServerCommand[T field.Configurable](
 
 		// Avoid zombie processes. If the parent dies, this
 		// will cause Stdin on the child to close, and then
-		// the child will exit itself.
+		// the child will exit itself. The parent also closes
+		// stdin to stop the service at the end of a run, so
+		// flush telemetry (traces, logs, metrics recorded by
+		// the connector) before exiting.
 		go func() {
 			in := make([]byte, 1)
 			_, err := os.Stdin.Read(in)
 			if err != nil {
+				flushOtel()
 				os.Exit(0)
 			}
 		}()

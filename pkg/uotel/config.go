@@ -15,9 +15,11 @@ import (
 	"go.opentelemetry.io/contrib/bridges/otelzap"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/log"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.27.0"
@@ -36,7 +38,7 @@ type otelConfig struct {
 	serviceName      string
 	initialLogFields map[string]interface{}
 
-	// endpoint for both tracing and logging
+	// endpoint for tracing, logging and metrics
 	endpoint    string
 	tlsCert     string
 	tlsCertPath string
@@ -44,6 +46,13 @@ type otelConfig struct {
 
 	tracingDisabled bool
 	loggingDisabled bool
+	metricsDisabled bool
+
+	// metricsInterval is how often the periodic reader collects and exports
+	// metrics. Zero leaves the choice to the otel SDK, which honors
+	// OTEL_METRIC_EXPORT_INTERVAL (default 60s). Close always performs a
+	// final collect-and-export.
+	metricsInterval time.Duration
 
 	mtx      sync.Mutex
 	resource *resource.Resource
@@ -102,6 +111,25 @@ func WithLoggingDisabled() Option {
 	}
 }
 
+// WithMetricsDisabled disables metrics export.
+func WithMetricsDisabled() Option {
+	return func(c *otelConfig) {
+		c.metricsDisabled = true
+	}
+}
+
+// WithMetricsExportInterval sets how often metrics are collected and exported.
+// It takes precedence over OTEL_METRIC_EXPORT_INTERVAL. Without this option
+// (or with a value <= 0) the otel SDK default applies: OTEL_METRIC_EXPORT_INTERVAL
+// if set, otherwise 60s.
+func WithMetricsExportInterval(d time.Duration) Option {
+	return func(c *otelConfig) {
+		if d > 0 {
+			c.metricsInterval = d
+		}
+	}
+}
+
 // newConfig creates a new OpenTelemetry configuration with the given options.
 func newConfig(opts ...Option) *otelConfig {
 	cfg := &otelConfig{
@@ -119,7 +147,7 @@ func (c *otelConfig) init(ctx context.Context) (context.Context, error) {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
-	if c.endpoint == "" || (c.loggingDisabled && c.tracingDisabled) {
+	if c.endpoint == "" || (c.loggingDisabled && c.tracingDisabled && c.metricsDisabled) {
 		zap.L().Debug("otel: no endpoint provided, skipping initialization")
 		return ctx, nil
 	}
@@ -145,6 +173,13 @@ func (c *otelConfig) init(ctx context.Context) (context.Context, error) {
 		ctx, err = c.initTracing(ctx, cc)
 		if err != nil {
 			return nil, fmt.Errorf("otel: failed to initialize tracing: %w", err)
+		}
+	}
+
+	if !c.metricsDisabled {
+		ctx, err = c.initMetrics(ctx, cc)
+		if err != nil {
+			return nil, fmt.Errorf("otel: failed to initialize metrics: %w", err)
 		}
 	}
 	return ctx, nil
@@ -240,6 +275,43 @@ func (c *otelConfig) initTracing(ctx context.Context, cc *grpc.ClientConn) (cont
 	return ctx, nil
 }
 
+// initMetrics sets up an otlp metrics exporter using an existing connection and
+// resource, and installs it as the global MeterProvider. Instruments created
+// from otel.Meter before this call (e.g. package-level meters) are delegated
+// to the new provider by the otel global package.
+func (c *otelConfig) initMetrics(ctx context.Context, cc *grpc.ClientConn) (context.Context, error) {
+	res, err := c.getResource(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Like the trace exporter, this reuses the shared connection; the exporter
+	// still reads OTEL_EXPORTER_OTLP_(METRICS_)HEADERS and sends them as gRPC
+	// metadata on every export.
+	exp, err := otlpmetricgrpc.New(ctx, otlpmetricgrpc.WithGRPCConn(cc))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create metric exporter: %w", err)
+	}
+
+	var readerOpts []sdkmetric.PeriodicReaderOption
+	if c.metricsInterval > 0 {
+		readerOpts = append(readerOpts, sdkmetric.WithInterval(c.metricsInterval))
+	}
+	reader := sdkmetric.NewPeriodicReader(exp, readerOpts...)
+	meterProvider := sdkmetric.NewMeterProvider(
+		sdkmetric.WithResource(res),
+		sdkmetric.WithReader(reader),
+	)
+	otel.SetMeterProvider(meterProvider)
+
+	zap.L().Debug("OpenTelemetry metrics enabled")
+
+	// Shutdown performs a final collect and export, so it must run before the
+	// shared gRPC connection is closed (Close handles that ordering).
+	c.shutdown = append(c.shutdown, meterProvider.Shutdown)
+	return ctx, nil
+}
+
 // initLogging sets up a otlp logging exporter using an existing connection and resource.
 // This replaces the current global zap logger with a new one that 'tees' into the otlp logging exporter, as such
 // it is important to set up the zap logger (logging.Init()) before InitOtel().
@@ -299,8 +371,9 @@ func (c *otelConfig) initLogging(ctx context.Context, cc *grpc.ClientConn) (cont
 	return ctxzap.ToContext(ctx, l), nil
 }
 
-// Close shuts down the tracer and log providers, which flushes their queued
-// batches, and then closes the connections they export over.
+// Close shuts down the tracer, log and meter providers, which flushes their
+// queued batches (and performs a final metrics collection), and then closes
+// the connections they export over.
 func (c *otelConfig) Close(ctx context.Context) error {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()

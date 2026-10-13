@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -22,9 +23,10 @@ import (
 type otlpReceiver struct {
 	coltracepb.UnimplementedTraceServiceServer
 
-	mtx   sync.Mutex
-	spans []string
-	logs  []string
+	mtx     sync.Mutex
+	spans   []string
+	logs    []string
+	metrics []receivedMetric
 }
 
 func (r *otlpReceiver) Export(_ context.Context, req *coltracepb.ExportTraceServiceRequest) (*coltracepb.ExportTraceServiceResponse, error) {
@@ -82,6 +84,7 @@ func startReceiver(t *testing.T) (*otlpReceiver, string) {
 	srv := grpc.NewServer()
 	coltracepb.RegisterTraceServiceServer(srv, r)
 	collogspb.RegisterLogsServiceServer(srv, logsService{r: r})
+	colmetricspb.RegisterMetricsServiceServer(srv, metricsService{r: r})
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(srv.Stop)
 	return r, lis.Addr().String()
@@ -93,6 +96,7 @@ func isolateGlobals(t *testing.T) {
 	t.Helper()
 	prevTP := otel.GetTracerProvider()
 	prevProp := otel.GetTextMapPropagator()
+	prevMP := otel.GetMeterProvider()
 	restoreZap := zap.ReplaceGlobals(zap.New(zapcore.NewCore(
 		zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig()), zapcore.AddSync(io.Discard), zapcore.DebugLevel)))
 	t.Cleanup(func() {
@@ -102,6 +106,9 @@ func isolateGlobals(t *testing.T) {
 		}
 		if otel.GetTextMapPropagator() != prevProp {
 			otel.SetTextMapPropagator(prevProp)
+		}
+		if otel.GetMeterProvider() != prevMP {
+			otel.SetMeterProvider(prevMP)
 		}
 	})
 }
@@ -173,11 +180,11 @@ func TestTracingDisabledExportsOnlyLogs(t *testing.T) {
 	require.Subset(t, r.logBodies(), testLogBodies)
 }
 
-func TestBothDisabledCreatesNoConnection(t *testing.T) {
+func TestAllDisabledCreatesNoConnection(t *testing.T) {
 	isolateGlobals(t)
 	_, addr := startReceiver(t)
 
-	cfg := newConfig(WithServiceName("uotel-test"), WithInsecureOtelEndpoint(addr), WithLoggingDisabled(), WithTracingDisabled())
+	cfg := newConfig(WithServiceName("uotel-test"), WithInsecureOtelEndpoint(addr), WithLoggingDisabled(), WithTracingDisabled(), WithMetricsDisabled())
 	_, err := cfg.init(t.Context())
 	require.NoError(t, err)
 

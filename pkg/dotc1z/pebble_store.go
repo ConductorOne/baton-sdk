@@ -553,7 +553,15 @@ func (s *pebbleStore) PutGrants(ctx context.Context, grants ...*v2.Grant) error 
 	if err := s.writeHook(ctx, "PutGrants"); err != nil {
 		return err
 	}
-	return s.markDirty(s.Engine.PutGrants(ctx, grants...))
+	if err := s.markDirty(s.Engine.PutGrants(ctx, grants...)); err != nil {
+		return err
+	}
+	// Same counter as the SQLite writer. Pebble has no slim grant encoding,
+	// so every write is slim=false.
+	if len(grants) > 0 {
+		grantWriteCounter.Add(ctx, int64(len(grants)), slimWriteAttrFalse)
+	}
+	return nil
 }
 
 // UnsafePutUniqueGrants is the trusted-import write path (no
@@ -627,10 +635,29 @@ func (s *pebbleStore) LedgerFrontier(ctx context.Context) (*c1zstore.LedgerFront
 type dirtyPageWriter struct {
 	c1zstore.PageWriter
 	store *pebbleStore
+	// stagedGrants counts grants put on this page, reported to the
+	// c1z_grant_writes_total counter when the page commits.
+	stagedGrants int64
+}
+
+func (w *dirtyPageWriter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
+	if err := w.PageWriter.PutGrants(ctx, grants...); err != nil {
+		return err
+	}
+	w.stagedGrants += int64(len(grants))
+	return nil
 }
 
 func (w *dirtyPageWriter) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity, row *c1zstore.LedgerRow) error {
-	return w.store.markDirty(w.PageWriter.Commit(ctx, id, row))
+	if err := w.store.markDirty(w.PageWriter.Commit(ctx, id, row)); err != nil {
+		return err
+	}
+	// Same counter as the SQLite writer; pebble has no slim grant encoding.
+	if w.stagedGrants > 0 {
+		grantWriteCounter.Add(ctx, w.stagedGrants, slimWriteAttrFalse)
+		w.stagedGrants = 0
+	}
+	return nil
 }
 
 func (s *pebbleStore) State(ctx context.Context) (c1zstore.LedgerState, error) {
@@ -960,7 +987,14 @@ func (s *pebbleStore) save(ctx context.Context) error {
 		zap.Duration("checkpoint", checkpointDur),
 		zap.Duration("envelope_encode", time.Since(encodeStart)),
 	)
-	return staged.CloseAtomicallyReplace()
+	if err := staged.CloseAtomicallyReplace(); err != nil {
+		return err
+	}
+	// Same gauge as the SQLite finalize path: the written c1z's size.
+	if info, statErr := os.Stat(s.outputFilePath); statErr == nil {
+		recordC1ZSize(ctx, "finalize", info.Size())
+	}
+	return nil
 }
 
 func (s *pebbleStore) PutLedgerFacts(ctx context.Context, facts map[string]string) error {

@@ -36,6 +36,11 @@ import (
 
 const listenerFdEnv = "BATON_CONNECTOR_SERVICE_LISTENER_FD"
 
+// serviceShutdownGrace bounds how long the connector service subprocess gets
+// to exit (flushing its telemetry) after it is asked to stop, before it is
+// killed. It is longer than the service's own otel shutdown timeout (5s).
+const serviceShutdownGrace = 7 * time.Second
+
 type connectorClient struct {
 	connectorV2.ResourceTypesServiceClient
 	connectorV2.ResourcesServiceClient
@@ -92,9 +97,11 @@ var ErrConnectorNotImplemented = errors.New("client does not implement connector
 type wrapper struct {
 	mtx sync.RWMutex
 
-	server                types.ConnectorServer
-	client                types.ConnectorClient
-	serverStdin           io.WriteCloser
+	server      types.ConnectorServer
+	client      types.ConnectorClient
+	serverStdin io.WriteCloser
+	// serverDone is closed once the connector service subprocess has exited.
+	serverDone            chan struct{}
 	conn                  *grpc.ClientConn
 	provisioningEnabled   bool
 	ticketingEnabled      bool
@@ -322,6 +329,11 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 	if err != nil {
 		return 0, err
 	}
+	// Stop the service gracefully when ctx ends: closing its stdin makes it
+	// flush its telemetry and exit (see MakeGRPCServerCommand). It is killed
+	// only if it is still running serviceShutdownGrace later.
+	cmd.Cancel = stdin.Close
+	cmd.WaitDelay = serviceShutdownGrace
 	_, err = io.WriteString(stdin, base64.StdEncoding.EncodeToString(serverCfg)+"\n")
 	if err != nil {
 		return 0, err
@@ -337,13 +349,18 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 	if err != nil {
 		return 0, err
 	}
+	done := make(chan struct{})
+	cw.serverDone = done
 
 	go func() {
 		waitErr := cmd.Wait()
+		close(done)
 		if waitErr != nil {
 			// When the parent context is cancelled during normal shutdown,
-			// exec.CommandContext terminates the child process. Treat that
-			// exit as expected instead of logging it as an unexpected error.
+			// exec.CommandContext stops the child process. Treat that exit as
+			// expected instead of logging it as an unexpected error. Do not
+			// os.Exit here: the caller is already shutting down, and exiting
+			// would cut short its remaining cleanup (c1z close, telemetry flush).
 			errIsExpected := ctx.Err() != nil
 			if errIsExpected {
 				l.Debug("connector service quit expectedly", zap.Error(waitErr))
@@ -351,7 +368,6 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 				if closeErr != nil {
 					l.Error("error closing connector wrapper", zap.Error(closeErr))
 				}
-				os.Exit(0)
 				return
 			}
 
@@ -464,6 +480,16 @@ func (cw *wrapper) Close() error {
 			return fmt.Errorf("error closing connector service stdin: %w", err)
 		}
 	}
+
+	// Closing stdin asks the service to flush its telemetry and exit; wait
+	// for it (bounded) so it is not torn down with this process mid-flush.
+	if cw.serverDone != nil {
+		select {
+		case <-cw.serverDone:
+		case <-time.After(serviceShutdownGrace):
+		}
+	}
+	cw.serverDone = nil
 
 	cw.client = nil
 	cw.server = nil

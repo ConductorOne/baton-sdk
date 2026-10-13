@@ -71,14 +71,24 @@ func (h *otelInt64Histogram) Record(ctx context.Context, value int64, tags map[s
 
 type otelInt64Gauge struct {
 	*baseAttrs
+	mtx   sync.Mutex
 	value int64
 	attrs []attribute.KeyValue
 	gauge otelmetric.Int64ObservableGauge
 }
 
 func (g *otelInt64Gauge) Observe(_ context.Context, value int64, tags map[string]string) {
-	g.attrs = g.getAttributes(tags)
+	attrs := g.getAttributes(tags)
+	g.mtx.Lock()
+	g.attrs = attrs
 	g.value = value
+	g.mtx.Unlock()
+}
+
+func (g *otelInt64Gauge) observed() (int64, []attribute.KeyValue) {
+	g.mtx.Lock()
+	defer g.mtx.Unlock()
+	return g.value, g.attrs
 }
 
 func (h *otelHandler) Int64Histogram(name string, description string, unit Unit) Int64Histogram {
@@ -139,7 +149,8 @@ func (h *otelHandler) Int64Gauge(name string, description string, unit Unit) Int
 		c = &otelInt64Gauge{gauge: gauge, baseAttrs: &baseAttrs{}}
 
 		_, err = h.meter.RegisterCallback(func(ctx context.Context, observer otelmetric.Observer) error {
-			observer.ObserveInt64(c.gauge, c.value, otelmetric.WithAttributes(c.attrs...))
+			value, attrs := c.observed()
+			observer.ObserveInt64(c.gauge, value, otelmetric.WithAttributes(attrs...))
 			return nil
 		}, c.gauge)
 		if err != nil {
