@@ -134,14 +134,18 @@ func (c *otelConfig) init(ctx context.Context) (context.Context, error) {
 		return ctx, nil
 	}
 
-	ctx, err = c.initLogging(ctx, cc)
-	if err != nil {
-		return nil, fmt.Errorf("otel: failed to initialize logging: %w", err)
+	if !c.loggingDisabled {
+		ctx, err = c.initLogging(ctx, cc)
+		if err != nil {
+			return nil, fmt.Errorf("otel: failed to initialize logging: %w", err)
+		}
 	}
 
-	ctx, err = c.initTracing(ctx, cc)
-	if err != nil {
-		return nil, fmt.Errorf("otel: failed to initialize tracing: %w", err)
+	if !c.tracingDisabled {
+		ctx, err = c.initTracing(ctx, cc)
+		if err != nil {
+			return nil, fmt.Errorf("otel: failed to initialize tracing: %w", err)
+		}
 	}
 	return ctx, nil
 }
@@ -295,25 +299,26 @@ func (c *otelConfig) initLogging(ctx context.Context, cc *grpc.ClientConn) (cont
 	return ctxzap.ToContext(ctx, l), nil
 }
 
-// Close closes all connections managed by the config.
+// Close shuts down the tracer and log providers, which flushes their queued
+// batches, and then closes the connections they export over.
 func (c *otelConfig) Close(ctx context.Context) error {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
 	var errs []error
-	for _, conn := range c.c {
-		if err := conn.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	c.c = make(map[string]*grpc.ClientConn)
-
 	for _, shutdown := range c.shutdown {
 		if err := shutdown(ctx); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	c.shutdown = nil
+
+	for _, conn := range c.c {
+		if err := conn.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	c.c = make(map[string]*grpc.ClientConn)
 
 	err := errors.Join(errs...)
 	if err != nil {
