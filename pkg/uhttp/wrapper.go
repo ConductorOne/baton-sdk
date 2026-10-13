@@ -172,8 +172,9 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, 
 	cli := &BaseHttpClient{
 		HttpClient:    httpClient,
 		baseHttpCache: cache,
-		// Exports cache hit/miss counters when uotel has installed a global
-		// MeterProvider (OTLP endpoint configured); no-op otherwise.
+		// Cache hit/miss counters go to the global OTel MeterProvider, like
+		// SDK spans go to the global TracerProvider: nothing is recorded until
+		// uotel.InitOtel (or the host) installs a real provider.
 		// WithMetricsHandler overrides this.
 		metricsHandler: metrics.NewDefaultHandler(ctx),
 	}

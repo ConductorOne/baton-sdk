@@ -11,22 +11,14 @@ import (
 // DefaultHandlerName is the instrumentation scope name used by NewDefaultHandler.
 const DefaultHandlerName = "baton-sdk"
 
-// exportingMeterProvider matches MeterProviders that actually export (the
-// otel SDK MeterProvider and similar). The otel global no-op/delegating
-// provider installed before otel.SetMeterProvider does not implement it.
-type exportingMeterProvider interface {
-	ForceFlush(ctx context.Context) error
-}
-
 // NewDefaultHandler returns the Handler that SDK components use when the
-// caller did not supply one. When an exporting MeterProvider has been
-// installed globally (uotel.InitOtel does this whenever an OTLP collector
-// endpoint is configured), it returns an OpenTelemetry-backed Handler bound
-// to that provider; otherwise it returns a no-op Handler, so nothing is
-// allocated or exported when telemetry is not configured.
-//
-// The decision is made when the handler is created, so components must be
-// constructed after uotel.InitOtel for their metrics to be exported.
+// caller did not supply one. It follows the tracing model: SDK packages call
+// otel.Tracer on the global TracerProvider, which is a no-op until
+// uotel.InitOtel installs a real provider (CLI and Lambda alike, whenever an
+// OTLP collector endpoint is configured). The returned handler is bound the
+// same way to the global MeterProvider: it records nothing until a real
+// MeterProvider is installed, and the global provider forwards instruments
+// created before that, so components built before uotel.InitOtel export too.
 //
 // All callers share one underlying handler per MeterProvider, so observable
 // gauges register a single callback per name no matter how many syncers or
@@ -34,9 +26,6 @@ type exportingMeterProvider interface {
 // handler yields a new, independent handler and never mutates the shared one.
 func NewDefaultHandler(ctx context.Context) Handler {
 	mp := otel.GetMeterProvider()
-	if _, ok := mp.(exportingMeterProvider); !ok {
-		return NewNoOpHandler(ctx)
-	}
 
 	defaultHandlerMtx.Lock()
 	defer defaultHandlerMtx.Unlock()

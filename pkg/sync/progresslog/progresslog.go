@@ -63,8 +63,10 @@ type ProgressLog struct {
 	// Optional OTel metrics handler. Mirrors the fields emitted by
 	// LogExpandProgress so operators don't have to back trends out of log
 	// timestamps. Initialized once in NewProgressCounts to
-	// metrics.NewDefaultHandler (OTel-backed when uotel installed a global
-	// MeterProvider, no-op otherwise); callers can override via WithMetricsHandler. The expand metrics
+	// metrics.NewDefaultHandler, which is bound to the global OTel
+	// MeterProvider the same way SDK spans use the global TracerProvider: it
+	// records nothing until uotel.InitOtel (or the host) installs a real
+	// provider. Callers can override via WithMetricsHandler. The expand metrics
 	// are looked up lazily on first emission so the no-op path costs nothing
 	// when expand never runs (e.g. resource-only syncs).
 	metricsHandler         metrics.Handler
