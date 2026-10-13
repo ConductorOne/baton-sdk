@@ -531,6 +531,11 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 			stageResources = stageTrustedResourceRecords
 			stageEntitlements = stageTrustedEntitlementRecords
 			stageGrants = stageTrustedGrantRecords
+			// Same contract as bulk import: later plain stagers in this sync
+			// must read before writing so overwrites clean up index entries.
+			_ = l.e.takeFreshResourcesEmpty()
+			_ = l.e.takeFreshEntitlementsEmpty()
+			_ = l.e.takeFreshGrantsEmpty()
 		}
 		resources, err := stageResources(batch, u.resources)
 		if err != nil {

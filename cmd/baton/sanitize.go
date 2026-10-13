@@ -126,12 +126,17 @@ func runSanitize(cmd *cobra.Command, args []string) (retErr error) {
 	if err != nil {
 		return fmt.Errorf("open dst c1z: %w", err)
 	}
+	// Close publishes the output envelope. A signal during that save would
+	// discard the run, so both close paths outlive ctx.
+	closeDst := func() error {
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
+		defer cancel()
+		return dst.Close(closeCtx)
+	}
 	dstClosed := false
 	defer func() {
 		if !dstClosed {
-			closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
-			defer cancel()
-			retErr = errors.Join(retErr, dst.Close(closeCtx))
+			retErr = errors.Join(retErr, closeDst())
 		}
 	}()
 
@@ -151,7 +156,7 @@ func runSanitize(cmd *cobra.Command, args []string) (retErr error) {
 		return fmt.Errorf("sanitize: %w", err)
 	}
 	dstClosed = true
-	if err := dst.Close(ctx); err != nil {
+	if err := closeDst(); err != nil {
 		return fmt.Errorf("failed to finalize output c1z: %w", err)
 	}
 	log.Info("c1zsanitize: done", zap.Duration("elapsed", time.Since(start)))

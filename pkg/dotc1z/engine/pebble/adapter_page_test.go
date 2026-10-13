@@ -249,3 +249,61 @@ func TestTrustedImportGrantLastWriteWinsAcrossPages(t *testing.T) {
 	}))
 	require.Zero(t, expandable)
 }
+
+// A trusted page writes blind, so the plain stager that follows it in the
+// same fresh sync must take its read-before-write path or the by_parent
+// entry from the trusted write survives the overwrite.
+func TestTrustedImportPageConsumesFreshSyncBits(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+	_, err := e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	ledger := e.Ledger()
+	seed := c1zstore.LedgerWork{Action: c1zstore.LedgerChild{
+		Identity: c1zstore.LedgerActionIdentity{Op: "sanitize-resources"},
+	}}
+	require.NoError(t, ledger.BeginCollecting(ctx, []c1zstore.LedgerWork{seed}, nil))
+
+	underP1 := v3.ResourceRecord_builder{
+		ResourceTypeId: "user", ResourceId: "r",
+		Parent: v3.ResourceRef_builder{ResourceTypeId: "org", ResourceId: "p1"}.Build(),
+	}.Build()
+	underP2 := v3.ResourceRecord_builder{
+		ResourceTypeId: "user", ResourceId: "r",
+		Parent: v3.ResourceRef_builder{ResourceTypeId: "org", ResourceId: "p2"}.Build(),
+	}.Build()
+
+	work, _, err := ledger.PendingWork(ctx, 0, 1)
+	require.NoError(t, err)
+	require.Len(t, work, 1)
+	trusted := ledger.BeginPage().(c1zstore.TrustedImportPageWriter)
+	require.NoError(t, trusted.SetTrustedImport())
+	require.NoError(t, trusted.SetPendingWork(work[0]))
+	require.NoError(t, trusted.(*pageWriter).unit.StageResources(underP1))
+	require.NoError(t, trusted.Commit(ctx, work[0].Action.Identity, &c1zstore.LedgerRow{NextPageToken: "next"}))
+
+	work, _, err = ledger.PendingWork(ctx, 0, 1)
+	require.NoError(t, err)
+	require.Len(t, work, 1)
+	plain := ledger.BeginPage()
+	require.NoError(t, plain.SetPendingWork(work[0]))
+	require.NoError(t, plain.(*pageWriter).unit.StageResources(underP2))
+	require.NoError(t, plain.Commit(ctx, work[0].Action.Identity, &c1zstore.LedgerRow{}))
+
+	terminal := ledger.BeginPage()
+	require.NoError(t, terminal.SetTerminal())
+	require.NoError(t, terminal.Commit(ctx, c1zstore.LedgerActionIdentity{Op: "sanitize-terminal"}, &c1zstore.LedgerRow{}))
+	require.NoError(t, e.EndSyncWithStats(ctx, c1zstore.SyncStats{}))
+
+	childrenOf := func(parentID string) int {
+		n := 0
+		require.NoError(t, e.IterateResourcesByParent(ctx, "org", parentID, func(*v3.ResourceRecord) bool {
+			n++
+			return true
+		}))
+		return n
+	}
+	require.Zero(t, childrenOf("p1"), "by_parent entry from the trusted write must be removed by the overwrite")
+	require.Equal(t, 1, childrenOf("p2"))
+}
