@@ -11,19 +11,11 @@ import (
 // DefaultHandlerName is the instrumentation scope name used by NewDefaultHandler.
 const DefaultHandlerName = "baton-sdk"
 
-// NewDefaultHandler returns the Handler that SDK components use when the
-// caller did not supply one. It follows the tracing model: SDK packages call
-// otel.Tracer on the global TracerProvider, which is a no-op until
-// uotel.InitOtel installs a real provider (CLI and Lambda alike, whenever an
-// OTLP collector endpoint is configured). The returned handler is bound the
-// same way to the global MeterProvider: it records nothing until a real
-// MeterProvider is installed, and the global provider forwards instruments
-// created before that, so components built before uotel.InitOtel export too.
-//
-// All callers share one underlying handler per MeterProvider, so observable
-// gauges register a single callback per name no matter how many syncers or
-// clients are created over the life of the process. WithTags on the returned
-// handler yields a new, independent handler and never mutates the shared one.
+// NewDefaultHandler returns the handler SDK components use when none is
+// supplied: one handler per process, bound to the global OTel MeterProvider
+// the way SDK spans use the global TracerProvider. It records nothing until a
+// real MeterProvider is installed (uotel.InitOtel or the host), and handlers
+// created before that are forwarded by the otel global delegate.
 func NewDefaultHandler(ctx context.Context) Handler {
 	mp := otel.GetMeterProvider()
 
@@ -31,10 +23,7 @@ func NewDefaultHandler(ctx context.Context) Handler {
 	defer defaultHandlerMtx.Unlock()
 	if defaultHandlerProvider != mp || defaultHandlerInstance == nil {
 		defaultHandlerProvider = mp
-		defaultHandlerInstance = &sharedHandler{
-			Handler:  NewOtelHandler(ctx, mp, DefaultHandlerName),
-			provider: mp,
-		}
+		defaultHandlerInstance = NewOtelHandler(ctx, mp, DefaultHandlerName)
 	}
 	return defaultHandlerInstance
 }
@@ -42,16 +31,5 @@ func NewDefaultHandler(ctx context.Context) Handler {
 var (
 	defaultHandlerMtx      sync.Mutex
 	defaultHandlerProvider otelmetric.MeterProvider
-	defaultHandlerInstance *sharedHandler
+	defaultHandlerInstance Handler
 )
-
-// sharedHandler is the process-wide default handler. Its WithTags returns a
-// fresh handler because otelHandler.WithTags mutates the receiver.
-type sharedHandler struct {
-	Handler
-	provider otelmetric.MeterProvider
-}
-
-func (s *sharedHandler) WithTags(tags map[string]string) Handler {
-	return NewOtelHandler(context.Background(), s.provider, DefaultHandlerName).WithTags(tags)
-}

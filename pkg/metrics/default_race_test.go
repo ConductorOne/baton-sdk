@@ -18,7 +18,7 @@ func TestSharedOtelHandlerConcurrentUse(t *testing.T) {
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	t.Cleanup(func() { _ = mp.Shutdown(context.Background()) })
 
-	h := &sharedHandler{Handler: NewOtelHandler(t.Context(), mp, DefaultHandlerName), provider: mp}
+	h := NewOtelHandler(t.Context(), mp, DefaultHandlerName)
 	ctx := t.Context()
 
 	const goroutines, iterations = 8, 200
