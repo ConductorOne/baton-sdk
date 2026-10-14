@@ -115,12 +115,19 @@ func buildExpandedFixture(t *testing.T, ctx context.Context, path string) (strin
 // sync, via a dry run (GrantsDeleted counts purely expander-derived rows).
 func rollbackDeletes(t *testing.T, ctx context.Context, path, syncID string) int {
 	t.Helper()
-	ro, err := dotc1z.NewC1ZFile(ctx, path, dotc1z.WithReadOnly(true))
-	require.NoError(t, err)
-	defer ro.Close(ctx)
-	res, err := ro.RollbackExpansion(ctx, syncID, true)
+	res, err := rollbackDryRun(t, ctx, path, syncID)
 	require.NoError(t, err)
 	return res.GrantsDeleted
+}
+
+func rollbackDryRun(t *testing.T, ctx context.Context, path, syncID string, opts ...dotc1z.RollbackOption) (*dotc1z.RollbackResult, error) {
+	t.Helper()
+	ro, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
+	require.NoError(t, err)
+	defer ro.Close(ctx)
+	rs, ok := ro.(rollbackExpansionStore)
+	require.True(t, ok, "%s store must support rollback-expansion", ro.Metadata().Engine)
+	return rs.RollbackExpansion(ctx, syncID, true, opts...)
 }
 
 func TestRollbackExpansionDryRun(t *testing.T) {
@@ -486,7 +493,7 @@ func requireGrantSourcesEmpty(t *testing.T, ctx context.Context, path, syncID, g
 
 func loadGrant(t *testing.T, ctx context.Context, path, syncID, grantID string) (*v2.Grant, bool) {
 	t.Helper()
-	ro, err := dotc1z.NewC1ZFile(ctx, path, dotc1z.WithReadOnly(true))
+	ro, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	defer ro.Close(ctx)
 	require.NoError(t, ro.SetCurrentSync(ctx, syncID))

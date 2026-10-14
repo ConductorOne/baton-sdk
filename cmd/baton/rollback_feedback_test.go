@@ -58,10 +58,10 @@ func TestRollbackClearsStaleStats(t *testing.T) {
 
 func sumStats(t *testing.T, ctx context.Context, path, syncID string) int64 {
 	t.Helper()
-	ro, err := dotc1z.NewC1ZFile(ctx, path, dotc1z.WithReadOnly(true))
+	ro, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	defer ro.Close(ctx)
-	m, err := ro.Stats(ctx, connectorstore.SyncTypeAny, syncID)
+	m, err := ro.SyncMeta().Stats(ctx, connectorstore.SyncTypeAny, syncID)
 	require.NoError(t, err)
 	var total int64
 	for _, v := range m {

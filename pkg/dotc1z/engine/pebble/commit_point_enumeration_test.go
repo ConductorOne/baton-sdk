@@ -52,6 +52,7 @@ var commitPointRegistry = map[string][]string{
 	"resource_types.go:DeleteResourceTypeRecord":        {"SetRecordCommitTestHook"},
 	"ingest_repair.go:healOrphanPrincipalIndexEntries":  {"SetRecordCommitTestHook"},
 	"source_cache.go:InvalidateSourceCacheReplayState":  {"SetRecordCommitTestHook"},
+	"rollback_expansion.go:rollbackExpansionRounds":     {"SetRecordCommitTestHook"},
 	// The page unit (records + ledger row, one batch) and the seal-time
 	// ledger token scrub both commit a RecordBatch:
 	// TestPageUnitFailedCommitLandsNothing and

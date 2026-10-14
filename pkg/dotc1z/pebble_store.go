@@ -549,6 +549,36 @@ func (s *pebbleStore) SetSupportsDiff(ctx context.Context, syncID string) error 
 	return s.markDirty(s.SyncMeta().MarkSyncSupportsDiff(ctx, syncID))
 }
 
+// RollbackExpansion is the Pebble form of (*C1File).RollbackExpansion.
+// WithSyncTokenRewrite is ignored: a replay re-expands a finished ledgered
+// sync through a new ledger pass, not through its token.
+func (s *pebbleStore) RollbackExpansion(ctx context.Context, syncID string, dryRun bool, opts ...RollbackOption) (*RollbackResult, error) {
+	cfg := &rollbackConfig{}
+	for _, o := range opts {
+		o(cfg)
+	}
+	res, err := s.Engine.RollbackExpansion(ctx, syncID, dryRun, cfg.preserveSuspect)
+	switch {
+	case errors.Is(err, pebble.ErrNothingToRollBack):
+		return nil, fmt.Errorf("%w: %w", ErrSyncNotExpanded, err)
+	case errors.Is(err, pebble.ErrRollbackIncompleteCollection):
+		return nil, fmt.Errorf("%w: %w", ErrSyncNotFinished, err)
+	case err != nil:
+		return nil, err
+	}
+	if !dryRun {
+		s.MarkDirty()
+	}
+	return &RollbackResult{
+		SyncID:                  syncID,
+		GrantsDeleted:           res.GrantsDeleted,
+		SourcesCleared:          res.SourcesCleared,
+		SuspectConnectorSourced: res.SuspectConnectorSourced,
+		SuspectPreserved:        res.SuspectPreserved,
+		DryRun:                  dryRun,
+	}, nil
+}
+
 func (s *pebbleStore) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
 	if err := s.writeHook(ctx, "PutGrants"); err != nil {
 		return err
