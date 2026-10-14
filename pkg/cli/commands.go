@@ -569,23 +569,8 @@ func MakeGRPCServerCommand[T field.Configurable](
 		if err != nil {
 			return err
 		}
-		// The service usually ends through os.Exit when the parent closes our
-		// stdin (see below), which skips deferred calls, so the flush is shared
-		// between that path and this defer.
-		var flushOtelOnce sync.Once
-		flushOtel := func() {
-			flushOtelOnce.Do(func() {
-				if otelShutdown == nil {
-					return
-				}
-				shutdownCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(otelShutdownTimeout))
-				defer cancel()
-				err := otelShutdown(shutdownCtx)
-				if err != nil {
-					zap.L().Error("error shutting down otel", zap.Error(err))
-				}
-			})
-		}
+		// Shared with the stdin watcher below, whose os.Exit skips this defer.
+		flushOtel := onceOtelShutdown(otelShutdown)
 		defer flushOtel()
 
 		l := ctxzap.Extract(runCtx)
@@ -617,20 +602,9 @@ func MakeGRPCServerCommand[T field.Configurable](
 			return err
 		}
 
-		// Avoid zombie processes. If the parent dies, this
-		// will cause Stdin on the child to close, and then
-		// the child will exit itself. The parent also closes
-		// stdin to stop the service at the end of a run, so
-		// flush telemetry (traces, logs, metrics recorded by
-		// the connector) before exiting.
-		go func() {
-			in := make([]byte, 1)
-			_, err := os.Stdin.Read(in)
-			if err != nil {
-				flushOtel()
-				os.Exit(0)
-			}
-		}()
+		// Exit when stdin closes: the parent stops the service that way, and
+		// it also closes if the parent dies (no zombie processes).
+		go watchParentStdin(os.Stdin, flushOtel, os.Exit)
 
 		if len(cfgBytes) == 0 {
 			return fmt.Errorf("unexpected empty input")
@@ -927,4 +901,33 @@ func defaultConnectorBuilder(ctx context.Context, opts ...connectorrunner.Option
 		return nil, err
 	}
 	return c, nil
+}
+
+// onceOtelShutdown returns a func that runs shutdown (when non-nil) at most
+// once, bounded by otelShutdownTimeout.
+func onceOtelShutdown(shutdown func(context.Context) error) func() {
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			if shutdown == nil {
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), otelShutdownTimeout)
+			defer cancel()
+			if err := shutdown(ctx); err != nil {
+				zap.L().Error("error shutting down otel", zap.Error(err))
+			}
+		})
+	}
+}
+
+// watchParentStdin waits for a read from stdin to fail (the parent closed it
+// or died), then flushes telemetry and exits 0. Data on stdin ends the watch
+// without exiting.
+func watchParentStdin(stdin io.Reader, flush func(), exit func(int)) {
+	in := make([]byte, 1)
+	if _, err := stdin.Read(in); err != nil {
+		flush()
+		exit(0)
+	}
 }
