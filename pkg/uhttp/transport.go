@@ -313,7 +313,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			resp, err = rt.RoundTrip(retryReq)
 		}
 	}
-	err = wrapTransientNetworkError(err)
+	err = wrapRequestError(req.URL.Host, err)
 	if t.log {
 		duration := time.Since(start)
 		fields := []zap.Field{

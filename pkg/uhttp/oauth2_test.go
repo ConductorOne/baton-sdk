@@ -2,6 +2,8 @@ package uhttp
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -387,6 +389,10 @@ func TestFlattenedAndTypedClassificationAgree(t *testing.T) {
 		{name: "NXDOMAIN", typed: dnsFailure(&net.DNSError{Err: "no such host", Name: "example.invalid", IsNotFound: true})},
 		{name: "temporary dns failure", typed: dnsFailure(&net.DNSError{Err: "server misbehaving", Name: "example.com", IsTemporary: true})},
 		{name: "context deadline exceeded", typed: context.DeadlineExceeded},
+		{name: "context canceled", typed: context.Canceled},
+		{name: "untrusted certificate", typed: &url.Error{Op: "Post", URL: "https://example.com/token", Err: &tls.CertificateVerificationError{
+			Err: x509.UnknownAuthorityError{},
+		}}},
 	}
 	for _, tt := range others {
 		t.Run(tt.name, func(t *testing.T) {

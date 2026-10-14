@@ -330,7 +330,9 @@ func buildFlattenedTokenFailures() []flattenedTokenFailure {
 	failures := []flattenedTokenFailure{
 		{substr: "no such host", code: codes.InvalidArgument, msg: "dns lookup failed: NXDOMAIN"},
 		{substr: "server misbehaving", code: codes.Unavailable, msg: "temporary dns lookup failure"},
+		{substr: "tls: failed to verify certificate", code: codes.FailedPrecondition, msg: "tls certificate verification failed"},
 		{substr: "context deadline exceeded", code: codes.DeadlineExceeded, msg: "request timeout"},
+		{substr: "context canceled", code: codes.Canceled, msg: "request canceled"},
 		{substr: "Client.Timeout exceeded", code: codes.DeadlineExceeded, msg: "request timeout"},
 		{substr: "TLS handshake timeout", code: codes.DeadlineExceeded, msg: "request timeout"},
 		{substr: "i/o timeout", code: codes.DeadlineExceeded, msg: "request timeout"},
