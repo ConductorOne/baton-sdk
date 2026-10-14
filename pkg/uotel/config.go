@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -57,7 +58,30 @@ type otelConfig struct {
 	mtx      sync.Mutex
 	resource *resource.Resource
 	c        map[string]*grpc.ClientConn
-	shutdown []func(context.Context) error
+	shutdown []providerShutdown
+	// errorHandlerInstalled is set when init activated the otel error handler.
+	errorHandlerInstalled bool
+}
+
+// providerShutdown is a provider's Shutdown, run by Close in ascending order.
+type providerShutdown struct {
+	name  string
+	order int
+	fn    func(context.Context) error
+}
+
+// Shutdown order: metrics first, since for one-shot runs the final metrics
+// export happens only at shutdown, then traces, then logs.
+const (
+	shutdownOrderMetrics = iota
+	shutdownOrderTraces
+	shutdownOrderLogs
+)
+
+// newMetricExporter creates the OTLP metrics exporter; a variable so tests
+// can make it fail.
+var newMetricExporter = func(ctx context.Context, cc *grpc.ClientConn) (sdkmetric.Exporter, error) {
+	return otlpmetricgrpc.New(ctx, otlpmetricgrpc.WithGRPCConn(cc))
 }
 
 // Option is a function that configures an otelConfig.
@@ -162,6 +186,9 @@ func (c *otelConfig) init(ctx context.Context) (context.Context, error) {
 		return ctx, nil
 	}
 
+	installErrorHandler()
+	c.errorHandlerInstalled = true
+
 	if !c.loggingDisabled {
 		ctx, err = c.initLogging(ctx, cc)
 		if err != nil {
@@ -176,10 +203,11 @@ func (c *otelConfig) init(ctx context.Context) (context.Context, error) {
 		}
 	}
 
+	// Metrics are best effort: a failure leaves the global no-op MeterProvider
+	// in place and the run continues with traces and logs.
 	if !c.metricsDisabled {
-		ctx, err = c.initMetrics(ctx, cc)
-		if err != nil {
-			return nil, fmt.Errorf("otel: failed to initialize metrics: %w", err)
+		if err := c.initMetrics(ctx, cc); err != nil {
+			zap.L().Warn("otel: failed to initialize metrics, continuing without them", zap.Error(err))
 		}
 	}
 	return ctx, nil
@@ -270,7 +298,7 @@ func (c *otelConfig) initTracing(ctx context.Context, cc *grpc.ClientConn) (cont
 
 	zap.L().Debug("OpenTelemetry tracing enabled")
 
-	c.shutdown = append(c.shutdown, tracerProvider.Shutdown)
+	c.shutdown = append(c.shutdown, providerShutdown{name: "traces", order: shutdownOrderTraces, fn: tracerProvider.Shutdown})
 	// TODO(morgabra): Set tracer on ctx?
 	return ctx, nil
 }
@@ -279,18 +307,17 @@ func (c *otelConfig) initTracing(ctx context.Context, cc *grpc.ClientConn) (cont
 // resource, and installs it as the global MeterProvider. Instruments created
 // from otel.Meter before this call (e.g. package-level meters) are delegated
 // to the new provider by the otel global package.
-func (c *otelConfig) initMetrics(ctx context.Context, cc *grpc.ClientConn) (context.Context, error) {
+func (c *otelConfig) initMetrics(ctx context.Context, cc *grpc.ClientConn) error {
 	res, err := c.getResource(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	// Like the trace exporter, this reuses the shared connection; the exporter
-	// still reads OTEL_EXPORTER_OTLP_(METRICS_)HEADERS and sends them as gRPC
-	// metadata on every export.
-	exp, err := otlpmetricgrpc.New(ctx, otlpmetricgrpc.WithGRPCConn(cc))
+	// The exporter reads OTEL_EXPORTER_OTLP_(METRICS_)HEADERS even on a
+	// shared connection.
+	exp, err := newMetricExporter(ctx, cc)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create metric exporter: %w", err)
+		return fmt.Errorf("failed to create metric exporter: %w", err)
 	}
 
 	var readerOpts []sdkmetric.PeriodicReaderOption
@@ -306,10 +333,8 @@ func (c *otelConfig) initMetrics(ctx context.Context, cc *grpc.ClientConn) (cont
 
 	zap.L().Debug("OpenTelemetry metrics enabled")
 
-	// Shutdown performs a final collect and export, so it must run before the
-	// shared gRPC connection is closed (Close handles that ordering).
-	c.shutdown = append(c.shutdown, meterProvider.Shutdown)
-	return ctx, nil
+	c.shutdown = append(c.shutdown, providerShutdown{name: "metrics", order: shutdownOrderMetrics, fn: meterProvider.Shutdown})
+	return nil
 }
 
 // initLogging sets up a otlp logging exporter using an existing connection and resource.
@@ -367,22 +392,29 @@ func (c *otelConfig) initLogging(ctx context.Context, cc *grpc.ClientConn) (cont
 
 	l.Debug("OpenTelemetry logging enabled")
 
-	c.shutdown = append(c.shutdown, processor.Shutdown)
+	c.shutdown = append(c.shutdown, providerShutdown{name: "logs", order: shutdownOrderLogs, fn: processor.Shutdown})
 	return ctxzap.ToContext(ctx, l), nil
 }
 
-// Close shuts down the tracer, log and meter providers, which flushes their
-// queued batches (and performs a final metrics collection), and then closes
-// the connections they export over.
+// Close shuts down the meter, tracer and log providers in that order, which
+// flushes what they hold, and then closes the connections they export over.
+// When ctx has a deadline, each provider gets an equal share of the time left
+// (unused time carries over), so a provider stuck on a slow collector cannot
+// starve the ones after it.
 func (c *otelConfig) Close(ctx context.Context) error {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
+	shutdowns := slices.Clone(c.shutdown)
+	slices.SortStableFunc(shutdowns, func(a, b providerShutdown) int { return a.order - b.order })
+
 	var errs []error
-	for _, shutdown := range c.shutdown {
-		if err := shutdown(ctx); err != nil {
-			errs = append(errs, err)
+	for i, sd := range shutdowns {
+		sdCtx, cancel := shutdownBudget(ctx, len(shutdowns)-i)
+		if err := sd.fn(sdCtx); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", sd.name, err))
 		}
+		cancel()
 	}
 	c.shutdown = nil
 
@@ -393,11 +425,27 @@ func (c *otelConfig) Close(ctx context.Context) error {
 	}
 	c.c = make(map[string]*grpc.ClientConn)
 
+	if c.errorHandlerInstalled {
+		uninstallErrorHandler()
+		c.errorHandlerInstalled = false
+	}
+
 	err := errors.Join(errs...)
 	if err != nil {
 		return fmt.Errorf("otel: failed to close connections: %w", err)
 	}
 	return nil
+}
+
+// shutdownBudget returns a context for one of the remaining shutdown steps:
+// an equal share of the time left before ctx's deadline, or ctx itself when
+// it has none.
+func shutdownBudget(ctx context.Context, remaining int) (context.Context, context.CancelFunc) {
+	deadline, ok := ctx.Deadline()
+	if !ok || remaining < 1 {
+		return context.WithCancel(ctx)
+	}
+	return context.WithTimeout(ctx, time.Until(deadline)/time.Duration(remaining))
 }
 
 // getTLSConfig creates a TLS configuration from a certificate file path or PEM-encoded certificate.
