@@ -36,7 +36,7 @@ jobs:
           # land. Update deliberately and fix new findings in the same PR.
           # v2.14.0 is also the floor for a go 1.27.2 module; see ci.yaml.
           version: v2.14.0
-          args: --timeout=3m
+          args: --timeout=5m
   go-test:
     strategy:
       matrix:
