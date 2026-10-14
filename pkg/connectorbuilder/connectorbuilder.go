@@ -144,8 +144,6 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 	}
 
 	if b.m == nil {
-		// Task metrics go to the global OTel MeterProvider, like the
-		// builder's spans go to the global TracerProvider.
 		b.m = metrics.New(metrics.NewDefaultHandler(ctx))
 	}
 

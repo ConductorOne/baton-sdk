@@ -556,8 +556,7 @@ func (s *pebbleStore) PutGrants(ctx context.Context, grants ...*v2.Grant) error 
 	if err := s.markDirty(s.Engine.PutGrants(ctx, grants...)); err != nil {
 		return err
 	}
-	// Same counter as the SQLite writer. Pebble has no slim grant encoding,
-	// so every write is slim=false.
+	// Pebble has no slim grant encoding.
 	if len(grants) > 0 {
 		grantWriteCounter.Add(ctx, int64(len(grants)), slimWriteAttrFalse)
 	}
@@ -635,8 +634,8 @@ func (s *pebbleStore) LedgerFrontier(ctx context.Context) (*c1zstore.LedgerFront
 type dirtyPageWriter struct {
 	c1zstore.PageWriter
 	store *pebbleStore
-	// stagedGrants counts grants put on this page, reported to the
-	// c1z_grant_writes_total counter when the page commits.
+	// stagedGrants is added to c1z_grant_writes_total only once Commit
+	// succeeds; a failed Commit keeps it for a retry of the same page.
 	stagedGrants int64
 }
 
@@ -652,12 +651,16 @@ func (w *dirtyPageWriter) Commit(ctx context.Context, id c1zstore.LedgerActionId
 	if err := w.store.markDirty(w.PageWriter.Commit(ctx, id, row)); err != nil {
 		return err
 	}
-	// Same counter as the SQLite writer; pebble has no slim grant encoding.
 	if w.stagedGrants > 0 {
 		grantWriteCounter.Add(ctx, w.stagedGrants, slimWriteAttrFalse)
 		w.stagedGrants = 0
 	}
 	return nil
+}
+
+func (w *dirtyPageWriter) Discard() {
+	w.stagedGrants = 0
+	w.PageWriter.Discard()
 }
 
 func (s *pebbleStore) State(ctx context.Context) (c1zstore.LedgerState, error) {
@@ -990,7 +993,6 @@ func (s *pebbleStore) save(ctx context.Context) error {
 	if err := staged.CloseAtomicallyReplace(); err != nil {
 		return err
 	}
-	// Same gauge as the SQLite finalize path: the written c1z's size.
 	if info, statErr := os.Stat(s.outputFilePath); statErr == nil {
 		recordC1ZSize(ctx, "finalize", info.Size())
 	}
