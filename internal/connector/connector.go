@@ -467,18 +467,19 @@ func (cw *wrapper) Close() error {
 	cw.mtx.Lock()
 	defer cw.mtx.Unlock()
 
-	var err error
+	// Every step runs even if an earlier one fails, so the service is always
+	// asked to stop and waited for.
+	var errs []error
 	if cw.conn != nil {
-		err = cw.conn.Close()
-		if err != nil {
-			return fmt.Errorf("error closing client connection: %w", err)
+		if err := cw.conn.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("error closing client connection: %w", err))
 		}
 	}
 
 	if cw.serverStdin != nil {
-		err = cw.serverStdin.Close()
-		if err != nil && errors.Is(err, os.ErrClosed) {
-			return fmt.Errorf("error closing connector service stdin: %w", err)
+		// ErrClosed means exec already closed it (context cancellation).
+		if err := cw.serverStdin.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			errs = append(errs, fmt.Errorf("error closing connector service stdin: %w", err))
 		}
 	}
 
@@ -497,7 +498,7 @@ func (cw *wrapper) Close() error {
 	cw.serverStdin = nil
 	cw.conn = nil
 
-	return nil
+	return errors.Join(errs...)
 }
 
 type RegisterOps struct {

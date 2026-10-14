@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // childModeEnv makes the re-executed test binary act as the connector
@@ -104,4 +106,21 @@ func TestStuckServiceIsKilledAfterGrace(t *testing.T) {
 
 	// exec kills the child WaitDelay (= grace) after the cancel.
 	requireExited(t, done, serviceShutdownGrace+2*time.Second)
+}
+
+// TestCloseStopsServiceWhenConnCloseFails: an error closing the client
+// connection is reported but does not skip stopping the service.
+func TestCloseStopsServiceWhenConnCloseFails(t *testing.T) {
+	cw := startChild(t, t.Context(), childExitOnEOF)
+	done := cw.serverDone
+
+	conn, err := grpc.NewClient("127.0.0.1:1", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+	cw.conn = conn // closing it again fails
+
+	err = cw.Close()
+	require.ErrorContains(t, err, "error closing client connection")
+	requireExited(t, done, 0)
+	require.Nil(t, cw.serverStdin)
 }
