@@ -36,6 +36,11 @@ primitive. The diff touches no file under `pkg/sync/` or
   `--preserve-suspect-grants`, counted either way: verified at both levels
   (`TestRollbackExpansionPreservesSuspectGrants`,
   `TestRollbackExpansionPebbleSuspectGrants`).
+- Deleting a suspect grant that carries a source scope poisons that scope,
+  so a later sync using `--out` as its previous sync refetches the scope
+  instead of replaying it without the deleted grant. Preserved suspects and
+  cleared grants poison nothing, and cleared grants keep their scope stamp.
+  Verified (`TestRollbackExpansionSuspectDeletePoisonsItsScope`).
 - Self-source-only Sources cleared, not deleted: verified
   (`TestRollbackExpansionClassifiesBySources`, `selfOnly` row).
 - Not expanded returns `ErrSyncNotExpanded`, with no `--out`: verified

@@ -20,6 +20,7 @@ import (
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 )
 
 func rollbackTestGrant(ent, principal string, immutable bool, sourceEnts ...string) *v3.GrantRecord {
@@ -168,6 +169,43 @@ func TestRollbackExpansionPreservesSuspectGrants(t *testing.T) {
 	require.NotNil(t, suspect)
 	require.Contains(t, suspect.GetSources(), "app:github:ent-B", "a preserved suspect grant keeps its Sources")
 	requireGrantIndexAgreement(t, e)
+}
+
+func TestRollbackExpansionSuspectDeletePoisonsItsScope(t *testing.T) {
+	scoped := func(r *v3.GrantRecord, scope string) *v3.GrantRecord {
+		r.SetSourceScopeKey(scope)
+		return r
+	}
+	grants := func() []*v3.GrantRecord {
+		return []*v3.GrantRecord{
+			rollbackTestGrant("ent-A", "derived", true, "ent-B"),
+			scoped(rollbackTestGrant("ent-A", "suspect", false, "ent-B"), "scope-suspect"),
+			scoped(rollbackTestGrant("ent-B", "selfOnly", false, "ent-B"), "scope-cleared"),
+		}
+	}
+	for _, preserve := range []bool{false, true} {
+		t.Run(fmt.Sprintf("preserve-%t", preserve), func(t *testing.T) {
+			ctx := t.Context()
+			e, _ := newTestEngine(t)
+			syncID := finishedSyncWithGrants(t, e, grants()...)
+			records := grantRecordsByExternalID(t, e)
+			require.Equal(t, "scope-suspect", records["app:github:ent-A:user:suspect"].GetSourceScopeKey())
+			require.Equal(t, "scope-cleared", records["app:github:ent-B:user:selfOnly"].GetSourceScopeKey())
+
+			_, err := e.RollbackExpansion(ctx, syncID, false, preserve)
+			require.NoError(t, err)
+			require.NoError(t, e.EndSync(ctx))
+
+			poisoned := func(scope string) bool {
+				p, err := e.SourceCachePoisoned(ctx, string(sourcecache.RowKindGrants), scope)
+				require.NoError(t, err)
+				return p
+			}
+			require.Equal(t, !preserve, poisoned("scope-suspect"), "deleting a scoped suspect grant poisons its scope")
+			require.False(t, poisoned("scope-cleared"), "clearing Sources keeps the row in its scope")
+			require.Equal(t, "scope-cleared", grantRecordsByExternalID(t, e)["app:github:ent-B:user:selfOnly"].GetSourceScopeKey())
+		})
+	}
 }
 
 func TestRollbackExpansionNothingToRollBack(t *testing.T) {
