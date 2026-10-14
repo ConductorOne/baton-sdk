@@ -20,8 +20,8 @@ import (
 
 type rollbackExpansionStore interface {
 	c1zstore.Store
+	connectorstore.StreamingReader
 	RollbackExpansion(ctx context.Context, syncID string, dryRun bool, opts ...dotc1z.RollbackOption) (*dotc1z.RollbackResult, error)
-	GrantSourcesForSync(ctx context.Context, syncID string) (map[string]string, error)
 }
 
 func rollbackExpansionCmd() *cobra.Command {
@@ -136,7 +136,7 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 	// not re-derived).
 	var preSources map[string]string
 	if validate {
-		preSources, err = srcRollbackStore.GrantSourcesForSync(ctx, syncID)
+		preSources, err = grantSourcesForSync(ctx, srcRollbackStore, syncID)
 		if err != nil {
 			_ = src.Close(ctx)
 			return fmt.Errorf("capture pre-rollback grant sources: %w", err)
@@ -159,21 +159,31 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 		}
 	}()
 
-	//nolint:staticcheck // RollbackExpansion is a SQLite-only *C1File method not on C1ZStore; NewC1ZFile is required here.
-	store, err := dotc1z.NewC1ZFile(ctx, outPath)
+	opened, err := dotc1z.NewStore(ctx, outPath)
 	if err != nil {
 		return fmt.Errorf("open --out c1z: %w", err)
 	}
 	finalized := false
 	defer func() {
 		if !finalized {
-			_ = store.Close(ctx)
+			_ = opened.Close(ctx)
 		}
 	}()
+	store, ok := opened.(rollbackExpansionStore)
+	if !ok {
+		return fmt.Errorf("rollback-expansion is not supported by %s-backed c1z files", opened.Metadata().Engine)
+	}
 
 	res, err := store.RollbackExpansion(ctx, syncID, false, rollbackOpts...)
 	if err != nil {
 		return err
+	}
+
+	// SQLite rollback needs no reseal; with --replay the syncer seals.
+	if !replay && store.Metadata().Engine == string(c1zstore.EnginePebble) {
+		if err := store.EndSync(ctx); err != nil {
+			return fmt.Errorf("reseal rolled-back sync: %w", err)
+		}
 	}
 
 	if replay {
@@ -217,7 +227,7 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 // present after with identical Sources, since replay re-derives exactly what
 // rollback removed. It streams the grants one at a time rather than buffering
 // the whole table; the returned map is the snapshot the comparison needs.
-func grantSourcesForSync(ctx context.Context, store *dotc1z.C1File, syncID string) (map[string]string, error) {
+func grantSourcesForSync(ctx context.Context, store connectorstore.StreamingReader, syncID string) (map[string]string, error) {
 	out := map[string]string{}
 	for g, err := range store.StreamGrants(ctx, syncID, connectorstore.StreamGrantsOptions{}) {
 		if err != nil {
@@ -301,7 +311,7 @@ func resolveLatestFinishedSync(ctx context.Context, inPath string) (string, erro
 // runs the full production expansion — graph load, cycle fixing
 // (honoring BATON_DONT_FIX_CYCLES), and the expander — so a replay
 // matches a fresh sync rather than a hand-rolled subset of it.
-func replayExpansion(ctx context.Context, store *dotc1z.C1File, syncID string) error {
+func replayExpansion(ctx context.Context, store c1zstore.Store, syncID string) error {
 	tmpDir, err := os.MkdirTemp("", "baton-rollback-replay")
 	if err != nil {
 		return err

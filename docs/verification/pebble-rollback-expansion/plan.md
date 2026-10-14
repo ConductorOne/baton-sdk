@@ -288,3 +288,82 @@ sync-path verification is owed beyond the existing suites passing.
   modifies no function in `pkg/dotc1z/engine/pebble/` that existed before
   this change. New code is the new engine file, the `pebbleStore` wrapper,
   the CLI retype, and tests.
+
+## Change orders
+
+Each was found during implementation and re-routed through the risk model.
+None adds a sync-path change, a ledger op, or a rawdb primitive, so all stay
+MODERATE.
+
+### CO1 (2026-10-13): unfinished-sync gate
+
+Step 3 said `LedgerQueueAbsent` proceeds and `Collecting` is refused. The
+implementation keys the gate on `ended_at` as well as the phase:
+
+- Unfinished and `Absent` is refused with `ErrRollbackIncompleteCollection`.
+  An unfinished sync with no declaration has no evidence that collection
+  completed, and the caller's seal would stamp `ended_at` on it.
+- Unfinished and `Collecting` is refused, as planned.
+- Unfinished and `Expanding` or `Sealing`: warn, and in write mode `Drop`.
+- Finished with any pending pass, including `Collecting` from a `BeginPass`
+  that never ran: warn, and in write mode `Drop`. The sync's collection is
+  already sealed; a replay starts a new pass.
+- `ErrRollbackIncompleteCollection` maps to `dotc1z.ErrSyncNotFinished` in
+  the store wrapper.
+
+Through the CLI, an unfinished sync never reaches the engine write:
+`cloneSync` refuses to isolate an unfinished sync, so `--out` fails before
+rollback and no output is left. The `Expanding` and `Sealing` cases are
+exercised at the engine level only (`TestRollbackExpansionLedgerPhases`).
+
+### CO2 (2026-10-13): dry run does not bind
+
+Step 2 bound the sync before the phase check. `SetCurrentSync` now runs only
+in write mode, after the checks. A dry run reads the record, the phase, and
+the grant keyspace and leaves the binding, the pending pass, and the source
+cache row counts alone.
+
+### CO3 (2026-10-13): classification by raw scanners
+
+Step 4 decoded every record. The scan uses `scanGrantContentFactsRawBytes`
+for Sources and `GrantImmutable`, and `scanGrantIndexFieldsRaw` for the
+grant's own entitlement id, the same derivation the source-cache replay uses
+before `stripExpanderSourcesRaw`. Only rows whose Sources are cleared are
+decoded and re-encoded.
+
+### CO4 (2026-10-13): nothing-to-roll-back rule and error text
+
+"Zero classified rows" is implemented as: at least one grant scanned and
+none deleted, cleared, or preserved. A sync with no grants returns zero
+counts and no error, matching SQLite's early return.
+
+`ErrSyncNotExpanded` named `supports_diff`, which Pebble never writes. Its
+message is now "c1z: sync did not run grant expansion; nothing to roll
+back", and the SQLite return site appends "has no supports_diff marker". The
+sentinel identity is unchanged; the SQLite error string is not.
+
+### CO5 (2026-10-13): CLI interface and test helpers
+
+`rollbackExpansionStore` keeps `c1zstore.Store` and adds
+`connectorstore.StreamingReader`, which `grantSourcesForSync` needs.
+`replayExpansion` takes `c1zstore.Store`. The SQLite tests' helpers
+(`rollbackDeletes`, `loadGrant`, `sumStats`) open files through
+`dotc1z.NewStore` so the Pebble tests share them; the SQLite assertions are
+unchanged.
+
+### CO6 (2026-10-13): store wrapper marks dirty after success
+
+The wrapper marks the store dirty after the engine call succeeds, not before
+it, so a refused or failed rollback is discarded at `Close` and the file is
+unchanged. This matches the other `pebbleStore` write wrappers.
+
+### CO7 (2026-10-13): Pebble fixtures
+
+`flagConflict` refuses only-expand on an unfinished sync with no
+declaration, so the Pebble fixtures finish the sync and then expand it with
+`expandViaSyncer`. That is the replay path the CLI uses.
+
+### CO8 (2026-10-13): no-point-read instrument
+
+No read counter exists. `TestRollbackExpansionIssuesNoPointReads` parses
+`rollback_expansion.go` and fails on any `.Get(` call.

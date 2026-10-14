@@ -73,6 +73,7 @@ var rawdbHookFailureCases = map[string][]string{
 		"TestDropLedgerCommitFailureKeepsRowsAndStamp",
 		"TestVerificationSourceScopeMutationAtomicity",
 		"TestInvalidateSourceCacheReplayStateCommitFailureIsAtomic",
+		"TestRollbackExpansionCommitFailureLandsNothing",
 	},
 }
 

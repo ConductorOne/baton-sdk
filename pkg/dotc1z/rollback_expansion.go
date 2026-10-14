@@ -22,15 +22,16 @@ import (
 // the entitlement graph persisted in the sync token, not in the grant
 // rows. Deleting expansion output from such a sync would strand that
 // graph: a later resume would treat the affected edges as already
-// expanded and never regenerate the deleted grants. Rollback only
-// operates on finished syncs.
+// expanded and never regenerate the deleted grants. SQLite rollback only
+// operates on finished syncs. Pebble wraps pebble.ErrRollbackIncompleteCollection
+// in it, and accepts an unfinished sync whose collection completed.
 var ErrSyncNotFinished = errors.New("c1z: refusing to roll back expansion on an unfinished sync")
 
-// ErrSyncNotExpanded is returned when a rollback targets a finished sync
-// that never ran grant expansion (no supports_diff marker). There is
-// nothing to roll back, and a missing marker also means a resumable
-// graph was never produced.
-var ErrSyncNotExpanded = errors.New("c1z: sync did not run grant expansion (no supports_diff marker); nothing to roll back")
+// ErrSyncNotExpanded is returned when a rollback targets a sync that never
+// ran grant expansion. SQLite decides this by the supports_diff marker, whose
+// absence also means a resumable graph was never produced; Pebble decides it
+// by finding no grant with Sources.
+var ErrSyncNotExpanded = errors.New("c1z: sync did not run grant expansion; nothing to roll back")
 
 // rollbackPageSize bounds how many grant rows are read per round, and — since
 // each page's mutations commit in their own transaction — also bounds the
@@ -151,7 +152,7 @@ func (c *C1File) RollbackExpansion(ctx context.Context, syncID string, dryRun bo
 		return nil, fmt.Errorf("%w: %q", ErrSyncNotFinished, syncID)
 	}
 	if !sr.SupportsDiff {
-		return nil, fmt.Errorf("%w: %q", ErrSyncNotExpanded, syncID)
+		return nil, fmt.Errorf("%w: %q has no supports_diff marker", ErrSyncNotExpanded, syncID)
 	}
 
 	if err := c.SetCurrentSync(ctx, syncID); err != nil {
