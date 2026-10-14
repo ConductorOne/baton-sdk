@@ -466,15 +466,9 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	return client, nil
 }
 
-// Close shuts down the grpc server and closes the connection. It is
-// CloseContext with a background context.
+// Close closes the client connection and the service's stdin, then waits up
+// to serviceShutdownGrace for the service to exit.
 func (cw *wrapper) Close() error {
-	return cw.CloseContext(context.Background())
-}
-
-// CloseContext is Close, except that cancelling ctx ends the wait for the
-// service to exit early and adds ctx.Err() to the returned error.
-func (cw *wrapper) CloseContext(ctx context.Context) error {
 	cw.mtx.Lock()
 
 	// Every step runs even if an earlier one fails, so the service is always
@@ -508,12 +502,6 @@ func (cw *wrapper) CloseContext(ctx context.Context) error {
 		select {
 		case <-done:
 		case <-time.After(serviceShutdownGrace):
-		case <-ctx.Done():
-			select {
-			case <-done:
-			default:
-				errs = append(errs, fmt.Errorf("stopped waiting for connector service to exit: %w", ctx.Err()))
-			}
 		}
 	}
 
