@@ -39,7 +39,8 @@ const listenerFdEnv = "BATON_CONNECTOR_SERVICE_LISTENER_FD"
 // serviceShutdownGrace bounds how long the connector service subprocess gets
 // to exit (flushing its telemetry) after it is asked to stop, before it is
 // killed. It is longer than the service's own otel shutdown timeout (5s).
-const serviceShutdownGrace = 7 * time.Second
+// A variable so tests can shorten it.
+var serviceShutdownGrace = 7 * time.Second
 
 type connectorClient struct {
 	connectorV2.ResourceTypesServiceClient
