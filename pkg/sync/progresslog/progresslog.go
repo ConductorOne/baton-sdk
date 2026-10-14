@@ -158,9 +158,8 @@ func NewProgressCounts(ctx context.Context, opts ...Option) *ProgressLog {
 	for _, o := range opts {
 		o(p)
 	}
-	// Resolve metric instruments after options apply. Counters/gauges are
-	// idempotent within a Handler (otelHandler caches by name), so re-resolving
-	// here is safe even if the no-op handler was replaced via WithMetricsHandler.
+	// Resolve metric instruments after options apply; otelHandler caches
+	// instruments by name, so resolving again on the default handler is free.
 	p.metricsExpandRemaining = p.metricsHandler.Int64Gauge(
 		metricActionsRemaining,
 		"Current entitlement-graph actions queued for grant expansion",
