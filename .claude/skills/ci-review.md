@@ -66,6 +66,36 @@ review; a single-shot CI review is advisory sampling, not coverage. Specifically
 Do not attempt the full seven-pass review yourself; your job on HIGH is to flag,
 route, and check that the claimed instruments actually exist in the diff.
 
+## Design Pass (before line comments)
+
+Read the new surface whole, not the diff: every exported name, interface,
+and type the change adds, in the files that declare them. Findings here
+outrank everything below; a review with a design finding emits no comment
+findings.
+
+- Every exported name: who outside the package calls it? None, or only
+  tests: finding, unexport it.
+- Type size: a hand-written struct over 20 methods, a struct with methods
+  over 15 fields, or a hand-written interface over 10 methods, is pinned
+  at its current size and may only shrink. Generated types and
+  method-less records track a schema and are exempt. A change that grows
+  a pinned type adds to the type that was there because it was there;
+  finding, ask what type the new methods belong to.
+- `make exportcheck` enforces both for the storage packages. A PR that
+  adds to `.exportcheck-baseline` says why in the PR; that is the only
+  path to growing a pinned type.
+- Every new interface: what implements it, and what else could? Two
+  optional interfaces that a store never has one without the other are one
+  interface.
+- Two names, or two types, for one operation: finding, pick one.
+- A helper, interface, or abstraction whose reason to exist is a paragraph
+  of comment rather than a second caller: ask for the second caller or the
+  deletion.
+- Test instrumentation in a production path (hooks, observers, counters
+  that only tests read): name it as a cost and ask whether a test-only
+  hook or a static check does the job.
+- Naming: per `AGENTS.md`.
+
 ## Exported Go API Stability
 
 Treat exported APIs in `pkg/connectorbuilder` as connector contracts, especially:
@@ -157,12 +187,15 @@ downstreams.
 
 These constrain what you emit. They apply to every finding, whatever it is about.
 
+- Code comments: a comment finding is one of three things. The comment is false. It
+  documents a surprise the code should have removed, and the finding is the rename, type,
+  or split, not the comment. It documents nothing a reader could not glean from the code,
+  and the finding is delete. Anything else about a comment is silent: stale, imprecise,
+  too long, restating the diff. Do not request a comment where a rename or a split would
+  do, and never propose replacement text longer than one line. A comment finding blocks
+  only when the comment is false in a way that would lead a reader to write wrong code.
+  See `docs/COMMENTS.md`, Reviewing.
 - A non-blocking wording finding is unsaid unless the wording would change what a reader
   does. Still-imprecise is not a finding.
-- One round per location by default. If you already commented on a line and the fix is
-  still imprecise, propose the exact replacement text or say nothing. A second thread is
-  for a fix that introduced something new that would mislead a reader.
-- Code comments: review per `docs/COMMENTS.md`, "Reviewing". The first question is whether
-  the comment should exist; if not, the finding is delete, not reword. A comment finding
-  blocks only when the comment is false in a way that would lead a reader to write wrong
-  code. Deleting a comment that would not pass that page needs no justification.
+- One round per location. A second thread is for a fix that introduced something new that
+  would mislead a reader, not for wording that is still not quite right.

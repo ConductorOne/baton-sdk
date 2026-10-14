@@ -9,6 +9,16 @@ notes, and conversation with humans. Name the function, type, hook, or
 check. State the fact with essential framing. For whether a code comment
 should exist at all, follow `docs/COMMENTS.md`.
 
+## Comments
+
+Follow `docs/COMMENTS.md`. A typical change adds zero comments. A comment
+records something genuinely surprising that a reader could not glean from
+the code; before writing one, change the code so it is not surprising, and
+write the comment only for what remains. A comment longer than the code
+under it is deleted or moved to `docs/`, except one block for a sizeable,
+novel algorithm or protocol. Before finishing, delete half of the comments
+you added, then reread the rest.
+
 ## Project Overview
 
 Baton is a CLI tool for exploring and analyzing identity governance data (users, permissions, roles, groups, resources) stored in `.c1z` files. It includes a web-based explorer UI built with React/TypeScript, embedded into the Go binary.
