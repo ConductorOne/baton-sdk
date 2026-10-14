@@ -20,11 +20,11 @@ jobs:
           # versions. Bump deliberately, fixing any new findings in the
           # same PR.
           #
-          # v2.13.2 is the floor: its binaries are built with go1.27, and a
-          # release built with an older Go refuses to load the config at all
-          # ("the Go language version used to build golangci-lint is lower
-          # than the targeted Go version").
-          version: v2.13.2
+          # v2.14.0 is the floor for a go 1.27.2 module: older releases cannot
+          # read its export data ("export data version 5 is greater than
+          # maximum supported version 4"), and a release built with an older
+          # Go refuses to load the config at all.
+          version: v2.14.0
           args: --timeout=3m
   go-test:
     strategy:
