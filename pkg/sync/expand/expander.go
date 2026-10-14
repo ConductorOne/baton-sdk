@@ -433,6 +433,8 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 			// the per-sync report. The batch shares one source, but every
 			// destination edge drops — count them all.
 			e.dropStats.RecordSourceMissingEdges(action.SourceEntitlementID, len(dests))
+			// The edges are deleted below, so a later seed could not reach them.
+			e.graph.NoteUnrecoverableDangling()
 			l.Debug("runAction: source entitlement not found, dropping batch edges",
 				zap.String("source_entitlement_id", action.SourceEntitlementID))
 			for _, d := range dests {
@@ -469,6 +471,8 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 				// A single missing descendant drops only its own edge; the rest
 				// of the batch still expands. Debug + aggregate, as above.
 				e.dropStats.RecordDestinationMissing(d.EntitlementID)
+				// The edge is deleted below, so a later seed could not reach it.
+				e.graph.NoteUnrecoverableDangling()
 				l.Debug("runAction: descendant entitlement not found, dropping edge",
 					zap.String("descendant_entitlement_id", d.EntitlementID))
 				_ = e.graph.DeleteEdge(ctx, action.SourceEntitlementID, d.EntitlementID)

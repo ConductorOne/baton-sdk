@@ -246,3 +246,61 @@ func BenchmarkMarshalGraphBlob(b *testing.B) {
 func entName(i int) string {
 	return fmt.Sprintf("group:g%06d:member", i)
 }
+
+// TestUnmarshalGraphBlob_RejectsPreDanglingVersion: a v2 blob predates
+// dangling bookkeeping, so what it skipped is unknowable and it
+// must not be reused as an incremental base. Rejection is silent — (nil, nil)
+// — so the reader falls back to full expansion rather than failing.
+func TestUnmarshalGraphBlob_RejectsPreDanglingVersion(t *testing.T) {
+	ctx := context.Background()
+	g := NewEntitlementGraph(ctx)
+	g.AddEntitlementID("ent-a")
+
+	v2Blob, err := json.Marshal(map[string]any{
+		"format_version": 2,
+		"sync_id":        "sync-1",
+		"graph":          g,
+	})
+	require.NoError(t, err)
+
+	got, digest, err := UnmarshalGraphBlobWithGrantDigest(v2Blob, "sync-1")
+	require.NoError(t, err)
+	require.Nil(t, got)
+	require.Nil(t, digest)
+}
+
+// TestGraphBlob_RoundTripsDanglingState: the recorded ids are what the next run
+// seeds from, so losing them in serialization would silently reintroduce the
+// divergence this whole mechanism exists to prevent.
+func TestGraphBlob_RoundTripsDanglingState(t *testing.T) {
+	ctx := context.Background()
+	g := NewEntitlementGraph(ctx)
+	g.AddEntitlementID("ent-a")
+	g.NoteDanglingReference("missing:one")
+	g.NoteDanglingReference("missing:two")
+
+	data, err := MarshalGraphBlob("sync-1", g)
+	require.NoError(t, err)
+	got, err := UnmarshalGraphBlob(data, "sync-1")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Contains(t, got.DanglingEntitlementIDs, "missing:one")
+	require.Contains(t, got.DanglingEntitlementIDs, "missing:two")
+	require.False(t, got.DanglingOverflow)
+}
+
+// TestGraphBlob_RoundTripsDanglingOverflow: overflow is the flag that makes the
+// compactor decline outright, so it must survive too.
+func TestGraphBlob_RoundTripsDanglingOverflow(t *testing.T) {
+	ctx := context.Background()
+	g := NewEntitlementGraph(ctx)
+	g.AddEntitlementID("ent-a")
+	g.NoteUnrecoverableDangling()
+
+	data, err := MarshalGraphBlob("sync-1", g)
+	require.NoError(t, err)
+	got, err := UnmarshalGraphBlob(data, "sync-1")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.True(t, got.DanglingOverflow)
+}
