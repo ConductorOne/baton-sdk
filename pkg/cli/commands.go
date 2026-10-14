@@ -149,17 +149,7 @@ func MakeMainCommand[T field.Configurable](
 		if err != nil {
 			return err
 		}
-		defer func() {
-			if otelShutdown == nil {
-				return
-			}
-			shutdownCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(otelShutdownTimeout))
-			defer cancel()
-			err := otelShutdown(shutdownCtx)
-			if err != nil {
-				zap.L().Error("error shutting down otel", zap.Error(err))
-			}
-		}()
+		defer onceOtelShutdown(otelShutdown)()
 
 		// NOTE: initOtel may do stuff with the logger
 		l := ctxzap.Extract(runCtx)

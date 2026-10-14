@@ -14,14 +14,15 @@ import (
 func TestWatchParentStdinFlushesOnceBeforeExit(t *testing.T) {
 	var events []string
 	shutdowns := 0
+	hasDeadline := false
+	exitCode := -1
 	flush := onceOtelShutdown(func(ctx context.Context) error {
-		_, hasDeadline := ctx.Deadline()
-		require.True(t, hasDeadline)
+		_, hasDeadline = ctx.Deadline()
 		shutdowns++
 		events = append(events, "flush")
 		return nil
 	})
-	exit := func(code int) { events = append(events, "exit"); require.Equal(t, 0, code) }
+	exit := func(code int) { events = append(events, "exit"); exitCode = code }
 
 	r, w := io.Pipe()
 	done := make(chan struct{})
@@ -31,6 +32,8 @@ func TestWatchParentStdinFlushesOnceBeforeExit(t *testing.T) {
 	}()
 	require.NoError(t, w.Close()) // the parent closes the service's stdin
 	<-done
+	require.True(t, hasDeadline)
+	require.Equal(t, 0, exitCode)
 
 	flush() // the command's deferred flush
 	require.Equal(t, []string{"flush", "exit"}, events)
@@ -39,13 +42,14 @@ func TestWatchParentStdinFlushesOnceBeforeExit(t *testing.T) {
 
 func TestWatchParentStdinExitsAfterDataThenEOF(t *testing.T) {
 	var events []string
+	exitCode := -1
 	r, w := io.Pipe()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		watchParentStdin(r, func() { events = append(events, "flush") }, func(code int) {
 			events = append(events, "exit")
-			require.Equal(t, 0, code)
+			exitCode = code
 		})
 	}()
 	_, err := w.Write([]byte("stray"))
@@ -54,6 +58,7 @@ func TestWatchParentStdinExitsAfterDataThenEOF(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, w.Close())
 	<-done
+	require.Equal(t, 0, exitCode)
 	require.Equal(t, []string{"flush", "exit"}, events)
 }
 

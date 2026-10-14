@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-func TestCloseRunsMetricsShutdownFirst(t *testing.T) {
+func TestCloseRunsShutdownsInInitOrder(t *testing.T) {
 	cfg := newConfig(WithServiceName("uotel-test"))
 
 	var order []string
@@ -23,10 +23,10 @@ func TestCloseRunsMetricsShutdownFirst(t *testing.T) {
 	}
 	cfg.shutdown = append(cfg.shutdown, step("logs"))
 	cfg.shutdown = append(cfg.shutdown, step("traces"))
-	cfg.shutdown = append([]func(context.Context) error{step("metrics")}, cfg.shutdown...)
+	cfg.shutdown = append(cfg.shutdown, step("metrics"))
 
 	require.NoError(t, cfg.Close(t.Context()))
-	require.Equal(t, []string{"metrics", "logs", "traces"}, order)
+	require.Equal(t, []string{"logs", "traces", "metrics"}, order)
 }
 
 // TestMetricsInitFailureDoesNotAbort checks that a metrics exporter that

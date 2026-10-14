@@ -28,9 +28,7 @@ type otelHandler struct {
 
 // otelCore holds the instruments shared by every view of a handler.
 type otelCore struct {
-	name     string
-	meter    otelmetric.Meter
-	provider otelmetric.MeterProvider
+	meter otelmetric.Meter
 
 	countersMtx sync.Mutex
 	counters    map[string]otelmetric.Int64Counter
@@ -179,9 +177,7 @@ func makeAttrs(tags map[string]string) []attribute.KeyValue {
 
 func NewOtelHandler(_ context.Context, provider otelmetric.MeterProvider, name string) Handler {
 	return &otelHandler{core: &otelCore{
-		name:     name,
 		meter:    provider.Meter(name),
-		provider: provider,
 		counters: make(map[string]otelmetric.Int64Counter),
 		histos:   make(map[string]otelmetric.Int64Histogram),
 		gauges:   make(map[string]*gaugeState),

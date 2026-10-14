@@ -312,9 +312,7 @@ func (c *otelConfig) initMetrics(ctx context.Context, cc *grpc.ClientConn) error
 
 	zap.L().Debug("OpenTelemetry metrics enabled")
 
-	// For one-shot runs the final metrics export happens only at shutdown, so
-	// metrics flush before traces and logs.
-	c.shutdown = append([]func(context.Context) error{meterProvider.Shutdown}, c.shutdown...)
+	c.shutdown = append(c.shutdown, meterProvider.Shutdown)
 	return nil
 }
 
@@ -377,8 +375,8 @@ func (c *otelConfig) initLogging(ctx context.Context, cc *grpc.ClientConn) (cont
 	return ctxzap.ToContext(ctx, l), nil
 }
 
-// Close shuts down the meter provider first, then the log and tracer providers
-// in init order, and then closes the connections they export over.
+// Close shuts down the providers in init order, then closes the connections
+// they export over.
 func (c *otelConfig) Close(ctx context.Context) error {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()

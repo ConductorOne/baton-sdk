@@ -2,6 +2,7 @@ package metrics //nolint:revive,nolintlint // we can't change the package name f
 
 import (
 	"context"
+	"reflect"
 	"sync"
 
 	"go.opentelemetry.io/otel"
@@ -21,7 +22,7 @@ func NewDefaultHandler(ctx context.Context) Handler {
 
 	defaultHandlerMtx.Lock()
 	defer defaultHandlerMtx.Unlock()
-	if defaultHandlerProvider != mp || defaultHandlerInstance == nil {
+	if !sameProvider(defaultHandlerProvider, mp) || defaultHandlerInstance == nil {
 		defaultHandlerProvider = mp
 		defaultHandlerInstance = NewOtelHandler(ctx, mp, DefaultHandlerName)
 	}
@@ -33,3 +34,13 @@ var (
 	defaultHandlerProvider otelmetric.MeterProvider
 	defaultHandlerInstance Handler
 )
+
+func sameProvider(a, b otelmetric.MeterProvider) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	if !reflect.TypeOf(a).Comparable() || !reflect.TypeOf(b).Comparable() {
+		return false
+	}
+	return a == b
+}
