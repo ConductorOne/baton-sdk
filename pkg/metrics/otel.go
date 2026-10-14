@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
@@ -17,10 +18,12 @@ var (
 )
 
 type otelHandler struct {
-	name         string
-	meter        otelmetric.Meter
-	provider     otelmetric.MeterProvider
-	defaultAttrs *[]attribute.KeyValue
+	name     string
+	meter    otelmetric.Meter
+	provider otelmetric.MeterProvider
+	// defaultAttrs is replaced by WithTags and read by instrument lookups
+	// that may run concurrently, hence atomic.
+	defaultAttrs atomic.Pointer[[]attribute.KeyValue]
 
 	int64CountersMtx sync.Mutex
 	int64Counters    map[string]*otelInt64Counter
@@ -30,21 +33,25 @@ type otelHandler struct {
 	int64Gauges      map[string]*otelInt64Gauge
 }
 
+// baseAttrs holds an instrument's default attributes. Every instrument
+// lookup on the handler stores the handler's current defaults while
+// Add/Record/Observe read them, possibly from other goroutines (the default
+// handler is shared process-wide), so the pointer is atomic.
 type baseAttrs struct {
-	defaultAttrs *[]attribute.KeyValue
+	defaultAttrs atomic.Pointer[[]attribute.KeyValue]
 }
 
 func (a *baseAttrs) getAttributes(tags map[string]string) []attribute.KeyValue {
 	attrs := makeAttrs(tags)
-	if a.defaultAttrs != nil {
-		attrs = append(attrs, *a.defaultAttrs...)
+	if d := a.defaultAttrs.Load(); d != nil {
+		attrs = append(attrs, *d...)
 	}
 
 	return attrs
 }
 
 func (a *baseAttrs) setDefaultAttrs(attrs *[]attribute.KeyValue) {
-	a.defaultAttrs = attrs
+	a.defaultAttrs.Store(attrs)
 }
 
 type otelInt64Counter struct {
@@ -107,7 +114,7 @@ func (h *otelHandler) Int64Histogram(name string, description string, unit Unit)
 		h.int64Histos[name] = c
 	}
 
-	c.setDefaultAttrs(h.defaultAttrs)
+	c.setDefaultAttrs(h.defaultAttrs.Load())
 
 	return c
 }
@@ -128,7 +135,7 @@ func (h *otelHandler) Int64Counter(name string, description string, unit Unit) I
 		h.int64Counters[name] = c
 	}
 
-	c.setDefaultAttrs(h.defaultAttrs)
+	c.setDefaultAttrs(h.defaultAttrs.Load())
 
 	return c
 }
@@ -160,7 +167,7 @@ func (h *otelHandler) Int64Gauge(name string, description string, unit Unit) Int
 		h.int64Gauges[name] = c
 	}
 
-	c.setDefaultAttrs(h.defaultAttrs)
+	c.setDefaultAttrs(h.defaultAttrs.Load())
 
 	return c
 }
@@ -168,7 +175,7 @@ func (h *otelHandler) Int64Gauge(name string, description string, unit Unit) Int
 func (h *otelHandler) WithTags(tags map[string]string) Handler {
 	attrs := makeAttrs(tags)
 
-	h.defaultAttrs = &attrs
+	h.defaultAttrs.Store(&attrs)
 
 	return h
 }
