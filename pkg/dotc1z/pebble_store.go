@@ -553,14 +553,7 @@ func (s *pebbleStore) PutGrants(ctx context.Context, grants ...*v2.Grant) error 
 	if err := s.writeHook(ctx, "PutGrants"); err != nil {
 		return err
 	}
-	if err := s.markDirty(s.Engine.PutGrants(ctx, grants...)); err != nil {
-		return err
-	}
-	// Pebble has no slim grant encoding.
-	if len(grants) > 0 {
-		grantWriteCounter.Add(ctx, int64(len(grants)), slimWriteAttrFalse)
-	}
-	return nil
+	return s.markDirty(s.Engine.PutGrants(ctx, grants...))
 }
 
 // UnsafePutUniqueGrants is the trusted-import write path (no
@@ -571,13 +564,7 @@ func (s *pebbleStore) UnsafePutUniqueGrants(ctx context.Context, grants ...*v2.G
 	if err := s.writeHook(ctx, "UnsafePutUniqueGrants"); err != nil {
 		return err
 	}
-	if err := s.markDirty(s.Engine.UnsafePutUniqueGrants(ctx, grants...)); err != nil {
-		return err
-	}
-	if len(grants) > 0 {
-		grantWriteCounter.Add(ctx, int64(len(grants)), slimWriteAttrFalse)
-	}
-	return nil
+	return s.markDirty(s.Engine.UnsafePutUniqueGrants(ctx, grants...))
 }
 
 func (s *pebbleStore) PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error {
@@ -640,33 +627,10 @@ func (s *pebbleStore) LedgerFrontier(ctx context.Context) (*c1zstore.LedgerFront
 type dirtyPageWriter struct {
 	c1zstore.PageWriter
 	store *pebbleStore
-	// stagedGrants is added to c1z_grant_writes_total only once Commit
-	// succeeds; a failed Commit keeps it for a retry of the same page.
-	stagedGrants int64
-}
-
-func (w *dirtyPageWriter) PutGrants(ctx context.Context, grants ...*v2.Grant) error {
-	if err := w.PageWriter.PutGrants(ctx, grants...); err != nil {
-		return err
-	}
-	w.stagedGrants += int64(len(grants))
-	return nil
 }
 
 func (w *dirtyPageWriter) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity, row *c1zstore.LedgerRow) error {
-	if err := w.store.markDirty(w.PageWriter.Commit(ctx, id, row)); err != nil {
-		return err
-	}
-	if w.stagedGrants > 0 {
-		grantWriteCounter.Add(ctx, w.stagedGrants, slimWriteAttrFalse)
-		w.stagedGrants = 0
-	}
-	return nil
-}
-
-func (w *dirtyPageWriter) Discard() {
-	w.stagedGrants = 0
-	w.PageWriter.Discard()
+	return w.store.markDirty(w.PageWriter.Commit(ctx, id, row))
 }
 
 func (s *pebbleStore) State(ctx context.Context) (c1zstore.LedgerState, error) {
@@ -996,13 +960,7 @@ func (s *pebbleStore) save(ctx context.Context) error {
 		zap.Duration("checkpoint", checkpointDur),
 		zap.Duration("envelope_encode", time.Since(encodeStart)),
 	)
-	if err := staged.CloseAtomicallyReplace(); err != nil {
-		return err
-	}
-	if info, statErr := os.Stat(s.outputFilePath); statErr == nil {
-		recordC1ZSize(ctx, "finalize", info.Size())
-	}
-	return nil
+	return staged.CloseAtomicallyReplace()
 }
 
 func (s *pebbleStore) PutLedgerFacts(ctx context.Context, facts map[string]string) error {
