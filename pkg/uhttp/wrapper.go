@@ -201,9 +201,8 @@ func (e *decodeError) Unwrap() error {
 }
 
 func decodeFailure(err error) error {
-	var already *decodeError
-	if err == nil || errors.As(err, &already) {
-		return err
+	if err == nil {
+		return nil
 	}
 	return &decodeError{err: err}
 }
@@ -364,7 +363,7 @@ func quotedBody(body []byte) string {
 		text = strings.TrimSpace(text[:markup])
 	}
 	if text == "" || strings.HasPrefix(text, "{") || strings.HasPrefix(text, "[") {
-		return fmt.Sprintf(". body omitted (%d bytes; set BATON_DEBUG_PRINT_RESPONSE_BODY to print it)", len(body))
+		return fmt.Sprintf(". body omitted (%d bytes)", len(body))
 	}
 	if runes := []rune(text); len(runes) > maxQuotedBodyLength {
 		text = string(runes[:maxQuotedBodyLength]) + "..."
@@ -540,12 +539,7 @@ func WrapErrors(preferredCode codes.Code, statusMsg string, errs ...error) error
 	if len(errs) == 0 {
 		return st.Err()
 	}
-	if stated := stateCarriedStatusOnce(st, errs); stated != nil {
-		return stated
-	}
-
-	allErrs := append([]error{st.Err()}, errs...)
-	return errors.Join(allErrs...)
+	return joinWithStatus(st, errs)
 }
 
 func WrapErrorsWithRateLimitInfo(preferredCode codes.Code, resp *http.Response, errs ...error) error {
@@ -560,63 +554,33 @@ func WrapErrorsWithRateLimitInfo(preferredCode codes.Code, resp *http.Response, 
 	if len(errs) == 0 {
 		return st.Err()
 	}
-	if stated := stateCarriedStatusOnce(st, errs); stated != nil {
-		return stated
-	}
-
-	allErrs := append([]error{st.Err()}, errs...)
-	return errors.Join(allErrs...)
+	return joinWithStatus(st, errs)
 }
 
-// stateCarriedStatusOnce handles errs that already carry a status with st's
-// message, such as the error a non-2xx Do returns passed back through
-// WrapErrorsWithRateLimitInfo, which would otherwise print that status twice.
-// It returns nil when no error in errs carries one.
-//
-// With the same code and at least st's details, the carried status already
-// says everything st would: errs are returned as they are, the carrying one
-// first so status.Code still reads it. With another code the caller is
-// reclassifying, so st is stated in its place, keeping the carried rate limit
-// when st has none.
-func stateCarriedStatusOnce(st *status.Status, errs []error) error {
-	for i, err := range errs {
-		var carrier grpcStatusCarrier
+// joinWithStatus joins errs under st. When one of errs already states st
+// (same code, same message, and the details st would add), st is not added
+// again: the error a non-2xx Do returns, passed back through WrapErrors by a
+// connector, would otherwise print its status line twice.
+func joinWithStatus(st *status.Status, errs []error) error {
+	if alreadyStates(st, errs) {
+		return errors.Join(errs...)
+	}
+	return errors.Join(append([]error{st.Err()}, errs...)...)
+}
+
+func alreadyStates(st *status.Status, errs []error) bool {
+	for _, err := range errs {
+		var carrier interface{ GRPCStatus() *status.Status }
 		if !errors.As(err, &carrier) {
 			continue
 		}
 		carried := carrier.GRPCStatus()
-		if carried.Message() != st.Message() {
-			continue
+		if carried.Code() == st.Code() && carried.Message() == st.Message() &&
+			len(carried.Details()) >= len(st.Details()) {
+			return true
 		}
-
-		if carried.Code() == st.Code() {
-			if len(carried.Details()) < len(st.Details()) {
-				continue
-			}
-			if len(errs) == 1 {
-				return err
-			}
-			ordered := append([]error{err}, errs[:i]...)
-			return errors.Join(append(ordered, errs[i+1:]...)...)
-		}
-
-		if len(st.Details()) == 0 && len(carried.Details()) > 0 {
-			p := st.Proto()
-			p.Details = carried.Proto().GetDetails()
-			st = status.FromProto(p)
-		}
-		joined := errors.Join(errs...)
-		sameMessage := func(s *status.Status) bool { return s.Message() == st.Message() }
-		cause := withoutStatus(joined, sameMessage)
-		var left grpcStatusCarrier
-		if cause != nil && errors.As(cause, &left) && sameMessage(left.GRPCStatus()) {
-			// The carried status sits under a wrapper withoutStatus does not
-			// open, so its line would still print.
-			return nil
-		}
-		return &restatedError{status: st, cause: cause, err: joined}
 	}
-	return nil
+	return false
 }
 
 func (c *BaseHttpClient) recordCacheHit(ctx context.Context) {
@@ -662,7 +626,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	if resp == nil {
 		resp, err = c.HttpClient.Do(req) // #nosec G704 -- this HTTP wrapper intentionally supports arbitrary connector-defined endpoints.
 		if err != nil {
-			err = wrapRequestError(req.URL.Host, err)
+			err = wrapRequestError(err)
 			l.Error("base-http-client: HTTP error response", append(requestLogFields(req), zap.Error(err))...)
 			return resp, err
 		}
@@ -674,7 +638,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		if len(body) > 0 {
 			resp.Body = io.NopCloser(bytes.NewBuffer(body))
 		}
-		return resp, wrapRequestError(req.URL.Host, err)
+		return resp, wrapRequestError(err)
 	}
 
 	// Replace resp.Body with a no-op closer so nobody has to worry about closing the reader.

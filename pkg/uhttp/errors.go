@@ -80,15 +80,15 @@ func wrapTransientNetworkError(err error) error {
 		return WrapErrors(codes.FailedPrecondition, "tls certificate verification failed", err)
 	}
 
-	// The URL stays out of these messages: its query string can carry
-	// credentials. wrapRequestError names the host instead.
+	// Named by host and path, not the full URL: its query string can carry
+	// credentials.
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
 		if urlErr.Timeout() {
-			return WrapErrors(codes.DeadlineExceeded, "request timeout", urlErr)
+			return WrapErrors(codes.DeadlineExceeded, fmt.Sprintf("request timeout: %s", hostAndPath(urlErr.URL)), urlErr)
 		}
 		if urlErr.Temporary() {
-			return WrapErrors(codes.Unavailable, "temporary error", urlErr)
+			return WrapErrors(codes.Unavailable, fmt.Sprintf("temporary error: %s", hostAndPath(urlErr.URL)), urlErr)
 		}
 	}
 
@@ -116,95 +116,24 @@ func wrapTransientNetworkError(err error) error {
 	return err
 }
 
-// grpcStatusCarrier is what status.FromError looks for on an error.
-type grpcStatusCarrier interface {
-	GRPCStatus() *status.Status
-}
-
-// wrapRequestError classifies a request that got no response and names host
-// in its status. An error already classified closer to the failure (by
-// Transport.RoundTrip) keeps that code and message rather than gaining a
-// second status. Unwrap still reaches the original error, so errors.Is and
-// errors.As see the *url.Error and the transport error under it.
-func wrapRequestError(host string, err error) error {
-	if err == nil {
-		return nil
-	}
-	if status.Code(err) == codes.Unknown {
-		err = wrapTransientNetworkError(err)
-	}
-
-	var carrier grpcStatusCarrier
-	if !errors.As(err, &carrier) || carrier.GRPCStatus().Code() == codes.Unknown {
+// wrapRequestError classifies a request that got no response. An error that
+// already carries a gRPC status was classified closer to the failure, by
+// Transport.RoundTrip, and is returned as it is: one request states one status.
+func wrapRequestError(err error) error {
+	if err == nil || status.Code(err) != codes.Unknown {
 		return err
 	}
+	return wrapTransientNetworkError(err)
+}
 
-	st := carrier.GRPCStatus()
-	if host != "" && !strings.Contains(st.Message(), host) {
-		p := st.Proto()
-		p.Message = fmt.Sprintf("%s to %s", p.GetMessage(), host)
-		st = status.FromProto(p)
+// hostAndPath is rawURL without its scheme and query string. The query string
+// can carry credentials, so it stays out of status messages.
+func hostAndPath(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
 	}
-	allStatuses := func(*status.Status) bool { return true }
-	return &restatedError{status: st, cause: withoutStatus(err, allStatuses), err: err}
-}
-
-// restatedError states its status once, followed by what the errors under it
-// said without their own status lines. The status is reached through Unwrap,
-// ahead of the original error, rather than through a GRPCStatus method, so
-// status.FromError keeps the whole text, cause included, as it does for an
-// errors.Join.
-type restatedError struct {
-	status *status.Status
-	cause  error
-	err    error
-}
-
-func (e *restatedError) Error() string {
-	if e.cause == nil {
-		return e.status.Err().Error()
-	}
-	return e.status.Err().Error() + "\n" + e.cause.Error()
-}
-
-func (e *restatedError) Unwrap() []error {
-	return []error{e.status.Err(), e.err}
-}
-
-// withoutStatus is err without the status lines drop selects and without
-// *url.Error wrapping, whose message repeats the request URL and its query
-// string. For a request with no response, what is left is what the dialer,
-// resolver or TLS stack reported. It inspects one layer at a time, so a type
-// switch rather than errors.As.
-func withoutStatus(err error, drop func(*status.Status) bool) error {
-	switch e := err.(type) { //nolint:errorlint // walks the wrapping layer by layer on purpose
-	case *restatedError:
-		return e.cause
-	case *url.Error:
-		return withoutStatus(e.Err, drop)
-	case interface{ Unwrap() []error }:
-		var kept []error
-		for _, child := range e.Unwrap() {
-			if cause := withoutStatus(child, drop); cause != nil {
-				kept = append(kept, cause)
-			}
-		}
-		switch len(kept) {
-		case 0:
-			return nil
-		case 1:
-			return kept[0]
-		default:
-			return errors.Join(kept...)
-		}
-	case grpcStatusCarrier:
-		if drop(e.GRPCStatus()) {
-			return nil
-		}
-		return err
-	default:
-		return err
-	}
+	return u.Host + u.Path
 }
 
 // socketClass groups the socket failures the platform predicates in
