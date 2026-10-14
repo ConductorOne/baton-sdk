@@ -172,7 +172,7 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, 
 	cli := &BaseHttpClient{
 		HttpClient:     httpClient,
 		baseHttpCache:  cache,
-		metricsHandler: metrics.NewDefaultHandler(ctx), // WithMetricsHandler overrides
+		metricsHandler: metrics.NewDefaultHandler(ctx),
 	}
 
 	cachesMtx.Lock()

@@ -84,6 +84,12 @@ var newMetricExporter = func(ctx context.Context, cc *grpc.ClientConn) (sdkmetri
 	return otlpmetricgrpc.New(ctx, otlpmetricgrpc.WithGRPCConn(cc))
 }
 
+// newTraceExporter creates the OTLP trace exporter; a variable so tests can
+// make it fail.
+var newTraceExporter = func(ctx context.Context, cc *grpc.ClientConn) (sdktrace.SpanExporter, error) {
+	return otlptracegrpc.New(ctx, otlptracegrpc.WithGRPCConn(cc))
+}
+
 // Option is a function that configures an otelConfig.
 type Option func(*otelConfig)
 
@@ -167,7 +173,7 @@ func newConfig(opts ...Option) *otelConfig {
 	return cfg
 }
 
-func (c *otelConfig) init(ctx context.Context) (context.Context, error) {
+func (c *otelConfig) init(ctx context.Context) (_ context.Context, retErr error) {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
@@ -188,6 +194,19 @@ func (c *otelConfig) init(ctx context.Context) (context.Context, error) {
 
 	installErrorHandler()
 	c.errorHandlerInstalled = true
+
+	// The caller gets no Close on error, so undo what this call set up.
+	prevLogger := zap.L()
+	closeCtx := ctx
+	defer func() {
+		if retErr == nil {
+			return
+		}
+		if err := c.closeLocked(closeCtx); err != nil {
+			retErr = errors.Join(retErr, err)
+		}
+		zap.ReplaceGlobals(prevLogger)
+	}()
 
 	if !c.loggingDisabled {
 		ctx, err = c.initLogging(ctx, cc)
@@ -278,7 +297,7 @@ func (c *otelConfig) initTracing(ctx context.Context, cc *grpc.ClientConn) (cont
 		return nil, err
 	}
 
-	traceExporter, err := otlptracegrpc.New(ctx, otlptracegrpc.WithGRPCConn(cc))
+	traceExporter, err := newTraceExporter(ctx, cc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create trace exporter: %w", err)
 	}
@@ -387,7 +406,11 @@ func (c *otelConfig) initLogging(ctx context.Context, cc *grpc.ClientConn) (cont
 		}
 	}
 
-	l := zap.L().WithOptions(addOtel).With(fields...)
+	base := zap.L()
+	// A second config sees the first one's exporting logger as zap.L(), so keep
+	// the first base.
+	errorHandler.logger.CompareAndSwap(nil, base.With(fields...))
+	l := base.WithOptions(addOtel).With(fields...)
 	zap.ReplaceGlobals(l)
 
 	l.Debug("OpenTelemetry logging enabled")
@@ -404,7 +427,11 @@ func (c *otelConfig) initLogging(ctx context.Context, cc *grpc.ClientConn) (cont
 func (c *otelConfig) Close(ctx context.Context) error {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
+	return c.closeLocked(ctx)
+}
 
+// precondition: c.mtx is locked.
+func (c *otelConfig) closeLocked(ctx context.Context) error {
 	shutdowns := slices.Clone(c.shutdown)
 	slices.SortStableFunc(shutdowns, func(a, b providerShutdown) int { return a.order - b.order })
 

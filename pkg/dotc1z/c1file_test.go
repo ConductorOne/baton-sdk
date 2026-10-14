@@ -12,6 +12,7 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -53,6 +54,10 @@ func TestMain(m *testing.M) {
 }
 
 func setup() error {
+	// The package-level instruments bind to the first global MeterProvider
+	// the process sets, so tests read from this one provider.
+	otel.SetMeterProvider(testMeterProvider)
+
 	tempdir, err := os.MkdirTemp("", "c1z-test")
 	if err != nil {
 		return err

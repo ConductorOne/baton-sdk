@@ -28,6 +28,9 @@ type dedupErrorHandler struct {
 	// active counts initialized configs; with none, errors go to the
 	// standard logger like otel's default handler.
 	active atomic.Int32
+	// logger, when set, must not export to the OTLP log exporter, or an
+	// export error is logged into the exporter that failed. Unset means zap.L().
+	logger atomic.Pointer[zap.Logger]
 
 	mtx     sync.Mutex
 	now     func() time.Time
@@ -57,7 +60,9 @@ func installErrorHandler() {
 }
 
 func uninstallErrorHandler() {
-	errorHandler.active.Add(-1)
+	if errorHandler.active.Add(-1) == 0 {
+		errorHandler.logger.Store(nil)
+	}
 }
 
 func (h *dedupErrorHandler) Handle(err error) {
@@ -76,7 +81,11 @@ func (h *dedupErrorHandler) Handle(err error) {
 	if suppressed > 0 {
 		fields = append(fields, zap.Int("suppressed_repeats", suppressed))
 	}
-	zap.L().Warn("otel: telemetry export error", fields...)
+	l := h.logger.Load()
+	if l == nil {
+		l = zap.L()
+	}
+	l.Warn("otel: telemetry export error", fields...)
 }
 
 // record notes an occurrence of msg and reports whether it should be logged

@@ -98,11 +98,12 @@ func findMetric(ms []receivedMetric, name string) (receivedMetric, bool) {
 	return receivedMetric{}, false
 }
 
-// emitMetricsAndClose records SDK metrics through the default handler and a
-// plain global meter, then calls Close long before the export interval elapses.
+// emitMetricsAndClose records SDK metrics through a handler on the installed
+// MeterProvider and a plain global meter, then calls Close long before the
+// export interval elapses.
 func emitMetricsAndClose(t *testing.T, ctx context.Context, cfg *otelConfig) {
 	t.Helper()
-	m := metrics.New(metrics.NewDefaultHandler(ctx))
+	m := metrics.New(installedProviderHandler(ctx))
 	m.RecordTaskSuccess(ctx, tasks.FullSyncType, 12*time.Millisecond)
 
 	counter, err := otel.Meter("uotel-test").Int64Counter("uotel_test_counter")
@@ -112,6 +113,13 @@ func emitMetricsAndClose(t *testing.T, ctx context.Context, cfg *otelConfig) {
 	closeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	require.NoError(t, cfg.Close(closeCtx))
+}
+
+// installedProviderHandler returns a handler on the MeterProvider init
+// installed. metrics.NewDefaultHandler records only to the first provider the
+// test binary installs, which an earlier test has already shut down.
+func installedProviderHandler(ctx context.Context) metrics.Handler {
+	return metrics.NewOtelHandler(ctx, otel.GetMeterProvider(), metrics.DefaultHandlerName)
 }
 
 func TestCloseFlushesMetrics(t *testing.T) {
@@ -154,7 +162,7 @@ func TestMetricsIntervalFromEnv(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = cfg.Close(context.Background()) })
 
-	metrics.New(metrics.NewDefaultHandler(ctx)).RecordTaskSuccess(ctx, tasks.FullSyncType, time.Millisecond)
+	metrics.New(installedProviderHandler(ctx)).RecordTaskSuccess(ctx, tasks.FullSyncType, time.Millisecond)
 
 	// Exported by the periodic reader, before any Close.
 	require.Eventually(t, func() bool {

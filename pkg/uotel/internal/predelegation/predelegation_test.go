@@ -89,12 +89,21 @@ func (syncer) Grants(context.Context, *v2.Resource, resource.SyncOpAttrs) ([]*v2
 	return nil, nil, nil
 }
 
+var ranOnce bool
+
 // TestHandlersCreatedBeforeInitOtelExport builds a connector and a default
 // metrics handler while the global MeterProvider is still the otel no-op
 // delegate, then calls uotel.InitOtel and checks that metrics recorded
 // through both reach the collector, just as spans from package-level
 // otel.Tracer values do.
 func TestHandlersCreatedBeforeInitOtelExport(t *testing.T) {
+	// The first run installs the global MeterProvider for the process, so a
+	// repeat under -count has nothing left to test.
+	if ranOnce {
+		t.Skip("global MeterProvider already installed by an earlier run in this process")
+	}
+	ranOnce = true
+
 	// Guard: this test relies on being the first to set the global provider.
 	_, isSDK := otel.GetMeterProvider().(interface{ ForceFlush(context.Context) error })
 	require.False(t, isSDK, "a MeterProvider was installed before this test; it must run in its own package")

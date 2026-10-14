@@ -36,11 +36,15 @@ import (
 
 const listenerFdEnv = "BATON_CONNECTOR_SERVICE_LISTENER_FD"
 
+// ServiceOtelShutdownTimeout bounds the connector service's telemetry
+// shutdown when it exits.
+const ServiceOtelShutdownTimeout = 5 * time.Second
+
 // serviceShutdownGrace bounds how long the connector service subprocess gets
 // to exit (flushing its telemetry) after it is asked to stop, before it is
-// killed. It is longer than the service's own otel shutdown timeout (5s).
+// killed. It exceeds ServiceOtelShutdownTimeout so the flush can finish.
 // A variable so tests can shorten it.
-var serviceShutdownGrace = 7 * time.Second
+var serviceShutdownGrace = ServiceOtelShutdownTimeout + 2*time.Second
 
 type connectorClient struct {
 	connectorV2.ResourceTypesServiceClient
@@ -462,10 +466,16 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	return client, nil
 }
 
-// Close shuts down the grpc server and closes the connection.
+// Close shuts down the grpc server and closes the connection. It is
+// CloseContext with a background context.
 func (cw *wrapper) Close() error {
+	return cw.CloseContext(context.Background())
+}
+
+// CloseContext is Close, except that cancelling ctx ends the wait for the
+// service to exit early and adds ctx.Err() to the returned error.
+func (cw *wrapper) CloseContext(ctx context.Context) error {
 	cw.mtx.Lock()
-	defer cw.mtx.Unlock()
 
 	// Every step runs even if an earlier one fails, so the service is always
 	// asked to stop and waited for.
@@ -483,20 +493,29 @@ func (cw *wrapper) Close() error {
 		}
 	}
 
-	// Closing stdin asks the service to flush its telemetry and exit; wait
-	// for it (bounded) so it is not torn down with this process mid-flush.
-	if cw.serverDone != nil {
-		select {
-		case <-cw.serverDone:
-		case <-time.After(serviceShutdownGrace):
-		}
-	}
+	done := cw.serverDone
 	cw.serverDone = nil
-
 	cw.client = nil
 	cw.server = nil
 	cw.serverStdin = nil
 	cw.conn = nil
+	cw.mtx.Unlock()
+
+	// Closing stdin asks the service to flush its telemetry and exit; wait
+	// for it (bounded) so it is not torn down with this process mid-flush.
+	// The wait is outside the lock so concurrent C calls do not block on it.
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(serviceShutdownGrace):
+		case <-ctx.Done():
+			select {
+			case <-done:
+			default:
+				errs = append(errs, fmt.Errorf("stopped waiting for connector service to exit: %w", ctx.Err()))
+			}
+		}
+	}
 
 	return errors.Join(errs...)
 }

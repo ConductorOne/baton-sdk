@@ -60,15 +60,8 @@ type ProgressLog struct {
 	lastLoggedDBSize int64
 	hasLoggedDBSize  bool // false until the first successful size read; gates the delta field
 
-	// Optional OTel metrics handler. Mirrors the fields emitted by
-	// LogExpandProgress so operators don't have to back trends out of log
-	// timestamps. Initialized once in NewProgressCounts to
-	// metrics.NewDefaultHandler, which is bound to the global OTel
-	// MeterProvider the same way SDK spans use the global TracerProvider: it
-	// records nothing until uotel.InitOtel (or the host) installs a real
-	// provider. Callers can override via WithMetricsHandler. The expand metrics
-	// are looked up lazily on first emission so the no-op path costs nothing
-	// when expand never runs (e.g. resource-only syncs).
+	// Mirrors the fields emitted by LogExpandProgress. The expand metrics are
+	// looked up lazily on first emission so resource-only syncs create none.
 	metricsHandler         metrics.Handler
 	metricsExpandRemaining metrics.Int64Gauge
 	metricsExpandBurned    metrics.Int64Counter

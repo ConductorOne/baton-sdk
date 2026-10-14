@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -15,23 +14,54 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
+// testMetricReader backs the process-wide MeterProvider installed by TestMain.
+// Its counters accumulate across tests, so assertions compare deltas.
+var (
+	testMetricReader  = sdkmetric.NewManualReader()
+	testMeterProvider = sdkmetric.NewMeterProvider(sdkmetric.WithReader(testMetricReader))
+)
+
+// c1zMetricTotals returns the cumulative c1z_grant_writes_total and the latest
+// c1z_size_bytes (phase=finalize) from the shared reader.
+func c1zMetricTotals(t *testing.T) (int64, int64) {
+	t.Helper()
+	var writes, size int64
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, testMetricReader.Collect(context.Background(), &rm))
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			switch m.Name {
+			case "c1z_grant_writes_total":
+				sum, ok := m.Data.(metricdata.Sum[int64])
+				require.True(t, ok)
+				for _, dp := range sum.DataPoints {
+					if v, _ := dp.Attributes.Value(attribute.Key("slim")); !v.AsBool() {
+						writes += dp.Value
+					}
+				}
+			case "c1z_size_bytes":
+				g, ok := m.Data.(metricdata.Gauge[int64])
+				require.True(t, ok)
+				for _, dp := range g.DataPoints {
+					if v, _ := dp.Attributes.Value(attribute.Key("phase")); v.AsString() == "finalize" {
+						size = dp.Value
+					}
+				}
+			}
+		}
+	}
+	return writes, size
+}
+
 // TestPebbleStoreEmitsC1ZMetrics checks that the Pebble engine records the
 // same c1z metrics as the SQLite writer: c1z_grant_writes_total (slim=false)
 // for grants committed through a page or PutGrants, and c1z_size_bytes
 // (phase=finalize) when Close saves the c1z.
 //
-// The package-level meter is bound to the first global MeterProvider set in
-// this test binary, and other tests may write grants concurrently, so values
-// are checked as lower bounds.
+// Other tests may write grants concurrently, so the write delta is a lower
+// bound.
 func TestPebbleStoreEmitsC1ZMetrics(t *testing.T) {
-	reader := sdkmetric.NewManualReader()
-	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-	prev := otel.GetMeterProvider()
-	otel.SetMeterProvider(mp)
-	t.Cleanup(func() {
-		otel.SetMeterProvider(prev)
-		_ = mp.Shutdown(context.Background())
-	})
+	writesBefore, _ := c1zMetricTotals(t)
 
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "metrics.c1z")
@@ -53,32 +83,7 @@ func TestPebbleStoreEmitsC1ZMetrics(t *testing.T) {
 	require.NoError(t, store.PutGrants(ctx, mkV2Grant("g3", "ent", "user", "carol")))
 	require.NoError(t, store.Close(ctx))
 
-	var rm metricdata.ResourceMetrics
-	require.NoError(t, reader.Collect(ctx, &rm))
-
-	var writes, size int64
-	for _, sm := range rm.ScopeMetrics {
-		for _, m := range sm.Metrics {
-			switch m.Name {
-			case "c1z_grant_writes_total":
-				sum, ok := m.Data.(metricdata.Sum[int64])
-				require.True(t, ok)
-				for _, dp := range sum.DataPoints {
-					v, _ := dp.Attributes.Value(attribute.Key("slim"))
-					require.False(t, v.AsBool())
-					writes += dp.Value
-				}
-			case "c1z_size_bytes":
-				g, ok := m.Data.(metricdata.Gauge[int64])
-				require.True(t, ok)
-				for _, dp := range g.DataPoints {
-					if v, _ := dp.Attributes.Value(attribute.Key("phase")); v.AsString() == "finalize" {
-						size = dp.Value
-					}
-				}
-			}
-		}
-	}
-	require.GreaterOrEqual(t, writes, int64(3))
+	writesAfter, size := c1zMetricTotals(t)
+	require.GreaterOrEqual(t, writesAfter-writesBefore, int64(3))
 	require.Positive(t, size)
 }

@@ -45,7 +45,7 @@ import (
 )
 
 const (
-	otelShutdownTimeout = 5 * time.Second
+	otelShutdownTimeout = connector.ServiceOtelShutdownTimeout
 )
 
 // eventLogEnabledKey marks the context when the user passed --log-event-log.
@@ -921,13 +921,16 @@ func onceOtelShutdown(shutdown func(context.Context) error) func() {
 	}
 }
 
-// watchParentStdin waits for a read from stdin to fail (the parent closed it
-// or died), then flushes telemetry and exits 0. Data on stdin ends the watch
-// without exiting.
+// watchParentStdin reads and discards stdin until a read fails (the parent
+// closed it or died), then flushes telemetry and exits 0. Data on stdin does
+// not end the watch.
 func watchParentStdin(stdin io.Reader, flush func(), exit func(int)) {
-	in := make([]byte, 1)
-	if _, err := stdin.Read(in); err != nil {
-		flush()
-		exit(0)
+	in := make([]byte, 512)
+	for {
+		if _, err := stdin.Read(in); err != nil {
+			flush()
+			exit(0)
+			return
+		}
 	}
 }

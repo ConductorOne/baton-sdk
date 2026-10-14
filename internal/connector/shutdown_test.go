@@ -124,3 +124,49 @@ func TestCloseStopsServiceWhenConnCloseFails(t *testing.T) {
 	requireExited(t, done, 0)
 	require.Nil(t, cw.serverStdin)
 }
+
+// TestCloseDoesNotHoldLockWhileWaiting: while Close waits for the service to
+// exit, the wrapper lock is free and the fields are already cleared.
+func TestCloseDoesNotHoldLockWhileWaiting(t *testing.T) {
+	prev := serviceShutdownGrace
+	serviceShutdownGrace = 2 * time.Second
+	t.Cleanup(func() { serviceShutdownGrace = prev })
+
+	cw := &wrapper{now: time.Now, serverDone: make(chan struct{})} // never closed
+	closed := make(chan error, 1)
+	go func() { closed <- cw.Close() }()
+
+	require.Eventually(t, func() bool {
+		if !cw.mtx.TryRLock() {
+			return false
+		}
+		defer cw.mtx.RUnlock()
+		return cw.serverDone == nil && cw.client == nil && cw.conn == nil
+	}, serviceShutdownGrace/2, 5*time.Millisecond, "lock held or state not cleared while Close waits")
+
+	select {
+	case <-closed:
+		t.Fatal("Close returned before the grace period elapsed")
+	default:
+	}
+	require.NoError(t, <-closed)
+}
+
+func TestCloseContextCancelCutsWaitShort(t *testing.T) {
+	prev := serviceShutdownGrace
+	serviceShutdownGrace = time.Minute
+	t.Cleanup(func() { serviceShutdownGrace = prev })
+
+	cw := &wrapper{now: time.Now, serverDone: make(chan struct{})} // never closed
+	ctx, cancel := context.WithCancel(t.Context())
+	closed := make(chan error, 1)
+	go func() { closed <- cw.CloseContext(ctx) }()
+	cancel()
+
+	select {
+	case err := <-closed:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(childStartupWait):
+		t.Fatal("CloseContext did not return after ctx was cancelled")
+	}
+}

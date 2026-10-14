@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"io"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -38,10 +37,24 @@ func TestWatchParentStdinFlushesOnceBeforeExit(t *testing.T) {
 	require.Equal(t, 1, shutdowns)
 }
 
-func TestWatchParentStdinIgnoresData(t *testing.T) {
-	called := false
-	watchParentStdin(strings.NewReader("x"), func() { called = true }, func(int) { called = true })
-	require.False(t, called)
+func TestWatchParentStdinExitsAfterDataThenEOF(t *testing.T) {
+	var events []string
+	r, w := io.Pipe()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		watchParentStdin(r, func() { events = append(events, "flush") }, func(code int) {
+			events = append(events, "exit")
+			require.Equal(t, 0, code)
+		})
+	}()
+	_, err := w.Write([]byte("stray"))
+	require.NoError(t, err)
+	_, err = w.Write([]byte("more"))
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	<-done
+	require.Equal(t, []string{"flush", "exit"}, events)
 }
 
 func TestOnceOtelShutdownNil(t *testing.T) {

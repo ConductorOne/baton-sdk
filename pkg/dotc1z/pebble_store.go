@@ -571,7 +571,13 @@ func (s *pebbleStore) UnsafePutUniqueGrants(ctx context.Context, grants ...*v2.G
 	if err := s.writeHook(ctx, "UnsafePutUniqueGrants"); err != nil {
 		return err
 	}
-	return s.markDirty(s.Engine.UnsafePutUniqueGrants(ctx, grants...))
+	if err := s.markDirty(s.Engine.UnsafePutUniqueGrants(ctx, grants...)); err != nil {
+		return err
+	}
+	if len(grants) > 0 {
+		grantWriteCounter.Add(ctx, int64(len(grants)), slimWriteAttrFalse)
+	}
+	return nil
 }
 
 func (s *pebbleStore) PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error {
