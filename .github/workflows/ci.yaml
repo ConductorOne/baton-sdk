@@ -25,7 +25,9 @@ jobs:
           # maximum supported version 4"), and a release built with an older
           # Go refuses to load the config at all.
           version: v2.14.0
-          args: --timeout=3m
+          # Loading this module's packages cold takes close to 3m on the
+          # runner; 3m was a budget the run had to hit exactly.
+          args: --timeout=5m
   go-test:
     strategy:
       matrix:
