@@ -156,3 +156,12 @@ directly, not through the server under test.
     `*pebble.DB`; the recovery interceptor returns `codes.Internal`.
   - SQLite returns `ErrDbNotOpen` as `codes.Unknown`.
 - Affected criteria: none.
+
+### CO3 (correction to CO1)
+
+- Source: `.github/workflows/ci.yaml:45`, `Makefile:111-113`,
+  `.github/workflows/nightly.yaml`.
+- CO1 said `make test` runs `-race`. PR CI runs `go test` without `-race`;
+  `make race-check` and the nightly race shards run it. `pkg/session` is in
+  the nightly `rest` shard. V6 is therefore enforced nightly, not per PR.
+- Affected criteria: V6.
