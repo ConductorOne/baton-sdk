@@ -126,4 +126,33 @@ directly, not through the server under test.
 
 ## Change orders
 
-None.
+### CO1 (clarification): V6 instrument
+
+- Source: running the overlap harness under `-race` on `main`.
+- Motivation: the harness reported no race. Every attach in it is ordered by
+  channel handoffs, and the race detector treats socket and file I/O as
+  synchronization, so the unsynchronized `GRPCSessionServer.store` is never
+  observed as concurrent.
+- Contract delta: none. B10 unchanged.
+- Verification delta: V6 moves to `TestGRPCSessionServerAttachWhileServing`
+  (`pkg/session/session_server_test.go`), which attaches and serves from two
+  goroutines with no I/O between them. It has no assertion and fails only
+  under `-race`; `make test` runs `-race`. It targets `SetSessionStore`; if
+  the binding API replaces it, the test moves to the replacement.
+- Affected criteria: V6.
+
+### CO2 (clarification): observed closed-store errors
+
+- Source: overlap harness output on `main`.
+- Contract delta: none. The problem statement's closed-store consequences,
+  as measured:
+  - Pebble writes return `ErrEngineClosing`, which carries
+    `codes.Unavailable` (`engine_stub.go:31`). By reading, not run: the
+    syncer's retryer treats `Unavailable` as retryable
+    (`pkg/retry/retry.go:61`), so a connector that returns the session error
+    from a `List*` call would be retried against a store that will not
+    reopen. B4's classified codes are not retryable.
+  - Pebble reads skip the closing check and dereference the nil
+    `*pebble.DB`; the recovery interceptor returns `codes.Internal`.
+  - SQLite returns `ErrDbNotOpen` as `codes.Unknown`.
+- Affected criteria: none.
