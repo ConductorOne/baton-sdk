@@ -46,6 +46,7 @@ func goldenTokenCases() []goldenTokenCase {
 	return []goldenTokenCase{
 		{file: "empty.json"},
 		{file: "v1_init.json"},
+		{file: "v1_page_token_restart.json"},
 		{file: "v1_actions_multi.json"},
 		// An operation string this SDK does not know decodes to UnknownOp,
 		// which is 0, and `operation` is omitempty on a uint8 kind — so

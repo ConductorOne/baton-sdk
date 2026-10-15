@@ -80,8 +80,34 @@ func (i *ledgerInvocation) stage(action *Action, next string, children []Action)
 }
 
 func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler func(context.Context, *Action) error, allowWarning bool) error {
+	request, err := providerPageAction(action)
+	if err != nil {
+		return err
+	}
 	if !s.ledgered {
-		return handler(ctx, action)
+		cause := handler(ctx, request)
+		if cause == nil {
+			return nil
+		}
+		next, restartErr := s.cfg.pageTokenRestartPolicy.next(ctx, request, cause)
+		if restartErr != nil {
+			if errors.Is(restartErr, ErrPageTokenRestartLimit) {
+				if err := s.Checkpoint(ctx, true); err != nil {
+					return pageTokenRestartError{cause: errors.Join(restartErr, err), code: codes.Internal}
+				}
+			}
+			return restartErr
+		}
+		restarted := *action
+		restarted.PageTokenRestarted = true
+		if err := s.nextPageOrFinishAction(ctx, &restarted, next); err != nil {
+			return pageTokenRestartError{cause: errors.Join(cause, err), code: codes.Internal}
+		}
+		if err := s.Checkpoint(ctx, true); err != nil {
+			return pageTokenRestartError{cause: errors.Join(cause, err), code: codes.Internal}
+		}
+		logPageTokenRestart(ctx, request, cause)
+		return nil
 	}
 	if err := ctx.Err(); err != nil {
 		return err
@@ -105,7 +131,9 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 	invocation := &ledgerInvocation{action: action, attempts: attempts}
 	var warning error
 	var handlerFailure error
-	_, err := s.ledger.runPageWithCommit(ctx, workerIndex, ledgerIdentity(action), func(pageCtx context.Context, page *ledgerPage) error {
+	var restartCause error
+	transitionAction := *action
+	_, err = s.ledger.runPageWithCommit(ctx, workerIndex, ledgerIdentity(action), func(pageCtx context.Context, page *ledgerPage) error {
 		invocation.page = page
 		page.row.WorkID = action.WorkID
 		page.row.WorkRevision = action.WorkRevision
@@ -116,14 +144,23 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		var err error
 		switch {
 		case s.testHooks.ledgerHandler != nil:
-			err = s.testHooks.ledgerHandler(pageCtx, action, page)
+			err = s.testHooks.ledgerHandler(pageCtx, request, page)
 		case action.Op == InitOp || action.Op == SyncResourceTypesOp || action.Op == SyncResourcesOp || action.Op == SyncTargetedResourceOp || action.Op == SyncEntitlementsOp ||
 			action.Op == SyncGrantsOp || action.Op == SyncStaticEntitlementsOp || action.Op == SyncAssetsOp || action.Op == MaterializeStaticEntitlementsOp:
-			err = handler(pageCtx, action)
+			err = handler(pageCtx, request)
 		default:
 			return errors.New("ledger production handlers are not integrated")
 		}
 		invocation.connectorObservations = attempts.addObservations(invocation.connectorObservations)
+		if err != nil {
+			if next, restartErr := s.cfg.pageTokenRestartPolicy.next(pageCtx, request, err); restartErr == nil {
+				restartCause = err
+				transitionAction.PageTokenRestarted = true
+				err = invocation.stage(action, next, nil)
+			} else {
+				err = restartErr
+			}
+		}
 		if err != nil {
 			if !allowWarning || !isWarning(pageCtx, err) {
 				handlerFailure = err
@@ -151,7 +188,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		for i, child := range invocation.children {
 			childKeys[i] = ledgerSchedulingKey(child)
 		}
-		if err := page.writer.SetPendingWork(s.pendingForAction(action), childKeys...); err != nil {
+		if err := page.writer.SetPendingWork(s.pendingForAction(&transitionAction), childKeys...); err != nil {
 			return err
 		}
 		page.observations = addLedgerCounters(page.observations, invocation.connectorObservations)
@@ -175,15 +212,21 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 			return nil
 		}
 		commitCtx := context.WithValue(ctx, ledgerCommitKey{}, ledgerTransitionCommit{commit: publish, warning: warning != nil})
-		return s.nextPageOrFinishAction(commitCtx, action, page.row.NextPageToken, invocation.children...)
+		return s.nextPageOrFinishAction(commitCtx, &transitionAction, page.row.NextPageToken, invocation.children...)
 	})
 	if err != nil {
+		if restartCause != nil {
+			return pageTokenRestartError{cause: errors.Join(restartCause, err), code: codes.Internal}
+		}
 		if handlerFailure == nil && isWarning(ctx, err) {
 			return ledgerPageWriteError{cause: err}
 		}
 		return err
 	}
 	s.publishLedgerConnectorObservations(invocation.connectorObservations)
+	if restartCause != nil {
+		logPageTokenRestart(ctx, request, restartCause)
+	}
 	for _, publish := range invocation.afterCommit {
 		publish()
 	}

@@ -25,6 +25,7 @@ func (s *syncer) actionFromPending(work c1zstore.LedgerWork) (Action, error) {
 	action.WorkPageToken = work.Action.Identity.PageToken
 	action.Spawned = work.Action.Spawned
 	action.TypeScopedPlanned = work.TypeScopedPlanned
+	action.PageTokenRestarted = work.PageTokenRestarted
 	return action, nil
 }
 
@@ -32,7 +33,7 @@ func (s *syncer) pendingForAction(action *Action) c1zstore.LedgerWork {
 	identity := ledgerIdentity(action)
 	identity.PageToken = action.WorkPageToken
 	return c1zstore.LedgerWork{SyncID: s.syncID, ID: action.WorkID, Revision: action.WorkRevision,
-		Action: c1zstore.LedgerChild{Identity: identity, Spawned: action.Spawned}, TypeScopedPlanned: action.TypeScopedPlanned}
+		Action: c1zstore.LedgerChild{Identity: identity, Spawned: action.Spawned}, TypeScopedPlanned: action.TypeScopedPlanned, PageTokenRestarted: action.PageTokenRestarted}
 }
 
 func (s *syncer) refreshPendingWindow(ctx context.Context) error {
@@ -138,6 +139,7 @@ func (s *syncer) publishPendingTransition(ctx context.Context, action *Action, n
 	updated.PageToken = next
 	updated.WorkPageToken = next
 	updated.WorkRevision = action.WorkRevision + 1
+	updated.PageTokenRestarted = action.PageTokenRestarted
 	s.run.actions[action.ID] = updated
 }
 
@@ -160,7 +162,7 @@ func pendingSeeds(actions []ledgerAction) []c1zstore.LedgerWork {
 			action.PageToken = ""
 		}
 		work = append(work, c1zstore.LedgerWork{Action: c1zstore.LedgerChild{Identity: ledgerIdentity(&action), Spawned: action.Spawned},
-			TypeScopedPlanned: entry.typeScopedPlanned, SchedulingKey: ledgerSchedulingKey(action)})
+			TypeScopedPlanned: entry.typeScopedPlanned, SchedulingKey: ledgerSchedulingKey(action), PageTokenRestarted: entry.pageTokenRestarted})
 	}
 	return work
 }

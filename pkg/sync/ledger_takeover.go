@@ -19,9 +19,10 @@ const (
 )
 
 type ledgerAction struct {
-	identity          c1zstore.LedgerActionIdentity
-	spawned           bool
-	typeScopedPlanned bool
+	identity           c1zstore.LedgerActionIdentity
+	spawned            bool
+	typeScopedPlanned  bool
+	pageTokenRestarted bool
 }
 
 type ledgerResume struct {
@@ -143,7 +144,7 @@ func decodeLedgerCheckpoint(state string) (ledgerResume, []string, c1zstore.Ledg
 				Op: action.Op.String(), ResourceTypeID: action.ResourceTypeID, ResourceID: action.ResourceID,
 				ParentResourceTypeID: action.ParentResourceTypeID, ParentResourceID: action.ParentResourceID,
 				PageToken: action.PageToken, TypeScoped: action.TypeScoped,
-			}, spawned: action.Spawned, typeScopedPlanned: action.TypeScopedPlanned,
+			}, spawned: action.Spawned, typeScopedPlanned: action.TypeScopedPlanned, pageTokenRestarted: action.PageTokenRestarted,
 		})
 	}
 	facts := make([]string, 0, len(parts.run.facts.established)+2)

@@ -283,6 +283,9 @@ func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBat
 	if current.SyncID != l.e.CurrentSyncID() || current.SyncID != expected.SyncID || current.ID != expected.ID || current.Revision != expected.Revision || current.Action.Identity != id {
 		return ErrStaleLedgerWork
 	}
+	if current.PageTokenRestarted && !expected.PageTokenRestarted {
+		return ErrStaleLedgerWork
+	}
 	if len(childKeys) != 0 && len(childKeys) != len(row.GetChildren()) {
 		return errors.New("child scheduling keys do not match transition")
 	}
@@ -344,6 +347,7 @@ func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBat
 		}
 		current.Revision++
 		current.Action.Identity.PageToken = row.GetNextPageToken()
+		current.PageTokenRestarted = expected.PageTokenRestarted
 		current.TypeScopedPlanned = row.GetTypeScopedPlanned()
 		if err := stagePendingWork(batch, current); err != nil {
 			return err

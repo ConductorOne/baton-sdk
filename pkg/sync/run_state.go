@@ -118,6 +118,10 @@ const (
 
 // Action stores the current operation, page token, and optional fields for which resource is being worked with.
 type Action struct {
+	pageTokenRestarts          uint32
+	pageTokenRestartGeneration string
+	// PageTokenRestarted distinguishes SDK recovery state from provider tokens.
+	PageTokenRestarted   bool     `json:"page_token_restarted,omitempty"`
 	WorkPageToken        string   `json:"-"`
 	WorkID               uint64   `json:"-"`
 	WorkRevision         uint64   `json:"-"`
@@ -464,6 +468,7 @@ func (r *runState) transitionActionWithCompletion(
 	if nextPageToken != "" {
 		updated := r.actions[parent.ID]
 		updated.PageToken = nextPageToken
+		updated.PageTokenRestarted = parent.PageTokenRestarted
 		r.actions[parent.ID] = updated
 		return pushed, nil
 	}

@@ -69,4 +69,10 @@ the instruments pass. Required CI and human review retain merge authority.
 
 ## Change orders
 
-None.
+CO1 (correction): Independent review identified three obligations already required
+by P01/P02/P05/P09/P10: provider tokens must have an explicit persisted discriminator,
+only provider RPC errors may restart, and exhausted budgets must override warning
+and transient-retry status while retaining the original cause. The same PR adds
+legacy/pending-work discriminator metadata, provider-RPC tagging, and typed recovery
+errors. Regressions reproduced all three violations before correction. No observed-
+during-sync behavior, restart limit, or scope criterion changes.

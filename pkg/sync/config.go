@@ -69,6 +69,7 @@ type syncConfig struct {
 	setSessionStore           sessions.SetSessionStore
 	syncResourceTypes         []string
 	workerCount               int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
+	pageTokenRestartPolicy    *pageTokenRestartPolicy
 	metricsHandler            metrics.Handler
 	syncIdentity              uotel.SyncIdentity
 }

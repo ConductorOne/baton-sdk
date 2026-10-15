@@ -47,6 +47,7 @@ file here that no `goldenTokenCases` entry reads.
 |---|---|
 | `empty.json` | A state with nothing set: every `omitempty` field absent, only `version`. |
 | `v1_init.json` | The fresh-sync seed `Unmarshal("")` produces: one `init` action, `current_action_id` 1. |
+| `v1_page_token_restart.json` | A grant action with an explicitly marked recovery cursor, persisted restart count, and generation. Requires a supporting reader. |
 | `v1_actions_multi.json` | Nine actions covering nine of the eleven `ActionOp` strings, page tokens, resource/parent-resource fields, `completed_actions_count`. The other two are covered elsewhere: `list-entitlements` by `v2_type_scoped.json`, `grant-expansion` by `v1_inline_graph.json`. |
 | `v1_unknown_op.json` → `.expected.json` | An `operation` string this SDK does not recognize. `newActionOp` maps it to `UnknownOp`, which is 0, and `operation` is `omitempty` on a `uint8` kind — so `encoding/json` drops the key before `ActionOp.MarshalJSON` runs. The action stays on the stack with its page token and loses its operation. |
 | `v2_type_scoped.json` | `type_scoped`, `spawned`, `type_scoped_planned` markers and the `version: 2` stamp they trigger. |
