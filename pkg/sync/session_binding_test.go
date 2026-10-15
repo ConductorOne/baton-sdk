@@ -408,7 +408,7 @@ func newBindingHarness(t *testing.T, script bindingScript, o bindingHarnessOpts)
 	t.Cleanup(func() { _ = connectorConn.Close() })
 	client := internalconnector.NewConnectorClient(ctx, connectorConn)
 	if sessionServer != nil {
-		client.SetSessionStoreSetter(sessionServer)
+		client.SetSessionServer(sessionServer)
 	}
 	h.cc = client
 	return h
@@ -421,8 +421,8 @@ func (h *bindingHarness) path(name string) string {
 func (h *bindingHarness) newSyncer(t *testing.T, c1zPath string, engine c1zstore.Engine, opts ...SyncOpt) Syncer {
 	t.Helper()
 	all := []SyncOpt{WithC1ZPath(c1zPath), WithTmpDir(h.tmpDir), WithStorageEngine(engine)}
-	if setter, ok := h.cc.(session.SetSessionStore); ok {
-		all = append(all, WithSessionStore(setter))
+	if binder, ok := h.cc.(sessions.SessionStoreBinder); ok {
+		all = append(all, WithSessionStore(binder))
 	}
 	s, err := NewSyncer(t.Context(), h.cc, append(all, opts...)...)
 	require.NoError(t, err)
@@ -734,8 +734,6 @@ type gatingBinder struct {
 	release chan struct{}
 }
 
-func (*gatingBinder) SetSessionStore(context.Context, sessions.SessionStore) {}
-
 func (g *gatingBinder) BindSessionStore(ctx context.Context, syncID string, store sessions.SessionStore) (sessions.UnbindSessionStore, error) {
 	return g.server.BindSessionStore(ctx, syncID, &gatedSessionStore{SessionStore: store, entered: g.entered, release: g.release})
 }
@@ -789,8 +787,6 @@ type failingUnbindBinder struct {
 	store  sessions.SessionStore
 }
 
-func (*failingUnbindBinder) SetSessionStore(context.Context, sessions.SessionStore) {}
-
 func (b *failingUnbindBinder) BindSessionStore(_ context.Context, syncID string, store sessions.SessionStore) (sessions.UnbindSessionStore, error) {
 	b.syncID, b.store = syncID, store
 	return func(context.Context) error { return errDrainTimedOut }, nil
@@ -817,8 +813,6 @@ func TestSessionBindingCloseKeepsStoreOpenWhenDrainFails(t *testing.T) {
 var errBindRejected = errors.New("bind rejected")
 
 type rejectingBinder struct{}
-
-func (rejectingBinder) SetSessionStore(context.Context, sessions.SessionStore) {}
 
 func (rejectingBinder) BindSessionStore(context.Context, string, sessions.SessionStore) (sessions.UnbindSessionStore, error) {
 	return nil, errBindRejected

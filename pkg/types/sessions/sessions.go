@@ -72,10 +72,6 @@ func SetSyncIDInContext(ctx context.Context, syncID string) context.Context {
 	return context.WithValue(ctx, SyncIDKey{}, syncID)
 }
 
-type SetSessionStore interface {
-	SetSessionStore(ctx context.Context, store SessionStore)
-}
-
 // UnbindSessionStore removes a binding, then waits until requests already
 // using the store finish or ctx ends. Calls after the first return nil.
 type UnbindSessionStore func(ctx context.Context) error

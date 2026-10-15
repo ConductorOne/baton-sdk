@@ -72,8 +72,8 @@ This branch does not touch `pkg/dotc1z`. PR CI does not run `-race`
 
 # Stage 2
 
-Fix and remaining criteria on top of `9b4350dd`. Change orders CO4–CO9 in
-the plan apply.
+Fix and remaining criteria on top of `9b4350dd`. Change orders CO5–CO10 in
+the plan apply; CO10 supersedes CO4.
 
 ## Commands
 
@@ -93,10 +93,10 @@ go vet ./...
 | --- | --- | --- |
 | V1–V4 | verified, 9 of 9 overlap cells and the skip cell | `TestSessionBindingOverlap`, `TestSessionBindingOverlapSkipSync` |
 | V5 | verified, 4 Pebble cells without cache, `store.*` and `connector.*` | `.../V5_stats_attribution` (harness corrected, CO8) |
-| V6 | verified under `-race` | `TestGRPCSessionServerAttachWhileServing`, now binding, unbinding, attaching, and serving at once |
+| V6 | verified under `-race` | `TestGRPCSessionServerAttachWhileServing`, now binding, unbinding, and serving at once |
 | V7 | verified | unchanged tests, Pebble and SQLite |
 | V8 | verified | `TestGRPCSessionServerUnbindDrains`, `TestGRPCSessionServerUnbindDrainTimeout`, `TestSessionBindingCloseDrainsInFlight` (both engines), `TestSessionBindingCloseKeepsStoreOpenWhenDrainFails` (both engines) |
-| V9 | verified, all eight handlers | `TestGRPCSessionServerRejectsUnroutableRequests`, `TestGRPCSessionServerDeprecatedSetSessionStore` |
+| V9 | verified, all eight handlers | `TestGRPCSessionServerRejectsUnroutableRequests` |
 | V10 | verified | `TestGRPCSessionServerBindRejects` |
 | V11 | matches the baseline: every package passes except the pre-existing `TestC1ZConcurrentClose` race in `pkg/dotc1z` (`c1file.go:1506`), the only race reported | suites listed above |
 | V12 | verified | `TestSessionBindingBindFailureFailsSync` |
@@ -110,7 +110,7 @@ and the mutation was reverted.
 | --- | --- |
 | `acquire` skips `inflight.Add` | `UnbindDrains`, `UnbindDrainTimeout` |
 | `unbind` leaves the binding in the map | `UnbindDrains`, `UnbindDrainTimeout`, `BindRejects` |
-| unbound sync ID served by any bound store | `RejectsUnroutableRequests` (all eight handlers), `DeprecatedSetSessionStore` |
+| unbound sync ID served by any bound store | `RejectsUnroutableRequests` (all eight handlers) |
 | bind overwrites an existing binding | `BindRejects`, `UnbindDrains` |
 | unbind without `sync.Once` | `BindRejects`, `UnbindDrains` |
 | `Clear` rejects unbound sync IDs | `RejectsUnroutableRequests/Clear`, `UnbindDrains` |
@@ -138,3 +138,11 @@ it. `TestSessionBinding*` passed 5 of 5 runs under `-race`.
 
 Test names in the table drop the `TestGRPCSessionServer` and
 `TestSessionBinding` prefixes.
+
+## CO10 rerun
+
+After removing the old attach API: `go build ./...`, `go vet ./...`, and
+`golangci-lint` on the changed packages are clean. Under `-race`,
+`pkg/session`, `pkg/tasks/...`, `pkg/cli`, and the session tests in
+`pkg/sync` pass. V6 still reports a data race in 3 of 3 runs with the
+`acquire` lock removed.

@@ -235,3 +235,21 @@ directly, not through the server under test.
   any resource-syncer call, on both sync ID sites.
 - Verification delta: **V12** `TestSessionBindingBindFailureFailsSync`
   (Pebble, SQLite, ledgered skip-full-sync).
+
+### CO10 (contract amendment, supersedes CO4): old attach API removed
+
+- Source: the only consumers that matter are this repo and the c1 monorepo.
+  c1 at `4f77224cc4e` has no caller of `SetSessionStore`,
+  `GRPCSessionServer`, the setter interfaces, or `sync.WithSessionStore`; it
+  uses only the session client side (`NewGRPCSessionStore`,
+  `MemorySessionCache`, `sessions.SessionStore`, `WithSyncID`,
+  `WithPrefix`).
+- Contract delta: removed `sessions.SetSessionStore`,
+  `session.SetSessionStore`, `GRPCSessionServer.SetSessionStore`,
+  `GRPCSessionServer.Validate`, and `connectorClient.SetSessionStore`.
+  `sync.WithSessionStore` takes a `sessions.SessionStoreBinder`. The internal
+  `SetSessionStoreSetter` is now `SessionServerSetter.SetSessionServer`. B7
+  holds without exception.
+- Verification delta: `TestGRPCSessionServerDeprecatedSetSessionStore` is
+  removed. V6 binds, unbinds, and serves concurrently.
+- Affected criteria: V6, V9.

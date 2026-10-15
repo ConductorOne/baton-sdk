@@ -26,7 +26,7 @@ func TestGRPCSessionServerAttachWhileServing(t *testing.T) {
 	srv := NewGRPCSessionServer()
 
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		for range 100 {
@@ -34,12 +34,6 @@ func TestGRPCSessionServerAttachWhileServing(t *testing.T) {
 			if err == nil {
 				_ = unbind(ctx)
 			}
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		for range 100 {
-			srv.SetSessionStore(ctx, getOnlyStore{})
 		}
 	}()
 	go func() {
@@ -348,20 +342,4 @@ func TestGRPCSessionServerUnbindDrainTimeout(t *testing.T) {
 	close(store.release)
 	require.NoError(t, <-getErr)
 	require.NoError(t, unbind(ctx), "repeat unbind")
-}
-
-func TestGRPCSessionServerDeprecatedSetSessionStore(t *testing.T) {
-	ctx := t.Context()
-	srv := NewGRPCSessionServer()
-	fallback, bound := newKVStore(), newKVStore()
-	srv.SetSessionStore(ctx, fallback)
-	require.NoError(t, srv.Validate())
-	bind(t, srv, syncA, bound)
-
-	_, err := get(ctx, srv, syncA, "k")
-	require.NoError(t, err)
-	_, err = get(ctx, srv, syncB, "k")
-	require.NoError(t, err)
-	require.Equal(t, map[string]int{syncA: 1}, bound.seenSyncIDs())
-	require.Equal(t, map[string]int{syncB: 1}, fallback.seenSyncIDs())
 }

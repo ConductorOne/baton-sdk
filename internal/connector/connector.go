@@ -54,31 +54,18 @@ type connectorClient struct {
 	connectorV2.TicketsServiceClient
 	connectorV2.ActionServiceClient
 
-	sessionServer SessionServer
+	sessionServer sessions.SessionStoreBinder
 }
 
-var _ sessions.SetSessionStore = (*connectorClient)(nil)
 var _ sessions.SessionStoreBinder = (*connectorClient)(nil)
-var _ SetSessionStoreSetter = (*connectorClient)(nil)
+var _ SessionServerSetter = (*connectorClient)(nil)
 
-type SessionServer interface {
-	sessions.SetSessionStore
-	sessions.SessionStoreBinder
+type SessionServerSetter interface {
+	SetSessionServer(sessionServer sessions.SessionStoreBinder)
 }
 
-type SetSessionStoreSetter interface {
-	SetSessionStoreSetter(sessionServer SessionServer)
-}
-
-func (c *connectorClient) SetSessionStoreSetter(sessionServer SessionServer) {
+func (c *connectorClient) SetSessionServer(sessionServer sessions.SessionStoreBinder) {
 	c.sessionServer = sessionServer
-}
-
-func (c *connectorClient) SetSessionStore(ctx context.Context, store sessions.SessionStore) {
-	if c.sessionServer == nil {
-		return
-	}
-	c.sessionServer.SetSessionStore(ctx, store)
 }
 
 func (c *connectorClient) BindSessionStore(ctx context.Context, syncID string, store sessions.SessionStore) (sessions.UnbindSessionStore, error) {
@@ -114,7 +101,7 @@ type wrapper struct {
 
 	now func() time.Time
 
-	SessionServer SessionServer
+	SessionServer sessions.SessionStoreBinder
 }
 
 type Option func(ctx context.Context, w *wrapper) error
@@ -444,7 +431,7 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 
 	cw.conn = conn
 	client := NewConnectorClient(ctx, cw.conn)
-	client.SetSessionStoreSetter(cw.SessionServer)
+	client.SetSessionServer(cw.SessionServer)
 	cw.client = client
 
 	return client, nil

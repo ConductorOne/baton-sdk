@@ -53,25 +53,3 @@ func (s *syncer) bindSessionStore(ctx context.Context) error {
 	kind := "c1z_" + s.store.Metadata().Engine
 	return s.sessionBinding.bind(ctx, s.cfg.sessionStoreBinder, s.syncID, session.NewInstrumentedSessionStore(sessionStore, kind, "", s.recordSessionOp))
 }
-
-func resolveSessionStoreBinder(setter sessions.SetSessionStore) sessions.SessionStoreBinder {
-	switch v := setter.(type) {
-	case nil:
-		return nil
-	case sessions.SessionStoreBinder:
-		return v
-	default:
-		return attachOnlySessionStore{setter: setter}
-	}
-}
-
-// attachOnlySessionStore adapts a setter that predates SessionStoreBinder. It
-// keeps serving the last store it was given after that sync closes.
-type attachOnlySessionStore struct {
-	setter sessions.SetSessionStore
-}
-
-func (a attachOnlySessionStore) BindSessionStore(ctx context.Context, _ string, store sessions.SessionStore) (sessions.UnbindSessionStore, error) {
-	a.setter.SetSessionStore(ctx, store)
-	return func(context.Context) error { return nil }, nil
-}

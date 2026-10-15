@@ -4185,13 +4185,12 @@ func WithTargetedSyncResources(resources []*v2.Resource) SyncOpt {
 	}
 }
 
-// WithSessionStore serves the connector's session requests for this sync from
-// the sync's store. A sessions.SessionStoreBinder gets the store bound under
-// the sync ID until Close; any other setter is attached through
-// SetSessionStore and keeps the store after Close.
-func WithSessionStore(sessionStore sessions.SetSessionStore) SyncOpt {
+// WithSessionStore binds the sync's store under its sync ID from the moment
+// the ID is known until Close, so the connector's session requests for this
+// sync reach it.
+func WithSessionStore(binder sessions.SessionStoreBinder) SyncOpt {
 	return func(s *syncer) {
-		s.cfg.sessionStoreBinder = resolveSessionStoreBinder(sessionStore)
+		s.cfg.sessionStoreBinder = binder
 	}
 }
 

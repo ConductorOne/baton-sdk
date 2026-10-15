@@ -25,7 +25,6 @@ var _ sessions.SessionStoreBinder = (*GRPCSessionServer)(nil)
 type GRPCSessionServer struct {
 	mu       sync.RWMutex
 	bindings map[string]*boundSessionStore
-	fallback sessions.SessionStore
 }
 
 type boundSessionStore struct {
@@ -35,18 +34,6 @@ type boundSessionStore struct {
 
 func NewGRPCSessionServer() *GRPCSessionServer {
 	return &GRPCSessionServer{}
-}
-
-type SetSessionStore interface {
-	SetSessionStore(ctx context.Context, store sessions.SessionStore)
-}
-
-// Deprecated: use BindSessionStore. A store set here serves requests whose
-// sync ID has no binding, whichever sync they belong to.
-func (s *GRPCSessionServer) SetSessionStore(ctx context.Context, store sessions.SessionStore) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.fallback = store
 }
 
 func (s *GRPCSessionServer) BindSessionStore(ctx context.Context, syncID string, store sessions.SessionStore) (sessions.UnbindSessionStore, error) {
@@ -100,25 +87,12 @@ func (s *GRPCSessionServer) acquire(syncID string) (sessions.SessionStore, func(
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if b, ok := s.bindings[syncID]; ok {
-		b.inflight.Add(1)
-		return b.store, b.inflight.Done, nil
+	b, ok := s.bindings[syncID]
+	if !ok {
+		return nil, nil, status.Errorf(codes.FailedPrecondition, "no session store bound for sync %s", syncID)
 	}
-	if s.fallback != nil {
-		return s.fallback, func() {}, nil
-	}
-	return nil, nil, status.Errorf(codes.FailedPrecondition, "no session store bound for sync %s", syncID)
-}
-
-// Deprecated: requests are checked against their sync ID's binding. Validate
-// reports whether any store is bound or set.
-func (s *GRPCSessionServer) Validate() error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if len(s.bindings) == 0 && s.fallback == nil {
-		return fmt.Errorf("session store is not set")
-	}
-	return nil
+	b.inflight.Add(1)
+	return b.store, b.inflight.Done, nil
 }
 
 func (s *GRPCSessionServer) Get(ctx context.Context, req *v1.GetRequest) (*v1.GetResponse, error) {
