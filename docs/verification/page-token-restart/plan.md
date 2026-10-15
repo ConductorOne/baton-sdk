@@ -76,3 +76,32 @@ and transient-retry status while retaining the original cause. The same PR adds
 legacy/pending-work discriminator metadata, provider-RPC tagging, and typed recovery
 errors. Regressions reproduced all three violations before correction. No observed-
 during-sync behavior, restart limit, or scope criterion changes.
+
+CO2 (correction, review discussion 4289009832): P05/P10 require a rollback
+reader to avoid forwarding recovery metadata as a provider cursor. This is HIGH
+because the interpretation depends on the reader version. Serialized checkpoints
+with any `PageTokenRestarted` action must use a version newer than the pre-recovery
+reader accepts, including readers that already support type-scoped version 2.
+Pebble's pending-work declaration must likewise reject pre-recovery readers before
+they consume marked work. Plain checkpoints and queues keep their existing format.
+The format owners are `marshalToken` and the pending-work declaration writer.
+
+P13 (current PR, evidence incomplete): A pre-recovery reader must discard the
+serialized recovery action stack and redo collection, or reject the pending-work
+declaration. It must never return the recovery envelope as a provider cursor.
+The current reader must preserve recovery state across round trips and cold resume.
+Exercise plain/recovered/mixed markers, graph omission, initial queue seeds,
+transitions with and without children, failed commits, and close/reopen. Validate
+the regression instruments against the unfixed writers. Use the existing
+two-artifact compatibility approach with the pinned pre-recovery parent
+`47f5027e` to check actual old-reader parsing; other historical releases remain
+deferred to release-stage compatibility testing. Update golden fixtures and run
+the affected race suites, broad regression suite and pinned lint.
+
+CO2 implementation obligations: The Pebble format discriminator and its marked
+pending work must commit in the same batch. Queue allocation and phase changes
+must preserve the discriminator while recovery work is reachable. Initial seeds
+and legacy-token takeover must select the guarded format too. Do not add scans,
+keyspaces, dependencies, locks or new commit points; healthy-page complexity
+remains unchanged. An independent reader audits this correction's evidence and
+format write paths after the tests pass.
