@@ -60,8 +60,9 @@ type ProgressLog struct {
 	lastLoggedDBSize int64
 	hasLoggedDBSize  bool // false until the first successful size read; gates the delta field
 
-	// Mirrors the fields emitted by LogExpandProgress. The expand metrics are
-	// looked up lazily on first emission so resource-only syncs create none.
+	// Mirrors the fields emitted by LogExpandProgress. NewProgressCounts creates
+	// the four instruments up front; with the default handler they record
+	// nothing until a global MeterProvider is installed.
 	metricsHandler         metrics.Handler
 	metricsExpandRemaining metrics.Int64Gauge
 	metricsExpandBurned    metrics.Int64Counter

@@ -8,6 +8,10 @@ type Handler interface {
 	Int64Counter(name string, description string, unit Unit) Int64Counter
 	Int64Gauge(name string, description string, unit Unit) Int64Gauge
 	Int64Histogram(name string, description string, unit Unit) Int64Histogram
+	// WithTags returns a handler whose instruments carry tags on every record.
+	// Gauges keep one point per distinct attribute set for the life of the
+	// process, so tags must stay low-cardinality: no per-resource,
+	// per-principal or per-request values.
 	WithTags(tags map[string]string) Handler
 }
 
