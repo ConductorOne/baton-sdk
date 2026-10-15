@@ -269,6 +269,15 @@ func TestWrapErrors_DoNotRestateACarriedStatus(t *testing.T) {
 		require.Equal(t, 1, statusLines(got), got.Error())
 		require.ErrorIs(t, got, other)
 	})
+
+	t.Run("an earlier status of another code does not hide the one this call asked for", func(t *testing.T) {
+		earlier := status.Error(codes.Internal, "decode failed")
+		inner := status.Error(codes.NotFound, "user not found")
+		got := WrapErrors(codes.NotFound, "user not found", earlier, inner)
+		require.Equal(t, codes.NotFound, status.Code(got))
+		require.ErrorIs(t, got, earlier)
+		require.ErrorIs(t, got, inner)
+	})
 }
 
 // Reclassifying a non-2xx reads the new code and keeps what the vendor said
@@ -291,10 +300,11 @@ func TestWrapErrors_ReclassifyingKeepsTheVendorMessage(t *testing.T) {
 // transportFailure starts a server that fails the way name says and returns
 // the URL to request and the context to request it with.
 type transportFailure struct {
-	name     string
-	setup    func(t *testing.T) (string, context.Context)
-	wantCode codes.Code
-	check    func(t *testing.T, err error)
+	name              string
+	setup             func(t *testing.T) (string, context.Context)
+	wantCode          codes.Code
+	descOmitsEndpoint bool
+	check             func(t *testing.T, err error)
 }
 
 func transportFailures() []transportFailure {
@@ -335,7 +345,8 @@ func transportFailures() []transportFailure {
 				t.Cleanup(srv.Close)
 				return srv.URL + "/users?token=secret", t.Context()
 			},
-			wantCode: codes.FailedPrecondition,
+			wantCode:          codes.FailedPrecondition,
+			descOmitsEndpoint: true,
 			check: func(t *testing.T, err error) {
 				var certErr *tls.CertificateVerificationError
 				require.ErrorAs(t, err, &certErr)
@@ -373,11 +384,51 @@ func transportFailures() []transportFailure {
 				time.AfterFunc(100*time.Millisecond, cancel)
 				return srv.URL + "/users?token=secret", ctx
 			},
-			wantCode: codes.Canceled,
+			wantCode:          codes.Canceled,
+			descOmitsEndpoint: true,
 			check: func(t *testing.T, err error) {
 				require.ErrorIs(t, err, context.Canceled)
 			},
 		},
+	}
+}
+
+func TestWrapTransientNetworkError_DescriptionNamesHostAndPath(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{
+			name: "dns",
+			err: &url.Error{
+				Op:  "Get",
+				URL: "https://example.invalid/users?token=secret",
+				Err: &net.OpError{
+					Op:  "dial",
+					Net: "tcp",
+					Err: &net.DNSError{Err: "no such host", Name: "example.invalid", IsNotFound: true},
+				},
+			},
+			want: "dns lookup failed: NXDOMAIN: example.invalid/users",
+		},
+		{
+			name: "http2",
+			err: &url.Error{
+				Op:  "Get",
+				URL: "https://example.com/v1?token=secret",
+				Err: errors.New("http2: client connection lost"),
+			},
+			want: "http2 client connection lost: example.com/v1",
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			got := wrapTransientNetworkError(tt.err)
+			desc, _, _ := strings.Cut(status.Convert(got).Message(), "\n")
+			require.Contains(t, desc, tt.want)
+			require.NotContains(t, desc, "token=secret")
+		})
 	}
 }
 
@@ -398,6 +449,9 @@ func TestDo_TransportErrorsStateTheStatusOnceAndNameTheHost(t *testing.T) {
 				require.Equal(t, tt.wantCode, status.Code(err), err.Error())
 				require.Equal(t, 1, statusLines(err), err.Error())
 				require.Contains(t, status.Convert(err).Message(), u.Host)
+				if !tt.descOmitsEndpoint {
+					require.Contains(t, status.Convert(err).Message(), ": "+u.Host+u.Path)
+				}
 
 				var urlErr *url.Error
 				require.ErrorAs(t, err, &urlErr, "the original chain must stay reachable")

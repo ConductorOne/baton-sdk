@@ -19,8 +19,19 @@ import (
 // wrapTransientNetworkError mirrors Baton HTTP retry classification for callers
 // that use the transport directly, such as oauth2-backed SDK clients.
 func wrapTransientNetworkError(err error) error {
+	return classifyTransportFailure(err, endpointOf(err))
+}
+
+// classifyTransportFailure classifies err. endpoint is the host and path of
+// the request when the caller has it: Transport.RoundTrip classifies the
+// dial error before net/http wraps it in a *url.Error, so the URL is not in
+// err yet. An empty endpoint falls back to a *url.Error already in err.
+func classifyTransportFailure(err error, endpoint string) error {
 	if err == nil {
 		return nil
+	}
+	if endpoint == "" {
+		endpoint = endpointOf(err)
 	}
 
 	// A rejected token request is classified in oauth2.go, from the RFC 6749
@@ -33,43 +44,43 @@ func wrapTransientNetworkError(err error) error {
 	}
 
 	if errors.Is(err, io.ErrUnexpectedEOF) {
-		return WrapErrors(codes.Unavailable, "unexpected EOF", err)
+		return WrapErrors(codes.Unavailable, withEndpoint("unexpected EOF", endpoint), err)
 	}
 	// A bare EOF reaching the caller means the peer closed the connection
 	// before any response headers arrived, usually a pooled connection it
 	// had already torn down.
 	if errors.Is(err, io.EOF) {
-		return WrapErrors(codes.Unavailable, "connection closed before response", err)
+		return WrapErrors(codes.Unavailable, withEndpoint("connection closed before response", endpoint), err)
 	}
 	if isConnectionReset(err) {
-		return wrapSocketClass(socketReset, err)
+		return wrapSocketClass(socketReset, err, endpoint)
 	}
 	if isConnectionRefused(err) {
-		return wrapSocketClass(socketRefused, err)
+		return wrapSocketClass(socketRefused, err, endpoint)
 	}
 	if isBrokenPipe(err) {
-		return wrapSocketClass(socketBrokenPipe, err)
+		return wrapSocketClass(socketBrokenPipe, err, endpoint)
 	}
 	if isNetworkUnreachable(err) {
-		return wrapSocketClass(socketNetworkUnreachable, err)
+		return wrapSocketClass(socketNetworkUnreachable, err, endpoint)
 	}
 
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
 		switch {
 		case dnsErr.IsTimeout:
-			return WrapErrors(codes.DeadlineExceeded, "dns lookup timeout", err)
+			return WrapErrors(codes.DeadlineExceeded, withEndpoint("dns lookup timeout", endpoint), err)
 		case dnsErr.IsTemporary:
-			return WrapErrors(codes.Unavailable, "temporary dns lookup failure", err)
+			return WrapErrors(codes.Unavailable, withEndpoint("temporary dns lookup failure", endpoint), err)
 		case dnsErr.IsNotFound:
-			return WrapErrors(codes.InvalidArgument, "dns lookup failed: NXDOMAIN", err)
+			return WrapErrors(codes.InvalidArgument, withEndpoint("dns lookup failed: NXDOMAIN", endpoint), err)
 		default:
-			return WrapErrors(codes.Unavailable, "dns lookup failed", err)
+			return WrapErrors(codes.Unavailable, withEndpoint("dns lookup failed", endpoint), err)
 		}
 	}
 
 	if isHTTP2ClientConnectionLost(err) {
-		return WrapErrors(codes.Unavailable, "http2 client connection lost", err)
+		return WrapErrors(codes.Unavailable, withEndpoint("http2 client connection lost", endpoint), err)
 	}
 
 	// A certificate the client does not trust will not become trusted on a
@@ -80,15 +91,13 @@ func wrapTransientNetworkError(err error) error {
 		return WrapErrors(codes.FailedPrecondition, "tls certificate verification failed", err)
 	}
 
-	// Named by host and path, not the full URL: its query string can carry
-	// credentials.
 	var urlErr *url.Error
 	if errors.As(err, &urlErr) {
 		if urlErr.Timeout() {
-			return WrapErrors(codes.DeadlineExceeded, fmt.Sprintf("request timeout: %s", hostAndPath(urlErr.URL)), urlErr)
+			return WrapErrors(codes.DeadlineExceeded, withEndpoint("request timeout", endpoint), err)
 		}
 		if urlErr.Temporary() {
-			return WrapErrors(codes.Unavailable, fmt.Sprintf("temporary error: %s", hostAndPath(urlErr.URL)), urlErr)
+			return WrapErrors(codes.Unavailable, withEndpoint("temporary error", endpoint), err)
 		}
 	}
 
@@ -96,7 +105,7 @@ func wrapTransientNetworkError(err error) error {
 	// satisfies, so the caller's deadline reads the same at the RoundTrip
 	// level as it does wrapped in a *url.Error.
 	if errors.Is(err, context.DeadlineExceeded) {
-		return WrapErrors(codes.DeadlineExceeded, "request timeout", err)
+		return WrapErrors(codes.DeadlineExceeded, withEndpoint("request timeout", endpoint), err)
 	}
 	if errors.Is(err, context.Canceled) {
 		return WrapErrors(codes.Canceled, "request canceled", err)
@@ -126,14 +135,40 @@ func wrapRequestError(err error) error {
 	return wrapTransientNetworkError(err)
 }
 
-// hostAndPath is rawURL without its scheme and query string. The query string
-// can carry credentials, so it stays out of status messages.
+// hostAndPath is rawURL without its scheme and query string. The description
+// this package writes uses it. A joined *url.Error still prints the full URL,
+// and status.FromError copies that text into the status message.
 func hostAndPath(rawURL string) string {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return ""
 	}
 	return u.Host + u.Path
+}
+
+// endpointOf is the host and path of a *url.Error in err, without the query string.
+func endpointOf(err error) string {
+	var urlErr *url.Error
+	if err == nil || !errors.As(err, &urlErr) {
+		return ""
+	}
+	return hostAndPath(urlErr.URL)
+}
+
+// requestEndpoint is the host and path of the request RoundTrip was given.
+func requestEndpoint(req *http.Request) string {
+	if req == nil || req.URL == nil {
+		return ""
+	}
+	return req.URL.Host + req.URL.Path
+}
+
+// withEndpoint appends endpoint to msg. An empty endpoint keeps msg as it is.
+func withEndpoint(msg, endpoint string) string {
+	if endpoint == "" {
+		return msg
+	}
+	return msg + ": " + endpoint
 }
 
 // socketClass groups the socket failures the platform predicates in
@@ -184,9 +219,9 @@ func hasSocketClass(err error, class socketClass) bool {
 	return false
 }
 
-func wrapSocketClass(class socketClass, err error) error {
+func wrapSocketClass(class socketClass, err error, endpoint string) error {
 	classification := socketClassifications[class]
-	return WrapErrors(classification.code, classification.msg, err)
+	return WrapErrors(classification.code, withEndpoint(classification.msg, endpoint), err)
 }
 
 func isHTTP2ClientConnectionLost(err error) bool {

@@ -557,30 +557,29 @@ func WrapErrorsWithRateLimitInfo(preferredCode codes.Code, resp *http.Response, 
 	return joinWithStatus(st, errs)
 }
 
-// joinWithStatus joins errs under st. When one of errs already states st
-// (same code, same message, and the details st would add), st is not added
-// again: the error a non-2xx Do returns, passed back through WrapErrors by a
-// connector, would otherwise print its status line twice.
+// joinWithStatus joins errs under st. st is left off only when the first
+// status in the chain already states it: status.Code reads that one. A later
+// match does not count, or an earlier status of another code would win. A
+// non-2xx Do error passed back through WrapErrors would otherwise print its
+// status line twice.
 func joinWithStatus(st *status.Status, errs []error) error {
-	if alreadyStates(st, errs) {
-		return errors.Join(errs...)
+	joined := errors.Join(errs...)
+	if statusStates(st, joined) {
+		return joined
 	}
 	return errors.Join(append([]error{st.Err()}, errs...)...)
 }
 
-func alreadyStates(st *status.Status, errs []error) bool {
-	for _, err := range errs {
-		var carrier interface{ GRPCStatus() *status.Status }
-		if !errors.As(err, &carrier) {
-			continue
-		}
-		carried := carrier.GRPCStatus()
-		if carried.Code() == st.Code() && carried.Message() == st.Message() &&
-			len(carried.Details()) >= len(st.Details()) {
-			return true
-		}
+// statusStates reports whether the status status.Code would read from err
+// already has st's code, message, and at least st's details.
+func statusStates(st *status.Status, err error) bool {
+	var carrier interface{ GRPCStatus() *status.Status }
+	if !errors.As(err, &carrier) {
+		return false
 	}
-	return false
+	carried := carrier.GRPCStatus()
+	return carried.Code() == st.Code() && carried.Message() == st.Message() &&
+		len(carried.Details()) >= len(st.Details())
 }
 
 func (c *BaseHttpClient) recordCacheHit(ctx context.Context) {
