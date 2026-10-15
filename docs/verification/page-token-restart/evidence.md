@@ -1,9 +1,10 @@
 # Pagination restart evidence
 
-Plan revision: 1. All criteria P01 through P12 are **not assessed**.
-
-Implementation obligations, instrument-validation results, executed commands,
-coverage reductions and independent review findings will be appended here.
+Plan revision: 1 plus correction CO1. Implementation:
+`ec11ddaaf730f0a68c73e5aa23d2f9e269841354`, based on v0.40.0.
+The behavioral plan was committed before the new runtime implementation. Existing
+SDK code had been inspected during host diagnosis. Final test-only additions
+strengthen the independent audit's coverage findings; runtime code is unchanged.
 
 ## Implementation-obligation addendum
 
@@ -33,3 +34,83 @@ coverage reductions and independent review findings will be appended here.
 - M08: SDK state conflict remains a host whole-sync reset. Expiry-budget exhaustion
   becomes an ordinary failed action; C1 retains the budget and its existing bounded
   whole-sync attempt fallback. No connector IDs or provider strings enter SDK policy.
+
+## Criterion-to-evidence record
+
+| ID | Status and instantiated coverage | Premise and oracle |
+| --- | --- | --- |
+| P01 | Verified to stated coverage. `TestPageTokenRestartProviderRPCFamilies`: five provider list operations x legacy/Pebble; policy table covers excluded operations, spawned cursors, empty cursors, canceled context, unrelated provider errors and disabled policies. | Each actual SDK handler receives one failing provider RPC with `provider-next`; its action remains pending at count 1 with an empty provider cursor. Excluded cases use the same tagged provider error as the eligible case, so the provider-only guard cannot mask them. `TestPageTokenRestartIgnoresStoreErrors` returns the same sentinel from GetResource and requires no restart/checkpoint. |
+| P02 | Verified to stated coverage. `TestPageTokenRestartBudgetSurvivesResume`: SQLite/Pebble x 1/3 workers, plus cold clients, changed worker count, identical checkpoint copies and a separate-process resumer. | The first attempt reaches exactly three first-page calls and the typed limit error. Each cold resumer must retain the same sync ID, return the limit error, and issue zero new first-page calls. The child validates these assertions before its required exit code 73. |
+| P03 | Verified to stated coverage. `TestPageTokenRestartKeepsCompletedWork` and `TestPageTokenRestartBudgetsAreIndependent`, SQLite/Pebble x 1/3 workers. | Read back the original sync ID after close/reopen and compare all four independently named grant IDs, including distinct abandoned-only and replacement memberships. Resource listings run once per type; the healthy group starts once. A later fresh full sync excludes the abandoned-only member. Independent failing groups consume one and two restarts respectively and both complete. |
+| P04 | Verified to stated coverage. `TestPageTokenRestartCheckpointFailure` injects legacy write failure on both restart and limit exits. `TestPageTokenRestartLedgerCommitFailure` injects Pebble commit failure. `TestPageTokenRestartCheckpointBeforeRequest` reads the accepted SQLite checkpoint from inside the next handler. | No second connector call follows failed persistence; both provider and storage causes survive. Before the restarted handler proceeds, the stored token must already contain one marked action with count 1 and empty raw cursor. Pebble's complete raw snapshot stays unchanged and outstanding writers return to zero. Retrying advances only to generation/count 1, not completion. This validates ordering at the SDK write boundary, not physical disk corruption. |
+| P05 | Verified to stated coverage. Codec malformed/version/count/generation/base64 table, unmarked-token table with policy enabled/disabled, token golden corpus and `TestPageTokenRestartCancellationCauseRedactsCursor`. | The provider token round-trips exactly and the original Action is unchanged. Invalid marked metadata returns sanitized errors. Reserved-looking unmarked tokens reach the handler unchanged. A sibling returning context.Cause cannot expose the action cursor. The added golden fixture pins the new JSON field without modifying existing fixtures. |
+| P06 | Verified to stated coverage. Real Pebble cells in the completion/resume matrix. | The provider call log contains the first-page request again; its next-page response succeeds only after that real request, so replaying the old first page cannot satisfy the oracle. Encoded generations remain ledger identities while RPCs receive raw tokens. The commit-failure test also rejects clearing a persisted discriminator under the current pending-work revision. |
+| P07 | Verified to stated reduced coverage. `TestPageTokenRestartInterruptedFirstPage`, `TestPageTokenRestartCanceledBeforeCommit`, cold checkpoint clones and separate-process resumption. | Source cancellation immediately after a durable restart resumes and completes, including when new restarts are disabled; reopened content must contain all four expected grants, including the abandoned-only member. Actual context cancellation at SetPendingWork is positively armed, preserves both causes, leaves the full raw snapshot unchanged, releases the writer and retries at count 1. This covers representative restart boundaries, not every possible process-kill interleaving. |
+| P08 | Verified to stated coverage. Independent-resource matrix and completion matrix, each SQLite/Pebble x 1/3 workers. | Resource-specific first-page counts are 2 and 3 under a shared limit of 2; sharing a global budget would fail. Completed sibling and resource-phase call counts remain unchanged. |
+| P09 | Verified to stated coverage. Ledger commit test, actual provider-RPC family table and terminal-status table. | A committed restart has one pending work item and zero completed actions. All five actual RPC-family restart rows retain one ConnectorErrors observation, zero successful/empty list responses, zero completion and zero warnings. Actual completion increments once. Limits originating as NotFound, Unavailable, DeadlineExceeded or InvalidArgument retain the original error identity while becoming non-warning and non-retryable inside the SDK. |
+| P10 | Verified to stated coverage. Existing golden corpus, marked-checkpoint disabled-policy matrix, and `TestPageTokenRestartLegacyTakeover`. | A marked legacy fixture is stored, consumed through loadLedgerResume/BeginFromToken, and cleared from the legacy slot. Real Pebble close/reopen and fresh runtime restore retain raw cursor `next` and count 1. Supporting readers decode marked state with a zero restart limit. Older readers remain explicitly outside the enabled-feature compatibility claim. |
+| P11 | Verified to stated host-package coverage. C1 consumer tests plus its full affected Bazel package. | Exact Graph expiry classification includes wrapping/joined cancellation; unrelated failures stay unchanged. Exhaustion does not reset the whole sync. Legacy callbacks preserve the 15-attempt failsafe. SQLite/Pebble x 1/3 workers complete the original sync, retain abandoned observations, then remove them during a later fresh sync. No live provider or production rollout is claimed. |
+| P12 | Verified to stated reduced coverage. Full affected sync race suite, `TestPageTokenRestartCheckpointWritersSerialize`, codec and existing fanout checkpoint benchmarks. | Thirty-two simultaneous forced checkpoints commit exactly once each with maximum active writer count 1. Healthy cursor decoding has zero allocations. Stored restart metadata is O(cursor bytes); forced checkpoints retain the existing O(pending actions) serialization cost and add no scan over stored grants. Race/fuzz execution is measured sampling, not exhaustive schedule coverage. |
+
+## Instrument validation and defects corrected
+
+- Before runtime implementation, all four completion-matrix cells failed on the
+  actual provider-expiry error. After enabling restart, the same cells passed.
+- Replacing the restored restart count with zero failed the resume test on an
+  invalid recovery continuation. Independently changing the limit guard from
+  `>=` to `>` failed the same oracle with four first-page calls instead of three.
+  Both mutations were restored before final validation.
+- Independent review found unmarked-token reinterpretation, warning/retry status
+  surviving limit exhaustion, and internal store errors consuming restart budget.
+  New regressions reproduced each defect before correction.
+- A failed restart-page commit originally lost the provider cause; the fault test
+  failed on the missing error identity before the persistence wrapper corrected it.
+- A controlled sibling cancellation originally exposed the action cursor through
+  context.Cause. The redaction regression failed before the cancel cause was
+  restricted to operation/resource identity.
+- The broad suite rejected the new unpinned JSON discriminator; adding and
+  registering the new token fixture corrected the field-coverage failure.
+- The independent evidence audit found masked negative-policy cases, identical
+  membership data across attempts, missing worker-count cells and insufficient
+  ordering, accounting and resumed-content assertions. Tests now check each item.
+  Removing policy exclusions fails the tagged-error table. Omitting the forced
+  checkpoint fails the stored-token assertion inside the next handler. Removing
+  the abandoned-only grant from actual readback fails the union comparison; this
+  last mutation validates the content oracle, not production deletion code.
+  All temporary mutations were restored before final validation.
+
+## Executed commands
+
+- `go test -mod=vendor -run '^(TestPageTokenRestart|TestGoldenToken)' -count=1 -coverprofile=coverage.out ./pkg/sync` passed. The final strengthened selector also passed under `-race` with a coverage profile in 5.451 seconds.
+- `go test -json -p 4 -mod=vendor -tags=baton_lambda_support -count=1 -timeout=15m ./...` passed, including sync, store, compactor, CLI and harness packages. Optional environment-gated confidence suites retain their normal gates.
+- `go test -json -p 4 -mod=vendor -race -count=1 -timeout=15m ./pkg/sync` passed in 215 seconds. Additional final test-only coverage passed under the affected restart/golden race selector.
+- `make lint` passed with the CI-pinned golangci-lint v2.13.2 and Go 1.27.1. The environment's preinstalled v2.9.0 could not handle the module's Go version; building the pinned tool and using the module's declared toolchain resolved that tooling failure.
+- `go test -mod=vendor -run '^$' -fuzz '^FuzzPageTokenRestartCodec$' -fuzztime=20s -parallel=2 ./pkg/sync` passed 13,841 executions. This is sampled codec coverage.
+- `BenchmarkPageTokenRestartCodec` measured 0 allocations for unmarked input and 3 allocations for a decoded recovery cursor. Existing checkpoint fanout benchmarks ran through 100,000 pending actions. Wall-clock samples are not a production throughput claim.
+
+## Structural coverage and review
+
+The focused profile reports 100% statement coverage for checkpoint serialization,
+cursor parsing/encoding, policy dispatch and typed recovery errors. New discriminator
+write/restore/clear-refusal branches execute in the real-store lifecycle tests.
+The audit identified two missing changed-branch instruments: invokeActionPage's
+decoder-error return and legacy transition-error wrapper. Both now execute in
+TestPageTokenRestartInvalidTransition; the latter retains both causes and performs
+no checkpoint. Restart and exhaustion checkpoint failures have explicit fault cases.
+Remaining uncovered preexisting runtime/worker and warning branches are not claims
+about newly added recovery coverage.
+
+The independent implementation read was clean after the three verified findings
+were corrected, including the final cancellation-message change. The independent
+evidence re-audit reported zero remaining findings after the strengthened tests.
+That reviewer independently ran the final focused selector on Go 1.27.1 (1.030
+seconds) and a coverage run (0.915 seconds), verified both previously missing error
+branches executed, and inspected the host's policy wiring and assertions. Historical
+mutation and repository-gate outcomes remain author-observed, not independently
+replayed. The final all-package suite passed again after the test-only changes.
+
+C1's full affected Bazel package, graph generation, authoritative vendor-content
+gate, vendor consistency, module verification and dependency-license check passed.
+The consumer pins runtime commit ec11dda; subsequent SDK changes are tests/evidence
+only. This record claims bounded fixture coverage and sampled concurrency/codec
+coverage, not universal crash or version-pair closure.
