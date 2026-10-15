@@ -54,37 +54,42 @@ type connectorClient struct {
 	connectorV2.TicketsServiceClient
 	connectorV2.ActionServiceClient
 
-	sessionStoreSetter sessions.SetSessionStore // this is the session store server
+	sessionServer SessionServer
 }
 
 var _ sessions.SetSessionStore = (*connectorClient)(nil)
+var _ sessions.SessionStoreBinder = (*connectorClient)(nil)
 var _ SetSessionStoreSetter = (*connectorClient)(nil)
 
-type SetSessionStoreSetter interface {
-	SetSessionStoreSetter(setsessionStoreSetter sessions.SetSessionStore)
+type SessionServer interface {
+	sessions.SetSessionStore
+	sessions.SessionStoreBinder
 }
 
-func (c *connectorClient) SetSessionStoreSetter(sessionStoreSetter sessions.SetSessionStore) {
-	c.sessionStoreSetter = sessionStoreSetter
+type SetSessionStoreSetter interface {
+	SetSessionStoreSetter(sessionServer SessionServer)
+}
+
+func (c *connectorClient) SetSessionStoreSetter(sessionServer SessionServer) {
+	c.sessionServer = sessionServer
 }
 
 func (c *connectorClient) SetSessionStore(ctx context.Context, store sessions.SessionStore) {
-	if c.sessionStoreSetter == nil {
-		// Demoted from Warn to Debug: this path is the normal case for
-		// any connector that didn't opt into session storage (i.e.,
-		// wrapper.run never set cw.SessionServer to non-nil, so
-		// SetSessionStoreSetter received nil at startup). The syncer
-		// still calls SetSessionStore unconditionally on every sync, so
-		// at Warn level this fires once per sync per non-session-store
-		// connector — pure noise that masked real warnings downstream.
-		// Debug keeps the "you forgot to wire this" signal available for
-		// developers running at debug level without polluting prod logs.
-		// See https://github.com/ConductorOne/baton-sdk/issues/907.
-		l := ctxzap.Extract(ctx)
-		l.Debug("connectorClient's session store is nil — connector did not opt into session storage")
+	if c.sessionServer == nil {
 		return
 	}
-	c.sessionStoreSetter.SetSessionStore(ctx, store)
+	c.sessionServer.SetSessionStore(ctx, store)
+}
+
+func (c *connectorClient) BindSessionStore(ctx context.Context, syncID string, store sessions.SessionStore) (sessions.UnbindSessionStore, error) {
+	if c.sessionServer == nil {
+		// Debug, not Warn: every sync of a connector that did not opt into
+		// session storage reaches this. See
+		// https://github.com/ConductorOne/baton-sdk/issues/907.
+		ctxzap.Extract(ctx).Debug("connectorClient's session store is nil — connector did not opt into session storage")
+		return func(context.Context) error { return nil }, nil
+	}
+	return c.sessionServer.BindSessionStore(ctx, syncID, store)
 }
 
 var ErrConnectorNotImplemented = errors.New("client does not implement connector connectorV2")
@@ -109,7 +114,7 @@ type wrapper struct {
 
 	now func() time.Time
 
-	SessionServer sessions.SetSessionStore
+	SessionServer SessionServer
 }
 
 type Option func(ctx context.Context, w *wrapper) error

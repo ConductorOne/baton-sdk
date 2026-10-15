@@ -192,6 +192,7 @@ type syncer struct {
 	lastCheckPointTime                    time.Time
 	counts                                *progresslog.ProgressLog
 	syncID                                string
+	sessionBinding                        sessionBinding
 	skipEGForResourceType                 syncMap[string, bool]
 	skipEntitlementsForResourceType       syncMap[string, bool]
 	skipGrantsForResourceType             syncMap[string, bool]
@@ -1007,6 +1008,9 @@ func (s *syncer) Sync(ctx context.Context) error {
 	if syncID == "" {
 		err = ErrNoSyncIDFound
 		l.Error("no syncID found after starting or resuming sync", zap.Error(err))
+		return err
+	}
+	if err = s.bindSessionStore(ctx); err != nil {
 		return err
 	}
 
@@ -3896,18 +3900,6 @@ func (s *syncer) loadStore(ctx context.Context) error {
 		_ = store.Close(ctx)
 		return s.storeAttachErr
 	}
-	if s.cfg.setSessionStore != nil {
-		// Instrumented so session-store cost is attributable in the sync
-		// stats instead of vanishing into inflated connector-call latency
-		// (e.g. a broken backend whose every request times out before the
-		// connector falls back to real work).
-		kind := "c1z_" + store.Metadata().Engine
-		sessionStore := store.SessionStore()
-		if s.ledgered {
-			sessionStore = ledgerSessionStore{SessionStore: sessionStore}
-		}
-		s.cfg.setSessionStore.SetSessionStore(ctx, session.NewInstrumentedSessionStore(sessionStore, kind, "", s.recordSessionOp))
-	}
 
 	// Now that s.store is populated, wire the expand progress log's size
 	// provider. NewSyncer could not do this when the caller used
@@ -3993,10 +3985,12 @@ func (s *syncer) Close(ctx context.Context) error {
 
 	var errs []error
 
-	var storeCloseErr error
-	if s.store != nil {
-		storeCloseErr = s.store.Close(finalizeCtx)
-		if storeCloseErr != nil {
+	// A store whose session requests did not drain stays open: closing it
+	// would hand those requests a closed store.
+	if unbindErr := s.sessionBinding.release(finalizeCtx); unbindErr != nil {
+		errs = append(errs, fmt.Errorf("error releasing session store: %w", unbindErr))
+	} else if s.store != nil {
+		if storeCloseErr := s.store.Close(finalizeCtx); storeCloseErr != nil {
 			errs = append(errs, fmt.Errorf("error closing store: %w", storeCloseErr))
 		}
 	}
@@ -4191,9 +4185,13 @@ func WithTargetedSyncResources(resources []*v2.Resource) SyncOpt {
 	}
 }
 
+// WithSessionStore serves the connector's session requests for this sync from
+// the sync's store. A sessions.SessionStoreBinder gets the store bound under
+// the sync ID until Close; any other setter is attached through
+// SetSessionStore and keeps the store after Close.
 func WithSessionStore(sessionStore sessions.SetSessionStore) SyncOpt {
 	return func(s *syncer) {
-		s.cfg.setSessionStore = sessionStore
+		s.cfg.sessionStoreBinder = resolveSessionStoreBinder(sessionStore)
 	}
 }
 

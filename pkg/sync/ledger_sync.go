@@ -156,6 +156,9 @@ func (s *syncer) skipLedgerSync(ctx context.Context) error {
 		return err
 	}
 	s.syncID = syncID
+	if err := s.bindSessionStore(ctx); err != nil {
+		return err
+	}
 	s.caps.pageLedger.SetRetainLedgerTokens(s.cfg.retainLedgerTokens)
 	seed := c1zstore.LedgerWork{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: InitOp.String()}}}
 	if err := s.caps.pageLedger.BeginCollecting(ctx, []c1zstore.LedgerWork{seed}, nil); err != nil {

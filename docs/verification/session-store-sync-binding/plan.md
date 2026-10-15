@@ -165,3 +165,73 @@ directly, not through the server under test.
   `make race-check` and the nightly race shards run it. `pkg/session` is in
   the nightly `rest` shard. V6 is therefore enforced nightly, not per PR.
 - Affected criteria: V6.
+
+### CO4 (contract amendment): deprecated attach paths
+
+- Source: `BUG_CATCHING.md` §5.8; `pkg/session` and `pkg/sync` are exported.
+- Motivation: `GRPCSessionServer.SetSessionStore` and `sync.WithSessionStore`
+  taking a `sessions.SetSessionStore` are public API.
+- Contract delta:
+  - `GRPCSessionServer.SetSessionStore` is deprecated and kept. A store set
+    through it serves requests whose sync ID has no binding. A bound sync ID
+    is always served by its binding. B7 holds whenever nothing has called the
+    deprecated method; no in-repo code calls it.
+  - `WithSessionStore` given a setter that does not implement
+    `sessions.SessionStoreBinder` attaches through `SetSessionStore`, the
+    previous behavior. Every in-repo setter implements the binder.
+- Verification delta: `TestGRPCSessionServerDeprecatedSetSessionStore`.
+- Affected criteria: V9.
+
+### CO5 (contract clarification): `Clear` for an unbound sync ID
+
+- Source: the existing `Clear` returned success when no store was set.
+- Contract delta: B4 and B7 except `Clear`. `Clear` for an unbound sync ID
+  returns success and touches no store. An empty sync ID is still rejected.
+- Verification delta: the `Clear` case of
+  `TestGRPCSessionServerRejectsUnroutableRequests`.
+- Affected criteria: V9.
+
+### CO6 (scope): `WithConnectorStore` syncers bind
+
+- Source: the binding moved from `loadStore` to the two places the sync ID is
+  set.
+- Contract delta: a syncer built with `WithConnectorStore` and
+  `WithSessionStore` now binds its store; before, it never attached one. No
+  in-repo caller combines the two (`synccompactor`, `baton-compat-harness`,
+  `baton rollback-expansion` use `WithConnectorStore` alone).
+- Affected criteria: none.
+
+### CO7 (decision): drain past the finalize context
+
+- Source: B5 bounds the wait but does not say what `Close` does when the
+  bound is hit. `dotc1z.FinalizeTimeout` is read once from the environment
+  and has no test hook.
+- Contract delta: when the drain does not finish before the finalize context
+  ends, `Close` returns the error and does not close the store. The c1z is
+  not finalized; a later `Close` closes it. The binding is already removed,
+  so no new request reaches the store.
+- Verification delta: V8's second case runs at two levels.
+  `TestGRPCSessionServerUnbindDrainTimeout` drives a real deadline through
+  the server. `TestSessionBindingCloseKeepsStoreOpenWhenDrainFails` gives the
+  syncer an unbind that fails and checks the store still serves reads.
+- Affected criteria: V8.
+
+### CO8 (instrument correction): connector-side usage in the overlap harness
+
+- Source: V5 after the fix failed on `connector.set` = 0 for the held sync.
+- Motivation: `lazyCachingSessionStore.ensureSession` wraps the connector's
+  backend in `NewInstrumentedSessionStore`, which produces the usage
+  annotations behind `connector.*`. The harness skipped it, so every sync
+  reported zero. Stage 1 V5 stopped at `store.set` and never reached the
+  `connector.*` assertions.
+- Verification delta: the harness wraps the backend the same way. Instrument
+  revalidation: the stage 1 suite rerun with the corrected harness against
+  unchanged production code fails V1–V5 with the same messages as stage 1.
+- Affected criteria: V5.
+
+### CO9 (contract addition): bind failure
+
+- Contract delta: **B11.** A sync whose bind fails returns the error before
+  any resource-syncer call, on both sync ID sites.
+- Verification delta: **V12** `TestSessionBindingBindFailureFailsSync`
+  (Pebble, SQLite, ledgered skip-full-sync).

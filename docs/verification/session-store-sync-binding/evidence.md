@@ -69,3 +69,72 @@ All listed packages passed under `-race` except `pkg/dotc1z`:
 (`c1file.go:1506`) and `C1File.closeRawDB` (`c1file.go:846`), 2 of 2 runs.
 This branch does not touch `pkg/dotc1z`. PR CI does not run `-race`
 (`.github/workflows/ci.yaml:45`). Stage 2 compares against this baseline.
+
+# Stage 2
+
+Fix and remaining criteria on top of `9b4350dd`. Change orders CO4–CO9 in
+the plan apply.
+
+## Commands
+
+```bash
+go test -race -count=1 -run 'TestSessionBinding' ./pkg/sync/
+go test -race -count=1 -run 'TestGRPCSessionServer' ./pkg/session/
+go test -race -count=1 -timeout=45m \
+  ./pkg/session/... ./pkg/dotc1z/... ./pkg/sync/... ./pkg/connectorbuilder/... \
+  ./pkg/tasks/... ./pkg/cli/... ./internal/connector/...
+golangci-lint run ./pkg/session/... ./pkg/sync/... ./internal/connector/... ./pkg/types/sessions/...
+go vet ./...
+```
+
+## Criteria
+
+| ID | Status | Artifact |
+| --- | --- | --- |
+| V1–V4 | verified, 9 of 9 overlap cells and the skip cell | `TestSessionBindingOverlap`, `TestSessionBindingOverlapSkipSync` |
+| V5 | verified, 4 Pebble cells without cache, `store.*` and `connector.*` | `.../V5_stats_attribution` (harness corrected, CO8) |
+| V6 | verified under `-race` | `TestGRPCSessionServerAttachWhileServing`, now binding, unbinding, attaching, and serving at once |
+| V7 | verified | unchanged tests, Pebble and SQLite |
+| V8 | verified | `TestGRPCSessionServerUnbindDrains`, `TestGRPCSessionServerUnbindDrainTimeout`, `TestSessionBindingCloseDrainsInFlight` (both engines), `TestSessionBindingCloseKeepsStoreOpenWhenDrainFails` (both engines) |
+| V9 | verified, all eight handlers | `TestGRPCSessionServerRejectsUnroutableRequests`, `TestGRPCSessionServerDeprecatedSetSessionStore` |
+| V10 | verified | `TestGRPCSessionServerBindRejects` |
+| V11 | matches the baseline: every package passes except the pre-existing `TestC1ZConcurrentClose` race in `pkg/dotc1z` (`c1file.go:1506`), the only race reported | suites listed above |
+| V12 | verified | `TestSessionBindingBindFailureFailsSync` |
+
+## Instrument validation
+
+Each mutation was applied alone to the fixed code; the listed tests failed
+and the mutation was reverted.
+
+| Mutation | Caught by |
+| --- | --- |
+| `acquire` skips `inflight.Add` | `UnbindDrains`, `UnbindDrainTimeout` |
+| `unbind` leaves the binding in the map | `UnbindDrains`, `UnbindDrainTimeout`, `BindRejects` |
+| unbound sync ID served by any bound store | `RejectsUnroutableRequests` (all eight handlers), `DeprecatedSetSessionStore` |
+| bind overwrites an existing binding | `BindRejects`, `UnbindDrains` |
+| unbind without `sync.Once` | `BindRejects`, `UnbindDrains` |
+| `Clear` rejects unbound sync IDs | `RejectsUnroutableRequests/Clear`, `UnbindDrains` |
+| empty sync ID not rejected | `RejectsUnroutableRequests` (all eight handlers) |
+| unbind does not wait | `UnbindDrains`, `UnbindDrainTimeout` |
+| `acquire` reads the map without the lock | V6, data race in 3 of 3 runs |
+| `Close` closes the store after a failed drain | `CloseKeepsStoreOpenWhenDrainFails/pebble` |
+| `Close` does not wait for unbind | `CloseDrainsInFlight`, `CloseKeepsStoreOpenWhenDrainFails` (both engines) |
+| no bind in `skipLedgerSync` | `BindFailureFailsSync/pebble-skip-full-sync` |
+| bind error ignored in `Sync` | `BindFailureFailsSync/pebble`, `/sqlite` |
+| no bind in `Sync` | V1, V5, V7, V8, V12 cells |
+| `Close` never unbinds | V4 (all cells), V8, `TestSessionBindingResume` |
+| bound store not instrumented | V5 (4 cells) |
+
+`TestSessionBindingOverlapSkipSync` passes with the `skipLedgerSync` bind
+removed: an unbound skip sync no longer disturbs the held sync. V12 is the
+check for that site.
+
+The first V11 run failed `TestGRPCSessionServerUnbindDrains` once: its probe
+`Set` can land before the unbind goroutine removes the binding, and that
+`Set` correctly reaches the store. The test now counts probes served before
+the unbind. After the change it passed 900 runs under `-race` (`-count=300
+-cpu 1,2,8`), and the `acquire`, `unbind`, and no-wait mutations still fail
+it. `TestSessionBinding*` passed 5 of 5 runs under `-race`.
+
+Test names in the table drop the `TestGRPCSessionServer` and
+`TestSessionBinding` prefixes.

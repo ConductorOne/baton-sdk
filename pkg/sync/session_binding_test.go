@@ -380,6 +380,9 @@ func newBindingHarness(t *testing.T, script bindingScript, o bindingHarnessOpts)
 		var childStore sessions.SessionStore
 		childStore, err = session.NewGRPCSessionStore(ctx, h.sessionRPC)
 		require.NoError(t, err)
+		// lazyCachingSessionStore.ensureSession wraps the backend this way;
+		// without it the connector reports no session usage.
+		childStore = session.NewInstrumentedSessionStore(childStore, "connector_backend", "", nil)
 		if o.connectorCache {
 			childStore, err = session.NewMemorySessionCache(&otter.Options[string, []byte]{
 				MaximumWeight:    1024 * 1024,
@@ -415,8 +418,6 @@ func (h *bindingHarness) path(name string) string {
 	return filepath.Join(h.tmpDir, name+".c1z")
 }
 
-// newSyncer uses WithC1ZPath, as fullSyncTaskHandler.sync does, because only
-// loadStore attaches the session store; WithConnectorStore skips it.
 func (h *bindingHarness) newSyncer(t *testing.T, c1zPath string, engine c1zstore.Engine, opts ...SyncOpt) Syncer {
 	t.Helper()
 	all := []SyncOpt{WithC1ZPath(c1zPath), WithTmpDir(h.tmpDir), WithStorageEngine(engine)}
@@ -707,6 +708,141 @@ func TestSessionBindingWithoutSessionSupport(t *testing.T) {
 			require.NoError(t, r.syncErr)
 			require.NoError(t, r.closeErr)
 			require.Len(t, script.traces, 1)
+		})
+	}
+}
+
+type gatedSessionStore struct {
+	sessions.SessionStore
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (g *gatedSessionStore) Get(ctx context.Context, key string, opt ...sessions.SessionStoreOption) ([]byte, bool, error) {
+	if key == "gated" {
+		signal(g.entered)
+		<-g.release
+	}
+	return g.SessionStore.Get(ctx, key, opt...)
+}
+
+// gatingBinder binds the syncer's store on the real session server behind a
+// gate that holds Get("gated") inside the store.
+type gatingBinder struct {
+	server  sessions.SessionStoreBinder
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (*gatingBinder) SetSessionStore(context.Context, sessions.SessionStore) {}
+
+func (g *gatingBinder) BindSessionStore(ctx context.Context, syncID string, store sessions.SessionStore) (sessions.UnbindSessionStore, error) {
+	return g.server.BindSessionStore(ctx, syncID, &gatedSessionStore{SessionStore: store, entered: g.entered, release: g.release})
+}
+
+func TestSessionBindingCloseDrainsInFlight(t *testing.T) {
+	for _, engine := range bindingEngines {
+		t.Run(string(engine), func(t *testing.T) {
+			ctx := t.Context()
+			script := &plainScript{}
+			h := newBindingHarness(t, script, bindingHarnessOpts{})
+			server, ok := h.cc.(sessions.SessionStoreBinder)
+			require.True(t, ok)
+			gate := &gatingBinder{server: server, entered: make(chan struct{}), release: make(chan struct{})}
+			path := h.path("drain")
+			s := h.newSyncer(t, path, engine, WithSessionStore(gate))
+			require.NoError(t, s.Sync(ctx))
+			require.Len(t, script.traces, 1)
+			syncID := script.traces[0].syncID
+
+			inflight := make(chan error, 1)
+			go func() {
+				_, err := h.sessionRPC.Get(ctx, v1.GetRequest_builder{SyncId: syncID, Key: "gated"}.Build())
+				inflight <- err
+			}()
+			waitFor(t, gate.entered, "session request to reach the store")
+
+			closed := make(chan error, 1)
+			go func() { closed <- s.Close(ctx) }()
+			require.Eventually(t, func() bool {
+				_, err := h.sessionRPC.Get(ctx, v1.GetRequest_builder{SyncId: syncID, Key: "k"}.Build())
+				return status.Code(err) == codes.FailedPrecondition
+			}, bindingWaitTimeout, 5*time.Millisecond, "Close did not release the binding")
+			select {
+			case err := <-closed:
+				t.Fatalf("Close returned with a session request in flight: %v", err)
+			case <-time.After(100 * time.Millisecond):
+			}
+
+			signal(gate.release)
+			require.NoError(t, <-inflight, "in-flight session request ran against a closed store")
+			require.NoError(t, <-closed)
+			openSealed(t, path, h.tmpDir)
+		})
+	}
+}
+
+var errDrainTimedOut = errors.New("drain timed out")
+
+type failingUnbindBinder struct {
+	syncID string
+	store  sessions.SessionStore
+}
+
+func (*failingUnbindBinder) SetSessionStore(context.Context, sessions.SessionStore) {}
+
+func (b *failingUnbindBinder) BindSessionStore(_ context.Context, syncID string, store sessions.SessionStore) (sessions.UnbindSessionStore, error) {
+	b.syncID, b.store = syncID, store
+	return func(context.Context) error { return errDrainTimedOut }, nil
+}
+
+func TestSessionBindingCloseKeepsStoreOpenWhenDrainFails(t *testing.T) {
+	for _, engine := range bindingEngines {
+		t.Run(string(engine), func(t *testing.T) {
+			ctx := t.Context()
+			h := newBindingHarness(t, &plainScript{}, bindingHarnessOpts{noSessionSupport: true})
+			binder := &failingUnbindBinder{}
+			s := h.newSyncer(t, h.path("undrained"), engine, WithSessionStore(binder))
+			require.NoError(t, s.Sync(ctx))
+			require.NotEmpty(t, binder.syncID, "premise: the sync must bind")
+
+			require.ErrorIs(t, s.Close(ctx), errDrainTimedOut)
+			_, _, err := binder.store.Get(ctx, "k", sessions.WithSyncID(binder.syncID))
+			require.NoError(t, err, "Close closed a store whose session requests had not drained")
+			require.NoError(t, s.Close(ctx))
+		})
+	}
+}
+
+var errBindRejected = errors.New("bind rejected")
+
+type rejectingBinder struct{}
+
+func (rejectingBinder) SetSessionStore(context.Context, sessions.SessionStore) {}
+
+func (rejectingBinder) BindSessionStore(context.Context, string, sessions.SessionStore) (sessions.UnbindSessionStore, error) {
+	return nil, errBindRejected
+}
+
+func TestSessionBindingBindFailureFailsSync(t *testing.T) {
+	cases := []struct {
+		name   string
+		engine c1zstore.Engine
+		opts   []SyncOpt
+	}{
+		{"pebble", c1zstore.EnginePebble, nil},
+		{"sqlite", c1zstore.EngineSQLite, nil},
+		{"pebble-skip-full-sync", c1zstore.EnginePebble, []SyncOpt{WithSkipFullSync()}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			script := &plainScript{}
+			h := newBindingHarness(t, script, bindingHarnessOpts{noSessionSupport: true})
+			opts := append([]SyncOpt{WithSessionStore(rejectingBinder{})}, c.opts...)
+			r := awaitResult(t, runSyncAndClose(t.Context(), h.newSyncer(t, h.path("rejected"), c.engine, opts...)), "sync")
+			require.ErrorIs(t, r.syncErr, errBindRejected)
+			require.NoError(t, r.closeErr)
+			require.Empty(t, script.traces, "the sync reached the connector without a session binding")
 		})
 	}
 }
