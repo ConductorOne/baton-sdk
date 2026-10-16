@@ -372,9 +372,15 @@ func quotedBody(body []byte) string {
 	return ". body: " + text
 }
 
-// requestLogFields identify the request a log line is about. The query string
-// is left out: it can carry credentials.
+// requestLogFields identify the request a log line is about. These fields omit
+// the query string. A zap.Error on the same line still prints a *url.Error URL.
 func requestLogFields(req *http.Request) []zap.Field {
+	if req == nil {
+		return nil
+	}
+	if req.URL == nil {
+		return []zap.Field{zap.String("http.method", req.Method)}
+	}
 	return []zap.Field{
 		zap.String("http.method", req.Method),
 		zap.String("http.url_details.host", req.URL.Host),

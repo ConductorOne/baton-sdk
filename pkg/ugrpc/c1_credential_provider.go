@@ -184,7 +184,7 @@ type c1CredentialProvider struct {
 func (c *c1CredentialProvider) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
 	token, err := c.tokenSource.Token()
 	if err != nil {
-		return nil, err
+		return nil, credsStatus(err)
 	}
 
 	ri, _ := credentials.RequestInfoFromContext(ctx)
@@ -200,6 +200,28 @@ func (c *c1CredentialProvider) GetRequestMetadata(ctx context.Context, uri ...st
 
 func (c *c1CredentialProvider) RequireTransportSecurity() bool {
 	return true
+}
+
+// credsStatus returns err with a code PerRPCCredentials may carry.
+// grpc rewrites InvalidArgument, NotFound, AlreadyExists, FailedPrecondition,
+// Aborted, OutOfRange, and DataLoss to Internal. Bootstrap retries Internal
+// with no attempt limit.
+func credsStatus(err error) error {
+	st, ok := status.FromError(err)
+	if !ok || !restrictedControlPlaneCode(st.Code()) {
+		return err
+	}
+	return status.Error(codes.Unauthenticated, st.Message())
+}
+
+func restrictedControlPlaneCode(code codes.Code) bool {
+	switch code {
+	case codes.InvalidArgument, codes.NotFound, codes.AlreadyExists,
+		codes.FailedPrecondition, codes.Aborted, codes.OutOfRange, codes.DataLoss:
+		return true
+	default:
+		return false
+	}
 }
 
 func NewC1CredentialProvider(ctx context.Context, clientID string, clientSecret string) (credentials.PerRPCCredentials, string, string, error) {

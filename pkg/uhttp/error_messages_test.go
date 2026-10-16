@@ -363,8 +363,7 @@ func transportFailures() []transportFailure {
 				t.Cleanup(srv.Close)
 				return srv.URL + "/users?token=secret", t.Context()
 			},
-			wantCode:          codes.FailedPrecondition,
-			descOmitsEndpoint: true,
+			wantCode: codes.FailedPrecondition,
 			check: func(t *testing.T, err error) {
 				var certErr *tls.CertificateVerificationError
 				require.ErrorAs(t, err, &certErr)
@@ -601,4 +600,17 @@ func TestDo_ErrorLogsIdentifyTheRequest(t *testing.T) {
 		require.Len(t, entries, 1)
 		requestFields(t, entries[0], u)
 	})
+}
+
+func TestDo_NilURLReturnsTheClientError(t *testing.T) {
+	c := newPlainClient(t)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://example.com/users", nil)
+	require.NoError(t, err)
+	req.URL = nil
+
+	resp, err := c.Do(req)
+	if resp != nil {
+		resp.Body.Close()
+	}
+	require.ErrorContains(t, err, "http: nil Request.URL")
 }

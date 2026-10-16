@@ -88,7 +88,7 @@ func classifyTransportFailure(err error, endpoint string) error {
 	// or the server's certificate.
 	var certErr *tls.CertificateVerificationError
 	if errors.As(err, &certErr) {
-		return WrapErrors(codes.FailedPrecondition, "tls certificate verification failed", err)
+		return WrapErrors(codes.FailedPrecondition, withEndpoint("tls certificate verification failed", endpoint), err)
 	}
 
 	var urlErr *url.Error
