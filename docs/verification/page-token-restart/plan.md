@@ -194,3 +194,17 @@ keyspaces, locks or commit points.
 P11 record: CO4 changes runtime error codes, the `Action` layout and the key order
 of marked tokens, so P11 stays evidence incomplete until the C1 consumer reruns
 against the final runtime commit.
+
+CO4 revision (independent read of the uncommitted CO4 diff): a `DeadlineExceeded`
+code on a failed forced checkpoint breaks P04. The sequential loop in
+`parallelSync` retries `DeadlineExceeded` under a live worker context, re-reads the
+restarted action from run state, and skips its loop-top checkpoint because
+`syncCheckpoint.write` stamped the failed attempt. The restarted listing's first
+request then precedes a durable budget. `persistenceError` therefore reports
+`Canceled` for a canceled context and `Internal` for every other failure, deadlines
+included; the retryer never retries either code, and `IsSyncPreservable` already
+finds a deadline through `errors.Is`. This supersedes the `DeadlineExceeded` code
+and the retry argument in the persistence-status item above. Instrument: run
+`parallelSync` with a forced checkpoint that fails on a wrapped deadline under a
+live context, and require exactly one provider request. Validate against the
+`DeadlineExceeded` code.
