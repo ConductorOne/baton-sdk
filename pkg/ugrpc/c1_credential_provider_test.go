@@ -33,7 +33,7 @@ func TestGetRequestMetadataKeepsRestrictedCodesOffTheControlPlane(t *testing.T) 
 		{
 			name: "nxdomain",
 			err:  status.Error(codes.InvalidArgument, "dns lookup failed: NXDOMAIN: example.com/auth/v1/token"),
-			want: codes.Unauthenticated,
+			want: codes.Unavailable,
 		},
 		{
 			name: "connection refused",

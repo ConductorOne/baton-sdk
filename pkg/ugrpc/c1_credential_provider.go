@@ -205,13 +205,18 @@ func (c *c1CredentialProvider) RequireTransportSecurity() bool {
 // credsStatus returns err with a code PerRPCCredentials may carry.
 // grpc rewrites InvalidArgument, NotFound, AlreadyExists, FailedPrecondition,
 // Aborted, OutOfRange, and DataLoss to Internal. Bootstrap retries Internal
-// with no attempt limit.
+// with no attempt limit. A certificate failure will not succeed on a retry,
+// so it becomes Unauthenticated, which Bootstrap does not retry. The other
+// restricted codes stay retryable as Unavailable.
 func credsStatus(err error) error {
 	st, ok := status.FromError(err)
 	if !ok || !restrictedControlPlaneCode(st.Code()) {
 		return err
 	}
-	return status.Error(codes.Unauthenticated, st.Message())
+	if st.Code() == codes.FailedPrecondition {
+		return status.Error(codes.Unauthenticated, st.Message())
+	}
+	return status.Error(codes.Unavailable, st.Message())
 }
 
 func restrictedControlPlaneCode(code codes.Code) bool {
