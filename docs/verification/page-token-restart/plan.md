@@ -105,3 +105,37 @@ and legacy-token takeover must select the guarded format too. Do not add scans,
 keyspaces, dependencies, locks or new commit points; healthy-page complexity
 remains unchanged. An independent reader audits this correction's evidence and
 format write paths after the tests pass.
+
+CO3 (correction, deep review of `02c5996c`): Three findings re-enter the risk
+model.
+
+P14 (new, default path): A direct provider list-RPC error reaches the caller with
+the status it had before this change: the same code, message and details, whether
+or not a restart policy is set. `providerPageError` hides the cause's status, so
+`status.FromError` rebuilds the message from `err.Error()` and a host reports
+`rpc error: code = ... desc = ...` instead of the connector's message. Default-path
+exposure puts this first; remediation is a redeploy. Instrument: the five provider
+RPC families x legacy/Pebble with a status-coded connector error and no policy,
+compared with the value each call site returned before this change. Validate it
+against the unfixed wrapper.
+
+P13 extension (version pair): A pre-recovery Pebble reader's `StartNewSync` reads
+the pending-work declaration before `ResetForNewSync`, so version 3 also blocks a
+fresh sync over the file. Return the declaration to version 2 once no recovery
+work is reachable: at `BeginExpanding`, whose only pending entry is the expansion
+action, and at the terminal page, whose queue is empty. Version 3 stays while
+collection can still hold recovery work. `WithPageTokenRestarts` states that a
+pre-recovery SDK can then neither resume nor start a new sync over the Pebble file
+until a supporting SDK finishes collection or the file is discarded. Extend the
+rollback probe with old-reader `StartNewSync` cells: rejected while recovery work
+is pending, accepted after `BeginExpanding`. Validate by keeping version 3 at
+`BeginExpanding`.
+
+P11 record: CO2 and CO3 change runtime after the host consumer run, so P11 returns
+to evidence incomplete until the consumer reruns against the final runtime commit.
+Correct the evidence header and its claim that later SDK changes are tests and
+evidence only.
+
+CO3 implementation obligations: The version change rides the existing
+`BeginExpanding` and terminal-page batches. Do not add scans, keyspaces, locks or
+commit points. Healthy-page complexity remains unchanged.
