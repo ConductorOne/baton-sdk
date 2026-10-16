@@ -678,6 +678,64 @@ func TestSessionBindingResume(t *testing.T) {
 	}
 }
 
+type sequentialScript struct {
+	mu            native_sync.Mutex
+	traces        []*sessionTrace
+	preWriteReads []string
+}
+
+func (q *sequentialScript) grants(ctx context.Context, opts resource.SyncOpAttrs) error {
+	tr := &sessionTrace{syncID: opts.SyncID}
+	before, found, err := opts.Session.Get(ctx, "k")
+	tr.set(ctx, opts.Session, "k")
+	tr.get(ctx, opts.Session, "read", "k")
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.traces = append(q.traces, tr)
+	if found || err != nil {
+		q.preWriteReads = append(q.preWriteReads, fmt.Sprintf("sync %s: found=%t value=%q err=%v", opts.SyncID, found, before, err))
+	}
+	return nil
+}
+
+func TestSessionBindingSequentialSyncs(t *testing.T) {
+	for _, engine := range bindingEngines {
+		t.Run(string(engine), func(t *testing.T) {
+			script := &sequentialScript{}
+			h := newBindingHarness(t, script, bindingHarnessOpts{connectorCache: true})
+
+			var paths []string
+			for i := range 3 {
+				path := h.path(fmt.Sprintf("sync-%d", i))
+				r := awaitResult(t, runSyncAndClose(t.Context(), h.newSyncer(t, path, engine)), path)
+				require.NoError(t, r.syncErr)
+				require.NoError(t, r.closeErr)
+				paths = append(paths, path)
+			}
+
+			require.Len(t, script.traces, 3)
+			seen := map[string]bool{}
+			for _, tr := range script.traces {
+				require.False(t, seen[tr.syncID], "premise: each sync gets its own sync ID")
+				seen[tr.syncID] = true
+			}
+			require.Empty(t, script.preWriteReads, "a sync read a session value it had not written")
+
+			for i, tr := range script.traces {
+				tr.requireOwnReads(t, paths[i])
+				require.Empty(t, h.recorder.errsFor(tr.syncID), "sync %d session operations failed", i)
+				requireClassifiedClosedSyncError(t, h.sessionRPC, tr.syncID)
+
+				sealed := openSealed(t, paths[i], h.tmpDir)
+				for _, other := range script.traces {
+					require.Empty(t, sessionRows(t, sealed, other.syncID), "%s holds session rows for sync %s", paths[i], other.syncID)
+				}
+			}
+		})
+	}
+}
+
 func TestSessionBindingSkipFullSync(t *testing.T) {
 	for _, engine := range bindingEngines {
 		t.Run(string(engine), func(t *testing.T) {

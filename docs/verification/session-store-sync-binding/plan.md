@@ -274,3 +274,20 @@ directly, not through the server under test.
   checks that `Close` succeeds, the drain context has a deadline no later
   than `sessionDrainTimeout`, and the c1z is committed.
 - Affected criteria: V8.
+
+### CO12 (verification addition): sequential syncs on one server
+
+- Source: review question about a service-mode connector that finishes a
+  task, idles, and starts the next. c1api creates a new temp c1z per task,
+  so each task has a new sync ID, while the session server, the connector
+  client, and the connector's `MemorySessionCache` live for the whole
+  process. No criterion ran more than one completed sync through one
+  server and one connector cache.
+- Contract delta: none.
+- Verification delta: `TestSessionBindingSequentialSyncs` runs three
+  syncs one after another on one harness with the connector cache on, for
+  both engines. Each sync reads `k` before writing it and must find
+  nothing, then writes `k` and must read back its own value. Every finished
+  sync ID must get a classified error from a raw request, and no c1z may
+  hold session rows for any of the three sync IDs.
+- Affected criteria: B2, B3, B5, B9.

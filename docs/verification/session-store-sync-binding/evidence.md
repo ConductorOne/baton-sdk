@@ -162,3 +162,15 @@ packages is clean. Each mutation below was applied alone and caught:
 
 This supersedes the two stage 2 mutation rows that assumed `Close` leaves
 the store open after a failed drain.
+
+## CO12
+
+`TestSessionBindingSequentialSyncs` passes 3 of 3 runs under `-race` on
+both engines; `golangci-lint` on `pkg/sync` is clean. Each mutation below
+was applied alone and caught on both engines:
+
+| Mutation | Failing assertion |
+| --- | --- |
+| `Close` does not release the binding | raw request for a finished sync returns `Internal` |
+| `MemorySessionCache` key omits the sync ID | syncs 2 and 3 read the previous sync's `k` before writing |
+| server `Clear` does not call the bound store | `sync-0.c1z` holds session rows for its own sync ID |
