@@ -114,3 +114,70 @@ gate, vendor consistency, module verification and dependency-license check passe
 The consumer pins runtime commit ec11dda; subsequent SDK changes are tests/evidence
 only. This record claims bounded fixture coverage and sampled concurrency/codec
 coverage, not universal crash or version-pair closure.
+
+## CO2: rollback format guards
+
+This correction adds P13 from the committed CO2 plan. It supersedes the earlier
+old-reader exclusion only for the bounded reader pair below. The runtime now
+stamps marked serialized tokens as version 3, including mixed type-scoped stacks.
+The recovery golden fixture is `v3_page_token_restart.json`. The hand-authored
+unknown-version fixture moves to version 4 so it still tests the V0 fallback;
+other existing fixture bytes are unchanged.
+
+P13: **verified to stated bounded coverage**. `TestPageTokenRestartVersionStamp`
+covers plain/type-scoped/spawned/planned/restarted/mixed markers, each with and
+without the graph-omission rewrite, and requires exact round-trip bytes and
+restored provider cursor/count. `TestPendingWorkRestartVersion` checks the raw
+declaration version, failed-commit atomicity, close/reopen, continuation without
+children, child allocation by recovered and plain siblings, expansion and sealing.
+`TestPendingWorkRestartSeedVersion` covers initial seeding and legacy takeover.
+The existing resume and golden suites continue to cover disabled-policy reading
+and repeated cold resume on both engines.
+
+`scripts/check-page-token-restart-rollback.sh` exports tokens and closed Pebble
+databases through the current production writers, then reads them with the pinned
+pre-recovery parent `47f5027e75e56872a9325a378badcaaab2718f4a`. Its old-reader
+assertions require the recovered action stack to be discarded and the recovered
+pending-work declaration to be rejected before returning any work. Plain tokens,
+version-2 type-scoped tokens and plain queues remain readable. This checks the
+actual older codec and engine, not an emulation of their version tests. It does
+not claim a completed old-binary full sync or compatibility with every release.
+
+Instrument validation: before the fix, the serialized stamp table failed with
+versions 1/2 instead of 3; both initial-seed cells and the transition test failed
+with pending-work version 2 instead of 3. After the fix, the unchanged rollback
+script exits successfully. With `BATON_ROLLBACK_MUTATE=1`, lowering the exported
+token guard to 1 and the declaration guard to 2 makes both recovered old-reader
+cells fail while their plain baselines pass. The old token reader exposes the
+wrapped cursor and the old queue reader returns work. Mutations affect only the
+throwaway compatibility artifacts.
+
+Execution against the final runtime and tests:
+
+- `make test`: passed with CI's `baton_lambda_support` tag; 67 tested packages.
+- `go test -race -tags=baton_lambda_support -count=1 -run 'Test(PageTokenRestart|PendingWork|Ledger.*(Phase|Terminal|Seal)|.*Token|GoldenToken)' ./pkg/sync ./pkg/dotc1z/engine/pebble`: passed.
+- `go test -count=1 -coverprofile=coverage.out -run 'Test(PageTokenRestart|PendingWork|LedgerWorkStateRejectsForeignEncodings|Ledger.*(Phase|Terminal|Seal)|SyncerToken|GoldenToken)' ./pkg/sync ./pkg/dotc1z/engine/pebble`: passed.
+- `GOTOOLCHAIN=go1.27.1 scripts/check-page-token-restart-rollback.sh`: passed; the same command with `BATON_ROLLBACK_MUTATE=1` failed at both required recovered-reader assertions.
+- `GOTOOLCHAIN=go1.27.1 make lint`, with CI-pinned golangci-lint v2.13.2: passed, zero issues. The environment's Go 1.27.2 export format was incompatible with the lint loader, so lint uses the module's declared toolchain.
+- `go test -run '^$' -fuzz '^FuzzPageTokenRestartCodec$' -fuzztime=20s -parallel=2 ./pkg/sync`: passed, 742 executions; sampled codec coverage.
+- `bash -n scripts/check-page-token-restart-rollback.sh` and `git diff --check`: passed.
+
+The first targeted run encountered an existing keyspace-reader test's transient
+Pebble lock error. That test passed in isolation on both the unchanged parent and
+the candidate, then passed in the candidate race and full-suite runs.
+
+CO2 structural triage: the profile executes every new version choice, supported
+version read, malformed declaration/phase rejection and successful declaration
+write. The remaining uncovered blocks in the edited functions are inherited
+validation and I/O-error returns: closed-store reads, invalid queue phases and
+seeds, allocation/revision overflow, invalid children, and staging failures. These
+are excluded from new fault-coverage claims; the extraction preserves their
+predicates and propagation. Failed-batch atomicity has a direct new fault test.
+No new keyspace, lock, closer, scan or commit point is added. Healthy page work
+and worst-case checkpoint serialization complexity are unchanged; recovery adds
+one constant-size declaration update in the existing page batch.
+
+The independent reader inspected the final writers, readers, tests and script,
+audited the before/after, race, lint, broad-suite and mutation evidence, and
+reported no findings within this bounded correction. Historical release-pair,
+full old-binary sync and exhaustive crash-schedule coverage remain excluded.

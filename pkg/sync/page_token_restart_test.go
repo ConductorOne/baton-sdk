@@ -204,7 +204,7 @@ func TestPageTokenRestartLegacyTakeover(t *testing.T) {
 	require.NoError(t, err)
 	s := &syncer{syncID: syncID, run: newRunState(), stats: newRunStats()}
 	s.setStore(store)
-	require.NoError(t, store.CheckpointSync(ctx, readGoldenToken(t, "v1_page_token_restart.json")))
+	require.NoError(t, store.CheckpointSync(ctx, readGoldenToken(t, "v3_page_token_restart.json")))
 	resume, err := loadLedgerResume(ctx, store, s.caps.pageLedger, "takeover-attempt", "")
 	require.NoError(t, err)
 	require.True(t, resume.hasPendingWork)
