@@ -1299,6 +1299,28 @@ func (m *CredentialIssueOptionDescriptor) validate(all bool) error {
 
 	// no validation rules for Preferred
 
+	if len(m.GetOutputContentType()) > 128 {
+		err := CredentialIssueOptionDescriptorValidationError{
+			field:  "OutputContentType",
+			reason: "value length must be at most 128 bytes",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if !_CredentialIssueOptionDescriptor_OutputContentType_Pattern.MatchString(m.GetOutputContentType()) {
+		err := CredentialIssueOptionDescriptorValidationError{
+			field:  "OutputContentType",
+			reason: "value does not match regex pattern \"^$|^[a-z0-9]+([._-][a-z0-9]+)*$\"",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
 	if len(errors) > 0 {
 		return CredentialIssueOptionDescriptorMultiError(errors)
 	}
@@ -1379,6 +1401,8 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = CredentialIssueOptionDescriptorValidationError{}
+
+var _CredentialIssueOptionDescriptor_OutputContentType_Pattern = regexp.MustCompile("^$|^[a-z0-9]+([._-][a-z0-9]+)*$")
 
 // Validate checks the field values on IssuanceExpiryCapability with the rules
 // defined in the proto definition for this message. If any rules are

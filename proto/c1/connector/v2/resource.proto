@@ -110,6 +110,15 @@ service CredentialManagerService {
   // additional, distinct secret, so an identity can hold multiple coexisting
   // keys (e.g. cloud service-account key #1 and #2).
   rpc IssueCredential(IssueCredentialRequest) returns (IssueCredentialResponse);
+  // IssueCredentialV2 mints a credential whose returned bytes conform to a
+  // requested output content type. It exists as a distinct method rather than a
+  // new field on IssueCredential because protobuf unknown-field tolerance lets
+  // an implementation that predates this contract silently ignore a new field
+  // and mint legacy bytes under a typed request. A runtime without this method
+  // answers Unimplemented before its Issue implementation runs and before any
+  // provider call, so the method's existence is the fence. Callers must never
+  // fall back to IssueCredential on Unimplemented or any other error.
+  rpc IssueCredentialV2(IssueCredentialRequest) returns (IssueCredentialResponse);
 }
 
 service AccountManagerService {
@@ -174,6 +183,15 @@ message IssueCredentialRequest {
   // Optional absolute expiry requested by the caller. Absolute time avoids
   // extending a credential merely because an approved task waited in queue.
   google.protobuf.Timestamp expires_at = 5;
+  // The typed output contract the caller requires, as a SecretPayloadV2 content
+  // type. Empty means the legacy contract. Nonempty is only valid on
+  // IssueCredentialV2; the implementation validates it against the selected
+  // descriptor before calling Issue and refuses a mismatch or an unsupported
+  // type before any provider call.
+  string output_content_type = 6 [(validate.rules).string = {
+    max_bytes: 128
+    pattern: "^$|^[a-z0-9]+([._-][a-z0-9]+)*$"
+  }];
 }
 
 enum CredentialResourceMode {
