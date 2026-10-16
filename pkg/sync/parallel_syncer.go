@@ -909,7 +909,7 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 					if preBatchCtx.Err() == nil {
 						l.Warn("cancelling context due to error in action", zap.Any("action", action), zap.Error(r.err))
 					}
-					cancel(fmt.Errorf("cancelling context due to error in action %v: %w", action, r.err))
+					cancel(fmt.Errorf("cancelling context due to error in action %s (%s/%s): %w", action.Op, action.ResourceTypeID, action.ResourceID, r.err))
 					queue.abort()
 					return
 				}

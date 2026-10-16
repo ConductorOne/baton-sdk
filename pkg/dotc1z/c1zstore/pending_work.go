@@ -8,4 +8,6 @@ type LedgerWork struct {
 	Action            LedgerChild `json:"action"`
 	SchedulingKey     string      `json:"scheduling_key,omitempty"`
 	TypeScopedPlanned bool        `json:"type_scoped_planned,omitempty"`
+	// PageTokenRestarted cannot be cleared while this work item remains pending.
+	PageTokenRestarted bool `json:"page_token_restarted,omitempty"`
 }

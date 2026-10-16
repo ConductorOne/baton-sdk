@@ -73,24 +73,24 @@ func (u *pageUnit) StageTrustedImport() error {
 // Under the write lock, before anything is staged. Every page checks the
 // phase; the terminal page also checks the queue and its own row.
 func (u *pageUnit) stagePhaseLocked(batch *rawdb.RecordBatch, row *v3.LedgerRow) error {
-	last, phase, err := u.l.workState()
+	state, err := u.l.readWorkState()
 	if err != nil {
 		return err
 	}
-	switch phase {
+	switch state.phase {
 	case c1zstore.LedgerQueueSealing:
-		return fmt.Errorf("%w: %s", ErrLedgerQueuePhase, phase)
+		return fmt.Errorf("%w: %s", ErrLedgerQueuePhase, state.phase)
 	case c1zstore.LedgerQueueExpanding:
 		// The terminal page is the one page Expanding accepts.
 		if !u.sealing {
-			return fmt.Errorf("%w: %s", ErrLedgerQueuePhase, phase)
+			return fmt.Errorf("%w: %s", ErrLedgerQueuePhase, state.phase)
 		}
 	case c1zstore.LedgerQueueAbsent, c1zstore.LedgerQueueCollecting:
 	}
 	if !u.sealing {
 		return nil
 	}
-	if phase == c1zstore.LedgerQueueAbsent {
+	if state.phase == c1zstore.LedgerQueueAbsent {
 		return errors.New("terminal page requires a pending-work declaration")
 	}
 	if u.work != nil || row.GetNextPageToken() != "" || len(row.GetChildren()) != 0 {
@@ -103,7 +103,9 @@ func (u *pageUnit) stagePhaseLocked(batch *rawdb.RecordBatch, row *v3.LedgerRow)
 	if pending {
 		return errors.New("terminal page requires an empty pending-work queue")
 	}
-	return stageWorkState(batch, last, c1zstore.LedgerQueueSealing)
+	state.version = workStateVersion
+	state.phase = c1zstore.LedgerQueueSealing
+	return state.stage(batch)
 }
 
 func (u *pageUnit) StageFactValue(name, value string) error {

@@ -179,17 +179,12 @@ type syncer struct {
 	// write keeps the marker off unfinished syncs: a crash before the
 	// seal leaves the artifact unverified instead of claiming
 	// verification over data a resume will rewrite.
-	pendingInvariantVerification *c1zstore.IngestInvariantVerification
-	// checkpointInterval throttles non-forced checkpoints (default
-	// minCheckpointInterval). The checkpoint-cut verification harness
-	// sets it to zero so every loop-top checkpoint durably commits,
-	// making each one an enumerable crash-cut point.
-	checkpointInterval                    time.Duration
+	pendingInvariantVerification          *c1zstore.IngestInvariantVerification
+	checkpoint                            syncCheckpoint
 	connector                             types.ConnectorClient
 	run                                   *runState
 	stats                                 *runStats
 	graph                                 *expansionGraph
-	lastCheckPointTime                    time.Time
 	counts                                *progresslog.ProgressLog
 	syncID                                string
 	sessionBinding                        sessionBinding
@@ -481,9 +476,10 @@ func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
 	if s.ledgered {
 		return nil
 	}
-	if !force && !s.lastCheckPointTime.IsZero() && time.Since(s.lastCheckPointTime) < s.checkpointInterval {
-		return nil
-	}
+	return s.checkpoint.write(force, func() error { return s.writeCheckpoint(ctx) })
+}
+
+func (s *syncer) writeCheckpoint(ctx context.Context) error {
 	start := time.Now()
 	if s.recordStats {
 		defer func() {
@@ -494,7 +490,6 @@ func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	s.lastCheckPointTime = time.Now()
 	s.stats.setIngestQuality(s.ingestFilterStats.snapshot())
 	checkpoint, err := marshalToken(s.run, s.stats)
 	if err != nil {
@@ -774,6 +769,9 @@ const maxEntitlementsPerExclusionGroup = 50
 // It also pushes any child actions before updating/finishing the action.
 // This is useful for pagination, and for actions that create other actions.
 func (s *syncer) nextPageOrFinishAction(ctx context.Context, action *Action, nextPageToken string, childActions ...Action) error {
+	if nextPageToken != "" && action.pageTokenRestarts != 0 {
+		nextPageToken = encodeRestartPageToken(action.pageTokenRestarts, action.pageTokenRestartGeneration, nextPageToken)
+	}
 	if s.ledgered {
 		if invocation, ok := ctx.Value(ledgerInvocationKey{}).(*ledgerInvocation); ok {
 			return invocation.stage(action, nextPageToken, childActions)
@@ -1334,7 +1332,7 @@ func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
 	s.observeConnectorCall(ctx, "list-resource-types", start, action.ResourceTypeID, action.ResourceID)
 	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
-		return err
+		return newProviderPageError(err)
 	}
 	connectorResourceTypes, err := filterConnectorData(s, connectorDataResourceType, resp.GetList(), validateConnectorResourceType)
 	if err != nil {
@@ -1713,7 +1711,7 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 	s.recordSessionUsage(resp.GetAnnotations())
 	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
-		return err
+		return newProviderPageError(err)
 	}
 
 	resources, err := filterConnectorData(s, connectorDataResource, resp.GetList(), validateConnectorResource)
@@ -2147,7 +2145,7 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	s.recordSessionUsage(resp.GetAnnotations())
 	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
-		return err
+		return newProviderPageError(err)
 	}
 	// Filter before the put: a dropped entitlement must never be
 	// ingested (exclusion-group validation happens post-collection over
@@ -2236,7 +2234,7 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 			return nil
 		}
 
-		return err
+		return newProviderPageError(err)
 	}
 
 	for _, ent := range resp.GetList() {
@@ -2673,7 +2671,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 	s.recordSessionUsage(resp.GetAnnotations())
 	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
-		return fmt.Errorf("sync-grants-for-resource: error listing grants: %w", err)
+		return fmt.Errorf("sync-grants-for-resource: error listing grants: %w", newProviderPageError(err))
 	}
 
 	grants := resp.GetList()
@@ -4330,7 +4328,7 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 			syncType:    connectorstore.SyncTypeFull,
 			workerCount: 1,
 		},
-		checkpointInterval: minCheckpointInterval,
+		checkpoint: syncCheckpoint{interval: minCheckpointInterval},
 	}
 
 	for _, o := range opts {

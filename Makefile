@@ -84,6 +84,14 @@ compat-check: ## Exchange checkpoints with a pinned older SDK.
 	go test -count=1 -run 'TestCompactorGraphCompatibilityHealing' ./pkg/synccompactor
 	BATON_COMPAT=1 go test -v -count=1 -timeout=45m -run TestCheckpointCompatAcrossSDKVersions ./cmd/baton-compat-harness
 	$(MAKE) graph-compat-check
+	$(MAKE) rollback-check
+
+# Reads pagination-restart checkpoints and Pebble pending work written by this
+# tree with the pinned pre-recovery SDK. See
+# scripts/check-page-token-restart-rollback.sh.
+.PHONY: rollback-check
+rollback-check: ## Read pagination-restart checkpoints with the pre-recovery SDK.
+	scripts/check-page-token-restart-rollback.sh
 
 .PHONY: graph-compat-check
 graph-compat-check: ## Exchange graph-sidecar c1z artifacts with a pinned older SDK.
