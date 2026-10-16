@@ -231,6 +231,24 @@ func TestWrapErrors_DoNotRestateACarriedStatus(t *testing.T) {
 		require.NotNil(t, found, "the rate limit must survive")
 	})
 
+	t.Run("a stale rate limit does not hide the new one", func(t *testing.T) {
+		stale, err := status.New(codes.Unauthenticated, resp.Status).WithDetails(&v2.RateLimitDescription{
+			Limit:     100,
+			Remaining: 50,
+		})
+		require.NoError(t, err)
+
+		got := WrapErrorsWithRateLimitInfo(codes.Unauthenticated, resp, stale.Err())
+		var found *v2.RateLimitDescription
+		for _, detail := range status.Convert(got).Details() {
+			if rl, ok := detail.(*v2.RateLimitDescription); ok {
+				found = rl
+			}
+		}
+		require.NotNil(t, found)
+		require.Equal(t, int64(0), found.GetRemaining())
+	})
+
 	t.Run("a carried status without the rate limit does not drop it", func(t *testing.T) {
 		got := WrapErrorsWithRateLimitInfo(codes.Unauthenticated, resp, WrapErrors(codes.Unauthenticated, resp.Status))
 		var found *v2.RateLimitDescription
@@ -384,8 +402,7 @@ func transportFailures() []transportFailure {
 				time.AfterFunc(100*time.Millisecond, cancel)
 				return srv.URL + "/users?token=secret", ctx
 			},
-			wantCode:          codes.Canceled,
-			descOmitsEndpoint: true,
+			wantCode: codes.Canceled,
 			check: func(t *testing.T, err error) {
 				require.ErrorIs(t, err, context.Canceled)
 			},

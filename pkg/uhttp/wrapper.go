@@ -20,6 +20,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/metrics"
@@ -571,7 +572,7 @@ func joinWithStatus(st *status.Status, errs []error) error {
 }
 
 // statusStates reports whether the status status.Code would read from err
-// already has st's code, message, and at least st's details.
+// already has st's code, message, and details.
 func statusStates(st *status.Status, err error) bool {
 	var carrier interface{ GRPCStatus() *status.Status }
 	if !errors.As(err, &carrier) {
@@ -579,7 +580,43 @@ func statusStates(st *status.Status, err error) bool {
 	}
 	carried := carrier.GRPCStatus()
 	return carried.Code() == st.Code() && carried.Message() == st.Message() &&
-		len(carried.Details()) >= len(st.Details())
+		detailsCover(carried.Details(), st.Details())
+}
+
+// detailsCover reports whether every detail in want is already in have.
+func detailsCover(have, want []any) bool {
+	for _, detail := range want {
+		wantMsg, ok := detail.(proto.Message)
+		if !ok || !hasDetail(have, wantMsg) {
+			return false
+		}
+	}
+	return true
+}
+
+func hasDetail(have []any, want proto.Message) bool {
+	for _, detail := range have {
+		got, ok := detail.(proto.Message)
+		if ok && detailMatches(got, want) {
+			return true
+		}
+	}
+	return false
+}
+
+// detailMatches compares details. A rate-limit detail matches on status,
+// limit, and remaining. ResetAt is time.Now plus a relative header, so two
+// reads of the same header are not proto.Equal.
+func detailMatches(got, want proto.Message) bool {
+	gotRL, gotOK := got.(*v2.RateLimitDescription)
+	wantRL, wantOK := want.(*v2.RateLimitDescription)
+	if gotOK || wantOK {
+		return gotOK && wantOK &&
+			gotRL.GetStatus() == wantRL.GetStatus() &&
+			gotRL.GetLimit() == wantRL.GetLimit() &&
+			gotRL.GetRemaining() == wantRL.GetRemaining()
+	}
+	return proto.Equal(got, want)
 }
 
 func (c *BaseHttpClient) recordCacheHit(ctx context.Context) {

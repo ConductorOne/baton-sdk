@@ -108,7 +108,7 @@ func classifyTransportFailure(err error, endpoint string) error {
 		return WrapErrors(codes.DeadlineExceeded, withEndpoint("request timeout", endpoint), err)
 	}
 	if errors.Is(err, context.Canceled) {
-		return WrapErrors(codes.Canceled, "request canceled", err)
+		return WrapErrors(codes.Canceled, withEndpoint("request canceled", endpoint), err)
 	}
 
 	// Catches net.Error timeout types not wrapped in url.Error
