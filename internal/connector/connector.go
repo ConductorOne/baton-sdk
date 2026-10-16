@@ -36,6 +36,16 @@ import (
 
 const listenerFdEnv = "BATON_CONNECTOR_SERVICE_LISTENER_FD"
 
+// ServiceOtelShutdownTimeout bounds the connector service's telemetry
+// shutdown when it exits.
+const ServiceOtelShutdownTimeout = 5 * time.Second
+
+// serviceShutdownGrace bounds how long the connector service subprocess gets
+// to exit (flushing its telemetry) after it is asked to stop, before it is
+// killed. It exceeds ServiceOtelShutdownTimeout so the flush can finish.
+// A variable so tests can shorten it.
+var serviceShutdownGrace = ServiceOtelShutdownTimeout + 2*time.Second
+
 type connectorClient struct {
 	connectorV2.ResourceTypesServiceClient
 	connectorV2.ResourcesServiceClient
@@ -92,9 +102,11 @@ var ErrConnectorNotImplemented = errors.New("client does not implement connector
 type wrapper struct {
 	mtx sync.RWMutex
 
-	server                types.ConnectorServer
-	client                types.ConnectorClient
-	serverStdin           io.WriteCloser
+	server      types.ConnectorServer
+	client      types.ConnectorClient
+	serverStdin io.WriteCloser
+	// serverDone is closed once the connector service subprocess has exited.
+	serverDone            chan struct{}
 	conn                  *grpc.ClientConn
 	provisioningEnabled   bool
 	ticketingEnabled      bool
@@ -322,6 +334,11 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 	if err != nil {
 		return 0, err
 	}
+	// Stop the service gracefully when ctx ends: closing its stdin makes it
+	// flush its telemetry and exit (see MakeGRPCServerCommand). It is killed
+	// only if it is still running serviceShutdownGrace later.
+	cmd.Cancel = stdin.Close
+	cmd.WaitDelay = serviceShutdownGrace
 	_, err = io.WriteString(stdin, base64.StdEncoding.EncodeToString(serverCfg)+"\n")
 	if err != nil {
 		return 0, err
@@ -337,13 +354,18 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 	if err != nil {
 		return 0, err
 	}
+	done := make(chan struct{})
+	cw.serverDone = done
 
 	go func() {
 		waitErr := cmd.Wait()
+		close(done)
 		if waitErr != nil {
 			// When the parent context is cancelled during normal shutdown,
-			// exec.CommandContext terminates the child process. Treat that
-			// exit as expected instead of logging it as an unexpected error.
+			// exec.CommandContext stops the child process. Treat that exit as
+			// expected instead of logging it as an unexpected error. Do not
+			// os.Exit here: the caller is already shutting down, and exiting
+			// would cut short its remaining cleanup (c1z close, telemetry flush).
 			errIsExpected := ctx.Err() != nil
 			if errIsExpected {
 				l.Debug("connector service quit expectedly", zap.Error(waitErr))
@@ -351,7 +373,6 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 				if closeErr != nil {
 					l.Error("error closing connector wrapper", zap.Error(closeErr))
 				}
-				os.Exit(0)
 				return
 			}
 
@@ -445,32 +466,46 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	return client, nil
 }
 
-// Close shuts down the grpc server and closes the connection.
+// Close closes the client connection and the service's stdin, then waits up
+// to serviceShutdownGrace for the service to exit.
 func (cw *wrapper) Close() error {
 	cw.mtx.Lock()
-	defer cw.mtx.Unlock()
 
-	var err error
+	// Every step runs even if an earlier one fails, so the service is always
+	// asked to stop and waited for.
+	var errs []error
 	if cw.conn != nil {
-		err = cw.conn.Close()
-		if err != nil {
-			return fmt.Errorf("error closing client connection: %w", err)
+		if err := cw.conn.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("error closing client connection: %w", err))
 		}
 	}
 
 	if cw.serverStdin != nil {
-		err = cw.serverStdin.Close()
-		if err != nil && errors.Is(err, os.ErrClosed) {
-			return fmt.Errorf("error closing connector service stdin: %w", err)
+		// ErrClosed means exec already closed it (context cancellation).
+		if err := cw.serverStdin.Close(); err != nil && !errors.Is(err, os.ErrClosed) {
+			errs = append(errs, fmt.Errorf("error closing connector service stdin: %w", err))
 		}
 	}
 
+	done := cw.serverDone
+	cw.serverDone = nil
 	cw.client = nil
 	cw.server = nil
 	cw.serverStdin = nil
 	cw.conn = nil
+	cw.mtx.Unlock()
 
-	return nil
+	// Closing stdin asks the service to flush its telemetry and exit; wait
+	// for it (bounded) so it is not torn down with this process mid-flush.
+	// The wait is outside the lock so concurrent C calls do not block on it.
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(serviceShutdownGrace):
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 type RegisterOps struct {

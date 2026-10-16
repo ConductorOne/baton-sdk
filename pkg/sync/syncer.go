@@ -4288,15 +4288,13 @@ func NormalizeWorkerCount(count int) int {
 	return max(count, 1)
 }
 
-// WithMetricsHandler attaches a metrics.Handler that the syncer forwards to
-// progresslog.NewProgressCounts so the grant-expansion OTel instruments
+// WithMetricsHandler replaces the handler the syncer forwards to
+// progresslog.NewProgressCounts for the grant-expansion instruments
 // (baton.sync.expand.actions_remaining / actions_burned /
-// decompressed_bytes / decompressed_bytes_delta) actually reach the
-// configured exporter instead of the default no-op handler.
-//
-// Callers should pre-tag the handler with the dimensions they want to slice
-// by (e.g. tenant_id, connector_id) via Handler.WithTags before passing it
-// in — baton-sdk has no view of those identifiers.
+// decompressed_bytes / decompressed_bytes_delta). The default is
+// metrics.NewDefaultHandler, bound to the global MeterProvider. Pass a handler
+// to add tags baton-sdk cannot know, such as connector_id or tenant_id via
+// Handler.WithTags, or to route the instruments to a different MeterProvider.
 func WithMetricsHandler(h metrics.Handler) SyncOpt {
 	return func(s *syncer) {
 		if h == nil {
