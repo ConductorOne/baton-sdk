@@ -24,6 +24,27 @@ type providerPageError struct{ cause error }
 func (e providerPageError) Error() string { return e.cause.Error() }
 func (e providerPageError) Unwrap() error { return e.cause }
 
+// A providerPageError whose cause carries a gRPC status. Without GRPCStatus,
+// status.FromError would find the cause through Unwrap and replace its message
+// with Error(), which carries the "rpc error: code = ... desc = " prefix. Causes
+// without a status keep the plain type: a nil GRPCStatus would stop errors.As
+// before a status later in a joined error.
+type providerStatusPageError struct {
+	providerPageError
+	status *status.Status
+}
+
+func (e providerStatusPageError) Unwrap() error              { return e.providerPageError }
+func (e providerStatusPageError) GRPCStatus() *status.Status { return e.status }
+
+func newProviderPageError(err error) error {
+	page := providerPageError{cause: err}
+	if s, ok := status.FromError(err); ok {
+		return providerStatusPageError{providerPageError: page, status: s}
+	}
+	return page
+}
+
 type pageTokenRestartError struct {
 	cause error
 	code  codes.Code
@@ -119,10 +140,15 @@ func logPageTokenRestart(ctx context.Context, action *Action, cause error) {
 }
 
 // WithPageTokenRestarts restarts matching expired provider cursors at most limit
-// times per action. Collected records are retained. Recovery checkpoints require
-// this SDK version or newer to resume. A zero limit or nil classifier disables new
-// restarts, but existing recovery cursors remain readable.
+// times per action. Collected records are retained. A zero limit or nil classifier
+// disables new restarts, but existing recovery cursors remain readable.
 // isExpired may be called concurrently by sync workers.
+//
+// Recovery checkpoints require this SDK version or newer. An older SDK drops a
+// SQLite checkpoint's recovery action stack and collects again. On Pebble, from
+// an action's first restart until collection finishes, an older SDK can neither
+// resume the file nor start a new sync over it; finish the sync with a supporting
+// SDK or discard the file.
 func WithPageTokenRestarts(limit uint32, isExpired func(error) bool) SyncOpt {
 	return func(s *syncer) {
 		s.cfg.pageTokenRestartPolicy = &pageTokenRestartPolicy{limit: limit, isExpired: isExpired}

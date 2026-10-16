@@ -59,12 +59,39 @@ func TestPendingWorkRestartVersion(t *testing.T) {
 	items, _, err = e.Ledger().PendingWork(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.NoError(t, pendingTestCommit(t, e, items[1], ""))
-	require.NoError(t, e.Ledger().BeginExpanding(t.Context()))
 	requirePendingWorkVersion(t, e, 3)
+	// Only the expansion entry remains, so no reader can reach recovery work.
+	require.NoError(t, e.Ledger().BeginExpanding(t.Context()))
+	requirePendingWorkVersion(t, e, 2)
 	items, _, err = e.Ledger().PendingWork(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.NoError(t, e.Ledger().CompletePendingWork(t.Context(), items[0], "attempt", c1zstore.LedgerCounters{}))
 	require.NoError(t, phaseTestTerminal(t, e, nil))
+	requirePendingWorkVersion(t, e, 2)
+}
+
+// A sync whose collection finishes without an expansion entry seals straight
+// from Collecting; the empty queue holds no recovery work either.
+func TestPendingWorkRestartVersionTerminalFromCollecting(t *testing.T) {
+	e, _ := newTestEngine(t)
+	work := pendingTestSeed(t, e)
+	work.PageTokenRestarted = true
+	require.NoError(t, pendingTestCommit(t, e, work, "wrapped"))
+	items, _, err := e.Ledger().PendingWork(t.Context(), 0, 10)
+	require.NoError(t, err)
+	require.NoError(t, pendingTestCommit(t, e, items[0], ""))
+	requirePendingWorkVersion(t, e, 3)
+	require.NoError(t, phaseTestTerminal(t, e, nil))
+	requirePendingWorkVersion(t, e, 2)
+}
+
+func TestPendingWorkRestartVersionMarkedExpansion(t *testing.T) {
+	e, _ := newTestEngine(t)
+	_, err := e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	seed := c1zstore.LedgerWork{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "grant-expansion", PageToken: "wrapped"}}, PageTokenRestarted: true}
+	require.NoError(t, e.Ledger().BeginCollecting(t.Context(), []c1zstore.LedgerWork{seed}, nil))
+	require.NoError(t, e.Ledger().BeginExpanding(t.Context()))
 	requirePendingWorkVersion(t, e, 3)
 }
 

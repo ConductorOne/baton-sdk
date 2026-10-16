@@ -48,18 +48,26 @@ import (
   "os"
   "path/filepath"
   "testing"
+  "github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
   "github.com/stretchr/testify/require"
 )
 
 func TestRollbackExportQueues(t *testing.T) {
-  for _, name := range []string{"plain", "restarted"} {
+  for _, name := range []string{"plain", "restarted", "drained"} {
     dir := filepath.Join(os.Getenv("BATON_ROLLBACK_ARTIFACTS"), name)
     e, err := Open(t.Context(), dir)
     require.NoError(t, err)
     work := pendingTestSeed(t, e)
-    if name == "restarted" {
+    if name != "plain" {
       work.PageTokenRestarted = true
       require.NoError(t, pendingTestCommit(t, e, work, "baton-sdk:page-restart:1:1:abcdefghijklmnopqrstuvwxyz:bmV4dA"))
+    }
+    if name == "drained" {
+      items, _, err := e.Ledger().PendingWork(t.Context(), 0, 10)
+      require.NoError(t, err)
+      expansion := c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "grant-expansion"}}
+      require.NoError(t, pendingTestCommit(t, e, items[0], "", expansion))
+      require.NoError(t, e.Ledger().BeginExpanding(t.Context()))
     }
     require.NoError(t, os.WriteFile(dir+".sync-id", []byte(work.SyncID), 0600))
     require.NoError(t, e.Close())
@@ -109,12 +117,17 @@ import (
   "path/filepath"
   "testing"
   "github.com/cockroachdb/pebble/v2"
+  "github.com/conductorone/baton-sdk/pkg/connectorstore"
+  "github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
   "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
   "github.com/stretchr/testify/require"
 )
 
 func TestRollbackOldReaderQueues(t *testing.T) {
-  for _, name := range []string{"plain", "restarted"} {
+  // BATON_ROLLBACK_MUTATE=1 swaps both declaration versions: the recovered
+  // queue drops to 2 and the drained queue keeps 3.
+  mutated := map[string]byte{"restarted": 2, "drained": 3}
+  for _, name := range []string{"plain", "restarted", "drained"} {
     t.Run(name, func(t *testing.T) {
       dir := filepath.Join(os.Getenv("BATON_ROLLBACK_ARTIFACTS"), name)
       syncID, err := os.ReadFile(dir+".sync-id")
@@ -122,12 +135,12 @@ func TestRollbackOldReaderQueues(t *testing.T) {
       e, err := Open(t.Context(), dir)
       require.NoError(t, err)
       defer e.Close()
-      if name == "restarted" && os.Getenv("BATON_ROLLBACK_MUTATE") == "1" {
+      if version, ok := mutated[name]; ok && os.Getenv("BATON_ROLLBACK_MUTATE") == "1" {
         value, closer, err := e.db.Get(rawdb.LedgerWorkStateKey())
         require.NoError(t, err)
         value = append([]byte(nil), value...)
         require.NoError(t, closer.Close())
-        value[0] = 2
+        value[0] = version
         batch := e.db.NewRecordBatch()
         require.NoError(t, batch.StageLedgerWorkState(value))
         require.NoError(t, batch.Commit(pebble.Sync))
@@ -136,17 +149,29 @@ func TestRollbackOldReaderQueues(t *testing.T) {
       err = e.SetCurrentSync(t.Context(), string(syncID))
       if name == "restarted" && err != nil {
         require.ErrorContains(t, err, "invalid pending-work state")
-        return
-      }
-      require.NoError(t, err)
-      work, _, err := e.Ledger().PendingWork(t.Context(), 0, 10)
-      if name == "restarted" {
-        require.ErrorContains(t, err, "invalid pending-work state")
-        require.Empty(t, work, "old reader must not expose a recovery cursor")
       } else {
         require.NoError(t, err)
-        require.Len(t, work, 1)
-        require.Equal(t, "A", work[0].Action.Identity.PageToken)
+        work, phase, err := e.Ledger().PendingWork(t.Context(), 0, 10)
+        switch name {
+        case "restarted":
+          require.ErrorContains(t, err, "invalid pending-work state")
+          require.Empty(t, work, "old reader must not expose a recovery cursor")
+        case "drained":
+          require.NoError(t, err, "old reader must resume once only the expansion entry remains")
+          require.Equal(t, c1zstore.LedgerQueueExpanding, phase)
+          require.Len(t, work, 1)
+          require.Equal(t, "grant-expansion", work[0].Action.Identity.Op)
+        default:
+          require.NoError(t, err)
+          require.Len(t, work, 1)
+          require.Equal(t, "A", work[0].Action.Identity.PageToken)
+        }
+      }
+      _, err = e.StartNewSync(t.Context(), connectorstore.SyncTypeFull, "")
+      if name == "restarted" {
+        require.ErrorContains(t, err, "invalid pending-work state", "old reader cannot start over while recovery work is pending")
+      } else {
+        require.NoError(t, err, "old reader must be able to discard the pass and start a new sync")
       }
     })
   }

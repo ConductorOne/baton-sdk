@@ -94,6 +94,7 @@ func (u *pageUnit) stagePhaseLocked(batch *rawdb.RecordBatch, row *v3.LedgerRow)
 	if pending {
 		return errors.New("terminal page requires an empty pending-work queue")
 	}
+	state.version = workStateVersion
 	state.phase = c1zstore.LedgerQueueSealing
 	return state.stage(batch)
 }

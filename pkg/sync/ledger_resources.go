@@ -78,7 +78,7 @@ func (s *syncer) collectLedgerResources(ctx context.Context, action *Action) err
 	recordLedgerConnectorError(invocation, err)
 	s.recordLedgerSessionUsage(invocation, resp.GetAnnotations())
 	if err != nil {
-		return providerPageError{cause: err}
+		return newProviderPageError(err)
 	}
 
 	collection := ledgerCollection(invocation)

@@ -35,7 +35,10 @@ var ErrLedgerQueuePhase = errors.New("pending-work declaration accepts no pages 
 const workStateVersion = 2
 
 // Version 3 rejects pre-recovery readers before they can drop PageTokenRestarted
-// from pending work and forward the recovery envelope as a provider cursor.
+// from pending work and forward the recovery envelope as a provider cursor. It
+// also fails their StartNewSync, which reads the declaration before resetting.
+// BeginExpanding and the terminal page return to version 2: by then no pending
+// entry can be marked.
 const workStateVersionPageTokenRestart = 3
 
 type pendingWorkState struct {
@@ -189,6 +192,9 @@ func (l *Ledger) BeginExpanding(ctx context.Context) error {
 		defer batch.Close()
 		if err := l.stageMarkInFlight(batch); err != nil {
 			return err
+		}
+		if !pending[0].PageTokenRestarted {
+			state.version = workStateVersion
 		}
 		state.phase = c1zstore.LedgerQueueExpanding
 		if err := state.stage(batch); err != nil {

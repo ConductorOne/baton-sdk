@@ -1329,7 +1329,7 @@ func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
 	s.observeConnectorCall(ctx, "list-resource-types", start, action.ResourceTypeID, action.ResourceID)
 	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
-		return providerPageError{cause: err}
+		return newProviderPageError(err)
 	}
 	connectorResourceTypes, err := filterConnectorData(s, connectorDataResourceType, resp.GetList(), validateConnectorResourceType)
 	if err != nil {
@@ -1708,7 +1708,7 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 	s.recordSessionUsage(resp.GetAnnotations())
 	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
-		return providerPageError{cause: err}
+		return newProviderPageError(err)
 	}
 
 	resources, err := filterConnectorData(s, connectorDataResource, resp.GetList(), validateConnectorResource)
@@ -2142,7 +2142,7 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	s.recordSessionUsage(resp.GetAnnotations())
 	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
-		return providerPageError{cause: err}
+		return newProviderPageError(err)
 	}
 	// Filter before the put: a dropped entitlement must never be
 	// ingested (exclusion-group validation happens post-collection over
@@ -2231,7 +2231,7 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 			return nil
 		}
 
-		return providerPageError{cause: err}
+		return newProviderPageError(err)
 	}
 
 	for _, ent := range resp.GetList() {
@@ -2668,7 +2668,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 	s.recordSessionUsage(resp.GetAnnotations())
 	s.recordConnectorWaitReport(resp.GetAnnotations(), action.ResourceTypeID)
 	if err != nil {
-		return fmt.Errorf("sync-grants-for-resource: error listing grants: %w", providerPageError{cause: err})
+		return fmt.Errorf("sync-grants-for-resource: error listing grants: %w", newProviderPageError(err))
 	}
 
 	grants := resp.GetList()

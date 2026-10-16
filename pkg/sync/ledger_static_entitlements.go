@@ -71,7 +71,7 @@ func (s *syncer) collectLedgerStaticEntitlements(ctx context.Context, action *Ac
 			return s.nextPageOrFinishAction(ctx, action, "")
 		}
 
-		return providerPageError{cause: err}
+		return newProviderPageError(err)
 	}
 
 	collection := ledgerCollection(invocation)

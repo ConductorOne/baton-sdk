@@ -613,10 +613,14 @@ func (s restartLookupStore) GetResource(_ context.Context, req *reader_v2.Resour
 type restartRPCConnector struct {
 	*mockConnector
 	requests []string
+	err      error
 }
 
 func (c *restartRPCConnector) expired(token string) error {
 	c.requests = append(c.requests, token)
+	if c.err != nil {
+		return c.err
+	}
 	return errExpiredTestPageToken
 }
 
@@ -644,31 +648,90 @@ func (c *restartRPCConnector) ListGrants(_ context.Context, req *v2.GrantsServic
 	return nil, c.expired(req.GetPageToken())
 }
 
-func TestPageTokenRestartProviderRPCFamilies(t *testing.T) {
+var restartRPCOps = []ActionOp{SyncResourceTypesOp, SyncResourcesOp, SyncEntitlementsOp, SyncStaticEntitlementsOp, SyncGrantsOp}
+
+func newRestartRPCSyncer(t *testing.T, ledgered bool, conn *restartRPCConnector, op ActionOp) (*syncer, *ledgerFixture, *Action, func(context.Context, *Action) error) {
+	t.Helper()
+	s := &syncer{run: newRunState(), stats: newRunStats(), cfg: syncConfig{workerCount: 1}}
+	var f *ledgerFixture
+	if ledgered {
+		s, f = newLedgerSchedulerFixture(t, 1)
+		require.NoError(t, f.store.PutResourceTypes(t.Context(), groupResourceType))
+		require.NoError(t, f.store.PutResources(t.Context(), &v2.Resource{Id: &v2.ResourceId{ResourceType: groupResourceType.GetId(), Resource: "one"}}))
+	} else {
+		s.setStore(restartLookupStore{checkpointOutcomeStore: &checkpointOutcomeStore{}})
+	}
+	s.connector = conn
+	action := s.run.pushAction(t.Context(), Action{Op: op, ResourceTypeID: groupResourceType.GetId(), ResourceID: "one", PageToken: "provider-next"})
+	handlers := map[ActionOp]func(context.Context, *Action) error{
+		SyncResourceTypesOp: s.SyncResourceTypes, SyncResourcesOp: s.SyncResources,
+		SyncEntitlementsOp: s.SyncEntitlements, SyncStaticEntitlementsOp: s.SyncStaticEntitlements, SyncGrantsOp: s.SyncGrants,
+	}
+	return s, f, action, handlers[op]
+}
+
+func TestProviderPageErrorStatusTransparent(t *testing.T) {
+	statusErr := status.Error(codes.PermissionDenied, "connector says no")
+	causes := map[string]error{
+		"status":         statusErr,
+		"wrapped-status": fmt.Errorf("connector: %w", statusErr),
+		"plain":          errors.New("connector failed"),
+		"canceled":       context.Canceled,
+	}
+	shapes := map[string]func(error) error{
+		"bare":    func(err error) error { return err },
+		"wrapped": func(err error) error { return fmt.Errorf("listing: %w", err) },
+		"joined":  func(err error) error { return errors.Join(err, status.Error(codes.Unavailable, "sibling")) },
+	}
+	for causeName, cause := range causes {
+		for shapeName, shape := range shapes {
+			t.Run(causeName+"/"+shapeName, func(t *testing.T) {
+				want, wantOK := status.FromError(shape(cause))
+				got, gotOK := status.FromError(shape(newProviderPageError(cause)))
+				require.Equal(t, wantOK, gotOK)
+				require.Equal(t, want.Code(), got.Code())
+				require.Equal(t, want.Message(), got.Message())
+				require.ErrorIs(t, shape(newProviderPageError(cause)), cause)
+				var providerErr providerPageError
+				require.ErrorAs(t, shape(newProviderPageError(cause)), &providerErr)
+			})
+		}
+	}
+}
+
+func TestProviderPageErrorKeepsStatus(t *testing.T) {
+	connErr := status.Error(codes.PermissionDenied, "connector says no")
 	for _, ledgered := range []bool{false, true} {
-		for _, op := range []ActionOp{SyncResourceTypesOp, SyncResourcesOp, SyncEntitlementsOp, SyncStaticEntitlementsOp, SyncGrantsOp} {
+		for _, op := range restartRPCOps {
 			t.Run(fmt.Sprintf("ledger=%t/%s", ledgered, op), func(t *testing.T) {
-				s := &syncer{run: newRunState(), stats: newRunStats(), cfg: syncConfig{workerCount: 1}}
-				var f *ledgerFixture
-				if ledgered {
-					s, f = newLedgerSchedulerFixture(t, 1)
-					require.NoError(t, f.store.PutResourceTypes(t.Context(), groupResourceType))
-					require.NoError(t, f.store.PutResources(t.Context(), &v2.Resource{Id: &v2.ResourceId{ResourceType: groupResourceType.GetId(), Resource: "one"}}))
-				} else {
-					s.setStore(restartLookupStore{checkpointOutcomeStore: &checkpointOutcomeStore{}})
-				}
-				conn := &restartRPCConnector{mockConnector: newMockConnector()}
-				s.connector = conn
-				s.cfg.pageTokenRestartPolicy = &pageTokenRestartPolicy{limit: 2, isExpired: func(err error) bool { return errors.Is(err, errExpiredTestPageToken) }}
-				action := s.run.pushAction(t.Context(), Action{Op: op, ResourceTypeID: groupResourceType.GetId(), ResourceID: "one", PageToken: "provider-next"})
-				handlers := map[ActionOp]func(context.Context, *Action) error{
-					SyncResourceTypesOp: s.SyncResourceTypes, SyncResourcesOp: s.SyncResources,
-					SyncEntitlementsOp: s.SyncEntitlements, SyncStaticEntitlementsOp: s.SyncStaticEntitlements, SyncGrantsOp: s.SyncGrants,
-				}
+				s, f, action, handler := newRestartRPCSyncer(t, ledgered, &restartRPCConnector{mockConnector: newMockConnector(), err: connErr}, op)
 				if ledgered {
 					f.audit.enter(ledgerHandler)
 				}
-				require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), action, handlers[op], true))
+				err := invokeLedgerTestPage(t, s, t.Context(), action, handler, true)
+				// The status each call site returns without providerPageError.
+				want := connErr
+				if op == SyncGrantsOp {
+					want = fmt.Errorf("sync-grants-for-resource: error listing grants: %w", connErr)
+				}
+				require.Equal(t, status.Code(want), status.Code(err))
+				require.Equal(t, status.Convert(want).Message(), status.Convert(err).Message())
+			})
+		}
+	}
+}
+
+func TestPageTokenRestartProviderRPCFamilies(t *testing.T) {
+	for _, ledgered := range []bool{false, true} {
+		for _, op := range restartRPCOps {
+			t.Run(fmt.Sprintf("ledger=%t/%s", ledgered, op), func(t *testing.T) {
+				conn := &restartRPCConnector{mockConnector: newMockConnector()}
+				s, f, action, handler := newRestartRPCSyncer(t, ledgered, conn, op)
+				s.cfg.pageTokenRestartPolicy = &pageTokenRestartPolicy{limit: 2, isExpired: func(err error) bool { return errors.Is(err, errExpiredTestPageToken) }}
+				if ledgered {
+					f.audit.enter(ledgerHandler)
+				}
+				require.NoError(t, invokeLedgerTestPage(t, s, t.Context(), action, handler, true))
 				if ledgered {
 					f.audit.enter(ledgerLifecycle)
 					require.Zero(t, f.audit.writers)
