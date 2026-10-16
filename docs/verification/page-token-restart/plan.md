@@ -139,3 +139,58 @@ evidence only.
 CO3 implementation obligations: The version change rides the existing
 `BeginExpanding` and terminal-page batches. Do not add scans, keyspaces, locks or
 commit points. Healthy-page complexity remains unchanged.
+
+CO4 (correction, seven Low findings from the deep review of `3e407519`): None
+changes the restart limit, eligibility, retained observations, format versions,
+keyspaces, locks or commit points.
+
+- Exhaustion contract (P02, M08): `ErrPageTokenRestartLimit` and
+  `WithPageTokenRestarts` state the eligible RPCs, the exhaustion error, and that
+  exhaustion is preserved: `IsSyncPreservable` reports true and
+  `ShouldDiscardSyncArtifact` false, while the checkpoint keeps the spent budget
+  and the expired cursor, so every resume fails until the host stops resuming and
+  starts a new sync. Pin both classifications on the actual `Sync` error; validate
+  by coding the limit error `Internal`.
+- Persistence status (P04, P09): restart-persistence failures and the existing
+  ledger page-write wrapper share one store-neutral wrapper. It reports
+  `Canceled` or `DeadlineExceeded` when the write failed on a context error and
+  `Internal` otherwise, whatever the joined provider cause carries.
+  `pageTokenRestartError` becomes the limit error alone, fixed at
+  `FailedPrecondition`. Default-path exposure is the ledger wrapper, which wraps
+  only `NotFound`-coded write errors; the consequence is a host-reported code,
+  remediated by a redeploy. A `DeadlineExceeded` write under a live worker context
+  becomes retryable by `syncOneAction`. That retry calls the provider with the
+  pre-restart action and classifies again; the restarted listing's first request
+  still follows only a successful persist, so P04 holds. Instrument:
+  `TestPageTokenRestartCanceledBeforeCommit` requires `Canceled`, and a legacy
+  transition table covers canceled, expired and plain writes. Validate against
+  the unfixed `Internal` code.
+- Cost (P12): state the aggregate. Per eligible action, a legacy run forces one
+  checkpoint per restart it performs plus one at exhaustion: at most `limit`
+  restart checkpoints per sync and one exhaustion checkpoint per run that reaches
+  the limit. Each serializes O(pending actions) under `run.mu.RLock`, behind
+  `syncCheckpoint.mu`. Pebble restarts ride the existing page commit. Pin zero
+  allocations for an unmarked `providerPageAction` with `testing.AllocsPerRun`.
+  Move `invokeActionPage`'s transition copy onto the restart branch so a healthy
+  Pebble page does not heap-allocate an `Action`. Instruments: escape analysis
+  before and after; mutation validation of the allocation pin.
+- Rollback instrument (P13): install cleanup before creating anything, use
+  `mktemp -d` and fixed probe names that refuse to overwrite existing files, and
+  run the script from `make compat-check`, which the nightly workflow runs with
+  full history. The cells stay in the script: `cmd/baton-compat-harness`
+  compiles one public-API program against both trees, and the probes call the
+  package-internal token codec and Pebble declaration reader on each side.
+- Version stamp (P13): `marshalToken` computes the stamp in the graph-omission
+  pass and stops once both answers are final. Repack `Action` from 176 to 160
+  bytes. Marked tokens then serialize `page_token_restarted` after
+  `type_scoped_planned`; `v3_page_token_restart.json` is regenerated. Keys,
+  versions and readers are unchanged. Instruments: `TestPageTokenRestartVersionStamp`,
+  the golden corpus and the rollback script; validate the fold by letting a later
+  marker lower the stamp.
+- Test-only: delete `stageWorkState`; tests stage `pendingWorkState` directly.
+  Restart tests reuse `writeLedgerTestFile` and `grantIDs` and name the repeated
+  classifier and policy.
+
+P11 record: CO4 changes runtime error codes, the `Action` layout and the key order
+of marked tokens, so P11 stays evidence incomplete until the C1 consumer reruns
+against the final runtime commit.
