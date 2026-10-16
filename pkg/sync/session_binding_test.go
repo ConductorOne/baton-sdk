@@ -94,10 +94,6 @@ func waitFor(t *testing.T, ch chan struct{}, what string) {
 	}
 }
 
-// overlapScript drives two syncs through the connector's Grants call. The
-// first sync to arrive is held; the second is the runner. The held sync
-// writes before the runner attaches, reads and writes while the runner is
-// mid-sync, and reads and writes again after the runner has closed.
 type overlapScript struct {
 	mu         native_sync.Mutex
 	held       *sessionTrace
@@ -174,13 +170,11 @@ func (o *overlapScript) grants(ctx context.Context, opts resource.SyncOpAttrs) e
 	return nil
 }
 
-// With failFirst, the first call writes before failing the sync, so the
-// resumed attempt has something to read.
 type plainScript struct {
-	mu        native_sync.Mutex
-	failFirst bool
-	calls     int
-	traces    []*sessionTrace
+	mu             native_sync.Mutex
+	failAfterWrite bool
+	calls          int
+	traces         []*sessionTrace
 }
 
 func (p *plainScript) grants(ctx context.Context, opts resource.SyncOpAttrs) error {
@@ -193,7 +187,7 @@ func (p *plainScript) grants(ctx context.Context, opts resource.SyncOpAttrs) err
 
 	if call == 1 {
 		tr.set(ctx, opts.Session, "k")
-		if p.failFirst {
+		if p.failAfterWrite {
 			return errors.New("first attempt failed on purpose")
 		}
 	}
@@ -217,6 +211,8 @@ func bindingRepo() *v2.Resource {
 func (s *bindingRepoSyncer) List(context.Context, *v2.ResourceId, resource.SyncOpAttrs) ([]*v2.Resource, *resource.SyncOpResults, error) {
 	return []*v2.Resource{bindingRepo()}, &resource.SyncOpResults{}, nil
 }
+
+var _ connectorbuilder.ResourceTargetedSyncerLimited = (*bindingRepoSyncer)(nil)
 
 func (s *bindingRepoSyncer) Get(context.Context, *v2.ResourceId, *v2.ResourceId) (*v2.Resource, annotations.Annotations, error) {
 	return bindingRepo(), nil, nil
@@ -273,9 +269,6 @@ func (c *bindingConnector) ResourceSyncers(context.Context) []connectorbuilder.R
 	return []connectorbuilder.ResourceSyncerV2{&bindingRepoSyncer{script: c.script}, &bindingUserSyncer{}}
 }
 
-// opRecorder sits on the connector side of the session gRPC hop and records
-// every failed session operation by sync ID, including the Clear issued by
-// the connector's Cleanup, which connectorbuilder only logs.
 type opRecorder struct {
 	sessions.SessionStore
 	mu   native_sync.Mutex
@@ -385,9 +378,9 @@ func newBindingHarness(t *testing.T, script bindingScript, o bindingHarnessOpts)
 		childStore = session.NewInstrumentedSessionStore(childStore, "connector_backend", "", nil)
 		if o.connectorCache {
 			childStore, err = session.NewMemorySessionCache(&otter.Options[string, []byte]{
-				MaximumWeight:    1024 * 1024,
+				MaximumWeight:    1024,
 				ExpiryCalculator: otter.ExpiryWriting[string, []byte](10 * time.Minute),
-				Weigher:          func(key string, value []byte) uint32 { return uint32(32 + len(key) + len(value)) }, //nolint:gosec // test-sized values.
+				Weigher:          func(string, []byte) uint32 { return 1 },
 			}, childStore)
 			require.NoError(t, err)
 		}
@@ -422,7 +415,7 @@ func (h *bindingHarness) newSyncer(t *testing.T, c1zPath string, engine c1zstore
 	t.Helper()
 	all := []SyncOpt{WithC1ZPath(c1zPath), WithTmpDir(h.tmpDir), WithStorageEngine(engine)}
 	if binder, ok := h.cc.(sessions.SessionStoreBinder); ok {
-		all = append(all, WithSessionStore(binder))
+		all = append(all, WithSessionStoreBinder(binder))
 	}
 	s, err := NewSyncer(t.Context(), h.cc, append(all, opts...)...)
 	require.NoError(t, err)
@@ -664,7 +657,7 @@ func TestSessionBindingSingleSync(t *testing.T) {
 func TestSessionBindingResume(t *testing.T) {
 	for _, engine := range bindingEngines {
 		t.Run(string(engine), func(t *testing.T) {
-			script := &plainScript{failFirst: true}
+			script := &plainScript{failAfterWrite: true}
 			h := newBindingHarness(t, script, bindingHarnessOpts{})
 			path := h.path("resume")
 
@@ -726,8 +719,6 @@ func (g *gatedSessionStore) Get(ctx context.Context, key string, opt ...sessions
 	return g.SessionStore.Get(ctx, key, opt...)
 }
 
-// gatingBinder binds the syncer's store on the real session server behind a
-// gate that holds Get("gated") inside the store.
 type gatingBinder struct {
 	server  sessions.SessionStoreBinder
 	entered chan struct{}
@@ -748,7 +739,7 @@ func TestSessionBindingCloseDrainsInFlight(t *testing.T) {
 			require.True(t, ok)
 			gate := &gatingBinder{server: server, entered: make(chan struct{}), release: make(chan struct{})}
 			path := h.path("drain")
-			s := h.newSyncer(t, path, engine, WithSessionStore(gate))
+			s := h.newSyncer(t, path, engine, WithSessionStoreBinder(gate))
 			require.NoError(t, s.Sync(ctx))
 			require.Len(t, script.traces, 1)
 			syncID := script.traces[0].syncID
@@ -775,37 +766,38 @@ func TestSessionBindingCloseDrainsInFlight(t *testing.T) {
 			signal(gate.release)
 			require.NoError(t, <-inflight, "in-flight session request ran against a closed store")
 			require.NoError(t, <-closed)
-			openSealed(t, path, h.tmpDir)
 		})
 	}
 }
 
-var errDrainTimedOut = errors.New("drain timed out")
-
 type failingUnbindBinder struct {
-	syncID string
-	store  sessions.SessionStore
+	bound         bool
+	drainDeadline time.Time
 }
 
-func (b *failingUnbindBinder) BindSessionStore(_ context.Context, syncID string, store sessions.SessionStore) (sessions.UnbindSessionStore, error) {
-	b.syncID, b.store = syncID, store
-	return func(context.Context) error { return errDrainTimedOut }, nil
+func (b *failingUnbindBinder) BindSessionStore(context.Context, string, sessions.SessionStore) (sessions.UnbindSessionStore, error) {
+	b.bound = true
+	return func(ctx context.Context) error {
+		b.drainDeadline, _ = ctx.Deadline()
+		return errors.New("drain timed out")
+	}, nil
 }
 
-func TestSessionBindingCloseKeepsStoreOpenWhenDrainFails(t *testing.T) {
+func TestSessionBindingCloseClosesStoreWhenDrainFails(t *testing.T) {
 	for _, engine := range bindingEngines {
 		t.Run(string(engine), func(t *testing.T) {
 			ctx := t.Context()
 			h := newBindingHarness(t, &plainScript{}, bindingHarnessOpts{noSessionSupport: true})
 			binder := &failingUnbindBinder{}
-			s := h.newSyncer(t, h.path("undrained"), engine, WithSessionStore(binder))
+			path := h.path("undrained")
+			s := h.newSyncer(t, path, engine, WithSessionStoreBinder(binder))
 			require.NoError(t, s.Sync(ctx))
-			require.NotEmpty(t, binder.syncID, "premise: the sync must bind")
+			require.True(t, binder.bound, "premise: the sync must bind")
 
-			require.ErrorIs(t, s.Close(ctx), errDrainTimedOut)
-			_, _, err := binder.store.Get(ctx, "k", sessions.WithSyncID(binder.syncID))
-			require.NoError(t, err, "Close closed a store whose session requests had not drained")
 			require.NoError(t, s.Close(ctx))
+			require.False(t, binder.drainDeadline.IsZero(), "drain ran without a deadline")
+			require.False(t, binder.drainDeadline.After(time.Now().Add(sessionDrainTimeout)), "drain may outlast sessionDrainTimeout")
+			openSealed(t, path, h.tmpDir)
 		})
 	}
 }
@@ -832,7 +824,7 @@ func TestSessionBindingBindFailureFailsSync(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			script := &plainScript{}
 			h := newBindingHarness(t, script, bindingHarnessOpts{noSessionSupport: true})
-			opts := append([]SyncOpt{WithSessionStore(rejectingBinder{})}, c.opts...)
+			opts := append([]SyncOpt{WithSessionStoreBinder(rejectingBinder{})}, c.opts...)
 			r := awaitResult(t, runSyncAndClose(t.Context(), h.newSyncer(t, h.path("rejected"), c.engine, opts...)), "sync")
 			require.ErrorIs(t, r.syncErr, errBindRejected)
 			require.NoError(t, r.closeErr)

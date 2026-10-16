@@ -20,8 +20,6 @@ import (
 var _ v1.BatonSessionServiceServer = (*GRPCSessionServer)(nil)
 var _ sessions.SessionStoreBinder = (*GRPCSessionServer)(nil)
 
-// GRPCSessionServer is shared by every sync in a connector process. Each sync
-// binds its own store under its sync ID.
 type GRPCSessionServer struct {
 	mu       sync.RWMutex
 	bindings map[string]*boundSessionStore
@@ -79,8 +77,7 @@ func (s *GRPCSessionServer) unbind(ctx context.Context, syncID string, b *boundS
 	}
 }
 
-// acquire returns the store serving syncID. The caller runs release when its
-// request is done; unbind waits for that.
+// The caller runs the returned func when the request is done; unbind waits on it.
 func (s *GRPCSessionServer) acquire(syncID string) (sessions.SessionStore, func(), error) {
 	if syncID == "" {
 		return nil, nil, status.Error(codes.InvalidArgument, "session request has no sync id")

@@ -3,25 +3,39 @@ package sync
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 )
 
-// sessionBinding is this sync's binding on the connector's session server,
-// held from the moment the sync ID is known until Close.
+const sessionDrainTimeout = 30 * time.Second
+
 type sessionBinding struct {
 	unbind sessions.UnbindSessionStore
 }
 
-func (b *sessionBinding) bind(ctx context.Context, binder sessions.SessionStoreBinder, syncID string, store sessions.SessionStore) error {
+func (b *sessionBinding) bind(
+	ctx context.Context,
+	binder sessions.SessionStoreBinder,
+	syncID string,
+	store c1zstore.Store,
+	ledgered bool,
+	onOp session.SessionOpObserver,
+) error {
 	if binder == nil {
 		return nil
 	}
 	if err := b.release(ctx); err != nil {
 		return err
 	}
-	unbind, err := binder.BindSessionStore(ctx, syncID, store)
+	sessionStore := store.SessionStore()
+	if ledgered {
+		sessionStore = ledgerSessionStore{SessionStore: sessionStore}
+	}
+	kind := "c1z_" + store.Metadata().Engine
+	unbind, err := binder.BindSessionStore(ctx, syncID, session.NewInstrumentedSessionStore(sessionStore, kind, "", onOp))
 	if err != nil {
 		return fmt.Errorf("binding session store for sync %s: %w", syncID, err)
 	}
@@ -35,21 +49,7 @@ func (b *sessionBinding) release(ctx context.Context) error {
 	}
 	unbind := b.unbind
 	b.unbind = nil
+	ctx, cancel := context.WithTimeout(ctx, sessionDrainTimeout)
+	defer cancel()
 	return unbind(ctx)
-}
-
-func (s *syncer) bindSessionStore(ctx context.Context) error {
-	if s.cfg.sessionStoreBinder == nil {
-		return nil
-	}
-	sessionStore := s.store.SessionStore()
-	if s.ledgered {
-		sessionStore = ledgerSessionStore{SessionStore: sessionStore}
-	}
-	// Instrumented so session-store cost is attributable in the sync
-	// stats instead of vanishing into inflated connector-call latency
-	// (e.g. a broken backend whose every request times out before the
-	// connector falls back to real work).
-	kind := "c1z_" + s.store.Metadata().Engine
-	return s.sessionBinding.bind(ctx, s.cfg.sessionStoreBinder, s.syncID, session.NewInstrumentedSessionStore(sessionStore, kind, "", s.recordSessionOp))
 }

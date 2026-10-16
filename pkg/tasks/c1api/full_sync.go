@@ -251,7 +251,7 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 	}
 
 	if binder, ok := cc.(sessions.SessionStoreBinder); ok {
-		syncOpts = append(syncOpts, sdkSync.WithSessionStore(binder))
+		syncOpts = append(syncOpts, sdkSync.WithSessionStoreBinder(binder))
 	}
 
 	syncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), syncOpts...)

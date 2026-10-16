@@ -95,7 +95,7 @@ go vet ./...
 | V5 | verified, 4 Pebble cells without cache, `store.*` and `connector.*` | `.../V5_stats_attribution` (harness corrected, CO8) |
 | V6 | verified under `-race` | `TestGRPCSessionServerAttachWhileServing`, now binding, unbinding, and serving at once |
 | V7 | verified | unchanged tests, Pebble and SQLite |
-| V8 | verified | `TestGRPCSessionServerUnbindDrains`, `TestGRPCSessionServerUnbindDrainTimeout`, `TestSessionBindingCloseDrainsInFlight` (both engines), `TestSessionBindingCloseKeepsStoreOpenWhenDrainFails` (both engines) |
+| V8 | verified | `TestGRPCSessionServerUnbindDrains`, `TestGRPCSessionServerUnbindDrainTimeout`, `TestSessionBindingCloseDrainsInFlight` (both engines), `TestSessionBindingCloseClosesStoreWhenDrainFails` (both engines, CO11) |
 | V9 | verified, all eight handlers | `TestGRPCSessionServerRejectsUnroutableRequests` |
 | V10 | verified | `TestGRPCSessionServerBindRejects` |
 | V11 | matches the baseline: every package passes except the pre-existing `TestC1ZConcurrentClose` race in `pkg/dotc1z` (`c1file.go:1506`), the only race reported | suites listed above |
@@ -146,3 +146,19 @@ After removing the old attach API: `go build ./...`, `go vet ./...`, and
 `pkg/session`, `pkg/tasks/...`, `pkg/cli`, and the session tests in
 `pkg/sync` pass. V6 still reports a data race in 3 of 3 runs with the
 `acquire` lock removed.
+
+## CO11 rerun
+
+`TestSessionBinding*` pass under `-race`; `pkg/session`, `pkg/tasks/...`,
+and `internal/connector` pass under `-race`; `golangci-lint` on the changed
+packages is clean. Each mutation below was applied alone and caught:
+
+| Mutation | Caught by |
+| --- | --- |
+| drain uses the finalize context instead of `sessionDrainTimeout` | `CloseClosesStoreWhenDrainFails` (both engines) |
+| store left open when the drain fails | `CloseClosesStoreWhenDrainFails` (both engines) |
+| drain error returned from `Close` | `CloseClosesStoreWhenDrainFails` (both engines) |
+| `Close` does not wait for the drain | `CloseDrainsInFlight` (both engines) |
+
+This supersedes the two stage 2 mutation rows that assumed `Close` leaves
+the store open after a failed drain.

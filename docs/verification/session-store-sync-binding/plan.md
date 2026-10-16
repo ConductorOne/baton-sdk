@@ -253,3 +253,24 @@ directly, not through the server under test.
 - Verification delta: `TestGRPCSessionServerDeprecatedSetSessionStore` is
   removed. V6 binds, unbinds, and serves concurrently.
 - Affected criteria: V6, V9.
+
+### CO11 (contract amendment, supersedes CO7): bounded drain, then close
+
+- Source: review of the branch. CO7 bounded the drain by
+  `dotc1z.FinalizeTimeout` (1 hour), which caps the c1z commit in `Close`,
+  not session requests against a local store. When that bound was hit, the
+  store stayed open, and no production caller runs a second `Close`, so the
+  store leaked for the life of the process. Closing after the drain would
+  also have run `store.Close` on an expired context.
+- Contract delta: **B5** is now: `Close` waits up to `sessionDrainTimeout`
+  (30 seconds) for session requests already running against the sync's
+  store, then closes the store. If requests are still running, `Close` logs
+  a warning and does not return an error; those requests get an error from
+  the closed store. The commit keeps the full finalize budget.
+- Also from the review: `WithSessionStore` is now `WithSessionStoreBinder`;
+  the unused internal `SessionServerSetter` interface is removed.
+- Verification delta: `TestSessionBindingCloseKeepsStoreOpenWhenDrainFails`
+  is replaced by `TestSessionBindingCloseClosesStoreWhenDrainFails`, which
+  checks that `Close` succeeds, the drain context has a deadline no later
+  than `sessionDrainTimeout`, and the c1z is committed.
+- Affected criteria: V8.

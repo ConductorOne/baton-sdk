@@ -156,7 +156,7 @@ func (s *syncer) skipLedgerSync(ctx context.Context) error {
 		return err
 	}
 	s.syncID = syncID
-	if err := s.bindSessionStore(ctx); err != nil {
+	if err := s.sessionBinding.bind(ctx, s.cfg.sessionStoreBinder, syncID, s.store, s.ledgered, s.recordSessionOp); err != nil {
 		return err
 	}
 	s.caps.pageLedger.SetRetainLedgerTokens(s.cfg.retainLedgerTokens)

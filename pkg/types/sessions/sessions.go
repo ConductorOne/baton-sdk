@@ -72,12 +72,12 @@ func SetSyncIDInContext(ctx context.Context, syncID string) context.Context {
 	return context.WithValue(ctx, SyncIDKey{}, syncID)
 }
 
-// UnbindSessionStore removes a binding, then waits until requests already
-// using the store finish or ctx ends. Calls after the first return nil.
+// UnbindSessionStore removes the binding, then waits until requests already
+// using the store finish or ctx ends.
 type UnbindSessionStore func(ctx context.Context) error
 
 // SessionStoreBinder routes session requests that carry syncID to store until
-// the binding is released. Binding an empty or already-bound syncID fails.
+// the returned UnbindSessionStore runs.
 type SessionStoreBinder interface {
 	BindSessionStore(ctx context.Context, syncID string, store SessionStore) (UnbindSessionStore, error)
 }

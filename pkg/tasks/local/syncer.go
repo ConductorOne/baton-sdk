@@ -120,11 +120,6 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	var sessionBinder sessions.SessionStoreBinder
-	if binder, ok := cc.(sessions.SessionStoreBinder); ok {
-		sessionBinder = binder
-	}
-
 	syncOpts := []sdkSync.SyncOpt{
 		sdkSync.WithC1ZPath(m.dbPath),
 		sdkSync.WithTmpDir(m.tmpDir),
@@ -134,9 +129,11 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		sdkSync.WithTargetedSyncResources(m.targetedSyncResources),
 		sdkSync.WithSkipEntitlementsAndGrants(m.skipEntitlementsAndGrants),
 		sdkSync.WithSkipGrants(m.skipGrants),
-		sdkSync.WithSessionStore(sessionBinder),
 		sdkSync.WithSyncResourceTypes(m.syncResourceTypeIDs),
 		sdkSync.WithWorkerCount(m.workerCount),
+	}
+	if binder, ok := cc.(sessions.SessionStoreBinder); ok {
+		syncOpts = append(syncOpts, sdkSync.WithSessionStoreBinder(binder))
 	}
 	if m.storageEngine != "" {
 		syncOpts = append(syncOpts, sdkSync.WithStorageEngine(m.storageEngine))

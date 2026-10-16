@@ -58,11 +58,6 @@ type connectorClient struct {
 }
 
 var _ sessions.SessionStoreBinder = (*connectorClient)(nil)
-var _ SessionServerSetter = (*connectorClient)(nil)
-
-type SessionServerSetter interface {
-	SetSessionServer(sessionServer sessions.SessionStoreBinder)
-}
 
 func (c *connectorClient) SetSessionServer(sessionServer sessions.SessionStoreBinder) {
 	c.sessionServer = sessionServer
@@ -73,7 +68,7 @@ func (c *connectorClient) BindSessionStore(ctx context.Context, syncID string, s
 		// Debug, not Warn: every sync of a connector that did not opt into
 		// session storage reaches this. See
 		// https://github.com/ConductorOne/baton-sdk/issues/907.
-		ctxzap.Extract(ctx).Debug("connectorClient's session store is nil — connector did not opt into session storage")
+		ctxzap.Extract(ctx).Debug("connector client has no session server — connector did not opt into session storage")
 		return func(context.Context) error { return nil }, nil
 	}
 	return c.sessionServer.BindSessionStore(ctx, syncID, store)

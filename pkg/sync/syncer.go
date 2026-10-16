@@ -640,8 +640,7 @@ func (s *syncer) syncSummaryFields(span trace.Span) []zap.Field {
 // recordSessionOp feeds store-side session observations into the stats
 // token under store.-prefixed ops (the c1z view of session traffic).
 // Session traffic is driven by connector RPCs the syncer initiated, so
-// s.stats is set before any op arrives; the nil guard covers the Validate
-// window between store load and the decode in Sync that sets it.
+// s.stats is set before any op arrives.
 func (s *syncer) recordSessionOp(op string, elapsed time.Duration, opErr error) {
 	if !s.recordStats {
 		return
@@ -1010,7 +1009,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 		l.Error("no syncID found after starting or resuming sync", zap.Error(err))
 		return err
 	}
-	if err = s.bindSessionStore(ctx); err != nil {
+	if err = s.sessionBinding.bind(ctx, s.cfg.sessionStoreBinder, syncID, s.store, s.ledgered, s.recordSessionOp); err != nil {
 		return err
 	}
 
@@ -3985,11 +3984,10 @@ func (s *syncer) Close(ctx context.Context) error {
 
 	var errs []error
 
-	// A store whose session requests did not drain stays open: closing it
-	// would hand those requests a closed store.
 	if unbindErr := s.sessionBinding.release(finalizeCtx); unbindErr != nil {
-		errs = append(errs, fmt.Errorf("error releasing session store: %w", unbindErr))
-	} else if s.store != nil {
+		ctxzap.Extract(ctx).Warn("closing store with session requests still in flight", zap.Error(unbindErr))
+	}
+	if s.store != nil {
 		if storeCloseErr := s.store.Close(finalizeCtx); storeCloseErr != nil {
 			errs = append(errs, fmt.Errorf("error closing store: %w", storeCloseErr))
 		}
@@ -4185,10 +4183,10 @@ func WithTargetedSyncResources(resources []*v2.Resource) SyncOpt {
 	}
 }
 
-// WithSessionStore binds the sync's store under its sync ID from the moment
-// the ID is known until Close, so the connector's session requests for this
-// sync reach it.
-func WithSessionStore(binder sessions.SessionStoreBinder) SyncOpt {
+// WithSessionStoreBinder binds the sync's store under its sync ID from the
+// moment the ID is known until Close, so the connector's session requests for
+// this sync reach it.
+func WithSessionStoreBinder(binder sessions.SessionStoreBinder) SyncOpt {
 	return func(s *syncer) {
 		s.cfg.sessionStoreBinder = binder
 	}
