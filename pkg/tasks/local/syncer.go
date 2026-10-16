@@ -11,10 +11,10 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
-	"github.com/conductorone/baton-sdk/pkg/session"
 	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/conductorone/baton-sdk/pkg/uotel/uotelzap"
 )
@@ -120,11 +120,6 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	var setSessionStore session.SetSessionStore
-	if ssetSessionStore, ok := cc.(session.SetSessionStore); ok {
-		setSessionStore = ssetSessionStore
-	}
-
 	syncOpts := []sdkSync.SyncOpt{
 		sdkSync.WithC1ZPath(m.dbPath),
 		sdkSync.WithTmpDir(m.tmpDir),
@@ -134,9 +129,11 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		sdkSync.WithTargetedSyncResources(m.targetedSyncResources),
 		sdkSync.WithSkipEntitlementsAndGrants(m.skipEntitlementsAndGrants),
 		sdkSync.WithSkipGrants(m.skipGrants),
-		sdkSync.WithSessionStore(setSessionStore),
 		sdkSync.WithSyncResourceTypes(m.syncResourceTypeIDs),
 		sdkSync.WithWorkerCount(m.workerCount),
+	}
+	if binder, ok := cc.(sessions.SessionStoreBinder); ok {
+		syncOpts = append(syncOpts, sdkSync.WithSessionStoreBinder(binder))
 	}
 	if m.storageEngine != "" {
 		syncOpts = append(syncOpts, sdkSync.WithStorageEngine(m.storageEngine))

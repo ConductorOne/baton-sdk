@@ -66,7 +66,7 @@ type syncConfig struct {
 	skipEntitlementsAndGrants bool
 	skipGrants                bool
 	syncType                  connectorstore.SyncType
-	setSessionStore           sessions.SetSessionStore
+	sessionStoreBinder        sessions.SessionStoreBinder
 	syncResourceTypes         []string
 	workerCount               int // If 1, sync is sequential (default). If > 1, sync operations are done in parallel.
 	metricsHandler            metrics.Handler

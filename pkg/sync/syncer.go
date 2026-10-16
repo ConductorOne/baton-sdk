@@ -192,6 +192,7 @@ type syncer struct {
 	lastCheckPointTime                    time.Time
 	counts                                *progresslog.ProgressLog
 	syncID                                string
+	sessionBinding                        sessionBinding
 	skipEGForResourceType                 syncMap[string, bool]
 	skipEntitlementsForResourceType       syncMap[string, bool]
 	skipGrantsForResourceType             syncMap[string, bool]
@@ -639,8 +640,7 @@ func (s *syncer) syncSummaryFields(span trace.Span) []zap.Field {
 // recordSessionOp feeds store-side session observations into the stats
 // token under store.-prefixed ops (the c1z view of session traffic).
 // Session traffic is driven by connector RPCs the syncer initiated, so
-// s.stats is set before any op arrives; the nil guard covers the Validate
-// window between store load and the decode in Sync that sets it.
+// s.stats is set before any op arrives.
 func (s *syncer) recordSessionOp(op string, elapsed time.Duration, opErr error) {
 	if !s.recordStats {
 		return
@@ -1007,6 +1007,9 @@ func (s *syncer) Sync(ctx context.Context) error {
 	if syncID == "" {
 		err = ErrNoSyncIDFound
 		l.Error("no syncID found after starting or resuming sync", zap.Error(err))
+		return err
+	}
+	if err = s.sessionBinding.bind(ctx, s.cfg.sessionStoreBinder, syncID, s.store, s.ledgered, s.recordSessionOp); err != nil {
 		return err
 	}
 
@@ -3896,18 +3899,6 @@ func (s *syncer) loadStore(ctx context.Context) error {
 		_ = store.Close(ctx)
 		return s.storeAttachErr
 	}
-	if s.cfg.setSessionStore != nil {
-		// Instrumented so session-store cost is attributable in the sync
-		// stats instead of vanishing into inflated connector-call latency
-		// (e.g. a broken backend whose every request times out before the
-		// connector falls back to real work).
-		kind := "c1z_" + store.Metadata().Engine
-		sessionStore := store.SessionStore()
-		if s.ledgered {
-			sessionStore = ledgerSessionStore{SessionStore: sessionStore}
-		}
-		s.cfg.setSessionStore.SetSessionStore(ctx, session.NewInstrumentedSessionStore(sessionStore, kind, "", s.recordSessionOp))
-	}
 
 	// Now that s.store is populated, wire the expand progress log's size
 	// provider. NewSyncer could not do this when the caller used
@@ -3993,10 +3984,11 @@ func (s *syncer) Close(ctx context.Context) error {
 
 	var errs []error
 
-	var storeCloseErr error
+	if unbindErr := s.sessionBinding.release(finalizeCtx); unbindErr != nil {
+		ctxzap.Extract(ctx).Warn("closing store with session requests still in flight", zap.Error(unbindErr))
+	}
 	if s.store != nil {
-		storeCloseErr = s.store.Close(finalizeCtx)
-		if storeCloseErr != nil {
+		if storeCloseErr := s.store.Close(finalizeCtx); storeCloseErr != nil {
 			errs = append(errs, fmt.Errorf("error closing store: %w", storeCloseErr))
 		}
 	}
@@ -4191,9 +4183,12 @@ func WithTargetedSyncResources(resources []*v2.Resource) SyncOpt {
 	}
 }
 
-func WithSessionStore(sessionStore sessions.SetSessionStore) SyncOpt {
+// WithSessionStoreBinder binds the sync's store under its sync ID from the
+// moment the ID is known until Close, so the connector's session requests for
+// this sync reach it.
+func WithSessionStoreBinder(binder sessions.SessionStoreBinder) SyncOpt {
 	return func(s *syncer) {
-		s.cfg.setSessionStore = sessionStore
+		s.cfg.sessionStoreBinder = binder
 	}
 }
 

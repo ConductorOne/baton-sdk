@@ -18,10 +18,10 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
-	"github.com/conductorone/baton-sdk/pkg/session"
 	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
@@ -250,8 +250,8 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		syncOpts = append(syncOpts, sdkSync.WithSyncResourceTypes(syncResourceTypeIDs))
 	}
 
-	if setSessionStore, ok := cc.(session.SetSessionStore); ok {
-		syncOpts = append(syncOpts, sdkSync.WithSessionStore(setSessionStore))
+	if binder, ok := cc.(sessions.SessionStoreBinder); ok {
+		syncOpts = append(syncOpts, sdkSync.WithSessionStoreBinder(binder))
 	}
 
 	syncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), syncOpts...)
