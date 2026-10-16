@@ -1,11 +1,11 @@
 # Pagination restart evidence
 
-Plan revision: 1 plus corrections CO1, CO2 and CO3. Implementation:
+Plan revision: 1 plus corrections CO1 through CO4. Implementation:
 `ec11ddaaf730f0a68c73e5aa23d2f9e269841354`, based on v0.40.0.
 The behavioral plan was committed before the new runtime implementation. Existing
 SDK code had been inspected during host diagnosis. Test-only additions in
-`c1c80cd7` strengthen the independent audit's coverage findings. CO2 and CO3
-change runtime code; their sections below record that evidence.
+`c1c80cd7` strengthen the independent audit's coverage findings. CO2, CO3 and
+CO4 change runtime code; their sections below record that evidence.
 
 ## Implementation-obligation addendum
 
@@ -51,7 +51,7 @@ change runtime code; their sections below record that evidence.
 | P09 | Verified to stated coverage. Ledger commit test, actual provider-RPC family table and terminal-status table. | A committed restart has one pending work item and zero completed actions. All five actual RPC-family restart rows retain one ConnectorErrors observation, zero successful/empty list responses, zero completion and zero warnings. Actual completion increments once. Limits originating as NotFound, Unavailable, DeadlineExceeded or InvalidArgument retain the original error identity while becoming non-warning and non-retryable inside the SDK. |
 | P10 | Verified to stated coverage. Existing golden corpus, marked-checkpoint disabled-policy matrix, and `TestPageTokenRestartLegacyTakeover`. | A marked legacy fixture is stored, consumed through loadLedgerResume/BeginFromToken, and cleared from the legacy slot. Real Pebble close/reopen and fresh runtime restore retain raw cursor `next` and count 1. Supporting readers decode marked state with a zero restart limit. Older readers remain explicitly outside the enabled-feature compatibility claim. |
 | P11 | Evidence incomplete. Verified to stated host-package coverage against runtime `ec11dda` only: C1 consumer tests plus its full affected Bazel package. CO2 and CO3 change runtime after that run. | Exact Graph expiry classification includes wrapping/joined cancellation; unrelated failures stay unchanged. Exhaustion does not reset the whole sync. Legacy callbacks preserve the 15-attempt failsafe. SQLite/Pebble x 1/3 workers complete the original sync, retain abandoned observations, then remove them during a later fresh sync. No live provider or production rollout is claimed. |
-| P12 | Verified to stated reduced coverage. Full affected sync race suite, `TestPageTokenRestartCheckpointWritersSerialize`, codec and existing fanout checkpoint benchmarks. | Thirty-two simultaneous forced checkpoints commit exactly once each with maximum active writer count 1. Healthy cursor decoding has zero allocations. Stored restart metadata is O(cursor bytes); forced checkpoints retain the existing O(pending actions) serialization cost and add no scan over stored grants. Race/fuzz execution is measured sampling, not exhaustive schedule coverage. |
+| P12 | Verified to stated reduced coverage. Full affected sync race suite, `TestPageTokenRestartCheckpointWritersSerialize`, codec and existing fanout checkpoint benchmarks. | Thirty-two simultaneous forced checkpoints commit exactly once each with maximum active writer count 1. Healthy cursor decoding has zero allocations, pinned by `TestPageTokenRestartPlainTokenAllocs`. Stored restart metadata is O(cursor bytes). Per eligible action, a legacy run forces one checkpoint per restart and one at exhaustion: at most `limit` committed restart checkpoints per sync, since a failed one ends the run, plus one exhaustion checkpoint per run that reaches the limit. Each serializes O(pending actions) under `run.mu.RLock`, behind `syncCheckpoint.mu`, and none scans stored grants. Pebble restarts ride the existing page commit. Race/fuzz execution is measured sampling, not exhaustive schedule coverage. |
 
 ## Instrument validation and defects corrected
 
@@ -251,3 +251,104 @@ until the C1 consumer reruns against the final runtime commit. A pre-recovery SD
 still cannot resume or start a new sync over a Pebble file between an action's
 first restart and the end of collection; CO3 documents that window and does not
 remove it.
+
+## CO4: low review findings
+
+This correction follows the CO4 plan entry and its revision. Each failing
+instrument was observed before its fix; pins of unchanged behavior were validated
+by mutation.
+
+Exhaustion contract (P02, M08): **verified to stated coverage**.
+`ErrPageTokenRestartLimit` and `WithPageTokenRestarts` state the eligible calls, the
+exhaustion error and the host's resume cap. `TestPageTokenRestartBudgetSurvivesResume`
+requires `IsSyncPreservable` true for the actual `Sync` error and
+`ShouldDiscardSyncArtifact` false for its join with the `Close` error, in every
+SQLite/Pebble x 1/3-worker cell and on each cold resume. Coding the limit error
+`Internal` failed the `IsSyncPreservable` assertion.
+
+Persistence status (P04, P09): **verified to stated coverage**. `persistenceError`
+replaces `ledgerPageWriteError` and the four `Internal` restart wrappers;
+`pageTokenRestartLimitError` is the limit error alone, fixed at `FailedPrecondition`.
+A failed restart transition, forced checkpoint or Pebble restart commit reports
+`Canceled` when its context was canceled and `Internal` otherwise, whatever status
+the joined connector error carries.
+
+- `TestPageTokenRestartPersistenceStatus` crosses plain and `NotFound`-coded
+  connector expiries with plain, `NotFound`-coded, canceled and deadline transition
+  failures. The code follows the failure and no cell is a warning. Before the fix,
+  the canceled cells reported `Internal`.
+- `TestPageTokenRestartCanceledBeforeCommit` requires `Canceled` from the Pebble
+  restart commit; it reported `Internal` before the fix.
+- `TestPageTokenRestartCheckpointDeadlineIsNotRetried` runs `parallelSync` with the
+  production checkpoint interval and a forced checkpoint that fails on a wrapped
+  deadline under a live context. It requires both causes, `Internal`, and exactly
+  one provider request. Against the first CO4 fix, which coded the deadline
+  `DeadlineExceeded`, it failed after a one-second retry: the restarted listing's
+  request reached the connector, and that request's own expiry replaced the
+  persistence error. With a zero checkpoint interval the loop-top checkpoint
+  caught the failure and hid the defect, so the instrument sets
+  `minCheckpointInterval`.
+- `TestLedgerExistingSchedulerCommitNotFoundIsNotWarning` keeps a `NotFound`-coded
+  ledger write a non-warning. `TestPageTokenRestartCheckpointFailure` and
+  `TestPageTokenRestartInvalidTransition` keep `Internal` for plain failures.
+
+Cost (P12): **verified to stated reduced coverage**. The P12 row states the
+aggregate checkpoint cost. Before the change, `go build -gcflags=-m ./pkg/sync`
+reported `moved to heap: transitionAction` for the copy in `invokeActionPage`.
+Afterward the only `Action` copies it moves to heap there are the two restart-branch
+`restarted` values. `TestPageTokenRestartPlainTokenAllocs` pins zero allocations for
+an unmarked `providerPageAction`, including under `-race`; returning a copy of the
+unmarked action failed it.
+
+Rollback instrument (P13): **verified to stated bounded coverage**. The script
+checks its fixed probe paths before creating anything, installs cleanup before
+`mktemp -d`, and runs as `make rollback-check`, which `make compat-check` and
+therefore the nightly compat job invoke. It passes. With `BATON_ROLLBACK_MUTATE=1`
+it fails the recovered token, recovered queue and drained queue cells while the
+plain baselines pass. A pre-existing probe file stops it without deleting that
+file. An invalid old ref exits nonzero and leaves no worktree or probe behind.
+
+Version stamp (P13): **verified to stated bounded coverage**. `marshalToken`
+computes the stamp in the graph-omission pass. Letting a later type-scoped marker
+lower a restart stamp failed 45 `TestPageTokenRestartVersionStamp` subtests over
+20 runs. Stopping at the first restart marker before the graph-omission check
+completed failed 53 subtests over 20 runs of that table and `TestSyncerToken*`.
+`unsafe.Sizeof(Action{})` is 160 bytes, down from 176. The existing fields keep
+their pre-recovery order, and the three restart fields follow `TypeScopedPlanned`.
+`v3_page_token_restart.json` changes only in key order (`page_token_restarted` now
+follows `resource_id`); the other fixtures are byte-identical.
+
+Test-only: `stageWorkState` is deleted, and two Pebble tests stage
+`pendingWorkState` directly. Restart tests use `writeLedgerTestFile`, `grantIDs`,
+`isExpiredTestPageToken` and `restartTestPolicy`.
+
+Execution against the final runtime and tests:
+
+- `go test -json -p 4 -mod=vendor -tags=baton_lambda_support -count=1 -timeout=15m ./...`: passed; 67 tested packages, no failures.
+- `go test -race -tags=baton_lambda_support -count=1 -run 'Test(PageTokenRestart|ProviderPageError|PendingWork|Ledger.*(Phase|Terminal|Seal)|.*Token|GoldenToken)' ./pkg/sync ./pkg/dotc1z/engine/pebble`: passed.
+- `go test -count=1 -coverprofile=coverage.out -run 'Test(PageTokenRestart|ProviderPageError|PendingWork|LedgerWorkStateRejectsForeignEncodings|Ledger.*(Phase|Terminal|Seal)|LedgerExistingScheduler|SyncerToken|GoldenToken)' ./pkg/sync ./pkg/dotc1z/engine/pebble`: passed.
+- `make rollback-check` on Go 1.27.1: passed; `BATON_ROLLBACK_MUTATE=1` failed at the recovered token, recovered queue and drained queue cells.
+- golangci-lint v2.13.2 built with Go 1.27.1, `run --timeout=5m`: passed, zero issues.
+- `bash -n scripts/check-page-token-restart-rollback.sh` and `git diff --check`: passed.
+
+CO4 structural triage: the profile executes both `newPersistenceError` codes, every
+`persistenceError` and `pageTokenRestartLimitError` method, and both the
+normalizing and non-normalizing `marshalToken` paths. The uncovered blocks in the
+edited functions are inherited: ledger-runtime and worker-index guards, the
+`SetPendingWork` error return, a test hook and the `json.Marshal` error. Their
+predicates are unchanged. No keyspace, lock, scan or commit point is added. A
+healthy Pebble page no longer heap-allocates an `Action` copy; restart pages
+allocate one as before.
+
+Independent read: one reviewer read the uncommitted CO4 diff against the plan
+entry. It found the deadline-retry defect that the CO4 revision corrects, a
+`WithPageTokenRestarts` sentence that implied every post-resume expiry fails, and a
+minimize-list word in an edited comment. All three are corrected. It reported
+nothing else for the persistence codes, the `transitionAction` alias, the stamp
+fold, the `Action` reorder, the godoc facts or the rollback script setup. It has not
+re-read the code after the revision.
+
+Not covered: P11 stays evidence incomplete until the C1 consumer reruns against
+the final runtime commit. The deadline instrument drives the sequential
+`SyncResourceTypesOp` path. The other retry gates share it by construction, since
+`persistenceError` never reports `Unavailable` or `DeadlineExceeded`.

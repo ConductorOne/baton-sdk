@@ -3,15 +3,24 @@ set -euo pipefail
 
 repo=$(git rev-parse --show-toplevel)
 old_ref=${BATON_ROLLBACK_OLD_REF:-47f5027e75e56872a9325a378badcaaab2718f4a}
-scratch=$(mktemp -d)
-current_sync_probe=$(mktemp "$repo/pkg/sync/rollback_probe_XXXXXX" --suffix=_test.go)
-current_pebble_probe=$(mktemp "$repo/pkg/dotc1z/engine/pebble/rollback_probe_XXXXXX" --suffix=_test.go)
+current_sync_probe="$repo/pkg/sync/rollback_probe_test.go"
+current_pebble_probe="$repo/pkg/dotc1z/engine/pebble/rollback_probe_test.go"
+for probe in "$current_sync_probe" "$current_pebble_probe"; do
+  if [[ -e $probe ]]; then
+    echo "$probe already exists; remove it and rerun" >&2
+    exit 1
+  fi
+done
+scratch=""
 cleanup() {
   rm -f "$current_sync_probe" "$current_pebble_probe"
-  git -C "$repo" worktree remove --force "$scratch/old" >/dev/null 2>&1 || true
-  rm -rf "$scratch"
+  if [[ -n $scratch ]]; then
+    git -C "$repo" worktree remove --force "$scratch/old" >/dev/null 2>&1 || true
+    rm -rf "$scratch"
+  fi
 }
 trap cleanup EXIT
+scratch=$(mktemp -d)
 git -C "$repo" worktree add --quiet --detach "$scratch/old" "$old_ref"
 export BATON_ROLLBACK_ARTIFACTS="$scratch/artifacts"
 mkdir -p "$BATON_ROLLBACK_ARTIFACTS"

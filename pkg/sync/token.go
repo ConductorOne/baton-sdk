@@ -270,32 +270,32 @@ func marshalToken(run *runState, stats *runStats) (string, error) {
 	stats.mu.RLock()
 	defer stats.mu.RUnlock()
 
-	actions := run.actions
+	// Stamp a newer version only when the token actually carries
+	// markers an older parser would misinterpret; plain tokens keep
+	// version 1 so older SDKs still resume them. The normalization below
+	// clears page tokens only, so these markers are the ones that ship.
+	version := uint64(StateTokenVersion)
+	normalize := false
 	for _, action := range run.actions {
-		if action.Op == SyncGrantExpansionOp && action.PageToken != "" {
-			actions = make(map[string]Action, len(run.actions))
-			for id, a := range run.actions {
-				if a.Op == SyncGrantExpansionOp {
-					a.PageToken = ""
-				}
-				actions[id] = a
-			}
+		normalize = normalize || (action.Op == SyncGrantExpansionOp && action.PageToken != "")
+		if action.PageTokenRestarted {
+			version = StateTokenVersionPageTokenRestart
+		} else if version == StateTokenVersion && (action.TypeScoped || action.Spawned || action.TypeScopedPlanned) {
+			version = StateTokenVersionTypeScoped
+		}
+		if normalize && version == StateTokenVersionPageTokenRestart {
 			break
 		}
 	}
 
-	// Stamp a newer version only when the token actually carries
-	// markers an older parser would misinterpret; plain tokens keep
-	// version 1 so downgrades resume seamlessly. Read from the normalized
-	// copy, which is what actually ships.
-	version := uint64(StateTokenVersion)
-	for _, action := range actions {
-		if action.PageTokenRestarted {
-			version = StateTokenVersionPageTokenRestart
-			break
-		}
-		if action.TypeScoped || action.Spawned || action.TypeScopedPlanned {
-			version = StateTokenVersionTypeScoped
+	actions := run.actions
+	if normalize {
+		actions = make(map[string]Action, len(run.actions))
+		for id, a := range run.actions {
+			if a.Op == SyncGrantExpansionOp {
+				a.PageToken = ""
+			}
+			actions[id] = a
 		}
 	}
 

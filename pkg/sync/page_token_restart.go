@@ -17,6 +17,12 @@ import (
 
 const paginationRestartPrefix = "baton-sdk:page-restart:"
 
+// ErrPageTokenRestartLimit reports an expiry after an action spent its
+// WithPageTokenRestarts budget. The error carries codes.FailedPrecondition and
+// wraps the connector's error. IsSyncPreservable reports true for it and
+// ShouldDiscardSyncArtifact false, but the checkpoint keeps the spent budget and
+// the expired cursor, so every resume of that sync fails again: a host that
+// resumes preserved syncs must cap those resumes and then start a new sync.
 var ErrPageTokenRestartLimit = errors.New("provider pagination restart limit reached")
 
 type providerPageError struct{ cause error }
@@ -45,15 +51,12 @@ func newProviderPageError(err error) error {
 	return page
 }
 
-type pageTokenRestartError struct {
-	cause error
-	code  codes.Code
-}
+type pageTokenRestartLimitError struct{ cause error }
 
-func (e pageTokenRestartError) Error() string { return e.cause.Error() }
-func (e pageTokenRestartError) Unwrap() error { return e.cause }
-func (e pageTokenRestartError) GRPCStatus() *status.Status {
-	return status.New(e.code, e.cause.Error())
+func (e pageTokenRestartLimitError) Error() string { return e.cause.Error() }
+func (e pageTokenRestartLimitError) Unwrap() error { return e.cause }
+func (e pageTokenRestartLimitError) GRPCStatus() *status.Status {
+	return status.New(codes.FailedPrecondition, e.cause.Error())
 }
 
 type pageTokenRestartPolicy struct {
@@ -128,7 +131,7 @@ func (p *pageTokenRestartPolicy) next(ctx context.Context, action *Action, cause
 		return "", cause
 	}
 	if action.pageTokenRestarts >= p.limit {
-		return "", pageTokenRestartError{cause: fmt.Errorf("%w (%d restarts): %w", ErrPageTokenRestartLimit, p.limit, cause), code: codes.FailedPrecondition}
+		return "", pageTokenRestartLimitError{cause: fmt.Errorf("%w (%d restarts): %w", ErrPageTokenRestartLimit, p.limit, cause)}
 	}
 	// The generation separates recovery identities from arbitrary opaque provider tokens.
 	return encodeRestartPageToken(action.pageTokenRestarts+1, rand.Text(), ""), nil
@@ -139,10 +142,16 @@ func logPageTokenRestart(ctx context.Context, action *Action, cause error) {
 		zap.Object("action", action), zap.Uint32("page_token_restarts", action.pageTokenRestarts+1), zap.Error(cause))
 }
 
-// WithPageTokenRestarts restarts matching expired provider cursors at most limit
-// times per action. Collected records are retained. A zero limit or nil classifier
-// disables new restarts, but existing recovery cursors remain readable.
-// isExpired may be called concurrently by sync workers.
+// WithPageTokenRestarts restarts an action's provider listing from its first page
+// when isExpired matches the connector's error, at most limit times per action per
+// sync. Eligible calls are ListResourceTypes, ListResources, ListEntitlements,
+// ListStaticEntitlements and ListGrants sent with a nonempty page token, except
+// cursors a connector spawned with the EnqueuePageTokens annotation. Store and SDK
+// errors never restart. The budget is checkpointed, so a resume does not refill
+// it; once it is spent, the next expiry fails with ErrPageTokenRestartLimit.
+// Collected records are retained. A zero limit or nil classifier disables new
+// restarts, but existing recovery cursors remain readable. isExpired may be called
+// concurrently by sync workers.
 //
 // Recovery checkpoints require this SDK version or newer. An older SDK drops a
 // SQLite checkpoint's recovery action stack and collects again. On Pebble, from

@@ -118,10 +118,6 @@ const (
 
 // Action stores the current operation, page token, and optional fields for which resource is being worked with.
 type Action struct {
-	pageTokenRestarts          uint32
-	pageTokenRestartGeneration string
-	// PageTokenRestarted distinguishes SDK recovery state from provider tokens.
-	PageTokenRestarted   bool     `json:"page_token_restarted,omitempty"`
 	WorkPageToken        string   `json:"-"`
 	WorkID               uint64   `json:"-"`
 	WorkRevision         uint64   `json:"-"`
@@ -145,6 +141,10 @@ type Action struct {
 	// already scheduled whole-type collection. Legacy checkpoints omit it,
 	// causing an upgraded syncer to plan type-scoped work once on resume.
 	TypeScopedPlanned bool `json:"type_scoped_planned,omitempty"`
+	// PageTokenRestarted distinguishes SDK recovery state from provider tokens.
+	PageTokenRestarted         bool `json:"page_token_restarted,omitempty"`
+	pageTokenRestarts          uint32
+	pageTokenRestartGeneration string
 }
 
 func (a Action) MarshalLogObject(enc zapcore.ObjectEncoder) error {

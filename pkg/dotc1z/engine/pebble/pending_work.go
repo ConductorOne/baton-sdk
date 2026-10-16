@@ -75,10 +75,6 @@ func (l *Ledger) readWorkState() (pendingWorkState, error) {
 	return pendingWorkState{version: value[0], lastID: binary.BigEndian.Uint64(value[1:9]), phase: phase}, nil
 }
 
-func stageWorkState(batch *rawdb.RecordBatch, id uint64, phase c1zstore.LedgerQueuePhase) error {
-	return (pendingWorkState{version: workStateVersion, lastID: id, phase: phase}).stage(batch)
-}
-
 func (s pendingWorkState) stage(batch *rawdb.RecordBatch) error {
 	value := binary.BigEndian.AppendUint64([]byte{s.version}, s.lastID)
 	return batch.StageLedgerWorkState(append(value, byte(s.phase)))

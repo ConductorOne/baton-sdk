@@ -30,7 +30,7 @@ func commitTerminalPage(t testing.TB, e *Engine, ctx context.Context) error {
 		require.NoError(t, e.withWriteAllowSealed(func() error {
 			batch := e.db.NewRecordBatch()
 			defer batch.Close()
-			if err := stageWorkState(batch, 0, c1zstore.LedgerQueueCollecting); err != nil {
+			if err := (pendingWorkState{version: workStateVersion, phase: c1zstore.LedgerQueueCollecting}).stage(batch); err != nil {
 				return err
 			}
 			return batch.Commit(pebble.Sync)

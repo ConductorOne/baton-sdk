@@ -28,6 +28,12 @@ import (
 
 var errExpiredTestPageToken = errors.New("provider cursor expired")
 
+func isExpiredTestPageToken(err error) bool { return errors.Is(err, errExpiredTestPageToken) }
+
+func restartTestPolicy() *pageTokenRestartPolicy {
+	return &pageTokenRestartPolicy{limit: 2, isExpired: isExpiredTestPageToken}
+}
+
 const restartTestGeneration = "abcdefghijklmnopqrstuvwxyz"
 
 type restartTestConnector struct {
@@ -119,14 +125,8 @@ func TestPageTokenRestartBudgetSurvivesResume(t *testing.T) {
 				var checkpoint []byte
 				for attempt := range 3 {
 					if attempt > 0 {
-						resumeDir := t.TempDir()
-						root, err := os.OpenRoot(resumeDir)
-						require.NoError(t, err)
-						writeErr := root.WriteFile("cold-resume.c1z", checkpoint, 0o600)
-						closeErr := root.Close()
-						require.NoError(t, writeErr)
-						require.NoError(t, closeErr)
-						path = filepath.Join(resumeDir, "cold-resume.c1z")
+						path = filepath.Join(t.TempDir(), "cold-resume.c1z")
+						require.NoError(t, writeLedgerTestFile(path, checkpoint, 0o600))
 						conn = newRestartTestConnector(t)
 						conn.expiries = 100
 					}
@@ -146,17 +146,18 @@ func TestPageTokenRestartBudgetSurvivesResume(t *testing.T) {
 						workerCount = 4 - workers
 					}
 					s, err := NewSyncer(ctx, conn, WithConnectorStore(store), WithTmpDir(dir), WithSyncID(syncID), WithDontExpandGrants(),
-						WithWorkerCount(workerCount), WithPageTokenRestarts(2, func(err error) bool { return errors.Is(err, errExpiredTestPageToken) }))
+						WithWorkerCount(workerCount), WithPageTokenRestarts(2, isExpiredTestPageToken))
 					require.NoError(t, err)
 					err = s.Sync(ctx)
 					require.ErrorIs(t, err, ErrPageTokenRestartLimit)
 					require.ErrorIs(t, err, errExpiredTestPageToken)
+					require.True(t, IsSyncPreservable(err))
 					if attempt == 0 {
 						require.Equal(t, 3, conn.starts["failing-group"])
 					} else {
 						require.Zero(t, conn.starts["failing-group"], "resuming the identical checkpoint must not replenish the restart budget")
 					}
-					require.NoError(t, s.Close(ctx))
+					require.False(t, ShouldDiscardSyncArtifact(errors.Join(err, s.Close(ctx))))
 					if attempt == 0 {
 						checkpoint, err = os.ReadFile(path)
 						require.NoError(t, err)
@@ -186,7 +187,7 @@ func TestPageTokenRestartColdProcessResume(t *testing.T) {
 	conn := newRestartTestConnector(t)
 	conn.expiries = 100
 	s, err := NewSyncer(t.Context(), conn, WithConnectorStore(store), WithTmpDir(t.TempDir()), WithSyncID(syncID), WithDontExpandGrants(), WithWorkerCount(3),
-		WithPageTokenRestarts(2, func(err error) bool { return errors.Is(err, errExpiredTestPageToken) }))
+		WithPageTokenRestarts(2, isExpiredTestPageToken))
 	require.NoError(t, err)
 	require.ErrorIs(t, s.Sync(t.Context()), ErrPageTokenRestartLimit)
 	require.Zero(t, conn.starts["failing-group"])
@@ -251,7 +252,7 @@ func (w cancelRestartPageWriter) SetPendingWork(work c1zstore.LedgerWork, keys .
 
 func TestPageTokenRestartCanceledBeforeCommit(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
-	s.cfg.pageTokenRestartPolicy = &pageTokenRestartPolicy{limit: 2, isExpired: func(err error) bool { return errors.Is(err, errExpiredTestPageToken) }}
+	s.cfg.pageTokenRestartPolicy = restartTestPolicy()
 	action := s.run.pushAction(t.Context(), Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "one", PageToken: "expired"})
 	seedLedgerTestRun(t, s, action)
 	before := ledgerRawSnapshot(t, f.engine)
@@ -268,6 +269,7 @@ func TestPageTokenRestartCanceledBeforeCommit(t *testing.T) {
 	require.True(t, armed)
 	require.ErrorIs(t, err, context.Canceled)
 	require.ErrorIs(t, err, errExpiredTestPageToken)
+	require.Equal(t, codes.Canceled, status.Code(err))
 	require.True(t, equalLedgerSnapshot(before, ledgerRawSnapshot(t, f.engine)))
 	require.Zero(t, s.run.completedActionsCount())
 	require.Zero(t, f.audit.writers)
@@ -294,8 +296,7 @@ func TestPageTokenRestartInterruptedFirstPage(t *testing.T) {
 				require.NoError(t, err)
 				syncID, _, err := store.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, "")
 				require.NoError(t, err)
-				policy := func(err error) bool { return errors.Is(err, errExpiredTestPageToken) }
-				s, err := NewSyncer(ctx, conn, WithConnectorStore(store), WithTmpDir(dir), WithSyncID(syncID), WithDontExpandGrants(), WithPageTokenRestarts(2, policy))
+				s, err := NewSyncer(ctx, conn, WithConnectorStore(store), WithTmpDir(dir), WithSyncID(syncID), WithDontExpandGrants(), WithPageTokenRestarts(2, isExpiredTestPageToken))
 				require.NoError(t, err)
 				require.ErrorIs(t, s.Sync(ctx), context.Canceled)
 				require.Equal(t, 2, conn.starts["failing-group"])
@@ -311,7 +312,7 @@ func TestPageTokenRestartInterruptedFirstPage(t *testing.T) {
 					limit = 0
 				}
 				s, err = NewSyncer(ctx, conn, WithConnectorStore(store), WithTmpDir(dir), WithSyncID(syncID), WithDontExpandGrants(),
-					WithWorkerCount(3), WithPageTokenRestarts(limit, policy))
+					WithWorkerCount(3), WithPageTokenRestarts(limit, isExpiredTestPageToken))
 				require.NoError(t, err)
 				require.NoError(t, s.Sync(ctx))
 				require.NoError(t, s.Close(ctx))
@@ -322,13 +323,9 @@ func TestPageTokenRestartInterruptedFirstPage(t *testing.T) {
 				require.NoError(t, store.SetCurrentSync(ctx, syncID))
 				grants, err := store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{PageSize: 100})
 				require.NoError(t, err)
-				ids := make([]string, 0, len(grants.GetList()))
-				for _, grant := range grants.GetList() {
-					ids = append(ids, grant.GetId())
-				}
 				require.ElementsMatch(t, []string{
 					"failing-group:first-user", "failing-group:replacement-user", "failing-group:second-user", "healthy-group:second-user",
-				}, ids)
+				}, grantIDs(grants.GetList()))
 			})
 		}
 	}
@@ -363,7 +360,7 @@ func TestPageTokenRestartCodec(t *testing.T) {
 }
 
 func TestPageTokenRestartPolicy(t *testing.T) {
-	policy := &pageTokenRestartPolicy{limit: 2, isExpired: func(err error) bool { return errors.Is(err, errExpiredTestPageToken) }}
+	policy := restartTestPolicy()
 	expired := providerPageError{cause: errExpiredTestPageToken}
 	for _, op := range []ActionOp{SyncResourceTypesOp, SyncResourcesOp, SyncEntitlementsOp, SyncStaticEntitlementsOp, SyncGrantsOp} {
 		t.Run(op.String(), func(t *testing.T) {
@@ -444,7 +441,7 @@ func (s restartResourceFailureStore) GetResource(context.Context, *reader_v2.Res
 
 func TestPageTokenRestartIgnoresStoreErrors(t *testing.T) {
 	s := &syncer{run: newRunState(), stats: newRunStats(), cfg: syncConfig{workerCount: 1,
-		pageTokenRestartPolicy: &pageTokenRestartPolicy{limit: 2, isExpired: func(err error) bool { return errors.Is(err, errExpiredTestPageToken) }}}}
+		pageTokenRestartPolicy: restartTestPolicy()}}
 	store := restartResourceFailureStore{checkpointOutcomeStore: &checkpointOutcomeStore{}}
 	s.setStore(store)
 	action := s.run.pushAction(t.Context(), Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "one", PageToken: "next"})
@@ -457,7 +454,7 @@ func TestPageTokenRestartIgnoresStoreErrors(t *testing.T) {
 func TestPageTokenRestartCheckpointFailure(t *testing.T) {
 	ctx := t.Context()
 	s := &syncer{run: newRunState(), stats: newRunStats(), cfg: syncConfig{workerCount: 1,
-		pageTokenRestartPolicy: &pageTokenRestartPolicy{limit: 2, isExpired: func(err error) bool { return errors.Is(err, errExpiredTestPageToken) }}}}
+		pageTokenRestartPolicy: restartTestPolicy()}}
 	store := &checkpointOutcomeStore{failAlways: true}
 	s.setStore(store)
 	action := s.run.pushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: "user", PageToken: "expired"})
@@ -497,7 +494,7 @@ func TestPageTokenRestartCheckpointBeforeRequest(t *testing.T) {
 	syncID, _, err := store.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	s := &syncer{syncID: syncID, run: newRunState(), stats: newRunStats(), cfg: syncConfig{
-		pageTokenRestartPolicy: &pageTokenRestartPolicy{limit: 2, isExpired: func(err error) bool { return errors.Is(err, errExpiredTestPageToken) }}}}
+		pageTokenRestartPolicy: restartTestPolicy()}}
 	s.setStore(store)
 	action := s.run.pushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "one", PageToken: "expired"})
 	require.NoError(t, s.invokeActionPage(ctx, action, func(context.Context, *Action) error {
@@ -526,7 +523,7 @@ func TestPageTokenRestartCheckpointBeforeRequest(t *testing.T) {
 
 func TestPageTokenRestartInvalidTransition(t *testing.T) {
 	s := &syncer{run: newRunState(), stats: newRunStats(), cfg: syncConfig{
-		pageTokenRestartPolicy: &pageTokenRestartPolicy{limit: 2, isExpired: func(err error) bool { return errors.Is(err, errExpiredTestPageToken) }}}}
+		pageTokenRestartPolicy: restartTestPolicy()}}
 	store := &checkpointOutcomeStore{}
 	s.setStore(store)
 	called := false
@@ -547,9 +544,81 @@ func TestPageTokenRestartInvalidTransition(t *testing.T) {
 	require.Empty(t, store.outcomes)
 }
 
+func TestPageTokenRestartPersistenceStatus(t *testing.T) {
+	causes := []struct {
+		name string
+		err  error
+	}{
+		{"plain", errExpiredTestPageToken},
+		{"not-found", fmt.Errorf("%w: %w", errExpiredTestPageToken, status.Error(codes.NotFound, "cursor gone"))},
+	}
+	writes := []struct {
+		name string
+		err  error
+		want codes.Code
+	}{
+		{"plain", errInjectedCheckpointWrite, codes.Internal},
+		{"not-found", status.Error(codes.NotFound, "sync row missing"), codes.Internal},
+		{"canceled", context.Canceled, codes.Canceled},
+		{"deadline", fmt.Errorf("checkpoint: %w", context.DeadlineExceeded), codes.Internal},
+	}
+	for _, cause := range causes {
+		for _, write := range writes {
+			t.Run(cause.name+"/"+write.name, func(t *testing.T) {
+				s := &syncer{run: newRunState(), stats: newRunStats(), cfg: syncConfig{pageTokenRestartPolicy: restartTestPolicy()}}
+				s.setStore(&checkpointOutcomeStore{})
+				s.parallelActionTransitioner = func(context.Context, *Action, string, []Action) error { return write.err }
+				err := s.invokeActionPage(t.Context(), &Action{Op: SyncGrantsOp, ResourceTypeID: "group", PageToken: "expired"}, func(context.Context, *Action) error {
+					return newProviderPageError(cause.err)
+				}, true)
+				require.ErrorIs(t, err, write.err)
+				require.ErrorIs(t, err, cause.err)
+				require.Equal(t, write.want, status.Code(err))
+				require.False(t, isWarning(t.Context(), err))
+			})
+		}
+	}
+}
+
+type restartCheckpointFailureStore struct {
+	*checkpointOutcomeStore
+	err error
+}
+
+func (s restartCheckpointFailureStore) CheckpointSync(ctx context.Context, token string) error {
+	if strings.Contains(token, `"page_token_restarted":true`) {
+		return s.err
+	}
+	return s.checkpointOutcomeStore.CheckpointSync(ctx, token)
+}
+
+func TestPageTokenRestartCheckpointDeadlineIsNotRetried(t *testing.T) {
+	ctx := t.Context()
+	deadline := fmt.Errorf("checkpoint: %w", context.DeadlineExceeded)
+	conn := &restartRPCConnector{mockConnector: newMockConnector()}
+	s := &syncer{run: newEmptySchedulerState(t), stats: newRunStats(), graph: newExpansionGraph(), connector: conn,
+		checkpoint: syncCheckpoint{interval: minCheckpointInterval}, cfg: syncConfig{workerCount: 1, pageTokenRestartPolicy: restartTestPolicy()}}
+	s.setStore(restartCheckpointFailureStore{checkpointOutcomeStore: &checkpointOutcomeStore{}, err: deadline})
+	s.run.pushAction(ctx, Action{Op: SyncResourceTypesOp, PageToken: "provider-next"})
+	_, err := s.parallelSync(ctx, ctx, nil)
+	require.ErrorIs(t, err, deadline)
+	require.ErrorIs(t, err, errExpiredTestPageToken)
+	require.Equal(t, codes.Internal, status.Code(err))
+	require.Equal(t, []string{"provider-next"}, conn.requests, "the restarted listing must not start before its checkpoint commits")
+}
+
+func TestPageTokenRestartPlainTokenAllocs(t *testing.T) {
+	action := &Action{Op: SyncGrantsOp, PageToken: "provider-page"}
+	require.Zero(t, testing.AllocsPerRun(100, func() {
+		if _, err := providerPageAction(action); err != nil {
+			t.Fatal(err)
+		}
+	}))
+}
+
 func TestPageTokenRestartLedgerCommitFailure(t *testing.T) {
 	s, f := newLedgerSchedulerFixture(t, 1)
-	s.cfg.pageTokenRestartPolicy = &pageTokenRestartPolicy{limit: 2, isExpired: func(err error) bool { return errors.Is(err, errExpiredTestPageToken) }}
+	s.cfg.pageTokenRestartPolicy = restartTestPolicy()
 	action := s.run.pushAction(t.Context(), Action{Op: SyncGrantsOp, ResourceTypeID: "group", ResourceID: "one", PageToken: "expired"})
 	seedLedgerTestRun(t, s, action)
 	before := ledgerRawSnapshot(t, f.engine)
@@ -727,7 +796,7 @@ func TestPageTokenRestartProviderRPCFamilies(t *testing.T) {
 			t.Run(fmt.Sprintf("ledger=%t/%s", ledgered, op), func(t *testing.T) {
 				conn := &restartRPCConnector{mockConnector: newMockConnector()}
 				s, f, action, handler := newRestartRPCSyncer(t, ledgered, conn, op)
-				s.cfg.pageTokenRestartPolicy = &pageTokenRestartPolicy{limit: 2, isExpired: func(err error) bool { return errors.Is(err, errExpiredTestPageToken) }}
+				s.cfg.pageTokenRestartPolicy = restartTestPolicy()
 				if ledgered {
 					f.audit.enter(ledgerHandler)
 				}
@@ -834,7 +903,7 @@ func TestPageTokenRestartKeepsCompletedWork(t *testing.T) {
 				syncID, _, err := store.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, "")
 				require.NoError(t, err)
 				s, err := NewSyncer(ctx, conn, WithConnectorStore(store), WithTmpDir(dir), WithSyncID(syncID),
-					WithWorkerCount(workers), WithDontExpandGrants(), WithPageTokenRestarts(2, func(err error) bool { return errors.Is(err, errExpiredTestPageToken) }))
+					WithWorkerCount(workers), WithDontExpandGrants(), WithPageTokenRestarts(2, isExpiredTestPageToken))
 				require.NoError(t, err)
 				require.NoError(t, s.Sync(ctx))
 				require.Equal(t, []string{"", "next", "", "next"}, conn.pages["failing-group"])
@@ -848,13 +917,9 @@ func TestPageTokenRestartKeepsCompletedWork(t *testing.T) {
 				require.NoError(t, reopened.SetCurrentSync(ctx, syncID))
 				resp, err := reopened.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{PageSize: 100})
 				require.NoError(t, err)
-				ids := make([]string, 0, len(resp.GetList()))
-				for _, grant := range resp.GetList() {
-					ids = append(ids, grant.GetId())
-				}
 				require.ElementsMatch(t, []string{
 					"failing-group:first-user", "failing-group:replacement-user", "failing-group:second-user", "healthy-group:second-user",
-				}, ids)
+				}, grantIDs(resp.GetList()))
 				require.NoError(t, reopened.Close(ctx))
 				reopened, err = dotc1z.NewStore(ctx, path, dotc1z.WithTmpDir(dir), dotc1z.WithEngine(engine))
 				require.NoError(t, err)
@@ -863,7 +928,7 @@ func TestPageTokenRestartKeepsCompletedWork(t *testing.T) {
 				require.True(t, fresh)
 				require.NotEqual(t, syncID, freshID)
 				s, err = NewSyncer(ctx, conn, WithConnectorStore(reopened), WithTmpDir(dir), WithSyncID(freshID),
-					WithWorkerCount(workers), WithDontExpandGrants(), WithPageTokenRestarts(2, func(err error) bool { return errors.Is(err, errExpiredTestPageToken) }))
+					WithWorkerCount(workers), WithDontExpandGrants(), WithPageTokenRestarts(2, isExpiredTestPageToken))
 				require.NoError(t, err)
 				require.NoError(t, s.Sync(ctx))
 				require.NoError(t, s.Close(ctx))
@@ -872,11 +937,7 @@ func TestPageTokenRestartKeepsCompletedWork(t *testing.T) {
 				require.NoError(t, reopened.SetCurrentSync(ctx, freshID))
 				resp, err = reopened.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{PageSize: 100})
 				require.NoError(t, err)
-				ids = ids[:0]
-				for _, grant := range resp.GetList() {
-					ids = append(ids, grant.GetId())
-				}
-				require.ElementsMatch(t, []string{"failing-group:replacement-user", "failing-group:second-user", "healthy-group:second-user"}, ids)
+				require.ElementsMatch(t, []string{"failing-group:replacement-user", "failing-group:second-user", "healthy-group:second-user"}, grantIDs(resp.GetList()))
 			})
 		}
 	}
@@ -892,7 +953,7 @@ func TestPageTokenRestartBudgetsAreIndependent(t *testing.T) {
 				conn := newRestartTestConnector(t)
 				conn.expiringGroups = map[string]int{"failing-group": 1, "healthy-group": 2}
 				s, err := NewSyncer(t.Context(), conn, WithConnectorStore(store), WithTmpDir(dir), WithDontExpandGrants(), WithWorkerCount(workers),
-					WithPageTokenRestarts(2, func(err error) bool { return errors.Is(err, errExpiredTestPageToken) }))
+					WithPageTokenRestarts(2, isExpiredTestPageToken))
 				require.NoError(t, err)
 				require.NoError(t, s.Sync(t.Context()))
 				require.NoError(t, s.Close(t.Context()))

@@ -149,7 +149,7 @@ func TestLedgerWorkStateRejectsForeignEncodings(t *testing.T) {
 		})
 	}
 	batch := e.db.NewRecordBatch()
-	require.NoError(t, stageWorkState(batch, 7, c1zstore.LedgerQueueSealing))
+	require.NoError(t, (pendingWorkState{version: workStateVersion, lastID: 7, phase: c1zstore.LedgerQueueSealing}).stage(batch))
 	require.NoError(t, batch.Commit(pebble.Sync))
 	batch.Close()
 	last, phase, err := e.Ledger().workState()

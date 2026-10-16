@@ -11,14 +11,30 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type ledgerPageWriteError struct {
+// persistenceError reports a failed action transition, checkpoint or page commit
+// as Canceled when its context was canceled and Internal otherwise. The code comes
+// from that failure alone, so a joined connector status cannot turn it into a
+// warning or a retry. A deadline stays Internal: the retryer retries
+// DeadlineExceeded, and a retry after a failed restart checkpoint sends the
+// restarted listing's first request before its budget is durable
+// (TestPageTokenRestartCheckpointDeadlineIsNotRetried).
+type persistenceError struct {
 	cause error
+	code  codes.Code
 }
 
-func (e ledgerPageWriteError) Error() string { return e.cause.Error() }
-func (e ledgerPageWriteError) Unwrap() error { return e.cause }
-func (e ledgerPageWriteError) GRPCStatus() *status.Status {
-	return status.New(codes.Internal, e.cause.Error())
+func newPersistenceError(failure error, interrupted ...error) error {
+	code := codes.Internal
+	if errors.Is(failure, context.Canceled) {
+		code = codes.Canceled
+	}
+	return persistenceError{cause: errors.Join(append(interrupted, failure)...), code: code}
+}
+
+func (e persistenceError) Error() string { return e.cause.Error() }
+func (e persistenceError) Unwrap() error { return e.cause }
+func (e persistenceError) GRPCStatus() *status.Status {
+	return status.New(e.code, e.cause.Error())
 }
 
 type ledgerWorkerKey struct{}
@@ -93,7 +109,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		if restartErr != nil {
 			if errors.Is(restartErr, ErrPageTokenRestartLimit) {
 				if err := s.Checkpoint(ctx, true); err != nil {
-					return pageTokenRestartError{cause: errors.Join(restartErr, err), code: codes.Internal}
+					return newPersistenceError(err, restartErr)
 				}
 			}
 			return restartErr
@@ -101,10 +117,10 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		restarted := *action
 		restarted.PageTokenRestarted = true
 		if err := s.nextPageOrFinishAction(ctx, &restarted, next); err != nil {
-			return pageTokenRestartError{cause: errors.Join(cause, err), code: codes.Internal}
+			return newPersistenceError(err, cause)
 		}
 		if err := s.Checkpoint(ctx, true); err != nil {
-			return pageTokenRestartError{cause: errors.Join(cause, err), code: codes.Internal}
+			return newPersistenceError(err, cause)
 		}
 		logPageTokenRestart(ctx, request, cause)
 		return nil
@@ -132,7 +148,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 	var warning error
 	var handlerFailure error
 	var restartCause error
-	transitionAction := *action
+	transitionAction := action
 	_, err = s.ledger.runPageWithCommit(ctx, workerIndex, ledgerIdentity(action), func(pageCtx context.Context, page *ledgerPage) error {
 		invocation.page = page
 		page.row.WorkID = action.WorkID
@@ -155,7 +171,9 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		if err != nil {
 			if next, restartErr := s.cfg.pageTokenRestartPolicy.next(pageCtx, request, err); restartErr == nil {
 				restartCause = err
-				transitionAction.PageTokenRestarted = true
+				restarted := *action
+				restarted.PageTokenRestarted = true
+				transitionAction = &restarted
 				err = invocation.stage(action, next, nil)
 			} else {
 				err = restartErr
@@ -188,7 +206,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		for i, child := range invocation.children {
 			childKeys[i] = ledgerSchedulingKey(child)
 		}
-		if err := page.writer.SetPendingWork(s.pendingForAction(&transitionAction), childKeys...); err != nil {
+		if err := page.writer.SetPendingWork(s.pendingForAction(transitionAction), childKeys...); err != nil {
 			return err
 		}
 		page.observations = addLedgerCounters(page.observations, invocation.connectorObservations)
@@ -212,14 +230,14 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 			return nil
 		}
 		commitCtx := context.WithValue(ctx, ledgerCommitKey{}, ledgerTransitionCommit{commit: publish, warning: warning != nil})
-		return s.nextPageOrFinishAction(commitCtx, &transitionAction, page.row.NextPageToken, invocation.children...)
+		return s.nextPageOrFinishAction(commitCtx, transitionAction, page.row.NextPageToken, invocation.children...)
 	})
 	if err != nil {
 		if restartCause != nil {
-			return pageTokenRestartError{cause: errors.Join(restartCause, err), code: codes.Internal}
+			return newPersistenceError(err, restartCause)
 		}
 		if handlerFailure == nil && isWarning(ctx, err) {
-			return ledgerPageWriteError{cause: err}
+			return newPersistenceError(err)
 		}
 		return err
 	}
