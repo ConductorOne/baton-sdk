@@ -1,8 +1,37 @@
 package main
 
 import (
+	"strings"
+	"unicode"
+
 	"github.com/spf13/cobra"
 )
+
+// sanitizeCell neutralizes spreadsheet formula injection in exported CSV/XLSX
+// files. Spreadsheet applications (Excel, Google Sheets, LibreOffice, etc.)
+// interpret a cell whose value begins with =, +, -, or @ as a formula. Because
+// export values originate from upstream identity systems and are attacker
+// controllable (e.g. a user's display name), any such value is prefixed with a
+// single quote so the spreadsheet renders it as literal text. Embedded control
+// characters — including tabs, carriage returns, and newlines that could be
+// used to smuggle content or lead a formula — are stripped first.
+func sanitizeCell(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+
+	if s != "" {
+		switch s[0] {
+		case '=', '+', '-', '@':
+			return "'" + s
+		}
+	}
+
+	return s
+}
 
 type header int
 
