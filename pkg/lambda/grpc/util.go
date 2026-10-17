@@ -153,6 +153,9 @@ func MarshalMetadata(md metadata.MD) (*structpb.Struct, error) {
 // Only keys with []string values are converted.
 // Empty string values are ignored.
 func UnmarshalMetadata(s *structpb.Struct) metadata.MD {
+	if s == nil {
+		return metadata.MD{}
+	}
 	md := make(metadata.MD, len(s.Fields))
 	for k, v := range s.Fields {
 		lv := v.GetListValue()
