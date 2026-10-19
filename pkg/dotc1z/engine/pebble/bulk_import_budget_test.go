@@ -43,6 +43,25 @@ func TestBulkImportChunkBytesStaysWithinBudget(t *testing.T) {
 	require.Equal(t, bulkImportChunkBytes(1, sortSlots), bulkImportChunkBytes(-3, sortSlots))
 }
 
+func TestSpillSorterArenaGrowsWithInput(t *testing.T) {
+	const chunkBytes = 4 << 20
+
+	s := newSpillSorter(t.TempDir(), "adaptive", make(chan struct{}, 1), chunkBytes)
+	s.free = newSpillArenaFreeList(chunkBytes, 2)
+
+	require.NoError(t, s.add([]byte("small"), nil))
+	require.Equal(t, spillArenaInitialBytes, cap(s.arena))
+
+	require.NoError(t, s.add(make([]byte, spillArenaInitialBytes), nil))
+	require.Equal(t, 2*spillArenaInitialBytes, cap(s.arena))
+	require.Less(t, cap(s.arena), chunkBytes)
+
+	require.NoError(t, s.add(make([]byte, 3<<20), nil))
+	require.LessOrEqual(t, cap(s.arena), chunkBytes)
+	_, err := s.finalize()
+	require.NoError(t, err)
+}
+
 // TestSpillSorterCutsBeforeArenaOverflow pins that add() cuts a chunk
 // before an entry would push the arena past its capacity, so arenas never
 // append-grow. Without the pre-check every fresh arena's first cut

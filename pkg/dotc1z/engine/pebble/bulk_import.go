@@ -87,6 +87,8 @@ const bulkImportMinChunkBytes = 16 << 20
 // bulkSpillBufferSize is the bufio size for spill-chunk IO.
 const bulkSpillBufferSize = 1 << 20
 
+const spillArenaInitialBytes = 1 << 20
+
 // grantIndexFamilies are the index-discriminator bytes AddGrants can
 // emit (see grantIndexKeys). The by_entitlement_principal_hash index
 // is deliberately absent: it and the grant digests are derived from
@@ -937,14 +939,11 @@ func (f *spillArenaFreeList) get() []byte {
 	case b := <-f.ch:
 		return b[:0]
 	default:
-		return make([]byte, 0, f.size)
+		return make([]byte, 0, min(f.size, spillArenaInitialBytes))
 	}
 }
 
 func (f *spillArenaFreeList) put(b []byte) {
-	if cap(b) < f.size {
-		return
-	}
 	select {
 	case f.ch <- b[:0]:
 	default:
@@ -955,7 +954,7 @@ func (f *spillArenaFreeList) put(b []byte) {
 // kvView slice across chunks. Without recycling, every cut allocates a fresh
 // arena that grows from zero by append-doubling and is then GC'd; deferred index
 // builds can otherwise churn hundreds of GB in short-lived buffers.
-var spillArenaPool = sync.Pool{New: func() any { b := make([]byte, 0, bulkSpillKeyChunkBytes); return &b }}
+var spillArenaPool = sync.Pool{New: func() any { b := make([]byte, 0, spillArenaInitialBytes); return &b }}
 var spillViewsPool = sync.Pool{New: func() any { v := make([]kvView, 0, 1<<16); return &v }}
 
 func getSpillArena() []byte {
@@ -992,15 +991,8 @@ func (s *spillSorter) add(key, val []byte) error {
 	if err := s.takeErr(); err != nil {
 		return err
 	}
-	// Cut BEFORE an entry would overflow the arena's capacity, not after.
-	// Appending past cap makes Go reallocate the arena at ~1.25x with a
-	// full copy — a 128MiB memcpy per fresh arena — and the freelist then
-	// keeps the oversized copy, so every recycled arena would carry that
-	// growth for the rest of the build. Cutting early keeps arenas at
-	// exactly their allocated size and makes the budget arithmetic in
-	// bulkImportSortBudgetBytes true. (An arena holding nothing yet is
-	// left to grow: a single entry larger than a chunk is legal.)
-	if len(s.views) > 0 && len(s.arena)+len(key)+len(val) > cap(s.arena) {
+	entryBytes := len(key) + len(val)
+	if len(s.views) > 0 && len(s.arena)+entryBytes > s.chunkBytes {
 		s.cutAndDispatch()
 	}
 	if s.arena == nil {
@@ -1008,16 +1000,19 @@ func (s *spillSorter) add(key, val []byte) error {
 			s.arena = s.free.get()
 		} else {
 			s.arena = getSpillArena()
-			if cap(s.arena) < s.chunkBytes {
-				// Pooled arenas are sized for bulkSpillKeyChunkBytes; a sorter
-				// with a larger chunk size (deferredIndexSpillChunkBytes)
-				// allocates its full arena up front instead of append-doubling
-				// through it, and returns the small one to the pool.
-				putSpillArena(s.arena)
-				s.arena = make([]byte, 0, s.chunkBytes)
-			}
 		}
 		s.views = getSpillViews()
+	}
+	required := len(s.arena) + entryBytes
+	if required > cap(s.arena) {
+		next := max(1, cap(s.arena))
+		limit := max(s.chunkBytes, required)
+		for next < required {
+			next = min(limit, next*2)
+		}
+		grown := make([]byte, len(s.arena), next)
+		copy(grown, s.arena)
+		s.arena = grown
 	}
 	keyOff := len(s.arena)
 	s.arena = append(s.arena, key...)
