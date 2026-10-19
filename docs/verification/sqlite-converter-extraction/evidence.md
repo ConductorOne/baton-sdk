@@ -1,6 +1,6 @@
 # SQLite converter extraction: evidence
 
-Revision under test: `cf09269b` and the evidence-only commit on
+Revision under test: `d4a1d65d` and the evidence-only commit on
 `sqlite-converter-extraction`.
 
 Risk route: HIGH. Wrong converted rows are silent and durable. The current
@@ -74,6 +74,12 @@ repository gates.
   and ran the `query base column` case in
   `TestOpenRejectsUnsupportedOrIncompleteSchemaWithoutMutation`. `Open`
   rejected the source and named `v1_assets.sync_id`.
+- Portable golden timestamps: the first Linux and Windows CI run failed every
+  non-empty golden because SQLite wall-clock timestamps map to
+  location-dependent protobuf instants. The digest now clears source
+  `started_at`, `ended_at`, and record `discovered_at` values. The golden test
+  passes with both `TZ=UTC` and `TZ=America/New_York`; exact timestamp behavior
+  remains covered by reference parity and the non-UTC child tests.
 
 ## Benchmark
 
@@ -168,7 +174,7 @@ reference-converter limitation cannot be closed in this package.
    hydration planted violations failed.
 4. **verified to stated coverage** — all nine fixtures have committed goldens;
    `TestFixtureGoldenDigests` passes without `fixturegen`; the corrupted golden
-   failed.
+   failed; UTC and non-UTC runs produce the same digests.
 5. **verified to stated coverage** — `TestToPebbleOpenMatchesToPebbleAndAllowsFurtherWrites`
    covers close equivalence and a lifecycle-correct post-conversion grant
    write, including source timestamp restoration, cleared verification,
