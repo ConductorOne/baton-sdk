@@ -130,7 +130,6 @@ func (f *File) ToPebbleOpen(
 ) (_ c1zstore.Store, _ *ConvertStats, err error) {
 	cfg := &convertConfig{
 		batchSize:       defaultBatchSize,
-		tmpDir:          f.tempDir,
 		resolveBehavior: ResolveNewest,
 		logOnReturn:     true,
 	}

@@ -594,3 +594,32 @@ Windows CI shards.
    independently assert started, ended, discovered, and discarded timestamp
    behavior. Goldens continue to cover every non-timestamp field. PR placement:
    this PR.
+9. **Correction: separate destination temporary storage from the decoded
+   source directory.** Source: CI review found that `ToPebbleOpen` defaulted
+   the destination temp directory to `File.tempDir`, which `File.Close`
+   removes. Motivation: ownership transfer permits callers to close the source
+   before the returned destination, so shared temporary storage could delete
+   live destination state. Contract delta: without `WithConvertTmpDir`, the
+   destination uses the system temporary directory rather than the source
+   decode directory. The owning boundary is `ToPebbleOpen` destination
+   creation. Affected criterion: oracle 3. Verification delta: a handle test
+   closes the source first, then closes and reopens the destination. PR
+   placement: this PR.
+10. **Correction: reject virtual SDK-owned tables at `Open`.** Source: CI
+    review found that `sqlite_schema.type = 'table'` includes virtual tables,
+    while the reference schema guard also checks `PRAGMA table_list`.
+    Motivation: the extracted guard must retain ordinary-table enforcement and
+    must not accept file-authored virtual-table behavior. Contract delta:
+    `Open` rejects a present SDK-owned table whose `table_list` type is not
+    `table`. The owning boundary is `validateSQLiteSchema`. Affected criteria:
+    read-only hostile-schema acceptance and reference-test disposition.
+    Verification delta: a source with virtual `v1_grants` is rejected before
+    conversion. PR placement: this PR.
+11. **Correction: require `v1_sync_runs.id` at `Open`.** Source: CI review
+    found that `SyncRuns` selects and orders by `id`, but change order 1's
+    required-column expansion omitted it. Motivation: every base column used by
+    a query must fail at `Open`, not on the later method call. Contract delta:
+    `v1_sync_runs.id` joins the required 2023 base columns. The owning boundary
+    is `requiredColumns`. Affected criterion: required-column enforcement.
+    Verification delta: a replacement `v1_sync_runs` table without `id` is
+    rejected and named. PR placement: this PR.

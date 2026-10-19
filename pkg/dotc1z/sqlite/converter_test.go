@@ -273,6 +273,25 @@ func TestToPebbleOpenMatchesToPebbleAndAllowsFurtherWrites(t *testing.T) {
 	require.Equal(t, int64(3), digest.Count)
 }
 
+func TestToPebbleOpenSurvivesSourceClose(t *testing.T) {
+	ctx := context.Background()
+	source, err := sqlitereader.Open(ctx, filepath.Join("testdata", "finished_full.c1z"), sqlitereader.WithTmpDir(t.TempDir()))
+	require.NoError(t, err)
+	outPath := filepath.Join(t.TempDir(), "out.c1z")
+	store, stats, err := source.ToPebbleOpen(ctx, outPath, "")
+	require.NoError(t, err)
+	require.NoError(t, source.Close(ctx))
+	require.NoError(t, store.Close(ctx))
+
+	reopened, err := dotc1z.NewStore(ctx, outPath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
+	require.NoError(t, err)
+	defer func() { require.NoError(t, reopened.Close(ctx)) }()
+	require.NoError(t, reopened.SetCurrentSync(ctx, stats.DestSyncID))
+	grants, err := reopened.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, grants.GetList(), 2)
+}
+
 func TestOpenRejectsUnsupportedOrIncompleteSchemaWithoutMutation(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -298,6 +317,24 @@ func TestOpenRejectsUnsupportedOrIncompleteSchemaWithoutMutation(t *testing.T) {
 			name:      "query base column",
 			statement: "DROP INDEX idx_assets_external_sync_v1; ALTER TABLE v1_assets DROP COLUMN sync_id",
 			want:      `required column "sync_id" is missing from table "v1_assets"`,
+		},
+		{
+			name: "sync run row id",
+			statement: `ALTER TABLE v1_sync_runs RENAME TO old_sync_runs;
+				CREATE TABLE v1_sync_runs (
+					sync_id TEXT, started_at DATETIME, ended_at DATETIME, sync_token TEXT
+				)`,
+			want: `required column "id" is missing from table "v1_sync_runs"`,
+		},
+		{
+			name: "virtual table",
+			statement: `DROP TABLE v1_grants;
+				CREATE VIRTUAL TABLE v1_grants USING rtree(
+					id, min_x, max_x,
+					+sync_id, +external_id, +data, +discovered_at, +entitlement_id,
+					+resource_type_id, +resource_id, +principal_resource_type_id, +principal_resource_id
+				)`,
+			want: `rejected table "v1_grants" with type "virtual"`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

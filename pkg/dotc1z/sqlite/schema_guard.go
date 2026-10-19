@@ -19,7 +19,7 @@ const (
 )
 
 var requiredColumns = map[string][]string{
-	syncRunsTable:      {"sync_id", "started_at", "ended_at", "sync_token"},
+	syncRunsTable:      {"id", "sync_id", "started_at", "ended_at", "sync_token"},
 	resourceTypesTable: {"sync_id", "external_id", "data", "discovered_at"},
 	resourcesTable:     {"sync_id", "data", "discovered_at"},
 	entitlementsTable:  {"sync_id", "external_id", "data", "discovered_at"},
@@ -28,6 +28,11 @@ var requiredColumns = map[string][]string{
 		"resource_id", "principal_resource_type_id", "principal_resource_id",
 	},
 	assetsTable: {"id", "sync_id", "external_id", "content_type", "data"},
+}
+
+var sdkTables = []string{
+	syncRunsTable, resourceTypesTable, resourcesTable, entitlementsTable,
+	grantsTable, assetsTable, sessionsTable,
 }
 
 var validColumnName = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
@@ -63,16 +68,23 @@ func validateSQLiteSchema(ctx context.Context, db *sql.DB) (map[string]map[strin
 		return nil, nil, fmt.Errorf("sqlite schema guard: close catalog rows: %w", err)
 	}
 
+	tableTypes, err := tableList(ctx, db)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, table := range sdkTables {
+		if tables[table] && tableTypes[table] != "table" {
+			return nil, nil, fmt.Errorf("sqlite schema guard: rejected table %q with type %q: ordinary table required", table, tableTypes[table])
+		}
+	}
+
 	columns := make(map[string]map[string]bool)
 	for table := range requiredColumns {
 		if !tables[table] {
 			return nil, nil, fmt.Errorf("sqlite schema guard: required table %q is missing", table)
 		}
 	}
-	for _, table := range []string{
-		syncRunsTable, resourceTypesTable, resourcesTable, entitlementsTable,
-		grantsTable, assetsTable, sessionsTable,
-	} {
+	for _, table := range sdkTables {
 		if !tables[table] {
 			continue
 		}
@@ -97,6 +109,29 @@ func validateSQLiteSchema(ctx context.Context, db *sql.DB) (map[string]map[strin
 		}
 	}
 	return columns, tables, nil
+}
+
+func tableList(ctx context.Context, db *sql.DB) (map[string]string, error) {
+	rows, err := db.QueryContext(ctx, "PRAGMA main.table_list")
+	if err != nil {
+		return nil, fmt.Errorf("sqlite schema guard: list tables: %w", err)
+	}
+	defer rows.Close()
+	tableTypes := make(map[string]string)
+	for rows.Next() {
+		var schema, name, tableType string
+		var columns, withoutRowID, strict int
+		if err := rows.Scan(&schema, &name, &tableType, &columns, &withoutRowID, &strict); err != nil {
+			return nil, fmt.Errorf("sqlite schema guard: scan table list: %w", err)
+		}
+		if schema == "main" {
+			tableTypes[strings.ToLower(name)] = tableType
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("sqlite schema guard: iterate table list: %w", err)
+	}
+	return tableTypes, nil
 }
 
 func tableXInfo(ctx context.Context, db *sql.DB, table string) (map[string]bool, error) {
