@@ -94,6 +94,9 @@ func TestUnknownLegacySyncTypesListButDoNotAutoResolve(t *testing.T) {
 	_, err = source.ToPebble(ctx, output, "")
 	require.ErrorContains(t, err, "no convertible sync found")
 	require.NoFileExists(t, output)
+	_, err = source.ToPebble(ctx, output, runs[0].ID)
+	require.NoError(t, err)
+	require.FileExists(t, output)
 }
 
 func TestUnfinishedConversionPreservesResumeState(t *testing.T) {
