@@ -1,6 +1,6 @@
 # SQLite converter extraction: evidence
 
-Revision under test: `10c96507` and the evidence-only commit on
+Revision under test: `ffdd4f97` and the evidence-only commit on
 `sqlite-converter-extraction`.
 
 Risk route: HIGH. Wrong converted rows are silent and durable. The current
@@ -237,7 +237,7 @@ reference-converter limitation cannot be closed in this package.
    `import_boundary_test.go`; the new package is under its own subdirectory.
 10. **verified to stated coverage** — all repository gates pass locally; all
     four native Windows test shards and the Windows aggregate check pass in PR
-    run `39322151278`.
+    run `39326708737` (attempt 2).
 11. **verified to stated coverage** — this file records one state for every
     acceptance criterion and names the executable evidence and exclusions.
 
@@ -253,5 +253,5 @@ Local final-gate run:
 - `go test ./pkg/dotc1z/... ./cmd/baton/...`: passed.
 
 The commands unset `GOMODCACHE`, `GOCACHE`, `GOPATH`, and `GOFLAGS` before
-invoking Go. PR run `39322151278` passed all checks, including four native
+invoking Go. PR run `39326708737` attempt 2 passed all checks, including four native
 Windows shards, Linux tests, lint, and the race-shard audit.
