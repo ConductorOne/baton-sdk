@@ -409,6 +409,8 @@ func GetNonHumanIdentityTrait(resource *v2.Resource) (*v2.NonHumanIdentityTrait,
 }
 
 // WithAliases sets the aliases id for a resource.
+//
+// Deprecated: C1 does not read the Aliases annotation, so setting it has no effect.
 func WithAliases(aliases ...string) ResourceOption {
 	return func(r *v2.Resource) error {
 		if len(aliases) == 0 {
