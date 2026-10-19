@@ -275,10 +275,10 @@ joined.
 Goroutines during a service-mode sync: the runner loop; the signal goroutine;
 one `processTask` goroutine per in-flight task (up to `taskConcurrency`); the
 heartbeat goroutine for a full-sync task; the connector child's `cmd.Wait` and
-optional session-server goroutines (`connector.go:283`, `:341`); the optional
-`DBCache` cleaner (`uhttp/dbcache.go:116`). A full sync can run concurrently
-with grant, revoke, ticket, action, and debug tasks in the same process, each
-holding one semaphore slot; compaction runs only in one-shot mode
+optional session-server goroutines (`connector.go:283`, `:341`). A full sync
+can run concurrently with grant, revoke, ticket, action, and debug tasks in
+the same process, each holding one semaphore slot; compaction runs only in
+one-shot mode
 (`runner.go:830-839`, `:1085-1098`) and never overlaps a service-mode sync.
 One-shot mode runs `processTask` inline on the loop (`runner.go:260-274`).
 

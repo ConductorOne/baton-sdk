@@ -27,7 +27,6 @@ const (
 type CacheBackend string
 
 const (
-	CacheBackendDB     CacheBackend = "db"
 	CacheBackendMemory CacheBackend = "memory"
 	CacheBackendNoop   CacheBackend = "noop"
 )
@@ -107,8 +106,6 @@ func NewCacheConfigFromEnv() *CacheConfig {
 
 	cacheBackend := os.Getenv("BATON_HTTP_CACHE_BACKEND")
 	switch cacheBackend {
-	case "db":
-		config.Backend = CacheBackendDB
 	case "memory":
 		config.Backend = CacheBackendMemory
 	case "noop":
@@ -164,14 +161,6 @@ func NewHttpCache(ctx context.Context, config *CacheConfig) (icache, error) {
 			return nil, err
 		}
 		return memCache, nil
-	case CacheBackendDB:
-		l.Debug("Using db cache")
-		dbCache, err := NewDBCache(ctx, *config)
-		if err != nil {
-			l.Error("error creating http cache (db-cache)", zap.Error(err), zap.Any("config", *config))
-			return nil, err
-		}
-		return dbCache, nil
 	}
 
 	return NewNoopCache(ctx), nil
