@@ -121,10 +121,28 @@ so the elapsed-time delta is evidence for this small source only. The allocation
 reduction directly measures the removed full-capacity arenas. The focused
 `TestSpillSorterArenaGrowsWithInput` pins the 1 MiB initial capacity, geometric
 growth, and existing chunk ceiling. `TestBulkImportChunkBytesStaysWithinBudget`
-also reserves a transient arena for the old allocation retained during growth.
+also reserves one transient old allocation per expected concurrent grant shard.
 Adaptive freelists are limited to bulk import and grant-digest construction;
 open-time migration and grant-layer sorters retain their prior allocation
 policy.
+
+`BenchmarkRegisteredPebbleWritePack` measures the same
+`BuildGrantDigests` implementation used by compaction and reports `EndSync`
+separately from grant writes. Apple M1 medians from three isolated
+three-iteration samples before and after adaptive digest arenas:
+
+- 100 grants: 135.7 → 75.67 ms/EndSync; 142,343,533 → 9,761,141 B/op;
+  7,222 → 7,270 allocs/op.
+- 1,000 grants: 92.00 → 80.67 ms/EndSync; 145,057,741 → 12,397,440 B/op;
+  9,160 → 9,167 allocs/op.
+- 10,000 grants: 92.33 → 82.00 ms/EndSync; 149,084,946 → 16,524,018 B/op;
+  9,192 → 9,212 allocs/op.
+
+The measured allocation reduction ranges from 88.9% to 93.1%. Allocation count
+changes by less than 0.7%. EndSync improves at all three points, but these
+small scales remain dominated by fixed Pebble and filesystem work; the
+measurements do not claim a whale-scale runtime result or isolate compaction
+orchestration outside `BuildGrantDigests`.
 
 For entitlements, `EXPLAIN QUERY PLAN` reported
 `SCAN v1_entitlements USING INDEX idx_entitlements_external_sync_v1` with

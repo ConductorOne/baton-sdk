@@ -658,3 +658,16 @@ Windows CI shards.
     Verification delta: the focused budget test includes the growth allowance,
     and the converter benchmark is repeated after narrowing the scope. PR
     placement: this PR.
+15. **Correction: budget concurrent growth and measure digest scaling.**
+    Source: CI review found that grant shards can grow one adaptive arena per
+    lane concurrently, while change order 14 reserved only one transient
+    arena. It also found that `BuildGrantDigests` is shared with compaction but
+    had only converter-level cost evidence. Motivation: the memory ceiling must
+    hold under the import's documented concurrency, and a shared-path change
+    needs a grant-count cost curve. Contract delta:
+    `bulkImportChunkBytes` reserves one growth arena per expected shard.
+    Affected criterion: benchmark evidence. Verification delta:
+    `TestBulkImportChunkBytesStaysWithinBudget` checks the concurrent-growth
+    allowance, and `BenchmarkRegisteredPebbleWritePack` records `EndSync`,
+    bytes, and allocations at 100, 1,000, and 10,000 grants before and after
+    adaptive digest arenas. PR placement: this PR.

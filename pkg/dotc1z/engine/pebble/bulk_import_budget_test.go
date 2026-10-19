@@ -18,13 +18,15 @@ import (
 func TestBulkImportChunkBytesStaysWithinBudget(t *testing.T) {
 	sortSlots := 4
 	for _, shards := range []int{0, 1, 2, 4, 8, 16, 64} {
+		expectedShards := max(1, shards)
 		chunk := bulkImportChunkBytes(shards, sortSlots)
-		liveArenas := 3 + (1+len(grantIndexFamilies))*max(1, shards) + sortSlots
+		liveArenas := 3 + (1+len(grantIndexFamilies))*expectedShards + sortSlots
 		require.LessOrEqual(t, chunk, deferredIndexSpillChunkBytes, "shards=%d: chunk above the validated ceiling", shards)
 		require.GreaterOrEqual(t, chunk, bulkImportMinChunkBytes, "shards=%d: chunk below the fan-in floor", shards)
 		if chunk > bulkImportMinChunkBytes {
-			require.LessOrEqual(t, chunk*(liveArenas+1), bulkImportSortBudgetBytes,
-				"shards=%d: %d live arenas plus growth x %d bytes exceeds the budget", shards, liveArenas, chunk)
+			require.LessOrEqual(t, chunk*(liveArenas+expectedShards), bulkImportSortBudgetBytes,
+				"shards=%d: %d live arenas plus %d growth arenas x %d bytes exceeds the budget",
+				shards, liveArenas, expectedShards, chunk)
 		}
 	}
 

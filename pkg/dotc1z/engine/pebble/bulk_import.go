@@ -332,12 +332,12 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 // sorters plus, per grant shard, one primary and one per index family —
 // plus one per background sort slot (a sorter that just cut a chunk
 // fills a fresh arena while the cut one sorts), plus one transient old
-// arena while an adaptive arena grows. See
+// arena per concurrent grant shard while adaptive arenas grow. See
 // bulkImportSortBudgetBytes for the clamp rationale.
 func bulkImportChunkBytes(expectedShards, sortSlots int) int {
 	expectedShards = max(1, expectedShards)
 	liveArenas := 3 + (1+len(grantIndexFamilies))*expectedShards + sortSlots
-	return min(deferredIndexSpillChunkBytes, max(bulkImportMinChunkBytes, bulkImportSortBudgetBytes/(liveArenas+1)))
+	return min(deferredIndexSpillChunkBytes, max(bulkImportMinChunkBytes, bulkImportSortBudgetBytes/(liveArenas+expectedShards)))
 }
 
 // newSorter creates a spill sorter wired to the import's shared sort
