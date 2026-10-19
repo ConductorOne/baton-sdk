@@ -91,28 +91,69 @@ Exported and reusable as-is: `dotc1z.NewStore`, `WithEngine`, `WithTmpDir`,
 `Engine.GetSyncRunRecord`/`PutSyncRunRecord`, `Engine.SessionSetMany`,
 `Engine.StartNewSyncWithID`; `c1zstore.SyncRun`; `connectorstore.SyncType`.
 
-### Schema generations a v1 file may carry
+### Source schema contract
 
-`NewC1File` migrates the decompressed copy on every open, including read-only
-opens, so today's converter always sees the latest columns. The new package
-does not migrate, so it must read these shapes directly:
+`NewC1File` runs `Schema()` and `Migrations()` on the decompressed copy on
+every open, including read-only opens, so today's converter always sees the
+current columns and indexes. The new package never writes the source, so
+this section defines exactly what it reads and what it assumes. All table
+names are `v1_<name>`; the version has been `1` since the first commit
+(`b5eef37e`, 2023-03-03).
 
-- `v1_grants`: `expansion blob` and `needs_expansion` added later
-  (`grants.go:85,92`). When `expansion` is absent or NULL the
-  `GrantExpandable` annotation is still inside `data`; when present and
-  non-NULL it was stripped from `data` and `reattachExpansion` restores it.
-  Reading `expansion` only when the column exists, and treating NULL as
-  empty, yields the same grant in every generation.
-- `v1_sync_runs`: `sync_type`, `parent_sync_id`, `linked_sync_id`,
-  `supports_diff`, `grants_backfilled`, `stats`, and the ingest-invariant
-  columns were all added by migration (`sync_runs.go:89-167`). Missing →
-  defaults: `full`, `""`, `""`, false, 0, NULL, unverified.
-- `discovered_at`, `started_at`, `ended_at`, `sync_token`, `external_id`,
-  `data`, `content_type`, `key`, `value` are in every generation's base
-  schema.
+**Required: the 2023-03-03 base schema.** Every column and index below has
+existed in every v1 file ever written by this SDK.
 
-Column presence is read once per table with `PRAGMA table_xinfo`, which the
-schema guard already issues.
+| Table | Columns read | Index relied on | Why |
+| --- | --- | --- | --- |
+| `v1_sync_runs` | `sync_id`, `started_at`, `ended_at`, `sync_token` | unique `(sync_id)` | point lookup; table is tiny |
+| `v1_resource_types` | `data`, `discovered_at` | unique `(external_id, sync_id)` | no-duplicate guarantee the importer's strictly-increasing SST writer requires; ordered scan for `ORDER BY external_id` |
+| `v1_resources` | `data`, `discovered_at` | unique `(external_id, sync_id)` | no-duplicate guarantee (importer spill-sorts; order not needed) |
+| `v1_entitlements` | `data`, `discovered_at` | unique `(external_id, sync_id)` | no-duplicate guarantee; ordered scan |
+| `v1_grants` | `data`, `discovered_at`, `id` | unique `(external_id, sync_id)`; rowid | lane range scans `external_id >= ? AND < ?`; `MIN/MAX(id)` and the boundary sampler's `id >= ? ORDER BY id LIMIT 1` are rowid seeks |
+| `v1_assets` | `external_id`, `content_type`, `data` | rowid | `ORDER BY id` |
+
+**Optional: columns added since.** Presence is probed once per table with
+`PRAGMA table_xinfo` (the schema guard already issues it). Absent means the
+default.
+
+| Table | Column | Added | Converter default when absent |
+| --- | --- | --- | --- |
+| `v1_grants` | `expansion blob` | `grants.go:85` | treat as NULL (see rule below) |
+| `v1_grants` | `needs_expansion` | `grants.go:92` | not read; the importer derives it from the `GrantExpandable` annotation |
+| `v1_sync_runs` | `sync_type` | `sync_runs.go:89` | `full` |
+| `v1_sync_runs` | `parent_sync_id` | `:103` | `""` |
+| `v1_sync_runs` | `linked_sync_id` | `:122` | not read |
+| `v1_sync_runs` | `supports_diff` | `:130` | `false` |
+| `v1_sync_runs` | `grants_backfilled` | `:140` | not read |
+| `v1_sync_runs` | `stats` | `:150` | NULL (`DiscardedSyncs` carries no stats) |
+| `v1_sync_runs` | `ingest_invariant_generation/coverage/mode` | `:167` | unverified |
+
+**Optional: the sessions table.** `v1_connector_sessions` (`sync_id`,
+`key`, `value`; unique `(sync_id, key)`) first appeared 2025-10-16
+(`2faa1192`). Absent table → zero sessions copied; `ConvertStats.Sessions`
+is zero.
+
+**Grant expansion rule.** `g = Unmarshal(data); if expansion is non-NULL,
+reattachExpansion(g, expansion)`. This is correct in all three states a row
+can be in: no `expansion` column (annotation inside `data`); column present
+and NULL (non-expandable, or expandable and not yet backfilled, annotation
+inside `data`); column present and non-NULL (writer or backfill stripped it
+from `data`, `grants.go:887`). It is also exactly what `convertGrants` does
+today; `grants_backfilled` is never consulted.
+
+**Indexes added since 2023 are not used.** `(entitlement_id, sync_id, id)`
+and the two partial indexes on `expansion`/`needs_expansion` serve reader
+queries, not the conversion scans. A file written before they existed
+converts at the same speed as one written today.
+
+**One scan order is unnecessary.** `convertResources` orders by
+`(resource_type_id, external_id)`, which no index covers, so SQLite sorts
+the whole table; the importer then spill-sorts resources anyway
+(`bulk_import.go:169-173`). The new package drops that `ORDER BY`. The
+parity oracle proves the output is unchanged; the benchmark shows the
+saving. Resource types keep their `ORDER BY external_id` (required by the
+strictly-increasing SST writer); entitlements and grants keep theirs (free
+via the unique index; grants need it for lane ranges).
 
 ### Consumers today
 
