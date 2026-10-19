@@ -101,7 +101,11 @@ names are `v1_<name>`; the version has been `1` since the first commit
 (`b5eef37e`, 2023-03-03).
 
 **Required: the 2023-03-03 base schema.** Every column and index below has
-existed in every v1 file ever written by this SDK.
+existed in every v1 file ever written by this SDK. `Open` checks the
+required columns with the same `PRAGMA table_xinfo` probe and fails with
+an error naming the table and column when one is missing, so a file older
+than the public package, or not written by it, fails loudly instead of
+converting partially.
 
 | Table | Columns read | Index relied on | Why |
 | --- | --- | --- | --- |
@@ -156,6 +160,28 @@ five identity columns with `data` and, after unmarshal, applies
 untouched. No SDK syncer path sets the flag; c1 hard-disables it
 (`c1z.go:1178`) after a per-tenant experiment, so slim v1 files are rare
 but may exist in storage.
+
+**Why no migration of any kind is needed.** Audited `git log -p` over every
+non-test file in `pkg/dotc1z` since `b5eef37e`:
+
+- Every `ALTER TABLE` ever committed is an `ADD COLUMN` that is still in
+  the code today and is listed in the optional table above. No table was
+  ever renamed, dropped and recreated, or had a column removed or
+  retyped. The table version has been `1` throughout.
+- The only data migration ever committed is the expansion backfill
+  (`backfillGrantExpansionColumn`, #666 and #701), covered by the grant
+  expansion rule.
+- The only table ever removed is `v1_sync_stats` (#874 → #889, two days in
+  2026-05). The converter never reads it; the schema guard permits
+  unknown ordinary tables.
+- `InitTables` also runs `PRAGMA optimize` after a migration; `init` sets
+  connection pragmas (`wal_checkpoint`, `journal_mode`, `synchronous`,
+  `locking_mode`). None of these changes rows.
+- The timestamp text layout (`2006-01-02 15:04:05.999999999`, zone-less)
+  is unchanged since the first commit, so `localizeSQLiteTimestamp` reads
+  every file's `discovered_at`/`started_at`/`ended_at` the same way.
+- The slim-grant shape (#781) is read-side hydration, above, not a
+  migration.
 
 **Indexes added since 2023 are not used.** `(entitlement_id, sync_id, id)`
 and the two partial indexes on `expansion`/`needs_expansion` serve reader
