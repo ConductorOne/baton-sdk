@@ -95,17 +95,18 @@ type DiscardedSync struct {
 
 // ConvertStats reports conversion row counts, timing, and omitted source syncs.
 type ConvertStats struct {
-	SourceSyncID   string
-	DestSyncID     string
-	ResourceTypes  ConvertStageStats
-	Resources      ConvertStageStats
-	Entitlements   ConvertStageStats
-	Grants         ConvertStageStats
-	Assets         ConvertStageStats
-	AssetBytes     int64
-	Sessions       ConvertStageStats
-	DiscardedSyncs []DiscardedSync
-	Total          time.Duration
+	SourceSyncID    string
+	DestSyncID      string
+	ResourceTypes   ConvertStageStats
+	Resources       ConvertStageStats
+	Entitlements    ConvertStageStats
+	Grants          ConvertStageStats
+	Assets          ConvertStageStats
+	AssetBytes      int64
+	Sessions        ConvertStageStats
+	DiscardedSyncs  []DiscardedSync
+	Total           time.Duration
+	endSyncDuration time.Duration
 }
 
 type syncIDPreservingStarter interface {
@@ -251,9 +252,7 @@ func (f *File) ToPebbleOpen(
 	}
 
 	stats.Total = time.Since(start)
-	ctxzap.Extract(ctx).Debug("to-pebble: destination finalize timings",
-		zap.Duration("end_sync", time.Since(endSyncStart)),
-	)
+	stats.endSyncDuration = time.Since(endSyncStart)
 	ctxzap.Extract(ctx).Info("to-pebble: conversion complete",
 		append([]zap.Field{
 			zap.String("source_sync_id", stats.SourceSyncID),
@@ -283,10 +282,15 @@ func (f *File) ToPebble(
 	if err != nil {
 		return nil, err
 	}
+	closeStart := time.Now()
 	if err := store.Close(ctx); err != nil {
 		_ = os.Remove(outPath) // #nosec G703 -- cleanup uses the caller-selected output.
 		return nil, fmt.Errorf("to-pebble: close destination: %w", err)
 	}
+	ctxzap.Extract(ctx).Debug("to-pebble: destination finalize timings",
+		zap.Duration("end_sync", stats.endSyncDuration),
+		zap.Duration("close_save", time.Since(closeStart)),
+	)
 	return stats, nil
 }
 
