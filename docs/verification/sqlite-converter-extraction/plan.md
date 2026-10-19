@@ -109,7 +109,7 @@ existed in every v1 file ever written by this SDK.
 | `v1_resource_types` | `data`, `discovered_at` | unique `(external_id, sync_id)` | no-duplicate guarantee the importer's strictly-increasing SST writer requires; ordered scan for `ORDER BY external_id` |
 | `v1_resources` | `data`, `discovered_at` | unique `(external_id, sync_id)` | no-duplicate guarantee (importer spill-sorts; order not needed) |
 | `v1_entitlements` | `data`, `discovered_at` | unique `(external_id, sync_id)` | no-duplicate guarantee; ordered scan |
-| `v1_grants` | `data`, `discovered_at`, `id` | unique `(external_id, sync_id)`; rowid | lane range scans `external_id >= ? AND < ?`; `MIN/MAX(id)` and the boundary sampler's `id >= ? ORDER BY id LIMIT 1` are rowid seeks |
+| `v1_grants` | `data`, `discovered_at`, `id`, `entitlement_id`, `resource_type_id`, `resource_id`, `principal_resource_type_id`, `principal_resource_id` | unique `(external_id, sync_id)`; rowid | lane range scans `external_id >= ? AND < ?`; `MIN/MAX(id)` and the boundary sampler's `id >= ? ORDER BY id LIMIT 1` are rowid seeks; the five identity columns hydrate slim rows (see below) |
 | `v1_assets` | `external_id`, `content_type`, `data` | rowid | `ORDER BY id` |
 
 **Optional: columns added since.** Presence is probed once per table with
@@ -140,6 +140,22 @@ and NULL (non-expandable, or expandable and not yet backfilled, annotation
 inside `data`); column present and non-NULL (writer or backfill stripped it
 from `data`, `grants.go:887`). It is also exactly what `convertGrants` does
 today; `grants_backfilled` is never consulted.
+
+**Slim grant rule (new; fixes a latent drop).** `WithV2GrantsWriter`
+(#781, opt-in, default false) writes grants with `Entitlement` and
+`Principal` set to nil in `data` (`slimGrantForWrite`, `grants.go:630`);
+the SQLite reader rebuilds identity-only stubs from the row's
+`entitlement_id`, `resource_type_id`, `resource_id`,
+`principal_resource_type_id`, `principal_resource_id` (`hydrateGrants`,
+`grants_hydrate.go:21-60`). `convertGrants` today never hydrates, so a slim
+row reaches `grantIdentityFromRecord` with nil refs and is dropped with a
+counted warning (`bulk_import.go:423-430`). The new converter selects the
+five identity columns with `data` and, after unmarshal, applies
+`hydrateGrants`'s exact stubs (`Entitlement{Id, Resource{Id{rt, rid}}}`,
+`Principal{Id{rt, rid}}`) to whichever of the two is nil. Full rows are
+untouched. No SDK syncer path sets the flag; c1 hard-disables it
+(`c1z.go:1178`) after a per-tenant experiment, so slim v1 files are rare
+but may exist in storage.
 
 **Indexes added since 2023 are not used.** `(entitlement_id, sync_id, id)`
 and the two partial indexes on `expansion`/`needs_expansion` serve reader
@@ -306,6 +322,11 @@ Fixtures:
 7. `edge_keys.c1z`: the seed from `TestToPebbleBulkImportEquivalence`
    (prefix ids, colons in ids, unicode, dangling references).
 8. `bare.db`: fixture 1's decompressed database, for the bare-SQLite open.
+9. `slim_grants.c1z`: fixture 1's records written with
+   `WithV2GrantsWriter(true)`, plus one grant carrying
+   `InsertResourceGrants` so the file holds both slim and full rows
+   (`unsafeForSlim`). Its `.golden` is generated from the **new**
+   converter, since the reference drops the slim rows; see oracle 1.
 
 If `docs/verification/syncer-on-ledger/tools/build-legacy-artifact.sh`
 produces an artifact from a pinned old SDK in CI-free time, add it as
@@ -328,7 +349,12 @@ the original upload where it still exists, migrate where it does not.
    (same sync id, same `discovered_at`), equal `GetSyncRunRecord` fields,
    equal assets, equal session rows, equal `ConvertStats` row counts and
    `DiscardedSyncs`. This is the only window in which the reference exists;
-   PR B deletes it.
+   PR B deletes it. One documented deviation: on fixture 9 the reference
+   drops every slim row and the new converter keeps them. The parity test
+   asserts that instead: reference `ConvertStats.Grants.Rows` equals the
+   full-row count and the new converter's equals the total; the kept
+   grants' `Entitlement`/`Principal` equal what
+   `dotc1z.(*C1File).ListGrants` returns for the same source.
 2. **Golden digests (forever).** `sqlite.(*File).ToPebble` over each fixture
    hashes to its `.golden`. Any later change to the converter, the bulk
    importer, or the engine's key codec that alters output fails here, by
@@ -359,6 +385,10 @@ the original upload where it still exists, migrate where it does not.
   default; parity with fixture 1's output except `supports_diff` and
   verification fields, which the old schema cannot hold.
 - Bare `.db` open (fixture 8) equals fixture 1's output.
+- Slim grants (fixture 9): every grant present in the output; slim rows
+  carry identity-only stubs, the `InsertResourceGrants` row carries its
+  full `Entitlement`/`Principal`; the bulk import's missing-refs counter
+  is zero.
 - Local time: run the three `*IsAbsoluteInstant` tests under a non-UTC
   `TZ`.
 - Security: schema guard rejects a fixture with a trigger and one with a
@@ -379,8 +409,9 @@ the original upload where it still exists, migrate where it does not.
 
 - Planted-violation check for oracle 1: temporarily skip `reattachExpansion`
   in the new package and confirm the parity test fails on fixtures 1 and 7;
-  temporarily drop the `ClearEndedAt` branch and confirm fixture 2 fails.
-  Record both in evidence, then revert.
+  temporarily drop the `ClearEndedAt` branch and confirm fixture 2 fails;
+  temporarily skip hydration and confirm fixture 9 fails. Record all three
+  in evidence, then revert.
 - Planted-violation check for oracle 2: corrupt one byte of a `.golden` and
   confirm the test fails.
 - Dependency rule: temporarily add the import to a `pkg/dotc1z` file and
