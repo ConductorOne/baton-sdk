@@ -291,6 +291,11 @@ func TestOpenRejectsUnsupportedOrIncompleteSchemaWithoutMutation(t *testing.T) {
 			statement: "ALTER TABLE v1_assets DROP COLUMN content_type",
 			want:      `required column "content_type" is missing from table "v1_assets"`,
 		},
+		{
+			name:      "query base column",
+			statement: "DROP INDEX idx_assets_external_sync_v1; ALTER TABLE v1_assets DROP COLUMN sync_id",
+			want:      `required column "sync_id" is missing from table "v1_assets"`,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "source.db")

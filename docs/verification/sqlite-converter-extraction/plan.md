@@ -568,3 +568,16 @@ Windows CI shards.
    clears provenance, writes one grant, calls `EndSync`, closes and reopens,
    then checks the grant, source timestamps, cleared provenance, recomputed
    stats, and grant-generation digest count. PR placement: this PR.
+7. **Correction: resealing after `ToPebbleOpen` requires explicit source
+   timestamp restoration.** Source: independent implementation review found
+   that `c1zstore.Store.EndSync` stamps a new `ended_at`, so change order 6's
+   source-timestamp assertion cannot follow from `ClearIngestInvariantVerification`
+   and `EndSync` alone. Motivation: hiding a direct engine metadata write in the
+   test would leave the public lifecycle contract incomplete. Contract delta:
+   after resealing, callers that must retain the conversion's source timestamps
+   restore them on the sync record through `pebble.AsEngine` before `Close`.
+   The owning boundary remains the caller after `ToPebbleOpen` transfers store
+   ownership. Affected criteria: oracle 3 and the `ToPebbleOpen` API contract.
+   Verification delta: the API documentation names the restoration step, and
+   the handle test performs it before checking exact source timestamps after
+   reopen. PR placement: this PR.

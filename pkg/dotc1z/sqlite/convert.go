@@ -120,7 +120,8 @@ type syncIDPreservingStarter interface {
 
 // ToPebbleOpen converts one source sync and returns the destination store open.
 // Callers that bind the converted sync and mutate records must clear inherited
-// ingest-invariant verification and call EndSync before Close.
+// ingest-invariant verification, call EndSync, and restore the converted sync's
+// source timestamps through pebble.AsEngine before Close.
 func (f *File) ToPebbleOpen(
 	ctx context.Context,
 	outPath string,
