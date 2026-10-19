@@ -301,6 +301,8 @@ func (b0 SourceCacheRecord_builder) Build() *SourceCacheRecord {
 // fields for the page's row kind may be set: resources on a resources
 // page, entitlements on an entitlements page, grants and principals on a
 // grants page.
+//
+// The syncer does not read this field yet; setting it deletes nothing.
 type SourceCacheTombstones struct {
 	state                   protoimpl.MessageState        `protogen:"opaque.v1"`
 	xxx_hidden_Resources    *[]*ResourceId                `protobuf:"bytes,1,rep,name=resources,proto3"`
