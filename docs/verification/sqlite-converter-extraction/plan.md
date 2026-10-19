@@ -645,3 +645,16 @@ Windows CI shards.
     pins initial capacity, growth, and the chunk ceiling; converter benchmarks
     record bytes and allocations before and after the change. PR placement:
     this PR.
+14. **Correction: limit adaptive arenas and account for growth overlap.**
+    Source: CI review found that change order 13 also changed open-time
+    id-index migration and grant-layer sorters without cost-curve evidence, and
+    that geometric growth briefly retains both old and new arenas. Motivation:
+    the measured converter benefit does not justify changing unrelated
+    open-time and layer paths or exceeding the bulk import's stated memory
+    budget. Contract delta: adaptive freelists are used only by bulk import and
+    grant-digest construction; other sorters retain their prior full-capacity
+    allocation. `bulkImportChunkBytes` reserves one additional arena in its
+    budget for growth overlap. Affected criterion: benchmark evidence.
+    Verification delta: the focused budget test includes the growth allowance,
+    and the converter benchmark is repeated after narrowing the scope. PR
+    placement: this PR.

@@ -313,7 +313,7 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 		entitlementsByRT:    map[string]int64{},
 		grantDupRowsByEntRT: map[string]int64{},
 	}
-	b.arenaFree = newSpillArenaFreeList(b.chunkBytes, sorters+2)
+	b.arenaFree = newAdaptiveSpillArenaFreeList(b.chunkBytes, sorters+2)
 	sw, err := newBulkSSTWriter(e.fs(), dir, "resource-types")
 	if err != nil {
 		b.Abort()
@@ -331,12 +331,13 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 // The live set is one arena per sorter — the three lane-independent
 // sorters plus, per grant shard, one primary and one per index family —
 // plus one per background sort slot (a sorter that just cut a chunk
-// fills a fresh arena while the cut one sorts). See
+// fills a fresh arena while the cut one sorts), plus one transient old
+// arena while an adaptive arena grows. See
 // bulkImportSortBudgetBytes for the clamp rationale.
 func bulkImportChunkBytes(expectedShards, sortSlots int) int {
 	expectedShards = max(1, expectedShards)
 	liveArenas := 3 + (1+len(grantIndexFamilies))*expectedShards + sortSlots
-	return min(deferredIndexSpillChunkBytes, max(bulkImportMinChunkBytes, bulkImportSortBudgetBytes/liveArenas))
+	return min(deferredIndexSpillChunkBytes, max(bulkImportMinChunkBytes, bulkImportSortBudgetBytes/(liveArenas+1)))
 }
 
 // newSorter creates a spill sorter wired to the import's shared sort
@@ -926,12 +927,17 @@ func newSpillSorter(dir, name string, sem chan struct{}, chunkBytes int) *spillS
 // deferred index sorter). Capacity should cover the maximum arenas live at
 // once: one being filled by the producer plus one per concurrent sort slot.
 type spillArenaFreeList struct {
-	size int
-	ch   chan []byte
+	size        int
+	initialSize int
+	ch          chan []byte
 }
 
 func newSpillArenaFreeList(size, slots int) *spillArenaFreeList {
-	return &spillArenaFreeList{size: size, ch: make(chan []byte, slots)}
+	return &spillArenaFreeList{size: size, initialSize: size, ch: make(chan []byte, slots)}
+}
+
+func newAdaptiveSpillArenaFreeList(size, slots int) *spillArenaFreeList {
+	return &spillArenaFreeList{size: size, initialSize: min(size, spillArenaInitialBytes), ch: make(chan []byte, slots)}
 }
 
 func (f *spillArenaFreeList) get() []byte {
@@ -939,7 +945,7 @@ func (f *spillArenaFreeList) get() []byte {
 	case b := <-f.ch:
 		return b[:0]
 	default:
-		return make([]byte, 0, min(f.size, spillArenaInitialBytes))
+		return make([]byte, 0, f.initialSize)
 	}
 }
 
@@ -954,7 +960,7 @@ func (f *spillArenaFreeList) put(b []byte) {
 // kvView slice across chunks. Without recycling, every cut allocates a fresh
 // arena that grows from zero by append-doubling and is then GC'd; deferred index
 // builds can otherwise churn hundreds of GB in short-lived buffers.
-var spillArenaPool = sync.Pool{New: func() any { b := make([]byte, 0, spillArenaInitialBytes); return &b }}
+var spillArenaPool = sync.Pool{New: func() any { b := make([]byte, 0, bulkSpillKeyChunkBytes); return &b }}
 var spillViewsPool = sync.Pool{New: func() any { v := make([]kvView, 0, 1<<16); return &v }}
 
 func getSpillArena() []byte {
@@ -1000,6 +1006,10 @@ func (s *spillSorter) add(key, val []byte) error {
 			s.arena = s.free.get()
 		} else {
 			s.arena = getSpillArena()
+			if cap(s.arena) < s.chunkBytes {
+				putSpillArena(s.arena)
+				s.arena = make([]byte, 0, s.chunkBytes)
+			}
 		}
 		s.views = getSpillViews()
 	}

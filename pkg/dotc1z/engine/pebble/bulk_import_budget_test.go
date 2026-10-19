@@ -23,8 +23,8 @@ func TestBulkImportChunkBytesStaysWithinBudget(t *testing.T) {
 		require.LessOrEqual(t, chunk, deferredIndexSpillChunkBytes, "shards=%d: chunk above the validated ceiling", shards)
 		require.GreaterOrEqual(t, chunk, bulkImportMinChunkBytes, "shards=%d: chunk below the fan-in floor", shards)
 		if chunk > bulkImportMinChunkBytes {
-			require.LessOrEqual(t, chunk*liveArenas, bulkImportSortBudgetBytes,
-				"shards=%d: %d live arenas x %d bytes exceeds the budget", shards, liveArenas, chunk)
+			require.LessOrEqual(t, chunk*(liveArenas+1), bulkImportSortBudgetBytes,
+				"shards=%d: %d live arenas plus growth x %d bytes exceeds the budget", shards, liveArenas, chunk)
 		}
 	}
 
@@ -47,7 +47,7 @@ func TestSpillSorterArenaGrowsWithInput(t *testing.T) {
 	const chunkBytes = 4 << 20
 
 	s := newSpillSorter(t.TempDir(), "adaptive", make(chan struct{}, 1), chunkBytes)
-	s.free = newSpillArenaFreeList(chunkBytes, 2)
+	s.free = newAdaptiveSpillArenaFreeList(chunkBytes, 2)
 
 	require.NoError(t, s.add([]byte("small"), nil))
 	require.Equal(t, spillArenaInitialBytes, cap(s.arena))
@@ -62,11 +62,8 @@ func TestSpillSorterArenaGrowsWithInput(t *testing.T) {
 	require.NoError(t, err)
 }
 
-// TestSpillSorterCutsBeforeArenaOverflow pins that add() cuts a chunk
-// before an entry would push the arena past its capacity, so arenas never
-// append-grow. Without the pre-check every fresh arena's first cut
-// reallocates at ~1.25x with a full copy and the freelist keeps the larger
-// buffer; the budget derivation assumes arenas stay at chunkBytes.
+// TestSpillSorterCutsBeforeArenaOverflow pins the fixed-capacity path: add
+// cuts a chunk before an entry would push the arena past chunkBytes.
 func TestSpillSorterCutsBeforeArenaOverflow(t *testing.T) {
 	const chunkBytes = 1024
 	const entryBytes = 100 // 60-byte key + 40-byte value; ten fit, an eleventh would overflow.

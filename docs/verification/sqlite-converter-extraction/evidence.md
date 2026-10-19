@@ -113,14 +113,18 @@ their full chunk capacities. Five isolated three-iteration samples before and
 after adaptive arena allocation produced these medians:
 
 - Before: 463,101,292 ns/op; 395,147,488 B/op; 9,601 allocs/op.
-- After: 347,247,583 ns/op; 34,324,352 B/op; 9,629 allocs/op.
-- Delta: -25.02% ns/op; -91.31% B/op; +0.29% allocs/op.
+- After: 414,570,986 ns/op; 33,798,818 B/op; 9,617 allocs/op.
+- Delta: -10.48% ns/op; -91.45% B/op; +0.17% allocs/op.
 
 The benchmark remains dominated by fixed filesystem and Pebble lifecycle work,
 so the elapsed-time delta is evidence for this small source only. The allocation
 reduction directly measures the removed full-capacity arenas. The focused
 `TestSpillSorterArenaGrowsWithInput` pins the 1 MiB initial capacity, geometric
-growth, and existing chunk ceiling.
+growth, and existing chunk ceiling. `TestBulkImportChunkBytesStaysWithinBudget`
+also reserves a transient arena for the old allocation retained during growth.
+Adaptive freelists are limited to bulk import and grant-digest construction;
+open-time migration and grant-layer sorters retain their prior allocation
+policy.
 
 For entitlements, `EXPLAIN QUERY PLAN` reported
 `SCAN v1_entitlements USING INDEX idx_entitlements_external_sync_v1` with
