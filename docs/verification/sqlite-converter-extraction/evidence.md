@@ -1,6 +1,6 @@
 # SQLite converter extraction: evidence
 
-Revision under test: `d4a1d65d` and the evidence-only commit on
+Revision under test: `51f35aef` and the evidence-only commit on
 `sqlite-converter-extraction`.
 
 Risk route: HIGH. Wrong converted rows are silent and durable. The current
@@ -22,8 +22,10 @@ repository gates.
   package. Schema rejection tests compare complete source-file hashes.
 - `ToPebbleOpen` owns the destination until successful return. Every error
   after `dotc1z.NewStore` closes the destination and removes `outPath`; success
-  transfers close ownership to the caller. `TestConversionErrorsRemoveDestination`
-  injects malformed protobuf bytes after destination open.
+  transfers close ownership to the caller. Its default destination temporary
+  directory is independent of the decoded source directory, so the caller may
+  close the source first. `TestConversionErrorsRemoveDestination` injects
+  malformed protobuf bytes after destination open.
 - `BulkSyncImport` is aborted unless `Finish` succeeds. A successful `Finish`
   transfers the imported keyspace to the destination engine. Stage errors
   retain destination cleanup ownership.
@@ -74,6 +76,11 @@ repository gates.
   and ran the `query base column` case in
   `TestOpenRejectsUnsupportedOrIncompleteSchemaWithoutMutation`. `Open`
   rejected the source and named `v1_assets.sync_id`.
+- CI review closure: `TestToPebbleOpenSurvivesSourceClose` closes the decoded
+  source before the destination and reopens the saved output. Schema cases
+  replace `v1_grants` with an rtree virtual table and replace
+  `v1_sync_runs` with a table lacking `id`; `Open` rejects both and names the
+  violated condition.
 - Portable golden timestamps: the first Linux and Windows CI run failed every
   non-empty golden because SQLite wall-clock timestamps map to
   location-dependent protobuf instants. The digest now clears source
@@ -103,7 +110,7 @@ reference converter's whole-table SQLite sort.
 ## Structural coverage
 
 `go test ./pkg/dotc1z/sqlite -coverprofile=/tmp/sqlite-converter-final.cover`
-at `cf09269b` reported 83.2% statement coverage. Covered normal paths include
+at `51f35aef` reported 83.2% statement coverage. Covered normal paths include
 every table, empty and non-empty
 sources, finished and unfinished sources, optional columns and sessions table,
 both resolve modes, serial and parallel grant scans, slim and expanded grants,
@@ -179,6 +186,8 @@ reference-converter limitation cannot be closed in this package.
    covers close equivalence and a lifecycle-correct post-conversion grant
    write, including source timestamp restoration, cleared verification,
    recomputed stats, and grant digest count.
+   `TestToPebbleOpenSurvivesSourceClose` covers independent source and
+   destination temporary-storage ownership.
 6. **verified to stated coverage** — every named reference test has a port or
    disposition in the section above.
 7. **verified to stated coverage** — `go run ./cmd/baton to-pebble -f
@@ -191,7 +200,7 @@ reference-converter limitation cannot be closed in this package.
    `import_boundary_test.go`; the new package is under its own subdirectory.
 10. **verified to stated coverage** — all repository gates pass locally; all
     four native Windows test shards and the Windows aggregate check pass in PR
-    run `39311604272`.
+    run `39315821806`.
 11. **verified to stated coverage** — this file records one state for every
     acceptance criterion and names the executable evidence and exclusions.
 
@@ -207,5 +216,5 @@ Local final-gate run:
 - `go test ./pkg/dotc1z/... ./cmd/baton/...`: passed.
 
 The commands unset `GOMODCACHE`, `GOCACHE`, `GOPATH`, and `GOFLAGS` before
-invoking Go. PR run `39311604272` passed all checks, including four native
+invoking Go. PR run `39315821806` passed all checks, including four native
 Windows shards, Linux tests, lint, and the race-shard audit.
