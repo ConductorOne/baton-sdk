@@ -1232,6 +1232,64 @@ func (m *UsageEvent) validate(all bool) error {
 		}
 	}
 
+	if all {
+		switch v := interface{}(m.GetNetwork()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, UsageEventValidationError{
+					field:  "Network",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, UsageEventValidationError{
+					field:  "Network",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetNetwork()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return UsageEventValidationError{
+				field:  "Network",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetOauth()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, UsageEventValidationError{
+					field:  "Oauth",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, UsageEventValidationError{
+					field:  "Oauth",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetOauth()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return UsageEventValidationError{
+				field:  "Oauth",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
 	if len(errors) > 0 {
 		return UsageEventMultiError(errors)
 	}
@@ -2338,3 +2396,321 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = EventFeedMetadataValidationError{}
+
+// Validate checks the field values on UsageEvent_Network with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *UsageEvent_Network) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on UsageEvent_Network with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// UsageEvent_NetworkMultiError, or nil if none found.
+func (m *UsageEvent_Network) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *UsageEvent_Network) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if m.GetIpAddress() != "" {
+
+		if ip := net.ParseIP(m.GetIpAddress()); ip == nil {
+			err := UsageEvent_NetworkValidationError{
+				field:  "IpAddress",
+				reason: "value must be a valid IP address",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	if m.GetCountryCode() != "" {
+
+		if utf8.RuneCountInString(m.GetCountryCode()) != 2 {
+			err := UsageEvent_NetworkValidationError{
+				field:  "CountryCode",
+				reason: "value length must be 2 runes",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+
+		}
+
+	}
+
+	if m.GetSubdivisionCode() != "" {
+
+		if len(m.GetSubdivisionCode()) > 16 {
+			err := UsageEvent_NetworkValidationError{
+				field:  "SubdivisionCode",
+				reason: "value length must be at most 16 bytes",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	if len(m.GetAsns()) > 64 {
+		err := UsageEvent_NetworkValidationError{
+			field:  "Asns",
+			reason: "value must contain no more than 64 item(s)",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		return UsageEvent_NetworkMultiError(errors)
+	}
+
+	return nil
+}
+
+// UsageEvent_NetworkMultiError is an error wrapping multiple validation errors
+// returned by UsageEvent_Network.ValidateAll() if the designated constraints
+// aren't met.
+type UsageEvent_NetworkMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m UsageEvent_NetworkMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m UsageEvent_NetworkMultiError) AllErrors() []error { return m }
+
+// UsageEvent_NetworkValidationError is the validation error returned by
+// UsageEvent_Network.Validate if the designated constraints aren't met.
+type UsageEvent_NetworkValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e UsageEvent_NetworkValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e UsageEvent_NetworkValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e UsageEvent_NetworkValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e UsageEvent_NetworkValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e UsageEvent_NetworkValidationError) ErrorName() string {
+	return "UsageEvent_NetworkValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e UsageEvent_NetworkValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sUsageEvent_Network.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = UsageEvent_NetworkValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = UsageEvent_NetworkValidationError{}
+
+// Validate checks the field values on UsageEvent_OAuth with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// first error encountered is returned, or nil if there are no violations.
+func (m *UsageEvent_OAuth) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on UsageEvent_OAuth with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// UsageEvent_OAuthMultiError, or nil if none found.
+func (m *UsageEvent_OAuth) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *UsageEvent_OAuth) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Action
+
+	if m.GetSourceEventName() != "" {
+
+		if len(m.GetSourceEventName()) > 256 {
+			err := UsageEvent_OAuthValidationError{
+				field:  "SourceEventName",
+				reason: "value length must be at most 256 bytes",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	if len(m.GetScopes()) > 256 {
+		err := UsageEvent_OAuthValidationError{
+			field:  "Scopes",
+			reason: "value must contain no more than 256 item(s)",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	for idx, item := range m.GetScopes() {
+		_, _ = idx, item
+
+		if l := len(item); l < 1 || l > 512 {
+			err := UsageEvent_OAuthValidationError{
+				field:  fmt.Sprintf("Scopes[%v]", idx),
+				reason: "value length must be between 1 and 512 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	if m.GetClientType() != "" {
+
+		if len(m.GetClientType()) > 256 {
+			err := UsageEvent_OAuthValidationError{
+				field:  "ClientType",
+				reason: "value length must be at most 256 bytes",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return UsageEvent_OAuthMultiError(errors)
+	}
+
+	return nil
+}
+
+// UsageEvent_OAuthMultiError is an error wrapping multiple validation errors
+// returned by UsageEvent_OAuth.ValidateAll() if the designated constraints
+// aren't met.
+type UsageEvent_OAuthMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m UsageEvent_OAuthMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m UsageEvent_OAuthMultiError) AllErrors() []error { return m }
+
+// UsageEvent_OAuthValidationError is the validation error returned by
+// UsageEvent_OAuth.Validate if the designated constraints aren't met.
+type UsageEvent_OAuthValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e UsageEvent_OAuthValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e UsageEvent_OAuthValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e UsageEvent_OAuthValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e UsageEvent_OAuthValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e UsageEvent_OAuthValidationError) ErrorName() string { return "UsageEvent_OAuthValidationError" }
+
+// Error satisfies the builtin error interface
+func (e UsageEvent_OAuthValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sUsageEvent_OAuth.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = UsageEvent_OAuthValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = UsageEvent_OAuthValidationError{}

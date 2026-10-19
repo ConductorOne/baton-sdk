@@ -75,6 +75,56 @@ func (x EventType) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
+type UsageEvent_OAuth_Action int32
+
+const (
+	UsageEvent_OAuth_ACTION_UNSPECIFIED UsageEvent_OAuth_Action = 0
+	UsageEvent_OAuth_ACTION_AUTHORIZE   UsageEvent_OAuth_Action = 1
+	UsageEvent_OAuth_ACTION_REVOKE      UsageEvent_OAuth_Action = 2
+	UsageEvent_OAuth_ACTION_DENY        UsageEvent_OAuth_Action = 3
+	UsageEvent_OAuth_ACTION_REQUEST     UsageEvent_OAuth_Action = 4
+)
+
+// Enum value maps for UsageEvent_OAuth_Action.
+var (
+	UsageEvent_OAuth_Action_name = map[int32]string{
+		0: "ACTION_UNSPECIFIED",
+		1: "ACTION_AUTHORIZE",
+		2: "ACTION_REVOKE",
+		3: "ACTION_DENY",
+		4: "ACTION_REQUEST",
+	}
+	UsageEvent_OAuth_Action_value = map[string]int32{
+		"ACTION_UNSPECIFIED": 0,
+		"ACTION_AUTHORIZE":   1,
+		"ACTION_REVOKE":      2,
+		"ACTION_DENY":        3,
+		"ACTION_REQUEST":     4,
+	}
+)
+
+func (x UsageEvent_OAuth_Action) Enum() *UsageEvent_OAuth_Action {
+	p := new(UsageEvent_OAuth_Action)
+	*p = x
+	return p
+}
+
+func (x UsageEvent_OAuth_Action) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (UsageEvent_OAuth_Action) Descriptor() protoreflect.EnumDescriptor {
+	return file_c1_connector_v2_event_feed_proto_enumTypes[1].Descriptor()
+}
+
+func (UsageEvent_OAuth_Action) Type() protoreflect.EnumType {
+	return &file_c1_connector_v2_event_feed_proto_enumTypes[1]
+}
+
+func (x UsageEvent_OAuth_Action) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
 type ListEventsRequest struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	// Can function like a page token but also can be arbitrary to resume a feed at any point
@@ -859,8 +909,12 @@ type UsageEvent struct {
 	state          protoimpl.MessageState `protogen:"hybrid.v1"`
 	TargetResource *Resource              `protobuf:"bytes,1,opt,name=target_resource,json=targetResource,proto3" json:"target_resource,omitempty"`
 	ActorResource  *Resource              `protobuf:"bytes,2,opt,name=actor_resource,json=actorResource,proto3" json:"actor_resource,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Network origin of the actor.
+	Network *UsageEvent_Network `protobuf:"bytes,3,opt,name=network,proto3" json:"network,omitempty"`
+	// Set when the event is OAuth consent activity.
+	Oauth         *UsageEvent_OAuth `protobuf:"bytes,4,opt,name=oauth,proto3" json:"oauth,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *UsageEvent) Reset() {
@@ -902,12 +956,34 @@ func (x *UsageEvent) GetActorResource() *Resource {
 	return nil
 }
 
+func (x *UsageEvent) GetNetwork() *UsageEvent_Network {
+	if x != nil {
+		return x.Network
+	}
+	return nil
+}
+
+func (x *UsageEvent) GetOauth() *UsageEvent_OAuth {
+	if x != nil {
+		return x.Oauth
+	}
+	return nil
+}
+
 func (x *UsageEvent) SetTargetResource(v *Resource) {
 	x.TargetResource = v
 }
 
 func (x *UsageEvent) SetActorResource(v *Resource) {
 	x.ActorResource = v
+}
+
+func (x *UsageEvent) SetNetwork(v *UsageEvent_Network) {
+	x.Network = v
+}
+
+func (x *UsageEvent) SetOauth(v *UsageEvent_OAuth) {
+	x.Oauth = v
 }
 
 func (x *UsageEvent) HasTargetResource() bool {
@@ -924,6 +1000,20 @@ func (x *UsageEvent) HasActorResource() bool {
 	return x.ActorResource != nil
 }
 
+func (x *UsageEvent) HasNetwork() bool {
+	if x == nil {
+		return false
+	}
+	return x.Network != nil
+}
+
+func (x *UsageEvent) HasOauth() bool {
+	if x == nil {
+		return false
+	}
+	return x.Oauth != nil
+}
+
 func (x *UsageEvent) ClearTargetResource() {
 	x.TargetResource = nil
 }
@@ -932,11 +1022,23 @@ func (x *UsageEvent) ClearActorResource() {
 	x.ActorResource = nil
 }
 
+func (x *UsageEvent) ClearNetwork() {
+	x.Network = nil
+}
+
+func (x *UsageEvent) ClearOauth() {
+	x.Oauth = nil
+}
+
 type UsageEvent_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	TargetResource *Resource
 	ActorResource  *Resource
+	// Network origin of the actor.
+	Network *UsageEvent_Network
+	// Set when the event is OAuth consent activity.
+	Oauth *UsageEvent_OAuth
 }
 
 func (b0 UsageEvent_builder) Build() *UsageEvent {
@@ -945,6 +1047,8 @@ func (b0 UsageEvent_builder) Build() *UsageEvent {
 	_, _ = b, x
 	x.TargetResource = b.TargetResource
 	x.ActorResource = b.ActorResource
+	x.Network = b.Network
+	x.Oauth = b.Oauth
 	return m0
 }
 
@@ -1491,6 +1595,218 @@ func (b0 EventFeedMetadata_builder) Build() *EventFeedMetadata {
 	return m0
 }
 
+type UsageEvent_Network struct {
+	state     protoimpl.MessageState `protogen:"hybrid.v1"`
+	IpAddress string                 `protobuf:"bytes,1,opt,name=ip_address,json=ipAddress,proto3" json:"ip_address,omitempty"`
+	// ISO 3166-1 alpha-2, e.g. "US".
+	CountryCode string `protobuf:"bytes,2,opt,name=country_code,json=countryCode,proto3" json:"country_code,omitempty"`
+	// ISO 3166-2, e.g. "US-OR".
+	SubdivisionCode string `protobuf:"bytes,3,opt,name=subdivision_code,json=subdivisionCode,proto3" json:"subdivision_code,omitempty"`
+	// Autonomous system numbers the source attributes to ip_address.
+	Asns          []uint32 `protobuf:"varint,4,rep,packed,name=asns,proto3" json:"asns,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UsageEvent_Network) Reset() {
+	*x = UsageEvent_Network{}
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UsageEvent_Network) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UsageEvent_Network) ProtoMessage() {}
+
+func (x *UsageEvent_Network) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *UsageEvent_Network) GetIpAddress() string {
+	if x != nil {
+		return x.IpAddress
+	}
+	return ""
+}
+
+func (x *UsageEvent_Network) GetCountryCode() string {
+	if x != nil {
+		return x.CountryCode
+	}
+	return ""
+}
+
+func (x *UsageEvent_Network) GetSubdivisionCode() string {
+	if x != nil {
+		return x.SubdivisionCode
+	}
+	return ""
+}
+
+func (x *UsageEvent_Network) GetAsns() []uint32 {
+	if x != nil {
+		return x.Asns
+	}
+	return nil
+}
+
+func (x *UsageEvent_Network) SetIpAddress(v string) {
+	x.IpAddress = v
+}
+
+func (x *UsageEvent_Network) SetCountryCode(v string) {
+	x.CountryCode = v
+}
+
+func (x *UsageEvent_Network) SetSubdivisionCode(v string) {
+	x.SubdivisionCode = v
+}
+
+func (x *UsageEvent_Network) SetAsns(v []uint32) {
+	x.Asns = v
+}
+
+type UsageEvent_Network_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	IpAddress string
+	// ISO 3166-1 alpha-2, e.g. "US".
+	CountryCode string
+	// ISO 3166-2, e.g. "US-OR".
+	SubdivisionCode string
+	// Autonomous system numbers the source attributes to ip_address.
+	Asns []uint32
+}
+
+func (b0 UsageEvent_Network_builder) Build() *UsageEvent_Network {
+	m0 := &UsageEvent_Network{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.IpAddress = b.IpAddress
+	x.CountryCode = b.CountryCode
+	x.SubdivisionCode = b.SubdivisionCode
+	x.Asns = b.Asns
+	return m0
+}
+
+// The actor authorizes, revokes, is denied, or requests the target
+// application's access to the actor's data.
+type UsageEvent_OAuth struct {
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	// ACTION_UNSPECIFIED when source_event_name maps to no Action.
+	Action          UsageEvent_OAuth_Action `protobuf:"varint,1,opt,name=action,proto3,enum=c1.connector.v2.UsageEvent_OAuth_Action" json:"action,omitempty"`
+	SourceEventName string                  `protobuf:"bytes,2,opt,name=source_event_name,json=sourceEventName,proto3" json:"source_event_name,omitempty"`
+	// Scopes the action applies to, as the source names them.
+	Scopes []string `protobuf:"bytes,3,rep,name=scopes,proto3" json:"scopes,omitempty"`
+	// The source's client classification, as the source names it.
+	ClientType    string `protobuf:"bytes,4,opt,name=client_type,json=clientType,proto3" json:"client_type,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UsageEvent_OAuth) Reset() {
+	*x = UsageEvent_OAuth{}
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UsageEvent_OAuth) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UsageEvent_OAuth) ProtoMessage() {}
+
+func (x *UsageEvent_OAuth) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *UsageEvent_OAuth) GetAction() UsageEvent_OAuth_Action {
+	if x != nil {
+		return x.Action
+	}
+	return UsageEvent_OAuth_ACTION_UNSPECIFIED
+}
+
+func (x *UsageEvent_OAuth) GetSourceEventName() string {
+	if x != nil {
+		return x.SourceEventName
+	}
+	return ""
+}
+
+func (x *UsageEvent_OAuth) GetScopes() []string {
+	if x != nil {
+		return x.Scopes
+	}
+	return nil
+}
+
+func (x *UsageEvent_OAuth) GetClientType() string {
+	if x != nil {
+		return x.ClientType
+	}
+	return ""
+}
+
+func (x *UsageEvent_OAuth) SetAction(v UsageEvent_OAuth_Action) {
+	x.Action = v
+}
+
+func (x *UsageEvent_OAuth) SetSourceEventName(v string) {
+	x.SourceEventName = v
+}
+
+func (x *UsageEvent_OAuth) SetScopes(v []string) {
+	x.Scopes = v
+}
+
+func (x *UsageEvent_OAuth) SetClientType(v string) {
+	x.ClientType = v
+}
+
+type UsageEvent_OAuth_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// ACTION_UNSPECIFIED when source_event_name maps to no Action.
+	Action          UsageEvent_OAuth_Action
+	SourceEventName string
+	// Scopes the action applies to, as the source names them.
+	Scopes []string
+	// The source's client classification, as the source names it.
+	ClientType string
+}
+
+func (b0 UsageEvent_OAuth_builder) Build() *UsageEvent_OAuth {
+	m0 := &UsageEvent_OAuth{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Action = b.Action
+	x.SourceEventName = b.SourceEventName
+	x.Scopes = b.Scopes
+	x.ClientType = b.ClientType
+	return m0
+}
+
 var File_c1_connector_v2_event_feed_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_event_feed_proto_rawDesc = "" +
@@ -1529,11 +1845,33 @@ const file_c1_connector_v2_event_feed_proto_rawDesc = "" +
 	"\x12create_grant_event\x18h \x01(\v2!.c1.connector.v2.CreateGrantEventH\x00R\x10createGrantEvent\x12T\n" +
 	"\x13create_revoke_event\x18i \x01(\v2\".c1.connector.v2.CreateRevokeEventH\x00R\x11createRevokeEvent\x126\n" +
 	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotationsB\a\n" +
-	"\x05event\"\x92\x01\n" +
+	"\x05event\"\x95\x06\n" +
 	"\n" +
 	"UsageEvent\x12B\n" +
 	"\x0ftarget_resource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\x0etargetResource\x12@\n" +
-	"\x0eactor_resource\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceR\ractorResource\":\n" +
+	"\x0eactor_resource\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceR\ractorResource\x12=\n" +
+	"\anetwork\x18\x03 \x01(\v2#.c1.connector.v2.UsageEvent.NetworkR\anetwork\x127\n" +
+	"\x05oauth\x18\x04 \x01(\v2!.c1.connector.v2.UsageEvent.OAuthR\x05oauth\x1a\xb9\x01\n" +
+	"\aNetwork\x12)\n" +
+	"\n" +
+	"ip_address\x18\x01 \x01(\tB\n" +
+	"\xfaB\ar\x05\xd0\x01\x01p\x01R\tipAddress\x12.\n" +
+	"\fcountry_code\x18\x02 \x01(\tB\v\xfaB\br\x06\x98\x01\x02\xd0\x01\x01R\vcountryCode\x125\n" +
+	"\x10subdivision_code\x18\x03 \x01(\tB\n" +
+	"\xfaB\ar\x05(\x10\xd0\x01\x01R\x0fsubdivisionCode\x12\x1c\n" +
+	"\x04asns\x18\x04 \x03(\rB\b\xfaB\x05\x92\x01\x02\x10@R\x04asns\x1a\xcc\x02\n" +
+	"\x05OAuth\x12@\n" +
+	"\x06action\x18\x01 \x01(\x0e2(.c1.connector.v2.UsageEvent.OAuth.ActionR\x06action\x127\n" +
+	"\x11source_event_name\x18\x02 \x01(\tB\v\xfaB\br\x06(\x80\x02\xd0\x01\x01R\x0fsourceEventName\x12*\n" +
+	"\x06scopes\x18\x03 \x03(\tB\x12\xfaB\x0f\x92\x01\f\x10\x80\x02\"\ar\x05 \x01(\x80\x04R\x06scopes\x12,\n" +
+	"\vclient_type\x18\x04 \x01(\tB\v\xfaB\br\x06(\x80\x02\xd0\x01\x01R\n" +
+	"clientType\"n\n" +
+	"\x06Action\x12\x16\n" +
+	"\x12ACTION_UNSPECIFIED\x10\x00\x12\x14\n" +
+	"\x10ACTION_AUTHORIZE\x10\x01\x12\x11\n" +
+	"\rACTION_REVOKE\x10\x02\x12\x0f\n" +
+	"\vACTION_DENY\x10\x03\x12\x12\n" +
+	"\x0eACTION_REQUEST\x10\x04\":\n" +
 	"\n" +
 	"GrantEvent\x12,\n" +
 	"\x05grant\x18\x01 \x01(\v2\x16.c1.connector.v2.GrantR\x05grant\"\xd7\x01\n" +
@@ -1567,68 +1905,74 @@ const file_c1_connector_v2_event_feed_proto_rawDesc = "" +
 	"ListEvents\x12\".c1.connector.v2.ListEventsRequest\x1a#.c1.connector.v2.ListEventsResponse\x12a\n" +
 	"\x0eListEventFeeds\x12&.c1.connector.v2.ListEventFeedsRequest\x1a'.c1.connector.v2.ListEventFeedsResponseB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
-var file_c1_connector_v2_event_feed_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_c1_connector_v2_event_feed_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_c1_connector_v2_event_feed_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_c1_connector_v2_event_feed_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_c1_connector_v2_event_feed_proto_goTypes = []any{
 	(EventType)(0),                 // 0: c1.connector.v2.EventType
-	(*ListEventsRequest)(nil),      // 1: c1.connector.v2.ListEventsRequest
-	(*ListEventsResponse)(nil),     // 2: c1.connector.v2.ListEventsResponse
-	(*ListEventFeedsRequest)(nil),  // 3: c1.connector.v2.ListEventFeedsRequest
-	(*ListEventFeedsResponse)(nil), // 4: c1.connector.v2.ListEventFeedsResponse
-	(*Event)(nil),                  // 5: c1.connector.v2.Event
-	(*UsageEvent)(nil),             // 6: c1.connector.v2.UsageEvent
-	(*GrantEvent)(nil),             // 7: c1.connector.v2.GrantEvent
-	(*CreateGrantEvent)(nil),       // 8: c1.connector.v2.CreateGrantEvent
-	(*CreateRevokeEvent)(nil),      // 9: c1.connector.v2.CreateRevokeEvent
-	(*RevokeEvent)(nil),            // 10: c1.connector.v2.RevokeEvent
-	(*ResourceChangeEvent)(nil),    // 11: c1.connector.v2.ResourceChangeEvent
-	(*EventFeedMetadata)(nil),      // 12: c1.connector.v2.EventFeedMetadata
-	(*timestamppb.Timestamp)(nil),  // 13: google.protobuf.Timestamp
-	(*anypb.Any)(nil),              // 14: google.protobuf.Any
-	(*Resource)(nil),               // 15: c1.connector.v2.Resource
-	(*Grant)(nil),                  // 16: c1.connector.v2.Grant
-	(*Entitlement)(nil),            // 17: c1.connector.v2.Entitlement
-	(*ResourceId)(nil),             // 18: c1.connector.v2.ResourceId
+	(UsageEvent_OAuth_Action)(0),   // 1: c1.connector.v2.UsageEvent.OAuth.Action
+	(*ListEventsRequest)(nil),      // 2: c1.connector.v2.ListEventsRequest
+	(*ListEventsResponse)(nil),     // 3: c1.connector.v2.ListEventsResponse
+	(*ListEventFeedsRequest)(nil),  // 4: c1.connector.v2.ListEventFeedsRequest
+	(*ListEventFeedsResponse)(nil), // 5: c1.connector.v2.ListEventFeedsResponse
+	(*Event)(nil),                  // 6: c1.connector.v2.Event
+	(*UsageEvent)(nil),             // 7: c1.connector.v2.UsageEvent
+	(*GrantEvent)(nil),             // 8: c1.connector.v2.GrantEvent
+	(*CreateGrantEvent)(nil),       // 9: c1.connector.v2.CreateGrantEvent
+	(*CreateRevokeEvent)(nil),      // 10: c1.connector.v2.CreateRevokeEvent
+	(*RevokeEvent)(nil),            // 11: c1.connector.v2.RevokeEvent
+	(*ResourceChangeEvent)(nil),    // 12: c1.connector.v2.ResourceChangeEvent
+	(*EventFeedMetadata)(nil),      // 13: c1.connector.v2.EventFeedMetadata
+	(*UsageEvent_Network)(nil),     // 14: c1.connector.v2.UsageEvent.Network
+	(*UsageEvent_OAuth)(nil),       // 15: c1.connector.v2.UsageEvent.OAuth
+	(*timestamppb.Timestamp)(nil),  // 16: google.protobuf.Timestamp
+	(*anypb.Any)(nil),              // 17: google.protobuf.Any
+	(*Resource)(nil),               // 18: c1.connector.v2.Resource
+	(*Grant)(nil),                  // 19: c1.connector.v2.Grant
+	(*Entitlement)(nil),            // 20: c1.connector.v2.Entitlement
+	(*ResourceId)(nil),             // 21: c1.connector.v2.ResourceId
 }
 var file_c1_connector_v2_event_feed_proto_depIdxs = []int32{
-	13, // 0: c1.connector.v2.ListEventsRequest.start_at:type_name -> google.protobuf.Timestamp
-	14, // 1: c1.connector.v2.ListEventsRequest.annotations:type_name -> google.protobuf.Any
-	5,  // 2: c1.connector.v2.ListEventsResponse.events:type_name -> c1.connector.v2.Event
-	14, // 3: c1.connector.v2.ListEventsResponse.annotations:type_name -> google.protobuf.Any
-	14, // 4: c1.connector.v2.ListEventFeedsRequest.annotations:type_name -> google.protobuf.Any
-	12, // 5: c1.connector.v2.ListEventFeedsResponse.list:type_name -> c1.connector.v2.EventFeedMetadata
-	14, // 6: c1.connector.v2.ListEventFeedsResponse.annotations:type_name -> google.protobuf.Any
-	13, // 7: c1.connector.v2.Event.occurred_at:type_name -> google.protobuf.Timestamp
-	6,  // 8: c1.connector.v2.Event.usage_event:type_name -> c1.connector.v2.UsageEvent
-	7,  // 9: c1.connector.v2.Event.grant_event:type_name -> c1.connector.v2.GrantEvent
-	10, // 10: c1.connector.v2.Event.revoke_event:type_name -> c1.connector.v2.RevokeEvent
-	11, // 11: c1.connector.v2.Event.resource_change_event:type_name -> c1.connector.v2.ResourceChangeEvent
-	8,  // 12: c1.connector.v2.Event.create_grant_event:type_name -> c1.connector.v2.CreateGrantEvent
-	9,  // 13: c1.connector.v2.Event.create_revoke_event:type_name -> c1.connector.v2.CreateRevokeEvent
-	14, // 14: c1.connector.v2.Event.annotations:type_name -> google.protobuf.Any
-	15, // 15: c1.connector.v2.UsageEvent.target_resource:type_name -> c1.connector.v2.Resource
-	15, // 16: c1.connector.v2.UsageEvent.actor_resource:type_name -> c1.connector.v2.Resource
-	16, // 17: c1.connector.v2.GrantEvent.grant:type_name -> c1.connector.v2.Grant
-	17, // 18: c1.connector.v2.CreateGrantEvent.entitlement:type_name -> c1.connector.v2.Entitlement
-	15, // 19: c1.connector.v2.CreateGrantEvent.principal:type_name -> c1.connector.v2.Resource
-	14, // 20: c1.connector.v2.CreateGrantEvent.annotations:type_name -> google.protobuf.Any
-	17, // 21: c1.connector.v2.CreateRevokeEvent.entitlement:type_name -> c1.connector.v2.Entitlement
-	15, // 22: c1.connector.v2.CreateRevokeEvent.principal:type_name -> c1.connector.v2.Resource
-	14, // 23: c1.connector.v2.CreateRevokeEvent.annotations:type_name -> google.protobuf.Any
-	17, // 24: c1.connector.v2.RevokeEvent.entitlement:type_name -> c1.connector.v2.Entitlement
-	15, // 25: c1.connector.v2.RevokeEvent.principal:type_name -> c1.connector.v2.Resource
-	18, // 26: c1.connector.v2.ResourceChangeEvent.resource_id:type_name -> c1.connector.v2.ResourceId
-	18, // 27: c1.connector.v2.ResourceChangeEvent.parent_resource_id:type_name -> c1.connector.v2.ResourceId
-	0,  // 28: c1.connector.v2.EventFeedMetadata.supported_event_types:type_name -> c1.connector.v2.EventType
-	1,  // 29: c1.connector.v2.EventService.ListEvents:input_type -> c1.connector.v2.ListEventsRequest
-	3,  // 30: c1.connector.v2.EventService.ListEventFeeds:input_type -> c1.connector.v2.ListEventFeedsRequest
-	2,  // 31: c1.connector.v2.EventService.ListEvents:output_type -> c1.connector.v2.ListEventsResponse
-	4,  // 32: c1.connector.v2.EventService.ListEventFeeds:output_type -> c1.connector.v2.ListEventFeedsResponse
-	31, // [31:33] is the sub-list for method output_type
-	29, // [29:31] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	16, // 0: c1.connector.v2.ListEventsRequest.start_at:type_name -> google.protobuf.Timestamp
+	17, // 1: c1.connector.v2.ListEventsRequest.annotations:type_name -> google.protobuf.Any
+	6,  // 2: c1.connector.v2.ListEventsResponse.events:type_name -> c1.connector.v2.Event
+	17, // 3: c1.connector.v2.ListEventsResponse.annotations:type_name -> google.protobuf.Any
+	17, // 4: c1.connector.v2.ListEventFeedsRequest.annotations:type_name -> google.protobuf.Any
+	13, // 5: c1.connector.v2.ListEventFeedsResponse.list:type_name -> c1.connector.v2.EventFeedMetadata
+	17, // 6: c1.connector.v2.ListEventFeedsResponse.annotations:type_name -> google.protobuf.Any
+	16, // 7: c1.connector.v2.Event.occurred_at:type_name -> google.protobuf.Timestamp
+	7,  // 8: c1.connector.v2.Event.usage_event:type_name -> c1.connector.v2.UsageEvent
+	8,  // 9: c1.connector.v2.Event.grant_event:type_name -> c1.connector.v2.GrantEvent
+	11, // 10: c1.connector.v2.Event.revoke_event:type_name -> c1.connector.v2.RevokeEvent
+	12, // 11: c1.connector.v2.Event.resource_change_event:type_name -> c1.connector.v2.ResourceChangeEvent
+	9,  // 12: c1.connector.v2.Event.create_grant_event:type_name -> c1.connector.v2.CreateGrantEvent
+	10, // 13: c1.connector.v2.Event.create_revoke_event:type_name -> c1.connector.v2.CreateRevokeEvent
+	17, // 14: c1.connector.v2.Event.annotations:type_name -> google.protobuf.Any
+	18, // 15: c1.connector.v2.UsageEvent.target_resource:type_name -> c1.connector.v2.Resource
+	18, // 16: c1.connector.v2.UsageEvent.actor_resource:type_name -> c1.connector.v2.Resource
+	14, // 17: c1.connector.v2.UsageEvent.network:type_name -> c1.connector.v2.UsageEvent.Network
+	15, // 18: c1.connector.v2.UsageEvent.oauth:type_name -> c1.connector.v2.UsageEvent.OAuth
+	19, // 19: c1.connector.v2.GrantEvent.grant:type_name -> c1.connector.v2.Grant
+	20, // 20: c1.connector.v2.CreateGrantEvent.entitlement:type_name -> c1.connector.v2.Entitlement
+	18, // 21: c1.connector.v2.CreateGrantEvent.principal:type_name -> c1.connector.v2.Resource
+	17, // 22: c1.connector.v2.CreateGrantEvent.annotations:type_name -> google.protobuf.Any
+	20, // 23: c1.connector.v2.CreateRevokeEvent.entitlement:type_name -> c1.connector.v2.Entitlement
+	18, // 24: c1.connector.v2.CreateRevokeEvent.principal:type_name -> c1.connector.v2.Resource
+	17, // 25: c1.connector.v2.CreateRevokeEvent.annotations:type_name -> google.protobuf.Any
+	20, // 26: c1.connector.v2.RevokeEvent.entitlement:type_name -> c1.connector.v2.Entitlement
+	18, // 27: c1.connector.v2.RevokeEvent.principal:type_name -> c1.connector.v2.Resource
+	21, // 28: c1.connector.v2.ResourceChangeEvent.resource_id:type_name -> c1.connector.v2.ResourceId
+	21, // 29: c1.connector.v2.ResourceChangeEvent.parent_resource_id:type_name -> c1.connector.v2.ResourceId
+	0,  // 30: c1.connector.v2.EventFeedMetadata.supported_event_types:type_name -> c1.connector.v2.EventType
+	1,  // 31: c1.connector.v2.UsageEvent.OAuth.action:type_name -> c1.connector.v2.UsageEvent.OAuth.Action
+	2,  // 32: c1.connector.v2.EventService.ListEvents:input_type -> c1.connector.v2.ListEventsRequest
+	4,  // 33: c1.connector.v2.EventService.ListEventFeeds:input_type -> c1.connector.v2.ListEventFeedsRequest
+	3,  // 34: c1.connector.v2.EventService.ListEvents:output_type -> c1.connector.v2.ListEventsResponse
+	5,  // 35: c1.connector.v2.EventService.ListEventFeeds:output_type -> c1.connector.v2.ListEventFeedsResponse
+	34, // [34:36] is the sub-list for method output_type
+	32, // [32:34] is the sub-list for method input_type
+	32, // [32:32] is the sub-list for extension type_name
+	32, // [32:32] is the sub-list for extension extendee
+	0,  // [0:32] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_event_feed_proto_init() }
@@ -1652,8 +1996,8 @@ func file_c1_connector_v2_event_feed_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_event_feed_proto_rawDesc), len(file_c1_connector_v2_event_feed_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   12,
+			NumEnums:      2,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
