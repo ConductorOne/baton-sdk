@@ -129,7 +129,7 @@ func (o cacheKeyHeadersOption) applyCache(c *cacheKeyConfig) {
 }
 
 // CacheKeyHeaders returns a CacheOption that folds the named headers into
-// the cache key computed by CreateCacheKey (and by GoCache/DBCache's
+// the cache key computed by CreateCacheKey (and by GoCache's
 // Get/Set), beyond the default set (Accept, Content-Type, Cookie, Range).
 // The value folded in is always read from req.Header at key-computation
 // time, so the key can never describe a value other than the one actually
