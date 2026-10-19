@@ -17,7 +17,10 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+// Deprecated: ErrNoAlias is only returned by WithAliases, which is deprecated.
 var ErrNoAlias = fmt.Errorf("no aliases found for resource")
+
+// Deprecated: ErrEmptyAlias is only returned by WithAliases, which is deprecated.
 var ErrEmptyAlias = fmt.Errorf("alias cannot be empty")
 
 type ResourceOption func(*v2.Resource) error
