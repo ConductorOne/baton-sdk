@@ -25,6 +25,7 @@ var nonUTCTests = []string{
 	"TestToPebbleStartedAtIsAbsoluteInstant",
 	"TestToPebbleEndedAtIsAbsoluteInstant",
 	"TestToPebbleDiscoveredAtIsAbsoluteInstant",
+	"TestToPebbleDiscardedSyncTimestampsAreAbsoluteInstants",
 }
 
 func TestConversionTimestampsUnderNonUTCZone(t *testing.T) {
@@ -107,6 +108,27 @@ func TestToPebbleDiscoveredAtIsAbsoluteInstant(t *testing.T) {
 		return
 	}
 	t.Fatal("resource type record not found")
+}
+
+func TestToPebbleDiscardedSyncTimestampsAreAbsoluteInstants(t *testing.T) {
+	ctx := context.Background()
+	source, err := sqlitereader.Open(ctx, filepath.Join("testdata", "multi_sync.c1z"), sqlitereader.WithTmpDir(t.TempDir()))
+	require.NoError(t, err)
+	runs, err := source.SyncRuns(ctx)
+	require.NoError(t, err)
+	require.Len(t, runs, 3)
+	output := filepath.Join(t.TempDir(), "out.c1z")
+	stats, err := source.ToPebble(ctx, output, runs[1].ID)
+	require.NoError(t, err)
+	require.NoError(t, source.Close(ctx))
+	require.Len(t, stats.DiscardedSyncs, 2)
+	sourceByID := make(map[string]*time.Time, len(runs))
+	for _, run := range runs {
+		sourceByID[run.ID] = run.StartedAt
+	}
+	for _, discarded := range stats.DiscardedSyncs {
+		require.True(t, discarded.StartedAt.Equal(localWallClock(*sourceByID[discarded.ID])))
+	}
 }
 
 func localWallClock(value time.Time) time.Time {

@@ -54,6 +54,30 @@ func TestResolveSyncID(t *testing.T) {
 	require.ErrorIs(t, err, sqlitereader.ErrNoSyncRuns)
 }
 
+func TestUnknownLegacySyncTypesListButDoNotAutoResolve(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "source.db")
+	copyFixture(t, filepath.Join("testdata", "bare.db"), path)
+	db, err := sql.Open("sqlite", path)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, "UPDATE v1_sync_runs SET sync_type = 'partial_upserts', parent_sync_id = 'external-base'")
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	source, err := sqlitereader.Open(ctx, path)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, source.Close(ctx)) }()
+	runs, err := source.SyncRuns(ctx)
+	require.NoError(t, err)
+	require.Len(t, runs, 1)
+	require.Equal(t, connectorstore.SyncType("partial_upserts"), runs[0].Type)
+	require.Equal(t, "external-base", runs[0].ParentSyncID)
+	output := filepath.Join(t.TempDir(), "out.c1z")
+	_, err = source.ToPebble(ctx, output, "")
+	require.ErrorContains(t, err, "no convertible sync found")
+	require.NoFileExists(t, output)
+}
+
 func TestUnfinishedConversionPreservesResumeState(t *testing.T) {
 	ctx := context.Background()
 	source, err := sqlitereader.Open(ctx, filepath.Join("testdata", "unfinished_partial.c1z"), sqlitereader.WithTmpDir(t.TempDir()))
