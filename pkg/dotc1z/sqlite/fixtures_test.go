@@ -178,6 +178,8 @@ func digestConvertedFile(t testing.TB, path, syncID string) string {
 	if syncID != "" {
 		record, err := engine.GetSyncRunRecord(ctx, syncID)
 		require.NoError(t, err)
+		record.SetStartedAt(nil)
+		record.SetEndedAt(nil)
 		data, err := proto.MarshalOptions{Deterministic: true}.Marshal(record)
 		require.NoError(t, err)
 		writeDigestPart(hash, data)
@@ -191,13 +193,37 @@ func digestConvertedFile(t testing.TB, path, syncID string) string {
 
 func stableRecordValue(t testing.TB, bucket byte, data []byte) []byte {
 	t.Helper()
-	if bucket != 0x05 {
+	var message proto.Message
+	switch bucket {
+	case 0x01:
+		record := &v3.ResourceTypeRecord{}
+		require.NoError(t, proto.Unmarshal(data, record))
+		record.SetDiscoveredAt(nil)
+		message = record
+	case 0x02:
+		record := &v3.ResourceRecord{}
+		require.NoError(t, proto.Unmarshal(data, record))
+		record.SetDiscoveredAt(nil)
+		message = record
+	case 0x03:
+		record := &v3.EntitlementRecord{}
+		require.NoError(t, proto.Unmarshal(data, record))
+		record.SetDiscoveredAt(nil)
+		message = record
+	case 0x04:
+		record := &v3.GrantRecord{}
+		require.NoError(t, proto.Unmarshal(data, record))
+		record.SetDiscoveredAt(nil)
+		message = record
+	case 0x05:
+		record := &v3.AssetRecord{}
+		require.NoError(t, proto.Unmarshal(data, record))
+		record.SetDiscoveredAt(nil)
+		message = record
+	default:
 		return append([]byte(nil), data...)
 	}
-	record := &v3.AssetRecord{}
-	require.NoError(t, proto.Unmarshal(data, record))
-	record.SetDiscoveredAt(nil)
-	stable, err := proto.MarshalOptions{Deterministic: true}.Marshal(record)
+	stable, err := proto.MarshalOptions{Deterministic: true}.Marshal(message)
 	require.NoError(t, err)
 	return stable
 }

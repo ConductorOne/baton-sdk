@@ -581,3 +581,16 @@ Windows CI shards.
    Verification delta: the API documentation names the restoration step, and
    the handle test performs it before checking exact source timestamps after
    reopen. PR placement: this PR.
+8. **Correction: canonicalize source timestamps in golden digests.**
+   Source: Linux and Windows CI showed that correct conversion of SQLite
+   wall-clock timestamps produces location-dependent protobuf instants, as the
+   reference converter does. Motivation: goldens generated in one local time
+   zone cannot contain the protobuf instants for SQLite `started_at`,
+   `ended_at`, or record `discovered_at` values and remain portable. Contract
+   delta: none; only the golden digest clears those fields. The owning boundary
+   is the test digest helper. Affected criteria: oracle 2 and Windows
+   verification. Verification delta: reference parity still compares exact
+   timestamps within each environment, while the non-UTC child tests
+   independently assert started, ended, discovered, and discarded timestamp
+   behavior. Goldens continue to cover every non-timestamp field. PR placement:
+   this PR.

@@ -114,6 +114,12 @@ func TestGenerateFixtures(t *testing.T) {
 	}
 }
 
+func TestGenerateGoldens(t *testing.T) {
+	for _, fixture := range fixtureNames {
+		generateGolden(t, filepath.Join("testdata", fixture), fixture == "slim_grants.c1z")
+	}
+}
+
 func newRawFixture(t *testing.T, path string) (*dotc1z.C1File, string) {
 	return newRawFixtureOptions(t, path)
 }
