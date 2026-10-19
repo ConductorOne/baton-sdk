@@ -107,6 +107,39 @@ converters retain the same O(rows) table scans, O(lanes × samples) boundary
 sampling, and spill-sort cost. The extracted resource scan removes the
 reference converter's whole-table SQLite sort.
 
+Follow-up profiling found that the edge-key source has three resource types,
+five resources, one entitlement, and one grant, but the spill sorters allocated
+their full chunk capacities. Five isolated three-iteration samples before and
+after adaptive arena allocation produced these medians:
+
+- Before: 463,101,292 ns/op; 395,147,488 B/op; 9,601 allocs/op.
+- After: 347,247,583 ns/op; 34,324,352 B/op; 9,629 allocs/op.
+- Delta: -25.02% ns/op; -91.31% B/op; +0.29% allocs/op.
+
+The benchmark remains dominated by fixed filesystem and Pebble lifecycle work,
+so the elapsed-time delta is evidence for this small source only. The allocation
+reduction directly measures the removed full-capacity arenas. The focused
+`TestSpillSorterArenaGrowsWithInput` pins the 1 MiB initial capacity, geometric
+growth, and existing chunk ceiling.
+
+For entitlements, `EXPLAIN QUERY PLAN` reported
+`SCAN v1_entitlements USING INDEX idx_entitlements_external_sync_v1` with
+`ORDER BY external_id` and `SCAN v1_entitlements` without it. The ordered query
+scans the `(external_id, sync_id)` index and filters by its second column; its
+order is discarded by `BulkSyncImport`'s destination-identity spill sort. The
+converter now omits that source ordering. Fixture parity and golden tests cover
+the unchanged destination output.
+
+The grant bulk merge sees each duplicate-resolved primary row once in
+entitlement-first order and can derive the hash-index row without unmarshaling
+the grant. It can therefore remove the later full grant-keyspace scan. It
+cannot remove ordering work: the hash index is ordered by
+`(entitlement, hash(principal), principal)`, not the primary
+`(entitlement, principal)` order. A fused implementation must retain an
+external ordering stage for large entitlement partitions and preserve the
+pending marker, exact digest publication, zero-grant roots, and post-import
+mutation behavior. No digest-build change is included in this PR.
+
 ## Structural coverage
 
 `go test ./pkg/dotc1z/sqlite -coverprofile=/tmp/sqlite-converter-final.cover`

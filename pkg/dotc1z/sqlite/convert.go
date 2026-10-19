@@ -518,7 +518,7 @@ func (f *File) convertEntitlements(
 		return nil
 	}
 	err := f.scanRows(ctx,
-		"SELECT data, discovered_at FROM "+entitlementsTable+" WHERE sync_id = ? ORDER BY external_id",
+		"SELECT data, discovered_at FROM "+entitlementsTable+" WHERE sync_id = ?",
 		[]any{syncID},
 		func(rows *sql.Rows) error {
 			var data []byte

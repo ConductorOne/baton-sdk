@@ -623,3 +623,25 @@ Windows CI shards.
     is `requiredColumns`. Affected criterion: required-column enforcement.
     Verification delta: a replacement `v1_sync_runs` table without `id` is
     rejected and named. PR placement: this PR.
+12. **Performance: remove the entitlement source ordering.** Source:
+    post-implementation profiling found that SQLite satisfies
+    `WHERE sync_id = ? ORDER BY external_id` by scanning the entire
+    `(external_id, sync_id)` index, while `BulkSyncImport` then spill-sorts the
+    rows by destination identity. Motivation: the source ordering neither
+    restricts the scan by `sync_id` nor supplies the destination order.
+    Contract delta: none; entitlement output remains canonical after the bulk
+    import. Affected criterion: output parity and benchmark evidence.
+    Verification delta: `EXPLAIN QUERY PLAN` records the removed index scan,
+    and fixture parity and golden tests cover output invariance. PR placement:
+    this PR.
+13. **Performance: allocate spill arenas from observed input.** Source:
+    post-implementation allocation profiling found that each spill sorter
+    allocated its full 46–128 MiB chunk for a source containing one grant.
+    Motivation: chunk size is a flush and memory ceiling, not a useful initial
+    allocation for small imports. Contract delta: spill arenas start at no more
+    than 1 MiB, grow geometrically, and retain the existing chunk limit, sorting,
+    merge, and recycling behavior. The owning boundary is `spillSorter.add`.
+    Affected criterion: benchmark evidence. Verification delta: a focused test
+    pins initial capacity, growth, and the chunk ceiling; converter benchmarks
+    record bytes and allocations before and after the change. PR placement:
+    this PR.
