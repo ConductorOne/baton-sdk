@@ -554,3 +554,17 @@ Windows CI shards.
    opens the destination, fails in `convertResourceTypes`, and must leave
    `outPath` absent. The invalid-temp-directory case remains as a pre-open error
    check. PR placement: this PR.
+6. **Correction: post-`ToPebbleOpen` record mutations must clear inherited
+   verification and reseal before `Close`.** Source: focused implementation
+   review found that the planned `SetCurrentSync` → `PutGrant` → `Close`
+   sequence bypasses the Pebble store lifecycle: stats and grant digests are
+   seal-time derivations, and `Close` saves rather than calling `EndSync`.
+   Motivation: the original oracle would require and bless stale derived
+   metadata. Contract delta: callers that mutate converted sync records clear
+   ingest-invariant provenance and call `EndSync` before `Close`, matching every
+   other `c1zstore.Store` writer lifecycle. The owning boundary is the caller
+   after `ToPebbleOpen` transfers store ownership. Affected criteria: oracle 3
+   and the `ToPebbleOpen` API contract. Verification delta: the handle test
+   clears provenance, writes one grant, calls `EndSync`, closes and reopens,
+   then checks the grant, source timestamps, cleared provenance, recomputed
+   stats, and grant-generation digest count. PR placement: this PR.

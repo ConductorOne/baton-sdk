@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	_ "modernc.org/sqlite"
 )
 
@@ -52,6 +53,23 @@ func TestResolveSyncID(t *testing.T) {
 	defer func() { require.NoError(t, empty.Close(ctx)) }()
 	_, err = empty.ResolveSyncID(ctx, sqlitereader.ResolveNewest)
 	require.ErrorIs(t, err, sqlitereader.ErrNoSyncRuns)
+
+	resourcesOnlyPath := filepath.Join(t.TempDir(), "resources-only.db")
+	copyFixture(t, filepath.Join("testdata", "bare.db"), resourcesOnlyPath)
+	db, err := sql.Open("sqlite", resourcesOnlyPath)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, "UPDATE v1_sync_runs SET sync_type = ?", connectorstore.SyncTypeResourcesOnly)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	resourcesOnly, err := sqlitereader.Open(ctx, resourcesOnlyPath)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, resourcesOnly.Close(ctx)) }()
+	resourcesOnlyRuns, err := resourcesOnly.SyncRuns(ctx)
+	require.NoError(t, err)
+	require.Len(t, resourcesOnlyRuns, 1)
+	got, err = resourcesOnly.ResolveSyncID(ctx, sqlitereader.ResolveNewest)
+	require.NoError(t, err)
+	require.Equal(t, resourcesOnlyRuns[0].ID, got)
 }
 
 func TestUnknownLegacySyncTypesListButDoNotAutoResolve(t *testing.T) {
@@ -151,6 +169,20 @@ func TestSlimGrantsAreHydrated(t *testing.T) {
 	referenceStats, err := reference.ToPebble(ctx, referencePath, "")
 	require.NoError(t, err)
 	require.Equal(t, int64(3), referenceStats.Grants.Rows)
+	require.NoError(t, reference.SetCurrentSync(ctx, referenceStats.SourceSyncID))
+	sourceGrants, err := reference.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, sourceGrants.GetList(), 3)
+	sourceByID := make(map[string]*v2.Grant, len(sourceGrants.GetList()))
+	for _, grant := range sourceGrants.GetList() {
+		sourceByID[grant.GetId()] = grant
+	}
+	for _, grant := range response.GetList() {
+		sourceGrant, found := sourceByID[grant.GetId()]
+		require.True(t, found)
+		require.True(t, proto.Equal(sourceGrant.GetEntitlement(), grant.GetEntitlement()))
+		require.True(t, proto.Equal(sourceGrant.GetPrincipal(), grant.GetPrincipal()))
+	}
 	require.NoError(t, reference.Close(ctx))
 	referenceOutput, err := dotc1z.NewStore(ctx, referencePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
 	require.NoError(t, err)
@@ -184,6 +216,14 @@ func TestToPebbleOpenMatchesToPebbleAndAllowsFurtherWrites(t *testing.T) {
 	mutable, stats, err := source.ToPebbleOpen(ctx, mutablePath, "")
 	require.NoError(t, err)
 	require.NoError(t, mutable.SetCurrentSync(ctx, stats.DestSyncID))
+	mutableEngine, ok := pebble.AsEngine(mutable)
+	require.True(t, ok)
+	sourceRecord, err := mutableEngine.GetSyncRunRecord(ctx, stats.DestSyncID)
+	require.NoError(t, err)
+	require.NotEmpty(t, sourceRecord.GetIngestInvariantGeneration())
+	verificationWriter, ok := mutable.SyncMeta().(c1zstore.IngestInvariantVerificationWriter)
+	require.True(t, ok)
+	require.NoError(t, verificationWriter.ClearIngestInvariantVerification(ctx, stats.DestSyncID))
 	require.NoError(t, mutable.PutGrants(ctx, v2.Grant_builder{
 		Id: "post-conversion",
 		Entitlement: v2.Entitlement_builder{
@@ -196,6 +236,12 @@ func TestToPebbleOpenMatchesToPebbleAndAllowsFurtherWrites(t *testing.T) {
 			Id: v2.ResourceId_builder{ResourceType: "user", Resource: "post"}.Build(),
 		}.Build(),
 	}.Build()))
+	require.NoError(t, mutable.EndSync(ctx))
+	resealedRecord, err := mutableEngine.GetSyncRunRecord(ctx, stats.DestSyncID)
+	require.NoError(t, err)
+	resealedRecord.SetStartedAt(sourceRecord.GetStartedAt())
+	resealedRecord.SetEndedAt(sourceRecord.GetEndedAt())
+	require.NoError(t, mutableEngine.PutSyncRunRecord(ctx, resealedRecord))
 	require.NoError(t, mutable.Close(ctx))
 	reopened, err := dotc1z.NewStore(ctx, mutablePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
 	require.NoError(t, err)
@@ -204,9 +250,24 @@ func TestToPebbleOpenMatchesToPebbleAndAllowsFurtherWrites(t *testing.T) {
 	grants, err := reopened.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.Len(t, grants.GetList(), 3)
-	record := syncRecord(t, mutablePath, stats.DestSyncID)
-	require.NotNil(t, record.GetStartedAt())
-	require.NotNil(t, record.GetEndedAt())
+	reopenedEngine, ok := pebble.AsEngine(reopened)
+	require.True(t, ok)
+	record, err := reopenedEngine.GetSyncRunRecord(ctx, stats.DestSyncID)
+	require.NoError(t, err)
+	require.True(t, proto.Equal(sourceRecord.GetStartedAt(), record.GetStartedAt()))
+	require.True(t, proto.Equal(sourceRecord.GetEndedAt(), record.GetEndedAt()))
+	require.Empty(t, record.GetIngestInvariantGeneration())
+	require.Empty(t, record.GetIngestInvariantCoverage())
+	require.Empty(t, record.GetIngestInvariantMode())
+	persistedStats, err := pebble.ReadSyncStatsRecord(ctx, reopenedEngine, stats.DestSyncID)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), persistedStats.GetGrants())
+	digestReader, ok := reopened.(c1zstore.GrantGenerationDigestReader)
+	require.True(t, ok)
+	digest, found, err := digestReader.GrantGenerationDigest(ctx)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, int64(3), digest.Count)
 }
 
 func TestOpenRejectsUnsupportedOrIncompleteSchemaWithoutMutation(t *testing.T) {

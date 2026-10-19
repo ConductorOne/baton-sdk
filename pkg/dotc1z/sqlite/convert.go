@@ -42,6 +42,7 @@ type convertConfig struct {
 	tmpDir          string
 	parallelism     int
 	resolveBehavior ResolveBehavior
+	logOnReturn     bool
 }
 
 // WithResolveBehavior selects how an empty source sync ID is resolved.
@@ -79,6 +80,10 @@ func WithParallelism(n int) ConvertOption {
 	}
 }
 
+func deferCompletionLog(c *convertConfig) {
+	c.logOnReturn = false
+}
+
 // ConvertStageStats records the rows and elapsed time for one conversion stage.
 type ConvertStageStats struct {
 	Rows     int64
@@ -114,6 +119,8 @@ type syncIDPreservingStarter interface {
 }
 
 // ToPebbleOpen converts one source sync and returns the destination store open.
+// Callers that bind the converted sync and mutate records must clear inherited
+// ingest-invariant verification and call EndSync before Close.
 func (f *File) ToPebbleOpen(
 	ctx context.Context,
 	outPath string,
@@ -124,6 +131,7 @@ func (f *File) ToPebbleOpen(
 		batchSize:       defaultBatchSize,
 		tmpDir:          f.tempDir,
 		resolveBehavior: ResolveNewest,
+		logOnReturn:     true,
 	}
 	for _, opt := range opts {
 		opt(cfg)
@@ -253,20 +261,9 @@ func (f *File) ToPebbleOpen(
 
 	stats.Total = time.Since(start)
 	stats.endSyncDuration = time.Since(endSyncStart)
-	ctxzap.Extract(ctx).Info("to-pebble: conversion complete",
-		append([]zap.Field{
-			zap.String("source_sync_id", stats.SourceSyncID),
-			zap.String("dest_sync_id", stats.DestSyncID),
-			zap.Int64("resource_types", stats.ResourceTypes.Rows),
-			zap.Int64("resources", stats.Resources.Rows),
-			zap.Int64("entitlements", stats.Entitlements.Rows),
-			zap.Int64("grants", stats.Grants.Rows),
-			zap.Int64("assets", stats.Assets.Rows),
-			zap.Int64("asset_bytes", stats.AssetBytes),
-			zap.Int64("sessions", stats.Sessions.Rows),
-			zap.Duration("total", stats.Total),
-		}, discardedSyncFields(stats.DiscardedSyncs)...)...,
-	)
+	if cfg.logOnReturn {
+		logConversionComplete(ctx, stats)
+	}
 	cleanup = false
 	return dest, stats, nil
 }
@@ -278,6 +275,7 @@ func (f *File) ToPebble(
 	sourceSyncID string,
 	opts ...ConvertOption,
 ) (*ConvertStats, error) {
+	opts = append(opts, deferCompletionLog)
 	store, stats, err := f.ToPebbleOpen(ctx, outPath, sourceSyncID, opts...)
 	if err != nil {
 		return nil, err
@@ -287,10 +285,13 @@ func (f *File) ToPebble(
 		_ = os.Remove(outPath) // #nosec G703 -- cleanup uses the caller-selected output.
 		return nil, fmt.Errorf("to-pebble: close destination: %w", err)
 	}
+	closeDuration := time.Since(closeStart)
+	stats.Total += closeDuration
 	ctxzap.Extract(ctx).Debug("to-pebble: destination finalize timings",
 		zap.Duration("end_sync", stats.endSyncDuration),
-		zap.Duration("close_save", time.Since(closeStart)),
+		zap.Duration("close_save", closeDuration),
 	)
+	logConversionComplete(ctx, stats)
 	return stats, nil
 }
 
@@ -310,8 +311,35 @@ func (f *File) emptyPebble(ctx context.Context, outPath string, cfg *convertConf
 	if !pebble.MarkStoreDirty(dest) {
 		return nil, nil, errors.New("to-pebble: destination does not support dirty marking")
 	}
+	stats := &ConvertStats{Total: time.Since(start)}
+	if cfg.logOnReturn {
+		logConversionComplete(ctx, stats)
+	}
 	cleanup = false
-	return dest, &ConvertStats{Total: time.Since(start)}, nil
+	return dest, stats, nil
+}
+
+func logConversionComplete(ctx context.Context, stats *ConvertStats) {
+	if stats.SourceSyncID == "" {
+		ctxzap.Extract(ctx).Info("to-pebble: wrote empty pebble c1z (source had no sync runs)",
+			zap.Duration("total", stats.Total),
+		)
+		return
+	}
+	ctxzap.Extract(ctx).Info("to-pebble: conversion complete",
+		append([]zap.Field{
+			zap.String("source_sync_id", stats.SourceSyncID),
+			zap.String("dest_sync_id", stats.DestSyncID),
+			zap.Int64("resource_types", stats.ResourceTypes.Rows),
+			zap.Int64("resources", stats.Resources.Rows),
+			zap.Int64("entitlements", stats.Entitlements.Rows),
+			zap.Int64("grants", stats.Grants.Rows),
+			zap.Int64("assets", stats.Assets.Rows),
+			zap.Int64("asset_bytes", stats.AssetBytes),
+			zap.Int64("sessions", stats.Sessions.Rows),
+			zap.Duration("total", stats.Total),
+		}, discardedSyncFields(stats.DiscardedSyncs)...)...,
+	)
 }
 
 func (f *File) discardedSyncs(ctx context.Context, keepSyncID string) ([]DiscardedSync, error) {

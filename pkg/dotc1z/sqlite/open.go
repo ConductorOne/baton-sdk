@@ -60,8 +60,11 @@ func Open(ctx context.Context, path string, opts ...OpenOption) (_ *File, err er
 	if err != nil {
 		return nil, err
 	}
+	sourceOpen := true
 	defer func() {
-		err = errors.Join(err, source.Close())
+		if sourceOpen {
+			err = errors.Join(err, source.Close())
+		}
 	}()
 
 	header := make([]byte, len(sqliteMagic))
@@ -111,6 +114,10 @@ func Open(ctx context.Context, path string, opts ...OpenOption) (_ *File, err er
 			return nil, fmt.Errorf("sqlite: decode c1z: %w", err)
 		}
 	}
+	if err := source.Close(); err != nil {
+		return nil, fmt.Errorf("sqlite: close source: %w", err)
+	}
+	sourceOpen = false
 
 	db, err := openSQLite(ctx, dbPath)
 	if err != nil {
@@ -146,8 +153,11 @@ func (f *File) Close(context.Context) error {
 		f.db = nil
 	}
 	if f.tempDir != "" {
-		err = errors.Join(err, os.RemoveAll(f.tempDir))
-		f.tempDir = ""
+		removeErr := os.RemoveAll(f.tempDir)
+		err = errors.Join(err, removeErr)
+		if removeErr == nil {
+			f.tempDir = ""
+		}
 	}
 	return err
 }
