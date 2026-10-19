@@ -189,8 +189,9 @@ reference-converter limitation cannot be closed in this package.
    -8.13% allocs/op, below the 10% finding threshold.
 9. **verified to stated coverage** — the only `pkg/dotc1z` change is
    `import_boundary_test.go`; the new package is under its own subdirectory.
-10. **evidence incomplete** — repository gates and Windows CI are recorded
-    after the final evidence commit.
+10. **verified to stated coverage** — all repository gates pass locally; all
+    four native Windows test shards and the Windows aggregate check pass in PR
+    run `39311604272`.
 11. **verified to stated coverage** — this file records one state for every
     acceptance criterion and names the executable evidence and exclusions.
 
@@ -206,4 +207,5 @@ Local final-gate run:
 - `go test ./pkg/dotc1z/... ./cmd/baton/...`: passed.
 
 The commands unset `GOMODCACHE`, `GOCACHE`, `GOPATH`, and `GOFLAGS` before
-invoking Go. Windows coverage remains deferred to the pull-request CI shards.
+invoking Go. PR run `39311604272` passed all checks, including four native
+Windows shards, Linux tests, lint, and the race-shard audit.
