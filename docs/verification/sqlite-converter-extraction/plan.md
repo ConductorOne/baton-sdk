@@ -495,4 +495,62 @@ Windows CI shards.
 
 ## Change orders
 
-None.
+1. **Correction: validate every base column used by conversion queries.**
+   Source: implementation of the fixed `SELECT` statements exposed omissions
+   in the Source schema contract table. Motivation: `sync_id` predicates,
+   `external_id` ordering and lane bounds, and asset `id` ordering are required
+   by conversion but were absent from the required-column list. Contract delta:
+   `Open` also requires `sync_id` on every converted table, `external_id` on
+   resource types, entitlements, and grants, and `id` plus `sync_id` on assets.
+   The owning boundary remains `Open` and its `PRAGMA table_xinfo` probe.
+   Affected criteria: the old-schema fixture and required-column rejection
+   tests cover the expanded check; no conversion behavior changes. Verification
+   delta: plant one missing query-only column and require `Open` to fail naming
+   its table and column. PR placement: this PR.
+2. **Correction: canonicalize destination-stamped asset discovery times in
+   parity and golden digests.** Source: running the reference and extracted
+   converters over `finished_full.c1z` showed that `copyAssets` calls
+   `PutAsset`, which stamps `AssetRecord.discovered_at` at conversion time.
+   Motivation: sequential correct conversions and every later golden run
+   otherwise differ by construction. Contract delta: none; asset timestamp
+   behavior remains unchanged. The parity and golden oracles zero only
+   `AssetRecord.discovered_at`; they still compare asset keys, sync IDs,
+   content types, bytes, row counts, and byte counts exactly. The owning
+   boundary is the test digest helper. Affected criteria: oracle 1 and oracle
+   2. Verification delta: the asset assertions remain independent of the
+   normalized timestamp, and the corrupted-golden planted violation still
+   validates the digest oracle. PR placement: this PR.
+3. **Correction: canonicalize destination-stamped stats sidecar write times in
+   parity and golden digests.** Source: the next parity comparison showed that
+   `EndSync` stamps `SyncStatsRecord.written_at` independently in each
+   conversion. Motivation: as with asset discovery time, no source value
+   exists to preserve and sequential correct conversions cannot match it.
+   Contract delta: none; only the oracle zeros `written_at`. The owning
+   boundary is the test digest helper. Affected criteria: oracle 1 and oracle
+   2. Verification delta: parity still byte-compares every stats count and
+   grouping, and the golden digest includes that canonical stats record. PR
+   placement: this PR.
+4. **Correction: measure the slim-grant deviation from persisted output, not
+   reference `ConvertStats.Grants.Rows`.** Source: fixture 9 showed that the
+   reference converter increments its stage count from scanned batch length
+   even when `BulkGrantShard` drops rows with nil references. Motivation: the
+   planned assertion that reference stats equal the full-row count is false;
+   reference stats report all three scanned rows while only one full row is
+   persisted. Contract delta: none. The owning boundary is fixture 9's parity
+   test, which now asserts reference output contains one grant, extracted
+   output contains all three, extracted stats report three, and every extracted
+   grant has hydrated references. Affected criterion: oracle 1's documented
+   slim-grant deviation. Verification delta: persisted output replaces the
+   non-discriminating reference counter as the oracle. PR placement: this PR.
+5. **Correction: inject post-open cleanup failure with malformed source record
+   bytes instead of an invalid conversion temp directory.** Source:
+   implementation inspection showed that `WithConvertTmpDir` configures
+   `dotc1z.NewStore` and `StartBulkSyncImport`; an invalid directory fails in
+   `NewStore`, before the destination-open cleanup boundary. Motivation: the
+   planned injection cannot reach the state it claims to test. Contract delta:
+   none. The owning boundary remains `ToPebbleOpen`'s deferred destination
+   close-and-remove path. Affected criterion: the error-path case. Verification
+   delta: a schema-valid source with malformed resource-type protobuf bytes
+   opens the destination, fails in `convertResourceTypes`, and must leave
+   `outPath` absent. The invalid-temp-directory case remains as a pre-open error
+   check. PR placement: this PR.
