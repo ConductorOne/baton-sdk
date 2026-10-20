@@ -6,7 +6,11 @@ import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
+// Deprecated: C1 does not read the Aliases annotation, so setting it has no
+// effect. Retained only so existing artifacts remain decodable. Do not emit.
 message Aliases {
+  option deprecated = true;
+
   repeated string ids = 1 [(validate.rules).repeated = {
     min_items: 1
     max_items: 100

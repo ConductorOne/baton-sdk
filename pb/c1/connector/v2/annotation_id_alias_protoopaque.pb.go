@@ -23,6 +23,10 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Deprecated: C1 does not read the Aliases annotation, so setting it has no
+// effect. Retained only so existing artifacts remain decodable. Do not emit.
+//
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_id_alias.proto.
 type Aliases struct {
 	state          protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_Ids []string               `protobuf:"bytes,1,rep,name=ids,proto3"`
@@ -66,6 +70,7 @@ func (x *Aliases) SetIds(v []string) {
 	x.xxx_hidden_Ids = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/annotation_id_alias.proto.
 type Aliases_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -84,9 +89,9 @@ var File_c1_connector_v2_annotation_id_alias_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_annotation_id_alias_proto_rawDesc = "" +
 	"\n" +
-	")c1/connector/v2/annotation_id_alias.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"2\n" +
+	")c1/connector/v2/annotation_id_alias.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"6\n" +
 	"\aAliases\x12'\n" +
-	"\x03ids\x18\x01 \x03(\tB\x15\xfaB\x12\x92\x01\x0f\b\x01\x10d\x18\x01\"\ar\x05\x10\x01\x18\x80\x02R\x03idsB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"\x03ids\x18\x01 \x03(\tB\x15\xfaB\x12\x92\x01\x0f\b\x01\x10d\x18\x01\"\ar\x05\x10\x01\x18\x80\x02R\x03ids:\x02\x18\x01B6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_annotation_id_alias_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_c1_connector_v2_annotation_id_alias_proto_goTypes = []any{
