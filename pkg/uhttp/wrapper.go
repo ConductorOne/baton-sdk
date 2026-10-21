@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -468,32 +467,6 @@ func oneLine(text string) string {
 		return ' '
 	}, text)
 	return strings.Join(strings.Fields(printable), " ")
-}
-
-// redactedQuery names the query parameters a request carried, with their
-// values replaced: a connector is free to send a credential as one.
-func redactedQuery(u *url.URL) string {
-	if u == nil || u.RawQuery == "" {
-		return ""
-	}
-	values := u.Query()
-	names := make([]string, 0, len(values))
-	for name := range values {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-
-	var redacted strings.Builder
-	for _, name := range names {
-		for range values[name] {
-			if redacted.Len() > 0 {
-				redacted.WriteByte('&')
-			}
-			redacted.WriteString(name)
-			redacted.WriteString("=***")
-		}
-	}
-	return redacted.String()
 }
 
 // requestLogFields identify the request a log line is about. These fields omit

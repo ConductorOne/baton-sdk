@@ -130,9 +130,9 @@ func wrapRequestError(err error) error {
 	if err == nil {
 		return nil
 	}
-	//nolint:errorlint // http.Client.Do returns this wrapper, and only the outermost error's text comes first.
-	if urlErr, ok := err.(*url.Error); ok {
-		return wrapURLError(urlErr)
+	//nolint:errorlint // http.Client.Do returns this wrapper, and its text is what a reader sees first.
+	if urlErr, ok := err.(*url.Error); ok && urlErr.Err != nil {
+		err = withoutRequestURL(urlErr)
 	}
 	// Transport.RoundTrip classified this one: one request states one status.
 	if status.Code(err) != codes.Unknown {
@@ -141,72 +141,25 @@ func wrapRequestError(err error) error {
 	return wrapTransientNetworkError(err)
 }
 
-// wrapURLError rewrites the error http.Client.Do returns so the request's
-// status comes first and the URL under it carries no query string, where a
-// connector is free to send a credential. status.FromError copies this whole
-// text into the status message of a wrapped status.
-func wrapURLError(urlErr *url.Error) error {
-	requestErr := &url.Error{Op: urlErr.Op, URL: withoutQuery(urlErr.URL), Err: urlErr.Err}
-	st := statusIn(urlErr)
-	if st == nil {
-		return wrapTransientNetworkError(requestErr)
-	}
-	rest := withoutStatus(urlErr.Err)
-	if rest == nil {
-		// The wrapper names the request, so it stays when nothing else is
-		// under it.
-		return requestErr
-	}
-	requestErr.Err = rest
-	return errors.Join(st, requestErr)
+// withoutRequestURL is urlErr stating only what it wraps. http.Client.Do
+// prints the request URL ahead of that, query string included, and
+// status.FromError copies the whole text into the status message of a wrapped
+// status. A connector is free to send a credential as a query parameter, and
+// the description this package writes already names the host and the path.
+// The *url.Error stays reachable for errors.Is and errors.As.
+func withoutRequestURL(urlErr *url.Error) error {
+	return &maskedError{text: urlErr.Err.Error(), err: urlErr}
 }
 
-// withoutQuery is rawURL without its query string. The first '?' starts it:
-// a path cannot hold one unescaped.
-func withoutQuery(rawURL string) string {
-	trimmed, _, _ := strings.Cut(rawURL, "?")
-	return trimmed
+// maskedError states text in place of what err prints. errors.Is and
+// errors.As still reach err.
+type maskedError struct {
+	text string
+	err  error
 }
 
-// statusIn is the error in err that carries a gRPC status, or nil.
-func statusIn(err error) error {
-	var carrier interface{ GRPCStatus() *status.Status }
-	if !errors.As(err, &carrier) {
-		return nil
-	}
-	carried, ok := carrier.(error)
-	if !ok {
-		return nil
-	}
-	return carried
-}
-
-// withoutStatus is err without the status errors joined directly into it, so
-// a status stated above the chain is not printed inside it too.
-func withoutStatus(err error) error {
-	if carriesStatus(err) {
-		return nil
-	}
-	joined, ok := err.(interface{ Unwrap() []error })
-	if !ok {
-		return err
-	}
-	branches := joined.Unwrap()
-	rest := make([]error, 0, len(branches))
-	for _, branch := range branches {
-		if carriesStatus(branch) {
-			continue
-		}
-		rest = append(rest, branch)
-	}
-	return errors.Join(rest...)
-}
-
-// carriesStatus reports whether err itself is a status, rather than wrapping one.
-func carriesStatus(err error) bool {
-	_, ok := err.(interface{ GRPCStatus() *status.Status })
-	return ok
-}
+func (e *maskedError) Error() string { return e.text }
+func (e *maskedError) Unwrap() error { return e.err }
 
 // hostAndPath is rawURL without its scheme and query string. The path stays
 // percent-encoded: a decoded '%0A' would add a line to the description that

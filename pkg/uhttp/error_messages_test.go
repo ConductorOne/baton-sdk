@@ -526,8 +526,8 @@ func TestRoundTrip_AProxyFailureNamesTheProxy(t *testing.T) {
 	require.Contains(t, status.Convert(err).Message(), "connection refused: proxy "+proxyAddr)
 }
 
-// A status with nothing under it keeps the wrapper that names the request.
-func TestWrapRequestError_AStatusWithNothingUnderItKeepsTheRequest(t *testing.T) {
+// A status with nothing under it states that status once and keeps its chain.
+func TestWrapRequestError_AStatusWithNothingUnderItStatesItOnce(t *testing.T) {
 	got := wrapRequestError(&url.Error{
 		Op:  "Get",
 		URL: "https://example.com/v1/users?token=secret",
@@ -787,7 +787,7 @@ func TestDo_ErrorLogsIdentifyTheRequest(t *testing.T) {
 
 // A failed request names itself in every log line it writes, without stating
 // any value it sent.
-func TestDo_LogsStateNoQueryValue(t *testing.T) {
+func TestDo_LogsLeaveOutTheQueryString(t *testing.T) {
 	core, logs := observer.New(zapcore.DebugLevel)
 	ctx := ctxzap.ToContext(t.Context(), zap.New(core))
 
@@ -800,7 +800,6 @@ func TestDo_LogsStateNoQueryValue(t *testing.T) {
 
 	entries := logs.All()
 	require.NotEmpty(t, entries)
-	queries := 0
 	for _, entry := range entries {
 		for key, value := range entry.ContextMap() {
 			text, ok := value.(string)
@@ -808,13 +807,8 @@ func TestDo_LogsStateNoQueryValue(t *testing.T) {
 				continue
 			}
 			require.NotContains(t, text, "secret", "%s: %s", entry.Message, key)
-			if key == "http.url_details.query" {
-				require.Equal(t, "api_key=***&page=***", text, "the names a request asked under stay")
-				queries++
-			}
 		}
 	}
-	require.NotZero(t, queries, "the transport states the query it sent")
 }
 
 func TestDo_NilURLReturnsTheClientError(t *testing.T) {
