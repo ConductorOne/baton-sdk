@@ -75,26 +75,26 @@ func (x EventType) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-type UsageEvent_OAuth_Action int32
+type OAuthUsage_Action int32
 
 const (
-	UsageEvent_OAuth_ACTION_UNSPECIFIED UsageEvent_OAuth_Action = 0
-	UsageEvent_OAuth_ACTION_AUTHORIZE   UsageEvent_OAuth_Action = 1
-	UsageEvent_OAuth_ACTION_REVOKE      UsageEvent_OAuth_Action = 2
-	UsageEvent_OAuth_ACTION_DENY        UsageEvent_OAuth_Action = 3
-	UsageEvent_OAuth_ACTION_REQUEST     UsageEvent_OAuth_Action = 4
+	OAuthUsage_ACTION_UNSPECIFIED OAuthUsage_Action = 0
+	OAuthUsage_ACTION_AUTHORIZE   OAuthUsage_Action = 1
+	OAuthUsage_ACTION_REVOKE      OAuthUsage_Action = 2
+	OAuthUsage_ACTION_DENY        OAuthUsage_Action = 3
+	OAuthUsage_ACTION_REQUEST     OAuthUsage_Action = 4
 )
 
-// Enum value maps for UsageEvent_OAuth_Action.
+// Enum value maps for OAuthUsage_Action.
 var (
-	UsageEvent_OAuth_Action_name = map[int32]string{
+	OAuthUsage_Action_name = map[int32]string{
 		0: "ACTION_UNSPECIFIED",
 		1: "ACTION_AUTHORIZE",
 		2: "ACTION_REVOKE",
 		3: "ACTION_DENY",
 		4: "ACTION_REQUEST",
 	}
-	UsageEvent_OAuth_Action_value = map[string]int32{
+	OAuthUsage_Action_value = map[string]int32{
 		"ACTION_UNSPECIFIED": 0,
 		"ACTION_AUTHORIZE":   1,
 		"ACTION_REVOKE":      2,
@@ -103,25 +103,25 @@ var (
 	}
 )
 
-func (x UsageEvent_OAuth_Action) Enum() *UsageEvent_OAuth_Action {
-	p := new(UsageEvent_OAuth_Action)
+func (x OAuthUsage_Action) Enum() *OAuthUsage_Action {
+	p := new(OAuthUsage_Action)
 	*p = x
 	return p
 }
 
-func (x UsageEvent_OAuth_Action) String() string {
+func (x OAuthUsage_Action) String() string {
 	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
 }
 
-func (UsageEvent_OAuth_Action) Descriptor() protoreflect.EnumDescriptor {
+func (OAuthUsage_Action) Descriptor() protoreflect.EnumDescriptor {
 	return file_c1_connector_v2_event_feed_proto_enumTypes[1].Descriptor()
 }
 
-func (UsageEvent_OAuth_Action) Type() protoreflect.EnumType {
+func (OAuthUsage_Action) Type() protoreflect.EnumType {
 	return &file_c1_connector_v2_event_feed_proto_enumTypes[1]
 }
 
-func (x UsageEvent_OAuth_Action) Number() protoreflect.EnumNumber {
+func (x OAuthUsage_Action) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
@@ -897,15 +897,12 @@ func (*event_CreateGrantEvent) isEvent_Event() {}
 
 func (*event_CreateRevokeEvent) isEvent_Event() {}
 
-// Producers leave unset any network or oauth value that fails its validate
-// rule rather than copying it from the source: Event validation rejects the
-// whole event, not the one value.
 type UsageEvent struct {
 	state                     protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_TargetResource *Resource              `protobuf:"bytes,1,opt,name=target_resource,json=targetResource,proto3"`
 	xxx_hidden_ActorResource  *Resource              `protobuf:"bytes,2,opt,name=actor_resource,json=actorResource,proto3"`
-	xxx_hidden_Network        *UsageEvent_Network    `protobuf:"bytes,3,opt,name=network,proto3"`
-	xxx_hidden_Oauth          *UsageEvent_OAuth      `protobuf:"bytes,4,opt,name=oauth,proto3"`
+	xxx_hidden_Network        *NetworkOrigin         `protobuf:"bytes,3,opt,name=network,proto3"`
+	xxx_hidden_Oauth          *OAuthUsage            `protobuf:"bytes,4,opt,name=oauth,proto3"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -949,14 +946,14 @@ func (x *UsageEvent) GetActorResource() *Resource {
 	return nil
 }
 
-func (x *UsageEvent) GetNetwork() *UsageEvent_Network {
+func (x *UsageEvent) GetNetwork() *NetworkOrigin {
 	if x != nil {
 		return x.xxx_hidden_Network
 	}
 	return nil
 }
 
-func (x *UsageEvent) GetOauth() *UsageEvent_OAuth {
+func (x *UsageEvent) GetOauth() *OAuthUsage {
 	if x != nil {
 		return x.xxx_hidden_Oauth
 	}
@@ -971,11 +968,11 @@ func (x *UsageEvent) SetActorResource(v *Resource) {
 	x.xxx_hidden_ActorResource = v
 }
 
-func (x *UsageEvent) SetNetwork(v *UsageEvent_Network) {
+func (x *UsageEvent) SetNetwork(v *NetworkOrigin) {
 	x.xxx_hidden_Network = v
 }
 
-func (x *UsageEvent) SetOauth(v *UsageEvent_OAuth) {
+func (x *UsageEvent) SetOauth(v *OAuthUsage) {
 	x.xxx_hidden_Oauth = v
 }
 
@@ -1029,9 +1026,9 @@ type UsageEvent_builder struct {
 	TargetResource *Resource
 	ActorResource  *Resource
 	// Network origin of the actor.
-	Network *UsageEvent_Network
+	Network *NetworkOrigin
 	// Set when the event is OAuth consent activity.
-	Oauth *UsageEvent_OAuth
+	Oauth *OAuthUsage
 }
 
 func (b0 UsageEvent_builder) Build() *UsageEvent {
@@ -1045,6 +1042,218 @@ func (b0 UsageEvent_builder) Build() *UsageEvent {
 	return m0
 }
 
+// Producers leave unset any value that fails its validate rule rather than
+// copying it from the source: Event validation rejects the whole event, not
+// the one value.
+type NetworkOrigin struct {
+	state                      protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_IpAddress       string                 `protobuf:"bytes,1,opt,name=ip_address,json=ipAddress,proto3"`
+	xxx_hidden_CountryCode     string                 `protobuf:"bytes,2,opt,name=country_code,json=countryCode,proto3"`
+	xxx_hidden_SubdivisionCode string                 `protobuf:"bytes,3,opt,name=subdivision_code,json=subdivisionCode,proto3"`
+	xxx_hidden_Asns            []uint32               `protobuf:"varint,4,rep,packed,name=asns,proto3"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
+}
+
+func (x *NetworkOrigin) Reset() {
+	*x = NetworkOrigin{}
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NetworkOrigin) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NetworkOrigin) ProtoMessage() {}
+
+func (x *NetworkOrigin) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *NetworkOrigin) GetIpAddress() string {
+	if x != nil {
+		return x.xxx_hidden_IpAddress
+	}
+	return ""
+}
+
+func (x *NetworkOrigin) GetCountryCode() string {
+	if x != nil {
+		return x.xxx_hidden_CountryCode
+	}
+	return ""
+}
+
+func (x *NetworkOrigin) GetSubdivisionCode() string {
+	if x != nil {
+		return x.xxx_hidden_SubdivisionCode
+	}
+	return ""
+}
+
+func (x *NetworkOrigin) GetAsns() []uint32 {
+	if x != nil {
+		return x.xxx_hidden_Asns
+	}
+	return nil
+}
+
+func (x *NetworkOrigin) SetIpAddress(v string) {
+	x.xxx_hidden_IpAddress = v
+}
+
+func (x *NetworkOrigin) SetCountryCode(v string) {
+	x.xxx_hidden_CountryCode = v
+}
+
+func (x *NetworkOrigin) SetSubdivisionCode(v string) {
+	x.xxx_hidden_SubdivisionCode = v
+}
+
+func (x *NetworkOrigin) SetAsns(v []uint32) {
+	x.xxx_hidden_Asns = v
+}
+
+type NetworkOrigin_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	IpAddress string
+	// ISO 3166-1 alpha-2, e.g. "US".
+	CountryCode string
+	// ISO 3166-2, e.g. "US-OR".
+	SubdivisionCode string
+	// Autonomous system numbers the source attributes to ip_address.
+	Asns []uint32
+}
+
+func (b0 NetworkOrigin_builder) Build() *NetworkOrigin {
+	m0 := &NetworkOrigin{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_IpAddress = b.IpAddress
+	x.xxx_hidden_CountryCode = b.CountryCode
+	x.xxx_hidden_SubdivisionCode = b.SubdivisionCode
+	x.xxx_hidden_Asns = b.Asns
+	return m0
+}
+
+// OAuth consent activity: a user authorizes, revokes, is denied, or requests
+// an application's access to the user's data.
+// Producers leave unset any value that fails its validate rule rather than
+// copying it from the source: Event validation rejects the whole event, not
+// the one value.
+type OAuthUsage struct {
+	state                      protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Action          OAuthUsage_Action      `protobuf:"varint,1,opt,name=action,proto3,enum=c1.connector.v2.OAuthUsage_Action"`
+	xxx_hidden_SourceEventName string                 `protobuf:"bytes,2,opt,name=source_event_name,json=sourceEventName,proto3"`
+	xxx_hidden_Scopes          []string               `protobuf:"bytes,3,rep,name=scopes,proto3"`
+	xxx_hidden_ClientType      string                 `protobuf:"bytes,4,opt,name=client_type,json=clientType,proto3"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
+}
+
+func (x *OAuthUsage) Reset() {
+	*x = OAuthUsage{}
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OAuthUsage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OAuthUsage) ProtoMessage() {}
+
+func (x *OAuthUsage) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *OAuthUsage) GetAction() OAuthUsage_Action {
+	if x != nil {
+		return x.xxx_hidden_Action
+	}
+	return OAuthUsage_ACTION_UNSPECIFIED
+}
+
+func (x *OAuthUsage) GetSourceEventName() string {
+	if x != nil {
+		return x.xxx_hidden_SourceEventName
+	}
+	return ""
+}
+
+func (x *OAuthUsage) GetScopes() []string {
+	if x != nil {
+		return x.xxx_hidden_Scopes
+	}
+	return nil
+}
+
+func (x *OAuthUsage) GetClientType() string {
+	if x != nil {
+		return x.xxx_hidden_ClientType
+	}
+	return ""
+}
+
+func (x *OAuthUsage) SetAction(v OAuthUsage_Action) {
+	x.xxx_hidden_Action = v
+}
+
+func (x *OAuthUsage) SetSourceEventName(v string) {
+	x.xxx_hidden_SourceEventName = v
+}
+
+func (x *OAuthUsage) SetScopes(v []string) {
+	x.xxx_hidden_Scopes = v
+}
+
+func (x *OAuthUsage) SetClientType(v string) {
+	x.xxx_hidden_ClientType = v
+}
+
+type OAuthUsage_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	// ACTION_UNSPECIFIED when source_event_name maps to no Action.
+	Action          OAuthUsage_Action
+	SourceEventName string
+	// Scopes the action applies to, as the source names them.
+	Scopes []string
+	// The source's client classification, as the source names it.
+	ClientType string
+}
+
+func (b0 OAuthUsage_builder) Build() *OAuthUsage {
+	m0 := &OAuthUsage{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Action = b.Action
+	x.xxx_hidden_SourceEventName = b.SourceEventName
+	x.xxx_hidden_Scopes = b.Scopes
+	x.xxx_hidden_ClientType = b.ClientType
+	return m0
+}
+
 // Unrelated to this effort, but valuable for other projects
 type GrantEvent struct {
 	state            protoimpl.MessageState `protogen:"opaque.v1"`
@@ -1055,7 +1264,7 @@ type GrantEvent struct {
 
 func (x *GrantEvent) Reset() {
 	*x = GrantEvent{}
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[6]
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1067,7 +1276,7 @@ func (x *GrantEvent) String() string {
 func (*GrantEvent) ProtoMessage() {}
 
 func (x *GrantEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[6]
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1125,7 +1334,7 @@ type CreateGrantEvent struct {
 
 func (x *CreateGrantEvent) Reset() {
 	*x = CreateGrantEvent{}
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[7]
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1137,7 +1346,7 @@ func (x *CreateGrantEvent) String() string {
 func (*CreateGrantEvent) ProtoMessage() {}
 
 func (x *CreateGrantEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[7]
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1234,7 +1443,7 @@ type CreateRevokeEvent struct {
 
 func (x *CreateRevokeEvent) Reset() {
 	*x = CreateRevokeEvent{}
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[8]
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1246,7 +1455,7 @@ func (x *CreateRevokeEvent) String() string {
 func (*CreateRevokeEvent) ProtoMessage() {}
 
 func (x *CreateRevokeEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[8]
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1342,7 +1551,7 @@ type RevokeEvent struct {
 
 func (x *RevokeEvent) Reset() {
 	*x = RevokeEvent{}
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[9]
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1354,7 +1563,7 @@ func (x *RevokeEvent) String() string {
 func (*RevokeEvent) ProtoMessage() {}
 
 func (x *RevokeEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[9]
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1436,7 +1645,7 @@ type ResourceChangeEvent struct {
 
 func (x *ResourceChangeEvent) Reset() {
 	*x = ResourceChangeEvent{}
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[10]
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1448,7 +1657,7 @@ func (x *ResourceChangeEvent) String() string {
 func (*ResourceChangeEvent) ProtoMessage() {}
 
 func (x *ResourceChangeEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[10]
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1529,7 +1738,7 @@ type EventFeedMetadata struct {
 
 func (x *EventFeedMetadata) Reset() {
 	*x = EventFeedMetadata{}
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[11]
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1541,7 +1750,7 @@ func (x *EventFeedMetadata) String() string {
 func (*EventFeedMetadata) ProtoMessage() {}
 
 func (x *EventFeedMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[11]
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1591,212 +1800,6 @@ func (b0 EventFeedMetadata_builder) Build() *EventFeedMetadata {
 	return m0
 }
 
-type UsageEvent_Network struct {
-	state                      protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_IpAddress       string                 `protobuf:"bytes,1,opt,name=ip_address,json=ipAddress,proto3"`
-	xxx_hidden_CountryCode     string                 `protobuf:"bytes,2,opt,name=country_code,json=countryCode,proto3"`
-	xxx_hidden_SubdivisionCode string                 `protobuf:"bytes,3,opt,name=subdivision_code,json=subdivisionCode,proto3"`
-	xxx_hidden_Asns            []uint32               `protobuf:"varint,4,rep,packed,name=asns,proto3"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
-}
-
-func (x *UsageEvent_Network) Reset() {
-	*x = UsageEvent_Network{}
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[12]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *UsageEvent_Network) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*UsageEvent_Network) ProtoMessage() {}
-
-func (x *UsageEvent_Network) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[12]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *UsageEvent_Network) GetIpAddress() string {
-	if x != nil {
-		return x.xxx_hidden_IpAddress
-	}
-	return ""
-}
-
-func (x *UsageEvent_Network) GetCountryCode() string {
-	if x != nil {
-		return x.xxx_hidden_CountryCode
-	}
-	return ""
-}
-
-func (x *UsageEvent_Network) GetSubdivisionCode() string {
-	if x != nil {
-		return x.xxx_hidden_SubdivisionCode
-	}
-	return ""
-}
-
-func (x *UsageEvent_Network) GetAsns() []uint32 {
-	if x != nil {
-		return x.xxx_hidden_Asns
-	}
-	return nil
-}
-
-func (x *UsageEvent_Network) SetIpAddress(v string) {
-	x.xxx_hidden_IpAddress = v
-}
-
-func (x *UsageEvent_Network) SetCountryCode(v string) {
-	x.xxx_hidden_CountryCode = v
-}
-
-func (x *UsageEvent_Network) SetSubdivisionCode(v string) {
-	x.xxx_hidden_SubdivisionCode = v
-}
-
-func (x *UsageEvent_Network) SetAsns(v []uint32) {
-	x.xxx_hidden_Asns = v
-}
-
-type UsageEvent_Network_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	IpAddress string
-	// ISO 3166-1 alpha-2, e.g. "US".
-	CountryCode string
-	// ISO 3166-2, e.g. "US-OR".
-	SubdivisionCode string
-	// Autonomous system numbers the source attributes to ip_address.
-	Asns []uint32
-}
-
-func (b0 UsageEvent_Network_builder) Build() *UsageEvent_Network {
-	m0 := &UsageEvent_Network{}
-	b, x := &b0, m0
-	_, _ = b, x
-	x.xxx_hidden_IpAddress = b.IpAddress
-	x.xxx_hidden_CountryCode = b.CountryCode
-	x.xxx_hidden_SubdivisionCode = b.SubdivisionCode
-	x.xxx_hidden_Asns = b.Asns
-	return m0
-}
-
-// The actor authorizes, revokes, is denied, or requests the target
-// application's access to the actor's data.
-type UsageEvent_OAuth struct {
-	state                      protoimpl.MessageState  `protogen:"opaque.v1"`
-	xxx_hidden_Action          UsageEvent_OAuth_Action `protobuf:"varint,1,opt,name=action,proto3,enum=c1.connector.v2.UsageEvent_OAuth_Action"`
-	xxx_hidden_SourceEventName string                  `protobuf:"bytes,2,opt,name=source_event_name,json=sourceEventName,proto3"`
-	xxx_hidden_Scopes          []string                `protobuf:"bytes,3,rep,name=scopes,proto3"`
-	xxx_hidden_ClientType      string                  `protobuf:"bytes,4,opt,name=client_type,json=clientType,proto3"`
-	unknownFields              protoimpl.UnknownFields
-	sizeCache                  protoimpl.SizeCache
-}
-
-func (x *UsageEvent_OAuth) Reset() {
-	*x = UsageEvent_OAuth{}
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[13]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *UsageEvent_OAuth) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*UsageEvent_OAuth) ProtoMessage() {}
-
-func (x *UsageEvent_OAuth) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[13]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *UsageEvent_OAuth) GetAction() UsageEvent_OAuth_Action {
-	if x != nil {
-		return x.xxx_hidden_Action
-	}
-	return UsageEvent_OAuth_ACTION_UNSPECIFIED
-}
-
-func (x *UsageEvent_OAuth) GetSourceEventName() string {
-	if x != nil {
-		return x.xxx_hidden_SourceEventName
-	}
-	return ""
-}
-
-func (x *UsageEvent_OAuth) GetScopes() []string {
-	if x != nil {
-		return x.xxx_hidden_Scopes
-	}
-	return nil
-}
-
-func (x *UsageEvent_OAuth) GetClientType() string {
-	if x != nil {
-		return x.xxx_hidden_ClientType
-	}
-	return ""
-}
-
-func (x *UsageEvent_OAuth) SetAction(v UsageEvent_OAuth_Action) {
-	x.xxx_hidden_Action = v
-}
-
-func (x *UsageEvent_OAuth) SetSourceEventName(v string) {
-	x.xxx_hidden_SourceEventName = v
-}
-
-func (x *UsageEvent_OAuth) SetScopes(v []string) {
-	x.xxx_hidden_Scopes = v
-}
-
-func (x *UsageEvent_OAuth) SetClientType(v string) {
-	x.xxx_hidden_ClientType = v
-}
-
-type UsageEvent_OAuth_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	// ACTION_UNSPECIFIED when source_event_name maps to no Action.
-	Action          UsageEvent_OAuth_Action
-	SourceEventName string
-	// Scopes the action applies to, as the source names them.
-	Scopes []string
-	// The source's client classification, as the source names it.
-	ClientType string
-}
-
-func (b0 UsageEvent_OAuth_builder) Build() *UsageEvent_OAuth {
-	m0 := &UsageEvent_OAuth{}
-	b, x := &b0, m0
-	_, _ = b, x
-	x.xxx_hidden_Action = b.Action
-	x.xxx_hidden_SourceEventName = b.SourceEventName
-	x.xxx_hidden_Scopes = b.Scopes
-	x.xxx_hidden_ClientType = b.ClientType
-	return m0
-}
-
 var File_c1_connector_v2_event_feed_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_event_feed_proto_rawDesc = "" +
@@ -1835,23 +1838,24 @@ const file_c1_connector_v2_event_feed_proto_rawDesc = "" +
 	"\x12create_grant_event\x18h \x01(\v2!.c1.connector.v2.CreateGrantEventH\x00R\x10createGrantEvent\x12T\n" +
 	"\x13create_revoke_event\x18i \x01(\v2\".c1.connector.v2.CreateRevokeEventH\x00R\x11createRevokeEvent\x126\n" +
 	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotationsB\a\n" +
-	"\x05event\"\xb6\x06\n" +
+	"\x05event\"\xff\x01\n" +
 	"\n" +
 	"UsageEvent\x12B\n" +
 	"\x0ftarget_resource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\x0etargetResource\x12@\n" +
-	"\x0eactor_resource\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceR\ractorResource\x12=\n" +
-	"\anetwork\x18\x03 \x01(\v2#.c1.connector.v2.UsageEvent.NetworkR\anetwork\x127\n" +
-	"\x05oauth\x18\x04 \x01(\v2!.c1.connector.v2.UsageEvent.OAuthR\x05oauth\x1a\xda\x01\n" +
-	"\aNetwork\x12)\n" +
+	"\x0eactor_resource\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceR\ractorResource\x128\n" +
+	"\anetwork\x18\x03 \x01(\v2\x1e.c1.connector.v2.NetworkOriginR\anetwork\x121\n" +
+	"\x05oauth\x18\x04 \x01(\v2\x1b.c1.connector.v2.OAuthUsageR\x05oauth\"\xe0\x01\n" +
+	"\rNetworkOrigin\x12)\n" +
 	"\n" +
 	"ip_address\x18\x01 \x01(\tB\n" +
 	"\xfaB\ar\x05\xd0\x01\x01p\x01R\tipAddress\x127\n" +
 	"\fcountry_code\x18\x02 \x01(\tB\x14\xfaB\x11r\x0f2\n" +
 	"^[A-Z]{2}$\xd0\x01\x01R\vcountryCode\x12M\n" +
 	"\x10subdivision_code\x18\x03 \x01(\tB\"\xfaB\x1fr\x1d2\x18^[A-Z]{2}-[A-Z0-9]{1,3}$\xd0\x01\x01R\x0fsubdivisionCode\x12\x1c\n" +
-	"\x04asns\x18\x04 \x03(\rB\b\xfaB\x05\x92\x01\x02\x10@R\x04asns\x1a\xcc\x02\n" +
-	"\x05OAuth\x12@\n" +
-	"\x06action\x18\x01 \x01(\x0e2(.c1.connector.v2.UsageEvent.OAuth.ActionR\x06action\x127\n" +
+	"\x04asns\x18\x04 \x03(\rB\b\xfaB\x05\x92\x01\x02\x10@R\x04asns\"\xcb\x02\n" +
+	"\n" +
+	"OAuthUsage\x12:\n" +
+	"\x06action\x18\x01 \x01(\x0e2\".c1.connector.v2.OAuthUsage.ActionR\x06action\x127\n" +
 	"\x11source_event_name\x18\x02 \x01(\tB\v\xfaB\br\x06(\x80\x02\xd0\x01\x01R\x0fsourceEventName\x12*\n" +
 	"\x06scopes\x18\x03 \x03(\tB\x12\xfaB\x0f\x92\x01\f\x10\x80\x02\"\ar\x05 \x01(\x80\x04R\x06scopes\x12,\n" +
 	"\vclient_type\x18\x04 \x01(\tB\v\xfaB\br\x06(\x80\x02\xd0\x01\x01R\n" +
@@ -1899,21 +1903,21 @@ var file_c1_connector_v2_event_feed_proto_enumTypes = make([]protoimpl.EnumInfo,
 var file_c1_connector_v2_event_feed_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_c1_connector_v2_event_feed_proto_goTypes = []any{
 	(EventType)(0),                 // 0: c1.connector.v2.EventType
-	(UsageEvent_OAuth_Action)(0),   // 1: c1.connector.v2.UsageEvent.OAuth.Action
+	(OAuthUsage_Action)(0),         // 1: c1.connector.v2.OAuthUsage.Action
 	(*ListEventsRequest)(nil),      // 2: c1.connector.v2.ListEventsRequest
 	(*ListEventsResponse)(nil),     // 3: c1.connector.v2.ListEventsResponse
 	(*ListEventFeedsRequest)(nil),  // 4: c1.connector.v2.ListEventFeedsRequest
 	(*ListEventFeedsResponse)(nil), // 5: c1.connector.v2.ListEventFeedsResponse
 	(*Event)(nil),                  // 6: c1.connector.v2.Event
 	(*UsageEvent)(nil),             // 7: c1.connector.v2.UsageEvent
-	(*GrantEvent)(nil),             // 8: c1.connector.v2.GrantEvent
-	(*CreateGrantEvent)(nil),       // 9: c1.connector.v2.CreateGrantEvent
-	(*CreateRevokeEvent)(nil),      // 10: c1.connector.v2.CreateRevokeEvent
-	(*RevokeEvent)(nil),            // 11: c1.connector.v2.RevokeEvent
-	(*ResourceChangeEvent)(nil),    // 12: c1.connector.v2.ResourceChangeEvent
-	(*EventFeedMetadata)(nil),      // 13: c1.connector.v2.EventFeedMetadata
-	(*UsageEvent_Network)(nil),     // 14: c1.connector.v2.UsageEvent.Network
-	(*UsageEvent_OAuth)(nil),       // 15: c1.connector.v2.UsageEvent.OAuth
+	(*NetworkOrigin)(nil),          // 8: c1.connector.v2.NetworkOrigin
+	(*OAuthUsage)(nil),             // 9: c1.connector.v2.OAuthUsage
+	(*GrantEvent)(nil),             // 10: c1.connector.v2.GrantEvent
+	(*CreateGrantEvent)(nil),       // 11: c1.connector.v2.CreateGrantEvent
+	(*CreateRevokeEvent)(nil),      // 12: c1.connector.v2.CreateRevokeEvent
+	(*RevokeEvent)(nil),            // 13: c1.connector.v2.RevokeEvent
+	(*ResourceChangeEvent)(nil),    // 14: c1.connector.v2.ResourceChangeEvent
+	(*EventFeedMetadata)(nil),      // 15: c1.connector.v2.EventFeedMetadata
 	(*timestamppb.Timestamp)(nil),  // 16: google.protobuf.Timestamp
 	(*anypb.Any)(nil),              // 17: google.protobuf.Any
 	(*Resource)(nil),               // 18: c1.connector.v2.Resource
@@ -1927,33 +1931,33 @@ var file_c1_connector_v2_event_feed_proto_depIdxs = []int32{
 	6,  // 2: c1.connector.v2.ListEventsResponse.events:type_name -> c1.connector.v2.Event
 	17, // 3: c1.connector.v2.ListEventsResponse.annotations:type_name -> google.protobuf.Any
 	17, // 4: c1.connector.v2.ListEventFeedsRequest.annotations:type_name -> google.protobuf.Any
-	13, // 5: c1.connector.v2.ListEventFeedsResponse.list:type_name -> c1.connector.v2.EventFeedMetadata
+	15, // 5: c1.connector.v2.ListEventFeedsResponse.list:type_name -> c1.connector.v2.EventFeedMetadata
 	17, // 6: c1.connector.v2.ListEventFeedsResponse.annotations:type_name -> google.protobuf.Any
 	16, // 7: c1.connector.v2.Event.occurred_at:type_name -> google.protobuf.Timestamp
 	7,  // 8: c1.connector.v2.Event.usage_event:type_name -> c1.connector.v2.UsageEvent
-	8,  // 9: c1.connector.v2.Event.grant_event:type_name -> c1.connector.v2.GrantEvent
-	11, // 10: c1.connector.v2.Event.revoke_event:type_name -> c1.connector.v2.RevokeEvent
-	12, // 11: c1.connector.v2.Event.resource_change_event:type_name -> c1.connector.v2.ResourceChangeEvent
-	9,  // 12: c1.connector.v2.Event.create_grant_event:type_name -> c1.connector.v2.CreateGrantEvent
-	10, // 13: c1.connector.v2.Event.create_revoke_event:type_name -> c1.connector.v2.CreateRevokeEvent
+	10, // 9: c1.connector.v2.Event.grant_event:type_name -> c1.connector.v2.GrantEvent
+	13, // 10: c1.connector.v2.Event.revoke_event:type_name -> c1.connector.v2.RevokeEvent
+	14, // 11: c1.connector.v2.Event.resource_change_event:type_name -> c1.connector.v2.ResourceChangeEvent
+	11, // 12: c1.connector.v2.Event.create_grant_event:type_name -> c1.connector.v2.CreateGrantEvent
+	12, // 13: c1.connector.v2.Event.create_revoke_event:type_name -> c1.connector.v2.CreateRevokeEvent
 	17, // 14: c1.connector.v2.Event.annotations:type_name -> google.protobuf.Any
 	18, // 15: c1.connector.v2.UsageEvent.target_resource:type_name -> c1.connector.v2.Resource
 	18, // 16: c1.connector.v2.UsageEvent.actor_resource:type_name -> c1.connector.v2.Resource
-	14, // 17: c1.connector.v2.UsageEvent.network:type_name -> c1.connector.v2.UsageEvent.Network
-	15, // 18: c1.connector.v2.UsageEvent.oauth:type_name -> c1.connector.v2.UsageEvent.OAuth
-	19, // 19: c1.connector.v2.GrantEvent.grant:type_name -> c1.connector.v2.Grant
-	20, // 20: c1.connector.v2.CreateGrantEvent.entitlement:type_name -> c1.connector.v2.Entitlement
-	18, // 21: c1.connector.v2.CreateGrantEvent.principal:type_name -> c1.connector.v2.Resource
-	17, // 22: c1.connector.v2.CreateGrantEvent.annotations:type_name -> google.protobuf.Any
-	20, // 23: c1.connector.v2.CreateRevokeEvent.entitlement:type_name -> c1.connector.v2.Entitlement
-	18, // 24: c1.connector.v2.CreateRevokeEvent.principal:type_name -> c1.connector.v2.Resource
-	17, // 25: c1.connector.v2.CreateRevokeEvent.annotations:type_name -> google.protobuf.Any
-	20, // 26: c1.connector.v2.RevokeEvent.entitlement:type_name -> c1.connector.v2.Entitlement
-	18, // 27: c1.connector.v2.RevokeEvent.principal:type_name -> c1.connector.v2.Resource
-	21, // 28: c1.connector.v2.ResourceChangeEvent.resource_id:type_name -> c1.connector.v2.ResourceId
-	21, // 29: c1.connector.v2.ResourceChangeEvent.parent_resource_id:type_name -> c1.connector.v2.ResourceId
-	0,  // 30: c1.connector.v2.EventFeedMetadata.supported_event_types:type_name -> c1.connector.v2.EventType
-	1,  // 31: c1.connector.v2.UsageEvent.OAuth.action:type_name -> c1.connector.v2.UsageEvent.OAuth.Action
+	8,  // 17: c1.connector.v2.UsageEvent.network:type_name -> c1.connector.v2.NetworkOrigin
+	9,  // 18: c1.connector.v2.UsageEvent.oauth:type_name -> c1.connector.v2.OAuthUsage
+	1,  // 19: c1.connector.v2.OAuthUsage.action:type_name -> c1.connector.v2.OAuthUsage.Action
+	19, // 20: c1.connector.v2.GrantEvent.grant:type_name -> c1.connector.v2.Grant
+	20, // 21: c1.connector.v2.CreateGrantEvent.entitlement:type_name -> c1.connector.v2.Entitlement
+	18, // 22: c1.connector.v2.CreateGrantEvent.principal:type_name -> c1.connector.v2.Resource
+	17, // 23: c1.connector.v2.CreateGrantEvent.annotations:type_name -> google.protobuf.Any
+	20, // 24: c1.connector.v2.CreateRevokeEvent.entitlement:type_name -> c1.connector.v2.Entitlement
+	18, // 25: c1.connector.v2.CreateRevokeEvent.principal:type_name -> c1.connector.v2.Resource
+	17, // 26: c1.connector.v2.CreateRevokeEvent.annotations:type_name -> google.protobuf.Any
+	20, // 27: c1.connector.v2.RevokeEvent.entitlement:type_name -> c1.connector.v2.Entitlement
+	18, // 28: c1.connector.v2.RevokeEvent.principal:type_name -> c1.connector.v2.Resource
+	21, // 29: c1.connector.v2.ResourceChangeEvent.resource_id:type_name -> c1.connector.v2.ResourceId
+	21, // 30: c1.connector.v2.ResourceChangeEvent.parent_resource_id:type_name -> c1.connector.v2.ResourceId
+	0,  // 31: c1.connector.v2.EventFeedMetadata.supported_event_types:type_name -> c1.connector.v2.EventType
 	2,  // 32: c1.connector.v2.EventService.ListEvents:input_type -> c1.connector.v2.ListEventsRequest
 	4,  // 33: c1.connector.v2.EventService.ListEventFeeds:input_type -> c1.connector.v2.ListEventFeedsRequest
 	3,  // 34: c1.connector.v2.EventService.ListEvents:output_type -> c1.connector.v2.ListEventsResponse

@@ -77,68 +77,71 @@ message Event {
   repeated google.protobuf.Any annotations = 3;
 }
 
-// Producers leave unset any network or oauth value that fails its validate
-// rule rather than copying it from the source: Event validation rejects the
-// whole event, not the one value.
 message UsageEvent {
   c1.connector.v2.Resource target_resource = 1;
   c1.connector.v2.Resource actor_resource = 2;
   // Network origin of the actor.
-  Network network = 3;
+  NetworkOrigin network = 3;
   // Set when the event is OAuth consent activity.
-  OAuth oauth = 4;
+  OAuthUsage oauth = 4;
+}
 
-  message Network {
-    string ip_address = 1 [(validate.rules).string = {
-      ip: true
-      ignore_empty: true
-    }];
-    // ISO 3166-1 alpha-2, e.g. "US".
-    string country_code = 2 [(validate.rules).string = {
-      pattern: "^[A-Z]{2}$"
-      ignore_empty: true
-    }];
-    // ISO 3166-2, e.g. "US-OR".
-    string subdivision_code = 3 [(validate.rules).string = {
-      pattern: "^[A-Z]{2}-[A-Z0-9]{1,3}$"
-      ignore_empty: true
-    }];
-    // Autonomous system numbers the source attributes to ip_address.
-    repeated uint32 asns = 4 [(validate.rules).repeated = {max_items: 64}];
+// Producers leave unset any value that fails its validate rule rather than
+// copying it from the source: Event validation rejects the whole event, not
+// the one value.
+message NetworkOrigin {
+  string ip_address = 1 [(validate.rules).string = {
+    ip: true
+    ignore_empty: true
+  }];
+  // ISO 3166-1 alpha-2, e.g. "US".
+  string country_code = 2 [(validate.rules).string = {
+    pattern: "^[A-Z]{2}$"
+    ignore_empty: true
+  }];
+  // ISO 3166-2, e.g. "US-OR".
+  string subdivision_code = 3 [(validate.rules).string = {
+    pattern: "^[A-Z]{2}-[A-Z0-9]{1,3}$"
+    ignore_empty: true
+  }];
+  // Autonomous system numbers the source attributes to ip_address.
+  repeated uint32 asns = 4 [(validate.rules).repeated = {max_items: 64}];
+}
+
+// OAuth consent activity: a user authorizes, revokes, is denied, or requests
+// an application's access to the user's data.
+// Producers leave unset any value that fails its validate rule rather than
+// copying it from the source: Event validation rejects the whole event, not
+// the one value.
+message OAuthUsage {
+  enum Action {
+    ACTION_UNSPECIFIED = 0;
+    ACTION_AUTHORIZE = 1;
+    ACTION_REVOKE = 2;
+    ACTION_DENY = 3;
+    ACTION_REQUEST = 4;
   }
-
-  // The actor authorizes, revokes, is denied, or requests the target
-  // application's access to the actor's data.
-  message OAuth {
-    enum Action {
-      ACTION_UNSPECIFIED = 0;
-      ACTION_AUTHORIZE = 1;
-      ACTION_REVOKE = 2;
-      ACTION_DENY = 3;
-      ACTION_REQUEST = 4;
-    }
-    // ACTION_UNSPECIFIED when source_event_name maps to no Action.
-    Action action = 1;
-    string source_event_name = 2 [(validate.rules).string = {
-      max_bytes: 256
-      ignore_empty: true
-    }];
-    // Scopes the action applies to, as the source names them.
-    repeated string scopes = 3 [(validate.rules).repeated = {
-      max_items: 256
-      items: {
-        string: {
-          min_bytes: 1
-          max_bytes: 512
-        }
+  // ACTION_UNSPECIFIED when source_event_name maps to no Action.
+  Action action = 1;
+  string source_event_name = 2 [(validate.rules).string = {
+    max_bytes: 256
+    ignore_empty: true
+  }];
+  // Scopes the action applies to, as the source names them.
+  repeated string scopes = 3 [(validate.rules).repeated = {
+    max_items: 256
+    items: {
+      string: {
+        min_bytes: 1
+        max_bytes: 512
       }
-    }];
-    // The source's client classification, as the source names it.
-    string client_type = 4 [(validate.rules).string = {
-      max_bytes: 256
-      ignore_empty: true
-    }];
-  }
+    }
+  }];
+  // The source's client classification, as the source names it.
+  string client_type = 4 [(validate.rules).string = {
+    max_bytes: 256
+    ignore_empty: true
+  }];
 }
 
 // Unrelated to this effort, but valuable for other projects
