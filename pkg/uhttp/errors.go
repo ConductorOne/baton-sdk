@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -33,6 +32,7 @@ func classifyTransportFailure(err error, endpoint string) error {
 	if endpoint == "" {
 		endpoint = endpointOf(err)
 	}
+	endpoint = failedEndpoint(err, endpoint)
 
 	// A rejected token request is classified in oauth2.go, from the RFC 6749
 	// error param rather than the HTTP status alone. This branch is total
@@ -115,35 +115,108 @@ func classifyTransportFailure(err error, endpoint string) error {
 	// (e.g. tls.handshakeTimeoutError at the RoundTrip level).
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
-		return WrapErrors(codes.DeadlineExceeded, fmt.Sprintf("network timeout: %v", err), err)
+		return wrapSocketClass(socketTimeout, err, endpoint)
 	}
 	// Winsock timeouts do not satisfy the check above, so they need their own.
 	if isSocketTimeout(err) {
-		return WrapErrors(codes.DeadlineExceeded, fmt.Sprintf("network timeout: %v", err), err)
+		return wrapSocketClass(socketTimeout, err, endpoint)
 	}
 
 	return err
 }
 
-// wrapRequestError classifies a request that got no response. An error that
-// already carries a gRPC status was classified closer to the failure, by
-// Transport.RoundTrip, and is returned as it is: one request states one status.
+// wrapRequestError classifies a request that got no response.
 func wrapRequestError(err error) error {
-	if err == nil || status.Code(err) != codes.Unknown {
+	if err == nil {
+		return nil
+	}
+	//nolint:errorlint // http.Client.Do returns this wrapper, and only the outermost error's text comes first.
+	if urlErr, ok := err.(*url.Error); ok {
+		return wrapURLError(urlErr)
+	}
+	// Transport.RoundTrip classified this one: one request states one status.
+	if status.Code(err) != codes.Unknown {
 		return err
 	}
 	return wrapTransientNetworkError(err)
 }
 
-// hostAndPath is rawURL without its scheme and query string. The description
-// this package writes uses it. A joined *url.Error still prints the full URL,
-// and status.FromError copies that text into the status message.
+// wrapURLError rewrites the error http.Client.Do returns so the request's
+// status comes first and the URL under it carries no query string, where a
+// connector is free to send a credential. status.FromError copies this whole
+// text into the status message of a wrapped status.
+func wrapURLError(urlErr *url.Error) error {
+	requestErr := &url.Error{Op: urlErr.Op, URL: withoutQuery(urlErr.URL), Err: urlErr.Err}
+	st := statusIn(urlErr)
+	if st == nil {
+		return wrapTransientNetworkError(requestErr)
+	}
+	rest := withoutStatus(urlErr.Err)
+	if rest == nil {
+		// The wrapper names the request, so it stays when nothing else is
+		// under it.
+		return requestErr
+	}
+	requestErr.Err = rest
+	return errors.Join(st, requestErr)
+}
+
+// withoutQuery is rawURL without its query string. The first '?' starts it:
+// a path cannot hold one unescaped.
+func withoutQuery(rawURL string) string {
+	trimmed, _, _ := strings.Cut(rawURL, "?")
+	return trimmed
+}
+
+// statusIn is the error in err that carries a gRPC status, or nil.
+func statusIn(err error) error {
+	var carrier interface{ GRPCStatus() *status.Status }
+	if !errors.As(err, &carrier) {
+		return nil
+	}
+	carried, ok := carrier.(error)
+	if !ok {
+		return nil
+	}
+	return carried
+}
+
+// withoutStatus is err without the status errors joined directly into it, so
+// a status stated above the chain is not printed inside it too.
+func withoutStatus(err error) error {
+	if carriesStatus(err) {
+		return nil
+	}
+	joined, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		return err
+	}
+	branches := joined.Unwrap()
+	rest := make([]error, 0, len(branches))
+	for _, branch := range branches {
+		if carriesStatus(branch) {
+			continue
+		}
+		rest = append(rest, branch)
+	}
+	return errors.Join(rest...)
+}
+
+// carriesStatus reports whether err itself is a status, rather than wrapping one.
+func carriesStatus(err error) bool {
+	_, ok := err.(interface{ GRPCStatus() *status.Status })
+	return ok
+}
+
+// hostAndPath is rawURL without its scheme and query string. The path stays
+// percent-encoded: a decoded '%0A' would add a line to the description that
+// reads as a status of its own.
 func hostAndPath(rawURL string) string {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return ""
 	}
-	return u.Host + u.Path
+	return u.Host + u.EscapedPath()
 }
 
 // endpointOf is the host and path of a *url.Error in err, without the query string.
@@ -160,7 +233,26 @@ func requestEndpoint(req *http.Request) string {
 	if req == nil || req.URL == nil {
 		return ""
 	}
-	return req.URL.Host + req.URL.Path
+	return req.URL.Host + req.URL.EscapedPath()
+}
+
+// failedEndpoint is what the request failed to reach. A proxyconnect error
+// is raised before the target host sees the request, so naming the request's
+// own endpoint there reports the target as the host that refused.
+func failedEndpoint(err error, endpoint string) string {
+	var opErr *net.OpError
+	if !errors.As(err, &opErr) || opErr.Op != "proxyconnect" {
+		return endpoint
+	}
+	proxy := "proxy"
+	var dialErr *net.OpError
+	if errors.As(opErr.Err, &dialErr) && dialErr.Addr != nil {
+		proxy += " " + dialErr.Addr.String()
+	}
+	if endpoint == "" {
+		return proxy
+	}
+	return proxy + " for " + endpoint
 }
 
 // withEndpoint appends endpoint to msg. An empty endpoint keeps msg as it is.
@@ -194,10 +286,6 @@ type socketCondition struct {
 }
 
 // socketClassifications is the classification each class receives.
-// socketTimeout's message is reached only from oauth2.go's text-only table:
-// on the typed path a timeout is caught by the net.Error branch below (or by
-// isSocketTimeout on Windows), which keeps the underlying error in the
-// message.
 var socketClassifications = map[socketClass]struct {
 	code codes.Code
 	msg  string

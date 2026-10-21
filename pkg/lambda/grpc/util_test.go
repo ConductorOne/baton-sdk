@@ -2,6 +2,8 @@ package grpc
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -143,6 +145,22 @@ func TestErrorResponse_DeadlineExceeded(t *testing.T) {
 	st, stErr := resp.Status()
 	require.NoError(t, stErr)
 	require.Equal(t, codes.DeadlineExceeded, st.Code())
+}
+
+// A certificate the client does not trust is terminal, as it is in uhttp.
+func TestErrorResponse_UntrustedCertificate(t *testing.T) {
+	err := &url.Error{
+		Op:  "Get",
+		URL: "https://example.com/x",
+		Err: &tls.CertificateVerificationError{Err: errors.New("x509: certificate signed by unknown authority")},
+	}
+	resp := ErrorResponse(err)
+	require.NotNil(t, resp)
+
+	st, stErr := resp.Status()
+	require.NoError(t, stErr)
+	require.Equal(t, codes.FailedPrecondition, st.Code())
+	require.Contains(t, st.Message(), "tls certificate verification failed")
 }
 
 func TestErrorResponse_GRPCStatusPassthrough(t *testing.T) {
