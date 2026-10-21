@@ -48,6 +48,7 @@ var (
 	packageOffset               = 8 // First 8 bytes are the size of the stream
 	sheetProtectionSpinCount    = 1e5
 	workbookProtectionSpinCount = 1e5
+	maxSpinCount                = 1e7
 )
 
 // Encryption specifies the encryption structure, streams, and storages are
@@ -145,8 +146,12 @@ func Decrypt(raw []byte, opts *Options) (packageBuf []byte, err error) {
 	if err != nil {
 		return
 	}
+	maxStreamSize := min(int64(len(raw)), MaxCFBStreamSizeV4)
+	if ver := binary.LittleEndian.Uint16(raw[26:28]); ver == 3 {
+		maxStreamSize = min(int64(len(raw)), MaxCFBStreamSizeV3)
+	}
 	var encryptionInfoBuf, encryptedPackageBuf []byte
-	if encryptionInfoBuf, encryptedPackageBuf, err = extractPart(doc); err != nil {
+	if encryptionInfoBuf, encryptedPackageBuf, err = extractPart(doc, maxStreamSize); err != nil {
 		return
 	}
 	mechanism, err := encryptionMechanism(encryptionInfoBuf)
@@ -189,22 +194,24 @@ func Encrypt(raw []byte, opts *Options) ([]byte, error) {
 }
 
 // extractPart extract data from storage by specified part name.
-func extractPart(doc *mscfb.Reader) ([]byte, []byte, error) {
+func extractPart(doc *mscfb.Reader, maxStreamSize int64) ([]byte, []byte, error) {
 	var encryptionInfoBuf, encryptedPackageBuf []byte
 	for entry, err := doc.Next(); err == nil; entry, err = doc.Next() {
 		switch entry.Name {
-		case "EncryptionInfo":
+		case "EncryptionInfo", "EncryptedPackage":
+			if entry.Size < 0 || maxStreamSize < entry.Size {
+				return encryptionInfoBuf, encryptedPackageBuf, ErrWorkbookFileFormat
+			}
 			buf := make([]byte, entry.Size)
 			if _, err := doc.Read(buf); err != nil {
 				return encryptionInfoBuf, encryptedPackageBuf, err
 			}
-			encryptionInfoBuf = buf
-		case "EncryptedPackage":
-			buf := make([]byte, entry.Size)
-			if _, err := doc.Read(buf); err != nil {
-				return encryptionInfoBuf, encryptedPackageBuf, err
+			if entry.Name == "EncryptionInfo" {
+				encryptionInfoBuf = buf
 			}
-			encryptedPackageBuf = buf
+			if entry.Name == "EncryptedPackage" {
+				encryptedPackageBuf = buf
+			}
 		}
 	}
 	return encryptionInfoBuf, encryptedPackageBuf, nil
@@ -234,8 +241,15 @@ func encryptionMechanism(buffer []byte) (mechanism string, err error) {
 
 // standardDecrypt decrypt the CFB file format with ECMA-376 standard encryption.
 func standardDecrypt(encryptionInfoBuf, encryptedPackageBuf []byte, opts *Options) ([]byte, error) {
+	if len(encryptionInfoBuf) < 12 || len(encryptedPackageBuf) < packageOffset || (len(encryptedPackageBuf)-packageOffset)%aes.BlockSize != 0 {
+		return nil, ErrWorkbookFileFormat
+	}
 	encryptionHeaderSize := binary.LittleEndian.Uint32(encryptionInfoBuf[8:12])
-	block := encryptionInfoBuf[12 : 12+encryptionHeaderSize]
+	if encryptionHeaderSize < 32 || uint64(encryptionHeaderSize) > uint64(len(encryptionInfoBuf)-12) {
+		return nil, ErrWorkbookFileFormat
+	}
+	headerEnd := 12 + int(encryptionHeaderSize)
+	block := encryptionInfoBuf[12:headerEnd]
 	header := StandardEncryptionHeader{
 		Flags:        binary.LittleEndian.Uint32(block[:4]),
 		SizeExtra:    binary.LittleEndian.Uint32(block[4:8]),
@@ -247,16 +261,22 @@ func standardDecrypt(encryptionInfoBuf, encryptedPackageBuf []byte, opts *Option
 		Reserved2:    binary.LittleEndian.Uint32(block[28:32]),
 		CspName:      string(block[32:]),
 	}
-	block = encryptionInfoBuf[12+encryptionHeaderSize:]
+	block = encryptionInfoBuf[headerEnd:]
 	algIDMap := map[uint32]string{
 		0x0000660E: "AES-128",
 		0x0000660F: "AES-192",
 		0x00006610: "AES-256",
 	}
 	algorithm := "AES"
+	// verifierSize = SaltSize + Salt + EncryptedVerifier + VerifierHashSize + EncryptedVerifierHash
+	verifierSize := 4 + 16 + 16 + 4 + 32
 	_, ok := algIDMap[header.AlgID]
 	if !ok {
 		algorithm = "RC4"
+		verifierSize = 4 + 16 + 16 + 4 + 20
+	}
+	if len(block) < verifierSize {
+		return nil, ErrWorkbookFileFormat
 	}
 	verifier := standardEncryptionVerifier(algorithm, block)
 	secretKey, err := standardConvertPasswdToKey(header, verifier, opts)
@@ -296,6 +316,9 @@ func standardEncryptionVerifier(algorithm string, blob []byte) StandardEncryptio
 
 // standardConvertPasswdToKey generate intermediate key from given password.
 func standardConvertPasswdToKey(header StandardEncryptionHeader, verifier StandardEncryptionVerifier, opts *Options) ([]byte, error) {
+	if header.KeySize != 128 && header.KeySize != 192 && header.KeySize != 256 {
+		return nil, ErrWorkbookFileFormat
+	}
 	encoder := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM).NewEncoder()
 	passwordBuffer, err := encoder.Bytes([]byte(opts.Password))
 	if err != nil {
@@ -402,6 +425,9 @@ func (e *encryption) standardKeyEncryption(password string) ([]byte, error) {
 // Support cryptographic algorithm: MD4, MD5, RIPEMD-160, SHA1, SHA256,
 // SHA384 and SHA512.
 func agileDecrypt(encryptionInfoBuf, encryptedPackageBuf []byte, opts *Options) (packageBuf []byte, err error) {
+	if len(encryptionInfoBuf) < 8 {
+		return nil, ErrWorkbookFileFormat
+	}
 	var encryptionInfo Encryption
 	if encryptionInfo, err = parseEncryptionInfo(encryptionInfoBuf[8:]); err != nil {
 		return
@@ -421,17 +447,32 @@ func agileDecrypt(encryptionInfoBuf, encryptedPackageBuf []byte, opts *Options) 
 	if err != nil {
 		return
 	}
-	packageKey, _ := decrypt(key, saltValue, encryptedKeyValue)
+	packageKey, err := decrypt(key, saltValue, encryptedKeyValue)
+	if err != nil {
+		return nil, err
+	}
 	// Use the package key to decrypt the package.
 	return decryptPackage(packageKey, encryptedPackageBuf, encryptionInfo)
 }
 
 // convertPasswdToKey convert the password into an encryption key.
 func convertPasswdToKey(passwd string, blockKey []byte, encryption Encryption) (key []byte, err error) {
+	if len(encryption.KeyEncryptors.KeyEncryptor) == 0 {
+		return nil, ErrWorkbookFileFormat
+	}
 	var b bytes.Buffer
-	saltValue, err := base64.StdEncoding.DecodeString(encryption.KeyEncryptors.KeyEncryptor[0].EncryptedKey.SaltValue)
+	encryptedKey := encryption.KeyEncryptors.KeyEncryptor[0].EncryptedKey
+	spinCount := encryptedKey.SpinCount
+	if spinCount < 0 || spinCount > int(maxSpinCount) {
+		err = ErrMaxSpinCount
+		return
+	}
+	saltValue, err := base64.StdEncoding.DecodeString(encryptedKey.SaltValue)
 	if err != nil {
 		return
+	}
+	if encryptedKey.KeyBits != 128 && encryptedKey.KeyBits != 192 && encryptedKey.KeyBits != 256 {
+		return nil, ErrWorkbookFileFormat
 	}
 	b.Write(saltValue)
 	encoder := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM).NewEncoder()
@@ -442,18 +483,20 @@ func convertPasswdToKey(passwd string, blockKey []byte, encryption Encryption) (
 	b.Write(passwordBuffer)
 	// Generate the initial hash.
 	key = hashing(encryption.KeyData.HashAlgorithm, b.Bytes())
+	if len(key) == 0 {
+		return nil, ErrUnsupportedHashAlgorithm
+	}
 	// Now regenerate until spin count.
-	for i := 0; i < encryption.KeyEncryptors.KeyEncryptor[0].EncryptedKey.SpinCount; i++ {
+	for i := 0; i < spinCount; i++ {
 		iterator := createUInt32LEBuffer(i, 4)
 		key = hashing(encryption.KeyData.HashAlgorithm, iterator, key)
 	}
 	// Now generate the final hash.
 	key = hashing(encryption.KeyData.HashAlgorithm, key, blockKey)
 	// Truncate or pad as needed to get to length of keyBits.
-	keyBytes := encryption.KeyEncryptors.KeyEncryptor[0].EncryptedKey.KeyBits / 8
+	keyBytes := encryptedKey.KeyBits / 8
 	if len(key) < keyBytes {
-		tmp := make([]byte, 0x36)
-		key = append(key, tmp...)
+		key = append(key, bytes.Repeat([]byte{0x36}, keyBytes-len(key))...)
 	} else if len(key) > keyBytes {
 		key = key[:keyBytes]
 	}
@@ -503,6 +546,9 @@ func decrypt(key, iv, input []byte) (packageKey []byte, err error) {
 	if err != nil {
 		return input, err
 	}
+	if len(iv) != block.BlockSize() || len(input)%block.BlockSize() != 0 {
+		return nil, ErrWorkbookFileFormat
+	}
 	cipher.NewCBCDecrypter(block, iv).CryptBlocks(input, input)
 	return input, nil
 }
@@ -511,7 +557,7 @@ func decrypt(key, iv, input []byte) (packageKey []byte, err error) {
 // info.
 func decryptPackage(packageKey, input []byte, encryption Encryption) (outputChunks []byte, err error) {
 	encryptedKey := encryption.KeyData
-	if len(input) < packageOffset {
+	if len(input) < packageOffset || encryptedKey.BlockSize != aes.BlockSize || (len(input)-packageOffset)%aes.BlockSize != 0 {
 		err = ErrWorkbookFileFormat
 		return
 	}
@@ -529,11 +575,6 @@ func decryptPackage(packageKey, input []byte, encryption Encryption) (outputChun
 		// Grab the next chunk
 		inputChunk := input[start:end]
 
-		// Pad the chunk if it is not an integer multiple of the block size
-		remainder := len(inputChunk) % encryptedKey.BlockSize
-		if remainder != 0 {
-			inputChunk = append(inputChunk, make([]byte, encryptedKey.BlockSize-remainder)...)
-		}
 		// Create the initialization vector
 		iv, err = createIV(i, encryption)
 		if err != nil {
@@ -567,12 +608,17 @@ func createIV(blockKey interface{}, encryption Encryption) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if encryptedKey.BlockSize <= 0 {
+		return nil, ErrWorkbookFileFormat
+	}
 	// Create the initialization vector by hashing the salt with the block key.
 	// Truncate or pad as needed to meet the block size.
 	iv := hashing(encryptedKey.HashAlgorithm, append(saltValue, blockKeyBuf...))
+	if len(iv) == 0 {
+		return nil, ErrUnsupportedHashAlgorithm
+	}
 	if len(iv) < encryptedKey.BlockSize {
-		tmp := make([]byte, 0x36)
-		iv = append(iv, tmp...)
+		iv = append(iv, bytes.Repeat([]byte{0x36}, encryptedKey.BlockSize-len(iv))...)
 	} else if len(iv) > encryptedKey.BlockSize {
 		iv = iv[:encryptedKey.BlockSize]
 	}

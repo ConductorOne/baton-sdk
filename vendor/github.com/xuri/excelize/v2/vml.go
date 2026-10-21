@@ -246,7 +246,7 @@ func (f *File) deleteFormControl(sheetRelationshipsDrawingVML, cell string, isCo
 	}
 	for i, sp := range vml.Shape {
 		var shapeVal decodeShapeVal
-		if err = xml.Unmarshal([]byte(fmt.Sprintf("<shape>%s</shape>", sp.Val)), &shapeVal); err == nil &&
+		if err = xml.Unmarshal(fmt.Appendf(nil, "<shape>%s</shape>", sp.Val), &shapeVal); err == nil &&
 			cond(shapeVal.ClientData.ObjectType) && shapeVal.ClientData.Anchor != "" {
 			leftCol, topRow, err := extractAnchorCell(shapeVal.ClientData.Anchor)
 			if err != nil {
@@ -952,7 +952,7 @@ func (f *File) GetFormControls(sheet string) ([]FormControl, error) {
 		return formControls, err
 	}
 	target := f.getSheetRelationshipsTargetByID(sheet, ws.LegacyDrawing.RID)
-	drawingVML := strings.ReplaceAll(target, "..", "xl")
+	drawingVML := strings.TrimPrefix(strings.ReplaceAll(target, "..", "xl"), "/")
 	vml := f.VMLDrawing[drawingVML]
 	if vml == nil {
 		// Load exist VML shapes from xl/drawings/vmlDrawing%d.vml
@@ -999,7 +999,7 @@ func extractFormControl(clientData string) (FormControl, error) {
 		formControl FormControl
 		shapeVal    decodeShapeVal
 	)
-	if err = xml.Unmarshal([]byte(fmt.Sprintf("<shape>%s</shape>", clientData)), &shapeVal); err != nil {
+	if err = xml.Unmarshal(fmt.Appendf(nil, "<shape>%s</shape>", clientData), &shapeVal); err != nil {
 		return formControl, err
 	}
 	for formCtrlType, preset := range formCtrlPresets {
