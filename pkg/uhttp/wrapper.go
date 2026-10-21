@@ -428,11 +428,11 @@ func quotableContentType(contentType string) bool {
 		strings.HasPrefix(normalized, "text/html")
 }
 
-// jsonRecord matches an object or an array that names a member or separates
-// two elements, with the whitespace a formatter puts around the separator. A
-// message that opens with a bracket ("[ERROR] upstream: timeout") matches
-// none of it, however much punctuation it holds.
-var jsonRecord = regexp.MustCompile(`^[{\[].*["']\s*[:,]`)
+// jsonRecord matches an object or an array that quotes a string or separates
+// two single-quoted ones, which is what a record does and a message does not.
+// "[ERROR] upstream: timeout" and "[upstream] can't connect" match neither,
+// however much punctuation they hold.
+var jsonRecord = regexp.MustCompile(`^[{\[].*(?:"|'\s*[:,])`)
 
 // emailAddress matches an address down to a letters-only top-level domain,
 // so a version string with an '@' in it is not one.

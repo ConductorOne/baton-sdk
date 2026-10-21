@@ -705,6 +705,20 @@ func TestWithErrorResponse_BoundsTheBodyItQuotes(t *testing.T) {
 			notWant:     []string{"alice"},
 		},
 		{
+			name:        "a record of one element is omitted",
+			contentType: "text/plain",
+			body:        `["alice"]`,
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
+			name:        "an apostrophe in a bracketed message is not a record",
+			contentType: "text/plain",
+			body:        "[upstream] can't connect",
+			want:        "body: [upstream] can't connect",
+			notWant:     []string{"body omitted"},
+		},
+		{
 			name:        "a record a vendor declares no type for is omitted",
 			contentType: "",
 			body:        `{"login":"alice"}`,
