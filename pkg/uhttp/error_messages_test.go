@@ -698,6 +698,27 @@ func TestWithErrorResponse_BoundsTheBodyItQuotes(t *testing.T) {
 			notWant:     []string{"alice"},
 		},
 		{
+			name:        "a record a vendor declares as text is omitted with no address in it",
+			contentType: "text/plain",
+			body:        `{"login":"alice","name":"Alice Smith"}`,
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
+			name:        "a record a vendor declares no type for is omitted",
+			contentType: "",
+			body:        `{"login":"alice"}`,
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
+			name:        "a record a formatter spaced out is omitted",
+			contentType: "text/plain",
+			body:        `["alice", "bob"]`,
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
 			name:        "a record a vendor declares as text is omitted",
 			contentType: "text/plain",
 			body:        `{"login":"alice","email":"alice@example.com"}`,

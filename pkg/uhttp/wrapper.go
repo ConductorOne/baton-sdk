@@ -356,7 +356,8 @@ const maxQuotedBodyLength = 256
 
 // quotedBody renders an error body WithErrorResponse could not decode, as a
 // suffix for its message. Only a message is quoted: a record is where a
-// vendor states a user's login or email.
+// vendor states a user's login or email, whether it declares one or sends
+// one under a text type.
 func quotedBody(contentType string, body []byte) string {
 	if len(bytes.TrimSpace(body)) == 0 {
 		return ""
@@ -393,7 +394,7 @@ func quotableMessage(contentType string, body []byte) string {
 
 	prefix, markup := plainPrefix(strings.TrimSpace(strings.TrimPrefix(string(head), "\ufeff")))
 	message := oneLine(prefix)
-	if message == "" || emailAddress.MatchString(message) {
+	if message == "" || jsonRecord.MatchString(message) || emailAddress.MatchString(message) {
 		return ""
 	}
 	// The mark states that the message goes on. The cap and the scan each
@@ -426,6 +427,12 @@ func quotableContentType(contentType string) bool {
 		strings.HasPrefix(normalized, "text/plain") ||
 		strings.HasPrefix(normalized, "text/html")
 }
+
+// jsonRecord matches an object or an array that names a member or separates
+// two elements, with the whitespace a formatter puts around the separator. A
+// message that opens with a bracket ("[ERROR] upstream: timeout") matches
+// none of it, however much punctuation it holds.
+var jsonRecord = regexp.MustCompile(`^[{\[].*["']\s*[:,]`)
 
 // emailAddress matches an address down to a letters-only top-level domain,
 // so a version string with an '@' in it is not one.
