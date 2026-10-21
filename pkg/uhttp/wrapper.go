@@ -368,17 +368,6 @@ func quotedBody(contentType string, body []byte) string {
 	return ". body: " + message
 }
 
-// quotedDecodeFailure renders a body the JSON decoder rejected. The vendor
-// declared JSON and did not send it, so what the body holds is read from the
-// bytes rather than from that declaration. A body that is JSON the decoder
-// turned down for its shape is a record whatever those bytes look like.
-func quotedDecodeFailure(body []byte) string {
-	if json.Valid(bytes.TrimSpace(body)) {
-		return fmt.Sprintf(". body omitted (%d bytes)", len(body))
-	}
-	return quotedBody("", body)
-}
-
 // quotableMessage is the message body states, as a single line of at most
 // maxQuotedBodyLength runes and the mark that says more follows. It is ""
 // when there is nothing to quote: body states a record, or markup, or
@@ -404,7 +393,7 @@ func quotableMessage(contentType string, body []byte) string {
 
 	prefix, markup := plainPrefix(strings.TrimSpace(strings.TrimPrefix(string(head), "\ufeff")))
 	message := oneLine(prefix)
-	if message == "" || holdsRecord(message) {
+	if message == "" || emailAddress.MatchString(message) {
 		return ""
 	}
 	// The mark states that the message goes on. The cap and the scan each
@@ -438,36 +427,9 @@ func quotableContentType(contentType string) bool {
 		strings.HasPrefix(normalized, "text/html")
 }
 
-// jsonSeparator matches a quoted name or element followed by a JSON
-// separator, with the whitespace a formatter puts between them.
-var jsonSeparator = regexp.MustCompile(`["']\s*[:,]`)
-
 // emailAddress matches an address down to a letters-only top-level domain,
 // so a version string with an '@' in it is not one.
 var emailAddress = regexp.MustCompile(`[^\s@]+@[^\s@]+\.[A-Za-z]{2,}`)
-
-// holdsRecord reports whether text states a record. The content type answers
-// this first; this is the backstop for a vendor that declares text and sends
-// a record in it.
-func holdsRecord(text string) bool {
-	return jsonRecord(text) || emailAddress.MatchString(text)
-}
-
-// jsonRecord reports whether text states a JSON value rather than a message.
-func jsonRecord(text string) bool {
-	switch {
-	case strings.HasPrefix(text, "{"), strings.HasPrefix(text, "["):
-		// A record that does not parse -- cut by the cap, or malformed --
-		// still names a member or separates two elements. A message that
-		// opens with a bracket ("[ERROR] upstream: timeout") does neither,
-		// however much punctuation it holds.
-		return jsonSeparator.MatchString(text)
-	case strings.HasPrefix(text, `"`):
-		return json.Valid([]byte(text))
-	}
-	// A record behind a prefix, such as an XSSI guard.
-	return strings.Contains(text, `{"`) || strings.Contains(text, `["`)
-}
 
 // plainPrefix is text up to the first markup tag, and whether a tag ended it.
 // A '<' that opens no tag, as in "quota must be < 5", is part of the message.
@@ -578,7 +540,7 @@ func WithErrorResponse(resource ErrorResponse) DoOption {
 		if err := json.Unmarshal(resp.Body, &resource); err != nil {
 			return status.Errorf(grpcCode,
 				"failed to unmarshal JSON error response: %v. status code: %d%s",
-				err, resp.StatusCode, quotedDecodeFailure(resp.Body))
+				err, resp.StatusCode, quotedBody(contentHeader, resp.Body))
 		}
 
 		// Construct a more detailed error message
