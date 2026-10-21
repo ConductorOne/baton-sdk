@@ -165,15 +165,13 @@ func (b0 GrantsReaderServiceGetGrantResponse_builder) Build() *GrantsReaderServi
 }
 
 type GrantsReaderServiceListGrantsForEntitlementRequest struct {
-	state       protoimpl.MessageState `protogen:"hybrid.v1"`
-	Entitlement *v2.Entitlement        `protobuf:"bytes,1,opt,name=entitlement,proto3" json:"entitlement,omitempty"`
-	// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
-	PrincipalId *v2.ResourceId `protobuf:"bytes,5,opt,name=principal_id,json=principalId,proto3" json:"principal_id,omitempty"`
-	// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
-	PrincipalResourceTypeIds []string     `protobuf:"bytes,6,rep,name=principal_resource_type_ids,json=principalResourceTypeIds,proto3" json:"principal_resource_type_ids,omitempty"`
-	PageSize                 uint32       `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	PageToken                string       `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
-	Annotations              []*anypb.Any `protobuf:"bytes,4,rep,name=annotations,proto3" json:"annotations,omitempty"`
+	state                    protoimpl.MessageState `protogen:"hybrid.v1"`
+	Entitlement              *v2.Entitlement        `protobuf:"bytes,1,opt,name=entitlement,proto3" json:"entitlement,omitempty"`
+	PrincipalId              *v2.ResourceId         `protobuf:"bytes,5,opt,name=principal_id,json=principalId,proto3" json:"principal_id,omitempty"`
+	PrincipalResourceTypeIds []string               `protobuf:"bytes,6,rep,name=principal_resource_type_ids,json=principalResourceTypeIds,proto3" json:"principal_resource_type_ids,omitempty"`
+	PageSize                 uint32                 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken                string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	Annotations              []*anypb.Any           `protobuf:"bytes,4,rep,name=annotations,proto3" json:"annotations,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -210,7 +208,6 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) GetEntitlement() *v
 	return nil
 }
 
-// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) GetPrincipalId() *v2.ResourceId {
 	if x != nil {
 		return x.PrincipalId
@@ -218,7 +215,6 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) GetPrincipalId() *v
 	return nil
 }
 
-// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) GetPrincipalResourceTypeIds() []string {
 	if x != nil {
 		return x.PrincipalResourceTypeIds
@@ -251,12 +247,10 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) SetEntitlement(v *v
 	x.Entitlement = v
 }
 
-// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) SetPrincipalId(v *v2.ResourceId) {
 	x.PrincipalId = v
 }
 
-// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) SetPrincipalResourceTypeIds(v []string) {
 	x.PrincipalResourceTypeIds = v
 }
@@ -280,7 +274,6 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) HasEntitlement() bo
 	return x.Entitlement != nil
 }
 
-// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) HasPrincipalId() bool {
 	if x == nil {
 		return false
@@ -292,7 +285,6 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) ClearEntitlement() 
 	x.Entitlement = nil
 }
 
-// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) ClearPrincipalId() {
 	x.PrincipalId = nil
 }
@@ -300,10 +292,8 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) ClearPrincipalId() 
 type GrantsReaderServiceListGrantsForEntitlementRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Entitlement *v2.Entitlement
-	// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
-	PrincipalId *v2.ResourceId
-	// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
+	Entitlement              *v2.Entitlement
+	PrincipalId              *v2.ResourceId
 	PrincipalResourceTypeIds []string
 	PageSize                 uint32
 	PageToken                string
@@ -970,12 +960,11 @@ const file_c1_reader_v2_grant_proto_rawDesc = "" +
 	"\xfaB\ar\x05 \x01(\x80\bR\agrantId\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"S\n" +
 	"#GrantsReaderServiceGetGrantResponse\x12,\n" +
-	"\x05grant\x18\x01 \x01(\v2\x16.c1.connector.v2.GrantR\x05grant\"\x9c\x03\n" +
+	"\x05grant\x18\x01 \x01(\v2\x16.c1.connector.v2.GrantR\x05grant\"\x96\x03\n" +
 	"2GrantsReaderServiceListGrantsForEntitlementRequest\x12H\n" +
-	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\b\xfaB\x05\x8a\x01\x02\x10\x01R\ventitlement\x12J\n" +
-	"\fprincipal_id\x18\x05 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\n" +
-	"\xfaB\x05\x8a\x01\x02\x10\x00\x18\x01R\vprincipalId\x12A\n" +
-	"\x1bprincipal_resource_type_ids\x18\x06 \x03(\tB\x02\x18\x01R\x18principalResourceTypeIds\x12'\n" +
+	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\b\xfaB\x05\x8a\x01\x02\x10\x01R\ventitlement\x12H\n" +
+	"\fprincipal_id\x18\x05 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x00R\vprincipalId\x12=\n" +
+	"\x1bprincipal_resource_type_ids\x18\x06 \x03(\tR\x18principalResourceTypeIds\x12'\n" +
 	"\tpage_size\x18\x02 \x01(\rB\n" +
 	"\xfaB\a*\x05\x18\xfa\x01@\x01R\bpageSize\x12,\n" +
 	"\n" +
