@@ -897,6 +897,9 @@ func (*event_CreateGrantEvent) isEvent_Event() {}
 
 func (*event_CreateRevokeEvent) isEvent_Event() {}
 
+// Producers leave unset any network or oauth value that fails its validate
+// rule rather than copying it from the source: Event validation rejects the
+// whole event, not the one value.
 type UsageEvent struct {
 	state                     protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_TargetResource *Resource              `protobuf:"bytes,1,opt,name=target_resource,json=targetResource,proto3"`
@@ -1832,20 +1835,20 @@ const file_c1_connector_v2_event_feed_proto_rawDesc = "" +
 	"\x12create_grant_event\x18h \x01(\v2!.c1.connector.v2.CreateGrantEventH\x00R\x10createGrantEvent\x12T\n" +
 	"\x13create_revoke_event\x18i \x01(\v2\".c1.connector.v2.CreateRevokeEventH\x00R\x11createRevokeEvent\x126\n" +
 	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotationsB\a\n" +
-	"\x05event\"\x95\x06\n" +
+	"\x05event\"\xb6\x06\n" +
 	"\n" +
 	"UsageEvent\x12B\n" +
 	"\x0ftarget_resource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\x0etargetResource\x12@\n" +
 	"\x0eactor_resource\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceR\ractorResource\x12=\n" +
 	"\anetwork\x18\x03 \x01(\v2#.c1.connector.v2.UsageEvent.NetworkR\anetwork\x127\n" +
-	"\x05oauth\x18\x04 \x01(\v2!.c1.connector.v2.UsageEvent.OAuthR\x05oauth\x1a\xb9\x01\n" +
+	"\x05oauth\x18\x04 \x01(\v2!.c1.connector.v2.UsageEvent.OAuthR\x05oauth\x1a\xda\x01\n" +
 	"\aNetwork\x12)\n" +
 	"\n" +
 	"ip_address\x18\x01 \x01(\tB\n" +
-	"\xfaB\ar\x05\xd0\x01\x01p\x01R\tipAddress\x12.\n" +
-	"\fcountry_code\x18\x02 \x01(\tB\v\xfaB\br\x06\x98\x01\x02\xd0\x01\x01R\vcountryCode\x125\n" +
-	"\x10subdivision_code\x18\x03 \x01(\tB\n" +
-	"\xfaB\ar\x05(\x10\xd0\x01\x01R\x0fsubdivisionCode\x12\x1c\n" +
+	"\xfaB\ar\x05\xd0\x01\x01p\x01R\tipAddress\x127\n" +
+	"\fcountry_code\x18\x02 \x01(\tB\x14\xfaB\x11r\x0f2\n" +
+	"^[A-Z]{2}$\xd0\x01\x01R\vcountryCode\x12M\n" +
+	"\x10subdivision_code\x18\x03 \x01(\tB\"\xfaB\x1fr\x1d2\x18^[A-Z]{2}-[A-Z0-9]{1,3}$\xd0\x01\x01R\x0fsubdivisionCode\x12\x1c\n" +
 	"\x04asns\x18\x04 \x03(\rB\b\xfaB\x05\x92\x01\x02\x10@R\x04asns\x1a\xcc\x02\n" +
 	"\x05OAuth\x12@\n" +
 	"\x06action\x18\x01 \x01(\x0e2(.c1.connector.v2.UsageEvent.OAuth.ActionR\x06action\x127\n" +

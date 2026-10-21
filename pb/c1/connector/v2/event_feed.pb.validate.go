@@ -2436,26 +2436,25 @@ func (m *UsageEvent_Network) validate(all bool) error {
 
 	if m.GetCountryCode() != "" {
 
-		if utf8.RuneCountInString(m.GetCountryCode()) != 2 {
+		if !_UsageEvent_Network_CountryCode_Pattern.MatchString(m.GetCountryCode()) {
 			err := UsageEvent_NetworkValidationError{
 				field:  "CountryCode",
-				reason: "value length must be 2 runes",
+				reason: "value does not match regex pattern \"^[A-Z]{2}$\"",
 			}
 			if !all {
 				return err
 			}
 			errors = append(errors, err)
-
 		}
 
 	}
 
 	if m.GetSubdivisionCode() != "" {
 
-		if len(m.GetSubdivisionCode()) > 16 {
+		if !_UsageEvent_Network_SubdivisionCode_Pattern.MatchString(m.GetSubdivisionCode()) {
 			err := UsageEvent_NetworkValidationError{
 				field:  "SubdivisionCode",
-				reason: "value length must be at most 16 bytes",
+				reason: "value does not match regex pattern \"^[A-Z]{2}-[A-Z0-9]{1,3}$\"",
 			}
 			if !all {
 				return err
@@ -2555,6 +2554,10 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = UsageEvent_NetworkValidationError{}
+
+var _UsageEvent_Network_CountryCode_Pattern = regexp.MustCompile("^[A-Z]{2}$")
+
+var _UsageEvent_Network_SubdivisionCode_Pattern = regexp.MustCompile("^[A-Z]{2}-[A-Z0-9]{1,3}$")
 
 // Validate checks the field values on UsageEvent_OAuth with the rules defined
 // in the proto definition for this message. If any rules are violated, the
