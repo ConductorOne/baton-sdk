@@ -378,19 +378,24 @@ func quotableMessage(contentType string, body []byte) string {
 	}
 	// Scan no more than a message can quote; n runes hold at most n*UTFMax
 	// bytes.
-	head := body
+	head, dropped := body, false
 	if len(head) > maxQuotedBodyLength*utf8.UTFMax {
-		head = head[:maxQuotedBodyLength*utf8.UTFMax]
+		head, dropped = head[:maxQuotedBodyLength*utf8.UTFMax], true
 	}
 
-	message := oneLine(plainPrefix(strings.TrimSpace(strings.TrimPrefix(string(head), "\ufeff"))))
+	prefix, markup := plainPrefix(strings.TrimSpace(strings.TrimPrefix(string(head), "\ufeff")))
+	message := oneLine(prefix)
 	if message == "" || holdsRecord(message) {
 		return ""
 	}
-	// The cap is on the message, not the body, so the mark states that the
-	// message goes on rather than that markup followed it.
+	// The mark states that the message goes on. The cap and the scan each
+	// drop message text; markup ends the message, so what follows it is not
+	// more of one.
 	if runes := []rune(message); len(runes) > maxQuotedBodyLength {
 		return string(runes[:maxQuotedBodyLength]) + "..."
+	}
+	if dropped && !markup {
+		return message + "..."
 	}
 	return message
 }
@@ -429,18 +434,18 @@ func jsonRecord(text string) bool {
 	return strings.Contains(text, `{"`) || strings.Contains(text, `["`)
 }
 
-// plainPrefix is text up to the first markup tag. A '<' that opens no tag,
-// as in "quota must be < 5", is part of the message.
-func plainPrefix(text string) string {
+// plainPrefix is text up to the first markup tag, and whether a tag ended it.
+// A '<' that opens no tag, as in "quota must be < 5", is part of the message.
+func plainPrefix(text string) (string, bool) {
 	for i := range len(text) {
 		if text[i] != '<' {
 			continue
 		}
 		if i+1 < len(text) && opensTag(text[i+1]) {
-			return strings.TrimSpace(text[:i])
+			return strings.TrimSpace(text[:i]), true
 		}
 	}
-	return text
+	return text, false
 }
 
 func opensTag(c byte) bool {

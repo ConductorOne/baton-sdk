@@ -691,6 +691,13 @@ func TestWithErrorResponse_BoundsTheBodyItQuotes(t *testing.T) {
 			notWant:     []string{"body omitted"},
 		},
 		{
+			name:        "a message the scan cut is marked as going on",
+			contentType: "text/plain",
+			body:        "error" + strings.Repeat(" ", 2000) + "detail the scan never reached",
+			want:        "body: error...",
+			notWant:     []string{"detail"},
+		},
+		{
 			name:        "a short message ahead of a long page is not marked as going on",
 			contentType: "text/html",
 			body:        "CSRF nonce validation failed<!DOCTYPE html><html><body>" + strings.Repeat("padding ", 500) + "</body></html>",
