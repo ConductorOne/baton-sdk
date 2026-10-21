@@ -705,6 +705,20 @@ func TestWithErrorResponse_BoundsTheBodyItQuotes(t *testing.T) {
 			notWant:     []string{"alice"},
 		},
 		{
+			name:        "a record behind a prefix a vendor declares as text is omitted",
+			contentType: "text/plain",
+			body:        `for(;;);{"login":"alice"}`,
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
+			name:        "a record a formatter spaced out behind a prefix is omitted",
+			contentType: "text/plain",
+			body:        ")]}'\n{\n  \"login\": \"alice\"\n}",
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
 			name:        "a record of one element is omitted",
 			contentType: "text/plain",
 			body:        `["alice"]`,

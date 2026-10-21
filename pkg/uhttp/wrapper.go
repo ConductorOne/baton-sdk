@@ -429,10 +429,11 @@ func quotableContentType(contentType string) bool {
 }
 
 // jsonRecord matches an object or an array that quotes a string or separates
-// two single-quoted ones, which is what a record does and a message does not.
-// "[ERROR] upstream: timeout" and "[upstream] can't connect" match neither,
-// however much punctuation they hold.
-var jsonRecord = regexp.MustCompile(`^[{\[].*(?:"|'\s*[:,])`)
+// two single-quoted ones, which is what a record does and a message does not,
+// and one that opens after a prefix such as an XSSI guard. "[ERROR] upstream:
+// timeout" and "[upstream] can't connect" match neither, however much
+// punctuation they hold.
+var jsonRecord = regexp.MustCompile(`^[{\[].*(?:"|'\s*[:,])|[{\[]\s*"`)
 
 // emailAddress matches an address down to a letters-only top-level domain,
 // so a version string with an '@' in it is not one.
