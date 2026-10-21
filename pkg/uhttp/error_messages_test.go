@@ -677,6 +677,27 @@ func TestWithErrorResponse_BoundsTheBodyItQuotes(t *testing.T) {
 			notWant:     []string{"body omitted"},
 		},
 		{
+			name:        "a record a formatter spaced out is omitted",
+			contentType: "text/plain",
+			body:        `["alice", "bob"]`,
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
+			name:        "a record spaced out before the separator is omitted",
+			contentType: "text/plain",
+			body:        `{"login" : "alice"}`,
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
+			name:        "JSON the decoder turned down for its shape is omitted",
+			contentType: "application/json",
+			body:        `{"detail": {"login": "alice"}}`,
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
 			name:        "a message a vendor declares as JSON is kept",
 			contentType: "application/json",
 			body:        "Bad Gateway: upstream timed out",

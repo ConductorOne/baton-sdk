@@ -370,8 +370,12 @@ func quotedBody(contentType string, body []byte) string {
 
 // quotedDecodeFailure renders a body the JSON decoder rejected. The vendor
 // declared JSON and did not send it, so what the body holds is read from the
-// bytes rather than from that declaration.
+// bytes rather than from that declaration. A body that is JSON the decoder
+// turned down for its shape is a record whatever those bytes look like.
 func quotedDecodeFailure(body []byte) string {
+	if json.Valid(bytes.TrimSpace(body)) {
+		return fmt.Sprintf(". body omitted (%d bytes)", len(body))
+	}
 	return quotedBody("", body)
 }
 
@@ -434,6 +438,10 @@ func quotableContentType(contentType string) bool {
 		strings.HasPrefix(normalized, "text/html")
 }
 
+// jsonSeparator matches a quoted name or element followed by a JSON
+// separator, with the whitespace a formatter puts between them.
+var jsonSeparator = regexp.MustCompile(`["']\s*[:,]`)
+
 // emailAddress matches an address down to a letters-only top-level domain,
 // so a version string with an '@' in it is not one.
 var emailAddress = regexp.MustCompile(`[^\s@]+@[^\s@]+\.[A-Za-z]{2,}`)
@@ -453,8 +461,7 @@ func jsonRecord(text string) bool {
 		// still names a member or separates two elements. A message that
 		// opens with a bracket ("[ERROR] upstream: timeout") does neither,
 		// however much punctuation it holds.
-		return strings.Contains(text, `":`) || strings.Contains(text, `':`) ||
-			strings.Contains(text, `","`) || strings.Contains(text, `','`)
+		return jsonSeparator.MatchString(text)
 	case strings.HasPrefix(text, `"`):
 		return json.Valid([]byte(text))
 	}
