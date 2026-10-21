@@ -100,6 +100,9 @@ var (
 	// ErrMaxRows defined the error message on receive a row number exceeds
 	// maximum limit.
 	ErrMaxRows = errors.New("row number exceeds maximum limit")
+	// ErrMaxSpinCount defined the error message on receiving a spin count in
+	// the encryption info exceeds the maximum limit.
+	ErrMaxSpinCount = errors.New("spin count exceeds maximum limit")
 	// ErrNameLength defined the error message on receiving the defined name or
 	// table name length exceeds the limit.
 	ErrNameLength = fmt.Errorf("the name length exceeds the %d characters limit", MaxFieldLength)
@@ -128,11 +131,11 @@ var (
 	// length.
 	ErrPasswordLengthInvalid = errors.New("password length invalid")
 	// ErrPivotTableShowValuesAsBaseField defined the error message on enable
-	// this kind of show value as type requires a base field.
-	ErrPivotTableShowValuesAsBaseField = errors.New("this kind of show value as type requires a base field")
+	// this kind of "show values as" type requires a base field.
+	ErrPivotTableShowValuesAsBaseField = errors.New("this kind of show values as type requires a base field")
 	// ErrPivotTableShowValuesAsBaseItem defined the error message on enable
-	// this kind of show value as type and base field requires a base item.
-	ErrPivotTableShowValuesAsBaseItem = errors.New("this kind of show value as type and base field requires a base item")
+	// this kind of "show values as" type and base field requires a base item.
+	ErrPivotTableShowValuesAsBaseItem = errors.New("this kind of show values as type and base field requires a base item")
 	// ErrPivotTableClassicLayout defined the error message on enable
 	// ClassicLayout and CompactData in the same time.
 	ErrPivotTableClassicLayout = errors.New("cannot enable ClassicLayout and CompactData in the same time")
@@ -199,8 +202,8 @@ var (
 	// number format expression.
 	ErrUnsupportedNumberFormat = errors.New("unsupported number format token")
 	// ErrUnsupportedPivotTableShowValuesAsType defined the error message on
-	// receiving the unsupported pivot table show value as type.
-	ErrUnsupportedPivotTableShowValuesAsType = errors.New("unsupported pivot table show value as type")
+	// receiving the unsupported pivot table "show values as" type.
+	ErrUnsupportedPivotTableShowValuesAsType = errors.New("unsupported pivot table show values as type")
 	// ErrWorkbookFileFormat defined the error message on receive an
 	// unsupported workbook file format.
 	ErrWorkbookFileFormat = errors.New("unsupported workbook file format")
@@ -376,7 +379,7 @@ func newPivotTableRangeError(msg string) error {
 }
 
 // newPivotTableShowValuesAsBaseFieldError defined the error message on receiving
-// the invalid pivot table show value as base field.
+// the invalid pivot table "show values as" base field.
 func newPivotTableShowValuesAsBaseFieldError(field string) error {
 	return fmt.Errorf("base field %s does not exist in shared items", field)
 }

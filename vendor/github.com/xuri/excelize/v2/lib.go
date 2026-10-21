@@ -28,6 +28,18 @@ import (
 	"unicode/utf16"
 )
 
+// checkFileSize checks if the file size and unzip size exceed the limit set in
+// options.
+func (f *File) checkFileSize(fileSize, unzipSize int64) error {
+	if f.options.UnzipSizeLimit < 0 || uint64(f.options.UnzipSizeLimit) < uint64(fileSize) || fileSize < 0 {
+		return newUnzipSizeLimitError(f.options.UnzipSizeLimit)
+	}
+	if unzipSize > f.options.UnzipSizeLimit {
+		return newUnzipSizeLimitError(f.options.UnzipSizeLimit)
+	}
+	return nil
+}
+
 // ReadZipReader extract spreadsheet with given options.
 func (f *File) ReadZipReader(r *zip.Reader) (map[string][]byte, int, error) {
 	var (
@@ -43,8 +55,8 @@ func (f *File) ReadZipReader(r *zip.Reader) (map[string][]byte, int, error) {
 	for _, v := range r.File {
 		fileSize := v.FileInfo().Size()
 		unzipSize += fileSize
-		if unzipSize > f.options.UnzipSizeLimit {
-			return fileList, worksheets, newUnzipSizeLimitError(f.options.UnzipSizeLimit)
+		if err := f.checkFileSize(fileSize, unzipSize); err != nil {
+			return fileList, worksheets, err
 		}
 		fileName := strings.ReplaceAll(v.Name, "\\", "/")
 		if partName, ok := docPart[strings.ToLower(fileName)]; ok {
@@ -176,22 +188,13 @@ func SplitCellName(cell string) (string, int, error) {
 
 // JoinCellName joins cell name from column name and row number.
 func JoinCellName(col string, row int) (string, error) {
-	normCol := strings.Map(func(rune rune) rune {
-		switch {
-		case 'A' <= rune && rune <= 'Z':
-			return rune
-		case 'a' <= rune && rune <= 'z':
-			return rune - 32
-		}
-		return -1
-	}, col)
-	if len(col) == 0 || len(col) != len(normCol) {
-		return "", newInvalidColumnNameError(col)
+	if _, err := ColumnNameToNumber(col); err != nil {
+		return "", err
 	}
 	if row < 1 {
 		return "", newInvalidRowNumberError(row)
 	}
-	return normCol + strconv.Itoa(row), nil
+	return strings.ToUpper(col) + strconv.Itoa(row), nil
 }
 
 // ColumnNameToNumber provides a function to convert Excel sheet column name
@@ -216,10 +219,10 @@ func ColumnNameToNumber(name string) (int, error) {
 		} else {
 			return -1, newInvalidColumnNameError(name)
 		}
+		if col > MaxColumns {
+			return -1, ErrColumnNumber
+		}
 		multi *= 26
-	}
-	if col > MaxColumns {
-		return -1, ErrColumnNumber
 	}
 	return col, nil
 }
@@ -723,7 +726,7 @@ func getXMLNamespace(space string, attr []xml.Attr) string {
 // replaceNameSpaceBytes provides a function to replace the XML root element
 // attribute by the given component part path and XML content.
 func (f *File) replaceNameSpaceBytes(path string, contentMarshal []byte) []byte {
-	sourceXmlns := []byte(`xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">`)
+	sourceXmlns := fmt.Appendf(nil, `xmlns="%s">`, NameSpaceSpreadSheet.Value)
 	targetXmlns := []byte(templateNamespaceIDMap)
 	if attrs, ok := f.xmlAttr.Load(path); ok {
 		targetXmlns = []byte(genXMLNamespace(attrs.([]xml.Attr)))
