@@ -144,9 +144,11 @@ func wrapRequestError(err error) error {
 // withoutRequestURL is urlErr stating only what it wraps. http.Client.Do
 // prints the request URL ahead of that, query string included, and
 // status.FromError copies the whole text into the status message of a wrapped
-// status. A connector is free to send a credential as a query parameter, and
-// the description this package writes already names the host and the path.
-// The *url.Error stays reachable for errors.Is and errors.As.
+// status. A connector is free to send a credential as a query parameter. What
+// names the call instead is the description classifyTransportFailure writes
+// for the class it recognizes, and the connector's own wrapper otherwise, as
+// it is for an HTTP error status. The *url.Error stays reachable for
+// errors.Is and errors.As.
 func withoutRequestURL(urlErr *url.Error) error {
 	return &maskedError{text: urlErr.Err.Error(), err: urlErr}
 }
