@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	eopt "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"google.golang.org/protobuf/proto"
@@ -144,4 +145,23 @@ func NewGrantID(principal GrantPrincipal, entitlement *v2.Entitlement) string {
 		panic("principal resource must have a valid resource ID")
 	}
 	return fmt.Sprintf("%s:%s:%s", entitlement.GetId(), resourceID.GetResourceType(), resourceID.GetResource())
+}
+
+// NewGrantIDFromRecord returns the public grant id for a stored record: the
+// record's external id when set, otherwise the NewGrantID join of the
+// entitlement id and principal. It returns "" when the external id is empty
+// and the entitlement or principal ref is missing a field.
+func NewGrantIDFromRecord(r *v3.GrantRecord) string {
+	if ext := r.GetExternalId(); ext != "" {
+		return ext
+	}
+	ent := r.GetEntitlement()
+	if ent.GetResourceTypeId() == "" || ent.GetResourceId() == "" || ent.GetEntitlementId() == "" {
+		return ""
+	}
+	princ := r.GetPrincipal()
+	if princ.GetResourceTypeId() == "" || princ.GetResourceId() == "" {
+		return ""
+	}
+	return ent.GetEntitlementId() + ":" + princ.GetResourceTypeId() + ":" + princ.GetResourceId()
 }
