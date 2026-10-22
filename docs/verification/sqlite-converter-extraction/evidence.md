@@ -98,9 +98,9 @@ Command:
 Apple M1 medians from five isolated samples over the same committed edge-key
 source:
 
-- Reference: 358,818,889 ns/op; 10,442 allocs/op.
-- Extracted: 354,300,514 ns/op; 9,593 allocs/op.
-- Delta: -1.26% ns/op; -8.13% allocs/op.
+- Reference: 373,235,778 ns/op; 33,300,330 B/op; 10,488 allocs/op.
+- Extracted: 359,879,681 ns/op; 34,871,530 B/op; 9,638 allocs/op.
+- Delta: -3.58% ns/op; +4.72% B/op; -8.11% allocs/op.
 
 The elapsed-time delta is below the plan's 10% finding threshold. Both
 converters retain the same O(rows) table scans, O(lanes × samples) boundary
@@ -109,40 +109,46 @@ reference converter's whole-table SQLite sort.
 
 Follow-up profiling found that the edge-key source has three resource types,
 five resources, one entitlement, and one grant, but the spill sorters allocated
-their full chunk capacities. Five isolated three-iteration samples before and
-after adaptive arena allocation produced these medians:
+their full chunk capacities. Geometric growth removed that fixed allocation but
+an isolated full-arena benchmark showed that a fresh 128 MiB arena then
+allocated 255 MiB and copied 127 MiB while growing.
 
-- Before: 463,101,292 ns/op; 395,147,488 B/op; 9,601 allocs/op.
-- After: 414,570,986 ns/op; 33,798,818 B/op; 9,617 allocs/op.
-- Delta: -10.48% ns/op; -91.45% B/op; +0.17% allocs/op.
+All spill sorters now use one allocation policy: start at 1 MiB and, when that
+fills, allocate the configured chunk once and copy at most 1 MiB. The chunk
+limit, sorting, merge, and full-arena recycling behavior are unchanged.
+`BenchmarkSpillArenaFirstFill` exercises `spillSorter.add` without sorting,
+filesystem, Pebble, or converter work. Apple M1 medians from five isolated
+three-iteration samples are:
 
-The benchmark remains dominated by fixed filesystem and Pebble lifecycle work,
-so the elapsed-time delta is evidence for this small source only. The allocation
-reduction directly measures the removed full-capacity arenas. The focused
-`TestSpillSorterArenaGrowsWithInput` pins the 1 MiB initial capacity, geometric
-growth, and existing chunk ceiling. `TestBulkImportChunkBytesStaysWithinBudget`
-also reserves one transient old allocation per expected concurrent grant shard.
-Adaptive freelists are limited to bulk import and grant-digest construction;
-open-time migration and grant-layer sorters retain their prior allocation
-policy.
+- 1 MiB payload: fixed 3.591 ms and 134,218,477 B/op; promoted 0.029 ms and
+  1,049,288 B/op. Both report 6 allocs/op.
+- 8 MiB payload: fixed 4.131 ms and 134,221,128 B/op; promoted 4.076 ms and
+  135,269,704 B/op. Allocation count changes from 6 to 7.
+- 127.94 MiB payload: fixed 8.258 ms and 134,267,208 B/op; promoted 7.817 ms
+  and 135,315,784 B/op. Allocation count changes from 6 to 7.
 
-`BenchmarkRegisteredPebbleWritePack` measures the same
-`BuildGrantDigests` implementation used by compaction and reports `EndSync`
-separately from grant writes. Apple M1 medians from three isolated
-three-iteration samples before and after adaptive digest arenas:
+The threshold-crossing and full-fill timings are within run-to-run variance;
+the measured allocation cost is exactly one additional 1 MiB arena. The focused
+`TestSpillSorterArenaPromotesOnce` pins the single promotion and configured
+chunk ceiling. Restoring geometric growth as a planted violation failed that
+test with a 2 MiB arena where 16 MiB was required.
+`TestBulkImportChunkBytesStaysWithinBudget` conservatively
+reserves one full chunk per expected concurrent grant shard, exceeding the
+actual 1 MiB growth overlap.
 
-- 100 grants: 135.7 → 75.67 ms/EndSync; 142,343,533 → 9,761,141 B/op;
-  7,222 → 7,270 allocs/op.
-- 1,000 grants: 92.00 → 80.67 ms/EndSync; 145,057,741 → 12,397,440 B/op;
-  9,160 → 9,167 allocs/op.
-- 10,000 grants: 92.33 → 82.00 ms/EndSync; 149,084,946 → 16,524,018 B/op;
-  9,192 → 9,212 allocs/op.
+`BenchmarkRegisteredPebbleWritePack` measures the same `BuildGrantDigests`
+implementation used by compaction and reports `EndSync` separately from grant
+writes. Apple M1 medians from three isolated three-iteration samples with the
+single-promotion policy are:
 
-The measured allocation reduction ranges from 88.9% to 93.1%. Allocation count
-changes by less than 0.7%. EndSync improves at all three points, but these
-small scales remain dominated by fixed Pebble and filesystem work; the
+- 100 grants: 78.33 ms/EndSync; 10,263,306 B/op; 7,264 allocs/op.
+- 1,000 grants: 74.33 ms/EndSync; 11,909,778 B/op; 9,171 allocs/op.
+- 10,000 grants: 84.33 ms/EndSync; 17,039,384 B/op; 9,208 allocs/op.
+
+These scales remain dominated by fixed Pebble and filesystem work. The
 measurements do not claim a whale-scale runtime result or isolate compaction
-orchestration outside `BuildGrantDigests`.
+orchestration outside `BuildGrantDigests`; the isolated full-fill benchmark
+covers the allocation-policy behavior once a sorter reaches its chunk ceiling.
 
 For entitlements, `EXPLAIN QUERY PLAN` reported
 `SCAN v1_entitlements USING INDEX idx_entitlements_external_sync_v1` with
@@ -249,8 +255,8 @@ reference-converter limitation cannot be closed in this package.
    pkg/dotc1z/sqlite/testdata/finished_full.c1z --out <temporary path>`
    succeeded. The same fixture and converter path are checked against its
    golden by `TestFixtureGoldenDigests`.
-8. **verified to stated coverage** — benchmark median is -1.26% ns/op and
-   -8.13% allocs/op, below the 10% finding threshold.
+8. **verified to stated coverage** — benchmark median is -3.58% ns/op and
+   -8.11% allocs/op, below the 10% finding threshold.
 9. **verified to stated coverage** — the only `pkg/dotc1z` change is
    `import_boundary_test.go`; the new package is under its own subdirectory.
 10. **verified to stated coverage** — all repository gates pass locally; all

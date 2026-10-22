@@ -45,27 +45,22 @@ func TestBulkImportChunkBytesStaysWithinBudget(t *testing.T) {
 	require.Equal(t, bulkImportChunkBytes(1, sortSlots), bulkImportChunkBytes(-3, sortSlots))
 }
 
-func TestSpillSorterArenaGrowsWithInput(t *testing.T) {
-	const chunkBytes = 4 << 20
+func TestSpillSorterArenaPromotesOnce(t *testing.T) {
+	const chunkBytes = 16 << 20
 
-	s := newSpillSorter(t.TempDir(), "adaptive", make(chan struct{}, 1), chunkBytes)
-	s.free = newAdaptiveSpillArenaFreeList(chunkBytes, 2)
+	s := newSpillSorter(t.TempDir(), "promote", make(chan struct{}, 1), chunkBytes)
 
 	require.NoError(t, s.add([]byte("small"), nil))
 	require.Equal(t, spillArenaInitialBytes, cap(s.arena))
 
 	require.NoError(t, s.add(make([]byte, spillArenaInitialBytes), nil))
-	require.Equal(t, 2*spillArenaInitialBytes, cap(s.arena))
-	require.Less(t, cap(s.arena), chunkBytes)
-
-	require.NoError(t, s.add(make([]byte, 3<<20), nil))
-	require.LessOrEqual(t, cap(s.arena), chunkBytes)
+	require.Equal(t, chunkBytes, cap(s.arena))
 	_, err := s.finalize()
 	require.NoError(t, err)
 }
 
-// TestSpillSorterCutsBeforeArenaOverflow pins the fixed-capacity path: add
-// cuts a chunk before an entry would push the arena past chunkBytes.
+// TestSpillSorterCutsBeforeArenaOverflow pins that add cuts a chunk
+// before an entry would push the arena past chunkBytes.
 func TestSpillSorterCutsBeforeArenaOverflow(t *testing.T) {
 	const chunkBytes = 1024
 	const entryBytes = 100 // 60-byte key + 40-byte value; ten fit, an eleventh would overflow.

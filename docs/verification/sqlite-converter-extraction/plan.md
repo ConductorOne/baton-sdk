@@ -671,3 +671,18 @@ Windows CI shards.
     allowance, and `BenchmarkRegisteredPebbleWritePack` records `EndSync`,
     bytes, and allocations at 100, 1,000, and 10,000 grants before and after
     adaptive digest arenas. PR placement: this PR.
+16. **Correction: use one bounded spill-arena allocation policy.** Source:
+    an isolated 128 MiB first-fill benchmark showed that geometric growth
+    allocates 255 MiB and copies 127 MiB per fresh arena, while fixed allocation
+    wastes almost the full chunk for small inputs. Motivation: spill sorting
+    should not select between unrelated fixed and adaptive algorithms by call
+    site. Contract delta: every spill sorter starts at no more than 1 MiB; if
+    that arena fills, it allocates the configured chunk once and copies at most
+    1 MiB. Full arenas retain the existing recycling, chunk limit, sorting, and
+    merge behavior. A single entry larger than the configured chunk still gets
+    an arena large enough for that entry. The owning boundary is
+    `spillSorter.add`. Affected criterion: benchmark evidence. Verification
+    delta: focused benchmarks cover small, threshold-crossing, and full first
+    fills without Pebble or filesystem work; existing spill-merge, bulk-import
+    budget, converter, digest, compaction, race, and repository gates are
+    rerun. PR placement: this PR.
