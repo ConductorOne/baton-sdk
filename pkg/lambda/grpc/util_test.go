@@ -147,20 +147,33 @@ func TestErrorResponse_DeadlineExceeded(t *testing.T) {
 	require.Equal(t, codes.DeadlineExceeded, st.Code())
 }
 
-// A certificate the client does not trust is terminal, as it is in uhttp.
+// A certificate the client does not trust is terminal, as it is in uhttp. The
+// message names the request it was for, without the query string a connector
+// may send a credential in, however deeply the caller wrapped the error.
 func TestErrorResponse_UntrustedCertificate(t *testing.T) {
-	err := &url.Error{
+	certErr := &url.Error{
 		Op:  "Get",
-		URL: "https://example.com/x",
+		URL: "https://example.com/x?api_key=secret",
 		Err: &tls.CertificateVerificationError{Err: errors.New("x509: certificate signed by unknown authority")},
 	}
-	resp := ErrorResponse(err)
-	require.NotNil(t, resp)
 
-	st, stErr := resp.Status()
-	require.NoError(t, stErr)
-	require.Equal(t, codes.FailedPrecondition, st.Code())
-	require.Contains(t, st.Message(), "tls certificate verification failed")
+	for name, err := range map[string]error{
+		"outermost": certErr,
+		"wrapped":   fmt.Errorf("baton-vendor: validate credentials: %w", certErr),
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := ErrorResponse(err)
+			require.NotNil(t, resp)
+
+			st, stErr := resp.Status()
+			require.NoError(t, stErr)
+			require.Equal(t, codes.FailedPrecondition, st.Code())
+			require.Contains(t, st.Message(), "tls certificate verification failed")
+			require.Contains(t, st.Message(), "https://example.com/x")
+			require.Contains(t, st.Message(), "x509:", "the reason the certificate failed must reach the status")
+			require.NotContains(t, st.Message(), "secret")
+		})
+	}
 }
 
 func TestErrorResponse_GRPCStatusPassthrough(t *testing.T) {
