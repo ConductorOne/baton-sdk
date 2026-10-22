@@ -34,3 +34,7 @@ Exact additive field and acknowledgement interpretation require architecture dis
 ## Change orders
 
 Append any contract or enforcement ownership change here before implementation.
+
+### Change order 1: resolved declaration and caller acknowledgement
+
+Architecture disposition selects optional config.Field.secret_content_type=8 and a pre-handler check of existing full-knowledge JWE context purpose/version/type. Check every JWE recipient, reject duplicate JSON keys, and require one secret return for non-generic types. A matching JWE recipient may coexist with Paper/age recipients. Generic declarations retain opaque contexts and existing multi-output transport. The guard establishes type agreement only, not server authentication or payload validity. Tests cover global/resource invocation, invalid placement, mixed recipients and immutable registered type metadata. Full catalog ownership remains with the consumer; SDK checks syntax only.
