@@ -11,7 +11,7 @@ Base: released v0.42.3, commit 2e045d482d592a9462b5f87c70a6113fe87ec54a. Source 
 | Legacy generic compatibility | TestGenericSecretOutputKeepsOpaqueContexts plus existing ActionHandlerWithSecrets tests; absent/explicit generic and old age multi-output/recipient paths | Verified to stated coverage |
 | Instrument adequacy | Removed new guard temporarily, ran account/generic regression: failed because expected error was nil; restored source byte-for-byte | Verified bounded mutation |
 | Source generation | make protofmt; make protogen exit0. Only config.pb.go, config.pb.validate.go, config_protoopaque.pb.go changed; generated separately | Verified |
-| Full package and race | Execution pending final package run | Evidence incomplete |
+| Full package and race | go test -race -v ./pkg/actions -count=1; all named package tests ran/pass, no skips; 11.188s package execution | Verified to stated coverage |
 | Cross-repository integration | C1 consumer adoption, real member/Store/reveal/canonical codec/renderer | Deferred to consumer integration stage; not an SDK-only claim |
 
 Initial actual invocation test failed on JWE+Paper due to the pre-existing singleton-JWE validator. That failed assumption is preserved in the change-order history; tests now assert the released contract rather than expanding native/shared validation. The caller context guard establishes agreement, not server authentication or payload admission. No provider operations were executed.
