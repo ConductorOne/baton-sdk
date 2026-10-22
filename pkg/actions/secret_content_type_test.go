@@ -174,7 +174,7 @@ func TestTypedSecretOutputRefusesUnacknowledgedCallerBeforeHandler(t *testing.T)
 				require.Empty(t, manager.actions)
 			})
 		}
-		for _, scenario := range []string{"age only", "conflicting JWE", "multiple secrets"} {
+		for _, scenario := range []string{"age only", "conflicting JWE", "JWE plus age", "multiple secrets"} {
 			t.Run(resource+"/"+scenario, func(t *testing.T) {
 				manager := NewActionManager(t.Context())
 				var calls atomic.Int32
@@ -188,6 +188,9 @@ func TestTypedSecretOutputRefusesUnacknowledgedCallerBeforeHandler(t *testing.T)
 				if scenario == "age only" {
 					age, _ := ageEncryptionConfig(t)
 					configs = []*v2.EncryptionConfig{age}
+				} else if scenario == "JWE plus age" {
+					age, _ := ageEncryptionConfig(t)
+					configs = append(configs, age)
 				} else if scenario == "conflicting JWE" {
 					conflicting, _ := typedRecipient(t, "conflicting", typedContext("api_key_v2"))
 					configs = append(configs, conflicting)
@@ -211,24 +214,15 @@ func TestTypedSecretOutputEncryptsExactHelperBytesWithFrozenDeclaration(t *testi
 			registerTypedHandler(t, manager, resource, schema, &calls)
 			schema.GetReturnTypes()[1].SetSecretContentType("api_key_v2")
 			config, private := typedRecipient(t, "recipient", typedContext("password_v2"))
-			age, identity := ageEncryptionConfig(t)
-			id, result, public, encrypted, _, err := manager.InvokeActionWithWaitAndEncryption(t.Context(), "issue_structured", resource, nil, time.Second, []*v2.EncryptionConfig{config, age})
+			id, result, public, encrypted, _, err := manager.InvokeActionWithWaitAndEncryption(t.Context(), "issue_structured", resource, nil, time.Second, []*v2.EncryptionConfig{config})
 			require.NoError(t, err)
 			require.NotEmpty(t, id)
 			require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, result)
 			require.Equal(t, int32(1), calls.Load())
 			require.NotContains(t, public.GetFields(), "token")
-			require.Len(t, encrypted, 2)
-			var jweResult, ageResult *v2.EncryptedData
-			for _, entry := range encrypted {
-				if entry.GetProvider() == jwe.EncryptionProvider {
-					jweResult = entry
-				} else {
-					ageResult = entry
-				}
-			}
-			require.NotNil(t, jweResult)
-			require.NotNil(t, ageResult)
+			require.Len(t, encrypted, 1)
+			jweResult := encrypted[0]
+			require.Equal(t, jwe.EncryptionProvider, jweResult.GetProvider())
 			var envelope jwe.FlattenedJWE
 			require.NoError(t, json.Unmarshal(jweResult.GetEncryptedBytes(), &envelope))
 			aad, err := base64.RawURLEncoding.Strict().DecodeString(envelope.AAD)
@@ -243,7 +237,6 @@ func TestTypedSecretOutputEncryptsExactHelperBytesWithFrozenDeclaration(t *testi
 			opened, err := recipient.Open([]byte(envelope.Protected+"."+envelope.AAD), ciphertext)
 			require.NoError(t, err)
 			require.Equal(t, []byte(`{"username":"svc-user","password":"fixture-only"}`), opened)
-			require.Equal(t, opened, decryptAgeActionResult(t, ageResult, identity))
 		})
 	}
 }
