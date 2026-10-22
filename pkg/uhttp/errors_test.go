@@ -326,7 +326,7 @@ func TestWrapTransientNetworkError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := wrapTransientNetworkError(tt.err)
+			got := classifyTransportFailure(tt.err, "")
 			st, ok := status.FromError(got)
 			require.True(t, ok, "got %v", got)
 			require.Equal(t, tt.wantCode, st.Code())
@@ -339,9 +339,9 @@ func TestWrapTransientNetworkError(t *testing.T) {
 func TestWrapTransientNetworkError_OAuthTransientAttachesRateLimitDetails(t *testing.T) {
 	header := http.Header{}
 	header.Set("Retry-After", "120")
-	got := wrapTransientNetworkError(wrapAsTokenRequestError(&oauth2.RetrieveError{
+	got := classifyTransportFailure(wrapAsTokenRequestError(&oauth2.RetrieveError{
 		Response: &http.Response{StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests", Header: header},
-	}))
+	}), "")
 
 	st, ok := status.FromError(got)
 	require.True(t, ok)
@@ -357,7 +357,7 @@ func TestWrapTransientNetworkError_OAuthTransientAttachesRateLimitDetails(t *tes
 }
 
 func TestWrapTransientNetworkError_OAuthNilResponseDoesNotPanicOnFormat(t *testing.T) {
-	got := wrapTransientNetworkError(wrapAsTokenRequestError(&oauth2.RetrieveError{}))
+	got := classifyTransportFailure(wrapAsTokenRequestError(&oauth2.RetrieveError{}), "")
 
 	require.NotPanics(t, func() {
 		_ = got.Error()
@@ -389,20 +389,20 @@ func TestWrapTransientNetworkError_NXDOMAINIsTerminal(t *testing.T) {
 		})
 	}
 
-	nxdomain := wrapTransientNetworkError(dnsFailure(&net.DNSError{
+	nxdomain := classifyTransportFailure(dnsFailure(&net.DNSError{
 		Err:        "no such host",
 		Name:       "example.invalid",
 		IsNotFound: true,
-	}))
+	}), "")
 	require.Equal(t, codes.InvalidArgument, status.Code(nxdomain))
 	require.False(t, newRetryer().ShouldWaitAndRetry(t.Context(), nxdomain),
 		"a hostname that does not resolve must not be retried")
 
-	temporary := wrapTransientNetworkError(dnsFailure(&net.DNSError{
+	temporary := classifyTransportFailure(dnsFailure(&net.DNSError{
 		Err:         "server misbehaving",
 		Name:        "example.invalid",
 		IsTemporary: true,
-	}))
+	}), "")
 	require.Equal(t, codes.Unavailable, status.Code(temporary))
 	require.True(t, newRetryer().ShouldWaitAndRetry(t.Context(), temporary),
 		"a temporary resolver failure must still be retried")
@@ -417,25 +417,25 @@ func TestWrapTransientNetworkError_OAuthTokenEndpointTransientIsRetried(t *testi
 		})
 	}
 
-	rateLimited := wrapTransientNetworkError(wrapAsTokenRequestError(&oauth2.RetrieveError{
+	rateLimited := classifyTransportFailure(wrapAsTokenRequestError(&oauth2.RetrieveError{
 		Response: &http.Response{StatusCode: http.StatusTooManyRequests, Status: "429 Too Many Requests"},
-	}))
+	}), "")
 	require.Equal(t, codes.Unavailable, status.Code(rateLimited))
 	require.True(t, newRetryer().ShouldWaitAndRetry(t.Context(), rateLimited),
 		"a rate-limited token endpoint must still be retried")
 
-	timedOut := wrapTransientNetworkError(wrapAsTokenRequestError(&oauth2.RetrieveError{
+	timedOut := classifyTransportFailure(wrapAsTokenRequestError(&oauth2.RetrieveError{
 		ErrorCode: "invalid_request",
 		Response:  &http.Response{StatusCode: http.StatusRequestTimeout, Status: "408 Request Timeout"},
-	}))
+	}), "")
 	require.Equal(t, codes.DeadlineExceeded, status.Code(timedOut))
 	require.True(t, newRetryer().ShouldWaitAndRetry(t.Context(), timedOut),
 		"a token endpoint timeout must still be retried")
 
-	rejected := wrapTransientNetworkError(wrapAsTokenRequestError(&oauth2.RetrieveError{
+	rejected := classifyTransportFailure(wrapAsTokenRequestError(&oauth2.RetrieveError{
 		ErrorCode: "invalid_client",
 		Response:  &http.Response{StatusCode: http.StatusUnauthorized, Status: "401 Unauthorized"},
-	}))
+	}), "")
 	require.Equal(t, codes.Unauthenticated, status.Code(rejected))
 	require.False(t, newRetryer().ShouldWaitAndRetry(t.Context(), rejected),
 		"rejected credentials must not be retried")
@@ -443,7 +443,7 @@ func TestWrapTransientNetworkError_OAuthTokenEndpointTransientIsRetried(t *testi
 
 func TestWrapTransientNetworkError_LeavesNonTransientAlone(t *testing.T) {
 	err := fmt.Errorf("something went wrong")
-	got := wrapTransientNetworkError(err)
+	got := classifyTransportFailure(err, "")
 	require.Equal(t, err, got)
 
 	st, ok := status.FromError(got)

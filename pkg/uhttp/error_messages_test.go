@@ -409,7 +409,7 @@ func transportFailures() []transportFailure {
 	}
 }
 
-func TestWrapTransientNetworkError_DescriptionNamesHostAndPath(t *testing.T) {
+func TestClassifyTransportFailure_DescriptionNamesTheRequest(t *testing.T) {
 	cases := []struct {
 		name string
 		err  error
@@ -426,7 +426,7 @@ func TestWrapTransientNetworkError_DescriptionNamesHostAndPath(t *testing.T) {
 					Err: &net.DNSError{Err: "no such host", Name: "example.invalid", IsNotFound: true},
 				},
 			},
-			want: "dns lookup failed: NXDOMAIN: example.invalid/users",
+			want: "dns lookup failed: NXDOMAIN: https://example.invalid/users",
 		},
 		{
 			name: "http2",
@@ -435,12 +435,12 @@ func TestWrapTransientNetworkError_DescriptionNamesHostAndPath(t *testing.T) {
 				URL: "https://example.com/v1?token=secret",
 				Err: errors.New("http2: client connection lost"),
 			},
-			want: "http2 client connection lost: example.com/v1",
+			want: "http2 client connection lost: https://example.com/v1",
 		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			got := wrapTransientNetworkError(tt.err)
+			got := classifyTransportFailure(tt.err, "")
 			desc, _, _ := strings.Cut(status.Convert(got).Message(), "\n")
 			require.Contains(t, desc, tt.want)
 			require.NotContains(t, desc, "token=secret")
@@ -472,7 +472,7 @@ func TestDo_TransportErrorsLeadWithTheStatusAndNameTheHost(t *testing.T) {
 				require.Equal(t, 1, statusLines(err), err.Error())
 				require.Contains(t, status.Convert(err).Message(), u.Host)
 				if !tt.descOmitsEndpoint {
-					require.Contains(t, status.Convert(err).Message(), ": "+u.Host+u.Path)
+					require.Contains(t, status.Convert(err).Message(), ": "+u.Scheme+"://"+u.Host+u.Path)
 				}
 
 				first, _, _ := strings.Cut(err.Error(), "\n")
@@ -553,12 +553,12 @@ func TestClassifyTransportFailure_ATimeoutNamesTheEndpoint(t *testing.T) {
 	require.Contains(t, status.Convert(got).Message(), "network timeout: api.example.com/v1/users")
 }
 
-func TestWrapTransientNetworkError_UntrustedCertificateIsTerminal(t *testing.T) {
-	err := wrapTransientNetworkError(&url.Error{
+func TestClassifyTransportFailure_UntrustedCertificateIsTerminal(t *testing.T) {
+	err := classifyTransportFailure(&url.Error{
 		Op:  "Get",
 		URL: "https://example.com",
 		Err: &tls.CertificateVerificationError{Err: errors.New("x509: certificate signed by unknown authority")},
-	})
+	}, "")
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
 
 	retryer := retry.NewRetryer(t.Context(), retry.RetryConfig{MaxAttempts: 3, InitialDelay: time.Millisecond, MaxDelay: time.Millisecond})

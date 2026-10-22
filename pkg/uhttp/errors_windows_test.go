@@ -48,7 +48,7 @@ func TestWrapTransientNetworkError_Winsock(t *testing.T) {
 				},
 			}
 
-			got := wrapTransientNetworkError(err)
+			got := classifyTransportFailure(err, "")
 			st, ok := status.FromError(got)
 			require.True(t, ok, "got %v", got)
 			require.Equal(t, tt.wantCode, st.Code())

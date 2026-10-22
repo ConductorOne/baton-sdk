@@ -60,7 +60,7 @@ func TestTransientSocketConditions_POSIXSpellings(t *testing.T) {
 				Err: os.NewSyscallError(tt.op, tt.errno),
 			}}
 
-			got := wrapTransientNetworkError(err)
+			got := classifyTransportFailure(err, "")
 			st, ok := status.FromError(got)
 			require.True(t, ok, "got %v", got)
 			require.Equal(t, tt.wantCode, st.Code())
