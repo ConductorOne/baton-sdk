@@ -2,6 +2,8 @@ package grpc
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -143,6 +145,46 @@ func TestErrorResponse_DeadlineExceeded(t *testing.T) {
 	st, stErr := resp.Status()
 	require.NoError(t, stErr)
 	require.Equal(t, codes.DeadlineExceeded, st.Code())
+}
+
+// A certificate the client does not trust is terminal, as it is in uhttp. The
+// message states the certificate's own reason, so what the caller wrapped
+// around it, including the request URL, stays out of the status.
+func TestErrorResponse_UntrustedCertificate(t *testing.T) {
+	certErr := &url.Error{
+		Op:  "Get",
+		URL: "https://example.com/x?api_key=secret",
+		Err: &tls.CertificateVerificationError{Err: errors.New("x509: certificate signed by unknown authority")},
+	}
+
+	withUserinfo := &url.Error{
+		Op: "Get",
+		URL: (&url.URL{
+			Scheme: "https",
+			User:   url.UserPassword("alice", "secret"),
+			Host:   "example.com",
+			Path:   "/x",
+		}).String(),
+		Err: certErr.Err,
+	}
+
+	for name, err := range map[string]error{
+		"outermost":     certErr,
+		"wrapped":       fmt.Errorf("baton-vendor: validate credentials: %w", certErr),
+		"with userinfo": withUserinfo,
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := ErrorResponse(err)
+			require.NotNil(t, resp)
+
+			st, stErr := resp.Status()
+			require.NoError(t, stErr)
+			require.Equal(t, codes.FailedPrecondition, st.Code())
+			require.Contains(t, st.Message(), "tls certificate verification failed")
+			require.Contains(t, st.Message(), "x509:", "the reason the certificate failed must reach the status")
+			require.NotContains(t, st.Message(), "secret")
+		})
+	}
 }
 
 func TestErrorResponse_GRPCStatusPassthrough(t *testing.T) {

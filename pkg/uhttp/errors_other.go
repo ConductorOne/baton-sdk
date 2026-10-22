@@ -39,7 +39,7 @@ func isNetworkUnreachable(err error) bool {
 
 // isSocketTimeout is always false here: syscall.Errno.Timeout() already reports
 // true for ETIMEDOUT, so the net.Error timeout branch in
-// wrapTransientNetworkError catches it. ETIMEDOUT is still listed above so
+// classifyTransportFailure catches it. ETIMEDOUT is still listed above so
 // oauth2.go's text-only classifier knows the spelling this platform prints.
 func isSocketTimeout(error) bool {
 	return false

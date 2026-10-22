@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -231,6 +232,11 @@ func statusForApplicationError(err error) *status.Status {
 		return status.Newf(codes.Unavailable, "unexpected EOF: %s", err)
 	case errors.Is(err, syscall.ECONNRESET):
 		return status.Newf(codes.Unavailable, "connection reset: %s", err)
+	}
+
+	var certErr *tls.CertificateVerificationError
+	if errors.As(err, &certErr) {
+		return status.Newf(codes.FailedPrecondition, "tls certificate verification failed: %s", certErr)
 	}
 
 	var urlErr *url.Error

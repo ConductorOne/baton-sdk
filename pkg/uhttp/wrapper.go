@@ -11,9 +11,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	uRateLimit "go.uber.org/ratelimit"
@@ -352,28 +355,128 @@ type ErrorResponse interface {
 const maxQuotedBodyLength = 256
 
 // quotedBody renders an error body WithErrorResponse could not decode, as a
-// suffix for its message. Only plain text is quoted, up to the first markup
-// and maxQuotedBodyLength runes: a structured or markup body becomes part of
-// every log line that carries the error, and can hold a user's login or email.
-func quotedBody(body []byte) string {
-	text := strings.TrimSpace(string(body))
-	if text == "" {
+// suffix for its message. Only a message is quoted: a record is where a
+// vendor states a user's login or email, whether it declares one or sends
+// one under a text type.
+func quotedBody(contentType string, body []byte) string {
+	if len(bytes.TrimSpace(body)) == 0 {
 		return ""
 	}
-	if markup := strings.IndexByte(text, '<'); markup >= 0 {
-		text = strings.TrimSpace(text[:markup])
-	}
-	if text == "" || strings.HasPrefix(text, "{") || strings.HasPrefix(text, "[") {
+	message := quotableMessage(contentType, body)
+	if message == "" {
 		return fmt.Sprintf(". body omitted (%d bytes)", len(body))
 	}
-	if runes := []rune(text); len(runes) > maxQuotedBodyLength {
-		text = string(runes[:maxQuotedBodyLength]) + "..."
+	return ". body: " + message
+}
+
+// quotableMessage is the message body states, as a single line of at most
+// maxQuotedBodyLength runes and the mark that says more follows. It is ""
+// when there is nothing to quote: body states a record, or markup, or
+// nothing at all.
+func quotableMessage(contentType string, body []byte) string {
+	if !quotableContentType(contentType) {
+		return ""
 	}
-	return ". body: " + text
+	// Scan no more than a message can quote; n runes hold at most n*UTFMax
+	// bytes.
+	head, dropped := body, false
+	if len(head) > maxQuotedBodyLength*utf8.UTFMax {
+		head, dropped = head[:maxQuotedBodyLength*utf8.UTFMax], true
+		// The cut can land inside a rune. Drop the part of it that is left,
+		// so the quote states no replacement character.
+		for len(head) > 0 {
+			if r, size := utf8.DecodeLastRune(head); r != utf8.RuneError || size > 1 {
+				break
+			}
+			head = head[:len(head)-1]
+		}
+	}
+
+	prefix, markup := plainPrefix(strings.TrimSpace(strings.TrimPrefix(string(head), "\ufeff")))
+	message := oneLine(prefix)
+	if message == "" || jsonRecord.MatchString(message) || emailAddress.MatchString(message) {
+		return ""
+	}
+	// The mark states that the message goes on. The cap and the scan each
+	// drop message text; markup ends the message, so what follows it is not
+	// more of one.
+	if runes := []rune(message); len(runes) > maxQuotedBodyLength {
+		return string(runes[:maxQuotedBodyLength]) + "..."
+	}
+	if dropped {
+		// The same cut can halve an address, which emailAddress no longer
+		// matches. Markup ends the message, so what follows it is not more
+		// of one and takes no mark.
+		if strings.ContainsRune(message, '@') {
+			return ""
+		}
+		if !markup {
+			return message + "..."
+		}
+	}
+	return message
+}
+
+// quotableContentType reports whether contentType declares text a message is
+// written in. An absent type counts as one, since a vendor answering in plain
+// text often declares nothing. Every other type states a record, text/csv and
+// text/xml included.
+func quotableContentType(contentType string) bool {
+	normalized := strings.TrimSpace(strings.ToLower(contentType))
+	return normalized == "" ||
+		strings.HasPrefix(normalized, "text/plain") ||
+		strings.HasPrefix(normalized, "text/html")
+}
+
+// jsonRecord matches an object or an array that quotes a string or separates
+// two single-quoted ones, which is what a record does and a message does not,
+// and one that opens after a prefix such as an XSSI guard. "[ERROR] upstream:
+// timeout" and "[upstream] can't connect" match neither, however much
+// punctuation they hold.
+var jsonRecord = regexp.MustCompile(`^[{\[].*(?:"|'\s*[:,])|[{\[]\s*"`)
+
+// emailAddress matches an address down to a letters-only top-level domain,
+// so a version string with an '@' in it is not one.
+var emailAddress = regexp.MustCompile(`[^\s@]+@[^\s@]+\.[A-Za-z]{2,}`)
+
+// plainPrefix is text up to the first markup tag, and whether a tag ended it.
+// A '<' that opens no tag, as in "quota must be < 5", is part of the message.
+func plainPrefix(text string) (string, bool) {
+	for i := range len(text) {
+		if text[i] != '<' {
+			continue
+		}
+		if i+1 < len(text) && opensTag(text[i+1]) {
+			return strings.TrimSpace(text[:i]), true
+		}
+	}
+	return text, false
+}
+
+func opensTag(c byte) bool {
+	switch {
+	case c == '!', c == '?', c == '/':
+		return true
+	case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z':
+		return true
+	}
+	return false
+}
+
+// oneLine collapses the whitespace in text and drops what does not print, so
+// a body cannot add a line to the message.
+func oneLine(text string) string {
+	printable := strings.Map(func(r rune) rune {
+		if unicode.IsPrint(r) {
+			return r
+		}
+		return ' '
+	}, text)
+	return strings.Join(strings.Fields(printable), " ")
 }
 
 // requestLogFields identify the request a log line is about. These fields omit
-// the query string. A zap.Error on the same line still prints a *url.Error URL.
+// the query string.
 func requestLogFields(req *http.Request) []zap.Field {
 	if req == nil {
 		return nil
@@ -438,14 +541,14 @@ func WithErrorResponse(resource ErrorResponse) DoOption {
 		if !IsJSONContentType(contentHeader) {
 			return status.Errorf(grpcCode,
 				"unexpected content type for JSON error response: %s. status code: %d%s",
-				contentHeader, resp.StatusCode, quotedBody(resp.Body))
+				contentHeader, resp.StatusCode, quotedBody(contentHeader, resp.Body))
 		}
 
 		// Decode the JSON response body into the ErrorResponse
 		if err := json.Unmarshal(resp.Body, &resource); err != nil {
 			return status.Errorf(grpcCode,
 				"failed to unmarshal JSON error response: %v. status code: %d%s",
-				err, resp.StatusCode, quotedBody(resp.Body))
+				err, resp.StatusCode, quotedBody(contentHeader, resp.Body))
 		}
 
 		// Construct a more detailed error message
@@ -729,7 +832,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
 		cacheErr := c.baseHttpCache.Set(req, resp, c.cacheOptions...)
 		if cacheErr != nil {
-			l.Warn("error setting cache", zap.String("url", req.URL.String()), zap.Error(cacheErr))
+			l.Warn("error setting cache", append(requestLogFields(req), zap.Error(cacheErr))...)
 		}
 	}
 

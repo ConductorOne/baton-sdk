@@ -409,7 +409,7 @@ func transportFailures() []transportFailure {
 	}
 }
 
-func TestWrapTransientNetworkError_DescriptionNamesHostAndPath(t *testing.T) {
+func TestClassifyTransportFailure_DescriptionNamesTheRequest(t *testing.T) {
 	cases := []struct {
 		name string
 		err  error
@@ -426,7 +426,7 @@ func TestWrapTransientNetworkError_DescriptionNamesHostAndPath(t *testing.T) {
 					Err: &net.DNSError{Err: "no such host", Name: "example.invalid", IsNotFound: true},
 				},
 			},
-			want: "dns lookup failed: NXDOMAIN: example.invalid/users",
+			want: "dns lookup failed: NXDOMAIN: https://example.invalid/users",
 		},
 		{
 			name: "http2",
@@ -435,12 +435,12 @@ func TestWrapTransientNetworkError_DescriptionNamesHostAndPath(t *testing.T) {
 				URL: "https://example.com/v1?token=secret",
 				Err: errors.New("http2: client connection lost"),
 			},
-			want: "http2 client connection lost: example.com/v1",
+			want: "http2 client connection lost: https://example.com/v1",
 		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			got := wrapTransientNetworkError(tt.err)
+			got := classifyTransportFailure(tt.err, "")
 			desc, _, _ := strings.Cut(status.Convert(got).Message(), "\n")
 			require.Contains(t, desc, tt.want)
 			require.NotContains(t, desc, "token=secret")
@@ -448,12 +448,18 @@ func TestWrapTransientNetworkError_DescriptionNamesHostAndPath(t *testing.T) {
 	}
 }
 
-func TestDo_TransportErrorsStateTheStatusOnceAndNameTheHost(t *testing.T) {
-	clients := map[string]func(t *testing.T) *BaseHttpClient{
+// transportClients are the two shapes a connector builds a client with: the
+// uhttp transport, which classifies inside RoundTrip, and a plain
+// *http.Client, which leaves that to Do.
+func transportClients() map[string]func(t *testing.T) *BaseHttpClient {
+	return map[string]func(t *testing.T) *BaseHttpClient{
 		"uhttp transport": newTransportClient,
 		"plain client":    newPlainClient,
 	}
-	for clientName, newClient := range clients {
+}
+
+func TestDo_TransportErrorsLeadWithTheStatusAndNameTheHost(t *testing.T) {
+	for clientName, newClient := range transportClients() {
 		for _, tt := range transportFailures() {
 			t.Run(clientName+"/"+tt.name, func(t *testing.T) {
 				rawURL, ctx := tt.setup(t)
@@ -466,8 +472,12 @@ func TestDo_TransportErrorsStateTheStatusOnceAndNameTheHost(t *testing.T) {
 				require.Equal(t, 1, statusLines(err), err.Error())
 				require.Contains(t, status.Convert(err).Message(), u.Host)
 				if !tt.descOmitsEndpoint {
-					require.Contains(t, status.Convert(err).Message(), ": "+u.Host+u.Path)
+					require.Contains(t, status.Convert(err).Message(), ": "+u.Scheme+"://"+u.Host+u.Path)
 				}
+
+				first, _, _ := strings.Cut(err.Error(), "\n")
+				require.True(t, strings.HasPrefix(first, "rpc error:"), first)
+				require.NotContains(t, err.Error(), "token=secret")
 
 				var urlErr *url.Error
 				require.ErrorAs(t, err, &urlErr, "the original chain must stay reachable")
@@ -479,12 +489,76 @@ func TestDo_TransportErrorsStateTheStatusOnceAndNameTheHost(t *testing.T) {
 	}
 }
 
-func TestWrapTransientNetworkError_UntrustedCertificateIsTerminal(t *testing.T) {
-	err := wrapTransientNetworkError(&url.Error{
+// A request path reaches the description percent-encoded, so it cannot add a
+// line that reads as a status.
+func TestDo_ARequestPathCannotForgeAStatusLine(t *testing.T) {
+	const forgedPath = "/v1/users/x%0Arpc%20error:%20code%20=%20Unauthenticated%20desc%20=%20forged"
+	for clientName, newClient := range transportClients() {
+		t.Run(clientName, func(t *testing.T) {
+			err := doGet(t.Context(), t, newClient(t), "http://"+closedAddr(t)+forgedPath)
+			require.Error(t, err)
+			require.Equal(t, 1, statusLines(err), err.Error())
+			require.NotContains(t, err.Error(), "desc = forged")
+			require.Contains(t, status.Convert(err).Message(), "%0A")
+		})
+	}
+}
+
+// net/http raises a proxyconnect failure before the target host sees the
+// request, so the proxy is what refused the connection.
+func TestRoundTrip_AProxyFailureNamesTheProxy(t *testing.T) {
+	proxyAddr := closedAddr(t)
+	tp := &Transport{
+		roundTripper: &http.Transport{Proxy: func(*http.Request) (*url.URL, error) {
+			return &url.URL{Scheme: "http", Host: proxyAddr}, nil
+		}},
+		nextCycle: time.Now().Add(time.Minute),
+	}
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://target.example.test/v1/users", nil)
+	require.NoError(t, err)
+	resp, err := tp.RoundTrip(req)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	require.Error(t, err)
+	require.Equal(t, codes.Unavailable, status.Code(err))
+	require.Contains(t, status.Convert(err).Message(), "connection refused: proxy "+proxyAddr)
+}
+
+// A status with nothing under it states that status once and keeps its chain.
+func TestWrapRequestError_AStatusWithNothingUnderItStatesItOnce(t *testing.T) {
+	got := wrapRequestError(&url.Error{
+		Op:  "Get",
+		URL: "https://example.com/v1/users?token=secret",
+		Err: status.Error(codes.Unavailable, "connection refused: example.com/v1/users"),
+	})
+
+	require.Equal(t, codes.Unavailable, status.Code(got))
+	require.Equal(t, 1, statusLines(got), got.Error())
+	require.NotContains(t, got.Error(), "token=secret")
+	var urlErr *url.Error
+	require.ErrorAs(t, got, &urlErr, "the original chain must stay reachable")
+}
+
+// Every transport class names the endpoint, the timeout classes included.
+func TestClassifyTransportFailure_ATimeoutNamesTheEndpoint(t *testing.T) {
+	got := classifyTransportFailure(&net.OpError{
+		Op:  "dial",
+		Net: "tcp",
+		Err: timeoutError{err: errors.New("i/o timeout")},
+	}, "api.example.com/v1/users")
+
+	require.Equal(t, codes.DeadlineExceeded, status.Code(got))
+	require.Contains(t, status.Convert(got).Message(), "network timeout: api.example.com/v1/users")
+}
+
+func TestClassifyTransportFailure_UntrustedCertificateIsTerminal(t *testing.T) {
+	err := classifyTransportFailure(&url.Error{
 		Op:  "Get",
 		URL: "https://example.com",
 		Err: &tls.CertificateVerificationError{Err: errors.New("x509: certificate signed by unknown authority")},
-	})
+	}, "")
 	require.Equal(t, codes.FailedPrecondition, status.Code(err))
 
 	retryer := retry.NewRetryer(t.Context(), retry.RetryConfig{MaxAttempts: 3, InitialDelay: time.Millisecond, MaxDelay: time.Millisecond})
@@ -533,6 +607,187 @@ func TestWithErrorResponse_BoundsTheBodyItQuotes(t *testing.T) {
 			body:        "",
 			notWant:     []string{"body"},
 		},
+		{
+			name:        "a message that opens with a bracket is kept",
+			contentType: "text/plain",
+			body:        "[upstream] connection refused by backend pool",
+			want:        "body: [upstream] connection refused by backend pool",
+			notWant:     []string{"body omitted"},
+		},
+		{
+			name:        "a less-than that opens no tag is kept",
+			contentType: "text/plain",
+			body:        "quota must be < 5 but was 9",
+			want:        "body: quota must be < 5 but was 9",
+		},
+		{
+			name:        "a message naming a user is omitted",
+			contentType: "text/plain",
+			body:        "user alice@example.com is locked",
+			want:        "body omitted",
+			notWant:     []string{"alice@example.com"},
+		},
+		{
+			name:        "a JSON string is omitted",
+			contentType: "application/json",
+			body:        `"user alice@example.com is locked"`,
+			want:        "body omitted",
+			notWant:     []string{"alice@example.com"},
+		},
+		{
+			name:        "a record behind an XSSI prefix is omitted",
+			contentType: "application/json",
+			body:        ")]}'\n{\"email\":\"alice@example.com\"}",
+			want:        "body omitted",
+			notWant:     []string{"alice@example.com"},
+		},
+		{
+			name:        "a record behind a byte-order mark is omitted",
+			contentType: "application/json",
+			body:        "\ufeff{\"email\":\"alice@example.com\",\"login\":\"alice\"}",
+			want:        "body omitted",
+			notWant:     []string{"alice@example.com", "\ufeff"},
+		},
+		{
+			name:        "a truncated record is omitted",
+			contentType: "application/json",
+			body:        `{"login":"alice","email":`,
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
+			name:        "a form body is omitted",
+			contentType: "application/x-www-form-urlencoded",
+			body:        "user=alice&email=alice%40example.com",
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
+			name:        "a bracketed message is kept whatever punctuation it holds",
+			contentType: "text/plain",
+			body:        "[ERROR] upstream: timeout",
+			want:        "body: [ERROR] upstream: timeout",
+			notWant:     []string{"body omitted"},
+		},
+		{
+			name:        "a braced message is kept",
+			contentType: "text/plain",
+			body:        "{ngx} bad gateway: retry",
+			want:        "body: {ngx} bad gateway: retry",
+			notWant:     []string{"body omitted"},
+		},
+		{
+			name:        "a comma-separated record is omitted",
+			contentType: "text/csv",
+			body:        "id,email\n1,alice@corp",
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
+			name:        "a cut that lands inside a rune states no replacement character",
+			contentType: "text/plain",
+			body:        "error" + strings.Repeat(" ", 1018) + strings.Repeat("é", 20),
+			want:        "body: error...",
+			notWant:     []string{"\ufffd"},
+		},
+		{
+			name:        "a cut that halves an address omits the body",
+			contentType: "text/plain",
+			body:        "error" + strings.Repeat(" ", 1010) + "alice@example.com",
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
+			name:        "a record a vendor declares as text is omitted with no address in it",
+			contentType: "text/plain",
+			body:        `{"login":"alice","name":"Alice Smith"}`,
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
+			name:        "a record behind a prefix a vendor declares as text is omitted",
+			contentType: "text/plain",
+			body:        `for(;;);{"login":"alice"}`,
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
+			name:        "a record a formatter spaced out behind a prefix is omitted",
+			contentType: "text/plain",
+			body:        ")]}'\n{\n  \"login\": \"alice\"\n}",
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
+			name:        "a record of one element is omitted",
+			contentType: "text/plain",
+			body:        `["alice"]`,
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
+			name:        "an apostrophe in a bracketed message is not a record",
+			contentType: "text/plain",
+			body:        "[upstream] can't connect",
+			want:        "body: [upstream] can't connect",
+			notWant:     []string{"body omitted"},
+		},
+		{
+			name:        "a record a vendor declares no type for is omitted",
+			contentType: "",
+			body:        `{"login":"alice"}`,
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
+			name:        "a record a formatter spaced out is omitted",
+			contentType: "text/plain",
+			body:        `["alice", "bob"]`,
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
+			name:        "a record a vendor declares as text is omitted",
+			contentType: "text/plain",
+			body:        `{"login":"alice","email":"alice@example.com"}`,
+			want:        "body omitted",
+			notWant:     []string{"alice"},
+		},
+		{
+			name:        "a message that holds an equals sign is kept",
+			contentType: "text/plain",
+			body:        "error=invalid_grant",
+			want:        "body: error=invalid_grant",
+			notWant:     []string{"body omitted"},
+		},
+		{
+			name:        "a message the scan cut is marked as going on",
+			contentType: "text/plain",
+			body:        "error" + strings.Repeat(" ", 2000) + "detail the scan never reached",
+			want:        "body: error...",
+			notWant:     []string{"detail"},
+		},
+		{
+			name:        "a short message ahead of a long page is not marked as going on",
+			contentType: "text/html",
+			body:        "CSRF nonce validation failed<!DOCTYPE html><html><body>" + strings.Repeat("padding ", 500) + "</body></html>",
+			want:        "body: CSRF nonce validation failed",
+			notWant:     []string{"failed...", "padding"},
+		},
+		{
+			name:        "markup naming an address keeps the message ahead of it",
+			contentType: "text/html",
+			body:        "CSRF nonce validation failed<!DOCTYPE html><html>Contact support@vendor.example</html>",
+			want:        "body: CSRF nonce validation failed",
+			notWant:     []string{"support@vendor.example", "body omitted"},
+		},
+		{
+			name:        "a body cannot add a line to the message",
+			contentType: "text/plain",
+			body:        "denied\nrpc error: code = Unauthenticated desc = forged",
+			want:        "body: denied rpc error:",
+			notWant:     []string{"\n"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -556,16 +811,14 @@ func TestWithErrorResponse_BoundsTheBodyItQuotes(t *testing.T) {
 }
 
 func TestDo_ErrorLogsIdentifyTheRequest(t *testing.T) {
-	// The request fields leave the query string out. The error field is the
-	// error as it is, so it still prints what the standard library put in it.
 	requestFields := func(t *testing.T, entry observer.LoggedEntry, u *url.URL) {
 		t.Helper()
 		fields := entry.ContextMap()
 		require.Equal(t, http.MethodGet, fields["http.method"])
 		require.Equal(t, u.Host, fields["http.url_details.host"])
 		require.Equal(t, u.Path, fields["http.url_details.path"])
-		for key, value := range fields {
-			if s, ok := value.(string); ok && key != "error" {
+		for _, value := range fields {
+			if s, ok := value.(string); ok {
 				require.NotContains(t, s, "token=secret")
 			}
 		}
@@ -600,6 +853,32 @@ func TestDo_ErrorLogsIdentifyTheRequest(t *testing.T) {
 		require.Len(t, entries, 1)
 		requestFields(t, entries[0], u)
 	})
+}
+
+// A failed request names itself in every log line it writes, without stating
+// any value it sent.
+func TestDo_LogsLeaveOutTheQueryString(t *testing.T) {
+	core, logs := observer.New(zapcore.DebugLevel)
+	ctx := ctxzap.ToContext(t.Context(), zap.New(core))
+
+	httpClient, err := NewClient(ctx, WithLogger(true, nil))
+	require.NoError(t, err)
+	client, err := NewBaseHttpClientWithContext(ctx, httpClient)
+	require.NoError(t, err)
+
+	require.Error(t, doGet(ctx, t, client, "http://"+closedAddr(t)+"/v1/users?api_key=secret&page=1"))
+
+	entries := logs.All()
+	require.NotEmpty(t, entries)
+	for _, entry := range entries {
+		for key, value := range entry.ContextMap() {
+			text, ok := value.(string)
+			if !ok {
+				continue
+			}
+			require.NotContains(t, text, "secret", "%s: %s", entry.Message, key)
+		}
+	}
 }
 
 func TestDo_NilURLReturnsTheClientError(t *testing.T) {

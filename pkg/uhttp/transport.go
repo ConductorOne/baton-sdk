@@ -277,7 +277,6 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 					zap.String("http.method", req.Method),
 					zap.String("http.url_details.host", req.URL.Host),
 					zap.String("http.url_details.path", req.URL.Path),
-					zap.String("http.url_details.query", req.URL.RawQuery),
 					zap.Duration("duration", duration),
 					zap.Any("panic", r),
 				)
@@ -320,7 +319,6 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			zap.String("http.method", req.Method),
 			zap.String("http.url_details.host", req.URL.Host),
 			zap.String("http.url_details.path", req.URL.Path),
-			zap.String("http.url_details.query", req.URL.RawQuery),
 			zap.Duration("duration", duration),
 		}
 

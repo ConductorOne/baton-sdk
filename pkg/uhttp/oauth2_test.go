@@ -235,7 +235,7 @@ func TestClassifyOAuth2TokenError(t *testing.T) {
 		},
 		{
 			// NXDOMAIN is terminal here for the same reason it is terminal
-			// in wrapTransientNetworkError: a hostname that does not
+			// in classifyTransportFailure: a hostname that does not
 			// resolve is a misconfiguration.
 			name:     "flattened NXDOMAIN stays terminal",
 			err:      fmt.Errorf(`oauth2: cannot fetch token: Post "https://example.invalid/token": dial tcp: lookup example.invalid: no such host`),
@@ -316,7 +316,7 @@ func TestClassifyOAuth2TokenError_KeepsAnExistingStatus(t *testing.T) {
 }
 
 // The two classifiers over this domain — ClassifyOAuth2TokenError above the
-// token source and wrapTransientNetworkError inside the transport — meet
+// token source and classifyTransportFailure inside the transport — meet
 // whenever a connector wraps a token-backed client in BaseHttpClient, so
 // either order has to settle on one code.
 func TestClassifyOAuth2TokenError_IsStableUnderReclassification(t *testing.T) {
@@ -329,8 +329,8 @@ func TestClassifyOAuth2TokenError_IsStableUnderReclassification(t *testing.T) {
 		want := status.Code(classified)
 
 		require.Equal(t, want, status.Code(ClassifyOAuth2TokenError(classified)))
-		require.Equal(t, want, status.Code(wrapTransientNetworkError(classified)))
-		require.Equal(t, want, status.Code(ClassifyOAuth2TokenError(wrapTransientNetworkError(err))))
+		require.Equal(t, want, status.Code(classifyTransportFailure(classified, "")))
+		require.Equal(t, want, status.Code(ClassifyOAuth2TokenError(classifyTransportFailure(err, ""))))
 	}
 }
 
@@ -368,7 +368,7 @@ func TestFlattenedAndTypedClassificationAgree(t *testing.T) {
 		t.Run(condition.err.Error(), func(t *testing.T) {
 			typed := socketFailure(condition.err)
 
-			typedCode := status.Code(wrapTransientNetworkError(typed))
+			typedCode := status.Code(classifyTransportFailure(typed, ""))
 			require.Equal(t, socketClassifications[condition.class].code, typedCode,
 				"the platform predicates and the shared condition list disagree")
 
@@ -396,7 +396,7 @@ func TestFlattenedAndTypedClassificationAgree(t *testing.T) {
 	}
 	for _, tt := range others {
 		t.Run(tt.name, func(t *testing.T) {
-			typedCode := status.Code(wrapTransientNetworkError(tt.typed))
+			typedCode := status.Code(classifyTransportFailure(tt.typed, ""))
 			require.NotEqual(t, codes.Unknown, typedCode, "the typed classifier must have an answer for this case")
 			require.Equal(t, typedCode, status.Code(ClassifyOAuth2TokenError(flatten(tt.typed))))
 		})
