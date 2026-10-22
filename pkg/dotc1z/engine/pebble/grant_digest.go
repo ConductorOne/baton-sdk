@@ -421,6 +421,7 @@ func grantContentHashForRecord(r *v3.GrantRecord) ([]byte, error) {
 // the immutability flag and the sorted sources via grantContentHash64.
 func grantContentHashFromFacts(id grantIdentity, isImmutable bool, srcs []grantSourceFact) uint64 {
 	key := encodeGrantIdentityKey(id)
+	// nil scratch: the tuple buffer only pays off when reused across records.
 	h, _ := grantContentHash64(nil, key[grantPrimaryKeyPrefixLen:], isImmutable, sortGrantSourceFacts(srcs))
 	return h
 }

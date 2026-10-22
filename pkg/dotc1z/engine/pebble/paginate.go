@@ -270,8 +270,7 @@ func (e *Engine) paginateGrantsByEntitlementPrincipalTypes(
 	scope := encodeGrantPrimaryEntitlementPrefix(entID)
 	prefixes := make([][]byte, 0, len(principalTypes))
 	for _, rt := range principalTypes {
-		prefix := codec.AppendTupleString(bytes.Clone(scope), rt)
-		prefixes = append(prefixes, codec.AppendTupleSeparator(prefix))
+		prefixes = append(prefixes, encodeGrantPrimaryEntitlementPrincipalTypePrefix(entID, rt))
 	}
 	slices.SortFunc(prefixes, bytes.Compare)
 	prefixes = slices.CompactFunc(prefixes, bytes.Equal)

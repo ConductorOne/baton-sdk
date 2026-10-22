@@ -245,7 +245,6 @@ func (e *Engine) listGrantsForEntitlement(ctx context.Context, req listGrantsFor
 	if p == nil {
 		var records []*v3.GrantRecord
 		var next string
-		var err error
 		if len(rts) > 0 {
 			records, next, err = e.paginateGrantsByEntitlementPrincipalTypes(ctx, entIdentity, rts, req.GetPageToken(), limit)
 		} else {
