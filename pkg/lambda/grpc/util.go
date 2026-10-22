@@ -220,19 +220,6 @@ func ErrorResponse(err error) *Response {
 	}
 }
 
-// requestOf names the request err was for, as ": <url>" without the query
-// string, where a connector may send a credential. It is "" when err holds no
-// request. Reading the URL rather than the text of err reaches a request a
-// caller wrapped, which the text cannot give back once fmt.Errorf has built it.
-func requestOf(err error) string {
-	var urlErr *url.Error
-	if !errors.As(err, &urlErr) {
-		return ""
-	}
-	withoutQuery, _, _ := strings.Cut(urlErr.URL, "?")
-	return ": " + withoutQuery
-}
-
 // statusForApplicationError mirrors the transient network handling in uhttp for
 // connector SDK clients that bypass the Baton HTTP wrapper.
 func statusForApplicationError(err error) *status.Status {
@@ -249,7 +236,7 @@ func statusForApplicationError(err error) *status.Status {
 
 	var certErr *tls.CertificateVerificationError
 	if errors.As(err, &certErr) {
-		return status.Newf(codes.FailedPrecondition, "tls certificate verification failed%s: %s", requestOf(err), certErr)
+		return status.Newf(codes.FailedPrecondition, "tls certificate verification failed: %s", certErr)
 	}
 
 	var urlErr *url.Error
