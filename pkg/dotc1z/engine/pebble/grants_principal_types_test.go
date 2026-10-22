@@ -48,7 +48,7 @@ func newPrincipalTypesFixture(ctx context.Context, tb testing.TB, seed int64, pe
 	a := NewAdapter(e)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(tb, err)
-	rng := rand.New(rand.NewSource(seed))
+	rng := rand.New(rand.NewSource(seed)) //nolint:gosec // deterministic seeded test data.
 	f := &principalTypesFixture{e: e, grants: map[string][]*v3.GrantRecord{}}
 	var all []*v3.GrantRecord
 	for _, entID := range grantsPrincipalTypesEntitlements {
@@ -172,15 +172,19 @@ type principalTypesRequest struct {
 }
 
 // listNew runs the request through the v2 or v3 reader method.
+func (r principalTypesRequest) pageSize() uint32 {
+	return uint32(r.limit) //nolint:gosec // test limits are small positive ints.
+}
+
 func (f *principalTypesFixture) listNew(ctx context.Context, useV3 bool, r principalTypesRequest, token string) ([]*v3.GrantRecord, string, error) {
 	if useV3 {
 		resp, err := f.v3reader.ListGrantsForEntitlement(ctx, reader_v3.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-			Entitlement: r.ent, PrincipalId: r.principalID, PrincipalResourceTypeIds: r.rts, PageSize: uint32(r.limit), PageToken: token,
+			Entitlement: r.ent, PrincipalId: r.principalID, PrincipalResourceTypeIds: r.rts, PageSize: r.pageSize(), PageToken: token,
 		}.Build())
 		return resp.GetList(), resp.GetNextPageToken(), err
 	}
 	resp, err := f.e.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement: r.ent, PrincipalId: r.principalID, PrincipalResourceTypeIds: r.rts, PageSize: uint32(r.limit), PageToken: token,
+		Entitlement: r.ent, PrincipalId: r.principalID, PrincipalResourceTypeIds: r.rts, PageSize: r.pageSize(), PageToken: token,
 	}.Build())
 	if err != nil {
 		return nil, "", err
@@ -210,8 +214,10 @@ func grantKeys(rs []*v3.GrantRecord) []string {
 }
 
 // drain pages with next until the token is empty, returning each page's keys and token.
-func drain(t testing.TB, list func(token string) ([]*v3.GrantRecord, string, error)) (pages [][]string, tokens []string) {
+func drain(t testing.TB, list func(token string) ([]*v3.GrantRecord, string, error)) ([][]string, []string) {
 	t.Helper()
+	var pages [][]string
+	var tokens []string
 	token := ""
 	for i := 0; i < 100_000; i++ {
 		recs, next, err := list(token)
@@ -302,7 +308,7 @@ func TestListGrantsForEntitlementPrincipalTypesDifferential(t *testing.T) {
 	ctx := t.Context()
 	for seed := int64(1); seed <= 4; seed++ {
 		f := newPrincipalTypesFixture(ctx, t, seed, 30)
-		rng := rand.New(rand.NewSource(seed * 7919))
+		rng := rand.New(rand.NewSource(seed * 7919)) //nolint:gosec // deterministic seeded test data.
 		for _, entID := range append(slices.Clone(grantsPrincipalTypesEntitlements), "app:github:never") {
 			for i := 0; i < 25; i++ {
 				r := f.randomRequest(rng, entID)
@@ -362,7 +368,7 @@ func FuzzListGrantsForEntitlementPrincipalTypes(f *testing.F) {
 	f.Add(int64(2), uint8(1), []byte{12, 12, 200}, true, uint8(2))
 	f.Add(int64(3), uint8(7), []byte{}, true, uint8(1))
 	f.Fuzz(func(t *testing.T, seed int64, limit uint8, typeBytes []byte, useV3 bool, entIdx uint8) {
-		rng := rand.New(rand.NewSource(seed))
+		rng := rand.New(rand.NewSource(seed)) //nolint:gosec // deterministic seeded test data.
 		entID := grantsPrincipalTypesEntitlements[int(entIdx)%len(grantsPrincipalTypesEntitlements)]
 		r := fx.randomRequest(rng, entID)
 		r.limit = 1 + int(limit)%12

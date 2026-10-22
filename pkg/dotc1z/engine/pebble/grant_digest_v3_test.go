@@ -46,7 +46,8 @@ func TestGrantRecordContentHashMatchesGrantContentHash(t *testing.T) {
 		{name: "immutable, no sources", entRT: "app", entRID: "github", entID: "ent-1", prt: "user", pid: "user-42", immutable: true},
 		{name: "immutable with sources", entRT: "app", entRID: "github", entID: "ent-1", prt: "user", pid: "user-42", immutable: true, srcs: []testSrcFact{{"c-src", false}, {"a-src", true}}},
 		{name: "expandable", entRT: "app", entRID: "github", entID: "ent-1", prt: "user", pid: "user-42", expandable: true},
-		{name: "expandable and immutable with sources", entRT: "app", entRID: "github", entID: "ent-1", prt: "user", pid: "user-42", immutable: true, expandable: true, srcs: []testSrcFact{{"s", true}}},
+		{name: "expandable and immutable with sources", entRT: "app", entRID: "github", entID: "ent-1", prt: "user", pid: "user-42",
+			immutable: true, expandable: true, srcs: []testSrcFact{{"s", true}}},
 		{name: "embedded NUL", entRT: "a\x00pp", entRID: "git\x00hub", entID: "ent\x00x", prt: "us\x00er", pid: "id\x00", srcs: []testSrcFact{{"s\x00rc", true}, {"\x00", false}}},
 		{name: "escape byte", entRT: "a\x01pp", entRID: "hub", entID: "ent\x01x", prt: "us\x01er", pid: "\x01id", srcs: []testSrcFact{{"\x01", false}, {"\x00", true}}},
 		{name: "colons", entRT: "a:pp", entRID: "git:hub", entID: "a:pp:git:hub:m:x", prt: "u:r", pid: "::", srcs: []testSrcFact{{"x:y:z", true}}},
@@ -136,7 +137,7 @@ func TestGrantDigestAccumulatorAddRecordOrderIndependent(t *testing.T) {
 	for _, r := range records {
 		require.NoError(t, want.AddRecord(r))
 	}
-	rng := rand.New(rand.NewSource(1))
+	rng := rand.New(rand.NewSource(1)) //nolint:gosec // deterministic seeded test data.
 	for range 20 {
 		rng.Shuffle(len(records), func(i, j int) { records[i], records[j] = records[j], records[i] })
 		var got GrantDigestAccumulator
