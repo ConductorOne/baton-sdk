@@ -9,6 +9,7 @@
 package v1
 
 import (
+	_ "github.com/envoyproxy/protoc-gen-validate/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -558,17 +559,20 @@ func (b0 FieldGroup_builder) Build() *FieldGroup {
 }
 
 type Field struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Name        string                 `protobuf:"bytes,1,opt,name=name,proto3"`
-	xxx_hidden_DisplayName string                 `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3"`
-	xxx_hidden_Description string                 `protobuf:"bytes,3,opt,name=description,proto3"`
-	xxx_hidden_Placeholder string                 `protobuf:"bytes,4,opt,name=placeholder,proto3"`
-	xxx_hidden_IsRequired  bool                   `protobuf:"varint,5,opt,name=is_required,json=isRequired,proto3"`
-	xxx_hidden_IsOps       bool                   `protobuf:"varint,6,opt,name=is_ops,json=isOps,proto3"`
-	xxx_hidden_IsSecret    bool                   `protobuf:"varint,7,opt,name=is_secret,json=isSecret,proto3"`
-	xxx_hidden_Field       isField_Field          `protobuf_oneof:"field"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state                        protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Name              string                 `protobuf:"bytes,1,opt,name=name,proto3"`
+	xxx_hidden_DisplayName       string                 `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3"`
+	xxx_hidden_Description       string                 `protobuf:"bytes,3,opt,name=description,proto3"`
+	xxx_hidden_Placeholder       string                 `protobuf:"bytes,4,opt,name=placeholder,proto3"`
+	xxx_hidden_IsRequired        bool                   `protobuf:"varint,5,opt,name=is_required,json=isRequired,proto3"`
+	xxx_hidden_IsOps             bool                   `protobuf:"varint,6,opt,name=is_ops,json=isOps,proto3"`
+	xxx_hidden_IsSecret          bool                   `protobuf:"varint,7,opt,name=is_secret,json=isSecret,proto3"`
+	xxx_hidden_SecretContentType *string                `protobuf:"bytes,8,opt,name=secret_content_type,json=secretContentType,proto3,oneof"`
+	xxx_hidden_Field             isField_Field          `protobuf_oneof:"field"`
+	XXX_raceDetectHookData       protoimpl.RaceDetectHookData
+	XXX_presence                 [1]uint32
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *Field) Reset() {
@@ -643,6 +647,16 @@ func (x *Field) GetIsSecret() bool {
 		return x.xxx_hidden_IsSecret
 	}
 	return false
+}
+
+func (x *Field) GetSecretContentType() string {
+	if x != nil {
+		if x.xxx_hidden_SecretContentType != nil {
+			return *x.xxx_hidden_SecretContentType
+		}
+		return ""
+	}
+	return ""
 }
 
 func (x *Field) GetStringField() *StringField {
@@ -772,6 +786,11 @@ func (x *Field) SetIsSecret(v bool) {
 	x.xxx_hidden_IsSecret = v
 }
 
+func (x *Field) SetSecretContentType(v string) {
+	x.xxx_hidden_SecretContentType = &v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 9)
+}
+
 func (x *Field) SetStringField(v *StringField) {
 	if v == nil {
 		x.xxx_hidden_Field = nil
@@ -858,6 +877,13 @@ func (x *Field) SetGrantSliceField(v *GrantSliceField) {
 		return
 	}
 	x.xxx_hidden_Field = &field_GrantSliceField{v}
+}
+
+func (x *Field) HasSecretContentType() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 7)
 }
 
 func (x *Field) HasField() bool {
@@ -953,6 +979,11 @@ func (x *Field) HasGrantSliceField() bool {
 	}
 	_, ok := x.xxx_hidden_Field.(*field_GrantSliceField)
 	return ok
+}
+
+func (x *Field) ClearSecretContentType() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 7)
+	x.xxx_hidden_SecretContentType = nil
 }
 
 func (x *Field) ClearField() {
@@ -1084,6 +1115,9 @@ type Field_builder struct {
 	// through ActionHandlerWithSecrets; it is omitted from the public response
 	// and returned as EncryptedData.
 	IsSecret bool
+	// Secret action return content type. Absent means generic; not valid on
+	// configuration fields, action arguments, or public returns.
+	SecretContentType *string
 	// Fields of oneof xxx_hidden_Field:
 	StringField          *StringField
 	IntField             *IntField
@@ -1111,6 +1145,10 @@ func (b0 Field_builder) Build() *Field {
 	x.xxx_hidden_IsRequired = b.IsRequired
 	x.xxx_hidden_IsOps = b.IsOps
 	x.xxx_hidden_IsSecret = b.IsSecret
+	if b.SecretContentType != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 9)
+		x.xxx_hidden_SecretContentType = b.SecretContentType
+	}
 	if b.StringField != nil {
 		x.xxx_hidden_Field = &field_StringField{b.StringField}
 	}
@@ -2797,7 +2835,7 @@ var File_c1_config_v1_config_proto protoreflect.FileDescriptor
 
 const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\n" +
-	"\x19c1/config/v1/config.proto\x12\fc1.config.v1\x1a\x18c1/config/v1/rules.proto\x1a\x19google/protobuf/any.proto\"\xd0\x03\n" +
+	"\x19c1/config/v1/config.proto\x12\fc1.config.v1\x1a\x18c1/config/v1/rules.proto\x1a\x19google/protobuf/any.proto\x1a\x17validate/validate.proto\"\xd0\x03\n" +
 	"\rConfiguration\x12+\n" +
 	"\x06fields\x18\x01 \x03(\v2\x13.c1.config.v1.FieldR\x06fields\x12:\n" +
 	"\vconstraints\x18\x02 \x03(\v2\x18.c1.config.v1.ConstraintR\vconstraints\x12!\n" +
@@ -2826,7 +2864,7 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x1b\n" +
 	"\thelp_text\x18\x03 \x01(\tR\bhelpText\x12\x16\n" +
 	"\x06fields\x18\x04 \x03(\tR\x06fields\x12\x18\n" +
-	"\adefault\x18\x05 \x01(\bR\adefault\"\x9d\b\n" +
+	"\adefault\x18\x05 \x01(\bR\adefault\"\x94\t\n" +
 	"\x05Field\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12 \n" +
@@ -2835,7 +2873,8 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\vis_required\x18\x05 \x01(\bR\n" +
 	"isRequired\x12\x15\n" +
 	"\x06is_ops\x18\x06 \x01(\bR\x05isOps\x12\x1b\n" +
-	"\tis_secret\x18\a \x01(\bR\bisSecret\x12>\n" +
+	"\tis_secret\x18\a \x01(\bR\bisSecret\x12]\n" +
+	"\x13secret_content_type\x18\b \x01(\tB(\xfaB%r#\x10\x01\x18\x80\x012\x1c^[a-z0-9]+([._-][a-z0-9]+)*$H\x01R\x11secretContentType\x88\x01\x01\x12>\n" +
 	"\fstring_field\x18d \x01(\v2\x19.c1.config.v1.StringFieldH\x00R\vstringField\x125\n" +
 	"\tint_field\x18e \x01(\v2\x16.c1.config.v1.IntFieldH\x00R\bintField\x128\n" +
 	"\n" +
@@ -2848,7 +2887,8 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\x14resource_slice_field\x18l \x01(\v2 .c1.config.v1.ResourceSliceFieldH\x00R\x12resourceSliceField\x12]\n" +
 	"\x17entitlement_slice_field\x18m \x01(\v2#.c1.config.v1.EntitlementSliceFieldH\x00R\x15entitlementSliceField\x12K\n" +
 	"\x11grant_slice_field\x18n \x01(\v2\x1d.c1.config.v1.GrantSliceFieldH\x00R\x0fgrantSliceFieldB\a\n" +
-	"\x05field\"\x8a\x02\n" +
+	"\x05fieldB\x16\n" +
+	"\x14_secret_content_type\"\x8a\x02\n" +
 	"\bResource\x129\n" +
 	"\vresource_id\x18\x01 \x01(\v2\x18.c1.config.v1.ResourceIdR\n" +
 	"resourceId\x12F\n" +
