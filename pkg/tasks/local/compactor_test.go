@@ -24,8 +24,8 @@ func TestLocalCompactorPassesStorageEngine(t *testing.T) {
 
 	p1 := filepath.Join(inDir, "in1.c1z")
 	p2 := filepath.Join(inDir, "in2.c1z")
-	s1 := buildLocalCompactorSQLiteInput(t, ctx, p1, connectorstore.SyncTypeFull, "g-shared", "g-only1")
-	s2 := buildLocalCompactorSQLiteInput(t, ctx, p2, connectorstore.SyncTypePartial, "g-shared", "g-only2")
+	s1 := buildLocalCompactorInput(t, ctx, p1, connectorstore.SyncTypeFull, "g-shared", "g-only1")
+	s2 := buildLocalCompactorInput(t, ctx, p2, connectorstore.SyncTypePartial, "g-shared", "g-only2")
 
 	mgr := NewLocalCompactor(ctx, outDir, []*synccompactor.CompactableSync{
 		{FilePath: p1, SyncID: s1},
@@ -46,10 +46,10 @@ func TestLocalCompactorPassesStorageEngine(t *testing.T) {
 	require.True(t, ok, "local compactor must pass requested pebble engine to synccompactor")
 }
 
-func buildLocalCompactorSQLiteInput(t *testing.T, ctx context.Context, path string, st connectorstore.SyncType, grantIDs ...string) string {
+func buildLocalCompactorInput(t *testing.T, ctx context.Context, path string, st connectorstore.SyncType, grantIDs ...string) string {
 	t.Helper()
 
-	store, err := dotc1z.NewC1ZFile(ctx, path)
+	store, err := dotc1z.NewStore(ctx, path)
 	require.NoError(t, err)
 
 	syncID, err := store.StartNewSync(ctx, st, "")

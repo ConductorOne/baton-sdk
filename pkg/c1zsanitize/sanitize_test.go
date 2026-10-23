@@ -179,13 +179,13 @@ func TestSanitizeAnnotationDropsUnknownByDefault(t *testing.T) {
 	require.NotEmpty(t, annos, "known annotations should survive")
 }
 
-func mustOpen(t *testing.T, ctx context.Context, path string, readOnly bool) *dotc1z.C1File {
+func mustOpen(t *testing.T, ctx context.Context, path string, readOnly bool) c1zstore.Store {
 	t.Helper()
 	opts := []dotc1z.C1ZOption{}
 	if readOnly {
 		opts = append(opts, dotc1z.WithReadOnly(true))
 	}
-	f, err := dotc1z.NewC1ZFile(ctx, path, opts...)
+	f, err := dotc1z.NewStore(ctx, path, opts...)
 	require.NoError(t, err)
 	return f
 }
@@ -336,10 +336,10 @@ func collectRecords(t *testing.T, ctx context.Context, r connectorstore.Reader) 
 
 // buildFixture writes a small but representative c1z to path with
 // one sync, multiple resource types, and one annotation per trait
-// handler. Closes the C1File before returning so the bytes hit disk.
+// handler. Closes the store before returning so the bytes hit disk.
 func buildFixture(t *testing.T, ctx context.Context, path string) {
 	t.Helper()
-	f, err := dotc1z.NewC1ZFile(ctx, path)
+	f, err := dotc1z.NewStore(ctx, path)
 	require.NoError(t, err)
 	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)

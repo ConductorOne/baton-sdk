@@ -65,7 +65,7 @@ func TestFreshIngestFilterMirrorsMachineryExemptions(t *testing.T) {
 	ctx, err := logging.Init(t.Context())
 	require.NoError(t, err)
 
-	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
 			store := newIngestFilterStore(ctx, t, engine)
 			require.NoError(t, store.PutResourceTypes(ctx,

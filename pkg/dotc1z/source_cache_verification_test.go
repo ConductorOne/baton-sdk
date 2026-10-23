@@ -1348,27 +1348,6 @@ func TestVerificationSourceArtifactDigestAllKindOutcomes(t *testing.T) {
 	}
 }
 
-// C20/C35: SQLite exposes no partial source-cache capability, and passing it
-// directly to Pebble replay fails loudly rather than becoming an empty hit.
-func TestVerificationUnsupportedSourceFailsClosed(t *testing.T) {
-	ctx := t.Context()
-	previous, err := NewC1ZFile(ctx, filepath.Join(t.TempDir(), "previous.c1z"))
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, previous.Close(ctx)) })
-	_, err = previous.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-	_, ok := any(previous).(SourceCacheStore)
-	require.False(t, ok, "SQLite must expose capability absence, not a partial implementation")
-
-	cur := newSourceCacheVerificationStore(t)
-	putVerificationGrant(t, cur, "scope-a", "destination", "alice")
-	before := sourceCacheVerificationEngineDigest(t, cur.engine)
-	_, err = cur.cache.ReplaySourceCache(ctx, previous, sourcecache.RowKindGrants, "scope-a")
-	require.ErrorContains(t, err, "not a pebble store")
-	require.Equal(t, before, sourceCacheVerificationEngineDigest(t, cur.engine),
-		"unsupported-source rejection mutated occupied destination")
-}
-
 func TestVerificationReplayRejectsUnfinishedSourceAllKinds(t *testing.T) {
 	for _, kind := range []sourcecache.RowKind{
 		sourcecache.RowKindResources,

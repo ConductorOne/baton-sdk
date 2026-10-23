@@ -223,10 +223,6 @@ func BenchmarkRegisteredPebbleWriteGrant(b *testing.B) {
 	benchmarkRegisteredWriteGrant(b, c1zstore.EnginePebble)
 }
 
-func BenchmarkRegisteredSQLiteWriteGrant(b *testing.B) {
-	benchmarkRegisteredWriteGrant(b, c1zstore.EngineSQLite)
-}
-
 // writePackScales is the grant-count grid the bench sweeps. Small
 // sizes catch fixed-cost regressions (startup, encode). The 100k/1M
 // sizes catch the LSM-vs-B-tree scaling curve where SQLite's per-row
@@ -306,26 +302,10 @@ func BenchmarkRegisteredPebbleWritePackImmutable_NoDigestIndex(b *testing.B) {
 	}
 }
 
-func BenchmarkRegisteredSQLiteWritePack(b *testing.B) {
-	for _, n := range grantsScales() {
-		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
-			benchmarkRegisteredWritePack(b, c1zstore.EngineSQLite, n)
-		})
-	}
-}
-
 func BenchmarkRegisteredPebbleUnpackReadGrants(b *testing.B) {
 	for _, n := range grantsScales() {
 		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
 			benchmarkRegisteredUnpackReadGrants(b, c1zstore.EnginePebble, n)
-		})
-	}
-}
-
-func BenchmarkRegisteredSQLiteUnpackReadGrants(b *testing.B) {
-	for _, n := range grantsScales() {
-		b.Run(fmt.Sprintf("grants=%d", n), func(b *testing.B) {
-			benchmarkRegisteredUnpackReadGrants(b, c1zstore.EngineSQLite, n)
 		})
 	}
 }

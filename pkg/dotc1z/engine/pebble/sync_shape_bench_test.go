@@ -38,28 +38,20 @@ const (
 	demoGroupMemberships = 12
 )
 
-// BenchmarkSyncShape_BatonDemo runs the bench against both
-// SQLite (the production default) and Pebble (the new engine).
-// Selectable via the SYNC_BENCH_ENGINE env var so CI can opt in
-// to one engine; defaults to running both back to back.
+// BenchmarkSyncShape_BatonDemo runs the bench against the Pebble engine.
 //
 // Usage:
 //
-//	SYNC_BENCH_ENGINE=both go test -tags=baton_lambda_support,batonsdkv2 \
+//	go test -tags=baton_lambda_support,batonsdkv2 \
 //	    -bench=BenchmarkSyncShape_BatonDemo -benchtime=1x \
 //	    ./pkg/dotc1z/engine/pebble
 func BenchmarkSyncShape_BatonDemo(b *testing.B) {
-	engines := []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble}
-	if env := os.Getenv("SYNC_BENCH_ENGINE"); env != "" && env != "both" {
-		engines = []c1zstore.Engine{c1zstore.Engine(env)}
-	}
-	for _, eng := range engines {
-		b.Run(string(eng), func(b *testing.B) {
-			for i := 0; i < b.N; i++ {
-				runBatonDemoSyncShape(b, eng)
-			}
-		})
-	}
+	eng := c1zstore.EnginePebble
+	b.Run(string(eng), func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			runBatonDemoSyncShape(b, eng)
+		}
+	})
 }
 
 func runBatonDemoSyncShape(b *testing.B, engine c1zstore.Engine) {

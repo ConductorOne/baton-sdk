@@ -102,7 +102,7 @@ func buildHydrationTestStore(t *testing.T, ctx context.Context, engine c1zstore.
 }
 
 func TestProvisionerGrantHydratesResources(t *testing.T) {
-	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
 			ctx := context.Background()
 			store := buildHydrationTestStore(t, ctx, engine)
@@ -139,7 +139,7 @@ func TestProvisionerGrantHydratesResources(t *testing.T) {
 }
 
 func TestProvisionerRevokeHydratesResources(t *testing.T) {
-	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
 			ctx := context.Background()
 			store := buildHydrationTestStore(t, ctx, engine)

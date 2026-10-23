@@ -287,4 +287,51 @@ the Windows CI shards.
 
 ## Change orders
 
-(none)
+1. **SQLite-as-oracle tests, split by what the oracle was.** The "one-arm
+   parity test asserts nothing" rule treated every SQLite-vs-Pebble test
+   the same. They are three kinds:
+   - Oracle is the source-batched expander, run on SQLite only because
+     SQLite is an unsorted store (`TestTopologicalMergeMatchesSQLiteGroundTruth`,
+     `TestTopologicalMergeDifferentialRandomStore`, the engine matrices in
+     `topological_merge_resume_test.go`,
+     `TestTopologicalMergeUntouchedBaseGrantNotRewritten`). In production
+     Pebble is the only store and always takes the projection branch of
+     `RunSingleStep`, so the current implementation is the definition of
+     expansion correctness, not the legacy algorithm. These tests are
+     RETARGETED, not deleted: ground truth is `Expander.Run` on Pebble
+     (projection); candidates are `streaming/pebble` and
+     `streaming/pebble/small-page`. The mock-store sweep
+     `TestTopologicalMergeDifferentialRandom` never used SQLite and keeps
+     running the legacy algorithm in memory.
+   - Oracle is the other engine (`TestFullPipelineDifferentialFuzz`,
+     `whale_graph_compare_test.go`, `cross_engine_parity_test.go`,
+     `TestSyncMetaStatsV2CrossEngineEquality`, compactor mixed-input and
+     recency tests, `TestFixtureReferenceParity`). Deleted as planned; no
+     SQLite writer exists to produce the reference. The pipeline fuzz was
+     the only end-to-end artifact differential (translate round-trips,
+     deferred `by_principal` build, reopen, bare-id gets, stats sidecar).
+     `evidence.md` records that gap. Follow-up: a model-based pipeline fuzz
+     reusing the seed generator and `comparePipelineArtifacts`.
+   - Oracle is full-vs-incremental expansion and only the `sqliteParityCase`
+     type names mention SQLite (`FuzzIncrementalVsFullExpansion`,
+     `TestIncrementalDifferentialRandom`,
+     `TestIncrementalExhaustiveFourNodeGraphs`,
+     `TestCompactorIncrementalDifferentialRandom`). Unchanged.
+
+   Rejected alternative: moving the SQLite engine into a nested module to
+   keep it as a live oracle. That keeps the dual-implementation maintenance
+   the removal exists to shed, and a frozen oracle patched to agree with the
+   code under test stops being one.
+
+2. **Hostile v1 fixture builder dropped.** The plan kept `hostileV1Fixture`
+   for one "rejected before decode" test. Oracle 2 runs over copies of the
+   committed fixtures in `pkg/dotc1z/sqlite/testdata` instead, so
+   `pkg/dotc1z` tests no longer import `modernc.org/sqlite`. The trigger
+   fixture proved nothing extra: no SQLite code runs on the bytes, which
+   oracle 1 establishes by dependency.
+
+3. **Retargeted rather than deleted:** `pkg/dotc1z/sql_helpers_test.go`
+   (pure `PutResources`/`ListResources`/parent-filter surface) became
+   `resources_test.go` on `NewStore`; `pkg/synccompactor/compactor_test.go`
+   sync-type-union and run-duration tests moved to Pebble inputs.
+   `compactor_bench_test.go` keeps its Pebble benchmarks only.
