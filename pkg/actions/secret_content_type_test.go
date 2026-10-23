@@ -46,6 +46,7 @@ func registerTypedHandler(t *testing.T, manager *ActionManager, resource string,
 	t.Helper()
 	handler := func(context.Context, *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
 		calls.Add(1)
+		//nolint:gosec // G117: constant fixture payload; the value is not a credential.
 		value, err := json.Marshal(struct {
 			Username string `json:"username"`
 			Password string `json:"password"`
@@ -185,13 +186,14 @@ func TestTypedSecretOutputRefusesUnacknowledgedCallerBeforeHandler(t *testing.T)
 				registerTypedHandler(t, manager, resource, schema, &calls)
 				matching, _ := typedRecipient(t, "matching", typedContext("password_v2"))
 				configs := []*v2.EncryptionConfig{matching}
-				if scenario == "age only" {
+				switch scenario {
+				case "age only":
 					age, _ := ageEncryptionConfig(t)
 					configs = []*v2.EncryptionConfig{age}
-				} else if scenario == "JWE plus age" {
+				case "JWE plus age":
 					age, _ := ageEncryptionConfig(t)
 					configs = append(configs, age)
-				} else if scenario == "conflicting JWE" {
+				case "conflicting JWE":
 					conflicting, _ := typedRecipient(t, "conflicting", typedContext("api_key_v2"))
 					configs = append(configs, conflicting)
 				}
