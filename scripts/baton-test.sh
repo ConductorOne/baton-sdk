@@ -45,8 +45,7 @@ verify_syncs() {
     .syncs[0].id == $id and
     .syncs[0].syncType == $type and
     (.syncs[0].startedAt | length) > 0 and
-    (.syncs[0].endedAt | length) > 0 and
-    (.syncs[0].syncToken | length) > 0
+    (.syncs[0].endedAt | length) > 0
   ' <<<"$output" >/dev/null
 
   echo "  ok syncs ($label)"

@@ -2,7 +2,7 @@
   "fixtures": [
     {
       "name": "small-expanded",
-      "path": "pkg/sync/expand/testdata/sync.36zfOAoWMxQdISbixanQCRBiX7E.expanded",
+      "path": "pkg/sync/expand/testdata/sync.36zfOAoWMxQdISbixanQCRBiX7E.expanded.pebble.c1z",
       "syncId": "36zfOAoWMxQdISbixanQCRBiX7E",
       "syncType": "full",
       "stats": {
@@ -17,7 +17,7 @@
     },
     {
       "name": "medium-expanded",
-      "path": "pkg/sync/expand/testdata/sync.36zGvJw3uxU1QMJKU2yPVQ1hBOC.expanded",
+      "path": "pkg/sync/expand/testdata/sync.36zGvJw3uxU1QMJKU2yPVQ1hBOC.expanded.pebble.c1z",
       "syncId": "36zGvJw3uxU1QMJKU2yPVQ1hBOC",
       "syncType": "full",
       "stats": {
@@ -32,7 +32,7 @@
     },
     {
       "name": "medium-large-expanded",
-      "path": "pkg/sync/expand/testdata/sync.36zM46KKuaBq0wjSSvKh5o0350y.expanded",
+      "path": "pkg/sync/expand/testdata/sync.36zM46KKuaBq0wjSSvKh5o0350y.expanded.pebble.c1z",
       "syncId": "36zM46KKuaBq0wjSSvKh5o0350y",
       "syncType": "full",
       "stats": {
