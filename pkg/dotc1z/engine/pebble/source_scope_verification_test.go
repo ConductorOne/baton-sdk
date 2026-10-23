@@ -1240,19 +1240,15 @@ func TestVerificationReplayStatsCoherence(t *testing.T) {
 	require.NoError(t, cur.PutGrants(sourcecache.WithScope(ctx, "scope-a"), scGrant("member", "bob", false)))
 	assertStats(cur.PebbleEngine(), "after overlay", 2)
 
-	deleted, err := cur.PebbleEngine().DeleteResourcesByIDsInScope(
+	deleted, err := cur.PebbleEngine().DeleteResourceRecordsByRef(
 		ctx,
+		[]sourcecache.ResourceRef{{ResourceTypeID: "user", ResourceID: "bob"}},
 		"scope-a",
-		map[string]struct{}{"bob": {}},
 	)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), deleted)
 	require.NoError(t, cur.PebbleEngine().DeleteEntitlementRecord(ctx, overlayEntitlement.GetId()))
-	deleted, err = cur.PebbleEngine().DeleteGrantsByPrincipalsInScope(
-		ctx,
-		"scope-a",
-		map[string]struct{}{"bob": {}},
-	)
+	deleted, err = cur.PebbleEngine().DeleteGrantsByPrincipalsInScope(ctx, "scope-a", []sourcecache.ResourceRef{{ResourceTypeID: "user", ResourceID: "bob"}})
 	require.NoError(t, err)
 	require.Equal(t, int64(1), deleted)
 	assertStats(cur.PebbleEngine(), "after tombstones", 1)

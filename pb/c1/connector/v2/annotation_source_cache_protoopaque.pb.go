@@ -178,13 +178,12 @@ func (b0 SourceCacheCapability_builder) Build() *SourceCacheCapability {
 // freshly fetched from upstream. The SDK stamps the page's rows with
 // scope_key so a future sync can replay them as a unit.
 type SourceCacheRecord struct {
-	state                          protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_ScopeKey            string                 `protobuf:"bytes,1,opt,name=scope_key,json=scopeKey,proto3"`
-	xxx_hidden_CacheValidator      string                 `protobuf:"bytes,2,opt,name=cache_validator,json=cacheValidator,proto3"`
-	xxx_hidden_DeletedIds          []string               `protobuf:"bytes,3,rep,name=deleted_ids,json=deletedIds,proto3"`
-	xxx_hidden_DeletedPrincipalIds []string               `protobuf:"bytes,4,rep,name=deleted_principal_ids,json=deletedPrincipalIds,proto3"`
-	unknownFields                  protoimpl.UnknownFields
-	sizeCache                      protoimpl.SizeCache
+	state                     protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ScopeKey       string                 `protobuf:"bytes,1,opt,name=scope_key,json=scopeKey,proto3"`
+	xxx_hidden_CacheValidator string                 `protobuf:"bytes,2,opt,name=cache_validator,json=cacheValidator,proto3"`
+	xxx_hidden_Tombstones     *SourceCacheTombstones `protobuf:"bytes,5,opt,name=tombstones,proto3"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *SourceCacheRecord) Reset() {
@@ -226,16 +225,9 @@ func (x *SourceCacheRecord) GetCacheValidator() string {
 	return ""
 }
 
-func (x *SourceCacheRecord) GetDeletedIds() []string {
+func (x *SourceCacheRecord) GetTombstones() *SourceCacheTombstones {
 	if x != nil {
-		return x.xxx_hidden_DeletedIds
-	}
-	return nil
-}
-
-func (x *SourceCacheRecord) GetDeletedPrincipalIds() []string {
-	if x != nil {
-		return x.xxx_hidden_DeletedPrincipalIds
+		return x.xxx_hidden_Tombstones
 	}
 	return nil
 }
@@ -248,12 +240,19 @@ func (x *SourceCacheRecord) SetCacheValidator(v string) {
 	x.xxx_hidden_CacheValidator = v
 }
 
-func (x *SourceCacheRecord) SetDeletedIds(v []string) {
-	x.xxx_hidden_DeletedIds = v
+func (x *SourceCacheRecord) SetTombstones(v *SourceCacheTombstones) {
+	x.xxx_hidden_Tombstones = v
 }
 
-func (x *SourceCacheRecord) SetDeletedPrincipalIds(v []string) {
-	x.xxx_hidden_DeletedPrincipalIds = v
+func (x *SourceCacheRecord) HasTombstones() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Tombstones != nil
+}
+
+func (x *SourceCacheRecord) ClearTombstones() {
+	x.xxx_hidden_Tombstones = nil
 }
 
 type SourceCacheRecord_builder struct {
@@ -272,35 +271,16 @@ type SourceCacheRecord_builder struct {
 	// SDK writes the scope's manifest entry when a non-empty cache_validator arrives.
 	// A 200 response with zero rows still persists the entry.
 	CacheValidator string
-	// Tombstones applied after this page's rows commit. Lets every page of
-	// a multi-page delta round carry its own deletions as the provider
-	// delivers them, instead of buffering a whole round onto the first
-	// (replay-annotated) page. Same formats as SourceCacheReplay.
+	// Tombstones applied after this page's rows commit, so every page of a
+	// multi-page delta round carries its own deletions. Same fields and
+	// semantics as SourceCacheReplay.
 	//
 	// PRECONDITION for tombstones anywhere in a round: the provider's delta
 	// must be coalesced — at most one add-or-tombstone per object per round
 	// (Microsoft Graph guarantees this by returning final object state).
-	// With interleaved add/remove events for one object, per-page ordering
-	// is deterministic (a page's rows upsert before its deletions apply)
-	// but cross-page re-adds after a tombstone are the connector's
-	// responsibility to order.
-	DeletedIds []string
-	// Principal-scoped grant tombstones: for RowKindGrants pages, each
-	// entry deletes EVERY grant row stamped with this scope whose principal
-	// id equals the entry — no principal resource type and no canonical
-	// grant-id reconstruction required (delta tombstones usually carry only
-	// a bare object id, and the object may no longer exist to look up).
-	//
-	// PRECONDITION: the scope must be partitioned so that "principal
-	// removed from scope" means every grant they have in the scope is gone
-	// — one scope per navigation with independent removal semantics (e.g.
-	// members and owners of a group are separate scopes, or membership
-	// removal would take the owner grant with it).
-	//
-	// For RowKindResources pages, each entry deletes the resource row(s)
-	// stamped with this scope whose resource id equals the entry, any
-	// resource type.
-	DeletedPrincipalIds []string
+	// Within a page, rows upsert before deletions apply; re-adds after a
+	// tombstone on a later page are the connector's to order.
+	Tombstones *SourceCacheTombstones
 }
 
 func (b0 SourceCacheRecord_builder) Build() *SourceCacheRecord {
@@ -309,8 +289,311 @@ func (b0 SourceCacheRecord_builder) Build() *SourceCacheRecord {
 	_, _ = b, x
 	x.xxx_hidden_ScopeKey = b.ScopeKey
 	x.xxx_hidden_CacheValidator = b.CacheValidator
-	x.xxx_hidden_DeletedIds = b.DeletedIds
-	x.xxx_hidden_DeletedPrincipalIds = b.DeletedPrincipalIds
+	x.xxx_hidden_Tombstones = b.Tombstones
+	return m0
+}
+
+// SourceCacheTombstones names rows to delete from the current sync by
+// structured identity. Every reference is complete: a ResourceId carries
+// both resource_type and resource; an entitlement ref carries its
+// resource and its entitlement id; a grant ref carries both. The decoder
+// (sourcecache.TombstonesFromProto) rejects an incomplete reference rather
+// than guess. Only the
+// fields for the page's row kind may be set: resources on a resources
+// page, entitlements on an entitlements page, grants and principals on a
+// grants page.
+//
+// The syncer does not read this field yet; setting it deletes nothing.
+// Delete this note when it does.
+type SourceCacheTombstones struct {
+	state                   protoimpl.MessageState        `protogen:"opaque.v1"`
+	xxx_hidden_Resources    *[]*ResourceId                `protobuf:"bytes,1,rep,name=resources,proto3"`
+	xxx_hidden_Entitlements *[]*SourceCacheEntitlementRef `protobuf:"bytes,2,rep,name=entitlements,proto3"`
+	xxx_hidden_Grants       *[]*SourceCacheGrantRef       `protobuf:"bytes,3,rep,name=grants,proto3"`
+	xxx_hidden_Principals   *[]*ResourceId                `protobuf:"bytes,4,rep,name=principals,proto3"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
+}
+
+func (x *SourceCacheTombstones) Reset() {
+	*x = SourceCacheTombstones{}
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceCacheTombstones) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceCacheTombstones) ProtoMessage() {}
+
+func (x *SourceCacheTombstones) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *SourceCacheTombstones) GetResources() []*ResourceId {
+	if x != nil {
+		if x.xxx_hidden_Resources != nil {
+			return *x.xxx_hidden_Resources
+		}
+	}
+	return nil
+}
+
+func (x *SourceCacheTombstones) GetEntitlements() []*SourceCacheEntitlementRef {
+	if x != nil {
+		if x.xxx_hidden_Entitlements != nil {
+			return *x.xxx_hidden_Entitlements
+		}
+	}
+	return nil
+}
+
+func (x *SourceCacheTombstones) GetGrants() []*SourceCacheGrantRef {
+	if x != nil {
+		if x.xxx_hidden_Grants != nil {
+			return *x.xxx_hidden_Grants
+		}
+	}
+	return nil
+}
+
+func (x *SourceCacheTombstones) GetPrincipals() []*ResourceId {
+	if x != nil {
+		if x.xxx_hidden_Principals != nil {
+			return *x.xxx_hidden_Principals
+		}
+	}
+	return nil
+}
+
+func (x *SourceCacheTombstones) SetResources(v []*ResourceId) {
+	x.xxx_hidden_Resources = &v
+}
+
+func (x *SourceCacheTombstones) SetEntitlements(v []*SourceCacheEntitlementRef) {
+	x.xxx_hidden_Entitlements = &v
+}
+
+func (x *SourceCacheTombstones) SetGrants(v []*SourceCacheGrantRef) {
+	x.xxx_hidden_Grants = &v
+}
+
+func (x *SourceCacheTombstones) SetPrincipals(v []*ResourceId) {
+	x.xxx_hidden_Principals = &v
+}
+
+type SourceCacheTombstones_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Resources    []*ResourceId
+	Entitlements []*SourceCacheEntitlementRef
+	Grants       []*SourceCacheGrantRef
+	// Each entry deletes EVERY grant row stamped with this scope whose
+	// principal is the given (resource_type, resource).
+	//
+	// PRECONDITION: the scope must be partitioned so that "principal
+	// removed from scope" means every grant they have in the scope is gone
+	// — one scope per navigation with independent removal semantics (e.g.
+	// members and owners of a group are separate scopes, or membership
+	// removal would take the owner grant with it).
+	Principals []*ResourceId
+}
+
+func (b0 SourceCacheTombstones_builder) Build() *SourceCacheTombstones {
+	m0 := &SourceCacheTombstones{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Resources = &b.Resources
+	x.xxx_hidden_Entitlements = &b.Entitlements
+	x.xxx_hidden_Grants = &b.Grants
+	x.xxx_hidden_Principals = &b.Principals
+	return m0
+}
+
+// SourceCacheEntitlementRef identifies an entitlement by the resource it
+// belongs to and the id the connector gave it.
+type SourceCacheEntitlementRef struct {
+	state                    protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Resource      *ResourceId            `protobuf:"bytes,1,opt,name=resource,proto3"`
+	xxx_hidden_EntitlementId string                 `protobuf:"bytes,2,opt,name=entitlement_id,json=entitlementId,proto3"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
+}
+
+func (x *SourceCacheEntitlementRef) Reset() {
+	*x = SourceCacheEntitlementRef{}
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceCacheEntitlementRef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceCacheEntitlementRef) ProtoMessage() {}
+
+func (x *SourceCacheEntitlementRef) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *SourceCacheEntitlementRef) GetResource() *ResourceId {
+	if x != nil {
+		return x.xxx_hidden_Resource
+	}
+	return nil
+}
+
+func (x *SourceCacheEntitlementRef) GetEntitlementId() string {
+	if x != nil {
+		return x.xxx_hidden_EntitlementId
+	}
+	return ""
+}
+
+func (x *SourceCacheEntitlementRef) SetResource(v *ResourceId) {
+	x.xxx_hidden_Resource = v
+}
+
+func (x *SourceCacheEntitlementRef) SetEntitlementId(v string) {
+	x.xxx_hidden_EntitlementId = v
+}
+
+func (x *SourceCacheEntitlementRef) HasResource() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Resource != nil
+}
+
+func (x *SourceCacheEntitlementRef) ClearResource() {
+	x.xxx_hidden_Resource = nil
+}
+
+type SourceCacheEntitlementRef_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Resource      *ResourceId
+	EntitlementId string
+}
+
+func (b0 SourceCacheEntitlementRef_builder) Build() *SourceCacheEntitlementRef {
+	m0 := &SourceCacheEntitlementRef{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Resource = b.Resource
+	x.xxx_hidden_EntitlementId = b.EntitlementId
+	return m0
+}
+
+type SourceCacheGrantRef struct {
+	state                  protoimpl.MessageState     `protogen:"opaque.v1"`
+	xxx_hidden_Entitlement *SourceCacheEntitlementRef `protobuf:"bytes,1,opt,name=entitlement,proto3"`
+	xxx_hidden_Principal   *ResourceId                `protobuf:"bytes,2,opt,name=principal,proto3"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *SourceCacheGrantRef) Reset() {
+	*x = SourceCacheGrantRef{}
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceCacheGrantRef) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceCacheGrantRef) ProtoMessage() {}
+
+func (x *SourceCacheGrantRef) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *SourceCacheGrantRef) GetEntitlement() *SourceCacheEntitlementRef {
+	if x != nil {
+		return x.xxx_hidden_Entitlement
+	}
+	return nil
+}
+
+func (x *SourceCacheGrantRef) GetPrincipal() *ResourceId {
+	if x != nil {
+		return x.xxx_hidden_Principal
+	}
+	return nil
+}
+
+func (x *SourceCacheGrantRef) SetEntitlement(v *SourceCacheEntitlementRef) {
+	x.xxx_hidden_Entitlement = v
+}
+
+func (x *SourceCacheGrantRef) SetPrincipal(v *ResourceId) {
+	x.xxx_hidden_Principal = v
+}
+
+func (x *SourceCacheGrantRef) HasEntitlement() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Entitlement != nil
+}
+
+func (x *SourceCacheGrantRef) HasPrincipal() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Principal != nil
+}
+
+func (x *SourceCacheGrantRef) ClearEntitlement() {
+	x.xxx_hidden_Entitlement = nil
+}
+
+func (x *SourceCacheGrantRef) ClearPrincipal() {
+	x.xxx_hidden_Principal = nil
+}
+
+type SourceCacheGrantRef_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Entitlement *SourceCacheEntitlementRef
+	Principal   *ResourceId
+}
+
+func (b0 SourceCacheGrantRef_builder) Build() *SourceCacheGrantRef {
+	m0 := &SourceCacheGrantRef{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Entitlement = b.Entitlement
+	x.xxx_hidden_Principal = b.Principal
 	return m0
 }
 
@@ -325,19 +608,18 @@ func (b0 SourceCacheRecord_builder) Build() *SourceCacheRecord {
 // an unknown scope fails the sync: the connector has already skipped row
 // generation, so there is nothing to fall back to.
 type SourceCacheReplay struct {
-	state                          protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_ScopeKey            string                 `protobuf:"bytes,1,opt,name=scope_key,json=scopeKey,proto3"`
-	xxx_hidden_CacheValidator      string                 `protobuf:"bytes,2,opt,name=cache_validator,json=cacheValidator,proto3"`
-	xxx_hidden_Overlay             bool                   `protobuf:"varint,3,opt,name=overlay,proto3"`
-	xxx_hidden_DeletedIds          []string               `protobuf:"bytes,4,rep,name=deleted_ids,json=deletedIds,proto3"`
-	xxx_hidden_DeletedPrincipalIds []string               `protobuf:"bytes,5,rep,name=deleted_principal_ids,json=deletedPrincipalIds,proto3"`
-	unknownFields                  protoimpl.UnknownFields
-	sizeCache                      protoimpl.SizeCache
+	state                     protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ScopeKey       string                 `protobuf:"bytes,1,opt,name=scope_key,json=scopeKey,proto3"`
+	xxx_hidden_CacheValidator string                 `protobuf:"bytes,2,opt,name=cache_validator,json=cacheValidator,proto3"`
+	xxx_hidden_Overlay        bool                   `protobuf:"varint,3,opt,name=overlay,proto3"`
+	xxx_hidden_Tombstones     *SourceCacheTombstones `protobuf:"bytes,6,opt,name=tombstones,proto3"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *SourceCacheReplay) Reset() {
 	*x = SourceCacheReplay{}
-	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[2]
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -349,7 +631,7 @@ func (x *SourceCacheReplay) String() string {
 func (*SourceCacheReplay) ProtoMessage() {}
 
 func (x *SourceCacheReplay) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[2]
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -381,16 +663,9 @@ func (x *SourceCacheReplay) GetOverlay() bool {
 	return false
 }
 
-func (x *SourceCacheReplay) GetDeletedIds() []string {
+func (x *SourceCacheReplay) GetTombstones() *SourceCacheTombstones {
 	if x != nil {
-		return x.xxx_hidden_DeletedIds
-	}
-	return nil
-}
-
-func (x *SourceCacheReplay) GetDeletedPrincipalIds() []string {
-	if x != nil {
-		return x.xxx_hidden_DeletedPrincipalIds
+		return x.xxx_hidden_Tombstones
 	}
 	return nil
 }
@@ -407,12 +682,19 @@ func (x *SourceCacheReplay) SetOverlay(v bool) {
 	x.xxx_hidden_Overlay = v
 }
 
-func (x *SourceCacheReplay) SetDeletedIds(v []string) {
-	x.xxx_hidden_DeletedIds = v
+func (x *SourceCacheReplay) SetTombstones(v *SourceCacheTombstones) {
+	x.xxx_hidden_Tombstones = v
 }
 
-func (x *SourceCacheReplay) SetDeletedPrincipalIds(v []string) {
-	x.xxx_hidden_DeletedPrincipalIds = v
+func (x *SourceCacheReplay) HasTombstones() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Tombstones != nil
+}
+
+func (x *SourceCacheReplay) ClearTombstones() {
+	x.xxx_hidden_Tombstones = nil
 }
 
 type SourceCacheReplay_builder struct {
@@ -437,16 +719,11 @@ type SourceCacheReplay_builder struct {
 	// resurrecting the replayed base every sync (upstream deletions never
 	// propagate).
 	Overlay bool
-	// Public canonical IDs (grant/entitlement IDs, or resource BIDs for
-	// RowKindResources) to delete from the current sync after the replay
-	// copy and this page's upserts. Used for delta-query tombstones (e.g.
-	// Microsoft Graph @removed entries). Subsequent pages of the round
-	// carry their tombstones on SourceCacheRecord.deleted_ids.
-	DeletedIds []string
-	// Principal-scoped tombstones for this page; see
-	// SourceCacheRecord.deleted_principal_ids for semantics and
-	// preconditions.
-	DeletedPrincipalIds []string
+	// Rows to delete from the current sync after the replay copy and this
+	// page's upserts (delta-query tombstones, e.g. Microsoft Graph @removed
+	// entries). Later pages of the round carry theirs on
+	// SourceCacheRecord.tombstones.
+	Tombstones *SourceCacheTombstones
 }
 
 func (b0 SourceCacheReplay_builder) Build() *SourceCacheReplay {
@@ -456,8 +733,7 @@ func (b0 SourceCacheReplay_builder) Build() *SourceCacheReplay {
 	x.xxx_hidden_ScopeKey = b.ScopeKey
 	x.xxx_hidden_CacheValidator = b.CacheValidator
 	x.xxx_hidden_Overlay = b.Overlay
-	x.xxx_hidden_DeletedIds = b.DeletedIds
-	x.xxx_hidden_DeletedPrincipalIds = b.DeletedPrincipalIds
+	x.xxx_hidden_Tombstones = b.Tombstones
 	return m0
 }
 
@@ -475,7 +751,7 @@ type SourceCacheLookupOffer struct {
 
 func (x *SourceCacheLookupOffer) Reset() {
 	*x = SourceCacheLookupOffer{}
-	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[3]
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -487,7 +763,7 @@ func (x *SourceCacheLookupOffer) String() string {
 func (*SourceCacheLookupOffer) ProtoMessage() {}
 
 func (x *SourceCacheLookupOffer) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[3]
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -531,7 +807,7 @@ type SourceCacheLookupAsk struct {
 
 func (x *SourceCacheLookupAsk) Reset() {
 	*x = SourceCacheLookupAsk{}
-	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[4]
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -543,7 +819,7 @@ func (x *SourceCacheLookupAsk) String() string {
 func (*SourceCacheLookupAsk) ProtoMessage() {}
 
 func (x *SourceCacheLookupAsk) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[4]
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -602,7 +878,7 @@ type SourceCacheLookupAnswers struct {
 
 func (x *SourceCacheLookupAnswers) Reset() {
 	*x = SourceCacheLookupAnswers{}
-	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[5]
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -614,7 +890,7 @@ func (x *SourceCacheLookupAnswers) String() string {
 func (*SourceCacheLookupAnswers) ProtoMessage() {}
 
 func (x *SourceCacheLookupAnswers) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[5]
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -666,7 +942,7 @@ type SourceCacheLookupAsk_Query struct {
 
 func (x *SourceCacheLookupAsk_Query) Reset() {
 	*x = SourceCacheLookupAsk_Query{}
-	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[6]
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -678,7 +954,7 @@ func (x *SourceCacheLookupAsk_Query) String() string {
 func (*SourceCacheLookupAsk_Query) ProtoMessage() {}
 
 func (x *SourceCacheLookupAsk_Query) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[6]
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -741,7 +1017,7 @@ type SourceCacheLookupAnswers_Answer struct {
 
 func (x *SourceCacheLookupAnswers_Answer) Reset() {
 	*x = SourceCacheLookupAnswers_Answer{}
-	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[7]
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -753,7 +1029,7 @@ func (x *SourceCacheLookupAnswers_Answer) String() string {
 func (*SourceCacheLookupAnswers_Answer) ProtoMessage() {}
 
 func (x *SourceCacheLookupAnswers_Answer) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[7]
+	mi := &file_c1_connector_v2_annotation_source_cache_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -834,7 +1110,7 @@ var File_c1_connector_v2_annotation_source_cache_proto protoreflect.FileDescript
 
 const file_c1_connector_v2_annotation_source_cache_proto_rawDesc = "" +
 	"\n" +
-	"-c1/connector/v2/annotation_source_cache.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"\x92\x02\n" +
+	"-c1/connector/v2/annotation_source_cache.proto\x12\x0fc1.connector.v2\x1a\x1ec1/connector/v2/resource.proto\x1a\x17validate/validate.proto\"\x92\x02\n" +
 	"\x15SourceCacheCapability\x12?\n" +
 	"\x04mode\x18\x01 \x01(\x0e2+.c1.connector.v2.SourceCacheCapability.ModeR\x04mode\x126\n" +
 	"\x10cache_generation\x18\x02 \x01(\tB\v\xfaB\br\x06(\x80\x02\xd0\x01\x01R\x0fcacheGeneration\x12:\n" +
@@ -842,20 +1118,33 @@ const file_c1_connector_v2_annotation_source_cache_proto_rawDesc = "" +
 	"\x04Mode\x12\x14\n" +
 	"\x10MODE_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rMODE_DISABLED\x10\x01\x12\x13\n" +
-	"\x0fMODE_READ_WRITE\x10\x02\"\xae\x01\n" +
+	"\x0fMODE_READ_WRITE\x10\x02\"\xd1\x01\n" +
 	"\x11SourceCacheRecord\x12\x1b\n" +
 	"\tscope_key\x18\x01 \x01(\tR\bscopeKey\x12'\n" +
-	"\x0fcache_validator\x18\x02 \x01(\tR\x0ecacheValidator\x12\x1f\n" +
-	"\vdeleted_ids\x18\x03 \x03(\tR\n" +
-	"deletedIds\x122\n" +
-	"\x15deleted_principal_ids\x18\x04 \x03(\tR\x13deletedPrincipalIds\"\xc8\x01\n" +
+	"\x0fcache_validator\x18\x02 \x01(\tR\x0ecacheValidator\x12F\n" +
+	"\n" +
+	"tombstones\x18\x05 \x01(\v2&.c1.connector.v2.SourceCacheTombstonesR\n" +
+	"tombstonesJ\x04\b\x03\x10\x04J\x04\b\x04\x10\x05R\vdeleted_idsR\x15deleted_principal_ids\"\x9d\x02\n" +
+	"\x15SourceCacheTombstones\x129\n" +
+	"\tresources\x18\x01 \x03(\v2\x1b.c1.connector.v2.ResourceIdR\tresources\x12N\n" +
+	"\fentitlements\x18\x02 \x03(\v2*.c1.connector.v2.SourceCacheEntitlementRefR\fentitlements\x12<\n" +
+	"\x06grants\x18\x03 \x03(\v2$.c1.connector.v2.SourceCacheGrantRefR\x06grants\x12;\n" +
+	"\n" +
+	"principals\x18\x04 \x03(\v2\x1b.c1.connector.v2.ResourceIdR\n" +
+	"principals\"{\n" +
+	"\x19SourceCacheEntitlementRef\x127\n" +
+	"\bresource\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\bresource\x12%\n" +
+	"\x0eentitlement_id\x18\x02 \x01(\tR\rentitlementId\"\x9e\x01\n" +
+	"\x13SourceCacheGrantRef\x12L\n" +
+	"\ventitlement\x18\x01 \x01(\v2*.c1.connector.v2.SourceCacheEntitlementRefR\ventitlement\x129\n" +
+	"\tprincipal\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\tprincipal\"\xeb\x01\n" +
 	"\x11SourceCacheReplay\x12\x1b\n" +
 	"\tscope_key\x18\x01 \x01(\tR\bscopeKey\x12'\n" +
 	"\x0fcache_validator\x18\x02 \x01(\tR\x0ecacheValidator\x12\x18\n" +
-	"\aoverlay\x18\x03 \x01(\bR\aoverlay\x12\x1f\n" +
-	"\vdeleted_ids\x18\x04 \x03(\tR\n" +
-	"deletedIds\x122\n" +
-	"\x15deleted_principal_ids\x18\x05 \x03(\tR\x13deletedPrincipalIds\"\x18\n" +
+	"\aoverlay\x18\x03 \x01(\bR\aoverlay\x12F\n" +
+	"\n" +
+	"tombstones\x18\x06 \x01(\v2&.c1.connector.v2.SourceCacheTombstonesR\n" +
+	"tombstonesJ\x04\b\x04\x10\x05J\x04\b\x05\x10\x06R\vdeleted_idsR\x15deleted_principal_ids\"\x18\n" +
 	"\x16SourceCacheLookupOffer\"\xc2\x01\n" +
 	"\x14SourceCacheLookupAsk\x12R\n" +
 	"\aqueries\x18\x01 \x03(\v2+.c1.connector.v2.SourceCacheLookupAsk.QueryB\v\xfaB\b\x92\x01\x05\b\x01\x10\x80 R\aqueries\x1aV\n" +
@@ -874,27 +1163,40 @@ const file_c1_connector_v2_annotation_source_cache_proto_rawDesc = "" +
 	"\x0fcache_validator\x18\x04 \x01(\tB\f\xfaB\tr\a(\x80\x80\x04\xd0\x01\x01R\x0ecacheValidatorB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_annotation_source_cache_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_c1_connector_v2_annotation_source_cache_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_c1_connector_v2_annotation_source_cache_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_c1_connector_v2_annotation_source_cache_proto_goTypes = []any{
 	(SourceCacheCapability_Mode)(0),         // 0: c1.connector.v2.SourceCacheCapability.Mode
 	(*SourceCacheCapability)(nil),           // 1: c1.connector.v2.SourceCacheCapability
 	(*SourceCacheRecord)(nil),               // 2: c1.connector.v2.SourceCacheRecord
-	(*SourceCacheReplay)(nil),               // 3: c1.connector.v2.SourceCacheReplay
-	(*SourceCacheLookupOffer)(nil),          // 4: c1.connector.v2.SourceCacheLookupOffer
-	(*SourceCacheLookupAsk)(nil),            // 5: c1.connector.v2.SourceCacheLookupAsk
-	(*SourceCacheLookupAnswers)(nil),        // 6: c1.connector.v2.SourceCacheLookupAnswers
-	(*SourceCacheLookupAsk_Query)(nil),      // 7: c1.connector.v2.SourceCacheLookupAsk.Query
-	(*SourceCacheLookupAnswers_Answer)(nil), // 8: c1.connector.v2.SourceCacheLookupAnswers.Answer
+	(*SourceCacheTombstones)(nil),           // 3: c1.connector.v2.SourceCacheTombstones
+	(*SourceCacheEntitlementRef)(nil),       // 4: c1.connector.v2.SourceCacheEntitlementRef
+	(*SourceCacheGrantRef)(nil),             // 5: c1.connector.v2.SourceCacheGrantRef
+	(*SourceCacheReplay)(nil),               // 6: c1.connector.v2.SourceCacheReplay
+	(*SourceCacheLookupOffer)(nil),          // 7: c1.connector.v2.SourceCacheLookupOffer
+	(*SourceCacheLookupAsk)(nil),            // 8: c1.connector.v2.SourceCacheLookupAsk
+	(*SourceCacheLookupAnswers)(nil),        // 9: c1.connector.v2.SourceCacheLookupAnswers
+	(*SourceCacheLookupAsk_Query)(nil),      // 10: c1.connector.v2.SourceCacheLookupAsk.Query
+	(*SourceCacheLookupAnswers_Answer)(nil), // 11: c1.connector.v2.SourceCacheLookupAnswers.Answer
+	(*ResourceId)(nil),                      // 12: c1.connector.v2.ResourceId
 }
 var file_c1_connector_v2_annotation_source_cache_proto_depIdxs = []int32{
-	0, // 0: c1.connector.v2.SourceCacheCapability.mode:type_name -> c1.connector.v2.SourceCacheCapability.Mode
-	7, // 1: c1.connector.v2.SourceCacheLookupAsk.queries:type_name -> c1.connector.v2.SourceCacheLookupAsk.Query
-	8, // 2: c1.connector.v2.SourceCacheLookupAnswers.answers:type_name -> c1.connector.v2.SourceCacheLookupAnswers.Answer
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	0,  // 0: c1.connector.v2.SourceCacheCapability.mode:type_name -> c1.connector.v2.SourceCacheCapability.Mode
+	3,  // 1: c1.connector.v2.SourceCacheRecord.tombstones:type_name -> c1.connector.v2.SourceCacheTombstones
+	12, // 2: c1.connector.v2.SourceCacheTombstones.resources:type_name -> c1.connector.v2.ResourceId
+	4,  // 3: c1.connector.v2.SourceCacheTombstones.entitlements:type_name -> c1.connector.v2.SourceCacheEntitlementRef
+	5,  // 4: c1.connector.v2.SourceCacheTombstones.grants:type_name -> c1.connector.v2.SourceCacheGrantRef
+	12, // 5: c1.connector.v2.SourceCacheTombstones.principals:type_name -> c1.connector.v2.ResourceId
+	12, // 6: c1.connector.v2.SourceCacheEntitlementRef.resource:type_name -> c1.connector.v2.ResourceId
+	4,  // 7: c1.connector.v2.SourceCacheGrantRef.entitlement:type_name -> c1.connector.v2.SourceCacheEntitlementRef
+	12, // 8: c1.connector.v2.SourceCacheGrantRef.principal:type_name -> c1.connector.v2.ResourceId
+	3,  // 9: c1.connector.v2.SourceCacheReplay.tombstones:type_name -> c1.connector.v2.SourceCacheTombstones
+	10, // 10: c1.connector.v2.SourceCacheLookupAsk.queries:type_name -> c1.connector.v2.SourceCacheLookupAsk.Query
+	11, // 11: c1.connector.v2.SourceCacheLookupAnswers.answers:type_name -> c1.connector.v2.SourceCacheLookupAnswers.Answer
+	12, // [12:12] is the sub-list for method output_type
+	12, // [12:12] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_annotation_source_cache_proto_init() }
@@ -902,13 +1204,14 @@ func file_c1_connector_v2_annotation_source_cache_proto_init() {
 	if File_c1_connector_v2_annotation_source_cache_proto != nil {
 		return
 	}
+	file_c1_connector_v2_resource_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_annotation_source_cache_proto_rawDesc), len(file_c1_connector_v2_annotation_source_cache_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   8,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

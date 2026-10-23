@@ -15,7 +15,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/sourcecache"
 )
 
-type scopedDeleteVerificationCase struct {
+type deleteVerificationCase struct {
 	name          string
 	commitKind    string
 	primaryPrefix []byte
@@ -23,12 +23,12 @@ type scopedDeleteVerificationCase struct {
 	prepare       func(*testing.T, *Adapter) func(context.Context) (int64, error)
 }
 
-// C10/C12/C15/C16: scoped tombstones commit in bounded chunks. If a later
+// C10/C12/C15/C16: tombstone deletes commit in bounded chunks. If a later
 // chunk fails, the method reports only rows whose deletes landed, preserves
 // primary/index agreement, and the exact retry converges.
-func TestVerificationScopedDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
+func TestVerificationDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
 	const rows = 5
-	cases := []scopedDeleteVerificationCase{
+	cases := []deleteVerificationCase{
 		{
 			name:          "grant-principals",
 			commitKind:    "grant-principals",
@@ -44,51 +44,80 @@ func TestVerificationScopedDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
 					return a.PebbleEngine().DeleteGrantsByPrincipalsInScope(
 						ctx,
 						"scope-a",
-						map[string]struct{}{"alice": {}},
+						[]sourcecache.ResourceRef{{ResourceTypeID: "user", ResourceID: "alice"}},
 					)
 				}
 			},
 		},
 		{
-			name:          "grant-external-ids",
-			commitKind:    "grant-external-ids",
+			name:          "grant-refs",
+			commitKind:    "grants-ref",
 			primaryPrefix: encodeGrantPrefix(),
 			indexPrefix:   GrantBySourceScopeLowerBound(),
 			prepare: func(t *testing.T, a *Adapter) func(context.Context) (int64, error) {
 				grants := make([]*v2.Grant, 0, rows)
-				ids := make(map[string]struct{}, rows)
+				refs := make([]sourcecache.GrantRef, 0, rows)
 				for i := range rows {
 					grant := scGrant(fmt.Sprintf("member-%d", i), fmt.Sprintf("user-%d", i), false)
 					grants = append(grants, grant)
-					ids[grant.GetId()] = struct{}{}
+					refs = append(refs, sourcecache.GrantRef{
+						Entitlement: sourcecache.EntitlementRef{
+							Resource:      sourcecache.ResourceRef{ResourceTypeID: "group", ResourceID: "g1"},
+							EntitlementID: grant.GetEntitlement().GetId(),
+						},
+						Principal: sourcecache.ResourceRef{ResourceTypeID: "user", ResourceID: fmt.Sprintf("user-%d", i)},
+					})
 				}
 				require.NoError(t, a.PutGrants(sourcecache.WithScope(t.Context(), "scope-a"), grants...))
 				return func(ctx context.Context) (int64, error) {
-					return a.PebbleEngine().DeleteGrantsByExternalIDsInScope(ctx, "scope-a", ids)
+					return a.PebbleEngine().DeleteGrantRecordsByRef(ctx, refs, "scope-a")
+				}
+			},
+		},
+		{
+			name:          "entitlement-refs",
+			commitKind:    "entitlements-ref",
+			primaryPrefix: encodeEntitlementPrefix(),
+			indexPrefix:   EntitlementBySourceScopeLowerBound(),
+			prepare: func(t *testing.T, a *Adapter) func(context.Context) (int64, error) {
+				records := make([]*v3.EntitlementRecord, 0, rows)
+				refs := make([]sourcecache.EntitlementRef, 0, rows)
+				for i := range rows {
+					records = append(records, v3.EntitlementRecord_builder{
+						ExternalId:     fmt.Sprintf("ent-%d", i),
+						Resource:       v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "g1"}.Build(),
+						SourceScopeKey: "scope-a",
+					}.Build())
+					refs = append(refs, sourcecache.EntitlementRef{
+						Resource:      sourcecache.ResourceRef{ResourceTypeID: "group", ResourceID: "g1"},
+						EntitlementID: fmt.Sprintf("ent-%d", i),
+					})
+				}
+				require.NoError(t, a.PebbleEngine().PutEntitlementRecords(t.Context(), records...))
+				return func(ctx context.Context) (int64, error) {
+					return a.PebbleEngine().DeleteEntitlementRecordsByRef(ctx, refs, "scope-a")
 				}
 			},
 		},
 		{
 			name:          "resources",
-			commitKind:    "resources",
+			commitKind:    "resources-ref",
 			primaryPrefix: encodeResourcePrefix(),
 			indexPrefix:   ResourceBySourceScopeLowerBound(),
 			prepare: func(t *testing.T, a *Adapter) func(context.Context) (int64, error) {
 				records := make([]*v3.ResourceRecord, 0, rows)
+				refs := make([]sourcecache.ResourceRef, 0, rows)
 				for i := range rows {
 					records = append(records, v3.ResourceRecord_builder{
 						ResourceTypeId: fmt.Sprintf("type-%d", i),
 						ResourceId:     "shared",
 						SourceScopeKey: "scope-a",
 					}.Build())
+					refs = append(refs, sourcecache.ResourceRef{ResourceTypeID: fmt.Sprintf("type-%d", i), ResourceID: "shared"})
 				}
 				require.NoError(t, a.PebbleEngine().PutResourceRecords(t.Context(), records...))
 				return func(ctx context.Context) (int64, error) {
-					return a.PebbleEngine().DeleteResourcesByIDsInScope(
-						ctx,
-						"scope-a",
-						map[string]struct{}{"shared": {}},
-					)
+					return a.PebbleEngine().DeleteResourceRecordsByRef(ctx, refs, "scope-a")
 				}
 			},
 		},
@@ -136,7 +165,7 @@ func TestVerificationScopedDeleteBatchBoundAndInterruptedRetry(t *testing.T) {
 }
 
 // The bare-id entitlement lookup map synchronizes on entIDLookupMu only,
-// not the write barrier, so DeleteEntitlementRecords must invalidate it
+// not the write barrier, so DeleteEntitlementRecordsByRef must invalidate it
 // as each chunk LANDS: a bump deferred to function exit leaves a window
 // spanning the rest of the id loop in which a concurrent lookup serves a
 // cached map listing rows a committed chunk already deleted. The pin is
@@ -152,10 +181,13 @@ func TestVerificationEntitlementDeleteBumpsLookupGenPerChunk(t *testing.T) {
 
 	const rows = 5
 	records := make([]*v3.EntitlementRecord, 0, rows)
-	ids := make([]string, 0, rows)
+	refs := make([]sourcecache.EntitlementRef, 0, rows)
 	for i := range rows {
 		id := fmt.Sprintf("group:g%d:member", i)
-		ids = append(ids, id)
+		refs = append(refs, sourcecache.EntitlementRef{
+			Resource:      sourcecache.ResourceRef{ResourceTypeID: "group", ResourceID: fmt.Sprintf("g%d", i)},
+			EntitlementID: id,
+		})
 		records = append(records, v3.EntitlementRecord_builder{
 			ExternalId: id,
 			Resource: v3.ResourceRef_builder{
@@ -171,14 +203,15 @@ func TestVerificationEntitlementDeleteBumpsLookupGenPerChunk(t *testing.T) {
 	commitCalls := 0
 	sawMidLoopBump := false
 	e.test.sourceCacheDeleteCommitHook = func(kind string, _ int, _ bool) error {
-		require.Equal(t, "entitlements-canonical", kind)
+		require.Equal(t, "entitlements-ref", kind)
 		commitCalls++
 		if commitCalls == 2 {
 			sawMidLoopBump = e.entIDLookupGen.Load() > genBefore
 		}
 		return nil
 	}
-	require.NoError(t, e.DeleteEntitlementRecords(ctx, ids, ""))
+	_, err = e.DeleteEntitlementRecordsByRef(ctx, refs, "")
+	require.NoError(t, err)
 	e.test.sourceCacheDeleteCommitHook = nil
 	require.GreaterOrEqual(t, commitCalls, 2, "the 5-row delete must chunk at 2 rows")
 	require.True(t, sawMidLoopBump,
