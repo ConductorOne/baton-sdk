@@ -7,12 +7,9 @@ OUTPUT_PATH = ${BUILD_DIR}/baton
 # Durations and iteration counts used by the opt-in confidence suites.
 # Override at invocation time, for example: make fuzz-smoke FUZZ_TIME=2m.
 FUZZ_TIME ?= 30s
-DIFFERENTIAL_TIME ?= 30s
 SOAK_ITERATIONS ?= 25
 CHAOS_ITERATIONS ?= 25
 NIGHTLY_FUZZ_TIME ?= 5m
-NIGHTLY_DIFFERENTIAL_TIME ?= 10m
-INCREMENTAL_SOAK_TIME ?= 10m
 
 .DEFAULT_GOAL := help
 
@@ -243,10 +240,6 @@ fuzz-smoke: ## Run each native Go fuzzer for FUZZ_TIME (default 30s).
 	go test -run '^$$' -fuzz '^FuzzCondenseFWBW_Cancellation$$' -fuzztime=$(FUZZ_TIME) ./pkg/sync/expand/scc
 	go test -run '^$$' -fuzz '^FuzzCondenseFWBW_FromBytes$$' -fuzztime=$(FUZZ_TIME) ./pkg/sync/expand/scc
 
-.PHONY: differential-check
-differential-check: ## Differential-fuzz SQLite and Pebble for DIFFERENTIAL_TIME.
-	BATON_TEST_EXTRA=1 BATON_EXPAND_FUZZ_DURATION=$(DIFFERENTIAL_TIME) go test -v -count=1 -timeout=30m -run '^TestFullPipelineDifferentialFuzz$$' ./pkg/sync/expand
-
 .PHONY: bench-smoke
 bench-smoke: ## Run the bounded checkpoint cost benchmarks once.
 	go test -run '^$$' -bench 'Benchmark(CheckpointToken|SpawnedCursorAdmission)' -benchtime=1x -benchmem ./pkg/sync
@@ -254,11 +247,6 @@ bench-smoke: ## Run the bounded checkpoint cost benchmarks once.
 .PHONY: incremental-performance-check
 incremental-performance-check: ## Enforce 100k-node incremental allocation/work gates.
 	BATON_INCREMENTAL_PERF=1 go test -v -count=1 -timeout=30m -run '^TestIncrementalPerformanceGates$$' ./pkg/sync/expand
-
-.PHONY: incremental-soak
-incremental-soak: ## Run the incremental differential fuzzers for INCREMENTAL_SOAK_TIME.
-	BATON_EXPAND_FUZZ_DURATION=$(INCREMENTAL_SOAK_TIME) go test -count=1 -timeout=30m -run '^TestFullPipelineDifferentialFuzz$$' ./pkg/sync/expand
-	go test -run '^$$' -fuzz '^FuzzIncrementalVsFullExpansion$$' -fuzztime=$(INCREMENTAL_SOAK_TIME) ./pkg/sync/expand
 
 .PHONY: bench
 bench: ## Run curated checkpoint and medium full-sync benchmarks.
@@ -276,7 +264,7 @@ errorfs-soak: ## Sweep whole-sync Pebble crash points using errorfs, fresh and b
 .PHONY: chaos-check
 chaos-check: ## Run bounded representative chaos checks under race detection.
 	go test -race -count=1 ./internal/chaosconnector/...
-	go test -race -count=1 -timeout=10m -run '^TestChaosConnector(LostResponseThenFilesystemFailureResumes|ResourcesAndEntitlementsFaultMatrix|ListGrantsFaultMatrix|ReservedBatonIDOwnershipIsRejected|MalformedKnownAnnotationFailsWithoutSealing|ClearedNextPageTokenSealsOnlyVisiblePrefix|CancellationTerminatesAndColdResumes|DataPolicyLifecycleCorpus|ExternalPrincipalResumeUsesCurrentExternalAnswer|SQLiteExternalPrincipalResumeDegradesWithoutFailure|ExternalPrincipalCleanupUsesOnePassPerKeyspace)$$' ./pkg/sync
+	go test -race -count=1 -timeout=10m -run '^TestChaosConnector(LostResponseThenFilesystemFailureResumes|ResourcesAndEntitlementsFaultMatrix|ListGrantsFaultMatrix|ReservedBatonIDOwnershipIsRejected|MalformedKnownAnnotationFailsWithoutSealing|ClearedNextPageTokenSealsOnlyVisiblePrefix|CancellationTerminatesAndColdResumes|DataPolicyLifecycleCorpus|ExternalPrincipalResumeUsesCurrentExternalAnswer|ExternalPrincipalCleanupUsesOnePassPerKeyspace)$$' ./pkg/sync
 
 .PHONY: chaos-full-check
 chaos-full-check: ## Run every deterministic chaos corpus under race detection.
@@ -289,12 +277,12 @@ chaos-soak: ## Run extended seeded chaos connector fanout schedules.
 # Full deterministic chaos corpora are reserved for test-nightly.
 .PHONY: test-extra
 test-extra: export BATON_TEST_EXTRA=1
-test-extra: race-check compat-check interrupt-check fuzz-smoke differential-check bench-smoke ## Run bounded confidence checks omitted from CI.
+test-extra: race-check compat-check interrupt-check fuzz-smoke bench-smoke ## Run bounded confidence checks omitted from CI.
 
 .PHONY: test-nightly
 test-nightly: export BATON_TEST_NIGHTLY=1
 test-nightly: ## Run extended confidence, fuzz, scheduler, and errorfs checks.
-	$(MAKE) test-extra FUZZ_TIME=$(NIGHTLY_FUZZ_TIME) DIFFERENTIAL_TIME=$(NIGHTLY_DIFFERENTIAL_TIME)
+	$(MAKE) test-extra FUZZ_TIME=$(NIGHTLY_FUZZ_TIME)
 	$(MAKE) scheduler-soak
 	$(MAKE) chaos-soak
 	$(MAKE) errorfs-soak
@@ -310,10 +298,6 @@ prodscale-check: ## Run the multi-million-row compactor experiment.
 .PHONY: prodscale-crossover
 prodscale-crossover: ## Measure fold/overlay crossover at production scale.
 	BATON_PROD_SCALE_CROSSOVER=1 go test -v -count=1 -timeout=60m -run TestProdScaleFoldOverlayCrossover ./pkg/synccompactor
-
-.PHONY: prodscale-topebble
-prodscale-topebble: ## Measure SQLite-to-Pebble conversion at production scale.
-	BATON_PROD_SCALE_TOPEBBLE=1 go test -v -count=1 -timeout=180m -run TestProdScaleToPebbleCurve ./pkg/synccompactor
 
 # Formal verification track (formal/). These targets have tool
 # prerequisites this repo deliberately does not install: the P checker

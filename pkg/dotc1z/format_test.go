@@ -85,10 +85,7 @@ func TestFormatString(t *testing.T) {
 }
 
 func TestEngineConstants(t *testing.T) {
-	// Smoke-check the engine constants are non-empty and distinct.
-	require.NotEmpty(t, c1zstore.EngineSQLite)
 	require.NotEmpty(t, c1zstore.EnginePebble)
-	require.NotEqual(t, c1zstore.EngineSQLite, c1zstore.EnginePebble, "engine constants must be distinct")
 }
 
 func TestErrEngineNotAvailable(t *testing.T) {

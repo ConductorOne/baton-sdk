@@ -63,7 +63,7 @@ func TestCompactionExpandToleratesMergeManufacturedExclusionConflicts(t *testing
 	buildInput := func(t *testing.T, name, entID string) *CompactableSync {
 		t.Helper()
 		path := filepath.Join(inputDir, name)
-		f, err := dotc1z.NewC1ZFile(ctx, path, dotc1z.WithTmpDir(tmpDir))
+		f, err := dotc1z.NewStore(ctx, path, dotc1z.WithTmpDir(tmpDir))
 		require.NoError(t, err)
 		syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
@@ -81,7 +81,6 @@ func TestCompactionExpandToleratesMergeManufacturedExclusionConflicts(t *testing
 	compactor, cleanup, err := NewCompactor(ctx, outputDir,
 		[]*CompactableSync{older, newer},
 		WithTmpDir(tmpDir),
-		WithCompactorType(CompactorTypeAttached),
 	)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, cleanup()) }()
@@ -96,7 +95,7 @@ func TestCompactionExpandToleratesMergeManufacturedExclusionConflicts(t *testing
 	require.NotNil(t, out)
 
 	// The merged artifact holds both generations' rows, conflict intact.
-	merged, err := dotc1z.NewC1ZFile(ctx, out.FilePath, dotc1z.WithTmpDir(tmpDir))
+	merged, err := dotc1z.NewStore(ctx, out.FilePath, dotc1z.WithTmpDir(tmpDir), dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, merged.Close(ctx)) }()
 	resp, err := merged.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{}.Build())

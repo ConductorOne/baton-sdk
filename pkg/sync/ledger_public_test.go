@@ -317,7 +317,7 @@ func TestLedgerDebugLoggingDoesNotAuthorizeTokenRetention(t *testing.T) {
 }
 
 func TestLedgerPublicPathAttachment(t *testing.T) {
-	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble, c1zstore.EngineSQLite} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
 			created, err := NewSyncer(t.Context(), ledgerAttachmentConnector{}, WithC1ZPath(filepath.Join(t.TempDir(), "attach.c1z")), WithStorageEngine(engine))
 			require.NoError(t, err)

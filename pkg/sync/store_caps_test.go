@@ -43,28 +43,6 @@ var storeCapsMatrix = map[c1zstore.Engine]map[string]bool{
 		"newExpandedContributions": true,
 		"expandedGrantLayer":       true,
 	},
-	c1zstore.EngineSQLite: {
-		"pageLedger":         false,
-		"writeHook":          false,
-		"entitlementGraph":   false,
-		"grantDigest":        false,
-		"ingestFacts":        false,
-		"ingestVerification": true,
-		"dbSize":             true,
-		// SQLite deletes by public grant id and implements none of the
-		// record-level or refs-based deletes.
-		"resourceDeleter":    false,
-		"entitlementDeleter": false,
-		"grantRefsDeleter":   false,
-		"grantBatchDeleter":  false,
-		"grantPrincipalKeys": false,
-		// Present but answers false — see the effective-answer assertion
-		// below. Satisfying the interface is not the same as the capability.
-		"principalSortedGrants":    true,
-		"newExpandedGrants":        false,
-		"newExpandedContributions": false,
-		"expandedGrantLayer":       false,
-	},
 }
 
 func TestStoreCapsEngineMatrix(t *testing.T) {
@@ -99,12 +77,10 @@ func TestStoreCapsEngineMatrix(t *testing.T) {
 			require.Equal(t, len(expected), seen,
 				"the matrix must list every storeCaps field exactly once")
 
-			// Interface satisfaction is not the answer. SQLite implements
-			// GrantsForEntitlementPrincipalSorted and returns false, so the
-			// non-nil capability above must not be read as "grants are
-			// sorted" — the expander's buffering fallback depends on this.
-			require.Equal(t, engine == c1zstore.EnginePebble,
-				NewExpanderStore(store).GrantsForEntitlementPrincipalSorted(),
+			// Interface satisfaction is not the answer: the capability is
+			// non-nil above, but the expander's streaming path depends on
+			// the effective answer being true.
+			require.True(t, NewExpanderStore(store).GrantsForEntitlementPrincipalSorted(),
 				"effective principal-sort answer on %s", engine)
 
 			// The reader-side resolver sees the same store through a

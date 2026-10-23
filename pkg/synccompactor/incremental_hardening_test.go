@@ -107,13 +107,6 @@ func TestIncrementalExpansionOutcomeLogging(t *testing.T) {
 			options:     []Option{WithEngine(c1zstore.EnginePebble), WithIncrementalExpansion()},
 			wantOutcome: "fell_back", wantReason: "base_graph_error",
 		},
-		{
-			name: "unsupported engine", build: func(t *testing.T, ctx context.Context, dir string) []*CompactableSync {
-				return buildIncrementalFixturesEngine(t, ctx, dir, c1zstore.EngineSQLite)
-			},
-			options:     []Option{WithIncrementalExpansion()},
-			wantOutcome: "not_attempted", wantReason: "unsupported_engine",
-		},
 	}
 
 	for _, tc := range tests {

@@ -59,22 +59,20 @@ func TestTopologicalMergeDifferentialRandom(t *testing.T) {
 
 // TestTopologicalMergeDifferentialRandomStore is the real-store counterpart to
 // TestTopologicalMergeDifferentialRandom. For each generated case it runs the
-// current source-batched expander on SQLite as ground truth, then asserts every
-// new algorithm reproduces it through a real c1z — exercising the V2<->storage
-// translation, the StoreExpandedGrants upsert/index-cleanup path, and the real
-// grant readers (Pebble's principal-sorted true-streaming path and SQLite's
-// id-ordered buffer+sort fallback), none of which the mock store covers.
+// production evaluator (Expander.Run, which on Pebble is the topological
+// projection) as ground truth, then asserts the streaming algorithm reproduces
+// it through a real c1z — exercising the V2<->storage translation, the
+// StoreExpandedGrants upsert/index-cleanup path, and the real principal-sorted
+// grant reader, none of which the mock store covers.
 //
 // It is far slower than the mock sweep (a fresh c1z per algorithm per seed), so
 // it runs a much smaller seed range. The mock sweep remains the wide net; this
 // one is the depth check on the production storage path.
 func TestTopologicalMergeDifferentialRandomStore(t *testing.T) {
 	testtier.RequireExtra(t)
-	// ~1.3s/seed (a fresh c1z per algorithm per seed), so keep this modest: the
-	// mock sweep is the wide net, this is the storage-path depth check.
-	// Store-backed seeds cost ~10s each (a pebble + sqlite store per
-	// seed), so short mode (Windows CI) runs a token few; the wide
-	// sweep is long-CI and ad-hoc (BATON_EXPAND_FUZZ_SEEDS) territory.
+	// Store-backed seeds cost a fresh c1z per algorithm, so short mode
+	// (Windows CI) runs a token few; the wide sweep is long-CI and ad-hoc
+	// (BATON_EXPAND_FUZZ_SEEDS) territory.
 	start, count := fuzzSeedRange(3, 25)
 	for seed := start; seed < start+count; seed++ {
 		seed := seed
@@ -82,8 +80,7 @@ func TestTopologicalMergeDifferentialRandomStore(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			// Ground truth: the current source-batched expander on SQLite.
-			ground := runExpansion(t, ctx, tc, c1zstore.EngineSQLite, 0, func(e *Expander) error { return e.Run(ctx) })
+			ground := runExpansion(t, ctx, tc, c1zstore.EnginePebble, 0, func(e *Expander) error { return e.Run(ctx) })
 
 			candidates := []struct {
 				name     string
@@ -91,10 +88,7 @@ func TestTopologicalMergeDifferentialRandomStore(t *testing.T) {
 				pageSize uint32
 				run      func(*Expander) error
 			}{
-				{"streaming/sqlite", c1zstore.EngineSQLite, 0, func(e *Expander) error { return e.RunTopologicalMergeStreaming(ctx) }},
-				{"projection/sqlite", c1zstore.EngineSQLite, 0, func(e *Expander) error { return e.RunTopologicalMergeProjection(ctx) }},
 				{"streaming/pebble", c1zstore.EnginePebble, 0, func(e *Expander) error { return e.RunTopologicalMergeStreaming(ctx) }},
-				{"projection/pebble", c1zstore.EnginePebble, 0, func(e *Expander) error { return e.RunTopologicalMergeProjection(ctx) }},
 				// Small Pebble pages force principal groups to span reader pages,
 				// exercising streamingPrincipalGroupStream paging + pushback.
 				{"streaming/pebble/small-page", c1zstore.EnginePebble, 2, func(e *Expander) error { return e.RunTopologicalMergeStreaming(ctx) }},
@@ -425,7 +419,7 @@ func TestTopologicalMergeUntouchedBaseGrantNotRewritten(t *testing.T) {
 		edges: []sqliteEdgeSpec{{src: "ent:source", dst: "ent:dest", rtids: []string{"user"}}},
 	}
 
-	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		for _, algo := range algos {
 			label := string(engine) + "/" + algo.name
 			t.Run(label, func(t *testing.T) {

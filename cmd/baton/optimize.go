@@ -36,19 +36,6 @@ func runOptimizeDb(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if sqliteStore, ok := dotc1z.AsSQLiteStore(store); ok {
-		err = sqliteStore.Vacuum(ctx)
-		if err != nil {
-			_ = store.Close(ctx)
-			return err
-		}
-		if err = store.Close(ctx); err != nil {
-			return err
-		}
-		_, _ = fmt.Fprintf(os.Stdout, "Optimized C1Z successfully.")
-		return nil
-	}
-
 	engine := store.Metadata().Engine
 	err = store.Close(ctx)
 	if err != nil {

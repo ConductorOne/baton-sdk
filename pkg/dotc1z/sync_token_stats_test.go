@@ -48,7 +48,7 @@ func TestEndSyncPersistsSyncTokenStats(t *testing.T) {
 	tokenJSON, err := json.Marshal(token)
 	require.NoError(t, err)
 
-	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), string(engine)+".c1z")
 			store, err := dotc1z.NewStore(ctx, path, dotc1z.WithEngine(engine))

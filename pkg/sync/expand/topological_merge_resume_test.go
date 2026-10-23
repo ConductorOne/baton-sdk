@@ -41,7 +41,7 @@ func TestTopologicalMergeResumeIdempotent(t *testing.T) {
 		// subset for slow (windows) CI; full matrix on long CI.
 		interruptCases = []sqliteParityCase{parityCases()[0], cyclicCases()[0]}
 	}
-	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble, c1zstore.EngineSQLite} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		for _, algo := range algos {
 			for _, tc := range interruptCases {
 				tc := tc
@@ -106,7 +106,7 @@ func TestTopologicalMergeCyclic(t *testing.T) {
 		{"streaming", func(ctx context.Context, e *Expander) error { return e.RunTopologicalMergeStreaming(ctx) }},
 	}
 
-	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble, c1zstore.EngineSQLite} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		for _, tc := range cyclicCases() {
 			tc := tc
 			t.Run(string(engine)+"/"+tc.name, func(t *testing.T) {
@@ -192,7 +192,7 @@ func TestTopologicalMergePartialInterruptResume(t *testing.T) {
 		// subset for slow (windows) CI; full matrix on long CI.
 		interruptCases = []sqliteParityCase{parityCases()[0], cyclicCases()[0]}
 	}
-	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble, c1zstore.EngineSQLite} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		for _, algo := range algos {
 			for _, tc := range interruptCases {
 				tc := tc

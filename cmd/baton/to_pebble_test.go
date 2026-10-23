@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -9,10 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
+
+// slimGrantsFixture is a committed v1 (SQLite) c1z with one finished full
+// sync holding three grants; see pkg/dotc1z/sqlite/testdata.
+const slimGrantsFixture = "../../pkg/dotc1z/sqlite/testdata/slim_grants.c1z"
 
 func TestToPebbleCommandConvertsSQLiteC1Z(t *testing.T) {
 	ctx := context.Background()
@@ -20,18 +23,9 @@ func TestToPebbleCommandConvertsSQLiteC1Z(t *testing.T) {
 	srcPath := filepath.Join(dir, "source.c1z")
 	outPath := filepath.Join(dir, "out.c1z")
 
-	src, err := dotc1z.NewStore(ctx, srcPath, dotc1z.WithTmpDir(dir), dotc1z.WithEngine(c1zstore.EngineSQLite))
+	fixture, err := os.ReadFile(slimGrantsFixture)
 	require.NoError(t, err)
-
-	syncID, err := src.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-	require.NoError(t, src.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()))
-	user := v2.Resource_builder{
-		Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(),
-	}.Build()
-	require.NoError(t, src.PutResources(ctx, user))
-	require.NoError(t, src.EndSync(ctx))
-	require.NoError(t, src.Close(ctx))
+	require.NoError(t, os.WriteFile(srcPath, fixture, 0600)) // #nosec G703 -- srcPath is under t.TempDir().
 
 	root := &cobra.Command{Use: "baton"}
 	root.PersistentFlags().StringP("file", "f", "sync.c1z", "The path to the c1z file to work with.")
@@ -40,7 +34,6 @@ func TestToPebbleCommandConvertsSQLiteC1Z(t *testing.T) {
 		"to-pebble",
 		"--file", srcPath,
 		"--out", outPath,
-		"--sync-id", syncID,
 	})
 	require.NoError(t, root.Execute())
 
@@ -48,8 +41,12 @@ func TestToPebbleCommandConvertsSQLiteC1Z(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, dst.Close(ctx)) }()
 
-	resp, err := dst.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{}.Build())
+	latest, err := dst.SyncMeta().LatestFullSync(ctx)
 	require.NoError(t, err)
-	require.Len(t, resp.GetList(), 1)
-	require.Equal(t, "u1", resp.GetList()[0].GetId().GetResource())
+	require.NotNil(t, latest)
+	require.NoError(t, dst.SetCurrentSync(ctx, latest.ID))
+
+	resp, err := dst.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, resp.GetList(), 3)
 }

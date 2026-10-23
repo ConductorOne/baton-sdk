@@ -32,7 +32,6 @@ func TestNewSyncerStoreEngineRouting(t *testing.T) {
 	}{
 		{"", true},
 		{"future-engine", true},
-		{string(c1zstore.EngineSQLite), true},
 		{string(c1zstore.EnginePebble), false},
 	} {
 		t.Run("engine="+tc.engine, func(t *testing.T) {

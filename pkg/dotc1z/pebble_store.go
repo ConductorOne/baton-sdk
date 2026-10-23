@@ -53,8 +53,6 @@ type sanitizeSyncRunMetadataReader interface {
 var (
 	_ sanitizeSupportsDiffWriter    = (*pebbleStore)(nil)
 	_ sanitizeSyncRunMetadataReader = (*pebbleStore)(nil)
-	_ sanitizeSupportsDiffWriter    = (*C1File)(nil)
-	_ sanitizeSyncRunMetadataReader = (*C1File)(nil)
 )
 
 func (pebbleDriver) Engine() c1zstore.Engine { return c1zstore.EnginePebble }
@@ -259,8 +257,7 @@ func (s *pebbleStore) writeHook(ctx context.Context, method string) error {
 // contract — connectorstore.Writer (via Adapter) plus the three
 // sub-store methods (Grants, SyncMeta, FileOps) and the C1ZStore
 // Close(ctx) signature. Lets callers route Pebble stores through
-// pkg/sync.NewSyncer's WithConnectorStore option the same way they
-// route SQLite *C1File handles today.
+// pkg/sync.NewSyncer's WithConnectorStore option.
 var _ c1zstore.Store = (*pebbleStore)(nil)
 
 // FileOps overrides the Adapter-level FileOps so CloneSync threads the
@@ -549,7 +546,7 @@ func (s *pebbleStore) SetSupportsDiff(ctx context.Context, syncID string) error 
 	return s.markDirty(s.SyncMeta().MarkSyncSupportsDiff(ctx, syncID))
 }
 
-// RollbackExpansion is the Pebble form of (*C1File).RollbackExpansion.
+// RollbackExpansion restores a finished, expanded sync to its pre-expansion shape.
 // WithSyncTokenRewrite is ignored: a replay re-expands a finished ledgered
 // sync through a new ledger pass, not through its token.
 func (s *pebbleStore) RollbackExpansion(ctx context.Context, syncID string, dryRun bool, opts ...RollbackOption) (*RollbackResult, error) {

@@ -78,8 +78,6 @@ func TestNewStoreDefaultsToPebbleDriver(t *testing.T) {
 			_ = store.Close(ctx)
 		}
 	}()
-	_, ok := store.(*C1File)
-	require.False(t, ok, "NewStore default type = %T, want the pebble store, not *C1File", store)
 	require.Equal(t, string(c1zstore.EnginePebble), store.Metadata().Engine)
 
 	// Seal a sync and close so the artifact lands on disk, then prove
@@ -141,21 +139,4 @@ func TestNewStoreExistingV3MissingDriver(t *testing.T) {
 
 	_, err := NewStore(ctx, path)
 	require.ErrorIs(t, err, ErrEngineNotAvailable, "NewStore error = %v, want ErrEngineNotAvailable", err)
-}
-
-func TestNewStoreExistingV1IgnoresRequestedEngine(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "existing-v1.c1z")
-	f, err := NewC1ZFile(ctx, path)
-	require.NoError(t, err)
-	_, err = f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-	require.NoError(t, f.EndSync(ctx))
-	require.NoError(t, f.Close(ctx))
-
-	store, err := NewStore(ctx, path, WithEngine(uniqueEngineName(t, "ignored")))
-	require.NoError(t, err)
-	defer func() { _ = store.Close(ctx) }()
-	_, ok := store.(*C1File)
-	require.True(t, ok, "NewStore existing v1 type = %T, want *C1File", store)
 }

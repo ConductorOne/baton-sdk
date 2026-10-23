@@ -19,7 +19,7 @@ func TestRollbackPreserveSuspectGrants(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "src.c1z")
 	syncID := buildSyntheticExpandedC1Z(t, ctx, path)
 
-	store, err := dotc1z.NewC1ZFile(ctx, path)
+	store, err := openRollbackStore(ctx, path)
 	require.NoError(t, err)
 	res, err := store.RollbackExpansion(ctx, syncID, false, dotc1z.WithPreserveSuspectGrants())
 	require.NoError(t, err)

@@ -129,16 +129,6 @@ func (r smallPageReader) ListGrants(
 	return r.Reader.ListGrants(ctx, req)
 }
 
-func (r smallPageReader) ListGrantsWithExpansion(
-	ctx context.Context,
-	req *v2.GrantsServiceListGrantsRequest,
-) (*v2.GrantsServiceListGrantsResponse, error) {
-	req = v2.GrantsServiceListGrantsRequest_builder{
-		PageSize: 2, PageToken: req.GetPageToken(), Annotations: req.GetAnnotations(),
-	}.Build()
-	return r.Reader.(connectorstore.ExpansionGrantLister).ListGrantsWithExpansion(ctx, req)
-}
-
 func (s *sealInterruptingLedgerStore) ListSyncRuns(
 	ctx context.Context,
 	pageToken string,
@@ -359,7 +349,7 @@ func TestSanitizeLedgerRejectsEmptyDestinationFromDifferentSecret(t *testing.T) 
 	oldSecret := bytes32("old-empty-destination")
 	newSecret := bytes32("new-empty-destination")
 
-	srcStore, err := dotc1z.NewC1ZFile(ctx, srcPath)
+	srcStore, err := dotc1z.NewStore(ctx, srcPath)
 	require.NoError(t, err)
 	_, err = srcStore.StartNewSync(ctx, connectorstore.SyncTypePartial, "source-parent")
 	require.NoError(t, err)
