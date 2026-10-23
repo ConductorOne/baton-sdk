@@ -686,3 +686,15 @@ Windows CI shards.
     fills without Pebble or filesystem work; existing spill-merge, bulk-import
     budget, converter, digest, compaction, race, and repository gates are
     rerun. PR placement: this PR.
+17. **Correction: reserve the actual spill-promotion overlap.** Source: CI
+    review found that change order 16 reduced each promotion's retained old
+    arena to 1 MiB but left `bulkImportChunkBytes` reserving one full chunk per
+    concurrent shard. Motivation: the excess reservation reduces chunk sizes
+    and increases spill-merge fan-in without reducing peak memory.
+    Contract delta: chunk size is derived from the budget after subtracting one
+    1 MiB initial arena per expected shard, then dividing the remainder by the
+    full-arena count. The owning boundary is `bulkImportChunkBytes`. Affected
+    criterion: benchmark evidence. Verification delta:
+    `TestBulkImportChunkBytesStaysWithinBudget` checks the byte-accurate growth
+    reserve and exact derived sizes for one, four, and eight shards. PR
+    placement: this PR.

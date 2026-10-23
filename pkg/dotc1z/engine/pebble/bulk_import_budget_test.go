@@ -24,10 +24,16 @@ func TestBulkImportChunkBytesStaysWithinBudget(t *testing.T) {
 		require.LessOrEqual(t, chunk, deferredIndexSpillChunkBytes, "shards=%d: chunk above the validated ceiling", shards)
 		require.GreaterOrEqual(t, chunk, bulkImportMinChunkBytes, "shards=%d: chunk below the fan-in floor", shards)
 		if chunk > bulkImportMinChunkBytes {
-			require.LessOrEqual(t, chunk*(liveArenas+expectedShards), bulkImportSortBudgetBytes,
-				"shards=%d: %d live arenas plus %d growth arenas x %d bytes exceeds the budget",
-				shards, liveArenas, expectedShards, chunk)
+			require.LessOrEqual(t, chunk*liveArenas+expectedShards*spillArenaInitialBytes, bulkImportSortBudgetBytes,
+				"shards=%d: %d live arenas x %d bytes plus %d growth arenas x %d bytes exceeds the budget",
+				shards, liveArenas, chunk, expectedShards, spillArenaInitialBytes)
 		}
+	}
+
+	for _, shards := range []int{1, 4, 8} {
+		liveArenas := 3 + (1+len(grantIndexFamilies))*shards + sortSlots
+		want := (bulkImportSortBudgetBytes - shards*spillArenaInitialBytes) / liveArenas
+		require.Equal(t, want, bulkImportChunkBytes(shards, sortSlots))
 	}
 
 	// Monotone: more shards never means bigger chunks.

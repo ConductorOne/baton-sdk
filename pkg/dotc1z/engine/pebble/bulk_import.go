@@ -59,12 +59,12 @@ const bulkSpillKeyChunkBytes = 8 << 20
 
 // bulkImportSortBudgetBytes bounds the anonymous memory the bulk import's
 // spill arenas can hold at once. Chunk size is derived from it, not
-// hard-coded: chunkBytes = budget / liveArenas, where liveArenas counts
-// every arena that can be committed simultaneously — one per sorter
-// (resources, entitlements, the parent index, and per grant shard one
-// primary plus one per index family) plus one per background sort slot.
-// Adding an index family or raising the shard count therefore shrinks
-// the chunks instead of silently raising peak RSS.
+// hard-coded: chunkBytes = (budget - growthReserve) / liveArenas.
+// liveArenas counts one arena per sorter plus one per background sort
+// slot. growthReserve holds one 1 MiB initial arena per concurrent shard
+// while it promotes to a full chunk. Adding an index family or raising
+// the shard count therefore shrinks the chunks instead of silently
+// raising peak RSS.
 //
 // Chunk size sets Finish's merge fan-in: every chunk stays open behind a
 // bulkSpillBufferSize reader for the whole merge, so the derived value is
@@ -338,7 +338,11 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 func bulkImportChunkBytes(expectedShards, sortSlots int) int {
 	expectedShards = max(1, expectedShards)
 	liveArenas := 3 + (1+len(grantIndexFamilies))*expectedShards + sortSlots
-	return min(deferredIndexSpillChunkBytes, max(bulkImportMinChunkBytes, bulkImportSortBudgetBytes/(liveArenas+expectedShards)))
+	growthReserve := expectedShards * spillArenaInitialBytes
+	return min(
+		deferredIndexSpillChunkBytes,
+		max(bulkImportMinChunkBytes, (bulkImportSortBudgetBytes-growthReserve)/liveArenas),
+	)
 }
 
 // newSorter creates a spill sorter wired to the import's shared sort

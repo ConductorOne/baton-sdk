@@ -132,9 +132,11 @@ the measured allocation cost is exactly one additional 1 MiB arena. The focused
 `TestSpillSorterArenaPromotesOnce` pins the single promotion and configured
 chunk ceiling. Restoring geometric growth as a planted violation failed that
 test with a 2 MiB arena where 16 MiB was required.
-`TestBulkImportChunkBytesStaysWithinBudget` conservatively
-reserves one full chunk per expected concurrent grant shard, exceeding the
-actual 1 MiB growth overlap.
+`TestBulkImportChunkBytesStaysWithinBudget` reserves the actual 1 MiB growth
+overlap per expected concurrent grant shard. With four sort slots, the derived
+chunk sizes are 93 MiB for one shard, about 44 MiB for four shards, and about
+26 MiB for eight shards. The test pins those calculations and the total-byte
+budget.
 
 `BenchmarkRegisteredPebbleWritePack` measures the same `BuildGrantDigests`
 implementation used by compaction and reports `EndSync` separately from grant
