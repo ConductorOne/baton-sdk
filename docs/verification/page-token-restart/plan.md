@@ -1,0 +1,210 @@
+# Bounded pagination restart
+
+Frozen behavioral plan, revision 1. Runtime implementation has not started.
+
+## Scope and risk
+
+An opt-in error classifier permits a provider listing action to restart from its
+first page without abandoning the enclosing sync. The host supplies the provider
+classification and a limit of two restarts. Already collected records are retained:
+the result represents observations during the sync, including abandoned attempts,
+rather than a point-in-time snapshot or replacement listing.
+
+Risk: HIGH. Restart state survives process boundaries, interacts with concurrent
+workers and replay, and is consumed by a separate host. A defect can lose work or
+reset a retry budget. Remediation is a fresh sync. The default SDK policy remains
+disabled; enabling the host policy requires the SDK implementation in this change.
+
+The implementation must distinguish a restarted listing from cached pages of its
+earlier attempt. It must not add per-grant scans, cleanup, or replacement generations.
+Healthy, never-restarted pages retain their existing request tokens and behavior.
+
+## Criteria
+
+| ID | Required behavior | Planned instrument |
+| --- | --- | --- |
+| P01 | Only configured expiry errors on supported provider list actions with a nonempty provider cursor restart. Initial-page, internal-store, spawned-cursor and unrelated errors propagate. | Dispatch/classifier table and actual connector RPCs. |
+| P02 | At most two restarts of one action occur per sync, including across close/reopen and new syncer instances. The third expiry fails; it never becomes completion. | Real-store budget exhaustion across repeated resumes. |
+| P03 | Recovery keeps the enclosing sync ID, completed sibling work and collected records. A restarted listing must finish before the sync completes. | Deterministic connector call log and complete stored-grant comparison. |
+| P04 | The restart count advances durably before the first request of the restarted listing. Failure to persist the transition propagates and prevents that request. | Restart checkpoint/commit fault injection and close/reopen. |
+| P05 | Provider requests receive the original opaque token, never SDK recovery metadata. Non-restarted tokens are unchanged; malformed or unsupported recovery metadata fails without exposing its contents. | Codec round trips, malformed/version table and secret-redaction assertions. |
+| P06 | Pebble uses the restarted attempt's request identity rather than replaying the abandoned attempt's pages. Pending-work revisions remain checked. | Real Pebble repeated-first-page fixture with changed response and resume. |
+| P07 | Cancellation before or during a restart preserves unfinished work and cannot complete the action. A resumed checkpoint can be resumed twice without exhausting a fresh budget or dropping data. | Stop-point table, clone/close/reopen and changed worker counts. |
+| P08 | Budgets belong to actions: one failing action does not consume a sibling's budget or repeat completed phases. | Two failing resources with independent call logs, 1 and 3 workers. |
+| P09 | Restart commits do not count an action as complete or a connector failure as an empty successful listing. Completion and warning accounting remain coherent. | Real-store progress/ledger counter assertions and zero-result final listing. |
+| P10 | Existing unwrapped checkpoints resume unchanged. An SDK with the new decoder can resume wrapped checkpoints even when new restarts are disabled. | Enabled/disabled policy close/reopen matrix and existing token fixtures. |
+| P11 | The host enables precise Graph expiry classification and removes the immediate whole-sync reset for that error. SDK state-conflict recovery and the independent sync-attempt failsafe remain. | C1 consumer regression and full affected package. |
+| P12 | Checkpoint calls from concurrent workers are serialized without races or lost state. Healthy-page work is O(1); restarted-token processing is O(token length), independent of stored grants. | Affected race suite, checkpoint concurrency fixture and focused allocation benchmark. |
+
+## Coverage model
+
+Real-store matrix: SQLite/Pebble x 1/3 workers x successful restart/exhausted
+budget/resume after restart. Lifecycle faults cover the distinct legacy checkpoint
+and Pebble page-commit paths. Pure classification and codec dimensions use tables;
+they are not multiplied by storage where the implementation shares the exact same
+function. A changed boundary invalidates that reduction.
+
+Replayed results intentionally retain observations from prior attempts. The oracle
+is the independently computed union of emitted grant identities, not the last
+provider response alone. A later fresh full sync must exclude memberships no longer
+returned by the provider.
+
+Compatibility limitation: older SDK releases do not understand new recovery cursors.
+Enabling the option requires a supporting SDK for subsequent resumes. No generic
+old-reader compatibility claim is made; unwrapped preexisting checkpoints remain
+supported. A full cross-version feature rollout is deferred to a release stage.
+
+## Validation and review
+
+Validate the new instruments against a disabled restart and a reset-on-resume budget
+mutation before relying on their passing results. Collect changed-branch coverage,
+run focused package and race tests, existing sync/store regressions, and repository
+lint. The C1 consumer uses its Bazel-backed package and graph checks. Public API
+comments must name the retained-observations and reader-version contracts.
+
+All seven review passes apply; closely related passes may be combined into a
+checkpoint/error/concurrency review and a classification/accounting/performance
+review. An independent reader audits the evidence and final implementation after
+the instruments pass. Required CI and human review retain merge authority.
+
+## Change orders
+
+CO1 (correction): Independent review identified three obligations already required
+by P01/P02/P05/P09/P10: provider tokens must have an explicit persisted discriminator,
+only provider RPC errors may restart, and exhausted budgets must override warning
+and transient-retry status while retaining the original cause. The same PR adds
+legacy/pending-work discriminator metadata, provider-RPC tagging, and typed recovery
+errors. Regressions reproduced all three violations before correction. No observed-
+during-sync behavior, restart limit, or scope criterion changes.
+
+CO2 (correction, review discussion 4289009832): P05/P10 require a rollback
+reader to avoid forwarding recovery metadata as a provider cursor. This is HIGH
+because the interpretation depends on the reader version. Serialized checkpoints
+with any `PageTokenRestarted` action must use a version newer than the pre-recovery
+reader accepts, including readers that already support type-scoped version 2.
+Pebble's pending-work declaration must likewise reject pre-recovery readers before
+they consume marked work. Plain checkpoints and queues keep their existing format.
+The format owners are `marshalToken` and the pending-work declaration writer.
+
+P13 (current PR, evidence incomplete): A pre-recovery reader must discard the
+serialized recovery action stack and redo collection, or reject the pending-work
+declaration. It must never return the recovery envelope as a provider cursor.
+The current reader must preserve recovery state across round trips and cold resume.
+Exercise plain/recovered/mixed markers, graph omission, initial queue seeds,
+transitions with and without children, failed commits, and close/reopen. Validate
+the regression instruments against the unfixed writers. Use the existing
+two-artifact compatibility approach with the pinned pre-recovery parent
+`47f5027e` to check actual old-reader parsing; other historical releases remain
+deferred to release-stage compatibility testing. Update golden fixtures and run
+the affected race suites, broad regression suite and pinned lint.
+
+CO2 implementation obligations: The Pebble format discriminator and its marked
+pending work must commit in the same batch. Queue allocation and phase changes
+must preserve the discriminator while recovery work is reachable. Initial seeds
+and legacy-token takeover must select the guarded format too. Do not add scans,
+keyspaces, dependencies, locks or new commit points; healthy-page complexity
+remains unchanged. An independent reader audits this correction's evidence and
+format write paths after the tests pass.
+
+CO3 (correction, deep review of `02c5996c`): Three findings re-enter the risk
+model.
+
+P14 (new, default path): A direct provider list-RPC error reaches the caller with
+the status it had before this change: the same code, message and details, whether
+or not a restart policy is set. `providerPageError` hides the cause's status, so
+`status.FromError` rebuilds the message from `err.Error()` and a host reports
+`rpc error: code = ... desc = ...` instead of the connector's message. Default-path
+exposure puts this first; remediation is a redeploy. Instrument: the five provider
+RPC families x legacy/Pebble with a status-coded connector error and no policy,
+compared with the value each call site returned before this change. Validate it
+against the unfixed wrapper.
+
+P13 extension (version pair): A pre-recovery Pebble reader's `StartNewSync` reads
+the pending-work declaration before `ResetForNewSync`, so version 3 also blocks a
+fresh sync over the file. Return the declaration to version 2 once no recovery
+work is reachable: at `BeginExpanding`, whose only pending entry is the expansion
+action, and at the terminal page, whose queue is empty. Version 3 stays while
+collection can still hold recovery work. `WithPageTokenRestarts` states that a
+pre-recovery SDK can then neither resume nor start a new sync over the Pebble file
+until a supporting SDK finishes collection or the file is discarded. Extend the
+rollback probe with old-reader `StartNewSync` cells: rejected while recovery work
+is pending, accepted after `BeginExpanding`. Validate by keeping version 3 at
+`BeginExpanding`.
+
+P11 record: CO2 and CO3 change runtime after the host consumer run, so P11 returns
+to evidence incomplete until the consumer reruns against the final runtime commit.
+Correct the evidence header and its claim that later SDK changes are tests and
+evidence only.
+
+CO3 implementation obligations: The version change rides the existing
+`BeginExpanding` and terminal-page batches. Do not add scans, keyspaces, locks or
+commit points. Healthy-page complexity remains unchanged.
+
+CO4 (correction, seven Low findings from the deep review of `3e407519`): None
+changes the restart limit, eligibility, retained observations, format versions,
+keyspaces, locks or commit points.
+
+- Exhaustion contract (P02, M08): `ErrPageTokenRestartLimit` and
+  `WithPageTokenRestarts` state the eligible RPCs, the exhaustion error, and that
+  exhaustion is preserved: `IsSyncPreservable` reports true and
+  `ShouldDiscardSyncArtifact` false, while the checkpoint keeps the spent budget
+  and the expired cursor, so every resume fails until the host stops resuming and
+  starts a new sync. Pin both classifications on the actual `Sync` error; validate
+  by coding the limit error `Internal`.
+- Persistence status (P04, P09): restart-persistence failures and the existing
+  ledger page-write wrapper share one store-neutral wrapper. It reports
+  `Canceled` or `DeadlineExceeded` when the write failed on a context error and
+  `Internal` otherwise, whatever the joined provider cause carries.
+  `pageTokenRestartError` becomes the limit error alone, fixed at
+  `FailedPrecondition`. Default-path exposure is the ledger wrapper, which wraps
+  only `NotFound`-coded write errors; the consequence is a host-reported code,
+  remediated by a redeploy. A `DeadlineExceeded` write under a live worker context
+  becomes retryable by `syncOneAction`. That retry calls the provider with the
+  pre-restart action and classifies again; the restarted listing's first request
+  still follows only a successful persist, so P04 holds. Instrument:
+  `TestPageTokenRestartCanceledBeforeCommit` requires `Canceled`, and a legacy
+  transition table covers canceled, expired and plain writes. Validate against
+  the unfixed `Internal` code.
+- Cost (P12): state the aggregate. Per eligible action, a legacy run forces one
+  checkpoint per restart it performs plus one at exhaustion: at most `limit`
+  restart checkpoints per sync and one exhaustion checkpoint per run that reaches
+  the limit. Each serializes O(pending actions) under `run.mu.RLock`, behind
+  `syncCheckpoint.mu`. Pebble restarts ride the existing page commit. Pin zero
+  allocations for an unmarked `providerPageAction` with `testing.AllocsPerRun`.
+  Move `invokeActionPage`'s transition copy onto the restart branch so a healthy
+  Pebble page does not heap-allocate an `Action`. Instruments: escape analysis
+  before and after; mutation validation of the allocation pin.
+- Rollback instrument (P13): install cleanup before creating anything, use
+  `mktemp -d` and fixed probe names that refuse to overwrite existing files, and
+  run the script from `make compat-check`, which the nightly workflow runs with
+  full history. The cells stay in the script: `cmd/baton-compat-harness`
+  compiles one public-API program against both trees, and the probes call the
+  package-internal token codec and Pebble declaration reader on each side.
+- Version stamp (P13): `marshalToken` computes the stamp in the graph-omission
+  pass and stops once both answers are final. Repack `Action` from 176 to 160
+  bytes. Marked tokens then serialize `page_token_restarted` after
+  `type_scoped_planned`; `v3_page_token_restart.json` is regenerated. Keys,
+  versions and readers are unchanged. Instruments: `TestPageTokenRestartVersionStamp`,
+  the golden corpus and the rollback script; validate the fold by letting a later
+  marker lower the stamp.
+- Test-only: delete `stageWorkState`; tests stage `pendingWorkState` directly.
+  Restart tests reuse `writeLedgerTestFile` and `grantIDs` and name the repeated
+  classifier and policy.
+
+P11 record: CO4 changes runtime error codes, the `Action` layout and the key order
+of marked tokens, so P11 stays evidence incomplete until the C1 consumer reruns
+against the final runtime commit.
+
+CO4 revision (independent read of the uncommitted CO4 diff): a `DeadlineExceeded`
+code on a failed forced checkpoint breaks P04. The sequential loop in
+`parallelSync` retries `DeadlineExceeded` under a live worker context, re-reads the
+restarted action from run state, and skips its loop-top checkpoint because
+`syncCheckpoint.write` stamped the failed attempt. The restarted listing's first
+request then precedes a durable budget. `persistenceError` therefore reports
+`Canceled` for a canceled context and `Internal` for every other failure, deadlines
+included; the retryer never retries either code, and `IsSyncPreservable` already
+finds a deadline through `errors.Is`. This supersedes the `DeadlineExceeded` code
+and the retry argument in the persistence-status item above. Instrument: run
+`parallelSync` with a forced checkpoint that fails on a wrapped deadline under a
+live context, and require exactly one provider request. Validate against the
+`DeadlineExceeded` code.

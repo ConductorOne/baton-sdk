@@ -141,6 +141,10 @@ type Action struct {
 	// already scheduled whole-type collection. Legacy checkpoints omit it,
 	// causing an upgraded syncer to plan type-scoped work once on resume.
 	TypeScopedPlanned bool `json:"type_scoped_planned,omitempty"`
+	// PageTokenRestarted distinguishes SDK recovery state from provider tokens.
+	PageTokenRestarted         bool `json:"page_token_restarted,omitempty"`
+	pageTokenRestarts          uint32
+	pageTokenRestartGeneration string
 }
 
 func (a Action) MarshalLogObject(enc zapcore.ObjectEncoder) error {
@@ -464,6 +468,7 @@ func (r *runState) transitionActionWithCompletion(
 	if nextPageToken != "" {
 		updated := r.actions[parent.ID]
 		updated.PageToken = nextPageToken
+		updated.PageTokenRestarted = parent.PageTokenRestarted
 		r.actions[parent.ID] = updated
 		return pushed, nil
 	}

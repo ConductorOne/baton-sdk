@@ -34,32 +34,50 @@ var ErrLedgerQueuePhase = errors.New("pending-work declaration accepts no pages 
 
 const workStateVersion = 2
 
+// Version 3 rejects pre-recovery readers before they can drop PageTokenRestarted
+// from pending work and forward the recovery envelope as a provider cursor. It
+// also fails their StartNewSync, which reads the declaration before resetting.
+// BeginExpanding and the terminal page return to version 2: by then no pending
+// entry can be marked.
+const workStateVersionPageTokenRestart = 3
+
+type pendingWorkState struct {
+	version byte
+	lastID  uint64
+	phase   c1zstore.LedgerQueuePhase
+}
+
+func (l *Ledger) workState() (uint64, c1zstore.LedgerQueuePhase, error) {
+	state, err := l.readWorkState()
+	return state.lastID, state.phase, err
+}
+
 // Value: version, last allocated ID, phase. Version 1 had no phase byte and
 // no released file carries it.
-func (l *Ledger) workState() (uint64, c1zstore.LedgerQueuePhase, error) {
+func (l *Ledger) readWorkState() (pendingWorkState, error) {
 	value, closer, err := l.e.db.Get(rawdb.LedgerWorkStateKey())
 	if errors.Is(err, pebble.ErrNotFound) {
-		return 0, c1zstore.LedgerQueueAbsent, nil
+		return pendingWorkState{}, nil
 	}
 	if err != nil {
-		return 0, c1zstore.LedgerQueueAbsent, err
+		return pendingWorkState{}, err
 	}
 	defer closer.Close()
-	if len(value) != 10 || value[0] != workStateVersion {
-		return 0, c1zstore.LedgerQueueAbsent, errors.New("invalid pending-work state")
+	if len(value) != 10 || (value[0] != workStateVersion && value[0] != workStateVersionPageTokenRestart) {
+		return pendingWorkState{}, errors.New("invalid pending-work state")
 	}
 	phase := c1zstore.LedgerQueuePhase(value[9])
 	switch phase {
 	case c1zstore.LedgerQueueCollecting, c1zstore.LedgerQueueExpanding, c1zstore.LedgerQueueSealing:
 	default:
-		return 0, c1zstore.LedgerQueueAbsent, errors.New("invalid pending-work phase")
+		return pendingWorkState{}, errors.New("invalid pending-work phase")
 	}
-	return binary.BigEndian.Uint64(value[1:9]), phase, nil
+	return pendingWorkState{version: value[0], lastID: binary.BigEndian.Uint64(value[1:9]), phase: phase}, nil
 }
 
-func stageWorkState(batch *rawdb.RecordBatch, id uint64, phase c1zstore.LedgerQueuePhase) error {
-	value := binary.BigEndian.AppendUint64([]byte{workStateVersion}, id)
-	return batch.StageLedgerWorkState(append(value, byte(phase)))
+func (s pendingWorkState) stage(batch *rawdb.RecordBatch) error {
+	value := binary.BigEndian.AppendUint64([]byte{s.version}, s.lastID)
+	return batch.StageLedgerWorkState(append(value, byte(s.phase)))
 }
 
 func stagePendingWork(batch *rawdb.RecordBatch, work c1zstore.LedgerWork) error {
@@ -152,12 +170,12 @@ func (l *Ledger) BeginExpanding(ctx context.Context) error {
 		if err := l.e.requireCurrentSync(); err != nil {
 			return err
 		}
-		last, phase, err := l.workState()
+		state, err := l.readWorkState()
 		if err != nil {
 			return err
 		}
-		if phase != c1zstore.LedgerQueueCollecting {
-			return fmt.Errorf("BeginExpanding: pending-work declaration is %s", phase)
+		if state.phase != c1zstore.LedgerQueueCollecting {
+			return fmt.Errorf("BeginExpanding: pending-work declaration is %s", state.phase)
 		}
 		pending, _, err := l.readPendingWork(ctx, 0, 0, 2, false)
 		if err != nil {
@@ -171,7 +189,11 @@ func (l *Ledger) BeginExpanding(ctx context.Context) error {
 		if err := l.stageMarkInFlight(batch); err != nil {
 			return err
 		}
-		if err := stageWorkState(batch, last, c1zstore.LedgerQueueExpanding); err != nil {
+		if !pending[0].PageTokenRestarted {
+			state.version = workStateVersion
+		}
+		state.phase = c1zstore.LedgerQueueExpanding
+		if err := state.stage(batch); err != nil {
 			return err
 		}
 		if hook := l.e.test.ledgerBeginExpandingHook; hook != nil {
@@ -283,6 +305,9 @@ func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBat
 	if current.SyncID != l.e.CurrentSyncID() || current.SyncID != expected.SyncID || current.ID != expected.ID || current.Revision != expected.Revision || current.Action.Identity != id {
 		return ErrStaleLedgerWork
 	}
+	if current.PageTokenRestarted && !expected.PageTokenRestarted {
+		return ErrStaleLedgerWork
+	}
 	if len(childKeys) != 0 && len(childKeys) != len(row.GetChildren()) {
 		return errors.New("child scheduling keys do not match transition")
 	}
@@ -314,24 +339,24 @@ func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBat
 		row.SetChildren(children)
 		childKeys = keptKeys
 	}
-	last, phase, err := l.workState()
+	state, err := l.readWorkState()
 	if err != nil {
 		return err
 	}
-	switch phase {
+	switch state.phase {
 	case c1zstore.LedgerQueueAbsent:
 		return errors.New("pending work has no allocator state")
 	case c1zstore.LedgerQueueSealing:
-		return fmt.Errorf("%w: %s", ErrLedgerQueuePhase, phase)
+		return fmt.Errorf("%w: %s", ErrLedgerQueuePhase, state.phase)
 	case c1zstore.LedgerQueueExpanding:
 		// Only the expansion entry may complete; it carries no continuation
 		// or children, and pageUnit.Commit refused any page already.
 		if row.GetNextPageToken() != "" || len(row.GetChildren()) != 0 {
-			return fmt.Errorf("%w: %s", ErrLedgerQueuePhase, phase)
+			return fmt.Errorf("%w: %s", ErrLedgerQueuePhase, state.phase)
 		}
 	case c1zstore.LedgerQueueCollecting:
 	}
-	if uint64(len(row.GetChildren())) > math.MaxUint64-last {
+	if uint64(len(row.GetChildren())) > math.MaxUint64-state.lastID {
 		return errors.New("pending work ID overflow")
 	}
 	if row.GetNextPageToken() == "" {
@@ -344,6 +369,7 @@ func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBat
 		}
 		current.Revision++
 		current.Action.Identity.PageToken = row.GetNextPageToken()
+		current.PageTokenRestarted = expected.PageTokenRestarted
 		current.TypeScopedPlanned = row.GetTypeScopedPlanned()
 		if err := stagePendingWork(batch, current); err != nil {
 			return err
@@ -353,30 +379,40 @@ func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBat
 		if child == nil || child.GetIdentity() == nil {
 			return fmt.Errorf("invalid child of work %d", current.ID)
 		}
-		last++
-		work := c1zstore.LedgerWork{ID: last, SyncID: current.SyncID, Action: c1zstore.LedgerChild{Identity: ledgerIdentityFromProto(child.GetIdentity()), Spawned: child.GetSpawned()}}
+		state.lastID++
+		work := c1zstore.LedgerWork{ID: state.lastID, SyncID: current.SyncID, Action: c1zstore.LedgerChild{Identity: ledgerIdentityFromProto(child.GetIdentity()), Spawned: child.GetSpawned()}}
 		if len(childKeys) > 0 {
 			work.SchedulingKey = childKeys[index]
 		}
 		if err := stagePendingWork(batch, work); err != nil {
 			return err
 		}
-		child.SetWorkId(last)
+		child.SetWorkId(state.lastID)
 		child.GetIdentity().SetPageToken("")
 	}
-	if len(row.GetChildren()) > 0 {
-		return stageWorkState(batch, last, c1zstore.LedgerQueueCollecting)
+	if expected.PageTokenRestarted || len(row.GetChildren()) > 0 {
+		if expected.PageTokenRestarted {
+			state.version = workStateVersionPageTokenRestart
+		}
+		if len(row.GetChildren()) > 0 {
+			state.phase = c1zstore.LedgerQueueCollecting
+		}
+		return state.stage(batch)
 	}
 	return nil
 }
 
 func stageInitialWork(batch *rawdb.RecordBatch, syncID string, actions []c1zstore.LedgerWork, phase c1zstore.LedgerQueuePhase) error {
+	state := pendingWorkState{version: workStateVersion, lastID: uint64(len(actions)), phase: phase}
 	for i, action := range actions {
 		if action.ID != 0 || action.Revision != 0 {
 			return errors.New("initial work must not have assigned IDs or revisions")
 		}
 		action.ID = uint64(i) + 1
 		action.SyncID = syncID
+		if action.PageTokenRestarted {
+			state.version = workStateVersionPageTokenRestart
+		}
 		if action.SchedulingKey != "" {
 			if err := batch.StageLedgerScheduling(schedulingWorkKey(action.SchedulingKey)); err != nil {
 				return err
@@ -386,7 +422,7 @@ func stageInitialWork(batch *rawdb.RecordBatch, syncID string, actions []c1zstor
 			return err
 		}
 	}
-	return stageWorkState(batch, uint64(len(actions)), phase)
+	return state.stage(batch)
 }
 
 type pendingWorkSeed struct {

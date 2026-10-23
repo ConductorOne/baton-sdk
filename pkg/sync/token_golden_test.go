@@ -46,6 +46,7 @@ func goldenTokenCases() []goldenTokenCase {
 	return []goldenTokenCase{
 		{file: "empty.json"},
 		{file: "v1_init.json"},
+		{file: "v3_page_token_restart.json"},
 		{file: "v1_actions_multi.json"},
 		// An operation string this SDK does not know decodes to UnknownOp,
 		// which is 0, and `operation` is omitempty on a uint8 kind — so
@@ -93,8 +94,8 @@ func goldenTokenCases() []goldenTokenCase {
 		// decoded (entitlement_graph is a shared key), which is why this
 		// case expects one even though the re-encoded bytes carry none.
 		{
-			file:           "v3_future_version.json",
-			expected:       "v3_future_version.expected.json",
+			file:           "v4_future_version.json",
+			expected:       "v4_future_version.expected.json",
 			needsExpansion: true,
 			graph:          &goldenGraph{nodes: 2, edges: 1, nextNodeID: 2, nextEdgeID: 1, depth: 3, loaded: true},
 		},
