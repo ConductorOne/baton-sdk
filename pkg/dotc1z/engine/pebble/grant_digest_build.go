@@ -672,7 +672,6 @@ func (e *Engine) buildGrantDigestsStandaloneLocked(ctx context.Context) error {
 	sorters := min(4, max(2, runtime.GOMAXPROCS(0)/2))
 	sem := make(chan struct{}, sorters)
 	hashIdx := newSpillSorter(dir, fmt.Sprintf("index-%02x", idxGrantByEntitlementPrincipalHash), sem, deferredIndexSpillChunkBytes)
-	hashIdx.free = newSpillArenaFreeList(deferredIndexSpillChunkBytes, sorters+1)
 	// Wait out background chunk sorts before the deferred RemoveAll
 	// deletes the directory they write into; no-op after finalize.
 	defer hashIdx.abort()
