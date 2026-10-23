@@ -135,6 +135,25 @@ message Task {
     google.protobuf.Timestamp expires_at = 4;
   }
 
+  // IssueTypedCredentialTask is the task-backed transport for
+  // CredentialManagerService.IssueCredentialV2. It is a distinct arm rather
+  // than a field on IssueCredentialTask because an older task handler would
+  // ignore an unknown field and mint legacy bytes. A runtime that does not know
+  // this arm refuses it before any provider call, which is the same fence the
+  // distinct RPC provides on the direct transport.
+  message IssueTypedCredentialTask {
+    connector.v2.ResourceId identity_id = 1;
+    connector.v2.CredentialIssueOptions credential_options = 2;
+    repeated connector.v2.EncryptionConfig encryption_configs = 3;
+    google.protobuf.Timestamp expires_at = 4;
+    // Required and nonempty: this arm exists only for the typed contract.
+    string output_content_type = 5 [(validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 128
+      pattern: "^[a-z0-9]+([._-][a-z0-9]+)*$"
+    }];
+  }
+
   message CreateTicketTask {
     connector.v2.TicketRequest ticket_request = 1;
     connector.v2.TicketSchema ticket_schema = 2;
@@ -236,6 +255,7 @@ message Task {
     ListEventFeedsTask list_event_feeds = 121;
     ListEventsTask list_events = 122;
     IssueCredentialTask issue_credential = 123;
+    IssueTypedCredentialTask issue_typed_credential = 124;
   }
   bool debug = 3;
 }
