@@ -257,3 +257,55 @@ func TestGenericSecretOutputKeepsOpaqueContexts(t *testing.T) {
 		require.Equal(t, int32(1), calls.Load())
 	}
 }
+
+func TestSecretOutputAdvertisedSchemaIsAnImmutableSnapshot(t *testing.T) {
+	for _, resource := range []string{"", "account"} {
+		for _, declared := range []*string{nil, proto.String("generic"), proto.String("password_v2")} {
+			name := "absent"
+			if declared != nil {
+				name = *declared
+			}
+			t.Run(resource+"/"+name, func(t *testing.T) {
+				manager := NewActionManager(t.Context())
+				var calls atomic.Int32
+				schema := secretActionSchema("issue_structured")
+				if declared != nil {
+					schema.GetReturnTypes()[1].SetSecretContentType(*declared)
+				}
+				registerTypedHandler(t, manager, resource, schema, &calls)
+				schema.GetReturnTypes()[1].SetSecretContentType("api_key_v2")
+				assertDeclaration := func(field *config.Field) {
+					require.Equal(t, declared != nil, field.HasSecretContentType())
+					if declared != nil {
+						require.Equal(t, *declared, field.GetSecretContentType())
+					}
+				}
+				for _, filter := range []string{"", resource} {
+					listed, _, err := manager.ListActionSchemas(t.Context(), filter)
+					require.NoError(t, err)
+					require.Len(t, listed, 1)
+					assertDeclaration(listed[0].GetReturnTypes()[1])
+					listed[0].GetReturnTypes()[1].SetSecretContentType("api_key_v2")
+				}
+				if resource == "" {
+					got, _, err := manager.GetActionSchema(t.Context(), "issue_structured")
+					require.NoError(t, err)
+					assertDeclaration(got.GetReturnTypes()[1])
+					got.GetReturnTypes()[1].SetSecretContentType("api_key_v2")
+					got, _, err = manager.GetActionSchema(t.Context(), "issue_structured")
+					require.NoError(t, err)
+					assertDeclaration(got.GetReturnTypes()[1])
+				}
+				context := []byte("opaque generic context")
+				if declared != nil && *declared != "generic" {
+					context = typedContext(*declared)
+				}
+				recipientConfig, _ := typedRecipient(t, "recipient", context)
+				_, result, _, _, _, err := manager.InvokeActionWithWaitAndEncryption(t.Context(), "issue_structured", resource, nil, time.Second, []*v2.EncryptionConfig{recipientConfig})
+				require.NoError(t, err)
+				require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, result)
+				require.Equal(t, int32(1), calls.Load())
+			})
+		}
+	}
+}

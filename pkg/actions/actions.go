@@ -440,7 +440,7 @@ func (a *ActionManager) registerActionSchema(_ context.Context, name string, sch
 	if err := validateActionSecretContentTypes(schema); err != nil {
 		return err
 	}
-	a.schemas[name] = schema
+	a.schemas[name] = proto.Clone(schema).(*v2.BatonActionSchema)
 	return nil
 }
 
@@ -640,7 +640,7 @@ func (a *ActionManager) registerResourceAction(
 		}
 	}
 
-	a.resourceSchemas[resourceTypeID][actionName] = schema
+	a.resourceSchemas[resourceTypeID][actionName] = proto.Clone(schema).(*v2.BatonActionSchema)
 	a.resourceHandlers[resourceTypeID][actionName] = handler
 
 	ctxzap.Extract(ctx).Debug("registered resource action", zap.String("resource_type", resourceTypeID), zap.String("action_name", actionName))
@@ -710,13 +710,13 @@ func (a *ActionManager) ListActionSchemas(_ context.Context, resourceTypeID stri
 		// Return all global actions
 		rv = make([]*v2.BatonActionSchema, 0, len(a.schemas))
 		for _, schema := range a.schemas {
-			rv = append(rv, schema)
+			rv = append(rv, proto.Clone(schema).(*v2.BatonActionSchema))
 		}
 
 		// Also return all resource-scoped actions
 		for _, schemas := range a.resourceSchemas {
 			for _, schema := range schemas {
-				rv = append(rv, schema)
+				rv = append(rv, proto.Clone(schema).(*v2.BatonActionSchema))
 			}
 		}
 	} else {
@@ -728,7 +728,7 @@ func (a *ActionManager) ListActionSchemas(_ context.Context, resourceTypeID stri
 
 		rv = make([]*v2.BatonActionSchema, 0, len(schemas))
 		for _, schema := range schemas {
-			rv = append(rv, schema)
+			rv = append(rv, proto.Clone(schema).(*v2.BatonActionSchema))
 		}
 	}
 
@@ -743,7 +743,7 @@ func (a *ActionManager) GetActionSchema(_ context.Context, name string) (*v2.Bat
 	if !ok {
 		return nil, nil, status.Error(codes.NotFound, fmt.Sprintf("action %s not found", name))
 	}
-	return schema, nil, nil
+	return proto.Clone(schema).(*v2.BatonActionSchema), nil, nil
 }
 
 func (a *ActionManager) GetActionStatus(ctx context.Context, actionId string) (v2.BatonActionStatus, string, *structpb.Struct, annotations.Annotations, error) {
