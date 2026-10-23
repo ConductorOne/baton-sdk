@@ -40,6 +40,7 @@ verify_syncs() {
   local output
   output=$("$BATON_BIN" syncs -f "$file" --output-format=json 2>/dev/null)
 
+  # No syncToken check: Pebble clears the token when a sync finishes.
   jq -e --arg id "$sync_id" --arg type "$sync_type" '
     (.syncs | length) == 1 and
     .syncs[0].id == $id and
