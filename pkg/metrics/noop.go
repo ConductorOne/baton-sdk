@@ -28,6 +28,9 @@ func (*noopHandler) Int64Histogram(_ string, _ string, _ Unit) Int64Histogram {
 	return &noopRecorder{}
 }
 
+func (*noopHandler) RegisterInt64ObservableGauge(_ string, _ string, _ Unit, _ func(ctx context.Context) (int64, map[string]string)) {
+}
+
 func (*noopHandler) WithTags(_ map[string]string) Handler {
 	return &noopHandler{}
 }
