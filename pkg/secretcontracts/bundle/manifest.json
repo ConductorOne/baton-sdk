@@ -1,0 +1,401 @@
+{
+  "bundle_format": 1,
+  "bundle_sha256": "40d4c65a6fd8a006780d1d5ada3634d9fd3bb1e761b9c2c135fc752e5f2774ae",
+  "files_sha256": {
+    "fixtures/index.json": "00c13ce670299f6017a194ba51d336e23a3b6450976fd673062e1f73fa7e4bb4",
+    "fixtures/invalid/api_key_v2/array-document.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "fixtures/invalid/api_key_v2/base-url-not-http.json": "3123d0b1ca11d79aa91021a1677d48e19303064f12b0ce434c1b8e8c74cee150",
+    "fixtures/invalid/api_key_v2/duplicate-key-escaped.json": "2c8c25c6dcd1d6a6c6c7843f19e3bfe6654f849e434606c4df215a6e9f76e529",
+    "fixtures/invalid/api_key_v2/duplicate-key.json": "204b1c17d209f6a0dba2dc81807a82fb6ec34555d0fdc6db6b5a0717ceeb4358",
+    "fixtures/invalid/api_key_v2/empty-object.json": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "fixtures/invalid/api_key_v2/empty-required.json": "61fa5c42e8d081c222851f1f7d12949b8a62b91e57d8da20edb50d5f04907adf",
+    "fixtures/invalid/api_key_v2/expires-at-bad-shape.json": "de408401e976e9c3f18ebf67c1b5535cbe8f4ea6328a67b7a8eac895750342be",
+    "fixtures/invalid/api_key_v2/expires-at-not-a-day.json": "052c45bee5dd1802e351ef055b4b3318e4448ce2d347e1a7cf2da13cc1563ed1",
+    "fixtures/invalid/api_key_v2/header-name-invalid.json": "0652611a0038ac588851058553be03d92eb7dbbd2cfbfaddb2f6a43adfc17a0b",
+    "fixtures/invalid/api_key_v2/lone-surrogate-escape.json": "2b00e05c95229d4de83664348ca4f83ef5adc6b6665c3252f56de83143be9ebe",
+    "fixtures/invalid/api_key_v2/missing-required.json": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "fixtures/invalid/api_key_v2/not-json.txt": "7ccfa1fbf3940e6f0c0375d87c0f9235a50514e14cb427bdfaf5077987b26ccf",
+    "fixtures/invalid/api_key_v2/not-utf8.bin": "b3d510ef04275ca8e698e5b3cbb0ece3949ef9252f0cdc839e9ee347409a2209",
+    "fixtures/invalid/api_key_v2/null-value.json": "123275e13243e892767c54d34f17b17e75fa5938d5f93f155b20c186d18fccb2",
+    "fixtures/invalid/api_key_v2/number-for-string.json": "b23a0411c4feea938bd065777c260255ce5c4286f54b83d7f118f60422366c7b",
+    "fixtures/invalid/api_key_v2/optional-blank-string.json": "44a7cdcf190cd14b706bbb8ba9ba8fd8960d821e87962a3998f5a0cbff939bd8",
+    "fixtures/invalid/api_key_v2/optional-empty-date.json": "90ba2c4fffecb74e6e18041131182cab641e5dc30465e07e37f0d50a48ab20cd",
+    "fixtures/invalid/api_key_v2/optional-empty-list.json": "b9f3682040bdb777110dab7a9ea7143e91c7d7c99526208b5cbb4385e1056058",
+    "fixtures/invalid/api_key_v2/optional-empty-string.json": "67bf08611583f65eb1f28c15e7c86935c385bcd9fd595de60fb5c0c0a61588f8",
+    "fixtures/invalid/api_key_v2/scopes-duplicate.json": "cb3b2c6bed2a178e80ba852341e8d59a2d8ff9bce469ac410227af0e23ff7b46",
+    "fixtures/invalid/api_key_v2/scopes-empty-item.json": "9aac630900e931ae52a9e4b0b2c583312a413fd3148bf29f01857cebb18679c9",
+    "fixtures/invalid/api_key_v2/scopes-non-string-item.json": "038e144f69c1d31acc5d55b8f13537f966b9e30a27919fb29eaa7d1922651eaf",
+    "fixtures/invalid/api_key_v2/scopes-not-array.json": "ec6533a4173574d339478d3ca7b088bb45b84bf681e3f9222e4aa03a98d898e8",
+    "fixtures/invalid/api_key_v2/scopes-over-max-items.json": "af51813d14002545cfe979023d951aeca19811cac153b24991da9563b2fffd06",
+    "fixtures/invalid/api_key_v2/trailing-data.json": "1c49bc5ee6433697630ced86755b9a119b564ea7d8f7ec6bee6d4ff36f6edf80",
+    "fixtures/invalid/api_key_v2/unknown-field.json": "234f29046a979a0f23abf64883316cd8f4b39f69783d662e29f98c43d29b6fcd",
+    "fixtures/invalid/api_key_v2/utf8-bom.txt": "3e5427fbdcd29b7264d9416b17a397f032c76d4ac37e0c5c56a28ed68cb3a461",
+    "fixtures/invalid/certificate/array-document.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "fixtures/invalid/certificate/certificate-not-pem.json": "875289ad34955bfb0bd31083f46f73b88b121f63f1883a62a8681783a65a459c",
+    "fixtures/invalid/certificate/certificate-two-blocks.json": "a2134e3fdf05cbda926e5e19a8f3cb0c679e0a977965445c63e418cd2faf02b6",
+    "fixtures/invalid/certificate/duplicate-key-escaped.json": "b2ad16d7fbf93b6e90ad456c89870d61a374f99aa0086efc0288306a355c6975",
+    "fixtures/invalid/certificate/duplicate-key.json": "84f9dbee742d106a060068b85a801421ab31b22ffa5b95e23170f00b858a16ca",
+    "fixtures/invalid/certificate/empty-object.json": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "fixtures/invalid/certificate/empty-required.json": "fabd7375d4a96f8e0c0cabe07eca26264eb4a3e25702d3eacca50b77805369bf",
+    "fixtures/invalid/certificate/lone-surrogate-escape.json": "0c52a7681aef0f0bafbf0d8d80581f53c5aca5f63f9812cf131cdfeea79c7117",
+    "fixtures/invalid/certificate/missing-required.json": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "fixtures/invalid/certificate/not-json.txt": "7ccfa1fbf3940e6f0c0375d87c0f9235a50514e14cb427bdfaf5077987b26ccf",
+    "fixtures/invalid/certificate/not-utf8.bin": "b3d510ef04275ca8e698e5b3cbb0ece3949ef9252f0cdc839e9ee347409a2209",
+    "fixtures/invalid/certificate/null-value.json": "7818f426efb1b52bcca155e844d5d649cdb788bd327c5931b790cca999235201",
+    "fixtures/invalid/certificate/number-for-string.json": "95bd991db14e57871c5530646b990e88730aa637188ef046b7defea7b3ff89e5",
+    "fixtures/invalid/certificate/optional-blank-string.json": "d03c577616b56a57e13e22babadb25da8ffda01d67dd551c11c183ba9040e837",
+    "fixtures/invalid/certificate/optional-empty-string.json": "031dbd604d56ceb5ada97fca7944fe5a68b2751ae45001000062ad363289d7f8",
+    "fixtures/invalid/certificate/passphrase-without-private-key.json": "26db3e9662d498e4c634eb5df119bf73ce82f8b0c38cfd9f8ff245d97cfc3a23",
+    "fixtures/invalid/certificate/trailing-data.json": "8dd88e51aaadc03f2464d5bfe89f70c7511c891e51d15cba0d3d605e65db1f3f",
+    "fixtures/invalid/certificate/unknown-field.json": "1be0c18c030c8709f8bea702f9ec3ab2411b0695208b1963736361c406bcf0a4",
+    "fixtures/invalid/certificate/utf8-bom.txt": "20cc7d1f502da6f47d177e5e96045a1951fa2da1cb356f4b94443da3ca6a8a33",
+    "fixtures/invalid/generic/empty.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fixtures/invalid/generic/legacy-binary.bin": "f9789675a25a87605b0d60387568e25cda7b568653ecdc42e9248588dc70acd5",
+    "fixtures/invalid/hotp/empty.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fixtures/invalid/hotp/json-wrapped.json": "2f64c4728e40eb2598c90383e35d6e41e58ca4d6858603df031473c0cb943b88",
+    "fixtures/invalid/hotp/not-utf8.bin": "b3d510ef04275ca8e698e5b3cbb0ece3949ef9252f0cdc839e9ee347409a2209",
+    "fixtures/invalid/hotp/totp-uri.txt": "701334bce3ade3a6b3f6683e4d5fc4833e47ba530d79ac8639ecf7d0bb0f2cc0",
+    "fixtures/invalid/hotp/wrong-prefix.txt": "100680ad546ce6a577f42f52df33b4cfdca756859e664b8d7de329b150d09ce9",
+    "fixtures/invalid/note/blank.json": "8855c6119660c614d285554e51769066e94fcb75ff215ccc2fa6b4838b18756b",
+    "fixtures/invalid/note/empty.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "fixtures/invalid/note/not-utf8.bin": "b3d510ef04275ca8e698e5b3cbb0ece3949ef9252f0cdc839e9ee347409a2209",
+    "fixtures/invalid/oauth_client_secret_v2/array-document.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "fixtures/invalid/oauth_client_secret_v2/duplicate-key-escaped.json": "f68057fcbfa92b9e65fe62b27f24005027ea869c3df84aee0ab3a2db2af490b4",
+    "fixtures/invalid/oauth_client_secret_v2/duplicate-key.json": "abd8f6fe57d666628ec90aa7ec2d0797910367dd260b3eeb28dc1e7159dda6ab",
+    "fixtures/invalid/oauth_client_secret_v2/empty-object.json": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "fixtures/invalid/oauth_client_secret_v2/empty-required.json": "04a0798225e9ead442097151d0d8cd34bd4929917880cec671dbbd105a3451fe",
+    "fixtures/invalid/oauth_client_secret_v2/lone-surrogate-escape.json": "e151c3cafb00464c02a6ee4adb6ee4e8a1fe9884e35c6518b4fbee520dd6764f",
+    "fixtures/invalid/oauth_client_secret_v2/missing-required.json": "d0c199dbfe43ded10009ac251bf5b91c7fcb1e68daa461c8a91df8fd5257e49f",
+    "fixtures/invalid/oauth_client_secret_v2/not-json.txt": "7ccfa1fbf3940e6f0c0375d87c0f9235a50514e14cb427bdfaf5077987b26ccf",
+    "fixtures/invalid/oauth_client_secret_v2/not-utf8.bin": "b3d510ef04275ca8e698e5b3cbb0ece3949ef9252f0cdc839e9ee347409a2209",
+    "fixtures/invalid/oauth_client_secret_v2/null-value.json": "239fe8ede5c44e4d85cc14eabfda28d80ea4447c37bc5d0d4185d89f95765921",
+    "fixtures/invalid/oauth_client_secret_v2/number-for-string.json": "58f4ff5a30e2e6322590ed06d80b8fe42e0b6942a27917f4345fd38b898aca1c",
+    "fixtures/invalid/oauth_client_secret_v2/optional-blank-string.json": "b525ec55b48ad23adf16cbaf1ea2ff1f076f607b6ea93a6044383598842d6a90",
+    "fixtures/invalid/oauth_client_secret_v2/optional-empty-list.json": "98302622655bb8c54d5d7b6e1dea1691f8cf3d8963bd0812d003b66af6e3227a",
+    "fixtures/invalid/oauth_client_secret_v2/optional-empty-string.json": "93a66c36fcd05952cfa3bd1d461d92fdf6509d697e0e59b9dcdaca5d79215c5d",
+    "fixtures/invalid/oauth_client_secret_v2/redirect-uri-relative.json": "941bf40291f2929b7700c6ccc2f975c71a38d8628731bef0d48eb3def3a2934f",
+    "fixtures/invalid/oauth_client_secret_v2/token-endpoint-not-http.json": "dad8d84ad8866ec15d6c2cec16118cdca736d9530a93822ad5026d18720d18e1",
+    "fixtures/invalid/oauth_client_secret_v2/trailing-data.json": "eaa872c4148f1685e526626ca90f99ff98fb7cc907552d140f5e41e5361407c6",
+    "fixtures/invalid/oauth_client_secret_v2/unknown-field.json": "533d660f0cfd010c7db1b34423cea192c32df0facda92bde3fc97ba569138d1f",
+    "fixtures/invalid/oauth_client_secret_v2/utf8-bom.txt": "c907d157aa2c7eb1bd5139bd4975f33f75d1dd4fc321abe7b19b980416565086",
+    "fixtures/invalid/password_v2/array-document.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "fixtures/invalid/password_v2/blank-required.json": "6f85f8bfac70b359cdc1aa6fb090ce05d6777ac0c9a0804f6b8b7215ba414e41",
+    "fixtures/invalid/password_v2/duplicate-key-escaped.json": "6a68cc31a3c8fd39181761d94b599fb14a7a366b5f348075b31adb0fd0673ea8",
+    "fixtures/invalid/password_v2/duplicate-key.json": "d444df02c0503f33a2aa573dd24184494e1da0ef0e391cf601d623162dd75941",
+    "fixtures/invalid/password_v2/empty-object.json": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "fixtures/invalid/password_v2/empty-required.json": "1c541b6a96f5d39b5721cb377772ca33f03ad0df1f50b35bff656a52dd7dc5ff",
+    "fixtures/invalid/password_v2/lone-surrogate-escape.json": "ed7d3b148a7d8be7be5cc16b339d657b0efaf33f41a0aef3febe5498f3f56039",
+    "fixtures/invalid/password_v2/missing-required.json": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "fixtures/invalid/password_v2/not-json.txt": "7ccfa1fbf3940e6f0c0375d87c0f9235a50514e14cb427bdfaf5077987b26ccf",
+    "fixtures/invalid/password_v2/not-utf8.bin": "b3d510ef04275ca8e698e5b3cbb0ece3949ef9252f0cdc839e9ee347409a2209",
+    "fixtures/invalid/password_v2/null-value.json": "72e1a65fcb58f595254c25ed04342155fb426ec2367a9b5abc5bc6b51890c5b8",
+    "fixtures/invalid/password_v2/number-for-string.json": "43936caa72d4a5e74377cc85f5459cd7b00b4390ca1df60ca3ceebdd8b71f467",
+    "fixtures/invalid/password_v2/optional-blank-string.json": "c5aae031bc6240a58b9934952371438115ab76b27b75c10b7f8b51641f036254",
+    "fixtures/invalid/password_v2/optional-empty-string.json": "9088922cd877a108468cf9b32807b17d02a39505d125b1e35630729dbcb089c8",
+    "fixtures/invalid/password_v2/otp-url-unparseable.json": "a5dd2b81e7c125ad4dc5be27d6be950e20707dce2e4c1b12e30e623d7552b1bd",
+    "fixtures/invalid/password_v2/otp-url-wrong-prefix.json": "b62de9b53d797ba7cd5270c283c46f398ccaf3753255b5efe55bc7a28e82e5f3",
+    "fixtures/invalid/password_v2/password-over-max-length.json": "8705510c91eb772653e48856c707dbddd750569b09994d666fa446518a3929b2",
+    "fixtures/invalid/password_v2/trailing-data.json": "545d65cfca73f5f86b7bf31bd5ec9cd1293d74d2c99b34bb577c6c4490944efa",
+    "fixtures/invalid/password_v2/unknown-field.json": "d6d4784a847c94639d7c6c2706ca116dd4c5a999089e817d46ab1af65c3e58bb",
+    "fixtures/invalid/password_v2/url-not-absolute.json": "31a82b91a7d969c2d172027336cfc3f429f2e4edf4078c8324ad7ebc96ee9435",
+    "fixtures/invalid/password_v2/url-not-http.json": "d5ac027dad7cc9f28461e5805f8684b52ce86cfed7e4223a2a7a0294c421f020",
+    "fixtures/invalid/password_v2/utf8-bom.txt": "b4bb884a5b0cedf8e6dc0b8673b60a93d7f36d3c8f6d3fa7307e523b7aa72e1a",
+    "fixtures/invalid/ssh_key/array-document.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "fixtures/invalid/ssh_key/duplicate-key-escaped.json": "c42ec8bf9d7bb9fe3c7cbbd445b0e038ccaad1321a07f58b080402fe16dcbafc",
+    "fixtures/invalid/ssh_key/duplicate-key.json": "9dbfab0124726975f38988f05ad3f6c9b91cdef872a33548f9f516c72c9e43b9",
+    "fixtures/invalid/ssh_key/empty-object.json": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "fixtures/invalid/ssh_key/empty-required.json": "f4b97096e85b67e3fb9d7723c2fd0577f5ff561a8e263704fc6d39b23dd4f4c8",
+    "fixtures/invalid/ssh_key/lone-surrogate-escape.json": "9b4a20aad9fd9706acff062d2ec62acd21e704a94333a67a625e4cf67c31ceb2",
+    "fixtures/invalid/ssh_key/missing-required.json": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+    "fixtures/invalid/ssh_key/not-json.txt": "7ccfa1fbf3940e6f0c0375d87c0f9235a50514e14cb427bdfaf5077987b26ccf",
+    "fixtures/invalid/ssh_key/not-utf8.bin": "b3d510ef04275ca8e698e5b3cbb0ece3949ef9252f0cdc839e9ee347409a2209",
+    "fixtures/invalid/ssh_key/null-value.json": "eef19a59c505c0750e8748f9993a4322ef8bf9a65214efc68eded09b48f235d6",
+    "fixtures/invalid/ssh_key/number-for-string.json": "1389769f4847b42c58a9af1bed420741a2a85d28d79dea25a9b3227dca8bd46d",
+    "fixtures/invalid/ssh_key/optional-blank-string.json": "d6d9a1efa9ae10c1fc633ebe023293eb61155ddc13c389a2af4392ad90e8ce48",
+    "fixtures/invalid/ssh_key/optional-empty-list.json": "fff2632cae230078611c3ef40a67e405254ce5f35859bcb10928eaaacfcf947f",
+    "fixtures/invalid/ssh_key/optional-empty-string.json": "a9da9eaeab21d06ef8df73ba716d68bf5d7acf1e081f56e3dfaaade79d937c11",
+    "fixtures/invalid/ssh_key/private-key-not-a-key.json": "c8afc33aac3128d56746d6c15731a0848f6d3a4d21c5d4faf0ea6155c8354a54",
+    "fixtures/invalid/ssh_key/private-key-putty.json": "1214dbe970181e646b2a06896f685ae56e3d5af367dcffcff865d815bc6a8b95",
+    "fixtures/invalid/ssh_key/public-key-bad.json": "106ac3699198ec0e1d5a4dc4ecc57a2651f3bd7aa7cdf4c62efc7c04bfb9a68a",
+    "fixtures/invalid/ssh_key/trailing-data.json": "cf3ed7f51557f331d031fdb9316668ea898e1482734863ff9da0d16d5024c6c1",
+    "fixtures/invalid/ssh_key/unknown-field.json": "e9c3ea2a878835232ae56bea84b6311a624f4ea9f5d3a093ada4c4f4f902a0c7",
+    "fixtures/invalid/ssh_key/username-leading-dash.json": "3247a260067e7e9268509a30b3d86f60e672a0973aac58ac9165b08501b342cd",
+    "fixtures/invalid/ssh_key/username-over-max-length.json": "2bf09d9621a4fb8afaf4b3b52d78b91996d6e92649c15e0d7d727111ab9b51dc",
+    "fixtures/invalid/ssh_key/username-with-space.json": "47040277efa3a4c748b60fdc026394ba26414150c71d826b085ded26154a7fb6",
+    "fixtures/invalid/ssh_key/utf8-bom.txt": "0deeb60131169ef811fd2f037afd93bd367afecd2531c520c87e2e98b24c8aea",
+    "fixtures/invalid/totp/legacy-totp.txt": "e40953174e5bb26add5ce051168a0189da1df12a0f80a3c3b2c818b14dd23dff",
+    "fixtures/invalid/x-acme.thing.v1/unknown-type.json": "284dca4f59ecbf897f83dd5865c2cb6d1a0f0156425ecb2f0ba244266e0bb1e2",
+    "fixtures/valid/api_key_v2/escaped.json": "625db9ce690c6f524fb8550134f5e0a0fd51e20063e32614d273cfeb06476a4a",
+    "fixtures/valid/api_key_v2/expires-at-leap-day.json": "f0fe358f45d07b6470ee733a32c243a6048f9a57ea2b62f1e7ccfac648fa155b",
+    "fixtures/valid/api_key_v2/full.json": "470f105174cde14d1f93bc6de5f02d6eee6304a39a1a7714bd597060a7751e83",
+    "fixtures/valid/api_key_v2/minimum.json": "81a1d21630123559db4c07ed70ab7f5006c86c26e68709ffd3a9f366f4136189",
+    "fixtures/valid/api_key_v2/reordered-keys.json": "f253bb702868120b5c8bec8883fa0848c07773ddbf76415cfcf701932dd69495",
+    "fixtures/valid/api_key_v2/scopes-at-max-items.json": "044eb8270c8225f6ae6491207bc54dcd56dd3f12f2e634dcb978d583b8fb0e0c",
+    "fixtures/valid/api_key_v2/whitespace.json": "ad561f897aa1c69786c74591a17b5fbca2e6c2fe8810de730cad38b645acc925",
+    "fixtures/valid/certificate/escaped.json": "7de913b7c2cd38caf4275591350ccc4a154ab1d6d3f6c24e3dcbdaaa60de03f8",
+    "fixtures/valid/certificate/full.json": "6fb484b8fd97c0519a03f78d28382334e434711509443d197bf968671b6fb517",
+    "fixtures/valid/certificate/minimum.json": "3a1d864913ce7696ff97e78ced0b3a12dae465aeeb9dcdadfbfc5a61a16819ba",
+    "fixtures/valid/certificate/reordered-keys.json": "a57375110714af3ecdfca44c08145a00f06d31b22f58d8522f47d8daf9bfbd72",
+    "fixtures/valid/certificate/whitespace.json": "2a146cd33b2077120e476237767a0e8f5732297820ffbfb2ce5f15ec8f075521",
+    "fixtures/valid/generic/text.txt": "1d89b9798a91297da9b081d5d2ce82ac7a088739300ba8ddaf1d4676ab57b115",
+    "fixtures/valid/hotp/uri.txt": "bd2e3861fbfed015fa6583799e55a5bc81f8e69207127658f0a5d609f96b8714",
+    "fixtures/valid/note/looks-like-json.json": "015abd7f5cc57a2dd94b7590f04ad8084273905ee33ec5cebeae62276a97f862",
+    "fixtures/valid/note/surrounding-whitespace.json": "6f01631e52d968ed0ecbbb92dd3174f14dcff5e318a171c1a0d4dd84216a49c9",
+    "fixtures/valid/note/text.txt": "4d9f4c7401753fe674c5c9e712f08de2862a6ec3f4d1b52cb1b3f17c7ac45f58",
+    "fixtures/valid/oauth_client_secret_v2/escaped.json": "80f27f7bfc17e7c088eb8345af8c94a31eced0ad233f2a33ac5edff440fd8030",
+    "fixtures/valid/oauth_client_secret_v2/full.json": "02408616bf2bf9b64d720f3723e870c5eed79a889f136e6a734078ebb17fb50e",
+    "fixtures/valid/oauth_client_secret_v2/minimum.json": "af9b684504035595fae6cd4bb224ce95982fd819c8689e8ba2d660226d956914",
+    "fixtures/valid/oauth_client_secret_v2/redirect-uri-custom-scheme.json": "15cad58451f5a52d76df40719bb16e527cb9e2ad9d818c59030eea8d6a3881ab",
+    "fixtures/valid/oauth_client_secret_v2/reordered-keys.json": "bfb5daa9961f4eea533cd7ed4cfdaefe746e053dd8040710ac7db8e39955f529",
+    "fixtures/valid/oauth_client_secret_v2/whitespace.json": "7c16db9ec19334398c4bdadcb74acd1ef50b66e0fd064080067ceaa02906e293",
+    "fixtures/valid/password_v2/escaped.json": "7041c99a822fc1d4cb98940f93801f44fac661bb217759743ad21b50a6cda575",
+    "fixtures/valid/password_v2/full.json": "6260f3c9d9cbfe686abefb8777dcd098477658196aa82b91c61dde37a84c467e",
+    "fixtures/valid/password_v2/minimum.json": "7881d759c44f0e45f22a9ec1075a2b26a80da5dea5e08eb791d84468c4388222",
+    "fixtures/valid/password_v2/password-4096-astral.json": "d72013178f81d527566d6360792236f1fb4209a85689194d160bf81bdfa276d5",
+    "fixtures/valid/password_v2/password-at-max-length.json": "013db86ad830406213d1cdc7762068e379558dc3bac9c27bdd2acfad3854dafd",
+    "fixtures/valid/password_v2/reordered-keys.json": "4e79a2def8782bfa2c5af2ebd8b7ecc990f80e42703d91c5779f27beef839d05",
+    "fixtures/valid/password_v2/whitespace.json": "67c0ee3f84db7a3c024821845228ead9ecd4127acb454cf26ea5b7f768537613",
+    "fixtures/valid/ssh_key/escaped.json": "f7668f2994f69507cf9d3925ec10aa6b5e94503533dcf913e602bd9922fd660d",
+    "fixtures/valid/ssh_key/full.json": "4296919d11209bd4f880a1618e6302e8b49074b2f6a9e234feaf5166053c5f7d",
+    "fixtures/valid/ssh_key/minimum.json": "dae52b0a3e171eaa077a1d25a8dbea6179327cf9edb5ffabf9c8a16b8f8183fe",
+    "fixtures/valid/ssh_key/reordered-keys.json": "8f4d474c8216da26fe9173bfb91ff15b4c03154acfb02449a1344d3414c4ab06",
+    "fixtures/valid/ssh_key/username-at-max-length.json": "17567c8bdd8d243142f23d784f7b7e8e63e9373b340876c9efbe632ecaba0814",
+    "fixtures/valid/ssh_key/whitespace.json": "665c5f0e03be22ab830d08393e2fc62c5a007ca005096eacbfd70bb363c89127",
+    "schemas/api_key_v2.schema.json": "cc7aee9bc4c73e9695b0ba69404aa8bbac714b2e21b3ef0fafb0c2f1040374e1",
+    "schemas/certificate.schema.json": "9977277a01483de76aff0c51049e495017ec194a0d0fceb620b2e055cf92c079",
+    "schemas/oauth_client_secret_v2.schema.json": "9c3bdbf5d7fdfc18698d91ba46346abc5fb3353387c4de7cc9738528558d8c1a",
+    "schemas/password_v2.schema.json": "3e7df30a541f2e4f795be1e10e5d7fb10bd4478c033dc6bbafb112bd89f46c85",
+    "schemas/ssh_key.schema.json": "ca50b7443f56eadd531e2675980e1c9c0c9851c96475f5dddf13ef697bba9c6f"
+  },
+  "limits": {
+    "max_json_document_bytes": 524288,
+    "max_list_item_utf8_bytes": 4096,
+    "max_value_bytes": 1048576
+  },
+  "producer_profile": {
+    "note": "A producer writes only what the schema asserts: no blank optional string, no empty optional list, no JSON for a text codec, and only a listed type. Fixture index producer.accept records which cases satisfy it; stored records which the receiver opens.",
+    "omit_blank_optionals": true
+  },
+  "schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "semantic_rule_note": "A schema carries x-semantic ids and x-max-utf8-bytes as annotations. JSON Schema cannot assert them; the receiver enforces them in secret_types::semantic and validate.",
+  "source": {
+    "files_sha256": {
+      "crates/latchkey-client-sdk/src/secret_types/codec.rs": "79f4c7a8051c50c86c62c8c1fcc0cf6526fc461445a33eb49c78b95fb7d77bba",
+      "crates/latchkey-client-sdk/src/secret_types/contract.rs": "f8e2e603bcafe86b0f3e62ef0b7602a3cdb1eb2f736dcbce92106fdfab14780b",
+      "crates/latchkey-client-sdk/src/secret_types/contract_fixtures.rs": "8bd366edf82b4e070184b60c08e4af553220c0466f1c68b52c552c6cf4209036",
+      "crates/latchkey-client-sdk/src/secret_types/definitions.rs": "af012f40164b0e5176520d71cfca6dee3af331bc9aaef7b686e796f4faf09750",
+      "crates/latchkey-client-sdk/src/secret_types/semantic.rs": "7d20a1810adfd195a95167b708a570e909088ca596d69ab9fc2dea4b167118e2",
+      "crates/latchkey-client-sdk/src/secret_types/testdata/certificate.pem": "27e487a3148bf26d3e599800ab310d6d17acc9ff2467ba071229aead63deb286",
+      "crates/latchkey-client-sdk/src/secret_types/testdata/ssh_ed25519_openssh.key": "2647c31404426481dd3bee2b483dbc43768281645c3352421b754932953364d0",
+      "crates/latchkey-client-sdk/src/secret_types/testdata/ssh_ed25519_openssh.pub": "67fc2d748b7e0eac79f365f5b9e3793aacf428c933363b784212520e999da69e",
+      "crates/latchkey-client-sdk/src/secret_types/validate.rs": "97ad049652e22e448d351ec54852b028a957b6e966c9969005ae6ad6cfb3dd1b",
+      "crates/latchkey-proto/proto/c1/api/form/v1/form.proto": "15dd13dd299f758522e04b5d370b609f85769cf0cdff8817d31c50cc1d5a2a5b",
+      "crates/latchkey-proto/proto/c1/api/secret_access/v1/secret_type.proto": "af946876fda6398f14116ccef4f949a52a460c7214f3205b01ccfdaaf2b7018f"
+    },
+    "repository": "https://github.com/ductone/multipass",
+    "revision": "f0329db6ae9a90eff95beac8deda1d9226791cff"
+  },
+  "stored_compat": {
+    "blank_means_absent": true,
+    "opaque": "generic may hold bytes that are not UTF-8 and any value up to max_value_bytes; a content_type outside this list, or a legacy type (totp, ...), is kept as an opaque value and never rejected on read.",
+    "typed": "A stored value of a listed type opens as that type when decode_typed_value and validate_typed_value both pass. Blank optional strings and empty optional lists are ignored by validation (blank_means_absent), so the schema describes the document after they are dropped."
+  },
+  "types": [
+    {
+      "codec": "json_v1",
+      "content_type": "password_v2",
+      "field_order": [
+        "username",
+        "password",
+        "url",
+        "otp_url"
+      ],
+      "schema": "schemas/password_v2.schema.json",
+      "schema_id": "https://schemas.conductorone.com/multipass/secret-contracts/v1/password_v2.schema.json",
+      "semantic_rules": [
+        {
+          "field": "url",
+          "rule": "http_url"
+        },
+        {
+          "field": "otp_url",
+          "rule": "otp_uri"
+        }
+      ]
+    },
+    {
+      "codec": "utf8_text_v1",
+      "content_type": "hotp",
+      "field_order": [
+        "uri"
+      ],
+      "schema": null,
+      "semantic_rules": [
+        {
+          "field": "uri",
+          "rule": "hotp_uri"
+        }
+      ],
+      "text_codec": {
+        "field": "uri",
+        "max_code_points": 4096,
+        "max_utf8_bytes": 4096,
+        "non_blank": true,
+        "required_prefix": "otpauth://",
+        "stored_as": "the field value's UTF-8 bytes, verbatim: no JSON framing, trimming or normalization"
+      }
+    },
+    {
+      "codec": "json_v1",
+      "content_type": "api_key_v2",
+      "field_order": [
+        "key_value",
+        "provider",
+        "base_url",
+        "scopes",
+        "key_id",
+        "header_name",
+        "expires_at"
+      ],
+      "schema": "schemas/api_key_v2.schema.json",
+      "schema_id": "https://schemas.conductorone.com/multipass/secret-contracts/v1/api_key_v2.schema.json",
+      "semantic_rules": [
+        {
+          "field": "base_url",
+          "rule": "http_url"
+        }
+      ]
+    },
+    {
+      "codec": "json_v1",
+      "content_type": "ssh_key",
+      "field_order": [
+        "private_key",
+        "username",
+        "passphrase",
+        "public_key",
+        "hosts",
+        "ssh_certificate"
+      ],
+      "schema": "schemas/ssh_key.schema.json",
+      "schema_id": "https://schemas.conductorone.com/multipass/secret-contracts/v1/ssh_key.schema.json",
+      "semantic_rules": [
+        {
+          "field": "private_key",
+          "rule": "ssh_private_key"
+        },
+        {
+          "field": "public_key",
+          "rule": "ssh_public_key"
+        },
+        {
+          "field": "ssh_certificate",
+          "rule": "ssh_certificate"
+        },
+        {
+          "field": "username",
+          "rule": "ssh_username"
+        }
+      ]
+    },
+    {
+      "codec": "json_v1",
+      "content_type": "oauth_client_secret_v2",
+      "field_order": [
+        "client_id",
+        "client_secret",
+        "token_endpoint_url",
+        "scopes",
+        "issuer_url",
+        "redirect_uri",
+        "auth_endpoint_url",
+        "audience",
+        "grant_type"
+      ],
+      "schema": "schemas/oauth_client_secret_v2.schema.json",
+      "schema_id": "https://schemas.conductorone.com/multipass/secret-contracts/v1/oauth_client_secret_v2.schema.json",
+      "semantic_rules": [
+        {
+          "field": "token_endpoint_url",
+          "rule": "http_url"
+        },
+        {
+          "field": "issuer_url",
+          "rule": "http_url"
+        },
+        {
+          "field": "auth_endpoint_url",
+          "rule": "http_url"
+        },
+        {
+          "field": "redirect_uri",
+          "rule": "absolute_uri_items"
+        }
+      ]
+    },
+    {
+      "codec": "json_v1",
+      "content_type": "certificate",
+      "field_order": [
+        "certificate_pem",
+        "private_key",
+        "chain_pem",
+        "passphrase"
+      ],
+      "schema": "schemas/certificate.schema.json",
+      "schema_id": "https://schemas.conductorone.com/multipass/secret-contracts/v1/certificate.schema.json",
+      "semantic_rules": [
+        {
+          "field": "certificate_pem",
+          "rule": "single_certificate"
+        },
+        {
+          "field": "chain_pem",
+          "rule": "certificate_chain"
+        },
+        {
+          "field": "private_key",
+          "rule": "pem_private_key"
+        },
+        {
+          "field": "passphrase",
+          "rule": "requires_private_key"
+        }
+      ]
+    },
+    {
+      "codec": "utf8_text_v1",
+      "content_type": "note",
+      "field_order": [
+        "note"
+      ],
+      "schema": null,
+      "semantic_rules": [],
+      "text_codec": {
+        "field": "note",
+        "max_code_points": 131072,
+        "max_utf8_bytes": 131072,
+        "non_blank": true,
+        "required_prefix": null,
+        "stored_as": "the field value's UTF-8 bytes, verbatim: no JSON framing, trimming or normalization"
+      }
+    },
+    {
+      "codec": "utf8_text_v1",
+      "content_type": "generic",
+      "field_order": [
+        "value"
+      ],
+      "schema": null,
+      "semantic_rules": [],
+      "text_codec": {
+        "field": "value",
+        "max_code_points": 1048576,
+        "max_utf8_bytes": 1048576,
+        "non_blank": true,
+        "required_prefix": null,
+        "stored_as": "the field value's UTF-8 bytes, verbatim: no JSON framing, trimming or normalization"
+      }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+ 
+{
+  "username" :	"alice",
+  "password" :	"päss \"wörd\" 🔑",
+  "url" :	"https://example.com/login",
+  "otp_url" :	"otpauth://totp/Example:alice@example.com?secret=JBSWY3DPEHPK3PXP"
+}
+ 

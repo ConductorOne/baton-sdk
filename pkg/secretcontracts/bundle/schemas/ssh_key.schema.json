@@ -1,0 +1,65 @@
+{
+  "$id": "https://schemas.conductorone.com/multipass/secret-contracts/v1/ssh_key.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "hosts": {
+      "items": {
+        "minLength": 1,
+        "type": "string",
+        "x-max-utf8-bytes": 4096
+      },
+      "maxItems": 64,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "passphrase": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string",
+      "x-max-utf8-bytes": 131072
+    },
+    "private_key": {
+      "maxLength": 131072,
+      "minLength": 1,
+      "type": "string",
+      "x-max-utf8-bytes": 131072,
+      "x-semantic": [
+        "ssh_private_key"
+      ]
+    },
+    "public_key": {
+      "maxLength": 131072,
+      "minLength": 1,
+      "type": "string",
+      "x-max-utf8-bytes": 131072,
+      "x-semantic": [
+        "ssh_public_key"
+      ]
+    },
+    "ssh_certificate": {
+      "maxLength": 131072,
+      "minLength": 1,
+      "type": "string",
+      "x-max-utf8-bytes": 131072,
+      "x-semantic": [
+        "ssh_certificate"
+      ]
+    },
+    "username": {
+      "maxLength": 256,
+      "minLength": 1,
+      "type": "string",
+      "x-max-utf8-bytes": 131072,
+      "x-semantic": [
+        "ssh_username"
+      ]
+    }
+  },
+  "required": [
+    "private_key"
+  ],
+  "title": "ssh_key",
+  "type": "object",
+  "x-max-document-bytes": 524288
+}

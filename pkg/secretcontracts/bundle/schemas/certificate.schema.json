@@ -1,0 +1,49 @@
+{
+  "$id": "https://schemas.conductorone.com/multipass/secret-contracts/v1/certificate.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "certificate_pem": {
+      "maxLength": 131072,
+      "minLength": 1,
+      "type": "string",
+      "x-max-utf8-bytes": 131072,
+      "x-semantic": [
+        "single_certificate"
+      ]
+    },
+    "chain_pem": {
+      "maxLength": 131072,
+      "minLength": 1,
+      "type": "string",
+      "x-max-utf8-bytes": 131072,
+      "x-semantic": [
+        "certificate_chain"
+      ]
+    },
+    "passphrase": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string",
+      "x-max-utf8-bytes": 131072,
+      "x-semantic": [
+        "requires_private_key"
+      ]
+    },
+    "private_key": {
+      "maxLength": 131072,
+      "minLength": 1,
+      "type": "string",
+      "x-max-utf8-bytes": 131072,
+      "x-semantic": [
+        "pem_private_key"
+      ]
+    }
+  },
+  "required": [
+    "certificate_pem"
+  ],
+  "title": "certificate",
+  "type": "object",
+  "x-max-document-bytes": 524288
+}

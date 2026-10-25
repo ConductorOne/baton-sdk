@@ -1,0 +1,1 @@
+otpauth://hotp/Example:alice?secret=JBSWY3DPEHPK3PXP&counter=0

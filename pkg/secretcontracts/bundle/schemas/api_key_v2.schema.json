@@ -1,0 +1,67 @@
+{
+  "$id": "https://schemas.conductorone.com/multipass/secret-contracts/v1/api_key_v2.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "base_url": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string",
+      "x-max-utf8-bytes": 131072,
+      "x-semantic": [
+        "http_url"
+      ]
+    },
+    "expires_at": {
+      "format": "date",
+      "maxLength": 10,
+      "minLength": 1,
+      "type": "string",
+      "x-max-utf8-bytes": 10,
+      "x-semantic": [
+        "rfc3339_full_date"
+      ]
+    },
+    "header_name": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9!#$%&'*+.^_`|~-]+$",
+      "type": "string",
+      "x-max-utf8-bytes": 131072
+    },
+    "key_id": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string",
+      "x-max-utf8-bytes": 131072
+    },
+    "key_value": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string",
+      "x-max-utf8-bytes": 131072
+    },
+    "provider": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "type": "string",
+      "x-max-utf8-bytes": 131072
+    },
+    "scopes": {
+      "items": {
+        "minLength": 1,
+        "type": "string",
+        "x-max-utf8-bytes": 4096
+      },
+      "maxItems": 64,
+      "type": "array",
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "key_value"
+  ],
+  "title": "api_key_v2",
+  "type": "object",
+  "x-max-document-bytes": 524288
+}
