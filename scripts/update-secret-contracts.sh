@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 dest=pkg/secretcontracts
 mode=${1:-}; upstream=${2:-}
-[[ -n $upstream && -d $upstream/.git ]] || { echo "usage: $0 update|check <multipass-checkout>" >&2; exit 2; }
+[[ -n $upstream ]] && git -C "$upstream" rev-parse --git-dir >/dev/null 2>&1 || { echo "usage: $0 update|check <multipass-checkout>" >&2; exit 2; }
 git -C "$upstream" diff --quiet HEAD || { echo "multipass checkout has uncommitted changes" >&2; exit 1; }
 head=$(git -C "$upstream" rev-parse HEAD)
 (cd "$upstream" && scripts/secret-contracts.sh check)

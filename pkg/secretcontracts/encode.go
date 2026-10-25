@@ -3,9 +3,14 @@ package secretcontracts
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
+
+// errInvalidUTF8 stops a value that encoding/json would silently rewrite.
+var errInvalidUTF8 = errors.New("invalid UTF-8")
 
 // Payload is a validated secret value with the content type it was validated
 // as. Seal Bytes unchanged and declare ContentType with them.
@@ -43,6 +48,9 @@ func EncodeJSON(contentType string, fields map[string]any) (Payload, error) {
 			continue
 		}
 		encoded, omit, err := encodeValue(c.properties[name].isList, value)
+		if errors.Is(err, errInvalidUTF8) {
+			return Payload{}, newError(LayerInput, "invalid_utf8", name)
+		}
 		if err != nil {
 			return Payload{}, newError(LayerInput, "wrong_type", name)
 		}
@@ -75,6 +83,9 @@ func EncodeText(contentType, value string) (Payload, error) {
 	if c.Codec != "utf8_text_v1" {
 		return Payload{}, newError(LayerInput, "not_a_text_type", "")
 	}
+	if !utf8.ValidString(value) {
+		return Payload{}, newError(LayerInput, "invalid_utf8", c.TextCodec.Field)
+	}
 	return finish(contentType, []byte(value))
 }
 
@@ -93,12 +104,20 @@ func encodeValue(isList bool, value any) ([]byte, bool, error) {
 		if !ok {
 			return nil, false, fmt.Errorf("not a string list")
 		}
+		for _, item := range items {
+			if !utf8.ValidString(item) {
+				return nil, false, errInvalidUTF8
+			}
+		}
 		encoded, err := marshalNoEscape(items)
 		return encoded, len(items) == 0, err
 	}
 	text, ok := value.(string)
 	if !ok {
 		return nil, false, fmt.Errorf("not a string")
+	}
+	if !utf8.ValidString(text) {
+		return nil, false, errInvalidUTF8
 	}
 	encoded, err := marshalNoEscape(text)
 	return encoded, strings.TrimSpace(text) == "", err

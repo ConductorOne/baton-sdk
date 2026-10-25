@@ -1,9 +1,6 @@
 package secretcontracts
 
-import (
-	"fmt"
-	"regexp"
-)
+import "fmt"
 
 // Layer names the check that rejected a payload.
 type Layer string
@@ -32,11 +29,25 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("secret payload %s: %s at %s", e.Layer, e.Rule, e.Field)
 }
 
-var fieldNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
-
 func newError(layer Layer, rule, field string) *Error {
-	if !fieldNamePattern.MatchString(field) {
-		field = ""
+	return &Error{Layer: layer, Rule: rule, Field: declaredFieldName(field)}
+}
+
+// declaredFieldName returns field only when some bundled type declares it.
+// A key a payload or caller supplied can be secret text that merely looks like
+// a name, so it is never reflected.
+func declaredFieldName(field string) string {
+	b, err := bundle()
+	if err != nil {
+		return ""
 	}
-	return &Error{Layer: layer, Rule: rule, Field: field}
+	for _, c := range b.contracts {
+		if _, declared := c.properties[field]; declared {
+			return field
+		}
+		if c.TextCodec != nil && c.TextCodec.Field == field {
+			return field
+		}
+	}
+	return ""
 }

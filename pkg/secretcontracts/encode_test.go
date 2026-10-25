@@ -3,6 +3,7 @@ package secretcontracts
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -113,4 +114,75 @@ func TestDuplicateKeysAreRejectedAtAnyDepthAndAfterUnescaping(t *testing.T) {
 	require.NotNil(t, perr)
 	_, err := os.Stat("bundle/manifest.json")
 	require.NoError(t, err)
+}
+
+func TestEncodersRefuseInvalidUTF8InsteadOfRewritingIt(t *testing.T) {
+	bad := string([]byte{0xff})
+	_, err := APIKeyV2{KeyValue: bad}.Encode()
+	require.ErrorContains(t, err, "invalid_utf8")
+	_, err = APIKeyV2{KeyValue: "k", Scopes: []string{"ok", "a" + bad}}.Encode()
+	require.ErrorContains(t, err, "invalid_utf8")
+	_, err = EncodeText("note", "a"+bad)
+	require.ErrorContains(t, err, "invalid_utf8")
+	_, err = EncodeText("generic", bad)
+	require.ErrorContains(t, err, "invalid_utf8")
+}
+
+func TestEncodersKeepValidUnicodeBytesExactly(t *testing.T) {
+	value := "pä ss\u00a0\U0001f511\ufffd\"\\"
+	payload, err := APIKeyV2{KeyValue: value, Scopes: []string{"é", "\U0001f511"}}.Encode()
+	require.NoError(t, err)
+	document := mustParse(t, payload.Bytes)
+	require.Equal(t, value, document["key_value"])
+	require.Equal(t, []any{"é", "\U0001f511"}, document["scopes"])
+	text, err := EncodeText("note", value)
+	require.NoError(t, err)
+	require.Equal(t, value, string(text.Bytes))
+}
+
+func TestErrorsNeverReflectUndeclaredNames(t *testing.T) {
+	name := "abcdef0123456789abcdef0123456789"
+	_, err := EncodeJSON("password_v2", map[string]any{"password": "p", name: "x"})
+	assertNoName(t, err, name)
+	err = ValidateProducer("password_v2", []byte(`{"password":"p","`+name+`":"a","`+name+`":"b"}`))
+	assertNoName(t, err, name)
+	err = ValidateProducer("password_v2", []byte(`{"password":"p","`+name+`":"a"}`))
+	assertNoName(t, err, name)
+	_, err = ValidateStored("password_v2", []byte(`{"password":"p","`+name+`":"a"}`))
+	assertNoName(t, err, name)
+	err = ValidateProducer("password_v2", []byte(`{"password":"p","password":"q"}`))
+	var failure *Error
+	require.ErrorAs(t, err, &failure)
+	require.Equal(t, "password", failure.Field, "a declared name is kept")
+}
+
+func assertNoName(t *testing.T, err error, name string) {
+	t.Helper()
+	var failure *Error
+	require.ErrorAs(t, err, &failure)
+	require.Empty(t, failure.Field)
+	require.NotContains(t, failure.Error(), name)
+	require.NotContains(t, err.Error(), name)
+}
+
+func TestOversizedInputIsRejectedBySizeGate(t *testing.T) {
+	big := []byte(`{"password":"` + strings.Repeat("a", 524288) + `"}`)
+	for _, producer := range []bool{true, false} {
+		var err error
+		if producer {
+			err = ValidateProducer("password_v2", big)
+		} else {
+			_, err = ValidateStored("password_v2", big)
+		}
+		var failure *Error
+		require.ErrorAs(t, err, &failure)
+		require.Equal(t, LayerLimit, failure.Layer)
+		require.Equal(t, "document_too_large", failure.Rule)
+	}
+	huge := make([]byte, 1024*1024+1)
+	_, err := ValidateStored("generic", huge)
+	var failure *Error
+	require.ErrorAs(t, err, &failure)
+	require.Equal(t, "value_too_large", failure.Rule)
+	require.Error(t, ValidateProducer("generic", huge))
 }
