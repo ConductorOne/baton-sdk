@@ -12,6 +12,9 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// sshDSAKeyType is the OpenSSH name of a DSA key, which the receiver refuses.
+const sshDSAKeyType = "ssh-dss"
+
 var (
 	oidRSA     = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 1, 1}
 	oidEC      = asn1.ObjectIdentifier{1, 2, 840, 10045, 2, 1}
@@ -120,12 +123,12 @@ func openSSHKeyAccepted(value string) bool {
 	if err != nil {
 		var missing *ssh.PassphraseMissingError
 		if errors.As(err, &missing) && missing.PublicKey != nil {
-			return missing.PublicKey.Type() != ssh.KeyAlgoDSA
+			return missing.PublicKey.Type() != sshDSAKeyType
 		}
 		return false
 	}
 	signer, err := ssh.NewSignerFromKey(key)
-	return err == nil && signer.PublicKey().Type() != ssh.KeyAlgoDSA
+	return err == nil && signer.PublicKey().Type() != sshDSAKeyType
 }
 
 func privateKeyBlock(block *pem.Block) bool {
@@ -293,4 +296,3 @@ func certificateShape(der []byte) bool {
 		certificate.ReadASN1(new(cryptobyte.String), cbasn1.SEQUENCE) &&
 		certificate.ReadASN1(new(cryptobyte.String), cbasn1.BIT_STRING) && certificate.Empty()
 }
-

@@ -35,8 +35,9 @@ func TestTypedHelpersProduceValidPayloads(t *testing.T) {
 	for name, encode := range map[string]func() (Payload, error){
 		"api_key_v2": APIKeyV2{KeyValue: "k", Scopes: []string{"a", "b"}, ExpiresAt: "2027-02-28", HeaderName: "X-Key", BaseURL: "https://api.example.com"}.Encode,
 		"ssh_key":    SSHKey{PrivateKey: sshKey["private_key"].(string), Username: "deploy", Hosts: []string{"h.example.com"}}.Encode,
+		//nolint:gosec // placeholder value, not a credential.
 		"oauth_client_secret_v2": OAuthClientSecretV2{
-			ClientID: "c", ClientSecret: "s", RedirectURIs: []string{"com.example.app:/cb"}, TokenEndpointURL: "https://idp.example.com/token",
+			ClientID: "c", ClientSecret: "placeholder", RedirectURIs: []string{"com.example.app:/cb"}, TokenEndpointURL: "https://idp.example.com/token",
 		}.Encode,
 		"certificate": Certificate{CertificatePEM: certificate}.Encode,
 	} {

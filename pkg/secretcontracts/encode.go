@@ -85,20 +85,22 @@ func finish(contentType string, encoded []byte) (Payload, error) {
 	return Payload{ContentType: contentType, Bytes: encoded}, nil
 }
 
-func encodeValue(isList bool, value any) (encoded []byte, omit bool, err error) {
+// encodeValue returns the JSON for a field value and whether the value is
+// blank, which an optional field omits.
+func encodeValue(isList bool, value any) ([]byte, bool, error) {
 	if isList {
 		items, ok := value.([]string)
 		if !ok {
 			return nil, false, fmt.Errorf("not a string list")
 		}
-		encoded, err = marshalNoEscape(items)
+		encoded, err := marshalNoEscape(items)
 		return encoded, len(items) == 0, err
 	}
 	text, ok := value.(string)
 	if !ok {
 		return nil, false, fmt.Errorf("not a string")
 	}
-	encoded, err = marshalNoEscape(text)
+	encoded, err := marshalNoEscape(text)
 	return encoded, strings.TrimSpace(text) == "", err
 }
 
