@@ -1390,13 +1390,34 @@ func TestIssueCredentialDoesNotEchoInputInRPCOrFailureMetric(t *testing.T) {
 		want     codes.Code
 		sentinel string
 	}{
-		{"string", config.Field_builder{Name: "value", StringField: config.StringField_builder{Rules: config.StringRules_builder{Eq: proto.String("allowed")}.Build()}.Build()}.Build(), map[string]any{"value": stringSentinel}, codes.InvalidArgument, stringSentinel},
-		{"list", config.Field_builder{Name: "value", StringSliceField: config.StringSliceField_builder{Rules: config.RepeatedStringRules_builder{Unique: true}.Build()}.Build()}.Build(), map[string]any{"value": []any{listSentinel, listSentinel}}, codes.InvalidArgument, listSentinel},
-		{"number", config.Field_builder{Name: "value", IntField: config.IntField_builder{Rules: config.Int64Rules_builder{Eq: proto.Int64(1)}.Build()}.Build()}.Build(), map[string]any{"value": 8675309}, codes.InvalidArgument, numberSentinel},
-		{"RE2 scalar mismatch", config.Field_builder{Name: "value", StringField: config.StringField_builder{Rules: config.StringRules_builder{Pattern: proto.String(`^\d+$`)}.Build()}.Build()}.Build(), map[string]any{"value": stringSentinel}, codes.InvalidArgument, stringSentinel},
-		{"RE2 list mismatch", config.Field_builder{Name: "value", StringSliceField: config.StringSliceField_builder{Rules: config.RepeatedStringRules_builder{ItemRules: config.StringRules_builder{Pattern: proto.String(`^\d+$`)}.Build()}.Build()}.Build()}.Build(), map[string]any{"value": []any{listSentinel}}, codes.InvalidArgument, listSentinel},
-		{"unknown key", config.Field_builder{Name: "value", StringField: &config.StringField{}}.Build(), map[string]any{unknownSentinel: "x"}, codes.InvalidArgument, unknownSentinel},
-		{"invalid default", config.Field_builder{Name: "value", StringField: config.StringField_builder{DefaultValue: stringSentinel, Rules: config.StringRules_builder{Eq: proto.String("allowed")}.Build()}.Build()}.Build(), map[string]any{}, codes.Internal, stringSentinel},
+		{"string", config.Field_builder{
+			Name:        "value",
+			StringField: config.StringField_builder{Rules: config.StringRules_builder{Eq: proto.String("allowed")}.Build()}.Build()}.Build(),
+			map[string]any{"value": stringSentinel}, codes.InvalidArgument, stringSentinel},
+		{"list", config.Field_builder{
+			Name:             "value",
+			StringSliceField: config.StringSliceField_builder{Rules: config.RepeatedStringRules_builder{Unique: true}.Build()}.Build()}.Build(),
+			map[string]any{"value": []any{listSentinel, listSentinel}}, codes.InvalidArgument, listSentinel},
+		{"number", config.Field_builder{
+			Name:     "value",
+			IntField: config.IntField_builder{Rules: config.Int64Rules_builder{Eq: proto.Int64(1)}.Build()}.Build()}.Build(),
+			map[string]any{"value": 8675309}, codes.InvalidArgument, numberSentinel},
+		{"RE2 scalar mismatch", config.Field_builder{
+			Name:        "value",
+			StringField: config.StringField_builder{Rules: config.StringRules_builder{Pattern: proto.String(`^\d+$`)}.Build()}.Build()}.Build(),
+			map[string]any{"value": stringSentinel}, codes.InvalidArgument, stringSentinel},
+		{"RE2 list mismatch", config.Field_builder{
+			Name:             "value",
+			StringSliceField: config.StringSliceField_builder{Rules: config.RepeatedStringRules_builder{ItemRules: config.StringRules_builder{Pattern: proto.String(`^\d+$`)}.Build()}.Build()}.Build()}.Build(),
+			map[string]any{"value": []any{listSentinel}}, codes.InvalidArgument, listSentinel},
+		{"unknown key", config.Field_builder{
+			Name:        "value",
+			StringField: &config.StringField{}}.Build(),
+			map[string]any{unknownSentinel: "x"}, codes.InvalidArgument, unknownSentinel},
+		{"invalid default", config.Field_builder{
+			Name:        "value",
+			StringField: config.StringField_builder{DefaultValue: stringSentinel, Rules: config.StringRules_builder{Eq: proto.String("allowed")}.Build()}.Build()}.Build(),
+			map[string]any{}, codes.Internal, stringSentinel},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
