@@ -1299,6 +1299,35 @@ func (m *CredentialIssueOptionDescriptor) validate(all bool) error {
 
 	// no validation rules for Preferred
 
+	if all {
+		switch v := interface{}(m.GetRequestSchema()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CredentialIssueOptionDescriptorValidationError{
+					field:  "RequestSchema",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CredentialIssueOptionDescriptorValidationError{
+					field:  "RequestSchema",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetRequestSchema()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CredentialIssueOptionDescriptorValidationError{
+				field:  "RequestSchema",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
 	if len(errors) > 0 {
 		return CredentialIssueOptionDescriptorMultiError(errors)
 	}
@@ -1379,6 +1408,177 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = CredentialIssueOptionDescriptorValidationError{}
+
+// Validate checks the field values on CredentialIssueRequestSchema with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *CredentialIssueRequestSchema) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CredentialIssueRequestSchema with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// CredentialIssueRequestSchemaMultiError, or nil if none found.
+func (m *CredentialIssueRequestSchema) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CredentialIssueRequestSchema) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetFields() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, CredentialIssueRequestSchemaValidationError{
+						field:  fmt.Sprintf("Fields[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, CredentialIssueRequestSchemaValidationError{
+						field:  fmt.Sprintf("Fields[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return CredentialIssueRequestSchemaValidationError{
+					field:  fmt.Sprintf("Fields[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	for idx, item := range m.GetConstraints() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, CredentialIssueRequestSchemaValidationError{
+						field:  fmt.Sprintf("Constraints[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, CredentialIssueRequestSchemaValidationError{
+						field:  fmt.Sprintf("Constraints[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return CredentialIssueRequestSchemaValidationError{
+					field:  fmt.Sprintf("Constraints[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return CredentialIssueRequestSchemaMultiError(errors)
+	}
+
+	return nil
+}
+
+// CredentialIssueRequestSchemaMultiError is an error wrapping multiple
+// validation errors returned by CredentialIssueRequestSchema.ValidateAll() if
+// the designated constraints aren't met.
+type CredentialIssueRequestSchemaMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CredentialIssueRequestSchemaMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CredentialIssueRequestSchemaMultiError) AllErrors() []error { return m }
+
+// CredentialIssueRequestSchemaValidationError is the validation error returned
+// by CredentialIssueRequestSchema.Validate if the designated constraints
+// aren't met.
+type CredentialIssueRequestSchemaValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CredentialIssueRequestSchemaValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CredentialIssueRequestSchemaValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CredentialIssueRequestSchemaValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CredentialIssueRequestSchemaValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CredentialIssueRequestSchemaValidationError) ErrorName() string {
+	return "CredentialIssueRequestSchemaValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CredentialIssueRequestSchemaValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCredentialIssueRequestSchema.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CredentialIssueRequestSchemaValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CredentialIssueRequestSchemaValidationError{}
 
 // Validate checks the field values on IssuanceExpiryCapability with the rules
 // defined in the proto definition for this message. If any rules are
