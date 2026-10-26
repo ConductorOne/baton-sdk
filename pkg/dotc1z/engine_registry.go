@@ -22,12 +22,11 @@ var ErrV1Unsupported = errors.New("dotc1z: v1 (sqlite) c1z files are not support
 // StoreOptions is the engine-neutral form of C1ZOption values passed to a
 // registered engine driver.
 type StoreOptions struct {
-	TmpDir             string
-	DecoderOptions     []DecoderOption
-	ReadOnly           bool
-	EncoderConcurrency int
-	SyncLimit          int
-	SkipCleanup        bool
+	TmpDir         string
+	DecoderOptions []DecoderOption
+	ReadOnly       bool
+	SyncLimit      int
+	SkipCleanup    bool
 
 	// DisableGrantDigestIndex turns off the Pebble engine's seal-time
 	// build of the by_entitlement_principal_hash index + grant digests.
@@ -162,14 +161,9 @@ func NewStore(ctx context.Context, outputFilePath string, opts ...C1ZOption) (c1
 }
 
 func buildC1ZOptions(opts ...C1ZOption) (*c1zOptions, error) {
-	options := &c1zOptions{
-		encoderConcurrency: 1,
-	}
+	options := &c1zOptions{}
 	for _, opt := range opts {
 		opt(options)
-	}
-	if options.encoderConcurrency < 0 {
-		return nil, fmt.Errorf("encoder concurrency must not be negative: %d", options.encoderConcurrency)
 	}
 	if _, err := applyDecoderOptions(options.decoderOptions...); err != nil {
 		return nil, err
@@ -184,7 +178,6 @@ func storeOptionsFromC1ZOptions(options *c1zOptions) StoreOptions {
 		TmpDir:                  options.tmpDir,
 		DecoderOptions:          append([]DecoderOption(nil), options.decoderOptions...),
 		ReadOnly:                options.readOnly,
-		EncoderConcurrency:      options.encoderConcurrency,
 		SyncLimit:               options.syncLimit,
 		SkipCleanup:             options.skipCleanup,
 		DisableGrantDigestIndex: options.disableGrantDigestIndex,

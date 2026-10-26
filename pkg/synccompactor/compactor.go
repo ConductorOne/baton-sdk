@@ -225,8 +225,6 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 		dotc1z.WithTmpDir(c.tmpDir),
 		// Use parallel decoding.
 		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
-		// Use parallel encoding.
-		dotc1z.WithEncoderConcurrency(0),
 	}
 	// We would set the default options sooner, but we need to know the tmpDir first.
 	c.c1zOptions = append(defaultC1ZOptions, c.c1zOptions...)

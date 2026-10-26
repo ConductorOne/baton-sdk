@@ -5,12 +5,11 @@ import (
 )
 
 type c1zOptions struct {
-	tmpDir             string
-	decoderOptions     []DecoderOption
-	readOnly           bool
-	encoderConcurrency int
-	syncLimit          int
-	skipCleanup        bool
+	tmpDir         string
+	decoderOptions []DecoderOption
+	readOnly       bool
+	syncLimit      int
+	skipCleanup    bool
 
 	// disableGrantDigestIndex turns off the Pebble engine's seal-time
 	// build of the by_entitlement_principal_hash index + grant digests.
@@ -53,15 +52,6 @@ func WithDecoderOptions(opts ...DecoderOption) C1ZOption {
 func WithReadOnly(readOnly bool) C1ZOption {
 	return func(o *c1zOptions) {
 		o.readOnly = readOnly
-	}
-}
-
-// WithEncoderConcurrency sets the number of created encoders.
-// Default is 1, which disables async encoding/concurrency.
-// 0 uses GOMAXPROCS.
-func WithEncoderConcurrency(concurrency int) C1ZOption {
-	return func(o *c1zOptions) {
-		o.encoderConcurrency = concurrency
 	}
 }
 
