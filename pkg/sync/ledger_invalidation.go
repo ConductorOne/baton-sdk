@@ -178,12 +178,17 @@ func wrapInvalidationCommitError(action *Action, invalidation *actionInvalidatio
 }
 
 // wrapUnsupportedInvalidation is the legacy (non-ledgered) path's answer to
-// the detail: the connector's error unchanged in code and text, joined with
-// the sentinel so the task layer stops resuming. Errors without the detail
-// pass through untouched.
+// the detail: the same classification as the ledgered path, and where that
+// path would restart, the connector's error unchanged in code and text
+// joined with the sentinel so the task layer stops resuming. Errors without
+// the detail pass through untouched.
 func wrapUnsupportedInvalidation(action *Action, err error) error {
-	if _, present := pagination.InvalidateActionFromError(err); !present {
+	_, present, classErr := classifyActionInvalidation(action, err)
+	switch {
+	case !present:
 		return err
+	case classErr != nil:
+		return classErr
 	}
 	return fmt.Errorf("%w: %s %s/%s: %w", ErrActionInvalidationUnsupported, action.Op.String(), action.ResourceTypeID, action.ResourceID, err)
 }

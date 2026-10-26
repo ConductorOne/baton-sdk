@@ -306,6 +306,24 @@ func TestActionInvalidationLegacyStoreUnsupported(t *testing.T) {
 		require.True(t, present)
 		require.Equal(t, []string{"", "T1"}, c.callsFor("group"), "no restart on a legacy store")
 	})
+	t.Run("detail on a code the ledgered path would not honor", func(t *testing.T) {
+		c := newInvalidatingConnector([]string{"group"}, func(_, token string, _ int) error {
+			if token != "T1" {
+				return nil
+			}
+			detail, err := status.New(codes.InvalidArgument, "expired").WithDetails(v2.InvalidateAction_builder{}.Build())
+			if err != nil {
+				return err
+			}
+			return detail.Err()
+		})
+		s, err := NewSyncer(t.Context(), c, WithConnectorStore(open(t)), WithSkipEntitlementsAndGrants(true), WithWorkerCount(1))
+		require.NoError(t, err)
+		err = s.Sync(t.Context())
+		require.ErrorIs(t, err, ErrActionInvalidationMisclassified, "sqlite and pebble classify the same inputs the same way")
+		require.NotErrorIs(t, err, ErrActionInvalidationUnsupported)
+		require.Equal(t, codes.InvalidArgument, status.Code(err))
+	})
 	t.Run("detail absent", func(t *testing.T) {
 		plain := status.Error(codes.FailedPrecondition, "expired without detail")
 		c := newInvalidatingConnector([]string{"group"}, func(_, token string, _ int) error {

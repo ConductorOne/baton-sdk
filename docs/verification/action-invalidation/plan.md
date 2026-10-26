@@ -715,3 +715,15 @@ The plan is frozen at `87abf5ed`.
   classification error names the resource type. S2's class for a root
   detail is the classification error, which is where an undeclared cell
   belongs. No other S# moves.
+- **CO-007 (2026-10-26, PR review).** Automated review of #1196: the
+  legacy path joined `ErrActionInvalidationUnsupported` onto every
+  detail-carrying error, skipping the code, op, root, and spawned checks
+  the ledgered path applies, so a detail on `Unavailable` was retryable
+  on pebble and non-retryable on sqlite. `wrapUnsupportedInvalidation` now
+  runs `classifyActionInvalidation` first and returns its misclassification
+  error; the sentinel is joined only where the ledgered path would
+  restart. S11 reads accordingly; C25 gains the misclassified cell. The
+  same review noted that an SDK predating this change rewrites a pending
+  item without `invalidations`, which resets the per-item cap for a sync
+  resumed across SDK versions; recorded in the PR's rollout notes, not
+  tested (such an SDK cannot restart, so the reset cannot compound).
