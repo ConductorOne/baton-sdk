@@ -402,7 +402,7 @@ func credentialIssueSaturatingMul(a int, b uint64) int {
 	if a >= credentialIssueRequestSizeLimit || b >= limit {
 		return credentialIssueRequestSizeLimit
 	}
-	if b > limit/uint64(a) { //nolint:gosec // a is positive and bounded above
+	if b > limit/uint64(a) {
 		return credentialIssueRequestSizeLimit
 	}
 	product := a * int(b)
