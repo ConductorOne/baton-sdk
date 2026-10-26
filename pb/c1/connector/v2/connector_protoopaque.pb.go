@@ -865,6 +865,7 @@ type CredentialIssueOptionDescriptor struct {
 	xxx_hidden_ResourceMode           CredentialResourceMode           `protobuf:"varint,8,opt,name=resource_mode,json=resourceMode,proto3,enum=c1.connector.v2.CredentialResourceMode"`
 	xxx_hidden_SecretResourceTypeId   string                           `protobuf:"bytes,9,opt,name=secret_resource_type_id,json=secretResourceTypeId,proto3"`
 	xxx_hidden_Preferred              bool                             `protobuf:"varint,10,opt,name=preferred,proto3"`
+	xxx_hidden_OutputContentType      string                           `protobuf:"bytes,11,opt,name=output_content_type,json=outputContentType,proto3"`
 	unknownFields                     protoimpl.UnknownFields
 	sizeCache                         protoimpl.SizeCache
 }
@@ -966,6 +967,13 @@ func (x *CredentialIssueOptionDescriptor) GetPreferred() bool {
 	return false
 }
 
+func (x *CredentialIssueOptionDescriptor) GetOutputContentType() string {
+	if x != nil {
+		return x.xxx_hidden_OutputContentType
+	}
+	return ""
+}
+
 func (x *CredentialIssueOptionDescriptor) SetOption(v CapabilityDetailCredentialOption) {
 	x.xxx_hidden_Option = v
 }
@@ -1006,6 +1014,10 @@ func (x *CredentialIssueOptionDescriptor) SetPreferred(v bool) {
 	x.xxx_hidden_Preferred = v
 }
 
+func (x *CredentialIssueOptionDescriptor) SetOutputContentType(v string) {
+	x.xxx_hidden_OutputContentType = v
+}
+
 func (x *CredentialIssueOptionDescriptor) HasExpiry() bool {
 	if x == nil {
 		return false
@@ -1040,6 +1052,21 @@ type CredentialIssueOptionDescriptor_builder struct {
 	// declaration order would not be stable. It selects nothing at issue time --
 	// CredentialIssueOptions.secret_resource_type_id is still required.
 	Preferred bool
+	// The typed output contract this option's Issue implementation produces, as a
+	// SecretPayloadV2 content type (e.g. api_key_v2). Empty is the legacy
+	// contract: raw bytes and the generic stored type, exactly as before this
+	// field existed. Nonempty means IssueCredentialV2 may be called for this
+	// option and the returned bytes must decode as this type under the client
+	// codec. An explicit value the executing implementation cannot produce is
+	// refused before any provider call; it is never downgraded to generic.
+	//
+	// This is NOT secret_resource_type_id. That field names the C1 resource type
+	// the option mints -- the SDK's existing "output type" -- and selects which
+	// descriptor handles a request. This field names the encoding of the
+	// credential's value bytes, which is a separate axis: two options minting the
+	// same resource type can produce different value encodings, and one option
+	// minting two resource types can produce the same one.
+	OutputContentType string
 }
 
 func (b0 CredentialIssueOptionDescriptor_builder) Build() *CredentialIssueOptionDescriptor {
@@ -1056,6 +1083,7 @@ func (b0 CredentialIssueOptionDescriptor_builder) Build() *CredentialIssueOption
 	x.xxx_hidden_ResourceMode = b.ResourceMode
 	x.xxx_hidden_SecretResourceTypeId = b.SecretResourceTypeId
 	x.xxx_hidden_Preferred = b.Preferred
+	x.xxx_hidden_OutputContentType = b.OutputContentType
 	return m0
 }
 
@@ -2729,7 +2757,7 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x1bpreferred_credential_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x19preferredCredentialOption\"\xcc\x01\n" +
 	" CredentialDetailsCredentialIssue\x12J\n" +
 	"\aoptions\x18\x01 \x03(\v20.c1.connector.v2.CredentialIssueOptionDescriptorR\aoptions\x12\\\n" +
-	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption\"\xcc\x04\n" +
+	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption\"\xa7\x05\n" +
 	"\x1fCredentialIssueOptionDescriptor\x12I\n" +
 	"\x06option\x18\x01 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x06option\x12H\n" +
 	"\fkey_profiles\x18\x02 \x03(\v2%.c1.connector.v2.KeyGenerationProfileR\vkeyProfiles\x12A\n" +
@@ -2742,7 +2770,8 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x17secret_resource_type_id\x18\t \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\x14secretResourceTypeId\x12\x1c\n" +
 	"\tpreferred\x18\n" +
-	" \x01(\bR\tpreferred\"t\n" +
+	" \x01(\bR\tpreferred\x12Y\n" +
+	"\x13output_content_type\x18\v \x01(\tB)\xfaB&r$(\x80\x012\x1f^$|^[a-z0-9]+([._-][a-z0-9]+)*$R\x11outputContentType\"t\n" +
 	"\x18IssuanceExpiryCapability\x12+\n" +
 	"\x03min\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x03min\x12+\n" +
 	"\x03max\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03max\"\xa5\x02\n" +

@@ -12,6 +12,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -159,6 +160,13 @@ type CredentialIssueInput struct {
 	CredentialOptions *v2.CredentialIssueOptions
 	ExpiresAt         *timestamppb.Timestamp
 	RequestID         string
+	// OutputContentType is the typed output contract the caller requires, set
+	// only when the builder was reached through IssueCredentialV2. It is empty
+	// on the legacy path, where the connector keeps producing its existing raw
+	// bytes. A connector that implements a typed contract must branch on this
+	// value and emit matching bytes; producing typed bytes for a legacy request,
+	// or legacy bytes for a typed one, is a defect the client codec will reject.
+	OutputContentType string
 }
 
 type CredentialIssueOutput struct {
@@ -168,7 +176,22 @@ type CredentialIssueOutput struct {
 	ResourceMode  v2.CredentialResourceMode
 }
 
+// IssueCredential serves the legacy issuance contract: the connector produces
+// whatever bytes it has always produced, and the stored type is generic.
 func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredentialRequest) (*v2.IssueCredentialResponse, error) {
+	return b.issueCredential(ctx, request, false)
+}
+
+// IssueCredentialV2 serves the typed issuance contract. It is a distinct method
+// rather than a flag on IssueCredential so that a runtime which predates the
+// contract answers Unimplemented before its Issue implementation runs and
+// before any provider call. Callers must never retry a typed issuance on the
+// legacy method: an error here is an error, not a signal to fall back.
+func (b *builder) IssueCredentialV2(ctx context.Context, request *v2.IssueCredentialRequest) (*v2.IssueCredentialResponse, error) {
+	return b.issueCredential(ctx, request, true)
+}
+
+func (b *builder) issueCredential(ctx context.Context, request *v2.IssueCredentialRequest, typed bool) (*v2.IssueCredentialResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.IssueCredential")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
@@ -178,6 +201,21 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 	l := ctxzap.Extract(ctx)
 	if request == nil || request.GetIdentityId() == nil {
 		err = status.Error(codes.InvalidArgument, "identity id is required")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
+	// The typed contract is only reachable through IssueCredentialV2, and the
+	// legacy contract is only reachable through IssueCredential. Both directions
+	// are refused rather than reconciled: silently honouring a typed field on
+	// the legacy method, or serving an untyped request on the typed one, would
+	// make the method identity stop meaning anything.
+	if typed && request.GetOutputContentType() == "" {
+		err = status.Error(codes.InvalidArgument, "output content type is required for typed credential issuance")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
+	}
+	if !typed && request.GetOutputContentType() != "" {
+		err = status.Error(codes.InvalidArgument, "output content type is only valid on IssueCredentialV2")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -227,6 +265,28 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		return nil, status.Errorf(codes.InvalidArgument, "invalid credential issuance request: %v", err)
 	}
 
+	// The executing descriptor is the authority on what this connector can
+	// produce. A declared type it does not advertise is contract drift, not a
+	// malformed request, and it must be refused before the provider is touched.
+	if typed {
+		declared := descriptor.GetOutputContentType()
+		if declared == "" {
+			err = status.Errorf(codes.FailedPrecondition,
+				"option %v does not declare an output content type; typed issuance is unavailable for it",
+				descriptor.GetOption())
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+			return nil, err
+		}
+		if declared != request.GetOutputContentType() {
+			err = status.Errorf(codes.FailedPrecondition,
+				"requested output content type %q does not match the executing contract %q",
+				request.GetOutputContentType(), declared)
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+			return nil, err
+		}
+		input.OutputContentType = declared
+	}
+
 	output, err := issuer.Issue(ctx, input)
 	if err != nil {
 		l.Error("error: issue credential for identity failed", zap.Error(err))
@@ -237,13 +297,13 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		err = crypto.ValidateCredentialOutputCardinality(request.GetEncryptionConfigs(), len(output.PlaintextData))
 		if err != nil {
 			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-			return nil, err
+			return nil, credentialIssuedButUndeliverable(output, err)
 		}
 	}
 	err = validateCredentialIssueOutput(request.GetIdentityId(), request.GetExpiresAt(), output, descriptor)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, status.Errorf(codes.Internal, "connector returned invalid credential issuance output: %v", err)
+		return nil, credentialIssuedButUndeliverable(output, fmt.Errorf("connector returned invalid credential issuance output: %w", err))
 	}
 
 	var encryptedDatas []*v2.EncryptedData
@@ -252,7 +312,7 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		encryptedData, err = pkem.Encrypt(ctx, plaintextCredential)
 		if err != nil {
 			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-			return nil, err
+			return nil, credentialIssuedButUndeliverable(output, err)
 		}
 		encryptedDatas = append(encryptedDatas, encryptedData...)
 	}
@@ -265,6 +325,38 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 		ResourceMode:  output.ResourceMode,
 		RequestId:     request.GetRequestId(),
 	}.Build(), nil
+}
+
+// credentialIssuedButUndeliverable builds the error for a failure that happens
+// after Issue returned, so the provider may already hold an object.
+//
+// The caller has no handle for it unless one is carried, and the failure is not
+// a licence to try again: a second Issue would mint a second credential while
+// the first may stay live. The minted identity is therefore attached as a
+// structured gRPC status detail -- a sanitized ResourceId, never a message to be
+// parsed and never any credential material -- so a caller can persist it for
+// cleanup without reading English.
+//
+// When no identity came back the status carries no detail. That is a distinct
+// statement, not a weaker one: the outcome is unresolved and an object may
+// exist. Callers must treat "no detail" as unresolved cleanup, not as proof
+// that nothing was created.
+func credentialIssuedButUndeliverable(output *CredentialIssueOutput, cause error) error {
+	st := status.New(codes.Internal,
+		"credential was minted but cannot be delivered; the provider outcome is unresolved and issuance must not be retried")
+	st, _ = st.WithDetails(&errdetails.ErrorInfo{
+		Reason: "CREDENTIAL_ISSUED_BUT_UNDELIVERABLE",
+		Domain: "baton-sdk/credentialbuilder",
+		Metadata: map[string]string{
+			"cause":   cause.Error(),
+			"retry":   "forbidden",
+			"cleanup": "required",
+		},
+	})
+	if output != nil && output.Secret != nil && output.Secret.GetId() != nil {
+		st, _ = st.WithDetails(output.Secret.GetId())
+	}
+	return st.Err()
 }
 
 func validateCredentialIssueOutput(identityID *v2.ResourceId, requestedExpiresAt *timestamppb.Timestamp, output *CredentialIssueOutput, descriptor *v2.CredentialIssueOptionDescriptor) error {

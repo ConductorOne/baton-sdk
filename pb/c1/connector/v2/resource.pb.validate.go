@@ -2095,6 +2095,28 @@ func (m *IssueCredentialRequest) validate(all bool) error {
 		}
 	}
 
+	if len(m.GetOutputContentType()) > 128 {
+		err := IssueCredentialRequestValidationError{
+			field:  "OutputContentType",
+			reason: "value length must be at most 128 bytes",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if !_IssueCredentialRequest_OutputContentType_Pattern.MatchString(m.GetOutputContentType()) {
+		err := IssueCredentialRequestValidationError{
+			field:  "OutputContentType",
+			reason: "value does not match regex pattern \"^$|^[a-z0-9]+([._-][a-z0-9]+)*$\"",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
 	if len(errors) > 0 {
 		return IssueCredentialRequestMultiError(errors)
 	}
@@ -2176,6 +2198,8 @@ var _ interface {
 } = IssueCredentialRequestValidationError{}
 
 var _IssueCredentialRequest_RequestId_Pattern = regexp.MustCompile("^[A-Za-z0-9_-]+$")
+
+var _IssueCredentialRequest_OutputContentType_Pattern = regexp.MustCompile("^$|^[a-z0-9]+([._-][a-z0-9]+)*$")
 
 // Validate checks the field values on IssueCredentialResponse with the rules
 // defined in the proto definition for this message. If any rules are

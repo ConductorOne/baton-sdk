@@ -52,6 +52,7 @@ func TestTaskTypeOrdinalsPinned(t *testing.T) {
 		// block holds its slot so the two below keep released values.
 		{"ListStaticEntitlementsType", ListStaticEntitlementsType, 31},
 		{"IssueCredentialType", IssueCredentialType, 32},
+		{"IssueTypedCredentialType", IssueTypedCredentialType, 33},
 	}
 	for _, p := range pinned {
 		require.Equal(t, p.want, p.got, "TaskType %s must keep its released ordinal", p.name)

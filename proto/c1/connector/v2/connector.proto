@@ -145,6 +145,24 @@ message CredentialIssueOptionDescriptor {
   // declaration order would not be stable. It selects nothing at issue time --
   // CredentialIssueOptions.secret_resource_type_id is still required.
   bool preferred = 10;
+  // The typed output contract this option's Issue implementation produces, as a
+  // SecretPayloadV2 content type (e.g. api_key_v2). Empty is the legacy
+  // contract: raw bytes and the generic stored type, exactly as before this
+  // field existed. Nonempty means IssueCredentialV2 may be called for this
+  // option and the returned bytes must decode as this type under the client
+  // codec. An explicit value the executing implementation cannot produce is
+  // refused before any provider call; it is never downgraded to generic.
+  //
+  // This is NOT secret_resource_type_id. That field names the C1 resource type
+  // the option mints -- the SDK's existing "output type" -- and selects which
+  // descriptor handles a request. This field names the encoding of the
+  // credential's value bytes, which is a separate axis: two options minting the
+  // same resource type can produce different value encodings, and one option
+  // minting two resource types can produce the same one.
+  string output_content_type = 11 [(validate.rules).string = {
+    max_bytes: 128
+    pattern: "^$|^[a-z0-9]+([._-][a-z0-9]+)*$"
+  }];
 }
 
 message IssuanceExpiryCapability {
