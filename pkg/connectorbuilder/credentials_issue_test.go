@@ -30,6 +30,7 @@ type testCredentialIssuer struct {
 	lastIdentityID    *v2.ResourceId
 	lastOptions       *v2.CredentialIssueOptions
 	lastInput         *CredentialIssueInput
+	issueCalls        int
 	capabilityDetails *v2.CredentialDetailsCredentialIssue
 	capabilityError   error
 }
@@ -54,6 +55,7 @@ func (t *testCredentialIssuer) Issue(
 	ctx context.Context,
 	input *CredentialIssueInput,
 ) (*CredentialIssueOutput, error) {
+	t.issueCalls++
 	t.lastInput = input
 	t.lastIdentityID = input.IdentityID
 	t.lastOptions = input.CredentialOptions

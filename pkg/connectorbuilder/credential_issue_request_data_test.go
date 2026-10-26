@@ -797,11 +797,13 @@ func TestIssueCredentialValidatesAndForwardsRequestData(t *testing.T) {
 	_, err = connector.IssueCredential(ctx, request)
 	require.ErrorContains(t, err, "unknown field")
 	require.Nil(t, issuer.lastInput, "validation must precede provider mutation")
+	require.Zero(t, issuer.issueCalls)
 
 	delete(request.GetRequestData().GetFields(), "unknown")
 	_, err = connector.IssueCredential(ctx, request)
 	require.NoError(t, err)
 	require.True(t, proto.Equal(data, issuer.lastInput.RequestData))
+	require.Equal(t, 1, issuer.issueCalls)
 }
 
 func TestCredentialIssueSchemaRequiredFieldsExceedRequestDataLimit(t *testing.T) {
@@ -1286,12 +1288,14 @@ func TestIssueCredentialSelectsInputSchemaByOutputType(t *testing.T) {
 	_, err = connector.IssueCredential(ctx, request)
 	require.ErrorContains(t, err, "unknown field")
 	require.Nil(t, issuer.lastInput)
+	require.Zero(t, issuer.issueCalls)
 	// The same values are accepted by the other descriptor, proving the failure
 	// came from the selected output type rather than generic validation.
 	request.GetCredentialOptions().SetSecretResourceTypeId("secret")
 	_, err = connector.IssueCredential(ctx, request)
 	require.NoError(t, err)
 	require.True(t, proto.Equal(data, issuer.lastInput.RequestData))
+	require.Equal(t, 1, issuer.issueCalls)
 }
 
 func TestCredentialIssueStringLengthsCountUnicodeCodePoints(t *testing.T) {
@@ -1314,4 +1318,40 @@ func TestCredentialIssueRejectsUnknownNestedRule(t *testing.T) {
 		config.Field_builder{Name: "value", StringField: config.StringField_builder{Rules: rules}.Build()}.Build(),
 	}}.Build()
 	require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "unsupported fields")
+}
+
+func TestIssueCredentialRejectsInvalidDataBeforeIssuer(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name   string
+		values map[string]any
+		secret bool
+	}{
+		{name: "missing", values: map[string]any{}},
+		{name: "wrong type", values: map[string]any{"value": true}},
+		{name: "unknown", values: map[string]any{"value": "ok", "extra": "x"}},
+		{name: "secret schema", values: map[string]any{"value": "ok"}, secret: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			issuer := newTestCredentialIssuer("service_account")
+			issuer.capabilityDetails = v2.CredentialDetailsCredentialIssue_builder{Options: []*v2.CredentialIssueOptionDescriptor{
+				v2.CredentialIssueOptionDescriptor_builder{Option: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+					ResourceMode: v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_DISCOVERABLE, SecretResourceTypeId: "secret",
+					RequestSchema: v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+						config.Field_builder{Name: "value", IsRequired: true, IsSecret: tc.secret, StringField: &config.StringField{}}.Build(),
+					}}.Build()}.Build(),
+			}, PreferredOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY}.Build()
+			connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{issuer, newTestCredentialSecretDeleter()}))
+			require.NoError(t, err)
+			data, err := structpb.NewStruct(tc.values)
+			require.NoError(t, err)
+			_, err = connector.IssueCredential(ctx, v2.IssueCredentialRequest_builder{
+				IdentityId:        v2.ResourceId_builder{ResourceType: "service_account", Resource: "sa-1"}.Build(),
+				CredentialOptions: v2.CredentialIssueOptions_builder{SecretResourceTypeId: "secret", ApiKey: &v2.CredentialIssueOptions_ApiKey{}}.Build(),
+				EncryptionConfigs: []*v2.EncryptionConfig{newIssueEncryptionConfig(t)}, RequestId: "reject-invalid", RequestData: data,
+			}.Build())
+			require.Error(t, err)
+			require.Zero(t, issuer.issueCalls)
+		})
+	}
 }
