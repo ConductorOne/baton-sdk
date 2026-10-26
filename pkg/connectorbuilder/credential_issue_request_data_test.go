@@ -1407,8 +1407,10 @@ func TestIssueCredentialDoesNotEchoInputInRPCOrFailureMetric(t *testing.T) {
 			StringField: config.StringField_builder{Rules: config.StringRules_builder{Pattern: proto.String(`^\d+$`)}.Build()}.Build()}.Build(),
 			map[string]any{"value": stringSentinel}, codes.InvalidArgument, stringSentinel},
 		{"RE2 list mismatch", config.Field_builder{
-			Name:             "value",
-			StringSliceField: config.StringSliceField_builder{Rules: config.RepeatedStringRules_builder{ItemRules: config.StringRules_builder{Pattern: proto.String(`^\d+$`)}.Build()}.Build()}.Build()}.Build(),
+			Name: "value",
+			StringSliceField: config.StringSliceField_builder{Rules: config.RepeatedStringRules_builder{
+				ItemRules: config.StringRules_builder{Pattern: proto.String(`^\d+$`)}.Build(),
+			}.Build()}.Build()}.Build(),
 			map[string]any{"value": []any{listSentinel}}, codes.InvalidArgument, listSentinel},
 		{"unknown key", config.Field_builder{
 			Name:        "value",
