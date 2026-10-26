@@ -317,19 +317,20 @@ func credentialIssueHasUnknownFields(message protoreflect.Message) bool {
 	}
 	unknown := false
 	message.Range(func(fd protoreflect.FieldDescriptor, value protoreflect.Value) bool {
-		if fd.IsMap() {
+		switch {
+		case fd.IsMap():
 			if fd.MapValue().Message() != nil {
 				value.Map().Range(func(_ protoreflect.MapKey, item protoreflect.Value) bool {
 					unknown = credentialIssueHasUnknownFields(item.Message())
 					return !unknown
 				})
 			}
-		} else if fd.IsList() && fd.Message() != nil {
+		case fd.IsList() && fd.Message() != nil:
 			list := value.List()
 			for i := 0; i < list.Len() && !unknown; i++ {
 				unknown = credentialIssueHasUnknownFields(list.Get(i).Message())
 			}
-		} else if fd.Message() != nil {
+		case fd.Message() != nil:
 			unknown = credentialIssueHasUnknownFields(value.Message())
 		}
 		return !unknown
@@ -394,7 +395,7 @@ func credentialIssueSaturatingAdd(a, b int) int {
 // b is a clamped count below the limit, so the division-based bound check
 // only needs a zero guard.
 func credentialIssueSaturatingMul(a int, b uint64) int {
-	if a == 0 || b == 0 {
+	if a <= 0 || b == 0 {
 		return 0
 	}
 	limit := uint64(credentialIssueRequestSizeLimit)
@@ -873,7 +874,7 @@ func validateCredentialIssueStringRules(rules *config.StringRules, value, name s
 	if value == "" && !rules.GetValidateEmpty() {
 		return field.ValidateStringRules(rules, value, name)
 	}
-	length := uint64(utf8.RuneCountInString(value))
+	length := uint64(utf8.RuneCountInString(value)) //nolint:gosec // RuneCountInString cannot be negative.
 	if (rules.HasLen() && length != rules.GetLen()) || (rules.HasMinLen() && length < rules.GetMinLen()) || (rules.HasMaxLen() && length > rules.GetMaxLen()) {
 		return fmt.Errorf("request data field %q has invalid string length", name)
 	}
