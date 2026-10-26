@@ -16,6 +16,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -170,6 +171,9 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 	if schema == nil {
 		return nil
 	}
+	if credentialIssueHasUnknownFields(schema.ProtoReflect()) {
+		return fmt.Errorf("request schema contains unsupported fields")
+	}
 	if len(schema.GetFields()) > maxCredentialIssueRequestFields {
 		return fmt.Errorf("request schema must not contain more than %d fields", maxCredentialIssueRequestFields)
 	}
@@ -301,6 +305,33 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 		return err
 	}
 	return nil
+}
+
+// Unknown fields may represent a newer rule that this SDK cannot enforce.
+func credentialIssueHasUnknownFields(message protoreflect.Message) bool {
+	if len(message.GetUnknown()) != 0 {
+		return true
+	}
+	unknown := false
+	message.Range(func(fd protoreflect.FieldDescriptor, value protoreflect.Value) bool {
+		if fd.IsMap() {
+			if fd.MapValue().Message() != nil {
+				value.Map().Range(func(_ protoreflect.MapKey, item protoreflect.Value) bool {
+					unknown = credentialIssueHasUnknownFields(item.Message())
+					return !unknown
+				})
+			}
+		} else if fd.IsList() && fd.Message() != nil {
+			list := value.List()
+			for i := 0; i < list.Len() && !unknown; i++ {
+				unknown = credentialIssueHasUnknownFields(list.Get(i).Message())
+			}
+		} else if fd.Message() != nil {
+			unknown = credentialIssueHasUnknownFields(value.Message())
+		}
+		return !unknown
+	})
+	return unknown
 }
 
 func validateCredentialIssueStringRuleBounds(name string, rules *config.StringRules, listItem bool) error {

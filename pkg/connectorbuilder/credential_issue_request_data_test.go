@@ -1306,3 +1306,12 @@ func TestCredentialIssueStringLengthsCountUnicodeCodePoints(t *testing.T) {
 	data.GetFields()["words"] = structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{structpb.NewStringValue("é界")}})
 	require.ErrorContains(t, ValidateCredentialIssueRequestData(schema, data), "invalid string length")
 }
+
+func TestCredentialIssueRejectsUnknownNestedRule(t *testing.T) {
+	rules := &config.StringRules{}
+	rules.ProtoReflect().SetUnknown([]byte{0xf8, 0x07, 0x01})
+	schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+		config.Field_builder{Name: "value", StringField: config.StringField_builder{Rules: rules}.Build()}.Build(),
+	}}.Build()
+	require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "unsupported fields")
+}
