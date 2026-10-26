@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -756,7 +757,7 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 		}) {
 			return fmt.Errorf("request data field %q must match an advertised option", name)
 		}
-		if err := field.ValidateStringRules(schemaField.GetStringField().GetRules(), kind.StringValue, name); err != nil {
+		if err := validateCredentialIssueStringRules(schemaField.GetStringField().GetRules(), kind.StringValue, name); err != nil {
 			return err
 		}
 	case config.Field_IntField_case:
@@ -796,6 +797,14 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 			items = append(items, stringItem.StringValue)
 		}
 		rules := cloneRepeatedStringRulesForRequest(schemaField.GetStringSliceField().GetRules())
+		if rules != nil && rules.HasItemRules() {
+			for _, item := range items {
+				if err := validateCredentialIssueStringRules(rules.GetItemRules(), item, name); err != nil {
+					return err
+				}
+			}
+			rules.ClearItemRules()
+		}
 		if err := field.ValidateRepeatedStringRules(rules, items, name); err != nil {
 			return err
 		}
@@ -819,6 +828,26 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 		return fmt.Errorf("request data field %q has unsupported type", name)
 	}
 	return nil
+}
+
+// Config string lengths count Unicode code points; the general configuration
+// validator currently counts bytes. Keep native request semantics local.
+func validateCredentialIssueStringRules(rules *config.StringRules, value, name string) error {
+	if rules == nil {
+		return nil
+	}
+	if value == "" && !rules.GetValidateEmpty() {
+		return field.ValidateStringRules(rules, value, name)
+	}
+	length := uint64(utf8.RuneCountInString(value))
+	if (rules.HasLen() && length != rules.GetLen()) || (rules.HasMinLen() && length < rules.GetMinLen()) || (rules.HasMaxLen() && length > rules.GetMaxLen()) {
+		return fmt.Errorf("request data field %q has invalid string length", name)
+	}
+	remaining := proto.Clone(rules).(*config.StringRules)
+	remaining.ClearLen()
+	remaining.ClearMinLen()
+	remaining.ClearMaxLen()
+	return field.ValidateStringRules(remaining, value, name)
 }
 
 func validateCredentialIssueIntRuleBounds(rules *config.Int64Rules) error {

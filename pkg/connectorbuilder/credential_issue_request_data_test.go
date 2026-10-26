@@ -1293,3 +1293,16 @@ func TestIssueCredentialSelectsInputSchemaByOutputType(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, proto.Equal(data, issuer.lastInput.RequestData))
 }
+
+func TestCredentialIssueStringLengthsCountUnicodeCodePoints(t *testing.T) {
+	rules := config.StringRules_builder{Len: proto.Uint64(1)}.Build()
+	schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+		config.Field_builder{Name: "word", StringField: config.StringField_builder{Rules: rules}.Build()}.Build(),
+		config.Field_builder{Name: "words", StringSliceField: config.StringSliceField_builder{Rules: config.RepeatedStringRules_builder{ItemRules: rules}.Build()}.Build()}.Build(),
+	}}.Build()
+	data, err := structpb.NewStruct(map[string]any{"word": "é", "words": []any{"界"}})
+	require.NoError(t, err)
+	require.NoError(t, ValidateCredentialIssueRequestData(schema, data))
+	data.GetFields()["words"] = structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{structpb.NewStringValue("é界")}})
+	require.ErrorContains(t, ValidateCredentialIssueRequestData(schema, data), "invalid string length")
+}
