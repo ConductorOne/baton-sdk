@@ -9,7 +9,7 @@ type PasswordV2 struct {
 }
 
 func (v PasswordV2) Encode() (Payload, error) {
-	return EncodeJSON("password_v2", map[string]any{
+	return EncodeJSON(TypePasswordV2, map[string]any{
 		"username": v.Username, "password": v.Password, "url": v.URL, "otp_url": v.OTPURL,
 	})
 }
@@ -26,7 +26,7 @@ type APIKeyV2 struct {
 }
 
 func (v APIKeyV2) Encode() (Payload, error) {
-	return EncodeJSON("api_key_v2", map[string]any{
+	return EncodeJSON(TypeAPIKeyV2, map[string]any{
 		"key_value": v.KeyValue, "provider": v.Provider, "base_url": v.BaseURL,
 		"scopes": nonNilStrings(v.Scopes), "key_id": v.KeyID, "header_name": v.HeaderName, "expires_at": v.ExpiresAt,
 	})
@@ -43,7 +43,7 @@ type SSHKey struct {
 }
 
 func (v SSHKey) Encode() (Payload, error) {
-	return EncodeJSON("ssh_key", map[string]any{
+	return EncodeJSON(TypeSSHKey, map[string]any{
 		"private_key": v.PrivateKey, "username": v.Username, "passphrase": v.Passphrase,
 		"public_key": v.PublicKey, "hosts": nonNilStrings(v.Hosts), "ssh_certificate": v.SSHCertificate,
 	})
@@ -63,7 +63,7 @@ type OAuthClientSecretV2 struct {
 }
 
 func (v OAuthClientSecretV2) Encode() (Payload, error) {
-	return EncodeJSON("oauth_client_secret_v2", map[string]any{
+	return EncodeJSON(TypeOAuthClientSecretV2, map[string]any{
 		"client_id": v.ClientID, "client_secret": v.ClientSecret, "token_endpoint_url": v.TokenEndpointURL,
 		"scopes": nonNilStrings(v.Scopes), "issuer_url": v.IssuerURL, "redirect_uri": nonNilStrings(v.RedirectURIs),
 		"auth_endpoint_url": v.AuthEndpointURL, "audience": v.Audience, "grant_type": v.GrantType,
@@ -79,7 +79,7 @@ type Certificate struct {
 }
 
 func (v Certificate) Encode() (Payload, error) {
-	return EncodeJSON("certificate", map[string]any{
+	return EncodeJSON(TypeCertificate, map[string]any{
 		"certificate_pem": v.CertificatePEM, "private_key": v.PrivateKey, "chain_pem": v.ChainPEM, "passphrase": v.Passphrase,
 	})
 }

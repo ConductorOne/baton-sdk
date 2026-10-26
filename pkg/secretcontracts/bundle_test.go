@@ -102,3 +102,9 @@ func TestErrorsNeverCarryValues(t *testing.T) {
 		require.NotContains(t, err.Error(), secret)
 	}
 }
+
+func TestExportedTypeIDsMatchBundle(t *testing.T) {
+	bundled, err := ContentTypes()
+	require.NoError(t, err)
+	require.ElementsMatch(t, bundled, []string{TypePasswordV2, TypeAPIKeyV2, TypeSSHKey, TypeOAuthClientSecretV2, TypeCertificate, TypeHOTP, TypeNote, TypeGeneric})
+}
