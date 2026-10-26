@@ -1,0 +1,5 @@
+# The pinned bundle is hashed byte-for-byte (bundle_sha256, manifest sha256) and
+# its fixtures deliberately contain CR, mixed and absent line endings. Checkout
+# must never convert them (core.autocrlf on Windows turned LF into CRLF).
+bundle/** -text
+UPSTREAM.json -text
