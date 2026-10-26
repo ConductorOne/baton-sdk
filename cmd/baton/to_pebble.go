@@ -6,7 +6,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/sqlite"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/spf13/cobra"
 )
@@ -60,23 +60,22 @@ func runToPebble(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	openOpts := []dotc1z.C1ZOption{dotc1z.WithReadOnly(true)}
+	openOpts := []sqlite.OpenOption{}
 	if tmpDir != "" {
-		openOpts = append(openOpts, dotc1z.WithTmpDir(tmpDir))
+		openOpts = append(openOpts, sqlite.WithTmpDir(tmpDir))
 	}
-	//nolint:staticcheck // ToPebble is a SQLite-only *C1File method not on C1ZStore; NewC1ZFile is required here.
-	store, err := dotc1z.NewC1ZFile(ctx, c1zPath, openOpts...)
+	store, err := sqlite.Open(ctx, c1zPath, openOpts...)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = store.Close(ctx) }()
 
-	convertOpts := []dotc1z.ConvertOption{
-		dotc1z.WithConvertBatchSize(batchSize),
-		dotc1z.WithConvertResolveBehavior(dotc1z.ConvertResolveBehaviorFullFinished),
+	convertOpts := []sqlite.ConvertOption{
+		sqlite.WithBatchSize(batchSize),
+		sqlite.WithResolveBehavior(sqlite.ResolveFullFinished),
 	}
 	if tmpDir != "" {
-		convertOpts = append(convertOpts, dotc1z.WithConvertTmpDir(tmpDir))
+		convertOpts = append(convertOpts, sqlite.WithConvertTmpDir(tmpDir))
 	}
 	stats, err := store.ToPebble(ctx, outPath, syncID, convertOpts...)
 	if err != nil {
@@ -87,7 +86,7 @@ func runToPebble(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func printToPebbleStats(stats *dotc1z.ConvertStats, outPath string) {
+func printToPebbleStats(stats *sqlite.ConvertStats, outPath string) {
 	_, _ = fmt.Fprintf(os.Stdout, "Converted C1Z to Pebble successfully.\n")
 	_, _ = fmt.Fprintf(os.Stdout, "Output: %s\n", outPath)
 	if stats.SourceSyncID == "" {

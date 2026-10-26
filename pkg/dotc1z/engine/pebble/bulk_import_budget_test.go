@@ -18,14 +18,22 @@ import (
 func TestBulkImportChunkBytesStaysWithinBudget(t *testing.T) {
 	sortSlots := 4
 	for _, shards := range []int{0, 1, 2, 4, 8, 16, 64} {
+		expectedShards := max(1, shards)
 		chunk := bulkImportChunkBytes(shards, sortSlots)
-		liveArenas := 3 + (1+len(grantIndexFamilies))*max(1, shards) + sortSlots
+		liveArenas := 3 + (1+len(grantIndexFamilies))*expectedShards + sortSlots
 		require.LessOrEqual(t, chunk, deferredIndexSpillChunkBytes, "shards=%d: chunk above the validated ceiling", shards)
 		require.GreaterOrEqual(t, chunk, bulkImportMinChunkBytes, "shards=%d: chunk below the fan-in floor", shards)
 		if chunk > bulkImportMinChunkBytes {
-			require.LessOrEqual(t, chunk*liveArenas, bulkImportSortBudgetBytes,
-				"shards=%d: %d live arenas x %d bytes exceeds the budget", shards, liveArenas, chunk)
+			require.LessOrEqual(t, chunk*liveArenas+expectedShards*spillArenaInitialBytes, bulkImportSortBudgetBytes,
+				"shards=%d: %d live arenas x %d bytes plus %d growth arenas x %d bytes exceeds the budget",
+				shards, liveArenas, chunk, expectedShards, spillArenaInitialBytes)
 		}
+	}
+
+	for _, shards := range []int{1, 4, 8} {
+		liveArenas := 3 + (1+len(grantIndexFamilies))*shards + sortSlots
+		want := (bulkImportSortBudgetBytes - shards*spillArenaInitialBytes) / liveArenas
+		require.Equal(t, want, bulkImportChunkBytes(shards, sortSlots))
 	}
 
 	// Monotone: more shards never means bigger chunks.
@@ -43,11 +51,22 @@ func TestBulkImportChunkBytesStaysWithinBudget(t *testing.T) {
 	require.Equal(t, bulkImportChunkBytes(1, sortSlots), bulkImportChunkBytes(-3, sortSlots))
 }
 
-// TestSpillSorterCutsBeforeArenaOverflow pins that add() cuts a chunk
-// before an entry would push the arena past its capacity, so arenas never
-// append-grow. Without the pre-check every fresh arena's first cut
-// reallocates at ~1.25x with a full copy and the freelist keeps the larger
-// buffer; the budget derivation assumes arenas stay at chunkBytes.
+func TestSpillSorterArenaPromotesOnce(t *testing.T) {
+	const chunkBytes = 16 << 20
+
+	s := newSpillSorter(t.TempDir(), "promote", make(chan struct{}, 1), chunkBytes)
+
+	require.NoError(t, s.add([]byte("small"), nil))
+	require.Equal(t, spillArenaInitialBytes, cap(s.arena))
+
+	require.NoError(t, s.add(make([]byte, spillArenaInitialBytes), nil))
+	require.Equal(t, chunkBytes, cap(s.arena))
+	_, err := s.finalize()
+	require.NoError(t, err)
+}
+
+// TestSpillSorterCutsBeforeArenaOverflow pins that add cuts a chunk
+// before an entry would push the arena past chunkBytes.
 func TestSpillSorterCutsBeforeArenaOverflow(t *testing.T) {
 	const chunkBytes = 1024
 	const entryBytes = 100 // 60-byte key + 40-byte value; ten fit, an eleventh would overflow.

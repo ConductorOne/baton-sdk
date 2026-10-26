@@ -59,12 +59,12 @@ const bulkSpillKeyChunkBytes = 8 << 20
 
 // bulkImportSortBudgetBytes bounds the anonymous memory the bulk import's
 // spill arenas can hold at once. Chunk size is derived from it, not
-// hard-coded: chunkBytes = budget / liveArenas, where liveArenas counts
-// every arena that can be committed simultaneously — one per sorter
-// (resources, entitlements, the parent index, and per grant shard one
-// primary plus one per index family) plus one per background sort slot.
-// Adding an index family or raising the shard count therefore shrinks
-// the chunks instead of silently raising peak RSS.
+// hard-coded: chunkBytes = (budget - growthReserve) / liveArenas.
+// liveArenas counts one arena per sorter plus one per background sort
+// slot. growthReserve holds one 1 MiB initial arena per concurrent shard
+// while it promotes to a full chunk. Adding an index family or raising
+// the shard count therefore shrinks the chunks instead of silently
+// raising peak RSS.
 //
 // Chunk size sets Finish's merge fan-in: every chunk stays open behind a
 // bulkSpillBufferSize reader for the whole merge, so the derived value is
@@ -86,6 +86,8 @@ const bulkImportMinChunkBytes = 16 << 20
 
 // bulkSpillBufferSize is the bufio size for spill-chunk IO.
 const bulkSpillBufferSize = 1 << 20
+
+const spillArenaInitialBytes = 1 << 20
 
 // grantIndexFamilies are the index-discriminator bytes AddGrants can
 // emit (see grantIndexKeys). The by_entitlement_principal_hash index
@@ -329,12 +331,18 @@ func (e *Engine) StartBulkSyncImport(ctx context.Context, syncID string, tmpDir 
 // The live set is one arena per sorter — the three lane-independent
 // sorters plus, per grant shard, one primary and one per index family —
 // plus one per background sort slot (a sorter that just cut a chunk
-// fills a fresh arena while the cut one sorts). See
-// bulkImportSortBudgetBytes for the clamp rationale.
+// fills a fresh arena while the cut one sorts), plus one conservative
+// chunk reservation per concurrent grant shard while a 1 MiB initial
+// arena is copied into its full chunk. See bulkImportSortBudgetBytes for
+// the clamp rationale.
 func bulkImportChunkBytes(expectedShards, sortSlots int) int {
 	expectedShards = max(1, expectedShards)
 	liveArenas := 3 + (1+len(grantIndexFamilies))*expectedShards + sortSlots
-	return min(deferredIndexSpillChunkBytes, max(bulkImportMinChunkBytes, bulkImportSortBudgetBytes/liveArenas))
+	growthReserve := expectedShards * spillArenaInitialBytes
+	return min(
+		deferredIndexSpillChunkBytes,
+		max(bulkImportMinChunkBytes, (bulkImportSortBudgetBytes-growthReserve)/liveArenas),
+	)
 }
 
 // newSorter creates a spill sorter wired to the import's shared sort
@@ -897,12 +905,7 @@ type spillSorter struct {
 	dir        string
 	sem        chan struct{}
 	chunkBytes int
-	// free, when set, recycles chunk arenas through an explicit bounded
-	// freelist instead of the sync.Pool. Long single-producer builds (the
-	// synth-grant layer, the deferred index) allocate tens of GB per run
-	// through the pool because GC cycles clear it faster than arenas
-	// return; a plain channel survives GC and caps live arenas at the
-	// sort concurrency anyway (cutAndDispatch blocks on the sem).
+	// free recycles arenas through a bounded channel that survives GC.
 	free *spillArenaFreeList
 
 	arena []byte
@@ -916,13 +919,16 @@ type spillSorter struct {
 }
 
 func newSpillSorter(dir, name string, sem chan struct{}, chunkBytes int) *spillSorter {
-	return &spillSorter{name: name, dir: dir, sem: sem, chunkBytes: chunkBytes}
+	return &spillSorter{
+		name:       name,
+		dir:        dir,
+		sem:        sem,
+		chunkBytes: chunkBytes,
+		free:       newSpillArenaFreeList(chunkBytes, cap(sem)+1),
+	}
 }
 
-// spillArenaFreeList is a bounded, GC-proof recycler for chunk arenas of one
-// size, shared by the sorters of one build (segments of a layer session, the
-// deferred index sorter). Capacity should cover the maximum arenas live at
-// once: one being filled by the producer plus one per concurrent sort slot.
+// spillArenaFreeList recycles initial and full arenas across one build.
 type spillArenaFreeList struct {
 	size int
 	ch   chan []byte
@@ -937,12 +943,12 @@ func (f *spillArenaFreeList) get() []byte {
 	case b := <-f.ch:
 		return b[:0]
 	default:
-		return make([]byte, 0, f.size)
+		return make([]byte, 0, min(f.size, spillArenaInitialBytes))
 	}
 }
 
 func (f *spillArenaFreeList) put(b []byte) {
-	if cap(b) < f.size {
+	if cap(b) > f.size {
 		return
 	}
 	select {
@@ -951,10 +957,8 @@ func (f *spillArenaFreeList) put(b []byte) {
 	}
 }
 
-// spillArenaPool / spillViewsPool recycle the per-chunk key/value arena and its
-// kvView slice across chunks. Without recycling, every cut allocates a fresh
-// arena that grows from zero by append-doubling and is then GC'd; deferred index
-// builds can otherwise churn hundreds of GB in short-lived buffers.
+// spillArenaPool recycles deferred-index translation batches.
+// spillViewsPool recycles spill-sort views.
 var spillArenaPool = sync.Pool{New: func() any { b := make([]byte, 0, bulkSpillKeyChunkBytes); return &b }}
 var spillViewsPool = sync.Pool{New: func() any { v := make([]kvView, 0, 1<<16); return &v }}
 
@@ -992,32 +996,19 @@ func (s *spillSorter) add(key, val []byte) error {
 	if err := s.takeErr(); err != nil {
 		return err
 	}
-	// Cut BEFORE an entry would overflow the arena's capacity, not after.
-	// Appending past cap makes Go reallocate the arena at ~1.25x with a
-	// full copy — a 128MiB memcpy per fresh arena — and the freelist then
-	// keeps the oversized copy, so every recycled arena would carry that
-	// growth for the rest of the build. Cutting early keeps arenas at
-	// exactly their allocated size and makes the budget arithmetic in
-	// bulkImportSortBudgetBytes true. (An arena holding nothing yet is
-	// left to grow: a single entry larger than a chunk is legal.)
-	if len(s.views) > 0 && len(s.arena)+len(key)+len(val) > cap(s.arena) {
+	entryBytes := len(key) + len(val)
+	if len(s.views) > 0 && len(s.arena)+entryBytes > s.chunkBytes {
 		s.cutAndDispatch()
 	}
 	if s.arena == nil {
-		if s.free != nil {
-			s.arena = s.free.get()
-		} else {
-			s.arena = getSpillArena()
-			if cap(s.arena) < s.chunkBytes {
-				// Pooled arenas are sized for bulkSpillKeyChunkBytes; a sorter
-				// with a larger chunk size (deferredIndexSpillChunkBytes)
-				// allocates its full arena up front instead of append-doubling
-				// through it, and returns the small one to the pool.
-				putSpillArena(s.arena)
-				s.arena = make([]byte, 0, s.chunkBytes)
-			}
-		}
+		s.arena = s.free.get()
 		s.views = getSpillViews()
+	}
+	required := len(s.arena) + entryBytes
+	if required > cap(s.arena) {
+		grown := make([]byte, len(s.arena), max(s.chunkBytes, required))
+		copy(grown, s.arena)
+		s.arena = grown
 	}
 	keyOff := len(s.arena)
 	s.arena = append(s.arena, key...)
@@ -1063,11 +1054,7 @@ func (s *spillSorter) sortAndWriteChunk(arena []byte, views []kvView) {
 	if err := writeSortedSpillChunk(chunkPath, arena, views); err != nil {
 		s.setErr(err)
 	}
-	if s.free != nil {
-		s.free.put(arena)
-	} else {
-		putSpillArena(arena)
-	}
+	s.free.put(arena)
 	putSpillViews(views)
 }
 
