@@ -1,6 +1,7 @@
 package dotc1z
 
 import (
+	"errors"
 	"io"
 )
 
@@ -9,4 +10,28 @@ import (
 // You must close the resulting io.ReadCloser when you are done, do not forget to close the given io.Reader if necessary.
 func NewC1ZFileDecoder(f io.Reader, opts ...DecoderOption) (io.ReadCloser, error) {
 	return NewDecoder(f, opts...)
+}
+
+// C1ZFileCheckHeader reads len(C1ZFileHeader) bytes from the given io.ReadSeeker and compares them to C1ZFileHeader.
+// Returns true if the header is valid. Returns any errors from Read() or Seek().
+// If a nil error is returned, the given io.ReadSeeker will be pointing to the first byte of the stream, and is suitable
+// to be passed to NewC1ZFileDecoder.
+func C1ZFileCheckHeader(f io.ReadSeeker) (bool, error) {
+	// Read header
+	err := ReadHeader(f)
+
+	// Seek back to start
+	_, seekErr := f.Seek(0, 0)
+	if seekErr != nil {
+		return false, err
+	}
+
+	if err != nil {
+		if errors.Is(err, ErrInvalidFile) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return true, nil
 }
