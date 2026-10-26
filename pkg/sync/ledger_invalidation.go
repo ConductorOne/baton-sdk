@@ -20,12 +20,6 @@ import (
 // way. The artifact is kept (RFC 0009).
 var ErrActionInvalidationCapExceeded = errors.New("action invalidation cap exceeded")
 
-// ErrActionInvalidationUnsupported marks a sync on a store with no page
-// ledger (a sqlite c1z) whose connector asked for a restart. There is
-// nothing to commit a restart against, so the sync cannot finish;
-// pkg/tasks/c1api classifies it non-retryable like the cap.
-var ErrActionInvalidationUnsupported = errors.New("connector invalidated a page token but this store cannot restart actions")
-
 // ErrActionInvalidationMisclassified is a connector error carrying an
 // InvalidateAction detail on a call that cannot honor it: a status code the
 // retry or warning layers own, a non-paginated or local operation, or a
@@ -175,22 +169,6 @@ func wrapInvalidationCommitError(action *Action, invalidation *actionInvalidatio
 		return err
 	}
 	return &ActionInvalidationCapError{Action: *action, Cap: capErr, Cause: invalidation.cause}
-}
-
-// wrapUnsupportedInvalidation is the legacy (non-ledgered) path's answer to
-// the detail: the same classification as the ledgered path, and where that
-// path would restart, the connector's error unchanged in code and text
-// joined with the sentinel so the task layer stops resuming. Errors without
-// the detail pass through untouched.
-func wrapUnsupportedInvalidation(action *Action, err error) error {
-	_, present, classErr := classifyActionInvalidation(action, err)
-	switch {
-	case !present:
-		return err
-	case classErr != nil:
-		return classErr
-	}
-	return fmt.Errorf("%w: %s %s/%s: %w", ErrActionInvalidationUnsupported, action.Op.String(), action.ResourceTypeID, action.ResourceID, err)
 }
 
 func actionInvalidationLogFields(action *Action, detail *v2.InvalidateAction) []zap.Field {

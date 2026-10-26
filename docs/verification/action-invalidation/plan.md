@@ -238,13 +238,11 @@ Stated on the store, the artifact, and the connector call sequence.
   does the same number of batch operations as before; the restart branch
   adds one pending-item read and write already paid by the continuation
   branch. No new index, no new iterator.
-- **S11 Legacy path cannot restart and says so.** With `s.ledgered ==
-  false` (a store with no page ledger, which is a sqlite c1z), a status
-  error carrying the detail fails the sync with the connector's code and
-  text unchanged, joined with `ErrActionInvalidationUnsupported`;
-  `classifySyncError` marks it non-retryable. An error without the detail
-  is returned exactly as today. No restart is attempted: there is no
-  pending-work item to move.
+- **S11 Legacy path is untouched.** With `s.ledgered == false` (a store
+  with no page ledger, which is a sqlite c1z), `invokeActionPage` returns
+  the handler's error as it did before this change, detail or not. No
+  restart is attempted and no sentinel is joined; the sqlite write path
+  is being removed on its own branch (CO-008).
 
 ## 2. Failure properties and oracles (O#)
 
@@ -458,7 +456,7 @@ unreachable).
 | C22 | scrub removes the restart token; retain keeps it | O9 | P5 | bounded | 1 |
 | C23 | identity compare on scrubbed restarted row | O1 | 1 | bounded | 1 |
 | C24 | no-invalidation page commit cost unchanged | O11 | 1 | sampled | 1 |
-| C25 | legacy path: detail-absent unchanged; detail-present keeps code and text and carries `ErrActionInvalidationUnsupported` | O3 | P7 + 8 detail-absent controls | bounded | 1 |
+| C25 | legacy path: error returned unchanged (explicitly excluded, CO-008) | O3 | — | — | 0 |
 | C26 | transport differential | O5 | P3 | bounded | 1 |
 | C27 | formal model: restart transition preserves no-skip | I7 | model | bounded | 1 |
 | C32 | reference case completes end to end; control fails as today | O1, O2, O10 | P8 | bounded | 1 |
@@ -586,9 +584,6 @@ Inventory at the implementation under review (uncommitted on top of
   engine's `InvalidationCapError` to `ActionInvalidationCapError`, whose
   `Unwrap() []error` exposes the sentinel, the cap detail, and the
   connector's status.
-- **Legacy path.** `wrapUnsupportedInvalidation` wraps with `%w` on both
-  sides, so `errors.Is` finds the sentinel and `status.FromError` still
-  finds the connector's code and text.
 - **Defaults.** `defaultInvalidationPerItem = 5`, `defaultInvalidationPerSync
   = 100` (OQ-1); `WithActionInvalidationCaps` overrides them.
 
@@ -727,3 +722,12 @@ The plan is frozen at `87abf5ed`.
   item without `invalidations`, which resets the per-item cap for a sync
   resumed across SDK versions; recorded in the PR's rollout notes, not
   tested (such an SDK cannot restart, so the reset cannot compound).
+- **CO-008 (2026-10-26, PR review).** Owner decision: the sqlite write
+  path is being removed on a separate branch expected to land within
+  days, so this change does nothing on the legacy path. CO-004's
+  `ErrActionInvalidationUnsupported`, `wrapUnsupportedInvalidation`, the
+  `classifySyncError` arm, and `TestActionInvalidationLegacyStoreUnsupported`
+  are deleted; CO-007's first half is moot. S11 now says the legacy path
+  returns the handler's error unchanged; C25 is explicitly excluded; C33
+  covers the cap sentinel only. A sqlite c1z under a connector that
+  returns the detail behaves as it does on main today.

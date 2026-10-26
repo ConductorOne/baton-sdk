@@ -51,27 +51,22 @@ func TestClassifySyncErrorInvariantVerdictNonRetryable(t *testing.T) {
 }
 
 // C33: a sync that cannot finish because a connector kept invalidating page
-// tokens (the cap) or because the store cannot restart actions (a sqlite
-// c1z) is deterministic on the connector and the artifact. Both sentinels
-// map to ErrTaskNonRetryable through the production wrap shape; a connector
-// status without either stays retryable, and a misclassified detail stays
-// retryable too.
+// tokens (the cap) is deterministic on the connector and the artifact. The
+// sentinel maps to ErrTaskNonRetryable through the production wrap shape; a
+// connector status without it stays retryable, and a misclassified detail
+// stays retryable too.
 func TestClassifySyncErrorActionInvalidationNonRetryable(t *testing.T) {
-	for name, sentinel := range map[string]error{
-		"cap exceeded": sdkSync.ErrActionInvalidationCapExceeded,
-		"unsupported":  sdkSync.ErrActionInvalidationUnsupported,
-	} {
-		t.Run(name, func(t *testing.T) {
-			verdict := errors.Join(
-				fmt.Errorf("failed to sync: %w", fmt.Errorf("list-resources group/: %w: %w", sentinel, status.Error(codes.FailedPrecondition, "page token expired"))),
-				errors.New("close failed"),
-			)
-			got := classifySyncError(verdict)
-			require.ErrorIs(t, got, ErrTaskNonRetryable)
-			require.ErrorIs(t, got, sentinel)
-			require.Equal(t, codes.FailedPrecondition, status.Code(got), "the connector's status survives the mapping")
-		})
-	}
+	t.Run("cap exceeded", func(t *testing.T) {
+		sentinel := sdkSync.ErrActionInvalidationCapExceeded
+		verdict := errors.Join(
+			fmt.Errorf("failed to sync: %w", fmt.Errorf("list-resources group/: %w: %w", sentinel, status.Error(codes.FailedPrecondition, "page token expired"))),
+			errors.New("close failed"),
+		)
+		got := classifySyncError(verdict)
+		require.ErrorIs(t, got, ErrTaskNonRetryable)
+		require.ErrorIs(t, got, sentinel)
+		require.Equal(t, codes.FailedPrecondition, status.Code(got), "the connector's status survives the mapping")
+	})
 	t.Run("connector status without a sentinel stays retryable", func(t *testing.T) {
 		err := fmt.Errorf("failed to sync: %w", status.Error(codes.FailedPrecondition, "page token expired"))
 		got := classifySyncError(err)

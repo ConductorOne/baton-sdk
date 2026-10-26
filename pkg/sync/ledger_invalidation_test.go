@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	engine "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
@@ -281,63 +280,6 @@ func TestActionInvalidationMisclassifiedCodeFailsSync(t *testing.T) {
 	require.Equal(t, codes.InvalidArgument, status.Code(err))
 	require.Equal(t, []string{"", "T1"}, c.callsFor("group"))
 	require.Zero(t, invalidationCounter(t, f))
-}
-
-// C25: a store without a page ledger cannot restart. The detail turns the
-// connector's error into the non-retryable sentinel with code and text
-// intact; an error without the detail is returned as it was.
-func TestActionInvalidationLegacyStoreUnsupported(t *testing.T) {
-	open := func(t *testing.T) c1zstore.Store {
-		store, err := dotc1z.NewStore(t.Context(), filepath.Join(t.TempDir(), "legacy.c1z"), dotc1z.WithEngine(c1zstore.EngineSQLite))
-		require.NoError(t, err)
-		t.Cleanup(func() { require.NoError(t, store.Close(context.Background())) })
-		return store
-	}
-	t.Run("detail present", func(t *testing.T) {
-		c := newInvalidatingConnector([]string{"group"}, invalidateAlways(""))
-		s, err := NewSyncer(t.Context(), c, WithConnectorStore(open(t)), WithSkipEntitlementsAndGrants(true), WithWorkerCount(1))
-		require.NoError(t, err)
-		require.False(t, s.(*syncer).ledgered)
-		err = s.Sync(t.Context())
-		require.ErrorIs(t, err, ErrActionInvalidationUnsupported)
-		require.Equal(t, codes.FailedPrecondition, status.Code(err))
-		require.Contains(t, err.Error(), "page token expired")
-		_, present := pagination.InvalidateActionFromError(err)
-		require.True(t, present)
-		require.Equal(t, []string{"", "T1"}, c.callsFor("group"), "no restart on a legacy store")
-	})
-	t.Run("detail on a code the ledgered path would not honor", func(t *testing.T) {
-		c := newInvalidatingConnector([]string{"group"}, func(_, token string, _ int) error {
-			if token != "T1" {
-				return nil
-			}
-			detail, err := status.New(codes.InvalidArgument, "expired").WithDetails(v2.InvalidateAction_builder{}.Build())
-			if err != nil {
-				return err
-			}
-			return detail.Err()
-		})
-		s, err := NewSyncer(t.Context(), c, WithConnectorStore(open(t)), WithSkipEntitlementsAndGrants(true), WithWorkerCount(1))
-		require.NoError(t, err)
-		err = s.Sync(t.Context())
-		require.ErrorIs(t, err, ErrActionInvalidationMisclassified, "sqlite and pebble classify the same inputs the same way")
-		require.NotErrorIs(t, err, ErrActionInvalidationUnsupported)
-		require.Equal(t, codes.InvalidArgument, status.Code(err))
-	})
-	t.Run("detail absent", func(t *testing.T) {
-		plain := status.Error(codes.FailedPrecondition, "expired without detail")
-		c := newInvalidatingConnector([]string{"group"}, func(_, token string, _ int) error {
-			if token == "T1" {
-				return plain
-			}
-			return nil
-		})
-		s, err := NewSyncer(t.Context(), c, WithConnectorStore(open(t)), WithSkipEntitlementsAndGrants(true), WithWorkerCount(1))
-		require.NoError(t, err)
-		err = s.Sync(t.Context())
-		require.ErrorIs(t, err, plain)
-		require.NotErrorIs(t, err, ErrActionInvalidationUnsupported)
-	})
 }
 
 // I1: every (op, root or per-type, code, spawned, detail form) cell. Honored
