@@ -71,9 +71,14 @@ type closeWithoutContext interface {
 	Close() error
 }
 
+type taskMetrics interface {
+	RecordTaskFailure(context.Context, tasks.TaskType, time.Duration, error)
+	RecordTaskSuccess(context.Context, tasks.TaskType, time.Duration)
+}
+
 type builder struct {
 	ticketingEnabled        bool
-	m                       *metrics.M
+	m                       taskMetrics
 	nowFunc                 func() time.Time
 	clientSecret            *jose.JSONWebKey
 	sessionStore            sessions.SessionStore

@@ -209,8 +209,8 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 					return err
 				}
 				if rules.HasPattern() {
-					if _, err := regexp.CompilePOSIX(rules.GetPattern()); err != nil {
-						return fmt.Errorf("request schema field %q has invalid pattern: %w", name, err)
+					if _, err := regexp.Compile(rules.GetPattern()); err != nil {
+						return fmt.Errorf("request schema field %q has invalid pattern", name)
 					}
 				}
 			}
@@ -244,8 +244,8 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 				}
 			}
 			if rules != nil && rules.HasItemRules() && rules.GetItemRules().HasPattern() {
-				if _, err := regexp.CompilePOSIX(rules.GetItemRules().GetPattern()); err != nil {
-					return fmt.Errorf("request schema field %q has invalid item pattern: %w", name, err)
+				if _, err := regexp.Compile(rules.GetItemRules().GetPattern()); err != nil {
+					return fmt.Errorf("request schema field %q has invalid item pattern", name)
 				}
 			}
 		default:
@@ -546,7 +546,7 @@ func validateCredentialIssueFieldDefaults(schemaField *config.Field) error {
 	name := schemaField.GetName()
 	validate := func(kind string, value *structpb.Value) error {
 		if err := validateCredentialIssueRequestValue(schemaField, value); err != nil {
-			return fmt.Errorf("request schema field %q has invalid %s: %w", name, kind, err)
+			return fmt.Errorf("request schema field %q has invalid %s", name, kind)
 		}
 		return nil
 	}
@@ -624,7 +624,7 @@ func validateCredentialIssueFieldDefaults(schemaField *config.Field) error {
 			if len(candidate.value) > 0 {
 				structValue, err := credentialIssueConfigMapValue(candidate.value)
 				if err != nil {
-					return fmt.Errorf("request schema field %q has invalid %s: %w", name, candidate.kind, err)
+					return fmt.Errorf("request schema field %q has invalid %s", name, candidate.kind)
 				}
 				if err := validate(candidate.kind, structpb.NewStructValue(structValue)); err != nil {
 					return err
@@ -675,18 +675,10 @@ func ValidateCredentialIssueRequestData(schema *v2.CredentialIssueRequestSchema,
 	for _, schemaField := range schema.GetFields() {
 		fields[schemaField.GetName()] = schemaField
 	}
-	unknownName := ""
-	unknownFound := false
 	for name := range values {
 		if _, ok := fields[name]; !ok {
-			if !unknownFound || name < unknownName {
-				unknownName = name
-				unknownFound = true
-			}
+			return fmt.Errorf("request data contains unknown field")
 		}
-	}
-	if unknownFound {
-		return fmt.Errorf("request data contains unknown field %q", unknownName)
 	}
 	present := make(map[string]bool, len(values))
 	for _, schemaField := range schema.GetFields() {
@@ -793,7 +785,7 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 			return fmt.Errorf("request data field %q must match an advertised option", name)
 		}
 		if err := validateCredentialIssueStringRules(schemaField.GetStringField().GetRules(), kind.StringValue, name); err != nil {
-			return err
+			return fmt.Errorf("request data field %q violates its rules", name)
 		}
 	case config.Field_IntField_case:
 		kind, ok := value.GetKind().(*structpb.Value_NumberValue)
@@ -805,7 +797,7 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 		}
 		rules := cloneIntRulesForRequest(schemaField.GetIntField().GetRules())
 		if err := field.ValidateInt64Rules(rules, int64(kind.NumberValue), name); err != nil {
-			return err
+			return fmt.Errorf("request data field %q violates its rules", name)
 		}
 	case config.Field_BoolField_case:
 		kind, ok := value.GetKind().(*structpb.Value_BoolValue)
@@ -813,7 +805,7 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 			return fmt.Errorf("request data field %q must be a boolean", name)
 		}
 		if err := field.ValidateBoolRules(schemaField.GetBoolField().GetRules(), kind.BoolValue, name); err != nil {
-			return err
+			return fmt.Errorf("request data field %q violates its rules", name)
 		}
 	case config.Field_StringSliceField_case:
 		kind, ok := value.GetKind().(*structpb.Value_ListValue)
@@ -835,13 +827,13 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 		if rules != nil && rules.HasItemRules() {
 			for _, item := range items {
 				if err := validateCredentialIssueStringRules(rules.GetItemRules(), item, name); err != nil {
-					return err
+					return fmt.Errorf("request data field %q violates its rules", name)
 				}
 			}
 			rules.ClearItemRules()
 		}
 		if err := field.ValidateRepeatedStringRules(rules, items, name); err != nil {
-			return err
+			return fmt.Errorf("request data field %q violates its rules", name)
 		}
 	case config.Field_StringMapField_case:
 		kind, ok := value.GetKind().(*structpb.Value_StructValue)
@@ -857,7 +849,7 @@ func validateCredentialIssueRequestValue(schemaField *config.Field, value *struc
 			}
 		}
 		if err := field.ValidateStringMapRules(schemaField.GetStringMapField().GetRules(), kind.StructValue.AsMap(), name); err != nil {
-			return err
+			return fmt.Errorf("request data field %q violates its rules", name)
 		}
 	default:
 		return fmt.Errorf("request data field %q has unsupported type", name)
@@ -878,10 +870,17 @@ func validateCredentialIssueStringRules(rules *config.StringRules, value, name s
 	if (rules.HasLen() && length != rules.GetLen()) || (rules.HasMinLen() && length < rules.GetMinLen()) || (rules.HasMaxLen() && length > rules.GetMaxLen()) {
 		return fmt.Errorf("request data field %q has invalid string length", name)
 	}
+	if rules.HasPattern() {
+		pattern, err := regexp.Compile(rules.GetPattern())
+		if err != nil || !pattern.MatchString(value) {
+			return fmt.Errorf("request data field %q violates its pattern", name)
+		}
+	}
 	remaining := proto.Clone(rules).(*config.StringRules)
 	remaining.ClearLen()
 	remaining.ClearMinLen()
 	remaining.ClearMaxLen()
+	remaining.ClearPattern()
 	return field.ValidateStringRules(remaining, value, name)
 }
 

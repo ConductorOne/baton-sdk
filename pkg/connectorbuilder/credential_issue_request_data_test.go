@@ -7,10 +7,14 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -65,7 +69,7 @@ func TestValidateCredentialIssueRequestData(t *testing.T) {
 	require.NoError(t, ValidateCredentialIssueRequestData(nil, nil), "legacy descriptors accept legacy requests")
 	legacyData, err := structpb.NewStruct(map[string]any{"region": "us-east-1"})
 	require.NoError(t, err)
-	require.ErrorContains(t, ValidateCredentialIssueRequestData(nil, legacyData), `unknown field "region"`)
+	require.ErrorContains(t, ValidateCredentialIssueRequestData(nil, legacyData), "unknown field")
 
 	tests := []struct {
 		name      string
@@ -77,14 +81,14 @@ func TestValidateCredentialIssueRequestData(t *testing.T) {
 			mutate: func(data *structpb.Struct) {
 				data.GetFields()["provider_flag"] = structpb.NewBoolValue(true)
 			},
-			wantError: `unknown field "provider_flag"`,
+			wantError: "unknown field",
 		},
 		{
 			name: "empty unknown field name",
 			mutate: func(data *structpb.Struct) {
 				data.GetFields()[""] = structpb.NewStringValue("value")
 			},
-			wantError: `unknown field ""`,
+			wantError: "unknown field",
 		},
 		{
 			name: "missing required field",
@@ -121,7 +125,7 @@ func TestValidateCredentialIssueRequestData(t *testing.T) {
 			mutate: func(data *structpb.Struct) {
 				data.GetFields()["scopes"] = structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{structpb.NewStringValue("admin")}})
 			},
-			wantError: "value must be one of",
+			wantError: "violates its rules",
 		},
 		{
 			name: "integer must be integral",
@@ -142,21 +146,21 @@ func TestValidateCredentialIssueRequestData(t *testing.T) {
 			mutate: func(data *structpb.Struct) {
 				data.GetFields()["ttl_seconds"] = structpb.NewNumberValue(30)
 			},
-			wantError: "greater than or equal to 60",
+			wantError: "violates its rules",
 		},
 		{
 			name: "zero integer still validates rules",
 			mutate: func(data *structpb.Struct) {
 				data.GetFields()["ttl_seconds"] = structpb.NewNumberValue(0)
 			},
-			wantError: "greater than or equal to 60",
+			wantError: "violates its rules",
 		},
 		{
 			name: "string rule",
 			mutate: func(data *structpb.Struct) {
 				data.GetFields()["region"] = structpb.NewStringValue("USA")
 			},
-			wantError: "must match pattern",
+			wantError: "violates its rules",
 		},
 		{
 			name: "empty required list is rejected",
@@ -1308,7 +1312,7 @@ func TestCredentialIssueStringLengthsCountUnicodeCodePoints(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, ValidateCredentialIssueRequestData(schema, data))
 	data.GetFields()["words"] = structpb.NewListValue(&structpb.ListValue{Values: []*structpb.Value{structpb.NewStringValue("é界")}})
-	require.ErrorContains(t, ValidateCredentialIssueRequestData(schema, data), "invalid string length")
+	require.ErrorContains(t, ValidateCredentialIssueRequestData(schema, data), "violates its rules")
 }
 
 func TestCredentialIssueRejectsUnknownNestedRule(t *testing.T) {
@@ -1361,4 +1365,101 @@ func TestCredentialIssueRejectsOversizedSchema(t *testing.T) {
 		config.Field_builder{Name: strings.Repeat("x", maxCredentialIssueRequestDataBytes), StringField: &config.StringField{}}.Build(),
 	}}.Build()
 	require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "request schema must not exceed")
+}
+
+type recordingTaskMetrics struct {
+	taskMetrics
+	failure error
+}
+
+func (m *recordingTaskMetrics) RecordTaskFailure(ctx context.Context, task tasks.TaskType, duration time.Duration, err error) {
+	m.failure = err
+	m.taskMetrics.RecordTaskFailure(ctx, task, duration, err)
+}
+
+func TestIssueCredentialDoesNotEchoInputInRPCOrFailureMetric(t *testing.T) {
+	const stringSentinel = "sentinel-credential-string"
+	const listSentinel = "sentinel-list-entry"
+	const unknownSentinel = "sentinel-unknown-key"
+	const numberSentinel = "8675309"
+	ctx := context.Background()
+	cases := []struct {
+		name     string
+		field    *config.Field
+		values   map[string]any
+		want     codes.Code
+		sentinel string
+	}{
+		{"string", config.Field_builder{Name: "value", StringField: config.StringField_builder{Rules: config.StringRules_builder{Eq: proto.String("allowed")}.Build()}.Build()}.Build(), map[string]any{"value": stringSentinel}, codes.InvalidArgument, stringSentinel},
+		{"list", config.Field_builder{Name: "value", StringSliceField: config.StringSliceField_builder{Rules: config.RepeatedStringRules_builder{Unique: true}.Build()}.Build()}.Build(), map[string]any{"value": []any{listSentinel, listSentinel}}, codes.InvalidArgument, listSentinel},
+		{"number", config.Field_builder{Name: "value", IntField: config.IntField_builder{Rules: config.Int64Rules_builder{Eq: proto.Int64(1)}.Build()}.Build()}.Build(), map[string]any{"value": 8675309}, codes.InvalidArgument, numberSentinel},
+		{"RE2 scalar mismatch", config.Field_builder{Name: "value", StringField: config.StringField_builder{Rules: config.StringRules_builder{Pattern: proto.String(`^\d+$`)}.Build()}.Build()}.Build(), map[string]any{"value": stringSentinel}, codes.InvalidArgument, stringSentinel},
+		{"RE2 list mismatch", config.Field_builder{Name: "value", StringSliceField: config.StringSliceField_builder{Rules: config.RepeatedStringRules_builder{ItemRules: config.StringRules_builder{Pattern: proto.String(`^\d+$`)}.Build()}.Build()}.Build()}.Build(), map[string]any{"value": []any{listSentinel}}, codes.InvalidArgument, listSentinel},
+		{"unknown key", config.Field_builder{Name: "value", StringField: &config.StringField{}}.Build(), map[string]any{unknownSentinel: "x"}, codes.InvalidArgument, unknownSentinel},
+		{"invalid default", config.Field_builder{Name: "value", StringField: config.StringField_builder{DefaultValue: stringSentinel, Rules: config.StringRules_builder{Eq: proto.String("allowed")}.Build()}.Build()}.Build(), map[string]any{}, codes.Internal, stringSentinel},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			issuer := newTestCredentialIssuer("service_account")
+			issuer.capabilityDetails = v2.CredentialDetailsCredentialIssue_builder{Options: []*v2.CredentialIssueOptionDescriptor{
+				v2.CredentialIssueOptionDescriptor_builder{Option: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+					ResourceMode: v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_DISCOVERABLE, SecretResourceTypeId: "secret",
+					RequestSchema: v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{tc.field}}.Build()}.Build(),
+			}, PreferredOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY}.Build()
+			connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{issuer, newTestCredentialSecretDeleter()}))
+			require.NoError(t, err)
+			builder := connector.(*builder)
+			metrics := &recordingTaskMetrics{taskMetrics: builder.m}
+			builder.m = metrics
+			data, err := structpb.NewStruct(tc.values)
+			require.NoError(t, err)
+			_, err = connector.IssueCredential(ctx, v2.IssueCredentialRequest_builder{
+				IdentityId:        v2.ResourceId_builder{ResourceType: "service_account", Resource: "sa-1"}.Build(),
+				CredentialOptions: v2.CredentialIssueOptions_builder{SecretResourceTypeId: "secret", ApiKey: &v2.CredentialIssueOptions_ApiKey{}}.Build(),
+				EncryptionConfigs: []*v2.EncryptionConfig{newIssueEncryptionConfig(t)}, RequestId: "no-echo", RequestData: data,
+			}.Build())
+			require.Equal(t, tc.want, status.Code(err))
+			require.NotContains(t, err.Error(), tc.sentinel)
+			require.Error(t, metrics.failure)
+			require.NotContains(t, metrics.failure.Error(), tc.sentinel)
+			require.Zero(t, issuer.issueCalls)
+		})
+	}
+}
+
+func TestCredentialIssueRE2Patterns(t *testing.T) {
+	for _, list := range []bool{false, true} {
+		name := "scalar"
+		if list {
+			name = "list item"
+		}
+		t.Run(name, func(t *testing.T) {
+			makeField := func(pattern string) *config.Field {
+				rules := config.StringRules_builder{Pattern: proto.String(pattern)}.Build()
+				if list {
+					return config.Field_builder{Name: "value", StringSliceField: config.StringSliceField_builder{Rules: config.RepeatedStringRules_builder{ItemRules: rules}.Build()}.Build()}.Build()
+				}
+				return config.Field_builder{Name: "value", StringField: config.StringField_builder{Rules: rules}.Build()}.Build()
+			}
+			schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{makeField(`^\d+$`)}}.Build()
+			require.NoError(t, ValidateCredentialIssueRequestSchema(schema))
+			value := any("123")
+			if list {
+				value = []any{"123"}
+			}
+			data, err := structpb.NewStruct(map[string]any{"value": value})
+			require.NoError(t, err)
+			require.NoError(t, ValidateCredentialIssueRequestData(schema, data))
+			if list {
+				value = []any{"not-digits"}
+			} else {
+				value = "not-digits"
+			}
+			data, err = structpb.NewStruct(map[string]any{"value": value})
+			require.NoError(t, err)
+			require.ErrorContains(t, ValidateCredentialIssueRequestData(schema, data), "violates its rules")
+			bad := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{makeField("[")}}.Build()
+			require.ErrorContains(t, ValidateCredentialIssueRequestSchema(bad), "invalid")
+		})
+	}
 }
