@@ -69,6 +69,11 @@ func (s *syncer) restoreLedgerStateWithFacts(ctx context.Context, store c1zstore
 			count.WarningCount = value
 			run.actionCounts[op] = count
 		}
+		if op, ok := strings.CutPrefix(key, ledgerInvalidationsPrefix); ok {
+			count := run.actionCounts[op]
+			count.InvalidationCount = value
+			run.actionCounts[op] = count
+		}
 	}
 	stats := newRunStats()
 	stats.stepDurationsMs = maps.Clone(counters.StepDurationsMs)

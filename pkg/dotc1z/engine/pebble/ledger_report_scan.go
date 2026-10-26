@@ -29,7 +29,7 @@ type ledgerReportProjected struct {
 	writes                                         ledgerReportWrites
 	scope                                          c1zstore.LedgerActionIdentity
 	written, pageMS, connectorMS, waitMS, children uint64
-	terminal, paginationKnown                      bool
+	terminal, paginationKnown, restarted           bool
 }
 
 func ledgerReportFields(data []byte, visit func(protowire.Number, protowire.Type, []byte) error) error {
@@ -151,7 +151,7 @@ func ledgerReportProject(data []byte) (ledgerReportProjected, error) {
 			case 4:
 				row.children++
 			}
-		case 7, 8, 9, 10, 13, 14, 15, 16, 18, 19, 20, 21, 22:
+		case 7, 8, 9, 10, 13, 14, 15, 16, 18, 19, 20, 21, 22, 26:
 			if typ != protowire.VarintType {
 				return errors.New("invalid report row numeric field")
 			}
@@ -161,6 +161,8 @@ func ledgerReportProject(data []byte) (ledgerReportProjected, error) {
 				counts[number-7] = n
 			case 13:
 				scrubbed = n != 0
+			case 26:
+				row.restarted = n != 0
 			case 14:
 				row.pageMS = n
 			case 15:
@@ -196,9 +198,11 @@ func ledgerReportProject(data []byte) (ledgerReportProjected, error) {
 	}
 	row.writes = ledgerReportWrites{ResourceTypes: counts[0], Resources: counts[1], Entitlements: counts[2], Grants: counts[3]}
 	row.paginationKnown = !scrubbed || hashPresent
-	row.terminal = !hasNext
+	// A restarted row's next token is where the item resumes, so an empty
+	// one (or its hash) is not a finish.
+	row.terminal = !hasNext && !row.restarted
 	if scrubbed {
-		row.terminal = hashPresent && hashEmpty
+		row.terminal = hashPresent && hashEmpty && !row.restarted
 	}
 	return row, nil
 }
@@ -227,6 +231,8 @@ func (g *ledgerReportGroup) add(row ledgerReportProjected) {
 	switch {
 	case !row.paginationKnown:
 		c.PaginationUnknownPages++
+	case row.restarted:
+		c.Restarts++
 	case row.terminal:
 		c.TerminalPages++
 	default:
@@ -358,9 +364,12 @@ func ledgerReportScan(ctx context.Context, iter ledgerReportIterator,
 			result.ConnectorMs += row.connectorMS
 			result.ReportedWaitMs += row.waitMS
 			result.Children += row.children
-			if !row.paginationKnown {
+			switch {
+			case !row.paginationKnown:
 				result.PaginationUnknownPages++
-			} else if !row.terminal {
+			case row.restarted:
+				result.Restarts++
+			case !row.terminal:
 				result.Continuations++
 			}
 		}

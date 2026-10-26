@@ -161,6 +161,10 @@ func (a Action) MarshalLogObject(enc zapcore.ObjectEncoder) error {
 type ActionCount struct {
 	CompletedCount uint64 `json:"completed_count,omitempty"`
 	WarningCount   uint64 `json:"warning_count,omitempty"`
+	// Restart pages committed for this op after the connector invalidated
+	// a page token. Not completions. Not on the token: restored from the
+	// ledger's counters on resume, and always zero on the legacy path.
+	InvalidationCount uint64 `json:"-"`
 }
 
 func makeActionID(id uint64) string {
@@ -546,4 +550,28 @@ func (r *runState) getActionCount(op ActionOp) ActionCount {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.actionCounts[op.String()]
+}
+
+func (r *runState) recordActionInvalidation(op ActionOp) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	count := r.actionCounts[op.String()]
+	count.InvalidationCount++
+	r.actionCounts[op.String()] = count
+}
+
+// actionInvalidationCounts returns the per-op restart tally and its total.
+func (r *runState) actionInvalidationCounts() (map[string]uint64, uint64) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var total uint64
+	byOp := make(map[string]uint64)
+	for op, count := range r.actionCounts {
+		if count.InvalidationCount == 0 {
+			continue
+		}
+		byOp[op] = count.InvalidationCount
+		total += count.InvalidationCount
+	}
+	return byOp, total
 }

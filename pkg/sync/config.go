@@ -25,6 +25,8 @@ import (
 // the store, config only has to be passed again.
 type syncConfig struct {
 	retainLedgerTokens                  bool
+	invalidationCapPerItem              uint64
+	invalidationCapPerSync              uint64
 	ledgerDebug                         bool
 	c1zPath                             string
 	externalResourceC1ZPath             string

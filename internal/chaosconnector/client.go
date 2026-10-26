@@ -271,6 +271,18 @@ func (c *faultConn) applyPhase(
 	response proto.Message,
 ) error {
 	op.Phase = phase
+	if expiry := c.run.expiry(); expiry != nil {
+		switch phase {
+		case PhaseBeforeCall:
+			if err := expiry.check(*op); err != nil {
+				c.run.Trace().Record(TraceEvent{Operation: *op, RuleID: "token-expiry", Effect: EffectInvalidateAction, Outcome: OutcomeInjected, Error: err.Error()})
+				return err
+			}
+		case PhaseBeforeResponse:
+			expiry.record(response)
+		case PhaseAfterDelegate:
+		}
+	}
 	fired := c.run.Runtime().Match(*op)
 	for _, match := range fired {
 		for _, effect := range match.Effects {
@@ -287,7 +299,7 @@ func (c *faultConn) applyPhase(
 				if err != nil {
 					return err
 				}
-			case EffectError, EffectDelay, EffectBlock, EffectCancel, EffectLoseResponse, EffectCrash:
+			case EffectError, EffectDelay, EffectBlock, EffectCancel, EffectLoseResponse, EffectCrash, EffectInvalidateAction:
 				if err := c.run.Runtime().ApplyControlEffects(ctx, *op, []FiredRule{{
 					ID:      match.ID,
 					Effects: []Effect{effect},
