@@ -20,10 +20,15 @@ type ErrConfigurationMissingFields struct {
 }
 
 func ValidateIntRules(r *v1_conf.Int64Rules, vInt int, name string) error {
+	return ValidateInt64Rules(r, int64(vInt), name)
+}
+
+// ValidateInt64Rules applies the shared Int64Rules contract without narrowing
+// the value to the current platform's int width.
+func ValidateInt64Rules(r *v1_conf.Int64Rules, v int64, name string) error {
 	if r == nil {
 		return nil
 	}
-	v := int64(vInt)
 	if r.GetIsRequired() && v == 0 {
 		return fmt.Errorf("field %s of type int is marked as required but it has a zero-value", name)
 	}
