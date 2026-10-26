@@ -171,6 +171,9 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 	if schema == nil {
 		return nil
 	}
+	if proto.Size(schema) > maxCredentialIssueRequestDataBytes {
+		return fmt.Errorf("request schema must not exceed %d bytes", maxCredentialIssueRequestDataBytes)
+	}
 	if credentialIssueHasUnknownFields(schema.ProtoReflect()) {
 		return fmt.Errorf("request schema contains unsupported fields")
 	}

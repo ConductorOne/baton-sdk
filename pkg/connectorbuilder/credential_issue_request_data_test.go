@@ -1355,3 +1355,10 @@ func TestIssueCredentialRejectsInvalidDataBeforeIssuer(t *testing.T) {
 		})
 	}
 }
+
+func TestCredentialIssueRejectsOversizedSchema(t *testing.T) {
+	schema := v2.CredentialIssueRequestSchema_builder{Fields: []*config.Field{
+		config.Field_builder{Name: strings.Repeat("x", maxCredentialIssueRequestDataBytes), StringField: &config.StringField{}}.Build(),
+	}}.Build()
+	require.ErrorContains(t, ValidateCredentialIssueRequestSchema(schema), "request schema must not exceed")
+}
