@@ -96,6 +96,55 @@ func TestInvalidateActionFromErrorMatchesWire(t *testing.T) {
 	require.False(t, present, "another status first")
 }
 
+// SurfaceRestartAction leaves alone every error the wire already carries
+// correctly, and lifts a RestartActionError from behind another status so
+// the serialized status is FailedPrecondition with the detail and the
+// original message, still unwrapping to the original error.
+func TestSurfaceRestartAction(t *testing.T) {
+	typed := NewRestartActionError("R", "expired")
+	other := status.Error(codes.Unavailable, "http 503")
+	for name, err := range map[string]error{
+		"nil":                   nil,
+		"plain":                 errors.New("plain"),
+		"typed":                 typed,
+		"wrapped typed":         fmt.Errorf("list: %w", typed),
+		"flattened status":      status.Convert(typed).Err(),
+		"joined before status":  errors.Join(typed, other),
+		"status without detail": other,
+		"typed nil":             fmt.Errorf("list: %w", (*RestartActionError)(nil)),
+	} {
+		t.Run("unchanged/"+name, func(t *testing.T) {
+			if err == nil {
+				require.NoError(t, SurfaceRestartAction(nil))
+				return
+			}
+			require.Same(t, err, SurfaceRestartAction(err))
+		})
+	}
+	for name, err := range map[string]error{
+		"joined after status":   errors.Join(other, typed),
+		"wrapped behind status": fmt.Errorf("list: %w", errors.Join(other, typed)),
+		"behind two statuses":   errors.Join(status.Error(codes.Internal, "first"), other, typed),
+	} {
+		t.Run("surfaced/"+name, func(t *testing.T) {
+			_, before := RestartActionFromError(err)
+			require.False(t, before)
+			surfaced := SurfaceRestartAction(err)
+			require.ErrorIs(t, surfaced, typed)
+			require.ErrorIs(t, surfaced, other)
+			require.Equal(t, err.Error(), surfaced.Error())
+			wire := status.Convert(surfaced)
+			require.Equal(t, codes.FailedPrecondition, wire.Code())
+			require.Equal(t, err.Error(), wire.Message())
+			detail, present := RestartActionFromError(wire.Err())
+			require.True(t, present)
+			require.Equal(t, "R", detail.GetRestartPageToken())
+			require.Equal(t, "expired", detail.GetReason())
+			require.Same(t, surfaced, SurfaceRestartAction(surfaced), "idempotent")
+		})
+	}
+}
+
 func mustDetail(t *testing.T, code codes.Code, restart, reason string) error {
 	t.Helper()
 	st, err := status.New(code, reason).WithDetails(v2.RestartAction_builder{RestartPageToken: restart, Reason: reason}.Build())

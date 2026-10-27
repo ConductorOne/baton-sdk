@@ -3,6 +3,7 @@ package connectorbuilder
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
@@ -40,9 +43,22 @@ func (s *failingListSyncer) StaticEntitlements(context.Context, resource.SyncOpA
 	return nil, nil, s.fail
 }
 
+// restartErrorShapes are the ways a connector returns the restart error:
+// bare, under %w, and behind another status error, which on its own would
+// serialize as that status and lose the detail.
+var restartErrorShapes = map[string]error{
+	"bare":    pagination.NewRestartActionError("R", "expired"),
+	"wrapped": fmt.Errorf("list groups: %w", pagination.NewRestartActionError("R", "expired")),
+	"behind uhttp.WrapErrors": uhttp.WrapErrors(codes.Unavailable, "503 Service Unavailable",
+		pagination.NewRestartActionError("R", "expired")),
+	"joined after a status": errors.Join(status.Error(codes.Internal, "http 400"), pagination.NewRestartActionError("R", "expired")),
+}
+
 // A list call that invalidates its page token clears the uhttp caches, so
 // the restart page is fetched from the provider instead of replayed from a
-// cached 200. Any other list error leaves the caches alone.
+// cached 200, and the detail reaches the wire as FailedPrecondition in
+// every shape of restartErrorShapes. Any other list error leaves the
+// caches alone.
 func TestListCallInvalidationClearsHTTPCaches(t *testing.T) {
 	ctx := t.Context()
 	var hits atomic.Int32
@@ -100,17 +116,22 @@ func TestListCallInvalidationClearsHTTPCaches(t *testing.T) {
 				get()
 				require.Equal(t, before, hits.Load(), "cached")
 			})
-			t.Run("invalidation clears the cache", func(t *testing.T) {
-				syncer := &failingListSyncer{testResourceSyncerV2Simple: testResourceSyncerV2Simple{resourceType: resourceType}, fail: pagination.NewRestartActionError("", "expired")}
-				connector, err := NewConnector(ctx, newTestConnectorV2([]ResourceSyncerV2{syncer}))
-				require.NoError(t, err)
-				err = call(ctx, connector)
-				_, invalidates := pagination.RestartActionFromError(err)
-				require.True(t, invalidates, "the detail survives the builder's wrap: %v", err)
-				before := hits.Load()
-				get()
-				require.Equal(t, before+1, hits.Load(), "fetched again")
-			})
+			for shape, fail := range restartErrorShapes {
+				t.Run("restart "+shape+" clears the cache", func(t *testing.T) {
+					syncer := &failingListSyncer{testResourceSyncerV2Simple: testResourceSyncerV2Simple{resourceType: resourceType}, fail: fail}
+					connector, err := NewConnector(ctx, newTestConnectorV2([]ResourceSyncerV2{syncer}))
+					require.NoError(t, err)
+					err = call(ctx, connector)
+					wire := status.Convert(err)
+					require.Equal(t, codes.FailedPrecondition, wire.Code(), "%v", err)
+					detail, restarts := pagination.RestartActionFromError(wire.Err())
+					require.True(t, restarts, "the detail reaches the wire: %v", err)
+					require.Equal(t, "R", detail.GetRestartPageToken())
+					before := hits.Load()
+					get()
+					require.Equal(t, before+1, hits.Load(), "fetched again")
+				})
+			}
 		})
 	}
 }

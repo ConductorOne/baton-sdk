@@ -913,3 +913,28 @@ The plan is frozen at `87abf5ed`.
   Unchanged: `SetRestart`, `LedgerRow.Restarted`, report `restart_pages`.
   No behavior changed; the persisted counter key and work-item JSON field
   are renamed because nothing has shipped with the old names.
+- **CO-019 (2026-10-27, post-merge).** CO-017 (2) made the detail's
+  wire form a correctness requirement on the connector author: behind
+  `uhttp.WrapErrors` or `errors.Join(status, typed)` the restart was
+  lost, and with an `Unavailable` wrapper the syncer retried the dead
+  token until the task deadline. The repair moves to where the error
+  becomes a gRPC status. `pagination.SurfaceRestartAction(err)` returns
+  `err` unchanged when `RestartActionFromError` already sees the detail,
+  and otherwise, when `errors.As` finds a `RestartActionError` anywhere
+  in the chain, an error whose status is FailedPrecondition with the
+  detail and `err`'s full message, unwrapping to `err`. The four list
+  handlers in `connectorbuilder` call it before `RecordTaskFailure` and
+  the cache clear. `RestartActionFromError` and `classifyRestartRequest`
+  are unchanged, so the in-process and wire answers still agree; the
+  restart's own code wins over the outer code because a
+  `RestartActionError` has no other reading. Tests:
+  `TestSurfaceRestartAction` (unchanged set, surfaced set, idempotent);
+  `TestListCallInvalidationClearsHTTPCaches` and
+  `TestActionInvalidationThroughHTTPCache` now run four shapes (bare,
+  `%w`, `uhttp.WrapErrors(Unavailable, …)`, `errors.Join(Internal, …)`)
+  through the builder and real gRPC. Planted (the four calls removed):
+  both behind-status shapes fail the builder test on every op, the
+  joined shape fails the sync, and the `WrapErrors` shape does not
+  finish inside a 40s test budget. A hand-rolled gRPC server outside
+  `connectorbuilder` still has to call `SurfaceRestartAction` or return
+  the error bare; the godoc says so.
