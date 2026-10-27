@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"filippo.io/hpke"
-	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwe"
@@ -26,8 +25,16 @@ type typedIssuer struct {
 }
 
 func (i *typedIssuer) IssueCapabilityDetails(context.Context) (*v2.CredentialDetailsCredentialIssue, annotations.Annotations, error) {
-	d := v2.CredentialIssueOptionDescriptor_builder{Option: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY, ResourceMode: v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_DISCOVERABLE, SecretResourceTypeId: "secret", SecretContentType: proto.String(i.contentType), Scopes: []string{"read"}, RequestSchema: testCredentialIssueRequestSchema()}.Build()
-	return v2.CredentialDetailsCredentialIssue_builder{Options: []*v2.CredentialIssueOptionDescriptor{d}, PreferredOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY}.Build(), nil, nil
+	d := v2.CredentialIssueOptionDescriptor_builder{
+		Option:               v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+		ResourceMode:         v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_DISCOVERABLE,
+		SecretResourceTypeId: "secret", SecretContentType: proto.String(i.contentType),
+		Scopes: []string{"read"}, RequestSchema: testCredentialIssueRequestSchema(),
+	}.Build()
+	return v2.CredentialDetailsCredentialIssue_builder{
+		Options:         []*v2.CredentialIssueOptionDescriptor{d},
+		PreferredOption: v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_API_KEY,
+	}.Build(), nil, nil
 }
 func (i *typedIssuer) Issue(ctx context.Context, input *CredentialIssueInput) (*CredentialIssueOutput, error) {
 	i.input = input
@@ -94,7 +101,12 @@ func TestNativeTypedProducerAndContext(t *testing.T) {
 	}
 }
 func TestNativeTypedRejectsContextBeforeIssue(t *testing.T) {
-	for _, aad := range []string{"", `{"purpose":"c1/fk-credential-delivery","version":1,"content_type":"generic"}`, `{"purpose":"c1/fk-credential-delivery","version":1,"content_type":"password_v2","content_type":"password_v2"}`, `{"purpose":"wrong","version":1,"content_type":"password_v2"}`} {
+	for _, aad := range []string{
+		"", `{"purpose":"c1/fk-credential-delivery","version":1,"content_type":"generic"}`,
+		`{"purpose":"c1/fk-credential-delivery","version":1,"content_type":"password_v2","content_type":"password_v2"}`,
+		`{"purpose":"wrong","version":1,"content_type":"password_v2"}`,
+		`{"purpose":"c1/fk-credential-delivery","version":2,"content_type":"password_v2"}`,
+	} {
 		t.Run(aad, func(t *testing.T) {
 			issuer := &typedIssuer{scriptedCredentialIssuer: newScriptedCredentialIssuer("service_account"), contentType: "password_v2"}
 			connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{issuer, newTestCredentialSecretDeleter()}))
@@ -115,7 +127,6 @@ func TestNativeRequestRejectsOutputTypeMarker(t *testing.T) {
 	schema := testCredentialIssueRequestSchema()
 	schema.GetFields()[0].SetSecretContentType("password_v2")
 	require.Error(t, ValidateCredentialIssueRequestSchema(schema))
-	_ = config.Field{}
 }
 
 func TestNativeTypedInvalidProducerFailsAfterIssue(t *testing.T) {

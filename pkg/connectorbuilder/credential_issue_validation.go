@@ -3,7 +3,6 @@ package connectorbuilder
 import (
 	"errors"
 	"fmt"
-	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"math"
 	"regexp"
 	"slices"
@@ -14,6 +13,7 @@ import (
 
 	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
