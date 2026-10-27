@@ -93,6 +93,14 @@ the named test and did):
   the kill result cannot vary by op), type-scoped entitlements and
   grants, and the takeover resumer (one process holds the pebble
   directory; the fence is tested at the engine).
+- The HTTP layer: `TestActionInvalidationThroughHTTPCache` runs the
+  reference case with a built connector listing through `uhttp`
+  (response cache on) over in-memory gRPC against an `httptest` provider
+  that expires its page-two token once. The sync finishes with every
+  group; page one reaches the provider twice; one restart counted.
+  Disabling the cache clear in `connectorbuilder` reproduces the
+  reported failure: five restarts replayed from cache, then the per-item
+  cap (CO-017).
 - I3: the Lambda transport cell.
 - I5: the soak.
 - The decorrelated implementation read and the independent evidence audit

@@ -853,7 +853,12 @@ The plan is frozen at `87abf5ed`.
   carries the detail (`clearHTTPCachesOnInvalidation`, four call sites;
   `TestListCallInvalidationClearsHTTPCaches` drives a real `uhttp`
   client against an `httptest` server per op, with a control error that
-  keeps the cache; planted per call site). (2) `InvalidateActionFromError`
+  keeps the cache; planted per call site). The end-to-end case is
+  `TestActionInvalidationThroughHTTPCache`: a built connector listing
+  through `uhttp` over in-memory gRPC against an `httptest` provider
+  that expires its page-two token; the sync completes, page one is
+  fetched twice, and with the clear disabled the run ends at the
+  per-item cap after five cached replays. (2) `InvalidateActionFromError`
   found the typed error anywhere in the tree, while a gRPC server
   serializes only the first status carrier, so an error behind
   `uhttp.WrapErrors` or `errors.Join(status, typed)` restarted in a
