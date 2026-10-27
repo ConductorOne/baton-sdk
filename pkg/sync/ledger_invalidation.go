@@ -99,6 +99,29 @@ func fromActionListCall(err error) bool {
 	return errors.As(err, &marked)
 }
 
+// misclassifiedInvalidationError names the cell and wraps the connector's
+// error. Its own status is Internal so the connector's code does not reach
+// isWarning (NotFound finishes the action with a warning) or
+// retry.ShouldWaitAndRetry (Unavailable, DeadlineExceeded) in the callers
+// of invokeActionPage; the connector's status is still reachable through
+// Unwrap.
+type misclassifiedInvalidationError struct {
+	cell  string
+	cause error
+}
+
+func (e *misclassifiedInvalidationError) Error() string {
+	return ErrActionInvalidationMisclassified.Error() + ": " + e.cell + ": " + e.cause.Error()
+}
+
+func (e *misclassifiedInvalidationError) Unwrap() []error {
+	return []error{ErrActionInvalidationMisclassified, e.cause}
+}
+
+func (e *misclassifiedInvalidationError) GRPCStatus() *status.Status {
+	return status.New(codes.Internal, e.Error())
+}
+
 // classifyActionInvalidation returns the InvalidateAction detail err
 // carries, whether one is present, and, when this action cannot honor it,
 // an error that names the cell and wraps err.
@@ -110,8 +133,8 @@ func classifyActionInvalidation(action *Action, err error) (*v2.InvalidateAction
 	code := status.Code(err)
 	ownCall := fromActionListCall(err)
 	if !honorsInvalidationCode(code) || !honorsActionInvalidation(action) || action.Spawned || !ownCall {
-		return detail, true, fmt.Errorf("%w: op=%s resource_type=%q code=%s spawned=%t own_list_call=%t: %w",
-			ErrActionInvalidationMisclassified, action.Op.String(), action.ResourceTypeID, code.String(), action.Spawned, ownCall, err)
+		cell := fmt.Sprintf("op=%s resource_type=%q code=%s spawned=%t own_list_call=%t", action.Op.String(), action.ResourceTypeID, code.String(), action.Spawned, ownCall)
+		return detail, true, &misclassifiedInvalidationError{cell: cell, cause: err}
 	}
 	return detail, true, nil
 }

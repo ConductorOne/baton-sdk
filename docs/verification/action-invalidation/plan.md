@@ -95,7 +95,10 @@ change order.
   Rationale: `retry.ShouldWaitAndRetry` retries `Unavailable` and
   `DeadlineExceeded`; `isWarning` completes `NotFound` actions with a
   warning. The detail must not ride a code that another layer already
-  owns.
+  owns. The classification error therefore reports its own status
+  (`Internal`), not the connector's: `invokeActionPage`'s callers run
+  `isWarning` and `ShouldWaitAndRetry` on what it returns, and the
+  connector's code must not reach them (CO-010).
 - Stage 1 honors the detail on non-spawned work items for the paginated
   list ops: `SyncResourceTypesOp`, `SyncResourcesOp`, `SyncEntitlementsOp`,
   `SyncGrantsOp`, `SyncStaticEntitlementsOp`. On a `Spawned` item or any
@@ -748,3 +751,17 @@ The plan is frozen at `87abf5ed`.
   end case. The same review noted that the hosted full-sync task removes
   its temp c1z on every failure (pre-existing); S6's retention sentence
   now says so.
+- **CO-010 (2026-10-27, PR review).** Automated review of a61d84de: the
+  classification error wrapped the connector's status with `%w`, so
+  `status.Code` on it was the connector's code. `syncOneAction` and the
+  root cases in `parallel_syncer.go` run `isWarning` and
+  `ShouldWaitAndRetry` on `invokeActionPage`'s return, so a detail on
+  `NotFound` finished the action with a warning and the sync succeeded
+  (confirmed by planting: the sync ended in "too many warnings" instead
+  of the classification error), and a detail on `Unavailable` or
+  `DeadlineExceeded` was retried. `misclassifiedInvalidationError` now
+  reports `Internal` from its own `GRPCStatus` and exposes the sentinel
+  and the connector's error through `Unwrap`. The table asserts
+  `Internal`, `!isWarning`, and `!ShouldWaitAndRetry` on every
+  misclassified cell; `TestActionInvalidationMisclassifiedNotFoundFailsNotWarns`
+  is the end to end case on grants, the op whose caller allows warnings.

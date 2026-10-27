@@ -20,6 +20,7 @@ import (
 	engine "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
+	"github.com/conductorone/baton-sdk/pkg/retry"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
@@ -279,7 +280,8 @@ func TestActionInvalidationMisclassifiedCodeFailsSync(t *testing.T) {
 	s := newInvalidationSyncer(t, f, c)
 	err := s.Sync(t.Context())
 	require.ErrorIs(t, err, ErrActionInvalidationMisclassified)
-	require.Equal(t, codes.InvalidArgument, status.Code(err))
+	require.Equal(t, codes.Internal, status.Code(err), "the connector's code does not reach the callers of invokeActionPage")
+	require.Contains(t, err.Error(), "code=InvalidArgument")
 	require.Equal(t, []string{"", "T1"}, c.callsFor("group"))
 	require.Zero(t, invalidationCounter(t, f))
 }
@@ -337,7 +339,10 @@ func TestClassifyActionInvalidationTable(t *testing.T) {
 							} else {
 								require.ErrorIs(t, classErr, ErrActionInvalidationMisclassified, name)
 								require.ErrorIs(t, classErr, err, name)
-								require.Equal(t, code, status.Code(classErr), name)
+								require.Equal(t, codes.Internal, status.Code(classErr), name)
+								require.False(t, isWarning(t.Context(), classErr), name)
+								require.False(t, retry.NewRetryer(t.Context(), retry.RetryConfig{MaxAttempts: 3}).ShouldWaitAndRetry(t.Context(), classErr), name)
+								require.Contains(t, classErr.Error(), code.String(), name)
 							}
 						}
 					}
@@ -364,6 +369,39 @@ func (c *nestedGetResourceConnector) GetResource(ctx context.Context, in *v2.Res
 		return nil, pagination.NewErrInvalidateAction("", "get-resource is not paginated")
 	}
 	return c.mockConnector.GetResource(ctx, in, opts...)
+}
+
+// notFoundDetailGrantsConnector answers ListGrants with the detail on
+// NotFound, the code isWarning treats as "finish the action with a
+// warning" when the caller allows warnings (grants does).
+type notFoundDetailGrantsConnector struct {
+	*mockConnector
+	listGrantsCalls int
+}
+
+func (c *notFoundDetailGrantsConnector) ListGrants(context.Context, *v2.GrantsServiceListGrantsRequest, ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
+	c.listGrantsCalls++
+	st, err := status.New(codes.NotFound, "gone").WithDetails(v2.InvalidateAction_builder{RestartPageToken: ""}.Build())
+	if err != nil {
+		return nil, err
+	}
+	return nil, st.Err()
+}
+
+func TestActionInvalidationMisclassifiedNotFoundFailsNotWarns(t *testing.T) {
+	c := &notFoundDetailGrantsConnector{mockConnector: newMockConnector()}
+	c.rtDB = append(c.rtDB, groupResourceType)
+	_, _, err := c.AddGroup(t.Context(), "g1")
+	require.NoError(t, err)
+
+	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "notfound.c1z"), false)
+	s, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithWorkerCount(1))
+	require.NoError(t, err)
+	err = s.Sync(t.Context())
+	require.ErrorIs(t, err, ErrActionInvalidationMisclassified, "a detail on NotFound fails the sync instead of finishing the action with a warning")
+	require.Equal(t, codes.Internal, status.Code(err))
+	require.Equal(t, 1, c.listGrantsCalls)
+	require.Zero(t, invalidationCounter(t, f))
 }
 
 func TestActionInvalidationNestedConnectorCallMisclassified(t *testing.T) {
