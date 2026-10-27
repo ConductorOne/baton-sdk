@@ -1,12 +1,14 @@
 package pebble
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"unicode/utf8"
 
 	"github.com/cockroachdb/pebble/v2"
@@ -260,7 +262,17 @@ func (l *Ledger) hasPendingWorkLocked() (bool, error) {
 	return found, errors.Join(it.Error(), it.Close())
 }
 
-func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBatch, expected c1zstore.LedgerWork, id c1zstore.LedgerActionIdentity, row *v3.LedgerRow, childKeys []string) error {
+// restartTransition is the restart page's limit input: the limits, and the
+// worker bucket the page stages so the budget fold counts this page once.
+type restartTransition struct {
+	limits    c1zstore.RestartLimits
+	bucketKey []byte
+	bucket    *v3.LedgerCounterBucket
+}
+
+func (l *Ledger) stageWorkTransition(
+	ctx context.Context, batch *rawdb.RecordBatch, expected c1zstore.LedgerWork, id c1zstore.LedgerActionIdentity, row *v3.LedgerRow, childKeys []string, restart *restartTransition,
+) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -331,6 +343,12 @@ func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBat
 		}
 	case c1zstore.LedgerQueueCollecting:
 	}
+	if restart != nil {
+		if phase != c1zstore.LedgerQueueCollecting {
+			return fmt.Errorf("%w: %s", ErrLedgerQueuePhase, phase)
+		}
+		return l.stageRestart(ctx, batch, current, row, restart)
+	}
 	if uint64(len(row.GetChildren())) > math.MaxUint64-last {
 		return errors.New("pending work ID overflow")
 	}
@@ -368,6 +386,71 @@ func (l *Ledger) stageWorkTransition(ctx context.Context, batch *rawdb.RecordBat
 		return stageWorkState(batch, last, c1zstore.LedgerQueueCollecting)
 	}
 	return nil
+}
+
+// Under the write lock, after the revision fence. The budget is the sum of
+// LedgerActionRestarts over every committed bucket with this page's
+// staged bucket in place of its own, so two workers restarting at once each
+// see the other's committed page and the fold never counts a page twice.
+func (l *Ledger) stageRestart(ctx context.Context, batch *rawdb.RecordBatch, current c1zstore.LedgerWork, row *v3.LedgerRow, restart *restartTransition) error {
+	if current.Action.Spawned {
+		return fmt.Errorf("%w: spawned work does not restart", ErrPageUnitRestart)
+	}
+	if restart.bucket == nil || len(restart.bucketKey) == 0 {
+		return fmt.Errorf("%w: requires the worker's counter bucket", ErrPageUnitRestart)
+	}
+	limitError := func(scope c1zstore.RestartScope, limit, count uint64) error {
+		return &c1zstore.RestartLimitError{Scope: scope, Limit: limit, Count: count, WorkID: current.ID, Restarts: slices.Clone(current.Restarts)}
+	}
+	if count := uint64(len(current.Restarts)); count >= restart.limits.PerAction {
+		return limitError(c1zstore.RestartScopeAction, restart.limits.PerAction, count)
+	}
+	others, own, err := l.counterSplit(ctx, c1zstore.LedgerActionRestarts, restart.bucketKey)
+	if err != nil {
+		return err
+	}
+	staged := restart.bucket.GetCounters()[c1zstore.LedgerActionRestarts]
+	if staged != own+1 {
+		return fmt.Errorf("%w: bucket must count this page once (%d committed, %d staged)", ErrPageUnitRestart, own, staged)
+	}
+	if others+staged > restart.limits.PerSync {
+		return limitError(c1zstore.RestartScopeSync, restart.limits.PerSync, others+own)
+	}
+	if current.Revision == math.MaxUint64 {
+		return errors.New("pending work revision overflow")
+	}
+	current.Restarts = append(current.Restarts, current.Revision)
+	current.Revision++
+	current.Action.Identity.PageToken = row.GetNextPageToken()
+	return stagePendingWork(batch, current)
+}
+
+// counterSplit sums one named counter over every bucket except the one at
+// ownKey, whose value it returns separately (zero when absent). Returns
+// (others, own, err).
+func (l *Ledger) counterSplit(ctx context.Context, name string, ownKey []byte) (uint64, uint64, error) {
+	lo, hi := rawdb.LedgerCounterBounds()
+	iter, err := l.e.db.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
+	if err != nil {
+		return 0, 0, err
+	}
+	defer iter.Close()
+	var others, own uint64
+	for iter.First(); iter.Valid(); iter.Next() {
+		if err := ctx.Err(); err != nil {
+			return 0, 0, err
+		}
+		b := &v3.LedgerCounterBucket{}
+		if err := unmarshalRecord(iter.Value(), b); err != nil {
+			return 0, 0, fmt.Errorf("ledger counters: unmarshal %x: %w", iter.Key(), err)
+		}
+		if bytes.Equal(iter.Key(), ownKey) {
+			own = b.GetCounters()[name]
+			continue
+		}
+		others += b.GetCounters()[name]
+	}
+	return others, own, iter.Error()
 }
 
 func stageInitialWork(batch *rawdb.RecordBatch, syncID string, actions []c1zstore.LedgerWork, phase c1zstore.LedgerQueuePhase) error {
@@ -423,7 +506,7 @@ func (l *Ledger) CompletePendingWork(ctx context.Context, work c1zstore.LedgerWo
 		}
 		batch := l.e.db.NewRecordBatch()
 		defer batch.Close()
-		if err := l.stageWorkTransition(ctx, batch, work, work.Action.Identity, v3.LedgerRow_builder{}.Build(), nil); err != nil {
+		if err := l.stageWorkTransition(ctx, batch, work, work.Action.Identity, v3.LedgerRow_builder{}.Build(), nil, nil); err != nil {
 			return err
 		}
 		value, err := marshalRecord(ledgerCountersToProto(counters))

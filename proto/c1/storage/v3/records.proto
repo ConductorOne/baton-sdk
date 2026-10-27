@@ -390,10 +390,11 @@ message IngestQualityStats {
   uint64 grant_resources_dropped = 4;
   uint64 expansion_resource_types_dropped = 5;
   uint64 expansions_dropped = 6;
-  // Bitset of SDK-owned quality reasons. Bits 0..6 are entitlement dropped,
+  // Bitset of SDK-owned quality reasons. Bits 0..7 are entitlement dropped,
   // grant dropped, grant-inserted resource dropped, expansion resource type
-  // dropped, expansion dropped, invalid row retained, and unknown prior
-  // checkpoint provenance, respectively.
+  // dropped, expansion dropped, invalid row retained, unknown prior
+  // checkpoint provenance, and action restarted after the connector
+  // invalidated its page token, respectively.
   // Counts remain useful diagnostics; reason flags carry replay eligibility
   // even for warn-and-retain policies that do not drop a row.
   uint64 reason_flags = 7;
@@ -441,8 +442,9 @@ message LedgerRow {
   // Request arguments; work_id and work_revision distinguish executions.
   LedgerActionIdentity identity = 1;
   // Cursor for the action's next page; empty means the action
-  // finished on this page. Scrubbed to empty with next_page_token_hash
-  // retained when scrubbed is set.
+  // finished on this page, unless restarted is set, in which case it is
+  // the token the action restarts at (empty: its first page). Scrubbed to
+  // empty with next_page_token_hash retained when scrubbed is set.
   string next_page_token = 2;
   bytes next_page_token_hash = 3;
   repeated LedgerChild children = 4;
@@ -481,6 +483,10 @@ message LedgerRow {
   LedgerCollectionStats collection = 23;
   uint64 work_id = 24;
   uint64 work_revision = 25;
+  // The connector invalidated this page's token (RestartAction). The
+  // page wrote no records or children; the work item continues at
+  // next_page_token with revision + 1, not finished.
+  bool restarted = 26;
 }
 
 message LedgerCollectionStats {

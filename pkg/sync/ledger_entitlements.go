@@ -85,7 +85,7 @@ func (s *syncer) collectLedgerEntitlements(ctx context.Context, action *Action) 
 	recordLedgerConnectorError(invocation, err)
 	s.recordLedgerSessionUsage(invocation, resp.GetAnnotations())
 	if err != nil {
-		return err
+		return markActionListCall(err)
 	}
 	collection := ledgerCollection(invocation)
 	recordLedgerList(collection, &collection.EntitlementsReceived, resp.GetList(), resp.GetNextPageToken())

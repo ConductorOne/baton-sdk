@@ -52,6 +52,7 @@ type ledgerReportCollection struct {
 	Pages, Written, ZeroWritePages, TerminalPages                uint64
 	PageMs, ConnectorMs, ReportedWaitMs, MaxConnectorMs          uint64
 	Continuations, Children, PaginationUnknownPages, Collections uint64
+	Restarts                                                     uint64
 	ConnectorPageMedian, ConnectorPageP95                        ledgerReportInterval
 	WrittenPerPage                                               float64
 	PagesPerThousandWrites, ConnectorMsPerThousandWrites         *float64
@@ -71,6 +72,7 @@ type ledgerReportSummary struct {
 	Written, ConnectorMs, ReportedWaitMs                  uint64
 	Pages, Collections, LedgerKeysScanned, OperationTypes uint64
 	Continuations, Children, PaginationUnknownPages       uint64
+	Restarts                                              uint64
 	TopOperationTypes                                     []ledgerReportCollection
 	Top                                                   []ledgerReportCollection
 }
@@ -165,6 +167,7 @@ func renderLedgerReport(report ledgerReportSummary) ([]byte, error) {
 				"attempt_observations":    c.Attempts,
 				"collection_observations": c.Collection, "pages_with_collection_observations": c.CollectionPages, "zero_write_pages": c.ZeroWritePages, "terminal_pages": c.TerminalPages,
 				"recorded_continuations": c.Continuations, "recorded_children": c.Children, "pagination_unknown_pages": c.PaginationUnknownPages, "collections": c.Collections,
+				"restart_pages":        c.Restarts,
 				"page_duration_sum_ms": c.PageMs, "connector_duration_sum_ms": c.ConnectorMs, "connector_duration_share_pct": ledgerReportShare(c.ConnectorMs, report.ConnectorMs),
 				"reported_rate_limit_wait_sum_ms": c.ReportedWaitMs, "connector_page_duration_max_ms": c.MaxConnectorMs,
 				"connector_page_duration_p50": interval(c.ConnectorPageMedian), "connector_page_duration_p95": interval(c.ConnectorPageP95),
@@ -183,6 +186,7 @@ func renderLedgerReport(report ledgerReportSummary) ([]byte, error) {
 		"collection_observations": report.Collection, "pages_with_collection_observations": report.CollectionPages, "ledger_keys_scanned": report.LedgerKeysScanned,
 		"reference_validation_performed": report.References != nil, "reference_checks": report.References,
 		"recorded_continuations": report.Continuations, "recorded_children": report.Children, "pagination_unknown_pages": report.PaginationUnknownPages,
+		"restart_pages":             report.Restarts,
 		"connector_duration_sum_ms": report.ConnectorMs, "reported_rate_limit_wait_sum_ms": report.ReportedWaitMs,
 		"top_collections_by_connector_ms": convert(report.Top),
 		"operation_type_groups":           report.OperationTypes, "top_operation_types_by_connector_ms": convert(report.TopOperationTypes),

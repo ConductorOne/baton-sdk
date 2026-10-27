@@ -91,7 +91,7 @@ func (s *syncer) collectLedgerGrants(ctx context.Context, action *Action) error 
 	recordLedgerConnectorError(invocation, err)
 	s.recordLedgerSessionUsage(invocation, resp.GetAnnotations())
 	if err != nil {
-		return fmt.Errorf("sync-grants-for-resource: error listing grants: %w", err)
+		return fmt.Errorf("sync-grants-for-resource: error listing grants: %w", markActionListCall(err))
 	}
 
 	collection := ledgerCollection(invocation)
