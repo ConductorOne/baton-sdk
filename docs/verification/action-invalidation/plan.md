@@ -816,3 +816,22 @@ The plan is frozen at `87abf5ed`.
   while replacing the adjacent nested-connector block; C04 and CO-010
   kept citing the test. Restored unchanged from the parent commit; it
   passes against the current classifier.
+- **CO-015 (2026-10-27, resume path).** Every resume test stopped at or
+  before the restarted chain's first page. Added: a stop after that page
+  committed, resumed at the page reached with the invalidation list intact
+  (`TestActionInvalidationResumeMidRestartedChain`); the per-sync budget
+  spent in one attempt and enforced in the next on the count restored
+  from the ledger (`TestActionInvalidationPerSyncBudgetAcrossResume`);
+  C13 with a `ChildResourceType` parent, in the same attempt and across a
+  resume (`TestActionInvalidationRestartedChainPushesChildrenOnce`),
+  which also showed that the ledger scheduling claim is the only child
+  dedupe on the ledgered path; C15 with a connector that deletes the
+  first page's resource at the expiry
+  (`TestActionInvalidationOverRetention`); and an in-process I2 over the
+  five ops × both restart tokens × commit-failed / after-commit, each
+  resumed by a new syncer (`TestActionInvalidationAbortAtRestartSweep`,
+  twenty cells). `ledgerRestartCrashStore.cut` now returns an error so a
+  cut can stand in for the commit failing. Plants: zeroing the count
+  restore fails the ten after-commit cells; disabling `HasScheduledWork`
+  fails both C13 cases; dropping other buckets in `counterSplit` fails
+  the budget-across-resume test.

@@ -3,6 +3,7 @@ package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
@@ -29,18 +31,29 @@ import (
 
 // invalidatingConnector pages each resource type through "" → "T1" → "T2"
 // with one resource per page. fail decides, per call, whether the call
-// fails instead of answering.
+// fails instead of answering. Resources of a type in childOf carry a
+// ChildResourceType annotation; a list scoped to a parent answers one page
+// holding "<child>-of-<parent>" and is recorded under "<type>@<parent>".
+// Resources named in omit are left out of their page (an upstream deletion).
 type invalidatingConnector struct {
 	*mockConnector
-	types []string
-	fail  func(rt, token string, nth int) error
+	types   []string
+	childOf map[string]string
+	fail    func(rt, token string, nth int) error
 
 	mu    native_sync.Mutex
 	calls map[string][]string
+	omit  map[string]bool
 }
 
 func newInvalidatingConnector(types []string, fail func(rt, token string, nth int) error) *invalidatingConnector {
-	return &invalidatingConnector{mockConnector: newMockConnector(), types: types, fail: fail, calls: map[string][]string{}}
+	return &invalidatingConnector{mockConnector: newMockConnector(), types: types, fail: fail, calls: map[string][]string{}, omit: map[string]bool{}}
+}
+
+func (c *invalidatingConnector) omitResource(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.omit[id] = true
 }
 
 func (c *invalidatingConnector) ListResourceTypes(context.Context, *v2.ResourceTypesServiceListResourceTypesRequest, ...grpc.CallOption) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
@@ -53,6 +66,18 @@ func (c *invalidatingConnector) ListResourceTypes(context.Context, *v2.ResourceT
 
 func (c *invalidatingConnector) ListResources(_ context.Context, req *v2.ResourcesServiceListResourcesRequest, _ ...grpc.CallOption) (*v2.ResourcesServiceListResourcesResponse, error) {
 	rt, token := req.GetResourceTypeId(), req.GetPageToken()
+	if parent := req.GetParentResourceId(); parent != nil {
+		key := rt + "@" + parent.GetResource()
+		c.mu.Lock()
+		c.calls[key] = append(c.calls[key], token)
+		c.mu.Unlock()
+		child := v2.Resource_builder{
+			Id:               v2.ResourceId_builder{ResourceType: rt, Resource: rt + "-of-" + parent.GetResource()}.Build(),
+			ParentResourceId: parent,
+			DisplayName:      rt,
+		}.Build()
+		return v2.ResourcesServiceListResourcesResponse_builder{List: []*v2.Resource{child}}.Build(), nil
+	}
 	c.mu.Lock()
 	c.calls[rt] = append(c.calls[rt], token)
 	nth := 0
@@ -74,7 +99,21 @@ func (c *invalidatingConnector) ListResources(_ context.Context, req *v2.Resourc
 	case "T2":
 		page, next = 2, ""
 	}
-	resource := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: rt, Resource: fmt.Sprintf("%s-p%d", rt, page)}.Build(), DisplayName: rt}.Build()
+	id := fmt.Sprintf("%s-p%d", rt, page)
+	c.mu.Lock()
+	omitted := c.omit[id]
+	c.mu.Unlock()
+	if omitted {
+		return v2.ResourcesServiceListResourcesResponse_builder{NextPageToken: next}.Build(), nil
+	}
+	resource := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: rt, Resource: id}.Build(), DisplayName: rt}.Build()
+	if childRT, ok := c.childOf[rt]; ok {
+		anno, err := anypb.New(v2.ChildResourceType_builder{ResourceTypeId: childRT}.Build())
+		if err != nil {
+			return nil, err
+		}
+		resource.SetAnnotations([]*anypb.Any{anno})
+	}
 	return v2.ResourcesServiceListResourcesResponse_builder{List: []*v2.Resource{resource}, NextPageToken: next}.Build(), nil
 }
 
@@ -224,6 +263,164 @@ func TestActionInvalidationRestartPageIsDurable(t *testing.T) {
 	_, total := resumed.run.actionInvalidationCounts()
 	require.EqualValues(t, 1, total, "the resumed run restores the count from the ledger")
 	require.Equal(t, []string{"group-p0", "group-p1", "group-p2"}, storedResourceIDs(t, f.store, "group"))
+}
+
+// Stop inside the restarted chain, after its first page committed, and
+// resume: the item carries the restart's invalidation list into the resumed
+// attempt and continues from the page it reached, not from the restart.
+func TestActionInvalidationResumeMidRestartedChain(t *testing.T) {
+	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "mid.c1z"), false)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	c := newInvalidatingConnector([]string{"group"}, func(_, token string, nth int) error {
+		switch {
+		case token == "T1" && nth == 1:
+			return pagination.NewErrInvalidateAction("", "page token expired")
+		case token == "T1" && nth == 2:
+			cancel()
+			return ctx.Err()
+		}
+		return nil
+	})
+	s := newInvalidationSyncer(t, f, c)
+	require.ErrorIs(t, s.Sync(ctx), context.Canceled)
+	require.Equal(t, []string{"", "T1", "", "T1"}, c.callsFor("group"))
+	item := pendingGroupItem(t, f)
+	require.Equal(t, "T1", item.Action.Identity.PageToken, "the rerun's first page committed")
+	require.Equal(t, []uint64{1}, item.Invalidations)
+	require.EqualValues(t, 3, item.Revision)
+
+	c = newInvalidatingConnector([]string{"group"}, nil)
+	resumed := newInvalidationSyncer(t, f, c)
+	require.NoError(t, resumed.Sync(t.Context()))
+	require.Equal(t, []string{"T1", "T2"}, c.callsFor("group"))
+	_, total := resumed.run.actionInvalidationCounts()
+	require.EqualValues(t, 1, total)
+	require.Equal(t, []string{"group-p0", "group-p1", "group-p2"}, storedResourceIDs(t, f.store, "group"))
+}
+
+// S6 per sync across a resume: one restart in the first attempt uses the
+// whole budget of one; the next restart, in a second attempt on the same
+// file, is refused on the count restored from the ledger.
+func TestActionInvalidationPerSyncBudgetAcrossResume(t *testing.T) {
+	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "budget-resume.c1z"), false)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	c := newInvalidatingConnector([]string{"group", "user"}, func(rt, token string, nth int) error {
+		switch {
+		case rt == "group" && token == "T1" && nth == 1:
+			return pagination.NewErrInvalidateAction("", "page token expired")
+		case rt == "group" && token == "" && nth == 2:
+			cancel()
+			return ctx.Err()
+		}
+		return nil
+	})
+	s := newInvalidationSyncer(t, f, c, WithActionInvalidationCaps(100, 1))
+	require.ErrorIs(t, s.Sync(ctx), context.Canceled)
+	require.EqualValues(t, 1, invalidationCounter(t, f))
+
+	c = newInvalidatingConnector([]string{"group", "user"}, invalidateAlways(""))
+	resumed := newInvalidationSyncer(t, f, c, WithActionInvalidationCaps(100, 1))
+	err := resumed.Sync(t.Context())
+	require.ErrorIs(t, err, ErrActionInvalidationCapExceeded)
+	var capErr *ActionInvalidationCapError
+	require.ErrorAs(t, err, &capErr)
+	require.False(t, capErr.Cap.PerItem, "the per-sync budget, not the per-item cap")
+	require.EqualValues(t, 1, invalidationCounter(t, f), "the refused restart recorded nothing")
+	_, total := resumed.run.actionInvalidationCounts()
+	require.EqualValues(t, 1, total)
+}
+
+// C13: a restarted chain re-lists a parent whose child it already pushed.
+// The child runs once, in the same attempt and across a resume. The ledger's
+// scheduling claim is the only dedupe on this path (collectLedgerResources
+// does not record into childSchedule); disabling the HasScheduledWork check
+// fails both cases.
+func TestActionInvalidationRestartedChainPushesChildrenOnce(t *testing.T) {
+	for _, resume := range []bool{false, true} {
+		name := "same-attempt"
+		if resume {
+			name = "across-resume"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "children.c1z"), false)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			c := newInvalidatingConnector([]string{"group", "project"}, func(rt, token string, nth int) error {
+				switch {
+				case rt == "group" && token == "T1" && nth == 1:
+					return pagination.NewErrInvalidateAction("", "page token expired")
+				case resume && rt == "group" && token == "" && nth == 2:
+					cancel()
+					return ctx.Err()
+				}
+				return nil
+			})
+			c.childOf = map[string]string{"group": "project"}
+			s := newInvalidationSyncer(t, f, c)
+			err := s.Sync(ctx)
+			if resume {
+				require.ErrorIs(t, err, context.Canceled)
+				require.Equal(t, "", pendingGroupItem(t, f).Action.Identity.PageToken, "stopped before the rerun's first page")
+				resumed := newInvalidatingConnector([]string{"group", "project"}, nil)
+				resumed.childOf = c.childOf
+				require.NoError(t, newInvalidationSyncer(t, f, resumed).Sync(t.Context()))
+				c.mu.Lock()
+				for key, calls := range resumed.calls {
+					c.calls[key] = append(c.calls[key], calls...)
+				}
+				c.mu.Unlock()
+			} else {
+				require.NoError(t, err)
+			}
+			for _, parent := range []string{"group-p0", "group-p1", "group-p2"} {
+				require.Equal(t, []string{""}, c.callsFor("project@"+parent), "child of %s listed exactly once", parent)
+			}
+			require.Equal(t, []string{"group-p0", "group-p1", "group-p2"}, storedResourceIDs(t, f.store, "group"))
+			require.Equal(t, []string{"project-of-group-p0", "project-of-group-p1", "project-of-group-p2", "project-p0", "project-p1", "project-p2"}, storedResourceIDs(t, f.store, "project"))
+			pending, _, err := f.ledger.PendingWork(t.Context(), 0, 100)
+			require.NoError(t, err)
+			require.Empty(t, pending)
+		})
+	}
+}
+
+// C15: the accepted over-retention. A resource listed before the expiry and
+// deleted upstream before the restarted chain re-lists stays in the store;
+// the control run, which never saw it, does not have it.
+func TestActionInvalidationOverRetention(t *testing.T) {
+	invalidating := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "retained.c1z"), false)
+	var c *invalidatingConnector
+	c = newInvalidatingConnector([]string{"group"}, func(_, token string, nth int) error {
+		if token == "T1" && nth == 1 {
+			c.omitResource("group-p0")
+			return pagination.NewErrInvalidateAction("", "page token expired")
+		}
+		return nil
+	})
+	require.NoError(t, newInvalidationSyncer(t, invalidating, c).Sync(t.Context()))
+	require.Equal(t, []string{"", "T1", "", "T1", "T2"}, c.callsFor("group"))
+	require.Equal(t, []string{"group-p0", "group-p1", "group-p2"}, storedResourceIDs(t, invalidating.store, "group"), "group-p0 was ingested before the deletion and the restart does not unwrite it")
+
+	control := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "control.c1z"), false)
+	cc := newInvalidatingConnector([]string{"group"}, nil)
+	cc.omitResource("group-p0")
+	require.NoError(t, newInvalidationSyncer(t, control, cc).Sync(t.Context()))
+	require.Equal(t, []string{"group-p1", "group-p2"}, storedResourceIDs(t, control.store, "group"))
+}
+
+func pendingGroupItem(t *testing.T, f *ledgerFixture) c1zstore.LedgerWork {
+	t.Helper()
+	pending, _, err := f.ledger.PendingWork(t.Context(), 0, 100)
+	require.NoError(t, err)
+	for _, item := range pending {
+		if item.Action.Identity.Op == SyncResourcesOp.String() && item.Action.Identity.ResourceTypeID == "group" && item.Action.Identity.ParentResourceID == "" {
+			return item
+		}
+	}
+	t.Fatal("no pending group item")
+	return c1zstore.LedgerWork{}
 }
 
 // S6 per item: the cap is per sync, not per attempt. After the cap fails
@@ -623,9 +820,12 @@ func TestActionInvalidationNestedConnectorCallMisclassified(t *testing.T) {
 	}
 }
 
+// ledgerRestartCrashStore calls cut around every restart page's commit. A
+// non-nil error from the "restart-before" cut stands in for the commit
+// itself failing: the real Commit is not called.
 type ledgerRestartCrashStore struct {
 	c1zstore.PageLedgerStore
-	cut func(string)
+	cut func(string) error
 }
 
 func (s ledgerRestartCrashStore) BeginPage() c1zstore.PageWriter {
@@ -634,20 +834,89 @@ func (s ledgerRestartCrashStore) BeginPage() c1zstore.PageWriter {
 
 type ledgerRestartCrashWriter struct {
 	c1zstore.PageWriter
-	cut func(string)
+	cut func(string) error
 }
 
 func (w ledgerRestartCrashWriter) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity, row *c1zstore.LedgerRow) error {
 	if row != nil && row.Restarted {
-		w.cut("restart-before")
+		if err := w.cut("restart-before"); err != nil {
+			return err
+		}
 	}
 	if err := w.PageWriter.Commit(ctx, id, row); err != nil {
 		return err
 	}
 	if row != nil && row.Restarted {
-		w.cut("restart-after")
+		return w.cut("restart-after")
 	}
 	return nil
+}
+
+// I2 at the syncer level: every honoring op × restart token × the sync
+// ending at the restart commit, either because the commit failed or right
+// after it landed. A resumed attempt on the same file finishes with the
+// store an uninterrupted run produces. If the restart landed the resume
+// starts the item at the restart token and the count is one; if it did
+// not, the resume starts at the expired token and the count is zero.
+func TestActionInvalidationAbortAtRestartSweep(t *testing.T) {
+	ops := []string{"list-resource-types", "list-resources", "list-entitlements", "list-grants", "list-static-entitlements"}
+	clean := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "clean.c1z"), false)
+	cleanSyncer, err := NewSyncer(t.Context(), newPagedOpsConnector("", ""), WithConnectorStore(clean.store), WithWorkerCount(1))
+	require.NoError(t, err)
+	require.NoError(t, cleanSyncer.Sync(t.Context()))
+	want := storeShape(t, clean.store)
+	errCommit := errors.New("restart commit failed")
+
+	for _, op := range ops {
+		for _, restart := range []string{"", "T1"} {
+			for _, cut := range []string{"restart-before", "restart-after"} {
+				t.Run(fmt.Sprintf("%s/restart=%q/%s", op, restart, cut), func(t *testing.T) {
+					f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "abort.c1z"), false)
+					ctx, cancel := context.WithCancel(t.Context())
+					defer cancel()
+					c := newPagedOpsConnector(op, restart)
+					s, err := NewSyncer(ctx, c, WithConnectorStore(f.store), WithWorkerCount(1))
+					require.NoError(t, err)
+					s.(*syncer).caps.pageLedger = ledgerRestartCrashStore{PageLedgerStore: f.ledger, cut: func(reached string) error {
+						if reached != cut {
+							return nil
+						}
+						if cut == "restart-before" {
+							return errCommit
+						}
+						cancel()
+						return nil
+					}}
+					err = s.Sync(ctx)
+					landed := cut == "restart-after"
+					if landed {
+						require.ErrorIs(t, err, context.Canceled)
+					} else {
+						require.ErrorIs(t, err, errCommit)
+					}
+					counter := invalidationCounter(t, f)
+					if landed {
+						require.EqualValues(t, 1, counter)
+					} else {
+						require.Zero(t, counter)
+					}
+
+					resumed, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithWorkerCount(1))
+					require.NoError(t, err)
+					require.NoError(t, resumed.Sync(t.Context()))
+					require.Equal(t, want, storeShape(t, f.store))
+					_, total := resumed.(*syncer).run.actionInvalidationCounts()
+					require.EqualValues(t, counter, total, "the resumed run restores the count from the ledger")
+					next := "T1"
+					if landed {
+						next = restart
+					}
+					calls := strings.Join(c.callsFor(op), ",")
+					require.Contains(t, calls, ",T1,"+next+",", "the call after the expiry: %s", calls)
+				})
+			}
+		}
+	}
 }
 
 // C10 on the public path, in a separate process: the process dies around
@@ -663,9 +932,9 @@ func TestActionInvalidationCrashProcess(t *testing.T) {
 		c := newInvalidatingConnector([]string{"group"}, invalidateOnce("group", ""))
 		s := newInvalidationSyncer(t, f, c)
 		var crash native_sync.Once
-		s.caps.pageLedger = ledgerRestartCrashStore{PageLedgerStore: f.ledger, cut: func(reached string) {
+		s.caps.pageLedger = ledgerRestartCrashStore{PageLedgerStore: f.ledger, cut: func(reached string) error {
 			if reached != cut {
-				return
+				return nil
 			}
 			crash.Do(func() {
 				if os.Getenv("BATON_LEDGER_RESTART_CRASH_IMAGE") == "flushed" {

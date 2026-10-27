@@ -58,15 +58,15 @@ the named test and did):
 | C07 | verified to stated coverage | `TestPendingWorkRestartCommitsRowAndMovesItem`, `TestPendingWorkRestartCrashDichotomy` | Row at `(identity@T, workID, r)`, `Restarted`, `NextPageToken == R`, hash of `R`; for `R ∈ {"", "B", "A"==T}`. |
 | C08 | verified to stated coverage | `TestPendingWorkRestartCommitsRowAndMovesItem` | `require.Equal` on the whole `LedgerWork` against the pre-image with revision `+1`, token `R`, list `[r]`; a continuation keeps the list; a second restart appends. |
 | C09 | verified to stated coverage | same; `TestPendingWorkRestartRefusesPayload/bucket-not-incremented` | Counter lands with the page; a bucket that does not count the page is refused. |
-| C10 | evidence incomplete | `TestPendingWorkRestartCrashDichotomy` (engine, F1 batch error, F2 before, F3 after unsynced, F4 after flush × `R ∈ {"", "B"}`); `TestActionInvalidationCrashProcess` (syncer, real process exit before and after the restart commit × wal and flushed image) | Both show exactly two images: nothing, or row + moved item + counter (+ facts in the process test). P2's 544 cells: engine cells are op-agnostic by construction (`stageRestart` never reads the op); syncer cells executed are one variant (`SyncResources` per-type), mid-chain, restart `""`, resumer = new process. I2 does not exist. |
-| C11 | verified to stated coverage | `TestActionInvalidationRestartsAction` (`R ∈ {"", "T1", "T2"}`), `TestActionInvalidationRestartsEveryHonoringOp` (five ops, `R = T_expired`, differential store oracle), `TestActionInvalidationCrashProcess` | Next call carries `R` after commit; carries `T_expired` when the restart did not land. Every honoring op through its own handler and list call site (CO-013). Per-resource and child-under-parent variants of the per-type ops not separately executed. |
+| C10 | verified to stated coverage | `TestPendingWorkRestartCrashDichotomy` (engine, F1 batch error, F2 before, F3 after unsynced, F4 after flush × `R ∈ {"", "B"}`); `TestActionInvalidationCrashProcess` (syncer, real process exit before and after the restart commit × wal and flushed image); `TestActionInvalidationAbortAtRestartSweep` (syncer, five ops × `R ∈ {"", T_expired}` × commit failed / after commit, resumed by a new syncer on the same file) | All show exactly two images: nothing, or row + moved item + counter (+ facts in the process test). The sweep's twenty cells resume to the clean store, with the count restored (planted: zeroing the restore in `ledger_restore.go` fails all ten after-commit cells). Not executed: the process-exit cut on ops other than `SyncResources`, the per-resource and child-under-parent variants, and the takeover resumer. |
+| C11 | verified to stated coverage | `TestActionInvalidationRestartsAction` (`R ∈ {"", "T1", "T2"}`), `TestActionInvalidationRestartsEveryHonoringOp` (five ops, `R = T_expired`, differential store oracle), `TestActionInvalidationCrashProcess`, `TestActionInvalidationResumeMidRestartedChain` | Next call carries `R` after commit; carries `T_expired` when the restart did not land. Every honoring op through its own handler and list call site (CO-013). A stop after the rerun's first page resumes at the page reached with the invalidation list intact (CO-015). Per-resource variants of the per-type ops not separately executed. |
 | C12 | evidence incomplete | `TestPendingWorkRestartFencesStaleAttempt`, `TestPendingWorkRestartRaceOnOneItem` | Stale continuation, finish, and second restart after a restart to `""` get `ErrStaleLedgerWork` and write nothing (row count and record keys unchanged). Eight concurrent restarts of one item: one commits, the rest are fenced, one invalidation recorded, 20× under `-race` (CO-013). Takeover by another attempt at the syncer level not executed. |
-| C13 | not assessed | — | Needs a child-under-parent variant. |
+| C13 | verified to stated coverage | `TestActionInvalidationRestartedChainPushesChildrenOnce` (same attempt; across a resume) | Each parent's child list runs once; the store equals a clean run; no pending work remains. The ledger scheduling claim is the only dedupe on this path (`collectLedgerResources` does not record into `childSchedule`); planted: disabling `HasScheduledWork` in `stageWorkTransition` fails both cases. |
 | C14 | evidence incomplete | `TestActionInvalidationRestartsAction` | Resource identities after the restarted sync equal the uninterrupted sync's; the completed-list-resources count equals too. Not byte-equal artifacts. |
-| C15 | not assessed | — | The executed restarts re-list the same first page, so over-retention is not visible. |
+| C15 | verified to stated coverage | `TestActionInvalidationOverRetention` | A resource listed before the expiry and deleted upstream before the rerun stays in the invalidating run's store; the control run without it has two resources. Documented, not discovered. |
 | C16 | verified to stated coverage | `TestActionInvalidationPerItemCapFailsSync`; `TestPendingWorkRestartPerItemCap` | `errors.Is` sentinel, `status.Code == FailedPrecondition` through the wrap, `ActionInvalidationCapError.Cap.Invalidations == [1, 3]`, calls `["", "T1", "", "T1", "", "T1"]`, refused page leaves item and counter unchanged. Cap parameterized at 2. |
 | C17 | verified to stated coverage | `TestActionInvalidationPerItemCapFailsSync` (second half) | Resume on the same artifact makes one connector call (`["T1"]`) and fails with the sentinel; restored count is 2. |
-| C18 | verified to stated coverage | `TestPendingWorkRestartPerSyncBudgetFoldsBuckets`, `TestPendingWorkRestartBudgetUnderConcurrentWorkers` (under `-race`), `TestActionInvalidationPerSyncBudgetFailsSync` | Fold across run ids and workers; exactly `PerSync` commits under four concurrent workers. |
+| C18 | verified to stated coverage | `TestPendingWorkRestartPerSyncBudgetFoldsBuckets`, `TestPendingWorkRestartBudgetUnderConcurrentWorkers` (under `-race`), `TestActionInvalidationPerSyncBudgetFailsSync`, `TestActionInvalidationPerSyncBudgetAcrossResume` | Fold across run ids and workers; exactly `PerSync` commits under four concurrent workers; a budget of one spent in attempt one refuses the next restart in attempt two on the count restored from the ledger (planted: dropping other buckets in `counterSplit` fails it). |
 | C19 | verified to stated coverage | `TestActionInvalidationRestartPageIsDurable`, `TestActionInvalidationCrashProcess` | `sync.ingest_known` and `sync.ingest_blocked` present after a cancel right after the restart and after a process exit where the restart landed; `replayBlocked` set in memory. |
 | C20 | verified to stated coverage, reduction named | `TestLedgerReportProjectRestartedNotTerminal`, `TestLedgerReportCountsRestartPages` | Projection reads fields 2, 26, and the hash only, so the 32 cells collapse to scrubbed × restarted. |
 | C21 | evidence incomplete | `TestLedgerReportCountsRestartPages` | Counts asserted against the known row set (restart 1, terminal 1 then 2, continuation 1), not an independent fold over arbitrary rows. |
@@ -85,13 +85,14 @@ the named test and did):
 
 ## Gaps before stage 1 closure
 
-- I2: the crash sweep over the eight honoring variants, both page
-  positions, both restart tokens, and the four resumers. What exists is
-  one variant on the public path and an op-agnostic engine dichotomy.
+- I2: the full crash sweep. What exists is the process-exit dichotomy on
+  one variant, an op-agnostic engine dichotomy, and an in-process abort
+  sweep over the five ops × both restart tokens × both sides of the
+  restart commit, each resumed by a new syncer (C10). Not executed:
+  process exit on the other ops, per-resource and child-under-parent
+  variants, the takeover resumer.
 - I3: the Lambda transport cell.
 - I5: the soak.
-- C13 and C15 need a child-under-parent variant and a connector whose
-  restarted chain lists a different first page.
 - The decorrelated implementation read and the independent evidence audit
   have not been done.
 
