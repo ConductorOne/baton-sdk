@@ -779,3 +779,18 @@ The plan is frozen at `87abf5ed`.
   comment says so. Test comments: `TestActionInvalidationRestartsAction`
   no longer claims C13 (its fixture has no child work) and states the
   `T2` exception to equality with the uninterrupted run.
+- **CO-012 (2026-10-27, independent review).** `IsSyncPreservable`
+  (frozen by RFC 0009; older runners branch on it) classifies by gRPC
+  code: the cap error exposes the connector's `FailedPrecondition` or
+  `Aborted`, so it is preservable there, and such a runner resumes and
+  makes one call that fails the same way (S6's fallback); the
+  classification error reports `Internal`, so it is not preservable
+  there, and a runner that still discards on false drops the partial
+  artifact, as it does today for any `Internal`. The frozen surface is
+  not changed; the PR's rollout notes state both. Engine test gap:
+  `TestPendingWorkRestartRefusesPayload/children` fed scheduling keys
+  without row children, which the arity check in `stageWorkTransition`
+  would also refuse, so deleting the shape check in `requireRestartShape`
+  left the test green. Added `children-aligned` (row children matching
+  the keys) and `terminal` (`SetTerminal` with `SetRestart`); both fail
+  with the shape line planted out. C06 reads accordingly.

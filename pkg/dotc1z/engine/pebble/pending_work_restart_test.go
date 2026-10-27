@@ -137,8 +137,10 @@ func TestPendingWorkRestartRefusesPayload(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			err := restartTestCommit(t, e, work, "", restartTestCaps, "run", 0, 0, stage)
 			if name == "children" {
-				// childKeys without row children fails the arity check first;
-				// either refusal leaves nothing behind.
+				// Scheduling keys without row children: the shape check
+				// refuses, and with it gone the arity check in
+				// stageWorkTransition would refuse the same input, so this
+				// case does not pin the shape check; children-aligned does.
 				require.Error(t, err)
 			} else {
 				require.ErrorIs(t, err, ErrPageUnitRestart)
@@ -149,6 +151,31 @@ func TestPendingWorkRestartRefusesPayload(t *testing.T) {
 			require.Zero(t, countRecordKeys(t, e))
 		})
 	}
+	// Row children aligned with the scheduling keys pass the arity check in
+	// stageWorkTransition; only requireRestartShape refuses them.
+	t.Run("children-aligned", func(t *testing.T) {
+		writer := e.Ledger().BeginPage()
+		defer writer.Discard()
+		require.NoError(t, writer.SetPendingWork(work, "resource:child"))
+		require.NoError(t, writer.SetRestart(restartTestCaps))
+		require.NoError(t, writer.SetCounterBucket("run", 0, c1zstore.LedgerCounters{Counters: map[string]uint64{c1zstore.LedgerActionInvalidations: 1}}))
+		child := c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-grants", ResourceTypeID: "group", ResourceID: "child"}}
+		err := writer.Commit(t.Context(), work.Action.Identity, &c1zstore.LedgerRow{Restarted: true, Children: []c1zstore.LedgerChild{child}})
+		require.ErrorIs(t, err, ErrPageUnitRestart)
+		require.Equal(t, []c1zstore.LedgerWork{work}, pendingItems(t, e))
+		require.Zero(t, countRecordKeys(t, e))
+	})
+	t.Run("terminal", func(t *testing.T) {
+		writer := e.Ledger().BeginPage()
+		defer writer.Discard()
+		require.NoError(t, writer.SetPendingWork(work))
+		require.NoError(t, writer.SetRestart(restartTestCaps))
+		require.NoError(t, writer.SetCounterBucket("run", 0, c1zstore.LedgerCounters{Counters: map[string]uint64{c1zstore.LedgerActionInvalidations: 1}}))
+		require.NoError(t, writer.SetTerminal())
+		err := writer.Commit(t.Context(), work.Action.Identity, &c1zstore.LedgerRow{Restarted: true})
+		require.ErrorIs(t, err, ErrPageUnitRestart)
+		require.Equal(t, []c1zstore.LedgerWork{work}, pendingItems(t, e))
+	})
 	t.Run("row-without-SetRestart", func(t *testing.T) {
 		writer := e.Ledger().BeginPage()
 		defer writer.Discard()
