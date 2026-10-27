@@ -30,9 +30,11 @@ const (
 // from the failed page lands. Honored only from the action's own list call
 // under those two codes; from any other call, or under another code, the
 // sync fails with the request rejected. A connector builds the error with
-// pagination.NewRestartActionError rather than constructing this directly,
-// returns it bare or wrapped with %w, and never behind another status error
-// (gRPC serializes the first status in the chain).
+// pagination.NewRestartActionError rather than constructing this directly.
+// connectorbuilder's list handlers surface it from anywhere in the error
+// chain (pagination.SurfaceRestartAction); a hand-rolled server must do the
+// same or return it bare, because gRPC serializes the first status in the
+// chain.
 type RestartAction struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	// The token the action's next call carries. Empty restarts the action

@@ -167,6 +167,7 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 		Annotations:   appendSessionUsage(retOptions.Annotations, sessionUsage),
 	}.Build()
 	if err != nil {
+		err = pagination.SurfaceRestartAction(err)
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		clearHTTPCachesOnRestart(ctx, err)
 		return resp, fmt.Errorf("error: listing resources failed: %w", err)
@@ -257,6 +258,7 @@ func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.Entitl
 		Annotations:   appendSessionUsage(retOptions.Annotations, sessionUsage),
 	}.Build()
 	if err != nil {
+		err = pagination.SurfaceRestartAction(err)
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		clearHTTPCachesOnRestart(ctx, err)
 		return nil, fmt.Errorf("error: listing static entitlements failed: %w", err)
@@ -327,6 +329,7 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 		Annotations:   appendSessionUsage(retOptions.Annotations, sessionUsage),
 	}.Build()
 	if err != nil {
+		err = pagination.SurfaceRestartAction(err)
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		clearHTTPCachesOnRestart(ctx, err)
 		return resp, fmt.Errorf("error: listing entitlements failed: %w", err)
@@ -401,6 +404,7 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 	}.Build()
 
 	if err != nil {
+		err = pagination.SurfaceRestartAction(err)
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		clearHTTPCachesOnRestart(ctx, err)
 		return resp, fmt.Errorf("error: listing grants for resource %s/%s failed: %w", rid.GetResourceType(), rid.GetResource(), err)
