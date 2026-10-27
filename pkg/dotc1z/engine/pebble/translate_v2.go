@@ -7,6 +7,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
+	"github.com/conductorone/baton-sdk/pkg/types/grant"
 )
 
 // Translation layer: v2 connector wire types ↔ v3 storage record
@@ -123,7 +124,7 @@ func V3GrantToV2(r *v3.GrantRecord) *v2.Grant {
 		}
 	}
 	return v2.Grant_builder{
-		Id:          publicGrantRecordID(r),
+		Id:          grant.NewGrantIDFromRecord(r),
 		Entitlement: entitlementRefToStub(r.GetEntitlement()),
 		Principal:   principalRefToStubResource(r.GetPrincipal()),
 		Annotations: anns,

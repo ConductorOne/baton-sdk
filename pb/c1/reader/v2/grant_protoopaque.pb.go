@@ -210,7 +210,6 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) GetEntitlement() *v
 	return nil
 }
 
-// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) GetPrincipalId() *v2.ResourceId {
 	if x != nil {
 		return x.xxx_hidden_PrincipalId
@@ -218,7 +217,6 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) GetPrincipalId() *v
 	return nil
 }
 
-// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) GetPrincipalResourceTypeIds() []string {
 	if x != nil {
 		return x.xxx_hidden_PrincipalResourceTypeIds
@@ -253,12 +251,10 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) SetEntitlement(v *v
 	x.xxx_hidden_Entitlement = v
 }
 
-// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) SetPrincipalId(v *v2.ResourceId) {
 	x.xxx_hidden_PrincipalId = v
 }
 
-// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) SetPrincipalResourceTypeIds(v []string) {
 	x.xxx_hidden_PrincipalResourceTypeIds = v
 }
@@ -282,7 +278,6 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) HasEntitlement() bo
 	return x.xxx_hidden_Entitlement != nil
 }
 
-// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) HasPrincipalId() bool {
 	if x == nil {
 		return false
@@ -294,7 +289,6 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) ClearEntitlement() 
 	x.xxx_hidden_Entitlement = nil
 }
 
-// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) ClearPrincipalId() {
 	x.xxx_hidden_PrincipalId = nil
 }
@@ -302,10 +296,8 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) ClearPrincipalId() 
 type GrantsReaderServiceListGrantsForEntitlementRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Entitlement *v2.Entitlement
-	// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
-	PrincipalId *v2.ResourceId
-	// Deprecated: Marked as deprecated in c1/reader/v2/grant.proto.
+	Entitlement              *v2.Entitlement
+	PrincipalId              *v2.ResourceId
 	PrincipalResourceTypeIds []string
 	PageSize                 uint32
 	PageToken                string
@@ -978,12 +970,11 @@ const file_c1_reader_v2_grant_proto_rawDesc = "" +
 	"\xfaB\ar\x05 \x01(\x80\bR\agrantId\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"S\n" +
 	"#GrantsReaderServiceGetGrantResponse\x12,\n" +
-	"\x05grant\x18\x01 \x01(\v2\x16.c1.connector.v2.GrantR\x05grant\"\x9c\x03\n" +
+	"\x05grant\x18\x01 \x01(\v2\x16.c1.connector.v2.GrantR\x05grant\"\x96\x03\n" +
 	"2GrantsReaderServiceListGrantsForEntitlementRequest\x12H\n" +
-	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\b\xfaB\x05\x8a\x01\x02\x10\x01R\ventitlement\x12J\n" +
-	"\fprincipal_id\x18\x05 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\n" +
-	"\xfaB\x05\x8a\x01\x02\x10\x00\x18\x01R\vprincipalId\x12A\n" +
-	"\x1bprincipal_resource_type_ids\x18\x06 \x03(\tB\x02\x18\x01R\x18principalResourceTypeIds\x12'\n" +
+	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\b\xfaB\x05\x8a\x01\x02\x10\x01R\ventitlement\x12H\n" +
+	"\fprincipal_id\x18\x05 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x00R\vprincipalId\x12=\n" +
+	"\x1bprincipal_resource_type_ids\x18\x06 \x03(\tR\x18principalResourceTypeIds\x12'\n" +
 	"\tpage_size\x18\x02 \x01(\rB\n" +
 	"\xfaB\a*\x05\x18\xfa\x01@\x01R\bpageSize\x12,\n" +
 	"\n" +

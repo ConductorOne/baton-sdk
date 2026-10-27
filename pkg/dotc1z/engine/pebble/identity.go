@@ -66,14 +66,6 @@ type grantIdentity struct {
 	principalID     string
 }
 
-// externalID reconstructs the legacy public grant id shape
-// (entitlement_id + ":" + principal_rt + ":" + principal_id) for this
-// identity. This matches what the SDK's NewGrantID emits; connector-custom
-// grant ids are stored on the record and take precedence when present.
-func (id grantIdentity) externalID() string {
-	return id.entitlement.externalID() + ":" + id.principalTypeID + ":" + id.principalID
-}
-
 // entitlementIdentityFromParts derives an entitlement identity from the
 // structured resource components and the raw external id. Pure byte-prefix
 // check — no grammar, no escaping, byte-exact round trip via externalID().
@@ -126,18 +118,4 @@ func grantIdentityFromRecord(r *v3.GrantRecord) (grantIdentity, error) {
 		principalTypeID: princ.GetResourceTypeId(),
 		principalID:     princ.GetResourceId(),
 	}, nil
-}
-
-// publicGrantRecordID returns the id V3GrantToV2 emits for a record: the
-// stored external id when the connector provided one, otherwise the
-// reconstructed legacy concat (what the SDK would have emitted).
-func publicGrantRecordID(r *v3.GrantRecord) string {
-	if ext := r.GetExternalId(); ext != "" {
-		return ext
-	}
-	id, err := grantIdentityFromRecord(r)
-	if err != nil {
-		return ""
-	}
-	return id.externalID()
 }

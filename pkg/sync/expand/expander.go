@@ -365,7 +365,7 @@ func listDescendantGrantsForPrincipal(
 		resp, err := store.ListGrantsForEntitlement(ctx,
 			reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 				Entitlement: entitlement,
-				PrincipalId: principalID, //nolint:staticcheck // deprecated for the ListGrantsForPrincipal RPC, which ExpanderStore does not expose
+				PrincipalId: principalID,
 				PageToken:   pageToken,
 				PageSize:    descendantPrincipalPageSize,
 			}.Build())
@@ -446,7 +446,7 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 	sourceGrants, err := e.store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 		Entitlement:              sourceEntitlement.GetEntitlement(),
 		PageToken:                action.PageToken,
-		PrincipalResourceTypeIds: action.ResourceTypeIDs, //nolint:staticcheck // deprecated with no replacement named in the proto; the filter is still required
+		PrincipalResourceTypeIds: action.ResourceTypeIDs,
 	}.Build())
 	if err != nil {
 		l.Error("runAction: error fetching source grants", zap.Error(err))

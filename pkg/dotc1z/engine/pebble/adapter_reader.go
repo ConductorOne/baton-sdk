@@ -240,20 +240,16 @@ func (e *Engine) listGrantsForEntitlement(ctx context.Context, req listGrantsFor
 	}
 	limit := clampPageSize(req.GetPageSize())
 
-	var keep func(*v3.GrantRecord) bool
-	if rts := req.GetPrincipalResourceTypeIds(); len(rts) > 0 {
-		rtSet := make(map[string]struct{}, len(rts))
-		for _, rt := range rts {
-			rtSet[rt] = struct{}{}
-		}
-		keep = func(r *v3.GrantRecord) bool {
-			_, ok := rtSet[r.GetPrincipal().GetResourceTypeId()]
-			return ok
-		}
-	}
+	rts := req.GetPrincipalResourceTypeIds()
 	p := req.GetPrincipalId()
 	if p == nil {
-		records, next, err := e.paginateGrantsByEntitlement(ctx, entIdentity, req.GetPageToken(), limit, keep)
+		var records []*v3.GrantRecord
+		var next string
+		if len(rts) > 0 {
+			records, next, err = e.paginateGrantsByEntitlementPrincipalTypes(ctx, entIdentity, rts, req.GetPageToken(), limit)
+		} else {
+			records, next, err = e.PaginateGrantsByEntitlement(ctx, entIdentity, req.GetPageToken(), limit)
+		}
 		if err != nil {
 			return nil, "", c1zstore.AdaptNotFound(err, pebble.ErrNotFound)
 		}
@@ -266,7 +262,7 @@ func (e *Engine) listGrantsForEntitlement(ctx context.Context, req listGrantsFor
 	records = slices.DeleteFunc(records, func(r *v3.GrantRecord) bool {
 		rp := r.GetPrincipal()
 		return rp.GetResourceTypeId() != p.GetResourceType() || rp.GetResourceId() != p.GetResource() ||
-			(keep != nil && !keep(r))
+			(len(rts) > 0 && !slices.Contains(rts, rp.GetResourceTypeId()))
 	})
 	return records, next, nil
 }

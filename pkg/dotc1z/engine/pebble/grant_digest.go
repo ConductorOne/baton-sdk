@@ -404,30 +404,45 @@ func grantContentHash64(tuple, primaryKeyTail []byte, isImmutable bool, sortedSo
 	return xxhash.Sum64(tuple), tuple
 }
 
-// grantContentHashForRecord is the from-record form of the content
-// hash: encodes the grant's identity tuple, its immutability, and its
-// sorted sources, then delegates to grantContentHash64. The seal-time
-// build never uses this (it splices key bytes and raw-scans the
-// value); it exists for readers, tests, and any future repair path,
-// and is pinned against the splice form by
-// TestGrantDigestSpliceMatchesEncode.
+// grantContentHashForRecord is GrantRecordContentHash with the result
+// encoded as the stored 8-byte big-endian hash. The seal-time build
+// never uses this (it splices key bytes and raw-scans the value); it is
+// pinned against the splice form by TestGrantDigestSpliceMatchesEncode.
 func grantContentHashForRecord(r *v3.GrantRecord) ([]byte, error) {
-	id, err := grantIdentityFromRecord(r)
+	h, err := GrantRecordContentHash(r)
 	if err != nil {
 		return nil, err
 	}
+	return binary.BigEndian.AppendUint64(make([]byte, 0, hashLen), h), nil
+}
+
+// grantContentHashFromFacts is the shared tail of GrantContentHash and
+// GrantRecordContentHash: encode the identity key, then hash it with
+// the immutability flag and the sorted sources via grantContentHash64.
+func grantContentHashFromFacts(id grantIdentity, isImmutable bool, srcs []grantSourceFact) uint64 {
 	key := encodeGrantIdentityKey(id)
-	isImmutable := annsContainType(r.GetAnnotations(), grantImmutableAnnotationTypeName)
+	// nil scratch: the tuple buffer only pays off when reused across records.
+	h, _ := grantContentHash64(nil, key[grantPrimaryKeyPrefixLen:], isImmutable, sortGrantSourceFacts(srcs))
+	return h
+}
+
+// GrantRecordContentHash is GrantContentHash for a v3 GrantRecord. A
+// record and the v2 grant it was converted from hash identically. A
+// record missing its structural identity errors.
+//
+// ABI: pinned to GrantDigestABIVersion alongside the internal forms.
+func GrantRecordContentHash(r *v3.GrantRecord) (uint64, error) {
+	id, err := grantIdentityFromRecord(r)
+	if err != nil {
+		return 0, fmt.Errorf("grant content hash: %w", err)
+	}
 	srcMap := r.GetSources()
 	srcs := make([]grantSourceFact, 0, len(srcMap))
 	for k, v := range srcMap {
 		srcs = append(srcs, grantSourceFact{key: []byte(k), isDirect: v.GetIsDirect()})
 	}
-	srcs = sortGrantSourceFacts(srcs)
-	h, _ := grantContentHash64(nil, key[grantPrimaryKeyPrefixLen:], isImmutable, srcs)
-	out := make([]byte, hashLen)
-	binary.BigEndian.PutUint64(out, h)
-	return out, nil
+	isImmutable := annsContainType(r.GetAnnotations(), grantImmutableAnnotationTypeName)
+	return grantContentHashFromFacts(id, isImmutable, srcs), nil
 }
 
 // GrantContentHash is the public form of the grant content hash
@@ -435,6 +450,7 @@ func grantContentHashForRecord(r *v3.GrantRecord) ([]byte, error) {
 // 8-byte big-endian hash encodes. Use it (or GrantDigestAccumulator,
 // its fold) to digest grants not held in a pebble file — e.g. a legacy
 // SQLite c1z — for comparison against engine-served digests.
+// GrantRecordContentHash is the same for a v3 GrantRecord.
 //
 // Hash grants as stored, not as emitted: expansion populates the
 // sources map after ingest, so raw connector output hashes differently
@@ -460,22 +476,20 @@ func GrantContentHash(g *v2.Grant) (uint64, error) {
 		principalTypeID: princ.GetResourceType(),
 		principalID:     princ.GetResource(),
 	}
-	key := encodeGrantIdentityKey(id)
-	isImmutable := annsContainType(g.GetAnnotations(), grantImmutableAnnotationTypeName)
 	sources := g.GetSources().GetSources()
 	srcs := make([]grantSourceFact, 0, len(sources))
 	for k, v := range sources {
 		srcs = append(srcs, grantSourceFact{key: []byte(k), isDirect: v.GetIsDirect()})
 	}
-	srcs = sortGrantSourceFacts(srcs)
-	h, _ := grantContentHash64(nil, key[grantPrimaryKeyPrefixLen:], isImmutable, srcs)
-	return h, nil
+	isImmutable := annsContainType(g.GetAnnotations(), grantImmutableAnnotationTypeName)
+	return grantContentHashFromFacts(id, isImmutable, srcs), nil
 }
 
-// GrantDigestAccumulator XOR/count-folds GrantContentHash over a set of
-// grants. Fold one entitlement's grants to reproduce its stored digest
-// root (GetEntitlementDigestRoot), or every grant in a sync to
-// reproduce the whole-file root (GetGrantDigestGlobalRoot / the
+// GrantDigestAccumulator XOR/count-folds GrantContentHash (or
+// GrantRecordContentHash, via AddRecord) over a set of grants. Fold one
+// entitlement's grants to reproduce its stored digest root
+// (GetEntitlementDigestRoot), or every grant in a sync to reproduce the
+// whole-file root (GetGrantDigestGlobalRoot / the
 // manifest's GrantDigestRoot.xor_digest — per-entitlement roots
 // XOR-combine, so the flat fold equals the fold of roots). Compare only
 // digests computed under the same GrantDigestABIVersion; see
@@ -491,6 +505,18 @@ type GrantDigestAccumulator struct {
 // rejects leaves it unchanged.
 func (a *GrantDigestAccumulator) Add(g *v2.Grant) error {
 	h, err := GrantContentHash(g)
+	if err != nil {
+		return err
+	}
+	a.xor ^= h
+	a.count++
+	return nil
+}
+
+// AddRecord is Add for a v3 GrantRecord; a record
+// GrantRecordContentHash rejects leaves the accumulator unchanged.
+func (a *GrantDigestAccumulator) AddRecord(r *v3.GrantRecord) error {
+	h, err := GrantRecordContentHash(r)
 	if err != nil {
 		return err
 	}

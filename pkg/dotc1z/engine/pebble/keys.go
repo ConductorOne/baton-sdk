@@ -203,6 +203,15 @@ func encodeGrantPrimaryEntitlementPrefix(id entitlementIdentity) []byte {
 	return codec.AppendTupleSeparator(buf)
 }
 
+// encodeGrantPrimaryEntitlementPrincipalTypePrefix extends
+// encodeGrantPrimaryEntitlementPrefix with one principal resource type,
+// scoping the primary keyspace to that entitlement's grants of that type.
+func encodeGrantPrimaryEntitlementPrincipalTypePrefix(id entitlementIdentity, principalRT string) []byte {
+	buf := encodeGrantPrimaryEntitlementPrefix(id)
+	buf = codec.AppendTupleString(buf, principalRT)
+	return codec.AppendTupleSeparator(buf)
+}
+
 func encodeGrantPrimaryEntitlementResourcePrefix(resourceTypeID, resourceID string) []byte {
 	buf := make([]byte, 0, 64)
 	buf = append(buf, versionV3, typeGrant)
