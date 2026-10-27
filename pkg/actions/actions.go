@@ -43,6 +43,7 @@ type actionHandlerResult struct {
 type registeredActionHandler struct {
 	invoke                    func(context.Context, *structpb.Struct) actionHandlerResult
 	secretReturnNames         map[string]struct{}
+	secretReturnContentTypes  map[string]string
 	requiredSecretReturnNames []string
 }
 
@@ -436,7 +437,10 @@ func (a *ActionManager) registerActionSchema(_ context.Context, name string, sch
 	if _, ok := a.schemas[name]; ok {
 		return fmt.Errorf("action schema %s already registered", name)
 	}
-	a.schemas[name] = schema
+	if err := validateActionSecretContentTypes(schema); err != nil {
+		return err
+	}
+	a.schemas[name] = proto.Clone(schema).(*v2.BatonActionSchema)
 	return nil
 }
 
@@ -487,6 +491,7 @@ func (a *ActionManager) RegisterWithSecrets(ctx context.Context, schema *v2.Bato
 			return actionHandlerResult{response: response, plaintextData: plaintextData, annotations: annos, err: err}
 		},
 		secretReturnNames:         secretReturnNames,
+		secretReturnContentTypes:  snapshotSecretContentTypes(schema.GetReturnTypes()),
 		requiredSecretReturnNames: requiredSecretReturnNames,
 	})
 }
@@ -568,6 +573,7 @@ func (a *ActionManager) RegisterResourceActionWithSecrets(
 			return actionHandlerResult{response: response, plaintextData: plaintextData, annotations: annos, err: err}
 		},
 		secretReturnNames:         secretReturnNames,
+		secretReturnContentTypes:  snapshotSecretContentTypes(schema.GetReturnTypes()),
 		requiredSecretReturnNames: requiredSecretReturnNames,
 	})
 }
@@ -591,6 +597,9 @@ func (a *ActionManager) registerResourceAction(
 		return fmt.Errorf("handler cannot be nil for action %s", schema.GetName())
 	}
 
+	if err := validateActionSecretContentTypes(schema); err != nil {
+		return err
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -631,7 +640,7 @@ func (a *ActionManager) registerResourceAction(
 		}
 	}
 
-	a.resourceSchemas[resourceTypeID][actionName] = schema
+	a.resourceSchemas[resourceTypeID][actionName] = proto.Clone(schema).(*v2.BatonActionSchema)
 	a.resourceHandlers[resourceTypeID][actionName] = handler
 
 	ctxzap.Extract(ctx).Debug("registered resource action", zap.String("resource_type", resourceTypeID), zap.String("action_name", actionName))
@@ -701,13 +710,13 @@ func (a *ActionManager) ListActionSchemas(_ context.Context, resourceTypeID stri
 		// Return all global actions
 		rv = make([]*v2.BatonActionSchema, 0, len(a.schemas))
 		for _, schema := range a.schemas {
-			rv = append(rv, schema)
+			rv = append(rv, proto.Clone(schema).(*v2.BatonActionSchema))
 		}
 
 		// Also return all resource-scoped actions
 		for _, schemas := range a.resourceSchemas {
 			for _, schema := range schemas {
-				rv = append(rv, schema)
+				rv = append(rv, proto.Clone(schema).(*v2.BatonActionSchema))
 			}
 		}
 	} else {
@@ -719,7 +728,7 @@ func (a *ActionManager) ListActionSchemas(_ context.Context, resourceTypeID stri
 
 		rv = make([]*v2.BatonActionSchema, 0, len(schemas))
 		for _, schema := range schemas {
-			rv = append(rv, schema)
+			rv = append(rv, proto.Clone(schema).(*v2.BatonActionSchema))
 		}
 	}
 
@@ -734,7 +743,7 @@ func (a *ActionManager) GetActionSchema(_ context.Context, name string) (*v2.Bat
 	if !ok {
 		return nil, nil, status.Error(codes.NotFound, fmt.Sprintf("action %s not found", name))
 	}
-	return schema, nil, nil
+	return proto.Clone(schema).(*v2.BatonActionSchema), nil, nil
 }
 
 func (a *ActionManager) GetActionStatus(ctx context.Context, actionId string) (v2.BatonActionStatus, string, *structpb.Struct, annotations.Annotations, error) {
@@ -914,6 +923,9 @@ func (a *ActionManager) invokeRegisteredAction(
 		encryptionConfigs = cloneEncryptionConfigs(encryptionConfigs)
 		if err := crypto.ValidateEncryptionConfigs(encryptionConfigs); err != nil {
 			return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, nil, err
+		}
+		if err := validateTypedOutputContext(handler.secretReturnContentTypes, encryptionConfigs); err != nil {
+			return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, nil, status.Error(codes.FailedPrecondition, err.Error())
 		}
 		var err error
 		encryptionManager, err = crypto.NewEncryptionManager(nil, encryptionConfigs)

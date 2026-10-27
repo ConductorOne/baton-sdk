@@ -956,6 +956,32 @@ func (m *Field) validate(all bool) error {
 		_ = v // ensures v is used
 	}
 
+	if m.SecretContentType != nil {
+
+		if l := utf8.RuneCountInString(m.GetSecretContentType()); l < 1 || l > 128 {
+			err := FieldValidationError{
+				field:  "SecretContentType",
+				reason: "value length must be between 1 and 128 runes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if !_Field_SecretContentType_Pattern.MatchString(m.GetSecretContentType()) {
+			err := FieldValidationError{
+				field:  "SecretContentType",
+				reason: "value does not match regex pattern \"^[a-z0-9]+([._-][a-z0-9]+)*$\"",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
 	if len(errors) > 0 {
 		return FieldMultiError(errors)
 	}
@@ -1032,6 +1058,8 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = FieldValidationError{}
+
+var _Field_SecretContentType_Pattern = regexp.MustCompile("^[a-z0-9]+([._-][a-z0-9]+)*$")
 
 // Validate checks the field values on Resource with the rules defined in the
 // proto definition for this message. If any rules are violated, the first

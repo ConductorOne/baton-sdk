@@ -34,6 +34,16 @@ frontend: ## Build the embedded React frontend.
 lint: ## Run golangci-lint.
 	golangci-lint run --timeout=3m
 
+MULTIPASS_DIR ?= ../multipass
+
+.PHONY: update-secret-contracts
+update-secret-contracts: ## Vendor the secret payload contract bundle from MULTIPASS_DIR (a clean checkout) and pin its commit.
+	scripts/update-secret-contracts.sh update $(MULTIPASS_DIR)
+
+.PHONY: check-secret-contracts
+check-secret-contracts: ## Verify the vendored contract bundle against the pinned Multipass commit in MULTIPASS_DIR.
+	scripts/update-secret-contracts.sh check $(MULTIPASS_DIR)
+
 .PHONY: update-deps
 update-deps: ## Update and tidy Go dependencies.
 	go get -d -u ./...

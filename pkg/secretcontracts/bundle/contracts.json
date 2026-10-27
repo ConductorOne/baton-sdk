@@ -1,0 +1,90 @@
+{
+  "description": "Index of the Multipass-owned secret payload contracts. The JSON Schema files under schemas/ are hand-authored and copied unchanged by consumers; text codecs have no schema. Field name mapping: secret_content_type here and in schemas/helpers is the existing protocol field content_type (SecretTypeDefinition.content_type); no wire, stored-byte or AAD value changes.",
+  "schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "limits": {
+    "max_json_document_bytes": 524288,
+    "max_list_item_utf8_bytes": 4096,
+    "max_value_bytes": 1048576
+  },
+  "stored_compat": {
+    "blank_means_absent": true,
+    "opaque": "generic may hold bytes that are not UTF-8 and any value up to max_value_bytes; a content_type outside this list, or a legacy type (totp, ...), is kept as an opaque value and never rejected on read.",
+    "typed": "A stored value of a listed type opens as that type when decode_typed_value and validate_typed_value both pass. Blank optional strings and empty optional lists are ignored by validation (blank_means_absent), so the schema describes the document after they are dropped."
+  },
+  "producer_profile": {
+    "note": "A producer writes only what the schema asserts: no blank optional string, no empty optional list, no JSON for a text codec, and only a listed type. Fixture index producer.accept records which cases satisfy it; stored records which the receiver opens.",
+    "omit_blank_optionals": true
+  },
+  "semantic_rule_note": "A schema carries x-semantic ids and x-max-utf8-bytes as annotations. JSON Schema cannot assert them; the receiver enforces them in secret_types::semantic and validate.",
+  "types": [
+    {
+      "secret_content_type": "password_v2",
+      "codec": "json_v1",
+      "schema": "schemas/password_v2.schema.json"
+    },
+    {
+      "secret_content_type": "hotp",
+      "codec": "utf8_text_v1",
+      "schema": null,
+      "text_codec": {
+        "field": "uri",
+        "max_code_points": 4096,
+        "max_utf8_bytes": 4096,
+        "non_blank": true,
+        "required_prefix": "otpauth://",
+        "stored_as": "the field value's UTF-8 bytes, verbatim: no JSON framing, trimming or normalization",
+        "semantic_rules": [
+          "hotp_uri"
+        ]
+      }
+    },
+    {
+      "secret_content_type": "api_key_v2",
+      "codec": "json_v1",
+      "schema": "schemas/api_key_v2.schema.json"
+    },
+    {
+      "secret_content_type": "ssh_key",
+      "codec": "json_v1",
+      "schema": "schemas/ssh_key.schema.json"
+    },
+    {
+      "secret_content_type": "oauth_client_secret_v2",
+      "codec": "json_v1",
+      "schema": "schemas/oauth_client_secret_v2.schema.json"
+    },
+    {
+      "secret_content_type": "certificate",
+      "codec": "json_v1",
+      "schema": "schemas/certificate.schema.json"
+    },
+    {
+      "secret_content_type": "note",
+      "codec": "utf8_text_v1",
+      "schema": null,
+      "text_codec": {
+        "field": "note",
+        "max_code_points": 131072,
+        "max_utf8_bytes": 131072,
+        "non_blank": true,
+        "required_prefix": null,
+        "stored_as": "the field value's UTF-8 bytes, verbatim: no JSON framing, trimming or normalization",
+        "semantic_rules": []
+      }
+    },
+    {
+      "secret_content_type": "generic",
+      "codec": "utf8_text_v1",
+      "schema": null,
+      "text_codec": {
+        "field": "value",
+        "max_code_points": 1048576,
+        "max_utf8_bytes": 1048576,
+        "non_blank": true,
+        "required_prefix": null,
+        "stored_as": "the field value's UTF-8 bytes, verbatim: no JSON framing, trimming or normalization",
+        "semantic_rules": []
+      }
+    }
+  ]
+}

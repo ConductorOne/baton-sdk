@@ -1,0 +1,1 @@
+{"otp_url":"otpauth://totp/Example:alice@example.com?secret=JBSWY3DPEHPK3PXP","url":"https://example.com/login","password":"päss \"wörd\" 🔑","username":"alice"}
