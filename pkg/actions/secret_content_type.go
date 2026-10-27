@@ -16,7 +16,12 @@ func validateActionSecretContentTypes(schema *v2.BatonActionSchema) error {
 			return errors.New("secret content type is only valid on secret action returns")
 		}
 	}
+	secretReturns := 0
+	hasTypedReturn := false
 	for _, field := range schema.GetReturnTypes() {
+		if field.GetIsSecret() {
+			secretReturns++
+		}
 		if !field.HasSecretContentType() {
 			continue
 		}
@@ -24,6 +29,12 @@ func validateActionSecretContentTypes(schema *v2.BatonActionSchema) error {
 		if !field.GetIsSecret() || !crypto.ValidSecretContentType(value) {
 			return errors.New("secret action return content type is invalid")
 		}
+		if value != "generic" {
+			hasTypedReturn = true
+		}
+	}
+	if hasTypedReturn && secretReturns != 1 {
+		return errors.New("typed secret action output requires exactly one secret return")
 	}
 	return nil
 }
