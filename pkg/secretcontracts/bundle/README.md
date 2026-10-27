@@ -3,16 +3,16 @@
 Multipass owns the format of every secret payload type it renders. This
 directory is the contract consumers copy.
 
-| Path | Authored | Purpose |
+| Path | Maintenance | Purpose |
 |---|---|---|
-| `schemas/<secret_content_type>.schema.json` | by hand | JSON Schema 2020-12 for the stored JSON document of the five JSON types. Consumers copy these files unchanged. |
-| `contracts.json` | by hand | Index of all eight types: codec, schema path, text-codec rules, size limits, stored-value compatibility. |
+| `schemas/<secret_content_type>.schema.json` | source file | JSON Schema 2020-12 for the stored JSON document of the five JSON types. Consumers copy these files unchanged. |
+| `contracts.json` | source file | Index of all eight types: codec, schema path, text-codec rules, size limits, stored-value compatibility. |
 | `fixtures/` | generated from the real Rust decoder | Valid and invalid stored payloads with the receiver's verdicts. `scripts/secret-contracts.sh generate` rewrites them; `check` fails when they drift. |
 
 The schemas are not generated from Rust. The Rust receiver
 (`crates/latchkey-client-sdk/src/secret_types`) is what stored values actually
 meet, so two tests keep it and the schemas in agreement:
-`hand_authored_schemas_agree_with_the_receiver_catalog` and
+`source_schemas_agree_with_the_receiver_catalog` and
 `contracts_index_agrees_with_the_receiver_catalog`. Changing a field means
 editing the schema, the receiver catalog and the fixtures together.
 

@@ -1,5 +1,5 @@
 {
-  "description": "Index of the Multipass-owned secret payload contracts. The JSON Schema files under schemas/ are hand-authored and copied unchanged by consumers; text codecs have no schema. Field name mapping: secret_content_type here and in schemas/helpers is the existing protocol field content_type (SecretTypeDefinition.content_type); no wire, stored-byte or AAD value changes.",
+  "description": "Index of the Multipass-owned secret payload contracts. The JSON Schema files under schemas/ are maintained as source files and copied unchanged by consumers; text codecs have no schema. Field name mapping: secret_content_type here and in schemas/helpers is the existing protocol field content_type (SecretTypeDefinition.content_type); no wire, stored-byte or AAD value changes.",
   "schema_dialect": "https://json-schema.org/draft/2020-12/schema",
   "limits": {
     "max_json_document_bytes": 524288,
