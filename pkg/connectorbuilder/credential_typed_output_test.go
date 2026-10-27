@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"filippo.io/hpke"
@@ -154,4 +155,27 @@ func TestNativeDescriptorTypeValidation(t *testing.T) {
 	require.NoError(t, validateCredentialIssueDescriptorShape(descriptor))
 	descriptor.SetSecretContentType("generic")
 	require.NoError(t, validateCredentialIssueDescriptorShape(descriptor))
+}
+
+func TestNativeTypedRejectsOtherRecipientsBeforeIssue(t *testing.T) {
+	for _, mixed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("mixed=%t", mixed), func(t *testing.T) {
+			issuer := &typedIssuer{scriptedCredentialIssuer: newScriptedCredentialIssuer("service_account"), contentType: "password_v2"}
+			connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{issuer, newTestCredentialSecretDeleter()}))
+			require.NoError(t, err)
+			configs := []*v2.EncryptionConfig{newIssueEncryptionConfig(t)}
+			if mixed {
+				cfg := validJWEConfig(t)
+				cfg.GetJwkPublicKeyConfig().SetAdditionalAuthenticatedData([]byte(`{"purpose":"c1/fk-credential-delivery","version":1,"content_type":"password_v2"}`))
+				configs = append(configs, cfg)
+			}
+			request := issueRequest(configs...)
+			data, err := structpb.NewStruct(map[string]any{"scopes": []any{"keys:read"}})
+			require.NoError(t, err)
+			request.SetRequestData(data)
+			_, err = connector.IssueCredential(context.Background(), request)
+			require.Error(t, err)
+			require.Zero(t, issuer.calls)
+		})
+	}
 }
