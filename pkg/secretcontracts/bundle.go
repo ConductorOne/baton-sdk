@@ -10,7 +10,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-//go:embed bundle/contracts.json bundle/schemas/*.schema.json
+//go:embed UPSTREAM.json bundle/contracts.json bundle/schemas/*.schema.json
 var bundleFS embed.FS
 
 type manifest struct {
@@ -165,11 +165,17 @@ func ContentTypes() ([]string, error) {
 
 // SourceRevision is the Multipass commit the bundle was generated from.
 func SourceRevision() (string, error) {
-	_, err := bundle()
+	raw, err := bundleFS.ReadFile("UPSTREAM.json")
 	if err != nil {
 		return "", err
 	}
-	return upstreamCommit, nil
+	var pin struct {
+		Commit string `json:"commit"`
+	}
+	if err := json.Unmarshal(raw, &pin); err != nil {
+		return "", err
+	}
+	return pin.Commit, nil
 }
 
 // encoderOrder preserves existing output bytes; schemas do not require an order.
@@ -180,5 +186,3 @@ var encoderOrder = map[string][]string{
 	"oauth_client_secret_v2": {"client_id", "client_secret", "token_endpoint_url", "scopes", "issuer_url", "redirect_uri", "auth_endpoint_url", "audience", "grant_type"},
 	"certificate":            {"certificate_pem", "private_key", "chain_pem", "passphrase"},
 }
-
-const upstreamCommit = "cabf67a9c65ea52b3c353a2d8c92c320cc8f5467"

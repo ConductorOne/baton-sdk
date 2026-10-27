@@ -19,7 +19,10 @@ func TestUpstreamPinMatchesVendoredBundle(t *testing.T) {
 		Files  map[string]string `json:"files_sha256"`
 	}
 	require.NoError(t, json.Unmarshal(readFile(t, "UPSTREAM.json"), &pin))
-	require.Equal(t, upstreamCommit, pin.Commit)
+	revision, err := SourceRevision()
+	require.NoError(t, err)
+	require.Equal(t, pin.Commit, revision)
+	require.Len(t, pin.Commit, 40)
 	var paths []string
 	require.NoError(t, filepath.WalkDir("bundle", func(path string, entry os.DirEntry, err error) error {
 		if err != nil || entry.IsDir() {
