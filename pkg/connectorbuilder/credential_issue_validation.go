@@ -3,6 +3,7 @@ package connectorbuilder
 import (
 	"errors"
 	"fmt"
+	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"math"
 	"regexp"
 	"slices"
@@ -113,6 +114,9 @@ func validateCredentialIssueInput(input *CredentialIssueInput, details *v2.Crede
 	descriptor, err := resolveCredentialIssueDescriptor(details, input.CredentialOptions)
 	if err != nil {
 		return nil, err
+	}
+	if descriptor.HasSecretContentType() && !crypto.ValidSecretContentType(descriptor.GetSecretContentType()) {
+		return nil, fmt.Errorf("invalid secret content type")
 	}
 	if descriptor.GetResourceMode() == v2.CredentialResourceMode_CREDENTIAL_RESOURCE_MODE_UNSPECIFIED {
 		return nil, fmt.Errorf("credential resource mode must be advertised")
