@@ -298,7 +298,7 @@ func TestPendingWorkRestartPerSyncBudgetFoldsBuckets(t *testing.T) {
 	require.ErrorAs(t, err, &capErr)
 	require.False(t, capErr.PerItem)
 	require.EqualValues(t, 3, capErr.Cap)
-	require.EqualValues(t, 4, capErr.Observed)
+	require.EqualValues(t, 3, capErr.Observed, "committed restarts, not the refused one")
 	require.Equal(t, []uint64{0, 1}, capErr.Invalidations)
 	counters, err := e.Ledger().Counters(t.Context())
 	require.NoError(t, err)

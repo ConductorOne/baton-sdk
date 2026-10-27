@@ -413,8 +413,8 @@ func (l *Ledger) stageRestart(ctx context.Context, batch *rawdb.RecordBatch, cur
 	if staged != own+1 {
 		return fmt.Errorf("%w: bucket must count this page once (%d committed, %d staged)", ErrPageUnitRestart, own, staged)
 	}
-	if total := others + staged; total > restart.caps.PerSync {
-		return capError(false, restart.caps.PerSync, total)
+	if others+staged > restart.caps.PerSync {
+		return capError(false, restart.caps.PerSync, others+own)
 	}
 	if current.Revision == math.MaxUint64 {
 		return errors.New("pending work revision overflow")

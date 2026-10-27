@@ -845,3 +845,32 @@ The plan is frozen at `87abf5ed`.
   construction and recorded as such in the evidence: a process kill
   cannot vary by op (one batch), and a takeover resumer is a
   configuration the product does not run.
+- **CO-017 (2026-10-27, human review).** Five findings. (1) `uhttp`
+  caches every 200 GET for an hour by default, so a restart to `""`
+  would replay page one from cache and walk the cached chain back to
+  the expired token until the per-item cap failed the sync.
+  `connectorbuilder` now clears the caches when a list call's error
+  carries the detail (`clearHTTPCachesOnInvalidation`, four call sites;
+  `TestListCallInvalidationClearsHTTPCaches` drives a real `uhttp`
+  client against an `httptest` server per op, with a control error that
+  keeps the cache; planted per call site). (2) `InvalidateActionFromError`
+  found the typed error anywhere in the tree, while a gRPC server
+  serializes only the first status carrier, so an error behind
+  `uhttp.WrapErrors` or `errors.Join(status, typed)` restarted in a
+  connector's test and not in deployment. The helper now reads
+  `status.FromError`, the same first carrier
+  (`TestInvalidateActionFromErrorMatchesWire`); the godoc and proto
+  comment say to return it bare or under `%w` only. (3) The reference
+  scan in `ledger_report_references.go` read a restarted row with
+  restart token `""` as terminal and never checked its `r+1`
+  continuation; it now checks every restarted row
+  (`TestPendingWorkReferencesCheckRestartedRowContinuation`, planted).
+  (4) The cap error's message carried the sentinel text twice;
+  `ErrActionInvalidationCapExceeded` is now an alias of
+  `c1zstore.ErrInvalidationCapExceeded` and `ActionInvalidationCapError`
+  prints `e.Cap` once. `InvalidationCapError.Observed` counted the
+  refused page for the per-sync scope and not for the per-item scope;
+  both now count committed restarts. (5) Godoc states when the restart
+  is not honored. Declined: folding `counterSplit` into
+  `countersExcept`, which also builds the call-stat and duration maps
+  and would do more work under the write lock, not less.

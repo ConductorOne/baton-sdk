@@ -54,10 +54,11 @@ func TestInvalidateActionFromError(t *testing.T) {
 		require.Equal(t, "page token invalidated", NewErrInvalidateAction("", "").Error())
 	})
 	for name, err := range map[string]error{
-		"nil":                 nil,
-		"plain":               errors.New("plain"),
-		"failed precondition": status.Error(codes.FailedPrecondition, "expired"),
-		"other detail":        mustOtherDetail(t),
+		"nil":                   nil,
+		"plain":                 errors.New("plain"),
+		"failed precondition":   status.Error(codes.FailedPrecondition, "expired"),
+		"other detail":          mustOtherDetail(t),
+		"behind another status": errors.Join(status.Error(codes.Internal, "http 400"), typed),
 	} {
 		t.Run("absent/"+name, func(t *testing.T) {
 			detail, present := InvalidateActionFromError(err)
@@ -65,6 +66,34 @@ func TestInvalidateActionFromError(t *testing.T) {
 			require.Nil(t, detail)
 		})
 	}
+}
+
+// The in-process answer equals what the syncer sees after a gRPC boundary
+// flattens the same error to its first status: a connector test cannot
+// restart where a deployed connector would not.
+func TestInvalidateActionFromErrorMatchesWire(t *testing.T) {
+	typed := NewErrInvalidateAction("R", "expired")
+	other := status.Error(codes.Internal, "http 400")
+	for name, err := range map[string]error{
+		"typed":                 typed,
+		"wrapped once":          fmt.Errorf("list: %w", typed),
+		"wrapped twice":         fmt.Errorf("sdk: %w", fmt.Errorf("list: %w", typed)),
+		"joined after plain":    errors.Join(errors.New("plain"), typed),
+		"joined before status":  errors.Join(typed, other),
+		"joined after status":   errors.Join(other, typed),
+		"wrapped behind status": fmt.Errorf("list: %w", errors.Join(other, typed)),
+		"status without detail": other,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, inProcess := InvalidateActionFromError(err)
+			_, wire := InvalidateActionFromError(status.Convert(err).Err())
+			require.Equal(t, wire, inProcess)
+		})
+	}
+	_, present := InvalidateActionFromError(errors.Join(typed, other))
+	require.True(t, present, "the detail's status first")
+	_, present = InvalidateActionFromError(errors.Join(other, typed))
+	require.False(t, present, "another status first")
 }
 
 func mustDetail(t *testing.T, code codes.Code, restart, reason string) error {

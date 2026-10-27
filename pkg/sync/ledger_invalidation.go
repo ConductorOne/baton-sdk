@@ -18,7 +18,7 @@ import (
 // the sync restarted more pages than its budget. pkg/tasks/c1api classifies
 // it non-retryable; a resume would call the connector once and fail the same
 // way. The artifact is kept (RFC 0009).
-var ErrActionInvalidationCapExceeded = errors.New("action invalidation cap exceeded")
+var ErrActionInvalidationCapExceeded = c1zstore.ErrInvalidationCapExceeded
 
 // ErrActionInvalidationMisclassified is a connector error carrying an
 // InvalidateAction detail on a call that cannot honor it: a status code the
@@ -193,8 +193,7 @@ type ActionInvalidationCapError struct {
 }
 
 func (e *ActionInvalidationCapError) Error() string {
-	return fmt.Sprintf("%v: %s %s/%s: %v: %v", ErrActionInvalidationCapExceeded, e.Action.Op.String(),
-		e.Action.ResourceTypeID, e.Action.ResourceID, e.Cap, e.Cause)
+	return fmt.Sprintf("%v (%s %s/%s): %v", e.Cap, e.Action.Op.String(), e.Action.ResourceTypeID, e.Action.ResourceID, e.Cause)
 }
 
 // Unwrap exposes the sentinel for errors.Is, the cap detail for errors.As,

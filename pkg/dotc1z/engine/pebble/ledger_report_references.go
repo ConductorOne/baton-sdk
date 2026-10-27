@@ -108,7 +108,7 @@ func scanLedgerReferences(ctx context.Context, iterator ledgerReportIterator, re
 			if len(hash) == 0 && !row.GetScrubbed() {
 				hash = ledgerTokenHash(row.GetNextPageToken())
 			}
-			if !bytes.Equal(hash, ledgerTokenHash("")) {
+			if !bytes.Equal(hash, ledgerTokenHash("")) || row.GetRestarted() {
 				revision := uint64(0)
 				if row.GetWorkId() != 0 {
 					if row.GetWorkRevision() == math.MaxUint64 {

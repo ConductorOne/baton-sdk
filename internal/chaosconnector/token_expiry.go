@@ -7,7 +7,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
@@ -50,12 +49,7 @@ func (s *tokenExpiryState) record(response proto.Message) {
 	if s == nil || response == nil {
 		return
 	}
-	message := response.ProtoReflect()
-	field := message.Descriptor().Fields().ByName("next_page_token")
-	if field == nil || field.Kind() != protoreflect.StringKind || !message.Has(field) {
-		return
-	}
-	token := message.Get(field).String()
+	token := firstStringField(response.ProtoReflect(), "next_page_token")
 	if token == "" {
 		return
 	}

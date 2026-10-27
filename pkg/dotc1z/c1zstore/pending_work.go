@@ -35,7 +35,8 @@ type RestartCaps struct {
 var ErrInvalidationCapExceeded = errors.New("action invalidation cap exceeded")
 
 // InvalidationCapError is the refused restart: the batch did not commit and
-// the pending item is unchanged. Invalidations is the item's list at the
+// the pending item is unchanged. Observed counts committed restarts in the
+// cap's scope, not the refused one; Invalidations is the item's list at the
 // time of the refusal.
 type InvalidationCapError struct {
 	PerItem       bool

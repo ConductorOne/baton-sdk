@@ -27,8 +27,12 @@ const (
 // request's page token can no longer be used (the provider expired it). The
 // syncer commits the action's pending work back to restart_page_token at
 // the next revision and calls the connector again with that token; nothing
-// from the failed page lands. A connector builds the error with
-// pagination.NewErrInvalidateAction rather than constructing this directly.
+// from the failed page lands. Honored only from the action's own list call
+// under those two codes; from any other call, or under another code, the
+// sync fails as a classification error. A connector builds the error with
+// pagination.NewErrInvalidateAction rather than constructing this directly,
+// returns it bare or wrapped with %w, and never behind another status error
+// (gRPC serializes the first status in the chain).
 type InvalidateAction struct {
 	state                       protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_RestartPageToken string                 `protobuf:"bytes,1,opt,name=restart_page_token,json=restartPageToken,proto3"`
