@@ -2301,10 +2301,11 @@ type IngestQualityStats struct {
 	GrantResourcesDropped         uint64 `protobuf:"varint,4,opt,name=grant_resources_dropped,json=grantResourcesDropped,proto3" json:"grant_resources_dropped,omitempty"`
 	ExpansionResourceTypesDropped uint64 `protobuf:"varint,5,opt,name=expansion_resource_types_dropped,json=expansionResourceTypesDropped,proto3" json:"expansion_resource_types_dropped,omitempty"`
 	ExpansionsDropped             uint64 `protobuf:"varint,6,opt,name=expansions_dropped,json=expansionsDropped,proto3" json:"expansions_dropped,omitempty"`
-	// Bitset of SDK-owned quality reasons. Bits 0..6 are entitlement dropped,
+	// Bitset of SDK-owned quality reasons. Bits 0..7 are entitlement dropped,
 	// grant dropped, grant-inserted resource dropped, expansion resource type
-	// dropped, expansion dropped, invalid row retained, and unknown prior
-	// checkpoint provenance, respectively.
+	// dropped, expansion dropped, invalid row retained, unknown prior
+	// checkpoint provenance, and action restarted after the connector
+	// invalidated its page token, respectively.
 	// Counts remain useful diagnostics; reason flags carry replay eligibility
 	// even for warn-and-retain policies that do not drop a row.
 	ReasonFlags uint64 `protobuf:"varint,7,opt,name=reason_flags,json=reasonFlags,proto3" json:"reason_flags,omitempty"`
@@ -2463,10 +2464,11 @@ type IngestQualityStats_builder struct {
 	GrantResourcesDropped         uint64
 	ExpansionResourceTypesDropped uint64
 	ExpansionsDropped             uint64
-	// Bitset of SDK-owned quality reasons. Bits 0..6 are entitlement dropped,
+	// Bitset of SDK-owned quality reasons. Bits 0..7 are entitlement dropped,
 	// grant dropped, grant-inserted resource dropped, expansion resource type
-	// dropped, expansion dropped, invalid row retained, and unknown prior
-	// checkpoint provenance, respectively.
+	// dropped, expansion dropped, invalid row retained, unknown prior
+	// checkpoint provenance, and action restarted after the connector
+	// invalidated its page token, respectively.
 	// Counts remain useful diagnostics; reason flags carry replay eligibility
 	// even for warn-and-retain policies that do not drop a row.
 	ReasonFlags uint64
@@ -2775,8 +2777,9 @@ type LedgerRow struct {
 	// Request arguments; work_id and work_revision distinguish executions.
 	Identity *LedgerActionIdentity `protobuf:"bytes,1,opt,name=identity,proto3" json:"identity,omitempty"`
 	// Cursor for the action's next page; empty means the action
-	// finished on this page. Scrubbed to empty with next_page_token_hash
-	// retained when scrubbed is set.
+	// finished on this page, unless restarted is set, in which case it is
+	// the token the action restarts at (empty: its first page). Scrubbed to
+	// empty with next_page_token_hash retained when scrubbed is set.
 	NextPageToken     string         `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	NextPageTokenHash []byte         `protobuf:"bytes,3,opt,name=next_page_token_hash,json=nextPageTokenHash,proto3" json:"next_page_token_hash,omitempty"`
 	Children          []*LedgerChild `protobuf:"bytes,4,rep,name=children,proto3" json:"children,omitempty"`
@@ -2815,8 +2818,12 @@ type LedgerRow struct {
 	Collection           *LedgerCollectionStats `protobuf:"bytes,23,opt,name=collection,proto3" json:"collection,omitempty"`
 	WorkId               uint64                 `protobuf:"varint,24,opt,name=work_id,json=workId,proto3" json:"work_id,omitempty"`
 	WorkRevision         uint64                 `protobuf:"varint,25,opt,name=work_revision,json=workRevision,proto3" json:"work_revision,omitempty"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	// The connector invalidated this page's token (RestartAction). The
+	// page wrote no records or children; the work item continues at
+	// next_page_token with revision + 1, not finished.
+	Restarted     bool `protobuf:"varint,26,opt,name=restarted,proto3" json:"restarted,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *LedgerRow) Reset() {
@@ -3019,6 +3026,13 @@ func (x *LedgerRow) GetWorkRevision() uint64 {
 	return 0
 }
 
+func (x *LedgerRow) GetRestarted() bool {
+	if x != nil {
+		return x.Restarted
+	}
+	return false
+}
+
 func (x *LedgerRow) SetIdentity(v *LedgerActionIdentity) {
 	x.Identity = v
 }
@@ -3122,6 +3136,10 @@ func (x *LedgerRow) SetWorkRevision(v uint64) {
 	x.WorkRevision = v
 }
 
+func (x *LedgerRow) SetRestarted(v bool) {
+	x.Restarted = v
+}
+
 func (x *LedgerRow) HasIdentity() bool {
 	if x == nil {
 		return false
@@ -3161,8 +3179,9 @@ type LedgerRow_builder struct {
 	// Request arguments; work_id and work_revision distinguish executions.
 	Identity *LedgerActionIdentity
 	// Cursor for the action's next page; empty means the action
-	// finished on this page. Scrubbed to empty with next_page_token_hash
-	// retained when scrubbed is set.
+	// finished on this page, unless restarted is set, in which case it is
+	// the token the action restarts at (empty: its first page). Scrubbed to
+	// empty with next_page_token_hash retained when scrubbed is set.
 	NextPageToken     string
 	NextPageTokenHash []byte
 	Children          []*LedgerChild
@@ -3201,6 +3220,10 @@ type LedgerRow_builder struct {
 	Collection           *LedgerCollectionStats
 	WorkId               uint64
 	WorkRevision         uint64
+	// The connector invalidated this page's token (RestartAction). The
+	// page wrote no records or children; the work item continues at
+	// next_page_token with revision + 1, not finished.
+	Restarted bool
 }
 
 func (b0 LedgerRow_builder) Build() *LedgerRow {
@@ -3232,6 +3255,7 @@ func (b0 LedgerRow_builder) Build() *LedgerRow {
 	x.Collection = b.Collection
 	x.WorkId = b.WorkId
 	x.WorkRevision = b.WorkRevision
+	x.Restarted = b.Restarted
 	return m0
 }
 
@@ -4450,7 +4474,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\vLedgerChild\x12?\n" +
 	"\bidentity\x18\x01 \x01(\v2#.c1.storage.v3.LedgerActionIdentityR\bidentity\x12\x18\n" +
 	"\aspawned\x18\x02 \x01(\bR\aspawned\x12\x17\n" +
-	"\awork_id\x18\x03 \x01(\x04R\x06workId\"\xbc\b\n" +
+	"\awork_id\x18\x03 \x01(\x04R\x06workId\"\xda\b\n" +
 	"\tLedgerRow\x12?\n" +
 	"\bidentity\x18\x01 \x01(\v2#.c1.storage.v3.LedgerActionIdentityR\bidentity\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12/\n" +
@@ -4479,7 +4503,8 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"collection\x18\x17 \x01(\v2$.c1.storage.v3.LedgerCollectionStatsR\n" +
 	"collection\x12\x17\n" +
 	"\awork_id\x18\x18 \x01(\x04R\x06workId\x12#\n" +
-	"\rwork_revision\x18\x19 \x01(\x04R\fworkRevision\"\xe8\x06\n" +
+	"\rwork_revision\x18\x19 \x01(\x04R\fworkRevision\x12\x1c\n" +
+	"\trestarted\x18\x1a \x01(\bR\trestarted\"\xe8\x06\n" +
 	"\x15LedgerCollectionStats\x12%\n" +
 	"\x0elist_responses\x18\x01 \x01(\x04R\rlistResponses\x120\n" +
 	"\x14empty_list_responses\x18\x02 \x01(\x04R\x12emptyListResponses\x12R\n" +

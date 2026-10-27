@@ -2753,6 +2753,8 @@ func (m *LedgerRow) validate(all bool) error {
 
 	// no validation rules for WorkRevision
 
+	// no validation rules for Restarted
+
 	if len(errors) > 0 {
 		return LedgerRowMultiError(errors)
 	}

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -32,11 +33,15 @@ type ledgerInvocation struct {
 	children              []Action
 	afterCommit           []func()
 	connectorObservations c1zstore.LedgerCounters
+	// Set when the page is a connector-signaled restart (stageActionRestart).
+	restart *restartRequest
 }
 
 type ledgerTransitionCommit struct {
 	commit  func() error
 	warning bool
+	// The pending item continues at the next token even when it is "".
+	restart bool
 }
 
 func ledgerIdentity(action *Action) c1zstore.LedgerActionIdentity {
@@ -125,19 +130,30 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		}
 		invocation.connectorObservations = attempts.addObservations(invocation.connectorObservations)
 		if err != nil {
-			if !allowWarning || !isWarning(pageCtx, err) {
+			detail, present, classErr := classifyRestartRequest(action, err)
+			switch {
+			case classErr != nil:
+				handlerFailure = classErr
+				return classErr
+			case present:
+				if err := s.stageActionRestart(invocation, page, action, detail, err); err != nil {
+					return err
+				}
+				ctxzap.Extract(pageCtx).Info("connector invalidated the action's page token; restarting the action", restartLogFields(action, detail)...)
+			case !allowWarning || !isWarning(pageCtx, err):
 				handlerFailure = err
 				return err
-			}
-			warning = err
-			if page.transitions != 0 {
-				return errors.New("ledger warning followed an action transition")
-			}
-			if err := invocation.stage(action, "", nil); err != nil {
-				return err
+			default:
+				warning = err
+				if page.transitions != 0 {
+					return errors.New("ledger warning followed an action transition")
+				}
+				if err := invocation.stage(action, "", nil); err != nil {
+					return err
+				}
 			}
 		}
-		if page.transitions == 1 && page.row.NextPageToken == "" {
+		if page.transitions == 1 && page.row.NextPageToken == "" && !page.row.Restarted {
 			if page.observations.Counters == nil {
 				page.observations.Counters = make(map[string]uint64)
 			}
@@ -174,14 +190,14 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 			}
 			return nil
 		}
-		commitCtx := context.WithValue(ctx, ledgerCommitKey{}, ledgerTransitionCommit{commit: publish, warning: warning != nil})
+		commitCtx := context.WithValue(ctx, ledgerCommitKey{}, ledgerTransitionCommit{commit: publish, warning: warning != nil, restart: page.row.Restarted})
 		return s.nextPageOrFinishAction(commitCtx, action, page.row.NextPageToken, invocation.children...)
 	})
 	if err != nil {
 		if handlerFailure == nil && isWarning(ctx, err) {
 			return ledgerPageWriteError{cause: err}
 		}
-		return err
+		return wrapRestartCommitError(action, invocation.restart, err)
 	}
 	s.publishLedgerConnectorObservations(invocation.connectorObservations)
 	for _, publish := range invocation.afterCommit {

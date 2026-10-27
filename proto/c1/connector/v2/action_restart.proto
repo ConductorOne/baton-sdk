@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// RestartAction is a gRPC status detail a connector attaches to a
+// FailedPrecondition or Aborted error from a paginated list call when the
+// request's page token can no longer be used (the provider expired it). The
+// syncer commits the action's pending work back to restart_page_token at
+// the next revision and calls the connector again with that token; nothing
+// from the failed page lands. Honored only from the action's own list call
+// under those two codes; from any other call, or under another code, the
+// sync fails with the request rejected. A connector builds the error with
+// pagination.NewRestartActionError rather than constructing this directly.
+// connectorbuilder's list handlers surface it from anywhere in the error
+// chain (pagination.SurfaceRestartAction); a hand-rolled server must do the
+// same or return it bare, because gRPC serializes the first status in the
+// chain.
+message RestartAction {
+  // The token the action's next call carries. Empty restarts the action
+  // from its first page.
+  string restart_page_token = 1;
+  // Free text for the syncer's log line; not stored and not interpreted.
+  string reason = 2;
+}

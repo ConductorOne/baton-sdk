@@ -11,8 +11,9 @@ type Run struct {
 	runtime   *Runtime
 	mutations *MutationRegistry
 
-	mu    sync.RWMutex
-	epoch string
+	mu          sync.RWMutex
+	epoch       string
+	tokenExpiry *tokenExpiryState
 }
 
 // NewRun validates and arms one scenario execution.
