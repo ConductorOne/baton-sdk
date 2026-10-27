@@ -22,6 +22,14 @@ PYCODE
     pinned=$(jq -r .commit "$dest/UPSTREAM.json")
     [[ $head == "$pinned" ]] || { echo "multipass is at $head, pinned $pinned" >&2; exit 1; }
     diff -r "$upstream/secret-contracts" "$dest/bundle"
+    python3 - "$dest" <<'PYCODE'
+import hashlib, json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+pin = json.loads((root / "UPSTREAM.json").read_text())
+files = {str(p.relative_to(root / "bundle")): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted((root / "bundle").rglob("*")) if p.is_file()}
+if pin["files_sha256"] != files:
+    raise SystemExit("contract file hashes do not match UPSTREAM.json")
+PYCODE
  ;;
  *) echo "usage: $0 update|check <multipass-checkout>" >&2; exit 2 ;;
 esac
