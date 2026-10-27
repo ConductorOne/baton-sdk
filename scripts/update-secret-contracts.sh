@@ -9,6 +9,7 @@ git -C "$upstream" diff --quiet HEAD || { echo "multipass checkout has uncommitt
 head=$(git -C "$upstream" rev-parse HEAD)
 case $mode in
  update)
+    find "$dest/bundle" -depth -mindepth 1 -delete
     cp -a "$upstream/secret-contracts/." "$dest/bundle/"
     python3 - "$dest" "$head" <<'PYCODE'
 import hashlib, json, pathlib, sys
