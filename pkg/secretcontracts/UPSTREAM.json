@@ -1,9 +1,9 @@
 {
   "repository": "https://github.com/ductone/multipass",
-  "commit": "f762e1f1c123951cf8f2023b081e60f3f5b8c862",
+  "commit": "6254bcc3aecdeaf1d480b8400db6195a7a2a26d1",
   "files_sha256": {
-    "README.md": "224d71619ea0c74df597b8f0dcb49a8e130ad78a20fbd4f572d4681369f72ea4",
-    "contracts.json": "61a976ce0dd0caef29fee11cc925c302f0fe4ccacfb37f0bf355bb1ae4702f32",
+    "README.md": "b932656c5fdb6f0b92ac0236163bf883f896e800826837e45963676a273a685e",
+    "contracts.json": "41c1db3f6e91278f0b3142cd8ddc12ff1f50bf60b73dd4d7598bb53712b9d7b8",
     "fixtures/index.json": "dd6269f9064d7cd5a56f6eef79aa207dc0d22c28daa5b65399c66e3c5da9768c",
     "fixtures/invalid/api_key_v2/array-document.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "fixtures/invalid/api_key_v2/base-url-not-http.json": "3123d0b1ca11d79aa91021a1677d48e19303064f12b0ce434c1b8e8c74cee150",

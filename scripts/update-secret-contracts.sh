@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copy the hand-authored contracts and generated fixtures from a clean checkout.
+# Copy the source-defined contracts and generated fixtures from a clean checkout.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 dest=pkg/secretcontracts
