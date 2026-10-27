@@ -794,3 +794,19 @@ The plan is frozen at `87abf5ed`.
   left the test green. Added `children-aligned` (row children matching
   the keys) and `terminal` (`SetTerminal` with `SetRestart`); both fail
   with the shape line planted out. C06 reads accordingly.
+- **CO-013 (2026-10-27, independent review).** Three gaps closed with
+  tests. Honored restart end to end was exercised only through
+  `ListResources`, so deleting `markActionListCall` at any of the other
+  four list call sites left the suite green;
+  `TestActionInvalidationRestartsEveryHonoringOp` restarts each of the
+  five ops through its own handler against a differential store oracle
+  (planted: the entitlements mark removed fails that op's case). The
+  restart-shape refusal exercised one record buffer; it now covers all
+  six (`resource-types`, `resources`, `entitlements`, `grants`,
+  `grant-deletes`, `assets`). No test raced two writers on one item;
+  `TestPendingWorkRestartRaceOnOneItem` commits eight restarts of the
+  same item at the same revision concurrently and requires exactly one
+  commit, `ErrStaleLedgerWork` for the rest, and one invalidation
+  recorded (passes 20× under `-race`). The chaos `EffectInvalidateAction`
+  comment said `Code` "when set" replaces the helper's code; zero is
+  unset, so it reads "when non-zero and not FailedPrecondition".

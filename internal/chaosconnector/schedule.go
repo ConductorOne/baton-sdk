@@ -29,9 +29,9 @@ const (
 	// into an actual hard crash.
 	EffectCrash EffectKind = "crash"
 	// EffectInvalidateAction returns the pagination.NewErrInvalidateAction
-	// error for RestartToken and Message. Code, when set, replaces the
-	// helper's FailedPrecondition so a schedule can place the detail on a
-	// code the syncer must not honor.
+	// error for RestartToken and Message. Code, when non-zero and not
+	// FailedPrecondition, replaces the helper's FailedPrecondition so a
+	// schedule can place the detail on a code the syncer must not honor.
 	EffectInvalidateAction EffectKind = "invalidate-action"
 )
 

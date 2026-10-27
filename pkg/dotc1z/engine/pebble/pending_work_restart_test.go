@@ -11,6 +11,7 @@ import (
 	"github.com/cockroachdb/pebble/v2/vfs"
 	"github.com/stretchr/testify/require"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v3 "github.com/conductorone/baton-sdk/pb/c1/storage/v3"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
@@ -125,9 +126,30 @@ func TestPendingWorkRestartCommitsRowAndMovesItem(t *testing.T) {
 func TestPendingWorkRestartRefusesPayload(t *testing.T) {
 	e, _ := newTestEngine(t)
 	work := pendingTestSeed(t, e)
+	ent := V3EntitlementToV2(ledgerTestEntitlement("group", "one", "member"))
+	grant := v2.Grant_builder{
+		Id:          "grant-one",
+		Entitlement: ent,
+		Principal:   V3ResourceToV2(ledgerTestResource("user", "u1")),
+	}.Build()
 	cases := map[string]func(c1zstore.PageWriter){
-		"records": func(w c1zstore.PageWriter) {
+		"resource-types": func(w c1zstore.PageWriter) {
+			require.NoError(t, w.PutResourceTypes(t.Context(), v2.ResourceType_builder{Id: "group"}.Build()))
+		},
+		"resources": func(w c1zstore.PageWriter) {
 			require.NoError(t, w.PutResources(t.Context(), V3ResourceToV2(ledgerTestResource("group", "one"))))
+		},
+		"entitlements": func(w c1zstore.PageWriter) {
+			require.NoError(t, w.PutEntitlements(t.Context(), ent))
+		},
+		"grants": func(w c1zstore.PageWriter) {
+			require.NoError(t, w.PutGrants(t.Context(), grant))
+		},
+		"grant-deletes": func(w c1zstore.PageWriter) {
+			require.NoError(t, w.DeleteGrants(t.Context(), grant))
+		},
+		"assets": func(w c1zstore.PageWriter) {
+			require.NoError(t, w.PutAsset(t.Context(), v2.AssetRef_builder{Id: "asset-one"}.Build(), "text/plain", []byte("x")))
 		},
 		"children": func(w c1zstore.PageWriter) {
 			require.NoError(t, w.SetPendingWork(work, "resource:child"))
@@ -281,6 +303,55 @@ func TestPendingWorkRestartPerSyncBudgetFoldsBuckets(t *testing.T) {
 	counters, err := e.Ledger().Counters(t.Context())
 	require.NoError(t, err)
 	require.EqualValues(t, 3, counters.Counters[c1zstore.LedgerActionInvalidations])
+}
+
+// Eight writers restart the same item at the same revision at once: exactly
+// one commits, the rest are fenced with ErrStaleLedgerWork, and the item
+// ends at revision+1 with one invalidation.
+func TestPendingWorkRestartRaceOnOneItem(t *testing.T) {
+	e, _ := newTestEngine(t)
+	work := pendingTestSeed(t, e)
+	caps := c1zstore.RestartCaps{PerItem: 100, PerSync: 100}
+	const racers = 8
+	writers := make([]c1zstore.PageWriter, racers)
+	for i := range writers {
+		writers[i] = e.Ledger().BeginPage()
+		require.NoError(t, writers[i].SetPendingWork(work))
+		require.NoError(t, writers[i].SetRestart(caps))
+		bucket := c1zstore.LedgerCounters{Counters: map[string]uint64{c1zstore.LedgerActionInvalidations: 1}}
+		require.NoError(t, writers[i].SetCounterBucket("run", uint32(i), bucket))
+	}
+	var wg sync.WaitGroup
+	results := make([]error, racers)
+	start := make(chan struct{})
+	for i := range writers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			results[i] = writers[i].Commit(context.Background(), work.Action.Identity, &c1zstore.LedgerRow{NextPageToken: "R", Restarted: true})
+			writers[i].Discard()
+		}()
+	}
+	close(start)
+	wg.Wait()
+	committed := 0
+	for _, err := range results {
+		if err == nil {
+			committed++
+			continue
+		}
+		require.ErrorIs(t, err, ErrStaleLedgerWork)
+	}
+	require.Equal(t, 1, committed)
+	items := pendingItems(t, e)
+	require.Len(t, items, 1)
+	require.Equal(t, work.Revision+1, items[0].Revision)
+	require.Equal(t, "R", items[0].Action.Identity.PageToken)
+	require.Equal(t, []uint64{work.Revision}, items[0].Invalidations)
+	counters, err := e.Ledger().Counters(t.Context())
+	require.NoError(t, err)
+	require.EqualValues(t, 1, counters.Counters[c1zstore.LedgerActionInvalidations])
 }
 
 // D10 concurrent cell: workers restarting at once under the budget; exactly

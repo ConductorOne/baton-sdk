@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	native_sync "sync"
 	"testing"
 
@@ -21,6 +22,7 @@ import (
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/retry"
+	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
@@ -288,6 +290,181 @@ func TestActionInvalidationMisclassifiedCodeFailsSync(t *testing.T) {
 	require.Contains(t, err.Error(), "code=InvalidArgument")
 	require.Equal(t, []string{"", "T1"}, c.callsFor("group"))
 	require.Zero(t, invalidationCounter(t, f))
+}
+
+// pagedOpsConnector pages every list op "" → "T1" → "T2" with one element
+// per page and fails the op named by failOp once, at "T1", with the typed
+// error. Resource types page [group], [], []; the group resources g-p0..2
+// each list one entitlement and one grant per page; static entitlements
+// list one template per page.
+type pagedOpsConnector struct {
+	*mockConnector
+	failOp  string
+	restart string
+
+	mu     native_sync.Mutex
+	calls  map[string][]string
+	failed bool
+}
+
+func newPagedOpsConnector(failOp, restart string) *pagedOpsConnector {
+	return &pagedOpsConnector{mockConnector: newMockConnector(), failOp: failOp, restart: restart, calls: map[string][]string{}}
+}
+
+func (c *pagedOpsConnector) page(op, token string) (int, string, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.calls[op] = append(c.calls[op], token)
+	if op == c.failOp && token == "T1" && !c.failed {
+		c.failed = true
+		return 0, "", pagination.NewErrInvalidateAction(c.restart, "page token expired")
+	}
+	switch token {
+	case "":
+		return 0, "T1", nil
+	case "T1":
+		return 1, "T2", nil
+	default:
+		return 2, "", nil
+	}
+}
+
+func (c *pagedOpsConnector) callsFor(op string) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.calls[op])
+}
+
+func (c *pagedOpsConnector) ListResourceTypes(
+	_ context.Context, req *v2.ResourceTypesServiceListResourceTypesRequest, _ ...grpc.CallOption,
+) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
+	n, next, err := c.page("list-resource-types", req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+	list := []*v2.ResourceType{}
+	if n == 0 {
+		list = append(list, groupResourceType)
+	}
+	return v2.ResourceTypesServiceListResourceTypesResponse_builder{List: list, NextPageToken: next}.Build(), nil
+}
+
+func (c *pagedOpsConnector) ListResources(_ context.Context, req *v2.ResourcesServiceListResourcesRequest, _ ...grpc.CallOption) (*v2.ResourcesServiceListResourcesResponse, error) {
+	n, next, err := c.page("list-resources", req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+	group, err := rs.NewGroupResource(fmt.Sprintf("g-p%d", n), groupResourceType, fmt.Sprintf("g-p%d", n), nil)
+	if err != nil {
+		return nil, err
+	}
+	return v2.ResourcesServiceListResourcesResponse_builder{List: []*v2.Resource{group}, NextPageToken: next}.Build(), nil
+}
+
+func (c *pagedOpsConnector) ListEntitlements(_ context.Context, req *v2.EntitlementsServiceListEntitlementsRequest, _ ...grpc.CallOption) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
+	n, next, err := c.page("list-entitlements", req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+	ent := et.NewAssignmentEntitlement(req.GetResource(), fmt.Sprintf("e%d", n))
+	return v2.EntitlementsServiceListEntitlementsResponse_builder{List: []*v2.Entitlement{ent}, NextPageToken: next}.Build(), nil
+}
+
+func (c *pagedOpsConnector) ListGrants(_ context.Context, req *v2.GrantsServiceListGrantsRequest, _ ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
+	n, next, err := c.page("list-grants", req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+	grant := gt.NewGrant(req.GetResource(), fmt.Sprintf("e%d", n), req.GetResource().GetId())
+	return v2.GrantsServiceListGrantsResponse_builder{List: []*v2.Grant{grant}, NextPageToken: next}.Build(), nil
+}
+
+func (c *pagedOpsConnector) ListStaticEntitlements(
+	_ context.Context, req *v2.EntitlementsServiceListStaticEntitlementsRequest, _ ...grpc.CallOption,
+) (*v2.EntitlementsServiceListStaticEntitlementsResponse, error) {
+	n, next, err := c.page("list-static-entitlements", req.GetPageToken())
+	if err != nil {
+		return nil, err
+	}
+	template := v2.Entitlement_builder{Slug: fmt.Sprintf("static-%d", n), DisplayName: fmt.Sprintf("static-%d", n)}.Build()
+	return v2.EntitlementsServiceListStaticEntitlementsResponse_builder{List: []*v2.Entitlement{template}, NextPageToken: next}.Build(), nil
+}
+
+// storedShape is every record family in the store, as sorted identities.
+type storedShape struct {
+	resourceTypes, resources, entitlements, grants []string
+}
+
+func storeShape(t *testing.T, store c1zstore.Store) storedShape {
+	t.Helper()
+	var shape storedShape
+	rts, err := store.ListResourceTypes(t.Context(), v2.ResourceTypesServiceListResourceTypesRequest_builder{PageSize: 100}.Build())
+	require.NoError(t, err)
+	for _, rt := range rts.GetList() {
+		shape.resourceTypes = append(shape.resourceTypes, rt.GetId())
+		shape.resources = append(shape.resources, storedResourceIDs(t, store, rt.GetId())...)
+	}
+	ents, err := store.ListEntitlements(t.Context(), v2.EntitlementsServiceListEntitlementsRequest_builder{PageSize: 1000}.Build())
+	require.NoError(t, err)
+	for _, e := range ents.GetList() {
+		shape.entitlements = append(shape.entitlements, e.GetId())
+	}
+	grants, err := store.ListGrants(t.Context(), v2.GrantsServiceListGrantsRequest_builder{PageSize: 1000}.Build())
+	require.NoError(t, err)
+	for _, g := range grants.GetList() {
+		shape.grants = append(shape.grants, g.GetId())
+	}
+	for _, list := range []*[]string{&shape.resourceTypes, &shape.resources, &shape.entitlements, &shape.grants} {
+		slices.Sort(*list)
+	}
+	require.NotEmpty(t, shape.entitlements)
+	require.NotEmpty(t, shape.grants)
+	return shape
+}
+
+// Every honoring op restarts end to end through its own handler and list
+// call site: the op's call sequence shows the restart, the store equals an
+// uninterrupted run's, and the restart is counted under that op. Deleting
+// the markActionListCall at any one call site fails that op's case as a
+// misclassification.
+func TestActionInvalidationRestartsEveryHonoringOp(t *testing.T) {
+	ops := map[string]ActionOp{
+		"list-resource-types":      SyncResourceTypesOp,
+		"list-resources":           SyncResourcesOp,
+		"list-entitlements":        SyncEntitlementsOp,
+		"list-grants":              SyncGrantsOp,
+		"list-static-entitlements": SyncStaticEntitlementsOp,
+	}
+	clean := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "clean.c1z"), false)
+	cleanSyncer, err := NewSyncer(t.Context(), newPagedOpsConnector("", ""), WithConnectorStore(clean.store), WithWorkerCount(1))
+	require.NoError(t, err)
+	require.NoError(t, cleanSyncer.Sync(t.Context()))
+	want := storeShape(t, clean.store)
+
+	for op, actionOp := range ops {
+		t.Run(op, func(t *testing.T) {
+			f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), op+".c1z"), false)
+			c := newPagedOpsConnector(op, "T1")
+			s, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithWorkerCount(1))
+			require.NoError(t, err)
+			require.NoError(t, s.Sync(t.Context()))
+			calls := c.callsFor(op)
+			require.Contains(t, strings.Join(calls, ","), ",T1,T1,", "the call after the expiry carries the restart token: %v", calls)
+			require.Equal(t, want, storeShape(t, f.store))
+			byOp, total := s.(*syncer).run.actionInvalidationCounts()
+			require.EqualValues(t, 1, total)
+			require.EqualValues(t, 1, byOp[actionOp.String()])
+			report, err := f.engine.GetArchivedLedgerReport(t.Context())
+			require.NoError(t, err)
+			var decoded struct {
+				Latest struct {
+					RestartPages uint64 `json:"restart_pages"`
+				} `json:"latest"`
+			}
+			require.NoError(t, json.Unmarshal(report, &decoded))
+			require.EqualValues(t, 1, decoded.Latest.RestartPages)
+		})
+	}
 }
 
 // I1: every (op, root or per-type, code, spawned, detail form, own list
