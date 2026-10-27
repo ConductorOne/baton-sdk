@@ -129,6 +129,7 @@ func loadBundle() (loaded, error) {
 				Type     string   `json:"type"`
 				MaxBytes int      `json:"x-max-utf8-bytes"`
 				Semantic []string `json:"x-semantic"`
+				NonBlank bool     `json:"x-non-blank"`
 				Items    struct {
 					MaxBytes int `json:"x-max-utf8-bytes"`
 				} `json:"items"`
@@ -141,6 +142,9 @@ func loadBundle() (loaded, error) {
 			c.required[name] = true
 		}
 		for name, p := range shape.Properties {
+			if p.NonBlank != (p.Type == "string" && c.required[name]) {
+				return loaded{}, fmt.Errorf("secretcontracts: %s.%s: invalid x-non-blank annotation", t.ContentType, name)
+			}
 			for _, rule := range p.Semantic {
 				c.SemanticRules = append(c.SemanticRules, semanticRule{Field: name, Rule: rule})
 			}

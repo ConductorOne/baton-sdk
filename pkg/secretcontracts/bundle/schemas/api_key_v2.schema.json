@@ -14,7 +14,8 @@
       "type": "string",
       "minLength": 1,
       "maxLength": 4096,
-      "x-max-utf8-bytes": 131072
+      "x-max-utf8-bytes": 131072,
+      "x-non-blank": true
     },
     "provider": {
       "type": "string",

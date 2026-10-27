@@ -35,6 +35,7 @@ date check. Keep the native `rfc3339_full_date` check in either case.
 Property order has no semantic meaning and does not define encoder order.
 The schemas also carry annotations a native check enforces:
 
+- `x-non-blank`: the receiver requires a string containing a non-whitespace character, using Rust `str::trim` semantics.
 - `x-semantic`: ids of native checks (`http_url`, `ssh_private_key`, ...).
 - `x-max-utf8-bytes`, `x-max-document-bytes`: byte caps beyond `maxLength`.
 - `x-secret-content-type`: the type the schema describes.
