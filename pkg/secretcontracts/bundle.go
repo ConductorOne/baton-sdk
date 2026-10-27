@@ -150,7 +150,7 @@ func loadBundle() (loaded, error) {
 	return out, nil
 }
 
-// ContentTypes lists the types the bundle defines, in manifest order.
+// ContentTypes lists the types in contract-index order.
 func ContentTypes() ([]string, error) {
 	b, err := bundle()
 	if err != nil {
@@ -163,7 +163,7 @@ func ContentTypes() ([]string, error) {
 	return types, nil
 }
 
-// SourceRevision is the Multipass commit the bundle was generated from.
+// SourceRevision is the Multipass commit the contracts were copied from.
 func SourceRevision() (string, error) {
 	raw, err := bundleFS.ReadFile("UPSTREAM.json")
 	if err != nil {
