@@ -96,6 +96,31 @@ func TestC1ZFileCheckHeader(t *testing.T) {
 	}
 }
 
+type seekFailsAfterRead struct {
+	*bytes.Reader
+	seeks int
+	err   error
+}
+
+func (s *seekFailsAfterRead) Seek(offset int64, whence int) (int64, error) {
+	s.seeks++
+	if s.seeks > 1 {
+		return 0, s.err
+	}
+	return s.Reader.Seek(offset, whence)
+}
+
+func TestC1ZFileCheckHeader_RewindErrorIsReturned(t *testing.T) {
+	// ReadHeader's own rewind is the first Seek and succeeds; the rewind
+	// back to the stream start after a valid header is the second and fails.
+	// The caller must see that error, not (false, nil).
+	want := errors.New("seek failed")
+	r := &seekFailsAfterRead{Reader: bytes.NewReader(append([]byte("C1Z3\x00"), 'x')), err: want}
+	ok, err := C1ZFileCheckHeader(r)
+	require.ErrorIs(t, err, want)
+	require.False(t, ok)
+}
+
 func TestFormatString(t *testing.T) {
 	for _, tc := range []struct {
 		f    C1ZFormat

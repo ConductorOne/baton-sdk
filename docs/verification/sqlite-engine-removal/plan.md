@@ -335,3 +335,22 @@ the Windows CI shards.
    `resources_test.go` on `NewStore`; `pkg/synccompactor/compactor_test.go`
    sync-type-union and run-duration tests moved to Pebble inputs.
    `compactor_bench_test.go` keeps its Pebble benchmarks only.
+
+4. **Dead options and the `optimize` command removed (review).** The plan
+   relocated `WithEncoderConcurrency` and kept `optimize.go`'s "not
+   applicable" branch. Review found the Pebble engine never reads
+   `StoreOptions.EncoderConcurrency`, and `optimize` had nothing left to do
+   once `VACUUM` was gone. Removed in `9163cd20` and `e0c6bb03`:
+   `WithEncoderConcurrency`, `StoreOptions.EncoderConcurrency`, the zstd
+   encoder pool, `saveC1z`, `decompressC1z`, and `cmd/baton/optimize.go`.
+   `C1ZFileCheckHeader` went in the same commit and came back in `81570a7f`
+   because c1 calls it.
+
+5. **`storage_engine` proto validation narrowed (review).** The plan did not
+   touch `proto/c1/connectorapi/baton/v1/baton.proto`, which still accepted
+   `storage_engine: "sqlite"` while the SDK would fail it later with
+   `ErrEngineNotAvailable`. The `in` rule now lists only `pebble`, matching
+   `field.StorageEngineField`. `buf breaking` against `main` passes.
+   `pkg/tasks/c1api/full_sync.go` still forwards the value unchanged; the
+   SDK does not call `Validate()` on received tasks, so the rule is a
+   contract for senders, not a runtime check here.

@@ -17,7 +17,7 @@ import (
 // ErrV1Unsupported is returned by NewStore for a v1 (SQLite) .c1z. The SDK
 // no longer reads or writes that format; convert the file with
 // `baton to-pebble` or read it through pkg/dotc1z/sqlite.
-var ErrV1Unsupported = errors.New("dotc1z: v1 (sqlite) c1z files are not supported; convert with `baton to-pebble`")
+var ErrV1Unsupported = errors.New("dotc1z: v1 (sqlite) c1z files are not supported; convert with `baton to-pebble` or delete the file to start fresh")
 
 // StoreOptions is the engine-neutral form of C1ZOption values passed to a
 // registered engine driver.

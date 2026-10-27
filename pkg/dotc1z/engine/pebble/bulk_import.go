@@ -189,7 +189,7 @@ func (w *bulkSSTWriter) finish() error {
 // Entitlement identities embed the raw external id and cannot fold. The
 // destination sync must be freshly started (MarkFreshSync via
 // StartNewSync) and empty; nothing else may write to the engine between
-// Start and Finish. Used by C1File.ToPebble for sqlite→pebble conversion.
+// Start and Finish. Used by sqlite.File.ToPebble for v1→Pebble conversion.
 type BulkSyncImport struct {
 	e      *Engine
 	syncID string

@@ -47,8 +47,7 @@ const (
 	PebbleManifestEngineV2 = "pebble2"
 )
 
-// PayloadEncoding selects the v3 envelope payload framing. Only the
-// Pebble engine consults this; SQLite engines ignore it. Every value
+// PayloadEncoding selects the v3 envelope payload framing. Every value
 // is DERIVED from the matching c1.c1z.v3.PayloadEncoding proto enum
 // value, so the Go constants cannot drift from the wire format.
 type PayloadEncoding int

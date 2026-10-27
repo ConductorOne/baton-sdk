@@ -70,9 +70,9 @@ func WithSyncLimit(limit int) C1ZOption {
 	}
 }
 
-// WithEngine selects the storage engine for newly created .c1z files.
-// The default is EnginePebble. Reading existing files dispatches on the
-// file's magic byte and is independent of this option.
+// WithEngine sets the storage engine for newly created .c1z files.
+// EnginePebble is the default and the only registered engine; any other
+// value makes NewStore return ErrEngineNotAvailable.
 func WithEngine(engine c1zstore.Engine) C1ZOption {
 	return func(o *c1zOptions) {
 		o.engine = engine

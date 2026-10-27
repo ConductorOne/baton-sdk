@@ -23,7 +23,7 @@ func C1ZFileCheckHeader(f io.ReadSeeker) (bool, error) {
 	// Seek back to start
 	_, seekErr := f.Seek(0, 0)
 	if seekErr != nil {
-		return false, err
+		return false, seekErr
 	}
 
 	if err != nil {
