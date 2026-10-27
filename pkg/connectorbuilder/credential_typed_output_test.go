@@ -13,6 +13,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwe"
 	"github.com/conductorone/baton-sdk/pkg/secretcontracts"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -119,7 +121,8 @@ func TestNativeTypedRejectsContextBeforeIssue(t *testing.T) {
 			require.NoError(t, err)
 			request.SetRequestData(data)
 			_, err = connector.IssueCredential(context.Background(), request)
-			require.Error(t, err)
+			require.Equal(t, codes.InvalidArgument, status.Code(err))
+			require.ErrorContains(t, err, "typed credential requires a matching JWE recipient context")
 			require.Zero(t, issuer.calls)
 		})
 	}
@@ -174,7 +177,12 @@ func TestNativeTypedRejectsOtherRecipientsBeforeIssue(t *testing.T) {
 			require.NoError(t, err)
 			request.SetRequestData(data)
 			_, err = connector.IssueCredential(context.Background(), request)
-			require.Error(t, err)
+			require.Equal(t, codes.InvalidArgument, status.Code(err))
+			if mixed {
+				require.ErrorContains(t, err, "JWE credential issuance requires exactly one encryption config")
+			} else {
+				require.ErrorContains(t, err, "typed credential requires a matching JWE recipient context")
+			}
 			require.Zero(t, issuer.calls)
 		})
 	}
