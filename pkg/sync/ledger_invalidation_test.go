@@ -127,9 +127,13 @@ func invalidationCounter(t *testing.T, f *ledgerFixture) uint64 {
 	return counters.Counters[ledgerActionInvalidations]
 }
 
-// C11, C13, C19: the next call carries the restart token, the sync
-// finishes with the same resources as an uninterrupted run, and the
-// restart leaves the replay block and the counters in the ledger.
+// C11, C19: the next call carries the restart token, the sync finishes
+// with the same resources as an uninterrupted run when the restart token
+// is "" or the expired token (a restart to the page after the expired one
+// skips that page's resource, which is the connector's instruction), and
+// the restart leaves the replay block and the counters in the ledger. The
+// fixture has no child work, so C13 (a restarted chain re-emitting a
+// claimed child) is not exercised here.
 func TestActionInvalidationRestartsAction(t *testing.T) {
 	for _, tc := range []struct {
 		restart string
@@ -360,68 +364,53 @@ func TestClassifyActionInvalidationTable(t *testing.T) {
 // on, and keep restarting until the per-item cap.
 type nestedGetResourceConnector struct {
 	*mockConnector
+	fail             error
 	getResourceCalls int
 }
 
 func (c *nestedGetResourceConnector) GetResource(ctx context.Context, in *v2.ResourceGetterServiceGetResourceRequest, opts ...grpc.CallOption) (*v2.ResourceGetterServiceGetResourceResponse, error) {
 	if in.GetResourceId().GetResource() == "g2" {
 		c.getResourceCalls++
-		return nil, pagination.NewErrInvalidateAction("", "get-resource is not paginated")
+		return nil, c.fail
 	}
 	return c.mockConnector.GetResource(ctx, in, opts...)
 }
 
-// notFoundDetailGrantsConnector answers ListGrants with the detail on
-// NotFound, the code isWarning treats as "finish the action with a
-// warning" when the caller allows warnings (grants does).
-type notFoundDetailGrantsConnector struct {
-	*mockConnector
-	listGrantsCalls int
-}
-
-func (c *notFoundDetailGrantsConnector) ListGrants(context.Context, *v2.GrantsServiceListGrantsRequest, ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
-	c.listGrantsCalls++
-	st, err := status.New(codes.NotFound, "gone").WithDetails(v2.InvalidateAction_builder{RestartPageToken: ""}.Build())
-	if err != nil {
-		return nil, err
-	}
-	return nil, st.Err()
-}
-
-func TestActionInvalidationMisclassifiedNotFoundFailsNotWarns(t *testing.T) {
-	c := &notFoundDetailGrantsConnector{mockConnector: newMockConnector()}
-	c.rtDB = append(c.rtDB, groupResourceType)
-	_, _, err := c.AddGroup(t.Context(), "g1")
-	require.NoError(t, err)
-
-	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "notfound.c1z"), false)
-	s, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithWorkerCount(1))
-	require.NoError(t, err)
-	err = s.Sync(t.Context())
-	require.ErrorIs(t, err, ErrActionInvalidationMisclassified, "a detail on NotFound fails the sync instead of finishing the action with a warning")
-	require.Equal(t, codes.Internal, status.Code(err))
-	require.Equal(t, 1, c.listGrantsCalls)
-	require.Zero(t, invalidationCounter(t, f))
-}
-
+// The detail on the codes getLedgerResourceFromConnector otherwise swallows
+// (NotFound, Unimplemented: the resource is skipped) must not be swallowed.
 func TestActionInvalidationNestedConnectorCallMisclassified(t *testing.T) {
-	c := &nestedGetResourceConnector{mockConnector: newMockConnector()}
-	c.rtDB = append(c.rtDB, groupResourceType)
-	g1, _, err := c.AddGroup(t.Context(), "g1")
-	require.NoError(t, err)
-	g2, err := rs.NewGroupResource("g2", groupResourceType, "g2", nil)
-	require.NoError(t, err)
-	c.grantDB["g1"] = []*v2.Grant{gt.NewGrant(g2, "member", g1.GetId())}
+	withDetail := func(code codes.Code) error {
+		st, err := status.New(code, "from get-resource").WithDetails(v2.InvalidateAction_builder{RestartPageToken: ""}.Build())
+		if err != nil {
+			panic(err)
+		}
+		return st.Err()
+	}
+	for name, fail := range map[string]error{
+		"typed":         pagination.NewErrInvalidateAction("", "get-resource is not paginated"),
+		"not-found":     withDetail(codes.NotFound),
+		"unimplemented": withDetail(codes.Unimplemented),
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := &nestedGetResourceConnector{mockConnector: newMockConnector(), fail: fail}
+			c.rtDB = append(c.rtDB, groupResourceType)
+			g1, _, err := c.AddGroup(t.Context(), "g1")
+			require.NoError(t, err)
+			g2, err := rs.NewGroupResource("g2", groupResourceType, "g2", nil)
+			require.NoError(t, err)
+			c.grantDB["g1"] = []*v2.Grant{gt.NewGrant(g2, "member", g1.GetId())}
 
-	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "nested.c1z"), false)
-	s, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithWorkerCount(1), WithTargetedSyncResources([]*v2.Resource{g1}))
-	require.NoError(t, err)
-	err = s.Sync(t.Context())
-	require.ErrorIs(t, err, ErrActionInvalidationMisclassified)
-	require.NotErrorIs(t, err, ErrActionInvalidationCapExceeded)
-	require.Contains(t, err.Error(), "own_list_call=false")
-	require.Equal(t, 1, c.getResourceCalls, "one failing call, no restart")
-	require.Zero(t, invalidationCounter(t, f))
+			f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "nested.c1z"), false)
+			s, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithWorkerCount(1), WithTargetedSyncResources([]*v2.Resource{g1}))
+			require.NoError(t, err)
+			err = s.Sync(t.Context())
+			require.ErrorIs(t, err, ErrActionInvalidationMisclassified)
+			require.NotErrorIs(t, err, ErrActionInvalidationCapExceeded)
+			require.Contains(t, err.Error(), "own_list_call=false")
+			require.Equal(t, 1, c.getResourceCalls, "one failing call, no restart")
+			require.Zero(t, invalidationCounter(t, f))
+		})
+	}
 }
 
 type ledgerRestartCrashStore struct {

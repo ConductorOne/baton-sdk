@@ -17,6 +17,15 @@ import (
 // status carries FailedPrecondition and the detail. Errors without the
 // detail, including FailedPrecondition statuses, are not detected.
 func TestInvalidateActionFromError(t *testing.T) {
+	t.Run("typed nil is absent", func(t *testing.T) {
+		var nilTyped *ErrInvalidateAction
+		detail, present := InvalidateActionFromError(nilTyped)
+		require.False(t, present)
+		require.Nil(t, detail)
+		detail, present = InvalidateActionFromError(fmt.Errorf("wrapped: %w", nilTyped))
+		require.False(t, present)
+		require.Nil(t, detail)
+	})
 	typed := NewErrInvalidateAction("R", "expired")
 	flattened := status.Convert(typed).Err()
 	require.Equal(t, codes.FailedPrecondition, status.Code(typed))

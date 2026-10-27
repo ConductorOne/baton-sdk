@@ -2301,10 +2301,11 @@ type IngestQualityStats struct {
 	GrantResourcesDropped         uint64 `protobuf:"varint,4,opt,name=grant_resources_dropped,json=grantResourcesDropped,proto3" json:"grant_resources_dropped,omitempty"`
 	ExpansionResourceTypesDropped uint64 `protobuf:"varint,5,opt,name=expansion_resource_types_dropped,json=expansionResourceTypesDropped,proto3" json:"expansion_resource_types_dropped,omitempty"`
 	ExpansionsDropped             uint64 `protobuf:"varint,6,opt,name=expansions_dropped,json=expansionsDropped,proto3" json:"expansions_dropped,omitempty"`
-	// Bitset of SDK-owned quality reasons. Bits 0..6 are entitlement dropped,
+	// Bitset of SDK-owned quality reasons. Bits 0..7 are entitlement dropped,
 	// grant dropped, grant-inserted resource dropped, expansion resource type
-	// dropped, expansion dropped, invalid row retained, and unknown prior
-	// checkpoint provenance, respectively.
+	// dropped, expansion dropped, invalid row retained, unknown prior
+	// checkpoint provenance, and action restarted after the connector
+	// invalidated its page token, respectively.
 	// Counts remain useful diagnostics; reason flags carry replay eligibility
 	// even for warn-and-retain policies that do not drop a row.
 	ReasonFlags uint64 `protobuf:"varint,7,opt,name=reason_flags,json=reasonFlags,proto3" json:"reason_flags,omitempty"`
@@ -2463,10 +2464,11 @@ type IngestQualityStats_builder struct {
 	GrantResourcesDropped         uint64
 	ExpansionResourceTypesDropped uint64
 	ExpansionsDropped             uint64
-	// Bitset of SDK-owned quality reasons. Bits 0..6 are entitlement dropped,
+	// Bitset of SDK-owned quality reasons. Bits 0..7 are entitlement dropped,
 	// grant dropped, grant-inserted resource dropped, expansion resource type
-	// dropped, expansion dropped, invalid row retained, and unknown prior
-	// checkpoint provenance, respectively.
+	// dropped, expansion dropped, invalid row retained, unknown prior
+	// checkpoint provenance, and action restarted after the connector
+	// invalidated its page token, respectively.
 	// Counts remain useful diagnostics; reason flags carry replay eligibility
 	// even for warn-and-retain policies that do not drop a row.
 	ReasonFlags uint64

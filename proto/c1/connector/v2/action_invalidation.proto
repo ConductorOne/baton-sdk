@@ -15,6 +15,6 @@ message InvalidateAction {
   // The token the action's next call carries. Empty restarts the action
   // from its first page.
   string restart_page_token = 1;
-  // Free text for logs and the ledger; the syncer does not interpret it.
+  // Free text for the syncer's log line; not stored and not interpreted.
   string reason = 2;
 }

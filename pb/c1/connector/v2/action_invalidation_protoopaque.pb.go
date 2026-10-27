@@ -90,7 +90,7 @@ type InvalidateAction_builder struct {
 	// The token the action's next call carries. Empty restarts the action
 	// from its first page.
 	RestartPageToken string
-	// Free text for logs and the ledger; the syncer does not interpret it.
+	// Free text for the syncer's log line; not stored and not interpreted.
 	Reason string
 }
 

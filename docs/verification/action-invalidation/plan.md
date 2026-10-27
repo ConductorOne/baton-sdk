@@ -765,3 +765,17 @@ The plan is frozen at `87abf5ed`.
   `Internal`, `!isWarning`, and `!ShouldWaitAndRetry` on every
   misclassified cell; `TestActionInvalidationMisclassifiedNotFoundFailsNotWarns`
   is the end to end case on grants, the op whose caller allows warnings.
+- **CO-011 (2026-10-27, independent review).** Two more places dropped
+  the detail before `classifyActionInvalidation` saw it:
+  `getLedgerResourceFromConnector` returned `(nil, nil)` on `NotFound`
+  and `Unimplemented` without looking for the detail, so a detail on
+  either code from the grants handler's nested `GetResource` was skipped
+  silently; the static-entitlements handler's `prefixError` text match
+  finished the action before marking the error. Both now check for the
+  detail first and let it through to the classifier. `InvalidateActionFromError`
+  and `ErrInvalidateAction.GRPCStatus` dereferenced a typed-nil
+  `*ErrInvalidateAction`; both now treat it as absent. The proto comment
+  on `reason` said it reached the ledger; it is logged only, and the
+  comment says so. Test comments: `TestActionInvalidationRestartsAction`
+  no longer claims C13 (its fixture has no child work) and states the
+  `T2` exception to equality with the uninterrupted run.

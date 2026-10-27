@@ -30,6 +30,9 @@ func (e *ErrInvalidateAction) Error() string {
 // GRPCStatus carries the detail across the connector gRPC boundary, which
 // flattens handler errors to a status.
 func (e *ErrInvalidateAction) GRPCStatus() *status.Status {
+	if e == nil {
+		return nil
+	}
 	st := status.New(codes.FailedPrecondition, e.Error())
 	withDetails, err := st.WithDetails(v2.InvalidateAction_builder{RestartPageToken: e.RestartPageToken, Reason: e.Reason}.Build())
 	if err != nil {
@@ -53,7 +56,7 @@ func InvalidateActionFromError(err error) (*v2.InvalidateAction, bool) {
 		return nil, false
 	}
 	var typed *ErrInvalidateAction
-	if errors.As(err, &typed) {
+	if errors.As(err, &typed) && typed != nil {
 		return v2.InvalidateAction_builder{RestartPageToken: typed.RestartPageToken, Reason: typed.Reason}.Build(), true
 	}
 	st, ok := status.FromError(err)

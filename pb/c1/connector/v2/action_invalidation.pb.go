@@ -34,7 +34,7 @@ type InvalidateAction struct {
 	// The token the action's next call carries. Empty restarts the action
 	// from its first page.
 	RestartPageToken string `protobuf:"bytes,1,opt,name=restart_page_token,json=restartPageToken,proto3" json:"restart_page_token,omitempty"`
-	// Free text for logs and the ledger; the syncer does not interpret it.
+	// Free text for the syncer's log line; not stored and not interpreted.
 	Reason        string `protobuf:"bytes,2,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -93,7 +93,7 @@ type InvalidateAction_builder struct {
 	// The token the action's next call carries. Empty restarts the action
 	// from its first page.
 	RestartPageToken string
-	// Free text for logs and the ledger; the syncer does not interpret it.
+	// Free text for the syncer's log line; not stored and not interpreted.
 	Reason string
 }
 

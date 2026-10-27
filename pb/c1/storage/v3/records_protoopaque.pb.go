@@ -2364,10 +2364,11 @@ type IngestQualityStats_builder struct {
 	GrantResourcesDropped         uint64
 	ExpansionResourceTypesDropped uint64
 	ExpansionsDropped             uint64
-	// Bitset of SDK-owned quality reasons. Bits 0..6 are entitlement dropped,
+	// Bitset of SDK-owned quality reasons. Bits 0..7 are entitlement dropped,
 	// grant dropped, grant-inserted resource dropped, expansion resource type
-	// dropped, expansion dropped, invalid row retained, and unknown prior
-	// checkpoint provenance, respectively.
+	// dropped, expansion dropped, invalid row retained, unknown prior
+	// checkpoint provenance, and action restarted after the connector
+	// invalidated its page token, respectively.
 	// Counts remain useful diagnostics; reason flags carry replay eligibility
 	// even for warn-and-retain policies that do not drop a row.
 	ReasonFlags uint64
