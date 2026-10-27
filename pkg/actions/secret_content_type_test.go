@@ -151,6 +151,56 @@ func TestSecretContentTypeRegistrationRejectsInvalidDeclarations(t *testing.T) {
 	}
 }
 
+func TestSecretOutputRegistrationCardinality(t *testing.T) {
+	for _, resource := range []string{"", "account"} {
+		for _, tc := range []struct {
+			name        string
+			contentType string
+			extra       *config.Field
+			wantError   bool
+		}{
+			{"typed singleton with public return", "password_v2", nil, false},
+			{"typed plus generic secret", "password_v2", config.Field_builder{Name: "other", IsSecret: true}.Build(), true},
+			{"typed plus typed secret", "password_v2", config.Field_builder{Name: "other", IsSecret: true, SecretContentType: proto.String("api_key_v2")}.Build(), true},
+			{"generic multiple secrets", "generic", config.Field_builder{Name: "other", IsSecret: true}.Build(), false},
+			{"legacy multiple secrets", "generic", config.Field_builder{Name: "other", IsSecret: true}.Build(), false},
+			{"generic plus typed secret", "generic", config.Field_builder{Name: "other", IsSecret: true, SecretContentType: proto.String("api_key_v2")}.Build(), true},
+		} {
+			t.Run(resource+"/"+tc.name, func(t *testing.T) {
+				manager := NewActionManager(t.Context())
+				schema := typedSecretSchema(tc.contentType)
+				if tc.name == "legacy multiple secrets" {
+					schema.GetReturnTypes()[1].ClearSecretContentType()
+				}
+				if tc.extra != nil {
+					schema.SetReturnTypes(append(schema.GetReturnTypes(), tc.extra))
+				}
+				handler := func(context.Context, *structpb.Struct) (*structpb.Struct, []*v2.PlaintextData, annotations.Annotations, error) {
+					return nil, nil, nil, nil
+				}
+				var err error
+				if resource == "" {
+					err = manager.RegisterWithSecrets(t.Context(), schema, handler)
+				} else {
+					err = manager.RegisterResourceActionWithSecrets(t.Context(), resource, schema, handler)
+				}
+				if tc.wantError {
+					require.ErrorContains(t, err, "exactly one secret return")
+					require.False(t, manager.HasActions())
+				} else {
+					require.NoError(t, err)
+					require.True(t, manager.HasActions())
+				}
+			})
+		}
+	}
+}
+
+func TestTypedOutputContextRetainsCardinalityGuard(t *testing.T) {
+	err := validateTypedOutputContext(map[string]string{"one": "password_v2", "two": "generic"}, nil)
+	require.ErrorContains(t, err, "exactly one secret return")
+}
+
 func TestTypedSecretOutputRefusesUnacknowledgedCallerBeforeHandler(t *testing.T) {
 	for _, resource := range []string{"", "account"} {
 		for _, tc := range []struct{ name, context string }{
@@ -175,14 +225,11 @@ func TestTypedSecretOutputRefusesUnacknowledgedCallerBeforeHandler(t *testing.T)
 				require.Empty(t, manager.actions)
 			})
 		}
-		for _, scenario := range []string{"age only", "conflicting JWE", "JWE plus age", "multiple secrets"} {
+		for _, scenario := range []string{"age only", "conflicting JWE", "JWE plus age"} {
 			t.Run(resource+"/"+scenario, func(t *testing.T) {
 				manager := NewActionManager(t.Context())
 				var calls atomic.Int32
 				schema := typedSecretSchema("password_v2")
-				if scenario == "multiple secrets" {
-					schema.SetReturnTypes(append(schema.GetReturnTypes(), config.Field_builder{Name: "other", IsSecret: true}.Build()))
-				}
 				registerTypedHandler(t, manager, resource, schema, &calls)
 				matching, _ := typedRecipient(t, "matching", typedContext("password_v2"))
 				configs := []*v2.EncryptionConfig{matching}
