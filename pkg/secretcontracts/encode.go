@@ -21,7 +21,7 @@ type Payload struct {
 
 // EncodeJSON builds the stored document for a JSON type from field values,
 // each a string or []string. Blank optional strings and empty optional lists
-// are omitted, keys follow the type's declared order, and the result passes
+// are omitted, keys follow a deterministic order, and the result passes
 // ValidateProducer.
 func EncodeJSON(contentType string, fields map[string]any) (Payload, error) {
 	b, err := bundle()

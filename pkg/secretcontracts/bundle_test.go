@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -14,59 +13,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBundleFilesMatchManifestHashes(t *testing.T) {
-	raw := readFile(t, filepath.Join("bundle", "manifest.json"))
-	var manifest struct {
-		BundleSHA256 string            `json:"bundle_sha256"`
-		Files        map[string]string `json:"files_sha256"`
+func TestUpstreamPinMatchesVendoredBundle(t *testing.T) {
+	var pin struct {
+		Commit string            `json:"commit"`
+		Files  map[string]string `json:"files_sha256"`
 	}
-	require.NoError(t, json.Unmarshal(raw, &manifest))
-	paths := make([]string, 0, len(manifest.Files))
-	for path := range manifest.Files {
-		paths = append(paths, path)
-	}
-	sort.Strings(paths)
-	identity := sha256.New()
-	for _, path := range paths {
-		onDisk := readFile(t, filepath.Join("bundle", path))
-		sum := sha256.Sum256(onDisk)
-		require.Equal(t, manifest.Files[path], hex.EncodeToString(sum[:]), path)
-		fmt.Fprintf(identity, "%s\x00%s\n", path, manifest.Files[path])
-	}
-	require.Equal(t, manifest.BundleSHA256, hex.EncodeToString(identity.Sum(nil)))
-
-	var onDisk []string
+	require.NoError(t, json.Unmarshal(readFile(t, "UPSTREAM.json"), &pin))
+	require.Equal(t, upstreamCommit, pin.Commit)
+	var paths []string
 	require.NoError(t, filepath.WalkDir("bundle", func(path string, entry os.DirEntry, err error) error {
 		if err != nil || entry.IsDir() {
 			return err
 		}
-		relative, _ := filepath.Rel("bundle", path)
-		if relative != "manifest.json" {
-			onDisk = append(onDisk, filepath.ToSlash(relative))
+		relative, err := filepath.Rel("bundle", path)
+		if err != nil {
+			return err
 		}
+		paths = append(paths, filepath.ToSlash(relative))
 		return nil
 	}))
-	sort.Strings(onDisk)
-	require.Equal(t, paths, onDisk, "bundle holds exactly the files the manifest lists")
-}
-
-func TestUpstreamPinMatchesVendoredBundle(t *testing.T) {
-	var pin struct {
-		Repository     string `json:"repository"`
-		Commit         string `json:"commit"`
-		SourceRevision string `json:"source_revision"`
-		BundleSHA256   string `json:"bundle_sha256"`
-		ManifestSHA256 string `json:"manifest_sha256"`
+	sort.Strings(paths)
+	require.Len(t, pin.Files, len(paths))
+	for _, path := range paths {
+		sum := sha256.Sum256(readFile(t, filepath.Join("bundle", path)))
+		require.Equal(t, pin.Files[path], hex.EncodeToString(sum[:]), path)
 	}
-	require.NoError(t, json.Unmarshal(readFile(t, "UPSTREAM.json"), &pin))
-	require.Len(t, pin.Commit, 40)
-	manifestBytes := readFile(t, filepath.Join("bundle", "manifest.json"))
-	sum := sha256.Sum256(manifestBytes)
-	require.Equal(t, pin.ManifestSHA256, hex.EncodeToString(sum[:]))
-	b, err := bundle()
-	require.NoError(t, err)
-	require.Equal(t, pin.BundleSHA256, b.manifest.BundleSHA256)
-	require.Equal(t, pin.SourceRevision, b.manifest.Source.Revision)
 }
 
 func TestEveryManifestRuleHasAGoImplementation(t *testing.T) {

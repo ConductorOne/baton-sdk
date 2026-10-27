@@ -1,7 +1,6 @@
 {
   "cases": [
     {
-      "content_type": "password_v2",
       "file": "fixtures/valid/password_v2/minimum.json",
       "id": "password_v2/minimum",
       "note": "only required fields, encoder output",
@@ -15,11 +14,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "password_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/valid/password_v2/full.json",
       "id": "password_v2/full",
       "note": "every sample field, encoder output",
@@ -33,11 +32,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "password_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/valid/password_v2/reordered-keys.json",
       "id": "password_v2/reordered-keys",
       "note": "same object, keys in reverse declaration order",
@@ -51,11 +50,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "password_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/valid/password_v2/whitespace.json",
       "id": "password_v2/whitespace",
       "note": "same object with leading, trailing and inter-token whitespace",
@@ -69,11 +68,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "password_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/valid/password_v2/escaped.json",
       "id": "password_v2/escaped",
       "note": "same object with every key and string spelled as \\u escapes",
@@ -87,11 +86,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "password_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/missing-required.json",
       "id": "password_v2/missing-required",
       "note": "required field absent",
@@ -109,11 +108,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/empty-object.json",
       "id": "password_v2/empty-object",
       "note": "no fields at all",
@@ -131,11 +130,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/unknown-field.json",
       "id": "password_v2/unknown-field",
       "note": "key outside the declared fields",
@@ -153,11 +152,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/null-value.json",
       "id": "password_v2/null-value",
       "note": "null for a declared string",
@@ -175,11 +174,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/number-for-string.json",
       "id": "password_v2/number-for-string",
       "note": "number where a string is declared",
@@ -197,11 +196,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/empty-required.json",
       "id": "password_v2/empty-required",
       "note": "empty string for a required field",
@@ -221,11 +220,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/duplicate-key.json",
       "id": "password_v2/duplicate-key",
       "note": "same key twice; a parser that keeps the last value would hide the first",
@@ -243,11 +242,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/duplicate-key-escaped.json",
       "id": "password_v2/duplicate-key-escaped",
       "note": "same key twice, the second spelled with \\u escapes",
@@ -265,11 +264,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/array-document.json",
       "id": "password_v2/array-document",
       "note": "a JSON array, not an object",
@@ -287,11 +286,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/not-json.txt",
       "id": "password_v2/not-json",
       "note": "plain text",
@@ -309,11 +308,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/not-utf8.bin",
       "id": "password_v2/not-utf8",
       "note": "bytes that are not UTF-8",
@@ -331,11 +330,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/optional-empty-string.json",
       "id": "password_v2/optional-empty-string",
       "note": "optional string present and empty",
@@ -349,11 +348,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "password_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/optional-blank-string.json",
       "id": "password_v2/optional-blank-string",
       "note": "optional string present and blank",
@@ -367,11 +366,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "password_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/trailing-data.json",
       "id": "password_v2/trailing-data",
       "note": "bytes after the document",
@@ -389,11 +388,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/utf8-bom.txt",
       "id": "password_v2/utf8-bom",
       "note": "byte order mark before the document",
@@ -411,11 +410,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/lone-surrogate-escape.json",
       "id": "password_v2/lone-surrogate-escape",
       "note": "an escaped lone surrogate is not a string",
@@ -433,11 +432,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/valid/password_v2/password-at-max-length.json",
       "id": "password_v2/password-at-max-length",
       "note": "4096 code points is the cap",
@@ -451,11 +450,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "password_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/password-over-max-length.json",
       "id": "password_v2/password-over-max-length",
       "note": "4097 code points",
@@ -475,11 +474,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/valid/password_v2/password-4096-astral.json",
       "id": "password_v2/password-4096-astral",
       "note": "length counts code points, not UTF-16 units or bytes",
@@ -493,11 +492,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "password_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/url-not-absolute.json",
       "id": "password_v2/url-not-absolute",
       "note": "relative URL",
@@ -517,11 +516,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/url-not-http.json",
       "id": "password_v2/url-not-http",
       "note": "scheme other than http(s)",
@@ -541,11 +540,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/otp-url-wrong-prefix.json",
       "id": "password_v2/otp-url-wrong-prefix",
       "note": "otp_url must start with otpauth://",
@@ -565,11 +564,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/otp-url-unparseable.json",
       "id": "password_v2/otp-url-unparseable",
       "note": "otpauth URI without a secret",
@@ -589,11 +588,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "password_v2",
       "file": "fixtures/invalid/password_v2/blank-required.json",
       "id": "password_v2/blank-required",
       "note": "blank counts as absent for the encoder",
@@ -613,11 +612,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "password_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "hotp",
       "file": "fixtures/valid/hotp/uri.txt",
       "id": "hotp/uri",
       "note": "stored as the bare URI",
@@ -631,11 +630,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "hotp",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "hotp",
       "file": "fixtures/invalid/hotp/totp-uri.txt",
       "id": "hotp/totp-uri",
       "note": "a TOTP URI is the wrong type",
@@ -655,11 +654,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "hotp",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "hotp",
       "file": "fixtures/invalid/hotp/wrong-prefix.txt",
       "id": "hotp/wrong-prefix",
       "note": "must start with otpauth://",
@@ -679,11 +678,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "hotp",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "hotp",
       "file": "fixtures/invalid/hotp/empty.txt",
       "id": "hotp/empty",
       "note": "empty value",
@@ -703,11 +702,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "hotp",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "hotp",
       "file": "fixtures/invalid/hotp/json-wrapped.json",
       "id": "hotp/json-wrapped",
       "note": "text codec: a JSON document is not the stored form",
@@ -727,11 +726,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "hotp",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "hotp",
       "file": "fixtures/invalid/hotp/not-utf8.bin",
       "id": "hotp/not-utf8",
       "note": "bytes that are not UTF-8",
@@ -749,11 +748,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "hotp",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/valid/api_key_v2/minimum.json",
       "id": "api_key_v2/minimum",
       "note": "only required fields, encoder output",
@@ -767,11 +766,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "api_key_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/valid/api_key_v2/full.json",
       "id": "api_key_v2/full",
       "note": "every sample field, encoder output",
@@ -785,11 +784,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "api_key_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/valid/api_key_v2/reordered-keys.json",
       "id": "api_key_v2/reordered-keys",
       "note": "same object, keys in reverse declaration order",
@@ -803,11 +802,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "api_key_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/valid/api_key_v2/whitespace.json",
       "id": "api_key_v2/whitespace",
       "note": "same object with leading, trailing and inter-token whitespace",
@@ -821,11 +820,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "api_key_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/valid/api_key_v2/escaped.json",
       "id": "api_key_v2/escaped",
       "note": "same object with every key and string spelled as \\u escapes",
@@ -839,11 +838,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "api_key_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/missing-required.json",
       "id": "api_key_v2/missing-required",
       "note": "required field absent",
@@ -861,11 +860,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/empty-object.json",
       "id": "api_key_v2/empty-object",
       "note": "no fields at all",
@@ -883,11 +882,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/unknown-field.json",
       "id": "api_key_v2/unknown-field",
       "note": "key outside the declared fields",
@@ -905,11 +904,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/null-value.json",
       "id": "api_key_v2/null-value",
       "note": "null for a declared string",
@@ -927,11 +926,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/number-for-string.json",
       "id": "api_key_v2/number-for-string",
       "note": "number where a string is declared",
@@ -949,11 +948,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/empty-required.json",
       "id": "api_key_v2/empty-required",
       "note": "empty string for a required field",
@@ -973,11 +972,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/duplicate-key.json",
       "id": "api_key_v2/duplicate-key",
       "note": "same key twice; a parser that keeps the last value would hide the first",
@@ -995,11 +994,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/duplicate-key-escaped.json",
       "id": "api_key_v2/duplicate-key-escaped",
       "note": "same key twice, the second spelled with \\u escapes",
@@ -1017,11 +1016,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/array-document.json",
       "id": "api_key_v2/array-document",
       "note": "a JSON array, not an object",
@@ -1039,11 +1038,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/not-json.txt",
       "id": "api_key_v2/not-json",
       "note": "plain text",
@@ -1061,11 +1060,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/not-utf8.bin",
       "id": "api_key_v2/not-utf8",
       "note": "bytes that are not UTF-8",
@@ -1083,11 +1082,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/optional-empty-string.json",
       "id": "api_key_v2/optional-empty-string",
       "note": "optional string present and empty",
@@ -1101,11 +1100,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "api_key_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/optional-blank-string.json",
       "id": "api_key_v2/optional-blank-string",
       "note": "optional string present and blank",
@@ -1119,11 +1118,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "api_key_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/optional-empty-list.json",
       "id": "api_key_v2/optional-empty-list",
       "note": "optional list present and empty",
@@ -1137,11 +1136,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "api_key_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/optional-empty-date.json",
       "id": "api_key_v2/optional-empty-date",
       "note": "optional date present and empty",
@@ -1155,11 +1154,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "api_key_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/trailing-data.json",
       "id": "api_key_v2/trailing-data",
       "note": "bytes after the document",
@@ -1177,11 +1176,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/utf8-bom.txt",
       "id": "api_key_v2/utf8-bom",
       "note": "byte order mark before the document",
@@ -1199,11 +1198,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/lone-surrogate-escape.json",
       "id": "api_key_v2/lone-surrogate-escape",
       "note": "an escaped lone surrogate is not a string",
@@ -1221,11 +1220,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/scopes-duplicate.json",
       "id": "api_key_v2/scopes-duplicate",
       "note": "uniqueItems",
@@ -1245,11 +1244,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/scopes-over-max-items.json",
       "id": "api_key_v2/scopes-over-max-items",
       "note": "65 items, cap 64",
@@ -1269,11 +1268,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/valid/api_key_v2/scopes-at-max-items.json",
       "id": "api_key_v2/scopes-at-max-items",
       "note": "64 items",
@@ -1287,11 +1286,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "api_key_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/scopes-empty-item.json",
       "id": "api_key_v2/scopes-empty-item",
       "note": "empty list item",
@@ -1311,11 +1310,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/scopes-not-array.json",
       "id": "api_key_v2/scopes-not-array",
       "note": "string where a list is declared",
@@ -1333,11 +1332,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/scopes-non-string-item.json",
       "id": "api_key_v2/scopes-non-string-item",
       "note": "number list item",
@@ -1355,11 +1354,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/header-name-invalid.json",
       "id": "api_key_v2/header-name-invalid",
       "note": "space is not a header token character",
@@ -1379,11 +1378,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/expires-at-not-a-day.json",
       "id": "api_key_v2/expires-at-not-a-day",
       "note": "valid shape, no such calendar day",
@@ -1403,11 +1402,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/expires-at-bad-shape.json",
       "id": "api_key_v2/expires-at-bad-shape",
       "note": "not YYYY-MM-DD",
@@ -1427,11 +1426,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/valid/api_key_v2/expires-at-leap-day.json",
       "id": "api_key_v2/expires-at-leap-day",
       "note": "leap day",
@@ -1445,11 +1444,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "api_key_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "api_key_v2",
       "file": "fixtures/invalid/api_key_v2/base-url-not-http.json",
       "id": "api_key_v2/base-url-not-http",
       "note": "not an http(s) endpoint",
@@ -1469,11 +1468,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "api_key_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/valid/ssh_key/minimum.json",
       "id": "ssh_key/minimum",
       "note": "only required fields, encoder output",
@@ -1487,11 +1486,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "ssh_key",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/valid/ssh_key/full.json",
       "id": "ssh_key/full",
       "note": "every sample field, encoder output",
@@ -1505,11 +1504,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "ssh_key",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/valid/ssh_key/reordered-keys.json",
       "id": "ssh_key/reordered-keys",
       "note": "same object, keys in reverse declaration order",
@@ -1523,11 +1522,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "ssh_key",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/valid/ssh_key/whitespace.json",
       "id": "ssh_key/whitespace",
       "note": "same object with leading, trailing and inter-token whitespace",
@@ -1541,11 +1540,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "ssh_key",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/valid/ssh_key/escaped.json",
       "id": "ssh_key/escaped",
       "note": "same object with every key and string spelled as \\u escapes",
@@ -1559,11 +1558,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "ssh_key",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/missing-required.json",
       "id": "ssh_key/missing-required",
       "note": "required field absent",
@@ -1581,11 +1580,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/empty-object.json",
       "id": "ssh_key/empty-object",
       "note": "no fields at all",
@@ -1603,11 +1602,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/unknown-field.json",
       "id": "ssh_key/unknown-field",
       "note": "key outside the declared fields",
@@ -1625,11 +1624,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/null-value.json",
       "id": "ssh_key/null-value",
       "note": "null for a declared string",
@@ -1647,11 +1646,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/number-for-string.json",
       "id": "ssh_key/number-for-string",
       "note": "number where a string is declared",
@@ -1669,11 +1668,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/empty-required.json",
       "id": "ssh_key/empty-required",
       "note": "empty string for a required field",
@@ -1693,11 +1692,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/duplicate-key.json",
       "id": "ssh_key/duplicate-key",
       "note": "same key twice; a parser that keeps the last value would hide the first",
@@ -1715,11 +1714,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/duplicate-key-escaped.json",
       "id": "ssh_key/duplicate-key-escaped",
       "note": "same key twice, the second spelled with \\u escapes",
@@ -1737,11 +1736,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/array-document.json",
       "id": "ssh_key/array-document",
       "note": "a JSON array, not an object",
@@ -1759,11 +1758,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/not-json.txt",
       "id": "ssh_key/not-json",
       "note": "plain text",
@@ -1781,11 +1780,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/not-utf8.bin",
       "id": "ssh_key/not-utf8",
       "note": "bytes that are not UTF-8",
@@ -1803,11 +1802,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/optional-empty-string.json",
       "id": "ssh_key/optional-empty-string",
       "note": "optional string present and empty",
@@ -1821,11 +1820,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "ssh_key",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/optional-blank-string.json",
       "id": "ssh_key/optional-blank-string",
       "note": "optional string present and blank",
@@ -1839,11 +1838,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "ssh_key",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/optional-empty-list.json",
       "id": "ssh_key/optional-empty-list",
       "note": "optional list present and empty",
@@ -1857,11 +1856,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "ssh_key",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/trailing-data.json",
       "id": "ssh_key/trailing-data",
       "note": "bytes after the document",
@@ -1879,11 +1878,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/utf8-bom.txt",
       "id": "ssh_key/utf8-bom",
       "note": "byte order mark before the document",
@@ -1901,11 +1900,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/lone-surrogate-escape.json",
       "id": "ssh_key/lone-surrogate-escape",
       "note": "an escaped lone surrogate is not a string",
@@ -1923,11 +1922,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/private-key-not-a-key.json",
       "id": "ssh_key/private-key-not-a-key",
       "note": "text that is no private key format",
@@ -1947,11 +1946,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/private-key-putty.json",
       "id": "ssh_key/private-key-putty",
       "note": "PuTTY key",
@@ -1971,11 +1970,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/username-with-space.json",
       "id": "ssh_key/username-with-space",
       "note": "whitespace in login name",
@@ -1995,11 +1994,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/username-leading-dash.json",
       "id": "ssh_key/username-leading-dash",
       "note": "would read as an ssh option",
@@ -2019,11 +2018,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/public-key-bad.json",
       "id": "ssh_key/public-key-bad",
       "note": "malformed public key",
@@ -2043,11 +2042,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/valid/ssh_key/username-at-max-length.json",
       "id": "ssh_key/username-at-max-length",
       "note": "256 code points",
@@ -2061,11 +2060,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "ssh_key",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "ssh_key",
       "file": "fixtures/invalid/ssh_key/username-over-max-length.json",
       "id": "ssh_key/username-over-max-length",
       "note": "257 code points",
@@ -2085,11 +2084,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "ssh_key",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/valid/oauth_client_secret_v2/minimum.json",
       "id": "oauth_client_secret_v2/minimum",
       "note": "only required fields, encoder output",
@@ -2103,11 +2102,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/valid/oauth_client_secret_v2/full.json",
       "id": "oauth_client_secret_v2/full",
       "note": "every sample field, encoder output",
@@ -2121,11 +2120,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/valid/oauth_client_secret_v2/reordered-keys.json",
       "id": "oauth_client_secret_v2/reordered-keys",
       "note": "same object, keys in reverse declaration order",
@@ -2139,11 +2138,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/valid/oauth_client_secret_v2/whitespace.json",
       "id": "oauth_client_secret_v2/whitespace",
       "note": "same object with leading, trailing and inter-token whitespace",
@@ -2157,11 +2156,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/valid/oauth_client_secret_v2/escaped.json",
       "id": "oauth_client_secret_v2/escaped",
       "note": "same object with every key and string spelled as \\u escapes",
@@ -2175,11 +2174,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/missing-required.json",
       "id": "oauth_client_secret_v2/missing-required",
       "note": "required field absent",
@@ -2197,11 +2196,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/empty-object.json",
       "id": "oauth_client_secret_v2/empty-object",
       "note": "no fields at all",
@@ -2219,11 +2218,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/unknown-field.json",
       "id": "oauth_client_secret_v2/unknown-field",
       "note": "key outside the declared fields",
@@ -2241,11 +2240,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/null-value.json",
       "id": "oauth_client_secret_v2/null-value",
       "note": "null for a declared string",
@@ -2263,11 +2262,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/number-for-string.json",
       "id": "oauth_client_secret_v2/number-for-string",
       "note": "number where a string is declared",
@@ -2285,11 +2284,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/empty-required.json",
       "id": "oauth_client_secret_v2/empty-required",
       "note": "empty string for a required field",
@@ -2309,11 +2308,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/duplicate-key.json",
       "id": "oauth_client_secret_v2/duplicate-key",
       "note": "same key twice; a parser that keeps the last value would hide the first",
@@ -2331,11 +2330,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/duplicate-key-escaped.json",
       "id": "oauth_client_secret_v2/duplicate-key-escaped",
       "note": "same key twice, the second spelled with \\u escapes",
@@ -2353,11 +2352,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/array-document.json",
       "id": "oauth_client_secret_v2/array-document",
       "note": "a JSON array, not an object",
@@ -2375,11 +2374,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/not-json.txt",
       "id": "oauth_client_secret_v2/not-json",
       "note": "plain text",
@@ -2397,11 +2396,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/not-utf8.bin",
       "id": "oauth_client_secret_v2/not-utf8",
       "note": "bytes that are not UTF-8",
@@ -2419,11 +2418,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/optional-empty-string.json",
       "id": "oauth_client_secret_v2/optional-empty-string",
       "note": "optional string present and empty",
@@ -2437,11 +2436,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/optional-blank-string.json",
       "id": "oauth_client_secret_v2/optional-blank-string",
       "note": "optional string present and blank",
@@ -2455,11 +2454,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/optional-empty-list.json",
       "id": "oauth_client_secret_v2/optional-empty-list",
       "note": "optional list present and empty",
@@ -2473,11 +2472,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/trailing-data.json",
       "id": "oauth_client_secret_v2/trailing-data",
       "note": "bytes after the document",
@@ -2495,11 +2494,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/utf8-bom.txt",
       "id": "oauth_client_secret_v2/utf8-bom",
       "note": "byte order mark before the document",
@@ -2517,11 +2516,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/lone-surrogate-escape.json",
       "id": "oauth_client_secret_v2/lone-surrogate-escape",
       "note": "an escaped lone surrogate is not a string",
@@ -2539,11 +2538,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/token-endpoint-not-http.json",
       "id": "oauth_client_secret_v2/token-endpoint-not-http",
       "note": "not an http(s) endpoint",
@@ -2563,11 +2562,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/invalid/oauth_client_secret_v2/redirect-uri-relative.json",
       "id": "oauth_client_secret_v2/redirect-uri-relative",
       "note": "redirect URI must be absolute",
@@ -2587,11 +2586,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "oauth_client_secret_v2",
       "file": "fixtures/valid/oauth_client_secret_v2/redirect-uri-custom-scheme.json",
       "id": "oauth_client_secret_v2/redirect-uri-custom-scheme",
       "note": "native app scheme is allowed (RFC 8252)",
@@ -2605,11 +2604,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "oauth_client_secret_v2",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/valid/certificate/minimum.json",
       "id": "certificate/minimum",
       "note": "only required fields, encoder output",
@@ -2623,11 +2622,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "certificate",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/valid/certificate/full.json",
       "id": "certificate/full",
       "note": "every sample field, encoder output",
@@ -2641,11 +2640,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "certificate",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/valid/certificate/reordered-keys.json",
       "id": "certificate/reordered-keys",
       "note": "same object, keys in reverse declaration order",
@@ -2659,11 +2658,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "certificate",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/valid/certificate/whitespace.json",
       "id": "certificate/whitespace",
       "note": "same object with leading, trailing and inter-token whitespace",
@@ -2677,11 +2676,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "certificate",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/valid/certificate/escaped.json",
       "id": "certificate/escaped",
       "note": "same object with every key and string spelled as \\u escapes",
@@ -2695,11 +2694,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "certificate",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/missing-required.json",
       "id": "certificate/missing-required",
       "note": "required field absent",
@@ -2717,11 +2716,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "certificate",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/empty-object.json",
       "id": "certificate/empty-object",
       "note": "no fields at all",
@@ -2739,11 +2738,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "certificate",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/unknown-field.json",
       "id": "certificate/unknown-field",
       "note": "key outside the declared fields",
@@ -2761,11 +2760,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "certificate",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/null-value.json",
       "id": "certificate/null-value",
       "note": "null for a declared string",
@@ -2783,11 +2782,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "certificate",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/number-for-string.json",
       "id": "certificate/number-for-string",
       "note": "number where a string is declared",
@@ -2805,11 +2804,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "certificate",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/empty-required.json",
       "id": "certificate/empty-required",
       "note": "empty string for a required field",
@@ -2829,11 +2828,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "certificate",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/duplicate-key.json",
       "id": "certificate/duplicate-key",
       "note": "same key twice; a parser that keeps the last value would hide the first",
@@ -2851,11 +2850,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "certificate",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/duplicate-key-escaped.json",
       "id": "certificate/duplicate-key-escaped",
       "note": "same key twice, the second spelled with \\u escapes",
@@ -2873,11 +2872,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "certificate",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/array-document.json",
       "id": "certificate/array-document",
       "note": "a JSON array, not an object",
@@ -2895,11 +2894,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "certificate",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/not-json.txt",
       "id": "certificate/not-json",
       "note": "plain text",
@@ -2917,11 +2916,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "certificate",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/not-utf8.bin",
       "id": "certificate/not-utf8",
       "note": "bytes that are not UTF-8",
@@ -2939,11 +2938,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "certificate",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/optional-empty-string.json",
       "id": "certificate/optional-empty-string",
       "note": "optional string present and empty",
@@ -2957,11 +2956,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "certificate",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/optional-blank-string.json",
       "id": "certificate/optional-blank-string",
       "note": "optional string present and blank",
@@ -2975,11 +2974,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "certificate",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/trailing-data.json",
       "id": "certificate/trailing-data",
       "note": "bytes after the document",
@@ -2997,11 +2996,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "certificate",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/utf8-bom.txt",
       "id": "certificate/utf8-bom",
       "note": "byte order mark before the document",
@@ -3019,11 +3018,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "certificate",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/lone-surrogate-escape.json",
       "id": "certificate/lone-surrogate-escape",
       "note": "an escaped lone surrogate is not a string",
@@ -3041,11 +3040,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "certificate",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/certificate-not-pem.json",
       "id": "certificate/certificate-not-pem",
       "note": "no PEM framing",
@@ -3065,11 +3064,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "certificate",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/certificate-two-blocks.json",
       "id": "certificate/certificate-two-blocks",
       "note": "single certificate required; chain_pem takes several",
@@ -3089,11 +3088,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "certificate",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "certificate",
       "file": "fixtures/invalid/certificate/passphrase-without-private-key.json",
       "id": "certificate/passphrase-without-private-key",
       "note": "passphrase only makes sense with a private key",
@@ -3113,11 +3112,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "certificate",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "note",
       "file": "fixtures/valid/note/text.txt",
       "id": "note/text",
       "note": "verbatim text",
@@ -3131,11 +3130,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "note",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "note",
       "file": "fixtures/valid/note/looks-like-json.json",
       "id": "note/looks-like-json",
       "note": "text that happens to be JSON is still text",
@@ -3149,11 +3148,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "note",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "note",
       "file": "fixtures/valid/note/surrounding-whitespace.json",
       "id": "note/surrounding-whitespace",
       "note": "stored untrimmed",
@@ -3167,11 +3166,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "note",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "note",
       "file": null,
       "id": "note/at-max-length",
       "note": "131072 code points",
@@ -3185,6 +3184,7 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "note",
       "stored": "typed",
       "synthetic": {
         "count": 131072,
@@ -3192,7 +3192,6 @@
       }
     },
     {
-      "content_type": "note",
       "file": null,
       "id": "note/over-max-length",
       "note": "131073 code points",
@@ -3212,6 +3211,7 @@
         },
         "ok": false
       },
+      "secret_content_type": "note",
       "stored": "reject",
       "synthetic": {
         "count": 131073,
@@ -3219,7 +3219,6 @@
       }
     },
     {
-      "content_type": "note",
       "file": "fixtures/invalid/note/empty.txt",
       "id": "note/empty",
       "note": "empty value",
@@ -3239,11 +3238,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "note",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "note",
       "file": "fixtures/invalid/note/blank.json",
       "id": "note/blank",
       "note": "blank counts as absent",
@@ -3263,11 +3262,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "note",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "note",
       "file": "fixtures/invalid/note/not-utf8.bin",
       "id": "note/not-utf8",
       "note": "bytes that are not UTF-8",
@@ -3285,11 +3284,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "note",
       "stored": "reject",
       "synthetic": null
     },
     {
-      "content_type": "generic",
       "file": "fixtures/valid/generic/text.txt",
       "id": "generic/text",
       "note": "verbatim text",
@@ -3303,11 +3302,11 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "generic",
       "stored": "typed",
       "synthetic": null
     },
     {
-      "content_type": "generic",
       "file": null,
       "id": "generic/at-max-bytes",
       "note": "1 MiB",
@@ -3321,6 +3320,7 @@
       "rust_producer_validation": {
         "ok": true
       },
+      "secret_content_type": "generic",
       "stored": "typed",
       "synthetic": {
         "count": 1048576,
@@ -3328,7 +3328,6 @@
       }
     },
     {
-      "content_type": "generic",
       "file": null,
       "id": "generic/over-max-bytes",
       "note": "one byte past 1 MiB",
@@ -3348,6 +3347,7 @@
         },
         "ok": false
       },
+      "secret_content_type": "generic",
       "stored": "reject",
       "synthetic": {
         "count": 1048577,
@@ -3355,7 +3355,6 @@
       }
     },
     {
-      "content_type": "generic",
       "file": "fixtures/invalid/generic/empty.txt",
       "id": "generic/empty",
       "note": "empty value",
@@ -3375,11 +3374,11 @@
         },
         "ok": false
       },
+      "secret_content_type": "generic",
       "stored": "opaque",
       "synthetic": null
     },
     {
-      "content_type": "generic",
       "file": "fixtures/invalid/generic/legacy-binary.bin",
       "id": "generic/legacy-binary",
       "note": "a legacy untyped generic may hold non-UTF-8 bytes; the typed codec cannot decode it, so a producer must not write one",
@@ -3397,11 +3396,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "generic",
       "stored": "opaque",
       "synthetic": null
     },
     {
-      "content_type": "totp",
       "file": "fixtures/invalid/totp/legacy-totp.txt",
       "id": "totp/legacy-totp",
       "note": "legacy stored type: opened by its own path, outside this contract",
@@ -3419,11 +3418,11 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "totp",
       "stored": "opaque",
       "synthetic": null
     },
     {
-      "content_type": "x-acme.thing.v1",
       "file": "fixtures/invalid/x-acme.thing.v1/unknown-type.json",
       "id": "x-acme.thing.v1/unknown-type",
       "note": "unknown stored type: opaque, never rejected on read",
@@ -3441,6 +3440,7 @@
         "ok": false
       },
       "rust_producer_validation": null,
+      "secret_content_type": "x-acme.thing.v1",
       "stored": "opaque",
       "synthetic": null
     }

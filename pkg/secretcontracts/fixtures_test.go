@@ -12,7 +12,7 @@ import (
 
 type fixtureCase struct {
 	ID          string `json:"id"`
-	ContentType string `json:"content_type"`
+	ContentType string `json:"secret_content_type"`
 	File        string `json:"file"`
 	Synthetic   *struct {
 		Repeat string `json:"repeat"`

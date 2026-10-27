@@ -112,7 +112,7 @@ func TestDuplicateKeysAreRejectedAtAnyDepthAndAfterUnescaping(t *testing.T) {
 	}
 	_, perr = parseDocument([]byte(`{"a":"b"} {}`))
 	require.NotNil(t, perr)
-	_, err := os.Stat("bundle/manifest.json")
+	_, err := os.Stat("bundle/contracts.json")
 	require.NoError(t, err)
 }
 

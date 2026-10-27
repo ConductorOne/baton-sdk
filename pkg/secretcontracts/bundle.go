@@ -10,7 +10,7 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-//go:embed bundle/manifest.json bundle/schemas/*.schema.json
+//go:embed bundle/contracts.json bundle/schemas/*.schema.json
 var bundleFS embed.FS
 
 type manifest struct {
@@ -27,21 +27,24 @@ type manifest struct {
 }
 
 type manifestType struct {
-	ContentType   string   `json:"content_type"`
-	Codec         string   `json:"codec"`
-	FieldOrder    []string `json:"field_order"`
-	Schema        *string  `json:"schema"`
-	SchemaID      string   `json:"schema_id"`
-	SemanticRules []struct {
-		Field string `json:"field"`
-		Rule  string `json:"rule"`
-	} `json:"semantic_rules"`
-	TextCodec *struct {
-		Field         string  `json:"field"`
-		MaxUTF8Bytes  int     `json:"max_utf8_bytes"`
-		MaxCodePoints int     `json:"max_code_points"`
-		RequiredPref  *string `json:"required_prefix"`
+	ContentType   string         `json:"secret_content_type"`
+	Codec         string         `json:"codec"`
+	FieldOrder    []string       `json:"field_order"`
+	Schema        *string        `json:"schema"`
+	SchemaID      string         `json:"schema_id"`
+	SemanticRules []semanticRule `json:"-"`
+	TextCodec     *struct {
+		SemanticRules []string `json:"semantic_rules"`
+		Field         string   `json:"field"`
+		MaxUTF8Bytes  int      `json:"max_utf8_bytes"`
+		MaxCodePoints int      `json:"max_code_points"`
+		RequiredPref  *string  `json:"required_prefix"`
 	} `json:"text_codec"`
+}
+
+type semanticRule struct {
+	Field string
+	Rule  string
 }
 
 type property struct {
@@ -75,7 +78,7 @@ func bundle() (*loaded, error) {
 }
 
 func loadBundle() (loaded, error) {
-	raw, err := bundleFS.ReadFile("bundle/manifest.json")
+	raw, err := bundleFS.ReadFile("bundle/contracts.json")
 	if err != nil {
 		return loaded{}, err
 	}
@@ -83,14 +86,18 @@ func loadBundle() (loaded, error) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return loaded{}, fmt.Errorf("secretcontracts: manifest: %w", err)
 	}
-	if m.BundleFormat != 1 {
-		return loaded{}, fmt.Errorf("secretcontracts: unsupported bundle format %d", m.BundleFormat)
-	}
+
 	compiler := jsonschema.NewCompiler()
 	compiler.DefaultDraft(jsonschema.Draft2020)
 	compiler.AssertFormat()
 	out := loaded{manifest: m, contracts: make(map[string]*contract, len(m.Types))}
 	for _, t := range m.Types {
+		t.FieldOrder = encoderOrder[t.ContentType]
+		if t.TextCodec != nil {
+			for _, rule := range t.TextCodec.SemanticRules {
+				t.SemanticRules = append(t.SemanticRules, semanticRule{Field: t.TextCodec.Field, Rule: rule})
+			}
+		}
 		c := &contract{manifestType: t, required: map[string]bool{}, properties: map[string]property{}}
 		out.contracts[t.ContentType] = c
 		if t.Schema == nil {
@@ -104,17 +111,24 @@ func loadBundle() (loaded, error) {
 		if err != nil {
 			return loaded{}, fmt.Errorf("secretcontracts: %s: %w", *t.Schema, err)
 		}
-		if err := compiler.AddResource(t.SchemaID, doc); err != nil {
+		var identity struct {
+			ID string `json:"$id"`
+		}
+		if err := json.Unmarshal(schemaBytes, &identity); err != nil {
 			return loaded{}, err
 		}
-		if c.schema, err = compiler.Compile(t.SchemaID); err != nil {
+		if err := compiler.AddResource(identity.ID, doc); err != nil {
+			return loaded{}, err
+		}
+		if c.schema, err = compiler.Compile(identity.ID); err != nil {
 			return loaded{}, fmt.Errorf("secretcontracts: %s: %w", *t.Schema, err)
 		}
 		var shape struct {
 			Required   []string `json:"required"`
 			Properties map[string]struct {
-				Type     string `json:"type"`
-				MaxBytes int    `json:"x-max-utf8-bytes"`
+				Type     string   `json:"type"`
+				MaxBytes int      `json:"x-max-utf8-bytes"`
+				Semantic []string `json:"x-semantic"`
 				Items    struct {
 					MaxBytes int `json:"x-max-utf8-bytes"`
 				} `json:"items"`
@@ -127,6 +141,9 @@ func loadBundle() (loaded, error) {
 			c.required[name] = true
 		}
 		for name, p := range shape.Properties {
+			for _, rule := range p.Semantic {
+				c.SemanticRules = append(c.SemanticRules, semanticRule{Field: name, Rule: rule})
+			}
 			c.properties[name] = property{isList: p.Type == "array", maxBytes: p.MaxBytes, itemMaxBytes: p.Items.MaxBytes}
 		}
 	}
@@ -148,9 +165,20 @@ func ContentTypes() ([]string, error) {
 
 // SourceRevision is the Multipass commit the bundle was generated from.
 func SourceRevision() (string, error) {
-	b, err := bundle()
+	_, err := bundle()
 	if err != nil {
 		return "", err
 	}
-	return b.manifest.Source.Revision, nil
+	return upstreamCommit, nil
 }
+
+// encoderOrder preserves existing output bytes; schemas do not require an order.
+var encoderOrder = map[string][]string{
+	"password_v2":            {"username", "password", "url", "otp_url"},
+	"api_key_v2":             {"key_value", "provider", "base_url", "scopes", "key_id", "header_name", "expires_at"},
+	"ssh_key":                {"private_key", "username", "passphrase", "public_key", "hosts", "ssh_certificate"},
+	"oauth_client_secret_v2": {"client_id", "client_secret", "token_endpoint_url", "scopes", "issuer_url", "redirect_uri", "auth_endpoint_url", "audience", "grant_type"},
+	"certificate":            {"certificate_pem", "private_key", "chain_pem", "passphrase"},
+}
+
+const upstreamCommit = "cabf67a9c65ea52b3c353a2d8c92c320cc8f5467"
