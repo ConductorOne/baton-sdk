@@ -33,7 +33,8 @@ import (
 // with one resource per page. fail decides, per call, whether the call
 // fails instead of answering. Resources of a type in childOf carry a
 // ChildResourceType annotation; a list scoped to a parent answers one page
-// holding "<child>-of-<parent>" and is recorded under "<type>@<parent>".
+// holding "<child>-of-<parent>" and is recorded, and offered to fail, under
+// "<type>@<parent>".
 // Resources named in omit are left out of their page (an upstream deletion).
 type invalidatingConnector struct {
 	*mockConnector
@@ -70,7 +71,13 @@ func (c *invalidatingConnector) ListResources(_ context.Context, req *v2.Resourc
 		key := rt + "@" + parent.GetResource()
 		c.mu.Lock()
 		c.calls[key] = append(c.calls[key], token)
+		nth := len(c.calls[key])
 		c.mu.Unlock()
+		if c.fail != nil {
+			if err := c.fail(key, token, nth); err != nil {
+				return nil, err
+			}
+		}
 		child := v2.Resource_builder{
 			Id:               v2.ResourceId_builder{ResourceType: rt, Resource: rt + "-of-" + parent.GetResource()}.Build(),
 			ParentResourceId: parent,
@@ -384,6 +391,32 @@ func TestActionInvalidationRestartedChainPushesChildrenOnce(t *testing.T) {
 			require.Empty(t, pending)
 		})
 	}
+}
+
+// The child-under-parent variant of SyncResources restarts: the expiry is
+// on the child list itself, whose identity carries the parent, and the
+// restart token "" makes the r+1 identity equal the first-page identity.
+func TestActionInvalidationRestartsChildUnderParent(t *testing.T) {
+	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "child.c1z"), false)
+	c := newInvalidatingConnector([]string{"group", "project"}, func(key, token string, nth int) error {
+		if key == "project@group-p1" && token == "" && nth == 1 {
+			return pagination.NewErrInvalidateAction("", "page token expired")
+		}
+		return nil
+	})
+	c.childOf = map[string]string{"group": "project"}
+	s := newInvalidationSyncer(t, f, c)
+	require.NoError(t, s.Sync(t.Context()))
+	require.Equal(t, []string{"", ""}, c.callsFor("project@group-p1"), "the expired child list runs again from the start")
+	require.Equal(t, []string{""}, c.callsFor("project@group-p0"))
+	require.Equal(t, []string{""}, c.callsFor("project@group-p2"))
+	byOp, total := s.run.actionInvalidationCounts()
+	require.EqualValues(t, 1, total)
+	require.EqualValues(t, 1, byOp[SyncResourcesOp.String()])
+	require.Equal(t, []string{"project-of-group-p0", "project-of-group-p1", "project-of-group-p2", "project-p0", "project-p1", "project-p2"}, storedResourceIDs(t, f.store, "project"))
+	pending, _, err := f.ledger.PendingWork(t.Context(), 0, 100)
+	require.NoError(t, err)
+	require.Empty(t, pending)
 }
 
 // C15: the accepted over-retention. A resource listed before the expiry and
