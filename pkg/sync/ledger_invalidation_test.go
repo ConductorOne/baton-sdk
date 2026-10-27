@@ -20,6 +20,8 @@ import (
 	engine "github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
+	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
+	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
 
 // invalidatingConnector pages each resource type through "" → "T1" → "T2"
@@ -282,10 +284,11 @@ func TestActionInvalidationMisclassifiedCodeFailsSync(t *testing.T) {
 	require.Zero(t, invalidationCounter(t, f))
 }
 
-// I1: every (op, root or per-type, code, spawned, detail form) cell. Honored
-// iff the detail is present, the code is FailedPrecondition or Aborted, the
-// action's own connector call is a paginated list (resource types, or a
-// per-type action of the other list ops), and the cursor was not spawned.
+// I1: every (op, root or per-type, code, spawned, detail form, own list
+// call) cell. Honored iff the detail is present, the code is
+// FailedPrecondition or Aborted, the action's own connector call is a
+// paginated list (resource types, or a per-type action of the other list
+// ops), the error came from that call, and the cursor was not spawned.
 func TestClassifyActionInvalidationTable(t *testing.T) {
 	ops := []ActionOp{UnknownOp, InitOp, SyncResourceTypesOp, SyncResourcesOp, SyncEntitlementsOp, ListResourcesForEntitlementsOp, SyncGrantsOp,
 		SyncExternalResourcesOp, SyncAssetsOp, SyncGrantExpansionOp, SyncTargetedResourceOp, SyncStaticEntitlementsOp, MaterializeStaticEntitlementsOp}
@@ -311,33 +314,76 @@ func TestClassifyActionInvalidationTable(t *testing.T) {
 			for code := codes.Canceled; code <= codes.Unauthenticated; code++ {
 				for _, spawned := range []bool{false, true} {
 					for form, build := range forms {
-						err, present := build(code)
-						cells++
-						action := &Action{Op: op, Spawned: spawned, ResourceTypeID: resourceType}
-						detail, gotPresent, classErr := classifyActionInvalidation(action, err)
-						name := fmt.Sprintf("%s/rt=%q/%s/spawned=%t/%s", op, resourceType, code, spawned, form)
-						require.Equal(t, present, gotPresent, name)
-						if !present {
-							require.Nil(t, detail, name)
-							require.NoError(t, classErr, name)
-							continue
-						}
-						require.Equal(t, "R", detail.GetRestartPageToken(), name)
-						ownPaginatedCall := op == SyncResourceTypesOp || (slices.Contains(listOps, op) && resourceType != "")
-						honored := (code == codes.FailedPrecondition || code == codes.Aborted) && ownPaginatedCall && !spawned
-						if honored {
-							require.NoError(t, classErr, name)
-						} else {
-							require.ErrorIs(t, classErr, ErrActionInvalidationMisclassified, name)
-							require.ErrorIs(t, classErr, err, name)
-							require.Equal(t, code, status.Code(classErr), name)
+						for _, ownCall := range []bool{true, false} {
+							err, present := build(code)
+							if ownCall {
+								err = markActionListCall(err)
+							}
+							cells++
+							action := &Action{Op: op, Spawned: spawned, ResourceTypeID: resourceType}
+							detail, gotPresent, classErr := classifyActionInvalidation(action, err)
+							name := fmt.Sprintf("%s/rt=%q/%s/spawned=%t/%s/own_call=%t", op, resourceType, code, spawned, form, ownCall)
+							require.Equal(t, present, gotPresent, name)
+							if !present {
+								require.Nil(t, detail, name)
+								require.NoError(t, classErr, name)
+								continue
+							}
+							require.Equal(t, "R", detail.GetRestartPageToken(), name)
+							ownPaginatedOp := op == SyncResourceTypesOp || (slices.Contains(listOps, op) && resourceType != "")
+							honored := (code == codes.FailedPrecondition || code == codes.Aborted) && ownPaginatedOp && !spawned && ownCall
+							if honored {
+								require.NoError(t, classErr, name)
+							} else {
+								require.ErrorIs(t, classErr, ErrActionInvalidationMisclassified, name)
+								require.ErrorIs(t, classErr, err, name)
+								require.Equal(t, code, status.Code(classErr), name)
+							}
 						}
 					}
 				}
 			}
 		}
 	}
-	require.Equal(t, 13*2*16*2*3, cells)
+	require.Equal(t, 13*2*16*2*3*2, cells)
+}
+
+// nestedGetResourceConnector answers GetResource for the unsynced group
+// "g2" with the detail. The grants page for "g1" reaches that call after
+// ListGrants succeeded and before any grant is staged, so without the
+// list-call mark the grants action would restart on a token it never paged
+// on, and keep restarting until the per-item cap.
+type nestedGetResourceConnector struct {
+	*mockConnector
+	getResourceCalls int
+}
+
+func (c *nestedGetResourceConnector) GetResource(ctx context.Context, in *v2.ResourceGetterServiceGetResourceRequest, opts ...grpc.CallOption) (*v2.ResourceGetterServiceGetResourceResponse, error) {
+	if in.GetResourceId().GetResource() == "g2" {
+		c.getResourceCalls++
+		return nil, pagination.NewErrInvalidateAction("", "get-resource is not paginated")
+	}
+	return c.mockConnector.GetResource(ctx, in, opts...)
+}
+
+func TestActionInvalidationNestedConnectorCallMisclassified(t *testing.T) {
+	c := &nestedGetResourceConnector{mockConnector: newMockConnector()}
+	c.rtDB = append(c.rtDB, groupResourceType)
+	g1, _, err := c.AddGroup(t.Context(), "g1")
+	require.NoError(t, err)
+	g2, err := rs.NewGroupResource("g2", groupResourceType, "g2", nil)
+	require.NoError(t, err)
+	c.grantDB["g1"] = []*v2.Grant{gt.NewGrant(g2, "member", g1.GetId())}
+
+	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "nested.c1z"), false)
+	s, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithWorkerCount(1), WithTargetedSyncResources([]*v2.Resource{g1}))
+	require.NoError(t, err)
+	err = s.Sync(t.Context())
+	require.ErrorIs(t, err, ErrActionInvalidationMisclassified)
+	require.NotErrorIs(t, err, ErrActionInvalidationCapExceeded)
+	require.Contains(t, err.Error(), "own_list_call=false")
+	require.Equal(t, 1, c.getResourceCalls, "one failing call, no restart")
+	require.Zero(t, invalidationCounter(t, f))
 }
 
 type ledgerRestartCrashStore struct {

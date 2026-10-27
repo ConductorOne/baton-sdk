@@ -78,6 +78,27 @@ func honorsInvalidationCode(code codes.Code) bool {
 	return code == codes.FailedPrecondition || code == codes.Aborted
 }
 
+// actionListCallError marks an error as the return of the action's own
+// paginated list call. A handler makes other connector calls too (the
+// grants handler fetches related resources with GetResource); a detail on
+// one of those names a token the action never paged on.
+type actionListCallError struct{ err error }
+
+func (e *actionListCallError) Error() string { return e.err.Error() }
+func (e *actionListCallError) Unwrap() error { return e.err }
+
+func markActionListCall(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &actionListCallError{err: err}
+}
+
+func fromActionListCall(err error) bool {
+	var marked *actionListCallError
+	return errors.As(err, &marked)
+}
+
 // classifyActionInvalidation returns the InvalidateAction detail err
 // carries, whether one is present, and, when this action cannot honor it,
 // an error that names the cell and wraps err.
@@ -87,9 +108,10 @@ func classifyActionInvalidation(action *Action, err error) (*v2.InvalidateAction
 		return nil, false, nil
 	}
 	code := status.Code(err)
-	if !honorsInvalidationCode(code) || !honorsActionInvalidation(action) || action.Spawned {
-		return detail, true, fmt.Errorf("%w: op=%s resource_type=%q code=%s spawned=%t: %w",
-			ErrActionInvalidationMisclassified, action.Op.String(), action.ResourceTypeID, code.String(), action.Spawned, err)
+	ownCall := fromActionListCall(err)
+	if !honorsInvalidationCode(code) || !honorsActionInvalidation(action) || action.Spawned || !ownCall {
+		return detail, true, fmt.Errorf("%w: op=%s resource_type=%q code=%s spawned=%t own_list_call=%t: %w",
+			ErrActionInvalidationMisclassified, action.Op.String(), action.ResourceTypeID, code.String(), action.Spawned, ownCall, err)
 	}
 	return detail, true, nil
 }

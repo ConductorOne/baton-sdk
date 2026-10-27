@@ -179,10 +179,12 @@ Stated on the store, the artifact, and the connector call sequence.
   wrapped with `%w`, and on a status error that crossed the Lambda
   transport; it returns the restart token and reason unchanged.
 - **S2 Classification is total.** For every (code, detail present, op,
-  spawned) cell the outcome is exactly one of: honored; classification
-  error naming the cell; unchanged legacy handling (retry, warning, or
-  failure as today). No cell is honored by accident and no cell changes
-  legacy handling when the detail is absent.
+  spawned, from the action's own list call) cell the outcome is exactly
+  one of: honored; classification error naming the cell; unchanged legacy
+  handling (retry, warning, or failure as today). No cell is honored by
+  accident and no cell changes legacy handling when the detail is absent.
+  A detail on any other connector call the handler makes (the grants
+  handler's `GetResource`) is a classification error (CO-009).
 - **S3 Atomic restart.** After an honored invalidation, either all of the
   following are present after reopen or none is: a ledger row for
   `(identity at the expired token, workID, revision r)` marked restarted
@@ -217,10 +219,12 @@ Stated on the store, the artifact, and the connector call sequence.
   `c1api.classifySyncError` joins `ErrTaskNonRetryable` onto any error
   that `errors.Is` the sentinel, the same way it does for
   `ErrIngestInvariantViolated`. The task manager reports the sync as
-  failed and non-retryable; the runner does not resume it. The artifact
-  is preserved (RFC 0009: retention is a storage question; loop
-  prevention is retryability's job). The one-call-per-resume behavior
-  above is the fallback for a runner that resumes anyway.
+  failed and non-retryable; the runner does not resume it. The syncer
+  does not discard the artifact (RFC 0009: retention is a storage
+  question; loop prevention is retryability's job); the hosted full-sync
+  task removes its temp c1z on every failure as it did before this
+  change. The one-call-per-resume behavior above is the fallback for a
+  runner that resumes anyway.
 - **S7 Replay blocked, durably.** After the first honored invalidation the
   sealed artifact's stats sidecar carries `SourceCacheReplayBlocked = true`
   with the new reason flag set, and the `ledgerFactIngestBlocked` fact is
@@ -433,7 +437,7 @@ unreachable).
 |---|---|---|---|---|---|
 | C01 | helper emits `FailedPrecondition` with the detail | O3 | 1 | bounded | 1 |
 | C02 | extractor finds the detail bare, wrapped, and post-Lambda | O3, O5 | D9 × D8 | bounded | 1 |
-| C03 | classification table total over P1 | O3 | P1 (702) | bounded | 1 |
+| C03 | classification table total over P1, with the own-list-call axis | O3 | P1 (702) × 2 | bounded | 1 |
 | C04 | detail-absent cells unchanged from today | O3 | P1 absent rows | bounded | 1 |
 | C05 | spawned item rejects the detail | O3 | D3 yes × honoring ops | bounded | 1 |
 | C06 | invalidation page writes no records, children, claims | O1 | P2 F5 | bounded | 1 |
@@ -731,3 +735,16 @@ The plan is frozen at `87abf5ed`.
   returns the handler's error unchanged; C25 is explicitly excluded; C33
   covers the cap sentinel only. A sqlite c1z under a connector that
   returns the detail behaves as it does on main today.
+- **CO-009 (2026-10-26, PR review).** Independent review of #1196 found
+  that `invokeActionPage` classified every handler error against the
+  outer action. The grants handler calls `GetResource` for related
+  resources after `ListGrants` returned and before any grant is staged,
+  so a detail from that call was honored: the grants action restarted at
+  a token it never paged on, five times, then failed at the per-item cap
+  (confirmed by planting). Each of the five list call sites now wraps its
+  error in `actionListCallError`; `classifyActionInvalidation` honors a
+  detail only under that mark. S2 and C03 gain the own-list-call axis;
+  `TestActionInvalidationNestedConnectorCallMisclassified` is the end to
+  end case. The same review noted that the hosted full-sync task removes
+  its temp c1z on every failure (pre-existing); S6's retention sentence
+  now says so.
