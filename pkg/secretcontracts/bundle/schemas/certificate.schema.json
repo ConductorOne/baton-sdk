@@ -17,7 +17,8 @@
       "x-max-utf8-bytes": 131072,
       "x-semantic": [
         "single_certificate"
-      ]
+      ],
+      "x-non-blank": true
     },
     "private_key": {
       "type": "string",

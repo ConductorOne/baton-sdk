@@ -1,8 +1,8 @@
 {
   "repository": "https://github.com/ductone/multipass",
-  "commit": "cabf67a9c65ea52b3c353a2d8c92c320cc8f5467",
+  "commit": "f762e1f1c123951cf8f2023b081e60f3f5b8c862",
   "files_sha256": {
-    "README.md": "ff8d73a899bb971e88a6c27cee8d65ed5a23305fd1b8cc3b3b393a0d59977d2e",
+    "README.md": "224d71619ea0c74df597b8f0dcb49a8e130ad78a20fbd4f572d4681369f72ea4",
     "contracts.json": "61a976ce0dd0caef29fee11cc925c302f0fe4ccacfb37f0bf355bb1ae4702f32",
     "fixtures/index.json": "dd6269f9064d7cd5a56f6eef79aa207dc0d22c28daa5b65399c66e3c5da9768c",
     "fixtures/invalid/api_key_v2/array-document.json": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
@@ -163,10 +163,10 @@
     "fixtures/valid/ssh_key/reordered-keys.json": "8f4d474c8216da26fe9173bfb91ff15b4c03154acfb02449a1344d3414c4ab06",
     "fixtures/valid/ssh_key/username-at-max-length.json": "17567c8bdd8d243142f23d784f7b7e8e63e9373b340876c9efbe632ecaba0814",
     "fixtures/valid/ssh_key/whitespace.json": "665c5f0e03be22ab830d08393e2fc62c5a007ca005096eacbfd70bb363c89127",
-    "schemas/api_key_v2.schema.json": "e4b4df0d8e08c4eb3ecab8e3136e635dda243891529bfb0988f6732a63c4f718",
-    "schemas/certificate.schema.json": "96f596bd8385a724ddfe9e0cd9175006d75e026089502447a6e0c5d34db02ddf",
-    "schemas/oauth_client_secret_v2.schema.json": "1761bf51da0aecbbb0fd64223ebcda8cb996f2e654d41053db2138c088385252",
-    "schemas/password_v2.schema.json": "003b34067bb42fc74ae22113324cf4296fe1c89a1b0be6e98531b5c7d9a9170a",
-    "schemas/ssh_key.schema.json": "74efe7e43ec5fcb97b48a2a47c98d6b9f58af177d942396faeb3e5df130b8d6c"
+    "schemas/api_key_v2.schema.json": "9f2f2ace85f7e9a107e4c2d5ba3e8ec8038a2b641562697e5e31932ab2bed7e9",
+    "schemas/certificate.schema.json": "96db893be5fc4b983629a741c5d80b4da85b4746175a64ccda5140f3c17b1ce2",
+    "schemas/oauth_client_secret_v2.schema.json": "28e6dcb82501d668470d27c67f6bc517ce6fc214261152b45d4bcec0b87631a7",
+    "schemas/password_v2.schema.json": "21a1a6bf5699eeee113febd519025bb30ad2cc56d8ad90f1dec159c234ecfe91",
+    "schemas/ssh_key.schema.json": "7e187042837afd70bd46d76c1b31bbeac7dfdd74b4c72dfcbb3f77811c1f006b"
   }
 }

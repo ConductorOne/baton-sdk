@@ -17,7 +17,8 @@
       "x-max-utf8-bytes": 131072,
       "x-semantic": [
         "ssh_private_key"
-      ]
+      ],
+      "x-non-blank": true
     },
     "username": {
       "type": "string",

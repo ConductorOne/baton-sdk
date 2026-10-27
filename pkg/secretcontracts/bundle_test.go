@@ -82,3 +82,12 @@ func TestExportedTypeIDsMatchBundle(t *testing.T) {
 	require.NoError(t, err)
 	require.ElementsMatch(t, bundled, []string{TypePasswordV2, TypeAPIKeyV2, TypeSSHKey, TypeOAuthClientSecretV2, TypeCertificate, TypeHOTP, TypeNote, TypeGeneric})
 }
+
+func TestRequiredStringRejectsUnicodeWhitespace(t *testing.T) {
+	for _, raw := range []string{`{"password":"   "}`, `{"password":"\u00a0"}`, `{"password":"\u2003"}`} {
+		require.Error(t, ValidateProducer(TypePasswordV2, []byte(raw)))
+		_, err := ValidateStored(TypePasswordV2, []byte(raw))
+		require.Error(t, err)
+	}
+	require.NoError(t, ValidateProducer(TypePasswordV2, []byte(`{"password":"\u2003x\u2003"}`)))
+}
