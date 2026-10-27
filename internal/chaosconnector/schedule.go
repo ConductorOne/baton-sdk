@@ -28,11 +28,11 @@ const (
 	// ErrInterruptRequested; only process-capable harnesses may translate it
 	// into an actual hard crash.
 	EffectCrash EffectKind = "crash"
-	// EffectInvalidateAction returns the pagination.NewErrInvalidateAction
+	// EffectRestartAction returns the pagination.NewRestartActionError
 	// error for RestartToken and Message. Code, when non-zero and not
 	// FailedPrecondition, replaces the helper's FailedPrecondition so a
 	// schedule can place the detail on a code the syncer must not honor.
-	EffectInvalidateAction EffectKind = "invalidate-action"
+	EffectRestartAction EffectKind = "restart-action"
 )
 
 // Effect describes one replayable disturbance. Mutation names are resolved by
@@ -104,7 +104,7 @@ func (s Schedule) Validate() error {
 func (e Effect) validate() error {
 	switch e.Kind {
 	case EffectError, EffectDelay, EffectBlock, EffectCancel, EffectLoseResponse,
-		EffectMutate, EffectSetEpoch, EffectCrash, EffectInvalidateAction:
+		EffectMutate, EffectSetEpoch, EffectCrash, EffectRestartAction:
 	default:
 		return fmt.Errorf("unknown effect %q", e.Kind)
 	}
@@ -262,8 +262,8 @@ func (r *Runtime) ApplyControlEffects(ctx context.Context, op Operation, fired [
 				return context.Canceled
 			case EffectCrash:
 				return ErrInterruptRequested
-			case EffectInvalidateAction:
-				return invalidateActionError(effect)
+			case EffectRestartAction:
+				return restartActionError(effect)
 			case EffectMutate, EffectSetEpoch:
 				// Response and scenario adapters own these effects.
 			}

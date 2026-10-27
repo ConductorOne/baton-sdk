@@ -133,7 +133,7 @@ func (c *invalidatingConnector) callsFor(rt string) []string {
 func invalidateOnce(rt, restartToken string) func(string, string, int) error {
 	return func(gotRT, token string, nth int) error {
 		if gotRT == rt && token == "T1" && nth == 1 {
-			return pagination.NewErrInvalidateAction(restartToken, "page token expired")
+			return pagination.NewRestartActionError(restartToken, "page token expired")
 		}
 		return nil
 	}
@@ -142,7 +142,7 @@ func invalidateOnce(rt, restartToken string) func(string, string, int) error {
 func invalidateAlways(restartToken string) func(string, string, int) error {
 	return func(_, token string, _ int) error {
 		if token == "T1" {
-			return pagination.NewErrInvalidateAction(restartToken, "page token expired")
+			return pagination.NewRestartActionError(restartToken, "page token expired")
 		}
 		return nil
 	}
@@ -168,11 +168,11 @@ func newInvalidationSyncer(t *testing.T, f *ledgerFixture, c *invalidatingConnec
 	return s.(*syncer)
 }
 
-func invalidationCounter(t *testing.T, f *ledgerFixture) uint64 {
+func restartCounter(t *testing.T, f *ledgerFixture) uint64 {
 	t.Helper()
 	counters, err := f.ledger.LedgerCounters(t.Context())
 	require.NoError(t, err)
-	return counters.Counters[ledgerActionInvalidations]
+	return counters.Counters[ledgerActionRestarts]
 }
 
 // C11, C19: the next call carries the restart token, the sync finishes
@@ -208,7 +208,7 @@ func TestActionInvalidationRestartsAction(t *testing.T) {
 			}
 			require.Equal(t, want, storedResourceIDs(t, f.store, "group"))
 
-			byOp, total := s.run.actionInvalidationCounts()
+			byOp, total := s.run.restartCounts()
 			require.EqualValues(t, 1, total)
 			require.EqualValues(t, 1, byOp[SyncResourcesOp.String()])
 			require.True(t, s.ingestFilterStats.replayBlocked.Load())
@@ -237,7 +237,7 @@ func TestActionInvalidationRestartPageIsDurable(t *testing.T) {
 	defer cancel()
 	c := newInvalidatingConnector([]string{"group"}, func(rt, token string, nth int) error {
 		if token == "T1" && nth == 1 {
-			return pagination.NewErrInvalidateAction("", "page token expired")
+			return pagination.NewRestartActionError("", "page token expired")
 		}
 		if token == "" && nth == 2 {
 			cancel()
@@ -252,7 +252,7 @@ func TestActionInvalidationRestartPageIsDurable(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, facts, ledgerFactIngestKnown)
 	require.Contains(t, facts, ledgerFactIngestBlocked)
-	require.EqualValues(t, 1, invalidationCounter(t, f))
+	require.EqualValues(t, 1, restartCounter(t, f))
 	pending, _, err := f.ledger.PendingWork(t.Context(), 0, 100)
 	require.NoError(t, err)
 	var item *c1zstore.LedgerWork
@@ -263,11 +263,11 @@ func TestActionInvalidationRestartPageIsDurable(t *testing.T) {
 	}
 	require.NotNil(t, item)
 	require.Equal(t, "", item.Action.Identity.PageToken)
-	require.Equal(t, []uint64{1}, item.Invalidations)
+	require.Equal(t, []uint64{1}, item.Restarts)
 
 	resumed := newInvalidationSyncer(t, f, newInvalidatingConnector([]string{"group"}, nil))
 	require.NoError(t, resumed.Sync(t.Context()))
-	_, total := resumed.run.actionInvalidationCounts()
+	_, total := resumed.run.restartCounts()
 	require.EqualValues(t, 1, total, "the resumed run restores the count from the ledger")
 	require.Equal(t, []string{"group-p0", "group-p1", "group-p2"}, storedResourceIDs(t, f.store, "group"))
 }
@@ -282,7 +282,7 @@ func TestActionInvalidationResumeMidRestartedChain(t *testing.T) {
 	c := newInvalidatingConnector([]string{"group"}, func(_, token string, nth int) error {
 		switch {
 		case token == "T1" && nth == 1:
-			return pagination.NewErrInvalidateAction("", "page token expired")
+			return pagination.NewRestartActionError("", "page token expired")
 		case token == "T1" && nth == 2:
 			cancel()
 			return ctx.Err()
@@ -294,14 +294,14 @@ func TestActionInvalidationResumeMidRestartedChain(t *testing.T) {
 	require.Equal(t, []string{"", "T1", "", "T1"}, c.callsFor("group"))
 	item := pendingGroupItem(t, f)
 	require.Equal(t, "T1", item.Action.Identity.PageToken, "the rerun's first page committed")
-	require.Equal(t, []uint64{1}, item.Invalidations)
+	require.Equal(t, []uint64{1}, item.Restarts)
 	require.EqualValues(t, 3, item.Revision)
 
 	c = newInvalidatingConnector([]string{"group"}, nil)
 	resumed := newInvalidationSyncer(t, f, c)
 	require.NoError(t, resumed.Sync(t.Context()))
 	require.Equal(t, []string{"T1", "T2"}, c.callsFor("group"))
-	_, total := resumed.run.actionInvalidationCounts()
+	_, total := resumed.run.restartCounts()
 	require.EqualValues(t, 1, total)
 	require.Equal(t, []string{"group-p0", "group-p1", "group-p2"}, storedResourceIDs(t, f.store, "group"))
 }
@@ -316,26 +316,26 @@ func TestActionInvalidationPerSyncBudgetAcrossResume(t *testing.T) {
 	c := newInvalidatingConnector([]string{"group", "user"}, func(rt, token string, nth int) error {
 		switch {
 		case rt == "group" && token == "T1" && nth == 1:
-			return pagination.NewErrInvalidateAction("", "page token expired")
+			return pagination.NewRestartActionError("", "page token expired")
 		case rt == "group" && token == "" && nth == 2:
 			cancel()
 			return ctx.Err()
 		}
 		return nil
 	})
-	s := newInvalidationSyncer(t, f, c, WithActionInvalidationCaps(100, 1))
+	s := newInvalidationSyncer(t, f, c, WithRestartLimits(100, 1))
 	require.ErrorIs(t, s.Sync(ctx), context.Canceled)
-	require.EqualValues(t, 1, invalidationCounter(t, f))
+	require.EqualValues(t, 1, restartCounter(t, f))
 
 	c = newInvalidatingConnector([]string{"group", "user"}, invalidateAlways(""))
-	resumed := newInvalidationSyncer(t, f, c, WithActionInvalidationCaps(100, 1))
+	resumed := newInvalidationSyncer(t, f, c, WithRestartLimits(100, 1))
 	err := resumed.Sync(t.Context())
-	require.ErrorIs(t, err, ErrActionInvalidationCapExceeded)
-	var capErr *ActionInvalidationCapError
+	require.ErrorIs(t, err, ErrRestartLimitExceeded)
+	var capErr *RestartLimitError
 	require.ErrorAs(t, err, &capErr)
-	require.False(t, capErr.Cap.PerItem, "the per-sync budget, not the per-item cap")
-	require.EqualValues(t, 1, invalidationCounter(t, f), "the refused restart recorded nothing")
-	_, total := resumed.run.actionInvalidationCounts()
+	require.Equal(t, c1zstore.RestartScopeSync, capErr.Limit.Scope, "the per-sync limit, not the per-action one")
+	require.EqualValues(t, 1, restartCounter(t, f), "the refused restart recorded nothing")
+	_, total := resumed.run.restartCounts()
 	require.EqualValues(t, 1, total)
 }
 
@@ -357,7 +357,7 @@ func TestActionInvalidationRestartedChainPushesChildrenOnce(t *testing.T) {
 			c := newInvalidatingConnector([]string{"group", "project"}, func(rt, token string, nth int) error {
 				switch {
 				case rt == "group" && token == "T1" && nth == 1:
-					return pagination.NewErrInvalidateAction("", "page token expired")
+					return pagination.NewRestartActionError("", "page token expired")
 				case resume && rt == "group" && token == "" && nth == 2:
 					cancel()
 					return ctx.Err()
@@ -400,7 +400,7 @@ func TestActionInvalidationRestartsChildUnderParent(t *testing.T) {
 	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "child.c1z"), false)
 	c := newInvalidatingConnector([]string{"group", "project"}, func(key, token string, nth int) error {
 		if key == "project@group-p1" && token == "" && nth == 1 {
-			return pagination.NewErrInvalidateAction("", "page token expired")
+			return pagination.NewRestartActionError("", "page token expired")
 		}
 		return nil
 	})
@@ -410,7 +410,7 @@ func TestActionInvalidationRestartsChildUnderParent(t *testing.T) {
 	require.Equal(t, []string{"", ""}, c.callsFor("project@group-p1"), "the expired child list runs again from the start")
 	require.Equal(t, []string{""}, c.callsFor("project@group-p0"))
 	require.Equal(t, []string{""}, c.callsFor("project@group-p2"))
-	byOp, total := s.run.actionInvalidationCounts()
+	byOp, total := s.run.restartCounts()
 	require.EqualValues(t, 1, total)
 	require.EqualValues(t, 1, byOp[SyncResourcesOp.String()])
 	require.Equal(t, []string{"project-of-group-p0", "project-of-group-p1", "project-of-group-p2", "project-p0", "project-p1", "project-p2"}, storedResourceIDs(t, f.store, "project"))
@@ -428,7 +428,7 @@ func TestActionInvalidationOverRetention(t *testing.T) {
 	c = newInvalidatingConnector([]string{"group"}, func(_, token string, nth int) error {
 		if token == "T1" && nth == 1 {
 			c.omitResource("group-p0")
-			return pagination.NewErrInvalidateAction("", "page token expired")
+			return pagination.NewRestartActionError("", "page token expired")
 		}
 		return nil
 	})
@@ -462,41 +462,41 @@ func pendingGroupItem(t *testing.T, f *ledgerFixture) c1zstore.LedgerWork {
 func TestActionInvalidationPerItemCapFailsSync(t *testing.T) {
 	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "cap.c1z"), false)
 	c := newInvalidatingConnector([]string{"group"}, invalidateAlways(""))
-	s := newInvalidationSyncer(t, f, c, WithActionInvalidationCaps(2, 100))
+	s := newInvalidationSyncer(t, f, c, WithRestartLimits(2, 100))
 	err := s.Sync(t.Context())
-	require.ErrorIs(t, err, ErrActionInvalidationCapExceeded)
+	require.ErrorIs(t, err, ErrRestartLimitExceeded)
 	require.Equal(t, codes.FailedPrecondition, status.Code(err), "the connector's status survives the wrap")
-	var capErr *ActionInvalidationCapError
+	var capErr *RestartLimitError
 	require.ErrorAs(t, err, &capErr)
-	require.True(t, capErr.Cap.PerItem)
-	require.Equal(t, []uint64{1, 3}, capErr.Cap.Invalidations)
+	require.Equal(t, c1zstore.RestartScopeAction, capErr.Limit.Scope)
+	require.Equal(t, []uint64{1, 3}, capErr.Limit.Restarts)
 	require.Equal(t, []string{"", "T1", "", "T1", "", "T1"}, c.callsFor("group"))
-	require.EqualValues(t, 2, invalidationCounter(t, f))
+	require.EqualValues(t, 2, restartCounter(t, f))
 	require.NoError(t, f.store.Close(t.Context()))
 
 	f = openLedgerFixtureAt(t, f.path, false)
 	c = newInvalidatingConnector([]string{"group"}, invalidateAlways(""))
-	resumed := newInvalidationSyncer(t, f, c, WithActionInvalidationCaps(2, 100))
+	resumed := newInvalidationSyncer(t, f, c, WithRestartLimits(2, 100))
 	err = resumed.Sync(t.Context())
-	require.ErrorIs(t, err, ErrActionInvalidationCapExceeded)
+	require.ErrorIs(t, err, ErrRestartLimitExceeded)
 	require.Equal(t, []string{"T1"}, c.callsFor("group"))
-	_, total := resumed.run.actionInvalidationCounts()
+	_, total := resumed.run.restartCounts()
 	require.EqualValues(t, 2, total)
-	require.EqualValues(t, 2, invalidationCounter(t, f))
+	require.EqualValues(t, 2, restartCounter(t, f))
 }
 
 // S6 per sync: a budget of one across two items that both expire.
 func TestActionInvalidationPerSyncBudgetFailsSync(t *testing.T) {
 	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "budget.c1z"), false)
 	c := newInvalidatingConnector([]string{"group", "team"}, invalidateAlways(""))
-	s := newInvalidationSyncer(t, f, c, WithActionInvalidationCaps(100, 1))
+	s := newInvalidationSyncer(t, f, c, WithRestartLimits(100, 1))
 	err := s.Sync(t.Context())
-	require.ErrorIs(t, err, ErrActionInvalidationCapExceeded)
-	var capErr *ActionInvalidationCapError
+	require.ErrorIs(t, err, ErrRestartLimitExceeded)
+	var capErr *RestartLimitError
 	require.ErrorAs(t, err, &capErr)
-	require.False(t, capErr.Cap.PerItem)
-	require.EqualValues(t, 1, capErr.Cap.Cap)
-	require.EqualValues(t, 1, invalidationCounter(t, f))
+	require.Equal(t, c1zstore.RestartScopeSync, capErr.Limit.Scope)
+	require.EqualValues(t, 1, capErr.Limit.Limit)
+	require.EqualValues(t, 1, restartCounter(t, f))
 }
 
 // C04: a detail on a call that cannot honor it fails the sync without a
@@ -507,7 +507,7 @@ func TestActionInvalidationMisclassifiedCodeFailsSync(t *testing.T) {
 		if token != "T1" {
 			return nil
 		}
-		detail, err := status.New(codes.InvalidArgument, "expired").WithDetails(v2.InvalidateAction_builder{RestartPageToken: ""}.Build())
+		detail, err := status.New(codes.InvalidArgument, "expired").WithDetails(v2.RestartAction_builder{RestartPageToken: ""}.Build())
 		if err != nil {
 			return err
 		}
@@ -515,11 +515,11 @@ func TestActionInvalidationMisclassifiedCodeFailsSync(t *testing.T) {
 	})
 	s := newInvalidationSyncer(t, f, c)
 	err := s.Sync(t.Context())
-	require.ErrorIs(t, err, ErrActionInvalidationMisclassified)
+	require.ErrorIs(t, err, ErrRestartRejected)
 	require.Equal(t, codes.Internal, status.Code(err), "the connector's code does not reach the callers of invokeActionPage")
 	require.Contains(t, err.Error(), "code=InvalidArgument")
 	require.Equal(t, []string{"", "T1"}, c.callsFor("group"))
-	require.Zero(t, invalidationCounter(t, f))
+	require.Zero(t, restartCounter(t, f))
 }
 
 // pagedOpsConnector pages every list op "" → "T1" → "T2" with one element
@@ -547,7 +547,7 @@ func (c *pagedOpsConnector) page(op, token string) (int, string, error) {
 	c.calls[op] = append(c.calls[op], token)
 	if op == c.failOp && token == "T1" && !c.failed {
 		c.failed = true
-		return 0, "", pagination.NewErrInvalidateAction(c.restart, "page token expired")
+		return 0, "", pagination.NewRestartActionError(c.restart, "page token expired")
 	}
 	switch token {
 	case "":
@@ -681,7 +681,7 @@ func TestActionInvalidationRestartsEveryHonoringOp(t *testing.T) {
 			calls := c.callsFor(op)
 			require.Contains(t, strings.Join(calls, ","), ",T1,T1,", "the call after the expiry carries the restart token: %v", calls)
 			require.Equal(t, want, storeShape(t, f.store))
-			byOp, total := s.(*syncer).run.actionInvalidationCounts()
+			byOp, total := s.(*syncer).run.restartCounts()
 			require.EqualValues(t, 1, total)
 			require.EqualValues(t, 1, byOp[actionOp.String()])
 			report, err := f.engine.GetArchivedLedgerReport(t.Context())
@@ -709,15 +709,15 @@ func TestClassifyActionInvalidationTable(t *testing.T) {
 	forms := map[string]func(code codes.Code) (error, bool){
 		"absent": func(code codes.Code) (error, bool) { return status.Error(code, "plain"), false },
 		"typed": func(code codes.Code) (error, bool) {
-			err := pagination.NewErrInvalidateAction("R", "typed")
+			err := pagination.NewRestartActionError("R", "typed")
 			if code == codes.FailedPrecondition {
 				return err, true
 			}
-			detail, _ := status.New(code, "typed").WithDetails(v2.InvalidateAction_builder{RestartPageToken: "R"}.Build())
+			detail, _ := status.New(code, "typed").WithDetails(v2.RestartAction_builder{RestartPageToken: "R"}.Build())
 			return detail.Err(), true
 		},
 		"wrapped": func(code codes.Code) (error, bool) {
-			detail, _ := status.New(code, "wrapped").WithDetails(v2.InvalidateAction_builder{RestartPageToken: "R"}.Build())
+			detail, _ := status.New(code, "wrapped").WithDetails(v2.RestartAction_builder{RestartPageToken: "R"}.Build())
 			return fmt.Errorf("list failed: %w", detail.Err()), true
 		},
 	}
@@ -734,7 +734,7 @@ func TestClassifyActionInvalidationTable(t *testing.T) {
 							}
 							cells++
 							action := &Action{Op: op, Spawned: spawned, ResourceTypeID: resourceType}
-							detail, gotPresent, classErr := classifyActionInvalidation(action, err)
+							detail, gotPresent, classErr := classifyRestartRequest(action, err)
 							name := fmt.Sprintf("%s/rt=%q/%s/spawned=%t/%s/own_call=%t", op, resourceType, code, spawned, form, ownCall)
 							require.Equal(t, present, gotPresent, name)
 							if !present {
@@ -748,7 +748,7 @@ func TestClassifyActionInvalidationTable(t *testing.T) {
 							if honored {
 								require.NoError(t, classErr, name)
 							} else {
-								require.ErrorIs(t, classErr, ErrActionInvalidationMisclassified, name)
+								require.ErrorIs(t, classErr, ErrRestartRejected, name)
 								require.ErrorIs(t, classErr, err, name)
 								require.Equal(t, codes.Internal, status.Code(classErr), name)
 								require.False(t, isWarning(t.Context(), classErr), name)
@@ -795,7 +795,7 @@ type notFoundDetailGrantsConnector struct {
 
 func (c *notFoundDetailGrantsConnector) ListGrants(context.Context, *v2.GrantsServiceListGrantsRequest, ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
 	c.listGrantsCalls++
-	st, err := status.New(codes.NotFound, "gone").WithDetails(v2.InvalidateAction_builder{RestartPageToken: ""}.Build())
+	st, err := status.New(codes.NotFound, "gone").WithDetails(v2.RestartAction_builder{RestartPageToken: ""}.Build())
 	if err != nil {
 		return nil, err
 	}
@@ -812,22 +812,22 @@ func TestActionInvalidationMisclassifiedNotFoundFailsNotWarns(t *testing.T) {
 	s, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithWorkerCount(1))
 	require.NoError(t, err)
 	err = s.Sync(t.Context())
-	require.ErrorIs(t, err, ErrActionInvalidationMisclassified, "a detail on NotFound fails the sync instead of finishing the action with a warning")
+	require.ErrorIs(t, err, ErrRestartRejected, "a detail on NotFound fails the sync instead of finishing the action with a warning")
 	require.Equal(t, codes.Internal, status.Code(err))
 	require.Equal(t, 1, c.listGrantsCalls)
-	require.Zero(t, invalidationCounter(t, f))
+	require.Zero(t, restartCounter(t, f))
 }
 
 func TestActionInvalidationNestedConnectorCallMisclassified(t *testing.T) {
 	withDetail := func(code codes.Code) error {
-		st, err := status.New(code, "from get-resource").WithDetails(v2.InvalidateAction_builder{RestartPageToken: ""}.Build())
+		st, err := status.New(code, "from get-resource").WithDetails(v2.RestartAction_builder{RestartPageToken: ""}.Build())
 		if err != nil {
 			panic(err)
 		}
 		return st.Err()
 	}
 	for name, fail := range map[string]error{
-		"typed":         pagination.NewErrInvalidateAction("", "get-resource is not paginated"),
+		"typed":         pagination.NewRestartActionError("", "get-resource is not paginated"),
 		"not-found":     withDetail(codes.NotFound),
 		"unimplemented": withDetail(codes.Unimplemented),
 	} {
@@ -844,11 +844,11 @@ func TestActionInvalidationNestedConnectorCallMisclassified(t *testing.T) {
 			s, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithWorkerCount(1), WithTargetedSyncResources([]*v2.Resource{g1}))
 			require.NoError(t, err)
 			err = s.Sync(t.Context())
-			require.ErrorIs(t, err, ErrActionInvalidationMisclassified)
-			require.NotErrorIs(t, err, ErrActionInvalidationCapExceeded)
+			require.ErrorIs(t, err, ErrRestartRejected)
+			require.NotErrorIs(t, err, ErrRestartLimitExceeded)
 			require.Contains(t, err.Error(), "own_list_call=false")
 			require.Equal(t, 1, c.getResourceCalls, "one failing call, no restart")
-			require.Zero(t, invalidationCounter(t, f))
+			require.Zero(t, restartCounter(t, f))
 		})
 	}
 }
@@ -927,7 +927,7 @@ func TestActionInvalidationAbortAtRestartSweep(t *testing.T) {
 					} else {
 						require.ErrorIs(t, err, errCommit)
 					}
-					counter := invalidationCounter(t, f)
+					counter := restartCounter(t, f)
 					if landed {
 						require.EqualValues(t, 1, counter)
 					} else {
@@ -938,7 +938,7 @@ func TestActionInvalidationAbortAtRestartSweep(t *testing.T) {
 					require.NoError(t, err)
 					require.NoError(t, resumed.Sync(t.Context()))
 					require.Equal(t, want, storeShape(t, f.store))
-					_, total := resumed.(*syncer).run.actionInvalidationCounts()
+					_, total := resumed.(*syncer).run.restartCounts()
 					require.EqualValues(t, counter, total, "the resumed run restores the count from the ledger")
 					next := "T1"
 					if landed {
@@ -1023,10 +1023,10 @@ func TestActionInvalidationCrashProcess(t *testing.T) {
 				// An unsynced WAL image may predate the whole collecting state;
 				// that is the pre-restart side of the dichotomy too.
 				landed := item != nil && item.Action.Identity.PageToken == ""
-				counter := invalidationCounter(t, f)
+				counter := restartCounter(t, f)
 				switch {
 				case landed:
-					require.Equal(t, []uint64{1}, item.Invalidations)
+					require.Equal(t, []uint64{1}, item.Restarts)
 					require.EqualValues(t, 2, item.Revision)
 					require.EqualValues(t, 1, counter)
 					require.Equal(t, []string{"group-p0"}, storedResourceIDs(t, f.store, "group"), "the restart page writes no records")
@@ -1035,7 +1035,7 @@ func TestActionInvalidationCrashProcess(t *testing.T) {
 					require.Contains(t, facts, ledgerFactIngestBlocked, "the replay block rides the restart batch")
 				case item != nil:
 					require.Equal(t, "T1", item.Action.Identity.PageToken)
-					require.Empty(t, item.Invalidations)
+					require.Empty(t, item.Restarts)
 					require.EqualValues(t, 1, item.Revision)
 					require.Zero(t, counter)
 				default:
@@ -1060,7 +1060,7 @@ func TestActionInvalidationCrashProcess(t *testing.T) {
 				default:
 					require.Equal(t, []string{"", "T1", "T2"}, c.callsFor("group"))
 				}
-				_, total := resumed.run.actionInvalidationCounts()
+				_, total := resumed.run.restartCounts()
 				require.EqualValues(t, counter, total)
 				require.Equal(t, []string{"group-p0", "group-p1", "group-p2"}, storedResourceIDs(t, f.store, "group"))
 			})

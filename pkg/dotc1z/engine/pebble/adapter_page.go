@@ -369,6 +369,6 @@ func (w *pageWriter) SetPendingWork(work c1zstore.LedgerWork, childKeys ...strin
 	return nil
 }
 
-func (w *pageWriter) SetRestart(caps c1zstore.RestartCaps) error {
-	return w.unit.StageRestart(caps)
+func (w *pageWriter) SetRestart(limits c1zstore.RestartLimits) error {
+	return w.unit.StageRestart(limits)
 }

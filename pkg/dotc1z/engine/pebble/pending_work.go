@@ -262,10 +262,10 @@ func (l *Ledger) hasPendingWorkLocked() (bool, error) {
 	return found, errors.Join(it.Error(), it.Close())
 }
 
-// restartTransition is the restart page's cap input: the caps, and the
+// restartTransition is the restart page's limit input: the limits, and the
 // worker bucket the page stages so the budget fold counts this page once.
 type restartTransition struct {
-	caps      c1zstore.RestartCaps
+	limits    c1zstore.RestartLimits
 	bucketKey []byte
 	bucket    *v3.LedgerCounterBucket
 }
@@ -389,7 +389,7 @@ func (l *Ledger) stageWorkTransition(
 }
 
 // Under the write lock, after the revision fence. The budget is the sum of
-// LedgerActionInvalidations over every committed bucket with this page's
+// LedgerActionRestarts over every committed bucket with this page's
 // staged bucket in place of its own, so two workers restarting at once each
 // see the other's committed page and the fold never counts a page twice.
 func (l *Ledger) stageRestart(ctx context.Context, batch *rawdb.RecordBatch, current c1zstore.LedgerWork, row *v3.LedgerRow, restart *restartTransition) error {
@@ -399,27 +399,27 @@ func (l *Ledger) stageRestart(ctx context.Context, batch *rawdb.RecordBatch, cur
 	if restart.bucket == nil || len(restart.bucketKey) == 0 {
 		return fmt.Errorf("%w: requires the worker's counter bucket", ErrPageUnitRestart)
 	}
-	capError := func(perItem bool, limit, observed uint64) error {
-		return &c1zstore.InvalidationCapError{PerItem: perItem, Cap: limit, Observed: observed, WorkID: current.ID, Invalidations: slices.Clone(current.Invalidations)}
+	limitError := func(scope c1zstore.RestartScope, limit, count uint64) error {
+		return &c1zstore.RestartLimitError{Scope: scope, Limit: limit, Count: count, WorkID: current.ID, Restarts: slices.Clone(current.Restarts)}
 	}
-	if observed := uint64(len(current.Invalidations)); observed >= restart.caps.PerItem {
-		return capError(true, restart.caps.PerItem, observed)
+	if count := uint64(len(current.Restarts)); count >= restart.limits.PerAction {
+		return limitError(c1zstore.RestartScopeAction, restart.limits.PerAction, count)
 	}
-	others, own, err := l.counterSplit(ctx, c1zstore.LedgerActionInvalidations, restart.bucketKey)
+	others, own, err := l.counterSplit(ctx, c1zstore.LedgerActionRestarts, restart.bucketKey)
 	if err != nil {
 		return err
 	}
-	staged := restart.bucket.GetCounters()[c1zstore.LedgerActionInvalidations]
+	staged := restart.bucket.GetCounters()[c1zstore.LedgerActionRestarts]
 	if staged != own+1 {
 		return fmt.Errorf("%w: bucket must count this page once (%d committed, %d staged)", ErrPageUnitRestart, own, staged)
 	}
-	if others+staged > restart.caps.PerSync {
-		return capError(false, restart.caps.PerSync, others+own)
+	if others+staged > restart.limits.PerSync {
+		return limitError(c1zstore.RestartScopeSync, restart.limits.PerSync, others+own)
 	}
 	if current.Revision == math.MaxUint64 {
 		return errors.New("pending work revision overflow")
 	}
-	current.Invalidations = append(current.Invalidations, current.Revision)
+	current.Restarts = append(current.Restarts, current.Revision)
 	current.Revision++
 	current.Action.Identity.PageToken = row.GetNextPageToken()
 	return stagePendingWork(batch, current)

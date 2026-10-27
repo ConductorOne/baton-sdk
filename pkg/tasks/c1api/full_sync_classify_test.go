@@ -57,7 +57,7 @@ func TestClassifySyncErrorInvariantVerdictNonRetryable(t *testing.T) {
 // stays retryable too.
 func TestClassifySyncErrorActionInvalidationNonRetryable(t *testing.T) {
 	t.Run("cap exceeded", func(t *testing.T) {
-		sentinel := sdkSync.ErrActionInvalidationCapExceeded
+		sentinel := sdkSync.ErrRestartLimitExceeded
 		verdict := errors.Join(
 			fmt.Errorf("failed to sync: %w", fmt.Errorf("list-resources group/: %w: %w", sentinel, status.Error(codes.FailedPrecondition, "page token expired"))),
 			errors.New("close failed"),
@@ -74,7 +74,7 @@ func TestClassifySyncErrorActionInvalidationNonRetryable(t *testing.T) {
 		require.Equal(t, err, got)
 	})
 	t.Run("misclassified detail stays retryable", func(t *testing.T) {
-		err := fmt.Errorf("failed to sync: %w", fmt.Errorf("%w: op=list-assets", sdkSync.ErrActionInvalidationMisclassified))
+		err := fmt.Errorf("failed to sync: %w", fmt.Errorf("%w: op=list-assets", sdkSync.ErrRestartRejected))
 		got := classifySyncError(err)
 		require.NotErrorIs(t, got, ErrTaskNonRetryable)
 		require.Equal(t, err, got)

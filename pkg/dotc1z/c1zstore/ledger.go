@@ -205,14 +205,14 @@ type PageWriter interface {
 	SetPendingWork(work LedgerWork, childKeys ...string) error
 	// Declares the page a restart of its pending work: Commit requires
 	// row.Restarted, refuses staged records, children, or claims, and under
-	// the write lock refuses with InvalidationCapError when the item's
-	// invalidation list has reached caps.PerItem or the summed
-	// LedgerActionInvalidations counter (this page's bucket included) would
-	// exceed caps.PerSync. On commit the item moves to revision + 1 at
-	// row.NextPageToken with the expired revision appended to Invalidations
+	// the write lock refuses with RestartLimitError when the item's
+	// restart list has reached limits.PerAction or the summed
+	// LedgerActionRestarts counter (this page's bucket included) would
+	// exceed limits.PerSync. On commit the item moves to revision + 1 at
+	// row.NextPageToken with the expired revision appended to Restarts
 	// and every other field unchanged; a "" token is a restart, not a
 	// finish.
-	SetRestart(caps RestartCaps) error
+	SetRestart(limits RestartLimits) error
 
 	PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error
 	PutResources(ctx context.Context, resources ...*v2.Resource) error

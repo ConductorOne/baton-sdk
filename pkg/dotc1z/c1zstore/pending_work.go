@@ -13,46 +13,50 @@ type LedgerWork struct {
 	Action            LedgerChild `json:"action"`
 	SchedulingKey     string      `json:"scheduling_key,omitempty"`
 	TypeScopedPlanned bool        `json:"type_scoped_planned,omitempty"`
-	// Revisions at which the connector invalidated this item's page token
-	// and the item restarted (PageWriter.SetRestart). Unknown to SDKs that
-	// predate it; their decoder drops the field.
-	Invalidations []uint64 `json:"invalidations,omitempty"`
+	// Revisions at which the connector asked for this item to restart
+	// (PageWriter.SetRestart). Unknown to SDKs that predate it; their
+	// decoder drops the field.
+	Restarts []uint64 `json:"restarts,omitempty"`
 }
 
 // Counter of restart pages committed, summed across worker buckets; the
-// per-sync invalidation budget is checked against it.
-const LedgerActionInvalidations = "ledger.action_invalidations"
+// per-sync restart limit is checked against it.
+const LedgerActionRestarts = "ledger.action_restarts"
 
-// RestartCaps bound how often a sync may restart work: PerItem is the most
-// invalidations one work item may accumulate; PerSync is the most restart
+// RestartLimits bound how often a sync may restart work: PerAction is the
+// most restarts one work item may accumulate; PerSync is the most restart
 // pages the whole sync may commit. Zero is not unlimited; SetRestart
 // rejects it.
-type RestartCaps struct {
-	PerItem uint64
-	PerSync uint64
+type RestartLimits struct {
+	PerAction uint64
+	PerSync   uint64
 }
 
-var ErrInvalidationCapExceeded = errors.New("action invalidation cap exceeded")
+// RestartScope names which of the two limits a RestartLimitError hit.
+type RestartScope string
 
-// InvalidationCapError is the refused restart: the batch did not commit and
-// the pending item is unchanged. Observed counts committed restarts in the
-// cap's scope, not the refused one; Invalidations is the item's list at the
-// time of the refusal.
-type InvalidationCapError struct {
-	PerItem       bool
-	Cap           uint64
-	Observed      uint64
-	WorkID        uint64
-	Invalidations []uint64
+const (
+	RestartScopeAction RestartScope = "action"
+	RestartScopeSync   RestartScope = "sync"
+)
+
+var ErrRestartLimitExceeded = errors.New("restart limit exceeded")
+
+// RestartLimitError is the refused restart: the batch did not commit and
+// the pending item is unchanged. Count is the committed restarts in Scope,
+// not the refused one; Restarts is the item's list at the time of the
+// refusal.
+type RestartLimitError struct {
+	Scope    RestartScope
+	Limit    uint64
+	Count    uint64
+	WorkID   uint64
+	Restarts []uint64
 }
 
-func (e *InvalidationCapError) Error() string {
-	scope := "sync"
-	if e.PerItem {
-		scope = "work item"
-	}
-	return fmt.Sprintf("%v: %s cap %d reached (%d invalidations) on work %d; restarted at revisions %v",
-		ErrInvalidationCapExceeded, scope, e.Cap, e.Observed, e.WorkID, e.Invalidations)
+func (e *RestartLimitError) Error() string {
+	return fmt.Sprintf("%v: %s limit %d reached (%d restarts) on work %d; restarted at revisions %v",
+		ErrRestartLimitExceeded, e.Scope, e.Limit, e.Count, e.WorkID, e.Restarts)
 }
 
-func (e *InvalidationCapError) Unwrap() error { return ErrInvalidationCapExceeded }
+func (e *RestartLimitError) Unwrap() error { return ErrRestartLimitExceeded }

@@ -18,19 +18,19 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble/internal/rawdb"
 )
 
-var restartTestCaps = c1zstore.RestartCaps{PerItem: 2, PerSync: 8}
+var restartTestCaps = c1zstore.RestartLimits{PerAction: 2, PerSync: 8}
 
 // restartTestCommit stages a restart page for work at the given restart
-// token: bucket counter LedgerActionInvalidations = committed + 1 for the
+// token: bucket counter LedgerActionRestarts = committed + 1 for the
 // worker, as the syncer does.
-func restartTestCommit(t *testing.T, e *Engine, work c1zstore.LedgerWork, restartToken string, caps c1zstore.RestartCaps,
-	runID string, worker uint32, invalidationsSoFar uint64, stage func(c1zstore.PageWriter)) error {
+func restartTestCommit(t *testing.T, e *Engine, work c1zstore.LedgerWork, restartToken string, caps c1zstore.RestartLimits,
+	runID string, worker uint32, restartsSoFar uint64, stage func(c1zstore.PageWriter)) error {
 	t.Helper()
 	writer := e.Ledger().BeginPage()
 	defer writer.Discard()
 	require.NoError(t, writer.SetPendingWork(work))
 	require.NoError(t, writer.SetRestart(caps))
-	require.NoError(t, writer.SetCounterBucket(runID, worker, c1zstore.LedgerCounters{Counters: map[string]uint64{c1zstore.LedgerActionInvalidations: invalidationsSoFar + 1}}))
+	require.NoError(t, writer.SetCounterBucket(runID, worker, c1zstore.LedgerCounters{Counters: map[string]uint64{c1zstore.LedgerActionRestarts: restartsSoFar + 1}}))
 	if stage != nil {
 		stage(writer)
 	}
@@ -94,7 +94,7 @@ func TestPendingWorkRestartCommitsRowAndMovesItem(t *testing.T) {
 			want := work
 			want.Revision = work.Revision + 1
 			want.Action.Identity.PageToken = restartToken
-			want.Invalidations = []uint64{work.Revision}
+			want.Restarts = []uint64{work.Revision}
 			require.Equal(t, want, items[0], "every other field of the pending item is unchanged")
 
 			row, found := readHistoryRow(t, e, work.Action.Identity, work.ID, work.Revision)
@@ -108,15 +108,15 @@ func TestPendingWorkRestartCommitsRowAndMovesItem(t *testing.T) {
 
 			counters, err := e.Ledger().Counters(t.Context())
 			require.NoError(t, err)
-			require.EqualValues(t, 1, counters.Counters[c1zstore.LedgerActionInvalidations])
+			require.EqualValues(t, 1, counters.Counters[c1zstore.LedgerActionRestarts])
 
 			// The restarted chain's first page lands at the restart token
 			// and revision r+1; the second restart appends to the list.
 			require.NoError(t, pendingTestCommit(t, e, items[0], "T2"))
 			moved := pendingItems(t, e)[0]
-			require.Equal(t, []uint64{work.Revision}, moved.Invalidations, "a continuation keeps the list")
+			require.Equal(t, []uint64{work.Revision}, moved.Restarts, "a continuation keeps the list")
 			require.NoError(t, restartTestCommit(t, e, moved, "", restartTestCaps, "run", 0, 1, nil))
-			require.Equal(t, []uint64{work.Revision, moved.Revision}, pendingItems(t, e)[0].Invalidations)
+			require.Equal(t, []uint64{work.Revision, moved.Revision}, pendingItems(t, e)[0].Restarts)
 		})
 	}
 }
@@ -180,7 +180,7 @@ func TestPendingWorkRestartRefusesPayload(t *testing.T) {
 		defer writer.Discard()
 		require.NoError(t, writer.SetPendingWork(work, "resource:child"))
 		require.NoError(t, writer.SetRestart(restartTestCaps))
-		require.NoError(t, writer.SetCounterBucket("run", 0, c1zstore.LedgerCounters{Counters: map[string]uint64{c1zstore.LedgerActionInvalidations: 1}}))
+		require.NoError(t, writer.SetCounterBucket("run", 0, c1zstore.LedgerCounters{Counters: map[string]uint64{c1zstore.LedgerActionRestarts: 1}}))
 		child := c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-grants", ResourceTypeID: "group", ResourceID: "child"}}
 		err := writer.Commit(t.Context(), work.Action.Identity, &c1zstore.LedgerRow{Restarted: true, Children: []c1zstore.LedgerChild{child}})
 		require.ErrorIs(t, err, ErrPageUnitRestart)
@@ -192,7 +192,7 @@ func TestPendingWorkRestartRefusesPayload(t *testing.T) {
 		defer writer.Discard()
 		require.NoError(t, writer.SetPendingWork(work))
 		require.NoError(t, writer.SetRestart(restartTestCaps))
-		require.NoError(t, writer.SetCounterBucket("run", 0, c1zstore.LedgerCounters{Counters: map[string]uint64{c1zstore.LedgerActionInvalidations: 1}}))
+		require.NoError(t, writer.SetCounterBucket("run", 0, c1zstore.LedgerCounters{Counters: map[string]uint64{c1zstore.LedgerActionRestarts: 1}}))
 		require.NoError(t, writer.SetTerminal())
 		err := writer.Commit(t.Context(), work.Action.Identity, &c1zstore.LedgerRow{Restarted: true})
 		require.ErrorIs(t, err, ErrPageUnitRestart)
@@ -216,8 +216,8 @@ func TestPendingWorkRestartRefusesPayload(t *testing.T) {
 	t.Run("zero-caps", func(t *testing.T) {
 		writer := e.Ledger().BeginPage()
 		defer writer.Discard()
-		require.ErrorIs(t, writer.SetRestart(c1zstore.RestartCaps{PerItem: 1}), ErrPageUnitRestart)
-		require.ErrorIs(t, writer.SetRestart(c1zstore.RestartCaps{PerSync: 1}), ErrPageUnitRestart)
+		require.ErrorIs(t, writer.SetRestart(c1zstore.RestartLimits{PerAction: 1}), ErrPageUnitRestart)
+		require.ErrorIs(t, writer.SetRestart(c1zstore.RestartLimits{PerSync: 1}), ErrPageUnitRestart)
 	})
 	t.Run("bucket-not-incremented", func(t *testing.T) {
 		writer := e.Ledger().BeginPage()
@@ -244,28 +244,28 @@ func TestPendingWorkRestartRefusesPayload(t *testing.T) {
 func TestPendingWorkRestartPerItemCap(t *testing.T) {
 	e, _ := newTestEngine(t)
 	_ = pendingTestSeed(t, e)
-	caps := c1zstore.RestartCaps{PerItem: 2, PerSync: 100}
-	for i := uint64(0); i < caps.PerItem; i++ {
+	caps := c1zstore.RestartLimits{PerAction: 2, PerSync: 100}
+	for i := uint64(0); i < caps.PerAction; i++ {
 		item := pendingItems(t, e)[0]
 		require.NoError(t, restartTestCommit(t, e, item, "", caps, "run", 0, i, nil))
 	}
 	item := pendingItems(t, e)[0]
-	require.Equal(t, []uint64{0, 1}, item.Invalidations)
-	err := restartTestCommit(t, e, item, "", caps, "run", 0, caps.PerItem, nil)
-	var capErr *c1zstore.InvalidationCapError
+	require.Equal(t, []uint64{0, 1}, item.Restarts)
+	err := restartTestCommit(t, e, item, "", caps, "run", 0, caps.PerAction, nil)
+	var capErr *c1zstore.RestartLimitError
 	require.ErrorAs(t, err, &capErr)
-	require.ErrorIs(t, err, c1zstore.ErrInvalidationCapExceeded)
-	require.True(t, capErr.PerItem)
-	require.EqualValues(t, 2, capErr.Cap)
-	require.EqualValues(t, 2, capErr.Observed)
+	require.ErrorIs(t, err, c1zstore.ErrRestartLimitExceeded)
+	require.Equal(t, c1zstore.RestartScopeAction, capErr.Scope)
+	require.EqualValues(t, 2, capErr.Limit)
+	require.EqualValues(t, 2, capErr.Count)
 	require.Equal(t, item.ID, capErr.WorkID)
-	require.Equal(t, []uint64{0, 1}, capErr.Invalidations)
+	require.Equal(t, []uint64{0, 1}, capErr.Restarts)
 	require.Equal(t, []c1zstore.LedgerWork{item}, pendingItems(t, e), "the refused page leaves the item at the expired token")
 	_, found := readHistoryRow(t, e, item.Action.Identity, item.ID, item.Revision)
 	require.False(t, found)
 	counters, err := e.Ledger().Counters(t.Context())
 	require.NoError(t, err)
-	require.EqualValues(t, caps.PerItem, counters.Counters[c1zstore.LedgerActionInvalidations], "the refused page's bucket did not land")
+	require.EqualValues(t, caps.PerAction, counters.Counters[c1zstore.LedgerActionRestarts], "the refused page's bucket did not land")
 }
 
 // S6 per sync: the budget is the fold across buckets of every attempt and
@@ -280,7 +280,7 @@ func TestPendingWorkRestartPerSyncBudgetFoldsBuckets(t *testing.T) {
 		{Action: c1zstore.LedgerChild{Identity: c1zstore.LedgerActionIdentity{Op: "list-grants", ResourceTypeID: "group", ResourceID: "b", PageToken: "B"}}},
 	}
 	require.NoError(t, e.Ledger().BeginCollecting(t.Context(), seeds, nil))
-	caps := c1zstore.RestartCaps{PerItem: 100, PerSync: 3}
+	caps := c1zstore.RestartLimits{PerAction: 100, PerSync: 3}
 	byID := func() map[uint64]c1zstore.LedgerWork {
 		out := map[uint64]c1zstore.LedgerWork{}
 		for _, item := range pendingItems(t, e) {
@@ -294,15 +294,15 @@ func TestPendingWorkRestartPerSyncBudgetFoldsBuckets(t *testing.T) {
 	// Attempt two, worker 3: one restart of item 2 reaches the budget.
 	require.NoError(t, restartTestCommit(t, e, byID()[2], "", caps, "run-2", 3, 0, nil))
 	err = restartTestCommit(t, e, byID()[1], "", caps, "run-2", 3, 1, nil)
-	var capErr *c1zstore.InvalidationCapError
+	var capErr *c1zstore.RestartLimitError
 	require.ErrorAs(t, err, &capErr)
-	require.False(t, capErr.PerItem)
-	require.EqualValues(t, 3, capErr.Cap)
-	require.EqualValues(t, 3, capErr.Observed, "committed restarts, not the refused one")
-	require.Equal(t, []uint64{0, 1}, capErr.Invalidations)
+	require.Equal(t, c1zstore.RestartScopeSync, capErr.Scope)
+	require.EqualValues(t, 3, capErr.Limit)
+	require.EqualValues(t, 3, capErr.Count, "committed restarts, not the refused one")
+	require.Equal(t, []uint64{0, 1}, capErr.Restarts)
 	counters, err := e.Ledger().Counters(t.Context())
 	require.NoError(t, err)
-	require.EqualValues(t, 3, counters.Counters[c1zstore.LedgerActionInvalidations])
+	require.EqualValues(t, 3, counters.Counters[c1zstore.LedgerActionRestarts])
 }
 
 // Eight writers restart the same item at the same revision at once: exactly
@@ -311,14 +311,14 @@ func TestPendingWorkRestartPerSyncBudgetFoldsBuckets(t *testing.T) {
 func TestPendingWorkRestartRaceOnOneItem(t *testing.T) {
 	e, _ := newTestEngine(t)
 	work := pendingTestSeed(t, e)
-	caps := c1zstore.RestartCaps{PerItem: 100, PerSync: 100}
+	caps := c1zstore.RestartLimits{PerAction: 100, PerSync: 100}
 	const racers = 8
 	writers := make([]c1zstore.PageWriter, racers)
 	for i := range writers {
 		writers[i] = e.Ledger().BeginPage()
 		require.NoError(t, writers[i].SetPendingWork(work))
 		require.NoError(t, writers[i].SetRestart(caps))
-		bucket := c1zstore.LedgerCounters{Counters: map[string]uint64{c1zstore.LedgerActionInvalidations: 1}}
+		bucket := c1zstore.LedgerCounters{Counters: map[string]uint64{c1zstore.LedgerActionRestarts: 1}}
 		require.NoError(t, writers[i].SetCounterBucket("run", uint32(i), bucket))
 	}
 	var wg sync.WaitGroup
@@ -348,10 +348,10 @@ func TestPendingWorkRestartRaceOnOneItem(t *testing.T) {
 	require.Len(t, items, 1)
 	require.Equal(t, work.Revision+1, items[0].Revision)
 	require.Equal(t, "R", items[0].Action.Identity.PageToken)
-	require.Equal(t, []uint64{work.Revision}, items[0].Invalidations)
+	require.Equal(t, []uint64{work.Revision}, items[0].Restarts)
 	counters, err := e.Ledger().Counters(t.Context())
 	require.NoError(t, err)
-	require.EqualValues(t, 1, counters.Counters[c1zstore.LedgerActionInvalidations])
+	require.EqualValues(t, 1, counters.Counters[c1zstore.LedgerActionRestarts])
 }
 
 // D10 concurrent cell: workers restarting at once under the budget; exactly
@@ -366,7 +366,7 @@ func TestPendingWorkRestartBudgetUnderConcurrentWorkers(t *testing.T) {
 		seeds[i].Action.Identity = c1zstore.LedgerActionIdentity{Op: "list-grants", ResourceTypeID: "group", ResourceID: fmt.Sprint(i), PageToken: "A"}
 	}
 	require.NoError(t, e.Ledger().BeginCollecting(t.Context(), seeds, nil))
-	caps := c1zstore.RestartCaps{PerItem: 100, PerSync: 6}
+	caps := c1zstore.RestartLimits{PerAction: 100, PerSync: 6}
 	items := pendingItems(t, e)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -386,7 +386,7 @@ func TestPendingWorkRestartBudgetUnderConcurrentWorkers(t *testing.T) {
 					t.Error(err)
 					return
 				}
-				bucket := c1zstore.LedgerCounters{Counters: map[string]uint64{c1zstore.LedgerActionInvalidations: i + 1}}
+				bucket := c1zstore.LedgerCounters{Counters: map[string]uint64{c1zstore.LedgerActionRestarts: i + 1}}
 				if err := writer.SetCounterBucket("run", uint32(w), bucket); err != nil { //nolint:gosec // small loop index
 					t.Error(err)
 					return
@@ -397,7 +397,7 @@ func TestPendingWorkRestartBudgetUnderConcurrentWorkers(t *testing.T) {
 				switch {
 				case err == nil:
 					committed++
-				case errors.Is(err, c1zstore.ErrInvalidationCapExceeded):
+				case errors.Is(err, c1zstore.ErrRestartLimitExceeded):
 					refused++
 				default:
 					t.Error(err)
@@ -408,7 +408,7 @@ func TestPendingWorkRestartBudgetUnderConcurrentWorkers(t *testing.T) {
 				}
 				item.Revision++
 				item.Action.Identity.PageToken = ""
-				item.Invalidations = append(item.Invalidations, item.Revision-1)
+				item.Restarts = append(item.Restarts, item.Revision-1)
 			}
 		}()
 	}
@@ -417,7 +417,7 @@ func TestPendingWorkRestartBudgetUnderConcurrentWorkers(t *testing.T) {
 	require.Positive(t, refused)
 	counters, err := e.Ledger().Counters(t.Context())
 	require.NoError(t, err)
-	require.EqualValues(t, caps.PerSync, counters.Counters[c1zstore.LedgerActionInvalidations])
+	require.EqualValues(t, caps.PerSync, counters.Counters[c1zstore.LedgerActionRestarts])
 }
 
 // D7 stale side: after a restart to "", the item's identity equals a
@@ -512,12 +512,12 @@ func TestPendingWorkRestartCrashDichotomy(t *testing.T) {
 					require.True(t, rowFound)
 					require.True(t, row.GetRestarted())
 					require.Equal(t, restartToken, items[0].Action.Identity.PageToken)
-					require.Equal(t, []uint64{work.Revision}, items[0].Invalidations)
-					require.EqualValues(t, 1, counters.Counters[c1zstore.LedgerActionInvalidations])
+					require.Equal(t, []uint64{work.Revision}, items[0].Restarts)
+					require.EqualValues(t, 1, counters.Counters[c1zstore.LedgerActionRestarts])
 				} else {
 					require.False(t, rowFound)
 					require.Equal(t, work, items[0])
-					require.Zero(t, counters.Counters[c1zstore.LedgerActionInvalidations])
+					require.Zero(t, counters.Counters[c1zstore.LedgerActionRestarts])
 				}
 				require.Zero(t, countRecordKeys(t, recovered))
 			})

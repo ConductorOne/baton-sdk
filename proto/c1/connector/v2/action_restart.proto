@@ -4,18 +4,18 @@ package c1.connector.v2;
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
-// InvalidateAction is a gRPC status detail a connector attaches to a
+// RestartAction is a gRPC status detail a connector attaches to a
 // FailedPrecondition or Aborted error from a paginated list call when the
 // request's page token can no longer be used (the provider expired it). The
 // syncer commits the action's pending work back to restart_page_token at
 // the next revision and calls the connector again with that token; nothing
 // from the failed page lands. Honored only from the action's own list call
 // under those two codes; from any other call, or under another code, the
-// sync fails as a classification error. A connector builds the error with
-// pagination.NewErrInvalidateAction rather than constructing this directly,
+// sync fails with the request rejected. A connector builds the error with
+// pagination.NewRestartActionError rather than constructing this directly,
 // returns it bare or wrapped with %w, and never behind another status error
 // (gRPC serializes the first status in the chain).
-message InvalidateAction {
+message RestartAction {
   // The token the action's next call carries. Empty restarts the action
   // from its first page.
   string restart_page_token = 1;

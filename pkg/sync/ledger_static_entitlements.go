@@ -66,9 +66,9 @@ func (s *syncer) collectLedgerStaticEntitlements(ctx context.Context, action *Ac
 	recordLedgerConnectorError(invocation, err)
 	s.recordLedgerSessionUsage(invocation, resp.GetAnnotations())
 	if err != nil {
-		_, invalidates := pagination.InvalidateActionFromError(err)
+		_, restarts := pagination.RestartActionFromError(err)
 		const prefixError = `unable to resolve \"type.googleapis.com/c1.connector.v2.EntitlementsServiceListStaticEntitlementsRequest\": \"not found\"","errorType":"prefixError"`
-		if !invalidates && strings.Contains(err.Error(), prefixError) {
+		if !restarts && strings.Contains(err.Error(), prefixError) {
 			l := ctxzap.Extract(ctx)
 			l.Info("ignoring prefixError when calling ListStaticEntitlements", zap.Error(err))
 			return s.nextPageOrFinishAction(ctx, action, "")

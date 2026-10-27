@@ -34,7 +34,7 @@ type ledgerInvocation struct {
 	afterCommit           []func()
 	connectorObservations c1zstore.LedgerCounters
 	// Set when the page is a connector-signaled restart (stageActionRestart).
-	invalidation *actionInvalidation
+	restart *restartRequest
 }
 
 type ledgerTransitionCommit struct {
@@ -130,7 +130,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		}
 		invocation.connectorObservations = attempts.addObservations(invocation.connectorObservations)
 		if err != nil {
-			detail, present, classErr := classifyActionInvalidation(action, err)
+			detail, present, classErr := classifyRestartRequest(action, err)
 			switch {
 			case classErr != nil:
 				handlerFailure = classErr
@@ -139,7 +139,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 				if err := s.stageActionRestart(invocation, page, action, detail, err); err != nil {
 					return err
 				}
-				ctxzap.Extract(pageCtx).Info("connector invalidated the action's page token; restarting the action", actionInvalidationLogFields(action, detail)...)
+				ctxzap.Extract(pageCtx).Info("connector invalidated the action's page token; restarting the action", restartLogFields(action, detail)...)
 			case !allowWarning || !isWarning(pageCtx, err):
 				handlerFailure = err
 				return err
@@ -197,7 +197,7 @@ func (s *syncer) invokeActionPage(ctx context.Context, action *Action, handler f
 		if handlerFailure == nil && isWarning(ctx, err) {
 			return ledgerPageWriteError{cause: err}
 		}
-		return wrapInvalidationCommitError(action, invocation.invalidation, err)
+		return wrapRestartCommitError(action, invocation.restart, err)
 	}
 	s.publishLedgerConnectorObservations(invocation.connectorObservations)
 	for _, publish := range invocation.afterCommit {

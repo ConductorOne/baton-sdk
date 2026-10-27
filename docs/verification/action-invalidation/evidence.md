@@ -5,6 +5,9 @@ amended by CO-001 through CO-006.
 Commit under verification: the uncommitted stage 1 implementation on top of
 `76264ae5`. Revision ids below will be filled in at commit time.
 
+
+Identifiers cited below are the names at the time each row was written; CO-018 in the plan maps them to the current names.
+
 ## Status of this file
 
 Stage 1 is implemented. The instruments that exist are I1 (classification

@@ -164,7 +164,7 @@ type ActionCount struct {
 	// Restart pages committed for this op after the connector invalidated
 	// a page token. Not completions. Not on the token: restored from the
 	// ledger's counters on resume, and always zero on the legacy path.
-	InvalidationCount uint64 `json:"-"`
+	RestartCount uint64 `json:"-"`
 }
 
 func makeActionID(id uint64) string {
@@ -552,26 +552,26 @@ func (r *runState) getActionCount(op ActionOp) ActionCount {
 	return r.actionCounts[op.String()]
 }
 
-func (r *runState) recordActionInvalidation(op ActionOp) {
+func (r *runState) recordRestart(op ActionOp) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	count := r.actionCounts[op.String()]
-	count.InvalidationCount++
+	count.RestartCount++
 	r.actionCounts[op.String()] = count
 }
 
-// actionInvalidationCounts returns the per-op restart tally and its total.
-func (r *runState) actionInvalidationCounts() (map[string]uint64, uint64) {
+// restartCounts returns the per-op restart tally and its total.
+func (r *runState) restartCounts() (map[string]uint64, uint64) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	var total uint64
 	byOp := make(map[string]uint64)
 	for op, count := range r.actionCounts {
-		if count.InvalidationCount == 0 {
+		if count.RestartCount == 0 {
 			continue
 		}
-		byOp[op] = count.InvalidationCount
-		total += count.InvalidationCount
+		byOp[op] = count.RestartCount
+		total += count.RestartCount
 	}
 	return byOp, total
 }

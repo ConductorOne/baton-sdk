@@ -483,7 +483,7 @@ message LedgerRow {
   LedgerCollectionStats collection = 23;
   uint64 work_id = 24;
   uint64 work_revision = 25;
-  // The connector invalidated this page's token (InvalidateAction). The
+  // The connector invalidated this page's token (RestartAction). The
   // page wrote no records or children; the work item continues at
   // next_page_token with revision + 1, not finished.
   bool restarted = 26;

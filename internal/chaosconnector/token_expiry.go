@@ -21,7 +21,7 @@ const GraphExpiredTokenMessage = "Request failed with status 400: The specified 
 // Lifetime after it was issued, measured on Now. Untranslated, the
 // rejection is the provider error as a connector without the translation
 // would surface it: InvalidArgument with GraphExpiredTokenMessage.
-// Translated, it is pagination.NewErrInvalidateAction("", message). Tokens
+// Translated, it is pagination.NewRestartActionError("", message). Tokens
 // the run never saw issued (the root "" and anything unknown) never expire.
 type TokenExpiry struct {
 	Lifetime  time.Duration
@@ -70,7 +70,7 @@ func (s *tokenExpiryState) check(op Operation) error {
 	}
 	s.rejected[op.PageToken]++
 	if s.Translate {
-		return pagination.NewErrInvalidateAction("", GraphExpiredTokenMessage)
+		return pagination.NewRestartActionError("", GraphExpiredTokenMessage)
 	}
 	return status.Error(codes.InvalidArgument, GraphExpiredTokenMessage)
 }
@@ -111,13 +111,13 @@ func (r *Run) expiry() *tokenExpiryState {
 	return r.tokenExpiry
 }
 
-func invalidateActionError(effect Effect) error {
-	err := pagination.NewErrInvalidateAction(effect.RestartToken, effect.Message)
+func restartActionError(effect Effect) error {
+	err := pagination.NewRestartActionError(effect.RestartToken, effect.Message)
 	if effect.Code == codes.OK || effect.Code == codes.FailedPrecondition {
 		return err
 	}
 	st := status.New(effect.Code, err.Error())
-	withDetails, detailErr := st.WithDetails(v2.InvalidateAction_builder{RestartPageToken: effect.RestartToken, Reason: effect.Message}.Build())
+	withDetails, detailErr := st.WithDetails(v2.RestartAction_builder{RestartPageToken: effect.RestartToken, Reason: effect.Message}.Build())
 	if detailErr != nil {
 		return st.Err()
 	}

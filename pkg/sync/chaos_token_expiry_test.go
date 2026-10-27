@@ -66,7 +66,7 @@ func newChaosPagedResourcesScenario(t *testing.T) *chaosconnector.Scenario {
 
 // C32, the reference case: a provider in Graph mode expires one page token
 // mid-pagination. A connector that translates the rejection into
-// InvalidateAction finishes the sync with the manifest's records and one
+// RestartAction finishes the sync with the manifest's records and one
 // restart page per rejection, on every transport, including the one where
 // the error crosses a real gRPC boundary. The same provider behind a
 // connector that does not translate fails the sync with the provider's
@@ -112,7 +112,7 @@ func TestChaosGraphTokenExpiry(t *testing.T) {
 			require.Error(t, err)
 			require.Equal(t, codes.InvalidArgument, status.Code(err))
 			require.Contains(t, err.Error(), chaosconnector.GraphExpiredTokenMessage)
-			require.NotErrorIs(t, err, ErrActionInvalidationMisclassified)
+			require.NotErrorIs(t, err, ErrRestartRejected)
 			require.NoError(t, harness.Close(ctx))
 			require.Len(t, run.TokenRejections(), 1)
 			require.Zero(t, chaosRestartPages(t, c1zPath, tmpDir))
@@ -133,7 +133,7 @@ func chaosRestartPages(t *testing.T, c1zPath, tmpDir string) uint64 {
 	if len(report) == 0 {
 		counters, err := raw.Ledger().Counters(ctx)
 		require.NoError(t, err)
-		return counters.Counters[c1zstore.LedgerActionInvalidations]
+		return counters.Counters[c1zstore.LedgerActionRestarts]
 	}
 	var decoded struct {
 		Latest struct {

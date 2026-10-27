@@ -89,16 +89,16 @@ type ResourceTargetedSyncerLimited interface {
 	Get(ctx context.Context, resourceId *v2.ResourceId, parentResourceId *v2.ResourceId) (*v2.Resource, annotations.Annotations, error)
 }
 
-// The syncer answers an InvalidateAction by calling the restart page, and a
+// The syncer answers an RestartAction by calling the restart page, and a
 // cached 200 for that page would replay the chain that led to the expired
 // token (uhttp caches every 200 GET for an hour by default). The caches live
 // in the connector process, so they are cleared here, not in the syncer.
-func clearHTTPCachesOnInvalidation(ctx context.Context, err error) {
-	if _, invalidates := pagination.InvalidateActionFromError(err); !invalidates {
+func clearHTTPCachesOnRestart(ctx context.Context, err error) {
+	if _, restarts := pagination.RestartActionFromError(err); !restarts {
 		return
 	}
 	if clearErr := uhttp.ClearCaches(ctx); clearErr != nil {
-		ctxzap.Extract(ctx).Warn("error clearing http caches after page token invalidation", zap.Error(clearErr))
+		ctxzap.Extract(ctx).Warn("error clearing http caches after a restart request", zap.Error(clearErr))
 	}
 }
 
@@ -168,7 +168,7 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 	}.Build()
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		clearHTTPCachesOnInvalidation(ctx, err)
+		clearHTTPCachesOnRestart(ctx, err)
 		return resp, fmt.Errorf("error: listing resources failed: %w", err)
 	}
 	if request.GetPageToken() != "" && request.GetPageToken() == retOptions.NextPageToken {
@@ -258,7 +258,7 @@ func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.Entitl
 	}.Build()
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		clearHTTPCachesOnInvalidation(ctx, err)
+		clearHTTPCachesOnRestart(ctx, err)
 		return nil, fmt.Errorf("error: listing static entitlements failed: %w", err)
 	}
 	if request.GetPageToken() != "" && request.GetPageToken() == retOptions.NextPageToken {
@@ -328,7 +328,7 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 	}.Build()
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		clearHTTPCachesOnInvalidation(ctx, err)
+		clearHTTPCachesOnRestart(ctx, err)
 		return resp, fmt.Errorf("error: listing entitlements failed: %w", err)
 	}
 	if request.GetPageToken() != "" && request.GetPageToken() == retOptions.NextPageToken {
@@ -402,7 +402,7 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		clearHTTPCachesOnInvalidation(ctx, err)
+		clearHTTPCachesOnRestart(ctx, err)
 		return resp, fmt.Errorf("error: listing grants for resource %s/%s failed: %w", rid.GetResourceType(), rid.GetResource(), err)
 	}
 	if request.GetPageToken() != "" && request.GetPageToken() == retOptions.NextPageToken {

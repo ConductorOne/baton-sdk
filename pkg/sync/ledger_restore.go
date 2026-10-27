@@ -69,9 +69,9 @@ func (s *syncer) restoreLedgerStateWithFacts(ctx context.Context, store c1zstore
 			count.WarningCount = value
 			run.actionCounts[op] = count
 		}
-		if op, ok := strings.CutPrefix(key, ledgerInvalidationsPrefix); ok {
+		if op, ok := strings.CutPrefix(key, ledgerRestartsPrefix); ok {
 			count := run.actionCounts[op]
-			count.InvalidationCount = value
+			count.RestartCount = value
 			run.actionCounts[op] = count
 		}
 	}

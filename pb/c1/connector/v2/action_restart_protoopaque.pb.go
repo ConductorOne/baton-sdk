@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.10
 // 	protoc        (unknown)
-// source: c1/connector/v2/action_invalidation.proto
+// source: c1/connector/v2/action_restart.proto
 
 //go:build protoopaque
 
@@ -22,18 +22,18 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// InvalidateAction is a gRPC status detail a connector attaches to a
+// RestartAction is a gRPC status detail a connector attaches to a
 // FailedPrecondition or Aborted error from a paginated list call when the
 // request's page token can no longer be used (the provider expired it). The
 // syncer commits the action's pending work back to restart_page_token at
 // the next revision and calls the connector again with that token; nothing
 // from the failed page lands. Honored only from the action's own list call
 // under those two codes; from any other call, or under another code, the
-// sync fails as a classification error. A connector builds the error with
-// pagination.NewErrInvalidateAction rather than constructing this directly,
+// sync fails with the request rejected. A connector builds the error with
+// pagination.NewRestartActionError rather than constructing this directly,
 // returns it bare or wrapped with %w, and never behind another status error
 // (gRPC serializes the first status in the chain).
-type InvalidateAction struct {
+type RestartAction struct {
 	state                       protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_RestartPageToken string                 `protobuf:"bytes,1,opt,name=restart_page_token,json=restartPageToken,proto3"`
 	xxx_hidden_Reason           string                 `protobuf:"bytes,2,opt,name=reason,proto3"`
@@ -41,21 +41,21 @@ type InvalidateAction struct {
 	sizeCache                   protoimpl.SizeCache
 }
 
-func (x *InvalidateAction) Reset() {
-	*x = InvalidateAction{}
-	mi := &file_c1_connector_v2_action_invalidation_proto_msgTypes[0]
+func (x *RestartAction) Reset() {
+	*x = RestartAction{}
+	mi := &file_c1_connector_v2_action_restart_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *InvalidateAction) String() string {
+func (x *RestartAction) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*InvalidateAction) ProtoMessage() {}
+func (*RestartAction) ProtoMessage() {}
 
-func (x *InvalidateAction) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_action_invalidation_proto_msgTypes[0]
+func (x *RestartAction) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_action_restart_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -66,29 +66,29 @@ func (x *InvalidateAction) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *InvalidateAction) GetRestartPageToken() string {
+func (x *RestartAction) GetRestartPageToken() string {
 	if x != nil {
 		return x.xxx_hidden_RestartPageToken
 	}
 	return ""
 }
 
-func (x *InvalidateAction) GetReason() string {
+func (x *RestartAction) GetReason() string {
 	if x != nil {
 		return x.xxx_hidden_Reason
 	}
 	return ""
 }
 
-func (x *InvalidateAction) SetRestartPageToken(v string) {
+func (x *RestartAction) SetRestartPageToken(v string) {
 	x.xxx_hidden_RestartPageToken = v
 }
 
-func (x *InvalidateAction) SetReason(v string) {
+func (x *RestartAction) SetReason(v string) {
 	x.xxx_hidden_Reason = v
 }
 
-type InvalidateAction_builder struct {
+type RestartAction_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	// The token the action's next call carries. Empty restarts the action
@@ -98,8 +98,8 @@ type InvalidateAction_builder struct {
 	Reason string
 }
 
-func (b0 InvalidateAction_builder) Build() *InvalidateAction {
-	m0 := &InvalidateAction{}
+func (b0 RestartAction_builder) Build() *RestartAction {
+	m0 := &RestartAction{}
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_RestartPageToken = b.RestartPageToken
@@ -107,20 +107,20 @@ func (b0 InvalidateAction_builder) Build() *InvalidateAction {
 	return m0
 }
 
-var File_c1_connector_v2_action_invalidation_proto protoreflect.FileDescriptor
+var File_c1_connector_v2_action_restart_proto protoreflect.FileDescriptor
 
-const file_c1_connector_v2_action_invalidation_proto_rawDesc = "" +
+const file_c1_connector_v2_action_restart_proto_rawDesc = "" +
 	"\n" +
-	")c1/connector/v2/action_invalidation.proto\x12\x0fc1.connector.v2\"X\n" +
-	"\x10InvalidateAction\x12,\n" +
+	"$c1/connector/v2/action_restart.proto\x12\x0fc1.connector.v2\"U\n" +
+	"\rRestartAction\x12,\n" +
 	"\x12restart_page_token\x18\x01 \x01(\tR\x10restartPageToken\x12\x16\n" +
 	"\x06reason\x18\x02 \x01(\tR\x06reasonB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
-var file_c1_connector_v2_action_invalidation_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
-var file_c1_connector_v2_action_invalidation_proto_goTypes = []any{
-	(*InvalidateAction)(nil), // 0: c1.connector.v2.InvalidateAction
+var file_c1_connector_v2_action_restart_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_c1_connector_v2_action_restart_proto_goTypes = []any{
+	(*RestartAction)(nil), // 0: c1.connector.v2.RestartAction
 }
-var file_c1_connector_v2_action_invalidation_proto_depIdxs = []int32{
+var file_c1_connector_v2_action_restart_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
 	0, // [0:0] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -128,26 +128,26 @@ var file_c1_connector_v2_action_invalidation_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_c1_connector_v2_action_invalidation_proto_init() }
-func file_c1_connector_v2_action_invalidation_proto_init() {
-	if File_c1_connector_v2_action_invalidation_proto != nil {
+func init() { file_c1_connector_v2_action_restart_proto_init() }
+func file_c1_connector_v2_action_restart_proto_init() {
+	if File_c1_connector_v2_action_restart_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_action_invalidation_proto_rawDesc), len(file_c1_connector_v2_action_invalidation_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_action_restart_proto_rawDesc), len(file_c1_connector_v2_action_restart_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_c1_connector_v2_action_invalidation_proto_goTypes,
-		DependencyIndexes: file_c1_connector_v2_action_invalidation_proto_depIdxs,
-		MessageInfos:      file_c1_connector_v2_action_invalidation_proto_msgTypes,
+		GoTypes:           file_c1_connector_v2_action_restart_proto_goTypes,
+		DependencyIndexes: file_c1_connector_v2_action_restart_proto_depIdxs,
+		MessageInfos:      file_c1_connector_v2_action_restart_proto_msgTypes,
 	}.Build()
-	File_c1_connector_v2_action_invalidation_proto = out.File
-	file_c1_connector_v2_action_invalidation_proto_goTypes = nil
-	file_c1_connector_v2_action_invalidation_proto_depIdxs = nil
+	File_c1_connector_v2_action_restart_proto = out.File
+	file_c1_connector_v2_action_restart_proto_goTypes = nil
+	file_c1_connector_v2_action_restart_proto_depIdxs = nil
 }

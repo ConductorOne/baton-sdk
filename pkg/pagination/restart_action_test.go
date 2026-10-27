@@ -18,15 +18,15 @@ import (
 // detail, including FailedPrecondition statuses, are not detected.
 func TestInvalidateActionFromError(t *testing.T) {
 	t.Run("typed nil is absent", func(t *testing.T) {
-		var nilTyped *ErrInvalidateAction
-		detail, present := InvalidateActionFromError(nilTyped)
+		var nilTyped *RestartActionError
+		detail, present := RestartActionFromError(nilTyped)
 		require.False(t, present)
 		require.Nil(t, detail)
-		detail, present = InvalidateActionFromError(fmt.Errorf("wrapped: %w", nilTyped))
+		detail, present = RestartActionFromError(fmt.Errorf("wrapped: %w", nilTyped))
 		require.False(t, present)
 		require.Nil(t, detail)
 	})
-	typed := NewErrInvalidateAction("R", "expired")
+	typed := NewRestartActionError("R", "expired")
 	flattened := status.Convert(typed).Err()
 	require.Equal(t, codes.FailedPrecondition, status.Code(typed))
 	require.Equal(t, codes.FailedPrecondition, status.Code(flattened))
@@ -41,17 +41,17 @@ func TestInvalidateActionFromError(t *testing.T) {
 		"detail on another code": mustDetail(t, codes.Aborted, "R", "expired"),
 	} {
 		t.Run(name, func(t *testing.T) {
-			detail, present := InvalidateActionFromError(err)
+			detail, present := RestartActionFromError(err)
 			require.True(t, present)
 			require.Equal(t, "R", detail.GetRestartPageToken())
 			require.Equal(t, "expired", detail.GetReason())
 		})
 	}
 	t.Run("empty restart token is the first-page restart, not absence", func(t *testing.T) {
-		detail, present := InvalidateActionFromError(NewErrInvalidateAction("", ""))
+		detail, present := RestartActionFromError(NewRestartActionError("", ""))
 		require.True(t, present)
 		require.Empty(t, detail.GetRestartPageToken())
-		require.Equal(t, "page token invalidated", NewErrInvalidateAction("", "").Error())
+		require.Equal(t, "page token invalidated", NewRestartActionError("", "").Error())
 	})
 	for name, err := range map[string]error{
 		"nil":                   nil,
@@ -61,7 +61,7 @@ func TestInvalidateActionFromError(t *testing.T) {
 		"behind another status": errors.Join(status.Error(codes.Internal, "http 400"), typed),
 	} {
 		t.Run("absent/"+name, func(t *testing.T) {
-			detail, present := InvalidateActionFromError(err)
+			detail, present := RestartActionFromError(err)
 			require.False(t, present)
 			require.Nil(t, detail)
 		})
@@ -72,7 +72,7 @@ func TestInvalidateActionFromError(t *testing.T) {
 // flattens the same error to its first status: a connector test cannot
 // restart where a deployed connector would not.
 func TestInvalidateActionFromErrorMatchesWire(t *testing.T) {
-	typed := NewErrInvalidateAction("R", "expired")
+	typed := NewRestartActionError("R", "expired")
 	other := status.Error(codes.Internal, "http 400")
 	for name, err := range map[string]error{
 		"typed":                 typed,
@@ -85,20 +85,20 @@ func TestInvalidateActionFromErrorMatchesWire(t *testing.T) {
 		"status without detail": other,
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, inProcess := InvalidateActionFromError(err)
-			_, wire := InvalidateActionFromError(status.Convert(err).Err())
+			_, inProcess := RestartActionFromError(err)
+			_, wire := RestartActionFromError(status.Convert(err).Err())
 			require.Equal(t, wire, inProcess)
 		})
 	}
-	_, present := InvalidateActionFromError(errors.Join(typed, other))
+	_, present := RestartActionFromError(errors.Join(typed, other))
 	require.True(t, present, "the detail's status first")
-	_, present = InvalidateActionFromError(errors.Join(other, typed))
+	_, present = RestartActionFromError(errors.Join(other, typed))
 	require.False(t, present, "another status first")
 }
 
 func mustDetail(t *testing.T, code codes.Code, restart, reason string) error {
 	t.Helper()
-	st, err := status.New(code, reason).WithDetails(v2.InvalidateAction_builder{RestartPageToken: restart, Reason: reason}.Build())
+	st, err := status.New(code, reason).WithDetails(v2.RestartAction_builder{RestartPageToken: restart, Reason: reason}.Build())
 	require.NoError(t, err)
 	return st.Err()
 }

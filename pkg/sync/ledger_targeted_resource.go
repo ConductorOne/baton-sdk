@@ -38,7 +38,7 @@ func (s *syncer) getLedgerResourceFromConnector(ctx context.Context, resourceID 
 		}
 		return resourceResp.GetResource(), nil
 	}
-	if _, present := pagination.InvalidateActionFromError(err); present {
+	if _, present := pagination.RestartActionFromError(err); present {
 		return nil, err
 	}
 	l := ctxzap.Extract(ctx)

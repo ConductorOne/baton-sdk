@@ -275,7 +275,7 @@ func (c *faultConn) applyPhase(
 		switch phase {
 		case PhaseBeforeCall:
 			if err := expiry.check(*op); err != nil {
-				c.run.Trace().Record(TraceEvent{Operation: *op, RuleID: "token-expiry", Effect: EffectInvalidateAction, Outcome: OutcomeInjected, Error: err.Error()})
+				c.run.Trace().Record(TraceEvent{Operation: *op, RuleID: "token-expiry", Effect: EffectRestartAction, Outcome: OutcomeInjected, Error: err.Error()})
 				return err
 			}
 		case PhaseBeforeResponse:
@@ -299,7 +299,7 @@ func (c *faultConn) applyPhase(
 				if err != nil {
 					return err
 				}
-			case EffectError, EffectDelay, EffectBlock, EffectCancel, EffectLoseResponse, EffectCrash, EffectInvalidateAction:
+			case EffectError, EffectDelay, EffectBlock, EffectCancel, EffectLoseResponse, EffectCrash, EffectRestartAction:
 				if err := c.run.Runtime().ApplyControlEffects(ctx, *op, []FiredRule{{
 					ID:      match.ID,
 					Effects: []Effect{effect},

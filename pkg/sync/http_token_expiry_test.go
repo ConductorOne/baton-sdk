@@ -112,7 +112,7 @@ func (s *httpGroupSyncer) List(ctx context.Context, _ *v2.ResourceId, opts resou
 	if resp != nil {
 		defer resp.Body.Close()
 		if resp.StatusCode == http.StatusBadRequest {
-			return nil, nil, pagination.NewErrInvalidateAction("", "provider: token expired")
+			return nil, nil, pagination.NewRestartActionError("", "provider: token expired")
 		}
 	}
 	if err != nil {
@@ -210,6 +210,6 @@ func TestActionInvalidationThroughHTTPCache(t *testing.T) {
 	require.Equal(t, 2, provider.hitsFor(""), "page one fetched again after the restart, not replayed from cache")
 	require.Equal(t, 1, provider.hitsFor("1.g0"), "the dead token was tried once")
 	require.Equal(t, 1, provider.hitsFor("1.g1"))
-	_, total := s.(*syncer).run.actionInvalidationCounts()
+	_, total := s.(*syncer).run.restartCounts()
 	require.EqualValues(t, 1, total)
 }

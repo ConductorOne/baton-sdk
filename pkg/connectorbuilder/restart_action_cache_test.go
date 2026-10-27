@@ -101,11 +101,11 @@ func TestListCallInvalidationClearsHTTPCaches(t *testing.T) {
 				require.Equal(t, before, hits.Load(), "cached")
 			})
 			t.Run("invalidation clears the cache", func(t *testing.T) {
-				syncer := &failingListSyncer{testResourceSyncerV2Simple: testResourceSyncerV2Simple{resourceType: resourceType}, fail: pagination.NewErrInvalidateAction("", "expired")}
+				syncer := &failingListSyncer{testResourceSyncerV2Simple: testResourceSyncerV2Simple{resourceType: resourceType}, fail: pagination.NewRestartActionError("", "expired")}
 				connector, err := NewConnector(ctx, newTestConnectorV2([]ResourceSyncerV2{syncer}))
 				require.NoError(t, err)
 				err = call(ctx, connector)
-				_, invalidates := pagination.InvalidateActionFromError(err)
+				_, invalidates := pagination.RestartActionFromError(err)
 				require.True(t, invalidates, "the detail survives the builder's wrap: %v", err)
 				before := hits.Load()
 				get()

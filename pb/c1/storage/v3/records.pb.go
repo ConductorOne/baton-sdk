@@ -2818,7 +2818,7 @@ type LedgerRow struct {
 	Collection           *LedgerCollectionStats `protobuf:"bytes,23,opt,name=collection,proto3" json:"collection,omitempty"`
 	WorkId               uint64                 `protobuf:"varint,24,opt,name=work_id,json=workId,proto3" json:"work_id,omitempty"`
 	WorkRevision         uint64                 `protobuf:"varint,25,opt,name=work_revision,json=workRevision,proto3" json:"work_revision,omitempty"`
-	// The connector invalidated this page's token (InvalidateAction). The
+	// The connector invalidated this page's token (RestartAction). The
 	// page wrote no records or children; the work item continues at
 	// next_page_token with revision + 1, not finished.
 	Restarted     bool `protobuf:"varint,26,opt,name=restarted,proto3" json:"restarted,omitempty"`
@@ -3220,7 +3220,7 @@ type LedgerRow_builder struct {
 	Collection           *LedgerCollectionStats
 	WorkId               uint64
 	WorkRevision         uint64
-	// The connector invalidated this page's token (InvalidateAction). The
+	// The connector invalidated this page's token (RestartAction). The
 	// page wrote no records or children; the work item continues at
 	// next_page_token with revision + 1, not finished.
 	Restarted bool

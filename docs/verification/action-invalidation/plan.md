@@ -885,3 +885,31 @@ The plan is frozen at `87abf5ed`.
   the chaos connector, which fabricates pages in memory, so no cell had
   `uhttp` between the connector and the provider. Both are axes the
   model lacked, not cells it skipped.
+- **CO-018 (2026-10-27, naming).** The feature spoke three dialects for
+  one concept (invalidate action, restart, invalidation). Everything a
+  connector author or operator sees now uses the engine's word, restart.
+  The plan, evidence, and test function names keep "action invalidation"
+  as the historical name of this obligation set; read the identifiers
+  they cite through this table.
+
+  | Before | After |
+  | --- | --- |
+  | proto `InvalidateAction` (`action_invalidation.proto`) | `RestartAction` (`action_restart.proto`) |
+  | `pagination.ErrInvalidateAction` | `pagination.RestartActionError` |
+  | `pagination.NewErrInvalidateAction` | `pagination.NewRestartActionError` |
+  | `pagination.InvalidateActionFromError` | `pagination.RestartActionFromError` |
+  | `sync.ErrActionInvalidationCapExceeded` | `sync.ErrRestartLimitExceeded` (alias of the c1zstore sentinel) |
+  | `sync.ActionInvalidationCapError{Cap}` | `sync.RestartLimitError{Limit}` |
+  | `sync.ErrActionInvalidationMisclassified` | `sync.ErrRestartRejected` |
+  | `sync.WithActionInvalidationCaps(perItem, perSync)` | `sync.WithRestartLimits(perAction, perSync)` |
+  | `c1zstore.ErrInvalidationCapExceeded` | `c1zstore.ErrRestartLimitExceeded` |
+  | `c1zstore.InvalidationCapError{PerItem bool, Cap, Observed, Invalidations}` | `c1zstore.RestartLimitError{Scope RestartScope, Limit, Count, Restarts}` |
+  | `c1zstore.RestartCaps{PerItem, PerSync}` | `c1zstore.RestartLimits{PerAction, PerSync}` |
+  | `c1zstore.LedgerWork.Invalidations` (json `invalidations`) | `Restarts` (json `restarts`) |
+  | counter `LedgerActionInvalidations` = `ledger.action_invalidations` | `LedgerActionRestarts` = `ledger.action_restarts` |
+  | chaos `EffectInvalidateAction` = `invalidate-action` | `EffectRestartAction` = `restart-action` |
+  | files `pkg/sync/ledger_invalidation*.go`, `pkg/pagination/invalidate_action*.go` | `ledger_restart*.go`, `restart_action*.go` |
+
+  Unchanged: `SetRestart`, `LedgerRow.Restarted`, report `restart_pages`.
+  No behavior changed; the persisted counter key and work-item JSON field
+  are renamed because nothing has shipped with the old names.

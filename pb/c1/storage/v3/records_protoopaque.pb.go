@@ -3094,7 +3094,7 @@ type LedgerRow_builder struct {
 	Collection           *LedgerCollectionStats
 	WorkId               uint64
 	WorkRevision         uint64
-	// The connector invalidated this page's token (InvalidateAction). The
+	// The connector invalidated this page's token (RestartAction). The
 	// page wrote no records or children; the work item continues at
 	// next_page_token with revision + 1, not finished.
 	Restarted bool

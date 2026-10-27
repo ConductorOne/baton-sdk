@@ -47,7 +47,7 @@ const (
 	ingestQualityReasonUnknownPriorCheckpoint
 	// A connector invalidated an action's page token and the action
 	// restarted; rows from its earlier pages may no longer exist upstream.
-	ingestQualityReasonActionInvalidated
+	ingestQualityReasonActionRestarted
 )
 
 func (s *ingestFilterStats) markKnown() {

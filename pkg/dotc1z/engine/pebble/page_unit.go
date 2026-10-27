@@ -45,7 +45,7 @@ type pageUnit struct {
 
 	work          *c1zstore.LedgerWork
 	childWorkKeys []string
-	restart       *c1zstore.RestartCaps
+	restart       *c1zstore.RestartLimits
 	trustedImport bool
 	sealing       bool
 	done          bool
@@ -53,14 +53,14 @@ type pageUnit struct {
 
 var ErrPageUnitRestart = errors.New("pebble page unit: restart page")
 
-func (u *pageUnit) StageRestart(caps c1zstore.RestartCaps) error {
+func (u *pageUnit) StageRestart(limits c1zstore.RestartLimits) error {
 	if u.done {
 		return ErrPageUnitCommitted
 	}
-	if caps.PerItem == 0 || caps.PerSync == 0 {
-		return fmt.Errorf("%w: caps must be positive", ErrPageUnitRestart)
+	if limits.PerAction == 0 || limits.PerSync == 0 {
+		return fmt.Errorf("%w: limits must be positive", ErrPageUnitRestart)
 	}
-	u.restart = &caps
+	u.restart = &limits
 	return nil
 }
 
@@ -553,7 +553,7 @@ func (u *pageUnit) Commit(ctx context.Context, id c1zstore.LedgerActionIdentity,
 		if u.work != nil {
 			var restart *restartTransition
 			if u.restart != nil {
-				restart = &restartTransition{caps: *u.restart, bucketKey: u.bucketKey, bucket: u.bucketValue}
+				restart = &restartTransition{limits: *u.restart, bucketKey: u.bucketKey, bucket: u.bucketValue}
 			}
 			if err := l.stageWorkTransition(ctx, batch, *u.work, id, row, u.childWorkKeys, restart); err != nil {
 				return err
