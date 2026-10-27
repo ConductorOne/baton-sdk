@@ -142,6 +142,34 @@ func TestLedgerReferenceIdentityCheckedOncePerStoredRow(t *testing.T) {
 	require.Zero(t, stats.MissingChildren)
 }
 
+// A restarted row's continuation is the restarted chain's first page at
+// the next revision, also when the restart token is "" and the row would
+// otherwise read as terminal.
+func TestPendingWorkReferencesCheckRestartedRowContinuation(t *testing.T) {
+	for _, restart := range []string{"", "B"} {
+		t.Run(fmt.Sprintf("restart=%q", restart), func(t *testing.T) {
+			e, _ := newTestEngine(t)
+			work := pendingTestSeed(t, e)
+			require.NoError(t, restartTestCommit(t, e, work, restart, restartTestCaps, "run", 0, 0, nil))
+			stats, err := e.validateLedgerReferences(t.Context())
+			require.NoError(t, err)
+			require.EqualValues(t, 1, stats.RowsChecked)
+			require.EqualValues(t, 1, stats.Lookups)
+			require.EqualValues(t, 1, stats.MissingContinuations, "the restarted chain has not run")
+
+			items := pendingItems(t, e)
+			require.Len(t, items, 1)
+			require.NoError(t, pendingTestCommit(t, e, items[0], ""))
+			stats, err = e.validateLedgerReferences(t.Context())
+			require.NoError(t, err)
+			require.EqualValues(t, 2, stats.RowsChecked)
+			require.Zero(t, stats.MissingContinuations)
+			require.Zero(t, stats.IdentityMismatches)
+			require.Zero(t, stats.Uncheckable)
+		})
+	}
+}
+
 func TestPendingWorkReferencesDistinguishRepeatedArguments(t *testing.T) {
 	e, _ := newTestEngine(t)
 	work := pendingTestSeed(t, e)

@@ -74,7 +74,7 @@ func (s *syncer) collectLedgerResourceTypes(ctx context.Context, action *Action)
 	s.recordLedgerConnectorResponse(ctx, invocation, "list-resource-types", elapsed, resp.GetAnnotations())
 	recordLedgerConnectorError(invocation, err)
 	if err != nil {
-		return err
+		return markActionListCall(err)
 	}
 	collection := ledgerCollection(invocation)
 	recordLedgerList(collection, &collection.ResourceTypesReceived, resp.GetList(), resp.GetNextPageToken())

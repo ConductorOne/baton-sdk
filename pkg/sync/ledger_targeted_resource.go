@@ -6,6 +6,7 @@ import (
 	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -36,6 +37,9 @@ func (s *syncer) getLedgerResourceFromConnector(ctx context.Context, resourceID 
 			ledgerCollection(invocation).ResourcesReceived++
 		}
 		return resourceResp.GetResource(), nil
+	}
+	if _, present := pagination.RestartActionFromError(err); present {
+		return nil, err
 	}
 	l := ctxzap.Extract(ctx)
 	if status.Code(err) == codes.NotFound {

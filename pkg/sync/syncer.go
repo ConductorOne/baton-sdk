@@ -619,6 +619,10 @@ func (s *syncer) syncSummaryFields(span trace.Span) []zap.Field {
 	if s.cfg.syncIdentity.CatalogName != "" {
 		fields = append(fields, zap.String("catalog_name", s.cfg.syncIdentity.CatalogName))
 	}
+	if byOp, total := s.run.restartCounts(); total > 0 {
+		span.SetAttributes(attribute.Int64("sync.action_restarts", int64(total))) //nolint:gosec // restart counts fit int64
+		fields = append(fields, zap.Uint64("action_restarts", total), zap.Any("action_restarts_by_op", byOp))
+	}
 	if len(waits) > 0 {
 		fields = append(fields, zap.Any("sync_step_wait_ms", waits))
 	}
@@ -801,7 +805,7 @@ func (s *syncer) transitionActionState(
 			if err := pending.commit(); err != nil {
 				return nil, err
 			}
-			s.publishPendingTransition(ctx, action, nextPageToken, pending.warning)
+			s.publishPendingTransition(ctx, action, nextPageToken, pending.warning, pending.restart)
 			return nil, nil
 		}
 	}
