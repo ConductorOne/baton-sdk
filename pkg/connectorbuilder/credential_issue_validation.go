@@ -189,6 +189,9 @@ func ValidateCredentialIssueRequestSchema(schema *v2.CredentialIssueRequestSchem
 			return fmt.Errorf("request schema field name is required")
 		}
 		name := schemaField.GetName()
+		if schemaField.HasSecretContentType() {
+			return fmt.Errorf("%w: secret content type is output-only", ErrInvalidCredentialIssueRequestSchema)
+		}
 		if schemaField.GetIsSecret() {
 			return fmt.Errorf("request schema field %q must not be secret", name)
 		}

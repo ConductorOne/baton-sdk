@@ -150,6 +150,12 @@ message CredentialIssueOptionDescriptor {
   // credential kind. Hosts may narrow this schema in an offering, but must not
   // add connector-specific fields to their own credential models.
   CredentialIssueRequestSchema request_schema = 11;
+  // Declared payload type; absent means legacy generic.
+  optional string secret_content_type = 12 [(validate.rules).string = {
+    min_len: 1
+    max_len: 128
+    pattern: "^[a-z0-9]+([._-][a-z0-9]+)*$"
+  }];
 }
 
 message CredentialIssueRequestSchema {

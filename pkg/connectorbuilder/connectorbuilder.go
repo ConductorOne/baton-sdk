@@ -619,6 +619,9 @@ func validateCredentialIssuePreference(
 }
 
 func validateCredentialIssueDescriptorShape(descriptor *v2.CredentialIssueOptionDescriptor) error {
+	if descriptor.HasSecretContentType() && !crypto.ValidSecretContentType(descriptor.GetSecretContentType()) {
+		return fmt.Errorf("invalid secret content type")
+	}
 	hasScopes := len(descriptor.GetScopes()) != 0 || descriptor.GetCustomScopesAllowed()
 	hasAudiences := len(descriptor.GetAudiences()) != 0 || descriptor.GetCustomAudiencesAllowed()
 	hasKeyProfiles := len(descriptor.GetKeyProfiles()) != 0

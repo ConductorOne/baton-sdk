@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwe"
 	"strings"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -232,6 +233,16 @@ func (b *builder) IssueCredential(ctx context.Context, request *v2.IssueCredenti
 			return nil, status.Errorf(codes.Internal, "connector returned invalid credential issuance request schema: %v", err)
 		}
 		return nil, status.Errorf(codes.InvalidArgument, "invalid credential issuance request: %v", err)
+	}
+
+	if descriptor.HasSecretContentType() && descriptor.GetSecretContentType() != "generic" {
+		configs := request.GetEncryptionConfigs()
+		if len(configs) != 1 || strings.ToLower(strings.TrimSpace(configs[0].GetProvider())) != jwe.EncryptionProvider ||
+			!crypto.TypedOutputContextMatches(configs[0].GetJwkPublicKeyConfig().GetAdditionalAuthenticatedData(), descriptor.GetSecretContentType()) {
+			err = status.Error(codes.InvalidArgument, "typed credential requires a matching JWE recipient context")
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+			return nil, err
+		}
 	}
 
 	output, err := issuer.Issue(ctx, input)
