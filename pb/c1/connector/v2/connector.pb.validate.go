@@ -1328,6 +1328,32 @@ func (m *CredentialIssueOptionDescriptor) validate(all bool) error {
 		}
 	}
 
+	if m.SecretContentType != nil {
+
+		if l := utf8.RuneCountInString(m.GetSecretContentType()); l < 1 || l > 128 {
+			err := CredentialIssueOptionDescriptorValidationError{
+				field:  "SecretContentType",
+				reason: "value length must be between 1 and 128 runes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if !_CredentialIssueOptionDescriptor_SecretContentType_Pattern.MatchString(m.GetSecretContentType()) {
+			err := CredentialIssueOptionDescriptorValidationError{
+				field:  "SecretContentType",
+				reason: "value does not match regex pattern \"^[a-z0-9]+([._-][a-z0-9]+)*$\"",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
 	if len(errors) > 0 {
 		return CredentialIssueOptionDescriptorMultiError(errors)
 	}
@@ -1408,6 +1434,8 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = CredentialIssueOptionDescriptorValidationError{}
+
+var _CredentialIssueOptionDescriptor_SecretContentType_Pattern = regexp.MustCompile("^[a-z0-9]+([._-][a-z0-9]+)*$")
 
 // Validate checks the field values on CredentialIssueRequestSchema with the
 // rules defined in the proto definition for this message. If any rules are

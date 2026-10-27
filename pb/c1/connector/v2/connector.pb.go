@@ -881,8 +881,10 @@ type CredentialIssueOptionDescriptor struct {
 	// credential kind. Hosts may narrow this schema in an offering, but must not
 	// add connector-specific fields to their own credential models.
 	RequestSchema *CredentialIssueRequestSchema `protobuf:"bytes,11,opt,name=request_schema,json=requestSchema,proto3" json:"request_schema,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Declared payload type; absent means legacy generic.
+	SecretContentType *string `protobuf:"bytes,12,opt,name=secret_content_type,json=secretContentType,proto3,oneof" json:"secret_content_type,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *CredentialIssueOptionDescriptor) Reset() {
@@ -987,6 +989,13 @@ func (x *CredentialIssueOptionDescriptor) GetRequestSchema() *CredentialIssueReq
 	return nil
 }
 
+func (x *CredentialIssueOptionDescriptor) GetSecretContentType() string {
+	if x != nil && x.SecretContentType != nil {
+		return *x.SecretContentType
+	}
+	return ""
+}
+
 func (x *CredentialIssueOptionDescriptor) SetOption(v CapabilityDetailCredentialOption) {
 	x.Option = v
 }
@@ -1031,6 +1040,10 @@ func (x *CredentialIssueOptionDescriptor) SetRequestSchema(v *CredentialIssueReq
 	x.RequestSchema = v
 }
 
+func (x *CredentialIssueOptionDescriptor) SetSecretContentType(v string) {
+	x.SecretContentType = &v
+}
+
 func (x *CredentialIssueOptionDescriptor) HasExpiry() bool {
 	if x == nil {
 		return false
@@ -1045,12 +1058,23 @@ func (x *CredentialIssueOptionDescriptor) HasRequestSchema() bool {
 	return x.RequestSchema != nil
 }
 
+func (x *CredentialIssueOptionDescriptor) HasSecretContentType() bool {
+	if x == nil {
+		return false
+	}
+	return x.SecretContentType != nil
+}
+
 func (x *CredentialIssueOptionDescriptor) ClearExpiry() {
 	x.Expiry = nil
 }
 
 func (x *CredentialIssueOptionDescriptor) ClearRequestSchema() {
 	x.RequestSchema = nil
+}
+
+func (x *CredentialIssueOptionDescriptor) ClearSecretContentType() {
+	x.SecretContentType = nil
 }
 
 type CredentialIssueOptionDescriptor_builder struct {
@@ -1080,6 +1104,8 @@ type CredentialIssueOptionDescriptor_builder struct {
 	// credential kind. Hosts may narrow this schema in an offering, but must not
 	// add connector-specific fields to their own credential models.
 	RequestSchema *CredentialIssueRequestSchema
+	// Declared payload type; absent means legacy generic.
+	SecretContentType *string
 }
 
 func (b0 CredentialIssueOptionDescriptor_builder) Build() *CredentialIssueOptionDescriptor {
@@ -1097,6 +1123,7 @@ func (b0 CredentialIssueOptionDescriptor_builder) Build() *CredentialIssueOption
 	x.SecretResourceTypeId = b.SecretResourceTypeId
 	x.Preferred = b.Preferred
 	x.RequestSchema = b.RequestSchema
+	x.SecretContentType = b.SecretContentType
 	return m0
 }
 
@@ -2845,7 +2872,7 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x1bpreferred_credential_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x19preferredCredentialOption\"\xcc\x01\n" +
 	" CredentialDetailsCredentialIssue\x12J\n" +
 	"\aoptions\x18\x01 \x03(\v20.c1.connector.v2.CredentialIssueOptionDescriptorR\aoptions\x12\\\n" +
-	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption\"\xa2\x05\n" +
+	"\x10preferred_option\x18\x02 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x0fpreferredOption\"\x99\x06\n" +
 	"\x1fCredentialIssueOptionDescriptor\x12I\n" +
 	"\x06option\x18\x01 \x01(\x0e21.c1.connector.v2.CapabilityDetailCredentialOptionR\x06option\x12H\n" +
 	"\fkey_profiles\x18\x02 \x03(\v2%.c1.connector.v2.KeyGenerationProfileR\vkeyProfiles\x12A\n" +
@@ -2859,7 +2886,9 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\xfaB\ar\x05 \x01(\x80\bR\x14secretResourceTypeId\x12\x1c\n" +
 	"\tpreferred\x18\n" +
 	" \x01(\bR\tpreferred\x12T\n" +
-	"\x0erequest_schema\x18\v \x01(\v2-.c1.connector.v2.CredentialIssueRequestSchemaR\rrequestSchema\"\x87\x01\n" +
+	"\x0erequest_schema\x18\v \x01(\v2-.c1.connector.v2.CredentialIssueRequestSchemaR\rrequestSchema\x12]\n" +
+	"\x13secret_content_type\x18\f \x01(\tB(\xfaB%r#\x10\x01\x18\x80\x012\x1c^[a-z0-9]+([._-][a-z0-9]+)*$H\x00R\x11secretContentType\x88\x01\x01B\x16\n" +
+	"\x14_secret_content_type\"\x87\x01\n" +
 	"\x1cCredentialIssueRequestSchema\x12+\n" +
 	"\x06fields\x18\x01 \x03(\v2\x13.c1.config.v1.FieldR\x06fields\x12:\n" +
 	"\vconstraints\x18\x02 \x03(\v2\x18.c1.config.v1.ConstraintR\vconstraints\"t\n" +
@@ -3079,6 +3108,7 @@ func file_c1_connector_v2_connector_proto_init() {
 	}
 	file_c1_connector_v2_asset_proto_init()
 	file_c1_connector_v2_resource_proto_init()
+	file_c1_connector_v2_connector_proto_msgTypes[7].OneofWrappers = []any{}
 	file_c1_connector_v2_connector_proto_msgTypes[23].OneofWrappers = []any{
 		(*ConnectorAccountCreationSchema_Field_StringField)(nil),
 		(*ConnectorAccountCreationSchema_Field_BoolField)(nil),
