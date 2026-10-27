@@ -874,3 +874,9 @@ The plan is frozen at `87abf5ed`.
   is not honored. Declined: folding `counterSplit` into
   `countersExcept`, which also builds the call-stat and duration maps
   and would do more work under the write lock, not less.
+  Why the plan missed (1) and (2): D9 listed only shapes (bare, `%w`)
+  on which in-process and wire agree, so the P3 transport differential
+  could not disagree with itself; and the reference case is modeled by
+  the chaos connector, which fabricates pages in memory, so no cell had
+  `uhttp` between the connector and the provider. Both are axes the
+  model lacked, not cells it skipped.
