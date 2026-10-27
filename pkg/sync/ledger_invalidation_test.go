@@ -555,6 +555,39 @@ func (c *nestedGetResourceConnector) GetResource(ctx context.Context, in *v2.Res
 
 // The detail on the codes getLedgerResourceFromConnector otherwise swallows
 // (NotFound, Unimplemented: the resource is skipped) must not be swallowed.
+// notFoundDetailGrantsConnector answers ListGrants with the detail on
+// NotFound, the code isWarning treats as "finish the action with a
+// warning" when the caller allows warnings (grants does).
+type notFoundDetailGrantsConnector struct {
+	*mockConnector
+	listGrantsCalls int
+}
+
+func (c *notFoundDetailGrantsConnector) ListGrants(context.Context, *v2.GrantsServiceListGrantsRequest, ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
+	c.listGrantsCalls++
+	st, err := status.New(codes.NotFound, "gone").WithDetails(v2.InvalidateAction_builder{RestartPageToken: ""}.Build())
+	if err != nil {
+		return nil, err
+	}
+	return nil, st.Err()
+}
+
+func TestActionInvalidationMisclassifiedNotFoundFailsNotWarns(t *testing.T) {
+	c := &notFoundDetailGrantsConnector{mockConnector: newMockConnector()}
+	c.rtDB = append(c.rtDB, groupResourceType)
+	_, _, err := c.AddGroup(t.Context(), "g1")
+	require.NoError(t, err)
+
+	f := openLedgerFixtureAt(t, filepath.Join(t.TempDir(), "notfound.c1z"), false)
+	s, err := NewSyncer(t.Context(), c, WithConnectorStore(f.store), WithWorkerCount(1))
+	require.NoError(t, err)
+	err = s.Sync(t.Context())
+	require.ErrorIs(t, err, ErrActionInvalidationMisclassified, "a detail on NotFound fails the sync instead of finishing the action with a warning")
+	require.Equal(t, codes.Internal, status.Code(err))
+	require.Equal(t, 1, c.listGrantsCalls)
+	require.Zero(t, invalidationCounter(t, f))
+}
+
 func TestActionInvalidationNestedConnectorCallMisclassified(t *testing.T) {
 	withDetail := func(code codes.Code) error {
 		st, err := status.New(code, "from get-resource").WithDetails(v2.InvalidateAction_builder{RestartPageToken: ""}.Build())

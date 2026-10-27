@@ -810,3 +810,9 @@ The plan is frozen at `87abf5ed`.
   recorded (passes 20× under `-race`). The chaos `EffectInvalidateAction`
   comment said `Code` "when set" replaces the helper's code; zero is
   unset, so it reads "when non-zero and not FailedPrecondition".
+- **CO-014 (2026-10-27, automated review).** `ffa20d66` deleted
+  `notFoundDetailGrantsConnector` and
+  `TestActionInvalidationMisclassifiedNotFoundFailsNotWarns` by accident
+  while replacing the adjacent nested-connector block; C04 and CO-010
+  kept citing the test. Restored unchanged from the parent commit; it
+  passes against the current classifier.
