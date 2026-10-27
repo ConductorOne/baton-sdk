@@ -835,3 +835,13 @@ The plan is frozen at `87abf5ed`.
   restore fails the ten after-commit cells; disabling `HasScheduledWork`
   fails both C13 cases; dropping other buckets in `counterSplit` fails
   the budget-across-resume test.
+- **CO-016 (2026-10-27).** The child-under-parent variant of
+  `SyncResources` had no restart cell of its own; its identity carries the
+  parent, and a restart to `""` makes the `r+1` identity equal the
+  first-page identity. `TestActionInvalidationRestartsChildUnderParent`
+  expires the child list under one parent and requires the child to run
+  again from the start, counted once, with every child resource stored
+  and no pending work. The two remaining I2 gaps are closed by
+  construction and recorded as such in the evidence: a process kill
+  cannot vary by op (one batch), and a takeover resumer is a
+  configuration the product does not run.
