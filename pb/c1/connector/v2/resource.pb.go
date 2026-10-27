@@ -1248,8 +1248,10 @@ type IssueCredentialRequest struct {
 	// Optional absolute expiry requested by the caller. Absolute time avoids
 	// extending a credential merely because an approved task waited in queue.
 	ExpiresAt *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
-	// Values for the selected descriptor's request_schema. The SDK validates
-	// these before invoking the connector implementation.
+	// Values for the selected descriptor's request_schema. Hosts must send
+	// request_data only after the selected descriptor advertises the matching
+	// request_schema. Older connectors may ignore this unknown field. The SDK
+	// validates these values before invoking the connector implementation.
 	RequestData   *structpb.Struct `protobuf:"bytes,6,opt,name=request_data,json=requestData,proto3" json:"request_data,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1407,8 +1409,10 @@ type IssueCredentialRequest_builder struct {
 	// Optional absolute expiry requested by the caller. Absolute time avoids
 	// extending a credential merely because an approved task waited in queue.
 	ExpiresAt *timestamppb.Timestamp
-	// Values for the selected descriptor's request_schema. The SDK validates
-	// these before invoking the connector implementation.
+	// Values for the selected descriptor's request_schema. Hosts must send
+	// request_data only after the selected descriptor advertises the matching
+	// request_schema. Older connectors may ignore this unknown field. The SDK
+	// validates these values before invoking the connector implementation.
 	RequestData *structpb.Struct
 }
 
