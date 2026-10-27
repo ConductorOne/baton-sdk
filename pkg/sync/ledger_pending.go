@@ -123,11 +123,11 @@ func (s *syncer) pendingRefill(ctx context.Context, op ActionOp, after *uint64) 
 	}
 }
 
-func (s *syncer) publishPendingTransition(ctx context.Context, action *Action, next string, warning bool) {
+func (s *syncer) publishPendingTransition(ctx context.Context, action *Action, next string, warning, restart bool) {
 	if warning {
 		return
 	}
-	if next == "" {
+	if next == "" && !restart {
 		s.run.finishAction(ctx, action)
 		s.recordListResourceCompletedThisRun(action)
 		return

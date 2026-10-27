@@ -261,6 +261,7 @@ func ledgerRowToProto(row *c1zstore.LedgerRow) *v3.LedgerRow {
 		Replayed:             row.Replayed,
 		TypeScopedPlanned:    row.TypeScopedPlanned,
 		Spawned:              row.Spawned,
+		Restarted:            row.Restarted,
 		PageMs:               ledgerDurationMS(row.PageDuration),
 		ConnectorMs:          ledgerDurationMS(row.ConnectorDuration),
 		WaitMs:               ledgerDurationMS(row.WaitDuration),
@@ -295,6 +296,7 @@ func ledgerRowFromProto(p *v3.LedgerRow) *c1zstore.LedgerRow {
 		TypeScopedPlanned:        p.GetTypeScopedPlanned(),
 		Scrubbed:                 p.GetScrubbed(),
 		Spawned:                  p.GetSpawned(),
+		Restarted:                p.GetRestarted(),
 		PageDuration:             msToDuration(p.GetPageMs()),
 		ConnectorDuration:        msToDuration(p.GetConnectorMs()),
 		WaitDuration:             msToDuration(p.GetWaitMs()),
@@ -365,4 +367,8 @@ func (w *pageWriter) SetPendingWork(work c1zstore.LedgerWork, childKeys ...strin
 	w.unit.work = &work
 	w.unit.childWorkKeys = slices.Clone(childKeys)
 	return nil
+}
+
+func (w *pageWriter) SetRestart(limits c1zstore.RestartLimits) error {
+	return w.unit.StageRestart(limits)
 }

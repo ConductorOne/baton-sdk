@@ -2364,10 +2364,11 @@ type IngestQualityStats_builder struct {
 	GrantResourcesDropped         uint64
 	ExpansionResourceTypesDropped uint64
 	ExpansionsDropped             uint64
-	// Bitset of SDK-owned quality reasons. Bits 0..6 are entitlement dropped,
+	// Bitset of SDK-owned quality reasons. Bits 0..7 are entitlement dropped,
 	// grant dropped, grant-inserted resource dropped, expansion resource type
-	// dropped, expansion dropped, invalid row retained, and unknown prior
-	// checkpoint provenance, respectively.
+	// dropped, expansion dropped, invalid row retained, unknown prior
+	// checkpoint provenance, and action restarted after the connector
+	// invalidated its page token, respectively.
 	// Counts remain useful diagnostics; reason flags carry replay eligibility
 	// even for warn-and-retain policies that do not drop a row.
 	ReasonFlags uint64
@@ -2692,6 +2693,7 @@ type LedgerRow struct {
 	xxx_hidden_Collection           *LedgerCollectionStats `protobuf:"bytes,23,opt,name=collection,proto3"`
 	xxx_hidden_WorkId               uint64                 `protobuf:"varint,24,opt,name=work_id,json=workId,proto3"`
 	xxx_hidden_WorkRevision         uint64                 `protobuf:"varint,25,opt,name=work_revision,json=workRevision,proto3"`
+	xxx_hidden_Restarted            bool                   `protobuf:"varint,26,opt,name=restarted,proto3"`
 	unknownFields                   protoimpl.UnknownFields
 	sizeCache                       protoimpl.SizeCache
 }
@@ -2898,6 +2900,13 @@ func (x *LedgerRow) GetWorkRevision() uint64 {
 	return 0
 }
 
+func (x *LedgerRow) GetRestarted() bool {
+	if x != nil {
+		return x.xxx_hidden_Restarted
+	}
+	return false
+}
+
 func (x *LedgerRow) SetIdentity(v *LedgerActionIdentity) {
 	x.xxx_hidden_Identity = v
 }
@@ -3001,6 +3010,10 @@ func (x *LedgerRow) SetWorkRevision(v uint64) {
 	x.xxx_hidden_WorkRevision = v
 }
 
+func (x *LedgerRow) SetRestarted(v bool) {
+	x.xxx_hidden_Restarted = v
+}
+
 func (x *LedgerRow) HasIdentity() bool {
 	if x == nil {
 		return false
@@ -3040,8 +3053,9 @@ type LedgerRow_builder struct {
 	// Request arguments; work_id and work_revision distinguish executions.
 	Identity *LedgerActionIdentity
 	// Cursor for the action's next page; empty means the action
-	// finished on this page. Scrubbed to empty with next_page_token_hash
-	// retained when scrubbed is set.
+	// finished on this page, unless restarted is set, in which case it is
+	// the token the action restarts at (empty: its first page). Scrubbed to
+	// empty with next_page_token_hash retained when scrubbed is set.
 	NextPageToken     string
 	NextPageTokenHash []byte
 	Children          []*LedgerChild
@@ -3080,6 +3094,10 @@ type LedgerRow_builder struct {
 	Collection           *LedgerCollectionStats
 	WorkId               uint64
 	WorkRevision         uint64
+	// The connector invalidated this page's token (RestartAction). The
+	// page wrote no records or children; the work item continues at
+	// next_page_token with revision + 1, not finished.
+	Restarted bool
 }
 
 func (b0 LedgerRow_builder) Build() *LedgerRow {
@@ -3111,6 +3129,7 @@ func (b0 LedgerRow_builder) Build() *LedgerRow {
 	x.xxx_hidden_Collection = b.Collection
 	x.xxx_hidden_WorkId = b.WorkId
 	x.xxx_hidden_WorkRevision = b.WorkRevision
+	x.xxx_hidden_Restarted = b.Restarted
 	return m0
 }
 
@@ -4299,7 +4318,7 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"\vLedgerChild\x12?\n" +
 	"\bidentity\x18\x01 \x01(\v2#.c1.storage.v3.LedgerActionIdentityR\bidentity\x12\x18\n" +
 	"\aspawned\x18\x02 \x01(\bR\aspawned\x12\x17\n" +
-	"\awork_id\x18\x03 \x01(\x04R\x06workId\"\xbc\b\n" +
+	"\awork_id\x18\x03 \x01(\x04R\x06workId\"\xda\b\n" +
 	"\tLedgerRow\x12?\n" +
 	"\bidentity\x18\x01 \x01(\v2#.c1.storage.v3.LedgerActionIdentityR\bidentity\x12&\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\x12/\n" +
@@ -4328,7 +4347,8 @@ const file_c1_storage_v3_records_proto_rawDesc = "" +
 	"collection\x18\x17 \x01(\v2$.c1.storage.v3.LedgerCollectionStatsR\n" +
 	"collection\x12\x17\n" +
 	"\awork_id\x18\x18 \x01(\x04R\x06workId\x12#\n" +
-	"\rwork_revision\x18\x19 \x01(\x04R\fworkRevision\"\xe8\x06\n" +
+	"\rwork_revision\x18\x19 \x01(\x04R\fworkRevision\x12\x1c\n" +
+	"\trestarted\x18\x1a \x01(\bR\trestarted\"\xe8\x06\n" +
 	"\x15LedgerCollectionStats\x12%\n" +
 	"\x0elist_responses\x18\x01 \x01(\x04R\rlistResponses\x120\n" +
 	"\x14empty_list_responses\x18\x02 \x01(\x04R\x12emptyListResponses\x12R\n" +

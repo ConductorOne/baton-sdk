@@ -28,18 +28,24 @@ const (
 	// ErrInterruptRequested; only process-capable harnesses may translate it
 	// into an actual hard crash.
 	EffectCrash EffectKind = "crash"
+	// EffectRestartAction returns the pagination.NewRestartActionError
+	// error for RestartToken and Message. Code, when non-zero and not
+	// FailedPrecondition, replaces the helper's FailedPrecondition so a
+	// schedule can place the detail on a code the syncer must not honor.
+	EffectRestartAction EffectKind = "restart-action"
 )
 
 // Effect describes one replayable disturbance. Mutation names are resolved by
 // the response-mutation registry; they are not arbitrary Go callbacks.
 type Effect struct {
-	Kind     EffectKind `json:"kind"`
-	Code     codes.Code `json:"code,omitempty"`
-	Message  string     `json:"message,omitempty"`
-	Delay    int64      `json:"delay_ms,omitempty"`
-	Mutation string     `json:"mutation,omitempty"`
-	Epoch    string     `json:"epoch,omitempty"`
-	Barrier  string     `json:"barrier,omitempty"`
+	Kind         EffectKind `json:"kind"`
+	Code         codes.Code `json:"code,omitempty"`
+	Message      string     `json:"message,omitempty"`
+	Delay        int64      `json:"delay_ms,omitempty"`
+	Mutation     string     `json:"mutation,omitempty"`
+	Epoch        string     `json:"epoch,omitempty"`
+	Barrier      string     `json:"barrier,omitempty"`
+	RestartToken string     `json:"restart_token,omitempty"`
 }
 
 // Rule applies its effects to matching operations. MinFires makes non-vacuity
@@ -98,7 +104,7 @@ func (s Schedule) Validate() error {
 func (e Effect) validate() error {
 	switch e.Kind {
 	case EffectError, EffectDelay, EffectBlock, EffectCancel, EffectLoseResponse,
-		EffectMutate, EffectSetEpoch, EffectCrash:
+		EffectMutate, EffectSetEpoch, EffectCrash, EffectRestartAction:
 	default:
 		return fmt.Errorf("unknown effect %q", e.Kind)
 	}
@@ -256,6 +262,8 @@ func (r *Runtime) ApplyControlEffects(ctx context.Context, op Operation, fired [
 				return context.Canceled
 			case EffectCrash:
 				return ErrInterruptRequested
+			case EffectRestartAction:
+				return restartActionError(effect)
 			case EffectMutate, EffectSetEpoch:
 				// Response and scenario adapters own these effects.
 			}
