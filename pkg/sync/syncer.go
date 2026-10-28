@@ -4128,8 +4128,9 @@ func WithExternalResourceC1ZPath(path string) SyncOpt {
 //
 // The file is opened read-only and engine-agnostically so its format can be
 // diagnosed, but source-cache replay currently requires a Pebble artifact.
-// SQLite inputs are valid c1z files but are treated as cold inputs because they
-// do not carry the replay indexes and compaction provenance this gate requires.
+// v1 (SQLite) inputs are valid c1z files but are treated as cold inputs: the
+// SDK no longer opens them (dotc1z.ErrV1Unsupported), and they do not carry
+// the replay indexes this gate requires.
 func WithPreviousSyncC1ZPath(path string) SyncOpt {
 	return func(s *syncer) {
 		s.cfg.previousSyncC1ZPath = path
@@ -4371,7 +4372,7 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 		// Open the previous-sync c1z read-only and engine-agnostically
 		// (NewStore selects the engine from the file's magic byte), then
 		// require Pebble: source-cache manifests and replay indexes are a
-		// Pebble capability, so SQLite artifacts are cold inputs.
+		// Pebble capability.
 		previousSyncStore, err := dotc1z.NewStore(ctx, s.cfg.previousSyncC1ZPath,
 			dotc1z.WithReadOnly(true),
 			dotc1z.WithTmpDir(s.cfg.tmpDir),
@@ -4427,6 +4428,12 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 				break
 			}
 			s.previousSyncReader = previousSyncStore
+		case errors.Is(err, dotc1z.ErrV1Unsupported):
+			// A v1 (SQLite) file is a valid c1z the SDK no longer opens. It
+			// is a cold input on both the strict and optional paths.
+			ctxzap.Extract(ctx).Warn("previous-sync c1z is a v1 (sqlite) file; syncing without source-cache replay",
+				zap.String("previous_sync_c1z_path", s.cfg.previousSyncC1ZPath),
+			)
 		case s.cfg.previousSyncC1ZPathOptional:
 			// Best-effort replay source (see WithOptionalPreviousSyncC1ZPath):
 			// a missing/corrupt/incompatible cache file degrades to a sync

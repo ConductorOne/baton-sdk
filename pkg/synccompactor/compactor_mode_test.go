@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	c1zv3 "github.com/conductorone/baton-sdk/pb/c1/c1z/v3"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	formatv3 "github.com/conductorone/baton-sdk/pkg/dotc1z/format/v3"
@@ -154,7 +155,7 @@ func TestResolvePebbleModeFoldWasteCutover(t *testing.T) {
 		newC(highWaste, WithPebbleCompactorMode(PebbleCompactorModeFold)).resolvePebbleMode(ctx))
 }
 
-func TestInferEngineFromInputFormats(t *testing.T) {
+func TestRejectUnsupportedInputs(t *testing.T) {
 	dir := t.TempDir()
 	writeHeader := func(name string, header []byte) string {
 		t.Helper()
@@ -166,60 +167,73 @@ func TestInferEngineFromInputFormats(t *testing.T) {
 	v1 := writeHeader("sqlite.c1z", dotc1z.C1ZFileHeader)
 	v3 := writeHeader("pebble.c1z", dotc1z.C1Z3FileHeader)
 
-	// All-SQLite → SQLite.
-	engine, err := (&Compactor{entries: []*CompactableSync{
-		{FilePath: v1, SyncID: "s1"},
-		{FilePath: v1, SyncID: "s2"},
-	}}).inferEngineFromInputs()
-	require.NoError(t, err)
-	require.Equal(t, c1zstore.EngineSQLite, engine)
-
-	// All-Pebble → Pebble.
-	engine, err = (&Compactor{entries: []*CompactableSync{
+	require.NoError(t, (&Compactor{entries: []*CompactableSync{
 		{FilePath: v3, SyncID: "s1"},
 		{FilePath: v3, SyncID: "s2"},
-	}}).inferEngineFromInputs()
-	require.NoError(t, err)
-	require.Equal(t, c1zstore.EnginePebble, engine)
+	}}).rejectUnsupportedInputs())
 
-	// Mixed SQLite/Pebble → Pebble (any Pebble wins).
-	engine, err = (&Compactor{entries: []*CompactableSync{
-		{FilePath: v1, SyncID: "s1"},
+	err := (&Compactor{entries: []*CompactableSync{
+		{FilePath: v3, SyncID: "s1"},
+		{FilePath: v1, SyncID: "s2"},
+	}}).rejectUnsupportedInputs()
+	require.ErrorIs(t, err, dotc1z.ErrV1Unsupported)
+	require.ErrorContains(t, err, v1)
+
+	err = (&Compactor{entries: []*CompactableSync{
+		{FilePath: writeHeader("garbage.c1z", []byte("nope")), SyncID: "s1"},
 		{FilePath: v3, SyncID: "s2"},
-	}}).inferEngineFromInputs()
-	require.NoError(t, err, "mixed inputs must no longer return an error; any Pebble input wins")
-	require.Equal(t, c1zstore.EnginePebble, engine, "mixed input must produce Pebble output")
+	}}).rejectUnsupportedInputs()
+	require.Error(t, err)
+	require.NotErrorIs(t, err, dotc1z.ErrV1Unsupported)
+}
 
-	// Explicit Pebble + all-Pebble → Pebble.
-	engine, err = (&Compactor{
-		engine: c1zstore.EnginePebble,
-		entries: []*CompactableSync{
-			{FilePath: v3, SyncID: "s1"},
-			{FilePath: v3, SyncID: "s2"},
-		},
-	}).inferEngineFromInputs()
+// TestCompactRejectsV1InputBeforeWork drives Compact with one v1 (SQLite)
+// input among Pebble inputs: the call returns ErrV1Unsupported and leaves
+// no new files in the output dir or the compactor's tmp dir.
+func TestCompactRejectsV1InputBeforeWork(t *testing.T) {
+	ctx := context.Background()
+	inputDir := t.TempDir()
+	outputDir := t.TempDir()
+	tmpRoot := t.TempDir()
+
+	fixture, err := os.ReadFile(filepath.Join("..", "dotc1z", "sqlite", "testdata", "finished_full.c1z"))
 	require.NoError(t, err)
-	require.Equal(t, c1zstore.EnginePebble, engine)
+	v1Path := filepath.Join(inputDir, "v1.c1z")
+	require.NoError(t, os.WriteFile(v1Path, fixture, 0o600)) // #nosec G703 -- v1Path is under t.TempDir().
 
-	// Explicit SQLite + Pebble input → ErrEnginePolicyConflict.
-	_, err = (&Compactor{
-		engine: c1zstore.EngineSQLite,
-		entries: []*CompactableSync{
-			{FilePath: v3, SyncID: "s1"},
-			{FilePath: v3, SyncID: "s2"},
-		},
-	}).inferEngineFromInputs()
-	require.ErrorIs(t, err, ErrEnginePolicyConflict,
-		"explicit SQLite with Pebble input must return ErrEnginePolicyConflict")
+	pebble := makeEmptySync(t, ctx, inputDir, []dotc1z.C1ZOption{dotc1z.WithTmpDir(tmpRoot)}, connectorstore.SyncTypeFull)
+	entries := []*CompactableSync{pebble, {FilePath: v1Path, SyncID: ""}}
 
-	// Explicit Pebble + SQLite inputs → Pebble (SQLite inputs are converted).
-	engine, err = (&Compactor{
-		engine: c1zstore.EnginePebble,
-		entries: []*CompactableSync{
-			{FilePath: v1, SyncID: "s1"},
-			{FilePath: v1, SyncID: "s2"},
-		},
-	}).inferEngineFromInputs()
+	c, cleanup, err := NewCompactor(ctx, outputDir, entries, WithTmpDir(tmpRoot))
 	require.NoError(t, err)
-	require.Equal(t, c1zstore.EnginePebble, engine, "explicit Pebble with SQLite inputs is valid")
+	defer func() { require.NoError(t, cleanup()) }()
+
+	tmpEntries, err := os.ReadDir(c.tmpDir)
+	require.NoError(t, err)
+	require.Empty(t, tmpEntries, "precondition: the compactor tmp dir starts empty")
+
+	_, err = c.Compact(ctx)
+	require.ErrorIs(t, err, dotc1z.ErrV1Unsupported)
+
+	outEntries, err := os.ReadDir(outputDir)
+	require.NoError(t, err)
+	require.Empty(t, outEntries, "a rejected compaction must not write an output file")
+	tmpEntries, err = os.ReadDir(c.tmpDir)
+	require.NoError(t, err)
+	require.Empty(t, tmpEntries, "a rejected compaction must not write working files")
+
+	after, err := os.ReadFile(v1Path)
+	require.NoError(t, err)
+	require.Equal(t, fixture, after, "the v1 input must be untouched")
+}
+
+func TestNewCompactorRejectsNonPebbleEngine(t *testing.T) {
+	entries := []*CompactableSync{{FilePath: "a.c1z", SyncID: "s1"}, {FilePath: "b.c1z", SyncID: "s2"}}
+	_, _, err := NewCompactor(t.Context(), t.TempDir(), entries, WithTmpDir(t.TempDir()), WithEngine(c1zstore.Engine("sqlite")))
+	require.ErrorIs(t, err, ErrUnsupportedEngine)
+
+	c, cleanup, err := NewCompactor(t.Context(), t.TempDir(), entries, WithTmpDir(t.TempDir()), WithEngine(c1zstore.EnginePebble))
+	require.NoError(t, err)
+	defer func() { _ = cleanup() }()
+	require.Equal(t, c1zstore.EnginePebble, c.engine)
 }

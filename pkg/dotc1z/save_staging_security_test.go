@@ -19,7 +19,7 @@ import (
 // 0644. The save must ignore the planted entry and keep the placeholder's mode.
 func TestSecurity_SaveIntoPrivatePlaceholder(t *testing.T) {
 	ctx := context.Background()
-	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
 			dir := t.TempDir()
 			placeholder, err := os.CreateTemp(dir, "baton-sdk-sync-upload")

@@ -25,9 +25,6 @@ on:
       fuzz_time:
         description: "Per-fuzzer duration (e.g. 15m)"
         required: false
-      differential_time:
-        description: "Differential fuzz duration (e.g. 30m)"
-        required: false
       soak_iterations:
         description: "Randomized scheduler soak iterations"
         required: false
@@ -43,7 +40,6 @@ permissions:
 # editing this file, which is what you want when re-running a suspicious tier.
 env:
   FUZZ_TIME: ${{ inputs.fuzz_time || '5m' }}
-  DIFFERENTIAL_TIME: ${{ inputs.differential_time || '10m' }}
   SOAK_ITERATIONS: ${{ inputs.soak_iterations || '25' }}
   CHAOS_ITERATIONS: ${{ inputs.chaos_iterations || '25' }}
 
@@ -139,10 +135,6 @@ jobs:
           # half of it, since -timeout cannot bound a fuzzing session.
           - name: fuzz
             target: fuzz-smoke
-            timeout: 45
-          # Compares complete SQLite and Pebble artifacts over generated cases.
-          - name: differential
-            target: differential-check
             timeout: 45
           - name: scheduler-soak
             target: scheduler-soak

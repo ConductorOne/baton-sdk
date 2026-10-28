@@ -158,7 +158,7 @@ jobs:
     strategy:
       matrix:
         worker-count: [ 0, 4 ]
-        storage-engine: [ "sqlite", "pebble" ]
+        storage-engine: [ "pebble" ]
     runs-on: ubuntu-latest
     env:
       BATON_WORKERS: ${{ matrix.worker-count }}

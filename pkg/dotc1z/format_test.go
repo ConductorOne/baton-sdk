@@ -71,6 +71,56 @@ func TestReadHeaderFormat_SeekerRewinds(t *testing.T) {
 	require.Equal(t, C1ZFormatV3, got, "got %v want v3", got)
 }
 
+func TestC1ZFileCheckHeader(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input []byte
+		want  bool
+	}{
+		{name: "v1 magic", input: append([]byte("C1ZF\x00"), 0xde, 0xad), want: true},
+		{name: "v3 magic", input: append([]byte("C1Z3\x00"), 0xca, 0xfe), want: true},
+		{name: "unknown magic", input: []byte("XXXX\x00garbage"), want: false},
+		{name: "short read", input: []byte("C1Z"), want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := bytes.NewReader(tc.input)
+			_, err := r.Seek(2, io.SeekStart)
+			require.NoError(t, err)
+			got, err := C1ZFileCheckHeader(r)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+			pos, err := r.Seek(0, io.SeekCurrent)
+			require.NoError(t, err)
+			require.Zero(t, pos, "reader must be rewound to the first byte")
+		})
+	}
+}
+
+type seekFailsAfterRead struct {
+	*bytes.Reader
+	seeks int
+	err   error
+}
+
+func (s *seekFailsAfterRead) Seek(offset int64, whence int) (int64, error) {
+	s.seeks++
+	if s.seeks > 1 {
+		return 0, s.err
+	}
+	return s.Reader.Seek(offset, whence)
+}
+
+func TestC1ZFileCheckHeader_RewindErrorIsReturned(t *testing.T) {
+	// ReadHeader's own rewind is the first Seek and succeeds; the rewind
+	// back to the stream start after a valid header is the second and fails.
+	// The caller must see that error, not (false, nil).
+	want := errors.New("seek failed")
+	r := &seekFailsAfterRead{Reader: bytes.NewReader(append([]byte("C1Z3\x00"), 'x')), err: want}
+	ok, err := C1ZFileCheckHeader(r)
+	require.ErrorIs(t, err, want)
+	require.False(t, ok)
+}
+
 func TestFormatString(t *testing.T) {
 	for _, tc := range []struct {
 		f    C1ZFormat
@@ -85,10 +135,7 @@ func TestFormatString(t *testing.T) {
 }
 
 func TestEngineConstants(t *testing.T) {
-	// Smoke-check the engine constants are non-empty and distinct.
-	require.NotEmpty(t, c1zstore.EngineSQLite)
 	require.NotEmpty(t, c1zstore.EnginePebble)
-	require.NotEqual(t, c1zstore.EngineSQLite, c1zstore.EnginePebble, "engine constants must be distinct")
 }
 
 func TestErrEngineNotAvailable(t *testing.T) {

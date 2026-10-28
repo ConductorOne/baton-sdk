@@ -508,7 +508,7 @@ func TestSessionBindingOverlap(t *testing.T) {
 		cache       bool
 	}
 	var cells []cell
-	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble, c1zstore.EngineSQLite} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		for _, heldIsFull := range []bool{true, false} {
 			for _, runnerFails := range []bool{false, true} {
 				cells = append(cells, cell{engine: engine, heldIsFull: heldIsFull, runnerFails: runnerFails})
@@ -632,7 +632,7 @@ func TestSessionBindingOverlapSkipSync(t *testing.T) {
 	require.Empty(t, sessionRows(t, openSealed(t, heldPath, h.tmpDir), heldID), "held c1z still holds its own session rows after Cleanup")
 }
 
-var bindingEngines = []c1zstore.Engine{c1zstore.EnginePebble, c1zstore.EngineSQLite}
+var bindingEngines = []c1zstore.Engine{c1zstore.EnginePebble}
 
 func TestSessionBindingSingleSync(t *testing.T) {
 	for _, engine := range bindingEngines {
@@ -875,7 +875,6 @@ func TestSessionBindingBindFailureFailsSync(t *testing.T) {
 		opts   []SyncOpt
 	}{
 		{"pebble", c1zstore.EnginePebble, nil},
-		{"sqlite", c1zstore.EngineSQLite, nil},
 		{"pebble-skip-full-sync", c1zstore.EnginePebble, []SyncOpt{WithSkipFullSync()}},
 	}
 	for _, c := range cases {

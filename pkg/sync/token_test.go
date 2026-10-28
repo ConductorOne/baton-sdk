@@ -443,7 +443,7 @@ func TestUnmarshalV0ThenPushAction(t *testing.T) {
 func TestSyncTokenV0FromC1Z(t *testing.T) {
 	ctx := t.Context()
 
-	store, err := dotc1z.NewC1ZFile(ctx, "testdata/sync-in-progress.c1z")
+	store, err := dotc1z.NewStore(ctx, "testdata/sync-in-progress.pebble.c1z", dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	defer store.Close(ctx)
 

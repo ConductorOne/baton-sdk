@@ -124,7 +124,6 @@ func TestCrashResumeRealConnector(t *testing.T) {
 	buildHarness(t, bin)
 
 	cells := []cellConfig{
-		{engine: "sqlite", workers: 4, budgetMs: 1000},
 		{engine: "pebble", workers: 4, budgetMs: 500},
 		{engine: "pebble", workers: 0, budgetMs: 2000},
 	}
