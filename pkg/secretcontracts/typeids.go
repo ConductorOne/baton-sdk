@@ -1,7 +1,6 @@
 package secretcontracts
 
-// Content type IDs of the bundled contracts. Connectors declare these on
-// secret outputs and the typed helpers return them in Payload.ContentType.
+// Content type IDs used by the credential builders.
 const (
 	TypePasswordV2          = "password_v2"
 	TypeAPIKeyV2            = "api_key_v2" //nolint:gosec // content type ID, not a credential.

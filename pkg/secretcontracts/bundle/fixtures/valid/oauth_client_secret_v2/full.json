@@ -1,1 +1,0 @@
-{"client_id":"client","client_secret":"secret","token_endpoint_url":"https://idp.example.com/token","scopes":["openid","email"],"issuer_url":"https://idp.example.com","redirect_uri":["https://app.example.com/cb","com.example.app:/cb"],"auth_endpoint_url":"https://idp.example.com/authorize","audience":"api","grant_type":"client_credentials"}
