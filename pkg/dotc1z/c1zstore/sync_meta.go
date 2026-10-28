@@ -35,7 +35,6 @@ type SyncMeta interface {
 	// used (NotFound when none exists). An explicit syncID may name an
 	// in-progress sync; in that case the returned counts reflect whatever
 	// has been written so far.
-	// Mirrors the existing *C1File.Stats signature exactly.
 	// Use StatsV2 for new code.
 	Stats(ctx context.Context, syncType connectorstore.SyncType, syncID string) (map[string]int64, error)
 

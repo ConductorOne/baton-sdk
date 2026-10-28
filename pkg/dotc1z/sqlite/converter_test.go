@@ -165,35 +165,6 @@ func TestSlimGrantsAreHydrated(t *testing.T) {
 		require.NotNil(t, grant.GetEntitlement())
 		require.NotNil(t, grant.GetPrincipal())
 	}
-
-	reference, err := dotc1z.NewC1ZFile(ctx, sourcePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
-	require.NoError(t, err)
-	referencePath := filepath.Join(t.TempDir(), "reference.c1z")
-	referenceStats, err := reference.ToPebble(ctx, referencePath, "")
-	require.NoError(t, err)
-	require.Equal(t, int64(3), referenceStats.Grants.Rows)
-	require.NoError(t, reference.SetCurrentSync(ctx, referenceStats.SourceSyncID))
-	sourceGrants, err := reference.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
-	require.NoError(t, err)
-	require.Len(t, sourceGrants.GetList(), 3)
-	sourceByID := make(map[string]*v2.Grant, len(sourceGrants.GetList()))
-	for _, grant := range sourceGrants.GetList() {
-		sourceByID[grant.GetId()] = grant
-	}
-	for _, grant := range response.GetList() {
-		sourceGrant, found := sourceByID[grant.GetId()]
-		require.True(t, found)
-		require.True(t, proto.Equal(sourceGrant.GetEntitlement(), grant.GetEntitlement()))
-		require.True(t, proto.Equal(sourceGrant.GetPrincipal(), grant.GetPrincipal()))
-	}
-	require.NoError(t, reference.Close(ctx))
-	referenceOutput, err := dotc1z.NewStore(ctx, referencePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
-	require.NoError(t, err)
-	require.NoError(t, referenceOutput.SetCurrentSync(ctx, referenceStats.DestSyncID))
-	referenceGrants, err := referenceOutput.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
-	require.NoError(t, err)
-	require.Len(t, referenceGrants.GetList(), 1)
-	require.NoError(t, referenceOutput.Close(ctx))
 }
 
 func TestToPebbleOpenMatchesToPebbleAndAllowsFurtherWrites(t *testing.T) {

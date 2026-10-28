@@ -47,7 +47,7 @@ type cleanupScaleStore struct {
 // SyncMeta answers the capability resolution setStore performs at attach; see
 // legacyPaginatedCheckpointStore.SyncMeta.
 func (s *cleanupScaleStore) Metadata() connectorstore.StoreMetadata {
-	return connectorstore.StoreMetadata{Engine: string(c1zstore.EngineSQLite)}
+	return connectorstore.StoreMetadata{}
 }
 
 func (s *cleanupScaleStore) SyncMeta() c1zstore.SyncMeta { return nil }

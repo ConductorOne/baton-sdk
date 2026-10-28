@@ -82,7 +82,7 @@ func TestLedgerPublicRegisteredPathAttachment(t *testing.T) {
 }
 
 func TestLedgerNilStoreFallsBackToPath(t *testing.T) {
-	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble, c1zstore.EngineSQLite} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		for _, nilFirst := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/nil-first-%t", engine, nilFirst), func(t *testing.T) {
 				path := WithC1ZPath(filepath.Join(t.TempDir(), "fallback.c1z"))

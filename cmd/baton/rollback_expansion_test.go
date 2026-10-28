@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/sync"
 )
@@ -20,10 +22,11 @@ import (
 // expansion: g2 is a member of g1 (an expandable grant), alice is a
 // member of g2, plus an external-resource grant carrying GrantImmutable
 // and an external-principal grant carrying GrantSources — neither created
-// by the expander. The sync is started but NOT finished and NOT expanded.
-func buildPreExpansionC1Z(t *testing.T, ctx context.Context, path string) string {
+// by the expander. The sync is NOT expanded; it is finished only when
+// finish is set (the expansion-only syncer pass requires a finished sync).
+func buildPreExpansionC1Z(t *testing.T, ctx context.Context, path string, finish bool) string {
 	t.Helper()
-	f, err := dotc1z.NewC1ZFile(ctx, path)
+	f, err := dotc1z.NewStore(ctx, path)
 	require.NoError(t, err)
 	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -78,6 +81,9 @@ func buildPreExpansionC1Z(t *testing.T, ctx context.Context, path string) string
 	}.Build()
 	require.NoError(t, f.PutGrants(ctx, nesting, aliceG2, externalImmutable, externalSourced))
 
+	if finish {
+		require.NoError(t, f.EndSync(ctx))
+	}
 	require.NoError(t, f.Close(ctx))
 	return syncID
 }
@@ -106,7 +112,7 @@ func expandViaSyncer(t *testing.T, ctx context.Context, path, syncID string) {
 // c1z (non-empty completed token) and returns (syncID, deletedCount).
 func buildExpandedFixture(t *testing.T, ctx context.Context, path string) (string, int) {
 	t.Helper()
-	syncID := buildPreExpansionC1Z(t, ctx, path)
+	syncID := buildPreExpansionC1Z(t, ctx, path, true)
 	expandViaSyncer(t, ctx, path, syncID)
 	return syncID, rollbackDeletes(t, ctx, path, syncID)
 }
@@ -122,12 +128,29 @@ func rollbackDeletes(t *testing.T, ctx context.Context, path, syncID string) int
 
 func rollbackDryRun(t *testing.T, ctx context.Context, path, syncID string, opts ...dotc1z.RollbackOption) (*dotc1z.RollbackResult, error) {
 	t.Helper()
-	ro, err := dotc1z.NewStore(ctx, path, dotc1z.WithReadOnly(true))
+	ro, err := openRollbackStore(ctx, path, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	defer ro.Close(ctx)
-	rs, ok := ro.(rollbackExpansionStore)
-	require.True(t, ok, "%s store must support rollback-expansion", ro.Metadata().Engine)
-	return rs.RollbackExpansion(ctx, syncID, true, opts...)
+	return ro.RollbackExpansion(ctx, syncID, true, opts...)
+}
+
+func setSupportsDiff(ctx context.Context, store c1zstore.Store, syncID string) error {
+	return store.(interface {
+		SetSupportsDiff(ctx context.Context, syncID string) error
+	}).SetSupportsDiff(ctx, syncID)
+}
+
+func openRollbackStore(ctx context.Context, path string, opts ...dotc1z.C1ZOption) (rollbackExpansionStore, error) {
+	store, err := dotc1z.NewStore(ctx, path, opts...)
+	if err != nil {
+		return nil, err
+	}
+	rs, ok := store.(rollbackExpansionStore)
+	if !ok {
+		_ = store.Close(ctx)
+		return nil, fmt.Errorf("%s store does not support rollback-expansion", store.Metadata().Engine)
+	}
+	return rs, nil
 }
 
 func TestRollbackExpansionDryRun(t *testing.T) {
@@ -136,7 +159,7 @@ func TestRollbackExpansionDryRun(t *testing.T) {
 	syncID, deletes := buildExpandedFixture(t, ctx, path)
 	require.Positive(t, deletes, "the real syncer expansion must produce at least one derived grant")
 
-	ro, err := dotc1z.NewC1ZFile(ctx, path, dotc1z.WithReadOnly(true))
+	ro, err := openRollbackStore(ctx, path, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	defer ro.Close(ctx)
 	res, err := ro.RollbackExpansion(ctx, syncID, true)
@@ -148,9 +171,9 @@ func TestRollbackExpansionDryRun(t *testing.T) {
 func TestRollbackExpansionUnfinishedRefused(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "src.c1z")
-	syncID := buildPreExpansionC1Z(t, ctx, path) // started, never finished/expanded
+	syncID := buildPreExpansionC1Z(t, ctx, path, false) // started, never finished/expanded
 
-	store, err := dotc1z.NewC1ZFile(ctx, path)
+	store, err := openRollbackStore(ctx, path)
 	require.NoError(t, err)
 	defer store.Close(ctx)
 	_, err = store.RollbackExpansion(ctx, syncID, false)
@@ -172,9 +195,10 @@ func TestRollbackExpansionCommand(t *testing.T) {
 	require.Equal(t, deletes, rollbackDeletes(t, ctx, inPath, syncID))
 	// Output (no --replay): derived grants gone, synced grants survive —
 	// including the external GrantImmutable and external GrantSources
-	// grants and the expandable original. A second rollback finds nothing
-	// to delete and nothing to clear.
-	require.Equal(t, 0, rollbackDeletes(t, ctx, outPath, syncID))
+	// grants and the expandable original. A second rollback finds no
+	// expansion left to roll back.
+	_, err := rollbackDryRun(t, ctx, outPath, syncID)
+	require.ErrorIs(t, err, dotc1z.ErrSyncNotExpanded)
 	requireGrantPresence(t, ctx, outPath, syncID, "group:g1:member:group:g2", true) // expandable original
 	requireGrantPresence(t, ctx, outPath, syncID, "group:g2:member:user:alice", true)
 	requireGrantPresence(t, ctx, outPath, syncID, "group:g2:member:user:bob", true) // external + GrantImmutable
@@ -220,7 +244,7 @@ func TestRollbackExpansionReplayRederives(t *testing.T) {
 // expandable nesting grant so a replay has real expansion work to do.
 func buildMergedConflictC1Z(t *testing.T, ctx context.Context, path string) string {
 	t.Helper()
-	f, err := dotc1z.NewC1ZFile(ctx, path)
+	f, err := dotc1z.NewStore(ctx, path)
 	require.NoError(t, err)
 	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -262,9 +286,23 @@ func buildMergedConflictC1Z(t *testing.T, ctx context.Context, path string) stri
 		Entitlement: g2Member,
 		Principal:   alice,
 	}.Build()
-	require.NoError(t, f.PutGrants(ctx, nesting, aliceG2))
+	// The derived grant the expander would have written, hand-placed: the
+	// syncer's own expansion pass hard-fails I5 on this fixture, which is
+	// what the replay under test must survive.
+	immutableAnno, err := anypb.New(v2.GrantImmutable_builder{}.Build())
+	require.NoError(t, err)
+	aliceG1Derived := v2.Grant_builder{
+		Id:          "group:g1:member:user:alice",
+		Entitlement: g1Member,
+		Principal:   alice,
+		Annotations: []*anypb.Any{immutableAnno},
+		Sources: v2.GrantSources_builder{Sources: map[string]*v2.GrantSources_GrantSource{
+			"group:g2:member": v2.GrantSources_GrantSource_builder{IsDirect: false}.Build(),
+		}}.Build(),
+	}.Build()
+	require.NoError(t, f.PutGrants(ctx, nesting, aliceG2, aliceG1Derived))
 
-	require.NoError(t, f.SetSupportsDiff(ctx, syncID))
+	require.NoError(t, setSupportsDiff(ctx, f, syncID))
 	require.NoError(t, f.EndSync(ctx))
 	require.NoError(t, f.Close(ctx))
 	return syncID
@@ -286,6 +324,7 @@ func TestRollbackExpansionReplayToleratesMergedConflicts(t *testing.T) {
 	inPath := filepath.Join(tmp, "src.c1z")
 	outPath := filepath.Join(tmp, "out.c1z")
 	syncID := buildMergedConflictC1Z(t, ctx, inPath)
+	require.Equal(t, 1, rollbackDeletes(t, ctx, inPath, syncID))
 
 	require.NoError(t, runRollback(ctx, inPath, "--out", outPath, "--sync-id", syncID, "--replay"),
 		"replay over a compaction-merged artifact must warn on the sealed conflict, not hard-fail I5")
@@ -305,7 +344,7 @@ func TestRollbackExpansionReplayToleratesMergedConflicts(t *testing.T) {
 //   - suspect: on g1:member, Sources only foreign, NO GrantImmutable → deleted + flagged.
 func buildSyntheticExpandedC1Z(t *testing.T, ctx context.Context, path string) string {
 	t.Helper()
-	f, err := dotc1z.NewC1ZFile(ctx, path)
+	f, err := dotc1z.NewStore(ctx, path)
 	require.NoError(t, err)
 	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -362,7 +401,7 @@ func buildSyntheticExpandedC1Z(t *testing.T, ctx context.Context, path string) s
 	}.Build()
 	require.NoError(t, f.PutGrants(ctx, derived, directExpanded, plainDirect, suspect))
 
-	require.NoError(t, f.SetSupportsDiff(ctx, syncID))
+	require.NoError(t, setSupportsDiff(ctx, f, syncID))
 	require.NoError(t, f.EndSync(ctx))
 	require.NoError(t, f.Close(ctx))
 	return syncID
@@ -374,7 +413,7 @@ func TestRollbackExpansionClassification(t *testing.T) {
 	syncID := buildSyntheticExpandedC1Z(t, ctx, path)
 
 	// Dry run: counts without mutating.
-	ro, err := dotc1z.NewC1ZFile(ctx, path, dotc1z.WithReadOnly(true))
+	ro, err := openRollbackStore(ctx, path, dotc1z.WithReadOnly(true))
 	require.NoError(t, err)
 	res, err := ro.RollbackExpansion(ctx, syncID, true)
 	require.NoError(t, err)
@@ -387,7 +426,7 @@ func TestRollbackExpansionClassification(t *testing.T) {
 	requireGrantPresence(t, ctx, path, syncID, "group:g1:member:user:alice", true)
 
 	// Real rollback on a writable copy.
-	store, err := dotc1z.NewC1ZFile(ctx, path)
+	store, err := openRollbackStore(ctx, path)
 	require.NoError(t, err)
 	res, err = store.RollbackExpansion(ctx, syncID, false)
 	require.NoError(t, err)
@@ -403,40 +442,19 @@ func TestRollbackExpansionClassification(t *testing.T) {
 	requireGrantSourcesEmpty(t, ctx, path, syncID, "group:g2:member:user:bob")
 }
 
-func TestRollbackExpansionNonExpandedRefused(t *testing.T) {
-	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "src.c1z")
-
-	f, err := dotc1z.NewC1ZFile(ctx, path)
-	require.NoError(t, err)
-	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-	require.NoError(t, f.PutResourceTypes(ctx,
-		v2.ResourceType_builder{Id: "user", DisplayName: "User", Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER}}.Build(),
-	))
-	require.NoError(t, f.EndSync(ctx)) // finished but supports_diff never set
-	require.NoError(t, f.Close(ctx))
-
-	store, err := dotc1z.NewC1ZFile(ctx, path)
-	require.NoError(t, err)
-	defer store.Close(ctx)
-	_, err = store.RollbackExpansion(ctx, syncID, false)
-	require.ErrorIs(t, err, dotc1z.ErrSyncNotExpanded)
-}
-
 // buildEmptyExpandedC1Z writes a finished, expansion-marked sync that holds
 // resources but no grants — the resource-only shape a rollback has nothing
 // to do on.
 func buildEmptyExpandedC1Z(t *testing.T, ctx context.Context, path string) string {
 	t.Helper()
-	f, err := dotc1z.NewC1ZFile(ctx, path)
+	f, err := dotc1z.NewStore(ctx, path)
 	require.NoError(t, err)
 	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NoError(t, f.PutResourceTypes(ctx,
 		v2.ResourceType_builder{Id: "user", DisplayName: "User", Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER}}.Build(),
 	))
-	require.NoError(t, f.SetSupportsDiff(ctx, syncID))
+	require.NoError(t, setSupportsDiff(ctx, f, syncID))
 	require.NoError(t, f.EndSync(ctx))
 	require.NoError(t, f.Close(ctx))
 	return syncID
@@ -450,7 +468,7 @@ func TestRollbackExpansionNoGrantsEarlyReturn(t *testing.T) {
 
 	// Both the dry run and the real rollback short-circuit to a zero-count
 	// result without error: a grant-less sync has nothing to roll back.
-	store, err := dotc1z.NewC1ZFile(ctx, inPath)
+	store, err := openRollbackStore(ctx, inPath)
 	require.NoError(t, err)
 	dry, err := store.RollbackExpansion(ctx, syncID, true)
 	require.NoError(t, err)

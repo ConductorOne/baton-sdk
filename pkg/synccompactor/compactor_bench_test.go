@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
 // benchGrantIDs returns n distinct grant ids ("g0".."g{n-1}").
@@ -22,13 +21,11 @@ func benchGrantIDs(n int) []string {
 	return ids
 }
 
-// benchmarkCompaction folds two same-shape inputs (one full, one partial,
+// benchmarkCompaction builds two Pebble inputs with n grants each (with
 // fully overlapping grant keys so the keep-newer dedup does real work) and
 // times Compact end to end. Inputs are built once outside the timed loop;
-// each iteration runs a fresh compactor into its own output dir. usePebble
-// selects the engine under test so the pebble merge path and the sqlite
-// ATTACH path are measured on identical input data.
-func benchmarkCompaction(b *testing.B, n int, usePebble bool) {
+// each iteration runs a fresh compactor into its own output dir.
+func benchmarkCompaction(b *testing.B, n int) {
 	ctx := context.Background()
 	ids := benchGrantIDs(n)
 
@@ -36,14 +33,8 @@ func benchmarkCompaction(b *testing.B, n int, usePebble bool) {
 	p1 := filepath.Join(src, "in1.c1z")
 	p2 := filepath.Join(src, "in2.c1z")
 
-	var s1, s2 string
-	if usePebble {
-		s1 = buildPebbleInput(b, ctx, p1, connectorstore.SyncTypeFull, ids...)
-		s2 = buildPebbleInput(b, ctx, p2, connectorstore.SyncTypePartial, ids...)
-	} else {
-		s1 = buildSQLiteInput(b, ctx, p1, connectorstore.SyncTypeFull, ids...)
-		s2 = buildSQLiteInput(b, ctx, p2, connectorstore.SyncTypePartial, ids...)
-	}
+	s1 := buildPebbleInput(b, ctx, p1, connectorstore.SyncTypeFull, ids...)
+	s2 := buildPebbleInput(b, ctx, p2, connectorstore.SyncTypePartial, ids...)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -51,11 +42,7 @@ func benchmarkCompaction(b *testing.B, n int, usePebble bool) {
 		require.NoError(b, os.MkdirAll(outDir, 0o755))
 
 		entries := []*CompactableSync{{FilePath: p1, SyncID: s1}, {FilePath: p2, SyncID: s2}}
-		opts := []Option{WithTmpDir(b.TempDir())}
-		if usePebble {
-			opts = append(opts, WithEngine(c1zstore.EnginePebble))
-		}
-		c, cleanup, err := NewCompactor(ctx, outDir, entries, opts...)
+		c, cleanup, err := NewCompactor(ctx, outDir, entries, WithTmpDir(b.TempDir()))
 		require.NoError(b, err)
 		_, err = c.Compact(ctx)
 		require.NoError(b, err)
@@ -63,7 +50,5 @@ func benchmarkCompaction(b *testing.B, n int, usePebble bool) {
 	}
 }
 
-func BenchmarkCompactPebble1k(b *testing.B)  { benchmarkCompaction(b, 1000, true) }
-func BenchmarkCompactSQLite1k(b *testing.B)  { benchmarkCompaction(b, 1000, false) }
-func BenchmarkCompactPebble10k(b *testing.B) { benchmarkCompaction(b, 10000, true) }
-func BenchmarkCompactSQLite10k(b *testing.B) { benchmarkCompaction(b, 10000, false) }
+func BenchmarkCompactPebble1k(b *testing.B)  { benchmarkCompaction(b, 1000) }
+func BenchmarkCompactPebble10k(b *testing.B) { benchmarkCompaction(b, 10000) }

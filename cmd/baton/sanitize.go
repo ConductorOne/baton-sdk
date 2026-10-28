@@ -84,21 +84,6 @@ func runSanitize(cmd *cobra.Command, args []string) (retErr error) {
 	if _, err := os.Stat(inPath); err != nil {
 		return fmt.Errorf("stat --file: %w", err)
 	}
-	if _, err := os.Stat(outPath); err == nil {
-		probe, err := dotc1z.NewStore(ctx, outPath, dotc1z.WithReadOnly(true))
-		if err != nil {
-			return fmt.Errorf("open existing --out: %w", err)
-		}
-		engine := probe.Metadata().Engine
-		closeErr := probe.Close(ctx)
-		if closeErr != nil {
-			return fmt.Errorf("close existing --out probe: %w", closeErr)
-		}
-		if engine != string(c1zstore.EnginePebble) {
-			return fmt.Errorf("existing --out must use the Pebble engine, got %q", engine)
-		}
-	}
-
 	secret, generated, err := c1zsanitize.LoadOrGenerateSecret(secretFile, outPath)
 	if err != nil {
 		return err

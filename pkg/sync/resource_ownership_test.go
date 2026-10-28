@@ -67,5 +67,5 @@ func TestPutConnectorResourcesRejectsReservedOwnership(t *testing.T) {
 }
 
 func (s *ownershipGuardStore) Metadata() connectorstore.StoreMetadata {
-	return connectorstore.StoreMetadata{Engine: string(c1zstore.EngineSQLite)}
+	return connectorstore.StoreMetadata{}
 }

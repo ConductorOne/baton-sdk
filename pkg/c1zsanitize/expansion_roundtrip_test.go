@@ -83,10 +83,10 @@ func TestSanitizeGrantExpansionRoundTrip(t *testing.T) {
 		plainID    = "grant-plain"
 	)
 
-	// Build the source through the real SQLite writer so GrantExpandable lands
-	// in the expansion side column, as production c1z files store it.
+	// Build the source through the real store writer so GrantExpandable lands
+	// in the expansion record, as production c1z files store it.
 	func() {
-		f, err := dotc1z.NewC1ZFile(ctx, srcPath)
+		f, err := dotc1z.NewStore(ctx, srcPath)
 		require.NoError(t, err)
 		_, err = f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)

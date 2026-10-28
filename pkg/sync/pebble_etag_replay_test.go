@@ -2,7 +2,6 @@ package sync //nolint:revive,nolintlint // we can't change the package name for 
 
 import (
 	"context"
-	"database/sql"
 	"os"
 	"path/filepath"
 	"sync"
@@ -349,14 +348,14 @@ func TestOptionalPreviousSyncC1ZPath_SoftFails(t *testing.T) {
 
 	corruptPath := filepath.Join(tempDir, "corrupt-prev.c1z")
 	require.NoError(t, os.WriteFile(corruptPath, []byte("not a c1z"), 0o600))
-	rejectedPath := writeRejectedC1Z(t, tempDir)
-	_, err = dotc1z.NewStore(ctx, rejectedPath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(tempDir))
-	require.ErrorContains(t, err, "sqlite schema guard: rejected", "precondition: the fixture must be rejected at open")
+	v1Path := writeV1C1Z(t, tempDir)
+	_, err = dotc1z.NewStore(ctx, v1Path, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(tempDir))
+	require.ErrorIs(t, err, dotc1z.ErrV1Unsupported, "precondition: the fixture must be rejected at open")
 
 	for name, path := range map[string]string{
-		"missing":  filepath.Join(tempDir, "does-not-exist.c1z"),
-		"corrupt":  corruptPath,
-		"rejected": rejectedPath,
+		"missing": filepath.Join(tempDir, "does-not-exist.c1z"),
+		"corrupt": corruptPath,
+		"v1":      v1Path,
 	} {
 		t.Run(name, func(t *testing.T) {
 			mc := newEtagObservingMockConnector("etag-v1")
@@ -377,10 +376,15 @@ func TestOptionalPreviousSyncC1ZPath_SoftFails(t *testing.T) {
 		})
 	}
 
-	// Strict variant: the same unusable files must fail loudly.
-	for name, path := range map[string]string{
-		"corrupt":  corruptPath,
-		"rejected": rejectedPath,
+	// Strict variant: an unusable file must fail loudly, while a v1 (SQLite)
+	// file is a valid c1z the SDK no longer opens and degrades to a cold
+	// sync (see WithPreviousSyncC1ZPath).
+	for name, tc := range map[string]struct {
+		path    string
+		wantErr bool
+	}{
+		"corrupt": {path: corruptPath, wantErr: true},
+		"v1":      {path: v1Path},
 	} {
 		t.Run("strict/"+name, func(t *testing.T) {
 			mc := newEtagObservingMockConnector("etag-v1")
@@ -390,35 +394,27 @@ func TestOptionalPreviousSyncC1ZPath_SoftFails(t *testing.T) {
 				dotc1z.WithTmpDir(tempDir),
 			)
 			require.NoError(t, err)
-			_, err = NewSyncer(ctx, mc,
+			created, err := NewSyncer(ctx, mc,
 				WithConnectorStore(store),
 				WithTmpDir(tempDir),
-				WithPreviousSyncC1ZPath(path),
+				WithPreviousSyncC1ZPath(tc.path),
 			)
-			require.Error(t, err, "explicit previous-sync c1z must surface unusable-file failures")
-			require.NoError(t, store.Close(ctx))
+			if tc.wantErr {
+				require.Error(t, err, "explicit previous-sync c1z must surface unusable-file failures")
+				require.NoError(t, store.Close(ctx))
+				return
+			}
+			require.NoError(t, err, "a v1 previous-sync c1z is a cold input, not a failure")
+			require.Nil(t, created.(*syncer).previousSyncReader, "a v1 previous-sync c1z must not be retained as a replay source")
+			require.NoError(t, created.Close(ctx))
 		})
 	}
 }
 
-// writeRejectedC1Z writes a v1 (SQLite) c1z whose catalog carries a
-// trigger, which every SQLite open rejects.
-func writeRejectedC1Z(t *testing.T, dir string) string {
+// writeV1C1Z writes a file with the v1 (SQLite) c1z header, which NewStore
+// rejects before decoding the payload.
+func writeV1C1Z(t *testing.T, dir string) string {
 	t.Helper()
-	rawPath := filepath.Join(t.TempDir(), "raw.db")
-	db, err := sql.Open("sqlite", rawPath)
-	require.NoError(t, err)
-	for _, q := range []string{
-		`CREATE TABLE t (x INTEGER)`,
-		`CREATE TRIGGER t_ins AFTER INSERT ON t BEGIN SELECT 1; END`,
-	} {
-		_, err := db.ExecContext(t.Context(), q)
-		require.NoError(t, err)
-	}
-	require.NoError(t, db.Close())
-	raw, err := os.ReadFile(rawPath)
-	require.NoError(t, err)
-
 	path := filepath.Join(dir, "rejected-prev.c1z")
 	out, err := os.Create(path)
 	require.NoError(t, err)
@@ -426,7 +422,7 @@ func writeRejectedC1Z(t *testing.T, dir string) string {
 	require.NoError(t, err)
 	enc, err := zstd.NewWriter(out)
 	require.NoError(t, err)
-	_, err = enc.Write(raw)
+	_, err = enc.Write([]byte("SQLite format 3\x00 not a real database"))
 	require.NoError(t, err)
 	require.NoError(t, enc.Close())
 	require.NoError(t, out.Close())
@@ -444,7 +440,6 @@ func TestPreviousSyncC1ZPathEnforcesReplayEligibility(t *testing.T) {
 		{name: "pebble-full", engine: c1zstore.EnginePebble, syncType: connectorstore.SyncTypeFull, wantReader: true},
 		{name: "pebble-partial", engine: c1zstore.EnginePebble, syncType: connectorstore.SyncTypePartial},
 		{name: "pebble-compacted-full", engine: c1zstore.EnginePebble, syncType: connectorstore.SyncTypeFull, compacted: true},
-		{name: "sqlite-full", engine: c1zstore.EngineSQLite, syncType: connectorstore.SyncTypeFull},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()

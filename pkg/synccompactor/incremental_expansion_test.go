@@ -870,49 +870,6 @@ func TestCompactor_IncrementalFailFastInvariantMarker(t *testing.T) {
 	require.Equal(t, c1zstore.IngestInvariantVerificationModeCompactionMergeFailFast, run.Mode)
 }
 
-// TestCompactor_IncrementalDegradesGracefullyOnSQLite: the fast path is
-// Pebble-only (it reopens an ended sync, which SQLite refuses). On a SQLite
-// output, requesting incremental must degrade to full expansion — no error,
-// correct grants, and incrementalExpansionRan must be false.
-func TestCompactor_IncrementalDegradesGracefullyOnSQLite(t *testing.T) {
-	ctx := context.Background()
-
-	entries := buildIncrementalFixturesEngine(t, ctx, t.TempDir(), c1zstore.EngineSQLite)
-	// No WithEngine → engine inferred from the SQLite inputs.
-	c, cleanup, err := NewCompactor(ctx, t.TempDir(), entries,
-		WithTmpDir(t.TempDir()),
-		WithIncrementalExpansion(),
-	)
-	require.NoError(t, err)
-	defer func() { _ = cleanup() }()
-
-	out, err := c.Compact(ctx)
-	require.NoError(t, err, "SQLite must degrade gracefully, not error")
-	require.NotNil(t, out)
-	require.False(t, c.incrementalExpansionRan, "SQLite must fall back to full expansion")
-
-	// Grants are still correct (produced by full expansion).
-	grants := grantOutcome(t, ctx, out.FilePath, out.SyncID)
-	hasGrant(t, grants, "ent-b|user|sam")
-	hasGrant(t, grants, "ent-c|user|sam")
-	hasGrant(t, grants, "ent-c|user|mandy")
-
-	// SQLite has no graph sidecar, so a preserved graph would have nowhere to
-	// go. Pin that the final token carries no graph (enforced twice over:
-	// graph preservation is Pebble-gated in expandGrants, and marshalToken
-	// drops the graph from every token it writes).
-	store, err := dotc1z.NewStore(ctx, out.FilePath, dotc1z.WithReadOnly(true), dotc1z.WithTmpDir(t.TempDir()))
-	require.NoError(t, err)
-	defer store.Close(ctx)
-	run, err := store.SyncMeta().LatestFinishedSyncOfAnyType(ctx)
-	require.NoError(t, err)
-	if run.SyncToken != "" {
-		tokenGraph, err := sdksync.GraphFromToken(run.SyncToken)
-		require.NoError(t, err)
-		require.Nil(t, tokenGraph, "SQLite final sync token must not carry an entitlement graph")
-	}
-}
-
 // TestCompactor_IncrementalBaseWithNoFinishedSyncDeclines: a base c1z whose
 // sync never ended (interrupted collection) makes LatestFinishedSyncOfAnyType
 // return (nil, nil) on both engines. The base-graph loader must return an

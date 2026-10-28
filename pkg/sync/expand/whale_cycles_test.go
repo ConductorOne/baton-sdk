@@ -6,7 +6,28 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 )
+
+func loadPebbleGraph(ctx context.Context, t *testing.T, path string) *EntitlementGraph {
+	t.Helper()
+	store, err := dotc1z.NewStore(ctx, path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close(ctx) })
+
+	latest, err := store.SyncMeta().LatestFullSync(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, latest, "no full sync in pebble c1z")
+	t.Logf("pebble latest full sync: %s", latest.ID)
+	_, _, err = store.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, latest.ID)
+	require.NoError(t, err)
+
+	g, err := loadEntitlementGraphFromStore(ctx, store)
+	require.NoError(t, err)
+	return g
+}
 
 // TestWhaleGraphCycles loads the pebble graph and checks whether it
 // contains cycles — the thing the production syncer collapses in

@@ -400,11 +400,6 @@ func TestCompactorGraphCompatibilityHealing(t *testing.T) {
 		require.NoError(t, store.Close(ctx))
 		assertFallbackHealsAndReuses(t, ctx, entries)
 	})
-
-	t.Run("sqlite converted to pebble", func(t *testing.T) {
-		entries := buildIncrementalFixturesEngine(t, ctx, t.TempDir(), c1zstore.EngineSQLite)
-		assertFallbackHealsAndReuses(t, ctx, entries)
-	})
 }
 
 func assertFallbackHealsAndReuses(t *testing.T, ctx context.Context, entries []*CompactableSync) {

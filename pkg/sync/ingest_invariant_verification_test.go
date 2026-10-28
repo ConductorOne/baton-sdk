@@ -30,13 +30,6 @@ func TestIngestInvariantVerificationCoverageByEngine(t *testing.T) {
 		wantMode   c1zstore.IngestInvariantVerificationMode
 	}{
 		{
-			name:     "SQLite records its engine-independent I5 coverage",
-			engine:   c1zstore.EngineSQLite,
-			syncType: connectorstore.SyncTypeFull,
-			want:     []string{"I5", "I10"},
-			wantMode: c1zstore.IngestInvariantVerificationModeConnector,
-		},
-		{
 			name:     "Pebble full records the referential family",
 			engine:   c1zstore.EnginePebble,
 			syncType: connectorstore.SyncTypeFull,
@@ -52,11 +45,11 @@ func TestIngestInvariantVerificationCoverageByEngine(t *testing.T) {
 		},
 		{
 			name:      "fail-fast records I4 when schedule evidence exists",
-			engine:    c1zstore.EngineSQLite,
+			engine:    c1zstore.EnginePebble,
 			syncType:  connectorstore.SyncTypeFull,
 			failFast:  true,
 			resources: true,
-			want:      []string{"I5", "I10", "I4"},
+			want:      []string{"I5", "I10", "I4", "I7", "I3", "I8", "I9"},
 			wantMode:  c1zstore.IngestInvariantVerificationModeConnectorFailFast,
 		},
 		{
@@ -129,7 +122,7 @@ func TestIngestInvariantVerificationCoverageByEngine(t *testing.T) {
 // sealed. The marker must therefore be written only after EndSync: a crash
 // anywhere before the seal leaves the sync unverified (fail-closed).
 func TestCrashBetweenInvariantPassAndSealLeavesNoMarker(t *testing.T) {
-	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
 			ctx := context.Background()
 			tempDir := t.TempDir()
@@ -222,12 +215,11 @@ func (c *grantFailingConnector) ListGrants(ctx context.Context, in *v2.GrantsSer
 // write — a run that aborts before re-verifying must leave the sync
 // unverified, not verified-over-rewritten-data.
 //
-// The SQLite arm re-collects and aborts at ListGrants. The ledger refuses
-// a collection rebind of a finished sync, so the Pebble arm is the
-// compactor's shape: an expansion-only rebind halted after expansion
-// wrote and before the marker is re-persisted.
+// The ledger refuses a collection rebind of a finished sync, so this is the
+// compactor's shape: an expansion-only rebind halted after expansion wrote
+// and before the marker is re-persisted.
 func TestRebindingSealedSyncClearsStaleVerification(t *testing.T) {
-	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
 			ctx := context.Background()
 			tempDir := t.TempDir()
@@ -264,24 +256,15 @@ func TestRebindingSealedSyncClearsStaleVerification(t *testing.T) {
 
 			// Run 2: rebind the sealed sync and abort after the store has
 			// been rewritten under the marker and before it is re-verified.
-			var second Syncer
-			if engine == c1zstore.EnginePebble {
-				second, err = NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()},
-					WithC1ZPath(c1zPath), WithTmpDir(tempDir), WithStorageEngine(engine),
-					WithSyncID(sealedID), WithOnlyExpandGrants())
-				require.NoError(t, err)
-				second.(*syncer).testHooks.ingestHaltHook = func(stage string) error {
-					if stage == haltStageInvariantsComplete {
-						return errors.New("injected halt before re-verification")
-					}
-					return nil
+			second, err := NewSyncer(ctx, ledgerExpansionConnector{mockConnector: newMockConnector()},
+				WithC1ZPath(c1zPath), WithTmpDir(tempDir), WithStorageEngine(engine),
+				WithSyncID(sealedID), WithOnlyExpandGrants())
+			require.NoError(t, err)
+			second.(*syncer).testHooks.ingestHaltHook = func(stage string) error {
+				if stage == haltStageInvariantsComplete {
+					return errors.New("injected halt before re-verification")
 				}
-			} else {
-				conn.failGrants = true
-				second, err = NewSyncer(ctx, conn,
-					WithC1ZPath(c1zPath), WithTmpDir(tempDir), WithStorageEngine(engine),
-					WithSyncID(sealedID))
-				require.NoError(t, err)
+				return nil
 			}
 			require.Error(t, second.Sync(ctx), "the rebound run must abort at the injected failure")
 			require.NoError(t, second.Close(ctx))

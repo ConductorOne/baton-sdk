@@ -29,7 +29,7 @@ type batchDeleteRouteStore struct {
 }
 
 func (s *batchDeleteRouteStore) Metadata() connectorstore.StoreMetadata {
-	return connectorstore.StoreMetadata{Engine: string(c1zstore.EngineSQLite)}
+	return connectorstore.StoreMetadata{}
 }
 
 func (s *batchDeleteRouteStore) Grants() c1zstore.GrantStore { return &s.grants }
