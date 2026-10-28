@@ -14,9 +14,15 @@ func TestCredentialBuilders(t *testing.T) {
 		fields map[string]any
 	}{
 		{TypePasswordV2, (PasswordV2{Username: "alice", Password: "p\"\\\n☃", URL: "not a URL"}).Encode, map[string]any{"username": "alice", "password": "p\"\\\n☃", "url": "not a URL"}},
-		{TypeAPIKeyV2, (APIKeyV2{KeyValue: "", Scopes: []string{"", "read", "read"}, ExpiresAt: "not a date"}).Encode, map[string]any{"key_value": "", "scopes": []any{"", "read", "read"}, "expires_at": "not a date"}},
+		{
+			TypeAPIKeyV2, (APIKeyV2{KeyValue: "", Scopes: []string{"", "read", "read"}, ExpiresAt: "not a date"}).Encode,
+			map[string]any{"key_value": "", "scopes": []any{"", "read", "read"}, "expires_at": "not a date"},
+		},
 		{TypeSSHKey, (SSHKey{PrivateKey: "not PEM", Hosts: []string{"example.test"}}).Encode, map[string]any{"private_key": "not PEM", "hosts": []any{"example.test"}}},
-		{TypeOAuthClientSecretV2, (OAuthClientSecretV2{ClientID: "", ClientSecret: "secret", RedirectURIs: []string{"custom:callback"}}).Encode, map[string]any{"client_id": "", "client_secret": "secret", "redirect_uri": []any{"custom:callback"}}},
+		{
+			TypeOAuthClientSecretV2, (OAuthClientSecretV2{ClientID: "", ClientSecret: "secret", RedirectURIs: []string{"custom:callback"}}).Encode,
+			map[string]any{"client_id": "", "client_secret": "secret", "redirect_uri": []any{"custom:callback"}},
+		},
 		{TypeCertificate, (Certificate{CertificatePEM: "not a certificate"}).Encode, map[string]any{"certificate_pem": "not a certificate"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
