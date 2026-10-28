@@ -22,7 +22,7 @@ import (
 type typedIssuer struct {
 	*scriptedCredentialIssuer
 	contentType string
-	invalid     bool
+	emptyValue  bool
 	input       *CredentialIssueInput
 	bytes       []byte
 }
@@ -46,13 +46,13 @@ func (i *typedIssuer) Issue(ctx context.Context, input *CredentialIssueInput) (*
 	switch i.contentType {
 	case "password_v2":
 		password := "test-password"
-		if i.invalid {
+		if i.emptyValue {
 			password = ""
 		}
 		payload, err = (secretcontracts.PasswordV2{Password: password}).Encode()
 	case "api_key_v2":
 		key := "test-key"
-		if i.invalid {
+		if i.emptyValue {
 			key = ""
 		}
 		payload, err = (secretcontracts.APIKeyV2{KeyValue: key}).Encode()
@@ -133,8 +133,8 @@ func TestNativeRequestRejectsOutputTypeMarker(t *testing.T) {
 	require.Error(t, ValidateCredentialIssueRequestSchema(schema))
 }
 
-func TestNativeTypedInvalidProducerFailsAfterIssue(t *testing.T) {
-	issuer := &typedIssuer{scriptedCredentialIssuer: newScriptedCredentialIssuer("service_account"), contentType: "password_v2", invalid: true}
+func TestNativeTypedEmptyPayloadStillEncrypts(t *testing.T) {
+	issuer := &typedIssuer{scriptedCredentialIssuer: newScriptedCredentialIssuer("service_account"), contentType: "password_v2", emptyValue: true}
 	connector, err := NewConnector(context.Background(), newTestConnector([]ResourceSyncer{issuer, newTestCredentialSecretDeleter()}))
 	require.NoError(t, err)
 	cfg := validJWEConfig(t)
@@ -144,8 +144,9 @@ func TestNativeTypedInvalidProducerFailsAfterIssue(t *testing.T) {
 	require.NoError(t, err)
 	request.SetRequestData(data)
 	response, err := connector.IssueCredential(context.Background(), request)
-	require.Error(t, err)
-	require.Nil(t, response)
+	require.NoError(t, err)
+	require.NotEmpty(t, response.GetEncryptedData())
+	require.JSONEq(t, `{"password":""}`, string(issuer.bytes))
 	require.Equal(t, 1, issuer.calls)
 }
 func TestNativeDescriptorTypeValidation(t *testing.T) {
