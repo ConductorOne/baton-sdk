@@ -2,8 +2,6 @@ package expand
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"os"
 	"strconv"
 	"testing"
@@ -13,6 +11,9 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // buildFanoutC1Z writes a REAL disk-backed c1z for the high-out-degree scenario:
@@ -29,7 +30,7 @@ func buildFanoutC1Z(b *testing.B, ctx context.Context, members, dests int) (stri
 	_ = tmp.Close()
 	path := tmp.Name()
 
-	c1f, err := dotc1z.NewC1ZFile(ctx, path)
+	c1f, err := dotc1z.NewStore(ctx, path)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -111,11 +112,11 @@ func putInChunks(b *testing.B, n, chunk int, fn func(lo, hi int)) {
 
 // loadFanoutGraph builds the entitlement graph from the store's pending-expansion
 // metadata (self-contained copy of the loader so it does not depend on stashed test files).
-func loadFanoutGraph(b *testing.B, ctx context.Context, store *dotc1z.C1File) *EntitlementGraph {
+func loadFanoutGraph(b *testing.B, ctx context.Context, store c1zstore.Store) *EntitlementGraph {
 	b.Helper()
 	graph := NewEntitlementGraph(ctx)
 	for def, err := range store.Grants().PendingExpansion(ctx) {
-		if errors.Is(err, sql.ErrNoRows) {
+		if status.Code(err) == codes.NotFound {
 			graph.Loaded = true
 			return graph
 		}
@@ -167,17 +168,17 @@ func BenchmarkExpandFanout10MDisk(b *testing.B) {
 		if err := os.WriteFile(runPath, baseData, 0600); err != nil {
 			b.Fatal(err)
 		}
-		c1f, err := dotc1z.NewC1ZFile(ctx, runPath)
+		c1f, err := dotc1z.NewStore(ctx, runPath)
 		if err != nil {
 			b.Fatal(err)
 		}
-		if err := c1f.SetSyncID(ctx, syncID); err != nil {
+		if _, _, err := c1f.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, syncID); err != nil {
 			b.Fatal(err)
 		}
 		graph := loadFanoutGraph(b, ctx, c1f)
 		b.StartTimer()
 
-		expander := NewExpander(c1f, graph)
+		expander := NewExpander(benchmarkExpanderStore{store: c1f}, graph)
 		err = expander.Run(ctx)
 
 		b.StopTimer()

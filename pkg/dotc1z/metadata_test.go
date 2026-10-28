@@ -12,25 +12,12 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
-// TestStoreMetadata locks in the Reader.Metadata() contract on both
-// engines. The Metadata() method is required by the connectorstore.Reader
-// interface; every implementation must return non-zero values for
-// Engine + Format when the store actually backs an on-disk c1z.
+// TestStoreMetadata locks in the Reader.Metadata() contract. The
+// Metadata() method is required by the connectorstore.Reader interface;
+// every implementation must return non-zero values for Engine + Format
+// when the store actually backs an on-disk c1z.
 func TestStoreMetadata(t *testing.T) {
 	ctx := context.Background()
-
-	t.Run("SQLite C1File returns sqlite/v1", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "sqlite.c1z")
-		c1z, err := dotc1z.NewC1ZFile(ctx, path)
-		require.NoError(t, err)
-		defer func() { _ = c1z.Close(ctx) }()
-
-		md := c1z.Metadata()
-		require.Equal(t, "sqlite", md.Engine)
-		require.Equal(t, "v1", md.Format)
-		require.Empty(t, md.PayloadEncoding,
-			"v1 stores have no envelope payload encoding")
-	})
 
 	t.Run("Pebble adapter returns pebble/v3 with default encoding", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "pebble.c1z")
@@ -65,7 +52,7 @@ func TestStoreMetadata(t *testing.T) {
 		// not perform I/O — this lets callers stamp it on hot
 		// spans without worrying about latency.
 		path := filepath.Join(t.TempDir(), "hot.c1z")
-		c1z, err := dotc1z.NewC1ZFile(ctx, path)
+		c1z, err := dotc1z.NewStore(ctx, path)
 		require.NoError(t, err)
 		defer func() { _ = c1z.Close(ctx) }()
 

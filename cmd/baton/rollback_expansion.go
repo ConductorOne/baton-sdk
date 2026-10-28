@@ -179,8 +179,8 @@ func runRollbackExpansion(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// SQLite rollback needs no reseal; with --replay the syncer seals.
-	if !replay && store.Metadata().Engine == string(c1zstore.EnginePebble) {
+	// With --replay the syncer seals.
+	if !replay {
 		if err := store.EndSync(ctx); err != nil {
 			return fmt.Errorf("reseal rolled-back sync: %w", err)
 		}

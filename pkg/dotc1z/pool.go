@@ -8,78 +8,22 @@ import (
 	"github.com/klauspost/compress/zstd"
 )
 
-// encoderPuts and decoderPuts count codecs handed back to the pools.
+// decoderPuts counts decoders handed back to the pool.
 //
-// They exist because sync.Pool cannot answer "did that code return its codec?".
+// It exists because sync.Pool cannot answer "did that code return its codec?".
 // A later Get is allowed to miss for reasons that have nothing to do with the
 // code under test: a GC empties the pool, and under the race detector Put
 // discards one item in four by design (sync/pool.go), so a test that concludes
-// "not pooled" from a missed Get is wrong a quarter of the time. These counters
-// increment before the Put reaches the pool, so they survive that drop.
-var (
-	encoderPuts atomic.Int64
-	decoderPuts atomic.Int64
-)
+// "not pooled" from a missed Get is wrong a quarter of the time. The counter
+// increments before the Put reaches the pool, so it survives that drop.
+var decoderPuts atomic.Int64
 
 // poolDisabled is an operational kill-switch. Set BATON_ZSTD_POOL_DISABLE=1
-// in the environment to bypass the encoder and decoder pools entirely and
-// let callers fall back to fresh encoder/decoder creation. Zero behavior
-// change when unset. Useful for rolling back pool behavior without a
-// revert + re-release cycle if a latent Reset or Close bug surfaces in prod.
+// in the environment to bypass the decoder pool entirely and let callers
+// fall back to fresh decoder creation. Zero behavior change when unset.
+// Useful for rolling back pool behavior without a revert + re-release cycle
+// if a latent Reset or Close bug surfaces in prod.
 var poolDisabled = os.Getenv("BATON_ZSTD_POOL_DISABLE") == "1"
-
-// encoderPool manages reusable zstd.Encoder instances to reduce allocation overhead.
-// Pooled encoders are single-threaded (concurrency=1) to match the production
-// default set in c1file.go. A concurrent encoder path (GOMAXPROCS) is intentionally
-// avoided here because klauspost/compress's multi-threaded encoder has theoretical
-// race concerns in its goroutine synchronization.
-var encoderPool = &sync.Pool{}
-
-// pooledEncoderConcurrency is the concurrency level used for pooled encoders.
-// Must match the c1zOptions / C1File default (1) so the pool actually engages
-// on the sync hot path. Note: pkg/synccompactor/compactor.go passes
-// WithEncoderConcurrency(0) (GOMAXPROCS) and intentionally bypasses the pool.
-const pooledEncoderConcurrency = 1
-
-// getEncoder retrieves a zstd encoder from the pool or creates a new one.
-// The returned encoder is NOT bound to any writer - call Reset(w) before use.
-// Returns the encoder and a boolean indicating if it came from the pool.
-func getEncoder() (*zstd.Encoder, bool) {
-	if poolDisabled {
-		return nil, false
-	}
-	if enc, ok := encoderPool.Get().(*zstd.Encoder); ok && enc != nil {
-		return enc, true
-	}
-
-	// Create new encoder with default concurrency.
-	// This should not fail with valid options, but handle it gracefully.
-	enc, err := zstd.NewWriter(nil,
-		zstd.WithEncoderConcurrency(pooledEncoderConcurrency),
-	)
-	if err != nil {
-		// Fallback: return nil and let caller create encoder with their options
-		return nil, false
-	}
-	return enc, false
-}
-
-// putEncoder returns a zstd encoder to the pool for reuse.
-// The encoder is reset to release any reference to the previous writer.
-// Encoders should be in a clean state (Close() called) before returning.
-func putEncoder(enc *zstd.Encoder) {
-	if enc == nil {
-		return
-	}
-	if poolDisabled {
-		return
-	}
-	// Reset to nil writer to release reference to previous output.
-	// This is safe even if the encoder was already closed.
-	enc.Reset(nil)
-	encoderPuts.Add(1)
-	encoderPool.Put(enc)
-}
 
 // decoderPool manages reusable zstd.Decoder instances to reduce allocation overhead.
 // All pooled decoders are configured with concurrency=1 (single-threaded) and low memory mode.

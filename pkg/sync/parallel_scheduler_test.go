@@ -32,7 +32,7 @@ type legacyPaginatedCheckpointStore struct {
 // answer rather than panic. nil means the verification capability is absent,
 // which is what this double intends.
 func (s *legacyPaginatedCheckpointStore) Metadata() connectorstore.StoreMetadata {
-	return connectorstore.StoreMetadata{Engine: string(c1zstore.EngineSQLite)}
+	return connectorstore.StoreMetadata{}
 }
 
 func (s *legacyPaginatedCheckpointStore) SyncMeta() c1zstore.SyncMeta { return nil }

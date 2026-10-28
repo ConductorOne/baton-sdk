@@ -29,7 +29,7 @@ func openSessionTestStore(t *testing.T, ctx context.Context, engine c1zstore.Eng
 func forEachSessionStoreEngine(t *testing.T, fn func(t *testing.T, ctx context.Context, store c1zstore.Store, syncID string, ss sessions.SessionStore)) {
 	t.Helper()
 	ctx := t.Context()
-	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
 			store, syncID := openSessionTestStore(t, ctx, engine)
 			defer func() { _ = store.Close(ctx) }()
@@ -1701,7 +1701,7 @@ func TestSessionStore_GetAll(t *testing.T) {
 }
 func TestSessionStore_Isolation(t *testing.T) {
 	ctx := t.Context()
-	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
 			storePath := filepath.Join(t.TempDir(), string(engine)+"-session-isolation.c1z")
 			store, err := NewStore(ctx, storePath, WithEngine(engine))
@@ -1771,13 +1771,9 @@ func TestSessionStore_Isolation(t *testing.T) {
 }
 func TestSessionStore_ConcurrentAccess(t *testing.T) {
 	ctx := t.Context()
-	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
-			var extraOpts []C1ZOption
-			if engine == c1zstore.EngineSQLite {
-				extraOpts = append(extraOpts, WithPragma("main.locking_mode", "NORMAL"))
-			}
-			store, syncID := openSessionTestStore(t, ctx, engine, extraOpts...)
+			store, syncID := openSessionTestStore(t, ctx, engine)
 			defer func() { _ = store.Close(ctx) }()
 			ss := store.SessionStore()
 

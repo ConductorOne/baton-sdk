@@ -16,7 +16,6 @@ require (
 	github.com/conductorone/dpop/integrations/dpop_grpc v0.3.0
 	github.com/conductorone/dpop/integrations/dpop_oauth2 v0.3.0
 	github.com/deckarep/golang-set/v2 v2.9.0
-	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/envoyproxy/protoc-gen-validate v1.3.3
 	github.com/gin-gonic/contrib v0.0.0-20260101091603-d12f07a9136b
 	github.com/gin-gonic/gin v1.12.0
@@ -138,7 +137,6 @@ require (
 	github.com/magiconair/properties v1.8.9 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-runewidth v0.0.21 // indirect
-	github.com/mattn/go-sqlite3 v1.14.22 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/minio/minlz v1.0.2-0.20260119185444-845e64f85661 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
@@ -189,8 +187,5 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
-// Remove once https://github.com/doug-martin/goqu/pull/440 merges
-replace github.com/doug-martin/goqu/v9 => github.com/ductone/goqu/v9 v9.19.1
 
 replace modernc.org/sqlite => github.com/ductone/cznic-sqlite v1.50.0-bind-perf
