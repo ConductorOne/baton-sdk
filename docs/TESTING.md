@@ -66,9 +66,6 @@ Windows reports test outcomes without the unused coverage instrumentation.
   sweep and the real-process crash/resume harness.
 - `make fuzz-smoke` — runs each native Go fuzzer for a bounded duration.
   Override it with `FUZZ_TIME=2m`, for example.
-- `make differential-check` — compares complete SQLite and Pebble artifacts
-  over generated cases for a bounded duration. Override it with
-  `DIFFERENTIAL_TIME=5m`.
 - `make bench-smoke` — executes the checkpoint cost curves once, catching
   crashes and making the current cost visible without running every
   benchmark in the repository.
@@ -95,7 +92,6 @@ The defaults can be changed without editing test code:
 ```sh
 make test-nightly \
   NIGHTLY_FUZZ_TIME=15m \
-  NIGHTLY_DIFFERENTIAL_TIME=30m \
   SOAK_ITERATIONS=100
 ```
 
@@ -173,10 +169,9 @@ Production-scale compactor experiments are deliberately excluded from
 
 - `make prodscale-check`
 - `make prodscale-crossover`
-- `make prodscale-topebble`
 
 Their fixture directory and dimensions can be overridden with the
-`BATON_PROD_SCALE_*`, `BATON_CROSSOVER_*`, and `BATON_TOPEBBLE_*` variables
+`BATON_PROD_SCALE_*` and `BATON_CROSSOVER_*` variables
 documented in `pkg/synccompactor/prodscale*_test.go`.
 
 ## Fixture-driven diagnostics

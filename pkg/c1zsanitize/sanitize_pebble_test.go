@@ -6,10 +6,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine/pebble"
 	sdksync "github.com/conductorone/baton-sdk/pkg/sync"
@@ -133,53 +134,42 @@ func TestSanitizeDropsEntitlementGraphSidecar(t *testing.T) {
 }
 
 // TestSanitizeMultiSyncIntoPebbleIsRejected proves the live-dst guard: a
-// multi-sync SQLite source cannot be sanitized into a single-sync Pebble
-// destination, while a single-sync source into Pebble succeeds.
+// source whose ListSyncs reports more than one sync (a v1 c1z read through
+// pkg/dotc1z/sqlite, for example) cannot be sanitized into a single-sync
+// Pebble destination. The Pebble reader scopes ListSyncs to the current
+// sync, so the multi-sync shape is a reader double over a real store.
 func TestSanitizeMultiSyncIntoPebbleIsRejected(t *testing.T) {
 	ctx := context.Background()
 	secret := bytes32("multisync-guard")
 	tmp := t.TempDir()
 
-	// Multi-sync SQLite source: two independent finished full syncs.
-	multiPath := filepath.Join(tmp, "multi.c1z")
-	func() {
-		f, err := dotc1z.NewC1ZFile(ctx, multiPath)
-		require.NoError(t, err)
-		for i := 0; i < 2; i++ {
-			_, err = f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-			require.NoError(t, err)
-			require.NoError(t, f.PutResourceTypes(ctx,
-				v2.ResourceType_builder{Id: "user", DisplayName: "User", Traits: []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER}}.Build()))
-			require.NoError(t, f.EndSync(ctx))
-		}
-		require.NoError(t, f.Close(ctx))
-	}()
+	srcPath := filepath.Join(tmp, "src.c1z")
+	buildSyncFixture(t, ctx, srcPath, 1)
 
-	src := openEngineStoreRO(t, ctx, multiPath)
+	src := openEngineStoreRO(t, ctx, srcPath)
 	dst := newEngineStore(t, ctx, filepath.Join(tmp, "dst-pebble.c1z"), c1zstore.EnginePebble)
-	err := Sanitize(ctx, src, dst, Options{Secret: secret, TimestampAnchor: fixedAnchor})
+	err := Sanitize(ctx, multiSyncReader{Store: src}, dst, Options{Secret: secret, TimestampAnchor: fixedAnchor})
 	require.Error(t, err, "multi-sync source into a pebble destination must be rejected")
 	require.Contains(t, err.Error(), "exactly one source sync")
 	_ = dst.Close(ctx)
 	require.NoError(t, src.Close(ctx))
 }
 
-func TestSanitizeRejectsSQLiteDestinationBeforeMutation(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-	srcPath := filepath.Join(dir, "source.c1z")
-	buildSyncFixture(t, ctx, srcPath, 1)
+// multiSyncReader adds a second, distinct sync to ListSyncs.
+type multiSyncReader struct {
+	c1zstore.Store
+}
 
-	src := mustOpen(t, ctx, srcPath, true)
-	dst, err := dotc1z.NewC1ZFile(ctx, filepath.Join(dir, "destination.c1z"))
-	require.NoError(t, err)
-	err = Sanitize(ctx, src, dst, Options{Secret: bytes32("sqlite-destination"), TimestampAnchor: fixedAnchor})
-	require.ErrorContains(t, err, "destination must use the Pebble engine")
-	runs, _, err := dst.ListSyncRuns(ctx, "", 2)
-	require.NoError(t, err)
-	require.Empty(t, runs)
-	require.NoError(t, dst.Close(ctx))
-	require.NoError(t, src.Close(ctx))
+func (r multiSyncReader) ListSyncs(ctx context.Context, req *reader_v2.SyncsReaderServiceListSyncsRequest) (*reader_v2.SyncsReaderServiceListSyncsResponse, error) {
+	resp, err := r.Store.ListSyncs(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	syncs := resp.GetSyncs()
+	extra := proto.Clone(syncs[0]).(*reader_v2.SyncRun)
+	extra.SetId(syncs[0].GetId() + "-second")
+	resp.SetSyncs(append(append([]*reader_v2.SyncRun{}, syncs...), extra))
+	return resp, nil
 }
 
 func TestSanitizeRejectsPebbleDestinationWithoutPageLedgerBeforeMutation(t *testing.T) {

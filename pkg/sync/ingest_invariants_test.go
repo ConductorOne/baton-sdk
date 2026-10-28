@@ -14,6 +14,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 )
@@ -274,7 +275,7 @@ func TestExclusionGroupTrackerSeesEveryAnnotation(t *testing.T) {
 		// NON-RETRYABLE verdict (retrying cannot fix bytes) — while a
 		// pass over a pre-sealed artifact observes and attributes,
 		// exactly like every other I5 arm.
-		buildStore := func(t *testing.T) (*dotc1z.C1File, string) {
+		buildStore := func(t *testing.T) (c1zstore.Store, string) {
 			store, syncID := newInvariantTestStore(t.Context(), t)
 			r, err := rs.NewResource("user1", userResourceType, "user1")
 			require.NoError(t, err)
@@ -330,12 +331,12 @@ func TestExclusionGroupTrackerSeesEveryAnnotation(t *testing.T) {
 	})
 }
 
-// newInvariantTestStore opens a fresh SQLite-backed C1File with an open
-// full sync, for driving RunIngestInvariants directly.
-func newInvariantTestStore(ctx context.Context, t *testing.T) (*dotc1z.C1File, string) {
+// newInvariantTestStore opens a fresh store with an open full sync, for
+// driving RunIngestInvariants directly.
+func newInvariantTestStore(ctx context.Context, t *testing.T) (c1zstore.Store, string) {
 	t.Helper()
 	tempDir := t.TempDir()
-	store, err := dotc1z.NewC1ZFile(ctx, filepath.Join(tempDir, "invariants.c1z"), dotc1z.WithTmpDir(tempDir))
+	store, err := dotc1z.NewStore(ctx, filepath.Join(tempDir, "invariants.c1z"), dotc1z.WithTmpDir(tempDir))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close(ctx) })
 	syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -423,7 +424,7 @@ func TestIngestInvariantI5StoredValidation(t *testing.T) {
 	})
 
 	t.Run("I5 runs on partial syncs too", func(t *testing.T) {
-		store, err := dotc1z.NewC1ZFile(ctx, filepath.Join(t.TempDir(), "partial.c1z"))
+		store, err := dotc1z.NewStore(ctx, filepath.Join(t.TempDir(), "partial.c1z"))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = store.Close(ctx) })
 		syncID, err := store.StartNewSync(ctx, connectorstore.SyncTypePartial, "")

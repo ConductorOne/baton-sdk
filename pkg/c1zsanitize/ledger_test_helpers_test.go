@@ -29,7 +29,7 @@ func anyTB(tb testing.TB, message proto.Message) *anypb.Any {
 
 func buildSyncFixture(tb testing.TB, ctx context.Context, path string, grants int) {
 	tb.Helper()
-	store, err := dotc1z.NewC1ZFile(ctx, path)
+	store, err := dotc1z.NewStore(ctx, path)
 	require.NoError(tb, err)
 	_, err = store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(tb, err)
@@ -99,7 +99,7 @@ func BenchmarkSanitizePageLedger(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		dstPath := filepath.Join(dir, fmt.Sprintf("destination-%d.c1z", i))
-		src, err := dotc1z.NewC1ZFile(ctx, srcPath, dotc1z.WithReadOnly(true))
+		src, err := dotc1z.NewStore(ctx, srcPath, dotc1z.WithReadOnly(true))
 		if err != nil {
 			b.Fatal(err)
 		}

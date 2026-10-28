@@ -13,13 +13,6 @@ import (
 type Engine string
 
 const (
-	// EngineSQLite is the legacy v1 engine: the v1 .c1z format backed by
-	// a zstd-compressed SQLite database. Callers opt into it via
-	// WithEngine; the NewStore default is EnginePebble. (The SQLite-only
-	// NewC1ZFile constructor is the exception: it treats an unset engine
-	// as EngineSQLite.)
-	EngineSQLite Engine = "sqlite"
-
 	// EnginePebble is the v3 engine and the NewStore default when
 	// callers do not specify one: a Pebble LSM wrapped in the v3
 	// envelope. This is the in-process identity AND the value callers
@@ -54,8 +47,7 @@ const (
 	PebbleManifestEngineV2 = "pebble2"
 )
 
-// PayloadEncoding selects the v3 envelope payload framing. Only the
-// Pebble engine consults this; SQLite engines ignore it. Every value
+// PayloadEncoding selects the v3 envelope payload framing. Every value
 // is DERIVED from the matching c1.c1z.v3.PayloadEncoding proto enum
 // value, so the Go constants cannot drift from the wire format.
 type PayloadEncoding int

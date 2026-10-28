@@ -36,7 +36,7 @@ func TestResumeCheckpointParity(t *testing.T) {
 	ctx := context.Background()
 	const fsmCursor = "fsm-page-cursor-42"
 
-	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "sync.c1z")

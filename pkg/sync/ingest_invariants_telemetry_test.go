@@ -176,13 +176,20 @@ func TestIngestInvariantI5CorruptOnlyWarnTelemetry(t *testing.T) {
 		"artifact damage must not be attributed to merge manufacture")
 }
 
+// readerWithoutIngestFacts hides the optional dotc1z.IngestInvariantStore
+// surface so the referential invariants have nothing to inspect.
+type readerWithoutIngestFacts struct {
+	connectorstore.Reader
+}
+
 // TestIngestInvariantSkipLogTelemetry pins the degradation-visibility
-// line: a store without the inspection surface (SQLite) must say so —
-// a sealed artifact that was never referentially validated must not be
+// line: a store without the inspection surface must say so — a sealed
+// artifact that was never referentially validated must not be
 // indistinguishable from one that passed.
 func TestIngestInvariantSkipLogTelemetry(t *testing.T) {
 	ctx := context.Background()
-	store, syncID := newInvariantTestStore(ctx, t) // SQLite-backed
+	full, syncID := newInvariantTestStore(ctx, t)
+	store := readerWithoutIngestFacts{Reader: full}
 
 	core, entries := newCaptureCore()
 	lctx := ctxzap.ToContext(ctx, zap.New(core))
@@ -193,7 +200,7 @@ func TestIngestInvariantSkipLogTelemetry(t *testing.T) {
 	}))
 
 	skip := findEntry(entries(), zapcore.InfoLevel, "referential invariants were not evaluated")
-	require.NotNil(t, skip, "the SQLite downgrade must be visible in the log stream")
+	require.NotNil(t, skip, "the downgrade must be visible in the log stream")
 	var hasField bool
 	for _, f := range skip.fields {
 		if f.Key == "skipped_invariants" {
@@ -213,14 +220,15 @@ func TestIngestInvariantSkipLogTelemetry(t *testing.T) {
 // a WARNING, not an info line indistinguishable from benign downgrade.
 func TestIngestInvariantSkipLogEscalatesForTypeScopedStores(t *testing.T) {
 	ctx := context.Background()
-	store, syncID := newInvariantTestStore(ctx, t) // SQLite-backed
+	full, syncID := newInvariantTestStore(ctx, t)
 
 	scoped := v2.ResourceType_builder{
 		Id:          "group",
 		DisplayName: "Group",
 		Annotations: annotations.New(&v2.TypeScopedGrants{}),
 	}.Build()
-	require.NoError(t, store.PutResourceTypes(ctx, scoped))
+	require.NoError(t, full.PutResourceTypes(ctx, scoped))
+	store := readerWithoutIngestFacts{Reader: full}
 
 	core, entries := newCaptureCore()
 	lctx := ctxzap.ToContext(ctx, zap.New(core))

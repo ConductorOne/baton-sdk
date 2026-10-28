@@ -342,14 +342,15 @@ var (
 		}))
 
 	// StorageEngineField selects the dotc1z storage engine for sync tasks.
-	// Empty uses the baton-sdk default (pebble for new files).
+	// Pebble is the only engine; the flag is kept so existing configs that
+	// pass "pebble" keep working.
 	StorageEngineField = StringField("storage-engine",
-		WithDescription("The storage engine to use when opening the sync c1z file: sqlite or pebble. "+
-			"Defaults to pebble when unset."),
+		WithDescription("The storage engine to use when opening the sync c1z file. "+
+			"Only pebble is supported; defaults to pebble when unset."),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
 		WithString(func(r *StringRuler) {
-			r.In([]string{"", "sqlite", "pebble"})
+			r.In([]string{"", "pebble"})
 		}))
 
 	// TaskConcurrencyField limits concurrent Baton task execution in the runner

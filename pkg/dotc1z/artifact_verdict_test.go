@@ -23,7 +23,7 @@ import (
 // here) is untouched, and the verdict names exactly that: the output c1z
 // does not reflect this run's progress.
 func TestArtifactVerdictOnSaveFailure(t *testing.T) {
-	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
 			ctx := context.Background()
 			dir := t.TempDir()
@@ -135,7 +135,7 @@ func TestArtifactVerdictAbsentOnPostSaveTeardownFailure(t *testing.T) {
 // TestArtifactVerdictAbsentOnCleanClose is the negative control: a healthy
 // commit carries no verdict, and the artifact it wrote reopens.
 func TestArtifactVerdictAbsentOnCleanClose(t *testing.T) {
-	for _, engine := range []c1zstore.Engine{c1zstore.EngineSQLite, c1zstore.EnginePebble} {
+	for _, engine := range []c1zstore.Engine{c1zstore.EnginePebble} {
 		t.Run(string(engine), func(t *testing.T) {
 			ctx := context.Background()
 			dir := t.TempDir()

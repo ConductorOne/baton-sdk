@@ -4,10 +4,10 @@
 // policy.
 //
 // This package is a dependency leaf: it imports only protos and
-// pkg/connectorstore. Storage engines (pkg/dotc1z's SQLite C1File,
-// pkg/dotc1z/engine/pebble's Adapter) implement these interfaces without
-// importing pkg/dotc1z, which lets dotc1z import the engines and register
-// them statically. Callers reference these types directly through this
+// pkg/connectorstore. Storage engines (pkg/dotc1z/engine/pebble's Adapter)
+// implement these interfaces without importing pkg/dotc1z, which lets
+// dotc1z import the engines and register them statically. Callers
+// reference these types directly through this
 // package (c1zstore.Store, c1zstore.Engine, etc.).
 package c1zstore
 
@@ -30,16 +30,8 @@ import (
 //   - Sync-run metadata operations, accessed via SyncMeta().
 //   - File-level operations (clone), accessed via FileOps().
 //
-// Implementations:
-//
-//   - *dotc1z.C1File — the original SQLite-backed implementation
-//     (pkg/dotc1z/c1file.go).
-//   - The Pebble v3 engine implementation opened via
-//     dotc1z.NewStore(WithEngine(EnginePebble)) (pkg/dotc1z/pebble_store.go,
-//     wrapping pkg/dotc1z/engine/pebble.Adapter).
-//
-// New implementations are expected; treat the interface methods as
-// load-bearing and the implementation list above as informational.
+// The one implementation is the Pebble v3 engine opened via dotc1z.NewStore
+// (pkg/dotc1z/pebble_store.go, wrapping pkg/dotc1z/engine/pebble.Adapter).
 //
 // The Close override replaces connectorstore.Reader.Close with an
 // explicit context parameter.
