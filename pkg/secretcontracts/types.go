@@ -29,7 +29,7 @@ func (v APIKeyV2) Encode() (Payload, error) {
 
 // SSHKey is the ssh_key document.
 type SSHKey struct {
-	PrivateKey     string   `json:"private_key,omitempty"`
+	PrivateKey     string   `json:"private_key"`
 	Username       string   `json:"username,omitempty"`
 	Passphrase     string   `json:"passphrase,omitempty"`
 	PublicKey      string   `json:"public_key,omitempty"`
