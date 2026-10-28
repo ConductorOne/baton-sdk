@@ -31,7 +31,6 @@ require (
 	github.com/pquerna/xjwt v0.4.0
 	github.com/pquerna/xjwt/xkeyset v0.0.0-20241217022915-10fc997b2a9f
 	github.com/pterm/pterm v0.12.83
-	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/segmentio/ksuid v1.0.4
 	github.com/shirou/gopsutil/v4 v4.26.4
 	github.com/spf13/cast v1.7.1
