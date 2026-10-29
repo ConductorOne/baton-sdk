@@ -74,6 +74,11 @@ func TestSortSyncsParentFirst(t *testing.T) {
 			in:   []*reader_v2.SyncRun{mk("p", ""), mk("x", "x")},
 			want: []string{"p", "x"},
 		},
+		{
+			name: "duplicate ids are each emitted once",
+			in:   []*reader_v2.SyncRun{mk("c", "p"), mk("p", ""), mk("p", "")},
+			want: []string{"p", "p", "c"},
+		},
 	}
 
 	for _, tc := range tests {
