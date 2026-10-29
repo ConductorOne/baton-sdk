@@ -1,6 +1,7 @@
 package sync //nolint:revive,nolintlint // Backwards-compatible package name.
 
 import (
+	"path/filepath"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -49,7 +50,7 @@ func equalProtoLists[T proto.Message](t *testing.T, want, got []T) {
 }
 
 func TestLedgerExternalUsesMainHandler(t *testing.T) {
-	testLedgerExternalParity(t, nil)
+	testLedgerExternalGolden(t, "default", nil)
 }
 
 // A queued import resumed by an invocation without an external source
@@ -61,7 +62,7 @@ func TestExternalImportWithoutSourceFails(t *testing.T) {
 	require.ErrorContains(t, err, "no external resource source")
 }
 
-func testLedgerExternalParity(t *testing.T, configure func(*syncer, *ledgerFixture, *ledgerFixture)) {
+func testLedgerExternalGolden(t *testing.T, mode string, configure func(*syncer, *ledgerFixture, *ledgerFixture)) {
 	t.Helper()
 	s, f, source := externalPageFixture(t)
 	if configure != nil {
@@ -70,6 +71,8 @@ func testLedgerExternalParity(t *testing.T, configure func(*syncer, *ledgerFixtu
 	f.audit.enter(ledgerLifecycle)
 	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
+	f.audit.enter(ledgerLifecycle)
+	assertLedgerGolden(t, f.store, filepath.Join("external", mode+".json"))
 }
 func TestLedgerExternalImportedGrantIsMatched(t *testing.T) {
 	s, f, source := externalPageFixture(t)
@@ -180,10 +183,10 @@ func TestLedgerExternalExpansionRemap(t *testing.T) {
 	require.Equal(t, []string{et.NewEntitlementID(fresh, "member")}, pending[0].Annotation.GetEntitlementIds())
 }
 
-func TestLedgerExternalSelectionMatchesTokenHandler(t *testing.T) {
+func TestLedgerExternalSelectionMatchesGolden(t *testing.T) {
 	for _, mode := range []string{"filtered", "skip-type", "skip-resource", "skip-grants", "traits", "profile", "missing-profile"} {
 		t.Run(mode, func(t *testing.T) {
-			testLedgerExternalParity(t, func(s *syncer, f, source *ledgerFixture) {
+			testLedgerExternalGolden(t, mode, func(s *syncer, f, source *ledgerFixture) {
 				fresh := externalMatchPrincipal(t, "fresh", map[string]any{"email": "fresh@example.com"})
 				imported := gt.NewGrant(fresh, "member", fresh.GetId())
 				require.NoError(t, source.store.PutGrants(t.Context(), imported))
