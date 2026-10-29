@@ -365,29 +365,31 @@ func sortSyncsParentFirst(syncs []*reader_v2.SyncRun) []*reader_v2.SyncRun {
 		present[s.GetId()] = struct{}{}
 	}
 
-	emitted := make(map[string]struct{}, len(syncs))
+	emitted := make([]bool, len(syncs))
+	emittedIDs := make(map[string]struct{}, len(syncs))
 	out := make([]*reader_v2.SyncRun, 0, len(syncs))
 	for len(out) < len(syncs) {
 		progressed := false
-		for _, s := range syncs {
-			id := s.GetId()
-			if _, done := emitted[id]; done {
+		for i, s := range syncs {
+			if emitted[i] {
 				continue
 			}
 			parent := s.GetParentSyncId()
 			_, parentPresent := present[parent]
-			_, parentEmitted := emitted[parent]
+			_, parentEmitted := emittedIDs[parent]
 			if parent == "" || !parentPresent || parentEmitted {
 				out = append(out, s)
-				emitted[id] = struct{}{}
+				emitted[i] = true
+				emittedIDs[s.GetId()] = struct{}{}
 				progressed = true
 			}
 		}
 		if !progressed {
-			for _, s := range syncs {
-				if _, done := emitted[s.GetId()]; !done {
+			for i, s := range syncs {
+				if !emitted[i] {
 					out = append(out, s)
-					emitted[s.GetId()] = struct{}{}
+					emitted[i] = true
+					emittedIDs[s.GetId()] = struct{}{}
 				}
 			}
 		}
