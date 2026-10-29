@@ -10,7 +10,6 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1zstore"
 )
 
@@ -42,12 +41,6 @@ type cleanupScaleStore struct {
 	resourceDeletes    int
 	entitlementDeletes int
 	grantDeletes       int
-}
-
-// SyncMeta answers the capability resolution setStore performs at attach; see
-// legacyPaginatedCheckpointStore.SyncMeta.
-func (s *cleanupScaleStore) Metadata() connectorstore.StoreMetadata {
-	return connectorstore.StoreMetadata{}
 }
 
 func (s *cleanupScaleStore) SyncMeta() c1zstore.SyncMeta { return nil }
@@ -129,7 +122,7 @@ func TestChaosConnectorExternalPrincipalCleanupUsesOnePassPerKeyspace(t *testing
 			}
 
 			syncer := &syncer{}
-			syncer.setStore(store)
+			syncer.setStore(withTripwireLedgerCaps(store))
 			require.NoError(t, syncer.deleteStaleExternalPrincipals(t.Context(), nil))
 			require.Equal(t, 1, store.resourceScans)
 			require.Equal(t, 1, store.entitlementScans)

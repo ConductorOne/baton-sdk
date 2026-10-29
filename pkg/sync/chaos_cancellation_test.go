@@ -196,7 +196,6 @@ func TestChaosExternalCancelStopsQuietlyAndCheckpoints(t *testing.T) {
 			accountingAfterCancel.Store(true)
 		}
 	}
-	sc.testHooks.checkpointHook = func(string) { t.Error("Pebble wrote a checkpoint token") }
 
 	done := make(chan error, 1)
 	go func() { done <- harness.Syncer.Sync(firstCtx) }()

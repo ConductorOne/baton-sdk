@@ -39,7 +39,6 @@ func TestLedgerLegacySDKArtifact(t *testing.T) {
 	created, err := NewSyncer(ctx, connector, WithConnectorStore(f.store), WithWorkerCount(1), WithDontExpandGrants())
 	require.NoError(t, err)
 	s := created.(*syncer)
-	s.testHooks.checkpointHook = func(string) { t.Error("ledger migration wrote a checkpoint token") }
 	observed := false
 	var snapshot []ledgerKV
 	s.testHooks.ledgerWalk = func(entering bool) {

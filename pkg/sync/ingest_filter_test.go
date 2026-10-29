@@ -645,7 +645,7 @@ func TestFreshIngestFilterProbeFailureFailsSyncNotDrops(t *testing.T) {
 	t.Run("local store failure", func(t *testing.T) {
 		failing := &resourceTypeProbeStore{Store: store, err: status.Error(codes.Internal, "probe boom")}
 		s := &syncer{cfg: syncConfig{syncType: connectorstore.SyncTypeFull}}
-		s.setStore(failing)
+		s.setStore(withLedgerCaps(t, failing, store))
 
 		_, err := s.filterFreshEntitlements(ctx, []*v2.Entitlement{entitlement})
 		require.ErrorContains(t, err, "probe boom")
@@ -679,7 +679,7 @@ func TestFreshIngestFilterCachesProbeVerdicts(t *testing.T) {
 
 	counting := &resourceTypeProbeStore{Store: store, calls: map[string]int{}}
 	s := &syncer{cfg: syncConfig{syncType: connectorstore.SyncTypeFull}}
-	s.setStore(counting)
+	s.setStore(withLedgerCaps(t, counting, store))
 
 	group := ingestFilterResource("group", "g1")
 	disabled := ingestFilterResource("iam_policy", "p1")

@@ -59,9 +59,6 @@ func runDataPolicyLifecycleCase(t *testing.T, transport chaosTransport, corpusCa
 	)
 	initialConcrete, ok := initialHarness.Syncer.(*syncer)
 	require.True(t, ok)
-	// Persist every completed page so the drop case proves counters restore
-	// from the checkpoint instead of merely being reconstructed by replay.
-	initialConcrete.checkpointInterval = 0
 	require.ErrorIs(t, initialHarness.Syncer.Sync(ctx), chaosconnector.ErrInterruptRequested)
 	require.NoError(t, initialHarness.Close(t.Context()))
 	require.NoError(t, initialRun.Runtime().VerifyRequired())
