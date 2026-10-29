@@ -238,13 +238,12 @@ type expanderStoreAdapter struct {
 	caps storeCaps
 }
 
-// NewExpanderStore adapts a c1zstore.Store into an expand.ExpanderStore,
-// bridging engine differences (Pebble exposes StoreExpandedGrants on its
-// Grants() sub-store, SQLite at top level). Use this instead of type-asserting
-// the store, which is unsafe for Pebble — and because this is where the
-// store's optional expansion capabilities are resolved for callers who hand
-// us a bare store. The syncer itself uses (*syncer).expanderStore, which
-// reuses the capabilities it already resolved at attach time.
+// NewExpanderStore adapts a c1zstore.Store into an expand.ExpanderStore. Use
+// this instead of type-asserting the store, which is unsafe for Pebble — and
+// because this is where the store's optional expansion capabilities are
+// resolved for callers who hand us a bare store. The syncer itself uses
+// (*syncer).expanderStore, which reuses the capabilities it already resolved
+// at attach time.
 func NewExpanderStore(store c1zstore.Store) expand.ExpanderStore {
 	return &expanderStoreAdapter{store: store, caps: resolveStoreCaps(store)}
 }
@@ -468,7 +467,7 @@ func resourceFromPrincipalRef(ref *storage_v3.PrincipalRef) *v2.Resource {
 // GrantsForEntitlementPrincipalSorted forwards the underlying engine's
 // principal-sort guarantee (Pebble) so the topological merge can stream grant
 // groups instead of buffering and sorting each entitlement. Engines that do not
-// implement it (SQLite) report false and get the buffering fallback.
+// implement it report false and get the buffering fallback.
 func (a *expanderStoreAdapter) GrantsForEntitlementPrincipalSorted() bool {
 	store := a.caps.principalSortedGrants
 	return store != nil && store.GrantsForEntitlementPrincipalSorted()
@@ -3776,15 +3775,15 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 // grantByRefsDeleter is the optional store fast path for deleting a grant
 // by its structured refs instead of its lossy public id (Pebble implements
-// it; SQLite resolves ids by exact string and does not need it).
+// it).
 type grantByRefsDeleter interface {
 	DeleteGrantByRefs(ctx context.Context, grant *v2.Grant) error
 }
 
 // grantsByRefsBatchDeleter is the bulk form of grantByRefsDeleter. Stores
 // that implement it delete N grants in a bounded number of commits instead
-// of one durable commit per grant; stores that do not (SQLite) fall through
-// to the per-grant loop unchanged.
+// of one durable commit per grant; stores that do not fall through to the
+// per-grant loop unchanged.
 type grantsByRefsBatchDeleter interface {
 	DeleteGrantsByRefs(ctx context.Context, grants ...*v2.Grant) error
 }
