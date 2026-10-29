@@ -40,7 +40,7 @@ func TestEndSyncConcurrentWritersNeverMissByPrincipal(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	const workers = 8
 	type accepted struct {

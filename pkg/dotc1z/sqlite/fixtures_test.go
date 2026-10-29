@@ -64,7 +64,7 @@ func convertedKeyspace(t testing.TB, path string) map[string]string {
 	defer func() { require.NoError(t, store.Close(ctx)) }()
 	engine, ok := pebble.AsEngine(store)
 	require.True(t, ok)
-	iter, err := engine.NewIter(nil)
+	iter, err := engine.Expansion().NewIter(nil)
 	require.NoError(t, err)
 	defer iter.Close()
 	out := make(map[string]string)
@@ -92,7 +92,7 @@ func digestConvertedFile(t testing.TB, path, syncID string) string {
 	require.True(t, ok)
 
 	hash := sha256.New()
-	iter, err := engine.NewIter(nil)
+	iter, err := engine.Expansion().NewIter(nil)
 	require.NoError(t, err)
 	defer iter.Close()
 	for iter.First(); iter.Valid(); iter.Next() {

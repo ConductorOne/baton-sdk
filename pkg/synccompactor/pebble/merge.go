@@ -260,13 +260,13 @@ func mergeBucketRawIfNewerWithCommitFailure(
 ) (FoldStats, error) {
 	var stats FoldStats
 	lower, upper := bucket.syncRange()
-	iter, err := src.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
+	iter, err := src.Expansion().NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
 		return stats, err
 	}
 	defer func() { _ = iter.Close() }()
 
-	batch := dest.NewFoldBatch()
+	batch := dest.Expansion().NewFoldBatch()
 	defer func() { _ = batch.Close() }()
 	pending := 0
 	var scratch rawIndexScratch
@@ -289,7 +289,7 @@ func mergeBucketRawIfNewerWithCommitFailure(
 			return err
 		}
 		_ = batch.Close()
-		batch = dest.NewFoldBatch()
+		batch = dest.Expansion().NewFoldBatch()
 		pending = 0
 		return nil
 	}
@@ -302,7 +302,7 @@ func mergeBucketRawIfNewerWithCommitFailure(
 		// Point-read the committed incumbent. Safe against the pending
 		// batch: a sync holds one record per key, so no key repeats
 		// within this loop, and earlier sources were fully flushed.
-		oldVal, closer, getErr := dest.Get(key)
+		oldVal, closer, getErr := dest.Expansion().Get(key)
 		switch {
 		case getErr == nil:
 			if bytes.Equal(oldVal, value) {

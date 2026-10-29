@@ -43,7 +43,7 @@ type sourceCacheVerificationSemanticState struct {
 
 func sourceCacheVerificationEngineDigest(t *testing.T, engine *enginepebble.Engine) [sha256.Size]byte {
 	t.Helper()
-	iter, err := engine.NewIter(nil)
+	iter, err := engine.Expansion().NewIter(nil)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, iter.Close()) }()
 
@@ -75,7 +75,7 @@ func validateSourceCacheScopeCounts(target, neighbor, wantTarget, wantNeighbor i
 
 func countSourceCacheVerificationKeys(t *testing.T, engine *enginepebble.Engine, lower, upper []byte) int {
 	t.Helper()
-	iter, err := engine.NewIter(&cockroachpebble.IterOptions{LowerBound: lower, UpperBound: upper})
+	iter, err := engine.Expansion().NewIter(&cockroachpebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, iter.Close()) }()
 	count := 0
@@ -94,7 +94,7 @@ func sourceCacheVerificationIndexKeys(
 	t.Helper()
 	var keys []string
 	for _, bound := range bounds {
-		iter, err := engine.NewIter(&cockroachpebble.IterOptions{LowerBound: bound[0], UpperBound: bound[1]})
+		iter, err := engine.Expansion().NewIter(&cockroachpebble.IterOptions{LowerBound: bound[0], UpperBound: bound[1]})
 		require.NoError(t, err)
 		for iter.First(); iter.Valid(); iter.Next() {
 			keys = append(keys, string(append([]byte(nil), iter.Key()...)))
@@ -305,7 +305,7 @@ func invalidateSourceCacheVerificationManifest(
 	value, err := proto.Marshal(rec)
 	require.NoError(t, err)
 
-	iter, err := s.engine.NewIter(&cockroachpebble.IterOptions{
+	iter, err := s.engine.Expansion().NewIter(&cockroachpebble.IterOptions{
 		LowerBound: enginepebble.SourceCacheEntryLowerBound(),
 		UpperBound: enginepebble.SourceCacheEntryUpperBound(),
 	})
@@ -313,7 +313,7 @@ func invalidateSourceCacheVerificationManifest(
 	defer func() { require.NoError(t, iter.Close()) }()
 	require.True(t, iter.First(), "manifest key must exist")
 	key := append([]byte(nil), iter.Key()...)
-	require.NoError(t, s.engine.UnsafeForTesting().Set(key, value, nil))
+	require.NoError(t, s.engine.Expansion().UnsafeForTesting().Set(key, value, nil))
 }
 
 // C07/C32: a scope is replayable only when the previous artifact owns a
@@ -1997,13 +1997,13 @@ func TestVerificationOrphanScopeIndexHealingPersistsAfterReopen(t *testing.T) {
 			// Persist a corruption shape production typed writers cannot create:
 			// the source-scope index remains but its primary row is absent.
 			ps, engine = resume()
-			iter, err := engine.NewIter(&cockroachpebble.IterOptions{LowerBound: tc.primaryLo})
+			iter, err := engine.Expansion().NewIter(&cockroachpebble.IterOptions{LowerBound: tc.primaryLo})
 			require.NoError(t, err)
 			require.True(t, iter.First())
 			primaryKey := append([]byte(nil), iter.Key()...)
 			require.True(t, bytes.HasPrefix(primaryKey, tc.primaryLo))
 			require.NoError(t, iter.Close())
-			require.NoError(t, engine.UnsafeForTesting().Delete(primaryKey, cockroachpebble.Sync))
+			require.NoError(t, engine.Expansion().UnsafeForTesting().Delete(primaryKey, cockroachpebble.Sync))
 			ps.MarkDirty()
 			require.NoError(t, ps.Close(ctx))
 

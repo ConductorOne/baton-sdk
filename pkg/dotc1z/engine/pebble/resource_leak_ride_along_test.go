@@ -37,7 +37,7 @@ func TestResourceLeakRideAlongAdequacy(t *testing.T) {
 		rb := e.db.NewRecordBatch()
 		require.NoError(t, rb.Commit(pebble.NoSync), "empty commit")
 		require.NoError(t, rb.Close(), "close after commit")
-		it, err := e.NewIter(&pebble.IterOptions{})
+		it, err := e.Expansion().NewIter(&pebble.IterOptions{})
 		require.NoError(t, err)
 		require.NoError(t, it.Close())
 		require.NoError(t, e.Close())
@@ -98,7 +98,7 @@ func TestResourceLeakRideAlongAdequacy(t *testing.T) {
 
 	t.Run("planted-leaked-iterator-fails-close", func(t *testing.T) {
 		e := openLeakProbeEngine(t)
-		it, err := e.NewIter(&pebble.IterOptions{})
+		it, err := e.Expansion().NewIter(&pebble.IterOptions{})
 		require.NoError(t, err)
 		_ = it // deliberately leaked
 		require.ErrorContains(t, e.Close(), "leaked",

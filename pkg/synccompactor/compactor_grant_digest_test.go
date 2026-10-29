@@ -409,7 +409,7 @@ func TestCompactPebbleFoldRebuildsDigestsWhenBaseHasNone(t *testing.T) {
 // in [lo, hi).
 func requireEmptyKeyRange(t testing.TB, eng *enginepkg.Engine, lo, hi []byte, what string) {
 	t.Helper()
-	iter, err := eng.NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
+	iter, err := eng.Expansion().NewIter(&pebble.IterOptions{LowerBound: lo, UpperBound: hi})
 	require.NoError(t, err)
 	defer iter.Close()
 	require.False(t, iter.First(), "%s keyspace must be empty, found key %x", what, iter.Key())

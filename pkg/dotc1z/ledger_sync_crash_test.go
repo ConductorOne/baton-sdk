@@ -229,7 +229,7 @@ func runDurableSync(t *testing.T, fs vfs.FS, dir, mode string, workers int, cutO
 		}
 		require.NoError(t, err)
 		result.data = make(map[string]string)
-		it, err := e.NewIter(nil)
+		it, err := e.Expansion().NewIter(nil)
 		require.NoError(t, err)
 		for it.First(); it.Valid(); it.Next() {
 			key := it.Key()
@@ -577,7 +577,7 @@ func TestPublicLedgerDisposedFilesCompact(t *testing.T) {
 			e, ok := engine.AsEngine(store)
 			require.True(t, ok)
 			data := make(map[string]string)
-			it, err := e.NewIter(nil)
+			it, err := e.Expansion().NewIter(nil)
 			require.NoError(t, err)
 			for it.First(); it.Valid(); it.Next() {
 				key := it.Key()

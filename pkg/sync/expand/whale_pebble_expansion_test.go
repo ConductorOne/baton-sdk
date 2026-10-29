@@ -71,15 +71,15 @@ func TestRunWhalePebbleProjectionExpansion(t *testing.T) {
 			m.Algorithm, m.DirtyGrantsWritten, m.ProjectionRowsBuilt, m.NodesReduced, m.DestinationEntitlements)
 	}
 	if eng, ok := enginepebble.AsEngine(store); ok {
-		stats := eng.ExpandWritePathStats()
+		stats := eng.Expansion().ExpandWritePathStats()
 		t.Logf("expand write paths: expanded_calls=%d expanded_rows=%d synthesized_calls=%d synthesized_rows=%d",
 			stats.ExpandedCalls, stats.ExpandedRows, stats.SynthesizedCalls, stats.SynthesizedRows)
-		eng.LogCompactionMetrics(ctx, "expansion complete")
+		eng.Expansion().LogCompactionMetrics(ctx, "expansion complete")
 	}
 
 	require.NoError(t, store.EndSync(ctx))
 	if eng, ok := enginepebble.AsEngine(store); ok {
-		eng.LogCompactionMetrics(ctx, "end sync complete")
+		eng.Expansion().LogCompactionMetrics(ctx, "end sync complete")
 	}
 	require.NoError(t, store.Close(ctx))
 

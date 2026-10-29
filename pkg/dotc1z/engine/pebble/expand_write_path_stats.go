@@ -1,5 +1,11 @@
 package pebble
 
+type Expansion struct {
+	e *Engine
+}
+
+func (e *Engine) Expansion() *Expansion { return &e.expansion }
+
 type ExpandWritePathStats struct {
 	ExpandedCalls    int64
 	ExpandedRows     int64
@@ -7,11 +13,11 @@ type ExpandWritePathStats struct {
 	SynthesizedRows  int64
 }
 
-func (e *Engine) ExpandWritePathStats() ExpandWritePathStats {
+func (x *Expansion) ExpandWritePathStats() ExpandWritePathStats {
 	return ExpandWritePathStats{
-		ExpandedCalls:    e.expandedWriteCalls.Load(),
-		ExpandedRows:     e.expandedWriteRows.Load(),
-		SynthesizedCalls: e.synthesizedWriteCalls.Load(),
-		SynthesizedRows:  e.synthesizedWriteRows.Load(),
+		ExpandedCalls:    x.e.expandedWriteCalls.Load(),
+		ExpandedRows:     x.e.expandedWriteRows.Load(),
+		SynthesizedCalls: x.e.synthesizedWriteCalls.Load(),
+		SynthesizedRows:  x.e.synthesizedWriteRows.Load(),
 	}
 }

@@ -142,9 +142,10 @@ type Engine struct {
 	entIDLookup         map[string][]entitlementIdentity
 	entIDLookupBuiltGen uint64
 
-	ledger   Ledger
-	syncRuns SyncRuns
-	digests  Digests
+	ledger    Ledger
+	syncRuns  SyncRuns
+	digests   Digests
+	expansion Expansion
 
 	// migratedOnOpen reports that this Open ran the in-place id-index
 	// migration. The store layer uses it to mark a writable store dirty so
@@ -206,6 +207,7 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 	e.ledger.e = e
 	e.syncRuns.e = e
 	e.digests.e = e
+	e.expansion.e = e
 	if s, ok := pebbleOpts.Experimental.CompactionScheduler.(*pausableCompactionScheduler); ok {
 		e.compactionScheduler = s
 	}

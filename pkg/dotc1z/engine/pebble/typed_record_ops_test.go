@@ -69,7 +69,7 @@ func TestTypedRecordOpsRejectWrongFamilyAndMalformedKeys(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	grantKey := encodeGrantIdentityKey(grantIdentity{
 		entitlement:     entitlementIdentity{resourceTypeID: "app", resourceID: "github", stripped: true, tail: "member"},
@@ -126,7 +126,7 @@ func TestExpandedGrantOverwriteThroughSeal(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	// Inline write with the expandable annotation → needs_expansion=true
 	// row + index entry via the inline regime.

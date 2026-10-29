@@ -128,24 +128,24 @@ func TestVerificationPoisonCrossScopeRestampOrders(t *testing.T) {
 			for scope := range tc.clean {
 				sealScopes = append(sealScopes, scope)
 			}
-			sealReplaySource(ctx, t, prev.PebbleEngine(), sourcecache.RowKindGrants, sealScopes...)
+			sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), sourcecache.RowKindGrants, sealScopes...)
 
 			for _, scope := range tc.poisoned {
 				dst := newAdapter(t)
 				_, err := dst.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 				require.NoError(t, err)
-				before := dumpKeyRangeTest(t, dst.PebbleEngine(), nil, nil)
-				_, err = dst.PebbleEngine().ReplaySourceCacheGrants(ctx, prev.PebbleEngine(), scope)
+				before := dumpKeyRangeTest(t, dst.Expansion().PebbleEngine(), nil, nil)
+				_, err = dst.Expansion().PebbleEngine().ReplaySourceCacheGrants(ctx, prev.Expansion().PebbleEngine(), scope)
 				require.ErrorContains(t, err, "poisoned",
 					"scope %q lost a row to a cross-scope write and must be refused as a replay source", scope)
-				require.Equal(t, before, dumpKeyRangeTest(t, dst.PebbleEngine(), nil, nil),
+				require.Equal(t, before, dumpKeyRangeTest(t, dst.Expansion().PebbleEngine(), nil, nil),
 					"poison refusal must precede any destination mutation")
 			}
 			for scope, wantRows := range tc.clean {
 				dst := newAdapter(t)
 				_, err := dst.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 				require.NoError(t, err)
-				res, err := dst.PebbleEngine().ReplaySourceCacheGrants(ctx, prev.PebbleEngine(), scope)
+				res, err := dst.Expansion().PebbleEngine().ReplaySourceCacheGrants(ctx, prev.Expansion().PebbleEngine(), scope)
 				require.NoError(t, err, "undamaged scope %q must remain replayable", scope)
 				require.Equal(t, wantRows, res.Rows)
 			}
@@ -172,14 +172,14 @@ func TestVerificationPoisonAllKindRestampAndUnscopedDelete(t *testing.T) {
 			driver := newSourceScopeMutationDriver(t, prev, kind)
 			require.NoError(t, driver.put(ctx, "scope-a"))
 			require.NoError(t, driver.put(ctx, "scope-b"))
-			sealReplaySource(ctx, t, prev.PebbleEngine(), kind, "scope-a", "scope-b")
+			sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), kind, "scope-a", "scope-b")
 
 			dst := newAdapter(t)
 			_, err = dst.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 			require.NoError(t, err)
-			_, err = driver.replay(ctx, dst.PebbleEngine(), prev.PebbleEngine(), "scope-a")
+			_, err = driver.replay(ctx, dst.Expansion().PebbleEngine(), prev.Expansion().PebbleEngine(), "scope-a")
 			require.ErrorContains(t, err, "poisoned")
-			res, err := driver.replay(ctx, dst.PebbleEngine(), prev.PebbleEngine(), "scope-b")
+			res, err := driver.replay(ctx, dst.Expansion().PebbleEngine(), prev.Expansion().PebbleEngine(), "scope-b")
 			require.NoError(t, err)
 			require.Equal(t, int64(1), res.Rows)
 		})
@@ -191,12 +191,12 @@ func TestVerificationPoisonAllKindRestampAndUnscopedDelete(t *testing.T) {
 			driver := newSourceScopeMutationDriver(t, prev, kind)
 			require.NoError(t, driver.put(ctx, "scope-a"))
 			require.NoError(t, driver.delete(ctx))
-			sealReplaySource(ctx, t, prev.PebbleEngine(), kind, "scope-a")
+			sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), kind, "scope-a")
 
 			dst := newAdapter(t)
 			_, err = dst.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 			require.NoError(t, err)
-			_, err = driver.replay(ctx, dst.PebbleEngine(), prev.PebbleEngine(), "scope-a")
+			_, err = driver.replay(ctx, dst.Expansion().PebbleEngine(), prev.Expansion().PebbleEngine(), "scope-a")
 			require.ErrorContains(t, err, "poisoned",
 				"an unscoped delete removed scope-a's row; a silent empty replay would be data loss")
 		})
@@ -225,13 +225,13 @@ func TestVerificationPoisonCrossScopeCanonicalTombstone(t *testing.T) {
 			doomed := scGrant("member", "alice", false)
 			kept := scGrant("member", "bob", false)
 			require.NoError(t, prev.PutGrants(sourcecache.WithScope(ctx, "scope-a"), doomed, kept))
-			require.NoError(t, prev.PebbleEngine().DeleteGrantRecordsBounded(ctx, []string{doomed.GetId()}, tc.actingScope))
-			sealReplaySource(ctx, t, prev.PebbleEngine(), sourcecache.RowKindGrants, "scope-a")
+			require.NoError(t, prev.Expansion().PebbleEngine().DeleteGrantRecordsBounded(ctx, []string{doomed.GetId()}, tc.actingScope))
+			sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), sourcecache.RowKindGrants, "scope-a")
 
 			dst := newAdapter(t)
 			_, err = dst.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 			require.NoError(t, err)
-			res, err := dst.PebbleEngine().ReplaySourceCacheGrants(ctx, prev.PebbleEngine(), "scope-a")
+			res, err := dst.Expansion().PebbleEngine().ReplaySourceCacheGrants(ctx, prev.Expansion().PebbleEngine(), "scope-a")
 			if tc.poisoned {
 				require.ErrorContains(t, err, "poisoned",
 					"a canonical-ID tombstone acting for another scope removed scope-a's row")
@@ -255,15 +255,15 @@ func TestVerificationPoisonScopedTombstonesDoNotSelfPoison(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, prev.PutGrants(sourcecache.WithScope(ctx, "scope-a"),
 			scGrant("member", "alice", false), scGrant("member", "bob", false)))
-		deleted, err := prev.PebbleEngine().DeleteGrantsByPrincipalsInScope(ctx, "scope-a", map[string]struct{}{"alice": {}})
+		deleted, err := prev.Expansion().PebbleEngine().DeleteGrantsByPrincipalsInScope(ctx, "scope-a", map[string]struct{}{"alice": {}})
 		require.NoError(t, err)
 		require.Equal(t, int64(1), deleted)
-		sealReplaySource(ctx, t, prev.PebbleEngine(), sourcecache.RowKindGrants, "scope-a")
+		sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), sourcecache.RowKindGrants, "scope-a")
 
 		dst := newAdapter(t)
 		_, err = dst.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		res, err := dst.PebbleEngine().ReplaySourceCacheGrants(ctx, prev.PebbleEngine(), "scope-a")
+		res, err := dst.Expansion().PebbleEngine().ReplaySourceCacheGrants(ctx, prev.Expansion().PebbleEngine(), "scope-a")
 		require.NoError(t, err, "a scope's own tombstones must not poison it")
 		require.Equal(t, int64(1), res.Rows)
 	})
@@ -275,15 +275,15 @@ func TestVerificationPoisonScopedTombstonesDoNotSelfPoison(t *testing.T) {
 		u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
 		u2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u2"}.Build()}.Build()
 		require.NoError(t, prev.PutResources(sourcecache.WithScope(ctx, "scope-a"), u1, u2))
-		deleted, err := prev.PebbleEngine().DeleteResourcesByIDsInScope(ctx, "scope-a", map[string]struct{}{"u1": {}})
+		deleted, err := prev.Expansion().PebbleEngine().DeleteResourcesByIDsInScope(ctx, "scope-a", map[string]struct{}{"u1": {}})
 		require.NoError(t, err)
 		require.Equal(t, int64(1), deleted)
-		sealReplaySource(ctx, t, prev.PebbleEngine(), sourcecache.RowKindResources, "scope-a")
+		sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), sourcecache.RowKindResources, "scope-a")
 
 		dst := newAdapter(t)
 		_, err = dst.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		res, err := dst.PebbleEngine().ReplaySourceCacheResources(ctx, prev.PebbleEngine(), "scope-a")
+		res, err := dst.Expansion().PebbleEngine().ReplaySourceCacheResources(ctx, prev.Expansion().PebbleEngine(), "scope-a")
 		require.NoError(t, err)
 		require.Equal(t, int64(1), res.Rows)
 	})
@@ -319,12 +319,12 @@ func TestVerificationPoisonReconciliationShapeRefusesReplay(t *testing.T) {
 
 	// Reconciliation's shape: delete the placeholders by identity with no
 	// acting scope, then write derived re-issued grants unscoped.
-	require.NoError(t, prev.PebbleEngine().DeleteGrantRecord(ctx, placeholderAlice.GetId()))
-	require.NoError(t, prev.PebbleEngine().DeleteGrantRecord(ctx, placeholderBob.GetId()))
+	require.NoError(t, prev.Expansion().PebbleEngine().DeleteGrantRecord(ctx, placeholderAlice.GetId()))
+	require.NoError(t, prev.Expansion().PebbleEngine().DeleteGrantRecord(ctx, placeholderBob.GetId()))
 	require.NoError(t, prev.PutGrants(ctx,
 		scGrant("member", "matched-alice", false), scGrant("member", "matched-bob", false)))
 
-	sealReplaySourceMulti(ctx, t, prev.PebbleEngine(), map[sourcecache.RowKind][]string{
+	sealReplaySourceMulti(ctx, t, prev.Expansion().PebbleEngine(), map[sourcecache.RowKind][]string{
 		sourcecache.RowKindResources:    {"scope-a"},
 		sourcecache.RowKindEntitlements: {"scope-a"},
 		sourcecache.RowKindGrants:       {"scope-a"},
@@ -334,14 +334,14 @@ func TestVerificationPoisonReconciliationShapeRefusesReplay(t *testing.T) {
 	_, err = dst.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	_, err = dst.PebbleEngine().ReplaySourceCacheGrants(ctx, prev.PebbleEngine(), "scope-a")
+	_, err = dst.Expansion().PebbleEngine().ReplaySourceCacheGrants(ctx, prev.Expansion().PebbleEngine(), "scope-a")
 	require.ErrorContains(t, err, "poisoned",
 		"reconciliation deleted scope-a's placeholder grants; replay would silently drop them")
 
-	res, err := dst.PebbleEngine().ReplaySourceCacheResources(ctx, prev.PebbleEngine(), "scope-a")
+	res, err := dst.Expansion().PebbleEngine().ReplaySourceCacheResources(ctx, prev.Expansion().PebbleEngine(), "scope-a")
 	require.NoError(t, err, "reconciliation never touches resource scopes")
 	require.Equal(t, int64(1), res.Rows)
-	res, err = dst.PebbleEngine().ReplaySourceCacheEntitlements(ctx, prev.PebbleEngine(), "scope-a")
+	res, err = dst.Expansion().PebbleEngine().ReplaySourceCacheEntitlements(ctx, prev.Expansion().PebbleEngine(), "scope-a")
 	require.NoError(t, err, "reconciliation never touches entitlement scopes")
 	require.Equal(t, int64(1), res.Rows)
 }
@@ -383,9 +383,9 @@ func TestVerificationPoisonSurvivesReopenAndInvalidationDropsIt(t *testing.T) {
 	dst := newAdapter(t)
 	_, err = dst.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	_, err = dst.PebbleEngine().ReplaySourceCacheGrants(ctx, re, "scope-a")
+	_, err = dst.Expansion().PebbleEngine().ReplaySourceCacheGrants(ctx, re, "scope-a")
 	require.ErrorContains(t, err, "poisoned")
-	res, err := dst.PebbleEngine().ReplaySourceCacheGrants(ctx, re, "scope-b")
+	res, err := dst.Expansion().PebbleEngine().ReplaySourceCacheGrants(ctx, re, "scope-b")
 	require.NoError(t, err)
 	require.Equal(t, int64(1), res.Rows)
 

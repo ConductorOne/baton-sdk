@@ -122,7 +122,7 @@ func (c *Compactor) Compact(ctx context.Context, source *enginepkg.Engine, syncI
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		iter, err := source.NewIter(&pebble.IterOptions{
+		iter, err := source.Expansion().NewIter(&pebble.IterOptions{
 			LowerBound: plan.lower,
 			UpperBound: plan.upper,
 		})
@@ -148,7 +148,7 @@ func (c *Compactor) Compact(ctx context.Context, source *enginepkg.Engine, syncI
 			// with zero SSTs (the ingest must reference at least one
 			// file), so we fall back to a RangeDelete + Flush.
 			_ = os.Remove(sstPath)
-			if err := c.base.DropKeyRange(plan.lower, plan.upper, pebble.Sync); err != nil {
+			if err := c.base.Expansion().DropKeyRange(plan.lower, plan.upper, pebble.Sync); err != nil {
 				return fmt.Errorf("compact: excise-only DeleteRange for %s: %w", plan.name, err)
 			}
 			continue
@@ -180,7 +180,7 @@ func (c *Compactor) Compact(ctx context.Context, source *enginepkg.Engine, syncI
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := c.base.ReplaceRangeWithSSTs(ctx, []string{p.sstPath}, p.exciseSpan); err != nil {
+		if err := c.base.Expansion().ReplaceRangeWithSSTs(ctx, []string{p.sstPath}, p.exciseSpan); err != nil {
 			return fmt.Errorf("compact: IngestAndExcise: %w", err)
 		}
 	}
