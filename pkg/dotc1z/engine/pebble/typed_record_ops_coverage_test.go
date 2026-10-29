@@ -191,7 +191,7 @@ func TestGrantDeleteMalformedValueStillCleansObligations(t *testing.T) {
 	require.NoError(t, e.PutGrantRecords(ctx, testGrantRecord("ent-A", "alice")))
 	require.NoError(t, a.EndSync(ctx))
 	require.NoError(t, a.SetCurrentSync(ctx, syncID))
-	_, ok, err := e.GetGrantDigestGlobalRoot(ctx)
+	_, ok, err := e.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, err)
 	require.True(t, ok, "seal must build digests")
 
@@ -217,7 +217,7 @@ func TestGrantDeleteMalformedValueStillCleansObligations(t *testing.T) {
 	_ = closer
 	require.Equal(t, 0, countKeys(t, e, GrantByPrincipalLowerBound()), "by_principal must be cleaned from the key alone")
 	require.Equal(t, 0, countKeys(t, e, encodeGrantByNeedsExpansionPrefix()), "needs_expansion must be cleaned from the key alone")
-	_, ok, err = e.GetGrantDigestGlobalRoot(ctx)
+	_, ok, err = e.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, err)
 	require.False(t, ok, "digest must read as invalidated, never stale-but-present over a deleted row")
 }

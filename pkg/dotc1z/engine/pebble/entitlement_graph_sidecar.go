@@ -36,27 +36,27 @@ func EntitlementGraphSidecarUpperBound() []byte {
 
 // PutEntitlementGraphSidecar stores the opaque graph blob. Same write
 // barrier as the stats sidecar: callers span EndSync's sealed window.
-func (e *Engine) PutEntitlementGraphSidecar(ctx context.Context, data []byte) error {
+func (d *Digests) PutEntitlementGraphSidecar(ctx context.Context, data []byte) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return e.withWriteAllowSealed(func() error {
+	return d.e.withWriteAllowSealed(func() error {
 		// Re-check after waiting for the engine's write lock. The context may
 		// have been canceled while another writer held the lock.
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		return e.db.MetaSet(encodeEntitlementGraphKey(), data, pebble.Sync)
+		return d.e.db.MetaSet(encodeEntitlementGraphKey(), data, pebble.Sync)
 	})
 }
 
 // GetEntitlementGraphSidecar returns the stored blob, or (nil, nil) if
 // none exists.
-func (e *Engine) GetEntitlementGraphSidecar(ctx context.Context) ([]byte, error) {
+func (d *Digests) GetEntitlementGraphSidecar(ctx context.Context) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	val, closer, err := e.db.Get(encodeEntitlementGraphKey())
+	val, closer, err := d.e.db.Get(encodeEntitlementGraphKey())
 	if err != nil {
 		if errors.Is(err, pebble.ErrNotFound) {
 			return nil, nil
@@ -73,16 +73,16 @@ func (e *Engine) GetEntitlementGraphSidecar(ctx context.Context) ([]byte, error)
 }
 
 // DeleteEntitlementGraphSidecar removes the blob (no-op when absent).
-func (e *Engine) DeleteEntitlementGraphSidecar(ctx context.Context) error {
+func (d *Digests) DeleteEntitlementGraphSidecar(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return e.withWriteAllowSealed(func() error {
+	return d.e.withWriteAllowSealed(func() error {
 		// Re-check after waiting for the engine's write lock. The context may
 		// have been canceled while another writer held the lock.
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		return e.db.MetaDelete(encodeEntitlementGraphKey(), pebble.Sync)
+		return d.e.db.MetaDelete(encodeEntitlementGraphKey(), pebble.Sync)
 	})
 }

@@ -40,7 +40,7 @@ func TestRepairMissingGrantDigestsLeavesGlobalRootMissingOnPartialFailure(t *tes
 
 	goodPartition := testEntPartition("ent-good")
 	badPartition := testEntPartition("ent-bad")
-	if err := e.InvalidateGrantDigestPartitions(ctx, []string{goodPartition, badPartition}); err != nil {
+	if err := e.Digests().InvalidateGrantDigestPartitions(ctx, []string{goodPartition, badPartition}); err != nil {
 		t.Fatalf("InvalidateGrantDigestPartitions: %v", err)
 	}
 
@@ -66,17 +66,17 @@ func TestRepairMissingGrantDigestsLeavesGlobalRootMissingOnPartialFailure(t *tes
 		t.Fatalf("corrupt ent-bad grant value: %v", err)
 	}
 
-	if err := e.RepairMissingGrantDigests(ctx); err != nil {
+	if err := e.Digests().RepairMissingGrantDigests(ctx); err != nil {
 		t.Fatalf("RepairMissingGrantDigests must not fail the caller: %v", err)
 	}
 
-	if _, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-good")); err != nil || !ok {
+	if _, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-good")); err != nil || !ok {
 		t.Fatalf("ent-good root: ok=%v err=%v, want repaired", ok, err)
 	}
-	if _, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-bad")); err != nil || ok {
+	if _, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-bad")); err != nil || ok {
 		t.Fatalf("ent-bad root: ok=%v err=%v, want still missing (repair failed)", ok, err)
 	}
-	if _, ok, err := e.GetGrantDigestGlobalRoot(ctx); err != nil || ok {
+	if _, ok, err := e.Digests().GetGrantDigestGlobalRoot(ctx); err != nil || ok {
 		t.Fatalf("global root: ok=%v err=%v, want still missing (repair incomplete)", ok, err)
 	}
 }
@@ -111,25 +111,25 @@ func TestRepairMissingGrantDigestsHealsOnlyInvalidatedPartition(t *testing.T) {
 	want := dumpDigestNodes(t, e)
 
 	partition := testEntPartition("ent-b")
-	if err := e.InvalidateGrantDigestPartitions(ctx, []string{partition}); err != nil {
+	if err := e.Digests().InvalidateGrantDigestPartitions(ctx, []string{partition}); err != nil {
 		t.Fatalf("InvalidateGrantDigestPartitions: %v", err)
 	}
 
 	// Sanity: exactly ent-b and the global root went missing; ent-a and
 	// ent-c are untouched.
-	if _, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-b")); err != nil || ok {
+	if _, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-b")); err != nil || ok {
 		t.Fatalf("ent-b root after invalidate: ok=%v err=%v, want missing", ok, err)
 	}
-	if _, ok, err := e.GetGrantDigestGlobalRoot(ctx); err != nil || ok {
+	if _, ok, err := e.Digests().GetGrantDigestGlobalRoot(ctx); err != nil || ok {
 		t.Fatalf("global root after invalidate: ok=%v err=%v, want missing", ok, err)
 	}
 	for _, entID := range []string{"ent-a", "ent-c"} {
-		if _, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity(entID)); err != nil || !ok {
+		if _, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity(entID)); err != nil || !ok {
 			t.Fatalf("%s root after invalidate: ok=%v err=%v, want intact", entID, ok, err)
 		}
 	}
 
-	if err := e.RepairMissingGrantDigests(ctx); err != nil {
+	if err := e.Digests().RepairMissingGrantDigests(ctx); err != nil {
 		t.Fatalf("RepairMissingGrantDigests: %v", err)
 	}
 
@@ -165,18 +165,18 @@ func TestRepairMissingGrantDigestsRediscoversInvalidatedOrphan(t *testing.T) {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
 	sealGrantDigests(t, e)
-	if _, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-orphan")); err != nil || !ok {
+	if _, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-orphan")); err != nil || !ok {
 		t.Fatalf("orphan root after seal: ok=%v err=%v, want present (seal covers orphans)", ok, err)
 	}
 	want := dumpDigestNodes(t, e)
 
-	if err := e.InvalidateGrantDigestPartitions(ctx, []string{
+	if err := e.Digests().InvalidateGrantDigestPartitions(ctx, []string{
 		testEntPartition("ent-orphan"),
 		testEntPartition("ent-real"),
 	}); err != nil {
 		t.Fatalf("InvalidateGrantDigestPartitions: %v", err)
 	}
-	if err := e.RepairMissingGrantDigests(ctx); err != nil {
+	if err := e.Digests().RepairMissingGrantDigests(ctx); err != nil {
 		t.Fatalf("RepairMissingGrantDigests: %v", err)
 	}
 
@@ -203,10 +203,10 @@ func TestRepairMissingGrantDigestsRediscoversZeroGrantEntitlement(t *testing.T) 
 	sealGrantDigests(t, e)
 	want := dumpDigestNodes(t, e)
 
-	if err := e.InvalidateGrantDigestPartitions(ctx, []string{testEntPartition("ent-empty")}); err != nil {
+	if err := e.Digests().InvalidateGrantDigestPartitions(ctx, []string{testEntPartition("ent-empty")}); err != nil {
 		t.Fatalf("InvalidateGrantDigestPartitions: %v", err)
 	}
-	if err := e.RepairMissingGrantDigests(ctx); err != nil {
+	if err := e.Digests().RepairMissingGrantDigests(ctx); err != nil {
 		t.Fatalf("RepairMissingGrantDigests: %v", err)
 	}
 
@@ -221,7 +221,7 @@ func TestRepairMissingGrantDigestsNoOpWhenNothingMissing(t *testing.T) {
 	seedEntitlement(t, e, "ent-A", []*v3.GrantRecord{makeGrant("", "g1", "ent-A", "alice")})
 	before := dumpDigestNodes(t, e)
 
-	if err := e.RepairMissingGrantDigests(ctx); err != nil {
+	if err := e.Digests().RepairMissingGrantDigests(ctx); err != nil {
 		t.Fatalf("RepairMissingGrantDigests: %v", err)
 	}
 	requireSameDigestNodes(t, dumpDigestNodes(t, e), before)
@@ -243,18 +243,18 @@ func TestRepairMissingGrantDigestsFallsBackWhenNeverBuilt(t *testing.T) {
 		t.Fatalf("PutGrantRecords: %v", err)
 	}
 
-	if err := e.RepairMissingGrantDigests(ctx); err != nil {
+	if err := e.Digests().RepairMissingGrantDigests(ctx); err != nil {
 		t.Fatalf("RepairMissingGrantDigests: %v", err)
 	}
 
-	root, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A"))
+	root, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A"))
 	if err != nil || !ok {
 		t.Fatalf("ent-A root: ok=%v err=%v", ok, err)
 	}
 	if root.Count != 1 {
 		t.Fatalf("ent-A root count = %d, want 1", root.Count)
 	}
-	if _, ok, err := e.GetGrantDigestGlobalRoot(ctx); err != nil || !ok {
+	if _, ok, err := e.Digests().GetGrantDigestGlobalRoot(ctx); err != nil || !ok {
 		t.Fatalf("global root: ok=%v err=%v", ok, err)
 	}
 }
@@ -264,7 +264,7 @@ func TestRepairMissingGrantDigestsFallsBackWhenNeverBuilt(t *testing.T) {
 func TestRepairMissingGrantDigestsDisabledIsNoOp(t *testing.T) {
 	ctx := context.Background()
 	e, _ := newTestEngine(t, WithGrantDigestIndex(false))
-	if err := e.RepairMissingGrantDigests(ctx); err != nil {
+	if err := e.Digests().RepairMissingGrantDigests(ctx); err != nil {
 		t.Fatalf("RepairMissingGrantDigests: %v", err)
 	}
 }
@@ -362,17 +362,17 @@ func TestRepairMissingGrantDigestsCountsMalformedKeys(t *testing.T) {
 		t.Fatalf("inject malformed key: %v", err)
 	}
 
-	if err := e.InvalidateGrantDigestPartitions(ctx, []string{partition}); err != nil {
+	if err := e.Digests().InvalidateGrantDigestPartitions(ctx, []string{partition}); err != nil {
 		t.Fatalf("InvalidateGrantDigestPartitions: %v", err)
 	}
 
 	core := newRepairLogCore()
 	lctx := ctxzap.ToContext(ctx, zap.New(core))
-	if err := e.RepairMissingGrantDigests(lctx); err != nil {
+	if err := e.Digests().RepairMissingGrantDigests(lctx); err != nil {
 		t.Fatalf("RepairMissingGrantDigests: %v", err)
 	}
 
-	root, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-a"))
+	root, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-a"))
 	if err != nil || !ok {
 		t.Fatalf("ent-a root after repair: ok=%v err=%v, want repaired", ok, err)
 	}
@@ -427,10 +427,10 @@ func TestRepairStreamsPartitionInBoundedBatches(t *testing.T) {
 	e.test.digestNodeFlushBytes = 1
 
 	partition := testEntPartition("ent-big")
-	if err := e.InvalidateGrantDigestPartitions(ctx, []string{partition}); err != nil {
+	if err := e.Digests().InvalidateGrantDigestPartitions(ctx, []string{partition}); err != nil {
 		t.Fatalf("InvalidateGrantDigestPartitions: %v", err)
 	}
-	if err := e.RepairMissingGrantDigests(ctx); err != nil {
+	if err := e.Digests().RepairMissingGrantDigests(ctx); err != nil {
 		t.Fatalf("RepairMissingGrantDigests: %v", err)
 	}
 

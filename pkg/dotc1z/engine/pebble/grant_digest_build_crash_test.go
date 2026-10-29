@@ -148,7 +148,7 @@ func testGrantDigestBuildCrash(t *testing.T, arm func(*Engine), assertPoisoned f
 	seedDigestCrashRecords(t, e)
 
 	arm(e)
-	buildErr := e.withWriteAllowSealed(func() error { return e.buildGrantDigestsStandaloneLocked(ctx) })
+	buildErr := e.withWriteAllowSealed(func() error { return e.Digests().buildGrantDigestsStandaloneLocked(ctx) })
 	require.ErrorIs(t, buildErr, errDigestBuildKilled)
 
 	// The poisoned durable state the marker exists for: the marker and
@@ -161,7 +161,7 @@ func testGrantDigestBuildCrash(t *testing.T, arm func(*Engine), assertPoisoned f
 
 	// Even in-process, the root getters must refuse the crashed build's
 	// nodes while the pending flag is set.
-	_, ok, gerr := e.GetGrantDigestGlobalRoot(ctx)
+	_, ok, gerr := e.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, gerr)
 	require.False(t, ok, "a pending build's global root must read as absent")
 
@@ -175,7 +175,7 @@ func testGrantDigestBuildCrash(t *testing.T, arm func(*Engine), assertPoisoned f
 	e2, err := Open(ctx, dbDir)
 	require.NoError(t, err)
 	defer e2.Close()
-	require.False(t, e2.grantDigestBuildPending.Load(), "reopen must consume the durable marker")
+	require.False(t, e2.Digests().grantDigestBuildPending.Load(), "reopen must consume the durable marker")
 	require.False(t, rawKeyPresent(t, e2, encodeGrantDigestBuildPendingKey()))
 	require.Zero(t, countKeyRangeTest(t, e2, DigestLowerBound(), DigestUpperBound()),
 		"reopen must drop every digest node the crashed build committed")
@@ -186,7 +186,7 @@ func testGrantDigestBuildCrash(t *testing.T, arm func(*Engine), assertPoisoned f
 	a2 := NewAdapter(e2)
 	require.NoError(t, a2.SetCurrentSync(ctx, syncID))
 	require.NoError(t, a2.EndSync(ctx))
-	require.False(t, e2.grantDigestBuildPending.Load(), "a successful build must clear the marker")
+	require.False(t, e2.Digests().grantDigestBuildPending.Load(), "a successful build must clear the marker")
 	require.False(t, rawKeyPresent(t, e2, encodeGrantDigestBuildPendingKey()))
 
 	// The recovered digest state must be byte-for-byte identical to a
@@ -208,7 +208,7 @@ func testGrantDigestBuildCrash(t *testing.T, arm func(*Engine), assertPoisoned f
 		dumpKeyRangeTest(t, e2, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound()),
 		"hash-index rows after crash recovery must match a from-scratch build")
 
-	root, rootOK, err := e2.GetGrantDigestGlobalRoot(ctx)
+	root, rootOK, err := e2.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, err)
 	require.True(t, rootOK, "global root must be present after the recovered seal")
 	require.EqualValues(t, 6, root.Count)

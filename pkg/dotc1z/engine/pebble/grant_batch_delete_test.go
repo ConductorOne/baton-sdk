@@ -180,7 +180,7 @@ func TestDeleteGrantsByRefsAbsentGrantIsNoOp(t *testing.T) {
 
 	e := batchDeleteFixture(t)
 	before := grantKeyspaces(t, e)
-	_, rootPresent, err := e.GetGrantDigestGlobalRoot(ctx)
+	_, rootPresent, err := e.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, err)
 	require.True(t, rootPresent, "fixture premise: the sealed store has a global digest root")
 
@@ -190,7 +190,7 @@ func TestDeleteGrantsByRefsAbsentGrantIsNoOp(t *testing.T) {
 		require.Equal(t, before[name], keys,
 			"deleting a non-existent grant must not touch the %s keyspace", name)
 	}
-	_, rootPresent, err = e.GetGrantDigestGlobalRoot(ctx)
+	_, rootPresent, err = e.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, err)
 	require.True(t, rootPresent, "an absent-grant delete must not invalidate the global digest root")
 

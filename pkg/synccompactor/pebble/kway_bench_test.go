@@ -154,7 +154,7 @@ func BenchmarkMergeFilesIntoKWayWithGrantDigests(b *testing.B) {
 		if _, err := MergeFilesInto(ctx, dest, sources, destSyncID, tmpDir); err != nil {
 			b.Fatal(err)
 		}
-		if err := dest.BuildGrantDigests(ctx); err != nil {
+		if err := dest.Digests().BuildGrantDigests(ctx); err != nil {
 			b.Fatal(err)
 		}
 		if err := dest.Close(); err != nil {

@@ -384,7 +384,7 @@ func (e *Engine) endSyncFinalize(ctx context.Context, existing *v3.SyncRunRecord
 		// rescanning every grant in the file again. Build failures are
 		// downgraded to a loud digest-state drop inside; an error
 		// surfacing here (cancellation, drop failure) is fatal.
-		if err := e.RepairMissingGrantDigests(ctx); err != nil {
+		if err := e.digests.RepairMissingGrantDigests(ctx); err != nil {
 			return fmt.Errorf("EndSync: repair grant digests: %w", err)
 		}
 	}

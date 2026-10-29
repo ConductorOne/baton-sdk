@@ -117,29 +117,6 @@ type Engine struct {
 	// record ops consume directly (the deferred regime arms the marker;
 	// the digest-invalidation obligation gates on presence).
 
-	// grantDigestBuildPending mirrors the durable digest-build marker
-	// (encodeGrantDigestBuildPendingKey): true between a digest build's
-	// arm and its completion (or the drop that cleans up after it). A
-	// writable Open that finds the durable marker drops all digest state
-	// immediately, so on a writable engine this is only ever true while
-	// a build owns the write barrier or after an in-process build
-	// failure whose cleanup drop itself failed. A READ-ONLY Open cannot
-	// drop, so the flag stays set and the digest root getters
-	// (getPartitionDigestRoot, GetGrantDigestGlobalRoot) report "never
-	// built" instead of trusting nodes a crashed build half-committed.
-	grantDigestBuildPending atomic.Bool
-
-	// grantDigestAbiStale is the read-only-open counterpart of the ABI
-	// check in verifyGrantDigestABI: true when the file holds digest
-	// nodes whose stamp (rawdb.GrantDigestABIStampKey) does not name
-	// the current GrantDigestABIVersion — state built by different hash
-	// code, e.g. a file sealed by an older SDK. A writable Open drops
-	// such state instead of setting this, so on a writable engine it is
-	// always false; on a read-only engine it makes the digest root
-	// getters report "never built" (the same fail-safe shape as
-	// grantDigestBuildPending above), and consumers recalculate.
-	grantDigestAbiStale atomic.Bool
-
 	// test holds every test-only injection seam, sequestered on one
 	// field so hooks don't accumulate on the production struct. All
 	// zero in production; see testSeams (test_seams.go).
@@ -167,6 +144,7 @@ type Engine struct {
 
 	ledger   Ledger
 	syncRuns SyncRuns
+	digests  Digests
 
 	// migratedOnOpen reports that this Open ran the in-place id-index
 	// migration. The store layer uses it to mark a writable store dirty so
@@ -227,6 +205,7 @@ func Open(ctx context.Context, dir string, opts ...Option) (*Engine, error) {
 	e.binding.Store(&syncBinding{})
 	e.ledger.e = e
 	e.syncRuns.e = e
+	e.digests.e = e
 	if s, ok := pebbleOpts.Experimental.CompactionScheduler.(*pausableCompactionScheduler); ok {
 		e.compactionScheduler = s
 	}
@@ -343,15 +322,15 @@ func (e *Engine) initKeyspaceStateLocked(ctx context.Context) error {
 	switch {
 	case err == nil:
 		closer.Close()
-		e.grantDigestBuildPending.Store(true)
+		e.digests.grantDigestBuildPending.Store(true)
 		if !e.opts.readOnly {
 			ctxzap.Extract(ctx).Warn("pebble: interrupted grant digest build detected at open; dropping all digest state — the next EndSync rebuilds it from scratch")
-			if err := e.dropAllGrantDigestStateLocked(); err != nil {
+			if err := e.digests.dropAllGrantDigestStateLocked(); err != nil {
 				return fmt.Errorf("pebble: drop digest state left by an interrupted build: %w", err)
 			}
 		}
 	case errors.Is(err, pebble.ErrNotFound):
-		e.grantDigestBuildPending.Store(false)
+		e.digests.grantDigestBuildPending.Store(false)
 	default:
 		return err
 	}
@@ -369,7 +348,7 @@ func (e *Engine) initKeyspaceStateLocked(ctx context.Context) error {
 	// read-only open flags them so the root getters report "never
 	// built". Runs after the probe so it sees post-marker-recovery
 	// presence, and its own drop re-falses the flag.
-	if err := e.verifyGrantDigestABI(ctx, e.opts.readOnly); err != nil {
+	if err := e.digests.verifyGrantDigestABI(ctx, e.opts.readOnly); err != nil {
 		return err
 	}
 	// Arm the mutation-path source-scope index obligations iff the file
@@ -596,7 +575,7 @@ func (e *Engine) GrantDigestsPresent() bool { return e.db.GrantDigestsPresent() 
 // recompute from it — see getPartitionDigestRoot,
 // GetGrantDigestGlobalRoot, and ComputeEntitlementBucketDigest.
 func (e *Engine) grantDigestStateUntrusted() bool {
-	return e.grantDigestBuildPending.Load() || e.grantDigestAbiStale.Load()
+	return e.digests.grantDigestBuildPending.Load() || e.digests.grantDigestAbiStale.Load()
 }
 
 // takeFreshGrantsEmpty / takeFreshResourcesEmpty return true

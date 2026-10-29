@@ -675,7 +675,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// stamped, and pays the normal O(partials) cost again.
 	switch {
 	case len(foldStats.TouchedGrantPartitions) > 0 && !destEng.GrantDigestIndexEnabled():
-		if err := destEng.DropAllGrantDigestState(ctx); err != nil {
+		if err := destEng.Digests().DropAllGrantDigestState(ctx); err != nil {
 			return "", fmt.Errorf("compactPebbleFold: drop grant digest state (digest index disabled): %w", err)
 		}
 		l.Info("compactPebbleFold: grant writes with digest index disabled; dropped the base's copied digest state",
@@ -685,16 +685,16 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 		for p := range foldStats.TouchedGrantPartitions {
 			partitions = append(partitions, p)
 		}
-		if err := destEng.InvalidateGrantDigestPartitions(ctx, partitions); err != nil {
+		if err := destEng.Digests().InvalidateGrantDigestPartitions(ctx, partitions); err != nil {
 			return "", fmt.Errorf("compactPebbleFold: invalidate grant digest partitions: %w", err)
 		}
-		if err := destEng.RepairMissingGrantDigests(ctx); err != nil {
+		if err := destEng.Digests().RepairMissingGrantDigests(ctx); err != nil {
 			return "", fmt.Errorf("compactPebbleFold: repair grant digests: %w", err)
 		}
 		l.Info("compactPebbleFold: repaired grant digests for touched entitlements",
 			zap.Int("touched_partitions", len(partitions)))
 	case destEng.GrantDigestIndexEnabled() && !destEng.GrantDigestsPresent():
-		if err := destEng.RepairMissingGrantDigests(ctx); err != nil {
+		if err := destEng.Digests().RepairMissingGrantDigests(ctx); err != nil {
 			return "", fmt.Errorf("compactPebbleFold: build grant digests for a base with none: %w", err)
 		}
 		l.Info("compactPebbleFold: no grant writes, but the base carried no grant digest state; built it")
@@ -736,7 +736,7 @@ func (c *Compactor) compactPebbleFold(ctx context.Context) (string, error) {
 	// stamped with that base sync ID and may no longer describe merged data.
 	// Drop it before publishing the fresh sync; a following expansion writes a
 	// new graph, while skip-expansion artifacts safely fall back next time.
-	if err := destEng.DeleteEntitlementGraphSidecar(ctx); err != nil {
+	if err := destEng.Digests().DeleteEntitlementGraphSidecar(ctx); err != nil {
 		return "", fmt.Errorf("compactPebbleFold: delete inherited entitlement graph: %w", err)
 	}
 	baseRec.SetSyncId(newSyncID)
@@ -870,7 +870,7 @@ func rebuildCompactedGrantDigests(ctx context.Context, destEng *enginepkg.Engine
 	if !destEng.GrantDigestIndexEnabled() {
 		return nil
 	}
-	if err := destEng.BuildGrantDigests(ctx); err != nil {
+	if err := destEng.Digests().BuildGrantDigests(ctx); err != nil {
 		return fmt.Errorf("build grant digests: %w", err)
 	}
 	return nil
