@@ -29,10 +29,6 @@ type syncTestHooks struct {
 	// halt sweep uses it to prove crash/resume equivalence at every
 	// ordering-sensitive point.
 	ingestHaltHook func(stage string) error
-	// checkpointHook, when non-nil, observes every durably written
-	// checkpoint token. The cut harness uses it to count checkpoints
-	// and to simulate a crash immediately after a chosen one.
-	checkpointHook func(token string)
 	// queueAudit, when non-nil, records every parallelActionQueue
 	// event (seed/dequeue/commit/abort/done) for post-hoc verification
 	// of the queue contract.
