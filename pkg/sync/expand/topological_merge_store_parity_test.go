@@ -288,10 +288,6 @@ func (s smallPageExpanderStore) StoreExpandedGrants(ctx context.Context, grants 
 	return s.inner.StoreExpandedGrants(ctx, grants...)
 }
 
-func (s smallPageExpanderStore) GrantsForEntitlementPrincipalSorted() bool {
-	return s.inner.GrantsForEntitlementPrincipalSorted()
-}
-
 func seedSQLiteBaseData(t *testing.T, ctx context.Context, store c1zstore.Store, tc sqliteParityCase) {
 	t.Helper()
 

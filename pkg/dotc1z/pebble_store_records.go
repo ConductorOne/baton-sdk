@@ -68,10 +68,6 @@ func (s *pebbleStore) ListEntitlementsByIds(
 	return s.engine.Records().ListEntitlementsByIds(ctx, req)
 }
 
-func (s *pebbleStore) GrantsForEntitlementPrincipalSorted() bool {
-	return s.engine.Records().GrantsForEntitlementPrincipalSorted()
-}
-
 func (s *pebbleStore) ListGrantsForEntitlement(
 	ctx context.Context,
 	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,

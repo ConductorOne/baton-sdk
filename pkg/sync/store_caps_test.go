@@ -37,8 +37,6 @@ var storeCapsMatrix = map[c1zstore.Engine]map[string]bool{
 		"entitlementDeleter":       true,
 		"grantRefsDeleter":         true,
 		"grantBatchDeleter":        true,
-		"grantPrincipalKeys":       true,
-		"principalSortedGrants":    true,
 		"newExpandedGrants":        true,
 		"newExpandedContributions": true,
 		"expandedGrantLayer":       true,
@@ -76,12 +74,6 @@ func TestStoreCapsEngineMatrix(t *testing.T) {
 			}
 			require.Equal(t, len(expected), seen,
 				"the matrix must list every storeCaps field exactly once")
-
-			// Interface satisfaction is not the answer: the capability is
-			// non-nil above, but the expander's streaming path depends on
-			// the effective answer being true.
-			require.True(t, NewExpanderStore(store).GrantsForEntitlementPrincipalSorted(),
-				"effective principal-sort answer on %s", engine)
 
 			// The reader-side resolver sees the same store through a
 			// narrower type and must agree with the embedded subset.
