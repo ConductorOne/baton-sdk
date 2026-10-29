@@ -338,11 +338,21 @@ func listAllSyncs(ctx context.Context, src connectorstore.Reader) ([]*reader_v2.
 			return nil, err
 		}
 		out = append(out, resp.GetSyncs()...)
-		if resp.GetNextPageToken() == "" {
-			return sortSyncsParentFirst(out), nil
+		next := resp.GetNextPageToken()
+		if next == "" {
+			break
 		}
-		pageToken = resp.GetNextPageToken()
+		pageToken = next
 	}
+	seen := make(map[string]struct{}, len(out))
+	for _, s := range out {
+		id := s.GetId()
+		if _, ok := seen[id]; ok {
+			return nil, fmt.Errorf("duplicate sync id %q", id)
+		}
+		seen[id] = struct{}{}
+	}
+	return sortSyncsParentFirst(out), nil
 }
 
 // sortSyncsParentFirst stably reorders syncs so every sync follows its
