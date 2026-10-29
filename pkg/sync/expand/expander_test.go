@@ -3,6 +3,7 @@ package expand
 import (
 	"context"
 	"errors"
+	"sort"
 	"strconv"
 	"testing"
 
@@ -97,6 +98,13 @@ func (m *MockExpanderStore) ListGrantsForEntitlement(
 		grants = filtered
 	}
 
+	// Page offsets index this sorted slice, so successive pages continue the same principal order.
+	ordered := append([]*v2.Grant(nil), grants...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return grantPrincipalLess(ordered[i], ordered[j])
+	})
+	grants = ordered
+
 	nextPageToken := ""
 	if m.pageSize > 0 {
 		offset := 0
@@ -135,10 +143,22 @@ func (m *MockExpanderStore) StoreExpandedGrants(_ context.Context, grants ...*v2
 	return m.PutGrants(context.Background(), grants...)
 }
 
-// GrantsForEntitlementPrincipalSorted is false: the in-memory mock returns
-// grants in insertion order, not principal order, so the topological evaluators
-// must use the buffering/sorting fallback rather than streaming.
 func (m *MockExpanderStore) GrantsForEntitlementPrincipalSorted() bool { return false }
+
+// grantPrincipalLess orders grants by principal (resource type, then resource),
+// then grant id. Nil principals sort last. Tuple encoding preserves this order,
+// which is the order projection streams into its SST.
+func grantPrincipalLess(a, b *v2.Grant) bool {
+	ka, oka := principalKeyFromResource(a.GetPrincipal())
+	kb, okb := principalKeyFromResource(b.GetPrincipal())
+	if oka != okb {
+		return oka
+	}
+	if oka && ka != kb {
+		return principalKeyLess(ka, kb)
+	}
+	return a.GetId() < b.GetId()
+}
 
 // Helper functions for creating test data
 
