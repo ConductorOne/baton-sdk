@@ -25,7 +25,7 @@ var immutableAnnotationAny = func() *anypb.Any {
 	return a
 }()
 
-// ErrMaxDepthExceeded is returned when the expansion graph exceeds the maximum allowed depth.
+// Deprecated: no expansion path returns this; kept so importers compile.
 var ErrMaxDepthExceeded = errors.New("max depth exceeded")
 
 // ExpanderStore defines the minimal store interface needed for grant expansion.

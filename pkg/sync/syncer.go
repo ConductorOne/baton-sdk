@@ -3804,11 +3804,6 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context, action *Action
 	err = expander.RunSingleStep(ctx)
 	if err != nil {
 		l.Error("expandGrantsForEntitlements: error during expansion", zap.Error(err))
-		// If max depth exceeded, finish the action before returning the error
-		// to prevent the state machine from getting stuck
-		if errors.Is(err, expand.ErrMaxDepthExceeded) {
-			s.run.finishAction(ctx, action)
-		}
 		return err
 	}
 
