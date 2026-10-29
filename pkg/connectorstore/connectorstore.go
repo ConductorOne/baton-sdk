@@ -39,7 +39,6 @@ type StoreMetadata struct {
 	// c1zstore.Engine string values; using string here keeps
 	// connectorstore from depending on dotc1z (avoids an import
 	// cycle).
-	//   "sqlite" — original .c1z, v1 magic + zstd-compressed SQLite
 	//   "pebble" — v3 .c1z3, Pebble LSM in a v3 envelope
 	//   ""       — unknown or not backed by an on-disk c1z
 	Engine string
@@ -218,12 +217,12 @@ type EntitlementGrantDigestReader interface {
 }
 
 // DBSizeProvider is an optional capability for a store that can report its
-// current uncompressed working-set size (e.g. dotc1z.C1File stat'ing its
-// sqlite file). Consumed by the syncer's ProgressLog to include
-// decompressed_bytes and growth delta in the periodic "Expanding grants"
-// log during long-running grant expansions — the Expander itself is
-// recreated each RunSingleStep by the syncer, so this state cannot live
-// there.
+// current uncompressed working-set size (e.g. the Pebble engine summing
+// regular files in its database directory). Consumed by the syncer's
+// ProgressLog to include decompressed_bytes and growth delta in the periodic
+// "Expanding grants" log during long-running grant expansions — the Expander
+// itself is recreated each RunSingleStep by the syncer, so this state cannot
+// live there.
 type DBSizeProvider interface {
 	CurrentDBSizeBytes() (int64, error)
 }
