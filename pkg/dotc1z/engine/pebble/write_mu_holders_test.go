@@ -20,10 +20,13 @@ package pebble
 // only from Open, before the engine is published) need no lock. A function
 // literal inherits its enclosing context unless it escapes: the function
 // of a go statement, a struct field, a return value, or an assignment to
-// a field. The engine is recognised as e, l.e and u.l.e; the ledger as l,
-// u.l and e.ledger (receiverKind). Methods on Engine, Ledger and pageUnit
-// share one name space, so a name may not be declared on two of them. A
-// mutation through any other alias of the DB is not followed.
+// a field. Receivers resolve to the types in checkedTypes (receiverType):
+// a method's receiver identifier is its declared type; e is the engine
+// and l the ledger anywhere; <sub-type>.e is the engine; <ident>.l is the
+// ledger; <engine>.<field> and <engine>.<Type>() are the sub-type the
+// field holds. Methods on the checked types share one name space, so a
+// name may not be declared on two of them. A mutation through any other
+// alias of the DB is not followed.
 
 import (
 	"fmt"
@@ -81,8 +84,10 @@ type writeMuSite struct {
 
 func TestWriteMuHolders(t *testing.T) {
 	fset, files := parseProductionDir(t, ".")
+	requireSubTypeShape(t, files)
 
 	methods := map[string]*ast.FuncDecl{}
+	scopes := map[string]scope{}
 	fileOf := map[string]string{}
 	for _, f := range files {
 		for _, d := range f.Decls {
@@ -90,20 +95,34 @@ func TestWriteMuHolders(t *testing.T) {
 			if !ok || fd.Body == nil {
 				continue
 			}
-			if fd.Recv == nil || (len(fd.Recv.List) == 1 && checkedReceivers[receiverTypeName(fd.Recv.List[0].Type)]) {
-				_, dup := methods[fd.Name.Name]
-				require.False(t, dup, "%s declared on two checked types; the checker keys by name", fd.Name.Name)
-				methods[fd.Name.Name] = fd
-				fileOf[fd.Name.Name] = baseName(fset.Position(fd.Pos()).Filename)
+			var sc scope
+			if fd.Recv != nil {
+				if len(fd.Recv.List) != 1 {
+					continue
+				}
+				recvType := receiverTypeName(fd.Recv.List[0].Type)
+				if _, checked := checkedTypes[recvType]; !checked {
+					continue
+				}
+				sc.recvType = recvType
+				if names := fd.Recv.List[0].Names; len(names) == 1 {
+					sc.recvName = names[0].Name
+				}
 			}
+			_, dup := methods[fd.Name.Name]
+			require.False(t, dup, "%s declared on two checked types; the checker keys by name", fd.Name.Name)
+			methods[fd.Name.Name] = fd
+			scopes[fd.Name.Name] = sc
+			fileOf[fd.Name.Name] = baseName(fset.Position(fd.Pos()).Filename)
 		}
 	}
 
 	// 4. Direct acquirers and the position of their Lock().
 	lockPos := map[string]token.Pos{}
 	for name, fd := range methods {
+		sc := scopes[name]
 		ast.Inspect(fd.Body, func(n ast.Node) bool {
-			if call, ok := n.(*ast.CallExpr); ok && isEngineField(call.Fun, "writeMu", "Lock") {
+			if call, ok := n.(*ast.CallExpr); ok && isEngineField(call.Fun, sc, "writeMu", "Lock") {
 				if _, seen := lockPos[name]; !seen {
 					lockPos[name] = call.Pos()
 				}
@@ -123,15 +142,16 @@ func TestWriteMuHolders(t *testing.T) {
 	var sites []writeMuSite
 	callers := map[string]map[string]bool{} // callee -> set of enclosing methods
 	for name, fd := range methods {
-		walkWithContext(fd.Body, strings.HasSuffix(name, "Locked"), lockPos[name], func(n ast.Node, holder bool) {
+		sc := scopes[name]
+		walkWithContext(fd.Body, sc, strings.HasSuffix(name, "Locked"), lockPos[name], func(n ast.Node, holder bool) {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
 				return
 			}
-			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && writeMuMutatingRawdbMethods[sel.Sel.Name] && isEngineField(sel.X, "db") {
+			if sel, ok := call.Fun.(*ast.SelectorExpr); ok && writeMuMutatingRawdbMethods[sel.Sel.Name] && isEngineField(sel.X, sc, "db") {
 				sites = append(sites, writeMuSite{pos: call.Pos(), enclosing: name, rawdb: sel.Sel.Name, holder: holder})
 			}
-			callee, _, ok := memberCall(call)
+			callee, _, ok := memberCall(call, sc)
 			if !ok {
 				// A plain package function (newSourceCacheDeleteBatch(e, ...)).
 				if id, isIdent := call.Fun.(*ast.Ident); isIdent {
@@ -223,7 +243,7 @@ func TestWriteMuHolders(t *testing.T) {
 // escape reset both: their bodies run outside the caller's critical
 // section even when they appear after the Lock(). Literals invoked
 // synchronously (arguments, local closures) inherit.
-func walkWithContext(root ast.Node, holder bool, lock token.Pos, visit func(ast.Node, bool)) {
+func walkWithContext(root ast.Node, sc scope, holder bool, lock token.Pos, visit func(ast.Node, bool)) {
 	var walk func(n ast.Node, holder bool, lock token.Pos)
 	escaped := func(lit *ast.FuncLit) { walk(lit.Body, false, token.NoPos) }
 	walk = func(n ast.Node, holder bool, lock token.Pos) {
@@ -277,7 +297,7 @@ func walkWithContext(root ast.Node, holder bool, lock token.Pos, visit func(ast.
 			}
 			return
 		case *ast.CallExpr:
-			if callee, kind, ok := memberCall(x); ok && kind == recvEngine && (callee == "withWrite" || callee == "withWriteAllowSealed") {
+			if callee, recvType, ok := memberCall(x, sc); ok && recvType == "Engine" && (callee == "withWrite" || callee == "withWriteAllowSealed") {
 				walk(x.Fun, holder, lock)
 				for _, a := range x.Args {
 					if lit, ok := a.(*ast.FuncLit); ok {
@@ -302,61 +322,133 @@ func walkWithContext(root ast.Node, holder bool, lock token.Pos, visit func(ast.
 	walk(root, holder, lock)
 }
 
-var checkedReceivers = map[string]bool{"Engine": true, "Ledger": true, "pageUnit": true}
-
-type recvKind int
-
-const (
-	recvNone recvKind = iota
-	recvEngine
-	recvLedger
-)
-
-// receiverKind resolves an expression to the engine or the ledger: e, l.e,
-// u.l.e are the engine; l, u.l, e.ledger are the ledger.
-func receiverKind(expr ast.Expr) recvKind {
-	switch x := expr.(type) {
-	case *ast.Ident:
-		switch x.Name {
-		case "e":
-			return recvEngine
-		case "l":
-			return recvLedger
-		}
-	case *ast.SelectorExpr:
-		switch x.Sel.Name {
-		case "l":
-			if _, ok := x.X.(*ast.Ident); ok {
-				return recvLedger
-			}
-		case "e":
-			if receiverKind(x.X) == recvLedger {
-				return recvEngine
-			}
-		case "ledger":
-			if receiverKind(x.X) == recvEngine {
-				return recvLedger
-			}
-		}
-	}
-	return recvNone
+// checkedTypes maps each type whose methods the checker follows to the
+// Engine field that holds it ("" for Engine itself and for pageUnit, which
+// hangs off Ledger). A sub-type with a field name here must be a value
+// field of Engine with an accessor method of the same name as the type,
+// and must hold `e *Engine` (requireSubTypeShape).
+var checkedTypes = map[string]string{
+	"Engine":    "",
+	"Ledger":    "ledger",
+	"pageUnit":  "",
+	"SyncRuns":  "syncRuns",
+	"Digests":   "digests",
+	"Expansion": "expansion",
+	"Records":   "records",
 }
 
-// memberCall reports the method name and receiver kind when call is
-// <engine>.X(...) or <ledger>.X(...).
-func memberCall(call *ast.CallExpr) (string, recvKind, bool) {
+// requireSubTypeShape pins the composition the receiver rules assume, for
+// every sub-type in checkedTypes that is declared.
+func requireSubTypeShape(t *testing.T, files map[string]*ast.File) {
+	t.Helper()
+	structs := map[string]*ast.StructType{}
+	accessors := map[string]bool{}
+	for _, f := range files {
+		for _, d := range f.Decls {
+			switch d := d.(type) {
+			case *ast.GenDecl:
+				for _, s := range d.Specs {
+					if ts, ok := s.(*ast.TypeSpec); ok {
+						if st, ok := ts.Type.(*ast.StructType); ok {
+							structs[ts.Name.Name] = st
+						}
+					}
+				}
+			case *ast.FuncDecl:
+				if d.Recv != nil && len(d.Recv.List) == 1 && receiverTypeName(d.Recv.List[0].Type) == "Engine" {
+					accessors[d.Name.Name] = true
+				}
+			}
+		}
+	}
+	fieldType := func(st *ast.StructType, name string) string {
+		for _, f := range st.Fields.List {
+			for _, n := range f.Names {
+				if n.Name == name {
+					return receiverTypeName(f.Type)
+				}
+			}
+		}
+		return ""
+	}
+	engine := structs["Engine"]
+	require.NotNil(t, engine)
+	for typeName, field := range checkedTypes {
+		st, declared := structs[typeName]
+		if field == "" || !declared {
+			continue
+		}
+		require.Equal(t, typeName, fieldType(engine, field), "Engine.%s must be a value field of type %s", field, typeName)
+		require.True(t, accessors[typeName], "Engine.%s() accessor missing", typeName)
+		require.Equal(t, "Engine", fieldType(st, "e"), "%s.e must be *Engine", typeName)
+	}
+}
+
+// scope is the receiver of the method being walked: its identifier and
+// its type. Plain functions have an empty scope and rely on the e and l
+// name fallbacks.
+type scope struct {
+	recvName string
+	recvType string
+}
+
+// receiverType resolves expr to a checkedTypes name, or "".
+func receiverType(expr ast.Expr, sc scope) string {
+	switch x := expr.(type) {
+	case *ast.Ident:
+		switch {
+		case sc.recvName != "" && x.Name == sc.recvName:
+			return sc.recvType
+		case x.Name == "e":
+			return "Engine"
+		case x.Name == "l":
+			return "Ledger"
+		}
+	case *ast.SelectorExpr:
+		base := receiverType(x.X, sc)
+		switch {
+		case x.Sel.Name == "l":
+			if _, ok := x.X.(*ast.Ident); ok {
+				return "Ledger"
+			}
+		case x.Sel.Name == "e":
+			if base != "" && base != "Engine" {
+				return "Engine"
+			}
+		case base == "Engine":
+			for typeName, field := range checkedTypes {
+				if field != "" && field == x.Sel.Name {
+					return typeName
+				}
+			}
+		}
+	case *ast.CallExpr:
+		sel, ok := x.Fun.(*ast.SelectorExpr)
+		if !ok || len(x.Args) != 0 || receiverType(sel.X, sc) != "Engine" {
+			return ""
+		}
+		if field, checked := checkedTypes[sel.Sel.Name]; checked && field != "" {
+			return sel.Sel.Name
+		}
+	}
+	return ""
+}
+
+// memberCall reports the method name and receiver type when call is
+// <checked type>.X(...).
+func memberCall(call *ast.CallExpr, sc scope) (string, string, bool) {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
-		return "", recvNone, false
+		return "", "", false
 	}
-	if kind := receiverKind(sel.X); kind != recvNone {
-		return sel.Sel.Name, kind, true
+	if recvType := receiverType(sel.X, sc); recvType != "" {
+		return sel.Sel.Name, recvType, true
 	}
-	return "", recvNone, false
+	return "", "", false
 }
 
 // isEngineField reports whether expr is <engine>.parts[0].parts[1]...
-func isEngineField(expr ast.Expr, parts ...string) bool {
+func isEngineField(expr ast.Expr, sc scope, parts ...string) bool {
 	for i := len(parts) - 1; i >= 0; i-- {
 		sel, ok := expr.(*ast.SelectorExpr)
 		if !ok || sel.Sel.Name != parts[i] {
@@ -364,7 +456,7 @@ func isEngineField(expr ast.Expr, parts ...string) bool {
 		}
 		expr = sel.X
 	}
-	return receiverKind(expr) == recvEngine
+	return receiverType(expr, sc) == "Engine"
 }
 
 func baseName(path string) string {
