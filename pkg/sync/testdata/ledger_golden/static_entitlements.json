@@ -1,0 +1,42 @@
+{
+  "entitlements": [
+    {
+      "resource": {
+        "id": {
+          "resourceType": "first",
+          "resource": "one"
+        }
+      },
+      "id": "first:one:member",
+      "displayName": "one",
+      "description": "description one",
+      "annotations": [
+        {
+          "@type": "type.googleapis.com/c1.connector.v2.EntitlementExclusionGroup",
+          "exclusionGroupId": "roles-one",
+          "scopeToResource": true
+        }
+      ],
+      "slug": "member"
+    },
+    {
+      "resource": {
+        "id": {
+          "resourceType": "first",
+          "resource": "two"
+        }
+      },
+      "id": "first:two:member",
+      "displayName": "two",
+      "description": "description two",
+      "annotations": [
+        {
+          "@type": "type.googleapis.com/c1.connector.v2.EntitlementExclusionGroup",
+          "exclusionGroupId": "roles-two",
+          "scopeToResource": true
+        }
+      ],
+      "slug": "member"
+    }
+  ]
+}

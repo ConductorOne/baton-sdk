@@ -199,12 +199,13 @@ func TestLedgerStaticEntitlementPlanner(t *testing.T) {
 	require.EqualValues(t, 1, counters.Counters["ingest.invalid_resource_types_observed"])
 }
 
-func TestLedgerStaticEntitlementsMatchTokenHandler(t *testing.T) {
+func TestLedgerStaticEntitlementsMatchGolden(t *testing.T) {
 	ledger, f, _ := staticPageFixture(t)
 	f.audit.enter(ledgerHandler)
 	_, err := runLedgerTestSync(t, ledger, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
 	f.audit.enter(ledgerLifecycle)
+	assertLedgerGolden(t, f.store, "static_entitlements.json")
 }
 
 func TestLedgerStaticEntitlementReplay(t *testing.T) {
