@@ -112,10 +112,10 @@ func TestEndSyncSecondCallTakesTargetedRepairPath(t *testing.T) {
 
 	// Sanity: only ent-A (and the global root) should be invalidated by
 	// that write.
-	if _, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A")); err != nil || ok {
+	if _, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A")); err != nil || ok {
 		t.Fatalf("ent-A root after post-seal write: ok=%v err=%v, want missing", ok, err)
 	}
-	rootB, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-B"))
+	rootB, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-B"))
 	if err != nil || !ok {
 		t.Fatalf("ent-B root after post-seal write: ok=%v err=%v, want intact", ok, err)
 	}
@@ -164,14 +164,14 @@ func TestEndSyncSecondCallTakesTargetedRepairPath(t *testing.T) {
 
 	// ent-A must be correctly repaired (21 grants now), and the global
 	// root must be recomputed and correct.
-	rootA, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A"))
+	rootA, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A"))
 	if err != nil || !ok {
 		t.Fatalf("ent-A root after repair: ok=%v err=%v", ok, err)
 	}
 	if rootA.Count != 21 {
 		t.Fatalf("ent-A root count = %d, want 21", rootA.Count)
 	}
-	globalRoot, ok, err := e.GetGrantDigestGlobalRoot(ctx)
+	globalRoot, ok, err := e.Digests().GetGrantDigestGlobalRoot(ctx)
 	if err != nil || !ok {
 		t.Fatalf("global root after repair: ok=%v err=%v", ok, err)
 	}

@@ -361,7 +361,7 @@ func (s *pebbleStore) PebbleEngine() *pebble.Engine {
 }
 
 func (s *pebbleStore) GrantGenerationDigest(ctx context.Context) (c1zstore.GrantGenerationDigest, bool, error) {
-	root, ok, err := s.GetGrantDigestGlobalRoot(ctx)
+	root, ok, err := s.Engine.Digests().GetGrantDigestGlobalRoot(ctx)
 	if err != nil || !ok {
 		return c1zstore.GrantGenerationDigest{}, ok, err
 	}
@@ -526,18 +526,18 @@ func (s *pebbleStore) PutEntitlementGraphBlob(ctx context.Context, data []byte) 
 	if err := s.writeHook(ctx, "PutEntitlementGraphBlob"); err != nil {
 		return err
 	}
-	return s.markDirty(s.PutEntitlementGraphSidecar(ctx, data))
+	return s.markDirty(s.Engine.Digests().PutEntitlementGraphSidecar(ctx, data))
 }
 
 func (s *pebbleStore) GetEntitlementGraphBlob(ctx context.Context) ([]byte, error) {
-	return s.GetEntitlementGraphSidecar(ctx)
+	return s.Engine.Digests().GetEntitlementGraphSidecar(ctx)
 }
 
 func (s *pebbleStore) DeleteEntitlementGraphBlob(ctx context.Context) error {
 	if err := s.writeHook(ctx, "DeleteEntitlementGraphBlob"); err != nil {
 		return err
 	}
-	return s.markDirty(s.DeleteEntitlementGraphSidecar(ctx))
+	return s.markDirty(s.Engine.Digests().DeleteEntitlementGraphSidecar(ctx))
 }
 
 // SetSupportsDiff marks the given sync's grant expansion as complete,

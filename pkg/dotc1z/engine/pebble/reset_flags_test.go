@@ -24,8 +24,8 @@ func TestResetForNewSyncRederivesKeyspaceFlags(t *testing.T) {
 	require.NoError(t, e.db.ArmDeferredNeedsExpansionIndex())
 	e.db.SetGrantDigestsPresent(true)
 	e.db.SetSourceScopeMayExist(true)
-	e.grantDigestBuildPending.Store(true)
-	e.grantDigestAbiStale.Store(true)
+	e.Digests().grantDigestBuildPending.Store(true)
+	e.Digests().grantDigestAbiStale.Store(true)
 	e.ledger.inFlight.Store(true)
 
 	_, err = e.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -36,8 +36,8 @@ func TestResetForNewSyncRederivesKeyspaceFlags(t *testing.T) {
 		"DeferredNeedsExpansionPending": e.db.DeferredNeedsExpansionPending(),
 		"GrantDigestsPresent":           e.db.GrantDigestsPresent(),
 		"SourceScopeMayExist":           e.db.SourceScopeMayExist(),
-		"grantDigestBuildPending":       e.grantDigestBuildPending.Load(),
-		"grantDigestAbiStale":           e.grantDigestAbiStale.Load(),
+		"grantDigestBuildPending":       e.Digests().grantDigestBuildPending.Load(),
+		"grantDigestAbiStale":           e.Digests().grantDigestAbiStale.Load(),
 		"ledgerInFlight":                e.ledger.inFlight.Load(),
 	} {
 		require.False(t, stale, "%s not re-derived by ResetForNewSync", name)

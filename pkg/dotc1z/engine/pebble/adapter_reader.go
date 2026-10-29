@@ -690,7 +690,7 @@ func (e *Engine) GetEntitlementGrantDigest(ctx context.Context, ent *v2.Entitlem
 	if err != nil || !ok {
 		return connectorstore.GrantDigest{}, false, err
 	}
-	root, ok, err := e.GetEntitlementDigestRoot(ctx, id)
+	root, ok, err := e.digests.GetEntitlementDigestRoot(ctx, id)
 	if err != nil || !ok {
 		return connectorstore.GrantDigest{}, false, err
 	}
@@ -725,7 +725,7 @@ func (e *Engine) GetEntitlementGrantDigestNodes(ctx context.Context, ent *v2.Ent
 	if err != nil || !ok {
 		return nil, false, err
 	}
-	root, ok, err := e.GetEntitlementDigestRoot(ctx, id)
+	root, ok, err := e.digests.GetEntitlementDigestRoot(ctx, id)
 	if err != nil || !ok {
 		return nil, false, err
 	}
@@ -741,9 +741,9 @@ func (e *Engine) GetEntitlementGrantDigestNodes(ctx context.Context, ent *v2.Ent
 	partition := digestPartitionForEntitlement(id)
 	var folded []foldedBucket
 	if bits <= root.Bits {
-		folded, err = e.foldedLeafBuckets(ctx, grantDigestSpec, partition, bits)
+		folded, err = e.digests.foldedLeafBuckets(ctx, grantDigestSpec, partition, bits)
 	} else {
-		folded, err = e.computeBucketsAtWidth(ctx, grantDigestSpec, partition, bits)
+		folded, err = e.digests.computeBucketsAtWidth(ctx, grantDigestSpec, partition, bits)
 	}
 	if err != nil {
 		return nil, false, err
@@ -794,7 +794,7 @@ func (e *Engine) ScanEntitlementGrantBucket(ctx context.Context, ent *v2.Entitle
 	if err != nil || !ok {
 		return err
 	}
-	return e.IterateGrantsByEntitlementBucket(ctx, id, DigestBucket{Index: bucket.Index, Bits: bucket.Level}, func(r *v3.GrantRecord) bool {
+	return e.digests.IterateGrantsByEntitlementBucket(ctx, id, DigestBucket{Index: bucket.Index, Bits: bucket.Level}, func(r *v3.GrantRecord) bool {
 		return yield(V3GrantToV2(r))
 	})
 }

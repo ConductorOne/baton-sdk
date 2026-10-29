@@ -139,7 +139,7 @@ func TestCompactPebbleGrantDigestsBuiltPerMode(t *testing.T) {
 			require.True(t, ok, "compacted output must be a pebble engine")
 			require.NoError(t, store.SetCurrentSync(ctx, out.SyncID))
 
-			gotRoot, ok, err := eng.GetGrantDigestGlobalRoot(ctx)
+			gotRoot, ok, err := eng.Digests().GetGrantDigestGlobalRoot(ctx)
 			require.NoError(t, err)
 			require.True(t, ok, "compacted output must carry a built grant digest")
 			require.EqualValues(t, 3, gotRoot.Count, "digest built over the deduped union of 3 grants")
@@ -155,7 +155,7 @@ func TestCompactPebbleGrantDigestsBuiltPerMode(t *testing.T) {
 			require.True(t, ok)
 			require.NoError(t, oracleStore.SetCurrentSync(ctx, oracleSyncID))
 
-			wantRoot, ok, err := oracleEng.GetGrantDigestGlobalRoot(ctx)
+			wantRoot, ok, err := oracleEng.Digests().GetGrantDigestGlobalRoot(ctx)
 			require.NoError(t, err)
 			require.True(t, ok)
 			require.Equal(t, wantRoot.Count, gotRoot.Count, "compacted vs. from-scratch grant count")
@@ -187,7 +187,7 @@ func grantDigestGlobalRootOf(t testing.TB, ctx context.Context, path, syncID str
 	eng, ok := enginepkg.AsEngine(store)
 	require.True(t, ok, "%s is not a pebble engine", path)
 	require.NoError(t, store.SetCurrentSync(ctx, syncID))
-	root, ok, err := eng.GetGrantDigestGlobalRoot(ctx)
+	root, ok, err := eng.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, err)
 	require.True(t, ok, "%s has no built grant digest", path)
 	return root
@@ -353,7 +353,7 @@ func TestCompactPebbleFoldRebuildsDigestsWhenBaseHasNone(t *testing.T) {
 	baseEng, ok := enginepkg.AsEngine(baseStore)
 	require.True(t, ok)
 	require.True(t, baseEng.GrantDigestsPresent(), "precondition: reopened base still carries digest state")
-	require.NoError(t, baseEng.DropAllGrantDigestState(ctx))
+	require.NoError(t, baseEng.Digests().DropAllGrantDigestState(ctx))
 	require.False(t, baseEng.GrantDigestsPresent())
 	require.True(t, enginepkg.MarkStoreDirty(baseStore), "base must be a registered pebble store")
 	require.NoError(t, baseStore.Close(ctx))
@@ -483,7 +483,7 @@ func TestCompactPebbleFoldDigestIndexDisabledDropsDigests(t *testing.T) {
 
 	// A default-options reader must see digests as ABSENT (recalculate),
 	// never the base's stale-but-present state.
-	_, ok, err = eng.GetGrantDigestGlobalRoot(ctx)
+	_, ok, err = eng.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, err)
 	require.False(t, ok, "output must carry no whole-file digest root")
 	requireEmptyKeyRange(t, eng, enginepkg.DigestLowerBound(), enginepkg.DigestUpperBound(), "digest node")

@@ -102,12 +102,12 @@ func isGrantDigestRootKey(key []byte) bool {
 // gives compaction per-entitlement-scoped digest maintenance without
 // an O(file) rebuild. No-op when partitions is empty or no digest has
 // ever been built for this file.
-func (e *Engine) InvalidateGrantDigestPartitions(ctx context.Context, partitions []string) error {
-	if len(partitions) == 0 || !e.db.GrantDigestsPresent() {
+func (d *Digests) InvalidateGrantDigestPartitions(ctx context.Context, partitions []string) error {
+	if len(partitions) == 0 || !d.e.db.GrantDigestsPresent() {
 		return nil
 	}
-	return e.withWrite(func() error {
-		batch := e.db.NewDigestBatch()
+	return d.e.withWrite(func() error {
+		batch := d.e.db.NewDigestBatch()
 		defer batch.Close()
 		for _, partition := range partitions {
 			if err := dropPartitionDigest(batch, grantDigestSpec, partition); err != nil {
@@ -182,11 +182,11 @@ func (e *Engine) InvalidateGrantDigestPartitions(ctx context.Context, partitions
 // itself erroring): a failure repairing one INDIVIDUAL partition is
 // already handled without dropping anything (see
 // repairMissingGrantDigestsLocked).
-func (e *Engine) RepairMissingGrantDigests(ctx context.Context) error {
-	if !e.opts.grantDigestIndex {
+func (d *Digests) RepairMissingGrantDigests(ctx context.Context) error {
+	if !d.e.opts.grantDigestIndex {
 		return nil
 	}
-	if e.grantDigestBuildPending.Load() {
+	if d.grantDigestBuildPending.Load() {
 		// A prior digest build died mid-commit and the drop that should
 		// have consumed the durable marker never completed (a writable
 		// Open normally does it; in-process, a failed build's own
@@ -194,14 +194,14 @@ func (e *Engine) RepairMissingGrantDigests(ctx context.Context) error {
 		// index that was never ingested, so nothing stored is
 		// trustworthy — restore the safe absent state first and let the
 		// full rebuild below recalculate from scratch.
-		if err := e.withWriteAllowSealed(func() error { return e.dropAllGrantDigestStateLocked() }); err != nil {
+		if err := d.e.withWriteAllowSealed(func() error { return d.dropAllGrantDigestStateLocked() }); err != nil {
 			return fmt.Errorf("RepairMissingGrantDigests: drop digest state left by an interrupted build: %w", err)
 		}
 	}
-	if !e.db.GrantDigestsPresent() {
-		return e.BuildGrantDigests(ctx)
+	if !d.e.db.GrantDigestsPresent() {
+		return d.BuildGrantDigests(ctx)
 	}
-	err := e.repairMissingGrantDigestsAttempt(ctx)
+	err := d.repairMissingGrantDigestsAttempt(ctx)
 	if err == nil {
 		return nil
 	}
@@ -210,7 +210,7 @@ func (e *Engine) RepairMissingGrantDigests(ctx context.Context) error {
 	}
 	ctxzap.Extract(ctx).Error("grant digest repair failed; dropping digest state — grant-diff callers must re-read grants until the next successful repair or seal",
 		zap.Error(err))
-	if dropErr := e.withWriteAllowSealed(func() error { return e.dropAllGrantDigestStateLocked() }); dropErr != nil {
+	if dropErr := d.e.withWriteAllowSealed(func() error { return d.dropAllGrantDigestStateLocked() }); dropErr != nil {
 		return fmt.Errorf("RepairMissingGrantDigests: drop grant digest state after failed repair: %w", dropErr)
 	}
 	return nil
@@ -221,7 +221,7 @@ func (e *Engine) RepairMissingGrantDigests(ctx context.Context) error {
 // scan-and-repair. RepairMissingGrantDigests applies the uniform
 // "downgrade to a full drop, log, never fail the caller" policy to
 // whatever this returns.
-func (e *Engine) repairMissingGrantDigestsAttempt(ctx context.Context) error {
+func (d *Digests) repairMissingGrantDigestsAttempt(ctx context.Context) error {
 	// Fast path: EVERY code path that can make a single entitlement's
 	// digest go missing also drops the whole-file global root in the
 	// same commit (stageGrantDigestInvalidation, InvalidateGrantDigestPartitions,
@@ -233,19 +233,19 @@ func (e *Engine) repairMissingGrantDigestsAttempt(ctx context.Context) error {
 	// all: one point Get instead of a scan, for what should be the
 	// overwhelmingly common "nothing to repair" case (e.g. a fold that
 	// invalidated nothing, or a periodic health-check call).
-	if _, ok, err := e.GetGrantDigestGlobalRoot(ctx); err != nil {
+	if _, ok, err := d.GetGrantDigestGlobalRoot(ctx); err != nil {
 		return err
 	} else if ok {
 		return nil
 	}
-	return e.withWriteAllowSealed(func() error {
-		return e.repairMissingGrantDigestsLocked(ctx)
+	return d.e.withWriteAllowSealed(func() error {
+		return d.repairMissingGrantDigestsLocked(ctx)
 	})
 }
 
-func (e *Engine) repairMissingGrantDigestsLocked(ctx context.Context) error {
+func (d *Digests) repairMissingGrantDigestsLocked(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
-	missing, err := e.findMissingGrantDigestPartitionsLocked(ctx)
+	missing, err := d.findMissingGrantDigestPartitionsLocked(ctx)
 	if err != nil {
 		return err
 	}
@@ -254,7 +254,7 @@ func (e *Engine) repairMissingGrantDigestsLocked(ctx context.Context) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if err := e.repairOneGrantDigestPartitionLocked(ctx, partition); err != nil {
+		if err := d.repairOneGrantDigestPartitionLocked(ctx, partition); err != nil {
 			if ctx.Err() != nil {
 				return err
 			}
@@ -280,7 +280,7 @@ func (e *Engine) repairMissingGrantDigestsLocked(ctx context.Context) error {
 		// its next call.
 		return nil
 	}
-	if err := e.recomputeGrantDigestGlobalRootLocked(ctx); err != nil {
+	if err := d.recomputeGrantDigestGlobalRootLocked(ctx); err != nil {
 		if ctx.Err() != nil {
 			return err
 		}
@@ -305,11 +305,11 @@ func (e *Engine) repairMissingGrantDigestsLocked(ctx context.Context) error {
 // can't see: entitlements with zero grants, whose {count: 0} root
 // (writeMissingEntitlementDigestRoots) may equally have been
 // invalidated — e.g. by deleting a partition's last grant.
-func (e *Engine) findMissingGrantDigestPartitionsLocked(ctx context.Context) ([]string, error) {
+func (d *Digests) findMissingGrantDigestPartitionsLocked(ctx context.Context) ([]string, error) {
 	var missing []string
 	missingSet := map[string]struct{}{}
 
-	giter, err := e.db.NewIter(&pebble.IterOptions{
+	giter, err := d.e.db.NewIter(&pebble.IterOptions{
 		LowerBound: GrantLowerBound(),
 		UpperBound: GrantUpperBound(),
 	})
@@ -330,7 +330,7 @@ func (e *Engine) findMissingGrantDigestPartitionsLocked(ctx context.Context) ([]
 			valid = giter.Next()
 			continue
 		}
-		present, err := e.grantDigestRootPresent(partition)
+		present, err := d.grantDigestRootPresent(partition)
 		if err != nil {
 			return nil, err
 		}
@@ -345,7 +345,7 @@ func (e *Engine) findMissingGrantDigestPartitionsLocked(ctx context.Context) ([]
 		return nil, err
 	}
 
-	eiter, err := e.db.NewIter(&pebble.IterOptions{
+	eiter, err := d.e.db.NewIter(&pebble.IterOptions{
 		LowerBound: EntitlementLowerBound(),
 		UpperBound: EntitlementUpperBound(),
 	})
@@ -367,7 +367,7 @@ func (e *Engine) findMissingGrantDigestPartitionsLocked(ctx context.Context) ([]
 		if _, dup := missingSet[partition]; dup {
 			continue
 		}
-		present, err := e.grantDigestRootPresent(partition)
+		present, err := d.grantDigestRootPresent(partition)
 		if err != nil {
 			return nil, err
 		}
@@ -380,9 +380,9 @@ func (e *Engine) findMissingGrantDigestPartitionsLocked(ctx context.Context) ([]
 
 // grantDigestRootPresent reports whether partition has a stored grant-
 // digest root node: one point Get, no value read.
-func (e *Engine) grantDigestRootPresent(partition string) (bool, error) {
+func (d *Digests) grantDigestRootPresent(partition string) (bool, error) {
 	rootKey := encodeDigestNodeKey(grantDigestSpec.indexID, partition, digestLevelRoot, nil)
-	_, closer, err := e.db.Get(rootKey)
+	_, closer, err := d.e.db.Get(rootKey)
 	if err == nil {
 		closer.Close()
 		return true, nil
@@ -415,27 +415,27 @@ func (e *Engine) grantDigestRootPresent(partition string) (bool, error) {
 // reads as "missing"; the next repair's leading DeleteRange re-cleans
 // them — the same window that already exists between the hash-index
 // and digest commits.
-func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partition string) error {
+func (d *Digests) repairOneGrantDigestPartitionLocked(ctx context.Context, partition string) error {
 	lower, upper := grantPrimaryEntitlementBoundsFromPartition(partition)
 
 	opts := recordWriteOpts
 	flushBytes := digestNodeBatchFlushBytes
-	if e.test.digestNodeFlushBytes > 0 {
-		flushBytes = e.test.digestNodeFlushBytes
+	if d.e.test.digestNodeFlushBytes > 0 {
+		flushBytes = d.e.test.digestNodeFlushBytes
 	}
 
 	// Pass 1: replace the hash-index range with the freshly-derived
 	// rows (a clean DeleteRange first: nothing may assume what, if
 	// anything, was left there). Closure defer, not a bound one: the
 	// loop rotates `hiBatch` on flush.
-	hiBatch := e.db.NewDigestBatch()
+	hiBatch := d.e.db.NewDigestBatch()
 	defer func() { hiBatch.Close() }()
 	hiLower := rawdb.GrantHashIndexEntitlementPrefix(partition)
 	if err := hiBatch.DeleteRange(hiLower, upperBoundOf(hiLower)); err != nil {
 		return err
 	}
 
-	iter, err := e.db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
+	iter, err := d.e.db.NewIter(&pebble.IterOptions{LowerBound: lower, UpperBound: upper})
 	if err != nil {
 		return err
 	}
@@ -481,7 +481,7 @@ func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partit
 				return err
 			}
 			hiBatch.Close()
-			hiBatch = e.db.NewDigestBatch()
+			hiBatch = d.e.db.NewDigestBatch()
 		}
 	}
 	if err := iter.Error(); err != nil {
@@ -508,11 +508,11 @@ func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partit
 	// (foldPartitionNodes) instead of re-deriving the same computation
 	// a second way from the scanned rows.
 	width := chooseDigestWidth(rows)
-	rootVal, leaves, err := e.foldPartitionNodes(ctx, grantDigestSpec, partition, width)
+	rootVal, leaves, err := d.foldPartitionNodes(ctx, grantDigestSpec, partition, width)
 	if err != nil {
 		return err
 	}
-	digestBatch := e.db.NewDigestBatch()
+	digestBatch := d.e.db.NewDigestBatch()
 	defer digestBatch.Close()
 	digestLower := rawdb.DigestPartitionPrefix(grantDigestSpec.indexID, partition)
 	if err := digestBatch.DeleteRange(digestLower, upperBoundOf(digestLower)); err != nil {
@@ -531,7 +531,7 @@ func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partit
 	if err := digestBatch.Commit(opts); err != nil {
 		return err
 	}
-	e.db.SetGrantDigestsPresent(true)
+	d.e.db.SetGrantDigestsPresent(true)
 	return nil
 }
 
@@ -541,10 +541,10 @@ func (e *Engine) repairOneGrantDigestPartitionLocked(ctx context.Context, partit
 // grants, so it stays cheap even for a whale-scale file (bounded by
 // entitlement count, not grant count). Must be called with the
 // engine's write lock already held.
-func (e *Engine) recomputeGrantDigestGlobalRootLocked(ctx context.Context) error {
+func (d *Digests) recomputeGrantDigestGlobalRootLocked(ctx context.Context) error {
 	var xor [hashLen]byte
 	var total int64
-	iter, err := e.db.NewIter(&pebble.IterOptions{
+	iter, err := d.e.db.NewIter(&pebble.IterOptions{
 		LowerBound: DigestLowerBound(),
 		UpperBound: DigestUpperBound(),
 	})
@@ -582,12 +582,12 @@ func (e *Engine) recomputeGrantDigestGlobalRootLocked(ctx context.Context) error
 	// certifies the ABI that produced the state under it. Stamp first —
 	// WAL prefix ordering then guarantees a durable root is never
 	// uncertified.
-	if err := e.db.DigestSet(rawdb.GrantDigestABIStampKey(), grantDigestABIStampValue(), opts); err != nil {
+	if err := d.e.db.DigestSet(rawdb.GrantDigestABIStampKey(), grantDigestABIStampValue(), opts); err != nil {
 		return err
 	}
-	if err := e.db.DigestSet(rawdb.GlobalGrantDigestNodeKey(), packDigestLeaf(total, xor[:]), opts); err != nil {
+	if err := d.e.db.DigestSet(rawdb.GlobalGrantDigestNodeKey(), packDigestLeaf(total, xor[:]), opts); err != nil {
 		return err
 	}
-	e.db.SetGrantDigestsPresent(true)
+	d.e.db.SetGrantDigestsPresent(true)
 	return nil
 }

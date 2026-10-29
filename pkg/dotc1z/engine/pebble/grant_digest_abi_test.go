@@ -243,10 +243,10 @@ func TestGrantDigestABIStaleStampDroppedAtWritableOpen(t *testing.T) {
 	require.Zero(t, digestNodeCount(t, e2), "stale-ABI writable open must drop every digest node")
 	require.Zero(t, countKeyRangeTest(t, e2, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound()),
 		"stale-ABI writable open must drop the whole hash index")
-	_, ok, err := e2.GetGrantDigestGlobalRoot(ctx)
+	_, ok, err := e2.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, err)
 	require.False(t, ok, "global root must read as absent after the drop")
-	require.False(t, e2.grantDigestAbiStale.Load(), "a writable open must drop the state, never set the read-only stale flag")
+	require.False(t, e2.Digests().grantDigestAbiStale.Load(), "a writable open must drop the state, never set the read-only stale flag")
 	require.False(t, e2.db.GrantDigestsPresent())
 
 	// Reseal through the normal repair path (resume the sync +
@@ -289,7 +289,7 @@ func TestGrantDigestABIMissingStampReadsAsVersion1(t *testing.T) {
 	_, _, err := e.db.Get(rawdb.GrantDigestABIStampKey())
 	require.ErrorIs(t, err, pebble.ErrNotFound, "precondition: stamp key must be gone")
 
-	stamped, err := e.readGrantDigestABIStamp()
+	stamped, err := e.Digests().readGrantDigestABIStamp()
 	require.NoError(t, err)
 	require.EqualValues(t, 1, stamped, "a missing stamp must read as ABI version 1, the only version pre-stamp SDKs ever hashed at")
 	require.NotEqual(t, GrantDigestABIVersion, stamped, "precondition: the current ABI must have moved past 1 for the drop half below to be live")
@@ -302,10 +302,10 @@ func TestGrantDigestABIMissingStampReadsAsVersion1(t *testing.T) {
 	require.Zero(t, digestNodeCount(t, e2), "missing-stamp (v1) file must have every digest node dropped")
 	require.Zero(t, countKeyRangeTest(t, e2, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound()),
 		"missing-stamp (v1) file must have the whole hash index dropped")
-	_, ok, err := e2.GetGrantDigestGlobalRoot(ctx)
+	_, ok, err := e2.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, err)
 	require.False(t, ok, "global root must read as absent after the drop")
-	require.False(t, e2.grantDigestAbiStale.Load(), "a writable open drops the state, never sets the read-only stale flag")
+	require.False(t, e2.Digests().grantDigestAbiStale.Load(), "a writable open drops the state, never sets the read-only stale flag")
 	require.False(t, e2.db.GrantDigestsPresent())
 
 	a2 := NewAdapter(e2)
@@ -340,13 +340,13 @@ func TestGrantDigestABIStaleReadOnlyOpen(t *testing.T) {
 	require.NoError(t, err, "read-only open over a stale-ABI stamp must not error")
 	t.Cleanup(func() { _ = e2.Close() })
 
-	require.True(t, e2.grantDigestAbiStale.Load(), "read-only open must set the stale flag rather than drop")
+	require.True(t, e2.Digests().grantDigestAbiStale.Load(), "read-only open must set the stale flag rather than drop")
 
-	_, ok, err := e2.GetGrantDigestGlobalRoot(ctx)
+	_, ok, err := e2.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, err)
 	require.False(t, ok, "global root must report not-built under a stale ABI")
 
-	_, ok, err = e2.GetEntitlementDigestRoot(ctx, testEntIdentity(entID))
+	_, ok, err = e2.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity(entID))
 	require.NoError(t, err)
 	require.False(t, ok, "entitlement root must report not-built under a stale ABI")
 
@@ -379,7 +379,7 @@ func TestGrantDigestABIStaleReadOnlyGatesBucketDigest(t *testing.T) {
 	// non-zero digest and the true grant count).
 	fresh, _ := newTestEngine(t)
 	seedEntitlement(t, fresh, entID, makeTestGrants(entID, n))
-	freshDigest, freshCount, err := fresh.ComputeEntitlementBucketDigest(ctx, testEntIdentity(entID), DigestBucket{})
+	freshDigest, freshCount, err := fresh.Digests().ComputeEntitlementBucketDigest(ctx, testEntIdentity(entID), DigestBucket{})
 	require.NoError(t, err)
 	require.EqualValues(t, n, freshCount, "non-stale engine must report the real grant count")
 	require.NotEqual(t, make([]byte, hashLen), freshDigest, "non-stale engine must report a real, non-zero digest")
@@ -392,9 +392,9 @@ func TestGrantDigestABIStaleReadOnlyGatesBucketDigest(t *testing.T) {
 	e2, err := Open(ctx, dbDir, WithReadOnly(true))
 	require.NoError(t, err, "read-only open over a stale-ABI stamp must not error")
 	t.Cleanup(func() { _ = e2.Close() })
-	require.True(t, e2.grantDigestAbiStale.Load(), "precondition: stale flag must be set")
+	require.True(t, e2.Digests().grantDigestAbiStale.Load(), "precondition: stale flag must be set")
 
-	staleDigest, staleCount, err := e2.ComputeEntitlementBucketDigest(ctx, testEntIdentity(entID), DigestBucket{})
+	staleDigest, staleCount, err := e2.Digests().ComputeEntitlementBucketDigest(ctx, testEntIdentity(entID), DigestBucket{})
 	require.NoError(t, err)
 	require.Zero(t, staleCount, "stale ABI must report not-built, not the real count")
 	require.Equal(t, make([]byte, hashLen), staleDigest, "stale ABI must report the zero digest, not one folded from untrusted content hashes")
@@ -430,7 +430,7 @@ func TestGrantDigestABIStampOrphanIgnored(t *testing.T) {
 	e2, err := Open(ctx, dbDir)
 	require.NoError(t, err, "writable open over an orphaned stamp with an empty node keyspace must not error")
 	t.Cleanup(func() { _ = e2.Close() })
-	require.False(t, e2.grantDigestAbiStale.Load())
+	require.False(t, e2.Digests().grantDigestAbiStale.Load())
 
 	a2 := NewAdapter(e2)
 	_, err = a2.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -439,7 +439,7 @@ func TestGrantDigestABIStampOrphanIgnored(t *testing.T) {
 	require.NoError(t, e2.PutGrantRecords(ctx, makeTestGrants(entID, n)...))
 	require.NoError(t, a2.EndSync(ctx))
 
-	root, ok, err := e2.GetGrantDigestGlobalRoot(ctx)
+	root, ok, err := e2.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, err)
 	require.True(t, ok, "digests must build fine over an ignored orphan stamp")
 	require.EqualValues(t, n, root.Count)
@@ -585,11 +585,11 @@ func TestGrantDigestABIStaleWithPendingMarker(t *testing.T) {
 	require.NoError(t, err, "open must succeed with both the stale stamp and the pending marker armed")
 	t.Cleanup(func() { _ = e2.Close() })
 
-	require.False(t, e2.grantDigestBuildPending.Load(), "the pending marker must be consumed at open")
+	require.False(t, e2.Digests().grantDigestBuildPending.Load(), "the pending marker must be consumed at open")
 	require.Zero(t, digestNodeCount(t, e2), "digest nodes must be empty after open")
 	require.Zero(t, countKeyRangeTest(t, e2, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound()),
 		"the hash index must be empty after open")
-	_, ok, err := e2.GetGrantDigestGlobalRoot(ctx)
+	_, ok, err := e2.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, err)
 	require.False(t, ok)
 

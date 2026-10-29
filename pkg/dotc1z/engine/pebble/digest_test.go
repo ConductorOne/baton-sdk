@@ -101,7 +101,7 @@ func digestNodeCount(t testing.TB, e *Engine) int {
 	t.Helper()
 	lo, hi := rawdb.DigestNodeKeyspaceBounds()
 	n := countKeyRangeTest(t, e, lo, hi)
-	if _, ok, err := e.GetGrantDigestGlobalRoot(context.Background()); err != nil {
+	if _, ok, err := e.Digests().GetGrantDigestGlobalRoot(context.Background()); err != nil {
 		t.Fatalf("GetGrantDigestGlobalRoot: %v", err)
 	} else if ok {
 		n--
@@ -256,7 +256,7 @@ func TestGrantDigestIncludesExpandedGrants(t *testing.T) {
 	if got := countKeyRangeTest(t, e, GrantByEntPrincHashLowerBound(), GrantByEntPrincHashUpperBound()); got != 2 {
 		t.Fatalf("hash index rows = %d, want 2 (direct + expanded)", got)
 	}
-	root, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A"))
+	root, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A"))
 	if err != nil || !ok {
 		t.Fatalf("root: ok=%v err=%v", ok, err)
 	}
@@ -706,7 +706,7 @@ func seedEntitlement(t testing.TB, e *Engine, entID string, grants []*v3.GrantRe
 func rebuildDigestAtWidth(t testing.TB, e *Engine, entID string, widthBits int) {
 	t.Helper()
 	sealGrantDigests(t, e)
-	if err := e.buildPartitionDigestAtWidth(context.Background(), grantDigestSpec, testEntPartition(entID), widthBits); err != nil {
+	if err := e.Digests().buildPartitionDigestAtWidth(context.Background(), grantDigestSpec, testEntPartition(entID), widthBits); err != nil {
 		t.Fatalf("buildPartitionDigestAtWidth: %v", err)
 	}
 }
@@ -769,11 +769,11 @@ func TestDigestDifferentWidthsComparison(t *testing.T) {
 	seedEntitlementAtWidth(t, eb, "ent-A", mkGrants(), 8)
 	entA := testEntIdentity("ent-A")
 
-	ra, okA, err := ea.GetEntitlementDigestRoot(ctx, entA)
+	ra, okA, err := ea.Digests().GetEntitlementDigestRoot(ctx, entA)
 	if err != nil || !okA {
 		t.Fatalf("root A: ok=%v err=%v", okA, err)
 	}
-	rb, okB, err := eb.GetEntitlementDigestRoot(ctx, entA)
+	rb, okB, err := eb.Digests().GetEntitlementDigestRoot(ctx, entA)
 	if err != nil || !okB {
 		t.Fatalf("root B: ok=%v err=%v", okB, err)
 	}
@@ -785,7 +785,7 @@ func TestDigestDifferentWidthsComparison(t *testing.T) {
 	if !bytes.Equal(ra.Hash, rb.Hash) {
 		t.Fatalf("different-width digests over identical content disagree on root:\n A(w4)=%x\n B(w8)=%x", ra.Hash, rb.Hash)
 	}
-	dirty, err := ea.DirtyEntitlementBuckets(ctx, eb, entA)
+	dirty, err := ea.Digests().DirtyEntitlementBuckets(ctx, eb, entA)
 	if err != nil {
 		t.Fatalf("DirtyEntitlementBuckets (identical): %v", err)
 	}
@@ -818,12 +818,12 @@ func TestDigestDifferentWidthsComparison(t *testing.T) {
 	}
 	rebuildDigestAtWidth(t, eb, "ent-A", 8)
 
-	rb2, _, _ := eb.GetEntitlementDigestRoot(ctx, entA)
+	rb2, _, _ := eb.Digests().GetEntitlementDigestRoot(ctx, entA)
 	if bytes.Equal(ra.Hash, rb2.Hash) {
 		t.Fatal("mutation did not change B's root")
 	}
 
-	dirty, err = ea.DirtyEntitlementBuckets(ctx, eb, entA)
+	dirty, err = ea.Digests().DirtyEntitlementBuckets(ctx, eb, entA)
 	if err != nil {
 		t.Fatalf("DirtyEntitlementBuckets (changed): %v", err)
 	}
@@ -841,7 +841,7 @@ func TestDigestDifferentWidthsComparison(t *testing.T) {
 	// excludes the known-clean principal.
 	loaded := map[string]bool{}
 	for _, b := range dirty {
-		if err := eb.IterateGrantsByEntitlementBucket(ctx, entA, b, func(g *v3.GrantRecord) bool {
+		if err := eb.Digests().IterateGrantsByEntitlementBucket(ctx, entA, b, func(g *v3.GrantRecord) bool {
 			loaded[g.GetPrincipal().GetResourceId()] = true
 			return true
 		}); err != nil {
@@ -864,7 +864,7 @@ func TestDigestEmptyEntitlementSingleRoot(t *testing.T) {
 	if got := digestNodeCount(t, e); got != 1 {
 		t.Fatalf("empty entitlement: digest node count = %d, want 1 (root only)", got)
 	}
-	root, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-empty"))
+	root, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-empty"))
 	if err != nil || !ok {
 		t.Fatalf("GetEntitlementDigestRoot: ok=%v err=%v", ok, err)
 	}
@@ -930,18 +930,18 @@ func TestDigestIdenticalGrantsSameRoot(t *testing.T) {
 	seedEntitlement(t, eb, "ent-A", mk())
 	entA := testEntIdentity("ent-A")
 
-	ra, okA, err := ea.GetEntitlementDigestRoot(ctx, entA)
+	ra, okA, err := ea.Digests().GetEntitlementDigestRoot(ctx, entA)
 	if err != nil || !okA {
 		t.Fatalf("root A: ok=%v err=%v", okA, err)
 	}
-	rb, okB, err := eb.GetEntitlementDigestRoot(ctx, entA)
+	rb, okB, err := eb.Digests().GetEntitlementDigestRoot(ctx, entA)
 	if err != nil || !okB {
 		t.Fatalf("root B: ok=%v err=%v", okB, err)
 	}
 	if !bytes.Equal(ra.Hash, rb.Hash) {
 		t.Fatalf("identical grants produced different roots:\n A=%x\n B=%x", ra.Hash, rb.Hash)
 	}
-	dirty, err := ea.DirtyEntitlementBuckets(ctx, eb, entA)
+	dirty, err := ea.Digests().DirtyEntitlementBuckets(ctx, eb, entA)
 	if err != nil {
 		t.Fatalf("DirtyEntitlementBuckets: %v", err)
 	}
@@ -971,13 +971,13 @@ func TestDigestContentChangeDirtyBucket(t *testing.T) {
 	seedEntitlement(t, eb, "ent-A", baseB)
 	entA := testEntIdentity("ent-A")
 
-	ra, _, _ := ea.GetEntitlementDigestRoot(ctx, entA)
-	rb, _, _ := eb.GetEntitlementDigestRoot(ctx, entA)
+	ra, _, _ := ea.Digests().GetEntitlementDigestRoot(ctx, entA)
+	rb, _, _ := eb.Digests().GetEntitlementDigestRoot(ctx, entA)
 	if bytes.Equal(ra.Hash, rb.Hash) {
 		t.Fatal("content change did not change the root hash")
 	}
 
-	dirty, err := ea.DirtyEntitlementBuckets(ctx, eb, entA)
+	dirty, err := ea.Digests().DirtyEntitlementBuckets(ctx, eb, entA)
 	if err != nil {
 		t.Fatalf("DirtyEntitlementBuckets: %v", err)
 	}
@@ -989,7 +989,7 @@ func TestDigestContentChangeDirtyBucket(t *testing.T) {
 	// principal).
 	found := map[string]bool{}
 	for _, b := range dirty {
-		if err := eb.IterateGrantsByEntitlementBucket(ctx, entA, b, func(g *v3.GrantRecord) bool {
+		if err := eb.Digests().IterateGrantsByEntitlementBucket(ctx, entA, b, func(g *v3.GrantRecord) bool {
 			found[g.GetPrincipal().GetResourceId()] = true
 			return true
 		}); err != nil {
@@ -1018,7 +1018,7 @@ func TestDigestAddedGrantDirtyBucket(t *testing.T) {
 	seedEntitlement(t, eb, "ent-A", baseB)
 	entA := testEntIdentity("ent-A")
 
-	dirty, err := ea.DirtyEntitlementBuckets(ctx, eb, entA)
+	dirty, err := ea.Digests().DirtyEntitlementBuckets(ctx, eb, entA)
 	if err != nil {
 		t.Fatalf("DirtyEntitlementBuckets: %v", err)
 	}
@@ -1027,7 +1027,7 @@ func TestDigestAddedGrantDirtyBucket(t *testing.T) {
 	}
 	found := map[string]bool{}
 	for _, b := range dirty {
-		if err := eb.IterateGrantsByEntitlementBucket(ctx, entA, b, func(g *v3.GrantRecord) bool {
+		if err := eb.Digests().IterateGrantsByEntitlementBucket(ctx, entA, b, func(g *v3.GrantRecord) bool {
 			found[g.GetPrincipal().GetResourceId()] = true
 			return true
 		}); err != nil {
@@ -1049,7 +1049,7 @@ func TestDigestVariableWidth(t *testing.T) {
 	}
 	es, _ := newTestEngine(t)
 	seedEntitlement(t, es, "ent-small", small)
-	rootS, ok, err := es.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-small"))
+	rootS, ok, err := es.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-small"))
 	if err != nil || !ok {
 		t.Fatalf("small root: ok=%v err=%v", ok, err)
 	}
@@ -1073,7 +1073,7 @@ func TestDigestVariableWidth(t *testing.T) {
 	}
 	el, _ := newTestEngine(t)
 	seedEntitlement(t, el, "ent-large", large)
-	rootL, ok, err := el.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-large"))
+	rootL, ok, err := el.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-large"))
 	if err != nil || !ok {
 		t.Fatalf("large root: ok=%v err=%v", ok, err)
 	}
@@ -1205,7 +1205,7 @@ func TestFusedFoldMatchesPartitionRebuild(t *testing.T) {
 	fused := dumpDigestNodes(t, e)
 
 	for entID, n := range counts {
-		if err := e.buildPartitionDigestAtWidth(ctx, grantDigestSpec, testEntPartition(entID), chooseDigestWidth(n)); err != nil {
+		if err := e.Digests().buildPartitionDigestAtWidth(ctx, grantDigestSpec, testEntPartition(entID), chooseDigestWidth(n)); err != nil {
 			t.Fatalf("buildPartitionDigestAtWidth(%s): %v", entID, err)
 		}
 	}
@@ -1230,7 +1230,7 @@ func TestDigestLeafFoldConsistent(t *testing.T) {
 	entA := testEntIdentity("ent-A")
 	partition := testEntPartition("ent-A")
 
-	root, ok, err := e.GetEntitlementDigestRoot(ctx, entA)
+	root, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, entA)
 	if err != nil || !ok {
 		t.Fatalf("root: ok=%v err=%v", ok, err)
 	}
@@ -1239,7 +1239,7 @@ func TestDigestLeafFoldConsistent(t *testing.T) {
 	}
 
 	// Folding at the build width returns the stored leaves one-to-one.
-	leaves, err := e.foldedLeafBuckets(ctx, grantDigestSpec, partition, 8)
+	leaves, err := e.Digests().foldedLeafBuckets(ctx, grantDigestSpec, partition, 8)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1268,7 +1268,7 @@ func TestDigestLeafFoldConsistent(t *testing.T) {
 
 	// Folding to a coarser width matches a manual regroup of the
 	// build-width leaves.
-	leaves4, err := e.foldedLeafBuckets(ctx, grantDigestSpec, partition, 4)
+	leaves4, err := e.Digests().foldedLeafBuckets(ctx, grantDigestSpec, partition, 4)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1298,11 +1298,11 @@ func TestDigestLeafFoldConsistent(t *testing.T) {
 
 	// A stored leaf is a cache of the authoritative fold.
 	b := DigestBucket{Index: leaves[0].idx, Bits: 8}
-	h, c, err := e.ComputeEntitlementBucketDigest(ctx, entA, b)
+	h, c, err := e.Digests().ComputeEntitlementBucketDigest(ctx, entA, b)
 	if err != nil {
 		t.Fatal(err)
 	}
-	lc, ld, present, err := e.getDigestLeaf(grantDigestSpec, partition, b.leafKeyPrefix())
+	lc, ld, present, err := e.Digests().getDigestLeaf(grantDigestSpec, partition, b.leafKeyPrefix())
 	if err != nil || !present {
 		t.Fatalf("leaf %d: present=%v err=%v", b.Index, present, err)
 	}
@@ -1328,16 +1328,16 @@ func TestDigestRebuildClearsStaleNodes(t *testing.T) {
 	if len(before) == 0 {
 		t.Fatal("width-8 build produced no leaves")
 	}
-	rootBefore, _, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A"))
+	rootBefore, _, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := e.buildPartitionDigestAtWidth(ctx, grantDigestSpec, testEntPartition("ent-A"), 4); err != nil {
+	if err := e.Digests().buildPartitionDigestAtWidth(ctx, grantDigestSpec, testEntPartition("ent-A"), 4); err != nil {
 		t.Fatalf("rebuild at width 4: %v", err)
 	}
 
-	rootAfter, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A"))
+	rootAfter, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A"))
 	if err != nil || !ok {
 		t.Fatalf("root after rebuild: ok=%v err=%v", ok, err)
 	}
@@ -1378,7 +1378,7 @@ func TestDigestDeleteInvalidatesAndResealRecalculates(t *testing.T) {
 	seedEntitlement(t, e, "ent-A", grants)
 	entA := testEntIdentity("ent-A")
 
-	if _, ok, err := e.GetEntitlementDigestRoot(ctx, entA); err != nil || !ok {
+	if _, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, entA); err != nil || !ok {
 		t.Fatalf("sealed root: ok=%v err=%v", ok, err)
 	}
 	if rows := entHashIndexRowCount(t, e, "ent-A"); rows != 30 {
@@ -1390,7 +1390,7 @@ func TestDigestDeleteInvalidatesAndResealRecalculates(t *testing.T) {
 	if err := e.DeleteGrantRecord(ctx, "g-008"); err != nil {
 		t.Fatalf("DeleteGrantRecord: %v", err)
 	}
-	if _, ok, err := e.GetEntitlementDigestRoot(ctx, entA); err != nil || ok {
+	if _, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, entA); err != nil || ok {
 		t.Fatalf("root after delete: ok=%v err=%v, want missing (invalidated)", ok, err)
 	}
 	if got := digestNodeCount(t, e); got != 0 {
@@ -1403,7 +1403,7 @@ func TestDigestDeleteInvalidatesAndResealRecalculates(t *testing.T) {
 	// Reseal: the digest is recalculated from the surviving primaries
 	// and byte-matches an independent from-scratch build.
 	sealGrantDigests(t, e)
-	root, ok, err := e.GetEntitlementDigestRoot(ctx, entA)
+	root, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, entA)
 	if err != nil || !ok {
 		t.Fatalf("root after reseal: ok=%v err=%v", ok, err)
 	}
@@ -1447,13 +1447,13 @@ func TestDigestPutInvalidatesOnlyTouchedPartition(t *testing.T) {
 	if err := e.PutGrantRecord(ctx, makeGrant("", "ga2", "ent-A", "dave")); err != nil {
 		t.Fatalf("PutGrantRecord (post-seal): %v", err)
 	}
-	if _, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A")); err != nil || ok {
+	if _, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A")); err != nil || ok {
 		t.Fatalf("ent-A root after post-seal write: ok=%v err=%v, want missing", ok, err)
 	}
 	if got := entHashIndexRowCount(t, e, "ent-A"); got != 0 {
 		t.Fatalf("ent-A hash index rows after post-seal write = %d, want 0", got)
 	}
-	rootB, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-B"))
+	rootB, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-B"))
 	if err != nil || !ok {
 		t.Fatalf("ent-B root: ok=%v err=%v, want intact", ok, err)
 	}
@@ -1510,7 +1510,7 @@ func TestSealRebuildDropsStaleIndexRows(t *testing.T) {
 	if principals["bob"] || !principals["carol"] || !principals["alice"] || len(principals) != 2 {
 		t.Fatalf("index principals after reseal = %v, want {alice, carol}", principals)
 	}
-	root, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A"))
+	root, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-A"))
 	if err != nil || !ok {
 		t.Fatalf("root: ok=%v err=%v", ok, err)
 	}
@@ -1596,7 +1596,7 @@ func TestGrantDigestSpillMerge(t *testing.T) {
 			if err := iter.Close(); err != nil {
 				return err
 			}
-			return e.buildGrantDigestsFromSpill(ctx, dir, sorter)
+			return e.Digests().buildGrantDigestsFromSpill(ctx, dir, sorter)
 		}); err != nil {
 			t.Fatalf("chunked digest build (chunk=%d): %v", chunkBytes, err)
 		}
@@ -1630,7 +1630,7 @@ func TestGrantDigestSpillMerge(t *testing.T) {
 	}
 	requireSameDigestNodes(t, spilledNodes, memNodes)
 
-	root, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity("ent-big"))
+	root, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity("ent-big"))
 	if err != nil || !ok {
 		t.Fatalf("root: ok=%v err=%v", ok, err)
 	}
@@ -1670,13 +1670,13 @@ func TestDigestMissingRootWholeDirty(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, ok, err := eb.GetEntitlementDigestRoot(ctx, entA); err != nil || ok {
+	if _, ok, err := eb.Digests().GetEntitlementDigestRoot(ctx, entA); err != nil || ok {
 		t.Fatalf("B unexpectedly has a root: ok=%v err=%v", ok, err)
 	}
 
 	for name, dirtyFn := range map[string]func() ([]DigestBucket, error){
-		"A vs B": func() ([]DigestBucket, error) { return ea.DirtyEntitlementBuckets(ctx, eb, entA) },
-		"B vs A": func() ([]DigestBucket, error) { return eb.DirtyEntitlementBuckets(ctx, ea, entA) },
+		"A vs B": func() ([]DigestBucket, error) { return ea.Digests().DirtyEntitlementBuckets(ctx, eb, entA) },
+		"B vs A": func() ([]DigestBucket, error) { return eb.Digests().DirtyEntitlementBuckets(ctx, ea, entA) },
 	} {
 		dirty, err := dirtyFn()
 		if err != nil {

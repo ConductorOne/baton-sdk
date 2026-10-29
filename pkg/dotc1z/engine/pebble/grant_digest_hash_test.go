@@ -322,7 +322,7 @@ func TestGrantDigestAccumulatorMatchesSealedRoots(t *testing.T) {
 			require.NoError(t, acc.Add(g))
 			require.NoError(t, global.Add(g))
 		}
-		want, ok, err := e.GetEntitlementDigestRoot(ctx, testEntIdentity(entID))
+		want, ok, err := e.Digests().GetEntitlementDigestRoot(ctx, testEntIdentity(entID))
 		require.NoError(t, err)
 		require.True(t, ok, "digest root present for %s", entID)
 		got := acc.Root()
@@ -330,7 +330,7 @@ func TestGrantDigestAccumulatorMatchesSealedRoots(t *testing.T) {
 		require.Equal(t, want.Count, got.Count, "entitlement %s count", entID)
 	}
 
-	want, ok, err := e.GetGrantDigestGlobalRoot(ctx)
+	want, ok, err := e.Digests().GetGrantDigestGlobalRoot(ctx)
 	require.NoError(t, err)
 	require.True(t, ok, "global root present after seal")
 	got := global.Root()
