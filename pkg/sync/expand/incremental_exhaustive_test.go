@@ -14,6 +14,7 @@ import (
 // new direct member, then compares incremental output with both a fresh full
 // expansion and the graph-library-free fixed-point oracle.
 func TestIncrementalExhaustiveFourNodeGraphs(t *testing.T) {
+	useMemProjectionScratch(t)
 	const wantCells = 16_586
 	ctx := context.Background()
 	cells := 0

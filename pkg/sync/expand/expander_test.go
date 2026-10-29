@@ -24,6 +24,13 @@ type MockExpanderStore struct {
 }
 
 // NewMockExpanderStore creates a new mock store for testing.
+func useMemProjectionScratch(t *testing.T) {
+	t.Helper()
+	prev := projectionScratchMem
+	projectionScratchMem = true
+	t.Cleanup(func() { projectionScratchMem = prev })
+}
+
 func NewMockExpanderStore() *MockExpanderStore {
 	return &MockExpanderStore{
 		entitlements: make(map[string]*v2.Entitlement),
