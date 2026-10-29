@@ -402,7 +402,7 @@ func TestVerificationExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T
 	require.NoError(t, err)
 	cutState, _, _ := decodeTestRun(t, currentToken)
 	cutSyncer := &syncer{run: cutState, stats: newRunStats(), graph: newExpansionGraph()}
-	cutSyncer.setStore(cutWrapper)
+	cutSyncer.setStore(withLedgerCaps(t, cutWrapper, cutStore))
 	err = cutSyncer.processGrantsWithExternalPrincipals(ctx, principals)
 	require.ErrorIs(t, err, errVerificationDeleteCut)
 	require.Equal(t, []int{9}, cutWrapper.putBatchSizes, "test premise: cut happened after the bulk put")
@@ -421,7 +421,7 @@ func TestVerificationExternalPrincipalMatchDeleteCutResumesToGolden(t *testing.T
 
 	resumedWrapper := &interruptingExternalMatchStore{Store: resumedStore}
 	resumedSyncer := &syncer{run: resumedState, stats: newRunStats(), graph: newExpansionGraph()}
-	resumedSyncer.setStore(resumedWrapper)
+	resumedSyncer.setStore(withLedgerCaps(t, resumedWrapper, resumedStore))
 	require.NoError(t, resumedSyncer.processGrantsWithExternalPrincipals(ctx, principals))
 	require.Equal(t, []int{33}, resumedWrapper.putBatchSizes,
 		"resume scans two remaining carriers plus nine expanded grants, each matching three principals")
@@ -468,7 +468,7 @@ func TestVerificationExternalPrincipalMatchPutCutResumesToGolden(t *testing.T) {
 	cutState, _, _ := decodeTestRun(t, currentToken)
 	cutSyncer := &syncer{run: cutState, stats: newRunStats(), graph: newExpansionGraph()}
 	cutSyncer.testHooks.externalMatchGrantPutChunk = &putChunk
-	cutSyncer.setStore(cutWrapper)
+	cutSyncer.setStore(withLedgerCaps(t, cutWrapper, cutStore))
 	err = cutSyncer.processGrantsWithExternalPrincipals(ctx, principals)
 	require.ErrorIs(t, err, errVerificationPutCut)
 	require.Equal(t, []int{putChunk, putChunk}, cutWrapper.putBatchSizes,
@@ -492,7 +492,7 @@ func TestVerificationExternalPrincipalMatchPutCutResumesToGolden(t *testing.T) {
 
 	resumedWrapper := &interruptingExternalMatchStore{Store: resumedStore}
 	resumedSyncer := &syncer{run: resumedState, stats: newRunStats(), graph: newExpansionGraph()}
-	resumedSyncer.setStore(resumedWrapper)
+	resumedSyncer.setStore(withLedgerCaps(t, resumedWrapper, resumedStore))
 	require.NoError(t, resumedSyncer.processGrantsWithExternalPrincipals(ctx, principals))
 	require.Equal(t, []int{21}, resumedWrapper.putBatchSizes,
 		"resume scans three carriers plus four expanded grants, each matching three principals")
