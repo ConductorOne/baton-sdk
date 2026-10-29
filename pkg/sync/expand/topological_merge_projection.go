@@ -28,6 +28,60 @@ import (
 // emits progress logs during a large expansion.
 const projectionProgressInterval = 15 * time.Second
 
+var projectionScratchMem bool
+
+type discardProjectionLogger struct{}
+
+func (discardProjectionLogger) Infof(string, ...any)  {}
+func (discardProjectionLogger) Errorf(string, ...any) {}
+func (discardProjectionLogger) Fatalf(string, ...any) {}
+
+type projectionScratch struct {
+	db      *pebble.DB
+	fs      vfs.FS
+	sstPath string
+	cleanup func()
+}
+
+func openProjectionScratch() (*projectionScratch, error) {
+	if projectionScratchMem {
+		fs := vfs.NewMem()
+		db, err := pebble.Open("db", &pebble.Options{
+			FS:         fs,
+			DisableWAL: true,
+			Logger:     discardProjectionLogger{},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("topological projection: open temp db: %w", err)
+		}
+		return &projectionScratch{
+			db:      db,
+			fs:      fs,
+			sstPath: "projection.sst",
+			cleanup: func() { _ = db.Close() },
+		}, nil
+	}
+
+	tempDir, err := os.MkdirTemp("", "baton-expand-projection-*")
+	if err != nil {
+		return nil, fmt.Errorf("topological projection: temp dir: %w", err)
+	}
+	db, err := pebble.Open(filepath.Join(tempDir, "db"), &pebble.Options{})
+	if err != nil {
+		_ = os.RemoveAll(tempDir)
+		return nil, fmt.Errorf("topological projection: open temp db: %w", err)
+	}
+	return &projectionScratch{
+		db:      db,
+		fs:      vfs.Default,
+		sstPath: filepath.Join(tempDir, "projection.sst"),
+		cleanup: func() {
+			_ = db.Close()
+			_ = os.RemoveAll(tempDir)
+		},
+	}, nil
+}
+
 // RunTopologicalMergeProjection runs topological pull expansion using a
 // temporary source projection DB for finalized source streams. The projection
 // avoids repeatedly materializing parent grants through permanent grant scans
@@ -41,17 +95,12 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 	metrics := &EntitlementGraphMetrics{Algorithm: "topological_projection"}
 	e.graph.ExpansionMetrics = metrics
 
-	tempDir, err := os.MkdirTemp("", "baton-expand-projection-*")
+	scratch, err := openProjectionScratch()
 	if err != nil {
-		return fmt.Errorf("topological projection: temp dir: %w", err)
+		return err
 	}
-	defer os.RemoveAll(tempDir)
-
-	projDB, err := pebble.Open(filepath.Join(tempDir, "db"), &pebble.Options{})
-	if err != nil {
-		return fmt.Errorf("topological projection: open temp db: %w", err)
-	}
-	defer projDB.Close()
+	defer scratch.cleanup()
+	projDB := scratch.db
 
 	entitlements, layers, err := e.prepareTopological(ctx)
 	if err != nil {
@@ -64,7 +113,7 @@ func (e *Expander) RunTopologicalMergeProjection(ctx context.Context) error {
 
 	l := ctxzap.Extract(ctx)
 	buildStart := time.Now()
-	rows, err := e.buildProjectionDB(ctx, projDB, tempDir, entitlements, projectionSources)
+	rows, err := e.buildProjectionDB(ctx, projDB, scratch.fs, scratch.sstPath, entitlements, projectionSources)
 	if err != nil {
 		return err
 	}
@@ -201,7 +250,8 @@ func (e *Expander) mergeDestinationStreams(
 func (e *Expander) buildProjectionDB(
 	ctx context.Context,
 	projDB *pebble.DB,
-	tempDir string,
+	fs vfs.FS,
+	sstPath string,
 	entitlements map[string]*v2.Entitlement,
 	projectionSources map[string]struct{},
 ) (int, error) {
@@ -214,8 +264,7 @@ func (e *Expander) buildProjectionDB(
 	}
 	sort.Strings(entIDs)
 
-	sstPath := filepath.Join(tempDir, "projection.sst")
-	w, err := newProjectionSSTWriter(sstPath)
+	w, err := newProjectionSSTWriter(fs, sstPath)
 	if err != nil {
 		return 0, err
 	}
@@ -457,6 +506,7 @@ func projectionPrefix(entitlementID string) []byte {
 // keys and rejects any out-of-order key, so a violated ordering assumption fails
 // loud instead of producing a corrupt SST.
 type projectionSSTWriter struct {
+	fs       vfs.FS
 	path     string
 	w        *sstable.Writer
 	last     []byte
@@ -464,15 +514,15 @@ type projectionSSTWriter struct {
 	finished bool
 }
 
-func newProjectionSSTWriter(path string) (*projectionSSTWriter, error) {
-	file, err := vfs.Default.Create(path, vfs.WriteCategoryUnspecified)
+func newProjectionSSTWriter(fs vfs.FS, path string) (*projectionSSTWriter, error) {
+	file, err := fs.Create(path, vfs.WriteCategoryUnspecified)
 	if err != nil {
 		return nil, err
 	}
 	w := sstable.NewWriter(objstorageprovider.NewFileWritable(file), sstable.WriterOptions{
 		BlockSize: 32 << 10,
 	})
-	return &projectionSSTWriter{path: path, w: w}, nil
+	return &projectionSSTWriter{fs: fs, path: path, w: w}, nil
 }
 
 func (p *projectionSSTWriter) add(key, val []byte) error {
@@ -505,7 +555,7 @@ func (p *projectionSSTWriter) abort() {
 		return
 	}
 	_ = p.w.Close()
-	_ = os.Remove(p.path)
+	_ = p.fs.Remove(p.path)
 }
 
 type projectionContributionStream struct {
