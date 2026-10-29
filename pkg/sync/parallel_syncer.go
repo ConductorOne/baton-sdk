@@ -142,9 +142,7 @@ func (s *syncer) parallelSync(
 ) ([]error, error) {
 	l := ctxzap.Extract(ctx)
 	workerCtx, cancelWorkers := context.WithCancelCause(ctx)
-	if s.ledgered {
-		workerCtx = withLedgerAttempts(workerCtx)
-	}
+	workerCtx = withLedgerAttempts(workerCtx)
 	stopWorkers := context.AfterFunc(runCtx, func() {
 		cancelWorkers(context.Cause(runCtx))
 	})
@@ -163,28 +161,15 @@ func (s *syncer) parallelSync(
 
 	var warnings []error
 	for {
-		if s.ledgered {
-			if err := s.refreshPendingWindow(ctx); err != nil {
-				return warnings, err
-			}
+		if err := s.refreshPendingWindow(ctx); err != nil {
+			return warnings, err
 		}
 		stateAction := s.run.current()
 		if stateAction == nil {
 			break
 		}
 
-		err := s.Checkpoint(ctx, false)
-		if err != nil {
-			// An external cancel landing between batches surfaces here,
-			// before the runCtx.Done() select below — the third stop exit
-			// (RFC 0009 §4.2). Same detached rescue, err returned
-			// unchanged. Guarded on ctx.Err() so a genuine store failure
-			// with a live caller is not retried on a detached context.
-			if ctx.Err() != nil {
-				s.checkpointOnStop(ctx)
-			}
-			return warnings, err
-		}
+		var err error
 
 		// If > 10% of actions ended in a warning, exit the sync.
 		completedActionsCount := s.run.completedActionsCount()
@@ -215,16 +200,8 @@ func (s *syncer) parallelSync(
 				} else {
 					l.Info("sync run duration has expired, exiting sync early", zap.String("sync_id", s.syncID))
 				}
-				if s.ledgered {
-					s.checkpointLedgerOnStop(ctx)
-					return warnings, ErrSyncNotComplete
-				}
-				// It would be nice to remove this once we're more confident in the checkpointing logic.
-				checkpointErr := s.Checkpoint(ctx, true)
-				if checkpointErr != nil {
-					l.Error("error checkpointing before exiting sync", zap.Error(checkpointErr))
-				}
-				return warnings, errors.Join(checkpointErr, ErrSyncNotComplete)
+				s.checkpointLedgerOnStop(ctx)
+				return warnings, ErrSyncNotComplete
 			default:
 				l.Error("sync context cancelled", zap.String("sync_id", s.syncID), zap.Error(err))
 				// Best-effort checkpoint on the way out; err is returned
@@ -383,45 +360,24 @@ func (s *syncer) parallelSync(
 			continue
 
 		case SyncGrantExpansionOp:
-			// Stamp the supports_diff marker (data collection complete; the
-			// name is historical — it gates `baton rollback-expansion`), but
-			// only if we're starting fresh. If we're resuming (graph has edges
-			// or a page token), we may be continuing from old code that didn't
-			// have this marker, so we must not set it.
-			// The ledger's phase says whether this pass has entered expansion;
-			// the token path infers it from the graph it has loaded.
-			var isResumingExpansion bool
-			if s.ledgered {
-				_, phase, err := s.caps.pageLedger.PendingWork(ctx, 0, 1)
-				if err != nil {
-					return warnings, err
-				}
-				isResumingExpansion = phase == c1zstore.LedgerQueueExpanding
-			} else {
-				entitlementGraph := s.graph.get(ctx)
-				isResumingExpansion = entitlementGraph.Loaded || len(entitlementGraph.Edges) > 0 || stateAction.PageToken != ""
+			// The ledger phase says whether this pass has entered expansion.
+			_, phase, err := s.caps.pageLedger.PendingWork(ctx, 0, 1)
+			if err != nil {
+				return warnings, err
 			}
+			isResumingExpansion := phase == c1zstore.LedgerQueueExpanding
 			skipExpansion := s.cfg.dontExpandGrants || !s.run.hasFact(factNeedsExpansion)
 			if !isResumingExpansion {
 				if s.recordStats {
 					l.Info("sync data collection complete", s.syncSummaryFields(trace.SpanFromContext(ctx))...)
 				}
-				if s.ledgered {
-					// Collecting → Expanding, the pass's commitment to expand. A
-					// skipped expansion never enters the phase. The phase is this
-					// event's record; the token path's supports_diff column is not
-					// written for ledger syncs.
-					if !skipExpansion {
-						if err := s.caps.pageLedger.BeginExpanding(ctx); err != nil {
-							return warnings, err
-						}
+				// Collecting → Expanding, the pass's commitment to expand. A
+				// skipped expansion never enters the phase. The phase is this
+				// event's record.
+				if !skipExpansion {
+					if err := s.caps.pageLedger.BeginExpanding(ctx); err != nil {
+						return warnings, err
 					}
-				} else if err := s.store.SyncMeta().MarkSyncSupportsDiff(ctx, s.syncID); err != nil {
-					// No detached rescue on this exit (RFC 0009 §4.2): a
-					// metadata-only write, with no progress since the
-					// loop-top checkpoint.
-					l.Error("failed to set supports_diff marker", zap.Error(err))
-					return warnings, err
 				}
 			}
 
@@ -475,38 +431,21 @@ func (s *syncer) handleOperationError(
 			zap.Error(batchErr),
 		)
 	}
-	if s.ledgered {
-		s.checkpointLedgerOnStop(ctx)
-		return warnings, ErrSyncNotComplete
-	}
-	checkpointErr := s.Checkpoint(ctx, true)
-	return warnings, errors.Join(checkpointErr, ErrSyncNotComplete)
+	s.checkpointLedgerOnStop(ctx)
+	return warnings, ErrSyncNotComplete
 }
 
-// stopCheckpointTimeout bounds checkpointOnStop: one sync-token write, not
-// the finalize+upload tail that FinalizeTimeout budgets an hour for. The
-// window is caller-uninterruptible and precedes Sync() returning, so it
-// must not eat the drain grace Close() needs to pack the c1z.
+// stopCheckpointTimeout bounds checkpointLedgerOnStop: one run-accounting
+// write, not the finalize+upload tail that FinalizeTimeout budgets an hour
+// for. The window is caller-uninterruptible and precedes Sync() returning,
+// so it must not eat the drain grace Close() needs to pack the c1z.
 const stopCheckpointTimeout = time.Minute
 
-// checkpointOnStop force-checkpoints on a context detached from the caller's
-// cancellation — at a stop exit that context is already canceled, so an
-// attached write could never succeed. Best-effort freshness for the c1z
-// that Close() packs: failures are logged, never returned, and the stop
-// reason reaches the runner unchanged (RFC 0009 §4.2). The run-duration
-// expiry exits deliberately stay attached instead; if an external cancel
-// lands inside that one write, the stale token costs at most one checkpoint
-// interval of idempotent re-work on resume — accepted.
+// checkpointOnStop persists run accounting on a context detached from the
+// caller's cancellation. Failures are logged, never returned, and the stop
+// reason reaches the runner unchanged (RFC 0009 §4.2).
 func (s *syncer) checkpointOnStop(ctx context.Context) {
-	if s.ledgered {
-		s.checkpointLedgerOnStop(ctx)
-		return
-	}
-	checkpointCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopCheckpointTimeout)
-	defer cancel()
-	if err := s.Checkpoint(checkpointCtx, true); err != nil {
-		ctxzap.Extract(ctx).Error("error checkpointing while stopping sync", zap.Error(err))
-	}
+	s.checkpointLedgerOnStop(ctx)
 }
 
 func tooManyWarnings(warningCount uint64, completedActionsCount uint64, threshold float64) bool {
@@ -548,8 +487,8 @@ type parallelActionQueue struct {
 	refill      func() ([]*Action, error)
 	refillErr   error
 	// commitUnlocked releases mu around transition's commit callback. Set only
-	// for a ledgered batch, whose commit is a durable store write that needs no
-	// queue state; the token path's in-memory commit stays under the lock.
+	// for a ledger batch, whose commit is a durable store write that needs no
+	// queue state.
 	commitUnlocked bool
 	// The queue keeps NO cursor identity history (RFC 0007 phase 1
 	// restored the pre-identity-machinery posture that prod ran on for
@@ -839,19 +778,17 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	defer cancel(nil)
 
 	queue := newParallelActionQueue(actions)
-	if s.ledgered {
-		queue.commitUnlocked = true
-		var after uint64
-		for _, action := range actions {
-			after = max(after, action.WorkID)
+	queue.commitUnlocked = true
+	var after uint64
+	for _, action := range actions {
+		after = max(after, action.WorkID)
+	}
+	queue.refill = func() ([]*Action, error) {
+		loaded, err := s.pendingRefill(ctx, batchOp, &after)
+		if err != nil {
+			cancel(err)
 		}
-		queue.refill = func() ([]*Action, error) {
-			loaded, err := s.pendingRefill(ctx, batchOp, &after)
-			if err != nil {
-				cancel(err)
-			}
-			return loaded, err
-		}
+		return loaded, err
 	}
 
 	if s.testHooks.queueAudit != nil {
@@ -876,10 +813,7 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 	var wg native_sync.WaitGroup
 	for i := 0; i < s.cfg.workerCount; i++ {
 		wg.Go(func() {
-			workerCtx := ctx
-			if s.ledgered {
-				workerCtx = withLedgerAttempts(context.WithValue(ctx, ledgerWorkerKey{}, i))
-			}
+			workerCtx := withLedgerAttempts(context.WithValue(ctx, ledgerWorkerKey{}, i))
 			for {
 				action, ok := queue.next()
 				if !ok {

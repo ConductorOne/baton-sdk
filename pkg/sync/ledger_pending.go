@@ -166,9 +166,6 @@ func pendingSeeds(actions []ledgerAction) []c1zstore.LedgerWork {
 }
 
 func (s *syncer) runPendingLocalStep(ctx context.Context, action *Action, handler func() error) error {
-	if !s.ledgered {
-		return handler()
-	}
 	s.run.mu.RLock()
 	beforeTotal := s.run.completedActions
 	beforeCount := s.run.actionCounts[action.Op.String()]
