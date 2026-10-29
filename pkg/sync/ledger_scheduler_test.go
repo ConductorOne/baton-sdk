@@ -20,7 +20,7 @@ func newLedgerSchedulerFixture(t *testing.T, workers int) (*syncer, *ledgerFixtu
 	f := newLedgerFixture(t)
 	runtime, err := newTestLedgerRuntime(t.Context(), f.ledger, "scheduler-attempt")
 	require.NoError(t, err)
-	s := &syncer{syncID: f.engine.CurrentSyncID(), ledgered: true, ledger: runtime, store: f.store, caps: resolveStoreCaps(f.store),
+	s := &syncer{syncID: f.engine.CurrentSyncID(), ledger: runtime, store: f.store, caps: resolveStoreCaps(f.store),
 		run: newRunState(), stats: newRunStats(), cfg: syncConfig{workerCount: workers}}
 	return s, f
 }
