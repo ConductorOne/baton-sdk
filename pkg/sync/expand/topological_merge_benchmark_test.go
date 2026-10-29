@@ -126,12 +126,6 @@ func (s *benchmarkMergeStore) ListGrantsForEntitlement(
 	}.Build(), nil
 }
 
-// GrantsForEntitlementPrincipalSorted is false so the "current" sub-benchmark's
-// Run -> RunSingleStep stays on the source-batched expander it means to measure,
-// rather than being redirected into the projection evaluator. The topological
-// benchmarks call RunTopologicalMerge* directly and are unaffected.
-func (s *benchmarkMergeStore) GrantsForEntitlementPrincipalSorted() bool { return false }
-
 func (s *benchmarkMergeStore) StoreExpandedGrants(_ context.Context, grants ...*v2.Grant) error {
 	s.writeCount += len(grants)
 	for _, grant := range grants {

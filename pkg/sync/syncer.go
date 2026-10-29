@@ -318,39 +318,6 @@ func (a *expanderStoreAdapter) ListGrantsForEntitlement(
 	return a.store.ListGrantsForEntitlement(ctx, req)
 }
 
-func (a *expanderStoreAdapter) ListGrantPrincipalKeysForEntitlement(
-	ctx context.Context,
-	entitlement *v2.Entitlement,
-	pageToken string,
-	pageSize uint32,
-) ([]string, string, error) {
-	if err := requireEntitlementRefs(entitlement); err != nil {
-		return nil, "", err
-	}
-	// Preserve Pebble's compact prefetch path through this wrapper. Non-Pebble
-	// stores fall back to regular grant listing and local key extraction.
-	if store := a.caps.grantPrincipalKeys; store != nil {
-		return store.ListGrantPrincipalKeysForEntitlement(ctx, entitlement, pageToken, pageSize)
-	}
-	resp, err := a.store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement: entitlement,
-		PageToken:   pageToken,
-		PageSize:    pageSize,
-	}.Build())
-	if err != nil {
-		return nil, "", err
-	}
-	keys := make([]string, 0, len(resp.GetList()))
-	for _, g := range resp.GetList() {
-		if g.GetPrincipal() == nil {
-			continue
-		}
-		id := g.GetPrincipal().GetId()
-		keys = append(keys, id.GetResourceType()+"\x00"+id.GetResource())
-	}
-	return keys, resp.GetNextPageToken(), nil
-}
-
 func (a *expanderStoreAdapter) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
 	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
 }
@@ -376,20 +343,6 @@ func (a *expanderStoreAdapter) StoreNewExpandedGrantContributions(ctx context.Co
 		grants = append(grants, grant)
 	}
 	return a.store.Grants().StoreExpandedGrants(ctx, grants...)
-}
-
-// grantPrincipalKeyLister is the store's compact principal-key prefetch for an
-// entitlement (Pebble). Without it the adapter lists whole grants and extracts
-// the keys locally.
-type grantPrincipalKeyLister interface {
-	ListGrantPrincipalKeysForEntitlement(context.Context, *v2.Entitlement, string, uint32) ([]string, string, error)
-}
-
-// principalSortedGrantLister reports whether the engine yields an
-// entitlement's grants in principal order (Pebble's entitlement-first key
-// does). Without it the topological merge buffers and sorts per entitlement.
-type principalSortedGrantLister interface {
-	GrantsForEntitlementPrincipalSorted() bool
 }
 
 // newExpandedGrantStorer persists caller-proven-new expanded grants without
@@ -462,15 +415,6 @@ func resourceFromPrincipalRef(ref *storage_v3.PrincipalRef) *v2.Resource {
 		}.Build(),
 		ParentResourceId: parent,
 	}.Build()
-}
-
-// GrantsForEntitlementPrincipalSorted forwards the underlying engine's
-// principal-sort guarantee (Pebble) so the topological merge can stream grant
-// groups instead of buffering and sorting each entitlement. Engines that do not
-// implement it report false and get the buffering fallback.
-func (a *expanderStoreAdapter) GrantsForEntitlementPrincipalSorted() bool {
-	store := a.caps.principalSortedGrants
-	return store != nil && store.GrantsForEntitlementPrincipalSorted()
 }
 
 const minCheckpointInterval = 10 * time.Second

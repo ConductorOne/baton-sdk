@@ -82,8 +82,6 @@ func (s *fanoutStore) StoreExpandedGrants(_ context.Context, grants ...*v2.Grant
 	return nil // discard: keeps memory bounded at 10M scale
 }
 
-func (s *fanoutStore) GrantsForEntitlementPrincipalSorted() bool { return false }
-
 // benchmarkFanout builds a 1-source -> N-dest graph and expands it once per op.
 func benchmarkFanout(b *testing.B, members, dests int) {
 	ctx := context.Background()

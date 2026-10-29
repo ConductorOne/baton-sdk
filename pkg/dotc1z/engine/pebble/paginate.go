@@ -282,7 +282,7 @@ func newGrantRecord() *v3.GrantRecord { return &v3.GrantRecord{} }
 // PaginateGrantPrincipalKeysByEntitlement scans the primary grant keyspace under
 // the entitlement identity prefix and returns only principal identity keys for
 // each matching grant. The key format is principal_resource_type + "\x00" +
-// principal_resource_id, matching pkg/sync/expand's descendantGrantKey.
+// principal_resource_id.
 func (e *Engine) PaginateGrantPrincipalKeysByEntitlement(
 	ctx context.Context, entID entitlementIdentity, cursor string, limit int,
 ) ([]string, string, error) {

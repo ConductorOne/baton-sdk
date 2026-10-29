@@ -154,36 +154,6 @@ func (s benchmarkExpanderStore) ListGrantsForEntitlement(
 	return s.store.ListGrantsForEntitlement(ctx, req)
 }
 
-func (s benchmarkExpanderStore) ListGrantPrincipalKeysForEntitlement(
-	ctx context.Context,
-	entitlement *v2.Entitlement,
-	pageToken string,
-	pageSize uint32,
-) ([]string, string, error) {
-	if store, ok := s.store.(interface {
-		ListGrantPrincipalKeysForEntitlement(context.Context, *v2.Entitlement, string, uint32) ([]string, string, error)
-	}); ok {
-		return store.ListGrantPrincipalKeysForEntitlement(ctx, entitlement, pageToken, pageSize)
-	}
-	resp, err := s.store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement: entitlement,
-		PageToken:   pageToken,
-		PageSize:    pageSize,
-	}.Build())
-	if err != nil {
-		return nil, "", err
-	}
-	keys := make([]string, 0, len(resp.GetList()))
-	for _, g := range resp.GetList() {
-		if g.GetPrincipal() == nil {
-			continue
-		}
-		id := g.GetPrincipal().GetId()
-		keys = append(keys, id.GetResourceType()+"\x00"+id.GetResource())
-	}
-	return keys, resp.GetNextPageToken(), nil
-}
-
 func (s benchmarkExpanderStore) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
 	return s.store.Grants().StoreExpandedGrants(ctx, grants...)
 }
@@ -252,13 +222,6 @@ func (s benchmarkExpanderStore) AbortExpandedGrantLayer(ctx context.Context) err
 		return fast.AbortExpandedGrantLayer(ctx)
 	}
 	return nil
-}
-
-func (s benchmarkExpanderStore) GrantsForEntitlementPrincipalSorted() bool {
-	store, ok := s.store.(interface {
-		GrantsForEntitlementPrincipalSorted() bool
-	})
-	return ok && store.GrantsForEntitlementPrincipalSorted()
 }
 
 // BenchmarkExpandWhalePebble runs the expansion benchmark against an

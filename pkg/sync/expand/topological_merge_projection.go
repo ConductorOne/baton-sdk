@@ -194,14 +194,10 @@ func (e *Expander) mergeDestinationStreams(
 //
 // Entitlements are processed in sorted id order, and the tuple-encoded
 // projection key is prefix-ordered by entitlement, so each entitlement's rows
-// form a contiguous, globally-ordered block. When the store yields grants in
-// principal order (Pebble's entitlement-first primary grant key — see
-// ExpanderStore.GrantsForEntitlementPrincipalSorted) the rows arrive already in
-// projection-key order and are streamed straight into
-// the SST writer with only one page resident. Otherwise (SQLite orders by grant
-// id) each entitlement's rows are buffered and sorted before being appended,
-// bounding memory to a single entitlement's grants rather than the whole
-// projection. The SST writer asserts strict cross-block ordering as a safety net.
+// form a contiguous, globally-ordered block. Grants arrive in principal order,
+// so each entitlement's rows are already in projection-key order and are
+// streamed straight into the SST writer with only one page resident. The SST
+// writer asserts strict cross-block ordering as a safety net.
 func (e *Expander) buildProjectionDB(
 	ctx context.Context,
 	projDB *pebble.DB,
@@ -218,8 +214,6 @@ func (e *Expander) buildProjectionDB(
 	}
 	sort.Strings(entIDs)
 
-	principalSorted := e.store.GrantsForEntitlementPrincipalSorted()
-
 	sstPath := filepath.Join(tempDir, "projection.sst")
 	w, err := newProjectionSSTWriter(sstPath)
 	if err != nil {
@@ -227,13 +221,11 @@ func (e *Expander) buildProjectionDB(
 	}
 	defer w.abort() // no-op once finish() succeeds.
 
-	var block []projectionKV
 	for _, entID := range entIDs {
 		if err := ctx.Err(); err != nil {
 			return 0, err
 		}
 		ent := entitlements[entID]
-		block = block[:0]
 		pageToken := ""
 		for {
 			if err := ctx.Err(); err != nil {
@@ -254,29 +246,13 @@ func (e *Expander) buildProjectionDB(
 				if !ok {
 					continue
 				}
-				if principalSorted {
-					// Already in projection-key order; stream directly.
-					if err := w.add(key, val); err != nil {
-						return 0, err
-					}
-					continue
+				if err := w.add(key, val); err != nil {
+					return 0, err
 				}
-				block = append(block, projectionKV{key: key, val: val})
 			}
 			pageToken = resp.GetNextPageToken()
 			if pageToken == "" {
 				break
-			}
-		}
-		if principalSorted {
-			continue
-		}
-		sort.Slice(block, func(i, j int) bool {
-			return bytes.Compare(block[i].key, block[j].key) < 0
-		})
-		for _, kv := range block {
-			if err := w.add(kv.key, kv.val); err != nil {
-				return 0, err
 			}
 		}
 	}
@@ -291,11 +267,6 @@ func (e *Expander) buildProjectionDB(
 		return 0, fmt.Errorf("topological projection: ingest projection: %w", err)
 	}
 	return w.count, nil
-}
-
-type projectionKV struct {
-	key []byte
-	val []byte
 }
 
 func encodeProjectionKV(grant *v2.Grant, entitlementID string) ([]byte, []byte, bool, error) {

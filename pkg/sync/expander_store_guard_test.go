@@ -28,9 +28,6 @@ func TestExpanderStoreAdapterRequiresEntitlementRefs(t *testing.T) {
 	}.Build())
 	require.ErrorContains(t, err, "no resource refs")
 
-	_, _, err = a.ListGrantPrincipalKeysForEntitlement(ctx, bare, "", 0)
-	require.ErrorContains(t, err, "no resource refs")
-
 	_, err = a.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{}.Build())
 	require.ErrorContains(t, err, "missing entitlement")
 

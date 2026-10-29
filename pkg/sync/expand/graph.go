@@ -3,10 +3,7 @@ package expand
 import (
 	"context"
 	"fmt"
-	"iter"
 	"slices"
-	"sort"
-	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/sync/expand/scc"
 	mapset "github.com/deckarep/golang-set/v2"
@@ -16,24 +13,11 @@ import (
 
 // JSON tags for actions, edges, and nodes are short to minimize size of serialized data when checkpointing
 
-// ActionDescendant is one destination an action fans out to. Shallow is per
-// destination because destinations sharing a source read can differ on it
-// (Shallow only gates which grants qualify when writing, not the source read).
 type ActionDescendant struct {
 	EntitlementID string `json:"did"`
 	Shallow       bool   `json:"s"`
 }
 
-// EntitlementGraphAction is one unit of expansion work: read the source's
-// grants once (filtered by ResourceTypeIDs) and fan them out to every
-// destination in Descendants. Reading the source once per batch instead of
-// once per outgoing edge is what cuts the read-amplification.
-//
-// DescendantEntitlementID/Shallow are the old per-edge fields, kept only so
-// checkpoints written by an older baton-sdk still load: descendants() folds
-// such an action into a one-element batch. New actions leave them empty and
-// use Descendants. JSON names are unchanged, so old and new checkpoints
-// round-trip without a version bump.
 type EntitlementGraphAction struct {
 	SourceEntitlementID string             `json:"sid"`
 	Descendants         []ActionDescendant `json:"dsts,omitempty"`
@@ -43,18 +27,6 @@ type EntitlementGraphAction struct {
 	// Legacy per-edge fields, retained for resuming pre-grouping checkpoints.
 	DescendantEntitlementID string `json:"did,omitempty"`
 	Shallow                 bool   `json:"s,omitempty"`
-}
-
-// descendants returns the destination batch for this action, folding a legacy
-// per-edge action (DescendantEntitlementID/Shallow) into a one-element batch.
-func (a *EntitlementGraphAction) descendants() []ActionDescendant {
-	if len(a.Descendants) > 0 {
-		return a.Descendants
-	}
-	if a.DescendantEntitlementID != "" {
-		return []ActionDescendant{{EntitlementID: a.DescendantEntitlementID, Shallow: a.Shallow}}
-	}
-	return nil
 }
 
 type Edge struct {
@@ -302,74 +274,6 @@ func (g *EntitlementGraph) GetDescendantEntitlements(entitlementID string) map[s
 	return entitlementsToEdges
 }
 
-func (g *EntitlementGraph) GetExpandableDescendantEntitlements(ctx context.Context, entitlementID string) iter.Seq2[string, *Edge] {
-	return func(yield func(string, *Edge) bool) {
-		node := g.GetNode(entitlementID)
-		if node == nil {
-			return
-		}
-		if destinations, ok := g.SourcesToDestinations[node.Id]; ok {
-			for destinationID, edgeID := range destinations {
-				if destination, ok := g.Nodes[destinationID]; ok {
-					for _, e := range destination.EntitlementIDs {
-						if edge, ok := g.Edges[edgeID]; ok {
-							if edge.IsExpanded {
-								continue
-							}
-							if !yield(e, &edge) {
-								return
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
-// filterGroup is a set of destination entitlements reachable from one source
-// that share the same ResourceTypeIDs source-read filter, so they can be served
-// by a single read of the source's grants.
-type filterGroup struct {
-	resourceTypeIDs []string
-	dests           []ActionDescendant
-}
-
-// groupExpandableDescendants buckets a source's unexpanded outgoing edges by
-// their ResourceTypeIDs filter (the filter changes the source read, so only
-// edges with the same filter can share one read). Output is
-// deterministic — groups ordered by their filter key, destinations sorted by
-// entitlement ID — so action generation and checkpoint resume are stable across
-// runs despite the underlying map iteration order.
-func groupExpandableDescendants(ctx context.Context, g *EntitlementGraph, sourceEntitlementID string) []filterGroup {
-	byKey := make(map[string]*filterGroup)
-	order := make([]string, 0)
-	for entID, edge := range g.GetExpandableDescendantEntitlements(ctx, sourceEntitlementID) {
-		// Canonicalize the filter so ["user","group"] and ["group","user"]
-		// share a read. ListGrantsForEntitlement filters by set membership, so
-		// reordering the slice does not change the read.
-		rtids := append([]string(nil), edge.ResourceTypeIDs...)
-		sort.Strings(rtids)
-		key := strings.Join(rtids, "\x00")
-		grp, ok := byKey[key]
-		if !ok {
-			grp = &filterGroup{resourceTypeIDs: rtids}
-			byKey[key] = grp
-			order = append(order, key)
-		}
-		grp.dests = append(grp.dests, ActionDescendant{EntitlementID: entID, Shallow: edge.IsShallow})
-	}
-
-	sort.Strings(order)
-	groups := make([]filterGroup, 0, len(order))
-	for _, key := range order {
-		grp := byKey[key]
-		sort.Slice(grp.dests, func(i, j int) bool { return grp.dests[i].EntitlementID < grp.dests[j].EntitlementID })
-		groups = append(groups, *grp)
-	}
-	return groups
-}
-
 func (g *EntitlementGraph) HasEntitlement(entitlementID string) bool {
 	return g.GetNode(entitlementID) != nil
 }
@@ -406,28 +310,6 @@ func (g *EntitlementGraph) GetEntitlements() []string {
 		entitlements = append(entitlements, node.EntitlementIDs...)
 	}
 	return entitlements
-}
-
-func (g *EntitlementGraph) GetExpandableEntitlements(ctx context.Context) iter.Seq[string] {
-	return func(yield func(string) bool) {
-		l := ctxzap.Extract(ctx)
-		for _, node := range g.Nodes {
-			for _, entitlementID := range node.EntitlementIDs {
-				// We've already expanded this entitlement, so skip it.
-				if g.IsEntitlementExpanded(entitlementID) {
-					continue
-				}
-				// We have ancestors who have not been expanded yet, so we can't expand ourselves.
-				if g.HasUnexpandedAncestors(entitlementID) {
-					l.Debug("expandGrantsForEntitlements: skipping source entitlement because it has unexpanded ancestors", zap.String("source_entitlement_id", entitlementID))
-					continue
-				}
-				if !yield(entitlementID) {
-					return
-				}
-			}
-		}
-	}
 }
 
 // MarkEdgeExpanded given source and destination entitlements, mark the edge
