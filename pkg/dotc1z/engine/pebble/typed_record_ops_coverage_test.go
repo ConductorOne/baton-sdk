@@ -62,7 +62,7 @@ func TestPutSynthesizedGrantRecordsObligations(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	require.NoError(t, e.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{
 		testGrantRecord("ent-A", "alice"),
@@ -94,7 +94,7 @@ func TestPutSynthesizedGrantContributionsBatchObligations(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	dest := v3.EntitlementRef_builder{
 		ResourceTypeId: "app", ResourceId: "github", EntitlementId: "app:github:ent-A",
@@ -136,7 +136,7 @@ func TestUnsafePutUniqueGrantRecordsObligations(t *testing.T) {
 	a := newAdapter(t)
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	expandable := testGrantRecord("ent-A", "alice")
 	expandable.SetNeedsExpansion(true)
@@ -183,7 +183,7 @@ func TestGrantDeleteMalformedValueStillCleansObligations(t *testing.T) {
 	a := newAdapter(t)
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	// A healthy grant first, sealed so digests exist; rebind for the
 	// post-seal mutation (the partial-sync shape where digests are
@@ -232,7 +232,7 @@ func TestDeleteResourceRecordObligations(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	child := v3.ResourceRecord_builder{
 		ResourceTypeId: "group",
@@ -267,7 +267,7 @@ func TestDeferredMarkerArmFailureRollsBackCAS(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	injected := errNoRetryArmFailure
 	e.db.SetDeferredMarkerTestHooks(func() error { return injected }, nil)
@@ -324,7 +324,7 @@ func TestDeferredMarkerClearFailureKeepsAgreement(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	// Deferred-regime write arms the marker.
 	require.NoError(t, e.PutSynthesizedGrantRecords(ctx, []*v3.GrantRecord{testGrantRecord("ent-A", "alice")}))

@@ -558,7 +558,7 @@ func (s *pebbleStore) RollbackExpansion(ctx context.Context, syncID string, dryR
 	for _, o := range opts {
 		o(cfg)
 	}
-	res, err := s.Engine.RollbackExpansion(ctx, syncID, dryRun, cfg.preserveSuspect)
+	res, err := s.Engine.Expansion().RollbackExpansion(ctx, syncID, dryRun, cfg.preserveSuspect)
 	switch {
 	case errors.Is(err, pebble.ErrNothingToRollBack):
 		return nil, fmt.Errorf("%w: %w", ErrSyncNotExpanded, err)

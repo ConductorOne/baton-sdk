@@ -194,7 +194,7 @@ func TestFailedMutationPathsFireObligations(t *testing.T) {
 			// covers stochastically.
 			name: "deferred-arm-commit-failure",
 			run: func(t *testing.T, ctx context.Context, a *Adapter, _ string) error {
-				e := a.PebbleEngine()
+				e := a.Expansion().PebbleEngine()
 				e.test.recordCommitHook = func() error { return injected }
 				t.Cleanup(func() { e.test.recordCommitHook = nil })
 				return a.Grants().StoreExpandedGrants(ctx, mkV2Grant("", "ent-x", "user", "alice"))
@@ -209,7 +209,7 @@ func TestFailedMutationPathsFireObligations(t *testing.T) {
 				require.ErrorIs(t, err, pebble.ErrNotFound, "no row of the failed batch may have committed")
 			},
 			converge: func(t *testing.T, ctx context.Context, a *Adapter, syncID string) {
-				e := a.PebbleEngine()
+				e := a.Expansion().PebbleEngine()
 				e.test.recordCommitHook = nil
 				// Retry the same write, then seal: the armed marker's
 				// rebuild must leave by_principal complete.
@@ -230,7 +230,7 @@ func TestFailedMutationPathsFireObligations(t *testing.T) {
 			// discoverable as unfinished, so a retried EndSync converges.
 			name: "endsync-stamp-commit-failure",
 			run: func(t *testing.T, ctx context.Context, a *Adapter, _ string) error {
-				e := a.PebbleEngine()
+				e := a.Expansion().PebbleEngine()
 				require.NoError(t, a.PutGrants(ctx, mkV2Grant("", "ent-y", "user", "bob")))
 				e.test.endSyncStampHook = func() error { return injected }
 				t.Cleanup(func() { e.test.endSyncStampHook = nil })
@@ -248,9 +248,9 @@ func TestFailedMutationPathsFireObligations(t *testing.T) {
 				require.Equal(t, syncID, unfinished.GetSyncId())
 			},
 			converge: func(t *testing.T, ctx context.Context, a *Adapter, syncID string) {
-				a.PebbleEngine().test.endSyncStampHook = nil
+				a.Expansion().PebbleEngine().test.endSyncStampHook = nil
 				require.NoError(t, a.EndSync(ctx), "a retried EndSync must converge")
-				rec, err := a.PebbleEngine().SyncRuns().GetSyncRunRecord(ctx, syncID)
+				rec, err := a.Expansion().PebbleEngine().SyncRuns().GetSyncRunRecord(ctx, syncID)
 				require.NoError(t, err)
 				require.NotNil(t, rec.GetEndedAt())
 			},
@@ -267,7 +267,7 @@ func TestFailedMutationPathsFireObligations(t *testing.T) {
 			err = tc.run(t, ctx, a, syncID)
 			require.Error(t, err, "the case must fail mid-mutation; a clean run proves nothing about error-path obligations")
 			require.ErrorIs(t, err, injected)
-			tc.obligations(t, ctx, a.PebbleEngine(), syncID)
+			tc.obligations(t, ctx, a.Expansion().PebbleEngine(), syncID)
 			if tc.converge != nil {
 				tc.converge(t, ctx, a, syncID)
 			}

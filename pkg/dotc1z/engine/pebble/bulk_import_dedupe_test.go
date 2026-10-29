@@ -36,7 +36,7 @@ func TestBulkImportAbortAfterEngineClose(t *testing.T) {
 	store, b := startBulkImport(t, ctx)
 	require.NoError(t, b.AddResourceTypes(ctx, v2.ResourceType_builder{Id: "app"}.Build()))
 
-	require.NoError(t, store.PebbleEngine().Close())
+	require.NoError(t, store.Expansion().PebbleEngine().Close())
 	require.NotPanics(t, b.Abort, "Abort after engine Close must tear down staging dirs, not panic")
 
 	// And the other retained-handle shape: Finish after Abort/Close is

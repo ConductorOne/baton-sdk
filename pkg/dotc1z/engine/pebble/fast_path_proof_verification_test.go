@@ -94,7 +94,7 @@ func TestVerificationBindCurrentSyncDisarmsAllFastPathProofs(t *testing.T) {
 	a := newAdapter(t)
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 	for _, kind := range []sourcecache.RowKind{
 		sourcecache.RowKindResources,
 		sourcecache.RowKindEntitlements,
@@ -118,7 +118,7 @@ func TestVerificationBulkImportFinishDisarmsAllFastPathProofs(t *testing.T) {
 	a := newAdapter(t)
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 	bulk, err := e.StartBulkSyncImport(ctx, syncID, t.TempDir(), 1)
 	require.NoError(t, err)
 	defer bulk.Abort()
@@ -154,20 +154,20 @@ func TestVerificationReplayClearCommittedPrefixDisarmsFastPath(t *testing.T) {
 			prev := newAdapter(t)
 			_, err := prev.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 			require.NoError(t, err)
-			putFastPathProofRow(t, prev.PebbleEngine(), kind, "scope-a", "source", 0)
-			sealReplaySource(ctx, t, prev.PebbleEngine(), kind, "scope-a")
+			putFastPathProofRow(t, prev.Expansion().PebbleEngine(), kind, "scope-a", "source", 0)
+			sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), kind, "scope-a")
 
 			current := newAdapter(t)
 			_, err = current.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 			require.NoError(t, err)
 			for row := range 3 {
-				putFastPathProofRow(t, current.PebbleEngine(), kind, "scope-a", "destination", row)
+				putFastPathProofRow(t, current.Expansion().PebbleEngine(), kind, "scope-a", "destination", row)
 			}
-			armFastPathProof(current.PebbleEngine(), kind)
-			require.True(t, fastPathProofArmed(current.PebbleEngine(), kind), "fault premise was not armed")
-			current.PebbleEngine().test.sourceCacheReplayBatchRows = 2
+			armFastPathProof(current.Expansion().PebbleEngine(), kind)
+			require.True(t, fastPathProofArmed(current.Expansion().PebbleEngine(), kind), "fault premise was not armed")
+			current.Expansion().PebbleEngine().test.sourceCacheReplayBatchRows = 2
 			commitCalls := 0
-			current.PebbleEngine().test.sourceCacheReplayClearCommitHook = func(
+			current.Expansion().PebbleEngine().test.sourceCacheReplayClearCommitHook = func(
 				gotKind string,
 				_ int,
 				_ bool,
@@ -183,31 +183,31 @@ func TestVerificationReplayClearCommittedPrefixDisarmsFastPath(t *testing.T) {
 			var replayErr error
 			switch kind {
 			case sourcecache.RowKindResources:
-				_, replayErr = current.PebbleEngine().ReplaySourceCacheResources(
+				_, replayErr = current.Expansion().PebbleEngine().ReplaySourceCacheResources(
 					ctx,
-					prev.PebbleEngine(),
+					prev.Expansion().PebbleEngine(),
 					"scope-a",
 				)
 			case sourcecache.RowKindEntitlements:
-				_, replayErr = current.PebbleEngine().ReplaySourceCacheEntitlements(
+				_, replayErr = current.Expansion().PebbleEngine().ReplaySourceCacheEntitlements(
 					ctx,
-					prev.PebbleEngine(),
+					prev.Expansion().PebbleEngine(),
 					"scope-a",
 				)
 			case sourcecache.RowKindGrants:
-				_, replayErr = current.PebbleEngine().ReplaySourceCacheGrants(
+				_, replayErr = current.Expansion().PebbleEngine().ReplaySourceCacheGrants(
 					ctx,
-					prev.PebbleEngine(),
+					prev.Expansion().PebbleEngine(),
 					"scope-a",
 				)
 			}
 			require.ErrorIs(t, replayErr, injected)
 			require.Equal(t, 2, commitCalls, "fault did not occur after one committed clear batch")
-			armedAfterFailure := fastPathProofArmed(current.PebbleEngine(), kind)
-			current.PebbleEngine().test.sourceCacheReplayClearCommitHook = nil
+			armedAfterFailure := fastPathProofArmed(current.Expansion().PebbleEngine(), kind)
+			current.Expansion().PebbleEngine().test.sourceCacheReplayClearCommitHook = nil
 
-			putFastPathProofRow(t, current.PebbleEngine(), kind, "scope-b", "destination", 2)
-			require.NoError(t, auditSourceScopeBiconditional(current.PebbleEngine()),
+			putFastPathProofRow(t, current.Expansion().PebbleEngine(), kind, "scope-b", "destination", 2)
+			require.NoError(t, auditSourceScopeBiconditional(current.Expansion().PebbleEngine()),
 				"colliding write used stale empty-keyspace proof after committed clear")
 			require.False(t, armedAfterFailure, "committed clear did not consume %s fast-path proof", kind)
 		})
@@ -219,15 +219,15 @@ func TestVerificationReplayWriteBarrierDrainsBeforeClose(t *testing.T) {
 	prev := newAdapter(t)
 	_, err := prev.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	putFastPathProofRow(t, prev.PebbleEngine(), sourcecache.RowKindResources, "scope-a", "source", 0)
-	sealReplaySource(ctx, t, prev.PebbleEngine(), sourcecache.RowKindResources, "scope-a")
+	putFastPathProofRow(t, prev.Expansion().PebbleEngine(), sourcecache.RowKindResources, "scope-a", "source", 0)
+	sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), sourcecache.RowKindResources, "scope-a")
 
 	current := newAdapter(t)
 	_, err = current.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	enteredCommit := make(chan struct{})
 	releaseCommit := make(chan struct{})
-	current.PebbleEngine().test.sourceCacheReplayCommitHook = func(kind string, rows int, final bool) error {
+	current.Expansion().PebbleEngine().test.sourceCacheReplayCommitHook = func(kind string, rows int, final bool) error {
 		if kind != string(sourcecache.RowKindResources) || rows != 1 || !final {
 			return fmt.Errorf("unexpected replay commit kind=%q rows=%d final=%t", kind, rows, final)
 		}
@@ -238,9 +238,9 @@ func TestVerificationReplayWriteBarrierDrainsBeforeClose(t *testing.T) {
 
 	replayDone := make(chan error, 1)
 	go func() {
-		_, replayErr := current.PebbleEngine().ReplaySourceCacheResources(
+		_, replayErr := current.Expansion().PebbleEngine().ReplaySourceCacheResources(
 			context.Background(),
-			prev.PebbleEngine(),
+			prev.Expansion().PebbleEngine(),
 			"scope-a",
 		)
 		replayDone <- replayErr
@@ -253,7 +253,7 @@ func TestVerificationReplayWriteBarrierDrainsBeforeClose(t *testing.T) {
 
 	closeDone := make(chan error, 1)
 	go func() {
-		closeDone <- current.PebbleEngine().Close()
+		closeDone <- current.Expansion().PebbleEngine().Close()
 	}()
 	select {
 	case closeErr := <-closeDone:

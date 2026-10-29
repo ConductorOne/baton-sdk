@@ -194,7 +194,7 @@ type ledgerKV struct {
 
 func ledgerRawSnapshot(t *testing.T, e *engine.Engine) []ledgerKV {
 	t.Helper()
-	iter, err := e.NewIter(nil)
+	iter, err := e.Expansion().NewIter(nil)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, iter.Close()) }()
 	var rows []ledgerKV

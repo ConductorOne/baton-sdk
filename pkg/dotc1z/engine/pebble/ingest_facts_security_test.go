@@ -49,7 +49,7 @@ func TestSecurity_IngestScansRejectNonCanonicalKeys(t *testing.T) {
 				a := newAdapter(t)
 				_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 				require.NoError(t, err)
-				e := a.PebbleEngine()
+				e := a.Expansion().PebbleEngine()
 				require.NoError(t, e.db.UnsafeForTesting().Set(tc.key, nil, nil))
 
 				err = scans[scan](ctx, e)
@@ -68,7 +68,7 @@ func TestIngestScansVisitEachGroupOnce(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	resource := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "app", Resource: "github"}.Build()}.Build()
 	grant := func(entID, principalID string) *v2.Grant {

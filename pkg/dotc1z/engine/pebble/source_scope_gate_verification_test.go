@@ -70,7 +70,7 @@ func TestVerificationSourceScopeGateLifecycle(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	require.False(t, e.db.SourceScopeMayExist(), "fresh store must start unarmed")
 
@@ -116,7 +116,7 @@ func TestVerificationSourceScopeGateArmsPerKind(t *testing.T) {
 			a := newAdapter(t)
 			_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 			require.NoError(t, err)
-			e := a.PebbleEngine()
+			e := a.Expansion().PebbleEngine()
 
 			// Two unstamped writes of the kind first: the second runs past
 			// the fresh-first-batch skip, so the gate is what keeps it off
@@ -186,7 +186,7 @@ func TestVerificationSourceScopeGateUnarmedSkipsPriorValueScan(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	// Burn the fresh-first-batch skip so the gate is the only thing
 	// standing between the put and the read-before-write.
@@ -279,7 +279,7 @@ func TestVerificationFoldBatchArmsSourceScopeGate(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	// Burn the fresh-first-batch grant skip so the later overwrite takes
 	// its ordinary read-before-write path.
@@ -305,7 +305,7 @@ func TestVerificationFoldBatchArmsSourceScopeGate(t *testing.T) {
 	require.NoError(t, err)
 	val, err := marshalRecord(stamped)
 	require.NoError(t, err)
-	fb := e.NewFoldBatch()
+	fb := e.Expansion().NewFoldBatch()
 	require.False(t, e.db.SourceScopeMayExist(), "minting the raw compaction batch must not arm the gate")
 	require.NoError(t, fb.Set(encodeGrantIdentityKey(id), val))
 	require.False(t, e.db.SourceScopeMayExist(), "a stamped primary without an index must not arm the index-presence gate")
@@ -339,7 +339,7 @@ func TestVerificationBulkImportFinishReprobesSourceScopeGate(t *testing.T) {
 	a := newAdapter(t)
 	syncID, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 	require.False(t, e.db.SourceScopeMayExist(), "premise: fresh store unarmed")
 
 	// The stamped row + entry a scoped import would install. Planted raw

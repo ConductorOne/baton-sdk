@@ -21,7 +21,7 @@ func TestSecurity_PageTokensAdvancePastHostileRows(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	parent := v3.ResourceRef_builder{ResourceTypeId: "group", ResourceId: "g"}.Build()
 	rb := e.db.NewRecordBatch()

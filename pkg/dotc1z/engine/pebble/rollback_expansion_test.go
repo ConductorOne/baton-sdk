@@ -131,12 +131,12 @@ func TestRollbackExpansionClassifiesBySources(t *testing.T) {
 	syncID := finishedSyncWithGrants(t, e, rollbackClassificationGrants()...)
 	before := grantKeyspace(t, e)
 
-	dry, err := e.RollbackExpansion(ctx, syncID, true, false)
+	dry, err := e.Expansion().RollbackExpansion(ctx, syncID, true, false)
 	require.NoError(t, err)
 	require.Equal(t, &RollbackExpansionResult{GrantsDeleted: 2, SourcesCleared: 2, SuspectConnectorSourced: 1}, dry)
 	require.Equal(t, before, grantKeyspace(t, e), "a dry run writes nothing")
 
-	got, err := e.RollbackExpansion(ctx, syncID, false, false)
+	got, err := e.Expansion().RollbackExpansion(ctx, syncID, false, false)
 	require.NoError(t, err)
 	require.Equal(t, dry, got, "dry-run counts equal write counts")
 	require.NoError(t, e.EndSync(ctx))
@@ -160,7 +160,7 @@ func TestRollbackExpansionPreservesSuspectGrants(t *testing.T) {
 	e, _ := newTestEngine(t)
 	syncID := finishedSyncWithGrants(t, e, rollbackClassificationGrants()...)
 
-	got, err := e.RollbackExpansion(ctx, syncID, false, true)
+	got, err := e.Expansion().RollbackExpansion(ctx, syncID, false, true)
 	require.NoError(t, err)
 	require.Equal(t, &RollbackExpansionResult{GrantsDeleted: 1, SourcesCleared: 2, SuspectConnectorSourced: 1, SuspectPreserved: 1}, got)
 	require.NoError(t, e.EndSync(ctx))
@@ -192,7 +192,7 @@ func TestRollbackExpansionSuspectDeletePoisonsItsScope(t *testing.T) {
 			require.Equal(t, "scope-suspect", records["app:github:ent-A:user:suspect"].GetSourceScopeKey())
 			require.Equal(t, "scope-cleared", records["app:github:ent-B:user:selfOnly"].GetSourceScopeKey())
 
-			_, err := e.RollbackExpansion(ctx, syncID, false, preserve)
+			_, err := e.Expansion().RollbackExpansion(ctx, syncID, false, preserve)
 			require.NoError(t, err)
 			require.NoError(t, e.EndSync(ctx))
 
@@ -215,7 +215,7 @@ func TestRollbackExpansionNothingToRollBack(t *testing.T) {
 	before := grantKeyspace(t, e)
 
 	for _, dryRun := range []bool{true, false} {
-		_, err := e.RollbackExpansion(ctx, syncID, dryRun, false)
+		_, err := e.Expansion().RollbackExpansion(ctx, syncID, dryRun, false)
 		require.ErrorIs(t, err, ErrNothingToRollBack)
 	}
 	require.Equal(t, before, grantKeyspace(t, e))
@@ -227,7 +227,7 @@ func TestRollbackExpansionNoGrants(t *testing.T) {
 	syncID := finishedSyncWithGrants(t, e)
 
 	for _, dryRun := range []bool{true, false} {
-		got, err := e.RollbackExpansion(ctx, syncID, dryRun, false)
+		got, err := e.Expansion().RollbackExpansion(ctx, syncID, dryRun, false)
 		require.NoError(t, err)
 		require.Equal(t, &RollbackExpansionResult{}, got)
 	}
@@ -236,7 +236,7 @@ func TestRollbackExpansionNoGrants(t *testing.T) {
 func TestRollbackExpansionUnknownSync(t *testing.T) {
 	e, _ := newTestEngine(t)
 	finishedSyncWithGrants(t, e, rollbackClassificationGrants()...)
-	_, err := e.RollbackExpansion(t.Context(), "2wM4dJ8i0yCZZWwGTS1yQ2jWbNC", true, false)
+	_, err := e.Expansion().RollbackExpansion(t.Context(), "2wM4dJ8i0yCZZWwGTS1yQ2jWbNC", true, false)
 	require.ErrorIs(t, err, pebble.ErrNotFound)
 }
 
@@ -270,7 +270,7 @@ func TestRollbackExpansionLedgerPhases(t *testing.T) {
 				before := grantKeyspace(t, e)
 
 				core, logs := observer.New(zap.WarnLevel)
-				got, err := e.RollbackExpansion(ctxzap.ToContext(ctx, zap.New(core)), syncID, dryRun, false)
+				got, err := e.Expansion().RollbackExpansion(ctxzap.ToContext(ctx, zap.New(core)), syncID, dryRun, false)
 				_, phaseAfter, phaseErr := e.Ledger().PendingWork(ctx, 0, 1)
 				require.NoError(t, phaseErr)
 				if tc.refused {
@@ -308,7 +308,7 @@ func TestRollbackExpansionRefusesUnfinishedLegacyCheckpoint(t *testing.T) {
 	require.NoError(t, e.CheckpointSync(ctx, "legacy-token"))
 
 	for _, dryRun := range []bool{true, false} {
-		_, err := e.RollbackExpansion(ctx, syncID, dryRun, false)
+		_, err := e.Expansion().RollbackExpansion(ctx, syncID, dryRun, false)
 		require.ErrorIs(t, err, ErrRollbackIncompleteCollection)
 	}
 }
@@ -339,7 +339,7 @@ func TestRollbackExpansionMultiRound(t *testing.T) {
 	grants, want := multiRoundRollbackGrants(n)
 	syncID := finishedSyncWithGrants(t, e, grants...)
 
-	dry, err := e.RollbackExpansion(ctx, syncID, true, false)
+	dry, err := e.Expansion().RollbackExpansion(ctx, syncID, true, false)
 	require.NoError(t, err)
 	require.Equal(t, &want, dry)
 
@@ -348,7 +348,7 @@ func TestRollbackExpansionMultiRound(t *testing.T) {
 		commits++
 		return nil
 	})
-	got, err := e.RollbackExpansion(ctx, syncID, false, false)
+	got, err := e.Expansion().RollbackExpansion(ctx, syncID, false, false)
 	e.db.SetRecordCommitTestHook(nil)
 	require.NoError(t, err)
 	require.Equal(t, &want, got)
@@ -371,12 +371,12 @@ func TestRollbackExpansionCommitFailureLandsNothing(t *testing.T) {
 
 	injected := errors.New("injected commit failure")
 	e.db.SetRecordCommitTestHook(func() error { return injected })
-	_, err := e.RollbackExpansion(ctx, syncID, false, false)
+	_, err := e.Expansion().RollbackExpansion(ctx, syncID, false, false)
 	e.db.SetRecordCommitTestHook(nil)
 	require.ErrorIs(t, err, injected)
 	require.Equal(t, before, grantKeyspace(t, e))
 
-	got, err := e.RollbackExpansion(ctx, syncID, false, false)
+	got, err := e.Expansion().RollbackExpansion(ctx, syncID, false, false)
 	require.NoError(t, err, "a retry after a failed commit succeeds")
 	require.Equal(t, 2, got.GrantsDeleted)
 	require.NoError(t, e.EndSync(ctx))
@@ -389,7 +389,7 @@ func TestRollbackExpansionRetryAfterLaterRoundFailureConverges(t *testing.T) {
 
 	clean, _ := newTestEngine(t)
 	cleanSyncID := finishedSyncWithGrants(t, clean, grants...)
-	_, err := clean.RollbackExpansion(ctx, cleanSyncID, false, false)
+	_, err := clean.Expansion().RollbackExpansion(ctx, cleanSyncID, false, false)
 	require.NoError(t, err)
 	require.NoError(t, clean.EndSync(ctx))
 
@@ -404,11 +404,11 @@ func TestRollbackExpansionRetryAfterLaterRoundFailureConverges(t *testing.T) {
 		}
 		return nil
 	})
-	_, err = e.RollbackExpansion(ctx, syncID, false, false)
+	_, err = e.Expansion().RollbackExpansion(ctx, syncID, false, false)
 	e.db.SetRecordCommitTestHook(nil)
 	require.ErrorIs(t, err, injected)
 
-	got, err := e.RollbackExpansion(ctx, syncID, false, false)
+	got, err := e.Expansion().RollbackExpansion(ctx, syncID, false, false)
 	require.NoError(t, err)
 	require.Less(t, got.GrantsDeleted+got.SourcesCleared, want.GrantsDeleted+want.SourcesCleared,
 		"the retry counts only rows the committed first round left")
@@ -427,7 +427,7 @@ func TestRollbackExpansionMalformedRowAbortsRound(t *testing.T) {
 	before := grantKeyspace(t, e)
 
 	for _, dryRun := range []bool{true, false} {
-		_, err := e.RollbackExpansion(ctx, syncID, dryRun, false)
+		_, err := e.Expansion().RollbackExpansion(ctx, syncID, dryRun, false)
 		require.ErrorContains(t, err, fmt.Sprintf("grant %x", plainKey))
 	}
 	require.Equal(t, before, grantKeyspace(t, e))
@@ -440,7 +440,7 @@ func TestRollbackExpansionCanceledWritesNothing(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, err := e.RollbackExpansion(ctx, syncID, false, false)
+	_, err := e.Expansion().RollbackExpansion(ctx, syncID, false, false)
 	require.ErrorIs(t, err, context.Canceled)
 	require.Equal(t, before, grantKeyspace(t, e))
 }

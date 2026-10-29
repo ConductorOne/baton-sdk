@@ -57,7 +57,7 @@ func writeTestSpillChunk(t *testing.T, dir, name string, entries []spillKV) stri
 func ingestAndDump(t *testing.T, e *Engine, sstPath string) []spillKV {
 	t.Helper()
 	ctx := context.Background()
-	require.NoError(t, e.IngestSSTs(ctx, []string{sstPath}), "IngestSSTs")
+	require.NoError(t, e.Expansion().IngestSSTs(ctx, []string{sstPath}), "IngestSSTs")
 	iter, err := e.db.NewIter(&pebble.IterOptions{
 		LowerBound: []byte{0xFE},
 		UpperBound: []byte{0xFF},
@@ -270,7 +270,7 @@ func TestMergeGrantPrimaryMigrationChunksFoldsAcrossChunks(t *testing.T) {
 	_, err = byNeedsExpansion.finalize()
 	require.NoError(t, err)
 
-	require.NoError(t, e.IngestSSTs(ctx, []string{sstPath}))
+	require.NoError(t, e.Expansion().IngestSSTs(ctx, []string{sstPath}))
 	got := map[string]*v3.GrantRecord{}
 	require.NoError(t, e.IterateGrants(ctx, func(r *v3.GrantRecord) bool {
 		got[r.GetExternalId()] = r

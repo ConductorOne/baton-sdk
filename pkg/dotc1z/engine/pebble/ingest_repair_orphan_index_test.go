@@ -48,7 +48,7 @@ func TestDanglingPrincipalSweepHealsAllOrphanIndexEntries(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	// "ghost" has index entries but no grant rows and no resource row:
 	// the all-orphan shape. Without the heal this would visit as
@@ -87,7 +87,7 @@ func TestEnsureGrantIndexesClearsDeferredMarker(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	// The deferred regime arms the marker.
 	require.NoError(t, a.Grants().StoreExpandedGrants(ctx, mkV2Grant("", "ent-x", "user", "alice")))
@@ -119,7 +119,7 @@ func TestHealOrphanPrincipalIndexEntriesKeepsLiveRows(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	require.NoError(t, a.PutGrants(ctx, mkV2Grant("", "ent-live", "user", "victim")))
 	plantOrphanPrincipalIndexEntry(t, e, "victim", "ghost-ent")
@@ -152,7 +152,7 @@ func TestIngestScansFailLoudOnMalformedKeys(t *testing.T) {
 		a := newAdapter(t)
 		_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		e := a.PebbleEngine()
+		e := a.Expansion().PebbleEngine()
 		// A grant-family key whose tail has too few tuple components.
 		bad := append(encodeGrantPrefix(), 0x00, 'x')
 		require.NoError(t, e.db.UnsafeForTesting().Set(bad, nil, nil))
@@ -169,7 +169,7 @@ func TestIngestScansFailLoudOnMalformedKeys(t *testing.T) {
 		a := newAdapter(t)
 		_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		e := a.PebbleEngine()
+		e := a.Expansion().PebbleEngine()
 		bad := append(encodeEntitlementPrefix(), 0x00, 'x')
 		require.NoError(t, e.db.UnsafeForTesting().Set(bad, nil, nil))
 
@@ -182,7 +182,7 @@ func TestIngestScansFailLoudOnMalformedKeys(t *testing.T) {
 		a := newAdapter(t)
 		_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
-		e := a.PebbleEngine()
+		e := a.Expansion().PebbleEngine()
 		bad := []byte{versionV3, typeIndex, idxGrantByPrincipal, 0x00, 'x'}
 		require.NoError(t, e.db.UnsafeForTesting().Set(bad, nil, nil))
 
@@ -201,7 +201,7 @@ func TestIngestScanSurfaceAfterCloseReturnsClosing(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 	require.NoError(t, e.Close())
 
 	visit2 := func(string, string) error { return nil }
@@ -227,7 +227,7 @@ func TestDanglingPrincipalSweepKeepsMixedPopulations(t *testing.T) {
 	a := newAdapter(t)
 	_, err := a.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := a.PebbleEngine()
+	e := a.Expansion().PebbleEngine()
 
 	// A real grant to a principal with no resource row (a genuine
 	// dangling reference) PLUS a planted orphan entry under the same

@@ -48,27 +48,27 @@ func TestVerificationReplayBatchBoundAndInterruptedRetry(t *testing.T) {
 				SourceScopeKey: "scope-a",
 			}.Build())
 		}
-		require.NoError(t, prev.PebbleEngine().PutResourceRecords(ctx, batch...))
+		require.NoError(t, prev.Expansion().PebbleEngine().PutResourceRecords(ctx, batch...))
 	}
-	sealReplaySource(ctx, t, prev.PebbleEngine(), sourcecache.RowKindResources, "scope-a")
+	sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), sourcecache.RowKindResources, "scope-a")
 
 	bounded := newAdapter(t)
 	_, err = bounded.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	var commitCalls, highWater int
-	bounded.PebbleEngine().test.sourceCacheReplayCommitHook = func(kind string, batchRows int, _ bool) error {
+	bounded.Expansion().PebbleEngine().test.sourceCacheReplayCommitHook = func(kind string, batchRows int, _ bool) error {
 		require.Equal(t, "resources", kind)
 		commitCalls++
 		highWater = max(highWater, batchRows)
 		return nil
 	}
-	res, err := bounded.PebbleEngine().ReplaySourceCacheResources(ctx, prev.PebbleEngine(), "scope-a")
+	res, err := bounded.Expansion().PebbleEngine().ReplaySourceCacheResources(ctx, prev.Expansion().PebbleEngine(), "scope-a")
 	require.NoError(t, err)
 	require.Equal(t, int64(rows), res.Rows)
 	require.Equal(t, 2, commitCalls)
 	require.NoError(t, validateBatchHighWater(highWater, replayBatchRows))
 	require.Equal(t, replayBatchRows, highWater)
-	require.Equal(t, rows, countKeys(t, bounded.PebbleEngine(), encodeResourcePrefix()))
+	require.Equal(t, rows, countKeys(t, bounded.Expansion().PebbleEngine(), encodeResourcePrefix()))
 
 	interruptedEngine, interruptedDir := newTestEngine(t)
 	interrupted := NewAdapter(interruptedEngine)
@@ -76,77 +76,77 @@ func TestVerificationReplayBatchBoundAndInterruptedRetry(t *testing.T) {
 	require.NoError(t, err)
 	injected := errors.New("verification replay cut")
 	commitCalls = 0
-	interrupted.PebbleEngine().test.sourceCacheReplayCommitHook = func(_ string, _ int, _ bool) error {
+	interrupted.Expansion().PebbleEngine().test.sourceCacheReplayCommitHook = func(_ string, _ int, _ bool) error {
 		commitCalls++
 		if commitCalls == 2 {
 			return injected
 		}
 		return nil
 	}
-	_, err = interrupted.PebbleEngine().ReplaySourceCacheResources(ctx, prev.PebbleEngine(), "scope-a")
+	_, err = interrupted.Expansion().PebbleEngine().ReplaySourceCacheResources(ctx, prev.Expansion().PebbleEngine(), "scope-a")
 	require.ErrorIs(t, err, injected)
-	require.Equal(t, replayBatchRows, countKeys(t, interrupted.PebbleEngine(), encodeResourcePrefix()),
+	require.Equal(t, replayBatchRows, countKeys(t, interrupted.Expansion().PebbleEngine(), encodeResourcePrefix()),
 		"only the first complete replay chunk may be visible after the injected cut")
-	require.Equal(t, replayBatchRows, countKeys(t, interrupted.PebbleEngine(), ResourceBySourceScopeLowerBound()))
-	require.Equal(t, rows, countKeys(t, prev.PebbleEngine(), encodeResourcePrefix()), "failed replay mutated source primaries")
-	require.NoError(t, auditSourceScopeBiconditional(prev.PebbleEngine()))
+	require.Equal(t, replayBatchRows, countKeys(t, interrupted.Expansion().PebbleEngine(), ResourceBySourceScopeLowerBound()))
+	require.Equal(t, rows, countKeys(t, prev.Expansion().PebbleEngine(), encodeResourcePrefix()), "failed replay mutated source primaries")
+	require.NoError(t, auditSourceScopeBiconditional(prev.Expansion().PebbleEngine()))
 
-	require.NoError(t, interrupted.PebbleEngine().Close())
+	require.NoError(t, interrupted.Expansion().PebbleEngine().Close())
 	reopened, err := Open(ctx, filepath.Join(interruptedDir, "db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = reopened.Close() })
 	interrupted = NewAdapter(reopened)
 	require.NoError(t, interrupted.SetCurrentSync(ctx, interruptedSyncID))
-	res, err = interrupted.PebbleEngine().ReplaySourceCacheResources(ctx, prev.PebbleEngine(), "scope-a")
+	res, err = interrupted.Expansion().PebbleEngine().ReplaySourceCacheResources(ctx, prev.Expansion().PebbleEngine(), "scope-a")
 	require.NoError(t, err)
 	require.Equal(t, int64(rows), res.Rows)
-	require.Equal(t, rows, countKeys(t, interrupted.PebbleEngine(), encodeResourcePrefix()))
-	require.Equal(t, rows, countKeys(t, interrupted.PebbleEngine(), ResourceBySourceScopeLowerBound()))
-	require.NoError(t, auditSourceScopeBiconditional(interrupted.PebbleEngine()))
+	require.Equal(t, rows, countKeys(t, interrupted.Expansion().PebbleEngine(), encodeResourcePrefix()))
+	require.Equal(t, rows, countKeys(t, interrupted.Expansion().PebbleEngine(), ResourceBySourceScopeLowerBound()))
+	require.NoError(t, auditSourceScopeBiconditional(interrupted.Expansion().PebbleEngine()))
 
 	cancelled := newAdapter(t)
 	_, err = cancelled.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	cancelCtx, cancel := context.WithCancel(ctx)
-	cancelled.PebbleEngine().test.sourceCacheReplayCommitHook = func(_ string, _ int, final bool) error {
+	cancelled.Expansion().PebbleEngine().test.sourceCacheReplayCommitHook = func(_ string, _ int, final bool) error {
 		if !final {
 			cancel()
 		}
 		return nil
 	}
-	_, err = cancelled.PebbleEngine().ReplaySourceCacheResources(cancelCtx, prev.PebbleEngine(), "scope-a")
+	_, err = cancelled.Expansion().PebbleEngine().ReplaySourceCacheResources(cancelCtx, prev.Expansion().PebbleEngine(), "scope-a")
 	require.ErrorIs(t, err, context.Canceled)
-	require.Equal(t, replayBatchRows, countKeys(t, cancelled.PebbleEngine(), encodeResourcePrefix()))
-	require.Equal(t, rows, countKeys(t, prev.PebbleEngine(), encodeResourcePrefix()), "cancelled replay mutated source primaries")
-	require.NoError(t, auditSourceScopeBiconditional(prev.PebbleEngine()))
-	cancelled.PebbleEngine().test.sourceCacheReplayCommitHook = nil
-	res, err = cancelled.PebbleEngine().ReplaySourceCacheResources(ctx, prev.PebbleEngine(), "scope-a")
+	require.Equal(t, replayBatchRows, countKeys(t, cancelled.Expansion().PebbleEngine(), encodeResourcePrefix()))
+	require.Equal(t, rows, countKeys(t, prev.Expansion().PebbleEngine(), encodeResourcePrefix()), "cancelled replay mutated source primaries")
+	require.NoError(t, auditSourceScopeBiconditional(prev.Expansion().PebbleEngine()))
+	cancelled.Expansion().PebbleEngine().test.sourceCacheReplayCommitHook = nil
+	res, err = cancelled.Expansion().PebbleEngine().ReplaySourceCacheResources(ctx, prev.Expansion().PebbleEngine(), "scope-a")
 	require.NoError(t, err)
 	require.Equal(t, int64(rows), res.Rows)
-	require.Equal(t, rows, countKeys(t, cancelled.PebbleEngine(), encodeResourcePrefix()))
-	require.NoError(t, auditSourceScopeBiconditional(cancelled.PebbleEngine()))
+	require.Equal(t, rows, countKeys(t, cancelled.Expansion().PebbleEngine(), encodeResourcePrefix()))
+	require.NoError(t, auditSourceScopeBiconditional(cancelled.Expansion().PebbleEngine()))
 
 	readFailed := newAdapter(t)
 	_, err = readFailed.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	readErr := errors.New("verification source iterator failure")
-	readFailed.PebbleEngine().test.sourceCacheReplayReadHook = func(kind string, row int) error {
+	readFailed.Expansion().PebbleEngine().test.sourceCacheReplayReadHook = func(kind string, row int) error {
 		require.Equal(t, "resources", kind)
 		if row == replayBatchRows {
 			return readErr
 		}
 		return nil
 	}
-	_, err = readFailed.PebbleEngine().ReplaySourceCacheResources(ctx, prev.PebbleEngine(), "scope-a")
+	_, err = readFailed.Expansion().PebbleEngine().ReplaySourceCacheResources(ctx, prev.Expansion().PebbleEngine(), "scope-a")
 	require.ErrorIs(t, err, readErr)
-	require.Equal(t, replayBatchRows, countKeys(t, readFailed.PebbleEngine(), encodeResourcePrefix()))
-	require.Equal(t, rows, countKeys(t, prev.PebbleEngine(), encodeResourcePrefix()), "source iterator failure mutated source")
-	readFailed.PebbleEngine().test.sourceCacheReplayReadHook = nil
-	res, err = readFailed.PebbleEngine().ReplaySourceCacheResources(ctx, prev.PebbleEngine(), "scope-a")
+	require.Equal(t, replayBatchRows, countKeys(t, readFailed.Expansion().PebbleEngine(), encodeResourcePrefix()))
+	require.Equal(t, rows, countKeys(t, prev.Expansion().PebbleEngine(), encodeResourcePrefix()), "source iterator failure mutated source")
+	readFailed.Expansion().PebbleEngine().test.sourceCacheReplayReadHook = nil
+	res, err = readFailed.Expansion().PebbleEngine().ReplaySourceCacheResources(ctx, prev.Expansion().PebbleEngine(), "scope-a")
 	require.NoError(t, err)
 	require.Equal(t, int64(rows), res.Rows)
-	require.Equal(t, rows, countKeys(t, readFailed.PebbleEngine(), encodeResourcePrefix()))
-	require.NoError(t, auditSourceScopeBiconditional(readFailed.PebbleEngine()))
+	require.Equal(t, rows, countKeys(t, readFailed.Expansion().PebbleEngine(), encodeResourcePrefix()))
+	require.NoError(t, auditSourceScopeBiconditional(readFailed.Expansion().PebbleEngine()))
 }
 
 // C10/C23/C27: every row kind exercises a real committed-prefix cut, hard
@@ -176,7 +176,7 @@ func TestVerificationReplayCommittedPrefixRetryAllKinds(t *testing.T) {
 						SourceScopeKey: "scope-a",
 					}.Build())
 				}
-				require.NoError(t, prev.PebbleEngine().PutResourceRecords(ctx, rows...))
+				require.NoError(t, prev.Expansion().PebbleEngine().PutResourceRecords(ctx, rows...))
 			case sourcecache.RowKindEntitlements:
 				var rows []*v3.EntitlementRecord
 				for i := range 3 {
@@ -189,7 +189,7 @@ func TestVerificationReplayCommittedPrefixRetryAllKinds(t *testing.T) {
 						SourceScopeKey: "scope-a",
 					}.Build())
 				}
-				require.NoError(t, prev.PebbleEngine().PutEntitlementRecords(ctx, rows...))
+				require.NoError(t, prev.Expansion().PebbleEngine().PutEntitlementRecords(ctx, rows...))
 			case sourcecache.RowKindGrants:
 				var rows []*v3.GrantRecord
 				for i := range 3 {
@@ -207,21 +207,21 @@ func TestVerificationReplayCommittedPrefixRetryAllKinds(t *testing.T) {
 						SourceScopeKey: "scope-a",
 					}.Build())
 				}
-				require.NoError(t, prev.PebbleEngine().PutGrantRecords(ctx, rows...))
+				require.NoError(t, prev.Expansion().PebbleEngine().PutGrantRecords(ctx, rows...))
 			}
 			// Seal before the byte-dump so the untouched-source
 			// comparisons below still hold.
-			sealReplaySource(ctx, t, prev.PebbleEngine(), kind, "scope-a")
-			sourceBefore := dumpKeyRangeTest(t, prev.PebbleEngine(), nil, nil)
+			sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), kind, "scope-a")
+			sourceBefore := dumpKeyRangeTest(t, prev.Expansion().PebbleEngine(), nil, nil)
 
 			replay := func(replayCtx context.Context, dst *Engine) (SourceCacheReplayResult, error) {
 				switch kind {
 				case sourcecache.RowKindResources:
-					return dst.ReplaySourceCacheResources(replayCtx, prev.PebbleEngine(), "scope-a")
+					return dst.ReplaySourceCacheResources(replayCtx, prev.Expansion().PebbleEngine(), "scope-a")
 				case sourcecache.RowKindEntitlements:
-					return dst.ReplaySourceCacheEntitlements(replayCtx, prev.PebbleEngine(), "scope-a")
+					return dst.ReplaySourceCacheEntitlements(replayCtx, prev.Expansion().PebbleEngine(), "scope-a")
 				case sourcecache.RowKindGrants:
-					return dst.ReplaySourceCacheGrants(replayCtx, prev.PebbleEngine(), "scope-a")
+					return dst.ReplaySourceCacheGrants(replayCtx, prev.Expansion().PebbleEngine(), "scope-a")
 				default:
 					t.Fatalf("unsupported row kind %q", kind)
 					return SourceCacheReplayResult{}, nil
@@ -258,7 +258,7 @@ func TestVerificationReplayCommittedPrefixRetryAllKinds(t *testing.T) {
 			require.Equal(t, 2, countKeys(t, interruptedEngine, family.primaryLo))
 			require.Equal(t, 2, countKeys(t, interruptedEngine, family.indexLo))
 			require.NoError(t, auditSourceScopeBiconditional(interruptedEngine))
-			require.Equal(t, sourceBefore, dumpKeyRangeTest(t, prev.PebbleEngine(), nil, nil))
+			require.Equal(t, sourceBefore, dumpKeyRangeTest(t, prev.Expansion().PebbleEngine(), nil, nil))
 
 			require.NoError(t, interruptedEngine.Close())
 			reopened, err := Open(ctx, filepath.Join(interruptedDir, "db"))
@@ -273,31 +273,31 @@ func TestVerificationReplayCommittedPrefixRetryAllKinds(t *testing.T) {
 			require.Equal(t, 3, countKeys(t, reopened, family.primaryLo))
 			require.Equal(t, 3, countKeys(t, reopened, family.indexLo))
 			require.NoError(t, auditSourceScopeBiconditional(reopened))
-			require.Equal(t, sourceBefore, dumpKeyRangeTest(t, prev.PebbleEngine(), nil, nil))
+			require.Equal(t, sourceBefore, dumpKeyRangeTest(t, prev.Expansion().PebbleEngine(), nil, nil))
 
 			for cut := range 3 {
 				t.Run(fmt.Sprintf("read-error-cut-%d", cut), func(t *testing.T) {
 					dst := newAdapter(t)
 					_, err := dst.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 					require.NoError(t, err)
-					dst.PebbleEngine().test.sourceCacheReplayBatchRows = 2
+					dst.Expansion().PebbleEngine().test.sourceCacheReplayBatchRows = 2
 					injected := errors.New("verification all-kind source read cut")
-					dst.PebbleEngine().test.sourceCacheReplayReadHook = func(_ string, row int) error {
+					dst.Expansion().PebbleEngine().test.sourceCacheReplayReadHook = func(_ string, row int) error {
 						if row == cut {
 							return injected
 						}
 						return nil
 					}
-					_, err = replay(ctx, dst.PebbleEngine())
+					_, err = replay(ctx, dst.Expansion().PebbleEngine())
 					require.ErrorIs(t, err, injected)
-					require.Equal(t, (cut/2)*2, countKeys(t, dst.PebbleEngine(), family.primaryLo))
-					require.NoError(t, auditSourceScopeBiconditional(dst.PebbleEngine()))
-					require.Equal(t, sourceBefore, dumpKeyRangeTest(t, prev.PebbleEngine(), nil, nil))
-					dst.PebbleEngine().test.sourceCacheReplayReadHook = nil
-					res, err := replay(ctx, dst.PebbleEngine())
+					require.Equal(t, (cut/2)*2, countKeys(t, dst.Expansion().PebbleEngine(), family.primaryLo))
+					require.NoError(t, auditSourceScopeBiconditional(dst.Expansion().PebbleEngine()))
+					require.Equal(t, sourceBefore, dumpKeyRangeTest(t, prev.Expansion().PebbleEngine(), nil, nil))
+					dst.Expansion().PebbleEngine().test.sourceCacheReplayReadHook = nil
+					res, err := replay(ctx, dst.Expansion().PebbleEngine())
 					require.NoError(t, err)
 					require.Equal(t, int64(3), res.Rows)
-					require.Equal(t, 3, countKeys(t, dst.PebbleEngine(), family.primaryLo))
+					require.Equal(t, 3, countKeys(t, dst.Expansion().PebbleEngine(), family.primaryLo))
 				})
 			}
 
@@ -305,24 +305,24 @@ func TestVerificationReplayCommittedPrefixRetryAllKinds(t *testing.T) {
 				dst := newAdapter(t)
 				_, err := dst.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 				require.NoError(t, err)
-				dst.PebbleEngine().test.sourceCacheReplayBatchRows = 2
+				dst.Expansion().PebbleEngine().test.sourceCacheReplayBatchRows = 2
 				injected := errors.New("verification all-kind iterator terminal error")
-				dst.PebbleEngine().test.sourceCacheReplayIteratorErrorHook = func(gotKind string) error {
+				dst.Expansion().PebbleEngine().test.sourceCacheReplayIteratorErrorHook = func(gotKind string) error {
 					require.Equal(t, string(kind), gotKind)
 					return injected
 				}
-				_, err = replay(ctx, dst.PebbleEngine())
+				_, err = replay(ctx, dst.Expansion().PebbleEngine())
 				require.ErrorIs(t, err, injected)
-				require.Equal(t, 2, countKeys(t, dst.PebbleEngine(), family.primaryLo),
+				require.Equal(t, 2, countKeys(t, dst.Expansion().PebbleEngine(), family.primaryLo),
 					"the final staged row must not commit after Iterator.Error")
-				require.NoError(t, auditSourceScopeBiconditional(dst.PebbleEngine()))
-				require.Equal(t, sourceBefore, dumpKeyRangeTest(t, prev.PebbleEngine(), nil, nil))
+				require.NoError(t, auditSourceScopeBiconditional(dst.Expansion().PebbleEngine()))
+				require.Equal(t, sourceBefore, dumpKeyRangeTest(t, prev.Expansion().PebbleEngine(), nil, nil))
 
-				dst.PebbleEngine().test.sourceCacheReplayIteratorErrorHook = nil
-				res, err := replay(ctx, dst.PebbleEngine())
+				dst.Expansion().PebbleEngine().test.sourceCacheReplayIteratorErrorHook = nil
+				res, err := replay(ctx, dst.Expansion().PebbleEngine())
 				require.NoError(t, err)
 				require.Equal(t, int64(3), res.Rows)
-				require.Equal(t, 3, countKeys(t, dst.PebbleEngine(), family.primaryLo))
+				require.Equal(t, 3, countKeys(t, dst.Expansion().PebbleEngine(), family.primaryLo))
 			})
 
 			for cut := range 3 {
@@ -330,24 +330,24 @@ func TestVerificationReplayCommittedPrefixRetryAllKinds(t *testing.T) {
 					dst := newAdapter(t)
 					_, err := dst.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 					require.NoError(t, err)
-					dst.PebbleEngine().test.sourceCacheReplayBatchRows = 2
+					dst.Expansion().PebbleEngine().test.sourceCacheReplayBatchRows = 2
 					cancelCtx, cancel := context.WithCancel(ctx)
-					dst.PebbleEngine().test.sourceCacheReplayReadHook = func(_ string, row int) error {
+					dst.Expansion().PebbleEngine().test.sourceCacheReplayReadHook = func(_ string, row int) error {
 						if row == cut {
 							cancel()
 						}
 						return nil
 					}
-					_, err = replay(cancelCtx, dst.PebbleEngine())
+					_, err = replay(cancelCtx, dst.Expansion().PebbleEngine())
 					require.ErrorIs(t, err, context.Canceled)
-					require.Equal(t, ((cut+1)/2)*2, countKeys(t, dst.PebbleEngine(), family.primaryLo))
-					require.NoError(t, auditSourceScopeBiconditional(dst.PebbleEngine()))
-					require.Equal(t, sourceBefore, dumpKeyRangeTest(t, prev.PebbleEngine(), nil, nil))
-					dst.PebbleEngine().test.sourceCacheReplayReadHook = nil
-					res, err := replay(ctx, dst.PebbleEngine())
+					require.Equal(t, ((cut+1)/2)*2, countKeys(t, dst.Expansion().PebbleEngine(), family.primaryLo))
+					require.NoError(t, auditSourceScopeBiconditional(dst.Expansion().PebbleEngine()))
+					require.Equal(t, sourceBefore, dumpKeyRangeTest(t, prev.Expansion().PebbleEngine(), nil, nil))
+					dst.Expansion().PebbleEngine().test.sourceCacheReplayReadHook = nil
+					res, err := replay(ctx, dst.Expansion().PebbleEngine())
 					require.NoError(t, err)
 					require.Equal(t, int64(3), res.Rows)
-					require.Equal(t, 3, countKeys(t, dst.PebbleEngine(), family.primaryLo))
+					require.Equal(t, 3, countKeys(t, dst.Expansion().PebbleEngine(), family.primaryLo))
 				})
 			}
 		})
@@ -377,13 +377,13 @@ func TestVerificationEntitlementReplayBumpsLookupGenPerChunk(t *testing.T) {
 			SourceScopeKey: "scope-a",
 		}.Build())
 	}
-	require.NoError(t, prev.PebbleEngine().PutEntitlementRecords(ctx, records...))
-	sealReplaySource(ctx, t, prev.PebbleEngine(), sourcecache.RowKindEntitlements, "scope-a")
+	require.NoError(t, prev.Expansion().PebbleEngine().PutEntitlementRecords(ctx, records...))
+	sealReplaySource(ctx, t, prev.Expansion().PebbleEngine(), sourcecache.RowKindEntitlements, "scope-a")
 
 	dst := newAdapter(t)
 	_, err = dst.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	e := dst.PebbleEngine()
+	e := dst.Expansion().PebbleEngine()
 	e.test.sourceCacheReplayBatchRows = 2
 	genBefore := e.entIDLookupGen.Load()
 	intermediates := 0
@@ -399,7 +399,7 @@ func TestVerificationEntitlementReplayBumpsLookupGenPerChunk(t *testing.T) {
 		}
 		return nil
 	}
-	res, err := e.ReplaySourceCacheEntitlements(ctx, prev.PebbleEngine(), "scope-a")
+	res, err := e.ReplaySourceCacheEntitlements(ctx, prev.Expansion().PebbleEngine(), "scope-a")
 	e.test.sourceCacheReplayCommitHook = nil
 	require.NoError(t, err)
 	require.Equal(t, int64(5), res.Rows)
