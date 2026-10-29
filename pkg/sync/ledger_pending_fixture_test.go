@@ -11,9 +11,6 @@ import (
 
 func seedLedgerTestRun(t *testing.T, s *syncer, selected *Action) {
 	t.Helper()
-	if !s.ledgered {
-		return
-	}
 	pending, phase, err := s.caps.pageLedger.PendingWork(t.Context(), 0, 100)
 	require.NoError(t, err)
 	if phase != c1zstore.LedgerQueueAbsent {
@@ -72,7 +69,7 @@ func invokeLedgerTestPage(t *testing.T, s *syncer, ctx context.Context, action *
 	t.Helper()
 	seedLedgerTestRun(t, s, action)
 	err := s.invokeActionPage(ctx, action, handler, warning)
-	if err == nil && s.ledgered {
+	if err == nil {
 		return s.refreshPendingWindow(ctx)
 	}
 	return err

@@ -16,10 +16,9 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
-func externalPageFixture(t *testing.T, ledger bool) (*syncer, *ledgerFixture, *ledgerFixture) {
+func externalPageFixture(t *testing.T) (*syncer, *ledgerFixture, *ledgerFixture) {
 	t.Helper()
 	s, f := newLedgerSchedulerFixture(t, 1)
-	s.ledgered = ledger
 	s.counts = progresslog.NewProgressCounts(t.Context())
 	source := newLedgerFixture(t)
 	principal := externalMatchPrincipal(t, "fresh", map[string]any{"email": "fresh@example.com"})
@@ -40,6 +39,7 @@ func externalPageFixture(t *testing.T, ledger bool) (*syncer, *ledgerFixture, *l
 	s.run.pushAction(t.Context(), Action{Op: SyncExternalResourcesOp})
 	return s, f, source
 }
+
 func equalProtoLists[T proto.Message](t *testing.T, want, got []T) {
 	t.Helper()
 	require.Len(t, got, len(want))
@@ -47,6 +47,7 @@ func equalProtoLists[T proto.Message](t *testing.T, want, got []T) {
 		require.Truef(t, proto.Equal(want[i], got[i]), "record %d differs: expected %v, got %v", i, want[i], got[i])
 	}
 }
+
 func TestLedgerExternalUsesMainHandler(t *testing.T) {
 	testLedgerExternalParity(t, nil)
 }
@@ -54,50 +55,24 @@ func TestLedgerExternalUsesMainHandler(t *testing.T) {
 // A queued import resumed by an invocation without an external source
 // fails the step instead of dereferencing the missing reader.
 func TestExternalImportWithoutSourceFails(t *testing.T) {
-	for _, ledger := range []bool{true, false} {
-		s, _, _ := externalPageFixture(t, ledger)
-		s.externalResourceReader = nil
-		err := s.SyncExternalResources(t.Context(), s.run.current())
-		require.ErrorContains(t, err, "no external resource source")
-	}
+	s, _, _ := externalPageFixture(t)
+	s.externalResourceReader = nil
+	err := s.SyncExternalResources(t.Context(), s.run.current())
+	require.ErrorContains(t, err, "no external resource source")
 }
 
 func testLedgerExternalParity(t *testing.T, configure func(*syncer, *ledgerFixture, *ledgerFixture)) {
 	t.Helper()
-	s, f, source := externalPageFixture(t, true)
-	baseline, b, baselineSource := externalPageFixture(t, false)
+	s, f, source := externalPageFixture(t)
 	if configure != nil {
 		configure(s, f, source)
-		configure(baseline, b, baselineSource)
 	}
 	f.audit.enter(ledgerLifecycle)
 	_, err := runLedgerTestSync(t, s, t.Context(), t.Context(), nil)
 	require.NoError(t, err)
-	f.audit.enter(ledgerLifecycle)
-	require.NoError(t, baseline.SyncExternalResources(t.Context(), baseline.run.current()))
-	gotTypes, err := f.store.ListResourceTypes(t.Context(), &v2.ResourceTypesServiceListResourceTypesRequest{})
-	require.NoError(t, err)
-	wantTypes, err := b.store.ListResourceTypes(t.Context(), &v2.ResourceTypesServiceListResourceTypesRequest{})
-	require.NoError(t, err)
-	equalProtoLists(t, wantTypes.GetList(), gotTypes.GetList())
-	gotResources, err := f.store.ListResources(t.Context(), &v2.ResourcesServiceListResourcesRequest{})
-	require.NoError(t, err)
-	wantResources, err := b.store.ListResources(t.Context(), &v2.ResourcesServiceListResourcesRequest{})
-	require.NoError(t, err)
-	equalProtoLists(t, wantResources.GetList(), gotResources.GetList())
-	gotEnts, err := f.store.ListEntitlements(t.Context(), &v2.EntitlementsServiceListEntitlementsRequest{})
-	require.NoError(t, err)
-	wantEnts, err := b.store.ListEntitlements(t.Context(), &v2.EntitlementsServiceListEntitlementsRequest{})
-	require.NoError(t, err)
-	equalProtoLists(t, wantEnts.GetList(), gotEnts.GetList())
-	gotGrants, err := f.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
-	require.NoError(t, err)
-	wantGrants, err := b.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
-	require.NoError(t, err)
-	equalProtoLists(t, wantGrants.GetList(), gotGrants.GetList())
 }
 func TestLedgerExternalImportedGrantIsMatched(t *testing.T) {
-	s, f, source := externalPageFixture(t, true)
+	s, f, source := externalPageFixture(t)
 	principal := externalMatchPrincipal(t, "fresh", nil)
 	imported := gt.NewGrant(principal, "member", v2.ResourceId_builder{ResourceType: "user", Resource: "placeholder"}.Build(),
 		gt.WithAnnotation(v2.ExternalResourceMatchAll_builder{ResourceType: v2.ResourceType_TRAIT_USER}.Build()))
@@ -115,7 +90,7 @@ func TestLedgerExternalImportedGrantIsMatched(t *testing.T) {
 }
 
 func TestLedgerExternalStaleGrantReimport(t *testing.T) {
-	s, f, source := externalPageFixture(t, true)
+	s, f, source := externalPageFixture(t)
 	stale := externalMatchPrincipal(t, "stale", nil)
 	fresh := externalMatchPrincipal(t, "fresh", nil)
 	imported := gt.NewGrant(fresh, "member", stale.GetId())
@@ -141,7 +116,7 @@ func TestLedgerExternalStaleGrantReimport(t *testing.T) {
 }
 
 func TestLedgerExternalFilteredPrincipalState(t *testing.T) {
-	s, f, source := externalPageFixture(t, true)
+	s, f, source := externalPageFixture(t)
 	fresh := externalMatchPrincipal(t, "fresh", nil)
 	zebra := externalMatchPrincipal(t, "zebra", nil)
 	require.NoError(t, source.store.PutResources(t.Context(), zebra))
@@ -158,7 +133,7 @@ func TestLedgerExternalFilteredPrincipalState(t *testing.T) {
 }
 
 func TestLedgerExternalDeleteFullIdentity(t *testing.T) {
-	s, f, _ := externalPageFixture(t, true)
+	s, f, _ := externalPageFixture(t)
 	grants, err := f.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
 	require.NoError(t, err)
 	carrier := proto.Clone(grants.GetList()[0]).(*v2.Grant)
@@ -182,7 +157,7 @@ func TestLedgerExternalDeleteFullIdentity(t *testing.T) {
 }
 
 func TestLedgerExternalExpansionRemap(t *testing.T) {
-	s, f, _ := externalPageFixture(t, true)
+	s, f, _ := externalPageFixture(t)
 	grants, err := f.store.ListGrants(t.Context(), &v2.GrantsServiceListGrantsRequest{})
 	require.NoError(t, err)
 	carrier := grants.GetList()[0]

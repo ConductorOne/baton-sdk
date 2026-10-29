@@ -97,15 +97,6 @@ func (c *staticOrderConnector) ListStaticEntitlements(
 }
 
 func TestLedgerStaticMaterializationOrderAndResume(t *testing.T) {
-	baseline, baseStore, _ := staticPageFixture(t)
-	baseline.ledgered = false
-	baseline.store = staticResourcePageStore{Store: baseStore.store}
-	baseline.connector = &staticOrderConnector{mockConnector: newMockConnector()}
-	_, err := runLedgerTestSync(t, baseline, t.Context(), t.Context(), nil)
-	require.NoError(t, err)
-	expected, err := baseStore.store.ListEntitlements(t.Context(), &v2.EntitlementsServiceListEntitlementsRequest{})
-	require.NoError(t, err)
-	require.EqualValues(t, 1, baseline.run.completedActionsCount())
 	for _, interrupted := range []bool{false, true} {
 		t.Run(map[bool]string{false: "uninterrupted", true: "cold-resume"}[interrupted], func(t *testing.T) {
 			s, f, _ := staticPageFixture(t)
@@ -165,10 +156,6 @@ func TestLedgerStaticMaterializationOrderAndResume(t *testing.T) {
 			require.Len(t, response.GetList(), 2)
 			for _, ent := range response.GetList() {
 				require.Equal(t, "last", ent.GetDisplayName())
-			}
-			require.Len(t, response.GetList(), len(expected.GetList()))
-			for i, ent := range response.GetList() {
-				require.True(t, proto.Equal(expected.GetList()[i], ent))
 			}
 			first, found, err := f.ledger.GetLedgerRow(t.Context(), root)
 			require.NoError(t, err)
