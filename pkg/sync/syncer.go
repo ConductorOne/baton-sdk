@@ -750,18 +750,15 @@ func (s *syncer) transitionActionState(
 	nextPageToken string,
 	childActions []Action,
 ) ([]*Action, error) {
-	if pending, ok := ctx.Value(ledgerCommitKey{}).(ledgerTransitionCommit); ok {
-		if err := pending.commit(); err != nil {
-			return nil, err
-		}
-		s.publishPendingTransition(ctx, action, nextPageToken, pending.warning, pending.restart)
-		return nil, nil
+	pending, ok := ctx.Value(ledgerCommitKey{}).(ledgerTransitionCommit)
+	if !ok {
+		return nil, errors.New("action transition requires a ledger commit")
 	}
-	pushed, err := s.run.transitionAction(ctx, action, nextPageToken, childActions)
-	if err == nil && nextPageToken == "" {
-		s.recordListResourceCompletedThisRun(action)
+	if err := pending.commit(); err != nil {
+		return nil, err
 	}
-	return pushed, err
+	s.publishPendingTransition(ctx, action, nextPageToken, pending.warning, pending.restart)
+	return nil, nil
 }
 
 func (s *syncer) finishAction(ctx context.Context, action *Action) {
